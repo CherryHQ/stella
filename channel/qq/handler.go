@@ -146,7 +146,10 @@ func (b *Bot) handleCommand(text, ch string, reply func(string)) bool {
 		return true
 
 	case "/model":
-		args := strings.TrimSpace(strings.TrimPrefix(text, cmd))
+		// Use the original first token from text (not lowercased cmd)
+		// so TrimPrefix matches regardless of input casing.
+		origCmd := strings.Fields(text)[0]
+		args := strings.TrimSpace(strings.TrimPrefix(text, origCmd))
 		b.handleModelCommand(args, ch, reply)
 		return true
 	}

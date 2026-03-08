@@ -184,13 +184,15 @@ func (b *Bot) isAllowed(authorID string) bool {
 }
 
 // channelForC2C returns the channel identifier for a C2C (private) chat.
+// Uses an explicit scope separator to avoid collisions with group keys.
 func channelForC2C(userID string) string {
-	return "qq" + userID
+	return "qq:c2c:" + userID
 }
 
 // channelForGroup returns the channel identifier for a group chat.
+// Uses an explicit scope separator to avoid collisions with C2C keys.
 func channelForGroup(groupID string) string {
-	return "qqg" + groupID
+	return "qq:group:" + groupID
 }
 
 // resolveSession returns the active session ID for the given channel,
