@@ -150,6 +150,13 @@ func (t *WebFetchTool) fetch(ctx context.Context, rawURL string, parsed *url.URL
 	if err != nil {
 		return fetchResult{}, fmt.Errorf("webfetch: readability parse failed: %w", err)
 	}
+
+	if article.Node == nil {
+		// Readability parsed the HTML but found no extractable content.
+		// Return whatever metadata was found so the LLM has something useful.
+		return fetchResult{rawContent: buildNoContentMessage(rawURL, article)}, nil
+	}
+
 	return fetchResult{article: article}, nil
 }
 
@@ -247,6 +254,29 @@ func (t *WebFetchTool) renderJSON(article readability.Article, parsed *url.URL) 
 		return "", fmt.Errorf("webfetch: json marshal failed: %w", err)
 	}
 	return string(b), nil
+}
+
+// buildNoContentMessage produces a fallback message when readability could not
+// extract article content (Node is nil). This commonly happens with pages that
+// require JavaScript, use bot detection, or have no article-like structure
+// (e.g. search engine result pages, SPAs, login walls).
+func buildNoContentMessage(rawURL string, article readability.Article) string {
+	var sb strings.Builder
+	sb.WriteString("No readable content could be extracted from this page.\n")
+	sb.WriteString("URL: " + rawURL + "\n")
+
+	if title := article.Title(); title != "" {
+		sb.WriteString("Title: " + title + "\n")
+	}
+	if siteName := article.SiteName(); siteName != "" {
+		sb.WriteString("Site: " + siteName + "\n")
+	}
+	// Note: article.Excerpt() panics when Node is nil (readability bug),
+	// so we only call safe metadata accessors above.
+
+	sb.WriteString("\nThis usually means the page requires JavaScript rendering, ")
+	sb.WriteString("uses bot detection, or has no article-like content (e.g. search engines, SPAs).")
+	return sb.String()
 }
 
 func (t *WebFetchTool) writeMetadata(w *strings.Builder, article readability.Article) {
