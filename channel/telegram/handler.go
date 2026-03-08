@@ -163,10 +163,13 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	defer func() { _ = rc.Close() }()
 
 	const maxPhotoSize = 20 << 20 // 20MB — Telegram's file size limit
-	data, err := io.ReadAll(io.LimitReader(rc, maxPhotoSize))
+	data, err := io.ReadAll(io.LimitReader(rc, maxPhotoSize+1))
 	if err != nil {
 		logger().Error("read photo failed", "error", err)
 		return c.Send(fmt.Sprintf("Failed to read photo: %v", err))
+	}
+	if len(data) > maxPhotoSize {
+		return c.Send("Photo too large (max 20 MB).")
 	}
 
 	mimeType := http.DetectContentType(data)

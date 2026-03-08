@@ -653,16 +653,10 @@ func entryToRPCEvents(entry sessionEntry) []runner.RPCEvent {
 	}
 }
 
-// userContentToPi converts runner multimodal content (json.RawMessage of contentBlockJSON)
+// userContentToPi converts runner multimodal content (json.RawMessage of ContentBlockJSON)
 // to Pi-format content blocks. Falls back to text-only if parsing fails.
 func userContentToPi(content json.RawMessage, fallbackText string) json.RawMessage {
-	// content is []contentBlockJSON from runner.UserMessageToRPCEvent.
-	var blocks []struct {
-		Kind     string `json:"kind"`
-		Text     string `json:"text,omitempty"`
-		Data     string `json:"data,omitempty"`
-		MimeType string `json:"mime_type,omitempty"`
-	}
+	var blocks []runner.ContentBlockJSON
 	if err := json.Unmarshal(content, &blocks); err != nil {
 		data, _ := json.Marshal([]piTextContent{{Type: "text", Text: fallbackText}})
 		return data
@@ -671,9 +665,9 @@ func userContentToPi(content json.RawMessage, fallbackText string) json.RawMessa
 	var piBlocks []any
 	for _, b := range blocks {
 		switch b.Kind {
-		case "text":
+		case runner.BlockKindText:
 			piBlocks = append(piBlocks, piTextContent{Type: "text", Text: b.Text})
-		case "image":
+		case runner.BlockKindImage:
 			piBlocks = append(piBlocks, piImageContent{Type: "image", Data: b.Data, MimeType: b.MimeType})
 		}
 	}
@@ -700,40 +694,11 @@ func extractUserContent(raw json.RawMessage) (string, json.RawMessage) {
 		return "", nil
 	}
 
+	// Single pass: collect text summary and runner blocks simultaneously.
 	var hasImage bool
 	var textParts []string
+	var runnerBlocks []runner.ContentBlockJSON
 
-	for _, block := range blocks {
-		var peek struct {
-			Type string `json:"type"`
-		}
-		if json.Unmarshal(block, &peek) != nil {
-			continue
-		}
-		switch peek.Type {
-		case "text":
-			var tc piTextContent
-			if json.Unmarshal(block, &tc) == nil && tc.Text != "" {
-				textParts = append(textParts, tc.Text)
-			}
-		case "image":
-			hasImage = true
-		}
-	}
-
-	summary := strings.Join(textParts, "")
-
-	if !hasImage {
-		return summary, nil
-	}
-
-	// Convert Pi blocks to runner contentBlockJSON format for RPCEvent.Content.
-	var runnerBlocks []struct {
-		Kind     string `json:"kind"`
-		Text     string `json:"text,omitempty"`
-		Data     string `json:"data,omitempty"`
-		MimeType string `json:"mime_type,omitempty"`
-	}
 	for _, block := range blocks {
 		var peek struct {
 			Type string `json:"type"`
@@ -745,24 +710,24 @@ func extractUserContent(raw json.RawMessage) (string, json.RawMessage) {
 		case "text":
 			var tc piTextContent
 			if json.Unmarshal(block, &tc) == nil {
-				runnerBlocks = append(runnerBlocks, struct {
-					Kind     string `json:"kind"`
-					Text     string `json:"text,omitempty"`
-					Data     string `json:"data,omitempty"`
-					MimeType string `json:"mime_type,omitempty"`
-				}{Kind: "text", Text: tc.Text})
+				if tc.Text != "" {
+					textParts = append(textParts, tc.Text)
+				}
+				runnerBlocks = append(runnerBlocks, runner.ContentBlockJSON{Kind: runner.BlockKindText, Text: tc.Text})
 			}
 		case "image":
+			hasImage = true
 			var ic piImageContent
 			if json.Unmarshal(block, &ic) == nil {
-				runnerBlocks = append(runnerBlocks, struct {
-					Kind     string `json:"kind"`
-					Text     string `json:"text,omitempty"`
-					Data     string `json:"data,omitempty"`
-					MimeType string `json:"mime_type,omitempty"`
-				}{Kind: "image", Data: ic.Data, MimeType: ic.MimeType})
+				runnerBlocks = append(runnerBlocks, runner.ContentBlockJSON{Kind: runner.BlockKindImage, Data: ic.Data, MimeType: ic.MimeType})
 			}
 		}
+	}
+
+	summary := strings.Join(textParts, "")
+
+	if !hasImage {
+		return summary, nil
 	}
 
 	contentJSON, _ := json.Marshal(runnerBlocks)

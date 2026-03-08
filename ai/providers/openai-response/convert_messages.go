@@ -23,7 +23,7 @@ func convertMessages(ctx types.Context) responses.ResponseInputParam {
 			items = append(items, responses.ResponseInputItemUnionParam{
 				OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
 					CallID: m.ToolCallID,
-					Output: flattenToolResult(m.Content),
+					Output: types.FlattenText(m.Content),
 				},
 			})
 		}
@@ -90,10 +90,9 @@ func userMessage(content any) responses.ResponseInputItemUnionParam {
 			case types.TextContent:
 				parts = append(parts, responses.ResponseInputContentParamOfInputText(b.Text))
 			case types.ImageContent:
-				dataURI := "data:" + b.MimeType + ";base64," + b.Data
 				img := responses.ResponseInputContentUnionParam{
 					OfInputImage: &responses.ResponseInputImageParam{
-						ImageURL: param.NewOpt(dataURI),
+						ImageURL: param.NewOpt(b.DataURI()),
 					},
 				}
 				parts = append(parts, img)
@@ -110,8 +109,4 @@ func userMessage(content any) responses.ResponseInputItemUnionParam {
 	default:
 		return textMsg(fmt.Sprintf("%v", content))
 	}
-}
-
-func flattenToolResult(content []types.ContentBlock) string {
-	return types.FlattenText(content)
 }

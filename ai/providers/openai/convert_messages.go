@@ -24,7 +24,7 @@ func convertMessages(ctx types.Context) []sdk.ChatCompletionMessageParamUnion {
 		case types.AssistantMessage:
 			messages = append(messages, convertAssistantMessage(m))
 		case types.ToolResultMessage:
-			messages = append(messages, sdk.ToolMessage(flattenToolResult(m.Content), m.ToolCallID))
+			messages = append(messages, sdk.ToolMessage(types.FlattenText(m.Content), m.ToolCallID))
 		}
 	}
 	return messages
@@ -77,9 +77,8 @@ func userMessage(content any) sdk.ChatCompletionMessageParamUnion {
 			case types.TextContent:
 				parts = append(parts, sdk.TextContentPart(b.Text))
 			case types.ImageContent:
-				dataURI := "data:" + b.MimeType + ";base64," + b.Data
 				parts = append(parts, sdk.ImageContentPart(sdk.ChatCompletionContentPartImageImageURLParam{
-					URL: dataURI,
+					URL: b.DataURI(),
 				}))
 			}
 		}
@@ -87,8 +86,4 @@ func userMessage(content any) sdk.ChatCompletionMessageParamUnion {
 	default:
 		return sdk.UserMessage(fmt.Sprintf("%v", content))
 	}
-}
-
-func flattenToolResult(content []types.ContentBlock) string {
-	return types.FlattenText(content)
 }

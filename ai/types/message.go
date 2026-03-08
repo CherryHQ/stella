@@ -42,6 +42,11 @@ type ImageContent struct {
 
 func (ImageContent) contentBlockKind() string { return "image" }
 
+// DataURI returns the image as a data URI string (e.g. "data:image/jpeg;base64,...").
+func (ic ImageContent) DataURI() string {
+	return "data:" + ic.MimeType + ";base64," + ic.Data
+}
+
 // ToolCall represents a tool invocation emitted by an assistant.
 type ToolCall struct {
 	ID               string

@@ -89,7 +89,7 @@ func TestUserMessageToRPCEventMultimodal(t *testing.T) {
 		t.Fatal("Content should not be nil for multimodal")
 	}
 
-	var stored []contentBlockJSON
+	var stored []ContentBlockJSON
 	if err := json.Unmarshal(evt.Content, &stored); err != nil {
 		t.Fatalf("unmarshal Content: %v", err)
 	}

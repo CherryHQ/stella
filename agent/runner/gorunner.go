@@ -275,16 +275,16 @@ func decodeUserContent(evt RPCEvent) any {
 	if len(evt.Content) == 0 {
 		return evt.Summary
 	}
-	var blocks []contentBlockJSON
+	var blocks []ContentBlockJSON
 	if err := json.Unmarshal(evt.Content, &blocks); err != nil {
 		return evt.Summary
 	}
 	content := make([]aitypes.ContentBlock, 0, len(blocks))
 	for _, b := range blocks {
 		switch b.Kind {
-		case "text":
+		case BlockKindText:
 			content = append(content, aitypes.TextContent{Text: b.Text})
-		case "image":
+		case BlockKindImage:
 			content = append(content, aitypes.ImageContent{Data: b.Data, MimeType: b.MimeType})
 		}
 	}

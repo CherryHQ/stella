@@ -28,6 +28,12 @@ const (
 	RPCEventAgentEnd      = "agent_end"
 )
 
+// Content block kind constants used in ContentBlockJSON serialization.
+const (
+	BlockKindText  = "text"
+	BlockKindImage = "image"
+)
+
 // RPCEvent represents an event in the runner protocol.
 // Pool stores these verbatim as the session history.
 type RPCEvent struct {
@@ -115,8 +121,8 @@ type ActivityTracker interface {
 	LastActivity() time.Time
 }
 
-// contentBlockJSON is the JSON-serializable representation of a content block.
-type contentBlockJSON struct {
+// ContentBlockJSON is the JSON-serializable representation of a content block.
+type ContentBlockJSON struct {
 	Kind     string `json:"kind"`                // "text" or "image"
 	Text     string `json:"text,omitempty"`      // for text blocks
 	Data     string `json:"data,omitempty"`      // base64 for image blocks
@@ -130,16 +136,16 @@ func UserMessageToRPCEvent(message MessageContent) RPCEvent {
 	case string:
 		evt.Summary = m
 	case []aitypes.ContentBlock:
-		var blocks []contentBlockJSON
+		var blocks []ContentBlockJSON
 		for _, b := range m {
 			switch b := b.(type) {
 			case aitypes.TextContent:
-				blocks = append(blocks, contentBlockJSON{Kind: "text", Text: b.Text})
+				blocks = append(blocks, ContentBlockJSON{Kind: BlockKindText, Text: b.Text})
 				if evt.Summary == "" {
 					evt.Summary = b.Text
 				}
 			case aitypes.ImageContent:
-				blocks = append(blocks, contentBlockJSON{Kind: "image", Data: b.Data, MimeType: b.MimeType})
+				blocks = append(blocks, ContentBlockJSON{Kind: BlockKindImage, Data: b.Data, MimeType: b.MimeType})
 			}
 		}
 		if data, err := json.Marshal(blocks); err != nil {
@@ -195,12 +201,7 @@ func ToolCallToRPCEvent(call aitypes.ToolCall) RPCEvent {
 
 // ToolResultToRPCEvent converts a tool result to an RPCEvent for history storage.
 func ToolResultToRPCEvent(result aitypes.ToolResultMessage) RPCEvent {
-	var text string
-	for _, block := range result.Content {
-		if tc, ok := block.(aitypes.TextContent); ok {
-			text += tc.Text
-		}
-	}
+	text := aitypes.FlattenText(result.Content)
 	contentJSON, _ := json.Marshal(text)
 	evt := RPCEvent{
 		Type:   RPCEventToolResult,

@@ -246,7 +246,8 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%.1fs", d.Seconds())
 }
 
-// truncate shortens s to maxLen characters, appending "..." if truncated.
+// truncate shortens s to maxLen bytes, appending "..." if truncated.
+// Cuts at a valid UTF-8 boundary to avoid producing invalid strings.
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
@@ -254,7 +255,11 @@ func truncate(s string, maxLen int) string {
 	if maxLen <= 3 {
 		return "..."
 	}
-	return s[:maxLen-3] + "..."
+	cutAt := maxLen - 3
+	for cutAt > 0 && !utf8.RuneStart(s[cutAt]) {
+		cutAt--
+	}
+	return s[:cutAt] + "..."
 }
 
 // streamResponse consumes the agent stream, displaying progress in real time.
