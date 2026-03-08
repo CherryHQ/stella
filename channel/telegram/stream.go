@@ -221,13 +221,13 @@ func (b *Bot) streamResponse(c tele.Context, sessionID, prompt string) (string, 
 		if fallback {
 			// Draft failed on first attempt — the event channel is still
 			// open. Continue with edit-based streaming, preserving any
-			// text already buffered from consumed events.
+			// text and tool state already buffered from consumed events.
 			logger().Info("sendMessageDraft not supported, falling back to edit mode")
-			return b.streamEditEvents(c, events, text)
+			return b.streamEditEvents(c, events, text, tracker)
 		}
 		return text, tracker, err
 	}
-	return b.streamEditEvents(c, events, "")
+	return b.streamEditEvents(c, events, "", nil)
 }
 
 // streamDraft uses Telegram's sendMessageDraft API for smooth streaming
@@ -285,12 +285,15 @@ func (b *Bot) streamDraft(c tele.Context, events <-chan runner.Event) (text stri
 // consuming from an existing event channel. Required for group chats where
 // sendMessageDraft is not available. Any already-buffered text from a prior
 // draft attempt is preserved via the initial parameter.
-func (b *Bot) streamEditEvents(c tele.Context, events <-chan runner.Event, initial string) (string, *toolTracker, error) {
+func (b *Bot) streamEditEvents(c tele.Context, events <-chan runner.Event, initial string, existing *toolTracker) (string, *toolTracker, error) {
 	var sb strings.Builder
 	sb.WriteString(initial)
 	var sentMsg *tele.Message
 	var streamErr error
 	var tt toolTracker
+	if existing != nil {
+		tt = *existing
+	}
 	lastEdit := time.Time{}
 
 	for evt := range events {
