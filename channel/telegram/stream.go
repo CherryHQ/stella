@@ -23,6 +23,10 @@ const typingInterval = 4 * time.Second
 // typingCursor is appended to the message while streaming to indicate activity.
 const typingCursor = " \u258D"
 
+// minToolDisplayDuration is the minimum time a tool indicator stays visible
+// after completion, so it doesn't flash and disappear instantly.
+const minToolDisplayDuration = 2 * time.Second
+
 // toolEmoji maps known tool names to display emoji.
 var toolEmoji = map[string]string{
 	"bash":    "⚡",
@@ -33,27 +37,151 @@ var toolEmoji = map[string]string{
 	"default": "🔧",
 }
 
-// toolLine returns a short status line for a tool-use event.
-func toolLine(t *runner.ToolUseEvent) string {
-	emoji, ok := toolEmoji[t.Tool]
-	if !ok {
-		emoji = toolEmoji["default"]
+// toolRecord holds a completed tool invocation for the summary section.
+type toolRecord struct {
+	Tool     string
+	Input    string
+	Status   string // "done" or "error"
+	Detail   string
+	Duration time.Duration
+}
+
+// toolTracker tracks active and completed tool invocations during streaming.
+type toolTracker struct {
+	history      []toolRecord
+	activeTool   string
+	activeInput  string
+	activeStart  time.Time
+	displayUntil time.Time // minimum time to keep showing the last-finished tool
+}
+
+// start registers a new tool as running.
+func (tt *toolTracker) start(t *runner.ToolUseEvent) {
+	// If a tool was already active, finish it as "done" (missed the finish event).
+	if tt.activeTool != "" {
+		tt.history = append(tt.history, toolRecord{
+			Tool:     tt.activeTool,
+			Input:    tt.activeInput,
+			Status:   "done",
+			Duration: time.Since(tt.activeStart),
+		})
 	}
+	tt.activeTool = t.Tool
+	tt.activeInput = t.Input
+	tt.activeStart = time.Now()
+	tt.displayUntil = time.Time{}
+}
+
+// finish records the active tool as completed and enforces minimum display time.
+func (tt *toolTracker) finish(t *runner.ToolUseEvent) {
+	dur := time.Since(tt.activeStart)
+	tt.history = append(tt.history, toolRecord{
+		Tool:     t.Tool,
+		Input:    t.Input,
+		Status:   t.Status,
+		Detail:   t.Detail,
+		Duration: dur,
+	})
+	tt.displayUntil = time.Now().Add(minToolDisplayDuration)
+	tt.activeTool = ""
+	tt.activeInput = ""
+	tt.activeStart = time.Time{}
+}
+
+// handle processes a tool event, returning true if a display refresh is needed.
+func (tt *toolTracker) handle(t *runner.ToolUseEvent) bool {
 	switch t.Status {
 	case "running":
-		input := t.Input
-		if len(input) > 60 {
-			input = input[:57] + "..."
-		}
-		if input != "" {
-			return fmt.Sprintf("%s %s: %s", emoji, t.Tool, input)
-		}
-		return fmt.Sprintf("%s %s", emoji, t.Tool)
-	case "error":
-		return fmt.Sprintf("❌ %s failed", t.Tool)
-	default:
-		return ""
+		tt.start(t)
+		return true
+	case "done", "error":
+		tt.finish(t)
+		return true
 	}
+	return false
+}
+
+// render builds the tool summary section for the streaming display.
+func (tt *toolTracker) render() string {
+	var sb strings.Builder
+
+	// Completed tools summary.
+	for _, rec := range tt.history {
+		sb.WriteString(renderToolRecord(rec))
+		sb.WriteByte('\n')
+	}
+
+	// Active tool with spinner.
+	if tt.activeTool != "" {
+		emoji := emojiFor(tt.activeTool)
+		elapsed := time.Since(tt.activeStart).Truncate(100 * time.Millisecond)
+		line := fmt.Sprintf("⏳ %s %s", emoji, tt.activeTool)
+		if tt.activeInput != "" {
+			input := truncate(tt.activeInput, 60)
+			line += ": " + input
+		}
+		line += fmt.Sprintf(" (%s)", formatDuration(elapsed))
+		sb.WriteString(line)
+		sb.WriteByte('\n')
+	}
+
+	return sb.String()
+}
+
+// isDisplaying returns true if there is an active tool or the minimum display
+// duration for the last finished tool has not yet elapsed.
+func (tt *toolTracker) isDisplaying() bool {
+	if tt.activeTool != "" {
+		return true
+	}
+	return time.Now().Before(tt.displayUntil)
+}
+
+// renderToolRecord formats a single completed tool record.
+func renderToolRecord(rec toolRecord) string {
+	statusEmoji := "✅"
+	if rec.Status == "error" {
+		statusEmoji = "❌"
+	}
+	emoji := emojiFor(rec.Tool)
+	line := fmt.Sprintf("%s %s %s", statusEmoji, emoji, rec.Tool)
+	if rec.Input != "" {
+		input := truncate(rec.Input, 60)
+		line += ": " + input
+	}
+	line += fmt.Sprintf(" (%s)", formatDuration(rec.Duration))
+	if rec.Status == "error" && rec.Detail != "" {
+		detail := truncate(rec.Detail, 80)
+		line += " — " + detail
+	}
+	return line
+}
+
+// emojiFor returns the emoji for a tool name.
+func emojiFor(tool string) string {
+	if e, ok := toolEmoji[tool]; ok {
+		return e
+	}
+	return toolEmoji["default"]
+}
+
+// formatDuration formats a duration as a human-friendly string.
+func formatDuration(d time.Duration) string {
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	return fmt.Sprintf("%.1fs", d.Seconds())
+}
+
+// truncate shortens s to maxLen characters, appending "..." if truncated.
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return "..."
+	}
+	return s[:maxLen-3] + "..."
 }
 
 // streamResponse consumes the agent stream, displaying progress in real time.
@@ -84,7 +212,7 @@ func (b *Bot) streamResponse(c tele.Context, sessionID, prompt string) (string, 
 func (b *Bot) streamDraft(c tele.Context, events <-chan runner.Event) (text string, fallback bool, err error) {
 	var sb strings.Builder
 	var streamErr error
-	var currentTool string
+	var tracker toolTracker
 	lastSend := time.Time{}
 	draftID := rand.Int64N(1<<53) + 1
 	chatID := c.Chat().ID
@@ -96,36 +224,29 @@ func (b *Bot) streamDraft(c tele.Context, events <-chan runner.Event) (text stri
 			break
 		}
 
+		forceRefresh := false
 		if evt.ToolUse != nil {
-			line := toolLine(evt.ToolUse)
-			if line != "" {
-				currentTool = line
-			} else {
-				currentTool = ""
-			}
-			lastSend = time.Time{}
+			forceRefresh = tracker.handle(evt.ToolUse)
 		}
 
 		sb.WriteString(evt.Text)
 
 		now := time.Now()
-		if now.Sub(lastSend) < streamEditInterval {
+		if !forceRefresh && now.Sub(lastSend) < streamEditInterval {
 			continue
 		}
 
 		current := sb.String()
-		if strings.TrimSpace(current) == "" && currentTool == "" {
+		if strings.TrimSpace(current) == "" && !tracker.isDisplaying() {
 			continue
 		}
 
-		display := buildStreamDisplay(current, currentTool)
+		display := buildStreamDisplay(current, tracker.render(), tracker.isDisplaying())
 
 		if err := b.sendDraftRaw(chatID, draftID, display); err != nil {
 			if firstDraft {
 				return sb.String(), true, nil
 			}
-			// Mid-stream failure: log and continue without updates
-			// rather than breaking the stream.
 			logger().Warn("sendMessageDraft failed mid-stream", "error", err)
 		}
 		firstDraft = false
@@ -144,7 +265,7 @@ func (b *Bot) streamEditEvents(c tele.Context, events <-chan runner.Event, initi
 	sb.WriteString(initial)
 	var sentMsg *tele.Message
 	var streamErr error
-	var currentTool string
+	var tracker toolTracker
 	lastEdit := time.Time{}
 
 	for evt := range events {
@@ -153,29 +274,24 @@ func (b *Bot) streamEditEvents(c tele.Context, events <-chan runner.Event, initi
 			break
 		}
 
+		forceRefresh := false
 		if evt.ToolUse != nil {
-			line := toolLine(evt.ToolUse)
-			if line != "" {
-				currentTool = line
-			} else {
-				currentTool = ""
-			}
-			lastEdit = time.Time{}
+			forceRefresh = tracker.handle(evt.ToolUse)
 		}
 
 		sb.WriteString(evt.Text)
 
 		now := time.Now()
-		if now.Sub(lastEdit) < streamEditInterval {
+		if !forceRefresh && now.Sub(lastEdit) < streamEditInterval {
 			continue
 		}
 
 		current := sb.String()
-		if strings.TrimSpace(current) == "" && currentTool == "" {
+		if strings.TrimSpace(current) == "" && !tracker.isDisplaying() {
 			continue
 		}
 
-		display := buildStreamDisplay(current, currentTool)
+		display := buildStreamDisplay(current, tracker.render(), tracker.isDisplaying())
 
 		if sentMsg == nil {
 			msg, err := b.bot.Send(c.Chat(), display)
@@ -202,13 +318,14 @@ func (b *Bot) streamEditEvents(c tele.Context, events <-chan runner.Event, initi
 	return sb.String(), streamErr
 }
 
-// buildStreamDisplay constructs the streaming display text with tool indicator,
+// buildStreamDisplay constructs the streaming display text with tool summary,
 // cursor, and length truncation (UTF-8 safe).
-func buildStreamDisplay(text, currentTool string) string {
+func buildStreamDisplay(text, toolSection string, hasTools bool) string {
 	display := text
 	suffix := typingCursor
-	if currentTool != "" {
-		suffix = "\n\n_" + currentTool + "_" + typingCursor
+
+	if hasTools && toolSection != "" {
+		suffix = "\n\n" + strings.TrimRight(toolSection, "\n") + typingCursor
 	}
 
 	if len(suffix) >= telegramMaxMessageLen {

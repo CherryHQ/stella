@@ -3,6 +3,7 @@ package telegram
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vaayne/anna/agent/runner"
 
@@ -123,79 +124,232 @@ func TestBotCommands(t *testing.T) {
 	}
 }
 
-func TestToolLine(t *testing.T) {
+func TestToolTracker(t *testing.T) {
+	var tracker toolTracker
+
+	// Start a tool.
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls -la"})
+	if tracker.activeTool != "bash" {
+		t.Errorf("activeTool = %q, want %q", tracker.activeTool, "bash")
+	}
+	if !tracker.isDisplaying() {
+		t.Error("expected isDisplaying=true while tool is active")
+	}
+
+	rendered := tracker.render()
+	if !strings.Contains(rendered, "⏳") {
+		t.Errorf("render() = %q, want spinner emoji", rendered)
+	}
+	if !strings.Contains(rendered, "bash") {
+		t.Errorf("render() = %q, want tool name", rendered)
+	}
+	if !strings.Contains(rendered, "ls -la") {
+		t.Errorf("render() = %q, want tool input", rendered)
+	}
+
+	// Finish the tool.
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "done", Input: "ls -la"})
+	if tracker.activeTool != "" {
+		t.Errorf("activeTool = %q, want empty after done", tracker.activeTool)
+	}
+	if len(tracker.history) != 1 {
+		t.Fatalf("history len = %d, want 1", len(tracker.history))
+	}
+	if tracker.history[0].Tool != "bash" {
+		t.Errorf("history[0].Tool = %q, want %q", tracker.history[0].Tool, "bash")
+	}
+
+	rendered = tracker.render()
+	if !strings.Contains(rendered, "✅") {
+		t.Errorf("render() = %q, want checkmark for done tool", rendered)
+	}
+	if !strings.Contains(rendered, "bash") {
+		t.Errorf("render() = %q, want tool name in history", rendered)
+	}
+}
+
+func TestToolTrackerError(t *testing.T) {
+	var tracker toolTracker
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "exit 1"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "error", Input: "exit 1", Detail: "command failed"})
+
+	if len(tracker.history) != 1 {
+		t.Fatalf("history len = %d, want 1", len(tracker.history))
+	}
+	rec := tracker.history[0]
+	if rec.Status != "error" {
+		t.Errorf("status = %q, want %q", rec.Status, "error")
+	}
+
+	rendered := tracker.render()
+	if !strings.Contains(rendered, "❌") {
+		t.Errorf("render() = %q, want error emoji", rendered)
+	}
+	if !strings.Contains(rendered, "command failed") {
+		t.Errorf("render() = %q, want error detail", rendered)
+	}
+}
+
+func TestToolTrackerMultipleTools(t *testing.T) {
+	var tracker toolTracker
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "main.go"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done", Input: "main.go"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "edit", Status: "running", Input: "main.go"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "edit", Status: "done", Input: "main.go"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test"})
+
+	if len(tracker.history) != 2 {
+		t.Fatalf("history len = %d, want 2", len(tracker.history))
+	}
+	if tracker.activeTool != "bash" {
+		t.Errorf("activeTool = %q, want %q", tracker.activeTool, "bash")
+	}
+
+	rendered := tracker.render()
+	// Should contain two completed tools and one active.
+	if strings.Count(rendered, "✅") != 2 {
+		t.Errorf("render() has %d checkmarks, want 2", strings.Count(rendered, "✅"))
+	}
+	if !strings.Contains(rendered, "⏳") {
+		t.Error("render() missing spinner for active tool")
+	}
+}
+
+func TestToolTrackerMinDisplayDuration(t *testing.T) {
+	var tracker toolTracker
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "file.go"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done", Input: "file.go"})
+
+	// Right after finishing, should still be displaying (minimum duration).
+	if !tracker.isDisplaying() {
+		t.Error("expected isDisplaying=true right after tool finished")
+	}
+}
+
+func TestToolTrackerStartOverwritesActive(t *testing.T) {
+	var tracker toolTracker
+	// Start one tool, then start another without finishing the first.
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "a.go"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls"})
+
+	// The first tool should be auto-finished in history.
+	if len(tracker.history) != 1 {
+		t.Fatalf("history len = %d, want 1", len(tracker.history))
+	}
+	if tracker.history[0].Tool != "read" {
+		t.Errorf("history[0].Tool = %q, want %q", tracker.history[0].Tool, "read")
+	}
+	if tracker.activeTool != "bash" {
+		t.Errorf("activeTool = %q, want %q", tracker.activeTool, "bash")
+	}
+}
+
+func TestRenderToolRecord(t *testing.T) {
 	tests := []struct {
-		name string
-		evt  runner.ToolUseEvent
-		want string
+		name       string
+		rec        toolRecord
+		wantParts  []string
+		wantAbsent []string
 	}{
 		{
-			name: "bash running",
-			evt:  runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls -la"},
-			want: "⚡ bash: ls -la",
+			name:      "done with input",
+			rec:       toolRecord{Tool: "bash", Input: "ls -la", Status: "done", Duration: 500 * time.Millisecond},
+			wantParts: []string{"✅", "⚡", "bash", "ls -la", "500ms"},
 		},
 		{
-			name: "read running",
-			evt:  runner.ToolUseEvent{Tool: "read", Status: "running", Input: "main.go"},
-			want: "📖 read: main.go",
+			name:      "done seconds",
+			rec:       toolRecord{Tool: "read", Input: "main.go", Status: "done", Duration: 2500 * time.Millisecond},
+			wantParts: []string{"✅", "📖", "read", "main.go", "2.5s"},
 		},
 		{
-			name: "unknown tool running",
-			evt:  runner.ToolUseEvent{Tool: "custom", Status: "running", Input: "something"},
-			want: "🔧 custom: something",
+			name:      "error with detail",
+			rec:       toolRecord{Tool: "bash", Input: "rm -rf /", Status: "error", Detail: "permission denied", Duration: time.Second},
+			wantParts: []string{"❌", "bash", "permission denied"},
 		},
 		{
-			name: "tool error",
-			evt:  runner.ToolUseEvent{Tool: "bash", Status: "error"},
-			want: "❌ bash failed",
-		},
-		{
-			name: "tool done returns empty",
-			evt:  runner.ToolUseEvent{Tool: "bash", Status: "done"},
-			want: "",
-		},
-		{
-			name: "running no input",
-			evt:  runner.ToolUseEvent{Tool: "edit", Status: "running"},
-			want: "🔧 edit",
-		},
-		{
-			name: "long input truncated",
-			evt:  runner.ToolUseEvent{Tool: "bash", Status: "running", Input: strings.Repeat("x", 80)},
-			want: "⚡ bash: " + strings.Repeat("x", 57) + "...",
+			name:       "done no input",
+			rec:        toolRecord{Tool: "search", Status: "done", Duration: 100 * time.Millisecond},
+			wantParts:  []string{"✅", "🔍", "search", "100ms"},
+			wantAbsent: []string{": "},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := toolLine(&tt.evt)
-			if got != tt.want {
-				t.Errorf("toolLine() = %q, want %q", got, tt.want)
+			got := renderToolRecord(tt.rec)
+			for _, part := range tt.wantParts {
+				if !strings.Contains(got, part) {
+					t.Errorf("renderToolRecord() = %q, want to contain %q", got, part)
+				}
+			}
+			for _, absent := range tt.wantAbsent {
+				if strings.Contains(got, absent) {
+					t.Errorf("renderToolRecord() = %q, should not contain %q", got, absent)
+				}
 			}
 		})
 	}
 }
 
-func TestToolLineLongToolName(t *testing.T) {
-	// A very long tool name should not cause toolLine to produce something
-	// that would panic during stream truncation.
-	evt := runner.ToolUseEvent{
-		Tool:   strings.Repeat("x", 5000),
-		Status: "running",
-		Input:  "test",
+func TestTruncate(t *testing.T) {
+	tests := []struct {
+		input  string
+		maxLen int
+		want   string
+	}{
+		{"hello", 10, "hello"},
+		{"hello world", 8, "hello..."},
+		{"abc", 3, "abc"},
+		{"abcdef", 5, "ab..."},
 	}
-	line := toolLine(&evt)
-	if line == "" {
-		t.Error("expected non-empty line for running tool")
+
+	for _, tt := range tests {
+		got := truncate(tt.input, tt.maxLen)
+		if got != tt.want {
+			t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
+		}
 	}
-	// The suffix built from this would exceed telegramMaxMessageLen.
-	// Verify the guard logic: suffix falls back to typingCursor.
-	suffix := "\n\n_" + line + "_" + typingCursor
-	if len(suffix) < telegramMaxMessageLen {
-		t.Skip("tool name not long enough to trigger guard")
+}
+
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		d    time.Duration
+		want string
+	}{
+		{500 * time.Millisecond, "500ms"},
+		{0, "0ms"},
+		{time.Second, "1.0s"},
+		{2500 * time.Millisecond, "2.5s"},
+		{10 * time.Second, "10.0s"},
 	}
-	// The production code would replace this with just typingCursor.
-	// This test just ensures toolLine itself doesn't panic.
+
+	for _, tt := range tests {
+		got := formatDuration(tt.d)
+		if got != tt.want {
+			t.Errorf("formatDuration(%v) = %q, want %q", tt.d, got, tt.want)
+		}
+	}
+}
+
+func TestEmojiFor(t *testing.T) {
+	tests := []struct {
+		tool string
+		want string
+	}{
+		{"bash", "⚡"},
+		{"read", "📖"},
+		{"write", "✏️"},
+		{"edit", "🔧"},
+		{"search", "🔍"},
+		{"unknown_tool", "🔧"},
+	}
+
+	for _, tt := range tests {
+		got := emojiFor(tt.tool)
+		if got != tt.want {
+			t.Errorf("emojiFor(%q) = %q, want %q", tt.tool, got, tt.want)
+		}
+	}
 }
 
 func TestToolEmojiDefaults(t *testing.T) {
@@ -214,7 +368,8 @@ func TestBuildStreamDisplay(t *testing.T) {
 	tests := []struct {
 		name        string
 		text        string
-		currentTool string
+		toolSection string
+		hasTools    bool
 		wantSuffix  string
 	}{
 		{
@@ -223,13 +378,14 @@ func TestBuildStreamDisplay(t *testing.T) {
 			wantSuffix: typingCursor,
 		},
 		{
-			name:        "with tool",
+			name:        "with tool section",
 			text:        "hello",
-			currentTool: "⚡ bash: ls",
-			wantSuffix:  "\n\n_⚡ bash: ls_" + typingCursor,
+			toolSection: "✅ ⚡ bash: ls (100ms)\n",
+			hasTools:    true,
+			wantSuffix:  "\n\n✅ ⚡ bash: ls (100ms)" + typingCursor,
 		},
 		{
-			name:       "empty text",
+			name:       "empty text no tools",
 			text:       "",
 			wantSuffix: typingCursor,
 		},
@@ -237,7 +393,7 @@ func TestBuildStreamDisplay(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildStreamDisplay(tt.text, tt.currentTool)
+			got := buildStreamDisplay(tt.text, tt.toolSection, tt.hasTools)
 			if !strings.HasSuffix(got, tt.wantSuffix) {
 				t.Errorf("buildStreamDisplay() = %q, want suffix %q", got, tt.wantSuffix)
 			}
@@ -250,7 +406,7 @@ func TestBuildStreamDisplay(t *testing.T) {
 
 func TestBuildStreamDisplayTruncation(t *testing.T) {
 	longText := strings.Repeat("a", telegramMaxMessageLen+500)
-	got := buildStreamDisplay(longText, "")
+	got := buildStreamDisplay(longText, "", false)
 	if len(got) > telegramMaxMessageLen {
 		t.Errorf("buildStreamDisplay() len = %d, want <= %d", len(got), telegramMaxMessageLen)
 	}
@@ -266,7 +422,7 @@ func TestBuildStreamDisplayUTF8Safe(t *testing.T) {
 	multibyte := strings.Repeat("世", 20) // 60 bytes, will push past limit
 	text := prefix + multibyte
 
-	got := buildStreamDisplay(text, "")
+	got := buildStreamDisplay(text, "", false)
 	// Verify the result is valid UTF-8 (strings.ToValidUTF8 would change invalid bytes).
 	if strings.ToValidUTF8(got, "?") != got {
 		t.Error("buildStreamDisplay() produced invalid UTF-8")
