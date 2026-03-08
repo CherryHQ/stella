@@ -177,6 +177,9 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 
 	var content []aitypes.ContentBlock
 	if caption := c.Message().Caption; caption != "" {
+		if isGroup(c) {
+			caption = b.stripBotMention(caption)
+		}
 		content = append(content, aitypes.TextContent{Text: caption})
 	}
 	content = append(content, aitypes.ImageContent{Data: encoded, MimeType: mimeType})
