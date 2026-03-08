@@ -134,13 +134,13 @@ func (b *Bot) switchModel(c tele.Context, models []ModelOption, idxStr string) e
 			return c.Send(fmt.Sprintf("Error switching model: %v", err))
 		}
 	}
-	sessionID := sessionIDFor(c)
-	if err := b.pool.Reset(sessionID); err != nil {
-		logger().Error("reset session after model switch failed", "session_id", sessionID, "error", err)
+	ch := channelForChat(c)
+	if _, err := b.pool.RotateSession(ch); err != nil {
+		logger().Error("rotate session after model switch failed", "channel", ch, "error", err)
 	}
 	b.mu.Lock()
 	b.chatModels[c.Chat().ID] = selected
 	b.mu.Unlock()
-	logger().Info("model switched", "session_id", sessionID, "provider", selected.Provider, "model", selected.Model)
+	logger().Info("model switched", "channel", ch, "provider", selected.Provider, "model", selected.Model)
 	return c.Send(fmt.Sprintf("Switched to %s/%s. Session reset.", selected.Provider, selected.Model))
 }
