@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -179,21 +180,15 @@ func convertLoopEvent(e engine.LoopEvent) []Event {
 
 	case engine.ToolFinished:
 		status := "done"
-		detail := ""
+		detail := summarizeToolResult(e.Result)
 		if e.Result.IsError {
 			status = "error"
-			for _, block := range e.Result.Content {
-				if tc, ok := block.(aitypes.TextContent); ok {
-					detail = tc.Text
-				}
-			}
 		}
 		rpc := ToolResultToRPCEvent(e.Result)
 		return []Event{
 			{ToolUse: &ToolUseEvent{
 				Tool:   e.Result.ToolName,
 				Status: status,
-				Input:  summarizeToolInput(e.Result.ToolName, nil),
 				Detail: detail,
 			}},
 			{Store: &rpc},
@@ -204,6 +199,48 @@ func convertLoopEvent(e engine.LoopEvent) []Event {
 	}
 
 	return nil
+}
+
+// summarizeToolResult returns a short human-readable summary of a tool result.
+func summarizeToolResult(result aitypes.ToolResultMessage) string {
+	var text string
+	for _, block := range result.Content {
+		if tc, ok := block.(aitypes.TextContent); ok {
+			text = tc.Text
+			break
+		}
+	}
+	if text == "" {
+		return ""
+	}
+
+	if result.IsError {
+		// For errors, show the first line.
+		if idx := strings.Index(text, "\n"); idx > 0 {
+			text = text[:idx]
+		}
+		if len(text) > 120 {
+			return text[:117] + "..."
+		}
+		return text
+	}
+
+	// For success, produce a brief summary based on tool type.
+	lines := strings.Count(text, "\n") + 1
+	runeCount := len([]rune(text))
+
+	switch {
+	case runeCount <= 80:
+		// Short result — show inline.
+		if idx := strings.Index(text, "\n"); idx > 0 {
+			text = text[:idx]
+		}
+		return text
+	case lines > 1:
+		return fmt.Sprintf("%d lines", lines)
+	default:
+		return fmt.Sprintf("%d chars", runeCount)
+	}
 }
 
 // summarizeToolInput returns a short human-readable summary of tool arguments.

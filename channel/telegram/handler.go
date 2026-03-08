@@ -150,7 +150,7 @@ func (b *Bot) handleText(c tele.Context) error {
 	typingCtx, stopTyping := context.WithCancel(b.ctx)
 	go keepTyping(typingCtx, c)
 
-	response, streamErr := b.streamResponse(c, sessionID, text)
+	response, tracker, streamErr := b.streamResponse(c, sessionID, text)
 
 	stopTyping()
 
@@ -165,6 +165,10 @@ func (b *Bot) handleText(c tele.Context) error {
 
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
+	}
+
+	if tracker != nil && tracker.hasHistory() {
+		response += tracker.renderFinal()
 	}
 
 	b.sendFinalResponse(c, response)
