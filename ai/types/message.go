@@ -1,6 +1,9 @@
 package types
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // TextSignatureV1 carries model-generated text signature metadata.
 type TextSignatureV1 struct {
@@ -88,3 +91,24 @@ type ToolResultMessage struct {
 }
 
 func (ToolResultMessage) messageRole() string { return "tool" }
+
+// HasImage reports whether the given content blocks contain at least one ImageContent.
+func HasImage(blocks []ContentBlock) bool {
+	for _, b := range blocks {
+		if _, ok := b.(ImageContent); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// FlattenText extracts and joins all TextContent values from content blocks.
+func FlattenText(blocks []ContentBlock) string {
+	parts := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		if t, ok := block.(TextContent); ok && t.Text != "" {
+			parts = append(parts, t.Text)
+		}
+	}
+	return strings.Join(parts, " ")
+}

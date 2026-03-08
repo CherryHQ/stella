@@ -81,8 +81,8 @@ func userMessage(content any) responses.ResponseInputItemUnionParam {
 	case string:
 		return textMsg(c)
 	case []types.ContentBlock:
-		if !hasImage(c) {
-			return textMsg(flattenText(c))
+		if !types.HasImage(c) {
+			return textMsg(types.FlattenText(c))
 		}
 		parts := make(responses.ResponseInputMessageContentListParam, 0, len(c))
 		for _, block := range c {
@@ -112,25 +112,6 @@ func userMessage(content any) responses.ResponseInputItemUnionParam {
 	}
 }
 
-func hasImage(blocks []types.ContentBlock) bool {
-	for _, b := range blocks {
-		if _, ok := b.(types.ImageContent); ok {
-			return true
-		}
-	}
-	return false
-}
-
-func flattenText(blocks []types.ContentBlock) string {
-	parts := make([]string, 0, len(blocks))
-	for _, block := range blocks {
-		if t, ok := block.(types.TextContent); ok && t.Text != "" {
-			parts = append(parts, t.Text)
-		}
-	}
-	return strings.Join(parts, " ")
-}
-
 func flattenToolResult(content []types.ContentBlock) string {
-	return flattenText(content)
+	return types.FlattenText(content)
 }

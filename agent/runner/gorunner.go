@@ -92,8 +92,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 }
 
 // Chat converts history, runs the Engine agent loop, and forwards events to the returned channel.
-// message is string (text-only) or []aitypes.ContentBlock (multimodal).
-func (r *GoRunner) Chat(ctx context.Context, history []RPCEvent, message any) <-chan Event {
+func (r *GoRunner) Chat(ctx context.Context, history []RPCEvent, message MessageContent) <-chan Event {
 	out := make(chan Event, 100)
 
 	r.mu.Lock()

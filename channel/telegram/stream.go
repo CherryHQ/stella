@@ -261,7 +261,7 @@ func truncate(s string, maxLen int) string {
 // For private chats it uses Telegram's sendMessageDraft API (Bot API 9.3+)
 // for smooth animated streaming. For groups (where drafts aren't supported)
 // it falls back to the edit-in-place approach.
-func (b *Bot) streamResponse(c tele.Context, sessionID string, prompt any) (string, *toolTracker, []runner.ImageEvent, error) {
+func (b *Bot) streamResponse(c tele.Context, sessionID string, prompt runner.MessageContent) (string, *toolTracker, []runner.ImageEvent, error) {
 	events := b.pool.Chat(b.ctx, sessionID, prompt)
 
 	if !isGroup(c) {

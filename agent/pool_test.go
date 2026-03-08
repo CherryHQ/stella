@@ -28,7 +28,7 @@ func newMockRunner(events []runner.Event) *mockRunner {
 	}
 }
 
-func (m *mockRunner) Chat(_ context.Context, _ []runner.RPCEvent, _ any) <-chan runner.Event {
+func (m *mockRunner) Chat(_ context.Context, _ []runner.RPCEvent, _ runner.MessageContent) <-chan runner.Event {
 	m.mu.Lock()
 	m.lastActivity = time.Now()
 	events := m.events

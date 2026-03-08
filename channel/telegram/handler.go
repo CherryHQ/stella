@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vaayne/anna/agent/runner"
 	aitypes "github.com/vaayne/anna/ai/types"
 	tele "gopkg.in/telebot.v4"
 )
@@ -161,7 +162,8 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	}
 	defer func() { _ = rc.Close() }()
 
-	data, err := io.ReadAll(rc)
+	const maxPhotoSize = 20 << 20 // 20MB — Telegram's file size limit
+	data, err := io.ReadAll(io.LimitReader(rc, maxPhotoSize))
 	if err != nil {
 		logger().Error("read photo failed", "error", err)
 		return c.Send(fmt.Sprintf("Failed to read photo: %v", err))
@@ -170,20 +172,18 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	mimeType := http.DetectContentType(data)
 	encoded := base64.StdEncoding.EncodeToString(data)
 
-	content := []aitypes.ContentBlock{
-		aitypes.ImageContent{Data: encoded, MimeType: mimeType},
-	}
+	var content []aitypes.ContentBlock
 	if caption := c.Message().Caption; caption != "" {
 		content = append(content, aitypes.TextContent{Text: caption})
 	}
+	content = append(content, aitypes.ImageContent{Data: encoded, MimeType: mimeType})
 
 	logger().Debug("photo received", "chat_id", c.Chat().ID, "size", len(data), "mime", mimeType)
 	return b.handleMessage(c, content)
 }
 
 // handleMessage is the common flow for text and multimodal messages.
-// message is string or []aitypes.ContentBlock.
-func (b *Bot) handleMessage(c tele.Context, message any) error {
+func (b *Bot) handleMessage(c tele.Context, message runner.MessageContent) error {
 	chatID := c.Chat().ID
 	sessionID, err := b.resolveSession(c)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	aitypes "github.com/vaayne/anna/ai/types"
@@ -70,13 +71,15 @@ type Event struct {
 	Err     error
 }
 
+// MessageContent is the type for user messages passed through the runner pipeline.
+// It is either string (text-only) or []aitypes.ContentBlock (multimodal, e.g. text + images).
+type MessageContent = any
+
 // Runner runs prompts against an AI backend.
 // It is stateless — it receives full history each call and must
 // reconstruct context from it.
-// The message parameter is string (text-only) or []aitypes.ContentBlock
-// (multimodal, e.g. text + images).
 type Runner interface {
-	Chat(ctx context.Context, history []RPCEvent, message any) <-chan Event
+	Chat(ctx context.Context, history []RPCEvent, message MessageContent) <-chan Event
 }
 
 // NewRunnerFunc creates a new Runner instance for the given model ID.
@@ -86,10 +89,10 @@ type NewRunnerFunc func(ctx context.Context, model string) (Runner, error)
 // HandlerFunc is an adapter to allow the use of ordinary functions as Runners.
 // If f is a function with the appropriate signature, HandlerFunc(f) is a Runner
 // that calls f.
-type HandlerFunc func(ctx context.Context, history []RPCEvent, message any) <-chan Event
+type HandlerFunc func(ctx context.Context, history []RPCEvent, message MessageContent) <-chan Event
 
 // Chat calls f(ctx, history, message).
-func (f HandlerFunc) Chat(ctx context.Context, history []RPCEvent, message any) <-chan Event {
+func (f HandlerFunc) Chat(ctx context.Context, history []RPCEvent, message MessageContent) <-chan Event {
 	return f(ctx, history, message)
 }
 
@@ -121,8 +124,7 @@ type contentBlockJSON struct {
 }
 
 // UserMessageToRPCEvent creates an RPCEvent for a user message.
-// message is string (text-only) or []aitypes.ContentBlock (multimodal).
-func UserMessageToRPCEvent(message any) RPCEvent {
+func UserMessageToRPCEvent(message MessageContent) RPCEvent {
 	evt := RPCEvent{Type: RPCEventUserMessage}
 	switch m := message.(type) {
 	case string:
@@ -140,25 +142,24 @@ func UserMessageToRPCEvent(message any) RPCEvent {
 				blocks = append(blocks, contentBlockJSON{Kind: "image", Data: b.Data, MimeType: b.MimeType})
 			}
 		}
-		evt.Content, _ = json.Marshal(blocks)
+		if data, err := json.Marshal(blocks); err != nil {
+			slog.Warn("failed to marshal multimodal content", "error", err)
+		} else {
+			evt.Content = data
+		}
 	default:
 		evt.Summary = fmt.Sprintf("%v", message)
 	}
 	return evt
 }
 
-// MessageText extracts the text portion of a message (string or []ContentBlock).
-func MessageText(message any) string {
+// MessageText extracts and joins all text from a message.
+func MessageText(message MessageContent) string {
 	switch m := message.(type) {
 	case string:
 		return m
 	case []aitypes.ContentBlock:
-		for _, b := range m {
-			if t, ok := b.(aitypes.TextContent); ok {
-				return t.Text
-			}
-		}
-		return ""
+		return aitypes.FlattenText(m)
 	default:
 		return fmt.Sprintf("%v", message)
 	}

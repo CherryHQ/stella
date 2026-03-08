@@ -446,10 +446,9 @@ func (p *Pool) History(sessionID string) []runner.RPCEvent {
 }
 
 // Chat sends a message in a session and streams back events.
-// message is string (text-only) or []aitypes.ContentBlock (multimodal).
 // Internally: gets/creates runner, passes history, collects events,
 // appends to session log, streams to caller.
-func (p *Pool) Chat(ctx context.Context, sessionID string, message any, opts ...ChatOption) <-chan runner.Event {
+func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.MessageContent, opts ...ChatOption) <-chan runner.Event {
 	out := make(chan runner.Event, 100)
 
 	var co chatOptions

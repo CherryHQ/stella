@@ -68,8 +68,8 @@ func userMessage(content any) sdk.ChatCompletionMessageParamUnion {
 	case string:
 		return sdk.UserMessage(c)
 	case []types.ContentBlock:
-		if !hasImage(c) {
-			return sdk.UserMessage(flattenText(c))
+		if !types.HasImage(c) {
+			return sdk.UserMessage(types.FlattenText(c))
 		}
 		parts := make([]sdk.ChatCompletionContentPartUnionParam, 0, len(c))
 		for _, block := range c {
@@ -89,25 +89,6 @@ func userMessage(content any) sdk.ChatCompletionMessageParamUnion {
 	}
 }
 
-func hasImage(blocks []types.ContentBlock) bool {
-	for _, b := range blocks {
-		if _, ok := b.(types.ImageContent); ok {
-			return true
-		}
-	}
-	return false
-}
-
-func flattenText(blocks []types.ContentBlock) string {
-	parts := make([]string, 0, len(blocks))
-	for _, block := range blocks {
-		if t, ok := block.(types.TextContent); ok && t.Text != "" {
-			parts = append(parts, t.Text)
-		}
-	}
-	return strings.Join(parts, " ")
-}
-
 func flattenToolResult(content []types.ContentBlock) string {
-	return flattenText(content)
+	return types.FlattenText(content)
 }
