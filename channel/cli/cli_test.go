@@ -19,7 +19,7 @@ type mockRunner struct {
 	events []runner.Event
 }
 
-func (m *mockRunner) Chat(_ context.Context, _ []runner.RPCEvent, _ string) <-chan runner.Event {
+func (m *mockRunner) Chat(_ context.Context, _ []runner.RPCEvent, _ any) <-chan runner.Event {
 	ch := make(chan runner.Event, len(m.events))
 	for _, e := range m.events {
 		ch <- e

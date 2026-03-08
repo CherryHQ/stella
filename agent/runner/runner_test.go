@@ -6,9 +6,9 @@ import (
 )
 
 func TestHandlerFunc(t *testing.T) {
-	fn := HandlerFunc(func(ctx context.Context, history []RPCEvent, message string) <-chan Event {
+	fn := HandlerFunc(func(ctx context.Context, history []RPCEvent, message any) <-chan Event {
 		ch := make(chan Event, 1)
-		ch <- Event{Text: "hello from handler: " + message}
+		ch <- Event{Text: "hello from handler: " + MessageText(message)}
 		close(ch)
 		return ch
 	})

@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	aitypes "github.com/vaayne/anna/ai/types"
@@ -36,6 +37,7 @@ type RPCEvent struct {
 	Error                 string          `json:"error,omitempty"`
 	Tool                  string          `json:"tool,omitempty"`
 	Summary               string          `json:"summary,omitempty"`
+	Content               json.RawMessage `json:"content,omitempty"` // multimodal content blocks (images + text)
 }
 
 // AssistantMessageEvent represents the inner event for text deltas.
@@ -64,8 +66,10 @@ type Event struct {
 // Runner runs prompts against an AI backend.
 // It is stateless — it receives full history each call and must
 // reconstruct context from it.
+// The message parameter is string (text-only) or []aitypes.ContentBlock
+// (multimodal, e.g. text + images).
 type Runner interface {
-	Chat(ctx context.Context, history []RPCEvent, message string) <-chan Event
+	Chat(ctx context.Context, history []RPCEvent, message any) <-chan Event
 }
 
 // NewRunnerFunc creates a new Runner instance for the given model ID.
@@ -75,10 +79,10 @@ type NewRunnerFunc func(ctx context.Context, model string) (Runner, error)
 // HandlerFunc is an adapter to allow the use of ordinary functions as Runners.
 // If f is a function with the appropriate signature, HandlerFunc(f) is a Runner
 // that calls f.
-type HandlerFunc func(ctx context.Context, history []RPCEvent, message string) <-chan Event
+type HandlerFunc func(ctx context.Context, history []RPCEvent, message any) <-chan Event
 
 // Chat calls f(ctx, history, message).
-func (f HandlerFunc) Chat(ctx context.Context, history []RPCEvent, message string) <-chan Event {
+func (f HandlerFunc) Chat(ctx context.Context, history []RPCEvent, message any) <-chan Event {
 	return f(ctx, history, message)
 }
 
@@ -99,6 +103,58 @@ type Aliver interface {
 // ActivityTracker is an optional interface for runners that track last activity.
 type ActivityTracker interface {
 	LastActivity() time.Time
+}
+
+// contentBlockJSON is the JSON-serializable representation of a content block.
+type contentBlockJSON struct {
+	Kind     string `json:"kind"`                // "text" or "image"
+	Text     string `json:"text,omitempty"`      // for text blocks
+	Data     string `json:"data,omitempty"`      // base64 for image blocks
+	MimeType string `json:"mime_type,omitempty"` // for image blocks
+}
+
+// UserMessageToRPCEvent creates an RPCEvent for a user message.
+// message is string (text-only) or []aitypes.ContentBlock (multimodal).
+func UserMessageToRPCEvent(message any) RPCEvent {
+	evt := RPCEvent{Type: RPCEventUserMessage}
+	switch m := message.(type) {
+	case string:
+		evt.Summary = m
+	case []aitypes.ContentBlock:
+		var blocks []contentBlockJSON
+		for _, b := range m {
+			switch b := b.(type) {
+			case aitypes.TextContent:
+				blocks = append(blocks, contentBlockJSON{Kind: "text", Text: b.Text})
+				if evt.Summary == "" {
+					evt.Summary = b.Text
+				}
+			case aitypes.ImageContent:
+				blocks = append(blocks, contentBlockJSON{Kind: "image", Data: b.Data, MimeType: b.MimeType})
+			}
+		}
+		evt.Content, _ = json.Marshal(blocks)
+	default:
+		evt.Summary = fmt.Sprintf("%v", message)
+	}
+	return evt
+}
+
+// MessageText extracts the text portion of a message (string or []ContentBlock).
+func MessageText(message any) string {
+	switch m := message.(type) {
+	case string:
+		return m
+	case []aitypes.ContentBlock:
+		for _, b := range m {
+			if t, ok := b.(aitypes.TextContent); ok {
+				return t.Text
+			}
+		}
+		return ""
+	default:
+		return fmt.Sprintf("%v", message)
+	}
 }
 
 // TextDeltaToRPCEvent converts a text delta string to an RPCEvent for storage.

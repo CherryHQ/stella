@@ -92,7 +92,8 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 }
 
 // Chat converts history, runs the Engine agent loop, and forwards events to the returned channel.
-func (r *GoRunner) Chat(ctx context.Context, history []RPCEvent, message string) <-chan Event {
+// message is string (text-only) or []aitypes.ContentBlock (multimodal).
+func (r *GoRunner) Chat(ctx context.Context, history []RPCEvent, message any) <-chan Event {
 	out := make(chan Event, 100)
 
 	r.mu.Lock()
@@ -269,6 +270,31 @@ func summarizeToolInput(toolName string, args map[string]any) string {
 	return ""
 }
 
+// decodeUserContent reconstructs the user message content from an RPCEvent.
+// Returns []aitypes.ContentBlock if the event has multimodal content, or string otherwise.
+func decodeUserContent(evt RPCEvent) any {
+	if len(evt.Content) == 0 {
+		return evt.Summary
+	}
+	var blocks []contentBlockJSON
+	if err := json.Unmarshal(evt.Content, &blocks); err != nil {
+		return evt.Summary
+	}
+	content := make([]aitypes.ContentBlock, 0, len(blocks))
+	for _, b := range blocks {
+		switch b.Kind {
+		case "text":
+			content = append(content, aitypes.TextContent{Text: b.Text})
+		case "image":
+			content = append(content, aitypes.ImageContent{Data: b.Data, MimeType: b.MimeType})
+		}
+	}
+	if len(content) == 0 {
+		return evt.Summary
+	}
+	return content
+}
+
 // convertHistory rebuilds []aitypes.Message from RPCEvent history.
 func convertHistory(events []RPCEvent) []aitypes.Message {
 	var messages []aitypes.Message
@@ -305,7 +331,7 @@ func convertHistory(events []RPCEvent) []aitypes.Message {
 		case RPCEventUserMessage:
 			flushToolCalls()
 			flush()
-			messages = append(messages, aitypes.UserMessage{Content: evt.Summary})
+			messages = append(messages, aitypes.UserMessage{Content: decodeUserContent(evt)})
 
 		case RPCEventMessageUpdate:
 			if evt.Summary != "" {
