@@ -121,25 +121,14 @@ func newChatModel(ctx context.Context, pool *agent.Pool, provider, model string,
 	return m
 }
 
-// resolveSession returns the most recently active non-archived session ID,
+const cliChannel = "cli"
+
+// resolveSession returns the most recently active CLI session ID,
 // or creates a new session if none exist.
 func resolveSession(pool *agent.Pool) string {
-	sessions, err := pool.ListSessions(false)
-	if err == nil && len(sessions) > 0 {
-		// Find the most recently active session.
-		best := sessions[0]
-		for _, s := range sessions[1:] {
-			if s.LastActive.After(best.LastActive) {
-				best = s
-			}
-		}
-		return best.ID
-	}
-
-	info, err := pool.CreateSession()
+	info, err := pool.ResolveSession(cliChannel)
 	if err != nil {
-		// Fallback: generate a simple ID so the app can still start.
-		return "session"
+		return "cli-session"
 	}
 	return info.ID
 }
@@ -445,9 +434,7 @@ func (m *chatModel) handleInput(input string) tea.Cmd {
 	case "/quit", "/exit":
 		return tea.Quit
 	case "/new":
-		// Archive current session and create a fresh one.
-		_ = m.pool.ArchiveSession(m.sessionID)
-		info, err := m.pool.CreateSession()
+		info, err := m.pool.RotateSession(cliChannel)
 		if err != nil {
 			m.history.WriteString(errorStyle.Render("error: "+err.Error()) + "\n\n")
 		} else {
@@ -624,8 +611,11 @@ func (m chatModel) handlePickingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if err := m.pool.Reset(m.sessionID); err != nil {
-			m.history.WriteString(errorStyle.Render("error resetting session: "+err.Error()) + "\n\n")
+		info, err := m.pool.RotateSession(cliChannel)
+		if err != nil {
+			m.history.WriteString(errorStyle.Render("error creating session: "+err.Error()) + "\n\n")
+		} else {
+			m.sessionID = info.ID
 		}
 
 		m.provider = selected.provider

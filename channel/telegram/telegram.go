@@ -228,8 +228,18 @@ func (b *Bot) stripBotMention(text string) string {
 	return strings.TrimSpace(strings.ReplaceAll(text, "@"+b.bot.Me.Username, ""))
 }
 
-// sessionIDFor returns the session ID for a chat. Uses chat ID directly
-// so groups share a single session.
-func sessionIDFor(c tele.Context) string {
-	return strconv.FormatInt(c.Chat().ID, 10)
+// channelForChat returns the channel identifier for a Telegram chat.
+// Each chat (private or group) gets its own channel namespace.
+func channelForChat(c tele.Context) string {
+	return "tg" + strconv.FormatInt(c.Chat().ID, 10)
+}
+
+// resolveSession returns the active session ID for the current chat,
+// creating a new session if none exists.
+func (b *Bot) resolveSession(c tele.Context) (string, error) {
+	info, err := b.pool.ResolveSession(channelForChat(c))
+	if err != nil {
+		return "", err
+	}
+	return info.ID, nil
 }

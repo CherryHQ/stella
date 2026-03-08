@@ -96,26 +96,109 @@ func NewPool(factory runner.NewRunnerFunc, opts ...PoolOption) *Pool {
 }
 
 // CreateSession creates a new session with a generated ID and persists its metadata.
-func (p *Pool) CreateSession() (SessionInfo, error) {
+func (p *Pool) CreateSession(channel string) (SessionInfo, error) {
+	p.mu.Lock()
+	info := p.createSessionLocked(channel)
+	p.mu.Unlock()
+	return p.persistNewSession(info)
+}
+
+// createSessionLocked creates a new session and adds it to the in-memory map.
+// Caller must hold p.mu.
+func (p *Pool) createSessionLocked(channel string) SessionInfo {
 	now := time.Now()
 	info := SessionInfo{
-		ID:         uuid.New().String()[:8],
+		ID:         channel + "-" + uuid.New().String()[:8],
+		Channel:    channel,
 		CreatedAt:  now,
 		LastActive: now,
 	}
-
-	p.mu.Lock()
 	p.sessions[info.ID] = &Session{Info: info}
-	p.mu.Unlock()
+	return info
+}
 
+// persistNewSession saves session metadata to the store and logs creation.
+func (p *Pool) persistNewSession(info SessionInfo) (SessionInfo, error) {
 	if p.store != nil {
 		if err := p.store.SaveInfo(info); err != nil {
 			return info, fmt.Errorf("persist session info: %w", err)
 		}
 	}
-
-	p.log.Info("session created", "session_id", info.ID)
+	p.log.Info("session created", "session_id", info.ID, "channel", info.Channel)
 	return info, nil
+}
+
+// activeSessionLocked returns the most recent non-archived session for a channel
+// from the in-memory map and persistent store. Caller must hold p.mu.
+func (p *Pool) activeSessionLocked(channel string) (SessionInfo, bool) {
+	var best *SessionInfo
+	seen := make(map[string]struct{})
+
+	// Check in-memory sessions (have the freshest LastActive).
+	for _, sess := range p.sessions {
+		if sess.Info.Archived || sess.Info.Channel != channel {
+			continue
+		}
+		seen[sess.Info.ID] = struct{}{}
+		if best == nil || sess.Info.LastActive.After(best.LastActive) {
+			info := sess.Info
+			best = &info
+		}
+	}
+
+	// Check persistent store for sessions not yet in memory.
+	if p.store != nil {
+		items, err := p.store.ListInfo(false)
+		if err == nil {
+			for _, info := range items {
+				if info.Channel != channel {
+					continue
+				}
+				if _, ok := seen[info.ID]; ok {
+					continue
+				}
+				if best == nil || info.LastActive.After(best.LastActive) {
+					info := info
+					best = &info
+				}
+			}
+		}
+	}
+
+	if best == nil {
+		return SessionInfo{}, false
+	}
+	return *best, true
+}
+
+// ActiveSession returns the most recent non-archived session for a channel.
+func (p *Pool) ActiveSession(channel string) (SessionInfo, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.activeSessionLocked(channel)
+}
+
+// ResolveSession returns the active session for a channel, creating one if needed.
+// The check-and-create is atomic to prevent duplicate sessions under concurrent access.
+func (p *Pool) ResolveSession(channel string) (SessionInfo, error) {
+	p.mu.Lock()
+	if info, ok := p.activeSessionLocked(channel); ok {
+		p.mu.Unlock()
+		return info, nil
+	}
+	info := p.createSessionLocked(channel)
+	p.mu.Unlock()
+	return p.persistNewSession(info)
+}
+
+// RotateSession archives the active session for a channel (if any) and creates a new one.
+func (p *Pool) RotateSession(channel string) (SessionInfo, error) {
+	if old, ok := p.ActiveSession(channel); ok {
+		if err := p.ArchiveSession(old.ID); err != nil {
+			p.log.Warn("archive failed during rotate", "session_id", old.ID, "error", err)
+		}
+	}
+	return p.CreateSession(channel)
 }
 
 // GetSession returns metadata for a session.
@@ -485,12 +568,6 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message string, opts 
 	}()
 
 	return out
-}
-
-// Reset archives the session and removes it from memory.
-// For backward compatibility — prefer ArchiveSession for new code.
-func (p *Pool) Reset(sessionID string) error {
-	return p.ArchiveSession(sessionID)
 }
 
 // SetFactory replaces the runner factory used for new runners.

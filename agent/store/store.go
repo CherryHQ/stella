@@ -16,6 +16,7 @@ import (
 // SessionInfo holds metadata about a session, persisted in the index file.
 type SessionInfo struct {
 	ID         string    `json:"id"`
+	Channel    string    `json:"channel,omitempty"`
 	Title      string    `json:"title"`
 	CreatedAt  time.Time `json:"created_at"`
 	LastActive time.Time `json:"last_active"`

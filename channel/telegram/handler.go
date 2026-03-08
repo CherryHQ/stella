@@ -37,17 +37,21 @@ func (b *Bot) registerHandlers() {
 	}))
 
 	b.bot.Handle("/new", b.guard(func(c tele.Context) error {
-		sessionID := sessionIDFor(c)
-		if err := b.pool.Reset(sessionID); err != nil {
-			logger().Error("reset session failed", "session_id", sessionID, "error", err)
+		ch := channelForChat(c)
+		info, err := b.pool.RotateSession(ch)
+		if err != nil {
+			logger().Error("rotate session failed", "channel", ch, "error", err)
 			return c.Send(fmt.Sprintf("Error creating new session: %v", err))
 		}
-		logger().Info("session reset", "session_id", sessionID)
+		logger().Info("new session created", "session_id", info.ID, "channel", ch)
 		return c.Send("New session started.")
 	}))
 
 	b.bot.Handle("/compact", b.guard(func(c tele.Context) error {
-		sessionID := sessionIDFor(c)
+		sessionID, err := b.resolveSession(c)
+		if err != nil {
+			return c.Send(fmt.Sprintf("No active session: %v", err))
+		}
 		_ = c.Notify(tele.Typing)
 		summary, err := b.pool.CompactSession(b.ctx, sessionID)
 		if err != nil {
@@ -129,7 +133,11 @@ func (b *Bot) registerHandlers() {
 // handleText processes incoming text messages.
 func (b *Bot) handleText(c tele.Context) error {
 	chatID := c.Chat().ID
-	sessionID := sessionIDFor(c)
+	sessionID, err := b.resolveSession(c)
+	if err != nil {
+		logger().Error("resolve session failed", "chat_id", chatID, "error", err)
+		return c.Send(fmt.Sprintf("Session error: %v", err))
+	}
 	text := c.Message().Text
 
 	// Strip bot mention in group chats (access control already handled by guard).

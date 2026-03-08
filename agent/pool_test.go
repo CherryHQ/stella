@@ -203,7 +203,7 @@ func TestPoolChatErrorFromFactory(t *testing.T) {
 	}
 }
 
-func TestPoolReset(t *testing.T) {
+func TestPoolArchiveAndRecreate(t *testing.T) {
 	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
 	pool := NewPool(factory)
 	defer func() { _ = pool.Close() }()
@@ -214,13 +214,13 @@ func TestPoolReset(t *testing.T) {
 	for range stream {
 	}
 
-	if err := pool.Reset("sess"); err != nil {
-		t.Fatalf("Reset: %v", err)
+	if err := pool.ArchiveSession("sess"); err != nil {
+		t.Fatalf("ArchiveSession: %v", err)
 	}
 
 	// The old runner should be closed.
 	if !(*runners)[0].closed {
-		t.Error("old runner should be closed after Reset")
+		t.Error("old runner should be closed after ArchiveSession")
 	}
 
 	// Session should be removed.
@@ -228,7 +228,7 @@ func TestPoolReset(t *testing.T) {
 	_, exists := pool.sessions["sess"]
 	pool.mu.Unlock()
 	if exists {
-		t.Error("session should be removed after Reset")
+		t.Error("session should be removed after ArchiveSession")
 	}
 
 	// Next chat should create a new runner.
@@ -241,13 +241,13 @@ func TestPoolReset(t *testing.T) {
 	}
 }
 
-func TestPoolResetNonexistent(t *testing.T) {
+func TestPoolArchiveNonexistent(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
 	pool := NewPool(factory)
 
 	// Should not error on nonexistent session.
-	if err := pool.Reset("nonexistent"); err != nil {
-		t.Fatalf("Reset nonexistent: %v", err)
+	if err := pool.ArchiveSession("nonexistent"); err != nil {
+		t.Fatalf("ArchiveSession nonexistent: %v", err)
 	}
 }
 
@@ -420,7 +420,7 @@ func TestPoolCreateSession(t *testing.T) {
 	pool := NewPool(factory)
 	defer func() { _ = pool.Close() }()
 
-	info, err := pool.CreateSession()
+	info, err := pool.CreateSession("test")
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -440,8 +440,8 @@ func TestPoolCreateAndListSessions(t *testing.T) {
 	pool := NewPool(factory)
 	defer func() { _ = pool.Close() }()
 
-	_, _ = pool.CreateSession()
-	_, _ = pool.CreateSession()
+	_, _ = pool.CreateSession("test")
+	_, _ = pool.CreateSession("test")
 
 	sessions, err := pool.ListSessions(false)
 	if err != nil {
@@ -452,12 +452,204 @@ func TestPoolCreateAndListSessions(t *testing.T) {
 	}
 }
 
+func TestPoolActiveSession(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	pool := NewPool(factory)
+	defer func() { _ = pool.Close() }()
+
+	// No sessions yet.
+	_, ok := pool.ActiveSession("cli")
+	if ok {
+		t.Error("expected no active session")
+	}
+
+	// Create a session in "cli" channel.
+	info, _ := pool.CreateSession("cli")
+
+	got, ok := pool.ActiveSession("cli")
+	if !ok {
+		t.Fatal("expected active session")
+	}
+	if got.ID != info.ID {
+		t.Errorf("got ID %q, want %q", got.ID, info.ID)
+	}
+	if got.Channel != "cli" {
+		t.Errorf("got Channel %q, want %q", got.Channel, "cli")
+	}
+
+	// Different channel should not find it.
+	_, ok = pool.ActiveSession("tg123")
+	if ok {
+		t.Error("expected no active session for tg123")
+	}
+}
+
+func TestPoolResolveSession(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	pool := NewPool(factory)
+	defer func() { _ = pool.Close() }()
+
+	// First call creates a new session.
+	info1, err := pool.ResolveSession("cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info1.Channel != "cli" {
+		t.Errorf("Channel = %q, want cli", info1.Channel)
+	}
+
+	// Second call returns the same session.
+	info2, err := pool.ResolveSession("cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info2.ID != info1.ID {
+		t.Errorf("second resolve returned different ID: %q vs %q", info2.ID, info1.ID)
+	}
+
+	// Archive and resolve again — should create a new session.
+	_ = pool.ArchiveSession(info1.ID)
+	info3, err := pool.ResolveSession("cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info3.ID == info1.ID {
+		t.Error("expected new session after archive")
+	}
+}
+
+func TestPoolRotateSession(t *testing.T) {
+	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	pool := NewPool(factory)
+	defer func() { _ = pool.Close() }()
+
+	ch := "tg12345"
+
+	// Create initial session and chat.
+	info1, _ := pool.CreateSession(ch)
+	stream := pool.Chat(context.Background(), info1.ID, "hello")
+	for range stream {
+	}
+
+	// Rotate: archives old, creates new.
+	info2, err := pool.RotateSession(ch)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if info2.ID == info1.ID {
+		t.Error("new session should have different ID")
+	}
+
+	// New session should have no history.
+	history := pool.History(info2.ID)
+	if len(history) != 0 {
+		t.Errorf("new session should have empty history, got %d events", len(history))
+	}
+
+	// ActiveSession should return the new one.
+	active, ok := pool.ActiveSession(ch)
+	if !ok {
+		t.Fatal("expected active session")
+	}
+	if active.ID != info2.ID {
+		t.Errorf("active session = %q, want %q", active.ID, info2.ID)
+	}
+}
+
+func TestPoolRotateSessionNoExisting(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	pool := NewPool(factory)
+	defer func() { _ = pool.Close() }()
+
+	// Rotate with no existing session should just create one.
+	info, err := pool.RotateSession("fresh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Channel != "fresh" {
+		t.Errorf("Channel = %q, want fresh", info.Channel)
+	}
+}
+
+func TestPoolResolveSessionConcurrent(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	pool := NewPool(factory)
+	defer func() { _ = pool.Close() }()
+
+	// Launch multiple goroutines that all resolve the same channel concurrently.
+	const n = 20
+	results := make(chan string, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for range n {
+		go func() {
+			defer wg.Done()
+			info, err := pool.ResolveSession("concurrent")
+			if err != nil {
+				t.Errorf("ResolveSession: %v", err)
+				return
+			}
+			results <- info.ID
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	// All goroutines should have resolved to the same session ID.
+	ids := make(map[string]struct{})
+	for id := range results {
+		ids[id] = struct{}{}
+	}
+	if len(ids) != 1 {
+		t.Errorf("expected 1 unique session ID, got %d: %v", len(ids), ids)
+	}
+}
+
+func TestPoolActiveSessionIgnoresLegacySessions(t *testing.T) {
+	// Sessions created before the Channel field was added have Channel == "".
+	// They should not match any channel query.
+	factory, _ := mockRunnerFactory(nil)
+	pool := NewPool(factory)
+	defer func() { _ = pool.Close() }()
+
+	// Simulate a legacy session by directly injecting one without a Channel.
+	pool.mu.Lock()
+	pool.sessions["legacy-abc"] = &Session{
+		Info: SessionInfo{
+			ID:         "legacy-abc",
+			Channel:    "",
+			CreatedAt:  time.Now(),
+			LastActive: time.Now(),
+		},
+	}
+	pool.mu.Unlock()
+
+	// ActiveSession for "cli" should not match the legacy session.
+	_, ok := pool.ActiveSession("cli")
+	if ok {
+		t.Error("legacy session with empty Channel should not match 'cli'")
+	}
+
+	// ResolveSession should create a new one instead.
+	info, err := pool.ResolveSession("cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Channel != "cli" {
+		t.Errorf("Channel = %q, want cli", info.Channel)
+	}
+	if info.ID == "legacy-abc" {
+		t.Error("should not reuse legacy session")
+	}
+}
+
 func TestPoolArchiveSession(t *testing.T) {
 	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
 	pool := NewPool(factory)
 	defer func() { _ = pool.Close() }()
 
-	info, _ := pool.CreateSession()
+	info, _ := pool.CreateSession("test")
 
 	// Chat to create a runner
 	stream := pool.Chat(context.Background(), info.ID, "test")
@@ -487,7 +679,7 @@ func TestPoolGetSession(t *testing.T) {
 	pool := NewPool(factory)
 	defer func() { _ = pool.Close() }()
 
-	info, _ := pool.CreateSession()
+	info, _ := pool.CreateSession("test")
 
 	got, err := pool.GetSession(info.ID)
 	if err != nil {
@@ -513,7 +705,7 @@ func TestPoolChatAutoTitles(t *testing.T) {
 	pool := NewPool(factory)
 	defer func() { _ = pool.Close() }()
 
-	info, _ := pool.CreateSession()
+	info, _ := pool.CreateSession("test")
 
 	stream := pool.Chat(context.Background(), info.ID, "How do I fix the bug in pool.go?")
 	for range stream {
@@ -537,7 +729,7 @@ func TestPoolChatAutoTitleTruncates(t *testing.T) {
 	pool := NewPool(factory)
 	defer func() { _ = pool.Close() }()
 
-	info, _ := pool.CreateSession()
+	info, _ := pool.CreateSession("test")
 
 	longMsg := "This is a very long message that should be truncated at a word boundary to keep the title reasonable and readable"
 	stream := pool.Chat(context.Background(), info.ID, longMsg)
@@ -568,7 +760,7 @@ func TestPoolChatWithModel(t *testing.T) {
 	defer func() { _ = pool.Close() }()
 
 	ctx := context.Background()
-	info, _ := pool.CreateSession()
+	info, _ := pool.CreateSession("test")
 
 	// First chat uses default model.
 	stream := pool.Chat(ctx, info.ID, "hello")
@@ -624,7 +816,7 @@ func TestPoolFastModelForCompaction(t *testing.T) {
 	)
 	defer func() { _ = pool.Close() }()
 
-	info, _ := pool.CreateSession()
+	info, _ := pool.CreateSession("test")
 
 	// Chat to create a session with history.
 	stream := pool.Chat(context.Background(), info.ID, "hello")
@@ -685,7 +877,7 @@ func TestSetDefaultModelAffectsNewSessions(t *testing.T) {
 	ctx := context.Background()
 
 	// First session uses initial default.
-	info1, _ := pool.CreateSession()
+	info1, _ := pool.CreateSession("test")
 	stream := pool.Chat(ctx, info1.ID, "hello")
 	for range stream {
 	}
@@ -700,7 +892,7 @@ func TestSetDefaultModelAffectsNewSessions(t *testing.T) {
 	pool.SetDefaultModel("switched-model")
 
 	// New session should use the switched model.
-	info2, _ := pool.CreateSession()
+	info2, _ := pool.CreateSession("test")
 	stream = pool.Chat(ctx, info2.ID, "hello")
 	for range stream {
 	}
