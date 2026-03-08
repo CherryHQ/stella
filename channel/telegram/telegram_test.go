@@ -215,6 +215,56 @@ func TestToolTrackerMultipleTools(t *testing.T) {
 	}
 }
 
+func TestToolTrackerRenderFinal(t *testing.T) {
+	var tracker toolTracker
+
+	// No history → empty string.
+	if got := tracker.renderFinal(); got != "" {
+		t.Errorf("renderFinal() with no history = %q, want empty", got)
+	}
+
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "main.go"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done", Input: "main.go"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "error", Input: "go test", Detail: "exit 1"})
+
+	got := tracker.renderFinal()
+	if !strings.Contains(got, "——————————————————") {
+		t.Error("renderFinal() missing separator line")
+	}
+	if !strings.Contains(got, "✅") {
+		t.Error("renderFinal() missing checkmark for done tool")
+	}
+	if !strings.Contains(got, "❌") {
+		t.Error("renderFinal() missing error emoji")
+	}
+	if !strings.Contains(got, "read") || !strings.Contains(got, "bash") {
+		t.Error("renderFinal() missing tool names")
+	}
+	if !strings.Contains(got, "main.go") {
+		t.Error("renderFinal() missing tool input")
+	}
+	if !strings.Contains(got, "exit 1") {
+		t.Error("renderFinal() missing error detail")
+	}
+	// Should not end with a trailing newline after last record.
+	if strings.HasSuffix(got, "\n") {
+		t.Error("renderFinal() should not end with trailing newline")
+	}
+}
+
+func TestToolTrackerHasHistory(t *testing.T) {
+	var tracker toolTracker
+	if tracker.hasHistory() {
+		t.Error("hasHistory() should be false with no tools")
+	}
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "x"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done", Input: "x"})
+	if !tracker.hasHistory() {
+		t.Error("hasHistory() should be true after tool finished")
+	}
+}
+
 func TestToolTrackerMinDisplayDuration(t *testing.T) {
 	var tracker toolTracker
 	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "file.go"})
