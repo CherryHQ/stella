@@ -171,7 +171,7 @@ func TestToolTracker(t *testing.T) {
 func TestToolTrackerError(t *testing.T) {
 	var tracker toolTracker
 	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "exit 1"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "error", Input: "exit 1", Detail: "command failed"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "error", Detail: "command failed"})
 
 	if len(tracker.history) != 1 {
 		t.Fatalf("history len = %d, want 1", len(tracker.history))
@@ -224,9 +224,9 @@ func TestToolTrackerRenderFinal(t *testing.T) {
 	}
 
 	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "main.go"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done", Input: "main.go"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done", Detail: "42 lines"})
 	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "error", Input: "go test", Detail: "exit 1"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "error", Detail: "exit 1"})
 
 	got := tracker.renderFinal()
 	if !strings.Contains(got, "——————————————————") {
@@ -242,7 +242,10 @@ func TestToolTrackerRenderFinal(t *testing.T) {
 		t.Error("renderFinal() missing tool names")
 	}
 	if !strings.Contains(got, "main.go") {
-		t.Error("renderFinal() missing tool input")
+		t.Error("renderFinal() missing tool input (preserved from start)")
+	}
+	if !strings.Contains(got, "42 lines") {
+		t.Error("renderFinal() missing result detail")
 	}
 	if !strings.Contains(got, "exit 1") {
 		t.Error("renderFinal() missing error detail")
@@ -302,25 +305,25 @@ func TestRenderToolRecord(t *testing.T) {
 		wantAbsent []string
 	}{
 		{
-			name:      "done with input",
-			rec:       toolRecord{Tool: "bash", Input: "ls -la", Status: "done", Duration: 500 * time.Millisecond},
-			wantParts: []string{"✅", "⚡", "bash", "ls -la", "500ms"},
+			name:      "done with input and detail",
+			rec:       toolRecord{Tool: "bash", Input: "ls -la", Status: "done", Detail: "3 files", Duration: 500 * time.Millisecond},
+			wantParts: []string{"✅", "⚡", "bash", "ls -la", "→ 3 files", "500ms"},
 		},
 		{
 			name:      "done seconds",
-			rec:       toolRecord{Tool: "read", Input: "main.go", Status: "done", Duration: 2500 * time.Millisecond},
-			wantParts: []string{"✅", "📖", "read", "main.go", "2.5s"},
+			rec:       toolRecord{Tool: "read", Input: "main.go", Status: "done", Detail: "42 lines", Duration: 2500 * time.Millisecond},
+			wantParts: []string{"✅", "📖", "read", "main.go", "→ 42 lines", "2.5s"},
 		},
 		{
 			name:      "error with detail",
 			rec:       toolRecord{Tool: "bash", Input: "rm -rf /", Status: "error", Detail: "permission denied", Duration: time.Second},
-			wantParts: []string{"❌", "bash", "permission denied"},
+			wantParts: []string{"❌", "bash", "rm -rf /", "→ permission denied"},
 		},
 		{
-			name:       "done no input",
+			name:       "done no input no detail",
 			rec:        toolRecord{Tool: "search", Status: "done", Duration: 100 * time.Millisecond},
 			wantParts:  []string{"✅", "🔍", "search", "100ms"},
-			wantAbsent: []string{": "},
+			wantAbsent: []string{": ", "→"},
 		},
 	}
 

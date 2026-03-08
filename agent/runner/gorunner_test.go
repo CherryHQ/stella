@@ -518,3 +518,67 @@ func TestAliveAlwaysTrue(t *testing.T) {
 		t.Error("Alive() should still be true after Close (no subprocess)")
 	}
 }
+
+func TestSummarizeToolResult(t *testing.T) {
+	tests := []struct {
+		name    string
+		result  aitypes.ToolResultMessage
+		want    string
+		contain string // if non-empty, check Contains instead of exact match
+	}{
+		{
+			name: "empty content",
+			result: aitypes.ToolResultMessage{
+				ToolName: "bash",
+				Content:  nil,
+			},
+			want: "",
+		},
+		{
+			name: "short result inline",
+			result: aitypes.ToolResultMessage{
+				ToolName: "bash",
+				Content:  []aitypes.ContentBlock{aitypes.TextContent{Text: "hello world"}},
+			},
+			want: "hello world",
+		},
+		{
+			name: "multiline short result first line",
+			result: aitypes.ToolResultMessage{
+				ToolName: "bash",
+				Content:  []aitypes.ContentBlock{aitypes.TextContent{Text: "ok\ndone"}},
+			},
+			want: "ok",
+		},
+		{
+			name: "long multiline shows line count",
+			result: aitypes.ToolResultMessage{
+				ToolName: "read",
+				Content:  []aitypes.ContentBlock{aitypes.TextContent{Text: "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11\nline12\nline13\nline14\nline15"}},
+			},
+			contain: "15 lines",
+		},
+		{
+			name: "error shows first line",
+			result: aitypes.ToolResultMessage{
+				ToolName: "bash",
+				IsError:  true,
+				Content:  []aitypes.ContentBlock{aitypes.TextContent{Text: "permission denied\nsome stack trace"}},
+			},
+			want: "permission denied",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := summarizeToolResult(tt.result)
+			if tt.contain != "" {
+				if got != tt.contain {
+					t.Errorf("summarizeToolResult() = %q, want %q", got, tt.contain)
+				}
+			} else if got != tt.want {
+				t.Errorf("summarizeToolResult() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

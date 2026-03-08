@@ -75,9 +75,13 @@ func (tt *toolTracker) start(t *runner.ToolUseEvent) {
 // finish records the active tool as completed and enforces minimum display time.
 func (tt *toolTracker) finish(t *runner.ToolUseEvent) {
 	dur := time.Since(tt.activeStart)
+	input := tt.activeInput
+	if t.Input != "" {
+		input = t.Input
+	}
 	tt.history = append(tt.history, toolRecord{
 		Tool:     t.Tool,
-		Input:    t.Input,
+		Input:    input,
 		Status:   t.Status,
 		Detail:   t.Detail,
 		Duration: dur,
@@ -170,11 +174,11 @@ func renderToolRecord(rec toolRecord) string {
 		input := truncate(rec.Input, 60)
 		line += ": " + input
 	}
-	line += fmt.Sprintf(" (%s)", formatDuration(rec.Duration))
-	if rec.Status == "error" && rec.Detail != "" {
+	if rec.Detail != "" {
 		detail := truncate(rec.Detail, 80)
-		line += " — " + detail
+		line += " → " + detail
 	}
+	line += fmt.Sprintf(" (%s)", formatDuration(rec.Duration))
 	return line
 }
 
