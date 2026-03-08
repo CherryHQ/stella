@@ -54,10 +54,17 @@ type ToolUseEvent struct {
 	Detail string // error detail or result summary (for "error" status)
 }
 
+// ImageEvent carries a base64-encoded image to be sent to the channel.
+type ImageEvent struct {
+	Data     string // base64 encoded
+	MimeType string // e.g. "image/jpeg"
+}
+
 // Event is the consumer-facing stream event. Channels read these from the
 // stream returned by Pool.Chat().
 type Event struct {
 	Text    string
+	Image   *ImageEvent
 	ToolUse *ToolUseEvent
 	Store   *RPCEvent // if set, Pool appends to session history
 	Err     error

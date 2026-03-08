@@ -196,7 +196,7 @@ func (b *Bot) handleMessage(c tele.Context, message any) error {
 	typingCtx, stopTyping := context.WithCancel(b.ctx)
 	go keepTyping(typingCtx, c)
 
-	response, tracker, streamErr := b.streamResponse(c, sessionID, message)
+	response, tracker, images, streamErr := b.streamResponse(c, sessionID, message)
 
 	stopTyping()
 
@@ -217,7 +217,7 @@ func (b *Bot) handleMessage(c tele.Context, message any) error {
 		response += tracker.renderFinal()
 	}
 
-	b.sendFinalResponse(c, response)
+	b.sendFinalResponse(c, response, images)
 	logger().Debug("response sent", "chat_id", chatID, "response_len", len(response))
 	return nil
 }
