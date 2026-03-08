@@ -100,6 +100,18 @@ func (b *Bot) streamResponse(targetID, msgID, sessionID, prompt string, scope me
 		lastSend = now
 	}
 
+	// Send a terminal stream chunk (State=10) to finalize the stream,
+	// so QQ clients exit the "generating" state.
+	if streamMsgID != "" {
+		final := sb.String()
+		if strings.TrimSpace(final) == "" {
+			final = "(empty response)"
+		}
+		if _, err := b.sendStreamChunk(targetID, msgID, final, streamMsgID, seq, true, scope); err != nil {
+			logger().Warn("stream done chunk failed", "error", err)
+		}
+	}
+
 	return sb.String(), streamErr
 }
 
