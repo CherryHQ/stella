@@ -2,10 +2,12 @@ package telegram
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"strings"
 
+	"github.com/vaayne/anna/agent/runner"
 	"github.com/yuin/goldmark/parser"
 	tele "gopkg.in/telebot.v4"
 )
@@ -16,10 +18,26 @@ type goldmarkMD interface {
 }
 
 // sendFinalResponse sends the completed response with markdown rendering,
-// splitting into chunks if necessary.
-func (b *Bot) sendFinalResponse(c tele.Context, response string) {
+// splitting into chunks if necessary. It also sends any collected images.
+func (b *Bot) sendFinalResponse(c tele.Context, response string, images []runner.ImageEvent) {
 	if err := b.sendChunkedMarkdown(c.Chat(), response, false, nil); err != nil {
 		logger().Error("sendFinalResponse failed", "chat_id", c.Chat().ID, "error", err)
+	}
+	for _, img := range images {
+		b.sendImage(c, img)
+	}
+}
+
+// sendImage decodes a base64 image and sends it as a photo to the chat.
+func (b *Bot) sendImage(c tele.Context, img runner.ImageEvent) {
+	data, err := base64.StdEncoding.DecodeString(img.Data)
+	if err != nil {
+		logger().Error("decode image failed", "error", err)
+		return
+	}
+	photo := &tele.Photo{File: tele.FromReader(bytes.NewReader(data))}
+	if _, err := b.bot.Send(c.Chat(), photo); err != nil {
+		logger().Error("send image failed", "error", err)
 	}
 }
 

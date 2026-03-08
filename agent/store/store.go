@@ -96,6 +96,12 @@ type piTextContent struct {
 	Text string `json:"text"`
 }
 
+type piImageContent struct {
+	Type     string `json:"type"`
+	Data     string `json:"data"`
+	MimeType string `json:"mimeType"`
+}
+
 type piToolCall struct {
 	Type      string         `json:"type"`
 	ID        string         `json:"id"`
@@ -499,8 +505,12 @@ func rpcEventToEntry(evt runner.RPCEvent, parentID string) (sessionEntry, bool) 
 
 	switch evt.Type {
 	case runner.RPCEventUserMessage:
-		content := evt.Summary
-		contentJSON, _ := json.Marshal([]piTextContent{{Type: "text", Text: content}})
+		var contentJSON json.RawMessage
+		if len(evt.Content) > 0 {
+			contentJSON = userContentToPi(evt.Content, evt.Summary)
+		} else {
+			contentJSON, _ = json.Marshal([]piTextContent{{Type: "text", Text: evt.Summary}})
+		}
 		msg := piUserMessage{
 			Role:      "user",
 			Content:   contentJSON,
@@ -591,11 +601,9 @@ func entryToRPCEvents(entry sessionEntry) []runner.RPCEvent {
 		if err := json.Unmarshal(entry.Message, &msg); err != nil {
 			return nil
 		}
-		text := extractUserText(msg.Content)
-		return []runner.RPCEvent{{
-			Type:    runner.RPCEventUserMessage,
-			Summary: text,
-		}}
+		evt := runner.RPCEvent{Type: runner.RPCEventUserMessage}
+		evt.Summary, evt.Content = extractUserContent(msg.Content)
+		return []runner.RPCEvent{evt}
 
 	case "assistant":
 		var msg piAssistantMessage
@@ -645,15 +653,85 @@ func entryToRPCEvents(entry sessionEntry) []runner.RPCEvent {
 	}
 }
 
-// extractUserText extracts text from Pi user message content (string or content block array).
-func extractUserText(raw json.RawMessage) string {
-	// Try string first.
+// userContentToPi converts runner multimodal content (json.RawMessage of ContentBlockJSON)
+// to Pi-format content blocks. Falls back to text-only if parsing fails.
+func userContentToPi(content json.RawMessage, fallbackText string) json.RawMessage {
+	var blocks []runner.ContentBlockJSON
+	if err := json.Unmarshal(content, &blocks); err != nil {
+		data, _ := json.Marshal([]piTextContent{{Type: "text", Text: fallbackText}})
+		return data
+	}
+
+	var piBlocks []any
+	for _, b := range blocks {
+		switch b.Kind {
+		case runner.BlockKindText:
+			piBlocks = append(piBlocks, piTextContent{Type: "text", Text: b.Text})
+		case runner.BlockKindImage:
+			piBlocks = append(piBlocks, piImageContent{Type: "image", Data: b.Data, MimeType: b.MimeType})
+		}
+	}
+	if len(piBlocks) == 0 {
+		data, _ := json.Marshal([]piTextContent{{Type: "text", Text: fallbackText}})
+		return data
+	}
+	data, _ := json.Marshal(piBlocks)
+	return data
+}
+
+// extractUserContent extracts text and optional multimodal content from Pi user message content.
+// Returns (summary text, multimodal content as runner json.RawMessage or nil).
+func extractUserContent(raw json.RawMessage) (string, json.RawMessage) {
+	// Try string first (legacy format).
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
-		return s
+		return s, nil
 	}
-	// Try array of content blocks.
-	return extractTextFromContent(raw)
+
+	// Parse content block array.
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return "", nil
+	}
+
+	// Single pass: collect text summary and runner blocks simultaneously.
+	var hasImage bool
+	var textParts []string
+	var runnerBlocks []runner.ContentBlockJSON
+
+	for _, block := range blocks {
+		var peek struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(block, &peek) != nil {
+			continue
+		}
+		switch peek.Type {
+		case "text":
+			var tc piTextContent
+			if json.Unmarshal(block, &tc) == nil {
+				if tc.Text != "" {
+					textParts = append(textParts, tc.Text)
+				}
+				runnerBlocks = append(runnerBlocks, runner.ContentBlockJSON{Kind: runner.BlockKindText, Text: tc.Text})
+			}
+		case "image":
+			hasImage = true
+			var ic piImageContent
+			if json.Unmarshal(block, &ic) == nil {
+				runnerBlocks = append(runnerBlocks, runner.ContentBlockJSON{Kind: runner.BlockKindImage, Data: ic.Data, MimeType: ic.MimeType})
+			}
+		}
+	}
+
+	summary := strings.Join(textParts, "")
+
+	if !hasImage {
+		return summary, nil
+	}
+
+	contentJSON, _ := json.Marshal(runnerBlocks)
+	return summary, contentJSON
 }
 
 // extractTextFromContent extracts concatenated text from a JSON array of content blocks.

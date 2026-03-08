@@ -10,6 +10,7 @@ Two interfaces: **interactive CLI chat** and **gateway daemon** (Telegram bot vi
 - Interactive CLI chat with Bubble Tea TUI and streaming responses
 - Telegram bot via long polling (no webhook, no public IP needed)
   - Streaming drafts (Bot API 9.3+) for smooth animated responses
+  - Image input support (send photos for vision-based analysis)
   - Group support with configurable `group_mode` (mention/always/disabled)
   - Access control via `allowed_ids`
 - Notification system with multi-backend dispatcher

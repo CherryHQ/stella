@@ -45,6 +45,21 @@ During tool execution, the stream shows status with emoji indicators:
 | `edit` | wrench |
 | `search` | magnifying glass |
 
+## Image Support
+
+The bot accepts photo messages in private chats. When you send an image:
+
+1. The bot downloads the highest-resolution version from Telegram's file API
+2. Detects the MIME type and base64-encodes the image
+3. Sends it as a multimodal message (image + optional caption text) to the model
+4. The model analyzes the image and responds with text
+
+Use cases: describe screenshots, analyze diagrams, read documents from photos, etc.
+
+If the model returns images (e.g. from tool results), they are sent back as Telegram photos after the text response.
+
+> **Note:** Image support requires a vision-capable model (e.g. Claude 3+, GPT-4o).
+
 ## Group Support
 
 Configure how the bot responds in group chats:

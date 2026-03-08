@@ -29,8 +29,11 @@ func userContentBlocks(content any) []sdk.ContentBlockParamUnion {
 	case []types.ContentBlock:
 		blocks := make([]sdk.ContentBlockParamUnion, 0, len(c))
 		for _, block := range c {
-			if b, ok := block.(types.TextContent); ok {
+			switch b := block.(type) {
+			case types.TextContent:
 				blocks = append(blocks, sdk.NewTextBlock(b.Text))
+			case types.ImageContent:
+				blocks = append(blocks, sdk.NewImageBlockBase64(b.MimeType, b.Data))
 			}
 		}
 		return blocks

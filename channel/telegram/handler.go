@@ -2,10 +2,15 @@ package telegram
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"io"
+	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/vaayne/anna/agent/runner"
+	aitypes "github.com/vaayne/anna/ai/types"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -122,6 +127,10 @@ func (b *Bot) registerHandlers() {
 		return b.handleText(c)
 	}))
 
+	b.bot.Handle(tele.OnPhoto, b.guard(func(c tele.Context) error {
+		return b.handlePhoto(c)
+	}))
+
 	// Debug: catch-all callback handler for unmatched callbacks.
 	b.bot.Handle(tele.OnCallback, func(c tele.Context) error {
 		cb := c.Callback()
@@ -132,25 +141,68 @@ func (b *Bot) registerHandlers() {
 
 // handleText processes incoming text messages.
 func (b *Bot) handleText(c tele.Context) error {
+	text := c.Message().Text
+	if isGroup(c) {
+		text = b.stripBotMention(text)
+	}
+	return b.handleMessage(c, text)
+}
+
+// handlePhoto processes incoming photo messages.
+func (b *Bot) handlePhoto(c tele.Context) error {
+	photo := c.Message().Photo
+	if photo == nil {
+		return c.Send("No photo found in message.")
+	}
+
+	rc, err := b.bot.File(&photo.File)
+	if err != nil {
+		logger().Error("download photo failed", "error", err)
+		return c.Send(fmt.Sprintf("Failed to download photo: %v", err))
+	}
+	defer func() { _ = rc.Close() }()
+
+	const maxPhotoSize = 20 << 20 // 20MB — Telegram's file size limit
+	data, err := io.ReadAll(io.LimitReader(rc, maxPhotoSize+1))
+	if err != nil {
+		logger().Error("read photo failed", "error", err)
+		return c.Send(fmt.Sprintf("Failed to read photo: %v", err))
+	}
+	if len(data) > maxPhotoSize {
+		return c.Send("Photo too large (max 20 MB).")
+	}
+
+	mimeType := http.DetectContentType(data)
+	encoded := base64.StdEncoding.EncodeToString(data)
+
+	var content []aitypes.ContentBlock
+	if caption := c.Message().Caption; caption != "" {
+		if isGroup(c) {
+			caption = b.stripBotMention(caption)
+		}
+		content = append(content, aitypes.TextContent{Text: caption})
+	}
+	content = append(content, aitypes.ImageContent{Data: encoded, MimeType: mimeType})
+
+	logger().Debug("photo received", "chat_id", c.Chat().ID, "size", len(data), "mime", mimeType)
+	return b.handleMessage(c, content)
+}
+
+// handleMessage is the common flow for text and multimodal messages.
+func (b *Bot) handleMessage(c tele.Context, message runner.MessageContent) error {
 	chatID := c.Chat().ID
 	sessionID, err := b.resolveSession(c)
 	if err != nil {
 		logger().Error("resolve session failed", "chat_id", chatID, "error", err)
 		return c.Send(fmt.Sprintf("Session error: %v", err))
 	}
-	text := c.Message().Text
 
-	// Strip bot mention in group chats (access control already handled by guard).
-	if isGroup(c) {
-		text = b.stripBotMention(text)
-	}
-
-	logger().Debug("message received", "chat_id", chatID, "text_len", len(text))
+	logger().Debug("message received", "chat_id", chatID)
 
 	typingCtx, stopTyping := context.WithCancel(b.ctx)
 	go keepTyping(typingCtx, c)
 
-	response, tracker, streamErr := b.streamResponse(c, sessionID, text)
+	response, tracker, images, streamErr := b.streamResponse(c, sessionID, message)
 
 	stopTyping()
 
@@ -171,7 +223,7 @@ func (b *Bot) handleText(c tele.Context) error {
 		response += tracker.renderFinal()
 	}
 
-	b.sendFinalResponse(c, response)
+	b.sendFinalResponse(c, response, images)
 	logger().Debug("response sent", "chat_id", chatID, "response_len", len(response))
 	return nil
 }

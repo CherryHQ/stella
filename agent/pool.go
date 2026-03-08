@@ -448,7 +448,7 @@ func (p *Pool) History(sessionID string) []runner.RPCEvent {
 // Chat sends a message in a session and streams back events.
 // Internally: gets/creates runner, passes history, collects events,
 // appends to session log, streams to caller.
-func (p *Pool) Chat(ctx context.Context, sessionID string, message string, opts ...ChatOption) <-chan runner.Event {
+func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.MessageContent, opts ...ChatOption) <-chan runner.Event {
 	out := make(chan runner.Event, 100)
 
 	var co chatOptions
@@ -465,7 +465,8 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message string, opts 
 		return out
 	}
 
-	p.log.Debug("chat started", "session_id", sessionID, "history_len", len(sess.Events), "message_len", len(message))
+	msgText := runner.MessageText(message)
+	p.log.Debug("chat started", "session_id", sessionID, "history_len", len(sess.Events), "message_len", len(msgText))
 
 	// Auto-compact if the session has grown too large.
 	if p.NeedsCompaction(sessionID) {
@@ -496,12 +497,12 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message string, opts 
 	p.touchLastActive(sessionID, now)
 
 	// Store user message so stateless runners can reconstruct the conversation.
-	userEvt := runner.RPCEvent{Type: "user_message", Summary: message}
+	userEvt := runner.UserMessageToRPCEvent(message)
 	p.mu.Lock()
 	sess.Events = append(sess.Events, userEvt)
 	// Auto-title: use the first user message as the session title.
-	if sess.Info.Title == "" && len(message) > 0 {
-		title := message
+	if sess.Info.Title == "" && len(msgText) > 0 {
+		title := msgText
 		if len(title) > 60 {
 			// Truncate at word boundary.
 			if idx := strings.LastIndex(title[:60], " "); idx > 20 {
