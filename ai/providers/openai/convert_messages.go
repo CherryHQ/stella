@@ -20,11 +20,11 @@ func convertMessages(ctx types.Context) []sdk.ChatCompletionMessageParamUnion {
 	for _, msg := range ctx.Messages {
 		switch m := msg.(type) {
 		case types.UserMessage:
-			messages = append(messages, sdk.UserMessage(userContent(m.Content)))
+			messages = append(messages, userMessage(m.Content))
 		case types.AssistantMessage:
 			messages = append(messages, convertAssistantMessage(m))
 		case types.ToolResultMessage:
-			messages = append(messages, sdk.ToolMessage(flattenToolResult(m.Content), m.ToolCallID))
+			messages = append(messages, sdk.ToolMessage(types.FlattenText(m.Content), m.ToolCallID))
 		}
 	}
 	return messages
@@ -63,29 +63,27 @@ func convertAssistantMessage(m types.AssistantMessage) sdk.ChatCompletionMessage
 	return sdk.AssistantMessage(strings.Join(textParts, " "))
 }
 
-func userContent(content any) string {
+func userMessage(content any) sdk.ChatCompletionMessageParamUnion {
 	switch c := content.(type) {
 	case string:
-		return c
+		return sdk.UserMessage(c)
 	case []types.ContentBlock:
-		parts := make([]string, 0, len(c))
+		if !types.HasImage(c) {
+			return sdk.UserMessage(types.FlattenText(c))
+		}
+		parts := make([]sdk.ChatCompletionContentPartUnionParam, 0, len(c))
 		for _, block := range c {
-			if t, ok := block.(types.TextContent); ok && t.Text != "" {
-				parts = append(parts, t.Text)
+			switch b := block.(type) {
+			case types.TextContent:
+				parts = append(parts, sdk.TextContentPart(b.Text))
+			case types.ImageContent:
+				parts = append(parts, sdk.ImageContentPart(sdk.ChatCompletionContentPartImageImageURLParam{
+					URL: b.DataURI(),
+				}))
 			}
 		}
-		return strings.Join(parts, " ")
+		return sdk.UserMessage(parts)
 	default:
-		return fmt.Sprintf("%v", content)
+		return sdk.UserMessage(fmt.Sprintf("%v", content))
 	}
-}
-
-func flattenToolResult(content []types.ContentBlock) string {
-	parts := make([]string, 0, len(content))
-	for _, block := range content {
-		if t, ok := block.(types.TextContent); ok && t.Text != "" {
-			parts = append(parts, t.Text)
-		}
-	}
-	return strings.Join(parts, " ")
 }

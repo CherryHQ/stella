@@ -246,7 +246,8 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%.1fs", d.Seconds())
 }
 
-// truncate shortens s to maxLen characters, appending "..." if truncated.
+// truncate shortens s to maxLen bytes, appending "..." if truncated.
+// Cuts at a valid UTF-8 boundary to avoid producing invalid strings.
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
@@ -254,38 +255,43 @@ func truncate(s string, maxLen int) string {
 	if maxLen <= 3 {
 		return "..."
 	}
-	return s[:maxLen-3] + "..."
+	cutAt := maxLen - 3
+	for cutAt > 0 && !utf8.RuneStart(s[cutAt]) {
+		cutAt--
+	}
+	return s[:cutAt] + "..."
 }
 
 // streamResponse consumes the agent stream, displaying progress in real time.
 // For private chats it uses Telegram's sendMessageDraft API (Bot API 9.3+)
 // for smooth animated streaming. For groups (where drafts aren't supported)
 // it falls back to the edit-in-place approach.
-func (b *Bot) streamResponse(c tele.Context, sessionID, prompt string) (string, *toolTracker, error) {
+func (b *Bot) streamResponse(c tele.Context, sessionID string, prompt runner.MessageContent) (string, *toolTracker, []runner.ImageEvent, error) {
 	events := b.pool.Chat(b.ctx, sessionID, prompt)
 
 	if !isGroup(c) {
-		text, tracker, fallback, err := b.streamDraft(c, events)
+		text, tracker, images, fallback, err := b.streamDraft(c, events)
 		if fallback {
 			// Draft failed on first attempt — the event channel is still
 			// open. Continue with edit-based streaming, preserving any
 			// text and tool state already buffered from consumed events.
 			logger().Info("sendMessageDraft not supported, falling back to edit mode")
-			return b.streamEditEvents(c, events, text, tracker)
+			return b.streamEditEvents(c, events, text, tracker, images)
 		}
-		return text, tracker, err
+		return text, tracker, images, err
 	}
-	return b.streamEditEvents(c, events, "", nil)
+	return b.streamEditEvents(c, events, "", nil, nil)
 }
 
 // streamDraft uses Telegram's sendMessageDraft API for smooth streaming
 // in private chats. If the first draft call fails, it returns fallback=true
 // so the caller can switch to edit mode. The buffered text is returned so
 // no consumed events are lost.
-func (b *Bot) streamDraft(c tele.Context, events <-chan runner.Event) (text string, tracker *toolTracker, fallback bool, err error) {
+func (b *Bot) streamDraft(c tele.Context, events <-chan runner.Event) (text string, tracker *toolTracker, images []runner.ImageEvent, fallback bool, err error) {
 	var sb strings.Builder
 	var streamErr error
 	var tt toolTracker
+	var imgs []runner.ImageEvent
 	lastSend := time.Time{}
 	draftID := rand.Int64N(1<<53) + 1
 	chatID := c.Chat().ID
@@ -295,6 +301,11 @@ func (b *Bot) streamDraft(c tele.Context, events <-chan runner.Event) (text stri
 		if evt.Err != nil {
 			streamErr = evt.Err
 			break
+		}
+
+		if evt.Image != nil {
+			imgs = append(imgs, *evt.Image)
+			continue
 		}
 
 		forceRefresh := false
@@ -318,7 +329,7 @@ func (b *Bot) streamDraft(c tele.Context, events <-chan runner.Event) (text stri
 
 		if err := b.sendDraftRaw(chatID, draftID, display); err != nil {
 			if firstDraft {
-				return sb.String(), &tt, true, nil
+				return sb.String(), &tt, imgs, true, nil
 			}
 			logger().Warn("sendMessageDraft failed mid-stream", "error", err)
 		}
@@ -326,14 +337,14 @@ func (b *Bot) streamDraft(c tele.Context, events <-chan runner.Event) (text stri
 		lastSend = now
 	}
 
-	return sb.String(), &tt, false, streamErr
+	return sb.String(), &tt, imgs, false, streamErr
 }
 
 // streamEditEvents uses the traditional edit-in-place approach for streaming,
 // consuming from an existing event channel. Required for group chats where
 // sendMessageDraft is not available. Any already-buffered text from a prior
 // draft attempt is preserved via the initial parameter.
-func (b *Bot) streamEditEvents(c tele.Context, events <-chan runner.Event, initial string, existing *toolTracker) (string, *toolTracker, error) {
+func (b *Bot) streamEditEvents(c tele.Context, events <-chan runner.Event, initial string, existing *toolTracker, existingImages []runner.ImageEvent) (string, *toolTracker, []runner.ImageEvent, error) {
 	var sb strings.Builder
 	sb.WriteString(initial)
 	var sentMsg *tele.Message
@@ -342,12 +353,19 @@ func (b *Bot) streamEditEvents(c tele.Context, events <-chan runner.Event, initi
 	if existing != nil {
 		tt = *existing
 	}
+	var imgs []runner.ImageEvent
+	imgs = append(imgs, existingImages...)
 	lastEdit := time.Time{}
 
 	for evt := range events {
 		if evt.Err != nil {
 			streamErr = evt.Err
 			break
+		}
+
+		if evt.Image != nil {
+			imgs = append(imgs, *evt.Image)
+			continue
 		}
 
 		forceRefresh := false
@@ -391,7 +409,7 @@ func (b *Bot) streamEditEvents(c tele.Context, events <-chan runner.Event, initi
 		}
 	}
 
-	return sb.String(), &tt, streamErr
+	return sb.String(), &tt, imgs, streamErr
 }
 
 // buildStreamDisplay constructs the streaming display text with tool summary,

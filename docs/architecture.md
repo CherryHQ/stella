@@ -108,7 +108,7 @@ Three LLM providers are supported:
 | `openai` | Chat Completions API | GPT models |
 | `openai-response` | Responses API | OpenAI-compatible services (Perplexity, Together.ai, etc.) |
 
-Each provider implements the `stream.Provider` interface for streaming responses and optionally `stream.ModelLister` for model discovery.
+Each provider implements the `stream.Provider` interface for streaming responses and optionally `stream.ModelLister` for model discovery. All providers support multimodal input (text + images) via the `ImageContent` type, converting to their native image format (base64 blocks for Anthropic, data URI image_url for OpenAI).
 
 ## Tools
 
@@ -142,7 +142,7 @@ type Tool interface {
 
 ## Session Lifecycle
 
-1. Channel sends message to `Pool.Chat(ctx, sessionID, prompt)`
+1. Channel sends message to `Pool.Chat(ctx, sessionID, message)` — message is `string` (text) or `[]ContentBlock` (multimodal, e.g. text + images)
 2. Pool finds or creates a session, loading history from disk if persisted
 3. Pool acquires or creates a runner for the session
 4. Runner streams events back through a channel

@@ -599,6 +599,161 @@ func TestCompact(t *testing.T) {
 	}
 }
 
+func TestMultimodalUserMessageRoundTrip(t *testing.T) {
+	s := tempStore(t)
+
+	// Build a multimodal RPCEvent (text + image) as produced by runner.UserMessageToRPCEvent.
+	contentBlocks := []struct {
+		Kind     string `json:"kind"`
+		Text     string `json:"text,omitempty"`
+		Data     string `json:"data,omitempty"`
+		MimeType string `json:"mime_type,omitempty"`
+	}{
+		{Kind: "text", Text: "describe this image"},
+		{Kind: "image", Data: "iVBORw0KGgo=", MimeType: "image/png"},
+	}
+	contentJSON, _ := json.Marshal(contentBlocks)
+
+	evt := runner.RPCEvent{
+		Type:    runner.RPCEventUserMessage,
+		Summary: "describe this image",
+		Content: contentJSON,
+	}
+
+	if err := s.Append("s1", evt); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	loaded, err := s.Load("s1")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(loaded))
+	}
+
+	got := loaded[0]
+	if got.Type != runner.RPCEventUserMessage {
+		t.Errorf("Type = %q, want %q", got.Type, runner.RPCEventUserMessage)
+	}
+	if got.Summary != "describe this image" {
+		t.Errorf("Summary = %q, want %q", got.Summary, "describe this image")
+	}
+	if got.Content == nil {
+		t.Fatal("Content should not be nil for multimodal message")
+	}
+
+	// Verify the Content field round-trips correctly.
+	var restored []struct {
+		Kind     string `json:"kind"`
+		Text     string `json:"text,omitempty"`
+		Data     string `json:"data,omitempty"`
+		MimeType string `json:"mime_type,omitempty"`
+	}
+	if err := json.Unmarshal(got.Content, &restored); err != nil {
+		t.Fatalf("unmarshal Content: %v", err)
+	}
+	if len(restored) != 2 {
+		t.Fatalf("expected 2 blocks, got %d", len(restored))
+	}
+	if restored[0].Kind != "text" || restored[0].Text != "describe this image" {
+		t.Errorf("block 0: %+v", restored[0])
+	}
+	if restored[1].Kind != "image" || restored[1].Data != "iVBORw0KGgo=" || restored[1].MimeType != "image/png" {
+		t.Errorf("block 1: %+v", restored[1])
+	}
+}
+
+func TestMultimodalUserMessagePiFormat(t *testing.T) {
+	s := tempStore(t)
+
+	contentBlocks := []struct {
+		Kind     string `json:"kind"`
+		Text     string `json:"text,omitempty"`
+		Data     string `json:"data,omitempty"`
+		MimeType string `json:"mime_type,omitempty"`
+	}{
+		{Kind: "text", Text: "caption"},
+		{Kind: "image", Data: "base64data", MimeType: "image/jpeg"},
+	}
+	contentJSON, _ := json.Marshal(contentBlocks)
+
+	evt := runner.RPCEvent{
+		Type:    runner.RPCEventUserMessage,
+		Summary: "caption",
+		Content: contentJSON,
+	}
+	if err := s.Append("s1", evt); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	// Read raw file and verify Pi format includes image block.
+	p := s.resolve("s1")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected at least 2 lines, got %d", len(lines))
+	}
+
+	var entry sessionEntry
+	if err := json.Unmarshal([]byte(lines[1]), &entry); err != nil {
+		t.Fatalf("unmarshal entry: %v", err)
+	}
+
+	var msg piUserMessage
+	if err := json.Unmarshal(entry.Message, &msg); err != nil {
+		t.Fatalf("unmarshal message: %v", err)
+	}
+
+	// Content should be an array with both text and image blocks.
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(msg.Content, &blocks); err != nil {
+		t.Fatalf("unmarshal content array: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 content blocks, got %d", len(blocks))
+	}
+
+	// Verify image block is present in Pi format.
+	var imgBlock piImageContent
+	if err := json.Unmarshal(blocks[1], &imgBlock); err != nil {
+		t.Fatalf("unmarshal image block: %v", err)
+	}
+	if imgBlock.Type != "image" || imgBlock.Data != "base64data" || imgBlock.MimeType != "image/jpeg" {
+		t.Errorf("image block: %+v", imgBlock)
+	}
+}
+
+func TestTextOnlyUserMessageNoContent(t *testing.T) {
+	s := tempStore(t)
+
+	// Text-only message should not get a Content field after round-trip.
+	evt := runner.RPCEvent{
+		Type:    runner.RPCEventUserMessage,
+		Summary: "just text",
+	}
+	if err := s.Append("s1", evt); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	loaded, err := s.Load("s1")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(loaded))
+	}
+	if loaded[0].Content != nil {
+		t.Errorf("Content should be nil for text-only, got %s", string(loaded[0].Content))
+	}
+	if loaded[0].Summary != "just text" {
+		t.Errorf("Summary = %q, want %q", loaded[0].Summary, "just text")
+	}
+}
+
 func TestCompactNonexistent(t *testing.T) {
 	s := tempStore(t)
 	_, err := s.Compact("nope", "summary", 5)

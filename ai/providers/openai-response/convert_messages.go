@@ -16,21 +16,14 @@ func convertMessages(ctx types.Context) responses.ResponseInputParam {
 	for _, msg := range ctx.Messages {
 		switch m := msg.(type) {
 		case types.UserMessage:
-			items = append(items, responses.ResponseInputItemUnionParam{
-				OfMessage: &responses.EasyInputMessageParam{
-					Role: responses.EasyInputMessageRoleUser,
-					Content: responses.EasyInputMessageContentUnionParam{
-						OfString: param.NewOpt(userContent(m.Content)),
-					},
-				},
-			})
+			items = append(items, userMessage(m.Content))
 		case types.AssistantMessage:
 			items = append(items, convertAssistantMessage(m)...)
 		case types.ToolResultMessage:
 			items = append(items, responses.ResponseInputItemUnionParam{
 				OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
 					CallID: m.ToolCallID,
-					Output: flattenToolResult(m.Content),
+					Output: types.FlattenText(m.Content),
 				},
 			})
 		}
@@ -72,29 +65,48 @@ func convertAssistantMessage(m types.AssistantMessage) responses.ResponseInputPa
 	return items
 }
 
-func userContent(content any) string {
+func userMessage(content any) responses.ResponseInputItemUnionParam {
+	textMsg := func(s string) responses.ResponseInputItemUnionParam {
+		return responses.ResponseInputItemUnionParam{
+			OfMessage: &responses.EasyInputMessageParam{
+				Role: responses.EasyInputMessageRoleUser,
+				Content: responses.EasyInputMessageContentUnionParam{
+					OfString: param.NewOpt(s),
+				},
+			},
+		}
+	}
+
 	switch c := content.(type) {
 	case string:
-		return c
+		return textMsg(c)
 	case []types.ContentBlock:
-		parts := make([]string, 0, len(c))
+		if !types.HasImage(c) {
+			return textMsg(types.FlattenText(c))
+		}
+		parts := make(responses.ResponseInputMessageContentListParam, 0, len(c))
 		for _, block := range c {
-			if t, ok := block.(types.TextContent); ok && t.Text != "" {
-				parts = append(parts, t.Text)
+			switch b := block.(type) {
+			case types.TextContent:
+				parts = append(parts, responses.ResponseInputContentParamOfInputText(b.Text))
+			case types.ImageContent:
+				img := responses.ResponseInputContentUnionParam{
+					OfInputImage: &responses.ResponseInputImageParam{
+						ImageURL: param.NewOpt(b.DataURI()),
+					},
+				}
+				parts = append(parts, img)
 			}
 		}
-		return strings.Join(parts, " ")
-	default:
-		return fmt.Sprintf("%v", content)
-	}
-}
-
-func flattenToolResult(content []types.ContentBlock) string {
-	parts := make([]string, 0, len(content))
-	for _, block := range content {
-		if t, ok := block.(types.TextContent); ok && t.Text != "" {
-			parts = append(parts, t.Text)
+		return responses.ResponseInputItemUnionParam{
+			OfMessage: &responses.EasyInputMessageParam{
+				Role: responses.EasyInputMessageRoleUser,
+				Content: responses.EasyInputMessageContentUnionParam{
+					OfInputItemContentList: parts,
+				},
+			},
 		}
+	default:
+		return textMsg(fmt.Sprintf("%v", content))
 	}
-	return strings.Join(parts, " ")
 }

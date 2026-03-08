@@ -211,9 +211,10 @@ func (b *Bot) isMentionedOrReplied(c tele.Context) bool {
 			return true
 		}
 	}
-	// Check for @mention.
+	// Check for @mention in text or caption (photos carry text in Caption).
 	if b.bot.Me.Username != "" {
-		if strings.Contains(c.Message().Text, "@"+b.bot.Me.Username) {
+		mention := "@" + b.bot.Me.Username
+		if strings.Contains(c.Message().Text, mention) || strings.Contains(c.Message().Caption, mention) {
 			return true
 		}
 	}
