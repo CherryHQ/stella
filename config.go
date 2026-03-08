@@ -35,6 +35,7 @@ const (
 // ChannelsConfig groups all channel (interface) configurations.
 type ChannelsConfig struct {
 	Telegram TelegramConfig `yaml:"telegram" envPrefix:"TELEGRAM_"`
+	QQ       QQConfig       `yaml:"qq"       envPrefix:"QQ_"`
 }
 
 type CronConfig struct {
@@ -81,6 +82,17 @@ type RunnerConfig struct {
 
 // CompactionConfig is an alias for agent.CompactionConfig for config YAML binding.
 type CompactionConfig = agent.CompactionConfig
+
+type QQConfig struct {
+	AppID       string   `yaml:"app_id"       env:"APP_ID"`
+	AppSecret   string   `yaml:"app_secret"   env:"APP_SECRET"`
+	NotifyChat  string   `yaml:"notify_chat"  env:"NOTIFY_CHAT"`
+	ListenAddr  string   `yaml:"listen_addr"  env:"LISTEN_ADDR"`
+	WebhookPath string   `yaml:"webhook_path" env:"WEBHOOK_PATH"`
+	Sandbox     bool     `yaml:"sandbox"      env:"SANDBOX"`
+	GroupMode   string   `yaml:"group_mode"   env:"GROUP_MODE"`
+	AllowedIDs  []string `yaml:"allowed_ids"  env:"ALLOWED_IDS"`
+}
 
 type TelegramConfig struct {
 	Token      string  `yaml:"token"       env:"TOKEN"`
