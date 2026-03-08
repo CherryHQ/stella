@@ -232,27 +232,59 @@ func TestToolTrackerRenderFinal(t *testing.T) {
 	if !strings.Contains(got, "——————————————————") {
 		t.Error("renderFinal() missing separator line")
 	}
-	if !strings.Contains(got, "✅") {
-		t.Error("renderFinal() missing checkmark for done tool")
-	}
-	if !strings.Contains(got, "❌") {
-		t.Error("renderFinal() missing error emoji")
+	// Compact one-liner with tool counts.
+	if !strings.Contains(got, "📎 2 tools") {
+		t.Error("renderFinal() missing compact tool count")
 	}
 	if !strings.Contains(got, "read") || !strings.Contains(got, "bash") {
-		t.Error("renderFinal() missing tool names")
+		t.Error("renderFinal() missing tool names in summary")
 	}
-	if !strings.Contains(got, "main.go") {
-		t.Error("renderFinal() missing tool input (preserved from start)")
-	}
-	if !strings.Contains(got, "42 lines") {
-		t.Error("renderFinal() missing result detail")
+	// Error tool should be shown in detail.
+	if !strings.Contains(got, "❌") {
+		t.Error("renderFinal() missing error line")
 	}
 	if !strings.Contains(got, "exit 1") {
 		t.Error("renderFinal() missing error detail")
 	}
-	// Should not end with a trailing newline after last record.
-	if strings.HasSuffix(got, "\n") {
-		t.Error("renderFinal() should not end with trailing newline")
+	// Successful tools should NOT have individual lines.
+	if strings.Contains(got, "✅") {
+		t.Error("renderFinal() should not have individual success lines")
+	}
+}
+
+func TestToolTrackerRenderFinalAllSuccess(t *testing.T) {
+	var tracker toolTracker
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "a.go"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "b.go"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "done"})
+
+	got := tracker.renderFinal()
+	if !strings.Contains(got, "📎 3 tools") {
+		t.Errorf("renderFinal() = %q, want '3 tools'", got)
+	}
+	if !strings.Contains(got, "2× 📖read") {
+		t.Errorf("renderFinal() = %q, want '2× 📖read'", got)
+	}
+	if !strings.Contains(got, "⚡bash") {
+		t.Errorf("renderFinal() = %q, want '⚡bash'", got)
+	}
+	// No error lines.
+	if strings.Contains(got, "❌") {
+		t.Error("renderFinal() should not have error lines for all-success")
+	}
+}
+
+func TestToolTrackerRenderFinalSingleTool(t *testing.T) {
+	var tracker toolTracker
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "x.go"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done"})
+
+	got := tracker.renderFinal()
+	if !strings.Contains(got, "📎 1 tool (") {
+		t.Errorf("renderFinal() = %q, want singular 'tool'", got)
 	}
 }
 

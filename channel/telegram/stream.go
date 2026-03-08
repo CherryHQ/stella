@@ -146,19 +146,67 @@ func (tt *toolTracker) hasHistory() bool {
 	return len(tt.history) > 0
 }
 
-// renderFinal builds the tool summary for the final message, separated by a line.
+// renderFinal builds a compact tool summary for the final message.
+// Shows a one-liner with tool counts and total time, plus individual
+// lines for any failed tool calls.
 func (tt *toolTracker) renderFinal() string {
 	if len(tt.history) == 0 {
 		return ""
 	}
-	var sb strings.Builder
-	sb.WriteString("\n\n——————————————————\n")
-	for i, rec := range tt.history {
-		sb.WriteString(renderToolRecord(rec))
-		if i < len(tt.history)-1 {
-			sb.WriteByte('\n')
+
+	// Count tools by name (preserving order of first appearance).
+	type toolCount struct {
+		name  string
+		count int
+	}
+	seen := map[string]int{}
+	var counts []toolCount
+	var totalDur time.Duration
+	var errors []toolRecord
+
+	for _, rec := range tt.history {
+		totalDur += rec.Duration
+		if rec.Status == "error" {
+			errors = append(errors, rec)
+		}
+		if idx, ok := seen[rec.Tool]; ok {
+			counts[idx].count++
+		} else {
+			seen[rec.Tool] = len(counts)
+			counts = append(counts, toolCount{name: rec.Tool, count: 1})
 		}
 	}
+
+	// Build compact summary: "📎 5 tools (2× read, 2× bash, 1× edit) · 3.2s"
+	var sb strings.Builder
+	sb.WriteString("\n\n——————————————————\n")
+
+	total := len(tt.history)
+	fmt.Fprintf(&sb, "📎 %d tool", total)
+	if total != 1 {
+		sb.WriteByte('s')
+	}
+	sb.WriteString(" (")
+	for i, tc := range counts {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		emoji := emojiFor(tc.name)
+		if tc.count > 1 {
+			fmt.Fprintf(&sb, "%d× %s%s", tc.count, emoji, tc.name)
+		} else {
+			sb.WriteString(emoji + tc.name)
+		}
+	}
+	sb.WriteString(") · ")
+	sb.WriteString(formatDuration(totalDur))
+
+	// Append individual lines for error calls.
+	for _, rec := range errors {
+		sb.WriteByte('\n')
+		sb.WriteString(renderToolRecord(rec))
+	}
+
 	return sb.String()
 }
 
