@@ -20,7 +20,7 @@ func convertMessages(ctx types.Context) []sdk.ChatCompletionMessageParamUnion {
 	for _, msg := range ctx.Messages {
 		switch m := msg.(type) {
 		case types.UserMessage:
-			messages = append(messages, sdk.UserMessage(userContent(m.Content)))
+			messages = append(messages, userMessage(m.Content))
 		case types.AssistantMessage:
 			messages = append(messages, convertAssistantMessage(m))
 		case types.ToolResultMessage:
@@ -63,29 +63,51 @@ func convertAssistantMessage(m types.AssistantMessage) sdk.ChatCompletionMessage
 	return sdk.AssistantMessage(strings.Join(textParts, " "))
 }
 
-func userContent(content any) string {
+func userMessage(content any) sdk.ChatCompletionMessageParamUnion {
 	switch c := content.(type) {
 	case string:
-		return c
+		return sdk.UserMessage(c)
 	case []types.ContentBlock:
-		parts := make([]string, 0, len(c))
+		if !hasImage(c) {
+			return sdk.UserMessage(flattenText(c))
+		}
+		parts := make([]sdk.ChatCompletionContentPartUnionParam, 0, len(c))
 		for _, block := range c {
-			if t, ok := block.(types.TextContent); ok && t.Text != "" {
-				parts = append(parts, t.Text)
+			switch b := block.(type) {
+			case types.TextContent:
+				parts = append(parts, sdk.TextContentPart(b.Text))
+			case types.ImageContent:
+				dataURI := "data:" + b.MimeType + ";base64," + b.Data
+				parts = append(parts, sdk.ImageContentPart(sdk.ChatCompletionContentPartImageImageURLParam{
+					URL: dataURI,
+				}))
 			}
 		}
-		return strings.Join(parts, " ")
+		return sdk.UserMessage(parts)
 	default:
-		return fmt.Sprintf("%v", content)
+		return sdk.UserMessage(fmt.Sprintf("%v", content))
 	}
 }
 
-func flattenToolResult(content []types.ContentBlock) string {
-	parts := make([]string, 0, len(content))
-	for _, block := range content {
+func hasImage(blocks []types.ContentBlock) bool {
+	for _, b := range blocks {
+		if _, ok := b.(types.ImageContent); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func flattenText(blocks []types.ContentBlock) string {
+	parts := make([]string, 0, len(blocks))
+	for _, block := range blocks {
 		if t, ok := block.(types.TextContent); ok && t.Text != "" {
 			parts = append(parts, t.Text)
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+func flattenToolResult(content []types.ContentBlock) string {
+	return flattenText(content)
 }
