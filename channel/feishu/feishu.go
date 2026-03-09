@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -18,6 +21,9 @@ import (
 )
 
 const feishuMaxMessageLen = 4000
+
+// mentionPlaceholderRegex matches @_user_N placeholders inserted by Feishu for mentions.
+var mentionPlaceholderRegex = regexp.MustCompile(`@_user_\d+`)
 
 func logger() *slog.Logger { return slog.With("component", "feishu") }
 
@@ -39,6 +45,8 @@ type Bot struct {
 	pool     *agent.Pool
 	listFn   ModelListFunc
 	switchFn ModelSwitchFunc
+
+	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
 
 	mu         sync.RWMutex
 	chatModels map[string]ModelOption
@@ -88,6 +96,10 @@ func (b *Bot) Start(ctx context.Context) error {
 		lark.WithEnableTokenCache(true),
 	)
 
+	if err := b.fetchBotOpenID(b.ctx); err != nil {
+		logger().Warn("failed to fetch bot open_id, self-message filtering disabled", "error", err)
+	}
+
 	eventHandler := dispatcher.NewEventDispatcher(b.cfg.VerificationToken, b.cfg.EncryptKey).
 		OnP2MessageReceiveV1(b.onMessage)
 
@@ -117,6 +129,38 @@ func (b *Bot) Stop() {
 	if b.cancel != nil {
 		b.cancel()
 	}
+}
+
+// fetchBotOpenID calls the Feishu bot info API to retrieve and store the bot's open_id.
+func (b *Bot) fetchBotOpenID(ctx context.Context) error {
+	resp, err := b.client.Do(ctx, &larkcore.ApiReq{
+		HttpMethod:                http.MethodGet,
+		ApiPath:                   "/open-apis/bot/v3/info",
+		SupportedAccessTokenTypes: []larkcore.AccessTokenType{larkcore.AccessTokenTypeTenant},
+	})
+	if err != nil {
+		return fmt.Errorf("bot info request: %w", err)
+	}
+
+	var result struct {
+		Code int `json:"code"`
+		Bot  struct {
+			OpenID string `json:"open_id"`
+		} `json:"bot"`
+	}
+	if err := json.Unmarshal(resp.RawBody, &result); err != nil {
+		return fmt.Errorf("bot info parse: %w", err)
+	}
+	if result.Code != 0 {
+		return fmt.Errorf("bot info api error (code=%d)", result.Code)
+	}
+	if result.Bot.OpenID == "" {
+		return fmt.Errorf("bot info: empty open_id")
+	}
+
+	b.botOpenID.Store(result.Bot.OpenID)
+	logger().Info("fetched bot open_id", "open_id", result.Bot.OpenID)
+	return nil
 }
 
 // Name returns the backend name. Implements channel.Backend.
@@ -212,20 +256,37 @@ func (b *Bot) shouldRespondInGroup(mentions []*larkim.MentionEvent) bool {
 	case "always":
 		return true
 	default: // "mention"
-		return isBotMentioned(mentions)
+		return b.isBotMentioned(mentions)
 	}
 }
 
-// isBotMentioned checks if any mention targets the bot itself (key "mention_all" is @all).
-func isBotMentioned(mentions []*larkim.MentionEvent) bool {
+// isBotMentioned checks if the bot was @mentioned by comparing each mention's
+// open_id against the bot's own open_id (fetched on startup).
+func (b *Bot) isBotMentioned(mentions []*larkim.MentionEvent) bool {
+	if len(mentions) == 0 {
+		return false
+	}
+
+	knownID, _ := b.botOpenID.Load().(string)
+	if knownID == "" {
+		// Fallback: if bot open_id is unknown, assume any non-@all mention is the bot.
+		for _, m := range mentions {
+			if m.Key != nil && *m.Key != "@_all" {
+				return true
+			}
+		}
+		return false
+	}
+
 	for _, m := range mentions {
-		if m.Key != nil && *m.Key != "@_all" {
-			// Any non-@all mention key means the bot was mentioned
-			// (Feishu only delivers events for messages that mention the bot in groups).
+		if m.Id == nil {
+			continue
+		}
+		if m.Id.OpenId != nil && *m.Id.OpenId == knownID {
 			return true
 		}
 	}
-	return len(mentions) > 0
+	return false
 }
 
 // markSeen records a message ID and returns true if it was already seen.
@@ -240,11 +301,13 @@ func (b *Bot) markSeen(messageID string) bool {
 }
 
 // stripMentions removes @mention placeholders from message text.
+// First removes known mention keys, then cleans up any remaining @_user_N patterns.
 func stripMentions(text string, mentions []*larkim.MentionEvent) string {
 	for _, m := range mentions {
 		if m.Key != nil {
 			text = strings.ReplaceAll(text, *m.Key, "")
 		}
 	}
+	text = mentionPlaceholderRegex.ReplaceAllString(text, "")
 	return strings.TrimSpace(text)
 }

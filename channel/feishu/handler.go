@@ -35,6 +35,12 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	}
 
 	openID := *sender.SenderId.OpenId
+
+	// Skip messages from the bot itself to prevent infinite loops in groups.
+	if botID, _ := b.botOpenID.Load().(string); botID != "" && openID == botID {
+		return nil
+	}
+
 	if !b.isAllowed(openID) {
 		logger().Warn("unauthorized access", "open_id", openID)
 		return nil
@@ -100,6 +106,13 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage) runner.MessageConten
 			return nil
 		}
 		return text
+
+	case "post":
+		// Rich text messages — pass raw JSON to the LLM for full context.
+		if strings.TrimSpace(rawContent) == "" {
+			return nil
+		}
+		return rawContent
 
 	case "image":
 		imageKey := extractJSONField(rawContent, "image_key")

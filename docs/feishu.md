@@ -52,7 +52,17 @@ During tool execution, the stream shows status with emoji indicators:
 | `edit` | wrench |
 | `search` | magnifying glass |
 
+## Supported Message Types
+
+| Type | Behavior |
+|------|----------|
+| Text | Extracted and sent to the LLM |
+| Image | Downloaded, base64-encoded, sent as multimodal input |
+| Post (rich text) | Raw JSON passed to the LLM for full context |
+
 ## Group Support
+
+On startup, the bot fetches its own `open_id` via the Feishu Bot Info API. This enables reliable @mention detection in groups and prevents the bot from responding to its own messages (infinite loop protection).
 
 In group chats, the bot responds to @mentions. Configure behavior:
 
