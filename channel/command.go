@@ -124,15 +124,18 @@ func (c *Commander) ModelSwitchByName(channelID, name string) (ModelOption, erro
 	return ModelOption{}, fmt.Errorf("unknown model %q, use /model to list available models", name)
 }
 
-// doSwitch applies the model switch and rotates the session.
+// doSwitch rotates the session first, then applies the model switch.
+// This ordering ensures no partial state: if rotation fails, the model
+// is unchanged; if the switch fails, the session was already rotated
+// (acceptable since rotation is idempotent).
 func (c *Commander) doSwitch(channelID string, selected ModelOption) (ModelOption, error) {
+	if _, err := c.pool.RotateSession(channelID); err != nil {
+		return ModelOption{}, fmt.Errorf("rotate session: %w", err)
+	}
 	if c.switchFn != nil {
 		if err := c.switchFn(selected.Provider, selected.Model); err != nil {
 			return ModelOption{}, fmt.Errorf("switch model: %w", err)
 		}
-	}
-	if _, err := c.pool.RotateSession(channelID); err != nil {
-		return selected, fmt.Errorf("rotate session after model switch: %w", err)
 	}
 	return selected, nil
 }
