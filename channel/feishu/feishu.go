@@ -183,6 +183,24 @@ func textContent(text string) string {
 	return string(data)
 }
 
+// cardContent builds a Feishu Interactive Card JSON 2.0 string with markdown content.
+// Cards support the Patch API for in-place editing (plain text messages do not).
+func cardContent(text string) string {
+	card := map[string]any{
+		"schema": "2.0",
+		"body": map[string]any{
+			"elements": []map[string]any{
+				{
+					"tag":     "markdown",
+					"content": text,
+				},
+			},
+		},
+	}
+	data, _ := json.Marshal(card)
+	return string(data)
+}
+
 // shouldRespondInGroup checks whether the bot should respond based on group_mode
 // and whether it was mentioned.
 func (b *Bot) shouldRespondInGroup(mentions []*larkim.MentionEvent) bool {

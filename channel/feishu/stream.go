@@ -97,7 +97,7 @@ func (b *Bot) streamResponse(chatID, replyMsgID, sessionID string, content runne
 
 		if sentMsgID == "" {
 			// Send initial reply.
-			msgID, err := b.sendReplyMessage(replyMsgID, display)
+			msgID, err := b.sendCardReply(replyMsgID, display)
 			if err != nil {
 				logger().Warn("stream reply failed", "error", err)
 			} else {
@@ -105,7 +105,7 @@ func (b *Bot) streamResponse(chatID, replyMsgID, sessionID string, content runne
 			}
 		} else {
 			// Update existing message.
-			if err := b.updateMessage(sentMsgID, display); err != nil {
+			if err := b.patchMessage(sentMsgID, display); err != nil {
 				logger().Warn("stream update failed", "error", err)
 			}
 		}
@@ -116,7 +116,7 @@ func (b *Bot) streamResponse(chatID, replyMsgID, sessionID string, content runne
 	if sentMsgID != "" {
 		final := sb.String()
 		if strings.TrimSpace(final) != "" {
-			if err := b.updateMessage(sentMsgID, final); err != nil {
+			if err := b.patchMessage(sentMsgID, final); err != nil {
 				logger().Warn("final update failed", "error", err)
 			}
 		}
@@ -125,14 +125,15 @@ func (b *Bot) streamResponse(chatID, replyMsgID, sessionID string, content runne
 	return sentMsgID, sb.String(), images, streamErr
 }
 
-// sendReplyMessage sends a text reply and returns the new message ID.
-func (b *Bot) sendReplyMessage(replyMsgID, text string) (string, error) {
-	content := textContent(text)
+// sendCardReply sends an interactive card reply and returns the new message ID.
+// Cards support the Patch API for in-place streaming edits.
+func (b *Bot) sendCardReply(replyMsgID, text string) (string, error) {
+	content := cardContent(text)
 	resp, err := b.client.Im.Message.Reply(b.ctx,
 		larkim.NewReplyMessageReqBuilder().
 			MessageId(replyMsgID).
 			Body(larkim.NewReplyMessageReqBodyBuilder().
-				MsgType(larkim.MsgTypeText).
+				MsgType(larkim.MsgTypeInteractive).
 				Content(content).
 				Build()).
 			Build())
@@ -148,9 +149,9 @@ func (b *Bot) sendReplyMessage(replyMsgID, text string) (string, error) {
 	return "", nil
 }
 
-// updateMessage edits an existing message in place using the Patch API.
-func (b *Bot) updateMessage(messageID, text string) error {
-	content := textContent(text)
+// patchMessage edits an existing card message in place using the Patch API.
+func (b *Bot) patchMessage(messageID, text string) error {
+	content := cardContent(text)
 	resp, err := b.client.Im.Message.Patch(b.ctx,
 		larkim.NewPatchMessageReqBuilder().
 			MessageId(messageID).
