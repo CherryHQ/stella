@@ -226,9 +226,15 @@ func applyJSONToConfig(cfg *Config, body *configJSON) {
 	cfg.ModelFast = body.ModelFast
 	cfg.Workspace = body.Workspace
 
+	// Merge providers: update api_key/base_url but preserve existing Models.
+	existing := cfg.Providers
 	cfg.Providers = make(map[string]ProviderConfig, len(body.Providers))
 	for name, p := range body.Providers {
-		cfg.Providers[name] = ProviderConfig{APIKey: p.APIKey, BaseURL: p.BaseURL}
+		pc := ProviderConfig{APIKey: p.APIKey, BaseURL: p.BaseURL}
+		if prev, ok := existing[name]; ok {
+			pc.Models = prev.Models
+		}
+		cfg.Providers[name] = pc
 	}
 
 	cfg.Channels.Telegram = TelegramConfig{
@@ -240,9 +246,95 @@ func applyJSONToConfig(cfg *Config, body *configJSON) {
 	}
 }
 
-// saveConfig writes the config to ~/.anna/config.yaml.
+// saveConfig reads the existing config.yaml, merges onboarding fields on top
+// (preserving runner, cron, and other sections), and writes it back.
 func saveConfig(cfg *Config) error {
-	return saveConfigTo(configPath(), cfg)
+	path := configPath()
+
+	// Read existing file as a raw map to preserve unknown sections.
+	existing := make(map[string]any)
+	data, err := os.ReadFile(path)
+	if err == nil {
+		_ = yaml.Unmarshal(data, &existing)
+	}
+
+	// Overlay onboarding-managed fields.
+	setIfNonEmpty(existing, "provider", cfg.Provider)
+	setIfNonEmpty(existing, "model", cfg.Model)
+	setOrDelete(existing, "model_strong", cfg.ModelStrong)
+	setOrDelete(existing, "model_fast", cfg.ModelFast)
+	setOrDelete(existing, "workspace", cfg.Workspace)
+
+	// Merge providers: update api_key/base_url, preserve everything else
+	// (models, headers, etc.) in each provider entry.
+	if len(cfg.Providers) > 0 {
+		existingProvs, _ := existing["providers"].(map[string]any)
+		if existingProvs == nil {
+			existingProvs = make(map[string]any)
+		}
+
+		// Remove providers no longer in the onboarding set.
+		for name := range existingProvs {
+			if _, ok := cfg.Providers[name]; !ok {
+				delete(existingProvs, name)
+			}
+		}
+
+		for name, p := range cfg.Providers {
+			pm, _ := existingProvs[name].(map[string]any)
+			if pm == nil {
+				pm = make(map[string]any)
+			}
+			setOrDelete(pm, "api_key", p.APIKey)
+			setOrDelete(pm, "base_url", p.BaseURL)
+			existingProvs[name] = pm
+		}
+		existing["providers"] = existingProvs
+	} else {
+		delete(existing, "providers")
+	}
+
+	// Merge telegram channel config.
+	tg := cfg.Channels.Telegram
+	if tg.Token != "" || tg.NotifyChat != "" || tg.ChannelID != "" || tg.GroupMode != "" || len(tg.AllowedIDs) > 0 {
+		existingChannels, _ := existing["channels"].(map[string]any)
+		if existingChannels == nil {
+			existingChannels = make(map[string]any)
+		}
+		tgMap, _ := existingChannels["telegram"].(map[string]any)
+		if tgMap == nil {
+			tgMap = make(map[string]any)
+		}
+		setOrDelete(tgMap, "token", tg.Token)
+		setOrDelete(tgMap, "notify_chat", tg.NotifyChat)
+		setOrDelete(tgMap, "channel_id", tg.ChannelID)
+		setOrDelete(tgMap, "group_mode", tg.GroupMode)
+		if len(tg.AllowedIDs) > 0 {
+			tgMap["allowed_ids"] = tg.AllowedIDs
+		} else {
+			delete(tgMap, "allowed_ids")
+		}
+		existingChannels["telegram"] = tgMap
+		existing["channels"] = existingChannels
+	}
+
+	return writeYAMLFile(path, existing)
+}
+
+// setIfNonEmpty sets key in m if value is non-empty, otherwise leaves it as-is.
+func setIfNonEmpty(m map[string]any, key, value string) {
+	if value != "" {
+		m[key] = value
+	}
+}
+
+// setOrDelete sets key in m if value is non-empty, otherwise deletes it.
+func setOrDelete(m map[string]any, key, value string) {
+	if value != "" {
+		m[key] = value
+	} else {
+		delete(m, key)
+	}
 }
 
 // mergeProviderModelsCache updates the models cache for a single provider,
@@ -297,75 +389,6 @@ func openBrowser(url string) {
 		}
 		go func() { _ = cmd.Wait() }()
 	}
-}
-
-// saveConfigTo marshals cfg to YAML and writes it to path,
-// stripping zero-value fields for a clean config file.
-func saveConfigTo(path string, cfg *Config) error {
-	// Build a clean map to avoid writing empty/default values.
-	out := make(map[string]any)
-
-	if cfg.Provider != "" && cfg.Provider != "anthropic" {
-		out["provider"] = cfg.Provider
-	}
-	if cfg.Model != "" && cfg.Model != "claude-sonnet-4-6" {
-		out["model"] = cfg.Model
-	}
-	if cfg.ModelStrong != "" {
-		out["model_strong"] = cfg.ModelStrong
-	}
-	if cfg.ModelFast != "" {
-		out["model_fast"] = cfg.ModelFast
-	}
-	if cfg.Workspace != "" {
-		out["workspace"] = cfg.Workspace
-	}
-
-	if len(cfg.Providers) > 0 {
-		provs := make(map[string]any, len(cfg.Providers))
-		for name, p := range cfg.Providers {
-			pm := make(map[string]any)
-			if p.APIKey != "" {
-				pm["api_key"] = p.APIKey
-			}
-			if p.BaseURL != "" {
-				pm["base_url"] = p.BaseURL
-			}
-			if len(p.Models) > 0 {
-				pm["models"] = p.Models
-			}
-			provs[name] = pm
-		}
-		out["providers"] = provs
-	}
-
-	tg := cfg.Channels.Telegram
-	if hasTelegramConfig(tg) {
-		tgMap := make(map[string]any)
-		if tg.Token != "" {
-			tgMap["token"] = tg.Token
-		}
-		if tg.NotifyChat != "" {
-			tgMap["notify_chat"] = tg.NotifyChat
-		}
-		if tg.ChannelID != "" {
-			tgMap["channel_id"] = tg.ChannelID
-		}
-		if tg.GroupMode != "" {
-			tgMap["group_mode"] = tg.GroupMode
-		}
-		if len(tg.AllowedIDs) > 0 {
-			tgMap["allowed_ids"] = tg.AllowedIDs
-		}
-		out["channels"] = map[string]any{"telegram": tgMap}
-	}
-
-	return writeYAMLFile(path, out)
-}
-
-func hasTelegramConfig(tg TelegramConfig) bool {
-	return tg.Token != "" || tg.NotifyChat != "" || tg.ChannelID != "" ||
-		tg.GroupMode != "" || len(tg.AllowedIDs) > 0
 }
 
 // writeYAMLFile writes a map as YAML to the given path.
