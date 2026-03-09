@@ -48,9 +48,9 @@ func toolLine(t *runner.ToolUseEvent) string {
 }
 
 // streamResponse consumes the agent event stream and progressively updates
-// a reply message using Feishu's Message Update API. Returns the final text,
-// collected images, and any stream error.
-func (b *Bot) streamResponse(chatID, replyMsgID, sessionID string, content runner.MessageContent) (string, []runner.ImageEvent, error) {
+// a reply message using Feishu's Message Update API. Returns the sent message ID,
+// final text, collected images, and any stream error.
+func (b *Bot) streamResponse(chatID, replyMsgID, sessionID string, content runner.MessageContent) (string, string, []runner.ImageEvent, error) {
 	events := b.pool.Chat(b.ctx, sessionID, content)
 
 	var sb strings.Builder
@@ -122,7 +122,7 @@ func (b *Bot) streamResponse(chatID, replyMsgID, sessionID string, content runne
 		}
 	}
 
-	return sb.String(), images, streamErr
+	return sentMsgID, sb.String(), images, streamErr
 }
 
 // sendReplyMessage sends a text reply and returns the new message ID.

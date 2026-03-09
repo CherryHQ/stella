@@ -125,7 +125,7 @@ func (b *Bot) handleMessage(ch, chatID, messageID string, content runner.Message
 
 	logger().Debug("message received", "channel", ch)
 
-	response, images, streamErr := b.streamResponse(chatID, messageID, sessionID, content)
+	sentMsgID, response, images, streamErr := b.streamResponse(chatID, messageID, sessionID, content)
 
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", sessionID, "error", streamErr)
@@ -140,7 +140,7 @@ func (b *Bot) handleMessage(ch, chatID, messageID string, content runner.Message
 		response = "(empty response)"
 	}
 
-	b.sendFinalResponse(chatID, messageID, response)
+	b.sendFinalResponse(chatID, messageID, sentMsgID, response)
 
 	for _, img := range images {
 		b.sendImage(chatID, messageID, img)

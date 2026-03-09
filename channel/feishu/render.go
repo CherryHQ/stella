@@ -7,11 +7,26 @@ import (
 	"github.com/vaayne/anna/agent/runner"
 )
 
-// sendFinalResponse sends the completed response, splitting into chunks
-// if necessary. If we already sent a streaming message, the final update
-// was applied in streamResponse, so this only handles the case where
-// streaming didn't produce any output.
-func (b *Bot) sendFinalResponse(chatID, replyMsgID, response string) {
+// sendFinalResponse delivers the completed response. If streaming already
+// sent a message (sentMsgID != ""), it updates that message in place.
+// Otherwise it sends a new reply, splitting into chunks if necessary.
+func (b *Bot) sendFinalResponse(chatID, replyMsgID, sentMsgID, response string) {
+	if sentMsgID != "" {
+		// Streaming already sent a message — update it with the final text.
+		chunks := splitMessage(response)
+		if err := b.updateMessage(sentMsgID, chunks[0]); err != nil {
+			logger().Error("final update failed", "error", err, "chat_id", chatID)
+		}
+		// Send overflow chunks as new replies.
+		for _, chunk := range chunks[1:] {
+			if _, err := b.sendReplyMessage(replyMsgID, chunk); err != nil {
+				logger().Error("send overflow chunk failed", "error", err, "chat_id", chatID)
+			}
+		}
+		return
+	}
+
+	// No streaming message was sent — send fresh reply.
 	chunks := splitMessage(response)
 	for _, chunk := range chunks {
 		if _, err := b.sendReplyMessage(replyMsgID, chunk); err != nil {
