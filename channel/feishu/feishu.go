@@ -42,6 +42,7 @@ type Bot struct {
 
 	mu         sync.RWMutex
 	chatModels map[string]ModelOption
+	seenMsgs   map[string]struct{} // message ID dedup
 
 	allowed map[string]struct{}
 	cfg     Config
@@ -69,6 +70,7 @@ func New(cfg Config, pool *agent.Pool, listFn ModelListFunc, switchFn ModelSwitc
 		listFn:     listFn,
 		switchFn:   switchFn,
 		chatModels: make(map[string]ModelOption),
+		seenMsgs:   make(map[string]struct{}),
 		allowed:    allowed,
 		cfg:        cfg,
 	}
@@ -224,6 +226,17 @@ func isBotMentioned(mentions []*larkim.MentionEvent) bool {
 		}
 	}
 	return len(mentions) > 0
+}
+
+// markSeen records a message ID and returns true if it was already seen.
+func (b *Bot) markSeen(messageID string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, ok := b.seenMsgs[messageID]; ok {
+		return true
+	}
+	b.seenMsgs[messageID] = struct{}{}
+	return false
 }
 
 // stripMentions removes @mention placeholders from message text.

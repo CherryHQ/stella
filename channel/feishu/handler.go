@@ -45,6 +45,12 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	messageID := derefStr(msg.MessageId)
 	mentions := msg.Mentions
 
+	// Dedup: Feishu retries events if the handler doesn't return quickly.
+	if messageID != "" && b.markSeen(messageID) {
+		logger().Debug("duplicate message ignored", "message_id", messageID)
+		return nil
+	}
+
 	// Group mode check.
 	if chatType == "group" && !b.shouldRespondInGroup(mentions) {
 		return nil
@@ -64,7 +70,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	ch := channelForChat(chatID)
 
-	// Handle commands.
+	// Handle commands synchronously (they're fast).
 	if text != "" {
 		if handled := b.handleCommand(text, ch, func(reply string) {
 			b.replyText(b.ctx, messageID, reply)
@@ -73,7 +79,9 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		}
 	}
 
-	b.handleMessage(ch, chatID, messageID, content)
+	// Process agent response asynchronously so the handler returns
+	// immediately, preventing Feishu from retrying the event.
+	go b.handleMessage(ch, chatID, messageID, content)
 	return nil
 }
 
