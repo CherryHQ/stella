@@ -116,15 +116,25 @@
                 </template>
               </select>
             </div>
-            <div>
+            <div x-data="{ open: false, search: '' }" class="relative">
               <label for="model" class="sr-only">Model</label>
-              <input id="model" type="text" x-model="config.model" list="model-list" placeholder="Model ID"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm text-ink-0 font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150">
-              <datalist id="model-list">
-                <template x-for="m in modelsForProvider(config.provider)" :key="m">
-                  <option :value="m"></option>
+              <div class="relative">
+                <input id="model" type="text" x-model="config.model" @focus="open = true; search = ''" @input="open = true; search = $event.target.value" placeholder="Model ID"
+                       class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 pl-3 pr-8 text-sm text-ink-0 font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150">
+                <button @click="open = !open" type="button" tabindex="-1"
+                        class="absolute right-0 top-0 h-10 w-8 flex items-center justify-center text-ink-3 hover:text-ink-1 cursor-pointer">
+                  <svg class="w-4 h-4 transition-transform duration-150" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                </button>
+              </div>
+              <div x-show="open && allModels.length > 0" @click.away="open = false" x-transition.opacity.duration.100ms
+                   class="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-surface-3 bg-surface-0 shadow-lg py-1">
+                <template x-for="m in filteredModels(search)" :key="m">
+                  <button @click="config.model = m; open = false" type="button"
+                          :class="config.model === m ? 'bg-primary-50 text-primary-700' : 'text-ink-1 hover:bg-surface-1'"
+                          class="w-full text-left px-3 py-1.5 text-xs font-mono cursor-pointer transition-colors duration-100" x-text="m"></button>
                 </template>
-              </datalist>
+                <div x-show="filteredModels(search).length === 0" class="px-3 py-2 text-xs text-ink-3">No matching models</div>
+              </div>
             </div>
           </div>
         </fieldset>
@@ -133,19 +143,45 @@
         <fieldset class="space-y-1.5">
           <legend class="text-xs font-semibold text-ink-2 uppercase tracking-wider mb-3">Model tiers <span class="normal-case font-normal tracking-normal text-ink-3">optional overrides</span></legend>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div class="relative">
-              <label for="model-strong" class="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-medium text-ink-3 uppercase tracking-wider pointer-events-none transition-all duration-150"
-                     :class="config.model_strong ? 'top-2 -translate-y-0 text-[9px] text-primary-500' : ''">Strong</label>
-              <input id="model-strong" type="text" x-model="config.model_strong" list="model-list"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm text-ink-0 font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150"
-                     :class="config.model_strong ? 'pt-3.5 pb-0.5' : ''">
+            <div x-data="{ open: false, search: '' }" class="relative">
+              <label for="model-strong" class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Strong</label>
+              <div class="relative">
+                <input id="model-strong" type="text" x-model="config.model_strong" @focus="open = true; search = ''" @input="open = true; search = $event.target.value" placeholder="Falls back to default"
+                       class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 pl-3 pr-8 text-sm text-ink-0 font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150">
+                <button @click="open = !open" type="button" tabindex="-1"
+                        class="absolute right-0 top-0 h-10 w-8 flex items-center justify-center text-ink-3 hover:text-ink-1 cursor-pointer">
+                  <svg class="w-4 h-4 transition-transform duration-150" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                </button>
+              </div>
+              <div x-show="open && allModels.length > 0" @click.away="open = false" x-transition.opacity.duration.100ms
+                   class="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-surface-3 bg-surface-0 shadow-lg py-1">
+                <template x-for="m in filteredModels(search)" :key="m">
+                  <button @click="config.model_strong = m; open = false" type="button"
+                          :class="config.model_strong === m ? 'bg-primary-50 text-primary-700' : 'text-ink-1 hover:bg-surface-1'"
+                          class="w-full text-left px-3 py-1.5 text-xs font-mono cursor-pointer transition-colors duration-100" x-text="m"></button>
+                </template>
+                <div x-show="filteredModels(search).length === 0" class="px-3 py-2 text-xs text-ink-3">No matching models</div>
+              </div>
             </div>
-            <div class="relative">
-              <label for="model-fast" class="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-medium text-ink-3 uppercase tracking-wider pointer-events-none transition-all duration-150"
-                     :class="config.model_fast ? 'top-2 -translate-y-0 text-[9px] text-primary-500' : ''">Fast</label>
-              <input id="model-fast" type="text" x-model="config.model_fast" list="model-list"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm text-ink-0 font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150"
-                     :class="config.model_fast ? 'pt-3.5 pb-0.5' : ''">
+            <div x-data="{ open: false, search: '' }" class="relative">
+              <label for="model-fast" class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Fast</label>
+              <div class="relative">
+                <input id="model-fast" type="text" x-model="config.model_fast" @focus="open = true; search = ''" @input="open = true; search = $event.target.value" placeholder="Falls back to default"
+                       class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 pl-3 pr-8 text-sm text-ink-0 font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150">
+                <button @click="open = !open" type="button" tabindex="-1"
+                        class="absolute right-0 top-0 h-10 w-8 flex items-center justify-center text-ink-3 hover:text-ink-1 cursor-pointer">
+                  <svg class="w-4 h-4 transition-transform duration-150" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                </button>
+              </div>
+              <div x-show="open && allModels.length > 0" @click.away="open = false" x-transition.opacity.duration.100ms
+                   class="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-surface-3 bg-surface-0 shadow-lg py-1">
+                <template x-for="m in filteredModels(search)" :key="m">
+                  <button @click="config.model_fast = m; open = false" type="button"
+                          :class="config.model_fast === m ? 'bg-primary-50 text-primary-700' : 'text-ink-1 hover:bg-surface-1'"
+                          class="w-full text-left px-3 py-1.5 text-xs font-mono cursor-pointer transition-colors duration-100" x-text="m"></button>
+                </template>
+                <div x-show="filteredModels(search).length === 0" class="px-3 py-2 text-xs text-ink-3">No matching models</div>
+              </div>
             </div>
           </div>
         </fieldset>
@@ -357,6 +393,23 @@ function onboard() {
 
     defaultBaseURL(name) {
       return providerDefaults[name]?.base_url || '';
+    },
+
+    get allModels() {
+      const all = [];
+      const seen = new Set();
+      for (const models of Object.values(this.providerModels)) {
+        for (const m of models) {
+          if (!seen.has(m)) { seen.add(m); all.push(m); }
+        }
+      }
+      return all;
+    },
+
+    filteredModels(search) {
+      if (!search) return this.allModels;
+      const q = search.toLowerCase();
+      return this.allModels.filter(m => m.toLowerCase().includes(q));
     },
 
     modelsForProvider(provider) {
