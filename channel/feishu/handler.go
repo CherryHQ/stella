@@ -2,12 +2,16 @@ package feishu
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	"github.com/vaayne/anna/agent/runner"
+	aitypes "github.com/vaayne/anna/ai/types"
 )
 
 const welcomeMessage = "Hi! I'm Anna -- your local AI assistant.\n\n" +
@@ -78,6 +82,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 func (b *Bot) buildMessageContent(msg *larkim.EventMessage) runner.MessageContent {
 	msgType := derefStr(msg.MessageType)
 	rawContent := derefStr(msg.Content)
+	messageID := derefStr(msg.MessageId)
 
 	switch msgType {
 	case "text":
@@ -89,14 +94,76 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage) runner.MessageConten
 		return text
 
 	case "image":
-		// TODO: support image input when image download API is available
-		logger().Debug("image message received, text-only supported for now")
-		return nil
+		imageKey := extractJSONField(rawContent, "image_key")
+		if imageKey == "" {
+			logger().Warn("image message missing image_key")
+			return nil
+		}
+		data, mime, err := b.downloadImage(messageID, imageKey)
+		if err != nil {
+			logger().Error("download image failed", "image_key", imageKey, "error", err)
+			return nil
+		}
+		encoded := base64.StdEncoding.EncodeToString(data)
+		logger().Debug("image received", "size", len(data), "mime", mime)
+		return []aitypes.ContentBlock{
+			aitypes.ImageContent{Data: encoded, MimeType: mime},
+		}
 
 	default:
 		logger().Debug("unsupported message type", "type", msgType)
 		return nil
 	}
+}
+
+// extractJSONField extracts a string field from a JSON object.
+func extractJSONField(raw, field string) string {
+	if raw == "" {
+		return ""
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return ""
+	}
+	v, ok := m[field]
+	if !ok {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(v, &s); err != nil {
+		return ""
+	}
+	return s
+}
+
+// downloadImage downloads an image from Feishu using the MessageResource API.
+func (b *Bot) downloadImage(messageID, imageKey string) ([]byte, string, error) {
+	resp, err := b.client.Im.MessageResource.Get(b.ctx,
+		larkim.NewGetMessageResourceReqBuilder().
+			MessageId(messageID).
+			FileKey(imageKey).
+			Type("image").
+			Build())
+	if err != nil {
+		return nil, "", fmt.Errorf("get resource: %w", err)
+	}
+	if !resp.Success() {
+		return nil, "", fmt.Errorf("api error: code=%d msg=%s", resp.Code, resp.Msg)
+	}
+	if resp.File == nil {
+		return nil, "", fmt.Errorf("empty file in response")
+	}
+	if closer, ok := resp.File.(io.Closer); ok {
+		defer func() { _ = closer.Close() }()
+	}
+
+	data, err := io.ReadAll(resp.File)
+	if err != nil {
+		return nil, "", fmt.Errorf("read file: %w", err)
+	}
+
+	mime := http.DetectContentType(data)
+	return data, mime, nil
 }
 
 // parseTextContent extracts text from Feishu's JSON content format.
