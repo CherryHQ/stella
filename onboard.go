@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -16,6 +18,7 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/ai/stream"
+	"github.com/vaayne/anna/cron"
 	"gopkg.in/yaml.v3"
 )
 
@@ -136,6 +139,138 @@ func runOnboard(ctx context.Context, port int) error {
 		mergeProviderModelsCache(name, modelIDs)
 
 		writeJSON(w, http.StatusOK, map[string]any{"models": modelIDs})
+	})
+
+	// Cron jobs CRUD — direct file I/O, no scheduler needed.
+	cronDir := cfg.Cron.DataDir
+	if cronDir == "" {
+		cronDir = filepath.Join(cfg.Workspace, "cron")
+	}
+
+	mux.HandleFunc("GET /api/cron/jobs", func(w http.ResponseWriter, r *http.Request) {
+		jobs, err := loadCronJobs(cronDir)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs})
+	})
+
+	mux.HandleFunc("POST /api/cron/jobs", func(w http.ResponseWriter, r *http.Request) {
+		var body cronJobJSON
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+			return
+		}
+		if body.Name == "" || body.Message == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name and message are required"})
+			return
+		}
+		sched, err := parseCronSchedule(body)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+
+		jobs, err := loadCronJobs(cronDir)
+		if err != nil {
+			jobs = nil
+		}
+
+		job := cron.Job{
+			ID:          generateShortID(),
+			Name:        body.Name,
+			Schedule:    sched,
+			Message:     body.Message,
+			SessionMode: body.SessionMode,
+			Enabled:     body.Enabled,
+			CreatedAt:   time.Now(),
+		}
+		if job.SessionMode == "" {
+			job.SessionMode = cron.SessionReuse
+		}
+		jobs = append(jobs, job)
+
+		if err := saveCronJobs(cronDir, jobs); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "save failed: " + err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, job)
+	})
+
+	mux.HandleFunc("PUT /api/cron/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		var body cronJobJSON
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+			return
+		}
+
+		jobs, err := loadCronJobs(cronDir)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		found := false
+		for i, j := range jobs {
+			if j.ID == id {
+				if body.Name != "" {
+					jobs[i].Name = body.Name
+				}
+				if body.Message != "" {
+					jobs[i].Message = body.Message
+				}
+				if body.SessionMode != "" {
+					jobs[i].SessionMode = body.SessionMode
+				}
+				jobs[i].Enabled = body.Enabled
+				if sched, err := parseCronSchedule(body); err == nil {
+					jobs[i].Schedule = sched
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
+			return
+		}
+
+		if err := saveCronJobs(cronDir, jobs); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "save failed: " + err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+
+	mux.HandleFunc("DELETE /api/cron/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		jobs, err := loadCronJobs(cronDir)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
+		filtered := make([]cron.Job, 0, len(jobs))
+		found := false
+		for _, j := range jobs {
+			if j.ID == id {
+				found = true
+				continue
+			}
+			filtered = append(filtered, j)
+		}
+		if !found {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
+			return
+		}
+
+		if err := saveCronJobs(cronDir, filtered); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "save failed: " + err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
 	// Listen on requested port (0 = random).
@@ -364,6 +499,75 @@ func mergeProviderModelsCache(providerName string, modelIDs []string) {
 	if err := SaveModelsCache(cache); err != nil {
 		slog.Warn("failed to save models cache", "error", err)
 	}
+}
+
+// cronJobJSON is the JSON shape for cron job create/update.
+type cronJobJSON struct {
+	Name        string `json:"name"`
+	Message     string `json:"message"`
+	Cron        string `json:"cron"`
+	Every       string `json:"every"`
+	SessionMode string `json:"session_mode"`
+	Enabled     bool   `json:"enabled"`
+}
+
+func parseCronSchedule(body cronJobJSON) (cron.Schedule, error) {
+	sched := cron.Schedule{Cron: body.Cron, Every: body.Every}
+	count := 0
+	if sched.Cron != "" {
+		count++
+	}
+	if sched.Every != "" {
+		count++
+	}
+	if count == 0 {
+		return sched, fmt.Errorf("schedule requires cron or every")
+	}
+	if count > 1 {
+		return sched, fmt.Errorf("schedule must have exactly one of cron or every")
+	}
+	if sched.Every != "" {
+		if _, err := time.ParseDuration(sched.Every); err != nil {
+			return sched, fmt.Errorf("invalid duration %q: %w", sched.Every, err)
+		}
+	}
+	return sched, nil
+}
+
+func loadCronJobs(dataDir string) ([]cron.Job, error) {
+	data, err := os.ReadFile(filepath.Join(dataDir, "jobs.json"))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var jobs []cron.Job
+	if err := json.Unmarshal(data, &jobs); err != nil {
+		return nil, fmt.Errorf("parse jobs.json: %w", err)
+	}
+	return jobs, nil
+}
+
+func saveCronJobs(dataDir string, jobs []cron.Job) error {
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(jobs, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := filepath.Join(dataDir, "jobs.json.tmp")
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, filepath.Join(dataDir, "jobs.json"))
+}
+
+func generateShortID() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
