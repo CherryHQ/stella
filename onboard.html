@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Anna - Setup</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50: '#f0f9ff', 100: '#e0f2fe', 200: '#bae6fd', 300: '#7dd3fc', 400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1', 800: '#075985', 900: '#0c4a6e' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    [x-cloak] { display: none !important; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<div x-data="onboard()" x-cloak class="max-w-3xl mx-auto py-10 px-4">
+  <!-- Header -->
+  <div class="text-center mb-10">
+    <h1 class="text-3xl font-bold text-gray-900">Anna Setup</h1>
+    <p class="mt-2 text-gray-500">Configure your local AI assistant</p>
+  </div>
+
+  <!-- Status messages -->
+  <div x-show="message" x-transition
+       :class="messageType === 'error' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-green-50 border-green-200 text-green-700'"
+       class="mb-6 px-4 py-3 rounded-lg border text-sm" x-text="message"></div>
+
+  <!-- Section 1: Global Settings -->
+  <section class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Global Settings</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Provider</label>
+        <select x-model="config.provider" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+          <template x-for="p in availableProviderTypes" :key="p">
+            <option :value="p" x-text="p" :selected="p === config.provider"></option>
+          </template>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Model</label>
+        <div class="relative">
+          <input type="text" x-model="config.model" list="model-list" placeholder="e.g. claude-sonnet-4-6"
+                 class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+          <datalist id="model-list">
+            <template x-for="m in modelsForProvider(config.provider)" :key="m">
+              <option :value="m"></option>
+            </template>
+          </datalist>
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Model Strong <span class="text-gray-400 font-normal">(optional)</span></label>
+        <input type="text" x-model="config.model_strong" list="model-list" placeholder="Falls back to Model"
+               class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Model Fast <span class="text-gray-400 font-normal">(optional)</span></label>
+        <input type="text" x-model="config.model_fast" list="model-list" placeholder="Falls back to Model"
+               class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+      </div>
+      <div class="md:col-span-2">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Workspace <span class="text-gray-400 font-normal">(optional)</span></label>
+        <input type="text" x-model="config.workspace" placeholder="Default: ~/.anna/workspace"
+               class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+      </div>
+    </div>
+  </section>
+
+  <!-- Section 2: Providers -->
+  <section class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold text-gray-900">Providers</h2>
+      <div class="flex items-center gap-2">
+        <select x-model="newProviderType" class="rounded-lg border-gray-300 border px-3 py-1.5 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+          <template x-for="p in addableProviders" :key="p">
+            <option :value="p" x-text="p"></option>
+          </template>
+        </select>
+        <button @click="addProvider()" :disabled="!newProviderType"
+                class="px-3 py-1.5 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+          Add
+        </button>
+      </div>
+    </div>
+
+    <template x-if="Object.keys(config.providers).length === 0">
+      <p class="text-sm text-gray-400 text-center py-4">No providers configured. Add one to get started.</p>
+    </template>
+
+    <div class="space-y-4">
+      <template x-for="(prov, name) in config.providers" :key="name">
+        <div class="border border-gray-200 rounded-lg p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-medium text-gray-900" x-text="name"></h3>
+            <button @click="removeProvider(name)" class="text-sm text-red-500 hover:text-red-700 transition-colors">Remove</button>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="md:col-span-2">
+              <label class="block text-sm font-medium text-gray-700 mb-1">API Key <span class="text-red-500">*</span></label>
+              <input type="password" :value="prov.api_key" @input="prov.api_key = $event.target.value" placeholder="Required"
+                     class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+            </div>
+            <div class="md:col-span-2">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Base URL</label>
+              <input type="text" :value="prov.base_url" @input="prov.base_url = $event.target.value" :placeholder="defaultBaseURL(name)"
+                     class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm text-gray-600 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+            </div>
+          </div>
+          <div class="mt-3 flex items-center gap-3">
+            <button @click="fetchModels(name)" :disabled="!prov.api_key || fetchingModels[name]"
+                    class="px-3 py-1.5 text-sm font-medium text-brand-700 bg-brand-50 border border-brand-200 rounded-lg hover:bg-brand-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+              <span x-show="!fetchingModels[name]">Get All Models</span>
+              <span x-show="fetchingModels[name]">Fetching...</span>
+            </button>
+            <span x-show="providerModels[name]?.length" class="text-xs text-gray-400" x-text="(providerModels[name]?.length || 0) + ' models cached'"></span>
+          </div>
+        </div>
+      </template>
+    </div>
+  </section>
+
+  <!-- Section 3: Channels -->
+  <section class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Channels</h2>
+
+    <!-- Telegram -->
+    <div class="border border-gray-200 rounded-lg p-4">
+      <h3 class="font-medium text-gray-900 mb-3">Telegram</h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Bot Token</label>
+          <input type="password" x-model="config.channels.telegram.token" placeholder="From @BotFather"
+                 class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Notify Chat ID</label>
+          <input type="text" x-model="config.channels.telegram.notify_chat" placeholder="Chat ID for notifications"
+                 class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Channel ID</label>
+          <input type="text" x-model="config.channels.telegram.channel_id" placeholder="Default channel ID"
+                 class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Group Mode</label>
+          <select x-model="config.channels.telegram.group_mode"
+                  class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+            <option value="">Default</option>
+            <option value="mention">Mention</option>
+            <option value="always">Always</option>
+            <option value="disabled">Disabled</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Allowed User IDs</label>
+          <input type="text" :value="(config.channels.telegram.allowed_ids || []).join(', ')"
+                 @change="config.channels.telegram.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean).map(Number)"
+                 placeholder="Comma-separated IDs"
+                 class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Save -->
+  <div class="flex justify-end gap-3">
+    <button @click="save()" :disabled="saving"
+            class="px-6 py-2.5 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors shadow-sm">
+      <span x-show="!saving">Save Configuration</span>
+      <span x-show="saving">Saving...</span>
+    </button>
+  </div>
+</div>
+
+<script>
+function onboard() {
+  const providerDefaults = {
+    'anthropic':        { base_url: 'https://api.anthropic.com' },
+    'openai':           { base_url: 'https://api.openai.com/v1' },
+    'openai-response':  { base_url: 'https://api.openai.com/v1' },
+  };
+
+  return {
+    config: {
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      model_strong: '',
+      model_fast: '',
+      workspace: '',
+      providers: {},
+      channels: { telegram: { token: '', notify_chat: '', channel_id: '', group_mode: '', allowed_ids: [] } },
+    },
+    providerModels: {},
+    fetchingModels: {},
+    newProviderType: '',
+    saving: false,
+    message: '',
+    messageType: 'success',
+
+    get availableProviderTypes() {
+      return Object.keys(providerDefaults);
+    },
+
+    get addableProviders() {
+      return this.availableProviderTypes.filter(p => !(p in this.config.providers));
+    },
+
+    defaultBaseURL(name) {
+      return providerDefaults[name]?.base_url || '';
+    },
+
+    modelsForProvider(provider) {
+      return this.providerModels[provider] || [];
+    },
+
+    addProvider() {
+      if (!this.newProviderType || this.newProviderType in this.config.providers) return;
+      this.config.providers[this.newProviderType] = { api_key: '', base_url: '' };
+      this.newProviderType = this.addableProviders[0] || '';
+    },
+
+    removeProvider(name) {
+      delete this.config.providers[name];
+    },
+
+    async fetchModels(name) {
+      this.fetchingModels[name] = true;
+      this.clearMessage();
+      try {
+        const resp = await fetch(`/api/providers/${name}/models`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.config.providers[name]),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          this.showMessage(data.error || 'Failed to fetch models', 'error');
+          return;
+        }
+        this.providerModels[name] = data.models || [];
+        this.showMessage(`Fetched ${this.providerModels[name].length} models from ${name}`, 'success');
+      } catch (e) {
+        this.showMessage('Network error: ' + e.message, 'error');
+      } finally {
+        this.fetchingModels[name] = false;
+      }
+    },
+
+    async init() {
+      try {
+        const resp = await fetch('/api/config');
+        const data = await resp.json();
+        if (data.config) {
+          // Merge loaded config with defaults to ensure all fields exist.
+          this.config = {
+            ...this.config,
+            ...data.config,
+            channels: {
+              telegram: { token: '', notify_chat: '', channel_id: '', group_mode: '', allowed_ids: [], ...data.config.channels?.telegram },
+            },
+            providers: data.config.providers || {},
+          };
+        }
+        if (data.models) {
+          this.providerModels = data.models;
+        }
+      } catch (e) {
+        this.showMessage('Failed to load config: ' + e.message, 'error');
+      }
+      // Initialize addable provider dropdown.
+      this.newProviderType = this.addableProviders[0] || '';
+    },
+
+    async save() {
+      this.saving = true;
+      this.clearMessage();
+      try {
+        const resp = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.config),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          this.showMessage(data.error || 'Failed to save', 'error');
+          return;
+        }
+        this.showMessage('Configuration saved successfully!', 'success');
+      } catch (e) {
+        this.showMessage('Network error: ' + e.message, 'error');
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    showMessage(msg, type) {
+      this.message = msg;
+      this.messageType = type;
+      if (type === 'success') setTimeout(() => this.clearMessage(), 4000);
+    },
+
+    clearMessage() {
+      this.message = '';
+    },
+  };
+}
+</script>
+</body>
+</html>
