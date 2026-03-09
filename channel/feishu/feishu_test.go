@@ -560,12 +560,14 @@ func TestNotifyEmptyChatID(t *testing.T) {
 	}
 }
 
-// --- sendImage (no-op) ---
+// --- sendImage ---
 
-func TestSendImageNoOp(t *testing.T) {
-	bot := &Bot{}
-	// Should not panic.
-	bot.sendImage("target", "msg", runner.ImageEvent{})
+func TestSendImageInvalidBase64(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bot := &Bot{ctx: ctx}
+	// Invalid base64 should log error but not panic.
+	bot.sendImage("target", "msg", runner.ImageEvent{Data: "not-valid-base64!!!"})
 }
 
 // --- Stop ---
