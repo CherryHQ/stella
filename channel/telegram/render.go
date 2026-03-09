@@ -5,9 +5,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/vaayne/anna/agent/runner"
+	"github.com/vaayne/anna/channel"
 	"github.com/yuin/goldmark/parser"
 	tele "gopkg.in/telebot.v4"
 )
@@ -49,7 +49,7 @@ func (b *Bot) sendChunkedMarkdown(chat tele.Recipient, text string, silent bool,
 	if sendOpts == nil {
 		sendOpts = &tele.SendOptions{ParseMode: tele.ModeMarkdownV2}
 	}
-	chunks := splitMessage(text)
+	chunks := channel.SplitMessage(text, telegramMaxMessageLen)
 	for _, chunk := range chunks {
 		rendered := renderMarkdown(b.md, chunk)
 		if _, err := b.bot.Send(chat, rendered, sendOpts); err != nil {
@@ -74,31 +74,4 @@ func renderMarkdown(md goldmarkMD, text string) string {
 		return text
 	}
 	return result
-}
-
-// splitMessage splits a message into chunks that fit within Telegram's 4096
-// character limit. It tries to split at newline boundaries when possible.
-func splitMessage(text string) []string {
-	if len(text) <= telegramMaxMessageLen {
-		return []string{text}
-	}
-
-	var chunks []string
-	for len(text) > 0 {
-		if len(text) <= telegramMaxMessageLen {
-			chunks = append(chunks, text)
-			break
-		}
-
-		cutAt := telegramMaxMessageLen
-		// Try to find the last newline before the limit.
-		if idx := strings.LastIndex(text[:cutAt], "\n"); idx > 0 {
-			cutAt = idx + 1 // Include the newline in the current chunk.
-		}
-
-		chunks = append(chunks, text[:cutAt])
-		text = text[cutAt:]
-	}
-
-	return chunks
 }

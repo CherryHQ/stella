@@ -31,17 +31,19 @@ type Config struct {
 }
 
 // Bot wraps a QQ bot with agent pool integration.
+// It implements channel.Channel.
 type Bot struct {
 	api            openapi.OpenAPI
 	creds          *token.QQBotCredentials
 	tokenSource    oauth2.TokenSource
 	sessionManager botgo.SessionManager
 	pool           *agent.Pool
-	listFn         ModelListFunc
-	switchFn       ModelSwitchFunc
+	cmd            *channel.Commander
+	listFn         channel.ModelListFunc
+	switchFn       channel.ModelSwitchFunc
 
 	mu         sync.RWMutex
-	chatModels map[string]ModelOption
+	chatModels map[string]channel.ModelOption
 
 	allowed map[string]struct{}
 	cfg     Config
@@ -50,7 +52,7 @@ type Bot struct {
 }
 
 // New creates a QQ bot. Call Start to begin receiving events.
-func New(cfg Config, pool *agent.Pool, listFn ModelListFunc, switchFn ModelSwitchFunc) (*Bot, error) {
+func New(cfg Config, pool *agent.Pool, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc) (*Bot, error) {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return nil, fmt.Errorf("qq: app_id and app_secret are required")
 	}
@@ -64,11 +66,19 @@ func New(cfg Config, pool *agent.Pool, listFn ModelListFunc, switchFn ModelSwitc
 		allowed[id] = struct{}{}
 	}
 
+	poolAdapter := &channel.PoolAdapter[agent.SessionInfo]{
+		ResolveFunc: pool.ResolveSession,
+		RotateFunc:  pool.RotateSession,
+		CompactFunc: pool.CompactSession,
+		AdaptFn:     func(info agent.SessionInfo) channel.SessionInfo { return channel.SessionInfo{ID: info.ID} },
+	}
+
 	b := &Bot{
 		pool:       pool,
+		cmd:        channel.NewCommander(poolAdapter, listFn, switchFn),
 		listFn:     listFn,
 		switchFn:   switchFn,
-		chatModels: make(map[string]ModelOption),
+		chatModels: make(map[string]channel.ModelOption),
 		allowed:    allowed,
 		cfg:        cfg,
 	}
@@ -130,10 +140,10 @@ func (b *Bot) Stop() {
 	}
 }
 
-// Name returns the backend name. Implements channel.Backend.
+// Name returns the channel name. Implements channel.Channel.
 func (b *Bot) Name() string { return "qq" }
 
-// Notify sends a notification message. Implements channel.Backend.
+// Notify sends a notification message. Implements channel.Channel.
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	if n.ChatID == "" {
 		return fmt.Errorf("qq: no target chat ID")

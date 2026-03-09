@@ -13,10 +13,10 @@ import (
 	"github.com/vaayne/anna/channel"
 )
 
-// --- splitMessage ---
+// --- SplitMessage (shared) ---
 
 func TestSplitMessageShort(t *testing.T) {
-	chunks := splitMessage("hello")
+	chunks := channel.SplitMessage("hello", qqMaxMessageLen)
 	if len(chunks) != 1 || chunks[0] != "hello" {
 		t.Errorf("chunks = %v, want [hello]", chunks)
 	}
@@ -24,7 +24,7 @@ func TestSplitMessageShort(t *testing.T) {
 
 func TestSplitMessageExactLimit(t *testing.T) {
 	msg := strings.Repeat("a", qqMaxMessageLen)
-	chunks := splitMessage(msg)
+	chunks := channel.SplitMessage(msg, qqMaxMessageLen)
 	if len(chunks) != 1 {
 		t.Errorf("len(chunks) = %d, want 1", len(chunks))
 	}
@@ -32,7 +32,7 @@ func TestSplitMessageExactLimit(t *testing.T) {
 
 func TestSplitMessageLong(t *testing.T) {
 	msg := strings.Repeat("a", qqMaxMessageLen+100)
-	chunks := splitMessage(msg)
+	chunks := channel.SplitMessage(msg, qqMaxMessageLen)
 	if len(chunks) != 2 {
 		t.Fatalf("len(chunks) = %d, want 2", len(chunks))
 	}
@@ -49,7 +49,7 @@ func TestSplitMessageAtNewline(t *testing.T) {
 	part2 := strings.Repeat("b", 2000)
 	msg := part1 + "\n" + part2
 
-	chunks := splitMessage(msg)
+	chunks := channel.SplitMessage(msg, qqMaxMessageLen)
 	if len(chunks) != 2 {
 		t.Fatalf("len(chunks) = %d, want 2", len(chunks))
 	}
@@ -59,19 +59,23 @@ func TestSplitMessageAtNewline(t *testing.T) {
 }
 
 func TestSplitMessageMultibyteUTF8(t *testing.T) {
-	// Build a string of Chinese characters that exceeds the limit.
-	// Each character is 3 bytes in UTF-8.
 	char := "中"
 	msg := strings.Repeat(char, qqMaxMessageLen) // 3*qqMaxMessageLen bytes
-	chunks := splitMessage(msg)
+	chunks := channel.SplitMessage(msg, qqMaxMessageLen)
 	if len(chunks) < 2 {
 		t.Fatalf("expected multiple chunks, got %d", len(chunks))
 	}
-	// Verify no chunk starts with a continuation byte (broken rune).
 	for i, c := range chunks {
 		if len(c) > 0 && c[0]&0xC0 == 0x80 {
 			t.Errorf("chunk[%d] starts with UTF-8 continuation byte", i)
 		}
+	}
+}
+
+func TestSplitMessageEmpty(t *testing.T) {
+	chunks := channel.SplitMessage("", qqMaxMessageLen)
+	if len(chunks) != 1 || chunks[0] != "" {
+		t.Errorf("empty message should return single empty chunk, got %v", chunks)
 	}
 }
 
@@ -105,6 +109,20 @@ func TestBuildStreamDisplayTruncates(t *testing.T) {
 	}
 }
 
+func TestBuildStreamDisplayEmptyTextWithTool(t *testing.T) {
+	d := buildStreamDisplay("", "⚡ bash: ls")
+	if !strings.Contains(d, "⚡ bash: ls") {
+		t.Errorf("should show tool line: %q", d)
+	}
+}
+
+func TestBuildStreamDisplayEmptyAll(t *testing.T) {
+	d := buildStreamDisplay("", "")
+	if !strings.HasSuffix(d, typingCursor) {
+		t.Errorf("should end with cursor: %q", d)
+	}
+}
+
 // --- toolLine ---
 
 func TestToolLineRunning(t *testing.T) {
@@ -115,12 +133,20 @@ func TestToolLineRunning(t *testing.T) {
 }
 
 func TestToolLineRunningTruncatesMultibyte(t *testing.T) {
-	// 61 Chinese characters = well over 60 runes
 	input := strings.Repeat("中", 61)
 	line := toolLine(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: input})
-	// Should be truncated to 57 runes + "..."
 	if !strings.HasSuffix(line, "...") {
 		t.Errorf("expected truncation ellipsis, got %q", line)
+	}
+}
+
+func TestToolLineRunningNoInput(t *testing.T) {
+	line := toolLine(&runner.ToolUseEvent{Tool: "search", Status: "running"})
+	if !strings.Contains(line, "search") {
+		t.Errorf("unexpected line: %q", line)
+	}
+	if strings.Contains(line, ":") {
+		t.Errorf("no input should not have colon separator: %q", line)
 	}
 }
 
@@ -138,39 +164,42 @@ func TestToolLineDefault(t *testing.T) {
 	}
 }
 
-// --- filterModelsIndexed ---
+func TestToolLineUnknownTool(t *testing.T) {
+	line := toolLine(&runner.ToolUseEvent{Tool: "custom_tool", Status: "running", Input: "x"})
+	if !strings.Contains(line, "🔧") {
+		t.Errorf("unknown tool should use default emoji: %q", line)
+	}
+}
 
-func TestFilterModelsIndexed(t *testing.T) {
+// --- FilterModels (shared) ---
+
+func TestFilterModels(t *testing.T) {
 	models := []channel.ModelOption{
 		{Provider: "openai", Model: "gpt-4"},
 		{Provider: "anthropic", Model: "claude-3"},
 		{Provider: "openai", Model: "gpt-3.5"},
 	}
 
-	result := filterModelsIndexed(models, "openai")
+	result := channel.FilterModels(models, "openai")
 	if len(result) != 2 {
 		t.Fatalf("expected 2 matches, got %d", len(result))
 	}
-	if result[0].globalIdx != 1 || result[1].globalIdx != 3 {
-		t.Errorf("global indices should be 1 and 3, got %d and %d", result[0].globalIdx, result[1].globalIdx)
+	if result[0].GlobalIdx != 1 || result[1].GlobalIdx != 3 {
+		t.Errorf("global indices should be 1 and 3, got %d and %d", result[0].GlobalIdx, result[1].GlobalIdx)
 	}
 }
 
-func TestFilterModelsIndexedNoMatch(t *testing.T) {
-	models := []channel.ModelOption{
-		{Provider: "openai", Model: "gpt-4"},
-	}
-	result := filterModelsIndexed(models, "gemini")
+func TestFilterModelsNoMatch(t *testing.T) {
+	models := []channel.ModelOption{{Provider: "openai", Model: "gpt-4"}}
+	result := channel.FilterModels(models, "gemini")
 	if len(result) != 0 {
 		t.Errorf("expected 0 matches, got %d", len(result))
 	}
 }
 
-func TestFilterModelsIndexedCaseInsensitive(t *testing.T) {
-	models := []channel.ModelOption{
-		{Provider: "Anthropic", Model: "Claude-3"},
-	}
-	result := filterModelsIndexed(models, "CLAUDE")
+func TestFilterModelsCaseInsensitive(t *testing.T) {
+	models := []channel.ModelOption{{Provider: "Anthropic", Model: "Claude-3"}}
+	result := channel.FilterModels(models, "CLAUDE")
 	if len(result) != 1 {
 		t.Fatalf("expected 1 match, got %d", len(result))
 	}
@@ -294,10 +323,10 @@ func TestBotName(t *testing.T) {
 // --- formatModelList ---
 
 func TestFormatModelListNoQuery(t *testing.T) {
-	models := []channel.ModelOption{
+	models := channel.IndexModels([]channel.ModelOption{
 		{Provider: "openai", Model: "gpt-4"},
 		{Provider: "anthropic", Model: "claude-3"},
-	}
+	})
 	out := formatModelList(models, "")
 	if !strings.Contains(out, "1. openai/gpt-4") {
 		t.Errorf("missing model entry in output: %s", out)
@@ -311,23 +340,12 @@ func TestFormatModelListNoQuery(t *testing.T) {
 }
 
 func TestFormatModelListWithQuery(t *testing.T) {
-	models := []channel.ModelOption{{Provider: "openai", Model: "gpt-4"}}
+	models := channel.IndexModels([]channel.ModelOption{
+		{Provider: "openai", Model: "gpt-4"},
+	})
 	out := formatModelList(models, "openai")
 	if !strings.Contains(out, `filter: "openai"`) {
 		t.Errorf("should show filter query: %s", out)
-	}
-}
-
-// --- formatIndexedModelList ---
-
-func TestFormatIndexedModelList(t *testing.T) {
-	models := []indexedModel{
-		{ModelOption: channel.ModelOption{Provider: "openai", Model: "gpt-4"}, globalIdx: 1},
-		{ModelOption: channel.ModelOption{Provider: "openai", Model: "gpt-3.5"}, globalIdx: 3},
-	}
-	out := formatIndexedModelList(models, "openai")
-	if !strings.Contains(out, "1. openai/gpt-4") || !strings.Contains(out, "3. openai/gpt-3.5") {
-		t.Errorf("unexpected output: %s", out)
 	}
 }
 
@@ -384,9 +402,6 @@ func TestDownloadImageAddsScheme(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// Strip the "http://" to test scheme addition.
-	// downloadImage adds "https://" but httptest uses http, so this will fail.
-	// Instead test that a valid URL works fine without prefix modification.
 	data, _, err := downloadImage(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -411,7 +426,6 @@ func TestDownloadImageBadStatus(t *testing.T) {
 func TestDownloadImageTooLarge(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
-		// Write more than maxImageSize
 		_, _ = w.Write(make([]byte, maxImageSize+10))
 	}))
 	defer srv.Close()
@@ -424,7 +438,6 @@ func TestDownloadImageTooLarge(t *testing.T) {
 
 func TestDownloadImageDetectsMIME(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		// No Content-Type header — should be auto-detected.
 		_, _ = w.Write([]byte("hello"))
 	}))
 	defer srv.Close()
@@ -487,8 +500,9 @@ func TestHandleModelCommandListModels(t *testing.T) {
 		{Provider: "openai", Model: "gpt-4"},
 	}
 	bot := &Bot{
+		cmd:        channel.NewCommander(newTestPool(), func() []channel.ModelOption { return models }, nil),
 		listFn:     func() []channel.ModelOption { return models },
-		chatModels: make(map[string]ModelOption),
+		chatModels: make(map[string]channel.ModelOption),
 	}
 
 	var reply string
@@ -504,8 +518,9 @@ func TestHandleModelCommandFilter(t *testing.T) {
 		{Provider: "anthropic", Model: "claude-3"},
 	}
 	bot := &Bot{
+		cmd:        channel.NewCommander(newTestPool(), func() []channel.ModelOption { return models }, nil),
 		listFn:     func() []channel.ModelOption { return models },
-		chatModels: make(map[string]ModelOption),
+		chatModels: make(map[string]channel.ModelOption),
 	}
 
 	var reply string
@@ -523,8 +538,9 @@ func TestHandleModelCommandFilterNoMatch(t *testing.T) {
 		{Provider: "openai", Model: "gpt-4"},
 	}
 	bot := &Bot{
+		cmd:        channel.NewCommander(newTestPool(), func() []channel.ModelOption { return models }, nil),
 		listFn:     func() []channel.ModelOption { return models },
-		chatModels: make(map[string]ModelOption),
+		chatModels: make(map[string]channel.ModelOption),
 	}
 
 	var reply string
@@ -539,13 +555,14 @@ func TestHandleModelCommandInvalidIndex(t *testing.T) {
 		{Provider: "openai", Model: "gpt-4"},
 	}
 	bot := &Bot{
+		cmd:        channel.NewCommander(newTestPool(), func() []channel.ModelOption { return models }, nil),
 		listFn:     func() []channel.ModelOption { return models },
-		chatModels: make(map[string]ModelOption),
+		chatModels: make(map[string]channel.ModelOption),
 	}
 
 	var reply string
 	bot.handleModelCommand("5", "ch", func(s string) { reply = s })
-	if !strings.Contains(reply, "Invalid selection") {
+	if !strings.Contains(reply, "invalid selection") {
 		t.Errorf("expected invalid selection, got: %s", reply)
 	}
 }
@@ -554,15 +571,17 @@ func TestHandleModelCommandSwitchError(t *testing.T) {
 	models := []channel.ModelOption{
 		{Provider: "openai", Model: "gpt-4"},
 	}
+	switchFn := func(string, string) error { return fmt.Errorf("switch failed") }
 	bot := &Bot{
+		cmd:        channel.NewCommander(newTestPool(), func() []channel.ModelOption { return models }, switchFn),
 		listFn:     func() []channel.ModelOption { return models },
-		switchFn:   func(string, string) error { return fmt.Errorf("switch failed") },
-		chatModels: make(map[string]ModelOption),
+		switchFn:   switchFn,
+		chatModels: make(map[string]channel.ModelOption),
 	}
 
 	var reply string
 	bot.handleModelCommand("1", "ch", func(s string) { reply = s })
-	if !strings.Contains(reply, "Error switching model") {
+	if !strings.Contains(reply, "switch model") {
 		t.Errorf("expected switch error, got: %s", reply)
 	}
 }
@@ -574,50 +593,6 @@ func TestNotifyEmptyChatID(t *testing.T) {
 	err := bot.Notify(context.Background(), channel.Notification{})
 	if err == nil {
 		t.Fatal("expected error for empty chat ID")
-	}
-}
-
-// --- toolLine edge cases ---
-
-func TestToolLineRunningNoInput(t *testing.T) {
-	line := toolLine(&runner.ToolUseEvent{Tool: "search", Status: "running"})
-	if !strings.Contains(line, "search") {
-		t.Errorf("unexpected line: %q", line)
-	}
-	if strings.Contains(line, ":") {
-		t.Errorf("no input should not have colon separator: %q", line)
-	}
-}
-
-func TestToolLineUnknownTool(t *testing.T) {
-	line := toolLine(&runner.ToolUseEvent{Tool: "custom_tool", Status: "running", Input: "x"})
-	if !strings.Contains(line, "🔧") {
-		t.Errorf("unknown tool should use default emoji: %q", line)
-	}
-}
-
-// --- buildStreamDisplay edge cases ---
-
-func TestBuildStreamDisplayEmptyTextWithTool(t *testing.T) {
-	d := buildStreamDisplay("", "⚡ bash: ls")
-	if !strings.Contains(d, "⚡ bash: ls") {
-		t.Errorf("should show tool line: %q", d)
-	}
-}
-
-func TestBuildStreamDisplayEmptyAll(t *testing.T) {
-	d := buildStreamDisplay("", "")
-	if !strings.HasSuffix(d, typingCursor) {
-		t.Errorf("should end with cursor: %q", d)
-	}
-}
-
-// --- splitMessage edge cases ---
-
-func TestSplitMessageEmpty(t *testing.T) {
-	chunks := splitMessage("")
-	if len(chunks) != 1 || chunks[0] != "" {
-		t.Errorf("empty message should return single empty chunk, got %v", chunks)
 	}
 }
 
@@ -671,6 +646,32 @@ func TestBuildMessageContentEmptyNoAttachments(t *testing.T) {
 
 func TestSendImageNoOp(t *testing.T) {
 	bot := &Bot{}
-	// Should not panic.
 	bot.sendImage("target", "msg", runner.ImageEvent{}, scopeC2C)
+}
+
+// --- test helpers ---
+
+type testPool struct {
+	sessions map[string]channel.SessionInfo
+	nextID   int
+}
+
+func newTestPool() *testPool { return &testPool{sessions: make(map[string]channel.SessionInfo)} }
+
+func (p *testPool) ResolveSession(ch string) (channel.SessionInfo, error) {
+	if info, ok := p.sessions[ch]; ok {
+		return info, nil
+	}
+	return p.RotateSession(ch)
+}
+
+func (p *testPool) RotateSession(ch string) (channel.SessionInfo, error) {
+	p.nextID++
+	info := channel.SessionInfo{ID: fmt.Sprintf("s-%d", p.nextID)}
+	p.sessions[ch] = info
+	return info, nil
+}
+
+func (p *testPool) CompactSession(_ context.Context, _ string) (string, error) {
+	return "compacted", nil
 }
