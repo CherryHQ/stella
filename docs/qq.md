@@ -1,6 +1,6 @@
 # QQ Bot
 
-anna includes a QQ bot that receives messages via webhook (HTTP callbacks from QQ servers).
+anna includes a QQ bot that connects via WebSocket (persistent connection, no public URL required).
 
 ## Setup
 
@@ -28,25 +28,7 @@ export ANNA_QQ_APP_SECRET="YOUR_APP_SECRET"
 anna gateway
 ```
 
-## Webhook Setup
-
-Unlike Telegram (which uses long polling), QQ requires a publicly accessible HTTP endpoint for webhook callbacks. The bot starts an HTTP server to receive events.
-
-```yaml
-channels:
-  qq:
-    listen_addr: ":9000"      # HTTP listen address (default: ":9000")
-    webhook_path: "/qqbot"    # URL path for webhook (default: "/qqbot")
-```
-
-You need to configure the webhook URL in your QQ Bot dashboard to point to your server, e.g., `https://your-domain.com/qqbot`.
-
-For local development, use a reverse proxy like [ngrok](https://ngrok.com/):
-
-```bash
-ngrok http 9000
-# Then set the ngrok URL in QQ Bot dashboard
-```
+The bot connects to QQ via WebSocket -- no public URL or webhook setup needed.
 
 ## Sandbox Mode
 
@@ -130,8 +112,6 @@ Used by the `notify` agent tool and cron job result broadcasting.
 |-------|-------------|---------|
 | `app_id` | QQ Bot AppID | (required) |
 | `app_secret` | QQ Bot AppSecret | (required) |
-| `listen_addr` | Webhook HTTP listen address | `:9000` |
-| `webhook_path` | Webhook URL path | `/qqbot` |
 | `sandbox` | Use sandbox API endpoint | `false` |
 | `notify_chat` | Default chat for notifications | |
 | `group_mode` | Group behavior: `mention`, `always`, `disabled` | `mention` |

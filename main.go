@@ -309,14 +309,12 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 		slog.Info("starting qq bot")
 
 		qqBot, err := qq.New(qq.Config{
-			AppID:       qqCfg.AppID,
-			AppSecret:   qqCfg.AppSecret,
-			NotifyChat:  qqCfg.NotifyChat,
-			ListenAddr:  qqCfg.ListenAddr,
-			WebhookPath: qqCfg.WebhookPath,
-			Sandbox:     qqCfg.Sandbox,
-			GroupMode:   qqCfg.GroupMode,
-			AllowedIDs:  qqCfg.AllowedIDs,
+			AppID:      qqCfg.AppID,
+			AppSecret:  qqCfg.AppSecret,
+			NotifyChat: qqCfg.NotifyChat,
+			Sandbox:    qqCfg.Sandbox,
+			GroupMode:  qqCfg.GroupMode,
+			AllowedIDs: qqCfg.AllowedIDs,
 		}, s.pool, listFn, switchFn)
 		if err != nil {
 			return fmt.Errorf("create qq bot: %w", err)

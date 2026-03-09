@@ -4,18 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"sync"
 	"time"
 
 	"github.com/tencent-connect/botgo"
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/tencent-connect/botgo/event"
-	"github.com/tencent-connect/botgo/interaction/webhook"
 	"github.com/tencent-connect/botgo/openapi"
 	"github.com/tencent-connect/botgo/token"
 	"github.com/vaayne/anna/agent"
 	"github.com/vaayne/anna/channel"
+	"golang.org/x/oauth2"
 )
 
 const qqMaxMessageLen = 3500
@@ -24,23 +23,23 @@ func logger() *slog.Logger { return slog.With("component", "qq") }
 
 // Config holds QQ Bot settings.
 type Config struct {
-	AppID       string
-	AppSecret   string
-	NotifyChat  string // default user/group OpenID for notifications
-	ListenAddr  string // webhook HTTP listen address (e.g. ":9000")
-	WebhookPath string // webhook URL path (e.g. "/qqbot")
-	Sandbox     bool
-	GroupMode   string   // "mention" | "always" | "disabled"
-	AllowedIDs  []string // user OpenIDs allowed (empty = allow all)
+	AppID      string
+	AppSecret  string
+	NotifyChat string // default user/group OpenID for notifications
+	Sandbox    bool
+	GroupMode  string   // "mention" | "always" | "disabled"
+	AllowedIDs []string // user OpenIDs allowed (empty = allow all)
 }
 
 // Bot wraps a QQ bot with agent pool integration.
 type Bot struct {
-	api      openapi.OpenAPI
-	creds    *token.QQBotCredentials
-	pool     *agent.Pool
-	listFn   ModelListFunc
-	switchFn ModelSwitchFunc
+	api            openapi.OpenAPI
+	creds          *token.QQBotCredentials
+	tokenSource    oauth2.TokenSource
+	sessionManager botgo.SessionManager
+	pool           *agent.Pool
+	listFn         ModelListFunc
+	switchFn       ModelSwitchFunc
 
 	mu         sync.RWMutex
 	chatModels map[string]ModelOption
@@ -48,6 +47,7 @@ type Bot struct {
 	allowed map[string]struct{}
 	cfg     Config
 	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
 // New creates a QQ bot. Call Start to begin receiving events.
@@ -56,12 +56,6 @@ func New(cfg Config, pool *agent.Pool, listFn ModelListFunc, switchFn ModelSwitc
 		return nil, fmt.Errorf("qq: app_id and app_secret are required")
 	}
 
-	if cfg.ListenAddr == "" {
-		cfg.ListenAddr = ":9000"
-	}
-	if cfg.WebhookPath == "" {
-		cfg.WebhookPath = "/qqbot"
-	}
 	if cfg.GroupMode == "" {
 		cfg.GroupMode = "mention"
 	}
@@ -84,53 +78,61 @@ func New(cfg Config, pool *agent.Pool, listFn ModelListFunc, switchFn ModelSwitc
 }
 
 // Start initializes the API client, registers event handlers, and starts
-// the webhook HTTP server. It blocks until ctx is cancelled.
+// a WebSocket connection. It blocks until ctx is cancelled.
 func (b *Bot) Start(ctx context.Context) error {
-	b.ctx = ctx
+	b.ctx, b.cancel = context.WithCancel(ctx)
 
 	b.creds = &token.QQBotCredentials{
 		AppID:     b.cfg.AppID,
 		AppSecret: b.cfg.AppSecret,
 	}
 
-	tokenSource := token.NewQQBotTokenSource(b.creds)
-	if err := token.StartRefreshAccessToken(ctx, tokenSource); err != nil {
+	b.tokenSource = token.NewQQBotTokenSource(b.creds)
+	if err := token.StartRefreshAccessToken(b.ctx, b.tokenSource); err != nil {
 		return fmt.Errorf("qq: start token refresh: %w", err)
 	}
 
 	if b.cfg.Sandbox {
-		b.api = botgo.NewSandboxOpenAPI(b.creds.AppID, tokenSource).WithTimeout(10 * time.Second)
+		b.api = botgo.NewSandboxOpenAPI(b.creds.AppID, b.tokenSource).WithTimeout(10 * time.Second)
 	} else {
-		b.api = botgo.NewOpenAPI(b.creds.AppID, tokenSource).WithTimeout(10 * time.Second)
+		b.api = botgo.NewOpenAPI(b.creds.AppID, b.tokenSource).WithTimeout(10 * time.Second)
 	}
 
-	b.registerHandlers()
+	// Register event handlers and capture the intent bitmask.
+	intent := event.RegisterHandlers(
+		b.c2cMessageHandler(),
+		b.groupATMessageHandler(),
+	)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc(b.cfg.WebhookPath, func(w http.ResponseWriter, r *http.Request) {
-		webhook.HTTPHandler(w, r, b.creds)
-	})
-
-	server := &http.Server{
-		Addr:              b.cfg.ListenAddr,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
+	// Get WebSocket endpoint.
+	wsInfo, err := b.api.WS(b.ctx, nil, "")
+	if err != nil {
+		return fmt.Errorf("qq: get websocket info: %w", err)
 	}
 
-	logger().Info("webhook server starting", "addr", b.cfg.ListenAddr, "path", b.cfg.WebhookPath)
+	logger().Info("websocket info", "shards", wsInfo.Shards)
 
+	b.sessionManager = botgo.NewSessionManager()
+
+	// Start WebSocket connection in a goroutine; block on context.
 	go func() {
-		<-ctx.Done()
-		logger().Info("webhook server stopping")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = server.Shutdown(shutdownCtx)
+		if err := b.sessionManager.Start(wsInfo, b.tokenSource, &intent); err != nil {
+			logger().Error("websocket session error", "error", err)
+		}
 	}()
 
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return fmt.Errorf("qq: webhook server: %w", err)
+	logger().Info("qq bot started (WebSocket mode)")
+
+	<-b.ctx.Done()
+	return b.ctx.Err()
+}
+
+// Stop cancels the bot context.
+func (b *Bot) Stop() {
+	logger().Info("stopping qq bot")
+	if b.cancel != nil {
+		b.cancel()
 	}
-	return ctx.Err()
 }
 
 // Name returns the backend name. Implements channel.Backend.
@@ -153,7 +155,7 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 		MsgType: dto.TextMsg,
 	}
 
-	// Try C2C first; if chatID starts with a group prefix convention, use group API.
+	// Try C2C first; if that fails, try group API.
 	if _, err := b.api.PostC2CMessage(ctx, chatID, msg); err != nil {
 		logger().Warn("c2c notify failed, trying group", "error", err)
 		if _, err := b.api.PostGroupMessage(ctx, chatID, msg); err != nil {
@@ -163,14 +165,6 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 
 	logger().Debug("notification sent", "chat_id", chatID)
 	return nil
-}
-
-// registerHandlers wires event handlers for QQ messages.
-func (b *Bot) registerHandlers() {
-	_ = event.RegisterHandlers(
-		b.c2cMessageHandler(),
-		b.groupATMessageHandler(),
-	)
 }
 
 // isAllowed returns true if the sender is in the allowed list.
@@ -184,13 +178,11 @@ func (b *Bot) isAllowed(authorID string) bool {
 }
 
 // channelForC2C returns the channel identifier for a C2C (private) chat.
-// Uses an explicit scope separator to avoid collisions with group keys.
 func channelForC2C(userID string) string {
 	return "qq:c2c:" + userID
 }
 
 // channelForGroup returns the channel identifier for a group chat.
-// Uses an explicit scope separator to avoid collisions with C2C keys.
 func channelForGroup(groupID string) string {
 	return "qq:group:" + groupID
 }

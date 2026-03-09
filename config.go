@@ -84,14 +84,12 @@ type RunnerConfig struct {
 type CompactionConfig = agent.CompactionConfig
 
 type QQConfig struct {
-	AppID       string   `yaml:"app_id"       env:"APP_ID"`
-	AppSecret   string   `yaml:"app_secret"   env:"APP_SECRET"`
-	NotifyChat  string   `yaml:"notify_chat"  env:"NOTIFY_CHAT"`
-	ListenAddr  string   `yaml:"listen_addr"  env:"LISTEN_ADDR"`
-	WebhookPath string   `yaml:"webhook_path" env:"WEBHOOK_PATH"`
-	Sandbox     bool     `yaml:"sandbox"      env:"SANDBOX"`
-	GroupMode   string   `yaml:"group_mode"   env:"GROUP_MODE"`
-	AllowedIDs  []string `yaml:"allowed_ids"  env:"ALLOWED_IDS"`
+	AppID      string   `yaml:"app_id"      env:"APP_ID"`
+	AppSecret  string   `yaml:"app_secret"  env:"APP_SECRET"`
+	NotifyChat string   `yaml:"notify_chat" env:"NOTIFY_CHAT"`
+	Sandbox    bool     `yaml:"sandbox"     env:"SANDBOX"`
+	GroupMode  string   `yaml:"group_mode"  env:"GROUP_MODE"`
+	AllowedIDs []string `yaml:"allowed_ids" env:"ALLOWED_IDS"`
 }
 
 type TelegramConfig struct {

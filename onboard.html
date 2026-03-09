@@ -386,18 +386,6 @@
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label for="qq-listen" class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Listen Address</label>
-              <input id="qq-listen" type="text" x-model="config.channels.qq.listen_addr" placeholder=":9000"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm text-ink-0 font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150">
-            </div>
-            <div>
-              <label for="qq-webhook" class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Webhook Path</label>
-              <input id="qq-webhook" type="text" x-model="config.channels.qq.webhook_path" placeholder="/qqbot"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm text-ink-0 font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150">
-            </div>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
               <label for="qq-allowed" class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Allowed IDs</label>
               <input id="qq-allowed" type="text" :value="(config.channels.qq.allowed_ids || []).join(', ')"
                      @change="config.channels.qq.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)"
@@ -567,7 +555,7 @@ function onboard() {
       providers: {},
       channels: {
         telegram: { token: '', notify_chat: '', channel_id: '', group_mode: '', allowed_ids: [] },
-        qq: { app_id: '', app_secret: '', notify_chat: '', listen_addr: '', webhook_path: '', sandbox: false, group_mode: '', allowed_ids: [] },
+        qq: { app_id: '', app_secret: '', notify_chat: '', sandbox: false, group_mode: '', allowed_ids: [] },
       },
     },
     providerModels: {},
@@ -657,7 +645,7 @@ function onboard() {
             ...data.config,
             channels: {
               telegram: { token: '', notify_chat: '', channel_id: '', group_mode: '', allowed_ids: [], ...data.config.channels?.telegram },
-              qq: { app_id: '', app_secret: '', notify_chat: '', listen_addr: '', webhook_path: '', sandbox: false, group_mode: '', allowed_ids: [], ...data.config.channels?.qq },
+              qq: { app_id: '', app_secret: '', notify_chat: '', sandbox: false, group_mode: '', allowed_ids: [], ...data.config.channels?.qq },
             },
             providers: data.config.providers || {},
           };

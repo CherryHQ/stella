@@ -332,14 +332,12 @@ type telegramJSON struct {
 }
 
 type qqJSON struct {
-	AppID       string   `json:"app_id"`
-	AppSecret   string   `json:"app_secret"`
-	NotifyChat  string   `json:"notify_chat"`
-	ListenAddr  string   `json:"listen_addr"`
-	WebhookPath string   `json:"webhook_path"`
-	Sandbox     bool     `json:"sandbox"`
-	GroupMode   string   `json:"group_mode"`
-	AllowedIDs  []string `json:"allowed_ids"`
+	AppID      string   `json:"app_id"`
+	AppSecret  string   `json:"app_secret"`
+	NotifyChat string   `json:"notify_chat"`
+	Sandbox    bool     `json:"sandbox"`
+	GroupMode  string   `json:"group_mode"`
+	AllowedIDs []string `json:"allowed_ids"`
 }
 
 func cfgToJSON(cfg *Config) configJSON {
@@ -363,14 +361,12 @@ func cfgToJSON(cfg *Config) configJSON {
 				AllowedIDs: cfg.Channels.Telegram.AllowedIDs,
 			},
 			QQ: qqJSON{
-				AppID:       cfg.Channels.QQ.AppID,
-				AppSecret:   cfg.Channels.QQ.AppSecret,
-				NotifyChat:  cfg.Channels.QQ.NotifyChat,
-				ListenAddr:  cfg.Channels.QQ.ListenAddr,
-				WebhookPath: cfg.Channels.QQ.WebhookPath,
-				Sandbox:     cfg.Channels.QQ.Sandbox,
-				GroupMode:   cfg.Channels.QQ.GroupMode,
-				AllowedIDs:  cfg.Channels.QQ.AllowedIDs,
+				AppID:      cfg.Channels.QQ.AppID,
+				AppSecret:  cfg.Channels.QQ.AppSecret,
+				NotifyChat: cfg.Channels.QQ.NotifyChat,
+				Sandbox:    cfg.Channels.QQ.Sandbox,
+				GroupMode:  cfg.Channels.QQ.GroupMode,
+				AllowedIDs: cfg.Channels.QQ.AllowedIDs,
 			},
 		},
 	}
@@ -403,14 +399,12 @@ func applyJSONToConfig(cfg *Config, body *configJSON) {
 	}
 
 	cfg.Channels.QQ = QQConfig{
-		AppID:       body.Channels.QQ.AppID,
-		AppSecret:   body.Channels.QQ.AppSecret,
-		NotifyChat:  body.Channels.QQ.NotifyChat,
-		ListenAddr:  body.Channels.QQ.ListenAddr,
-		WebhookPath: body.Channels.QQ.WebhookPath,
-		Sandbox:     body.Channels.QQ.Sandbox,
-		GroupMode:   body.Channels.QQ.GroupMode,
-		AllowedIDs:  body.Channels.QQ.AllowedIDs,
+		AppID:      body.Channels.QQ.AppID,
+		AppSecret:  body.Channels.QQ.AppSecret,
+		NotifyChat: body.Channels.QQ.NotifyChat,
+		Sandbox:    body.Channels.QQ.Sandbox,
+		GroupMode:  body.Channels.QQ.GroupMode,
+		AllowedIDs: body.Channels.QQ.AllowedIDs,
 	}
 }
 
@@ -488,7 +482,7 @@ func saveConfig(cfg *Config) error {
 
 	// Merge QQ channel config.
 	qq := cfg.Channels.QQ
-	if qq.AppID != "" || qq.AppSecret != "" || qq.NotifyChat != "" || qq.ListenAddr != "" || qq.WebhookPath != "" || qq.Sandbox || qq.GroupMode != "" || len(qq.AllowedIDs) > 0 {
+	if qq.AppID != "" || qq.AppSecret != "" || qq.NotifyChat != "" || qq.Sandbox || qq.GroupMode != "" || len(qq.AllowedIDs) > 0 {
 		existingChannels, _ := existing["channels"].(map[string]any)
 		if existingChannels == nil {
 			existingChannels = make(map[string]any)
@@ -500,8 +494,6 @@ func saveConfig(cfg *Config) error {
 		setOrDelete(qqMap, "app_id", qq.AppID)
 		setOrDelete(qqMap, "app_secret", qq.AppSecret)
 		setOrDelete(qqMap, "notify_chat", qq.NotifyChat)
-		setOrDelete(qqMap, "listen_addr", qq.ListenAddr)
-		setOrDelete(qqMap, "webhook_path", qq.WebhookPath)
 		if qq.Sandbox {
 			qqMap["sandbox"] = true
 		} else {

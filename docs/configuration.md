@@ -44,8 +44,6 @@ channels:
   qq:
     app_id: "QQ_BOT_APP_ID"
     app_secret: "QQ_BOT_APP_SECRET"
-    listen_addr: ":9000"           # Webhook HTTP listen address
-    webhook_path: "/qqbot"         # Webhook URL path
     sandbox: false                 # Use sandbox API endpoint
     notify_chat: ""                # Default OpenID for notifications
     group_mode: "mention"          # mention | always | disabled
@@ -119,8 +117,6 @@ All config fields support env var overrides using the `ANNA_` prefix. Nested str
 | `ANNA_TELEGRAM_ALLOWED_IDS` | `channels.telegram.allowed_ids` | Comma-separated |
 | `ANNA_QQ_APP_ID` | `channels.qq.app_id` | |
 | `ANNA_QQ_APP_SECRET` | `channels.qq.app_secret` | |
-| `ANNA_QQ_LISTEN_ADDR` | `channels.qq.listen_addr` | Default `:9000` |
-| `ANNA_QQ_WEBHOOK_PATH` | `channels.qq.webhook_path` | Default `/qqbot` |
 | `ANNA_QQ_SANDBOX` | `channels.qq.sandbox` | |
 | `ANNA_QQ_NOTIFY_CHAT` | `channels.qq.notify_chat` | |
 | `ANNA_QQ_GROUP_MODE` | `channels.qq.group_mode` | |
@@ -144,7 +140,5 @@ All config fields support env var overrides using the `ANNA_` prefix. Nested str
 | `cron.enabled` | `true` |
 | `cron.data_dir` | `~/.anna/workspace/cron` |
 | `channels.telegram.group_mode` | `mention` |
-| `channels.qq.listen_addr` | `:9000` |
-| `channels.qq.webhook_path` | `/qqbot` |
 | `channels.qq.sandbox` | `false` |
 | `channels.qq.group_mode` | `mention` |
