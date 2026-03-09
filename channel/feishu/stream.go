@@ -148,14 +148,13 @@ func (b *Bot) sendReplyMessage(replyMsgID, text string) (string, error) {
 	return "", nil
 }
 
-// updateMessage edits an existing message in place.
+// updateMessage edits an existing message in place using the Patch API.
 func (b *Bot) updateMessage(messageID, text string) error {
 	content := textContent(text)
-	resp, err := b.client.Im.Message.Update(b.ctx,
-		larkim.NewUpdateMessageReqBuilder().
+	resp, err := b.client.Im.Message.Patch(b.ctx,
+		larkim.NewPatchMessageReqBuilder().
 			MessageId(messageID).
-			Body(larkim.NewUpdateMessageReqBodyBuilder().
-				MsgType(larkim.MsgTypeText).
+			Body(larkim.NewPatchMessageReqBodyBuilder().
 				Content(content).
 				Build()).
 			Build())
