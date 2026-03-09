@@ -2,6 +2,7 @@ package qq
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/vaayne/anna/agent/runner"
@@ -12,6 +13,8 @@ import (
 func (b *Bot) sendFinalResponse(targetID, msgID, response string, scope messageScope) {
 	chunks := splitMessage(response)
 	for i, chunk := range chunks {
+		// MsgSeq starts at 100 to avoid collisions with stream chunk
+		// sequence numbers (which start at 1).
 		msg := dto.MessageToCreate{
 			Content: chunk,
 			MsgType: dto.TextMsg,
@@ -33,15 +36,11 @@ func (b *Bot) sendFinalResponse(targetID, msgID, response string, scope messageS
 	}
 }
 
-// sendImage attempts to send a base64-encoded image via QQ's rich media API.
-// QQ requires an HTTP/HTTPS URL for images, so this uses SrvSendMsg mode.
-// If the agent produces images without a public URL this will likely fail;
-// the error is logged but does not block the text response.
+// sendImage is a no-op: QQ's rich media API requires an HTTP/HTTPS URL and
+// does not accept raw binary or base64 data. Agent-generated images are
+// base64 in-memory with no public URL, so we skip them.
+// TODO: support image sending once a file-upload or proxy solution is available.
 func (b *Bot) sendImage(_ string, _ string, _ runner.ImageEvent, _ messageScope) {
-	// QQ's rich media API (RichMediaMessage) requires an HTTP/HTTPS URL —
-	// it does not accept raw binary or base64 data. Agent-generated images
-	// are base64 in-memory with no public URL, so we cannot send them
-	// through the current SDK. Log and skip.
 	logger().Debug("skipping image send: QQ requires HTTP URL for rich media")
 }
 
@@ -60,6 +59,10 @@ func splitMessage(text string) []string {
 		}
 
 		cutAt := qqMaxMessageLen
+		// Avoid splitting in the middle of a multi-byte UTF-8 character.
+		for cutAt > 0 && !utf8.RuneStart(text[cutAt]) {
+			cutAt--
+		}
 		if idx := strings.LastIndex(text[:cutAt], "\n"); idx > 0 {
 			cutAt = idx + 1
 		}

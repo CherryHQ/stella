@@ -32,8 +32,9 @@ func toolLine(t *runner.ToolUseEvent) string {
 	switch t.Status {
 	case "running":
 		input := t.Input
-		if len(input) > 60 {
-			input = input[:57] + "..."
+		if utf8.RuneCountInString(input) > 60 {
+			r := []rune(input)
+			input = string(r[:57]) + "..."
 		}
 		if input != "" {
 			return fmt.Sprintf("%s %s: %s", emoji, t.Tool, input)

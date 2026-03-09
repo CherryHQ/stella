@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -143,11 +144,18 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 		MsgType: dto.TextMsg,
 	}
 
-	// Try C2C first; if that fails, try group API.
-	if _, err := b.api.PostC2CMessage(ctx, n.ChatID, msg); err != nil {
-		logger().Warn("c2c notify failed, trying group", "error", err)
-		if _, err := b.api.PostGroupMessage(ctx, n.ChatID, msg); err != nil {
-			return fmt.Errorf("qq: notify: %w", err)
+	// Dispatch based on channel prefix to avoid unnecessary API errors.
+	switch {
+	case strings.HasPrefix(n.ChatID, "qq:group:"):
+		targetID := strings.TrimPrefix(n.ChatID, "qq:group:")
+		if _, err := b.api.PostGroupMessage(ctx, targetID, msg); err != nil {
+			return fmt.Errorf("qq: group notify: %w", err)
+		}
+	default:
+		// Treat as C2C; strip prefix if present.
+		targetID := strings.TrimPrefix(n.ChatID, "qq:c2c:")
+		if _, err := b.api.PostC2CMessage(ctx, targetID, msg); err != nil {
+			return fmt.Errorf("qq: c2c notify: %w", err)
 		}
 	}
 

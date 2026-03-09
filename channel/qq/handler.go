@@ -215,7 +215,11 @@ func (b *Bot) handleMessage(ch, targetID, msgID string, content runner.MessageCo
 // handleCommand checks if text is a bot command and handles it.
 // Returns true if the text was a command.
 func (b *Bot) handleCommand(text, ch string, reply func(string)) bool {
-	cmd := strings.ToLower(strings.Fields(text)[0])
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return false
+	}
+	cmd := strings.ToLower(fields[0])
 
 	switch cmd {
 	case "/start", "/help":
@@ -260,13 +264,10 @@ func (b *Bot) handleCommand(text, ch string, reply func(string)) bool {
 }
 
 // shouldRespondInGroup checks whether the bot should respond based on group_mode.
+// QQ group messages arrive as @mention events, so "mention" and "always" behave
+// identically — only "disabled" suppresses responses.
 func (b *Bot) shouldRespondInGroup() bool {
-	switch b.cfg.GroupMode {
-	case "disabled":
-		return false
-	default:
-		return true
-	}
+	return b.cfg.GroupMode != "disabled"
 }
 
 const welcomeMessage = "Hi! I'm Anna -- your local AI assistant.\n\n" +
