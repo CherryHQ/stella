@@ -320,6 +320,7 @@ type providerJSON struct {
 
 type channelsJSON struct {
 	Telegram telegramJSON `json:"telegram"`
+	QQ       qqJSON       `json:"qq"`
 }
 
 type telegramJSON struct {
@@ -328,6 +329,13 @@ type telegramJSON struct {
 	ChannelID  string  `json:"channel_id"`
 	GroupMode  string  `json:"group_mode"`
 	AllowedIDs []int64 `json:"allowed_ids"`
+}
+
+type qqJSON struct {
+	AppID      string   `json:"app_id"`
+	AppSecret  string   `json:"app_secret"`
+	GroupMode  string   `json:"group_mode"`
+	AllowedIDs []string `json:"allowed_ids"`
 }
 
 func cfgToJSON(cfg *Config) configJSON {
@@ -349,6 +357,12 @@ func cfgToJSON(cfg *Config) configJSON {
 				ChannelID:  cfg.Channels.Telegram.ChannelID,
 				GroupMode:  cfg.Channels.Telegram.GroupMode,
 				AllowedIDs: cfg.Channels.Telegram.AllowedIDs,
+			},
+			QQ: qqJSON{
+				AppID:      cfg.Channels.QQ.AppID,
+				AppSecret:  cfg.Channels.QQ.AppSecret,
+				GroupMode:  cfg.Channels.QQ.GroupMode,
+				AllowedIDs: cfg.Channels.QQ.AllowedIDs,
 			},
 		},
 	}
@@ -378,6 +392,13 @@ func applyJSONToConfig(cfg *Config, body *configJSON) {
 		ChannelID:  body.Channels.Telegram.ChannelID,
 		GroupMode:  body.Channels.Telegram.GroupMode,
 		AllowedIDs: body.Channels.Telegram.AllowedIDs,
+	}
+
+	cfg.Channels.QQ = QQConfig{
+		AppID:      body.Channels.QQ.AppID,
+		AppSecret:  body.Channels.QQ.AppSecret,
+		GroupMode:  body.Channels.QQ.GroupMode,
+		AllowedIDs: body.Channels.QQ.AllowedIDs,
 	}
 }
 
@@ -450,6 +471,29 @@ func saveConfig(cfg *Config) error {
 			delete(tgMap, "allowed_ids")
 		}
 		existingChannels["telegram"] = tgMap
+		existing["channels"] = existingChannels
+	}
+
+	// Merge QQ channel config.
+	qq := cfg.Channels.QQ
+	if qq.AppID != "" || qq.AppSecret != "" || qq.GroupMode != "" || len(qq.AllowedIDs) > 0 {
+		existingChannels, _ := existing["channels"].(map[string]any)
+		if existingChannels == nil {
+			existingChannels = make(map[string]any)
+		}
+		qqMap, _ := existingChannels["qq"].(map[string]any)
+		if qqMap == nil {
+			qqMap = make(map[string]any)
+		}
+		setOrDelete(qqMap, "app_id", qq.AppID)
+		setOrDelete(qqMap, "app_secret", qq.AppSecret)
+		setOrDelete(qqMap, "group_mode", qq.GroupMode)
+		if len(qq.AllowedIDs) > 0 {
+			qqMap["allowed_ids"] = qq.AllowedIDs
+		} else {
+			delete(qqMap, "allowed_ids")
+		}
+		existingChannels["qq"] = qqMap
 		existing["channels"] = existingChannels
 	}
 

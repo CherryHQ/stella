@@ -2,7 +2,7 @@
 
 A minimal Go CLI that acts as a local AI assistant. Uses a native Go runner that calls LLM providers (Anthropic, OpenAI, OpenAI-compatible) directly.
 
-Two interfaces: **interactive CLI chat** and **gateway daemon** (Telegram bot via long polling).
+Two interfaces: **interactive CLI chat** and **gateway daemon** (Telegram bot, QQ bot).
 
 ## Features
 
@@ -13,6 +13,10 @@ Two interfaces: **interactive CLI chat** and **gateway daemon** (Telegram bot vi
   - Image input support (send photos for vision-based analysis)
   - Group support with configurable `group_mode` (mention/always/disabled)
   - Access control via `allowed_ids`
+- QQ bot via webhook (HTTP callbacks)
+  - Native Stream API for progressive response delivery
+  - C2C (private) and group @mention support
+  - Sandbox mode for testing
 - Notification system with multi-backend dispatcher
 - Model management CLI (`anna models list/update/set/search`)
 - Tiered model config (strong/worker/fast) with runtime model switching
@@ -59,7 +63,7 @@ anna chat --stream   # Pipe prompt via stdin, stream to stdout
 anna gateway
 ```
 
-Starts all configured services (Telegram bot, cron scheduler). Services are activated based on config.
+Starts all configured services (Telegram bot, QQ bot, cron scheduler). Services are activated based on config.
 
 ### Model Management
 
@@ -119,11 +123,14 @@ anna chat
   | Telegram  |----->|                |
   | LongPoll  |      +-------+--------+
   +-----------+              |
-                     +-------v--------+
-  +-----------+      |  Dispatcher   |
-  |   Cron    |----->| (notify tool) |--> Telegram
-  +-----------+      |               |--> (future backends)
-                     +---------------+
+  +-----------+       +------v---------+
+  | QQ Bot    |----->|  Dispatcher   |
+  | Webhook   |      | (notify tool) |--> Telegram
+  +-----------+      |               |--> QQ
+                     +-------^--------+
+  +-----------+              |
+  |   Cron    |--------------+
+  +-----------+
 ```
 
 ```
@@ -140,6 +147,7 @@ agent/tool/                         Built-in tools (read, bash, write, edit, tru
 channel/notifier.go                 Notification dispatcher (multi-backend)
 channel/notify_tool.go              Agent notify tool
 channel/telegram/                   Telegram bot + streaming + notification backend
+channel/qq/                         QQ bot + webhook + streaming + notification backend
 channel/cli/                        Interactive terminal chat (Bubble Tea TUI)
 cron/                               Scheduled jobs (gocron/v2)
 memory/                             Persistent memory (facts + journal)
@@ -156,6 +164,7 @@ ai/stream/                          Streaming abstractions
 | [Configuration](docs/configuration.md) | Full config reference, env vars, defaults |
 | [Architecture](docs/architecture.md) | System design, packages, providers, tools |
 | [Telegram](docs/telegram.md) | Bot setup, streaming, groups, access control |
+| [QQ Bot](docs/qq.md) | Bot setup, webhook, streaming, access control |
 | [Models](docs/models.md) | Tiers, CLI commands, provider setup, caching |
 | [Memory System](docs/memory-system.md) | Facts + journal, tool interface |
 | [Cron System](docs/cron-system.md) | Scheduled tasks, job persistence |
