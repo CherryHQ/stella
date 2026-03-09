@@ -321,6 +321,7 @@ type providerJSON struct {
 type channelsJSON struct {
 	Telegram telegramJSON `json:"telegram"`
 	QQ       qqJSON       `json:"qq"`
+	Feishu   feishuJSON   `json:"feishu"`
 }
 
 type telegramJSON struct {
@@ -334,6 +335,14 @@ type telegramJSON struct {
 type qqJSON struct {
 	AppID      string   `json:"app_id"`
 	AppSecret  string   `json:"app_secret"`
+	GroupMode  string   `json:"group_mode"`
+	AllowedIDs []string `json:"allowed_ids"`
+}
+
+type feishuJSON struct {
+	AppID      string   `json:"app_id"`
+	AppSecret  string   `json:"app_secret"`
+	NotifyChat string   `json:"notify_chat"`
 	GroupMode  string   `json:"group_mode"`
 	AllowedIDs []string `json:"allowed_ids"`
 }
@@ -363,6 +372,13 @@ func cfgToJSON(cfg *Config) configJSON {
 				AppSecret:  cfg.Channels.QQ.AppSecret,
 				GroupMode:  cfg.Channels.QQ.GroupMode,
 				AllowedIDs: cfg.Channels.QQ.AllowedIDs,
+			},
+			Feishu: feishuJSON{
+				AppID:      cfg.Channels.Feishu.AppID,
+				AppSecret:  cfg.Channels.Feishu.AppSecret,
+				NotifyChat: cfg.Channels.Feishu.NotifyChat,
+				GroupMode:  cfg.Channels.Feishu.GroupMode,
+				AllowedIDs: cfg.Channels.Feishu.AllowedIDs,
 			},
 		},
 	}
@@ -399,6 +415,14 @@ func applyJSONToConfig(cfg *Config, body *configJSON) {
 		AppSecret:  body.Channels.QQ.AppSecret,
 		GroupMode:  body.Channels.QQ.GroupMode,
 		AllowedIDs: body.Channels.QQ.AllowedIDs,
+	}
+
+	cfg.Channels.Feishu = FeishuConfig{
+		AppID:      body.Channels.Feishu.AppID,
+		AppSecret:  body.Channels.Feishu.AppSecret,
+		NotifyChat: body.Channels.Feishu.NotifyChat,
+		GroupMode:  body.Channels.Feishu.GroupMode,
+		AllowedIDs: body.Channels.Feishu.AllowedIDs,
 	}
 }
 
@@ -494,6 +518,30 @@ func saveConfig(cfg *Config) error {
 			delete(qqMap, "allowed_ids")
 		}
 		existingChannels["qq"] = qqMap
+		existing["channels"] = existingChannels
+	}
+
+	// Merge Feishu channel config.
+	fs := cfg.Channels.Feishu
+	if fs.AppID != "" || fs.AppSecret != "" || fs.NotifyChat != "" || fs.GroupMode != "" || len(fs.AllowedIDs) > 0 {
+		existingChannels, _ := existing["channels"].(map[string]any)
+		if existingChannels == nil {
+			existingChannels = make(map[string]any)
+		}
+		fsMap, _ := existingChannels["feishu"].(map[string]any)
+		if fsMap == nil {
+			fsMap = make(map[string]any)
+		}
+		setOrDelete(fsMap, "app_id", fs.AppID)
+		setOrDelete(fsMap, "app_secret", fs.AppSecret)
+		setOrDelete(fsMap, "notify_chat", fs.NotifyChat)
+		setOrDelete(fsMap, "group_mode", fs.GroupMode)
+		if len(fs.AllowedIDs) > 0 {
+			fsMap["allowed_ids"] = fs.AllowedIDs
+		} else {
+			delete(fsMap, "allowed_ids")
+		}
+		existingChannels["feishu"] = fsMap
 		existing["channels"] = existingChannels
 	}
 
