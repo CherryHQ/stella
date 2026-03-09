@@ -47,14 +47,16 @@ func toolLine(t *runner.ToolUseEvent) string {
 }
 
 // streamResponse consumes the agent event stream and progressively sends
-// updates using QQ's native Stream API.
-func (b *Bot) streamResponse(targetID, msgID, sessionID, prompt string, scope messageScope) (string, error) {
-	events := b.pool.Chat(b.ctx, sessionID, prompt)
+// updates using QQ's native Stream API. Returns the final text, collected
+// images, and any stream error.
+func (b *Bot) streamResponse(targetID, msgID, sessionID string, content runner.MessageContent, scope messageScope) (string, []runner.ImageEvent, error) {
+	events := b.pool.Chat(b.ctx, sessionID, content)
 
 	var sb strings.Builder
 	var streamErr error
 	var currentTool string
 	var streamMsgID string
+	var images []runner.ImageEvent
 	var seq uint32 = 1
 	lastSend := time.Time{}
 
@@ -62,6 +64,11 @@ func (b *Bot) streamResponse(targetID, msgID, sessionID, prompt string, scope me
 		if evt.Err != nil {
 			streamErr = evt.Err
 			break
+		}
+
+		if evt.Image != nil {
+			images = append(images, *evt.Image)
+			continue
 		}
 
 		if evt.ToolUse != nil {
@@ -112,7 +119,7 @@ func (b *Bot) streamResponse(targetID, msgID, sessionID, prompt string, scope me
 		}
 	}
 
-	return sb.String(), streamErr
+	return sb.String(), images, streamErr
 }
 
 // sendStreamChunk sends a streaming message chunk using QQ's Stream API.

@@ -2,11 +2,16 @@ package qq
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/tencent-connect/botgo/event"
+	"github.com/vaayne/anna/agent/runner"
+	aitypes "github.com/vaayne/anna/ai/types"
 )
 
 // c2cMessageHandler returns a handler for private (C2C) messages.
@@ -19,20 +24,23 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 			return nil
 		}
 
-		text := strings.TrimSpace(msg.Content)
-		if text == "" {
+		content := b.buildMessageContent(msg)
+		if content == nil {
 			return nil
 		}
 
+		text := strings.TrimSpace(msg.Content)
 		ch := channelForC2C(authorID)
 
-		if handled := b.handleCommand(text, ch, func(reply string) {
-			b.replyC2C(b.ctx, authorID, msg.ID, reply)
-		}); handled {
-			return nil
+		if text != "" {
+			if handled := b.handleCommand(text, ch, func(reply string) {
+				b.replyC2C(b.ctx, authorID, msg.ID, reply)
+			}); handled {
+				return nil
+			}
 		}
 
-		b.handleMessage(ch, authorID, msg.ID, text, scopeC2C)
+		b.handleMessage(ch, authorID, msg.ID, content, scopeC2C)
 		return nil
 	}
 }
@@ -52,20 +60,23 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 			return nil
 		}
 
-		text := strings.TrimSpace(msg.Content)
-		if text == "" {
+		content := b.buildMessageContent(msg)
+		if content == nil {
 			return nil
 		}
 
+		text := strings.TrimSpace(msg.Content)
 		ch := channelForGroup(groupID)
 
-		if handled := b.handleCommand(text, ch, func(reply string) {
-			b.replyGroup(b.ctx, groupID, msg.ID, reply)
-		}); handled {
-			return nil
+		if text != "" {
+			if handled := b.handleCommand(text, ch, func(reply string) {
+				b.replyGroup(b.ctx, groupID, msg.ID, reply)
+			}); handled {
+				return nil
+			}
 		}
 
-		b.handleMessage(ch, groupID, msg.ID, text, scopeGroup)
+		b.handleMessage(ch, groupID, msg.ID, content, scopeGroup)
 		return nil
 	}
 }
@@ -78,8 +89,96 @@ const (
 	scopeGroup
 )
 
-// handleMessage processes an incoming text message by streaming the agent response.
-func (b *Bot) handleMessage(ch, targetID, msgID, text string, scope messageScope) {
+// buildMessageContent constructs the message content from a QQ message.
+// Returns nil if the message has no usable content.
+func (b *Bot) buildMessageContent(msg *dto.Message) runner.MessageContent {
+	text := strings.TrimSpace(msg.Content)
+	images := extractImageAttachments(msg)
+
+	if text == "" && len(images) == 0 {
+		return nil
+	}
+
+	// Text-only message: return plain string.
+	if len(images) == 0 {
+		return text
+	}
+
+	// Multimodal message: build content blocks.
+	var blocks []aitypes.ContentBlock
+	if text != "" {
+		blocks = append(blocks, aitypes.TextContent{Text: text})
+	}
+	for _, img := range images {
+		data, mime, err := downloadImage(b.ctx, img.URL)
+		if err != nil {
+			logger().Warn("download image failed", "url", img.URL, "error", err)
+			continue
+		}
+		encoded := base64.StdEncoding.EncodeToString(data)
+		blocks = append(blocks, aitypes.ImageContent{Data: encoded, MimeType: mime})
+		logger().Debug("image received", "size", len(data), "mime", mime)
+	}
+
+	if len(blocks) == 0 {
+		return nil
+	}
+	return blocks
+}
+
+// extractImageAttachments returns image attachments from a QQ message.
+func extractImageAttachments(msg *dto.Message) []*dto.MessageAttachment {
+	var images []*dto.MessageAttachment
+	for _, a := range msg.Attachments {
+		if a.URL != "" && strings.HasPrefix(a.ContentType, "image/") {
+			images = append(images, a)
+		}
+	}
+	return images
+}
+
+const maxImageSize = 20 << 20 // 20 MB
+
+// downloadImage fetches an image from a URL and returns the raw bytes and MIME type.
+func downloadImage(ctx context.Context, rawURL string) ([]byte, string, error) {
+	// QQ attachment URLs may omit the scheme.
+	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
+		rawURL = "https://" + rawURL
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("fetch image: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxImageSize+1))
+	if err != nil {
+		return nil, "", fmt.Errorf("read image: %w", err)
+	}
+	if len(data) > maxImageSize {
+		return nil, "", fmt.Errorf("image too large (max %d bytes)", maxImageSize)
+	}
+
+	mime := resp.Header.Get("Content-Type")
+	if mime == "" {
+		mime = http.DetectContentType(data)
+	}
+
+	return data, mime, nil
+}
+
+// handleMessage processes an incoming message by streaming the agent response.
+func (b *Bot) handleMessage(ch, targetID, msgID string, content runner.MessageContent, scope messageScope) {
 	sessionID, err := b.resolveSession(ch)
 	if err != nil {
 		logger().Error("resolve session failed", "channel", ch, "error", err)
@@ -87,9 +186,9 @@ func (b *Bot) handleMessage(ch, targetID, msgID, text string, scope messageScope
 		return
 	}
 
-	logger().Debug("message received", "channel", ch, "text_len", len(text))
+	logger().Debug("message received", "channel", ch)
 
-	response, streamErr := b.streamResponse(targetID, msgID, sessionID, text, scope)
+	response, images, streamErr := b.streamResponse(targetID, msgID, sessionID, content, scope)
 
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", sessionID, "error", streamErr)
@@ -105,7 +204,12 @@ func (b *Bot) handleMessage(ch, targetID, msgID, text string, scope messageScope
 	}
 
 	b.sendFinalResponse(targetID, msgID, response, scope)
-	logger().Debug("response sent", "channel", ch, "response_len", len(response))
+
+	for _, img := range images {
+		b.sendImage(targetID, msgID, img, scope)
+	}
+
+	logger().Debug("response sent", "channel", ch, "response_len", len(response), "images", len(images))
 }
 
 // handleCommand checks if text is a bot command and handles it.
@@ -146,8 +250,6 @@ func (b *Bot) handleCommand(text, ch string, reply func(string)) bool {
 		return true
 
 	case "/model":
-		// Use the original first token from text (not lowercased cmd)
-		// so TrimPrefix matches regardless of input casing.
 		origCmd := strings.Fields(text)[0]
 		args := strings.TrimSpace(strings.TrimPrefix(text, origCmd))
 		b.handleModelCommand(args, ch, reply)
@@ -158,8 +260,6 @@ func (b *Bot) handleCommand(text, ch string, reply func(string)) bool {
 }
 
 // shouldRespondInGroup checks whether the bot should respond based on group_mode.
-// For QQ, group AT messages already imply the bot was mentioned, so "mention" mode
-// always responds (the event itself is an @mention).
 func (b *Bot) shouldRespondInGroup() bool {
 	switch b.cfg.GroupMode {
 	case "disabled":
