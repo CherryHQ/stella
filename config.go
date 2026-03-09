@@ -36,6 +36,7 @@ const (
 type ChannelsConfig struct {
 	Telegram TelegramConfig `yaml:"telegram" envPrefix:"TELEGRAM_"`
 	QQ       QQConfig       `yaml:"qq"       envPrefix:"QQ_"`
+	Feishu   FeishuConfig   `yaml:"feishu"   envPrefix:"FEISHU_"`
 }
 
 type CronConfig struct {
@@ -86,6 +87,14 @@ type CompactionConfig = agent.CompactionConfig
 type QQConfig struct {
 	AppID      string   `yaml:"app_id"      env:"APP_ID"`
 	AppSecret  string   `yaml:"app_secret"  env:"APP_SECRET"`
+	GroupMode  string   `yaml:"group_mode"  env:"GROUP_MODE"`
+	AllowedIDs []string `yaml:"allowed_ids" env:"ALLOWED_IDS"`
+}
+
+type FeishuConfig struct {
+	AppID      string   `yaml:"app_id"      env:"APP_ID"`
+	AppSecret  string   `yaml:"app_secret"  env:"APP_SECRET"`
+	NotifyChat string   `yaml:"notify_chat" env:"NOTIFY_CHAT"`
 	GroupMode  string   `yaml:"group_mode"  env:"GROUP_MODE"`
 	AllowedIDs []string `yaml:"allowed_ids" env:"ALLOWED_IDS"`
 }

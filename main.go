@@ -18,6 +18,7 @@ import (
 	"github.com/vaayne/anna/agent/tool"
 	"github.com/vaayne/anna/channel"
 	clicmd "github.com/vaayne/anna/channel/cli"
+	"github.com/vaayne/anna/channel/feishu"
 	"github.com/vaayne/anna/channel/qq"
 	"github.com/vaayne/anna/channel/telegram"
 	"github.com/vaayne/anna/cron"
@@ -156,7 +157,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Notification dispatcher + tool — backends are registered later in
 	// runGateway(). Only expose the tool in gateway mode where backends exist.
 	dispatcher := channel.NewDispatcher()
-	if gateway && (cfg.Channels.Telegram.Token != "" || (cfg.Channels.QQ.AppID != "" && cfg.Channels.QQ.AppSecret != "")) {
+	if gateway && (cfg.Channels.Telegram.Token != "" || (cfg.Channels.QQ.AppID != "" && cfg.Channels.QQ.AppSecret != "") || (cfg.Channels.Feishu.AppID != "" && cfg.Channels.Feishu.AppSecret != "")) {
 		extraTools = append(extraTools, channel.NewNotifyTool(dispatcher))
 	}
 
@@ -313,6 +314,28 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 
 		channels = append(channels, qqBot)
 		s.notifier.Register(qqBot, "")
+	}
+
+	// --- Feishu ---
+	fsCfg := s.cfg.Channels.Feishu
+	if fsCfg.AppID != "" && fsCfg.AppSecret != "" {
+		slog.Info("starting feishu bot")
+
+		fsBot, err := feishu.New(feishu.Config{
+			AppID:             fsCfg.AppID,
+			AppSecret:         fsCfg.AppSecret,
+			EncryptKey:        fsCfg.EncryptKey,
+			VerificationToken: fsCfg.VerificationToken,
+			NotifyChat:        fsCfg.NotifyChat,
+			GroupMode:         fsCfg.GroupMode,
+			AllowedIDs:        fsCfg.AllowedIDs,
+		}, s.pool, listFn, switchFn)
+		if err != nil {
+			return fmt.Errorf("create feishu bot: %w", err)
+		}
+
+		channels = append(channels, fsBot)
+		s.notifier.Register(fsBot, fsCfg.NotifyChat)
 	}
 
 	if len(channels) == 0 {
