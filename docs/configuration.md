@@ -44,8 +44,6 @@ channels:
   qq:
     app_id: "QQ_BOT_APP_ID"
     app_secret: "QQ_BOT_APP_SECRET"
-    sandbox: false                 # Use sandbox API endpoint
-    notify_chat: ""                # Default OpenID for notifications
     group_mode: "mention"          # mention | always | disabled
     allowed_ids: []                # User OpenIDs allowed (empty = allow all)
 
@@ -117,8 +115,6 @@ All config fields support env var overrides using the `ANNA_` prefix. Nested str
 | `ANNA_TELEGRAM_ALLOWED_IDS` | `channels.telegram.allowed_ids` | Comma-separated |
 | `ANNA_QQ_APP_ID` | `channels.qq.app_id` | |
 | `ANNA_QQ_APP_SECRET` | `channels.qq.app_secret` | |
-| `ANNA_QQ_SANDBOX` | `channels.qq.sandbox` | |
-| `ANNA_QQ_NOTIFY_CHAT` | `channels.qq.notify_chat` | |
 | `ANNA_QQ_GROUP_MODE` | `channels.qq.group_mode` | |
 | `ANNA_QQ_ALLOWED_IDS` | `channels.qq.allowed_ids` | Comma-separated |
 | `ANTHROPIC_API_KEY` | `providers.anthropic.api_key` | Standard provider env |
@@ -140,5 +136,4 @@ All config fields support env var overrides using the `ANNA_` prefix. Nested str
 | `cron.enabled` | `true` |
 | `cron.data_dir` | `~/.anna/workspace/cron` |
 | `channels.telegram.group_mode` | `mention` |
-| `channels.qq.sandbox` | `false` |
 | `channels.qq.group_mode` | `mention` |

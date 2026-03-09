@@ -30,16 +30,6 @@ anna gateway
 
 The bot connects to QQ via WebSocket -- no public URL or webhook setup needed.
 
-## Sandbox Mode
-
-For testing, enable sandbox mode to use QQ's sandbox API endpoint:
-
-```yaml
-channels:
-  qq:
-    sandbox: true
-```
-
 ## Streaming Responses
 
 The bot uses QQ's native Stream API for progressive response delivery. As the LLM generates tokens, updates are sent in real time without editing previous messages.
@@ -81,6 +71,10 @@ channels:
 
 Leave empty to allow all users.
 
+## Image Support
+
+Users can send images to the bot for analysis. The bot downloads image attachments, encodes them, and passes them to the AI model as multimodal content alongside any caption text.
+
 ## Commands
 
 Send these commands as text messages to the bot:
@@ -94,25 +88,11 @@ Send these commands as text messages to the bot:
 | `/model <number>` | Switch to model by number |
 | `/model <query>` | Filter models by name |
 
-## Notifications
-
-Configure a default chat for proactive notifications:
-
-```yaml
-channels:
-  qq:
-    notify_chat: "USER_OR_GROUP_OPEN_ID"
-```
-
-Used by the `notify` agent tool and cron job result broadcasting.
-
 ## Configuration Reference
 
 | Field | Description | Default |
 |-------|-------------|---------|
 | `app_id` | QQ Bot AppID | (required) |
 | `app_secret` | QQ Bot AppSecret | (required) |
-| `sandbox` | Use sandbox API endpoint | `false` |
-| `notify_chat` | Default chat for notifications | |
 | `group_mode` | Group behavior: `mention`, `always`, `disabled` | `mention` |
 | `allowed_ids` | User OpenIDs allowed (empty = all) | `[]` |

@@ -311,8 +311,6 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 		qqBot, err := qq.New(qq.Config{
 			AppID:      qqCfg.AppID,
 			AppSecret:  qqCfg.AppSecret,
-			NotifyChat: qqCfg.NotifyChat,
-			Sandbox:    qqCfg.Sandbox,
 			GroupMode:  qqCfg.GroupMode,
 			AllowedIDs: qqCfg.AllowedIDs,
 		}, s.pool, listFn, switchFn)
@@ -320,7 +318,7 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 			return fmt.Errorf("create qq bot: %w", err)
 		}
 
-		s.notifier.Register(qqBot, qqCfg.NotifyChat)
+		s.notifier.Register(qqBot, "")
 
 		g.Go(func() error {
 			if err := qqBot.Start(gctx); err != nil && gctx.Err() == nil {

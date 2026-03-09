@@ -25,8 +25,6 @@ func logger() *slog.Logger { return slog.With("component", "qq") }
 type Config struct {
 	AppID      string
 	AppSecret  string
-	NotifyChat string // default user/group OpenID for notifications
-	Sandbox    bool
 	GroupMode  string   // "mention" | "always" | "disabled"
 	AllowedIDs []string // user OpenIDs allowed (empty = allow all)
 }
@@ -92,11 +90,7 @@ func (b *Bot) Start(ctx context.Context) error {
 		return fmt.Errorf("qq: start token refresh: %w", err)
 	}
 
-	if b.cfg.Sandbox {
-		b.api = botgo.NewSandboxOpenAPI(b.creds.AppID, b.tokenSource).WithTimeout(10 * time.Second)
-	} else {
-		b.api = botgo.NewOpenAPI(b.creds.AppID, b.tokenSource).WithTimeout(10 * time.Second)
-	}
+	b.api = botgo.NewOpenAPI(b.creds.AppID, b.tokenSource).WithTimeout(10 * time.Second)
 
 	// Register event handlers and capture the intent bitmask.
 	intent := event.RegisterHandlers(
@@ -140,15 +134,9 @@ func (b *Bot) Name() string { return "qq" }
 
 // Notify sends a notification message. Implements channel.Backend.
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
-	chatID := n.ChatID
-	if chatID == "" {
-		chatID = b.cfg.NotifyChat
-	}
-	if chatID == "" {
+	if n.ChatID == "" {
 		return fmt.Errorf("qq: no target chat ID")
 	}
-
-	logger().Debug("sending notification", "chat_id", chatID, "text_len", len(n.Text))
 
 	msg := dto.MessageToCreate{
 		Content: n.Text,
@@ -156,14 +144,13 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	}
 
 	// Try C2C first; if that fails, try group API.
-	if _, err := b.api.PostC2CMessage(ctx, chatID, msg); err != nil {
+	if _, err := b.api.PostC2CMessage(ctx, n.ChatID, msg); err != nil {
 		logger().Warn("c2c notify failed, trying group", "error", err)
-		if _, err := b.api.PostGroupMessage(ctx, chatID, msg); err != nil {
+		if _, err := b.api.PostGroupMessage(ctx, n.ChatID, msg); err != nil {
 			return fmt.Errorf("qq: notify: %w", err)
 		}
 	}
 
-	logger().Debug("notification sent", "chat_id", chatID)
 	return nil
 }
 

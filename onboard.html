@@ -369,11 +369,6 @@
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label for="qq-notify" class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Notify Chat</label>
-              <input id="qq-notify" type="text" x-model="config.channels.qq.notify_chat" placeholder="User/Group OpenID"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm text-ink-0 shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150">
-            </div>
-            <div>
               <label for="qq-group" class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Group Mode</label>
               <select id="qq-group" x-model="config.channels.qq.group_mode"
                       class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm text-ink-0 shadow-card focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150 cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20fill%3D%22%23868e96%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20d%3D%22M4.646%206.646a.5.5%200%20011%200L8%209.293l2.354-2.647a.5.5%200%2001.707.708l-3%203a.5.5%200%2001-.707%200l-3-3a.5.5%200%20010-.708z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px] bg-[right_10px_center] bg-no-repeat">
@@ -384,20 +379,12 @@
               </select>
             </div>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label for="qq-allowed" class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Allowed IDs</label>
-              <input id="qq-allowed" type="text" :value="(config.channels.qq.allowed_ids || []).join(', ')"
-                     @change="config.channels.qq.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)"
-                     placeholder="Comma-separated OpenIDs"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm text-ink-0 shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150">
-            </div>
-            <div class="flex items-end pb-2">
-              <label class="inline-flex items-center gap-2 cursor-pointer">
-                <input id="qq-sandbox" type="checkbox" x-model="config.channels.qq.sandbox" class="accent-primary-600 w-4 h-4">
-                <span class="text-[11px] font-medium text-ink-2 uppercase tracking-wider">Sandbox Mode</span>
-              </label>
-            </div>
+          <div>
+            <label for="qq-allowed" class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Allowed IDs</label>
+            <input id="qq-allowed" type="text" :value="(config.channels.qq.allowed_ids || []).join(', ')"
+                   @change="config.channels.qq.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)"
+                   placeholder="Comma-separated OpenIDs"
+                   class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm text-ink-0 shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150">
           </div>
         </div>
       </div>
@@ -555,7 +542,7 @@ function onboard() {
       providers: {},
       channels: {
         telegram: { token: '', notify_chat: '', channel_id: '', group_mode: '', allowed_ids: [] },
-        qq: { app_id: '', app_secret: '', notify_chat: '', sandbox: false, group_mode: '', allowed_ids: [] },
+        qq: { app_id: '', app_secret: '', group_mode: '', allowed_ids: [] },
       },
     },
     providerModels: {},
@@ -645,7 +632,7 @@ function onboard() {
             ...data.config,
             channels: {
               telegram: { token: '', notify_chat: '', channel_id: '', group_mode: '', allowed_ids: [], ...data.config.channels?.telegram },
-              qq: { app_id: '', app_secret: '', notify_chat: '', sandbox: false, group_mode: '', allowed_ids: [], ...data.config.channels?.qq },
+              qq: { app_id: '', app_secret: '', group_mode: '', allowed_ids: [], ...data.config.channels?.qq },
             },
             providers: data.config.providers || {},
           };
