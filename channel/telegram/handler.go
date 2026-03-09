@@ -76,10 +76,11 @@ func (b *Bot) registerHandlers() {
 
 	b.bot.Handle("/model", b.guard(func(c tele.Context) error {
 		args := strings.TrimSpace(c.Message().Payload)
-		idx, query := channel.ParseModelArgs(args)
+		query := channel.ParseModelArgs(args)
 
-		if idx > 0 {
-			return b.switchModelByIdx(c, idx)
+		// If the query looks like "provider/model", try switching directly.
+		if query != "" && strings.Contains(query, "/") {
+			return b.switchModelByName(c, query)
 		}
 
 		models := b.cmd.ModelList(query)

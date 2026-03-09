@@ -113,22 +113,70 @@ func TestCommanderModelSwitchOutOfRange(t *testing.T) {
 	}
 }
 
+func TestCommanderModelSwitchByName(t *testing.T) {
+	pool := newMockPool()
+	models := []ModelOption{
+		{Provider: "openai", Model: "gpt-4"},
+		{Provider: "anthropic", Model: "claude-3"},
+	}
+	var switched ModelOption
+	listFn := func() []ModelOption { return models }
+	switchFn := func(p, m string) error { switched = ModelOption{Provider: p, Model: m}; return nil }
+
+	cmd := NewCommander(pool, listFn, switchFn)
+
+	selected, err := cmd.ModelSwitchByName("ch", "anthropic/claude-3")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if selected.Model != "claude-3" {
+		t.Errorf("selected = %v, want claude-3", selected)
+	}
+	if switched.Model != "claude-3" {
+		t.Errorf("switchFn not called correctly: %v", switched)
+	}
+}
+
+func TestCommanderModelSwitchByNameCaseInsensitive(t *testing.T) {
+	pool := newMockPool()
+	models := []ModelOption{{Provider: "OpenAI", Model: "GPT-4"}}
+	cmd := NewCommander(pool, func() []ModelOption { return models }, func(p, m string) error { return nil })
+
+	selected, err := cmd.ModelSwitchByName("ch", "openai/gpt-4")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if selected.Provider != "OpenAI" {
+		t.Errorf("provider = %q, want OpenAI", selected.Provider)
+	}
+}
+
+func TestCommanderModelSwitchByNameUnknown(t *testing.T) {
+	pool := newMockPool()
+	models := []ModelOption{{Provider: "openai", Model: "gpt-4"}}
+	cmd := NewCommander(pool, func() []ModelOption { return models }, nil)
+
+	_, err := cmd.ModelSwitchByName("ch", "fake/model")
+	if err == nil {
+		t.Fatal("expected error for unknown model")
+	}
+}
+
 func TestParseModelArgs(t *testing.T) {
 	tests := []struct {
-		input     string
-		wantIdx   int
-		wantQuery string
+		input string
+		want  string
 	}{
-		{"", 0, ""},
-		{"3", 3, ""},
-		{"claude", 0, "claude"},
-		{" 2 ", 2, ""},
-		{" gpt ", 0, "gpt"},
+		{"", ""},
+		{"3", "3"},
+		{"claude", "claude"},
+		{" gpt ", "gpt"},
+		{" openai/gpt-4 ", "openai/gpt-4"},
 	}
 	for _, tt := range tests {
-		idx, query := ParseModelArgs(tt.input)
-		if idx != tt.wantIdx || query != tt.wantQuery {
-			t.Errorf("ParseModelArgs(%q) = (%d, %q), want (%d, %q)", tt.input, idx, query, tt.wantIdx, tt.wantQuery)
+		got := ParseModelArgs(tt.input)
+		if got != tt.want {
+			t.Errorf("ParseModelArgs(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }

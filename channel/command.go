@@ -3,7 +3,6 @@ package channel
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 )
 
@@ -101,13 +100,32 @@ func (c *Commander) ModelList(query string) []IndexedModel {
 }
 
 // ModelSwitch switches to the model at the given 1-based index and rotates
-// the session. Returns the selected model.
+// the session. Returns the selected model. This is used internally by
+// channels that select models via index (e.g. Telegram inline keyboards).
 func (c *Commander) ModelSwitch(channelID string, idx int) (ModelOption, error) {
 	models := c.listFn()
 	if idx < 1 || idx > len(models) {
 		return ModelOption{}, fmt.Errorf("invalid selection, use a number between 1 and %d", len(models))
 	}
 	selected := models[idx-1]
+	return c.doSwitch(channelID, selected)
+}
+
+// ModelSwitchByName switches to the model matching "provider/model" and
+// rotates the session. Returns the selected model.
+func (c *Commander) ModelSwitchByName(channelID, name string) (ModelOption, error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	models := c.listFn()
+	for _, m := range models {
+		if strings.ToLower(m.Provider+"/"+m.Model) == name {
+			return c.doSwitch(channelID, m)
+		}
+	}
+	return ModelOption{}, fmt.Errorf("unknown model %q, use /model to list available models", name)
+}
+
+// doSwitch applies the model switch and rotates the session.
+func (c *Commander) doSwitch(channelID string, selected ModelOption) (ModelOption, error) {
 	if c.switchFn != nil {
 		if err := c.switchFn(selected.Provider, selected.Model); err != nil {
 			return ModelOption{}, fmt.Errorf("switch model: %w", err)
@@ -119,19 +137,10 @@ func (c *Commander) ModelSwitch(channelID string, idx int) (ModelOption, error) 
 	return selected, nil
 }
 
-// ParseModelArgs parses /model arguments. Returns (index, query):
-//   - numeric arg: index > 0, query empty
-//   - text arg: index 0, query set
-//   - no arg: index 0, query empty
-func ParseModelArgs(args string) (int, string) {
-	args = strings.TrimSpace(args)
-	if args == "" {
-		return 0, ""
-	}
-	if idx, err := strconv.Atoi(args); err == nil {
-		return idx, ""
-	}
-	return 0, args
+// ParseModelArgs parses /model arguments as a query string.
+// Returns empty string when no arguments are provided.
+func ParseModelArgs(args string) string {
+	return strings.TrimSpace(args)
 }
 
 // IndexModels wraps a full model list with sequential 1-based indices.

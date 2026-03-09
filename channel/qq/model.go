@@ -8,12 +8,13 @@ import (
 )
 
 // handleModelCommand processes /model with optional arguments.
-// No args → list models; number → switch by index; text → filter.
+// No args → list models; text with "/" → switch by name; text → filter.
 func (b *Bot) handleModelCommand(args, ch string, reply func(string)) {
-	idx, query := channel.ParseModelArgs(args)
+	query := channel.ParseModelArgs(args)
 
-	if idx > 0 {
-		b.switchModelByIdx(idx, ch, reply)
+	// If the query looks like "provider/model", try switching directly.
+	if query != "" && strings.Contains(query, "/") {
+		b.switchModelByName(query, ch, reply)
 		return
 	}
 
@@ -29,9 +30,9 @@ func (b *Bot) handleModelCommand(args, ch string, reply func(string)) {
 	reply(formatModelList(models, query))
 }
 
-// switchModelByIdx handles model switching by 1-based index using Commander.
-func (b *Bot) switchModelByIdx(idx int, ch string, reply func(string)) {
-	selected, err := b.cmd.ModelSwitch(ch, idx)
+// switchModelByName handles model switching by "provider/model" name using Commander.
+func (b *Bot) switchModelByName(name, ch string, reply func(string)) {
+	selected, err := b.cmd.ModelSwitchByName(ch, name)
 	if err != nil {
 		reply(fmt.Sprintf("Error: %v", err))
 		return
@@ -43,7 +44,7 @@ func (b *Bot) switchModelByIdx(idx int, ch string, reply func(string)) {
 	reply(fmt.Sprintf("Switched to %s/%s. Session reset.", selected.Provider, selected.Model))
 }
 
-// formatModelList builds a text-based model list with numbered entries.
+// formatModelList builds a text-based model list.
 func formatModelList(models []channel.IndexedModel, query string) string {
 	var sb strings.Builder
 	sb.WriteString("Available models")
@@ -52,8 +53,8 @@ func formatModelList(models []channel.IndexedModel, query string) string {
 	}
 	sb.WriteString(":\n\n")
 	for _, m := range models {
-		fmt.Fprintf(&sb, "%d. %s/%s\n", m.GlobalIdx, m.Provider, m.Model)
+		fmt.Fprintf(&sb, "• %s/%s\n", m.Provider, m.Model)
 	}
-	sb.WriteString("\nUse /model <number> to switch.")
+	sb.WriteString("\nUse /model <provider/model> to switch.")
 	return sb.String()
 }

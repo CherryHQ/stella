@@ -83,7 +83,22 @@ func (b *Bot) sendModelPage(c tele.Context, models []channel.IndexedModel, page 
 	return c.Send(text, markup)
 }
 
+// switchModelByName handles model switching by "provider/model" name using Commander.
+func (b *Bot) switchModelByName(c tele.Context, name string) error {
+	ch := channelForChat(c)
+	selected, err := b.cmd.ModelSwitchByName(ch, name)
+	if err != nil {
+		return c.Send(fmt.Sprintf("Error: %v", err))
+	}
+	b.mu.Lock()
+	b.chatModels[c.Chat().ID] = selected
+	b.mu.Unlock()
+	logger().Info("model switched", "channel", ch, "provider", selected.Provider, "model", selected.Model)
+	return c.Send(fmt.Sprintf("Switched to %s/%s. Session reset.", selected.Provider, selected.Model))
+}
+
 // switchModelByIdx handles model switching by 1-based index using Commander.
+// Used internally by inline keyboard callbacks.
 func (b *Bot) switchModelByIdx(c tele.Context, idx int) error {
 	ch := channelForChat(c)
 	selected, err := b.cmd.ModelSwitch(ch, idx)

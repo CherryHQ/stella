@@ -328,10 +328,10 @@ func TestFormatModelListNoQuery(t *testing.T) {
 		{Provider: "anthropic", Model: "claude-3"},
 	})
 	out := formatModelList(models, "")
-	if !strings.Contains(out, "1. openai/gpt-4") {
+	if !strings.Contains(out, "• openai/gpt-4") {
 		t.Errorf("missing model entry in output: %s", out)
 	}
-	if !strings.Contains(out, "2. anthropic/claude-3") {
+	if !strings.Contains(out, "• anthropic/claude-3") {
 		t.Errorf("missing model entry in output: %s", out)
 	}
 	if strings.Contains(out, "filter") {
@@ -550,7 +550,30 @@ func TestHandleModelCommandFilterNoMatch(t *testing.T) {
 	}
 }
 
-func TestHandleModelCommandInvalidIndex(t *testing.T) {
+func TestHandleModelCommandSwitchByName(t *testing.T) {
+	models := []channel.ModelOption{
+		{Provider: "openai", Model: "gpt-4"},
+	}
+	var switched string
+	switchFn := func(p, m string) error { switched = p + "/" + m; return nil }
+	bot := &Bot{
+		cmd:        channel.NewCommander(newTestPool(), func() []channel.ModelOption { return models }, switchFn),
+		listFn:     func() []channel.ModelOption { return models },
+		switchFn:   switchFn,
+		chatModels: make(map[string]channel.ModelOption),
+	}
+
+	var reply string
+	bot.handleModelCommand("openai/gpt-4", "ch", func(s string) { reply = s })
+	if !strings.Contains(reply, "Switched to openai/gpt-4") {
+		t.Errorf("expected switch confirmation, got: %s", reply)
+	}
+	if switched != "openai/gpt-4" {
+		t.Errorf("expected switch to openai/gpt-4, got: %s", switched)
+	}
+}
+
+func TestHandleModelCommandSwitchByNameUnknown(t *testing.T) {
 	models := []channel.ModelOption{
 		{Provider: "openai", Model: "gpt-4"},
 	}
@@ -561,9 +584,9 @@ func TestHandleModelCommandInvalidIndex(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand("5", "ch", func(s string) { reply = s })
-	if !strings.Contains(reply, "invalid selection") {
-		t.Errorf("expected invalid selection, got: %s", reply)
+	bot.handleModelCommand("fake/model", "ch", func(s string) { reply = s })
+	if !strings.Contains(reply, "unknown model") {
+		t.Errorf("expected unknown model error, got: %s", reply)
 	}
 }
 
@@ -580,9 +603,27 @@ func TestHandleModelCommandSwitchError(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand("1", "ch", func(s string) { reply = s })
+	bot.handleModelCommand("openai/gpt-4", "ch", func(s string) { reply = s })
 	if !strings.Contains(reply, "switch model") {
 		t.Errorf("expected switch error, got: %s", reply)
+	}
+}
+
+func TestHandleModelCommandNumericTreatedAsFilter(t *testing.T) {
+	models := []channel.ModelOption{
+		{Provider: "openai", Model: "gpt-4"},
+	}
+	bot := &Bot{
+		cmd:        channel.NewCommander(newTestPool(), func() []channel.ModelOption { return models }, nil),
+		listFn:     func() []channel.ModelOption { return models },
+		chatModels: make(map[string]channel.ModelOption),
+	}
+
+	var reply string
+	bot.handleModelCommand("5", "ch", func(s string) { reply = s })
+	// "5" is now treated as a filter query, not an index
+	if !strings.Contains(reply, "No models matching") {
+		t.Errorf("expected no match for numeric filter, got: %s", reply)
 	}
 }
 
