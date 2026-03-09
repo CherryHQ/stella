@@ -92,11 +92,13 @@ type QQConfig struct {
 }
 
 type FeishuConfig struct {
-	AppID      string   `yaml:"app_id"      env:"APP_ID"`
-	AppSecret  string   `yaml:"app_secret"  env:"APP_SECRET"`
-	NotifyChat string   `yaml:"notify_chat" env:"NOTIFY_CHAT"`
-	GroupMode  string   `yaml:"group_mode"  env:"GROUP_MODE"`
-	AllowedIDs []string `yaml:"allowed_ids" env:"ALLOWED_IDS"`
+	AppID             string   `yaml:"app_id"             env:"APP_ID"`
+	AppSecret         string   `yaml:"app_secret"         env:"APP_SECRET"`
+	EncryptKey        string   `yaml:"encrypt_key"        env:"ENCRYPT_KEY"`
+	VerificationToken string   `yaml:"verification_token" env:"VERIFICATION_TOKEN"`
+	NotifyChat        string   `yaml:"notify_chat"        env:"NOTIFY_CHAT"`
+	GroupMode         string   `yaml:"group_mode"         env:"GROUP_MODE"`
+	AllowedIDs        []string `yaml:"allowed_ids"        env:"ALLOWED_IDS"`
 }
 
 type TelegramConfig struct {

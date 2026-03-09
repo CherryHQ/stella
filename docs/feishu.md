@@ -15,6 +15,8 @@ channels:
   feishu:
     app_id: "YOUR_APP_ID"
     app_secret: "YOUR_APP_SECRET"
+    encrypt_key: "YOUR_ENCRYPT_KEY"             # from Events & Callbacks page
+    verification_token: "YOUR_VERIFICATION_TOKEN" # from Events & Callbacks page
 ```
 
 Or via environment:
@@ -22,6 +24,8 @@ Or via environment:
 ```bash
 export ANNA_FEISHU_APP_ID="YOUR_APP_ID"
 export ANNA_FEISHU_APP_SECRET="YOUR_APP_SECRET"
+export ANNA_FEISHU_ENCRYPT_KEY="YOUR_ENCRYPT_KEY"
+export ANNA_FEISHU_VERIFICATION_TOKEN="YOUR_VERIFICATION_TOKEN"
 ```
 
 6. Start the gateway:
@@ -102,6 +106,8 @@ Send these commands as text messages to the bot:
 |-------|-------------|---------|
 | `app_id` | Feishu App ID | (required) |
 | `app_secret` | Feishu App Secret | (required) |
+| `encrypt_key` | Event encrypt key (from Events & Callbacks) | (optional) |
+| `verification_token` | Event verification token (from Events & Callbacks) | (optional) |
 | `notify_chat` | Chat ID for proactive notifications | (optional) |
 | `group_mode` | Group behavior: `mention`, `always`, `disabled` | `mention` |
 | `allowed_ids` | User open_ids allowed (empty = all) | `[]` |

@@ -23,11 +23,13 @@ func logger() *slog.Logger { return slog.With("component", "feishu") }
 
 // Config holds Feishu bot settings.
 type Config struct {
-	AppID      string   // app ID
-	AppSecret  string   // app secret
-	NotifyChat string   // default chat ID for proactive notifications
-	GroupMode  string   // "mention" | "always" | "disabled"
-	AllowedIDs []string // user open_ids allowed (empty = allow all)
+	AppID             string   // app ID
+	AppSecret         string   // app secret
+	EncryptKey        string   // event encrypt key (from Feishu developer console)
+	VerificationToken string   // event verification token (from Feishu developer console)
+	NotifyChat        string   // default chat ID for proactive notifications
+	GroupMode         string   // "mention" | "always" | "disabled"
+	AllowedIDs        []string // user open_ids allowed (empty = allow all)
 }
 
 // Bot wraps a Feishu bot with agent pool integration.
@@ -84,7 +86,7 @@ func (b *Bot) Start(ctx context.Context) error {
 		lark.WithEnableTokenCache(true),
 	)
 
-	eventHandler := dispatcher.NewEventDispatcher("", "").
+	eventHandler := dispatcher.NewEventDispatcher(b.cfg.VerificationToken, b.cfg.EncryptKey).
 		OnP2MessageReceiveV1(b.onMessage)
 
 	b.wsClient = larkws.NewClient(b.cfg.AppID, b.cfg.AppSecret,

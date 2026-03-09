@@ -340,11 +340,13 @@ type qqJSON struct {
 }
 
 type feishuJSON struct {
-	AppID      string   `json:"app_id"`
-	AppSecret  string   `json:"app_secret"`
-	NotifyChat string   `json:"notify_chat"`
-	GroupMode  string   `json:"group_mode"`
-	AllowedIDs []string `json:"allowed_ids"`
+	AppID             string   `json:"app_id"`
+	AppSecret         string   `json:"app_secret"`
+	EncryptKey        string   `json:"encrypt_key"`
+	VerificationToken string   `json:"verification_token"`
+	NotifyChat        string   `json:"notify_chat"`
+	GroupMode         string   `json:"group_mode"`
+	AllowedIDs        []string `json:"allowed_ids"`
 }
 
 func cfgToJSON(cfg *Config) configJSON {
@@ -374,11 +376,13 @@ func cfgToJSON(cfg *Config) configJSON {
 				AllowedIDs: cfg.Channels.QQ.AllowedIDs,
 			},
 			Feishu: feishuJSON{
-				AppID:      cfg.Channels.Feishu.AppID,
-				AppSecret:  cfg.Channels.Feishu.AppSecret,
-				NotifyChat: cfg.Channels.Feishu.NotifyChat,
-				GroupMode:  cfg.Channels.Feishu.GroupMode,
-				AllowedIDs: cfg.Channels.Feishu.AllowedIDs,
+				AppID:             cfg.Channels.Feishu.AppID,
+				AppSecret:         cfg.Channels.Feishu.AppSecret,
+				EncryptKey:        cfg.Channels.Feishu.EncryptKey,
+				VerificationToken: cfg.Channels.Feishu.VerificationToken,
+				NotifyChat:        cfg.Channels.Feishu.NotifyChat,
+				GroupMode:         cfg.Channels.Feishu.GroupMode,
+				AllowedIDs:        cfg.Channels.Feishu.AllowedIDs,
 			},
 		},
 	}
@@ -418,11 +422,13 @@ func applyJSONToConfig(cfg *Config, body *configJSON) {
 	}
 
 	cfg.Channels.Feishu = FeishuConfig{
-		AppID:      body.Channels.Feishu.AppID,
-		AppSecret:  body.Channels.Feishu.AppSecret,
-		NotifyChat: body.Channels.Feishu.NotifyChat,
-		GroupMode:  body.Channels.Feishu.GroupMode,
-		AllowedIDs: body.Channels.Feishu.AllowedIDs,
+		AppID:             body.Channels.Feishu.AppID,
+		AppSecret:         body.Channels.Feishu.AppSecret,
+		EncryptKey:        body.Channels.Feishu.EncryptKey,
+		VerificationToken: body.Channels.Feishu.VerificationToken,
+		NotifyChat:        body.Channels.Feishu.NotifyChat,
+		GroupMode:         body.Channels.Feishu.GroupMode,
+		AllowedIDs:        body.Channels.Feishu.AllowedIDs,
 	}
 }
 
