@@ -18,10 +18,12 @@ import (
 	"github.com/vaayne/anna/agent/tool"
 	"github.com/vaayne/anna/channel"
 	clicmd "github.com/vaayne/anna/channel/cli"
+	"github.com/vaayne/anna/channel/qq"
 	"github.com/vaayne/anna/channel/telegram"
 	"github.com/vaayne/anna/cron"
 	"github.com/vaayne/anna/memory"
 	"github.com/vaayne/anna/skills"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
@@ -154,7 +156,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Notification dispatcher + tool — backends are registered later in
 	// runGateway(). Only expose the tool in gateway mode where backends exist.
 	dispatcher := channel.NewDispatcher()
-	if gateway && cfg.Channels.Telegram.Token != "" {
+	if gateway && (cfg.Channels.Telegram.Token != "" || (cfg.Channels.QQ.AppID != "" && cfg.Channels.QQ.AppSecret != "")) {
 		extraTools = append(extraTools, channel.NewNotifyTool(dispatcher))
 	}
 
@@ -266,8 +268,10 @@ func setupLogFile() error {
 }
 
 func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc) error {
+	g, gctx := errgroup.WithContext(ctx)
 	started := 0
 
+	// --- Telegram ---
 	tg := s.cfg.Channels.Telegram
 	if tg.Token != "" {
 		started++
@@ -284,34 +288,63 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 			return fmt.Errorf("create telegram bot: %w", err)
 		}
 
-		// Register Telegram as a notification backend.
 		defaultChat := tg.NotifyChat
 		if defaultChat == "" {
 			defaultChat = tg.ChannelID
 		}
 		s.notifier.Register(tgBot, defaultChat)
 
-		// Wire cron notifications and start the scheduler AFTER the backend
-		// is registered, so early-firing jobs already use the dispatcher.
-		if s.cronSvc != nil {
-			wireCronNotifier(s.cronSvc, s.pool, s.notifier)
-			if err := s.cronSvc.Start(ctx); err != nil {
-				return fmt.Errorf("start cron: %w", err)
+		g.Go(func() error {
+			if err := tgBot.Start(gctx); err != nil && gctx.Err() == nil {
+				return fmt.Errorf("telegram: %w", err)
 			}
-			defer func() { _ = s.cronSvc.Stop() }()
+			return nil
+		})
+	}
+
+	// --- QQ ---
+	qqCfg := s.cfg.Channels.QQ
+	if qqCfg.AppID != "" && qqCfg.AppSecret != "" {
+		started++
+		slog.Info("starting qq bot")
+
+		qqBot, err := qq.New(qq.Config{
+			AppID:      qqCfg.AppID,
+			AppSecret:  qqCfg.AppSecret,
+			GroupMode:  qqCfg.GroupMode,
+			AllowedIDs: qqCfg.AllowedIDs,
+		}, s.pool, listFn, switchFn)
+		if err != nil {
+			return fmt.Errorf("create qq bot: %w", err)
 		}
 
-		if err := tgBot.Start(ctx); err != nil && ctx.Err() == nil {
-			return fmt.Errorf("telegram: %w", err)
-		}
+		s.notifier.Register(qqBot, "")
+
+		g.Go(func() error {
+			if err := qqBot.Start(gctx); err != nil && gctx.Err() == nil {
+				return fmt.Errorf("qq: %w", err)
+			}
+			return nil
+		})
 	}
 
 	if started == 0 {
 		return fmt.Errorf("no gateway services configured. Check %s", configPath())
 	}
 
+	// Wire cron notifications and start the scheduler AFTER backends
+	// are registered, so early-firing jobs already use the dispatcher.
+	if s.cronSvc != nil {
+		wireCronNotifier(s.cronSvc, s.pool, s.notifier)
+		if err := s.cronSvc.Start(ctx); err != nil {
+			return fmt.Errorf("start cron: %w", err)
+		}
+		defer func() { _ = s.cronSvc.Stop() }()
+	}
+
+	err := g.Wait()
 	slog.Info("gateway stopped")
-	return nil
+	return err
 }
 
 // wireCronNotifier overrides the cron callback to collect the agent response
