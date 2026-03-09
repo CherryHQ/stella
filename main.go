@@ -151,7 +151,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	// Skills tool — always available.
 	cwd, _ := os.Getwd()
-	extraTools = append(extraTools, skills.NewTool(cfg.Workspace, cwd))
+	extraTools = append(extraTools, skills.NewTool(annaHome(), cfg.Workspace, cwd))
 
 	// Notification dispatcher + tool — backends are registered later in
 	// runGateway(). Only expose the tool in gateway mode where backends exist.
@@ -223,6 +223,7 @@ func newRunnerFactory(cfg *Config, memStore *memory.Store, extraTools []tool.Too
 				Model:       model,
 				APIKey:      providerCfg.APIKey,
 				Workspace:   cfg.Workspace,
+				AnnaHome:    annaHome(),
 				MemoryStore: memStore,
 				BaseURL:     providerCfg.BaseURL,
 				ExtraTools:  extraTools,

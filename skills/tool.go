@@ -45,15 +45,16 @@ type cloneFn func(ctx context.Context, owner, repo, ref, cacheDir string) error
 
 // SkillsTool exposes skill management as an agent tool.
 type SkillsTool struct {
+	annaHome  string
 	workspace string
 	cwd       string
 	searchURL string  // override for testing; empty uses default
 	cloner    cloneFn // override for testing; nil uses default
 }
 
-// NewTool creates a SkillsTool for the given workspace and working directory.
-func NewTool(workspace, cwd string) *SkillsTool {
-	return &SkillsTool{workspace: workspace, cwd: cwd}
+// NewTool creates a SkillsTool for the given anna home, workspace and working directory.
+func NewTool(annaHome, workspace, cwd string) *SkillsTool {
+	return &SkillsTool{annaHome: annaHome, workspace: workspace, cwd: cwd}
 }
 
 // Definition returns the tool definition for the LLM.

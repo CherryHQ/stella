@@ -49,7 +49,8 @@ type contextFile struct {
 // BuildSystemPrompt composes the full system prompt: basic + memories + skills + project context.
 // The basic prompt defaults to the embedded system.md but can be overridden
 // by placing a system.md file in the project's .agents directory or the workspace.
-func BuildSystemPrompt(store *memory.Store, workspace string, cwd ...string) string {
+// annaHome is the anna home directory (e.g. ~/.anna).
+func BuildSystemPrompt(store *memory.Store, annaHome, workspace string, cwd ...string) string {
 	workDir := ""
 	if len(cwd) > 0 {
 		workDir = cwd[0]
@@ -95,7 +96,7 @@ func BuildSystemPrompt(store *memory.Store, workspace string, cwd ...string) str
 	buf.WriteString(strings.TrimRight(basic, "\n"))
 	_ = memoriesTmpl.Execute(&buf, memories)
 
-	if skills := FormatSkillsForPrompt(LoadSkills(workspace, workDir)); skills != "" {
+	if skills := FormatSkillsForPrompt(LoadSkills(annaHome, workspace, workDir)); skills != "" {
 		buf.WriteString("\n")
 		buf.WriteString(skills)
 	}
