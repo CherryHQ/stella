@@ -2,11 +2,13 @@ package runner
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/vaayne/anna/agent/runner/builtin"
 	"gopkg.in/yaml.v3"
 )
 
@@ -79,6 +81,16 @@ func loadSkills(homeDir, workspace, cwd string) []Skill {
 	// 3. Common skills: ~/.agents/skills/ (legacy/shared)
 	if homeDir != "" {
 		addDir(filepath.Join(homeDir, ".agents", "skills"), "common")
+	}
+
+	// 4. Builtin skills: extracted from binary (lowest priority)
+	if homeDir != "" {
+		builtinDir := filepath.Join(homeDir, ".anna", "cache", "builtin-skills")
+		if err := builtin.Extract(builtinDir); err != nil {
+			slog.Warn("failed to extract builtin skills", "error", err)
+		} else {
+			addDir(builtinDir, "builtin")
+		}
 	}
 
 	return skills
