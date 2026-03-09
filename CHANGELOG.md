@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-09
+
+### ✨ Features
+
+- **QQ Bot**: Add QQ Bot channel support ([#33](https://github.com/vaayne/anna/pull/33))
+- **Onboard**: Add onboard subcommand with web-based setup UI ([#36](https://github.com/vaayne/anna/pull/36))
+- **Telegram**: Image input support ([#35](https://github.com/vaayne/anna/pull/35))
+- **Telegram**: Tool summary with history, timing, and result status ([#32](https://github.com/vaayne/anna/pull/32))
+- **Tools**: Add webfetch tool for fetching web pages as markdown ([#28](https://github.com/vaayne/anna/pull/28))
+
+### 🐛 Bug Fixes
+
+- **Telegram**: Use channel-scoped UUID sessions for /new command ([#31](https://github.com/vaayne/anna/pull/31))
+
+### ♻️ Refactoring
+
+- Flatten package structure and merge runner packages ([#27](https://github.com/vaayne/anna/pull/27))
+- Flatten config structure and move workspace to ~/.anna ([#26](https://github.com/vaayne/anna/pull/26))
+
+**Full Changelog**: [v0.1.0...v0.2.0](https://github.com/vaayne/anna/compare/v0.1.0...v0.2.0)
+
 ## [0.1.0] - 2026-03-07
 
 ### ✨ Features
