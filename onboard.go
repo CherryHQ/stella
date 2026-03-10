@@ -540,6 +540,8 @@ func saveConfig(cfg *Config) error {
 		}
 		setOrDelete(fsMap, "app_id", fs.AppID)
 		setOrDelete(fsMap, "app_secret", fs.AppSecret)
+		setOrDelete(fsMap, "encrypt_key", fs.EncryptKey)
+		setOrDelete(fsMap, "verification_token", fs.VerificationToken)
 		setOrDelete(fsMap, "notify_chat", fs.NotifyChat)
 		setOrDelete(fsMap, "group_mode", fs.GroupMode)
 		if len(fs.AllowedIDs) > 0 {

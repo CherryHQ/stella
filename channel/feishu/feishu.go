@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -21,6 +22,10 @@ import (
 )
 
 const feishuMaxMessageLen = 4000
+
+// seenMsgTTL is how long message IDs are retained for dedup.
+// Feishu retries within ~30s, so 5 minutes is generous.
+const seenMsgTTL = 5 * time.Minute
 
 // mentionPlaceholderRegex matches @_user_N placeholders inserted by Feishu for mentions.
 var mentionPlaceholderRegex = regexp.MustCompile(`@_user_\d+`)
@@ -50,7 +55,7 @@ type Bot struct {
 
 	mu         sync.RWMutex
 	chatModels map[string]ModelOption
-	seenMsgs   map[string]struct{} // message ID dedup
+	seenMsgs   map[string]time.Time // message ID -> first seen time
 
 	allowed map[string]struct{}
 	cfg     Config
@@ -78,7 +83,7 @@ func New(cfg Config, pool *agent.Pool, listFn ModelListFunc, switchFn ModelSwitc
 		listFn:     listFn,
 		switchFn:   switchFn,
 		chatModels: make(map[string]ModelOption),
-		seenMsgs:   make(map[string]struct{}),
+		seenMsgs:   make(map[string]time.Time),
 		allowed:    allowed,
 		cfg:        cfg,
 	}
@@ -290,13 +295,24 @@ func (b *Bot) isBotMentioned(mentions []*larkim.MentionEvent) bool {
 }
 
 // markSeen records a message ID and returns true if it was already seen.
+// Evicts entries older than seenMsgTTL to bound memory usage.
 func (b *Bot) markSeen(messageID string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	now := time.Now()
+
+	// Evict expired entries.
+	for id, t := range b.seenMsgs {
+		if now.Sub(t) > seenMsgTTL {
+			delete(b.seenMsgs, id)
+		}
+	}
+
 	if _, ok := b.seenMsgs[messageID]; ok {
 		return true
 	}
-	b.seenMsgs[messageID] = struct{}{}
+	b.seenMsgs[messageID] = now
 	return false
 }
 
