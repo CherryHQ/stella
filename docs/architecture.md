@@ -4,13 +4,13 @@
 
 anna is structured as a set of loosely coupled packages wired together in `main.go`. The core flow:
 
-1. A **channel** (CLI or Telegram) receives user input
+1. A **channel** (CLI, Telegram, QQ, or Feishu) receives user input
 2. The **Pool** manages sessions and dispatches to a **Runner**
 3. The **Go runner** calls LLM providers via `ai/providers/`, executing tools in a loop
 4. Responses stream back through the channel to the user
 
 ```
-Channel (CLI/Telegram)
+Channel (CLI/Telegram/QQ/Feishu)
     |
     v
 Pool (sessions + runner lifecycle)
@@ -88,6 +88,12 @@ channel/
     stream.go                       Streaming via QQ Stream API
     render.go                       Message chunking
     model.go                        Text-based model selection UI
+  feishu/
+    feishu.go                       Bot setup, WebSocket, notification backend
+    handler.go                      Message event handlers
+    stream.go                       Streaming via message update (edit-in-place)
+    render.go                       Response splitting
+    model.go                        Text-based model list
 
 cron/
   cron.go                           Scheduler service (gocron/v2)
@@ -146,7 +152,7 @@ type Tool interface {
 | `memory` | Always | Persistent memory (update facts, append journal, search) |
 | `skills` | Always | Skill management (search/install/list/remove from skills.sh) |
 | `cron` | `cron.enabled: true` | Schedule tasks (add/list/remove jobs) |
-| `notify` | Gateway mode + Telegram configured | Send notifications via dispatcher |
+| `notify` | Gateway mode + channel configured | Send notifications via dispatcher |
 
 ## Session Lifecycle
 
@@ -176,8 +182,8 @@ Shared command logic (`/new`, `/compact`, `/model`) lives in `channel.Commander`
 ## Notification Flow
 
 ```
-Agent notify tool --> Dispatcher --> Channel (Telegram/QQ)
-Cron job result   --> Dispatcher --> Channel (Telegram/QQ)
+Agent notify tool --> Dispatcher --> Channel (Telegram/QQ/Feishu)
+Cron job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu)
 ```
 
 The dispatcher is created early in setup, but backends are registered later when gateway services start. See [notification-system.md](notification-system.md) for details.

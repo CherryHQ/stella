@@ -2,7 +2,7 @@
 
 A minimal Go CLI that acts as a local AI assistant. Uses a native Go runner that calls LLM providers (Anthropic, OpenAI, OpenAI-compatible) directly.
 
-Two interfaces: **interactive CLI chat** and **gateway daemon** (Telegram bot, QQ bot).
+Two interfaces: **interactive CLI chat** and **gateway daemon** (Telegram bot, QQ bot, Feishu bot).
 
 ## Features
 
@@ -17,6 +17,10 @@ Two interfaces: **interactive CLI chat** and **gateway daemon** (Telegram bot, Q
   - Native Stream API for progressive response delivery
   - C2C (private) and group @mention support
   - Sandbox mode for testing
+- Feishu bot via WebSocket (no webhook, no public IP needed)
+  - Edit-in-place streaming for progressive response delivery
+  - Private (p2p) and group @mention support
+  - Access control via `allowed_ids`
 - Notification system with multi-backend dispatcher
 - Model management CLI (`anna models list/update/set/search`)
 - Tiered model config (strong/worker/fast) with runtime model switching
@@ -63,7 +67,7 @@ anna chat --stream   # Pipe prompt via stdin, stream to stdout
 anna gateway
 ```
 
-Starts all configured services (Telegram bot, QQ bot, cron scheduler). Services are activated based on config.
+Starts all configured services (Telegram bot, QQ bot, Feishu bot, cron scheduler). Services are activated based on config.
 
 ### Model Management
 
@@ -127,7 +131,10 @@ anna chat
   | QQ Bot    |----->|  Dispatcher   |
   | Webhook   |      | (notify tool) |--> Telegram
   +-----------+      |               |--> QQ
-                     +-------^--------+
+  +-----------+      |               |--> Feishu
+  | Feishu    |----->|               |
+  | WebSocket |      +-------^--------+
+  +-----------+              |
   +-----------+              |
   |   Cron    |--------------+
   +-----------+
@@ -148,6 +155,7 @@ channel/notifier.go                 Notification dispatcher (multi-backend)
 channel/notify_tool.go              Agent notify tool
 channel/telegram/                   Telegram bot + streaming + notification backend
 channel/qq/                         QQ bot + webhook + streaming + notification backend
+channel/feishu/                     Feishu bot + WebSocket + streaming + notification backend
 channel/cli/                        Interactive terminal chat (Bubble Tea TUI)
 cron/                               Scheduled jobs (gocron/v2)
 memory/                             Persistent memory (facts + journal)
@@ -165,6 +173,7 @@ ai/stream/                          Streaming abstractions
 | [Architecture](docs/architecture.md) | System design, packages, providers, tools |
 | [Telegram](docs/telegram.md) | Bot setup, streaming, groups, access control |
 | [QQ Bot](docs/qq.md) | Bot setup, webhook, streaming, access control |
+| [Feishu Bot](docs/feishu.md) | Bot setup, WebSocket, streaming, access control |
 | [Models](docs/models.md) | Tiers, CLI commands, provider setup, caching |
 | [Memory System](docs/memory-system.md) | Facts + journal, tool interface |
 | [Cron System](docs/cron-system.md) | Scheduled tasks, job persistence |

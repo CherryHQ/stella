@@ -46,6 +46,14 @@ channels:
     app_secret: "QQ_BOT_APP_SECRET"
     group_mode: "mention"          # mention | always | disabled
     allowed_ids: []                # User OpenIDs allowed (empty = allow all)
+  feishu:
+    app_id: "FEISHU_APP_ID"
+    app_secret: "FEISHU_APP_SECRET"
+    encrypt_key: ""                # Event encrypt key (from developer console)
+    verification_token: ""         # Event verification token (from developer console)
+    notify_chat: "oc_xxx"          # Chat ID for proactive notifications
+    group_mode: "mention"          # mention | always | disabled
+    allowed_ids: []                # User open_ids allowed (empty = allow all)
 
 # Default LLM provider
 provider: anthropic
@@ -117,6 +125,13 @@ All config fields support env var overrides using the `ANNA_` prefix. Nested str
 | `ANNA_QQ_APP_SECRET` | `channels.qq.app_secret` | |
 | `ANNA_QQ_GROUP_MODE` | `channels.qq.group_mode` | |
 | `ANNA_QQ_ALLOWED_IDS` | `channels.qq.allowed_ids` | Comma-separated |
+| `ANNA_FEISHU_APP_ID` | `channels.feishu.app_id` | |
+| `ANNA_FEISHU_APP_SECRET` | `channels.feishu.app_secret` | |
+| `ANNA_FEISHU_ENCRYPT_KEY` | `channels.feishu.encrypt_key` | |
+| `ANNA_FEISHU_VERIFICATION_TOKEN` | `channels.feishu.verification_token` | |
+| `ANNA_FEISHU_NOTIFY_CHAT` | `channels.feishu.notify_chat` | |
+| `ANNA_FEISHU_GROUP_MODE` | `channels.feishu.group_mode` | |
+| `ANNA_FEISHU_ALLOWED_IDS` | `channels.feishu.allowed_ids` | Comma-separated |
 | `ANTHROPIC_API_KEY` | `providers.anthropic.api_key` | Standard provider env |
 | `ANTHROPIC_BASE_URL` | `providers.anthropic.base_url` | Standard provider env |
 | `OPENAI_API_KEY` | `providers.openai.api_key` | Also used by `openai-response` |
@@ -137,3 +152,4 @@ All config fields support env var overrides using the `ANNA_` prefix. Nested str
 | `cron.data_dir` | `~/.anna/workspace/cron` |
 | `channels.telegram.group_mode` | `mention` |
 | `channels.qq.group_mode` | `mention` |
+| `channels.feishu.group_mode` | `mention` |
