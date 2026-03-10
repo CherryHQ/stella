@@ -154,3 +154,63 @@ func TestTextDeltaToRPCEvent(t *testing.T) {
 		t.Error("expected non-empty AssistantMessageEvent")
 	}
 }
+
+func TestAssistantMessageToRPCEvent(t *testing.T) {
+	evt := AssistantMessageToRPCEvent("test response")
+	if evt.Type != RPCEventMessageUpdate {
+		t.Errorf("Type = %q, want %q", evt.Type, RPCEventMessageUpdate)
+	}
+	if evt.Summary != "test response" {
+		t.Errorf("Summary = %q, want %q", evt.Summary, "test response")
+	}
+}
+
+func TestToolCallToRPCEvent(t *testing.T) {
+	call := aitypes.ToolCall{
+		ID:        "call-1",
+		Name:      "read_file",
+		Arguments: map[string]any{"path": "/tmp/test.txt"},
+	}
+	evt := ToolCallToRPCEvent(call)
+	if evt.Type != RPCEventToolCall {
+		t.Errorf("Type = %q, want %q", evt.Type, RPCEventToolCall)
+	}
+	if evt.ID != "call-1" {
+		t.Errorf("ID = %q, want %q", evt.ID, "call-1")
+	}
+	if evt.Tool != "read_file" {
+		t.Errorf("Tool = %q, want %q", evt.Tool, "read_file")
+	}
+}
+
+func TestToolResultToRPCEvent(t *testing.T) {
+	result := aitypes.ToolResultMessage{
+		ToolCallID: "call-1",
+		ToolName:   "read_file",
+		Content:    []aitypes.ContentBlock{aitypes.TextContent{Text: "file contents"}},
+		IsError:    false,
+	}
+	evt := ToolResultToRPCEvent(result)
+	if evt.Type != RPCEventToolResult {
+		t.Errorf("Type = %q, want %q", evt.Type, RPCEventToolResult)
+	}
+	if evt.ID != "call-1" {
+		t.Errorf("ID = %q, want %q", evt.ID, "call-1")
+	}
+	if evt.Error != "" {
+		t.Errorf("Error should be empty, got %q", evt.Error)
+	}
+}
+
+func TestToolResultToRPCEventError(t *testing.T) {
+	result := aitypes.ToolResultMessage{
+		ToolCallID: "call-2",
+		ToolName:   "read_file",
+		Content:    []aitypes.ContentBlock{aitypes.TextContent{Text: "not found"}},
+		IsError:    true,
+	}
+	evt := ToolResultToRPCEvent(result)
+	if evt.Error != "not found" {
+		t.Errorf("Error = %q, want %q", evt.Error, "not found")
+	}
+}

@@ -519,6 +519,37 @@ func TestAliveAlwaysTrue(t *testing.T) {
 	}
 }
 
+func TestSummarizeToolInput(t *testing.T) {
+	tests := []struct {
+		name     string
+		toolName string
+		args     map[string]any
+		want     string
+	}{
+		{"bash short", "bash", map[string]any{"command": "ls -la"}, "ls -la"},
+		{"bash long", "bash", map[string]any{"command": "echo " + string(make([]byte, 100))}, ""},
+		{"read", "read", map[string]any{"file_path": "/tmp/test.go"}, "/tmp/test.go"},
+		{"write", "write", map[string]any{"file_path": "/tmp/out.txt"}, "/tmp/out.txt"},
+		{"edit", "edit", map[string]any{"file_path": "/tmp/edit.go"}, "/tmp/edit.go"},
+		{"unknown tool", "unknown", map[string]any{"foo": "bar"}, ""},
+		{"bash no command", "bash", map[string]any{}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := summarizeToolInput(tt.toolName, tt.args)
+			if tt.name == "bash long" {
+				if len(got) > 84 { // 80 + "..."
+					t.Errorf("long bash should be truncated, got len %d", len(got))
+				}
+				return
+			}
+			if got != tt.want {
+				t.Errorf("summarizeToolInput() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSummarizeToolResult(t *testing.T) {
 	tests := []struct {
 		name    string
