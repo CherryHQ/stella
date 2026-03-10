@@ -29,6 +29,7 @@ type GoRunnerConfig struct {
 	BaseURL     string        // optional provider base URL override
 	WorkDir     string        // working directory for tool execution
 	Workspace   string        // workspace dir for skills/memory (e.g. ~/.anna/workspace)
+	AnnaHome    string        // anna home directory (e.g. ~/.anna)
 	MemoryStore *memory.Store // persistent memory (soul, user, facts, journal)
 	System      string        // optional system prompt override (bypasses BuildSystemPrompt)
 	ExtraTools  []tool.Tool   // additional tools to register
@@ -68,7 +69,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	system := cfg.System
 	if system == "" {
 		if cfg.MemoryStore != nil {
-			system = BuildSystemPrompt(cfg.MemoryStore, cfg.Workspace, cfg.WorkDir)
+			system = BuildSystemPrompt(cfg.MemoryStore, cfg.AnnaHome, cfg.Workspace, cfg.WorkDir)
 		} else {
 			system = defaultBasicPrompt
 		}

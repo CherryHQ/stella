@@ -130,7 +130,7 @@ func skillsListAction() error {
 		return err
 	}
 	cwd, _ := os.Getwd()
-	loaded := runner.LoadSkills(cfg.Workspace, cwd)
+	loaded := runner.LoadSkills(annaHome(), cfg.Workspace, cwd)
 	if len(loaded) == 0 {
 		fmt.Println("No skills installed.")
 		return nil
@@ -169,7 +169,7 @@ func skillsListJSON() error {
 		return err
 	}
 	cwd, _ := os.Getwd()
-	loaded := runner.LoadSkills(cfg.Workspace, cwd)
+	loaded := runner.LoadSkills(annaHome(), cfg.Workspace, cwd)
 
 	type entry struct {
 		Name        string `json:"name"`

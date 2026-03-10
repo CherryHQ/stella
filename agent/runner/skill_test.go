@@ -168,7 +168,7 @@ func TestLoadSkillsDedup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	skills := loadSkills("/nonexistent/home", wsDir, projectDir)
+	skills := loadSkills("/nonexistent/home", "/nonexistent/anna", wsDir, projectDir)
 
 	count := 0
 	for _, s := range skills {
@@ -298,7 +298,7 @@ func TestLoadSkillsProjectPriority(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	skills := loadSkills("/nonexistent/home", wsDir, projectDir)
+	skills := loadSkills("/nonexistent/home", "/nonexistent/anna", wsDir, projectDir)
 
 	count := 0
 	for _, s := range skills {
@@ -318,7 +318,7 @@ func TestLoadSkillsProjectPriority(t *testing.T) {
 }
 
 func TestLoadSkillsNonexistentDir(t *testing.T) {
-	skills := loadSkills("/nonexistent/home", "/nonexistent/agents", "/nonexistent/cwd")
+	skills := loadSkills("/nonexistent/home", "/nonexistent/anna", "/nonexistent/agents", "/nonexistent/cwd")
 	if len(skills) != 0 {
 		t.Errorf("expected no skills for nonexistent dirs, got %d", len(skills))
 	}
@@ -341,7 +341,7 @@ func TestBuildSystemPromptIncludesSkills(t *testing.T) {
 	}
 
 	memStore := memory.NewStore(filepath.Join(wsDir, "memory"))
-	prompt := BuildSystemPrompt(memStore, wsDir, projectDir)
+	prompt := BuildSystemPrompt(memStore, "/nonexistent/anna", wsDir, projectDir)
 	if !strings.Contains(prompt, "<available_skills>") {
 		t.Error("expected skills section in system prompt")
 	}
@@ -449,7 +449,7 @@ func TestBuildSystemPromptIncludesContextFiles(t *testing.T) {
 	}
 
 	memStore := memory.NewStore(filepath.Join(wsDir, "memory"))
-	prompt := BuildSystemPrompt(memStore, wsDir, projectDir)
+	prompt := BuildSystemPrompt(memStore, "/nonexistent/anna", wsDir, projectDir)
 
 	if !strings.Contains(prompt, "# Project Context") {
 		t.Error("expected Project Context section in system prompt")
@@ -485,7 +485,7 @@ func TestBuildSystemPromptProjectOverrides(t *testing.T) {
 	}
 
 	memStore := memory.NewStore(memDir)
-	prompt := BuildSystemPrompt(memStore, wsDir, projectDir)
+	prompt := BuildSystemPrompt(memStore, "/nonexistent/anna", wsDir, projectDir)
 
 	if !strings.Contains(prompt, "Project soul override") {
 		t.Error("expected project-level SOUL.md to override workspace SOUL.md")
@@ -523,7 +523,7 @@ func TestLoadSkillsThreeTierPriority(t *testing.T) {
 	mkSkill(filepath.Join(projectDir, ".agents", "skills"), "shared-skill", "Project version")
 	mkSkill(filepath.Join(projectDir, ".agents", "skills"), "proj-only", "Only in project")
 
-	skills := loadSkills(homeDir, wsDir, projectDir)
+	skills := loadSkills(homeDir, "/nonexistent/anna", wsDir, projectDir)
 
 	byName := map[string]Skill{}
 	for _, s := range skills {
