@@ -325,24 +325,27 @@ type channelsJSON struct {
 }
 
 type telegramJSON struct {
-	Enabled    *bool   `json:"enabled"`
-	Token      string  `json:"token"`
-	NotifyChat string  `json:"notify_chat"`
-	ChannelID  string  `json:"channel_id"`
-	GroupMode  string  `json:"group_mode"`
-	AllowedIDs []int64 `json:"allowed_ids"`
+	Enabled      *bool   `json:"enabled"`
+	EnableNotify *bool   `json:"enable_notify"`
+	Token        string  `json:"token"`
+	NotifyChat   string  `json:"notify_chat"`
+	ChannelID    string  `json:"channel_id"`
+	GroupMode    string  `json:"group_mode"`
+	AllowedIDs   []int64 `json:"allowed_ids"`
 }
 
 type qqJSON struct {
-	Enabled    *bool    `json:"enabled"`
-	AppID      string   `json:"app_id"`
-	AppSecret  string   `json:"app_secret"`
-	GroupMode  string   `json:"group_mode"`
-	AllowedIDs []string `json:"allowed_ids"`
+	Enabled      *bool    `json:"enabled"`
+	EnableNotify *bool    `json:"enable_notify"`
+	AppID        string   `json:"app_id"`
+	AppSecret    string   `json:"app_secret"`
+	GroupMode    string   `json:"group_mode"`
+	AllowedIDs   []string `json:"allowed_ids"`
 }
 
 type feishuJSON struct {
 	Enabled           *bool    `json:"enabled"`
+	EnableNotify      *bool    `json:"enable_notify"`
 	AppID             string   `json:"app_id"`
 	AppSecret         string   `json:"app_secret"`
 	EncryptKey        string   `json:"encrypt_key"`
@@ -366,22 +369,25 @@ func cfgToJSON(cfg *Config) configJSON {
 		Providers:   providers,
 		Channels: channelsJSON{
 			Telegram: telegramJSON{
-				Enabled:    cfg.Channels.Telegram.Enabled,
-				Token:      cfg.Channels.Telegram.Token,
-				NotifyChat: cfg.Channels.Telegram.NotifyChat,
-				ChannelID:  cfg.Channels.Telegram.ChannelID,
-				GroupMode:  cfg.Channels.Telegram.GroupMode,
-				AllowedIDs: cfg.Channels.Telegram.AllowedIDs,
+				Enabled:      cfg.Channels.Telegram.Enabled,
+				EnableNotify: cfg.Channels.Telegram.EnableNotify,
+				Token:        cfg.Channels.Telegram.Token,
+				NotifyChat:   cfg.Channels.Telegram.NotifyChat,
+				ChannelID:    cfg.Channels.Telegram.ChannelID,
+				GroupMode:    cfg.Channels.Telegram.GroupMode,
+				AllowedIDs:   cfg.Channels.Telegram.AllowedIDs,
 			},
 			QQ: qqJSON{
-				Enabled:    cfg.Channels.QQ.Enabled,
-				AppID:      cfg.Channels.QQ.AppID,
-				AppSecret:  cfg.Channels.QQ.AppSecret,
-				GroupMode:  cfg.Channels.QQ.GroupMode,
-				AllowedIDs: cfg.Channels.QQ.AllowedIDs,
+				Enabled:      cfg.Channels.QQ.Enabled,
+				EnableNotify: cfg.Channels.QQ.EnableNotify,
+				AppID:        cfg.Channels.QQ.AppID,
+				AppSecret:    cfg.Channels.QQ.AppSecret,
+				GroupMode:    cfg.Channels.QQ.GroupMode,
+				AllowedIDs:   cfg.Channels.QQ.AllowedIDs,
 			},
 			Feishu: feishuJSON{
 				Enabled:           cfg.Channels.Feishu.Enabled,
+				EnableNotify:      cfg.Channels.Feishu.EnableNotify,
 				AppID:             cfg.Channels.Feishu.AppID,
 				AppSecret:         cfg.Channels.Feishu.AppSecret,
 				EncryptKey:        cfg.Channels.Feishu.EncryptKey,
@@ -413,24 +419,27 @@ func applyJSONToConfig(cfg *Config, body *configJSON) {
 	}
 
 	cfg.Channels.Telegram = TelegramConfig{
-		Enabled:    body.Channels.Telegram.Enabled,
-		Token:      body.Channels.Telegram.Token,
-		NotifyChat: body.Channels.Telegram.NotifyChat,
-		ChannelID:  body.Channels.Telegram.ChannelID,
-		GroupMode:  body.Channels.Telegram.GroupMode,
-		AllowedIDs: body.Channels.Telegram.AllowedIDs,
+		Enabled:      body.Channels.Telegram.Enabled,
+		EnableNotify: body.Channels.Telegram.EnableNotify,
+		Token:        body.Channels.Telegram.Token,
+		NotifyChat:   body.Channels.Telegram.NotifyChat,
+		ChannelID:    body.Channels.Telegram.ChannelID,
+		GroupMode:    body.Channels.Telegram.GroupMode,
+		AllowedIDs:   body.Channels.Telegram.AllowedIDs,
 	}
 
 	cfg.Channels.QQ = QQConfig{
-		Enabled:    body.Channels.QQ.Enabled,
-		AppID:      body.Channels.QQ.AppID,
-		AppSecret:  body.Channels.QQ.AppSecret,
-		GroupMode:  body.Channels.QQ.GroupMode,
-		AllowedIDs: body.Channels.QQ.AllowedIDs,
+		Enabled:      body.Channels.QQ.Enabled,
+		EnableNotify: body.Channels.QQ.EnableNotify,
+		AppID:        body.Channels.QQ.AppID,
+		AppSecret:    body.Channels.QQ.AppSecret,
+		GroupMode:    body.Channels.QQ.GroupMode,
+		AllowedIDs:   body.Channels.QQ.AllowedIDs,
 	}
 
 	cfg.Channels.Feishu = FeishuConfig{
 		Enabled:           body.Channels.Feishu.Enabled,
+		EnableNotify:      body.Channels.Feishu.EnableNotify,
 		AppID:             body.Channels.Feishu.AppID,
 		AppSecret:         body.Channels.Feishu.AppSecret,
 		EncryptKey:        body.Channels.Feishu.EncryptKey,
@@ -491,7 +500,7 @@ func saveConfig(cfg *Config) error {
 
 	// Merge telegram channel config.
 	tg := cfg.Channels.Telegram
-	if tg.Enabled != nil || tg.Token != "" || tg.NotifyChat != "" || tg.ChannelID != "" || tg.GroupMode != "" || len(tg.AllowedIDs) > 0 {
+	if tg.Enabled != nil || tg.EnableNotify != nil || tg.Token != "" || tg.NotifyChat != "" || tg.ChannelID != "" || tg.GroupMode != "" || len(tg.AllowedIDs) > 0 {
 		existingChannels, _ := existing["channels"].(map[string]any)
 		if existingChannels == nil {
 			existingChannels = make(map[string]any)
@@ -501,6 +510,7 @@ func saveConfig(cfg *Config) error {
 			tgMap = make(map[string]any)
 		}
 		setBoolOrDelete(tgMap, "enabled", tg.Enabled)
+		setBoolOrDelete(tgMap, "enable_notify", tg.EnableNotify)
 		setOrDelete(tgMap, "token", tg.Token)
 		setOrDelete(tgMap, "notify_chat", tg.NotifyChat)
 		setOrDelete(tgMap, "channel_id", tg.ChannelID)
@@ -516,7 +526,7 @@ func saveConfig(cfg *Config) error {
 
 	// Merge QQ channel config.
 	qq := cfg.Channels.QQ
-	if qq.Enabled != nil || qq.AppID != "" || qq.AppSecret != "" || qq.GroupMode != "" || len(qq.AllowedIDs) > 0 {
+	if qq.Enabled != nil || qq.EnableNotify != nil || qq.AppID != "" || qq.AppSecret != "" || qq.GroupMode != "" || len(qq.AllowedIDs) > 0 {
 		existingChannels, _ := existing["channels"].(map[string]any)
 		if existingChannels == nil {
 			existingChannels = make(map[string]any)
@@ -526,6 +536,7 @@ func saveConfig(cfg *Config) error {
 			qqMap = make(map[string]any)
 		}
 		setBoolOrDelete(qqMap, "enabled", qq.Enabled)
+		setBoolOrDelete(qqMap, "enable_notify", qq.EnableNotify)
 		setOrDelete(qqMap, "app_id", qq.AppID)
 		setOrDelete(qqMap, "app_secret", qq.AppSecret)
 		setOrDelete(qqMap, "group_mode", qq.GroupMode)
@@ -540,7 +551,7 @@ func saveConfig(cfg *Config) error {
 
 	// Merge Feishu channel config.
 	fs := cfg.Channels.Feishu
-	if fs.Enabled != nil || fs.AppID != "" || fs.AppSecret != "" || fs.NotifyChat != "" || fs.GroupMode != "" || len(fs.AllowedIDs) > 0 {
+	if fs.Enabled != nil || fs.EnableNotify != nil || fs.AppID != "" || fs.AppSecret != "" || fs.NotifyChat != "" || fs.GroupMode != "" || len(fs.AllowedIDs) > 0 {
 		existingChannels, _ := existing["channels"].(map[string]any)
 		if existingChannels == nil {
 			existingChannels = make(map[string]any)
@@ -550,6 +561,7 @@ func saveConfig(cfg *Config) error {
 			fsMap = make(map[string]any)
 		}
 		setBoolOrDelete(fsMap, "enabled", fs.Enabled)
+		setBoolOrDelete(fsMap, "enable_notify", fs.EnableNotify)
 		setOrDelete(fsMap, "app_id", fs.AppID)
 		setOrDelete(fsMap, "app_secret", fs.AppSecret)
 		setOrDelete(fsMap, "encrypt_key", fs.EncryptKey)

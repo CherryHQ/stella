@@ -43,6 +43,7 @@ providers:
 channels:
   telegram:
     enabled: true                  # enable/disable this channel (default: true)
+    enable_notify: false           # allow notify tool to send to this channel (default: false)
     token: "BOT_TOKEN"
     notify_chat: "123456789"
     channel_id: "@my_channel"
@@ -50,6 +51,7 @@ channels:
     allowed_ids: [136345060]
   qq:
     enabled: true                  # enable/disable this channel (default: true)
+    enable_notify: false           # allow notify tool to send to this channel (default: false)
     app_id: "QQ_BOT_APP_ID"
     app_secret: "QQ_BOT_APP_SECRET"
     group_mode: "mention"
@@ -101,11 +103,13 @@ Priority (highest wins): env vars > state.yaml > config.yaml > defaults.
 | `ANNA_RUNNER_IDLE_TIMEOUT` | `runner.idle_timeout` |
 | `ANNA_CRON_ENABLED` | `cron.enabled` |
 | `ANNA_TELEGRAM_ENABLED` | `channels.telegram.enabled` |
+| `ANNA_TELEGRAM_ENABLE_NOTIFY` | `channels.telegram.enable_notify` |
 | `ANNA_TELEGRAM_TOKEN` | `channels.telegram.token` |
 | `ANNA_TELEGRAM_NOTIFY_CHAT` | `channels.telegram.notify_chat` |
 | `ANNA_TELEGRAM_GROUP_MODE` | `channels.telegram.group_mode` |
 | `ANNA_TELEGRAM_ALLOWED_IDS` | `channels.telegram.allowed_ids` (comma-separated) |
 | `ANNA_QQ_ENABLED` | `channels.qq.enabled` |
+| `ANNA_QQ_ENABLE_NOTIFY` | `channels.qq.enable_notify` |
 | `ANNA_QQ_APP_ID` | `channels.qq.app_id` |
 | `ANNA_QQ_APP_SECRET` | `channels.qq.app_secret` |
 | `ANTHROPIC_API_KEY` | `providers.anthropic.api_key` |
@@ -126,6 +130,8 @@ Priority (highest wins): env vars > state.yaml > config.yaml > defaults.
 | `runner.compaction.keep_tail` | `20` |
 | `cron.enabled` | `true` |
 | `channels.telegram.enabled` | `true` |
+| `channels.telegram.enable_notify` | `false` |
 | `channels.telegram.group_mode` | `mention` |
 | `channels.qq.enabled` | `true` |
+| `channels.qq.enable_notify` | `false` |
 | `channels.qq.group_mode` | `mention` |
