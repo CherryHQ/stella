@@ -33,15 +33,17 @@ type Config struct {
 }
 
 // Bot wraps a Telegram bot with agent pool integration.
+// It implements channel.Channel.
 type Bot struct {
 	bot      *tele.Bot
 	pool     *agent.Pool
-	listFn   ModelListFunc
-	switchFn ModelSwitchFunc
+	cmd      *channel.Commander
+	listFn   channel.ModelListFunc
+	switchFn channel.ModelSwitchFunc
 	md       goldmarkMD
 
 	mu         sync.RWMutex
-	chatModels map[int64]ModelOption
+	chatModels map[int64]channel.ModelOption
 
 	allowed map[int64]struct{} // empty map = allow all
 	cfg     Config
@@ -49,7 +51,7 @@ type Bot struct {
 }
 
 // New creates a Telegram bot and registers handlers. Call Start to begin polling.
-func New(cfg Config, pool *agent.Pool, listFn ModelListFunc, switchFn ModelSwitchFunc) (*Bot, error) {
+func New(cfg Config, pool *agent.Pool, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc) (*Bot, error) {
 	bot, err := tele.NewBot(tele.Settings{
 		Token: cfg.Token,
 		Poller: &tele.LongPoller{
@@ -70,13 +72,21 @@ func New(cfg Config, pool *agent.Pool, listFn ModelListFunc, switchFn ModelSwitc
 		allowed[id] = struct{}{}
 	}
 
+	poolAdapter := &channel.PoolAdapter[agent.SessionInfo]{
+		ResolveFunc: pool.ResolveSession,
+		RotateFunc:  pool.RotateSession,
+		CompactFunc: pool.CompactSession,
+		AdaptFn:     func(info agent.SessionInfo) channel.SessionInfo { return channel.SessionInfo{ID: info.ID} },
+	}
+
 	b := &Bot{
 		bot:        bot,
 		pool:       pool,
+		cmd:        channel.NewCommander(poolAdapter, listFn, switchFn),
 		listFn:     listFn,
 		switchFn:   switchFn,
 		md:         tgmd.TGMD(),
-		chatModels: make(map[int64]ModelOption),
+		chatModels: make(map[int64]channel.ModelOption),
 		allowed:    allowed,
 		cfg:        cfg,
 	}
@@ -105,10 +115,16 @@ func (b *Bot) Start(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// Name returns the backend name. Implements channel.Backend.
+// Stop gracefully shuts down the Telegram bot. Implements channel.Channel.
+func (b *Bot) Stop() {
+	logger().Info("stopping telegram bot")
+	b.bot.Stop()
+}
+
+// Name returns the channel name. Implements channel.Channel.
 func (b *Bot) Name() string { return "telegram" }
 
-// Notify sends a message to the specified chat. Implements channel.Backend.
+// Notify sends a message to the specified chat. Implements channel.Channel.
 func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
 	chatID := n.ChatID
 	if chatID == "" {

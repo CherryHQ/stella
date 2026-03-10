@@ -2,64 +2,22 @@ package telegram
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 
 	"github.com/vaayne/anna/channel"
 	tele "gopkg.in/telebot.v4"
 )
 
-// ModelOption re-exports channel.ModelOption for use by callers.
-type ModelOption = channel.ModelOption
-
-// ModelListFunc re-exports channel.ModelListFunc for use by callers.
-type ModelListFunc = channel.ModelListFunc
-
-// ModelSwitchFunc re-exports channel.ModelSwitchFunc for use by callers.
-type ModelSwitchFunc = channel.ModelSwitchFunc
-
 const modelsPerPage = 8
 
-// indexedModel pairs a ModelOption with its 1-based index in the full model list.
-type indexedModel struct {
-	ModelOption
-	globalIdx int
-}
-
-// indexModels wraps a full model list with sequential 1-based indices.
-func indexModels(models []ModelOption) []indexedModel {
-	out := make([]indexedModel, len(models))
-	for i, m := range models {
-		out[i] = indexedModel{ModelOption: m, globalIdx: i + 1}
-	}
-	return out
-}
-
-// filterModels returns indexed models matching the query (or all if query is empty).
-func filterModels(models []ModelOption, query string) []indexedModel {
-	if query == "" {
-		return indexModels(models)
-	}
-	query = strings.ToLower(query)
-	var out []indexedModel
-	for i, m := range models {
-		label := strings.ToLower(m.Provider + "/" + m.Model)
-		if strings.Contains(label, query) {
-			out = append(out, indexedModel{ModelOption: m, globalIdx: i + 1})
-		}
-	}
-	return out
-}
-
 // sendModelKeyboard sends a paginated inline keyboard with model selection buttons.
-func (b *Bot) sendModelKeyboard(c tele.Context, models []indexedModel) error {
+func (b *Bot) sendModelKeyboard(c tele.Context, models []channel.IndexedModel) error {
 	return b.sendModelPage(c, models, 0, "", false)
 }
 
 // sendModelPage renders a single page of the model keyboard.
 // query is preserved in nav button data so filtered pagination works across pages.
 // If edit is true, it edits the existing message instead of sending a new one.
-func (b *Bot) sendModelPage(c tele.Context, models []indexedModel, page int, query string, edit bool) error {
+func (b *Bot) sendModelPage(c tele.Context, models []channel.IndexedModel, page int, query string, edit bool) error {
 	if len(models) == 0 {
 		return c.Send("No models configured.")
 	}
@@ -90,7 +48,7 @@ func (b *Bot) sendModelPage(c tele.Context, models []indexedModel, page int, que
 		if hasActive && m.Provider == active.Provider && m.Model == active.Model {
 			label = "✅ " + label
 		}
-		btn := markup.Data(label, "model_select", fmt.Sprintf("%d", m.globalIdx))
+		btn := markup.Data(label, "model_select", fmt.Sprintf("%d", m.GlobalIdx))
 		rows = append(rows, markup.Row(btn))
 	}
 
@@ -116,27 +74,36 @@ func (b *Bot) sendModelPage(c tele.Context, models []indexedModel, page int, que
 	markup.Inline(rows...)
 
 	text := fmt.Sprintf("Select a model (%d total):", len(models))
+	if query != "" {
+		text = fmt.Sprintf("Select a model (filter: %q, %d matches):", query, len(models))
+	}
 	if edit {
 		return c.Edit(text, markup)
 	}
 	return c.Send(text, markup)
 }
 
-// switchModel handles model switching by index string.
-func (b *Bot) switchModel(c tele.Context, models []ModelOption, idxStr string) error {
-	idx, err := strconv.Atoi(idxStr)
-	if err != nil || idx < 1 || idx > len(models) {
-		return c.Send(fmt.Sprintf("Invalid selection. Use a number between 1 and %d.", len(models)))
-	}
-	selected := models[idx-1]
-	if b.switchFn != nil {
-		if err := b.switchFn(selected.Provider, selected.Model); err != nil {
-			return c.Send(fmt.Sprintf("Error switching model: %v", err))
-		}
-	}
+// switchModelByName handles model switching by "provider/model" name using Commander.
+func (b *Bot) switchModelByName(c tele.Context, name string) error {
 	ch := channelForChat(c)
-	if _, err := b.pool.RotateSession(ch); err != nil {
-		logger().Error("rotate session after model switch failed", "channel", ch, "error", err)
+	selected, err := b.cmd.ModelSwitchByName(ch, name)
+	if err != nil {
+		return c.Send(fmt.Sprintf("Error: %v", err))
+	}
+	b.mu.Lock()
+	b.chatModels[c.Chat().ID] = selected
+	b.mu.Unlock()
+	logger().Info("model switched", "channel", ch, "provider", selected.Provider, "model", selected.Model)
+	return c.Send(fmt.Sprintf("Switched to %s/%s. Session reset.", selected.Provider, selected.Model))
+}
+
+// switchModelByIdx handles model switching by 1-based index using Commander.
+// Used internally by inline keyboard callbacks.
+func (b *Bot) switchModelByIdx(c tele.Context, idx int) error {
+	ch := channelForChat(c)
+	selected, err := b.cmd.ModelSwitch(ch, idx)
+	if err != nil {
+		return c.Send(fmt.Sprintf("Error: %v", err))
 	}
 	b.mu.Lock()
 	b.chatModels[c.Chat().ID] = selected

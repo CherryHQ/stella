@@ -6,23 +6,25 @@ import (
 	"testing"
 )
 
-// mockBackend is a test Backend that records calls.
-type mockBackend struct {
+// mockChannel is a test Channel that records Notify calls.
+type mockChannel struct {
 	name  string
 	calls []Notification
 	err   error
 }
 
-func (m *mockBackend) Name() string { return m.name }
-func (m *mockBackend) Notify(_ context.Context, n Notification) error {
+func (m *mockChannel) Name() string                  { return m.name }
+func (m *mockChannel) Start(_ context.Context) error { return nil }
+func (m *mockChannel) Stop()                         {}
+func (m *mockChannel) Notify(_ context.Context, n Notification) error {
 	m.calls = append(m.calls, n)
 	return m.err
 }
 
 func TestDispatcherBroadcast(t *testing.T) {
 	d := NewDispatcher()
-	tg := &mockBackend{name: "telegram"}
-	slack := &mockBackend{name: "slack"}
+	tg := &mockChannel{name: "telegram"}
+	slack := &mockChannel{name: "slack"}
 	d.Register(tg, "tg-chat")
 	d.Register(slack, "slack-channel")
 
@@ -47,8 +49,8 @@ func TestDispatcherBroadcast(t *testing.T) {
 
 func TestDispatcherRouteToSpecific(t *testing.T) {
 	d := NewDispatcher()
-	tg := &mockBackend{name: "telegram"}
-	slack := &mockBackend{name: "slack"}
+	tg := &mockChannel{name: "telegram"}
+	slack := &mockChannel{name: "slack"}
 	d.Register(tg, "tg-chat")
 	d.Register(slack, "slack-channel")
 
@@ -73,7 +75,7 @@ func TestDispatcherRouteToSpecific(t *testing.T) {
 
 func TestDispatcherExplicitChatID(t *testing.T) {
 	d := NewDispatcher()
-	tg := &mockBackend{name: "telegram"}
+	tg := &mockChannel{name: "telegram"}
 	d.Register(tg, "default-chat")
 
 	err := d.Notify(context.Background(), Notification{
@@ -91,7 +93,7 @@ func TestDispatcherExplicitChatID(t *testing.T) {
 
 func TestDispatcherUnknownChannel(t *testing.T) {
 	d := NewDispatcher()
-	d.Register(&mockBackend{name: "telegram"}, "chat")
+	d.Register(&mockChannel{name: "telegram"}, "chat")
 
 	err := d.Notify(context.Background(), Notification{Channel: "discord", Text: "test"})
 	if err == nil {
@@ -99,18 +101,18 @@ func TestDispatcherUnknownChannel(t *testing.T) {
 	}
 }
 
-func TestDispatcherNoBackends(t *testing.T) {
+func TestDispatcherNoChannels(t *testing.T) {
 	d := NewDispatcher()
 	err := d.Notify(context.Background(), Notification{Text: "test"})
 	if err == nil {
-		t.Fatal("expected error with no backends")
+		t.Fatal("expected error with no channels")
 	}
 }
 
 func TestDispatcherPartialFailure(t *testing.T) {
 	d := NewDispatcher()
-	good := &mockBackend{name: "telegram"}
-	bad := &mockBackend{name: "slack", err: errors.New("slack down")}
+	good := &mockChannel{name: "telegram"}
+	bad := &mockChannel{name: "slack", err: errors.New("slack down")}
 	d.Register(good, "chat")
 	d.Register(bad, "channel")
 
@@ -118,22 +120,22 @@ func TestDispatcherPartialFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error on partial failure")
 	}
-	// Good backend should still have been called.
+	// Good channel should still have been called.
 	if len(good.calls) != 1 {
-		t.Errorf("good backend got %d calls, want 1", len(good.calls))
+		t.Errorf("good channel got %d calls, want 1", len(good.calls))
 	}
 }
 
-func TestDispatcherBackends(t *testing.T) {
+func TestDispatcherChannels(t *testing.T) {
 	d := NewDispatcher()
-	d.Register(&mockBackend{name: "telegram"}, "")
-	d.Register(&mockBackend{name: "slack"}, "")
+	d.Register(&mockChannel{name: "telegram"}, "")
+	d.Register(&mockChannel{name: "slack"}, "")
 
-	names := d.Backends()
+	names := d.Channels()
 	if len(names) != 2 {
-		t.Fatalf("len(Backends()) = %d, want 2", len(names))
+		t.Fatalf("len(Channels()) = %d, want 2", len(names))
 	}
 	if names[0] != "telegram" || names[1] != "slack" {
-		t.Errorf("Backends() = %v, want [telegram slack]", names)
+		t.Errorf("Channels() = %v, want [telegram slack]", names)
 	}
 }
