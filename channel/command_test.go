@@ -162,6 +162,57 @@ func TestCommanderModelSwitchByNameUnknown(t *testing.T) {
 	}
 }
 
+func TestCommanderModelList(t *testing.T) {
+	pool := newMockPool()
+	models := []ModelOption{
+		{Provider: "openai", Model: "gpt-4"},
+		{Provider: "anthropic", Model: "claude-3"},
+	}
+	cmd := NewCommander(pool, func() []ModelOption { return models }, nil)
+
+	// Unfiltered
+	all := cmd.ModelList("")
+	if len(all) != 2 {
+		t.Fatalf("len = %d, want 2", len(all))
+	}
+
+	// Filtered
+	filtered := cmd.ModelList("claude")
+	if len(filtered) != 1 {
+		t.Fatalf("len = %d, want 1", len(filtered))
+	}
+	if filtered[0].Model != "claude-3" {
+		t.Errorf("model = %q, want claude-3", filtered[0].Model)
+	}
+}
+
+func TestPoolAdapter(t *testing.T) {
+	type info struct {
+		id string
+	}
+	adapter := &PoolAdapter[info]{
+		ResolveFunc: func(ch string) (info, error) { return info{id: "resolved-" + ch}, nil },
+		RotateFunc:  func(ch string) (info, error) { return info{id: "rotated-" + ch}, nil },
+		CompactFunc: func(_ context.Context, sid string) (string, error) { return "compacted:" + sid, nil },
+		AdaptFn:     func(i info) SessionInfo { return SessionInfo{ID: i.id} },
+	}
+
+	si, err := adapter.ResolveSession("ch1")
+	if err != nil || si.ID != "resolved-ch1" {
+		t.Errorf("ResolveSession = %v, %v", si, err)
+	}
+
+	si, err = adapter.RotateSession("ch1")
+	if err != nil || si.ID != "rotated-ch1" {
+		t.Errorf("RotateSession = %v, %v", si, err)
+	}
+
+	summary, err := adapter.CompactSession(context.Background(), "s1")
+	if err != nil || summary != "compacted:s1" {
+		t.Errorf("CompactSession = %q, %v", summary, err)
+	}
+}
+
 func TestParseModelArgs(t *testing.T) {
 	tests := []struct {
 		input string

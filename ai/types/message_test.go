@@ -2,6 +2,53 @@ package types
 
 import "testing"
 
+func TestContentBlockKinds(t *testing.T) {
+	tests := []struct {
+		name  string
+		block ContentBlock
+		want  string
+	}{
+		{"text", TextContent{Text: "hi"}, "text"},
+		{"thinking", ThinkingContent{Thinking: "hmm"}, "thinking"},
+		{"image", ImageContent{Data: "x", MimeType: "image/png"}, "image"},
+		{"toolCall", ToolCall{ID: "1", Name: "test"}, "toolCall"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.block.contentBlockKind(); got != tt.want {
+				t.Errorf("contentBlockKind() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestImageContentDataURI(t *testing.T) {
+	ic := ImageContent{Data: "abc123", MimeType: "image/jpeg"}
+	want := "data:image/jpeg;base64,abc123"
+	if got := ic.DataURI(); got != want {
+		t.Errorf("DataURI() = %q, want %q", got, want)
+	}
+}
+
+func TestMessageRoles(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  Message
+		want string
+	}{
+		{"user", UserMessage{}, "user"},
+		{"assistant", AssistantMessage{}, "assistant"},
+		{"tool", ToolResultMessage{}, "tool"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.msg.messageRole(); got != tt.want {
+				t.Errorf("messageRole() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHasImage(t *testing.T) {
 	tests := []struct {
 		name   string

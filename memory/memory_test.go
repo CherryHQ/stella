@@ -158,3 +158,21 @@ func TestStore_JournalFileCreated(t *testing.T) {
 		t.Fatalf("journal file should exist: %v", err)
 	}
 }
+
+func TestStore_Dir(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	if got := s.Dir(); got != dir {
+		t.Errorf("Dir() = %q, want %q", got, dir)
+	}
+}
+
+func TestStore_Path(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	got := s.Path(FileFact)
+	want := filepath.Join(dir, string(FileFact))
+	if got != want {
+		t.Errorf("Path() = %q, want %q", got, want)
+	}
+}

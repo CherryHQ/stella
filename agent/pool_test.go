@@ -88,6 +88,39 @@ func TestNewPool(t *testing.T) {
 	}
 }
 
+func TestWithCompaction(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	cfg := CompactionConfig{MaxTokens: 40_000, KeepTail: 10}
+	pool := NewPool(factory, WithCompaction(cfg))
+
+	if pool.compaction.MaxTokens != 40_000 {
+		t.Errorf("MaxTokens = %d, want 40000", pool.compaction.MaxTokens)
+	}
+	if pool.compaction.KeepTail != 10 {
+		t.Errorf("KeepTail = %d, want 10", pool.compaction.KeepTail)
+	}
+}
+
+func TestSetFactory(t *testing.T) {
+	factory1, _ := mockRunnerFactory(nil)
+	pool := NewPool(factory1)
+
+	factory2, _ := mockRunnerFactory([]runner.Event{{Text: "new"}})
+	pool.SetFactory(factory2)
+
+	// Verify factory was replaced by creating a session
+	ctx := context.Background()
+	info, _ := pool.CreateSession("test")
+	stream := pool.Chat(ctx, info.ID, "hi")
+	var got string
+	for evt := range stream {
+		got += evt.Text
+	}
+	if got != "new" {
+		t.Errorf("got %q, want %q from new factory", got, "new")
+	}
+}
+
 func TestPoolChat(t *testing.T) {
 	events := []runner.Event{
 		{Text: "Hello "},
