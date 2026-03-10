@@ -6,7 +6,7 @@ Implemented — `channel/notifier.go`, `channel/notify_tool.go`, `channel/telegr
 
 ## Overview
 
-Anna supports proactive notifications so the agent, cron jobs, and other internal triggers can push messages to users without waiting for a request. The system uses a multi-backend dispatcher that routes notifications to one or more configured backends (Telegram, with Slack/Discord planned).
+Anna supports proactive notifications so the agent, cron jobs, and other internal triggers can push messages to users without waiting for a request. The system uses a multi-channel dispatcher that routes notifications to one or more configured channels (Telegram, QQ, with Slack/Discord planned).
 
 ## Architecture
 
@@ -29,7 +29,7 @@ Anna supports proactive notifications so the agent, cron jobs, and other interna
                     ▼            ▼          ▼   │
               ┌──────────┐ ┌────────┐ ┌───────┐│
               │ Telegram │ │ Slack  │ │Discord││
-              │ Backend  │ │(future)│ │(future)│
+              │ Channel  │ │(future)│ │(future)│
               └──────────┘ └────────┘ └───────┘
 ```
 
@@ -46,43 +46,45 @@ type Notification struct {
 }
 ```
 
-- `Channel` empty → broadcast to **all** registered backends
-- `Channel` set → route to that specific backend only
-- `ChatID` empty → each backend uses its configured default
+- `Channel` empty → broadcast to **all** registered channels
+- `Channel` set → route to that specific channel only
+- `ChatID` empty → each channel uses its configured default
 
-### `channel.Backend`
+### `channel.Channel`
 
-Interface that notification backends implement:
+Interface that all messaging platforms implement:
 
 ```go
-type Backend interface {
+type Channel interface {
     Name() string
+    Start(ctx context.Context) error
+    Stop()
     Notify(ctx context.Context, n Notification) error
 }
 ```
 
-Currently implemented: `telegram.Bot`.
+Currently implemented: `telegram.Bot`, `qq.Bot`.
 
 ### `channel.Dispatcher`
 
-Routes notifications to registered backends:
+Routes notifications to registered channels:
 
 ```go
 d := channel.NewDispatcher()
-d.Register(tgBot, "136345060")   // telegram backend with default chat
-d.Register(slackBot, "#alerts")  // future: slack backend
+d.Register(tgBot, "136345060")   // telegram channel with default chat
+d.Register(qqBot, "")            // qq channel
 
-// Broadcast to all backends (each uses its default chat):
+// Broadcast to all channels (each uses its default chat):
 d.Notify(ctx, channel.Notification{Text: "hello"})
 
-// Route to specific backend:
+// Route to specific channel:
 d.Notify(ctx, channel.Notification{Channel: "telegram", Text: "hello"})
 
 // Override the default chat:
 d.Notify(ctx, channel.Notification{Channel: "telegram", ChatID: "999", Text: "hello"})
 ```
 
-Partial failures: if one backend fails during broadcast, the others still receive the notification. Errors are joined via `errors.Join`.
+Partial failures: if one channel fails during broadcast, the others still receive the notification. Errors are joined via `errors.Join`.
 
 ### `channel.NotifyTool`
 
@@ -104,8 +106,8 @@ The LLM can call it with:
 ```
 
 - `message` (required) — the notification text
-- `channel` (optional) — target a specific backend; omit to broadcast
-- `chat_id` (optional) — override the backend's default target
+- `channel` (optional) — target a specific channel; omit to broadcast
+- `chat_id` (optional) — override the channel's default target
 - `silent` (optional) — suppress notification sound
 
 ## Wiring
@@ -121,23 +123,23 @@ setup()
 
 runGateway()
   ├── Create telegram.Bot
-  ├── dispatcher.Register(tgBot, notifyChat)  ← backend registered
+  ├── dispatcher.Register(tgBot, notifyChat)  ← channel registered
   ├── wireCronNotifier(cron, pool, dispatcher) ← cron output → dispatcher
   └── tgBot.Start(ctx)                        ← begin polling
 ```
 
-The dispatcher is created early (in `setup`) so the notify tool can reference it. Backends are registered later (in `runGateway`) when they're created. This avoids circular dependencies.
+The dispatcher is created early (in `setup`) so the notify tool can reference it. Channels are registered later (in `runGateway`) when they're created. This avoids circular dependencies.
 
 ### Cron → Notification
 
 When a cron job fires:
 1. The job runs through `pool.Chat()` to get the agent's response
 2. The full response text is collected
-3. The text is broadcast via `dispatcher.Notify()` to all backends
+3. The text is broadcast via `dispatcher.Notify()` to all channels
 
 ### CLI Mode
 
-In CLI mode (`anna chat`), no notification backends are registered, so the `notify` tool is not exposed to the agent. This avoids a broken tool path.
+In CLI mode (`anna chat`), no notification channels are registered, so the `notify` tool is not exposed to the agent. This avoids a broken tool path.
 
 ## Configuration
 
@@ -167,37 +169,42 @@ Environment variable overrides:
 When `Notify()` is called, the target chat is resolved in this order:
 
 1. `Notification.ChatID` (explicit in the call)
-2. Backend's registered default chat (from `dispatcher.Register`)
+2. Channel's registered default chat (from `dispatcher.Register`)
 3. For Telegram: `notify_chat` → `channel_id` → error
 
-## Adding a New Backend
+## Adding a New Channel
 
-To add Slack, Discord, or any other backend:
+To add Slack, Discord, or any other channel:
 
-1. **Implement `channel.Backend`:**
+1. **Implement `channel.Channel`:**
 
 ```go
 // channel/slack/slack.go
 type Bot struct { ... }
 
-func (b *Bot) Name() string { return "slack" }
+func (b *Bot) Name() string                                          { return "slack" }
+func (b *Bot) Start(ctx context.Context) error                       { /* start listening */ }
+func (b *Bot) Stop()                                                 { /* graceful shutdown */ }
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
     // Send n.Text to n.ChatID via Slack API
 }
 ```
+
+Use `channel.NewCommander(pool, listFn, switchFn)` for shared `/new`, `/compact`, `/model` command logic. Use `channel.SplitMessage()` and `channel.FormatDuration()` for shared utilities.
 
 2. **Register in `runGateway()`:**
 
 ```go
 if s.cfg.Slack.Token != "" {
     slackBot := slack.New(s.cfg.Slack)
+    channels = append(channels, slackBot)
     s.notifier.Register(slackBot, s.cfg.Slack.NotifyChannel)
 }
 ```
 
 3. **Add config fields** to `config.go` and env var overrides.
 
-No changes needed to the dispatcher, notify tool, or cron wiring — they work through the `Backend` interface.
+No changes needed to the dispatcher, notify tool, or cron wiring — they work through the `Channel` interface.
 
 ## Telegram-Specific Features
 

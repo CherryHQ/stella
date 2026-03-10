@@ -6,12 +6,13 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/agent/runner"
+	"github.com/vaayne/anna/channel"
 
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
 )
 
 func TestSplitMessageShort(t *testing.T) {
-	chunks := splitMessage("hello")
+	chunks := channel.SplitMessage("hello", telegramMaxMessageLen)
 	if len(chunks) != 1 || chunks[0] != "hello" {
 		t.Errorf("chunks = %v, want [hello]", chunks)
 	}
@@ -19,7 +20,7 @@ func TestSplitMessageShort(t *testing.T) {
 
 func TestSplitMessageExactLimit(t *testing.T) {
 	msg := strings.Repeat("a", telegramMaxMessageLen)
-	chunks := splitMessage(msg)
+	chunks := channel.SplitMessage(msg, telegramMaxMessageLen)
 	if len(chunks) != 1 {
 		t.Errorf("len(chunks) = %d, want 1", len(chunks))
 	}
@@ -27,7 +28,7 @@ func TestSplitMessageExactLimit(t *testing.T) {
 
 func TestSplitMessageLong(t *testing.T) {
 	msg := strings.Repeat("a", telegramMaxMessageLen+100)
-	chunks := splitMessage(msg)
+	chunks := channel.SplitMessage(msg, telegramMaxMessageLen)
 	if len(chunks) != 2 {
 		t.Errorf("len(chunks) = %d, want 2", len(chunks))
 	}
@@ -44,7 +45,7 @@ func TestSplitMessageAtNewline(t *testing.T) {
 	part2 := strings.Repeat("b", 2000)
 	msg := part1 + "\n" + part2
 
-	chunks := splitMessage(msg)
+	chunks := channel.SplitMessage(msg, telegramMaxMessageLen)
 	if len(chunks) != 2 {
 		t.Fatalf("len(chunks) = %d, want 2", len(chunks))
 	}
@@ -57,7 +58,7 @@ func TestSplitMessageAtNewline(t *testing.T) {
 }
 
 func TestSplitMessageEmpty(t *testing.T) {
-	chunks := splitMessage("")
+	chunks := channel.SplitMessage("", telegramMaxMessageLen)
 	if len(chunks) != 1 || chunks[0] != "" {
 		t.Errorf("chunks = %v, want [\"\"]", chunks)
 	}
@@ -65,7 +66,7 @@ func TestSplitMessageEmpty(t *testing.T) {
 
 func TestSplitMessageMultipleChunks(t *testing.T) {
 	msg := strings.Repeat("x", telegramMaxMessageLen*3+500)
-	chunks := splitMessage(msg)
+	chunks := channel.SplitMessage(msg, telegramMaxMessageLen)
 	if len(chunks) != 4 {
 		t.Errorf("len(chunks) = %d, want 4", len(chunks))
 	}
@@ -409,9 +410,9 @@ func TestFormatDuration(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := formatDuration(tt.d)
+		got := channel.FormatDuration(tt.d)
 		if got != tt.want {
-			t.Errorf("formatDuration(%v) = %q, want %q", tt.d, got, tt.want)
+			t.Errorf("FormatDuration(%v) = %q, want %q", tt.d, got, tt.want)
 		}
 	}
 }
@@ -502,13 +503,11 @@ func TestBuildStreamDisplayTruncation(t *testing.T) {
 
 func TestBuildStreamDisplayUTF8Safe(t *testing.T) {
 	// Build a string that would need truncation, with multi-byte runes near the cut point.
-	// U+4E16 (世) is 3 bytes in UTF-8.
 	prefix := strings.Repeat("a", telegramMaxMessageLen-20)
 	multibyte := strings.Repeat("世", 20) // 60 bytes, will push past limit
 	text := prefix + multibyte
 
 	got := buildStreamDisplay(text, "", false)
-	// Verify the result is valid UTF-8 (strings.ToValidUTF8 would change invalid bytes).
 	if strings.ToValidUTF8(got, "?") != got {
 		t.Error("buildStreamDisplay() produced invalid UTF-8")
 	}

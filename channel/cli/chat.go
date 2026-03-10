@@ -272,7 +272,7 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.historyPrefix += agentBorderStyle.Render(m.renderMarkdown(m.currentRaw.String())) + "\n"
 				m.currentRaw.Reset()
 			}
-			elapsed := formatDuration(time.Since(m.toolStartTime))
+			elapsed := channel.FormatDuration(time.Since(m.toolStartTime))
 			m.status = ""
 			m.historyPrefix += toolDoneStyle.Render(fmt.Sprintf("    ✓ %s (%s)", label, elapsed)) + "\n"
 		case "error":
@@ -280,7 +280,7 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.historyPrefix += agentBorderStyle.Render(m.renderMarkdown(m.currentRaw.String())) + "\n"
 				m.currentRaw.Reset()
 			}
-			elapsed := formatDuration(time.Since(m.toolStartTime))
+			elapsed := channel.FormatDuration(time.Since(m.toolStartTime))
 			m.status = ""
 			line := fmt.Sprintf("    ✗ %s (%s)", label, elapsed)
 			if msg.detail != "" {
@@ -547,18 +547,6 @@ func padLines(text, pad string) string {
 		lines[i] = pad + line
 	}
 	return strings.Join(lines, "\n")
-}
-
-// formatDuration returns a human-friendly duration string.
-func formatDuration(d time.Duration) string {
-	switch {
-	case d < time.Second:
-		return fmt.Sprintf("%dms", d.Milliseconds())
-	case d < time.Minute:
-		return fmt.Sprintf("%.1fs", d.Seconds())
-	default:
-		return fmt.Sprintf("%.0fm%.0fs", d.Minutes(), d.Seconds()-d.Minutes()*60)
-	}
 }
 
 func (m chatModel) handlePickingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

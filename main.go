@@ -270,12 +270,11 @@ func setupLogFile() error {
 
 func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc) error {
 	g, gctx := errgroup.WithContext(ctx)
-	started := 0
+	var channels []channel.Channel
 
 	// --- Telegram ---
 	tg := s.cfg.Channels.Telegram
 	if tg.Token != "" {
-		started++
 		slog.Info("starting telegram bot")
 
 		tgBot, err := telegram.New(telegram.Config{
@@ -293,20 +292,13 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 		if defaultChat == "" {
 			defaultChat = tg.ChannelID
 		}
+		channels = append(channels, tgBot)
 		s.notifier.Register(tgBot, defaultChat)
-
-		g.Go(func() error {
-			if err := tgBot.Start(gctx); err != nil && gctx.Err() == nil {
-				return fmt.Errorf("telegram: %w", err)
-			}
-			return nil
-		})
 	}
 
 	// --- QQ ---
 	qqCfg := s.cfg.Channels.QQ
 	if qqCfg.AppID != "" && qqCfg.AppSecret != "" {
-		started++
 		slog.Info("starting qq bot")
 
 		qqBot, err := qq.New(qq.Config{
@@ -319,21 +311,25 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 			return fmt.Errorf("create qq bot: %w", err)
 		}
 
+		channels = append(channels, qqBot)
 		s.notifier.Register(qqBot, "")
+	}
 
+	if len(channels) == 0 {
+		return fmt.Errorf("no gateway services configured. Check %s", configPath())
+	}
+
+	// Start all channels.
+	for _, ch := range channels {
 		g.Go(func() error {
-			if err := qqBot.Start(gctx); err != nil && gctx.Err() == nil {
-				return fmt.Errorf("qq: %w", err)
+			if err := ch.Start(gctx); err != nil && gctx.Err() == nil {
+				return fmt.Errorf("%s: %w", ch.Name(), err)
 			}
 			return nil
 		})
 	}
 
-	if started == 0 {
-		return fmt.Errorf("no gateway services configured. Check %s", configPath())
-	}
-
-	// Wire cron notifications and start the scheduler AFTER backends
+	// Wire cron notifications and start the scheduler AFTER channels
 	// are registered, so early-firing jobs already use the dispatcher.
 	if s.cronSvc != nil {
 		wireCronNotifier(s.cronSvc, s.pool, s.notifier)
