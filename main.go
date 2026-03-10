@@ -155,9 +155,10 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	extraTools = append(extraTools, skills.NewTool(annaHome(), cfg.Workspace, cwd))
 
 	// Notification dispatcher + tool — backends are registered later in
-	// runGateway(). Only expose the tool in gateway mode where backends exist.
+	// runGateway(). Only expose the tool in gateway mode where at least one
+	// channel has enable_notify set to true.
 	dispatcher := channel.NewDispatcher()
-	if gateway && (cfg.Channels.Telegram.IsEnabled() && cfg.Channels.Telegram.Token != "" || cfg.Channels.QQ.IsEnabled() && cfg.Channels.QQ.AppID != "" && cfg.Channels.QQ.AppSecret != "" || cfg.Channels.Feishu.IsEnabled() && cfg.Channels.Feishu.AppID != "" && cfg.Channels.Feishu.AppSecret != "") {
+	if gateway && (cfg.Channels.Telegram.IsNotifyEnabled() || cfg.Channels.QQ.IsNotifyEnabled() || cfg.Channels.Feishu.IsNotifyEnabled()) {
 		extraTools = append(extraTools, channel.NewNotifyTool(dispatcher))
 	}
 
@@ -294,7 +295,9 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 			defaultChat = tg.ChannelID
 		}
 		channels = append(channels, tgBot)
-		s.notifier.Register(tgBot, defaultChat)
+		if tg.IsNotifyEnabled() {
+			s.notifier.Register(tgBot, defaultChat)
+		}
 	}
 
 	// --- QQ ---
@@ -313,7 +316,9 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 		}
 
 		channels = append(channels, qqBot)
-		s.notifier.Register(qqBot, "")
+		if qqCfg.IsNotifyEnabled() {
+			s.notifier.Register(qqBot, "")
+		}
 	}
 
 	// --- Feishu ---
@@ -335,11 +340,17 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 		}
 
 		channels = append(channels, fsBot)
-		s.notifier.Register(fsBot, fsCfg.NotifyChat)
+		if fsCfg.IsNotifyEnabled() {
+			s.notifier.Register(fsBot, fsCfg.NotifyChat)
+		}
 	}
 
 	if len(channels) == 0 {
 		return fmt.Errorf("no gateway services configured. Check %s", configPath())
+	}
+
+	if len(s.notifier.Channels()) == 0 {
+		slog.Warn("no channels have enable_notify set to true; cron results and heartbeat notifications will not be delivered")
 	}
 
 	// Start all channels.
