@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/vaayne/anna/agent/runner"
+	"github.com/vaayne/anna/channel"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -124,7 +125,7 @@ func (tt *toolTracker) render() string {
 			input := truncate(tt.activeInput, 60)
 			line += ": " + input
 		}
-		line += fmt.Sprintf(" (%s)", formatDuration(elapsed))
+		line += fmt.Sprintf(" (%s)", channel.FormatDuration(elapsed))
 		sb.WriteString(line)
 		sb.WriteByte('\n')
 	}
@@ -199,7 +200,7 @@ func (tt *toolTracker) renderFinal() string {
 		}
 	}
 	sb.WriteString(") · ")
-	sb.WriteString(formatDuration(totalDur))
+	sb.WriteString(channel.FormatDuration(totalDur))
 
 	// Append individual lines for error calls.
 	for _, rec := range errors {
@@ -226,7 +227,7 @@ func renderToolRecord(rec toolRecord) string {
 		detail := truncate(rec.Detail, 80)
 		line += " → " + detail
 	}
-	line += fmt.Sprintf(" (%s)", formatDuration(rec.Duration))
+	line += fmt.Sprintf(" (%s)", channel.FormatDuration(rec.Duration))
 	return line
 }
 
@@ -236,14 +237,6 @@ func emojiFor(tool string) string {
 		return e
 	}
 	return toolEmoji["default"]
-}
-
-// formatDuration formats a duration as a human-friendly string.
-func formatDuration(d time.Duration) string {
-	if d < time.Second {
-		return fmt.Sprintf("%dms", d.Milliseconds())
-	}
-	return fmt.Sprintf("%.1fs", d.Seconds())
 }
 
 // truncate shortens s to maxLen bytes, appending "..." if truncated.

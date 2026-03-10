@@ -1,5 +1,22 @@
 package channel
 
+import "context"
+
+// Channel is a messaging platform that receives user messages and sends notifications.
+type Channel interface {
+	// Name returns a unique identifier (e.g. "telegram", "qq").
+	Name() string
+
+	// Start begins listening for messages. Blocks until ctx is cancelled.
+	Start(ctx context.Context) error
+
+	// Stop gracefully shuts down the channel.
+	Stop()
+
+	// Notify sends a push notification to a target within this channel.
+	Notify(ctx context.Context, n Notification) error
+}
+
 // ModelOption represents a selectable provider/model combination.
 type ModelOption struct {
 	Provider string

@@ -65,9 +65,11 @@ agent/
     truncate.go                     Truncate large outputs to temp files
 
 channel/
-  notifier.go                       Notification dispatcher (multi-backend)
+  model.go                          Channel interface, model list/switch types
+  command.go                        Shared Commander (handles /new, /compact, /model)
+  util.go                           Shared utilities (SplitMessage, FormatDuration)
+  notifier.go                       Notification dispatcher (multi-channel)
   notify_tool.go                    Agent notify tool
-  model.go                          Model list/switch function types
   cli/
     cli.go                          Interactive TUI entry points
     chat.go                         Bubble Tea chat model
@@ -75,11 +77,17 @@ channel/
     model.go                        TUI model switching UI
     style.go                        Terminal styling
   telegram/
-    telegram.go                     Bot setup, long polling, notification backend
+    telegram.go                     Bot setup, long polling (implements channel.Channel)
     handler.go                      Message/callback handlers
     stream.go                       Streaming (draft API + edit fallback)
-    render.go                       Markdown rendering, message splitting
+    render.go                       Markdown rendering
     model.go                        Paginated model picker UI
+  qq/
+    qq.go                           Bot setup, WebSocket (implements channel.Channel)
+    handler.go                      Message handlers, command routing
+    stream.go                       Streaming via QQ Stream API
+    render.go                       Message chunking
+    model.go                        Text-based model selection UI
 
 cron/
   cron.go                           Scheduler service (gocron/v2)
@@ -150,11 +158,26 @@ type Tool interface {
 
 See [session-compaction.md](session-compaction.md) for history management.
 
+## Channel Interface
+
+All messaging platforms implement the `channel.Channel` interface:
+
+```go
+type Channel interface {
+    Name() string
+    Start(ctx context.Context) error
+    Stop()
+    Notify(ctx context.Context, n Notification) error
+}
+```
+
+Shared command logic (`/new`, `/compact`, `/model`) lives in `channel.Commander`, which each channel delegates to for the core logic. Channels only handle platform-specific presentation (Telegram uses inline keyboards, QQ uses text lists, CLI uses a TUI picker).
+
 ## Notification Flow
 
 ```
-Agent notify tool --> Dispatcher --> Backend (Telegram)
-Cron job result   --> Dispatcher --> Backend (Telegram)
+Agent notify tool --> Dispatcher --> Channel (Telegram/QQ)
+Cron job result   --> Dispatcher --> Channel (Telegram/QQ)
 ```
 
 The dispatcher is created early in setup, but backends are registered later when gateway services start. See [notification-system.md](notification-system.md) for details.

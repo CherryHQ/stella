@@ -11,8 +11,18 @@ import (
 
 	"github.com/vaayne/anna/agent/runner"
 	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/channel"
 	tele "gopkg.in/telebot.v4"
 )
+
+// atoiOr converts a string to int, returning fallback on error.
+func atoiOr(s string, fallback int) int {
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return fallback
+	}
+	return v
+}
 
 const welcomeMessage = `👋 Hi! I'm Anna — your local AI assistant.
 
@@ -43,49 +53,44 @@ func (b *Bot) registerHandlers() {
 
 	b.bot.Handle("/new", b.guard(func(c tele.Context) error {
 		ch := channelForChat(c)
-		info, err := b.pool.RotateSession(ch)
+		sessionID, err := b.cmd.New(ch)
 		if err != nil {
 			logger().Error("rotate session failed", "channel", ch, "error", err)
 			return c.Send(fmt.Sprintf("Error creating new session: %v", err))
 		}
-		logger().Info("new session created", "session_id", info.ID, "channel", ch)
+		logger().Info("new session created", "session_id", sessionID, "channel", ch)
 		return c.Send("New session started.")
 	}))
 
 	b.bot.Handle("/compact", b.guard(func(c tele.Context) error {
-		sessionID, err := b.resolveSession(c)
-		if err != nil {
-			return c.Send(fmt.Sprintf("No active session: %v", err))
-		}
+		ch := channelForChat(c)
 		_ = c.Notify(tele.Typing)
-		summary, err := b.pool.CompactSession(b.ctx, sessionID)
+		summary, err := b.cmd.Compact(b.ctx, ch)
 		if err != nil {
-			logger().Error("compact session failed", "session_id", sessionID, "error", err)
+			logger().Error("compact session failed", "channel", ch, "error", err)
 			return c.Send(fmt.Sprintf("Compaction failed: %v", err))
 		}
-		logger().Info("session compacted", "session_id", sessionID, "summary_len", len(summary))
+		logger().Info("session compacted", "channel", ch, "summary_len", len(summary))
 		return c.Send("Session compacted.")
 	}))
 
 	b.bot.Handle("/model", b.guard(func(c tele.Context) error {
 		args := strings.TrimSpace(c.Message().Payload)
-		models := b.listFn()
+		query := channel.ParseModelArgs(args)
 
-		if args == "" {
-			return b.sendModelKeyboard(c, indexModels(models))
+		// If the query looks like "provider/model", try switching directly.
+		if query != "" && strings.Contains(query, "/") {
+			return b.switchModelByName(c, query)
 		}
 
-		// Numeric arg → direct switch by index.
-		if _, err := strconv.Atoi(args); err == nil {
-			return b.switchModel(c, models, args)
+		models := b.cmd.ModelList(query)
+		if len(models) == 0 {
+			if query != "" {
+				return c.Send(fmt.Sprintf("No models matching %q.", query))
+			}
+			return c.Send("No models configured.")
 		}
-
-		// Text arg → filter models by substring match, preserving global indices.
-		filtered := filterModels(models, args)
-		if len(filtered) == 0 {
-			return c.Send(fmt.Sprintf("No models matching %q.", args))
-		}
-		return b.sendModelKeyboard(c, filtered)
+		return b.sendModelKeyboard(c, models)
 	}))
 
 	// Handle inline keyboard callbacks for model selection via unique handler.
@@ -93,8 +98,7 @@ func (b *Bot) registerHandlers() {
 	b.bot.Handle("\fmodel_select", b.guard(func(c tele.Context) error {
 		idxStr := c.Data()
 		logger().Debug("model_select callback fired", "data", idxStr, "sender", c.Sender().ID, "chat", c.Chat().ID)
-		models := b.listFn()
-		if err := b.switchModel(c, models, idxStr); err != nil {
+		if err := b.switchModelByIdx(c, atoiOr(idxStr, 0)); err != nil {
 			logger().Error("model switch failed", "data", idxStr, "error", err)
 			return err
 		}
@@ -109,8 +113,7 @@ func (b *Bot) registerHandlers() {
 		pageStr, query, _ := strings.Cut(data, "|")
 		page, _ := strconv.Atoi(pageStr)
 
-		allModels := b.listFn()
-		models := filterModels(allModels, query)
+		models := b.cmd.ModelList(query)
 		if err := b.sendModelPage(c, models, page, query, true); err != nil {
 			logger().Error("model page failed", "page", page, "error", err)
 			return err

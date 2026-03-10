@@ -227,29 +227,24 @@ func (b *Bot) handleCommand(text, ch string, reply func(string)) bool {
 		return true
 
 	case "/new":
-		info, err := b.pool.RotateSession(ch)
+		sessionID, err := b.cmd.New(ch)
 		if err != nil {
 			logger().Error("rotate session failed", "channel", ch, "error", err)
 			reply(fmt.Sprintf("Error creating new session: %v", err))
 			return true
 		}
-		logger().Info("new session created", "session_id", info.ID, "channel", ch)
+		logger().Info("new session created", "session_id", sessionID, "channel", ch)
 		reply("New session started.")
 		return true
 
 	case "/compact":
-		sessionID, err := b.resolveSession(ch)
+		summary, err := b.cmd.Compact(b.ctx, ch)
 		if err != nil {
-			reply(fmt.Sprintf("No active session: %v", err))
-			return true
-		}
-		summary, err := b.pool.CompactSession(b.ctx, sessionID)
-		if err != nil {
-			logger().Error("compact session failed", "session_id", sessionID, "error", err)
+			logger().Error("compact session failed", "channel", ch, "error", err)
 			reply(fmt.Sprintf("Compaction failed: %v", err))
 			return true
 		}
-		logger().Info("session compacted", "session_id", sessionID, "summary_len", len(summary))
+		logger().Info("session compacted", "channel", ch, "summary_len", len(summary))
 		reply("Session compacted.")
 		return true
 

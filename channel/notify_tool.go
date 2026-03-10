@@ -68,9 +68,9 @@ func (t *NotifyTool) Execute(ctx context.Context, args map[string]any) (string, 
 		return "", fmt.Errorf("send notification: %w", err)
 	}
 
-	backends := t.dispatcher.Backends()
+	channels := t.dispatcher.Channels()
 	if ch != "" {
 		return fmt.Sprintf("Notification sent to %s.", ch), nil
 	}
-	return fmt.Sprintf("Notification broadcast to %v.", backends), nil
+	return fmt.Sprintf("Notification broadcast to %v.", channels), nil
 }
