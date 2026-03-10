@@ -85,7 +85,15 @@ runner:
 cron:
   enabled: true
   data_dir: "~/.anna/workspace/cron"  # Job persistence directory
+
+# Heartbeat polling
+heartbeat:
+  enabled: false
+  every: 10m
+  file: "HEARTBEAT.md"                # Relative to workspace unless absolute
 ```
+
+Heartbeat only runs in `anna gateway`. Each tick first uses the fast model to decide `skip` vs `run`, and only `run` decisions are sent into the main heartbeat session and then delivered through the notifier.
 
 ## Directory Layout
 
@@ -98,6 +106,7 @@ cron:
 | `~/.anna/workspace/memory/` | Persistent memory (facts + journal) | Data |
 | `~/.anna/workspace/skills/` | Installed skills | Data |
 | `~/.anna/workspace/cron/` | Cron job persistence | Data |
+| `~/.anna/workspace/HEARTBEAT.md` | Heartbeat instructions | Data |
 
 - **config.yaml** is static and user-edited — safe to version control.
 - **state.yaml** is written by `anna models set` and the `/model` command. It overrides `provider` and `model` from config.yaml.
@@ -122,6 +131,9 @@ All config fields support env var overrides using the `ANNA_` prefix. Nested str
 | `ANNA_RUNNER_IDLE_TIMEOUT` | `runner.idle_timeout` | |
 | `ANNA_CRON_ENABLED` | `cron.enabled` | |
 | `ANNA_CRON_DATA_DIR` | `cron.data_dir` | |
+| `ANNA_HEARTBEAT_ENABLED` | `heartbeat.enabled` | |
+| `ANNA_HEARTBEAT_EVERY` | `heartbeat.every` | Go duration such as `10m` |
+| `ANNA_HEARTBEAT_FILE` | `heartbeat.file` | Relative to workspace unless absolute |
 | `ANNA_TELEGRAM_ENABLED` | `channels.telegram.enabled` | |
 | `ANNA_TELEGRAM_ENABLE_NOTIFY` | `channels.telegram.enable_notify` | |
 | `ANNA_TELEGRAM_TOKEN` | `channels.telegram.token` | |
@@ -162,6 +174,9 @@ All config fields support env var overrides using the `ANNA_` prefix. Nested str
 | `runner.compaction.keep_tail` | `20` |
 | `cron.enabled` | `true` |
 | `cron.data_dir` | `~/.anna/workspace/cron` |
+| `heartbeat.enabled` | `false` |
+| `heartbeat.every` | `10m` |
+| `heartbeat.file` | `~/.anna/workspace/HEARTBEAT.md` |
 | `channels.telegram.enabled` | `true` |
 | `channels.telegram.enable_notify` | `false` |
 | `channels.telegram.group_mode` | `mention` |

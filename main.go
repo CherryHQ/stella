@@ -22,6 +22,7 @@ import (
 	"github.com/vaayne/anna/channel/qq"
 	"github.com/vaayne/anna/channel/telegram"
 	"github.com/vaayne/anna/cron"
+	"github.com/vaayne/anna/heartbeat"
 	"github.com/vaayne/anna/memory"
 	"github.com/vaayne/anna/skills"
 	"golang.org/x/sync/errgroup"
@@ -120,6 +121,7 @@ type setupResult struct {
 	cfg        *Config
 	pool       *agent.Pool
 	cronSvc    *cron.Service
+	heartbeat  *heartbeat.Service
 	memStore   *memory.Store
 	extraTools []tool.Tool
 	notifier   *channel.Dispatcher
@@ -138,12 +140,14 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// can be injected into the Go runner.
 	var cronSvc *cron.Service
 	var extraTools []tool.Tool
-	if cfg.Cron.CronEnabled() {
+	if cfg.Cron.CronEnabled() || (gateway && cfg.Heartbeat.IsEnabled()) {
 		cronSvc, err = cron.New(cfg.Cron.DataDir)
 		if err != nil {
 			return nil, fmt.Errorf("create cron service: %w", err)
 		}
-		extraTools = append(extraTools, cron.NewTool(cronSvc))
+		if cfg.Cron.CronEnabled() {
+			extraTools = append(extraTools, cron.NewTool(cronSvc))
+		}
 	}
 
 	// Memory store + tool — always available.
@@ -187,6 +191,19 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	pool := agent.NewPool(factory, opts...)
 	go pool.StartReaper(ctx)
 
+	var heartbeatSvc *heartbeat.Service
+	if cfg.Heartbeat.IsEnabled() {
+		heartbeatSvc = heartbeat.New(heartbeat.Config{
+			File:      cfg.Heartbeat.FilePath(cfg.Workspace),
+			FastModel: cfg.resolveModelID(ModelTierFast),
+		}, func(ctx context.Context, sessionID, message, model string) <-chan runner.Event {
+			if model != "" {
+				return pool.Chat(ctx, sessionID, message, agent.WithModel(model))
+			}
+			return pool.Chat(ctx, sessionID, message)
+		}, dispatcher)
+	}
+
 	// Wire the cron callback now that pool exists.
 	if cronSvc != nil {
 		cronSvc.SetOnJob(func(ctx context.Context, job cron.Job) {
@@ -206,6 +223,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		cfg:        cfg,
 		pool:       pool,
 		cronSvc:    cronSvc,
+		heartbeat:  heartbeatSvc,
 		memStore:   memStore,
 		extraTools: extraTools,
 		notifier:   dispatcher,
@@ -366,11 +384,22 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 	// Wire cron notifications and start the scheduler AFTER channels
 	// are registered, so early-firing jobs already use the dispatcher.
 	if s.cronSvc != nil {
-		wireCronNotifier(s.cronSvc, s.pool, s.notifier)
+		if s.cfg.Cron.CronEnabled() {
+			wireCronNotifier(s.cronSvc, s.pool, s.notifier)
+		}
 		if err := s.cronSvc.Start(ctx); err != nil {
 			return fmt.Errorf("start cron: %w", err)
 		}
 		defer func() { _ = s.cronSvc.Stop() }()
+	}
+
+	if s.heartbeat != nil {
+		if s.cronSvc == nil {
+			return fmt.Errorf("heartbeat requires the shared scheduler")
+		}
+		if err := scheduleHeartbeat(ctx, s.cronSvc, s.heartbeat, s.cfg.Heartbeat.Interval()); err != nil {
+			return fmt.Errorf("schedule heartbeat: %w", err)
+		}
 	}
 
 	err := g.Wait()
@@ -398,6 +427,15 @@ func wireCronNotifier(cronSvc *cron.Service, pool *agent.Pool, dispatcher *chann
 			if err := dispatcher.Notify(ctx, channel.Notification{Text: text}); err != nil {
 				slog.Error("cron notification failed", "job_id", job.ID, "error", err)
 			}
+		}
+	})
+}
+
+func scheduleHeartbeat(ctx context.Context, cronSvc *cron.Service, heartbeatSvc *heartbeat.Service, every string) error {
+	slog.Info("starting heartbeat", "every", every)
+	return cronSvc.ScheduleEvery(ctx, every, func(ctx context.Context) {
+		if err := heartbeatSvc.Poll(ctx); err != nil {
+			slog.Error("heartbeat poll failed", "error", err)
 		}
 	})
 }

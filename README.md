@@ -22,6 +22,7 @@ Two interfaces: **interactive CLI chat** and **gateway daemon** (Telegram bot, Q
   - Private (p2p) and group @mention support
   - Access control via `allowed_ids`
 - Notification system with multi-backend dispatcher
+- Heartbeat polling with fast-model gating and proactive notifications
 - Model management CLI (`anna models list/update/set/search`)
 - Tiered model config (strong/worker/fast) with runtime model switching
 - Per-chat session management with persistent history (JSONL)
@@ -106,7 +107,14 @@ providers:
 
 provider: anthropic
 model: claude-sonnet-4-6
+
+heartbeat:
+  enabled: true
+  every: 10m
+  file: "HEARTBEAT.md"
 ```
+
+Heartbeat runs in `anna gateway` and uses the fast model for the `skip`/`run` check before forwarding `run` cases into the reserved heartbeat session.
 
 Or use environment variables:
 
