@@ -293,12 +293,19 @@
     <section x-show="activeTab === 2" x-transition.opacity.duration.150ms>
       <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card overflow-hidden">
         <!-- Telegram header -->
-        <div class="flex items-center gap-2 px-4 py-2.5 border-b border-surface-2">
-          <svg class="w-5 h-5 text-[#26A5E4]" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.96 6.504-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
-          <span class="text-sm font-medium text-ink-0">Telegram</span>
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-surface-2">
+          <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 text-[#26A5E4]" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.96 6.504-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+            <span class="text-sm font-medium text-ink-0">Telegram</span>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" class="sr-only peer" :checked="config.channels.telegram.enabled !== false"
+                   @change="config.channels.telegram.enabled = $event.target.checked">
+            <div class="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+          </label>
         </div>
 
-        <div class="px-4 py-4 space-y-3">
+        <div class="px-4 py-4 space-y-3" x-show="config.channels.telegram.enabled !== false" x-transition.opacity.duration.150ms>
           <div>
             <label for="tg-token" class="flex items-center gap-1 text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5">
               <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z"/></svg>
@@ -343,12 +350,19 @@
 
       <!-- QQ -->
       <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card overflow-hidden mt-5">
-        <div class="flex items-center gap-2 px-4 py-2.5 border-b border-surface-2">
-          <svg class="w-5 h-5 text-[#12B7F5]" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 13.27c-.24.58-.78 1.14-1.48 1.48-.18.1-.4.18-.62.24-.56.16-1.2.12-1.74-.1a5.4 5.4 0 0 1-.8-.44 5.4 5.4 0 0 1-.8.44c-.54.22-1.18.26-1.74.1a2.5 2.5 0 0 1-.62-.24c-.7-.34-1.24-.9-1.48-1.48-.14-.34-.2-.68-.18-1.02.04-.56.24-1.12.58-1.64-.2-.56-.32-1.14-.32-1.72 0-.72.16-1.4.46-2.02.3-.64.74-1.2 1.28-1.64A4.83 4.83 0 0 1 12 6c1.14 0 2.18.4 3.02 1.06.54.44.98 1 1.28 1.64.3.62.46 1.3.46 2.02 0 .58-.12 1.16-.32 1.72.34.52.54 1.08.58 1.64.02.34-.04.68-.18 1.02-.08.06-.12.12-.18.17z"/></svg>
-          <span class="text-sm font-medium text-ink-0">QQ</span>
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-surface-2">
+          <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 text-[#12B7F5]" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 13.27c-.24.58-.78 1.14-1.48 1.48-.18.1-.4.18-.62.24-.56.16-1.2.12-1.74-.1a5.4 5.4 0 0 1-.8-.44 5.4 5.4 0 0 1-.8.44c-.54.22-1.18.26-1.74.1a2.5 2.5 0 0 1-.62-.24c-.7-.34-1.24-.9-1.48-1.48-.14-.34-.2-.68-.18-1.02.04-.56.24-1.12.58-1.64-.2-.56-.32-1.14-.32-1.72 0-.72.16-1.4.46-2.02.3-.64.74-1.2 1.28-1.64A4.83 4.83 0 0 1 12 6c1.14 0 2.18.4 3.02 1.06.54.44.98 1 1.28 1.64.3.62.46 1.3.46 2.02 0 .58-.12 1.16-.32 1.72.34.52.54 1.08.58 1.64.02.34-.04.68-.18 1.02-.08.06-.12.12-.18.17z"/></svg>
+            <span class="text-sm font-medium text-ink-0">QQ</span>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" class="sr-only peer" :checked="config.channels.qq.enabled !== false"
+                   @change="config.channels.qq.enabled = $event.target.checked">
+            <div class="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+          </label>
         </div>
 
-        <div class="px-4 py-4 space-y-3">
+        <div class="px-4 py-4 space-y-3" x-show="config.channels.qq.enabled !== false" x-transition.opacity.duration.150ms>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label for="qq-appid" class="flex items-center gap-1 text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5">
@@ -390,12 +404,19 @@
       </div>
       <!-- Feishu -->
       <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card overflow-hidden mt-5">
-        <div class="flex items-center gap-2 px-4 py-2.5 border-b border-surface-2">
-          <svg class="w-5 h-5 text-[#3370FF]" viewBox="0 0 24 24" fill="currentColor"><path d="M3.806 7.293l5.685-4.27a.75.75 0 01.9 0l5.685 4.27a.75.75 0 01.274.69l-1.63 7.164a.75.75 0 01-.724.573H5.886a.75.75 0 01-.724-.573L3.532 7.983a.75.75 0 01.274-.69zM12 2l8.485 6.364a1.5 1.5 0 01.549 1.38l-2.442 10.742a1.5 1.5 0 01-1.449 1.146H6.857a1.5 1.5 0 01-1.449-1.146L2.966 9.744a1.5 1.5 0 01.549-1.38L12 2z"/></svg>
-          <span class="text-sm font-medium text-ink-0">Feishu</span>
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-surface-2">
+          <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 text-[#3370FF]" viewBox="0 0 24 24" fill="currentColor"><path d="M3.806 7.293l5.685-4.27a.75.75 0 01.9 0l5.685 4.27a.75.75 0 01.274.69l-1.63 7.164a.75.75 0 01-.724.573H5.886a.75.75 0 01-.724-.573L3.532 7.983a.75.75 0 01.274-.69zM12 2l8.485 6.364a1.5 1.5 0 01.549 1.38l-2.442 10.742a1.5 1.5 0 01-1.449 1.146H6.857a1.5 1.5 0 01-1.449-1.146L2.966 9.744a1.5 1.5 0 01.549-1.38L12 2z"/></svg>
+            <span class="text-sm font-medium text-ink-0">Feishu</span>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" class="sr-only peer" :checked="config.channels.feishu.enabled !== false"
+                   @change="config.channels.feishu.enabled = $event.target.checked">
+            <div class="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+          </label>
         </div>
 
-        <div class="px-4 py-4 space-y-3">
+        <div class="px-4 py-4 space-y-3" x-show="config.channels.feishu.enabled !== false" x-transition.opacity.duration.150ms>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label for="feishu-appid" class="flex items-center gap-1 text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5">
@@ -614,9 +635,9 @@ function onboard() {
       workspace: '',
       providers: {},
       channels: {
-        telegram: { token: '', notify_chat: '', channel_id: '', group_mode: '', allowed_ids: [] },
-        qq: { app_id: '', app_secret: '', group_mode: '', allowed_ids: [] },
-        feishu: { app_id: '', app_secret: '', encrypt_key: '', verification_token: '', notify_chat: '', group_mode: '', allowed_ids: [] },
+        telegram: { enabled: true, token: '', notify_chat: '', channel_id: '', group_mode: '', allowed_ids: [] },
+        qq: { enabled: true, app_id: '', app_secret: '', group_mode: '', allowed_ids: [] },
+        feishu: { enabled: true, app_id: '', app_secret: '', encrypt_key: '', verification_token: '', notify_chat: '', group_mode: '', allowed_ids: [] },
       },
     },
     providerModels: {},
@@ -705,9 +726,9 @@ function onboard() {
             ...this.config,
             ...data.config,
             channels: {
-              telegram: { token: '', notify_chat: '', channel_id: '', group_mode: '', allowed_ids: [], ...data.config.channels?.telegram },
-              qq: { app_id: '', app_secret: '', group_mode: '', allowed_ids: [], ...data.config.channels?.qq },
-              feishu: { app_id: '', app_secret: '', notify_chat: '', group_mode: '', allowed_ids: [], ...data.config.channels?.feishu },
+              telegram: { enabled: true, token: '', notify_chat: '', channel_id: '', group_mode: '', allowed_ids: [], ...data.config.channels?.telegram },
+              qq: { enabled: true, app_id: '', app_secret: '', group_mode: '', allowed_ids: [], ...data.config.channels?.qq },
+              feishu: { enabled: true, app_id: '', app_secret: '', notify_chat: '', group_mode: '', allowed_ids: [], ...data.config.channels?.feishu },
             },
             providers: data.config.providers || {},
           };

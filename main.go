@@ -157,7 +157,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Notification dispatcher + tool — backends are registered later in
 	// runGateway(). Only expose the tool in gateway mode where backends exist.
 	dispatcher := channel.NewDispatcher()
-	if gateway && (cfg.Channels.Telegram.Token != "" || (cfg.Channels.QQ.AppID != "" && cfg.Channels.QQ.AppSecret != "") || (cfg.Channels.Feishu.AppID != "" && cfg.Channels.Feishu.AppSecret != "")) {
+	if gateway && (cfg.Channels.Telegram.IsEnabled() && cfg.Channels.Telegram.Token != "" || cfg.Channels.QQ.IsEnabled() && cfg.Channels.QQ.AppID != "" && cfg.Channels.QQ.AppSecret != "" || cfg.Channels.Feishu.IsEnabled() && cfg.Channels.Feishu.AppID != "" && cfg.Channels.Feishu.AppSecret != "") {
 		extraTools = append(extraTools, channel.NewNotifyTool(dispatcher))
 	}
 
@@ -275,7 +275,7 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 
 	// --- Telegram ---
 	tg := s.cfg.Channels.Telegram
-	if tg.Token != "" {
+	if tg.IsEnabled() && tg.Token != "" {
 		slog.Info("starting telegram bot")
 
 		tgBot, err := telegram.New(telegram.Config{
@@ -299,7 +299,7 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 
 	// --- QQ ---
 	qqCfg := s.cfg.Channels.QQ
-	if qqCfg.AppID != "" && qqCfg.AppSecret != "" {
+	if qqCfg.IsEnabled() && qqCfg.AppID != "" && qqCfg.AppSecret != "" {
 		slog.Info("starting qq bot")
 
 		qqBot, err := qq.New(qq.Config{
@@ -318,7 +318,7 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 
 	// --- Feishu ---
 	fsCfg := s.cfg.Channels.Feishu
-	if fsCfg.AppID != "" && fsCfg.AppSecret != "" {
+	if fsCfg.IsEnabled() && fsCfg.AppID != "" && fsCfg.AppSecret != "" {
 		slog.Info("starting feishu bot")
 
 		fsBot, err := feishu.New(feishu.Config{
