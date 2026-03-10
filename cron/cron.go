@@ -24,6 +24,9 @@ var errOneTimeJobPast = errors.New("one-time job timestamp is in the past")
 // OnJobFunc is called when a scheduled job fires.
 type OnJobFunc func(ctx context.Context, job Job)
 
+// TaskFunc is a lightweight scheduled callback that is not persisted as a cron job.
+type TaskFunc func(ctx context.Context)
+
 // Service manages cron jobs backed by gocron/v2 with JSON persistence.
 type Service struct {
 	scheduler gocron.Scheduler
@@ -89,6 +92,30 @@ func (s *Service) Start(ctx context.Context) error {
 // Stop shuts down the scheduler.
 func (s *Service) Stop() error {
 	return s.scheduler.Shutdown()
+}
+
+// ScheduleEvery registers a non-persisted recurring task on the existing scheduler.
+func (s *Service) ScheduleEvery(ctx context.Context, every string, fn TaskFunc) error {
+	if every == "" {
+		return fmt.Errorf("every is required")
+	}
+	if fn == nil {
+		return fmt.Errorf("task function is required")
+	}
+
+	d, err := time.ParseDuration(every)
+	if err != nil {
+		return fmt.Errorf("parse duration: %w", err)
+	}
+
+	_, err = s.scheduler.NewJob(gocron.DurationJob(d), gocron.NewTask(func() {
+		fn(ctx)
+	}))
+	if err != nil {
+		return fmt.Errorf("schedule task: %w", err)
+	}
+
+	return nil
 }
 
 // AddJob creates, persists, and schedules a new job.

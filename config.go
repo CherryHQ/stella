@@ -22,6 +22,7 @@ type Config struct {
 	Workspace   string                    `yaml:"workspace"    env:"WORKSPACE"`
 	Runner      RunnerConfig              `yaml:"runner"       envPrefix:"RUNNER_"`
 	Cron        CronConfig                `yaml:"cron"         envPrefix:"CRON_"`
+	Heartbeat   HeartbeatConfig           `yaml:"heartbeat"    envPrefix:"HEARTBEAT_"`
 	Providers   map[string]ProviderConfig `yaml:"providers"`
 	Channels    ChannelsConfig            `yaml:"channels"`
 }
@@ -47,6 +48,36 @@ type CronConfig struct {
 // CronEnabled returns whether cron is enabled (defaults to true).
 func (c CronConfig) CronEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
+}
+
+type HeartbeatConfig struct {
+	Enabled *bool  `yaml:"enabled" env:"ENABLED"`
+	Every   string `yaml:"every"   env:"EVERY"`
+	File    string `yaml:"file"    env:"FILE"`
+}
+
+// IsEnabled returns whether heartbeat is enabled (defaults to false).
+func (c HeartbeatConfig) IsEnabled() bool {
+	return c.Enabled != nil && *c.Enabled
+}
+
+// Interval returns the configured heartbeat cadence.
+func (c HeartbeatConfig) Interval() string {
+	if c.Every == "" {
+		return "10m"
+	}
+	return c.Every
+}
+
+// FilePath resolves the configured heartbeat file relative to the workspace.
+func (c HeartbeatConfig) FilePath(workspace string) string {
+	if c.File == "" {
+		return filepath.Join(workspace, "HEARTBEAT.md")
+	}
+	if filepath.IsAbs(c.File) {
+		return c.File
+	}
+	return filepath.Join(workspace, c.File)
 }
 
 type ProviderConfig struct {
