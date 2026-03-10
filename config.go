@@ -85,13 +85,17 @@ type RunnerConfig struct {
 type CompactionConfig = agent.CompactionConfig
 
 type QQConfig struct {
+	Enabled    *bool    `yaml:"enabled"     env:"ENABLED"`
 	AppID      string   `yaml:"app_id"      env:"APP_ID"`
 	AppSecret  string   `yaml:"app_secret"  env:"APP_SECRET"`
 	GroupMode  string   `yaml:"group_mode"  env:"GROUP_MODE"`
 	AllowedIDs []string `yaml:"allowed_ids" env:"ALLOWED_IDS"`
 }
 
+func (c QQConfig) IsEnabled() bool { return c.Enabled == nil || *c.Enabled }
+
 type FeishuConfig struct {
+	Enabled           *bool    `yaml:"enabled"            env:"ENABLED"`
 	AppID             string   `yaml:"app_id"             env:"APP_ID"`
 	AppSecret         string   `yaml:"app_secret"         env:"APP_SECRET"`
 	EncryptKey        string   `yaml:"encrypt_key"        env:"ENCRYPT_KEY"`
@@ -101,13 +105,18 @@ type FeishuConfig struct {
 	AllowedIDs        []string `yaml:"allowed_ids"        env:"ALLOWED_IDS"`
 }
 
+func (c FeishuConfig) IsEnabled() bool { return c.Enabled == nil || *c.Enabled }
+
 type TelegramConfig struct {
+	Enabled    *bool   `yaml:"enabled"     env:"ENABLED"`
 	Token      string  `yaml:"token"       env:"TOKEN"`
 	NotifyChat string  `yaml:"notify_chat" env:"NOTIFY_CHAT"`
 	ChannelID  string  `yaml:"channel_id"  env:"CHANNEL_ID"`
 	GroupMode  string  `yaml:"group_mode"  env:"GROUP_MODE"`
 	AllowedIDs []int64 `yaml:"allowed_ids" env:"ALLOWED_IDS"`
 }
+
+func (c TelegramConfig) IsEnabled() bool { return c.Enabled == nil || *c.Enabled }
 
 // annaHome returns the anna home directory.
 // Priority: ANNA_HOME env → ~/.anna

@@ -35,6 +35,7 @@ providers:
 # Channel configuration
 channels:
   telegram:
+    enabled: true                  # Enable/disable this channel (default: true)
     token: "BOT_TOKEN"
     notify_chat: "123456789"       # Chat ID for proactive notifications
     channel_id: "@my_channel"      # Optional broadcast channel
@@ -42,11 +43,13 @@ channels:
     allowed_ids:                   # Restrict to these user IDs (empty = allow all)
       - 136345060
   qq:
+    enabled: true                  # Enable/disable this channel (default: true)
     app_id: "QQ_BOT_APP_ID"
     app_secret: "QQ_BOT_APP_SECRET"
     group_mode: "mention"          # mention | always | disabled
     allowed_ids: []                # User OpenIDs allowed (empty = allow all)
   feishu:
+    enabled: true                  # Enable/disable this channel (default: true)
     app_id: "FEISHU_APP_ID"
     app_secret: "FEISHU_APP_SECRET"
     encrypt_key: ""                # Event encrypt key (from developer console)
@@ -116,15 +119,18 @@ All config fields support env var overrides using the `ANNA_` prefix. Nested str
 | `ANNA_RUNNER_IDLE_TIMEOUT` | `runner.idle_timeout` | |
 | `ANNA_CRON_ENABLED` | `cron.enabled` | |
 | `ANNA_CRON_DATA_DIR` | `cron.data_dir` | |
+| `ANNA_TELEGRAM_ENABLED` | `channels.telegram.enabled` | |
 | `ANNA_TELEGRAM_TOKEN` | `channels.telegram.token` | |
 | `ANNA_TELEGRAM_NOTIFY_CHAT` | `channels.telegram.notify_chat` | |
 | `ANNA_TELEGRAM_CHANNEL_ID` | `channels.telegram.channel_id` | |
 | `ANNA_TELEGRAM_GROUP_MODE` | `channels.telegram.group_mode` | |
 | `ANNA_TELEGRAM_ALLOWED_IDS` | `channels.telegram.allowed_ids` | Comma-separated |
+| `ANNA_QQ_ENABLED` | `channels.qq.enabled` | |
 | `ANNA_QQ_APP_ID` | `channels.qq.app_id` | |
 | `ANNA_QQ_APP_SECRET` | `channels.qq.app_secret` | |
 | `ANNA_QQ_GROUP_MODE` | `channels.qq.group_mode` | |
 | `ANNA_QQ_ALLOWED_IDS` | `channels.qq.allowed_ids` | Comma-separated |
+| `ANNA_FEISHU_ENABLED` | `channels.feishu.enabled` | |
 | `ANNA_FEISHU_APP_ID` | `channels.feishu.app_id` | |
 | `ANNA_FEISHU_APP_SECRET` | `channels.feishu.app_secret` | |
 | `ANNA_FEISHU_ENCRYPT_KEY` | `channels.feishu.encrypt_key` | |
@@ -150,6 +156,9 @@ All config fields support env var overrides using the `ANNA_` prefix. Nested str
 | `runner.compaction.keep_tail` | `20` |
 | `cron.enabled` | `true` |
 | `cron.data_dir` | `~/.anna/workspace/cron` |
+| `channels.telegram.enabled` | `true` |
 | `channels.telegram.group_mode` | `mention` |
+| `channels.qq.enabled` | `true` |
 | `channels.qq.group_mode` | `mention` |
+| `channels.feishu.enabled` | `true` |
 | `channels.feishu.group_mode` | `mention` |
