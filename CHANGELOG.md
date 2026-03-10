@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-10
+
+### ✨ Features
+
+- **Feishu**: Add Feishu (Lark) bot channel with WebSocket, streaming cards, image I/O, rich text, and group support ([#39](https://github.com/vaayne/anna/pull/39))
+- **Skills**: Add builtin anna skill embedded in binary ([#37](https://github.com/vaayne/anna/pull/37))
+
+### ♻️ Refactoring
+
+- Add Channel interface and extract shared command/util logic ([#38](https://github.com/vaayne/anna/pull/38))
+
+**Full Changelog**: [v0.2.0...v0.3.0](https://github.com/vaayne/anna/compare/v0.2.0...v0.3.0)
+
 ## [0.2.0] - 2026-03-09
 
 ### ✨ Features
