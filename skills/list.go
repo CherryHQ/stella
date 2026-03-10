@@ -15,7 +15,7 @@ type installedSkill struct {
 }
 
 func (t *SkillsTool) list() (string, error) {
-	all := runner.LoadSkills(t.workspace, t.cwd)
+	all := runner.LoadSkills(t.annaHome, t.workspace, t.cwd)
 	if len(all) == 0 {
 		return "No skills installed.", nil
 	}

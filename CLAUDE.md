@@ -39,6 +39,7 @@ After completing any task that changes behavior, APIs, config, CLI commands, or 
 1. Check if `README.md` or any file in `docs/` needs updating.
 2. Update affected docs to match the new code. Keep README concise -- detailed content belongs in `docs/`.
 3. If adding a new subsystem, create a new doc in `docs/` and link it from the README documentation table.
+4. MUST keep the builtin anna skill (`agent/runner/builtin/anna/`) in sync with any user-facing changes.
 
 Docs structure:
 - `README.md` -- Quick start, feature list, architecture overview, links to docs

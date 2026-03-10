@@ -2,11 +2,13 @@ package runner
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/vaayne/anna/agent/runner/builtin"
 	"gopkg.in/yaml.v3"
 )
 
@@ -35,14 +37,15 @@ const (
 var validNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 // LoadSkills discovers skills from project, workspace, and common directories.
-// workspace is the workspace dir (e.g. ~/.anna/workspace), cwd is the working directory.
-// Priority order: cwd/.agents/skills/ > workspace/skills/ > ~/.agents/skills/
-func LoadSkills(workspace, cwd string) []Skill {
+// annaHome is the anna home directory (e.g. ~/.anna), workspace is the workspace
+// dir (e.g. ~/.anna/workspace), cwd is the working directory.
+// Priority order: cwd/.agents/skills/ > workspace/skills/ > ~/.agents/skills/ > builtin
+func LoadSkills(annaHome, workspace, cwd string) []Skill {
 	home, _ := os.UserHomeDir()
-	return loadSkills(home, workspace, cwd)
+	return loadSkills(home, annaHome, workspace, cwd)
 }
 
-func loadSkills(homeDir, workspace, cwd string) []Skill {
+func loadSkills(homeDir, annaHome, workspace, cwd string) []Skill {
 	seen := map[string]bool{} // name → already loaded
 	var skills []Skill
 
@@ -79,6 +82,16 @@ func loadSkills(homeDir, workspace, cwd string) []Skill {
 	// 3. Common skills: ~/.agents/skills/ (legacy/shared)
 	if homeDir != "" {
 		addDir(filepath.Join(homeDir, ".agents", "skills"), "common")
+	}
+
+	// 4. Builtin skills: extracted from binary (lowest priority)
+	if annaHome != "" {
+		builtinDir := filepath.Join(annaHome, "cache", "builtin-skills")
+		if err := builtin.Extract(builtinDir); err != nil {
+			slog.Warn("failed to extract builtin skills", "error", err)
+		} else {
+			addDir(builtinDir, "builtin")
+		}
 	}
 
 	return skills

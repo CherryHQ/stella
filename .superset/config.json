@@ -1,4 +1,6 @@
 {
-  "setup": [],
+  "setup": [
+    "mise trust"
+  ],
   "teardown": []
 }
