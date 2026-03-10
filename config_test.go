@@ -37,6 +37,15 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.Workspace != filepath.Join(dir, "workspace") {
 		t.Errorf("Workspace = %q, want %q", cfg.Workspace, filepath.Join(dir, "workspace"))
 	}
+	if cfg.Heartbeat.IsEnabled() {
+		t.Error("Heartbeat should be disabled by default")
+	}
+	if cfg.Heartbeat.Interval() != "10m" {
+		t.Errorf("Heartbeat.Interval() = %q, want %q", cfg.Heartbeat.Interval(), "10m")
+	}
+	if cfg.Heartbeat.FilePath(cfg.Workspace) != filepath.Join(dir, "workspace", "HEARTBEAT.md") {
+		t.Errorf("Heartbeat.FilePath() = %q, want %q", cfg.Heartbeat.FilePath(cfg.Workspace), filepath.Join(dir, "workspace", "HEARTBEAT.md"))
+	}
 }
 
 func TestLoadConfigFromFile(t *testing.T) {
@@ -45,6 +54,10 @@ func TestLoadConfigFromFile(t *testing.T) {
 runner:
   type: go
   idle_timeout: 5
+heartbeat:
+  enabled: true
+  every: 15m
+  file: notes/HEARTBEAT.md
 channels:
   telegram:
     token: "test-token-123"
@@ -64,12 +77,23 @@ channels:
 	if cfg.Channels.Telegram.Token != "test-token-123" {
 		t.Errorf("Channels.Telegram.Token = %q, want %q", cfg.Channels.Telegram.Token, "test-token-123")
 	}
+	if !cfg.Heartbeat.IsEnabled() {
+		t.Error("Heartbeat should be enabled from file config")
+	}
+	if cfg.Heartbeat.Interval() != "15m" {
+		t.Errorf("Heartbeat.Interval() = %q, want %q", cfg.Heartbeat.Interval(), "15m")
+	}
+	if cfg.Heartbeat.FilePath(cfg.Workspace) != filepath.Join(cfg.Workspace, "notes/HEARTBEAT.md") {
+		t.Errorf("Heartbeat.FilePath() = %q, want %q", cfg.Heartbeat.FilePath(cfg.Workspace), filepath.Join(cfg.Workspace, "notes/HEARTBEAT.md"))
+	}
 }
 
 func TestLoadConfigEnvOverrides(t *testing.T) {
 	dir := t.TempDir()
 
 	t.Setenv("ANNA_TELEGRAM_TOKEN", "env-token")
+	t.Setenv("ANNA_HEARTBEAT_ENABLED", "true")
+	t.Setenv("ANNA_HEARTBEAT_EVERY", "30m")
 
 	cfg, err := loadConfigFrom(dir)
 	if err != nil {
@@ -78,6 +102,12 @@ func TestLoadConfigEnvOverrides(t *testing.T) {
 
 	if cfg.Channels.Telegram.Token != "env-token" {
 		t.Errorf("Channels.Telegram.Token = %q, want %q", cfg.Channels.Telegram.Token, "env-token")
+	}
+	if !cfg.Heartbeat.IsEnabled() {
+		t.Error("Heartbeat should be enabled from env")
+	}
+	if cfg.Heartbeat.Interval() != "30m" {
+		t.Errorf("Heartbeat.Interval() = %q, want %q", cfg.Heartbeat.Interval(), "30m")
 	}
 }
 
