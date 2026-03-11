@@ -38,10 +38,10 @@ channels:
     enabled: true                  # Enable/disable this channel (default: true)
     enable_notify: false           # Allow notify tool to send to this channel (default: false)
     token: "BOT_TOKEN"
-    notify_chat: "123456789"       # Chat ID for proactive notifications
+    notify_chat: "123456789"       # Chat ID for notifications (use /whoami)
     channel_id: "@my_channel"      # Optional broadcast channel
     group_mode: "mention"          # mention | always | disabled
-    allowed_ids:                   # Restrict to these user IDs (empty = allow all)
+    allowed_ids:                   # Restrict to these user IDs (use /whoami, empty = all)
       - 136345060
   qq:
     enabled: true                  # Enable/disable this channel (default: true)
@@ -49,7 +49,7 @@ channels:
     app_id: "QQ_BOT_APP_ID"
     app_secret: "QQ_BOT_APP_SECRET"
     group_mode: "mention"          # mention | always | disabled
-    allowed_ids: []                # User OpenIDs allowed (empty = allow all)
+    allowed_ids: []                # User OpenIDs allowed (use /whoami, empty = all)
   feishu:
     enabled: true                  # Enable/disable this channel (default: true)
     enable_notify: false           # Allow notify tool to send to this channel (default: false)
@@ -57,9 +57,9 @@ channels:
     app_secret: "FEISHU_APP_SECRET"
     encrypt_key: ""                # Event encrypt key (from developer console)
     verification_token: ""         # Event verification token (from developer console)
-    notify_chat: "oc_xxx"          # Chat ID for proactive notifications
+    notify_chat: "oc_xxx"          # Chat or open_id for notifications (use /whoami)
     group_mode: "mention"          # mention | always | disabled
-    allowed_ids: []                # User open_ids allowed (empty = allow all)
+    allowed_ids: []                # User open_ids allowed (use /whoami, empty = all)
 
 # Default LLM provider
 provider: anthropic

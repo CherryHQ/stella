@@ -83,7 +83,7 @@ channels:
       - 136345060           # Your Telegram user ID
 ```
 
-Leave empty to allow all users.
+Leave empty to allow all users. Use the `/whoami` command in Telegram to get your user ID.
 
 ## Notifications
 
@@ -92,7 +92,7 @@ The bot doubles as a notification backend. Configure a default chat for proactiv
 ```yaml
 channels:
   telegram:
-    notify_chat: "123456789"   # Chat ID for notifications
+    notify_chat: "123456789"   # Chat ID (use /whoami to get it)
     channel_id: "@my_channel"  # Optional broadcast channel
 ```
 

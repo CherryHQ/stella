@@ -14,6 +14,7 @@ var slashCommands = []slashCommand{
 	{"/compact", "Compact session history"},
 	{"/model", "Switch model"},
 	{"/new", "Start new session"},
+	{"/whoami", "Show your user ID"},
 	{"/quit", "Quit"},
 	{"/exit", "Quit"},
 }

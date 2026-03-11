@@ -190,7 +190,7 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 }
 ```
 
-Use `channel.NewCommander(pool, listFn, switchFn)` for shared `/new`, `/compact`, `/model` command logic. Use `channel.SplitMessage()` and `channel.FormatDuration()` for shared utilities.
+Use `channel.NewCommander(pool, listFn, switchFn)` for shared `/new`, `/compact`, `/model` command logic. `/whoami` is handled per-channel since each platform returns different ID formats. Use `channel.SplitMessage()` and `channel.FormatDuration()` for shared utilities.
 
 2. **Register in `runGateway()`:**
 
@@ -220,7 +220,7 @@ Session ID for groups = group chat ID (shared context per group).
 
 ### Access Control
 
-`allowed_ids` restricts bot interaction to specific Telegram user IDs. When the list is empty, all users are allowed. Unauthorized users are silently ignored — all handlers (commands, callbacks, text) are wrapped in the access check.
+`allowed_ids` restricts bot interaction to specific user IDs (Telegram numeric IDs, QQ OpenIDs, Feishu open_ids). When the list is empty, all users are allowed. Unauthorized users are silently ignored — all handlers (commands, callbacks, text) are wrapped in the access check. Users can send `/whoami` to the bot to discover their ID.
 
 ### Notification Delivery
 
