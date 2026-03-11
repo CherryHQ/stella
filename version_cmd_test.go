@@ -130,7 +130,7 @@ func TestRunUpgradeInstallsBinary(t *testing.T) {
 		switch r.URL.Path {
 		case "/repos/vaayne/anna/releases/latest":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(fmt.Sprintf(`{"tag_name":"v0.4.0","assets":[{"name":"anna_0.4.0_darwin_arm64.tar.gz","browser_download_url":"%s/download/anna_0.4.0_darwin_arm64.tar.gz"}]}`, server.URL)))
+			_, _ = fmt.Fprintf(w, `{"tag_name":"v0.4.0","assets":[{"name":"anna_0.4.0_darwin_arm64.tar.gz","browser_download_url":"%s/download/anna_0.4.0_darwin_arm64.tar.gz"}]}`, server.URL)
 		case "/download/anna_0.4.0_darwin_arm64.tar.gz":
 			http.ServeFile(w, r, archivePath)
 		default:
@@ -239,28 +239,58 @@ func TestInstallBinaryRestoresExistingOnRenameFailure(t *testing.T) {
 	}
 }
 
+func TestInstallBinaryRejectsDirectoryTarget(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "anna-new")
+	targetPath := filepath.Join(dir, "anna")
+	if err := os.WriteFile(srcPath, []byte("new"), 0o755); err != nil {
+		t.Fatalf("WriteFile(src) error = %v", err)
+	}
+	if err := os.Mkdir(targetPath, 0o755); err != nil {
+		t.Fatalf("Mkdir(target) error = %v", err)
+	}
+
+	err := installBinary(srcPath, targetPath, true)
+	if !errors.Is(err, errInvalidTarget) {
+		t.Fatalf("installBinary() error = %v, want errInvalidTarget", err)
+	}
+}
+
 func writeTarGzArchive(path, name string, data []byte) error {
 	file, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
 	gzipWriter := gzip.NewWriter(file)
-	defer gzipWriter.Close()
-
 	tarWriter := tar.NewWriter(gzipWriter)
-	defer tarWriter.Close()
 
 	if err := tarWriter.WriteHeader(&tar.Header{
 		Name: name,
 		Mode: 0o755,
 		Size: int64(len(data)),
 	}); err != nil {
+		_ = tarWriter.Close()
+		_ = gzipWriter.Close()
+		_ = file.Close()
 		return err
 	}
-	_, err = tarWriter.Write(data)
-	return err
+	if _, err := tarWriter.Write(data); err != nil {
+		_ = tarWriter.Close()
+		_ = gzipWriter.Close()
+		_ = file.Close()
+		return err
+	}
+	if err := tarWriter.Close(); err != nil {
+		_ = gzipWriter.Close()
+		_ = file.Close()
+		return err
+	}
+	if err := gzipWriter.Close(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
 }
 
 func writeZipArchive(path, name string, data []byte) error {
@@ -268,15 +298,22 @@ func writeZipArchive(path, name string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
 	zipWriter := zip.NewWriter(file)
-	defer zipWriter.Close()
-
 	writer, err := zipWriter.Create(name)
 	if err != nil {
+		_ = zipWriter.Close()
+		_ = file.Close()
 		return err
 	}
-	_, err = writer.Write(data)
-	return err
+	if _, err := writer.Write(data); err != nil {
+		_ = zipWriter.Close()
+		_ = file.Close()
+		return err
+	}
+	if err := zipWriter.Close(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
 }
