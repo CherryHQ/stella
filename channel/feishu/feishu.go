@@ -172,6 +172,7 @@ func (b *Bot) fetchBotOpenID(ctx context.Context) error {
 func (b *Bot) Name() string { return "feishu" }
 
 // Notify sends a notification message. Implements channel.Backend.
+// Supports both chat IDs (oc_ prefix) and user open IDs (ou_ prefix).
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	chatID := n.ChatID
 	if chatID == "" {
@@ -184,10 +185,16 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	// Strip channel prefix if present.
 	chatID = strings.TrimPrefix(chatID, "feishu:")
 
+	// Detect receiver type from ID prefix.
+	receiveIDType := larkim.ReceiveIdTypeChatId
+	if strings.HasPrefix(chatID, "ou_") {
+		receiveIDType = larkim.ReceiveIdTypeOpenId
+	}
+
 	content := textContent(n.Text)
 	resp, err := b.client.Im.Message.Create(ctx,
 		larkim.NewCreateMessageReqBuilder().
-			ReceiveIdType(larkim.ReceiveIdTypeChatId).
+			ReceiveIdType(receiveIDType).
 			Body(larkim.NewCreateMessageReqBodyBuilder().
 				MsgType(larkim.MsgTypeText).
 				ReceiveId(chatID).
