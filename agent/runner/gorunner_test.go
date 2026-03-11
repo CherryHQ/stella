@@ -9,8 +9,7 @@ import (
 	"testing"
 	"time"
 
-	aistream "github.com/vaayne/anna/ai/stream"
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 func TestNewGoRunnerRequiresConfig(t *testing.T) {
@@ -96,13 +95,13 @@ func TestConvertHistoryOnlyAssistant(t *testing.T) {
 	}
 }
 
-func messageType(msg aitypes.Message) string {
+func messageType(msg ai.Message) string {
 	switch msg.(type) {
-	case aitypes.UserMessage:
+	case ai.UserMessage:
 		return "user"
-	case aitypes.AssistantMessage:
+	case ai.AssistantMessage:
 		return "assistant"
-	case aitypes.ToolResultMessage:
+	case ai.ToolResultMessage:
 		return "tool"
 	default:
 		return fmt.Sprintf("unknown(%T)", msg)
@@ -140,11 +139,11 @@ func TestConvertHistoryMultipleConsecutiveDeltas(t *testing.T) {
 	if messageType(msgs[1]) != "assistant" {
 		t.Fatalf("expected assistant, got %q", messageType(msgs[1]))
 	}
-	am := msgs[1].(aitypes.AssistantMessage)
+	am := msgs[1].(ai.AssistantMessage)
 	if len(am.Content) != 1 {
 		t.Fatalf("expected 1 content block, got %d", len(am.Content))
 	}
-	tc, ok := am.Content[0].(aitypes.TextContent)
+	tc, ok := am.Content[0].(ai.TextContent)
 	if !ok {
 		t.Fatalf("expected TextContent, got %T", am.Content[0])
 	}
@@ -178,8 +177,8 @@ func TestConvertHistoryAlternatingTurns(t *testing.T) {
 		}
 	}
 
-	am := msgs[5].(aitypes.AssistantMessage)
-	tc := am.Content[0].(aitypes.TextContent)
+	am := msgs[5].(ai.AssistantMessage)
+	tc := am.Content[0].(ai.TextContent)
 	if tc.Text != "reply3areply3b" {
 		t.Errorf("last assistant text = %q, want %q", tc.Text, "reply3areply3b")
 	}
@@ -213,21 +212,21 @@ func TestConvertHistoryWithToolEvents(t *testing.T) {
 	}
 
 	// Assistant message should have text + tool call.
-	am := msgs[1].(aitypes.AssistantMessage)
+	am := msgs[1].(ai.AssistantMessage)
 	if len(am.Content) != 2 {
 		t.Fatalf("expected 2 content blocks in assistant message, got %d", len(am.Content))
 	}
-	if _, ok := am.Content[0].(aitypes.TextContent); !ok {
+	if _, ok := am.Content[0].(ai.TextContent); !ok {
 		t.Errorf("expected TextContent first, got %T", am.Content[0])
 	}
-	if tc, ok := am.Content[1].(aitypes.ToolCall); !ok {
+	if tc, ok := am.Content[1].(ai.ToolCall); !ok {
 		t.Errorf("expected ToolCall second, got %T", am.Content[1])
 	} else if tc.Name != "bash" {
 		t.Errorf("tool call name = %q, want %q", tc.Name, "bash")
 	}
 
 	// Tool result.
-	tr := msgs[2].(aitypes.ToolResultMessage)
+	tr := msgs[2].(ai.ToolResultMessage)
 	if tr.ToolCallID != "tc_1" {
 		t.Errorf("tool result ID = %q, want %q", tr.ToolCallID, "tc_1")
 	}
@@ -260,17 +259,17 @@ func TestConvertHistoryOrphanedToolResult(t *testing.T) {
 // goRunnerFakeProvider implements stream.Provider for testing Chat() without real API calls.
 type goRunnerFakeProvider struct {
 	api    string
-	events []aitypes.AssistantEvent
+	events []ai.AssistantEvent
 	err    error
 }
 
 func (f *goRunnerFakeProvider) API() string { return f.api }
 
-func (f *goRunnerFakeProvider) Stream(_ aitypes.Model, _ aitypes.Context, _ aitypes.StreamOptions) (aistream.AssistantEventStream, error) {
+func (f *goRunnerFakeProvider) Stream(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (ai.AssistantEventStream, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	out := aistream.NewChannelEventStream(len(f.events) + 1)
+	out := ai.NewChannelEventStream(len(f.events) + 1)
 	go func() {
 		for _, evt := range f.events {
 			out.Emit(evt)
@@ -280,8 +279,8 @@ func (f *goRunnerFakeProvider) Stream(_ aitypes.Model, _ aitypes.Context, _ aity
 	return out, nil
 }
 
-func (f *goRunnerFakeProvider) StreamSimple(_ aitypes.Model, _ aitypes.Context, opts aitypes.SimpleStreamOptions) (aistream.AssistantEventStream, error) {
-	return f.Stream(aitypes.Model{}, aitypes.Context{}, opts.StreamOptions)
+func (f *goRunnerFakeProvider) StreamSimple(_ ai.Model, _ ai.Context, opts ai.SimpleStreamOptions) (ai.AssistantEventStream, error) {
+	return f.Stream(ai.Model{}, ai.Context{}, opts.StreamOptions)
 }
 
 // newTestGoRunner creates a GoRunner wired to a fake provider.
@@ -302,11 +301,11 @@ func newTestGoRunner(t *testing.T, fp *goRunnerFakeProvider) *GoRunner {
 func TestChatStreamsTextDeltas(t *testing.T) {
 	fp := &goRunnerFakeProvider{
 		api: "anthropic",
-		events: []aitypes.AssistantEvent{
-			aitypes.EventStart{},
-			aitypes.EventTextDelta{Text: "Hello "},
-			aitypes.EventTextDelta{Text: "world"},
-			aitypes.EventStop{Reason: aitypes.StopReasonStop},
+		events: []ai.AssistantEvent{
+			ai.EventStart{},
+			ai.EventTextDelta{Text: "Hello "},
+			ai.EventTextDelta{Text: "world"},
+			ai.EventStop{Reason: ai.StopReasonStop},
 		},
 	}
 	r := newTestGoRunner(t, fp)
@@ -376,9 +375,9 @@ func TestChatUnknownProvider(t *testing.T) {
 func TestChatContextCancellation(t *testing.T) {
 	fp := &goRunnerFakeProvider{
 		api: "anthropic",
-		events: []aitypes.AssistantEvent{
-			aitypes.EventTextDelta{Text: "ok"},
-			aitypes.EventStop{Reason: aitypes.StopReasonStop},
+		events: []ai.AssistantEvent{
+			ai.EventTextDelta{Text: "ok"},
+			ai.EventStop{Reason: ai.StopReasonStop},
 		},
 	}
 	r := newTestGoRunner(t, fp)
@@ -405,9 +404,9 @@ func TestChatContextCancellation(t *testing.T) {
 func TestLastActivityUpdatesOnChat(t *testing.T) {
 	fp := &goRunnerFakeProvider{
 		api: "anthropic",
-		events: []aitypes.AssistantEvent{
-			aitypes.EventTextDelta{Text: "ok"},
-			aitypes.EventStop{Reason: aitypes.StopReasonStop},
+		events: []ai.AssistantEvent{
+			ai.EventTextDelta{Text: "ok"},
+			ai.EventStop{Reason: ai.StopReasonStop},
 		},
 	}
 	r := newTestGoRunner(t, fp)
@@ -427,21 +426,21 @@ func TestLastActivityUpdatesOnChat(t *testing.T) {
 // sequentialFakeProvider returns different event sequences on successive Stream calls.
 type sequentialFakeProvider struct {
 	api    string
-	rounds [][]aitypes.AssistantEvent
+	rounds [][]ai.AssistantEvent
 	call   int
 	mu     sync.Mutex
 }
 
 func (f *sequentialFakeProvider) API() string { return f.api }
 
-func (f *sequentialFakeProvider) Stream(_ aitypes.Model, _ aitypes.Context, _ aitypes.StreamOptions) (aistream.AssistantEventStream, error) {
+func (f *sequentialFakeProvider) Stream(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (ai.AssistantEventStream, error) {
 	f.mu.Lock()
 	idx := f.call
 	f.call++
 	f.mu.Unlock()
 
 	events := f.rounds[idx]
-	out := aistream.NewChannelEventStream(len(events) + 1)
+	out := ai.NewChannelEventStream(len(events) + 1)
 	go func() {
 		for _, evt := range events {
 			out.Emit(evt)
@@ -451,23 +450,23 @@ func (f *sequentialFakeProvider) Stream(_ aitypes.Model, _ aitypes.Context, _ ai
 	return out, nil
 }
 
-func (f *sequentialFakeProvider) StreamSimple(_ aitypes.Model, _ aitypes.Context, opts aitypes.SimpleStreamOptions) (aistream.AssistantEventStream, error) {
-	return f.Stream(aitypes.Model{}, aitypes.Context{}, opts.StreamOptions)
+func (f *sequentialFakeProvider) StreamSimple(_ ai.Model, _ ai.Context, opts ai.SimpleStreamOptions) (ai.AssistantEventStream, error) {
+	return f.Stream(ai.Model{}, ai.Context{}, opts.StreamOptions)
 }
 
 func TestChatToolUseLoop(t *testing.T) {
 	dir := t.TempDir()
 	fp := &sequentialFakeProvider{
 		api: "anthropic",
-		rounds: [][]aitypes.AssistantEvent{
+		rounds: [][]ai.AssistantEvent{
 			{
-				aitypes.EventToolCallDelta{ID: "tc_1", Name: "bash"},
-				aitypes.EventToolCallDelta{ID: "tc_1", Arguments: `{"command": "echo hello"}`},
-				aitypes.EventStop{Reason: aitypes.StopReasonToolUse},
+				ai.EventToolCallDelta{ID: "tc_1", Name: "bash"},
+				ai.EventToolCallDelta{ID: "tc_1", Arguments: `{"command": "echo hello"}`},
+				ai.EventStop{Reason: ai.StopReasonToolUse},
 			},
 			{
-				aitypes.EventTextDelta{Text: "The result is hello"},
-				aitypes.EventStop{Reason: aitypes.StopReasonStop},
+				ai.EventTextDelta{Text: "The result is hello"},
+				ai.EventStop{Reason: ai.StopReasonStop},
 			},
 		},
 	}
@@ -553,13 +552,13 @@ func TestSummarizeToolInput(t *testing.T) {
 func TestSummarizeToolResult(t *testing.T) {
 	tests := []struct {
 		name    string
-		result  aitypes.ToolResultMessage
+		result  ai.ToolResultMessage
 		want    string
 		contain string // if non-empty, check Contains instead of exact match
 	}{
 		{
 			name: "empty content",
-			result: aitypes.ToolResultMessage{
+			result: ai.ToolResultMessage{
 				ToolName: "bash",
 				Content:  nil,
 			},
@@ -567,34 +566,34 @@ func TestSummarizeToolResult(t *testing.T) {
 		},
 		{
 			name: "short result inline",
-			result: aitypes.ToolResultMessage{
+			result: ai.ToolResultMessage{
 				ToolName: "bash",
-				Content:  []aitypes.ContentBlock{aitypes.TextContent{Text: "hello world"}},
+				Content:  []ai.ContentBlock{ai.TextContent{Text: "hello world"}},
 			},
 			want: "hello world",
 		},
 		{
 			name: "multiline short result first line",
-			result: aitypes.ToolResultMessage{
+			result: ai.ToolResultMessage{
 				ToolName: "bash",
-				Content:  []aitypes.ContentBlock{aitypes.TextContent{Text: "ok\ndone"}},
+				Content:  []ai.ContentBlock{ai.TextContent{Text: "ok\ndone"}},
 			},
 			want: "ok",
 		},
 		{
 			name: "long multiline shows line count",
-			result: aitypes.ToolResultMessage{
+			result: ai.ToolResultMessage{
 				ToolName: "read",
-				Content:  []aitypes.ContentBlock{aitypes.TextContent{Text: "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11\nline12\nline13\nline14\nline15"}},
+				Content:  []ai.ContentBlock{ai.TextContent{Text: "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11\nline12\nline13\nline14\nline15"}},
 			},
 			contain: "15 lines",
 		},
 		{
 			name: "error shows first line",
-			result: aitypes.ToolResultMessage{
+			result: ai.ToolResultMessage{
 				ToolName: "bash",
 				IsError:  true,
-				Content:  []aitypes.ContentBlock{aitypes.TextContent{Text: "permission denied\nsome stack trace"}},
+				Content:  []ai.ContentBlock{ai.TextContent{Text: "permission denied\nsome stack trace"}},
 			},
 			want: "permission denied",
 		},

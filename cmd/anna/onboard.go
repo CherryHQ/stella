@@ -17,7 +17,8 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/ai/stream"
+	"github.com/vaayne/anna/ai"
+	"github.com/vaayne/anna/config"
 	"github.com/vaayne/anna/cron"
 	"gopkg.in/yaml.v3"
 )
@@ -43,7 +44,7 @@ func onboardCommand() *ucli.Command {
 }
 
 func runOnboard(ctx context.Context, port int) error {
-	cfg, err := LoadConfig()
+	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -108,14 +109,14 @@ func runOnboard(ctx context.Context, port int) error {
 			return
 		}
 
-		provCfg := ProviderConfig{APIKey: body.APIKey, BaseURL: body.BaseURL}
+		provCfg := config.ProviderConfig{APIKey: body.APIKey, BaseURL: body.BaseURL}
 		provider := newStreamProvider(name, provCfg)
 		if provider == nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown provider: " + name})
 			return
 		}
 
-		lister, ok := provider.(stream.ModelLister)
+		lister, ok := provider.(ai.ModelLister)
 		if !ok {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": name + " does not support model listing"})
 			return
@@ -355,7 +356,7 @@ type feishuJSON struct {
 	AllowedIDs        []string `json:"allowed_ids"`
 }
 
-func cfgToJSON(cfg *Config) configJSON {
+func cfgToJSON(cfg *config.Config) configJSON {
 	providers := make(map[string]providerJSON, len(cfg.Providers))
 	for name, p := range cfg.Providers {
 		providers[name] = providerJSON{APIKey: p.APIKey, BaseURL: p.BaseURL}
@@ -400,7 +401,7 @@ func cfgToJSON(cfg *Config) configJSON {
 	}
 }
 
-func applyJSONToConfig(cfg *Config, body *configJSON) {
+func applyJSONToConfig(cfg *config.Config, body *configJSON) {
 	cfg.Provider = body.Provider
 	cfg.Model = body.Model
 	cfg.ModelStrong = body.ModelStrong
@@ -409,16 +410,16 @@ func applyJSONToConfig(cfg *Config, body *configJSON) {
 
 	// Merge providers: update api_key/base_url but preserve existing Models.
 	existing := cfg.Providers
-	cfg.Providers = make(map[string]ProviderConfig, len(body.Providers))
+	cfg.Providers = make(map[string]config.ProviderConfig, len(body.Providers))
 	for name, p := range body.Providers {
-		pc := ProviderConfig{APIKey: p.APIKey, BaseURL: p.BaseURL}
+		pc := config.ProviderConfig{APIKey: p.APIKey, BaseURL: p.BaseURL}
 		if prev, ok := existing[name]; ok {
 			pc.Models = prev.Models
 		}
 		cfg.Providers[name] = pc
 	}
 
-	cfg.Channels.Telegram = TelegramConfig{
+	cfg.Channels.Telegram = config.TelegramConfig{
 		Enabled:      body.Channels.Telegram.Enabled,
 		EnableNotify: body.Channels.Telegram.EnableNotify,
 		Token:        body.Channels.Telegram.Token,
@@ -428,7 +429,7 @@ func applyJSONToConfig(cfg *Config, body *configJSON) {
 		AllowedIDs:   body.Channels.Telegram.AllowedIDs,
 	}
 
-	cfg.Channels.QQ = QQConfig{
+	cfg.Channels.QQ = config.QQConfig{
 		Enabled:      body.Channels.QQ.Enabled,
 		EnableNotify: body.Channels.QQ.EnableNotify,
 		AppID:        body.Channels.QQ.AppID,
@@ -437,7 +438,7 @@ func applyJSONToConfig(cfg *Config, body *configJSON) {
 		AllowedIDs:   body.Channels.QQ.AllowedIDs,
 	}
 
-	cfg.Channels.Feishu = FeishuConfig{
+	cfg.Channels.Feishu = config.FeishuConfig{
 		Enabled:           body.Channels.Feishu.Enabled,
 		EnableNotify:      body.Channels.Feishu.EnableNotify,
 		AppID:             body.Channels.Feishu.AppID,
@@ -452,8 +453,8 @@ func applyJSONToConfig(cfg *Config, body *configJSON) {
 
 // saveConfig reads the existing config.yaml, merges onboarding fields on top
 // (preserving runner, cron, and other sections), and writes it back.
-func saveConfig(cfg *Config) error {
-	path := configPath()
+func saveConfig(cfg *config.Config) error {
+	path := config.Path()
 
 	// Read existing file as a raw map to preserve unknown sections.
 	existing := make(map[string]any)

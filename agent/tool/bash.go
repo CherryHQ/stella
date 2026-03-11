@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 // BashTool executes bash commands.
@@ -14,8 +14,8 @@ type BashTool struct {
 	workDir string
 }
 
-func (t *BashTool) Definition() aitypes.ToolDefinition {
-	return aitypes.ToolDefinition{
+func (t *BashTool) Definition() ai.ToolDefinition {
+	return ai.ToolDefinition{
 		Name:        "bash",
 		Description: "Execute a bash command. Use for file operations like ls, rg, find, git, and other shell commands.",
 		InputSchema: map[string]any{

@@ -1,7 +1,6 @@
-package main
+package config
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,9 +10,9 @@ import (
 func TestLoadConfigDefaults(t *testing.T) {
 	t.Setenv("ANNA_RUNNER_TYPE", "")
 	dir := t.TempDir()
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	if cfg.Runner.Type != "go" {
@@ -66,9 +65,9 @@ channels:
 		t.Fatal(err)
 	}
 
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	if cfg.Runner.IdleTimeout != 5 {
@@ -95,9 +94,9 @@ func TestLoadConfigEnvOverrides(t *testing.T) {
 	t.Setenv("ANNA_HEARTBEAT_ENABLED", "true")
 	t.Setenv("ANNA_HEARTBEAT_EVERY", "30m")
 
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	if cfg.Channels.Telegram.Token != "env-token" {
@@ -124,38 +123,14 @@ channels:
 
 	t.Setenv("ANNA_TELEGRAM_TOKEN", "env-token")
 
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	// Env var overrides file value.
 	if cfg.Channels.Telegram.Token != "env-token" {
 		t.Errorf("Channels.Telegram.Token = %q, want %q", cfg.Channels.Telegram.Token, "env-token")
-	}
-}
-
-func TestHasEnabledNotifyChannel(t *testing.T) {
-	falseValue := false
-	trueValue := true
-
-	cfg := &Config{
-		Channels: ChannelsConfig{
-			Telegram: TelegramConfig{
-				Enabled:      &falseValue,
-				EnableNotify: &trueValue,
-				Token:        "test-token",
-			},
-		},
-	}
-
-	if hasEnabledNotifyChannel(cfg) {
-		t.Fatal("hasEnabledNotifyChannel() = true, want false for disabled channel")
-	}
-
-	cfg.Channels.Telegram.Enabled = &trueValue
-	if !hasEnabledNotifyChannel(cfg) {
-		t.Fatal("hasEnabledNotifyChannel() = false, want true for enabled notify channel")
 	}
 }
 
@@ -165,7 +140,7 @@ func TestLoadConfigInvalidYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := loadConfigFrom(dir)
+	_, err := LoadFrom(dir)
 	if err == nil {
 		t.Fatal("expected error for invalid YAML")
 	}
@@ -174,9 +149,9 @@ func TestLoadConfigInvalidYAML(t *testing.T) {
 func TestLoadConfigCreatesDir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "dir")
 
-	_, err := loadConfigFrom(dir)
+	_, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	info, err := os.Stat(dir)
@@ -190,52 +165,36 @@ func TestLoadConfigCreatesDir(t *testing.T) {
 
 func TestAnnaHome(t *testing.T) {
 	t.Setenv("ANNA_HOME", "")
-	dir := annaHome()
+	dir := AnnaHome()
 	if !strings.HasSuffix(dir, ".anna") {
-		t.Errorf("annaHome() = %q, want suffix .anna", dir)
+		t.Errorf("AnnaHome() = %q, want suffix .anna", dir)
 	}
 }
 
 func TestAnnaHomeEnv(t *testing.T) {
 	t.Setenv("ANNA_HOME", "/custom/anna")
-	dir := annaHome()
+	dir := AnnaHome()
 	if dir != "/custom/anna" {
-		t.Errorf("annaHome() = %q, want %q", dir, "/custom/anna")
+		t.Errorf("AnnaHome() = %q, want %q", dir, "/custom/anna")
 	}
 }
 
-func TestConfigPath(t *testing.T) {
+func TestPath(t *testing.T) {
 	t.Setenv("ANNA_HOME", "")
-	p := configPath()
+	p := Path()
 	if !strings.HasSuffix(p, filepath.Join(".anna", "config.yaml")) {
-		t.Errorf("configPath() = %q, want suffix .anna/config.yaml", p)
+		t.Errorf("Path() = %q, want suffix .anna/config.yaml", p)
 	}
 }
 
-func TestLoadConfig(t *testing.T) {
+func TestLoad(t *testing.T) {
 	t.Setenv("ANNA_HOME", t.TempDir())
-	cfg, err := LoadConfig()
+	cfg, err := Load()
 	if err != nil {
-		t.Fatalf("LoadConfig: %v", err)
+		t.Fatalf("Load: %v", err)
 	}
 	if cfg.Runner.Type == "" {
 		t.Error("Runner.Type should have a default")
-	}
-}
-
-func TestRunHelp(t *testing.T) {
-	app := newApp()
-	err := app.Run([]string{"anna", "--help"})
-	if err != nil {
-		t.Fatalf("run --help: %v", err)
-	}
-}
-
-func TestRunHelpShort(t *testing.T) {
-	app := newApp()
-	err := app.Run([]string{"anna", "-h"})
-	if err != nil {
-		t.Fatalf("run -h: %v", err)
 	}
 }
 
@@ -246,9 +205,9 @@ func TestProviderEnvAnthropicAPIKey(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", "https://custom-proxy.example.com")
 	t.Setenv("ANNA_RUNNER_TYPE", "go")
 
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	p := cfg.Providers["anthropic"]
@@ -275,9 +234,9 @@ model: gpt-4o
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_BASE_URL", "")
 
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	if cfg.Provider != "openai" {
@@ -300,9 +259,9 @@ func TestProviderDefaultValues(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_BASE_URL", "")
 
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	if cfg.Provider != "anthropic" {
@@ -317,9 +276,9 @@ func TestRunnerTypeEnvOverride(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ANNA_RUNNER_TYPE", "go")
 
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	if cfg.Runner.Type != "go" {
@@ -332,9 +291,9 @@ func TestProviderModelEnvOverrides(t *testing.T) {
 	t.Setenv("ANNA_PROVIDER", "openai")
 	t.Setenv("ANNA_MODEL", "gpt-4o")
 
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	if cfg.Provider != "openai" {
@@ -342,59 +301,6 @@ func TestProviderModelEnvOverrides(t *testing.T) {
 	}
 	if cfg.Model != "gpt-4o" {
 		t.Errorf("Model = %q, want %q", cfg.Model, "gpt-4o")
-	}
-}
-
-func TestNewRunnerFactoryGo(t *testing.T) {
-	cfg := &Config{
-		Provider:  "anthropic",
-		Model:     "test-model",
-		Workspace: t.TempDir(),
-		Runner:    RunnerConfig{Type: "go"},
-		Providers: map[string]ProviderConfig{
-			"anthropic": {APIKey: "test-key"},
-		},
-	}
-
-	factory, err := newRunnerFactory(cfg, nil, nil)
-	if err != nil {
-		t.Fatalf("newRunnerFactory: %v", err)
-	}
-
-	r, err := factory(context.Background(), "")
-	if err != nil {
-		t.Fatalf("factory: %v", err)
-	}
-
-	if r == nil {
-		t.Fatal("expected non-nil runner")
-	}
-}
-
-func TestNewRunnerFactoryUnknown(t *testing.T) {
-	cfg := &Config{
-		Runner: RunnerConfig{Type: "invalid"},
-	}
-
-	_, err := newRunnerFactory(cfg, nil, nil)
-	if err == nil {
-		t.Fatal("expected error for unknown runner type")
-	}
-	if !strings.Contains(err.Error(), "unknown runner type") {
-		t.Errorf("error = %q, want contains 'unknown runner type'", err.Error())
-	}
-}
-
-func TestRunGatewayNoServices(t *testing.T) {
-	t.Setenv("ANNA_TELEGRAM_TOKEN", "")
-	t.Setenv("ANNA_HOME", t.TempDir())
-	app := newApp()
-	err := app.Run([]string{"anna", "gateway"})
-	if err == nil {
-		t.Fatal("expected error for no configured services")
-	}
-	if !strings.Contains(err.Error(), "no gateway services configured") {
-		t.Errorf("err = %q, want contains 'no gateway services configured'", err.Error())
 	}
 }
 
@@ -432,9 +338,9 @@ providers:
 	t.Setenv("ANTHROPIC_BASE_URL", "")
 	t.Setenv("OPENAI_API_KEY", "")
 
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	ant := cfg.Providers["anthropic"]
@@ -575,9 +481,9 @@ model_fast: claude-haiku-4-5
 		t.Fatal(err)
 	}
 
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	if cfg.ModelStrong != "claude-opus-4-6" {
@@ -594,9 +500,9 @@ func TestModelTierEnvOverrides(t *testing.T) {
 	t.Setenv("ANNA_MODEL_STRONG", "env-strong")
 	t.Setenv("ANNA_MODEL_FAST", "env-fast")
 
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	if cfg.ModelStrong != "env-strong" {
@@ -625,9 +531,9 @@ model_fast: yaml-fast
 
 	t.Setenv("ANNA_MODEL_STRONG", "env-strong")
 
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	// Env should override YAML.
@@ -655,9 +561,9 @@ providers:
 	t.Setenv("ANTHROPIC_API_KEY", "env-key")
 	t.Setenv("ANTHROPIC_BASE_URL", "https://env.example.com")
 
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	p := cfg.Providers["anthropic"]
@@ -695,9 +601,9 @@ model: gpt-4o
 		t.Fatal(err)
 	}
 
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	if cfg.Provider != "openai" {
@@ -727,9 +633,9 @@ model: gpt-4o
 		t.Fatal(err)
 	}
 
-	cfg, err := loadConfigFrom(dir)
+	cfg, err := LoadFrom(dir)
 	if err != nil {
-		t.Fatalf("loadConfigFrom: %v", err)
+		t.Fatalf("LoadFrom: %v", err)
 	}
 
 	if cfg.Provider != "anthropic" {
@@ -771,11 +677,139 @@ func TestWorkspacePaths(t *testing.T) {
 	if cfg.SkillsPath() != "/home/user/.anna/workspace/skills" {
 		t.Errorf("SkillsPath() = %q", cfg.SkillsPath())
 	}
-	wantModels := filepath.Join(cachePath(), "models.json")
+	wantModels := filepath.Join(CachePath(), "models.json")
 	if cfg.ModelsPath() != wantModels {
 		t.Errorf("ModelsPath() = %q, want %q", cfg.ModelsPath(), wantModels)
 	}
 	if cfg.LogPath() != "/home/user/.anna/workspace/anna.log" {
 		t.Errorf("LogPath() = %q", cfg.LogPath())
+	}
+}
+
+func TestCronEnabled(t *testing.T) {
+	tr := true
+	fa := false
+	tests := []struct {
+		name    string
+		enabled *bool
+		want    bool
+	}{
+		{"nil defaults to true", nil, true},
+		{"explicit true", &tr, true},
+		{"explicit false", &fa, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := CronConfig{Enabled: tt.enabled}
+			if got := c.CronEnabled(); got != tt.want {
+				t.Errorf("CronEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestChannelConfigHelpers(t *testing.T) {
+	tr := true
+	fa := false
+
+	// QQ
+	if !(QQConfig{}).IsEnabled() {
+		t.Error("QQ nil enabled should default to true")
+	}
+	if !(QQConfig{Enabled: &tr}).IsEnabled() {
+		t.Error("QQ explicit true should be enabled")
+	}
+	if (QQConfig{Enabled: &fa}).IsEnabled() {
+		t.Error("QQ explicit false should be disabled")
+	}
+	if (QQConfig{}).IsNotifyEnabled() {
+		t.Error("QQ nil notify should be false")
+	}
+	if !(QQConfig{EnableNotify: &tr}).IsNotifyEnabled() {
+		t.Error("QQ explicit true notify should be enabled")
+	}
+
+	// Feishu
+	if !(FeishuConfig{}).IsEnabled() {
+		t.Error("Feishu nil enabled should default to true")
+	}
+	if (FeishuConfig{Enabled: &fa}).IsEnabled() {
+		t.Error("Feishu explicit false should be disabled")
+	}
+	if (FeishuConfig{}).IsNotifyEnabled() {
+		t.Error("Feishu nil notify should be false")
+	}
+	if !(FeishuConfig{EnableNotify: &tr}).IsNotifyEnabled() {
+		t.Error("Feishu explicit true notify should be enabled")
+	}
+
+	// Telegram
+	if !(TelegramConfig{}).IsEnabled() {
+		t.Error("Telegram nil enabled should default to true")
+	}
+	if (TelegramConfig{Enabled: &fa}).IsEnabled() {
+		t.Error("Telegram explicit false should be disabled")
+	}
+	if (TelegramConfig{}).IsNotifyEnabled() {
+		t.Error("Telegram nil notify should be false")
+	}
+	if !(TelegramConfig{EnableNotify: &tr}).IsNotifyEnabled() {
+		t.Error("Telegram explicit true notify should be enabled")
+	}
+}
+
+func TestModelConfigToType(t *testing.T) {
+	cost := &ModelCostConfig{Input: 3.0, Output: 15.0, CacheRead: 0.3, CacheWrite: 3.75}
+	m := ModelConfig{
+		ID:            "claude-sonnet-4-6",
+		Name:          "Claude Sonnet",
+		API:           "anthropic-messages",
+		Reasoning:     true,
+		Input:         []string{"text", "image"},
+		ContextWindow: 200000,
+		MaxTokens:     8192,
+		Headers:       map[string]string{"x-custom": "val"},
+		Cost:          cost,
+	}
+
+	model := modelConfigToType("anthropic", m)
+	if model.ID != "claude-sonnet-4-6" {
+		t.Errorf("ID = %q", model.ID)
+	}
+	if model.Provider != "anthropic" {
+		t.Errorf("Provider = %q", model.Provider)
+	}
+	if model.API != "anthropic-messages" {
+		t.Errorf("API = %q", model.API)
+	}
+	if !model.Reasoning {
+		t.Error("Reasoning should be true")
+	}
+	if model.Cost.Input != 3.0 {
+		t.Errorf("Cost.Input = %f", model.Cost.Input)
+	}
+	if model.Cost.Output != 15.0 {
+		t.Errorf("Cost.Output = %f", model.Cost.Output)
+	}
+}
+
+func TestModelConfigToTypeFallbacks(t *testing.T) {
+	// Empty API should fall back to provider
+	m := ModelConfig{ID: "test-model"}
+	model := modelConfigToType("openai", m)
+	if model.API != "openai" {
+		t.Errorf("API = %q, want fallback to provider", model.API)
+	}
+	// Empty Name should use ID
+	if model.Name != "test-model" {
+		t.Errorf("Name = %q, want ID fallback", model.Name)
+	}
+}
+
+func TestHeartbeatFilePathAbsolute(t *testing.T) {
+	c := HeartbeatConfig{File: "/absolute/path/heartbeat.md"}
+	got := c.FilePath("/workspace")
+	if got != "/absolute/path/heartbeat.md" {
+		t.Errorf("FilePath() = %q, want absolute path preserved", got)
 	}
 }

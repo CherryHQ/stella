@@ -5,14 +5,14 @@ import (
 	"errors"
 	"testing"
 
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 func TestExecuteToolCalls(t *testing.T) {
-	calls := []aitypes.ToolCall{{ID: "1", Name: "echo"}, {ID: "2", Name: "missing"}}
+	calls := []ai.ToolCall{{ID: "1", Name: "echo"}, {ID: "2", Name: "missing"}}
 	tools := ToolSet{
-		"echo": func(ctx context.Context, call aitypes.ToolCall) (aitypes.TextContent, error) {
-			return aitypes.TextContent{Text: "ok"}, nil
+		"echo": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
+			return ai.TextContent{Text: "ok"}, nil
 		},
 	}
 
@@ -32,10 +32,10 @@ func TestExecuteToolCalls(t *testing.T) {
 }
 
 func TestExecuteToolCallsToolError(t *testing.T) {
-	calls := []aitypes.ToolCall{{ID: "1", Name: "fail"}}
+	calls := []ai.ToolCall{{ID: "1", Name: "fail"}}
 	tools := ToolSet{
-		"fail": func(ctx context.Context, call aitypes.ToolCall) (aitypes.TextContent, error) {
-			return aitypes.TextContent{}, errors.New("boom")
+		"fail": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
+			return ai.TextContent{}, errors.New("boom")
 		},
 	}
 

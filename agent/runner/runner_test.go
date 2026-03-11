@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 func TestHandlerFunc(t *testing.T) {
@@ -37,10 +37,10 @@ func TestMessageTextString(t *testing.T) {
 }
 
 func TestMessageTextMultimodal(t *testing.T) {
-	blocks := []aitypes.ContentBlock{
-		aitypes.TextContent{Text: "describe"},
-		aitypes.ImageContent{Data: "abc", MimeType: "image/png"},
-		aitypes.TextContent{Text: "this image"},
+	blocks := []ai.ContentBlock{
+		ai.TextContent{Text: "describe"},
+		ai.ImageContent{Data: "abc", MimeType: "image/png"},
+		ai.TextContent{Text: "this image"},
 	}
 	got := MessageText(blocks)
 	want := "describe this image"
@@ -50,8 +50,8 @@ func TestMessageTextMultimodal(t *testing.T) {
 }
 
 func TestMessageTextEmpty(t *testing.T) {
-	blocks := []aitypes.ContentBlock{
-		aitypes.ImageContent{Data: "abc", MimeType: "image/png"},
+	blocks := []ai.ContentBlock{
+		ai.ImageContent{Data: "abc", MimeType: "image/png"},
 	}
 	got := MessageText(blocks)
 	if got != "" {
@@ -73,9 +73,9 @@ func TestUserMessageToRPCEventString(t *testing.T) {
 }
 
 func TestUserMessageToRPCEventMultimodal(t *testing.T) {
-	blocks := []aitypes.ContentBlock{
-		aitypes.TextContent{Text: "caption"},
-		aitypes.ImageContent{Data: "base64data", MimeType: "image/jpeg"},
+	blocks := []ai.ContentBlock{
+		ai.TextContent{Text: "caption"},
+		ai.ImageContent{Data: "base64data", MimeType: "image/jpeg"},
 	}
 	evt := UserMessageToRPCEvent(blocks)
 
@@ -105,9 +105,9 @@ func TestUserMessageToRPCEventMultimodal(t *testing.T) {
 }
 
 func TestDecodeUserContentRoundTrip(t *testing.T) {
-	original := []aitypes.ContentBlock{
-		aitypes.TextContent{Text: "hello"},
-		aitypes.ImageContent{Data: "imgdata", MimeType: "image/png"},
+	original := []ai.ContentBlock{
+		ai.TextContent{Text: "hello"},
+		ai.ImageContent{Data: "imgdata", MimeType: "image/png"},
 	}
 
 	// Encode
@@ -115,7 +115,7 @@ func TestDecodeUserContentRoundTrip(t *testing.T) {
 
 	// Decode
 	decoded := decodeUserContent(evt)
-	blocks, ok := decoded.([]aitypes.ContentBlock)
+	blocks, ok := decoded.([]ai.ContentBlock)
 	if !ok {
 		t.Fatalf("decodeUserContent returned %T, want []ContentBlock", decoded)
 	}
@@ -123,11 +123,11 @@ func TestDecodeUserContentRoundTrip(t *testing.T) {
 		t.Fatalf("len(blocks) = %d, want 2", len(blocks))
 	}
 
-	text, ok := blocks[0].(aitypes.TextContent)
+	text, ok := blocks[0].(ai.TextContent)
 	if !ok || text.Text != "hello" {
 		t.Errorf("blocks[0] = %+v, want TextContent{Text: hello}", blocks[0])
 	}
-	img, ok := blocks[1].(aitypes.ImageContent)
+	img, ok := blocks[1].(ai.ImageContent)
 	if !ok || img.Data != "imgdata" || img.MimeType != "image/png" {
 		t.Errorf("blocks[1] = %+v, want ImageContent{imgdata, image/png}", blocks[1])
 	}
@@ -166,7 +166,7 @@ func TestAssistantMessageToRPCEvent(t *testing.T) {
 }
 
 func TestToolCallToRPCEvent(t *testing.T) {
-	call := aitypes.ToolCall{
+	call := ai.ToolCall{
 		ID:        "call-1",
 		Name:      "read_file",
 		Arguments: map[string]any{"path": "/tmp/test.txt"},
@@ -184,10 +184,10 @@ func TestToolCallToRPCEvent(t *testing.T) {
 }
 
 func TestToolResultToRPCEvent(t *testing.T) {
-	result := aitypes.ToolResultMessage{
+	result := ai.ToolResultMessage{
 		ToolCallID: "call-1",
 		ToolName:   "read_file",
-		Content:    []aitypes.ContentBlock{aitypes.TextContent{Text: "file contents"}},
+		Content:    []ai.ContentBlock{ai.TextContent{Text: "file contents"}},
 		IsError:    false,
 	}
 	evt := ToolResultToRPCEvent(result)
@@ -203,10 +203,10 @@ func TestToolResultToRPCEvent(t *testing.T) {
 }
 
 func TestToolResultToRPCEventError(t *testing.T) {
-	result := aitypes.ToolResultMessage{
+	result := ai.ToolResultMessage{
 		ToolCallID: "call-2",
 		ToolName:   "read_file",
-		Content:    []aitypes.ContentBlock{aitypes.TextContent{Text: "not found"}},
+		Content:    []ai.ContentBlock{ai.TextContent{Text: "not found"}},
 		IsError:    true,
 	}
 	evt := ToolResultToRPCEvent(result)

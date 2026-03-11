@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 // RPCCommand represents a command in the runner protocol.
@@ -78,7 +78,7 @@ type Event struct {
 }
 
 // MessageContent is the type for user messages passed through the runner pipeline.
-// It is either string (text-only) or []aitypes.ContentBlock (multimodal, e.g. text + images).
+// It is either string (text-only) or []ai.ContentBlock (multimodal, e.g. text + images).
 type MessageContent = any
 
 // Runner runs prompts against an AI backend.
@@ -135,16 +135,16 @@ func UserMessageToRPCEvent(message MessageContent) RPCEvent {
 	switch m := message.(type) {
 	case string:
 		evt.Summary = m
-	case []aitypes.ContentBlock:
+	case []ai.ContentBlock:
 		var blocks []ContentBlockJSON
 		for _, b := range m {
 			switch b := b.(type) {
-			case aitypes.TextContent:
+			case ai.TextContent:
 				blocks = append(blocks, ContentBlockJSON{Kind: BlockKindText, Text: b.Text})
 				if evt.Summary == "" {
 					evt.Summary = b.Text
 				}
-			case aitypes.ImageContent:
+			case ai.ImageContent:
 				blocks = append(blocks, ContentBlockJSON{Kind: BlockKindImage, Data: b.Data, MimeType: b.MimeType})
 			}
 		}
@@ -164,8 +164,8 @@ func MessageText(message MessageContent) string {
 	switch m := message.(type) {
 	case string:
 		return m
-	case []aitypes.ContentBlock:
-		return aitypes.FlattenText(m)
+	case []ai.ContentBlock:
+		return ai.FlattenText(m)
 	default:
 		return fmt.Sprintf("%v", message)
 	}
@@ -189,7 +189,7 @@ func AssistantMessageToRPCEvent(text string) RPCEvent {
 }
 
 // ToolCallToRPCEvent converts a tool call to an RPCEvent for history storage.
-func ToolCallToRPCEvent(call aitypes.ToolCall) RPCEvent {
+func ToolCallToRPCEvent(call ai.ToolCall) RPCEvent {
 	argsJSON, _ := json.Marshal(call.Arguments)
 	return RPCEvent{
 		Type:   RPCEventToolCall,
@@ -200,8 +200,8 @@ func ToolCallToRPCEvent(call aitypes.ToolCall) RPCEvent {
 }
 
 // ToolResultToRPCEvent converts a tool result to an RPCEvent for history storage.
-func ToolResultToRPCEvent(result aitypes.ToolResultMessage) RPCEvent {
-	text := aitypes.FlattenText(result.Content)
+func ToolResultToRPCEvent(result ai.ToolResultMessage) RPCEvent {
+	text := ai.FlattenText(result.Content)
 	contentJSON, _ := json.Marshal(text)
 	evt := RPCEvent{
 		Type:   RPCEventToolResult,

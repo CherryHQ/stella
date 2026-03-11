@@ -4,10 +4,10 @@ import (
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
 	"github.com/openai/openai-go/shared"
-	"github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
-func buildParams(model types.Model, ctx types.Context, opts types.StreamOptions) responses.ResponseNewParams {
+func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) responses.ResponseNewParams {
 	input := convertMessages(ctx)
 
 	params := responses.ResponseNewParams{
@@ -35,7 +35,7 @@ func buildParams(model types.Model, ctx types.Context, opts types.StreamOptions)
 	return params
 }
 
-func convertTools(tools []types.ToolDefinition) []responses.ToolUnionParam {
+func convertTools(tools []ai.ToolDefinition) []responses.ToolUnionParam {
 	out := make([]responses.ToolUnionParam, 0, len(tools))
 	for _, t := range tools {
 		out = append(out, responses.ToolUnionParam{
