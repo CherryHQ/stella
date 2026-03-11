@@ -135,6 +135,30 @@ channels:
 	}
 }
 
+func TestHasEnabledNotifyChannel(t *testing.T) {
+	falseValue := false
+	trueValue := true
+
+	cfg := &Config{
+		Channels: ChannelsConfig{
+			Telegram: TelegramConfig{
+				Enabled:      &falseValue,
+				EnableNotify: &trueValue,
+				Token:        "test-token",
+			},
+		},
+	}
+
+	if hasEnabledNotifyChannel(cfg) {
+		t.Fatal("hasEnabledNotifyChannel() = true, want false for disabled channel")
+	}
+
+	cfg.Channels.Telegram.Enabled = &trueValue
+	if !hasEnabledNotifyChannel(cfg) {
+		t.Fatal("hasEnabledNotifyChannel() = false, want true for enabled notify channel")
+	}
+}
+
 func TestLoadConfigInvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(":::invalid"), 0o644); err != nil {

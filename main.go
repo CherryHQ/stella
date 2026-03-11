@@ -160,9 +160,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	// Notification dispatcher + tool — backends are registered later in
 	// runGateway(). Only expose the tool in gateway mode where at least one
-	// channel has enable_notify set to true.
+	// enabled channel has enable_notify set to true.
 	dispatcher := channel.NewDispatcher()
-	if gateway && (cfg.Channels.Telegram.IsNotifyEnabled() || cfg.Channels.QQ.IsNotifyEnabled() || cfg.Channels.Feishu.IsNotifyEnabled()) {
+	if gateway && hasEnabledNotifyChannel(cfg) {
 		extraTools = append(extraTools, channel.NewNotifyTool(dispatcher))
 	}
 
@@ -228,6 +228,12 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		extraTools: extraTools,
 		notifier:   dispatcher,
 	}, nil
+}
+
+func hasEnabledNotifyChannel(cfg *Config) bool {
+	return (cfg.Channels.Telegram.IsEnabled() && cfg.Channels.Telegram.IsNotifyEnabled()) ||
+		(cfg.Channels.QQ.IsEnabled() && cfg.Channels.QQ.IsNotifyEnabled()) ||
+		(cfg.Channels.Feishu.IsEnabled() && cfg.Channels.Feishu.IsNotifyEnabled())
 }
 
 func newRunnerFactory(cfg *Config, memStore *memory.Store, extraTools []tool.Tool) (runner.NewRunnerFunc, error) {
@@ -313,7 +319,7 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 			defaultChat = tg.ChannelID
 		}
 		channels = append(channels, tgBot)
-		if tg.IsNotifyEnabled() {
+		if tg.IsEnabled() && tg.IsNotifyEnabled() {
 			s.notifier.Register(tgBot, defaultChat)
 		}
 	}
@@ -334,7 +340,7 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 		}
 
 		channels = append(channels, qqBot)
-		if qqCfg.IsNotifyEnabled() {
+		if qqCfg.IsEnabled() && qqCfg.IsNotifyEnabled() {
 			s.notifier.Register(qqBot, "")
 		}
 	}
@@ -358,7 +364,7 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 		}
 
 		channels = append(channels, fsBot)
-		if fsCfg.IsNotifyEnabled() {
+		if fsCfg.IsEnabled() && fsCfg.IsNotifyEnabled() {
 			s.notifier.Register(fsBot, fsCfg.NotifyChat)
 		}
 	}
@@ -368,7 +374,7 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 	}
 
 	if len(s.notifier.Channels()) == 0 {
-		slog.Warn("no channels have enable_notify set to true; cron results and heartbeat notifications will not be delivered")
+		slog.Warn("no enabled channels have enable_notify set to true; cron results and heartbeat notifications will not be delivered")
 	}
 
 	// Start all channels.
