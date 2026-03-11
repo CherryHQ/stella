@@ -386,9 +386,13 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 	if s.cronSvc != nil {
 		if s.cfg.Cron.CronEnabled() {
 			wireCronNotifier(s.cronSvc, s.pool, s.notifier)
-		}
-		if err := s.cronSvc.Start(ctx); err != nil {
-			return fmt.Errorf("start cron: %w", err)
+			if err := s.cronSvc.Start(ctx); err != nil {
+				return fmt.Errorf("start cron: %w", err)
+			}
+		} else {
+			if err := s.cronSvc.StartEphemeral(ctx); err != nil {
+				return fmt.Errorf("start shared scheduler: %w", err)
+			}
 		}
 		defer func() { _ = s.cronSvc.Stop() }()
 	}
