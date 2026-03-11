@@ -18,7 +18,8 @@ const welcomeMessage = "Hi! I'm Anna -- your local AI assistant.\n\n" +
 	"Commands:\n" +
 	"/new -- Start a fresh session\n" +
 	"/compact -- Compress conversation history\n" +
-	"/model -- Switch between models\n\n" +
+	"/model -- Switch between models\n" +
+	"/whoami -- Show your user ID\n\n" +
 	"Just send me a message to get started."
 
 // onMessage handles incoming Feishu messages.
@@ -78,7 +79,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	// Handle commands synchronously (they're fast).
 	if text != "" {
-		if handled := b.handleCommand(text, ch, func(reply string) {
+		if handled := b.handleCommand(text, ch, openID, func(reply string) {
 			b.replyText(b.ctx, messageID, reply)
 		}); handled {
 			return nil
@@ -239,7 +240,7 @@ func (b *Bot) handleMessage(ch, chatID, messageID string, content runner.Message
 
 // handleCommand checks if text is a bot command and handles it.
 // Returns true if the text was a command.
-func (b *Bot) handleCommand(text, ch string, reply func(string)) bool {
+func (b *Bot) handleCommand(text, ch, senderID string, reply func(string)) bool {
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
 		return false
@@ -282,6 +283,10 @@ func (b *Bot) handleCommand(text, ch string, reply func(string)) bool {
 		origCmd := strings.Fields(text)[0]
 		args := strings.TrimSpace(strings.TrimPrefix(text, origCmd))
 		b.handleModelCommand(args, ch, reply)
+		return true
+
+	case "/whoami":
+		reply(fmt.Sprintf("Your open_id: %s\n\nUse this in allowed_ids config and as chat_id for notifications.", senderID))
 		return true
 	}
 
