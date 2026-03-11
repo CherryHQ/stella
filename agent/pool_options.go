@@ -3,6 +3,7 @@ package agent
 import (
 	"time"
 
+	"github.com/vaayne/anna/lcm"
 	"github.com/vaayne/anna/store"
 )
 
@@ -41,6 +42,15 @@ func WithFastModel(model string) PoolOption {
 func WithStore(s store.Store) PoolOption {
 	return func(p *Pool) {
 		p.store = s
+	}
+}
+
+// WithLCM sets the LCM engine for message persistence and compaction.
+// When set, LCM handles Ingest/Assemble/Compact; store.Store is still used
+// for session metadata (SaveInfo, LoadInfo, ListInfo).
+func WithLCM(engine lcm.Engine) PoolOption {
+	return func(p *Pool) {
+		p.lcm = engine
 	}
 }
 

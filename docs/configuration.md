@@ -186,3 +186,14 @@ All config fields support env var overrides using the `ANNA_` prefix. Nested str
 | `channels.feishu.enabled` | `true` |
 | `channels.feishu.enable_notify` | `false` |
 | `channels.feishu.group_mode` | `mention` |
+
+## LCM Defaults
+
+Lossless Context Management settings are currently hardcoded defaults. They will become configurable in a future release.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Database path | `{workspace}/lcm.db` | SQLite database for the message DAG |
+| Fresh tail count | `20` | Number of recent messages kept verbatim in context |
+| Context threshold | `0.75` | Fraction of context window that triggers compaction |
+| Leaf chunk size | `10` | Number of messages grouped per leaf summary |
