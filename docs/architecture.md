@@ -73,7 +73,7 @@ store/
 
 channel/
   model.go                          Channel interface, model list/switch types
-  command.go                        Shared Commander (handles /new, /compact, /model)
+  command.go                        Shared Commander (handles /new, /compact, /model, /whoami)
   util.go                           Shared utilities (SplitMessage, FormatDuration)
   notifier.go                       Notification dispatcher (multi-channel)
   notify_tool.go                    Agent notify tool
@@ -188,7 +188,7 @@ type Channel interface {
 }
 ```
 
-Shared command logic (`/new`, `/compact`, `/model`) lives in `channel.Commander`, which each channel delegates to for the core logic. Channels only handle platform-specific presentation (Telegram uses inline keyboards, QQ uses text lists, CLI uses a TUI picker).
+Shared command logic (`/new`, `/compact`, `/model`, `/whoami`) lives in `channel.Commander`, which each channel delegates to for the core logic. Channels only handle platform-specific presentation (Telegram uses inline keyboards, QQ uses text lists, CLI uses a TUI picker).
 
 ## Notification Flow
 

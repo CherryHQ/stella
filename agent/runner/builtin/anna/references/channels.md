@@ -20,7 +20,7 @@ Or: `export ANNA_TELEGRAM_TOKEN="BOT_TOKEN"`
 
 - Streaming responses via Draft API (Bot API 9.3+), falls back to edit-in-place
 - Image input: send photos for vision-based analysis (requires vision-capable model)
-- In-chat commands: `/new`, `/compact`, `/model`
+- In-chat commands: `/new`, `/compact`, `/model`, `/whoami`
 
 ### Group Support
 
@@ -41,7 +41,7 @@ channels:
       - 136345060           # Telegram user ID
 ```
 
-Leave empty to allow all users. Get your ID by messaging @userinfobot.
+Leave empty to allow all users. Send `/whoami` to the bot to get your user ID.
 
 ### Notifications
 
@@ -50,7 +50,7 @@ Configure a default chat for proactive messages (cron results, notify tool):
 ```yaml
 channels:
   telegram:
-    notify_chat: "123456789"   # chat ID
+    notify_chat: "123456789"   # chat ID (use /whoami to get it)
     channel_id: "@my_channel"  # optional broadcast channel
 ```
 
@@ -83,7 +83,7 @@ Connects via WebSocket (no public URL needed).
 - Native Stream API for progressive responses
 - C2C (private) and group @mention support
 - Image input support
-- Commands: `/start`, `/help`, `/new`, `/compact`, `/model`
+- Commands: `/start`, `/help`, `/new`, `/compact`, `/model`, `/whoami`
 
 ### QQ Group & Access Control
 
@@ -92,5 +92,5 @@ channels:
   qq:
     group_mode: "mention"    # respond to @mentions (default)
     allowed_ids:
-      - "USER_OPEN_ID_1"    # restrict by OpenID
+      - "USER_OPEN_ID_1"    # restrict by OpenID (use /whoami)
 ```
