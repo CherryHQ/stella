@@ -255,7 +255,7 @@ func (b *Bot) handleCommand(text, ch, senderID string, reply func(string)) bool 
 		return true
 
 	case "/whoami":
-		reply(fmt.Sprintf("Your user ID: %s\n\nUse this in allowed_ids config. For notifications, use chat_id: %s", senderID, ch))
+		reply(fmt.Sprintf("Your OpenID: %s\n\nUse this in allowed_ids config.", senderID))
 		return true
 	}
 

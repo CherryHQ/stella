@@ -463,6 +463,18 @@ func TestHandleCommandEmpty(t *testing.T) {
 	}
 }
 
+func TestHandleCommandWhoami(t *testing.T) {
+	bot := &Bot{}
+	var reply string
+	handled := bot.handleCommand("/whoami", "ch", "ou_abc123", func(s string) { reply = s })
+	if !handled {
+		t.Fatal("expected /whoami to be handled")
+	}
+	if !strings.Contains(reply, "ou_abc123") {
+		t.Errorf("expected reply to contain sender open_id, got: %s", reply)
+	}
+}
+
 // --- handleModelCommand ---
 
 func TestHandleModelCommandListModels(t *testing.T) {

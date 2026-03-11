@@ -190,7 +190,7 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 }
 ```
 
-Use `channel.NewCommander(pool, listFn, switchFn)` for shared `/new`, `/compact`, `/model`, `/whoami` command logic. Use `channel.SplitMessage()` and `channel.FormatDuration()` for shared utilities.
+Use `channel.NewCommander(pool, listFn, switchFn)` for shared `/new`, `/compact`, `/model` command logic. `/whoami` is handled per-channel since each platform returns different ID formats. Use `channel.SplitMessage()` and `channel.FormatDuration()` for shared utilities.
 
 2. **Register in `runGateway()`:**
 
