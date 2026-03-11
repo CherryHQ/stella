@@ -77,6 +77,9 @@ func (b *Bot) registerHandlers() {
 	}))
 
 	b.bot.Handle("/whoami", b.guard(func(c tele.Context) error {
+		if c.Sender() == nil {
+			return c.Send("Cannot determine user ID (no sender info).")
+		}
 		userID := c.Sender().ID
 		chatID := c.Chat().ID
 		msg := fmt.Sprintf("Your user ID: `%d`\nThis chat ID: `%d`\n\nUse the user ID in `allowed_ids` and the chat ID in `notify_chat` or as `chat_id` for notifications.", userID, chatID)
