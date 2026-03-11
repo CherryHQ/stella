@@ -264,8 +264,21 @@ func (c *CompactionEngine) condensedPass(ctx context.Context, convID int64, resu
 		return fmt.Errorf("get context items: %w", err)
 	}
 
+	// Pre-fetch depths for all summary items so we can group by depth.
+	depthOf := make(map[string]int64)
+	for _, item := range items {
+		if item.ItemType != ItemTypeSummary || !item.SummaryID.Valid {
+			continue
+		}
+		sum, err := c.q.GetSummary(ctx, item.SummaryID.String)
+		if err != nil {
+			return fmt.Errorf("get summary depth %s: %w", item.SummaryID.String, err)
+		}
+		depthOf[item.SummaryID.String] = sum.Depth
+	}
+
 	// Find runs of consecutive summary items at the same depth.
-	runs := findSummaryRuns(items, 2) // need at least 2 summaries to condense
+	runs := findSummaryRuns(items, 2, depthOf) // need at least 2 summaries to condense
 	if len(runs) == 0 {
 		return nil
 	}
@@ -286,32 +299,42 @@ type summaryRun struct {
 	endOrd   int64
 }
 
-// findSummaryRuns finds contiguous sequences of summary items with at least minSize items.
-func findSummaryRuns(items []ContextItem, minSize int) []summaryRun {
+// findSummaryRuns finds contiguous sequences of summary items at the same depth
+// with at least minSize items. The depthOf map provides the depth for each summary ID.
+// Runs are broken when depth changes to preserve the DAG hierarchy.
+func findSummaryRuns(items []ContextItem, minSize int, depthOf map[string]int64) []summaryRun {
+	flushRun := func(current []ContextItem, runs []summaryRun) []summaryRun {
+		if len(current) >= minSize {
+			runs = append(runs, summaryRun{
+				items:    current,
+				startOrd: current[0].Ordinal,
+				endOrd:   current[len(current)-1].Ordinal,
+			})
+		}
+		return runs
+	}
+
 	var runs []summaryRun
 	var current []ContextItem
+	var currentDepth int64
 
 	for _, item := range items {
-		if item.ItemType == ItemTypeSummary {
-			current = append(current, item)
-		} else {
-			if len(current) >= minSize {
-				runs = append(runs, summaryRun{
-					items:    current,
-					startOrd: current[0].Ordinal,
-					endOrd:   current[len(current)-1].Ordinal,
-				})
-			}
+		if item.ItemType != ItemTypeSummary {
+			runs = flushRun(current, runs)
+			current = nil
+			continue
+		}
+
+		depth := depthOf[item.SummaryID.String]
+		if len(current) > 0 && depth != currentDepth {
+			runs = flushRun(current, runs)
 			current = nil
 		}
+
+		current = append(current, item)
+		currentDepth = depth
 	}
-	if len(current) >= minSize {
-		runs = append(runs, summaryRun{
-			items:    current,
-			startOrd: current[0].Ordinal,
-			endOrd:   current[len(current)-1].Ordinal,
-		})
-	}
+	runs = flushRun(current, runs)
 
 	return runs
 }
@@ -366,6 +389,8 @@ func (c *CompactionEngine) condenseSummaryRun(ctx context.Context, convID int64,
 	// Generate condensed summary.
 	text := strings.Join(textParts, "\n\n---\n\n")
 	newDepth := maxDepth + 1
+	// Condensed summaries are already compressed, so use /2 (not /3 like leaf)
+	// for less aggressive reduction to preserve detail.
 	targetTokens := int(totalTokens) / 2
 	if targetTokens < 10 {
 		targetTokens = 10

@@ -2,6 +2,7 @@ package lcm
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -138,6 +139,130 @@ func TestDeterministicFallback(t *testing.T) {
 	result := deterministicFallback(long, 5) // ~20 chars
 	if !strings.Contains(result, "[Truncated") {
 		t.Error("expected truncation")
+	}
+}
+
+func TestBuildPrompt_WithPreviousContext(t *testing.T) {
+	prompt := BuildPrompt("hello world", SummarizeOptions{
+		TargetTokens: 100,
+		Previous:     "earlier context about project setup",
+	})
+	if !strings.Contains(prompt, "earlier context about project setup") {
+		t.Error("expected Previous text in prompt")
+	}
+	if strings.Contains(prompt, "(none)") {
+		t.Error("should not contain (none) when Previous is set")
+	}
+}
+
+func TestLLMSummarizer_FirstGenerateError(t *testing.T) {
+	expectedErr := errors.New("llm unavailable")
+	s := &LLMSummarizer{
+		Generate: func(_ context.Context, _ string) (string, error) {
+			return "", expectedErr
+		},
+	}
+	_, err := s.Summarize(context.Background(), "some text", SummarizeOptions{
+		TargetTokens: 100,
+	})
+	if err == nil {
+		t.Fatal("expected error from first Generate call")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("expected wrapped llm error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "summarize:") {
+		t.Errorf("expected 'summarize:' prefix, got: %v", err)
+	}
+}
+
+func TestLLMSummarizer_AggressiveGenerateError(t *testing.T) {
+	calls := 0
+	expectedErr := errors.New("llm timeout")
+	s := &LLMSummarizer{
+		Generate: func(_ context.Context, _ string) (string, error) {
+			calls++
+			if calls == 1 {
+				// First call returns something too long to trigger escalation.
+				return strings.Repeat("x", 1000), nil
+			}
+			// Second call (aggressive) fails.
+			return "", expectedErr
+		},
+	}
+	_, err := s.Summarize(context.Background(), "text", SummarizeOptions{
+		TargetTokens: 10,
+	})
+	if err == nil {
+		t.Fatal("expected error from aggressive Generate call")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("expected wrapped llm error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "summarize aggressive:") {
+		t.Errorf("expected 'summarize aggressive:' prefix, got: %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("expected 2 calls before error, got %d", calls)
+	}
+}
+
+func TestLLMSummarizer_CondensedEscalation(t *testing.T) {
+	calls := 0
+	s := &LLMSummarizer{
+		Generate: func(_ context.Context, prompt string) (string, error) {
+			calls++
+			if calls == 1 {
+				// First call returns too-long output to trigger escalation.
+				return strings.Repeat("y", 800), nil
+			}
+			// Second call (aggressive condensed) returns short.
+			return "condensed result", nil
+		},
+	}
+	result, err := s.Summarize(context.Background(), "leaf summary A\nleaf summary B", SummarizeOptions{
+		IsCondensed:  true,
+		Depth:        1,
+		TargetTokens: 10,
+	})
+	if err != nil {
+		t.Fatalf("Summarize condensed: %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("expected 2 calls (condensed escalation), got %d", calls)
+	}
+	if result != "condensed result" {
+		t.Errorf("result = %q", result)
+	}
+}
+
+func TestDeterministicFallback_LineBreak(t *testing.T) {
+	// Build text where the best break point is a newline in the second half.
+	// Each line is about 15 chars. targetTokens=5 means ~20 target chars.
+	text := "First line here\nSecond line he\nThird line her\nFourth line he"
+	result := deterministicFallback(text, 5) // ~20 chars target
+	if !strings.Contains(result, "[Truncated") {
+		t.Error("expected truncation marker")
+	}
+	// Should have broken at a newline boundary.
+	beforeMarker := strings.Split(result, "\n\n[Truncated")[0]
+	if strings.HasSuffix(beforeMarker, " ") {
+		t.Error("should not end with trailing space after line break")
+	}
+}
+
+func TestDeterministicFallback_SentenceBreak(t *testing.T) {
+	// Text with no newlines but with a sentence boundary in the second half.
+	// targetTokens=15 means ~60 chars target. The ". " at position ~40 is past the midpoint (30).
+	text := "AAAAAAAAAAAAAAAAAA. BBBBBBBBBBBBBBBBBBBBB. CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+	result := deterministicFallback(text, 15) // ~60 chars target
+	if !strings.Contains(result, "[Truncated") {
+		t.Error("expected truncation marker")
+	}
+	// Should have broken at a sentence boundary (". ").
+	beforeMarker := strings.Split(result, "\n\n[Truncated")[0]
+	if !strings.HasSuffix(beforeMarker, ".") {
+		t.Errorf("expected sentence break ending with period, got: %q", beforeMarker)
 	}
 }
 
