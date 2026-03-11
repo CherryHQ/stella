@@ -70,6 +70,16 @@ anna gateway
 
 Starts all configured services (Telegram bot, QQ bot, Feishu bot, cron scheduler). Services are activated based on config.
 
+### Version And Upgrades
+
+```bash
+anna version
+anna upgrade
+anna upgrade --install-dir "$HOME/.local/bin"
+```
+
+`anna version` prints the running build version. `anna upgrade` downloads the latest stable GitHub release for the current platform and installs `anna` into `$HOME/.local/bin` by default.
+
 ### Model Management
 
 ```bash
