@@ -8,6 +8,11 @@ import (
 	"unicode/utf8"
 )
 
+// NewRetrievalEngine creates a RetrievalEngine from a Queries instance.
+func NewRetrievalEngine(q *Queries) *RetrievalEngine {
+	return &RetrievalEngine{q: q}
+}
+
 // Default retrieval limits.
 const (
 	defaultGrepLimit    = 20
