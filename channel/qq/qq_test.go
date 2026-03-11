@@ -456,7 +456,7 @@ func TestDownloadImageDetectsMIME(t *testing.T) {
 func TestHandleCommandHelp(t *testing.T) {
 	bot := &Bot{}
 	var reply string
-	handled := bot.handleCommand("/help", "ch", func(s string) { reply = s })
+	handled := bot.handleCommand("/help", "ch", "user123", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /help to be handled")
 	}
@@ -468,7 +468,7 @@ func TestHandleCommandHelp(t *testing.T) {
 func TestHandleCommandStart(t *testing.T) {
 	bot := &Bot{}
 	var reply string
-	handled := bot.handleCommand("/start", "ch", func(s string) { reply = s })
+	handled := bot.handleCommand("/start", "ch", "user123", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /start to be handled")
 	}
@@ -479,7 +479,7 @@ func TestHandleCommandStart(t *testing.T) {
 
 func TestHandleCommandUnknown(t *testing.T) {
 	bot := &Bot{}
-	handled := bot.handleCommand("hello world", "ch", func(s string) {})
+	handled := bot.handleCommand("hello world", "ch", "user123", func(s string) {})
 	if handled {
 		t.Error("regular text should not be handled as command")
 	}
@@ -487,7 +487,7 @@ func TestHandleCommandUnknown(t *testing.T) {
 
 func TestHandleCommandEmpty(t *testing.T) {
 	bot := &Bot{}
-	handled := bot.handleCommand("", "ch", func(s string) {})
+	handled := bot.handleCommand("", "ch", "user123", func(s string) {})
 	if handled {
 		t.Error("empty text should not be handled")
 	}
