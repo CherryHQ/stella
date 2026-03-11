@@ -30,6 +30,7 @@ const welcomeMessage = `👋 Hi! I'm Anna — your local AI assistant.
 /new — Start a fresh session
 /compact — Compress conversation history
 /model — Switch between models
+/whoami — Show your user ID
 
 Just send me a message to get started.`
 
@@ -39,6 +40,7 @@ func botCommands() []tele.Command {
 		{Text: "new", Description: "Start a new session"},
 		{Text: "compact", Description: "Compact session history"},
 		{Text: "model", Description: "List or switch models"},
+		{Text: "whoami", Description: "Show your user ID"},
 	}
 }
 
@@ -72,6 +74,13 @@ func (b *Bot) registerHandlers() {
 		}
 		logger().Info("session compacted", "channel", ch, "summary_len", len(summary))
 		return c.Send("Session compacted.")
+	}))
+
+	b.bot.Handle("/whoami", b.guard(func(c tele.Context) error {
+		userID := c.Sender().ID
+		chatID := c.Chat().ID
+		msg := fmt.Sprintf("Your user ID: `%d`\nThis chat ID: `%d`\n\nUse the user ID in `allowed_ids` and the chat ID in `notify_chat` or as `chat_id` for notifications.", userID, chatID)
+		return c.Send(msg, tele.ModeMarkdown)
 	}))
 
 	b.bot.Handle("/model", b.guard(func(c tele.Context) error {
