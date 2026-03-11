@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented — `agent/pool.go` (orchestration), `agent/store/store.go` (file rewriting), channels expose `/compact`.
+Implemented — `agent/pool_compaction.go` (orchestration), `store/store.go` (file rewriting), channels expose `/compact`.
 
 ## Problem
 

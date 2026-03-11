@@ -32,12 +32,13 @@ Agent (via tool call)
 
 ### Package: `cron/`
 
-Top-level package (sibling to `agent/`, `channel/`). Three files:
+Top-level package (sibling to `agent/`, `channel/`). Four files:
 
 | File | Purpose |
 |------|---------|
 | `cron/job.go` | `Job` and `Schedule` types |
-| `cron/cron.go` | `Service` — gocron wrapper + JSON persistence |
+| `cron/service.go` | `Service` — gocron wrapper, scheduling, job CRUD |
+| `cron/persistence.go` | JSON file I/O (load/save jobs) |
 | `cron/tool.go` | `CronTool` — agent tool implementing `tool.Tool` |
 
 ### Key Types
