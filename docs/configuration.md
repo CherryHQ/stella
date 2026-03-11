@@ -106,6 +106,7 @@ Heartbeat only runs in `anna gateway`. Each tick first uses the fast model to de
 | `~/.anna/workspace/memory/` | Persistent memory (facts + journal) | Data |
 | `~/.anna/workspace/skills/` | Installed skills | Data |
 | `~/.anna/workspace/cron/` | Cron job persistence | Data |
+| `~/.anna/workspace/lcm.db` | LCM SQLite database (messages + summaries) | Data |
 | `~/.anna/workspace/HEARTBEAT.md` | Heartbeat instructions | Data |
 
 - **config.yaml** is static and user-edited — safe to version control.
@@ -186,3 +187,23 @@ All config fields support env var overrides using the `ANNA_` prefix. Nested str
 | `channels.feishu.enabled` | `true` |
 | `channels.feishu.enable_notify` | `false` |
 | `channels.feishu.group_mode` | `mention` |
+
+## LCM Defaults
+
+Lossless Context Management (LCM) stores every message in a local SQLite database and builds a hierarchical summary tree so the model can recall earlier conversation without exceeding its context window. See [docs/session-compaction.md](session-compaction.md) for the compaction pipeline details.
+
+The values below are compiled-in defaults (defined in `lcm/types.go`). They are **not yet exposed as config YAML options** but will become configurable in a future release.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| Database path | `~/.anna/workspace/lcm.db` | SQLite database derived from the workspace root |
+| Fresh tail count | `20` | Number of recent messages always sent verbatim to the model |
+| Context threshold | `0.75` | Fraction of the token budget that triggers automatic compaction |
+| Leaf chunk size | `10` | Messages grouped per leaf summary during compaction |
+
+### Compaction modes
+
+| Mode | Trigger | Behavior |
+|------|---------|----------|
+| Incremental | Automatic after each turn (when threshold is exceeded) | Runs a single leaf pass plus optional condensation |
+| Full | Manual via `/compact` command | Runs repeated passes until no further compaction is possible |

@@ -29,7 +29,7 @@ Two interfaces: **interactive CLI chat** and **gateway daemon** (Telegram bot, Q
 - Session compaction with LLM-generated summaries
 - Scheduled tasks via cron with persistent job storage
 - Skill management (search, install, list, remove from [skills.sh](https://skills.sh) ecosystem)
-- Persistent memory (facts + journal)
+- Persistent memory (facts + journal) with LCM lossless context management
 - Idle runner auto-reaping (configurable timeout)
 - Graceful shutdown on SIGINT/SIGTERM
 
@@ -177,6 +177,7 @@ channel/feishu/                     Feishu bot + WebSocket + streaming + notific
 channel/cli/                        Interactive terminal chat (Bubble Tea TUI)
 cron/                               Scheduled jobs (gocron/v2)
 memory/                             Persistent memory (facts + journal)
+lcm/                                Lossless Context Management (DAG summaries, retrieval tools)
 ai/providers/                       LLM provider implementations (Anthropic, OpenAI)
 ai/types/                           Shared types (Model, Message, ToolDefinition, events)
 ai/stream/                          Streaming abstractions
@@ -193,7 +194,7 @@ ai/stream/                          Streaming abstractions
 | [QQ Bot](docs/qq.md) | Bot setup, webhook, streaming, access control |
 | [Feishu Bot](docs/feishu.md) | Bot setup, WebSocket, streaming, access control |
 | [Models](docs/models.md) | Tiers, CLI commands, provider setup, caching |
-| [Memory System](docs/memory-system.md) | Facts + journal, tool interface |
+| [Memory System](docs/memory-system.md) | Facts + journal, LCM lossless context, retrieval tools |
 | [Cron System](docs/cron-system.md) | Scheduled tasks, job persistence |
 | [Session Compaction](docs/session-compaction.md) | History compaction, token management |
 | [Notification System](docs/notification-system.md) | Dispatcher, backends, agent tool |
