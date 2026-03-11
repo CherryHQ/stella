@@ -8,6 +8,8 @@ builds:
   - id: anna
     main: .
     binary: anna
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
     env:
       - CGO_ENABLED=0
     goos:

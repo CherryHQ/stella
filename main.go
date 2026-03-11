@@ -43,14 +43,17 @@ func main() {
 
 func newApp() *ucli.App {
 	return &ucli.App{
-		Name:  "anna",
-		Usage: "A local AI assistant",
+		Name:    "anna",
+		Usage:   "A local AI assistant",
+		Version: displayVersion(),
 		Commands: []*ucli.Command{
 			chatCommand(),
 			gatewayCommand(),
 			modelsCommand(),
 			skillsCommand(),
 			onboardCommand(),
+			versionCommand(),
+			upgradeCommand(),
 		},
 	}
 }
