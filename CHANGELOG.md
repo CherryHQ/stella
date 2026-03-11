@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-03-12
+
+### ✨ Features
+
+- **Channels**: Add /whoami command to all channels ([#44](https://github.com/vaayne/anna/pull/44))
+
+**Full Changelog**: [v0.4.1...v0.4.2](https://github.com/vaayne/anna/compare/v0.4.1...v0.4.2)
+
 ## [0.4.1] - 2026-03-11
 
 ### ♻️ Refactoring
