@@ -11,13 +11,12 @@ import (
 
 // GrepTool searches conversation history using the LCM retrieval engine.
 type GrepTool struct {
-	retrieval *lcm.RetrievalEngine
-	convID    int64
+	engine lcm.Engine
 }
 
 // NewGrepTool creates a memory_grep tool.
-func NewGrepTool(retrieval *lcm.RetrievalEngine, convID int64) *GrepTool {
-	return &GrepTool{retrieval: retrieval, convID: convID}
+func NewGrepTool(engine lcm.Engine) *GrepTool {
+	return &GrepTool{engine: engine}
 }
 
 func (t *GrepTool) Definition() aitypes.ToolDefinition {
@@ -55,7 +54,12 @@ func (t *GrepTool) Execute(ctx context.Context, args map[string]any) (string, er
 	scope, _ := args["scope"].(string)
 	limit := intArg(args, "limit", 0)
 
-	results, err := t.retrieval.Grep(ctx, t.convID, pattern, scope, limit)
+	sessionID := lcm.SessionIDFromContext(ctx)
+	if sessionID == "" {
+		return "", fmt.Errorf("memory_grep: no session context")
+	}
+
+	results, err := t.engine.Retrieval().GrepBySession(ctx, sessionID, pattern, scope, limit)
 	if err != nil {
 		return "", fmt.Errorf("memory_grep: %w", err)
 	}

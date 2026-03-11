@@ -11,12 +11,12 @@ import (
 
 // ExpandTool drills into a summary to retrieve original details.
 type ExpandTool struct {
-	retrieval *lcm.RetrievalEngine
+	engine lcm.Engine
 }
 
 // NewExpandTool creates a memory_expand tool.
-func NewExpandTool(retrieval *lcm.RetrievalEngine) *ExpandTool {
-	return &ExpandTool{retrieval: retrieval}
+func NewExpandTool(engine lcm.Engine) *ExpandTool {
+	return &ExpandTool{engine: engine}
 }
 
 func (t *ExpandTool) Definition() aitypes.ToolDefinition {
@@ -48,7 +48,7 @@ func (t *ExpandTool) Execute(ctx context.Context, args map[string]any) (string, 
 
 	tokenCap := intArg(args, "token_cap", 0)
 
-	result, err := t.retrieval.Expand(ctx, summaryID, tokenCap)
+	result, err := t.engine.Retrieval().Expand(ctx, summaryID, tokenCap)
 	if err != nil {
 		return "", fmt.Errorf("memory_expand: %w", err)
 	}

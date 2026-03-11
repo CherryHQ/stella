@@ -3,38 +3,26 @@ package tool
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"testing"
 
 	"github.com/vaayne/anna/lcm"
 )
 
-// setupDescribeTest creates a test DB with seeded data and returns a DescribeTool.
+const describeTestSession = "sess-describe-test"
+
+// setupDescribeTest creates a test engine with seeded data and returns a DescribeTool.
 func setupDescribeTest(t *testing.T) *DescribeTool {
 	t.Helper()
 
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := lcm.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	engine, q := setupEngine(t)
+	convID := bootstrapSession(t, engine, q, describeTestSession)
 
-	q := lcm.New(db)
-	ctx := context.Background()
+	msgIDs := seedMessages(t, q, convID, []string{"msg one", "msg two", "msg three"})
+	seedLeafSummary(t, q, convID, "leaf_001", "first leaf summary", msgIDs[:2])
+	seedLeafSummary(t, q, convID, "leaf_002", "second leaf summary", msgIDs[2:])
+	seedCondensedSummary(t, q, convID, "cond_001", "condensed summary", 1, []string{"leaf_001", "leaf_002"})
 
-	conv, err := q.CreateConversation(ctx, lcm.CreateConversationParams{SessionID: "sess-describe"})
-	if err != nil {
-		t.Fatalf("CreateConversation: %v", err)
-	}
-
-	msgIDs := seedMessages(t, q, conv.ID, []string{"msg one", "msg two", "msg three"})
-	seedLeafSummary(t, q, conv.ID, "leaf_001", "first leaf summary", msgIDs[:2])
-	seedLeafSummary(t, q, conv.ID, "leaf_002", "second leaf summary", msgIDs[2:])
-	seedCondensedSummary(t, q, conv.ID, "cond_001", "condensed summary", 1, []string{"leaf_001", "leaf_002"})
-
-	retrieval := lcm.NewRetrievalEngine(q)
-	return NewDescribeTool(retrieval)
+	return NewDescribeTool(engine)
 }
 
 func TestDescribeDefinition(t *testing.T) {

@@ -3,42 +3,29 @@ package tool
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/vaayne/anna/lcm"
 )
 
-// setupGrepTest creates a test DB, conversation, and GrepTool.
-func setupGrepTest(t *testing.T) (*GrepTool, *lcm.Queries, int64) {
+const grepTestSession = "sess-grep-test"
+
+// setupGrepTest creates a test engine, bootstraps a session, and returns
+// the GrepTool, Queries handle, conversation ID, and a context with session ID.
+func setupGrepTest(t *testing.T) (*GrepTool, *lcm.Queries, int64, context.Context) {
 	t.Helper()
 
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := lcm.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	engine, q := setupEngine(t)
+	convID := bootstrapSession(t, engine, q, grepTestSession)
+	ctx := lcm.WithSessionID(context.Background(), grepTestSession)
+	tool := NewGrepTool(engine)
 
-	q := lcm.New(db)
-	ctx := context.Background()
-
-	conv, err := q.CreateConversation(ctx, lcm.CreateConversationParams{
-		SessionID: "sess-grep-test",
-	})
-	if err != nil {
-		t.Fatalf("CreateConversation: %v", err)
-	}
-
-	retrieval := lcm.NewRetrievalEngine(q)
-	tool := NewGrepTool(retrieval, conv.ID)
-
-	return tool, q, conv.ID
+	return tool, q, convID, ctx
 }
 
 func TestGrepDefinition(t *testing.T) {
-	tool := NewGrepTool(nil, 0)
+	tool := NewGrepTool(nil)
 	def := tool.Definition()
 
 	if def.Name != "memory_grep" {
@@ -68,8 +55,7 @@ func TestGrepDefinition(t *testing.T) {
 }
 
 func TestGrepExecute_WithResults(t *testing.T) {
-	tool, q, convID := setupGrepTest(t)
-	ctx := context.Background()
+	tool, q, convID, ctx := setupGrepTest(t)
 
 	seedMessages(t, q, convID, []string{
 		"implement authentication module",
@@ -103,8 +89,7 @@ func TestGrepExecute_WithResults(t *testing.T) {
 }
 
 func TestGrepExecute_BothScope(t *testing.T) {
-	tool, q, convID := setupGrepTest(t)
-	ctx := context.Background()
+	tool, q, convID, ctx := setupGrepTest(t)
 
 	msgIDs := seedMessages(t, q, convID, []string{
 		"implement auth module",
@@ -142,8 +127,7 @@ func TestGrepExecute_BothScope(t *testing.T) {
 }
 
 func TestGrepExecute_NoResults(t *testing.T) {
-	tool, q, convID := setupGrepTest(t)
-	ctx := context.Background()
+	tool, q, convID, ctx := setupGrepTest(t)
 
 	seedMessages(t, q, convID, []string{"hello world"})
 
@@ -159,7 +143,7 @@ func TestGrepExecute_NoResults(t *testing.T) {
 }
 
 func TestGrepExecute_MissingPattern(t *testing.T) {
-	tool := NewGrepTool(nil, 0)
+	tool := NewGrepTool(nil)
 	ctx := context.Background()
 
 	_, err := tool.Execute(ctx, map[string]any{})
@@ -172,7 +156,7 @@ func TestGrepExecute_MissingPattern(t *testing.T) {
 }
 
 func TestGrepExecute_EmptyPattern(t *testing.T) {
-	tool := NewGrepTool(nil, 0)
+	tool := NewGrepTool(nil)
 	ctx := context.Background()
 
 	_, err := tool.Execute(ctx, map[string]any{"pattern": ""})
@@ -184,9 +168,22 @@ func TestGrepExecute_EmptyPattern(t *testing.T) {
 	}
 }
 
+func TestGrepExecute_NoSessionContext(t *testing.T) {
+	engine, _ := setupEngine(t)
+	tool := NewGrepTool(engine)
+	ctx := context.Background() // no session ID in context
+
+	_, err := tool.Execute(ctx, map[string]any{"pattern": "test"})
+	if err == nil {
+		t.Fatal("expected error for missing session context")
+	}
+	if !strings.Contains(err.Error(), "no session context") {
+		t.Errorf("error = %q, want to contain 'no session context'", err.Error())
+	}
+}
+
 func TestGrepExecute_WithLimit(t *testing.T) {
-	tool, q, convID := setupGrepTest(t)
-	ctx := context.Background()
+	tool, q, convID, ctx := setupGrepTest(t)
 
 	seedMessages(t, q, convID, []string{
 		"searchable item one",

@@ -11,12 +11,12 @@ import (
 
 // DescribeTool inspects summary metadata and lineage.
 type DescribeTool struct {
-	retrieval *lcm.RetrievalEngine
+	engine lcm.Engine
 }
 
 // NewDescribeTool creates a memory_describe tool.
-func NewDescribeTool(retrieval *lcm.RetrievalEngine) *DescribeTool {
-	return &DescribeTool{retrieval: retrieval}
+func NewDescribeTool(engine lcm.Engine) *DescribeTool {
+	return &DescribeTool{engine: engine}
 }
 
 func (t *DescribeTool) Definition() aitypes.ToolDefinition {
@@ -42,7 +42,7 @@ func (t *DescribeTool) Execute(ctx context.Context, args map[string]any) (string
 		return "", fmt.Errorf("memory_describe: summary_id is required")
 	}
 
-	result, err := t.retrieval.Describe(ctx, summaryID)
+	result, err := t.engine.Retrieval().Describe(ctx, summaryID)
 	if err != nil {
 		return "", fmt.Errorf("memory_describe: %w", err)
 	}

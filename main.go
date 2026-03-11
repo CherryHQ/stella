@@ -24,6 +24,7 @@ import (
 	"github.com/vaayne/anna/cron"
 	"github.com/vaayne/anna/heartbeat"
 	"github.com/vaayne/anna/lcm"
+	lcmtool "github.com/vaayne/anna/lcm/tool"
 	"github.com/vaayne/anna/memory"
 	"github.com/vaayne/anna/skills"
 	"golang.org/x/sync/errgroup"
@@ -170,6 +171,21 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		extraTools = append(extraTools, channel.NewNotifyTool(dispatcher))
 	}
 
+	// LCM: create engine for message persistence and compaction.
+	// TODO: wire LLMSummarizer with runner factory for production-quality summaries.
+	lcmDBPath := filepath.Join(cfg.Workspace, "lcm.db")
+	lcmEngine, err := lcm.NewEngine(lcmDBPath, &lcm.StaticSummarizer{Response: "compacted"}, lcm.WithLogger(slog.Default()))
+	if err != nil {
+		return nil, fmt.Errorf("create lcm engine: %w", err)
+	}
+
+	// LCM retrieval tools — must be appended before runner factory captures extraTools.
+	extraTools = append(extraTools,
+		lcmtool.NewGrepTool(lcmEngine),
+		lcmtool.NewDescribeTool(lcmEngine),
+		lcmtool.NewExpandTool(lcmEngine),
+	)
+
 	idleTimeout := time.Duration(cfg.Runner.IdleTimeout) * time.Minute
 	factory, err := newRunnerFactory(cfg, memStore, extraTools)
 	if err != nil {
@@ -190,14 +206,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		}
 		opts = append(opts, agent.WithStore(s))
 		slog.Info("session persistence enabled", "dir", sessionsPath)
-	}
-
-	// LCM: create engine for message persistence and compaction.
-	// TODO: wire LLMSummarizer with runner factory for production-quality summaries.
-	lcmDBPath := filepath.Join(cfg.Workspace, "lcm.db")
-	lcmEngine, err := lcm.NewEngine(lcmDBPath, &lcm.StaticSummarizer{Response: "compacted"}, lcm.WithLogger(slog.Default()))
-	if err != nil {
-		return nil, fmt.Errorf("create lcm engine: %w", err)
 	}
 	opts = append(opts, agent.WithLCM(lcmEngine))
 

@@ -20,6 +20,16 @@ const (
 	maxContentSnippet   = 500
 )
 
+// GrepBySession searches messages and/or summaries for a LIKE pattern,
+// resolving the conversation ID from a session ID.
+func (r *RetrievalEngine) GrepBySession(ctx context.Context, sessionID string, pattern string, scope string, limit int) ([]GrepResult, error) {
+	conv, err := r.q.GetConversationBySessionID(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("get conversation: %w", err)
+	}
+	return r.Grep(ctx, conv.ID, pattern, scope, limit)
+}
+
 // Grep searches messages and/or summaries for a LIKE pattern.
 // scope is "messages", "summaries", or "both" (default).
 func (r *RetrievalEngine) Grep(ctx context.Context, convID int64, pattern string, scope string, limit int) ([]GrepResult, error) {

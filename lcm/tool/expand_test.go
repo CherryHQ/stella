@@ -3,36 +3,24 @@ package tool
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/vaayne/anna/lcm"
 )
 
-// setupExpandTest creates an in-memory SQLite DB, a conversation, and returns
-// the ExpandTool, Queries handle, and conversation ID for seeding data.
+const expandTestSession = "sess-expand-test"
+
+// setupExpandTest creates a test engine, bootstraps a session, and returns
+// the ExpandTool, Queries handle, and conversation ID.
 func setupExpandTest(t *testing.T) (*ExpandTool, *lcm.Queries, int64) {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := lcm.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
 
-	q := lcm.New(db)
-	ctx := context.Background()
-	conv, err := q.CreateConversation(ctx, lcm.CreateConversationParams{
-		SessionID: "sess-expand-test",
-	})
-	if err != nil {
-		t.Fatalf("CreateConversation: %v", err)
-	}
+	engine, q := setupEngine(t)
+	convID := bootstrapSession(t, engine, q, expandTestSession)
+	tool := NewExpandTool(engine)
 
-	retrieval := lcm.NewRetrievalEngine(q)
-	tool := NewExpandTool(retrieval)
-	return tool, q, conv.ID
+	return tool, q, convID
 }
 
 func TestExpandTool_Definition(t *testing.T) {
