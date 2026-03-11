@@ -53,6 +53,16 @@ Or use the interactive CLI:
 anna chat
 ```
 
+### Version And Self-Upgrade
+
+```bash
+anna version
+anna upgrade
+anna upgrade --install-dir "$HOME/.local/bin"
+```
+
+`anna upgrade` fetches the latest stable release from GitHub, downloads the matching archive for the current OS/architecture, and installs the binary into `$HOME/.local/bin` by default.
+
 ### Systemd Service (Linux)
 
 ```ini
