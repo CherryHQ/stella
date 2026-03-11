@@ -57,7 +57,7 @@ func NewEngine(dbPath string, summarizer Summarizer, opts ...EngineOption) (Engi
 		db:        db,
 		q:         q,
 		assembler: NewAssembler(q),
-		retrieval: &RetrievalEngine{},
+		retrieval: &RetrievalEngine{q: q},
 		sessionMu: make(map[string]*sync.Mutex),
 		freshTail: DefaultFreshTail,
 		log:       slog.Default(),

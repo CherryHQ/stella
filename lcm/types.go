@@ -114,9 +114,8 @@ func (m CompactionMode) String() string {
 }
 
 // RetrievalEngine provides search and exploration of compacted history.
-// Populated in later tasks; declared here for Engine interface compatibility.
 type RetrievalEngine struct {
-	// db will be set during engine construction
+	q *Queries
 }
 
 // GrepResult represents a single search hit from memory_grep.
@@ -124,7 +123,7 @@ type GrepResult struct {
 	SourceType string // "message" or "summary"
 	SourceID   string
 	Content    string
-	Relevance  float64
+	Relevance  float64 // reserved for future scoring; currently 0
 	Timestamp  time.Time
 }
 
