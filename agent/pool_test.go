@@ -936,3 +936,85 @@ func TestSetDefaultModelAffectsNewSessions(t *testing.T) {
 	}
 	mu.Unlock()
 }
+
+func TestNeedsCompactionNoStore(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	pool := NewPool(factory, WithCompaction(CompactionConfig{MaxTokens: 100}))
+
+	// No store set — should always return false.
+	if pool.NeedsCompaction("any-session") {
+		t.Error("NeedsCompaction should return false when store is nil")
+	}
+}
+
+func TestNeedsCompactionDisabled(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	dir := t.TempDir()
+	s, _ := store.NewFileStore(dir, t.TempDir())
+	pool := NewPool(factory, WithStore(s), WithCompaction(CompactionConfig{MaxTokens: 0}))
+
+	if pool.NeedsCompaction("any-session") {
+		t.Error("NeedsCompaction should return false when MaxTokens <= 0")
+	}
+}
+
+func TestNeedsCompactionUnderThreshold(t *testing.T) {
+	factory, _ := mockRunnerFactory([]runner.Event{{Text: "short"}})
+	dir := t.TempDir()
+	s, _ := store.NewFileStore(dir, t.TempDir())
+	pool := NewPool(factory, WithStore(s), WithCompaction(CompactionConfig{MaxTokens: 100_000}))
+	defer func() { _ = pool.Close() }()
+
+	info, _ := pool.CreateSession("test")
+	stream := pool.Chat(context.Background(), info.ID, "hi")
+	for range stream {
+	}
+
+	// Small conversation should not need compaction.
+	if pool.NeedsCompaction(info.ID) {
+		t.Error("small session should not need compaction")
+	}
+}
+
+func TestPoolCloseIdempotent(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	pool := NewPool(factory)
+
+	if err := pool.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	if err := pool.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+}
+
+func TestPoolHistoryEmpty(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	pool := NewPool(factory)
+
+	// Nonexistent session returns empty history.
+	history := pool.History("nonexistent")
+	if len(history) != 0 {
+		t.Errorf("expected empty history, got %d events", len(history))
+	}
+}
+
+func TestPoolConcurrentChat(t *testing.T) {
+	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	pool := NewPool(factory)
+	defer func() { _ = pool.Close() }()
+
+	const n = 10
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := range n {
+		go func() {
+			defer wg.Done()
+			sessionID := fmt.Sprintf("session-%d", i)
+			stream := pool.Chat(context.Background(), sessionID, "hello")
+			for range stream {
+			}
+		}()
+	}
+	wg.Wait()
+}
