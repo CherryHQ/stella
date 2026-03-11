@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-03-11
+
+### ✨ Features
+
+- **CLI**: Add `version` and self-upgrade commands ([#41](https://github.com/vaayne/anna/pull/41))
+- **Gateway**: Add heartbeat support for gateway channels ([#40](https://github.com/vaayne/anna/pull/40))
+- **Config**: Add `enabled` and `enable_notify` toggles for channels
+
+### 🐛 Bug Fixes
+
+- **Notifications**: Respect channel `enabled` flag for notification routing
+- **Gateway**: Skip persisted cron jobs for heartbeat-only gateway runs
+- **Upgrade**: Harden self-upgrade target replacement
+
+### 📝 Documentation
+
+- **CLI**: Document version and upgrade commands
+
+**Full Changelog**: [v0.3.0...v0.4.0](https://github.com/vaayne/anna/compare/v0.3.0...v0.4.0)
+
 ## [0.3.0] - 2026-03-10
 
 ### ✨ Features
