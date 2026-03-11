@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vaayne/anna/agent/runner"
-	"github.com/vaayne/anna/agent/store"
+	"github.com/vaayne/anna/store"
 )
 
 // Pool manages a set of sessions, each with its own history and runner.

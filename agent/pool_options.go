@@ -3,7 +3,7 @@ package agent
 import (
 	"time"
 
-	"github.com/vaayne/anna/agent/store"
+	"github.com/vaayne/anna/store"
 )
 
 // PoolOption configures a Pool.

@@ -2,7 +2,7 @@ package agent
 
 import (
 	"github.com/vaayne/anna/agent/runner"
-	"github.com/vaayne/anna/agent/store"
+	"github.com/vaayne/anna/store"
 )
 
 // CompactionConfig controls automatic session compaction.

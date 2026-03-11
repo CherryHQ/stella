@@ -11,7 +11,6 @@ import (
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/agent"
 	"github.com/vaayne/anna/agent/runner"
-	"github.com/vaayne/anna/agent/store"
 	"github.com/vaayne/anna/agent/tool"
 	"github.com/vaayne/anna/channel"
 	"github.com/vaayne/anna/config"
@@ -19,6 +18,7 @@ import (
 	"github.com/vaayne/anna/heartbeat"
 	"github.com/vaayne/anna/memory"
 	"github.com/vaayne/anna/skills"
+	"github.com/vaayne/anna/store"
 )
 
 func newApp() *ucli.App {

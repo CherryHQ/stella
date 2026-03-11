@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/agent/runner"
-	"github.com/vaayne/anna/agent/store"
+	"github.com/vaayne/anna/store"
 )
 
 // mockRunner implements runner.Runner and io.Closer for pool tests.
