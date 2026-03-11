@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-03-11
+
+### ♻️ Refactoring
+
+- Flatten packages, split large files, and improve structure ([#43](https://github.com/vaayne/anna/pull/43))
+
+**Full Changelog**: [v0.4.0...v0.4.1](https://github.com/vaayne/anna/compare/v0.4.0...v0.4.1)
+
 ## [0.4.0] - 2026-03-11
 
 ### ✨ Features
