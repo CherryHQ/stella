@@ -17,6 +17,7 @@ import (
 	openairesponse "github.com/vaayne/anna/ai/providers/openai-response"
 	"github.com/vaayne/anna/ai/stream"
 	"github.com/vaayne/anna/channel"
+	"github.com/vaayne/anna/config"
 )
 
 // CachedModel is the on-disk representation of a model in models.json.
@@ -32,7 +33,7 @@ type ModelsCache struct {
 }
 
 func modelsCachePath() string {
-	return filepath.Join(cachePath(), "models.json")
+	return filepath.Join(config.CachePath(), "models.json")
 }
 
 // LoadModelsCache reads the cached models from the workspace models.json.
@@ -62,7 +63,7 @@ func SaveModelsCache(cache *ModelsCache) error {
 }
 
 // fetchModelsFromAPIs queries all configured providers for their model lists.
-func fetchModelsFromAPIs(cfg *Config) []CachedModel {
+func fetchModelsFromAPIs(cfg *config.Config) []CachedModel {
 	seen := make(map[string]bool)
 	var models []CachedModel
 
@@ -112,7 +113,7 @@ func fetchModelsFromAPIs(cfg *Config) []CachedModel {
 // collectModels builds the list of available provider/model pairs.
 // It reads from the models cache, falling back to config-only models
 // if the cache doesn't exist. Run "anna models update" to populate the cache.
-func collectModels(cfg *Config) []channel.ModelOption {
+func collectModels(cfg *config.Config) []channel.ModelOption {
 	seen := make(map[string]bool)
 	var models []channel.ModelOption
 
@@ -155,7 +156,7 @@ func collectModels(cfg *Config) []channel.ModelOption {
 }
 
 // newStreamProvider creates a stream.Provider for the given provider name and config.
-func newStreamProvider(name string, cfg ProviderConfig) stream.Provider {
+func newStreamProvider(name string, cfg config.ProviderConfig) stream.Provider {
 	switch name {
 	case "anthropic":
 		return anthropic.New(anthropic.Config{BaseURL: cfg.BaseURL, APIKey: cfg.APIKey})
@@ -192,7 +193,7 @@ func modelsListCommand() *ucli.Command {
 }
 
 func modelsListAction(c *ucli.Context) error {
-	cfg, err := LoadConfig()
+	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
@@ -207,7 +208,7 @@ func modelsUpdateCommand() *ucli.Command {
 		Name:  "update",
 		Usage: "Fetch models from all provider APIs and update the cache",
 		Action: func(c *ucli.Context) error {
-			cfg, err := LoadConfig()
+			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
@@ -235,7 +236,7 @@ func modelsCurrentCommand() *ucli.Command {
 		Name:  "current",
 		Usage: "Show the active provider and model",
 		Action: func(c *ucli.Context) error {
-			cfg, err := LoadConfig()
+			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
@@ -261,11 +262,11 @@ func modelsSetCommand() *ucli.Command {
 				return fmt.Errorf("invalid format %q, expected provider/model", arg)
 			}
 
-			cfg, err := LoadConfig()
+			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
-			if err := SaveModelSelection(cfg.Workspace, provider, model); err != nil {
+			if err := config.SaveModelSelection(cfg.Workspace, provider, model); err != nil {
 				return err
 			}
 			fmt.Printf("Switched to %s/%s\n", provider, model)
@@ -285,7 +286,7 @@ func modelsSearchCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna models search <query>")
 			}
 
-			cfg, err := LoadConfig()
+			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
