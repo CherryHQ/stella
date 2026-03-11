@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -34,6 +35,12 @@ func (m *chatModel) handleInput(input string) tea.Cmd {
 			summary, err := m.pool.CompactSession(ctx, sessionID)
 			return compactDoneMsg{summary: summary, err: err}
 		}
+	case "/whoami":
+		userInfo := fmt.Sprintf("Channel: %s\n\nCLI runs locally — use /whoami in Telegram, QQ, or Feishu to get your user ID for notifications.", cliChannel)
+		m.history.WriteString(systemStyle.Render(userInfo) + "\n\n")
+		m.viewport.SetContent(m.history.String())
+		m.viewport.GotoBottom()
+		return nil
 	case "/model":
 		m.models = toModelOptions(m.listModels())
 		if len(m.models) == 0 {

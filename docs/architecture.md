@@ -188,7 +188,7 @@ type Channel interface {
 }
 ```
 
-Shared command logic (`/new`, `/compact`, `/model`) lives in `channel.Commander`, which each channel delegates to for the core logic. Channels only handle platform-specific presentation (Telegram uses inline keyboards, QQ uses text lists, CLI uses a TUI picker).
+Shared command logic (`/new`, `/compact`, `/model`) lives in `channel.Commander`, which each channel delegates to for the core logic. `/whoami` is handled per-channel since each platform returns different ID formats. Channels handle platform-specific presentation (Telegram uses inline keyboards, QQ uses text lists, CLI uses a TUI picker).
 
 ## Notification Flow
 

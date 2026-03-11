@@ -85,7 +85,7 @@ channels:
       - "ou_xxxx"
 ```
 
-Leave empty to allow all users.
+Leave empty to allow all users. Use the `/whoami` command to get your open_id.
 
 ## Notifications
 
@@ -94,7 +94,7 @@ Configure a default chat for proactive notifications (cron results, agent-trigge
 ```yaml
 channels:
   feishu:
-    notify_chat: "oc_xxxx"   # Chat ID for notifications
+    notify_chat: "oc_xxxx"   # Chat ID or open_id (use /whoami)
 ```
 
 ## Commands
@@ -109,6 +109,7 @@ Send these commands as text messages to the bot:
 | `/model` | List available models |
 | `/model <number>` | Switch to model by number |
 | `/model <query>` | Filter models by name |
+| `/whoami` | Show your user ID for config |
 
 ## Configuration Reference
 
