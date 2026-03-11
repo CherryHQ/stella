@@ -30,6 +30,7 @@ var (
 	upgradeAPIBaseURL   = "https://api.github.com"
 	upgradeUserAgent    = "anna-upgrade"
 	errUnsupportedAsset = errors.New("no release asset for current platform")
+	errInvalidTarget    = errors.New("existing target is not a replaceable file")
 	renameFile          = os.Rename
 )
 
@@ -113,7 +114,7 @@ func defaultInstallDir() (string, error) {
 	return filepath.Join(home, ".local", "bin"), nil
 }
 
-func fetchLatestRelease(ctx context.Context) (*githubRelease, error) {
+func fetchLatestRelease(ctx context.Context) (release *githubRelease, err error) {
 	url := strings.TrimRight(upgradeAPIBaseURL, "/") + "/repos/" + githubOwner + "/" + githubRepo + "/releases/latest"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -126,21 +127,25 @@ func fetchLatestRelease(ctx context.Context) (*githubRelease, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetch latest release: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close release response body: %w", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 		return nil, fmt.Errorf("fetch latest release: unexpected status %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 
-	var release githubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	var parsed githubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
 		return nil, fmt.Errorf("decode release response: %w", err)
 	}
-	if normalizeVersion(release.TagName) == "" {
-		return nil, fmt.Errorf("latest release tag %q is invalid", release.TagName)
+	if normalizeVersion(parsed.TagName) == "" {
+		return nil, fmt.Errorf("latest release tag %q is invalid", parsed.TagName)
 	}
-	return &release, nil
+	return &parsed, nil
 }
 
 func runUpgrade(ctx context.Context, installDir, currentVersion, goos, goarch string) (*upgradeResult, error) {
@@ -194,7 +199,7 @@ func releaseAssetSuffixes(goos, goarch string) []string {
 	return []string{base + ".tar.gz", base + ".zip"}
 }
 
-func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installDir, goos string) (string, error) {
+func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installDir, goos string) (targetPath string, err error) {
 	if err := os.MkdirAll(installDir, 0o755); err != nil {
 		return "", fmt.Errorf("create install dir: %w", err)
 	}
@@ -203,7 +208,11 @@ func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installD
 	if err != nil {
 		return "", fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if removeErr := os.RemoveAll(tmpDir); removeErr != nil && err == nil {
+			err = fmt.Errorf("cleanup temp dir: %w", removeErr)
+		}
+	}()
 
 	archivePath := filepath.Join(tmpDir, asset.Name)
 	if err := downloadFile(ctx, asset.BrowserDownloadURL, archivePath); err != nil {
@@ -216,14 +225,14 @@ func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installD
 		return "", err
 	}
 
-	targetPath := filepath.Join(installDir, binaryName)
+	targetPath = filepath.Join(installDir, binaryName)
 	if err := installBinary(extractedPath, targetPath, goos != "windows"); err != nil {
 		return "", err
 	}
 	return targetPath, nil
 }
 
-func downloadFile(ctx context.Context, url, dest string) error {
+func downloadFile(ctx context.Context, url, dest string) (err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("build asset request: %w", err)
@@ -234,7 +243,11 @@ func downloadFile(ctx context.Context, url, dest string) error {
 	if err != nil {
 		return fmt.Errorf("download asset: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close asset response body: %w", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
@@ -245,10 +258,12 @@ func downloadFile(ctx context.Context, url, dest string) error {
 	if err != nil {
 		return fmt.Errorf("create archive file: %w", err)
 	}
-	defer out.Close()
-
 	if _, err := io.Copy(out, resp.Body); err != nil {
+		_ = out.Close()
 		return fmt.Errorf("write archive file: %w", err)
+	}
+	if err := out.Close(); err != nil {
+		return fmt.Errorf("close archive file: %w", err)
 	}
 	return nil
 }
@@ -264,18 +279,26 @@ func extractBinaryFromArchive(archivePath, destDir, binaryName string) (string, 
 	}
 }
 
-func extractBinaryFromTarGz(archivePath, destDir, binaryName string) (string, error) {
+func extractBinaryFromTarGz(archivePath, destDir, binaryName string) (outPath string, err error) {
 	file, err := os.Open(archivePath)
 	if err != nil {
 		return "", fmt.Errorf("open archive: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close archive: %w", closeErr)
+		}
+	}()
 
 	gzReader, err := gzip.NewReader(file)
 	if err != nil {
 		return "", fmt.Errorf("open gzip archive: %w", err)
 	}
-	defer gzReader.Close()
+	defer func() {
+		if closeErr := gzReader.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close gzip archive: %w", closeErr)
+		}
+	}()
 
 	tarReader := tar.NewReader(gzReader)
 	for {
@@ -292,7 +315,7 @@ func extractBinaryFromTarGz(archivePath, destDir, binaryName string) (string, er
 		if filepath.Base(header.Name) != binaryName {
 			continue
 		}
-		outPath := filepath.Join(destDir, binaryName)
+		outPath = filepath.Join(destDir, binaryName)
 		if err := writeReaderToFile(outPath, tarReader, 0o755); err != nil {
 			return "", err
 		}
@@ -301,12 +324,16 @@ func extractBinaryFromTarGz(archivePath, destDir, binaryName string) (string, er
 	return "", fmt.Errorf("binary %q not found in archive", binaryName)
 }
 
-func extractBinaryFromZip(archivePath, destDir, binaryName string) (string, error) {
+func extractBinaryFromZip(archivePath, destDir, binaryName string) (outPath string, err error) {
 	reader, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return "", fmt.Errorf("open zip archive: %w", err)
 	}
-	defer reader.Close()
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close zip archive: %w", closeErr)
+		}
+	}()
 
 	for _, file := range reader.File {
 		if filepath.Base(file.Name) != binaryName {
@@ -316,7 +343,7 @@ func extractBinaryFromZip(archivePath, destDir, binaryName string) (string, erro
 		if err != nil {
 			return "", fmt.Errorf("open zip entry: %w", err)
 		}
-		outPath := filepath.Join(destDir, binaryName)
+		outPath = filepath.Join(destDir, binaryName)
 		writeErr := writeReaderToFile(outPath, rc, 0o755)
 		closeErr := rc.Close()
 		if writeErr != nil {
@@ -335,10 +362,13 @@ func writeReaderToFile(path string, reader io.Reader, mode os.FileMode) error {
 	if err != nil {
 		return fmt.Errorf("create extracted binary: %w", err)
 	}
-	defer out.Close()
 
 	if _, err := io.Copy(out, reader); err != nil {
+		_ = out.Close()
 		return fmt.Errorf("write extracted binary: %w", err)
+	}
+	if err := out.Close(); err != nil {
+		return fmt.Errorf("close extracted binary: %w", err)
 	}
 	return nil
 }
@@ -350,7 +380,6 @@ func installBinary(srcPath, targetPath string, executable bool) error {
 	if err != nil {
 		return fmt.Errorf("open extracted binary: %w", err)
 	}
-	defer in.Close()
 
 	mode := os.FileMode(0o644)
 	if executable {
@@ -362,9 +391,13 @@ func installBinary(srcPath, targetPath string, executable bool) error {
 	}
 
 	_, copyErr := io.Copy(out, in)
+	inputCloseErr := in.Close()
 	closeErr := out.Close()
 	if copyErr != nil {
 		return fmt.Errorf("write temp install file: %w", copyErr)
+	}
+	if inputCloseErr != nil {
+		return fmt.Errorf("close extracted binary: %w", inputCloseErr)
 	}
 	if closeErr != nil {
 		return fmt.Errorf("close temp install file: %w", closeErr)
@@ -376,7 +409,12 @@ func installBinary(srcPath, targetPath string, executable bool) error {
 		}
 	}
 
-	if _, err := os.Stat(targetPath); err == nil {
+	if err := ensureReplaceableTarget(targetPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+
+	if _, err := os.Lstat(targetPath); err == nil {
 		if err := renameFile(targetPath, backupPath); err != nil {
 			_ = os.Remove(tmpPath)
 			return fmt.Errorf("move existing binary aside: %w", err)
@@ -403,6 +441,22 @@ func installBinary(srcPath, targetPath string, executable bool) error {
 		}
 	}
 	return nil
+}
+
+func ensureReplaceableTarget(targetPath string) error {
+	info, err := os.Lstat(targetPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat existing target: %w", err)
+	}
+
+	mode := info.Mode()
+	if mode.IsRegular() || mode&os.ModeSymlink != 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", errInvalidTarget, targetPath)
 }
 
 func binaryNameForGOOS(goos string) string {
