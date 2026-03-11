@@ -157,6 +157,36 @@ func TestJobPersistenceAcrossRestart(t *testing.T) {
 	}
 }
 
+func TestStartEphemeralSkipsPersistedJobs(t *testing.T) {
+	dir := t.TempDir()
+
+	svc1, err := New(dir)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := svc1.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	_, err = svc1.AddJob("persist-test", "check weather", Schedule{Every: "1h"}, "")
+	if err != nil {
+		t.Fatalf("AddJob: %v", err)
+	}
+	_ = svc1.Stop()
+
+	svc2, err := New(dir)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := svc2.StartEphemeral(context.Background()); err != nil {
+		t.Fatalf("StartEphemeral: %v", err)
+	}
+	defer func() { _ = svc2.Stop() }()
+
+	if jobs := svc2.ListJobs(); len(jobs) != 0 {
+		t.Fatalf("ListJobs after StartEphemeral: got %d, want 0", len(jobs))
+	}
+}
+
 func TestOnJobCallbackFires(t *testing.T) {
 	dir := t.TempDir()
 	svc, err := New(dir)

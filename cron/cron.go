@@ -63,21 +63,37 @@ func (s *Service) SetOnJob(fn OnJobFunc) {
 
 // Start loads persisted jobs and starts the scheduler.
 func (s *Service) Start(ctx context.Context) error {
-	jobs, err := s.loadJobs()
-	if err != nil {
-		return fmt.Errorf("load jobs: %w", err)
+	return s.start(ctx, true)
+}
+
+// StartEphemeral starts the shared scheduler without loading persisted cron jobs.
+// Use this when the scheduler is only needed for internal tasks such as heartbeat.
+func (s *Service) StartEphemeral(ctx context.Context) error {
+	return s.start(ctx, false)
+}
+
+func (s *Service) start(ctx context.Context, loadPersisted bool) error {
+	var jobs []Job
+	var err error
+	if loadPersisted {
+		jobs, err = s.loadJobs()
+		if err != nil {
+			return fmt.Errorf("load jobs: %w", err)
+		}
 	}
 
 	s.mu.Lock()
 	s.ctx = ctx
-	for _, j := range jobs {
-		s.jobs[j.ID] = j
-		if j.Enabled {
-			if err := s.scheduleJob(ctx, j); err != nil {
-				if errors.Is(err, errOneTimeJobPast) {
-					s.log.Info("skipping one-time job with past timestamp", "id", j.ID, "at", j.Schedule.At)
-				} else {
-					s.log.Warn("failed to schedule persisted job", "id", j.ID, "name", j.Name, "error", err)
+	if loadPersisted {
+		for _, j := range jobs {
+			s.jobs[j.ID] = j
+			if j.Enabled {
+				if err := s.scheduleJob(ctx, j); err != nil {
+					if errors.Is(err, errOneTimeJobPast) {
+						s.log.Info("skipping one-time job with past timestamp", "id", j.ID, "at", j.Schedule.At)
+					} else {
+						s.log.Warn("failed to schedule persisted job", "id", j.ID, "name", j.Name, "error", err)
+					}
 				}
 			}
 		}
@@ -85,7 +101,11 @@ func (s *Service) Start(ctx context.Context) error {
 	s.mu.Unlock()
 
 	s.scheduler.Start()
-	s.log.Info("cron service started", "jobs", len(jobs))
+	if loadPersisted {
+		s.log.Info("cron service started", "jobs", len(jobs))
+	} else {
+		s.log.Info("cron service started without persisted jobs")
+	}
 	return nil
 }
 
