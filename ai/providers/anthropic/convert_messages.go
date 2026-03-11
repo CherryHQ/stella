@@ -4,18 +4,18 @@ import (
 	"fmt"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
-	"github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
-func convertMessages(ctx types.Context) []sdk.MessageParam {
+func convertMessages(ctx ai.Context) []sdk.MessageParam {
 	messages := make([]sdk.MessageParam, 0, len(ctx.Messages))
 	for _, msg := range ctx.Messages {
 		switch m := msg.(type) {
-		case types.UserMessage:
+		case ai.UserMessage:
 			messages = append(messages, sdk.NewUserMessage(userContentBlocks(m.Content)...))
-		case types.AssistantMessage:
+		case ai.AssistantMessage:
 			messages = append(messages, sdk.NewAssistantMessage(assistantContentBlocks(m.Content)...))
-		case types.ToolResultMessage:
+		case ai.ToolResultMessage:
 			messages = append(messages, sdk.NewUserMessage(toolResultBlock(m)))
 		}
 	}
@@ -26,13 +26,13 @@ func userContentBlocks(content any) []sdk.ContentBlockParamUnion {
 	switch c := content.(type) {
 	case string:
 		return []sdk.ContentBlockParamUnion{sdk.NewTextBlock(c)}
-	case []types.ContentBlock:
+	case []ai.ContentBlock:
 		blocks := make([]sdk.ContentBlockParamUnion, 0, len(c))
 		for _, block := range c {
 			switch b := block.(type) {
-			case types.TextContent:
+			case ai.TextContent:
 				blocks = append(blocks, sdk.NewTextBlock(b.Text))
-			case types.ImageContent:
+			case ai.ImageContent:
 				blocks = append(blocks, sdk.NewImageBlockBase64(b.MimeType, b.Data))
 			}
 		}
@@ -42,25 +42,25 @@ func userContentBlocks(content any) []sdk.ContentBlockParamUnion {
 	}
 }
 
-func assistantContentBlocks(blocks []types.ContentBlock) []sdk.ContentBlockParamUnion {
+func assistantContentBlocks(blocks []ai.ContentBlock) []sdk.ContentBlockParamUnion {
 	out := make([]sdk.ContentBlockParamUnion, 0, len(blocks))
 	for _, block := range blocks {
 		switch b := block.(type) {
-		case types.TextContent:
+		case ai.TextContent:
 			out = append(out, sdk.NewTextBlock(b.Text))
-		case types.ThinkingContent:
+		case ai.ThinkingContent:
 			out = append(out, sdk.NewThinkingBlock(b.Signature, b.Thinking))
-		case types.ToolCall:
+		case ai.ToolCall:
 			out = append(out, sdk.NewToolUseBlock(b.ID, b.Arguments, b.Name))
 		}
 	}
 	return out
 }
 
-func toolResultBlock(m types.ToolResultMessage) sdk.ContentBlockParamUnion {
+func toolResultBlock(m ai.ToolResultMessage) sdk.ContentBlockParamUnion {
 	text := ""
 	for _, block := range m.Content {
-		if t, ok := block.(types.TextContent); ok && t.Text != "" {
+		if t, ok := block.(ai.TextContent); ok && t.Text != "" {
 			text = t.Text
 			break
 		}

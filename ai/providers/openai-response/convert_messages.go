@@ -7,23 +7,23 @@ import (
 
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
-	"github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
-func convertMessages(ctx types.Context) responses.ResponseInputParam {
+func convertMessages(ctx ai.Context) responses.ResponseInputParam {
 	items := make(responses.ResponseInputParam, 0, len(ctx.Messages))
 
 	for _, msg := range ctx.Messages {
 		switch m := msg.(type) {
-		case types.UserMessage:
+		case ai.UserMessage:
 			items = append(items, userMessage(m.Content))
-		case types.AssistantMessage:
+		case ai.AssistantMessage:
 			items = append(items, convertAssistantMessage(m)...)
-		case types.ToolResultMessage:
+		case ai.ToolResultMessage:
 			items = append(items, responses.ResponseInputItemUnionParam{
 				OfFunctionCallOutput: &responses.ResponseInputItemFunctionCallOutputParam{
 					CallID: m.ToolCallID,
-					Output: types.FlattenText(m.Content),
+					Output: ai.FlattenText(m.Content),
 				},
 			})
 		}
@@ -31,15 +31,15 @@ func convertMessages(ctx types.Context) responses.ResponseInputParam {
 	return items
 }
 
-func convertAssistantMessage(m types.AssistantMessage) responses.ResponseInputParam {
+func convertAssistantMessage(m ai.AssistantMessage) responses.ResponseInputParam {
 	var items responses.ResponseInputParam
 	var textParts []string
 
 	for _, block := range m.Content {
 		switch b := block.(type) {
-		case types.TextContent:
+		case ai.TextContent:
 			textParts = append(textParts, b.Text)
-		case types.ToolCall:
+		case ai.ToolCall:
 			argsJSON, _ := json.Marshal(b.Arguments)
 			items = append(items, responses.ResponseInputItemUnionParam{
 				OfFunctionCall: &responses.ResponseFunctionToolCallParam{
@@ -80,16 +80,16 @@ func userMessage(content any) responses.ResponseInputItemUnionParam {
 	switch c := content.(type) {
 	case string:
 		return textMsg(c)
-	case []types.ContentBlock:
-		if !types.HasImage(c) {
-			return textMsg(types.FlattenText(c))
+	case []ai.ContentBlock:
+		if !ai.HasImage(c) {
+			return textMsg(ai.FlattenText(c))
 		}
 		parts := make(responses.ResponseInputMessageContentListParam, 0, len(c))
 		for _, block := range c {
 			switch b := block.(type) {
-			case types.TextContent:
+			case ai.TextContent:
 				parts = append(parts, responses.ResponseInputContentParamOfInputText(b.Text))
-			case types.ImageContent:
+			case ai.ImageContent:
 				img := responses.ResponseInputContentUnionParam{
 					OfInputImage: &responses.ResponseInputImageParam{
 						ImageURL: param.NewOpt(b.DataURI()),

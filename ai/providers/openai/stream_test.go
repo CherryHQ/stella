@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	sdk "github.com/openai/openai-go"
-	"github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 func TestMapChunkTextAndStop(t *testing.T) {
@@ -26,13 +26,13 @@ func TestMapChunkTextAndStop(t *testing.T) {
 	if len(events) != 3 {
 		t.Fatalf("expected 3 events, got %d", len(events))
 	}
-	if _, ok := events[0].(types.EventTextDelta); !ok {
+	if _, ok := events[0].(ai.EventTextDelta); !ok {
 		t.Fatalf("expected first event text delta")
 	}
-	if _, ok := events[1].(types.EventStop); !ok {
+	if _, ok := events[1].(ai.EventStop); !ok {
 		t.Fatalf("expected second event stop")
 	}
-	if _, ok := events[2].(types.EventUsage); !ok {
+	if _, ok := events[2].(ai.EventUsage); !ok {
 		t.Fatalf("expected third event usage")
 	}
 }
@@ -59,14 +59,14 @@ func TestMapChunkToolCalls(t *testing.T) {
 	if len(events) != 2 {
 		t.Fatalf("expected 2 events, got %d", len(events))
 	}
-	tc, ok := events[0].(types.EventToolCallDelta)
+	tc, ok := events[0].(ai.EventToolCallDelta)
 	if !ok {
 		t.Fatalf("expected tool call delta")
 	}
 	if tc.ID != "call_0" || tc.Name != "lookup" {
 		t.Fatalf("unexpected tool call: %+v", tc)
 	}
-	if _, ok := events[1].(types.EventStop); !ok {
+	if _, ok := events[1].(ai.EventStop); !ok {
 		t.Fatalf("expected stop event")
 	}
 }
@@ -90,7 +90,7 @@ func TestMapChunkToolCallIDCarriedForward(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
-	tc := events[0].(types.EventToolCallDelta)
+	tc := events[0].(ai.EventToolCallDelta)
 	if tc.ID != "call_abc" || tc.Name != "read_file" {
 		t.Fatalf("unexpected first delta: %+v", tc)
 	}
@@ -111,7 +111,7 @@ func TestMapChunkToolCallIDCarriedForward(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
-	tc = events[0].(types.EventToolCallDelta)
+	tc = events[0].(ai.EventToolCallDelta)
 	if tc.ID != "call_abc" {
 		t.Fatalf("expected ID 'call_abc' on argument delta, got %q", tc.ID)
 	}

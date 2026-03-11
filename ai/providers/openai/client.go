@@ -6,8 +6,7 @@ import (
 
 	sdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
-	"github.com/vaayne/anna/ai/stream"
-	"github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 // Config configures the OpenAI provider.
@@ -16,7 +15,7 @@ type Config struct {
 	APIKey  string
 }
 
-// Provider implements stream.Provider for OpenAI chat completions.
+// Provider implements ai.ProviderAdapter for OpenAI chat completions.
 type Provider struct {
 	client sdk.Client
 }
@@ -37,38 +36,38 @@ func New(cfg Config) *Provider {
 func (p *Provider) API() string { return "openai" }
 
 // Stream starts OpenAI chat completion stream.
-func (p *Provider) Stream(model types.Model, ctx types.Context, opts types.StreamOptions) (stream.AssistantEventStream, error) {
+func (p *Provider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions) (ai.AssistantEventStream, error) {
 	params := buildParams(model, ctx, opts)
 	reqOpts := buildRequestOptions(opts)
 	sdkStream := p.client.Chat.Completions.NewStreaming(context.Background(), params, reqOpts...)
 
-	out := stream.NewChannelEventStream(32)
+	out := ai.NewChannelEventStream(32)
 	go func() {
 		defer out.Finish(nil)
-		out.Emit(types.EventStart{})
+		out.Emit(ai.EventStart{})
 		consumeStream(sdkStream, out)
 		if err := sdkStream.Err(); err != nil {
-			out.Emit(types.EventError{Err: err})
+			out.Emit(ai.EventError{Err: err})
 		}
 	}()
 	return out, nil
 }
 
 // StreamSimple delegates to Stream with mapped options.
-func (p *Provider) StreamSimple(model types.Model, ctx types.Context, opts types.SimpleStreamOptions) (stream.AssistantEventStream, error) {
+func (p *Provider) StreamSimple(model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (ai.AssistantEventStream, error) {
 	return p.Stream(model, ctx, opts.StreamOptions)
 }
 
 // ListModels fetches available models from the OpenAI API.
-func (p *Provider) ListModels(ctx context.Context) ([]types.Model, error) {
+func (p *Provider) ListModels(ctx context.Context) ([]ai.Model, error) {
 	page, err := p.client.Models.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("openai list models: %w", err)
 	}
 
-	var models []types.Model
+	var models []ai.Model
 	for _, m := range page.Data {
-		models = append(models, types.Model{
+		models = append(models, ai.Model{
 			ID:       m.ID,
 			Name:     m.ID,
 			API:      "openai",
@@ -78,9 +77,9 @@ func (p *Provider) ListModels(ctx context.Context) ([]types.Model, error) {
 	return models, nil
 }
 
-var _ stream.ModelLister = (*Provider)(nil)
+var _ ai.ModelLister = (*Provider)(nil)
 
-func buildRequestOptions(opts types.StreamOptions) []option.RequestOption {
+func buildRequestOptions(opts ai.StreamOptions) []option.RequestOption {
 	var reqOpts []option.RequestOption
 	if opts.APIKey != "" {
 		reqOpts = append(reqOpts, option.WithAPIKey(opts.APIKey))

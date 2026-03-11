@@ -3,10 +3,10 @@ package anthropic
 import (
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
-	"github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
-func buildParams(model types.Model, ctx types.Context, opts types.StreamOptions) sdk.MessageNewParams {
+func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) sdk.MessageNewParams {
 	maxTokens := int64(1024)
 	if opts.MaxTokens != nil {
 		maxTokens = int64(*opts.MaxTokens)
@@ -33,7 +33,7 @@ func buildParams(model types.Model, ctx types.Context, opts types.StreamOptions)
 	return params
 }
 
-func convertTools(tools []types.ToolDefinition) []sdk.ToolUnionParam {
+func convertTools(tools []ai.ToolDefinition) []sdk.ToolUnionParam {
 	out := make([]sdk.ToolUnionParam, 0, len(tools))
 	for _, t := range tools {
 		schema := sdk.ToolInputSchemaParam{

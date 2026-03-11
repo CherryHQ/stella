@@ -6,20 +6,18 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/vaayne/anna/ai/stream"
-	"github.com/vaayne/anna/ai/transform"
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 // Engine coordinates model generation and tool execution.
 type Engine struct {
-	Providers stream.ProviderGetter
+	Providers ai.ProviderGetter
 }
 
 // Run executes the agent loop: repeatedly generating assistant responses
 // and executing tool calls until the model stops calling tools,
 // the turn limit is reached, or an interrupt/error occurs.
-func (e *Engine) Run(ctx context.Context, cfg LoopConfig, history []aitypes.Message, emit func(LoopEvent)) ([]aitypes.Message, error) {
+func (e *Engine) Run(ctx context.Context, cfg LoopConfig, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
 	if e == nil || e.Providers == nil {
 		return nil, errors.New("engine providers not configured")
 	}
@@ -41,7 +39,7 @@ func (e *Engine) Run(ctx context.Context, cfg LoopConfig, history []aitypes.Mess
 	return history, nil
 }
 
-func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []aitypes.Message, emit func(LoopEvent)) ([]aitypes.Message, error) {
+func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
 	maxTurns := cfg.MaxTurns
 	if maxTurns <= 0 {
 		maxTurns = 128
@@ -53,7 +51,7 @@ func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []aitypes.
 		}
 
 		// Normalize transcript before each model call.
-		normalized := transform.Messages(history)
+		normalized := ai.TransformMessages(history)
 
 		complete, err := streamAssistant(normalized, cfg, e.Providers, emit)
 		if err != nil {
@@ -63,7 +61,7 @@ func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []aitypes.
 		history = append(history, complete)
 
 		// Check stop reason for terminal conditions.
-		if complete.StopReason == aitypes.StopReasonError || complete.StopReason == aitypes.StopReasonAborted {
+		if complete.StopReason == ai.StopReasonError || complete.StopReason == ai.StopReasonAborted {
 			if emit != nil {
 				emit(TurnFinished{Turn: turn})
 			}
@@ -91,12 +89,12 @@ func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []aitypes.
 		}
 
 		results, err := ExecuteToolCalls(ctx, calls, cfg.Tools, ToolCallbacks{
-			OnStart: func(call aitypes.ToolCall) {
+			OnStart: func(call ai.ToolCall) {
 				if emit != nil {
 					emit(ToolStarted{ToolCall: call})
 				}
 			},
-			OnFinish: func(result aitypes.ToolResultMessage) {
+			OnFinish: func(result ai.ToolResultMessage) {
 				if emit != nil {
 					emit(ToolFinished{Result: result})
 				}
@@ -120,31 +118,31 @@ func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []aitypes.
 
 // streamAssistant opens a provider stream, emits granular assistant events,
 // and assembles the final AssistantMessage.
-func streamAssistant(messages []aitypes.Message, cfg LoopConfig, providers stream.ProviderGetter, emit func(LoopEvent)) (aitypes.AssistantMessage, error) {
-	eventStream, err := stream.Stream(
+func streamAssistant(messages []ai.Message, cfg LoopConfig, providers ai.ProviderGetter, emit func(LoopEvent)) (ai.AssistantMessage, error) {
+	eventStream, err := ai.Stream(
 		cfg.Model,
-		aitypes.Context{System: cfg.System, Messages: messages, Tools: cfg.ToolDefinitions},
+		ai.Context{System: cfg.System, Messages: messages, Tools: cfg.ToolDefinitions},
 		cfg.StreamOptions,
 		providers,
 	)
 	if err != nil {
-		return aitypes.AssistantMessage{}, err
+		return ai.AssistantMessage{}, err
 	}
 
-	msg := aitypes.AssistantMessage{Content: make([]aitypes.ContentBlock, 0, 4)}
+	msg := ai.AssistantMessage{Content: make([]ai.ContentBlock, 0, 4)}
 	var text string
 	var thinking string
-	toolCalls := map[string]aitypes.ToolCall{}
+	toolCalls := map[string]ai.ToolCall{}
 	toolArgs := map[string]string{} // accumulated raw JSON per tool call ID
 	started := false
 
 	for event := range eventStream.Events() {
 		switch e := event.(type) {
-		case aitypes.EventTextDelta:
+		case ai.EventTextDelta:
 			text += e.Text
-		case aitypes.EventThinkingDelta:
+		case ai.EventThinkingDelta:
 			thinking += e.Thinking
-		case aitypes.EventToolCallDelta:
+		case ai.EventToolCallDelta:
 			call := toolCalls[e.ID]
 			call.ID = e.ID
 			if e.Name != "" {
@@ -154,14 +152,14 @@ func streamAssistant(messages []aitypes.Message, cfg LoopConfig, providers strea
 				toolArgs[e.ID] += e.Arguments
 			}
 			toolCalls[e.ID] = call
-		case aitypes.EventUsage:
+		case ai.EventUsage:
 			msg.Usage = e.Usage
-		case aitypes.EventStop:
+		case ai.EventStop:
 			msg.StopReason = e.Reason
-		case aitypes.EventError:
+		case ai.EventError:
 			if e.Err != nil {
 				msg.ErrorMessage = e.Err.Error()
-				msg.StopReason = aitypes.StopReasonError
+				msg.StopReason = ai.StopReasonError
 			}
 		}
 
@@ -187,10 +185,10 @@ func streamAssistant(messages []aitypes.Message, cfg LoopConfig, providers strea
 
 	// Assemble final message.
 	if text != "" {
-		msg.Content = append(msg.Content, aitypes.TextContent{Text: text})
+		msg.Content = append(msg.Content, ai.TextContent{Text: text})
 	}
 	if thinking != "" {
-		msg.Content = append(msg.Content, aitypes.ThinkingContent{Thinking: thinking})
+		msg.Content = append(msg.Content, ai.ThinkingContent{Thinking: thinking})
 	}
 	for id, call := range toolCalls {
 		if raw, ok := toolArgs[id]; ok && raw != "" {
@@ -210,14 +208,14 @@ func streamAssistant(messages []aitypes.Message, cfg LoopConfig, providers strea
 }
 
 // buildPartial constructs a snapshot of the in-progress assistant message.
-func buildPartial(base aitypes.AssistantMessage, text, thinking string, toolCalls map[string]aitypes.ToolCall) aitypes.AssistantMessage {
+func buildPartial(base ai.AssistantMessage, text, thinking string, toolCalls map[string]ai.ToolCall) ai.AssistantMessage {
 	partial := base
-	partial.Content = make([]aitypes.ContentBlock, 0, 4)
+	partial.Content = make([]ai.ContentBlock, 0, 4)
 	if text != "" {
-		partial.Content = append(partial.Content, aitypes.TextContent{Text: text})
+		partial.Content = append(partial.Content, ai.TextContent{Text: text})
 	}
 	if thinking != "" {
-		partial.Content = append(partial.Content, aitypes.ThinkingContent{Thinking: thinking})
+		partial.Content = append(partial.Content, ai.ThinkingContent{Thinking: thinking})
 	}
 	for _, call := range toolCalls {
 		partial.Content = append(partial.Content, call)
@@ -225,10 +223,10 @@ func buildPartial(base aitypes.AssistantMessage, text, thinking string, toolCall
 	return partial
 }
 
-func extractToolCalls(msg aitypes.AssistantMessage) []aitypes.ToolCall {
-	calls := make([]aitypes.ToolCall, 0, 2)
+func extractToolCalls(msg ai.AssistantMessage) []ai.ToolCall {
+	calls := make([]ai.ToolCall, 0, 2)
 	for _, block := range msg.Content {
-		call, ok := block.(aitypes.ToolCall)
+		call, ok := block.(ai.ToolCall)
 		if ok {
 			calls = append(calls, call)
 		}

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 // Envelope wraps stream events for transport.
@@ -14,7 +14,7 @@ type Envelope struct {
 }
 
 // EncodeEvent serializes normalized assistant events.
-func EncodeEvent(event aitypes.AssistantEvent) ([]byte, error) {
+func EncodeEvent(event ai.AssistantEvent) ([]byte, error) {
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return nil, err
@@ -24,7 +24,7 @@ func EncodeEvent(event aitypes.AssistantEvent) ([]byte, error) {
 }
 
 // DecodeEvent deserializes envelope to concrete event type.
-func DecodeEvent(raw []byte) (aitypes.AssistantEvent, error) {
+func DecodeEvent(raw []byte) (ai.AssistantEvent, error) {
 	var env Envelope
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return nil, err
@@ -32,19 +32,19 @@ func DecodeEvent(raw []byte) (aitypes.AssistantEvent, error) {
 
 	switch env.Type {
 	case "textDelta":
-		var e aitypes.EventTextDelta
+		var e ai.EventTextDelta
 		if err := json.Unmarshal(env.Data, &e); err != nil {
 			return nil, err
 		}
 		return e, nil
 	case "stop":
-		var e aitypes.EventStop
+		var e ai.EventStop
 		if err := json.Unmarshal(env.Data, &e); err != nil {
 			return nil, err
 		}
 		return e, nil
 	case "usage":
-		var e aitypes.EventUsage
+		var e ai.EventUsage
 		if err := json.Unmarshal(env.Data, &e); err != nil {
 			return nil, err
 		}
@@ -54,13 +54,13 @@ func DecodeEvent(raw []byte) (aitypes.AssistantEvent, error) {
 	}
 }
 
-func eventName(event aitypes.AssistantEvent) string {
+func eventName(event ai.AssistantEvent) string {
 	switch event.(type) {
-	case aitypes.EventTextDelta:
+	case ai.EventTextDelta:
 		return "textDelta"
-	case aitypes.EventStop:
+	case ai.EventStop:
 		return "stop"
-	case aitypes.EventUsage:
+	case ai.EventUsage:
 		return "usage"
 	default:
 		return "unknown"

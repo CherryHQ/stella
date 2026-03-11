@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/openai/openai-go/responses"
-	"github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 func newItemToCall() map[string]string { return make(map[string]string) }
@@ -20,7 +20,7 @@ func TestMapEventTextDelta(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
-	td, ok := events[0].(types.EventTextDelta)
+	td, ok := events[0].(ai.EventTextDelta)
 	if !ok {
 		t.Fatalf("expected EventTextDelta, got %T", events[0])
 	}
@@ -46,7 +46,7 @@ func TestMapEventFunctionCallArgumentsDelta(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
-	tc, ok := events[0].(types.EventToolCallDelta)
+	tc, ok := events[0].(ai.EventToolCallDelta)
 	if !ok {
 		t.Fatalf("expected EventToolCallDelta, got %T", events[0])
 	}
@@ -70,7 +70,7 @@ func TestMapEventOutputItemAddedFunctionCall(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
-	tc, ok := events[0].(types.EventToolCallDelta)
+	tc, ok := events[0].(ai.EventToolCallDelta)
 	if !ok {
 		t.Fatalf("expected EventToolCallDelta, got %T", events[0])
 	}
@@ -99,18 +99,18 @@ func TestMapEventCompleted(t *testing.T) {
 	if len(events) != 2 {
 		t.Fatalf("expected 2 events, got %d", len(events))
 	}
-	usage, ok := events[0].(types.EventUsage)
+	usage, ok := events[0].(ai.EventUsage)
 	if !ok {
 		t.Fatalf("expected EventUsage, got %T", events[0])
 	}
 	if usage.Usage.InputTokens != 10 || usage.Usage.OutputTokens != 5 || usage.Usage.TotalTokens != 15 {
 		t.Fatalf("unexpected usage: %+v", usage.Usage)
 	}
-	stop, ok := events[1].(types.EventStop)
+	stop, ok := events[1].(ai.EventStop)
 	if !ok {
 		t.Fatalf("expected EventStop, got %T", events[1])
 	}
-	if stop.Reason != types.StopReasonStop {
+	if stop.Reason != ai.StopReasonStop {
 		t.Fatalf("expected stop reason 'stop', got %q", stop.Reason)
 	}
 }
@@ -123,11 +123,11 @@ func TestMapEventFailed(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
-	stop, ok := events[0].(types.EventStop)
+	stop, ok := events[0].(ai.EventStop)
 	if !ok {
 		t.Fatalf("expected EventStop, got %T", events[0])
 	}
-	if stop.Reason != types.StopReasonError {
+	if stop.Reason != ai.StopReasonError {
 		t.Fatalf("expected stop reason error, got %q", stop.Reason)
 	}
 }
@@ -152,7 +152,7 @@ func TestMapEventFunctionCallFlow(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("step 1: expected 1 event, got %d", len(events))
 	}
-	tc := events[0].(types.EventToolCallDelta)
+	tc := events[0].(ai.EventToolCallDelta)
 	if tc.ID != "call_abc" || tc.Name != "bash" {
 		t.Fatalf("step 1: unexpected: %+v", tc)
 	}
@@ -169,7 +169,7 @@ func TestMapEventFunctionCallFlow(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("step 2: expected 1 event, got %d", len(events))
 	}
-	tc = events[0].(types.EventToolCallDelta)
+	tc = events[0].(ai.EventToolCallDelta)
 	if tc.ID != "call_abc" {
 		t.Fatalf("step 2: expected ID call_abc, got %q", tc.ID)
 	}
@@ -186,11 +186,11 @@ func TestMapEventIncomplete(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
-	stop, ok := events[0].(types.EventStop)
+	stop, ok := events[0].(ai.EventStop)
 	if !ok {
 		t.Fatalf("expected EventStop, got %T", events[0])
 	}
-	if stop.Reason != types.StopReasonLength {
+	if stop.Reason != ai.StopReasonLength {
 		t.Fatalf("expected stop reason length, got %q", stop.Reason)
 	}
 }

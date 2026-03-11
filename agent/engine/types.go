@@ -3,22 +3,22 @@ package engine
 import (
 	"context"
 
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 // ToolFunc executes one tool invocation.
-type ToolFunc func(ctx context.Context, call aitypes.ToolCall) (aitypes.TextContent, error)
+type ToolFunc func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error)
 
 // ToolSet maps tool names to handlers.
 type ToolSet map[string]ToolFunc
 
 // LoopConfig configures the agent loop behavior.
 type LoopConfig struct {
-	Model           aitypes.Model
-	StreamOptions   aitypes.StreamOptions
+	Model           ai.Model
+	StreamOptions   ai.StreamOptions
 	MaxTurns        int
 	Tools           ToolSet
-	ToolDefinitions []aitypes.ToolDefinition
+	ToolDefinitions []ai.ToolDefinition
 	System          string
 	Interrupt       <-chan struct{}
 }

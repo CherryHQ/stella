@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 var skillsInputSchema = func() map[string]any {
@@ -58,8 +58,8 @@ func NewTool(annaHome, workspace, cwd string) *SkillsTool {
 }
 
 // Definition returns the tool definition for the LLM.
-func (t *SkillsTool) Definition() aitypes.ToolDefinition {
-	return aitypes.ToolDefinition{
+func (t *SkillsTool) Definition() ai.ToolDefinition {
+	return ai.ToolDefinition{
 		Name:        "skills",
 		Description: "Manage agent skills. Use 'search' to find skills from the ecosystem, 'install' to add a skill (e.g. owner/repo@skill-name), 'list' to see installed skills, 'remove' to delete one.",
 		InputSchema: skillsInputSchema,

@@ -8,7 +8,7 @@ import (
 
 	"github.com/caarlos0/env/v11"
 	"github.com/vaayne/anna/agent"
-	"github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 	"gopkg.in/yaml.v3"
 )
 
@@ -296,15 +296,15 @@ func (cfg *Config) LogPath() string {
 	return filepath.Join(cfg.Workspace, "anna.log")
 }
 
-// ResolveModel returns the types.Model for the default provider/model,
+// ResolveModel returns the ai.Model for the default provider/model,
 // looking up from the provider's model list config.
-func (cfg *Config) ResolveModel() types.Model {
+func (cfg *Config) ResolveModel() ai.Model {
 	return cfg.ResolveModelTier(ModelTierStrong)
 }
 
 // ResolveModelTier returns the model for the given tier after applying
 // the fallback: strong -> model, fast -> model.
-func (cfg *Config) ResolveModelTier(tier string) types.Model {
+func (cfg *Config) ResolveModelTier(tier string) ai.Model {
 	modelID := cfg.ResolveModelID(tier)
 	providerCfg := cfg.Providers[cfg.Provider]
 	for _, m := range providerCfg.Models {
@@ -313,7 +313,7 @@ func (cfg *Config) ResolveModelTier(tier string) types.Model {
 		}
 	}
 	// Fallback: construct a minimal Model from defaults.
-	return types.Model{
+	return ai.Model{
 		ID:       modelID,
 		Name:     modelID,
 		API:      cfg.Provider,
@@ -401,8 +401,8 @@ func applyState(cfg *Config) {
 	}
 }
 
-func modelConfigToType(provider string, m ModelConfig) types.Model {
-	model := types.Model{
+func modelConfigToType(provider string, m ModelConfig) ai.Model {
+	model := ai.Model{
 		ID:            m.ID,
 		Name:          m.ID,
 		API:           m.API,
@@ -420,7 +420,7 @@ func modelConfigToType(provider string, m ModelConfig) types.Model {
 		model.API = provider
 	}
 	if m.Cost != nil {
-		model.Cost = types.ModelCost{
+		model.Cost = ai.ModelCost{
 			Input:      m.Cost.Input,
 			Output:     m.Cost.Output,
 			CacheRead:  m.Cost.CacheRead,

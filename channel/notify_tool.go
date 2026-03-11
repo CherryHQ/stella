@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 // NotifyTool is an agent tool that sends notifications via a Dispatcher.
@@ -40,8 +40,8 @@ var notifyInputSchema = map[string]any{
 	"required": []string{"message"},
 }
 
-func (t *NotifyTool) Definition() aitypes.ToolDefinition {
-	return aitypes.ToolDefinition{
+func (t *NotifyTool) Definition() ai.ToolDefinition {
+	return ai.ToolDefinition{
 		Name:        "notify",
 		Description: "Send a notification message to the user. Supports multiple backends (Telegram, Slack, etc.). Omit 'channel' to broadcast to all configured backends. Use this for proactive messages, alerts, cron summaries, or long-running task results.",
 		InputSchema: notifyInputSchema,

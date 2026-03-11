@@ -1,4 +1,4 @@
-package types
+package ai
 
 // Api identifies the wire protocol family.
 type Api = string

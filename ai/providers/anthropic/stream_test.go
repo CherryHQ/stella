@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
-	"github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 func TestMapEventContentDelta(t *testing.T) {
@@ -20,7 +20,7 @@ func TestMapEventContentDelta(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
-	if _, ok := events[0].(types.EventTextDelta); !ok {
+	if _, ok := events[0].(ai.EventTextDelta); !ok {
 		t.Fatalf("expected text delta")
 	}
 }
@@ -41,10 +41,10 @@ func TestMapEventMessageDeltaUsage(t *testing.T) {
 	if len(events) != 2 {
 		t.Fatalf("expected 2 events, got %d", len(events))
 	}
-	if _, ok := events[0].(types.EventStop); !ok {
+	if _, ok := events[0].(ai.EventStop); !ok {
 		t.Fatalf("expected stop event")
 	}
-	if _, ok := events[1].(types.EventUsage); !ok {
+	if _, ok := events[1].(ai.EventUsage); !ok {
 		t.Fatalf("expected usage event")
 	}
 }
@@ -66,7 +66,7 @@ func TestMapEventToolCallDeltaCarriesID(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event from start, got %d", len(events))
 	}
-	tc, ok := events[0].(types.EventToolCallDelta)
+	tc, ok := events[0].(ai.EventToolCallDelta)
 	if !ok {
 		t.Fatal("expected EventToolCallDelta from start")
 	}
@@ -87,7 +87,7 @@ func TestMapEventToolCallDeltaCarriesID(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event from delta, got %d", len(events))
 	}
-	tc, ok = events[0].(types.EventToolCallDelta)
+	tc, ok = events[0].(ai.EventToolCallDelta)
 	if !ok {
 		t.Fatal("expected EventToolCallDelta from argument delta")
 	}

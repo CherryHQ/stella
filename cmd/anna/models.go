@@ -12,10 +12,10 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
+	"github.com/vaayne/anna/ai"
 	"github.com/vaayne/anna/ai/providers/anthropic"
 	"github.com/vaayne/anna/ai/providers/openai"
 	openairesponse "github.com/vaayne/anna/ai/providers/openai-response"
-	"github.com/vaayne/anna/ai/stream"
 	"github.com/vaayne/anna/channel"
 	"github.com/vaayne/anna/config"
 )
@@ -92,7 +92,7 @@ func fetchModelsFromAPIs(cfg *config.Config) []CachedModel {
 
 		// Fetch from provider API.
 		if provider := newStreamProvider(provName, prov); provider != nil {
-			if lister, ok := provider.(stream.ModelLister); ok {
+			if lister, ok := provider.(ai.ModelLister); ok {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				listed, err := lister.ListModels(ctx)
 				cancel()
@@ -155,8 +155,8 @@ func collectModels(cfg *config.Config) []channel.ModelOption {
 	return models
 }
 
-// newStreamProvider creates a stream.Provider for the given provider name and config.
-func newStreamProvider(name string, cfg config.ProviderConfig) stream.Provider {
+// newStreamProvider creates an ai.ProviderAdapter for the given provider name and config.
+func newStreamProvider(name string, cfg config.ProviderConfig) ai.ProviderAdapter {
 	switch name {
 	case "anthropic":
 		return anthropic.New(anthropic.Config{BaseURL: cfg.BaseURL, APIKey: cfg.APIKey})

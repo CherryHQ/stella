@@ -13,7 +13,7 @@ import (
 
 	readability "codeberg.org/readeck/go-readability/v2"
 	md "github.com/JohannesKaufmann/html-to-markdown"
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 const (
@@ -43,8 +43,8 @@ func NewWebFetchTool() *WebFetchTool {
 	}
 }
 
-func (t *WebFetchTool) Definition() aitypes.ToolDefinition {
-	return aitypes.ToolDefinition{
+func (t *WebFetchTool) Definition() ai.ToolDefinition {
+	return ai.ToolDefinition{
 		Name:        "webfetch",
 		Description: "Fetch a web page and return its main content. Supports multiple output formats: markdown (default), html, text, and json.",
 		InputSchema: map[string]any{

@@ -7,14 +7,14 @@ import (
 	"os"
 	"strings"
 
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 // ReadTool reads file contents.
 type ReadTool struct{}
 
-func (t *ReadTool) Definition() aitypes.ToolDefinition {
-	return aitypes.ToolDefinition{
+func (t *ReadTool) Definition() ai.ToolDefinition {
+	return ai.ToolDefinition{
 		Name:        "read",
 		Description: "Read the contents of a file. Output is truncated to 2000 lines or 50KB. Use offset and limit to paginate through large files.",
 		InputSchema: map[string]any{

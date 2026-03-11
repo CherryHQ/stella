@@ -17,7 +17,7 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/ai/stream"
+	"github.com/vaayne/anna/ai"
 	"github.com/vaayne/anna/config"
 	"github.com/vaayne/anna/cron"
 	"gopkg.in/yaml.v3"
@@ -116,7 +116,7 @@ func runOnboard(ctx context.Context, port int) error {
 			return
 		}
 
-		lister, ok := provider.(stream.ModelLister)
+		lister, ok := provider.(ai.ModelLister)
 		if !ok {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": name + " does not support model listing"})
 			return

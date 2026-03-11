@@ -3,11 +3,11 @@ package runner
 import (
 	"testing"
 
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {
-	raw, err := EncodeEvent(aitypes.EventTextDelta{Text: "hello"})
+	raw, err := EncodeEvent(ai.EventTextDelta{Text: "hello"})
 	if err != nil {
 		t.Fatalf("unexpected encode error: %v", err)
 	}
@@ -15,14 +15,14 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected decode error: %v", err)
 	}
-	text, ok := event.(aitypes.EventTextDelta)
+	text, ok := event.(ai.EventTextDelta)
 	if !ok || text.Text != "hello" {
 		t.Fatalf("unexpected event: %#v", event)
 	}
 }
 
 func TestEncodeDecodeStop(t *testing.T) {
-	raw, err := EncodeEvent(aitypes.EventStop{Reason: aitypes.StopReasonStop})
+	raw, err := EncodeEvent(ai.EventStop{Reason: ai.StopReasonStop})
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -30,14 +30,14 @@ func TestEncodeDecodeStop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	stop, ok := event.(aitypes.EventStop)
-	if !ok || stop.Reason != aitypes.StopReasonStop {
+	stop, ok := event.(ai.EventStop)
+	if !ok || stop.Reason != ai.StopReasonStop {
 		t.Fatalf("unexpected event: %#v", event)
 	}
 }
 
 func TestEncodeDecodeUsage(t *testing.T) {
-	raw, err := EncodeEvent(aitypes.EventUsage{Usage: aitypes.Usage{InputTokens: 10, OutputTokens: 20}})
+	raw, err := EncodeEvent(ai.EventUsage{Usage: ai.Usage{InputTokens: 10, OutputTokens: 20}})
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestEncodeDecodeUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	usage, ok := event.(aitypes.EventUsage)
+	usage, ok := event.(ai.EventUsage)
 	if !ok || usage.Usage.InputTokens != 10 {
 		t.Fatalf("unexpected event: %#v", event)
 	}
@@ -67,7 +67,7 @@ func TestDecodeEventBadJSON(t *testing.T) {
 }
 
 func TestEventNameUnknown(t *testing.T) {
-	raw, err := EncodeEvent(aitypes.EventStart{})
+	raw, err := EncodeEvent(ai.EventStart{})
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}

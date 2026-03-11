@@ -10,12 +10,10 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/agent/engine"
+	"github.com/vaayne/anna/ai"
 	"github.com/vaayne/anna/ai/providers/anthropic"
 	"github.com/vaayne/anna/ai/providers/openai"
 	openairesponse "github.com/vaayne/anna/ai/providers/openai-response"
-	"github.com/vaayne/anna/ai/registry"
-	"github.com/vaayne/anna/ai/stream"
-	aitypes "github.com/vaayne/anna/ai/types"
 )
 
 func skipWithoutAPIKey(t *testing.T) string {
@@ -42,32 +40,32 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 	providers := []struct {
 		name    string
 		baseURL string
-		factory func(cfg struct{ BaseURL string }) stream.Provider
+		factory func(cfg struct{ BaseURL string }) ai.ProviderAdapter
 	}{
 		{
 			name:    "anthropic",
 			baseURL: baseURL,
-			factory: func(cfg struct{ BaseURL string }) stream.Provider {
+			factory: func(cfg struct{ BaseURL string }) ai.ProviderAdapter {
 				return anthropic.New(anthropic.Config{BaseURL: cfg.BaseURL})
 			},
 		},
 		{
 			name:    "openai",
 			baseURL: baseURL + "/v1",
-			factory: func(cfg struct{ BaseURL string }) stream.Provider {
+			factory: func(cfg struct{ BaseURL string }) ai.ProviderAdapter {
 				return openai.New(openai.Config{BaseURL: cfg.BaseURL})
 			},
 		},
 		{
 			name:    "openai-response",
 			baseURL: baseURL + "/v1",
-			factory: func(cfg struct{ BaseURL string }) stream.Provider {
+			factory: func(cfg struct{ BaseURL string }) ai.ProviderAdapter {
 				return openairesponse.New(openairesponse.Config{BaseURL: cfg.BaseURL})
 			},
 		},
 	}
 
-	toolDef := aitypes.ToolDefinition{
+	toolDef := ai.ToolDefinition{
 		Name:        "get_weather",
 		Description: "Get the current weather for a city. Always call this tool when asked about weather.",
 		InputSchema: map[string]any{
@@ -84,7 +82,7 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 
 	for _, p := range providers {
 		t.Run(p.name, func(t *testing.T) {
-			reg := registry.New()
+			reg := ai.NewRegistry()
 			reg.Register(p.factory(struct{ BaseURL string }{BaseURL: p.baseURL}))
 
 			eng := &engine.Engine{Providers: reg}
@@ -93,28 +91,28 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 			var capturedCity string
 
 			tools := engine.ToolSet{
-				"get_weather": func(ctx context.Context, call aitypes.ToolCall) (aitypes.TextContent, error) {
+				"get_weather": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
 					toolCalled.Store(true)
 					city, _ := call.Arguments["city"].(string)
 					capturedCity = city
-					return aitypes.TextContent{Text: fmt.Sprintf("Weather in %s: 22°C, sunny", city)}, nil
+					return ai.TextContent{Text: fmt.Sprintf("Weather in %s: 22°C, sunny", city)}, nil
 				},
 			}
 
 			cfg := engine.LoopConfig{
-				Model:           aitypes.Model{API: p.name, Name: model},
-				StreamOptions:   aitypes.StreamOptions{APIKey: apiKey},
+				Model:           ai.Model{API: p.name, Name: model},
+				StreamOptions:   ai.StreamOptions{APIKey: apiKey},
 				MaxTurns:        5,
 				Tools:           tools,
-				ToolDefinitions: []aitypes.ToolDefinition{toolDef},
+				ToolDefinitions: []ai.ToolDefinition{toolDef},
 				System:          "You are a helpful assistant. When asked about weather, always use the get_weather tool. Be concise.",
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
 
-			messages := []aitypes.Message{
-				aitypes.UserMessage{Content: "What's the weather in Tokyo?"},
+			messages := []ai.Message{
+				ai.UserMessage{Content: "What's the weather in Tokyo?"},
 			}
 
 			history, err := eng.Run(ctx, cfg, messages, nil)
@@ -142,13 +140,13 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 
 			// Verify final assistant message has text content.
 			lastMsg := history[len(history)-1]
-			assistantMsg, ok := lastMsg.(aitypes.AssistantMessage)
+			assistantMsg, ok := lastMsg.(ai.AssistantMessage)
 			if !ok {
 				t.Fatalf("expected last message to be AssistantMessage, got %T", lastMsg)
 			}
 			var finalText string
 			for _, block := range assistantMsg.Content {
-				if tc, ok := block.(aitypes.TextContent); ok {
+				if tc, ok := block.(ai.TextContent); ok {
 					finalText += tc.Text
 				}
 			}

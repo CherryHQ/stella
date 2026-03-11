@@ -4,10 +4,10 @@ import (
 	sdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/shared"
-	"github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
-func buildParams(model types.Model, ctx types.Context, opts types.StreamOptions) sdk.ChatCompletionNewParams {
+func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) sdk.ChatCompletionNewParams {
 	messages := convertMessages(ctx)
 
 	params := sdk.ChatCompletionNewParams{
@@ -29,7 +29,7 @@ func buildParams(model types.Model, ctx types.Context, opts types.StreamOptions)
 	return params
 }
 
-func convertTools(tools []types.ToolDefinition) []sdk.ChatCompletionToolParam {
+func convertTools(tools []ai.ToolDefinition) []sdk.ChatCompletionToolParam {
 	out := make([]sdk.ChatCompletionToolParam, 0, len(tools))
 	for _, t := range tools {
 		out = append(out, sdk.ChatCompletionToolParam{

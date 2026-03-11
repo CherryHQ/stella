@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 var memoryInputSchema = func() map[string]any {
@@ -61,8 +61,8 @@ func NewTool(store *Store) *MemoryTool {
 }
 
 // Definition returns the tool definition for the LLM.
-func (t *MemoryTool) Definition() aitypes.ToolDefinition {
-	return aitypes.ToolDefinition{
+func (t *MemoryTool) Definition() ai.ToolDefinition {
+	return ai.ToolDefinition{
 		Name:        "memory",
 		Description: "Manage persistent memory across sessions. Actions: 'update' overwrites FACT.md (only durable project knowledge and decisions — not user preferences or personality, those belong in USER.md and SOUL.md). 'append' logs to JOURNAL.jsonl (one-time events, completed tasks, session notes). 'search' queries the journal. Before writing to FACT.md, ask: will this still matter in 6 months? If not, use append instead.",
 		InputSchema: memoryInputSchema,

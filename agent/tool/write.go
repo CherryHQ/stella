@@ -6,14 +6,14 @@ import (
 	"os"
 	"path/filepath"
 
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 // WriteTool creates new files or completely overwrites existing ones.
 type WriteTool struct{}
 
-func (t *WriteTool) Definition() aitypes.ToolDefinition {
-	return aitypes.ToolDefinition{
+func (t *WriteTool) Definition() ai.ToolDefinition {
+	return ai.ToolDefinition{
 		Name:        "write",
 		Description: "Create a new file or completely overwrite an existing file with the provided content.",
 		InputSchema: map[string]any{
