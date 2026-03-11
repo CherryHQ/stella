@@ -23,6 +23,7 @@ import (
 	"github.com/vaayne/anna/channel/telegram"
 	"github.com/vaayne/anna/cron"
 	"github.com/vaayne/anna/heartbeat"
+	"github.com/vaayne/anna/lcm"
 	"github.com/vaayne/anna/memory"
 	"github.com/vaayne/anna/skills"
 	"golang.org/x/sync/errgroup"
@@ -190,6 +191,15 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		opts = append(opts, agent.WithStore(s))
 		slog.Info("session persistence enabled", "dir", sessionsPath)
 	}
+
+	// LCM: create engine for message persistence and compaction.
+	// TODO: wire LLMSummarizer with runner factory for production-quality summaries.
+	lcmDBPath := filepath.Join(cfg.Workspace, "lcm.db")
+	lcmEngine, err := lcm.NewEngine(lcmDBPath, &lcm.StaticSummarizer{Response: "compacted"}, lcm.WithLogger(slog.Default()))
+	if err != nil {
+		return nil, fmt.Errorf("create lcm engine: %w", err)
+	}
+	opts = append(opts, agent.WithLCM(lcmEngine))
 
 	pool := agent.NewPool(factory, opts...)
 	go pool.StartReaper(ctx)

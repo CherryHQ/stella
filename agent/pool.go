@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/vaayne/anna/agent/runner"
 	"github.com/vaayne/anna/agent/store"
+	"github.com/vaayne/anna/lcm"
 )
 
 // Pool manages a set of sessions, each with its own history and runner.
@@ -23,8 +24,9 @@ type Pool struct {
 	mu           sync.Mutex
 	idleTimeout  time.Duration
 	compaction   CompactionConfig
-	defaultModel string // default model ID for new runners
-	fastModel    string // model ID used for compaction / fast tasks
+	defaultModel string     // default model ID for new runners
+	fastModel    string     // model ID used for compaction / fast tasks
+	lcm          lcm.Engine // LCM: engine for message persistence and compaction (optional)
 	log          *slog.Logger
 }
 
@@ -63,6 +65,15 @@ func WithFastModel(model string) PoolOption {
 func WithStore(s store.Store) PoolOption {
 	return func(p *Pool) {
 		p.store = s
+	}
+}
+
+// WithLCM sets the LCM engine for message persistence and compaction.
+// When set, LCM handles Ingest/Assemble/Compact; store.Store is still used
+// for session metadata (SaveInfo, LoadInfo, ListInfo).
+func WithLCM(engine lcm.Engine) PoolOption {
+	return func(p *Pool) {
+		p.lcm = engine
 	}
 }
 
@@ -317,6 +328,11 @@ Guidelines:
 //
 // It returns the summary text on success.
 func (p *Pool) CompactSession(ctx context.Context, sessionID string) (string, error) {
+	// LCM: delegate compaction to the LCM engine when available.
+	if p.lcm != nil {
+		return p.compactSessionLCM(ctx, sessionID)
+	}
+
 	if p.store == nil {
 		return "", fmt.Errorf("compaction requires a persistent store")
 	}
@@ -389,6 +405,36 @@ func (p *Pool) CompactSession(ctx context.Context, sessionID string) (string, er
 	return summary, nil
 }
 
+// compactSessionLCM delegates compaction to the LCM engine. It runs a full
+// compaction pass and kills the runner so it picks up clean context from
+// Assemble() on the next Chat() call.
+func (p *Pool) compactSessionLCM(ctx context.Context, sessionID string) (string, error) {
+	p.log.Info("lcm compaction started", "session_id", sessionID)
+
+	result, err := p.lcm.Compact(ctx, sessionID, lcm.CompactionFull)
+	if err != nil {
+		return "", fmt.Errorf("lcm compact: %w", err)
+	}
+
+	summary := fmt.Sprintf("LCM compaction: %d leaf summaries, %d condensed summaries, %d messages compacted (tokens %d → %d)",
+		result.LeafSummariesCreated, result.CondensedSummariesCreated,
+		result.MessagesCompacted, result.TokensBefore, result.TokensAfter)
+
+	// Kill the runner so it restarts with clean context from Assemble().
+	p.mu.Lock()
+	sess, ok := p.sessions[sessionID]
+	if ok && sess.Runner != nil {
+		if closer, isCloser := sess.Runner.(io.Closer); isCloser {
+			_ = closer.Close()
+		}
+		sess.Runner = nil
+	}
+	p.mu.Unlock()
+
+	p.log.Info("lcm compaction complete", "session_id", sessionID, "summary", summary)
+	return summary, nil
+}
+
 // collectFullResponse sends a message to a runner and collects the complete
 // text response, blocking until the stream ends.
 func (p *Pool) collectFullResponse(ctx context.Context, r runner.Runner, history []runner.RPCEvent, message string) (string, error) {
@@ -412,6 +458,14 @@ func (p *Pool) collectFullResponse(ctx context.Context, r runner.Runner, history
 // the compaction threshold. Returns false if compaction is disabled or no
 // store is set.
 func (p *Pool) NeedsCompaction(sessionID string) bool {
+	// LCM: check token count via the LCM engine when available.
+	if p.lcm != nil {
+		if p.compaction.MaxTokens <= 0 {
+			return false
+		}
+		return p.lcm.NeedsCompaction(context.Background(), sessionID, float64(p.compaction.MaxTokens))
+	}
+
 	if p.store == nil || p.compaction.MaxTokens <= 0 {
 		return false
 	}
@@ -515,18 +569,48 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 		p.saveInfo(sess.Info)
 	}
 	p.mu.Unlock()
-	p.persist(sessionID, userEvt)
+	// LCM: ingest user event via LCM engine, falling back to store.
+	if p.lcm != nil {
+		if err := p.lcm.Ingest(ctx, sessionID, userEvt); err != nil {
+			p.log.Warn("lcm ingest user event failed", "session_id", sessionID, "error", err)
+		}
+	} else {
+		p.persist(sessionID, userEvt)
+	}
 
-	stream := r.Chat(ctx, sess.Events, message)
+	// LCM: assemble context from LCM engine when available, falling back to sess.Events.
+	chatHistory := sess.Events
+	if p.lcm != nil {
+		assembled, assembleErr := p.lcm.Assemble(ctx, sessionID, p.compaction.MaxTokens, p.compaction.KeepTail)
+		if assembleErr != nil {
+			p.log.Warn("lcm assemble failed, falling back to in-memory events",
+				"session_id", sessionID, "error", assembleErr)
+		} else {
+			chatHistory = assembled
+		}
+	}
+
+	stream := r.Chat(ctx, chatHistory, message)
 
 	go func() {
 		defer close(out)
+		// LCM: use a detached context for persistence so that disconnecting
+		// mid-stream does not lose assistant/tool events from LCM storage.
+		persistCtx := context.WithoutCancel(ctx)
 		var textBuf strings.Builder
 		for evt := range stream {
 			if evt.Err != nil {
 				// Persist any buffered text before returning on error.
 				if textBuf.Len() > 0 {
-					p.persist(sessionID, runner.AssistantMessageToRPCEvent(textBuf.String()))
+					errEvt := runner.AssistantMessageToRPCEvent(textBuf.String())
+					// LCM: ingest via LCM engine, falling back to store.
+					if p.lcm != nil {
+						if iErr := p.lcm.Ingest(persistCtx, sessionID, errEvt); iErr != nil {
+							p.log.Warn("lcm ingest error text failed", "session_id", sessionID, "error", iErr)
+						}
+					} else {
+						p.persist(sessionID, errEvt)
+					}
 				}
 				out <- evt
 				return
@@ -536,13 +620,28 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 			if evt.Store != nil {
 				// Flush buffered text before storing a non-text event.
 				if textBuf.Len() > 0 {
-					p.persist(sessionID, runner.AssistantMessageToRPCEvent(textBuf.String()))
+					flushEvt := runner.AssistantMessageToRPCEvent(textBuf.String())
+					// LCM: ingest via LCM engine, falling back to store.
+					if p.lcm != nil {
+						if iErr := p.lcm.Ingest(persistCtx, sessionID, flushEvt); iErr != nil {
+							p.log.Warn("lcm ingest flush text failed", "session_id", sessionID, "error", iErr)
+						}
+					} else {
+						p.persist(sessionID, flushEvt)
+					}
 					textBuf.Reset()
 				}
 				p.mu.Lock()
 				sess.Events = append(sess.Events, *evt.Store)
 				p.mu.Unlock()
-				p.persist(sessionID, *evt.Store)
+				// LCM: ingest tool event via LCM engine, falling back to store.
+				if p.lcm != nil {
+					if iErr := p.lcm.Ingest(persistCtx, sessionID, *evt.Store); iErr != nil {
+						p.log.Warn("lcm ingest tool event failed", "session_id", sessionID, "error", iErr)
+					}
+				} else {
+					p.persist(sessionID, *evt.Store)
+				}
 			}
 
 			// Tool-use events pass through without history storage.
@@ -564,7 +663,15 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 		}
 		// Stream ended normally — persist the complete assistant message.
 		if textBuf.Len() > 0 {
-			p.persist(sessionID, runner.AssistantMessageToRPCEvent(textBuf.String()))
+			finalEvt := runner.AssistantMessageToRPCEvent(textBuf.String())
+			// LCM: ingest via LCM engine, falling back to store.
+			if p.lcm != nil {
+				if iErr := p.lcm.Ingest(persistCtx, sessionID, finalEvt); iErr != nil {
+					p.log.Warn("lcm ingest final text failed", "session_id", sessionID, "error", iErr)
+				}
+			} else {
+				p.persist(sessionID, finalEvt)
+			}
 		}
 	}()
 
@@ -603,6 +710,14 @@ func (p *Pool) Close() error {
 			}
 		}
 	}
+
+	// LCM: release database resources.
+	if p.lcm != nil {
+		if err := p.lcm.Close(); err != nil && lastErr == nil {
+			lastErr = err
+		}
+	}
+
 	return lastErr
 }
 
@@ -668,8 +783,18 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 			sess.Info = SessionInfo{ID: sessionID, CreatedAt: time.Now(), LastActive: time.Now()}
 		}
 
-		// Restore history from disk if available.
-		if p.store != nil {
+		// LCM: bootstrap the session in LCM; skip store-based history load
+		// because Assemble() will provide context when needed.
+		if p.lcm != nil {
+			p.mu.Unlock()
+			if bErr := p.lcm.Bootstrap(context.Background(), sessionID); bErr != nil {
+				p.log.Warn("lcm bootstrap failed", "session_id", sessionID, "error", bErr)
+			} else {
+				p.log.Info("lcm session bootstrapped", "session_id", sessionID)
+			}
+			p.mu.Lock()
+		} else if p.store != nil {
+			// Restore history from disk if available.
 			p.mu.Unlock()
 			events, err := p.store.Load(sessionID)
 			p.mu.Lock()
