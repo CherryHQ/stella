@@ -11,7 +11,7 @@ import (
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/tencent-connect/botgo/event"
 	"github.com/vaayne/anna/agent/runner"
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 // c2cMessageHandler returns a handler for private (C2C) messages.
@@ -105,9 +105,9 @@ func (b *Bot) buildMessageContent(msg *dto.Message) runner.MessageContent {
 	}
 
 	// Multimodal message: build content blocks.
-	var blocks []aitypes.ContentBlock
+	var blocks []ai.ContentBlock
 	if text != "" {
-		blocks = append(blocks, aitypes.TextContent{Text: text})
+		blocks = append(blocks, ai.TextContent{Text: text})
 	}
 	for _, img := range images {
 		data, mime, err := downloadImage(b.ctx, img.URL)
@@ -116,7 +116,7 @@ func (b *Bot) buildMessageContent(msg *dto.Message) runner.MessageContent {
 			continue
 		}
 		encoded := base64.StdEncoding.EncodeToString(data)
-		blocks = append(blocks, aitypes.ImageContent{Data: encoded, MimeType: mime})
+		blocks = append(blocks, ai.ImageContent{Data: encoded, MimeType: mime})
 		logger().Debug("image received", "size", len(data), "mime", mime)
 	}
 

@@ -11,6 +11,7 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/agent/runner"
+	"github.com/vaayne/anna/config"
 	"github.com/vaayne/anna/skills"
 )
 
@@ -86,7 +87,7 @@ func skillsInstallCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna skills install <owner/repo@skill-name>")
 			}
 
-			cfg, err := LoadConfig()
+			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
@@ -125,12 +126,12 @@ func skillsListCommand() *ucli.Command {
 }
 
 func skillsListAction() error {
-	cfg, err := LoadConfig()
+	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
 	cwd, _ := os.Getwd()
-	loaded := runner.LoadSkills(annaHome(), cfg.Workspace, cwd)
+	loaded := runner.LoadSkills(config.AnnaHome(), cfg.Workspace, cwd)
 	if len(loaded) == 0 {
 		fmt.Println("No skills installed.")
 		return nil
@@ -164,12 +165,12 @@ func skillsListAction() error {
 }
 
 func skillsListJSON() error {
-	cfg, err := LoadConfig()
+	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
 	cwd, _ := os.Getwd()
-	loaded := runner.LoadSkills(annaHome(), cfg.Workspace, cwd)
+	loaded := runner.LoadSkills(config.AnnaHome(), cfg.Workspace, cwd)
 
 	type entry struct {
 		Name        string `json:"name"`
@@ -205,7 +206,7 @@ func skillsRemoveCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna skills remove <name>")
 			}
 
-			cfg, err := LoadConfig()
+			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}

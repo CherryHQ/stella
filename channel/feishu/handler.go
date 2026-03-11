@@ -11,7 +11,7 @@ import (
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	"github.com/vaayne/anna/agent/runner"
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 const welcomeMessage = "Hi! I'm Anna -- your local AI assistant.\n\n" +
@@ -127,8 +127,8 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage) runner.MessageConten
 		}
 		encoded := base64.StdEncoding.EncodeToString(data)
 		logger().Debug("image received", "size", len(data), "mime", mime)
-		return []aitypes.ContentBlock{
-			aitypes.ImageContent{Data: encoded, MimeType: mime},
+		return []ai.ContentBlock{
+			ai.ImageContent{Data: encoded, MimeType: mime},
 		}
 
 	default:

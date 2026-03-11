@@ -6,7 +6,7 @@ before:
 
 builds:
   - id: anna
-    main: .
+    main: ./cmd/anna
     binary: anna
     ldflags:
       - -s -w -X main.version={{ .Version }}

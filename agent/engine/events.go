@@ -1,6 +1,6 @@
 package engine
 
-import aitypes "github.com/vaayne/anna/ai/types"
+import "github.com/vaayne/anna/ai"
 
 // LoopEvent is the runtime event contract emitted by the agent loop.
 type LoopEvent interface {
@@ -14,22 +14,22 @@ func (AgentStarted) Kind() string { return "agentStarted" }
 
 // AssistantStarted is emitted when assistant streaming begins.
 type AssistantStarted struct {
-	Message aitypes.AssistantMessage
+	Message ai.AssistantMessage
 }
 
 func (AssistantStarted) Kind() string { return "assistantStarted" }
 
 // AssistantDelta forwards an incremental provider event with the current partial message.
 type AssistantDelta struct {
-	Event   aitypes.AssistantEvent
-	Message aitypes.AssistantMessage
+	Event   ai.AssistantEvent
+	Message ai.AssistantMessage
 }
 
 func (AssistantDelta) Kind() string { return "assistantDelta" }
 
 // AssistantFinished is emitted when the final assistant message is assembled.
 type AssistantFinished struct {
-	Message aitypes.AssistantMessage
+	Message ai.AssistantMessage
 }
 
 func (AssistantFinished) Kind() string { return "assistantFinished" }
@@ -50,14 +50,14 @@ func (TurnFinished) Kind() string { return "turnFinished" }
 
 // ToolStarted is emitted for each tool invocation.
 type ToolStarted struct {
-	ToolCall aitypes.ToolCall
+	ToolCall ai.ToolCall
 }
 
 func (ToolStarted) Kind() string { return "toolStarted" }
 
 // ToolFinished is emitted when tool returns.
 type ToolFinished struct {
-	Result aitypes.ToolResultMessage
+	Result ai.ToolResultMessage
 }
 
 func (ToolFinished) Kind() string { return "toolFinished" }

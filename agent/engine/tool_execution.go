@@ -4,18 +4,18 @@ import (
 	"context"
 	"errors"
 
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 )
 
 // ToolCallbacks emits progress events around tool execution.
 type ToolCallbacks struct {
-	OnStart  func(call aitypes.ToolCall)
-	OnFinish func(result aitypes.ToolResultMessage)
+	OnStart  func(call ai.ToolCall)
+	OnFinish func(result ai.ToolResultMessage)
 }
 
 // ExecuteToolCalls runs each tool call in order and returns result messages.
-func ExecuteToolCalls(ctx context.Context, calls []aitypes.ToolCall, tools ToolSet, cb ToolCallbacks) ([]aitypes.ToolResultMessage, error) {
-	results := make([]aitypes.ToolResultMessage, 0, len(calls))
+func ExecuteToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, cb ToolCallbacks) ([]ai.ToolResultMessage, error) {
+	results := make([]ai.ToolResultMessage, 0, len(calls))
 
 	for _, call := range calls {
 		if cb.OnStart != nil {
@@ -24,11 +24,11 @@ func ExecuteToolCalls(ctx context.Context, calls []aitypes.ToolCall, tools ToolS
 
 		toolFn, ok := tools[call.Name]
 		if !ok {
-			result := aitypes.ToolResultMessage{
+			result := ai.ToolResultMessage{
 				ToolCallID: call.ID,
 				ToolName:   call.Name,
 				IsError:    true,
-				Content:    []aitypes.ContentBlock{aitypes.TextContent{Text: "tool not found"}},
+				Content:    []ai.ContentBlock{ai.TextContent{Text: "tool not found"}},
 			}
 			results = append(results, result)
 			if cb.OnFinish != nil {
@@ -38,10 +38,10 @@ func ExecuteToolCalls(ctx context.Context, calls []aitypes.ToolCall, tools ToolS
 		}
 
 		content, err := toolFn(ctx, call)
-		result := aitypes.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name, Content: []aitypes.ContentBlock{content}}
+		result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name, Content: []ai.ContentBlock{content}}
 		if err != nil {
 			result.IsError = true
-			result.Content = []aitypes.ContentBlock{aitypes.TextContent{Text: err.Error()}}
+			result.Content = []ai.ContentBlock{ai.TextContent{Text: err.Error()}}
 		}
 		results = append(results, result)
 		if cb.OnFinish != nil {

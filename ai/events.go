@@ -1,4 +1,4 @@
-package types
+package ai
 
 import "time"
 

@@ -6,7 +6,7 @@ anna is structured as a set of loosely coupled packages wired together in `main.
 
 1. A **channel** (CLI, Telegram, QQ, or Feishu) receives user input
 2. The **Pool** manages sessions and dispatches to a **Runner**
-3. The **Go runner** calls LLM providers via `ai/providers/`, executing tools in a loop
+3. The **Go runner** calls LLM providers via `ai/`, executing tools in a loop
 4. Responses stream back through the channel to the user
 
 ```
@@ -25,25 +25,28 @@ LLM Provider (Anthropic/OpenAI/OpenAI-compatible)
 ## Package Layout
 
 ```
-main.go                             Entry point, CLI commands, service wiring
-config.go                           Config types, YAML loading, env var overrides
-models.go                           Model cache, discovery, CLI model commands
+cmd/anna/                           Entry point, CLI commands, service wiring
+config/                             Config types, YAML loading, env var overrides
 
 ai/
-  types/                            Shared types (Model, Message, ToolDefinition, events)
-  stream/                           Streaming abstractions
+  message.go                        Message, Content types
+  model.go                          Model, ModelCost types
+  options.go                        RequestOptions
+  events.go                         StreamEvent types
+  provider.go                       Provider interface, registry, event stream
+  transform.go                      Message format conversions
   providers/
     anthropic/                      Anthropic provider (Messages API)
     openai/                         OpenAI provider (Chat Completions API)
     openai-response/                OpenAI-compatible provider (Responses API)
     register_builtins.go            Auto-register all built-in providers
-  registry/                         Provider registry
-  transform/                        Message format conversions
 
 agent/
-  pool.go                           Session pool, runner lifecycle, idle reaping
+  pool.go                           Session pool, Chat(), runner lifecycle
+  pool_options.go                   PoolOption, ChatOption, With* funcs
+  pool_reaper.go                    Idle/dead runner reaping
+  pool_compaction.go                Session compaction orchestration
   session.go                        Per-chat session state and history
-  store/                            Session persistence (JSONL file store, index)
   engine/
     engine.go                       Agent loop engine (multi-turn tool execution)
     continue.go                     Resume agent loop from existing history
@@ -64,6 +67,10 @@ agent/
     edit.go                         Edit file sections
     truncate.go                     Truncate large outputs to temp files
 
+store/
+  store.go                          Session persistence (JSONL file store)
+  index.go                          Session index
+
 channel/
   model.go                          Channel interface, model list/switch types
   command.go                        Shared Commander (handles /new, /compact, /model)
@@ -72,7 +79,10 @@ channel/
   notify_tool.go                    Agent notify tool
   cli/
     cli.go                          Interactive TUI entry points
-    chat.go                         Bubble Tea chat model
+    chat.go                         Bubble Tea chat model, Update()
+    chat_view.go                    View(), resize(), markdown rendering
+    chat_input.go                   Input handling, slash command completion
+    chat_picker.go                  Model picker key handling
     command.go                      In-chat slash commands (/compact, /model, etc.)
     model.go                        TUI model switching UI
     style.go                        Terminal styling
@@ -96,8 +106,9 @@ channel/
     model.go                        Text-based model list
 
 cron/
-  cron.go                           Scheduler service (gocron/v2)
-  job.go                            Job types, JSON persistence
+  service.go                        Scheduler service (gocron/v2)
+  persistence.go                    Job JSON persistence (load/save)
+  job.go                            Job and Schedule types
   tool.go                           Agent cron tool (add/list/remove)
 
 memory/
@@ -122,7 +133,7 @@ Three LLM providers are supported:
 | `openai` | Chat Completions API | GPT models |
 | `openai-response` | Responses API | OpenAI-compatible services (Perplexity, Together.ai, etc.) |
 
-Each provider implements the `stream.Provider` interface for streaming responses and optionally `stream.ModelLister` for model discovery. All providers support multimodal input (text + images) via the `ImageContent` type, converting to their native image format (base64 blocks for Anthropic, data URI image_url for OpenAI).
+Each provider implements the `ai.ProviderAdapter` interface for streaming responses and optionally `ai.ModelLister` for model discovery. All providers support multimodal input (text + images) via the `ImageContent` type, converting to their native image format (base64 blocks for Anthropic, data URI image_url for OpenAI).
 
 ## Tools
 

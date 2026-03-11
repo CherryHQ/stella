@@ -159,27 +159,22 @@ anna chat
 ```
 
 ```
-main.go                             Entry point, CLI commands, service wiring
-config.go                           Config types, YAML loading, env var overrides
-models.go                           Model cache, discovery, CLI model commands
-agent/pool.go                       Session management, runner lifecycle
-agent/session.go                    Per-chat session state
-agent/store/                        Session persistence (JSONL file store)
-agent/runner/                       Runner interface, GoRunner, RPC protocol
-agent/runner/prompt.go              System prompt builder
+cmd/anna/                           Entry point, CLI commands, service wiring
+config/                             Config types, YAML loading, env var overrides
+ai/                                 Core types, provider interface, registry, transforms
+ai/providers/                       LLM provider implementations (Anthropic, OpenAI)
+agent/                              Session pool, compaction, reaper, runner lifecycle
 agent/engine/                       Agent loop engine, tool execution, loop events
+agent/runner/                       Runner interface, GoRunner, RPC protocol
 agent/tool/                         Built-in tools (read, bash, write, edit, truncate)
-channel/notifier.go                 Notification dispatcher (multi-backend)
-channel/notify_tool.go              Agent notify tool
+store/                              Session persistence (JSONL file store, index)
+channel/                            Shared channel interface, notifier, utilities
+channel/cli/                        Interactive terminal chat (Bubble Tea TUI)
 channel/telegram/                   Telegram bot + streaming + notification backend
 channel/qq/                         QQ bot + webhook + streaming + notification backend
 channel/feishu/                     Feishu bot + WebSocket + streaming + notification backend
-channel/cli/                        Interactive terminal chat (Bubble Tea TUI)
 cron/                               Scheduled jobs (gocron/v2)
 memory/                             Persistent memory (facts + journal)
-ai/providers/                       LLM provider implementations (Anthropic, OpenAI)
-ai/types/                           Shared types (Model, Message, ToolDefinition, events)
-ai/stream/                          Streaming abstractions
 ```
 
 ## Documentation

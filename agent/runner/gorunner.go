@@ -11,11 +11,10 @@ import (
 
 	"github.com/vaayne/anna/agent/engine"
 	"github.com/vaayne/anna/agent/tool"
+	"github.com/vaayne/anna/ai"
 	"github.com/vaayne/anna/ai/providers/anthropic"
 	"github.com/vaayne/anna/ai/providers/openai"
 	openairesponse "github.com/vaayne/anna/ai/providers/openai-response"
-	"github.com/vaayne/anna/ai/registry"
-	aitypes "github.com/vaayne/anna/ai/types"
 	"github.com/vaayne/anna/memory"
 )
 
@@ -38,9 +37,9 @@ type GoRunnerConfig struct {
 // GoRunner implements Runner by calling LLM providers directly via Engine.
 type GoRunner struct {
 	eng    *engine.Engine
-	reg    *registry.Registry
+	reg    *ai.Registry
 	tools  *tool.Registry
-	model  aitypes.Model
+	model  ai.Model
 	apiKey string
 	system string
 
@@ -61,7 +60,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		return nil, fmt.Errorf("go runner: api_key is required")
 	}
 
-	reg := registry.New()
+	reg := ai.NewRegistry()
 	reg.Register(anthropic.New(anthropic.Config{BaseURL: cfg.BaseURL}))
 	reg.Register(openai.New(openai.Config{BaseURL: cfg.BaseURL}))
 	reg.Register(openairesponse.New(openairesponse.Config{BaseURL: cfg.BaseURL}))
@@ -84,7 +83,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		eng:          &engine.Engine{Providers: reg},
 		reg:          reg,
 		tools:        tools,
-		model:        aitypes.Model{API: cfg.API, Name: cfg.Model},
+		model:        ai.Model{API: cfg.API, Name: cfg.Model},
 		apiKey:       cfg.APIKey,
 		system:       system,
 		lastActivity: time.Now(),
@@ -104,11 +103,11 @@ func (r *GoRunner) Chat(ctx context.Context, history []RPCEvent, message Message
 		defer close(out)
 
 		messages := convertHistory(history)
-		messages = append(messages, aitypes.UserMessage{Content: message})
+		messages = append(messages, ai.UserMessage{Content: message})
 
 		cfg := engine.LoopConfig{
 			Model:           r.model,
-			StreamOptions:   aitypes.StreamOptions{APIKey: r.apiKey},
+			StreamOptions:   ai.StreamOptions{APIKey: r.apiKey},
 			MaxTurns:        maxToolIterations,
 			Tools:           r.buildToolSet(),
 			ToolDefinitions: r.tools.Definitions(),
@@ -145,9 +144,9 @@ func (r *GoRunner) buildToolSet() engine.ToolSet {
 	set := engine.ToolSet{}
 	for _, def := range r.tools.Definitions() {
 		name := def.Name
-		set[name] = func(ctx context.Context, call aitypes.ToolCall) (aitypes.TextContent, error) {
+		set[name] = func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
 			result, err := r.tools.Execute(ctx, name, call.Arguments)
-			return aitypes.TextContent{Text: result}, err
+			return ai.TextContent{Text: result}, err
 		}
 	}
 	return set
@@ -157,7 +156,7 @@ func (r *GoRunner) buildToolSet() engine.ToolSet {
 func convertLoopEvent(e engine.LoopEvent) []Event {
 	switch e := e.(type) {
 	case engine.AssistantDelta:
-		if d, ok := e.Event.(aitypes.EventTextDelta); ok && d.Text != "" {
+		if d, ok := e.Event.(ai.EventTextDelta); ok && d.Text != "" {
 			return []Event{{Text: d.Text}}
 		}
 
@@ -165,7 +164,7 @@ func convertLoopEvent(e engine.LoopEvent) []Event {
 		// Emit Store events for tool calls in the final message.
 		var events []Event
 		for _, block := range e.Message.Content {
-			if call, ok := block.(aitypes.ToolCall); ok {
+			if call, ok := block.(ai.ToolCall); ok {
 				rpc := ToolCallToRPCEvent(call)
 				events = append(events, Event{Store: &rpc})
 			}
@@ -203,10 +202,10 @@ func convertLoopEvent(e engine.LoopEvent) []Event {
 }
 
 // summarizeToolResult returns a short human-readable summary of a tool result.
-func summarizeToolResult(result aitypes.ToolResultMessage) string {
+func summarizeToolResult(result ai.ToolResultMessage) string {
 	var text string
 	for _, block := range result.Content {
-		if tc, ok := block.(aitypes.TextContent); ok {
+		if tc, ok := block.(ai.TextContent); ok {
 			text = tc.Text
 			break
 		}
@@ -271,7 +270,7 @@ func summarizeToolInput(toolName string, args map[string]any) string {
 }
 
 // decodeUserContent reconstructs the user message content from an RPCEvent.
-// Returns []aitypes.ContentBlock if the event has multimodal content, or string otherwise.
+// Returns []ai.ContentBlock if the event has multimodal content, or string otherwise.
 func decodeUserContent(evt RPCEvent) any {
 	if len(evt.Content) == 0 {
 		return evt.Summary
@@ -280,13 +279,13 @@ func decodeUserContent(evt RPCEvent) any {
 	if err := json.Unmarshal(evt.Content, &blocks); err != nil {
 		return evt.Summary
 	}
-	content := make([]aitypes.ContentBlock, 0, len(blocks))
+	content := make([]ai.ContentBlock, 0, len(blocks))
 	for _, b := range blocks {
 		switch b.Kind {
 		case BlockKindText:
-			content = append(content, aitypes.TextContent{Text: b.Text})
+			content = append(content, ai.TextContent{Text: b.Text})
 		case BlockKindImage:
-			content = append(content, aitypes.ImageContent{Data: b.Data, MimeType: b.MimeType})
+			content = append(content, ai.ImageContent{Data: b.Data, MimeType: b.MimeType})
 		}
 	}
 	if len(content) == 0 {
@@ -295,17 +294,17 @@ func decodeUserContent(evt RPCEvent) any {
 	return content
 }
 
-// convertHistory rebuilds []aitypes.Message from RPCEvent history.
-func convertHistory(events []RPCEvent) []aitypes.Message {
-	var messages []aitypes.Message
+// convertHistory rebuilds []ai.Message from RPCEvent history.
+func convertHistory(events []RPCEvent) []ai.Message {
+	var messages []ai.Message
 	var textBuf string
-	var pendingCalls []aitypes.ToolCall
+	var pendingCalls []ai.ToolCall
 	seenCallIDs := map[string]bool{}
 
 	flush := func() {
 		if textBuf != "" {
-			messages = append(messages, aitypes.AssistantMessage{
-				Content: []aitypes.ContentBlock{aitypes.TextContent{Text: textBuf}},
+			messages = append(messages, ai.AssistantMessage{
+				Content: []ai.ContentBlock{ai.TextContent{Text: textBuf}},
 			})
 			textBuf = ""
 		}
@@ -313,15 +312,15 @@ func convertHistory(events []RPCEvent) []aitypes.Message {
 
 	flushToolCalls := func() {
 		if len(pendingCalls) > 0 {
-			blocks := make([]aitypes.ContentBlock, 0, len(pendingCalls)+1)
+			blocks := make([]ai.ContentBlock, 0, len(pendingCalls)+1)
 			if textBuf != "" {
-				blocks = append(blocks, aitypes.TextContent{Text: textBuf})
+				blocks = append(blocks, ai.TextContent{Text: textBuf})
 				textBuf = ""
 			}
 			for _, c := range pendingCalls {
 				blocks = append(blocks, c)
 			}
-			messages = append(messages, aitypes.AssistantMessage{Content: blocks})
+			messages = append(messages, ai.AssistantMessage{Content: blocks})
 			pendingCalls = nil
 		}
 	}
@@ -331,7 +330,7 @@ func convertHistory(events []RPCEvent) []aitypes.Message {
 		case RPCEventUserMessage:
 			flushToolCalls()
 			flush()
-			messages = append(messages, aitypes.UserMessage{Content: decodeUserContent(evt)})
+			messages = append(messages, ai.UserMessage{Content: decodeUserContent(evt)})
 
 		case RPCEventMessageUpdate:
 			if evt.Summary != "" {
@@ -347,7 +346,7 @@ func convertHistory(events []RPCEvent) []aitypes.Message {
 			var args map[string]any
 			_ = json.Unmarshal(evt.Result, &args)
 			seenCallIDs[evt.ID] = true
-			pendingCalls = append(pendingCalls, aitypes.ToolCall{
+			pendingCalls = append(pendingCalls, ai.ToolCall{
 				ID:        evt.ID,
 				Name:      evt.Tool,
 				Arguments: args,
@@ -361,10 +360,10 @@ func convertHistory(events []RPCEvent) []aitypes.Message {
 			flushToolCalls()
 			var content string
 			_ = json.Unmarshal(evt.Result, &content)
-			messages = append(messages, aitypes.ToolResultMessage{
+			messages = append(messages, ai.ToolResultMessage{
 				ToolCallID: evt.ID,
 				ToolName:   evt.Tool,
-				Content:    []aitypes.ContentBlock{aitypes.TextContent{Text: content}},
+				Content:    []ai.ContentBlock{ai.TextContent{Text: content}},
 				IsError:    evt.Error != "",
 			})
 		}

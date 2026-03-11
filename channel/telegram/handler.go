@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/vaayne/anna/agent/runner"
-	aitypes "github.com/vaayne/anna/ai/types"
+	"github.com/vaayne/anna/ai"
 	"github.com/vaayne/anna/channel"
 	tele "gopkg.in/telebot.v4"
 )
@@ -178,14 +178,14 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	mimeType := http.DetectContentType(data)
 	encoded := base64.StdEncoding.EncodeToString(data)
 
-	var content []aitypes.ContentBlock
+	var content []ai.ContentBlock
 	if caption := c.Message().Caption; caption != "" {
 		if isGroup(c) {
 			caption = b.stripBotMention(caption)
 		}
-		content = append(content, aitypes.TextContent{Text: caption})
+		content = append(content, ai.TextContent{Text: caption})
 	}
-	content = append(content, aitypes.ImageContent{Data: encoded, MimeType: mimeType})
+	content = append(content, ai.ImageContent{Data: encoded, MimeType: mimeType})
 
 	logger().Debug("photo received", "chat_id", c.Chat().ID, "size", len(data), "mime", mimeType)
 	return b.handleMessage(c, content)

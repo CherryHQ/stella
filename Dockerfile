@@ -9,7 +9,7 @@ ARG VERSION=dev
 ENV CGO_ENABLED=0
 
 COPY . .
-RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o bin/anna .
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o bin/anna ./cmd/anna/
 
 FROM gcr.io/distroless/static-debian13:nonroot AS app
 WORKDIR /workspace
