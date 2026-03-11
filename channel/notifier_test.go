@@ -139,3 +139,90 @@ func TestDispatcherChannels(t *testing.T) {
 		t.Errorf("Channels() = %v, want [telegram slack]", names)
 	}
 }
+
+func TestNotifyToolDefinition(t *testing.T) {
+	d := NewDispatcher()
+	tool := NewNotifyTool(d)
+
+	def := tool.Definition()
+	if def.Name != "notify" {
+		t.Errorf("Name = %q, want %q", def.Name, "notify")
+	}
+	if def.InputSchema == nil {
+		t.Error("InputSchema should not be nil")
+	}
+}
+
+func TestNotifyToolExecuteBroadcast(t *testing.T) {
+	d := NewDispatcher()
+	tg := &mockChannel{name: "telegram"}
+	d.Register(tg, "chat-123")
+
+	tool := NewNotifyTool(d)
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"message": "hello world",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tg.calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(tg.calls))
+	}
+	if tg.calls[0].Text != "hello world" {
+		t.Errorf("Text = %q", tg.calls[0].Text)
+	}
+	if result == "" {
+		t.Error("expected non-empty result")
+	}
+}
+
+func TestNotifyToolExecuteTargeted(t *testing.T) {
+	d := NewDispatcher()
+	tg := &mockChannel{name: "telegram"}
+	d.Register(tg, "default-chat")
+
+	tool := NewNotifyTool(d)
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"message": "targeted",
+		"channel": "telegram",
+		"chat_id": "custom-chat",
+		"silent":  true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tg.calls[0].ChatID != "custom-chat" {
+		t.Errorf("ChatID = %q, want %q", tg.calls[0].ChatID, "custom-chat")
+	}
+	if !tg.calls[0].Silent {
+		t.Error("expected Silent to be true")
+	}
+	if result == "" {
+		t.Error("expected non-empty result")
+	}
+}
+
+func TestNotifyToolExecuteEmptyMessage(t *testing.T) {
+	d := NewDispatcher()
+	tool := NewNotifyTool(d)
+
+	_, err := tool.Execute(context.Background(), map[string]any{})
+	if err == nil {
+		t.Fatal("expected error for empty message")
+	}
+}
+
+func TestNotifyToolExecuteError(t *testing.T) {
+	d := NewDispatcher()
+	bad := &mockChannel{name: "telegram", err: errors.New("send failed")}
+	d.Register(bad, "chat")
+
+	tool := NewNotifyTool(d)
+	_, err := tool.Execute(context.Background(), map[string]any{
+		"message": "test",
+		"channel": "telegram",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}

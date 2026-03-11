@@ -685,3 +685,131 @@ func TestWorkspacePaths(t *testing.T) {
 		t.Errorf("LogPath() = %q", cfg.LogPath())
 	}
 }
+
+func TestCronEnabled(t *testing.T) {
+	tr := true
+	fa := false
+	tests := []struct {
+		name    string
+		enabled *bool
+		want    bool
+	}{
+		{"nil defaults to true", nil, true},
+		{"explicit true", &tr, true},
+		{"explicit false", &fa, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := CronConfig{Enabled: tt.enabled}
+			if got := c.CronEnabled(); got != tt.want {
+				t.Errorf("CronEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestChannelConfigHelpers(t *testing.T) {
+	tr := true
+	fa := false
+
+	// QQ
+	if !(QQConfig{}).IsEnabled() {
+		t.Error("QQ nil enabled should default to true")
+	}
+	if !(QQConfig{Enabled: &tr}).IsEnabled() {
+		t.Error("QQ explicit true should be enabled")
+	}
+	if (QQConfig{Enabled: &fa}).IsEnabled() {
+		t.Error("QQ explicit false should be disabled")
+	}
+	if (QQConfig{}).IsNotifyEnabled() {
+		t.Error("QQ nil notify should be false")
+	}
+	if !(QQConfig{EnableNotify: &tr}).IsNotifyEnabled() {
+		t.Error("QQ explicit true notify should be enabled")
+	}
+
+	// Feishu
+	if !(FeishuConfig{}).IsEnabled() {
+		t.Error("Feishu nil enabled should default to true")
+	}
+	if (FeishuConfig{Enabled: &fa}).IsEnabled() {
+		t.Error("Feishu explicit false should be disabled")
+	}
+	if (FeishuConfig{}).IsNotifyEnabled() {
+		t.Error("Feishu nil notify should be false")
+	}
+	if !(FeishuConfig{EnableNotify: &tr}).IsNotifyEnabled() {
+		t.Error("Feishu explicit true notify should be enabled")
+	}
+
+	// Telegram
+	if !(TelegramConfig{}).IsEnabled() {
+		t.Error("Telegram nil enabled should default to true")
+	}
+	if (TelegramConfig{Enabled: &fa}).IsEnabled() {
+		t.Error("Telegram explicit false should be disabled")
+	}
+	if (TelegramConfig{}).IsNotifyEnabled() {
+		t.Error("Telegram nil notify should be false")
+	}
+	if !(TelegramConfig{EnableNotify: &tr}).IsNotifyEnabled() {
+		t.Error("Telegram explicit true notify should be enabled")
+	}
+}
+
+func TestModelConfigToType(t *testing.T) {
+	cost := &ModelCostConfig{Input: 3.0, Output: 15.0, CacheRead: 0.3, CacheWrite: 3.75}
+	m := ModelConfig{
+		ID:            "claude-sonnet-4-6",
+		Name:          "Claude Sonnet",
+		API:           "anthropic-messages",
+		Reasoning:     true,
+		Input:         []string{"text", "image"},
+		ContextWindow: 200000,
+		MaxTokens:     8192,
+		Headers:       map[string]string{"x-custom": "val"},
+		Cost:          cost,
+	}
+
+	model := modelConfigToType("anthropic", m)
+	if model.ID != "claude-sonnet-4-6" {
+		t.Errorf("ID = %q", model.ID)
+	}
+	if model.Provider != "anthropic" {
+		t.Errorf("Provider = %q", model.Provider)
+	}
+	if model.API != "anthropic-messages" {
+		t.Errorf("API = %q", model.API)
+	}
+	if !model.Reasoning {
+		t.Error("Reasoning should be true")
+	}
+	if model.Cost.Input != 3.0 {
+		t.Errorf("Cost.Input = %f", model.Cost.Input)
+	}
+	if model.Cost.Output != 15.0 {
+		t.Errorf("Cost.Output = %f", model.Cost.Output)
+	}
+}
+
+func TestModelConfigToTypeFallbacks(t *testing.T) {
+	// Empty API should fall back to provider
+	m := ModelConfig{ID: "test-model"}
+	model := modelConfigToType("openai", m)
+	if model.API != "openai" {
+		t.Errorf("API = %q, want fallback to provider", model.API)
+	}
+	// Empty Name should use ID
+	if model.Name != "test-model" {
+		t.Errorf("Name = %q, want ID fallback", model.Name)
+	}
+}
+
+func TestHeartbeatFilePathAbsolute(t *testing.T) {
+	c := HeartbeatConfig{File: "/absolute/path/heartbeat.md"}
+	got := c.FilePath("/workspace")
+	if got != "/absolute/path/heartbeat.md" {
+		t.Errorf("FilePath() = %q, want absolute path preserved", got)
+	}
+}

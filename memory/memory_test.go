@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,5 +175,141 @@ func TestStore_Path(t *testing.T) {
 	want := filepath.Join(dir, string(FileFact))
 	if got != want {
 		t.Errorf("Path() = %q, want %q", got, want)
+	}
+}
+
+func TestMemoryToolDefinition(t *testing.T) {
+	s := NewStore(t.TempDir())
+	tool := NewTool(s)
+	def := tool.Definition()
+	if def.Name != "memory" {
+		t.Errorf("Name = %q, want %q", def.Name, "memory")
+	}
+	if def.InputSchema == nil {
+		t.Error("InputSchema should not be nil")
+	}
+}
+
+func TestMemoryToolUpdate(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	tool := NewTool(s)
+
+	// Missing content
+	_, err := tool.Execute(context.TODO(), map[string]any{"action": "update"})
+	if err == nil {
+		t.Fatal("expected error for empty content")
+	}
+
+	// Valid update
+	result, err := tool.Execute(context.TODO(), map[string]any{
+		"action":  "update",
+		"content": "# Facts\n\n- Go is great.",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "Memory updated." {
+		t.Errorf("result = %q", result)
+	}
+
+	// Verify written
+	got, _ := s.Read(FileFact)
+	if got != "# Facts\n\n- Go is great." {
+		t.Errorf("stored content = %q", got)
+	}
+}
+
+func TestMemoryToolAppend(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	tool := NewTool(s)
+
+	// Missing text
+	_, err := tool.Execute(context.TODO(), map[string]any{"action": "append"})
+	if err == nil {
+		t.Fatal("expected error for empty text")
+	}
+
+	// Valid append with tags as []any (JSON decoded form)
+	result, err := tool.Execute(context.TODO(), map[string]any{
+		"action": "append",
+		"text":   "deployed v2",
+		"tags":   []any{"deploy", "prod"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == "" {
+		t.Error("expected non-empty result")
+	}
+
+	// Verify searchable
+	entries, _ := s.Search("deployed", "", 10)
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+
+	// Append with []string tags
+	_, err = tool.Execute(context.TODO(), map[string]any{
+		"action": "append",
+		"text":   "another entry",
+		"tags":   []string{"test"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMemoryToolSearch(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	tool := NewTool(s)
+
+	// Search empty journal
+	result, err := tool.Execute(context.TODO(), map[string]any{"action": "search"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "No matching journal entries found." {
+		t.Errorf("result = %q", result)
+	}
+
+	// Add entries and search
+	_ = s.Append(JournalEntry{Timestamp: time.Now(), Tags: []string{"deploy"}, Text: "deployed v1"})
+	_ = s.Append(JournalEntry{Timestamp: time.Now(), Tags: []string{"meeting"}, Text: "sprint planning"})
+
+	result, err = tool.Execute(context.TODO(), map[string]any{
+		"action": "search",
+		"query":  "deployed",
+		"limit":  float64(5),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "deployed v1") {
+		t.Errorf("result should contain entry: %s", result)
+	}
+
+	// Search by tag
+	result, err = tool.Execute(context.TODO(), map[string]any{
+		"action": "search",
+		"tag":    "meeting",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "sprint planning") {
+		t.Errorf("result should contain meeting entry: %s", result)
+	}
+}
+
+func TestMemoryToolUnknownAction(t *testing.T) {
+	s := NewStore(t.TempDir())
+	tool := NewTool(s)
+
+	_, err := tool.Execute(context.TODO(), map[string]any{"action": "delete"})
+	if err == nil {
+		t.Fatal("expected error for unknown action")
 	}
 }
