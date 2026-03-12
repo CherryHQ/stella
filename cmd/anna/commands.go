@@ -17,6 +17,7 @@ import (
 	"github.com/vaayne/anna/cron"
 	"github.com/vaayne/anna/heartbeat"
 	"github.com/vaayne/anna/memory"
+	memorytool "github.com/vaayne/anna/memory/tool"
 	"github.com/vaayne/anna/skills"
 	"github.com/vaayne/anna/store"
 )
@@ -44,7 +45,6 @@ type setupResult struct {
 	pool       *agent.Pool
 	cronSvc    *cron.Service
 	heartbeat  *heartbeat.Service
-	memStore   *memory.Store
 	extraTools []tool.Tool
 	notifier   *channel.Dispatcher
 }
@@ -72,10 +72,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		}
 	}
 
-	// Memory store + tool — always available.
-	memStore := memory.NewStore(cfg.MemoryPath())
-	extraTools = append(extraTools, memory.NewTool(memStore))
-
 	// Skills tool — always available.
 	cwd, _ := os.Getwd()
 	extraTools = append(extraTools, skills.NewTool(config.AnnaHome(), cfg.Workspace, cwd))
@@ -88,8 +84,23 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		extraTools = append(extraTools, channel.NewNotifyTool(dispatcher))
 	}
 
+	// Memory engine: create engine for message persistence and compaction.
+	// TODO: wire LLMSummarizer with runner factory for production-quality summaries.
+	memoryDBPath := filepath.Join(cfg.Workspace, "memory.db")
+	memoryEngine, err := memory.NewEngine(memoryDBPath, &memory.StaticSummarizer{Response: "compacted"}, memory.WithLogger(slog.Default()))
+	if err != nil {
+		return nil, fmt.Errorf("create memory engine: %w", err)
+	}
+
+	// Memory retrieval tools — must be appended before runner factory captures extraTools.
+	extraTools = append(extraTools,
+		memorytool.NewGrepTool(memoryEngine),
+		memorytool.NewDescribeTool(memoryEngine),
+		memorytool.NewExpandTool(memoryEngine),
+	)
+
 	idleTimeout := time.Duration(cfg.Runner.IdleTimeout) * time.Minute
-	factory, err := newRunnerFactory(cfg, memStore, extraTools)
+	factory, err := newRunnerFactory(cfg, extraTools)
 	if err != nil {
 		return nil, fmt.Errorf("create runner factory: %w", err)
 	}
@@ -100,6 +111,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithDefaultModel(cfg.ResolveModelID(config.ModelTierStrong)),
 		agent.WithFastModel(cfg.ResolveModelID(config.ModelTierFast)),
 	}
+	opts = append(opts, agent.WithMemoryEngine(memoryEngine))
+
 	sessionsPath := cfg.SessionsPath()
 	if sessionsPath != "" {
 		s, err := store.NewFileStore(sessionsPath, cwd)
@@ -146,7 +159,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		pool:       pool,
 		cronSvc:    cronSvc,
 		heartbeat:  heartbeatSvc,
-		memStore:   memStore,
 		extraTools: extraTools,
 		notifier:   dispatcher,
 	}, nil
@@ -158,7 +170,7 @@ func hasEnabledNotifyChannel(cfg *config.Config) bool {
 		(cfg.Channels.Feishu.IsEnabled() && cfg.Channels.Feishu.IsNotifyEnabled())
 }
 
-func newRunnerFactory(cfg *config.Config, memStore *memory.Store, extraTools []tool.Tool) (runner.NewRunnerFunc, error) {
+func newRunnerFactory(cfg *config.Config, extraTools []tool.Tool) (runner.NewRunnerFunc, error) {
 	switch cfg.Runner.Type {
 	case "go":
 		providerCfg := cfg.Providers[cfg.Provider]
@@ -167,14 +179,13 @@ func newRunnerFactory(cfg *config.Config, memStore *memory.Store, extraTools []t
 				model = cfg.Model
 			}
 			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
-				API:         cfg.Provider,
-				Model:       model,
-				APIKey:      providerCfg.APIKey,
-				Workspace:   cfg.Workspace,
-				AnnaHome:    config.AnnaHome(),
-				MemoryStore: memStore,
-				BaseURL:     providerCfg.BaseURL,
-				ExtraTools:  extraTools,
+				API:        cfg.Provider,
+				Model:      model,
+				APIKey:     providerCfg.APIKey,
+				Workspace:  cfg.Workspace,
+				AnnaHome:   config.AnnaHome(),
+				BaseURL:    providerCfg.BaseURL,
+				ExtraTools: extraTools,
 			})
 		}, nil
 	default:
@@ -184,11 +195,11 @@ func newRunnerFactory(cfg *config.Config, memStore *memory.Store, extraTools []t
 
 // modelSwitcher returns a function that switches the pool's runner factory
 // to use a different provider/model combination.
-func modelSwitcher(cfg *config.Config, pool *agent.Pool, memStore *memory.Store, extraTools []tool.Tool) channel.ModelSwitchFunc {
+func modelSwitcher(cfg *config.Config, pool *agent.Pool, extraTools []tool.Tool) channel.ModelSwitchFunc {
 	return func(provider, model string) error {
 		cfg.Provider = provider
 		cfg.Model = model
-		factory, err := newRunnerFactory(cfg, memStore, extraTools)
+		factory, err := newRunnerFactory(cfg, extraTools)
 		if err != nil {
 			return err
 		}

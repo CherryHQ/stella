@@ -29,6 +29,7 @@ Two interfaces: **interactive CLI chat** and **gateway daemon** (Telegram bot, Q
 - Session compaction with LLM-generated summaries
 - Scheduled tasks via cron with persistent job storage
 - Skill management (search, install, list, remove from [skills.sh](https://skills.sh) ecosystem)
+- DAG-based lossless context management with SQLite-backed compaction
 - Persistent memory (facts + journal)
 - Idle runner auto-reaping (configurable timeout)
 - Graceful shutdown on SIGINT/SIGTERM
@@ -174,7 +175,7 @@ channel/telegram/                   Telegram bot + streaming + notification back
 channel/qq/                         QQ bot + webhook + streaming + notification backend
 channel/feishu/                     Feishu bot + WebSocket + streaming + notification backend
 cron/                               Scheduled jobs (gocron/v2)
-memory/                             Persistent memory (facts + journal)
+memory/                             Lossless context management (DAG, compaction, retrieval)
 ```
 
 ## Documentation
@@ -188,7 +189,7 @@ memory/                             Persistent memory (facts + journal)
 | [QQ Bot](docs/qq.md) | Bot setup, webhook, streaming, access control |
 | [Feishu Bot](docs/feishu.md) | Bot setup, WebSocket, streaming, access control |
 | [Models](docs/models.md) | Tiers, CLI commands, provider setup, caching |
-| [Memory System](docs/memory-system.md) | Facts + journal, tool interface |
+| [Memory System](docs/memory-system.md) | Lossless context management, identity files, retrieval tools |
 | [Cron System](docs/cron-system.md) | Scheduled tasks, job persistence |
 | [Session Compaction](docs/session-compaction.md) | History compaction, token management |
 | [Notification System](docs/notification-system.md) | Dispatcher, backends, agent tool |

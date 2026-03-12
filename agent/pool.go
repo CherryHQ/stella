@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vaayne/anna/agent/runner"
+	"github.com/vaayne/anna/memory"
 	"github.com/vaayne/anna/store"
 )
 
@@ -20,6 +21,7 @@ type Pool struct {
 	factory      runner.NewRunnerFunc
 	sessions     map[string]*Session
 	store        store.Store
+	mem          memory.Engine // memory engine for message persistence and compaction (optional)
 	mu           sync.Mutex
 	idleTimeout  time.Duration
 	compaction   CompactionConfig
@@ -255,6 +257,8 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 		o(&co)
 	}
 
+	ctx = memory.WithSessionID(ctx, sessionID)
+
 	sess, r, err := p.getOrCreateRunner(ctx, sessionID, co.model)
 	if err != nil {
 		go func() {
@@ -316,16 +320,42 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 	p.mu.Unlock()
 	p.persist(sessionID, userEvt)
 
-	stream := r.Chat(ctx, sess.Events, message)
+	// Memory: ingest the user event.
+	if p.mem != nil {
+		if err := p.mem.Ingest(ctx, sessionID, userEvt); err != nil {
+			p.log.Warn("memory ingest user event failed", "session_id", sessionID, "error", err)
+		}
+	}
+
+	// Memory: assemble context within budget, falling back to in-memory events on error.
+	events := sess.Events
+	if p.mem != nil {
+		assembled, err := p.mem.Assemble(ctx, sessionID, p.compaction.MaxTokens, p.compaction.KeepTail)
+		if err != nil {
+			p.log.Warn("memory assemble failed, falling back to session events",
+				"session_id", sessionID, "error", err)
+		} else {
+			events = assembled
+		}
+	}
+
+	stream := r.Chat(ctx, events, message)
 
 	go func() {
 		defer close(out)
+		persistCtx := context.WithoutCancel(ctx)
 		var textBuf strings.Builder
 		for evt := range stream {
 			if evt.Err != nil {
 				// Persist any buffered text before returning on error.
 				if textBuf.Len() > 0 {
-					p.persist(sessionID, runner.AssistantMessageToRPCEvent(textBuf.String()))
+					finalEvt := runner.AssistantMessageToRPCEvent(textBuf.String())
+					p.persist(sessionID, finalEvt)
+					if p.mem != nil {
+						if err := p.mem.Ingest(persistCtx, sessionID, finalEvt); err != nil {
+							p.log.Warn("memory ingest error-flush failed", "session_id", sessionID, "error", err)
+						}
+					}
 				}
 				out <- evt
 				return
@@ -335,13 +365,24 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 			if evt.Store != nil {
 				// Flush buffered text before storing a non-text event.
 				if textBuf.Len() > 0 {
-					p.persist(sessionID, runner.AssistantMessageToRPCEvent(textBuf.String()))
+					flushEvt := runner.AssistantMessageToRPCEvent(textBuf.String())
+					p.persist(sessionID, flushEvt)
+					if p.mem != nil {
+						if err := p.mem.Ingest(persistCtx, sessionID, flushEvt); err != nil {
+							p.log.Warn("memory ingest text-flush failed", "session_id", sessionID, "error", err)
+						}
+					}
 					textBuf.Reset()
 				}
 				p.mu.Lock()
 				sess.Events = append(sess.Events, *evt.Store)
 				p.mu.Unlock()
 				p.persist(sessionID, *evt.Store)
+				if p.mem != nil {
+					if err := p.mem.Ingest(persistCtx, sessionID, *evt.Store); err != nil {
+						p.log.Warn("memory ingest store event failed", "session_id", sessionID, "error", err)
+					}
+				}
 			}
 
 			// Tool-use events pass through without history storage.
@@ -363,7 +404,13 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 		}
 		// Stream ended normally — persist the complete assistant message.
 		if textBuf.Len() > 0 {
-			p.persist(sessionID, runner.AssistantMessageToRPCEvent(textBuf.String()))
+			finalEvt := runner.AssistantMessageToRPCEvent(textBuf.String())
+			p.persist(sessionID, finalEvt)
+			if p.mem != nil {
+				if err := p.mem.Ingest(persistCtx, sessionID, finalEvt); err != nil {
+					p.log.Warn("memory ingest final message failed", "session_id", sessionID, "error", err)
+				}
+			}
 		}
 	}()
 
@@ -402,6 +449,13 @@ func (p *Pool) Close() error {
 			}
 		}
 	}
+
+	if p.mem != nil {
+		if err := p.mem.Close(); err != nil {
+			lastErr = err
+		}
+	}
+
 	return lastErr
 }
 
@@ -484,6 +538,13 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 	sess.Runner = r
 	sess.Model = effectiveModel
 	p.mu.Unlock()
+
+	// Memory: bootstrap the conversation for this session.
+	if p.mem != nil {
+		if err := p.mem.Bootstrap(context.Background(), sessionID); err != nil {
+			p.log.Warn("memory bootstrap failed", "session_id", sessionID, "error", err)
+		}
+	}
 
 	p.log.Info("created runner", "session_id", sessionID)
 	return sess, r, nil

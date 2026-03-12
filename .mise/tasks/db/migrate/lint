@@ -1,0 +1,7 @@
+#!/bin/bash
+#MISE description="Lint migrations for potential issues"
+
+atlas migrate lint \
+    --dev-url "sqlite://dev?mode=memory" \
+    --dir "file://db/migrations" \
+    --git-base "main"

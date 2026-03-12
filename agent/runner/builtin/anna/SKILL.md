@@ -61,7 +61,8 @@ anna onboard           # Web-based setup wizard
 
 These are tools you already have access to. Briefly:
 
-- **Memory**: `memory` tool — update FACT.md, append to JOURNAL, search past entries. Files: SOUL.md (personality), USER.md (user info), FACT.md (durable knowledge).
+- **Identity files**: SOUL.md (personality) and USER.md (user info) in `~/.anna/workspace/` — edit with `write` tool.
+- **Memory retrieval**: `memory_grep` — search conversation history (messages and summaries) by keyword. `memory_describe` — inspect summary metadata and lineage. `memory_expand` — drill into compacted summaries to recover original detail.
 - **Cron**: `cron` tool — add/list/remove scheduled or one-time jobs. Config: `cron.enabled: true`.
 - **Notifications**: `notify` tool (gateway mode only) — send messages via Telegram/QQ dispatcher.
 - **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable under `runner.compaction`.
