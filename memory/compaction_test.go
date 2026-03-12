@@ -34,8 +34,12 @@ func TestLeafPass_NoCompaction(t *testing.T) {
 		addContextMessage(t, ctx, q, convID, i-1, msg.ID)
 	}
 
+	items, err := q.GetContextItems(ctx, convID)
+	if err != nil {
+		t.Fatalf("GetContextItems: %v", err)
+	}
 	result := &CompactionResult{}
-	if err := ce.leafPass(ctx, convID, result); err != nil {
+	if err := ce.leafPass(ctx, convID, items, result); err != nil {
 		t.Fatalf("leafPass: %v", err)
 	}
 	if result.LeafSummariesCreated != 0 {
@@ -55,8 +59,12 @@ func TestLeafPass_CreatesLeafSummary(t *testing.T) {
 		addContextMessage(t, ctx, q, convID, i-1, msg.ID)
 	}
 
+	items, err := q.GetContextItems(ctx, convID)
+	if err != nil {
+		t.Fatalf("GetContextItems: %v", err)
+	}
 	result := &CompactionResult{}
-	if err := ce.leafPass(ctx, convID, result); err != nil {
+	if err := ce.leafPass(ctx, convID, items, result); err != nil {
 		t.Fatalf("leafPass: %v", err)
 	}
 
@@ -65,7 +73,7 @@ func TestLeafPass_CreatesLeafSummary(t *testing.T) {
 	}
 
 	// Verify context items now contain a summary.
-	items, err := q.GetContextItems(ctx, convID)
+	items, err = q.GetContextItems(ctx, convID)
 	if err != nil {
 		t.Fatalf("GetContextItems: %v", err)
 	}
@@ -106,8 +114,12 @@ func TestCondensedPass_CreateCondensedSummary(t *testing.T) {
 			addContextMessage(t, ctx, q, convID, i+2, msg.ID) // ordinals 3,4,5
 		}
 
+		items, err := q.GetContextItems(ctx, convID)
+		if err != nil {
+			t.Fatalf("GetContextItems: %v", err)
+		}
 		result := &CompactionResult{}
-		if err := ce.condensedPass(ctx, convID, result); err != nil {
+		if err := ce.condensedPass(ctx, convID, items, result); err != nil {
 			t.Fatalf("condensedPass: %v", err)
 		}
 
@@ -116,7 +128,7 @@ func TestCondensedPass_CreateCondensedSummary(t *testing.T) {
 		}
 
 		// Context should now have 1 condensed summary + 3 messages.
-		items, err := q.GetContextItems(ctx, convID)
+		items, err = q.GetContextItems(ctx, convID)
 		if err != nil {
 			t.Fatalf("GetContextItems: %v", err)
 		}
@@ -164,8 +176,12 @@ func TestCondensedPass_CreateCondensedSummary(t *testing.T) {
 		}
 		addContextSummary(t, ctx, q, convID, 1, sum1)
 
+		items, err := q.GetContextItems(ctx, convID)
+		if err != nil {
+			t.Fatalf("GetContextItems: %v", err)
+		}
 		result := &CompactionResult{}
-		if err := ce.condensedPass(ctx, convID, result); err != nil {
+		if err := ce.condensedPass(ctx, convID, items, result); err != nil {
 			t.Fatalf("condensedPass: %v", err)
 		}
 
@@ -314,11 +330,15 @@ func TestFindSummaryRuns(t *testing.T) {
 }
 
 func TestLeafPass_EmptyContext(t *testing.T) {
-	ce, _, _, convID := setupCompactionTest(t)
+	ce, q, _, convID := setupCompactionTest(t)
 	ctx := context.Background()
 
+	items, err := q.GetContextItems(ctx, convID)
+	if err != nil {
+		t.Fatalf("GetContextItems: %v", err)
+	}
 	result := &CompactionResult{}
-	if err := ce.leafPass(ctx, convID, result); err != nil {
+	if err := ce.leafPass(ctx, convID, items, result); err != nil {
 		t.Fatalf("leafPass: %v", err)
 	}
 	if result.LeafSummariesCreated != 0 {
@@ -335,8 +355,12 @@ func TestLeafPass_AllWithinFreshTail(t *testing.T) {
 		addContextMessage(t, ctx, q, convID, i-1, msg.ID)
 	}
 
+	items, err := q.GetContextItems(ctx, convID)
+	if err != nil {
+		t.Fatalf("GetContextItems: %v", err)
+	}
 	result := &CompactionResult{}
-	if err := ce.leafPass(ctx, convID, result); err != nil {
+	if err := ce.leafPass(ctx, convID, items, result); err != nil {
 		t.Fatalf("leafPass: %v", err)
 	}
 	if result.LeafSummariesCreated != 0 {
@@ -353,8 +377,12 @@ func TestCondensedPass_NoSummaryItems(t *testing.T) {
 		addContextMessage(t, ctx, q, convID, i-1, msg.ID)
 	}
 
+	items, err := q.GetContextItems(ctx, convID)
+	if err != nil {
+		t.Fatalf("GetContextItems: %v", err)
+	}
 	result := &CompactionResult{}
-	if err := ce.condensedPass(ctx, convID, result); err != nil {
+	if err := ce.condensedPass(ctx, convID, items, result); err != nil {
 		t.Fatalf("condensedPass: %v", err)
 	}
 	if result.CondensedSummariesCreated != 0 {
@@ -457,8 +485,12 @@ func TestCondensedPass_WithTimestamps(t *testing.T) {
 		addContextSummary(t, ctx, q, convID, i, sumID)
 	}
 
+	items, err := q.GetContextItems(ctx, convID)
+	if err != nil {
+		t.Fatalf("GetContextItems: %v", err)
+	}
 	result := &CompactionResult{}
-	if err := ce.condensedPass(ctx, convID, result); err != nil {
+	if err := ce.condensedPass(ctx, convID, items, result); err != nil {
 		t.Fatalf("condensedPass: %v", err)
 	}
 	if result.CondensedSummariesCreated != 1 {
@@ -656,14 +688,14 @@ func TestQueryCoverage_GetMessagePartsByMessages(t *testing.T) {
 	msg2 := addMessage(t, ctx, q, conv.ID, 2, RoleAssistant, "msg2")
 
 	err = q.CreateMessagePart(ctx, sqlc.CreateMessagePartParams{
-		ID: "p1", MessageID: msg1.ID, PartType: PartTypeText, Ordinal: 0,
+		ID: "p1", MessageID: msg1.ID, PartType: "text", Ordinal: 0,
 		TextContent: sql.NullString{String: "part1", Valid: true},
 	})
 	if err != nil {
 		t.Fatalf("CreateMessagePart: %v", err)
 	}
 	err = q.CreateMessagePart(ctx, sqlc.CreateMessagePartParams{
-		ID: "p2", MessageID: msg2.ID, PartType: PartTypeText, Ordinal: 0,
+		ID: "p2", MessageID: msg2.ID, PartType: "text", Ordinal: 0,
 		TextContent: sql.NullString{String: "part2", Valid: true},
 	})
 	if err != nil {

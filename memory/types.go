@@ -21,17 +21,17 @@ const (
 	RoleTool      = "tool"
 )
 
-// MessagePart type constants.
-const (
-	PartTypeText      = "text"
-	PartTypeReasoning = "reasoning"
-	PartTypeTool      = "tool"
-)
-
 // Context item type constants.
 const (
 	ItemTypeMessage = "message"
 	ItemTypeSummary = "summary"
+)
+
+// Search scope constants.
+const (
+	ScopeMessages  = "messages"
+	ScopeSummaries = "summaries"
+	ScopeBoth      = "both"
 )
 
 // Default configuration values.

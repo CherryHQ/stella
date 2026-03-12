@@ -234,27 +234,6 @@ func TestSplitFreshTail(t *testing.T) {
 	}
 }
 
-func TestNeedsCompaction(t *testing.T) {
-	asm, q, convID := setupAssemblerTest(t)
-	ctx := context.Background()
-
-	// Empty context — no compaction needed.
-	if asm.NeedsCompaction(ctx, convID, 1000, 0.75) {
-		t.Error("empty context should not need compaction")
-	}
-
-	// Add messages that total 10 tokens.
-	msg := addMessage(t, ctx, q, convID, 1, RoleUser, "a]234567890123456789012345678901234567890") // 40 chars = 10 tokens
-	addContextMessage(t, ctx, q, convID, 0, msg.ID)
-
-	if !asm.NeedsCompaction(ctx, convID, 10, 0.75) {
-		t.Error("should need compaction when tokens >= budget * threshold")
-	}
-	if asm.NeedsCompaction(ctx, convID, 100, 0.75) {
-		t.Error("should not need compaction when well under budget")
-	}
-}
-
 // helpers
 
 func contains(s, substr string) bool {
