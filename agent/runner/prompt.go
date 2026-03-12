@@ -43,9 +43,9 @@ type contextFile struct {
 // BuildSystemPrompt composes the full system prompt: basic + memories + skills + project context.
 // The basic prompt defaults to the embedded system.md but can be overridden
 // by placing a system.md file in the project's .agents directory or the workspace.
-// memoryDir is the directory containing SOUL.md and USER.md (e.g. ~/.anna/workspace).
 // annaHome is the anna home directory (e.g. ~/.anna).
-func BuildSystemPrompt(memoryDir, annaHome, workspace string, cwd ...string) string {
+// workspace is the workspace directory (e.g. ~/.anna/workspace) containing SOUL.md, USER.md, system.md.
+func BuildSystemPrompt(annaHome, workspace string, cwd ...string) string {
 	workDir := ""
 	if len(cwd) > 0 {
 		workDir = cwd[0]
@@ -66,8 +66,8 @@ func BuildSystemPrompt(memoryDir, annaHome, workspace string, cwd ...string) str
 		}
 	}
 
-	soul := readFileIfExists(memoryDir, "SOUL.md")
-	user := readFileIfExists(memoryDir, "USER.md")
+	soul := readFileIfExists(workspace, "SOUL.md")
+	user := readFileIfExists(workspace, "USER.md")
 
 	// Project-level overrides: .agents/SOUL.md and .agents/USER.md take priority.
 	if projectDir != "" {
@@ -80,9 +80,9 @@ func BuildSystemPrompt(memoryDir, annaHome, workspace string, cwd ...string) str
 	}
 
 	memories := promptMemories{
-		Dir:  memoryDir,
-		Soul: promptFile{Path: filepath.Join(memoryDir, "SOUL.md"), Content: fallback(soul, defaultSoul)},
-		User: promptFile{Path: filepath.Join(memoryDir, "USER.md"), Content: fallback(user, defaultUser)},
+		Dir:  workspace,
+		Soul: promptFile{Path: filepath.Join(workspace, "SOUL.md"), Content: fallback(soul, defaultSoul)},
+		User: promptFile{Path: filepath.Join(workspace, "USER.md"), Content: fallback(user, defaultUser)},
 	}
 
 	var buf bytes.Buffer
