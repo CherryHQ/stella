@@ -46,10 +46,10 @@ func TestConstants(t *testing.T) {
 	// Verify constants are distinct and non-empty
 	kinds := []string{KindLeaf, KindCondensed}
 	roles := []string{RoleUser, RoleAssistant, RoleTool}
-	parts := []string{PartTypeText, PartTypeReasoning, PartTypeTool}
 	items := []string{ItemTypeMessage, ItemTypeSummary}
+	scopes := []string{ScopeMessages, ScopeSummaries, ScopeBoth}
 
-	for _, group := range [][]string{kinds, roles, parts, items} {
+	for _, group := range [][]string{kinds, roles, items, scopes} {
 		seen := make(map[string]bool)
 		for _, v := range group {
 			if v == "" {

@@ -33,7 +33,7 @@ func (t *GrepTool) Definition() ai.ToolDefinition {
 				"scope": map[string]any{
 					"type":        "string",
 					"description": `Where to search: "messages", "summaries", or "both" (default).`,
-					"enum":        []string{"messages", "summaries", "both"},
+					"enum":        []string{memory.ScopeMessages, memory.ScopeSummaries, memory.ScopeBoth},
 				},
 				"limit": map[string]any{
 					"type":        "integer",

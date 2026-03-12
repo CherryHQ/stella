@@ -9,36 +9,20 @@ import (
 
 // Prompt templates for different summarization modes.
 
-const leafPromptNormal = `You summarize a SEGMENT of a conversation for future model turns.
-Treat this as incremental memory compaction input, not a full-conversation summary.
-
-Normal summary policy:
+const leafPolicyNormal = `Normal summary policy:
 - Preserve key decisions, rationale, constraints, and active tasks.
 - Keep essential technical details needed to continue work safely.
-- Remove obvious repetition and conversational filler.
+- Remove obvious repetition and conversational filler.`
 
-Output requirements:
-- Plain text only. No preamble, headings, or markdown formatting.
-- Track file operations (created, modified, deleted, renamed) with file paths.
-- If no file operations appear, include exactly: "Files: none".
-- End with: "Expand for details about: <comma-separated list of what was dropped>".
-- Target length: about %d tokens or less.
-
-<previous_context>
-%s
-</previous_context>
-
-<conversation_segment>
-%s
-</conversation_segment>`
-
-const leafPromptAggressive = `You summarize a SEGMENT of a conversation for future model turns.
-Treat this as incremental memory compaction input, not a full-conversation summary.
-
-Aggressive summary policy:
+const leafPolicyAggressive = `Aggressive summary policy:
 - Keep only durable facts and current task state.
 - Remove examples, repetition, and low-value narrative details.
-- Preserve explicit TODOs, blockers, decisions, and constraints.
+- Preserve explicit TODOs, blockers, decisions, and constraints.`
+
+const leafPromptTemplate = `You summarize a SEGMENT of a conversation for future model turns.
+Treat this as incremental memory compaction input, not a full-conversation summary.
+
+%s
 
 Output requirements:
 - Plain text only. No preamble, headings, or markdown formatting.
@@ -120,10 +104,11 @@ func BuildPrompt(text string, opts SummarizeOptions) string {
 	}
 
 	if !opts.IsCondensed {
+		policy := leafPolicyNormal
 		if opts.Aggressive {
-			return fmt.Sprintf(leafPromptAggressive, target, previous, text)
+			policy = leafPolicyAggressive
 		}
-		return fmt.Sprintf(leafPromptNormal, target, previous, text)
+		return fmt.Sprintf(leafPromptTemplate, policy, target, previous, text)
 	}
 
 	if opts.Depth <= 1 {

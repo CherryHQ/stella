@@ -165,7 +165,7 @@ func TestMessageCRUD(t *testing.T) {
 	err = q.CreateMessagePart(ctx, sqlc.CreateMessagePartParams{
 		ID:          "part-1",
 		MessageID:   msg.ID,
-		PartType:    PartTypeText,
+		PartType:    "text",
 		Ordinal:     0,
 		TextContent: sql.NullString{String: "hello world", Valid: true},
 	})

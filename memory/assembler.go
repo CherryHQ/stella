@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -150,9 +151,10 @@ func messageToRPCEvents(msg sqlc.Message) []runner.RPCEvent {
 		return []runner.RPCEvent{runner.AssistantMessageToRPCEvent(msg.Content)}
 	case RoleTool:
 		// Tool results are stored as a single message; reconstruct as tool_result event.
+		encoded, _ := json.Marshal(msg.Content)
 		return []runner.RPCEvent{{
 			Type:   runner.RPCEventToolResult,
-			Result: []byte(`"` + strings.ReplaceAll(msg.Content, `"`, `\"`) + `"`),
+			Result: encoded,
 		}}
 	default:
 		return nil
@@ -204,48 +206,17 @@ func eventText(evt runner.RPCEvent) string {
 	if evt.Summary != "" {
 		return evt.Summary
 	}
+	if len(evt.AssistantMessageEvent) > 0 {
+		var ame runner.AssistantMessageEvent
+		if json.Unmarshal(evt.AssistantMessageEvent, &ame) == nil && ame.Delta != "" {
+			return ame.Delta
+		}
+	}
+	if evt.Tool != "" {
+		return evt.Tool + string(evt.Result)
+	}
 	if len(evt.Result) > 0 {
 		return string(evt.Result)
 	}
 	return ""
-}
-
-// ContextStats returns token statistics for the current context.
-func (a *Assembler) ContextStats(ctx context.Context, convID int64) (totalTokens int64, itemCount int64, err error) {
-	totalTokens, err = a.q.GetContextTokenCount(ctx, convID)
-	if err != nil {
-		return 0, 0, err
-	}
-	itemCount, err = a.q.GetContextItemCount(ctx, convID)
-	if err != nil {
-		return 0, 0, err
-	}
-	return totalTokens, itemCount, nil
-}
-
-// NeedsCompaction checks if the context exceeds the budget threshold.
-func (a *Assembler) NeedsCompaction(ctx context.Context, convID int64, budget int, threshold float64) bool {
-	tokens, err := a.q.GetContextTokenCount(ctx, convID)
-	if err != nil {
-		return false
-	}
-	return float64(tokens) > float64(budget)*threshold
-}
-
-// FreshTailBoundary returns the ordinal that marks the start of the fresh tail.
-func (a *Assembler) FreshTailBoundary(ctx context.Context, convID int64, freshTail int) (int64, error) {
-	ids, err := a.q.GetFreshTailMessageIDs(ctx, sqlc.GetFreshTailMessageIDsParams{
-		ConversationID: convID,
-		Limit:          int64(freshTail),
-	})
-	if err != nil {
-		return 0, err
-	}
-	if len(ids) == 0 {
-		return 0, nil
-	}
-	// The last ID in the result is the oldest message in the fresh tail.
-	// We need its context ordinal. For now return the message_id — the compaction
-	// engine will use context items directly.
-	return ids[len(ids)-1].Int64, nil
 }

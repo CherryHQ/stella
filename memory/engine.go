@@ -19,6 +19,7 @@ type engine struct {
 	compaction *CompactionEngine
 	retrieval  *RetrievalEngine
 	sessionMu  map[string]*sync.Mutex
+	convCache  map[string]int64 // sessionID → conversation ID (immutable once created)
 	globalMu   sync.Mutex
 	freshTail  int
 	log        *slog.Logger
@@ -60,6 +61,7 @@ func NewEngine(dbPath string, summarizer Summarizer, opts ...EngineOption) (Engi
 		assembler: NewAssembler(q),
 		retrieval: NewRetrievalEngine(q),
 		sessionMu: make(map[string]*sync.Mutex),
+		convCache: make(map[string]int64),
 		freshTail: DefaultFreshTail,
 		log:       slog.Default(),
 	}
@@ -89,19 +91,62 @@ func (e *engine) Ingest(ctx context.Context, sessionID string, evt runner.RPCEve
 	})
 }
 
-// IngestBatch persists multiple RPCEvents.
+// IngestBatch persists multiple RPCEvents within a single transaction.
 func (e *engine) IngestBatch(ctx context.Context, sessionID string, evts []runner.RPCEvent) error {
 	return e.withSessionLock(sessionID, func() error {
 		convID, err := e.getOrCreateConversation(ctx, sessionID)
 		if err != nil {
 			return err
 		}
+
+		tx, err := e.db.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin tx: %w", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+
+		qtx := e.q.WithTx(tx)
+
+		seq, err := qtx.GetMaxSeq(ctx, convID)
+		if err != nil {
+			return fmt.Errorf("get max seq: %w", err)
+		}
+		ordinal, err := qtx.GetMaxContextOrdinal(ctx, convID)
+		if err != nil {
+			return fmt.Errorf("get max ordinal: %w", err)
+		}
+
 		for _, evt := range evts {
-			if err := e.ingestEvent(ctx, convID, evt); err != nil {
-				return err
+			role, content := eventToRoleContent(evt)
+			if role == "" || content == "" {
+				continue
+			}
+
+			seq++
+			msg, err := qtx.CreateMessage(ctx, sqlc.CreateMessageParams{
+				ConversationID: convID,
+				Seq:            seq,
+				Role:           role,
+				Content:        content,
+				TokenCount:     int64(EstimateTokens(content)),
+			})
+			if err != nil {
+				return fmt.Errorf("create message: %w", err)
+			}
+
+			ordinal++
+			err = qtx.AppendContextItem(ctx, sqlc.AppendContextItemParams{
+				ConversationID: convID,
+				Ordinal:        ordinal,
+				ItemType:       ItemTypeMessage,
+				MessageID:      sql.NullInt64{Int64: msg.ID, Valid: true},
+			})
+			if err != nil {
+				return fmt.Errorf("append context item: %w", err)
 			}
 		}
-		return nil
+
+		return tx.Commit()
 	})
 }
 
@@ -169,9 +214,18 @@ func (e *engine) withSessionLock(sessionID string, fn func() error) error {
 }
 
 // getOrCreateConversation retrieves or creates a conversation for the session.
+// Results are cached since conversation IDs are immutable once created.
 func (e *engine) getOrCreateConversation(ctx context.Context, sessionID string) (int64, error) {
+	e.globalMu.Lock()
+	if id, ok := e.convCache[sessionID]; ok {
+		e.globalMu.Unlock()
+		return id, nil
+	}
+	e.globalMu.Unlock()
+
 	conv, err := e.q.GetConversationBySessionID(ctx, sessionID)
 	if err == nil {
+		e.cacheConvID(sessionID, conv.ID)
 		return conv.ID, nil
 	}
 	if err != sql.ErrNoRows {
@@ -184,7 +238,14 @@ func (e *engine) getOrCreateConversation(ctx context.Context, sessionID string) 
 	if err != nil {
 		return 0, fmt.Errorf("create conversation: %w", err)
 	}
+	e.cacheConvID(sessionID, conv.ID)
 	return conv.ID, nil
+}
+
+func (e *engine) cacheConvID(sessionID string, convID int64) {
+	e.globalMu.Lock()
+	e.convCache[sessionID] = convID
+	e.globalMu.Unlock()
 }
 
 // ingestEvent converts an RPCEvent to a message and appends a context item.

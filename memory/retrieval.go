@@ -39,13 +39,13 @@ func (r *RetrievalEngine) Grep(ctx context.Context, convID int64, pattern string
 		limit = defaultGrepLimit
 	}
 	if scope == "" {
-		scope = "both"
+		scope = ScopeBoth
 	}
 	likePattern := "%" + pattern + "%"
 
 	var results []GrepResult
 
-	if scope == "messages" || scope == "both" {
+	if scope == ScopeMessages || scope == ScopeBoth {
 		msgs, err := r.q.SearchMessages(ctx, sqlc.SearchMessagesParams{
 			ConversationID: convID,
 			Content:        likePattern,
@@ -56,7 +56,7 @@ func (r *RetrievalEngine) Grep(ctx context.Context, convID int64, pattern string
 		}
 		for _, msg := range msgs {
 			results = append(results, GrepResult{
-				SourceType: "message",
+				SourceType: ItemTypeMessage,
 				SourceID:   fmt.Sprint(msg.ID),
 				Content:    truncateUTF8(msg.Content, maxContentSnippet),
 				Timestamp:  parseTime(msg.CreatedAt),
@@ -64,7 +64,7 @@ func (r *RetrievalEngine) Grep(ctx context.Context, convID int64, pattern string
 		}
 	}
 
-	if scope == "summaries" || scope == "both" {
+	if scope == ScopeSummaries || scope == ScopeBoth {
 		remaining := limit - len(results)
 		if remaining <= 0 {
 			remaining = limit // summaries-only: use full limit
@@ -79,7 +79,7 @@ func (r *RetrievalEngine) Grep(ctx context.Context, convID int64, pattern string
 		}
 		for _, s := range sums {
 			results = append(results, GrepResult{
-				SourceType: "summary",
+				SourceType: ItemTypeSummary,
 				SourceID:   s.ID,
 				Content:    truncateUTF8(s.Content, maxContentSnippet),
 				Timestamp:  parseTime(s.CreatedAt),

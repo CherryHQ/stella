@@ -46,11 +46,8 @@ func (c *CompactionEngine) Compact(ctx context.Context, convID int64, mode Compa
 
 	switch mode {
 	case CompactionIncremental:
-		if err := c.leafPass(ctx, convID, result); err != nil {
-			return nil, fmt.Errorf("leaf pass: %w", err)
-		}
-		if err := c.condensedPass(ctx, convID, result); err != nil {
-			return nil, fmt.Errorf("condensed pass: %w", err)
+		if err := c.runPasses(ctx, convID, result); err != nil {
+			return nil, err
 		}
 
 	case CompactionFull:
@@ -58,11 +55,8 @@ func (c *CompactionEngine) Compact(ctx context.Context, convID int64, mode Compa
 		for i := 0; i < 10; i++ { // safety limit
 			leafBefore := result.LeafSummariesCreated
 			condensedBefore := result.CondensedSummariesCreated
-			if err := c.leafPass(ctx, convID, result); err != nil {
-				return nil, fmt.Errorf("leaf pass %d: %w", i, err)
-			}
-			if err := c.condensedPass(ctx, convID, result); err != nil {
-				return nil, fmt.Errorf("condensed pass %d: %w", i, err)
+			if err := c.runPasses(ctx, convID, result); err != nil {
+				return nil, fmt.Errorf("pass %d: %w", i, err)
 			}
 			if result.LeafSummariesCreated == leafBefore && result.CondensedSummariesCreated == condensedBefore {
 				break // no progress
@@ -80,16 +74,30 @@ func (c *CompactionEngine) Compact(ctx context.Context, convID int64, mode Compa
 	return result, nil
 }
 
-// leafPass finds eligible message chunks outside the fresh tail and creates leaf summaries.
-func (c *CompactionEngine) leafPass(ctx context.Context, convID int64, result *CompactionResult) error {
+// runPasses fetches context items once and runs both leaf and condensed passes.
+func (c *CompactionEngine) runPasses(ctx context.Context, convID int64, result *CompactionResult) error {
 	items, err := c.q.GetContextItems(ctx, convID)
 	if err != nil {
 		return fmt.Errorf("get context items: %w", err)
 	}
+	if err := c.leafPass(ctx, convID, items, result); err != nil {
+		return fmt.Errorf("leaf pass: %w", err)
+	}
+	// Re-fetch after leaf pass may have mutated context items.
+	items, err = c.q.GetContextItems(ctx, convID)
+	if err != nil {
+		return fmt.Errorf("get context items: %w", err)
+	}
+	if err := c.condensedPass(ctx, convID, items, result); err != nil {
+		return fmt.Errorf("condensed pass: %w", err)
+	}
+	return nil
+}
 
+// leafPass finds eligible message chunks outside the fresh tail and creates leaf summaries.
+func (c *CompactionEngine) leafPass(ctx context.Context, convID int64, items []sqlc.ContextItem, result *CompactionResult) error {
 	// Find compactable message runs outside the fresh tail.
-	tail, older := splitFreshTail(items, c.freshTail)
-	_ = tail
+	_, older := splitFreshTail(items, c.freshTail)
 
 	// Collect contiguous message runs from older items.
 	runs := findMessageRuns(older, DefaultLeafChunkSize)
@@ -260,13 +268,9 @@ func (c *CompactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 }
 
 // condensedPass finds eligible same-depth summaries and creates condensed summaries.
-func (c *CompactionEngine) condensedPass(ctx context.Context, convID int64, result *CompactionResult) error {
-	items, err := c.q.GetContextItems(ctx, convID)
-	if err != nil {
-		return fmt.Errorf("get context items: %w", err)
-	}
-
-	// Pre-fetch depths for all summary items so we can group by depth.
+func (c *CompactionEngine) condensedPass(ctx context.Context, convID int64, items []sqlc.ContextItem, result *CompactionResult) error {
+	// Pre-fetch all summary items so we can group by depth and avoid re-fetching.
+	sumCache := make(map[string]sqlc.Summary)
 	depthOf := make(map[string]int64)
 	for _, item := range items {
 		if item.ItemType != ItemTypeSummary || !item.SummaryID.Valid {
@@ -276,6 +280,7 @@ func (c *CompactionEngine) condensedPass(ctx context.Context, convID int64, resu
 		if err != nil {
 			return fmt.Errorf("get summary depth %s: %w", item.SummaryID.String, err)
 		}
+		sumCache[item.SummaryID.String] = sum
 		depthOf[item.SummaryID.String] = sum.Depth
 	}
 
@@ -286,7 +291,7 @@ func (c *CompactionEngine) condensedPass(ctx context.Context, convID int64, resu
 	}
 
 	for _, run := range runs {
-		if err := c.condenseSummaryRun(ctx, convID, run, result); err != nil {
+		if err := c.condenseSummaryRun(ctx, convID, run, sumCache, result); err != nil {
 			return err
 		}
 	}
@@ -342,7 +347,7 @@ func findSummaryRuns(items []sqlc.ContextItem, minSize int, depthOf map[string]i
 }
 
 // condenseSummaryRun creates a condensed summary from a run of summary context items.
-func (c *CompactionEngine) condenseSummaryRun(ctx context.Context, convID int64, run summaryRun, result *CompactionResult) error {
+func (c *CompactionEngine) condenseSummaryRun(ctx context.Context, convID int64, run summaryRun, sumCache map[string]sqlc.Summary, result *CompactionResult) error {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -351,7 +356,7 @@ func (c *CompactionEngine) condenseSummaryRun(ctx context.Context, convID int64,
 
 	qtx := c.q.WithTx(tx)
 
-	// Load summaries.
+	// Load summaries from cache.
 	var summaries []sqlc.Summary
 	var textParts []string
 	var totalTokens int64
@@ -364,9 +369,9 @@ func (c *CompactionEngine) condenseSummaryRun(ctx context.Context, convID int64,
 		if !item.SummaryID.Valid {
 			continue
 		}
-		sum, err := qtx.GetSummary(ctx, item.SummaryID.String)
-		if err != nil {
-			return fmt.Errorf("get summary %s: %w", item.SummaryID.String, err)
+		sum, ok := sumCache[item.SummaryID.String]
+		if !ok {
+			return fmt.Errorf("summary %s not in cache", item.SummaryID.String)
 		}
 		summaries = append(summaries, sum)
 		textParts = append(textParts, sum.Content)
