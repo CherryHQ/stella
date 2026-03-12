@@ -15,23 +15,22 @@ import (
 	"github.com/vaayne/anna/ai/providers/anthropic"
 	"github.com/vaayne/anna/ai/providers/openai"
 	openairesponse "github.com/vaayne/anna/ai/providers/openai-response"
-	"github.com/vaayne/anna/memory"
 )
 
 const maxToolIterations = 40
 
 // GoRunnerConfig configures the Go runner.
 type GoRunnerConfig struct {
-	API         string // provider key: "anthropic", "openai"
-	Model       string // e.g. "claude-sonnet-4-20250514"
-	APIKey      string
-	BaseURL     string        // optional provider base URL override
-	WorkDir     string        // working directory for tool execution
-	Workspace   string        // workspace dir for skills/memory (e.g. ~/.anna/workspace)
-	AnnaHome    string        // anna home directory (e.g. ~/.anna)
-	MemoryStore *memory.Store // persistent memory (soul, user, facts, journal)
-	System      string        // optional system prompt override (bypasses BuildSystemPrompt)
-	ExtraTools  []tool.Tool   // additional tools to register
+	API        string // provider key: "anthropic", "openai"
+	Model      string // e.g. "claude-sonnet-4-20250514"
+	APIKey     string
+	BaseURL    string      // optional provider base URL override
+	WorkDir    string      // working directory for tool execution
+	Workspace  string      // workspace dir for skills/memory (e.g. ~/.anna/workspace)
+	AnnaHome   string      // anna home directory (e.g. ~/.anna)
+	MemoryDir  string      // directory containing SOUL.md and USER.md
+	System     string      // optional system prompt override (bypasses BuildSystemPrompt)
+	ExtraTools []tool.Tool // additional tools to register
 }
 
 // GoRunner implements Runner by calling LLM providers directly via Engine.
@@ -67,8 +66,8 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 
 	system := cfg.System
 	if system == "" {
-		if cfg.MemoryStore != nil {
-			system = BuildSystemPrompt(cfg.MemoryStore, cfg.AnnaHome, cfg.Workspace, cfg.WorkDir)
+		if cfg.MemoryDir != "" {
+			system = BuildSystemPrompt(cfg.MemoryDir, cfg.AnnaHome, cfg.Workspace, cfg.WorkDir)
 		} else {
 			system = defaultBasicPrompt
 		}

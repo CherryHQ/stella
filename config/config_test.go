@@ -671,9 +671,6 @@ func TestWorkspacePaths(t *testing.T) {
 	if cfg.SessionsPath() != "/home/user/.anna/workspace/sessions" {
 		t.Errorf("SessionsPath() = %q", cfg.SessionsPath())
 	}
-	if cfg.MemoryPath() != "/home/user/.anna/workspace/memory" {
-		t.Errorf("MemoryPath() = %q", cfg.MemoryPath())
-	}
 	if cfg.SkillsPath() != "/home/user/.anna/workspace/skills" {
 		t.Errorf("SkillsPath() = %q", cfg.SkillsPath())
 	}

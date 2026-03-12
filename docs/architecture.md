@@ -111,10 +111,6 @@ cron/
   job.go                            Job and Schedule types
   tool.go                           Agent cron tool (add/list/remove)
 
-memory/
-  memory.go                         Store: Read/Write files, Append/Search journal
-  tool.go                           Agent memory tool (update/append/search)
-
 skills/
   tool.go                           Agent skills tool (search/install/list/remove)
   search.go                         Skills ecosystem search via skills.sh API
@@ -160,7 +156,9 @@ type Tool interface {
 
 | Tool | Condition | Description |
 |------|-----------|-------------|
-| `memory` | Always | Persistent memory (update facts, append journal, search) |
+| `memory_grep` | Always (LCM) | Search messages and summaries by keyword |
+| `memory_describe` | Always (LCM) | Inspect a summary node's metadata and lineage |
+| `memory_expand` | Always (LCM) | Drill into a summary to retrieve children |
 | `skills` | Always | Skill management (search/install/list/remove from skills.sh) |
 | `cron` | `cron.enabled: true` | Schedule tasks (add/list/remove jobs) |
 | `notify` | Gateway mode + channel configured | Send notifications via dispatcher |

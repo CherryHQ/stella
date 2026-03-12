@@ -18,7 +18,6 @@ import (
 	"github.com/vaayne/anna/heartbeat"
 	"github.com/vaayne/anna/lcm"
 	lcmtool "github.com/vaayne/anna/lcm/tool"
-	"github.com/vaayne/anna/memory"
 	"github.com/vaayne/anna/skills"
 	"github.com/vaayne/anna/store"
 )
@@ -46,7 +45,7 @@ type setupResult struct {
 	pool       *agent.Pool
 	cronSvc    *cron.Service
 	heartbeat  *heartbeat.Service
-	memStore   *memory.Store
+	memoryDir  string
 	extraTools []tool.Tool
 	notifier   *channel.Dispatcher
 }
@@ -73,10 +72,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			extraTools = append(extraTools, cron.NewTool(cronSvc))
 		}
 	}
-
-	// Memory store + tool — always available.
-	memStore := memory.NewStore(cfg.MemoryPath())
-	extraTools = append(extraTools, memory.NewTool(memStore))
 
 	// Skills tool — always available.
 	cwd, _ := os.Getwd()
@@ -105,8 +100,10 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		lcmtool.NewExpandTool(lcmEngine),
 	)
 
+	memoryDir := cfg.Workspace
+
 	idleTimeout := time.Duration(cfg.Runner.IdleTimeout) * time.Minute
-	factory, err := newRunnerFactory(cfg, memStore, extraTools)
+	factory, err := newRunnerFactory(cfg, memoryDir, extraTools)
 	if err != nil {
 		return nil, fmt.Errorf("create runner factory: %w", err)
 	}
@@ -165,7 +162,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		pool:       pool,
 		cronSvc:    cronSvc,
 		heartbeat:  heartbeatSvc,
-		memStore:   memStore,
+		memoryDir:  memoryDir,
 		extraTools: extraTools,
 		notifier:   dispatcher,
 	}, nil
@@ -177,7 +174,7 @@ func hasEnabledNotifyChannel(cfg *config.Config) bool {
 		(cfg.Channels.Feishu.IsEnabled() && cfg.Channels.Feishu.IsNotifyEnabled())
 }
 
-func newRunnerFactory(cfg *config.Config, memStore *memory.Store, extraTools []tool.Tool) (runner.NewRunnerFunc, error) {
+func newRunnerFactory(cfg *config.Config, memoryDir string, extraTools []tool.Tool) (runner.NewRunnerFunc, error) {
 	switch cfg.Runner.Type {
 	case "go":
 		providerCfg := cfg.Providers[cfg.Provider]
@@ -186,14 +183,14 @@ func newRunnerFactory(cfg *config.Config, memStore *memory.Store, extraTools []t
 				model = cfg.Model
 			}
 			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
-				API:         cfg.Provider,
-				Model:       model,
-				APIKey:      providerCfg.APIKey,
-				Workspace:   cfg.Workspace,
-				AnnaHome:    config.AnnaHome(),
-				MemoryStore: memStore,
-				BaseURL:     providerCfg.BaseURL,
-				ExtraTools:  extraTools,
+				API:        cfg.Provider,
+				Model:      model,
+				APIKey:     providerCfg.APIKey,
+				Workspace:  cfg.Workspace,
+				AnnaHome:   config.AnnaHome(),
+				MemoryDir:  memoryDir,
+				BaseURL:    providerCfg.BaseURL,
+				ExtraTools: extraTools,
 			})
 		}, nil
 	default:
@@ -203,11 +200,11 @@ func newRunnerFactory(cfg *config.Config, memStore *memory.Store, extraTools []t
 
 // modelSwitcher returns a function that switches the pool's runner factory
 // to use a different provider/model combination.
-func modelSwitcher(cfg *config.Config, pool *agent.Pool, memStore *memory.Store, extraTools []tool.Tool) channel.ModelSwitchFunc {
+func modelSwitcher(cfg *config.Config, pool *agent.Pool, memoryDir string, extraTools []tool.Tool) channel.ModelSwitchFunc {
 	return func(provider, model string) error {
 		cfg.Provider = provider
 		cfg.Model = model
-		factory, err := newRunnerFactory(cfg, memStore, extraTools)
+		factory, err := newRunnerFactory(cfg, memoryDir, extraTools)
 		if err != nil {
 			return err
 		}
