@@ -25,7 +25,7 @@ Two interfaces: **interactive CLI chat** and **gateway daemon** (Telegram bot, Q
 - Heartbeat polling with fast-model gating and proactive notifications
 - Model management CLI (`anna models list/update/set/search`)
 - Tiered model config (strong/worker/fast) with runtime model switching
-- Per-chat session management with persistent history (JSONL)
+- Per-chat session management with persistent history (SQLite)
 - Session compaction with LLM-generated summaries
 - Scheduled tasks via cron with persistent job storage
 - Skill management (search, install, list, remove from [skills.sh](https://skills.sh) ecosystem)
@@ -168,7 +168,6 @@ agent/                              Session pool, compaction, reaper, runner lif
 agent/engine/                       Agent loop engine, tool execution, loop events
 agent/runner/                       Runner interface, GoRunner, RPC protocol
 agent/tool/                         Built-in tools (read, bash, write, edit, truncate)
-store/                              Session persistence (JSONL file store, index)
 channel/                            Shared channel interface, notifier, utilities
 channel/cli/                        Interactive terminal chat (Bubble Tea TUI)
 channel/telegram/                   Telegram bot + streaming + notification backend
