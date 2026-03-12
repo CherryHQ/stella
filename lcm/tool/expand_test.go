@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vaayne/anna/db/sqlc"
 	"github.com/vaayne/anna/lcm"
 )
 
@@ -13,7 +14,7 @@ const expandTestSession = "sess-expand-test"
 
 // setupExpandTest creates a test engine, bootstraps a session, and returns
 // the ExpandTool, Queries handle, and conversation ID.
-func setupExpandTest(t *testing.T) (*ExpandTool, *lcm.Queries, int64) {
+func setupExpandTest(t *testing.T) (*ExpandTool, *sqlc.Queries, int64) {
 	t.Helper()
 
 	engine, q := setupEngine(t)

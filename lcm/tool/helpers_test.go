@@ -6,12 +6,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/vaayne/anna/db/sqlc"
 	"github.com/vaayne/anna/lcm"
 )
 
 // setupEngine creates a test LCM engine backed by a temp SQLite DB.
 // It returns the engine and its Queries handle for seeding data.
-func setupEngine(t *testing.T) (lcm.Engine, *lcm.Queries) {
+func setupEngine(t *testing.T) (lcm.Engine, *sqlc.Queries) {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "test.db")
@@ -28,11 +29,11 @@ func setupEngine(t *testing.T) (lcm.Engine, *lcm.Queries) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	return engine, lcm.New(db)
+	return engine, sqlc.New(db)
 }
 
 // bootstrapSession creates a session in the engine and returns the conversation ID.
-func bootstrapSession(t *testing.T, engine lcm.Engine, q *lcm.Queries, sessionID string) int64 {
+func bootstrapSession(t *testing.T, engine lcm.Engine, q *sqlc.Queries, sessionID string) int64 {
 	t.Helper()
 	ctx := context.Background()
 
@@ -48,12 +49,12 @@ func bootstrapSession(t *testing.T, engine lcm.Engine, q *lcm.Queries, sessionID
 }
 
 // seedMessages inserts messages and returns their IDs.
-func seedMessages(t *testing.T, q *lcm.Queries, convID int64, contents []string) []int64 {
+func seedMessages(t *testing.T, q *sqlc.Queries, convID int64, contents []string) []int64 {
 	t.Helper()
 	ctx := context.Background()
 	ids := make([]int64, len(contents))
 	for i, c := range contents {
-		msg, err := q.CreateMessage(ctx, lcm.CreateMessageParams{
+		msg, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
 			ConversationID: convID,
 			Seq:            int64(i + 1),
 			Role:           lcm.RoleUser,
@@ -69,10 +70,10 @@ func seedMessages(t *testing.T, q *lcm.Queries, convID int64, contents []string)
 }
 
 // seedLeafSummary creates a leaf summary linked to message IDs.
-func seedLeafSummary(t *testing.T, q *lcm.Queries, convID int64, id, content string, msgIDs []int64) {
+func seedLeafSummary(t *testing.T, q *sqlc.Queries, convID int64, id, content string, msgIDs []int64) {
 	t.Helper()
 	ctx := context.Background()
-	err := q.CreateSummary(ctx, lcm.CreateSummaryParams{
+	err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID:              id,
 		ConversationID:  convID,
 		Kind:            lcm.KindLeaf,
@@ -87,7 +88,7 @@ func seedLeafSummary(t *testing.T, q *lcm.Queries, convID int64, id, content str
 		t.Fatalf("CreateSummary %s: %v", id, err)
 	}
 	for i, mid := range msgIDs {
-		err := q.LinkSummaryToMessage(ctx, lcm.LinkSummaryToMessageParams{
+		err := q.LinkSummaryToMessage(ctx, sqlc.LinkSummaryToMessageParams{
 			SummaryID: id, MessageID: mid, Ordinal: int64(i),
 		})
 		if err != nil {
@@ -97,10 +98,10 @@ func seedLeafSummary(t *testing.T, q *lcm.Queries, convID int64, id, content str
 }
 
 // seedCondensedSummary creates a condensed summary linked to child summary IDs.
-func seedCondensedSummary(t *testing.T, q *lcm.Queries, convID int64, id, content string, depth int, childIDs []string) {
+func seedCondensedSummary(t *testing.T, q *sqlc.Queries, convID int64, id, content string, depth int, childIDs []string) {
 	t.Helper()
 	ctx := context.Background()
-	err := q.CreateSummary(ctx, lcm.CreateSummaryParams{
+	err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID:              id,
 		ConversationID:  convID,
 		Kind:            lcm.KindCondensed,
@@ -115,7 +116,7 @@ func seedCondensedSummary(t *testing.T, q *lcm.Queries, convID int64, id, conten
 		t.Fatalf("CreateSummary %s: %v", id, err)
 	}
 	for i, cid := range childIDs {
-		err := q.LinkSummaryToParent(ctx, lcm.LinkSummaryToParentParams{
+		err := q.LinkSummaryToParent(ctx, sqlc.LinkSummaryToParentParams{
 			SummaryID: cid, ParentSummaryID: id, Ordinal: int64(i),
 		})
 		if err != nil {

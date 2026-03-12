@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"time"
 	"unicode/utf8"
+
+	"github.com/vaayne/anna/db/sqlc"
 )
 
 // NewRetrievalEngine creates a RetrievalEngine from a Queries instance.
-func NewRetrievalEngine(q *Queries) *RetrievalEngine {
+func NewRetrievalEngine(q *sqlc.Queries) *RetrievalEngine {
 	return &RetrievalEngine{q: q}
 }
 
@@ -44,7 +46,7 @@ func (r *RetrievalEngine) Grep(ctx context.Context, convID int64, pattern string
 	var results []GrepResult
 
 	if scope == "messages" || scope == "both" {
-		msgs, err := r.q.SearchMessages(ctx, SearchMessagesParams{
+		msgs, err := r.q.SearchMessages(ctx, sqlc.SearchMessagesParams{
 			ConversationID: convID,
 			Content:        likePattern,
 			Limit:          int64(limit),
@@ -67,7 +69,7 @@ func (r *RetrievalEngine) Grep(ctx context.Context, convID int64, pattern string
 		if remaining <= 0 {
 			remaining = limit // summaries-only: use full limit
 		}
-		sums, err := r.q.SearchSummaries(ctx, SearchSummariesParams{
+		sums, err := r.q.SearchSummaries(ctx, sqlc.SearchSummariesParams{
 			ConversationID: convID,
 			Content:        likePattern,
 			Limit:          int64(remaining),

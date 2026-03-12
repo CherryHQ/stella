@@ -4,14 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+
+	"github.com/vaayne/anna/db/sqlc"
 )
 
-func setupAssemblerTest(t *testing.T) (*Assembler, *Queries, int64) {
+func setupAssemblerTest(t *testing.T) (*Assembler, *sqlc.Queries, int64) {
 	t.Helper()
 	_, q := testDB(t)
 	ctx := context.Background()
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-test"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-test"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
@@ -19,9 +21,9 @@ func setupAssemblerTest(t *testing.T) (*Assembler, *Queries, int64) {
 	return NewAssembler(q), q, conv.ID
 }
 
-func addMessage(t *testing.T, ctx context.Context, q *Queries, convID int64, seq int, role, content string) Message {
+func addMessage(t *testing.T, ctx context.Context, q *sqlc.Queries, convID int64, seq int, role, content string) sqlc.Message {
 	t.Helper()
-	msg, err := q.CreateMessage(ctx, CreateMessageParams{
+	msg, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
 		ConversationID: convID,
 		Seq:            int64(seq),
 		Role:           role,
@@ -34,9 +36,9 @@ func addMessage(t *testing.T, ctx context.Context, q *Queries, convID int64, seq
 	return msg
 }
 
-func addContextMessage(t *testing.T, ctx context.Context, q *Queries, convID int64, ordinal int, msgID int64) {
+func addContextMessage(t *testing.T, ctx context.Context, q *sqlc.Queries, convID int64, ordinal int, msgID int64) {
 	t.Helper()
-	err := q.AppendContextItem(ctx, AppendContextItemParams{
+	err := q.AppendContextItem(ctx, sqlc.AppendContextItemParams{
 		ConversationID: convID,
 		Ordinal:        int64(ordinal),
 		ItemType:       ItemTypeMessage,
@@ -47,9 +49,9 @@ func addContextMessage(t *testing.T, ctx context.Context, q *Queries, convID int
 	}
 }
 
-func addContextSummary(t *testing.T, ctx context.Context, q *Queries, convID int64, ordinal int, sumID string) {
+func addContextSummary(t *testing.T, ctx context.Context, q *sqlc.Queries, convID int64, ordinal int, sumID string) {
 	t.Helper()
-	err := q.AppendContextItem(ctx, AppendContextItemParams{
+	err := q.AppendContextItem(ctx, sqlc.AppendContextItemParams{
 		ConversationID: convID,
 		Ordinal:        int64(ordinal),
 		ItemType:       ItemTypeSummary,
@@ -148,7 +150,7 @@ func TestAssemble_WithSummary(t *testing.T) {
 	ctx := context.Background()
 
 	// Add a summary + recent message.
-	err := q.CreateSummary(ctx, CreateSummaryParams{
+	err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID: "sum_test01", ConversationID: convID, Kind: KindLeaf,
 		Depth: 0, Content: "Earlier conversation about auth", TokenCount: 8,
 		EarliestAt: sql.NullString{String: "2026-03-10T10:00:00", Valid: true},
@@ -180,7 +182,7 @@ func TestAssemble_WithSummary(t *testing.T) {
 }
 
 func TestFormatSummaryXML_Leaf(t *testing.T) {
-	sum := Summary{
+	sum := sqlc.Summary{
 		ID: "sum_abc123", Kind: KindLeaf, Depth: 0,
 		Content:    "Discussed authentication flow",
 		EarliestAt: sql.NullString{String: "2026-03-10T14:30:00", Valid: true},
@@ -197,12 +199,12 @@ func TestFormatSummaryXML_Leaf(t *testing.T) {
 }
 
 func TestFormatSummaryXML_Condensed(t *testing.T) {
-	sum := Summary{
+	sum := sqlc.Summary{
 		ID: "sum_xyz789", Kind: KindCondensed, Depth: 1,
 		Content:         "High-level auth + database work",
 		DescendantCount: 4,
 	}
-	parents := []Summary{
+	parents := []sqlc.Summary{
 		{ID: "sum_abc123"},
 		{ID: "sum_def456"},
 	}
@@ -214,7 +216,7 @@ func TestFormatSummaryXML_Condensed(t *testing.T) {
 }
 
 func TestSplitFreshTail(t *testing.T) {
-	items := []ContextItem{
+	items := []sqlc.ContextItem{
 		{Ordinal: 0, ItemType: ItemTypeSummary},
 		{Ordinal: 1, ItemType: ItemTypeMessage},
 		{Ordinal: 2, ItemType: ItemTypeMessage},

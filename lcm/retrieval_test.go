@@ -5,16 +5,18 @@ import (
 	"database/sql"
 	"strings"
 	"testing"
+
+	"github.com/vaayne/anna/db/sqlc"
 )
 
 // setupRetrievalTest creates a test DB, a conversation, and returns
 // the RetrievalEngine, Queries, and conversation ID.
-func setupRetrievalTest(t *testing.T) (*RetrievalEngine, *Queries, int64) {
+func setupRetrievalTest(t *testing.T) (*RetrievalEngine, *sqlc.Queries, int64) {
 	t.Helper()
 	_, q := testDB(t)
 
 	ctx := context.Background()
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-retrieval"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-retrieval"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
@@ -23,12 +25,12 @@ func setupRetrievalTest(t *testing.T) (*RetrievalEngine, *Queries, int64) {
 }
 
 // seedMessages inserts n messages and returns their IDs.
-func seedMessages(t *testing.T, q *Queries, convID int64, contents []string) []int64 {
+func seedMessages(t *testing.T, q *sqlc.Queries, convID int64, contents []string) []int64 {
 	t.Helper()
 	ctx := context.Background()
 	ids := make([]int64, len(contents))
 	for i, c := range contents {
-		msg, err := q.CreateMessage(ctx, CreateMessageParams{
+		msg, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
 			ConversationID: convID,
 			Seq:            int64(i + 1),
 			Role:           RoleUser,
@@ -44,10 +46,10 @@ func seedMessages(t *testing.T, q *Queries, convID int64, contents []string) []i
 }
 
 // seedLeafSummary creates a leaf summary linked to the given message IDs.
-func seedLeafSummary(t *testing.T, q *Queries, convID int64, id string, content string, msgIDs []int64) {
+func seedLeafSummary(t *testing.T, q *sqlc.Queries, convID int64, id string, content string, msgIDs []int64) {
 	t.Helper()
 	ctx := context.Background()
-	err := q.CreateSummary(ctx, CreateSummaryParams{
+	err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID:              id,
 		ConversationID:  convID,
 		Kind:            KindLeaf,
@@ -62,7 +64,7 @@ func seedLeafSummary(t *testing.T, q *Queries, convID int64, id string, content 
 		t.Fatalf("CreateSummary %s: %v", id, err)
 	}
 	for i, mid := range msgIDs {
-		err := q.LinkSummaryToMessage(ctx, LinkSummaryToMessageParams{
+		err := q.LinkSummaryToMessage(ctx, sqlc.LinkSummaryToMessageParams{
 			SummaryID: id, MessageID: mid, Ordinal: int64(i),
 		})
 		if err != nil {
@@ -72,10 +74,10 @@ func seedLeafSummary(t *testing.T, q *Queries, convID int64, id string, content 
 }
 
 // seedCondensedSummary creates a condensed summary linked to child summary IDs.
-func seedCondensedSummary(t *testing.T, q *Queries, convID int64, id string, content string, depth int, childIDs []string) {
+func seedCondensedSummary(t *testing.T, q *sqlc.Queries, convID int64, id string, content string, depth int, childIDs []string) {
 	t.Helper()
 	ctx := context.Background()
-	err := q.CreateSummary(ctx, CreateSummaryParams{
+	err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID:              id,
 		ConversationID:  convID,
 		Kind:            KindCondensed,
@@ -90,7 +92,7 @@ func seedCondensedSummary(t *testing.T, q *Queries, convID int64, id string, con
 		t.Fatalf("CreateSummary %s: %v", id, err)
 	}
 	for i, cid := range childIDs {
-		err := q.LinkSummaryToParent(ctx, LinkSummaryToParentParams{
+		err := q.LinkSummaryToParent(ctx, sqlc.LinkSummaryToParentParams{
 			SummaryID: cid, ParentSummaryID: id, Ordinal: int64(i),
 		})
 		if err != nil {
@@ -185,14 +187,13 @@ func TestGrep_DefaultLimit(t *testing.T) {
 	r, q, convID := setupRetrievalTest(t)
 	ctx := context.Background()
 
-	// Seed more messages than default limit.
 	contents := make([]string, 25)
 	for i := range contents {
 		contents[i] = "searchable content item"
 	}
 	seedMessages(t, q, convID, contents)
 
-	results, err := r.Grep(ctx, convID, "searchable", "messages", 0) // 0 triggers default
+	results, err := r.Grep(ctx, convID, "searchable", "messages", 0)
 	if err != nil {
 		t.Fatalf("Grep: %v", err)
 	}
@@ -220,7 +221,6 @@ func TestGrep_ContentTruncation(t *testing.T) {
 	r, q, convID := setupRetrievalTest(t)
 	ctx := context.Background()
 
-	// Create a message with content longer than maxContentSnippet runes.
 	longContent := strings.Repeat("x", 600) + " findme"
 	seedMessages(t, q, convID, []string{longContent})
 
@@ -228,12 +228,10 @@ func TestGrep_ContentTruncation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Grep: %v", err)
 	}
-	// The LIKE search in SQLite searches the full content, so it should match.
-	// But the returned Content should be truncated.
 	if len(results) != 1 {
 		t.Fatalf("got %d results, want 1", len(results))
 	}
-	if len([]rune(results[0].Content)) > maxContentSnippet+3 { // +3 for "..."
+	if len([]rune(results[0].Content)) > maxContentSnippet+3 {
 		t.Errorf("content not truncated: %d runes", len([]rune(results[0].Content)))
 	}
 }
@@ -244,14 +242,11 @@ func TestDescribe(t *testing.T) {
 
 	msgIDs := seedMessages(t, q, convID, []string{"m1", "m2", "m3"})
 
-	// Create leaf summaries.
 	seedLeafSummary(t, q, convID, "leaf_001", "first leaf summary", msgIDs[:2])
 	seedLeafSummary(t, q, convID, "leaf_002", "second leaf summary", msgIDs[2:])
 
-	// Create condensed parent.
 	seedCondensedSummary(t, q, convID, "cond_001", "condensed summary", 1, []string{"leaf_001", "leaf_002"})
 
-	// Describe the condensed summary.
 	desc, err := r.Describe(ctx, "cond_001")
 	if err != nil {
 		t.Fatalf("Describe: %v", err)
@@ -272,7 +267,6 @@ func TestDescribe(t *testing.T) {
 		t.Errorf("ParentIDs len = %d, want 0", len(desc.ParentIDs))
 	}
 
-	// Describe a leaf with parent.
 	desc, err = r.Describe(ctx, "leaf_001")
 	if err != nil {
 		t.Fatalf("Describe leaf: %v", err)
@@ -312,7 +306,7 @@ func TestExpand_LeafSummary(t *testing.T) {
 	})
 	seedLeafSummary(t, q, convID, "leaf_001", "leaf summary", msgIDs)
 
-	result, err := r.Expand(ctx, "leaf_001", 0) // default token cap
+	result, err := r.Expand(ctx, "leaf_001", 0)
 	if err != nil {
 		t.Fatalf("Expand: %v", err)
 	}
@@ -364,17 +358,14 @@ func TestExpand_TokenCap_Messages(t *testing.T) {
 	r, q, convID := setupRetrievalTest(t)
 	ctx := context.Background()
 
-	// Each message ~100 tokens (400 chars / 4).
 	longContent := strings.Repeat("a", 400)
 	msgIDs := seedMessages(t, q, convID, []string{longContent, longContent, longContent})
 	seedLeafSummary(t, q, convID, "leaf_001", "leaf summary", msgIDs)
 
-	// Token cap that fits only ~1.5 messages (150 tokens).
 	result, err := r.Expand(ctx, "leaf_001", 150)
 	if err != nil {
 		t.Fatalf("Expand: %v", err)
 	}
-	// First message is always included, second exceeds cap.
 	if len(result.Messages) != 1 {
 		t.Errorf("Messages len = %d, want 1 (token cap hit)", len(result.Messages))
 	}
@@ -386,14 +377,12 @@ func TestExpand_TokenCap_Children(t *testing.T) {
 
 	msgIDs := seedMessages(t, q, convID, []string{"m1", "m2", "m3", "m4", "m5", "m6"})
 
-	// Each leaf summary content ~100 tokens.
 	longSummary := strings.Repeat("b", 400)
 	seedLeafSummary(t, q, convID, "leaf_001", longSummary, msgIDs[:2])
 	seedLeafSummary(t, q, convID, "leaf_002", longSummary, msgIDs[2:4])
 	seedLeafSummary(t, q, convID, "leaf_003", longSummary, msgIDs[4:])
 	seedCondensedSummary(t, q, convID, "cond_001", "condensed", 1, []string{"leaf_001", "leaf_002", "leaf_003"})
 
-	// Token cap for ~1.5 children (150 tokens).
 	result, err := r.Expand(ctx, "cond_001", 150)
 	if err != nil {
 		t.Fatalf("Expand: %v", err)
