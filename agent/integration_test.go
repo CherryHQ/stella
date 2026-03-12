@@ -55,15 +55,11 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 		t.Fatal("turn 1: expected non-empty response")
 	}
 
-	// Verify history accumulated.
-	pool.mu.Lock()
-	sess := pool.sessions[sessionID]
-	histLen := len(sess.Events)
-	pool.mu.Unlock()
-
-	// At minimum: 1 user_message + N text_deltas.
-	if histLen < 2 {
-		t.Errorf("history length = %d, want >= 2", histLen)
+	// Verify history accumulated via pool.History().
+	history := pool.History(sessionID)
+	// At minimum: 1 user_message + 1 assistant_message.
+	if len(history) < 2 {
+		t.Errorf("history length = %d, want >= 2", len(history))
 	}
 
 	// Turn 2: reference prior context.

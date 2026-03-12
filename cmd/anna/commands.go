@@ -19,7 +19,6 @@ import (
 	"github.com/vaayne/anna/memory"
 	memorytool "github.com/vaayne/anna/memory/tool"
 	"github.com/vaayne/anna/skills"
-	"github.com/vaayne/anna/store"
 )
 
 func newApp() *ucli.App {
@@ -110,17 +109,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithCompaction(cfg.Runner.Compaction.WithDefaults()),
 		agent.WithDefaultModel(cfg.ResolveModelID(config.ModelTierStrong)),
 		agent.WithFastModel(cfg.ResolveModelID(config.ModelTierFast)),
-	}
-	opts = append(opts, agent.WithMemoryEngine(memoryEngine))
-
-	sessionsPath := cfg.SessionsPath()
-	if sessionsPath != "" {
-		s, err := store.NewFileStore(sessionsPath, cwd)
-		if err != nil {
-			return nil, fmt.Errorf("create session store: %w", err)
-		}
-		opts = append(opts, agent.WithStore(s))
-		slog.Info("session persistence enabled", "dir", sessionsPath)
+		agent.WithMemoryEngine(memoryEngine),
 	}
 
 	pool := agent.NewPool(factory, opts...)

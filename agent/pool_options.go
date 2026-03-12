@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/memory"
-	"github.com/vaayne/anna/store"
 )
 
 // PoolOption configures a Pool.
@@ -38,16 +37,8 @@ func WithFastModel(model string) PoolOption {
 	}
 }
 
-// WithStore sets the persistent store for session history.
-func WithStore(s store.Store) PoolOption {
-	return func(p *Pool) {
-		p.store = s
-	}
-}
-
-// WithMemoryEngine sets the memory engine for message persistence and compaction.
-// When set, the memory engine handles Ingest/Assemble/Compact; store.Store is
-// still used for session metadata (SaveInfo, LoadInfo, ListInfo).
+// WithMemoryEngine sets the memory engine for message persistence, compaction,
+// and session metadata. The memory engine is the sole persistence layer.
 func WithMemoryEngine(engine memory.Engine) PoolOption {
 	return func(p *Pool) {
 		p.mem = engine

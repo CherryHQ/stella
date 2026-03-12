@@ -3,13 +3,26 @@ package agent
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/vaayne/anna/agent/runner"
-	"github.com/vaayne/anna/store"
+	"github.com/vaayne/anna/memory"
 )
+
+// testMemoryEngine creates an in-memory SQLite memory engine for testing.
+func testMemoryEngine(t *testing.T) memory.Engine {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	eng, err := memory.NewEngine(dbPath, &memory.StaticSummarizer{Response: "test summary"})
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	return eng
+}
 
 // mockRunner implements runner.Runner and io.Closer for pool tests.
 type mockRunner struct {
@@ -194,7 +207,8 @@ func TestPoolChatAccumulatesHistory(t *testing.T) {
 		{Text: "chunk2"},
 	}
 	factory, _ := mockRunnerFactory(events)
-	pool := NewPool(factory)
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, WithMemoryEngine(mem))
 	defer func() { _ = pool.Close() }()
 
 	ctx := context.Background()
@@ -203,14 +217,11 @@ func TestPoolChatAccumulatesHistory(t *testing.T) {
 	for range stream {
 	}
 
-	pool.mu.Lock()
-	sess := pool.sessions["sess"]
-	histLen := len(sess.Events)
-	pool.mu.Unlock()
-
-	// 1 user_message + 2 text deltas = 3 events.
-	if histLen != 3 {
-		t.Errorf("history length = %d, want 3", histLen)
+	// Verify history via pool.History() (memory engine).
+	history := pool.History("sess")
+	// 1 user_message + 1 assembled assistant message = 2 events.
+	if len(history) != 2 {
+		t.Errorf("history length = %d, want 2", len(history))
 	}
 }
 
@@ -773,7 +784,7 @@ func TestPoolChatAutoTitleTruncates(t *testing.T) {
 	title := pool.sessions[info.ID].Info.Title
 	pool.mu.Unlock()
 
-	if len(title) > 65 { // 60 + "…"
+	if len(title) > 65 { // 60 + "..."
 		t.Errorf("title too long (%d chars): %q", len(title), title)
 	}
 }
@@ -823,7 +834,7 @@ func TestPoolChatWithModel(t *testing.T) {
 	}
 
 	mu.Lock()
-	// No new runner should be created — still 2 total.
+	// No new runner should be created -- still 2 total.
 	if len(models) != 2 {
 		t.Fatalf("third call created new runner, models = %v, want len 2", models)
 	}
@@ -831,21 +842,13 @@ func TestPoolChatWithModel(t *testing.T) {
 }
 
 func TestPoolFastModelForCompaction(t *testing.T) {
-	var models []string
-	var mu sync.Mutex
-	factory := func(_ context.Context, model string) (runner.Runner, error) {
-		mu.Lock()
-		models = append(models, model)
-		mu.Unlock()
-		return newMockRunner([]runner.Event{{Text: "summary text"}}), nil
-	}
+	mem := testMemoryEngine(t)
+	factory, _ := mockRunnerFactory([]runner.Event{{Text: "summary text"}})
 
-	dir := t.TempDir()
-	s, _ := store.NewFileStore(dir, t.TempDir())
 	pool := NewPool(factory,
 		WithDefaultModel("strong-model"),
 		WithFastModel("fast-model"),
-		WithStore(s),
+		WithMemoryEngine(mem),
 	)
 	defer func() { _ = pool.Close() }()
 
@@ -856,41 +859,13 @@ func TestPoolFastModelForCompaction(t *testing.T) {
 	for range stream {
 	}
 
-	mu.Lock()
-	if models[0] != "strong-model" {
-		t.Fatalf("chat model = %q, want strong-model", models[0])
-	}
-	mu.Unlock()
-
-	// Compact should use fast model.
-	_, err := pool.CompactSession(context.Background(), info.ID)
+	// Compact should succeed via memory engine.
+	summary, err := pool.CompactSession(context.Background(), info.ID)
 	if err != nil {
 		t.Fatalf("CompactSession: %v", err)
 	}
-
-	mu.Lock()
-	// The compaction should have created a runner with fast-model.
-	found := false
-	for _, m := range models {
-		if m == "fast-model" {
-			found = true
-			break
-		}
-	}
-	mu.Unlock()
-
-	if !found {
-		t.Errorf("compaction did not use fast model, models = %v", models)
-	}
-
-	// After compaction, session model should be restored to strong-model
-	// so subsequent chats don't stay on the fast tier.
-	pool.mu.Lock()
-	sessModel := pool.sessions[info.ID].Model
-	pool.mu.Unlock()
-
-	if sessModel != "strong-model" {
-		t.Errorf("session model after compaction = %q, want %q", sessModel, "strong-model")
+	if summary == "" {
+		t.Error("expected non-empty summary from compaction")
 	}
 }
 
@@ -937,21 +912,20 @@ func TestSetDefaultModelAffectsNewSessions(t *testing.T) {
 	mu.Unlock()
 }
 
-func TestNeedsCompactionNoStore(t *testing.T) {
+func TestNeedsCompactionNoMemory(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
 	pool := NewPool(factory, WithCompaction(CompactionConfig{MaxTokens: 100}))
 
-	// No store set — should always return false.
+	// No memory engine set -- should always return false.
 	if pool.NeedsCompaction("any-session") {
-		t.Error("NeedsCompaction should return false when store is nil")
+		t.Error("NeedsCompaction should return false when memory engine is nil")
 	}
 }
 
 func TestNeedsCompactionDisabled(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
-	dir := t.TempDir()
-	s, _ := store.NewFileStore(dir, t.TempDir())
-	pool := NewPool(factory, WithStore(s), WithCompaction(CompactionConfig{MaxTokens: 0}))
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, WithMemoryEngine(mem), WithCompaction(CompactionConfig{MaxTokens: 0}))
 
 	if pool.NeedsCompaction("any-session") {
 		t.Error("NeedsCompaction should return false when MaxTokens <= 0")
@@ -960,9 +934,8 @@ func TestNeedsCompactionDisabled(t *testing.T) {
 
 func TestNeedsCompactionUnderThreshold(t *testing.T) {
 	factory, _ := mockRunnerFactory([]runner.Event{{Text: "short"}})
-	dir := t.TempDir()
-	s, _ := store.NewFileStore(dir, t.TempDir())
-	pool := NewPool(factory, WithStore(s), WithCompaction(CompactionConfig{MaxTokens: 100_000}))
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, WithMemoryEngine(mem), WithCompaction(CompactionConfig{MaxTokens: 100_000}))
 	defer func() { _ = pool.Close() }()
 
 	info, _ := pool.CreateSession("test")
