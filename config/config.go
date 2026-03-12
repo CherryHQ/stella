@@ -280,10 +280,6 @@ func (cfg *Config) SessionsPath() string {
 	return filepath.Join(cfg.Workspace, "sessions")
 }
 
-func (cfg *Config) MemoryPath() string {
-	return filepath.Join(cfg.Workspace, "memory")
-}
-
 func (cfg *Config) SkillsPath() string {
 	return filepath.Join(cfg.Workspace, "skills")
 }

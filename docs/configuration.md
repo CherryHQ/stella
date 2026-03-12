@@ -103,7 +103,9 @@ Heartbeat only runs in `anna gateway`. Each tick first uses the fast model to de
 | `~/.anna/workspace/state.yaml` | Runtime state: current provider/model (program-managed) | State |
 | `~/.anna/cache/models.json` | Cached model list (safe to delete) | Cache |
 | `~/.anna/workspace/sessions/` | Chat session history | Data |
-| `~/.anna/workspace/memory/` | Persistent memory (facts + journal) | Data |
+| `~/.anna/workspace/SOUL.md` | Agent identity, personality | Data |
+| `~/.anna/workspace/USER.md` | User preferences, context | Data |
+| `~/.anna/workspace/lcm.db` | LCM database (message history, summaries) | Data |
 | `~/.anna/workspace/skills/` | Installed skills | Data |
 | `~/.anna/workspace/cron/` | Cron job persistence | Data |
 | `~/.anna/workspace/HEARTBEAT.md` | Heartbeat instructions | Data |

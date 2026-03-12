@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
-
-	"github.com/vaayne/anna/memory"
 )
 
 //go:embed template/system.md
@@ -20,19 +18,15 @@ var defaultSoul string
 //go:embed template/user.md
 var defaultUser string
 
-//go:embed template/fact.md
-var defaultFact string
-
 //go:embed template/memories.md.tmpl
 var memoriesTemplate string
 
 var memoriesTmpl = template.Must(template.New("memories").Parse(memoriesTemplate))
 
 type promptMemories struct {
-	Dir   string
-	Soul  promptFile
-	User  promptFile
-	Facts promptFile
+	Dir  string
+	Soul promptFile
+	User promptFile
 }
 
 type promptFile struct {
@@ -49,8 +43,9 @@ type contextFile struct {
 // BuildSystemPrompt composes the full system prompt: basic + memories + skills + project context.
 // The basic prompt defaults to the embedded system.md but can be overridden
 // by placing a system.md file in the project's .agents directory or the workspace.
+// memoryDir is the directory containing SOUL.md and USER.md (e.g. ~/.anna/workspace).
 // annaHome is the anna home directory (e.g. ~/.anna).
-func BuildSystemPrompt(store *memory.Store, annaHome, workspace string, cwd ...string) string {
+func BuildSystemPrompt(memoryDir, annaHome, workspace string, cwd ...string) string {
 	workDir := ""
 	if len(cwd) > 0 {
 		workDir = cwd[0]
@@ -71,25 +66,23 @@ func BuildSystemPrompt(store *memory.Store, annaHome, workspace string, cwd ...s
 		}
 	}
 
-	soul, _ := store.Read(memory.FileSoul)
-	user, _ := store.Read(memory.FileUser)
-	facts, _ := store.Read(memory.FileFact)
+	soul := readFileIfExists(memoryDir, "SOUL.md")
+	user := readFileIfExists(memoryDir, "USER.md")
 
 	// Project-level overrides: .agents/SOUL.md and .agents/USER.md take priority.
 	if projectDir != "" {
-		if content := readFileIfExists(projectDir, string(memory.FileSoul)); content != "" {
+		if content := readFileIfExists(projectDir, "SOUL.md"); content != "" {
 			soul = content
 		}
-		if content := readFileIfExists(projectDir, string(memory.FileUser)); content != "" {
+		if content := readFileIfExists(projectDir, "USER.md"); content != "" {
 			user = content
 		}
 	}
 
 	memories := promptMemories{
-		Dir:   store.Dir(),
-		Soul:  promptFile{Path: store.Path(memory.FileSoul), Content: fallback(soul, defaultSoul)},
-		User:  promptFile{Path: store.Path(memory.FileUser), Content: fallback(user, defaultUser)},
-		Facts: promptFile{Path: store.Path(memory.FileFact), Content: fallback(facts, defaultFact)},
+		Dir:  memoryDir,
+		Soul: promptFile{Path: filepath.Join(memoryDir, "SOUL.md"), Content: fallback(soul, defaultSoul)},
+		User: promptFile{Path: filepath.Join(memoryDir, "USER.md"), Content: fallback(user, defaultUser)},
 	}
 
 	var buf bytes.Buffer
