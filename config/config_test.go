@@ -165,6 +165,7 @@ func TestLoadConfigCreatesDir(t *testing.T) {
 
 func TestAnnaHome(t *testing.T) {
 	t.Setenv("ANNA_HOME", "")
+	ResetAnnaHome()
 	dir := AnnaHome()
 	if !strings.HasSuffix(dir, ".anna") {
 		t.Errorf("AnnaHome() = %q, want suffix .anna", dir)
@@ -173,6 +174,7 @@ func TestAnnaHome(t *testing.T) {
 
 func TestAnnaHomeEnv(t *testing.T) {
 	t.Setenv("ANNA_HOME", "/custom/anna")
+	ResetAnnaHome()
 	dir := AnnaHome()
 	if dir != "/custom/anna" {
 		t.Errorf("AnnaHome() = %q, want %q", dir, "/custom/anna")
@@ -181,6 +183,7 @@ func TestAnnaHomeEnv(t *testing.T) {
 
 func TestPath(t *testing.T) {
 	t.Setenv("ANNA_HOME", "")
+	ResetAnnaHome()
 	p := Path()
 	if !strings.HasSuffix(p, filepath.Join(".anna", "config.yaml")) {
 		t.Errorf("Path() = %q, want suffix .anna/config.yaml", p)
@@ -189,6 +192,7 @@ func TestPath(t *testing.T) {
 
 func TestLoad(t *testing.T) {
 	t.Setenv("ANNA_HOME", t.TempDir())
+	ResetAnnaHome()
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -664,15 +668,14 @@ func TestSaveModelSelectionWritesState(t *testing.T) {
 }
 
 func TestWorkspacePaths(t *testing.T) {
+	t.Setenv("ANNA_HOME", t.TempDir())
+	ResetAnnaHome()
 	cfg := &Config{
 		Workspace: "/home/user/.anna/workspace",
 	}
 
 	if cfg.SessionsPath() != "/home/user/.anna/workspace/sessions" {
 		t.Errorf("SessionsPath() = %q", cfg.SessionsPath())
-	}
-	if cfg.MemoryPath() != "/home/user/.anna/workspace/memory" {
-		t.Errorf("MemoryPath() = %q", cfg.MemoryPath())
 	}
 	if cfg.SkillsPath() != "/home/user/.anna/workspace/skills" {
 		t.Errorf("SkillsPath() = %q", cfg.SkillsPath())

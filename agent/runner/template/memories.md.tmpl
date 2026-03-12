@@ -1,11 +1,10 @@
-{{- if or .Soul.Content .User.Content .Facts.Content}}
+{{- if or .Soul.Content .User.Content}}
 
 ## Memories
 
-Persistent files under `{{.Dir}}/` that carry state across sessions. Update them autonomously — never ask for approval.
+Persistent files under `{{.Dir}}/` that carry state across sessions.
 
 - **SOUL.md and USER.md**: Edit directly via the `edit` or `write` tool.
-- **FACT.md and JOURNAL.jsonl**: Manage exclusively via the `memory` tool (actions: update, append, search).
 
 Each file has an exclusive scope — never duplicate information across files.
 {{- if .Soul.Content}}
@@ -29,16 +28,5 @@ Never put here: your personality, project details, technical decisions.
 <user>
 {{.User.Content}}
 </user>
-{{- end}}
-{{- if .Facts.Content}}
-
-### Facts ({{.Facts.Path}})
-
-WHAT you know — active projects, technical decisions, durable knowledge still relevant in 6 months.
-Never put here: personality/tone (SOUL.md), user bio (USER.md), one-time events (JOURNAL).
-
-<facts>
-{{.Facts.Content}}
-</facts>
 {{- end}}
 {{- end}}

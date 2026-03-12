@@ -154,7 +154,9 @@ docker buildx build --platform linux/amd64,linux/arm64 -t anna .
 | `~/.anna/config.yaml` | Configuration |
 | `~/.anna/workspace/sessions/` | Chat session history |
 | `~/.anna/workspace/cron/` | Cron job persistence |
-| `~/.anna/workspace/memory/` | Persistent memory (facts + journal) |
+| `~/.anna/workspace/SOUL.md` | Agent identity, personality |
+| `~/.anna/workspace/USER.md` | User preferences, context |
+| `~/.anna/workspace/memory.db` | Memory database (message history, summaries) |
 | `~/.anna/workspace/skills/` | Installed skills |
 | `~/.anna/cache/models.json` | Model cache |
 

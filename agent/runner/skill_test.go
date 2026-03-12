@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/vaayne/anna/memory"
 )
 
 func TestParseFrontmatter(t *testing.T) {
@@ -340,8 +338,7 @@ func TestBuildSystemPromptIncludesSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	memStore := memory.NewStore(filepath.Join(wsDir, "memory"))
-	prompt := BuildSystemPrompt(memStore, "/nonexistent/anna", wsDir, projectDir)
+	prompt := BuildSystemPrompt("/nonexistent/anna", wsDir, projectDir)
 	if !strings.Contains(prompt, "<available_skills>") {
 		t.Error("expected skills section in system prompt")
 	}
@@ -448,8 +445,7 @@ func TestBuildSystemPromptIncludesContextFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	memStore := memory.NewStore(filepath.Join(wsDir, "memory"))
-	prompt := BuildSystemPrompt(memStore, "/nonexistent/anna", wsDir, projectDir)
+	prompt := BuildSystemPrompt("/nonexistent/anna", wsDir, projectDir)
 
 	if !strings.Contains(prompt, "# Project Context") {
 		t.Error("expected Project Context section in system prompt")
@@ -465,12 +461,11 @@ func TestBuildSystemPromptProjectOverrides(t *testing.T) {
 	projectDir := filepath.Join(dir, "project")
 	projectAgents := filepath.Join(projectDir, ".agents")
 
-	// Create workspace memory with SOUL.md
-	memDir := filepath.Join(wsDir, "memory")
-	if err := os.MkdirAll(memDir, 0o755); err != nil {
+	// Create workspace with SOUL.md
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(memDir, "SOUL.md"),
+	if err := os.WriteFile(filepath.Join(wsDir, "SOUL.md"),
 		[]byte("Workspace soul"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -484,8 +479,7 @@ func TestBuildSystemPromptProjectOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	memStore := memory.NewStore(memDir)
-	prompt := BuildSystemPrompt(memStore, "/nonexistent/anna", wsDir, projectDir)
+	prompt := BuildSystemPrompt("/nonexistent/anna", wsDir, projectDir)
 
 	if !strings.Contains(prompt, "Project soul override") {
 		t.Error("expected project-level SOUL.md to override workspace SOUL.md")
