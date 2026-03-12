@@ -28,7 +28,6 @@ type GoRunnerConfig struct {
 	WorkDir    string      // working directory for tool execution
 	Workspace  string      // workspace dir for skills/memory (e.g. ~/.anna/workspace)
 	AnnaHome   string      // anna home directory (e.g. ~/.anna)
-	MemoryDir  string      // directory containing SOUL.md and USER.md
 	System     string      // optional system prompt override (bypasses BuildSystemPrompt)
 	ExtraTools []tool.Tool // additional tools to register
 }
@@ -66,8 +65,8 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 
 	system := cfg.System
 	if system == "" {
-		if cfg.MemoryDir != "" {
-			system = BuildSystemPrompt(cfg.MemoryDir, cfg.AnnaHome, cfg.Workspace, cfg.WorkDir)
+		if cfg.Workspace != "" {
+			system = BuildSystemPrompt(cfg.AnnaHome, cfg.Workspace, cfg.WorkDir)
 		} else {
 			system = defaultBasicPrompt
 		}

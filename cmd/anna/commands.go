@@ -45,7 +45,6 @@ type setupResult struct {
 	pool       *agent.Pool
 	cronSvc    *cron.Service
 	heartbeat  *heartbeat.Service
-	memoryDir  string
 	extraTools []tool.Tool
 	notifier   *channel.Dispatcher
 }
@@ -100,10 +99,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		memorytool.NewExpandTool(memoryEngine),
 	)
 
-	memoryDir := cfg.Workspace
-
 	idleTimeout := time.Duration(cfg.Runner.IdleTimeout) * time.Minute
-	factory, err := newRunnerFactory(cfg, memoryDir, extraTools)
+	factory, err := newRunnerFactory(cfg, extraTools)
 	if err != nil {
 		return nil, fmt.Errorf("create runner factory: %w", err)
 	}
@@ -162,7 +159,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		pool:       pool,
 		cronSvc:    cronSvc,
 		heartbeat:  heartbeatSvc,
-		memoryDir:  memoryDir,
 		extraTools: extraTools,
 		notifier:   dispatcher,
 	}, nil
@@ -174,7 +170,7 @@ func hasEnabledNotifyChannel(cfg *config.Config) bool {
 		(cfg.Channels.Feishu.IsEnabled() && cfg.Channels.Feishu.IsNotifyEnabled())
 }
 
-func newRunnerFactory(cfg *config.Config, memoryDir string, extraTools []tool.Tool) (runner.NewRunnerFunc, error) {
+func newRunnerFactory(cfg *config.Config, extraTools []tool.Tool) (runner.NewRunnerFunc, error) {
 	switch cfg.Runner.Type {
 	case "go":
 		providerCfg := cfg.Providers[cfg.Provider]
@@ -188,7 +184,6 @@ func newRunnerFactory(cfg *config.Config, memoryDir string, extraTools []tool.To
 				APIKey:     providerCfg.APIKey,
 				Workspace:  cfg.Workspace,
 				AnnaHome:   config.AnnaHome(),
-				MemoryDir:  memoryDir,
 				BaseURL:    providerCfg.BaseURL,
 				ExtraTools: extraTools,
 			})
@@ -200,11 +195,11 @@ func newRunnerFactory(cfg *config.Config, memoryDir string, extraTools []tool.To
 
 // modelSwitcher returns a function that switches the pool's runner factory
 // to use a different provider/model combination.
-func modelSwitcher(cfg *config.Config, pool *agent.Pool, memoryDir string, extraTools []tool.Tool) channel.ModelSwitchFunc {
+func modelSwitcher(cfg *config.Config, pool *agent.Pool, extraTools []tool.Tool) channel.ModelSwitchFunc {
 	return func(provider, model string) error {
 		cfg.Provider = provider
 		cfg.Model = model
-		factory, err := newRunnerFactory(cfg, memoryDir, extraTools)
+		factory, err := newRunnerFactory(cfg, extraTools)
 		if err != nil {
 			return err
 		}

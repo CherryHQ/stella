@@ -338,7 +338,7 @@ func TestBuildSystemPromptIncludesSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	prompt := BuildSystemPrompt(wsDir, "/nonexistent/anna", wsDir, projectDir)
+	prompt := BuildSystemPrompt("/nonexistent/anna", wsDir, projectDir)
 	if !strings.Contains(prompt, "<available_skills>") {
 		t.Error("expected skills section in system prompt")
 	}
@@ -445,7 +445,7 @@ func TestBuildSystemPromptIncludesContextFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	prompt := BuildSystemPrompt(wsDir, "/nonexistent/anna", wsDir, projectDir)
+	prompt := BuildSystemPrompt("/nonexistent/anna", wsDir, projectDir)
 
 	if !strings.Contains(prompt, "# Project Context") {
 		t.Error("expected Project Context section in system prompt")
@@ -479,7 +479,7 @@ func TestBuildSystemPromptProjectOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	prompt := BuildSystemPrompt(wsDir, "/nonexistent/anna", wsDir, projectDir)
+	prompt := BuildSystemPrompt("/nonexistent/anna", wsDir, projectDir)
 
 	if !strings.Contains(prompt, "Project soul override") {
 		t.Error("expected project-level SOUL.md to override workspace SOUL.md")
