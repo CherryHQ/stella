@@ -21,6 +21,9 @@ type Conversation struct {
 	ID             int64          `json:"id"`
 	SessionID      string         `json:"session_id"`
 	Title          sql.NullString `json:"title"`
+	Channel        string         `json:"channel"`
+	Archived       int64          `json:"archived"`
+	LastActive     string         `json:"last_active"`
 	BootstrappedAt sql.NullString `json:"bootstrapped_at"`
 	CreatedAt      string         `json:"created_at"`
 	UpdatedAt      string         `json:"updated_at"`
