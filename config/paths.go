@@ -60,10 +60,6 @@ func (cfg *Config) StatePath() string {
 	return filepath.Join(cfg.Workspace, "state.yaml")
 }
 
-func (cfg *Config) SessionsPath() string {
-	return filepath.Join(cfg.Workspace, "sessions")
-}
-
 func (cfg *Config) SkillsPath() string {
 	return filepath.Join(cfg.Workspace, "skills")
 }

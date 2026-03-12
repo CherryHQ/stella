@@ -21,9 +21,6 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.Runner.IdleTimeout != 10 {
 		t.Errorf("Runner.IdleTimeout = %d, want 10", cfg.Runner.IdleTimeout)
 	}
-	if cfg.SessionsPath() != filepath.Join(dir, "workspace", "sessions") {
-		t.Errorf("SessionsPath() = %q, want %q", cfg.SessionsPath(), filepath.Join(dir, "workspace", "sessions"))
-	}
 	if cfg.Channels.Telegram.Token != "" {
 		t.Errorf("Channels.Telegram.Token = %q, want empty", cfg.Channels.Telegram.Token)
 	}
@@ -674,9 +671,6 @@ func TestWorkspacePaths(t *testing.T) {
 		Workspace: "/home/user/.anna/workspace",
 	}
 
-	if cfg.SessionsPath() != "/home/user/.anna/workspace/sessions" {
-		t.Errorf("SessionsPath() = %q", cfg.SessionsPath())
-	}
 	if cfg.SkillsPath() != "/home/user/.anna/workspace/skills" {
 		t.Errorf("SkillsPath() = %q", cfg.SkillsPath())
 	}
