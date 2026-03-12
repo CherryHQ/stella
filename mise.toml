@@ -27,21 +27,25 @@ run = "rm -rf bin/"
 [tasks.run]
 description = "Run anna (pass args after --)"
 depends = ["build"]
+env = { ANNA_HOME = ".agents/anna" }
 run = "./bin/$BINARY_NAME {{arg(name='command', default='chat')}}"
 
 [tasks."run:chat"]
 description = "Run interactive CLI chat"
 depends = ["build"]
+env = { ANNA_HOME = ".agents/anna" }
 run = "./bin/$BINARY_NAME chat"
 
 [tasks."run:stream"]
 description = "Run streaming chat (pipe prompt via stdin)"
 depends = ["build"]
+env = { ANNA_HOME = ".agents/anna" }
 run = "./bin/$BINARY_NAME chat --stream"
 
 [tasks."run:gateway"]
 description = "Run gateway daemon (Telegram, etc.)"
 depends = ["build"]
+env = { ANNA_HOME = ".agents/anna" }
 run = "./bin/$BINARY_NAME gateway"
 
 # ============================================================================
