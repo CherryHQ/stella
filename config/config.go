@@ -2,13 +2,11 @@ package config
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/vaayne/anna/agent"
-	"github.com/vaayne/anna/ai"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,18 +25,15 @@ type Config struct {
 	Channels    ChannelsConfig            `yaml:"channels"`
 }
 
-// Model tier constants.
-const (
-	ModelTierStrong = "strong"
-	ModelTierFast   = "fast"
-)
-
-// ChannelsConfig groups all channel (interface) configurations.
-type ChannelsConfig struct {
-	Telegram TelegramConfig `yaml:"telegram" envPrefix:"TELEGRAM_"`
-	QQ       QQConfig       `yaml:"qq"       envPrefix:"QQ_"`
-	Feishu   FeishuConfig   `yaml:"feishu"   envPrefix:"FEISHU_"`
+type RunnerConfig struct {
+	Type        string           `yaml:"type"         env:"TYPE"`
+	System      string           `yaml:"system"       env:"SYSTEM"`
+	IdleTimeout int              `yaml:"idle_timeout" env:"IDLE_TIMEOUT"`
+	Compaction  CompactionConfig `yaml:"compaction"   envPrefix:"COMPACTION_"`
 }
+
+// CompactionConfig is an alias for agent.CompactionConfig for config YAML binding.
+type CompactionConfig = agent.CompactionConfig
 
 type CronConfig struct {
 	Enabled *bool  `yaml:"enabled"  env:"ENABLED"`
@@ -47,7 +42,7 @@ type CronConfig struct {
 
 // CronEnabled returns whether cron is enabled (defaults to true).
 func (c CronConfig) CronEnabled() bool {
-	return c.Enabled == nil || *c.Enabled
+	return boolDefault(c.Enabled, true)
 }
 
 type HeartbeatConfig struct {
@@ -58,7 +53,7 @@ type HeartbeatConfig struct {
 
 // IsEnabled returns whether heartbeat is enabled (defaults to false).
 func (c HeartbeatConfig) IsEnabled() bool {
-	return c.Enabled != nil && *c.Enabled
+	return boolDefault(c.Enabled, false)
 }
 
 // Interval returns the configured heartbeat cadence.
@@ -84,103 +79,6 @@ type ProviderConfig struct {
 	APIKey  string        `yaml:"api_key"`
 	BaseURL string        `yaml:"base_url"`
 	Models  []ModelConfig `yaml:"models"`
-}
-
-type ModelConfig struct {
-	ID            string            `yaml:"id"`
-	Name          string            `yaml:"name"`
-	API           string            `yaml:"api"`
-	Reasoning     bool              `yaml:"reasoning"`
-	Input         []string          `yaml:"input"`
-	ContextWindow int               `yaml:"context_window"`
-	MaxTokens     int               `yaml:"max_tokens"`
-	Headers       map[string]string `yaml:"headers"`
-	Cost          *ModelCostConfig  `yaml:"cost"`
-}
-
-type ModelCostConfig struct {
-	Input      float64 `yaml:"input"`
-	Output     float64 `yaml:"output"`
-	CacheRead  float64 `yaml:"cache_read"`
-	CacheWrite float64 `yaml:"cache_write"`
-}
-
-type RunnerConfig struct {
-	Type        string           `yaml:"type"         env:"TYPE"`
-	System      string           `yaml:"system"       env:"SYSTEM"`
-	IdleTimeout int              `yaml:"idle_timeout" env:"IDLE_TIMEOUT"`
-	Compaction  CompactionConfig `yaml:"compaction"   envPrefix:"COMPACTION_"`
-}
-
-// CompactionConfig is an alias for agent.CompactionConfig for config YAML binding.
-type CompactionConfig = agent.CompactionConfig
-
-type QQConfig struct {
-	Enabled      *bool    `yaml:"enabled"       env:"ENABLED"`
-	EnableNotify *bool    `yaml:"enable_notify" env:"ENABLE_NOTIFY"`
-	AppID        string   `yaml:"app_id"        env:"APP_ID"`
-	AppSecret    string   `yaml:"app_secret"    env:"APP_SECRET"`
-	GroupMode    string   `yaml:"group_mode"    env:"GROUP_MODE"`
-	AllowedIDs   []string `yaml:"allowed_ids"   env:"ALLOWED_IDS"`
-}
-
-func (c QQConfig) IsEnabled() bool       { return c.Enabled == nil || *c.Enabled }
-func (c QQConfig) IsNotifyEnabled() bool { return c.EnableNotify != nil && *c.EnableNotify }
-
-type FeishuConfig struct {
-	Enabled           *bool    `yaml:"enabled"            env:"ENABLED"`
-	EnableNotify      *bool    `yaml:"enable_notify"      env:"ENABLE_NOTIFY"`
-	AppID             string   `yaml:"app_id"             env:"APP_ID"`
-	AppSecret         string   `yaml:"app_secret"         env:"APP_SECRET"`
-	EncryptKey        string   `yaml:"encrypt_key"        env:"ENCRYPT_KEY"`
-	VerificationToken string   `yaml:"verification_token" env:"VERIFICATION_TOKEN"`
-	NotifyChat        string   `yaml:"notify_chat"        env:"NOTIFY_CHAT"`
-	GroupMode         string   `yaml:"group_mode"         env:"GROUP_MODE"`
-	AllowedIDs        []string `yaml:"allowed_ids"        env:"ALLOWED_IDS"`
-}
-
-func (c FeishuConfig) IsEnabled() bool       { return c.Enabled == nil || *c.Enabled }
-func (c FeishuConfig) IsNotifyEnabled() bool { return c.EnableNotify != nil && *c.EnableNotify }
-
-type TelegramConfig struct {
-	Enabled      *bool   `yaml:"enabled"       env:"ENABLED"`
-	EnableNotify *bool   `yaml:"enable_notify" env:"ENABLE_NOTIFY"`
-	Token        string  `yaml:"token"         env:"TOKEN"`
-	NotifyChat   string  `yaml:"notify_chat"   env:"NOTIFY_CHAT"`
-	ChannelID    string  `yaml:"channel_id"    env:"CHANNEL_ID"`
-	GroupMode    string  `yaml:"group_mode"    env:"GROUP_MODE"`
-	AllowedIDs   []int64 `yaml:"allowed_ids"   env:"ALLOWED_IDS"`
-}
-
-func (c TelegramConfig) IsEnabled() bool       { return c.Enabled == nil || *c.Enabled }
-func (c TelegramConfig) IsNotifyEnabled() bool { return c.EnableNotify != nil && *c.EnableNotify }
-
-// AnnaHome returns the anna home directory.
-// Priority: ANNA_HOME env -> ~/.anna
-func AnnaHome() string {
-	if v := os.Getenv("ANNA_HOME"); v != "" {
-		return v
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".", ".anna")
-	}
-	return filepath.Join(home, ".anna")
-}
-
-// Path returns the path to config.yaml inside the anna home.
-func Path() string {
-	return filepath.Join(AnnaHome(), "config.yaml")
-}
-
-// StatePath returns the path to state.yaml (mutable runtime state) inside the workspace.
-func (cfg *Config) StatePath() string {
-	return filepath.Join(cfg.Workspace, "state.yaml")
-}
-
-// CachePath returns the cache directory inside the anna home.
-func CachePath() string {
-	return filepath.Join(AnnaHome(), "cache")
 }
 
 // Load loads config from the default anna home (~/.anna/config.yaml).
@@ -272,156 +170,4 @@ func resolveProviderEnv(cfg *Config, name, keyEnv, urlEnv string) {
 		}
 	}
 	cfg.Providers[name] = p
-}
-
-// Workspace path helpers — all data lives under Workspace.
-
-func (cfg *Config) SessionsPath() string {
-	return filepath.Join(cfg.Workspace, "sessions")
-}
-
-func (cfg *Config) SkillsPath() string {
-	return filepath.Join(cfg.Workspace, "skills")
-}
-
-func (cfg *Config) ModelsPath() string {
-	return filepath.Join(CachePath(), "models.json")
-}
-
-func (cfg *Config) LogPath() string {
-	return filepath.Join(cfg.Workspace, "anna.log")
-}
-
-// ResolveModel returns the ai.Model for the default provider/model,
-// looking up from the provider's model list config.
-func (cfg *Config) ResolveModel() ai.Model {
-	return cfg.ResolveModelTier(ModelTierStrong)
-}
-
-// ResolveModelTier returns the model for the given tier after applying
-// the fallback: strong -> model, fast -> model.
-func (cfg *Config) ResolveModelTier(tier string) ai.Model {
-	modelID := cfg.ResolveModelID(tier)
-	providerCfg := cfg.Providers[cfg.Provider]
-	for _, m := range providerCfg.Models {
-		if m.ID == modelID {
-			return modelConfigToType(cfg.Provider, m)
-		}
-	}
-	// Fallback: construct a minimal Model from defaults.
-	return ai.Model{
-		ID:       modelID,
-		Name:     modelID,
-		API:      cfg.Provider,
-		Provider: cfg.Provider,
-		BaseURL:  providerCfg.BaseURL,
-	}
-}
-
-// ResolveModelID returns the model ID string for the given tier,
-// falling back to Model if the tier-specific value is not set.
-func (cfg *Config) ResolveModelID(tier string) string {
-	switch tier {
-	case ModelTierStrong:
-		if cfg.ModelStrong != "" {
-			return cfg.ModelStrong
-		}
-		return cfg.Model
-	case ModelTierFast:
-		if cfg.ModelFast != "" {
-			return cfg.ModelFast
-		}
-		return cfg.Model
-	default:
-		if cfg.ModelStrong != "" {
-			return cfg.ModelStrong
-		}
-		return cfg.Model
-	}
-}
-
-// SaveModelSelection persists the provider and model to state.yaml
-// in the given workspace, keeping config.yaml as a static, user-edited file.
-func SaveModelSelection(workspace, provider, model string) error {
-	path := filepath.Join(workspace, "state.yaml")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create state dir: %w", err)
-	}
-
-	raw := make(map[string]any)
-	data, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read state: %w", err)
-	}
-	if err == nil {
-		if err := yaml.Unmarshal(data, &raw); err != nil {
-			return fmt.Errorf("parse state: %w", err)
-		}
-	}
-
-	raw["provider"] = provider
-	raw["model"] = model
-
-	out, err := yaml.Marshal(raw)
-	if err != nil {
-		return fmt.Errorf("marshal state: %w", err)
-	}
-	if err := os.WriteFile(path, out, 0o644); err != nil {
-		return fmt.Errorf("write state: %w", err)
-	}
-	return nil
-}
-
-// applyState loads state.yaml from the workspace and overrides provider/model in cfg.
-func applyState(cfg *Config) {
-	path := cfg.StatePath()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			slog.Warn("failed to read state file", "path", path, "error", err)
-		}
-		return
-	}
-	var state struct {
-		Provider string `yaml:"provider"`
-		Model    string `yaml:"model"`
-	}
-	if err := yaml.Unmarshal(data, &state); err != nil {
-		return
-	}
-	if state.Provider != "" {
-		cfg.Provider = state.Provider
-	}
-	if state.Model != "" {
-		cfg.Model = state.Model
-	}
-}
-
-func modelConfigToType(provider string, m ModelConfig) ai.Model {
-	model := ai.Model{
-		ID:            m.ID,
-		Name:          m.ID,
-		API:           m.API,
-		Provider:      provider,
-		Reasoning:     m.Reasoning,
-		Input:         m.Input,
-		ContextWindow: m.ContextWindow,
-		MaxTokens:     m.MaxTokens,
-		Headers:       m.Headers,
-	}
-	if model.Name == "" {
-		model.Name = m.Name
-	}
-	if model.API == "" {
-		model.API = provider
-	}
-	if m.Cost != nil {
-		model.Cost = ai.ModelCost{
-			Input:      m.Cost.Input,
-			Output:     m.Cost.Output,
-			CacheRead:  m.Cost.CacheRead,
-			CacheWrite: m.Cost.CacheWrite,
-		}
-	}
-	return model
 }
