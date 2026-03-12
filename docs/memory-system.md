@@ -4,11 +4,11 @@
 
 ### Status
 
-Implemented -- `lcm/` package with SQLite-backed message DAG, compaction engine, context assembler, and retrieval tools.
+Implemented -- `memory/` package with SQLite-backed message DAG, compaction engine, context assembler, and retrieval tools.
 
 ### Overview
 
-LCM provides lossless context management for anna. Every message is persisted in a SQLite database and organized into a DAG (directed acyclic graph) of summaries. When the conversation grows too long, older messages are compacted into leaf summaries, and groups of leaf summaries are further condensed into higher-level summaries. The agent can drill back into any summary to recover the original detail -- nothing is ever deleted.
+The memory system provides lossless context management for anna using the LCM approach. Every message is persisted in a SQLite database and organized into a DAG (directed acyclic graph) of summaries. When the conversation grows too long, older messages are compacted into leaf summaries, and groups of leaf summaries are further condensed into higher-level summaries. The agent can drill back into any summary to recover the original detail -- nothing is ever deleted.
 
 ### Architecture
 
@@ -40,7 +40,7 @@ User / Assistant messages
 
 ### Database
 
-- Location: `~/.anna/workspace/lcm.db`
+- Location: `~/.anna/workspace/memory.db`
 - Schema managed by embedded SQL migrations
 - Tables: `nodes` (DAG nodes with content, token counts, depth, lineage) and `edges` (parent-child relationships)
 
@@ -78,7 +78,7 @@ The assembler builds the context window for each LLM call:
 
 ### Integration
 
-LCM is wired into the agent Pool. When a session uses LCM:
+The memory engine is wired into the agent Pool. When a session uses it:
 - Each message is ingested into the database after every turn.
 - Context is assembled from the database before each LLM call.
 - Compaction runs automatically based on the context threshold.

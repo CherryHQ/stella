@@ -1,4 +1,4 @@
-package lcm
+package memory
 
 import (
 	"context"
@@ -41,7 +41,7 @@ const (
 	DefaultLeafChunkSize    = 10 // messages per leaf summary
 )
 
-// Engine is the main LCM interface for lossless context management.
+// Engine is the main interface for lossless context management.
 type Engine interface {
 	// Bootstrap reconciles session state on startup.
 	Bootstrap(ctx context.Context, sessionID string) error

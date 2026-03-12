@@ -6,16 +6,16 @@ import (
 	"fmt"
 
 	"github.com/vaayne/anna/ai"
-	"github.com/vaayne/anna/lcm"
+	"github.com/vaayne/anna/memory"
 )
 
 // DescribeTool inspects summary metadata and lineage.
 type DescribeTool struct {
-	engine lcm.Engine
+	engine memory.Engine
 }
 
 // NewDescribeTool creates a memory_describe tool.
-func NewDescribeTool(engine lcm.Engine) *DescribeTool {
+func NewDescribeTool(engine memory.Engine) *DescribeTool {
 	return &DescribeTool{engine: engine}
 }
 

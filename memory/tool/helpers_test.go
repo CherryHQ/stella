@@ -7,23 +7,23 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/db/sqlc"
-	"github.com/vaayne/anna/lcm"
+	"github.com/vaayne/anna/memory"
 )
 
-// setupEngine creates a test LCM engine backed by a temp SQLite DB.
+// setupEngine creates a test memory engine backed by a temp SQLite DB.
 // It returns the engine and its Queries handle for seeding data.
-func setupEngine(t *testing.T) (lcm.Engine, *sqlc.Queries) {
+func setupEngine(t *testing.T) (memory.Engine, *sqlc.Queries) {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	engine, err := lcm.NewEngine(dbPath, &lcm.StaticSummarizer{Response: "test"})
+	engine, err := memory.NewEngine(dbPath, &memory.StaticSummarizer{Response: "test"})
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
 	t.Cleanup(func() { _ = engine.Close() })
 
 	// Open a second DB handle for direct query access in tests.
-	db, err := lcm.OpenDB(dbPath)
+	db, err := memory.OpenDB(dbPath)
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -33,7 +33,7 @@ func setupEngine(t *testing.T) (lcm.Engine, *sqlc.Queries) {
 }
 
 // bootstrapSession creates a session in the engine and returns the conversation ID.
-func bootstrapSession(t *testing.T, engine lcm.Engine, q *sqlc.Queries, sessionID string) int64 {
+func bootstrapSession(t *testing.T, engine memory.Engine, q *sqlc.Queries, sessionID string) int64 {
 	t.Helper()
 	ctx := context.Background()
 
@@ -57,9 +57,9 @@ func seedMessages(t *testing.T, q *sqlc.Queries, convID int64, contents []string
 		msg, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
 			ConversationID: convID,
 			Seq:            int64(i + 1),
-			Role:           lcm.RoleUser,
+			Role:           memory.RoleUser,
 			Content:        c,
-			TokenCount:     int64(lcm.EstimateTokens(c)),
+			TokenCount:     int64(memory.EstimateTokens(c)),
 		})
 		if err != nil {
 			t.Fatalf("CreateMessage %d: %v", i, err)
@@ -76,10 +76,10 @@ func seedLeafSummary(t *testing.T, q *sqlc.Queries, convID int64, id, content st
 	err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID:              id,
 		ConversationID:  convID,
-		Kind:            lcm.KindLeaf,
+		Kind:            memory.KindLeaf,
 		Depth:           0,
 		Content:         content,
-		TokenCount:      int64(lcm.EstimateTokens(content)),
+		TokenCount:      int64(memory.EstimateTokens(content)),
 		EarliestAt:      sql.NullString{String: "2025-01-01 10:00:00", Valid: true},
 		LatestAt:        sql.NullString{String: "2025-01-01 11:00:00", Valid: true},
 		DescendantCount: int64(len(msgIDs)),
@@ -104,10 +104,10 @@ func seedCondensedSummary(t *testing.T, q *sqlc.Queries, convID int64, id, conte
 	err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID:              id,
 		ConversationID:  convID,
-		Kind:            lcm.KindCondensed,
+		Kind:            memory.KindCondensed,
 		Depth:           int64(depth),
 		Content:         content,
-		TokenCount:      int64(lcm.EstimateTokens(content)),
+		TokenCount:      int64(memory.EstimateTokens(content)),
 		EarliestAt:      sql.NullString{String: "2025-01-01 10:00:00", Valid: true},
 		LatestAt:        sql.NullString{String: "2025-01-01 12:00:00", Valid: true},
 		DescendantCount: int64(len(childIDs)),

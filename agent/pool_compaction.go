@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/vaayne/anna/agent/runner"
-	"github.com/vaayne/anna/lcm"
+	"github.com/vaayne/anna/memory"
 )
 
 // compactionPrompt is sent to the runner to generate a conversation summary
@@ -52,8 +52,8 @@ Guidelines:
 //
 // It returns the summary text on success.
 func (p *Pool) CompactSession(ctx context.Context, sessionID string) (string, error) {
-	if p.lcm != nil {
-		return p.compactSessionLCM(ctx, sessionID)
+	if p.mem != nil {
+		return p.compactSessionMemory(ctx, sessionID)
 	}
 
 	if p.store == nil {
@@ -147,13 +147,13 @@ func (p *Pool) collectFullResponse(ctx context.Context, r runner.Runner, history
 	return buf.String(), nil
 }
 
-// compactSessionLCM delegates compaction to the LCM engine.
-func (p *Pool) compactSessionLCM(ctx context.Context, sessionID string) (string, error) {
-	result, err := p.lcm.Compact(ctx, sessionID, lcm.CompactionFull)
+// compactSessionMemory delegates compaction to the memory engine.
+func (p *Pool) compactSessionMemory(ctx context.Context, sessionID string) (string, error) {
+	result, err := p.mem.Compact(ctx, sessionID, memory.CompactionFull)
 	if err != nil {
-		return "", fmt.Errorf("lcm compact: %w", err)
+		return "", fmt.Errorf("memory compact: %w", err)
 	}
-	p.log.Info("lcm compaction complete",
+	p.log.Info("memory compaction complete",
 		"session_id", sessionID,
 		"leaf_summaries", result.LeafSummariesCreated,
 		"condensed_summaries", result.CondensedSummariesCreated,
@@ -169,8 +169,8 @@ func (p *Pool) compactSessionLCM(ctx context.Context, sessionID string) (string,
 // the compaction threshold. Returns false if compaction is disabled or no
 // store is set.
 func (p *Pool) NeedsCompaction(sessionID string) bool {
-	if p.lcm != nil {
-		return p.lcm.NeedsCompaction(context.Background(), sessionID, float64(p.compaction.MaxTokens))
+	if p.mem != nil {
+		return p.mem.NeedsCompaction(context.Background(), sessionID, float64(p.compaction.MaxTokens))
 	}
 
 	if p.store == nil || p.compaction.MaxTokens <= 0 {

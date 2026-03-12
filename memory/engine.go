@@ -1,4 +1,4 @@
-package lcm
+package memory
 
 import (
 	"context"
@@ -46,11 +46,11 @@ func WithLogger(log *slog.Logger) EngineOption {
 	}
 }
 
-// NewEngine creates a new LCM engine backed by a SQLite database at dbPath.
+// NewEngine creates a new memory engine backed by a SQLite database at dbPath.
 func NewEngine(dbPath string, summarizer Summarizer, opts ...EngineOption) (Engine, error) {
 	db, err := OpenDB(dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("lcm: open db: %w", err)
+		return nil, fmt.Errorf("memory: open db: %w", err)
 	}
 
 	q := sqlc.New(db)

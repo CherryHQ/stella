@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/vaayne/anna/lcm"
+	"github.com/vaayne/anna/memory"
 )
 
 const describeTestSession = "sess-describe-test"
@@ -62,7 +62,7 @@ func TestDescribeExecute_ValidCondensed(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	var desc lcm.DescribeResult
+	var desc memory.DescribeResult
 	if err := json.Unmarshal([]byte(result), &desc); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestDescribeExecute_LeafWithParent(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	var desc lcm.DescribeResult
+	var desc memory.DescribeResult
 	if err := json.Unmarshal([]byte(result), &desc); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
