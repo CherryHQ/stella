@@ -2,86 +2,163 @@
 
 ## Lossless Context Management (LCM)
 
-### Status
-
-Implemented -- `memory/` package with SQLite-backed message DAG, compaction engine, context assembler, and retrieval tools.
-
 ### Overview
 
-The memory system provides lossless context management for anna using the LCM approach. Every message is persisted in a SQLite database and organized into a DAG (directed acyclic graph) of summaries. When the conversation grows too long, older messages are compacted into leaf summaries, and groups of leaf summaries are further condensed into higher-level summaries. The agent can drill back into any summary to recover the original detail -- nothing is ever deleted.
+The memory system provides lossless context management for anna. Every message is persisted in a SQLite database and organized into a DAG (directed acyclic graph) of summaries. When the conversation grows too long, older messages are compacted into leaf summaries, and groups of leaf summaries are further condensed into higher-level summaries. The agent can drill back into any summary to recover the original detail — nothing is ever deleted.
+
+Package: `memory/` (core) + `memory/tool/` (agent tool wrappers).
 
 ### Architecture
 
 ```
-User / Assistant messages
+RPCEvent (user/assistant/tool)
         |
         v
-  +----------+     ingest      +------------+
-  |  Engine   | -------------> |  SQLite DB |
-  +----------+                 +-----+------+
-        |                            |
-        |  assemble (budget)         |  DAG of nodes:
-        v                            |    message -> leaf summary
-  +------------+                     |    leaf summary -> condensed summary
+  +----------+     ingest      +-----------+
+  |  Engine   | -------------> | SQLite DB |
+  +----------+                 +-----+-----+
+     |    |                          |
+     |    | compact                  |  Tables:
+     |    v                          |    conversations
+     | +------------------+          |    messages
+     | | CompactionEngine | <--------+    summaries
+     | +------------------+          |    context_items
+     |                               |    summary_messages
+     |  assemble (budget)            |    summary_parents
+     v                               |
+  +------------+                     |
   | Assembler  | <-------------------+
   +------------+
         |
         v
-  Context window (fresh tail + summaries within token budget)
+  []runner.RPCEvent (fresh tail + summaries within token budget)
+        |
+        v
+  LLM context window
 ```
 
-**Node types in the DAG:**
+### Engine API
 
-| Type | Description |
-|------|-------------|
-| `message` | Raw user/assistant message (leaf of the DAG) |
-| `leaf_summary` | Summary of a chunk of consecutive messages |
-| `condensed_summary` | Summary of a group of same-depth summaries |
+The `Engine` interface (`memory/types.go`) is the main entry point:
+
+| Method | Description |
+|--------|-------------|
+| `Bootstrap(ctx, sessionID)` | Ensures a conversation record exists for the session |
+| `Ingest(ctx, sessionID, evt)` | Persists a single `RPCEvent` and appends a context item |
+| `IngestBatch(ctx, sessionID, evts)` | Persists multiple events in a single transaction |
+| `Assemble(ctx, sessionID, budget, freshTail)` | Builds context within token budget, returns `[]RPCEvent` |
+| `Compact(ctx, sessionID, mode)` | Runs compaction passes (leaf + condensation) |
+| `NeedsCompaction(ctx, sessionID, threshold)` | Checks if context tokens exceed the absolute threshold |
+| `Retrieval()` | Returns the `RetrievalEngine` for search/explore tools |
+| `Close()` | Releases database resources |
+
+Engine options: `WithFreshTail(n)`, `WithLogger(log)`.
 
 ### Database
 
-- Location: `~/.anna/workspace/memory.db`
-- Schema managed by embedded SQL migrations
-- Tables: `nodes` (DAG nodes with content, token counts, depth, lineage) and `edges` (parent-child relationships)
+- **Location:** `~/.anna/workspace/memory.db`
+- **Driver:** `modernc.org/sqlite` (pure Go, no CGO)
+- **Mode:** WAL (concurrent reads during writes), foreign keys enabled
+- **Migrations:** Embedded SQL files applied on first open via `memory.OpenDB()`
 
-### Retrieval Tools
+**Schema:**
 
-Three tools provide read access to the compacted history:
+| Table | Purpose |
+|-------|---------|
+| `conversations` | One per session (`session_id` → `id` mapping) |
+| `messages` | Raw messages with `role`, `content`, `token_count`, sequential `seq` |
+| `summaries` | Summary nodes: `kind` (`leaf`/`condensed`), `depth`, `content`, token stats, time range |
+| `context_items` | Ordered context window: each item points to either a `message_id` or `summary_id` |
+| `summary_messages` | Links leaf summaries to their source messages (preserves lineage) |
+| `summary_parents` | Links condensed summaries to their parent summaries (DAG edges) |
+| `message_parts` | Structured message parts (`text`, `reasoning`, `tool`) for future use |
 
-| Tool | Purpose |
-|------|---------|
-| `memory_grep` | Search messages and summaries by keyword. Returns matching nodes with metadata. |
-| `memory_describe` | Inspect a specific summary node: its metadata, depth, child count, and lineage. |
-| `memory_expand` | Drill into a summary to retrieve its children (the original messages or sub-summaries it was built from). |
+### Compaction
 
-**TODO:** `memory_expand` will spawn a sub-agent to answer questions using the expanded context, rather than injecting raw children into the main context window.
+Compaction reduces the context window by summarizing older messages and summaries.
 
-### Compaction Modes
+**Modes:**
 
-| Mode | Trigger | Behavior |
-|------|---------|----------|
-| **Incremental** | After each agent turn | Compacts only the oldest messages beyond the fresh tail. Runs automatically when context exceeds the threshold. |
-| **Full** | Manual `/compact` command | Compacts all eligible messages and then runs a condensed pass to merge leaf summaries at the same depth. |
+| Mode | Behavior |
+|------|----------|
+| `CompactionIncremental` | Single leaf pass + one condensed pass. Runs automatically when context exceeds threshold. |
+| `CompactionFull` | Repeats leaf + condensed passes until no more compaction is possible (up to 10 iterations). |
 
-**Compaction passes:**
+**Passes:**
 
-1. **Leaf pass** -- Groups consecutive raw messages into chunks, summarizes each chunk into a `leaf_summary` node, records parent-child edges.
-2. **Condensed pass** -- Groups same-depth summaries, summarizes each group into a `condensed_summary` node at depth+1.
+1. **Leaf pass** — Finds contiguous runs of message context items outside the fresh tail. Groups of ≥ `DefaultLeafChunkSize` (10) messages are summarized into a `leaf` summary (depth 0). The message context items are replaced by a single summary context item.
+
+2. **Condensed pass** — Finds contiguous runs of summary context items at the same depth. Groups of ≥ 2 summaries are condensed into a `condensed` summary at depth+1. Uses a summary cache from the prefetch to avoid redundant queries.
+
+Both passes run within the `runPasses` helper, which fetches context items once and re-fetches only between passes when mutations occur.
+
+**Summarization escalation** (`memory/summarize.go`):
+
+The `LLMSummarizer` implements a three-tier escalation strategy:
+
+1. **Normal mode** — Preserves key decisions, rationale, constraints, active tasks. Target: input_tokens/3.
+2. **Aggressive mode** — Keeps only durable facts and current task state. Triggered when normal mode exceeds 150% of target.
+3. **Deterministic fallback** — Truncates to target at a sentence/line boundary. Triggered when aggressive mode still exceeds 150%.
+
+Leaf summaries target 1/3 of source tokens. Condensed summaries target 1/2 (less aggressive to preserve detail).
 
 ### Context Assembly
 
-The assembler builds the context window for each LLM call:
+The `Assembler` builds the context window for each LLM call (`memory/assembler.go`):
 
-1. Keep the **fresh tail** (most recent N messages, default 20) verbatim.
-2. Fill remaining budget with summaries, preferring lower-depth (more detailed) summaries.
-3. Format everything as XML blocks (`<context>` with `<summary>` and `<message>` children).
+1. Separate context items into **fresh tail** (last N message items, default 20) and **older** items.
+2. Resolve fresh tail items to `RPCEvent`s — these are always included regardless of budget.
+3. Fill remaining budget with older items, newest first. Each item is resolved and its tokens estimated. Items that would exceed the budget are excluded.
+4. Return older events (chronological order) + tail events.
+
+**Summary XML format** (injected as synthetic user messages):
+
+```xml
+<summary id="sum_abc123" kind="leaf" depth="0" earliest_at="..." latest_at="...">
+  <parents>
+    <summary_ref id="sum_parent1" />
+  </parents>
+  <content>
+    Summary text here...
+  </content>
+</summary>
+```
+
+**Token estimation:** `(len(text) + 3) / 4` (~4 chars per token).
+
+### Retrieval Tools
+
+Three tools in `memory/tool/` provide read access to compacted history:
+
+| Tool | Purpose | Key Parameters |
+|------|---------|----------------|
+| `memory_grep` | Search messages and summaries by substring pattern | `pattern` (required), `scope` (`messages`/`summaries`/`both`), `limit` (default 20) |
+| `memory_describe` | Inspect a summary's metadata, content, and lineage (parents/children) | `summary_id` |
+| `memory_expand` | Drill into a summary: returns source messages (leaf) or child summaries (condensed) | `summary_id`, `token_cap` (default 4000) |
+
+Tools extract the session ID from context via `memory.SessionIDFromContext(ctx)`.
+
+### Concurrency
+
+- **Per-session mutex** — `Ingest`, `IngestBatch`, and `Compact` acquire a per-session lock via `withSessionLock()` to prevent concurrent mutations on the same conversation.
+- **Global mutex** — Protects the session mutex map and conversation ID cache.
+- **Conversation ID cache** — `getOrCreateConversation` caches the `sessionID → convID` mapping since it's immutable once created.
+
+### Configuration Defaults
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `DefaultFreshTail` | 20 | Messages protected from compaction |
+| `DefaultContextThreshold` | 0.75 | Fraction of budget that triggers compaction |
+| `DefaultLeafChunkSize` | 10 | Minimum messages per leaf summary |
 
 ### Integration
 
 The memory engine is wired into the agent Pool. When a session uses it:
-- Each message is ingested into the database after every turn.
-- Context is assembled from the database before each LLM call.
-- Compaction runs automatically based on the context threshold.
+
+1. Each message is ingested into the database after every turn.
+2. Context is assembled from the database before each LLM call.
+3. Compaction runs automatically based on the context threshold.
 
 ---
 
