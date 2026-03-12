@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"path/filepath"
 	"testing"
@@ -491,3 +492,199 @@ func TestEventToMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestSaveInfo_LoadInfo(t *testing.T) {
+	eng := testEngine(t)
+	ctx := context.Background()
+
+	info := SessionInfo{
+		ID:      "sess-meta-1",
+		Channel: "cli",
+		Title:   "Test Session",
+	}
+	if err := eng.SaveInfo(ctx, info); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+
+	loaded, err := eng.LoadInfo(ctx, "sess-meta-1")
+	if err != nil {
+		t.Fatalf("LoadInfo: %v", err)
+	}
+	if loaded.ID != "sess-meta-1" {
+		t.Errorf("ID = %q, want %q", loaded.ID, "sess-meta-1")
+	}
+	if loaded.Channel != "cli" {
+		t.Errorf("Channel = %q, want %q", loaded.Channel, "cli")
+	}
+	if loaded.Title != "Test Session" {
+		t.Errorf("Title = %q, want %q", loaded.Title, "Test Session")
+	}
+	if loaded.Archived {
+		t.Error("expected Archived = false")
+	}
+}
+
+func TestSaveInfo_Update(t *testing.T) {
+	eng := testEngine(t)
+	ctx := context.Background()
+
+	// Create.
+	if err := eng.SaveInfo(ctx, SessionInfo{ID: "sess-upd", Channel: "cli", Title: "Original"}); err != nil {
+		t.Fatalf("SaveInfo create: %v", err)
+	}
+
+	// Update title.
+	if err := eng.SaveInfo(ctx, SessionInfo{ID: "sess-upd", Title: "Updated Title"}); err != nil {
+		t.Fatalf("SaveInfo update: %v", err)
+	}
+
+	loaded, err := eng.LoadInfo(ctx, "sess-upd")
+	if err != nil {
+		t.Fatalf("LoadInfo: %v", err)
+	}
+	if loaded.Title != "Updated Title" {
+		t.Errorf("Title = %q, want %q", loaded.Title, "Updated Title")
+	}
+}
+
+func TestSaveInfo_Archive(t *testing.T) {
+	eng := testEngine(t)
+	ctx := context.Background()
+
+	if err := eng.SaveInfo(ctx, SessionInfo{ID: "sess-arch", Title: "Archivable"}); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+
+	// Archive it.
+	if err := eng.SaveInfo(ctx, SessionInfo{ID: "sess-arch", Title: "Archivable", Archived: true}); err != nil {
+		t.Fatalf("SaveInfo archive: %v", err)
+	}
+
+	loaded, err := eng.LoadInfo(ctx, "sess-arch")
+	if err != nil {
+		t.Fatalf("LoadInfo: %v", err)
+	}
+	if !loaded.Archived {
+		t.Error("expected Archived = true")
+	}
+}
+
+func TestListInfo(t *testing.T) {
+	eng := testEngine(t)
+	ctx := context.Background()
+
+	// Create sessions.
+	for _, s := range []SessionInfo{
+		{ID: "sess-a", Channel: "cli", Title: "A"},
+		{ID: "sess-b", Channel: "telegram", Title: "B"},
+		{ID: "sess-c", Channel: "cli", Title: "C", Archived: true},
+	} {
+		if err := eng.SaveInfo(ctx, s); err != nil {
+			t.Fatalf("SaveInfo %s: %v", s.ID, err)
+		}
+	}
+
+	// List without archived.
+	active, err := eng.ListInfo(ctx, false)
+	if err != nil {
+		t.Fatalf("ListInfo active: %v", err)
+	}
+	if len(active) != 2 {
+		t.Errorf("expected 2 active sessions, got %d", len(active))
+	}
+
+	// List with archived.
+	all, err := eng.ListInfo(ctx, true)
+	if err != nil {
+		t.Fatalf("ListInfo all: %v", err)
+	}
+	if len(all) != 3 {
+		t.Errorf("expected 3 total sessions, got %d", len(all))
+	}
+}
+
+func TestLoadInfo_NotFound(t *testing.T) {
+	eng := testEngine(t)
+	ctx := context.Background()
+
+	_, err := eng.LoadInfo(ctx, "nonexistent")
+	if err == nil {
+		t.Error("expected error for nonexistent session")
+	}
+}
+
+func TestLoad(t *testing.T) {
+	eng := testEngine(t)
+	ctx := context.Background()
+	sessionID := "sess-load"
+
+	// Ingest mixed events.
+	evts := []runner.RPCEvent{
+		runner.UserMessageToRPCEvent("hello"),
+		runner.AssistantMessageToRPCEvent("hi there"),
+		{Type: runner.RPCEventToolCall, ID: "call_1", Tool: "bash", Result: json.RawMessage(`{"cmd":"ls"}`)},
+		{Type: runner.RPCEventToolResult, ID: "call_1", Tool: "bash", Result: json.RawMessage(`"file1.txt"`), Error: ""},
+	}
+	if err := eng.IngestBatch(ctx, sessionID, evts); err != nil {
+		t.Fatalf("IngestBatch: %v", err)
+	}
+
+	// Load full history.
+	loaded, err := eng.Load(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(loaded) != 4 {
+		t.Fatalf("expected 4 events, got %d", len(loaded))
+	}
+
+	// Verify types.
+	if loaded[0].Type != runner.RPCEventUserMessage {
+		t.Errorf("event[0].Type = %q, want %q", loaded[0].Type, runner.RPCEventUserMessage)
+	}
+	if loaded[1].Type != runner.RPCEventMessageUpdate {
+		t.Errorf("event[1].Type = %q, want %q", loaded[1].Type, runner.RPCEventMessageUpdate)
+	}
+	if loaded[2].Type != runner.RPCEventToolCall {
+		t.Errorf("event[2].Type = %q, want %q", loaded[2].Type, runner.RPCEventToolCall)
+	}
+	if loaded[2].ID != "call_1" {
+		t.Errorf("event[2].ID = %q, want %q", loaded[2].ID, "call_1")
+	}
+	if loaded[3].Type != runner.RPCEventToolResult {
+		t.Errorf("event[3].Type = %q, want %q", loaded[3].Type, runner.RPCEventToolResult)
+	}
+}
+
+func TestLoad_EmptySession(t *testing.T) {
+	eng := testEngine(t)
+	ctx := context.Background()
+
+	result, err := eng.Load(ctx, "nonexistent")
+	if err != nil {
+		t.Fatalf("Load nonexistent: %v", err)
+	}
+	if result != nil {
+		t.Errorf("expected nil for nonexistent session, got %d events", len(result))
+	}
+}
+
+func TestLoad_BootstrappedEmpty(t *testing.T) {
+	eng := testEngine(t)
+	ctx := context.Background()
+
+	if err := eng.Bootstrap(ctx, "sess-empty"); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+
+	result, err := eng.Load(ctx, "sess-empty")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(result) != 0 {
+		t.Errorf("expected 0 events, got %d", len(result))
+	}
+}
+
+// Suppress unused import warning for database/sql.
+var _ = sql.ErrNoRows

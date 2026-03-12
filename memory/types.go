@@ -70,6 +70,18 @@ type Engine interface {
 	// NeedsCompaction checks if compaction should run based on token threshold.
 	NeedsCompaction(ctx context.Context, sessionID string, threshold float64) bool
 
+	// SaveInfo persists session metadata (upsert).
+	SaveInfo(ctx context.Context, info SessionInfo) error
+
+	// LoadInfo retrieves session metadata by session ID.
+	LoadInfo(ctx context.Context, sessionID string) (SessionInfo, error)
+
+	// ListInfo lists session metadata. If includeArchived is false, archived sessions are excluded.
+	ListInfo(ctx context.Context, includeArchived bool) ([]SessionInfo, error)
+
+	// Load returns the full event history for a session.
+	Load(ctx context.Context, sessionID string) ([]runner.RPCEvent, error)
+
 	// Retrieval returns the retrieval engine for tools.
 	Retrieval() *RetrievalEngine
 
@@ -170,6 +182,16 @@ type ExpandMessage struct {
 	Role      string
 	Content   string
 	CreatedAt time.Time
+}
+
+// SessionInfo holds metadata about a session stored in the conversations table.
+type SessionInfo struct {
+	ID         string
+	Channel    string
+	Title      string
+	CreatedAt  time.Time
+	LastActive time.Time
+	Archived   bool
 }
 
 // EstimateTokens returns a rough token count (~4 chars per token).

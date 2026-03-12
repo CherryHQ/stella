@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/vaayne/anna/agent/runner"
 	"github.com/vaayne/anna/db/sqlc"
@@ -210,9 +211,134 @@ func (e *engine) Retrieval() *RetrievalEngine {
 	return e.retrieval
 }
 
+// SaveInfo persists session metadata. Creates a new conversation or updates
+// the title, channel, archived, and last_active fields of an existing one.
+func (e *engine) SaveInfo(ctx context.Context, info SessionInfo) error {
+	conv, err := e.q.GetConversationBySessionID(ctx, info.ID)
+	if err == sql.ErrNoRows {
+		lastActive := info.LastActive
+		if lastActive.IsZero() {
+			lastActive = time.Now().UTC()
+		}
+		_, err = e.q.CreateConversationFull(ctx, sqlc.CreateConversationFullParams{
+			SessionID:  info.ID,
+			Title:      sql.NullString{String: info.Title, Valid: info.Title != ""},
+			Channel:    info.Channel,
+			Archived:   boolToInt(info.Archived),
+			LastActive: lastActive.UTC().Format("2006-01-02 15:04:05"),
+		})
+		if err != nil {
+			return fmt.Errorf("create conversation: %w", err)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get conversation: %w", err)
+	}
+
+	// Update existing conversation fields.
+	if info.Title != "" {
+		if err := e.q.UpdateConversationTitleBySessionID(ctx, sqlc.UpdateConversationTitleBySessionIDParams{
+			Title:     sql.NullString{String: info.Title, Valid: true},
+			SessionID: info.ID,
+		}); err != nil {
+			return fmt.Errorf("update title: %w", err)
+		}
+	}
+	if boolToInt(info.Archived) != conv.Archived {
+		if err := e.q.UpdateConversationArchived(ctx, sqlc.UpdateConversationArchivedParams{
+			Archived:  boolToInt(info.Archived),
+			SessionID: info.ID,
+		}); err != nil {
+			return fmt.Errorf("update archived: %w", err)
+		}
+	}
+	if err := e.q.UpdateConversationLastActive(ctx, info.ID); err != nil {
+		return fmt.Errorf("update last_active: %w", err)
+	}
+	return nil
+}
+
+// LoadInfo retrieves session metadata by session ID.
+func (e *engine) LoadInfo(ctx context.Context, sessionID string) (SessionInfo, error) {
+	conv, err := e.q.GetConversationBySessionID(ctx, sessionID)
+	if err != nil {
+		return SessionInfo{}, fmt.Errorf("get conversation: %w", err)
+	}
+	return convToSessionInfo(conv), nil
+}
+
+// ListInfo lists session metadata ordered by last_active descending.
+func (e *engine) ListInfo(ctx context.Context, includeArchived bool) ([]SessionInfo, error) {
+	var convs []sqlc.Conversation
+	var err error
+	if includeArchived {
+		convs, err = e.q.ListConversationsAll(ctx)
+	} else {
+		convs, err = e.q.ListConversations(ctx)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list conversations: %w", err)
+	}
+	result := make([]SessionInfo, len(convs))
+	for i, c := range convs {
+		result[i] = convToSessionInfo(c)
+	}
+	return result, nil
+}
+
+// Load returns the full event history for a session as RPCEvents.
+// Returns nil, nil for non-existent sessions.
+func (e *engine) Load(ctx context.Context, sessionID string) ([]runner.RPCEvent, error) {
+	conv, err := e.q.GetConversationBySessionID(ctx, sessionID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get conversation: %w", err)
+	}
+
+	msgs, err := e.q.GetMessagesByConversation(ctx, conv.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get messages: %w", err)
+	}
+
+	var result []runner.RPCEvent
+	for _, msg := range msgs {
+		evts := messageToRPCEvents(msg)
+		result = append(result, evts...)
+	}
+	return result, nil
+}
+
 // Close releases database resources.
 func (e *engine) Close() error {
 	return e.db.Close()
+}
+
+func convToSessionInfo(conv sqlc.Conversation) SessionInfo {
+	info := SessionInfo{
+		ID:       conv.SessionID,
+		Channel:  conv.Channel,
+		Archived: conv.Archived != 0,
+	}
+	if conv.Title.Valid {
+		info.Title = conv.Title.String
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05", conv.CreatedAt); err == nil {
+		info.CreatedAt = t
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05", conv.LastActive); err == nil {
+		info.LastActive = t
+	}
+	return info
+}
+
+func boolToInt(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // withSessionLock acquires a per-session mutex before running fn.
