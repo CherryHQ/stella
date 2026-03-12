@@ -8,18 +8,20 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/vaayne/anna/db/sqlc"
 )
 
 // CompactionEngine runs leaf and condensed compaction passes.
 type CompactionEngine struct {
 	db         *sql.DB
-	q          *Queries
+	q          *sqlc.Queries
 	summarizer Summarizer
 	freshTail  int
 }
 
 // NewCompactionEngine creates a new compaction engine.
-func NewCompactionEngine(db *sql.DB, q *Queries, summarizer Summarizer, freshTail int) *CompactionEngine {
+func NewCompactionEngine(db *sql.DB, q *sqlc.Queries, summarizer Summarizer, freshTail int) *CompactionEngine {
 	if freshTail <= 0 {
 		freshTail = DefaultFreshTail
 	}
@@ -106,15 +108,15 @@ func (c *CompactionEngine) leafPass(ctx context.Context, convID int64, result *C
 
 // messageRun represents a contiguous sequence of message context items.
 type messageRun struct {
-	items    []ContextItem
+	items    []sqlc.ContextItem
 	startOrd int64
 	endOrd   int64
 }
 
 // findMessageRuns finds contiguous sequences of message items with at least minSize messages.
-func findMessageRuns(items []ContextItem, minSize int) []messageRun {
+func findMessageRuns(items []sqlc.ContextItem, minSize int) []messageRun {
 	var runs []messageRun
-	var current []ContextItem
+	var current []sqlc.ContextItem
 
 	for _, item := range items {
 		if item.ItemType == ItemTypeMessage {
@@ -153,7 +155,7 @@ func (c *CompactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 	qtx := c.q.WithTx(tx)
 
 	// Load messages for this run.
-	var messages []Message
+	var messages []sqlc.Message
 	var textParts []string
 	var totalTokens int64
 	var earliestAt, latestAt string
@@ -198,7 +200,7 @@ func (c *CompactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 
 	// Create summary record.
 	sumID := generateSummaryID()
-	err = qtx.CreateSummary(ctx, CreateSummaryParams{
+	err = qtx.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID:                      sumID,
 		ConversationID:          convID,
 		Kind:                    KindLeaf,
@@ -217,7 +219,7 @@ func (c *CompactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 
 	// Link summary to source messages.
 	for i, msg := range messages {
-		err = qtx.LinkSummaryToMessage(ctx, LinkSummaryToMessageParams{
+		err = qtx.LinkSummaryToMessage(ctx, sqlc.LinkSummaryToMessageParams{
 			SummaryID: sumID,
 			MessageID: msg.ID,
 			Ordinal:   int64(i),
@@ -228,7 +230,7 @@ func (c *CompactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 	}
 
 	// Replace message context items with summary item.
-	err = qtx.DeleteContextItemsInRange(ctx, DeleteContextItemsInRangeParams{
+	err = qtx.DeleteContextItemsInRange(ctx, sqlc.DeleteContextItemsInRangeParams{
 		ConversationID: convID,
 		Ordinal:        run.startOrd,
 		Ordinal_2:      run.endOrd,
@@ -237,7 +239,7 @@ func (c *CompactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 		return fmt.Errorf("delete context range: %w", err)
 	}
 
-	err = qtx.AppendContextItem(ctx, AppendContextItemParams{
+	err = qtx.AppendContextItem(ctx, sqlc.AppendContextItemParams{
 		ConversationID: convID,
 		Ordinal:        run.startOrd, // reuse start ordinal
 		ItemType:       ItemTypeSummary,
@@ -294,7 +296,7 @@ func (c *CompactionEngine) condensedPass(ctx context.Context, convID int64, resu
 
 // summaryRun represents a contiguous sequence of summary context items.
 type summaryRun struct {
-	items    []ContextItem
+	items    []sqlc.ContextItem
 	startOrd int64
 	endOrd   int64
 }
@@ -302,8 +304,8 @@ type summaryRun struct {
 // findSummaryRuns finds contiguous sequences of summary items at the same depth
 // with at least minSize items. The depthOf map provides the depth for each summary ID.
 // Runs are broken when depth changes to preserve the DAG hierarchy.
-func findSummaryRuns(items []ContextItem, minSize int, depthOf map[string]int64) []summaryRun {
-	flushRun := func(current []ContextItem, runs []summaryRun) []summaryRun {
+func findSummaryRuns(items []sqlc.ContextItem, minSize int, depthOf map[string]int64) []summaryRun {
+	flushRun := func(current []sqlc.ContextItem, runs []summaryRun) []summaryRun {
 		if len(current) >= minSize {
 			runs = append(runs, summaryRun{
 				items:    current,
@@ -315,7 +317,7 @@ func findSummaryRuns(items []ContextItem, minSize int, depthOf map[string]int64)
 	}
 
 	var runs []summaryRun
-	var current []ContextItem
+	var current []sqlc.ContextItem
 	var currentDepth int64
 
 	for _, item := range items {
@@ -350,7 +352,7 @@ func (c *CompactionEngine) condenseSummaryRun(ctx context.Context, convID int64,
 	qtx := c.q.WithTx(tx)
 
 	// Load summaries.
-	var summaries []Summary
+	var summaries []sqlc.Summary
 	var textParts []string
 	var totalTokens int64
 	var totalDescendants int64
@@ -407,7 +409,7 @@ func (c *CompactionEngine) condenseSummaryRun(ctx context.Context, convID int64,
 
 	// Create condensed summary.
 	sumID := generateSummaryID()
-	err = qtx.CreateSummary(ctx, CreateSummaryParams{
+	err = qtx.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID:                      sumID,
 		ConversationID:          convID,
 		Kind:                    KindCondensed,
@@ -426,7 +428,7 @@ func (c *CompactionEngine) condenseSummaryRun(ctx context.Context, convID int64,
 
 	// Link to parent summaries.
 	for i, sum := range summaries {
-		err = qtx.LinkSummaryToParent(ctx, LinkSummaryToParentParams{
+		err = qtx.LinkSummaryToParent(ctx, sqlc.LinkSummaryToParentParams{
 			SummaryID:       sumID,
 			ParentSummaryID: sum.ID,
 			Ordinal:         int64(i),
@@ -437,7 +439,7 @@ func (c *CompactionEngine) condenseSummaryRun(ctx context.Context, convID int64,
 	}
 
 	// Replace summary context items with condensed item.
-	err = qtx.DeleteContextItemsInRange(ctx, DeleteContextItemsInRangeParams{
+	err = qtx.DeleteContextItemsInRange(ctx, sqlc.DeleteContextItemsInRangeParams{
 		ConversationID: convID,
 		Ordinal:        run.startOrd,
 		Ordinal_2:      run.endOrd,
@@ -446,7 +448,7 @@ func (c *CompactionEngine) condenseSummaryRun(ctx context.Context, convID int64,
 		return fmt.Errorf("delete context range: %w", err)
 	}
 
-	err = qtx.AppendContextItem(ctx, AppendContextItemParams{
+	err = qtx.AppendContextItem(ctx, sqlc.AppendContextItemParams{
 		ConversationID: convID,
 		Ordinal:        run.startOrd,
 		ItemType:       ItemTypeSummary,

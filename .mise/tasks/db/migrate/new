@@ -1,0 +1,7 @@
+#!/bin/bash
+#MISE description="Generate migration from schema changes"
+
+atlas migrate diff \
+    --dev-url "sqlite://dev?mode=memory" \
+    --to "file://db/schemas/main.sql" \
+    --dir "file://db/migrations"

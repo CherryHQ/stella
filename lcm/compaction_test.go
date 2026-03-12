@@ -4,14 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+
+	"github.com/vaayne/anna/db/sqlc"
 )
 
-func setupCompactionTest(t *testing.T) (*CompactionEngine, *Queries, *sql.DB, int64) {
+func setupCompactionTest(t *testing.T) (*CompactionEngine, *sqlc.Queries, *sql.DB, int64) {
 	t.Helper()
 	db, q := testDB(t)
 	ctx := context.Background()
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-compact"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-compact"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
@@ -88,7 +90,7 @@ func TestCondensedPass_CreateCondensedSummary(t *testing.T) {
 		// Manually create 3 leaf summaries (all depth 0) in context.
 		for i := 0; i < 3; i++ {
 			sumID := generateSummaryID()
-			err := q.CreateSummary(ctx, CreateSummaryParams{
+			err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 				ID: sumID, ConversationID: convID, Kind: KindLeaf,
 				Depth: 0, Content: "leaf summary content", TokenCount: 5,
 			})
@@ -142,7 +144,7 @@ func TestCondensedPass_CreateCondensedSummary(t *testing.T) {
 
 		// Create one depth-0 leaf summary.
 		sum0 := generateSummaryID()
-		err := q.CreateSummary(ctx, CreateSummaryParams{
+		err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 			ID: sum0, ConversationID: convID, Kind: KindLeaf,
 			Depth: 0, Content: "leaf summary", TokenCount: 5,
 		})
@@ -153,7 +155,7 @@ func TestCondensedPass_CreateCondensedSummary(t *testing.T) {
 
 		// Create one depth-1 condensed summary.
 		sum1 := generateSummaryID()
-		err = q.CreateSummary(ctx, CreateSummaryParams{
+		err = q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 			ID: sum1, ConversationID: convID, Kind: KindCondensed,
 			Depth: 1, Content: "condensed summary", TokenCount: 5,
 		})
@@ -217,7 +219,7 @@ func TestCompact_Full(t *testing.T) {
 }
 
 func TestFindMessageRuns(t *testing.T) {
-	items := []ContextItem{
+	items := []sqlc.ContextItem{
 		{Ordinal: 0, ItemType: ItemTypeMessage},
 		{Ordinal: 1, ItemType: ItemTypeMessage},
 		{Ordinal: 2, ItemType: ItemTypeSummary},
@@ -240,7 +242,7 @@ func TestFindMessageRuns(t *testing.T) {
 
 func TestFindSummaryRuns(t *testing.T) {
 	t.Run("basic grouping", func(t *testing.T) {
-		items := []ContextItem{
+		items := []sqlc.ContextItem{
 			{Ordinal: 0, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s1", Valid: true}},
 			{Ordinal: 1, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s2", Valid: true}},
 			{Ordinal: 2, ItemType: ItemTypeMessage},
@@ -258,7 +260,7 @@ func TestFindSummaryRuns(t *testing.T) {
 	})
 
 	t.Run("different depths break runs", func(t *testing.T) {
-		items := []ContextItem{
+		items := []sqlc.ContextItem{
 			{Ordinal: 0, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s1", Valid: true}},
 			{Ordinal: 1, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s2", Valid: true}},
 			{Ordinal: 2, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s3", Valid: true}},
@@ -275,7 +277,7 @@ func TestFindSummaryRuns(t *testing.T) {
 	})
 
 	t.Run("alternating depths produce no runs", func(t *testing.T) {
-		items := []ContextItem{
+		items := []sqlc.ContextItem{
 			{Ordinal: 0, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s1", Valid: true}},
 			{Ordinal: 1, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s2", Valid: true}},
 			{Ordinal: 2, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s3", Valid: true}},
@@ -289,7 +291,7 @@ func TestFindSummaryRuns(t *testing.T) {
 	})
 
 	t.Run("multiple same-depth runs", func(t *testing.T) {
-		items := []ContextItem{
+		items := []sqlc.ContextItem{
 			{Ordinal: 0, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s1", Valid: true}},
 			{Ordinal: 1, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s2", Valid: true}},
 			{Ordinal: 2, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s3", Valid: true}},
@@ -315,7 +317,6 @@ func TestLeafPass_EmptyContext(t *testing.T) {
 	ce, _, _, convID := setupCompactionTest(t)
 	ctx := context.Background()
 
-	// No messages at all — leafPass should return nil with no work done.
 	result := &CompactionResult{}
 	if err := ce.leafPass(ctx, convID, result); err != nil {
 		t.Fatalf("leafPass: %v", err)
@@ -329,8 +330,6 @@ func TestLeafPass_AllWithinFreshTail(t *testing.T) {
 	ce, q, _, convID := setupCompactionTest(t)
 	ctx := context.Background()
 
-	// freshTail = 5 (default in setup), add exactly 5 messages.
-	// All should be within the fresh tail — nothing to compact.
 	for i := 1; i <= 5; i++ {
 		msg := addMessage(t, ctx, q, convID, i, RoleUser, "recent message content here")
 		addContextMessage(t, ctx, q, convID, i-1, msg.ID)
@@ -349,7 +348,6 @@ func TestCondensedPass_NoSummaryItems(t *testing.T) {
 	ce, q, _, convID := setupCompactionTest(t)
 	ctx := context.Background()
 
-	// Only messages, no summary items — condensedPass should be a no-op.
 	for i := 1; i <= 5; i++ {
 		msg := addMessage(t, ctx, q, convID, i, RoleUser, "message")
 		addContextMessage(t, ctx, q, convID, i-1, msg.ID)
@@ -368,7 +366,6 @@ func TestCompact_FullSafetyLimit(t *testing.T) {
 	ce, q, _, convID := setupCompactionTest(t)
 	ce.freshTail = 0
 
-	// Use an LLM summarizer that always produces short output so compaction keeps making progress.
 	ce.summarizer = &LLMSummarizer{
 		Generate: func(_ context.Context, _ string) (string, error) {
 			return "short", nil
@@ -376,7 +373,6 @@ func TestCompact_FullSafetyLimit(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	// Create many messages so compaction keeps making progress across multiple iterations.
 	for i := 1; i <= 200; i++ {
 		msg := addMessage(t, ctx, q, convID, i, RoleUser, "message content for safety limit test")
 		addContextMessage(t, ctx, q, convID, i-1, msg.ID)
@@ -387,7 +383,6 @@ func TestCompact_FullSafetyLimit(t *testing.T) {
 		t.Fatalf("Compact full: %v", err)
 	}
 
-	// Should have created summaries across multiple iterations.
 	if result.LeafSummariesCreated == 0 {
 		t.Error("expected leaf summaries from full compaction with safety limit")
 	}
@@ -400,9 +395,8 @@ func TestCompactMessageRun_InvalidMessageID(t *testing.T) {
 	ce, _, _, convID := setupCompactionTest(t)
 	ctx := context.Background()
 
-	// Create a run where all items have MessageID.Valid = false.
 	run := messageRun{
-		items: []ContextItem{
+		items: []sqlc.ContextItem{
 			{Ordinal: 0, ItemType: ItemTypeMessage, MessageID: sql.NullInt64{Valid: false}},
 			{Ordinal: 1, ItemType: ItemTypeMessage, MessageID: sql.NullInt64{Valid: false}},
 		},
@@ -416,7 +410,6 @@ func TestCompactMessageRun_InvalidMessageID(t *testing.T) {
 		t.Fatalf("compactMessageRun: %v", err)
 	}
 
-	// No valid messages — should bail early with no summaries created.
 	if result.LeafSummariesCreated != 0 {
 		t.Errorf("expected 0 summaries for invalid message IDs, got %d", result.LeafSummariesCreated)
 	}
@@ -429,7 +422,6 @@ func TestNewCompactionEngine_DefaultFreshTail(t *testing.T) {
 	db, q := testDB(t)
 	summarizer := &StaticSummarizer{Response: "test"}
 
-	// freshTail <= 0 should default to DefaultFreshTail.
 	ce := NewCompactionEngine(db, q, summarizer, 0)
 	if ce.freshTail != DefaultFreshTail {
 		t.Errorf("expected freshTail=%d, got %d", DefaultFreshTail, ce.freshTail)
@@ -445,10 +437,9 @@ func TestCondensedPass_WithTimestamps(t *testing.T) {
 	ce, q, _, convID := setupCompactionTest(t)
 	ctx := context.Background()
 
-	// Create 3 leaf summaries with EarliestAt/LatestAt set.
 	for i := 0; i < 3; i++ {
 		sumID := generateSummaryID()
-		err := q.CreateSummary(ctx, CreateSummaryParams{
+		err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 			ID:                   sumID,
 			ConversationID:       convID,
 			Kind:                 KindLeaf,
@@ -479,7 +470,6 @@ func TestCompact_IncrementalEmpty(t *testing.T) {
 	ce, _, _, convID := setupCompactionTest(t)
 	ctx := context.Background()
 
-	// No messages at all — Compact should succeed with zero work.
 	result, err := ce.Compact(ctx, convID, CompactionIncremental)
 	if err != nil {
 		t.Fatalf("Compact: %v", err)
@@ -499,7 +489,6 @@ func TestCompact_FullEmpty(t *testing.T) {
 	ce, _, _, convID := setupCompactionTest(t)
 	ctx := context.Background()
 
-	// No messages — full compaction should succeed immediately.
 	result, err := ce.Compact(ctx, convID, CompactionFull)
 	if err != nil {
 		t.Fatalf("Compact: %v", err)
@@ -521,14 +510,11 @@ func TestGenerateSummaryID(t *testing.T) {
 	}
 }
 
-// Query coverage tests: exercise generated query functions that are only indirectly
-// used by the compaction subsystem and need direct test calls for coverage.
-
 func TestQueryCoverage_DeleteAllContextItems(t *testing.T) {
 	_, q := testDB(t)
 	ctx := context.Background()
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-del-all"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-del-all"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
@@ -553,7 +539,7 @@ func TestQueryCoverage_GetContextItemCount(t *testing.T) {
 	_, q := testDB(t)
 	ctx := context.Background()
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-count"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-count"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
@@ -582,7 +568,7 @@ func TestQueryCoverage_GetContextMessageItems(t *testing.T) {
 	_, q := testDB(t)
 	ctx := context.Background()
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-msg-items"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-msg-items"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
@@ -606,7 +592,7 @@ func TestQueryCoverage_GetFreshTailMessageIDs(t *testing.T) {
 	_, q := testDB(t)
 	ctx := context.Background()
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-tail"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-tail"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
@@ -616,7 +602,7 @@ func TestQueryCoverage_GetFreshTailMessageIDs(t *testing.T) {
 		addContextMessage(t, ctx, q, conv.ID, i-1, msg.ID)
 	}
 
-	ids, err := q.GetFreshTailMessageIDs(ctx, GetFreshTailMessageIDsParams{
+	ids, err := q.GetFreshTailMessageIDs(ctx, sqlc.GetFreshTailMessageIDsParams{
 		ConversationID: conv.ID,
 		Limit:          3,
 	})
@@ -632,7 +618,7 @@ func TestQueryCoverage_GetMaxContextOrdinal(t *testing.T) {
 	_, q := testDB(t)
 	ctx := context.Background()
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-max-ord"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-max-ord"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
@@ -661,7 +647,7 @@ func TestQueryCoverage_GetMessagePartsByMessages(t *testing.T) {
 	_, q := testDB(t)
 	ctx := context.Background()
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-parts"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-parts"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
@@ -669,14 +655,14 @@ func TestQueryCoverage_GetMessagePartsByMessages(t *testing.T) {
 	msg1 := addMessage(t, ctx, q, conv.ID, 1, RoleUser, "msg1")
 	msg2 := addMessage(t, ctx, q, conv.ID, 2, RoleAssistant, "msg2")
 
-	err = q.CreateMessagePart(ctx, CreateMessagePartParams{
+	err = q.CreateMessagePart(ctx, sqlc.CreateMessagePartParams{
 		ID: "p1", MessageID: msg1.ID, PartType: PartTypeText, Ordinal: 0,
 		TextContent: sql.NullString{String: "part1", Valid: true},
 	})
 	if err != nil {
 		t.Fatalf("CreateMessagePart: %v", err)
 	}
-	err = q.CreateMessagePart(ctx, CreateMessagePartParams{
+	err = q.CreateMessagePart(ctx, sqlc.CreateMessagePartParams{
 		ID: "p2", MessageID: msg2.ID, PartType: PartTypeText, Ordinal: 0,
 		TextContent: sql.NullString{String: "part2", Valid: true},
 	})
@@ -692,7 +678,6 @@ func TestQueryCoverage_GetMessagePartsByMessages(t *testing.T) {
 		t.Errorf("expected 2 parts, got %d", len(parts))
 	}
 
-	// Also test with empty slice.
 	parts, err = q.GetMessagePartsByMessages(ctx, []int64{})
 	if err != nil {
 		t.Fatalf("GetMessagePartsByMessages empty: %v", err)
@@ -706,7 +691,7 @@ func TestQueryCoverage_GetMessagesByConversationRange(t *testing.T) {
 	_, q := testDB(t)
 	ctx := context.Background()
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-range"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-range"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
@@ -715,7 +700,7 @@ func TestQueryCoverage_GetMessagesByConversationRange(t *testing.T) {
 		addMessage(t, ctx, q, conv.ID, i, RoleUser, "msg")
 	}
 
-	msgs, err := q.GetMessagesByConversationRange(ctx, GetMessagesByConversationRangeParams{
+	msgs, err := q.GetMessagesByConversationRange(ctx, sqlc.GetMessagesByConversationRangeParams{
 		ConversationID: conv.ID,
 		Seq:            2,
 		Seq_2:          4,
@@ -732,13 +717,13 @@ func TestQueryCoverage_GetSummariesByConversation(t *testing.T) {
 	_, q := testDB(t)
 	ctx := context.Background()
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-sums"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-sums"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
 
 	for i := 0; i < 3; i++ {
-		err = q.CreateSummary(ctx, CreateSummaryParams{
+		err = q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 			ID: generateSummaryID(), ConversationID: conv.ID,
 			Kind: KindLeaf, Depth: 0, Content: "summary", TokenCount: 5,
 		})
@@ -760,19 +745,19 @@ func TestQueryCoverage_GetSummariesByDepth(t *testing.T) {
 	_, q := testDB(t)
 	ctx := context.Background()
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-depth"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-depth"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
 
-	err = q.CreateSummary(ctx, CreateSummaryParams{
+	err = q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID: generateSummaryID(), ConversationID: conv.ID,
 		Kind: KindLeaf, Depth: 0, Content: "leaf", TokenCount: 5,
 	})
 	if err != nil {
 		t.Fatalf("CreateSummary: %v", err)
 	}
-	err = q.CreateSummary(ctx, CreateSummaryParams{
+	err = q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID: generateSummaryID(), ConversationID: conv.ID,
 		Kind: KindCondensed, Depth: 1, Content: "condensed", TokenCount: 5,
 	})
@@ -780,7 +765,7 @@ func TestQueryCoverage_GetSummariesByDepth(t *testing.T) {
 		t.Fatalf("CreateSummary: %v", err)
 	}
 
-	sums, err := q.GetSummariesByDepth(ctx, GetSummariesByDepthParams{
+	sums, err := q.GetSummariesByDepth(ctx, sqlc.GetSummariesByDepthParams{
 		ConversationID: conv.ID, Depth: 0,
 	})
 	if err != nil {
@@ -795,12 +780,12 @@ func TestQueryCoverage_SearchSummaries(t *testing.T) {
 	_, q := testDB(t)
 	ctx := context.Background()
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-search-sum"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-search-sum"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
 
-	err = q.CreateSummary(ctx, CreateSummaryParams{
+	err = q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID: generateSummaryID(), ConversationID: conv.ID,
 		Kind: KindLeaf, Depth: 0, Content: "implemented authentication flow", TokenCount: 5,
 	})
@@ -808,7 +793,7 @@ func TestQueryCoverage_SearchSummaries(t *testing.T) {
 		t.Fatalf("CreateSummary: %v", err)
 	}
 
-	results, err := q.SearchSummaries(ctx, SearchSummariesParams{
+	results, err := q.SearchSummaries(ctx, sqlc.SearchSummariesParams{
 		ConversationID: conv.ID, Content: "%auth%", Limit: 10,
 	})
 	if err != nil {
@@ -823,7 +808,7 @@ func TestQueryCoverage_UpdateConversationBootstrapped(t *testing.T) {
 	_, q := testDB(t)
 	ctx := context.Background()
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-bootstrap"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-bootstrap"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}

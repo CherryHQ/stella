@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vaayne/anna/db/sqlc"
 	"github.com/vaayne/anna/lcm"
 )
 
@@ -13,7 +14,7 @@ const grepTestSession = "sess-grep-test"
 
 // setupGrepTest creates a test engine, bootstraps a session, and returns
 // the GrepTool, Queries handle, conversation ID, and a context with session ID.
-func setupGrepTest(t *testing.T) (*GrepTool, *lcm.Queries, int64, context.Context) {
+func setupGrepTest(t *testing.T) (*GrepTool, *sqlc.Queries, int64, context.Context) {
 	t.Helper()
 
 	engine, q := setupEngine(t)

@@ -2,16 +2,16 @@ package lcm
 
 import (
 	"database/sql"
-	"embed"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
+	appdb "github.com/vaayne/anna/db"
 	_ "modernc.org/sqlite"
 )
-
-//go:embed schema.sql
-var schemaFS embed.FS
 
 // OpenDB opens a SQLite database at the given path, applies WAL mode
 // and runs migrations. The parent directory is created if it doesn't exist.
@@ -46,8 +46,8 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	return db, nil
 }
 
-// migrate applies the embedded schema. Uses IF NOT EXISTS semantics
-// by checking if the conversations table already exists.
+// migrate applies the embedded schema files in order. Uses IF NOT EXISTS
+// semantics by checking if the conversations table already exists.
 func migrate(db *sql.DB) error {
 	var tableName string
 	err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='conversations'").Scan(&tableName)
@@ -55,14 +55,46 @@ func migrate(db *sql.DB) error {
 		return nil // already migrated
 	}
 
-	schema, err := schemaFS.ReadFile("schema.sql")
+	schema, err := readSchemaFiles()
 	if err != nil {
 		return fmt.Errorf("read schema: %w", err)
 	}
 
-	if _, err := db.Exec(string(schema)); err != nil {
+	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("exec schema: %w", err)
 	}
 
 	return nil
+}
+
+// readSchemaFiles reads all table SQL files from the embedded FS and
+// concatenates them in sorted order.
+func readSchemaFiles() (string, error) {
+	var files []string
+	err := fs.WalkDir(appdb.SchemaFS, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".sql") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	sort.Strings(files)
+
+	var b strings.Builder
+	for _, f := range files {
+		data, err := appdb.SchemaFS.ReadFile(f)
+		if err != nil {
+			return "", fmt.Errorf("read %s: %w", f, err)
+		}
+		b.Write(data)
+		b.WriteByte('\n')
+	}
+
+	return b.String(), nil
 }

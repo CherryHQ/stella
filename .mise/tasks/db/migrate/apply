@@ -1,0 +1,7 @@
+#!/bin/bash
+#MISE description="Apply pending migrations to database"
+
+DB_PATH="${DB_PATH:-$HOME/.anna/workspace/lcm.db}"
+atlas migrate apply \
+    --url "sqlite://$DB_PATH" \
+    --dir "file://db/migrations"

@@ -6,15 +6,16 @@ import (
 	"strings"
 
 	"github.com/vaayne/anna/agent/runner"
+	"github.com/vaayne/anna/db/sqlc"
 )
 
 // Assembler builds context for the model within a token budget.
 type Assembler struct {
-	q *Queries
+	q *sqlc.Queries
 }
 
 // NewAssembler creates a new context assembler.
-func NewAssembler(q *Queries) *Assembler {
+func NewAssembler(q *sqlc.Queries) *Assembler {
 	return &Assembler{q: q}
 }
 
@@ -78,7 +79,7 @@ func (a *Assembler) Assemble(ctx context.Context, convID int64, budget int, fres
 }
 
 // splitFreshTail separates the last freshTail message-type items from the rest.
-func splitFreshTail(items []ContextItem, freshTail int) (tail []ContextItem, older []ContextItem) {
+func splitFreshTail(items []sqlc.ContextItem, freshTail int) (tail []sqlc.ContextItem, older []sqlc.ContextItem) {
 	// Count message items from the end.
 	msgCount := 0
 	splitIdx := len(items)
@@ -95,7 +96,7 @@ func splitFreshTail(items []ContextItem, freshTail int) (tail []ContextItem, old
 }
 
 // resolveItems resolves a slice of context items to RPCEvents.
-func (a *Assembler) resolveItems(ctx context.Context, items []ContextItem) ([]runner.RPCEvent, error) {
+func (a *Assembler) resolveItems(ctx context.Context, items []sqlc.ContextItem) ([]runner.RPCEvent, error) {
 	var result []runner.RPCEvent
 	for _, item := range items {
 		evts, err := a.resolveItem(ctx, item)
@@ -108,7 +109,7 @@ func (a *Assembler) resolveItems(ctx context.Context, items []ContextItem) ([]ru
 }
 
 // resolveItem converts a single context item to RPCEvents.
-func (a *Assembler) resolveItem(ctx context.Context, item ContextItem) ([]runner.RPCEvent, error) {
+func (a *Assembler) resolveItem(ctx context.Context, item sqlc.ContextItem) ([]runner.RPCEvent, error) {
 	switch item.ItemType {
 	case ItemTypeMessage:
 		if !item.MessageID.Valid {
@@ -141,7 +142,7 @@ func (a *Assembler) resolveItem(ctx context.Context, item ContextItem) ([]runner
 }
 
 // messageToRPCEvents converts a stored message to RPCEvents.
-func messageToRPCEvents(msg Message) []runner.RPCEvent {
+func messageToRPCEvents(msg sqlc.Message) []runner.RPCEvent {
 	switch msg.Role {
 	case RoleUser:
 		return []runner.RPCEvent{runner.UserMessageToRPCEvent(msg.Content)}
@@ -164,7 +165,7 @@ func summaryToRPCEvent(xml string) runner.RPCEvent {
 }
 
 // FormatSummaryXML formats a summary as XML for model consumption.
-func FormatSummaryXML(sum Summary, parents []Summary) string {
+func FormatSummaryXML(sum sqlc.Summary, parents []sqlc.Summary) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, `<summary id="%s" kind="%s" depth="%d"`, sum.ID, sum.Kind, sum.Depth)
@@ -233,7 +234,7 @@ func (a *Assembler) NeedsCompaction(ctx context.Context, convID int64, budget in
 
 // FreshTailBoundary returns the ordinal that marks the start of the fresh tail.
 func (a *Assembler) FreshTailBoundary(ctx context.Context, convID int64, freshTail int) (int64, error) {
-	ids, err := a.q.GetFreshTailMessageIDs(ctx, GetFreshTailMessageIDsParams{
+	ids, err := a.q.GetFreshTailMessageIDs(ctx, sqlc.GetFreshTailMessageIDsParams{
 		ConversationID: convID,
 		Limit:          int64(freshTail),
 	})

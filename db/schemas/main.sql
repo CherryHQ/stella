@@ -1,0 +1,7 @@
+-- atlas:import tables/conversations.sql
+-- atlas:import tables/messages.sql
+-- atlas:import tables/message_parts.sql
+-- atlas:import tables/summaries.sql
+-- atlas:import tables/summary_messages.sql
+-- atlas:import tables/summary_parents.sql
+-- atlas:import tables/context_items.sql

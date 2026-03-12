@@ -6,9 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/vaayne/anna/db/sqlc"
 )
 
-func testDB(t *testing.T) (*sql.DB, *Queries) {
+func testDB(t *testing.T) (*sql.DB, *sqlc.Queries) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	db, err := OpenDB(dbPath)
@@ -16,7 +18,7 @@ func testDB(t *testing.T) (*sql.DB, *Queries) {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return db, New(db)
+	return db, sqlc.New(db)
 }
 
 func TestOpenDB(t *testing.T) {
@@ -76,7 +78,7 @@ func TestConversationCRUD(t *testing.T) {
 	ctx := context.Background()
 	_, q := testDB(t)
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{
 		SessionID: "sess-1",
 		Title:     sql.NullString{String: "Test Session", Valid: true},
 	})
@@ -95,7 +97,7 @@ func TestConversationCRUD(t *testing.T) {
 		t.Errorf("ID = %d, want %d", got.ID, conv.ID)
 	}
 
-	err = q.UpdateConversationTitle(ctx, UpdateConversationTitleParams{
+	err = q.UpdateConversationTitle(ctx, sqlc.UpdateConversationTitleParams{
 		Title: sql.NullString{String: "Updated", Valid: true},
 		ID:    conv.ID,
 	})
@@ -116,12 +118,12 @@ func TestMessageCRUD(t *testing.T) {
 	ctx := context.Background()
 	_, q := testDB(t)
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-1"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-1"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
 
-	msg, err := q.CreateMessage(ctx, CreateMessageParams{
+	msg, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
 		ConversationID: conv.ID,
 		Seq:            1,
 		Role:           RoleUser,
@@ -160,7 +162,7 @@ func TestMessageCRUD(t *testing.T) {
 	}
 
 	// Message parts
-	err = q.CreateMessagePart(ctx, CreateMessagePartParams{
+	err = q.CreateMessagePart(ctx, sqlc.CreateMessagePartParams{
 		ID:          "part-1",
 		MessageID:   msg.ID,
 		PartType:    PartTypeText,
@@ -187,19 +189,19 @@ func TestSummaryCRUD(t *testing.T) {
 	ctx := context.Background()
 	_, q := testDB(t)
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-1"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-1"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
 
-	msg, err := q.CreateMessage(ctx, CreateMessageParams{
+	msg, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
 		ConversationID: conv.ID, Seq: 1, Role: RoleUser, Content: "test", TokenCount: 1,
 	})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)
 	}
 
-	err = q.CreateSummary(ctx, CreateSummaryParams{
+	err = q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID: "sum_0001", ConversationID: conv.ID, Kind: KindLeaf,
 		Depth: 0, Content: "leaf summary", TokenCount: 5,
 	})
@@ -207,7 +209,7 @@ func TestSummaryCRUD(t *testing.T) {
 		t.Fatalf("CreateSummary: %v", err)
 	}
 
-	err = q.LinkSummaryToMessage(ctx, LinkSummaryToMessageParams{
+	err = q.LinkSummaryToMessage(ctx, sqlc.LinkSummaryToMessageParams{
 		SummaryID: "sum_0001", MessageID: msg.ID, Ordinal: 0,
 	})
 	if err != nil {
@@ -223,7 +225,7 @@ func TestSummaryCRUD(t *testing.T) {
 	}
 
 	// Condensed summary with parent link
-	err = q.CreateSummary(ctx, CreateSummaryParams{
+	err = q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID: "sum_0002", ConversationID: conv.ID, Kind: KindCondensed,
 		Depth: 1, Content: "condensed", TokenCount: 3,
 	})
@@ -231,7 +233,7 @@ func TestSummaryCRUD(t *testing.T) {
 		t.Fatalf("CreateSummary condensed: %v", err)
 	}
 
-	err = q.LinkSummaryToParent(ctx, LinkSummaryToParentParams{
+	err = q.LinkSummaryToParent(ctx, sqlc.LinkSummaryToParentParams{
 		SummaryID: "sum_0002", ParentSummaryID: "sum_0001", Ordinal: 0,
 	})
 	if err != nil {
@@ -259,19 +261,19 @@ func TestContextItemsCRUD(t *testing.T) {
 	ctx := context.Background()
 	_, q := testDB(t)
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-1"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-1"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
 
-	msg1, err := q.CreateMessage(ctx, CreateMessageParams{
+	msg1, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
 		ConversationID: conv.ID, Seq: 1, Role: RoleUser, Content: "msg1", TokenCount: 2,
 	})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)
 	}
 
-	msg2, err := q.CreateMessage(ctx, CreateMessageParams{
+	msg2, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
 		ConversationID: conv.ID, Seq: 2, Role: RoleAssistant, Content: "msg2", TokenCount: 3,
 	})
 	if err != nil {
@@ -279,7 +281,7 @@ func TestContextItemsCRUD(t *testing.T) {
 	}
 
 	// Append context items
-	err = q.AppendContextItem(ctx, AppendContextItemParams{
+	err = q.AppendContextItem(ctx, sqlc.AppendContextItemParams{
 		ConversationID: conv.ID, Ordinal: 0, ItemType: ItemTypeMessage,
 		MessageID: sql.NullInt64{Int64: msg1.ID, Valid: true},
 	})
@@ -287,7 +289,7 @@ func TestContextItemsCRUD(t *testing.T) {
 		t.Fatalf("AppendContextItem 0: %v", err)
 	}
 
-	err = q.AppendContextItem(ctx, AppendContextItemParams{
+	err = q.AppendContextItem(ctx, sqlc.AppendContextItemParams{
 		ConversationID: conv.ID, Ordinal: 1, ItemType: ItemTypeMessage,
 		MessageID: sql.NullInt64{Int64: msg2.ID, Valid: true},
 	})
@@ -312,7 +314,7 @@ func TestContextItemsCRUD(t *testing.T) {
 	}
 
 	// Delete range and verify
-	err = q.DeleteContextItemsInRange(ctx, DeleteContextItemsInRangeParams{
+	err = q.DeleteContextItemsInRange(ctx, sqlc.DeleteContextItemsInRangeParams{
 		ConversationID: conv.ID, Ordinal: 0, Ordinal_2: 0,
 	})
 	if err != nil {
@@ -332,26 +334,26 @@ func TestSearchMessages(t *testing.T) {
 	ctx := context.Background()
 	_, q := testDB(t)
 
-	conv, err := q.CreateConversation(ctx, CreateConversationParams{SessionID: "sess-1"})
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{SessionID: "sess-1"})
 	if err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
 
-	_, err = q.CreateMessage(ctx, CreateMessageParams{
+	_, err = q.CreateMessage(ctx, sqlc.CreateMessageParams{
 		ConversationID: conv.ID, Seq: 1, Role: RoleUser, Content: "implement authentication", TokenCount: 5,
 	})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)
 	}
 
-	_, err = q.CreateMessage(ctx, CreateMessageParams{
+	_, err = q.CreateMessage(ctx, sqlc.CreateMessageParams{
 		ConversationID: conv.ID, Seq: 2, Role: RoleAssistant, Content: "done with database", TokenCount: 4,
 	})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)
 	}
 
-	results, err := q.SearchMessages(ctx, SearchMessagesParams{
+	results, err := q.SearchMessages(ctx, sqlc.SearchMessagesParams{
 		ConversationID: conv.ID, Content: "%auth%", Limit: 10,
 	})
 	if err != nil {

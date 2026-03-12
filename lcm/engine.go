@@ -8,12 +8,13 @@ import (
 	"sync"
 
 	"github.com/vaayne/anna/agent/runner"
+	"github.com/vaayne/anna/db/sqlc"
 )
 
 // engine is the concrete implementation of the Engine interface.
 type engine struct {
 	db         *sql.DB
-	q          *Queries
+	q          *sqlc.Queries
 	assembler  *Assembler
 	compaction *CompactionEngine
 	retrieval  *RetrievalEngine
@@ -52,7 +53,7 @@ func NewEngine(dbPath string, summarizer Summarizer, opts ...EngineOption) (Engi
 		return nil, fmt.Errorf("lcm: open db: %w", err)
 	}
 
-	q := New(db)
+	q := sqlc.New(db)
 	e := &engine{
 		db:        db,
 		q:         q,
@@ -177,7 +178,7 @@ func (e *engine) getOrCreateConversation(ctx context.Context, sessionID string) 
 		return 0, fmt.Errorf("get conversation: %w", err)
 	}
 
-	conv, err = e.q.CreateConversation(ctx, CreateConversationParams{
+	conv, err = e.q.CreateConversation(ctx, sqlc.CreateConversationParams{
 		SessionID: sessionID,
 	})
 	if err != nil {
@@ -199,7 +200,7 @@ func (e *engine) ingestEvent(ctx context.Context, convID int64, evt runner.RPCEv
 	}
 	seq++
 
-	msg, err := e.q.CreateMessage(ctx, CreateMessageParams{
+	msg, err := e.q.CreateMessage(ctx, sqlc.CreateMessageParams{
 		ConversationID: convID,
 		Seq:            seq,
 		Role:           role,
@@ -216,7 +217,7 @@ func (e *engine) ingestEvent(ctx context.Context, convID int64, evt runner.RPCEv
 	}
 	ordinal++
 
-	err = e.q.AppendContextItem(ctx, AppendContextItemParams{
+	err = e.q.AppendContextItem(ctx, sqlc.AppendContextItemParams{
 		ConversationID: convID,
 		Ordinal:        ordinal,
 		ItemType:       ItemTypeMessage,

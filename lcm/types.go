@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/agent/runner"
+	"github.com/vaayne/anna/db/sqlc"
 )
 
 // Summary kind constants.
@@ -115,7 +116,7 @@ func (m CompactionMode) String() string {
 
 // RetrievalEngine provides search and exploration of compacted history.
 type RetrievalEngine struct {
-	q *Queries
+	q *sqlc.Queries
 }
 
 // GrepResult represents a single search hit from memory_grep.
