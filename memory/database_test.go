@@ -127,6 +127,7 @@ func TestMessageCRUD(t *testing.T) {
 		ConversationID: conv.ID,
 		Seq:            1,
 		Role:           RoleUser,
+		EventType:      EventTypeText,
 		Content:        "hello world",
 		TokenCount:     3,
 	})
@@ -195,7 +196,7 @@ func TestSummaryCRUD(t *testing.T) {
 	}
 
 	msg, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
-		ConversationID: conv.ID, Seq: 1, Role: RoleUser, Content: "test", TokenCount: 1,
+		ConversationID: conv.ID, Seq: 1, Role: RoleUser, EventType: EventTypeText, Content: "test", TokenCount: 1,
 	})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)
@@ -267,14 +268,14 @@ func TestContextItemsCRUD(t *testing.T) {
 	}
 
 	msg1, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
-		ConversationID: conv.ID, Seq: 1, Role: RoleUser, Content: "msg1", TokenCount: 2,
+		ConversationID: conv.ID, Seq: 1, Role: RoleUser, EventType: EventTypeText, Content: "msg1", TokenCount: 2,
 	})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)
 	}
 
 	msg2, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
-		ConversationID: conv.ID, Seq: 2, Role: RoleAssistant, Content: "msg2", TokenCount: 3,
+		ConversationID: conv.ID, Seq: 2, Role: RoleAssistant, EventType: EventTypeText, Content: "msg2", TokenCount: 3,
 	})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)
@@ -340,14 +341,14 @@ func TestSearchMessages(t *testing.T) {
 	}
 
 	_, err = q.CreateMessage(ctx, sqlc.CreateMessageParams{
-		ConversationID: conv.ID, Seq: 1, Role: RoleUser, Content: "implement authentication", TokenCount: 5,
+		ConversationID: conv.ID, Seq: 1, Role: RoleUser, EventType: EventTypeText, Content: "implement authentication", TokenCount: 5,
 	})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)
 	}
 
 	_, err = q.CreateMessage(ctx, sqlc.CreateMessageParams{
-		ConversationID: conv.ID, Seq: 2, Role: RoleAssistant, Content: "done with database", TokenCount: 4,
+		ConversationID: conv.ID, Seq: 2, Role: RoleAssistant, EventType: EventTypeText, Content: "done with database", TokenCount: 4,
 	})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)

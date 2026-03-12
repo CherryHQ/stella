@@ -27,6 +27,14 @@ const (
 	ItemTypeSummary = "summary"
 )
 
+// Event type constants for the event_type column.
+const (
+	EventTypeText       = "text"
+	EventTypeMultimodal = "multimodal"
+	EventTypeToolCall   = "tool_call"
+	EventTypeToolResult = "tool_result"
+)
+
 // Search scope constants.
 const (
 	ScopeMessages  = "messages"

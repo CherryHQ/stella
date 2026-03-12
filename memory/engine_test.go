@@ -104,10 +104,11 @@ func TestIngest_ToolEvents(t *testing.T) {
 	ctx := context.Background()
 	sessionID := "sess-tool"
 
-	// Ingest a tool call.
+	// Ingest a tool call with ID.
 	argsJSON, _ := json.Marshal(map[string]string{"cmd": "ls"})
 	toolCallEvt := runner.RPCEvent{
 		Type:   runner.RPCEventToolCall,
+		ID:     "call_abc123",
 		Tool:   "bash",
 		Result: argsJSON,
 	}
@@ -115,11 +116,14 @@ func TestIngest_ToolEvents(t *testing.T) {
 		t.Fatalf("Ingest tool_call: %v", err)
 	}
 
-	// Ingest a tool result.
+	// Ingest a tool result with error flag.
 	resultJSON, _ := json.Marshal("file1.txt\nfile2.txt")
 	toolResultEvt := runner.RPCEvent{
 		Type:   runner.RPCEventToolResult,
+		ID:     "call_abc123",
+		Tool:   "bash",
 		Result: resultJSON,
+		Error:  "command failed",
 	}
 	if err := eng.Ingest(ctx, sessionID, toolResultEvt); err != nil {
 		t.Fatalf("Ingest tool_result: %v", err)
@@ -131,6 +135,94 @@ func TestIngest_ToolEvents(t *testing.T) {
 	}
 	if len(result) != 2 {
 		t.Fatalf("expected 2 events, got %d", len(result))
+	}
+
+	// Verify tool call round-trip: ID, Tool, args preserved.
+	tc := result[0]
+	if tc.Type != runner.RPCEventToolCall {
+		t.Errorf("event[0].Type = %q, want %q", tc.Type, runner.RPCEventToolCall)
+	}
+	if tc.ID != "call_abc123" {
+		t.Errorf("event[0].ID = %q, want %q", tc.ID, "call_abc123")
+	}
+	if tc.Tool != "bash" {
+		t.Errorf("event[0].Tool = %q, want %q", tc.Tool, "bash")
+	}
+	if string(tc.Result) != string(argsJSON) {
+		t.Errorf("event[0].Result = %s, want %s", tc.Result, argsJSON)
+	}
+
+	// Verify tool result round-trip: ID, Tool, error preserved.
+	tr := result[1]
+	if tr.Type != runner.RPCEventToolResult {
+		t.Errorf("event[1].Type = %q, want %q", tr.Type, runner.RPCEventToolResult)
+	}
+	if tr.ID != "call_abc123" {
+		t.Errorf("event[1].ID = %q, want %q", tr.ID, "call_abc123")
+	}
+	if tr.Tool != "bash" {
+		t.Errorf("event[1].Tool = %q, want %q", tr.Tool, "bash")
+	}
+	if tr.Error != "command failed" {
+		t.Errorf("event[1].Error = %q, want %q", tr.Error, "command failed")
+	}
+	if string(tr.Result) != string(resultJSON) {
+		t.Errorf("event[1].Result = %s, want %s", tr.Result, resultJSON)
+	}
+}
+
+func TestIngest_MultimodalRoundTrip(t *testing.T) {
+	eng := testEngine(t)
+	ctx := context.Background()
+	sessionID := "sess-multimodal"
+
+	// Create a multimodal user message with text + image.
+	blocks := []runner.ContentBlockJSON{
+		{Kind: runner.BlockKindText, Text: "describe this image"},
+		{Kind: runner.BlockKindImage, Data: "base64data", MimeType: "image/png"},
+	}
+	blocksJSON, _ := json.Marshal(blocks)
+	evt := runner.RPCEvent{
+		Type:    runner.RPCEventUserMessage,
+		Summary: "describe this image",
+		Content: blocksJSON,
+	}
+	if err := eng.Ingest(ctx, sessionID, evt); err != nil {
+		t.Fatalf("Ingest multimodal: %v", err)
+	}
+
+	result, err := eng.Assemble(ctx, sessionID, 100000, 20)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(result))
+	}
+
+	got := result[0]
+	if got.Type != runner.RPCEventUserMessage {
+		t.Errorf("Type = %q, want %q", got.Type, runner.RPCEventUserMessage)
+	}
+	if got.Summary != "describe this image" {
+		t.Errorf("Summary = %q, want %q", got.Summary, "describe this image")
+	}
+	if len(got.Content) == 0 {
+		t.Error("expected Content to be preserved for multimodal message")
+	}
+
+	// Verify the content blocks round-trip.
+	var gotBlocks []runner.ContentBlockJSON
+	if err := json.Unmarshal(got.Content, &gotBlocks); err != nil {
+		t.Fatalf("unmarshal content blocks: %v", err)
+	}
+	if len(gotBlocks) != 2 {
+		t.Fatalf("expected 2 content blocks, got %d", len(gotBlocks))
+	}
+	if gotBlocks[0].Kind != runner.BlockKindText || gotBlocks[0].Text != "describe this image" {
+		t.Errorf("block[0] = %+v, want text block", gotBlocks[0])
+	}
+	if gotBlocks[1].Kind != runner.BlockKindImage || gotBlocks[1].Data != "base64data" {
+		t.Errorf("block[1] = %+v, want image block", gotBlocks[1])
 	}
 }
 
@@ -297,59 +389,104 @@ func TestRetrieval(t *testing.T) {
 	}
 }
 
-func TestEventToRoleContent(t *testing.T) {
+func TestEventToMessage(t *testing.T) {
 	tests := []struct {
-		name        string
-		evt         runner.RPCEvent
-		wantRole    string
-		wantContent string
+		name          string
+		evt           runner.RPCEvent
+		wantRole      string
+		wantEventType string
+		wantContent   string
 	}{
 		{
-			name:        "user message",
-			evt:         runner.RPCEvent{Type: runner.RPCEventUserMessage, Summary: "hello"},
-			wantRole:    RoleUser,
-			wantContent: "hello",
+			name:          "user text message",
+			evt:           runner.RPCEvent{Type: runner.RPCEventUserMessage, Summary: "hello"},
+			wantRole:      RoleUser,
+			wantEventType: EventTypeText,
+			wantContent:   "hello",
 		},
 		{
-			name:        "assistant message",
-			evt:         runner.RPCEvent{Type: runner.RPCEventMessageUpdate, Summary: "response"},
-			wantRole:    RoleAssistant,
-			wantContent: "response",
+			name:          "user multimodal message",
+			evt:           runner.RPCEvent{Type: runner.RPCEventUserMessage, Content: json.RawMessage(`[{"kind":"text","text":"hi"},{"kind":"image","data":"abc"}]`)},
+			wantRole:      RoleUser,
+			wantEventType: EventTypeMultimodal,
+			wantContent:   `[{"kind":"text","text":"hi"},{"kind":"image","data":"abc"}]`,
 		},
 		{
-			name:        "tool call",
-			evt:         runner.RPCEvent{Type: runner.RPCEventToolCall, Tool: "bash", Result: []byte(`{"cmd":"ls"}`)},
-			wantRole:    RoleAssistant,
-			wantContent: `bash: {"cmd":"ls"}`,
+			name:          "assistant message",
+			evt:           runner.RPCEvent{Type: runner.RPCEventMessageUpdate, Summary: "response"},
+			wantRole:      RoleAssistant,
+			wantEventType: EventTypeText,
+			wantContent:   "response",
 		},
 		{
-			name:        "tool result",
-			evt:         runner.RPCEvent{Type: runner.RPCEventToolResult, Result: []byte(`"output"`)},
-			wantRole:    RoleTool,
-			wantContent: `"output"`,
+			name:          "tool call with ID",
+			evt:           runner.RPCEvent{Type: runner.RPCEventToolCall, ID: "call_123", Tool: "bash", Result: []byte(`{"cmd":"ls"}`)},
+			wantRole:      RoleAssistant,
+			wantEventType: EventTypeToolCall,
 		},
 		{
-			name:        "agent end skipped",
-			evt:         runner.RPCEvent{Type: runner.RPCEventAgentEnd},
-			wantRole:    "",
-			wantContent: "",
+			name:          "tool result with error",
+			evt:           runner.RPCEvent{Type: runner.RPCEventToolResult, ID: "call_123", Tool: "bash", Result: []byte(`"error output"`), Error: "command failed"},
+			wantRole:      RoleTool,
+			wantEventType: EventTypeToolResult,
 		},
 		{
-			name:        "tool call no result",
-			evt:         runner.RPCEvent{Type: runner.RPCEventToolCall, Tool: "read"},
-			wantRole:    RoleAssistant,
-			wantContent: "read",
+			name:          "agent end skipped",
+			evt:           runner.RPCEvent{Type: runner.RPCEventAgentEnd},
+			wantRole:      "",
+			wantEventType: "",
+			wantContent:   "",
+		},
+		{
+			name:          "tool call no args",
+			evt:           runner.RPCEvent{Type: runner.RPCEventToolCall, Tool: "read"},
+			wantRole:      RoleAssistant,
+			wantEventType: EventTypeToolCall,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			role, content := eventToRoleContent(tt.evt)
+			role, eventType, content := eventToMessage(tt.evt)
 			if role != tt.wantRole {
 				t.Errorf("role = %q, want %q", role, tt.wantRole)
 			}
-			if content != tt.wantContent {
+			if eventType != tt.wantEventType {
+				t.Errorf("eventType = %q, want %q", eventType, tt.wantEventType)
+			}
+			if tt.wantContent != "" && content != tt.wantContent {
 				t.Errorf("content = %q, want %q", content, tt.wantContent)
+			}
+
+			// For tool_call events, verify the envelope contains the right fields.
+			if tt.wantEventType == EventTypeToolCall && content != "" {
+				var env toolCallEnvelope
+				if err := json.Unmarshal([]byte(content), &env); err != nil {
+					t.Fatalf("unmarshal tool call envelope: %v", err)
+				}
+				if env.ID != tt.evt.ID {
+					t.Errorf("envelope ID = %q, want %q", env.ID, tt.evt.ID)
+				}
+				if env.Tool != tt.evt.Tool {
+					t.Errorf("envelope Tool = %q, want %q", env.Tool, tt.evt.Tool)
+				}
+			}
+
+			// For tool_result events, verify error flag is preserved.
+			if tt.wantEventType == EventTypeToolResult && content != "" {
+				var env toolResultEnvelope
+				if err := json.Unmarshal([]byte(content), &env); err != nil {
+					t.Fatalf("unmarshal tool result envelope: %v", err)
+				}
+				if env.Error != tt.evt.Error {
+					t.Errorf("envelope Error = %q, want %q", env.Error, tt.evt.Error)
+				}
+				if env.ID != tt.evt.ID {
+					t.Errorf("envelope ID = %q, want %q", env.ID, tt.evt.ID)
+				}
+				if env.Tool != tt.evt.Tool {
+					t.Errorf("envelope Tool = %q, want %q", env.Tool, tt.evt.Tool)
+				}
 			}
 		})
 	}

@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -10,6 +11,21 @@ import (
 	"github.com/vaayne/anna/agent/runner"
 	"github.com/vaayne/anna/db/sqlc"
 )
+
+// toolCallEnvelope is the JSON structure stored for tool_call events.
+type toolCallEnvelope struct {
+	ID   string          `json:"id"`
+	Tool string          `json:"tool"`
+	Args json.RawMessage `json:"args"`
+}
+
+// toolResultEnvelope is the JSON structure stored for tool_result events.
+type toolResultEnvelope struct {
+	ID     string          `json:"id"`
+	Tool   string          `json:"tool"`
+	Result json.RawMessage `json:"result"`
+	Error  string          `json:"error,omitempty"`
+}
 
 // engine is the concrete implementation of the Engine interface.
 type engine struct {
@@ -117,7 +133,7 @@ func (e *engine) IngestBatch(ctx context.Context, sessionID string, evts []runne
 		}
 
 		for _, evt := range evts {
-			role, content := eventToRoleContent(evt)
+			role, eventType, content := eventToMessage(evt)
 			if role == "" || content == "" {
 				continue
 			}
@@ -127,6 +143,7 @@ func (e *engine) IngestBatch(ctx context.Context, sessionID string, evts []runne
 				ConversationID: convID,
 				Seq:            seq,
 				Role:           role,
+				EventType:      eventType,
 				Content:        content,
 				TokenCount:     int64(EstimateTokens(content)),
 			})
@@ -249,22 +266,32 @@ func (e *engine) cacheConvID(sessionID string, convID int64) {
 }
 
 // ingestEvent converts an RPCEvent to a message and appends a context item.
+// Both operations are wrapped in a transaction for atomicity.
 func (e *engine) ingestEvent(ctx context.Context, convID int64, evt runner.RPCEvent) error {
-	role, content := eventToRoleContent(evt)
+	role, eventType, content := eventToMessage(evt)
 	if role == "" || content == "" {
 		return nil // skip events we cannot map
 	}
 
-	seq, err := e.q.GetMaxSeq(ctx, convID)
+	tx, err := e.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	qtx := e.q.WithTx(tx)
+
+	seq, err := qtx.GetMaxSeq(ctx, convID)
 	if err != nil {
 		return fmt.Errorf("get max seq: %w", err)
 	}
 	seq++
 
-	msg, err := e.q.CreateMessage(ctx, sqlc.CreateMessageParams{
+	msg, err := qtx.CreateMessage(ctx, sqlc.CreateMessageParams{
 		ConversationID: convID,
 		Seq:            seq,
 		Role:           role,
+		EventType:      eventType,
 		Content:        content,
 		TokenCount:     int64(EstimateTokens(content)),
 	})
@@ -272,13 +299,13 @@ func (e *engine) ingestEvent(ctx context.Context, convID int64, evt runner.RPCEv
 		return fmt.Errorf("create message: %w", err)
 	}
 
-	ordinal, err := e.q.GetMaxContextOrdinal(ctx, convID)
+	ordinal, err := qtx.GetMaxContextOrdinal(ctx, convID)
 	if err != nil {
 		return fmt.Errorf("get max ordinal: %w", err)
 	}
 	ordinal++
 
-	err = e.q.AppendContextItem(ctx, sqlc.AppendContextItemParams{
+	err = qtx.AppendContextItem(ctx, sqlc.AppendContextItemParams{
 		ConversationID: convID,
 		Ordinal:        ordinal,
 		ItemType:       ItemTypeMessage,
@@ -288,32 +315,41 @@ func (e *engine) ingestEvent(ctx context.Context, convID int64, evt runner.RPCEv
 		return fmt.Errorf("append context item: %w", err)
 	}
 
-	return nil
+	return tx.Commit()
 }
 
-// eventToRoleContent maps an RPCEvent to a (role, content) pair.
-func eventToRoleContent(evt runner.RPCEvent) (string, string) {
+// eventToMessage maps an RPCEvent to (role, eventType, content) for storage.
+func eventToMessage(evt runner.RPCEvent) (role, eventType, content string) {
 	switch evt.Type {
 	case runner.RPCEventUserMessage:
-		return RoleUser, evt.Summary
+		if len(evt.Content) > 0 {
+			return RoleUser, EventTypeMultimodal, string(evt.Content)
+		}
+		return RoleUser, EventTypeText, evt.Summary
 
 	case runner.RPCEventMessageUpdate:
-		return RoleAssistant, evt.Summary
+		return RoleAssistant, EventTypeText, evt.Summary
 
 	case runner.RPCEventToolCall:
-		content := evt.Tool
-		if len(evt.Result) > 0 {
-			content += ": " + string(evt.Result)
+		envelope := toolCallEnvelope{
+			ID:   evt.ID,
+			Tool: evt.Tool,
+			Args: evt.Result, // Result field carries args JSON for tool_call events
 		}
-		return RoleAssistant, content
+		data, _ := json.Marshal(envelope)
+		return RoleAssistant, EventTypeToolCall, string(data)
 
 	case runner.RPCEventToolResult:
-		if len(evt.Result) > 0 {
-			return RoleTool, string(evt.Result)
+		envelope := toolResultEnvelope{
+			ID:     evt.ID,
+			Tool:   evt.Tool,
+			Result: evt.Result,
+			Error:  evt.Error,
 		}
-		return RoleTool, ""
+		data, _ := json.Marshal(envelope)
+		return RoleTool, EventTypeToolResult, string(data)
 
 	default:
-		return "", ""
+		return "", "", ""
 	}
 }

@@ -143,19 +143,77 @@ func (a *Assembler) resolveItem(ctx context.Context, item sqlc.ContextItem) ([]r
 }
 
 // messageToRPCEvents converts a stored message to RPCEvents.
+// It dispatches on (role, event_type) to reconstruct full RPCEvents,
+// with a fallback for old rows that only have event_type='text'.
 func messageToRPCEvents(msg sqlc.Message) []runner.RPCEvent {
+	switch msg.EventType {
+	case EventTypeText:
+		switch msg.Role {
+		case RoleUser:
+			return []runner.RPCEvent{runner.UserMessageToRPCEvent(msg.Content)}
+		case RoleAssistant:
+			return []runner.RPCEvent{runner.AssistantMessageToRPCEvent(msg.Content)}
+		case RoleTool:
+			// Legacy: old rows without structured envelope.
+			encoded, _ := json.Marshal(msg.Content)
+			return []runner.RPCEvent{{Type: runner.RPCEventToolResult, Result: encoded}}
+		}
+
+	case EventTypeMultimodal:
+		evt := runner.RPCEvent{
+			Type:    runner.RPCEventUserMessage,
+			Content: json.RawMessage(msg.Content),
+		}
+		// Extract summary from first text block.
+		var blocks []runner.ContentBlockJSON
+		if json.Unmarshal([]byte(msg.Content), &blocks) == nil {
+			for _, b := range blocks {
+				if b.Kind == runner.BlockKindText {
+					evt.Summary = b.Text
+					break
+				}
+			}
+		}
+		return []runner.RPCEvent{evt}
+
+	case EventTypeToolCall:
+		var env toolCallEnvelope
+		if err := json.Unmarshal([]byte(msg.Content), &env); err != nil {
+			// Fallback: treat as plain assistant text.
+			return []runner.RPCEvent{runner.AssistantMessageToRPCEvent(msg.Content)}
+		}
+		return []runner.RPCEvent{{
+			Type:   runner.RPCEventToolCall,
+			ID:     env.ID,
+			Tool:   env.Tool,
+			Result: env.Args,
+		}}
+
+	case EventTypeToolResult:
+		var env toolResultEnvelope
+		if err := json.Unmarshal([]byte(msg.Content), &env); err != nil {
+			// Fallback: treat as plain tool text.
+			encoded, _ := json.Marshal(msg.Content)
+			return []runner.RPCEvent{{Type: runner.RPCEventToolResult, Result: encoded}}
+		}
+		return []runner.RPCEvent{{
+			Type:   runner.RPCEventToolResult,
+			ID:     env.ID,
+			Tool:   env.Tool,
+			Result: env.Result,
+			Error:  env.Error,
+		}}
+	}
+
+	// Default fallback for unknown event_type (backward compat with old rows).
 	switch msg.Role {
 	case RoleUser:
 		return []runner.RPCEvent{runner.UserMessageToRPCEvent(msg.Content)}
 	case RoleAssistant:
 		return []runner.RPCEvent{runner.AssistantMessageToRPCEvent(msg.Content)}
 	case RoleTool:
-		// Tool results are stored as a single message; reconstruct as tool_result event.
 		encoded, _ := json.Marshal(msg.Content)
-		return []runner.RPCEvent{{
-			Type:   runner.RPCEventToolResult,
-			Result: encoded,
-		}}
+		return []runner.RPCEvent{{Type: runner.RPCEventToolResult, Result: encoded}}
 	default:
 		return nil
 	}

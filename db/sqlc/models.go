@@ -31,6 +31,7 @@ type Message struct {
 	ConversationID int64  `json:"conversation_id"`
 	Seq            int64  `json:"seq"`
 	Role           string `json:"role"`
+	EventType      string `json:"event_type"`
 	Content        string `json:"content"`
 	TokenCount     int64  `json:"token_count"`
 	CreatedAt      string `json:"created_at"`

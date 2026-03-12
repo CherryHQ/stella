@@ -23,10 +23,16 @@ func setupAssemblerTest(t *testing.T) (*Assembler, *sqlc.Queries, int64) {
 
 func addMessage(t *testing.T, ctx context.Context, q *sqlc.Queries, convID int64, seq int, role, content string) sqlc.Message {
 	t.Helper()
+	return addMessageWithType(t, ctx, q, convID, seq, role, EventTypeText, content)
+}
+
+func addMessageWithType(t *testing.T, ctx context.Context, q *sqlc.Queries, convID int64, seq int, role, eventType, content string) sqlc.Message {
+	t.Helper()
 	msg, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
 		ConversationID: convID,
 		Seq:            int64(seq),
 		Role:           role,
+		EventType:      eventType,
 		Content:        content,
 		TokenCount:     int64(EstimateTokens(content)),
 	})
