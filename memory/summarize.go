@@ -1,4 +1,4 @@
-package lcm
+package memory
 
 import (
 	"context"

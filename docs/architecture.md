@@ -156,9 +156,9 @@ type Tool interface {
 
 | Tool | Condition | Description |
 |------|-----------|-------------|
-| `memory_grep` | Always (LCM) | Search messages and summaries by keyword |
-| `memory_describe` | Always (LCM) | Inspect a summary node's metadata and lineage |
-| `memory_expand` | Always (LCM) | Drill into a summary to retrieve children |
+| `memory_grep` | Always | Search messages and summaries by keyword |
+| `memory_describe` | Always | Inspect a summary node's metadata and lineage |
+| `memory_expand` | Always | Drill into a summary to retrieve children |
 | `skills` | Always | Skill management (search/install/list/remove from skills.sh) |
 | `cron` | `cron.enabled: true` | Schedule tasks (add/list/remove jobs) |
 | `notify` | Gateway mode + channel configured | Send notifications via dispatcher |

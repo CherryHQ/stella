@@ -6,16 +6,16 @@ import (
 	"fmt"
 
 	"github.com/vaayne/anna/ai"
-	"github.com/vaayne/anna/lcm"
+	"github.com/vaayne/anna/memory"
 )
 
 // ExpandTool drills into a summary to retrieve original details.
 type ExpandTool struct {
-	engine lcm.Engine
+	engine memory.Engine
 }
 
 // NewExpandTool creates a memory_expand tool.
-func NewExpandTool(engine lcm.Engine) *ExpandTool {
+func NewExpandTool(engine memory.Engine) *ExpandTool {
 	return &ExpandTool{engine: engine}
 }
 

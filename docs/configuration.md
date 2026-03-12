@@ -105,7 +105,7 @@ Heartbeat only runs in `anna gateway`. Each tick first uses the fast model to de
 | `~/.anna/workspace/sessions/` | Chat session history | Data |
 | `~/.anna/workspace/SOUL.md` | Agent identity, personality | Data |
 | `~/.anna/workspace/USER.md` | User preferences, context | Data |
-| `~/.anna/workspace/lcm.db` | LCM database (message history, summaries) | Data |
+| `~/.anna/workspace/memory.db` | Memory database (message history, summaries) | Data |
 | `~/.anna/workspace/skills/` | Installed skills | Data |
 | `~/.anna/workspace/cron/` | Cron job persistence | Data |
 | `~/.anna/workspace/HEARTBEAT.md` | Heartbeat instructions | Data |
@@ -189,13 +189,13 @@ All config fields support env var overrides using the `ANNA_` prefix. Nested str
 | `channels.feishu.enable_notify` | `false` |
 | `channels.feishu.group_mode` | `mention` |
 
-## LCM Defaults
+## Memory Defaults
 
 Lossless Context Management settings are currently hardcoded defaults. They will become configurable in a future release.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Database path | `{workspace}/lcm.db` | SQLite database for the message DAG |
+| Database path | `{workspace}/memory.db` | SQLite database for the message DAG |
 | Fresh tail count | `20` | Number of recent messages kept verbatim in context |
 | Context threshold | `0.75` | Fraction of context window that triggers compaction |
 | Leaf chunk size | `10` | Number of messages grouped per leaf summary |

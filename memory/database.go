@@ -1,4 +1,4 @@
-package lcm
+package memory
 
 import (
 	"database/sql"
@@ -18,29 +18,29 @@ import (
 func OpenDB(dbPath string) (*sql.DB, error) {
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		return nil, fmt.Errorf("lcm: create db dir: %w", err)
+		return nil, fmt.Errorf("memory: create db dir: %w", err)
 	}
 
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("lcm: open db: %w", err)
+		return nil, fmt.Errorf("memory: open db: %w", err)
 	}
 
 	// Enable WAL mode for concurrent reads during writes.
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("lcm: enable WAL: %w", err)
+		return nil, fmt.Errorf("memory: enable WAL: %w", err)
 	}
 
 	// Enable foreign keys.
 	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("lcm: enable foreign keys: %w", err)
+		return nil, fmt.Errorf("memory: enable foreign keys: %w", err)
 	}
 
 	if err := migrate(db); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("lcm: migrate: %w", err)
+		return nil, fmt.Errorf("memory: migrate: %w", err)
 	}
 
 	return db, nil

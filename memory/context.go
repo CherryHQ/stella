@@ -1,10 +1,10 @@
-package lcm
+package memory
 
 import "context"
 
 type contextKey string
 
-const sessionIDKey contextKey = "lcm_session_id"
+const sessionIDKey contextKey = "memory_session_id"
 
 // WithSessionID attaches a session ID to the context.
 func WithSessionID(ctx context.Context, sessionID string) context.Context {

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/db/sqlc"
-	"github.com/vaayne/anna/lcm"
+	"github.com/vaayne/anna/memory"
 )
 
 const grepTestSession = "sess-grep-test"
@@ -19,7 +19,7 @@ func setupGrepTest(t *testing.T) (*GrepTool, *sqlc.Queries, int64, context.Conte
 
 	engine, q := setupEngine(t)
 	convID := bootstrapSession(t, engine, q, grepTestSession)
-	ctx := lcm.WithSessionID(context.Background(), grepTestSession)
+	ctx := memory.WithSessionID(context.Background(), grepTestSession)
 	tool := NewGrepTool(engine)
 
 	return tool, q, convID, ctx
@@ -72,7 +72,7 @@ func TestGrepExecute_WithResults(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	var results []lcm.GrepResult
+	var results []memory.GrepResult
 	if err := json.Unmarshal([]byte(result), &results); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestGrepExecute_BothScope(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	var results []lcm.GrepResult
+	var results []memory.GrepResult
 	if err := json.Unmarshal([]byte(result), &results); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestGrepExecute_WithLimit(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	var results []lcm.GrepResult
+	var results []memory.GrepResult
 	if err := json.Unmarshal([]byte(result), &results); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}

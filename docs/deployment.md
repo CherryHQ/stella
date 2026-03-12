@@ -156,7 +156,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t anna .
 | `~/.anna/workspace/cron/` | Cron job persistence |
 | `~/.anna/workspace/SOUL.md` | Agent identity, personality |
 | `~/.anna/workspace/USER.md` | User preferences, context |
-| `~/.anna/workspace/lcm.db` | LCM database (message history, summaries) |
+| `~/.anna/workspace/memory.db` | Memory database (message history, summaries) |
 | `~/.anna/workspace/skills/` | Installed skills |
 | `~/.anna/cache/models.json` | Model cache |
 

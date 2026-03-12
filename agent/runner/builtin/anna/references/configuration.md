@@ -86,7 +86,7 @@ cron:
 | `~/.anna/workspace/sessions/` | Chat session history |
 | `~/.anna/workspace/SOUL.md` | Agent identity, personality, tone |
 | `~/.anna/workspace/USER.md` | User preferences, name, timezone |
-| `~/.anna/workspace/lcm.db` | LCM database (message history, summaries) |
+| `~/.anna/workspace/memory.db` | Memory database (message history, summaries) |
 | `~/.anna/workspace/skills/` | Installed skills |
 | `~/.anna/workspace/cron/` | Cron job persistence |
 

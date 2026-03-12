@@ -6,16 +6,16 @@ import (
 	"fmt"
 
 	"github.com/vaayne/anna/ai"
-	"github.com/vaayne/anna/lcm"
+	"github.com/vaayne/anna/memory"
 )
 
-// GrepTool searches conversation history using the LCM retrieval engine.
+// GrepTool searches conversation history using the memory retrieval engine.
 type GrepTool struct {
-	engine lcm.Engine
+	engine memory.Engine
 }
 
 // NewGrepTool creates a memory_grep tool.
-func NewGrepTool(engine lcm.Engine) *GrepTool {
+func NewGrepTool(engine memory.Engine) *GrepTool {
 	return &GrepTool{engine: engine}
 }
 
@@ -54,7 +54,7 @@ func (t *GrepTool) Execute(ctx context.Context, args map[string]any) (string, er
 	scope, _ := args["scope"].(string)
 	limit := intArg(args, "limit", 0)
 
-	sessionID := lcm.SessionIDFromContext(ctx)
+	sessionID := memory.SessionIDFromContext(ctx)
 	if sessionID == "" {
 		return "", fmt.Errorf("memory_grep: no session context")
 	}

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/db/sqlc"
-	"github.com/vaayne/anna/lcm"
+	"github.com/vaayne/anna/memory"
 )
 
 const expandTestSession = "sess-expand-test"
@@ -70,7 +70,7 @@ func TestExpandTool_Execute_LeafSummary(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	var result lcm.ExpandResult
+	var result memory.ExpandResult
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestExpandTool_Execute_CondensedSummary(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	var result lcm.ExpandResult
+	var result memory.ExpandResult
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
