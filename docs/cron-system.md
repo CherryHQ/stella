@@ -32,12 +32,13 @@ Agent (via tool call)
 
 ### Package: `cron/`
 
-Top-level package (sibling to `agent/`, `channel/`). Four files:
+Top-level package (sibling to `agent/`, `channel/`). Five files:
 
 | File | Purpose |
 |------|---------|
 | `cron/job.go` | `Job` and `Schedule` types |
 | `cron/service.go` | `Service` — gocron wrapper, scheduling, job CRUD |
+| `cron/heartbeat.go` | Heartbeat polling — decide/execute/notify via LLM |
 | `cron/persistence.go` | JSON file I/O (load/save jobs) |
 | `cron/tool.go` | `CronTool` — agent tool implementing `tool.Tool` |
 
@@ -138,6 +139,31 @@ No parameters. Returns all scheduled jobs as JSON.
 Parameters:
 - `id` (required) — job ID from `add` or `list`
 
+## Heartbeat
+
+Heartbeat is a built-in periodic task managed by the cron service. It polls a `HEARTBEAT.md` file and uses the LLM to decide whether action is needed, executing instructions and sending results via the notification dispatcher.
+
+### How It Works
+
+1. `SetHeartbeat(cfg, chatFn, notifier)` configures heartbeat on the cron service
+2. `StartHeartbeat(ctx, every)` schedules the poll loop via `ScheduleEvery`
+3. Each tick:
+   - Reads the heartbeat file (skips if missing or empty)
+   - Sends the content to the fast model for a `skip`/`run` decision (no tools allowed)
+   - On `run`, sends the content to the main session for execution
+   - Delivers the result via the notification dispatcher
+
+### Configuration
+
+```yaml
+heartbeat:
+  enabled: false     # default: false
+  every: 10m         # poll interval (Go duration)
+  file: HEARTBEAT.md # relative to workspace unless absolute
+```
+
+Heartbeat only runs in `anna gateway` mode. The fast model is used for the gate decision to minimize cost.
+
 ## Wiring
 
 The cron system resolves a circular dependency (service needs pool for the callback, runner needs the tool) via deferred wiring in `main.go`:
@@ -146,11 +172,13 @@ The cron system resolves a circular dependency (service needs pool for the callb
 2. Create `cron.NewTool(service)` and pass to runner via `ExtraTools`
 3. Create pool with the runner factory
 4. Call `service.SetOnJob(...)` with a callback that calls `pool.Chat()`
-5. Call `service.Start(ctx)` in command handlers
+5. If heartbeat is enabled, call `service.SetHeartbeat(...)` with the chat function and notifier
+6. Call `service.Start(ctx)` (or `StartEphemeral` for heartbeat-only mode) in the gateway
+7. Call `service.StartHeartbeat(ctx, every)` after channels are wired
 
 ## Testing
 
-Tests are in `cron/cron_test.go` covering:
+Tests are in `cron/cron_test.go` and `cron/heartbeat_test.go` covering:
 
 - Add, list, remove lifecycle
 - Input validation (empty name, missing schedule, invalid duration, conflicting schedule fields, invalid/past timestamps)
@@ -165,6 +193,11 @@ Tests are in `cron/cron_test.go` covering:
 - Session mode via tool interface
 - Full tool interface (add/list/remove via `Execute`)
 - Error cases (invalid action, missing ID)
+- Heartbeat: skip when file is missing
+- Heartbeat: fast model used for decision
+- Heartbeat: run decision executes and notifies
+- Heartbeat: error when decision uses tools
+- Heartbeat: notifier errors propagated
 
 Run with:
 
