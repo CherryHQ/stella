@@ -28,7 +28,7 @@ cd anna && go build -o anna .
 
 ### Running
 
-Create a config file at `~/.anna/config.yaml` (see [configuration.md](/docs/configuration) for full reference):
+Create a config file at `~/.anna/config.yaml` (see [configuration.md](/docs/getting-started/configuration) for full reference):
 
 ```bash
 mkdir -p ~/.anna
@@ -164,7 +164,7 @@ All paths are under the workspace root (`~/.anna/workspace` by default, configur
 
 ## Environment Variables
 
-All config values can be overridden via environment variables. See [configuration.md](/docs/configuration#environment-variable-overrides) for the full list.
+All config values can be overridden via environment variables. See [configuration.md](/docs/getting-started/configuration#environment-variable-overrides) for the full list.
 
 Key variables for deployment:
 

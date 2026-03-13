@@ -192,7 +192,7 @@ type Tool interface {
 4. Runner streams events back through a channel
 5. On idle timeout, runners are reaped; sessions persist to SQLite via `memory.Engine`
 
-See [session-compaction.md](/docs/session-compaction) for history management.
+See [session-compaction.md](/docs/core/session-compaction) for history management.
 
 ## Channel Interface
 
@@ -216,4 +216,4 @@ Agent notify tool --> Dispatcher --> Channel (Telegram/QQ/Feishu)
 Cron job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu)
 ```
 
-The dispatcher is created early in setup, but backends are registered later when gateway services start. See [notification-system.md](/docs/notification-system) for details.
+The dispatcher is created early in setup, but backends are registered later when gateway services start. See [notification-system.md](/docs/features/notification-system) for details.

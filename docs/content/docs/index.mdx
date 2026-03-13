@@ -1,31 +1,38 @@
 ---
-title: Hello World
-description: Your favourite docs framework.
-icon: Rocket
+title: anna
+description: Your AI assistant that never forgets.
+icon: Bot
 ---
 
-Hey there! Fumadocs is the docs framework that also works on Tanstack Start!
+import { Cards, Card } from "fumadocs-ui/components/card";
 
-## Heading
+anna is a self-hosted AI assistant with lossless context management. Native Go binary calling LLM providers, with a terminal TUI and multi-platform bot gateway (Telegram, QQ, Feishu). Built-in scheduler, heartbeat monitoring, and cross-channel notifications.
 
-Hello World!
+## Quick Start
 
-<Cards>
-  <Card title="Learn more about Tanstack Start" href="https://tanstack.com/start" />
-  <Card title="Learn more about Fumadocs" href="https://fumadocs.dev" />
-</Cards>
+```bash
+# Install
+go install github.com/vaayne/anna@latest
 
-### CodeBlock
+# Interactive setup (opens web UI)
+anna onboard
 
-```ts
-console.log('Hello World');
+# Start chatting
+anna chat
+
+# Or start the daemon (bots + scheduler)
+anna gateway
 ```
 
-#### Table
+## Explore
 
-| Head                            | Description                         |
-| ------------------------------- | ----------------------------------- |
-| `hello`                         | Hello World                         |
-| very **important**              | Hey                                 |
-| _Surprisingly_                  | Fumadocs                            |
-| very long text that looks weird | hello world hello world hello world |
+<Cards>
+  <Card title="Configuration" description="Config reference, env vars, defaults" href="/docs/getting-started/configuration" />
+  <Card title="Deployment" description="Binary, Docker, systemd, compose" href="/docs/getting-started/deployment" />
+  <Card title="Architecture" description="System design, packages, providers" href="/docs/core/architecture" />
+  <Card title="Memory System" description="Lossless context management deep dive" href="/docs/core/memory-system" />
+  <Card title="Models" description="Tiers, providers, caching" href="/docs/core/models" />
+  <Card title="Channels" description="Telegram, QQ, Feishu bots" href="/docs/channels/telegram" />
+  <Card title="Cron System" description="Scheduled tasks, heartbeat, persistence" href="/docs/features/cron-system" />
+  <Card title="Notifications" description="Dispatcher, backends, routing" href="/docs/features/notification-system" />
+</Cards>
