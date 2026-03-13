@@ -89,7 +89,7 @@ with zero access to the prior conversation.
 
 Compaction summaries are stored as messages in the SQLite database via
 `memory.Engine`. On `Load()`, the engine converts the compaction entry into a
-pair of `RPCEvent`s — a user message containing the summary and an assistant
+pair of `ai.Message`s — a user message containing the summary and an assistant
 acknowledgment — so the runner sees it as normal conversation history.
 
 ## Triggers
