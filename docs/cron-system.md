@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented — `cron/` package with gocron/v2 scheduler, JSON persistence, and agent tool.
+Implemented — `internal/cron/` package with gocron/v2 scheduler, JSON persistence, and agent tool.
 
 ## Overview
 
@@ -30,17 +30,17 @@ Agent (via tool call)
       pool.Chat(ctx, "cron:{id}", message)
 ```
 
-### Package: `cron/`
+### Package: `internal/cron/`
 
-Top-level package (sibling to `agent/`, `channel/`). Five files:
+Top-level package (under `internal/`). Five files:
 
 | File | Purpose |
 |------|---------|
-| `cron/job.go` | `Job` and `Schedule` types |
-| `cron/service.go` | `Service` — gocron wrapper, scheduling, job CRUD |
-| `cron/heartbeat.go` | Heartbeat polling — decide/execute/notify via LLM |
-| `cron/persistence.go` | JSON file I/O (load/save jobs) |
-| `cron/tool.go` | `CronTool` — agent tool implementing `tool.Tool` |
+| `internal/cron/job.go` | `Job` and `Schedule` types |
+| `internal/cron/service.go` | `Service` — gocron wrapper, scheduling, job CRUD |
+| `internal/cron/heartbeat.go` | Heartbeat polling — decide/execute/notify via LLM |
+| `internal/cron/persistence.go` | JSON file I/O (load/save jobs) |
+| `internal/cron/tool.go` | `CronTool` — agent tool implementing `tool.Tool` |
 
 ### Key Types
 
@@ -178,7 +178,7 @@ The cron system resolves a circular dependency (service needs pool for the callb
 
 ## Testing
 
-Tests are in `cron/cron_test.go` and `cron/heartbeat_test.go` covering:
+Tests are in `internal/cron/cron_test.go` and `internal/cron/heartbeat_test.go` covering:
 
 - Add, list, remove lifecycle
 - Input validation (empty name, missing schedule, invalid duration, conflicting schedule fields, invalid/past timestamps)

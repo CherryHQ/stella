@@ -1,0 +1,169 @@
+package agent
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/vaayne/anna/internal/agent/engine"
+	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/ai/providers/anthropic"
+	"github.com/vaayne/anna/internal/ai/providers/openai"
+	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
+)
+
+func skipWithoutAPIKey(t *testing.T) string {
+	t.Helper()
+	key := os.Getenv("ANNA_API_KEY")
+	if key == "" {
+		t.Skip("ANNA_API_KEY not set, skipping integration test")
+	}
+	return key
+}
+
+func TestIntegrationToolUseAllProviders(t *testing.T) {
+	apiKey := skipWithoutAPIKey(t)
+	baseURL := os.Getenv("ANNA_BASE_URL")
+	if baseURL == "" {
+		baseURL = "https://cc2.vaayne.com"
+	}
+
+	model := os.Getenv("ANNA_TEST_MODEL")
+	if model == "" {
+		model = "gpt-5.4"
+	}
+
+	providers := []struct {
+		name    string
+		baseURL string
+		factory func(cfg struct{ BaseURL string }) ai.ProviderAdapter
+	}{
+		{
+			name:    "anthropic",
+			baseURL: baseURL,
+			factory: func(cfg struct{ BaseURL string }) ai.ProviderAdapter {
+				return anthropic.New(anthropic.Config{BaseURL: cfg.BaseURL})
+			},
+		},
+		{
+			name:    "openai",
+			baseURL: baseURL + "/v1",
+			factory: func(cfg struct{ BaseURL string }) ai.ProviderAdapter {
+				return openai.New(openai.Config{BaseURL: cfg.BaseURL})
+			},
+		},
+		{
+			name:    "openai-response",
+			baseURL: baseURL + "/v1",
+			factory: func(cfg struct{ BaseURL string }) ai.ProviderAdapter {
+				return openairesponse.New(openairesponse.Config{BaseURL: cfg.BaseURL})
+			},
+		},
+	}
+
+	toolDef := ai.ToolDefinition{
+		Name:        "get_weather",
+		Description: "Get the current weather for a city. Always call this tool when asked about weather.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"city": map[string]any{
+					"type":        "string",
+					"description": "The city name to get weather for.",
+				},
+			},
+			"required": []string{"city"},
+		},
+	}
+
+	for _, p := range providers {
+		t.Run(p.name, func(t *testing.T) {
+			reg := ai.NewRegistry()
+			reg.Register(p.factory(struct{ BaseURL string }{BaseURL: p.baseURL}))
+
+			eng := &engine.Engine{Providers: reg}
+
+			var toolCalled atomic.Bool
+			var capturedCity string
+
+			tools := engine.ToolSet{
+				"get_weather": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
+					toolCalled.Store(true)
+					city, _ := call.Arguments["city"].(string)
+					capturedCity = city
+					return ai.TextContent{Text: fmt.Sprintf("Weather in %s: 22°C, sunny", city)}, nil
+				},
+			}
+
+			cfg := engine.LoopConfig{
+				Model:           ai.Model{API: p.name, Name: model},
+				StreamOptions:   ai.StreamOptions{APIKey: apiKey},
+				MaxTurns:        5,
+				Tools:           tools,
+				ToolDefinitions: []ai.ToolDefinition{toolDef},
+				System:          "You are a helpful assistant. When asked about weather, always use the get_weather tool. Be concise.",
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+
+			messages := []ai.Message{
+				ai.UserMessage{Content: "What's the weather in Tokyo?"},
+			}
+
+			history, err := eng.Run(ctx, cfg, messages, nil)
+			if err != nil {
+				t.Fatalf("engine.Run error: %v", err)
+			}
+
+			// Verify tool was called.
+			if !toolCalled.Load() {
+				t.Fatal("get_weather tool was never called")
+			}
+
+			// Verify arguments were parsed correctly.
+			if capturedCity == "" {
+				t.Fatal("tool was called but city argument was empty — argument accumulation likely broken")
+			}
+			if !strings.Contains(strings.ToLower(capturedCity), "tokyo") {
+				t.Errorf("expected city to contain 'tokyo', got %q", capturedCity)
+			}
+
+			// Verify history has the expected shape: user, assistant(tool_call), tool_result, assistant(text).
+			if len(history) < 4 {
+				t.Errorf("expected at least 4 messages in history, got %d", len(history))
+			}
+
+			// Verify final assistant message has text content.
+			lastMsg := history[len(history)-1]
+			assistantMsg, ok := lastMsg.(ai.AssistantMessage)
+			if !ok {
+				t.Fatalf("expected last message to be AssistantMessage, got %T", lastMsg)
+			}
+			var finalText string
+			for _, block := range assistantMsg.Content {
+				if tc, ok := block.(ai.TextContent); ok {
+					finalText += tc.Text
+				}
+			}
+			if finalText == "" {
+				t.Error("final assistant message has no text content")
+			}
+
+			// Log for debugging.
+			t.Logf("provider=%s city=%q final_text=%q history_len=%d",
+				p.name, capturedCity, truncate(finalText, 100), len(history))
+		})
+	}
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}

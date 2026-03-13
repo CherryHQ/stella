@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vaayne/anna/config"
+	"github.com/vaayne/anna/internal/config"
 )
 
 func TestHasEnabledNotifyChannel(t *testing.T) {

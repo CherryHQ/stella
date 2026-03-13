@@ -9,15 +9,15 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/agent"
-	"github.com/vaayne/anna/agent/runner"
-	"github.com/vaayne/anna/agent/tool"
-	"github.com/vaayne/anna/channel"
-	"github.com/vaayne/anna/config"
-	"github.com/vaayne/anna/cron"
-	"github.com/vaayne/anna/memory"
-	memorytool "github.com/vaayne/anna/memory/tool"
-	"github.com/vaayne/anna/skills"
+	"github.com/vaayne/anna/internal/agent"
+	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/internal/agent/tool"
+	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/cron"
+	"github.com/vaayne/anna/internal/memory"
+	memorytool "github.com/vaayne/anna/internal/memory/tool"
+	"github.com/vaayne/anna/internal/skills"
 )
 
 func newApp() *ucli.App {
@@ -104,7 +104,10 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	opts := []agent.PoolOption{
 		agent.WithIdleTimeout(idleTimeout),
-		agent.WithCompaction(cfg.Runner.Compaction.WithDefaults()),
+		agent.WithCompaction(agent.CompactionConfig{
+			MaxTokens: cfg.Runner.Compaction.MaxTokens,
+			KeepTail:  cfg.Runner.Compaction.KeepTail,
+		}),
 		agent.WithDefaultModel(cfg.ResolveModelID(config.ModelTierStrong)),
 		agent.WithFastModel(cfg.ResolveModelID(config.ModelTierFast)),
 	}

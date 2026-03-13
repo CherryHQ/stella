@@ -17,9 +17,9 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/ai"
-	"github.com/vaayne/anna/config"
-	"github.com/vaayne/anna/cron"
+	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/cron"
 	"gopkg.in/yaml.v3"
 )
 

@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Database**: Restructure database layer with Atlas and sqlc ([#46](https://github.com/vaayne/anna/pull/46))
 - **Database**: Remove `store.Store` + `RPCEvent` — SQLite-only persistence with `ai.Message` ([#47](https://github.com/vaayne/anna/pull/47))
 - **Database**: Replace hardcoded migrations with Atlas-generated SQL files ([#48](https://github.com/vaayne/anna/pull/48))
-- **Cron**: Merge `heartbeat/` package into `cron/` — heartbeat is now a built-in cron task ([#49](https://github.com/vaayne/anna/pull/49))
+- **Cron**: Merge `heartbeat/` package into `internal/cron/` — heartbeat is now a built-in cron task ([#49](https://github.com/vaayne/anna/pull/49))
 
 ### 📝 Documentation
 

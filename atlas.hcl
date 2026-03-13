@@ -4,10 +4,10 @@ variable "dev_url" {
 }
 
 env "local" {
-  src = "file://db/schemas/main.sql"
+  src = "file://internal/db/schemas/main.sql"
   dev = var.dev_url
 
   migration {
-    dir = "file://db/migrations"
+    dir = "file://internal/db/migrations"
   }
 }

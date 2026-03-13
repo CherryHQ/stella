@@ -5,8 +5,8 @@ import (
 	"syscall"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/channel"
-	clicmd "github.com/vaayne/anna/channel/cli"
+	"github.com/vaayne/anna/internal/channel"
+	clicmd "github.com/vaayne/anna/internal/channel/cli"
 )
 
 func chatCommand() *ucli.Command {
