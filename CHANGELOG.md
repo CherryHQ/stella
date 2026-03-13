@@ -7,9 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-13
+
+### ✨ Features
+
+- **Memory**: Add Lossless Context Management (LCM) — DAG-based memory system with identity files, semantic retrieval tools, and session-scoped context ([#46](https://github.com/vaayne/anna/pull/46))
+
 ### ♻️ Refactoring
 
+- **Database**: Restructure database layer with Atlas and sqlc ([#46](https://github.com/vaayne/anna/pull/46))
+- **Database**: Remove `store.Store` + `RPCEvent` — SQLite-only persistence with `ai.Message` ([#47](https://github.com/vaayne/anna/pull/47))
+- **Database**: Replace hardcoded migrations with Atlas-generated SQL files ([#48](https://github.com/vaayne/anna/pull/48))
 - **Cron**: Merge `heartbeat/` package into `cron/` — heartbeat is now a built-in cron task ([#49](https://github.com/vaayne/anna/pull/49))
+
+### 📝 Documentation
+
+- Rewrite README as marketing-oriented product page
+- Add MIT license
+- Rewrite memory system docs to match LCM implementation
+- Sync builtin anna skill with new README
+
+**Full Changelog**: [v0.4.2...v0.5.0](https://github.com/vaayne/anna/compare/v0.4.2...v0.5.0)
 
 ## [0.4.2] - 2026-03-12
 
