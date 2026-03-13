@@ -512,3 +512,70 @@ func TestBuildStreamDisplayUTF8Safe(t *testing.T) {
 		t.Error("buildStreamDisplay() produced invalid UTF-8")
 	}
 }
+
+// --- atoiOr ---
+
+func TestAtoiOrValid(t *testing.T) {
+	if got := atoiOr("42", 0); got != 42 {
+		t.Errorf("atoiOr(42) = %d, want 42", got)
+	}
+}
+
+func TestAtoiOrInvalid(t *testing.T) {
+	if got := atoiOr("abc", 99); got != 99 {
+		t.Errorf("atoiOr(abc) = %d, want 99", got)
+	}
+}
+
+func TestAtoiOrEmpty(t *testing.T) {
+	if got := atoiOr("", 5); got != 5 {
+		t.Errorf("atoiOr('') = %d, want 5", got)
+	}
+}
+
+func TestAtoiOrNegative(t *testing.T) {
+	if got := atoiOr("-3", 0); got != -3 {
+		t.Errorf("atoiOr(-3) = %d, want -3", got)
+	}
+}
+
+func TestAtoiOrZero(t *testing.T) {
+	if got := atoiOr("0", 10); got != 0 {
+		t.Errorf("atoiOr(0) = %d, want 0", got)
+	}
+}
+
+// --- truncate edge cases ---
+
+func TestTruncateEmpty(t *testing.T) {
+	if got := truncate("", 10); got != "" {
+		t.Errorf("truncate('', 10) = %q, want empty", got)
+	}
+}
+
+func TestTruncateExact(t *testing.T) {
+	if got := truncate("abc", 3); got != "abc" {
+		t.Errorf("truncate(abc, 3) = %q, want abc", got)
+	}
+}
+
+// --- channelForChat ---
+
+func TestChannelForChatFormatsCorrectly(t *testing.T) {
+	// channelForChat requires a tele.Context, which is hard to mock.
+	// Test the chatRef helper instead.
+	ref := chatRef("@mychannel")
+	if ref.Recipient() != "@mychannel" {
+		t.Errorf("Recipient() = %q, want @mychannel", ref.Recipient())
+	}
+}
+
+// --- welcomeMessage ---
+
+func TestWelcomeMessageContainsCommands(t *testing.T) {
+	for _, cmd := range []string{"/new", "/compact", "/model", "/whoami"} {
+		if !strings.Contains(welcomeMessage, cmd) {
+			t.Errorf("welcomeMessage missing %q", cmd)
+		}
+	}
+}

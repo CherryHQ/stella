@@ -91,6 +91,8 @@ func TestNewRunnerFactoryUnknown(t *testing.T) {
 func TestRunGatewayNoServices(t *testing.T) {
 	t.Setenv("ANNA_TELEGRAM_TOKEN", "")
 	t.Setenv("ANNA_HOME", t.TempDir())
+	config.ResetAnnaHome()
+	t.Cleanup(config.ResetAnnaHome)
 	app := newApp()
 	err := app.Run([]string{"anna", "gateway"})
 	if err == nil {
