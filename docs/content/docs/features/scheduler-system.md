@@ -3,7 +3,7 @@ title: Scheduler System
 ---
 ## Status
 
-Implemented — `internal/scheduler/` package with gocron/v2 scheduler, JSON persistence, and agent tool.
+Implemented — `internal/scheduler/` package with gocron/v2 scheduler, SQLite persistence, and agent tool.
 
 ## Overview
 
@@ -22,7 +22,7 @@ Agent (via tool call)
                           |
               +-----------+-----------+
               |                       |
-     gocron/v2 Scheduler      jobs.json (disk)
+     gocron/v2 Scheduler     scheduler_jobs (SQLite)
               |
               v
         OnJobFunc callback
@@ -40,7 +40,7 @@ Top-level package (under `internal/`). Five files:
 | `internal/scheduler/job.go` | `Job` and `Schedule` types |
 | `internal/scheduler/service.go` | `Service` — gocron wrapper, scheduling, job CRUD |
 | `internal/scheduler/heartbeat.go` | Heartbeat polling — decide/execute/notify via LLM |
-| `internal/scheduler/persistence.go` | JSON file I/O (load/save jobs) |
+| `internal/scheduler/persistence.go` | Database persistence (load/save/migrate jobs) |
 | `internal/scheduler/tool.go` | `SchedulerTool` — agent tool implementing `tool.Tool` |
 
 ### Key Types
@@ -67,14 +67,16 @@ type Job struct {
 
 ### Service Lifecycle
 
-1. `scheduler.New(dataPath)` — creates scheduler
+1. `scheduler.New(db)` or `scheduler.NewFromPath(dbPath)` — creates scheduler backed by SQLite
 2. `service.SetOnJob(fn)` — sets callback (deferred wiring to resolve circular dependency)
-3. `service.Start(ctx)` — loads `jobs.json`, registers all jobs with gocron, starts scheduler
-4. `service.Stop()` — shuts down scheduler
+3. `service.Start(ctx)` — loads jobs from DB, registers all with gocron, starts scheduler
+4. `service.Stop()` — shuts down scheduler (and closes DB if opened via `NewFromPath`)
 
 ### Persistence
 
-Jobs are stored as a JSON array in `{dataDir}/jobs.json` (default: `~/.anna/workspace/scheduler/jobs.json`). Writes are atomic (temp file + rename).
+Jobs are stored in the `scheduler_jobs` table in the shared `memory.db` SQLite database (`~/.anna/workspace/memory.db`). Each mutation (add/remove) is an individual INSERT/DELETE — no full-file rewrites.
+
+On first startup, if a legacy `jobs.json` file exists (from pre-DB versions), jobs are automatically migrated to the database and the file is removed.
 
 ### One-Time Jobs
 
@@ -83,7 +85,7 @@ Jobs scheduled with `at` run exactly once at the specified time and are automati
 Behavior details:
 - The `at` field must be a valid RFC3339 timestamp with timezone offset
 - Timestamps in the past are rejected at creation time
-- If Anna restarts and a one-time job's timestamp has already passed, the job is silently skipped (not scheduled) but remains in persistence until manually removed
+- If Anna restarts and a one-time job's timestamp has already passed, the job is silently skipped (not scheduled) but remains in the database until manually removed
 - On successful execution, the cleanup runs asynchronously to avoid blocking the scheduler
 
 ### Session Model
@@ -100,7 +102,6 @@ Add to `~/.anna/config.yaml`:
 ```yaml
 scheduler:
   enabled: true
-  data_dir: ~/.anna/workspace/scheduler  # optional, this is the default
 ```
 
 Scheduler is only active when:
@@ -179,7 +180,7 @@ The scheduler system resolves a circular dependency (service needs pool for the 
 
 ## Testing
 
-Tests are in `internal/scheduler/cron_test.go` and `internal/scheduler/heartbeat_test.go` covering:
+Tests are in `internal/scheduler/scheduler_test.go` and `internal/scheduler/heartbeat_test.go` covering:
 
 - Add, list, remove lifecycle
 - Input validation (empty name, missing schedule, invalid duration, conflicting schedule fields, invalid/past timestamps)
