@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/vaayne/anna/agent/runner"
+	"github.com/vaayne/anna/ai"
 	"github.com/vaayne/anna/memory"
 )
 
@@ -222,13 +223,13 @@ func (p *Pool) ArchiveSession(sessionID string) error {
 	return nil
 }
 
-// History returns the event log for a session, loading from the memory engine.
+// History returns the message history for a session, loading from the memory engine.
 // Returns nil if the session has no history.
-func (p *Pool) History(sessionID string) []runner.RPCEvent {
+func (p *Pool) History(sessionID string) []ai.Message {
 	if p.mem != nil {
-		events, err := p.mem.Load(context.Background(), sessionID)
-		if err == nil && len(events) > 0 {
-			return events
+		msgs, err := p.mem.Load(context.Background(), sessionID)
+		if err == nil && len(msgs) > 0 {
+			return msgs
 		}
 	}
 	return nil
@@ -308,25 +309,25 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 	}
 
 	// Store user message via memory engine.
-	userEvt := runner.UserMessageToRPCEvent(message)
+	userMsg := ai.UserMessage{Content: message}
 	if p.mem != nil {
-		if err := p.mem.Ingest(ctx, sessionID, userEvt); err != nil {
-			p.log.Warn("memory ingest user event failed", "session_id", sessionID, "error", err)
+		if err := p.mem.Ingest(ctx, sessionID, userMsg); err != nil {
+			p.log.Warn("memory ingest user message failed", "session_id", sessionID, "error", err)
 		}
 	}
 
 	// Assemble context within budget via memory engine.
-	var events []runner.RPCEvent
+	var history []ai.Message
 	if p.mem != nil {
 		assembled, err := p.mem.Assemble(ctx, sessionID, p.compaction.MaxTokens, p.compaction.KeepTail)
 		if err != nil {
 			p.log.Warn("memory assemble failed", "session_id", sessionID, "error", err)
 		} else {
-			events = assembled
+			history = assembled
 		}
 	}
 
-	stream := r.Chat(ctx, events, message)
+	stream := r.Chat(ctx, history, message)
 
 	go func() {
 		defer close(out)
@@ -336,9 +337,9 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 			if evt.Err != nil {
 				// Persist any buffered text before returning on error.
 				if textBuf.Len() > 0 {
-					finalEvt := runner.AssistantMessageToRPCEvent(textBuf.String())
+					flushMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: textBuf.String()}}}
 					if p.mem != nil {
-						if err := p.mem.Ingest(persistCtx, sessionID, finalEvt); err != nil {
+						if err := p.mem.Ingest(persistCtx, sessionID, flushMsg); err != nil {
 							p.log.Warn("memory ingest error-flush failed", "session_id", sessionID, "error", err)
 						}
 					}
@@ -347,21 +348,21 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 				return
 			}
 
-			// Store events emitted by runners (tool calls, tool results, text deltas).
+			// Store messages emitted by runners (assistant turns with tool calls, tool results).
 			if evt.Store != nil {
-				// Flush buffered text before storing a non-text event.
+				// Flush buffered text before storing a non-text message.
 				if textBuf.Len() > 0 {
-					flushEvt := runner.AssistantMessageToRPCEvent(textBuf.String())
+					flushMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: textBuf.String()}}}
 					if p.mem != nil {
-						if err := p.mem.Ingest(persistCtx, sessionID, flushEvt); err != nil {
+						if err := p.mem.Ingest(persistCtx, sessionID, flushMsg); err != nil {
 							p.log.Warn("memory ingest text-flush failed", "session_id", sessionID, "error", err)
 						}
 					}
 					textBuf.Reset()
 				}
 				if p.mem != nil {
-					if err := p.mem.Ingest(persistCtx, sessionID, *evt.Store); err != nil {
-						p.log.Warn("memory ingest store event failed", "session_id", sessionID, "error", err)
+					if err := p.mem.Ingest(persistCtx, sessionID, evt.Store); err != nil {
+						p.log.Warn("memory ingest store message failed", "session_id", sessionID, "error", err)
 					}
 				}
 			}
@@ -381,9 +382,9 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 		}
 		// Stream ended normally — persist the complete assistant message.
 		if textBuf.Len() > 0 {
-			finalEvt := runner.AssistantMessageToRPCEvent(textBuf.String())
+			finalMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: textBuf.String()}}}
 			if p.mem != nil {
-				if err := p.mem.Ingest(persistCtx, sessionID, finalEvt); err != nil {
+				if err := p.mem.Ingest(persistCtx, sessionID, finalMsg); err != nil {
 					p.log.Warn("memory ingest final message failed", "session_id", sessionID, "error", err)
 				}
 			}

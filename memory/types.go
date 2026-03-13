@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/vaayne/anna/agent/runner"
+	"github.com/vaayne/anna/ai"
 	"github.com/vaayne/anna/db/sqlc"
 )
 
@@ -55,14 +55,13 @@ type Engine interface {
 	Bootstrap(ctx context.Context, sessionID string) error
 
 	// Ingest persists a message and appends to context.
-	Ingest(ctx context.Context, sessionID string, evt runner.RPCEvent) error
+	Ingest(ctx context.Context, sessionID string, msg ai.Message) error
 
 	// IngestBatch persists multiple messages.
-	IngestBatch(ctx context.Context, sessionID string, evts []runner.RPCEvent) error
+	IngestBatch(ctx context.Context, sessionID string, msgs []ai.Message) error
 
 	// Assemble builds context for the model within token budget.
-	// Returns []runner.RPCEvent for compatibility with the existing runner pipeline.
-	Assemble(ctx context.Context, sessionID string, budget int, freshTail int) ([]runner.RPCEvent, error)
+	Assemble(ctx context.Context, sessionID string, budget int, freshTail int) ([]ai.Message, error)
 
 	// Compact runs compaction passes (leaf + optional condensation).
 	Compact(ctx context.Context, sessionID string, mode CompactionMode) (*CompactionResult, error)
@@ -80,7 +79,7 @@ type Engine interface {
 	ListInfo(ctx context.Context, includeArchived bool) ([]SessionInfo, error)
 
 	// Load returns the full event history for a session.
-	Load(ctx context.Context, sessionID string) ([]runner.RPCEvent, error)
+	Load(ctx context.Context, sessionID string) ([]ai.Message, error)
 
 	// Retrieval returns the retrieval engine for tools.
 	Retrieval() *RetrievalEngine

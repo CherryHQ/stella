@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/agent/runner"
+	"github.com/vaayne/anna/ai"
 	"github.com/vaayne/anna/memory"
 )
 
@@ -41,7 +42,7 @@ func newMockRunner(events []runner.Event) *mockRunner {
 	}
 }
 
-func (m *mockRunner) Chat(_ context.Context, _ []runner.RPCEvent, _ runner.MessageContent) <-chan runner.Event {
+func (m *mockRunner) Chat(_ context.Context, _ []ai.Message, _ runner.MessageContent) <-chan runner.Event {
 	m.mu.Lock()
 	m.lastActivity = time.Now()
 	events := m.events

@@ -13,6 +13,7 @@ import (
 
 	"github.com/vaayne/anna/agent"
 	"github.com/vaayne/anna/agent/runner"
+	"github.com/vaayne/anna/ai"
 	"github.com/vaayne/anna/channel"
 )
 
@@ -133,33 +134,47 @@ func resolveSession(pool *agent.Pool) string {
 // renderResumedHistory builds the viewport content from a session's persisted events.
 // Only user messages and assistant text are rendered; tool calls are omitted for brevity.
 func renderResumedHistory(pool *agent.Pool, sessionID string) string {
-	events := pool.History(sessionID)
-	if len(events) == 0 {
+	msgs := pool.History(sessionID)
+	if len(msgs) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
 	b.WriteString(systemStyle.Render("[session resumed]") + "\n\n")
 
-	for _, evt := range events {
-		switch evt.Type {
-		case runner.RPCEventUserMessage:
-			if evt.Summary == "" || evt.Summary == "[Previous conversation summary]" {
+	for _, msg := range msgs {
+		switch m := msg.(type) {
+		case ai.UserMessage:
+			text := messageText(m.Content)
+			if text == "" || text == "[Previous conversation summary]" {
 				continue
 			}
 			b.WriteString(userStyle.Render("You") + "\n")
-			b.WriteString(userBorderStyle.Render(chatTextStyle.Render(evt.Summary)) + "\n\n")
+			b.WriteString(userBorderStyle.Render(chatTextStyle.Render(text)) + "\n\n")
 
-		case runner.RPCEventMessageUpdate:
-			if evt.Summary == "" {
+		case ai.AssistantMessage:
+			text := ai.FlattenText(m.Content)
+			if text == "" {
 				continue
 			}
 			b.WriteString(agentStyle.Render("Anna") + "\n")
-			b.WriteString(agentBorderStyle.Render(evt.Summary) + "\n\n")
+			b.WriteString(agentBorderStyle.Render(text) + "\n\n")
 		}
 	}
 
 	return b.String()
+}
+
+// messageText extracts display text from user message content.
+func messageText(content any) string {
+	switch c := content.(type) {
+	case string:
+		return c
+	case []ai.ContentBlock:
+		return ai.FlattenText(c)
+	default:
+		return fmt.Sprintf("%v", content)
+	}
 }
 
 func (m chatModel) Init() tea.Cmd {

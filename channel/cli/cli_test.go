@@ -10,6 +10,7 @@ import (
 
 	"github.com/vaayne/anna/agent"
 	"github.com/vaayne/anna/agent/runner"
+	"github.com/vaayne/anna/ai"
 )
 
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -19,7 +20,7 @@ type mockRunner struct {
 	events []runner.Event
 }
 
-func (m *mockRunner) Chat(_ context.Context, _ []runner.RPCEvent, _ runner.MessageContent) <-chan runner.Event {
+func (m *mockRunner) Chat(_ context.Context, _ []ai.Message, _ runner.MessageContent) <-chan runner.Event {
 	ch := make(chan runner.Event, len(m.events))
 	for _, e := range m.events {
 		ch <- e

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vaayne/anna/agent/runner"
+	"github.com/vaayne/anna/ai"
 	"github.com/vaayne/anna/db/sqlc"
 )
 
@@ -22,8 +22,8 @@ func NewAssembler(q *sqlc.Queries) *Assembler {
 
 // Assemble builds a context window from context_items, respecting the token budget.
 // It protects the freshTail most recent raw messages from being excluded.
-// Returns RPCEvents for compatibility with the existing runner pipeline.
-func (a *Assembler) Assemble(ctx context.Context, convID int64, budget int, freshTail int) ([]runner.RPCEvent, error) {
+// Returns ai.Messages for direct use by the engine/runner pipeline.
+func (a *Assembler) Assemble(ctx context.Context, convID int64, budget int, freshTail int) ([]ai.Message, error) {
 	items, err := a.q.GetContextItems(ctx, convID)
 	if err != nil {
 		return nil, fmt.Errorf("get context items: %w", err)
@@ -36,14 +36,13 @@ func (a *Assembler) Assemble(ctx context.Context, convID int64, budget int, fres
 	tail, older := splitFreshTail(items, freshTail)
 
 	// Resolve fresh tail — these are always included.
-	var result []runner.RPCEvent
-	tailTokens := 0
-	tailEvents, err := a.resolveItems(ctx, tail)
+	tailMsgs, err := a.resolveItems(ctx, tail)
 	if err != nil {
 		return nil, fmt.Errorf("resolve tail: %w", err)
 	}
-	for _, te := range tailEvents {
-		tailTokens += EstimateTokens(eventText(te))
+	tailTokens := 0
+	for _, m := range tailMsgs {
+		tailTokens += estimateMessageTokens(m)
 	}
 
 	remaining := budget - tailTokens
@@ -52,30 +51,31 @@ func (a *Assembler) Assemble(ctx context.Context, convID int64, budget int, fres
 	}
 
 	// Select older items that fit within remaining budget, newest first.
-	var olderEvents []runner.RPCEvent
+	var olderMsgs []ai.Message
 	for i := len(older) - 1; i >= 0; i-- {
-		evts, err := a.resolveItem(ctx, older[i])
+		msgs, err := a.resolveItem(ctx, older[i])
 		if err != nil {
 			return nil, fmt.Errorf("resolve item %d: %w", older[i].Ordinal, err)
 		}
 		tokens := 0
-		for _, e := range evts {
-			tokens += EstimateTokens(eventText(e))
+		for _, m := range msgs {
+			tokens += estimateMessageTokens(m)
 		}
 		if tokens > remaining {
 			break // stop including older items
 		}
 		remaining -= tokens
-		olderEvents = append(olderEvents, evts...)
+		olderMsgs = append(olderMsgs, msgs...)
 	}
 
-	// Reverse olderEvents (they were added newest-first).
-	for i, j := 0, len(olderEvents)-1; i < j; i, j = i+1, j-1 {
-		olderEvents[i], olderEvents[j] = olderEvents[j], olderEvents[i]
+	// Reverse olderMsgs (they were added newest-first).
+	for i, j := 0, len(olderMsgs)-1; i < j; i, j = i+1, j-1 {
+		olderMsgs[i], olderMsgs[j] = olderMsgs[j], olderMsgs[i]
 	}
 
-	result = append(result, olderEvents...)
-	result = append(result, tailEvents...)
+	var result []ai.Message
+	result = append(result, olderMsgs...)
+	result = append(result, tailMsgs...)
 	return result, nil
 }
 
@@ -96,21 +96,21 @@ func splitFreshTail(items []sqlc.ContextItem, freshTail int) (tail []sqlc.Contex
 	return items[splitIdx:], items[:splitIdx]
 }
 
-// resolveItems resolves a slice of context items to RPCEvents.
-func (a *Assembler) resolveItems(ctx context.Context, items []sqlc.ContextItem) ([]runner.RPCEvent, error) {
-	var result []runner.RPCEvent
+// resolveItems resolves a slice of context items to ai.Messages.
+func (a *Assembler) resolveItems(ctx context.Context, items []sqlc.ContextItem) ([]ai.Message, error) {
+	var result []ai.Message
 	for _, item := range items {
-		evts, err := a.resolveItem(ctx, item)
+		msgs, err := a.resolveItem(ctx, item)
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, evts...)
+		result = append(result, msgs...)
 	}
 	return result, nil
 }
 
-// resolveItem converts a single context item to RPCEvents.
-func (a *Assembler) resolveItem(ctx context.Context, item sqlc.ContextItem) ([]runner.RPCEvent, error) {
+// resolveItem converts a single context item to ai.Messages.
+func (a *Assembler) resolveItem(ctx context.Context, item sqlc.ContextItem) ([]ai.Message, error) {
 	switch item.ItemType {
 	case ItemTypeMessage:
 		if !item.MessageID.Valid {
@@ -120,7 +120,8 @@ func (a *Assembler) resolveItem(ctx context.Context, item sqlc.ContextItem) ([]r
 		if err != nil {
 			return nil, fmt.Errorf("get message %d: %w", item.MessageID.Int64, err)
 		}
-		return messageToRPCEvents(msg), nil
+		// Use rowsToMessages for single-row slices to get proper type reconstruction.
+		return rowsToMessages([]sqlc.Message{msg}), nil
 
 	case ItemTypeSummary:
 		if !item.SummaryID.Valid {
@@ -135,93 +136,11 @@ func (a *Assembler) resolveItem(ctx context.Context, item sqlc.ContextItem) ([]r
 			return nil, fmt.Errorf("get summary parents %s: %w", sum.ID, err)
 		}
 		xml := FormatSummaryXML(sum, parents)
-		return []runner.RPCEvent{summaryToRPCEvent(xml)}, nil
+		return []ai.Message{ai.UserMessage{Content: xml}}, nil
 
 	default:
 		return nil, nil
 	}
-}
-
-// messageToRPCEvents converts a stored message to RPCEvents.
-// It dispatches on (role, event_type) to reconstruct full RPCEvents,
-// with a fallback for old rows that only have event_type='text'.
-func messageToRPCEvents(msg sqlc.Message) []runner.RPCEvent {
-	switch msg.EventType {
-	case EventTypeText:
-		switch msg.Role {
-		case RoleUser:
-			return []runner.RPCEvent{runner.UserMessageToRPCEvent(msg.Content)}
-		case RoleAssistant:
-			return []runner.RPCEvent{runner.AssistantMessageToRPCEvent(msg.Content)}
-		case RoleTool:
-			// Legacy: old rows without structured envelope.
-			encoded, _ := json.Marshal(msg.Content)
-			return []runner.RPCEvent{{Type: runner.RPCEventToolResult, Result: encoded}}
-		}
-
-	case EventTypeMultimodal:
-		evt := runner.RPCEvent{
-			Type:    runner.RPCEventUserMessage,
-			Content: json.RawMessage(msg.Content),
-		}
-		// Extract summary from first text block.
-		var blocks []runner.ContentBlockJSON
-		if json.Unmarshal([]byte(msg.Content), &blocks) == nil {
-			for _, b := range blocks {
-				if b.Kind == runner.BlockKindText {
-					evt.Summary = b.Text
-					break
-				}
-			}
-		}
-		return []runner.RPCEvent{evt}
-
-	case EventTypeToolCall:
-		var env toolCallEnvelope
-		if err := json.Unmarshal([]byte(msg.Content), &env); err != nil {
-			// Fallback: treat as plain assistant text.
-			return []runner.RPCEvent{runner.AssistantMessageToRPCEvent(msg.Content)}
-		}
-		return []runner.RPCEvent{{
-			Type:   runner.RPCEventToolCall,
-			ID:     env.ID,
-			Tool:   env.Tool,
-			Result: env.Args,
-		}}
-
-	case EventTypeToolResult:
-		var env toolResultEnvelope
-		if err := json.Unmarshal([]byte(msg.Content), &env); err != nil {
-			// Fallback: treat as plain tool text.
-			encoded, _ := json.Marshal(msg.Content)
-			return []runner.RPCEvent{{Type: runner.RPCEventToolResult, Result: encoded}}
-		}
-		return []runner.RPCEvent{{
-			Type:   runner.RPCEventToolResult,
-			ID:     env.ID,
-			Tool:   env.Tool,
-			Result: env.Result,
-			Error:  env.Error,
-		}}
-	}
-
-	// Default fallback for unknown event_type (backward compat with old rows).
-	switch msg.Role {
-	case RoleUser:
-		return []runner.RPCEvent{runner.UserMessageToRPCEvent(msg.Content)}
-	case RoleAssistant:
-		return []runner.RPCEvent{runner.AssistantMessageToRPCEvent(msg.Content)}
-	case RoleTool:
-		encoded, _ := json.Marshal(msg.Content)
-		return []runner.RPCEvent{{Type: runner.RPCEventToolResult, Result: encoded}}
-	default:
-		return nil
-	}
-}
-
-// summaryToRPCEvent creates a synthetic user message RPCEvent containing the summary XML.
-func summaryToRPCEvent(xml string) runner.RPCEvent {
-	return runner.UserMessageToRPCEvent(xml)
 }
 
 // FormatSummaryXML formats a summary as XML for model consumption.
@@ -259,22 +178,36 @@ func FormatSummaryXML(sum sqlc.Summary, parents []sqlc.Summary) string {
 	return b.String()
 }
 
-// eventText extracts the text content from an RPCEvent for token estimation.
-func eventText(evt runner.RPCEvent) string {
-	if evt.Summary != "" {
-		return evt.Summary
-	}
-	if len(evt.AssistantMessageEvent) > 0 {
-		var ame runner.AssistantMessageEvent
-		if json.Unmarshal(evt.AssistantMessageEvent, &ame) == nil && ame.Delta != "" {
-			return ame.Delta
+// estimateMessageTokens returns a rough token count for an ai.Message.
+func estimateMessageTokens(msg ai.Message) int {
+	switch m := msg.(type) {
+	case ai.UserMessage:
+		switch c := m.Content.(type) {
+		case string:
+			return EstimateTokens(c)
+		case []ai.ContentBlock:
+			return EstimateTokens(ai.FlattenText(c))
+		default:
+			return EstimateTokens(fmt.Sprintf("%v", c))
 		}
+	case ai.AssistantMessage:
+		total := 0
+		for _, block := range m.Content {
+			switch b := block.(type) {
+			case ai.TextContent:
+				total += EstimateTokens(b.Text)
+			case ai.ToolCall:
+				total += EstimateTokens(b.Name)
+				if b.Arguments != nil {
+					data, _ := json.Marshal(b.Arguments)
+					total += EstimateTokens(string(data))
+				}
+			}
+		}
+		return total
+	case ai.ToolResultMessage:
+		return EstimateTokens(ai.FlattenText(m.Content))
+	default:
+		return 0
 	}
-	if evt.Tool != "" {
-		return evt.Tool + string(evt.Result)
-	}
-	if len(evt.Result) > 0 {
-		return string(evt.Result)
-	}
-	return ""
 }
