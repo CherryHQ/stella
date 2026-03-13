@@ -29,10 +29,12 @@ type Pool struct {
 	log          *slog.Logger
 }
 
-// NewPool creates a new Pool with the given runner factory.
-func NewPool(factory runner.NewRunnerFunc, opts ...PoolOption) *Pool {
+// NewPool creates a new Pool with the given runner factory and memory engine.
+// The memory engine is required — it is the sole persistence layer for sessions.
+func NewPool(factory runner.NewRunnerFunc, mem memory.Engine, opts ...PoolOption) *Pool {
 	p := &Pool{
 		factory:     factory,
+		mem:         mem,
 		sessions:    make(map[string]*Session),
 		idleTimeout: 10 * time.Minute,
 		log:         slog.With("component", "pool"),
@@ -67,10 +69,8 @@ func (p *Pool) createSessionLocked(channel string) SessionInfo {
 
 // persistNewSession saves session metadata to the memory engine and logs creation.
 func (p *Pool) persistNewSession(info SessionInfo) (SessionInfo, error) {
-	if p.mem != nil {
-		if err := p.mem.SaveInfo(context.Background(), info); err != nil {
-			return info, fmt.Errorf("persist session info: %w", err)
-		}
+	if err := p.mem.SaveInfo(context.Background(), info); err != nil {
+		return info, fmt.Errorf("persist session info: %w", err)
 	}
 	p.log.Info("session created", "session_id", info.ID, "channel", info.Channel)
 	return info, nil
@@ -95,20 +95,18 @@ func (p *Pool) activeSessionLocked(channel string) (SessionInfo, bool) {
 	}
 
 	// Check persistent store for sessions not yet in memory.
-	if p.mem != nil {
-		items, err := p.mem.ListInfo(context.Background(), false)
-		if err == nil {
-			for _, info := range items {
-				if info.Channel != channel {
-					continue
-				}
-				if _, ok := seen[info.ID]; ok {
-					continue
-				}
-				if best == nil || info.LastActive.After(best.LastActive) {
-					info := info
-					best = &info
-				}
+	items, err := p.mem.ListInfo(context.Background(), false)
+	if err == nil {
+		for _, info := range items {
+			if info.Channel != channel {
+				continue
+			}
+			if _, ok := seen[info.ID]; ok {
+				continue
+			}
+			if best == nil || info.LastActive.After(best.LastActive) {
+				info := info
+				best = &info
 			}
 		}
 	}
@@ -158,30 +156,15 @@ func (p *Pool) GetSession(sessionID string) (SessionInfo, error) {
 		return sess.Info, nil
 	}
 
-	if p.mem != nil {
-		si, err := p.mem.LoadInfo(context.Background(), sessionID)
-		if err == nil {
-			return si, nil
-		}
+	si, err := p.mem.LoadInfo(context.Background(), sessionID)
+	if err == nil {
+		return si, nil
 	}
 	return SessionInfo{}, fmt.Errorf("session %q not found", sessionID)
 }
 
 // ListSessions returns metadata for all sessions.
 func (p *Pool) ListSessions(includeArchived bool) ([]SessionInfo, error) {
-	if p.mem == nil {
-		p.mu.Lock()
-		defer p.mu.Unlock()
-		result := make([]SessionInfo, 0, len(p.sessions))
-		for _, sess := range p.sessions {
-			if !includeArchived && sess.Info.Archived {
-				continue
-			}
-			result = append(result, sess.Info)
-		}
-		return result, nil
-	}
-
 	items, err := p.mem.ListInfo(context.Background(), includeArchived)
 	if err != nil {
 		return nil, err
@@ -203,13 +186,11 @@ func (p *Pool) ArchiveSession(sessionID string) error {
 	}
 	p.mu.Unlock()
 
-	if p.mem != nil {
-		info, err := p.mem.LoadInfo(context.Background(), sessionID)
-		if err == nil {
-			info.Archived = true
-			if err := p.mem.SaveInfo(context.Background(), info); err != nil {
-				p.log.Warn("failed to persist archive", "session_id", sessionID, "error", err)
-			}
+	info, err := p.mem.LoadInfo(context.Background(), sessionID)
+	if err == nil {
+		info.Archived = true
+		if err := p.mem.SaveInfo(context.Background(), info); err != nil {
+			p.log.Warn("failed to persist archive", "session_id", sessionID, "error", err)
 		}
 	}
 
@@ -226,11 +207,9 @@ func (p *Pool) ArchiveSession(sessionID string) error {
 // History returns the message history for a session, loading from the memory engine.
 // Returns nil if the session has no history.
 func (p *Pool) History(sessionID string) []ai.Message {
-	if p.mem != nil {
-		msgs, err := p.mem.Load(context.Background(), sessionID)
-		if err == nil && len(msgs) > 0 {
-			return msgs
-		}
+	msgs, err := p.mem.Load(context.Background(), sessionID)
+	if err == nil && len(msgs) > 0 {
+		return msgs
 	}
 	return nil
 }
@@ -302,29 +281,23 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 	p.mu.Unlock()
 
 	// Persist updated session info (LastActive, Title).
-	if p.mem != nil {
-		if err := p.mem.SaveInfo(context.Background(), infoSnapshot); err != nil {
-			p.log.Warn("failed to save session info", "session_id", sessionID, "error", err)
-		}
+	if err := p.mem.SaveInfo(context.Background(), infoSnapshot); err != nil {
+		p.log.Warn("failed to save session info", "session_id", sessionID, "error", err)
 	}
 
 	// Store user message via memory engine.
 	userMsg := ai.UserMessage{Content: message}
-	if p.mem != nil {
-		if err := p.mem.Ingest(ctx, sessionID, userMsg); err != nil {
-			p.log.Warn("memory ingest user message failed", "session_id", sessionID, "error", err)
-		}
+	if err := p.mem.Ingest(ctx, sessionID, userMsg); err != nil {
+		p.log.Warn("memory ingest user message failed", "session_id", sessionID, "error", err)
 	}
 
 	// Assemble context within budget via memory engine.
 	var history []ai.Message
-	if p.mem != nil {
-		assembled, err := p.mem.Assemble(ctx, sessionID, p.compaction.MaxTokens, p.compaction.KeepTail)
-		if err != nil {
-			p.log.Warn("memory assemble failed", "session_id", sessionID, "error", err)
-		} else {
-			history = assembled
-		}
+	assembled, err := p.mem.Assemble(ctx, sessionID, p.compaction.MaxTokens, p.compaction.KeepTail)
+	if err != nil {
+		p.log.Warn("memory assemble failed", "session_id", sessionID, "error", err)
+	} else {
+		history = assembled
 	}
 
 	stream := r.Chat(ctx, history, message)
@@ -338,10 +311,8 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 				// Persist any buffered text before returning on error.
 				if textBuf.Len() > 0 {
 					flushMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: textBuf.String()}}}
-					if p.mem != nil {
-						if err := p.mem.Ingest(persistCtx, sessionID, flushMsg); err != nil {
-							p.log.Warn("memory ingest error-flush failed", "session_id", sessionID, "error", err)
-						}
+					if err := p.mem.Ingest(persistCtx, sessionID, flushMsg); err != nil {
+						p.log.Warn("memory ingest error-flush failed", "session_id", sessionID, "error", err)
 					}
 				}
 				out <- evt
@@ -353,17 +324,13 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 				// Flush buffered text before storing a non-text message.
 				if textBuf.Len() > 0 {
 					flushMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: textBuf.String()}}}
-					if p.mem != nil {
-						if err := p.mem.Ingest(persistCtx, sessionID, flushMsg); err != nil {
-							p.log.Warn("memory ingest text-flush failed", "session_id", sessionID, "error", err)
-						}
+					if err := p.mem.Ingest(persistCtx, sessionID, flushMsg); err != nil {
+						p.log.Warn("memory ingest text-flush failed", "session_id", sessionID, "error", err)
 					}
 					textBuf.Reset()
 				}
-				if p.mem != nil {
-					if err := p.mem.Ingest(persistCtx, sessionID, evt.Store); err != nil {
-						p.log.Warn("memory ingest store message failed", "session_id", sessionID, "error", err)
-					}
+				if err := p.mem.Ingest(persistCtx, sessionID, evt.Store); err != nil {
+					p.log.Warn("memory ingest store message failed", "session_id", sessionID, "error", err)
 				}
 			}
 
@@ -383,10 +350,8 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 		// Stream ended normally — persist the complete assistant message.
 		if textBuf.Len() > 0 {
 			finalMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: textBuf.String()}}}
-			if p.mem != nil {
-				if err := p.mem.Ingest(persistCtx, sessionID, finalMsg); err != nil {
-					p.log.Warn("memory ingest final message failed", "session_id", sessionID, "error", err)
-				}
+			if err := p.mem.Ingest(persistCtx, sessionID, finalMsg); err != nil {
+				p.log.Warn("memory ingest final message failed", "session_id", sessionID, "error", err)
 			}
 		}
 	}()
@@ -427,10 +392,8 @@ func (p *Pool) Close() error {
 		}
 	}
 
-	if p.mem != nil {
-		if err := p.mem.Close(); err != nil {
-			lastErr = err
-		}
+	if err := p.mem.Close(); err != nil {
+		lastErr = err
 	}
 
 	return lastErr
@@ -472,12 +435,8 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 		p.sessions[sessionID] = sess
 
 		// Restore metadata from memory engine if available.
-		if p.mem != nil {
-			if info, err := p.mem.LoadInfo(context.Background(), sessionID); err == nil {
-				sess.Info = info
-			} else {
-				sess.Info = SessionInfo{ID: sessionID, CreatedAt: time.Now(), LastActive: time.Now()}
-			}
+		if info, err := p.mem.LoadInfo(context.Background(), sessionID); err == nil {
+			sess.Info = info
 		} else {
 			sess.Info = SessionInfo{ID: sessionID, CreatedAt: time.Now(), LastActive: time.Now()}
 		}
@@ -504,10 +463,8 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 	p.mu.Unlock()
 
 	// Memory: bootstrap the conversation for this session.
-	if p.mem != nil {
-		if err := p.mem.Bootstrap(context.Background(), sessionID); err != nil {
-			p.log.Warn("memory bootstrap failed", "session_id", sessionID, "error", err)
-		}
+	if err := p.mem.Bootstrap(context.Background(), sessionID); err != nil {
+		p.log.Warn("memory bootstrap failed", "session_id", sessionID, "error", err)
 	}
 
 	p.log.Info("created runner", "session_id", sessionID)

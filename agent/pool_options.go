@@ -2,8 +2,6 @@ package agent
 
 import (
 	"time"
-
-	"github.com/vaayne/anna/memory"
 )
 
 // PoolOption configures a Pool.
@@ -34,14 +32,6 @@ func WithDefaultModel(model string) PoolOption {
 func WithFastModel(model string) PoolOption {
 	return func(p *Pool) {
 		p.fastModel = model
-	}
-}
-
-// WithMemoryEngine sets the memory engine for message persistence, compaction,
-// and session metadata. The memory engine is the sole persistence layer.
-func WithMemoryEngine(engine memory.Engine) PoolOption {
-	return func(p *Pool) {
-		p.mem = engine
 	}
 }
 

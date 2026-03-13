@@ -109,10 +109,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithCompaction(cfg.Runner.Compaction.WithDefaults()),
 		agent.WithDefaultModel(cfg.ResolveModelID(config.ModelTierStrong)),
 		agent.WithFastModel(cfg.ResolveModelID(config.ModelTierFast)),
-		agent.WithMemoryEngine(memoryEngine),
 	}
 
-	pool := agent.NewPool(factory, opts...)
+	pool := agent.NewPool(factory, memoryEngine, opts...)
 	go pool.StartReaper(ctx)
 
 	var heartbeatSvc *heartbeat.Service

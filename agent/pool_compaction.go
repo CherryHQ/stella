@@ -38,8 +38,5 @@ func (p *Pool) NeedsCompaction(sessionID string) bool {
 	if p.compaction.MaxTokens <= 0 {
 		return false
 	}
-	if p.mem == nil {
-		return false
-	}
 	return p.mem.NeedsCompaction(context.Background(), sessionID, float64(p.compaction.MaxTokens))
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/ai"
+	"github.com/vaayne/anna/db/sqlc"
 )
 
 func testEngine(t *testing.T) Engine {
@@ -725,3 +726,309 @@ func TestLoad_BootstrappedEmpty(t *testing.T) {
 
 // Suppress unused import warning for database/sql.
 var _ = sql.ErrNoRows
+
+func TestUserMessageToRows_EmptyString(t *testing.T) {
+	msg := ai.UserMessage{Content: ""}
+	rows := messageToRows(msg)
+	if len(rows) != 0 {
+		t.Errorf("expected 0 rows for empty string content, got %d", len(rows))
+	}
+}
+
+func TestUserMessageToRows_FallbackStringify(t *testing.T) {
+	// Non-string, non-[]ContentBlock content should use fmt.Sprintf fallback.
+	msg := ai.UserMessage{Content: 42}
+	rows := messageToRows(msg)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if rows[0].content != "42" {
+		t.Errorf("content = %q, want %q", rows[0].content, "42")
+	}
+	if rows[0].eventType != EventTypeText {
+		t.Errorf("eventType = %q, want %q", rows[0].eventType, EventTypeText)
+	}
+}
+
+func TestAssistantMessageToRows_TextAndMultipleToolCalls(t *testing.T) {
+	msg := ai.AssistantMessage{Content: []ai.ContentBlock{
+		ai.TextContent{Text: "Let me help you."},
+		ai.ToolCall{ID: "call_1", Name: "bash", Arguments: map[string]any{"cmd": "ls"}},
+		ai.ToolCall{ID: "call_2", Name: "read", Arguments: map[string]any{"path": "/tmp"}},
+	}}
+	rows := messageToRows(msg)
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 rows (1 text + 2 tool_call), got %d", len(rows))
+	}
+	if rows[0].eventType != EventTypeText {
+		t.Errorf("rows[0] eventType = %q, want %q", rows[0].eventType, EventTypeText)
+	}
+	if rows[0].content != "Let me help you." {
+		t.Errorf("rows[0] content = %q, want %q", rows[0].content, "Let me help you.")
+	}
+	for i := 1; i < 3; i++ {
+		if rows[i].eventType != EventTypeToolCall {
+			t.Errorf("rows[%d] eventType = %q, want %q", i, rows[i].eventType, EventTypeToolCall)
+		}
+	}
+}
+
+func TestAssistantMessageToRows_EmptyContent(t *testing.T) {
+	msg := ai.AssistantMessage{Content: nil}
+	rows := messageToRows(msg)
+	if len(rows) != 0 {
+		t.Errorf("expected 0 rows for empty assistant content, got %d", len(rows))
+	}
+}
+
+func TestToolResultToRows_NoError(t *testing.T) {
+	msg := ai.ToolResultMessage{
+		ToolCallID: "call_1",
+		ToolName:   "bash",
+		Content:    []ai.ContentBlock{ai.TextContent{Text: "file1.txt\nfile2.txt"}},
+		IsError:    false,
+	}
+	rows := messageToRows(msg)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if rows[0].role != RoleTool {
+		t.Errorf("role = %q, want %q", rows[0].role, RoleTool)
+	}
+	if rows[0].eventType != EventTypeToolResult {
+		t.Errorf("eventType = %q, want %q", rows[0].eventType, EventTypeToolResult)
+	}
+	var env toolResultEnvelope
+	if err := json.Unmarshal([]byte(rows[0].content), &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if env.Error != "" {
+		t.Errorf("expected empty error, got %q", env.Error)
+	}
+}
+
+func TestRowsToMessages_UnknownRole(t *testing.T) {
+	// Unknown role rows should be skipped.
+	msgs := []sqlc.Message{
+		{ID: 1, Role: "system", EventType: "text", Content: "ignored"},
+		{ID: 2, Role: RoleUser, EventType: EventTypeText, Content: "hello"},
+	}
+	result := rowsToMessages(msgs)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 message (unknown role skipped), got %d", len(result))
+	}
+	if _, ok := result[0].(ai.UserMessage); !ok {
+		t.Errorf("result[0] type = %T, want ai.UserMessage", result[0])
+	}
+}
+
+func TestMergeAssistantRows_TextFollowedByToolCalls(t *testing.T) {
+	msgs := []sqlc.Message{
+		{ID: 1, Role: RoleAssistant, EventType: EventTypeText, Content: "thinking"},
+		{ID: 2, Role: RoleAssistant, EventType: EventTypeToolCall, Content: mustMarshal(t, toolCallEnvelope{ID: "call_1", Tool: "bash", Args: json.RawMessage(`{"cmd":"ls"}`)})},
+		{ID: 3, Role: RoleAssistant, EventType: EventTypeToolCall, Content: mustMarshal(t, toolCallEnvelope{ID: "call_2", Tool: "read", Args: json.RawMessage(`{"path":"/tmp"}`)})},
+		{ID: 4, Role: RoleTool, EventType: EventTypeToolResult, Content: mustMarshal(t, toolResultEnvelope{ID: "call_1", Tool: "bash", Result: json.RawMessage(`"output"`)})},
+	}
+	result := rowsToMessages(msgs)
+	// Should produce: 1 AssistantMessage (text + 2 tool calls) + 1 ToolResultMessage
+	if len(result) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(result))
+	}
+
+	am, ok := result[0].(ai.AssistantMessage)
+	if !ok {
+		t.Fatalf("result[0] type = %T, want ai.AssistantMessage", result[0])
+	}
+	if len(am.Content) != 3 {
+		t.Fatalf("expected 3 content blocks, got %d", len(am.Content))
+	}
+	if tc, ok := am.Content[0].(ai.TextContent); !ok || tc.Text != "thinking" {
+		t.Errorf("content[0] = %+v, want TextContent{Text: 'thinking'}", am.Content[0])
+	}
+	for i := 1; i <= 2; i++ {
+		if _, ok := am.Content[i].(ai.ToolCall); !ok {
+			t.Errorf("content[%d] type = %T, want ai.ToolCall", i, am.Content[i])
+		}
+	}
+}
+
+func TestMergeAssistantRows_ToolCallOnly(t *testing.T) {
+	msgs := []sqlc.Message{
+		{ID: 1, Role: RoleAssistant, EventType: EventTypeToolCall, Content: mustMarshal(t, toolCallEnvelope{ID: "call_1", Tool: "bash", Args: json.RawMessage(`{}`)})},
+	}
+	result := rowsToMessages(msgs)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(result))
+	}
+	am, ok := result[0].(ai.AssistantMessage)
+	if !ok {
+		t.Fatalf("result[0] type = %T, want ai.AssistantMessage", result[0])
+	}
+	if len(am.Content) != 1 {
+		t.Fatalf("expected 1 content block, got %d", len(am.Content))
+	}
+	if _, ok := am.Content[0].(ai.ToolCall); !ok {
+		t.Errorf("content[0] type = %T, want ai.ToolCall", am.Content[0])
+	}
+}
+
+func TestMergeAssistantRows_UnknownEventType(t *testing.T) {
+	msgs := []sqlc.Message{
+		{ID: 1, Role: RoleAssistant, EventType: "unknown_type", Content: "raw content"},
+		{ID: 2, Role: RoleAssistant, EventType: EventTypeToolCall, Content: mustMarshal(t, toolCallEnvelope{ID: "call_1", Tool: "bash", Args: json.RawMessage(`{}`)})},
+	}
+	result := rowsToMessages(msgs)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(result))
+	}
+}
+
+func TestRowToToolResult_LegacyFallback(t *testing.T) {
+	// Non-JSON content should fall back to plain text.
+	msg := sqlc.Message{
+		ID:        1,
+		Role:      RoleTool,
+		EventType: EventTypeToolResult,
+		Content:   "plain text result without JSON",
+	}
+	result := rowToToolResult(msg)
+	text := ai.FlattenText(result.Content)
+	if text != "plain text result without JSON" {
+		t.Errorf("text = %q, want plain text fallback", text)
+	}
+}
+
+func TestSaveInfo_UpdateLastActive(t *testing.T) {
+	eng := testEngine(t)
+	ctx := context.Background()
+
+	if err := eng.SaveInfo(ctx, SessionInfo{ID: "sess-la", Channel: "cli", Title: "Test"}); err != nil {
+		t.Fatalf("SaveInfo create: %v", err)
+	}
+
+	if err := eng.SaveInfo(ctx, SessionInfo{ID: "sess-la"}); err != nil {
+		t.Fatalf("SaveInfo update last_active: %v", err)
+	}
+
+	loaded, err := eng.LoadInfo(ctx, "sess-la")
+	if err != nil {
+		t.Fatalf("LoadInfo: %v", err)
+	}
+	if loaded.Title != "Test" {
+		t.Errorf("Title = %q, want %q (should be preserved)", loaded.Title, "Test")
+	}
+}
+
+func TestLoad_FullRoundTrip(t *testing.T) {
+	eng := testEngine(t)
+	ctx := context.Background()
+	sessionID := "sess-roundtrip"
+
+	msgs := []ai.Message{
+		ai.UserMessage{Content: "what files are here?"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{
+			ai.TextContent{Text: "Let me check."},
+			ai.ToolCall{ID: "call_1", Name: "bash", Arguments: map[string]any{"cmd": "ls"}},
+		}},
+		ai.ToolResultMessage{
+			ToolCallID: "call_1",
+			ToolName:   "bash",
+			Content:    []ai.ContentBlock{ai.TextContent{Text: "file1.txt\nfile2.txt"}},
+		},
+		ai.AssistantMessage{Content: []ai.ContentBlock{
+			ai.TextContent{Text: "There are 2 files."},
+		}},
+	}
+	if err := eng.IngestBatch(ctx, sessionID, msgs); err != nil {
+		t.Fatalf("IngestBatch: %v", err)
+	}
+
+	loaded, err := eng.Load(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(loaded) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(loaded))
+	}
+
+	types := []string{"user", "assistant", "tool", "assistant"}
+	for i, msg := range loaded {
+		var role string
+		switch msg.(type) {
+		case ai.UserMessage:
+			role = "user"
+		case ai.AssistantMessage:
+			role = "assistant"
+		case ai.ToolResultMessage:
+			role = "tool"
+		}
+		if role != types[i] {
+			t.Errorf("loaded[%d] role = %q, want %q", i, role, types[i])
+		}
+	}
+
+	am := loaded[1].(ai.AssistantMessage)
+	if len(am.Content) != 2 {
+		t.Errorf("assistant message content blocks = %d, want 2", len(am.Content))
+	}
+}
+
+func TestDecodeToolCall_InvalidJSON(t *testing.T) {
+	_, ok := decodeToolCall("not json at all")
+	if ok {
+		t.Error("expected decodeToolCall to return false for invalid JSON")
+	}
+}
+
+func TestContentBlocksToJSON_ImageBlock(t *testing.T) {
+	blocks := []ai.ContentBlock{
+		ai.TextContent{Text: "describe this"},
+		ai.ImageContent{Data: "aGVsbG8=", MimeType: "image/png"},
+	}
+	result := contentBlocksToJSON(blocks)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 JSON blocks, got %d", len(result))
+	}
+	if result[0].Kind != "text" || result[0].Text != "describe this" {
+		t.Errorf("block[0] = %+v", result[0])
+	}
+	if result[1].Kind != "image" || result[1].Data != "aGVsbG8=" {
+		t.Errorf("block[1] = %+v", result[1])
+	}
+}
+
+func TestRowToUserMessage_PlainText(t *testing.T) {
+	msg := sqlc.Message{
+		ID:        1,
+		Role:      RoleUser,
+		EventType: EventTypeText,
+		Content:   "hello world",
+	}
+	um := rowToUserMessage(msg)
+	if content, ok := um.Content.(string); !ok || content != "hello world" {
+		t.Errorf("Content = %v, want 'hello world'", um.Content)
+	}
+}
+
+func TestRowToUserMessage_MultimodalInvalid(t *testing.T) {
+	msg := sqlc.Message{
+		ID:        1,
+		Role:      RoleUser,
+		EventType: EventTypeMultimodal,
+		Content:   "not json",
+	}
+	um := rowToUserMessage(msg)
+	if content, ok := um.Content.(string); !ok || content != "not json" {
+		t.Errorf("Content = %v, want 'not json' (fallback)", um.Content)
+	}
+}
+
+// mustMarshal is a test helper that JSON-marshals v or fails the test.
+func mustMarshal(t *testing.T, v any) string {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("mustMarshal: %v", err)
+	}
+	return string(data)
+}
