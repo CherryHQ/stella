@@ -64,21 +64,21 @@ Schema source of truth: `internal/db/schemas/tables/*.sql`. Migrations are gener
 
 After completing any task that changes behavior, APIs, config, CLI commands, or architecture:
 
-1. Check if `README.md` or any file in `docs/` needs updating.
-2. Update affected docs to match the new code. Keep README concise -- detailed content belongs in `docs/`.
-3. If adding a new subsystem, create a new doc in `docs/` and link it from the README documentation table.
+1. Check if `README.md` or any file in `docs/content/docs/` needs updating.
+2. Update affected docs to match the new code. Keep README concise -- detailed content belongs in `docs/content/docs/`.
+3. If adding a new subsystem, create a new doc in the appropriate category folder and add it to the folder's `meta.json`.
 4. MUST keep the builtin anna skill (`internal/agent/runner/builtin/anna/`) in sync with any user-facing changes.
 
-Docs structure:
-- `README.md` -- Quick start, feature list, architecture overview, links to docs
-- `docs/configuration.md` -- Full config YAML reference, env vars, defaults
-- `docs/architecture.md` -- System design, package layout, providers, tools
-- `docs/telegram.md` -- Bot setup, streaming, groups, access control
-- `docs/models.md` -- Tiers, CLI commands, provider setup, caching
-- `docs/memory-system.md` -- Lossless context management, identity files, retrieval tools
-- `docs/cron-system.md` -- Scheduled tasks, job persistence
-- `docs/session-compaction.md` -- History compaction, token management
-- `docs/notification-system.md` -- Dispatcher, backends, agent tool
+Doc site: `docs/` -- Fumadocs on TanStack Start, deployed to Cloudflare Workers.
+
+Docs structure (`docs/content/docs/`):
+- `index.mdx` -- Docs landing page, quick start, card links
+- `getting-started/` -- configuration.md, deployment.md
+- `core/` -- architecture.md, models.md, memory-system.md, session-compaction.md
+- `channels/` -- telegram.md, qq.md, feishu.md
+- `features/` -- cron-system.md, notification-system.md
+
+Each folder has a `meta.json` controlling sidebar order. All docs require YAML frontmatter (`title` at minimum).
 
 ## Release
 
