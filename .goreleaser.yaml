@@ -40,4 +40,4 @@ release:
   prerelease: auto
   footer: |
     ---
-    **Full Changelog**: See [CHANGELOG.md](https://github.com/vaayne/anna/blob/main/CHANGELOG.md) for categorized details.
+    **Full Changelog**: See [Changelog](https://github.com/vaayne/anna/blob/main/docs/content/docs/changelog.mdx) for categorized details.

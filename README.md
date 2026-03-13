@@ -127,7 +127,7 @@ anna onboard
 
 This opens a web UI in your browser where you can configure everything: API keys, providers, models, channels (Telegram, QQ, Feishu), and scheduled jobs. No need to edit config files by hand.
 
-If you prefer YAML, the config lives at `$ANNA_HOME/config.yaml` (`~/.anna` by default). See [docs/configuration.md](docs/configuration.md) for the full reference.
+If you prefer YAML, the config lives at `$ANNA_HOME/config.yaml` (`~/.anna` by default). See [Configuration](docs/content/docs/getting-started/configuration.md) for the full reference.
 
 ### Use
 
@@ -158,17 +158,17 @@ anna upgrade           # Self-update to latest release
 
 | Document | Description |
 |----------|------------|
-| [Deployment](docs/deployment.md) | Binary install, Docker, systemd, compose |
-| [Configuration](docs/configuration.md) | Full config reference, env vars, defaults |
-| [Architecture](docs/architecture.md) | System design, packages, providers, tools |
-| [Telegram](docs/telegram.md) | Bot setup, streaming, groups, access control |
-| [QQ Bot](docs/qq.md) | Bot setup, webhook, streaming |
-| [Feishu Bot](docs/feishu.md) | Bot setup, WebSocket, streaming |
-| [Models](docs/models.md) | Tiers, CLI commands, provider setup |
-| [Memory system](docs/memory-system.md) | LCM deep dive, DAG structure, retrieval tools |
-| [Cron system](docs/cron-system.md) | Scheduled tasks, heartbeat, persistence |
-| [Session compaction](docs/session-compaction.md) | How context compression works |
-| [Notification system](docs/notification-system.md) | Dispatcher, backends, routing |
+| [Configuration](docs/content/docs/getting-started/configuration.md) | Full config reference, env vars, defaults |
+| [Deployment](docs/content/docs/getting-started/deployment.md) | Binary install, Docker, systemd, compose |
+| [Architecture](docs/content/docs/core/architecture.md) | System design, packages, providers, tools |
+| [Models](docs/content/docs/core/models.md) | Tiers, CLI commands, provider setup |
+| [Memory System](docs/content/docs/core/memory-system.md) | LCM deep dive, DAG structure, retrieval tools |
+| [Session Compaction](docs/content/docs/core/session-compaction.md) | How context compression works |
+| [Telegram](docs/content/docs/channels/telegram.md) | Bot setup, streaming, groups, access control |
+| [QQ Bot](docs/content/docs/channels/qq.md) | Bot setup, webhook, streaming |
+| [Feishu Bot](docs/content/docs/channels/feishu.md) | Bot setup, WebSocket, streaming |
+| [Cron System](docs/content/docs/features/cron-system.md) | Scheduled tasks, heartbeat, persistence |
+| [Notification System](docs/content/docs/features/notification-system.md) | Dispatcher, backends, routing |
 
 ## Development
 

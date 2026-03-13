@@ -1,5 +1,6 @@
-# QQ Bot
-
+---
+title: QQ Bot
+---
 anna includes a QQ bot that connects via WebSocket (persistent connection, no public URL required).
 
 ## Setup
