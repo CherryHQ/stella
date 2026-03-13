@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-03-13
+
+### ♻️ Refactoring
+
+- **Skills**: Replace internal installer with `mcphub/pkg/skills` for multi-source support ([#52](https://github.com/vaayne/anna/pull/52))
+  - Now supports GitHub/GitLab URLs, local paths, and shorthand formats
+  - Backward compatible with existing `owner/repo@skill-name#ref` syntax
+
+### 📦 Dependencies
+
+- Update Go to 1.25
+- Add `github.com/vaayne/mcphub` v0.2.3
+
+**Full Changelog**: [v0.6.0...v0.6.1](https://github.com/vaayne/anna/compare/v0.6.0...v0.6.1)
+
 ## [0.6.0] - 2026-03-13
 
 ### ♻️ Refactoring
