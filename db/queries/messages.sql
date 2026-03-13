@@ -1,6 +1,6 @@
 -- name: CreateMessage :one
-INSERT INTO messages (conversation_id, seq, role, content, token_count)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO messages (conversation_id, seq, role, event_type, content, token_count)
+VALUES (?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetMessage :one

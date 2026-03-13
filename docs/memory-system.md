@@ -11,7 +11,7 @@ Package: `memory/` (core) + `memory/tool/` (agent tool wrappers).
 ### Architecture
 
 ```
-RPCEvent (user/assistant/tool)
+ai.Message (user/assistant/tool_result)
         |
         v
   +----------+     ingest      +-----------+
@@ -31,7 +31,7 @@ RPCEvent (user/assistant/tool)
   +------------+
         |
         v
-  []runner.RPCEvent (fresh tail + summaries within token budget)
+  []ai.Message (fresh tail + summaries within token budget)
         |
         v
   LLM context window
@@ -44,9 +44,9 @@ The `Engine` interface (`memory/types.go`) is the main entry point:
 | Method | Description |
 |--------|-------------|
 | `Bootstrap(ctx, sessionID)` | Ensures a conversation record exists for the session |
-| `Ingest(ctx, sessionID, evt)` | Persists a single `RPCEvent` and appends a context item |
-| `IngestBatch(ctx, sessionID, evts)` | Persists multiple events in a single transaction |
-| `Assemble(ctx, sessionID, budget, freshTail)` | Builds context within token budget, returns `[]RPCEvent` |
+| `Ingest(ctx, sessionID, msg)` | Persists a single `ai.Message` and appends a context item |
+| `IngestBatch(ctx, sessionID, msgs)` | Persists multiple messages in a single transaction |
+| `Assemble(ctx, sessionID, budget, freshTail)` | Builds context within token budget, returns `[]ai.Message` |
 | `Compact(ctx, sessionID, mode)` | Runs compaction passes (leaf + condensation) |
 | `NeedsCompaction(ctx, sessionID, threshold)` | Checks if context tokens exceed the absolute threshold |
 | `Retrieval()` | Returns the `RetrievalEngine` for search/explore tools |
@@ -107,7 +107,7 @@ Leaf summaries target 1/3 of source tokens. Condensed summaries target 1/2 (less
 The `Assembler` builds the context window for each LLM call (`memory/assembler.go`):
 
 1. Separate context items into **fresh tail** (last N message items, default 20) and **older** items.
-2. Resolve fresh tail items to `RPCEvent`s — these are always included regardless of budget.
+2. Resolve fresh tail items to `ai.Message`s — these are always included regardless of budget.
 3. Fill remaining budget with older items, newest first. Each item is resolved and its tokens estimated. Items that would exceed the budget are excluded.
 4. Return older events (chronological order) + tail events.
 

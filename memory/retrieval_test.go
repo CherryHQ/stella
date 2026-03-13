@@ -34,6 +34,7 @@ func seedMessages(t *testing.T, q *sqlc.Queries, convID int64, contents []string
 			ConversationID: convID,
 			Seq:            int64(i + 1),
 			Role:           RoleUser,
+			EventType:      EventTypeText,
 			Content:        c,
 			TokenCount:     int64(EstimateTokens(c)),
 		})

@@ -2,7 +2,7 @@ package agent
 
 import (
 	"github.com/vaayne/anna/agent/runner"
-	"github.com/vaayne/anna/store"
+	"github.com/vaayne/anna/memory"
 )
 
 // CompactionConfig controls automatic session compaction.
@@ -17,7 +17,7 @@ type CompactionConfig struct {
 }
 
 // WithDefaults returns a copy with zero-value fields replaced by defaults.
-// MaxTokens 0 → 80000; negative values are preserved (meaning disabled).
+// MaxTokens 0 -> 80000; negative values are preserved (meaning disabled).
 func (c CompactionConfig) WithDefaults() CompactionConfig {
 	if c.MaxTokens == 0 {
 		c.MaxTokens = 80_000
@@ -28,14 +28,14 @@ func (c CompactionConfig) WithDefaults() CompactionConfig {
 	return c
 }
 
-// SessionInfo is an alias for store.SessionInfo.
-type SessionInfo = store.SessionInfo
+// SessionInfo is an alias for memory.SessionInfo.
+type SessionInfo = memory.SessionInfo
 
-// Session holds the state of a single conversation: metadata, the full event
-// log (source of truth) and the currently assigned runner.
+// Session holds the state of a single conversation: metadata and the
+// currently assigned runner. Message persistence is handled by the
+// memory engine exclusively.
 type Session struct {
 	Info   SessionInfo
-	Events []runner.RPCEvent
 	Runner runner.Runner
 	Model  string // model ID the current runner was created with
 }

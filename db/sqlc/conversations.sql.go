@@ -13,7 +13,7 @@ import (
 const createConversation = `-- name: CreateConversation :one
 INSERT INTO conversations (session_id, title)
 VALUES (?, ?)
-RETURNING id, session_id, title, bootstrapped_at, created_at, updated_at
+RETURNING id, session_id, title, channel, archived, last_active, bootstrapped_at, created_at, updated_at
 `
 
 type CreateConversationParams struct {
@@ -28,6 +28,46 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 		&i.ID,
 		&i.SessionID,
 		&i.Title,
+		&i.Channel,
+		&i.Archived,
+		&i.LastActive,
+		&i.BootstrappedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createConversationFull = `-- name: CreateConversationFull :one
+INSERT INTO conversations (session_id, title, channel, archived, last_active)
+VALUES (?, ?, ?, ?, ?)
+RETURNING id, session_id, title, channel, archived, last_active, bootstrapped_at, created_at, updated_at
+`
+
+type CreateConversationFullParams struct {
+	SessionID  string         `json:"session_id"`
+	Title      sql.NullString `json:"title"`
+	Channel    string         `json:"channel"`
+	Archived   int64          `json:"archived"`
+	LastActive string         `json:"last_active"`
+}
+
+func (q *Queries) CreateConversationFull(ctx context.Context, arg CreateConversationFullParams) (Conversation, error) {
+	row := q.db.QueryRowContext(ctx, createConversationFull,
+		arg.SessionID,
+		arg.Title,
+		arg.Channel,
+		arg.Archived,
+		arg.LastActive,
+	)
+	var i Conversation
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.Title,
+		&i.Channel,
+		&i.Archived,
+		&i.LastActive,
 		&i.BootstrappedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -36,7 +76,7 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 }
 
 const getConversation = `-- name: GetConversation :one
-SELECT id, session_id, title, bootstrapped_at, created_at, updated_at FROM conversations WHERE id = ?
+SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, created_at, updated_at FROM conversations WHERE id = ?
 `
 
 func (q *Queries) GetConversation(ctx context.Context, id int64) (Conversation, error) {
@@ -46,6 +86,9 @@ func (q *Queries) GetConversation(ctx context.Context, id int64) (Conversation, 
 		&i.ID,
 		&i.SessionID,
 		&i.Title,
+		&i.Channel,
+		&i.Archived,
+		&i.LastActive,
 		&i.BootstrappedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -54,7 +97,7 @@ func (q *Queries) GetConversation(ctx context.Context, id int64) (Conversation, 
 }
 
 const getConversationBySessionID = `-- name: GetConversationBySessionID :one
-SELECT id, session_id, title, bootstrapped_at, created_at, updated_at FROM conversations WHERE session_id = ?
+SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, created_at, updated_at FROM conversations WHERE session_id = ?
 `
 
 func (q *Queries) GetConversationBySessionID(ctx context.Context, sessionID string) (Conversation, error) {
@@ -64,11 +107,102 @@ func (q *Queries) GetConversationBySessionID(ctx context.Context, sessionID stri
 		&i.ID,
 		&i.SessionID,
 		&i.Title,
+		&i.Channel,
+		&i.Archived,
+		&i.LastActive,
 		&i.BootstrappedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listConversations = `-- name: ListConversations :many
+SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, created_at, updated_at FROM conversations WHERE archived = 0 ORDER BY last_active DESC
+`
+
+func (q *Queries) ListConversations(ctx context.Context) ([]Conversation, error) {
+	rows, err := q.db.QueryContext(ctx, listConversations)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Conversation{}
+	for rows.Next() {
+		var i Conversation
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.Title,
+			&i.Channel,
+			&i.Archived,
+			&i.LastActive,
+			&i.BootstrappedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listConversationsAll = `-- name: ListConversationsAll :many
+SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, created_at, updated_at FROM conversations ORDER BY last_active DESC
+`
+
+func (q *Queries) ListConversationsAll(ctx context.Context) ([]Conversation, error) {
+	rows, err := q.db.QueryContext(ctx, listConversationsAll)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Conversation{}
+	for rows.Next() {
+		var i Conversation
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.Title,
+			&i.Channel,
+			&i.Archived,
+			&i.LastActive,
+			&i.BootstrappedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateConversationArchived = `-- name: UpdateConversationArchived :exec
+UPDATE conversations SET archived = ?, updated_at = datetime('now') WHERE session_id = ?
+`
+
+type UpdateConversationArchivedParams struct {
+	Archived  int64  `json:"archived"`
+	SessionID string `json:"session_id"`
+}
+
+func (q *Queries) UpdateConversationArchived(ctx context.Context, arg UpdateConversationArchivedParams) error {
+	_, err := q.db.ExecContext(ctx, updateConversationArchived, arg.Archived, arg.SessionID)
+	return err
 }
 
 const updateConversationBootstrapped = `-- name: UpdateConversationBootstrapped :exec
@@ -77,6 +211,15 @@ UPDATE conversations SET bootstrapped_at = datetime('now'), updated_at = datetim
 
 func (q *Queries) UpdateConversationBootstrapped(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, updateConversationBootstrapped, id)
+	return err
+}
+
+const updateConversationLastActive = `-- name: UpdateConversationLastActive :exec
+UPDATE conversations SET last_active = datetime('now'), updated_at = datetime('now') WHERE session_id = ?
+`
+
+func (q *Queries) UpdateConversationLastActive(ctx context.Context, sessionID string) error {
+	_, err := q.db.ExecContext(ctx, updateConversationLastActive, sessionID)
 	return err
 }
 
@@ -91,5 +234,19 @@ type UpdateConversationTitleParams struct {
 
 func (q *Queries) UpdateConversationTitle(ctx context.Context, arg UpdateConversationTitleParams) error {
 	_, err := q.db.ExecContext(ctx, updateConversationTitle, arg.Title, arg.ID)
+	return err
+}
+
+const updateConversationTitleBySessionID = `-- name: UpdateConversationTitleBySessionID :exec
+UPDATE conversations SET title = ?, updated_at = datetime('now') WHERE session_id = ?
+`
+
+type UpdateConversationTitleBySessionIDParams struct {
+	Title     sql.NullString `json:"title"`
+	SessionID string         `json:"session_id"`
+}
+
+func (q *Queries) UpdateConversationTitleBySessionID(ctx context.Context, arg UpdateConversationTitleBySessionIDParams) error {
+	_, err := q.db.ExecContext(ctx, updateConversationTitleBySessionID, arg.Title, arg.SessionID)
 	return err
 }

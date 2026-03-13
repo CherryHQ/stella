@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/vaayne/anna/agent/runner"
+	"github.com/vaayne/anna/ai"
 	"github.com/vaayne/anna/db/sqlc"
 )
 
@@ -27,6 +27,14 @@ const (
 	ItemTypeSummary = "summary"
 )
 
+// Event type constants for the event_type column.
+const (
+	EventTypeText       = "text"
+	EventTypeMultimodal = "multimodal"
+	EventTypeToolCall   = "tool_call"
+	EventTypeToolResult = "tool_result"
+)
+
 // Search scope constants.
 const (
 	ScopeMessages  = "messages"
@@ -47,20 +55,31 @@ type Engine interface {
 	Bootstrap(ctx context.Context, sessionID string) error
 
 	// Ingest persists a message and appends to context.
-	Ingest(ctx context.Context, sessionID string, evt runner.RPCEvent) error
+	Ingest(ctx context.Context, sessionID string, msg ai.Message) error
 
 	// IngestBatch persists multiple messages.
-	IngestBatch(ctx context.Context, sessionID string, evts []runner.RPCEvent) error
+	IngestBatch(ctx context.Context, sessionID string, msgs []ai.Message) error
 
 	// Assemble builds context for the model within token budget.
-	// Returns []runner.RPCEvent for compatibility with the existing runner pipeline.
-	Assemble(ctx context.Context, sessionID string, budget int, freshTail int) ([]runner.RPCEvent, error)
+	Assemble(ctx context.Context, sessionID string, budget int, freshTail int) ([]ai.Message, error)
 
 	// Compact runs compaction passes (leaf + optional condensation).
 	Compact(ctx context.Context, sessionID string, mode CompactionMode) (*CompactionResult, error)
 
 	// NeedsCompaction checks if compaction should run based on token threshold.
 	NeedsCompaction(ctx context.Context, sessionID string, threshold float64) bool
+
+	// SaveInfo persists session metadata (upsert).
+	SaveInfo(ctx context.Context, info SessionInfo) error
+
+	// LoadInfo retrieves session metadata by session ID.
+	LoadInfo(ctx context.Context, sessionID string) (SessionInfo, error)
+
+	// ListInfo lists session metadata. If includeArchived is false, archived sessions are excluded.
+	ListInfo(ctx context.Context, includeArchived bool) ([]SessionInfo, error)
+
+	// Load returns the full event history for a session.
+	Load(ctx context.Context, sessionID string) ([]ai.Message, error)
 
 	// Retrieval returns the retrieval engine for tools.
 	Retrieval() *RetrievalEngine
@@ -162,6 +181,16 @@ type ExpandMessage struct {
 	Role      string
 	Content   string
 	CreatedAt time.Time
+}
+
+// SessionInfo holds metadata about a session stored in the conversations table.
+type SessionInfo struct {
+	ID         string
+	Channel    string
+	Title      string
+	CreatedAt  time.Time
+	LastActive time.Time
+	Archived   bool
 }
 
 // EstimateTokens returns a rough token count (~4 chars per token).

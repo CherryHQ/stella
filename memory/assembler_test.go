@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/vaayne/anna/ai"
 	"github.com/vaayne/anna/db/sqlc"
 )
 
@@ -23,10 +24,16 @@ func setupAssemblerTest(t *testing.T) (*Assembler, *sqlc.Queries, int64) {
 
 func addMessage(t *testing.T, ctx context.Context, q *sqlc.Queries, convID int64, seq int, role, content string) sqlc.Message {
 	t.Helper()
+	return addMessageWithType(t, ctx, q, convID, seq, role, EventTypeText, content)
+}
+
+func addMessageWithType(t *testing.T, ctx context.Context, q *sqlc.Queries, convID int64, seq int, role, eventType, content string) sqlc.Message {
+	t.Helper()
 	msg, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
 		ConversationID: convID,
 		Seq:            int64(seq),
 		Role:           role,
+		EventType:      eventType,
 		Content:        content,
 		TokenCount:     int64(EstimateTokens(content)),
 	})
@@ -172,12 +179,14 @@ func TestAssemble_WithSummary(t *testing.T) {
 		t.Fatalf("expected 2 events, got %d", len(result))
 	}
 
-	// First event should be the summary (as a user message with XML).
-	if result[0].Type != "user_message" {
-		t.Errorf("expected user_message type for summary, got %q", result[0].Type)
+	// First message should be the summary (as a UserMessage with XML content).
+	um, ok := result[0].(ai.UserMessage)
+	if !ok {
+		t.Errorf("expected ai.UserMessage for summary, got %T", result[0])
 	}
-	if result[0].Summary == "" {
-		t.Error("expected summary content in first event")
+	content, ok := um.Content.(string)
+	if !ok || content == "" {
+		t.Error("expected non-empty string content in summary UserMessage")
 	}
 }
 

@@ -2,13 +2,13 @@
 
 ## Status
 
-Implemented — `agent/pool_compaction.go` (orchestration), `store/store.go` (file rewriting), channels expose `/compact`.
+Implemented — `agent/pool_compaction.go` (orchestration), `memory.Engine` (SQLite persistence), channels expose `/compact`.
 
 ## Problem
 
 LLM runners have finite context windows. As a session accumulates messages, the
-JSONL history grows unbounded. Eventually the runner's context fills up, leading
-to degraded responses or hard failures. Long-lived sessions (Telegram chats,
+history grows unbounded. Eventually the runner's context fills up, leading to
+degraded responses or hard failures. Long-lived sessions (Telegram chats,
 multi-day coding sessions) hit this wall quickly.
 
 We need a way to compress old history without losing critical context, and
@@ -56,23 +56,19 @@ Channel (/compact or auto)
     v
 Pool.CompactSession(ctx, sessionID)
     |
-    ├─ getOrCreateRunner()       load session from disk if needed, ensure runner
+    ├─ getOrCreateRunner()       load session from SQLite if needed, ensure runner
     │
     ├─ collectFullResponse()     send compaction prompt to runner, collect summary
     │
-    ├─ store.Compact()           rewrite JSONL: header + compaction entry + tail
-    │
-    ├─ replace in-memory events  swap sess.Events with compacted version
+    ├─ memory.Engine compaction  store summary + tail in SQLite
     │
     └─ kill runner               next Chat() starts fresh with clean context
 ```
 
 ### Token Estimation
 
-`store.EstimateTokens()` scans the JSONL file, sums bytes of `message` and
-`compaction` lines, and divides by 4 (rough heuristic: ~4 bytes per token for
-English text with JSON overhead). This avoids loading entire sessions into
-memory just to check size.
+Token estimation sums the byte length of stored messages and divides by 4
+(rough heuristic: ~4 bytes per token for English text with JSON overhead).
 
 ### Compaction Prompt
 
@@ -89,20 +85,12 @@ The prompt asks the runner to produce a structured summary:
 Guidelines enforce self-containment: the summary must make sense to a reader
 with zero access to the prior conversation.
 
-### JSONL File Format
+### Storage Format
 
-The compaction entry is a single JSON line:
-
-```json
-{"type":"compaction","id":"abc123","summary":"## Goal\n..."}
-```
-
-On `Load()`, the store converts this into a pair of `RPCEvent`s — a user
-message containing the summary and an assistant acknowledgment — so the runner
-sees it as normal conversation history.
-
-Message `parentId` fields are re-chained so the compaction entry becomes the
-parent of the first kept message, preserving the linked-list structure.
+Compaction summaries are stored as messages in the SQLite database via
+`memory.Engine`. On `Load()`, the engine converts the compaction entry into a
+pair of `ai.Message`s — a user message containing the summary and an assistant
+acknowledgment — so the runner sees it as normal conversation history.
 
 ## Triggers
 
@@ -176,12 +164,9 @@ This ensures `/compact` is always available for any persisted session.
 
 | Scenario | Behavior |
 |---|---|
-| No store configured | Returns error: "compaction requires a persistent store" |
 | Runner fails to summarize | Returns error, session untouched |
-| Store rewrite fails | Returns error, original file preserved |
+| Database write fails | Returns error, original data preserved |
 | Auto-compaction fails | Logs warning, continues with full history |
 | Empty summary from runner | Returns error: "empty summary response" |
 
-The original JSONL file is only replaced after the compaction entry and tail
-messages are successfully built. The write uses `os.Rename` for atomicity where
-the OS supports it.
+All writes go through SQLite transactions for atomicity.
