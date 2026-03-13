@@ -79,7 +79,7 @@ func skillsInstallCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "install",
 		Aliases:   []string{"add"},
-		Usage:     "Install a skill (e.g. anna skills install owner/repo@skill-name)",
+		Usage:     "Install a skill (e.g. owner/repo@skill-name, GitHub/GitLab URL, or local path)",
 		ArgsUsage: "<source>",
 		Action: func(c *ucli.Context) error {
 			source := c.Args().First()
