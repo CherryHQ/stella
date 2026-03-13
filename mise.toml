@@ -73,6 +73,22 @@ description = "Generate Go code and SQLC queries"
 run = "sqlc generate"
 
 # ============================================================================
+# Atlas Migration Tasks
+# ============================================================================
+
+[tasks."atlas:diff"]
+description = "Generate a new Atlas migration from schema changes"
+run = "atlas migrate diff {{arg(name='name', default='migration')}} --env local"
+
+[tasks."atlas:hash"]
+description = "Recalculate Atlas migration hash"
+run = "atlas migrate hash --env local"
+
+[tasks."atlas:validate"]
+description = "Validate Atlas migrations"
+run = "atlas migrate validate --env local"
+
+# ============================================================================
 # Release Tasks
 # ============================================================================
 

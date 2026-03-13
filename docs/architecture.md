@@ -101,6 +101,13 @@ channel/
     render.go                       Response splitting
     model.go                        Text-based model list
 
+db/
+  embed.go                          Embedded migrations FS
+  schemas/tables/                   Schema source of truth (Atlas reads these)
+  migrations/                       Atlas-generated SQL migration files
+  queries/                          sqlc query definitions
+  sqlc/                             Generated query code (sqlc output)
+
 cron/
   service.go                        Scheduler service (gocron/v2)
   persistence.go                    Job JSON persistence (load/save)
