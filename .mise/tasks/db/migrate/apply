@@ -4,4 +4,4 @@
 DB_PATH="${DB_PATH:-$HOME/.anna/workspace/memory.db}"
 atlas migrate apply \
     --url "sqlite://$DB_PATH" \
-    --dir "file://db/migrations"
+    --dir "file://internal/db/migrations"

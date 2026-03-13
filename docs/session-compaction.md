@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented — `agent/pool_compaction.go` (orchestration), `memory.Engine` (SQLite persistence), channels expose `/compact`.
+Implemented — `internal/agent/pool_compaction.go` (orchestration), `memory.Engine` (SQLite persistence), channels expose `/compact`.
 
 ## Problem
 

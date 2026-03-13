@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented — `channel/notifier.go`, `channel/notify_tool.go`, `channel/telegram/telegram.go`.
+Implemented — `internal/channel/notifier.go`, `internal/channel/notify_tool.go`, `internal/channel/telegram/telegram.go`.
 
 ## Overview
 

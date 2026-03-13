@@ -3,5 +3,5 @@
 
 atlas migrate lint \
     --dev-url "sqlite://dev?mode=memory" \
-    --dir "file://db/migrations" \
+    --dir "file://internal/db/migrations" \
     --git-base "main"
