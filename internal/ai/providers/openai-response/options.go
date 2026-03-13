@@ -5,6 +5,7 @@ import (
 	"github.com/openai/openai-go/responses"
 	"github.com/openai/openai-go/shared"
 	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/toolspec"
 )
 
 func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) responses.ResponseNewParams {
@@ -35,7 +36,7 @@ func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) response
 	return params
 }
 
-func convertTools(tools []ai.ToolDefinition) []responses.ToolUnionParam {
+func convertTools(tools []toolspec.Definition) []responses.ToolUnionParam {
 	out := make([]responses.ToolUnionParam, 0, len(tools))
 	for _, t := range tools {
 		out = append(out, responses.ToolUnionParam{

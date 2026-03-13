@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/toolspec"
 )
 
 var skillsInputSchema = func() map[string]any {
@@ -58,8 +58,8 @@ func NewTool(annaHome, workspace, cwd string) *SkillsTool {
 }
 
 // Definition returns the tool definition for the LLM.
-func (t *SkillsTool) Definition() ai.ToolDefinition {
-	return ai.ToolDefinition{
+func (t *SkillsTool) Definition() toolspec.Definition {
+	return toolspec.Definition{
 		Name:        "skills",
 		Description: "Manage agent skills. Use 'search' to find skills from the ecosystem, 'install' to add a skill (e.g. owner/repo@skill-name), 'list' to see installed skills, 'remove' to delete one.",
 		InputSchema: skillsInputSchema,

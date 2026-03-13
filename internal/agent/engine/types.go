@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/toolspec"
 )
 
 // ToolFunc executes one tool invocation.
@@ -18,7 +19,7 @@ type LoopConfig struct {
 	StreamOptions   ai.StreamOptions
 	MaxTurns        int
 	Tools           ToolSet
-	ToolDefinitions []ai.ToolDefinition
+	ToolDefinitions []toolspec.Definition
 	System          string
 	Interrupt       <-chan struct{}
 }

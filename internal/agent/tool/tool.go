@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/toolspec"
 )
 
 // Tool is a built-in tool that can be executed by the Go runner.
 type Tool interface {
-	Definition() ai.ToolDefinition
+	Definition() toolspec.Definition
 	Execute(ctx context.Context, args map[string]any) (string, error)
 }
 
@@ -35,8 +35,8 @@ func (r *Registry) Register(t Tool) {
 }
 
 // Definitions returns all tool definitions for passing to the LLM.
-func (r *Registry) Definitions() []ai.ToolDefinition {
-	defs := make([]ai.ToolDefinition, 0, len(r.tools))
+func (r *Registry) Definitions() []toolspec.Definition {
+	defs := make([]toolspec.Definition, 0, len(r.tools))
 	for _, t := range r.tools {
 		defs = append(defs, t.Definition())
 	}

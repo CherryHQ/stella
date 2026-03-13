@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/memory"
+	"github.com/vaayne/anna/internal/toolspec"
 )
 
 // GrepTool searches conversation history using the memory retrieval engine.
@@ -19,8 +19,8 @@ func NewGrepTool(engine memory.Engine) *GrepTool {
 	return &GrepTool{engine: engine}
 }
 
-func (t *GrepTool) Definition() ai.ToolDefinition {
-	return ai.ToolDefinition{
+func (t *GrepTool) Definition() toolspec.Definition {
+	return toolspec.Definition{
 		Name:        "memory_grep",
 		Description: "Search conversation history for messages and summaries matching a pattern. Use to recall earlier discussions, decisions, or code changes.",
 		InputSchema: map[string]any{

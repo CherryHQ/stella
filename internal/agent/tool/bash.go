@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/toolspec"
 )
 
 // BashTool executes bash commands.
@@ -14,8 +14,8 @@ type BashTool struct {
 	workDir string
 }
 
-func (t *BashTool) Definition() ai.ToolDefinition {
-	return ai.ToolDefinition{
+func (t *BashTool) Definition() toolspec.Definition {
+	return toolspec.Definition{
 		Name:        "bash",
 		Description: "Execute a bash command. Use for file operations like ls, rg, find, git, and other shell commands.",
 		InputSchema: map[string]any{

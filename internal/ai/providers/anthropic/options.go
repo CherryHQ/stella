@@ -4,6 +4,7 @@ import (
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
 	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/toolspec"
 )
 
 func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) sdk.MessageNewParams {
@@ -33,7 +34,7 @@ func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) sdk.Mess
 	return params
 }
 
-func convertTools(tools []ai.ToolDefinition) []sdk.ToolUnionParam {
+func convertTools(tools []toolspec.Definition) []sdk.ToolUnionParam {
 	out := make([]sdk.ToolUnionParam, 0, len(tools))
 	for _, t := range tools {
 		schema := sdk.ToolInputSchemaParam{

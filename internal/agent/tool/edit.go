@@ -6,14 +6,14 @@ import (
 	"os"
 	"strings"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/toolspec"
 )
 
 // EditTool makes surgical edits to files by exact string replacement.
 type EditTool struct{}
 
-func (t *EditTool) Definition() ai.ToolDefinition {
-	return ai.ToolDefinition{
+func (t *EditTool) Definition() toolspec.Definition {
+	return toolspec.Definition{
 		Name:        "edit",
 		Description: "Make a surgical edit to a file. The old_string must match exactly (including whitespace and indentation). Use this for targeted changes to existing files.",
 		InputSchema: map[string]any{

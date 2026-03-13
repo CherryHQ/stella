@@ -14,6 +14,7 @@ import (
 	"github.com/vaayne/anna/internal/ai/providers/anthropic"
 	"github.com/vaayne/anna/internal/ai/providers/openai"
 	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
+	"github.com/vaayne/anna/internal/toolspec"
 )
 
 func skipWithoutAPIKey(t *testing.T) string {
@@ -65,7 +66,7 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 		},
 	}
 
-	toolDef := ai.ToolDefinition{
+	toolDef := toolspec.Definition{
 		Name:        "get_weather",
 		Description: "Get the current weather for a city. Always call this tool when asked about weather.",
 		InputSchema: map[string]any{
@@ -104,7 +105,7 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 				StreamOptions:   ai.StreamOptions{APIKey: apiKey},
 				MaxTurns:        5,
 				Tools:           tools,
-				ToolDefinitions: []ai.ToolDefinition{toolDef},
+				ToolDefinitions: []toolspec.Definition{toolDef},
 				System:          "You are a helpful assistant. When asked about weather, always use the get_weather tool. Be concise.",
 			}
 

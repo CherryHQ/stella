@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/toolspec"
 )
 
 var cronInputSchema = func() map[string]any {
@@ -64,8 +64,8 @@ func NewTool(service *Service) *CronTool {
 }
 
 // Definition returns the tool definition for the LLM.
-func (t *CronTool) Definition() ai.ToolDefinition {
-	return ai.ToolDefinition{
+func (t *CronTool) Definition() toolspec.Definition {
+	return toolspec.Definition{
 		Name:        "cron",
 		Description: "Manage scheduled tasks. Use action 'add' to create a recurring or one-time job, 'list' to see all jobs, or 'remove' to delete a job. For one-time jobs, use the 'at' field with an RFC3339 timestamp.",
 		InputSchema: cronInputSchema,

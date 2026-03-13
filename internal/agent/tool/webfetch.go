@@ -13,7 +13,7 @@ import (
 
 	readability "codeberg.org/readeck/go-readability/v2"
 	md "github.com/JohannesKaufmann/html-to-markdown"
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/toolspec"
 )
 
 const (
@@ -43,8 +43,8 @@ func NewWebFetchTool() *WebFetchTool {
 	}
 }
 
-func (t *WebFetchTool) Definition() ai.ToolDefinition {
-	return ai.ToolDefinition{
+func (t *WebFetchTool) Definition() toolspec.Definition {
+	return toolspec.Definition{
 		Name:        "webfetch",
 		Description: "Fetch a web page and return its main content. Supports multiple output formats: markdown (default), html, text, and json.",
 		InputSchema: map[string]any{

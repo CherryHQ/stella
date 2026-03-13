@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/memory"
+	"github.com/vaayne/anna/internal/toolspec"
 )
 
 // DescribeTool inspects summary metadata and lineage.
@@ -19,8 +19,8 @@ func NewDescribeTool(engine memory.Engine) *DescribeTool {
 	return &DescribeTool{engine: engine}
 }
 
-func (t *DescribeTool) Definition() ai.ToolDefinition {
-	return ai.ToolDefinition{
+func (t *DescribeTool) Definition() toolspec.Definition {
+	return toolspec.Definition{
 		Name:        "memory_describe",
 		Description: "Inspect a summary's content, metadata, and lineage (parents/children). Use after memory_grep returns summary results to understand context.",
 		InputSchema: map[string]any{

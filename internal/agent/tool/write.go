@@ -6,14 +6,14 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/toolspec"
 )
 
 // WriteTool creates new files or completely overwrites existing ones.
 type WriteTool struct{}
 
-func (t *WriteTool) Definition() ai.ToolDefinition {
-	return ai.ToolDefinition{
+func (t *WriteTool) Definition() toolspec.Definition {
+	return toolspec.Definition{
 		Name:        "write",
 		Description: "Create a new file or completely overwrite an existing file with the provided content.",
 		InputSchema: map[string]any{

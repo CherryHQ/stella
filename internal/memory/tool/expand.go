@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/memory"
+	"github.com/vaayne/anna/internal/toolspec"
 )
 
 // ExpandTool drills into a summary to retrieve original details.
@@ -19,8 +19,8 @@ func NewExpandTool(engine memory.Engine) *ExpandTool {
 	return &ExpandTool{engine: engine}
 }
 
-func (t *ExpandTool) Definition() ai.ToolDefinition {
-	return ai.ToolDefinition{
+func (t *ExpandTool) Definition() toolspec.Definition {
+	return toolspec.Definition{
 		Name:        "memory_expand",
 		Description: "Drill into a summary to retrieve original messages (leaf) or child summaries (condensed). Use to recover details lost during compaction.",
 		InputSchema: map[string]any{
