@@ -68,6 +68,7 @@ internal/
       bash.go                         Execute shell commands
       write.go                        Create/overwrite files
       edit.go                         Edit file sections
+      delegate.go                     Subagent delegation (parallel subtasks)
       truncate.go                     Truncate large outputs to temp files
 
   channel/
@@ -172,6 +173,17 @@ type Tool interface {
 | `write` | Create/overwrite files atomically |
 | `edit` | Edit file sections preserving context |
 | `truncate` | Truncate large outputs to temp files |
+| `delegate` | Spawn subagent loops for bounded subtasks |
+
+### Delegation
+
+The `delegate` tool enables the agent to spawn child agent loops with isolated context. This is useful for focused subtasks (research, code review, drafting) that benefit from fresh context without polluting the parent conversation.
+
+- Each child gets a fresh message history containing only the task description
+- Multiple tasks run in parallel via goroutines
+- The `delegate` tool is excluded from children to prevent recursion
+- Child output is truncated to ~4096 tokens to avoid bloating the parent context
+- Per-task options: `model` (override), `system` (additional instructions), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
 
 ### Extra Tools (conditionally injected)
 

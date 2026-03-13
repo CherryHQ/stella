@@ -43,6 +43,12 @@ func (r *Registry) Definitions() []toolspec.Definition {
 	return defs
 }
 
+// Has reports whether the registry contains a tool with the given name.
+func (r *Registry) Has(name string) bool {
+	_, ok := r.tools[name]
+	return ok
+}
+
 // Execute runs the named tool with given arguments.
 func (r *Registry) Execute(ctx context.Context, name string, args map[string]any) (string, error) {
 	t, ok := r.tools[name]
