@@ -107,7 +107,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithCompaction(agent.CompactionConfig{
 			MaxTokens: cfg.Runner.Compaction.MaxTokens,
 			KeepTail:  cfg.Runner.Compaction.KeepTail,
-		}),
+		}.WithDefaults()),
 		agent.WithDefaultModel(cfg.ResolveModelID(config.ModelTierStrong)),
 		agent.WithFastModel(cfg.ResolveModelID(config.ModelTierFast)),
 	}
