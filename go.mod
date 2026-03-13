@@ -19,7 +19,7 @@ require (
 	github.com/openai/openai-go v1.12.0
 	github.com/tencent-connect/botgo v0.2.1
 	github.com/urfave/cli/v2 v2.27.7
-	github.com/vaayne/mcphub v0.2.3-0.20260313111648-70338468817c
+	github.com/vaayne/mcphub v0.2.3
 	github.com/yuin/goldmark v1.7.8
 	golang.org/x/oauth2 v0.30.0
 	golang.org/x/sync v0.18.0
