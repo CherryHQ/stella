@@ -59,7 +59,22 @@ Engine options: `WithFreshTail(n)`, `WithLogger(log)`.
 - **Location:** `~/.anna/workspace/memory.db`
 - **Driver:** `modernc.org/sqlite` (pure Go, no CGO)
 - **Mode:** WAL (concurrent reads during writes), foreign keys enabled
-- **Migrations:** Embedded SQL files applied on first open via `memory.OpenDB()`
+- **Migrations:** Atlas-generated SQL files in `db/migrations/`, embedded via `db.MigrationsFS` and applied on `OpenDB()`. Applied versions are tracked in a `schema_migrations` table.
+
+**Schema change workflow:**
+
+```bash
+# 1. Edit schema source files
+vim db/schemas/tables/conversations.sql
+
+# 2. Generate migration
+mise run atlas:diff -- add_column_name
+
+# 3. Regenerate sqlc
+mise run generate
+
+# 4. Runtime auto-applies pending migrations on OpenDB()
+```
 
 **Schema:**
 
