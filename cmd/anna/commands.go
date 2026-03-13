@@ -15,7 +15,6 @@ import (
 	"github.com/vaayne/anna/channel"
 	"github.com/vaayne/anna/config"
 	"github.com/vaayne/anna/cron"
-	"github.com/vaayne/anna/heartbeat"
 	"github.com/vaayne/anna/memory"
 	memorytool "github.com/vaayne/anna/memory/tool"
 	"github.com/vaayne/anna/skills"
@@ -43,7 +42,6 @@ type setupResult struct {
 	cfg        *config.Config
 	pool       *agent.Pool
 	cronSvc    *cron.Service
-	heartbeat  *heartbeat.Service
 	extraTools []tool.Tool
 	notifier   *channel.Dispatcher
 }
@@ -114,9 +112,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	pool := agent.NewPool(factory, memoryEngine, opts...)
 	go pool.StartReaper(ctx)
 
-	var heartbeatSvc *heartbeat.Service
-	if cfg.Heartbeat.IsEnabled() {
-		heartbeatSvc = heartbeat.New(heartbeat.Config{
+	// Wire heartbeat on the cron service if enabled.
+	if cronSvc != nil && cfg.Heartbeat.IsEnabled() {
+		cronSvc.SetHeartbeat(cron.HeartbeatConfig{
 			File:      cfg.Heartbeat.FilePath(cfg.Workspace),
 			FastModel: cfg.ResolveModelID(config.ModelTierFast),
 		}, func(ctx context.Context, sessionID, message, model string) <-chan runner.Event {
@@ -146,7 +144,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		cfg:        cfg,
 		pool:       pool,
 		cronSvc:    cronSvc,
-		heartbeat:  heartbeatSvc,
 		extraTools: extraTools,
 		notifier:   dispatcher,
 	}, nil

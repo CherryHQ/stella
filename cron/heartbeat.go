@@ -1,10 +1,9 @@
-package heartbeat
+package cron
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -14,49 +13,69 @@ import (
 )
 
 const (
-	decisionSessionID = "heartbeat:decision"
-	mainSessionID     = "heartbeat:main"
+	heartbeatDecisionSessionID = "heartbeat:decision"
+	heartbeatMainSessionID     = "heartbeat:main"
 )
 
+// ChatFunc streams runner events for heartbeat decision/execution prompts.
 type ChatFunc func(ctx context.Context, sessionID, message, model string) <-chan runner.Event
 
-type Config struct {
+// HeartbeatConfig holds heartbeat-specific settings.
+type HeartbeatConfig struct {
 	File      string
 	FastModel string
 }
 
-type Service struct {
-	cfg      Config
-	chat     ChatFunc
-	notifier channel.Notifier
-	now      func() time.Time
-	log      *slog.Logger
-}
-
+// Decision is the gate-keeper response from the LLM.
 type Decision struct {
 	Action string `json:"action"`
 	Reason string `json:"reason,omitempty"`
 }
 
-func New(cfg Config, chat ChatFunc, notifier channel.Notifier) *Service {
-	return &Service{
-		cfg:      cfg,
-		chat:     chat,
-		notifier: notifier,
-		now:      time.Now,
-		log:      slog.With("component", "heartbeat"),
-	}
+// SetHeartbeat configures the heartbeat on the cron service.
+func (s *Service) SetHeartbeat(cfg HeartbeatConfig, chat ChatFunc, notifier channel.Notifier) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.heartbeatCfg = &cfg
+	s.heartbeatChat = chat
+	s.heartbeatNotifier = notifier
 }
 
-func (s *Service) Poll(ctx context.Context) error {
-	if s == nil {
-		return fmt.Errorf("heartbeat service is nil")
+// StartHeartbeat schedules the heartbeat poll on the shared scheduler.
+func (s *Service) StartHeartbeat(ctx context.Context, every string) error {
+	s.mu.Lock()
+	cfg := s.heartbeatCfg
+	s.mu.Unlock()
+
+	if cfg == nil {
+		return fmt.Errorf("heartbeat not configured; call SetHeartbeat first")
 	}
-	if s.chat == nil {
+
+	s.log.Info("starting heartbeat", "every", every)
+	return s.ScheduleEvery(ctx, every, func(ctx context.Context) {
+		if err := s.heartbeatPoll(ctx); err != nil {
+			s.log.Error("heartbeat poll failed", "error", err)
+		}
+	})
+}
+
+// heartbeatPoll reads the heartbeat file, decides whether to act, executes,
+// and sends the result via the notifier.
+func (s *Service) heartbeatPoll(ctx context.Context) error {
+	s.mu.Lock()
+	cfg := s.heartbeatCfg
+	chat := s.heartbeatChat
+	notifier := s.heartbeatNotifier
+	s.mu.Unlock()
+
+	if cfg == nil {
+		return fmt.Errorf("heartbeat not configured")
+	}
+	if chat == nil {
 		return fmt.Errorf("heartbeat chat function is nil")
 	}
 
-	content, err := s.readHeartbeatFile()
+	content, err := readHeartbeatFile(cfg.File)
 	if err != nil {
 		return err
 	}
@@ -64,7 +83,7 @@ func (s *Service) Poll(ctx context.Context) error {
 		return nil
 	}
 
-	decision, err := s.decide(ctx, content)
+	decision, err := heartbeatDecide(ctx, chat, cfg.FastModel, content)
 	if err != nil {
 		return err
 	}
@@ -73,7 +92,7 @@ func (s *Service) Poll(ctx context.Context) error {
 		return nil
 	}
 
-	result, err := s.execute(ctx, content)
+	result, err := heartbeatExecute(ctx, chat, content)
 	if err != nil {
 		return err
 	}
@@ -83,7 +102,7 @@ func (s *Service) Poll(ctx context.Context) error {
 	}
 
 	text := "*Heartbeat*\n\n" + result
-	if err := s.notifier.Notify(ctx, channel.Notification{Text: text}); err != nil {
+	if err := notifier.Notify(ctx, channel.Notification{Text: text}); err != nil {
 		return fmt.Errorf("notify heartbeat result: %w", err)
 	}
 
@@ -91,12 +110,12 @@ func (s *Service) Poll(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) readHeartbeatFile() (string, error) {
-	if strings.TrimSpace(s.cfg.File) == "" {
+func readHeartbeatFile(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("heartbeat file is not configured")
 	}
 
-	data, err := os.ReadFile(s.cfg.File)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
@@ -107,9 +126,9 @@ func (s *Service) readHeartbeatFile() (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-func (s *Service) decide(ctx context.Context, content string) (Decision, error) {
-	prompt := buildDecisionPrompt(s.now().UTC(), content)
-	text, usedTools, err := s.collect(ctx, decisionSessionID, prompt, s.cfg.FastModel)
+func heartbeatDecide(ctx context.Context, chat ChatFunc, fastModel, content string) (Decision, error) {
+	prompt := buildDecisionPrompt(time.Now().UTC(), content)
+	text, usedTools, err := collectChat(ctx, chat, heartbeatDecisionSessionID, prompt, fastModel)
 	if err != nil {
 		return Decision{}, err
 	}
@@ -124,17 +143,17 @@ func (s *Service) decide(ctx context.Context, content string) (Decision, error) 
 	return decision, nil
 }
 
-func (s *Service) execute(ctx context.Context, content string) (string, error) {
-	prompt := buildExecutionPrompt(s.now().UTC(), content)
-	text, _, err := s.collect(ctx, mainSessionID, prompt, "")
+func heartbeatExecute(ctx context.Context, chat ChatFunc, content string) (string, error) {
+	prompt := buildExecutionPrompt(time.Now().UTC(), content)
+	text, _, err := collectChat(ctx, chat, heartbeatMainSessionID, prompt, "")
 	if err != nil {
 		return "", err
 	}
 	return text, nil
 }
 
-func (s *Service) collect(ctx context.Context, sessionID, message, model string) (string, bool, error) {
-	stream := s.chat(ctx, sessionID, message, model)
+func collectChat(ctx context.Context, chat ChatFunc, sessionID, message, model string) (string, bool, error) {
+	stream := chat(ctx, sessionID, message, model)
 	var buf strings.Builder
 	usedTools := false
 

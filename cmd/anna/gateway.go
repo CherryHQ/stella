@@ -16,7 +16,6 @@ import (
 	"github.com/vaayne/anna/channel/telegram"
 	"github.com/vaayne/anna/config"
 	"github.com/vaayne/anna/cron"
-	"github.com/vaayne/anna/heartbeat"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -153,11 +152,8 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 		defer func() { _ = s.cronSvc.Stop() }()
 	}
 
-	if s.heartbeat != nil {
-		if s.cronSvc == nil {
-			return fmt.Errorf("heartbeat requires the shared scheduler")
-		}
-		if err := scheduleHeartbeat(ctx, s.cronSvc, s.heartbeat, s.cfg.Heartbeat.Interval()); err != nil {
+	if s.cfg.Heartbeat.IsEnabled() && s.cronSvc != nil {
+		if err := s.cronSvc.StartHeartbeat(ctx, s.cfg.Heartbeat.Interval()); err != nil {
 			return fmt.Errorf("schedule heartbeat: %w", err)
 		}
 	}
@@ -187,15 +183,6 @@ func wireCronNotifier(cronSvc *cron.Service, pool *agent.Pool, dispatcher *chann
 			if err := dispatcher.Notify(ctx, channel.Notification{Text: text}); err != nil {
 				slog.Error("cron notification failed", "job_id", job.ID, "error", err)
 			}
-		}
-	})
-}
-
-func scheduleHeartbeat(ctx context.Context, cronSvc *cron.Service, heartbeatSvc *heartbeat.Service, every string) error {
-	slog.Info("starting heartbeat", "every", every)
-	return cronSvc.ScheduleEvery(ctx, every, func(ctx context.Context) {
-		if err := heartbeatSvc.Poll(ctx); err != nil {
-			slog.Error("heartbeat poll failed", "error", err)
 		}
 	})
 }
