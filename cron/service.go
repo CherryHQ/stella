@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-co-op/gocron/v2"
 	"github.com/google/uuid"
+	"github.com/vaayne/anna/channel"
 )
 
 // errOneTimeJobPast is returned by scheduleJob when a one-time job's timestamp
@@ -33,6 +34,11 @@ type Service struct {
 	jobs      map[string]Job
 	gids      map[string]uuid.UUID // job ID -> gocron job UUID
 	log       *slog.Logger
+
+	// Heartbeat (optional, configured via SetHeartbeat).
+	heartbeatCfg      *HeartbeatConfig
+	heartbeatChat     ChatFunc
+	heartbeatNotifier channel.Notifier
 }
 
 // New creates a cron service. Call Start to load persisted jobs and begin scheduling.

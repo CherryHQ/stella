@@ -1,4 +1,4 @@
-package heartbeat
+package cron
 
 import (
 	"context"
@@ -44,16 +44,31 @@ func makeChatFunc(calls *[]chatCall, responses map[string][]runner.Event) ChatFu
 	}
 }
 
-func TestPollSkipsMissingHeartbeatFile(t *testing.T) {
+func newHeartbeatTestService(t *testing.T, cfg HeartbeatConfig, calls *[]chatCall, responses map[string][]runner.Event, notifier channel.Notifier) *Service {
+	t.Helper()
+	dir := t.TempDir()
+	svc, err := New(dir)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := svc.StartEphemeral(context.Background()); err != nil {
+		t.Fatalf("StartEphemeral: %v", err)
+	}
+	t.Cleanup(func() { _ = svc.Stop() })
+	svc.SetHeartbeat(cfg, makeChatFunc(calls, responses), notifier)
+	return svc
+}
+
+func TestHeartbeatPollSkipsMissingFile(t *testing.T) {
 	var calls []chatCall
 	notifier := &fakeNotifier{}
-	svc := New(Config{
+	svc := newHeartbeatTestService(t, HeartbeatConfig{
 		File:      filepath.Join(t.TempDir(), "HEARTBEAT.md"),
 		FastModel: "fast-model",
-	}, makeChatFunc(&calls, nil), notifier)
+	}, &calls, nil, notifier)
 
-	if err := svc.Poll(context.Background()); err != nil {
-		t.Fatalf("Poll: %v", err)
+	if err := svc.heartbeatPoll(context.Background()); err != nil {
+		t.Fatalf("heartbeatPoll: %v", err)
 	}
 
 	if len(calls) != 0 {
@@ -64,7 +79,7 @@ func TestPollSkipsMissingHeartbeatFile(t *testing.T) {
 	}
 }
 
-func TestPollSkipDecisionUsesFastModel(t *testing.T) {
+func TestHeartbeatPollSkipDecisionUsesFastModel(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "HEARTBEAT.md")
 	if err := os.WriteFile(path, []byte("Check if anything needs doing."), 0o644); err != nil {
@@ -73,22 +88,22 @@ func TestPollSkipDecisionUsesFastModel(t *testing.T) {
 
 	var calls []chatCall
 	notifier := &fakeNotifier{}
-	svc := New(Config{
+	svc := newHeartbeatTestService(t, HeartbeatConfig{
 		File:      path,
 		FastModel: "fast-model",
-	}, makeChatFunc(&calls, map[string][]runner.Event{
-		decisionSessionID: {{Text: `{"action":"skip","reason":"nothing pending"}`}},
-	}), notifier)
+	}, &calls, map[string][]runner.Event{
+		heartbeatDecisionSessionID: {{Text: `{"action":"skip","reason":"nothing pending"}`}},
+	}, notifier)
 
-	if err := svc.Poll(context.Background()); err != nil {
-		t.Fatalf("Poll: %v", err)
+	if err := svc.heartbeatPoll(context.Background()); err != nil {
+		t.Fatalf("heartbeatPoll: %v", err)
 	}
 
 	if len(calls) != 1 {
 		t.Fatalf("expected 1 chat call, got %d", len(calls))
 	}
-	if calls[0].sessionID != decisionSessionID {
-		t.Fatalf("sessionID = %q, want %q", calls[0].sessionID, decisionSessionID)
+	if calls[0].sessionID != heartbeatDecisionSessionID {
+		t.Fatalf("sessionID = %q, want %q", calls[0].sessionID, heartbeatDecisionSessionID)
 	}
 	if calls[0].model != "fast-model" {
 		t.Fatalf("model = %q, want %q", calls[0].model, "fast-model")
@@ -98,7 +113,7 @@ func TestPollSkipDecisionUsesFastModel(t *testing.T) {
 	}
 }
 
-func TestPollRunDecisionExecutesAndNotifies(t *testing.T) {
+func TestHeartbeatPollRunDecisionExecutesAndNotifies(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "HEARTBEAT.md")
 	if err := os.WriteFile(path, []byte("Review the workspace and report actionable changes."), 0o644); err != nil {
@@ -107,25 +122,25 @@ func TestPollRunDecisionExecutesAndNotifies(t *testing.T) {
 
 	var calls []chatCall
 	notifier := &fakeNotifier{}
-	svc := New(Config{
+	svc := newHeartbeatTestService(t, HeartbeatConfig{
 		File:      path,
 		FastModel: "fast-model",
-	}, makeChatFunc(&calls, map[string][]runner.Event{
-		decisionSessionID: {{Text: `{"action":"run","reason":"new work detected"}`}},
-		mainSessionID:     {{Text: "Action complete."}},
-	}), notifier)
+	}, &calls, map[string][]runner.Event{
+		heartbeatDecisionSessionID: {{Text: `{"action":"run","reason":"new work detected"}`}},
+		heartbeatMainSessionID:     {{Text: "Action complete."}},
+	}, notifier)
 
-	if err := svc.Poll(context.Background()); err != nil {
-		t.Fatalf("Poll: %v", err)
+	if err := svc.heartbeatPoll(context.Background()); err != nil {
+		t.Fatalf("heartbeatPoll: %v", err)
 	}
 
 	if len(calls) != 2 {
 		t.Fatalf("expected 2 chat calls, got %d", len(calls))
 	}
-	if calls[0].sessionID != decisionSessionID || calls[0].model != "fast-model" {
+	if calls[0].sessionID != heartbeatDecisionSessionID || calls[0].model != "fast-model" {
 		t.Fatalf("unexpected decision call: %+v", calls[0])
 	}
-	if calls[1].sessionID != mainSessionID || calls[1].model != "" {
+	if calls[1].sessionID != heartbeatMainSessionID || calls[1].model != "" {
 		t.Fatalf("unexpected main call: %+v", calls[1])
 	}
 	if len(notifier.calls) != 1 {
@@ -136,7 +151,7 @@ func TestPollRunDecisionExecutesAndNotifies(t *testing.T) {
 	}
 }
 
-func TestPollFailsWhenDecisionUsesTools(t *testing.T) {
+func TestHeartbeatPollFailsWhenDecisionUsesTools(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "HEARTBEAT.md")
 	if err := os.WriteFile(path, []byte("Ping if needed."), 0o644); err != nil {
@@ -144,16 +159,16 @@ func TestPollFailsWhenDecisionUsesTools(t *testing.T) {
 	}
 
 	var calls []chatCall
-	svc := New(Config{
+	svc := newHeartbeatTestService(t, HeartbeatConfig{
 		File:      path,
 		FastModel: "fast-model",
-	}, makeChatFunc(&calls, map[string][]runner.Event{
-		decisionSessionID: {{
+	}, &calls, map[string][]runner.Event{
+		heartbeatDecisionSessionID: {{
 			ToolUse: &runner.ToolUseEvent{Tool: "bash", Status: "running"},
 		}},
-	}), &fakeNotifier{})
+	}, &fakeNotifier{})
 
-	err := svc.Poll(context.Background())
+	err := svc.heartbeatPoll(context.Background())
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -162,7 +177,7 @@ func TestPollFailsWhenDecisionUsesTools(t *testing.T) {
 	}
 }
 
-func TestPollReturnsNotifierError(t *testing.T) {
+func TestHeartbeatPollReturnsNotifierError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "HEARTBEAT.md")
 	if err := os.WriteFile(path, []byte("Act now."), 0o644); err != nil {
@@ -171,15 +186,15 @@ func TestPollReturnsNotifierError(t *testing.T) {
 
 	var calls []chatCall
 	notifier := &fakeNotifier{err: errors.New("notify failed")}
-	svc := New(Config{
+	svc := newHeartbeatTestService(t, HeartbeatConfig{
 		File:      path,
 		FastModel: "fast-model",
-	}, makeChatFunc(&calls, map[string][]runner.Event{
-		decisionSessionID: {{Text: `{"action":"run","reason":"do it"}`}},
-		mainSessionID:     {{Text: "Done."}},
-	}), notifier)
+	}, &calls, map[string][]runner.Event{
+		heartbeatDecisionSessionID: {{Text: `{"action":"run","reason":"do it"}`}},
+		heartbeatMainSessionID:     {{Text: "Done."}},
+	}, notifier)
 
-	err := svc.Poll(context.Background())
+	err := svc.heartbeatPoll(context.Background())
 	if err == nil {
 		t.Fatal("expected error")
 	}
