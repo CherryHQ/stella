@@ -173,7 +173,7 @@ channel/cli/                        Interactive terminal chat (Bubble Tea TUI)
 channel/telegram/                   Telegram bot + streaming + notification backend
 channel/qq/                         QQ bot + webhook + streaming + notification backend
 channel/feishu/                     Feishu bot + WebSocket + streaming + notification backend
-cron/                               Scheduled jobs (gocron/v2)
+cron/                               Scheduled jobs (gocron/v2) + heartbeat polling
 memory/                             Lossless context management (DAG, compaction, retrieval)
 ```
 

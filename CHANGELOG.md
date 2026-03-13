@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ♻️ Refactoring
+
+- **Cron**: Merge `heartbeat/` package into `cron/` — heartbeat is now a built-in cron task ([#49](https://github.com/vaayne/anna/pull/49))
+
 ## [0.4.2] - 2026-03-12
 
 ### ✨ Features

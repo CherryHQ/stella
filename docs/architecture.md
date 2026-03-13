@@ -110,6 +110,7 @@ db/
 
 cron/
   service.go                        Scheduler service (gocron/v2)
+  heartbeat.go                      Heartbeat polling (decide/execute/notify)
   persistence.go                    Job JSON persistence (load/save)
   job.go                            Job and Schedule types
   tool.go                           Agent cron tool (add/list/remove)
