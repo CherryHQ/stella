@@ -85,7 +85,6 @@ runner:
 
 scheduler:
   enabled: true
-  data_dir: "~/.anna/workspace/scheduler"
 
 heartbeat:
   enabled: false                   # default: false
@@ -106,9 +105,8 @@ All paths are relative to `$ANNA_HOME` (`~/.anna` by default).
 | `cache/models.json` | Cached model list (safe to delete) |
 | `workspace/SOUL.md` | Agent identity, personality, tone |
 | `workspace/USER.md` | User preferences, name, timezone |
-| `workspace/memory.db` | Memory database (message history, summaries) |
+| `workspace/memory.db` | SQLite database (message history, summaries, scheduler jobs) |
 | `workspace/skills/` | Installed skills |
-| `workspace/scheduler/` | Scheduler job persistence |
 | `workspace/HEARTBEAT.md` | Heartbeat instructions |
 
 ## Environment variables

@@ -59,11 +59,13 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// can be injected into the Go runner.
 	var schedulerSvc *scheduler.Service
 	var extraTools []tool.Tool
+	memoryDBPath := filepath.Join(cfg.Workspace, "memory.db")
 	if cfg.Scheduler.IsEnabled() || (gateway && cfg.Heartbeat.IsEnabled()) {
-		schedulerSvc, err = scheduler.New(cfg.Scheduler.DataDir)
+		schedulerSvc, err = scheduler.NewFromPath(memoryDBPath)
 		if err != nil {
 			return nil, fmt.Errorf("create scheduler service: %w", err)
 		}
+		schedulerSvc.SetLegacyDataPath(cfg.Scheduler.DataDir)
 		if cfg.Scheduler.IsEnabled() {
 			extraTools = append(extraTools, scheduler.NewTool(schedulerSvc))
 		}
@@ -83,7 +85,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	// Memory engine: create engine for message persistence and compaction.
 	// TODO: wire LLMSummarizer with runner factory for production-quality summaries.
-	memoryDBPath := filepath.Join(cfg.Workspace, "memory.db")
 	memoryEngine, err := memory.NewEngine(memoryDBPath, &memory.StaticSummarizer{Response: "compacted"}, memory.WithLogger(slog.Default()))
 	if err != nil {
 		return nil, fmt.Errorf("create memory engine: %w", err)

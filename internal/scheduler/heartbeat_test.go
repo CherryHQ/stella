@@ -46,8 +46,8 @@ func makeChatFunc(calls *[]chatCall, responses map[string][]runner.Event) ChatFu
 
 func newHeartbeatTestService(t *testing.T, cfg HeartbeatConfig, calls *[]chatCall, responses map[string][]runner.Event, notifier channel.Notifier) *Service {
 	t.Helper()
-	dir := t.TempDir()
-	svc, err := New(dir)
+	db := testDB(t)
+	svc, err := New(db)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
