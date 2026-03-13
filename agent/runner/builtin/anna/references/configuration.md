@@ -1,8 +1,10 @@
-# Configuration Reference
+# Configuration reference
 
-Config file: `~/.anna/config.yaml`
+Config file: `$ANNA_HOME/config.yaml` (`~/.anna/config.yaml` by default).
 
-## Minimal Setup
+The easiest way to configure anna is `anna onboard`, which opens a web UI. For manual editing, see below.
+
+## Minimal setup
 
 ```yaml
 providers:
@@ -15,7 +17,7 @@ model: claude-sonnet-4-6
 
 Or just: `export ANTHROPIC_API_KEY="sk-..."` and run `anna chat`.
 
-## Full Config
+## Full config
 
 ```yaml
 providers:
@@ -50,10 +52,20 @@ channels:
     group_mode: "mention"          # mention | always | disabled
     allowed_ids: [136345060]
   qq:
-    enabled: true                  # enable/disable this channel (default: true)
-    enable_notify: false           # allow notify tool to send to this channel (default: false)
+    enabled: true
+    enable_notify: false
     app_id: "QQ_BOT_APP_ID"
     app_secret: "QQ_BOT_APP_SECRET"
+    group_mode: "mention"
+    allowed_ids: []
+  feishu:
+    enabled: true
+    enable_notify: false
+    app_id: "FEISHU_APP_ID"
+    app_secret: "FEISHU_APP_SECRET"
+    encrypt_key: ""
+    verification_token: ""
+    notify_chat: "oc_xxx"
     group_mode: "mention"
     allowed_ids: []
 
@@ -74,22 +86,32 @@ runner:
 cron:
   enabled: true
   data_dir: "~/.anna/workspace/cron"
+
+heartbeat:
+  enabled: false                   # default: false
+  every: 10m                       # poll interval
+  file: "HEARTBEAT.md"            # relative to workspace unless absolute
 ```
 
-## Directory Layout
+Heartbeat only runs in `anna gateway`. Each tick uses the fast model for the skip/run decision and the default model for execution.
+
+## Directory layout
+
+All paths are relative to `$ANNA_HOME` (`~/.anna` by default).
 
 | Path | Purpose |
 |------|---------|
-| `~/.anna/config.yaml` | Static config (user-edited) |
-| `~/.anna/workspace/state.yaml` | Runtime state: current provider/model (program-managed) |
-| `~/.anna/cache/models.json` | Cached model list (safe to delete) |
-| `~/.anna/workspace/SOUL.md` | Agent identity, personality, tone |
-| `~/.anna/workspace/USER.md` | User preferences, name, timezone |
-| `~/.anna/workspace/memory.db` | Memory database (message history, summaries) |
-| `~/.anna/workspace/skills/` | Installed skills |
-| `~/.anna/workspace/cron/` | Cron job persistence |
+| `config.yaml` | Static config (user-edited) |
+| `workspace/state.yaml` | Runtime state: current provider/model (program-managed) |
+| `cache/models.json` | Cached model list (safe to delete) |
+| `workspace/SOUL.md` | Agent identity, personality, tone |
+| `workspace/USER.md` | User preferences, name, timezone |
+| `workspace/memory.db` | Memory database (message history, summaries) |
+| `workspace/skills/` | Installed skills |
+| `workspace/cron/` | Cron job persistence |
+| `workspace/HEARTBEAT.md` | Heartbeat instructions |
 
-## Environment Variables
+## Environment variables
 
 Priority (highest wins): env vars > state.yaml > config.yaml > defaults.
 
@@ -103,6 +125,9 @@ Priority (highest wins): env vars > state.yaml > config.yaml > defaults.
 | `ANNA_WORKSPACE` | `workspace` |
 | `ANNA_RUNNER_IDLE_TIMEOUT` | `runner.idle_timeout` |
 | `ANNA_CRON_ENABLED` | `cron.enabled` |
+| `ANNA_HEARTBEAT_ENABLED` | `heartbeat.enabled` |
+| `ANNA_HEARTBEAT_EVERY` | `heartbeat.every` |
+| `ANNA_HEARTBEAT_FILE` | `heartbeat.file` |
 | `ANNA_TELEGRAM_ENABLED` | `channels.telegram.enabled` |
 | `ANNA_TELEGRAM_ENABLE_NOTIFY` | `channels.telegram.enable_notify` |
 | `ANNA_TELEGRAM_TOKEN` | `channels.telegram.token` |
@@ -113,6 +138,13 @@ Priority (highest wins): env vars > state.yaml > config.yaml > defaults.
 | `ANNA_QQ_ENABLE_NOTIFY` | `channels.qq.enable_notify` |
 | `ANNA_QQ_APP_ID` | `channels.qq.app_id` |
 | `ANNA_QQ_APP_SECRET` | `channels.qq.app_secret` |
+| `ANNA_FEISHU_ENABLED` | `channels.feishu.enabled` |
+| `ANNA_FEISHU_ENABLE_NOTIFY` | `channels.feishu.enable_notify` |
+| `ANNA_FEISHU_APP_ID` | `channels.feishu.app_id` |
+| `ANNA_FEISHU_APP_SECRET` | `channels.feishu.app_secret` |
+| `ANNA_FEISHU_NOTIFY_CHAT` | `channels.feishu.notify_chat` |
+| `ANNA_FEISHU_GROUP_MODE` | `channels.feishu.group_mode` |
+| `ANNA_FEISHU_ALLOWED_IDS` | `channels.feishu.allowed_ids` (comma-separated) |
 | `ANTHROPIC_API_KEY` | `providers.anthropic.api_key` |
 | `ANTHROPIC_BASE_URL` | `providers.anthropic.base_url` |
 | `OPENAI_API_KEY` | `providers.openai.api_key` (also used by `openai-response`) |
@@ -124,15 +156,20 @@ Priority (highest wins): env vars > state.yaml > config.yaml > defaults.
 |-------|---------|
 | `provider` | `anthropic` |
 | `model` | `claude-sonnet-4-6` |
-| `workspace` | `~/.anna/workspace` |
+| `workspace` | `$ANNA_HOME/workspace` |
 | `runner.type` | `go` |
 | `runner.idle_timeout` | `10` (minutes) |
 | `runner.compaction.max_tokens` | `80000` |
 | `runner.compaction.keep_tail` | `20` |
 | `cron.enabled` | `true` |
+| `heartbeat.enabled` | `false` |
+| `heartbeat.every` | `10m` |
 | `channels.telegram.enabled` | `true` |
 | `channels.telegram.enable_notify` | `false` |
 | `channels.telegram.group_mode` | `mention` |
 | `channels.qq.enabled` | `true` |
 | `channels.qq.enable_notify` | `false` |
 | `channels.qq.group_mode` | `mention` |
+| `channels.feishu.enabled` | `true` |
+| `channels.feishu.enable_notify` | `false` |
+| `channels.feishu.group_mode` | `mention` |

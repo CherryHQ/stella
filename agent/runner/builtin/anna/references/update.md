@@ -1,20 +1,29 @@
-# Updating Anna
+# Updating anna
 
-## Check Current Version
+## Check current version
 
 ```bash
-anna --version
+anna version
 ```
 
-## Update Methods
+## Self-update (recommended)
 
-### Go Install (recommended for Go users)
+```bash
+anna upgrade
+anna upgrade --install-dir "$HOME/.local/bin"  # custom install path
+```
+
+Downloads the latest stable release from GitHub for your platform.
+
+## Other methods
+
+### Go install
 
 ```bash
 go install github.com/vaayne/anna@latest
 ```
 
-### From Source
+### From source
 
 ```bash
 cd ~/path/to/anna
@@ -23,7 +32,7 @@ go build -o anna .
 # Move binary to your PATH
 ```
 
-### GitHub Releases
+### GitHub releases
 
 Download the latest binary from https://github.com/vaayne/anna/releases
 
@@ -37,7 +46,7 @@ docker pull ghcr.io/vaayne/anna:latest
 
 Tags: `latest` (stable), `vX.Y.Z` (specific release).
 
-## After Updating
+## After updating
 
 - Config format is backward-compatible; no migration needed
 - Run `anna models update` to refresh the model cache if new models are available
