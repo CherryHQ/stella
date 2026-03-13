@@ -141,7 +141,7 @@ func TestDelegateToolWhitelistInvalid(t *testing.T) {
 func TestDelegateDelegateExcludedFromChildren(t *testing.T) {
 	dt := newTestDelegateTool("child response")
 
-	toolSet, defs, err := dt.buildScopedTools(nil)
+	toolSet, defs, err := dt.buildScopedTools(nil, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestDelegateDelegateInWhitelistIgnored(t *testing.T) {
 	dt := newTestDelegateTool("child response")
 
 	// Requesting delegate in whitelist should silently skip it.
-	toolSet, defs, err := dt.buildScopedTools([]string{"read", "delegate"})
+	toolSet, defs, err := dt.buildScopedTools([]string{"read", "delegate"}, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -168,6 +168,22 @@ func TestDelegateDelegateInWhitelistIgnored(t *testing.T) {
 	}
 	if len(defs) != 1 || defs[0].Name != "read" {
 		t.Fatalf("expected only 'read' in defs, got: %v", defs)
+	}
+}
+
+func TestDelegateEmptyWhitelistGivesNoTools(t *testing.T) {
+	dt := newTestDelegateTool("no tools")
+
+	// Explicit empty whitelist should yield zero tools.
+	toolSet, defs, err := dt.buildScopedTools(nil, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(toolSet) != 0 {
+		t.Fatalf("expected empty tool set, got %d tools", len(toolSet))
+	}
+	if len(defs) != 0 {
+		t.Fatalf("expected empty defs, got %d", len(defs))
 	}
 }
 

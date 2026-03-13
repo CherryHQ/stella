@@ -124,7 +124,8 @@ type delegateTaskConfig struct {
 	Task           string
 	Model          string
 	System         string
-	Tools          []string
+	Tools          []string // nil = all tools; empty = no tools
+	HasTools       bool     // true when "tools" key was present in args
 	MaxTurns       int
 	TimeoutSeconds int
 }
@@ -152,7 +153,7 @@ func (t *DelegateTool) runSubAgent(parentCtx context.Context, tc delegateTaskCon
 	defer cancel()
 
 	// Build scoped tool set.
-	toolSet, toolDefs, err := t.buildScopedTools(tc.Tools)
+	toolSet, toolDefs, err := t.buildScopedTools(tc.Tools, tc.HasTools)
 	if err != nil {
 		return taskResult{Error: fmt.Sprintf("invalid tools: %v", err)}
 	}
@@ -208,13 +209,14 @@ func (t *DelegateTool) runSubAgent(parentCtx context.Context, tc delegateTaskCon
 
 // buildScopedTools creates a filtered tool set for the child agent.
 // It always excludes "delegate" to prevent recursion.
-// If whitelist is non-empty, only those tools are included (after validation).
-func (t *DelegateTool) buildScopedTools(whitelist []string) (engine.ToolSet, []toolspec.Definition, error) {
+// If hasWhitelist is true, only the listed tools are included (empty list = no tools).
+// If hasWhitelist is false, all parent tools (minus delegate) are available.
+func (t *DelegateTool) buildScopedTools(whitelist []string, hasWhitelist bool) (engine.ToolSet, []toolspec.Definition, error) {
 	allDefs := t.cfg.Registry.Definitions()
 
 	// Build allowed set from whitelist, if provided.
 	var allowed map[string]bool
-	if len(whitelist) > 0 {
+	if hasWhitelist {
 		allowed = make(map[string]bool, len(whitelist))
 		for _, name := range whitelist {
 			if name == delegateToolName {
@@ -322,6 +324,7 @@ func parseDelegateTasks(args map[string]any) ([]delegateTaskConfig, error) {
 			tc.TimeoutSeconds = int(timeoutSeconds)
 		}
 		if toolsRaw, ok := obj["tools"].([]any); ok {
+			tc.HasTools = true
 			for _, tr := range toolsRaw {
 				if s, ok := tr.(string); ok {
 					tc.Tools = append(tc.Tools, s)
