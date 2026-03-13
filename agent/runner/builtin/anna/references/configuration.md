@@ -83,7 +83,6 @@ cron:
 | `~/.anna/config.yaml` | Static config (user-edited) |
 | `~/.anna/workspace/state.yaml` | Runtime state: current provider/model (program-managed) |
 | `~/.anna/cache/models.json` | Cached model list (safe to delete) |
-| `~/.anna/workspace/sessions/` | Chat session history |
 | `~/.anna/workspace/SOUL.md` | Agent identity, personality, tone |
 | `~/.anna/workspace/USER.md` | User preferences, name, timezone |
 | `~/.anna/workspace/memory.db` | Memory database (message history, summaries) |

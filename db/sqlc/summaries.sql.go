@@ -201,7 +201,7 @@ func (q *Queries) GetSummaryChildren(ctx context.Context, parentSummaryID string
 }
 
 const getSummaryMessages = `-- name: GetSummaryMessages :many
-SELECT m.id, m.conversation_id, m.seq, m.role, m.content, m.token_count, m.created_at FROM messages m
+SELECT m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at FROM messages m
 JOIN summary_messages sm ON sm.message_id = m.id
 WHERE sm.summary_id = ?
 ORDER BY sm.ordinal ASC
@@ -221,6 +221,7 @@ func (q *Queries) GetSummaryMessages(ctx context.Context, summaryID string) ([]M
 			&i.ConversationID,
 			&i.Seq,
 			&i.Role,
+			&i.EventType,
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,

@@ -67,10 +67,6 @@ agent/
     edit.go                         Edit file sections
     truncate.go                     Truncate large outputs to temp files
 
-store/
-  store.go                          Session persistence (JSONL file store)
-  index.go                          Session index
-
 channel/
   model.go                          Channel interface, model list/switch types
   command.go                        Shared Commander (handles /new, /compact, /model)
@@ -169,7 +165,7 @@ type Tool interface {
 2. Pool finds or creates a session, loading history from disk if persisted
 3. Pool acquires or creates a runner for the session
 4. Runner streams events back through a channel
-5. On idle timeout, runners are reaped; sessions persist to JSONL
+5. On idle timeout, runners are reaped; sessions persist to SQLite via `memory.Engine`
 
 See [session-compaction.md](session-compaction.md) for history management.
 

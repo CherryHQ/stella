@@ -12,15 +12,16 @@ import (
 )
 
 const createMessage = `-- name: CreateMessage :one
-INSERT INTO messages (conversation_id, seq, role, content, token_count)
-VALUES (?, ?, ?, ?, ?)
-RETURNING id, conversation_id, seq, role, content, token_count, created_at
+INSERT INTO messages (conversation_id, seq, role, event_type, content, token_count)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, conversation_id, seq, role, event_type, content, token_count, created_at
 `
 
 type CreateMessageParams struct {
 	ConversationID int64  `json:"conversation_id"`
 	Seq            int64  `json:"seq"`
 	Role           string `json:"role"`
+	EventType      string `json:"event_type"`
 	Content        string `json:"content"`
 	TokenCount     int64  `json:"token_count"`
 }
@@ -30,6 +31,7 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (M
 		arg.ConversationID,
 		arg.Seq,
 		arg.Role,
+		arg.EventType,
 		arg.Content,
 		arg.TokenCount,
 	)
@@ -39,6 +41,7 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (M
 		&i.ConversationID,
 		&i.Seq,
 		&i.Role,
+		&i.EventType,
 		&i.Content,
 		&i.TokenCount,
 		&i.CreatedAt,
@@ -92,7 +95,7 @@ func (q *Queries) GetMaxSeq(ctx context.Context, conversationID int64) (int64, e
 }
 
 const getMessage = `-- name: GetMessage :one
-SELECT id, conversation_id, seq, role, content, token_count, created_at FROM messages WHERE id = ?
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM messages WHERE id = ?
 `
 
 func (q *Queries) GetMessage(ctx context.Context, id int64) (Message, error) {
@@ -103,6 +106,7 @@ func (q *Queries) GetMessage(ctx context.Context, id int64) (Message, error) {
 		&i.ConversationID,
 		&i.Seq,
 		&i.Role,
+		&i.EventType,
 		&i.Content,
 		&i.TokenCount,
 		&i.CreatedAt,
@@ -208,7 +212,7 @@ func (q *Queries) GetMessagePartsByMessages(ctx context.Context, messageIds []in
 }
 
 const getMessagesByConversation = `-- name: GetMessagesByConversation :many
-SELECT id, conversation_id, seq, role, content, token_count, created_at FROM messages WHERE conversation_id = ? ORDER BY seq ASC
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM messages WHERE conversation_id = ? ORDER BY seq ASC
 `
 
 func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID int64) ([]Message, error) {
@@ -225,6 +229,7 @@ func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID 
 			&i.ConversationID,
 			&i.Seq,
 			&i.Role,
+			&i.EventType,
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
@@ -243,7 +248,7 @@ func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID 
 }
 
 const getMessagesByConversationRange = `-- name: GetMessagesByConversationRange :many
-SELECT id, conversation_id, seq, role, content, token_count, created_at FROM messages
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM messages
 WHERE conversation_id = ? AND seq >= ? AND seq <= ?
 ORDER BY seq ASC
 `
@@ -268,6 +273,7 @@ func (q *Queries) GetMessagesByConversationRange(ctx context.Context, arg GetMes
 			&i.ConversationID,
 			&i.Seq,
 			&i.Role,
+			&i.EventType,
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
@@ -286,7 +292,7 @@ func (q *Queries) GetMessagesByConversationRange(ctx context.Context, arg GetMes
 }
 
 const searchMessages = `-- name: SearchMessages :many
-SELECT id, conversation_id, seq, role, content, token_count, created_at FROM messages
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM messages
 WHERE conversation_id = ? AND content LIKE ?
 ORDER BY seq ASC
 LIMIT ?
@@ -312,6 +318,7 @@ func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) 
 			&i.ConversationID,
 			&i.Seq,
 			&i.Role,
+			&i.EventType,
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,

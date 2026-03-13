@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/vaayne/anna/ai"
 )
 
 // skipWithoutAnthropicKey skips the test when ANTHROPIC_API_KEY is not set.
@@ -75,21 +77,24 @@ func TestIntegrationMultiTurn(t *testing.T) {
 	// Turn 1: establish a fact.
 	ch := r.Chat(ctx, nil, "Remember this number: 42. Just say OK.")
 	var turn1Text string
-	var history []RPCEvent
-	history = append(history, RPCEvent{Type: "user_message", Summary: "Remember this number: 42. Just say OK."})
+	var history []ai.Message
+	history = append(history, ai.UserMessage{Content: "Remember this number: 42. Just say OK."})
 	for evt := range ch {
 		if evt.Err != nil {
 			t.Fatalf("turn 1 error: %v", evt.Err)
 		}
 		turn1Text += evt.Text
-		history = append(history, TextDeltaToRPCEvent(evt.Text))
+		if evt.Store != nil {
+			history = append(history, evt.Store)
+		}
 	}
 	if turn1Text == "" {
 		t.Fatal("turn 1: expected non-empty response")
 	}
+	// Append the assistant's text reply to history.
+	history = append(history, ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: turn1Text}}})
 
 	// Turn 2: ask about the fact from turn 1.
-	history = append(history, RPCEvent{Type: "user_message", Summary: "What number did I ask you to remember? Reply with just the number."})
 	ch = r.Chat(ctx, history, "What number did I ask you to remember? Reply with just the number.")
 	var turn2Text string
 	for evt := range ch {

@@ -3,13 +3,27 @@ package agent
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/vaayne/anna/agent/runner"
-	"github.com/vaayne/anna/store"
+	"github.com/vaayne/anna/ai"
+	"github.com/vaayne/anna/memory"
 )
+
+// testMemoryEngine creates an in-memory SQLite memory engine for testing.
+func testMemoryEngine(t *testing.T) memory.Engine {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	eng, err := memory.NewEngine(dbPath, &memory.StaticSummarizer{Response: "test summary"})
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	return eng
+}
 
 // mockRunner implements runner.Runner and io.Closer for pool tests.
 type mockRunner struct {
@@ -28,7 +42,7 @@ func newMockRunner(events []runner.Event) *mockRunner {
 	}
 }
 
-func (m *mockRunner) Chat(_ context.Context, _ []runner.RPCEvent, _ runner.MessageContent) <-chan runner.Event {
+func (m *mockRunner) Chat(_ context.Context, _ []ai.Message, _ runner.MessageContent) <-chan runner.Event {
 	m.mu.Lock()
 	m.lastActivity = time.Now()
 	events := m.events
@@ -81,7 +95,7 @@ func mockRunnerFactory(events []runner.Event) (runner.NewRunnerFunc, *[]*mockRun
 
 func TestNewPool(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory, WithIdleTimeout(5*time.Minute))
+	pool := NewPool(factory, testMemoryEngine(t), WithIdleTimeout(5*time.Minute))
 
 	if pool.idleTimeout != 5*time.Minute {
 		t.Errorf("idleTimeout = %v, want 5m", pool.idleTimeout)
@@ -91,7 +105,7 @@ func TestNewPool(t *testing.T) {
 func TestWithCompaction(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
 	cfg := CompactionConfig{MaxTokens: 40_000, KeepTail: 10}
-	pool := NewPool(factory, WithCompaction(cfg))
+	pool := NewPool(factory, testMemoryEngine(t), WithCompaction(cfg))
 
 	if pool.compaction.MaxTokens != 40_000 {
 		t.Errorf("MaxTokens = %d, want 40000", pool.compaction.MaxTokens)
@@ -103,7 +117,7 @@ func TestWithCompaction(t *testing.T) {
 
 func TestSetFactory(t *testing.T) {
 	factory1, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory1)
+	pool := NewPool(factory1, testMemoryEngine(t))
 
 	factory2, _ := mockRunnerFactory([]runner.Event{{Text: "new"}})
 	pool.SetFactory(factory2)
@@ -127,7 +141,7 @@ func TestPoolChat(t *testing.T) {
 		{Text: "world"},
 	}
 	factory, _ := mockRunnerFactory(events)
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	ctx := context.Background()
@@ -148,7 +162,7 @@ func TestPoolChat(t *testing.T) {
 
 func TestPoolChatReusesSession(t *testing.T) {
 	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	ctx := context.Background()
@@ -170,7 +184,7 @@ func TestPoolChatReusesSession(t *testing.T) {
 
 func TestPoolChatMultipleSessions(t *testing.T) {
 	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	ctx := context.Background()
@@ -194,7 +208,8 @@ func TestPoolChatAccumulatesHistory(t *testing.T) {
 		{Text: "chunk2"},
 	}
 	factory, _ := mockRunnerFactory(events)
-	pool := NewPool(factory)
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, mem)
 	defer func() { _ = pool.Close() }()
 
 	ctx := context.Background()
@@ -203,14 +218,11 @@ func TestPoolChatAccumulatesHistory(t *testing.T) {
 	for range stream {
 	}
 
-	pool.mu.Lock()
-	sess := pool.sessions["sess"]
-	histLen := len(sess.Events)
-	pool.mu.Unlock()
-
-	// 1 user_message + 2 text deltas = 3 events.
-	if histLen != 3 {
-		t.Errorf("history length = %d, want 3", histLen)
+	// Verify history via pool.History() (memory engine).
+	history := pool.History("sess")
+	// 1 user_message + 1 assembled assistant message = 2 events.
+	if len(history) != 2 {
+		t.Errorf("history length = %d, want 2", len(history))
 	}
 }
 
@@ -218,7 +230,7 @@ func TestPoolChatErrorFromFactory(t *testing.T) {
 	factory := func(_ context.Context, _ string) (runner.Runner, error) {
 		return nil, fmt.Errorf("factory error")
 	}
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	stream := pool.Chat(context.Background(), "sess", "msg")
@@ -238,7 +250,7 @@ func TestPoolChatErrorFromFactory(t *testing.T) {
 
 func TestPoolArchiveAndRecreate(t *testing.T) {
 	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	ctx := context.Background()
@@ -276,7 +288,7 @@ func TestPoolArchiveAndRecreate(t *testing.T) {
 
 func TestPoolArchiveNonexistent(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 
 	// Should not error on nonexistent session.
 	if err := pool.ArchiveSession("nonexistent"); err != nil {
@@ -286,7 +298,7 @@ func TestPoolArchiveNonexistent(t *testing.T) {
 
 func TestPoolClose(t *testing.T) {
 	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 
 	ctx := context.Background()
 
@@ -317,7 +329,7 @@ func TestPoolClose(t *testing.T) {
 
 func TestPoolReapIdle(t *testing.T) {
 	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
-	pool := NewPool(factory, WithIdleTimeout(1*time.Millisecond))
+	pool := NewPool(factory, testMemoryEngine(t), WithIdleTimeout(1*time.Millisecond))
 	defer func() { _ = pool.Close() }()
 
 	ctx := context.Background()
@@ -360,7 +372,7 @@ func TestPoolReapIdle(t *testing.T) {
 
 func TestPoolReapDead(t *testing.T) {
 	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
-	pool := NewPool(factory, WithIdleTimeout(10*time.Minute))
+	pool := NewPool(factory, testMemoryEngine(t), WithIdleTimeout(10*time.Minute))
 	defer func() { _ = pool.Close() }()
 
 	ctx := context.Background()
@@ -396,7 +408,7 @@ func TestPoolReapDead(t *testing.T) {
 
 func TestPoolStartReaperCancels(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -418,7 +430,7 @@ func TestPoolStartReaperCancels(t *testing.T) {
 func TestPoolReplacesDeadRunnerOnChat(t *testing.T) {
 	// Use mockRunner to test dead-runner replacement in getOrCreateRunner.
 	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	ctx := context.Background()
@@ -450,7 +462,7 @@ func TestPoolReplacesDeadRunnerOnChat(t *testing.T) {
 
 func TestPoolCreateSession(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	info, err := pool.CreateSession("test")
@@ -470,7 +482,7 @@ func TestPoolCreateSession(t *testing.T) {
 
 func TestPoolCreateAndListSessions(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	_, _ = pool.CreateSession("test")
@@ -487,7 +499,7 @@ func TestPoolCreateAndListSessions(t *testing.T) {
 
 func TestPoolActiveSession(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	// No sessions yet.
@@ -519,7 +531,7 @@ func TestPoolActiveSession(t *testing.T) {
 
 func TestPoolResolveSession(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	// First call creates a new session.
@@ -553,7 +565,7 @@ func TestPoolResolveSession(t *testing.T) {
 
 func TestPoolRotateSession(t *testing.T) {
 	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	ch := "tg12345"
@@ -592,7 +604,7 @@ func TestPoolRotateSession(t *testing.T) {
 
 func TestPoolRotateSessionNoExisting(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	// Rotate with no existing session should just create one.
@@ -607,7 +619,7 @@ func TestPoolRotateSessionNoExisting(t *testing.T) {
 
 func TestPoolResolveSessionConcurrent(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	// Launch multiple goroutines that all resolve the same channel concurrently.
@@ -643,7 +655,7 @@ func TestPoolActiveSessionIgnoresLegacySessions(t *testing.T) {
 	// Sessions created before the Channel field was added have Channel == "".
 	// They should not match any channel query.
 	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	// Simulate a legacy session by directly injecting one without a Channel.
@@ -679,7 +691,7 @@ func TestPoolActiveSessionIgnoresLegacySessions(t *testing.T) {
 
 func TestPoolArchiveSession(t *testing.T) {
 	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	info, _ := pool.CreateSession("test")
@@ -709,7 +721,7 @@ func TestPoolArchiveSession(t *testing.T) {
 
 func TestPoolGetSession(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	info, _ := pool.CreateSession("test")
@@ -725,7 +737,7 @@ func TestPoolGetSession(t *testing.T) {
 
 func TestPoolGetSessionNotFound(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 
 	_, err := pool.GetSession("nonexistent")
 	if err == nil {
@@ -735,7 +747,7 @@ func TestPoolGetSessionNotFound(t *testing.T) {
 
 func TestPoolChatAutoTitles(t *testing.T) {
 	factory, _ := mockRunnerFactory([]runner.Event{{Text: "response"}})
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	info, _ := pool.CreateSession("test")
@@ -759,7 +771,7 @@ func TestPoolChatAutoTitles(t *testing.T) {
 
 func TestPoolChatAutoTitleTruncates(t *testing.T) {
 	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	info, _ := pool.CreateSession("test")
@@ -773,7 +785,7 @@ func TestPoolChatAutoTitleTruncates(t *testing.T) {
 	title := pool.sessions[info.ID].Info.Title
 	pool.mu.Unlock()
 
-	if len(title) > 65 { // 60 + "…"
+	if len(title) > 65 { // 60 + "..."
 		t.Errorf("title too long (%d chars): %q", len(title), title)
 	}
 }
@@ -789,7 +801,7 @@ func TestPoolChatWithModel(t *testing.T) {
 		return newMockRunner([]runner.Event{{Text: "ok"}}), nil
 	}
 
-	pool := NewPool(factory, WithDefaultModel("default-model"))
+	pool := NewPool(factory, testMemoryEngine(t), WithDefaultModel("default-model"))
 	defer func() { _ = pool.Close() }()
 
 	ctx := context.Background()
@@ -823,7 +835,7 @@ func TestPoolChatWithModel(t *testing.T) {
 	}
 
 	mu.Lock()
-	// No new runner should be created — still 2 total.
+	// No new runner should be created -- still 2 total.
 	if len(models) != 2 {
 		t.Fatalf("third call created new runner, models = %v, want len 2", models)
 	}
@@ -831,21 +843,12 @@ func TestPoolChatWithModel(t *testing.T) {
 }
 
 func TestPoolFastModelForCompaction(t *testing.T) {
-	var models []string
-	var mu sync.Mutex
-	factory := func(_ context.Context, model string) (runner.Runner, error) {
-		mu.Lock()
-		models = append(models, model)
-		mu.Unlock()
-		return newMockRunner([]runner.Event{{Text: "summary text"}}), nil
-	}
+	mem := testMemoryEngine(t)
+	factory, _ := mockRunnerFactory([]runner.Event{{Text: "summary text"}})
 
-	dir := t.TempDir()
-	s, _ := store.NewFileStore(dir, t.TempDir())
-	pool := NewPool(factory,
+	pool := NewPool(factory, mem,
 		WithDefaultModel("strong-model"),
 		WithFastModel("fast-model"),
-		WithStore(s),
 	)
 	defer func() { _ = pool.Close() }()
 
@@ -856,41 +859,13 @@ func TestPoolFastModelForCompaction(t *testing.T) {
 	for range stream {
 	}
 
-	mu.Lock()
-	if models[0] != "strong-model" {
-		t.Fatalf("chat model = %q, want strong-model", models[0])
-	}
-	mu.Unlock()
-
-	// Compact should use fast model.
-	_, err := pool.CompactSession(context.Background(), info.ID)
+	// Compact should succeed via memory engine.
+	summary, err := pool.CompactSession(context.Background(), info.ID)
 	if err != nil {
 		t.Fatalf("CompactSession: %v", err)
 	}
-
-	mu.Lock()
-	// The compaction should have created a runner with fast-model.
-	found := false
-	for _, m := range models {
-		if m == "fast-model" {
-			found = true
-			break
-		}
-	}
-	mu.Unlock()
-
-	if !found {
-		t.Errorf("compaction did not use fast model, models = %v", models)
-	}
-
-	// After compaction, session model should be restored to strong-model
-	// so subsequent chats don't stay on the fast tier.
-	pool.mu.Lock()
-	sessModel := pool.sessions[info.ID].Model
-	pool.mu.Unlock()
-
-	if sessModel != "strong-model" {
-		t.Errorf("session model after compaction = %q, want %q", sessModel, "strong-model")
+	if summary == "" {
+		t.Error("expected non-empty summary from compaction")
 	}
 }
 
@@ -904,7 +879,7 @@ func TestSetDefaultModelAffectsNewSessions(t *testing.T) {
 		return newMockRunner([]runner.Event{{Text: "ok"}}), nil
 	}
 
-	pool := NewPool(factory, WithDefaultModel("initial-model"))
+	pool := NewPool(factory, testMemoryEngine(t), WithDefaultModel("initial-model"))
 	defer func() { _ = pool.Close() }()
 
 	ctx := context.Background()
@@ -937,21 +912,10 @@ func TestSetDefaultModelAffectsNewSessions(t *testing.T) {
 	mu.Unlock()
 }
 
-func TestNeedsCompactionNoStore(t *testing.T) {
-	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory, WithCompaction(CompactionConfig{MaxTokens: 100}))
-
-	// No store set — should always return false.
-	if pool.NeedsCompaction("any-session") {
-		t.Error("NeedsCompaction should return false when store is nil")
-	}
-}
-
 func TestNeedsCompactionDisabled(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
-	dir := t.TempDir()
-	s, _ := store.NewFileStore(dir, t.TempDir())
-	pool := NewPool(factory, WithStore(s), WithCompaction(CompactionConfig{MaxTokens: 0}))
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, mem, WithCompaction(CompactionConfig{MaxTokens: 0}))
 
 	if pool.NeedsCompaction("any-session") {
 		t.Error("NeedsCompaction should return false when MaxTokens <= 0")
@@ -960,9 +924,8 @@ func TestNeedsCompactionDisabled(t *testing.T) {
 
 func TestNeedsCompactionUnderThreshold(t *testing.T) {
 	factory, _ := mockRunnerFactory([]runner.Event{{Text: "short"}})
-	dir := t.TempDir()
-	s, _ := store.NewFileStore(dir, t.TempDir())
-	pool := NewPool(factory, WithStore(s), WithCompaction(CompactionConfig{MaxTokens: 100_000}))
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, mem, WithCompaction(CompactionConfig{MaxTokens: 100_000}))
 	defer func() { _ = pool.Close() }()
 
 	info, _ := pool.CreateSession("test")
@@ -978,7 +941,7 @@ func TestNeedsCompactionUnderThreshold(t *testing.T) {
 
 func TestPoolCloseIdempotent(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 
 	if err := pool.Close(); err != nil {
 		t.Fatalf("first Close: %v", err)
@@ -990,7 +953,7 @@ func TestPoolCloseIdempotent(t *testing.T) {
 
 func TestPoolHistoryEmpty(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 
 	// Nonexistent session returns empty history.
 	history := pool.History("nonexistent")
@@ -1001,7 +964,7 @@ func TestPoolHistoryEmpty(t *testing.T) {
 
 func TestPoolConcurrentChat(t *testing.T) {
 	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
-	pool := NewPool(factory)
+	pool := NewPool(factory, testMemoryEngine(t))
 	defer func() { _ = pool.Close() }()
 
 	const n = 10
@@ -1017,4 +980,344 @@ func TestPoolConcurrentChat(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestPoolPersistNewSessionWithMemEngine(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, mem)
+	defer func() { _ = pool.Close() }()
+
+	info, err := pool.CreateSession("cli")
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	// Session metadata should be persisted in memory engine.
+	loaded, err := mem.LoadInfo(context.Background(), info.ID)
+	if err != nil {
+		t.Fatalf("LoadInfo: %v", err)
+	}
+	if loaded.ID != info.ID {
+		t.Errorf("loaded ID = %q, want %q", loaded.ID, info.ID)
+	}
+	if loaded.Channel != "cli" {
+		t.Errorf("loaded Channel = %q, want %q", loaded.Channel, "cli")
+	}
+}
+
+func TestPoolActiveSessionFromMemEngine(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, mem)
+	defer func() { _ = pool.Close() }()
+
+	// Save a session directly to the memory engine (not in pool's in-memory map).
+	extInfo := SessionInfo{
+		ID:         "ext-sess-001",
+		Channel:    "telegram",
+		LastActive: time.Now(),
+	}
+	if err := mem.SaveInfo(context.Background(), extInfo); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+
+	// activeSessionLocked should find the session from the memory engine.
+	got, ok := pool.ActiveSession("telegram")
+	if !ok {
+		t.Fatal("expected active session from memory engine")
+	}
+	if got.ID != "ext-sess-001" {
+		t.Errorf("got ID %q, want %q", got.ID, "ext-sess-001")
+	}
+}
+
+func TestPoolArchiveSessionWithMemEngine(t *testing.T) {
+	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, mem)
+	defer func() { _ = pool.Close() }()
+
+	info, _ := pool.CreateSession("test")
+
+	// Chat to create a runner.
+	stream := pool.Chat(context.Background(), info.ID, "hello")
+	for range stream {
+	}
+
+	if err := pool.ArchiveSession(info.ID); err != nil {
+		t.Fatalf("ArchiveSession: %v", err)
+	}
+
+	// The session should be marked as archived in the memory engine.
+	loaded, err := mem.LoadInfo(context.Background(), info.ID)
+	if err != nil {
+		t.Fatalf("LoadInfo after archive: %v", err)
+	}
+	if !loaded.Archived {
+		t.Error("expected session to be archived in memory engine")
+	}
+}
+
+func TestPoolHistoryFromMemEngine(t *testing.T) {
+	factory, _ := mockRunnerFactory([]runner.Event{{Text: "response"}})
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, mem)
+	defer func() { _ = pool.Close() }()
+
+	info, _ := pool.CreateSession("test")
+
+	stream := pool.Chat(context.Background(), info.ID, "hello")
+	for range stream {
+	}
+
+	// History should return messages from memory engine.
+	history := pool.History(info.ID)
+	if len(history) == 0 {
+		t.Fatal("expected non-empty history from memory engine")
+	}
+
+	// First message should be a UserMessage.
+	if _, ok := history[0].(ai.UserMessage); !ok {
+		t.Errorf("history[0] type = %T, want ai.UserMessage", history[0])
+	}
+}
+
+func TestPoolChatStoreEvent(t *testing.T) {
+	// Create a runner that emits a Store event (e.g., assistant message with tool call).
+	toolCallMsg := ai.AssistantMessage{
+		Content: []ai.ContentBlock{
+			ai.ToolCall{ID: "call_1", Name: "bash", Arguments: map[string]any{"cmd": "ls"}},
+		},
+	}
+	events := []runner.Event{
+		{Text: "thinking... "},
+		{Store: toolCallMsg},
+		{Text: "done"},
+	}
+	factory, _ := mockRunnerFactory(events)
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, mem)
+	defer func() { _ = pool.Close() }()
+
+	info, _ := pool.CreateSession("test")
+	stream := pool.Chat(context.Background(), info.ID, "run ls")
+
+	var collected string
+	for evt := range stream {
+		if evt.Err != nil {
+			t.Fatalf("unexpected error: %v", evt.Err)
+		}
+		collected += evt.Text
+	}
+
+	if collected != "thinking... done" {
+		t.Errorf("collected = %q, want %q", collected, "thinking... done")
+	}
+
+	// Verify the messages were ingested into memory engine.
+	history := pool.History(info.ID)
+	if len(history) == 0 {
+		t.Fatal("expected non-empty history after Store event")
+	}
+}
+
+func TestPoolChatErrorWithBufferedText(t *testing.T) {
+	// Runner emits text, then an error.
+	events := []runner.Event{
+		{Text: "partial "},
+		{Text: "response "},
+		{Err: fmt.Errorf("stream interrupted")},
+	}
+	factory, _ := mockRunnerFactory(events)
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, mem)
+	defer func() { _ = pool.Close() }()
+
+	info, _ := pool.CreateSession("test")
+	stream := pool.Chat(context.Background(), info.ID, "hello")
+
+	var collected string
+	var gotErr error
+	for evt := range stream {
+		if evt.Err != nil {
+			gotErr = evt.Err
+			break
+		}
+		collected += evt.Text
+	}
+
+	if gotErr == nil {
+		t.Fatal("expected error from stream")
+	}
+	if collected != "partial response " {
+		t.Errorf("collected = %q, want %q", collected, "partial response ")
+	}
+
+	// The partial text should still be persisted in the memory engine.
+	history := pool.History(info.ID)
+	if len(history) < 2 {
+		t.Fatalf("expected at least 2 messages (user + partial), got %d", len(history))
+	}
+}
+
+func TestPoolGetSessionFromMemEngine(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, mem)
+	defer func() { _ = pool.Close() }()
+
+	// Save session info directly in the memory engine.
+	info := SessionInfo{
+		ID:      "ext-get-sess",
+		Channel: "cli",
+		Title:   "External Session",
+	}
+	if err := mem.SaveInfo(context.Background(), info); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+
+	// GetSession should fall back to memory engine.
+	got, err := pool.GetSession("ext-get-sess")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if got.ID != "ext-get-sess" {
+		t.Errorf("got ID %q, want %q", got.ID, "ext-get-sess")
+	}
+	if got.Title != "External Session" {
+		t.Errorf("got Title %q, want %q", got.Title, "External Session")
+	}
+}
+
+func TestPoolListSessionsWithMemEngine(t *testing.T) {
+	factory, _ := mockRunnerFactory(nil)
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, mem)
+	defer func() { _ = pool.Close() }()
+
+	// Create sessions via the pool (persisted in memory engine).
+	_, _ = pool.CreateSession("cli")
+	_, _ = pool.CreateSession("telegram")
+
+	sessions, _ := pool.ListSessions(false)
+	if len(sessions) < 2 {
+		t.Fatalf("expected at least 2 sessions, got %d", len(sessions))
+	}
+
+	// Archive the first one.
+	_ = pool.ArchiveSession(sessions[0].ID)
+
+	// List without archived.
+	active, err := pool.ListSessions(false)
+	if err != nil {
+		t.Fatalf("ListSessions active: %v", err)
+	}
+	if len(active) != 1 {
+		t.Errorf("expected 1 active session, got %d", len(active))
+	}
+
+	// List with archived.
+	all, err := pool.ListSessions(true)
+	if err != nil {
+		t.Fatalf("ListSessions all: %v", err)
+	}
+	if len(all) != 2 {
+		t.Errorf("expected 2 total sessions, got %d", len(all))
+	}
+}
+
+func TestPoolGetOrCreateRunnerRestoresFromMemEngine(t *testing.T) {
+	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, mem)
+	defer func() { _ = pool.Close() }()
+
+	// Save session metadata in the memory engine.
+	info := SessionInfo{
+		ID:      "restore-sess",
+		Channel: "cli",
+		Title:   "Restored Session",
+	}
+	if err := mem.SaveInfo(context.Background(), info); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+
+	// getOrCreateRunner for an unknown session should restore metadata from mem.
+	sess, _, err := pool.getOrCreateRunner(context.Background(), "restore-sess", "")
+	if err != nil {
+		t.Fatalf("getOrCreateRunner: %v", err)
+	}
+
+	if sess.Info.ID != "restore-sess" {
+		t.Errorf("session ID = %q, want %q", sess.Info.ID, "restore-sess")
+	}
+	if sess.Info.Title != "Restored Session" {
+		t.Errorf("session Title = %q, want %q", sess.Info.Title, "Restored Session")
+	}
+}
+
+func TestPoolChatToolUseEventPassthrough(t *testing.T) {
+	// ToolUse events should pass through without being stored.
+	toolUseEvt := &runner.ToolUseEvent{
+		Tool:   "bash",
+		Status: "running",
+		Input:  "ls",
+	}
+	events := []runner.Event{
+		{ToolUse: toolUseEvt},
+		{Text: "result"},
+	}
+	factory, _ := mockRunnerFactory(events)
+	mem := testMemoryEngine(t)
+	pool := NewPool(factory, mem)
+	defer func() { _ = pool.Close() }()
+
+	info, _ := pool.CreateSession("test")
+	stream := pool.Chat(context.Background(), info.ID, "run ls")
+
+	var gotToolUse bool
+	var collected string
+	for evt := range stream {
+		if evt.ToolUse != nil {
+			gotToolUse = true
+		}
+		collected += evt.Text
+	}
+
+	if !gotToolUse {
+		t.Error("expected to receive ToolUse event")
+	}
+	if collected != "result" {
+		t.Errorf("collected = %q, want %q", collected, "result")
+	}
+}
+
+func TestPoolCompactSessionWithMemEngine(t *testing.T) {
+	mem := testMemoryEngine(t)
+	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	pool := NewPool(factory, mem,
+		WithCompaction(CompactionConfig{MaxTokens: 100_000, KeepTail: 5}),
+	)
+	defer func() { _ = pool.Close() }()
+
+	info, _ := pool.CreateSession("test")
+
+	// Ingest enough messages to have something to compact.
+	ctx := context.Background()
+	for i := 0; i < 20; i++ {
+		msg := fmt.Sprintf("message number %d with enough content to fill tokens", i)
+		stream := pool.Chat(ctx, info.ID, msg)
+		for range stream {
+		}
+	}
+
+	// CompactSession should succeed via memory engine.
+	summary, err := pool.CompactSession(ctx, info.ID)
+	if err != nil {
+		t.Fatalf("CompactSession: %v", err)
+	}
+	if summary == "" {
+		t.Error("expected non-empty summary from compaction")
+	}
 }

@@ -56,6 +56,15 @@ func TestOpenDB(t *testing.T) {
 			t.Errorf("table %q not found: %v", table, err)
 		}
 	}
+
+	// Verify user_version is set to current
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatalf("PRAGMA user_version: %v", err)
+	}
+	if version != currentSchemaVersion {
+		t.Errorf("user_version = %d, want %d", version, currentSchemaVersion)
+	}
 }
 
 func TestOpenDB_Idempotent(t *testing.T) {
@@ -72,6 +81,156 @@ func TestOpenDB_Idempotent(t *testing.T) {
 		t.Fatalf("second OpenDB: %v", err)
 	}
 	_ = db2.Close()
+}
+
+func TestMigrateFreshDB(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "fresh.db")
+	db, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// Verify new columns exist
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatalf("PRAGMA user_version: %v", err)
+	}
+	if version != currentSchemaVersion {
+		t.Errorf("user_version = %d, want %d", version, currentSchemaVersion)
+	}
+
+	// Verify new columns by inserting a row with defaults
+	q := sqlc.New(db)
+	ctx := context.Background()
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{
+		SessionID: "test-fresh",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	if conv.Channel != "" {
+		t.Errorf("Channel = %q, want empty string", conv.Channel)
+	}
+	if conv.Archived != 0 {
+		t.Errorf("Archived = %d, want 0", conv.Archived)
+	}
+	if conv.LastActive == "" {
+		t.Error("LastActive should not be empty")
+	}
+}
+
+func TestMigrateV1ToV2(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "v1.db")
+
+	// Create a v1 database manually (original schema without new columns).
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+
+	// Create v1 schema (conversations without channel/archived/last_active,
+	// messages without event_type).
+	v1Schema := `
+CREATE TABLE conversations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL UNIQUE,
+    title TEXT,
+    bootstrapped_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool')),
+    content TEXT NOT NULL,
+    token_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (conversation_id, seq)
+);
+`
+	if _, err := db.Exec(v1Schema); err != nil {
+		t.Fatalf("create v1 schema: %v", err)
+	}
+
+	// Insert a v1 conversation and message to verify data survives migration.
+	if _, err := db.Exec("INSERT INTO conversations (session_id, title) VALUES ('old-sess', 'Old Title')"); err != nil {
+		t.Fatalf("insert v1 conversation: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO messages (conversation_id, seq, role, content, token_count) VALUES (1, 1, 'user', 'hello', 2)"); err != nil {
+		t.Fatalf("insert v1 message: %v", err)
+	}
+	_ = db.Close()
+
+	// Now open with OpenDB which should migrate v1 -> v2.
+	db2, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB on v1 db: %v", err)
+	}
+	defer func() { _ = db2.Close() }()
+
+	// Verify version is now 2.
+	var version int
+	if err := db2.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatalf("PRAGMA user_version: %v", err)
+	}
+	if version != currentSchemaVersion {
+		t.Errorf("user_version = %d, want %d", version, currentSchemaVersion)
+	}
+
+	// Verify existing data is preserved and new columns have defaults.
+	q := sqlc.New(db2)
+	ctx := context.Background()
+	conv, err := q.GetConversationBySessionID(ctx, "old-sess")
+	if err != nil {
+		t.Fatalf("GetConversationBySessionID: %v", err)
+	}
+	if conv.Title.String != "Old Title" {
+		t.Errorf("Title = %q, want %q", conv.Title.String, "Old Title")
+	}
+	if conv.Channel != "" {
+		t.Errorf("Channel = %q, want empty string", conv.Channel)
+	}
+	if conv.Archived != 0 {
+		t.Errorf("Archived = %d, want 0", conv.Archived)
+	}
+
+	// Verify messages event_type column was added with default.
+	var eventType string
+	if err := db2.QueryRow("SELECT event_type FROM messages WHERE id = 1").Scan(&eventType); err != nil {
+		t.Fatalf("select event_type: %v", err)
+	}
+	if eventType != "text" {
+		t.Errorf("event_type = %q, want %q", eventType, "text")
+	}
+}
+
+func TestMigrateIdempotent(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "v2.db")
+
+	// First open creates the DB at version 2.
+	db1, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("first OpenDB: %v", err)
+	}
+	_ = db1.Close()
+
+	// Second open should be a no-op (version 2, nothing to do).
+	db2, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("second OpenDB: %v", err)
+	}
+	defer func() { _ = db2.Close() }()
+
+	var version int
+	if err := db2.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatalf("PRAGMA user_version: %v", err)
+	}
+	if version != currentSchemaVersion {
+		t.Errorf("user_version = %d, want %d", version, currentSchemaVersion)
+	}
 }
 
 func TestConversationCRUD(t *testing.T) {
@@ -114,6 +273,167 @@ func TestConversationCRUD(t *testing.T) {
 	}
 }
 
+func TestCreateConversationFull(t *testing.T) {
+	ctx := context.Background()
+	_, q := testDB(t)
+
+	conv, err := q.CreateConversationFull(ctx, sqlc.CreateConversationFullParams{
+		SessionID:  "sess-full",
+		Title:      sql.NullString{String: "Full Conv", Valid: true},
+		Channel:    "telegram",
+		Archived:   0,
+		LastActive: "2025-01-15 10:30:00",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversationFull: %v", err)
+	}
+	if conv.Channel != "telegram" {
+		t.Errorf("Channel = %q, want %q", conv.Channel, "telegram")
+	}
+	if conv.LastActive != "2025-01-15 10:30:00" {
+		t.Errorf("LastActive = %q, want %q", conv.LastActive, "2025-01-15 10:30:00")
+	}
+	if conv.Archived != 0 {
+		t.Errorf("Archived = %d, want 0", conv.Archived)
+	}
+}
+
+func TestListConversations(t *testing.T) {
+	ctx := context.Background()
+	_, q := testDB(t)
+
+	// Create active and archived conversations.
+	_, err := q.CreateConversationFull(ctx, sqlc.CreateConversationFullParams{
+		SessionID:  "active-1",
+		Title:      sql.NullString{String: "Active", Valid: true},
+		Channel:    "cli",
+		Archived:   0,
+		LastActive: "2025-01-15 10:00:00",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversationFull active: %v", err)
+	}
+
+	_, err = q.CreateConversationFull(ctx, sqlc.CreateConversationFullParams{
+		SessionID:  "archived-1",
+		Title:      sql.NullString{String: "Archived", Valid: true},
+		Channel:    "telegram",
+		Archived:   1,
+		LastActive: "2025-01-15 11:00:00",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversationFull archived: %v", err)
+	}
+
+	// ListConversations should only return non-archived.
+	active, err := q.ListConversations(ctx)
+	if err != nil {
+		t.Fatalf("ListConversations: %v", err)
+	}
+	if len(active) != 1 {
+		t.Fatalf("ListConversations len = %d, want 1", len(active))
+	}
+	if active[0].SessionID != "active-1" {
+		t.Errorf("SessionID = %q, want %q", active[0].SessionID, "active-1")
+	}
+
+	// ListConversationsAll should return both.
+	all, err := q.ListConversationsAll(ctx)
+	if err != nil {
+		t.Fatalf("ListConversationsAll: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("ListConversationsAll len = %d, want 2", len(all))
+	}
+}
+
+func TestUpdateConversationArchived(t *testing.T) {
+	ctx := context.Background()
+	_, q := testDB(t)
+
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{
+		SessionID: "to-archive",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	if conv.Archived != 0 {
+		t.Fatalf("Archived = %d, want 0", conv.Archived)
+	}
+
+	err = q.UpdateConversationArchived(ctx, sqlc.UpdateConversationArchivedParams{
+		Archived:  1,
+		SessionID: "to-archive",
+	})
+	if err != nil {
+		t.Fatalf("UpdateConversationArchived: %v", err)
+	}
+
+	got, err := q.GetConversationBySessionID(ctx, "to-archive")
+	if err != nil {
+		t.Fatalf("GetConversationBySessionID: %v", err)
+	}
+	if got.Archived != 1 {
+		t.Errorf("Archived = %d, want 1", got.Archived)
+	}
+}
+
+func TestUpdateConversationLastActive(t *testing.T) {
+	ctx := context.Background()
+	_, q := testDB(t)
+
+	conv, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{
+		SessionID: "sess-active",
+	})
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	originalActive := conv.LastActive
+
+	err = q.UpdateConversationLastActive(ctx, "sess-active")
+	if err != nil {
+		t.Fatalf("UpdateConversationLastActive: %v", err)
+	}
+
+	got, err := q.GetConversationBySessionID(ctx, "sess-active")
+	if err != nil {
+		t.Fatalf("GetConversationBySessionID: %v", err)
+	}
+	// last_active should be >= original (they might be equal if same second).
+	if got.LastActive < originalActive {
+		t.Errorf("LastActive = %q, should be >= %q", got.LastActive, originalActive)
+	}
+}
+
+func TestUpdateConversationTitleBySessionID(t *testing.T) {
+	ctx := context.Background()
+	_, q := testDB(t)
+
+	_, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{
+		SessionID: "sess-title",
+		Title:     sql.NullString{String: "Original", Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+
+	err = q.UpdateConversationTitleBySessionID(ctx, sqlc.UpdateConversationTitleBySessionIDParams{
+		Title:     sql.NullString{String: "New Title", Valid: true},
+		SessionID: "sess-title",
+	})
+	if err != nil {
+		t.Fatalf("UpdateConversationTitleBySessionID: %v", err)
+	}
+
+	got, err := q.GetConversationBySessionID(ctx, "sess-title")
+	if err != nil {
+		t.Fatalf("GetConversationBySessionID: %v", err)
+	}
+	if got.Title.String != "New Title" {
+		t.Errorf("Title = %q, want %q", got.Title.String, "New Title")
+	}
+}
+
 func TestMessageCRUD(t *testing.T) {
 	ctx := context.Background()
 	_, q := testDB(t)
@@ -127,6 +447,7 @@ func TestMessageCRUD(t *testing.T) {
 		ConversationID: conv.ID,
 		Seq:            1,
 		Role:           RoleUser,
+		EventType:      EventTypeText,
 		Content:        "hello world",
 		TokenCount:     3,
 	})
@@ -195,7 +516,7 @@ func TestSummaryCRUD(t *testing.T) {
 	}
 
 	msg, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
-		ConversationID: conv.ID, Seq: 1, Role: RoleUser, Content: "test", TokenCount: 1,
+		ConversationID: conv.ID, Seq: 1, Role: RoleUser, EventType: EventTypeText, Content: "test", TokenCount: 1,
 	})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)
@@ -267,14 +588,14 @@ func TestContextItemsCRUD(t *testing.T) {
 	}
 
 	msg1, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
-		ConversationID: conv.ID, Seq: 1, Role: RoleUser, Content: "msg1", TokenCount: 2,
+		ConversationID: conv.ID, Seq: 1, Role: RoleUser, EventType: EventTypeText, Content: "msg1", TokenCount: 2,
 	})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)
 	}
 
 	msg2, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
-		ConversationID: conv.ID, Seq: 2, Role: RoleAssistant, Content: "msg2", TokenCount: 3,
+		ConversationID: conv.ID, Seq: 2, Role: RoleAssistant, EventType: EventTypeText, Content: "msg2", TokenCount: 3,
 	})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)
@@ -340,14 +661,14 @@ func TestSearchMessages(t *testing.T) {
 	}
 
 	_, err = q.CreateMessage(ctx, sqlc.CreateMessageParams{
-		ConversationID: conv.ID, Seq: 1, Role: RoleUser, Content: "implement authentication", TokenCount: 5,
+		ConversationID: conv.ID, Seq: 1, Role: RoleUser, EventType: EventTypeText, Content: "implement authentication", TokenCount: 5,
 	})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)
 	}
 
 	_, err = q.CreateMessage(ctx, sqlc.CreateMessageParams{
-		ConversationID: conv.ID, Seq: 2, Role: RoleAssistant, Content: "done with database", TokenCount: 4,
+		ConversationID: conv.ID, Seq: 2, Role: RoleAssistant, EventType: EventTypeText, Content: "done with database", TokenCount: 4,
 	})
 	if err != nil {
 		t.Fatalf("CreateMessage: %v", err)

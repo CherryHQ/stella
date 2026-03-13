@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -89,8 +88,8 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	}, nil
 }
 
-// Chat converts history, runs the Engine agent loop, and forwards events to the returned channel.
-func (r *GoRunner) Chat(ctx context.Context, history []RPCEvent, message MessageContent) <-chan Event {
+// Chat runs the Engine agent loop with the provided history and forwards events.
+func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message MessageContent) <-chan Event {
 	out := make(chan Event, 100)
 
 	r.mu.Lock()
@@ -100,7 +99,8 @@ func (r *GoRunner) Chat(ctx context.Context, history []RPCEvent, message Message
 	go func() {
 		defer close(out)
 
-		messages := convertHistory(history)
+		messages := make([]ai.Message, len(history))
+		copy(messages, history)
 		messages = append(messages, ai.UserMessage{Content: message})
 
 		cfg := engine.LoopConfig{
@@ -162,9 +162,12 @@ func convertLoopEvent(e engine.LoopEvent) []Event {
 		// Emit Store events for tool calls in the final message.
 		var events []Event
 		for _, block := range e.Message.Content {
-			if call, ok := block.(ai.ToolCall); ok {
-				rpc := ToolCallToRPCEvent(call)
-				events = append(events, Event{Store: &rpc})
+			if _, ok := block.(ai.ToolCall); ok {
+				// Store the full assistant message (text + all tool calls) once
+				// when we see the first tool call.
+				msg := ai.AssistantMessage{Content: e.Message.Content}
+				events = append(events, Event{Store: msg})
+				return events
 			}
 		}
 		return events
@@ -182,14 +185,13 @@ func convertLoopEvent(e engine.LoopEvent) []Event {
 		if e.Result.IsError {
 			status = "error"
 		}
-		rpc := ToolResultToRPCEvent(e.Result)
 		return []Event{
 			{ToolUse: &ToolUseEvent{
 				Tool:   e.Result.ToolName,
 				Status: status,
 				Detail: detail,
 			}},
-			{Store: &rpc},
+			{Store: e.Result},
 		}
 
 	case engine.AgentErrored:
@@ -265,109 +267,4 @@ func summarizeToolInput(toolName string, args map[string]any) string {
 		}
 	}
 	return ""
-}
-
-// decodeUserContent reconstructs the user message content from an RPCEvent.
-// Returns []ai.ContentBlock if the event has multimodal content, or string otherwise.
-func decodeUserContent(evt RPCEvent) any {
-	if len(evt.Content) == 0 {
-		return evt.Summary
-	}
-	var blocks []ContentBlockJSON
-	if err := json.Unmarshal(evt.Content, &blocks); err != nil {
-		return evt.Summary
-	}
-	content := make([]ai.ContentBlock, 0, len(blocks))
-	for _, b := range blocks {
-		switch b.Kind {
-		case BlockKindText:
-			content = append(content, ai.TextContent{Text: b.Text})
-		case BlockKindImage:
-			content = append(content, ai.ImageContent{Data: b.Data, MimeType: b.MimeType})
-		}
-	}
-	if len(content) == 0 {
-		return evt.Summary
-	}
-	return content
-}
-
-// convertHistory rebuilds []ai.Message from RPCEvent history.
-func convertHistory(events []RPCEvent) []ai.Message {
-	var messages []ai.Message
-	var textBuf string
-	var pendingCalls []ai.ToolCall
-	seenCallIDs := map[string]bool{}
-
-	flush := func() {
-		if textBuf != "" {
-			messages = append(messages, ai.AssistantMessage{
-				Content: []ai.ContentBlock{ai.TextContent{Text: textBuf}},
-			})
-			textBuf = ""
-		}
-	}
-
-	flushToolCalls := func() {
-		if len(pendingCalls) > 0 {
-			blocks := make([]ai.ContentBlock, 0, len(pendingCalls)+1)
-			if textBuf != "" {
-				blocks = append(blocks, ai.TextContent{Text: textBuf})
-				textBuf = ""
-			}
-			for _, c := range pendingCalls {
-				blocks = append(blocks, c)
-			}
-			messages = append(messages, ai.AssistantMessage{Content: blocks})
-			pendingCalls = nil
-		}
-	}
-
-	for _, evt := range events {
-		switch evt.Type {
-		case RPCEventUserMessage:
-			flushToolCalls()
-			flush()
-			messages = append(messages, ai.UserMessage{Content: decodeUserContent(evt)})
-
-		case RPCEventMessageUpdate:
-			if evt.Summary != "" {
-				textBuf += evt.Summary
-			} else if len(evt.AssistantMessageEvent) > 0 {
-				var ame AssistantMessageEvent
-				if json.Unmarshal(evt.AssistantMessageEvent, &ame) == nil && ame.Type == "text_delta" {
-					textBuf += ame.Delta
-				}
-			}
-
-		case RPCEventToolCall:
-			var args map[string]any
-			_ = json.Unmarshal(evt.Result, &args)
-			seenCallIDs[evt.ID] = true
-			pendingCalls = append(pendingCalls, ai.ToolCall{
-				ID:        evt.ID,
-				Name:      evt.Tool,
-				Arguments: args,
-			})
-
-		case RPCEventToolResult:
-			// Skip orphaned tool results (no matching tool call).
-			if !seenCallIDs[evt.ID] {
-				continue
-			}
-			flushToolCalls()
-			var content string
-			_ = json.Unmarshal(evt.Result, &content)
-			messages = append(messages, ai.ToolResultMessage{
-				ToolCallID: evt.ID,
-				ToolName:   evt.Tool,
-				Content:    []ai.ContentBlock{ai.TextContent{Text: content}},
-				IsError:    evt.Error != "",
-			})
-		}
-	}
-
-	flushToolCalls()
-	flush()
-	return messages
 }
