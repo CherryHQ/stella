@@ -90,7 +90,7 @@ Leave empty to allow all users. Use the `/whoami` command to get your open_id.
 
 ## Notifications
 
-Configure a default chat for proactive notifications (cron results, agent-triggered alerts):
+Configure a default chat for proactive notifications (scheduler results, agent-triggered alerts):
 
 ```yaml
 channels:

@@ -83,9 +83,9 @@ runner:
     max_tokens: 80000              # auto-compact threshold (-1 = disabled)
     keep_tail: 20                  # recent messages kept after compaction
 
-cron:
+scheduler:
   enabled: true
-  data_dir: "~/.anna/workspace/cron"
+  data_dir: "~/.anna/workspace/scheduler"
 
 heartbeat:
   enabled: false                   # default: false
@@ -108,7 +108,7 @@ All paths are relative to `$ANNA_HOME` (`~/.anna` by default).
 | `workspace/USER.md` | User preferences, name, timezone |
 | `workspace/memory.db` | Memory database (message history, summaries) |
 | `workspace/skills/` | Installed skills |
-| `workspace/cron/` | Cron job persistence |
+| `workspace/scheduler/` | Scheduler job persistence |
 | `workspace/HEARTBEAT.md` | Heartbeat instructions |
 
 ## Environment variables
@@ -124,7 +124,7 @@ Priority (highest wins): env vars > state.yaml > config.yaml > defaults.
 | `ANNA_MODEL_FAST` | `model_fast` |
 | `ANNA_WORKSPACE` | `workspace` |
 | `ANNA_RUNNER_IDLE_TIMEOUT` | `runner.idle_timeout` |
-| `ANNA_CRON_ENABLED` | `cron.enabled` |
+| `ANNA_SCHEDULER_ENABLED` | `scheduler.enabled` |
 | `ANNA_HEARTBEAT_ENABLED` | `heartbeat.enabled` |
 | `ANNA_HEARTBEAT_EVERY` | `heartbeat.every` |
 | `ANNA_HEARTBEAT_FILE` | `heartbeat.file` |
@@ -161,7 +161,7 @@ Priority (highest wins): env vars > state.yaml > config.yaml > defaults.
 | `runner.idle_timeout` | `10` (minutes) |
 | `runner.compaction.max_tokens` | `80000` |
 | `runner.compaction.keep_tail` | `20` |
-| `cron.enabled` | `true` |
+| `scheduler.enabled` | `true` |
 | `heartbeat.enabled` | `false` |
 | `heartbeat.every` | `10m` |
 | `channels.telegram.enabled` | `true` |

@@ -20,5 +20,5 @@ You are Anna, a personal AI assistant.
 
 These tools may or may not be present depending on configuration:
 
-- `cron`: Create, list, and remove scheduled or one-time jobs
+- `scheduler`: Create, list, and remove scheduled or one-time jobs
 - `notify`: Send a message to the user via Telegram, Slack, or other configured backends

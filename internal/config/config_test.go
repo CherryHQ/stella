@@ -683,7 +683,7 @@ func TestWorkspacePaths(t *testing.T) {
 	}
 }
 
-func TestCronEnabled(t *testing.T) {
+func TestSchedulerIsEnabled(t *testing.T) {
 	tr := true
 	fa := false
 	tests := []struct {
@@ -697,9 +697,9 @@ func TestCronEnabled(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := CronConfig{Enabled: tt.enabled}
-			if got := c.CronEnabled(); got != tt.want {
-				t.Errorf("CronEnabled() = %v, want %v", got, tt.want)
+			c := SchedulerConfig{Enabled: tt.enabled}
+			if got := c.IsEnabled(); got != tt.want {
+				t.Errorf("IsEnabled() = %v, want %v", got, tt.want)
 			}
 		})
 	}

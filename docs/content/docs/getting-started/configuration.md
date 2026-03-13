@@ -3,7 +3,7 @@ title: Configuration
 ---
 Config file: `~/.anna/config.yaml`
 
-The workspace root defaults to `~/.anna/workspace` and can be changed by setting the `ANNA_HOME` environment variable. Session, memory, skills, cron data, and runtime state all live under the workspace root. The model cache lives in `~/.anna/cache/`.
+The workspace root defaults to `~/.anna/workspace` and can be changed by setting the `ANNA_HOME` environment variable. Session, memory, skills, scheduler data, and runtime state all live under the workspace root. The model cache lives in `~/.anna/cache/`.
 
 ## Full Reference
 
@@ -83,9 +83,9 @@ runner:
     keep_tail: 20                # Keep N recent messages after compaction
 
 # Scheduled tasks
-cron:
+scheduler:
   enabled: true
-  data_dir: "~/.anna/workspace/cron"  # Job persistence directory
+  data_dir: "~/.anna/workspace/scheduler"  # Job persistence directory
 
 # Heartbeat polling
 heartbeat:
@@ -107,7 +107,7 @@ Heartbeat only runs in `anna gateway`. Each tick first uses the fast model to de
 | `~/.anna/workspace/USER.md` | User preferences, context | Data |
 | `~/.anna/workspace/memory.db` | Memory database (message history, summaries) | Data |
 | `~/.anna/workspace/skills/` | Installed skills | Data |
-| `~/.anna/workspace/cron/` | Cron job persistence | Data |
+| `~/.anna/workspace/scheduler/` | Scheduler job persistence | Data |
 | `~/.anna/workspace/HEARTBEAT.md` | Heartbeat instructions | Data |
 
 - **config.yaml** is static and user-edited — safe to version control.
@@ -131,8 +131,8 @@ All config fields support env var overrides using the `ANNA_` prefix. Nested str
 | `ANNA_WORKSPACE` | `workspace` | |
 | `ANNA_RUNNER_TYPE` | `runner.type` | |
 | `ANNA_RUNNER_IDLE_TIMEOUT` | `runner.idle_timeout` | |
-| `ANNA_CRON_ENABLED` | `cron.enabled` | |
-| `ANNA_CRON_DATA_DIR` | `cron.data_dir` | |
+| `ANNA_SCHEDULER_ENABLED` | `scheduler.enabled` | |
+| `ANNA_SCHEDULER_DATA_DIR` | `scheduler.data_dir` | |
 | `ANNA_HEARTBEAT_ENABLED` | `heartbeat.enabled` | |
 | `ANNA_HEARTBEAT_EVERY` | `heartbeat.every` | Go duration such as `10m` |
 | `ANNA_HEARTBEAT_FILE` | `heartbeat.file` | Relative to workspace unless absolute |
@@ -174,8 +174,8 @@ All config fields support env var overrides using the `ANNA_` prefix. Nested str
 | `runner.idle_timeout` | `10` (minutes) |
 | `runner.compaction.max_tokens` | `80000` |
 | `runner.compaction.keep_tail` | `20` |
-| `cron.enabled` | `true` |
-| `cron.data_dir` | `~/.anna/workspace/cron` |
+| `scheduler.enabled` | `true` |
+| `scheduler.data_dir` | `~/.anna/workspace/cron` |
 | `heartbeat.enabled` | `false` |
 | `heartbeat.every` | `10m` |
 | `heartbeat.file` | `~/.anna/workspace/HEARTBEAT.md` |

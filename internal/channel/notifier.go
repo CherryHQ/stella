@@ -27,7 +27,7 @@ type channelEntry struct {
 }
 
 // Dispatcher routes notifications to one or more registered channels.
-// It implements Notifier so it can be passed to tools and cron wiring.
+// It implements Notifier so it can be passed to tools and scheduler wiring.
 type Dispatcher struct {
 	mu       sync.RWMutex
 	channels []channelEntry
