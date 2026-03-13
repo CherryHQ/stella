@@ -28,7 +28,7 @@ var skillsInputSchema = func() map[string]any {
     },
     "source": {
       "type": "string",
-      "description": "Package source to install, e.g. 'owner/repo@skill-name' (required for install)"
+      "description": "Skill source to install. Supports: 'owner/repo@skill-name' (GitHub shorthand), 'owner/repo@skill-name#ref' (with branch/tag), GitHub/GitLab URLs, or local paths (required for install)"
     },
     "name": {
       "type": "string",
@@ -40,16 +40,12 @@ var skillsInputSchema = func() map[string]any {
 	return m
 }()
 
-// cloneFn abstracts git clone/update for testing.
-type cloneFn func(ctx context.Context, owner, repo, ref, cacheDir string) error
-
 // SkillsTool exposes skill management as an agent tool.
 type SkillsTool struct {
 	annaHome  string
 	workspace string
 	cwd       string
-	searchURL string  // override for testing; empty uses default
-	cloner    cloneFn // override for testing; nil uses default
+	searchURL string // override for testing; empty uses default
 }
 
 // NewTool creates a SkillsTool for the given anna home, workspace and working directory.

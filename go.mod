@@ -1,6 +1,6 @@
 module github.com/vaayne/anna
 
-go 1.24.2
+go 1.25
 
 require (
 	codeberg.org/readeck/go-readability/v2 v2.1.1
@@ -13,13 +13,13 @@ require (
 	github.com/charmbracelet/glamour v0.10.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/go-co-op/gocron/v2 v2.19.1
-	github.com/go-git/go-git/v5 v5.17.0
 	github.com/google/uuid v1.6.0
 	github.com/larksuite/oapi-sdk-go/v3 v3.5.3
 	github.com/muesli/termenv v0.16.0
 	github.com/openai/openai-go v1.12.0
 	github.com/tencent-connect/botgo v0.2.1
 	github.com/urfave/cli/v2 v2.27.7
+	github.com/vaayne/mcphub v0.2.3
 	github.com/yuin/goldmark v1.7.8
 	golang.org/x/oauth2 v0.30.0
 	golang.org/x/sync v0.18.0
@@ -50,12 +50,13 @@ require (
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
-	github.com/dlclark/regexp2 v1.11.0 // indirect
+	github.com/dlclark/regexp2 v1.11.4 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.8.0 // indirect
+	github.com/go-git/go-git/v5 v5.17.0 // indirect
 	github.com/go-resty/resty/v2 v2.6.0 // indirect
 	github.com/go-shiori/dom v0.0.0-20230515143342-73569d674e1c // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
