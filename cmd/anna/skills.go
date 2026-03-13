@@ -10,9 +10,9 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/agent/runner"
-	"github.com/vaayne/anna/config"
-	"github.com/vaayne/anna/skills"
+	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/skills"
 )
 
 func skillsCommand() *ucli.Command {

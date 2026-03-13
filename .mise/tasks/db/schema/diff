@@ -4,5 +4,5 @@
 DB_PATH="${DB_PATH:-$HOME/.anna/workspace/memory.db}"
 atlas schema diff \
     --from "sqlite://$DB_PATH" \
-    --to "file://db/migrations" \
+    --to "file://internal/db/migrations" \
     --dev-url "sqlite://dev?mode=memory"

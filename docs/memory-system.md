@@ -6,7 +6,7 @@
 
 The memory system provides lossless context management for anna. Every message is persisted in a SQLite database and organized into a DAG (directed acyclic graph) of summaries. When the conversation grows too long, older messages are compacted into leaf summaries, and groups of leaf summaries are further condensed into higher-level summaries. The agent can drill back into any summary to recover the original detail — nothing is ever deleted.
 
-Package: `memory/` (core) + `memory/tool/` (agent tool wrappers).
+Package: `internal/memory/` (core) + `internal/memory/tool/` (agent tool wrappers).
 
 ### Architecture
 
@@ -39,7 +39,7 @@ ai.Message (user/assistant/tool_result)
 
 ### Engine API
 
-The `Engine` interface (`memory/types.go`) is the main entry point:
+The `Engine` interface (`internal/memory/types.go`) is the main entry point:
 
 | Method | Description |
 |--------|-------------|
@@ -59,13 +59,13 @@ Engine options: `WithFreshTail(n)`, `WithLogger(log)`.
 - **Location:** `~/.anna/workspace/memory.db`
 - **Driver:** `modernc.org/sqlite` (pure Go, no CGO)
 - **Mode:** WAL (concurrent reads during writes), foreign keys enabled
-- **Migrations:** Atlas-generated SQL files in `db/migrations/`, embedded via `db.MigrationsFS` and applied on `OpenDB()`. Applied versions are tracked in a `schema_migrations` table.
+- **Migrations:** Atlas-generated SQL files in `internal/db/migrations/`, embedded via `MigrationsFS` and applied on `db.OpenDB()`. Applied versions are tracked in a `schema_migrations` table.
 
 **Schema change workflow:**
 
 ```bash
 # 1. Edit schema source files
-vim db/schemas/tables/conversations.sql
+vim internal/db/schemas/tables/conversations.sql
 
 # 2. Generate migration
 mise run atlas:diff -- add_column_name
@@ -107,7 +107,7 @@ Compaction reduces the context window by summarizing older messages and summarie
 
 Both passes run within the `runPasses` helper, which fetches context items once and re-fetches only between passes when mutations occur.
 
-**Summarization escalation** (`memory/summarize.go`):
+**Summarization escalation** (`internal/memory/summarize.go`):
 
 The `LLMSummarizer` implements a three-tier escalation strategy:
 
@@ -119,7 +119,7 @@ Leaf summaries target 1/3 of source tokens. Condensed summaries target 1/2 (less
 
 ### Context Assembly
 
-The `Assembler` builds the context window for each LLM call (`memory/assembler.go`):
+The `Assembler` builds the context window for each LLM call (`internal/memory/assembler.go`):
 
 1. Separate context items into **fresh tail** (last N message items, default 20) and **older** items.
 2. Resolve fresh tail items to `ai.Message`s — these are always included regardless of budget.
@@ -143,7 +143,7 @@ The `Assembler` builds the context window for each LLM call (`memory/assembler.g
 
 ### Retrieval Tools
 
-Three tools in `memory/tool/` provide read access to compacted history:
+Three tools in `internal/memory/tool/` provide read access to compacted history:
 
 | Tool | Purpose | Key Parameters |
 |------|---------|----------------|

@@ -3,5 +3,5 @@
 
 atlas migrate diff \
     --dev-url "sqlite://dev?mode=memory" \
-    --to "file://db/schemas/main.sql" \
-    --dir "file://db/migrations"
+    --to "file://internal/db/schemas/main.sql" \
+    --dir "file://internal/db/migrations"

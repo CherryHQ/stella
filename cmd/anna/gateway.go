@@ -9,13 +9,13 @@ import (
 	"syscall"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/agent"
-	"github.com/vaayne/anna/channel"
-	"github.com/vaayne/anna/channel/feishu"
-	"github.com/vaayne/anna/channel/qq"
-	"github.com/vaayne/anna/channel/telegram"
-	"github.com/vaayne/anna/config"
-	"github.com/vaayne/anna/cron"
+	"github.com/vaayne/anna/internal/agent"
+	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/internal/channel/feishu"
+	"github.com/vaayne/anna/internal/channel/qq"
+	"github.com/vaayne/anna/internal/channel/telegram"
+	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/cron"
 	"golang.org/x/sync/errgroup"
 )
 
