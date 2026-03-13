@@ -35,7 +35,7 @@ Terminal  /  Telegram  /  QQ  /  Feishu
 anna (single binary, your machine)
  |
  ├── LCM Memory (SQLite, DAG-based context compression)
- ├── Scheduler (cron jobs, reminders, heartbeat)
+ ├── Scheduler (jobs, reminders, heartbeat)
  ├── Skills (extensible via skills.sh)
  └── Notifications (pushes results back to you)
  |
@@ -69,7 +69,7 @@ Every channel supports `/new`, `/compact`, `/model`, `/whoami`, model switching,
 
 ## Scheduler
 
-You don't write crontab entries. You just tell Anna what you need.
+You don't write cron expressions by hand. You just tell Anna what you need.
 
 "Check the weather in Beijing every morning at 8am" creates a recurring job. "Remind me at 2:30 PM to call the dentist" creates a one-shot timer that cleans up after it fires. Jobs persist across restarts.
 
@@ -167,7 +167,7 @@ anna upgrade           # Self-update to latest release
 | [Telegram](docs/content/docs/channels/telegram.md) | Bot setup, streaming, groups, access control |
 | [QQ Bot](docs/content/docs/channels/qq.md) | Bot setup, webhook, streaming |
 | [Feishu Bot](docs/content/docs/channels/feishu.md) | Bot setup, WebSocket, streaming |
-| [Cron System](docs/content/docs/features/cron-system.md) | Scheduled tasks, heartbeat, persistence |
+| [Scheduler System](docs/content/docs/features/scheduler-system.md) | Scheduler system, heartbeat, persistence |
 | [Notification System](docs/content/docs/features/notification-system.md) | Dispatcher, backends, routing |
 
 ## Development

@@ -1,13 +1,13 @@
 ---
-title: Cron System
+title: Scheduler System
 ---
 ## Status
 
-Implemented — `internal/cron/` package with gocron/v2 scheduler, JSON persistence, and agent tool.
+Implemented — `internal/scheduler/` package with gocron/v2 scheduler, JSON persistence, and agent tool.
 
 ## Overview
 
-Anna supports scheduled task execution so the agent can set reminders, run periodic tasks, and automate recurring work. The cron system delegates all scheduling to [gocron/v2](https://github.com/go-co-op/gocron) and adds persistence and an agent-facing tool on top.
+Anna supports scheduled task execution so the agent can set reminders, run periodic tasks, and automate recurring work. The scheduler system delegates all scheduling to [gocron/v2](https://github.com/go-co-op/gocron) and adds persistence and an agent-facing tool on top.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ Agent (via tool call)
     |  add / list / remove
     v
 +----------+       +-------------+
-| CronTool | ----> |   Service   |
+| SchedulerTool | ----> |   Service   |
 +----------+       +------+------+
                           |
               +-----------+-----------+
@@ -28,20 +28,20 @@ Agent (via tool call)
         OnJobFunc callback
               |
               v
-      pool.Chat(ctx, "cron:{id}", message)
+      pool.Chat(ctx, "scheduler:{id}", message)
 ```
 
-### Package: `internal/cron/`
+### Package: `internal/scheduler/`
 
 Top-level package (under `internal/`). Five files:
 
 | File | Purpose |
 |------|---------|
-| `internal/cron/job.go` | `Job` and `Schedule` types |
-| `internal/cron/service.go` | `Service` — gocron wrapper, scheduling, job CRUD |
-| `internal/cron/heartbeat.go` | Heartbeat polling — decide/execute/notify via LLM |
-| `internal/cron/persistence.go` | JSON file I/O (load/save jobs) |
-| `internal/cron/tool.go` | `CronTool` — agent tool implementing `tool.Tool` |
+| `internal/scheduler/job.go` | `Job` and `Schedule` types |
+| `internal/scheduler/service.go` | `Service` — gocron wrapper, scheduling, job CRUD |
+| `internal/scheduler/heartbeat.go` | Heartbeat polling — decide/execute/notify via LLM |
+| `internal/scheduler/persistence.go` | JSON file I/O (load/save jobs) |
+| `internal/scheduler/tool.go` | `SchedulerTool` — agent tool implementing `tool.Tool` |
 
 ### Key Types
 
@@ -67,14 +67,14 @@ type Job struct {
 
 ### Service Lifecycle
 
-1. `cron.New(dataPath)` — creates scheduler
+1. `scheduler.New(dataPath)` — creates scheduler
 2. `service.SetOnJob(fn)` — sets callback (deferred wiring to resolve circular dependency)
 3. `service.Start(ctx)` — loads `jobs.json`, registers all jobs with gocron, starts scheduler
 4. `service.Stop()` — shuts down scheduler
 
 ### Persistence
 
-Jobs are stored as a JSON array in `{dataDir}/jobs.json` (default: `~/.anna/workspace/cron/jobs.json`). Writes are atomic (temp file + rename).
+Jobs are stored as a JSON array in `{dataDir}/jobs.json` (default: `~/.anna/workspace/scheduler/jobs.json`). Writes are atomic (temp file + rename).
 
 ### One-Time Jobs
 
@@ -88,28 +88,28 @@ Behavior details:
 
 ### Session Model
 
-Each cron job's session behavior is controlled by its `session_mode`:
+Each scheduled job's session behavior is controlled by its `session_mode`:
 
-- **`reuse`** (default) — the job gets a stable session ID `cron:{job.ID}`. The agent retains conversational memory across scheduled runs of the same job.
-- **`new`** — each execution gets a unique session ID `cron:{job.ID}:{timestamp}`. The agent starts fresh every time with no prior context.
+- **`reuse`** (default) — the job gets a stable session ID `scheduler:{job.ID}`. The agent retains conversational memory across scheduled runs of the same job.
+- **`new`** — each execution gets a unique session ID `scheduler:{job.ID}:{timestamp}`. The agent starts fresh every time with no prior context.
 
 ## Configuration
 
 Add to `~/.anna/config.yaml`:
 
 ```yaml
-cron:
+scheduler:
   enabled: true
-  data_dir: ~/.anna/workspace/cron  # optional, this is the default
+  data_dir: ~/.anna/workspace/scheduler  # optional, this is the default
 ```
 
-Cron is only active when:
-- `cron.enabled` is `true`
+Scheduler is only active when:
+- `scheduler.enabled` is `true`
 - `runner.type` is `go` (the Pi runner doesn't support custom tools)
 
 ## Agent Tool
 
-The `cron` tool is automatically registered with the Go runner when cron is enabled. The agent uses it via tool calls with three actions:
+The `scheduler` tool is automatically registered with the Go runner when scheduler is enabled. The agent uses it via tool calls with three actions:
 
 ### `add` — Create a job
 
@@ -142,11 +142,11 @@ Parameters:
 
 ## Heartbeat
 
-Heartbeat is a built-in periodic task managed by the cron service. It polls a `HEARTBEAT.md` file and uses the LLM to decide whether action is needed, executing instructions and sending results via the notification dispatcher.
+Heartbeat is a built-in periodic task managed by the scheduler service. It polls a `HEARTBEAT.md` file and uses the LLM to decide whether action is needed, executing instructions and sending results via the notification dispatcher.
 
 ### How It Works
 
-1. `SetHeartbeat(cfg, chatFn, notifier)` configures heartbeat on the cron service
+1. `SetHeartbeat(cfg, chatFn, notifier)` configures heartbeat on the scheduler service
 2. `StartHeartbeat(ctx, every)` schedules the poll loop via `ScheduleEvery`
 3. Each tick:
    - Reads the heartbeat file (skips if missing or empty)
@@ -167,10 +167,10 @@ Heartbeat only runs in `anna gateway` mode. The fast model is used for the gate 
 
 ## Wiring
 
-The cron system resolves a circular dependency (service needs pool for the callback, runner needs the tool) via deferred wiring in `main.go`:
+The scheduler system resolves a circular dependency (service needs pool for the callback, runner needs the tool) via deferred wiring in `main.go`:
 
-1. Create `cron.Service` with no callback
-2. Create `cron.NewTool(service)` and pass to runner via `ExtraTools`
+1. Create `scheduler.Service` with no callback
+2. Create `scheduler.NewTool(service)` and pass to runner via `ExtraTools`
 3. Create pool with the runner factory
 4. Call `service.SetOnJob(...)` with a callback that calls `pool.Chat()`
 5. If heartbeat is enabled, call `service.SetHeartbeat(...)` with the chat function and notifier
@@ -179,7 +179,7 @@ The cron system resolves a circular dependency (service needs pool for the callb
 
 ## Testing
 
-Tests are in `internal/cron/cron_test.go` and `internal/cron/heartbeat_test.go` covering:
+Tests are in `internal/scheduler/cron_test.go` and `internal/scheduler/heartbeat_test.go` covering:
 
 - Add, list, remove lifecycle
 - Input validation (empty name, missing schedule, invalid duration, conflicting schedule fields, invalid/past timestamps)
@@ -203,5 +203,5 @@ Tests are in `internal/cron/cron_test.go` and `internal/cron/heartbeat_test.go` 
 Run with:
 
 ```bash
-go test -race ./cron/
+go test -race ./internal/scheduler/
 ```

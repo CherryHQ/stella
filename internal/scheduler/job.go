@@ -1,4 +1,4 @@
-package cron
+package scheduler
 
 import (
 	"fmt"
@@ -34,7 +34,7 @@ type Job struct {
 // In "reuse" mode, the ID is stable across executions. In "new" mode,
 // a timestamp suffix ensures each execution gets a fresh session.
 func (j Job) SessionID() string {
-	base := "cron:" + j.ID
+	base := "scheduler:" + j.ID
 	if j.SessionMode == SessionNew {
 		return fmt.Sprintf("%s:%d", base, time.Now().UnixNano())
 	}

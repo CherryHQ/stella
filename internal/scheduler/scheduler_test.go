@@ -1,4 +1,4 @@
-package cron
+package scheduler
 
 import (
 	"context"
@@ -229,7 +229,7 @@ func TestOnJobCallbackFires(t *testing.T) {
 	}
 }
 
-func TestCronToolAddListRemove(t *testing.T) {
+func TestSchedulerToolAddListRemove(t *testing.T) {
 	dir := t.TempDir()
 	svc, err := New(dir)
 	if err != nil {
@@ -242,10 +242,10 @@ func TestCronToolAddListRemove(t *testing.T) {
 
 	ct := NewTool(svc)
 
-	// Definition should have name "cron".
+	// Definition should have name "scheduler".
 	def := ct.Definition()
-	if def.Name != "cron" {
-		t.Errorf("tool name = %q, want %q", def.Name, "cron")
+	if def.Name != "scheduler" {
+		t.Errorf("tool name = %q, want %q", def.Name, "scheduler")
 	}
 
 	// Add via tool.
@@ -442,7 +442,7 @@ func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
 	}
 }
 
-func TestCronToolAddOneTimeJob(t *testing.T) {
+func TestSchedulerToolAddOneTimeJob(t *testing.T) {
 	dir := t.TempDir()
 	svc, err := New(dir)
 	if err != nil {
@@ -521,8 +521,8 @@ func TestSessionModeReuse(t *testing.T) {
 	if id1 != id2 {
 		t.Errorf("reuse mode: SessionID changed: %q vs %q", id1, id2)
 	}
-	if id1 != "cron:"+job.ID {
-		t.Errorf("reuse mode: SessionID = %q, want %q", id1, "cron:"+job.ID)
+	if id1 != "scheduler:"+job.ID {
+		t.Errorf("reuse mode: SessionID = %q, want %q", id1, "scheduler:"+job.ID)
 	}
 }
 
@@ -571,7 +571,7 @@ func TestSessionModeInvalid(t *testing.T) {
 	}
 }
 
-func TestCronToolSessionMode(t *testing.T) {
+func TestSchedulerToolSessionMode(t *testing.T) {
 	dir := t.TempDir()
 	svc, err := New(dir)
 	if err != nil {
@@ -605,7 +605,7 @@ func TestCronToolSessionMode(t *testing.T) {
 	}
 }
 
-func TestCronToolInvalidAction(t *testing.T) {
+func TestSchedulerToolInvalidAction(t *testing.T) {
 	dir := t.TempDir()
 	svc, err := New(dir)
 	if err != nil {
@@ -621,7 +621,7 @@ func TestCronToolInvalidAction(t *testing.T) {
 	}
 }
 
-func TestCronToolRemoveMissingID(t *testing.T) {
+func TestSchedulerToolRemoveMissingID(t *testing.T) {
 	dir := t.TempDir()
 	svc, err := New(dir)
 	if err != nil {

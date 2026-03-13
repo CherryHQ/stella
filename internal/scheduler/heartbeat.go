@@ -1,4 +1,4 @@
-package cron
+package scheduler
 
 import (
 	"context"
@@ -32,7 +32,7 @@ type Decision struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// SetHeartbeat configures the heartbeat on the cron service.
+// SetHeartbeat configures the heartbeat on the scheduler service.
 func (s *Service) SetHeartbeat(cfg HeartbeatConfig, chat ChatFunc, notifier channel.Notifier) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

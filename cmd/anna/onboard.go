@@ -19,7 +19,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/cron"
+	"github.com/vaayne/anna/internal/scheduler"
 	"gopkg.in/yaml.v3"
 )
 
@@ -142,14 +142,14 @@ func runOnboard(ctx context.Context, port int) error {
 		writeJSON(w, http.StatusOK, map[string]any{"models": modelIDs})
 	})
 
-	// Cron jobs CRUD — direct file I/O, no scheduler needed.
-	cronDir := cfg.Cron.DataDir
-	if cronDir == "" {
-		cronDir = filepath.Join(cfg.Workspace, "cron")
+	// Scheduler jobs CRUD — direct file I/O, no scheduler needed.
+	schedulerDir := cfg.Scheduler.DataDir
+	if schedulerDir == "" {
+		schedulerDir = filepath.Join(cfg.Workspace, "scheduler")
 	}
 
-	mux.HandleFunc("GET /api/cron/jobs", func(w http.ResponseWriter, r *http.Request) {
-		jobs, err := loadCronJobs(cronDir)
+	mux.HandleFunc("GET /api/scheduler/jobs", func(w http.ResponseWriter, r *http.Request) {
+		jobs, err := loadSchedulerJobs(schedulerDir)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -157,8 +157,8 @@ func runOnboard(ctx context.Context, port int) error {
 		writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs})
 	})
 
-	mux.HandleFunc("POST /api/cron/jobs", func(w http.ResponseWriter, r *http.Request) {
-		var body cronJobJSON
+	mux.HandleFunc("POST /api/scheduler/jobs", func(w http.ResponseWriter, r *http.Request) {
+		var body schedulerJobJSON
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
 			return
@@ -167,18 +167,18 @@ func runOnboard(ctx context.Context, port int) error {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name and message are required"})
 			return
 		}
-		sched, err := parseCronSchedule(body)
+		sched, err := parseSchedule(body)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
 
-		jobs, err := loadCronJobs(cronDir)
+		jobs, err := loadSchedulerJobs(schedulerDir)
 		if err != nil {
 			jobs = nil
 		}
 
-		job := cron.Job{
+		job := scheduler.Job{
 			ID:          generateShortID(),
 			Name:        body.Name,
 			Schedule:    sched,
@@ -188,26 +188,26 @@ func runOnboard(ctx context.Context, port int) error {
 			CreatedAt:   time.Now(),
 		}
 		if job.SessionMode == "" {
-			job.SessionMode = cron.SessionReuse
+			job.SessionMode = scheduler.SessionReuse
 		}
 		jobs = append(jobs, job)
 
-		if err := saveCronJobs(cronDir, jobs); err != nil {
+		if err := saveSchedulerJobs(schedulerDir, jobs); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "save failed: " + err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, job)
 	})
 
-	mux.HandleFunc("PUT /api/cron/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("PUT /api/scheduler/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		var body cronJobJSON
+		var body schedulerJobJSON
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
 			return
 		}
 
-		jobs, err := loadCronJobs(cronDir)
+		jobs, err := loadSchedulerJobs(schedulerDir)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -226,7 +226,7 @@ func runOnboard(ctx context.Context, port int) error {
 					jobs[i].SessionMode = body.SessionMode
 				}
 				jobs[i].Enabled = body.Enabled
-				if sched, err := parseCronSchedule(body); err == nil {
+				if sched, err := parseSchedule(body); err == nil {
 					jobs[i].Schedule = sched
 				}
 				found = true
@@ -238,22 +238,22 @@ func runOnboard(ctx context.Context, port int) error {
 			return
 		}
 
-		if err := saveCronJobs(cronDir, jobs); err != nil {
+		if err := saveSchedulerJobs(schedulerDir, jobs); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "save failed: " + err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	mux.HandleFunc("DELETE /api/cron/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("DELETE /api/scheduler/jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		jobs, err := loadCronJobs(cronDir)
+		jobs, err := loadSchedulerJobs(schedulerDir)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
 
-		filtered := make([]cron.Job, 0, len(jobs))
+		filtered := make([]scheduler.Job, 0, len(jobs))
 		found := false
 		for _, j := range jobs {
 			if j.ID == id {
@@ -267,7 +267,7 @@ func runOnboard(ctx context.Context, port int) error {
 			return
 		}
 
-		if err := saveCronJobs(cronDir, filtered); err != nil {
+		if err := saveSchedulerJobs(schedulerDir, filtered); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "save failed: " + err.Error()})
 			return
 		}
@@ -452,7 +452,7 @@ func applyJSONToConfig(cfg *config.Config, body *configJSON) {
 }
 
 // saveConfig reads the existing config.yaml, merges onboarding fields on top
-// (preserving runner, cron, and other sections), and writes it back.
+// (preserving runner, scheduler, and other sections), and writes it back.
 func saveConfig(cfg *config.Config) error {
 	path := config.Path()
 
@@ -635,8 +635,8 @@ func mergeProviderModelsCache(providerName string, modelIDs []string) {
 	}
 }
 
-// cronJobJSON is the JSON shape for cron job create/update.
-type cronJobJSON struct {
+// schedulerJobJSON is the JSON shape for scheduler job create/update.
+type schedulerJobJSON struct {
 	Name        string `json:"name"`
 	Message     string `json:"message"`
 	Cron        string `json:"cron"`
@@ -645,8 +645,8 @@ type cronJobJSON struct {
 	Enabled     bool   `json:"enabled"`
 }
 
-func parseCronSchedule(body cronJobJSON) (cron.Schedule, error) {
-	sched := cron.Schedule{Cron: body.Cron, Every: body.Every}
+func parseSchedule(body schedulerJobJSON) (scheduler.Schedule, error) {
+	sched := scheduler.Schedule{Cron: body.Cron, Every: body.Every}
 	count := 0
 	if sched.Cron != "" {
 		count++
@@ -668,7 +668,7 @@ func parseCronSchedule(body cronJobJSON) (cron.Schedule, error) {
 	return sched, nil
 }
 
-func loadCronJobs(dataDir string) ([]cron.Job, error) {
+func loadSchedulerJobs(dataDir string) ([]scheduler.Job, error) {
 	data, err := os.ReadFile(filepath.Join(dataDir, "jobs.json"))
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -676,14 +676,14 @@ func loadCronJobs(dataDir string) ([]cron.Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	var jobs []cron.Job
+	var jobs []scheduler.Job
 	if err := json.Unmarshal(data, &jobs); err != nil {
 		return nil, fmt.Errorf("parse jobs.json: %w", err)
 	}
 	return jobs, nil
 }
 
-func saveCronJobs(dataDir string, jobs []cron.Job) error {
+func saveSchedulerJobs(dataDir string, jobs []scheduler.Job) error {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return err
 	}

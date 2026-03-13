@@ -1,4 +1,4 @@
-package cron
+package scheduler
 
 import (
 	"context"
@@ -21,10 +21,10 @@ var errOneTimeJobPast = errors.New("one-time job timestamp is in the past")
 // OnJobFunc is called when a scheduled job fires.
 type OnJobFunc func(ctx context.Context, job Job)
 
-// TaskFunc is a lightweight scheduled callback that is not persisted as a cron job.
+// TaskFunc is a lightweight scheduled callback that is not persisted as a scheduled job.
 type TaskFunc func(ctx context.Context)
 
-// Service manages cron jobs backed by gocron/v2 with JSON persistence.
+// Service manages scheduled jobs backed by gocron/v2 with JSON persistence.
 type Service struct {
 	scheduler gocron.Scheduler
 	onJob     OnJobFunc
@@ -41,7 +41,7 @@ type Service struct {
 	heartbeatNotifier channel.Notifier
 }
 
-// New creates a cron service. Call Start to load persisted jobs and begin scheduling.
+// New creates a scheduler service. Call Start to load persisted jobs and begin scheduling.
 func New(dataPath string) (*Service, error) {
 	s, err := gocron.NewScheduler()
 	if err != nil {
@@ -52,7 +52,7 @@ func New(dataPath string) (*Service, error) {
 		dataPath:  dataPath,
 		jobs:      make(map[string]Job),
 		gids:      make(map[string]uuid.UUID),
-		log:       slog.With("component", "cron"),
+		log:       slog.With("component", "scheduler"),
 	}, nil
 }
 
@@ -68,7 +68,7 @@ func (s *Service) Start(ctx context.Context) error {
 	return s.start(ctx, true)
 }
 
-// StartEphemeral starts the shared scheduler without loading persisted cron jobs.
+// StartEphemeral starts the shared scheduler without loading persisted jobs.
 // Use this when the scheduler is only needed for internal tasks such as heartbeat.
 func (s *Service) StartEphemeral(ctx context.Context) error {
 	return s.start(ctx, false)
@@ -104,9 +104,9 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 
 	s.scheduler.Start()
 	if loadPersisted {
-		s.log.Info("cron service started", "jobs", len(jobs))
+		s.log.Info("scheduler service started", "jobs", len(jobs))
 	} else {
-		s.log.Info("cron service started without persisted jobs")
+		s.log.Info("scheduler service started without persisted jobs")
 	}
 	return nil
 }
