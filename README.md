@@ -1,219 +1,185 @@
 # anna
 
-A minimal Go CLI that acts as a local AI assistant. Uses a native Go runner that calls LLM providers (Anthropic, OpenAI, OpenAI-compatible) directly.
+**Your AI assistant that never forgets.**
 
-Two interfaces: **interactive CLI chat** and **gateway daemon** (Telegram bot, QQ bot, Feishu bot).
+Anna is a self-hosted AI assistant that runs on your machine and talks to you through your terminal, Telegram, QQ, or Feishu. She keeps every conversation in a local SQLite database, compresses old context automatically so the LLM never hits its limit, and can recover the original detail whenever she needs it.
 
-## Features
+She also schedules tasks, monitors files, and sends you notifications across channels without waiting for you to ask.
 
-- Native Go runner calling LLM providers directly (Anthropic, OpenAI, OpenAI-compatible)
-- Interactive CLI chat with Bubble Tea TUI and streaming responses
-- Telegram bot via long polling (no webhook, no public IP needed)
-  - Streaming drafts (Bot API 9.3+) for smooth animated responses
-  - Image input support (send photos for vision-based analysis)
-  - Group support with configurable `group_mode` (mention/always/disabled)
-  - Access control via `allowed_ids`
-- QQ bot via webhook (HTTP callbacks)
-  - Native Stream API for progressive response delivery
-  - C2C (private) and group @mention support
-  - Sandbox mode for testing
-- Feishu bot via WebSocket (no webhook, no public IP needed)
-  - Edit-in-place streaming for progressive response delivery
-  - Private (p2p) and group @mention support
-  - Access control via `allowed_ids`
-- Notification system with multi-backend dispatcher
-- Heartbeat polling with fast-model gating and proactive notifications
-- Model management CLI (`anna models list/update/set/search`)
-- Tiered model config (strong/worker/fast) with runtime model switching
-- Per-chat session management with persistent history (SQLite)
-- Session compaction with LLM-generated summaries
-- Scheduled tasks via cron with persistent job storage
-- Skill management (search, install, list, remove from [skills.sh](https://skills.sh) ecosystem)
-- DAG-based lossless context management with SQLite-backed compaction
-- Persistent memory (facts + journal)
-- Idle runner auto-reaping (configurable timeout)
-- Graceful shutdown on SIGINT/SIGTERM
+## Why anna
 
-## Prerequisites
+Most AI assistants lose your context. You hit the token limit, the old messages get truncated, and the assistant forgets what you were working on. Start a new chat, re-explain everything, repeat.
 
-- Go 1.24+
-- An API key for at least one LLM provider (Anthropic, OpenAI)
-- (Optional) [mise](https://mise.jdx.dev/) for task automation
+Anna solves this with LCM (Lossless Context Management). As conversations grow, older messages get compressed into summaries organized in a DAG. Summaries get condensed into higher-level summaries. But the originals stay in the database. The agent has tools to search its history and drill back into any summary to pull up the full text. You can talk to Anna for weeks and she'll still know what you said on day one.
 
-## Install
+Beyond memory, there are a few other things worth calling out.
+
+Anna meets you where you are. Terminal, Telegram, QQ, Feishu, all sharing the same session pool and memory. Chat from your laptop in the morning, pick it up on Telegram from your phone in the evening.
+
+She does things on her own. Tell her "remind me every morning at 9am to check my email" and she will. Built-in scheduler, heartbeat file monitoring, push notifications across whatever channels you have connected.
+
+Two markdown files define the relationship. `SOUL.md` describes her personality, `USER.md` stores your preferences. She can edit both. Over time she learns your name, timezone, how you like things. Per-project overrides if you need them.
+
+And the whole thing is a single Go binary with a SQLite database. Your machine, your API keys, nothing leaves your network.
+
+## How it works
+
+```
+You
+ |
+ |  Talk from anywhere
+ v
+Terminal  /  Telegram  /  QQ  /  Feishu
+ |
+ v
+anna (single binary, your machine)
+ |
+ ├── LCM Memory (SQLite, DAG-based context compression)
+ ├── Scheduler (cron jobs, reminders, heartbeat)
+ ├── Skills (extensible via skills.sh)
+ └── Notifications (pushes results back to you)
+ |
+ v
+LLM Provider (Anthropic / OpenAI / any compatible API)
+```
+
+## Memory: how LCM works
+
+The memory system stores every message in SQLite and organizes summaries into a directed acyclic graph. When the conversation gets long, older messages are grouped and summarized into leaf nodes. Groups of leaf nodes get condensed into higher-level nodes. This happens automatically.
+
+The agent carries three retrieval tools:
+- `memory_grep` searches messages and summaries by keyword
+- `memory_describe` inspects a summary node's metadata and lineage
+- `memory_expand` drills into a summary to retrieve the source content
+
+When the context window fills up, Anna isn't working with truncated history. She's working with compressed summaries and can pull up specifics on demand. A conversation can be a thousand messages long and she'll still find what she needs.
+
+## Channels
+
+Four channels, all sharing the same memory:
+
+| Channel | Connection | Streaming | Groups |
+|---------|-----------|-----------|--------|
+| Terminal | Local TUI (Bubble Tea) | Token-by-token | n/a |
+| Telegram | Long polling, no public IP | Draft API | Mention / always / disabled |
+| QQ | WebSocket | Native Stream API | Mention support |
+| Feishu | WebSocket, no public IP | Edit-in-place | Mention support |
+
+Every channel supports `/new`, `/compact`, `/model`, `/whoami`, model switching, access control, and image input.
+
+## Scheduler
+
+You don't write crontab entries. You just tell Anna what you need.
+
+"Check the weather in Beijing every morning at 8am" creates a recurring job. "Remind me at 2:30 PM to call the dentist" creates a one-shot timer that cleans up after it fires. Jobs persist across restarts.
+
+There's also a heartbeat mode. Anna polls a markdown file on an interval, uses a cheap fast model to decide if anything needs attention, and only spins up the main model when there's real work. Results get pushed to whatever channels you have connected.
+
+## Identity
+
+Two files in `$ANNA_HOME/workspace/` (`~/.anna/workspace` by default):
+
+- `SOUL.md` defines how Anna communicates: personality, tone, values
+- `USER.md` stores things about you: name, timezone, preferences, context
+
+Anna can edit both. She picks up things you mention and writes them down for next time. You can set per-project overrides with `.agents/SOUL.md` and `.agents/USER.md` in any repo.
+
+## Providers and models
+
+Works with Anthropic, OpenAI, and any OpenAI-compatible API (Perplexity, Together.ai, local models via Ollama, etc).
+
+Three model tiers:
+
+- `model_strong` for hard problems
+- `model` for everyday use (the default)
+- `model_fast` for cheap checks and gate decisions
+
+The heartbeat system uses the fast model to decide "skip or run" and only calls the default model when there's actual work. Keeps costs down without you having to think about it.
+
+## Skills
+
+Anna connects to the [skills.sh](https://skills.sh) ecosystem:
+
+```bash
+anna skills search "web scraping"
+anna skills install owner/repo@skill-name
+anna skills list
+anna skills remove skill-name
+```
+
+Search, install, and manage skills from the CLI or mid-conversation.
+
+## Quick start
+
+### Install
 
 ```bash
 go install github.com/vaayne/anna@latest
 ```
 
-Or build from source:
+Or grab a binary from [Releases](https://github.com/vaayne/anna/releases), or self-update with `anna upgrade`.
+
+### Set up
 
 ```bash
-git clone https://github.com/vaayne/anna.git
-cd anna
-go build -o anna .
+anna onboard
 ```
 
-## Quick Start
+This opens a web UI in your browser where you can configure everything: API keys, providers, models, channels (Telegram, QQ, Feishu), and scheduled jobs. No need to edit config files by hand.
 
-### CLI Chat
+If you prefer YAML, the config lives at `$ANNA_HOME/config.yaml` (`~/.anna` by default). See [docs/configuration.md](docs/configuration.md) for the full reference.
+
+### Use
 
 ```bash
-anna chat            # Interactive TUI
-anna chat --stream   # Pipe prompt via stdin, stream to stdout
+anna chat            # Terminal chat
+anna gateway         # Start daemon (bots + scheduler)
 ```
 
-### Gateway (Daemon)
+`anna chat` gives you a terminal conversation. `anna gateway` starts all your configured channels and the scheduler in the background.
+
+## CLI reference
 
 ```bash
-anna gateway
-```
-
-Starts all configured services (Telegram bot, QQ bot, Feishu bot, cron scheduler). Services are activated based on config.
-
-### Version And Upgrades
-
-```bash
-anna version
-anna upgrade
-anna upgrade --install-dir "$HOME/.local/bin"
-```
-
-`anna version` prints the running build version. `anna upgrade` downloads the latest stable GitHub release for the current platform and installs `anna` into `$HOME/.local/bin` by default.
-
-### Model Management
-
-```bash
-anna models             # List available models (alias for list)
-anna models list        # List all models grouped by provider
-anna models update      # Fetch models from provider APIs and update cache
-anna models current     # Show active provider/model
-anna models set <p/m>   # Switch model (e.g. anna models set openai/gpt-4o)
-anna models search <q>  # Search models by name
-```
-
-### Skill Management
-
-```bash
-anna skills              # List installed skills (alias for list)
-anna skills list         # List installed skills grouped by source
-anna skills list --json  # List as JSON
-anna skills search <q>   # Search skills.sh ecosystem
-anna skills install <s>  # Install (e.g. anna skills install owner/repo@skill-name)
-anna skills remove <n>   # Remove an installed skill
-```
-
-## Configuration
-
-Config file: `~/.anna/config.yaml` -- see [docs/configuration.md](docs/configuration.md) for full reference.
-
-The config directory defaults to `~/.anna` and can be changed via the `ANNA_HOME` environment variable.
-
-Minimal example to get started:
-
-```yaml
-providers:
-  anthropic:
-    api_key: "sk-..."
-
-provider: anthropic
-model: claude-sonnet-4-6
-
-heartbeat:
-  enabled: true
-  every: 10m
-  file: "HEARTBEAT.md"
-```
-
-Heartbeat runs in `anna gateway` and uses the fast model for the `skip`/`run` check before forwarding `run` cases into the reserved heartbeat session.
-
-Or use environment variables:
-
-```bash
-export ANTHROPIC_API_KEY="sk-..."
-anna chat
-```
-
-## Architecture
-
-```
-                        anna
-  +-----------+      +----------------+
-  | CLI Chat  |----->|                |
-  +-----------+      |     Pool       |   LLM Providers
-                     | (sessions +   |<--> Anthropic / OpenAI
-  +-----------+      |  Go runner)   |   HTTP API
-  | Telegram  |----->|                |
-  | LongPoll  |      +-------+--------+
-  +-----------+              |
-  +-----------+       +------v---------+
-  | QQ Bot    |----->|  Dispatcher   |
-  | Webhook   |      | (notify tool) |--> Telegram
-  +-----------+      |               |--> QQ
-  +-----------+      |               |--> Feishu
-  | Feishu    |----->|               |
-  | WebSocket |      +-------^--------+
-  +-----------+              |
-  +-----------+              |
-  |   Cron    |--------------+
-  +-----------+
-```
-
-```
-cmd/anna/                           Entry point, CLI commands, service wiring
-config/                             Config types, YAML loading, env var overrides
-ai/                                 Core types, provider interface, registry, transforms
-ai/providers/                       LLM provider implementations (Anthropic, OpenAI)
-agent/                              Session pool, compaction, reaper, runner lifecycle
-agent/engine/                       Agent loop engine, tool execution, loop events
-agent/runner/                       Runner interface, GoRunner, RPC protocol
-agent/tool/                         Built-in tools (read, bash, write, edit, truncate)
-channel/                            Shared channel interface, notifier, utilities
-channel/cli/                        Interactive terminal chat (Bubble Tea TUI)
-channel/telegram/                   Telegram bot + streaming + notification backend
-channel/qq/                         QQ bot + webhook + streaming + notification backend
-channel/feishu/                     Feishu bot + WebSocket + streaming + notification backend
-cron/                               Scheduled jobs (gocron/v2) + heartbeat polling
-memory/                             Lossless context management (DAG, compaction, retrieval)
+anna onboard           # Open web UI to configure anna
+anna chat              # Interactive terminal chat
+anna chat --stream     # Pipe stdin, stream to stdout
+anna gateway           # Start daemon (bots + scheduler)
+anna models list       # List available models
+anna models set <p/m>  # Switch model (e.g. openai/gpt-4o)
+anna models search <q> # Search models
+anna skills search <q> # Search skills.sh
+anna skills install <s># Install a skill
+anna version           # Print version
+anna upgrade           # Self-update to latest release
 ```
 
 ## Documentation
 
 | Document | Description |
-|----------|-------------|
+|----------|------------|
 | [Deployment](docs/deployment.md) | Binary install, Docker, systemd, compose |
 | [Configuration](docs/configuration.md) | Full config reference, env vars, defaults |
 | [Architecture](docs/architecture.md) | System design, packages, providers, tools |
 | [Telegram](docs/telegram.md) | Bot setup, streaming, groups, access control |
-| [QQ Bot](docs/qq.md) | Bot setup, webhook, streaming, access control |
-| [Feishu Bot](docs/feishu.md) | Bot setup, WebSocket, streaming, access control |
-| [Models](docs/models.md) | Tiers, CLI commands, provider setup, caching |
-| [Memory System](docs/memory-system.md) | Lossless context management, identity files, retrieval tools |
-| [Cron System](docs/cron-system.md) | Scheduled tasks, job persistence |
-| [Session Compaction](docs/session-compaction.md) | History compaction, token management |
-| [Notification System](docs/notification-system.md) | Dispatcher, backends, agent tool |
+| [QQ Bot](docs/qq.md) | Bot setup, webhook, streaming |
+| [Feishu Bot](docs/feishu.md) | Bot setup, WebSocket, streaming |
+| [Models](docs/models.md) | Tiers, CLI commands, provider setup |
+| [Memory system](docs/memory-system.md) | LCM deep dive, DAG structure, retrieval tools |
+| [Cron system](docs/cron-system.md) | Scheduled tasks, heartbeat, persistence |
+| [Session compaction](docs/session-compaction.md) | How context compression works |
+| [Notification system](docs/notification-system.md) | Dispatcher, backends, routing |
 
 ## Development
 
-Uses [mise](https://mise.jdx.dev/) for task automation:
-
 ```bash
-mise run build          # Build binary -> bin/anna
-mise run test           # Run tests with race detection
-mise run lint           # go vet
-mise run format         # gofmt + go mod tidy
-mise run run:chat       # Build + run CLI chat
-mise run run:stream     # Build + run streaming chat
-mise run run:gateway    # Build + run gateway daemon
-mise run clean          # Remove build artifacts
+mise run build       # Build binary -> bin/anna
+mise run test        # Run tests with -race
+mise run lint        # golangci-lint
+mise run format      # gofmt + go mod tidy
 ```
 
-Or with plain Go:
-
-```bash
-go build -o anna .
-go test -race ./...
-```
+Or: `go build -o anna . && go test -race ./...`
 
 ## License
 
