@@ -13,6 +13,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/skills"
+	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
 
 func skillsCommand() *ucli.Command {
@@ -53,7 +54,7 @@ func skillsSearchCommand() *ucli.Command {
 			ctx, cancel := context.WithTimeout(c.Context, 10*time.Second)
 			defer cancel()
 
-			results, err := skills.Search(ctx, query, c.Int("limit"))
+			results, err := mcpskills.Search(ctx, query, c.Int("limit"))
 			if err != nil {
 				return err
 			}
