@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	"github.com/vaayne/anna/agent/runner"
@@ -593,4 +594,146 @@ func TestStopWithCancel(t *testing.T) {
 func TestStopWithoutCancel(t *testing.T) {
 	bot := &Bot{}
 	bot.Stop() // should not panic when cancel is nil
+}
+
+// --- cardContent ---
+
+func TestCardContent(t *testing.T) {
+	got := cardContent("hello **world**")
+	if !strings.Contains(got, `"schema":"2.0"`) {
+		t.Errorf("cardContent missing schema: %s", got)
+	}
+	if !strings.Contains(got, `"tag":"markdown"`) {
+		t.Errorf("cardContent missing markdown tag: %s", got)
+	}
+	if !strings.Contains(got, "hello **world**") {
+		t.Errorf("cardContent missing content: %s", got)
+	}
+}
+
+func TestCardContentEmpty(t *testing.T) {
+	got := cardContent("")
+	if !strings.Contains(got, `"content":""`) {
+		t.Errorf("cardContent empty: %s", got)
+	}
+}
+
+// --- isBotMentioned ---
+
+func TestIsBotMentionedEmptyMentions(t *testing.T) {
+	bot := &Bot{}
+	if bot.isBotMentioned(nil) {
+		t.Error("nil mentions should return false")
+	}
+	if bot.isBotMentioned([]*larkim.MentionEvent{}) {
+		t.Error("empty mentions should return false")
+	}
+}
+
+func TestIsBotMentionedNoKnownID(t *testing.T) {
+	bot := &Bot{}
+	key := "@_user_1"
+	mentions := []*larkim.MentionEvent{{Key: &key}}
+	if !bot.isBotMentioned(mentions) {
+		t.Error("unknown bot id with non-@all mention should return true (fallback)")
+	}
+}
+
+func TestIsBotMentionedNoKnownIDAtAll(t *testing.T) {
+	bot := &Bot{}
+	key := "@_all"
+	mentions := []*larkim.MentionEvent{{Key: &key}}
+	if bot.isBotMentioned(mentions) {
+		t.Error("@_all mention without known bot id should return false")
+	}
+}
+
+func TestIsBotMentionedWithKnownID(t *testing.T) {
+	bot := &Bot{}
+	bot.botOpenID.Store("ou_bot123")
+	openID := "ou_bot123"
+	mentions := []*larkim.MentionEvent{{
+		Id: &larkim.UserId{OpenId: &openID},
+	}}
+	if !bot.isBotMentioned(mentions) {
+		t.Error("matching open_id should return true")
+	}
+}
+
+func TestIsBotMentionedWithKnownIDNoMatch(t *testing.T) {
+	bot := &Bot{}
+	bot.botOpenID.Store("ou_bot123")
+	openID := "ou_other456"
+	mentions := []*larkim.MentionEvent{{
+		Id: &larkim.UserId{OpenId: &openID},
+	}}
+	if bot.isBotMentioned(mentions) {
+		t.Error("non-matching open_id should return false")
+	}
+}
+
+func TestIsBotMentionedNilMentionID(t *testing.T) {
+	bot := &Bot{}
+	bot.botOpenID.Store("ou_bot123")
+	mentions := []*larkim.MentionEvent{{Id: nil}}
+	if bot.isBotMentioned(mentions) {
+		t.Error("nil Id should be skipped")
+	}
+}
+
+// --- markSeen ---
+
+func TestMarkSeenFirstTime(t *testing.T) {
+	bot := &Bot{seenMsgs: make(map[string]time.Time)}
+	if bot.markSeen("msg1") {
+		t.Error("first time should return false (not seen)")
+	}
+}
+
+func TestMarkSeenDuplicate(t *testing.T) {
+	bot := &Bot{seenMsgs: make(map[string]time.Time)}
+	bot.markSeen("msg1")
+	if !bot.markSeen("msg1") {
+		t.Error("second time should return true (already seen)")
+	}
+}
+
+func TestMarkSeenDifferentMessages(t *testing.T) {
+	bot := &Bot{seenMsgs: make(map[string]time.Time)}
+	bot.markSeen("msg1")
+	if bot.markSeen("msg2") {
+		t.Error("different message should return false")
+	}
+}
+
+// --- stripMentions additional ---
+
+func TestStripMentionsMultiple(t *testing.T) {
+	key1 := "@_user_1"
+	key2 := "@_user_2"
+	mentions := []*larkim.MentionEvent{{Key: &key1}, {Key: &key2}}
+	result := stripMentions("@_user_1 hello @_user_2", mentions)
+	if result != "hello" {
+		t.Errorf("stripMentions = %q, want 'hello'", result)
+	}
+}
+
+func TestStripMentionsRegexCleanup(t *testing.T) {
+	result := stripMentions("hello @_user_99 world", nil)
+	if result != "hello  world" {
+		t.Errorf("stripMentions regex = %q, want 'hello  world'", result)
+	}
+}
+
+// --- Notify with fallback ---
+
+func TestNotifyFallbackToConfig(t *testing.T) {
+	bot := &Bot{cfg: Config{NotifyChat: ""}}
+	err := bot.Notify(context.Background(), channel.Notification{Text: "hi"})
+	if err == nil {
+		t.Fatal("expected error when no chat ID configured")
+	}
+	if !strings.Contains(err.Error(), "no target chat ID") {
+		t.Errorf("unexpected error: %v", err)
+	}
 }
