@@ -1,6 +1,6 @@
-# Model Management
+# Model management
 
-## Tiered Models
+## Tiered models
 
 Two tiers for different workloads, each falls back to `model` when not set:
 
@@ -15,7 +15,7 @@ model_strong: claude-opus-4-6     # optional
 model_fast: claude-haiku-4-5      # optional
 ```
 
-## CLI Commands
+## CLI commands
 
 ```bash
 anna models             # List available models
@@ -26,9 +26,9 @@ anna models set <p/m>   # Switch (e.g. anna models set openai/gpt-4o)
 anna models search <q>  # Search by name
 ```
 
-The cache at `~/.anna/cache/models.json` is populated by `anna models update`. Without it, only models in config are shown.
+The cache at `$ANNA_HOME/cache/models.json` is populated by `anna models update`. Without it, only models in config are shown.
 
-## Provider Setup
+## Provider setup
 
 ### Anthropic
 
@@ -64,7 +64,7 @@ providers:
 
 Uses same `OPENAI_API_KEY` / `OPENAI_BASE_URL` env vars.
 
-## Runtime Switching
+## Runtime switching
 
 - **CLI**: `/model` in-chat command
 - **Telegram**: inline keyboard model picker

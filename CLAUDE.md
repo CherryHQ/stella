@@ -1,6 +1,6 @@
 ## Overview
 
-anna is a Go CLI local AI assistant. Native Go runner calling LLM providers. Two interfaces: CLI chat (Bubble Tea TUI) and gateway daemon (Telegram, QQ, Feishu bots).
+anna is a self-hosted AI assistant with lossless context management (LCM). Native Go runner calling LLM providers. Two interfaces: CLI chat (Bubble Tea TUI) and gateway daemon (Telegram, QQ, Feishu bots). Built-in scheduler, heartbeat monitoring, and multi-channel notifications.
 
 ## Packages
 
