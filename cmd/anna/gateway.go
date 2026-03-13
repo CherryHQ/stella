@@ -15,7 +15,7 @@ import (
 	"github.com/vaayne/anna/internal/channel/qq"
 	"github.com/vaayne/anna/internal/channel/telegram"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/cron"
+	"github.com/vaayne/anna/internal/scheduler"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -33,7 +33,7 @@ func gatewayCommand() *ucli.Command {
 			}
 			defer func() { _ = s.pool.Close() }()
 
-			// Cron is started inside runGateway after notification wiring,
+			// Scheduler is started inside runGateway after notification wiring,
 			// so early-firing jobs already have the dispatcher callback.
 
 			listFn := func() []channel.ModelOption { return collectModels(s.cfg) }
@@ -123,7 +123,7 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 	}
 
 	if len(s.notifier.Channels()) == 0 {
-		slog.Warn("no enabled channels have enable_notify set to true; cron results and heartbeat notifications will not be delivered")
+		slog.Warn("no enabled channels have enable_notify set to true; scheduler results and heartbeat notifications will not be delivered")
 	}
 
 	// Start all channels.
@@ -136,24 +136,24 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 		})
 	}
 
-	// Wire cron notifications and start the scheduler AFTER channels
+	// Wire scheduler notifications and start the scheduler AFTER channels
 	// are registered, so early-firing jobs already use the dispatcher.
-	if s.cronSvc != nil {
-		if s.cfg.Cron.CronEnabled() {
-			wireCronNotifier(s.cronSvc, s.pool, s.notifier)
-			if err := s.cronSvc.Start(ctx); err != nil {
-				return fmt.Errorf("start cron: %w", err)
+	if s.schedulerSvc != nil {
+		if s.cfg.Scheduler.IsEnabled() {
+			wireSchedulerNotifier(s.schedulerSvc, s.pool, s.notifier)
+			if err := s.schedulerSvc.Start(ctx); err != nil {
+				return fmt.Errorf("start scheduler: %w", err)
 			}
 		} else {
-			if err := s.cronSvc.StartEphemeral(ctx); err != nil {
+			if err := s.schedulerSvc.StartEphemeral(ctx); err != nil {
 				return fmt.Errorf("start shared scheduler: %w", err)
 			}
 		}
-		defer func() { _ = s.cronSvc.Stop() }()
+		defer func() { _ = s.schedulerSvc.Stop() }()
 	}
 
-	if s.cfg.Heartbeat.IsEnabled() && s.cronSvc != nil {
-		if err := s.cronSvc.StartHeartbeat(ctx, s.cfg.Heartbeat.Interval()); err != nil {
+	if s.cfg.Heartbeat.IsEnabled() && s.schedulerSvc != nil {
+		if err := s.schedulerSvc.StartHeartbeat(ctx, s.cfg.Heartbeat.Interval()); err != nil {
 			return fmt.Errorf("schedule heartbeat: %w", err)
 		}
 	}
@@ -163,16 +163,16 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 	return err
 }
 
-// wireCronNotifier overrides the cron callback to collect the agent response
+// wireSchedulerNotifier overrides the scheduler callback to collect the agent response
 // and broadcast it via the notification dispatcher.
-func wireCronNotifier(cronSvc *cron.Service, pool *agent.Pool, dispatcher *channel.Dispatcher) {
-	cronSvc.SetOnJob(func(ctx context.Context, job cron.Job) {
+func wireSchedulerNotifier(schedulerSvc *scheduler.Service, pool *agent.Pool, dispatcher *channel.Dispatcher) {
+	schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) {
 		sessionID := job.SessionID()
 		msg := fmt.Sprintf("[Scheduled Task] %s\n\nInstruction: %s", job.Name, job.Message)
 		var result strings.Builder
 		for evt := range pool.Chat(ctx, sessionID, msg) {
 			if evt.Err != nil {
-				slog.Error("cron job error", "job_id", job.ID, "error", evt.Err)
+				slog.Error("scheduler job error", "job_id", job.ID, "error", evt.Err)
 			}
 			if evt.Text != "" {
 				result.WriteString(evt.Text)
@@ -181,7 +181,7 @@ func wireCronNotifier(cronSvc *cron.Service, pool *agent.Pool, dispatcher *chann
 		if result.Len() > 0 {
 			text := fmt.Sprintf("*%s*\n\n%s", job.Name, result.String())
 			if err := dispatcher.Notify(ctx, channel.Notification{Text: text}); err != nil {
-				slog.Error("cron notification failed", "job_id", job.ID, "error", err)
+				slog.Error("scheduler notification failed", "job_id", job.ID, "error", err)
 			}
 		}
 	})

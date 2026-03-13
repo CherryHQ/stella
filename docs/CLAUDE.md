@@ -22,7 +22,7 @@ docs/
     getting-started/      # configuration.md, deployment.md
     core/                 # architecture.md, models.md, memory-system.md, session-compaction.md
     channels/             # telegram.md, qq.md, feishu.md
-    features/             # cron-system.md, notification-system.md
+    features/             # scheduler-system.md, notification-system.md
   src/
     routes/index.tsx      # home landing page (custom, not from mdx)
     routes/docs/$.tsx     # docs page renderer

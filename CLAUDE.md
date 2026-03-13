@@ -8,7 +8,7 @@ All Go packages live under `internal/` (app-private).
 
 `cmd/anna/` → `internal/agent/` (pool, session) → `internal/agent/runner/` (GoRunner) → `internal/agent/engine/` (loop, tool execution) → `internal/ai/` (providers, types, events, transforms)
 
-Side packages: `internal/channel/` (cli, telegram, qq, feishu, notifier) → `internal/cron/` → `internal/memory/` → `internal/agent/tool/` → `internal/toolspec/` → `internal/db/` → `internal/config/`
+Side packages: `internal/channel/` (cli, telegram, qq, feishu, notifier) → `internal/scheduler/` → `internal/memory/` → `internal/agent/tool/` → `internal/toolspec/` → `internal/db/` → `internal/config/`
 
 Config: `~/.anna/config.yaml` | Data: `~/.anna/workspace/` (memory.db, skills, identity files)
 
@@ -76,7 +76,7 @@ Docs structure (`docs/content/docs/`):
 - `getting-started/` -- configuration.md, deployment.md
 - `core/` -- architecture.md, models.md, memory-system.md, session-compaction.md
 - `channels/` -- telegram.md, qq.md, feishu.md
-- `features/` -- cron-system.md, notification-system.md
+- `features/` -- scheduler-system.md, notification-system.md
 
 Each folder has a `meta.json` controlling sidebar order. All docs require YAML frontmatter (`title` at minimum).
 

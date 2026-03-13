@@ -1,4 +1,4 @@
 {
   "title": "Features",
-  "pages": ["cron-system", "notification-system"]
+  "pages": ["scheduler-system", "notification-system"]
 }

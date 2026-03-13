@@ -1,24 +1,45 @@
-package cron
+package scheduler
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	appdb "github.com/vaayne/anna/internal/db"
 )
 
-func TestAddListRemoveJob(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
+func testDB(t *testing.T) *sql.DB {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := appdb.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+func testService(t *testing.T) *Service {
+	t.Helper()
+	db := testDB(t)
+	svc, err := New(db)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	if err := svc.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	defer func() { _ = svc.Stop() }()
+	t.Cleanup(func() { _ = svc.Stop() })
+	return svc
+}
+
+func TestAddListRemoveJob(t *testing.T) {
+	svc := testService(t)
 
 	// Add a job.
 	job, err := svc.AddJob("test", "say hello", Schedule{Every: "1h"}, "")
@@ -44,13 +65,13 @@ func TestAddListRemoveJob(t *testing.T) {
 		t.Errorf("job ID = %q, want %q", jobs[0].ID, job.ID)
 	}
 
-	// Verify persistence file.
-	data, err := os.ReadFile(filepath.Join(dir, "jobs.json"))
+	// Verify persistence in DB.
+	row, err := svc.q.GetSchedulerJob(context.Background(), job.ID)
 	if err != nil {
-		t.Fatalf("read jobs.json: %v", err)
+		t.Fatalf("GetSchedulerJob: %v", err)
 	}
-	if len(data) == 0 {
-		t.Fatal("jobs.json is empty")
+	if row.Name != "test" {
+		t.Errorf("DB name = %q, want %q", row.Name, "test")
 	}
 
 	// Remove job.
@@ -63,15 +84,7 @@ func TestAddListRemoveJob(t *testing.T) {
 }
 
 func TestAddJobValidation(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := svc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = svc.Stop() }()
+	svc := testService(t)
 
 	pastTime := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
 	tests := []struct {
@@ -103,15 +116,7 @@ func TestAddJobValidation(t *testing.T) {
 }
 
 func TestRemoveJobNotFound(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := svc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = svc.Stop() }()
+	svc := testService(t)
 
 	if err := svc.RemoveJob("nonexistent"); err == nil {
 		t.Error("expected error for nonexistent job")
@@ -119,10 +124,14 @@ func TestRemoveJobNotFound(t *testing.T) {
 }
 
 func TestJobPersistenceAcrossRestart(t *testing.T) {
-	dir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
 
 	// Create and add a job.
-	svc1, err := New(dir)
+	db1, err := appdb.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	svc1, err := New(db1)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -134,16 +143,24 @@ func TestJobPersistenceAcrossRestart(t *testing.T) {
 		t.Fatalf("AddJob: %v", err)
 	}
 	_ = svc1.Stop()
+	_ = db1.Close()
 
-	// Create a new service from the same directory.
-	svc2, err := New(dir)
+	// Create a new service from the same database.
+	db2, err := appdb.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	svc2, err := New(db2)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	if err := svc2.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	defer func() { _ = svc2.Stop() }()
+	defer func() {
+		_ = svc2.Stop()
+		_ = db2.Close()
+	}()
 
 	jobs := svc2.ListJobs()
 	if len(jobs) != 1 {
@@ -158,9 +175,13 @@ func TestJobPersistenceAcrossRestart(t *testing.T) {
 }
 
 func TestStartEphemeralSkipsPersistedJobs(t *testing.T) {
-	dir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
 
-	svc1, err := New(dir)
+	db1, err := appdb.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	svc1, err := New(db1)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -172,15 +193,23 @@ func TestStartEphemeralSkipsPersistedJobs(t *testing.T) {
 		t.Fatalf("AddJob: %v", err)
 	}
 	_ = svc1.Stop()
+	_ = db1.Close()
 
-	svc2, err := New(dir)
+	db2, err := appdb.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	svc2, err := New(db2)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	if err := svc2.StartEphemeral(context.Background()); err != nil {
 		t.Fatalf("StartEphemeral: %v", err)
 	}
-	defer func() { _ = svc2.Stop() }()
+	defer func() {
+		_ = svc2.Stop()
+		_ = db2.Close()
+	}()
 
 	if jobs := svc2.ListJobs(); len(jobs) != 0 {
 		t.Fatalf("ListJobs after StartEphemeral: got %d, want 0", len(jobs))
@@ -188,11 +217,7 @@ func TestStartEphemeralSkipsPersistedJobs(t *testing.T) {
 }
 
 func TestOnJobCallbackFires(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	svc := testService(t)
 
 	var mu sync.Mutex
 	var fired []string
@@ -202,12 +227,7 @@ func TestOnJobCallbackFires(t *testing.T) {
 		mu.Unlock()
 	})
 
-	if err := svc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = svc.Stop() }()
-
-	_, err = svc.AddJob("quick", "ping", Schedule{Every: "100ms"}, "")
+	_, err := svc.AddJob("quick", "ping", Schedule{Every: "100ms"}, "")
 	if err != nil {
 		t.Fatalf("AddJob: %v", err)
 	}
@@ -229,23 +249,14 @@ func TestOnJobCallbackFires(t *testing.T) {
 	}
 }
 
-func TestCronToolAddListRemove(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := svc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = svc.Stop() }()
-
+func TestSchedulerToolAddListRemove(t *testing.T) {
+	svc := testService(t)
 	ct := NewTool(svc)
 
-	// Definition should have name "cron".
+	// Definition should have name "scheduler".
 	def := ct.Definition()
-	if def.Name != "cron" {
-		t.Errorf("tool name = %q, want %q", def.Name, "cron")
+	if def.Name != "scheduler" {
+		t.Errorf("tool name = %q, want %q", def.Name, "scheduler")
 	}
 
 	// Add via tool.
@@ -301,15 +312,7 @@ func TestCronToolAddListRemove(t *testing.T) {
 }
 
 func TestOneTimeJobCreation(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := svc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = svc.Stop() }()
+	svc := testService(t)
 
 	futureTime := time.Now().Add(1 * time.Hour).Format(time.RFC3339)
 	job, err := svc.AddJob("one-time-test", "do something once", Schedule{At: futureTime}, "")
@@ -327,11 +330,7 @@ func TestOneTimeJobCreation(t *testing.T) {
 }
 
 func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	svc := testService(t)
 
 	var mu sync.Mutex
 	var fired []string
@@ -340,11 +339,6 @@ func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
 		fired = append(fired, job.ID)
 		mu.Unlock()
 	})
-
-	if err := svc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = svc.Stop() }()
 
 	// Schedule 200ms from now.
 	at := time.Now().Add(200 * time.Millisecond).Format(time.RFC3339Nano)
@@ -387,10 +381,14 @@ func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
 }
 
 func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
-	dir := t.TempDir()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
 
 	// Create a service and add a one-time job in the future.
-	svc1, err := New(dir)
+	db1, err := appdb.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	svc1, err := New(db1)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -405,28 +403,29 @@ func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
 	_ = svc1.Stop()
 
 	// Manually tamper the job to have a past timestamp to simulate missed window.
-	jobs, err := svc1.loadJobs()
+	pastTime := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
+	_, err = db1.Exec("UPDATE scheduler_jobs SET schedule_at = ? WHERE name = ?", pastTime, "restart-test")
 	if err != nil {
-		t.Fatalf("loadJobs: %v", err)
+		t.Fatalf("update schedule_at: %v", err)
 	}
-	if len(jobs) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(jobs))
-	}
-	jobs[0].Schedule.At = time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
-	svc1.mu.Lock()
-	svc1.jobs[jobs[0].ID] = jobs[0]
-	_ = svc1.saveJobsLocked()
-	svc1.mu.Unlock()
+	_ = db1.Close()
 
 	// Restart: the past one-time job should be loaded but not scheduled (silently skipped).
-	svc2, err := New(dir)
+	db2, err := appdb.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	svc2, err := New(db2)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	if err := svc2.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	defer func() { _ = svc2.Stop() }()
+	defer func() {
+		_ = svc2.Stop()
+		_ = db2.Close()
+	}()
 
 	// Job is still in the list (persisted) but not scheduled with gocron.
 	listed := svc2.ListJobs()
@@ -442,17 +441,8 @@ func TestOneTimeJobSkippedOnRestartIfPast(t *testing.T) {
 	}
 }
 
-func TestCronToolAddOneTimeJob(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := svc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = svc.Stop() }()
-
+func TestSchedulerToolAddOneTimeJob(t *testing.T) {
+	svc := testService(t)
 	ct := NewTool(svc)
 
 	futureTime := time.Now().Add(1 * time.Hour).Format(time.RFC3339)
@@ -479,15 +469,7 @@ func TestCronToolAddOneTimeJob(t *testing.T) {
 }
 
 func TestSessionModeDefault(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := svc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = svc.Stop() }()
+	svc := testService(t)
 
 	// Empty session_mode defaults to "reuse".
 	job, err := svc.AddJob("default-mode", "msg", Schedule{Every: "1h"}, "")
@@ -500,15 +482,7 @@ func TestSessionModeDefault(t *testing.T) {
 }
 
 func TestSessionModeReuse(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := svc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = svc.Stop() }()
+	svc := testService(t)
 
 	job, err := svc.AddJob("reuse-mode", "msg", Schedule{Every: "1h"}, SessionReuse)
 	if err != nil {
@@ -521,21 +495,13 @@ func TestSessionModeReuse(t *testing.T) {
 	if id1 != id2 {
 		t.Errorf("reuse mode: SessionID changed: %q vs %q", id1, id2)
 	}
-	if id1 != "cron:"+job.ID {
-		t.Errorf("reuse mode: SessionID = %q, want %q", id1, "cron:"+job.ID)
+	if id1 != "scheduler:"+job.ID {
+		t.Errorf("reuse mode: SessionID = %q, want %q", id1, "scheduler:"+job.ID)
 	}
 }
 
 func TestSessionModeNew(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := svc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = svc.Stop() }()
+	svc := testService(t)
 
 	job, err := svc.AddJob("new-mode", "msg", Schedule{Every: "1h"}, SessionNew)
 	if err != nil {
@@ -555,37 +521,20 @@ func TestSessionModeNew(t *testing.T) {
 }
 
 func TestSessionModeInvalid(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := svc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = svc.Stop() }()
+	svc := testService(t)
 
-	_, err = svc.AddJob("bad-mode", "msg", Schedule{Every: "1h"}, "invalid")
+	_, err := svc.AddJob("bad-mode", "msg", Schedule{Every: "1h"}, "invalid")
 	if err == nil {
 		t.Error("expected error for invalid session_mode")
 	}
 }
 
-func TestCronToolSessionMode(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := svc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer func() { _ = svc.Stop() }()
-
+func TestSchedulerToolSessionMode(t *testing.T) {
+	svc := testService(t)
 	ct := NewTool(svc)
 
 	// Add with session_mode "new" via tool.
-	_, err = ct.Execute(context.Background(), map[string]any{
+	_, err := ct.Execute(context.Background(), map[string]any{
 		"action":       "add",
 		"name":         "fresh-session",
 		"message":      "do work",
@@ -605,9 +554,9 @@ func TestCronToolSessionMode(t *testing.T) {
 	}
 }
 
-func TestCronToolInvalidAction(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
+func TestSchedulerToolInvalidAction(t *testing.T) {
+	db := testDB(t)
+	svc, err := New(db)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -621,9 +570,9 @@ func TestCronToolInvalidAction(t *testing.T) {
 	}
 }
 
-func TestCronToolRemoveMissingID(t *testing.T) {
-	dir := t.TempDir()
-	svc, err := New(dir)
+func TestSchedulerToolRemoveMissingID(t *testing.T) {
+	db := testDB(t)
+	svc, err := New(db)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -634,5 +583,66 @@ func TestCronToolRemoveMissingID(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("expected error for missing ID")
+	}
+}
+
+func TestMigrateJobsFile(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Write a legacy jobs.json.
+	jobs := []Job{
+		{
+			ID:          "abc12345",
+			Name:        "legacy-job",
+			Schedule:    Schedule{Every: "1h"},
+			Message:     "do legacy things",
+			SessionMode: SessionReuse,
+			Enabled:     true,
+			CreatedAt:   time.Now(),
+		},
+	}
+	data, err := json.MarshalIndent(jobs, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	legacyDir := filepath.Join(dir, "scheduler")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "jobs.json"), data, 0o644); err != nil {
+		t.Fatalf("write jobs.json: %v", err)
+	}
+
+	// Start a service with legacy data path.
+	db, err := appdb.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	svc, err := New(db)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	svc.SetLegacyDataPath(legacyDir)
+	if err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() {
+		_ = svc.Stop()
+		_ = db.Close()
+	}()
+
+	// Job should be loaded from DB.
+	listed := svc.ListJobs()
+	if len(listed) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(listed))
+	}
+	if listed[0].ID != "abc12345" {
+		t.Errorf("job ID = %q, want %q", listed[0].ID, "abc12345")
+	}
+
+	// Legacy file should be removed.
+	if _, err := os.Stat(filepath.Join(legacyDir, "jobs.json")); !os.IsNotExist(err) {
+		t.Error("expected jobs.json to be removed after migration")
 	}
 }

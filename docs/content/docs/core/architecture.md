@@ -112,12 +112,12 @@ internal/
     queries/                          sqlc query definitions
     sqlc/                             Generated query code (sqlc output)
 
-  cron/
+  scheduler/
     service.go                        Scheduler service (gocron/v2)
     heartbeat.go                      Heartbeat polling (decide/execute/notify)
     persistence.go                    Job JSON persistence (load/save)
     job.go                            Job and Schedule types
-    tool.go                           Agent cron tool (add/list/remove)
+    tool.go                           Agent scheduler tool (add/list/remove)
 
   memory/
     engine.go                         Memory engine facade
@@ -181,7 +181,7 @@ type Tool interface {
 | `memory_describe` | Always | Inspect a summary node's metadata and lineage |
 | `memory_expand` | Always | Drill into a summary to retrieve children |
 | `skills` | Always | Skill management (search/install/list/remove from skills.sh) |
-| `cron` | `cron.enabled: true` | Schedule tasks (add/list/remove jobs) |
+| `scheduler` | `scheduler.enabled: true` | Schedule tasks (add/list/remove jobs) |
 | `notify` | Gateway mode + channel configured | Send notifications via dispatcher |
 
 ## Session Lifecycle
@@ -213,7 +213,7 @@ Shared command logic (`/new`, `/compact`, `/model`) lives in `channel.Commander`
 
 ```
 Agent notify tool --> Dispatcher --> Channel (Telegram/QQ/Feishu)
-Cron job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu)
+Scheduler job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu)
 ```
 
 The dispatcher is created early in setup, but backends are registered later when gateway services start. See [notification-system.md](/docs/features/notification-system) for details.

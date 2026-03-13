@@ -99,7 +99,7 @@ channels:
 
 Used by:
 - The `notify` agent tool (in gateway mode)
-- Cron job result broadcasting
+- Scheduler job result broadcasting
 
 See [notification-system.md](/docs/features/notification-system) for the full notification architecture.
 

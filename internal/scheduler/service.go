@@ -1,7 +1,8 @@
-package cron
+package scheduler
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,8 @@ import (
 	"github.com/go-co-op/gocron/v2"
 	"github.com/google/uuid"
 	"github.com/vaayne/anna/internal/channel"
+	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/vaayne/anna/internal/db/sqlc"
 )
 
 // errOneTimeJobPast is returned by scheduleJob when a one-time job's timestamp
@@ -21,14 +24,17 @@ var errOneTimeJobPast = errors.New("one-time job timestamp is in the past")
 // OnJobFunc is called when a scheduled job fires.
 type OnJobFunc func(ctx context.Context, job Job)
 
-// TaskFunc is a lightweight scheduled callback that is not persisted as a cron job.
+// TaskFunc is a lightweight scheduled callback that is not persisted as a scheduled job.
 type TaskFunc func(ctx context.Context)
 
-// Service manages cron jobs backed by gocron/v2 with JSON persistence.
+// Service manages scheduled jobs backed by gocron/v2 with database persistence.
 type Service struct {
 	scheduler gocron.Scheduler
 	onJob     OnJobFunc
-	dataPath  string          // directory containing jobs.json
+	db        *sql.DB
+	q         *sqlc.Queries
+	ownsDB    bool            // true when Service opened the DB itself
+	dataPath  string          // legacy data dir for jobs.json migration
 	ctx       context.Context // lifecycle context from Start
 	mu        sync.Mutex
 	jobs      map[string]Job
@@ -41,19 +47,43 @@ type Service struct {
 	heartbeatNotifier channel.Notifier
 }
 
-// New creates a cron service. Call Start to load persisted jobs and begin scheduling.
-func New(dataPath string) (*Service, error) {
+// New creates a scheduler service backed by the given database.
+// Call Start to load persisted jobs and begin scheduling.
+func New(db *sql.DB) (*Service, error) {
 	s, err := gocron.NewScheduler()
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler: %w", err)
 	}
 	return &Service{
 		scheduler: s,
-		dataPath:  dataPath,
+		db:        db,
+		q:         sqlc.New(db),
 		jobs:      make(map[string]Job),
 		gids:      make(map[string]uuid.UUID),
-		log:       slog.With("component", "cron"),
+		log:       slog.With("component", "scheduler"),
 	}, nil
+}
+
+// NewFromPath creates a scheduler service that opens its own SQLite database
+// at the given path. The database is closed when Stop is called.
+func NewFromPath(dbPath string) (*Service, error) {
+	db, err := appdb.OpenDB(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	svc, err := New(db)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	svc.ownsDB = true
+	return svc, nil
+}
+
+// SetLegacyDataPath sets the directory where the legacy jobs.json file may
+// exist. If set, Start will attempt a one-time migration from file to DB.
+func (s *Service) SetLegacyDataPath(path string) {
+	s.dataPath = path
 }
 
 // SetOnJob sets the callback invoked when a job fires.
@@ -68,17 +98,23 @@ func (s *Service) Start(ctx context.Context) error {
 	return s.start(ctx, true)
 }
 
-// StartEphemeral starts the shared scheduler without loading persisted cron jobs.
+// StartEphemeral starts the shared scheduler without loading persisted jobs.
 // Use this when the scheduler is only needed for internal tasks such as heartbeat.
 func (s *Service) StartEphemeral(ctx context.Context) error {
 	return s.start(ctx, false)
 }
 
 func (s *Service) start(ctx context.Context, loadPersisted bool) error {
+	if loadPersisted && s.dataPath != "" {
+		if err := s.migrateJobsFile(ctx, s.dataPath); err != nil {
+			s.log.Warn("failed to migrate legacy jobs.json", "error", err)
+		}
+	}
+
 	var jobs []Job
 	var err error
 	if loadPersisted {
-		jobs, err = s.loadJobs()
+		jobs, err = s.loadJobs(ctx)
 		if err != nil {
 			return fmt.Errorf("load jobs: %w", err)
 		}
@@ -104,16 +140,22 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 
 	s.scheduler.Start()
 	if loadPersisted {
-		s.log.Info("cron service started", "jobs", len(jobs))
+		s.log.Info("scheduler service started", "jobs", len(jobs))
 	} else {
-		s.log.Info("cron service started without persisted jobs")
+		s.log.Info("scheduler service started without persisted jobs")
 	}
 	return nil
 }
 
-// Stop shuts down the scheduler.
+// Stop shuts down the scheduler and closes the database if owned.
 func (s *Service) Stop() error {
-	return s.scheduler.Shutdown()
+	err := s.scheduler.Shutdown()
+	if s.ownsDB && s.db != nil {
+		if dbErr := s.db.Close(); dbErr != nil && err == nil {
+			err = dbErr
+		}
+	}
+	return err
 }
 
 // ScheduleEvery registers a non-persisted recurring task on the existing scheduler.
@@ -206,16 +248,16 @@ func (s *Service) AddJob(name, message string, sched Schedule, sessionMode strin
 		return Job{}, fmt.Errorf("schedule job: %w", err)
 	}
 
-	s.jobs[job.ID] = job
-	if err := s.saveJobsLocked(); err != nil {
-		// Roll back: remove from memory and unschedule.
-		delete(s.jobs, job.ID)
+	if err := s.insertJob(s.ctx, job); err != nil {
+		// Roll back: remove from gocron.
 		if gid, ok := s.gids[job.ID]; ok {
 			_ = s.scheduler.RemoveJob(gid)
 			delete(s.gids, job.ID)
 		}
 		return Job{}, fmt.Errorf("persist job: %w", err)
 	}
+
+	s.jobs[job.ID] = job
 
 	s.log.Info("job added", "id", job.ID, "name", name)
 	return job, nil
@@ -226,35 +268,23 @@ func (s *Service) RemoveJob(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	job, ok := s.jobs[id]
-	if !ok {
+	if _, ok := s.jobs[id]; !ok {
 		return fmt.Errorf("job %q not found", id)
 	}
 
 	// Remove from scheduler first.
-	var removedGID uuid.UUID
-	var hadGID bool
 	if gid, ok := s.gids[id]; ok {
 		if err := s.scheduler.RemoveJob(gid); err != nil {
 			s.log.Warn("failed to remove gocron job", "id", id, "error", err)
 		}
-		removedGID = gid
-		hadGID = true
 		delete(s.gids, id)
 	}
 
-	delete(s.jobs, id)
-	if err := s.saveJobsLocked(); err != nil {
-		// Roll back: restore in-memory state and re-schedule so retry works.
-		s.jobs[id] = job
-		if hadGID {
-			if schedErr := s.scheduleJob(s.ctx, job); schedErr != nil {
-				s.log.Warn("failed to re-schedule job during rollback", "id", id, "error", schedErr)
-				s.gids[id] = removedGID // keep stale GID as best-effort
-			}
-		}
+	if err := s.deleteJob(s.ctx, id); err != nil {
 		return fmt.Errorf("persist after remove: %w", err)
 	}
+
+	delete(s.jobs, id)
 
 	s.log.Info("job removed", "id", id)
 	return nil
@@ -325,7 +355,7 @@ func (s *Service) removeOneTimeJob(id string) {
 		delete(s.gids, id)
 	}
 	delete(s.jobs, id)
-	if err := s.saveJobsLocked(); err != nil {
+	if err := s.deleteJob(s.ctx, id); err != nil {
 		s.log.Warn("failed to remove one-time job after execution", "id", id, "error", err)
 	} else {
 		s.log.Info("one-time job auto-removed after execution", "id", id)
