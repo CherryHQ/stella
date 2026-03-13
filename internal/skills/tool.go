@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/vaayne/anna/internal/toolspec"
+	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
 
 var skillsInputSchema = func() map[string]any {
@@ -45,7 +46,6 @@ type SkillsTool struct {
 	annaHome  string
 	workspace string
 	cwd       string
-	searchURL string // override for testing; empty uses default
 }
 
 // NewTool creates a SkillsTool for the given anna home, workspace and working directory.
@@ -77,4 +77,28 @@ func (t *SkillsTool) Execute(ctx context.Context, args map[string]any) (string, 
 	default:
 		return "", fmt.Errorf("unknown action %q, expected search/install/list/remove", action)
 	}
+}
+
+func (t *SkillsTool) search(ctx context.Context, args map[string]any) (string, error) {
+	query, _ := args["query"].(string)
+	if query == "" {
+		return "", fmt.Errorf("query is required for search action")
+	}
+
+	limit := 10
+	if v, ok := args["limit"].(float64); ok && v > 0 {
+		limit = int(v)
+	}
+
+	results, err := mcpskills.Search(ctx, query, limit)
+	if err != nil {
+		return "", err
+	}
+
+	if len(results) == 0 {
+		return "No skills found.", nil
+	}
+
+	out, _ := json.MarshalIndent(results, "", "  ")
+	return fmt.Sprintf("Found %d skills:\n%s\n\nInstall with: skills tool action=install source=\"owner/repo@skill-name\"", len(results), out), nil
 }

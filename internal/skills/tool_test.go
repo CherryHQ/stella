@@ -3,8 +3,6 @@ package skills
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -148,93 +146,11 @@ func TestRemoveSuccess(t *testing.T) {
 	}
 }
 
-func TestSearchSuccess(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("q") != "react" {
-			t.Errorf("expected query 'react', got %q", r.URL.Query().Get("q"))
-		}
-		_ = json.NewEncoder(w).Encode(searchResponse{
-			Count: 1,
-			Skills: []SearchResult{
-				{ID: "react-best-practices", Name: "React Best Practices", Installs: 100, Source: "vercel-labs/agent-skills"},
-			},
-		})
-	}))
-	defer server.Close()
-
-	tool := &SkillsTool{searchURL: server.URL}
-	result, err := tool.search(context.Background(), map[string]any{"query": "react"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result == "" {
-		t.Error("expected non-empty result")
-	}
-}
-
-func TestSearchNoResults(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(searchResponse{Count: 0, Skills: []SearchResult{}})
-	}))
-	defer server.Close()
-
-	tool := &SkillsTool{searchURL: server.URL}
-	result, err := tool.search(context.Background(), map[string]any{"query": "nonexistent"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result != "No skills found." {
-		t.Errorf("expected 'No skills found.', got %q", result)
-	}
-}
-
 func TestSearchMissingQuery(t *testing.T) {
 	tool := NewTool("/tmp/anna", "/tmp/agents", "/tmp/cwd")
 	_, err := tool.search(context.Background(), map[string]any{})
 	if err == nil {
 		t.Error("expected error for missing query")
-	}
-}
-
-func TestSearchAPIError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer server.Close()
-
-	tool := &SkillsTool{searchURL: server.URL}
-	_, err := tool.search(context.Background(), map[string]any{"query": "test"})
-	if err == nil {
-		t.Error("expected error for API error")
-	}
-}
-
-func TestSearchWithLimit(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("limit") != "5" {
-			t.Errorf("expected limit '5', got %q", r.URL.Query().Get("limit"))
-		}
-		_ = json.NewEncoder(w).Encode(searchResponse{Count: 0, Skills: []SearchResult{}})
-	}))
-	defer server.Close()
-
-	tool := &SkillsTool{searchURL: server.URL}
-	_, err := tool.search(context.Background(), map[string]any{"query": "test", "limit": float64(5)})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestSearchInvalidJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("not json"))
-	}))
-	defer server.Close()
-
-	tool := &SkillsTool{searchURL: server.URL}
-	_, err := tool.search(context.Background(), map[string]any{"query": "test"})
-	if err == nil {
-		t.Error("expected error for invalid JSON")
 	}
 }
 
