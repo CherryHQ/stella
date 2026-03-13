@@ -1,4 +1,4 @@
-package cron
+package scheduler
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
-var cronInputSchema = func() map[string]any {
+var schedulerInputSchema = func() map[string]any {
 	var m map[string]any
 	_ = json.Unmarshal([]byte(`{
   "type": "object",
@@ -28,11 +28,11 @@ var cronInputSchema = func() map[string]any {
     },
     "cron": {
       "type": "string",
-      "description": "Cron expression, e.g. '0 9 * * 1-5' for weekdays at 9am (use cron OR every, not both)"
+      "description": "Schedule expression (cron format), e.g. '0 9 * * 1-5' for weekdays at 9am (use cron OR every OR at, not combined)"
     },
     "every": {
       "type": "string",
-      "description": "Go duration, e.g. '30m', '2h', '24h' (use every OR cron, not both)"
+      "description": "Go duration, e.g. '30m', '2h', '24h' (use every OR cron OR at, not combined)"
     },
     "at": {
       "type": "string",
@@ -53,27 +53,27 @@ var cronInputSchema = func() map[string]any {
 	return m
 }()
 
-// CronTool exposes cron management as an agent tool.
-type CronTool struct {
+// SchedulerTool exposes scheduler management as an agent tool.
+type SchedulerTool struct {
 	service *Service
 }
 
-// NewTool creates a CronTool backed by the given service.
-func NewTool(service *Service) *CronTool {
-	return &CronTool{service: service}
+// NewTool creates a SchedulerTool backed by the given service.
+func NewTool(service *Service) *SchedulerTool {
+	return &SchedulerTool{service: service}
 }
 
 // Definition returns the tool definition for the LLM.
-func (t *CronTool) Definition() toolspec.Definition {
+func (t *SchedulerTool) Definition() toolspec.Definition {
 	return toolspec.Definition{
-		Name:        "cron",
+		Name:        "scheduler",
 		Description: "Manage scheduled tasks. Use action 'add' to create a recurring or one-time job, 'list' to see all jobs, or 'remove' to delete a job. For one-time jobs, use the 'at' field with an RFC3339 timestamp.",
-		InputSchema: cronInputSchema,
+		InputSchema: schedulerInputSchema,
 	}
 }
 
-// Execute runs the cron tool action.
-func (t *CronTool) Execute(_ context.Context, args map[string]any) (string, error) {
+// Execute runs the scheduler tool action.
+func (t *SchedulerTool) Execute(_ context.Context, args map[string]any) (string, error) {
 	action, _ := args["action"].(string)
 	switch action {
 	case "add":
@@ -87,7 +87,7 @@ func (t *CronTool) Execute(_ context.Context, args map[string]any) (string, erro
 	}
 }
 
-func (t *CronTool) add(args map[string]any) (string, error) {
+func (t *SchedulerTool) add(args map[string]any) (string, error) {
 	name, _ := args["name"].(string)
 	message, _ := args["message"].(string)
 	cronExpr, _ := args["cron"].(string)
@@ -105,7 +105,7 @@ func (t *CronTool) add(args map[string]any) (string, error) {
 	return fmt.Sprintf("Job created:\n%s", out), nil
 }
 
-func (t *CronTool) list() (string, error) {
+func (t *SchedulerTool) list() (string, error) {
 	jobs := t.service.ListJobs()
 	if len(jobs) == 0 {
 		return "No scheduled jobs.", nil
@@ -115,7 +115,7 @@ func (t *CronTool) list() (string, error) {
 	return string(out), nil
 }
 
-func (t *CronTool) remove(args map[string]any) (string, error) {
+func (t *SchedulerTool) remove(args map[string]any) (string, error) {
 	id, _ := args["id"].(string)
 	if id == "" {
 		return "", fmt.Errorf("id is required for remove action")

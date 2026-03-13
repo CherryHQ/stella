@@ -18,7 +18,7 @@ type Config struct {
 	ModelFast   string                    `yaml:"model_fast"   env:"MODEL_FAST"`
 	Workspace   string                    `yaml:"workspace"    env:"WORKSPACE"`
 	Runner      RunnerConfig              `yaml:"runner"       envPrefix:"RUNNER_"`
-	Cron        CronConfig                `yaml:"cron"         envPrefix:"CRON_"`
+	Scheduler   SchedulerConfig           `yaml:"scheduler"    envPrefix:"SCHEDULER_"`
 	Heartbeat   HeartbeatConfig           `yaml:"heartbeat"    envPrefix:"HEARTBEAT_"`
 	Providers   map[string]ProviderConfig `yaml:"providers"`
 	Channels    ChannelsConfig            `yaml:"channels"`
@@ -42,13 +42,13 @@ type CompactionConfig struct {
 	KeepTail int `yaml:"keep_tail" env:"KEEP_TAIL"`
 }
 
-type CronConfig struct {
+type SchedulerConfig struct {
 	Enabled *bool  `yaml:"enabled"  env:"ENABLED"`
 	DataDir string `yaml:"data_dir" env:"DATA_DIR"`
 }
 
-// CronEnabled returns whether cron is enabled (defaults to true).
-func (c CronConfig) CronEnabled() bool {
+// IsEnabled returns whether the scheduler is enabled (defaults to true).
+func (c SchedulerConfig) IsEnabled() bool {
 	return boolDefault(c.Enabled, true)
 }
 
@@ -155,8 +155,8 @@ func LoadFrom(dir string) (*Config, error) {
 	if cfg.Runner.IdleTimeout == 0 {
 		cfg.Runner.IdleTimeout = 10
 	}
-	if cfg.Cron.DataDir == "" {
-		cfg.Cron.DataDir = filepath.Join(cfg.Workspace, "cron")
+	if cfg.Scheduler.DataDir == "" {
+		cfg.Scheduler.DataDir = filepath.Join(cfg.Workspace, "scheduler")
 	}
 
 	return cfg, nil

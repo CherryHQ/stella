@@ -45,7 +45,7 @@ Leave empty to allow all users. Send `/whoami` to the bot to get your user ID.
 
 ### Notifications
 
-Configure a default chat for proactive messages (cron results, notify tool):
+Configure a default chat for proactive messages (scheduler results, notify tool):
 
 ```yaml
 channels:

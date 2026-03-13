@@ -36,7 +36,7 @@ const features = [
   {
     label: "04",
     title: "Built-in scheduler",
-    body: "Cron tasks, heartbeat monitoring, and cross-channel notifications. anna works even when you're not talking to it.",
+    body: "Scheduled tasks, heartbeat monitoring, and cross-channel notifications. anna works even when you're not talking to it.",
   },
 ];
 

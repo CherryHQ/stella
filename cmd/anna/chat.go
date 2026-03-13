@@ -35,11 +35,11 @@ func chatCommand() *ucli.Command {
 			}
 			defer func() { _ = s.pool.Close() }()
 
-			if s.cronSvc != nil {
-				if err := s.cronSvc.Start(s.ctx); err != nil {
+			if s.schedulerSvc != nil {
+				if err := s.schedulerSvc.Start(s.ctx); err != nil {
 					return err
 				}
-				defer func() { _ = s.cronSvc.Stop() }()
+				defer func() { _ = s.schedulerSvc.Stop() }()
 			}
 
 			if c.Bool("stream") {

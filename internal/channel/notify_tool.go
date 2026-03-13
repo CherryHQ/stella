@@ -43,7 +43,7 @@ var notifyInputSchema = map[string]any{
 func (t *NotifyTool) Definition() toolspec.Definition {
 	return toolspec.Definition{
 		Name:        "notify",
-		Description: "Send a notification message to the user. Supports multiple backends (Telegram, Slack, etc.). Omit 'channel' to broadcast to all configured backends. Use this for proactive messages, alerts, cron summaries, or long-running task results.",
+		Description: "Send a notification message to the user. Supports multiple backends (Telegram, Slack, etc.). Omit 'channel' to broadcast to all configured backends. Use this for proactive messages, alerts, scheduler summaries, or long-running task results.",
 		InputSchema: notifyInputSchema,
 	}
 }

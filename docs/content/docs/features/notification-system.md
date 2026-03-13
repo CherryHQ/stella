@@ -7,7 +7,7 @@ Implemented — `internal/channel/notifier.go`, `internal/channel/notify_tool.go
 
 ## Overview
 
-Anna supports proactive notifications so the agent, cron jobs, and other internal triggers can push messages to users without waiting for a request. The system uses a multi-channel dispatcher that routes notifications to one or more configured channels (Telegram, QQ, with Slack/Discord planned).
+Anna supports proactive notifications so the agent, scheduled jobs, and other internal triggers can push messages to users without waiting for a request. The system uses a multi-channel dispatcher that routes notifications to one or more configured channels (Telegram, QQ, with Slack/Discord planned).
 
 ## Architecture
 
@@ -18,7 +18,7 @@ Anna supports proactive notifications so the agent, cron jobs, and other interna
 └─────────────────┘  │
                       │   Notification{Channel, ChatID, Text, Silent}
 ┌─────────────────┐  │           │
-│  Cron job result │──┼──────────▼──────────────┐
+│  Scheduler job result │──┼──────────▼──────────────┐
 └─────────────────┘  │      Dispatcher          │
                       │  ┌──────────────────┐   │
 ┌─────────────────┐  │  │ Route by Channel  │   │
@@ -125,7 +125,7 @@ setup()
 runGateway()
   ├── Create telegram.Bot
   ├── dispatcher.Register(tgBot, notifyChat)  ← channel registered
-  ├── wireCronNotifier(cron, pool, dispatcher) ← cron output → dispatcher
+  ├── wireSchedulerNotifier(schedulerSvc, pool, dispatcher) ← scheduler output → dispatcher
   └── tgBot.Start(ctx)                        ← begin polling
 ```
 
@@ -133,7 +133,7 @@ The dispatcher is created early (in `setup`) so the notify tool can reference it
 
 ### Cron → Notification
 
-When a cron job fires:
+When a scheduled job fires:
 1. The job runs through `pool.Chat()` to get the agent's response
 2. The full response text is collected
 3. The text is broadcast via `dispatcher.Notify()` to all channels
@@ -205,7 +205,7 @@ if s.cfg.Slack.Token != "" {
 
 3. **Add config fields** to `config.go` and env var overrides.
 
-No changes needed to the dispatcher, notify tool, or cron wiring — they work through the `Channel` interface.
+No changes needed to the dispatcher, notify tool, or scheduler wiring — they work through the `Channel` interface.
 
 ## Telegram-Specific Features
 

@@ -115,7 +115,7 @@ docker run -d \
   ghcr.io/vaayne/anna:latest
 ```
 
-The container runs as `nonroot` user. Mount `~/.anna` to persist config, sessions, and cron data. You can set `ANNA_HOME` to change the workspace path inside the container.
+The container runs as `nonroot` user. Mount `~/.anna` to persist config, sessions, and scheduler data. You can set `ANNA_HOME` to change the workspace path inside the container.
 
 ### Docker Compose
 
@@ -153,7 +153,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t anna .
 | Path | Purpose |
 |------|---------|
 | `~/.anna/config.yaml` | Configuration |
-| `~/.anna/workspace/cron/` | Cron job persistence |
+| `~/.anna/workspace/scheduler/` | Scheduler job persistence |
 | `~/.anna/workspace/SOUL.md` | Agent identity, personality |
 | `~/.anna/workspace/USER.md` | User preferences, context |
 | `~/.anna/workspace/memory.db` | Memory database (message history, summaries) |
