@@ -1,5 +1,6 @@
-# Telegram Bot
-
+---
+title: Telegram Bot
+---
 anna includes a Telegram bot that runs via long polling -- no webhook or public IP needed.
 
 ## Setup
@@ -100,7 +101,7 @@ Used by:
 - The `notify` agent tool (in gateway mode)
 - Cron job result broadcasting
 
-See [notification-system.md](notification-system.md) for the full notification architecture.
+See [notification-system.md](/docs/notification-system) for the full notification architecture.
 
 ## Model Switching
 

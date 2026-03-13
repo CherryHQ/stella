@@ -4,7 +4,7 @@ import { defineConfig } from 'vite';
 import tsConfigPaths from 'vite-tsconfig-paths';
 import tailwindcss from '@tailwindcss/vite';
 import mdx from 'fumadocs-mdx/vite';
-import { nitro } from 'nitro/vite';
+import { cloudflare } from '@cloudflare/vite-plugin';
 
 export default defineConfig({
   server: {
@@ -16,18 +16,12 @@ export default defineConfig({
     tsConfigPaths({
       projects: ['./tsconfig.json'],
     }),
+    cloudflare({ viteEnvironment: { name: 'ssr' } }),
     tanstackStart({
       prerender: {
         enabled: true,
       },
     }),
     react(),
-    // please see https://tanstack.com/start/latest/docs/framework/react/guide/hosting#nitro for guides on hosting
-    nitro({
-      preset: 'vercel',
-      vercel: {
-        entryFormat: 'node',
-      },
-    }),
   ],
 });

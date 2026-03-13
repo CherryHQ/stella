@@ -1,5 +1,6 @@
-# Configuration
-
+---
+title: Configuration
+---
 Config file: `~/.anna/config.yaml`
 
 The workspace root defaults to `~/.anna/workspace` and can be changed by setting the `ANNA_HOME` environment variable. Session, memory, skills, cron data, and runtime state all live under the workspace root. The model cache lives in `~/.anna/cache/`.

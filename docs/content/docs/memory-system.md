@@ -1,5 +1,6 @@
-# Memory System
-
+---
+title: Memory System
+---
 ## Lossless Context Management (LCM)
 
 ### Overview

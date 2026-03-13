@@ -1,5 +1,6 @@
-# Session Compaction
-
+---
+title: Session Compaction
+---
 ## Status
 
 Implemented — `internal/agent/pool_compaction.go` (orchestration), `memory.Engine` (SQLite persistence), channels expose `/compact`.

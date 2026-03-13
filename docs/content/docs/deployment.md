@@ -1,5 +1,6 @@
-# Deployment
-
+---
+title: Deployment
+---
 Two deployment methods: **binary** (direct install) and **Docker**.
 
 ## Binary
@@ -27,7 +28,7 @@ cd anna && go build -o anna .
 
 ### Running
 
-Create a config file at `~/.anna/config.yaml` (see [configuration.md](configuration.md) for full reference):
+Create a config file at `~/.anna/config.yaml` (see [configuration.md](/docs/configuration) for full reference):
 
 ```bash
 mkdir -p ~/.anna
@@ -163,7 +164,7 @@ All paths are under the workspace root (`~/.anna/workspace` by default, configur
 
 ## Environment Variables
 
-All config values can be overridden via environment variables. See [configuration.md](configuration.md#environment-variable-overrides) for the full list.
+All config values can be overridden via environment variables. See [configuration.md](/docs/configuration#environment-variable-overrides) for the full list.
 
 Key variables for deployment:
 

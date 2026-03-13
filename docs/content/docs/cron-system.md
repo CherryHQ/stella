@@ -1,5 +1,6 @@
-# Cron System
-
+---
+title: Cron System
+---
 ## Status
 
 Implemented — `internal/cron/` package with gocron/v2 scheduler, JSON persistence, and agent tool.
