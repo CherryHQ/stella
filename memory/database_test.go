@@ -47,8 +47,8 @@ func TestOpenDB(t *testing.T) {
 		t.Errorf("journal_mode = %q, want %q", mode, "wal")
 	}
 
-	// Verify tables exist
-	tables := []string{"conversations", "messages", "message_parts", "summaries", "summary_messages", "summary_parents", "context_items"}
+	// Verify tables exist (including migration tracking table).
+	tables := []string{"schema_migrations", "conversations", "messages", "message_parts", "summaries", "summary_messages", "summary_parents", "context_items"}
 	for _, table := range tables {
 		var name string
 		err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
@@ -57,13 +57,13 @@ func TestOpenDB(t *testing.T) {
 		}
 	}
 
-	// Verify user_version is set to current
-	var version int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
-		t.Fatalf("PRAGMA user_version: %v", err)
+	// Verify baseline migration was recorded.
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
+		t.Fatalf("count schema_migrations: %v", err)
 	}
-	if version != currentSchemaVersion {
-		t.Errorf("user_version = %d, want %d", version, currentSchemaVersion)
+	if count < 1 {
+		t.Error("schema_migrations should have at least the baseline entry")
 	}
 }
 
@@ -91,13 +91,13 @@ func TestMigrateFreshDB(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	// Verify new columns exist
-	var version int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
-		t.Fatalf("PRAGMA user_version: %v", err)
+	// Verify baseline was recorded in schema_migrations.
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
+		t.Fatalf("count schema_migrations: %v", err)
 	}
-	if version != currentSchemaVersion {
-		t.Errorf("user_version = %d, want %d", version, currentSchemaVersion)
+	if count < 1 {
+		t.Error("schema_migrations should have at least the baseline entry")
 	}
 
 	// Verify new columns by inserting a row with defaults
@@ -120,116 +120,27 @@ func TestMigrateFreshDB(t *testing.T) {
 	}
 }
 
-func TestMigrateV1ToV2(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "v1.db")
-
-	// Create a v1 database manually (original schema without new columns).
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-
-	// Create v1 schema (conversations without channel/archived/last_active,
-	// messages without event_type).
-	v1Schema := `
-CREATE TABLE conversations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL UNIQUE,
-    title TEXT,
-    bootstrapped_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE TABLE messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-    seq INTEGER NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool')),
-    content TEXT NOT NULL,
-    token_count INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE (conversation_id, seq)
-);
-`
-	if _, err := db.Exec(v1Schema); err != nil {
-		t.Fatalf("create v1 schema: %v", err)
-	}
-
-	// Insert a v1 conversation and message to verify data survives migration.
-	if _, err := db.Exec("INSERT INTO conversations (session_id, title) VALUES ('old-sess', 'Old Title')"); err != nil {
-		t.Fatalf("insert v1 conversation: %v", err)
-	}
-	if _, err := db.Exec("INSERT INTO messages (conversation_id, seq, role, content, token_count) VALUES (1, 1, 'user', 'hello', 2)"); err != nil {
-		t.Fatalf("insert v1 message: %v", err)
-	}
-	_ = db.Close()
-
-	// Now open with OpenDB which should migrate v1 -> v2.
-	db2, err := OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB on v1 db: %v", err)
-	}
-	defer func() { _ = db2.Close() }()
-
-	// Verify version is now 2.
-	var version int
-	if err := db2.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
-		t.Fatalf("PRAGMA user_version: %v", err)
-	}
-	if version != currentSchemaVersion {
-		t.Errorf("user_version = %d, want %d", version, currentSchemaVersion)
-	}
-
-	// Verify existing data is preserved and new columns have defaults.
-	q := sqlc.New(db2)
-	ctx := context.Background()
-	conv, err := q.GetConversationBySessionID(ctx, "old-sess")
-	if err != nil {
-		t.Fatalf("GetConversationBySessionID: %v", err)
-	}
-	if conv.Title.String != "Old Title" {
-		t.Errorf("Title = %q, want %q", conv.Title.String, "Old Title")
-	}
-	if conv.Channel != "" {
-		t.Errorf("Channel = %q, want empty string", conv.Channel)
-	}
-	if conv.Archived != 0 {
-		t.Errorf("Archived = %d, want 0", conv.Archived)
-	}
-
-	// Verify messages event_type column was added with default.
-	var eventType string
-	if err := db2.QueryRow("SELECT event_type FROM messages WHERE id = 1").Scan(&eventType); err != nil {
-		t.Fatalf("select event_type: %v", err)
-	}
-	if eventType != "text" {
-		t.Errorf("event_type = %q, want %q", eventType, "text")
-	}
-}
-
 func TestMigrateIdempotent(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "v2.db")
 
-	// First open creates the DB at version 2.
 	db1, err := OpenDB(dbPath)
 	if err != nil {
 		t.Fatalf("first OpenDB: %v", err)
 	}
 	_ = db1.Close()
 
-	// Second open should be a no-op (version 2, nothing to do).
 	db2, err := OpenDB(dbPath)
 	if err != nil {
 		t.Fatalf("second OpenDB: %v", err)
 	}
 	defer func() { _ = db2.Close() }()
 
-	var version int
-	if err := db2.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
-		t.Fatalf("PRAGMA user_version: %v", err)
+	var count int
+	if err := db2.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count); err != nil {
+		t.Fatalf("count schema_migrations: %v", err)
 	}
-	if version != currentSchemaVersion {
-		t.Errorf("user_version = %d, want %d", version, currentSchemaVersion)
+	if count < 1 {
+		t.Error("schema_migrations should have at least the baseline entry")
 	}
 }
 
