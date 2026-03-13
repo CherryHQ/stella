@@ -1,5 +1,6 @@
-# Model Management
-
+---
+title: Model Management
+---
 ## Tiered Models
 
 anna supports two model tiers for different workloads:

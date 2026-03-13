@@ -1,5 +1,6 @@
-# Feishu Bot
-
+---
+title: Feishu Bot
+---
 anna includes a Feishu (Lark) bot that connects via WebSocket (persistent connection, no public URL required).
 
 ## Setup

@@ -1,5 +1,6 @@
-# Notification System
-
+---
+title: Notification System
+---
 ## Status
 
 Implemented — `internal/channel/notifier.go`, `internal/channel/notify_tool.go`, `internal/channel/telegram/telegram.go`.
