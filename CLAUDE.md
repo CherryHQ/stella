@@ -8,7 +8,7 @@ All Go packages live under `internal/` (app-private).
 
 `cmd/anna/` → `internal/agent/` (pool, session) → `internal/agent/runner/` (GoRunner) → `internal/agent/engine/` (loop, tool execution) → `internal/ai/` (providers, types, events, transforms)
 
-Side packages: `internal/channel/` (cli, telegram, qq, feishu, notifier) → `internal/cron/` → `internal/memory/` → `internal/agent/tool/` → `internal/db/` → `internal/config/`
+Side packages: `internal/channel/` (cli, telegram, qq, feishu, notifier) → `internal/cron/` → `internal/memory/` → `internal/agent/tool/` → `internal/toolspec/` → `internal/db/` → `internal/config/`
 
 Config: `~/.anna/config.yaml` | Data: `~/.anna/workspace/` (memory.db, skills, identity files)
 

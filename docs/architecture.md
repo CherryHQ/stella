@@ -32,7 +32,7 @@ internal/
 
   ai/
     message.go                        Message, Content types
-    model.go                          Model, ModelCost types
+    model.go                          Model, ModelCost, Context types
     options.go                        RequestOptions
     events.go                         StreamEvent types
     provider.go                       Provider interface, registry, event stream
@@ -134,6 +134,9 @@ internal/
     install.go                        Git clone + copy install flow (go-git)
     list.go                           List installed skills
     remove.go                         Remove installed skills
+
+  toolspec/
+    toolspec.go                       Tool definition type (zero-dependency leaf package)
 ```
 
 ## Providers
@@ -150,11 +153,11 @@ Each provider implements the `ai.ProviderAdapter` interface for streaming respon
 
 ## Tools
 
-The Go runner injects tools into LLM calls. Tools follow a common interface:
+The Go runner injects tools into LLM calls. Tools follow a common interface (defined in `internal/agent/tool/`). Tool metadata uses the `toolspec.Definition` type from the zero-dependency `internal/toolspec/` leaf package, keeping domain packages decoupled from `internal/ai/`:
 
 ```go
 type Tool interface {
-    Definition() ToolDefinition
+    Definition() toolspec.Definition
     Execute(ctx context.Context, args map[string]any) (string, error)
 }
 ```
