@@ -23,11 +23,12 @@ const (
 
 // DelegateConfig holds the dependencies needed to spawn subagent loops.
 type DelegateConfig struct {
-	Engine   *engine.Engine
-	Registry *Registry
-	Model    ai.Model
-	APIKey   string
-	System   string
+	Engine      *engine.Engine
+	Registry    *Registry
+	Model       ai.Model
+	APIKey      string
+	System      string
+	PluginHooks engine.PluginHookRunner // optional plugin lifecycle hooks
 }
 
 // DelegateTool spawns child agent loops for bounded subtasks.
@@ -183,6 +184,7 @@ func (t *DelegateTool) runSubAgent(parentCtx context.Context, tc delegateTaskCon
 		Tools:           toolSet,
 		ToolDefinitions: toolDefs,
 		System:          system,
+		PluginHooks:     t.cfg.PluginHooks,
 	}
 
 	messages := []ai.Message{

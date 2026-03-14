@@ -22,6 +22,13 @@ type Config struct {
 	Heartbeat   HeartbeatConfig           `yaml:"heartbeat"    envPrefix:"HEARTBEAT_"`
 	Providers   map[string]ProviderConfig `yaml:"providers"`
 	Channels    ChannelsConfig            `yaml:"channels"`
+	Plugins     []PluginConfig            `yaml:"plugins"`
+}
+
+// PluginConfig describes a single plugin entry in config.yaml.
+type PluginConfig struct {
+	Path   string         `yaml:"path"`
+	Config map[string]any `yaml:"config"`
 }
 
 type RunnerConfig struct {
