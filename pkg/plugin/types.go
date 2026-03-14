@@ -52,19 +52,19 @@ type HookFunc func(ctx context.Context, event any) error
 
 // BeforeToolCallEvent is passed to EventBeforeToolCall hooks.
 type BeforeToolCallEvent struct {
-	ToolName  string
-	Arguments map[string]any
+	ToolName  string         `json:"toolName"`
+	Arguments map[string]any `json:"arguments"`
 }
 
 // AfterToolCallEvent is passed to EventAfterToolCall hooks.
 type AfterToolCallEvent struct {
-	ToolName string
-	Result   string
-	IsError  bool
+	ToolName string `json:"toolName"`
+	Result   string `json:"result"`
+	IsError  bool   `json:"isError"`
 }
 
 // SessionEvent is passed to EventSessionStart and EventSessionEnd hooks.
 type SessionEvent struct {
-	SessionID string
-	Channel   string
+	SessionID string `json:"sessionId"`
+	Channel   string `json:"channel"`
 }
