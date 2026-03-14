@@ -41,7 +41,14 @@ func ExecuteToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name, Content: []ai.ContentBlock{content}}
 		if err != nil {
 			result.IsError = true
-			result.Content = []ai.ContentBlock{ai.TextContent{Text: err.Error()}}
+			// Preserve tool output (e.g. stdout/stderr) alongside the error.
+			// Without this, the LLM only sees the error message and loses
+			// context like "command not found" from stderr.
+			errText := err.Error()
+			if content.Text != "" {
+				errText = content.Text + "\n" + errText
+			}
+			result.Content = []ai.ContentBlock{ai.TextContent{Text: errText}}
 		}
 		results = append(results, result)
 		if cb.OnFinish != nil {

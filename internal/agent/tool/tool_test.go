@@ -78,8 +78,11 @@ func TestBashTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result != "hello\n" {
-		t.Errorf("result = %q, want %q", result, "hello\n")
+	if !strings.Contains(result, "hello\n") {
+		t.Errorf("result should contain output, got: %q", result)
+	}
+	if !strings.Contains(result, "[exit:0 |") {
+		t.Errorf("result should contain metadata footer, got: %q", result)
 	}
 }
 
@@ -92,16 +95,86 @@ func TestBashToolWorkDir(t *testing.T) {
 	}
 	// Resolve symlinks (macOS /tmp → /private/tmp).
 	resolved, _ := filepath.EvalSymlinks(dir)
-	if result != resolved+"\n" {
-		t.Errorf("result = %q, want %q", result, resolved+"\n")
+	if !strings.Contains(result, resolved) {
+		t.Errorf("result should contain %q, got: %q", resolved, result)
+	}
+	if !strings.Contains(result, "[exit:0 |") {
+		t.Errorf("result should contain metadata footer, got: %q", result)
 	}
 }
 
 func TestBashToolFailure(t *testing.T) {
 	tool := &BashTool{}
-	_, err := tool.Execute(context.Background(), map[string]any{"command": "exit 42"})
+	result, err := tool.Execute(context.Background(), map[string]any{"command": "exit 42"})
 	if err == nil {
 		t.Fatal("expected error for non-zero exit")
+	}
+	if !strings.Contains(result, "[exit:42 |") {
+		t.Errorf("failed command should have exit code in footer, got: %q", result)
+	}
+}
+
+func TestBashToolMetadataFooter(t *testing.T) {
+	tool := &BashTool{}
+	result, err := tool.Execute(context.Background(), map[string]any{"command": "echo test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "[exit:0 |") {
+		t.Errorf("result should contain exit:0 footer, got: %q", result)
+	}
+}
+
+func TestBashToolStderrVisibleOnFailure(t *testing.T) {
+	tool := &BashTool{}
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"command": "echo 'some output' && echo 'error detail' >&2 && exit 1",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(result, "some output") {
+		t.Errorf("stdout should be preserved on failure, got: %q", result)
+	}
+	if !strings.Contains(result, "error detail") {
+		t.Errorf("stderr should be preserved on failure, got: %q", result)
+	}
+}
+
+func TestReadToolBinaryGuard(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "binary.dat")
+	// Write binary content with null bytes.
+	data := []byte{0x89, 0x50, 0x4E, 0x47, 0x00, 0x00, 0x00, 0x00}
+	data = append(data, make([]byte, 100)...)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := &ReadTool{}
+	_, err := tool.Execute(context.Background(), map[string]any{"file_path": path})
+	if err == nil {
+		t.Fatal("expected error for binary file")
+	}
+	if !strings.Contains(err.Error(), "binary file detected") {
+		t.Errorf("error should mention binary detection, got: %v", err)
+	}
+}
+
+func TestReadToolTextFilePassesBinaryGuard(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "text.txt")
+	if err := os.WriteFile(path, []byte("hello world\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := &ReadTool{}
+	result, err := tool.Execute(context.Background(), map[string]any{"file_path": path})
+	if err != nil {
+		t.Fatalf("text file should pass binary guard: %v", err)
+	}
+	if !strings.Contains(result, "hello world") {
+		t.Errorf("should contain file content, got: %q", result)
 	}
 }
 
