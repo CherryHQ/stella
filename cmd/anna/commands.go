@@ -31,6 +31,7 @@ func newApp() *ucli.App {
 			gatewayCommand(),
 			modelsCommand(),
 			skillsCommand(),
+			pluginCommand(),
 			onboardCommand(),
 			versionCommand(),
 			upgradeCommand(),
