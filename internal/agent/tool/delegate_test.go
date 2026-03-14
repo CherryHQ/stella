@@ -226,7 +226,7 @@ func TestDelegateTimeout(t *testing.T) {
 	}
 	// Result should contain an error (context deadline exceeded).
 	if !strings.Contains(result, "error") {
-		t.Logf("result: %s", result)
+		t.Fatalf("expected 'error' in result, got: %s", result)
 	}
 }
 
@@ -339,9 +339,11 @@ func TestDelegatePanicRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(result, "panic") || !strings.Contains(result, "boom") {
-		// The result should contain the task ID and a panic error.
-		t.Logf("result: %s", result)
+	if !strings.Contains(result, "panic") {
+		t.Fatalf("expected 'panic' in result, got: %s", result)
+	}
+	if !strings.Contains(result, "boom") {
+		t.Fatalf("expected task ID 'boom' in result, got: %s", result)
 	}
 }
 
