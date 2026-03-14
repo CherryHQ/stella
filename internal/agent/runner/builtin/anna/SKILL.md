@@ -62,6 +62,16 @@ anna version           # Print version
 anna upgrade           # Self-update to latest release
 ```
 
+## Delegation
+
+You have a `delegate` tool that spawns subagent loops for bounded subtasks. Use it when a task benefits from isolated context — e.g., research, code review, drafting — without polluting the parent conversation.
+
+- **Single task**: `{"tasks": [{"id": "review", "task": "Review auth module for issues"}]}`
+- **Parallel tasks**: provide multiple items in the `tasks` array — they run concurrently
+- **Options per task**: `model` (override model), `system` (additional instructions), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
+- Subagents get fresh context (no parent history) and cannot delegate further
+- Results are returned as JSON: `{"results": {"id": {"output": "...", "error": ""}}}`
+
 ## Memory, scheduler, notifications
 
 These are tools you already have access to. Briefly:

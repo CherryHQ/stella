@@ -71,16 +71,26 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		}
 	}
 
+	eng := &engine.Engine{Providers: reg}
+	model := ai.Model{API: cfg.API, Name: cfg.Model}
+
 	tools := tool.NewRegistry(cfg.WorkDir)
 	for _, t := range cfg.ExtraTools {
 		tools.Register(t)
 	}
+	tools.Register(tool.NewDelegateTool(tool.DelegateConfig{
+		Engine:   eng,
+		Registry: tools,
+		Model:    model,
+		APIKey:   cfg.APIKey,
+		System:   system,
+	}))
 
 	return &GoRunner{
-		eng:          &engine.Engine{Providers: reg},
+		eng:          eng,
 		reg:          reg,
 		tools:        tools,
-		model:        ai.Model{API: cfg.API, Name: cfg.Model},
+		model:        model,
 		apiKey:       cfg.APIKey,
 		system:       system,
 		lastActivity: time.Now(),
