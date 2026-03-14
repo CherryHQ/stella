@@ -6,9 +6,7 @@ import (
 	"os"
 )
 
-// Main is the exported entry point for custom binaries built with Go plugins.
-// Plugin authors import this package and call Main() from their generated main.go.
-func Main() {
+func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	})))
@@ -19,8 +17,4 @@ func Main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-}
-
-func main() {
-	Main()
 }

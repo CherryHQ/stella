@@ -17,22 +17,16 @@ type templateData struct {
 	Plugins       []pluginModule
 }
 
-// mainGoTmpl generates a main.go that blank-imports every plugin (triggering
-// their init() -> plugin.Register() calls) and delegates to anna's exported
-// Main() function.
-var mainGoTmpl = template.Must(template.New("main.go").Parse(`package main
+// pluginsGoTmpl generates a plugins.go that blank-imports every plugin
+// (triggering their init() -> plugin.Register() calls). This file is placed
+// alongside the copied cmd/anna source so it is part of the same package main.
+var pluginsGoTmpl = template.Must(template.New("plugins.go").Parse(`package main
 
 import (
 {{- range .Plugins}}
 	_ "{{.Module}}"
 {{- end}}
-
-	anna "github.com/vaayne/anna/cmd/anna"
 )
-
-func main() {
-	anna.Main()
-}
 `))
 
 // goModTmpl generates a go.mod that requires anna and all plugin modules,

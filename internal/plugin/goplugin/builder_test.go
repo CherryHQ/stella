@@ -97,7 +97,7 @@ func TestReadModulePathNotFound(t *testing.T) {
 	}
 }
 
-func TestMainGoTemplate(t *testing.T) {
+func TestPluginsGoTemplate(t *testing.T) {
 	data := templateData{
 		AnnaModule:    "github.com/vaayne/anna",
 		AnnaLocalPath: "/home/user/anna",
@@ -108,7 +108,7 @@ func TestMainGoTemplate(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := mainGoTmpl.Execute(&buf, data); err != nil {
+	if err := pluginsGoTmpl.Execute(&buf, data); err != nil {
 		t.Fatalf("template execution failed: %v", err)
 	}
 
@@ -118,13 +118,16 @@ func TestMainGoTemplate(t *testing.T) {
 		"package main",
 		`_ "example.com/plugin-a"`,
 		`_ "example.com/plugin-b"`,
-		`anna "github.com/vaayne/anna/cmd/anna"`,
-		"anna.Main()",
 	}
 	for _, want := range checks {
 		if !bytes.Contains(buf.Bytes(), []byte(want)) {
-			t.Errorf("main.go output missing %q\n\nfull output:\n%s", want, out)
+			t.Errorf("plugins.go output missing %q\n\nfull output:\n%s", want, out)
 		}
+	}
+
+	// Verify it does NOT import cmd/anna (the whole point of this fix).
+	if bytes.Contains(buf.Bytes(), []byte("cmd/anna")) {
+		t.Errorf("plugins.go should not import cmd/anna\n\nfull output:\n%s", out)
 	}
 }
 

@@ -75,7 +75,14 @@ func (b *Builder) Build(ctx context.Context) error {
 		Plugins:       modules,
 	}
 
-	if err := b.writeFile(tmpDir, "main.go", mainGoTmpl, data); err != nil {
+	// Copy cmd/anna source files into the temp dir so the build shares
+	// the same package main as the real anna binary.
+	cmdDir := filepath.Join(annaRoot, "cmd", "anna")
+	if err := b.copySources(cmdDir, tmpDir); err != nil {
+		return fmt.Errorf("copy cmd/anna sources: %w", err)
+	}
+
+	if err := b.writeFile(tmpDir, "plugins.go", pluginsGoTmpl, data); err != nil {
 		return err
 	}
 	if err := b.writeFile(tmpDir, "go.mod", goModTmpl, data); err != nil {
@@ -211,6 +218,29 @@ func (b *Builder) writeFile(dir, name string, tmpl *template.Template, data temp
 		return fmt.Errorf("close %s: %w", name, err)
 	}
 	b.logger.Debug("wrote file", "path", path)
+	return nil
+}
+
+// copySources copies all .go files (excluding test files) from srcDir to dstDir.
+func (b *Builder) copySources(srcDir, dstDir string) error {
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return fmt.Errorf("read source dir %s: %w", srcDir, err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(srcDir, name))
+		if err != nil {
+			return fmt.Errorf("read %s: %w", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(dstDir, name), data, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", name, err)
+		}
+		b.logger.Debug("copied source file", "file", name)
+	}
 	return nil
 }
 

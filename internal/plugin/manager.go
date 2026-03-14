@@ -34,9 +34,14 @@ func (m *Manager) Registry() *Registry {
 // LoadAll loads plugins from config. Best-effort: logs warnings for failures,
 // continues loading remaining plugins.
 func (m *Manager) LoadAll(configs []config.PluginConfig) error {
-	// Load compiled-in Go plugin factories first.
+	// Load compiled-in Go plugin factories — only those with a matching config entry.
 	for _, f := range pluginapi.Factories() {
-		m.loadGoFactory(f, findPluginConfig(configs, f.Name))
+		cfg, ok := findPluginConfig(configs, f.Name)
+		if !ok {
+			m.logger.Debug("skipping unconfigured Go plugin", "plugin", f.Name)
+			continue
+		}
+		m.loadGoFactory(f, cfg)
 	}
 
 	// Load file-based plugins (JS extensions).
@@ -107,15 +112,16 @@ func (m *Manager) loadGoFactory(f pluginapi.Factory, cfg map[string]any) {
 }
 
 // findPluginConfig finds config for a named plugin in the config list.
-func findPluginConfig(configs []config.PluginConfig, name string) map[string]any {
+// Returns the config map and true if found, or nil and false if not.
+func findPluginConfig(configs []config.PluginConfig, name string) (map[string]any, bool) {
 	for _, cfg := range configs {
 		base := filepath.Base(cfg.Path)
 		base = strings.TrimSuffix(base, filepath.Ext(base))
 		if base == name {
-			return cfg.Config
+			return cfg.Config, true
 		}
 	}
-	return nil
+	return nil, false
 }
 
 // detectKind determines plugin type from path.

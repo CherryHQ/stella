@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/vaayne/anna/internal/ai"
+	pluginapi "github.com/vaayne/anna/pkg/plugin"
 )
 
 // ToolCallbacks emits progress events around tool execution.
@@ -26,7 +27,7 @@ func ExecuteToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		// Run before_tool_call plugin hooks. If a hook returns an error,
 		// the tool call is blocked and the error is returned to the LLM.
 		if cb.PluginHooks != nil {
-			if err := cb.PluginHooks.RunHooks(ctx, "before_tool_call", beforeToolCallData{
+			if err := cb.PluginHooks.RunHooks(ctx, "before_tool_call", pluginapi.BeforeToolCallEvent{
 				ToolName:  call.Name,
 				Arguments: call.Arguments,
 			}); err != nil {
@@ -75,7 +76,7 @@ func ExecuteToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 
 		// Run after_tool_call plugin hooks (fire-and-forget).
 		if cb.PluginHooks != nil {
-			_ = cb.PluginHooks.RunHooks(ctx, "after_tool_call", afterToolCallData{
+			_ = cb.PluginHooks.RunHooks(ctx, "after_tool_call", pluginapi.AfterToolCallEvent{
 				ToolName: call.Name,
 				Result:   content.Text,
 				IsError:  err != nil,
@@ -93,19 +94,4 @@ func ExecuteToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 	}
 
 	return results, nil
-}
-
-// beforeToolCallData is passed to before_tool_call hooks.
-// Mirrors pkg/plugin.BeforeToolCallEvent without importing it.
-type beforeToolCallData struct {
-	ToolName  string
-	Arguments map[string]any
-}
-
-// afterToolCallData is passed to after_tool_call hooks.
-// Mirrors pkg/plugin.AfterToolCallEvent without importing it.
-type afterToolCallData struct {
-	ToolName string
-	Result   string
-	IsError  bool
 }
