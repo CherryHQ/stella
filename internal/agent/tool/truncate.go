@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -130,9 +131,44 @@ func saveTempFile(output string) string {
 
 func formatTruncated(truncated, direction string, totalLines, totalBytes, shownLines int, fullPath string) string {
 	header := fmt.Sprintf("[Output truncated — showing %s %d of %d lines (%d bytes total)]", direction, shownLines, totalLines, totalBytes)
-	footer := fmt.Sprintf("[Full output saved to %s — use the read tool to access]", fullPath)
+	footer := fmt.Sprintf("[Full output saved to %s — use bash with grep/head/tail to navigate, or read tool with offset/limit to paginate]", fullPath)
 	if direction == "last" {
 		return header + "\n\n...\n" + truncated + "\n" + footer
 	}
 	return header + "\n\n" + truncated + "\n...\n\n" + footer
+}
+
+// IsBinary reports whether data appears to be binary (non-text) content.
+// It samples up to the first 8KB and checks for a high ratio of non-UTF-8
+// bytes or null bytes, which are reliable indicators of binary data.
+func IsBinary(data string) bool {
+	const sampleSize = 8 * 1024
+	sample := data
+	if len(sample) > sampleSize {
+		sample = sample[:sampleSize]
+	}
+	if len(sample) == 0 {
+		return false
+	}
+
+	// Null bytes are a strong binary signal.
+	if strings.ContainsRune(sample, '\x00') {
+		return true
+	}
+
+	// Count bytes that are not valid UTF-8 sequences and not common
+	// control characters (tab, newline, carriage return).
+	nonText := 0
+	total := 0
+	for i := 0; i < len(sample); {
+		r, size := utf8.DecodeRuneInString(sample[i:])
+		total++
+		if r == utf8.RuneError && size == 1 {
+			nonText++
+		}
+		i += size
+	}
+
+	// If more than 10% of runes are invalid, treat as binary.
+	return float64(nonText)/float64(total) > 0.1
 }

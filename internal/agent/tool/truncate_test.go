@@ -403,6 +403,81 @@ func TestBashToolNoTruncateOnError(t *testing.T) {
 	}
 }
 
+// --- Binary guard tests ---
+
+func TestIsBinaryEmpty(t *testing.T) {
+	if IsBinary("") {
+		t.Error("empty string should not be binary")
+	}
+}
+
+func TestIsBinaryPlainText(t *testing.T) {
+	if IsBinary("hello world\nthis is plain text\n") {
+		t.Error("plain text should not be binary")
+	}
+}
+
+func TestIsBinaryUTF8Text(t *testing.T) {
+	if IsBinary("こんにちは世界\n你好世界\n") {
+		t.Error("valid UTF-8 text should not be binary")
+	}
+}
+
+func TestIsBinaryNullBytes(t *testing.T) {
+	if !IsBinary("hello\x00world") {
+		t.Error("string with null bytes should be binary")
+	}
+}
+
+func TestIsBinaryHighNonUTF8(t *testing.T) {
+	// Simulate binary data: lots of invalid UTF-8 bytes.
+	data := make([]byte, 100)
+	for i := range data {
+		data[i] = byte(0x80 + i%64) // invalid UTF-8 continuation bytes
+	}
+	if !IsBinary(string(data)) {
+		t.Error("high non-UTF-8 ratio should be binary")
+	}
+}
+
+func TestIsBinaryPNG(t *testing.T) {
+	// PNG magic bytes.
+	png := "\x89PNG\r\n\x1a\n" + string(make([]byte, 100))
+	if !IsBinary(png) {
+		t.Error("PNG data should be binary")
+	}
+}
+
+func TestIsBinaryLowNonUTF8(t *testing.T) {
+	// Mostly text with a few bad bytes (under 10% threshold).
+	data := strings.Repeat("hello world\n", 100) // 1200 bytes of text
+	data += string([]byte{0x80})                 // 1 bad byte out of ~1200 runes
+	if IsBinary(data) {
+		t.Error("mostly-text data with few bad bytes should not be binary")
+	}
+}
+
+// --- Overflow hint tests ---
+
+func TestTruncateHeadOverflowHint(t *testing.T) {
+	t.Setenv("ANNA_TOOL_MAX_LINES", "3")
+	t.Setenv("ANNA_TOOL_MAX_BYTES", "999999")
+
+	lines := make([]string, 10)
+	for i := range lines {
+		lines[i] = "line\n"
+	}
+	input := strings.Join(lines, "")
+
+	r := TruncateHead(input)
+	if !strings.Contains(r.Content, "grep/head/tail") {
+		t.Errorf("truncated output should suggest navigation tools, got: %s", r.Content)
+	}
+	if !strings.Contains(r.Content, "read tool with offset/limit") {
+		t.Errorf("truncated output should suggest read tool pagination, got: %s", r.Content)
+	}
+}
+
 // --- helpers ---
 
 // verifyTempFileInContent extracts the temp file path from truncation output

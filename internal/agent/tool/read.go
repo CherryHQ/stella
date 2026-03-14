@@ -56,6 +56,19 @@ func (t *ReadTool) Execute(_ context.Context, args map[string]any) (string, erro
 	}
 	defer func() { _ = f.Close() }()
 
+	// Binary guard: sample the first bytes to detect non-text content.
+	if offset <= 1 {
+		sample := make([]byte, 8*1024)
+		n, _ := f.Read(sample)
+		if n > 0 && IsBinary(string(sample[:n])) {
+			return "", fmt.Errorf("read %s: binary file detected — use bash with xxd, file, or other tools to inspect binary content", path)
+		}
+		// Reset to beginning for normal reading.
+		if _, err := f.Seek(0, 0); err != nil {
+			return "", fmt.Errorf("read %s: %w", path, err)
+		}
+	}
+
 	lines, totalLines, err := scanLines(f, offset, limit)
 	if err != nil {
 		// Fall back to reading the whole file if scanner fails

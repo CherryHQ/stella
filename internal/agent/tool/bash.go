@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"time"
 
 	"github.com/vaayne/anna/internal/toolspec"
 )
@@ -46,7 +47,9 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (string, er
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	start := time.Now()
 	err := cmd.Run()
+	elapsed := time.Since(start)
 
 	result := stdout.String()
 	if stderr.Len() > 0 {
@@ -57,11 +60,32 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (string, er
 	}
 
 	if err != nil {
+		exitCode := 1
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			return result, fmt.Errorf("bash: exit code %d", exitErr.ExitCode())
+			exitCode = exitErr.ExitCode()
 		}
-		return result, fmt.Errorf("bash: %w", err)
+		tr := TruncateTail(result)
+		tr.Content += formatMetadataFooter(exitCode, elapsed)
+		return tr.Content, fmt.Errorf("bash: exit code %d", exitCode)
 	}
 	tr := TruncateTail(result)
+	tr.Content += formatMetadataFooter(0, elapsed)
 	return tr.Content, nil
+}
+
+func formatMetadataFooter(exitCode int, elapsed time.Duration) string {
+	return fmt.Sprintf("\n[exit:%d | %s]", exitCode, formatDuration(elapsed))
+}
+
+func formatDuration(d time.Duration) string {
+	switch {
+	case d < time.Millisecond:
+		return fmt.Sprintf("%dµs", d.Microseconds())
+	case d < time.Second:
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	case d < time.Minute:
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	default:
+		return fmt.Sprintf("%.0fs", d.Seconds())
+	}
 }
