@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/plugin/jsrt"
 	pluginapi "github.com/vaayne/anna/pkg/plugin"
 )
 
@@ -44,7 +45,7 @@ func (m *Manager) LoadAll(configs []config.PluginConfig) error {
 		kind := detectKind(path)
 		switch kind {
 		case "js":
-			m.logger.Info("JS plugin loading not yet implemented", "path", path)
+			m.loadJS(path, cfg.Config)
 		case "go":
 			// Go plugins are loaded via factory registry (compiled-in), not
 			// from files at runtime. Skip here -- they were already loaded above.
@@ -67,6 +68,15 @@ func (m *Manager) Close() error {
 		}
 	}
 	return lastErr
+}
+
+func (m *Manager) loadJS(path string, cfg map[string]any) {
+	p, err := jsrt.LoadJS(path, cfg, m.registry, m.logger)
+	if err != nil {
+		m.logger.Warn("failed to load JS plugin", "path", path, "error", err)
+		return
+	}
+	m.plugins = append(m.plugins, p)
 }
 
 func (m *Manager) loadGoFactory(f pluginapi.Factory, cfg map[string]any) {
