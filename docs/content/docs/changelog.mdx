@@ -11,10 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.6.2] - 2026-03-13
+## [0.6.2] - 2026-03-14
+
+### ✨ Features
+
+- **Agent**: Add delegate tool for subagent delegation ([#55](https://github.com/vaayne/anna/pull/55))
+
+### 🐛 Bug Fixes
+
+- **Build**: Bump mise Go toolchain to 1.25
+- **Build**: Bump Docker builder image to Go 1.25
 
 ### ♻️ Refactoring
 
+- **Scheduler**: Rename cron package to scheduler and migrate storage from file to database ([#53](https://github.com/vaayne/anna/pull/53))
 - **Skills**: Replace custom search HTTP client with `mcphub/pkg/skills.Search`, removing duplicate code
 
 ### 📦 Dependencies
