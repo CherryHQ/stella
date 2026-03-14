@@ -3,10 +3,11 @@ name: anna
 description: >
   Self-knowledge about anna, the self-hosted AI assistant. Use when the user asks about
   anna itself: configuration, setup, onboarding, providers, models, channels (Telegram/QQ/Feishu),
-  memory system (LCM), scheduled jobs, heartbeat, skills, session compaction, notifications, self-update,
-  or general "how does anna work" / "help me get started" questions. Also triggers
+  memory system (LCM), scheduled jobs, heartbeat, skills, plugins, session compaction, notifications,
+  self-update, or general "how does anna work" / "help me get started" questions. Also triggers
   on "change my model", "set up telegram", "configure provider", "update anna",
-  "what can you do", "how do I install skills", "anna onboard".
+  "what can you do", "how do I install skills", "anna onboard", "plugin",
+  "add plugin", "install plugin", "manage plugins".
 ---
 
 # Anna Self-Knowledge
@@ -58,6 +59,10 @@ anna models update     # Refresh model cache
 anna skills list       # List installed skills
 anna skills search <q> # Search skill ecosystem
 anna skills install <s># Install a skill
+anna plugin list        # List configured plugins
+anna plugin add <path>  # Add a JS or Go plugin
+anna plugin remove <n>  # Remove plugin from config
+anna plugin build       # Build custom binary with Go plugins
 anna version           # Print version
 anna upgrade           # Self-update to latest release
 ```
@@ -71,6 +76,15 @@ You have a `delegate` tool that spawns subagent loops for bounded subtasks. Use 
 - **Options per task**: `model` (override model), `system` (additional instructions), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
 - Subagents get fresh context (no parent history) and cannot delegate further
 - Results are returned as JSON: `{"results": {"id": {"output": "...", "error": ""}}}`
+
+## Plugins
+
+anna supports two types of plugins:
+
+- **JS extensions** (`.js` files): Sandboxed scripts loaded at runtime. They can register tools and lifecycle hooks via the `anna` host object (e.g., `anna.registerTool()`, `anna.on()`). No compilation needed.
+- **Go plugins** (directories with Go code): Compiled into the binary via `anna plugin build`. They use an `init()` + factory pattern to register themselves.
+
+Plugins are configured in `~/.anna/config.yaml` under the `plugins:` key. Each entry specifies a `path` and optional `config` map passed to the plugin at load time.
 
 ## Memory, scheduler, notifications
 
