@@ -57,19 +57,19 @@ anna.registerTool({
 
 ```js
 anna.on("session:start", function(event) {
-  anna.log("Session started: " + event.session_id);
+  anna.log("info", "Session started: " + event.session_id);
 });
 
 anna.on("session:end", function(event) {
-  anna.log("Session ended: " + event.session_id);
+  anna.log("info", "Session ended: " + event.session_id);
 });
 
 anna.on("tool:before", function(event) {
-  anna.log("About to call tool: " + event.tool_name);
+  anna.log("debug", "About to call tool: " + event.tool_name);
 });
 
 anna.on("tool:after", function(event) {
-  anna.log("Tool completed: " + event.tool_name);
+  anna.log("debug", "Tool completed: " + event.tool_name);
 });
 ```
 
@@ -79,7 +79,7 @@ anna.on("tool:after", function(event) {
 |----------|-------------|
 | `anna.registerTool(schema, handler)` | Register a new tool with JSON Schema parameters |
 | `anna.on(event, handler)` | Subscribe to a lifecycle event |
-| `anna.log(message)` | Write to anna's log output |
+| `anna.log(level, message)` | Write to anna's log output at the given level (`debug`, `info`, `warn`, `error`) |
 | `anna.readFile(path)` | Read a file (scoped to workspace) |
 | `anna.writeFile(path, content)` | Write a file (scoped to workspace) |
 | `anna.fetch(url, options)` | HTTP request (with size and timeout limits) |
@@ -92,14 +92,15 @@ Go plugins are full Go packages that are compiled into the anna binary. They use
 ```go
 package myplugin
 
-import "github.com/anthropic/anna/internal/plugin"
+import "github.com/vaayne/anna/pkg/plugin"
 
 func init() {
-    plugin.Register("myplugin", Factory)
-}
-
-func Factory(cfg map[string]any) (plugin.Plugin, error) {
-    return &myPlugin{apiKey: cfg["api_key"].(string)}, nil
+    plugin.Register(plugin.Factory{
+        Name: "myplugin",
+        New: func(cfg map[string]any) (plugin.Plugin, error) {
+            return &myPlugin{apiKey: cfg["api_key"].(string)}, nil
+        },
+    })
 }
 
 type myPlugin struct {
