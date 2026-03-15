@@ -83,6 +83,14 @@ runner:
     max_tokens: 80000              # auto-compact threshold (-1 = disabled)
     keep_tail: 20                  # recent messages kept after compaction
 
+plugins:
+  - path: ~/.anna/plugins/weather.js
+    config:
+      api_key: "xxx"
+  - path: ~/.anna/plugins/github-tools
+    config:
+      token: "yyy"
+
 scheduler:
   enabled: true
 
@@ -107,6 +115,7 @@ All paths are relative to `$ANNA_HOME` (`~/.anna` by default).
 | `workspace/USER.md` | User preferences, name, timezone |
 | `workspace/memory.db` | SQLite database (message history, summaries, scheduler jobs) |
 | `workspace/skills/` | Installed skills |
+| `plugins/` | User plugin files (JS scripts, Go plugin dirs) |
 | `workspace/HEARTBEAT.md` | Heartbeat instructions |
 
 ## Environment variables
