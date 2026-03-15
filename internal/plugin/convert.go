@@ -45,6 +45,7 @@ func goToJSValue(ctx *qjs.Context, v any) (*qjs.Value, error) {
 // jsValueToJSON calls JSON.stringify on a QJS value and returns the JSON string.
 func jsValueToJSON(ctx *qjs.Context, val *qjs.Value) (string, error) {
 	ctx.Global().SetPropertyStr("__tmp_val", val.Clone())
+	defer ctx.Global().SetPropertyStr("__tmp_val", ctx.NewUndefined())
 	result, err := ctx.Eval("__stringify.js", qjs.Code("JSON.stringify(__tmp_val)"))
 	if err != nil {
 		return "", fmt.Errorf("JSON.stringify: %w", err)

@@ -26,8 +26,9 @@ const (
 
 // hostAPI holds state for JS host API implementations.
 type hostAPI struct {
-	logger    *slog.Logger
-	pluginDir string
+	logger     *slog.Logger
+	pluginDir  string
+	httpClient *http.Client // optional override for testing; nil uses default with SSRF protection
 }
 
 // registerHostAPIs sets log, readFile, writeFile, and fetch on the anna object.
@@ -200,9 +201,12 @@ func (ha *hostAPI) doFetch(ctx *qjs.Context, args []*qjs.Value) (*qjs.Value, err
 
 	reqCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	client := &http.Client{
-		Timeout:   timeout,
-		Transport: newSSRFSafeTransport(),
+	client := ha.httpClient
+	if client == nil {
+		client = &http.Client{
+			Timeout:   timeout,
+			Transport: newSSRFSafeTransport(),
+		}
 	}
 	req, err := http.NewRequestWithContext(reqCtx, method, rawURL, body)
 	if err != nil {

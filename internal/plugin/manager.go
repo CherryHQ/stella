@@ -29,9 +29,9 @@ func (m *Manager) Registry() *Registry {
 	return m.registry
 }
 
-// LoadAll loads JS plugins from config. Best-effort: logs warnings for failures,
-// continues loading remaining plugins.
-func (m *Manager) LoadAll(configs []config.PluginConfig) error {
+// LoadAll loads JS plugins from config. Best-effort: logs warnings for failures
+// and continues loading remaining plugins.
+func (m *Manager) LoadAll(configs []config.PluginConfig) {
 	for _, cfg := range configs {
 		path := ExpandPath(cfg.Path)
 		if !isJSPlugin(path) {
@@ -40,7 +40,6 @@ func (m *Manager) LoadAll(configs []config.PluginConfig) error {
 		}
 		m.loadJS(path, cfg.Config)
 	}
-	return nil
 }
 
 // Close shuts down all plugins in reverse order.
