@@ -1,10 +1,12 @@
 package jsrt
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -161,6 +163,9 @@ func (ha *hostAPI) doFetch(ctx *qjs.Context, args []*qjs.Value) (*qjs.Value, err
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return nil, fmt.Errorf("fetch: only http/https allowed, got %q", parsed.Scheme)
 	}
+	if isPrivateHost(parsed.Host) {
+		return nil, fmt.Errorf("fetch: requests to private/internal hosts are not allowed")
+	}
 
 	method := "GET"
 	var body io.Reader
@@ -198,8 +203,10 @@ func (ha *hostAPI) doFetch(ctx *qjs.Context, args []*qjs.Value) (*qjs.Value, err
 		}
 	}
 
+	reqCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	client := &http.Client{Timeout: timeout}
-	req, err := http.NewRequest(method, rawURL, body)
+	req, err := http.NewRequestWithContext(reqCtx, method, rawURL, body)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -229,4 +236,25 @@ func (ha *hostAPI) doFetch(ctx *qjs.Context, args []*qjs.Value) (*qjs.Value, err
 	result.SetPropertyStr("status", ctx.NewInt32(int32(resp.StatusCode)))
 	result.SetPropertyStr("body", ctx.NewString(string(respBody)))
 	return result, nil
+}
+
+// isPrivateHost checks if the host resolves to a private/internal IP.
+func isPrivateHost(host string) bool {
+	// Strip port if present.
+	hostname := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostname = h
+	}
+
+	ips, err := net.LookupIP(hostname)
+	if err != nil {
+		return false // can't resolve, let the request fail naturally
+	}
+
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return true
+		}
+	}
+	return false
 }

@@ -35,7 +35,7 @@ func goToJSValue(ctx *qjs.Context, v any) (*qjs.Value, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal %T: %w", v, err)
 	}
-	result, err := ctx.Eval("__conv.js", qjs.Code(fmt.Sprintf("(%s)", string(data))))
+	result, err := ctx.Eval("__conv.js", qjs.Code(fmt.Sprintf("JSON.parse(%q)", string(data))))
 	if err != nil {
 		return nil, fmt.Errorf("parse value in JS: %w", err)
 	}
