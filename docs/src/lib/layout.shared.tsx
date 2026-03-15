@@ -9,7 +9,18 @@ export const gitConfig = {
 export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
-      title: "anna",
+      title: (
+        <>
+          <img
+            src="/favicon.png"
+            alt="anna"
+            width={24}
+            height={24}
+            className="rounded-sm"
+          />
+          anna
+        </>
+      ),
     },
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
   };

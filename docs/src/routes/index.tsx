@@ -2,9 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { HomeLayout } from "fumadocs-ui/layouts/home";
 import { baseOptions } from "@/lib/layout.shared";
 
-export const Route = createFileRoute("/")(
-  { component: Home },
-);
+export const Route = createFileRoute("/")({ component: Home });
 
 const terminalLines = [
   { prompt: true, text: "anna onboard" },
@@ -64,14 +62,16 @@ function HeroSection() {
             </p>
           </div>
           <h1 className="animate-fade-up stagger-2 text-5xl md:text-6xl lg:text-[4.5rem] tracking-tight text-fd-foreground leading-[0.92] mb-10">
-            Your assistant<br />
-            that never<br />
+            Your assistant
+            <br />
+            that never
+            <br />
             <span className="italic text-[var(--color-terra)]">forgets</span>
           </h1>
           <div className="animate-fade-up stagger-3 max-w-md">
             <p className="text-fd-muted-foreground text-base leading-relaxed mb-12">
-              Single binary, lossless context management. Talk from your terminal
-              or any messenger — anna remembers everything.
+              Single binary, lossless context management. Talk from your
+              terminal or any messenger — anna remembers everything.
             </p>
           </div>
           <div className="animate-fade-up stagger-4 flex items-center gap-5">
@@ -113,7 +113,9 @@ function HeroSection() {
                       ${" "}
                     </span>
                   )}
-                  <span className={line.prompt ? "text-white/90" : "text-white/50"}>
+                  <span
+                    className={line.prompt ? "text-white/90" : "text-white/50"}
+                  >
                     {line.text}
                   </span>
                 </div>
@@ -158,9 +160,7 @@ function FeatureItem({
       <h3 className="text-xl md:text-2xl tracking-tight text-fd-foreground mb-3">
         {title}
       </h3>
-      <p className="text-fd-muted-foreground text-sm leading-relaxed">
-        {body}
-      </p>
+      <p className="text-fd-muted-foreground text-sm leading-relaxed">{body}</p>
     </div>
   );
 }
