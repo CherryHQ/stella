@@ -1,4 +1,4 @@
-package jsrt
+package plugin
 
 import (
 	"context"
@@ -7,36 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-
-	pluginapi "github.com/vaayne/anna/pkg/plugin"
 )
-
-// testRegistry implements ToolHookRegistrar for testing.
-type testRegistry struct {
-	mu    sync.Mutex
-	tools map[string]pluginapi.Tool
-	hooks map[pluginapi.EventKind][]pluginapi.HookFunc
-}
-
-func newTestRegistry() *testRegistry {
-	return &testRegistry{
-		tools: make(map[string]pluginapi.Tool),
-		hooks: make(map[pluginapi.EventKind][]pluginapi.HookFunc),
-	}
-}
-
-func (r *testRegistry) RegisterTool(t pluginapi.Tool) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.tools[t.Name] = t
-	return nil
-}
-
-func (r *testRegistry) RegisterHook(event pluginapi.EventKind, fn pluginapi.HookFunc) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.hooks[event] = append(r.hooks[event], fn)
-}
 
 func TestLoadJS_ToolRegistration(t *testing.T) {
 	dir := t.TempDir()
@@ -55,7 +26,7 @@ func TestLoadJS_ToolRegistration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := newTestRegistry()
+	reg := NewRegistry(nil)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	p, err := LoadJS(pluginFile, nil, reg, logger)
@@ -68,7 +39,8 @@ func TestLoadJS_ToolRegistration(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", p.Name(), "hello")
 	}
 
-	tool, ok := reg.tools["hello_world"]
+	tools := reg.Tools()
+	tool, ok := tools["hello_world"]
 	if !ok {
 		t.Fatal("tool hello_world not registered")
 	}
@@ -96,7 +68,7 @@ func TestLoadJS_HookRegistration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := newTestRegistry()
+	reg := NewRegistry(nil)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	p, err := LoadJS(pluginFile, nil, reg, logger)
@@ -105,15 +77,10 @@ func TestLoadJS_HookRegistration(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	hooks := reg.hooks[pluginapi.EventBeforeToolCall]
-	if len(hooks) != 1 {
-		t.Fatalf("expected 1 hook, got %d", len(hooks))
-	}
-
 	// Should block the "blocked_tool".
-	err = hooks[0](context.Background(), pluginapi.BeforeToolCallEvent{
-		ToolName: "blocked_tool",
-	})
+	err = reg.RunHooks(context.Background(), string(EventBeforeToolCall), struct {
+		ToolName string `json:"toolName"`
+	}{ToolName: "blocked_tool"})
 	if err == nil {
 		t.Fatal("expected hook to return error for blocked_tool")
 	}
@@ -122,9 +89,9 @@ func TestLoadJS_HookRegistration(t *testing.T) {
 	}
 
 	// Should allow other tools.
-	err = hooks[0](context.Background(), pluginapi.BeforeToolCallEvent{
-		ToolName: "allowed_tool",
-	})
+	err = reg.RunHooks(context.Background(), string(EventBeforeToolCall), struct {
+		ToolName string `json:"toolName"`
+	}{ToolName: "allowed_tool"})
 	if err != nil {
 		t.Errorf("expected nil error for allowed_tool, got: %v", err)
 	}
@@ -147,7 +114,7 @@ func TestLoadJS_Config(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := newTestRegistry()
+	reg := NewRegistry(nil)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	cfg := map[string]any{"api_key": "secret123"}
@@ -157,7 +124,8 @@ func TestLoadJS_Config(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	tool := reg.tools["config_echo"]
+	tools := reg.Tools()
+	tool := tools["config_echo"]
 	result, err := tool.Execute(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -174,7 +142,7 @@ func TestLoadJS_SyntaxError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := newTestRegistry()
+	reg := NewRegistry(nil)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	_, err := LoadJS(pluginFile, nil, reg, logger)
@@ -207,7 +175,7 @@ func TestLoadJS_HostAPI_ReadFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := newTestRegistry()
+	reg := NewRegistry(nil)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	p, err := LoadJS(pluginFile, nil, reg, logger)
@@ -216,7 +184,8 @@ func TestLoadJS_HostAPI_ReadFile(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	tool := reg.tools["read_data"]
+	tools := reg.Tools()
+	tool := tools["read_data"]
 	result, err := tool.Execute(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -245,7 +214,7 @@ func TestLoadJS_HostAPI_WriteFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := newTestRegistry()
+	reg := NewRegistry(nil)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	p, err := LoadJS(pluginFile, nil, reg, logger)
@@ -254,7 +223,8 @@ func TestLoadJS_HostAPI_WriteFile(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	tool := reg.tools["write_data"]
+	tools := reg.Tools()
+	tool := tools["write_data"]
 	_, err = tool.Execute(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -287,7 +257,7 @@ func TestLoadJS_PathEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := newTestRegistry()
+	reg := NewRegistry(nil)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	p, err := LoadJS(pluginFile, nil, reg, logger)
@@ -296,7 +266,8 @@ func TestLoadJS_PathEscape(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	tool := reg.tools["escape_test"]
+	tools := reg.Tools()
+	tool := tools["escape_test"]
 	_, err = tool.Execute(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected error for path escape attempt")
@@ -322,7 +293,7 @@ func TestLoadJS_ConcurrentToolCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := newTestRegistry()
+	reg := NewRegistry(nil)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	p, err := LoadJS(pluginFile, nil, reg, logger)
@@ -331,7 +302,8 @@ func TestLoadJS_ConcurrentToolCalls(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	tool := reg.tools["increment"]
+	tools := reg.Tools()
+	tool := tools["increment"]
 
 	// Run 10 concurrent calls — mutex should serialize them.
 	var wg sync.WaitGroup
@@ -374,7 +346,7 @@ func TestLoadJS_ClosedPlugin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := newTestRegistry()
+	reg := NewRegistry(nil)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	p, err := LoadJS(pluginFile, nil, reg, logger)
@@ -387,7 +359,8 @@ func TestLoadJS_ClosedPlugin(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	tool := reg.tools["closeable_tool"]
+	tools := reg.Tools()
+	tool := tools["closeable_tool"]
 	_, err = tool.Execute(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected error after plugin close")

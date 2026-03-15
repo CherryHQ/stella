@@ -48,11 +48,10 @@ func pluginListAction() error {
 		return nil
 	}
 
-	fmt.Printf("%-20s %-6s %s\n", "NAME", "TYPE", "PATH")
+	fmt.Printf("%-20s %s\n", "NAME", "PATH")
 	for _, p := range cfg.Plugins {
 		name := pluginName(p.Path)
-		kind := pluginmgr.DetectKind(pluginmgr.ExpandPath(p.Path))
-		fmt.Printf("%-20s %-6s %s\n", name, kind, p.Path)
+		fmt.Printf("%-20s %s\n", name, p.Path)
 	}
 	return nil
 }
@@ -60,7 +59,7 @@ func pluginListAction() error {
 func pluginAddCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "add",
-		Usage:     "Add a plugin to config.yaml (local .js file or Go directory)",
+		Usage:     "Add a JS plugin to config.yaml",
 		ArgsUsage: "<path>",
 		Flags: []ucli.Flag{
 			&ucli.StringSliceFlag{
@@ -83,9 +82,8 @@ func pluginAddCommand() *ucli.Command {
 				return fmt.Errorf("path %q does not exist", path)
 			}
 
-			kind := pluginmgr.DetectKind(absPath)
-			if kind == "" {
-				return fmt.Errorf("cannot detect plugin type for %q (expected .js file or directory with go.mod)", path)
+			if !strings.HasSuffix(absPath, ".js") {
+				return fmt.Errorf("only .js plugins are supported")
 			}
 
 			pluginCfg := parsePluginConfig(c.StringSlice("config"))
@@ -95,7 +93,7 @@ func pluginAddCommand() *ucli.Command {
 			}
 
 			name := pluginName(absPath)
-			fmt.Printf("Plugin %q (%s) added.\n", name, kind)
+			fmt.Printf("Plugin %q added.\n", name)
 			return nil
 		},
 	}

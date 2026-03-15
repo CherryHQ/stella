@@ -4,15 +4,13 @@ import (
 	"context"
 	"fmt"
 	"sync"
-
-	pluginapi "github.com/vaayne/anna/pkg/plugin"
 )
 
 // Registry collects tools and hooks from all plugins.
 type Registry struct {
 	mu       sync.RWMutex
-	tools    map[string]pluginapi.Tool
-	hooks    map[pluginapi.EventKind][]pluginapi.HookFunc
+	tools    map[string]Tool
+	hooks    map[EventKind][]HookFunc
 	reserved map[string]struct{}
 }
 
@@ -23,14 +21,14 @@ func NewRegistry(builtinNames []string) *Registry {
 		reserved[name] = struct{}{}
 	}
 	return &Registry{
-		tools:    make(map[string]pluginapi.Tool),
-		hooks:    make(map[pluginapi.EventKind][]pluginapi.HookFunc),
+		tools:    make(map[string]Tool),
+		hooks:    make(map[EventKind][]HookFunc),
 		reserved: reserved,
 	}
 }
 
 // RegisterTool adds a tool. Returns error on duplicate or reserved name.
-func (r *Registry) RegisterTool(t pluginapi.Tool) error {
+func (r *Registry) RegisterTool(t Tool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, ok := r.reserved[t.Name]; ok {
@@ -44,17 +42,17 @@ func (r *Registry) RegisterTool(t pluginapi.Tool) error {
 }
 
 // RegisterHook adds a lifecycle hook for the given event kind.
-func (r *Registry) RegisterHook(event pluginapi.EventKind, fn pluginapi.HookFunc) {
+func (r *Registry) RegisterHook(event EventKind, fn HookFunc) {
 	r.mu.Lock()
 	r.hooks[event] = append(r.hooks[event], fn)
 	r.mu.Unlock()
 }
 
 // Tools returns a copy of all registered tools.
-func (r *Registry) Tools() map[string]pluginapi.Tool {
+func (r *Registry) Tools() map[string]Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	result := make(map[string]pluginapi.Tool, len(r.tools))
+	result := make(map[string]Tool, len(r.tools))
 	for k, v := range r.tools {
 		result[k] = v
 	}
@@ -67,16 +65,16 @@ func (r *Registry) Tools() map[string]pluginapi.Tool {
 // For "after" events, errors are ignored.
 //
 // The event parameter is a string (not EventKind) so that callers in the
-// engine package can use this method without importing pkg/plugin directly,
+// engine package can use this method without importing internal/plugin directly,
 // avoiding circular imports.
 func (r *Registry) RunHooks(ctx context.Context, event string, data any) error {
-	kind := pluginapi.EventKind(event)
+	kind := EventKind(event)
 	r.mu.RLock()
-	hooks := make([]pluginapi.HookFunc, len(r.hooks[kind]))
+	hooks := make([]HookFunc, len(r.hooks[kind]))
 	copy(hooks, r.hooks[kind])
 	r.mu.RUnlock()
 
-	isBefore := kind == pluginapi.EventBeforeToolCall
+	isBefore := kind == EventBeforeToolCall
 	for _, fn := range hooks {
 		if err := fn(ctx, data); err != nil && isBefore {
 			return err

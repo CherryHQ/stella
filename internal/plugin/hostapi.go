@@ -1,4 +1,4 @@
-package jsrt
+package plugin
 
 import (
 	"context"

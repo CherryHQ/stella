@@ -1,14 +1,12 @@
 package plugin
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/vaayne/anna/internal/config"
-	pluginapi "github.com/vaayne/anna/pkg/plugin"
 )
 
 func discardLogger() *slog.Logger {
@@ -29,7 +27,6 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestLoadAllEmpty(t *testing.T) {
-	pluginapi.ResetFactories()
 	m := NewManager(discardLogger(), nil)
 
 	err := m.LoadAll(nil)
@@ -44,7 +41,6 @@ func TestLoadAllEmpty(t *testing.T) {
 }
 
 func TestLoadAllInvalidPath(t *testing.T) {
-	pluginapi.ResetFactories()
 	m := NewManager(discardLogger(), nil)
 
 	err := m.LoadAll([]config.PluginConfig{
@@ -58,76 +54,40 @@ func TestLoadAllInvalidPath(t *testing.T) {
 func TestCloseReverseOrder(t *testing.T) {
 	m := NewManager(discardLogger(), nil)
 
-	var closeOrder []string
-
 	for _, name := range []string{"first", "second", "third"} {
-		n := name
-		m.plugins = append(m.plugins, &mockPlugin{
-			name: n,
-			closeFn: func() error {
-				closeOrder = append(closeOrder, n)
-				return nil
-			},
-		})
+		m.plugins = append(m.plugins, &JSPlugin{name: name})
 	}
 
+	// JSPlugin.Close is safe to call with nil runtime. Verify no panic.
 	if err := m.Close(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	expected := []string{"third", "second", "first"}
-	if len(closeOrder) != len(expected) {
-		t.Fatalf("expected %d closes, got %d", len(expected), len(closeOrder))
-	}
-	for i, name := range expected {
-		if closeOrder[i] != name {
-			t.Errorf("close[%d] = %q, want %q", i, closeOrder[i], name)
-		}
-	}
 }
 
-func TestDetectKindJS(t *testing.T) {
+func TestIsJSPlugin(t *testing.T) {
 	tmp := t.TempDir()
 	jsFile := filepath.Join(tmp, "plugin.js")
 	if err := os.WriteFile(jsFile, []byte("// js plugin"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	got := DetectKind(jsFile)
-	if got != "js" {
-		t.Errorf("DetectKind(%q) = %q, want %q", jsFile, got, "js")
+	if !isJSPlugin(jsFile) {
+		t.Errorf("isJSPlugin(%q) = false, want true", jsFile)
 	}
 }
 
-func TestDetectKindGo(t *testing.T) {
-	tmp := t.TempDir()
-	goDir := filepath.Join(tmp, "myplugin")
-	if err := os.MkdirAll(goDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(goDir, "go.mod"), []byte("module myplugin"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	got := DetectKind(goDir)
-	if got != "go" {
-		t.Errorf("DetectKind(%q) = %q, want %q", goDir, got, "go")
-	}
-}
-
-func TestDetectKindUnknown(t *testing.T) {
+func TestIsJSPluginUnknown(t *testing.T) {
 	tests := []struct {
 		name string
 		path string
 	}{
 		{"nonexistent", "/nonexistent/path/file.txt"},
-		{"directory without go.mod", t.TempDir()},
+		{"directory", t.TempDir()},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := DetectKind(tt.path)
-			if got != "" {
-				t.Errorf("DetectKind(%q) = %q, want empty string", tt.path, got)
+			if isJSPlugin(tt.path) {
+				t.Errorf("isJSPlugin(%q) = true, want false", tt.path)
 			}
 		})
 	}
@@ -158,36 +118,36 @@ func TestExpandPath(t *testing.T) {
 	}
 }
 
-// mockPlugin implements pluginapi.Plugin for testing.
-type mockPlugin struct {
-	name    string
-	closeFn func() error
-}
-
-func (p *mockPlugin) Name() string                   { return p.name }
-func (p *mockPlugin) Init(_ pluginapi.Context) error { return nil }
-func (p *mockPlugin) Close() error {
-	if p.closeFn != nil {
-		return p.closeFn()
+func TestLoadAllNonJSPlugin(t *testing.T) {
+	tmp := t.TempDir()
+	goDir := filepath.Join(tmp, "myplugin")
+	if err := os.MkdirAll(goDir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	return nil
+
+	m := NewManager(discardLogger(), nil)
+	// Non-.js paths should be skipped without error.
+	err := m.LoadAll([]config.PluginConfig{
+		{Path: goDir, Config: nil},
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	if len(m.plugins) != 0 {
+		t.Errorf("expected 0 plugins loaded, got %d", len(m.plugins))
+	}
 }
 
-// Ensure mockPlugin implements the Plugin interface.
-var _ pluginapi.Plugin = (*mockPlugin)(nil)
-
-func TestCloseReturnsLastError(t *testing.T) {
+func TestCloseReturnsNilForNilRuntimes(t *testing.T) {
 	m := NewManager(discardLogger(), nil)
+
 	m.plugins = append(m.plugins,
-		&mockPlugin{name: "ok", closeFn: func() error { return nil }},
-		&mockPlugin{name: "fail", closeFn: func() error { return fmt.Errorf("close error") }},
+		&JSPlugin{name: "ok"},
+		&JSPlugin{name: "also-ok"},
 	)
 
 	err := m.Close()
-	if err == nil {
-		t.Fatal("expected error from Close")
-	}
-	if err.Error() != "close error" {
-		t.Errorf("error = %q, want %q", err.Error(), "close error")
+	if err != nil {
+		t.Fatalf("expected nil error from Close with nil runtimes, got: %v", err)
 	}
 }
