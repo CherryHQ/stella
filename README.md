@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="avatar.png" width="200" alt="anna" />
+</p>
+
 # anna
 
 **Your AI assistant that never forgets.**
