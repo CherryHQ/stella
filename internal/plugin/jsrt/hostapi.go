@@ -163,9 +163,6 @@ func (ha *hostAPI) doFetch(ctx *qjs.Context, args []*qjs.Value) (*qjs.Value, err
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return nil, fmt.Errorf("fetch: only http/https allowed, got %q", parsed.Scheme)
 	}
-	if isPrivateHost(parsed.Host) {
-		return nil, fmt.Errorf("fetch: requests to private/internal hosts are not allowed")
-	}
 
 	method := "GET"
 	var body io.Reader
@@ -205,7 +202,10 @@ func (ha *hostAPI) doFetch(ctx *qjs.Context, args []*qjs.Value) (*qjs.Value, err
 
 	reqCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	client := &http.Client{Timeout: timeout}
+	client := &http.Client{
+		Timeout:   timeout,
+		Transport: newSSRFSafeTransport(),
+	}
 	req, err := http.NewRequestWithContext(reqCtx, method, rawURL, body)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -238,23 +238,42 @@ func (ha *hostAPI) doFetch(ctx *qjs.Context, args []*qjs.Value) (*qjs.Value, err
 	return result, nil
 }
 
-// isPrivateHost checks if the host resolves to a private/internal IP.
-func isPrivateHost(host string) bool {
-	// Strip port if present.
-	hostname := host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		hostname = h
-	}
+// newSSRFSafeTransport returns an http.Transport that validates resolved IPs
+// at connect time, preventing DNS rebinding attacks. The IP check happens in
+// DialContext on the same resolution used for the actual connection, so there
+// is no TOCTOU gap between validation and use.
+func newSSRFSafeTransport() *http.Transport {
+	return &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, fmt.Errorf("ssrf: invalid address %q: %w", addr, err)
+			}
 
-	ips, err := net.LookupIP(hostname)
-	if err != nil {
-		return false // can't resolve, let the request fail naturally
-	}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, fmt.Errorf("ssrf: resolve %q: %w", host, err)
+			}
 
-	for _, ip := range ips {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-			return true
-		}
+			// Filter to only safe (public) IPs.
+			var safeAddrs []string
+			for _, ip := range ips {
+				if !isPrivateIP(ip.IP) {
+					safeAddrs = append(safeAddrs, net.JoinHostPort(ip.IP.String(), port))
+				}
+			}
+			if len(safeAddrs) == 0 {
+				return nil, fmt.Errorf("fetch: requests to private/internal hosts are not allowed")
+			}
+
+			// Dial the first safe address.
+			var dialer net.Dialer
+			return dialer.DialContext(ctx, network, safeAddrs[0])
+		},
 	}
-	return false
+}
+
+// isPrivateIP checks if an IP is loopback, private, or link-local.
+func isPrivateIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
 }
