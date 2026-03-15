@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/config"
 	pluginmgr "github.com/vaayne/anna/internal/plugin"
+	"github.com/vaayne/anna/internal/plugin/goplugin"
 	"gopkg.in/yaml.v3"
 )
 
@@ -20,6 +22,7 @@ func pluginCommand() *ucli.Command {
 			pluginListCommand(),
 			pluginAddCommand(),
 			pluginRemoveCommand(),
+			pluginBuildCommand(),
 		},
 		Action: func(c *ucli.Context) error {
 			return pluginListAction()
@@ -114,6 +117,50 @@ func pluginRemoveCommand() *ucli.Command {
 			}
 
 			fmt.Printf("Plugin %q removed.\n", target)
+			return nil
+		},
+	}
+}
+
+func pluginBuildCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:  "build",
+		Usage: "Compile a custom binary with all Go plugins",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{
+				Name:  "output",
+				Usage: "Output binary path",
+				Value: "./anna-custom",
+			},
+		},
+		Action: func(c *ucli.Context) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+
+			var goPaths []string
+			for _, p := range cfg.Plugins {
+				resolved := pluginmgr.ExpandPath(p.Path)
+				if pluginmgr.DetectKind(resolved) == "go" {
+					goPaths = append(goPaths, resolved)
+				}
+			}
+
+			if len(goPaths) == 0 {
+				fmt.Println("No Go plugins configured. Nothing to build.")
+				return nil
+			}
+
+			output := c.String("output")
+			fmt.Fprintf(os.Stderr, "Building custom binary with %d Go plugin(s)...\n", len(goPaths))
+
+			builder := goplugin.NewBuilder(goPaths, output, slog.Default())
+			if err := builder.Build(c.Context); err != nil {
+				return fmt.Errorf("build failed: %w", err)
+			}
+
+			fmt.Printf("Custom binary built: %s\n", output)
 			return nil
 		},
 	}
