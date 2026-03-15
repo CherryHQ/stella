@@ -83,6 +83,12 @@ runner:
     max_tokens: 80000              # auto-compact threshold (-1 = disabled)
     keep_tail: 20                  # recent messages kept after compaction
 
+plugins:
+  - path: ~/plugins/hello.js               # path to .js file (~ expanded)
+  - path: /abs/path/notify.js
+    config:                                 # optional key-value config
+      webhook_url: "https://example.com"
+
 scheduler:
   enabled: true
 
