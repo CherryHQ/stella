@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fastschema/qjs"
+	"github.com/vaayne/anna/internal/config"
 )
 
 const (
@@ -99,7 +100,7 @@ func registerHostAPIs(ctx *qjs.Context, anna *qjs.Value, ha *hostAPI) {
 }
 
 // resolvePath validates and resolves a file path, ensuring it's within allowed dirs.
-// Allowed: plugin parent directory or ~/.anna/workspace/.
+// Allowed: plugin parent directory or $ANNA_HOME/workspace/.
 func (ha *hostAPI) resolvePath(rawPath string) (string, error) {
 	// Resolve relative paths against plugin directory.
 	resolved := rawPath
@@ -133,14 +134,11 @@ func (ha *hostAPI) isAllowedPath(resolved string) bool {
 		return true
 	}
 
-	// Allow ~/.anna/workspace/.
-	home, err := os.UserHomeDir()
-	if err == nil {
-		workspace := filepath.Join(home, ".anna", "workspace")
-		workspace, err = filepath.EvalSymlinks(workspace)
-		if err == nil && isUnder(resolved, workspace) {
-			return true
-		}
+	// Allow $ANNA_HOME/workspace/.
+	workspace := filepath.Join(config.AnnaHome(), "workspace")
+	workspace, err = filepath.EvalSymlinks(workspace)
+	if err == nil && isUnder(resolved, workspace) {
+		return true
 	}
 
 	return false
