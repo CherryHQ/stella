@@ -100,7 +100,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		memorytool.NewExpandTool(memoryEngine),
 	)
 
-	// Collect built-in tool names for plugin collision detection.
+	// Built-in tool names registered in GoRunner (internal/agent/tool/).
+	// Keep in sync with tool registrations in internal/agent/runner/gorunner.go.
 	builtinNames := append([]string{}, "read", "bash", "edit", "write", "web_fetch", "delegate")
 	for _, t := range extraTools {
 		builtinNames = append(builtinNames, t.Definition().Name)

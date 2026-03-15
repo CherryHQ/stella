@@ -46,8 +46,8 @@ func (m *Manager) LoadAll(configs []config.PluginConfig) error {
 
 	// Load file-based plugins (JS extensions).
 	for _, cfg := range configs {
-		path := expandPath(cfg.Path)
-		kind := detectKind(path)
+		path := ExpandPath(cfg.Path)
+		kind := DetectKind(path)
 		switch kind {
 		case "js":
 			m.loadJS(path, cfg.Config)
@@ -124,8 +124,8 @@ func findPluginConfig(configs []config.PluginConfig, name string) (map[string]an
 	return nil, false
 }
 
-// detectKind determines plugin type from path.
-func detectKind(path string) string {
+// DetectKind determines plugin type from path ("js", "go", or "").
+func DetectKind(path string) string {
 	info, err := os.Stat(path)
 	if err != nil {
 		return ""
@@ -141,8 +141,8 @@ func detectKind(path string) string {
 	return ""
 }
 
-// expandPath expands ~ to home directory.
-func expandPath(path string) string {
+// ExpandPath expands ~ to the user's home directory.
+func ExpandPath(path string) string {
 	if strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
 		if err == nil {

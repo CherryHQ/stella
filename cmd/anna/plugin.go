@@ -9,6 +9,7 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/config"
+	pluginmgr "github.com/vaayne/anna/internal/plugin"
 	"github.com/vaayne/anna/internal/plugin/goplugin"
 	"gopkg.in/yaml.v3"
 )
@@ -53,7 +54,7 @@ func pluginListAction() error {
 	fmt.Printf("%-20s %-6s %s\n", "NAME", "TYPE", "PATH")
 	for _, p := range cfg.Plugins {
 		name := pluginName(p.Path)
-		kind := pluginKind(p.Path)
+		kind := pluginmgr.DetectKind(pluginmgr.ExpandPath(p.Path))
 		fmt.Printf("%-20s %-6s %s\n", name, kind, p.Path)
 	}
 	return nil
@@ -76,13 +77,13 @@ func pluginAddCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna plugin add <path>")
 			}
 
-			resolved := expandPluginPath(path)
+			resolved := pluginmgr.ExpandPath(path)
 			if _, err := os.Stat(resolved); err != nil {
 				return fmt.Errorf("path %q does not exist", path)
 			}
 
-			kind := pluginKind(resolved)
-			if kind == "unknown" {
+			kind := pluginmgr.DetectKind(resolved)
+			if kind == "" {
 				return fmt.Errorf("cannot detect plugin type for %q (expected .js file or directory with go.mod)", path)
 			}
 
@@ -140,8 +141,8 @@ func pluginBuildCommand() *ucli.Command {
 
 			var goPaths []string
 			for _, p := range cfg.Plugins {
-				resolved := expandPluginPath(p.Path)
-				if pluginKind(resolved) == "go" {
+				resolved := pluginmgr.ExpandPath(p.Path)
+				if pluginmgr.DetectKind(resolved) == "go" {
 					goPaths = append(goPaths, resolved)
 				}
 			}
@@ -292,37 +293,4 @@ func parsePluginConfig(pairs []string) map[string]any {
 func pluginName(path string) string {
 	base := filepath.Base(path)
 	return strings.TrimSuffix(base, filepath.Ext(base))
-}
-
-// pluginKind detects plugin type from path (replicates manager.detectKind logic).
-func pluginKind(path string) string {
-	resolved := expandPluginPath(path)
-	info, err := os.Stat(resolved)
-	if err != nil {
-		// Cannot stat; fall back to extension heuristic.
-		if strings.HasSuffix(path, ".js") {
-			return "js"
-		}
-		return "unknown"
-	}
-	if !info.IsDir() && strings.HasSuffix(path, ".js") {
-		return "js"
-	}
-	if info.IsDir() {
-		if _, err := os.Stat(filepath.Join(resolved, "go.mod")); err == nil {
-			return "go"
-		}
-	}
-	return "unknown"
-}
-
-// expandPluginPath expands ~ to the user's home directory.
-func expandPluginPath(path string) string {
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err == nil {
-			return filepath.Join(home, path[2:])
-		}
-	}
-	return path
 }

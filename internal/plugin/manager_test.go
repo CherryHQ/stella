@@ -93,9 +93,9 @@ func TestDetectKindJS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := detectKind(jsFile)
+	got := DetectKind(jsFile)
 	if got != "js" {
-		t.Errorf("detectKind(%q) = %q, want %q", jsFile, got, "js")
+		t.Errorf("DetectKind(%q) = %q, want %q", jsFile, got, "js")
 	}
 }
 
@@ -109,9 +109,9 @@ func TestDetectKindGo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := detectKind(goDir)
+	got := DetectKind(goDir)
 	if got != "go" {
-		t.Errorf("detectKind(%q) = %q, want %q", goDir, got, "go")
+		t.Errorf("DetectKind(%q) = %q, want %q", goDir, got, "go")
 	}
 }
 
@@ -125,9 +125,9 @@ func TestDetectKindUnknown(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := detectKind(tt.path)
+			got := DetectKind(tt.path)
 			if got != "" {
-				t.Errorf("detectKind(%q) = %q, want empty string", tt.path, got)
+				t.Errorf("DetectKind(%q) = %q, want empty string", tt.path, got)
 			}
 		})
 	}
@@ -150,9 +150,9 @@ func TestExpandPath(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := expandPath(tt.input)
+			got := ExpandPath(tt.input)
 			if got != tt.want {
-				t.Errorf("expandPath(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("ExpandPath(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
