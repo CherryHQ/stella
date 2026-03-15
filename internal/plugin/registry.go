@@ -76,7 +76,7 @@ func (r *Registry) RunHooks(ctx context.Context, event string, data any) error {
 	copy(hooks, r.hooks[kind])
 	r.mu.RUnlock()
 
-	isBefore := kind == pluginapi.EventBeforeToolCall || kind == pluginapi.EventSessionStart
+	isBefore := kind == pluginapi.EventBeforeToolCall
 	for _, fn := range hooks {
 		if err := fn(ctx, data); err != nil && isBefore {
 			return err

@@ -14,6 +14,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/memory"
+	pluginapi "github.com/vaayne/anna/pkg/plugin"
 )
 
 // Pool manages a set of sessions, each with its own history and runner.
@@ -198,7 +199,7 @@ func (p *Pool) ArchiveSession(sessionID string) error {
 
 	// Fire session_end plugin hook.
 	if p.pluginHooks != nil {
-		_ = p.pluginHooks.RunHooks(context.Background(), "session_end", sessionEventData{
+		_ = p.pluginHooks.RunHooks(context.Background(), "session_end", pluginapi.SessionEvent{
 			SessionID: sessionID,
 			Channel:   info.Channel,
 		})
@@ -396,7 +397,7 @@ func (p *Pool) Close() error {
 	for id, sess := range sessions {
 		p.log.Info("closing session", "session_id", id)
 		if p.pluginHooks != nil {
-			_ = p.pluginHooks.RunHooks(context.Background(), "session_end", sessionEventData{
+			_ = p.pluginHooks.RunHooks(context.Background(), "session_end", pluginapi.SessionEvent{
 				SessionID: id,
 				Channel:   sess.Info.Channel,
 			})
@@ -485,7 +486,7 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 
 	// Fire session_start plugin hook.
 	if p.pluginHooks != nil {
-		_ = p.pluginHooks.RunHooks(ctx, "session_start", sessionEventData{
+		_ = p.pluginHooks.RunHooks(ctx, "session_start", pluginapi.SessionEvent{
 			SessionID: sessionID,
 			Channel:   sess.Info.Channel,
 		})
@@ -493,10 +494,4 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 
 	p.log.Info("created runner", "session_id", sessionID)
 	return sess, r, nil
-}
-
-// sessionEventData is passed to session lifecycle hooks.
-type sessionEventData struct {
-	SessionID string
-	Channel   string
 }
