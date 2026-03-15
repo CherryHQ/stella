@@ -5,12 +5,10 @@ import (
 	"errors"
 	"sync"
 	"testing"
-
-	pluginapi "github.com/vaayne/anna/pkg/plugin"
 )
 
-func newTestTool(name string) pluginapi.Tool {
-	return pluginapi.Tool{
+func newTestTool(name string) Tool {
+	return Tool{
 		Name:        name,
 		Description: "test tool " + name,
 		InputSchema: map[string]any{"type": "object"},
@@ -73,23 +71,24 @@ func TestRegisterHookAndRun(t *testing.T) {
 	r := NewRegistry(nil)
 
 	var received any
-	r.RegisterHook(pluginapi.EventBeforeToolCall, func(_ context.Context, event any) error {
+	r.RegisterHook(EventBeforeToolCall, func(_ context.Context, event any) error {
 		received = event
 		return nil
 	})
 
-	data := pluginapi.BeforeToolCallEvent{ToolName: "grep", Arguments: map[string]any{"q": "hello"}}
-	err := r.RunHooks(context.Background(), string(pluginapi.EventBeforeToolCall), data)
+	type testEvent struct{ Name string }
+	data := testEvent{Name: "grep"}
+	err := r.RunHooks(context.Background(), string(EventBeforeToolCall), data)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	got, ok := received.(pluginapi.BeforeToolCallEvent)
+	got, ok := received.(testEvent)
 	if !ok {
-		t.Fatalf("expected BeforeToolCallEvent, got %T", received)
+		t.Fatalf("expected testEvent, got %T", received)
 	}
-	if got.ToolName != "grep" {
-		t.Errorf("ToolName = %q, want %q", got.ToolName, "grep")
+	if got.Name != "grep" {
+		t.Errorf("Name = %q, want %q", got.Name, "grep")
 	}
 }
 
@@ -97,16 +96,16 @@ func TestRunHooksBeforeStopsOnError(t *testing.T) {
 	r := NewRegistry(nil)
 
 	callOrder := []string{}
-	r.RegisterHook(pluginapi.EventBeforeToolCall, func(_ context.Context, _ any) error {
+	r.RegisterHook(EventBeforeToolCall, func(_ context.Context, _ any) error {
 		callOrder = append(callOrder, "first")
 		return errors.New("blocked")
 	})
-	r.RegisterHook(pluginapi.EventBeforeToolCall, func(_ context.Context, _ any) error {
+	r.RegisterHook(EventBeforeToolCall, func(_ context.Context, _ any) error {
 		callOrder = append(callOrder, "second")
 		return nil
 	})
 
-	err := r.RunHooks(context.Background(), string(pluginapi.EventBeforeToolCall), nil)
+	err := r.RunHooks(context.Background(), string(EventBeforeToolCall), nil)
 	if err == nil {
 		t.Fatal("expected error from before hook")
 	}
@@ -121,11 +120,11 @@ func TestRunHooksBeforeStopsOnError(t *testing.T) {
 func TestRunHooksAfterIgnoresError(t *testing.T) {
 	r := NewRegistry(nil)
 
-	r.RegisterHook(pluginapi.EventAfterToolCall, func(_ context.Context, _ any) error {
+	r.RegisterHook(EventAfterToolCall, func(_ context.Context, _ any) error {
 		return errors.New("ignored error")
 	})
 
-	err := r.RunHooks(context.Background(), string(pluginapi.EventAfterToolCall), nil)
+	err := r.RunHooks(context.Background(), string(EventAfterToolCall), nil)
 	if err != nil {
 		t.Fatalf("after hook error should be ignored, got: %v", err)
 	}
@@ -134,7 +133,7 @@ func TestRunHooksAfterIgnoresError(t *testing.T) {
 func TestRunHooksNoHooks(t *testing.T) {
 	r := NewRegistry(nil)
 
-	err := r.RunHooks(context.Background(), string(pluginapi.EventBeforeToolCall), nil)
+	err := r.RunHooks(context.Background(), string(EventBeforeToolCall), nil)
 	if err != nil {
 		t.Fatalf("expected nil error with no hooks, got: %v", err)
 	}
@@ -156,13 +155,13 @@ func TestConcurrentRegisterAndRun(t *testing.T) {
 	}
 
 	// Concurrently run hooks.
-	r.RegisterHook(pluginapi.EventAfterToolCall, func(_ context.Context, _ any) error {
+	r.RegisterHook(EventAfterToolCall, func(_ context.Context, _ any) error {
 		return nil
 	})
 	for range n {
 		go func() {
 			defer wg.Done()
-			_ = r.RunHooks(context.Background(), string(pluginapi.EventAfterToolCall), nil)
+			_ = r.RunHooks(context.Background(), string(EventAfterToolCall), nil)
 		}()
 	}
 

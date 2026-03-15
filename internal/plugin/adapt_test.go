@@ -3,12 +3,10 @@ package plugin
 import (
 	"context"
 	"testing"
-
-	pluginapi "github.com/vaayne/anna/pkg/plugin"
 )
 
 func TestAdaptToolDefinition(t *testing.T) {
-	pt := pluginapi.Tool{
+	pt := Tool{
 		Name:        "search",
 		Description: "Search for things",
 		InputSchema: map[string]any{
@@ -38,7 +36,7 @@ func TestAdaptToolDefinition(t *testing.T) {
 
 func TestAdaptToolExecute(t *testing.T) {
 	var receivedArgs map[string]any
-	pt := pluginapi.Tool{
+	pt := Tool{
 		Name: "echo",
 		Execute: func(_ context.Context, args map[string]any) (string, error) {
 			receivedArgs = args

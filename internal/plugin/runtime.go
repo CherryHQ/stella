@@ -1,4 +1,4 @@
-package jsrt
+package plugin
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/fastschema/qjs"
-	pluginapi "github.com/vaayne/anna/pkg/plugin"
 )
 
 // JSPlugin wraps a single JS extension loaded via QJS.
@@ -21,8 +20,7 @@ type JSPlugin struct {
 	runtime *qjs.Runtime
 }
 
-func (p *JSPlugin) Name() string                   { return p.name }
-func (p *JSPlugin) Init(_ pluginapi.Context) error { return nil }
+func (p *JSPlugin) Name() string { return p.name }
 
 func (p *JSPlugin) Close() error {
 	p.mu.Lock()
@@ -34,15 +32,9 @@ func (p *JSPlugin) Close() error {
 	return nil
 }
 
-// ToolHookRegistrar is the subset of Registry that LoadJS needs.
-type ToolHookRegistrar interface {
-	RegisterTool(pluginapi.Tool) error
-	RegisterHook(pluginapi.EventKind, pluginapi.HookFunc)
-}
-
 // LoadJS loads a JS extension from the given path, registers its tools and hooks
-// into the registry, and returns a JSPlugin that satisfies pluginapi.Plugin.
-func LoadJS(path string, cfg map[string]any, registry ToolHookRegistrar, logger *slog.Logger) (*JSPlugin, error) {
+// into the registry, and returns a JSPlugin.
+func LoadJS(path string, cfg map[string]any, registry *Registry, logger *slog.Logger) (*JSPlugin, error) {
 	code, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read plugin file: %w", err)
@@ -66,13 +58,13 @@ func LoadJS(path string, cfg map[string]any, registry ToolHookRegistrar, logger 
 
 	// Collectors for tools and hooks registered during plugin init.
 	type toolEntry struct {
-		tool      pluginapi.Tool
+		tool      Tool
 		executeFn *qjs.Value
 	}
 	var toolEntries []toolEntry
 
 	type hookEntry struct {
-		event   pluginapi.EventKind
+		event   EventKind
 		handler *qjs.Value
 	}
 	var hookEntries []hookEntry
@@ -115,7 +107,7 @@ func LoadJS(path string, cfg map[string]any, registry ToolHookRegistrar, logger 
 			return nil, errors.New("anna.on second argument must be a function")
 		}
 		hookEntries = append(hookEntries, hookEntry{
-			event:   pluginapi.EventKind(args[0].String()),
+			event:   EventKind(args[0].String()),
 			handler: args[1].Clone(),
 		})
 		return this.Context().NewBool(true), nil
@@ -200,22 +192,22 @@ func LoadJS(path string, cfg map[string]any, registry ToolHookRegistrar, logger 
 }
 
 // parseToolDef extracts tool metadata from the JS object argument.
-func parseToolDef(this *qjs.This) (pluginapi.Tool, *qjs.Value, error) {
+func parseToolDef(this *qjs.This) (Tool, *qjs.Value, error) {
 	args := this.Args()
 	if len(args) < 1 {
-		return pluginapi.Tool{}, nil, errors.New("registerTool requires a tool definition object")
+		return Tool{}, nil, errors.New("registerTool requires a tool definition object")
 	}
 	def := args[0]
 
 	name := def.GetPropertyStr("name")
 	if name.IsUndefined() || name.String() == "" {
-		return pluginapi.Tool{}, nil, errors.New("tool name is required")
+		return Tool{}, nil, errors.New("tool name is required")
 	}
 
 	desc := def.GetPropertyStr("description")
 	executeFn := def.GetPropertyStr("execute")
 	if executeFn.IsUndefined() || !executeFn.IsFunction() {
-		return pluginapi.Tool{}, nil, fmt.Errorf("tool %q requires an execute function", name.String())
+		return Tool{}, nil, fmt.Errorf("tool %q requires an execute function", name.String())
 	}
 
 	// Parse parameters/inputSchema.
@@ -229,7 +221,7 @@ func parseToolDef(this *qjs.This) (pluginapi.Tool, *qjs.Value, error) {
 		}
 	}
 
-	t := pluginapi.Tool{
+	t := Tool{
 		Name:        name.String(),
 		Description: desc.String(),
 		InputSchema: inputSchema,
