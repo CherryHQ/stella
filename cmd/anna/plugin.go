@@ -75,22 +75,26 @@ func pluginAddCommand() *ucli.Command {
 			}
 
 			resolved := pluginmgr.ExpandPath(path)
-			if _, err := os.Stat(resolved); err != nil {
+			absPath, err := filepath.Abs(resolved)
+			if err != nil {
+				return fmt.Errorf("resolve absolute path: %w", err)
+			}
+			if _, err := os.Stat(absPath); err != nil {
 				return fmt.Errorf("path %q does not exist", path)
 			}
 
-			kind := pluginmgr.DetectKind(resolved)
+			kind := pluginmgr.DetectKind(absPath)
 			if kind == "" {
 				return fmt.Errorf("cannot detect plugin type for %q (expected .js file or directory with go.mod)", path)
 			}
 
 			pluginCfg := parsePluginConfig(c.StringSlice("config"))
 
-			if err := addPluginToConfig(path, pluginCfg); err != nil {
+			if err := addPluginToConfig(absPath, pluginCfg); err != nil {
 				return err
 			}
 
-			name := pluginName(path)
+			name := pluginName(absPath)
 			fmt.Printf("Plugin %q (%s) added.\n", name, kind)
 			return nil
 		},
