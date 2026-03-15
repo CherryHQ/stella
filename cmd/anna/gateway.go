@@ -37,7 +37,7 @@ func gatewayCommand() *ucli.Command {
 			// so early-firing jobs already have the dispatcher callback.
 
 			listFn := func() []channel.ModelOption { return collectModels(s.cfg) }
-			switchFn := modelSwitcher(s.cfg, s.pool, s.extraTools)
+			switchFn := modelSwitcher(s.cfg, s.pool, s.extraTools, s.pluginMgr.Registry())
 			return runGateway(s.ctx, s, listFn, switchFn)
 		},
 	}

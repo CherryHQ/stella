@@ -5,12 +5,14 @@ import (
 	"errors"
 
 	"github.com/vaayne/anna/internal/ai"
+	pluginapi "github.com/vaayne/anna/pkg/plugin"
 )
 
 // ToolCallbacks emits progress events around tool execution.
 type ToolCallbacks struct {
-	OnStart  func(call ai.ToolCall)
-	OnFinish func(result ai.ToolResultMessage)
+	OnStart     func(call ai.ToolCall)
+	OnFinish    func(result ai.ToolResultMessage)
+	PluginHooks PluginHookRunner // optional plugin lifecycle hooks
 }
 
 // ExecuteToolCalls runs each tool call in order and returns result messages.
@@ -20,6 +22,27 @@ func ExecuteToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 	for _, call := range calls {
 		if cb.OnStart != nil {
 			cb.OnStart(call)
+		}
+
+		// Run before_tool_call plugin hooks. If a hook returns an error,
+		// the tool call is blocked and the error is returned to the LLM.
+		if cb.PluginHooks != nil {
+			if err := cb.PluginHooks.RunHooks(ctx, "before_tool_call", pluginapi.BeforeToolCallEvent{
+				ToolName:  call.Name,
+				Arguments: call.Arguments,
+			}); err != nil {
+				result := ai.ToolResultMessage{
+					ToolCallID: call.ID,
+					ToolName:   call.Name,
+					IsError:    true,
+					Content:    []ai.ContentBlock{ai.TextContent{Text: "blocked by plugin: " + err.Error()}},
+				}
+				results = append(results, result)
+				if cb.OnFinish != nil {
+					cb.OnFinish(result)
+				}
+				continue
+			}
 		}
 
 		toolFn, ok := tools[call.Name]
@@ -50,6 +73,16 @@ func ExecuteToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			}
 			result.Content = []ai.ContentBlock{ai.TextContent{Text: errText}}
 		}
+
+		// Run after_tool_call plugin hooks (fire-and-forget).
+		if cb.PluginHooks != nil {
+			_ = cb.PluginHooks.RunHooks(ctx, "after_tool_call", pluginapi.AfterToolCallEvent{
+				ToolName: call.Name,
+				Result:   content.Text,
+				IsError:  err != nil,
+			})
+		}
+
 		results = append(results, result)
 		if cb.OnFinish != nil {
 			cb.OnFinish(result)
