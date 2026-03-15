@@ -29,26 +29,17 @@ func TestNewManager(t *testing.T) {
 func TestLoadAllEmpty(t *testing.T) {
 	m := NewManager(discardLogger(), nil)
 
-	err := m.LoadAll(nil)
-	if err != nil {
-		t.Fatalf("expected nil error, got: %v", err)
-	}
-
-	err = m.LoadAll([]config.PluginConfig{})
-	if err != nil {
-		t.Fatalf("expected nil error for empty slice, got: %v", err)
-	}
+	m.LoadAll(nil)
+	m.LoadAll([]config.PluginConfig{})
 }
 
 func TestLoadAllInvalidPath(t *testing.T) {
 	m := NewManager(discardLogger(), nil)
 
-	err := m.LoadAll([]config.PluginConfig{
+	// Invalid paths are logged as warnings, not errors.
+	m.LoadAll([]config.PluginConfig{
 		{Path: "/nonexistent/path/to/plugin.js", Config: nil},
 	})
-	if err != nil {
-		t.Fatalf("invalid path should not fail LoadAll, got: %v", err)
-	}
 }
 
 func TestCloseReverseOrder(t *testing.T) {
@@ -126,13 +117,10 @@ func TestLoadAllNonJSPlugin(t *testing.T) {
 	}
 
 	m := NewManager(discardLogger(), nil)
-	// Non-.js paths should be skipped without error.
-	err := m.LoadAll([]config.PluginConfig{
+	// Non-.js paths should be skipped silently.
+	m.LoadAll([]config.PluginConfig{
 		{Path: goDir, Config: nil},
 	})
-	if err != nil {
-		t.Fatalf("expected nil error, got: %v", err)
-	}
 	if len(m.plugins) != 0 {
 		t.Errorf("expected 0 plugins loaded, got %d", len(m.plugins))
 	}

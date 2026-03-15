@@ -32,6 +32,7 @@ func gatewayCommand() *ucli.Command {
 				return err
 			}
 			defer func() { _ = s.pool.Close() }()
+			defer func() { _ = s.pluginMgr.Close() }()
 
 			// Scheduler is started inside runGateway after notification wiring,
 			// so early-firing jobs already have the dispatcher callback.

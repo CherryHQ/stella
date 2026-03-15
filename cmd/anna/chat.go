@@ -34,6 +34,7 @@ func chatCommand() *ucli.Command {
 				return err
 			}
 			defer func() { _ = s.pool.Close() }()
+			defer func() { _ = s.pluginMgr.Close() }()
 
 			if s.schedulerSvc != nil {
 				if err := s.schedulerSvc.Start(s.ctx); err != nil {

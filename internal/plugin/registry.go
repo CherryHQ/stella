@@ -60,9 +60,11 @@ func (r *Registry) Tools() map[string]Tool {
 }
 
 // RunHooks executes all hooks for the given event kind sequentially.
-// For "before" events, the first hook that returns an error stops execution
-// and the error is returned (cancelling the action).
-// For "after" events, errors are ignored.
+//
+// Only before_tool_call is blocking: the first hook that returns an error stops
+// execution and the error is returned, cancelling the tool call.
+// All other events (after_tool_call, session_start, session_end) are
+// fire-and-forget — hook errors are silently ignored.
 //
 // The event parameter is a string (not EventKind) so that callers in the
 // engine package can use this method without importing internal/plugin directly,

@@ -2,7 +2,10 @@ package plugin
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync"
@@ -326,6 +329,52 @@ func TestLoadJS_ConcurrentToolCalls(t *testing.T) {
 	}
 	if result != "11" {
 		t.Errorf("result = %q, want %q", result, "11")
+	}
+}
+
+func TestLoadJS_HostAPI_Fetch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"greeting":"hello from server"}`)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	pluginFile := filepath.Join(dir, "fetcher.js")
+	code := fmt.Sprintf(`
+		anna.registerTool({
+			name: "do_fetch",
+			description: "Fetches from test server",
+			parameters: {},
+			execute: function(args) {
+				var resp = anna.fetch("%s");
+				return resp.status + ":" + resp.body;
+			}
+		});
+	`, srv.URL)
+	if err := os.WriteFile(pluginFile, []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := NewRegistry(nil)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	// Use the test server's client to bypass SSRF protection (localhost).
+	p, err := LoadJS(pluginFile, nil, reg, logger, withHTTPClient(srv.Client()))
+	if err != nil {
+		t.Fatalf("LoadJS: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	tools := reg.Tools()
+	tool := tools["do_fetch"]
+	result, err := tool.Execute(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	want := `200:{"greeting":"hello from server"}`
+	if result != want {
+		t.Errorf("result = %q, want %q", result, want)
 	}
 }
 

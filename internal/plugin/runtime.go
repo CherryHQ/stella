@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -32,9 +33,17 @@ func (p *JSPlugin) Close() error {
 	return nil
 }
 
+// loadOption configures LoadJS behavior.
+type loadOption func(*hostAPI)
+
+// withHTTPClient overrides the HTTP client used by anna.fetch (for testing).
+func withHTTPClient(c *http.Client) loadOption {
+	return func(ha *hostAPI) { ha.httpClient = c }
+}
+
 // LoadJS loads a JS extension from the given path, registers its tools and hooks
 // into the registry, and returns a JSPlugin.
-func LoadJS(path string, cfg map[string]any, registry *Registry, logger *slog.Logger) (*JSPlugin, error) {
+func LoadJS(path string, cfg map[string]any, registry *Registry, logger *slog.Logger, opts ...loadOption) (*JSPlugin, error) {
 	code, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read plugin file: %w", err)
@@ -84,6 +93,9 @@ func LoadJS(path string, cfg map[string]any, registry *Registry, logger *slog.Lo
 	ha := &hostAPI{
 		logger:    plog,
 		pluginDir: pluginDir,
+	}
+	for _, opt := range opts {
+		opt(ha)
 	}
 	registerHostAPIs(ctx, anna, ha)
 
