@@ -19,8 +19,8 @@ import (
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/config"
+	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/scheduler"
-	"gopkg.in/yaml.v3"
 )
 
 //go:embed onboard.html
@@ -44,9 +44,26 @@ func onboardCommand() *ucli.Command {
 }
 
 func runOnboard(ctx context.Context, port int) error {
-	cfg, err := config.Load()
+	// 1. Create ANNA_HOME.
+	home := config.AnnaHome()
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		return fmt.Errorf("create anna home: %w", err)
+	}
+
+	// 2. Open DB.
+	dbPath := filepath.Join(home, "anna.db")
+	db, err := appdb.OpenDB(dbPath)
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// 3. Create config Store.
+	store := config.NewDBStore(db)
+
+	// 4. Seed defaults.
+	if err := store.SeedDefaults(ctx); err != nil {
+		return fmt.Errorf("seed defaults: %w", err)
 	}
 
 	mux := http.NewServeMux()
@@ -58,8 +75,14 @@ func runOnboard(ctx context.Context, port int) error {
 		_, _ = w.Write(data)
 	})
 
-	// GET /api/config — return current config + cached models.
+	// GET /api/config — return current config from DB + cached models.
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
+		cfgJSON, err := storeToConfigJSON(r.Context(), store)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+
 		// Build per-provider model lists from cache.
 		models := make(map[string][]string)
 		if cache, err := LoadModelsCache(); err == nil {
@@ -69,21 +92,20 @@ func runOnboard(ctx context.Context, port int) error {
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
-			"config": cfgToJSON(cfg),
+			"config": cfgJSON,
 			"models": models,
 		})
 	})
 
-	// POST /api/config — save config from JSON body.
+	// POST /api/config — save config from JSON body to DB.
 	mux.HandleFunc("POST /api/config", func(w http.ResponseWriter, r *http.Request) {
-		var body configJSON
+		var body onboardConfigJSON
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
 			return
 		}
-		applyJSONToConfig(cfg, &body)
 
-		if err := saveConfig(cfg); err != nil {
+		if err := applyConfigJSONToStore(r.Context(), store, &body); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "save failed: " + err.Error()})
 			return
 		}
@@ -109,8 +131,7 @@ func runOnboard(ctx context.Context, port int) error {
 			return
 		}
 
-		provCfg := config.ProviderConfig{APIKey: body.APIKey, BaseURL: body.BaseURL}
-		provider := newStreamProvider(name, provCfg)
+		provider := newStreamProviderFromCreds(name, body.APIKey, body.BaseURL)
 		if provider == nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown provider: " + name})
 			return
@@ -136,17 +157,13 @@ func runOnboard(ctx context.Context, port int) error {
 			modelIDs = append(modelIDs, m.ID)
 		}
 
-		// Update the global models cache with these results.
 		mergeProviderModelsCache(name, modelIDs)
 
 		writeJSON(w, http.StatusOK, map[string]any{"models": modelIDs})
 	})
 
-	// Scheduler jobs CRUD — direct file I/O, no scheduler needed.
-	schedulerDir := cfg.Scheduler.DataDir
-	if schedulerDir == "" {
-		schedulerDir = filepath.Join(cfg.Workspace, "scheduler")
-	}
+	// Scheduler jobs CRUD — file-based for now.
+	schedulerDir := filepath.Join(home, "workspaces", "anna", "scheduler")
 
 	mux.HandleFunc("GET /api/scheduler/jobs", func(w http.ResponseWriter, r *http.Request) {
 		jobs, err := loadSchedulerJobs(schedulerDir)
@@ -303,307 +320,157 @@ func runOnboard(ctx context.Context, port int) error {
 	return nil
 }
 
-// configJSON is the JSON shape exchanged with the frontend.
-type configJSON struct {
-	Provider    string                  `json:"provider"`
-	Model       string                  `json:"model"`
-	ModelStrong string                  `json:"model_strong"`
-	ModelFast   string                  `json:"model_fast"`
-	Workspace   string                  `json:"workspace"`
-	Providers   map[string]providerJSON `json:"providers"`
-	Channels    channelsJSON            `json:"channels"`
+// --- JSON types for the onboard API ---
+
+// onboardConfigJSON is the JSON shape exchanged with the frontend.
+type onboardConfigJSON struct {
+	Provider    string                     `json:"provider"`
+	Model       string                     `json:"model"`
+	ModelStrong string                     `json:"model_strong"`
+	ModelFast   string                     `json:"model_fast"`
+	Workspace   string                     `json:"workspace"`
+	Providers   map[string]onboardProvJSON `json:"providers"`
+	Channels    onboardChannelsJSON        `json:"channels"`
 }
 
-type providerJSON struct {
+type onboardProvJSON struct {
 	APIKey  string `json:"api_key"`
 	BaseURL string `json:"base_url"`
 }
 
-type channelsJSON struct {
-	Telegram telegramJSON `json:"telegram"`
-	QQ       qqJSON       `json:"qq"`
-	Feishu   feishuJSON   `json:"feishu"`
+type onboardChannelsJSON struct {
+	Telegram json.RawMessage `json:"telegram"`
+	QQ       json.RawMessage `json:"qq"`
+	Feishu   json.RawMessage `json:"feishu"`
 }
 
-type telegramJSON struct {
-	Enabled      *bool   `json:"enabled"`
-	EnableNotify *bool   `json:"enable_notify"`
-	Token        string  `json:"token"`
-	NotifyChat   string  `json:"notify_chat"`
-	ChannelID    string  `json:"channel_id"`
-	GroupMode    string  `json:"group_mode"`
-	AllowedIDs   []int64 `json:"allowed_ids"`
-}
-
-type qqJSON struct {
-	Enabled      *bool    `json:"enabled"`
-	EnableNotify *bool    `json:"enable_notify"`
-	AppID        string   `json:"app_id"`
-	AppSecret    string   `json:"app_secret"`
-	GroupMode    string   `json:"group_mode"`
-	AllowedIDs   []string `json:"allowed_ids"`
-}
-
-type feishuJSON struct {
-	Enabled           *bool    `json:"enabled"`
-	EnableNotify      *bool    `json:"enable_notify"`
-	AppID             string   `json:"app_id"`
-	AppSecret         string   `json:"app_secret"`
-	EncryptKey        string   `json:"encrypt_key"`
-	VerificationToken string   `json:"verification_token"`
-	NotifyChat        string   `json:"notify_chat"`
-	GroupMode         string   `json:"group_mode"`
-	AllowedIDs        []string `json:"allowed_ids"`
-}
-
-func cfgToJSON(cfg *config.Config) configJSON {
-	providers := make(map[string]providerJSON, len(cfg.Providers))
-	for name, p := range cfg.Providers {
-		providers[name] = providerJSON{APIKey: p.APIKey, BaseURL: p.BaseURL}
+// storeToConfigJSON reads the current state from the Store and returns the
+// onboard JSON representation.
+func storeToConfigJSON(ctx context.Context, store config.Store) (onboardConfigJSON, error) {
+	agents, err := store.ListEnabledAgents(ctx)
+	if err != nil {
+		return onboardConfigJSON{}, err
 	}
-	return configJSON{
-		Provider:    cfg.Provider,
-		Model:       cfg.Model,
-		ModelStrong: cfg.ModelStrong,
-		ModelFast:   cfg.ModelFast,
-		Workspace:   cfg.Workspace,
-		Providers:   providers,
-		Channels: channelsJSON{
-			Telegram: telegramJSON{
-				Enabled:      cfg.Channels.Telegram.Enabled,
-				EnableNotify: cfg.Channels.Telegram.EnableNotify,
-				Token:        cfg.Channels.Telegram.Token,
-				NotifyChat:   cfg.Channels.Telegram.NotifyChat,
-				ChannelID:    cfg.Channels.Telegram.ChannelID,
-				GroupMode:    cfg.Channels.Telegram.GroupMode,
-				AllowedIDs:   cfg.Channels.Telegram.AllowedIDs,
-			},
-			QQ: qqJSON{
-				Enabled:      cfg.Channels.QQ.Enabled,
-				EnableNotify: cfg.Channels.QQ.EnableNotify,
-				AppID:        cfg.Channels.QQ.AppID,
-				AppSecret:    cfg.Channels.QQ.AppSecret,
-				GroupMode:    cfg.Channels.QQ.GroupMode,
-				AllowedIDs:   cfg.Channels.QQ.AllowedIDs,
-			},
-			Feishu: feishuJSON{
-				Enabled:           cfg.Channels.Feishu.Enabled,
-				EnableNotify:      cfg.Channels.Feishu.EnableNotify,
-				AppID:             cfg.Channels.Feishu.AppID,
-				AppSecret:         cfg.Channels.Feishu.AppSecret,
-				EncryptKey:        cfg.Channels.Feishu.EncryptKey,
-				VerificationToken: cfg.Channels.Feishu.VerificationToken,
-				NotifyChat:        cfg.Channels.Feishu.NotifyChat,
-				GroupMode:         cfg.Channels.Feishu.GroupMode,
-				AllowedIDs:        cfg.Channels.Feishu.AllowedIDs,
-			},
-		},
-	}
-}
 
-func applyJSONToConfig(cfg *config.Config, body *configJSON) {
-	cfg.Provider = body.Provider
-	cfg.Model = body.Model
-	cfg.ModelStrong = body.ModelStrong
-	cfg.ModelFast = body.ModelFast
-	cfg.Workspace = body.Workspace
-
-	// Merge providers: update api_key/base_url but preserve existing Models.
-	existing := cfg.Providers
-	cfg.Providers = make(map[string]config.ProviderConfig, len(body.Providers))
-	for name, p := range body.Providers {
-		pc := config.ProviderConfig{APIKey: p.APIKey, BaseURL: p.BaseURL}
-		if prev, ok := existing[name]; ok {
-			pc.Models = prev.Models
+	var defaultAgent config.Agent
+	for _, a := range agents {
+		if a.ID == "anna" {
+			defaultAgent = a
+			break
 		}
-		cfg.Providers[name] = pc
+	}
+	if defaultAgent.ID == "" && len(agents) > 0 {
+		defaultAgent = agents[0]
 	}
 
-	cfg.Channels.Telegram = config.TelegramConfig{
-		Enabled:      body.Channels.Telegram.Enabled,
-		EnableNotify: body.Channels.Telegram.EnableNotify,
-		Token:        body.Channels.Telegram.Token,
-		NotifyChat:   body.Channels.Telegram.NotifyChat,
-		ChannelID:    body.Channels.Telegram.ChannelID,
-		GroupMode:    body.Channels.Telegram.GroupMode,
-		AllowedIDs:   body.Channels.Telegram.AllowedIDs,
+	providers, err := store.ListProviders(ctx)
+	if err != nil {
+		return onboardConfigJSON{}, err
 	}
 
-	cfg.Channels.QQ = config.QQConfig{
-		Enabled:      body.Channels.QQ.Enabled,
-		EnableNotify: body.Channels.QQ.EnableNotify,
-		AppID:        body.Channels.QQ.AppID,
-		AppSecret:    body.Channels.QQ.AppSecret,
-		GroupMode:    body.Channels.QQ.GroupMode,
-		AllowedIDs:   body.Channels.QQ.AllowedIDs,
+	provMap := make(map[string]onboardProvJSON, len(providers))
+	for _, p := range providers {
+		provMap[p.ID] = onboardProvJSON{APIKey: p.APIKey, BaseURL: p.BaseURL}
 	}
 
-	cfg.Channels.Feishu = config.FeishuConfig{
-		Enabled:           body.Channels.Feishu.Enabled,
-		EnableNotify:      body.Channels.Feishu.EnableNotify,
-		AppID:             body.Channels.Feishu.AppID,
-		AppSecret:         body.Channels.Feishu.AppSecret,
-		EncryptKey:        body.Channels.Feishu.EncryptKey,
-		VerificationToken: body.Channels.Feishu.VerificationToken,
-		NotifyChat:        body.Channels.Feishu.NotifyChat,
-		GroupMode:         body.Channels.Feishu.GroupMode,
-		AllowedIDs:        body.Channels.Feishu.AllowedIDs,
+	out := onboardConfigJSON{
+		Provider:    defaultAgent.ProviderID,
+		Model:       defaultAgent.Model,
+		ModelStrong: defaultAgent.ModelStrong,
+		ModelFast:   defaultAgent.ModelFast,
+		Workspace:   defaultAgent.Workspace,
+		Providers:   provMap,
 	}
+
+	// Load channel configs.
+	for _, chID := range []string{"telegram", "qq", "feishu"} {
+		ch, err := store.GetChannel(ctx, chID)
+		if err != nil {
+			continue // not configured yet
+		}
+		raw := json.RawMessage(ch.Config)
+		switch chID {
+		case "telegram":
+			out.Channels.Telegram = raw
+		case "qq":
+			out.Channels.QQ = raw
+		case "feishu":
+			out.Channels.Feishu = raw
+		}
+	}
+
+	return out, nil
 }
 
-// saveConfig reads the existing config.yaml, merges onboarding fields on top
-// (preserving runner, scheduler, and other sections), and writes it back.
-func saveConfig(cfg *config.Config) error {
-	path := config.Path()
+// applyConfigJSONToStore writes the onboard config to the DB via the Store.
+func applyConfigJSONToStore(ctx context.Context, store config.Store, body *onboardConfigJSON) error {
+	// Update providers.
+	for id, p := range body.Providers {
+		existing, err := store.GetProvider(ctx, id)
+		if err != nil {
+			// Create new provider.
+			if err := store.CreateProvider(ctx, config.Provider{
+				ID:      id,
+				Name:    id,
+				APIKey:  p.APIKey,
+				BaseURL: p.BaseURL,
+			}); err != nil {
+				return fmt.Errorf("create provider %q: %w", id, err)
+			}
+		} else {
+			existing.APIKey = p.APIKey
+			existing.BaseURL = p.BaseURL
+			if err := store.UpdateProvider(ctx, existing); err != nil {
+				return fmt.Errorf("update provider %q: %w", id, err)
+			}
+		}
+	}
 
-	// Read existing file as a raw map to preserve unknown sections.
-	existing := make(map[string]any)
-	data, err := os.ReadFile(path)
+	// Update default agent (anna) with new model settings.
+	agent, err := store.GetAgent(ctx, "anna")
 	if err == nil {
-		_ = yaml.Unmarshal(data, &existing)
+		agent.ProviderID = body.Provider
+		agent.Model = body.Model
+		agent.ModelStrong = body.ModelStrong
+		agent.ModelFast = body.ModelFast
+		if body.Workspace != "" {
+			agent.Workspace = body.Workspace
+		}
+		if err := store.UpdateAgent(ctx, agent); err != nil {
+			return fmt.Errorf("update agent: %w", err)
+		}
 	}
 
-	// Overlay onboarding-managed fields.
-	setIfNonEmpty(existing, "provider", cfg.Provider)
-	setIfNonEmpty(existing, "model", cfg.Model)
-	setOrDelete(existing, "model_strong", cfg.ModelStrong)
-	setOrDelete(existing, "model_fast", cfg.ModelFast)
-	setOrDelete(existing, "workspace", cfg.Workspace)
-
-	// Merge providers: update api_key/base_url, preserve everything else
-	// (models, headers, etc.) in each provider entry.
-	if len(cfg.Providers) > 0 {
-		existingProvs, _ := existing["providers"].(map[string]any)
-		if existingProvs == nil {
-			existingProvs = make(map[string]any)
+	// Update channels.
+	if len(body.Channels.Telegram) > 0 {
+		if err := store.UpsertChannel(ctx, config.Channel{
+			ID:      "telegram",
+			Enabled: true,
+			Config:  string(body.Channels.Telegram),
+		}); err != nil {
+			return fmt.Errorf("upsert telegram channel: %w", err)
 		}
-
-		// Remove providers no longer in the onboarding set.
-		for name := range existingProvs {
-			if _, ok := cfg.Providers[name]; !ok {
-				delete(existingProvs, name)
-			}
+	}
+	if len(body.Channels.QQ) > 0 {
+		if err := store.UpsertChannel(ctx, config.Channel{
+			ID:      "qq",
+			Enabled: true,
+			Config:  string(body.Channels.QQ),
+		}); err != nil {
+			return fmt.Errorf("upsert qq channel: %w", err)
 		}
-
-		for name, p := range cfg.Providers {
-			pm, _ := existingProvs[name].(map[string]any)
-			if pm == nil {
-				pm = make(map[string]any)
-			}
-			setOrDelete(pm, "api_key", p.APIKey)
-			setOrDelete(pm, "base_url", p.BaseURL)
-			existingProvs[name] = pm
+	}
+	if len(body.Channels.Feishu) > 0 {
+		if err := store.UpsertChannel(ctx, config.Channel{
+			ID:      "feishu",
+			Enabled: true,
+			Config:  string(body.Channels.Feishu),
+		}); err != nil {
+			return fmt.Errorf("upsert feishu channel: %w", err)
 		}
-		existing["providers"] = existingProvs
-	} else {
-		delete(existing, "providers")
 	}
 
-	// Merge telegram channel config.
-	tg := cfg.Channels.Telegram
-	if tg.Enabled != nil || tg.EnableNotify != nil || tg.Token != "" || tg.NotifyChat != "" || tg.ChannelID != "" || tg.GroupMode != "" || len(tg.AllowedIDs) > 0 {
-		existingChannels, _ := existing["channels"].(map[string]any)
-		if existingChannels == nil {
-			existingChannels = make(map[string]any)
-		}
-		tgMap, _ := existingChannels["telegram"].(map[string]any)
-		if tgMap == nil {
-			tgMap = make(map[string]any)
-		}
-		setBoolOrDelete(tgMap, "enabled", tg.Enabled)
-		setBoolOrDelete(tgMap, "enable_notify", tg.EnableNotify)
-		setOrDelete(tgMap, "token", tg.Token)
-		setOrDelete(tgMap, "notify_chat", tg.NotifyChat)
-		setOrDelete(tgMap, "channel_id", tg.ChannelID)
-		setOrDelete(tgMap, "group_mode", tg.GroupMode)
-		if len(tg.AllowedIDs) > 0 {
-			tgMap["allowed_ids"] = tg.AllowedIDs
-		} else {
-			delete(tgMap, "allowed_ids")
-		}
-		existingChannels["telegram"] = tgMap
-		existing["channels"] = existingChannels
-	}
-
-	// Merge QQ channel config.
-	qq := cfg.Channels.QQ
-	if qq.Enabled != nil || qq.EnableNotify != nil || qq.AppID != "" || qq.AppSecret != "" || qq.GroupMode != "" || len(qq.AllowedIDs) > 0 {
-		existingChannels, _ := existing["channels"].(map[string]any)
-		if existingChannels == nil {
-			existingChannels = make(map[string]any)
-		}
-		qqMap, _ := existingChannels["qq"].(map[string]any)
-		if qqMap == nil {
-			qqMap = make(map[string]any)
-		}
-		setBoolOrDelete(qqMap, "enabled", qq.Enabled)
-		setBoolOrDelete(qqMap, "enable_notify", qq.EnableNotify)
-		setOrDelete(qqMap, "app_id", qq.AppID)
-		setOrDelete(qqMap, "app_secret", qq.AppSecret)
-		setOrDelete(qqMap, "group_mode", qq.GroupMode)
-		if len(qq.AllowedIDs) > 0 {
-			qqMap["allowed_ids"] = qq.AllowedIDs
-		} else {
-			delete(qqMap, "allowed_ids")
-		}
-		existingChannels["qq"] = qqMap
-		existing["channels"] = existingChannels
-	}
-
-	// Merge Feishu channel config.
-	fs := cfg.Channels.Feishu
-	if fs.Enabled != nil || fs.EnableNotify != nil || fs.AppID != "" || fs.AppSecret != "" || fs.NotifyChat != "" || fs.GroupMode != "" || len(fs.AllowedIDs) > 0 {
-		existingChannels, _ := existing["channels"].(map[string]any)
-		if existingChannels == nil {
-			existingChannels = make(map[string]any)
-		}
-		fsMap, _ := existingChannels["feishu"].(map[string]any)
-		if fsMap == nil {
-			fsMap = make(map[string]any)
-		}
-		setBoolOrDelete(fsMap, "enabled", fs.Enabled)
-		setBoolOrDelete(fsMap, "enable_notify", fs.EnableNotify)
-		setOrDelete(fsMap, "app_id", fs.AppID)
-		setOrDelete(fsMap, "app_secret", fs.AppSecret)
-		setOrDelete(fsMap, "encrypt_key", fs.EncryptKey)
-		setOrDelete(fsMap, "verification_token", fs.VerificationToken)
-		setOrDelete(fsMap, "notify_chat", fs.NotifyChat)
-		setOrDelete(fsMap, "group_mode", fs.GroupMode)
-		if len(fs.AllowedIDs) > 0 {
-			fsMap["allowed_ids"] = fs.AllowedIDs
-		} else {
-			delete(fsMap, "allowed_ids")
-		}
-		existingChannels["feishu"] = fsMap
-		existing["channels"] = existingChannels
-	}
-
-	return writeYAMLFile(path, existing)
-}
-
-// setIfNonEmpty sets key in m if value is non-empty, otherwise leaves it as-is.
-func setIfNonEmpty(m map[string]any, key, value string) {
-	if value != "" {
-		m[key] = value
-	}
-}
-
-// setOrDelete sets key in m if value is non-empty, otherwise deletes it.
-func setOrDelete(m map[string]any, key, value string) {
-	if value != "" {
-		m[key] = value
-	} else {
-		delete(m, key)
-	}
-}
-
-// setBoolOrDelete sets key in m if ptr is non-nil, otherwise deletes it.
-func setBoolOrDelete(m map[string]any, key string, ptr *bool) {
-	if ptr != nil {
-		m[key] = *ptr
-	} else {
-		delete(m, key)
-	}
+	return nil
 }
 
 // mergeProviderModelsCache updates the models cache for a single provider,
@@ -614,7 +481,6 @@ func mergeProviderModelsCache(providerName string, modelIDs []string) {
 		cache = &ModelsCache{}
 	}
 
-	// Keep models from other providers.
 	var kept []CachedModel
 	for _, m := range cache.Models {
 		if m.Provider != providerName {
@@ -622,7 +488,6 @@ func mergeProviderModelsCache(providerName string, modelIDs []string) {
 		}
 	}
 
-	// Add new models for this provider.
 	for _, id := range modelIDs {
 		kept = append(kept, CachedModel{Provider: providerName, Model: id})
 	}
@@ -727,16 +592,4 @@ func openBrowser(url string) {
 		}
 		go func() { _ = cmd.Wait() }()
 	}
-}
-
-// writeYAMLFile writes a map as YAML to the given path.
-func writeYAMLFile(path string, data map[string]any) error {
-	out, err := yaml.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("marshal config: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create config dir: %w", err)
-	}
-	return os.WriteFile(path, out, 0o644)
 }

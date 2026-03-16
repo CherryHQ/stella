@@ -157,13 +157,18 @@ func collectModels(cfg *config.Config) []channel.ModelOption {
 
 // newStreamProvider creates an ai.ProviderAdapter for the given provider name and config.
 func newStreamProvider(name string, cfg config.ProviderConfig) ai.ProviderAdapter {
+	return newStreamProviderFromCreds(name, cfg.APIKey, cfg.BaseURL)
+}
+
+// newStreamProviderFromCreds creates an ai.ProviderAdapter from raw credentials.
+func newStreamProviderFromCreds(name, apiKey, baseURL string) ai.ProviderAdapter {
 	switch name {
 	case "anthropic":
-		return anthropic.New(anthropic.Config{BaseURL: cfg.BaseURL, APIKey: cfg.APIKey})
+		return anthropic.New(anthropic.Config{BaseURL: baseURL, APIKey: apiKey})
 	case "openai":
-		return openai.New(openai.Config{BaseURL: cfg.BaseURL, APIKey: cfg.APIKey})
+		return openai.New(openai.Config{BaseURL: baseURL, APIKey: apiKey})
 	case "openai-response":
-		return openairesponse.New(openairesponse.Config{BaseURL: cfg.BaseURL, APIKey: cfg.APIKey})
+		return openairesponse.New(openairesponse.Config{BaseURL: baseURL, APIKey: apiKey})
 	default:
 		return nil
 	}
