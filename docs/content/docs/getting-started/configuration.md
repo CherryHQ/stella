@@ -82,6 +82,13 @@ runner:
     max_tokens: 80000            # Auto-compact when history exceeds this
     keep_tail: 20                # Keep N recent messages after compaction
 
+# Plugins (JS extensions)
+plugins:
+  - path: ~/plugins/hello.js               # Path to .js file (~ expanded)
+  - path: /abs/path/notify.js
+    config:                                 # Optional key-value config
+      webhook_url: "https://example.com"
+
 # Scheduled tasks
 scheduler:
   enabled: true

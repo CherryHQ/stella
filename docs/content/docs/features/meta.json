@@ -1,4 +1,4 @@
 {
   "title": "Features",
-  "pages": ["scheduler-system", "notification-system"]
+  "pages": ["plugin-system", "scheduler-system", "notification-system"]
 }

@@ -34,6 +34,7 @@ func chatCommand() *ucli.Command {
 				return err
 			}
 			defer func() { _ = s.pool.Close() }()
+			defer func() { _ = s.pluginMgr.Close() }()
 
 			if s.schedulerSvc != nil {
 				if err := s.schedulerSvc.Start(s.ctx); err != nil {
@@ -46,7 +47,7 @@ func chatCommand() *ucli.Command {
 				return clicmd.RunStream(s.ctx, s.pool)
 			}
 			listFn := func() []channel.ModelOption { return collectModels(s.cfg) }
-			switchFn := modelSwitcher(s.cfg, s.pool, s.extraTools)
+			switchFn := modelSwitcher(s.cfg, s.pool, s.extraTools, s.pluginMgr.Registry())
 			return clicmd.RunChat(s.ctx, s.pool, s.cfg.Provider, s.cfg.Model, listFn, switchFn)
 		},
 	}

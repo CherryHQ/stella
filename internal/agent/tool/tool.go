@@ -29,6 +29,15 @@ func NewRegistry(workDir string) *Registry {
 	return r
 }
 
+// BuiltinNames returns the names of all currently registered tools.
+func (r *Registry) BuiltinNames() []string {
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	return names
+}
+
 // Register adds a tool to the registry.
 func (r *Registry) Register(t Tool) {
 	r.tools[t.Definition().Name] = t
