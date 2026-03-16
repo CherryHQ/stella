@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
+	appdb "github.com/vaayne/anna/internal/db"
 )
 
 // CachedModel is the on-disk representation of a model in models.json.
@@ -62,8 +62,9 @@ func SaveModelsCache(cache *ModelsCache) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// fetchModelsFromAPIs queries all configured providers for their model lists.
-func fetchModelsFromAPIs(cfg *config.Config) []CachedModel {
+// fetchModelsFromProviders queries all configured providers (from the DB Store)
+// for their model lists.
+func fetchModelsFromProviders(ctx context.Context, store config.Store) []CachedModel {
 	seen := make(map[string]bool)
 	var models []CachedModel
 
@@ -76,44 +77,39 @@ func fetchModelsFromAPIs(cfg *config.Config) []CachedModel {
 		models = append(models, CachedModel{Provider: provider, Model: model})
 	}
 
-	provNames := make([]string, 0, len(cfg.Providers))
-	for name := range cfg.Providers {
-		provNames = append(provNames, name)
+	providers, err := store.ListProviders(ctx)
+	if err != nil {
+		slog.Warn("failed to list providers", "error", err)
+		return nil
 	}
-	sort.Strings(provNames)
 
-	for _, provName := range provNames {
-		prov := cfg.Providers[provName]
-
-		// Explicitly listed models from config.
-		for _, m := range prov.Models {
-			add(provName, m.ID)
+	for _, prov := range providers {
+		p := newStreamProviderFromCreds(prov.ID, prov.APIKey, prov.BaseURL)
+		if p == nil {
+			continue
 		}
-
-		// Fetch from provider API.
-		if provider := newStreamProvider(provName, prov); provider != nil {
-			if lister, ok := provider.(ai.ModelLister); ok {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				listed, err := lister.ListModels(ctx)
-				cancel()
-				if err != nil {
-					slog.Warn("failed to list models from provider", "provider", provName, "error", err)
-					continue
-				}
-				for _, m := range listed {
-					add(provName, m.ID)
-				}
-			}
+		lister, ok := p.(ai.ModelLister)
+		if !ok {
+			continue
+		}
+		fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		listed, err := lister.ListModels(fetchCtx)
+		cancel()
+		if err != nil {
+			slog.Warn("failed to list models from provider", "provider", prov.ID, "error", err)
+			continue
+		}
+		for _, m := range listed {
+			add(prov.ID, m.ID)
 		}
 	}
 
 	return models
 }
 
-// collectModels builds the list of available provider/model pairs.
-// It reads from the models cache, falling back to config-only models
-// if the cache doesn't exist. Run "anna models update" to populate the cache.
-func collectModels(cfg *config.Config) []channel.ModelOption {
+// collectModelsFromStore builds the list of available provider/model pairs
+// using the Store and models cache.
+func collectModelsFromStore(ctx context.Context, store config.Store, snap *config.Snapshot) []channel.ModelOption {
 	seen := make(map[string]bool)
 	var models []channel.ModelOption
 
@@ -127,7 +123,7 @@ func collectModels(cfg *config.Config) []channel.ModelOption {
 	}
 
 	// Current model first.
-	add(cfg.Provider, cfg.Model)
+	add(snap.Provider, snap.Model)
 
 	// Load from cache.
 	if cache, err := LoadModelsCache(); err == nil {
@@ -137,27 +133,15 @@ func collectModels(cfg *config.Config) []channel.ModelOption {
 		return models
 	}
 
-	// Fallback: config-only models (no API calls).
-	provNames := make([]string, 0, len(cfg.Providers))
-	for name := range cfg.Providers {
-		provNames = append(provNames, name)
-	}
-	sort.Strings(provNames)
-
-	for _, provName := range provNames {
-		prov := cfg.Providers[provName]
-		add(provName, cfg.Model)
-		for _, m := range prov.Models {
-			add(provName, m.ID)
+	// Fallback: list from provider API via store.
+	providers, err := store.ListProviders(ctx)
+	if err == nil {
+		for _, prov := range providers {
+			add(prov.ID, snap.Model)
 		}
 	}
 
 	return models
-}
-
-// newStreamProvider creates an ai.ProviderAdapter for the given provider name and config.
-func newStreamProvider(name string, cfg config.ProviderConfig) ai.ProviderAdapter {
-	return newStreamProviderFromCreds(name, cfg.APIKey, cfg.BaseURL)
 }
 
 // newStreamProviderFromCreds creates an ai.ProviderAdapter from raw credentials.
@@ -172,6 +156,28 @@ func newStreamProviderFromCreds(name, apiKey, baseURL string) ai.ProviderAdapter
 	default:
 		return nil
 	}
+}
+
+// openStore is a helper that opens the DB and returns a Store.
+func openStore() (config.Store, error) {
+	db, err := appdb.OpenDB(config.DBPath())
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+	store := config.NewDBStore(db)
+	if err := store.SeedDefaults(context.Background()); err != nil {
+		return nil, fmt.Errorf("seed defaults: %w", err)
+	}
+	return store, nil
+}
+
+// defaultSnapshot returns a snapshot for the first enabled agent.
+func defaultSnapshot(ctx context.Context, store config.Store) (*config.Snapshot, error) {
+	agents, err := store.ListEnabledAgents(ctx)
+	if err != nil || len(agents) == 0 {
+		return nil, fmt.Errorf("no enabled agents found")
+	}
+	return store.Snapshot(ctx, agents[0].ID)
 }
 
 func modelsCommand() *ucli.Command {
@@ -198,13 +204,17 @@ func modelsListCommand() *ucli.Command {
 }
 
 func modelsListAction(c *ucli.Context) error {
-	cfg, err := config.Load()
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+	snap, err := defaultSnapshot(c.Context, store)
 	if err != nil {
 		return err
 	}
 
-	models := collectModels(cfg)
-	printModelsGrouped(models, cfg.Provider, cfg.Model)
+	models := collectModelsFromStore(c.Context, store, snap)
+	printModelsGrouped(models, snap.Provider, snap.Model)
 	return nil
 }
 
@@ -213,14 +223,18 @@ func modelsUpdateCommand() *ucli.Command {
 		Name:  "update",
 		Usage: "Fetch models from all provider APIs and update the cache",
 		Action: func(c *ucli.Context) error {
-			cfg, err := config.Load()
+			store, err := openStore()
 			if err != nil {
 				return err
 			}
 
-			fmt.Fprintf(os.Stderr, "Fetching models from %d provider(s)...\n", len(cfg.Providers))
+			providers, err := store.ListProviders(c.Context)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "Fetching models from %d provider(s)...\n", len(providers))
 
-			cached := fetchModelsFromAPIs(cfg)
+			cached := fetchModelsFromProviders(c.Context, store)
 			cache := &ModelsCache{
 				UpdatedAt: time.Now().UTC(),
 				Models:    cached,
@@ -230,7 +244,7 @@ func modelsUpdateCommand() *ucli.Command {
 				return fmt.Errorf("save models cache: %w", err)
 			}
 
-			fmt.Fprintf(os.Stderr, "Cached %d models to %s\n", len(cached), cfg.ModelsPath())
+			fmt.Fprintf(os.Stderr, "Cached %d models to %s\n", len(cached), modelsCachePath())
 			return nil
 		},
 	}
@@ -241,11 +255,15 @@ func modelsCurrentCommand() *ucli.Command {
 		Name:  "current",
 		Usage: "Show the active provider and model",
 		Action: func(c *ucli.Context) error {
-			cfg, err := config.Load()
+			store, err := openStore()
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%s/%s\n", cfg.Provider, cfg.Model)
+			snap, err := defaultSnapshot(c.Context, store)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%s/%s\n", snap.Provider, snap.Model)
 			return nil
 		},
 	}
@@ -267,13 +285,23 @@ func modelsSetCommand() *ucli.Command {
 				return fmt.Errorf("invalid format %q, expected provider/model", arg)
 			}
 
-			cfg, err := config.Load()
+			store, err := openStore()
 			if err != nil {
 				return err
 			}
-			if err := config.SaveModelSelection(cfg.Workspace, provider, model); err != nil {
-				return err
+
+			// Update the default agent's model in the DB.
+			agents, err := store.ListEnabledAgents(c.Context)
+			if err != nil || len(agents) == 0 {
+				return fmt.Errorf("no enabled agents found")
 			}
+			agent := agents[0]
+			agent.ProviderID = provider
+			agent.Model = model
+			if err := store.UpdateAgent(c.Context, agent); err != nil {
+				return fmt.Errorf("update agent: %w", err)
+			}
+
 			fmt.Printf("Switched to %s/%s\n", provider, model)
 			return nil
 		},
@@ -291,12 +319,16 @@ func modelsSearchCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna models search <query>")
 			}
 
-			cfg, err := config.Load()
+			store, err := openStore()
+			if err != nil {
+				return err
+			}
+			snap, err := defaultSnapshot(c.Context, store)
 			if err != nil {
 				return err
 			}
 
-			models := collectModels(cfg)
+			models := collectModelsFromStore(c.Context, store, snap)
 			var matched []channel.ModelOption
 			for _, m := range models {
 				label := strings.ToLower(m.Provider + "/" + m.Model)
@@ -310,7 +342,7 @@ func modelsSearchCommand() *ucli.Command {
 				return nil
 			}
 
-			printModelsGrouped(matched, cfg.Provider, cfg.Model)
+			printModelsGrouped(matched, snap.Provider, snap.Model)
 			return nil
 		},
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os/signal"
@@ -34,11 +35,10 @@ func gatewayCommand() *ucli.Command {
 			defer func() { _ = s.pool.Close() }()
 			defer func() { _ = s.pluginMgr.Close() }()
 
-			// Scheduler is started inside runGateway after notification wiring,
-			// so early-firing jobs already have the dispatcher callback.
-
-			listFn := func() []channel.ModelOption { return collectModels(s.cfg) }
-			switchFn := modelSwitcher(s.cfg, s.pool, s.extraTools, s.pluginMgr.Registry())
+			listFn := func() []channel.ModelOption {
+				return collectModelsFromStore(ctx, s.store, s.snap)
+			}
+			switchFn := modelSwitcher(s.snap, s.store, s.pool, s.extraTools, s.pluginMgr.Registry())
 			return runGateway(s.ctx, s, listFn, switchFn)
 		},
 	}
@@ -48,35 +48,38 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 	g, gctx := errgroup.WithContext(ctx)
 	var channels []channel.Channel
 
+	// Load channel configs from DB.
+	tgCfg := loadChannelConfig[telegramChannelConfig](s.store, "telegram")
+	qqCfg := loadChannelConfig[qqChannelConfig](s.store, "qq")
+	fsCfg := loadChannelConfig[feishuChannelConfig](s.store, "feishu")
+
 	// --- Telegram ---
-	tg := s.cfg.Channels.Telegram
-	if tg.IsEnabled() && tg.Token != "" {
+	if tgCfg != nil && tgCfg.Token != "" {
 		slog.Info("starting telegram bot")
 
 		tgBot, err := telegram.New(telegram.Config{
-			Token:      tg.Token,
-			NotifyChat: tg.NotifyChat,
-			ChannelID:  tg.ChannelID,
-			GroupMode:  tg.GroupMode,
-			AllowedIDs: tg.AllowedIDs,
+			Token:      tgCfg.Token,
+			NotifyChat: tgCfg.NotifyChat,
+			ChannelID:  tgCfg.ChannelID,
+			GroupMode:  tgCfg.GroupMode,
+			AllowedIDs: tgCfg.AllowedIDs,
 		}, s.pool, listFn, switchFn)
 		if err != nil {
 			return fmt.Errorf("create telegram bot: %w", err)
 		}
 
-		defaultChat := tg.NotifyChat
+		defaultChat := tgCfg.NotifyChat
 		if defaultChat == "" {
-			defaultChat = tg.ChannelID
+			defaultChat = tgCfg.ChannelID
 		}
 		channels = append(channels, tgBot)
-		if tg.IsEnabled() && tg.IsNotifyEnabled() {
+		if tgCfg.EnableNotify {
 			s.notifier.Register(tgBot, defaultChat)
 		}
 	}
 
 	// --- QQ ---
-	qqCfg := s.cfg.Channels.QQ
-	if qqCfg.IsEnabled() && qqCfg.AppID != "" && qqCfg.AppSecret != "" {
+	if qqCfg != nil && qqCfg.AppID != "" && qqCfg.AppSecret != "" {
 		slog.Info("starting qq bot")
 
 		qqBot, err := qq.New(qq.Config{
@@ -90,14 +93,13 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 		}
 
 		channels = append(channels, qqBot)
-		if qqCfg.IsEnabled() && qqCfg.IsNotifyEnabled() {
+		if qqCfg.EnableNotify {
 			s.notifier.Register(qqBot, "")
 		}
 	}
 
 	// --- Feishu ---
-	fsCfg := s.cfg.Channels.Feishu
-	if fsCfg.IsEnabled() && fsCfg.AppID != "" && fsCfg.AppSecret != "" {
+	if fsCfg != nil && fsCfg.AppID != "" && fsCfg.AppSecret != "" {
 		slog.Info("starting feishu bot")
 
 		fsBot, err := feishu.New(feishu.Config{
@@ -114,13 +116,13 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 		}
 
 		channels = append(channels, fsBot)
-		if fsCfg.IsEnabled() && fsCfg.IsNotifyEnabled() {
+		if fsCfg.EnableNotify {
 			s.notifier.Register(fsBot, fsCfg.NotifyChat)
 		}
 	}
 
 	if len(channels) == 0 {
-		return fmt.Errorf("no gateway services configured. Check %s", config.Path())
+		return fmt.Errorf("no gateway services configured. Run 'anna onboard' to set up channels")
 	}
 
 	if len(s.notifier.Channels()) == 0 {
@@ -140,7 +142,7 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 	// Wire scheduler notifications and start the scheduler AFTER channels
 	// are registered, so early-firing jobs already use the dispatcher.
 	if s.schedulerSvc != nil {
-		if s.cfg.Scheduler.IsEnabled() {
+		if s.snap.Scheduler.IsEnabled() {
 			wireSchedulerNotifier(s.schedulerSvc, s.pool, s.notifier)
 			if err := s.schedulerSvc.Start(ctx); err != nil {
 				return fmt.Errorf("start scheduler: %w", err)
@@ -153,8 +155,8 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 		defer func() { _ = s.schedulerSvc.Stop() }()
 	}
 
-	if s.cfg.Heartbeat.IsEnabled() && s.schedulerSvc != nil {
-		if err := s.schedulerSvc.StartHeartbeat(ctx, s.cfg.Heartbeat.Interval()); err != nil {
+	if s.snap.Heartbeat.IsEnabled() && s.schedulerSvc != nil {
+		if err := s.schedulerSvc.StartHeartbeat(ctx, s.snap.Heartbeat.Interval()); err != nil {
 			return fmt.Errorf("schedule heartbeat: %w", err)
 		}
 	}
@@ -186,4 +188,49 @@ func wireSchedulerNotifier(schedulerSvc *scheduler.Service, pool *agent.Pool, di
 			}
 		}
 	})
+}
+
+// --- Channel config types for JSON deserialization ---
+
+type telegramChannelConfig struct {
+	Token        string  `json:"token"`
+	NotifyChat   string  `json:"notify_chat"`
+	ChannelID    string  `json:"channel_id"`
+	GroupMode    string  `json:"group_mode"`
+	AllowedIDs   []int64 `json:"allowed_ids"`
+	EnableNotify bool    `json:"enable_notify"`
+}
+
+type qqChannelConfig struct {
+	AppID        string   `json:"app_id"`
+	AppSecret    string   `json:"app_secret"`
+	GroupMode    string   `json:"group_mode"`
+	AllowedIDs   []string `json:"allowed_ids"`
+	EnableNotify bool     `json:"enable_notify"`
+}
+
+type feishuChannelConfig struct {
+	AppID             string   `json:"app_id"`
+	AppSecret         string   `json:"app_secret"`
+	EncryptKey        string   `json:"encrypt_key"`
+	VerificationToken string   `json:"verification_token"`
+	NotifyChat        string   `json:"notify_chat"`
+	GroupMode         string   `json:"group_mode"`
+	AllowedIDs        []string `json:"allowed_ids"`
+	EnableNotify      bool     `json:"enable_notify"`
+}
+
+// loadChannelConfig loads a channel's JSON config from the store and
+// deserializes it into the given type. Returns nil if not found.
+func loadChannelConfig[T any](store config.Store, channelID string) *T {
+	ch, err := store.GetChannel(context.Background(), channelID)
+	if err != nil {
+		return nil
+	}
+	var cfg T
+	if err := json.Unmarshal([]byte(ch.Config), &cfg); err != nil {
+		slog.Warn("failed to parse channel config", "channel", channelID, "error", err)
+		return nil
+	}
+	return &cfg
 }
