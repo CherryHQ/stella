@@ -168,11 +168,18 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	}
 
 	// Wire the scheduler callback now that pool exists.
+	// Route to the correct pool via PoolManager when the job has an AgentID.
 	if schedulerSvc != nil {
 		schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) {
+			targetPool := pool
+			if job.AgentID != "" {
+				if p := poolMgr.Get(job.AgentID); p != nil {
+					targetPool = p
+				}
+			}
 			sessionID := job.SessionID()
 			msg := fmt.Sprintf("[Scheduled Task] %s\n\nInstruction: %s", job.Name, job.Message)
-			ch := pool.Chat(ctx, sessionID, msg)
+			ch := targetPool.Chat(ctx, sessionID, msg)
 			for evt := range ch {
 				if evt.Err != nil {
 					slog.Error("scheduler job error", "job_id", job.ID, "error", evt.Err)
