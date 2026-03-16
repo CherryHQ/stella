@@ -179,3 +179,83 @@
 - Chat/gateway code still calls `s.pool.Close()` which only closes the default pool; Phase 6 should switch to `s.poolManager.Close()`
 - The scheduler currently routes all jobs through the default pool — Phase 4 task 4.11 should route via poolManager using job's agent_id
 - `agent.ExtraToolsFactory` is available but not currently used — Phase 4 can use it to inject per-agent user_memory tools
+
+## Phase 4: Multi-User, Agent Routing & User Memory — Complete
+
+### Commits (on `feat/multi-user-agent` branch)
+
+1. `2851a63` — Task 4.1: Add user resolution (ResolveUser)
+2. `aefd292` — Task 4.2: Add agent routing (ResolveAgent, ChatContext)
+3. `f28f414` — Task 4.3: Add BuildSessionKey helper
+4. `28954d8` — Tasks 4.4+4.5: Propagate agent_id/user_id in session/conversation records
+5. `24ef21e` — Task 4.6: Add UserMemoryStore
+6. `cf71741` — Task 4.7: Add user_memory tool
+7. `5eeec43` — Task 4.8: Add BuildSystemPromptFromDB
+8. `42ce0e5` — Task 4.9: Add /agent command (AgentCommander)
+9. `49b3866` — Task 4.10: Refactor Telegram bot for multi-user/multi-agent routing
+10. `e0646a0` — Task 4.11: Add agent_id/user_id to scheduler jobs with pool routing
+11. `96c2ab8` — Fix TestBotCommands for new /agent command
+
+### Files Changed
+
+**New:**
+- `internal/channel/identity.go` — ResolveUser, ResolveAgent, ChatContext
+- `internal/channel/agent_command.go` — AgentCommander (List, Switch), FormatAgentList
+- `internal/memory/usermemory.go` — UserMemoryStore (Get, Set)
+- `internal/memory/tool/usermemory.go` — UserMemoryTool (read/write per-user notes)
+
+**Modified:**
+- `internal/agent/session.go` — Added BuildSessionKey helper
+- `internal/agent/pool.go` — createSessionLocked now sets AgentID from pool, accepts optional userID
+- `internal/memory/types.go` — Added AgentID and UserID fields to SessionInfo
+- `internal/memory/engine.go` — SaveInfo passes agent_id/user_id to CreateConversationFull; convToSessionInfo reads them
+- `internal/db/queries/conversations.sql` — CreateConversationFull includes agent_id/user_id; added UpdateConversationAgentUser
+- `internal/db/sqlc/` — Regenerated with new query params
+- `internal/agent/runner/prompt.go` — Added BuildSystemPromptFromDB and DBPromptParams; old BuildSystemPrompt marked deprecated
+- `internal/channel/telegram/telegram.go` — Added poolManager, store, agentCmd fields; BotOption pattern; resolvePool method
+- `internal/channel/telegram/handler.go` — Added /agent command handler; updated botCommands
+- `internal/channel/telegram/stream.go` — streamResponse uses resolvePool instead of fixed pool
+- `internal/channel/telegram/telegram_test.go` — Updated TestBotCommands for /agent
+- `internal/scheduler/job.go` — Added AgentID, UserID fields; SessionID includes agent prefix
+- `internal/scheduler/persistence.go` — insertJob/dbRowToJob/migrateJobsFile handle agent_id/user_id
+- `internal/db/queries/scheduler_jobs.sql` — CreateSchedulerJob includes agent_id/user_id
+- `cmd/anna/gateway.go` — wireSchedulerNotifier uses PoolManager; Telegram bot gets WithPoolManager/WithStore
+- `cmd/anna/commands.go` — Scheduler callback routes via PoolManager
+
+### Key Types/Functions Added
+
+- `channel.ChatContext` — describes chat environment (Platform, ChatID, IsGroup)
+- `channel.ResolveUser(ctx, store, externalID, platform, name) (User, error)` — upsert user
+- `channel.ResolveAgent(ctx, store, user, chat) (string, error)` — agent routing (DM/group/fallback)
+- `channel.AgentCommander` — List/Switch agents for /agent command
+- `channel.FormatAgentList(agents, currentID) string` — format agent list with marker
+- `agent.BuildSessionKey(agentID, platform, userID, context) string` — scoped session keys
+- `memory.UserMemoryStore` — Get/Set per-user-per-agent memory
+- `tool.UserMemoryTool` — agent tool for read/write user notes
+- `runner.DBPromptParams` / `runner.BuildSystemPromptFromDB` — DB-backed system prompt builder
+- `telegram.BotOption` / `telegram.WithPoolManager` / `telegram.WithStore` — options for multi-agent
+
+### Design Decisions
+
+- Telegram refactor uses option pattern (BotOption) to maintain backward compatibility — existing callers that don't pass WithPoolManager/WithStore still work with the default pool
+- resolvePool falls back gracefully to default pool at every step (user resolution failure, agent resolution failure, pool lookup failure)
+- BuildSystemPromptFromDB is additive — old BuildSystemPrompt is kept (marked deprecated) for Phase 6 cleanup
+- Agent routing: group > DM default > first enabled agent fallback chain
+- Session keys use BuildSessionKey for new code, but the old channelForChat pattern still works for backward compat
+- Scheduler job SessionID includes agent prefix when set, backward compatible with existing jobs that have no agent_id
+- user_memory tool is created per user-agent pair (injected at runtime); not yet wired into PoolManager ExtraToolsFactory — Phase 5/6 can wire this
+
+### Test Results
+
+- All tests pass with `go test -race ./...`
+- 0 lint issues
+- Pre-existing integration test failures unchanged (require API key)
+
+### Notes for Phase 5
+
+- `BuildSessionKey` is available but not yet used by Telegram — it still uses `channelForChat`. Phase 6 can switch to BuildSessionKey for proper scoping
+- `BuildSystemPromptFromDB` is available but not yet wired into the runner factory — Phase 6 should update `NewRunnerFactory` to use it when agent has system_prompt
+- `user_memory` tool is not yet injected into agent pools — needs `ExtraToolsFactory` wiring in PoolManager or per-request injection
+- Telegram `/agent` handler is registered but QQ/Feishu don't have it yet — Phase 6 adds this
+- `s.pool.Close()` in gateway deferred close should become `s.poolManager.Close()` in Phase 6
+- The admin API (Phase 5) can use AgentCommander for agent management endpoints
