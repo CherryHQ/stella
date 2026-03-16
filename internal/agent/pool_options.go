@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/engine"
+	"github.com/vaayne/anna/internal/memory"
 )
 
 // PoolOption configures a Pool.
@@ -48,6 +49,13 @@ func WithFastModel(model string) PoolOption {
 func WithPluginHooks(hooks engine.PluginHookRunner) PoolOption {
 	return func(p *Pool) {
 		p.pluginHooks = hooks
+	}
+}
+
+// WithUserMemory sets the per-user memory store for system prompt injection.
+func WithUserMemory(store *memory.UserMemoryStore) PoolOption {
+	return func(p *Pool) {
+		p.userMemory = store
 	}
 }
 

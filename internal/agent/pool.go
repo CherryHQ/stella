@@ -29,6 +29,7 @@ type Pool struct {
 	defaultModel string                  // default model ID for new runners
 	fastModel    string                  // model ID used for compaction / fast tasks
 	pluginHooks  engine.PluginHookRunner // optional plugin lifecycle hooks
+	userMemory   *memory.UserMemoryStore // optional per-user memory for prompt injection
 	log          *slog.Logger
 }
 
@@ -482,7 +483,17 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 		effectiveModel = p.defaultModel
 	}
 
-	r, err := p.factory(ctx, effectiveModel)
+	// Load per-user memory for system prompt injection.
+	var userMem string
+	if p.userMemory != nil && sess.Info.UserID != 0 && p.agentID != "" {
+		if content, err := p.userMemory.Get(ctx, sess.Info.UserID, p.agentID); err == nil {
+			userMem = content
+		} else {
+			p.log.Warn("failed to load user memory", "user_id", sess.Info.UserID, "agent_id", p.agentID, "error", err)
+		}
+	}
+
+	r, err := p.factory(ctx, runner.RunnerParams{Model: effectiveModel, UserMemory: userMem})
 	if err != nil {
 		return nil, nil, err
 	}

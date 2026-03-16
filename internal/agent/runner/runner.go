@@ -43,9 +43,14 @@ type Runner interface {
 	Chat(ctx context.Context, history []ai.Message, message MessageContent) <-chan Event
 }
 
-// NewRunnerFunc creates a new Runner instance for the given model ID.
-// An empty model means use the default.
-type NewRunnerFunc func(ctx context.Context, model string) (Runner, error)
+// RunnerParams holds parameters for creating a new Runner instance.
+type RunnerParams struct {
+	Model      string // model ID (empty = use default)
+	UserMemory string // per-user memory to inject into system prompt
+}
+
+// NewRunnerFunc creates a new Runner instance with the given params.
+type NewRunnerFunc func(ctx context.Context, params RunnerParams) (Runner, error)
 
 // HandlerFunc is an adapter to allow the use of ordinary functions as Runners.
 // If f is a function with the appropriate signature, HandlerFunc(f) is a Runner

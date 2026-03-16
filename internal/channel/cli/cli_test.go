@@ -39,7 +39,7 @@ func (m *mockRunner) Chat(_ context.Context, _ []ai.Message, _ runner.MessageCon
 }
 
 func newTestPool(events []runner.Event) *agent.Pool {
-	factory := func(_ context.Context, _ string) (runner.Runner, error) {
+	factory := func(_ context.Context, _ runner.RunnerParams) (runner.Runner, error) {
 		return &mockRunner{events: events}, nil
 	}
 	return agent.NewPool(factory, newTestMemEngine())
