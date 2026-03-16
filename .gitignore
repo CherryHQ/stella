@@ -1,5 +1,6 @@
 bin/
-.agents/
+.agents/anna
+.agents/sessions
 cover.out
 coverage.out
 coverage.html
