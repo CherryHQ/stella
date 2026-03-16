@@ -131,3 +131,39 @@ func (q *Queries) ListSchedulerJobs(ctx context.Context) ([]SchedulerJob, error)
 	}
 	return items, nil
 }
+
+const updateSchedulerJob = `-- name: UpdateSchedulerJob :exec
+UPDATE scheduler_jobs
+SET name = ?, schedule_cron = ?, schedule_every = ?, schedule_at = ?,
+    message = ?, session_mode = ?, enabled = ?, agent_id = ?, user_id = ?
+WHERE id = ?
+`
+
+type UpdateSchedulerJobParams struct {
+	Name          string         `json:"name"`
+	ScheduleCron  string         `json:"schedule_cron"`
+	ScheduleEvery string         `json:"schedule_every"`
+	ScheduleAt    string         `json:"schedule_at"`
+	Message       string         `json:"message"`
+	SessionMode   string         `json:"session_mode"`
+	Enabled       int64          `json:"enabled"`
+	AgentID       sql.NullString `json:"agent_id"`
+	UserID        sql.NullInt64  `json:"user_id"`
+	ID            string         `json:"id"`
+}
+
+func (q *Queries) UpdateSchedulerJob(ctx context.Context, arg UpdateSchedulerJobParams) error {
+	_, err := q.db.ExecContext(ctx, updateSchedulerJob,
+		arg.Name,
+		arg.ScheduleCron,
+		arg.ScheduleEvery,
+		arg.ScheduleAt,
+		arg.Message,
+		arg.SessionMode,
+		arg.Enabled,
+		arg.AgentID,
+		arg.UserID,
+		arg.ID,
+	)
+	return err
+}
