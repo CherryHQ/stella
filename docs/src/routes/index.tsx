@@ -44,6 +44,7 @@ function Home() {
       <div className="home-page">
         <HeroSection />
         <FeaturesSection />
+        <MeetAnnaSection />
         <FooterCTA />
       </div>
     </HomeLayout>
@@ -162,6 +163,47 @@ function FeatureItem({
       </h3>
       <p className="text-fd-muted-foreground text-sm leading-relaxed">{body}</p>
     </div>
+  );
+}
+
+function MeetAnnaSection() {
+  return (
+    <section className="px-6 pt-20 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto border-t border-fd-border">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-12 lg:gap-20 items-center">
+        <div>
+          <p className="text-xs font-medium tracking-[0.2em] uppercase text-[var(--color-terra)] mb-6 font-[family-name:var(--font-mono)]">
+            Meet Anna
+          </p>
+          <h2 className="text-3xl md:text-4xl tracking-tight text-fd-foreground mb-6">
+            A calm digital companion
+          </h2>
+          <p className="text-fd-muted-foreground text-base leading-relaxed max-w-lg mb-4">
+            Anna is more than a tool — she is a quiet, trustworthy assistant
+            designed for the long run. She remembers your context, connects your
+            workflows across devices, and stays reliably present without getting
+            in the way.
+          </p>
+          <p className="text-fd-muted-foreground text-base leading-relaxed max-w-lg mb-8">
+            Built with real warmth and digital precision. Local-first,
+            memory-aware, and always composed.
+          </p>
+          <Link
+            to="/about"
+            className="inline-flex items-center gap-2 text-[var(--color-terra)] text-sm font-medium hover:text-[var(--color-terra-light)] transition-colors"
+          >
+            Learn more about Anna
+            <span aria-hidden="true">&rarr;</span>
+          </Link>
+        </div>
+        <div className="flex justify-center lg:justify-end">
+          <img
+            src="/avatar.png"
+            alt="Anna — AI assistant"
+            className="w-48 h-48 md:w-56 md:h-56 rounded-2xl object-cover ring-1 ring-white/[0.08]"
+          />
+        </div>
+      </div>
+    </section>
   );
 }
 
