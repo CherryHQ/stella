@@ -44,14 +44,14 @@
 
 ## Phase 5: Web API & Admin UI
 
-- [ ] 5.1 — Create `internal/admin/` package: server struct, middleware, route mounting (`internal/admin/server.go`)
-- [ ] 5.2 — Provider APIs: CRUD + model listing (`internal/admin/providers.go`)
-- [ ] 5.3 — Agent APIs: CRUD (`internal/admin/agents.go`)
-- [ ] 5.4 — Channel APIs: `GET/PUT /api/channels/{platform}` (`internal/admin/channels.go`)
-- [ ] 5.5 — User, session, settings APIs (`internal/admin/users.go`, `sessions.go`, `settings.go`)
-- [ ] 5.6 — Scheduler job APIs with agent_id + user_id (`internal/admin/scheduler.go`)
-- [ ] 5.7 — Build admin SPA: Alpine.js + Tailwind, tabs for all entities (`internal/admin/ui/index.html`)
-- [ ] 5.8 — Wire admin server into `anna onboard` and `anna gateway` (`cmd/anna/`)
+- [x] 5.1 — Create `internal/admin/` package: server struct, middleware, route mounting (`internal/admin/server.go`)
+- [x] 5.2 — Provider APIs: CRUD + model listing (`internal/admin/providers.go`)
+- [x] 5.3 — Agent APIs: CRUD (`internal/admin/agents.go`)
+- [x] 5.4 — Channel APIs: `GET/PUT /api/channels/{platform}` (`internal/admin/channels.go`)
+- [x] 5.5 — User, session, settings APIs (`internal/admin/users.go`, `sessions.go`, `settings.go`)
+- [x] 5.6 — Scheduler job APIs with agent_id + user_id (`internal/admin/scheduler.go`)
+- [x] 5.7 — Build admin SPA: Alpine.js + Tailwind, tabs for all entities (`internal/admin/ui/index.html`)
+- [x] 5.8 — Wire admin server into `anna onboard` and `anna gateway` (`cmd/anna/`)
 
 ## Phase 6: Integration & Cleanup
 

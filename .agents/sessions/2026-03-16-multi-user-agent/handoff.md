@@ -259,3 +259,76 @@
 - Telegram `/agent` handler is registered but QQ/Feishu don't have it yet — Phase 6 adds this
 - `s.pool.Close()` in gateway deferred close should become `s.poolManager.Close()` in Phase 6
 - The admin API (Phase 5) can use AgentCommander for agent management endpoints
+
+## Phase 5: Web API & Admin UI — Complete
+
+### Commits (on `feat/multi-user-agent` branch)
+
+1. `7195b1c` — Tasks 5.1-5.7: Add admin API server and SPA for managing all entities
+2. `9f1e9ad` — Task 5.8: Wire admin server into onboard and gateway commands
+
+### Files Changed
+
+**New:**
+- `internal/admin/server.go` — Server struct, middleware (CORS, JSON content-type), route mounting, JSON helpers
+- `internal/admin/providers.go` — Provider CRUD + model fetching from upstream APIs
+- `internal/admin/agents.go` — Agent CRUD
+- `internal/admin/channels.go` — Channel list, get by platform, update
+- `internal/admin/users.go` — User list (read-only)
+- `internal/admin/sessions.go` — Session list from memory engine (read-only)
+- `internal/admin/settings.go` — Settings get/put key-value
+- `internal/admin/scheduler.go` — Scheduler job CRUD with agent_id/user_id
+- `internal/admin/embed.go` — go:embed for admin SPA
+- `internal/admin/ui/index.html` — Alpine.js + Tailwind CSS admin SPA
+
+**Modified:**
+- `internal/db/queries/scheduler_jobs.sql` — Added UpdateSchedulerJob query
+- `internal/db/sqlc/scheduler_jobs.sql.go` — Regenerated with UpdateSchedulerJob
+- `cmd/anna/onboard.go` — Rewritten to use admin.New() instead of inline handlers; removed legacy types
+- `cmd/anna/gateway.go` — Added --admin-port flag, optional admin server startup alongside gateway
+- `cmd/anna/commands.go` — Added db and mem fields to setupResult
+
+### Key Types/Functions
+
+- `admin.Server` — HTTP server with store, memory engine, and sqlc queries
+- `admin.New(store, mem, db) *Server` — constructor that mounts all routes
+- `admin.Server.Handler() http.Handler` — returns handler with CORS/JSON middleware
+- `writeData(w, status, data)` / `writeError(w, status, msg)` — JSON response helpers
+- `newProviderFromCreds(name, apiKey, baseURL)` — creates provider adapter for model listing
+
+### API Endpoints
+
+**Providers:** GET/POST /api/providers, GET/PUT/DELETE /api/providers/{id}, POST /api/providers/{id}/models
+**Agents:** GET/POST /api/agents, GET/PUT/DELETE /api/agents/{id}
+**Channels:** GET /api/channels, GET/PUT /api/channels/{platform}
+**Users:** GET /api/users
+**Sessions:** GET /api/sessions
+**Settings:** GET/PUT /api/settings/{key}
+**Scheduler:** GET/POST /api/scheduler/jobs, PUT/DELETE /api/scheduler/jobs/{id}
+
+### Design Decisions
+
+- Admin server depends only on `config.Store`, `memory.Engine`, and `*sql.DB` (for direct sqlc queries on scheduler_jobs)
+- JSON response format: `{"data": ...}` for success, `{"error": "..."}` for errors
+- CORS allows all origins (for local dev)
+- Model fetching: if no API key in request body, tries loading from stored provider
+- Scheduler jobs use sqlc directly via `*sql.DB` rather than going through config.Store
+- Admin SPA is a single HTML file using Alpine.js + Tailwind CSS via CDN (no build step)
+- onboard.go was simplified significantly — all inline handlers replaced by admin.New()
+- The old onboard.html is now unused (could be removed in Phase 6 cleanup)
+
+### Test Results
+
+- All tests pass with `go test -race ./...`
+- 0 lint issues
+- Pre-existing integration test failure unchanged (requires API key)
+
+### Notes for Phase 6
+
+- The old `cmd/anna/onboard.html` file is no longer referenced and should be removed in cleanup
+- `s.pool.Close()` in gateway deferred close should become `s.poolManager.Close()`
+- `BuildSessionKey` is available but not yet used by Telegram
+- `BuildSystemPromptFromDB` is available but not yet wired into the runner factory
+- `user_memory` tool is not yet injected into agent pools
+- Telegram `/agent` handler is registered but QQ/Feishu don't have it yet
+- Admin API could be extended with auth/RBAC in future (currently no auth)
