@@ -260,7 +260,8 @@ func truncate(s string, maxLen int) string {
 // for smooth animated streaming. For groups (where drafts aren't supported)
 // it falls back to the edit-in-place approach.
 func (b *Bot) streamResponse(c tele.Context, sessionID string, prompt runner.MessageContent) (string, *toolTracker, []runner.ImageEvent, error) {
-	events := b.pool.Chat(b.ctx, sessionID, prompt)
+	pool := b.resolvePool(c)
+	events := pool.Chat(b.ctx, sessionID, prompt)
 
 	if !isGroup(c) {
 		text, tracker, images, fallback, err := b.streamDraft(c, events)
