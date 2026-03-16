@@ -1,6 +1,7 @@
 ---
 title: Scheduler System
 ---
+
 ## Status
 
 Implemented — `internal/scheduler/` package with gocron/v2 scheduler, SQLite persistence, and agent tool.
@@ -35,13 +36,13 @@ Agent (via tool call)
 
 Top-level package (under `internal/`). Five files:
 
-| File | Purpose |
-|------|---------|
-| `internal/scheduler/job.go` | `Job` and `Schedule` types |
-| `internal/scheduler/service.go` | `Service` — gocron wrapper, scheduling, job CRUD |
-| `internal/scheduler/heartbeat.go` | Heartbeat polling — decide/execute/notify via LLM |
-| `internal/scheduler/persistence.go` | Database persistence (load/save/migrate jobs) |
-| `internal/scheduler/tool.go` | `SchedulerTool` — agent tool implementing `tool.Tool` |
+| File                                | Purpose                                               |
+| ----------------------------------- | ----------------------------------------------------- |
+| `internal/scheduler/job.go`         | `Job` and `Schedule` types                            |
+| `internal/scheduler/service.go`     | `Service` — gocron wrapper, scheduling, job CRUD      |
+| `internal/scheduler/heartbeat.go`   | Heartbeat polling — decide/execute/notify via LLM     |
+| `internal/scheduler/persistence.go` | Database persistence (load/save/migrate jobs)         |
+| `internal/scheduler/tool.go`        | `SchedulerTool` — agent tool implementing `tool.Tool` |
 
 ### Key Types
 
@@ -83,6 +84,7 @@ On first startup, if a legacy `jobs.json` file exists (from pre-DB versions), jo
 Jobs scheduled with `at` run exactly once at the specified time and are automatically removed from both the scheduler and `jobs.json` after execution. This keeps the job list clean without stale entries.
 
 Behavior details:
+
 - The `at` field must be a valid RFC3339 timestamp with timezone offset
 - Timestamps in the past are rejected at creation time
 - If Anna restarts and a one-time job's timestamp has already passed, the job is silently skipped (not scheduled) but remains in the database until manually removed
@@ -105,6 +107,7 @@ scheduler:
 ```
 
 Scheduler is only active when:
+
 - `scheduler.enabled` is `true`
 - `runner.type` is `go` (the Pi runner doesn't support custom tools)
 
@@ -115,6 +118,7 @@ The `scheduler` tool is automatically registered with the Go runner when schedul
 ### `add` — Create a job
 
 Parameters:
+
 - `name` (required) — human-readable name
 - `message` (required) — the instruction to execute on each run
 - `cron` — cron expression (use this OR `every` OR `at`)
@@ -123,13 +127,25 @@ Parameters:
 - `session_mode` — `"reuse"` (default) keeps conversation history; `"new"` starts fresh each execution
 
 Example (recurring): _"Set a reminder every 30 minutes to check my email"_ triggers:
+
 ```json
-{"action": "add", "name": "email check", "message": "Check my email and summarize new messages", "every": "30m"}
+{
+  "action": "add",
+  "name": "email check",
+  "message": "Check my email and summarize new messages",
+  "every": "30m"
+}
 ```
 
 Example (one-time): _"Remind me at 2:40 PM to check Beijing weather"_ triggers:
+
 ```json
-{"action": "add", "name": "weather reminder", "message": "Check Beijing weather and send me a summary", "at": "2024-01-15T14:40:00+08:00"}
+{
+  "action": "add",
+  "name": "weather reminder",
+  "message": "Check Beijing weather and send me a summary",
+  "at": "2024-01-15T14:40:00+08:00"
+}
 ```
 
 ### `list` — List all jobs
@@ -139,6 +155,7 @@ No parameters. Returns all scheduled jobs as JSON.
 ### `remove` — Delete a job
 
 Parameters:
+
 - `id` (required) — job ID from `add` or `list`
 
 ## Heartbeat
@@ -159,8 +176,8 @@ Heartbeat is a built-in periodic task managed by the scheduler service. It polls
 
 ```yaml
 heartbeat:
-  enabled: false     # default: false
-  every: 10m         # poll interval (Go duration)
+  enabled: false # default: false
+  every: 10m # poll interval (Go duration)
   file: HEARTBEAT.md # relative to workspace unless absolute
 ```
 

@@ -1,6 +1,7 @@
 ---
 title: Notification System
 ---
+
 ## Status
 
 Implemented — `internal/channel/notifier.go`, `internal/channel/notify_tool.go`, `internal/channel/telegram/telegram.go`.
@@ -134,6 +135,7 @@ The dispatcher is created early (in `setup`) so the notify tool can reference it
 ### Cron → Notification
 
 When a scheduled job fires:
+
 1. The job runs through `pool.Chat()` to get the agent's response
 2. The full response text is collected
 3. The text is broadcast via `dispatcher.Notify()` to all channels
@@ -150,20 +152,20 @@ In CLI mode (`anna chat`), no notification channels are registered, so the `noti
 channels:
   telegram:
     token: "BOT_TOKEN"
-    notify_chat: "123456789"    # default chat for notifications
-    channel_id: "@my_channel"   # fallback if notify_chat is empty
-    group_mode: "mention"       # mention | always | disabled
-    allowed_ids:                # restrict bot to these user IDs
+    notify_chat: "123456789" # default chat for notifications
+    channel_id: "@my_channel" # fallback if notify_chat is empty
+    group_mode: "mention" # mention | always | disabled
+    allowed_ids: # restrict bot to these user IDs
       - 136345060
 ```
 
 Environment variable overrides:
 
-| Variable | Field |
-|----------|-------|
+| Variable                    | Field                           |
+| --------------------------- | ------------------------------- |
 | `ANNA_TELEGRAM_NOTIFY_CHAT` | `channels.telegram.notify_chat` |
-| `ANNA_TELEGRAM_CHANNEL_ID` | `channels.telegram.channel_id` |
-| `ANNA_TELEGRAM_GROUP_MODE` | `channels.telegram.group_mode` |
+| `ANNA_TELEGRAM_CHANNEL_ID`  | `channels.telegram.channel_id`  |
+| `ANNA_TELEGRAM_GROUP_MODE`  | `channels.telegram.group_mode`  |
 
 ### Notify Target Resolution
 
@@ -226,6 +228,7 @@ Session ID for groups = group chat ID (shared context per group).
 ### Notification Delivery
 
 `telegram.Bot.Notify()` supports:
+
 - Numeric chat IDs (`"136345060"`)
 - Channel usernames (`"@my_channel"`)
 - Markdown rendering with MarkdownV2 fallback to plain text

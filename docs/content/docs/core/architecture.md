@@ -1,6 +1,7 @@
 ---
 title: Architecture
 ---
+
 ## System Overview
 
 anna is structured as a set of loosely coupled packages wired together in `main.go`. The core flow:
@@ -145,11 +146,11 @@ internal/
 
 Three LLM providers are supported:
 
-| Provider | API | Use Case |
-|----------|-----|----------|
-| `anthropic` | Messages API | Claude models |
-| `openai` | Chat Completions API | GPT models |
-| `openai-response` | Responses API | OpenAI-compatible services (Perplexity, Together.ai, etc.) |
+| Provider          | API                  | Use Case                                                   |
+| ----------------- | -------------------- | ---------------------------------------------------------- |
+| `anthropic`       | Messages API         | Claude models                                              |
+| `openai`          | Chat Completions API | GPT models                                                 |
+| `openai-response` | Responses API        | OpenAI-compatible services (Perplexity, Together.ai, etc.) |
 
 Each provider implements the `ai.ProviderAdapter` interface for streaming responses and optionally `ai.ModelLister` for model discovery. All providers support multimodal input (text + images) via the `ImageContent` type, converting to their native image format (base64 blocks for Anthropic, data URI image_url for OpenAI).
 
@@ -166,14 +167,14 @@ type Tool interface {
 
 ### Built-in Tools (always available)
 
-| Tool | Description |
-|------|-------------|
-| `read` | Read file contents with UTF-8 safe truncation |
-| `bash` | Execute shell commands |
-| `write` | Create/overwrite files atomically |
-| `edit` | Edit file sections preserving context |
-| `truncate` | Truncate large outputs to temp files |
-| `delegate` | Spawn subagent loops for bounded subtasks |
+| Tool       | Description                                   |
+| ---------- | --------------------------------------------- |
+| `read`     | Read file contents with UTF-8 safe truncation |
+| `bash`     | Execute shell commands                        |
+| `write`    | Create/overwrite files atomically             |
+| `edit`     | Edit file sections preserving context         |
+| `truncate` | Truncate large outputs to temp files          |
+| `delegate` | Spawn subagent loops for bounded subtasks     |
 
 ### Delegation
 
@@ -187,14 +188,14 @@ The `delegate` tool enables the agent to spawn child agent loops with isolated c
 
 ### Extra Tools (conditionally injected)
 
-| Tool | Condition | Description |
-|------|-----------|-------------|
-| `memory_grep` | Always | Search messages and summaries by keyword |
-| `memory_describe` | Always | Inspect a summary node's metadata and lineage |
-| `memory_expand` | Always | Drill into a summary to retrieve children |
-| `skills` | Always | Skill management (search/install/list/remove from skills.sh) |
-| `scheduler` | `scheduler.enabled: true` | Schedule tasks (add/list/remove jobs) |
-| `notify` | Gateway mode + channel configured | Send notifications via dispatcher |
+| Tool              | Condition                         | Description                                                  |
+| ----------------- | --------------------------------- | ------------------------------------------------------------ |
+| `memory_grep`     | Always                            | Search messages and summaries by keyword                     |
+| `memory_describe` | Always                            | Inspect a summary node's metadata and lineage                |
+| `memory_expand`   | Always                            | Drill into a summary to retrieve children                    |
+| `skills`          | Always                            | Skill management (search/install/list/remove from skills.sh) |
+| `scheduler`       | `scheduler.enabled: true`         | Schedule tasks (add/list/remove jobs)                        |
+| `notify`          | Gateway mode + channel configured | Send notifications via dispatcher                            |
 
 ## Session Lifecycle
 

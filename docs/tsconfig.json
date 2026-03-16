@@ -19,6 +19,7 @@
       "@/*": ["./src/*"],
       "collections/*": [".source/*"]
     },
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   }
 }

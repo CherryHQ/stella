@@ -71,8 +71,8 @@ function HeroSection() {
           </h1>
           <div className="animate-fade-up stagger-3 max-w-md">
             <p className="text-fd-muted-foreground text-base leading-relaxed mb-12">
-              Single binary, lossless context management. Talk from your
-              terminal or any messenger — anna remembers everything.
+              Single binary, lossless context management. Talk from your terminal or any messenger —
+              anna remembers everything.
             </p>
           </div>
           <div className="animate-fade-up stagger-4 flex items-center gap-5">
@@ -110,13 +110,9 @@ function HeroSection() {
               {terminalLines.map((line, i) => (
                 <div key={i} className={line.prompt ? "mt-3 first:mt-0" : ""}>
                   {line.prompt && (
-                    <span className="text-[var(--color-terra-light)] select-none">
-                      ${" "}
-                    </span>
+                    <span className="text-[var(--color-terra-light)] select-none">$ </span>
                   )}
-                  <span
-                    className={line.prompt ? "text-white/90" : "text-white/50"}
-                  >
+                  <span className={line.prompt ? "text-white/90" : "text-white/50"}>
                     {line.text}
                   </span>
                 </div>
@@ -144,23 +140,13 @@ function FeaturesSection() {
   );
 }
 
-function FeatureItem({
-  label,
-  title,
-  body,
-}: {
-  label: string;
-  title: string;
-  body: string;
-}) {
+function FeatureItem({ label, title, body }: { label: string; title: string; body: string }) {
   return (
     <div>
       <span className="text-[11px] font-medium tracking-[0.15em] text-[var(--color-terra)] uppercase mb-3 block font-[family-name:var(--font-mono)]">
         {label}
       </span>
-      <h3 className="text-xl md:text-2xl tracking-tight text-fd-foreground mb-3">
-        {title}
-      </h3>
+      <h3 className="text-xl md:text-2xl tracking-tight text-fd-foreground mb-3">{title}</h3>
       <p className="text-fd-muted-foreground text-sm leading-relaxed">{body}</p>
     </div>
   );
@@ -178,14 +164,13 @@ function MeetAnnaSection() {
             A calm digital companion
           </h2>
           <p className="text-fd-muted-foreground text-base leading-relaxed max-w-lg mb-4">
-            Anna is more than a tool — she is a quiet, trustworthy assistant
-            designed for the long run. She remembers your context, connects your
-            workflows across devices, and stays reliably present without getting
-            in the way.
+            Anna is more than a tool — she is a quiet, trustworthy assistant designed for the long
+            run. She remembers your context, connects your workflows across devices, and stays
+            reliably present without getting in the way.
           </p>
           <p className="text-fd-muted-foreground text-base leading-relaxed max-w-lg mb-8">
-            Built with real warmth and digital precision. Local-first,
-            memory-aware, and always composed.
+            Built with real warmth and digital precision. Local-first, memory-aware, and always
+            composed.
           </p>
           <Link
             to="/about"

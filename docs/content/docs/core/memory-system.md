@@ -1,6 +1,7 @@
 ---
 title: Memory System
 ---
+
 ## Lossless Context Management (LCM)
 
 ### Overview
@@ -42,16 +43,16 @@ ai.Message (user/assistant/tool_result)
 
 The `Engine` interface (`internal/memory/types.go`) is the main entry point:
 
-| Method | Description |
-|--------|-------------|
-| `Bootstrap(ctx, sessionID)` | Ensures a conversation record exists for the session |
-| `Ingest(ctx, sessionID, msg)` | Persists a single `ai.Message` and appends a context item |
-| `IngestBatch(ctx, sessionID, msgs)` | Persists multiple messages in a single transaction |
+| Method                                        | Description                                                |
+| --------------------------------------------- | ---------------------------------------------------------- |
+| `Bootstrap(ctx, sessionID)`                   | Ensures a conversation record exists for the session       |
+| `Ingest(ctx, sessionID, msg)`                 | Persists a single `ai.Message` and appends a context item  |
+| `IngestBatch(ctx, sessionID, msgs)`           | Persists multiple messages in a single transaction         |
 | `Assemble(ctx, sessionID, budget, freshTail)` | Builds context within token budget, returns `[]ai.Message` |
-| `Compact(ctx, sessionID, mode)` | Runs compaction passes (leaf + condensation) |
-| `NeedsCompaction(ctx, sessionID, threshold)` | Checks if context tokens exceed the absolute threshold |
-| `Retrieval()` | Returns the `RetrievalEngine` for search/explore tools |
-| `Close()` | Releases database resources |
+| `Compact(ctx, sessionID, mode)`               | Runs compaction passes (leaf + condensation)               |
+| `NeedsCompaction(ctx, sessionID, threshold)`  | Checks if context tokens exceed the absolute threshold     |
+| `Retrieval()`                                 | Returns the `RetrievalEngine` for search/explore tools     |
+| `Close()`                                     | Releases database resources                                |
 
 Engine options: `WithFreshTail(n)`, `WithLogger(log)`.
 
@@ -79,15 +80,15 @@ mise run generate
 
 **Schema:**
 
-| Table | Purpose |
-|-------|---------|
-| `conversations` | One per session (`session_id` → `id` mapping) |
-| `messages` | Raw messages with `role`, `content`, `token_count`, sequential `seq` |
-| `summaries` | Summary nodes: `kind` (`leaf`/`condensed`), `depth`, `content`, token stats, time range |
-| `context_items` | Ordered context window: each item points to either a `message_id` or `summary_id` |
-| `summary_messages` | Links leaf summaries to their source messages (preserves lineage) |
-| `summary_parents` | Links condensed summaries to their parent summaries (DAG edges) |
-| `message_parts` | Structured message parts (`text`, `reasoning`, `tool`) for future use |
+| Table              | Purpose                                                                                 |
+| ------------------ | --------------------------------------------------------------------------------------- |
+| `conversations`    | One per session (`session_id` → `id` mapping)                                           |
+| `messages`         | Raw messages with `role`, `content`, `token_count`, sequential `seq`                    |
+| `summaries`        | Summary nodes: `kind` (`leaf`/`condensed`), `depth`, `content`, token stats, time range |
+| `context_items`    | Ordered context window: each item points to either a `message_id` or `summary_id`       |
+| `summary_messages` | Links leaf summaries to their source messages (preserves lineage)                       |
+| `summary_parents`  | Links condensed summaries to their parent summaries (DAG edges)                         |
+| `message_parts`    | Structured message parts (`text`, `reasoning`, `tool`) for future use                   |
 
 ### Compaction
 
@@ -95,10 +96,10 @@ Compaction reduces the context window by summarizing older messages and summarie
 
 **Modes:**
 
-| Mode | Behavior |
-|------|----------|
-| `CompactionIncremental` | Single leaf pass + one condensed pass. Runs automatically when context exceeds threshold. |
-| `CompactionFull` | Repeats leaf + condensed passes until no more compaction is possible (up to 10 iterations). |
+| Mode                    | Behavior                                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------------------- |
+| `CompactionIncremental` | Single leaf pass + one condensed pass. Runs automatically when context exceeds threshold.   |
+| `CompactionFull`        | Repeats leaf + condensed passes until no more compaction is possible (up to 10 iterations). |
 
 **Passes:**
 
@@ -146,11 +147,11 @@ The `Assembler` builds the context window for each LLM call (`internal/memory/as
 
 Three tools in `internal/memory/tool/` provide read access to compacted history:
 
-| Tool | Purpose | Key Parameters |
-|------|---------|----------------|
-| `memory_grep` | Search messages and summaries by substring pattern | `pattern` (required), `scope` (`messages`/`summaries`/`both`), `limit` (default 20) |
-| `memory_describe` | Inspect a summary's metadata, content, and lineage (parents/children) | `summary_id` |
-| `memory_expand` | Drill into a summary: returns source messages (leaf) or child summaries (condensed) | `summary_id`, `token_cap` (default 4000) |
+| Tool              | Purpose                                                                             | Key Parameters                                                                      |
+| ----------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `memory_grep`     | Search messages and summaries by substring pattern                                  | `pattern` (required), `scope` (`messages`/`summaries`/`both`), `limit` (default 20) |
+| `memory_describe` | Inspect a summary's metadata, content, and lineage (parents/children)               | `summary_id`                                                                        |
+| `memory_expand`   | Drill into a summary: returns source messages (leaf) or child summaries (condensed) | `summary_id`, `token_cap` (default 4000)                                            |
 
 Tools extract the session ID from context via `memory.SessionIDFromContext(ctx)`.
 
@@ -162,11 +163,11 @@ Tools extract the session ID from context via `memory.SessionIDFromContext(ctx)`
 
 ### Configuration Defaults
 
-| Constant | Value | Description |
-|----------|-------|-------------|
-| `DefaultFreshTail` | 20 | Messages protected from compaction |
-| `DefaultContextThreshold` | 0.75 | Fraction of budget that triggers compaction |
-| `DefaultLeafChunkSize` | 10 | Minimum messages per leaf summary |
+| Constant                  | Value | Description                                 |
+| ------------------------- | ----- | ------------------------------------------- |
+| `DefaultFreshTail`        | 20    | Messages protected from compaction          |
+| `DefaultContextThreshold` | 0.75  | Fraction of budget that triggers compaction |
+| `DefaultLeafChunkSize`    | 10    | Minimum messages per leaf summary           |
 
 ### Integration
 
@@ -182,10 +183,10 @@ The memory engine is wired into the agent Pool. When a session uses it:
 
 Two persistent markdown files are loaded into the system prompt under `<memory>` tags:
 
-| File | Purpose |
-|------|---------|
+| File      | Purpose                                                |
+| --------- | ------------------------------------------------------ |
 | `SOUL.md` | Agent identity, personality, tone, communication style |
-| `USER.md` | User preferences, name, timezone, personal context |
+| `USER.md` | User preferences, name, timezone, personal context     |
 
 - Location: `~/.anna/workspace/`
 - Editable by the agent via the `edit` or `write` tool
