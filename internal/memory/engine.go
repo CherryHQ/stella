@@ -236,6 +236,8 @@ func (e *engine) SaveInfo(ctx context.Context, info SessionInfo) error {
 			Channel:    info.Channel,
 			Archived:   boolToInt(info.Archived),
 			LastActive: lastActive.UTC().Format("2006-01-02 15:04:05"),
+			AgentID:    sql.NullString{String: info.AgentID, Valid: info.AgentID != ""},
+			UserID:     sql.NullInt64{Int64: info.UserID, Valid: info.UserID != 0},
 		})
 		if err != nil {
 			return fmt.Errorf("create conversation: %w", err)
@@ -334,6 +336,12 @@ func convToSessionInfo(conv sqlc.Conversation) SessionInfo {
 	}
 	if conv.Title.Valid {
 		info.Title = conv.Title.String
+	}
+	if conv.AgentID.Valid {
+		info.AgentID = conv.AgentID.String
+	}
+	if conv.UserID.Valid {
+		info.UserID = conv.UserID.Int64
 	}
 	if t, err := time.Parse("2006-01-02 15:04:05", conv.CreatedAt); err == nil {
 		info.CreatedAt = t

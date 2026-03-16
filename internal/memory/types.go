@@ -191,6 +191,8 @@ type SessionInfo struct {
 	CreatedAt  time.Time
 	LastActive time.Time
 	Archived   bool
+	AgentID    string // agent this session belongs to (empty for legacy sessions)
+	UserID     int64  // user this session belongs to (0 for legacy sessions)
 }
 
 // EstimateTokens returns a rough token count (~4 chars per token).
