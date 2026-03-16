@@ -44,30 +44,12 @@ func ResetAnnaHome() {
 	annaHomeVal = ""
 }
 
-// Path returns the path to config.yaml inside the anna home.
-func Path() string {
-	return filepath.Join(AnnaHome(), "config.yaml")
-}
-
 // CachePath returns the cache directory inside the anna home.
 func CachePath() string {
 	return filepath.Join(AnnaHome(), "cache")
 }
 
-// Workspace path helpers — all data lives under Workspace.
-
-func (cfg *Config) StatePath() string {
-	return filepath.Join(cfg.Workspace, "state.yaml")
-}
-
-func (cfg *Config) SkillsPath() string {
-	return filepath.Join(cfg.Workspace, "skills")
-}
-
-func (cfg *Config) ModelsPath() string {
-	return filepath.Join(CachePath(), "models.json")
-}
-
-func (cfg *Config) LogPath() string {
-	return filepath.Join(cfg.Workspace, "anna.log")
+// DBPath returns the default database path inside the anna home.
+func DBPath() string {
+	return filepath.Join(AnnaHome(), "anna.db")
 }
