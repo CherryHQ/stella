@@ -99,6 +99,7 @@ func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []ai.Messa
 					emit(ToolFinished{Result: result})
 				}
 			},
+			PluginHooks: cfg.PluginHooks,
 		})
 		if err != nil {
 			return history, err

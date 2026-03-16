@@ -2,6 +2,8 @@ package agent
 
 import (
 	"time"
+
+	"github.com/vaayne/anna/internal/agent/engine"
 )
 
 // PoolOption configures a Pool.
@@ -32,6 +34,13 @@ func WithDefaultModel(model string) PoolOption {
 func WithFastModel(model string) PoolOption {
 	return func(p *Pool) {
 		p.fastModel = model
+	}
+}
+
+// WithPluginHooks sets the plugin lifecycle hook runner.
+func WithPluginHooks(hooks engine.PluginHookRunner) PoolOption {
+	return func(p *Pool) {
+		p.pluginHooks = hooks
 	}
 }
 

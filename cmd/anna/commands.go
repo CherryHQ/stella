@@ -11,11 +11,12 @@ import (
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/agent/tool"
+	agenttool "github.com/vaayne/anna/internal/agent/tool"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/memory"
 	memorytool "github.com/vaayne/anna/internal/memory/tool"
+	pluginmgr "github.com/vaayne/anna/internal/plugin"
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/internal/skills"
 )
@@ -30,6 +31,7 @@ func newApp() *ucli.App {
 			gatewayCommand(),
 			modelsCommand(),
 			skillsCommand(),
+			pluginCommand(),
 			onboardCommand(),
 			versionCommand(),
 			upgradeCommand(),
@@ -42,8 +44,9 @@ type setupResult struct {
 	cfg          *config.Config
 	pool         *agent.Pool
 	schedulerSvc *scheduler.Service
-	extraTools   []tool.Tool
+	extraTools   []agenttool.Tool
 	notifier     *channel.Dispatcher
+	pluginMgr    *pluginmgr.Manager
 }
 
 func setup(parent context.Context, gateway bool) (*setupResult, error) {
@@ -58,7 +61,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Create scheduler service and tool before the runner factory so the tool
 	// can be injected into the Go runner.
 	var schedulerSvc *scheduler.Service
-	var extraTools []tool.Tool
+	var extraTools []agenttool.Tool
 	memoryDBPath := filepath.Join(cfg.Workspace, "memory.db")
 	if cfg.Scheduler.IsEnabled() || (gateway && cfg.Heartbeat.IsEnabled()) {
 		schedulerSvc, err = scheduler.NewFromPath(memoryDBPath)
@@ -97,8 +100,26 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		memorytool.NewExpandTool(memoryEngine),
 	)
 
+	// Collect built-in tool names from the default registry + extra tools
+	// so the plugin registry can reject collisions.
+	builtinReg := agenttool.NewRegistry("")
+	builtinNames := builtinReg.BuiltinNames()
+	builtinNames = append(builtinNames, "delegate") // registered separately in GoRunner
+	for _, t := range extraTools {
+		builtinNames = append(builtinNames, t.Definition().Name)
+	}
+
+	// Load plugins (best-effort; failures are logged as warnings).
+	pm := pluginmgr.NewManager(slog.Default(), builtinNames)
+	pm.LoadAll(cfg.Plugins)
+
+	// Adapt plugin tools into the extra tools list.
+	for _, pt := range pm.Registry().Tools() {
+		extraTools = append(extraTools, pluginmgr.AdaptTool(pt))
+	}
+
 	idleTimeout := time.Duration(cfg.Runner.IdleTimeout) * time.Minute
-	factory, err := newRunnerFactory(cfg, extraTools)
+	factory, err := newRunnerFactory(cfg, extraTools, pm.Registry())
 	if err != nil {
 		return nil, fmt.Errorf("create runner factory: %w", err)
 	}
@@ -111,6 +132,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		}.WithDefaults()),
 		agent.WithDefaultModel(cfg.ResolveModelID(config.ModelTierStrong)),
 		agent.WithFastModel(cfg.ResolveModelID(config.ModelTierFast)),
+		agent.WithPluginHooks(pm.Registry()),
 	}
 
 	pool := agent.NewPool(factory, memoryEngine, opts...)
@@ -150,6 +172,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		schedulerSvc: schedulerSvc,
 		extraTools:   extraTools,
 		notifier:     dispatcher,
+		pluginMgr:    pm,
 	}, nil
 }
 
@@ -159,7 +182,7 @@ func hasEnabledNotifyChannel(cfg *config.Config) bool {
 		(cfg.Channels.Feishu.IsEnabled() && cfg.Channels.Feishu.IsNotifyEnabled())
 }
 
-func newRunnerFactory(cfg *config.Config, extraTools []tool.Tool) (runner.NewRunnerFunc, error) {
+func newRunnerFactory(cfg *config.Config, extraTools []agenttool.Tool, pluginHooks *pluginmgr.Registry) (runner.NewRunnerFunc, error) {
 	switch cfg.Runner.Type {
 	case "go":
 		providerCfg := cfg.Providers[cfg.Provider]
@@ -168,13 +191,14 @@ func newRunnerFactory(cfg *config.Config, extraTools []tool.Tool) (runner.NewRun
 				model = cfg.Model
 			}
 			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
-				API:        cfg.Provider,
-				Model:      model,
-				APIKey:     providerCfg.APIKey,
-				Workspace:  cfg.Workspace,
-				AnnaHome:   config.AnnaHome(),
-				BaseURL:    providerCfg.BaseURL,
-				ExtraTools: extraTools,
+				API:         cfg.Provider,
+				Model:       model,
+				APIKey:      providerCfg.APIKey,
+				Workspace:   cfg.Workspace,
+				AnnaHome:    config.AnnaHome(),
+				BaseURL:     providerCfg.BaseURL,
+				ExtraTools:  extraTools,
+				PluginHooks: pluginHooks,
 			})
 		}, nil
 	default:
@@ -184,11 +208,11 @@ func newRunnerFactory(cfg *config.Config, extraTools []tool.Tool) (runner.NewRun
 
 // modelSwitcher returns a function that switches the pool's runner factory
 // to use a different provider/model combination.
-func modelSwitcher(cfg *config.Config, pool *agent.Pool, extraTools []tool.Tool) channel.ModelSwitchFunc {
+func modelSwitcher(cfg *config.Config, pool *agent.Pool, extraTools []agenttool.Tool, pluginHooks *pluginmgr.Registry) channel.ModelSwitchFunc {
 	return func(provider, model string) error {
 		cfg.Provider = provider
 		cfg.Model = model
-		factory, err := newRunnerFactory(cfg, extraTools)
+		factory, err := newRunnerFactory(cfg, extraTools, pluginHooks)
 		if err != nil {
 			return err
 		}

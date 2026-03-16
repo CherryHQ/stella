@@ -3,10 +3,10 @@ name: anna
 description: >
   Self-knowledge about anna, the self-hosted AI assistant. Use when the user asks about
   anna itself: configuration, setup, onboarding, providers, models, channels (Telegram/QQ/Feishu),
-  memory system (LCM), scheduled jobs, heartbeat, skills, session compaction, notifications, self-update,
-  or general "how does anna work" / "help me get started" questions. Also triggers
+  memory system (LCM), scheduled jobs, heartbeat, skills, plugins, session compaction, notifications,
+  self-update, or general "how does anna work" / "help me get started" questions. Also triggers
   on "change my model", "set up telegram", "configure provider", "update anna",
-  "what can you do", "how do I install skills", "anna onboard".
+  "what can you do", "how do I install skills", "write a plugin", "anna onboard".
 ---
 
 # Anna Self-Knowledge
@@ -58,6 +58,9 @@ anna models update     # Refresh model cache
 anna skills list       # List installed skills
 anna skills search <q> # Search skill ecosystem
 anna skills install <s># Install a skill
+anna plugin list       # List configured plugins
+anna plugin add <path> # Add a JS plugin
+anna plugin remove <n> # Remove a plugin by name or path
 anna version           # Print version
 anna upgrade           # Self-update to latest release
 ```
@@ -83,3 +86,4 @@ These are tools you already have access to. Briefly:
 - **Heartbeat**: polls a markdown file on an interval, uses the fast model to decide skip/run, executes and notifies on run. Config under `heartbeat`.
 - **Notifications**: `notify` tool (gateway mode only) — send messages via Telegram/QQ/Feishu dispatcher.
 - **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable under `runner.compaction`.
+- **Plugins**: JS extensions that add custom tools and lifecycle hooks. Single `.js` file per plugin, runs in embedded QuickJS. Host APIs: `anna.registerTool()`, `anna.on()`, `anna.log()`, `anna.readFile()`/`anna.writeFile()`, `anna.fetch()`. Config under `plugins` in config.yaml. Manage with `anna plugin add/remove/list`.
