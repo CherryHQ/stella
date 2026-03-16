@@ -332,3 +332,62 @@
 - `user_memory` tool is not yet injected into agent pools
 - Telegram `/agent` handler is registered but QQ/Feishu don't have it yet
 - Admin API could be extended with auth/RBAC in future (currently no auth)
+
+## Phase 6: Integration & Cleanup -- Complete
+
+### Commits (on `feat/multi-user-agent` branch)
+
+1. `1230657` -- Task 6.1: Use PoolManager.Close() in gateway and chat cleanup
+2. `f7f4fad` -- Task 6.2: Add --agent flag to CLI chat command
+3. `0c70ffc` -- Task 6.4: Wire BuildSystemPromptFromDB, use BuildSessionKey, clean dead code
+4. `7313ea8` -- Fix: restore anna binary to .gitignore
+5. `e48fc16` -- Task 6.5: Update builtin anna skill for multi-user/multi-agent
+6. `e75bfff` -- Task 6.6: Add tests for multi-user/multi-agent core functionality
+
+### Files Changed
+
+**Modified:**
+- `cmd/anna/gateway.go` -- Use `s.poolManager.Close()` instead of `s.pool.Close()`
+- `cmd/anna/chat.go` -- Add `--agent` flag, resolve pool/snapshot from PoolManager
+- `internal/agent/factory.go` -- Pre-build system prompt using `BuildSystemPromptFromDB` when agent has DB-sourced system_prompt; pass as `System` to GoRunner
+- `internal/agent/session_test.go` -- Add BuildSessionKey tests
+- `internal/config/snapshot.go` -- Add `SystemPrompt` field to Snapshot
+- `internal/config/dbstore.go` -- Populate `SystemPrompt` in Snapshot constructor
+- `internal/config/config.go` -- Remove unused `ProviderConfig` type
+- `internal/channel/telegram/telegram.go` -- Add `buildSessionKey` method using `BuildSessionKey`; update `resolveSession` to use it
+- `internal/channel/telegram/handler.go` -- Fix `/new` and `/compact` to use resolved pool directly (not Commander)
+- `internal/agent/runner/builtin/anna/SKILL.md` -- Update for multi-agent, /agent command, user_memory
+- `internal/agent/runner/builtin/anna/references/configuration.md` -- Rewrite for DB-backed config
+- `internal/agent/runner/builtin/anna/references/channels.md` -- Update for /agent command and JSON config
+
+**New:**
+- `internal/channel/identity_test.go` -- Tests for ResolveUser and ResolveAgent
+- `internal/memory/usermemory_test.go` -- Tests for UserMemoryStore
+- `internal/memory/tool/usermemory_test.go` -- Tests for UserMemoryTool
+- `internal/admin/server_test.go` -- Tests for admin API endpoints
+
+**Deleted:**
+- `cmd/anna/onboard.html` -- Replaced by admin SPA in `internal/admin/ui/index.html`
+
+### Key Changes
+
+- **PoolManager.Close()**: Gateway and chat now properly close all agent pools via PoolManager
+- **--agent flag**: `anna chat --agent coder` resolves the named agent's pool and snapshot
+- **BuildSystemPromptFromDB wired**: The runner factory now pre-builds the system prompt from the DB-sourced `agents.system_prompt` field, bypassing the old file-based BuildSystemPrompt
+- **BuildSessionKey in Telegram**: Session keys are now scoped per-agent (format: `{agentID}:tg:{userID}:{context}`) so switching agents gives separate conversation history
+- **Fixed /new and /compact**: These commands now use the resolved pool (per-agent) instead of the default pool via Commander
+- **Notification dispatcher**: Verified working correctly -- single bot per platform, no per-agent changes needed
+
+### Test Results
+
+- All new tests pass with `-race` flag
+- Pre-existing integration test failures unchanged (require API key)
+- 0 lint issues, code compiles cleanly
+
+### Deferred / Future Work
+
+- **user_memory tool not yet injected into pools**: The tool exists and works, but is not automatically injected into agent pools via `ExtraToolsFactory`. This requires knowing user_id at session creation time, which is complex since Pool.Chat only takes sessionID. Options: (a) inject per-request in the runner, (b) lazy-create at first message. Recommend tackling in a follow-up.
+- **QQ/Feishu /agent command**: Not implemented -- they still use the default agent only. Requires changes to the QQ and Feishu handler packages.
+- **Old template files kept**: `template/soul.md`, `template/user.md`, `template/memories.md.tmpl` are still present because `BuildSystemPrompt` is still referenced in tests and as a GoRunner fallback. They can be removed when the old function is fully deprecated.
+- **README.md and docs/ site**: Not updated in this phase. The builtin anna skill was updated, but the external documentation site needs updating to reflect DB-backed config, multi-agent, etc.
+- **Admin API auth/RBAC**: No authentication on the admin panel. Future work.
