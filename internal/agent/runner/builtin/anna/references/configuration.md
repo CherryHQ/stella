@@ -1,104 +1,69 @@
 # Configuration reference
 
-Config file: `$ANNA_HOME/config.yaml` (`~/.anna/config.yaml` by default).
+All configuration is stored in a SQLite database at `$ANNA_HOME/anna.db` (`~/.anna/anna.db` by default).
 
-The easiest way to configure anna is `anna onboard`, which opens a web UI. For manual editing, see below.
+The easiest way to configure anna is `anna onboard`, which opens a web admin panel. The admin panel is also available during gateway operation via `anna gateway --admin-port 8080`.
 
-## Minimal setup
+## Quick start
 
-```yaml
-providers:
-  anthropic:
-    api_key: "sk-..."
+1. Run `anna onboard` to open the admin panel
+2. Add a provider (e.g., "anthropic" with your API key)
+3. Create or edit an agent (set provider, model, system prompt)
+4. Configure channels (Telegram token, etc.)
+5. Start: `anna chat` or `anna gateway`
 
-provider: anthropic
-model: claude-sonnet-4-6
-```
+Or just: `export ANTHROPIC_API_KEY="sk-..."` and run `anna chat`. Default bootstrapping will create an "anthropic" provider and "anna" agent automatically.
 
-Or just: `export ANTHROPIC_API_KEY="sk-..."` and run `anna chat`.
+## Database tables
 
-## Full config
+All config lives in normalized SQLite tables:
 
-```yaml
-providers:
-  anthropic:
-    api_key: "sk-..."
-    base_url: ""                   # optional URL override
-    models:                        # optional model metadata
-      - id: claude-sonnet-4-6
-        reasoning: false
-        input: ["text", "image"]
-        context_window: 200000
-        max_tokens: 8192
-        cost:
-          input: 3.0
-          output: 15.0
-          cache_read: 0.3
-          cache_write: 3.75
-  openai:
-    api_key: "sk-..."
-    base_url: "https://api.openai.com/v1"
-  openai-response:                 # OpenAI-compatible APIs (Perplexity, Together.ai)
-    api_key: "sk-..."
-    base_url: "https://api.example.com/v1"
+| Table | Purpose |
+|-------|---------|
+| `providers` | LLM API providers (API key, base URL) |
+| `agents` | Agent definitions (provider, model, system prompt, workspace) |
+| `channels` | Platform configs (Telegram/QQ/Feishu as JSON blobs) |
+| `users` | Auto-created platform users with default agent preference |
+| `chat_agents` | Per-group agent assignment |
+| `user_agent_memory` | Per-user-per-agent persistent notes |
+| `settings` | Key-value JSON settings (runner, scheduler, heartbeat, plugins) |
 
-channels:
-  telegram:
-    enabled: true                  # enable/disable this channel (default: true)
-    enable_notify: false           # allow notify tool to send to this channel (default: false)
-    token: "BOT_TOKEN"
-    notify_chat: "123456789"
-    channel_id: "@my_channel"
-    group_mode: "mention"          # mention | always | disabled
-    allowed_ids: [136345060]
-  qq:
-    enabled: true
-    enable_notify: false
-    app_id: "QQ_BOT_APP_ID"
-    app_secret: "QQ_BOT_APP_SECRET"
-    group_mode: "mention"
-    allowed_ids: []
-  feishu:
-    enabled: true
-    enable_notify: false
-    app_id: "FEISHU_APP_ID"
-    app_secret: "FEISHU_APP_SECRET"
-    encrypt_key: ""
-    verification_token: ""
-    notify_chat: "oc_xxx"
-    group_mode: "mention"
-    allowed_ids: []
+## Multi-agent setup
 
-provider: anthropic
-model: claude-sonnet-4-6
-model_strong: claude-opus-4-6     # optional tier
-model_fast: claude-haiku-4-5      # optional tier
-workspace: "~/.anna/workspace"
+Each agent has:
+- A provider + model configuration
+- A system prompt (personality/identity)
+- An isolated workspace at `$ANNA_HOME/workspaces/{agent_id}/`
+- Its own skills directory
 
-runner:
-  type: go
-  system: ""                       # custom system prompt (overrides default)
-  idle_timeout: 10                 # minutes before reaping idle runners
-  compaction:
-    max_tokens: 80000              # auto-compact threshold (-1 = disabled)
-    keep_tail: 20                  # recent messages kept after compaction
+Create agents via the admin panel or directly in the database.
 
-plugins:
-  - path: ~/plugins/hello.js               # path to .js file (~ expanded)
-  - path: /abs/path/notify.js
-    config:                                 # optional key-value config
-      webhook_url: "https://example.com"
+## Channel configuration
 
-scheduler:
-  enabled: true
+Channels are stored as JSON blobs in the `channels` table. Configure via the admin panel.
 
-heartbeat:
-  enabled: false                   # default: false
-  every: 10m                       # poll interval
-  file: "HEARTBEAT.md"            # relative to workspace unless absolute
-```
+**Telegram config fields:**
+- `token` -- Bot token
+- `notify_chat` -- Default chat ID for notifications
+- `channel_id` -- Broadcast channel ID or @username
+- `group_mode` -- "mention" | "always" | "disabled"
+- `allowed_ids` -- Array of user IDs (empty = allow all)
+- `enable_notify` -- Allow notify tool for this channel
 
-Heartbeat only runs in `anna gateway`. Each tick uses the fast model for the skip/run decision and the default model for execution.
+**QQ config fields:** `app_id`, `app_secret`, `group_mode`, `allowed_ids`, `enable_notify`
+
+**Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `notify_chat`, `group_mode`, `allowed_ids`, `enable_notify`
+
+## Settings (key-value)
+
+Global settings are stored in the `settings` table as JSON values:
+
+| Key | Purpose |
+|-----|---------|
+| `runner` | Runner type, idle timeout, compaction config |
+| `scheduler` | Scheduler enabled flag, data directory |
+| `heartbeat` | Heartbeat enabled, interval, file path |
+| `plugins` | Array of plugin configs (path + optional config) |
 
 ## Directory layout
 
@@ -106,74 +71,29 @@ All paths are relative to `$ANNA_HOME` (`~/.anna` by default).
 
 | Path | Purpose |
 |------|---------|
-| `config.yaml` | Static config (user-edited) |
-| `workspace/state.yaml` | Runtime state: current provider/model (program-managed) |
+| `anna.db` | SQLite database (all config + runtime data) |
 | `cache/models.json` | Cached model list (safe to delete) |
-| `workspace/SOUL.md` | Agent identity, personality, tone |
-| `workspace/USER.md` | User preferences, name, timezone |
-| `workspace/memory.db` | SQLite database (message history, summaries, scheduler jobs) |
-| `workspace/skills/` | Installed skills |
-| `workspace/HEARTBEAT.md` | Heartbeat instructions |
+| `workspaces/{agent_id}/` | Per-agent workspace |
+| `workspaces/{agent_id}/skills/` | Per-agent installed skills |
+| `workspaces/{agent_id}/anna.log` | Per-agent log |
 
 ## Environment variables
 
-Priority (highest wins): env vars > state.yaml > config.yaml > defaults.
+Environment variables serve as fallbacks for provider API keys:
 
-| Variable | Overrides |
-|----------|-----------|
+| Variable | Fallback for |
+|----------|-------------|
 | `ANNA_HOME` | anna home directory (default `~/.anna`) |
-| `ANNA_PROVIDER` | `provider` |
-| `ANNA_MODEL` | `model` |
-| `ANNA_MODEL_STRONG` | `model_strong` |
-| `ANNA_MODEL_FAST` | `model_fast` |
-| `ANNA_WORKSPACE` | `workspace` |
-| `ANNA_RUNNER_IDLE_TIMEOUT` | `runner.idle_timeout` |
-| `ANNA_SCHEDULER_ENABLED` | `scheduler.enabled` |
-| `ANNA_HEARTBEAT_ENABLED` | `heartbeat.enabled` |
-| `ANNA_HEARTBEAT_EVERY` | `heartbeat.every` |
-| `ANNA_HEARTBEAT_FILE` | `heartbeat.file` |
-| `ANNA_TELEGRAM_ENABLED` | `channels.telegram.enabled` |
-| `ANNA_TELEGRAM_ENABLE_NOTIFY` | `channels.telegram.enable_notify` |
-| `ANNA_TELEGRAM_TOKEN` | `channels.telegram.token` |
-| `ANNA_TELEGRAM_NOTIFY_CHAT` | `channels.telegram.notify_chat` |
-| `ANNA_TELEGRAM_GROUP_MODE` | `channels.telegram.group_mode` |
-| `ANNA_TELEGRAM_ALLOWED_IDS` | `channels.telegram.allowed_ids` (comma-separated) |
-| `ANNA_QQ_ENABLED` | `channels.qq.enabled` |
-| `ANNA_QQ_ENABLE_NOTIFY` | `channels.qq.enable_notify` |
-| `ANNA_QQ_APP_ID` | `channels.qq.app_id` |
-| `ANNA_QQ_APP_SECRET` | `channels.qq.app_secret` |
-| `ANNA_FEISHU_ENABLED` | `channels.feishu.enabled` |
-| `ANNA_FEISHU_ENABLE_NOTIFY` | `channels.feishu.enable_notify` |
-| `ANNA_FEISHU_APP_ID` | `channels.feishu.app_id` |
-| `ANNA_FEISHU_APP_SECRET` | `channels.feishu.app_secret` |
-| `ANNA_FEISHU_NOTIFY_CHAT` | `channels.feishu.notify_chat` |
-| `ANNA_FEISHU_GROUP_MODE` | `channels.feishu.group_mode` |
-| `ANNA_FEISHU_ALLOWED_IDS` | `channels.feishu.allowed_ids` (comma-separated) |
-| `ANTHROPIC_API_KEY` | `providers.anthropic.api_key` |
-| `ANTHROPIC_BASE_URL` | `providers.anthropic.base_url` |
-| `OPENAI_API_KEY` | `providers.openai.api_key` (also used by `openai-response`) |
-| `OPENAI_BASE_URL` | `providers.openai.base_url` (also used by `openai-response`) |
+| `ANTHROPIC_API_KEY` | anthropic provider API key |
+| `ANTHROPIC_BASE_URL` | anthropic provider base URL |
+| `OPENAI_API_KEY` | openai/openai-response provider API key |
+| `OPENAI_BASE_URL` | openai/openai-response provider base URL |
+
+Note: The old YAML-based environment variables (`ANNA_PROVIDER`, `ANNA_MODEL`, `ANNA_TELEGRAM_TOKEN`, etc.) are no longer supported. Use the admin panel or database directly.
 
 ## Defaults
 
-| Field | Default |
-|-------|---------|
-| `provider` | `anthropic` |
-| `model` | `claude-sonnet-4-6` |
-| `workspace` | `$ANNA_HOME/workspace` |
-| `runner.type` | `go` |
-| `runner.idle_timeout` | `10` (minutes) |
-| `runner.compaction.max_tokens` | `80000` |
-| `runner.compaction.keep_tail` | `20` |
-| `scheduler.enabled` | `true` |
-| `heartbeat.enabled` | `false` |
-| `heartbeat.every` | `10m` |
-| `channels.telegram.enabled` | `true` |
-| `channels.telegram.enable_notify` | `false` |
-| `channels.telegram.group_mode` | `mention` |
-| `channels.qq.enabled` | `true` |
-| `channels.qq.enable_notify` | `false` |
-| `channels.qq.group_mode` | `mention` |
-| `channels.feishu.enabled` | `true` |
-| `channels.feishu.enable_notify` | `false` |
-| `channels.feishu.group_mode` | `mention` |
+On first run, `SeedDefaults` creates:
+- An "anthropic" provider (with env var fallback for API key)
+- An "anna" agent using the anthropic provider with `claude-sonnet-4-6` model
+- Default system prompt with anna's personality

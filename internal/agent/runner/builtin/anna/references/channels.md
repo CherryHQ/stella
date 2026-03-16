@@ -1,18 +1,39 @@
 # Channel setup
 
+All channel configuration is stored in the database and managed via the admin panel (`anna onboard`). A single bot per platform serves all agents.
+
+## Agent routing
+
+- **DMs**: Use the user's default agent (set via `/agent` command)
+- **Groups**: Use the group's assigned agent (set via `/agent` command in the group)
+- **Fallback**: First enabled agent
+
+Commands available in all channels:
+- `/agent` -- List available agents or switch to a specific one
+- `/new` -- Start a fresh session (with the current agent)
+- `/compact` -- Compress conversation history
+- `/model` -- Switch model interactively
+- `/whoami` -- Show your user/chat ID
+
 ## Telegram bot
 
 1. Create a bot via @BotFather on Telegram
 2. Copy the token
-3. Run `anna onboard` and add it in the Channels tab, or add to config:
+3. Run `anna onboard` and add it in the Channels tab
 
-```yaml
-channels:
-  telegram:
-    token: "BOT_TOKEN"
+Telegram channel config (JSON):
+```json
+{
+  "token": "BOT_TOKEN",
+  "notify_chat": "123456789",
+  "channel_id": "@my_channel",
+  "group_mode": "mention",
+  "allowed_ids": [136345060],
+  "enable_notify": true
+}
 ```
 
-Or: `export ANNA_TELEGRAM_TOKEN="BOT_TOKEN"`
+Or set `ANNA_TELEGRAM_TOKEN` env var for the token only.
 
 4. Start: `anna gateway`
 
@@ -20,64 +41,44 @@ Or: `export ANNA_TELEGRAM_TOKEN="BOT_TOKEN"`
 
 - Streaming responses via Draft API (Bot API 9.3+), falls back to edit-in-place
 - Image input: send photos for vision-based analysis (requires vision-capable model)
-- In-chat commands: `/new`, `/compact`, `/model`, `/whoami`
+- Multi-agent: `/agent` to list or switch agents per DM or group
+- In-chat commands: `/new`, `/compact`, `/model`, `/agent`, `/whoami`
 
 ### Group support
 
-```yaml
-channels:
-  telegram:
-    group_mode: "mention"   # respond when @mentioned (default)
-    # group_mode: "always"  # respond to all messages
-    # group_mode: "disabled" # ignore group messages
-```
+Set `group_mode` in the channel config:
+- `"mention"` -- respond when @mentioned (default)
+- `"always"` -- respond to all messages
+- `"disabled"` -- ignore group messages
 
 ### Access control
 
-```yaml
-channels:
-  telegram:
-    allowed_ids:
-      - 136345060           # Telegram user ID
-```
-
-Leave empty to allow all users. Send `/whoami` to the bot to get your user ID.
+Add user IDs to `allowed_ids` array. Leave empty to allow all users. Send `/whoami` to the bot to get your user ID.
 
 ### Notifications
 
-Configure a default chat for proactive messages (scheduler results, notify tool):
-
-```yaml
-channels:
-  telegram:
-    enable_notify: true
-    notify_chat: "123456789"   # chat ID (use /whoami to get it)
-    channel_id: "@my_channel"  # optional broadcast channel
-```
+Set `enable_notify: true` and `notify_chat` to a chat ID for proactive messages (scheduler results, notify tool).
 
 ## QQ bot
 
 1. Register at https://q.qq.com/
 2. Get AppID and AppSecret
-3. Run `anna onboard` and add it in the Channels tab, or add to config:
+3. Run `anna onboard` and add it in the Channels tab
 
-```yaml
-channels:
-  qq:
-    app_id: "YOUR_APP_ID"
-    app_secret: "YOUR_APP_SECRET"
-```
-
-Or:
-
-```bash
-export ANNA_QQ_APP_ID="YOUR_APP_ID"
-export ANNA_QQ_APP_SECRET="YOUR_APP_SECRET"
+QQ channel config (JSON):
+```json
+{
+  "app_id": "YOUR_APP_ID",
+  "app_secret": "YOUR_APP_SECRET",
+  "group_mode": "mention",
+  "allowed_ids": [],
+  "enable_notify": false
+}
 ```
 
 4. Start: `anna gateway`
 
-Connects via WebSocket (no public URL needed).
+Connects via WebSocket (no public URL needed). QQ currently uses the default agent only.
 
 ### QQ features
 
@@ -86,64 +87,33 @@ Connects via WebSocket (no public URL needed).
 - Image input support
 - Commands: `/start`, `/help`, `/new`, `/compact`, `/model`, `/whoami`
 
-### QQ group and access control
-
-```yaml
-channels:
-  qq:
-    group_mode: "mention"    # respond to @mentions (default)
-    allowed_ids:
-      - "USER_OPEN_ID_1"    # restrict by OpenID (use /whoami)
-```
-
 ## Feishu bot
 
 1. Create an app at the Feishu Developer Console
 2. Get AppID and AppSecret
 3. Enable the Bot capability and subscribe to message events
-4. Run `anna onboard` and add it in the Channels tab, or add to config:
+4. Run `anna onboard` and add it in the Channels tab
 
-```yaml
-channels:
-  feishu:
-    app_id: "YOUR_APP_ID"
-    app_secret: "YOUR_APP_SECRET"
-    encrypt_key: ""                # event encrypt key (from developer console)
-    verification_token: ""         # event verification token (from developer console)
-```
-
-Or:
-
-```bash
-export ANNA_FEISHU_APP_ID="YOUR_APP_ID"
-export ANNA_FEISHU_APP_SECRET="YOUR_APP_SECRET"
+Feishu channel config (JSON):
+```json
+{
+  "app_id": "YOUR_APP_ID",
+  "app_secret": "YOUR_APP_SECRET",
+  "encrypt_key": "",
+  "verification_token": "",
+  "notify_chat": "oc_xxx",
+  "group_mode": "mention",
+  "allowed_ids": [],
+  "enable_notify": false
+}
 ```
 
 5. Start: `anna gateway`
 
-Connects via WebSocket (no public URL or webhook needed).
+Connects via WebSocket (no public URL or webhook needed). Feishu currently uses the default agent only.
 
 ### Feishu features
 
 - Edit-in-place streaming for progressive responses
 - Private (p2p) and group @mention support
 - Commands: `/new`, `/compact`, `/model`, `/whoami`
-
-### Feishu group and access control
-
-```yaml
-channels:
-  feishu:
-    group_mode: "mention"    # respond to @mentions (default)
-    allowed_ids:
-      - "ou_xxxxxx"          # restrict by open_id (use /whoami)
-```
-
-### Feishu notifications
-
-```yaml
-channels:
-  feishu:
-    enable_notify: true
-    notify_chat: "oc_xxx"   # chat or open_id for notifications (use /whoami)
-```
