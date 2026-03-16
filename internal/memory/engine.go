@@ -41,6 +41,7 @@ type engine struct {
 	globalMu   sync.Mutex
 	freshTail  int
 	log        *slog.Logger
+	ownsDB     bool // when true, Close() closes the DB connection
 }
 
 // Compile-time interface check.
@@ -66,12 +67,22 @@ func WithLogger(log *slog.Logger) EngineOption {
 }
 
 // NewEngine creates a new memory engine backed by a SQLite database at dbPath.
+// The engine owns the DB connection and will close it when Close() is called.
 func NewEngine(dbPath string, summarizer Summarizer, opts ...EngineOption) (Engine, error) {
 	db, err := appdb.OpenDB(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("memory: open db: %w", err)
 	}
 
+	e := NewEngineFromDB(db, summarizer, opts...)
+	e.(*engine).ownsDB = true
+	return e, nil
+}
+
+// NewEngineFromDB creates a new memory engine using an existing *sql.DB.
+// The engine does NOT own the DB connection — Close() will not close it.
+// This is useful when multiple packages share a single database connection.
+func NewEngineFromDB(db *sql.DB, summarizer Summarizer, opts ...EngineOption) Engine {
 	q := sqlc.New(db)
 	e := &engine{
 		db:        db,
@@ -89,7 +100,7 @@ func NewEngine(dbPath string, summarizer Summarizer, opts ...EngineOption) (Engi
 	}
 
 	e.compaction = NewCompactionEngine(db, q, summarizer, e.freshTail)
-	return e, nil
+	return e
 }
 
 // Bootstrap ensures a conversation exists for the given session ID.
@@ -305,9 +316,14 @@ func (e *engine) Load(ctx context.Context, sessionID string) ([]ai.Message, erro
 	return rowsToMessages(msgs), nil
 }
 
-// Close releases database resources.
+// Close releases database resources. If the engine owns the DB connection
+// (created via NewEngine), the connection is closed. If created via
+// NewEngineFromDB, the caller is responsible for closing the DB.
 func (e *engine) Close() error {
-	return e.db.Close()
+	if e.ownsDB {
+		return e.db.Close()
+	}
+	return nil
 }
 
 func convToSessionInfo(conv sqlc.Conversation) SessionInfo {
