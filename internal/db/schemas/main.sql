@@ -1,3 +1,10 @@
+-- atlas:import tables/settings.sql
+-- atlas:import tables/providers.sql
+-- atlas:import tables/agents.sql
+-- atlas:import tables/channels.sql
+-- atlas:import tables/users.sql
+-- atlas:import tables/chat_agents.sql
+-- atlas:import tables/user_agent_memory.sql
 -- atlas:import tables/conversations.sql
 -- atlas:import tables/messages.sql
 -- atlas:import tables/message_parts.sql

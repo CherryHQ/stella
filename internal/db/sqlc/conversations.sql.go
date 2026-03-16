@@ -13,7 +13,7 @@ import (
 const createConversation = `-- name: CreateConversation :one
 INSERT INTO conversations (session_id, title)
 VALUES (?, ?)
-RETURNING id, session_id, title, channel, archived, last_active, bootstrapped_at, created_at, updated_at
+RETURNING id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at
 `
 
 type CreateConversationParams struct {
@@ -32,6 +32,8 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 		&i.Archived,
 		&i.LastActive,
 		&i.BootstrappedAt,
+		&i.AgentID,
+		&i.UserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -41,7 +43,7 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 const createConversationFull = `-- name: CreateConversationFull :one
 INSERT INTO conversations (session_id, title, channel, archived, last_active)
 VALUES (?, ?, ?, ?, ?)
-RETURNING id, session_id, title, channel, archived, last_active, bootstrapped_at, created_at, updated_at
+RETURNING id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at
 `
 
 type CreateConversationFullParams struct {
@@ -69,6 +71,8 @@ func (q *Queries) CreateConversationFull(ctx context.Context, arg CreateConversa
 		&i.Archived,
 		&i.LastActive,
 		&i.BootstrappedAt,
+		&i.AgentID,
+		&i.UserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -76,7 +80,7 @@ func (q *Queries) CreateConversationFull(ctx context.Context, arg CreateConversa
 }
 
 const getConversation = `-- name: GetConversation :one
-SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, created_at, updated_at FROM conversations WHERE id = ?
+SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM conversations WHERE id = ?
 `
 
 func (q *Queries) GetConversation(ctx context.Context, id int64) (Conversation, error) {
@@ -90,6 +94,8 @@ func (q *Queries) GetConversation(ctx context.Context, id int64) (Conversation, 
 		&i.Archived,
 		&i.LastActive,
 		&i.BootstrappedAt,
+		&i.AgentID,
+		&i.UserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -97,7 +103,7 @@ func (q *Queries) GetConversation(ctx context.Context, id int64) (Conversation, 
 }
 
 const getConversationBySessionID = `-- name: GetConversationBySessionID :one
-SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, created_at, updated_at FROM conversations WHERE session_id = ?
+SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM conversations WHERE session_id = ?
 `
 
 func (q *Queries) GetConversationBySessionID(ctx context.Context, sessionID string) (Conversation, error) {
@@ -111,6 +117,8 @@ func (q *Queries) GetConversationBySessionID(ctx context.Context, sessionID stri
 		&i.Archived,
 		&i.LastActive,
 		&i.BootstrappedAt,
+		&i.AgentID,
+		&i.UserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -118,7 +126,7 @@ func (q *Queries) GetConversationBySessionID(ctx context.Context, sessionID stri
 }
 
 const listConversations = `-- name: ListConversations :many
-SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, created_at, updated_at FROM conversations WHERE archived = 0 ORDER BY last_active DESC
+SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM conversations WHERE archived = 0 ORDER BY last_active DESC
 `
 
 func (q *Queries) ListConversations(ctx context.Context) ([]Conversation, error) {
@@ -138,6 +146,8 @@ func (q *Queries) ListConversations(ctx context.Context) ([]Conversation, error)
 			&i.Archived,
 			&i.LastActive,
 			&i.BootstrappedAt,
+			&i.AgentID,
+			&i.UserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -155,7 +165,7 @@ func (q *Queries) ListConversations(ctx context.Context) ([]Conversation, error)
 }
 
 const listConversationsAll = `-- name: ListConversationsAll :many
-SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, created_at, updated_at FROM conversations ORDER BY last_active DESC
+SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM conversations ORDER BY last_active DESC
 `
 
 func (q *Queries) ListConversationsAll(ctx context.Context) ([]Conversation, error) {
@@ -175,6 +185,8 @@ func (q *Queries) ListConversationsAll(ctx context.Context) ([]Conversation, err
 			&i.Archived,
 			&i.LastActive,
 			&i.BootstrappedAt,
+			&i.AgentID,
+			&i.UserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
