@@ -7,5 +7,7 @@ CREATE TABLE scheduler_jobs (
     message TEXT NOT NULL,
     session_mode TEXT NOT NULL DEFAULT 'reuse',
     enabled INTEGER NOT NULL DEFAULT 1,
+    agent_id TEXT,
+    user_id INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
