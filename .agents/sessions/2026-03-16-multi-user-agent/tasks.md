@@ -30,17 +30,17 @@
 
 ## Phase 4: Multi-User, Agent Routing & User Memory
 
-- [ ] 4.1 — Add user resolution: `ResolveUser(ctx, db, externalID, platform, name)` (`internal/channel/identity.go`)
-- [ ] 4.2 — Add agent routing: `ResolveAgent(ctx, store, user, chatContext)` — DM→user default, group→chat_agents, fallback→first enabled (`internal/channel/identity.go`)
-- [ ] 4.3 — Update session key construction: `BuildSessionKey(...)` helper (`internal/agent/session.go`)
-- [ ] 4.4 — Update `Pool.CreateSession` / `ResolveSession` to store agent_id + user_id (`internal/agent/pool.go`)
-- [ ] 4.5 — Update memory engine: pass agent_id + user_id to conversation inserts (`internal/memory/engine.go`)
-- [ ] 4.6 — Add `user_agent_memory` read/write layer (`internal/memory/usermemory.go`)
-- [ ] 4.7 — Add `user_memory` tool for agent to read/write per-user notes (`internal/memory/tool/usermemory.go`)
-- [ ] 4.8 — Update system prompt builder: remove SOUL.md/USER.md/memories.md.tmpl, compose from DB (`internal/agent/runner/prompt.go`)
-- [ ] 4.9 — Implement `/agent` command: list agents, set active agent for DM/group (`internal/channel/command.go`)
-- [ ] 4.10 — Refactor Telegram channel: resolve user → resolve agent → PoolManager → chat (`internal/channel/telegram/`)
-- [ ] 4.11 — Update scheduler: jobs use agent_id to route to Pool via PoolManager (`internal/scheduler/`)
+- [x] 4.1 — Add user resolution: `ResolveUser(ctx, db, externalID, platform, name)` (`internal/channel/identity.go`)
+- [x] 4.2 — Add agent routing: `ResolveAgent(ctx, store, user, chatContext)` — DM→user default, group→chat_agents, fallback→first enabled (`internal/channel/identity.go`)
+- [x] 4.3 — Update session key construction: `BuildSessionKey(...)` helper (`internal/agent/session.go`)
+- [x] 4.4 — Update `Pool.CreateSession` / `ResolveSession` to store agent_id + user_id (`internal/agent/pool.go`)
+- [x] 4.5 — Update memory engine: pass agent_id + user_id to conversation inserts (`internal/memory/engine.go`)
+- [x] 4.6 — Add `user_agent_memory` read/write layer (`internal/memory/usermemory.go`)
+- [x] 4.7 — Add `user_memory` tool for agent to read/write per-user notes (`internal/memory/tool/usermemory.go`)
+- [x] 4.8 — Update system prompt builder: remove SOUL.md/USER.md/memories.md.tmpl, compose from DB (`internal/agent/runner/prompt.go`)
+- [x] 4.9 — Implement `/agent` command: list agents, set active agent for DM/group (`internal/channel/agent_command.go`)
+- [x] 4.10 — Refactor Telegram channel: resolve user → resolve agent → PoolManager → chat (`internal/channel/telegram/`)
+- [x] 4.11 — Update scheduler: jobs use agent_id to route to Pool via PoolManager (`internal/scheduler/`)
 
 ## Phase 5: Web API & Admin UI
 
