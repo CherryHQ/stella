@@ -49,6 +49,8 @@ type SkillsTool struct {
 }
 
 // NewTool creates a SkillsTool for the given anna home, workspace and working directory.
+// The workspace should be a per-agent workspace path (e.g. workspaces/{agentID}/)
+// so that installed skills are isolated per agent.
 func NewTool(annaHome, workspace, cwd string) *SkillsTool {
 	return &SkillsTool{annaHome: annaHome, workspace: workspace, cwd: cwd}
 }
