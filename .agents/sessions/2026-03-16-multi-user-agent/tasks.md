@@ -21,12 +21,12 @@
 
 ## Phase 3: Multi-Agent Core
 
-- [ ] 3.1 — Create per-agent workspace setup: `SetupWorkspace(agentID, basePath)` — skills/ + logs only (`internal/agent/workspace.go`)
-- [ ] 3.2 — Create `PoolManager`: map[agentID]*Pool, reads from config Store (`internal/agent/pool_manager.go`)
-- [ ] 3.3 — Update `Pool` to store `agentID` (`internal/agent/pool.go`)
-- [ ] 3.4 — Create per-agent runner factory (`internal/agent/factory.go`)
-- [ ] 3.5 — Update skills tool to be per-agent (`internal/skills/`)
-- [ ] 3.6 — Update `setup()` in commands.go: single *sql.DB, config Store, PoolManager (`cmd/anna/commands.go`)
+- [x] 3.1 — Create per-agent workspace setup: `SetupWorkspace(agentID, basePath)` — skills/ + logs only (`internal/agent/workspace.go`)
+- [x] 3.2 — Create `PoolManager`: map[agentID]*Pool, reads from config Store (`internal/agent/pool_manager.go`)
+- [x] 3.3 — Update `Pool` to store `agentID` (`internal/agent/pool.go`)
+- [x] 3.4 — Create per-agent runner factory (`internal/agent/factory.go`)
+- [x] 3.5 — Update skills tool to be per-agent (`internal/skills/`)
+- [x] 3.6 — Update `setup()` in commands.go: single *sql.DB, config Store, PoolManager (`cmd/anna/commands.go`)
 
 ## Phase 4: Multi-User, Agent Routing & User Memory
 
