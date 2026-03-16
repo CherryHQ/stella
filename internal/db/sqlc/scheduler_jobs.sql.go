@@ -7,24 +7,27 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
 const createSchedulerJob = `-- name: CreateSchedulerJob :one
-INSERT INTO scheduler_jobs (id, name, schedule_cron, schedule_every, schedule_at, message, session_mode, enabled, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO scheduler_jobs (id, name, schedule_cron, schedule_every, schedule_at, message, session_mode, enabled, agent_id, user_id, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, name, schedule_cron, schedule_every, schedule_at, message, session_mode, enabled, agent_id, user_id, created_at
 `
 
 type CreateSchedulerJobParams struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	ScheduleCron  string `json:"schedule_cron"`
-	ScheduleEvery string `json:"schedule_every"`
-	ScheduleAt    string `json:"schedule_at"`
-	Message       string `json:"message"`
-	SessionMode   string `json:"session_mode"`
-	Enabled       int64  `json:"enabled"`
-	CreatedAt     string `json:"created_at"`
+	ID            string         `json:"id"`
+	Name          string         `json:"name"`
+	ScheduleCron  string         `json:"schedule_cron"`
+	ScheduleEvery string         `json:"schedule_every"`
+	ScheduleAt    string         `json:"schedule_at"`
+	Message       string         `json:"message"`
+	SessionMode   string         `json:"session_mode"`
+	Enabled       int64          `json:"enabled"`
+	AgentID       sql.NullString `json:"agent_id"`
+	UserID        sql.NullInt64  `json:"user_id"`
+	CreatedAt     string         `json:"created_at"`
 }
 
 func (q *Queries) CreateSchedulerJob(ctx context.Context, arg CreateSchedulerJobParams) (SchedulerJob, error) {
@@ -37,6 +40,8 @@ func (q *Queries) CreateSchedulerJob(ctx context.Context, arg CreateSchedulerJob
 		arg.Message,
 		arg.SessionMode,
 		arg.Enabled,
+		arg.AgentID,
+		arg.UserID,
 		arg.CreatedAt,
 	)
 	var i SchedulerJob
