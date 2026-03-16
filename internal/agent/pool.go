@@ -19,6 +19,7 @@ import (
 // Pool manages a set of sessions, each with its own history and runner.
 // It is the only type channels interact with.
 type Pool struct {
+	agentID      string // agent this pool belongs to (empty for legacy single-agent)
 	factory      runner.NewRunnerFunc
 	sessions     map[string]*Session
 	mem          memory.Engine // memory engine — sole persistence layer
@@ -44,7 +45,16 @@ func NewPool(factory runner.NewRunnerFunc, mem memory.Engine, opts ...PoolOption
 	for _, opt := range opts {
 		opt(p)
 	}
+	// Enrich logger with agent ID when set.
+	if p.agentID != "" {
+		p.log = p.log.With("agent_id", p.agentID)
+	}
 	return p
+}
+
+// AgentID returns the agent ID this pool belongs to.
+func (p *Pool) AgentID() string {
+	return p.agentID
 }
 
 // CreateSession creates a new session with a generated ID and persists its metadata.
