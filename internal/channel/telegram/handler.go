@@ -55,20 +55,22 @@ func (b *Bot) registerHandlers() {
 	}))
 
 	b.bot.Handle("/new", b.guard(func(c tele.Context) error {
-		ch := channelForChat(c)
-		sessionID, err := b.cmd.New(ch)
+		pool := b.resolvePool(c)
+		ch := b.buildSessionKey(c, pool.AgentID())
+		sessionID, err := pool.RotateSession(ch)
 		if err != nil {
 			logger().Error("rotate session failed", "channel", ch, "error", err)
 			return c.Send(fmt.Sprintf("Error creating new session: %v", err))
 		}
-		logger().Info("new session created", "session_id", sessionID, "channel", ch)
+		logger().Info("new session created", "session_id", sessionID.ID, "channel", ch)
 		return c.Send("New session started.")
 	}))
 
 	b.bot.Handle("/compact", b.guard(func(c tele.Context) error {
-		ch := channelForChat(c)
+		pool := b.resolvePool(c)
+		ch := b.buildSessionKey(c, pool.AgentID())
 		_ = c.Notify(tele.Typing)
-		summary, err := b.cmd.Compact(b.ctx, ch)
+		summary, err := pool.CompactSession(b.ctx, ch)
 		if err != nil {
 			logger().Error("compact session failed", "channel", ch, "error", err)
 			return c.Send(fmt.Sprintf("Compaction failed: %v", err))

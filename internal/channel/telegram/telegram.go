@@ -276,6 +276,7 @@ func (b *Bot) stripBotMention(text string) string {
 
 // channelForChat returns the channel identifier for a Telegram chat.
 // Each chat (private or group) gets its own channel namespace.
+// Used as a fallback when multi-agent routing is not configured.
 func channelForChat(c tele.Context) string {
 	return "tg" + strconv.FormatInt(c.Chat().ID, 10)
 }
@@ -284,11 +285,27 @@ func channelForChat(c tele.Context) string {
 // creating a new session if none exists.
 func (b *Bot) resolveSession(c tele.Context) (string, error) {
 	pool := b.resolvePool(c)
-	info, err := pool.ResolveSession(channelForChat(c))
+	sessionKey := b.buildSessionKey(c, pool.AgentID())
+	info, err := pool.ResolveSession(sessionKey)
 	if err != nil {
 		return "", err
 	}
 	return info.ID, nil
+}
+
+// buildSessionKey constructs a session key for the given Telegram context.
+// When multi-agent routing is configured, uses BuildSessionKey for proper
+// per-agent scoping; otherwise falls back to the legacy format.
+func (b *Bot) buildSessionKey(c tele.Context, agentID string) string {
+	if b.poolManager == nil || b.store == nil || agentID == "" {
+		return channelForChat(c)
+	}
+	externalUserID := strconv.FormatInt(c.Sender().ID, 10)
+	channelCtx := "private"
+	if isGroup(c) {
+		channelCtx = "group:" + strconv.FormatInt(c.Chat().ID, 10)
+	}
+	return agent.BuildSessionKey(agentID, "tg", externalUserID, channelCtx)
 }
 
 // resolvePool resolves the pool for the current chat context.

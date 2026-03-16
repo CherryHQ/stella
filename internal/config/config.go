@@ -69,14 +69,6 @@ func (c HeartbeatConfig) FilePath(workspace string) string {
 	return filepath.Join(workspace, c.File)
 }
 
-// ProviderConfig holds API credentials for a provider.
-// Used by model listing and provider creation flows.
-type ProviderConfig struct {
-	APIKey  string        `json:"api_key"`
-	BaseURL string        `json:"base_url"`
-	Models  []ModelConfig `json:"models"`
-}
-
 // boolDefault dereferences a *bool pointer, returning def if the pointer is nil.
 func boolDefault(p *bool, def bool) bool {
 	if p == nil {
