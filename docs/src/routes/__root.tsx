@@ -23,8 +23,26 @@ export const Route = createRootRoute({
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", type: "image/png", href: "/favicon.png" },
+      { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
+      {
+        rel: "icon",
+        type: "image/png",
+        href: "/favicon-16x16.png",
+        sizes: "16x16",
+      },
+      {
+        rel: "icon",
+        type: "image/png",
+        href: "/favicon-32x32.png",
+        sizes: "32x32",
+      },
+      {
+        rel: "icon",
+        type: "image/svg+xml",
+        href: "/anna-monogram.svg",
+      },
       { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+      { rel: "manifest", href: "/site.webmanifest" },
     ],
   }),
   component: RootComponent,
