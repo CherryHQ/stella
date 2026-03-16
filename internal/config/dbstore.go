@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/vaayne/anna/internal/db/sqlc"
 )
@@ -357,6 +358,61 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	}
 
 	return snap, nil
+}
+
+// --- Bootstrap ---
+
+// defaultAnnaSoul is the default system prompt for the anna agent.
+const defaultAnnaSoul = `You are Anna — a sharp, efficient personal AI assistant.
+
+- Warm but not chatty. Friendly but not performative.
+- Lead with answers, not preamble.
+- Match the user's energy: casual when they're casual, precise when they need precision.
+- Own your mistakes quickly. No hedging or over-apologizing.
+- Use humor sparingly and naturally — never forced.`
+
+// SeedDefaults populates the DB with sensible defaults on first bootstrap.
+// It is idempotent: if providers/agents already exist, it does nothing.
+func (s *DBStore) SeedDefaults(ctx context.Context) error {
+	// Seed default provider if none exist.
+	providers, err := s.q.ListProviders(ctx)
+	if err != nil {
+		return fmt.Errorf("seed: list providers: %w", err)
+	}
+	if len(providers) == 0 {
+		apiKey := os.Getenv("ANTHROPIC_API_KEY")
+		_, err := s.q.CreateProvider(ctx, sqlc.CreateProviderParams{
+			ID:     "anthropic",
+			Name:   "Anthropic",
+			ApiKey: apiKey,
+		})
+		if err != nil {
+			return fmt.Errorf("seed: create anthropic provider: %w", err)
+		}
+	}
+
+	// Seed default agent if none exist.
+	agents, err := s.q.ListAgents(ctx)
+	if err != nil {
+		return fmt.Errorf("seed: list agents: %w", err)
+	}
+	if len(agents) == 0 {
+		workspace := filepath.Join(AnnaHome(), "workspaces", "anna")
+		_, err := s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
+			ID:           "anna",
+			Name:         "Anna",
+			ProviderID:   "anthropic",
+			Model:        "claude-sonnet-4-6",
+			SystemPrompt: defaultAnnaSoul,
+			Workspace:    workspace,
+			Enabled:      1,
+		})
+		if err != nil {
+			return fmt.Errorf("seed: create anna agent: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // --- Helpers ---
