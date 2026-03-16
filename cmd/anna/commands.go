@@ -19,7 +19,6 @@ import (
 	memorytool "github.com/vaayne/anna/internal/memory/tool"
 	pluginmgr "github.com/vaayne/anna/internal/plugin"
 	"github.com/vaayne/anna/internal/scheduler"
-	"github.com/vaayne/anna/internal/skills"
 )
 
 func newApp() *ucli.App {
@@ -44,7 +43,8 @@ type setupResult struct {
 	ctx          context.Context
 	snap         *config.Snapshot
 	store        config.Store
-	pool         *agent.Pool
+	poolManager  *agent.PoolManager
+	pool         *agent.Pool // default agent's pool (backward compat)
 	schedulerSvc *scheduler.Service
 	extraTools   []agenttool.Tool
 	notifier     *channel.Dispatcher
@@ -66,7 +66,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return nil, fmt.Errorf("seed defaults: %w", err)
 	}
 
-	// Get snapshot for the default agent.
+	// Get snapshot for the default agent (used for global settings).
 	agents, err := store.ListEnabledAgents(parent)
 	if err != nil || len(agents) == 0 {
 		return nil, fmt.Errorf("no enabled agents found")
@@ -84,7 +84,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Create scheduler service and tool before the runner factory so the tool
 	// can be injected into the Go runner.
 	var schedulerSvc *scheduler.Service
-	var extraTools []agenttool.Tool
+	var sharedTools []agenttool.Tool
 	if snap.Scheduler.IsEnabled() || (gateway && snap.Heartbeat.IsEnabled()) {
 		schedulerSvc, err = scheduler.NewFromPath(dbPath)
 		if err != nil {
@@ -96,13 +96,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		}
 		schedulerSvc.SetLegacyDataPath(dataDir)
 		if snap.Scheduler.IsEnabled() {
-			extraTools = append(extraTools, scheduler.NewTool(schedulerSvc))
+			sharedTools = append(sharedTools, scheduler.NewTool(schedulerSvc))
 		}
 	}
-
-	// Skills tool — always available.
-	cwd, _ := os.Getwd()
-	extraTools = append(extraTools, skills.NewTool(config.AnnaHome(), snap.Workspace, cwd))
 
 	// Notification dispatcher + tool.
 	dispatcher := channel.NewDispatcher()
@@ -111,8 +107,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Memory engine: create engine for message persistence and compaction.
 	memoryEngine := memory.NewEngineFromDB(db, &memory.StaticSummarizer{Response: "compacted"}, memory.WithLogger(slog.Default()))
 
-	// Memory retrieval tools.
-	extraTools = append(extraTools,
+	// Memory retrieval tools (shared across all agents).
+	sharedTools = append(sharedTools,
 		memorytool.NewGrepTool(memoryEngine),
 		memorytool.NewDescribeTool(memoryEngine),
 		memorytool.NewExpandTool(memoryEngine),
@@ -121,8 +117,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Collect built-in tool names for plugin collision detection.
 	builtinReg := agenttool.NewRegistry("")
 	builtinNames := builtinReg.BuiltinNames()
-	builtinNames = append(builtinNames, "delegate")
-	for _, t := range extraTools {
+	builtinNames = append(builtinNames, "delegate", "skills")
+	for _, t := range sharedTools {
 		builtinNames = append(builtinNames, t.Definition().Name)
 	}
 
@@ -130,29 +126,33 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	pm := pluginmgr.NewManager(slog.Default(), builtinNames)
 	pm.LoadAll(snap.Plugins)
 
+	// Add plugin tools to the shared set.
 	for _, pt := range pm.Registry().Tools() {
-		extraTools = append(extraTools, pluginmgr.AdaptTool(pt))
+		sharedTools = append(sharedTools, pluginmgr.AdaptTool(pt))
 	}
 
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
-	factory, err := agent.NewRunnerFactory(snap, extraTools, pm.Registry())
-	if err != nil {
-		return nil, fmt.Errorf("create runner factory: %w", err)
-	}
 
-	opts := []agent.PoolOption{
-		agent.WithIdleTimeout(idleTimeout),
-		agent.WithCompaction(agent.CompactionConfig{
+	// Create PoolManager with shared tools and options.
+	poolMgr := agent.NewPoolManager(store, memoryEngine,
+		agent.WithIdleTimeoutPM(idleTimeout),
+		agent.WithCompactionPM(agent.CompactionConfig{
 			MaxTokens: snap.Runner.Compaction.MaxTokens,
 			KeepTail:  snap.Runner.Compaction.KeepTail,
 		}.WithDefaults()),
-		agent.WithDefaultModel(snap.ResolveModelID(config.ModelTierStrong)),
-		agent.WithFastModel(snap.ResolveModelID(config.ModelTierFast)),
-		agent.WithPluginHooks(pm.Registry()),
+		agent.WithSharedExtraTools(sharedTools),
+		agent.WithPluginHooksPM(pm.Registry()),
+	)
+
+	if err := poolMgr.StartAll(ctx); err != nil {
+		return nil, fmt.Errorf("start pool manager: %w", err)
 	}
 
-	pool := agent.NewPool(factory, memoryEngine, opts...)
-	go pool.StartReaper(ctx)
+	// Default pool for backward compat with CLI/channel code.
+	pool := poolMgr.Get(defaultAgentID)
+	if pool == nil {
+		pool = poolMgr.DefaultPool()
+	}
 
 	// Wire heartbeat on the scheduler service if enabled.
 	if schedulerSvc != nil && snap.Heartbeat.IsEnabled() {
@@ -185,9 +185,10 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		ctx:          ctx,
 		snap:         snap,
 		store:        store,
+		poolManager:  poolMgr,
 		pool:         pool,
 		schedulerSvc: schedulerSvc,
-		extraTools:   extraTools,
+		extraTools:   sharedTools,
 		notifier:     dispatcher,
 		pluginMgr:    pm,
 	}, nil
