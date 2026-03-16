@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os/signal"
 	"syscall"
 
@@ -17,6 +18,10 @@ func chatCommand() *ucli.Command {
 			&ucli.BoolFlag{
 				Name:  "stream",
 				Usage: "Read prompt from stdin and stream response to stdout",
+			},
+			&ucli.StringFlag{
+				Name:  "agent",
+				Usage: "Agent to chat with (default: first enabled agent)",
 			},
 		},
 		Action: func(c *ucli.Context) error {
@@ -36,6 +41,23 @@ func chatCommand() *ucli.Command {
 			defer func() { _ = s.poolManager.Close() }()
 			defer func() { _ = s.pluginMgr.Close() }()
 
+			// Resolve the target agent's pool.
+			pool := s.pool
+			snap := s.snap
+			if agentFlag := c.String("agent"); agentFlag != "" {
+				p := s.poolManager.Get(agentFlag)
+				if p == nil {
+					return fmt.Errorf("agent %q not found or not enabled", agentFlag)
+				}
+				pool = p
+				// Get a snapshot for the selected agent.
+				agentSnap, snapErr := s.store.Snapshot(ctx, agentFlag)
+				if snapErr != nil {
+					return fmt.Errorf("load config for agent %q: %w", agentFlag, snapErr)
+				}
+				snap = agentSnap
+			}
+
 			if s.schedulerSvc != nil {
 				if err := s.schedulerSvc.Start(s.ctx); err != nil {
 					return err
@@ -44,13 +66,13 @@ func chatCommand() *ucli.Command {
 			}
 
 			if c.Bool("stream") {
-				return clicmd.RunStream(s.ctx, s.pool)
+				return clicmd.RunStream(s.ctx, pool)
 			}
 			listFn := func() []channel.ModelOption {
-				return collectModelsFromStore(s.ctx, s.store, s.snap)
+				return collectModelsFromStore(s.ctx, s.store, snap)
 			}
-			switchFn := modelSwitcher(s.snap, s.store, s.pool, s.extraTools, s.pluginMgr.Registry())
-			return clicmd.RunChat(s.ctx, s.pool, s.snap.Provider, s.snap.Model, listFn, switchFn)
+			switchFn := modelSwitcher(snap, s.store, pool, s.extraTools, s.pluginMgr.Registry())
+			return clicmd.RunChat(s.ctx, pool, snap.Provider, snap.Model, listFn, switchFn)
 		},
 	}
 }
