@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/config"
 )
 
@@ -17,9 +18,9 @@ func TestNewRunnerFactoryGo(t *testing.T) {
 	}
 	snap.Workspace = t.TempDir()
 
-	factory, err := newRunnerFactory(snap, nil, nil)
+	factory, err := agent.NewRunnerFactory(snap, nil, nil)
 	if err != nil {
-		t.Fatalf("newRunnerFactory: %v", err)
+		t.Fatalf("NewRunnerFactory: %v", err)
 	}
 
 	r, err := factory(context.Background(), "")
@@ -37,7 +38,7 @@ func TestNewRunnerFactoryUnknown(t *testing.T) {
 		Runner: config.RunnerConfig{Type: "invalid"},
 	}
 
-	_, err := newRunnerFactory(snap, nil, nil)
+	_, err := agent.NewRunnerFactory(snap, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown runner type")
 	}
