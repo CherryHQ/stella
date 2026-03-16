@@ -67,13 +67,17 @@ func (p *Pool) CreateSession(channel string) (SessionInfo, error) {
 
 // createSessionLocked creates a new session and adds it to the in-memory map.
 // Caller must hold p.mu.
-func (p *Pool) createSessionLocked(channel string) SessionInfo {
+func (p *Pool) createSessionLocked(channel string, userID ...int64) SessionInfo {
 	now := time.Now()
 	info := SessionInfo{
 		ID:         channel + "-" + uuid.New().String()[:8],
 		Channel:    channel,
 		CreatedAt:  now,
 		LastActive: now,
+		AgentID:    p.agentID,
+	}
+	if len(userID) > 0 && userID[0] != 0 {
+		info.UserID = userID[0]
 	}
 	p.sessions[info.ID] = &Session{Info: info}
 	return info
