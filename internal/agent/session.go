@@ -28,6 +28,12 @@ func (c CompactionConfig) WithDefaults() CompactionConfig {
 	return c
 }
 
+// BuildSessionKey constructs a session key from agent, platform, user, and context.
+// Format: {agentID}:{platform}:{externalUserID}:{channelContext}
+func BuildSessionKey(agentID, platform, externalUserID, channelContext string) string {
+	return agentID + ":" + platform + ":" + externalUserID + ":" + channelContext
+}
+
 // SessionInfo is an alias for memory.SessionInfo.
 type SessionInfo = memory.SessionInfo
 
