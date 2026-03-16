@@ -119,3 +119,63 @@
 - The memory engine is created via `NewEngineFromDB(db)` sharing the same `*sql.DB` as the config store
 - Channel configs in gateway.go use generic `loadChannelConfig[T]` for JSON deserialization
 - `config.ProviderConfig` type is kept for model listing workflows but may be removable
+
+## Phase 3: Multi-Agent Core — Complete
+
+### Commits (on `feat/multi-user-agent` branch)
+
+1. `046b756` — Task 3.1: Add per-agent workspace setup
+2. `a059f6c` — Task 3.3: Add agentID field to Pool with WithAgentID option
+3. `eb6035a` — Task 3.4: Extract runner factory to agent package
+4. `0738301` — Task 3.5: Document per-agent workspace param in skills tool
+5. `6182bd7` — Task 3.2: Add PoolManager for multi-agent pool management
+6. `3b80e8a` — Task 3.6: Update setup() to use PoolManager
+
+### Files Changed
+
+**New:**
+- `internal/agent/workspace.go` — `SetupWorkspace(agentID, basePath)` creates `workspaces/{agentID}/skills/`
+- `internal/agent/workspace_test.go` — Tests for workspace setup (idempotent, empty ID)
+- `internal/agent/factory.go` — `NewRunnerFactory(snap, extraTools, pluginHooks)` creates per-agent runner factory
+- `internal/agent/pool_manager.go` — `PoolManager` maps agentID to Pool, with StartAll/Get/Close/DefaultPool
+- `internal/agent/pool_manager_test.go` — Tests for PoolManager lifecycle (start, get, close, no agents)
+
+**Modified:**
+- `internal/agent/pool.go` — Added `agentID` field, `AgentID()` getter, logger enriched with agent_id
+- `internal/agent/pool_options.go` — Added `WithAgentID(id string) PoolOption`
+- `internal/skills/tool.go` — Documented that workspace param should be per-agent
+- `cmd/anna/commands.go` — `setup()` uses PoolManager; `setupResult` has `poolManager` + `pool` (backward compat); removed local `newRunnerFactory`; removed `skills` import
+- `cmd/anna/commands_test.go` — Updated to use `agent.NewRunnerFactory` instead of local function
+
+### Key Types/Functions
+
+- `agent.SetupWorkspace(agentID, basePath) (string, error)` — creates per-agent workspace dirs
+- `agent.NewRunnerFactory(snap, extraTools, pluginHooks) (runner.NewRunnerFunc, error)` — moved from cmd/anna
+- `agent.PoolManager` — manages map[agentID]*Pool; `NewPoolManager(store, mem, opts...)`, `Get(agentID)`, `StartAll(ctx)`, `Close()`, `DefaultPool()`
+- `agent.PoolManagerOption` — `WithIdleTimeoutPM`, `WithCompactionPM`, `WithSharedExtraTools`, `WithExtraToolsFactory`, `WithPluginHooksPM`
+- `agent.ExtraToolsFactory` — callback type for per-agent tool injection
+- `agent.WithAgentID(id) PoolOption` — sets agent ID on a Pool
+- `Pool.AgentID() string` — returns the agent ID
+
+### Design Decisions
+
+- Skills tool is per-agent: PoolManager creates it in `startAgent()` with the agent's workspace path
+- Shared tools (scheduler, memory retrieval, plugins) are passed via `WithSharedExtraTools` and shared across all agent pools
+- `setupResult` keeps both `poolManager` and `pool` (default agent's pool) for backward compat — existing CLI/channel code that references `s.pool` still works
+- Pool.Close() on a shared memory engine is safe because `ownsDB=false` makes Close() a no-op
+- PoolManager.startAgent overrides `snap.Workspace` with the per-agent workspace path from SetupWorkspace
+- Task order: 3.3 done before 3.2 since PoolManager depends on Pool having agentID
+
+### Test Results
+
+- All unit tests pass (including new workspace, pool, pool_manager, factory tests)
+- Pre-existing integration test failures unchanged (require API key)
+- 0 lint issues
+
+### Notes for Phase 4
+
+- `setupResult.poolManager` is available for Phase 4 channel code to call `poolManager.Get(agentID)` for agent routing
+- `s.pool` still points to default agent's pool — Phase 4/6 can gradually migrate callers to use poolManager.Get()
+- Chat/gateway code still calls `s.pool.Close()` which only closes the default pool; Phase 6 should switch to `s.poolManager.Close()`
+- The scheduler currently routes all jobs through the default pool — Phase 4 task 4.11 should route via poolManager using job's agent_id
+- `agent.ExtraToolsFactory` is available but not currently used — Phase 4 can use it to inject per-agent user_memory tools
