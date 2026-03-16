@@ -41,8 +41,8 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 }
 
 const createConversationFull = `-- name: CreateConversationFull :one
-INSERT INTO conversations (session_id, title, channel, archived, last_active)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO conversations (session_id, title, channel, archived, last_active, agent_id, user_id)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at
 `
 
@@ -52,6 +52,8 @@ type CreateConversationFullParams struct {
 	Channel    string         `json:"channel"`
 	Archived   int64          `json:"archived"`
 	LastActive string         `json:"last_active"`
+	AgentID    sql.NullString `json:"agent_id"`
+	UserID     sql.NullInt64  `json:"user_id"`
 }
 
 func (q *Queries) CreateConversationFull(ctx context.Context, arg CreateConversationFullParams) (Conversation, error) {
@@ -61,6 +63,8 @@ func (q *Queries) CreateConversationFull(ctx context.Context, arg CreateConversa
 		arg.Channel,
 		arg.Archived,
 		arg.LastActive,
+		arg.AgentID,
+		arg.UserID,
 	)
 	var i Conversation
 	err := row.Scan(
@@ -201,6 +205,21 @@ func (q *Queries) ListConversationsAll(ctx context.Context) ([]Conversation, err
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateConversationAgentUser = `-- name: UpdateConversationAgentUser :exec
+UPDATE conversations SET agent_id = ?, user_id = ?, updated_at = datetime('now') WHERE session_id = ?
+`
+
+type UpdateConversationAgentUserParams struct {
+	AgentID   sql.NullString `json:"agent_id"`
+	UserID    sql.NullInt64  `json:"user_id"`
+	SessionID string         `json:"session_id"`
+}
+
+func (q *Queries) UpdateConversationAgentUser(ctx context.Context, arg UpdateConversationAgentUserParams) error {
+	_, err := q.db.ExecContext(ctx, updateConversationAgentUser, arg.AgentID, arg.UserID, arg.SessionID)
+	return err
 }
 
 const updateConversationArchived = `-- name: UpdateConversationArchived :exec

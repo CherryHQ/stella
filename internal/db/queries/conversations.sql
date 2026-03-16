@@ -16,9 +16,12 @@ UPDATE conversations SET title = ?, updated_at = datetime('now') WHERE id = ?;
 UPDATE conversations SET bootstrapped_at = datetime('now'), updated_at = datetime('now') WHERE id = ?;
 
 -- name: CreateConversationFull :one
-INSERT INTO conversations (session_id, title, channel, archived, last_active)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO conversations (session_id, title, channel, archived, last_active, agent_id, user_id)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
+
+-- name: UpdateConversationAgentUser :exec
+UPDATE conversations SET agent_id = ?, user_id = ?, updated_at = datetime('now') WHERE session_id = ?;
 
 -- name: UpdateConversationArchived :exec
 UPDATE conversations SET archived = ?, updated_at = datetime('now') WHERE session_id = ?;
