@@ -43,7 +43,7 @@ func gatewayCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			defer func() { _ = s.pool.Close() }()
+			defer func() { _ = s.poolManager.Close() }()
 			defer func() { _ = s.pluginMgr.Close() }()
 
 			listFn := func() []channel.ModelOption {
