@@ -12,7 +12,7 @@ export function baseOptions(): BaseLayoutProps {
       title: (
         <>
           <img
-            src="/favicon.png"
+            src="/anna-monogram.svg"
             alt="anna"
             width={24}
             height={24}
@@ -22,6 +22,10 @@ export function baseOptions(): BaseLayoutProps {
         </>
       ),
     },
+    links: [
+      { text: "About", url: "/about" },
+      { text: "Docs", url: "/docs" },
+    ],
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
   };
 }
