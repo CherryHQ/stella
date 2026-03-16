@@ -323,13 +323,14 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	applyProviderEnvFallback(&p)
 
 	snap := &Snapshot{
-		Provider:    p.ID,
-		Model:       ag.Model,
-		ModelStrong: ag.ModelStrong,
-		ModelFast:   ag.ModelFast,
-		Workspace:   ag.Workspace,
-		APIKey:      p.APIKey,
-		BaseURL:     p.BaseURL,
+		Provider:     p.ID,
+		Model:        ag.Model,
+		ModelStrong:  ag.ModelStrong,
+		ModelFast:    ag.ModelFast,
+		Workspace:    ag.Workspace,
+		APIKey:       p.APIKey,
+		BaseURL:      p.BaseURL,
+		SystemPrompt: ag.SystemPrompt,
 	}
 
 	// Load settings.
