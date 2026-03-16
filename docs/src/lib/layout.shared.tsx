@@ -12,7 +12,7 @@ export function baseOptions(): BaseLayoutProps {
       title: (
         <>
           <img
-            src="/favicon.png"
+            src="/anna-monogram.svg"
             alt="anna"
             width={24}
             height={24}
