@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Anna Admin</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+          },
+          colors: {
+            surface: { 0: '#ffffff', 1: '#f8f9fa', 2: '#f1f3f5', 3: '#e9ecef', 4: '#dee2e6' },
+            ink: { 0: '#212529', 1: '#495057', 2: '#868e96', 3: '#adb5bd', 4: '#ced4da' },
+            primary: { 50: '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe', 300: '#a5b4fc', 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca', 800: '#3730a3', 900: '#312e81' },
+            success: { 50: '#ecfdf5', 500: '#22c55e', 600: '#16a34a' },
+            danger: { 50: '#fef2f2', 500: '#ef4444', 600: '#dc2626' },
+            warn: { 50: '#fffbeb', 500: '#f59e0b', 600: '#d97706' },
+          },
+        },
+      },
+    }
+  </script>
+  <style>
+    [x-cloak] { display: none !important; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #ced4da; border-radius: 3px; }
+  </style>
+</head>
+<body class="bg-surface-1 min-h-screen font-sans text-ink-0 antialiased">
+
+<div x-data="adminApp()" x-init="init()" class="max-w-6xl mx-auto px-4 py-8">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-8">
+    <h1 class="text-2xl font-bold text-ink-0">Anna Admin</h1>
+    <span class="text-sm text-ink-2" x-text="status"></span>
+  </div>
+
+  <!-- Tabs -->
+  <div class="flex space-x-1 bg-surface-2 rounded-lg p-1 mb-6">
+    <template x-for="t in tabs" :key="t.id">
+      <button @click="tab = t.id"
+        :class="tab === t.id ? 'bg-white shadow-sm text-ink-0' : 'text-ink-2 hover:text-ink-1'"
+        class="px-4 py-2 rounded-md text-sm font-medium transition-all" x-text="t.label">
+      </button>
+    </template>
+  </div>
+
+  <!-- Providers Tab -->
+  <div x-show="tab === 'providers'" x-cloak>
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-lg font-semibold">Providers</h2>
+      <button @click="showProviderForm = !showProviderForm"
+        class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">
+        + Add Provider
+      </button>
+    </div>
+
+    <!-- Provider Form -->
+    <div x-show="showProviderForm" class="bg-white rounded-lg shadow-card p-4 mb-4">
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">ID (slug)</label>
+          <input x-model="providerForm.id" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm" placeholder="anthropic">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">Name</label>
+          <input x-model="providerForm.name" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm" placeholder="Anthropic">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">API Key</label>
+          <input x-model="providerForm.api_key" type="password" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">Base URL (optional)</label>
+          <input x-model="providerForm.base_url" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm" placeholder="https://api.anthropic.com">
+        </div>
+      </div>
+      <div class="flex justify-end space-x-2 mt-4">
+        <button @click="showProviderForm = false; resetProviderForm()" class="px-3 py-1.5 text-sm text-ink-2 hover:text-ink-0">Cancel</button>
+        <button @click="saveProvider()" class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">Save</button>
+      </div>
+    </div>
+
+    <!-- Provider List -->
+    <div class="space-y-2">
+      <template x-for="p in providers" :key="p.id">
+        <div class="bg-white rounded-lg shadow-card p-4 flex items-center justify-between">
+          <div>
+            <span class="font-medium" x-text="p.name"></span>
+            <span class="text-sm text-ink-2 ml-2" x-text="'(' + p.id + ')'"></span>
+            <span x-show="p.base_url" class="text-xs text-ink-3 ml-2" x-text="p.base_url"></span>
+          </div>
+          <div class="flex space-x-2">
+            <button @click="fetchModels(p.id)" class="px-2 py-1 text-xs bg-surface-2 rounded hover:bg-surface-3">Fetch Models</button>
+            <button @click="editProvider(p)" class="px-2 py-1 text-xs bg-surface-2 rounded hover:bg-surface-3">Edit</button>
+            <button @click="deleteProvider(p.id)" class="px-2 py-1 text-xs text-danger-600 bg-danger-50 rounded hover:bg-danger-50">Delete</button>
+          </div>
+        </div>
+      </template>
+      <div x-show="providers.length === 0" class="text-sm text-ink-2 text-center py-8">No providers configured</div>
+    </div>
+
+    <!-- Models display -->
+    <div x-show="fetchedModels.length > 0" class="mt-4 bg-white rounded-lg shadow-card p-4">
+      <h3 class="text-sm font-semibold mb-2" x-text="'Models for ' + fetchedModelsProvider"></h3>
+      <div class="max-h-48 overflow-y-auto">
+        <template x-for="m in fetchedModels" :key="m">
+          <div class="text-sm font-mono text-ink-1 py-0.5" x-text="m"></div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agents Tab -->
+  <div x-show="tab === 'agents'" x-cloak>
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-lg font-semibold">Agents</h2>
+      <button @click="showAgentForm = !showAgentForm"
+        class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">
+        + Add Agent
+      </button>
+    </div>
+
+    <div x-show="showAgentForm" class="bg-white rounded-lg shadow-card p-4 mb-4">
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">ID (slug)</label>
+          <input x-model="agentForm.id" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm" placeholder="anna">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">Name</label>
+          <input x-model="agentForm.name" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm" placeholder="Anna">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">Provider</label>
+          <select x-model="agentForm.provider_id" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm">
+            <option value="">Select provider...</option>
+            <template x-for="p in providers" :key="p.id">
+              <option :value="p.id" x-text="p.name"></option>
+            </template>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">Model</label>
+          <input x-model="agentForm.model" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono" placeholder="claude-sonnet-4-6">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">Model Strong</label>
+          <input x-model="agentForm.model_strong" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">Model Fast</label>
+          <input x-model="agentForm.model_fast" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">Workspace</label>
+          <input x-model="agentForm.workspace" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono">
+        </div>
+        <div class="flex items-center pt-6">
+          <label class="flex items-center space-x-2">
+            <input type="checkbox" x-model="agentForm.enabled" class="rounded">
+            <span class="text-sm font-medium text-ink-1">Enabled</span>
+          </label>
+        </div>
+      </div>
+      <div class="mt-4">
+        <label class="block text-sm font-medium text-ink-1 mb-1">System Prompt</label>
+        <textarea x-model="agentForm.system_prompt" rows="4" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono"></textarea>
+      </div>
+      <div class="flex justify-end space-x-2 mt-4">
+        <button @click="showAgentForm = false; resetAgentForm()" class="px-3 py-1.5 text-sm text-ink-2 hover:text-ink-0">Cancel</button>
+        <button @click="saveAgent()" class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">Save</button>
+      </div>
+    </div>
+
+    <div class="space-y-2">
+      <template x-for="a in agents" :key="a.id">
+        <div class="bg-white rounded-lg shadow-card p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="font-medium" x-text="a.name"></span>
+              <span class="text-sm text-ink-2 ml-2" x-text="'(' + a.id + ')'"></span>
+              <span class="text-xs px-2 py-0.5 rounded-full ml-2"
+                :class="a.enabled ? 'bg-success-50 text-success-600' : 'bg-surface-2 text-ink-2'"
+                x-text="a.enabled ? 'enabled' : 'disabled'"></span>
+            </div>
+            <div class="flex space-x-2">
+              <button @click="editAgent(a)" class="px-2 py-1 text-xs bg-surface-2 rounded hover:bg-surface-3">Edit</button>
+              <button @click="deleteAgent(a.id)" class="px-2 py-1 text-xs text-danger-600 bg-danger-50 rounded hover:bg-danger-50">Delete</button>
+            </div>
+          </div>
+          <div class="text-sm text-ink-2 mt-1">
+            <span x-text="a.provider_id + '/' + a.model"></span>
+          </div>
+        </div>
+      </template>
+      <div x-show="agents.length === 0" class="text-sm text-ink-2 text-center py-8">No agents configured</div>
+    </div>
+  </div>
+
+  <!-- Channels Tab -->
+  <div x-show="tab === 'channels'" x-cloak>
+    <h2 class="text-lg font-semibold mb-4">Channels</h2>
+
+    <div class="space-y-4">
+      <template x-for="platform in ['telegram', 'qq', 'feishu']" :key="platform">
+        <div class="bg-white rounded-lg shadow-card p-4">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-medium capitalize" x-text="platform"></h3>
+            <span x-show="channelConfigs[platform]" class="text-xs px-2 py-0.5 rounded-full"
+              :class="channelConfigs[platform]?.enabled ? 'bg-success-50 text-success-600' : 'bg-surface-2 text-ink-2'"
+              x-text="channelConfigs[platform]?.enabled ? 'enabled' : 'disabled'"></span>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-ink-1 mb-1">Config (JSON)</label>
+            <textarea
+              x-model="channelEditors[platform]"
+              rows="4"
+              class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono"
+              :placeholder="channelPlaceholders[platform]"></textarea>
+          </div>
+          <div class="flex items-center justify-between mt-2">
+            <label class="flex items-center space-x-2">
+              <input type="checkbox"
+                :checked="channelEnabled[platform]"
+                @change="channelEnabled[platform] = $event.target.checked"
+                class="rounded">
+              <span class="text-sm text-ink-1">Enabled</span>
+            </label>
+            <button @click="saveChannel(platform)" class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">Save</button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- Users Tab -->
+  <div x-show="tab === 'users'" x-cloak>
+    <h2 class="text-lg font-semibold mb-4">Users</h2>
+    <div class="bg-white rounded-lg shadow-card overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-surface-2">
+          <tr>
+            <th class="text-left px-4 py-2 font-medium text-ink-1">ID</th>
+            <th class="text-left px-4 py-2 font-medium text-ink-1">Name</th>
+            <th class="text-left px-4 py-2 font-medium text-ink-1">Platform</th>
+            <th class="text-left px-4 py-2 font-medium text-ink-1">External ID</th>
+            <th class="text-left px-4 py-2 font-medium text-ink-1">Default Agent</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="u in users" :key="u.id">
+            <tr class="border-t border-surface-3">
+              <td class="px-4 py-2" x-text="u.id"></td>
+              <td class="px-4 py-2" x-text="u.name || '-'"></td>
+              <td class="px-4 py-2" x-text="u.platform"></td>
+              <td class="px-4 py-2 font-mono text-xs" x-text="u.external_id"></td>
+              <td class="px-4 py-2" x-text="u.default_agent_id || '-'"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <div x-show="users.length === 0" class="text-sm text-ink-2 text-center py-8">No users yet</div>
+    </div>
+  </div>
+
+  <!-- Sessions Tab -->
+  <div x-show="tab === 'sessions'" x-cloak>
+    <h2 class="text-lg font-semibold mb-4">Sessions</h2>
+    <div class="bg-white rounded-lg shadow-card overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-surface-2">
+          <tr>
+            <th class="text-left px-4 py-2 font-medium text-ink-1">Session ID</th>
+            <th class="text-left px-4 py-2 font-medium text-ink-1">Channel</th>
+            <th class="text-left px-4 py-2 font-medium text-ink-1">Title</th>
+            <th class="text-left px-4 py-2 font-medium text-ink-1">Agent</th>
+            <th class="text-left px-4 py-2 font-medium text-ink-1">Last Active</th>
+            <th class="text-left px-4 py-2 font-medium text-ink-1">Archived</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="s in sessions" :key="s.ID">
+            <tr class="border-t border-surface-3">
+              <td class="px-4 py-2 font-mono text-xs" x-text="s.ID"></td>
+              <td class="px-4 py-2" x-text="s.Channel"></td>
+              <td class="px-4 py-2" x-text="s.Title || '-'"></td>
+              <td class="px-4 py-2" x-text="s.AgentID || '-'"></td>
+              <td class="px-4 py-2 text-xs" x-text="s.LastActive"></td>
+              <td class="px-4 py-2" x-text="s.Archived ? 'Yes' : 'No'"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <div x-show="sessions.length === 0" class="text-sm text-ink-2 text-center py-8">No sessions yet</div>
+    </div>
+  </div>
+
+  <!-- Scheduler Tab -->
+  <div x-show="tab === 'scheduler'" x-cloak>
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-lg font-semibold">Scheduler Jobs</h2>
+      <button @click="showJobForm = !showJobForm"
+        class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">
+        + Add Job
+      </button>
+    </div>
+
+    <div x-show="showJobForm" class="bg-white rounded-lg shadow-card p-4 mb-4">
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">Name</label>
+          <input x-model="jobForm.name" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm" placeholder="Daily summary">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">Session Mode</label>
+          <select x-model="jobForm.session_mode" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm">
+            <option value="reuse">Reuse</option>
+            <option value="new">New</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">Cron (e.g. 0 9 * * 1-5)</label>
+          <input x-model="jobForm.cron" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono" placeholder="0 9 * * *">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">Every (e.g. 30m, 2h)</label>
+          <input x-model="jobForm.every" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono" placeholder="1h">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-ink-1 mb-1">Agent ID (optional)</label>
+          <select x-model="jobForm.agent_id" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm">
+            <option value="">Default agent</option>
+            <template x-for="a in agents" :key="a.id">
+              <option :value="a.id" x-text="a.name"></option>
+            </template>
+          </select>
+        </div>
+        <div class="flex items-center pt-6">
+          <label class="flex items-center space-x-2">
+            <input type="checkbox" x-model="jobForm.enabled" class="rounded">
+            <span class="text-sm font-medium text-ink-1">Enabled</span>
+          </label>
+        </div>
+      </div>
+      <div class="mt-4">
+        <label class="block text-sm font-medium text-ink-1 mb-1">Message</label>
+        <textarea x-model="jobForm.message" rows="3" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm" placeholder="What should the agent do?"></textarea>
+      </div>
+      <div class="flex justify-end space-x-2 mt-4">
+        <button @click="showJobForm = false; resetJobForm()" class="px-3 py-1.5 text-sm text-ink-2 hover:text-ink-0">Cancel</button>
+        <button @click="saveJob()" class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">Save</button>
+      </div>
+    </div>
+
+    <div class="space-y-2">
+      <template x-for="j in jobs" :key="j.id">
+        <div class="bg-white rounded-lg shadow-card p-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="font-medium" x-text="j.name"></span>
+              <span class="text-xs px-2 py-0.5 rounded-full ml-2"
+                :class="j.enabled ? 'bg-success-50 text-success-600' : 'bg-surface-2 text-ink-2'"
+                x-text="j.enabled ? 'enabled' : 'disabled'"></span>
+              <span x-show="j.agent_id" class="text-xs text-ink-2 ml-2" x-text="'agent: ' + j.agent_id"></span>
+            </div>
+            <div class="flex space-x-2">
+              <button @click="editJob(j)" class="px-2 py-1 text-xs bg-surface-2 rounded hover:bg-surface-3">Edit</button>
+              <button @click="deleteJob(j.id)" class="px-2 py-1 text-xs text-danger-600 bg-danger-50 rounded">Delete</button>
+            </div>
+          </div>
+          <div class="text-sm text-ink-2 mt-1">
+            <span x-show="j.cron" x-text="'cron: ' + j.cron"></span>
+            <span x-show="j.every" x-text="'every: ' + j.every"></span>
+            <span x-show="j.at" x-text="'at: ' + j.at"></span>
+            <span class="ml-2" x-text="'| ' + j.session_mode"></span>
+          </div>
+          <div class="text-sm text-ink-1 mt-1 truncate" x-text="j.message"></div>
+        </div>
+      </template>
+      <div x-show="jobs.length === 0" class="text-sm text-ink-2 text-center py-8">No scheduler jobs</div>
+    </div>
+  </div>
+
+  <!-- Settings Tab -->
+  <div x-show="tab === 'settings'" x-cloak>
+    <h2 class="text-lg font-semibold mb-4">Settings</h2>
+
+    <div class="space-y-4">
+      <template x-for="key in settingsKeys" :key="key">
+        <div class="bg-white rounded-lg shadow-card p-4">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-medium font-mono text-sm" x-text="key"></h3>
+            <button @click="saveSetting(key)" class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">Save</button>
+          </div>
+          <textarea
+            x-model="settingsEditors[key]"
+            rows="4"
+            class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono"></textarea>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div x-show="toast" x-transition
+    class="fixed bottom-4 right-4 px-4 py-2 rounded-lg shadow-lg text-sm text-white"
+    :class="toastType === 'error' ? 'bg-danger-600' : 'bg-success-600'"
+    x-text="toast">
+  </div>
+</div>
+
+<script>
+function adminApp() {
+  return {
+    tab: 'providers',
+    tabs: [
+      { id: 'providers', label: 'Providers' },
+      { id: 'agents', label: 'Agents' },
+      { id: 'channels', label: 'Channels' },
+      { id: 'users', label: 'Users' },
+      { id: 'sessions', label: 'Sessions' },
+      { id: 'scheduler', label: 'Scheduler' },
+      { id: 'settings', label: 'Settings' },
+    ],
+    status: '',
+    toast: '',
+    toastType: 'success',
+
+    // Data
+    providers: [],
+    agents: [],
+    users: [],
+    sessions: [],
+    jobs: [],
+    channelConfigs: {},
+    channelEditors: { telegram: '', qq: '', feishu: '' },
+    channelEnabled: { telegram: false, qq: false, feishu: false },
+    channelPlaceholders: {
+      telegram: '{"token":"","notify_chat":"","group_mode":"mention","allowed_ids":[],"enable_notify":true}',
+      qq: '{"app_id":"","app_secret":"","group_mode":"","allowed_ids":[]}',
+      feishu: '{"app_id":"","app_secret":"","encrypt_key":"","verification_token":"","notify_chat":""}',
+    },
+    fetchedModels: [],
+    fetchedModelsProvider: '',
+    settingsKeys: ['runner', 'compaction', 'heartbeat', 'scheduler', 'plugins'],
+    settingsEditors: {},
+
+    // Forms
+    showProviderForm: false,
+    editingProviderId: null,
+    providerForm: { id: '', name: '', api_key: '', base_url: '' },
+    showAgentForm: false,
+    editingAgentId: null,
+    agentForm: { id: '', name: '', provider_id: '', model: '', model_strong: '', model_fast: '', system_prompt: '', workspace: '', enabled: true },
+    showJobForm: false,
+    editingJobId: null,
+    jobForm: { name: '', cron: '', every: '', message: '', session_mode: 'reuse', enabled: true, agent_id: '' },
+
+    async init() {
+      await Promise.all([
+        this.loadProviders(),
+        this.loadAgents(),
+        this.loadUsers(),
+        this.loadSessions(),
+        this.loadJobs(),
+        this.loadChannels(),
+        this.loadSettings(),
+      ]);
+      this.status = 'Connected';
+    },
+
+    showToast(msg, type = 'success') {
+      this.toast = msg;
+      this.toastType = type;
+      setTimeout(() => this.toast = '', 3000);
+    },
+
+    async api(method, path, body = null) {
+      const opts = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(path, opts);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      return json.data;
+    },
+
+    // Providers
+    async loadProviders() { try { this.providers = await this.api('GET', '/api/providers') || []; } catch(e) { console.error(e); } },
+    resetProviderForm() { this.providerForm = { id: '', name: '', api_key: '', base_url: '' }; this.editingProviderId = null; },
+    editProvider(p) {
+      this.providerForm = { ...p };
+      this.editingProviderId = p.id;
+      this.showProviderForm = true;
+    },
+    async saveProvider() {
+      try {
+        if (this.editingProviderId) {
+          await this.api('PUT', '/api/providers/' + this.editingProviderId, this.providerForm);
+        } else {
+          await this.api('POST', '/api/providers', this.providerForm);
+        }
+        this.showProviderForm = false;
+        this.resetProviderForm();
+        await this.loadProviders();
+        this.showToast('Provider saved');
+      } catch(e) { this.showToast(e.message, 'error'); }
+    },
+    async deleteProvider(id) {
+      if (!confirm('Delete provider ' + id + '?')) return;
+      try { await this.api('DELETE', '/api/providers/' + id); await this.loadProviders(); this.showToast('Provider deleted'); }
+      catch(e) { this.showToast(e.message, 'error'); }
+    },
+    async fetchModels(id) {
+      try {
+        this.fetchedModelsProvider = id;
+        const models = await this.api('POST', '/api/providers/' + id + '/models', {});
+        this.fetchedModels = models || [];
+        this.showToast('Fetched ' + this.fetchedModels.length + ' models');
+      } catch(e) { this.showToast(e.message, 'error'); }
+    },
+
+    // Agents
+    async loadAgents() { try { this.agents = await this.api('GET', '/api/agents') || []; } catch(e) { console.error(e); } },
+    resetAgentForm() { this.agentForm = { id: '', name: '', provider_id: '', model: '', model_strong: '', model_fast: '', system_prompt: '', workspace: '', enabled: true }; this.editingAgentId = null; },
+    editAgent(a) {
+      this.agentForm = { ...a };
+      this.editingAgentId = a.id;
+      this.showAgentForm = true;
+    },
+    async saveAgent() {
+      try {
+        if (this.editingAgentId) {
+          await this.api('PUT', '/api/agents/' + this.editingAgentId, this.agentForm);
+        } else {
+          await this.api('POST', '/api/agents', this.agentForm);
+        }
+        this.showAgentForm = false;
+        this.resetAgentForm();
+        await this.loadAgents();
+        this.showToast('Agent saved');
+      } catch(e) { this.showToast(e.message, 'error'); }
+    },
+    async deleteAgent(id) {
+      if (!confirm('Delete agent ' + id + '?')) return;
+      try { await this.api('DELETE', '/api/agents/' + id); await this.loadAgents(); this.showToast('Agent deleted'); }
+      catch(e) { this.showToast(e.message, 'error'); }
+    },
+
+    // Channels
+    async loadChannels() {
+      try {
+        const channels = await this.api('GET', '/api/channels') || [];
+        for (const ch of channels) {
+          this.channelConfigs[ch.id] = ch;
+          this.channelEditors[ch.id] = ch.config || '{}';
+          this.channelEnabled[ch.id] = ch.enabled;
+        }
+      } catch(e) { console.error(e); }
+    },
+    async saveChannel(platform) {
+      try {
+        let configStr = this.channelEditors[platform] || '{}';
+        JSON.parse(configStr); // validate
+        await this.api('PUT', '/api/channels/' + platform, {
+          enabled: this.channelEnabled[platform],
+          config: configStr,
+        });
+        await this.loadChannels();
+        this.showToast(platform + ' channel saved');
+      } catch(e) { this.showToast(e.message, 'error'); }
+    },
+
+    // Users
+    async loadUsers() { try { this.users = await this.api('GET', '/api/users') || []; } catch(e) { console.error(e); } },
+
+    // Sessions
+    async loadSessions() { try { this.sessions = await this.api('GET', '/api/sessions') || []; } catch(e) { console.error(e); } },
+
+    // Jobs
+    async loadJobs() { try { this.jobs = await this.api('GET', '/api/scheduler/jobs') || []; } catch(e) { console.error(e); } },
+    resetJobForm() { this.jobForm = { name: '', cron: '', every: '', message: '', session_mode: 'reuse', enabled: true, agent_id: '' }; this.editingJobId = null; },
+    editJob(j) {
+      this.jobForm = { ...j };
+      this.editingJobId = j.id;
+      this.showJobForm = true;
+    },
+    async saveJob() {
+      try {
+        if (this.editingJobId) {
+          await this.api('PUT', '/api/scheduler/jobs/' + this.editingJobId, this.jobForm);
+        } else {
+          await this.api('POST', '/api/scheduler/jobs', this.jobForm);
+        }
+        this.showJobForm = false;
+        this.resetJobForm();
+        await this.loadJobs();
+        this.showToast('Job saved');
+      } catch(e) { this.showToast(e.message, 'error'); }
+    },
+    async deleteJob(id) {
+      if (!confirm('Delete job?')) return;
+      try { await this.api('DELETE', '/api/scheduler/jobs/' + id); await this.loadJobs(); this.showToast('Job deleted'); }
+      catch(e) { this.showToast(e.message, 'error'); }
+    },
+
+    // Settings
+    async loadSettings() {
+      for (const key of this.settingsKeys) {
+        try {
+          const result = await this.api('GET', '/api/settings/' + key);
+          this.settingsEditors[key] = typeof result.value === 'object' ? JSON.stringify(result.value, null, 2) : (result.value || '');
+        } catch(e) {
+          this.settingsEditors[key] = '';
+        }
+      }
+    },
+    async saveSetting(key) {
+      try {
+        let val = this.settingsEditors[key];
+        try { val = JSON.parse(val); } catch(_) {}
+        await this.api('PUT', '/api/settings/' + key, { value: val });
+        this.showToast('Setting ' + key + ' saved');
+      } catch(e) { this.showToast(e.message, 'error'); }
+    },
+  };
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,152 @@
+package admin
+
+import (
+	"context"
+	"net/http"
+	"time"
+
+	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/ai/providers/anthropic"
+	"github.com/vaayne/anna/internal/ai/providers/openai"
+	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
+	"github.com/vaayne/anna/internal/config"
+)
+
+func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
+	providers, err := s.store.ListProviders(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, providers)
+}
+
+func (s *Server) createProvider(w http.ResponseWriter, r *http.Request) {
+	var p config.Provider
+	if err := decodeJSON(r, &p); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if p.ID == "" {
+		writeError(w, http.StatusBadRequest, "id is required")
+		return
+	}
+	if p.Name == "" {
+		p.Name = p.ID
+	}
+	if err := s.store.CreateProvider(r.Context(), p); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusCreated, p)
+}
+
+func (s *Server) getProvider(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	p, err := s.store.GetProvider(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	writeData(w, http.StatusOK, p)
+}
+
+func (s *Server) updateProvider(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var p config.Provider
+	if err := decodeJSON(r, &p); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	p.ID = id
+	if p.Name == "" {
+		p.Name = id
+	}
+	if err := s.store.UpdateProvider(r.Context(), p); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, p)
+}
+
+func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.store.DeleteProvider(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (s *Server) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var body struct {
+		APIKey  string `json:"api_key"`
+		BaseURL string `json:"base_url"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+
+	// If no credentials in body, try loading from stored provider.
+	if body.APIKey == "" {
+		p, err := s.store.GetProvider(r.Context(), id)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "api_key is required")
+			return
+		}
+		body.APIKey = p.APIKey
+		if body.BaseURL == "" {
+			body.BaseURL = p.BaseURL
+		}
+	}
+
+	if body.APIKey == "" {
+		writeError(w, http.StatusBadRequest, "api_key is required")
+		return
+	}
+
+	provider := newProviderFromCreds(id, body.APIKey, body.BaseURL)
+	if provider == nil {
+		writeError(w, http.StatusBadRequest, "unknown provider: "+id)
+		return
+	}
+
+	lister, ok := provider.(ai.ModelLister)
+	if !ok {
+		writeError(w, http.StatusBadRequest, id+" does not support model listing")
+		return
+	}
+
+	fetchCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	listed, err := lister.ListModels(fetchCtx)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "fetch failed: "+err.Error())
+		return
+	}
+
+	modelIDs := make([]string, 0, len(listed))
+	for _, m := range listed {
+		modelIDs = append(modelIDs, m.ID)
+	}
+
+	writeData(w, http.StatusOK, modelIDs)
+}
+
+// newProviderFromCreds creates an ai.ProviderAdapter from raw credentials.
+func newProviderFromCreds(name, apiKey, baseURL string) ai.ProviderAdapter {
+	switch name {
+	case "anthropic":
+		return anthropic.New(anthropic.Config{BaseURL: baseURL, APIKey: apiKey})
+	case "openai":
+		return openai.New(openai.Config{BaseURL: baseURL, APIKey: apiKey})
+	case "openai-response":
+		return openairesponse.New(openairesponse.Config{BaseURL: baseURL, APIKey: apiKey})
+	default:
+		return nil
+	}
+}
