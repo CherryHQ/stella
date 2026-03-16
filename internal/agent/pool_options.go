@@ -9,6 +9,13 @@ import (
 // PoolOption configures a Pool.
 type PoolOption func(*Pool)
 
+// WithAgentID sets the agent ID this pool belongs to.
+func WithAgentID(id string) PoolOption {
+	return func(p *Pool) {
+		p.agentID = id
+	}
+}
+
 // WithIdleTimeout sets the idle timeout for reaping runners.
 func WithIdleTimeout(d time.Duration) PoolOption {
 	return func(p *Pool) {
