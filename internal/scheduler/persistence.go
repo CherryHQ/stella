@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -39,6 +40,8 @@ func (s *Service) insertJob(ctx context.Context, job Job) error {
 		Message:       job.Message,
 		SessionMode:   job.SessionMode,
 		Enabled:       enabled,
+		AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
+		UserID:        sql.NullInt64{Int64: job.UserID, Valid: job.UserID != 0},
 		CreatedAt:     job.CreatedAt.UTC().Format("2006-01-02 15:04:05"),
 	})
 	return err
@@ -94,6 +97,8 @@ func (s *Service) migrateJobsFile(ctx context.Context, dataPath string) error {
 			Message:       job.Message,
 			SessionMode:   job.SessionMode,
 			Enabled:       enabled,
+			AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
+			UserID:        sql.NullInt64{Int64: job.UserID, Valid: job.UserID != 0},
 			CreatedAt:     job.CreatedAt.UTC().Format("2006-01-02 15:04:05"),
 		})
 		if err != nil {
@@ -112,7 +117,7 @@ func (s *Service) migrateJobsFile(ctx context.Context, dataPath string) error {
 
 func dbRowToJob(r sqlc.SchedulerJob) Job {
 	t, _ := time.Parse("2006-01-02 15:04:05", r.CreatedAt)
-	return Job{
+	j := Job{
 		ID:   r.ID,
 		Name: r.Name,
 		Schedule: Schedule{
@@ -125,4 +130,11 @@ func dbRowToJob(r sqlc.SchedulerJob) Job {
 		Enabled:     r.Enabled != 0,
 		CreatedAt:   t,
 	}
+	if r.AgentID.Valid {
+		j.AgentID = r.AgentID.String
+	}
+	if r.UserID.Valid {
+		j.UserID = r.UserID.Int64
+	}
+	return j
 }

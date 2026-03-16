@@ -63,7 +63,10 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 			ChannelID:  tgCfg.ChannelID,
 			GroupMode:  tgCfg.GroupMode,
 			AllowedIDs: tgCfg.AllowedIDs,
-		}, s.pool, listFn, switchFn)
+		}, s.pool, listFn, switchFn,
+			telegram.WithPoolManager(s.poolManager),
+			telegram.WithStore(s.store),
+		)
 		if err != nil {
 			return fmt.Errorf("create telegram bot: %w", err)
 		}
@@ -143,7 +146,7 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 	// are registered, so early-firing jobs already use the dispatcher.
 	if s.schedulerSvc != nil {
 		if s.snap.Scheduler.IsEnabled() {
-			wireSchedulerNotifier(s.schedulerSvc, s.pool, s.notifier)
+			wireSchedulerNotifier(s.schedulerSvc, s.poolManager, s.pool, s.notifier)
 			if err := s.schedulerSvc.Start(ctx); err != nil {
 				return fmt.Errorf("start scheduler: %w", err)
 			}
@@ -167,9 +170,19 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 }
 
 // wireSchedulerNotifier overrides the scheduler callback to collect the agent response
-// and broadcast it via the notification dispatcher.
-func wireSchedulerNotifier(schedulerSvc *scheduler.Service, pool *agent.Pool, dispatcher *channel.Dispatcher) {
+// and broadcast it via the notification dispatcher. When a job has an AgentID, the
+// corresponding pool is looked up via the PoolManager; otherwise the default pool is used.
+func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolManager, defaultPool *agent.Pool, dispatcher *channel.Dispatcher) {
 	schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) {
+		pool := defaultPool
+		if job.AgentID != "" {
+			if p := poolMgr.Get(job.AgentID); p != nil {
+				pool = p
+			} else {
+				slog.Warn("scheduler job references unknown agent, using default pool",
+					"job_id", job.ID, "agent_id", job.AgentID)
+			}
+		}
 		sessionID := job.SessionID()
 		msg := fmt.Sprintf("[Scheduled Task] %s\n\nInstruction: %s", job.Name, job.Message)
 		var result strings.Builder

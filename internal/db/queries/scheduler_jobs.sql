@@ -1,6 +1,6 @@
 -- name: CreateSchedulerJob :one
-INSERT INTO scheduler_jobs (id, name, schedule_cron, schedule_every, schedule_at, message, session_mode, enabled, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO scheduler_jobs (id, name, schedule_cron, schedule_every, schedule_at, message, session_mode, enabled, agent_id, user_id, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: ListSchedulerJobs :many
