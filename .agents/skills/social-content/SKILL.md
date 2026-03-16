@@ -1,11 +1,12 @@
 ---
 name: social-content
 description: >
-  Generate daily social media marketing content for Anna, a self-hosted AI assistant.
+  Generate and post social media marketing content for Anna, a self-hosted AI assistant.
   Produce platform-specific post drafts for Twitter/X (English, technical credibility)
-  or Xiaohongshu (Chinese, scenario-driven). Use when the user asks to "write a post",
-  "create social content", "draft a tweet", "write xiaohongshu content", "marketing post",
-  "social media draft", or discusses content for Anna's social accounts.
+  or Xiaohongshu (Chinese, scenario-driven). Can post tweets to X via script (requires
+  user approval). Use when the user asks to "write a post", "create social content",
+  "draft a tweet", "write xiaohongshu content", "marketing post", "social media draft",
+  "post to twitter", "post tweet", or discusses content for Anna's social accounts.
 ---
 
 # Social Content for Anna
@@ -63,6 +64,20 @@ Each post fits one pillar. Ask the user which pillar, or infer from their topic:
    - Xiaohongshu: [references/xiaohongshu.md](references/xiaohongshu.md)
 4. Draft the post following platform format and voice rules
 5. Present the draft for user review — never assume auto-posting
+6. **Posting to Twitter/X** (only when the user explicitly asks to post):
+   a. Present the final tweet text and ask: *"Ready to post this to X? (yes/no)"*
+   b. **Wait for explicit user approval** — do NOT proceed without a clear "yes"
+   c. Run the posting script:
+      ```bash
+      uv run --script ./scripts/post_twitter.py "TWEET_TEXT"
+      ```
+   d. Use `--dry-run` first if the user wants to preview without posting:
+      ```bash
+      uv run --script ./scripts/post_twitter.py --dry-run "TWEET_TEXT"
+      ```
+   e. Report the result back to the user
+
+   **Requirements:** `X_CLIENT_ID` and `X_CLIENT_SECRET` must be set in the environment. On first run, the script will prompt for OAuth2 authorization in the browser; tokens are cached at `~/.anna/x_tokens.json` for subsequent use.
 
 ## Quality Checklist
 
