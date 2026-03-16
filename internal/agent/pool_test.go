@@ -83,7 +83,7 @@ func (m *mockRunner) LastActivity() time.Time {
 func mockRunnerFactory(events []runner.Event) (runner.NewRunnerFunc, *[]*mockRunner) {
 	var runners []*mockRunner
 	var mu sync.Mutex
-	factory := func(_ context.Context, _ string) (runner.Runner, error) {
+	factory := func(_ context.Context, _ runner.RunnerParams) (runner.Runner, error) {
 		r := newMockRunner(events)
 		mu.Lock()
 		runners = append(runners, r)
@@ -227,7 +227,7 @@ func TestPoolChatAccumulatesHistory(t *testing.T) {
 }
 
 func TestPoolChatErrorFromFactory(t *testing.T) {
-	factory := func(_ context.Context, _ string) (runner.Runner, error) {
+	factory := func(_ context.Context, _ runner.RunnerParams) (runner.Runner, error) {
 		return nil, fmt.Errorf("factory error")
 	}
 	pool := NewPool(factory, testMemoryEngine(t))
@@ -794,9 +794,9 @@ func TestPoolChatWithModel(t *testing.T) {
 	// Track which model was requested for each runner creation.
 	var models []string
 	var mu sync.Mutex
-	factory := func(_ context.Context, model string) (runner.Runner, error) {
+	factory := func(_ context.Context, params runner.RunnerParams) (runner.Runner, error) {
 		mu.Lock()
-		models = append(models, model)
+		models = append(models, params.Model)
 		mu.Unlock()
 		return newMockRunner([]runner.Event{{Text: "ok"}}), nil
 	}
@@ -872,9 +872,9 @@ func TestPoolFastModelForCompaction(t *testing.T) {
 func TestSetDefaultModelAffectsNewSessions(t *testing.T) {
 	var models []string
 	var mu sync.Mutex
-	factory := func(_ context.Context, model string) (runner.Runner, error) {
+	factory := func(_ context.Context, params runner.RunnerParams) (runner.Runner, error) {
 		mu.Lock()
-		models = append(models, model)
+		models = append(models, params.Model)
 		mu.Unlock()
 		return newMockRunner([]runner.Event{{Text: "ok"}}), nil
 	}

@@ -27,8 +27,22 @@ func NewUserMemoryTool(memStore *memory.UserMemoryStore, userID int64, agentID s
 
 func (t *UserMemoryTool) Definition() toolspec.Definition {
 	return toolspec.Definition{
-		Name:        "user_memory",
-		Description: "Read or write persistent per-user notes. Use this to remember user preferences, context, and important details across sessions. The 'read' action returns current notes; 'write' replaces all notes with the provided content.",
+		Name: "user_memory",
+		Description: `Read or write persistent per-user notes. These notes are injected into your system prompt at session start, so you always have context about the user.
+
+Use this to remember user preferences, high-level impressions, and important context across sessions. Keep notes concise and high-level — like how a person remembers someone they know, not every detail.
+
+Recommended structure:
+## User Preferences
+How the user wants you to behave (tone, style, language, topics to focus on or avoid).
+
+## About the User
+High-level understanding: who they are, what matters to them, key context.
+
+## Notes
+Recurring topics, quirks, or anything worth remembering.
+
+The 'read' action returns current notes; 'write' replaces all notes with the provided content.`,
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -39,7 +53,7 @@ func (t *UserMemoryTool) Definition() toolspec.Definition {
 				},
 				"content": map[string]any{
 					"type":        "string",
-					"description": "Content to write (required for 'write' action).",
+					"description": "Content to write (required for 'write' action). Include the full updated notes, not just a diff.",
 				},
 			},
 			"required": []string{"action"},

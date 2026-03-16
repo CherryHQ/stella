@@ -25,7 +25,7 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 		model = "claude-sonnet-4-20250514"
 	}
 
-	factory := func(ctx context.Context, _ string) (runner.Runner, error) {
+	factory := func(ctx context.Context, _ runner.RunnerParams) (runner.Runner, error) {
 		return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
 			API:     "anthropic",
 			Model:   model,

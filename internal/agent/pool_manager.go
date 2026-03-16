@@ -70,6 +70,7 @@ type PoolManager struct {
 	sharedExtraTools  []agenttool.Tool
 	extraToolsFactory ExtraToolsFactory
 	pluginHooks       engine.PluginHookRunner
+	userMemory        *memory.UserMemoryStore // per-user memory for prompt injection
 	log               *slog.Logger
 }
 
@@ -79,6 +80,7 @@ func NewPoolManager(store config.Store, mem memory.Engine, opts ...PoolManagerOp
 		pools:       make(map[string]*Pool),
 		store:       store,
 		mem:         mem,
+		userMemory:  memory.NewUserMemoryStore(store),
 		idleTimeout: 10 * time.Minute,
 		log:         slog.With("component", "pool_manager"),
 	}
@@ -167,6 +169,7 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 		WithCompaction(pm.compaction.WithDefaults()),
 		WithDefaultModel(snap.ResolveModelID(config.ModelTierStrong)),
 		WithFastModel(snap.ResolveModelID(config.ModelTierFast)),
+		WithUserMemory(pm.userMemory),
 	}
 	if pm.pluginHooks != nil {
 		poolOpts = append(poolOpts, WithPluginHooks(pm.pluginHooks))
