@@ -41,6 +41,9 @@ type contextFile struct {
 }
 
 // BuildSystemPrompt composes the full system prompt: basic + memories + skills + project context.
+//
+// Deprecated: use BuildSystemPromptFromDB for multi-user/multi-agent support.
+//
 // The basic prompt defaults to the embedded system.md but can be overridden
 // by placing a system.md file in the project's .agents directory or the workspace.
 // annaHome is the anna home directory (e.g. ~/.anna).
@@ -95,6 +98,73 @@ func BuildSystemPrompt(annaHome, workspace string, cwd ...string) string {
 	}
 
 	if ctxFiles := loadProjectContextFiles(workDir); len(ctxFiles) > 0 {
+		buf.WriteString("\n\n# Project Context\n\n")
+		buf.WriteString("Project-specific instructions and guidelines:\n\n")
+		for _, f := range ctxFiles {
+			buf.WriteString("## " + f.Path + "\n\n")
+			buf.WriteString(strings.TrimRight(f.Content, "\n"))
+			buf.WriteString("\n\n")
+		}
+	}
+
+	return buf.String()
+}
+
+// DBPromptParams holds the parameters for building a system prompt from DB-backed config.
+type DBPromptParams struct {
+	SystemPrompt string // agent's soul from agents.system_prompt
+	UserMemory   string // from user_agent_memory.content
+	AnnaHome     string
+	Workspace    string
+	Cwd          string // optional working directory
+}
+
+// BuildSystemPromptFromDB composes the full system prompt from DB-backed fields.
+// System prompt = basic + identity (agents.system_prompt) + user memory + skills + project context.
+// Template files (soul.md, user.md, memories.md.tmpl) are NOT used.
+func BuildSystemPromptFromDB(p DBPromptParams) string {
+	projectDir := ""
+	if p.Cwd != "" {
+		projectDir = filepath.Join(p.Cwd, ".agents")
+	}
+
+	// Basic prompt: project .agents/system.md > workspace system.md > embedded default.
+	basic := defaultBasicPrompt
+	if content := readFileIfExists(p.Workspace, "system.md"); content != "" {
+		basic = content
+	}
+	if projectDir != "" {
+		if content := readFileIfExists(projectDir, "system.md"); content != "" {
+			basic = content
+		}
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString(strings.TrimRight(basic, "\n"))
+
+	// Identity: agent's system prompt from DB.
+	if p.SystemPrompt != "" {
+		buf.WriteString("\n\n## Identity\n\n")
+		buf.WriteString(strings.TrimRight(p.SystemPrompt, "\n"))
+	}
+
+	// User memory: per-user notes managed by the user_memory tool.
+	if p.UserMemory != "" {
+		buf.WriteString("\n\n## User Memory\n\n")
+		buf.WriteString("Per-user notes managed by the user_memory tool. Use the user_memory tool to read/write these notes.\n\n")
+		buf.WriteString("<user_memory>\n")
+		buf.WriteString(strings.TrimRight(p.UserMemory, "\n"))
+		buf.WriteString("\n</user_memory>")
+	}
+
+	// Skills.
+	if skills := FormatSkillsForPrompt(LoadSkills(p.AnnaHome, p.Workspace, p.Cwd)); skills != "" {
+		buf.WriteString("\n")
+		buf.WriteString(skills)
+	}
+
+	// Project context (AGENTS.md files).
+	if ctxFiles := loadProjectContextFiles(p.Cwd); len(ctxFiles) > 0 {
 		buf.WriteString("\n\n# Project Context\n\n")
 		buf.WriteString("Project-specific instructions and guidelines:\n\n")
 		for _, f := range ctxFiles {
