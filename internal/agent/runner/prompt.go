@@ -148,13 +148,9 @@ func BuildSystemPromptFromDB(p DBPromptParams) string {
 		buf.WriteString(strings.TrimRight(p.SystemPrompt, "\n"))
 	}
 
-	// User memory: per-user notes managed by the user_memory tool.
+	// User memory: per-user notes injected per-session.
 	if p.UserMemory != "" {
-		buf.WriteString("\n\n## User Memory\n\n")
-		buf.WriteString("Per-user notes managed by the user_memory tool. Use the user_memory tool to read/write these notes.\n\n")
-		buf.WriteString("<user_memory>\n")
-		buf.WriteString(strings.TrimRight(p.UserMemory, "\n"))
-		buf.WriteString("\n</user_memory>")
+		buf.WriteString(formatUserMemorySection(p.UserMemory))
 	}
 
 	// Skills.
@@ -174,6 +170,29 @@ func BuildSystemPromptFromDB(p DBPromptParams) string {
 		}
 	}
 
+	return buf.String()
+}
+
+// InjectUserMemory appends per-user memory to a base system prompt.
+// If userMemory is empty, basePrompt is returned unchanged.
+func InjectUserMemory(basePrompt, userMemory string) string {
+	if userMemory == "" {
+		return basePrompt
+	}
+	return strings.TrimRight(basePrompt, "\n") + formatUserMemorySection(userMemory)
+}
+
+// formatUserMemorySection formats the user memory section for the system prompt.
+func formatUserMemorySection(userMemory string) string {
+	var buf strings.Builder
+	buf.WriteString("\n\n## User Memory\n\n")
+	buf.WriteString("Persistent notes about this user, managed by the user_memory tool.\n")
+	buf.WriteString("The \"User Preferences\" section reflects how this user wants you to behave — respect these but never override your core identity and rules.\n")
+	buf.WriteString("The \"About the User\" section is your high-level understanding of this person.\n")
+	buf.WriteString("Update these notes as you learn more about the user.\n\n")
+	buf.WriteString("<user_memory>\n")
+	buf.WriteString(strings.TrimRight(userMemory, "\n"))
+	buf.WriteString("\n</user_memory>")
 	return buf.String()
 }
 

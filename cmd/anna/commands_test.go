@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/agent"
+	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
 )
 
@@ -23,7 +24,7 @@ func TestNewRunnerFactoryGo(t *testing.T) {
 		t.Fatalf("NewRunnerFactory: %v", err)
 	}
 
-	r, err := factory(context.Background(), "")
+	r, err := factory(context.Background(), runner.RunnerParams{})
 	if err != nil {
 		t.Fatalf("factory: %v", err)
 	}
