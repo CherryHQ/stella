@@ -55,9 +55,9 @@
 
 ## Phase 6: Integration & Cleanup
 
-- [ ] 6.1 — Rewrite `gateway.go`: PoolManager, single bot per platform, QQ/Feishu on default agent (`cmd/anna/gateway.go`)
-- [ ] 6.2 — Update CLI chat: `--agent` flag, single Pool for selected agent (`cmd/anna/commands.go`)
-- [ ] 6.3 — Update notification dispatcher: per-agent channels (`internal/channel/dispatcher.go`)
-- [ ] 6.4 — Clean up dead code: old config types, state.yaml, SOUL.md/USER.md defaults, memories.md.tmpl (`internal/config/`, `cmd/anna/`, `internal/agent/runner/template/`)
-- [ ] 6.5 — Update documentation: README, docs, builtin anna skill (`README.md`, `docs/`, `internal/agent/runner/builtin/anna/`)
-- [ ] 6.6 — Add tests: config Store, PoolManager, admin API, session keys, user resolution, agent routing, user_memory tool (`*_test.go`)
+- [x] 6.1 — Rewrite `gateway.go`: PoolManager.Close(), single bot per platform, QQ/Feishu on default agent (`cmd/anna/gateway.go`)
+- [x] 6.2 — Update CLI chat: `--agent` flag, single Pool for selected agent (`cmd/anna/chat.go`)
+- [x] 6.3 — Update notification dispatcher: verified working, no changes needed (`internal/channel/notifier.go`)
+- [x] 6.4 — Clean up dead code + wire deferred items: BuildSystemPromptFromDB in factory, BuildSessionKey in Telegram, remove onboard.html, remove ProviderConfig (`internal/config/`, `cmd/anna/`, `internal/agent/`, `internal/channel/telegram/`)
+- [x] 6.5 — Update documentation: builtin anna skill + references (`internal/agent/runner/builtin/anna/`)
+- [x] 6.6 — Add tests: session keys, user resolution, agent routing, user memory store, user memory tool, admin API (`*_test.go`)
