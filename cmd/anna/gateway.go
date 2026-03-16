@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	ucli "github.com/urfave/cli/v2"
+	"github.com/vaayne/anna/internal/admin"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/channel/feishu"
@@ -24,6 +28,13 @@ func gatewayCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "gateway",
 		Usage: "Start daemon services (Telegram, etc.) based on config",
+		Flags: []ucli.Flag{
+			&ucli.IntFlag{
+				Name:  "admin-port",
+				Usage: "Port for admin panel (0 = disabled)",
+				Value: 0,
+			},
+		},
 		Action: func(c *ucli.Context) error {
 			ctx, cancel := signal.NotifyContext(c.Context, syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
@@ -39,14 +50,37 @@ func gatewayCommand() *ucli.Command {
 				return collectModelsFromStore(ctx, s.store, s.snap)
 			}
 			switchFn := modelSwitcher(s.snap, s.store, s.pool, s.extraTools, s.pluginMgr.Registry())
-			return runGateway(s.ctx, s, listFn, switchFn)
+			return runGateway(s.ctx, s, listFn, switchFn, c.Int("admin-port"))
 		},
 	}
 }
 
-func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc) error {
+func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc, adminPort int) error {
 	g, gctx := errgroup.WithContext(ctx)
 	var channels []channel.Channel
+
+	// Optionally start admin panel server.
+	if adminPort > 0 {
+		adminSrv := admin.New(s.store, s.mem, s.db)
+		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", adminPort))
+		if err != nil {
+			return fmt.Errorf("admin listen: %w", err)
+		}
+		slog.Info("starting admin panel", "addr", ln.Addr().String())
+		httpSrv := &http.Server{Handler: adminSrv.Handler()}
+		g.Go(func() error {
+			<-gctx.Done()
+			shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			return httpSrv.Shutdown(shutCtx)
+		})
+		g.Go(func() error {
+			if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
+				return fmt.Errorf("admin serve: %w", err)
+			}
+			return nil
+		})
+	}
 
 	// Load channel configs from DB.
 	tgCfg := loadChannelConfig[telegramChannelConfig](s.store, "telegram")

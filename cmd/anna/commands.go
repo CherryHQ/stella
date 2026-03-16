@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
@@ -41,6 +42,8 @@ func newApp() *ucli.App {
 
 type setupResult struct {
 	ctx          context.Context
+	db           *sql.DB
+	mem          memory.Engine
 	snap         *config.Snapshot
 	store        config.Store
 	poolManager  *agent.PoolManager
@@ -190,6 +193,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	return &setupResult{
 		ctx:          ctx,
+		db:           db,
+		mem:          memoryEngine,
 		snap:         snap,
 		store:        store,
 		poolManager:  poolMgr,
