@@ -12,7 +12,7 @@ import (
 const createSchedulerJob = `-- name: CreateSchedulerJob :one
 INSERT INTO scheduler_jobs (id, name, schedule_cron, schedule_every, schedule_at, message, session_mode, enabled, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, name, schedule_cron, schedule_every, schedule_at, message, session_mode, enabled, created_at
+RETURNING id, name, schedule_cron, schedule_every, schedule_at, message, session_mode, enabled, agent_id, user_id, created_at
 `
 
 type CreateSchedulerJobParams struct {
@@ -49,6 +49,8 @@ func (q *Queries) CreateSchedulerJob(ctx context.Context, arg CreateSchedulerJob
 		&i.Message,
 		&i.SessionMode,
 		&i.Enabled,
+		&i.AgentID,
+		&i.UserID,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -64,7 +66,7 @@ func (q *Queries) DeleteSchedulerJob(ctx context.Context, id string) error {
 }
 
 const getSchedulerJob = `-- name: GetSchedulerJob :one
-SELECT id, name, schedule_cron, schedule_every, schedule_at, message, session_mode, enabled, created_at FROM scheduler_jobs WHERE id = ?
+SELECT id, name, schedule_cron, schedule_every, schedule_at, message, session_mode, enabled, agent_id, user_id, created_at FROM scheduler_jobs WHERE id = ?
 `
 
 func (q *Queries) GetSchedulerJob(ctx context.Context, id string) (SchedulerJob, error) {
@@ -79,13 +81,15 @@ func (q *Queries) GetSchedulerJob(ctx context.Context, id string) (SchedulerJob,
 		&i.Message,
 		&i.SessionMode,
 		&i.Enabled,
+		&i.AgentID,
+		&i.UserID,
 		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const listSchedulerJobs = `-- name: ListSchedulerJobs :many
-SELECT id, name, schedule_cron, schedule_every, schedule_at, message, session_mode, enabled, created_at FROM scheduler_jobs ORDER BY created_at
+SELECT id, name, schedule_cron, schedule_every, schedule_at, message, session_mode, enabled, agent_id, user_id, created_at FROM scheduler_jobs ORDER BY created_at
 `
 
 func (q *Queries) ListSchedulerJobs(ctx context.Context) ([]SchedulerJob, error) {
@@ -106,6 +110,8 @@ func (q *Queries) ListSchedulerJobs(ctx context.Context) ([]SchedulerJob, error)
 			&i.Message,
 			&i.SessionMode,
 			&i.Enabled,
+			&i.AgentID,
+			&i.UserID,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
