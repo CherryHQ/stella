@@ -88,11 +88,15 @@ func skillsInstallCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna skills install <owner/repo@skill-name>")
 			}
 
-			cfg, err := config.Load()
+			store, err := openStore()
 			if err != nil {
 				return err
 			}
-			targetDir := cfg.SkillsPath()
+			snap, err := defaultSnapshot(c.Context, store)
+			if err != nil {
+				return err
+			}
+			targetDir := snap.SkillsPath()
 
 			fmt.Fprintf(os.Stderr, "Installing from %s...\n", source)
 
@@ -127,12 +131,16 @@ func skillsListCommand() *ucli.Command {
 }
 
 func skillsListAction() error {
-	cfg, err := config.Load()
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+	snap, err := defaultSnapshot(context.Background(), store)
 	if err != nil {
 		return err
 	}
 	cwd, _ := os.Getwd()
-	loaded := runner.LoadSkills(config.AnnaHome(), cfg.Workspace, cwd)
+	loaded := runner.LoadSkills(config.AnnaHome(), snap.Workspace, cwd)
 	if len(loaded) == 0 {
 		fmt.Println("No skills installed.")
 		return nil
@@ -166,12 +174,16 @@ func skillsListAction() error {
 }
 
 func skillsListJSON() error {
-	cfg, err := config.Load()
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+	snap, err := defaultSnapshot(context.Background(), store)
 	if err != nil {
 		return err
 	}
 	cwd, _ := os.Getwd()
-	loaded := runner.LoadSkills(config.AnnaHome(), cfg.Workspace, cwd)
+	loaded := runner.LoadSkills(config.AnnaHome(), snap.Workspace, cwd)
 
 	type entry struct {
 		Name        string `json:"name"`
@@ -207,11 +219,15 @@ func skillsRemoveCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna skills remove <name>")
 			}
 
-			cfg, err := config.Load()
+			store, err := openStore()
 			if err != nil {
 				return err
 			}
-			skillDir := filepath.Join(cfg.SkillsPath(), name)
+			snap, err := defaultSnapshot(c.Context, store)
+			if err != nil {
+				return err
+			}
+			skillDir := filepath.Join(snap.SkillsPath(), name)
 
 			if err := skills.Remove(name, skillDir); err != nil {
 				return err

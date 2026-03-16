@@ -7,7 +7,6 @@ require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/Mad-Pixels/goldmark-tgmd v0.0.10
 	github.com/anthropics/anthropic-sdk-go v1.26.0
-	github.com/caarlos0/env/v11 v11.4.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/glamour v0.10.0

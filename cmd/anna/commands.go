@@ -14,6 +14,7 @@ import (
 	agenttool "github.com/vaayne/anna/internal/agent/tool"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
+	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/memory"
 	memorytool "github.com/vaayne/anna/internal/memory/tool"
 	pluginmgr "github.com/vaayne/anna/internal/plugin"
@@ -41,7 +42,8 @@ func newApp() *ucli.App {
 
 type setupResult struct {
 	ctx          context.Context
-	cfg          *config.Config
+	snap         *config.Snapshot
+	store        config.Store
 	pool         *agent.Pool
 	schedulerSvc *scheduler.Service
 	extraTools   []agenttool.Tool
@@ -50,9 +52,30 @@ type setupResult struct {
 }
 
 func setup(parent context.Context, gateway bool) (*setupResult, error) {
-	cfg, err := config.Load()
+	// Open DB.
+	dbPath := config.DBPath()
+	db, err := appdb.OpenDB(dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("loading config: %w", err)
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+
+	store := config.NewDBStore(db)
+
+	// Seed defaults so there's always at least one agent.
+	if err := store.SeedDefaults(parent); err != nil {
+		return nil, fmt.Errorf("seed defaults: %w", err)
+	}
+
+	// Get snapshot for the default agent.
+	agents, err := store.ListEnabledAgents(parent)
+	if err != nil || len(agents) == 0 {
+		return nil, fmt.Errorf("no enabled agents found")
+	}
+	defaultAgentID := agents[0].ID
+
+	snap, err := store.Snapshot(parent, defaultAgentID)
+	if err != nil {
+		return nil, fmt.Errorf("load config snapshot: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(parent)
@@ -62,64 +85,57 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// can be injected into the Go runner.
 	var schedulerSvc *scheduler.Service
 	var extraTools []agenttool.Tool
-	memoryDBPath := filepath.Join(cfg.Workspace, "memory.db")
-	if cfg.Scheduler.IsEnabled() || (gateway && cfg.Heartbeat.IsEnabled()) {
-		schedulerSvc, err = scheduler.NewFromPath(memoryDBPath)
+	if snap.Scheduler.IsEnabled() || (gateway && snap.Heartbeat.IsEnabled()) {
+		schedulerSvc, err = scheduler.NewFromPath(dbPath)
 		if err != nil {
 			return nil, fmt.Errorf("create scheduler service: %w", err)
 		}
-		schedulerSvc.SetLegacyDataPath(cfg.Scheduler.DataDir)
-		if cfg.Scheduler.IsEnabled() {
+		dataDir := snap.Scheduler.DataDir
+		if dataDir == "" {
+			dataDir = filepath.Join(snap.Workspace, "scheduler")
+		}
+		schedulerSvc.SetLegacyDataPath(dataDir)
+		if snap.Scheduler.IsEnabled() {
 			extraTools = append(extraTools, scheduler.NewTool(schedulerSvc))
 		}
 	}
 
 	// Skills tool — always available.
 	cwd, _ := os.Getwd()
-	extraTools = append(extraTools, skills.NewTool(config.AnnaHome(), cfg.Workspace, cwd))
+	extraTools = append(extraTools, skills.NewTool(config.AnnaHome(), snap.Workspace, cwd))
 
-	// Notification dispatcher + tool — backends are registered later in
-	// runGateway(). Only expose the tool in gateway mode where at least one
-	// enabled channel has enable_notify set to true.
+	// Notification dispatcher + tool.
 	dispatcher := channel.NewDispatcher()
-	if gateway && hasEnabledNotifyChannel(cfg) {
-		extraTools = append(extraTools, channel.NewNotifyTool(dispatcher))
-	}
+	// The notify tool is wired in gateway mode — channels register later.
 
 	// Memory engine: create engine for message persistence and compaction.
-	// TODO: wire LLMSummarizer with runner factory for production-quality summaries.
-	memoryEngine, err := memory.NewEngine(memoryDBPath, &memory.StaticSummarizer{Response: "compacted"}, memory.WithLogger(slog.Default()))
-	if err != nil {
-		return nil, fmt.Errorf("create memory engine: %w", err)
-	}
+	memoryEngine := memory.NewEngineFromDB(db, &memory.StaticSummarizer{Response: "compacted"}, memory.WithLogger(slog.Default()))
 
-	// Memory retrieval tools — must be appended before runner factory captures extraTools.
+	// Memory retrieval tools.
 	extraTools = append(extraTools,
 		memorytool.NewGrepTool(memoryEngine),
 		memorytool.NewDescribeTool(memoryEngine),
 		memorytool.NewExpandTool(memoryEngine),
 	)
 
-	// Collect built-in tool names from the default registry + extra tools
-	// so the plugin registry can reject collisions.
+	// Collect built-in tool names for plugin collision detection.
 	builtinReg := agenttool.NewRegistry("")
 	builtinNames := builtinReg.BuiltinNames()
-	builtinNames = append(builtinNames, "delegate") // registered separately in GoRunner
+	builtinNames = append(builtinNames, "delegate")
 	for _, t := range extraTools {
 		builtinNames = append(builtinNames, t.Definition().Name)
 	}
 
-	// Load plugins (best-effort; failures are logged as warnings).
+	// Load plugins.
 	pm := pluginmgr.NewManager(slog.Default(), builtinNames)
-	pm.LoadAll(cfg.Plugins)
+	pm.LoadAll(snap.Plugins)
 
-	// Adapt plugin tools into the extra tools list.
 	for _, pt := range pm.Registry().Tools() {
 		extraTools = append(extraTools, pluginmgr.AdaptTool(pt))
 	}
 
-	idleTimeout := time.Duration(cfg.Runner.IdleTimeout) * time.Minute
-	factory, err := newRunnerFactory(cfg, extraTools, pm.Registry())
+	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
+	factory, err := newRunnerFactory(snap, extraTools, pm.Registry())
 	if err != nil {
 		return nil, fmt.Errorf("create runner factory: %w", err)
 	}
@@ -127,11 +143,11 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	opts := []agent.PoolOption{
 		agent.WithIdleTimeout(idleTimeout),
 		agent.WithCompaction(agent.CompactionConfig{
-			MaxTokens: cfg.Runner.Compaction.MaxTokens,
-			KeepTail:  cfg.Runner.Compaction.KeepTail,
+			MaxTokens: snap.Runner.Compaction.MaxTokens,
+			KeepTail:  snap.Runner.Compaction.KeepTail,
 		}.WithDefaults()),
-		agent.WithDefaultModel(cfg.ResolveModelID(config.ModelTierStrong)),
-		agent.WithFastModel(cfg.ResolveModelID(config.ModelTierFast)),
+		agent.WithDefaultModel(snap.ResolveModelID(config.ModelTierStrong)),
+		agent.WithFastModel(snap.ResolveModelID(config.ModelTierFast)),
 		agent.WithPluginHooks(pm.Registry()),
 	}
 
@@ -139,10 +155,10 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	go pool.StartReaper(ctx)
 
 	// Wire heartbeat on the scheduler service if enabled.
-	if schedulerSvc != nil && cfg.Heartbeat.IsEnabled() {
+	if schedulerSvc != nil && snap.Heartbeat.IsEnabled() {
 		schedulerSvc.SetHeartbeat(scheduler.HeartbeatConfig{
-			File:      cfg.Heartbeat.FilePath(cfg.Workspace),
-			FastModel: cfg.ResolveModelID(config.ModelTierFast),
+			File:      snap.Heartbeat.FilePath(snap.Workspace),
+			FastModel: snap.ResolveModelID(config.ModelTierFast),
 		}, func(ctx context.Context, sessionID, message, model string) <-chan runner.Event {
 			if model != "" {
 				return pool.Chat(ctx, sessionID, message, agent.WithModel(model))
@@ -167,7 +183,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	return &setupResult{
 		ctx:          ctx,
-		cfg:          cfg,
+		snap:         snap,
+		store:        store,
 		pool:         pool,
 		schedulerSvc: schedulerSvc,
 		extraTools:   extraTools,
@@ -176,51 +193,49 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	}, nil
 }
 
-func hasEnabledNotifyChannel(cfg *config.Config) bool {
-	return (cfg.Channels.Telegram.IsEnabled() && cfg.Channels.Telegram.IsNotifyEnabled()) ||
-		(cfg.Channels.QQ.IsEnabled() && cfg.Channels.QQ.IsNotifyEnabled()) ||
-		(cfg.Channels.Feishu.IsEnabled() && cfg.Channels.Feishu.IsNotifyEnabled())
-}
-
-func newRunnerFactory(cfg *config.Config, extraTools []agenttool.Tool, pluginHooks *pluginmgr.Registry) (runner.NewRunnerFunc, error) {
-	switch cfg.Runner.Type {
+func newRunnerFactory(snap *config.Snapshot, extraTools []agenttool.Tool, pluginHooks *pluginmgr.Registry) (runner.NewRunnerFunc, error) {
+	switch snap.Runner.Type {
 	case "go":
-		providerCfg := cfg.Providers[cfg.Provider]
 		return func(ctx context.Context, model string) (runner.Runner, error) {
 			if model == "" {
-				model = cfg.Model
+				model = snap.Model
 			}
 			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
-				API:         cfg.Provider,
+				API:         snap.Provider,
 				Model:       model,
-				APIKey:      providerCfg.APIKey,
-				Workspace:   cfg.Workspace,
+				APIKey:      snap.APIKey,
+				Workspace:   snap.Workspace,
 				AnnaHome:    config.AnnaHome(),
-				BaseURL:     providerCfg.BaseURL,
+				BaseURL:     snap.BaseURL,
 				ExtraTools:  extraTools,
 				PluginHooks: pluginHooks,
 			})
 		}, nil
 	default:
-		return nil, fmt.Errorf("unknown runner type: %q", cfg.Runner.Type)
+		return nil, fmt.Errorf("unknown runner type: %q", snap.Runner.Type)
 	}
 }
 
 // modelSwitcher returns a function that switches the pool's runner factory
 // to use a different provider/model combination.
-func modelSwitcher(cfg *config.Config, pool *agent.Pool, extraTools []agenttool.Tool, pluginHooks *pluginmgr.Registry) channel.ModelSwitchFunc {
+func modelSwitcher(snap *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []agenttool.Tool, pluginHooks *pluginmgr.Registry) channel.ModelSwitchFunc {
 	return func(provider, model string) error {
-		cfg.Provider = provider
-		cfg.Model = model
-		factory, err := newRunnerFactory(cfg, extraTools, pluginHooks)
+		snap.Provider = provider
+		snap.Model = model
+
+		// Look up provider credentials from the store.
+		p, err := store.GetProvider(context.Background(), provider)
+		if err == nil {
+			snap.APIKey = p.APIKey
+			snap.BaseURL = p.BaseURL
+		}
+
+		factory, err := newRunnerFactory(snap, extraTools, pluginHooks)
 		if err != nil {
 			return err
 		}
 		pool.SetFactory(factory)
 		pool.SetDefaultModel(model)
-		if err := config.SaveModelSelection(cfg.Workspace, provider, model); err != nil {
-			slog.Warn("failed to persist model selection", "error", err)
-		}
 		return nil
 	}
 }

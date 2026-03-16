@@ -8,27 +8,41 @@ import (
 	"github.com/vaayne/anna/internal/config"
 )
 
-func TestHasEnabledNotifyChannel(t *testing.T) {
-	falseValue := false
-	trueValue := true
+func TestNewRunnerFactoryGo(t *testing.T) {
+	snap := &config.Snapshot{
+		Provider: "anthropic",
+		Model:    "test-model",
+		APIKey:   "test-key",
+		Runner:   config.RunnerConfig{Type: "go"},
+	}
+	snap.Workspace = t.TempDir()
 
-	cfg := &config.Config{
-		Channels: config.ChannelsConfig{
-			Telegram: config.TelegramConfig{
-				Enabled:      &falseValue,
-				EnableNotify: &trueValue,
-				Token:        "test-token",
-			},
-		},
+	factory, err := newRunnerFactory(snap, nil, nil)
+	if err != nil {
+		t.Fatalf("newRunnerFactory: %v", err)
 	}
 
-	if hasEnabledNotifyChannel(cfg) {
-		t.Fatal("hasEnabledNotifyChannel() = true, want false for disabled channel")
+	r, err := factory(context.Background(), "")
+	if err != nil {
+		t.Fatalf("factory: %v", err)
 	}
 
-	cfg.Channels.Telegram.Enabled = &trueValue
-	if !hasEnabledNotifyChannel(cfg) {
-		t.Fatal("hasEnabledNotifyChannel() = false, want true for enabled notify channel")
+	if r == nil {
+		t.Fatal("expected non-nil runner")
+	}
+}
+
+func TestNewRunnerFactoryUnknown(t *testing.T) {
+	snap := &config.Snapshot{
+		Runner: config.RunnerConfig{Type: "invalid"},
+	}
+
+	_, err := newRunnerFactory(snap, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for unknown runner type")
+	}
+	if !strings.Contains(err.Error(), "unknown runner type") {
+		t.Errorf("error = %q, want contains 'unknown runner type'", err.Error())
 	}
 }
 
@@ -48,48 +62,7 @@ func TestRunHelpShort(t *testing.T) {
 	}
 }
 
-func TestNewRunnerFactoryGo(t *testing.T) {
-	cfg := &config.Config{
-		Provider:  "anthropic",
-		Model:     "test-model",
-		Workspace: t.TempDir(),
-		Runner:    config.RunnerConfig{Type: "go"},
-		Providers: map[string]config.ProviderConfig{
-			"anthropic": {APIKey: "test-key"},
-		},
-	}
-
-	factory, err := newRunnerFactory(cfg, nil, nil)
-	if err != nil {
-		t.Fatalf("newRunnerFactory: %v", err)
-	}
-
-	r, err := factory(context.Background(), "")
-	if err != nil {
-		t.Fatalf("factory: %v", err)
-	}
-
-	if r == nil {
-		t.Fatal("expected non-nil runner")
-	}
-}
-
-func TestNewRunnerFactoryUnknown(t *testing.T) {
-	cfg := &config.Config{
-		Runner: config.RunnerConfig{Type: "invalid"},
-	}
-
-	_, err := newRunnerFactory(cfg, nil, nil)
-	if err == nil {
-		t.Fatal("expected error for unknown runner type")
-	}
-	if !strings.Contains(err.Error(), "unknown runner type") {
-		t.Errorf("error = %q, want contains 'unknown runner type'", err.Error())
-	}
-}
-
 func TestRunGatewayNoServices(t *testing.T) {
-	t.Setenv("ANNA_TELEGRAM_TOKEN", "")
 	t.Setenv("ANNA_HOME", t.TempDir())
 	config.ResetAnnaHome()
 	t.Cleanup(config.ResetAnnaHome)
