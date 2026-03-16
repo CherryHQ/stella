@@ -12,8 +12,9 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// OpenDB opens a SQLite database at the given path, applies WAL mode
-// and runs migrations. The parent directory is created if it doesn't exist.
+// OpenDB opens a SQLite database at the given path, configures it
+// (WAL mode, foreign keys) and runs migrations. The parent directory
+// is created if it doesn't exist.
 func OpenDB(dbPath string) (*sql.DB, error) {
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -25,16 +26,9 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("db: open: %w", err)
 	}
 
-	// Enable WAL mode for concurrent reads during writes.
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+	if err := ConfigureDB(db); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("db: enable WAL: %w", err)
-	}
-
-	// Enable foreign keys.
-	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("db: enable foreign keys: %w", err)
+		return nil, err
 	}
 
 	if err := migrate(db); err != nil {
@@ -43,6 +37,18 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+// ConfigureDB enables WAL mode and foreign keys on an existing *sql.DB.
+// This is useful when multiple packages need to share the same connection.
+func ConfigureDB(db *sql.DB) error {
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		return fmt.Errorf("db: enable WAL: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		return fmt.Errorf("db: enable foreign keys: %w", err)
+	}
+	return nil
 }
 
 // migrate applies pending SQL migration files from the embedded migrations
