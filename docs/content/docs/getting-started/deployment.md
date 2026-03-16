@@ -1,6 +1,7 @@
 ---
 title: Deployment
 ---
+
 Two deployment methods: **binary** (direct install) and **Docker**.
 
 ## Binary
@@ -98,11 +99,11 @@ Images are published to `ghcr.io/vaayne/anna` for `linux/amd64` and `linux/arm64
 
 ### Tags
 
-| Tag | Description |
-|-----|-------------|
-| `latest` | Latest stable release |
-| `v1.2.3` | Specific version |
-| `sha-<commit>` | Specific commit |
+| Tag            | Description           |
+| -------------- | --------------------- |
+| `latest`       | Latest stable release |
+| `v1.2.3`       | Specific version      |
+| `sha-<commit>` | Specific commit       |
 
 ### Quick Start
 
@@ -150,15 +151,15 @@ docker buildx build --platform linux/amd64,linux/arm64 -t anna .
 
 ## Volumes & Data
 
-| Path | Purpose |
-|------|---------|
-| `~/.anna/config.yaml` | Configuration |
-| `~/.anna/workspace/scheduler/` | Scheduler job persistence |
-| `~/.anna/workspace/SOUL.md` | Agent identity, personality |
-| `~/.anna/workspace/USER.md` | User preferences, context |
-| `~/.anna/workspace/memory.db` | Memory database (message history, summaries) |
-| `~/.anna/workspace/skills/` | Installed skills |
-| `~/.anna/cache/models.json` | Model cache |
+| Path                           | Purpose                                      |
+| ------------------------------ | -------------------------------------------- |
+| `~/.anna/config.yaml`          | Configuration                                |
+| `~/.anna/workspace/scheduler/` | Scheduler job persistence                    |
+| `~/.anna/workspace/SOUL.md`    | Agent identity, personality                  |
+| `~/.anna/workspace/USER.md`    | User preferences, context                    |
+| `~/.anna/workspace/memory.db`  | Memory database (message history, summaries) |
+| `~/.anna/workspace/skills/`    | Installed skills                             |
+| `~/.anna/cache/models.json`    | Model cache                                  |
 
 All paths are under the workspace root (`~/.anna/workspace` by default, configurable via `ANNA_HOME`).
 
@@ -168,13 +169,13 @@ All config values can be overridden via environment variables. See [configuratio
 
 Key variables for deployment:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `ANNA_HOME` | No | Anna home directory (default `~/.anna`) |
-| `ANTHROPIC_API_KEY` | Yes* | Anthropic provider key |
-| `OPENAI_API_KEY` | Yes* | OpenAI provider key |
-| `ANNA_TELEGRAM_TOKEN` | For Telegram | Bot token from @BotFather |
-| `ANNA_TELEGRAM_NOTIFY_CHAT` | No | Chat ID for proactive notifications |
+| Variable                    | Required     | Description                             |
+| --------------------------- | ------------ | --------------------------------------- |
+| `ANNA_HOME`                 | No           | Anna home directory (default `~/.anna`) |
+| `ANTHROPIC_API_KEY`         | Yes\*        | Anthropic provider key                  |
+| `OPENAI_API_KEY`            | Yes\*        | OpenAI provider key                     |
+| `ANNA_TELEGRAM_TOKEN`       | For Telegram | Bot token from @BotFather               |
+| `ANNA_TELEGRAM_NOTIFY_CHAT` | No           | Chat ID for proactive notifications     |
 
 \* At least one provider key is required.
 

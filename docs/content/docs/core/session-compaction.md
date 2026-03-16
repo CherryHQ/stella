@@ -1,6 +1,7 @@
 ---
 title: Session Compaction
 ---
+
 ## Status
 
 Implemented — `internal/agent/pool_compaction.go` (orchestration), `memory.Engine` (SQLite persistence), channels expose `/compact`.
@@ -121,11 +122,12 @@ In `~/.anna/config.yaml` under `runner:`:
 ```yaml
 runner:
   compaction:
-    max_tokens: 80000   # auto-compact threshold (0 = default 80k, -1 = disabled)
-    keep_tail: 20       # recent messages to preserve verbatim
+    max_tokens: 80000 # auto-compact threshold (0 = default 80k, -1 = disabled)
+    keep_tail: 20 # recent messages to preserve verbatim
 ```
 
 Both fields have defaults applied via `CompactionConfig.WithDefaults()`:
+
 - `max_tokens`: 80,000 (when 0 or omitted; set to `-1` to disable)
 - `keep_tail`: 20
 
@@ -163,11 +165,11 @@ This ensures `/compact` is always available for any persisted session.
 
 ## Failure Modes
 
-| Scenario | Behavior |
-|---|---|
-| Runner fails to summarize | Returns error, session untouched |
-| Database write fails | Returns error, original data preserved |
-| Auto-compaction fails | Logs warning, continues with full history |
-| Empty summary from runner | Returns error: "empty summary response" |
+| Scenario                  | Behavior                                  |
+| ------------------------- | ----------------------------------------- |
+| Runner fails to summarize | Returns error, session untouched          |
+| Database write fails      | Returns error, original data preserved    |
+| Auto-compaction fails     | Logs warning, continues with full history |
+| Empty summary from runner | Returns error: "empty summary response"   |
 
 All writes go through SQLite transactions for atomicity.

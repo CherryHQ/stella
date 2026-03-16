@@ -1,6 +1,7 @@
 ---
 title: QQ Bot
 ---
+
 anna includes a QQ bot that connects via WebSocket (persistent connection, no public URL required).
 
 ## Setup
@@ -39,12 +40,12 @@ The bot uses QQ's native Stream API for progressive response delivery. As the LL
 
 During tool execution, the stream shows status with emoji indicators (same as Telegram):
 
-| Tool | Emoji |
-|------|-------|
-| `bash` | lightning |
-| `read` | book |
-| `write` | pencil |
-| `edit` | wrench |
+| Tool     | Emoji            |
+| -------- | ---------------- |
+| `bash`   | lightning        |
+| `read`   | book             |
+| `write`  | pencil           |
+| `edit`   | wrench           |
 | `search` | magnifying glass |
 
 ## Group Support
@@ -54,7 +55,7 @@ QQ group messages are received as @mention events (`GROUP_AT_MESSAGE_CREATE`). C
 ```yaml
 channels:
   qq:
-    group_mode: "mention"    # Respond to @mentions (default)
+    group_mode: "mention" # Respond to @mentions (default)
     # group_mode: "always"   # Same as mention for QQ (AT events are always mentions)
     # group_mode: "disabled" # Ignore group messages entirely
 ```
@@ -80,21 +81,21 @@ Users can send images to the bot for analysis. The bot downloads image attachmen
 
 Send these commands as text messages to the bot:
 
-| Command | Description |
-|---------|-------------|
-| `/start` or `/help` | Welcome and help |
-| `/new` | Start a fresh session |
-| `/compact` | Compress conversation history |
-| `/model` | List available models |
-| `/model <number>` | Switch to model by number |
-| `/model <query>` | Filter models by name |
-| `/whoami` | Show your user ID for config |
+| Command             | Description                   |
+| ------------------- | ----------------------------- |
+| `/start` or `/help` | Welcome and help              |
+| `/new`              | Start a fresh session         |
+| `/compact`          | Compress conversation history |
+| `/model`            | List available models         |
+| `/model <number>`   | Switch to model by number     |
+| `/model <query>`    | Filter models by name         |
+| `/whoami`           | Show your user ID for config  |
 
 ## Configuration Reference
 
-| Field | Description | Default |
-|-------|-------------|---------|
-| `app_id` | QQ Bot AppID | (required) |
-| `app_secret` | QQ Bot AppSecret | (required) |
-| `group_mode` | Group behavior: `mention`, `always`, `disabled` | `mention` |
-| `allowed_ids` | User OpenIDs allowed (empty = all) | `[]` |
+| Field         | Description                                     | Default    |
+| ------------- | ----------------------------------------------- | ---------- |
+| `app_id`      | QQ Bot AppID                                    | (required) |
+| `app_secret`  | QQ Bot AppSecret                                | (required) |
+| `group_mode`  | Group behavior: `mention`, `always`, `disabled` | `mention`  |
+| `allowed_ids` | User OpenIDs allowed (empty = all)              | `[]`       |

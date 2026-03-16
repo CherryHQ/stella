@@ -12,13 +12,11 @@ export const Route = createFileRoute("/about")({
 const traits = [
   {
     label: "Calm",
-    description:
-      "Quiet intelligence over loud marketing. Anna speaks with clarity, not hype.",
+    description: "Quiet intelligence over loud marketing. Anna speaks with clarity, not hype.",
   },
   {
     label: "Trustworthy",
-    description:
-      "Reliable and consistent. She remembers your context and never loses a detail.",
+    description: "Reliable and consistent. She remembers your context and never loses a detail.",
   },
   {
     label: "Memory-aware",
@@ -37,8 +35,7 @@ const traits = [
   },
   {
     label: "Elegant",
-    description:
-      "Minimal and restrained. No clutter, no noise. Just the right amount of presence.",
+    description: "Minimal and restrained. No clutter, no noise. Just the right amount of presence.",
   },
 ];
 
@@ -74,9 +71,9 @@ function HeroSection() {
           </h1>
           <div className="animate-fade-up stagger-3 max-w-md">
             <p className="text-fd-muted-foreground text-base leading-relaxed">
-              Anna is a self-hosted AI assistant with real warmth and digital
-              precision. She remembers what you said, connects your workflows
-              across devices, and stays quietly useful — day after day.
+              Anna is a self-hosted AI assistant with real warmth and digital precision. She
+              remembers what you said, connects your workflows across devices, and stays quietly
+              useful — day after day.
             </p>
           </div>
         </div>
@@ -104,19 +101,14 @@ function TraitsSection() {
       </h2>
       <p className="text-fd-muted-foreground text-base leading-relaxed max-w-2xl mb-20">
         Anna is not another generic AI chatbot. She is a{" "}
-        <strong className="text-fd-foreground">calm digital companion</strong> —
-        designed to be trustworthy, long-lasting, and deeply aware of your
-        context.
+        <strong className="text-fd-foreground">calm digital companion</strong> — designed to be
+        trustworthy, long-lasting, and deeply aware of your context.
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-16 gap-y-14">
         {traits.map((t) => (
           <div key={t.label}>
-            <h3 className="text-lg tracking-tight text-fd-foreground mb-2">
-              {t.label}
-            </h3>
-            <p className="text-fd-muted-foreground text-sm leading-relaxed">
-              {t.description}
-            </p>
+            <h3 className="text-lg tracking-tight text-fd-foreground mb-2">{t.label}</h3>
+            <p className="text-fd-muted-foreground text-sm leading-relaxed">{t.description}</p>
           </div>
         ))}
       </div>
@@ -133,9 +125,9 @@ function VisualIdentity() {
             Visual identity
           </h2>
           <p className="text-fd-muted-foreground text-base leading-relaxed mb-10">
-            Anna's look is intentional: a semi-realistic portrait that feels
-            human but is clearly a brand character. She looks like someone real
-            — but she is a digital assistant, and that distinction matters.
+            Anna's look is intentional: a semi-realistic portrait that feels human but is clearly a
+            brand character. She looks like someone real — but she is a digital assistant, and that
+            distinction matters.
           </p>
           <div className="space-y-6">
             <IdentityRow
@@ -175,12 +167,8 @@ function VisualIdentity() {
 function IdentityRow({ title, detail }: { title: string; detail: string }) {
   return (
     <div className="flex gap-4">
-      <span className="text-sm font-medium text-fd-foreground w-28 shrink-0">
-        {title}
-      </span>
-      <p className="text-fd-muted-foreground text-sm leading-relaxed">
-        {detail}
-      </p>
+      <span className="text-sm font-medium text-fd-foreground w-28 shrink-0">{title}</span>
+      <p className="text-fd-muted-foreground text-sm leading-relaxed">{detail}</p>
     </div>
   );
 }
@@ -208,9 +196,8 @@ function ClosingSection() {
             Built to stay
           </h2>
           <p className="text-fd-muted-foreground text-sm leading-relaxed">
-            Anna is not about making noise. She earns trust over time — through
-            consistent memory, reliable assistance, and quiet presence. The kind
-            of assistant you keep coming back to.
+            Anna is not about making noise. She earns trust over time — through consistent memory,
+            reliable assistance, and quiet presence. The kind of assistant you keep coming back to.
           </p>
         </div>
         <Link

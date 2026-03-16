@@ -3,19 +3,22 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import mdx from "fumadocs-mdx/vite";
+import * as sourceConfig from "./source.config.ts";
 import { defineConfig } from "vite";
-import tsConfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig({
+  fmt: {
+    ignorePatterns: ["src/routeTree.gen.ts"],
+  },
   server: {
     port: 3000,
   },
+  resolve: {
+    tsconfigPaths: true,
+  },
   plugins: [
-    mdx(await import("./source.config")),
+    mdx(sourceConfig),
     tailwindcss(),
-    tsConfigPaths({
-      projects: ["./tsconfig.json"],
-    }),
     cloudflare({ viteEnvironment: { name: "ssr" } }),
     tanstackStart({
       prerender: {

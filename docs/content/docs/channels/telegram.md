@@ -1,6 +1,7 @@
 ---
 title: Telegram Bot
 ---
+
 anna includes a Telegram bot that runs via long polling -- no webhook or public IP needed.
 
 ## Setup
@@ -38,12 +39,12 @@ Sends an initial message and edits it periodically (every ~1 second) as tokens a
 
 During tool execution, the stream shows status with emoji indicators:
 
-| Tool | Emoji |
-|------|-------|
-| `bash` | lightning |
-| `read` | book |
-| `write` | pencil |
-| `edit` | wrench |
+| Tool     | Emoji            |
+| -------- | ---------------- |
+| `bash`   | lightning        |
+| `read`   | book             |
+| `write`  | pencil           |
+| `edit`   | wrench           |
 | `search` | magnifying glass |
 
 ## Image Support
@@ -68,7 +69,7 @@ Configure how the bot responds in group chats:
 ```yaml
 channels:
   telegram:
-    group_mode: "mention"   # Only respond when @mentioned (default)
+    group_mode: "mention" # Only respond when @mentioned (default)
     # group_mode: "always"  # Respond to all messages
     # group_mode: "disabled" # Ignore group messages entirely
 ```
@@ -81,7 +82,7 @@ Restrict which Telegram users can interact with the bot:
 channels:
   telegram:
     allowed_ids:
-      - 136345060           # Your Telegram user ID
+      - 136345060 # Your Telegram user ID
 ```
 
 Leave empty to allow all users. Use the `/whoami` command in Telegram to get your user ID.
@@ -93,11 +94,12 @@ The bot doubles as a notification backend. Configure a default chat for proactiv
 ```yaml
 channels:
   telegram:
-    notify_chat: "123456789"   # Chat ID (use /whoami to get it)
-    channel_id: "@my_channel"  # Optional broadcast channel
+    notify_chat: "123456789" # Chat ID (use /whoami to get it)
+    channel_id: "@my_channel" # Optional broadcast channel
 ```
 
 Used by:
+
 - The `notify` agent tool (in gateway mode)
 - Scheduler job result broadcasting
 
@@ -109,10 +111,10 @@ Users can switch models mid-conversation via an inline keyboard triggered by the
 
 ## Configuration Reference
 
-| Field | Description | Default |
-|-------|-------------|---------|
-| `token` | Bot API token | (required) |
-| `notify_chat` | Chat ID for proactive notifications | |
-| `channel_id` | Broadcast channel (@name or numeric ID) | |
-| `group_mode` | Group behavior: `mention`, `always`, `disabled` | `mention` |
-| `allowed_ids` | User IDs allowed to use bot (empty = all) | `[]` |
+| Field         | Description                                     | Default    |
+| ------------- | ----------------------------------------------- | ---------- |
+| `token`       | Bot API token                                   | (required) |
+| `notify_chat` | Chat ID for proactive notifications             |            |
+| `channel_id`  | Broadcast channel (@name or numeric ID)         |            |
+| `group_mode`  | Group behavior: `mention`, `always`, `disabled` | `mention`  |
+| `allowed_ids` | User IDs allowed to use bot (empty = all)       | `[]`       |

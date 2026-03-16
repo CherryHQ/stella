@@ -11,13 +11,7 @@ export function baseOptions(): BaseLayoutProps {
     nav: {
       title: (
         <>
-          <img
-            src="/anna-monogram.svg"
-            alt="anna"
-            width={24}
-            height={24}
-            className="rounded-sm"
-          />
+          <img src="/anna-monogram.svg" alt="anna" width={24} height={24} className="rounded-sm" />
           anna
         </>
       ),

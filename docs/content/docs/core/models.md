@@ -1,14 +1,15 @@
 ---
 title: Model Management
 ---
+
 ## Tiered Models
 
 anna supports two model tiers for different workloads:
 
-| Tier | Use Case |
-|------|----------|
-| `strong` | Heavy reasoning, complex tasks |
-| `fast` | Quick responses, simple queries |
+| Tier     | Use Case                        |
+| -------- | ------------------------------- |
+| `strong` | Heavy reasoning, complex tasks  |
+| `fast`   | Quick responses, simple queries |
 
 Each tier falls back independently to `model` (top-level default) when not set.
 
@@ -53,7 +54,7 @@ Or: `export ANTHROPIC_API_KEY="sk-..."`
 providers:
   openai:
     api_key: "sk-..."
-    base_url: "https://api.openai.com/v1"  # optional
+    base_url: "https://api.openai.com/v1" # optional
 ```
 
 Or: `export OPENAI_API_KEY="sk-..."` and optionally `export OPENAI_BASE_URL="..."`
@@ -74,6 +75,7 @@ Uses the same `OPENAI_API_KEY` and `OPENAI_BASE_URL` env vars as the `openai` pr
 ## Runtime Switching
 
 Models can be switched at runtime:
+
 - **CLI**: Via in-chat `/model` command
 - **Telegram**: Via inline keyboard model picker
 - **Config**: `anna models set provider/model` persists the selection to config

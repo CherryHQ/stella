@@ -1,6 +1,7 @@
 ---
 title: Feishu Bot
 ---
+
 anna includes a Feishu (Lark) bot that connects via WebSocket (persistent connection, no public URL required).
 
 ## Setup
@@ -16,7 +17,7 @@ channels:
   feishu:
     app_id: "YOUR_APP_ID"
     app_secret: "YOUR_APP_SECRET"
-    encrypt_key: "YOUR_ENCRYPT_KEY"             # from Events & Callbacks page
+    encrypt_key: "YOUR_ENCRYPT_KEY" # from Events & Callbacks page
     verification_token: "YOUR_VERIFICATION_TOKEN" # from Events & Callbacks page
 ```
 
@@ -45,21 +46,21 @@ The bot uses Feishu's Message Update API for edit-in-place streaming. When the L
 
 During tool execution, the stream shows status with emoji indicators:
 
-| Tool | Emoji |
-|------|-------|
-| `bash` | lightning |
-| `read` | book |
-| `write` | pencil |
-| `edit` | wrench |
+| Tool     | Emoji            |
+| -------- | ---------------- |
+| `bash`   | lightning        |
+| `read`   | book             |
+| `write`  | pencil           |
+| `edit`   | wrench           |
 | `search` | magnifying glass |
 
 ## Supported Message Types
 
-| Type | Behavior |
-|------|----------|
-| Text | Extracted and sent to the LLM |
-| Image | Downloaded, base64-encoded, sent as multimodal input |
-| Post (rich text) | Raw JSON passed to the LLM for full context |
+| Type             | Behavior                                             |
+| ---------------- | ---------------------------------------------------- |
+| Text             | Extracted and sent to the LLM                        |
+| Image            | Downloaded, base64-encoded, sent as multimodal input |
+| Post (rich text) | Raw JSON passed to the LLM for full context          |
 
 ## Group Support
 
@@ -70,7 +71,7 @@ In group chats, the bot responds to @mentions. Configure behavior:
 ```yaml
 channels:
   feishu:
-    group_mode: "mention"    # Respond to @mentions (default)
+    group_mode: "mention" # Respond to @mentions (default)
     # group_mode: "always"   # Respond to all group messages
     # group_mode: "disabled" # Ignore group messages entirely
 ```
@@ -95,31 +96,31 @@ Configure a default chat for proactive notifications (scheduler results, agent-t
 ```yaml
 channels:
   feishu:
-    notify_chat: "oc_xxxx"   # Chat ID or open_id (use /whoami)
+    notify_chat: "oc_xxxx" # Chat ID or open_id (use /whoami)
 ```
 
 ## Commands
 
 Send these commands as text messages to the bot:
 
-| Command | Description |
-|---------|-------------|
-| `/start` or `/help` | Welcome and help |
-| `/new` | Start a fresh session |
-| `/compact` | Compress conversation history |
-| `/model` | List available models |
-| `/model <number>` | Switch to model by number |
-| `/model <query>` | Filter models by name |
-| `/whoami` | Show your user ID for config |
+| Command             | Description                   |
+| ------------------- | ----------------------------- |
+| `/start` or `/help` | Welcome and help              |
+| `/new`              | Start a fresh session         |
+| `/compact`          | Compress conversation history |
+| `/model`            | List available models         |
+| `/model <number>`   | Switch to model by number     |
+| `/model <query>`    | Filter models by name         |
+| `/whoami`           | Show your user ID for config  |
 
 ## Configuration Reference
 
-| Field | Description | Default |
-|-------|-------------|---------|
-| `app_id` | Feishu App ID | (required) |
-| `app_secret` | Feishu App Secret | (required) |
-| `encrypt_key` | Event encrypt key (from Events & Callbacks) | (optional) |
+| Field                | Description                                        | Default    |
+| -------------------- | -------------------------------------------------- | ---------- |
+| `app_id`             | Feishu App ID                                      | (required) |
+| `app_secret`         | Feishu App Secret                                  | (required) |
+| `encrypt_key`        | Event encrypt key (from Events & Callbacks)        | (optional) |
 | `verification_token` | Event verification token (from Events & Callbacks) | (optional) |
-| `notify_chat` | Chat ID for proactive notifications | (optional) |
-| `group_mode` | Group behavior: `mention`, `always`, `disabled` | `mention` |
-| `allowed_ids` | User open_ids allowed (empty = all) | `[]` |
+| `notify_chat`        | Chat ID for proactive notifications                | (optional) |
+| `group_mode`         | Group behavior: `mention`, `always`, `disabled`    | `mention`  |
+| `allowed_ids`        | User open_ids allowed (empty = all)                | `[]`       |
