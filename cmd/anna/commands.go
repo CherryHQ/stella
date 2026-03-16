@@ -135,7 +135,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	}
 
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
-	factory, err := newRunnerFactory(snap, extraTools, pm.Registry())
+	factory, err := agent.NewRunnerFactory(snap, extraTools, pm.Registry())
 	if err != nil {
 		return nil, fmt.Errorf("create runner factory: %w", err)
 	}
@@ -193,29 +193,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	}, nil
 }
 
-func newRunnerFactory(snap *config.Snapshot, extraTools []agenttool.Tool, pluginHooks *pluginmgr.Registry) (runner.NewRunnerFunc, error) {
-	switch snap.Runner.Type {
-	case "go":
-		return func(ctx context.Context, model string) (runner.Runner, error) {
-			if model == "" {
-				model = snap.Model
-			}
-			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
-				API:         snap.Provider,
-				Model:       model,
-				APIKey:      snap.APIKey,
-				Workspace:   snap.Workspace,
-				AnnaHome:    config.AnnaHome(),
-				BaseURL:     snap.BaseURL,
-				ExtraTools:  extraTools,
-				PluginHooks: pluginHooks,
-			})
-		}, nil
-	default:
-		return nil, fmt.Errorf("unknown runner type: %q", snap.Runner.Type)
-	}
-}
-
 // modelSwitcher returns a function that switches the pool's runner factory
 // to use a different provider/model combination.
 func modelSwitcher(snap *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []agenttool.Tool, pluginHooks *pluginmgr.Registry) channel.ModelSwitchFunc {
@@ -230,7 +207,7 @@ func modelSwitcher(snap *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.BaseURL = p.BaseURL
 		}
 
-		factory, err := newRunnerFactory(snap, extraTools, pluginHooks)
+		factory, err := agent.NewRunnerFactory(snap, extraTools, pluginHooks)
 		if err != nil {
 			return err
 		}
