@@ -40,6 +40,7 @@ func botCommands() []tele.Command {
 		{Text: "new", Description: "Start a new session"},
 		{Text: "compact", Description: "Compact session history"},
 		{Text: "model", Description: "List or switch models"},
+		{Text: "agent", Description: "List or switch agents"},
 		{Text: "whoami", Description: "Show your user ID"},
 	}
 }
@@ -84,6 +85,10 @@ func (b *Bot) registerHandlers() {
 		chatID := c.Chat().ID
 		msg := fmt.Sprintf("Your user ID: `%d`\nThis chat ID: `%d`\n\nUse the user ID in `allowed_ids` and the chat ID in `notify_chat` or as `chat_id` for notifications.", userID, chatID)
 		return c.Send(msg, tele.ModeMarkdown)
+	}))
+
+	b.bot.Handle("/agent", b.guard(func(c tele.Context) error {
+		return b.handleAgent(c)
 	}))
 
 	b.bot.Handle("/model", b.guard(func(c tele.Context) error {
@@ -152,6 +157,53 @@ func (b *Bot) registerHandlers() {
 		logger().Warn("unmatched callback", "data", cb.Data, "unique", cb.Unique)
 		return c.Respond()
 	})
+}
+
+// handleAgent handles the /agent command: list or switch agents.
+func (b *Bot) handleAgent(c tele.Context) error {
+	if b.agentCmd == nil || b.store == nil {
+		return c.Send("Agent management is not configured.")
+	}
+
+	ctx := context.Background()
+	args := strings.TrimSpace(c.Message().Payload)
+
+	// Resolve user for context.
+	sender := c.Sender()
+	if sender == nil {
+		return c.Send("Cannot determine sender.")
+	}
+	externalID := strconv.FormatInt(sender.ID, 10)
+	name := sender.FirstName
+	if name == "" {
+		name = sender.Username
+	}
+	user, err := channel.ResolveUser(ctx, b.store, externalID, "telegram", name)
+	if err != nil {
+		return c.Send(fmt.Sprintf("Error resolving user: %v", err))
+	}
+
+	chatCtx := channel.ChatContext{
+		Platform: "telegram",
+		ChatID:   strconv.FormatInt(c.Chat().ID, 10),
+		IsGroup:  isGroup(c),
+	}
+
+	if args == "" {
+		// List agents with current selection marked.
+		agents, listErr := b.agentCmd.List(ctx)
+		if listErr != nil {
+			return c.Send(fmt.Sprintf("Error listing agents: %v", listErr))
+		}
+		currentAgentID, _ := channel.ResolveAgent(ctx, b.store, user, chatCtx)
+		return c.Send(channel.FormatAgentList(agents, currentAgentID))
+	}
+
+	// Switch agent.
+	if err := b.agentCmd.Switch(ctx, user, chatCtx, args); err != nil {
+		return c.Send(fmt.Sprintf("Error switching agent: %v", err))
+	}
+	return c.Send(fmt.Sprintf("Switched to agent: %s", args))
 }
 
 // handleText processes incoming text messages.
