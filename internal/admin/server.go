@@ -72,6 +72,9 @@ func New(store config.Store, mem memory.Engine, db *sql.DB) *Server {
 	s.mux.HandleFunc("GET /api/settings/{key}", s.getSetting)
 	s.mux.HandleFunc("PUT /api/settings/{key}", s.updateSetting)
 
+	// Tools API (available tools for agents).
+	s.mux.HandleFunc("GET /api/tools", s.listAgentTools)
+
 	// Scheduler job APIs.
 	s.mux.HandleFunc("GET /api/scheduler/jobs", s.listSchedulerJobs)
 	s.mux.HandleFunc("POST /api/scheduler/jobs", s.createSchedulerJob)
