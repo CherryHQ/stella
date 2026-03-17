@@ -48,7 +48,6 @@ type Config struct {
 type Bot struct {
 	client      *lark.Client
 	wsClient    *larkws.Client
-	pool        *agent.Pool // fallback pool (default agent)
 	poolManager *agent.PoolManager
 	store       config.Store
 	listFn      ModelListFunc
@@ -69,22 +68,8 @@ type Bot struct {
 // BotOption configures the Feishu Bot.
 type BotOption func(*Bot)
 
-// WithPoolManager sets the pool manager for multi-agent routing.
-func WithPoolManager(pm *agent.PoolManager) BotOption {
-	return func(b *Bot) {
-		b.poolManager = pm
-	}
-}
-
-// WithStore sets the config store for user resolution and agent routing.
-func WithStore(s config.Store) BotOption {
-	return func(b *Bot) {
-		b.store = s
-	}
-}
-
 // New creates a Feishu bot. Call Start to begin receiving events.
-func New(cfg Config, pool *agent.Pool, listFn ModelListFunc, switchFn ModelSwitchFunc, opts ...BotOption) (*Bot, error) {
+func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn ModelListFunc, switchFn ModelSwitchFunc, opts ...BotOption) (*Bot, error) {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return nil, fmt.Errorf("feishu: app_id and app_secret are required")
 	}
@@ -99,13 +84,14 @@ func New(cfg Config, pool *agent.Pool, listFn ModelListFunc, switchFn ModelSwitc
 	}
 
 	b := &Bot{
-		pool:       pool,
-		listFn:     listFn,
-		switchFn:   switchFn,
-		chatModels: make(map[string]ModelOption),
-		seenMsgs:   make(map[string]time.Time),
-		allowed:    allowed,
-		cfg:        cfg,
+		poolManager: pm,
+		store:       store,
+		listFn:      listFn,
+		switchFn:    switchFn,
+		chatModels:  make(map[string]ModelOption),
+		seenMsgs:    make(map[string]time.Time),
+		allowed:     allowed,
+		cfg:         cfg,
 	}
 
 	for _, opt := range opts {

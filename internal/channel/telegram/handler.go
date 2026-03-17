@@ -24,16 +24,6 @@ func atoiOr(s string, fallback int) int {
 	return v
 }
 
-const welcomeMessage = `👋 Hi! I'm Anna — your local AI assistant.
-
-*Commands*
-/new — Start a fresh session
-/compact — Compress conversation history
-/model — Switch between models
-/whoami — Show your user ID
-
-Just send me a message to get started.`
-
 func botCommands() []tele.Command {
 	return []tele.Command{
 		{Text: "start", Description: "Welcome & help"},
@@ -50,46 +40,14 @@ func registerCommands(bot *tele.Bot) error {
 }
 
 func (b *Bot) registerHandlers() {
-	b.bot.Handle("/start", b.guard(func(c tele.Context) error {
-		return c.Send(welcomeMessage, tele.ModeMarkdown)
-	}))
-
-	b.bot.Handle("/new", b.guard(func(c tele.Context) error {
-		rc, err := b.resolve(c)
-		if err != nil {
-			return c.Send(fmt.Sprintf("Error: %v", err))
-		}
-		info, err := rc.RotateSession()
-		if err != nil {
-			logger().Error("rotate session failed", "key", rc.SessionKey, "error", err)
-			return c.Send(fmt.Sprintf("Error creating new session: %v", err))
-		}
-		logger().Info("new session created", "session_id", info.ID, "key", rc.SessionKey)
-		return c.Send("New session started.")
-	}))
-
-	b.bot.Handle("/compact", b.guard(func(c tele.Context) error {
-		rc, err := b.resolve(c)
-		if err != nil {
-			return c.Send(fmt.Sprintf("Error: %v", err))
-		}
-		_ = c.Notify(tele.Typing)
-		summary, err := rc.CompactSession(b.ctx)
-		if err != nil {
-			logger().Error("compact session failed", "key", rc.SessionKey, "error", err)
-			return c.Send(fmt.Sprintf("Compaction failed: %v", err))
-		}
-		logger().Info("session compacted", "key", rc.SessionKey, "summary_len", len(summary))
-		return c.Send("Session compacted.")
-	}))
-
+	// Common commands: /start, /help, /new, /compact, /whoami — handled by shared HandleCommand.
+	// Telegram-specific /whoami override (includes chat ID in markdown).
 	b.bot.Handle("/whoami", b.guard(func(c tele.Context) error {
 		if c.Sender() == nil {
 			return c.Send("Cannot determine user ID (no sender info).")
 		}
-		userID := c.Sender().ID
-		chatID := c.Chat().ID
-		msg := fmt.Sprintf("Your user ID: `%d`\nThis chat ID: `%d`\n\nUse the user ID in `allowed_ids` and the chat ID in `notify_chat` or as `chat_id` for notifications.", userID, chatID)
+		msg := fmt.Sprintf("Your user ID: `%d`\nThis chat ID: `%d`\n\nUse the user ID in `allowed_ids` and the chat ID in `notify_chat` or as `chat_id` for notifications.",
+			c.Sender().ID, c.Chat().ID)
 		return c.Send(msg, tele.ModeMarkdown)
 	}))
 
@@ -98,22 +56,7 @@ func (b *Bot) registerHandlers() {
 	}))
 
 	b.bot.Handle("/model", b.guard(func(c tele.Context) error {
-		args := strings.TrimSpace(c.Message().Payload)
-		query := channel.ParseModelArgs(args)
-
-		// If the query looks like "provider/model", try switching directly.
-		if query != "" && strings.Contains(query, "/") {
-			return b.switchModelByName(c, query)
-		}
-
-		models := b.cmd.ModelList(query)
-		if len(models) == 0 {
-			if query != "" {
-				return c.Send(fmt.Sprintf("No models matching %q.", query))
-			}
-			return c.Send("No models configured.")
-		}
-		return b.sendModelKeyboard(c, models)
+		return b.handleModel(c)
 	}))
 
 	// Handle inline keyboard callbacks for model selection via unique handler.
@@ -130,13 +73,12 @@ func (b *Bot) registerHandlers() {
 	}))
 
 	// Handle pagination for model keyboard.
-	// Callback data format: "page" or "page|filter_query".
 	b.bot.Handle("\fmodel_page", b.guard(func(c tele.Context) error {
 		data := c.Data()
 		pageStr, query, _ := strings.Cut(data, "|")
 		page, _ := strconv.Atoi(pageStr)
 
-		models := b.cmd.ModelList(query)
+		models := b.modelList(query)
 		if err := b.sendModelPage(c, models, page, query, true); err != nil {
 			logger().Error("model page failed", "page", page, "error", err)
 			return err
@@ -144,7 +86,6 @@ func (b *Bot) registerHandlers() {
 		return c.Respond()
 	}))
 
-	// No-op handler for the page counter button.
 	b.bot.Handle("\fmodel_noop", func(c tele.Context) error {
 		return c.Respond()
 	})
@@ -157,7 +98,6 @@ func (b *Bot) registerHandlers() {
 		return b.handlePhoto(c)
 	}))
 
-	// Debug: catch-all callback handler for unmatched callbacks.
 	b.bot.Handle(tele.OnCallback, func(c tele.Context) error {
 		cb := c.Callback()
 		logger().Warn("unmatched callback", "data", cb.Data, "unique", cb.Unique)
@@ -165,12 +105,36 @@ func (b *Bot) registerHandlers() {
 	})
 }
 
-// handleAgent handles the /agent command: list or switch agents.
-func (b *Bot) handleAgent(c tele.Context) error {
-	if b.agentCmd == nil || b.store == nil {
-		return c.Send("Agent management is not configured.")
+// modelList returns models optionally filtered by query.
+func (b *Bot) modelList(query string) []channel.IndexedModel {
+	models := b.listFn()
+	if query == "" {
+		return channel.IndexModels(models)
+	}
+	return channel.FilterModels(models, query)
+}
+
+// handleModel processes the /model command with inline keyboard.
+func (b *Bot) handleModel(c tele.Context) error {
+	args := strings.TrimSpace(c.Message().Payload)
+	query := channel.ParseModelArgs(args)
+
+	if query != "" && strings.Contains(query, "/") {
+		return b.switchModelByName(c, query)
 	}
 
+	models := b.modelList(query)
+	if len(models) == 0 {
+		if query != "" {
+			return c.Send(fmt.Sprintf("No models matching %q.", query))
+		}
+		return c.Send("No models configured.")
+	}
+	return b.sendModelKeyboard(c, models)
+}
+
+// handleAgent handles the /agent command: list or switch agents.
+func (b *Bot) handleAgent(c tele.Context) error {
 	rc, err := b.resolve(c)
 	if err != nil {
 		return c.Send(fmt.Sprintf("Error: %v", err))
@@ -199,7 +163,17 @@ func (b *Bot) handleText(c tele.Context) error {
 	if isGroup(c) {
 		text = b.stripBotMention(text)
 	}
-	return b.handleMessage(c, text)
+
+	// Try shared command handler first.
+	rc, err := b.resolve(c)
+	if err != nil {
+		return c.Send(fmt.Sprintf("Error: %v", err))
+	}
+	if resp, ok := channel.HandleCommand(b.ctx, rc, text, strconv.FormatInt(c.Sender().ID, 10)); ok {
+		return c.Send(resp)
+	}
+
+	return b.handleMessage(c, rc, text)
 }
 
 // handlePhoto processes incoming photo messages.
@@ -209,15 +183,15 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 		return c.Send("No photo found in message.")
 	}
 
-	rc, err := b.bot.File(&photo.File)
+	file, err := b.bot.File(&photo.File)
 	if err != nil {
 		logger().Error("download photo failed", "error", err)
 		return c.Send(fmt.Sprintf("Failed to download photo: %v", err))
 	}
-	defer func() { _ = rc.Close() }()
+	defer func() { _ = file.Close() }()
 
-	const maxPhotoSize = 20 << 20 // 20MB — Telegram's file size limit
-	data, err := io.ReadAll(io.LimitReader(rc, maxPhotoSize+1))
+	const maxPhotoSize = 20 << 20 // 20MB
+	data, err := io.ReadAll(io.LimitReader(file, maxPhotoSize+1))
 	if err != nil {
 		logger().Error("read photo failed", "error", err)
 		return c.Send(fmt.Sprintf("Failed to read photo: %v", err))
@@ -239,30 +213,30 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	content = append(content, ai.ImageContent{Data: encoded, MimeType: mimeType})
 
 	logger().Debug("photo received", "chat_id", c.Chat().ID, "size", len(data), "mime", mimeType)
-	return b.handleMessage(c, content)
+
+	rc, err := b.resolve(c)
+	if err != nil {
+		return c.Send(fmt.Sprintf("Error: %v", err))
+	}
+	return b.handleMessage(c, rc, content)
 }
 
 // handleMessage is the common flow for text and multimodal messages.
-func (b *Bot) handleMessage(c tele.Context, message runner.MessageContent) error {
+func (b *Bot) handleMessage(c tele.Context, rc *channel.ResolvedChat, message runner.MessageContent) error {
 	chatID := c.Chat().ID
-	rc, err := b.resolve(c)
+
+	events, sessionID, err := rc.Chat(b.ctx, message)
 	if err != nil {
-		logger().Error("resolve failed", "chat_id", chatID, "error", err)
-		return c.Send(fmt.Sprintf("Error: %v", err))
-	}
-	info, err := rc.ResolveSession()
-	if err != nil {
-		logger().Error("resolve session failed", "chat_id", chatID, "error", err)
+		logger().Error("chat failed", "chat_id", chatID, "error", err)
 		return c.Send(fmt.Sprintf("Session error: %v", err))
 	}
-	sessionID := info.ID
 
 	logger().Debug("message received", "chat_id", chatID)
 
 	typingCtx, stopTyping := context.WithCancel(b.ctx)
 	go keepTyping(typingCtx, c)
 
-	response, tracker, images, streamErr := b.streamResponse(c, rc.Pool, sessionID, message)
+	response, tracker, images, streamErr := b.streamEvents(c, events)
 
 	stopTyping()
 

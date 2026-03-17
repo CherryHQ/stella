@@ -9,7 +9,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/channel"
 	tele "gopkg.in/telebot.v4"
@@ -256,13 +255,11 @@ func truncate(s string, maxLen int) string {
 	return s[:cutAt] + "..."
 }
 
-// streamResponse consumes the agent stream, displaying progress in real time.
+// streamEvents consumes the agent event stream, displaying progress in real time.
 // For private chats it uses Telegram's sendMessageDraft API (Bot API 9.3+)
 // for smooth animated streaming. For groups (where drafts aren't supported)
 // it falls back to the edit-in-place approach.
-func (b *Bot) streamResponse(c tele.Context, pool *agent.Pool, sessionID string, prompt runner.MessageContent) (string, *toolTracker, []runner.ImageEvent, error) {
-	events := pool.Chat(b.ctx, sessionID, prompt)
-
+func (b *Bot) streamEvents(c tele.Context, events <-chan runner.Event) (string, *toolTracker, []runner.ImageEvent, error) {
 	if !isGroup(c) {
 		text, tracker, images, fallback, err := b.streamDraft(c, events)
 		if fallback {

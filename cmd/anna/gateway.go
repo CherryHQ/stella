@@ -97,10 +97,7 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 			ChannelID:  tgCfg.ChannelID,
 			GroupMode:  tgCfg.GroupMode,
 			AllowedIDs: tgCfg.AllowedIDs,
-		}, s.pool, listFn, switchFn,
-			telegram.WithPoolManager(s.poolManager),
-			telegram.WithStore(s.store),
-		)
+		}, s.poolManager, s.store, listFn, switchFn)
 		if err != nil {
 			return fmt.Errorf("create telegram bot: %w", err)
 		}
@@ -124,10 +121,7 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 			AppSecret:  qqCfg.AppSecret,
 			GroupMode:  qqCfg.GroupMode,
 			AllowedIDs: qqCfg.AllowedIDs,
-		}, s.pool, listFn, switchFn,
-			qq.WithPoolManager(s.poolManager),
-			qq.WithStore(s.store),
-		)
+		}, s.poolManager, s.store, listFn, switchFn)
 		if err != nil {
 			return fmt.Errorf("create qq bot: %w", err)
 		}
@@ -150,10 +144,7 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 			NotifyChat:        fsCfg.NotifyChat,
 			GroupMode:         fsCfg.GroupMode,
 			AllowedIDs:        fsCfg.AllowedIDs,
-		}, s.pool, listFn, switchFn,
-			feishu.WithPoolManager(s.poolManager),
-			feishu.WithStore(s.store),
-		)
+		}, s.poolManager, s.store, listFn, switchFn)
 		if err != nil {
 			return fmt.Errorf("create feishu bot: %w", err)
 		}

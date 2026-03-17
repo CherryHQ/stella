@@ -571,9 +571,10 @@ func TestChatRefFormatsCorrectly(t *testing.T) {
 // --- welcomeMessage ---
 
 func TestWelcomeMessageContainsCommands(t *testing.T) {
+	msg := channel.WelcomeMessage
 	for _, cmd := range []string{"/new", "/compact", "/model", "/whoami"} {
-		if !strings.Contains(welcomeMessage, cmd) {
-			t.Errorf("welcomeMessage missing %q", cmd)
+		if !strings.Contains(msg, cmd) {
+			t.Errorf("WelcomeMessage missing %q", cmd)
 		}
 	}
 }
