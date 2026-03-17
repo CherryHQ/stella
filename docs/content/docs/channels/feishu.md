@@ -15,10 +15,10 @@ anna includes a Feishu (Lark) bot that connects via WebSocket (persistent connec
 ```yaml
 channels:
   feishu:
-    app_id: "YOUR_APP_ID"
-    app_secret: "YOUR_APP_SECRET"
-    encrypt_key: "YOUR_ENCRYPT_KEY" # from Events & Callbacks page
-    verification_token: "YOUR_VERIFICATION_TOKEN" # from Events & Callbacks page
+    app_id: 'YOUR_APP_ID'
+    app_secret: 'YOUR_APP_SECRET'
+    encrypt_key: 'YOUR_ENCRYPT_KEY' # from Events & Callbacks page
+    verification_token: 'YOUR_VERIFICATION_TOKEN' # from Events & Callbacks page
 ```
 
 Or via environment:
@@ -71,7 +71,7 @@ In group chats, the bot responds to @mentions. Configure behavior:
 ```yaml
 channels:
   feishu:
-    group_mode: "mention" # Respond to @mentions (default)
+    group_mode: 'mention' # Respond to @mentions (default)
     # group_mode: "always"   # Respond to all group messages
     # group_mode: "disabled" # Ignore group messages entirely
 ```
@@ -84,7 +84,7 @@ Restrict which users can interact with the bot using open_ids:
 channels:
   feishu:
     allowed_ids:
-      - "ou_xxxx"
+      - 'ou_xxxx'
 ```
 
 Leave empty to allow all users. Use the `/whoami` command to get your open_id.
@@ -96,7 +96,7 @@ Configure a default chat for proactive notifications (scheduler results, agent-t
 ```yaml
 channels:
   feishu:
-    notify_chat: "oc_xxxx" # Chat ID or open_id (use /whoami)
+    notify_chat: 'oc_xxxx' # Chat ID or open_id (use /whoami)
 ```
 
 ## Commands

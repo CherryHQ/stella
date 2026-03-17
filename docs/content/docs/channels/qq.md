@@ -13,8 +13,8 @@ anna includes a QQ bot that connects via WebSocket (persistent connection, no pu
 ```yaml
 channels:
   qq:
-    app_id: "YOUR_APP_ID"
-    app_secret: "YOUR_APP_SECRET"
+    app_id: 'YOUR_APP_ID'
+    app_secret: 'YOUR_APP_SECRET'
 ```
 
 Or via environment:
@@ -55,7 +55,7 @@ QQ group messages are received as @mention events (`GROUP_AT_MESSAGE_CREATE`). C
 ```yaml
 channels:
   qq:
-    group_mode: "mention" # Respond to @mentions (default)
+    group_mode: 'mention' # Respond to @mentions (default)
     # group_mode: "always"   # Same as mention for QQ (AT events are always mentions)
     # group_mode: "disabled" # Ignore group messages entirely
 ```
@@ -68,7 +68,7 @@ Restrict which QQ users can interact with the bot using OpenIDs:
 channels:
   qq:
     allowed_ids:
-      - "USER_OPEN_ID_1"
+      - 'USER_OPEN_ID_1'
 ```
 
 Leave empty to allow all users. Use the `/whoami` command to get your OpenID.

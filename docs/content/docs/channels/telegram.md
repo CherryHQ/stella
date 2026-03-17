@@ -12,7 +12,7 @@ anna includes a Telegram bot that runs via long polling -- no webhook or public 
 ```yaml
 channels:
   telegram:
-    token: "BOT_TOKEN"
+    token: 'BOT_TOKEN'
 ```
 
 Or via environment: `ANNA_TELEGRAM_TOKEN=BOT_TOKEN`
@@ -69,7 +69,7 @@ Configure how the bot responds in group chats:
 ```yaml
 channels:
   telegram:
-    group_mode: "mention" # Only respond when @mentioned (default)
+    group_mode: 'mention' # Only respond when @mentioned (default)
     # group_mode: "always"  # Respond to all messages
     # group_mode: "disabled" # Ignore group messages entirely
 ```
@@ -94,8 +94,8 @@ The bot doubles as a notification backend. Configure a default chat for proactiv
 ```yaml
 channels:
   telegram:
-    notify_chat: "123456789" # Chat ID (use /whoami to get it)
-    channel_id: "@my_channel" # Optional broadcast channel
+    notify_chat: '123456789' # Chat ID (use /whoami to get it)
+    channel_id: '@my_channel' # Optional broadcast channel
 ```
 
 Used by:

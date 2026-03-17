@@ -11,8 +11,7 @@
     "cf-typegen": "wrangler types",
     "types:check": "fumadocs-mdx && tsc --noEmit",
     "postinstall": "fumadocs-mdx",
-    "lint": "vp lint",
-    "format": "vp fmt"
+    "static": "vp check --fix"
   },
   "dependencies": {
     "@tanstack/react-router": "1.166.7",
