@@ -338,7 +338,11 @@ func TestBuildSystemPromptIncludesSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	prompt := BuildSystemPrompt("/nonexistent/anna", wsDir, projectDir)
+	prompt := BuildSystemPromptFromDB(DBPromptParams{
+		AnnaHome:  "/nonexistent/anna",
+		Workspace: wsDir,
+		Cwd:       projectDir,
+	})
 	if !strings.Contains(prompt, "<available_skills>") {
 		t.Error("expected skills section in system prompt")
 	}
@@ -445,7 +449,11 @@ func TestBuildSystemPromptIncludesContextFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	prompt := BuildSystemPrompt("/nonexistent/anna", wsDir, projectDir)
+	prompt := BuildSystemPromptFromDB(DBPromptParams{
+		AnnaHome:  "/nonexistent/anna",
+		Workspace: wsDir,
+		Cwd:       projectDir,
+	})
 
 	if !strings.Contains(prompt, "# Project Context") {
 		t.Error("expected Project Context section in system prompt")
@@ -455,37 +463,30 @@ func TestBuildSystemPromptIncludesContextFiles(t *testing.T) {
 	}
 }
 
-func TestBuildSystemPromptProjectOverrides(t *testing.T) {
+func TestBuildSystemPromptSoulOverride(t *testing.T) {
 	dir := t.TempDir()
 	wsDir := filepath.Join(dir, "workspace")
-	projectDir := filepath.Join(dir, "project")
-	projectAgents := filepath.Join(projectDir, ".agents")
 
-	// Create workspace with SOUL.md
+	// Create workspace with SOUL.md that overrides DB system prompt.
 	if err := os.MkdirAll(wsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(wsDir, "SOUL.md"),
-		[]byte("Workspace soul"), 0o644); err != nil {
+		[]byte("File-based soul override"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create project-level .agents/SOUL.md (should override workspace)
-	if err := os.MkdirAll(projectAgents, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(projectAgents, "SOUL.md"),
-		[]byte("Project soul override"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	prompt := BuildSystemPromptFromDB(DBPromptParams{
+		SystemPrompt: "DB soul prompt",
+		AnnaHome:     "/nonexistent/anna",
+		Workspace:    wsDir,
+	})
 
-	prompt := BuildSystemPrompt("/nonexistent/anna", wsDir, projectDir)
-
-	if !strings.Contains(prompt, "Project soul override") {
-		t.Error("expected project-level SOUL.md to override workspace SOUL.md")
+	if !strings.Contains(prompt, "File-based soul override") {
+		t.Error("expected SOUL.md to override DB system prompt")
 	}
-	if strings.Contains(prompt, "Workspace soul") {
-		t.Error("workspace SOUL.md should be overridden by project-level")
+	if strings.Contains(prompt, "DB soul prompt") {
+		t.Error("DB system prompt should be overridden by SOUL.md file")
 	}
 }
 

@@ -27,7 +27,7 @@ type GoRunnerConfig struct {
 	WorkDir     string                  // working directory for tool execution
 	Workspace   string                  // workspace dir for skills/memory (e.g. ~/.anna/workspace)
 	AnnaHome    string                  // anna home directory (e.g. ~/.anna)
-	System      string                  // optional system prompt override (bypasses BuildSystemPrompt)
+	System      string                  // optional system prompt override (bypasses default prompt building)
 	ExtraTools  []tool.Tool             // additional tools to register
 	PluginHooks engine.PluginHookRunner // optional plugin lifecycle hooks
 }
@@ -66,11 +66,11 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 
 	system := cfg.System
 	if system == "" {
-		if cfg.Workspace != "" {
-			system = BuildSystemPrompt(cfg.AnnaHome, cfg.Workspace, cfg.WorkDir)
-		} else {
-			system = defaultBasicPrompt
-		}
+		system = BuildSystemPromptFromDB(DBPromptParams{
+			AnnaHome:  cfg.AnnaHome,
+			Workspace: cfg.Workspace,
+			Cwd:       cfg.WorkDir,
+		})
 	}
 
 	eng := &engine.Engine{Providers: reg}

@@ -17,18 +17,19 @@ import (
 func NewRunnerFactory(snap *config.Snapshot, extraTools []agenttool.Tool, pluginHooks engine.PluginHookRunner) (runner.NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
-		// Pre-build the base system prompt (shared across sessions).
-		// User memory is injected per-session at runner creation time.
-		baseSystem := buildBaseSystemPrompt(snap)
-
 		return func(ctx context.Context, params runner.RunnerParams) (runner.Runner, error) {
 			model := params.Model
 			if model == "" {
 				model = snap.Model
 			}
 
-			// Compose final system prompt with per-session user memory.
-			system := runner.InjectUserMemory(baseSystem, params.UserMemory)
+			// Build the full system prompt per-session with user memory.
+			system := runner.BuildSystemPromptFromDB(runner.DBPromptParams{
+				SystemPrompt: snap.SystemPrompt,
+				UserMemory:   params.UserMemory,
+				AnnaHome:     config.AnnaHome(),
+				Workspace:    snap.Workspace,
+			})
 
 			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
 				API:         snap.Provider,
@@ -45,17 +46,4 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []agenttool.Tool, plugin
 	default:
 		return nil, fmt.Errorf("unknown runner type: %q", snap.Runner.Type)
 	}
-}
-
-// buildBaseSystemPrompt builds the system prompt from DB fields without user memory.
-func buildBaseSystemPrompt(snap *config.Snapshot) string {
-	if snap.SystemPrompt != "" {
-		return runner.BuildSystemPromptFromDB(runner.DBPromptParams{
-			SystemPrompt: snap.SystemPrompt,
-			AnnaHome:     config.AnnaHome(),
-			Workspace:    snap.Workspace,
-		})
-	}
-	// Fallback: legacy file-based prompt for agents without a DB system prompt.
-	return ""
 }
