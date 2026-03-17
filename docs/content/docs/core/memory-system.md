@@ -21,12 +21,12 @@ ai.Message (user/assistant/tool_result)
   +----------+                 +-----+-----+
      |    |                          |
      |    | compact                  |  Tables:
-     |    v                          |    conversations
-     | +------------------+          |    messages
-     | | CompactionEngine | <--------+    summaries
-     | +------------------+          |    context_items
-     |                               |    summary_messages
-     |  assemble (budget)            |    summary_parents
+     |    v                          |    ctx_conversations
+     | +------------------+          |    ctx_messages
+     | | CompactionEngine | <--------+    ctx_summaries
+     | +------------------+          |    ctx_items
+     |                               |    ctx_summary_messages
+     |  assemble (budget)            |    ctx_summary_parents
      v                               |
   +------------+                     |
   | Assembler  | <-------------------+
@@ -58,7 +58,7 @@ Engine options: `WithFreshTail(n)`, `WithLogger(log)`.
 
 ### Database
 
-- **Location:** `~/.anna/workspace/memory.db`
+- **Location:** `~/.anna/anna.db`
 - **Driver:** `modernc.org/sqlite` (pure Go, no CGO)
 - **Mode:** WAL (concurrent reads during writes), foreign keys enabled
 - **Migrations:** Atlas-generated SQL files in `internal/db/migrations/`, embedded via `MigrationsFS` and applied on `db.OpenDB()`. Applied versions are tracked in a `schema_migrations` table.
@@ -80,15 +80,15 @@ mise run generate
 
 **Schema:**
 
-| Table              | Purpose                                                                                 |
-| ------------------ | --------------------------------------------------------------------------------------- |
-| `conversations`    | One per session (`session_id` → `id` mapping)                                           |
-| `messages`         | Raw messages with `role`, `content`, `token_count`, sequential `seq`                    |
-| `summaries`        | Summary nodes: `kind` (`leaf`/`condensed`), `depth`, `content`, token stats, time range |
-| `context_items`    | Ordered context window: each item points to either a `message_id` or `summary_id`       |
-| `summary_messages` | Links leaf summaries to their source messages (preserves lineage)                       |
-| `summary_parents`  | Links condensed summaries to their parent summaries (DAG edges)                         |
-| `message_parts`    | Structured message parts (`text`, `reasoning`, `tool`) for future use                   |
+| Table                  | Purpose                                                                                 |
+| ---------------------- | --------------------------------------------------------------------------------------- |
+| `ctx_conversations`    | One per session (`session_id` → `id` mapping)                                           |
+| `ctx_messages`         | Raw messages with `role`, `content`, `token_count`, sequential `seq`                    |
+| `ctx_summaries`        | Summary nodes: `kind` (`leaf`/`condensed`), `depth`, `content`, token stats, time range |
+| `ctx_items`            | Ordered context window: each item points to either a `message_id` or `summary_id`       |
+| `ctx_summary_messages` | Links leaf summaries to their source messages (preserves lineage)                       |
+| `ctx_summary_parents`  | Links condensed summaries to their parent summaries (DAG edges)                         |
+| `ctx_message_parts`    | Structured message parts (`text`, `reasoning`, `tool`) for future use                   |
 
 ### Compaction
 
@@ -179,16 +179,15 @@ The memory engine is wired into the agent Pool. When a session uses it:
 
 ---
 
-## Identity Files (SOUL.md + USER.md)
+## Identity & User Memory
 
-Two persistent markdown files are loaded into the system prompt under `<memory>` tags:
+Agent identity and per-user memory are stored in the database (replacing the old file-based SOUL.md/USER.md system):
 
-| File      | Purpose                                                |
-| --------- | ------------------------------------------------------ |
-| `SOUL.md` | Agent identity, personality, tone, communication style |
-| `USER.md` | User preferences, name, timezone, personal context     |
+| Source | Table | Purpose |
+| ------ | ----- | ------- |
+| Agent soul | `settings_agents.system_prompt` | Agent identity, personality, tone. Managed via admin panel. Overridable by `SOUL.md` file in agent workspace. |
+| User memory | `ctx_agent_memory` | Per-user-per-agent notes. Injected into system prompt at session start. Updated by agent via write-only `user_memory` tool. |
 
-- Location: `~/.anna/workspace/`
-- Editable by the agent via the `edit` or `write` tool
-- Project-level overrides supported via `.agents/SOUL.md` and `.agents/USER.md`
-- Case-insensitive file lookup
+- Agent workspaces: `$ANNA_HOME/workspaces/{agent_id}/`
+- `SOUL.md` in workspace overrides `settings_agents.system_prompt` if present
+- `SYSTEM.md` in workspace overrides the basic system prompt if present

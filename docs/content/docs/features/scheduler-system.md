@@ -23,7 +23,7 @@ Agent (via tool call)
                           |
               +-----------+-----------+
               |                       |
-     gocron/v2 Scheduler     scheduler_jobs (SQLite)
+     gocron/v2 Scheduler     sched_jobs (SQLite)
               |
               v
         OnJobFunc callback
@@ -75,7 +75,7 @@ type Job struct {
 
 ### Persistence
 
-Jobs are stored in the `scheduler_jobs` table in the shared `memory.db` SQLite database (`~/.anna/workspace/memory.db`). Each mutation (add/remove) is an individual INSERT/DELETE — no full-file rewrites.
+Jobs are stored in the `sched_jobs` table in the shared SQLite database (`~/.anna/anna.db`). Each mutation (add/remove) is an individual INSERT/DELETE — no full-file rewrites.
 
 On first startup, if a legacy `jobs.json` file exists (from pre-DB versions), jobs are automatically migrated to the database and the file is removed.
 
