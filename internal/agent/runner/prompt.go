@@ -23,7 +23,8 @@ type DBPromptParams struct {
 	UserMemory   string // from user_agent_memory.content (always injected)
 	AnnaHome     string
 	Workspace    string
-	Cwd          string // optional working directory
+	Cwd          string  // optional working directory
+	Skills       []Skill // pre-loaded skills; if nil, skills are loaded from AnnaHome/Workspace/Cwd
 }
 
 // BuildSystemPromptFromDB composes the full system prompt in three layers:
@@ -67,9 +68,13 @@ func BuildSystemPromptFromDB(p DBPromptParams) string {
 	}
 
 	// Skills.
-	if skills := FormatSkillsForPrompt(LoadSkills(p.AnnaHome, p.Workspace, p.Cwd)); skills != "" {
+	skills := p.Skills
+	if skills == nil {
+		skills = LoadSkills(p.AnnaHome, p.Workspace, p.Cwd)
+	}
+	if skillsSection := FormatSkillsForPrompt(skills); skillsSection != "" {
 		buf.WriteString("\n")
-		buf.WriteString(skills)
+		buf.WriteString(skillsSection)
 	}
 
 	// Project context (AGENTS.md files).
