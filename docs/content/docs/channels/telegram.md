@@ -6,22 +6,29 @@ anna includes a Telegram bot that runs via long polling -- no webhook or public 
 
 ## Setup
 
-1. Create a bot via [@BotFather](https://t.me/BotFather)
-2. Add the token to `~/.anna/config.yaml`:
-
-```yaml
-channels:
-  telegram:
-    token: 'BOT_TOKEN'
-```
-
-Or via environment: `ANNA_TELEGRAM_TOKEN=BOT_TOKEN`
-
-3. Start the gateway:
+1. Create a bot via [@BotFather](https://t.me/BotFather) and note the bot token
+2. Run `anna onboard` to launch the admin panel
+3. In the admin panel: add an AI provider, then configure the Telegram channel with your bot token
+4. Start the gateway:
 
 ```bash
 anna gateway
 ```
+
+All channel configuration (token, group mode, allowed IDs, etc.) is managed through the admin panel. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `ANNA_HOME`.
+
+## Multi-User Support
+
+Each Telegram user is automatically resolved from their platform identity. Sessions are scoped per user per agent, with session keys in the form `{agentID}:tg:{userID}:{context}`. No manual user setup is required.
+
+## Agent Switching
+
+The `/agent` command lets users switch between available agents:
+
+- `/agent` -- list all available agents
+- `/agent <name>` -- switch to a specific agent
+
+In DMs, this sets the user's default agent. In groups, it sets the active agent for the entire group.
 
 ## Streaming Responses
 
@@ -64,39 +71,19 @@ If the model returns images (e.g. from tool results), they are sent back as Tele
 
 ## Group Support
 
-Configure how the bot responds in group chats:
+The bot supports group chats with configurable response behavior. Set the group mode in the admin panel:
 
-```yaml
-channels:
-  telegram:
-    group_mode: 'mention' # Only respond when @mentioned (default)
-    # group_mode: "always"  # Respond to all messages
-    # group_mode: "disabled" # Ignore group messages entirely
-```
+- `mention` -- only respond when @mentioned (default)
+- `always` -- respond to all messages
+- `disabled` -- ignore group messages entirely
 
 ## Access Control
 
-Restrict which Telegram users can interact with the bot:
-
-```yaml
-channels:
-  telegram:
-    allowed_ids:
-      - 136345060 # Your Telegram user ID
-```
-
-Leave empty to allow all users. Use the `/whoami` command in Telegram to get your user ID.
+Restrict which Telegram users can interact with the bot by adding allowed user IDs in the admin panel. Leave empty to allow all users. Use the `/whoami` command in Telegram to get your user ID.
 
 ## Notifications
 
-The bot doubles as a notification backend. Configure a default chat for proactive messages:
-
-```yaml
-channels:
-  telegram:
-    notify_chat: '123456789' # Chat ID (use /whoami to get it)
-    channel_id: '@my_channel' # Optional broadcast channel
-```
+The bot doubles as a notification backend. Configure a default notification chat and optional broadcast channel in the admin panel.
 
 Used by:
 
@@ -107,9 +94,25 @@ See [notification-system.md](/docs/features/notification-system) for the full no
 
 ## Model Switching
 
-Users can switch models mid-conversation via an inline keyboard triggered by the `/model` command in Telegram. The model list is paginated with text filtering support.
+Users can switch models mid-conversation via an inline keyboard triggered by the `/model` command. The model list is paginated with text filtering support.
+
+## Commands
+
+| Command             | Description                                             |
+| ------------------- | ------------------------------------------------------- |
+| `/start` or `/help` | Welcome and help                                        |
+| `/new`              | Start a fresh session                                   |
+| `/compact`          | Compress conversation history                           |
+| `/model`            | List available models                                   |
+| `/model <number>`   | Switch to model by number                               |
+| `/model <query>`    | Filter models by name                                   |
+| `/agent`            | List available agents                                   |
+| `/agent <name>`     | Switch active agent (user default in DM, group in chat) |
+| `/whoami`           | Show your user ID                                       |
 
 ## Configuration Reference
+
+All settings below are managed through the `anna onboard` admin panel.
 
 | Field         | Description                                     | Default    |
 | ------------- | ----------------------------------------------- | ---------- |

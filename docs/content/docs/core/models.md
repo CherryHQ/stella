@@ -4,20 +4,29 @@ title: Model Management
 
 ## Tiered Models
 
-anna supports two model tiers for different workloads:
+Each agent in anna has three model fields, stored in the database (`settings_agents` table). The format for all model fields is `provider/model` (e.g. `anthropic/claude-sonnet-4-6`).
 
-| Tier     | Use Case                        |
-| -------- | ------------------------------- |
-| `strong` | Heavy reasoning, complex tasks  |
-| `fast`   | Quick responses, simple queries |
+| Field          | Use Case                        |
+| -------------- | ------------------------------- |
+| `model`        | Default model for the agent     |
+| `model_strong` | Heavy reasoning, complex tasks  |
+| `model_fast`   | Quick responses, simple queries |
 
-Each tier falls back independently to `model` (top-level default) when not set.
+Both `model_strong` and `model_fast` fall back to `model` when not set. Configure these per-agent through the admin panel (`anna onboard`).
 
-```yaml
-model: claude-sonnet-4-6
-model_strong: claude-opus-4-6
-model_fast: claude-haiku-4-5
-```
+## Provider Setup
+
+Providers are configured through the admin panel (`anna onboard`). Each provider is stored in the `settings_providers` table with an optional API key and base URL.
+
+Environment variables serve as fallbacks when a provider's `api_key` field is empty in the database:
+
+| Provider             | Environment Variable  | Optional Variable    |
+| -------------------- | --------------------- | -------------------- |
+| Anthropic            | `ANTHROPIC_API_KEY`   |                      |
+| OpenAI               | `OPENAI_API_KEY`      | `OPENAI_BASE_URL`   |
+| OpenAI-Compatible    | `OPENAI_API_KEY`      | `OPENAI_BASE_URL`   |
+
+The OpenAI-Compatible provider (`openai-response`) supports any service that implements the OpenAI Responses API, such as Perplexity or Together.ai.
 
 ## CLI Commands
 
@@ -26,80 +35,34 @@ anna models             # List available models (alias for list)
 anna models list        # List all models grouped by provider
 anna models update      # Fetch models from provider APIs and update cache
 anna models current     # Show active provider/model
-anna models set <p/m>   # Switch model (e.g. anna models set openai/gpt-4o)
+anna models set <p/m>   # Switch default agent's model (e.g. anna models set openai/gpt-4o)
 anna models search <q>  # Search models by name
 ```
 
 ### Model Cache
 
-`anna models update` queries all configured provider APIs and saves results to `~/.anna/cache/models.json`. The cache is used by `list`, `search`, and the Telegram model picker.
+`anna models update` queries all configured provider APIs and saves results to the `settings` table under the `models_cache` key. The cache is used by `list`, `search`, and the Telegram model picker.
 
-If no cache exists, only models explicitly listed in the config are shown.
-
-## Provider Setup
-
-### Anthropic
-
-```yaml
-providers:
-  anthropic:
-    api_key: 'sk-...'
-```
-
-Or: `export ANTHROPIC_API_KEY="sk-..."`
-
-### OpenAI
-
-```yaml
-providers:
-  openai:
-    api_key: 'sk-...'
-    base_url: 'https://api.openai.com/v1' # optional
-```
-
-Or: `export OPENAI_API_KEY="sk-..."` and optionally `export OPENAI_BASE_URL="..."`
-
-### OpenAI-Compatible (Responses API)
-
-For services like Perplexity, Together.ai, or any OpenAI-compatible API:
-
-```yaml
-providers:
-  openai-response:
-    api_key: 'sk-...'
-    base_url: 'https://api.perplexity.ai'
-```
-
-Uses the same `OPENAI_API_KEY` and `OPENAI_BASE_URL` env vars as the `openai` provider.
+You can also refresh the cache from the admin panel.
 
 ## Runtime Switching
 
-Models can be switched at runtime:
+Models can be switched at runtime without restarting:
 
-- **CLI**: Via in-chat `/model` command
-- **Telegram**: Via inline keyboard model picker
-- **Config**: `anna models set provider/model` persists the selection to config
+- **CLI**: `/model` command during a chat session
+- **Telegram**: Inline keyboard model picker
+- **CLI command**: `anna models set provider/model` updates the default agent's model in the database
 
 ## Model Metadata
 
-Providers can include detailed model metadata in config:
+When the model cache is populated (via `anna models update` or the admin panel), each model entry includes metadata fetched from the provider API:
 
-```yaml
-providers:
-  anthropic:
-    api_key: 'sk-...'
-    models:
-      - id: claude-sonnet-4-6
-        reasoning: false
-        input: ['text', 'image']
-        context_window: 200000
-        max_tokens: 8192
-        headers: {}
-        cost:
-          input: 3.0
-          output: 15.0
-          cache_read: 0.3
-          cache_write: 3.75
-```
+- Model ID
+- Reasoning capability
+- Supported input types (text, image)
+- Context window size
+- Max output tokens
+- Cost per token (input, output, cache read, cache write)
+- Custom headers
 
-This metadata is used for model resolution and display. When not provided, models are constructed with minimal defaults.
+This metadata is used for model resolution, display, and cost tracking.

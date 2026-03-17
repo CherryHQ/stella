@@ -117,21 +117,18 @@ history — it never blocks the user's message.
 
 ## Configuration
 
-In `~/.anna/config.yaml` under `runner:`:
+Compaction settings are stored in the database settings table under the
+`compaction` key as JSON. They can be configured through the admin panel or
+the settings API.
 
-```yaml
-runner:
-  compaction:
-    max_tokens: 80000 # auto-compact threshold (0 = default 80k, -1 = disabled)
-    keep_tail: 20 # recent messages to preserve verbatim
-```
+Fields:
 
-Both fields have defaults applied via `CompactionConfig.WithDefaults()`:
+- `max_tokens`: auto-compact threshold (default: 80,000; set to `-1` to disable)
+- `keep_tail`: recent messages to preserve verbatim (default: 20)
 
-- `max_tokens`: 80,000 (when 0 or omitted; set to `-1` to disable)
-- `keep_tail`: 20
+Both fields have defaults applied via `CompactionConfig.WithDefaults()`.
 
-Setting `max_tokens: -1` in config disables automatic compaction; `/compact`
+Setting `max_tokens` to `-1` disables automatic compaction; `/compact`
 still works manually.
 
 ## Stateful Runners
