@@ -29,13 +29,20 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 			return nil
 		}
 
+		replyFn := func(reply string) { b.replyC2C(b.ctx, authorID, msg.ID, reply) }
+
+		agentID, err := b.resolveAgentID(authorID)
+		if err != nil {
+			logger().Error("resolve agent failed", "user_id", authorID, "error", err)
+			replyFn(fmt.Sprintf("Error: %v", err))
+			return nil
+		}
+
 		text := strings.TrimSpace(msg.Content)
-		ch := b.buildSessionKey(authorID, "", b.resolveAgentID(authorID))
+		ch := b.buildSessionKey(authorID, "", agentID)
 
 		if text != "" {
-			if handled := b.handleCommand(text, ch, authorID, func(reply string) {
-				b.replyC2C(b.ctx, authorID, msg.ID, reply)
-			}); handled {
+			if handled := b.handleCommand(text, ch, authorID, replyFn); handled {
 				return nil
 			}
 		}
@@ -65,13 +72,20 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 			return nil
 		}
 
+		replyFn := func(reply string) { b.replyGroup(b.ctx, groupID, msg.ID, reply) }
+
+		agentID, err := b.resolveAgentID(authorID)
+		if err != nil {
+			logger().Error("resolve agent failed", "user_id", authorID, "group_id", groupID, "error", err)
+			replyFn(fmt.Sprintf("Error: %v", err))
+			return nil
+		}
+
 		text := strings.TrimSpace(msg.Content)
-		ch := b.buildSessionKey(authorID, groupID, b.resolveAgentID(authorID))
+		ch := b.buildSessionKey(authorID, groupID, agentID)
 
 		if text != "" {
-			if handled := b.handleCommand(text, ch, authorID, func(reply string) {
-				b.replyGroup(b.ctx, groupID, msg.ID, reply)
-			}); handled {
+			if handled := b.handleCommand(text, ch, authorID, replyFn); handled {
 				return nil
 			}
 		}
@@ -180,18 +194,25 @@ func downloadImage(ctx context.Context, rawURL string) ([]byte, string, error) {
 // handleMessage processes an incoming message by streaming the agent response.
 // authorID is the QQ OpenID of the sender; groupID is non-empty for group messages.
 func (b *Bot) handleMessage(authorID, groupID, msgID string, content runner.MessageContent, scope messageScope) {
-	sessionID, err := b.resolveSession(authorID, groupID)
+	replyTarget := authorID
+	if groupID != "" {
+		replyTarget = groupID
+	}
+
+	pool, _, err := b.resolvePool(authorID)
 	if err != nil {
-		logger().Error("resolve session failed", "author", authorID, "error", err)
-		targetID := authorID
-		if groupID != "" {
-			targetID = groupID
-		}
-		b.sendReply(targetID, msgID, fmt.Sprintf("Session error: %v", err), scope)
+		logger().Error("resolve pool failed", "author", authorID, "error", err)
+		b.sendReply(replyTarget, msgID, fmt.Sprintf("Error: %v", err), scope)
 		return
 	}
 
-	pool, _ := b.resolvePool(authorID)
+	sessionID, err := b.resolveSession(authorID, groupID)
+	if err != nil {
+		logger().Error("resolve session failed", "author", authorID, "error", err)
+		b.sendReply(replyTarget, msgID, fmt.Sprintf("Session error: %v", err), scope)
+		return
+	}
+
 	logger().Debug("message received", "author", authorID, "session", sessionID)
 
 	response, images, streamErr := b.streamResponse(pool, authorID, groupID, msgID, sessionID, content, scope)
@@ -207,11 +228,6 @@ func (b *Bot) handleMessage(authorID, groupID, msgID string, content runner.Mess
 
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
-	}
-
-	replyTarget := authorID
-	if groupID != "" {
-		replyTarget = groupID
 	}
 
 	b.sendFinalResponse(replyTarget, msgID, response, scope)
