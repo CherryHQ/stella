@@ -8,6 +8,7 @@ import (
 	"time"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/channel"
 )
@@ -277,17 +278,16 @@ func TestIsAllowedNoMatch(t *testing.T) {
 	}
 }
 
-// --- buildSessionKey ---
+// --- resolve session key format ---
 
-func TestBuildSessionKey(t *testing.T) {
-	bot := &Bot{}
-	got := bot.buildSessionKey("ou_123", "oc_456", "group", "anna")
+func TestResolveSessionKeyFormat(t *testing.T) {
+	got := agent.BuildSessionKey("anna", "feishu", "ou_123", "group:oc_456")
 	if got != "anna:feishu:ou_123:group:oc_456" {
-		t.Errorf("buildSessionKey = %q", got)
+		t.Errorf("BuildSessionKey group = %q", got)
 	}
-	got = bot.buildSessionKey("ou_123", "oc_456", "p2p", "anna")
+	got = agent.BuildSessionKey("anna", "feishu", "ou_123", "private")
 	if got != "anna:feishu:ou_123:private" {
-		t.Errorf("buildSessionKey private = %q", got)
+		t.Errorf("BuildSessionKey private = %q", got)
 	}
 }
 
@@ -433,7 +433,7 @@ func TestFormatModelListWithQuery(t *testing.T) {
 func TestHandleCommandHelp(t *testing.T) {
 	bot := &Bot{}
 	var reply string
-	handled := bot.handleCommand(nil, 0, "/help", "ch", "ou_test123", func(s string) { reply = s })
+	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "/help", "ou_test123", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /help to be handled")
 	}
@@ -445,7 +445,7 @@ func TestHandleCommandHelp(t *testing.T) {
 func TestHandleCommandStart(t *testing.T) {
 	bot := &Bot{}
 	var reply string
-	handled := bot.handleCommand(nil, 0, "/start", "ch", "ou_test123", func(s string) { reply = s })
+	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "/start", "ou_test123", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /start to be handled")
 	}
@@ -456,7 +456,7 @@ func TestHandleCommandStart(t *testing.T) {
 
 func TestHandleCommandUnknown(t *testing.T) {
 	bot := &Bot{}
-	handled := bot.handleCommand(nil, 0, "hello world", "ch", "ou_test123", func(s string) {})
+	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "hello world", "ou_test123", func(s string) {})
 	if handled {
 		t.Error("regular text should not be handled as command")
 	}
@@ -464,7 +464,7 @@ func TestHandleCommandUnknown(t *testing.T) {
 
 func TestHandleCommandEmpty(t *testing.T) {
 	bot := &Bot{}
-	handled := bot.handleCommand(nil, 0, "", "ch", "ou_test123", func(s string) {})
+	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "", "ou_test123", func(s string) {})
 	if handled {
 		t.Error("empty text should not be handled")
 	}
@@ -473,7 +473,7 @@ func TestHandleCommandEmpty(t *testing.T) {
 func TestHandleCommandWhoami(t *testing.T) {
 	bot := &Bot{}
 	var reply string
-	handled := bot.handleCommand(nil, 0, "/whoami", "ch", "ou_abc123", func(s string) { reply = s })
+	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "/whoami", "ou_abc123", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /whoami to be handled")
 	}
@@ -494,7 +494,7 @@ func TestHandleModelCommandListModels(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand(nil, 0, "", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(&channel.ResolvedChat{SessionKey: "ch"}, "", func(s string) { reply = s })
 	if !strings.Contains(reply, "openai/gpt-4") {
 		t.Errorf("expected model list, got: %s", reply)
 	}
@@ -511,7 +511,7 @@ func TestHandleModelCommandFilter(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand(nil, 0, "claude", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(&channel.ResolvedChat{SessionKey: "ch"}, "claude", func(s string) { reply = s })
 	if !strings.Contains(reply, "claude-3") {
 		t.Errorf("expected filtered results with claude, got: %s", reply)
 	}
@@ -530,7 +530,7 @@ func TestHandleModelCommandFilterNoMatch(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand(nil, 0, "gemini", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(&channel.ResolvedChat{SessionKey: "ch"}, "gemini", func(s string) { reply = s })
 	if !strings.Contains(reply, "No models matching") {
 		t.Errorf("expected no match message, got: %s", reply)
 	}
@@ -546,7 +546,7 @@ func TestHandleModelCommandInvalidIndex(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand(nil, 0, "5", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(&channel.ResolvedChat{SessionKey: "ch"}, "5", func(s string) { reply = s })
 	if !strings.Contains(reply, "Invalid selection") {
 		t.Errorf("expected invalid selection, got: %s", reply)
 	}
@@ -563,7 +563,7 @@ func TestHandleModelCommandSwitchError(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand(nil, 0, "1", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(&channel.ResolvedChat{SessionKey: "ch"}, "1", func(s string) { reply = s })
 	if !strings.Contains(reply, "Error switching model") {
 		t.Errorf("expected switch error, got: %s", reply)
 	}

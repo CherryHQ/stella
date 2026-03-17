@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/channel"
 )
 
@@ -20,7 +19,7 @@ type ModelSwitchFunc = channel.ModelSwitchFunc
 
 // handleModelCommand processes /model with optional arguments.
 // No args → list models; number → switch by index; text → filter.
-func (b *Bot) handleModelCommand(pool *agent.Pool, userID int64, args, ch string, reply func(string)) {
+func (b *Bot) handleModelCommand(rc *channel.ResolvedChat, args string, reply func(string)) {
 	models := b.listFn()
 
 	if args == "" {
@@ -30,7 +29,7 @@ func (b *Bot) handleModelCommand(pool *agent.Pool, userID int64, args, ch string
 
 	// Numeric arg → direct switch by 1-based global index.
 	if idx, err := strconv.Atoi(args); err == nil {
-		b.switchModel(pool, userID, models, idx, ch, reply)
+		b.switchModel(rc, models, idx, reply)
 		return
 	}
 
@@ -44,7 +43,7 @@ func (b *Bot) handleModelCommand(pool *agent.Pool, userID int64, args, ch string
 }
 
 // switchModel handles model switching by 1-based index.
-func (b *Bot) switchModel(pool *agent.Pool, userID int64, models []ModelOption, idx int, ch string, reply func(string)) {
+func (b *Bot) switchModel(rc *channel.ResolvedChat, models []ModelOption, idx int, reply func(string)) {
 	if idx < 1 || idx > len(models) {
 		reply(fmt.Sprintf("Invalid selection. Use a number between 1 and %d.", len(models)))
 		return
@@ -56,13 +55,13 @@ func (b *Bot) switchModel(pool *agent.Pool, userID int64, models []ModelOption, 
 			return
 		}
 	}
-	if _, err := pool.RotateSession(ch, userID); err != nil {
-		logger().Error("rotate session after model switch failed", "channel", ch, "error", err)
+	if _, err := rc.RotateSession(); err != nil {
+		logger().Error("rotate session after model switch failed", "key", rc.SessionKey, "error", err)
 	}
 	b.mu.Lock()
-	b.chatModels[ch] = selected
+	b.chatModels[rc.SessionKey] = selected
 	b.mu.Unlock()
-	logger().Info("model switched", "channel", ch, "provider", selected.Provider, "model", selected.Model)
+	logger().Info("model switched", "key", rc.SessionKey, "provider", selected.Provider, "model", selected.Model)
 	reply(fmt.Sprintf("Switched to %s/%s. Session reset.", selected.Provider, selected.Model))
 }
 

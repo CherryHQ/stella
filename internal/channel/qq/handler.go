@@ -10,9 +10,9 @@ import (
 
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/tencent-connect/botgo/event"
-	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/channel"
 )
 
 // c2cMessageHandler returns a handler for private (C2C) messages.
@@ -32,23 +32,21 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 
 		replyFn := func(reply string) { b.replyC2C(b.ctx, authorID, msg.ID, reply) }
 
-		pool, userID, err := b.resolvePool(authorID)
+		rc, err := b.resolve(authorID, "")
 		if err != nil {
-			logger().Error("resolve pool failed", "user_id", authorID, "error", err)
+			logger().Error("resolve failed", "user_id", authorID, "error", err)
 			replyFn(fmt.Sprintf("Error: %v", err))
 			return nil
 		}
 
 		text := strings.TrimSpace(msg.Content)
-		ch := b.buildSessionKey(authorID, "", pool.AgentID())
-
 		if text != "" {
-			if handled := b.handleCommand(pool, userID, text, ch, authorID, replyFn); handled {
+			if handled := b.handleCommand(rc, text, authorID, replyFn); handled {
 				return nil
 			}
 		}
 
-		b.handleMessage(authorID, "", msg.ID, content, scopeC2C)
+		b.handleMessage(rc, authorID, "", msg.ID, content, scopeC2C)
 		return nil
 	}
 }
@@ -75,23 +73,21 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 
 		replyFn := func(reply string) { b.replyGroup(b.ctx, groupID, msg.ID, reply) }
 
-		pool, userID, err := b.resolvePool(authorID)
+		rc, err := b.resolve(authorID, groupID)
 		if err != nil {
-			logger().Error("resolve pool failed", "user_id", authorID, "group_id", groupID, "error", err)
+			logger().Error("resolve failed", "user_id", authorID, "group_id", groupID, "error", err)
 			replyFn(fmt.Sprintf("Error: %v", err))
 			return nil
 		}
 
 		text := strings.TrimSpace(msg.Content)
-		ch := b.buildSessionKey(authorID, groupID, pool.AgentID())
-
 		if text != "" {
-			if handled := b.handleCommand(pool, userID, text, ch, authorID, replyFn); handled {
+			if handled := b.handleCommand(rc, text, authorID, replyFn); handled {
 				return nil
 			}
 		}
 
-		b.handleMessage(authorID, groupID, msg.ID, content, scopeGroup)
+		b.handleMessage(rc, authorID, groupID, msg.ID, content, scopeGroup)
 		return nil
 	}
 }
@@ -194,29 +190,23 @@ func downloadImage(ctx context.Context, rawURL string) ([]byte, string, error) {
 
 // handleMessage processes an incoming message by streaming the agent response.
 // authorID is the QQ OpenID of the sender; groupID is non-empty for group messages.
-func (b *Bot) handleMessage(authorID, groupID, msgID string, content runner.MessageContent, scope messageScope) {
+func (b *Bot) handleMessage(rc *channel.ResolvedChat, authorID, groupID, msgID string, content runner.MessageContent, scope messageScope) {
 	replyTarget := authorID
 	if groupID != "" {
 		replyTarget = groupID
 	}
 
-	pool, _, err := b.resolvePool(authorID)
-	if err != nil {
-		logger().Error("resolve pool failed", "author", authorID, "error", err)
-		b.sendReply(replyTarget, msgID, fmt.Sprintf("Error: %v", err), scope)
-		return
-	}
-
-	sessionID, err := b.resolveSession(authorID, groupID)
+	info, err := rc.ResolveSession()
 	if err != nil {
 		logger().Error("resolve session failed", "author", authorID, "error", err)
 		b.sendReply(replyTarget, msgID, fmt.Sprintf("Session error: %v", err), scope)
 		return
 	}
+	sessionID := info.ID
 
 	logger().Debug("message received", "author", authorID, "session", sessionID)
 
-	response, images, streamErr := b.streamResponse(pool, authorID, groupID, msgID, sessionID, content, scope)
+	response, images, streamErr := b.streamResponse(rc.Pool, authorID, groupID, msgID, sessionID, content, scope)
 
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", sessionID, "error", streamErr)
@@ -242,7 +232,7 @@ func (b *Bot) handleMessage(authorID, groupID, msgID string, content runner.Mess
 
 // handleCommand checks if text is a bot command and handles it.
 // Returns true if the text was a command.
-func (b *Bot) handleCommand(pool *agent.Pool, userID int64, text, ch, senderID string, reply func(string)) bool {
+func (b *Bot) handleCommand(rc *channel.ResolvedChat, text, senderID string, reply func(string)) bool {
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
 		return false
@@ -255,36 +245,31 @@ func (b *Bot) handleCommand(pool *agent.Pool, userID int64, text, ch, senderID s
 		return true
 
 	case "/new":
-		info, err := pool.RotateSession(ch, userID)
+		info, err := rc.RotateSession()
 		if err != nil {
-			logger().Error("rotate session failed", "channel", ch, "error", err)
+			logger().Error("rotate session failed", "key", rc.SessionKey, "error", err)
 			reply(fmt.Sprintf("Error creating new session: %v", err))
 			return true
 		}
-		logger().Info("new session created", "session_id", info.ID, "channel", ch)
+		logger().Info("new session created", "session_id", info.ID, "key", rc.SessionKey)
 		reply("New session started.")
 		return true
 
 	case "/compact":
-		sessionID, err := b.resolveSession(senderID, "")
+		summary, err := rc.CompactSession(b.ctx)
 		if err != nil {
-			reply(fmt.Sprintf("No active session: %v", err))
-			return true
-		}
-		summary, err := pool.CompactSession(b.ctx, sessionID)
-		if err != nil {
-			logger().Error("compact session failed", "session_id", sessionID, "error", err)
+			logger().Error("compact session failed", "key", rc.SessionKey, "error", err)
 			reply(fmt.Sprintf("Compaction failed: %v", err))
 			return true
 		}
-		logger().Info("session compacted", "session_id", sessionID, "summary_len", len(summary))
+		logger().Info("session compacted", "key", rc.SessionKey, "summary_len", len(summary))
 		reply("Session compacted.")
 		return true
 
 	case "/model":
 		origCmd := strings.Fields(text)[0]
 		args := strings.TrimSpace(strings.TrimPrefix(text, origCmd))
-		b.handleModelCommand(pool, userID, args, ch, reply)
+		b.handleModelCommand(rc, args, reply)
 		return true
 
 	case "/whoami":

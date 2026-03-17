@@ -244,55 +244,19 @@ func (b *Bot) isAllowed(openID string) bool {
 	return ok
 }
 
-// resolvePool resolves the pool and user ID for the current message context.
-// It does: resolve user → resolve agent → get pool.
-func (b *Bot) resolvePool(openID string) (*agent.Pool, int64, error) {
-	ctx := context.Background()
-
-	user, err := channel.ResolveUser(ctx, b.store, openID, "feishu", "")
-	if err != nil {
-		return nil, 0, fmt.Errorf("resolve user: %w", err)
-	}
-
-	chatCtx := channel.ChatContext{
-		Platform: "feishu",
-	}
-
-	agentID, err := channel.ResolveAgent(ctx, b.store, user, chatCtx)
-	if err != nil {
-		return nil, 0, fmt.Errorf("resolve agent: %w", err)
-	}
-
-	pool := b.poolManager.Get(agentID)
-	if pool == nil {
-		return nil, 0, fmt.Errorf("agent pool %q not found", agentID)
-	}
-
-	return pool, user.ID, nil
-}
-
-// buildSessionKey constructs a session key for the given Feishu context.
-func (b *Bot) buildSessionKey(openID, chatID, chatType, agentID string) string {
-	channelCtx := "private"
-	if chatType == "group" {
-		channelCtx = "group:" + chatID
-	}
-	return agent.BuildSessionKey(agentID, "feishu", openID, channelCtx)
-}
-
-// resolveSession returns the active session ID for the given message context,
-// creating a new session if none exists.
-func (b *Bot) resolveSession(openID, chatID, chatType string) (string, error) {
-	pool, userID, err := b.resolvePool(openID)
-	if err != nil {
-		return "", err
-	}
-	sessionKey := b.buildSessionKey(openID, chatID, chatType, pool.AgentID())
-	info, err := pool.ResolveSession(sessionKey, userID)
-	if err != nil {
-		return "", err
-	}
-	return info.ID, nil
+// resolve performs full user/agent/pool/session-key resolution for the
+// given Feishu message context. Call once per incoming message or command.
+func (b *Bot) resolve(openID, chatID, chatType string) (*channel.ResolvedChat, error) {
+	return channel.Resolve(
+		context.Background(),
+		b.poolManager,
+		b.store,
+		"feishu",
+		openID,
+		"",
+		chatID,
+		chatType == "group",
+	)
 }
 
 // textContent builds the JSON content string for a Feishu text message.
