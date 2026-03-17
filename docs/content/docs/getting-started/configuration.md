@@ -12,13 +12,13 @@ The workspace root defaults to `~/.anna/workspace` and can be changed by setting
 # Provider credentials and metadata
 providers:
   anthropic:
-    api_key: "sk-..."
-    base_url: "" # Optional URL override
+    api_key: 'sk-...'
+    base_url: '' # Optional URL override
     models: # Optional model metadata
       - id: claude-sonnet-4-6
-        name: "Claude Sonnet"
+        name: 'Claude Sonnet'
         reasoning: false # Supports extended thinking
-        input: ["text", "image"] # Input modalities
+        input: ['text', 'image'] # Input modalities
         context_window: 200000
         max_tokens: 8192
         headers: {} # Custom HTTP headers
@@ -28,39 +28,39 @@ providers:
           cache_read: 0.3
           cache_write: 3.75
   openai:
-    api_key: "sk-..."
-    base_url: "https://api.openai.com/v1"
+    api_key: 'sk-...'
+    base_url: 'https://api.openai.com/v1'
   openai-response: # OpenAI-compatible APIs (e.g. Perplexity)
-    api_key: "sk-..."
-    base_url: "https://api.example.com/v1"
+    api_key: 'sk-...'
+    base_url: 'https://api.example.com/v1'
 
 # Channel configuration
 channels:
   telegram:
     enabled: true # Enable/disable this channel (default: true)
     enable_notify: false # Allow notify tool to send to this channel (default: false)
-    token: "BOT_TOKEN"
-    notify_chat: "123456789" # Chat ID for notifications (use /whoami)
-    channel_id: "@my_channel" # Optional broadcast channel
-    group_mode: "mention" # mention | always | disabled
+    token: 'BOT_TOKEN'
+    notify_chat: '123456789' # Chat ID for notifications (use /whoami)
+    channel_id: '@my_channel' # Optional broadcast channel
+    group_mode: 'mention' # mention | always | disabled
     allowed_ids: # Restrict to these user IDs (use /whoami, empty = all)
       - 136345060
   qq:
     enabled: true # Enable/disable this channel (default: true)
     enable_notify: false # Allow notify tool to send to this channel (default: false)
-    app_id: "QQ_BOT_APP_ID"
-    app_secret: "QQ_BOT_APP_SECRET"
-    group_mode: "mention" # mention | always | disabled
+    app_id: 'QQ_BOT_APP_ID'
+    app_secret: 'QQ_BOT_APP_SECRET'
+    group_mode: 'mention' # mention | always | disabled
     allowed_ids: [] # User OpenIDs allowed (use /whoami, empty = all)
   feishu:
     enabled: true # Enable/disable this channel (default: true)
     enable_notify: false # Allow notify tool to send to this channel (default: false)
-    app_id: "FEISHU_APP_ID"
-    app_secret: "FEISHU_APP_SECRET"
-    encrypt_key: "" # Event encrypt key (from developer console)
-    verification_token: "" # Event verification token (from developer console)
-    notify_chat: "oc_xxx" # Chat or open_id for notifications (use /whoami)
-    group_mode: "mention" # mention | always | disabled
+    app_id: 'FEISHU_APP_ID'
+    app_secret: 'FEISHU_APP_SECRET'
+    encrypt_key: '' # Event encrypt key (from developer console)
+    verification_token: '' # Event verification token (from developer console)
+    notify_chat: 'oc_xxx' # Chat or open_id for notifications (use /whoami)
+    group_mode: 'mention' # mention | always | disabled
     allowed_ids: [] # User open_ids allowed (use /whoami, empty = all)
 
 # Default LLM provider
@@ -72,12 +72,12 @@ model: claude-sonnet-4-6
 model_strong: claude-opus-4-6
 model_fast: claude-haiku-4-5
 # Workspace root (default: ANNA_HOME or ~/.anna/workspace)
-workspace: "~/.anna/workspace"
+workspace: '~/.anna/workspace'
 
 # Runner settings
 runner:
   type: go # Runner implementation (only "go" currently)
-  system: "" # Custom system prompt (bypasses default builder)
+  system: '' # Custom system prompt (bypasses default builder)
   idle_timeout: 10 # Minutes before reaping idle runners
   compaction:
     max_tokens: 80000 # Auto-compact when history exceeds this
@@ -88,18 +88,18 @@ plugins:
   - path: ~/plugins/hello.js # Path to .js file (~ expanded)
   - path: /abs/path/notify.js
     config: # Optional key-value config
-      webhook_url: "https://example.com"
+      webhook_url: 'https://example.com'
 
 # Scheduled tasks
 scheduler:
   enabled: true
-  data_dir: "~/.anna/workspace/scheduler" # Job persistence directory
+  data_dir: '~/.anna/workspace/scheduler' # Job persistence directory
 
 # Heartbeat polling
 heartbeat:
   enabled: false
   every: 10m
-  file: "HEARTBEAT.md" # Relative to workspace unless absolute
+  file: 'HEARTBEAT.md' # Relative to workspace unless absolute
 ```
 
 Heartbeat only runs in `anna gateway`. Each tick first uses the fast model to decide `skip` vs `run`, and only `run` decisions are sent into the main heartbeat session and then delivered through the notifier.

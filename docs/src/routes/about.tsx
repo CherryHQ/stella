@@ -1,41 +1,41 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { HomeLayout } from "fumadocs-ui/layouts/home";
-import { baseOptions } from "@/lib/layout.shared";
+import { createFileRoute, Link } from '@tanstack/react-router';
+import { HomeLayout } from 'fumadocs-ui/layouts/home';
+import { baseOptions } from '@/lib/layout.shared';
 
-export const Route = createFileRoute("/about")({
+export const Route = createFileRoute('/about')({
   component: About,
   head: () => ({
-    meta: [{ title: "About Anna" }],
+    meta: [{ title: 'About Anna' }],
   }),
 });
 
 const traits = [
   {
-    label: "Calm",
-    description: "Quiet intelligence over loud marketing. Anna speaks with clarity, not hype.",
+    label: 'Calm',
+    description: 'Quiet intelligence over loud marketing. Anna speaks with clarity, not hype.',
   },
   {
-    label: "Trustworthy",
-    description: "Reliable and consistent. She remembers your context and never loses a detail.",
+    label: 'Trustworthy',
+    description: 'Reliable and consistent. She remembers your context and never loses a detail.',
   },
   {
-    label: "Memory-aware",
+    label: 'Memory-aware',
     description:
-      "Long-term context is a first-class feature, not an afterthought. Every conversation builds on the last.",
+      'Long-term context is a first-class feature, not an afterthought. Every conversation builds on the last.',
   },
   {
-    label: "Local-first",
+    label: 'Local-first',
     description:
-      "Your machine, your data. Anna runs as a single binary with SQLite — nothing leaves your network.",
+      'Your machine, your data. Anna runs as a single binary with SQLite — nothing leaves your network.',
   },
   {
-    label: "Companion",
+    label: 'Companion',
     description:
-      "Not a one-shot tool. Anna is designed for the long run — a digital assistant that grows with you.",
+      'Not a one-shot tool. Anna is designed for the long run — a digital assistant that grows with you.',
   },
   {
-    label: "Elegant",
-    description: "Minimal and restrained. No clutter, no noise. Just the right amount of presence.",
+    label: 'Elegant',
+    description: 'Minimal and restrained. No clutter, no noise. Just the right amount of presence.',
   },
 ];
 
@@ -100,7 +100,7 @@ function TraitsSection() {
         What defines Anna
       </h2>
       <p className="text-fd-muted-foreground text-base leading-relaxed max-w-2xl mb-20">
-        Anna is not another generic AI chatbot. She is a{" "}
+        Anna is not another generic AI chatbot. She is a{' '}
         <strong className="text-fd-foreground">calm digital companion</strong> — designed to be
         trustworthy, long-lasting, and deeply aware of your context.
       </p>
@@ -202,7 +202,7 @@ function ClosingSection() {
         </div>
         <Link
           to="/docs/$"
-          params={{ _splat: "" }}
+          params={{ _splat: '' }}
           className="inline-flex items-center gap-2 px-5 py-2.5 bg-[var(--color-terra)] text-white text-sm font-medium rounded-md hover:bg-[var(--color-terra-light)] transition-colors shrink-0"
         >
           Read the docs

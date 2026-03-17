@@ -1,39 +1,39 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { HomeLayout } from "fumadocs-ui/layouts/home";
-import { baseOptions } from "@/lib/layout.shared";
+import { createFileRoute, Link } from '@tanstack/react-router';
+import { HomeLayout } from 'fumadocs-ui/layouts/home';
+import { baseOptions } from '@/lib/layout.shared';
 
-export const Route = createFileRoute("/")({ component: Home });
+export const Route = createFileRoute('/')({ component: Home });
 
 const terminalLines = [
-  { prompt: true, text: "anna onboard" },
-  { prompt: false, text: "config created at ~/.anna/config.yaml" },
-  { prompt: false, text: "opening setup at http://localhost:8080 ..." },
-  { prompt: true, text: "anna chat" },
+  { prompt: true, text: 'anna onboard' },
+  { prompt: false, text: 'config created at ~/.anna/config.yaml' },
+  { prompt: false, text: 'opening setup at http://localhost:8080 ...' },
+  { prompt: true, text: 'anna chat' },
   { prompt: false, text: 'you: "summarize yesterday\'s conversation"' },
-  { prompt: false, text: "anna: Yesterday you discussed migrating the" },
-  { prompt: false, text: "      auth service to JWT tokens. Key decisions:" },
-  { prompt: false, text: "      1. RS256 signing with key rotation ..." },
+  { prompt: false, text: 'anna: Yesterday you discussed migrating the' },
+  { prompt: false, text: '      auth service to JWT tokens. Key decisions:' },
+  { prompt: false, text: '      1. RS256 signing with key rotation ...' },
 ];
 
 const features = [
   {
-    label: "01",
-    title: "Lossless memory",
-    body: "DAG-based context compression. Conversations grow without bounds and without losing a single detail. Every thread, every tangent, preserved.",
+    label: '01',
+    title: 'Lossless memory',
+    body: 'DAG-based context compression. Conversations grow without bounds and without losing a single detail. Every thread, every tangent, preserved.',
   },
   {
-    label: "02",
-    title: "Multi-channel",
-    body: "Terminal TUI, Telegram, QQ, Feishu. All channels share the same session and memory. Start a thought in your terminal, pick it up on Telegram.",
+    label: '02',
+    title: 'Multi-channel',
+    body: 'Terminal TUI, Telegram, QQ, Feishu. All channels share the same session and memory. Start a thought in your terminal, pick it up on Telegram.',
   },
   {
-    label: "03",
-    title: "Self-hosted",
-    body: "Single Go binary + SQLite. Your machine, your API keys. Nothing leaves your network. Deploy with Docker, systemd, or just run the binary.",
+    label: '03',
+    title: 'Self-hosted',
+    body: 'Single Go binary + SQLite. Your machine, your API keys. Nothing leaves your network. Deploy with Docker, systemd, or just run the binary.',
   },
   {
-    label: "04",
-    title: "Built-in scheduler",
+    label: '04',
+    title: 'Built-in scheduler',
     body: "Scheduled tasks, heartbeat monitoring, and cross-channel notifications. anna works even when you're not talking to it.",
   },
 ];
@@ -78,7 +78,7 @@ function HeroSection() {
           <div className="animate-fade-up stagger-4 flex items-center gap-5">
             <Link
               to="/docs/$"
-              params={{ _splat: "" }}
+              params={{ _splat: '' }}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-[var(--color-terra)] text-white text-sm font-medium rounded-md hover:bg-[var(--color-terra-light)] transition-colors"
             >
               Read the docs
@@ -108,11 +108,11 @@ function HeroSection() {
             </div>
             <div className="p-6 font-[family-name:var(--font-mono)] text-[13px] leading-7">
               {terminalLines.map((line, i) => (
-                <div key={i} className={line.prompt ? "mt-3 first:mt-0" : ""}>
+                <div key={i} className={line.prompt ? 'mt-3 first:mt-0' : ''}>
                   {line.prompt && (
                     <span className="text-[var(--color-terra-light)] select-none">$ </span>
                   )}
-                  <span className={line.prompt ? "text-white/90" : "text-white/50"}>
+                  <span className={line.prompt ? 'text-white/90' : 'text-white/50'}>
                     {line.text}
                   </span>
                 </div>
