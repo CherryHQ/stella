@@ -55,13 +55,18 @@ func NewTool(annaHome, workspace, cwd string) *SkillsTool {
 	return &SkillsTool{annaHome: annaHome, workspace: workspace, cwd: cwd}
 }
 
-// Definition returns the tool definition for the LLM.
-func (t *SkillsTool) Definition() toolspec.Definition {
+// SkillsDefinition returns the tool definition without requiring runtime paths.
+func SkillsDefinition() toolspec.Definition {
 	return toolspec.Definition{
 		Name:        "skills",
 		Description: "Manage agent skills. Use 'search' to find skills from the ecosystem, 'install' to add a skill (e.g. owner/repo@skill-name), 'list' to see installed skills, 'remove' to delete one.",
 		InputSchema: skillsInputSchema,
 	}
+}
+
+// Definition returns the tool definition for the LLM.
+func (t *SkillsTool) Definition() toolspec.Definition {
+	return SkillsDefinition()
 }
 
 // Execute runs the skills tool action.

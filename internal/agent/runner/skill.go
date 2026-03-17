@@ -227,7 +227,7 @@ func FormatSkillsForPrompt(skills []Skill) string {
 	}
 
 	var b strings.Builder
-	b.WriteString("\n\nThe following skills provide specialized instructions for specific tasks.\n")
+	b.WriteString("\n\n## Skills\n\nThe following skills provide specialized instructions for specific tasks.\n")
 	b.WriteString("Use the read tool to load a skill's file when the task matches its description.\n")
 	b.WriteString("When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n")
 	b.WriteString("\n<available_skills>\n")

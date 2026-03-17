@@ -62,7 +62,8 @@ func NewMemoryTool(engine memory.Engine, memStore *memory.UserMemoryStore) *Memo
 	return &MemoryTool{engine: engine, memStore: memStore}
 }
 
-func (t *MemoryTool) Definition() toolspec.Definition {
+// MemoryDefinition returns the tool definition without requiring a live engine.
+func MemoryDefinition() toolspec.Definition {
 	return toolspec.Definition{
 		Name: "memory",
 		Description: `Manage conversation history and per-user persistent notes.
@@ -74,6 +75,10 @@ Actions:
 - user_memory_update: Update persistent per-user notes. These notes are always present in the system prompt (in the "User Memory" section). Use to remember user preferences, impressions, and important context across sessions. Always include the full updated content — it replaces the entire user memory.`,
 		InputSchema: memoryInputSchema,
 	}
+}
+
+func (t *MemoryTool) Definition() toolspec.Definition {
+	return MemoryDefinition()
 }
 
 func (t *MemoryTool) Execute(ctx context.Context, args map[string]any) (string, error) {

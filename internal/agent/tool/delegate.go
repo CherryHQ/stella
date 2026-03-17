@@ -41,7 +41,8 @@ func NewDelegateTool(cfg DelegateConfig) *DelegateTool {
 	return &DelegateTool{cfg: cfg}
 }
 
-func (t *DelegateTool) Definition() toolspec.Definition {
+// DelegateDefinition returns the tool definition without requiring a live config.
+func DelegateDefinition() toolspec.Definition {
 	return toolspec.Definition{
 		Name:        delegateToolName,
 		Description: "Delegate one or more tasks to subagents with isolated context. Multiple tasks run in parallel. Use for focused subtasks like research, code review, or drafting that benefit from fresh context.",
@@ -85,6 +86,10 @@ func (t *DelegateTool) Definition() toolspec.Definition {
 			"required": []string{"tasks"},
 		},
 	}
+}
+
+func (t *DelegateTool) Definition() toolspec.Definition {
+	return DelegateDefinition()
 }
 
 func (t *DelegateTool) Execute(ctx context.Context, args map[string]any) (string, error) {

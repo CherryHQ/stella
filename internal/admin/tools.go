@@ -5,6 +5,9 @@ import (
 	"sort"
 
 	"github.com/vaayne/anna/internal/agent/tool"
+	memorytool "github.com/vaayne/anna/internal/memory/tool"
+	"github.com/vaayne/anna/internal/scheduler"
+	"github.com/vaayne/anna/internal/skills"
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
@@ -16,35 +19,30 @@ type toolJSON struct {
 	Category    string         `json:"category"` // "builtin", "shared", or "extra"
 }
 
+func defToJSON(def toolspec.Definition, category string) toolJSON {
+	return toolJSON{
+		Name:        def.Name,
+		Description: def.Description,
+		InputSchema: def.InputSchema,
+		Category:    category,
+	}
+}
+
 func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 	var tools []toolJSON
 
 	// Built-in tools from registry (Read, Bash, Edit, Write, WebFetch).
 	reg := tool.NewRegistry("")
 	for _, def := range reg.Definitions() {
-		tools = append(tools, toolJSON{
-			Name:        def.Name,
-			Description: def.Description,
-			InputSchema: def.InputSchema,
-			Category:    "builtin",
-		})
+		tools = append(tools, defToJSON(def, "builtin"))
 	}
 
 	// Delegate tool (always present).
-	tools = append(tools, toolJSON{
-		Name:        "delegate",
-		Description: "Delegate a sub-task to a parallel agent that has the same tools.",
-		Category:    "builtin",
-	})
+	tools = append(tools, defToJSON(tool.DelegateDefinition(), "builtin"))
 
-	// Shared tools that are typically always present.
+	// Shared tools (scheduler, memory, skills).
 	for _, def := range sharedToolDefinitions() {
-		tools = append(tools, toolJSON{
-			Name:        def.Name,
-			Description: def.Description,
-			InputSchema: def.InputSchema,
-			Category:    "shared",
-		})
+		tools = append(tools, defToJSON(def, "shared"))
 	}
 
 	sort.Slice(tools, func(i, j int) bool {
@@ -58,21 +56,12 @@ func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, tools)
 }
 
-// sharedToolDefinitions returns definitions for shared tools that are
-// typically always available (scheduler, memory, skills).
+// sharedToolDefinitions returns the canonical definitions from each tool
+// package. No runtime dependencies needed — schemas are static.
 func sharedToolDefinitions() []toolspec.Definition {
 	return []toolspec.Definition{
-		{
-			Name:        "scheduler",
-			Description: "Manage scheduled jobs: create, list, update, delete, or toggle jobs.",
-		},
-		{
-			Name:        "memory",
-			Description: "Read and write persistent memory for the current user-agent pair.",
-		},
-		{
-			Name:        "skills",
-			Description: "Search, install, list, and remove skills from the ecosystem.",
-		},
+		scheduler.SchedulerDefinition(),
+		memorytool.MemoryDefinition(),
+		skills.SkillsDefinition(),
 	}
 }
