@@ -64,12 +64,16 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	reg.Register(openai.New(openai.Config{BaseURL: cfg.BaseURL}))
 	reg.Register(openairesponse.New(openairesponse.Config{BaseURL: cfg.BaseURL}))
 
+	// Load skills once for both prompt and tool registration.
+	skills := LoadSkills(cfg.AnnaHome, cfg.Workspace, cfg.WorkDir)
+
 	system := cfg.System
 	if system == "" {
 		system = BuildSystemPromptFromDB(DBPromptParams{
 			AnnaHome:  cfg.AnnaHome,
 			Workspace: cfg.Workspace,
 			Cwd:       cfg.WorkDir,
+			Skills:    skills,
 		})
 	}
 
@@ -79,6 +83,9 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	tools := tool.NewRegistry(cfg.WorkDir)
 	for _, t := range cfg.ExtraTools {
 		tools.Register(t)
+	}
+	if entries := SkillEntries(skills); len(entries) > 0 {
+		tools.Register(tool.NewLoadSkillTool(entries))
 	}
 	tools.Register(tool.NewDelegateTool(tool.DelegateConfig{
 		Engine:      eng,
@@ -279,6 +286,10 @@ func summarizeToolInput(toolName string, args map[string]any) string {
 	case "edit":
 		if fp, ok := args["file_path"].(string); ok {
 			return fp
+		}
+	case "load_skill":
+		if name, ok := args["name"].(string); ok {
+			return name
 		}
 	}
 	return ""

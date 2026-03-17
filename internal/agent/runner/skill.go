@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/vaayne/anna/internal/agent/runner/builtin"
+	"github.com/vaayne/anna/internal/agent/tool"
 	"gopkg.in/yaml.v3"
 )
 
@@ -228,20 +229,36 @@ func FormatSkillsForPrompt(skills []Skill) string {
 
 	var b strings.Builder
 	b.WriteString("\n\n## Skills\n\nThe following skills provide specialized instructions for specific tasks.\n")
-	b.WriteString("Use the read tool to load a skill's file when the task matches its description.\n")
-	b.WriteString("When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n")
+	b.WriteString("Use the load_skill tool to load a skill by name when the task matches its description.\n")
+	b.WriteString("When a skill file references a relative path, resolve it against the base_dir returned by load_skill and use that absolute path in tool commands.\n")
 	b.WriteString("\n<available_skills>\n")
 
 	for _, s := range visible {
 		b.WriteString("  <skill>\n")
 		b.WriteString("    <name>" + escapeXML(s.Name) + "</name>\n")
 		b.WriteString("    <description>" + escapeXML(s.Description) + "</description>\n")
-		b.WriteString("    <location>" + escapeXML(s.FilePath) + "</location>\n")
 		b.WriteString("  </skill>\n")
 	}
 
 	b.WriteString("</available_skills>")
 	return b.String()
+}
+
+// SkillEntries converts loaded skills into tool.SkillEntry values for the LoadSkillTool.
+// Skills with DisableModelInvocation=true are excluded.
+func SkillEntries(skills []Skill) []tool.SkillEntry {
+	var entries []tool.SkillEntry
+	for _, s := range skills {
+		if s.DisableModelInvocation {
+			continue
+		}
+		entries = append(entries, tool.SkillEntry{
+			Name:    s.Name,
+			BaseDir: s.BaseDir,
+			Path:    s.FilePath,
+		})
+	}
+	return entries
 }
 
 // ValidateSkillName checks a skill name against the Agent Skills spec.
