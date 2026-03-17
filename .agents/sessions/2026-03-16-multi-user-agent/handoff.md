@@ -388,6 +388,65 @@
 
 - **user_memory tool not yet injected into pools**: The tool exists and works, but is not automatically injected into agent pools via `ExtraToolsFactory`. This requires knowing user_id at session creation time, which is complex since Pool.Chat only takes sessionID. Options: (a) inject per-request in the runner, (b) lazy-create at first message. Recommend tackling in a follow-up.
 - **QQ/Feishu /agent command**: Not implemented -- they still use the default agent only. Requires changes to the QQ and Feishu handler packages.
-- **Old template files kept**: `template/soul.md`, `template/user.md`, `template/memories.md.tmpl` are still present because `BuildSystemPrompt` is still referenced in tests and as a GoRunner fallback. They can be removed when the old function is fully deprecated.
 - **README.md and docs/ site**: Not updated in this phase. The builtin anna skill was updated, but the external documentation site needs updating to reflect DB-backed config, multi-agent, etc.
 - **Admin API auth/RBAC**: No authentication on the admin panel. Future work.
+
+## Post-Phase 6: System Prompt 3-Layer Architecture & User Memory Injection
+
+### Commits (on `feat/multi-user-agent` branch)
+
+1. `64bf193` -- Per-session user memory injection into system prompt
+2. `9d1fff1` -- Restructure system prompt into 3 layers, make user_memory write-only
+3. `cc58dc8` -- Remove unused legacy template files (user.md, memories.md.tmpl)
+
+### System Prompt Layers
+
+The system prompt is now composed in three clear layers:
+
+1. **Basic system prompt** -- embedded `template/system.md`, overridden by `SYSTEM.md` in agent workspace
+2. **Agent soul prompt** -- DB `agents.system_prompt`, overridden by `SOUL.md` in agent workspace
+3. **User memory** -- always present from DB `user_agent_memory`, updated via write-only `user_memory` tool
+
+Skills and project context (AGENTS.md files) are appended after these layers.
+
+### Key Changes
+
+**Runner API:**
+- `NewRunnerFunc` now accepts `RunnerParams{Model, UserMemory}` instead of just `model string`
+- Factory builds the full prompt per-session via `BuildSystemPromptFromDB` (no more cached base + inject pattern)
+
+**Prompt building:**
+- `BuildSystemPromptFromDB` handles all 3 layers with file overrides
+- Removed: `BuildSystemPrompt` (legacy), `InjectUserMemory`, `promptMemories`, `memoriesTmpl`, `defaultSoul`, `defaultUser`
+
+**User memory injection:**
+- Pool loads user memory from `UserMemoryStore` in `getOrCreateRunner` when `UserID` is set
+- `PoolManager` creates `UserMemoryStore` on init and wires it into all pools via `WithUserMemory` option
+- User memory is always in the system prompt -- the agent has context from message #1
+
+**user_memory tool:**
+- Simplified to write-only (no read action -- content is always in the system prompt's `## User Memory` section)
+- Scoped to `(userID, agentID)` at construction time
+- Recommended structure: `## User Preferences`, `## About the User`, `## Notes`
+
+**Deleted files:**
+- `internal/agent/runner/template/user.md` -- replaced by DB `user_agent_memory`
+- `internal/agent/runner/template/memories.md.tmpl` -- replaced by `BuildSystemPromptFromDB`
+
+### Files Changed
+
+**Modified:**
+- `internal/agent/runner/runner.go` -- Added `RunnerParams` struct, changed `NewRunnerFunc` signature
+- `internal/agent/runner/prompt.go` -- Rewrote to 3-layer model; removed old `BuildSystemPrompt`, templates, `InjectUserMemory`
+- `internal/agent/runner/gorunner.go` -- Fallback uses `BuildSystemPromptFromDB`
+- `internal/agent/factory.go` -- Full prompt built per-session with user memory
+- `internal/agent/pool.go` -- Added `userMemory` field, loads memory in `getOrCreateRunner`
+- `internal/agent/pool_options.go` -- Added `WithUserMemory` option
+- `internal/agent/pool_manager.go` -- Creates `UserMemoryStore`, wires into pools
+- `internal/memory/tool/usermemory.go` -- Write-only tool, simplified API
+- `internal/agent/runner/builtin/anna/SKILL.md` -- Documents 3-layer prompt and write-only tool
+- All test files updated for new `RunnerParams` signature
+
+**Deleted:**
+- `internal/agent/runner/template/user.md`
+- `internal/agent/runner/template/memories.md.tmpl`
