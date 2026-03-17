@@ -559,11 +559,9 @@ func TestTruncateExact(t *testing.T) {
 	}
 }
 
-// --- channelForChat ---
+// --- chatRef ---
 
-func TestChannelForChatFormatsCorrectly(t *testing.T) {
-	// channelForChat requires a tele.Context, which is hard to mock.
-	// Test the chatRef helper instead.
+func TestChatRefFormatsCorrectly(t *testing.T) {
 	ref := chatRef("@mychannel")
 	if ref.Recipient() != "@mychannel" {
 		t.Errorf("Recipient() = %q, want @mychannel", ref.Recipient())
