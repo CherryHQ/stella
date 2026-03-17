@@ -36,8 +36,8 @@ Setup: `anna onboard` opens a web admin panel to configure everything. All confi
 The system prompt is composed in three layers:
 
 1. **Basic system prompt** — embedded default (`template/system.md`), overridden by `SYSTEM.md` in agent workspace
-2. **Agent soul prompt** — from DB `agents.system_prompt`, overridden by `SOUL.md` in agent workspace
-3. **User memory** — always present from DB `user_agent_memory`, updated via `user_memory` tool (write-only)
+2. **Agent soul prompt** — from DB `settings_agents.system_prompt`, overridden by `SOUL.md` in agent workspace
+3. **User memory** — always present from DB `ctx_agent_memory`, updated via `user_memory` tool (write-only)
 
 Skills and project context (AGENTS.md files) are appended after these layers.
 

@@ -20,13 +20,13 @@ All config lives in normalized SQLite tables:
 
 | Table | Purpose |
 |-------|---------|
-| `providers` | LLM API providers (API key, base URL) |
-| `agents` | Agent definitions (provider, model, system prompt, workspace) |
-| `channels` | Platform configs (Telegram/QQ/Feishu as JSON blobs) |
-| `users` | Auto-created platform users with default agent preference |
-| `chat_agents` | Per-group agent assignment |
-| `user_agent_memory` | Per-user-per-agent persistent notes |
 | `settings` | Key-value JSON settings (runner, scheduler, heartbeat, plugins) |
+| `settings_providers` | LLM API providers (API key, base URL) |
+| `settings_agents` | Agent definitions (provider, model, system prompt, workspace) |
+| `settings_channels` | Platform configs (Telegram/QQ/Feishu as JSON blobs) |
+| `settings_users` | Auto-created platform users with default agent preference |
+| `settings_channel_agents` | Per-group agent assignment |
+| `ctx_agent_memory` | Per-user-per-agent persistent notes |
 
 ## Multi-agent setup
 
@@ -40,7 +40,7 @@ Create agents via the admin panel or directly in the database.
 
 ## Channel configuration
 
-Channels are stored as JSON blobs in the `channels` table. Configure via the admin panel.
+Channels are stored as JSON blobs in the `settings_channels` table. Configure via the admin panel.
 
 **Telegram config fields:**
 - `token` -- Bot token

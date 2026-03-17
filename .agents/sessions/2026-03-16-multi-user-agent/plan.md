@@ -7,7 +7,7 @@ Replace anna's single-user/single-agent architecture with N×N multi-user × mul
 ### Goals
 
 - Support multiple agents, each with dedicated workspace (skills, model)
-- Support multiple users, each remembered independently per agent via `user_agent_memory`
+- Support multiple users, each remembered independently per agent via `ctx_agent_memory`
 - Move all config from `config.yaml` to normalized DB tables
 - `anna onboard` bootstraps the system (creates DB, opens admin UI)
 - Web admin panel for full CRUD of providers, agents, channels, users, scheduler
@@ -23,7 +23,7 @@ Replace anna's single-user/single-agent architecture with N×N multi-user × mul
 - [ ] DMs use per-user default agent; groups use per-group agent
 - [ ] Sessions scoped to (agent_id, user_id, channel_context)
 - [ ] Each agent has isolated workspace dir with own skills
-- [ ] Per-user-per-agent memory (`user_agent_memory`) replaces global `SOUL.md`/`USER.md`
+- [ ] Per-user-per-agent memory (`ctx_agent_memory`) replaces global `SOUL.md`/`USER.md`
 - [ ] QQ/Feishu still work with the default agent
 - [ ] CLI chat works with the new config system (with `--agent` flag)
 - [ ] Env vars `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` still serve as fallbacks
@@ -64,20 +64,23 @@ ANNA_HOME (~/.anna/)
 │  └─ Feishu Bot   ─→ default agent ─→ PoolManager.Get │
 │                                                       │
 │  Agent Routing:                                       │
-│  ├─ DM:    users.default_agent_id                    │
-│  ├─ Group: chat_agents(platform, chat_id)            │
+│  ├─ DM:    settings_users.default_agent_id            │
+│  ├─ Group: settings_channel_agents(platform, chat_id) │
 │  └─ /agent command: update user or group preference  │
 │                                                       │
 │  System Prompt Assembly:                              │
-│  ├─ agents.system_prompt       (agent soul, admin)   │
-│  └─ + user_agent_memory.content (per-user, by agent) │
+│  ├─ settings_agents.system_prompt (agent soul, admin)│
+│  └─ + ctx_agent_memory.content (per-user, by agent)  │
 │                                                       │
 │  Admin Server (HTTP) ←→ DB (anna.db)                 │
 │                                                       │
-│  DB Tables:                                           │
-│  providers | agents | channels | users | chat_agents │
-│  user_agent_memory | settings | conversations        │
-│  messages | summaries | scheduler_jobs                │
+│  DB Tables (grouped by prefix):                       │
+│  settings | settings_providers | settings_agents     │
+│  settings_channels | settings_users                  │
+│  settings_channel_agents | ctx_agent_memory          │
+│  ctx_conversations | ctx_messages | ctx_message_parts│
+│  ctx_summaries | ctx_summary_messages                │
+│  ctx_summary_parents | ctx_items | sched_jobs        │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -87,8 +90,8 @@ Single bot per platform. Agent selection via `/agent` command:
 
 | Context | `/agent anna` | Message arrives |
 |---------|---------------|-----------------|
-| **DM** | Updates `users.default_agent_id` | Look up `users.default_agent_id` → route to that agent's Pool |
-| **Group** | Updates `chat_agents(platform, chat_id)` | Look up `chat_agents` → route to that agent's Pool |
+| **DM** | Updates `settings_users.default_agent_id` | Look up `settings_users.default_agent_id` → route to that agent's Pool |
+| **Group** | Updates `settings_channel_agents(platform, chat_id)` | Look up `settings_channel_agents` → route to that agent's Pool |
 | **No agent set** | — | Fall back to first enabled agent |
 
 The `/agent` command also lists available agents when called without arguments.
@@ -104,14 +107,14 @@ Replaces the old `SOUL.md` / `USER.md` file-based system.
 - `USER.md` — user info, file in workspace, agent can edit → shared across all users
 
 **New:**
-- `agents.system_prompt` — agent's soul/personality, stored in DB, admin edits via web UI. This IS the agent's identity (what `SOUL.md` was).
-- `user_agent_memory` — per-user-per-agent notes, stored in DB, agent reads/writes during chat. This IS user-specific context (what `USER.md` was, but scoped per user).
+- `settings_agents.system_prompt` — agent's soul/personality, stored in DB, admin edits via web UI. This IS the agent's identity (what `SOUL.md` was).
+- `ctx_agent_memory` — per-user-per-agent notes, stored in DB, agent reads/writes during chat. This IS user-specific context (what `USER.md` was, but scoped per user).
 
 **System prompt assembly at chat time (3 layers):**
 ```
 1. Basic system prompt      -- embedded system.md, overridden by SYSTEM.md in workspace
 2. Agent soul prompt        -- agents.system_prompt from DB, overridden by SOUL.md in workspace
-3. User memory              -- user_agent_memory.content, always present, write-only tool updates
+3. User memory              -- ctx_agent_memory.content, always present, write-only tool updates
 4. + skills prompt          -- agent's skills
 5. + project context        -- AGENTS.md files (CLI only)
 ```
@@ -129,7 +132,7 @@ User memory is injected per-session when the runner is created. The agent always
 1. **Single DB file** — `anna.db` replaces both `config.yaml` and `memory.db`. The memory engine is refactored to accept a `*sql.DB` instead of opening its own.
 2. **No backward compat** — clean break. Old `config.yaml` / `state.yaml` / `memory.db` are ignored. No auto-migration from old format.
 3. **Env var fallbacks** — `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` remain as fallbacks when the DB provider row has empty `api_key`. `ANNA_HOME` env var sets the home directory.
-4. **All identity in DB** — Agent soul in `agents.system_prompt`. Per-user memory in `user_agent_memory`. No more `SOUL.md` / `USER.md` / `identity.md` files.
+4. **All identity in DB** — Agent soul in `settings_agents.system_prompt`. Per-user memory in `ctx_agent_memory`. No more `SOUL.md` / `USER.md` / `identity.md` files.
 5. **Plugin config** — Stored in the `settings` table under key `"plugins"` as a JSON array (same structure as current YAML `plugins` list). Plugins remain global, not per-agent.
 6. **Provider slugs allow duplicates by design** — Users can create `openai-prod` and `openai-dev` as separate providers with different base_urls. The slug is user-chosen.
 7. **Single provider per agent** — An agent's `model_strong` and `model_fast` must use the same provider. This simplifies the schema. Document this limitation.
@@ -138,10 +141,15 @@ User memory is injected per-session when the runner is created. The agent always
 
 ### Database Schema (normalized)
 
-**New tables:**
+**Tables are grouped by prefix:**
+
+- `settings_*` — app configuration (providers, agents, channels, users, channel routing)
+- `ctx_*` — context & LCM (conversations, messages, summaries, agent memory)
+- `sched_*` — scheduling
 
 ```sql
--- Global settings (key-value with JSON values)
+-- settings_* group: app configuration
+
 CREATE TABLE settings (
     key        TEXT PRIMARY KEY,
     value      TEXT NOT NULL DEFAULT '{}',
@@ -149,86 +157,103 @@ CREATE TABLE settings (
 );
 -- Keys: "runner", "compaction", "heartbeat", "plugins", "models_cache"
 
--- LLM API providers
-CREATE TABLE providers (
+CREATE TABLE settings_providers (
     id         TEXT PRIMARY KEY,         -- user-chosen slug: "anthropic", "openai-prod"
-    name       TEXT NOT NULL,            -- display name
+    name       TEXT NOT NULL,
     api_key    TEXT NOT NULL DEFAULT '',
     base_url   TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Agent definitions
-CREATE TABLE agents (
+CREATE TABLE settings_agents (
     id            TEXT PRIMARY KEY,     -- slug: "anna", "coder"
-    name          TEXT NOT NULL,        -- display name
-    provider_id   TEXT NOT NULL REFERENCES providers(id),
+    name          TEXT NOT NULL,
+    provider_id   TEXT NOT NULL REFERENCES settings_providers(id),
     model         TEXT NOT NULL DEFAULT '',
-    model_strong  TEXT NOT NULL DEFAULT '',  -- same provider
-    model_fast    TEXT NOT NULL DEFAULT '',  -- same provider
+    model_strong  TEXT NOT NULL DEFAULT '',
+    model_fast    TEXT NOT NULL DEFAULT '',
     system_prompt TEXT NOT NULL DEFAULT '',  -- agent's soul/personality (replaces SOUL.md)
-    workspace     TEXT NOT NULL,        -- absolute path to workspace dir
+    workspace     TEXT NOT NULL,
     enabled       INTEGER NOT NULL DEFAULT 1,
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Global channel configurations (one row per platform)
-CREATE TABLE channels (
+CREATE TABLE settings_channels (
     id         TEXT PRIMARY KEY,        -- "telegram", "qq", "feishu"
     enabled    INTEGER NOT NULL DEFAULT 1,
     config     TEXT NOT NULL DEFAULT '{}',  -- platform-specific JSON
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
--- telegram config: {"token":"...","notify_chat":"...","channel_id":"...","group_mode":"mention","allowed_ids":[123],"enable_notify":true}
 
--- Users (auto-created from platform identity)
-CREATE TABLE users (
+CREATE TABLE settings_users (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    external_id      TEXT NOT NULL,          -- platform user ID (string)
+    external_id      TEXT NOT NULL,
     platform         TEXT NOT NULL,          -- "telegram", "qq", "feishu", "cli"
     name             TEXT NOT NULL DEFAULT '',
-    default_agent_id TEXT REFERENCES agents(id),  -- active agent for DMs
+    default_agent_id TEXT REFERENCES settings_agents(id),  -- active agent for DMs
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(external_id, platform)
 );
 
--- Per-group agent assignment
-CREATE TABLE chat_agents (
+CREATE TABLE settings_channel_agents (
     platform   TEXT NOT NULL,           -- "telegram", "qq", "feishu"
     chat_id    TEXT NOT NULL,           -- group/channel ID on the platform
-    agent_id   TEXT NOT NULL REFERENCES agents(id),
+    agent_id   TEXT NOT NULL REFERENCES settings_agents(id),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY(platform, chat_id)
 );
 
--- Per-user-per-agent memory (replaces USER.md)
--- Agent reads this into system prompt; agent writes via user_memory tool
-CREATE TABLE user_agent_memory (
-    user_id    INTEGER NOT NULL REFERENCES users(id),
-    agent_id   TEXT NOT NULL REFERENCES agents(id),
+-- ctx_* group: context & LCM
+
+CREATE TABLE ctx_agent_memory (
+    user_id    INTEGER NOT NULL REFERENCES settings_users(id),
+    agent_id   TEXT NOT NULL REFERENCES settings_agents(id),
     content    TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY(user_id, agent_id)
 );
+
+CREATE TABLE ctx_conversations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL UNIQUE,
+    title TEXT,
+    channel TEXT NOT NULL DEFAULT '',
+    archived INTEGER NOT NULL DEFAULT 0,
+    last_active TEXT NOT NULL DEFAULT (datetime('now')),
+    bootstrapped_at TEXT,
+    agent_id TEXT,
+    user_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE ctx_messages ( ... );       -- conversation_id → ctx_conversations(id)
+CREATE TABLE ctx_message_parts ( ... );  -- message_id → ctx_messages(id)
+CREATE TABLE ctx_summaries ( ... );      -- conversation_id → ctx_conversations(id)
+CREATE TABLE ctx_summary_messages ( ... ); -- summary_id → ctx_summaries(id), message_id → ctx_messages(id)
+CREATE TABLE ctx_summary_parents ( ... );  -- summary_id → ctx_summaries(id)
+CREATE TABLE ctx_items ( ... );          -- conversation_id, message_id, summary_id refs
+
+-- sched_* group: scheduling
+
+CREATE TABLE sched_jobs (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    schedule_cron TEXT NOT NULL DEFAULT '',
+    schedule_every TEXT NOT NULL DEFAULT '',
+    schedule_at TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL,
+    session_mode TEXT NOT NULL DEFAULT 'reuse',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    agent_id TEXT,
+    user_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 ```
-
-**Modified existing tables:**
-
-```sql
--- conversations: add agent_id + user_id (NULLable for migration safety)
-ALTER TABLE conversations ADD COLUMN agent_id TEXT REFERENCES agents(id);
-ALTER TABLE conversations ADD COLUMN user_id INTEGER REFERENCES users(id);
-
--- scheduler_jobs: add agent_id + user_id
-ALTER TABLE scheduler_jobs ADD COLUMN agent_id TEXT REFERENCES agents(id);
-ALTER TABLE scheduler_jobs ADD COLUMN user_id INTEGER REFERENCES users(id);
-```
-
-Note: Since this is a clean break (no backward compat), existing rows in `conversations` and `scheduler_jobs` will have NULL `agent_id`/`user_id`. New code always populates these fields. Old NULL rows are effectively orphaned legacy data.
 
 ### Session Key Format
 
@@ -249,7 +274,7 @@ The memory engine treats session_id as an opaque string — no parsing needed th
 - **`internal/agent/pool_manager.go`** — New: maps agent_id → Pool. Reads agents from Store.
 - **`internal/admin/`** — New package: HTTP API server + embedded SPA.
 - **`internal/channel/identity.go`** — New: user resolution + agent routing (upsert user, look up active agent).
-- **`internal/memory/usermemory.go`** — New: read/write `user_agent_memory` for a (user, agent) pair.
+- **`internal/memory/usermemory.go`** — New: read/write `ctx_agent_memory` for a (user, agent) pair.
 - **`internal/memory/tool/usermemory.go`** — New: `user_memory` tool for agent to read/write per-user notes.
 - **`cmd/anna/onboard.go`** — Rewritten: bootstrap + admin server.
 
@@ -261,11 +286,11 @@ Merge into single `anna.db`. Add new tables. Refactor memory engine to accept sh
 
 1. Refactor `internal/db/database.go` — `OpenDB` remains, but add `NewFromDB(*sql.DB)` pattern for the sqlc queries layer so multiple packages can share one connection (files: `internal/db/database.go`)
 2. Refactor `internal/memory/engine.go` — add `NewEngineFromDB(db *sql.DB, ...)` constructor that accepts an existing `*sql.DB` instead of a path. Keep `NewEngine(path, ...)` as a convenience wrapper (files: `internal/memory/engine.go`)
-3. Add new schema files: `settings.sql`, `providers.sql`, `agents.sql`, `channels.sql`, `users.sql`, `chat_agents.sql`, `user_agent_memory.sql` (files: `internal/db/schemas/tables/`)
-4. Modify `conversations.sql` — add `agent_id TEXT` and `user_id INTEGER` columns (files: `internal/db/schemas/tables/conversations.sql`)
-5. Modify `scheduler_jobs.sql` — add `agent_id TEXT` and `user_id INTEGER` columns (files: `internal/db/schemas/tables/scheduler_jobs.sql`)
+3. Add new schema files: `settings.sql`, `settings_providers.sql`, `settings_agents.sql`, `settings_channels.sql`, `settings_users.sql`, `settings_channel_agents.sql`, `ctx_agent_memory.sql` (files: `internal/db/schemas/tables/`)
+4. Modify `ctx_conversations.sql` — add `agent_id TEXT` and `user_id INTEGER` columns (files: `internal/db/schemas/tables/ctx_conversations.sql`)
+5. Modify `sched_jobs.sql` — add `agent_id TEXT` and `user_id INTEGER` columns (files: `internal/db/schemas/tables/sched_jobs.sql`)
 6. Update `main.sql` imports, generate Atlas migration, run sqlc codegen (files: `internal/db/schemas/main.sql`, `internal/db/migrations/`)
-7. Add sqlc queries for all new tables: CRUD for providers, agents, channels, users, chat_agents, user_agent_memory, settings (files: `internal/db/queries/`)
+7. Add sqlc queries for all new tables: CRUD for settings_providers, settings_agents, settings_channels, settings_users, settings_channel_agents, ctx_agent_memory, settings (files: `internal/db/queries/`)
 
 ### Phase 2: Config Store & Bootstrap
 
@@ -293,15 +318,15 @@ Per-agent Pool, workspace isolation, PoolManager.
 
 User resolution, agent routing, session scoping, `/agent` command, per-user memory tool.
 
-1. Add user resolution — `ResolveUser(ctx, db, externalID, platform, name)` upserts into `users` table, returns user record (files: `internal/channel/identity.go`)
-2. Add agent routing — `ResolveAgent(ctx, store, user, chatContext)` looks up `users.default_agent_id` for DMs or `chat_agents` for groups; falls back to first enabled agent (files: `internal/channel/identity.go`)
+1. Add user resolution — `ResolveUser(ctx, db, externalID, platform, name)` upserts into `settings_users` table, returns user record (files: `internal/channel/identity.go`)
+2. Add agent routing — `ResolveAgent(ctx, store, user, chatContext)` looks up `settings_users.default_agent_id` for DMs or `settings_channel_agents` for groups; falls back to first enabled agent (files: `internal/channel/identity.go`)
 3. Update session key construction — new helper `BuildSessionKey(agentID, platform, externalUserID, channelContext)` used by channels when calling Pool (files: `internal/agent/session.go`)
 4. Update `Pool.CreateSession` / `ResolveSession` — store `agent_id` and `user_id` in conversation record via memory engine (files: `internal/agent/pool.go`)
 5. Update memory engine — `Ingest`, `SaveInfo` pass through `agent_id` and `user_id` to conversation inserts/updates (files: `internal/memory/engine.go`)
-6. Add `user_agent_memory` read/write layer — `GetUserMemory(ctx, userID, agentID)`, `SetUserMemory(ctx, userID, agentID, content)` (files: `internal/memory/usermemory.go`)
-7. Add `user_memory` tool — agent tool that reads/writes `user_agent_memory` for the current (user, agent) pair. Replaces the old `SOUL.md`/`USER.md` file editing (files: `internal/memory/tool/usermemory.go`)
-8. Update system prompt builder — remove `SOUL.md`/`USER.md` file loading and `memories.md.tmpl`; system prompt = `agents.system_prompt` + `user_agent_memory.content` + skills + project context. Include instruction for agent to use `user_memory` tool (files: `internal/agent/runner/prompt.go`, remove `template/soul.md`, `template/user.md`, `template/memories.md.tmpl`)
-9. Implement `/agent` command — in channel command handler: list available agents (no args), or set active agent for DM/group context. Updates `users.default_agent_id` or `chat_agents` row (files: `internal/channel/command.go`)
+6. Add `ctx_agent_memory` read/write layer — `GetUserMemory(ctx, userID, agentID)`, `SetUserMemory(ctx, userID, agentID, content)` (files: `internal/memory/usermemory.go`)
+7. Add `user_memory` tool — agent tool that reads/writes `ctx_agent_memory` for the current (user, agent) pair. Replaces the old `SOUL.md`/`USER.md` file editing (files: `internal/memory/tool/usermemory.go`)
+8. Update system prompt builder — remove `SOUL.md`/`USER.md` file loading and `memories.md.tmpl`; system prompt = `settings_agents.system_prompt` + `ctx_agent_memory.content` + skills + project context. Include instruction for agent to use `user_memory` tool (files: `internal/agent/runner/prompt.go`, remove `template/soul.md`, `template/user.md`, `template/memories.md.tmpl`)
+9. Implement `/agent` command — in channel command handler: list available agents (no args), or set active agent for DM/group context. Updates `settings_users.default_agent_id` or `settings_channel_agents` row (files: `internal/channel/command.go`)
 10. Refactor Telegram channel — single bot; handler resolves user, resolves agent for context, gets Pool from PoolManager, builds session key, chats (files: `internal/channel/telegram/telegram.go`, `internal/channel/telegram/handler.go`)
 11. Update scheduler — jobs use `agent_id` to route to correct Pool via PoolManager; session key includes user context (files: `internal/scheduler/`)
 
@@ -337,7 +362,7 @@ Wire everything together, update remaining subsystems, clean up.
 - `internal/agent/session_test.go` — `BuildSessionKey` produces correct format; round-trips parse correctly
 - `internal/channel/identity_test.go` — `ResolveUser` creates new user; second call returns same ID; `ResolveAgent` returns user's default agent in DM; returns group agent in group; falls back to first enabled agent
 - `internal/memory/usermemory_test.go` — `GetUserMemory` returns empty for new pair; `SetUserMemory` writes content; subsequent `Get` returns it; different user or agent returns different content
-- `internal/memory/tool/usermemory_test.go` — tool reads/writes user_agent_memory correctly
+- `internal/memory/tool/usermemory_test.go` — tool reads/writes ctx_agent_memory correctly
 - `internal/admin/` — API handler tests: create provider → create agent → configure channel → verify; CRUD round-trips
 
 ### Integration Tests
@@ -345,7 +370,7 @@ Wire everything together, update remaining subsystems, clean up.
 - Session scoping: same user talking to 2 agents (via `/agent` switch) gets 2 separate sessions with independent history
 - User memory isolation: user A's memory with agent X does not leak to user B's memory with agent X
 - Agent routing: DM defaults, group defaults, `/agent` switch changes routing
-- System prompt assembly: agent system_prompt + user_agent_memory.content correctly composed
+- System prompt assembly: settings_agents.system_prompt + ctx_agent_memory.content correctly composed
 - Config Store + memory engine sharing same `*sql.DB` — concurrent reads/writes don't deadlock
 
 ### Manual Tests
@@ -365,7 +390,7 @@ Wire everything together, update remaining subsystems, clean up.
 | Web UI scope creep | Medium | Keep functional, not polished; Alpine.js + Tailwind (existing stack) |
 | Memory engine refactor to share DB | Medium | Minimal change — just add `NewEngineFromDB(*sql.DB)` constructor |
 | Agent routing edge cases (user without default, group without agent) | Low | Consistent fallback to first enabled agent |
-| `user_agent_memory.content` grows unbounded | Low | Document recommended max size; agent can self-manage via tool |
+| `ctx_agent_memory.content` grows unbounded | Low | Document recommended max size; agent can self-manage via tool |
 
 ## Assumptions
 
@@ -378,7 +403,7 @@ Wire everything together, update remaining subsystems, clean up.
 - `model_strong` and `model_fast` on an agent must use the same provider as the agent's `provider_id`
 - Agent soul = `agents.system_prompt` (admin-managed via web UI), overrideable by `SOUL.md` file in workspace
 - Basic system prompt = embedded default, overrideable by `SYSTEM.md` file in workspace
-- Per-user memory = `user_agent_memory.content` (agent-managed via write-only `user_memory` tool, always injected into system prompt)
+- Per-user memory = `ctx_agent_memory.content` (agent-managed via write-only `user_memory` tool, always injected into system prompt)
 - System prompt = basic + agent soul + user memory + skills + project context
 - One bot per platform (single Telegram token, single QQ app, single Feishu app)
 - Agent selection: per-user for DMs, per-group for group chats, via `/agent` command
@@ -404,11 +429,11 @@ Issues addressed:
 
 ### Round 2 (design change — channel simplification)
 
-- **Removed `agent_channels` table** — replaced with global `channels` table (one row per platform)
+- **Removed `agent_channels` table** — replaced with global `settings_channels` table (one row per platform)
 - **Single bot per platform** — one Telegram token serves all agents
-- **Agent routing via `/agent` command** — per-user default in `users.default_agent_id`, per-group in `chat_agents` table
-- **Added `chat_agents` table** — maps (platform, chat_id) → agent_id for group chats
-- **Added `default_agent_id` to `users`** — stores per-user agent preference for DMs
+- **Agent routing via `/agent` command** — per-user default in `settings_users.default_agent_id`, per-group in `settings_channel_agents` table
+- **Added `settings_channel_agents` table** — maps (platform, chat_id) → agent_id for group chats
+- **Added `default_agent_id` to `settings_users`** — stores per-user agent preference for DMs
 - **Simplified gateway** — no multi-bot startup, one bot per channel type
 - **Future-proof** — can extend to multi-bot per group later without schema redesign
 
@@ -416,7 +441,7 @@ Issues addressed:
 
 - **Dropped `SOUL.md` / `USER.md` files** — replaced with DB-backed system
 - **Agent soul → `agents.system_prompt`** — admin manages via web UI, seeded with default anna personality
-- **User memory → `user_agent_memory` table** — per (user_id, agent_id) pair, agent reads/writes via `user_memory` tool
+- **User memory → `ctx_agent_memory` table** — per (user_id, agent_id) pair, agent reads/writes via `user_memory` tool
 - **Removed `identity.md` from workspace** — workspace only has `skills/` and logs
 - **Removed `memories.md.tmpl`** — system prompt template simplified
 - **Added `user_memory` tool** — Phase 4 tasks 6-7, replaces file-based memory editing
@@ -432,7 +457,7 @@ All 6 phases + post-phase prompt restructuring complete. Key outcomes:
 - **Write-only user_memory tool**: Agent updates user memory, which appears in system prompt at next session start
 - **Single DB**: All config + runtime data in `anna.db`
 - **Admin panel**: Full CRUD for all entities via web UI
-- **Agent routing**: DMs → user default, groups → chat_agents, fallback → first enabled
+- **Agent routing**: DMs → user default, groups → settings_channel_agents, fallback → first enabled
 - **Session scoping**: `{agentID}:{platform}:{userID}:{context}` format
 
 ### Remaining work
