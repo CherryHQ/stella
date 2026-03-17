@@ -11,7 +11,7 @@ import (
 	"github.com/vaayne/anna/internal/memory/tool"
 )
 
-func setupUserMemoryTool(t *testing.T) *tool.UserMemoryTool {
+func setupUserMemoryTool(t *testing.T) (*tool.UserMemoryTool, *memory.UserMemoryStore, int64) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	db, err := appdb.OpenDB(dbPath)
@@ -32,72 +32,57 @@ func setupUserMemoryTool(t *testing.T) *tool.UserMemoryTool {
 	}
 
 	memStore := memory.NewUserMemoryStore(store)
-	return tool.NewUserMemoryTool(memStore, user.ID, "anna")
+	return tool.NewUserMemoryTool(memStore, user.ID, "anna"), memStore, user.ID
 }
 
 func TestUserMemoryToolDefinition(t *testing.T) {
-	umt := setupUserMemoryTool(t)
+	umt, _, _ := setupUserMemoryTool(t)
 	def := umt.Definition()
 	if def.Name != "user_memory" {
 		t.Errorf("Name = %q, want %q", def.Name, "user_memory")
 	}
 }
 
-func TestUserMemoryToolReadEmpty(t *testing.T) {
-	umt := setupUserMemoryTool(t)
+func TestUserMemoryToolWrite(t *testing.T) {
+	umt, memStore, userID := setupUserMemoryTool(t)
 	ctx := context.Background()
 
-	result, err := umt.Execute(ctx, map[string]any{"action": "read"})
-	if err != nil {
-		t.Fatalf("Execute read: %v", err)
-	}
-	if result != "No user memory stored yet." {
-		t.Errorf("result = %q, want empty message", result)
-	}
-}
-
-func TestUserMemoryToolWriteAndRead(t *testing.T) {
-	umt := setupUserMemoryTool(t)
-	ctx := context.Background()
-
-	// Write.
 	result, err := umt.Execute(ctx, map[string]any{
-		"action":  "write",
-		"content": "likes Go and Rust",
+		"content": "## User Preferences\nPrefers concise responses\n\n## About the User\nGo developer",
 	})
 	if err != nil {
 		t.Fatalf("Execute write: %v", err)
 	}
-	if result != "User memory updated successfully." {
-		t.Errorf("write result = %q", result)
+	if result == "" {
+		t.Error("expected non-empty result")
 	}
 
-	// Read back.
-	result, err = umt.Execute(ctx, map[string]any{"action": "read"})
+	// Verify via store directly (tool is write-only, no read action).
+	content, err := memStore.Get(ctx, userID, "anna")
 	if err != nil {
-		t.Fatalf("Execute read: %v", err)
+		t.Fatalf("memStore.Get: %v", err)
 	}
-	if result != "likes Go and Rust" {
-		t.Errorf("read result = %q, want %q", result, "likes Go and Rust")
-	}
-}
-
-func TestUserMemoryToolWriteRequiresContent(t *testing.T) {
-	umt := setupUserMemoryTool(t)
-	ctx := context.Background()
-
-	_, err := umt.Execute(ctx, map[string]any{"action": "write"})
-	if err == nil {
-		t.Error("expected error for write without content")
+	if content != "## User Preferences\nPrefers concise responses\n\n## About the User\nGo developer" {
+		t.Errorf("stored content = %q", content)
 	}
 }
 
-func TestUserMemoryToolInvalidAction(t *testing.T) {
-	umt := setupUserMemoryTool(t)
+func TestUserMemoryToolRequiresContent(t *testing.T) {
+	umt, _, _ := setupUserMemoryTool(t)
 	ctx := context.Background()
 
-	_, err := umt.Execute(ctx, map[string]any{"action": "delete"})
+	_, err := umt.Execute(ctx, map[string]any{})
 	if err == nil {
-		t.Error("expected error for unknown action")
+		t.Error("expected error for missing content")
+	}
+}
+
+func TestUserMemoryToolEmptyContentErrors(t *testing.T) {
+	umt, _, _ := setupUserMemoryTool(t)
+	ctx := context.Background()
+
+	_, err := umt.Execute(ctx, map[string]any{"content": ""})
+	if err == nil {
+		t.Error("expected error for empty content")
 	}
 }

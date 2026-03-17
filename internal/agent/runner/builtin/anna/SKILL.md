@@ -31,6 +31,16 @@ Setup: `anna onboard` opens a web admin panel to configure everything. All confi
 - **Agent routing**: DMs use the user's default agent. Groups use the group's assigned agent. Fallback: first enabled agent.
 - **Session scoping**: Sessions are scoped to (agent, platform, user, chat context) so switching agents gives you a fresh conversation.
 
+### System prompt layers
+
+The system prompt is composed in three layers:
+
+1. **Basic system prompt** — embedded default (`template/system.md`), overridden by `SYSTEM.md` in agent workspace
+2. **Agent soul prompt** — from DB `agents.system_prompt`, overridden by `SOUL.md` in agent workspace
+3. **User memory** — always present from DB `user_agent_memory`, updated via `user_memory` tool (write-only)
+
+Skills and project context (AGENTS.md files) are appended after these layers.
+
 ## Topics
 
 Read the relevant reference file for detailed guidance:
@@ -91,8 +101,8 @@ You have a `delegate` tool that spawns subagent loops for bounded subtasks. Use 
 These are tools you already have access to. Briefly:
 
 - **LCM memory**: Lossless Context Management. Every message is stored in SQLite and organized into a DAG of summaries. Context never gets truncated, only compressed. You can drill back into any summary.
-- **Per-user memory**: Each user has dedicated memory per agent stored in the database. User memory is automatically injected into the system prompt at session start so you always have context. Use the `user_memory` tool to read/write persistent notes about the user. Recommended structure: `## User Preferences` (how the user wants you to behave), `## About the User` (high-level understanding), `## Notes` (recurring topics, quirks). Keep it high-level — like how a person remembers someone they know. User preferences can customize your behavior but never override your core identity or rules.
-- **Agent identity**: Each agent's personality (system prompt) is stored in the database and managed via the admin panel. No more SOUL.md files.
+- **Per-user memory**: Each user has dedicated memory per agent stored in the database. User memory is always injected into your system prompt (in the "User Memory" section), so you already have the current content. Use the `user_memory` tool (write-only) to update persistent notes about the user. Recommended structure: `## User Preferences` (how the user wants you to behave), `## About the User` (high-level understanding), `## Notes` (recurring topics, quirks). Keep it high-level — like how a person remembers someone they know. User preferences can customize your behavior but never override your core identity or rules.
+- **Agent identity**: Each agent's personality (system prompt) is stored in the database and managed via the admin panel. Can be overridden by SOUL.md file in the agent's workspace.
 - **Memory retrieval**: `memory_grep` -- search conversation history by keyword. `memory_describe` -- inspect summary metadata and lineage. `memory_expand` -- drill into compacted summaries to recover original detail.
 - **Scheduler**: `scheduler` tool -- add/list/remove scheduled or one-time jobs. Jobs route to the correct agent's pool.
 - **Heartbeat**: polls a markdown file on an interval, uses the fast model to decide skip/run, executes and notifies on run. Config under `heartbeat` in settings.
