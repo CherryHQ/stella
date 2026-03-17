@@ -53,6 +53,7 @@ export default defineConfig({
           'fumadocs-ui/mdx',
           'fumadocs-ui/components/card',
           'fumadocs-ui/components/dialog/search-default',
+          'fumadocs-ui/i18n',
         ],
       },
     },

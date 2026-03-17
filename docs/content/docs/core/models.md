@@ -20,11 +20,11 @@ Providers are configured through the admin panel (`anna onboard`). Each provider
 
 Environment variables serve as fallbacks when a provider's `api_key` field is empty in the database:
 
-| Provider             | Environment Variable  | Optional Variable    |
-| -------------------- | --------------------- | -------------------- |
-| Anthropic            | `ANTHROPIC_API_KEY`   |                      |
-| OpenAI               | `OPENAI_API_KEY`      | `OPENAI_BASE_URL`   |
-| OpenAI-Compatible    | `OPENAI_API_KEY`      | `OPENAI_BASE_URL`   |
+| Provider          | Environment Variable | Optional Variable |
+| ----------------- | -------------------- | ----------------- |
+| Anthropic         | `ANTHROPIC_API_KEY`  |                   |
+| OpenAI            | `OPENAI_API_KEY`     | `OPENAI_BASE_URL` |
+| OpenAI-Compatible | `OPENAI_API_KEY`     | `OPENAI_BASE_URL` |
 
 The OpenAI-Compatible provider (`openai-response`) supports any service that implements the OpenAI Responses API, such as Perplexity or Together.ai.
 

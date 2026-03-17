@@ -36,12 +36,12 @@ Agent (via tool call)
 
 Top-level package (under `internal/`). Five files:
 
-| File                                | Purpose                                               |
-| ----------------------------------- | ----------------------------------------------------- |
-| `internal/scheduler/job.go`         | `Job` and `Schedule` types                            |
-| `internal/scheduler/service.go`     | `Service` -- gocron wrapper, scheduling, job CRUD     |
-| `internal/scheduler/heartbeat.go`   | Heartbeat polling -- decide/execute/notify via LLM    |
-| `internal/scheduler/persistence.go` | Database persistence (load/save/migrate jobs)         |
+| File                                | Purpose                                                |
+| ----------------------------------- | ------------------------------------------------------ |
+| `internal/scheduler/job.go`         | `Job` and `Schedule` types                             |
+| `internal/scheduler/service.go`     | `Service` -- gocron wrapper, scheduling, job CRUD      |
+| `internal/scheduler/heartbeat.go`   | Heartbeat polling -- decide/execute/notify via LLM     |
+| `internal/scheduler/persistence.go` | Database persistence (load/save/migrate jobs)          |
 | `internal/scheduler/tool.go`        | `SchedulerTool` -- agent tool implementing `tool.Tool` |
 
 ### Key Types
@@ -114,12 +114,12 @@ Scheduler is only active when:
 
 The admin panel exposes a full CRUD API for scheduler jobs:
 
-| Method   | Endpoint                   | Description              |
-| -------- | -------------------------- | ------------------------ |
-| `GET`    | `/api/scheduler/jobs`      | List all scheduled jobs  |
-| `POST`   | `/api/scheduler/jobs`      | Create a new job         |
-| `PUT`    | `/api/scheduler/jobs/{id}` | Update an existing job   |
-| `DELETE` | `/api/scheduler/jobs/{id}` | Delete a job             |
+| Method   | Endpoint                   | Description             |
+| -------- | -------------------------- | ----------------------- |
+| `GET`    | `/api/scheduler/jobs`      | List all scheduled jobs |
+| `POST`   | `/api/scheduler/jobs`      | Create a new job        |
+| `PUT`    | `/api/scheduler/jobs/{id}` | Update an existing job  |
+| `DELETE` | `/api/scheduler/jobs/{id}` | Delete a job            |
 
 ## Agent Tool
 

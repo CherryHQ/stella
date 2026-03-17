@@ -14,39 +14,39 @@ Configuration is spread across several tables in the SQLite database.
 
 A key-value store for global settings. Each row has a `key` (text) and a `value` (JSON text). Known keys:
 
-| Key            | Description                                     |
-| -------------- | ----------------------------------------------- |
+| Key            | Description                                                   |
+| -------------- | ------------------------------------------------------------- |
 | `runner`       | Runner type, system prompt, idle timeout, compaction settings |
-| `compaction`   | Compaction thresholds (max_tokens, keep_tail)   |
-| `heartbeat`    | Heartbeat polling toggle and interval           |
-| `plugins`      | JSON array of plugin definitions                |
-| `models_cache` | Cached model list from providers                |
+| `compaction`   | Compaction thresholds (max_tokens, keep_tail)                 |
+| `heartbeat`    | Heartbeat polling toggle and interval                         |
+| `plugins`      | JSON array of plugin definitions                              |
+| `models_cache` | Cached model list from providers                              |
 
 ### settings_providers
 
 One row per LLM provider.
 
-| Column     | Type | Description                          |
-| ---------- | ---- | ------------------------------------ |
+| Column     | Type | Description                                |
+| ---------- | ---- | ------------------------------------------ |
 | `id`       | TEXT | Provider slug (e.g. `anthropic`, `openai`) |
-| `name`     | TEXT | Display name                         |
-| `api_key`  | TEXT | API key                              |
-| `base_url` | TEXT | Optional base URL override           |
+| `name`     | TEXT | Display name                               |
+| `api_key`  | TEXT | API key                                    |
+| `base_url` | TEXT | Optional base URL override                 |
 
 ### settings_agents
 
 One row per agent.
 
-| Column          | Type    | Description                                    |
-| --------------- | ------- | ---------------------------------------------- |
-| `id`            | TEXT    | Agent slug (e.g. `anna`)                       |
-| `name`          | TEXT    | Display name                                   |
-| `model`         | TEXT    | Default model in `provider/model` format       |
-| `model_strong`  | TEXT    | Strong-tier model in `provider/model` format   |
-| `model_fast`    | TEXT    | Fast-tier model in `provider/model` format     |
+| Column          | Type    | Description                                     |
+| --------------- | ------- | ----------------------------------------------- |
+| `id`            | TEXT    | Agent slug (e.g. `anna`)                        |
+| `name`          | TEXT    | Display name                                    |
+| `model`         | TEXT    | Default model in `provider/model` format        |
+| `model_strong`  | TEXT    | Strong-tier model in `provider/model` format    |
+| `model_fast`    | TEXT    | Fast-tier model in `provider/model` format      |
 | `system_prompt` | TEXT    | Custom system prompt (bypasses default builder) |
-| `workspace`     | TEXT    | Absolute path to agent workspace directory     |
-| `enabled`       | INTEGER | 1 = active, 0 = disabled                      |
+| `workspace`     | TEXT    | Absolute path to agent workspace directory      |
+| `enabled`       | INTEGER | 1 = active, 0 = disabled                        |
 
 ### settings_channels
 
@@ -55,30 +55,30 @@ One row per messaging platform.
 | Column    | Type    | Description                                           |
 | --------- | ------- | ----------------------------------------------------- |
 | `id`      | TEXT    | Platform identifier: `telegram`, `qq`, or `feishu`    |
-| `enabled` | INTEGER | 1 = active, 0 = disabled                             |
+| `enabled` | INTEGER | 1 = active, 0 = disabled                              |
 | `config`  | TEXT    | JSON blob with platform-specific settings (see below) |
 
 ### settings_users
 
 Maps external platform users to agents.
 
-| Column             | Type    | Description                                       |
-| ------------------ | ------- | ------------------------------------------------- |
-| `id`               | INTEGER | Auto-increment primary key                        |
-| `external_id`      | TEXT    | User ID on the platform                           |
-| `platform`         | TEXT    | Platform identifier (e.g. `telegram`)             |
-| `name`             | TEXT    | Display name                                      |
+| Column             | Type    | Description                                               |
+| ------------------ | ------- | --------------------------------------------------------- |
+| `id`               | INTEGER | Auto-increment primary key                                |
+| `external_id`      | TEXT    | User ID on the platform                                   |
+| `platform`         | TEXT    | Platform identifier (e.g. `telegram`)                     |
+| `name`             | TEXT    | Display name                                              |
 | `default_agent_id` | TEXT    | FK to `settings_agents.id` -- default agent for this user |
 
 ### settings_channel_agents
 
 Routes a specific group chat to a specific agent.
 
-| Column     | Type | Description                               |
-| ---------- | ---- | ----------------------------------------- |
-| `platform` | TEXT | Platform identifier                       |
-| `chat_id`  | TEXT | Group or chat ID on the platform          |
-| `agent_id` | TEXT | FK to `settings_agents.id`                |
+| Column     | Type | Description                      |
+| ---------- | ---- | -------------------------------- |
+| `platform` | TEXT | Platform identifier              |
+| `chat_id`  | TEXT | Group or chat ID on the platform |
+| `agent_id` | TEXT | FK to `settings_agents.id`       |
 
 Composite primary key: `(platform, chat_id)`.
 
@@ -86,13 +86,13 @@ Composite primary key: `(platform, chat_id)`.
 
 Stored in the `settings` table under the `runner` key as a JSON object.
 
-| Field                    | Default  | Description                                    |
-| ------------------------ | -------- | ---------------------------------------------- |
-| `type`                   | `go`     | Runner implementation (only `go` currently)    |
-| `system`                 | `""`     | Custom system prompt (bypasses default builder) |
-| `idle_timeout`           | `10`     | Minutes before reaping idle runners            |
-| `compaction.max_tokens`  | `80000`  | Auto-compact when history exceeds this         |
-| `compaction.keep_tail`   | `20`     | Keep N recent messages after compaction        |
+| Field                   | Default | Description                                     |
+| ----------------------- | ------- | ----------------------------------------------- |
+| `type`                  | `go`    | Runner implementation (only `go` currently)     |
+| `system`                | `""`    | Custom system prompt (bypasses default builder) |
+| `idle_timeout`          | `10`    | Minutes before reaping idle runners             |
+| `compaction.max_tokens` | `80000` | Auto-compact when history exceeds this          |
+| `compaction.keep_tail`  | `20`    | Keep N recent messages after compaction         |
 
 ## Channel Config Blobs
 
@@ -142,15 +142,15 @@ Each platform stores its own JSON structure in the `config` column of `settings_
 
 ## Directory Layout
 
-| Path                                          | Purpose                                  | Category |
-| --------------------------------------------- | ---------------------------------------- | -------- |
-| `~/.anna/anna.db`                             | SQLite database (config, memory, scheduler) | Data     |
-| `~/.anna/workspaces/{agent-id}/skills/`       | Per-agent installed skills               | Data     |
-| `~/.anna/workspaces/{agent-id}/anna.log`      | Per-agent log file                       | Data     |
-| `~/.anna/workspaces/{agent-id}/SOUL.md`       | Optional soul/identity override          | Data     |
-| `~/.anna/workspaces/{agent-id}/SYSTEM.md`     | Optional system prompt override          | Data     |
-| `~/.anna/workspaces/{agent-id}/HEARTBEAT.md`  | Heartbeat instructions                   | Data     |
-| `~/.anna/cache/`                              | Model cache (safe to delete)             | Cache    |
+| Path                                         | Purpose                                     | Category |
+| -------------------------------------------- | ------------------------------------------- | -------- |
+| `~/.anna/anna.db`                            | SQLite database (config, memory, scheduler) | Data     |
+| `~/.anna/workspaces/{agent-id}/skills/`      | Per-agent installed skills                  | Data     |
+| `~/.anna/workspaces/{agent-id}/anna.log`     | Per-agent log file                          | Data     |
+| `~/.anna/workspaces/{agent-id}/SOUL.md`      | Optional soul/identity override             | Data     |
+| `~/.anna/workspaces/{agent-id}/SYSTEM.md`    | Optional system prompt override             | Data     |
+| `~/.anna/workspaces/{agent-id}/HEARTBEAT.md` | Heartbeat instructions                      | Data     |
+| `~/.anna/cache/`                             | Model cache (safe to delete)                | Cache    |
 
 - **anna.db** is the single source of truth for all configuration, memory, and scheduler data.
 - **workspaces/** contains per-agent data. Each agent gets its own directory keyed by agent ID.
@@ -160,11 +160,11 @@ Each platform stores its own JSON structure in the `config` column of `settings_
 
 The old `ANNA_*` prefix overrides for all config fields are removed. Only the following environment variables are recognized:
 
-| Variable           | Purpose                                      |
-| ------------------ | -------------------------------------------- |
-| `ANNA_HOME`        | Override the home directory (default `~/.anna`) |
-| `ANTHROPIC_API_KEY`| Fallback API key for the Anthropic provider  |
-| `OPENAI_API_KEY`   | Fallback API key for the OpenAI provider     |
+| Variable            | Purpose                                         |
+| ------------------- | ----------------------------------------------- |
+| `ANNA_HOME`         | Override the home directory (default `~/.anna`) |
+| `ANTHROPIC_API_KEY` | Fallback API key for the Anthropic provider     |
+| `OPENAI_API_KEY`    | Fallback API key for the OpenAI provider        |
 
 All other configuration must be set through the admin panel (`anna onboard`) or directly in the database.
 

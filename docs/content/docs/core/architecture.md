@@ -246,12 +246,12 @@ The `delegate` tool enables the agent to spawn child agent loops with isolated c
 
 ### Extra Tools (conditionally injected)
 
-| Tool              | Condition                         | Description                                                              |
-| ----------------- | --------------------------------- | ------------------------------------------------------------------------ |
-| `memory`          | Always                            | Unified memory tool (grep/describe/expand/user_memory_update)            |
-| `skills`          | Always                            | Skill management (search/install/list/remove from skills.sh)             |
-| `scheduler`       | `scheduler.enabled: true`         | Schedule tasks (add/list/remove jobs)                                    |
-| `notify`          | Gateway mode + channel configured | Send notifications via dispatcher                                        |
+| Tool        | Condition                         | Description                                                   |
+| ----------- | --------------------------------- | ------------------------------------------------------------- |
+| `memory`    | Always                            | Unified memory tool (grep/describe/expand/user_memory_update) |
+| `skills`    | Always                            | Skill management (search/install/list/remove from skills.sh)  |
+| `scheduler` | `scheduler.enabled: true`         | Schedule tasks (add/list/remove jobs)                         |
+| `notify`    | Gateway mode + channel configured | Send notifications via dispatcher                             |
 
 The `user_memory_update` action within the `memory` tool is a write-only operation that replaces the entire per-user-per-agent memory content in the database. These notes are always loaded into the system prompt (in the "User Memory" section) so the agent has persistent context about user preferences and important details across sessions. This replaces the previous file-based SOUL.md/USER.md approach with DB-backed `UserMemoryStore`.
 

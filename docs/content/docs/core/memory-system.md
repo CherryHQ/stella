@@ -82,21 +82,21 @@ mise run generate
 
 **Schema:**
 
-| Table                    | Purpose                                                                                          |
-| ------------------------ | ------------------------------------------------------------------------------------------------ |
-| `ctx_conversations`      | One per session (`session_id` -> `id` mapping). Includes `agent_id` and `user_id` columns to track which agent and user own the conversation. |
-| `ctx_messages`           | Raw messages with `role`, `content`, `token_count`, sequential `seq`                             |
-| `ctx_summaries`          | Summary nodes: `kind` (`leaf`/`condensed`), `depth`, `content`, token stats, time range          |
-| `ctx_items`              | Ordered context window: each item points to either a `message_id` or `summary_id`                |
-| `ctx_summary_messages`   | Links leaf summaries to their source messages (preserves lineage)                                |
-| `ctx_summary_parents`    | Links condensed summaries to their parent summaries (DAG edges)                                  |
-| `ctx_message_parts`      | Structured message parts (`text`, `reasoning`, `tool`) for future use                            |
-| `ctx_agent_memory`       | Per-user-per-agent notes. Primary key is `(user_id, agent_id)`. Content is injected into the system prompt at session start. |
-| `settings_agents`        | Agent configuration including `system_prompt` (agent soul), model selection, and workspace path  |
-| `settings_providers`     | LLM provider credentials and endpoints                                                           |
-| `settings_channels`      | Channel (Telegram, QQ, Feishu) configuration                                                     |
-| `settings_users`         | User records referenced by `ctx_agent_memory` and `ctx_conversations`                            |
-| `settings_channel_agents`| Maps channels to agents for multi-agent routing                                                  |
+| Table                     | Purpose                                                                                                                                       |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctx_conversations`       | One per session (`session_id` -> `id` mapping). Includes `agent_id` and `user_id` columns to track which agent and user own the conversation. |
+| `ctx_messages`            | Raw messages with `role`, `content`, `token_count`, sequential `seq`                                                                          |
+| `ctx_summaries`           | Summary nodes: `kind` (`leaf`/`condensed`), `depth`, `content`, token stats, time range                                                       |
+| `ctx_items`               | Ordered context window: each item points to either a `message_id` or `summary_id`                                                             |
+| `ctx_summary_messages`    | Links leaf summaries to their source messages (preserves lineage)                                                                             |
+| `ctx_summary_parents`     | Links condensed summaries to their parent summaries (DAG edges)                                                                               |
+| `ctx_message_parts`       | Structured message parts (`text`, `reasoning`, `tool`) for future use                                                                         |
+| `ctx_agent_memory`        | Per-user-per-agent notes. Primary key is `(user_id, agent_id)`. Content is injected into the system prompt at session start.                  |
+| `settings_agents`         | Agent configuration including `system_prompt` (agent soul), model selection, and workspace path                                               |
+| `settings_providers`      | LLM provider credentials and endpoints                                                                                                        |
+| `settings_channels`       | Channel (Telegram, QQ, Feishu) configuration                                                                                                  |
+| `settings_users`          | User records referenced by `ctx_agent_memory` and `ctx_conversations`                                                                         |
+| `settings_channel_agents` | Maps channels to agents for multi-agent routing                                                                                               |
 
 ### Compaction
 
@@ -155,11 +155,11 @@ The `Assembler` builds the context window for each LLM call (`internal/memory/as
 
 A unified `memory` tool in `internal/memory/tool/` provides all memory operations via an `action` parameter:
 
-| Action               | Purpose                                                                             | Key Parameters                                                                      |
-| -------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `grep`               | Search messages and summaries by substring pattern                                  | `pattern` (required), `scope` (`messages`/`summaries`/`both`), `limit` (default 20) |
-| `describe`           | Inspect a summary's metadata, content, and lineage (parents/children)               | `summary_id`                                                                        |
-| `expand`             | Drill into a summary: returns source messages (leaf) or child summaries (condensed) | `summary_id`, `token_cap` (default 4000)                                            |
+| Action               | Purpose                                                                                                                                                     | Key Parameters                                                                      |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `grep`               | Search messages and summaries by substring pattern                                                                                                          | `pattern` (required), `scope` (`messages`/`summaries`/`both`), `limit` (default 20) |
+| `describe`           | Inspect a summary's metadata, content, and lineage (parents/children)                                                                                       | `summary_id`                                                                        |
+| `expand`             | Drill into a summary: returns source messages (leaf) or child summaries (condensed)                                                                         | `summary_id`, `token_cap` (default 4000)                                            |
 | `user_memory_update` | Write-only update of persistent per-user-per-agent notes in `ctx_agent_memory`. Content is always injected into the system prompt; this action only writes. | `content` (required)                                                                |
 
 The tool extracts session ID, user ID, and agent ID from context (set by `Pool.Chat()`).
@@ -196,11 +196,11 @@ Agent identity and per-user memory are stored in the database and optionally ove
 
 The system prompt sent to the LLM is assembled from three layers, each overridable:
 
-| Layer           | Default source                    | File override                                     | Description                                                        |
-| --------------- | --------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------ |
-| **Basic**       | Built-in system instructions      | `SYSTEM.md` in agent workspace                    | Core behavioral instructions for the LLM.                          |
-| **Agent soul**  | `settings_agents.system_prompt`   | `SOUL.md` in agent workspace                      | Agent identity, personality, and tone.                             |
-| **User memory** | `ctx_agent_memory.content`        | (none -- always from DB)                          | Per-user-per-agent notes. Automatically injected; not overridable by file. |
+| Layer           | Default source                  | File override                  | Description                                                                |
+| --------------- | ------------------------------- | ------------------------------ | -------------------------------------------------------------------------- |
+| **Basic**       | Built-in system instructions    | `SYSTEM.md` in agent workspace | Core behavioral instructions for the LLM.                                  |
+| **Agent soul**  | `settings_agents.system_prompt` | `SOUL.md` in agent workspace   | Agent identity, personality, and tone.                                     |
+| **User memory** | `ctx_agent_memory.content`      | (none -- always from DB)       | Per-user-per-agent notes. Automatically injected; not overridable by file. |
 
 Layers are concatenated in order (basic, then agent soul, then user memory) to form the final system prompt.
 

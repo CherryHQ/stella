@@ -16,11 +16,11 @@ import { useMDXComponents } from '@/components/mdx';
 import { baseOptions, gitConfig } from '@/lib/layout.shared';
 import { source } from '@/lib/source';
 
-export const Route = createFileRoute('/docs/$')({
+export const Route = createFileRoute('/$lang/docs/$')({
   component: Page,
   loader: async ({ params }) => {
     const slugs = params._splat?.split('/') ?? [];
-    const data = await serverLoader({ data: slugs });
+    const data = await serverLoader({ data: { slugs, lang: params.lang } });
     await clientLoader.preload(data.path);
     return data;
   },
@@ -29,22 +29,21 @@ export const Route = createFileRoute('/docs/$')({
 const serverLoader = createServerFn({
   method: 'GET',
 })
-  .inputValidator((slugs: string[]) => slugs)
-  .handler(async ({ data: slugs }) => {
-    const page = source.getPage(slugs);
+  .inputValidator((params: { slugs: string[]; lang: string }) => params)
+  .handler(async ({ data: { slugs, lang } }) => {
+    const page = source.getPage(slugs, lang);
     if (!page) throw notFound();
 
     return {
       slugs: page.slugs,
       path: page.path,
-      pageTree: await source.serializePageTree(source.getPageTree()),
+      pageTree: await source.serializePageTree(source.getPageTree(lang)),
     };
   });
 
 const clientLoader = browserCollections.docs.createClientLoader({
   component(
     { toc, frontmatter, default: MDX },
-    // you can define props for the component
     {
       markdownUrl,
       path,
@@ -74,11 +73,12 @@ const clientLoader = browserCollections.docs.createClientLoader({
 });
 
 function Page() {
+  const { lang } = Route.useParams();
   const { path, pageTree, slugs } = useFumadocsLoader(Route.useLoaderData());
   const markdownUrl = `/llms.mdx/docs/${slugs.join('/')}`;
 
   return (
-    <DocsLayout {...baseOptions()} tree={pageTree}>
+    <DocsLayout {...baseOptions(lang)} tree={pageTree}>
       <Suspense>{clientLoader.useContent(path, { markdownUrl, path })}</Suspense>
     </DocsLayout>
   );
