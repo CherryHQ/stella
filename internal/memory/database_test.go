@@ -49,7 +49,7 @@ func TestOpenDB(t *testing.T) {
 	}
 
 	// Verify tables exist (including migration tracking table).
-	tables := []string{"schema_migrations", "conversations", "messages", "message_parts", "summaries", "summary_messages", "summary_parents", "context_items"}
+	tables := []string{"schema_migrations", "ctx_conversations", "ctx_messages", "ctx_message_parts", "ctx_summaries", "ctx_summary_messages", "ctx_summary_parents", "ctx_items"}
 	for _, table := range tables {
 		var name string
 		err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
