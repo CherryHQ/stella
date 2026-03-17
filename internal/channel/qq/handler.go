@@ -30,7 +30,7 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 		}
 
 		text := strings.TrimSpace(msg.Content)
-		ch := channelForC2C(authorID)
+		ch := b.buildSessionKey(authorID, "", b.resolveAgentID(authorID))
 
 		if text != "" {
 			if handled := b.handleCommand(text, ch, authorID, func(reply string) {
@@ -40,7 +40,7 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 			}
 		}
 
-		b.handleMessage(ch, authorID, msg.ID, content, scopeC2C)
+		b.handleMessage(authorID, "", msg.ID, content, scopeC2C)
 		return nil
 	}
 }
@@ -66,7 +66,7 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 		}
 
 		text := strings.TrimSpace(msg.Content)
-		ch := channelForGroup(groupID)
+		ch := b.buildSessionKey(authorID, groupID, b.resolveAgentID(authorID))
 
 		if text != "" {
 			if handled := b.handleCommand(text, ch, authorID, func(reply string) {
@@ -76,7 +76,7 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 			}
 		}
 
-		b.handleMessage(ch, groupID, msg.ID, content, scopeGroup)
+		b.handleMessage(authorID, groupID, msg.ID, content, scopeGroup)
 		return nil
 	}
 }
@@ -178,17 +178,23 @@ func downloadImage(ctx context.Context, rawURL string) ([]byte, string, error) {
 }
 
 // handleMessage processes an incoming message by streaming the agent response.
-func (b *Bot) handleMessage(ch, targetID, msgID string, content runner.MessageContent, scope messageScope) {
-	sessionID, err := b.resolveSession(ch)
+// authorID is the QQ OpenID of the sender; groupID is non-empty for group messages.
+func (b *Bot) handleMessage(authorID, groupID, msgID string, content runner.MessageContent, scope messageScope) {
+	sessionID, err := b.resolveSession(authorID, groupID)
 	if err != nil {
-		logger().Error("resolve session failed", "channel", ch, "error", err)
+		logger().Error("resolve session failed", "author", authorID, "error", err)
+		targetID := authorID
+		if groupID != "" {
+			targetID = groupID
+		}
 		b.sendReply(targetID, msgID, fmt.Sprintf("Session error: %v", err), scope)
 		return
 	}
 
-	logger().Debug("message received", "channel", ch)
+	pool, _ := b.resolvePool(authorID)
+	logger().Debug("message received", "author", authorID, "session", sessionID)
 
-	response, images, streamErr := b.streamResponse(targetID, msgID, sessionID, content, scope)
+	response, images, streamErr := b.streamResponse(pool, authorID, groupID, msgID, sessionID, content, scope)
 
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", sessionID, "error", streamErr)
@@ -203,13 +209,18 @@ func (b *Bot) handleMessage(ch, targetID, msgID string, content runner.MessageCo
 		response = "(empty response)"
 	}
 
-	b.sendFinalResponse(targetID, msgID, response, scope)
-
-	for _, img := range images {
-		b.sendImage(targetID, msgID, img, scope)
+	replyTarget := authorID
+	if groupID != "" {
+		replyTarget = groupID
 	}
 
-	logger().Debug("response sent", "channel", ch, "response_len", len(response), "images", len(images))
+	b.sendFinalResponse(replyTarget, msgID, response, scope)
+
+	for _, img := range images {
+		b.sendImage(replyTarget, msgID, img, scope)
+	}
+
+	logger().Debug("response sent", "author", authorID, "response_len", len(response), "images", len(images))
 }
 
 // handleCommand checks if text is a bot command and handles it.
