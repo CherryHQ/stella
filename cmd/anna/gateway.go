@@ -150,7 +150,10 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 			NotifyChat:        fsCfg.NotifyChat,
 			GroupMode:         fsCfg.GroupMode,
 			AllowedIDs:        fsCfg.AllowedIDs,
-		}, s.pool, listFn, switchFn)
+		}, s.pool, listFn, switchFn,
+			feishu.WithPoolManager(s.poolManager),
+			feishu.WithStore(s.store),
+		)
 		if err != nil {
 			return fmt.Errorf("create feishu bot: %w", err)
 		}

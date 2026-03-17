@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/ai"
 )
@@ -69,26 +70,34 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		return nil
 	}
 
+	// Resolve pool and agent for session key construction.
+	replyFn := func(reply string) { b.replyText(b.ctx, messageID, reply) }
+
+	pool, userID, err := b.resolvePool(openID)
+	if err != nil {
+		logger().Error("resolve pool failed", "open_id", openID, "error", err)
+		replyFn(fmt.Sprintf("Error: %v", err))
+		return nil
+	}
+
+	ch := b.buildSessionKey(openID, chatID, chatType, pool.AgentID())
+
 	// Extract text for command handling.
 	text := parseTextContent(derefStr(msg.Content))
 	if chatType == "group" {
 		text = stripMentions(text, mentions)
 	}
 
-	ch := channelForChat(chatID)
-
 	// Handle commands synchronously (they're fast).
 	if text != "" {
-		if handled := b.handleCommand(text, ch, openID, func(reply string) {
-			b.replyText(b.ctx, messageID, reply)
-		}); handled {
+		if handled := b.handleCommand(pool, userID, text, ch, openID, replyFn); handled {
 			return nil
 		}
 	}
 
 	// Process agent response asynchronously so the handler returns
 	// immediately, preventing Feishu from retrying the event.
-	go b.handleMessage(ch, chatID, messageID, content)
+	go b.handleMessage(pool, openID, chatID, chatType, messageID, content)
 	return nil
 }
 
@@ -204,17 +213,17 @@ func parseTextContent(raw string) string {
 }
 
 // handleMessage processes an incoming message by streaming the agent response.
-func (b *Bot) handleMessage(ch, chatID, messageID string, content runner.MessageContent) {
-	sessionID, err := b.resolveSession(ch)
+func (b *Bot) handleMessage(pool *agent.Pool, openID, chatID, chatType, messageID string, content runner.MessageContent) {
+	sessionID, err := b.resolveSession(openID, chatID, chatType)
 	if err != nil {
-		logger().Error("resolve session failed", "channel", ch, "error", err)
+		logger().Error("resolve session failed", "open_id", openID, "error", err)
 		b.replyText(b.ctx, messageID, fmt.Sprintf("Session error: %v", err))
 		return
 	}
 
-	logger().Debug("message received", "channel", ch)
+	logger().Debug("message received", "open_id", openID, "session", sessionID)
 
-	sentMsgID, response, images, streamErr := b.streamResponse(chatID, messageID, sessionID, content)
+	sentMsgID, response, images, streamErr := b.streamResponse(pool, chatID, messageID, sessionID, content)
 
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", sessionID, "error", streamErr)
@@ -235,12 +244,12 @@ func (b *Bot) handleMessage(ch, chatID, messageID string, content runner.Message
 		b.sendImage(chatID, messageID, img)
 	}
 
-	logger().Debug("response sent", "channel", ch, "response_len", len(response), "images", len(images))
+	logger().Debug("response sent", "open_id", openID, "response_len", len(response), "images", len(images))
 }
 
 // handleCommand checks if text is a bot command and handles it.
 // Returns true if the text was a command.
-func (b *Bot) handleCommand(text, ch, senderID string, reply func(string)) bool {
+func (b *Bot) handleCommand(pool *agent.Pool, userID int64, text, ch, senderID string, reply func(string)) bool {
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
 		return false
@@ -253,7 +262,7 @@ func (b *Bot) handleCommand(text, ch, senderID string, reply func(string)) bool 
 		return true
 
 	case "/new":
-		info, err := b.pool.RotateSession(ch)
+		info, err := pool.RotateSession(ch, userID)
 		if err != nil {
 			logger().Error("rotate session failed", "channel", ch, "error", err)
 			reply(fmt.Sprintf("Error creating new session: %v", err))
@@ -264,12 +273,12 @@ func (b *Bot) handleCommand(text, ch, senderID string, reply func(string)) bool 
 		return true
 
 	case "/compact":
-		sessionID, err := b.resolveSession(ch)
+		sessionID, err := b.resolveSession(senderID, ch, "")
 		if err != nil {
 			reply(fmt.Sprintf("No active session: %v", err))
 			return true
 		}
-		summary, err := b.pool.CompactSession(b.ctx, sessionID)
+		summary, err := pool.CompactSession(b.ctx, sessionID)
 		if err != nil {
 			logger().Error("compact session failed", "session_id", sessionID, "error", err)
 			reply(fmt.Sprintf("Compaction failed: %v", err))
@@ -282,7 +291,7 @@ func (b *Bot) handleCommand(text, ch, senderID string, reply func(string)) bool 
 	case "/model":
 		origCmd := strings.Fields(text)[0]
 		args := strings.TrimSpace(strings.TrimPrefix(text, origCmd))
-		b.handleModelCommand(args, ch, reply)
+		b.handleModelCommand(pool, userID, args, ch, reply)
 		return true
 
 	case "/whoami":
