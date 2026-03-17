@@ -285,6 +285,30 @@ func (s *DBStore) SetUserAgentMemory(ctx context.Context, userID int64, agentID,
 	})
 }
 
+func (s *DBStore) ListUserMemories(ctx context.Context, userID int64) ([]UserAgentMemory, error) {
+	rows, err := s.q.ListUserAgentMemoriesByUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list user memories for user %d: %w", userID, err)
+	}
+	out := make([]UserAgentMemory, len(rows))
+	for i, r := range rows {
+		out[i] = UserAgentMemory{
+			UserID:    r.UserID,
+			AgentID:   r.AgentID,
+			Content:   r.Content,
+			UpdatedAt: r.UpdatedAt,
+		}
+	}
+	return out, nil
+}
+
+func (s *DBStore) DeleteUserAgentMemory(ctx context.Context, userID int64, agentID string) error {
+	return s.q.DeleteUserAgentMemory(ctx, sqlc.DeleteUserAgentMemoryParams{
+		UserID:  userID,
+		AgentID: agentID,
+	})
+}
+
 // --- Settings ---
 
 func (s *DBStore) GetSetting(ctx context.Context, key string) (string, error) {
