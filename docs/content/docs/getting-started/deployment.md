@@ -29,24 +29,24 @@ cd anna && go build -o anna .
 
 ### Running
 
-Create a config file at `~/.anna/config.yaml` (see [configuration.md](/docs/getting-started/configuration) for full reference):
+Run the onboard command to open the admin panel and configure anna (providers, channels, agents, etc.):
 
 ```bash
-mkdir -p ~/.anna
-cat > ~/.anna/config.yaml <<'EOF'
-provider: anthropic
-model: claude-sonnet-4-6
-
-providers:
-  anthropic:
-    api_key: "sk-..."
-EOF
+anna onboard
 ```
+
+This starts a local web UI where you set up API keys, channels, and agent profiles. All configuration is stored in `~/.anna/anna.db` -- no manual config files needed.
 
 Start the gateway daemon:
 
 ```bash
 anna gateway
+```
+
+To serve the admin panel alongside the gateway (for runtime config changes):
+
+```bash
+anna gateway --admin-port 8080
 ```
 
 Or use the interactive CLI:
@@ -77,13 +77,13 @@ After=network.target
 Type=simple
 User=anna
 WorkingDirectory=/home/anna
-ExecStart=/usr/local/bin/anna gateway
+ExecStart=/usr/local/bin/anna gateway --admin-port 8080
 Restart=on-failure
 RestartSec=5
 
-# Environment overrides (alternative to config file)
+# API keys — all other config lives in the database
 Environment=ANTHROPIC_API_KEY=sk-...
-Environment=ANNA_TELEGRAM_TOKEN=123456:ABC...
+Environment=ANNA_HOME=/home/anna/.anna
 
 [Install]
 WantedBy=multi-user.target
@@ -92,6 +92,8 @@ WantedBy=multi-user.target
 ```bash
 sudo systemctl enable --now anna
 ```
+
+All configuration (channels, agents, scheduler jobs) is stored in `anna.db`. Use `anna onboard` or the admin panel to manage it.
 
 ## Docker
 
@@ -107,16 +109,27 @@ Images are published to `ghcr.io/vaayne/anna` for `linux/amd64` and `linux/arm64
 
 ### Quick Start
 
+First, run onboard to configure anna:
+
+```bash
+docker run -it --rm \
+  -v ~/.anna:/home/nonroot/.anna \
+  -p 8080:8080 \
+  ghcr.io/vaayne/anna:latest \
+  anna onboard
+```
+
+Then start the gateway:
+
 ```bash
 docker run -d \
   --name anna \
-  -v $(pwd)/anna-data:/home/nonroot/.anna \
+  -v ~/.anna:/home/nonroot/.anna \
   -e ANTHROPIC_API_KEY=sk-... \
-  -e ANNA_TELEGRAM_TOKEN=123456:ABC... \
   ghcr.io/vaayne/anna:latest
 ```
 
-The container runs as `nonroot` user. Mount `~/.anna` to persist config, sessions, and scheduler data. You can set `ANNA_HOME` to change the workspace path inside the container.
+The container runs as `nonroot` user. Mount `~/.anna` to persist the database, skills, and cache. You can set `ANNA_HOME` to change the data directory inside the container.
 
 ### Docker Compose
 
@@ -130,14 +143,14 @@ services:
       - ./anna-data:/home/nonroot/.anna
     environment:
       - ANTHROPIC_API_KEY=sk-...
-      - ANNA_TELEGRAM_TOKEN=123456:ABC...
-      # - ANNA_TELEGRAM_NOTIFY_CHAT=123456789
-      # - ANNA_TELEGRAM_GROUP_MODE=mention
+      # - OPENAI_API_KEY=sk-...
 ```
 
 ```bash
 docker compose up -d
 ```
+
+To run initial setup, use `docker compose exec anna anna onboard` or start the gateway with `--admin-port 8080` and configure via the web UI.
 
 ### Build Locally
 
@@ -151,37 +164,32 @@ docker buildx build --platform linux/amd64,linux/arm64 -t anna .
 
 ## Volumes & Data
 
-| Path                           | Purpose                                      |
-| ------------------------------ | -------------------------------------------- |
-| `~/.anna/config.yaml`          | Configuration                                |
-| `~/.anna/workspace/scheduler/` | Scheduler job persistence                    |
-| `~/.anna/workspace/SOUL.md`    | Agent identity, personality                  |
-| `~/.anna/workspace/USER.md`    | User preferences, context                    |
-| `~/.anna/workspace/memory.db`  | Memory database (message history, summaries) |
-| `~/.anna/workspace/skills/`    | Installed skills                             |
-| `~/.anna/cache/models.json`    | Model cache                                  |
+All data lives under the anna home directory (`~/.anna` by default, configurable via `ANNA_HOME`).
 
-All paths are under the workspace root (`~/.anna/workspace` by default, configurable via `ANNA_HOME`).
+| Path                                       | Purpose                                         |
+| ------------------------------------------ | ------------------------------------------------ |
+| `~/.anna/anna.db`                          | Single database (config, memory, scheduler)      |
+| `~/.anna/workspaces/{agent-id}/skills/`    | Per-agent installed skills                       |
+| `~/.anna/workspaces/{agent-id}/SOUL.md`    | Optional per-agent soul/identity override        |
+| `~/.anna/cache/`                           | Model cache (regenerable, safe to delete)        |
+
+The `anna.db` file is the only critical data to back up. It contains all configuration, message history, summaries, and scheduler jobs.
 
 ## Environment Variables
 
-All config values can be overridden via environment variables. See [configuration.md](/docs/getting-started/configuration#environment-variable-overrides) for the full list.
+Configuration is managed through the admin panel (via `anna onboard` or `--admin-port`). Only a small set of environment variables is supported:
 
-Key variables for deployment:
+| Variable            | Required | Description                             |
+| ------------------- | -------- | --------------------------------------- |
+| `ANNA_HOME`         | No       | Anna home directory (default `~/.anna`) |
+| `ANTHROPIC_API_KEY` | Yes\*    | Anthropic provider key                  |
+| `OPENAI_API_KEY`    | Yes\*    | OpenAI provider key                     |
 
-| Variable                    | Required     | Description                             |
-| --------------------------- | ------------ | --------------------------------------- |
-| `ANNA_HOME`                 | No           | Anna home directory (default `~/.anna`) |
-| `ANTHROPIC_API_KEY`         | Yes\*        | Anthropic provider key                  |
-| `OPENAI_API_KEY`            | Yes\*        | OpenAI provider key                     |
-| `ANNA_TELEGRAM_TOKEN`       | For Telegram | Bot token from @BotFather               |
-| `ANNA_TELEGRAM_NOTIFY_CHAT` | No           | Chat ID for proactive notifications     |
-
-\* At least one provider key is required.
+\* At least one provider key is required. API keys can also be configured via the admin panel.
 
 ## Health Check
 
-The gateway logs to stdout. Verify it's running:
+The gateway logs to stdout. Verify it is running:
 
 ```bash
 # Binary

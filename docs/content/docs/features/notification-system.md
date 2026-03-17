@@ -4,7 +4,7 @@ title: Notification System
 
 ## Status
 
-Implemented — `internal/channel/notifier.go`, `internal/channel/notify_tool.go`, `internal/channel/telegram/telegram.go`.
+Implemented -- `internal/channel/notifier.go`, `internal/channel/notify_tool.go`, `internal/channel/telegram/telegram.go`.
 
 ## Overview
 
@@ -13,26 +13,26 @@ Anna supports proactive notifications so the agent, scheduled jobs, and other in
 ## Architecture
 
 ```
-┌─────────────────┐
-│  Agent (notify   │──┐
-│  tool call)      │  │
-└─────────────────┘  │
-                      │   Notification{Channel, ChatID, Text, Silent}
-┌─────────────────┐  │           │
-│  Scheduler job result │──┼──────────▼──────────────┐
-└─────────────────┘  │      Dispatcher          │
-                      │  ┌──────────────────┐   │
-┌─────────────────┐  │  │ Route by Channel  │   │
-│  Future triggers │──┘  │ or broadcast all  │   │
-└─────────────────┘     └────────┬──────────┘   │
-                                 │              │
-                    ┌────────────┼──────────┐   │
-                    │            │          │   │
-                    ▼            ▼          ▼   │
-              ┌──────────┐ ┌────────┐ ┌───────┐│
-              │ Telegram │ │ Slack  │ │Discord││
-              │ Channel  │ │(future)│ │(future)│
-              └──────────┘ └────────┘ └───────┘
++-------------------+
+|  Agent (notify     |--+
+|  tool call)        |  |
++-------------------+  |
+                        |   Notification{Channel, ChatID, Text, Silent}
++-------------------+  |           |
+|  Scheduler job result |--+----------v------------------+
++-------------------+  |      Dispatcher              |
+                        |  +----------------------+   |
++-------------------+  |  | Route by Channel     |   |
+|  Future triggers   |--+  | or broadcast all     |   |
++-------------------+     +----------+-----------+   |
+                                     |               |
+                        +------------+----------+    |
+                        |            |          |    |
+                        v            v          v    |
+                  +----------+ +--------+ +-------+  |
+                  | Telegram | | Slack  | |Discord|  |
+                  | Channel  | |(future)| |(future)| |
+                  +----------+ +--------+ +-------+  |
 ```
 
 ## Key Types
@@ -48,9 +48,9 @@ type Notification struct {
 }
 ```
 
-- `Channel` empty → broadcast to **all** registered channels
-- `Channel` set → route to that specific channel only
-- `ChatID` empty → each channel uses its configured default
+- `Channel` empty -- broadcast to **all** registered channels
+- `Channel` set -- route to that specific channel only
+- `ChatID` empty -- each channel uses its configured default
 
 ### `channel.Channel`
 
@@ -107,10 +107,10 @@ The LLM can call it with:
 }
 ```
 
-- `message` (required) — the notification text
-- `channel` (optional) — target a specific channel; omit to broadcast
-- `chat_id` (optional) — override the channel's default target
-- `silent` (optional) — suppress notification sound
+- `message` (required) -- the notification text
+- `channel` (optional) -- target a specific channel; omit to broadcast
+- `chat_id` (optional) -- override the channel's default target
+- `silent` (optional) -- suppress notification sound
 
 ## Wiring
 
@@ -118,25 +118,25 @@ The LLM can call it with:
 
 ```
 setup()
-  ├── Create Dispatcher
-  ├── Create NotifyTool(dispatcher) → extraTools
-  ├── Create runner factory with extraTools
-  └── Create Pool
+  +-- Create Dispatcher
+  +-- Create NotifyTool(dispatcher) -> extraTools
+  +-- Create runner factory with extraTools
+  +-- Create PoolManager
 
 runGateway()
-  ├── Create telegram.Bot
-  ├── dispatcher.Register(tgBot, notifyChat)  ← channel registered
-  ├── wireSchedulerNotifier(schedulerSvc, pool, dispatcher) ← scheduler output → dispatcher
-  └── tgBot.Start(ctx)                        ← begin polling
+  +-- Create telegram.Bot
+  +-- dispatcher.Register(tgBot, notifyChat)  <- channel registered
+  +-- wireSchedulerNotifier(schedulerSvc, poolManager, dispatcher) <- scheduler output -> dispatcher
+  +-- tgBot.Start(ctx)                        <- begin polling
 ```
 
-The dispatcher is created early (in `setup`) so the notify tool can reference it. Channels are registered later (in `runGateway`) when they're created. This avoids circular dependencies.
+The dispatcher is created early (in `setup`) so the notify tool can reference it. Channels are registered later (in `runGateway`) when they are created. This avoids circular dependencies. The `wireSchedulerNotifier` function routes through PoolManager rather than a single pool.
 
-### Cron → Notification
+### Cron to Notification
 
 When a scheduled job fires:
 
-1. The job runs through `pool.Chat()` to get the agent's response
+1. The job runs through `PoolManager.Chat()` using the job's `agent_id` and `user_id` to reach the correct agent
 2. The full response text is collected
 3. The text is broadcast via `dispatcher.Notify()` to all channels
 
@@ -146,26 +146,7 @@ In CLI mode (`anna chat`), no notification channels are registered, so the `noti
 
 ## Configuration
 
-### Telegram
-
-```yaml
-channels:
-  telegram:
-    token: 'BOT_TOKEN'
-    notify_chat: '123456789' # default chat for notifications
-    channel_id: '@my_channel' # fallback if notify_chat is empty
-    group_mode: 'mention' # mention | always | disabled
-    allowed_ids: # restrict bot to these user IDs
-      - 136345060
-```
-
-Environment variable overrides:
-
-| Variable                    | Field                           |
-| --------------------------- | ------------------------------- |
-| `ANNA_TELEGRAM_NOTIFY_CHAT` | `channels.telegram.notify_chat` |
-| `ANNA_TELEGRAM_CHANNEL_ID`  | `channels.telegram.channel_id`  |
-| `ANNA_TELEGRAM_GROUP_MODE`  | `channels.telegram.group_mode`  |
+Channel configuration is managed through the admin panel. Each channel's settings (tokens, chat IDs, group modes, allowed IDs) are stored as JSON in the database. Configure notification channels from the admin panel UI rather than editing configuration files directly.
 
 ### Notify Target Resolution
 
@@ -173,7 +154,7 @@ When `Notify()` is called, the target chat is resolved in this order:
 
 1. `Notification.ChatID` (explicit in the call)
 2. Channel's registered default chat (from `dispatcher.Register`)
-3. For Telegram: `notify_chat` → `channel_id` → error
+3. For Telegram: `notify_chat` -> `channel_id` -> error
 
 ## Adding a New Channel
 
@@ -198,16 +179,16 @@ Use `channel.NewCommander(pool, listFn, switchFn)` for shared `/new`, `/compact`
 2. **Register in `runGateway()`:**
 
 ```go
-if s.cfg.Slack.Token != "" {
-    slackBot := slack.New(s.cfg.Slack)
+if slackCfg.Token != "" {
+    slackBot := slack.New(slackCfg)
     channels = append(channels, slackBot)
-    s.notifier.Register(slackBot, s.cfg.Slack.NotifyChannel)
+    s.notifier.Register(slackBot, slackCfg.NotifyChannel)
 }
 ```
 
-3. **Add config fields** to `config.go` and env var overrides.
+3. **Add channel config** via the admin panel. Channel configuration is stored as JSON in the database settings table.
 
-No changes needed to the dispatcher, notify tool, or scheduler wiring — they work through the `Channel` interface.
+No changes needed to the dispatcher, notify tool, or scheduler wiring -- they work through the `Channel` interface.
 
 ## Telegram-Specific Features
 
@@ -215,15 +196,15 @@ No changes needed to the dispatcher, notify tool, or scheduler wiring — they w
 
 The bot can operate in Telegram groups with configurable behavior:
 
-- `mention` (default) — respond only when @mentioned or replied to
-- `always` — respond to every message in the group
-- `disabled` — ignore all group messages (including commands)
+- `mention` (default) -- respond only when @mentioned or replied to
+- `always` -- respond to every message in the group
+- `disabled` -- ignore all group messages (including commands)
 
 Session ID for groups = group chat ID (shared context per group).
 
 ### Access Control
 
-`allowed_ids` restricts bot interaction to specific user IDs (Telegram numeric IDs, QQ OpenIDs, Feishu open_ids). When the list is empty, all users are allowed. Unauthorized users are silently ignored — all handlers (commands, callbacks, text) are wrapped in the access check. Users can send `/whoami` to the bot to discover their ID.
+`allowed_ids` restricts bot interaction to specific user IDs (Telegram numeric IDs, QQ OpenIDs, Feishu open_ids). When the list is empty, all users are allowed. Unauthorized users are silently ignored -- all handlers (commands, callbacks, text) are wrapped in the access check. Users can send `/whoami` to the bot to discover their ID.
 
 ### Notification Delivery
 

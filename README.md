@@ -8,6 +8,8 @@
 
 Anna is a self-hosted AI assistant that runs on your machine and talks to you through your terminal, Telegram, QQ, or Feishu. She keeps every conversation in a local SQLite database, compresses old context automatically so the LLM never hits its limit, and can recover the original detail whenever she needs it.
 
+She supports multiple agents running simultaneously, each with their own personality, model, and provider. Multiple users are handled automatically -- each person gets isolated per-agent memory that persists across sessions.
+
 She also schedules tasks, monitors files, and sends you notifications across channels without waiting for you to ask.
 
 ## Why anna
@@ -22,26 +24,30 @@ Anna meets you where you are. Terminal, Telegram, QQ, Feishu, all sharing the sa
 
 She does things on her own. Tell her "remind me every morning at 9am to check my email" and she will. Built-in scheduler, heartbeat file monitoring, push notifications across whatever channels you have connected.
 
-Two markdown files define the relationship. `SOUL.md` describes her personality, `USER.md` stores your preferences. She can edit both. Over time she learns your name, timezone, how you like things. Per-project overrides if you need them.
+Run multiple agents at once. A coding assistant, a writing partner, a daily planner -- each with its own model, provider, system prompt, and isolated workspace. Switch between them with `/agent` in Telegram or `--agent` on the CLI.
+
+Multiple users out of the box. Users are auto-created from platform identity (Telegram user ID, QQ ID, etc). Each user gets per-agent memory stored in the database, so Anna remembers different things about different people.
 
 And the whole thing is a single Go binary with a SQLite database. Your machine, your API keys, nothing leaves your network.
 
 ## How it works
 
 ```
-You
+Users (Telegram / QQ / Feishu / Terminal)
  |
- |  Talk from anywhere
- v
-Terminal  /  Telegram  /  QQ  /  Feishu
- |
+ |  /agent to switch agents
  v
 anna (single binary, your machine)
  |
- ├── LCM Memory (SQLite, DAG-based context compression)
- ├── Scheduler (jobs, reminders, heartbeat)
- ├── Skills (extensible via skills.sh)
- └── Notifications (pushes results back to you)
+ |- Agents (multiple, each with own model/provider/personality)
+ |   |- Workspace (~/.anna/workspaces/{agent-id}/skills/)
+ |   |- 3-layer system prompt (SYSTEM.md -> SOUL.md -> user memory)
+ |   '- LCM Memory (DAG-based context compression)
+ |
+ |- Admin Panel (web UI for all configuration)
+ |- Scheduler (jobs, reminders, heartbeat)
+ |- Skills (extensible via skills.sh)
+ '- Notifications (pushes results back to you)
  |
  v
 LLM Provider (Anthropic / OpenAI / any compatible API)
@@ -52,12 +58,25 @@ LLM Provider (Anthropic / OpenAI / any compatible API)
 The memory system stores every message in SQLite and organizes summaries into a directed acyclic graph. When the conversation gets long, older messages are grouped and summarized into leaf nodes. Groups of leaf nodes get condensed into higher-level nodes. This happens automatically.
 
 The agent carries a unified `memory` tool with four actions:
-- `grep` — search messages and summaries by keyword
-- `describe` — inspect a summary node's metadata and lineage
-- `expand` — drill into a summary to retrieve the source content
-- `user_memory_update` — update persistent per-user notes across sessions
+- `grep` -- search messages and summaries by keyword
+- `describe` -- inspect a summary node's metadata and lineage
+- `expand` -- drill into a summary to retrieve the source content
+- `user_memory_update` -- update persistent per-user notes across sessions (write-only, injected into system prompt automatically)
 
 When the context window fills up, Anna isn't working with truncated history. She's working with compressed summaries and can pull up specifics on demand. A conversation can be a thousand messages long and she'll still find what she needs.
+
+## Multi-agent and multi-user
+
+Anna supports running multiple agents simultaneously. Each agent has:
+
+- Its own model and provider configuration
+- An isolated workspace at `~/.anna/workspaces/{agent-id}/skills/`
+- A system prompt defined in the DB (`settings_agents.system_prompt`), overridable by placing a `SOUL.md` in the workspace
+- A 3-layer system prompt: basic system prompt (overridable by `SYSTEM.md`), then agent soul (overridable by `SOUL.md`), then per-user memory from the database
+
+Users are auto-created from platform identity. Each user gets per-agent memory stored in the `ctx_agent_memory` table, which is injected into the system prompt and updated via the `user_memory_update` action on the `memory` tool. Anna remembers different things about different people, per agent.
+
+In Telegram, use `/agent` to switch between agents. In DMs, your default agent is remembered. In groups, the agent is set per-group. On the CLI, use `anna chat --agent <name>`.
 
 ## Channels
 
@@ -70,7 +89,9 @@ Four channels, all sharing the same memory:
 | QQ | WebSocket | Native Stream API | Mention support |
 | Feishu | WebSocket, no public IP | Edit-in-place | Mention support |
 
-Every channel supports `/new`, `/compact`, `/model`, `/whoami`, model switching, access control, and image input.
+One bot per platform. Agent selection is handled via the `/agent` command rather than separate bots.
+
+Every channel supports `/new`, `/compact`, `/model`, `/agent`, `/whoami`, model switching, access control, and image input.
 
 ## Scheduler
 
@@ -82,16 +103,19 @@ There's also a heartbeat mode. Anna polls a markdown file on an interval, uses a
 
 ## Identity
 
-Two files in `$ANNA_HOME/workspace/` (`~/.anna/workspace` by default):
+Anna's identity system is DB-backed. No more markdown files to manage by hand.
 
-- `SOUL.md` defines how Anna communicates: personality, tone, values
-- `USER.md` stores things about you: name, timezone, preferences, context
+- **Agent soul**: stored in `settings_agents.system_prompt`, overridable by placing a `SOUL.md` in the agent's workspace (`~/.anna/workspaces/{agent-id}/`)
+- **System prompt**: base instructions overridable by `SYSTEM.md` in the workspace
+- **User memory**: per-user per-agent notes stored in the `ctx_agent_memory` table, injected into the system prompt automatically
 
-Anna can edit both. She picks up things you mention and writes them down for next time. You can set per-project overrides with `.agents/SOUL.md` and `.agents/USER.md` in any repo.
+The 3-layer system prompt builds up as: base system prompt, then agent soul, then user memory. Anna updates user memory over time as she learns your name, timezone, and preferences.
 
 ## Providers and models
 
-Works with Anthropic, OpenAI, and any OpenAI-compatible API (Perplexity, Together.ai, local models via Ollama, etc).
+Works with Anthropic, OpenAI, and any OpenAI-compatible API (Perplexity, Together.ai, local models via Ollama, etc). Provider configuration is managed through the admin panel.
+
+Environment variables `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` still work as fallbacks.
 
 Three model tiers:
 
@@ -112,7 +136,7 @@ anna skills list
 anna skills remove skill-name
 ```
 
-Search, install, and manage skills from the CLI or mid-conversation.
+Search, install, and manage skills from the CLI or mid-conversation. Each agent has its own skills directory at `~/.anna/workspaces/{agent-id}/skills/`.
 
 ## Quick start
 
@@ -130,40 +154,42 @@ Or grab a binary from [Releases](https://github.com/vaayne/anna/releases), or se
 anna onboard
 ```
 
-This opens a web UI in your browser where you can configure everything: API keys, providers, models, channels (Telegram, QQ, Feishu), and scheduled jobs. No need to edit config files by hand.
-
-If you prefer YAML, the config lives at `$ANNA_HOME/config.yaml` (`~/.anna` by default). See [Configuration](docs/content/docs/getting-started/configuration.md) for the full reference.
+This opens a web admin panel in your browser where you can configure everything: providers, API keys, agents, channels (Telegram, QQ, Feishu), users, scheduled jobs, and settings. All configuration is stored in `~/.anna/anna.db`. There are no YAML config files.
 
 ### Use
 
 ```bash
-anna chat            # Terminal chat
-anna gateway         # Start daemon (bots + scheduler)
+anna chat                   # Terminal chat (default agent)
+anna chat --agent helper    # Terminal chat with a specific agent
+anna gateway                # Start daemon (bots + scheduler)
+anna gateway --admin-port 8080  # Start daemon with admin panel
 ```
 
-`anna chat` gives you a terminal conversation. `anna gateway` starts all your configured channels and the scheduler in the background.
+`anna chat` gives you a terminal conversation. `anna gateway` starts all your configured channels and the scheduler. Add `--admin-port` to expose the admin panel alongside the gateway for runtime configuration.
 
 ## CLI reference
 
 ```bash
-anna onboard           # Open web UI to configure anna
-anna chat              # Interactive terminal chat
-anna chat --stream     # Pipe stdin, stream to stdout
-anna gateway           # Start daemon (bots + scheduler)
-anna models list       # List available models
-anna models set <p/m>  # Switch model (e.g. openai/gpt-4o)
-anna models search <q> # Search models
-anna skills search <q> # Search skills.sh
-anna skills install <s># Install a skill
-anna version           # Print version
-anna upgrade           # Self-update to latest release
+anna onboard               # Open web admin panel to configure anna
+anna chat                  # Interactive terminal chat
+anna chat --agent <name>   # Chat with a specific agent
+anna chat --stream         # Pipe stdin, stream to stdout
+anna gateway               # Start daemon (bots + scheduler)
+anna gateway --admin-port <port>  # Start daemon with admin panel
+anna models list           # List available models
+anna models set <p/m>      # Switch model (e.g. openai/gpt-4o)
+anna models search <q>     # Search models
+anna skills search <q>     # Search skills.sh
+anna skills install <s>    # Install a skill
+anna version               # Print version
+anna upgrade               # Self-update to latest release
 ```
 
 ## Documentation
 
 | Document | Description |
 |----------|------------|
-| [Configuration](docs/content/docs/getting-started/configuration.md) | Full config reference, env vars, defaults |
+| [Configuration](docs/content/docs/getting-started/configuration.md) | Full config reference, admin panel, defaults |
 | [Deployment](docs/content/docs/getting-started/deployment.md) | Binary install, Docker, systemd, compose |
 | [Architecture](docs/content/docs/core/architecture.md) | System design, packages, providers, tools |
 | [Models](docs/content/docs/core/models.md) | Tiers, CLI commands, provider setup |
@@ -173,6 +199,7 @@ anna upgrade           # Self-update to latest release
 | [QQ Bot](docs/content/docs/channels/qq.md) | Bot setup, webhook, streaming |
 | [Feishu Bot](docs/content/docs/channels/feishu.md) | Bot setup, WebSocket, streaming |
 | [Scheduler System](docs/content/docs/features/scheduler-system.md) | Scheduler system, heartbeat, persistence |
+| [Plugin System](docs/content/docs/features/plugin-system.md) | JavaScript plugins, tools, hooks |
 | [Notification System](docs/content/docs/features/notification-system.md) | Dispatcher, backends, routing |
 
 ## Development

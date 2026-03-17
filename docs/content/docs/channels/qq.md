@@ -6,31 +6,20 @@ anna includes a QQ bot that connects via WebSocket (persistent connection, no pu
 
 ## Setup
 
-1. Register a QQ Bot at [QQ Bot Platform](https://q.qq.com/)
-2. Get your AppID and AppSecret from the bot dashboard
-3. Add credentials to `~/.anna/config.yaml`:
-
-```yaml
-channels:
-  qq:
-    app_id: 'YOUR_APP_ID'
-    app_secret: 'YOUR_APP_SECRET'
-```
-
-Or via environment:
-
-```bash
-export ANNA_QQ_APP_ID="YOUR_APP_ID"
-export ANNA_QQ_APP_SECRET="YOUR_APP_SECRET"
-```
-
+1. Register a QQ Bot at [QQ Bot Platform](https://q.qq.com/) and get your AppID and AppSecret
+2. Run `anna onboard` to launch the admin panel
+3. In the admin panel: add an AI provider, then configure the QQ channel with your AppID and AppSecret
 4. Start the gateway:
 
 ```bash
 anna gateway
 ```
 
-The bot connects to QQ via WebSocket -- no public URL or webhook setup needed.
+All channel configuration (credentials, group mode, allowed IDs, etc.) is managed through the admin panel. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `ANNA_HOME`.
+
+## Multi-User Support
+
+Each QQ user is automatically resolved from their platform identity. Sessions are scoped per user per agent. No manual user setup is required. The QQ channel currently uses the default agent (the `/agent` command is not yet available for QQ).
 
 ## Streaming Responses
 
@@ -38,7 +27,7 @@ The bot uses QQ's native Stream API for progressive response delivery. As the LL
 
 ### Tool Indicators
 
-During tool execution, the stream shows status with emoji indicators (same as Telegram):
+During tool execution, the stream shows status with emoji indicators:
 
 | Tool     | Emoji            |
 | -------- | ---------------- |
@@ -50,28 +39,15 @@ During tool execution, the stream shows status with emoji indicators (same as Te
 
 ## Group Support
 
-QQ group messages are received as @mention events (`GROUP_AT_MESSAGE_CREATE`). Configure behavior:
+QQ group messages are received as @mention events (`GROUP_AT_MESSAGE_CREATE`). Set the group mode in the admin panel:
 
-```yaml
-channels:
-  qq:
-    group_mode: 'mention' # Respond to @mentions (default)
-    # group_mode: "always"   # Same as mention for QQ (AT events are always mentions)
-    # group_mode: "disabled" # Ignore group messages entirely
-```
+- `mention` -- respond to @mentions (default)
+- `always` -- same as mention for QQ (AT events are always mentions)
+- `disabled` -- ignore group messages entirely
 
 ## Access Control
 
-Restrict which QQ users can interact with the bot using OpenIDs:
-
-```yaml
-channels:
-  qq:
-    allowed_ids:
-      - 'USER_OPEN_ID_1'
-```
-
-Leave empty to allow all users. Use the `/whoami` command to get your OpenID.
+Restrict which QQ users can interact with the bot by adding allowed OpenIDs in the admin panel. Leave empty to allow all users. Use the `/whoami` command to get your OpenID.
 
 ## Image Support
 
@@ -92,6 +68,8 @@ Send these commands as text messages to the bot:
 | `/whoami`           | Show your user ID for config  |
 
 ## Configuration Reference
+
+All settings below are managed through the `anna onboard` admin panel.
 
 | Field         | Description                                     | Default    |
 | ------------- | ----------------------------------------------- | ---------- |

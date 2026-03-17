@@ -9,34 +9,20 @@ anna includes a Feishu (Lark) bot that connects via WebSocket (persistent connec
 1. Create a Feishu app at [Feishu Open Platform](https://open.feishu.cn/)
 2. Enable the **Bot** capability in your app settings
 3. Under **Event Subscriptions**, add `im.message.receive_v1` event
-4. Get your App ID and App Secret from the app credentials page
-5. Add credentials to `~/.anna/config.yaml`:
-
-```yaml
-channels:
-  feishu:
-    app_id: 'YOUR_APP_ID'
-    app_secret: 'YOUR_APP_SECRET'
-    encrypt_key: 'YOUR_ENCRYPT_KEY' # from Events & Callbacks page
-    verification_token: 'YOUR_VERIFICATION_TOKEN' # from Events & Callbacks page
-```
-
-Or via environment:
-
-```bash
-export ANNA_FEISHU_APP_ID="YOUR_APP_ID"
-export ANNA_FEISHU_APP_SECRET="YOUR_APP_SECRET"
-export ANNA_FEISHU_ENCRYPT_KEY="YOUR_ENCRYPT_KEY"
-export ANNA_FEISHU_VERIFICATION_TOKEN="YOUR_VERIFICATION_TOKEN"
-```
-
-6. Start the gateway:
+4. Get your App ID, App Secret, Encrypt Key, and Verification Token from the app settings
+5. Run `anna onboard` to launch the admin panel
+6. In the admin panel: add an AI provider, then configure the Feishu channel with your app credentials
+7. Start the gateway:
 
 ```bash
 anna gateway
 ```
 
-The bot connects to Feishu via WebSocket -- no public URL or webhook setup needed.
+All channel configuration (credentials, group mode, allowed IDs, etc.) is managed through the admin panel. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `ANNA_HOME`.
+
+## Multi-User Support
+
+Each Feishu user is automatically resolved from their platform identity. Sessions are scoped per user per agent. No manual user setup is required. The Feishu channel currently uses the default agent (the `/agent` command is not yet available for Feishu).
 
 ## Streaming Responses
 
@@ -66,38 +52,19 @@ During tool execution, the stream shows status with emoji indicators:
 
 On startup, the bot fetches its own `open_id` via the Feishu Bot Info API. This enables reliable @mention detection in groups and prevents the bot from responding to its own messages (infinite loop protection).
 
-In group chats, the bot responds to @mentions. Configure behavior:
+In group chats, the bot responds to @mentions. Set the group mode in the admin panel:
 
-```yaml
-channels:
-  feishu:
-    group_mode: 'mention' # Respond to @mentions (default)
-    # group_mode: "always"   # Respond to all group messages
-    # group_mode: "disabled" # Ignore group messages entirely
-```
+- `mention` -- respond to @mentions (default)
+- `always` -- respond to all group messages
+- `disabled` -- ignore group messages entirely
 
 ## Access Control
 
-Restrict which users can interact with the bot using open_ids:
-
-```yaml
-channels:
-  feishu:
-    allowed_ids:
-      - 'ou_xxxx'
-```
-
-Leave empty to allow all users. Use the `/whoami` command to get your open_id.
+Restrict which users can interact with the bot by adding allowed open_ids in the admin panel. Leave empty to allow all users. Use the `/whoami` command to get your open_id.
 
 ## Notifications
 
-Configure a default chat for proactive notifications (scheduler results, agent-triggered alerts):
-
-```yaml
-channels:
-  feishu:
-    notify_chat: 'oc_xxxx' # Chat ID or open_id (use /whoami)
-```
+Configure a default notification chat in the admin panel for proactive notifications (scheduler results, agent-triggered alerts).
 
 ## Commands
 
@@ -114,6 +81,8 @@ Send these commands as text messages to the bot:
 | `/whoami`           | Show your user ID for config  |
 
 ## Configuration Reference
+
+All settings below are managed through the `anna onboard` admin panel.
 
 | Field                | Description                                        | Default    |
 | -------------------- | -------------------------------------------------- | ---------- |
