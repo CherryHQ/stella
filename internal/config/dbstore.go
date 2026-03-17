@@ -120,7 +120,6 @@ func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
 	_, err := s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
 		ID:           a.ID,
 		Name:         a.Name,
-		ProviderID:   a.ProviderID,
 		Model:        a.Model,
 		ModelStrong:  a.ModelStrong,
 		ModelFast:    a.ModelFast,
@@ -142,7 +141,6 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a Agent) error {
 	err := s.q.UpdateAgent(ctx, sqlc.UpdateAgentParams{
 		ID:           a.ID,
 		Name:         a.Name,
-		ProviderID:   a.ProviderID,
 		Model:        a.Model,
 		ModelStrong:  a.ModelStrong,
 		ModelFast:    a.ModelFast,
@@ -315,22 +313,35 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 		return nil, fmt.Errorf("snapshot: get agent %q: %w", agentID, err)
 	}
 
-	prov, err := s.q.GetProvider(ctx, ag.ProviderID)
-	if err != nil {
-		return nil, fmt.Errorf("snapshot: get provider %q: %w", ag.ProviderID, err)
+	// Collect unique provider IDs from all model refs.
+	provIDs := collectProviderIDs(ag.Model, ag.ModelStrong, ag.ModelFast)
+
+	// Resolve credentials for each provider.
+	providers := make(map[string]ProviderCreds, len(provIDs))
+	for _, pid := range provIDs {
+		prov, err := s.q.GetProvider(ctx, pid)
+		if err != nil {
+			return nil, fmt.Errorf("snapshot: get provider %q: %w", pid, err)
+		}
+		p := providerFromDB(prov)
+		applyProviderEnvFallback(&p)
+		providers[pid] = ProviderCreds{APIKey: p.APIKey, BaseURL: p.BaseURL}
 	}
-	p := providerFromDB(prov)
-	applyProviderEnvFallback(&p)
+
+	// Default provider comes from the main Model field.
+	defaultProvID, _ := ParseModelRef(ag.Model)
+	defaultCreds := providers[defaultProvID]
 
 	snap := &Snapshot{
-		Provider:     p.ID,
+		Provider:     defaultProvID,
 		Model:        ag.Model,
 		ModelStrong:  ag.ModelStrong,
 		ModelFast:    ag.ModelFast,
 		Workspace:    ag.Workspace,
-		APIKey:       p.APIKey,
-		BaseURL:      p.BaseURL,
+		APIKey:       defaultCreds.APIKey,
+		BaseURL:      defaultCreds.BaseURL,
 		SystemPrompt: ag.SystemPrompt,
+		Providers:    providers,
 	}
 
 	// Load settings.
@@ -402,8 +413,7 @@ func (s *DBStore) SeedDefaults(ctx context.Context) error {
 		_, err := s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
 			ID:           "anna",
 			Name:         "Anna",
-			ProviderID:   "anthropic",
-			Model:        "claude-sonnet-4-6",
+			Model:        "anthropic/claude-sonnet-4-6",
 			SystemPrompt: defaultAnnaSoul,
 			Workspace:    workspace,
 			Enabled:      1,
@@ -452,7 +462,6 @@ func agentFromDB(r sqlc.SettingsAgent) Agent {
 	return Agent{
 		ID:           r.ID,
 		Name:         r.Name,
-		ProviderID:   r.ProviderID,
 		Model:        r.Model,
 		ModelStrong:  r.ModelStrong,
 		ModelFast:    r.ModelFast,
@@ -460,6 +469,23 @@ func agentFromDB(r sqlc.SettingsAgent) Agent {
 		Workspace:    r.Workspace,
 		Enabled:      r.Enabled == 1,
 	}
+}
+
+// collectProviderIDs extracts unique provider IDs from model refs.
+func collectProviderIDs(models ...string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, m := range models {
+		if m == "" {
+			continue
+		}
+		pid, _ := ParseModelRef(m)
+		if pid != "" && !seen[pid] {
+			seen[pid] = true
+			out = append(out, pid)
+		}
+	}
+	return out
 }
 
 func channelFromDB(r sqlc.SettingsChannel) Channel {

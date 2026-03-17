@@ -18,10 +18,17 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []agenttool.Tool, plugin
 	switch snap.Runner.Type {
 	case "go":
 		return func(ctx context.Context, params runner.RunnerParams) (runner.Runner, error) {
-			model := params.Model
-			if model == "" {
-				model = snap.Model
+			modelRef := params.Model
+			if modelRef == "" {
+				modelRef = snap.Model
 			}
+
+			// Parse provider/model from the ref string.
+			provID, modelID := config.ParseModelRef(modelRef)
+			if provID == "" {
+				provID = snap.Provider
+			}
+			creds := snap.ResolveProviderCreds(provID)
 
 			// Build the full system prompt per-session with user memory.
 			system := runner.BuildSystemPromptFromDB(runner.DBPromptParams{
@@ -32,12 +39,12 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []agenttool.Tool, plugin
 			})
 
 			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
-				API:         snap.Provider,
-				Model:       model,
-				APIKey:      snap.APIKey,
+				API:         provID,
+				Model:       modelID,
+				APIKey:      creds.APIKey,
 				Workspace:   snap.Workspace,
 				AnnaHome:    config.AnnaHome(),
-				BaseURL:     snap.BaseURL,
+				BaseURL:     creds.BaseURL,
 				System:      system,
 				ExtraTools:  extraTools,
 				PluginHooks: pluginHooks,

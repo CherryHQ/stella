@@ -1,7 +1,6 @@
 CREATE TABLE settings_agents (
     id            TEXT PRIMARY KEY,
     name          TEXT NOT NULL,
-    provider_id   TEXT NOT NULL REFERENCES settings_providers(id),
     model         TEXT NOT NULL DEFAULT '',
     model_strong  TEXT NOT NULL DEFAULT '',
     model_fast    TEXT NOT NULL DEFAULT '',

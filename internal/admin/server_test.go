@@ -142,8 +142,7 @@ func TestCreateAgent(t *testing.T) {
 	body := config.Agent{
 		ID:           "coder",
 		Name:         "Coder",
-		ProviderID:   "anthropic",
-		Model:        "claude-sonnet-4-6",
+		Model:        "anthropic/claude-sonnet-4-6",
 		SystemPrompt: "You are a coding assistant.",
 		Workspace:    "/tmp/coder",
 		Enabled:      true,

@@ -137,8 +137,11 @@ func TestSnapshotResolveModelID(t *testing.T) {
 func TestSnapshotResolveModel(t *testing.T) {
 	snap := Snapshot{
 		Provider: "anthropic",
-		Model:    "claude-sonnet-4-6",
+		Model:    "anthropic/claude-sonnet-4-6",
 		BaseURL:  "https://api.example.com",
+		Providers: map[string]ProviderCreds{
+			"anthropic": {BaseURL: "https://api.example.com"},
+		},
 	}
 	model := snap.ResolveModel()
 	if model.ID != "claude-sonnet-4-6" {
@@ -149,6 +152,30 @@ func TestSnapshotResolveModel(t *testing.T) {
 	}
 	if model.BaseURL != "https://api.example.com" {
 		t.Errorf("model.BaseURL = %q, want %q", model.BaseURL, "https://api.example.com")
+	}
+}
+
+func TestParseModelRef(t *testing.T) {
+	tests := []struct {
+		ref      string
+		wantProv string
+		wantMod  string
+	}{
+		{"anthropic/claude-sonnet-4-6", "anthropic", "claude-sonnet-4-6"},
+		{"openai/gpt-4", "openai", "gpt-4"},
+		{"plain-model", "", "plain-model"},
+		{"provider/nested/model", "provider", "nested/model"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.ref, func(t *testing.T) {
+			prov, mod := ParseModelRef(tt.ref)
+			if prov != tt.wantProv {
+				t.Errorf("provider = %q, want %q", prov, tt.wantProv)
+			}
+			if mod != tt.wantMod {
+				t.Errorf("model = %q, want %q", mod, tt.wantMod)
+			}
+		})
 	}
 }
 

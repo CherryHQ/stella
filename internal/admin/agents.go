@@ -28,10 +28,6 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	if a.Name == "" {
 		a.Name = a.ID
 	}
-	if a.ProviderID == "" {
-		writeError(w, http.StatusBadRequest, "provider_id is required")
-		return
-	}
 	if err := s.store.CreateAgent(r.Context(), a); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
