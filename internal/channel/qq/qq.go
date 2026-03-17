@@ -198,16 +198,6 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	return nil
 }
 
-// resolveAgentID returns the agent ID for the current context.
-// Used by handlers to build session keys before full pool resolution.
-func (b *Bot) resolveAgentID(authorID string) (string, error) {
-	pool, _, err := b.resolvePool(authorID)
-	if err != nil {
-		return "", err
-	}
-	return pool.AgentID(), nil
-}
-
 // isAllowed returns true if the sender is in the allowed list.
 // An empty allowed list means everyone is allowed.
 func (b *Bot) isAllowed(authorID string) bool {

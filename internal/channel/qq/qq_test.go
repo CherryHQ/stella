@@ -9,8 +9,10 @@ import (
 	"testing"
 
 	"github.com/tencent-connect/botgo/dto"
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/internal/memory"
 )
 
 // --- SplitMessage (shared) ---
@@ -456,7 +458,7 @@ func TestDownloadImageDetectsMIME(t *testing.T) {
 func TestHandleCommandHelp(t *testing.T) {
 	bot := &Bot{}
 	var reply string
-	handled := bot.handleCommand("/help", "ch", "user123", func(s string) { reply = s })
+	handled := bot.handleCommand(nil, 0, "/help", "ch", "user123", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /help to be handled")
 	}
@@ -468,7 +470,7 @@ func TestHandleCommandHelp(t *testing.T) {
 func TestHandleCommandStart(t *testing.T) {
 	bot := &Bot{}
 	var reply string
-	handled := bot.handleCommand("/start", "ch", "user123", func(s string) { reply = s })
+	handled := bot.handleCommand(nil, 0, "/start", "ch", "user123", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /start to be handled")
 	}
@@ -479,7 +481,7 @@ func TestHandleCommandStart(t *testing.T) {
 
 func TestHandleCommandUnknown(t *testing.T) {
 	bot := &Bot{}
-	handled := bot.handleCommand("hello world", "ch", "user123", func(s string) {})
+	handled := bot.handleCommand(nil, 0, "hello world", "ch", "user123", func(s string) {})
 	if handled {
 		t.Error("regular text should not be handled as command")
 	}
@@ -487,7 +489,7 @@ func TestHandleCommandUnknown(t *testing.T) {
 
 func TestHandleCommandEmpty(t *testing.T) {
 	bot := &Bot{}
-	handled := bot.handleCommand("", "ch", "user123", func(s string) {})
+	handled := bot.handleCommand(nil, 0, "", "ch", "user123", func(s string) {})
 	if handled {
 		t.Error("empty text should not be handled")
 	}
@@ -496,7 +498,7 @@ func TestHandleCommandEmpty(t *testing.T) {
 func TestHandleCommandWhoami(t *testing.T) {
 	bot := &Bot{}
 	var reply string
-	handled := bot.handleCommand("/whoami", "ch", "OPEN_ID_ABC", func(s string) { reply = s })
+	handled := bot.handleCommand(nil, 0, "/whoami", "ch", "OPEN_ID_ABC", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /whoami to be handled")
 	}
@@ -518,7 +520,7 @@ func TestHandleModelCommandListModels(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand("", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(nil, 0, "", "ch", func(s string) { reply = s })
 	if !strings.Contains(reply, "openai/gpt-4") {
 		t.Errorf("expected model list, got: %s", reply)
 	}
@@ -536,7 +538,7 @@ func TestHandleModelCommandFilter(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand("claude", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(nil, 0, "claude", "ch", func(s string) { reply = s })
 	if !strings.Contains(reply, "claude-3") {
 		t.Errorf("expected filtered results with claude, got: %s", reply)
 	}
@@ -556,7 +558,7 @@ func TestHandleModelCommandFilterNoMatch(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand("gemini", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(nil, 0, "gemini", "ch", func(s string) { reply = s })
 	if !strings.Contains(reply, "No models matching") {
 		t.Errorf("expected no match message, got: %s", reply)
 	}
@@ -568,6 +570,7 @@ func TestHandleModelCommandSwitchByName(t *testing.T) {
 	}
 	var switched string
 	switchFn := func(p, m string) error { switched = p + "/" + m; return nil }
+	pool := newTestAgentPool(t)
 	bot := &Bot{
 		cmd:        channel.NewCommander(newTestPool(), func() []channel.ModelOption { return models }, switchFn),
 		listFn:     func() []channel.ModelOption { return models },
@@ -576,7 +579,7 @@ func TestHandleModelCommandSwitchByName(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand("openai/gpt-4", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(pool, 0, "openai/gpt-4", "ch", func(s string) { reply = s })
 	if !strings.Contains(reply, "Switched to openai/gpt-4") {
 		t.Errorf("expected switch confirmation, got: %s", reply)
 	}
@@ -596,8 +599,8 @@ func TestHandleModelCommandSwitchByNameUnknown(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand("fake/model", "ch", func(s string) { reply = s })
-	if !strings.Contains(reply, "unknown model") {
+	bot.handleModelCommand(nil, 0, "fake/model", "ch", func(s string) { reply = s })
+	if !strings.Contains(reply, "Unknown model") {
 		t.Errorf("expected unknown model error, got: %s", reply)
 	}
 }
@@ -607,6 +610,7 @@ func TestHandleModelCommandSwitchError(t *testing.T) {
 		{Provider: "openai", Model: "gpt-4"},
 	}
 	switchFn := func(string, string) error { return fmt.Errorf("switch failed") }
+	pool := newTestAgentPool(t)
 	bot := &Bot{
 		cmd:        channel.NewCommander(newTestPool(), func() []channel.ModelOption { return models }, switchFn),
 		listFn:     func() []channel.ModelOption { return models },
@@ -615,8 +619,8 @@ func TestHandleModelCommandSwitchError(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand("openai/gpt-4", "ch", func(s string) { reply = s })
-	if !strings.Contains(reply, "switch model") {
+	bot.handleModelCommand(pool, 0, "openai/gpt-4", "ch", func(s string) { reply = s })
+	if !strings.Contains(reply, "Error switching model") {
 		t.Errorf("expected switch error, got: %s", reply)
 	}
 }
@@ -632,7 +636,7 @@ func TestHandleModelCommandNumericTreatedAsFilter(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand("5", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(nil, 0, "5", "ch", func(s string) { reply = s })
 	// "5" is now treated as a filter query, not an index
 	if !strings.Contains(reply, "No models matching") {
 		t.Errorf("expected no match for numeric filter, got: %s", reply)
@@ -700,6 +704,17 @@ func TestBuildMessageContentEmptyNoAttachments(t *testing.T) {
 func TestSendImageNoOp(t *testing.T) {
 	bot := &Bot{}
 	bot.sendImage("target", "msg", runner.ImageEvent{}, scopeC2C)
+}
+
+// newTestAgentPool creates a minimal *agent.Pool for tests that need RotateSession.
+func newTestAgentPool(t *testing.T) *agent.Pool {
+	t.Helper()
+	eng, err := memory.NewEngine(t.TempDir()+"/test.db", &memory.StaticSummarizer{Response: "test"})
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	t.Cleanup(func() { _ = eng.Close() })
+	return agent.NewPool(nil, eng)
 }
 
 // --- test helpers ---
