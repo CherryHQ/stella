@@ -212,9 +212,9 @@ func TestFormatSkillsForPrompt(t *testing.T) {
 	if strings.Contains(result, "/skills/web-search/SKILL.md") {
 		t.Error("should not include file path in prompt")
 	}
-	// Should reference load_skill tool
-	if !strings.Contains(result, "load_skill") {
-		t.Error("expected load_skill tool reference in prompt")
+	// Should reference skills tool with load action
+	if !strings.Contains(result, "skills tool") {
+		t.Error("expected skills tool reference in prompt")
 	}
 }
 
@@ -227,25 +227,6 @@ func TestFormatSkillsForPromptEmpty(t *testing.T) {
 	result = FormatSkillsForPrompt([]Skill{{Name: "x", Description: "y", DisableModelInvocation: true}})
 	if result != "" {
 		t.Errorf("expected empty string when all skills are hidden, got %q", result)
-	}
-}
-
-func TestSkillEntries(t *testing.T) {
-	skills := []Skill{
-		{Name: "visible", Description: "A skill", FilePath: "/a/SKILL.md", BaseDir: "/a"},
-		{Name: "hidden", Description: "Secret", FilePath: "/b/SKILL.md", BaseDir: "/b", DisableModelInvocation: true},
-		{Name: "another", Description: "Another", FilePath: "/c/SKILL.md", BaseDir: "/c"},
-	}
-
-	entries := SkillEntries(skills)
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(entries))
-	}
-	if entries[0].Name != "visible" || entries[1].Name != "another" {
-		t.Errorf("unexpected entries: %v", entries)
-	}
-	if entries[0].BaseDir != "/a" {
-		t.Errorf("expected BaseDir /a, got %q", entries[0].BaseDir)
 	}
 }
 

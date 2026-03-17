@@ -16,8 +16,8 @@ var skillsInputSchema = func() map[string]any {
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["search", "install", "list", "remove"],
-      "description": "Action to perform: 'search' finds skills from the ecosystem, 'install' adds a skill to the project, 'list' shows installed skills, 'remove' deletes an installed skill"
+      "enum": ["load", "search", "install", "list", "remove"],
+      "description": "Action to perform: 'load' reads a skill's content by name, 'search' finds skills from the ecosystem, 'install' adds a skill to the project, 'list' shows installed skills, 'remove' deletes an installed skill"
     },
     "query": {
       "type": "string",
@@ -33,7 +33,7 @@ var skillsInputSchema = func() map[string]any {
     },
     "name": {
       "type": "string",
-      "description": "Name of the installed skill (required for remove)"
+      "description": "Name of the skill (required for load and remove)"
     }
   },
   "required": ["action"]
@@ -59,7 +59,7 @@ func NewTool(annaHome, workspace, cwd string) *SkillsTool {
 func SkillsDefinition() toolspec.Definition {
 	return toolspec.Definition{
 		Name:        "skills",
-		Description: "Manage agent skills. Use 'search' to find skills from the ecosystem, 'install' to add a skill (e.g. owner/repo@skill-name), 'list' to see installed skills, 'remove' to delete one.",
+		Description: "Manage agent skills. Use 'load' to read a skill by name, 'search' to find skills from the ecosystem, 'install' to add a skill (e.g. owner/repo@skill-name), 'list' to see installed skills, 'remove' to delete one.",
 		InputSchema: skillsInputSchema,
 	}
 }
@@ -73,6 +73,8 @@ func (t *SkillsTool) Definition() toolspec.Definition {
 func (t *SkillsTool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	action, _ := args["action"].(string)
 	switch action {
+	case "load":
+		return t.load(args)
 	case "search":
 		return t.search(ctx, args)
 	case "install":
@@ -82,7 +84,7 @@ func (t *SkillsTool) Execute(ctx context.Context, args map[string]any) (string, 
 	case "remove":
 		return t.remove(args)
 	default:
-		return "", fmt.Errorf("unknown action %q, expected search/install/list/remove", action)
+		return "", fmt.Errorf("unknown action %q, expected load/search/install/list/remove", action)
 	}
 }
 
