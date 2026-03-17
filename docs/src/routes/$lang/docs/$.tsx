@@ -75,7 +75,7 @@ const clientLoader = browserCollections.docs.createClientLoader({
 function Page() {
   const { lang } = Route.useParams();
   const { path, pageTree, slugs } = useFumadocsLoader(Route.useLoaderData());
-  const markdownUrl = `/llms.mdx/docs/${slugs.join('/')}`;
+  const markdownUrl = `/llms.mdx/docs/${slugs.join('/')}${lang !== 'en' ? `?lang=${lang}` : ''}`;
 
   return (
     <DocsLayout {...baseOptions(lang)} tree={pageTree}>

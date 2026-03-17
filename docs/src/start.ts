@@ -20,14 +20,10 @@ const middleware = createMiddleware().server(({ next, request }) => {
     throw redirect(new URL(`/${i18n.defaultLanguage}`, url));
   }
 
-  // Redirect old `/docs/...` and `/about` paths to default locale
+  // Redirect legacy `/docs/...` and `/about` paths to default locale
   const segment = url.pathname.split('/')[1];
-  const knownRoots = new Set(['api', 'llms.txt', 'llms-full.txt', 'llms.mdx']);
-  if (
-    segment &&
-    !(i18n.languages as readonly string[]).includes(segment) &&
-    !knownRoots.has(segment)
-  ) {
+  const legacyRoots = new Set(['docs', 'about']);
+  if (segment && legacyRoots.has(segment)) {
     throw redirect(new URL(`/${i18n.defaultLanguage}${url.pathname}`, url));
   }
 
