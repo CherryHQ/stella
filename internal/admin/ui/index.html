@@ -24,404 +24,737 @@
             danger: { 50: '#fef2f2', 500: '#ef4444', 600: '#dc2626' },
             warn: { 50: '#fffbeb', 500: '#f59e0b', 600: '#d97706' },
           },
+          boxShadow: {
+            'card': '0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.04)',
+            'card-hover': '0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.04)',
+            'input-focus': '0 0 0 3px rgb(99 102 241 / 0.12)',
+          },
         },
       },
     }
   </script>
   <style>
     [x-cloak] { display: none !important; }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #ced4da; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #adb5bd; }
+    input::-ms-reveal { display: none; }
   </style>
 </head>
 <body class="bg-surface-1 min-h-screen font-sans text-ink-0 antialiased">
 
-<div x-data="adminApp()" x-init="init()" class="max-w-6xl mx-auto px-4 py-8">
+<div x-data="adminApp()" x-init="init()" x-cloak class="min-h-screen flex flex-col">
 
-  <!-- Header -->
-  <div class="flex items-center justify-between mb-8">
-    <h1 class="text-2xl font-bold text-ink-0">Anna Admin</h1>
-    <span class="text-sm text-ink-2" x-text="status"></span>
-  </div>
-
-  <!-- Tabs -->
-  <div class="flex space-x-1 bg-surface-2 rounded-lg p-1 mb-6">
-    <template x-for="t in tabs" :key="t.id">
-      <button @click="tab = t.id"
-        :class="tab === t.id ? 'bg-white shadow-sm text-ink-0' : 'text-ink-2 hover:text-ink-1'"
-        class="px-4 py-2 rounded-md text-sm font-medium transition-all" x-text="t.label">
-      </button>
-    </template>
-  </div>
-
-  <!-- Providers Tab -->
-  <div x-show="tab === 'providers'" x-cloak>
-    <div class="flex justify-between items-center mb-4">
-      <h2 class="text-lg font-semibold">Providers</h2>
-      <button @click="showProviderForm = !showProviderForm"
-        class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">
-        + Add Provider
-      </button>
-    </div>
-
-    <!-- Provider Form -->
-    <div x-show="showProviderForm" class="bg-white rounded-lg shadow-card p-4 mb-4">
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">ID (slug)</label>
-          <input x-model="providerForm.id" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm" placeholder="anthropic">
+  <!-- Top bar -->
+  <header class="sticky top-0 z-30 bg-surface-0/80 backdrop-blur-lg border-b border-surface-3">
+    <div class="max-w-4xl mx-auto px-5 h-14 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center shadow-sm">
+          <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z"/></svg>
         </div>
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">Name</label>
-          <input x-model="providerForm.name" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm" placeholder="Anthropic">
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">API Key</label>
-          <input x-model="providerForm.api_key" type="password" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono">
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">Base URL (optional)</label>
-          <input x-model="providerForm.base_url" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm" placeholder="https://api.anthropic.com">
-        </div>
+        <span class="text-sm font-semibold text-ink-0 tracking-tight">Anna</span>
+        <span class="text-xs text-ink-3 hidden sm:inline">/</span>
+        <span class="text-xs text-ink-2 hidden sm:inline">Admin</span>
       </div>
-      <div class="flex justify-end space-x-2 mt-4">
-        <button @click="showProviderForm = false; resetProviderForm()" class="px-3 py-1.5 text-sm text-ink-2 hover:text-ink-0">Cancel</button>
-        <button @click="saveProvider()" class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">Save</button>
-      </div>
+      <span class="text-xs text-ink-2" x-text="status"></span>
     </div>
-
-    <!-- Provider List -->
-    <div class="space-y-2">
-      <template x-for="p in providers" :key="p.id">
-        <div class="bg-white rounded-lg shadow-card p-4 flex items-center justify-between">
-          <div>
-            <span class="font-medium" x-text="p.name"></span>
-            <span class="text-sm text-ink-2 ml-2" x-text="'(' + p.id + ')'"></span>
-            <span x-show="p.base_url" class="text-xs text-ink-3 ml-2" x-text="p.base_url"></span>
-          </div>
-          <div class="flex space-x-2">
-            <button @click="fetchModels(p.id)" class="px-2 py-1 text-xs bg-surface-2 rounded hover:bg-surface-3">Fetch Models</button>
-            <button @click="editProvider(p)" class="px-2 py-1 text-xs bg-surface-2 rounded hover:bg-surface-3">Edit</button>
-            <button @click="deleteProvider(p.id)" class="px-2 py-1 text-xs text-danger-600 bg-danger-50 rounded hover:bg-danger-50">Delete</button>
-          </div>
-        </div>
-      </template>
-      <div x-show="providers.length === 0" class="text-sm text-ink-2 text-center py-8">No providers configured</div>
-    </div>
-
-    <!-- Models display -->
-    <div x-show="fetchedModels.length > 0" class="mt-4 bg-white rounded-lg shadow-card p-4">
-      <h3 class="text-sm font-semibold mb-2" x-text="'Models for ' + fetchedModelsProvider"></h3>
-      <div class="max-h-48 overflow-y-auto">
-        <template x-for="m in fetchedModels" :key="m">
-          <div class="text-sm font-mono text-ink-1 py-0.5" x-text="m"></div>
-        </template>
-      </div>
-    </div>
-  </div>
-
-  <!-- Agents Tab -->
-  <div x-show="tab === 'agents'" x-cloak>
-    <div class="flex justify-between items-center mb-4">
-      <h2 class="text-lg font-semibold">Agents</h2>
-      <button @click="showAgentForm = !showAgentForm"
-        class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">
-        + Add Agent
-      </button>
-    </div>
-
-    <div x-show="showAgentForm" class="bg-white rounded-lg shadow-card p-4 mb-4">
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">ID (slug)</label>
-          <input x-model="agentForm.id" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm" placeholder="anna">
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">Name</label>
-          <input x-model="agentForm.name" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm" placeholder="Anna">
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">Provider</label>
-          <select x-model="agentForm.provider_id" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm">
-            <option value="">Select provider...</option>
-            <template x-for="p in providers" :key="p.id">
-              <option :value="p.id" x-text="p.name"></option>
-            </template>
-          </select>
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">Model</label>
-          <input x-model="agentForm.model" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono" placeholder="claude-sonnet-4-6">
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">Model Strong</label>
-          <input x-model="agentForm.model_strong" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono">
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">Model Fast</label>
-          <input x-model="agentForm.model_fast" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono">
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">Workspace</label>
-          <input x-model="agentForm.workspace" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono">
-        </div>
-        <div class="flex items-center pt-6">
-          <label class="flex items-center space-x-2">
-            <input type="checkbox" x-model="agentForm.enabled" class="rounded">
-            <span class="text-sm font-medium text-ink-1">Enabled</span>
-          </label>
-        </div>
-      </div>
-      <div class="mt-4">
-        <label class="block text-sm font-medium text-ink-1 mb-1">System Prompt</label>
-        <textarea x-model="agentForm.system_prompt" rows="4" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono"></textarea>
-      </div>
-      <div class="flex justify-end space-x-2 mt-4">
-        <button @click="showAgentForm = false; resetAgentForm()" class="px-3 py-1.5 text-sm text-ink-2 hover:text-ink-0">Cancel</button>
-        <button @click="saveAgent()" class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">Save</button>
-      </div>
-    </div>
-
-    <div class="space-y-2">
-      <template x-for="a in agents" :key="a.id">
-        <div class="bg-white rounded-lg shadow-card p-4">
-          <div class="flex items-center justify-between">
-            <div>
-              <span class="font-medium" x-text="a.name"></span>
-              <span class="text-sm text-ink-2 ml-2" x-text="'(' + a.id + ')'"></span>
-              <span class="text-xs px-2 py-0.5 rounded-full ml-2"
-                :class="a.enabled ? 'bg-success-50 text-success-600' : 'bg-surface-2 text-ink-2'"
-                x-text="a.enabled ? 'enabled' : 'disabled'"></span>
-            </div>
-            <div class="flex space-x-2">
-              <button @click="editAgent(a)" class="px-2 py-1 text-xs bg-surface-2 rounded hover:bg-surface-3">Edit</button>
-              <button @click="deleteAgent(a.id)" class="px-2 py-1 text-xs text-danger-600 bg-danger-50 rounded hover:bg-danger-50">Delete</button>
-            </div>
-          </div>
-          <div class="text-sm text-ink-2 mt-1">
-            <span x-text="a.provider_id + '/' + a.model"></span>
-          </div>
-        </div>
-      </template>
-      <div x-show="agents.length === 0" class="text-sm text-ink-2 text-center py-8">No agents configured</div>
-    </div>
-  </div>
-
-  <!-- Channels Tab -->
-  <div x-show="tab === 'channels'" x-cloak>
-    <h2 class="text-lg font-semibold mb-4">Channels</h2>
-
-    <div class="space-y-4">
-      <template x-for="platform in ['telegram', 'qq', 'feishu']" :key="platform">
-        <div class="bg-white rounded-lg shadow-card p-4">
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="font-medium capitalize" x-text="platform"></h3>
-            <span x-show="channelConfigs[platform]" class="text-xs px-2 py-0.5 rounded-full"
-              :class="channelConfigs[platform]?.enabled ? 'bg-success-50 text-success-600' : 'bg-surface-2 text-ink-2'"
-              x-text="channelConfigs[platform]?.enabled ? 'enabled' : 'disabled'"></span>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-ink-1 mb-1">Config (JSON)</label>
-            <textarea
-              x-model="channelEditors[platform]"
-              rows="4"
-              class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono"
-              :placeholder="channelPlaceholders[platform]"></textarea>
-          </div>
-          <div class="flex items-center justify-between mt-2">
-            <label class="flex items-center space-x-2">
-              <input type="checkbox"
-                :checked="channelEnabled[platform]"
-                @change="channelEnabled[platform] = $event.target.checked"
-                class="rounded">
-              <span class="text-sm text-ink-1">Enabled</span>
-            </label>
-            <button @click="saveChannel(platform)" class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">Save</button>
-          </div>
-        </div>
-      </template>
-    </div>
-  </div>
-
-  <!-- Users Tab -->
-  <div x-show="tab === 'users'" x-cloak>
-    <h2 class="text-lg font-semibold mb-4">Users</h2>
-    <div class="bg-white rounded-lg shadow-card overflow-hidden">
-      <table class="w-full text-sm">
-        <thead class="bg-surface-2">
-          <tr>
-            <th class="text-left px-4 py-2 font-medium text-ink-1">ID</th>
-            <th class="text-left px-4 py-2 font-medium text-ink-1">Name</th>
-            <th class="text-left px-4 py-2 font-medium text-ink-1">Platform</th>
-            <th class="text-left px-4 py-2 font-medium text-ink-1">External ID</th>
-            <th class="text-left px-4 py-2 font-medium text-ink-1">Default Agent</th>
-          </tr>
-        </thead>
-        <tbody>
-          <template x-for="u in users" :key="u.id">
-            <tr class="border-t border-surface-3">
-              <td class="px-4 py-2" x-text="u.id"></td>
-              <td class="px-4 py-2" x-text="u.name || '-'"></td>
-              <td class="px-4 py-2" x-text="u.platform"></td>
-              <td class="px-4 py-2 font-mono text-xs" x-text="u.external_id"></td>
-              <td class="px-4 py-2" x-text="u.default_agent_id || '-'"></td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-      <div x-show="users.length === 0" class="text-sm text-ink-2 text-center py-8">No users yet</div>
-    </div>
-  </div>
-
-  <!-- Sessions Tab -->
-  <div x-show="tab === 'sessions'" x-cloak>
-    <h2 class="text-lg font-semibold mb-4">Sessions</h2>
-    <div class="bg-white rounded-lg shadow-card overflow-hidden">
-      <table class="w-full text-sm">
-        <thead class="bg-surface-2">
-          <tr>
-            <th class="text-left px-4 py-2 font-medium text-ink-1">Session ID</th>
-            <th class="text-left px-4 py-2 font-medium text-ink-1">Channel</th>
-            <th class="text-left px-4 py-2 font-medium text-ink-1">Title</th>
-            <th class="text-left px-4 py-2 font-medium text-ink-1">Agent</th>
-            <th class="text-left px-4 py-2 font-medium text-ink-1">Last Active</th>
-            <th class="text-left px-4 py-2 font-medium text-ink-1">Archived</th>
-          </tr>
-        </thead>
-        <tbody>
-          <template x-for="s in sessions" :key="s.ID">
-            <tr class="border-t border-surface-3">
-              <td class="px-4 py-2 font-mono text-xs" x-text="s.ID"></td>
-              <td class="px-4 py-2" x-text="s.Channel"></td>
-              <td class="px-4 py-2" x-text="s.Title || '-'"></td>
-              <td class="px-4 py-2" x-text="s.AgentID || '-'"></td>
-              <td class="px-4 py-2 text-xs" x-text="s.LastActive"></td>
-              <td class="px-4 py-2" x-text="s.Archived ? 'Yes' : 'No'"></td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-      <div x-show="sessions.length === 0" class="text-sm text-ink-2 text-center py-8">No sessions yet</div>
-    </div>
-  </div>
-
-  <!-- Scheduler Tab -->
-  <div x-show="tab === 'scheduler'" x-cloak>
-    <div class="flex justify-between items-center mb-4">
-      <h2 class="text-lg font-semibold">Scheduler Jobs</h2>
-      <button @click="showJobForm = !showJobForm"
-        class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">
-        + Add Job
-      </button>
-    </div>
-
-    <div x-show="showJobForm" class="bg-white rounded-lg shadow-card p-4 mb-4">
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">Name</label>
-          <input x-model="jobForm.name" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm" placeholder="Daily summary">
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">Session Mode</label>
-          <select x-model="jobForm.session_mode" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm">
-            <option value="reuse">Reuse</option>
-            <option value="new">New</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">Cron (e.g. 0 9 * * 1-5)</label>
-          <input x-model="jobForm.cron" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono" placeholder="0 9 * * *">
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">Every (e.g. 30m, 2h)</label>
-          <input x-model="jobForm.every" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono" placeholder="1h">
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-ink-1 mb-1">Agent ID (optional)</label>
-          <select x-model="jobForm.agent_id" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm">
-            <option value="">Default agent</option>
-            <template x-for="a in agents" :key="a.id">
-              <option :value="a.id" x-text="a.name"></option>
-            </template>
-          </select>
-        </div>
-        <div class="flex items-center pt-6">
-          <label class="flex items-center space-x-2">
-            <input type="checkbox" x-model="jobForm.enabled" class="rounded">
-            <span class="text-sm font-medium text-ink-1">Enabled</span>
-          </label>
-        </div>
-      </div>
-      <div class="mt-4">
-        <label class="block text-sm font-medium text-ink-1 mb-1">Message</label>
-        <textarea x-model="jobForm.message" rows="3" class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm" placeholder="What should the agent do?"></textarea>
-      </div>
-      <div class="flex justify-end space-x-2 mt-4">
-        <button @click="showJobForm = false; resetJobForm()" class="px-3 py-1.5 text-sm text-ink-2 hover:text-ink-0">Cancel</button>
-        <button @click="saveJob()" class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">Save</button>
-      </div>
-    </div>
-
-    <div class="space-y-2">
-      <template x-for="j in jobs" :key="j.id">
-        <div class="bg-white rounded-lg shadow-card p-4">
-          <div class="flex items-center justify-between">
-            <div>
-              <span class="font-medium" x-text="j.name"></span>
-              <span class="text-xs px-2 py-0.5 rounded-full ml-2"
-                :class="j.enabled ? 'bg-success-50 text-success-600' : 'bg-surface-2 text-ink-2'"
-                x-text="j.enabled ? 'enabled' : 'disabled'"></span>
-              <span x-show="j.agent_id" class="text-xs text-ink-2 ml-2" x-text="'agent: ' + j.agent_id"></span>
-            </div>
-            <div class="flex space-x-2">
-              <button @click="editJob(j)" class="px-2 py-1 text-xs bg-surface-2 rounded hover:bg-surface-3">Edit</button>
-              <button @click="deleteJob(j.id)" class="px-2 py-1 text-xs text-danger-600 bg-danger-50 rounded">Delete</button>
-            </div>
-          </div>
-          <div class="text-sm text-ink-2 mt-1">
-            <span x-show="j.cron" x-text="'cron: ' + j.cron"></span>
-            <span x-show="j.every" x-text="'every: ' + j.every"></span>
-            <span x-show="j.at" x-text="'at: ' + j.at"></span>
-            <span class="ml-2" x-text="'| ' + j.session_mode"></span>
-          </div>
-          <div class="text-sm text-ink-1 mt-1 truncate" x-text="j.message"></div>
-        </div>
-      </template>
-      <div x-show="jobs.length === 0" class="text-sm text-ink-2 text-center py-8">No scheduler jobs</div>
-    </div>
-  </div>
-
-  <!-- Settings Tab -->
-  <div x-show="tab === 'settings'" x-cloak>
-    <h2 class="text-lg font-semibold mb-4">Settings</h2>
-
-    <div class="space-y-4">
-      <template x-for="key in settingsKeys" :key="key">
-        <div class="bg-white rounded-lg shadow-card p-4">
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="font-medium font-mono text-sm" x-text="key"></h3>
-            <button @click="saveSetting(key)" class="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-md hover:bg-primary-700">Save</button>
-          </div>
-          <textarea
-            x-model="settingsEditors[key]"
-            rows="4"
-            class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono"></textarea>
-        </div>
-      </template>
-    </div>
-  </div>
+  </header>
 
   <!-- Toast -->
-  <div x-show="toast" x-transition
-    class="fixed bottom-4 right-4 px-4 py-2 rounded-lg shadow-lg text-sm text-white"
-    :class="toastType === 'error' ? 'bg-danger-600' : 'bg-success-600'"
-    x-text="toast">
+  <div class="fixed top-16 left-1/2 -translate-x-1/2 z-50 w-full max-w-sm px-4"
+       x-show="toast" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-1 scale-95" x-transition:enter-end="opacity-100 translate-y-0 scale-100"
+       x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0 scale-100" x-transition:leave-end="opacity-0 -translate-y-1 scale-95">
+    <div :class="toastType === 'error' ? 'bg-danger-600' : 'bg-ink-0'" class="flex items-center gap-2 px-3.5 py-2.5 rounded-lg shadow-lg ring-1 ring-black/5 text-xs text-white">
+      <span x-text="toast" class="leading-snug"></span>
+    </div>
   </div>
+
+  <!-- Main -->
+  <main class="flex-1 max-w-4xl w-full mx-auto px-5 py-8">
+
+    <!-- Tab navigation -->
+    <nav class="flex gap-0.5 p-1 bg-surface-2 rounded-lg mb-8 w-fit flex-wrap" role="tablist">
+      <template x-for="(t, i) in tabs" :key="t.id">
+        <button @click="tab = t.id" role="tab" :aria-selected="tab === t.id"
+                :class="tab === t.id ? 'bg-surface-0 text-ink-0 shadow-card' : 'text-ink-2 hover:text-ink-1'"
+                class="px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-150 cursor-pointer" x-text="t.label">
+        </button>
+      </template>
+    </nav>
+
+    <!-- ==================== PROVIDERS TAB ==================== -->
+    <section x-show="tab === 'providers'" x-transition.opacity.duration.150ms>
+
+      <!-- Add bar -->
+      <div class="flex items-center gap-2 mb-5">
+        <select x-model="newProviderType"
+                class="flex-1 h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm text-ink-0 shadow-card focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150 cursor-pointer appearance-none">
+          <option value="" disabled>Select provider...</option>
+          <template x-for="p in addableProviders" :key="p">
+            <option :value="p" x-text="p"></option>
+          </template>
+        </select>
+        <button @click="addProvider()" :disabled="!newProviderType"
+                class="inline-flex items-center gap-1.5 h-10 px-4 text-xs font-medium text-white bg-primary-600 rounded-lg shadow-sm hover:bg-primary-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150 cursor-pointer">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+          Add
+        </button>
+      </div>
+
+      <!-- Empty -->
+      <template x-if="providers.length === 0">
+        <div class="rounded-xl border-2 border-dashed border-surface-3 py-16 text-center">
+          <div class="w-10 h-10 rounded-full bg-surface-2 flex items-center justify-center mx-auto mb-3">
+            <svg class="w-5 h-5 text-ink-3" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+          </div>
+          <p class="text-sm text-ink-2">No providers yet</p>
+          <p class="text-xs text-ink-3 mt-0.5">Add one above to connect to an LLM API</p>
+        </div>
+      </template>
+
+      <!-- Provider cards -->
+      <div class="space-y-3">
+        <template x-for="p in providers" :key="p.id">
+          <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card hover:shadow-card-hover transition-shadow duration-200 overflow-hidden">
+            <!-- Header -->
+            <div class="flex items-center justify-between px-4 py-2.5 border-b border-surface-2">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-medium text-ink-0" x-text="p.name || p.id"></span>
+                <span class="text-xs text-ink-3" x-text="'(' + p.id + ')'" x-show="p.name && p.name !== p.id"></span>
+              </div>
+              <button @click="deleteProvider(p.id)"
+                      class="p-1 rounded-md text-ink-3 hover:text-danger-500 hover:bg-danger-50 transition-colors duration-150 cursor-pointer">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <!-- Body -->
+            <div class="px-4 py-4 space-y-3">
+              <div>
+                <label class="flex items-center gap-1 text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5">API Key</label>
+                <input type="password" :value="p.api_key"
+                       @input="providerEdits[p.id] = providerEdits[p.id] || {}; providerEdits[p.id].api_key = $event.target.value"
+                       placeholder="sk-..."
+                       class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm text-ink-0 font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150">
+              </div>
+              <div>
+                <label class="flex items-center gap-1 text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5">Base URL</label>
+                <input type="text" :value="p.base_url"
+                       @input="providerEdits[p.id] = providerEdits[p.id] || {}; providerEdits[p.id].base_url = $event.target.value"
+                       :placeholder="providerDefaults[p.id]?.base_url || ''"
+                       class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm text-ink-1 font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150">
+              </div>
+
+              <!-- Save + Fetch models -->
+              <div class="flex items-center gap-2 pt-1">
+                <button @click="saveProvider(p)"
+                        class="inline-flex items-center gap-1.5 h-8 px-3 text-[11px] font-medium rounded-md bg-primary-600 text-white hover:bg-primary-700 transition-all duration-150 cursor-pointer">
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                  Save
+                </button>
+                <button @click="fetchModels(p.id)" :disabled="fetchingModels[p.id]"
+                        class="inline-flex items-center gap-1.5 h-8 px-3 text-[11px] font-medium rounded-md border bg-surface-0 border-surface-4 text-ink-1 hover:bg-surface-1 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150 cursor-pointer">
+                  <svg x-show="!fetchingModels[p.id]" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                  <svg x-show="fetchingModels[p.id]" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                  <span x-text="fetchingModels[p.id] ? 'Fetching...' : 'Fetch Models'"></span>
+                </button>
+                <span x-show="providerModels[p.id]?.length" class="inline-flex items-center gap-1 text-[11px] text-success-600 font-medium">
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                  <span x-text="providerModels[p.id]?.length + ' models'"></span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <!-- ==================== AGENTS TAB ==================== -->
+    <section x-show="tab === 'agents'" x-transition.opacity.duration.150ms>
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-lg font-semibold">Agents</h2>
+        <button @click="showAgentForm = !showAgentForm; if(!showAgentForm) resetAgentForm()"
+          class="inline-flex items-center gap-1.5 h-8 px-3.5 text-xs font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-all cursor-pointer">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+          <span x-text="showAgentForm ? 'Cancel' : 'Add Agent'"></span>
+        </button>
+      </div>
+
+      <!-- Agent Form -->
+      <div x-show="showAgentForm" x-transition class="rounded-xl border border-surface-3 bg-surface-0 shadow-card overflow-hidden mb-5">
+        <div class="flex items-center gap-2 px-4 py-2.5 border-b border-surface-2">
+          <span class="text-sm font-medium text-ink-0" x-text="editingAgentId ? 'Edit Agent' : 'New Agent'"></span>
+        </div>
+        <div class="px-4 py-4 space-y-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">ID (slug)</label>
+              <input x-model="agentForm.id" :disabled="!!editingAgentId"
+                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all disabled:opacity-50" placeholder="anna">
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Name</label>
+              <input x-model="agentForm.name" class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all" placeholder="Anna">
+            </div>
+          </div>
+
+          <!-- Model fields with autocomplete -->
+          <fieldset class="space-y-3">
+            <legend class="text-[11px] font-semibold text-ink-2 uppercase tracking-wider">Models <span class="normal-case font-normal text-ink-3">format: provider/model</span></legend>
+
+            <!-- Default model -->
+            <div x-data="modelCombo('agentForm.model')" class="relative">
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Default Model</label>
+              <div class="relative">
+                <input type="text" :value="getModelValue('model')" @input="setModelValue('model', $event.target.value); open = true; search = $event.target.value"
+                       @focus="open = true; search = ''" placeholder="anthropic/claude-sonnet-4-6"
+                       class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 pl-3 pr-8 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+                <button @click="open = !open" type="button" tabindex="-1"
+                        class="absolute right-0 top-0 h-10 w-8 flex items-center justify-center text-ink-3 hover:text-ink-1 cursor-pointer">
+                  <svg class="w-4 h-4 transition-transform duration-150" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                </button>
+              </div>
+              <div x-show="open && allProviderModels().length > 0" @click.away="open = false" x-transition.opacity.duration.100ms
+                   class="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-surface-3 bg-surface-0 shadow-lg py-1">
+                <template x-for="m in filteredProviderModels(search)" :key="m">
+                  <button @click="setModelValue('model', m); open = false" type="button"
+                          :class="getModelValue('model') === m ? 'bg-primary-50 text-primary-700' : 'text-ink-1 hover:bg-surface-1'"
+                          class="w-full text-left px-3 py-1.5 text-xs font-mono cursor-pointer transition-colors" x-text="m"></button>
+                </template>
+                <div x-show="filteredProviderModels(search).length === 0" class="px-3 py-2 text-xs text-ink-3">No matching models</div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <!-- Strong model -->
+              <div x-data="modelCombo('agentForm.model_strong')" class="relative">
+                <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Strong <span class="normal-case font-normal text-ink-3">optional</span></label>
+                <div class="relative">
+                  <input type="text" :value="getModelValue('model_strong')" @input="setModelValue('model_strong', $event.target.value); open = true; search = $event.target.value"
+                         @focus="open = true; search = ''" placeholder="Falls back to default"
+                         class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 pl-3 pr-8 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+                  <button @click="open = !open" type="button" tabindex="-1"
+                          class="absolute right-0 top-0 h-10 w-8 flex items-center justify-center text-ink-3 hover:text-ink-1 cursor-pointer">
+                    <svg class="w-4 h-4 transition-transform duration-150" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                  </button>
+                </div>
+                <div x-show="open && allProviderModels().length > 0" @click.away="open = false" x-transition.opacity.duration.100ms
+                     class="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-surface-3 bg-surface-0 shadow-lg py-1">
+                  <template x-for="m in filteredProviderModels(search)" :key="m">
+                    <button @click="setModelValue('model_strong', m); open = false" type="button"
+                            :class="getModelValue('model_strong') === m ? 'bg-primary-50 text-primary-700' : 'text-ink-1 hover:bg-surface-1'"
+                            class="w-full text-left px-3 py-1.5 text-xs font-mono cursor-pointer transition-colors" x-text="m"></button>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Fast model -->
+              <div x-data="modelCombo('agentForm.model_fast')" class="relative">
+                <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Fast <span class="normal-case font-normal text-ink-3">optional</span></label>
+                <div class="relative">
+                  <input type="text" :value="getModelValue('model_fast')" @input="setModelValue('model_fast', $event.target.value); open = true; search = $event.target.value"
+                         @focus="open = true; search = ''" placeholder="Falls back to default"
+                         class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 pl-3 pr-8 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+                  <button @click="open = !open" type="button" tabindex="-1"
+                          class="absolute right-0 top-0 h-10 w-8 flex items-center justify-center text-ink-3 hover:text-ink-1 cursor-pointer">
+                    <svg class="w-4 h-4 transition-transform duration-150" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                  </button>
+                </div>
+                <div x-show="open && allProviderModels().length > 0" @click.away="open = false" x-transition.opacity.duration.100ms
+                     class="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-surface-3 bg-surface-0 shadow-lg py-1">
+                  <template x-for="m in filteredProviderModels(search)" :key="m">
+                    <button @click="setModelValue('model_fast', m); open = false" type="button"
+                            :class="getModelValue('model_fast') === m ? 'bg-primary-50 text-primary-700' : 'text-ink-1 hover:bg-surface-1'"
+                            class="w-full text-left px-3 py-1.5 text-xs font-mono cursor-pointer transition-colors" x-text="m"></button>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+
+          <div>
+            <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Workspace</label>
+            <input x-model="agentForm.workspace" class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all" placeholder="~/.anna/workspaces/anna">
+          </div>
+          <div>
+            <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">System Prompt</label>
+            <textarea x-model="agentForm.system_prompt" rows="4" class="w-full rounded-lg border border-surface-4 bg-surface-0 px-3 py-2 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all resize-y"></textarea>
+          </div>
+          <div class="flex items-center justify-between pt-1">
+            <label class="inline-flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" x-model="agentForm.enabled" class="accent-primary-600 w-4 h-4 rounded">
+              <span class="text-xs text-ink-1">Enabled</span>
+            </label>
+            <button @click="saveAgent()"
+                    class="inline-flex items-center gap-1.5 h-8 px-3.5 text-xs font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-all cursor-pointer">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+              <span x-text="editingAgentId ? 'Update' : 'Create'"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agent list -->
+      <div class="space-y-2">
+        <template x-for="a in agents" :key="a.id">
+          <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card hover:shadow-card-hover transition-shadow px-4 py-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="font-medium" x-text="a.name"></span>
+                <span class="text-sm text-ink-2" x-text="'(' + a.id + ')'"></span>
+                <span class="text-xs px-2 py-0.5 rounded-full"
+                  :class="a.enabled ? 'bg-success-50 text-success-600' : 'bg-surface-2 text-ink-2'"
+                  x-text="a.enabled ? 'enabled' : 'disabled'"></span>
+              </div>
+              <div class="flex items-center gap-1">
+                <button @click="editAgent(a)" class="p-1.5 rounded-md text-ink-3 hover:text-primary-600 hover:bg-primary-50 transition-colors cursor-pointer" title="Edit">
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125"/></svg>
+                </button>
+                <button @click="deleteAgent(a.id)" class="p-1.5 rounded-md text-ink-3 hover:text-danger-500 hover:bg-danger-50 transition-colors cursor-pointer" title="Delete">
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="text-sm text-ink-2 mt-1 font-mono" x-text="a.model"></div>
+          </div>
+        </template>
+        <div x-show="agents.length === 0" class="text-sm text-ink-2 text-center py-8">No agents configured</div>
+      </div>
+    </section>
+
+    <!-- ==================== CHANNELS TAB ==================== -->
+    <section x-show="tab === 'channels'" x-transition.opacity.duration.150ms>
+
+      <!-- Telegram -->
+      <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-surface-2">
+          <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 text-[#26A5E4]" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.96 6.504-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+            <span class="text-sm font-medium text-ink-0">Telegram</span>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" class="sr-only peer" :checked="channelData.telegram.enabled"
+                   @change="channelData.telegram.enabled = $event.target.checked">
+            <div class="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+          </label>
+        </div>
+
+        <div class="px-4 py-4 space-y-3" x-show="channelData.telegram.enabled" x-transition.opacity.duration.150ms>
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-medium text-ink-2 uppercase tracking-wider">Enable Notifications</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" class="sr-only peer" :checked="channelData.telegram.enable_notify"
+                     @change="channelData.telegram.enable_notify = $event.target.checked">
+              <div class="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+            </label>
+          </div>
+          <div>
+            <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Bot Token</label>
+            <input type="password" x-model="channelData.telegram.token" placeholder="From @BotFather"
+                   class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Notify Chat</label>
+              <input type="text" x-model="channelData.telegram.notify_chat" placeholder="Chat ID"
+                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Channel ID</label>
+              <input type="text" x-model="channelData.telegram.channel_id" placeholder="Default channel"
+                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Group Mode</label>
+              <select x-model="channelData.telegram.group_mode"
+                      class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all cursor-pointer appearance-none">
+                <option value="">Default</option>
+                <option value="mention">Mention</option>
+                <option value="always">Always</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Allowed IDs</label>
+              <input type="text" :value="(channelData.telegram.allowed_ids || []).join(', ')"
+                     @change="channelData.telegram.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean).map(Number)"
+                     placeholder="User IDs, comma-separated"
+                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+            </div>
+          </div>
+          <div class="flex justify-end pt-1">
+            <button @click="saveChannel('telegram')" class="inline-flex items-center gap-1.5 h-8 px-3.5 text-xs font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-all cursor-pointer">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- QQ -->
+      <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card overflow-hidden mt-5">
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-surface-2">
+          <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 text-[#12B7F5]" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 13.27c-.24.58-.78 1.14-1.48 1.48-.18.1-.4.18-.62.24-.56.16-1.2.12-1.74-.1a5.4 5.4 0 0 1-.8-.44 5.4 5.4 0 0 1-.8.44c-.54.22-1.18.26-1.74.1a2.5 2.5 0 0 1-.62-.24c-.7-.34-1.24-.9-1.48-1.48-.14-.34-.2-.68-.18-1.02.04-.56.24-1.12.58-1.64-.2-.56-.32-1.14-.32-1.72 0-.72.16-1.4.46-2.02.3-.64.74-1.2 1.28-1.64A4.83 4.83 0 0 1 12 6c1.14 0 2.18.4 3.02 1.06.54.44.98 1 1.28 1.64.3.62.46 1.3.46 2.02 0 .58-.12 1.16-.32 1.72.34.52.54 1.08.58 1.64.02.34-.04.68-.18 1.02-.08.06-.12.12-.18.17z"/></svg>
+            <span class="text-sm font-medium text-ink-0">QQ</span>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" class="sr-only peer" :checked="channelData.qq.enabled"
+                   @change="channelData.qq.enabled = $event.target.checked">
+            <div class="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+          </label>
+        </div>
+
+        <div class="px-4 py-4 space-y-3" x-show="channelData.qq.enabled" x-transition.opacity.duration.150ms>
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-medium text-ink-2 uppercase tracking-wider">Enable Notifications</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" class="sr-only peer" :checked="channelData.qq.enable_notify"
+                     @change="channelData.qq.enable_notify = $event.target.checked">
+              <div class="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+            </label>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">App ID</label>
+              <input type="text" x-model="channelData.qq.app_id" placeholder="QQ Bot App ID"
+                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">App Secret</label>
+              <input type="password" x-model="channelData.qq.app_secret" placeholder="QQ Bot App Secret"
+                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Group Mode</label>
+              <select x-model="channelData.qq.group_mode"
+                      class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all cursor-pointer appearance-none">
+                <option value="">Default (mention)</option>
+                <option value="mention">Mention</option>
+                <option value="always">Always</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Allowed IDs</label>
+              <input type="text" :value="(channelData.qq.allowed_ids || []).join(', ')"
+                     @change="channelData.qq.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)"
+                     placeholder="OpenIDs, comma-separated"
+                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+            </div>
+          </div>
+          <div class="flex justify-end pt-1">
+            <button @click="saveChannel('qq')" class="inline-flex items-center gap-1.5 h-8 px-3.5 text-xs font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-all cursor-pointer">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Feishu -->
+      <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card overflow-hidden mt-5">
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-surface-2">
+          <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 text-[#3370FF]" viewBox="0 0 24 24" fill="currentColor"><path d="M3.806 7.293l5.685-4.27a.75.75 0 01.9 0l5.685 4.27a.75.75 0 01.274.69l-1.63 7.164a.75.75 0 01-.724.573H5.886a.75.75 0 01-.724-.573L3.532 7.983a.75.75 0 01.274-.69zM12 2l8.485 6.364a1.5 1.5 0 01.549 1.38l-2.442 10.742a1.5 1.5 0 01-1.449 1.146H6.857a1.5 1.5 0 01-1.449-1.146L2.966 9.744a1.5 1.5 0 01.549-1.38L12 2z"/></svg>
+            <span class="text-sm font-medium text-ink-0">Feishu</span>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" class="sr-only peer" :checked="channelData.feishu.enabled"
+                   @change="channelData.feishu.enabled = $event.target.checked">
+            <div class="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+          </label>
+        </div>
+
+        <div class="px-4 py-4 space-y-3" x-show="channelData.feishu.enabled" x-transition.opacity.duration.150ms>
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-medium text-ink-2 uppercase tracking-wider">Enable Notifications</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" class="sr-only peer" :checked="channelData.feishu.enable_notify"
+                     @change="channelData.feishu.enable_notify = $event.target.checked">
+              <div class="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+            </label>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">App ID</label>
+              <input type="text" x-model="channelData.feishu.app_id" placeholder="Feishu App ID"
+                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">App Secret</label>
+              <input type="password" x-model="channelData.feishu.app_secret" placeholder="Feishu App Secret"
+                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Encrypt Key</label>
+              <input type="password" x-model="channelData.feishu.encrypt_key" placeholder="Event encrypt key (optional)"
+                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Verification Token</label>
+              <input type="password" x-model="channelData.feishu.verification_token" placeholder="Event verification token (optional)"
+                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+            </div>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Notify Chat</label>
+              <input type="text" x-model="channelData.feishu.notify_chat" placeholder="Chat or open_id"
+                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Group Mode</label>
+              <select x-model="channelData.feishu.group_mode"
+                      class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all cursor-pointer appearance-none">
+                <option value="">Default (mention)</option>
+                <option value="mention">Mention</option>
+                <option value="always">Always</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Allowed IDs</label>
+            <input type="text" :value="(channelData.feishu.allowed_ids || []).join(', ')"
+                   @change="channelData.feishu.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)"
+                   placeholder="open_ids, comma-separated"
+                   class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+          </div>
+          <div class="flex justify-end pt-1">
+            <button @click="saveChannel('feishu')" class="inline-flex items-center gap-1.5 h-8 px-3.5 text-xs font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-all cursor-pointer">Save</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== USERS TAB ==================== -->
+    <section x-show="tab === 'users'" x-transition.opacity.duration.150ms>
+      <h2 class="text-lg font-semibold mb-4">Users</h2>
+      <div class="bg-white rounded-lg shadow-card overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-surface-2">
+            <tr>
+              <th class="text-left px-4 py-2 font-medium text-ink-1">ID</th>
+              <th class="text-left px-4 py-2 font-medium text-ink-1">Name</th>
+              <th class="text-left px-4 py-2 font-medium text-ink-1">Platform</th>
+              <th class="text-left px-4 py-2 font-medium text-ink-1">External ID</th>
+              <th class="text-left px-4 py-2 font-medium text-ink-1">Default Agent</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="u in users" :key="u.id">
+              <tr class="border-t border-surface-3">
+                <td class="px-4 py-2" x-text="u.id"></td>
+                <td class="px-4 py-2" x-text="u.name || '-'"></td>
+                <td class="px-4 py-2" x-text="u.platform"></td>
+                <td class="px-4 py-2 font-mono text-xs" x-text="u.external_id"></td>
+                <td class="px-4 py-2" x-text="u.default_agent_id || '-'"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div x-show="users.length === 0" class="text-sm text-ink-2 text-center py-8">No users yet</div>
+      </div>
+    </section>
+
+    <!-- ==================== SESSIONS TAB ==================== -->
+    <section x-show="tab === 'sessions'" x-transition.opacity.duration.150ms>
+      <h2 class="text-lg font-semibold mb-4">Sessions</h2>
+      <div class="bg-white rounded-lg shadow-card overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-surface-2">
+            <tr>
+              <th class="text-left px-4 py-2 font-medium text-ink-1">Session ID</th>
+              <th class="text-left px-4 py-2 font-medium text-ink-1">Channel</th>
+              <th class="text-left px-4 py-2 font-medium text-ink-1">Title</th>
+              <th class="text-left px-4 py-2 font-medium text-ink-1">Agent</th>
+              <th class="text-left px-4 py-2 font-medium text-ink-1">Last Active</th>
+              <th class="text-left px-4 py-2 font-medium text-ink-1">Archived</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="s in sessions" :key="s.ID">
+              <tr class="border-t border-surface-3">
+                <td class="px-4 py-2 font-mono text-xs" x-text="s.ID"></td>
+                <td class="px-4 py-2" x-text="s.Channel"></td>
+                <td class="px-4 py-2" x-text="s.Title || '-'"></td>
+                <td class="px-4 py-2" x-text="s.AgentID || '-'"></td>
+                <td class="px-4 py-2 text-xs" x-text="s.LastActive"></td>
+                <td class="px-4 py-2" x-text="s.Archived ? 'Yes' : 'No'"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div x-show="sessions.length === 0" class="text-sm text-ink-2 text-center py-8">No sessions yet</div>
+      </div>
+    </section>
+
+    <!-- ==================== SCHEDULER TAB ==================== -->
+    <section x-show="tab === 'scheduler'" x-transition.opacity.duration.150ms>
+
+      <!-- New / Edit form -->
+      <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card overflow-hidden mb-5">
+        <div class="flex items-center gap-2 px-4 py-2.5 border-b border-surface-2">
+          <svg class="w-4 h-4 text-primary-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+          <span class="text-sm font-medium text-ink-0" x-text="editingJobId ? 'Edit Job' : 'New Job'"></span>
+          <button x-show="editingJobId" @click="resetJobForm()"
+                  class="ml-auto text-[11px] text-ink-2 hover:text-ink-0 cursor-pointer">Cancel</button>
+        </div>
+        <div class="px-4 py-4 space-y-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Name</label>
+              <input type="text" x-model="jobForm.name" placeholder="Daily summary"
+                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+            </div>
+            <div>
+              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Session Mode</label>
+              <select x-model="jobForm.session_mode"
+                      class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all cursor-pointer appearance-none">
+                <option value="reuse">Reuse session</option>
+                <option value="new">New session each run</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Schedule</label>
+            <div class="flex items-center gap-2 mb-2">
+              <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                <input type="radio" x-model="jobForm.schedule_type" value="cron" class="accent-primary-600">
+                <span class="text-xs text-ink-1">Cron expression</span>
+              </label>
+              <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                <input type="radio" x-model="jobForm.schedule_type" value="every" class="accent-primary-600">
+                <span class="text-xs text-ink-1">Interval</span>
+              </label>
+            </div>
+            <input x-show="jobForm.schedule_type === 'cron'" type="text" x-model="jobForm.cron" placeholder="0 9 * * 1-5 (weekdays at 9am)"
+                   class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+            <input x-show="jobForm.schedule_type === 'every'" type="text" x-model="jobForm.every" placeholder="30m, 2h, 1h30m"
+                   class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+          </div>
+          <div>
+            <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Agent</label>
+            <select x-model="jobForm.agent_id"
+                    class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all cursor-pointer appearance-none">
+              <option value="">Default agent</option>
+              <template x-for="a in agents" :key="a.id">
+                <option :value="a.id" x-text="a.name"></option>
+              </template>
+            </select>
+          </div>
+          <div>
+            <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Message / Instruction</label>
+            <textarea x-model="jobForm.message" rows="3" placeholder="What should the agent do when this job runs?"
+                      class="w-full rounded-lg border border-surface-4 bg-surface-0 px-3 py-2 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all resize-y"></textarea>
+          </div>
+          <div class="flex items-center justify-between pt-1">
+            <label class="inline-flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" x-model="jobForm.enabled" class="accent-primary-600 w-4 h-4 rounded">
+              <span class="text-xs text-ink-1">Enabled</span>
+            </label>
+            <button @click="saveJob()" :disabled="!jobForm.name || !jobForm.message || (jobForm.schedule_type === 'cron' ? !jobForm.cron : !jobForm.every)"
+                    class="inline-flex items-center gap-1.5 h-8 px-3.5 text-xs font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+              <span x-text="editingJobId ? 'Update' : 'Create'"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Job list -->
+      <template x-if="jobs.length === 0">
+        <div class="rounded-xl border-2 border-dashed border-surface-3 py-16 text-center">
+          <div class="w-10 h-10 rounded-full bg-surface-2 flex items-center justify-center mx-auto mb-3">
+            <svg class="w-5 h-5 text-ink-3" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+          </div>
+          <p class="text-sm text-ink-2">No scheduled jobs</p>
+          <p class="text-xs text-ink-3 mt-0.5">Create one above to run tasks on a schedule</p>
+        </div>
+      </template>
+
+      <div class="space-y-2">
+        <template x-for="j in jobs" :key="j.id">
+          <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card hover:shadow-card-hover transition-shadow px-4 py-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-3 min-w-0">
+                <button @click="toggleJob(j)" class="shrink-0 cursor-pointer" :title="j.enabled ? 'Disable' : 'Enable'">
+                  <div class="w-8 h-5 rounded-full transition-colors duration-200 flex items-center"
+                       :class="j.enabled ? 'bg-primary-500' : 'bg-surface-4'">
+                    <div class="w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform duration-200"
+                         :class="j.enabled ? 'translate-x-[14px]' : 'translate-x-[3px]'"></div>
+                  </div>
+                </button>
+                <div class="min-w-0">
+                  <div class="text-sm font-medium text-ink-0 truncate" x-text="j.name"></div>
+                  <div class="text-[11px] text-ink-2 font-mono mt-0.5"
+                       x-text="j.cron ? ('cron: ' + j.cron) : ('every ' + j.every)"></div>
+                </div>
+              </div>
+              <div class="flex items-center gap-1 shrink-0 ml-3">
+                <button @click="editJob(j)" class="p-1.5 rounded-md text-ink-3 hover:text-primary-600 hover:bg-primary-50 transition-colors cursor-pointer" title="Edit">
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125"/></svg>
+                </button>
+                <button @click="deleteJob(j.id)" class="p-1.5 rounded-md text-ink-3 hover:text-danger-500 hover:bg-danger-50 transition-colors cursor-pointer" title="Delete">
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="mt-2 text-xs text-ink-2 line-clamp-2" x-text="j.message"></div>
+            <div class="mt-1.5 flex items-center gap-2">
+              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium"
+                    :class="j.session_mode === 'new' ? 'bg-primary-50 text-primary-700' : 'bg-surface-2 text-ink-2'"
+                    x-text="j.session_mode === 'new' ? 'new session' : 'reuse session'"></span>
+              <span x-show="j.agent_id" class="text-[10px] text-ink-2" x-text="'agent: ' + j.agent_id"></span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <!-- ==================== SETTINGS TAB ==================== -->
+    <section x-show="tab === 'settings'" x-transition.opacity.duration.150ms>
+      <h2 class="text-lg font-semibold mb-4">Settings</h2>
+      <div class="space-y-4">
+        <template x-for="key in settingsKeys" :key="key">
+          <div class="bg-white rounded-lg shadow-card p-4">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-medium font-mono text-sm" x-text="key"></h3>
+              <button @click="saveSetting(key)" class="inline-flex items-center gap-1.5 h-8 px-3.5 text-xs font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-all cursor-pointer">Save</button>
+            </div>
+            <textarea
+              x-model="settingsEditors[key]"
+              rows="4"
+              class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all"></textarea>
+          </div>
+        </template>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-surface-3 bg-surface-0/60 backdrop-blur-sm">
+    <div class="max-w-4xl mx-auto px-5 py-3 flex items-center justify-between">
+      <span class="text-[11px] text-ink-3 font-mono">~/.anna/anna.db</span>
+      <span class="text-[11px] text-ink-3">Press <kbd class="px-1 py-0.5 bg-surface-2 rounded text-ink-2 font-mono text-[10px]">Ctrl+C</kbd> in terminal to close</span>
+    </div>
+  </footer>
 </div>
 
 <script>
 function adminApp() {
+  const providerDefaults = {
+    'anthropic':       { base_url: 'https://api.anthropic.com', name: 'Anthropic' },
+    'openai':          { base_url: 'https://api.openai.com/v1', name: 'OpenAI' },
+    'openai-response': { base_url: 'https://api.openai.com/v1', name: 'OpenAI Response' },
+  };
+
   return {
     tab: 'providers',
     tabs: [
@@ -436,37 +769,70 @@ function adminApp() {
     status: '',
     toast: '',
     toastType: 'success',
+    providerDefaults,
 
     // Data
     providers: [],
+    providerEdits: {},
+    providerModels: {},
+    fetchingModels: {},
+    newProviderType: '',
     agents: [],
     users: [],
     sessions: [],
     jobs: [],
-    channelConfigs: {},
-    channelEditors: { telegram: '', qq: '', feishu: '' },
-    channelEnabled: { telegram: false, qq: false, feishu: false },
-    channelPlaceholders: {
-      telegram: '{"token":"","notify_chat":"","group_mode":"mention","allowed_ids":[],"enable_notify":true}',
-      qq: '{"app_id":"","app_secret":"","group_mode":"","allowed_ids":[]}',
-      feishu: '{"app_id":"","app_secret":"","encrypt_key":"","verification_token":"","notify_chat":""}',
+    channelData: {
+      telegram: { enabled: false, enable_notify: false, token: '', notify_chat: '', channel_id: '', group_mode: '', allowed_ids: [] },
+      qq: { enabled: false, enable_notify: false, app_id: '', app_secret: '', group_mode: '', allowed_ids: [] },
+      feishu: { enabled: false, enable_notify: false, app_id: '', app_secret: '', encrypt_key: '', verification_token: '', notify_chat: '', group_mode: '', allowed_ids: [] },
     },
-    fetchedModels: [],
-    fetchedModelsProvider: '',
     settingsKeys: ['runner', 'compaction', 'heartbeat', 'scheduler', 'plugins'],
     settingsEditors: {},
 
-    // Forms
-    showProviderForm: false,
-    editingProviderId: null,
-    providerForm: { id: '', name: '', api_key: '', base_url: '' },
+    // Agent form
     showAgentForm: false,
     editingAgentId: null,
-    agentForm: { id: '', name: '', provider_id: '', model: '', model_strong: '', model_fast: '', system_prompt: '', workspace: '', enabled: true },
-    showJobForm: false,
-    editingJobId: null,
-    jobForm: { name: '', cron: '', every: '', message: '', session_mode: 'reuse', enabled: true, agent_id: '' },
+    agentForm: { id: '', name: '', model: '', model_strong: '', model_fast: '', system_prompt: '', workspace: '', enabled: true },
 
+    // Job form
+    editingJobId: null,
+    jobForm: { name: '', cron: '', every: '', message: '', session_mode: 'reuse', enabled: true, agent_id: '', schedule_type: 'cron' },
+
+    get addableProviders() {
+      const existing = new Set(this.providers.map(p => p.id));
+      return Object.keys(providerDefaults).filter(p => !existing.has(p));
+    },
+
+    // Model helpers for agent form autocomplete
+    allProviderModels() {
+      const all = [];
+      const seen = new Set();
+      for (const p of this.providers) {
+        const models = this.providerModels[p.id] || [];
+        for (const m of models) {
+          const ref = p.id + '/' + m;
+          if (!seen.has(ref)) { seen.add(ref); all.push(ref); }
+        }
+      }
+      return all;
+    },
+
+    filteredProviderModels(search) {
+      const all = this.allProviderModels();
+      if (!search) return all;
+      const q = search.toLowerCase();
+      return all.filter(m => m.toLowerCase().includes(q));
+    },
+
+    getModelValue(field) {
+      return this.agentForm[field];
+    },
+
+    setModelValue(field, value) {
+      this.agentForm[field] = value;
+    },
+
+    // Init
     async init() {
       await Promise.all([
         this.loadProviders(),
@@ -477,6 +843,7 @@ function adminApp() {
         this.loadChannels(),
         this.loadSettings(),
       ]);
+      this.newProviderType = this.addableProviders[0] || '';
       this.status = 'Connected';
     },
 
@@ -495,44 +862,61 @@ function adminApp() {
       return json.data;
     },
 
-    // Providers
-    async loadProviders() { try { this.providers = await this.api('GET', '/api/providers') || []; } catch(e) { console.error(e); } },
-    resetProviderForm() { this.providerForm = { id: '', name: '', api_key: '', base_url: '' }; this.editingProviderId = null; },
-    editProvider(p) {
-      this.providerForm = { ...p };
-      this.editingProviderId = p.id;
-      this.showProviderForm = true;
+    // --- Providers ---
+    async loadProviders() {
+      try { this.providers = await this.api('GET', '/api/providers') || []; }
+      catch(e) { console.error(e); }
     },
-    async saveProvider() {
+
+    async addProvider() {
+      if (!this.newProviderType) return;
+      const defaults = providerDefaults[this.newProviderType] || {};
       try {
-        if (this.editingProviderId) {
-          await this.api('PUT', '/api/providers/' + this.editingProviderId, this.providerForm);
-        } else {
-          await this.api('POST', '/api/providers', this.providerForm);
-        }
-        this.showProviderForm = false;
-        this.resetProviderForm();
+        await this.api('POST', '/api/providers', {
+          id: this.newProviderType,
+          name: defaults.name || this.newProviderType,
+          api_key: '',
+          base_url: '',
+        });
+        await this.loadProviders();
+        this.newProviderType = this.addableProviders[0] || '';
+        this.showToast('Provider added');
+      } catch(e) { this.showToast(e.message, 'error'); }
+    },
+
+    async saveProvider(p) {
+      const edits = this.providerEdits[p.id] || {};
+      try {
+        await this.api('PUT', '/api/providers/' + p.id, {
+          ...p,
+          api_key: edits.api_key !== undefined ? edits.api_key : p.api_key,
+          base_url: edits.base_url !== undefined ? edits.base_url : p.base_url,
+        });
+        this.providerEdits[p.id] = {};
         await this.loadProviders();
         this.showToast('Provider saved');
       } catch(e) { this.showToast(e.message, 'error'); }
     },
+
     async deleteProvider(id) {
       if (!confirm('Delete provider ' + id + '?')) return;
       try { await this.api('DELETE', '/api/providers/' + id); await this.loadProviders(); this.showToast('Provider deleted'); }
       catch(e) { this.showToast(e.message, 'error'); }
     },
+
     async fetchModels(id) {
+      this.fetchingModels[id] = true;
       try {
-        this.fetchedModelsProvider = id;
         const models = await this.api('POST', '/api/providers/' + id + '/models', {});
-        this.fetchedModels = models || [];
-        this.showToast('Fetched ' + this.fetchedModels.length + ' models');
+        this.providerModels[id] = models || [];
+        this.showToast('Fetched ' + (this.providerModels[id]?.length || 0) + ' models from ' + id);
       } catch(e) { this.showToast(e.message, 'error'); }
+      finally { this.fetchingModels[id] = false; }
     },
 
-    // Agents
+    // --- Agents ---
     async loadAgents() { try { this.agents = await this.api('GET', '/api/agents') || []; } catch(e) { console.error(e); } },
-    resetAgentForm() { this.agentForm = { id: '', name: '', provider_id: '', model: '', model_strong: '', model_fast: '', system_prompt: '', workspace: '', enabled: true }; this.editingAgentId = null; },
+    resetAgentForm() { this.agentForm = { id: '', name: '', model: '', model_strong: '', model_fast: '', system_prompt: '', workspace: '', enabled: true }; this.editingAgentId = null; this.showAgentForm = false; },
     editAgent(a) {
       this.agentForm = { ...a };
       this.editingAgentId = a.id;
@@ -545,7 +929,6 @@ function adminApp() {
         } else {
           await this.api('POST', '/api/agents', this.agentForm);
         }
-        this.showAgentForm = false;
         this.resetAgentForm();
         await this.loadAgents();
         this.showToast('Agent saved');
@@ -557,55 +940,117 @@ function adminApp() {
       catch(e) { this.showToast(e.message, 'error'); }
     },
 
-    // Channels
+    // --- Channels ---
     async loadChannels() {
       try {
         const channels = await this.api('GET', '/api/channels') || [];
         for (const ch of channels) {
-          this.channelConfigs[ch.id] = ch;
-          this.channelEditors[ch.id] = ch.config || '{}';
-          this.channelEnabled[ch.id] = ch.enabled;
+          let cfg = {};
+          try { cfg = JSON.parse(ch.config || '{}'); } catch(_) {}
+          if (ch.id === 'telegram') {
+            this.channelData.telegram = {
+              enabled: ch.enabled,
+              enable_notify: cfg.enable_notify || false,
+              token: cfg.token || '',
+              notify_chat: cfg.notify_chat || '',
+              channel_id: cfg.channel_id || '',
+              group_mode: cfg.group_mode || '',
+              allowed_ids: cfg.allowed_ids || [],
+            };
+          } else if (ch.id === 'qq') {
+            this.channelData.qq = {
+              enabled: ch.enabled,
+              enable_notify: cfg.enable_notify || false,
+              app_id: cfg.app_id || '',
+              app_secret: cfg.app_secret || '',
+              group_mode: cfg.group_mode || '',
+              allowed_ids: cfg.allowed_ids || [],
+            };
+          } else if (ch.id === 'feishu') {
+            this.channelData.feishu = {
+              enabled: ch.enabled,
+              enable_notify: cfg.enable_notify || false,
+              app_id: cfg.app_id || '',
+              app_secret: cfg.app_secret || '',
+              encrypt_key: cfg.encrypt_key || '',
+              verification_token: cfg.verification_token || '',
+              notify_chat: cfg.notify_chat || '',
+              group_mode: cfg.group_mode || '',
+              allowed_ids: cfg.allowed_ids || [],
+            };
+          }
         }
       } catch(e) { console.error(e); }
     },
+
     async saveChannel(platform) {
       try {
-        let configStr = this.channelEditors[platform] || '{}';
-        JSON.parse(configStr); // validate
+        const data = this.channelData[platform];
+        const { enabled, ...cfg } = data;
         await this.api('PUT', '/api/channels/' + platform, {
-          enabled: this.channelEnabled[platform],
-          config: configStr,
+          enabled: enabled,
+          config: JSON.stringify(cfg),
         });
         await this.loadChannels();
         this.showToast(platform + ' channel saved');
       } catch(e) { this.showToast(e.message, 'error'); }
     },
 
-    // Users
+    // --- Users ---
     async loadUsers() { try { this.users = await this.api('GET', '/api/users') || []; } catch(e) { console.error(e); } },
 
-    // Sessions
+    // --- Sessions ---
     async loadSessions() { try { this.sessions = await this.api('GET', '/api/sessions') || []; } catch(e) { console.error(e); } },
 
-    // Jobs
+    // --- Scheduler ---
     async loadJobs() { try { this.jobs = await this.api('GET', '/api/scheduler/jobs') || []; } catch(e) { console.error(e); } },
-    resetJobForm() { this.jobForm = { name: '', cron: '', every: '', message: '', session_mode: 'reuse', enabled: true, agent_id: '' }; this.editingJobId = null; },
+    resetJobForm() { this.jobForm = { name: '', cron: '', every: '', message: '', session_mode: 'reuse', enabled: true, agent_id: '', schedule_type: 'cron' }; this.editingJobId = null; },
     editJob(j) {
-      this.jobForm = { ...j };
       this.editingJobId = j.id;
-      this.showJobForm = true;
+      this.jobForm = {
+        name: j.name,
+        message: j.message,
+        schedule_type: j.cron ? 'cron' : 'every',
+        cron: j.cron || '',
+        every: j.every || '',
+        session_mode: j.session_mode || 'reuse',
+        enabled: j.enabled,
+        agent_id: j.agent_id || '',
+      };
     },
     async saveJob() {
+      const payload = {
+        name: this.jobForm.name,
+        message: this.jobForm.message,
+        cron: this.jobForm.schedule_type === 'cron' ? this.jobForm.cron : '',
+        every: this.jobForm.schedule_type === 'every' ? this.jobForm.every : '',
+        session_mode: this.jobForm.session_mode,
+        enabled: this.jobForm.enabled,
+        agent_id: this.jobForm.agent_id,
+      };
       try {
         if (this.editingJobId) {
-          await this.api('PUT', '/api/scheduler/jobs/' + this.editingJobId, this.jobForm);
+          await this.api('PUT', '/api/scheduler/jobs/' + this.editingJobId, payload);
         } else {
-          await this.api('POST', '/api/scheduler/jobs', this.jobForm);
+          await this.api('POST', '/api/scheduler/jobs', payload);
         }
-        this.showJobForm = false;
         this.resetJobForm();
         await this.loadJobs();
-        this.showToast('Job saved');
+        this.showToast(this.editingJobId ? 'Job updated' : 'Job created');
+      } catch(e) { this.showToast(e.message, 'error'); }
+    },
+    async toggleJob(j) {
+      try {
+        await this.api('PUT', '/api/scheduler/jobs/' + j.id, {
+          name: j.name,
+          message: j.message,
+          cron: j.cron || '',
+          every: j.every || '',
+          session_mode: j.session_mode,
+          enabled: !j.enabled,
+          agent_id: j.agent_id || '',
+        });
+        await this.loadJobs();
       } catch(e) { this.showToast(e.message, 'error'); }
     },
     async deleteJob(id) {
@@ -614,7 +1059,7 @@ function adminApp() {
       catch(e) { this.showToast(e.message, 'error'); }
     },
 
-    // Settings
+    // --- Settings ---
     async loadSettings() {
       for (const key of this.settingsKeys) {
         try {
@@ -634,6 +1079,11 @@ function adminApp() {
       } catch(e) { this.showToast(e.message, 'error'); }
     },
   };
+}
+
+// Model combo helper (used by x-data on model fields)
+function modelCombo(field) {
+  return { open: false, search: '' };
 }
 </script>
 

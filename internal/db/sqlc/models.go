@@ -112,7 +112,6 @@ type Setting struct {
 type SettingsAgent struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
-	ProviderID   string `json:"provider_id"`
 	Model        string `json:"model"`
 	ModelStrong  string `json:"model_strong"`
 	ModelFast    string `json:"model_fast"`

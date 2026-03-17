@@ -11,10 +11,10 @@ type Provider struct {
 }
 
 // Agent represents an agent definition.
+// Model fields use {provider}/{model} format (e.g. "anthropic/claude-sonnet-4-6").
 type Agent struct {
 	ID           string
 	Name         string
-	ProviderID   string
 	Model        string
 	ModelStrong  string
 	ModelFast    string

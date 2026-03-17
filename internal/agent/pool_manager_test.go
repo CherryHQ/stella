@@ -26,14 +26,18 @@ func (m *mockStore) ListEnabledAgents(_ context.Context) ([]config.Agent, error)
 func (m *mockStore) Snapshot(_ context.Context, agentID string) (*config.Snapshot, error) {
 	for _, a := range m.agents {
 		if a.ID == agentID {
-			p := m.providers[a.ProviderID]
+			provID, _ := config.ParseModelRef(a.Model)
+			p := m.providers[provID]
 			return &config.Snapshot{
-				Provider:  a.ProviderID,
+				Provider:  provID,
 				Model:     a.Model,
 				APIKey:    p.APIKey,
 				BaseURL:   p.BaseURL,
 				Workspace: a.Workspace,
 				Runner:    config.RunnerConfig{Type: "go"},
+				Providers: map[string]config.ProviderCreds{
+					provID: {APIKey: p.APIKey, BaseURL: p.BaseURL},
+				},
 			}, nil
 		}
 	}
@@ -96,9 +100,9 @@ func TestPoolManagerStartAllAndGet(t *testing.T) {
 
 	store := &mockStore{
 		agents: []config.Agent{
-			{ID: "anna", Name: "Anna", ProviderID: "anthropic", Model: "test-model", Enabled: true},
-			{ID: "coder", Name: "Coder", ProviderID: "anthropic", Model: "test-model", Enabled: true},
-			{ID: "disabled", Name: "Disabled", ProviderID: "anthropic", Model: "test-model", Enabled: false},
+			{ID: "anna", Name: "Anna", Model: "anthropic/test-model", Enabled: true},
+			{ID: "coder", Name: "Coder", Model: "anthropic/test-model", Enabled: true},
+			{ID: "disabled", Name: "Disabled", Model: "anthropic/test-model", Enabled: false},
 		},
 		providers: map[string]config.Provider{
 			"anthropic": {ID: "anthropic", APIKey: "test-key"},
@@ -138,7 +142,7 @@ func TestPoolManagerDefaultPool(t *testing.T) {
 
 	store := &mockStore{
 		agents: []config.Agent{
-			{ID: "anna", Name: "Anna", ProviderID: "anthropic", Model: "test-model", Enabled: true},
+			{ID: "anna", Name: "Anna", Model: "anthropic/test-model", Enabled: true},
 		},
 		providers: map[string]config.Provider{
 			"anthropic": {ID: "anthropic", APIKey: "test-key"},
@@ -167,7 +171,7 @@ func TestPoolManagerClose(t *testing.T) {
 
 	store := &mockStore{
 		agents: []config.Agent{
-			{ID: "anna", Name: "Anna", ProviderID: "anthropic", Model: "test-model", Enabled: true},
+			{ID: "anna", Name: "Anna", Model: "anthropic/test-model", Enabled: true},
 		},
 		providers: map[string]config.Provider{
 			"anthropic": {ID: "anthropic", APIKey: "test-key"},

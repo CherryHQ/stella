@@ -83,14 +83,12 @@ func TestResolveAgentDMDefault(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a second agent.
-	_ = store.CreateProvider(ctx, config.Provider{ID: "openai", Name: "OpenAI"})
 	_ = store.CreateAgent(ctx, config.Agent{
-		ID:         "coder",
-		Name:       "Coder",
-		ProviderID: "openai",
-		Model:      "gpt-4",
-		Workspace:  "/tmp/coder",
-		Enabled:    true,
+		ID:        "coder",
+		Name:      "Coder",
+		Model:     "openai/gpt-4",
+		Workspace: "/tmp/coder",
+		Enabled:   true,
 	})
 
 	user, _ := channel.ResolveUser(ctx, store, "100", "telegram", "Charlie")
@@ -114,14 +112,12 @@ func TestResolveAgentGroupAssignment(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a second agent.
-	_ = store.CreateProvider(ctx, config.Provider{ID: "openai", Name: "OpenAI"})
 	_ = store.CreateAgent(ctx, config.Agent{
-		ID:         "writer",
-		Name:       "Writer",
-		ProviderID: "openai",
-		Model:      "gpt-4",
-		Workspace:  "/tmp/writer",
-		Enabled:    true,
+		ID:        "writer",
+		Name:      "Writer",
+		Model:     "openai/gpt-4",
+		Workspace: "/tmp/writer",
+		Enabled:   true,
 	})
 
 	// Set group agent.

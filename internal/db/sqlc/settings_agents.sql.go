@@ -10,15 +10,14 @@ import (
 )
 
 const createAgent = `-- name: CreateAgent :one
-INSERT INTO settings_agents (id, name, provider_id, model, model_strong, model_fast, system_prompt, workspace, enabled)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, name, provider_id, model, model_strong, model_fast, system_prompt, workspace, enabled, created_at, updated_at
+INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, workspace, enabled)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, name, model, model_strong, model_fast, system_prompt, workspace, enabled, created_at, updated_at
 `
 
 type CreateAgentParams struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
-	ProviderID   string `json:"provider_id"`
 	Model        string `json:"model"`
 	ModelStrong  string `json:"model_strong"`
 	ModelFast    string `json:"model_fast"`
@@ -31,7 +30,6 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Setti
 	row := q.db.QueryRowContext(ctx, createAgent,
 		arg.ID,
 		arg.Name,
-		arg.ProviderID,
 		arg.Model,
 		arg.ModelStrong,
 		arg.ModelFast,
@@ -43,7 +41,6 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Setti
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
-		&i.ProviderID,
 		&i.Model,
 		&i.ModelStrong,
 		&i.ModelFast,
@@ -66,7 +63,7 @@ func (q *Queries) DeleteAgent(ctx context.Context, id string) error {
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, name, provider_id, model, model_strong, model_fast, system_prompt, workspace, enabled, created_at, updated_at FROM settings_agents WHERE id = ?
+SELECT id, name, model, model_strong, model_fast, system_prompt, workspace, enabled, created_at, updated_at FROM settings_agents WHERE id = ?
 `
 
 func (q *Queries) GetAgent(ctx context.Context, id string) (SettingsAgent, error) {
@@ -75,7 +72,6 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (SettingsAgent, error
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
-		&i.ProviderID,
 		&i.Model,
 		&i.ModelStrong,
 		&i.ModelFast,
@@ -89,7 +85,7 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (SettingsAgent, error
 }
 
 const listAgents = `-- name: ListAgents :many
-SELECT id, name, provider_id, model, model_strong, model_fast, system_prompt, workspace, enabled, created_at, updated_at FROM settings_agents ORDER BY name
+SELECT id, name, model, model_strong, model_fast, system_prompt, workspace, enabled, created_at, updated_at FROM settings_agents ORDER BY name
 `
 
 func (q *Queries) ListAgents(ctx context.Context) ([]SettingsAgent, error) {
@@ -104,7 +100,6 @@ func (q *Queries) ListAgents(ctx context.Context) ([]SettingsAgent, error) {
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
-			&i.ProviderID,
 			&i.Model,
 			&i.ModelStrong,
 			&i.ModelFast,
@@ -128,7 +123,7 @@ func (q *Queries) ListAgents(ctx context.Context) ([]SettingsAgent, error) {
 }
 
 const listEnabledAgents = `-- name: ListEnabledAgents :many
-SELECT id, name, provider_id, model, model_strong, model_fast, system_prompt, workspace, enabled, created_at, updated_at FROM settings_agents WHERE enabled = 1 ORDER BY name
+SELECT id, name, model, model_strong, model_fast, system_prompt, workspace, enabled, created_at, updated_at FROM settings_agents WHERE enabled = 1 ORDER BY name
 `
 
 func (q *Queries) ListEnabledAgents(ctx context.Context) ([]SettingsAgent, error) {
@@ -143,7 +138,6 @@ func (q *Queries) ListEnabledAgents(ctx context.Context) ([]SettingsAgent, error
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
-			&i.ProviderID,
 			&i.Model,
 			&i.ModelStrong,
 			&i.ModelFast,
@@ -169,7 +163,6 @@ func (q *Queries) ListEnabledAgents(ctx context.Context) ([]SettingsAgent, error
 const updateAgent = `-- name: UpdateAgent :exec
 UPDATE settings_agents SET
     name = ?,
-    provider_id = ?,
     model = ?,
     model_strong = ?,
     model_fast = ?,
@@ -182,7 +175,6 @@ WHERE id = ?
 
 type UpdateAgentParams struct {
 	Name         string `json:"name"`
-	ProviderID   string `json:"provider_id"`
 	Model        string `json:"model"`
 	ModelStrong  string `json:"model_strong"`
 	ModelFast    string `json:"model_fast"`
@@ -195,7 +187,6 @@ type UpdateAgentParams struct {
 func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error {
 	_, err := q.db.ExecContext(ctx, updateAgent,
 		arg.Name,
-		arg.ProviderID,
 		arg.Model,
 		arg.ModelStrong,
 		arg.ModelFast,

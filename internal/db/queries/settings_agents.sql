@@ -1,6 +1,6 @@
 -- name: CreateAgent :one
-INSERT INTO settings_agents (id, name, provider_id, model, model_strong, model_fast, system_prompt, workspace, enabled)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, workspace, enabled)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgent :one
@@ -15,7 +15,6 @@ SELECT * FROM settings_agents WHERE enabled = 1 ORDER BY name;
 -- name: UpdateAgent :exec
 UPDATE settings_agents SET
     name = ?,
-    provider_id = ?,
     model = ?,
     model_strong = ?,
     model_fast = ?,
