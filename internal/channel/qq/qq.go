@@ -15,6 +15,7 @@ import (
 	"github.com/tencent-connect/botgo/token"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/internal/config"
 	"golang.org/x/oauth2"
 )
 
@@ -37,7 +38,10 @@ type Bot struct {
 	creds          *token.QQBotCredentials
 	tokenSource    oauth2.TokenSource
 	sessionManager botgo.SessionManager
-	pool           *agent.Pool
+	pool           *agent.Pool // fallback pool (default agent)
+	poolManager    *agent.PoolManager
+	store          config.Store
+	agentCmd       *channel.AgentCommander
 	cmd            *channel.Commander
 	listFn         channel.ModelListFunc
 	switchFn       channel.ModelSwitchFunc
@@ -51,8 +55,26 @@ type Bot struct {
 	cancel  context.CancelFunc
 }
 
+// BotOption configures the QQ Bot.
+type BotOption func(*Bot)
+
+// WithPoolManager sets the pool manager for multi-agent routing.
+func WithPoolManager(pm *agent.PoolManager) BotOption {
+	return func(b *Bot) {
+		b.poolManager = pm
+	}
+}
+
+// WithStore sets the config store for user resolution and agent routing.
+func WithStore(s config.Store) BotOption {
+	return func(b *Bot) {
+		b.store = s
+		b.agentCmd = channel.NewAgentCommander(s)
+	}
+}
+
 // New creates a QQ bot. Call Start to begin receiving events.
-func New(cfg Config, pool *agent.Pool, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc) (*Bot, error) {
+func New(cfg Config, pool *agent.Pool, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc, opts ...BotOption) (*Bot, error) {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return nil, fmt.Errorf("qq: app_id and app_secret are required")
 	}
@@ -81,6 +103,10 @@ func New(cfg Config, pool *agent.Pool, listFn channel.ModelListFunc, switchFn ch
 		chatModels: make(map[string]channel.ModelOption),
 		allowed:    allowed,
 		cfg:        cfg,
+	}
+
+	for _, opt := range opts {
+		opt(b)
 	}
 
 	return b, nil
@@ -172,6 +198,13 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	return nil
 }
 
+// resolveAgentID returns the agent ID for the current context.
+// Used by handlers to build session keys before full pool resolution.
+func (b *Bot) resolveAgentID(authorID string) string {
+	pool, _ := b.resolvePool(authorID)
+	return pool.AgentID()
+}
+
 // isAllowed returns true if the sender is in the allowed list.
 // An empty allowed list means everyone is allowed.
 func (b *Bot) isAllowed(authorID string) bool {
@@ -192,12 +225,58 @@ func channelForGroup(groupID string) string {
 	return "qq:group:" + groupID
 }
 
-// resolveSession returns the active session ID for the given channel,
+// resolveSession returns the active session ID for the given message context,
 // creating a new session if none exists.
-func (b *Bot) resolveSession(ch string) (string, error) {
-	info, err := b.pool.ResolveSession(ch)
+func (b *Bot) resolveSession(authorID string, groupID string) (string, error) {
+	pool, userID := b.resolvePool(authorID)
+	sessionKey := b.buildSessionKey(authorID, groupID, pool.AgentID())
+	info, err := pool.ResolveSession(sessionKey, userID)
 	if err != nil {
 		return "", err
 	}
 	return info.ID, nil
+}
+
+// buildSessionKey constructs a session key for the given QQ context.
+func (b *Bot) buildSessionKey(authorID, groupID, agentID string) string {
+	channelCtx := "private"
+	if groupID != "" {
+		channelCtx = "group:" + groupID
+	}
+	return agent.BuildSessionKey(agentID, "qq", authorID, channelCtx)
+}
+
+// resolvePool resolves the pool and user ID for the current message context.
+// If poolManager and store are configured, it does: resolve user -> resolve agent -> get pool.
+// Otherwise falls back to the default pool with userID 0.
+func (b *Bot) resolvePool(authorID string) (*agent.Pool, int64) {
+	if b.poolManager == nil || b.store == nil || authorID == "" {
+		return b.pool, 0
+	}
+
+	ctx := context.Background()
+
+	user, err := channel.ResolveUser(ctx, b.store, authorID, "qq", "")
+	if err != nil {
+		logger().Warn("resolve user failed, using default pool", "error", err)
+		return b.pool, 0
+	}
+
+	chatCtx := channel.ChatContext{
+		Platform: "qq",
+	}
+
+	agentID, err := channel.ResolveAgent(ctx, b.store, user, chatCtx)
+	if err != nil {
+		logger().Warn("resolve agent failed, using default pool", "error", err)
+		return b.pool, user.ID
+	}
+
+	pool := b.poolManager.Get(agentID)
+	if pool == nil {
+		logger().Warn("agent pool not found, using default pool", "agent_id", agentID)
+		return b.pool, user.ID
+	}
+
+	return pool, user.ID
 }

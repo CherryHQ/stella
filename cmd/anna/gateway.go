@@ -124,7 +124,10 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 			AppSecret:  qqCfg.AppSecret,
 			GroupMode:  qqCfg.GroupMode,
 			AllowedIDs: qqCfg.AllowedIDs,
-		}, s.pool, listFn, switchFn)
+		}, s.pool, listFn, switchFn,
+			qq.WithPoolManager(s.poolManager),
+			qq.WithStore(s.store),
+		)
 		if err != nil {
 			return fmt.Errorf("create qq bot: %w", err)
 		}
