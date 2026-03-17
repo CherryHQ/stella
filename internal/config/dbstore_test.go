@@ -162,16 +162,12 @@ func TestAgentCRUD(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
-	// Need a provider first for FK.
-	_ = store.CreateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic"})
-
 	a := Agent{
 		ID:           "coder",
 		Name:         "Coder",
-		ProviderID:   "anthropic",
-		Model:        "claude-sonnet-4-6",
-		ModelStrong:  "claude-opus-4-6",
-		ModelFast:    "claude-haiku-4-5",
+		Model:        "anthropic/claude-sonnet-4-6",
+		ModelStrong:  "anthropic/claude-opus-4-6",
+		ModelFast:    "anthropic/claude-haiku-4-5",
 		SystemPrompt: "You code.",
 		Workspace:    "/tmp/coder",
 		Enabled:      true,
@@ -184,7 +180,7 @@ func TestAgentCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAgent: %v", err)
 	}
-	if got.Name != "Coder" || !got.Enabled || got.ModelStrong != "claude-opus-4-6" {
+	if got.Name != "Coder" || !got.Enabled || got.ModelStrong != "anthropic/claude-opus-4-6" {
 		t.Errorf("GetAgent = %+v", got)
 	}
 
@@ -213,9 +209,8 @@ func TestListEnabledAgents(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
-	_ = store.CreateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic"})
-	_ = store.CreateAgent(ctx, Agent{ID: "a1", Name: "A1", ProviderID: "anthropic", Model: "m", Enabled: true})
-	_ = store.CreateAgent(ctx, Agent{ID: "a2", Name: "A2", ProviderID: "anthropic", Model: "m", Enabled: false})
+	_ = store.CreateAgent(ctx, Agent{ID: "a1", Name: "A1", Model: "anthropic/m", Enabled: true})
+	_ = store.CreateAgent(ctx, Agent{ID: "a2", Name: "A2", Model: "anthropic/m", Enabled: false})
 
 	enabled, err := store.ListEnabledAgents(ctx)
 	if err != nil {
@@ -298,8 +293,7 @@ func TestUpdateUserDefaultAgent(t *testing.T) {
 
 	user, _ := store.UpsertUser(ctx, "u1", "cli", "Bob")
 
-	_ = store.CreateProvider(ctx, Provider{ID: "p", Name: "P"})
-	_ = store.CreateAgent(ctx, Agent{ID: "agent1", Name: "A1", ProviderID: "p", Model: "m", Enabled: true})
+	_ = store.CreateAgent(ctx, Agent{ID: "agent1", Name: "A1", Model: "p/m", Enabled: true})
 
 	if err := store.UpdateUserDefaultAgent(ctx, user.ID, "agent1"); err != nil {
 		t.Fatalf("UpdateUserDefaultAgent: %v", err)
@@ -324,8 +318,7 @@ func TestChatAgentCRUD(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
-	_ = store.CreateProvider(ctx, Provider{ID: "p", Name: "P"})
-	_ = store.CreateAgent(ctx, Agent{ID: "agent1", Name: "A1", ProviderID: "p", Model: "m", Enabled: true})
+	_ = store.CreateAgent(ctx, Agent{ID: "agent1", Name: "A1", Model: "p/m", Enabled: true})
 
 	if err := store.SetChatAgent(ctx, "telegram", "group-42", "agent1"); err != nil {
 		t.Fatalf("SetChatAgent: %v", err)
@@ -353,8 +346,7 @@ func TestUserAgentMemory(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
-	_ = store.CreateProvider(ctx, Provider{ID: "p", Name: "P"})
-	_ = store.CreateAgent(ctx, Agent{ID: "agent1", Name: "A1", ProviderID: "p", Model: "m", Enabled: true})
+	_ = store.CreateAgent(ctx, Agent{ID: "agent1", Name: "A1", Model: "p/m", Enabled: true})
 	user, _ := store.UpsertUser(ctx, "u1", "cli", "User")
 
 	// Empty by default.
@@ -421,9 +413,8 @@ func TestSnapshot(t *testing.T) {
 	_ = store.CreateAgent(ctx, Agent{
 		ID:           "anna",
 		Name:         "Anna",
-		ProviderID:   "anthropic",
-		Model:        "claude-sonnet-4-6",
-		ModelStrong:  "claude-opus-4-6",
+		Model:        "anthropic/claude-sonnet-4-6",
+		ModelStrong:  "anthropic/claude-opus-4-6",
 		SystemPrompt: "You are Anna.",
 		Workspace:    "/tmp/anna",
 		Enabled:      true,
@@ -440,10 +431,10 @@ func TestSnapshot(t *testing.T) {
 	if snap.Provider != "anthropic" {
 		t.Errorf("Provider = %q", snap.Provider)
 	}
-	if snap.Model != "claude-sonnet-4-6" {
+	if snap.Model != "anthropic/claude-sonnet-4-6" {
 		t.Errorf("Model = %q", snap.Model)
 	}
-	if snap.ModelStrong != "claude-opus-4-6" {
+	if snap.ModelStrong != "anthropic/claude-opus-4-6" {
 		t.Errorf("ModelStrong = %q", snap.ModelStrong)
 	}
 	if snap.APIKey != "sk-test" {
@@ -465,7 +456,7 @@ func TestSnapshotDefaults(t *testing.T) {
 	ctx := context.Background()
 
 	_ = store.CreateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic"})
-	_ = store.CreateAgent(ctx, Agent{ID: "a", Name: "A", ProviderID: "anthropic", Model: "m", Enabled: true})
+	_ = store.CreateAgent(ctx, Agent{ID: "a", Name: "A", Model: "anthropic/m", Enabled: true})
 
 	snap, err := store.Snapshot(ctx, "a")
 	if err != nil {

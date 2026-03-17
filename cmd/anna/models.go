@@ -263,7 +263,7 @@ func modelsCurrentCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%s/%s\n", snap.Provider, snap.Model)
+			fmt.Printf("%s\n", snap.Model)
 			return nil
 		},
 	}
@@ -296,8 +296,7 @@ func modelsSetCommand() *ucli.Command {
 				return fmt.Errorf("no enabled agents found")
 			}
 			agent := agents[0]
-			agent.ProviderID = provider
-			agent.Model = model
+			agent.Model = arg // store as provider/model
 			if err := store.UpdateAgent(c.Context, agent); err != nil {
 				return fmt.Errorf("update agent: %w", err)
 			}
