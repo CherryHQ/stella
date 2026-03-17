@@ -85,7 +85,7 @@ type chatModel struct {
 	modelFilter    string
 }
 
-func newChatModel(ctx context.Context, pool *agent.Pool, provider, model string, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc) chatModel {
+func newChatModel(ctx context.Context, pool *agent.Pool, provider, model string, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc, userID ...int64) chatModel {
 	ta := textarea.New()
 	ta.Placeholder = "Type a message... (Enter to send, Alt+Enter for newline)"
 	ta.Focus()
@@ -95,7 +95,7 @@ func newChatModel(ctx context.Context, pool *agent.Pool, provider, model string,
 	ta.SetHeight(1)
 
 	// Resolve session: resume the most recent active session, or create a new one.
-	sessionID := resolveSession(pool)
+	sessionID := resolveSession(pool, userID...)
 
 	m := chatModel{
 		ctx:         ctx,
@@ -123,8 +123,8 @@ const cliChannel = "cli"
 
 // resolveSession returns the most recently active CLI session ID,
 // or creates a new session if none exist.
-func resolveSession(pool *agent.Pool) string {
-	info, err := pool.ResolveSession(cliChannel)
+func resolveSession(pool *agent.Pool, userID ...int64) string {
+	info, err := pool.ResolveSession(cliChannel, userID...)
 	if err != nil {
 		return "cli-session"
 	}

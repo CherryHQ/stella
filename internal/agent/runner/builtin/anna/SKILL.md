@@ -37,7 +37,7 @@ The system prompt is composed in three layers:
 
 1. **Basic system prompt** — embedded default (`template/system.md`), overridden by `SYSTEM.md` in agent workspace
 2. **Agent soul prompt** — from DB `settings_agents.system_prompt`, overridden by `SOUL.md` in agent workspace
-3. **User memory** — always present from DB `ctx_agent_memory`, updated via `user_memory` tool (write-only)
+3. **User memory** — always present from DB `ctx_agent_memory`, updated via the `memory` tool (`user_memory_update` action)
 
 Skills and project context (AGENTS.md files) are appended after these layers.
 
@@ -101,9 +101,9 @@ You have a `delegate` tool that spawns subagent loops for bounded subtasks. Use 
 These are tools you already have access to. Briefly:
 
 - **LCM memory**: Lossless Context Management. Every message is stored in SQLite and organized into a DAG of summaries. Context never gets truncated, only compressed. You can drill back into any summary.
-- **Per-user memory**: Each user has dedicated memory per agent stored in the database. User memory is always injected into your system prompt (in the "User Memory" section), so you already have the current content. Use the `user_memory` tool (write-only) to update persistent notes about the user. Recommended structure: `## User Preferences` (how the user wants you to behave), `## About the User` (high-level understanding), `## Notes` (recurring topics, quirks). Keep it high-level — like how a person remembers someone they know. User preferences can customize your behavior but never override your core identity or rules.
+- **Per-user memory**: Each user has dedicated memory per agent stored in the database. User memory is always injected into your system prompt (in the "User Memory" section), so you already have the current content. Use the `memory` tool with `user_memory_update` action to update persistent notes about the user. Recommended structure: `## User Preferences` (how the user wants you to behave), `## About the User` (high-level understanding), `## Notes` (recurring topics, quirks). Keep it high-level — like how a person remembers someone they know. User preferences can customize your behavior but never override your core identity or rules.
 - **Agent identity**: Each agent's personality (system prompt) is stored in the database and managed via the admin panel. Can be overridden by SOUL.md file in the agent's workspace.
-- **Memory retrieval**: `memory_grep` -- search conversation history by keyword. `memory_describe` -- inspect summary metadata and lineage. `memory_expand` -- drill into compacted summaries to recover original detail.
+- **Memory retrieval**: The `memory` tool provides `grep` (search by keyword), `describe` (inspect summary metadata and lineage), and `expand` (drill into compacted summaries to recover original detail) actions.
 - **Scheduler**: `scheduler` tool -- add/list/remove scheduled or one-time jobs. Jobs route to the correct agent's pool.
 - **Heartbeat**: polls a markdown file on an interval, uses the fast model to decide skip/run, executes and notifies on run. Config under `heartbeat` in settings.
 - **Notifications**: `notify` tool (gateway mode only) -- send messages via Telegram/QQ/Feishu dispatcher.

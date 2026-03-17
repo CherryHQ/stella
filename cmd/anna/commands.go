@@ -52,6 +52,7 @@ type setupResult struct {
 	extraTools   []agenttool.Tool
 	notifier     *channel.Dispatcher
 	pluginMgr    *pluginmgr.Manager
+	cliUserID    int64 // resolved CLI user for session creation
 }
 
 func setup(parent context.Context, gateway bool) (*setupResult, error) {
@@ -110,11 +111,10 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Memory engine: create engine for message persistence and compaction.
 	memoryEngine := memory.NewEngineFromDB(db, &memory.StaticSummarizer{Response: "compacted"}, memory.WithLogger(slog.Default()))
 
-	// Memory retrieval tools (shared across all agents).
+	// Unified memory tool (shared across all agents).
+	userMemoryStore := memory.NewUserMemoryStore(store)
 	sharedTools = append(sharedTools,
-		memorytool.NewGrepTool(memoryEngine),
-		memorytool.NewDescribeTool(memoryEngine),
-		memorytool.NewExpandTool(memoryEngine),
+		memorytool.NewMemoryTool(memoryEngine, userMemoryStore),
 	)
 
 	// Collect built-in tool names for plugin collision detection.
@@ -191,6 +191,12 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		})
 	}
 
+	// Resolve a CLI user for local chat sessions.
+	var cliUserID int64
+	if cliUser, err := channel.ResolveUser(ctx, store, "cli", "cli", "CLI User"); err == nil {
+		cliUserID = cliUser.ID
+	}
+
 	return &setupResult{
 		ctx:          ctx,
 		db:           db,
@@ -203,6 +209,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		extraTools:   sharedTools,
 		notifier:     dispatcher,
 		pluginMgr:    pm,
+		cliUserID:    cliUserID,
 	}, nil
 }
 
