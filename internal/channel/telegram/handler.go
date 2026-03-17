@@ -55,7 +55,10 @@ func (b *Bot) registerHandlers() {
 	}))
 
 	b.bot.Handle("/new", b.guard(func(c tele.Context) error {
-		pool, userID := b.resolvePool(c)
+		pool, userID, err := b.resolvePool(c)
+		if err != nil {
+			return c.Send(fmt.Sprintf("Error: %v", err))
+		}
 		ch := b.buildSessionKey(c, pool.AgentID())
 		sessionID, err := pool.RotateSession(ch, userID)
 		if err != nil {
@@ -67,7 +70,10 @@ func (b *Bot) registerHandlers() {
 	}))
 
 	b.bot.Handle("/compact", b.guard(func(c tele.Context) error {
-		pool, _ := b.resolvePool(c)
+		pool, _, err := b.resolvePool(c)
+		if err != nil {
+			return c.Send(fmt.Sprintf("Error: %v", err))
+		}
 		ch := b.buildSessionKey(c, pool.AgentID())
 		_ = c.Notify(tele.Typing)
 		summary, err := pool.CompactSession(b.ctx, ch)

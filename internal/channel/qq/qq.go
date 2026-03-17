@@ -200,9 +200,12 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 
 // resolveAgentID returns the agent ID for the current context.
 // Used by handlers to build session keys before full pool resolution.
-func (b *Bot) resolveAgentID(authorID string) string {
-	pool, _ := b.resolvePool(authorID)
-	return pool.AgentID()
+func (b *Bot) resolveAgentID(authorID string) (string, error) {
+	pool, _, err := b.resolvePool(authorID)
+	if err != nil {
+		return "", err
+	}
+	return pool.AgentID(), nil
 }
 
 // isAllowed returns true if the sender is in the allowed list.
@@ -228,7 +231,10 @@ func channelForGroup(groupID string) string {
 // resolveSession returns the active session ID for the given message context,
 // creating a new session if none exists.
 func (b *Bot) resolveSession(authorID string, groupID string) (string, error) {
-	pool, userID := b.resolvePool(authorID)
+	pool, userID, err := b.resolvePool(authorID)
+	if err != nil {
+		return "", err
+	}
 	sessionKey := b.buildSessionKey(authorID, groupID, pool.AgentID())
 	info, err := pool.ResolveSession(sessionKey, userID)
 	if err != nil {
@@ -247,19 +253,13 @@ func (b *Bot) buildSessionKey(authorID, groupID, agentID string) string {
 }
 
 // resolvePool resolves the pool and user ID for the current message context.
-// If poolManager and store are configured, it does: resolve user -> resolve agent -> get pool.
-// Otherwise falls back to the default pool with userID 0.
-func (b *Bot) resolvePool(authorID string) (*agent.Pool, int64) {
-	if b.poolManager == nil || b.store == nil || authorID == "" {
-		return b.pool, 0
-	}
-
+// It does: resolve user → resolve agent → get pool.
+func (b *Bot) resolvePool(authorID string) (*agent.Pool, int64, error) {
 	ctx := context.Background()
 
 	user, err := channel.ResolveUser(ctx, b.store, authorID, "qq", "")
 	if err != nil {
-		logger().Warn("resolve user failed, using default pool", "error", err)
-		return b.pool, 0
+		return nil, 0, fmt.Errorf("resolve user: %w", err)
 	}
 
 	chatCtx := channel.ChatContext{
@@ -268,15 +268,13 @@ func (b *Bot) resolvePool(authorID string) (*agent.Pool, int64) {
 
 	agentID, err := channel.ResolveAgent(ctx, b.store, user, chatCtx)
 	if err != nil {
-		logger().Warn("resolve agent failed, using default pool", "error", err)
-		return b.pool, user.ID
+		return nil, 0, fmt.Errorf("resolve agent: %w", err)
 	}
 
 	pool := b.poolManager.Get(agentID)
 	if pool == nil {
-		logger().Warn("agent pool not found, using default pool", "agent_id", agentID)
-		return b.pool, user.ID
+		return nil, 0, fmt.Errorf("agent pool %q not found", agentID)
 	}
 
-	return pool, user.ID
+	return pool, user.ID, nil
 }
