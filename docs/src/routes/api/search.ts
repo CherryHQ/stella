@@ -1,10 +1,16 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { createFromSource } from 'fumadocs-core/search/server';
+import { createTokenizer } from '@orama/tokenizers/mandarin';
 import { source } from '@/lib/source';
 
+const cjkTokenizer = { tokenizer: createTokenizer() };
+
 const server = createFromSource(source, {
-  // https://docs.orama.com/docs/orama-js/supported-languages
-  language: 'english',
+  localeMap: {
+    en: 'english',
+    zh: cjkTokenizer,
+    ja: cjkTokenizer,
+  },
 });
 
 export const Route = createFileRoute('/api/search')({

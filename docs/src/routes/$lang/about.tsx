@@ -2,7 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
 import { baseOptions } from '@/lib/layout.shared';
 
-export const Route = createFileRoute('/about')({
+export const Route = createFileRoute('/$lang/about')({
   component: About,
   head: () => ({
     meta: [{ title: 'About Anna' }],
@@ -40,13 +40,15 @@ const traits = [
 ];
 
 function About() {
+  const { lang } = Route.useParams();
+
   return (
-    <HomeLayout {...baseOptions()}>
+    <HomeLayout {...baseOptions(lang)}>
       <div className="home-page">
         <HeroSection />
         <TraitsSection />
         <VisualIdentity />
-        <ClosingSection />
+        <ClosingSection lang={lang} />
       </div>
     </HomeLayout>
   );
@@ -187,7 +189,7 @@ function Swatch({ color, label }: { color: string; label: string }) {
   );
 }
 
-function ClosingSection() {
+function ClosingSection({ lang }: { lang: string }) {
   return (
     <section className="px-6 pt-16 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto">
       <div className="border-t border-fd-border pt-16 flex flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
@@ -201,8 +203,8 @@ function ClosingSection() {
           </p>
         </div>
         <Link
-          to="/docs/$"
-          params={{ _splat: '' }}
+          to="/$lang/docs/$"
+          params={{ lang, _splat: '' }}
           className="inline-flex items-center gap-2 px-5 py-2.5 bg-[var(--color-terra)] text-white text-sm font-medium rounded-md hover:bg-[var(--color-terra-light)] transition-colors shrink-0"
         >
           Read the docs

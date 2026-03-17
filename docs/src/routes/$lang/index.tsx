@@ -2,7 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
 import { baseOptions } from '@/lib/layout.shared';
 
-export const Route = createFileRoute('/')({ component: Home });
+export const Route = createFileRoute('/$lang/')({ component: Home });
 
 const terminalLines = [
   { prompt: true, text: 'anna onboard' },
@@ -39,19 +39,21 @@ const features = [
 ];
 
 function Home() {
+  const { lang } = Route.useParams();
+
   return (
-    <HomeLayout {...baseOptions()}>
+    <HomeLayout {...baseOptions(lang)}>
       <div className="home-page">
-        <HeroSection />
+        <HeroSection lang={lang} />
         <FeaturesSection />
-        <MeetAnnaSection />
-        <FooterCTA />
+        <MeetAnnaSection lang={lang} />
+        <FooterCTA lang={lang} />
       </div>
     </HomeLayout>
   );
 }
 
-function HeroSection() {
+function HeroSection({ lang }: { lang: string }) {
   return (
     <section className="px-6 pt-28 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-start">
@@ -77,8 +79,8 @@ function HeroSection() {
           </div>
           <div className="animate-fade-up stagger-4 flex items-center gap-5">
             <Link
-              to="/docs/$"
-              params={{ _splat: '' }}
+              to="/$lang/docs/$"
+              params={{ lang, _splat: '' }}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-[var(--color-terra)] text-white text-sm font-medium rounded-md hover:bg-[var(--color-terra-light)] transition-colors"
             >
               Read the docs
@@ -152,7 +154,7 @@ function FeatureItem({ label, title, body }: { label: string; title: string; bod
   );
 }
 
-function MeetAnnaSection() {
+function MeetAnnaSection({ lang }: { lang: string }) {
   return (
     <section className="px-6 pt-20 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto border-t border-fd-border">
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-12 lg:gap-20 items-center">
@@ -173,7 +175,8 @@ function MeetAnnaSection() {
             composed.
           </p>
           <Link
-            to="/about"
+            to="/$lang/about"
+            params={{ lang }}
             className="inline-flex items-center gap-2 text-[var(--color-terra)] text-sm font-medium hover:text-[var(--color-terra-light)] transition-colors"
           >
             Learn more about Anna
@@ -192,7 +195,7 @@ function MeetAnnaSection() {
   );
 }
 
-function FooterCTA() {
+function FooterCTA(_props: { lang: string }) {
   return (
     <section className="px-6 pt-16 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto">
       <div className="border-t border-fd-border pt-16 flex flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
