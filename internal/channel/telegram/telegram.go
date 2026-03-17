@@ -80,8 +80,8 @@ func New(cfg Config, pool *agent.Pool, listFn channel.ModelListFunc, switchFn ch
 	}
 
 	poolAdapter := &channel.PoolAdapter[agent.SessionInfo]{
-		ResolveFunc: pool.ResolveSession,
-		RotateFunc:  pool.RotateSession,
+		ResolveFunc: func(ch string) (agent.SessionInfo, error) { return pool.ResolveSession(ch) },
+		RotateFunc:  func(ch string) (agent.SessionInfo, error) { return pool.RotateSession(ch) },
 		CompactFunc: pool.CompactSession,
 		AdaptFn:     func(info agent.SessionInfo) channel.SessionInfo { return channel.SessionInfo{ID: info.ID} },
 	}
@@ -284,9 +284,9 @@ func channelForChat(c tele.Context) string {
 // resolveSession returns the active session ID for the current chat,
 // creating a new session if none exists.
 func (b *Bot) resolveSession(c tele.Context) (string, error) {
-	pool := b.resolvePool(c)
+	pool, userID := b.resolvePool(c)
 	sessionKey := b.buildSessionKey(c, pool.AgentID())
-	info, err := pool.ResolveSession(sessionKey)
+	info, err := pool.ResolveSession(sessionKey, userID)
 	if err != nil {
 		return "", err
 	}
@@ -308,17 +308,17 @@ func (b *Bot) buildSessionKey(c tele.Context, agentID string) string {
 	return agent.BuildSessionKey(agentID, "tg", externalUserID, channelCtx)
 }
 
-// resolvePool resolves the pool for the current chat context.
+// resolvePool resolves the pool and user ID for the current chat context.
 // If poolManager and store are configured, it does: resolve user -> resolve agent -> get pool.
-// Otherwise falls back to the default pool.
-func (b *Bot) resolvePool(c tele.Context) *agent.Pool {
+// Otherwise falls back to the default pool with userID 0.
+func (b *Bot) resolvePool(c tele.Context) (*agent.Pool, int64) {
 	if b.poolManager == nil || b.store == nil {
-		return b.pool
+		return b.pool, 0
 	}
 
 	sender := c.Sender()
 	if sender == nil {
-		return b.pool
+		return b.pool, 0
 	}
 
 	ctx := context.Background()
@@ -331,7 +331,7 @@ func (b *Bot) resolvePool(c tele.Context) *agent.Pool {
 	user, err := channel.ResolveUser(ctx, b.store, externalID, "telegram", name)
 	if err != nil {
 		logger().Warn("resolve user failed, using default pool", "error", err)
-		return b.pool
+		return b.pool, 0
 	}
 
 	chatCtx := channel.ChatContext{
@@ -343,14 +343,14 @@ func (b *Bot) resolvePool(c tele.Context) *agent.Pool {
 	agentID, err := channel.ResolveAgent(ctx, b.store, user, chatCtx)
 	if err != nil {
 		logger().Warn("resolve agent failed, using default pool", "error", err)
-		return b.pool
+		return b.pool, user.ID
 	}
 
 	pool := b.poolManager.Get(agentID)
 	if pool == nil {
 		logger().Warn("agent pool not found, using default pool", "agent_id", agentID)
-		return b.pool
+		return b.pool, user.ID
 	}
 
-	return pool
+	return pool, user.ID
 }

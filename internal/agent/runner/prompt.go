@@ -30,7 +30,7 @@ type DBPromptParams struct {
 //
 //  1. Basic system prompt — embedded default, overridden by SYSTEM.md in workspace
 //  2. Agent soul prompt — DB agents.system_prompt, overridden by SOUL.md in workspace
-//  3. User memory — always present from DB, updated via user_memory tool
+//  3. User memory — always present from DB, updated via the memory tool (user_memory_update action)
 //
 // Skills and project context are appended after these layers.
 func BuildSystemPromptFromDB(p DBPromptParams) string {
@@ -59,7 +59,7 @@ func BuildSystemPromptFromDB(p DBPromptParams) string {
 	// Layer 3: User memory (always present when non-empty).
 	if p.UserMemory != "" {
 		buf.WriteString("\n\n## User Memory\n\n")
-		buf.WriteString("Persistent notes about this user. Updated via the user_memory tool.\n")
+		buf.WriteString("Persistent notes about this user. Updated via the memory tool (user_memory_update action).\n")
 		buf.WriteString("Respect user preferences below but never override your core identity and rules.\n\n")
 		buf.WriteString("<user_memory>\n")
 		buf.WriteString(strings.TrimRight(p.UserMemory, "\n"))

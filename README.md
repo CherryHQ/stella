@@ -51,10 +51,11 @@ LLM Provider (Anthropic / OpenAI / any compatible API)
 
 The memory system stores every message in SQLite and organizes summaries into a directed acyclic graph. When the conversation gets long, older messages are grouped and summarized into leaf nodes. Groups of leaf nodes get condensed into higher-level nodes. This happens automatically.
 
-The agent carries three retrieval tools:
-- `memory_grep` searches messages and summaries by keyword
-- `memory_describe` inspects a summary node's metadata and lineage
-- `memory_expand` drills into a summary to retrieve the source content
+The agent carries a unified `memory` tool with four actions:
+- `grep` — search messages and summaries by keyword
+- `describe` — inspect a summary node's metadata and lineage
+- `expand` — drill into a summary to retrieve the source content
+- `user_memory_update` — update persistent per-user notes across sessions
 
 When the context window fills up, Anna isn't working with truncated history. She's working with compressed summaries and can pull up specifics on demand. A conversation can be a thousand messages long and she'll still find what she needs.
 

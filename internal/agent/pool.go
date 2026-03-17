@@ -59,9 +59,9 @@ func (p *Pool) AgentID() string {
 }
 
 // CreateSession creates a new session with a generated ID and persists its metadata.
-func (p *Pool) CreateSession(channel string) (SessionInfo, error) {
+func (p *Pool) CreateSession(channel string, userID ...int64) (SessionInfo, error) {
 	p.mu.Lock()
-	info := p.createSessionLocked(channel)
+	info := p.createSessionLocked(channel, userID...)
 	p.mu.Unlock()
 	return p.persistNewSession(info)
 }
@@ -143,25 +143,26 @@ func (p *Pool) ActiveSession(channel string) (SessionInfo, bool) {
 
 // ResolveSession returns the active session for a channel, creating one if needed.
 // The check-and-create is atomic to prevent duplicate sessions under concurrent access.
-func (p *Pool) ResolveSession(channel string) (SessionInfo, error) {
+// An optional userID associates the session with a user (stored in conversations table).
+func (p *Pool) ResolveSession(channel string, userID ...int64) (SessionInfo, error) {
 	p.mu.Lock()
 	if info, ok := p.activeSessionLocked(channel); ok {
 		p.mu.Unlock()
 		return info, nil
 	}
-	info := p.createSessionLocked(channel)
+	info := p.createSessionLocked(channel, userID...)
 	p.mu.Unlock()
 	return p.persistNewSession(info)
 }
 
 // RotateSession archives the active session for a channel (if any) and creates a new one.
-func (p *Pool) RotateSession(channel string) (SessionInfo, error) {
+func (p *Pool) RotateSession(channel string, userID ...int64) (SessionInfo, error) {
 	if old, ok := p.ActiveSession(channel); ok {
 		if err := p.ArchiveSession(old.ID); err != nil {
 			p.log.Warn("archive failed during rotate", "session_id", old.ID, "error", err)
 		}
 	}
-	return p.CreateSession(channel)
+	return p.CreateSession(channel, userID...)
 }
 
 // GetSession returns metadata for a session.
@@ -259,6 +260,18 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 			close(out)
 		}()
 		return out
+	}
+
+	// Set user and agent context from session metadata (loaded from DB).
+	if sess.Info.UserID != 0 {
+		ctx = memory.WithUserID(ctx, sess.Info.UserID)
+	}
+	agentID := sess.Info.AgentID
+	if agentID == "" {
+		agentID = p.agentID
+	}
+	if agentID != "" {
+		ctx = memory.WithAgentID(ctx, agentID)
 	}
 
 	msgText := runner.MessageText(message)

@@ -67,8 +67,8 @@ func New(cfg Config, pool *agent.Pool, listFn channel.ModelListFunc, switchFn ch
 	}
 
 	poolAdapter := &channel.PoolAdapter[agent.SessionInfo]{
-		ResolveFunc: pool.ResolveSession,
-		RotateFunc:  pool.RotateSession,
+		ResolveFunc: func(ch string) (agent.SessionInfo, error) { return pool.ResolveSession(ch) },
+		RotateFunc:  func(ch string) (agent.SessionInfo, error) { return pool.RotateSession(ch) },
 		CompactFunc: pool.CompactSession,
 		AdaptFn:     func(info agent.SessionInfo) channel.SessionInfo { return channel.SessionInfo{ID: info.ID} },
 	}

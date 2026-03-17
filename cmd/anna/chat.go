@@ -66,13 +66,13 @@ func chatCommand() *ucli.Command {
 			}
 
 			if c.Bool("stream") {
-				return clicmd.RunStream(s.ctx, pool)
+				return clicmd.RunStream(s.ctx, pool, s.cliUserID)
 			}
 			listFn := func() []channel.ModelOption {
 				return collectModelsFromStore(s.ctx, s.store, snap)
 			}
 			switchFn := modelSwitcher(snap, s.store, pool, s.extraTools, s.pluginMgr.Registry())
-			return clicmd.RunChat(s.ctx, pool, snap.Provider, snap.Model, listFn, switchFn)
+			return clicmd.RunChat(s.ctx, pool, snap.Provider, snap.Model, listFn, switchFn, s.cliUserID)
 		},
 	}
 }

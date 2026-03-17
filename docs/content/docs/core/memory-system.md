@@ -143,17 +143,18 @@ The `Assembler` builds the context window for each LLM call (`internal/memory/as
 
 **Token estimation:** `(len(text) + 3) / 4` (~4 chars per token).
 
-### Retrieval Tools
+### Memory Tool
 
-Three tools in `internal/memory/tool/` provide read access to compacted history:
+A unified `memory` tool in `internal/memory/tool/` provides all memory operations via an `action` parameter:
 
-| Tool              | Purpose                                                                             | Key Parameters                                                                      |
-| ----------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `memory_grep`     | Search messages and summaries by substring pattern                                  | `pattern` (required), `scope` (`messages`/`summaries`/`both`), `limit` (default 20) |
-| `memory_describe` | Inspect a summary's metadata, content, and lineage (parents/children)               | `summary_id`                                                                        |
-| `memory_expand`   | Drill into a summary: returns source messages (leaf) or child summaries (condensed) | `summary_id`, `token_cap` (default 4000)                                            |
+| Action               | Purpose                                                                             | Key Parameters                                                                      |
+| -------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `grep`               | Search messages and summaries by substring pattern                                  | `pattern` (required), `scope` (`messages`/`summaries`/`both`), `limit` (default 20) |
+| `describe`           | Inspect a summary's metadata, content, and lineage (parents/children)               | `summary_id`                                                                        |
+| `expand`             | Drill into a summary: returns source messages (leaf) or child summaries (condensed) | `summary_id`, `token_cap` (default 4000)                                            |
+| `user_memory_update` | Update persistent per-user notes (replaces entire user memory)                      | `content` (required)                                                                |
 
-Tools extract the session ID from context via `memory.SessionIDFromContext(ctx)`.
+The tool extracts session ID, user ID, and agent ID from context (set by `Pool.Chat()`).
 
 ### Concurrency
 
@@ -186,7 +187,7 @@ Agent identity and per-user memory are stored in the database (replacing the old
 | Source      | Table                           | Purpose                                                                                                                     |
 | ----------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Agent soul  | `settings_agents.system_prompt` | Agent identity, personality, tone. Managed via admin panel. Overridable by `SOUL.md` file in agent workspace.               |
-| User memory | `ctx_agent_memory`              | Per-user-per-agent notes. Injected into system prompt at session start. Updated by agent via write-only `user_memory` tool. |
+| User memory | `ctx_agent_memory`              | Per-user-per-agent notes. Injected into system prompt at session start. Updated by agent via the `memory` tool (`user_memory_update` action). |
 
 - Agent workspaces: `$ANNA_HOME/workspaces/{agent_id}/`
 - `SOUL.md` in workspace overrides `settings_agents.system_prompt` if present
