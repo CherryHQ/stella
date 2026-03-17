@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -237,6 +238,50 @@ description: Test
 	if _, err := os.Stat(installed); err != nil {
 		t.Fatalf("installed SKILL.md not found: %v", err)
 	}
+}
+
+func TestLoadSkill(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, ".agents", "skills", "test-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: test-skill\ndescription: A test skill\n---\n# Test Skill\nDo the thing."
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewTool("/tmp/anna", filepath.Join(dir, ".agents"), dir)
+
+	t.Run("loads existing skill", func(t *testing.T) {
+		result, err := tool.load(map[string]any{"name": "test-skill"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(result, "# Test Skill") {
+			t.Error("expected skill content in result")
+		}
+		if !strings.Contains(result, "base_dir=") {
+			t.Error("expected base_dir in result")
+		}
+		if !strings.Contains(result, skillDir) {
+			t.Errorf("expected base_dir to contain %q", skillDir)
+		}
+	})
+
+	t.Run("unknown skill", func(t *testing.T) {
+		_, err := tool.load(map[string]any{"name": "nonexistent"})
+		if err == nil {
+			t.Fatal("expected error for unknown skill")
+		}
+	})
+
+	t.Run("missing name", func(t *testing.T) {
+		_, err := tool.load(map[string]any{})
+		if err == nil {
+			t.Fatal("expected error for missing name")
+		}
+	})
 }
 
 func TestRemoveSingleCharName(t *testing.T) {
