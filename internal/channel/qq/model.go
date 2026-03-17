@@ -7,6 +7,15 @@ import (
 	"github.com/vaayne/anna/internal/channel"
 )
 
+// modelList returns models optionally filtered by query.
+func (b *Bot) modelList(query string) []channel.IndexedModel {
+	models := b.listFn()
+	if query == "" {
+		return channel.IndexModels(models)
+	}
+	return channel.FilterModels(models, query)
+}
+
 // handleModelCommand processes /model with optional arguments.
 // No args → list models; text with "/" → switch by name; text → filter.
 func (b *Bot) handleModelCommand(rc *channel.ResolvedChat, args string, reply func(string)) {
@@ -18,7 +27,7 @@ func (b *Bot) handleModelCommand(rc *channel.ResolvedChat, args string, reply fu
 		return
 	}
 
-	models := b.cmd.ModelList(query)
+	models := b.modelList(query)
 	if len(models) == 0 {
 		if query != "" {
 			reply(fmt.Sprintf("No models matching %q.", query))

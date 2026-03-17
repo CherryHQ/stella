@@ -110,12 +110,10 @@ func (b *Bot) buildMessageContent(msg *dto.Message) runner.MessageContent {
 		return nil
 	}
 
-	// Text-only message: return plain string.
 	if len(images) == 0 {
 		return text
 	}
 
-	// Multimodal message: build content blocks.
 	var blocks []ai.ContentBlock
 	if text != "" {
 		blocks = append(blocks, ai.TextContent{Text: text})
@@ -152,7 +150,6 @@ const maxImageSize = 20 << 20 // 20 MB
 
 // downloadImage fetches an image from a URL and returns the raw bytes and MIME type.
 func downloadImage(ctx context.Context, rawURL string) ([]byte, string, error) {
-	// QQ attachment URLs may omit the scheme.
 	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
 		rawURL = "https://" + rawURL
 	}
@@ -189,24 +186,22 @@ func downloadImage(ctx context.Context, rawURL string) ([]byte, string, error) {
 }
 
 // handleMessage processes an incoming message by streaming the agent response.
-// authorID is the QQ OpenID of the sender; groupID is non-empty for group messages.
 func (b *Bot) handleMessage(rc *channel.ResolvedChat, authorID, groupID, msgID string, content runner.MessageContent, scope messageScope) {
 	replyTarget := authorID
 	if groupID != "" {
 		replyTarget = groupID
 	}
 
-	info, err := rc.ResolveSession()
+	events, sessionID, err := rc.Chat(b.ctx, content)
 	if err != nil {
-		logger().Error("resolve session failed", "author", authorID, "error", err)
+		logger().Error("chat failed", "author", authorID, "error", err)
 		b.sendReply(replyTarget, msgID, fmt.Sprintf("Session error: %v", err), scope)
 		return
 	}
-	sessionID := info.ID
 
 	logger().Debug("message received", "author", authorID, "session", sessionID)
 
-	response, images, streamErr := b.streamResponse(rc.Pool, authorID, groupID, msgID, sessionID, content, scope)
+	response, images, streamErr := b.streamResponse(events, authorID, groupID, msgID, scope)
 
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", sessionID, "error", streamErr)
@@ -233,47 +228,22 @@ func (b *Bot) handleMessage(rc *channel.ResolvedChat, authorID, groupID, msgID s
 // handleCommand checks if text is a bot command and handles it.
 // Returns true if the text was a command.
 func (b *Bot) handleCommand(rc *channel.ResolvedChat, text, senderID string, reply func(string)) bool {
+	// Try shared handler first.
+	if resp, ok := channel.HandleCommand(b.ctx, rc, text, senderID); ok {
+		reply(resp)
+		return true
+	}
+
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
 		return false
 	}
 	cmd := strings.ToLower(fields[0])
 
-	switch cmd {
-	case "/start", "/help":
-		reply(welcomeMessage)
-		return true
-
-	case "/new":
-		info, err := rc.RotateSession()
-		if err != nil {
-			logger().Error("rotate session failed", "key", rc.SessionKey, "error", err)
-			reply(fmt.Sprintf("Error creating new session: %v", err))
-			return true
-		}
-		logger().Info("new session created", "session_id", info.ID, "key", rc.SessionKey)
-		reply("New session started.")
-		return true
-
-	case "/compact":
-		summary, err := rc.CompactSession(b.ctx)
-		if err != nil {
-			logger().Error("compact session failed", "key", rc.SessionKey, "error", err)
-			reply(fmt.Sprintf("Compaction failed: %v", err))
-			return true
-		}
-		logger().Info("session compacted", "key", rc.SessionKey, "summary_len", len(summary))
-		reply("Session compacted.")
-		return true
-
-	case "/model":
-		origCmd := strings.Fields(text)[0]
+	if cmd == "/model" {
+		origCmd := fields[0]
 		args := strings.TrimSpace(strings.TrimPrefix(text, origCmd))
 		b.handleModelCommand(rc, args, reply)
-		return true
-
-	case "/whoami":
-		reply(fmt.Sprintf("Your OpenID: %s\n\nUse this in allowed_ids config.", senderID))
 		return true
 	}
 
@@ -281,19 +251,9 @@ func (b *Bot) handleCommand(rc *channel.ResolvedChat, text, senderID string, rep
 }
 
 // shouldRespondInGroup checks whether the bot should respond based on group_mode.
-// QQ group messages arrive as @mention events, so "mention" and "always" behave
-// identically — only "disabled" suppresses responses.
 func (b *Bot) shouldRespondInGroup() bool {
 	return b.cfg.GroupMode != "disabled"
 }
-
-const welcomeMessage = "Hi! I'm Anna -- your local AI assistant.\n\n" +
-	"Commands:\n" +
-	"/new -- Start a fresh session\n" +
-	"/compact -- Compress conversation history\n" +
-	"/model -- Switch between models\n" +
-	"/whoami -- Show your user ID\n\n" +
-	"Just send me a message to get started."
 
 // sendReply is a convenience wrapper that dispatches to the correct scope.
 func (b *Bot) sendReply(targetID, msgID, text string, scope messageScope) {

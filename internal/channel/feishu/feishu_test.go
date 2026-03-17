@@ -213,7 +213,7 @@ func TestFilterModelsIndexedCaseInsensitive(t *testing.T) {
 
 func TestNewValidConfig(t *testing.T) {
 	cfg := Config{AppID: "123", AppSecret: "secret"}
-	bot, err := New(cfg, nil, nil, nil)
+	bot, err := New(cfg, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -226,14 +226,14 @@ func TestNewValidConfig(t *testing.T) {
 }
 
 func TestNewMissingAppID(t *testing.T) {
-	_, err := New(Config{AppSecret: "secret"}, nil, nil, nil)
+	_, err := New(Config{AppSecret: "secret"}, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for missing app_id")
 	}
 }
 
 func TestNewMissingAppSecret(t *testing.T) {
-	_, err := New(Config{AppID: "123"}, nil, nil, nil)
+	_, err := New(Config{AppID: "123"}, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for missing app_secret")
 	}
@@ -241,7 +241,7 @@ func TestNewMissingAppSecret(t *testing.T) {
 
 func TestNewCustomGroupMode(t *testing.T) {
 	cfg := Config{AppID: "1", AppSecret: "s", GroupMode: "always"}
-	bot, _ := New(cfg, nil, nil, nil)
+	bot, _ := New(cfg, nil, nil, nil, nil)
 	if bot.cfg.GroupMode != "always" {
 		t.Errorf("group_mode = %q, want %q", bot.cfg.GroupMode, "always")
 	}
@@ -249,7 +249,7 @@ func TestNewCustomGroupMode(t *testing.T) {
 
 func TestNewAllowedIDs(t *testing.T) {
 	cfg := Config{AppID: "1", AppSecret: "s", AllowedIDs: []string{"u1", "u2"}}
-	bot, _ := New(cfg, nil, nil, nil)
+	bot, _ := New(cfg, nil, nil, nil, nil)
 	if len(bot.allowed) != 2 {
 		t.Errorf("allowed len = %d, want 2", len(bot.allowed))
 	}
@@ -449,7 +449,7 @@ func TestHandleCommandStart(t *testing.T) {
 	if !handled {
 		t.Fatal("expected /start to be handled")
 	}
-	if reply != welcomeMessage {
+	if reply != channel.WelcomeMessage {
 		t.Errorf("unexpected reply: %s", reply)
 	}
 }

@@ -15,14 +15,6 @@ import (
 	"github.com/vaayne/anna/internal/channel"
 )
 
-const welcomeMessage = "Hi! I'm Anna -- your local AI assistant.\n\n" +
-	"Commands:\n" +
-	"/new -- Start a fresh session\n" +
-	"/compact -- Compress conversation history\n" +
-	"/model -- Switch between models\n" +
-	"/whoami -- Show your user ID\n\n" +
-	"Just send me a message to get started."
-
 // onMessage handles incoming Feishu messages.
 func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
 	if event == nil || event.Event == nil || event.Event.Message == nil {
@@ -38,7 +30,6 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	openID := *sender.SenderId.OpenId
 
-	// Skip messages from the bot itself to prevent infinite loops in groups.
 	if botID, _ := b.botOpenID.Load().(string); botID != "" && openID == botID {
 		return nil
 	}
@@ -53,24 +44,20 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	messageID := derefStr(msg.MessageId)
 	mentions := msg.Mentions
 
-	// Dedup: Feishu retries events if the handler doesn't return quickly.
 	if messageID != "" && b.markSeen(messageID) {
 		logger().Debug("duplicate message ignored", "message_id", messageID)
 		return nil
 	}
 
-	// Group mode check.
 	if chatType == "group" && !b.shouldRespondInGroup(mentions) {
 		return nil
 	}
 
-	// Parse message content.
 	content := b.buildMessageContent(msg)
 	if content == nil {
 		return nil
 	}
 
-	// Resolve pool and agent for session key construction.
 	replyFn := func(reply string) { b.replyText(b.ctx, messageID, reply) }
 
 	rc, err := b.resolve(openID, chatID, chatType)
@@ -86,21 +73,17 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		text = stripMentions(text, mentions)
 	}
 
-	// Handle commands synchronously (they're fast).
 	if text != "" {
 		if handled := b.handleCommand(rc, text, openID, replyFn); handled {
 			return nil
 		}
 	}
 
-	// Process agent response asynchronously so the handler returns
-	// immediately, preventing Feishu from retrying the event.
 	go b.handleMessage(rc, openID, chatID, messageID, content)
 	return nil
 }
 
 // buildMessageContent constructs the message content from a Feishu message.
-// Returns nil if the message has no usable content.
 func (b *Bot) buildMessageContent(msg *larkim.EventMessage) runner.MessageContent {
 	msgType := derefStr(msg.MessageType)
 	rawContent := derefStr(msg.Content)
@@ -116,7 +99,6 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage) runner.MessageConten
 		return text
 
 	case "post":
-		// Rich text messages — pass raw JSON to the LLM for full context.
 		if strings.TrimSpace(rawContent) == "" {
 			return nil
 		}
@@ -196,7 +178,6 @@ func (b *Bot) downloadImage(messageID, imageKey string) ([]byte, string, error) 
 }
 
 // parseTextContent extracts text from Feishu's JSON content format.
-// Content format: {"text":"hello @_user_1 world"}
 func parseTextContent(raw string) string {
 	if raw == "" {
 		return ""
@@ -212,17 +193,16 @@ func parseTextContent(raw string) string {
 
 // handleMessage processes an incoming message by streaming the agent response.
 func (b *Bot) handleMessage(rc *channel.ResolvedChat, openID, chatID, messageID string, content runner.MessageContent) {
-	info, err := rc.ResolveSession()
+	events, sessionID, err := rc.Chat(b.ctx, content)
 	if err != nil {
-		logger().Error("resolve session failed", "open_id", openID, "error", err)
+		logger().Error("chat failed", "open_id", openID, "error", err)
 		b.replyText(b.ctx, messageID, fmt.Sprintf("Session error: %v", err))
 		return
 	}
-	sessionID := info.ID
 
 	logger().Debug("message received", "open_id", openID, "session", sessionID)
 
-	sentMsgID, response, images, streamErr := b.streamResponse(rc.Pool, chatID, messageID, sessionID, content)
+	sentMsgID, response, images, streamErr := b.streamResponse(events, chatID, messageID)
 
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", sessionID, "error", streamErr)
@@ -247,49 +227,22 @@ func (b *Bot) handleMessage(rc *channel.ResolvedChat, openID, chatID, messageID 
 }
 
 // handleCommand checks if text is a bot command and handles it.
-// Returns true if the text was a command.
 func (b *Bot) handleCommand(rc *channel.ResolvedChat, text, senderID string, reply func(string)) bool {
+	if resp, ok := channel.HandleCommand(b.ctx, rc, text, senderID); ok {
+		reply(resp)
+		return true
+	}
+
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
 		return false
 	}
 	cmd := strings.ToLower(fields[0])
 
-	switch cmd {
-	case "/start", "/help":
-		reply(welcomeMessage)
-		return true
-
-	case "/new":
-		info, err := rc.RotateSession()
-		if err != nil {
-			logger().Error("rotate session failed", "key", rc.SessionKey, "error", err)
-			reply(fmt.Sprintf("Error creating new session: %v", err))
-			return true
-		}
-		logger().Info("new session created", "session_id", info.ID, "key", rc.SessionKey)
-		reply("New session started.")
-		return true
-
-	case "/compact":
-		summary, err := rc.CompactSession(b.ctx)
-		if err != nil {
-			logger().Error("compact session failed", "key", rc.SessionKey, "error", err)
-			reply(fmt.Sprintf("Compaction failed: %v", err))
-			return true
-		}
-		logger().Info("session compacted", "key", rc.SessionKey, "summary_len", len(summary))
-		reply("Session compacted.")
-		return true
-
-	case "/model":
-		origCmd := strings.Fields(text)[0]
+	if cmd == "/model" {
+		origCmd := fields[0]
 		args := strings.TrimSpace(strings.TrimPrefix(text, origCmd))
 		b.handleModelCommand(rc, args, reply)
-		return true
-
-	case "/whoami":
-		reply(fmt.Sprintf("Your open_id: %s\n\nUse this in allowed_ids config and as chat_id for notifications.", senderID))
 		return true
 	}
 

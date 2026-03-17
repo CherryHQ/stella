@@ -2,214 +2,63 @@ package channel
 
 import (
 	"context"
-	"fmt"
 	"testing"
 )
 
-type mockPool struct {
-	sessions   map[string]SessionInfo
-	nextID     int
-	compactErr error
-}
-
-func newMockPool() *mockPool {
-	return &mockPool{sessions: make(map[string]SessionInfo)}
-}
-
-func (p *mockPool) ResolveSession(ch string) (SessionInfo, error) {
-	if info, ok := p.sessions[ch]; ok {
-		return info, nil
+func TestHandleCommandHelp(t *testing.T) {
+	rc := &ResolvedChat{SessionKey: "ch"}
+	resp, ok := HandleCommand(context.Background(), rc, "/help", "user1")
+	if !ok {
+		t.Fatal("expected handled")
 	}
-	return p.createSession(ch), nil
-}
-
-func (p *mockPool) RotateSession(ch string) (SessionInfo, error) {
-	return p.createSession(ch), nil
-}
-
-func (p *mockPool) createSession(ch string) SessionInfo {
-	p.nextID++
-	info := SessionInfo{ID: fmt.Sprintf("session-%d", p.nextID)}
-	p.sessions[ch] = info
-	return info
-}
-
-func (p *mockPool) CompactSession(_ context.Context, _ string) (string, error) {
-	if p.compactErr != nil {
-		return "", p.compactErr
-	}
-	return "compacted", nil
-}
-
-func TestCommanderNew(t *testing.T) {
-	pool := newMockPool()
-	cmd := NewCommander(pool, nil, nil)
-
-	id, err := cmd.New("test-channel")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if id == "" {
-		t.Fatal("expected non-empty session ID")
+	if resp != WelcomeMessage {
+		t.Errorf("response = %q", resp)
 	}
 }
 
-func TestCommanderCompact(t *testing.T) {
-	pool := newMockPool()
-	cmd := NewCommander(pool, nil, nil)
-
-	summary, err := cmd.Compact(context.Background(), "test-channel")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestHandleCommandStart(t *testing.T) {
+	rc := &ResolvedChat{SessionKey: "ch"}
+	resp, ok := HandleCommand(context.Background(), rc, "/start", "user1")
+	if !ok {
+		t.Fatal("expected handled")
 	}
-	if summary != "compacted" {
-		t.Errorf("summary = %q, want %q", summary, "compacted")
+	if resp != WelcomeMessage {
+		t.Errorf("response = %q", resp)
 	}
 }
 
-func TestCommanderCompactError(t *testing.T) {
-	pool := newMockPool()
-	pool.compactErr = fmt.Errorf("db error")
-	cmd := NewCommander(pool, nil, nil)
-
-	_, err := cmd.Compact(context.Background(), "test-channel")
-	if err == nil {
-		t.Fatal("expected error")
+func TestHandleCommandWhoami(t *testing.T) {
+	rc := &ResolvedChat{SessionKey: "ch"}
+	resp, ok := HandleCommand(context.Background(), rc, "/whoami", "SENDER_123")
+	if !ok {
+		t.Fatal("expected handled")
+	}
+	if resp != "Your ID: SENDER_123" {
+		t.Errorf("response = %q", resp)
 	}
 }
 
-func TestCommanderModelSwitch(t *testing.T) {
-	pool := newMockPool()
-	models := []ModelOption{
-		{Provider: "openai", Model: "gpt-4"},
-		{Provider: "anthropic", Model: "claude-3"},
-	}
-	var switched ModelOption
-	listFn := func() []ModelOption { return models }
-	switchFn := func(p, m string) error { switched = ModelOption{Provider: p, Model: m}; return nil }
-
-	cmd := NewCommander(pool, listFn, switchFn)
-
-	selected, err := cmd.ModelSwitch("ch", 2)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if selected.Model != "claude-3" {
-		t.Errorf("selected = %v, want claude-3", selected)
-	}
-	if switched.Model != "claude-3" {
-		t.Errorf("switchFn not called correctly: %v", switched)
+func TestHandleCommandUnknown(t *testing.T) {
+	rc := &ResolvedChat{SessionKey: "ch"}
+	_, ok := HandleCommand(context.Background(), rc, "hello world", "user1")
+	if ok {
+		t.Error("regular text should not be handled")
 	}
 }
 
-func TestCommanderModelSwitchOutOfRange(t *testing.T) {
-	pool := newMockPool()
-	models := []ModelOption{{Provider: "openai", Model: "gpt-4"}}
-	cmd := NewCommander(pool, func() []ModelOption { return models }, nil)
-
-	_, err := cmd.ModelSwitch("ch", 5)
-	if err == nil {
-		t.Fatal("expected error for out of range index")
+func TestHandleCommandEmpty(t *testing.T) {
+	rc := &ResolvedChat{SessionKey: "ch"}
+	_, ok := HandleCommand(context.Background(), rc, "", "user1")
+	if ok {
+		t.Error("empty text should not be handled")
 	}
 }
 
-func TestCommanderModelSwitchByName(t *testing.T) {
-	pool := newMockPool()
-	models := []ModelOption{
-		{Provider: "openai", Model: "gpt-4"},
-		{Provider: "anthropic", Model: "claude-3"},
-	}
-	var switched ModelOption
-	listFn := func() []ModelOption { return models }
-	switchFn := func(p, m string) error { switched = ModelOption{Provider: p, Model: m}; return nil }
-
-	cmd := NewCommander(pool, listFn, switchFn)
-
-	selected, err := cmd.ModelSwitchByName("ch", "anthropic/claude-3")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if selected.Model != "claude-3" {
-		t.Errorf("selected = %v, want claude-3", selected)
-	}
-	if switched.Model != "claude-3" {
-		t.Errorf("switchFn not called correctly: %v", switched)
-	}
-}
-
-func TestCommanderModelSwitchByNameCaseInsensitive(t *testing.T) {
-	pool := newMockPool()
-	models := []ModelOption{{Provider: "OpenAI", Model: "GPT-4"}}
-	cmd := NewCommander(pool, func() []ModelOption { return models }, func(p, m string) error { return nil })
-
-	selected, err := cmd.ModelSwitchByName("ch", "openai/gpt-4")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if selected.Provider != "OpenAI" {
-		t.Errorf("provider = %q, want OpenAI", selected.Provider)
-	}
-}
-
-func TestCommanderModelSwitchByNameUnknown(t *testing.T) {
-	pool := newMockPool()
-	models := []ModelOption{{Provider: "openai", Model: "gpt-4"}}
-	cmd := NewCommander(pool, func() []ModelOption { return models }, nil)
-
-	_, err := cmd.ModelSwitchByName("ch", "fake/model")
-	if err == nil {
-		t.Fatal("expected error for unknown model")
-	}
-}
-
-func TestCommanderModelList(t *testing.T) {
-	pool := newMockPool()
-	models := []ModelOption{
-		{Provider: "openai", Model: "gpt-4"},
-		{Provider: "anthropic", Model: "claude-3"},
-	}
-	cmd := NewCommander(pool, func() []ModelOption { return models }, nil)
-
-	// Unfiltered
-	all := cmd.ModelList("")
-	if len(all) != 2 {
-		t.Fatalf("len = %d, want 2", len(all))
-	}
-
-	// Filtered
-	filtered := cmd.ModelList("claude")
-	if len(filtered) != 1 {
-		t.Fatalf("len = %d, want 1", len(filtered))
-	}
-	if filtered[0].Model != "claude-3" {
-		t.Errorf("model = %q, want claude-3", filtered[0].Model)
-	}
-}
-
-func TestPoolAdapter(t *testing.T) {
-	type info struct {
-		id string
-	}
-	adapter := &PoolAdapter[info]{
-		ResolveFunc: func(ch string) (info, error) { return info{id: "resolved-" + ch}, nil },
-		RotateFunc:  func(ch string) (info, error) { return info{id: "rotated-" + ch}, nil },
-		CompactFunc: func(_ context.Context, sid string) (string, error) { return "compacted:" + sid, nil },
-		AdaptFn:     func(i info) SessionInfo { return SessionInfo{ID: i.id} },
-	}
-
-	si, err := adapter.ResolveSession("ch1")
-	if err != nil || si.ID != "resolved-ch1" {
-		t.Errorf("ResolveSession = %v, %v", si, err)
-	}
-
-	si, err = adapter.RotateSession("ch1")
-	if err != nil || si.ID != "rotated-ch1" {
-		t.Errorf("RotateSession = %v, %v", si, err)
-	}
-
-	summary, err := adapter.CompactSession(context.Background(), "s1")
-	if err != nil || summary != "compacted:s1" {
-		t.Errorf("CompactSession = %q, %v", summary, err)
+func TestHandleCommandModel(t *testing.T) {
+	rc := &ResolvedChat{SessionKey: "ch"}
+	_, ok := HandleCommand(context.Background(), rc, "/model gpt-4", "user1")
+	if ok {
+		t.Error("/model should NOT be handled (left to channels)")
 	}
 }
 
