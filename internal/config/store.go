@@ -4,39 +4,39 @@ import "context"
 
 // Provider represents an LLM API provider.
 type Provider struct {
-	ID      string
-	Name    string
-	APIKey  string
-	BaseURL string
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	APIKey  string `json:"api_key"`
+	BaseURL string `json:"base_url"`
 }
 
 // Agent represents an agent definition.
 // Model fields use {provider}/{model} format (e.g. "anthropic/claude-sonnet-4-6").
 type Agent struct {
-	ID           string
-	Name         string
-	Model        string
-	ModelStrong  string
-	ModelFast    string
-	SystemPrompt string
-	Workspace    string
-	Enabled      bool
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Model        string `json:"model"`
+	ModelStrong  string `json:"model_strong"`
+	ModelFast    string `json:"model_fast"`
+	SystemPrompt string `json:"system_prompt"`
+	Workspace    string `json:"workspace"`
+	Enabled      bool   `json:"enabled"`
 }
 
 // Channel represents a platform channel configuration.
 type Channel struct {
-	ID      string
-	Enabled bool
-	Config  string // JSON blob
+	ID      string `json:"id"`
+	Enabled bool   `json:"enabled"`
+	Config  string `json:"config"`
 }
 
 // User represents a platform user.
 type User struct {
-	ID             int64
-	ExternalID     string
-	Platform       string
-	Name           string
-	DefaultAgentID string
+	ID             int64  `json:"id"`
+	ExternalID     string `json:"external_id"`
+	Platform       string `json:"platform"`
+	Name           string `json:"name"`
+	DefaultAgentID string `json:"default_agent_id"`
 }
 
 // Store provides typed access to configuration stored in the database.
