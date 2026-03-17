@@ -11,6 +11,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-03-17
+
+### ✨ Features
+
+- **Multi-user multi-agent**: Full multi-user × multi-agent support across all channels (Telegram, QQ, Feishu) with DB-backed config, per-user memory, agent routing, and `/agent` command ([#61](https://github.com/vaayne/anna/pull/61))
+- **Admin UI**: Redesigned admin panel with user management, agent memory, session detail views, and system prompt viewer
+- **Skills**: Add `load_skill` tool; add Twitter/X posting script to social-content skill
+
+### 🐛 Bug Fixes
+
+- **Provider**: Fix provider fetch models and model list display
+- **Telegram**: Fix userID propagation through model switch paths
+- **QQ**: Fix userID propagation through all command paths
+- **Admin**: Fix SSR React hooks error and CSS import order
+- **Admin**: Add JSON tags to config types for API serialization
+
+### ♻️ Refactoring
+
+- **Prompt**: Restructure system prompt into 3 layers, make user_memory write-only
+- **Memory**: Unify memory tools into single action-based tool
+- **Channel**: Introduce ResolvedChat, remove Commander/PoolAdapter
+- **Admin**: Use canonical tool definitions in admin API
+- **Skills**: Move skill loading into existing skills tool load action
+
+### ✅ Testing
+
+- Add comprehensive DBStore and multi-user/multi-agent unit tests
+
+### 🔒 Security
+
+- Upgrade undici to >=7.24.0 to resolve 6 security vulnerabilities
+
+### 📝 Documentation
+
+- Update all docs for multi-user multi-agent architecture
+- Update builtin anna skill with user-facing changes
+
+**Full Changelog**: [v0.7.1...v0.8.0](https://github.com/vaayne/anna/compare/v0.7.1...v0.8.0)
+
 ## [0.7.1] - 2026-03-17
 
 ### ♻️ Refactoring
