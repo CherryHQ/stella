@@ -38,11 +38,8 @@ type Bot struct {
 	creds          *token.QQBotCredentials
 	tokenSource    oauth2.TokenSource
 	sessionManager botgo.SessionManager
-	pool           *agent.Pool // fallback pool (default agent)
 	poolManager    *agent.PoolManager
 	store          config.Store
-	agentCmd       *channel.AgentCommander
-	cmd            *channel.Commander
 	listFn         channel.ModelListFunc
 	switchFn       channel.ModelSwitchFunc
 
@@ -58,23 +55,8 @@ type Bot struct {
 // BotOption configures the QQ Bot.
 type BotOption func(*Bot)
 
-// WithPoolManager sets the pool manager for multi-agent routing.
-func WithPoolManager(pm *agent.PoolManager) BotOption {
-	return func(b *Bot) {
-		b.poolManager = pm
-	}
-}
-
-// WithStore sets the config store for user resolution and agent routing.
-func WithStore(s config.Store) BotOption {
-	return func(b *Bot) {
-		b.store = s
-		b.agentCmd = channel.NewAgentCommander(s)
-	}
-}
-
 // New creates a QQ bot. Call Start to begin receiving events.
-func New(cfg Config, pool *agent.Pool, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc, opts ...BotOption) (*Bot, error) {
+func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc, opts ...BotOption) (*Bot, error) {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return nil, fmt.Errorf("qq: app_id and app_secret are required")
 	}
@@ -88,21 +70,14 @@ func New(cfg Config, pool *agent.Pool, listFn channel.ModelListFunc, switchFn ch
 		allowed[id] = struct{}{}
 	}
 
-	poolAdapter := &channel.PoolAdapter[agent.SessionInfo]{
-		ResolveFunc: func(ch string) (agent.SessionInfo, error) { return pool.ResolveSession(ch) },
-		RotateFunc:  func(ch string) (agent.SessionInfo, error) { return pool.RotateSession(ch) },
-		CompactFunc: pool.CompactSession,
-		AdaptFn:     func(info agent.SessionInfo) channel.SessionInfo { return channel.SessionInfo{ID: info.ID} },
-	}
-
 	b := &Bot{
-		pool:       pool,
-		cmd:        channel.NewCommander(poolAdapter, listFn, switchFn),
-		listFn:     listFn,
-		switchFn:   switchFn,
-		chatModels: make(map[string]channel.ModelOption),
-		allowed:    allowed,
-		cfg:        cfg,
+		poolManager: pm,
+		store:       store,
+		listFn:      listFn,
+		switchFn:    switchFn,
+		chatModels:  make(map[string]channel.ModelOption),
+		allowed:     allowed,
+		cfg:         cfg,
 	}
 
 	for _, opt := range opts {

@@ -7,7 +7,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/tencent-connect/botgo/dto"
-	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 )
 
@@ -51,8 +50,7 @@ func toolLine(t *runner.ToolUseEvent) string {
 // streamResponse consumes the agent event stream and progressively sends
 // updates using QQ's native Stream API. Returns the final text, collected
 // images, and any stream error.
-func (b *Bot) streamResponse(pool *agent.Pool, authorID, groupID, msgID, sessionID string, content runner.MessageContent, scope messageScope) (string, []runner.ImageEvent, error) {
-	events := pool.Chat(b.ctx, sessionID, content)
+func (b *Bot) streamResponse(events <-chan runner.Event, authorID, groupID, msgID string, scope messageScope) (string, []runner.ImageEvent, error) {
 	targetID := authorID
 	if groupID != "" {
 		targetID = groupID

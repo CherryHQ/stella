@@ -37,11 +37,9 @@ type Config struct {
 // It implements channel.Channel.
 type Bot struct {
 	bot         *tele.Bot
-	pool        *agent.Pool // fallback pool (default agent)
 	poolManager *agent.PoolManager
 	store       config.Store
 	agentCmd    *channel.AgentCommander
-	cmd         *channel.Commander
 	listFn      channel.ModelListFunc
 	switchFn    channel.ModelSwitchFunc
 	md          goldmarkMD
@@ -55,10 +53,7 @@ type Bot struct {
 }
 
 // New creates a Telegram bot and registers handlers. Call Start to begin polling.
-// poolManager and store are used for multi-user/multi-agent routing. When set,
-// each message resolves user -> agent -> pool dynamically. The pool parameter
-// is used as a fallback for the Commander (session rotation, compaction).
-func New(cfg Config, pool *agent.Pool, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc, opts ...BotOption) (*Bot, error) {
+func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc, opts ...BotOption) (*Bot, error) {
 	bot, err := tele.NewBot(tele.Settings{
 		Token: cfg.Token,
 		Poller: &tele.LongPoller{
@@ -79,23 +74,17 @@ func New(cfg Config, pool *agent.Pool, listFn channel.ModelListFunc, switchFn ch
 		allowed[id] = struct{}{}
 	}
 
-	poolAdapter := &channel.PoolAdapter[agent.SessionInfo]{
-		ResolveFunc: func(ch string) (agent.SessionInfo, error) { return pool.ResolveSession(ch) },
-		RotateFunc:  func(ch string) (agent.SessionInfo, error) { return pool.RotateSession(ch) },
-		CompactFunc: pool.CompactSession,
-		AdaptFn:     func(info agent.SessionInfo) channel.SessionInfo { return channel.SessionInfo{ID: info.ID} },
-	}
-
 	b := &Bot{
-		bot:        bot,
-		pool:       pool,
-		cmd:        channel.NewCommander(poolAdapter, listFn, switchFn),
-		listFn:     listFn,
-		switchFn:   switchFn,
-		md:         tgmd.TGMD(),
-		chatModels: make(map[int64]channel.ModelOption),
-		allowed:    allowed,
-		cfg:        cfg,
+		bot:         bot,
+		poolManager: pm,
+		store:       store,
+		agentCmd:    channel.NewAgentCommander(store),
+		listFn:      listFn,
+		switchFn:    switchFn,
+		md:          tgmd.TGMD(),
+		chatModels:  make(map[int64]channel.ModelOption),
+		allowed:     allowed,
+		cfg:         cfg,
 	}
 
 	for _, opt := range opts {
@@ -108,21 +97,6 @@ func New(cfg Config, pool *agent.Pool, listFn channel.ModelListFunc, switchFn ch
 
 // BotOption configures the Telegram Bot.
 type BotOption func(*Bot)
-
-// WithPoolManager sets the pool manager for multi-agent routing.
-func WithPoolManager(pm *agent.PoolManager) BotOption {
-	return func(b *Bot) {
-		b.poolManager = pm
-	}
-}
-
-// WithStore sets the config store for user resolution and agent routing.
-func WithStore(s config.Store) BotOption {
-	return func(b *Bot) {
-		b.store = s
-		b.agentCmd = channel.NewAgentCommander(s)
-	}
-}
 
 // Start begins long polling. It blocks until ctx is cancelled.
 func (b *Bot) Start(ctx context.Context) error {

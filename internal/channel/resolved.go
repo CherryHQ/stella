@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/vaayne/anna/internal/agent"
+	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
 )
 
@@ -36,6 +37,16 @@ func (rc *ResolvedChat) RotateSession() (agent.SessionInfo, error) {
 // CompactSession compacts the active session for this chat.
 func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
 	return rc.Pool.CompactSession(ctx, rc.SessionKey)
+}
+
+// Chat resolves the session and streams an agent response.
+// Returns the event channel and session ID.
+func (rc *ResolvedChat) Chat(ctx context.Context, message runner.MessageContent, opts ...agent.ChatOption) (<-chan runner.Event, string, error) {
+	info, err := rc.ResolveSession()
+	if err != nil {
+		return nil, "", fmt.Errorf("resolve session: %w", err)
+	}
+	return rc.Pool.Chat(ctx, info.ID, message, opts...), info.ID, nil
 }
 
 // Resolve performs the full user -> agent -> pool -> session key resolution.
