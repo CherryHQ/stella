@@ -63,13 +63,18 @@ func NewTool(service *Service) *SchedulerTool {
 	return &SchedulerTool{service: service}
 }
 
-// Definition returns the tool definition for the LLM.
-func (t *SchedulerTool) Definition() toolspec.Definition {
+// SchedulerDefinition returns the tool definition without requiring a live service.
+func SchedulerDefinition() toolspec.Definition {
 	return toolspec.Definition{
 		Name:        "scheduler",
 		Description: "Manage scheduled tasks. Use action 'add' to create a recurring or one-time job, 'list' to see all jobs, or 'remove' to delete a job. For one-time jobs, use the 'at' field with an RFC3339 timestamp.",
 		InputSchema: schedulerInputSchema,
 	}
+}
+
+// Definition returns the tool definition for the LLM.
+func (t *SchedulerTool) Definition() toolspec.Definition {
+	return SchedulerDefinition()
 }
 
 // Execute runs the scheduler tool action.
