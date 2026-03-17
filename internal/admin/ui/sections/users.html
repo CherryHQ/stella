@@ -1,0 +1,65 @@
+    <!-- ════════ USERS ════════ -->
+    <section x-show="tab === 'users'" x-transition.opacity.duration.150ms>
+      <p class="text-[11px] font-mono font-medium tracking-[0.15em] text-terra-500 uppercase mb-3">Users</p>
+      <h1 class="font-serif text-3xl md:text-4xl tracking-tight mb-3">User management</h1>
+      <p class="text-warm-500 text-sm mb-8 max-w-lg">Default agents and per-user memory for each connected user.</p>
+      <div class="border-t border-warm-200 dark:border-warm-800 divide-y divide-warm-200 dark:divide-warm-800">
+        <template x-for="u in users" :key="u.id">
+          <div class="py-6">
+            <div class="flex items-baseline justify-between mb-3">
+              <div class="flex items-baseline gap-3">
+                <span class="font-medium" x-text="u.name || 'Unnamed'"></span>
+                <span class="text-[10px] font-mono uppercase tracking-wider text-warm-400" x-text="u.platform"></span>
+              </div>
+              <span class="text-xs font-mono text-warm-400" x-text="'#' + u.id + ' · ' + u.external_id"></span>
+            </div>
+            <div class="flex items-center gap-3 mb-3">
+              <label class="text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider shrink-0">Default Agent</label>
+              <select x-model="u._defaultAgent" class="input-line flex-1 h-8 text-sm bg-transparent">
+                <option value="">None</option>
+                <template x-for="a in agents" :key="a.id"><option :value="a.id" x-text="a.name + ' (' + a.id + ')'"></option></template>
+              </select>
+              <button @click="saveUserDefaultAgent(u)" :disabled="u._defaultAgent === (u.default_agent_id || '')"
+                      class="px-3 h-8 text-xs font-medium text-white bg-terra-500 hover:bg-terra-600 rounded-sm transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed">Save</button>
+            </div>
+            <button @click="toggleUserMemory(u)" class="text-xs text-warm-500 hover:text-terra-500 transition-colors cursor-pointer flex items-center gap-1">
+              <span x-text="u._showMemory ? '▾' : '▸'"></span>
+              <span>Memory</span>
+              <span x-show="u._memoryCount > 0" class="font-mono text-terra-500" x-text="'(' + u._memoryCount + ')'"></span>
+            </button>
+            <div x-show="u._showMemory" x-transition class="mt-4 pl-4 border-l-2 border-warm-200 dark:border-warm-700 space-y-4">
+              <template x-for="mem in (userMemories[u.id] || [])" :key="mem.agent_id">
+                <div>
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="text-xs font-mono font-medium text-terra-500" x-text="mem.agent_id"></span>
+                    <span class="text-[10px] text-warm-400" x-text="mem.updated_at"></span>
+                  </div>
+                  <textarea x-model="mem._content" rows="2" class="input-line w-full text-xs font-mono py-1 resize-y"></textarea>
+                  <div class="flex items-center gap-2 mt-1">
+                    <button @click="confirmDelete('Delete memory for ' + mem.agent_id + '?', () => doDeleteUserMemory(u.id, mem.agent_id))" class="text-[10px] text-warm-400 hover:text-red-600 dark:hover:text-red-400 cursor-pointer">delete</button>
+                    <button @click="saveUserMemory(u.id, mem.agent_id, mem._content)" :disabled="mem._content === mem.content"
+                            class="text-[10px] text-terra-500 hover:text-terra-600 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed">save</button>
+                  </div>
+                </div>
+              </template>
+              <div x-show="(userMemories[u.id] || []).length === 0 && !u._showAddMemory" class="text-xs text-warm-400 py-2">No memories yet.</div>
+              <div x-show="u._showAddMemory" class="space-y-2">
+                <select x-model="u._newMemoryAgent" class="input-line w-full h-8 text-xs bg-transparent">
+                  <option value="" disabled>Select agent...</option>
+                  <template x-for="a in agents.filter(a => !(userMemories[u.id] || []).some(m => m.agent_id === a.id))" :key="a.id"><option :value="a.id" x-text="a.name + ' (' + a.id + ')'"></option></template>
+                </select>
+                <textarea x-model="u._newMemoryContent" rows="2" placeholder="Memory content..." class="input-line w-full text-xs font-mono py-1 resize-y"></textarea>
+                <div class="flex gap-2">
+                  <button @click="u._showAddMemory = false" class="text-[10px] text-warm-400 hover:text-warm-600 cursor-pointer">cancel</button>
+                  <button @click="addUserMemory(u)" :disabled="!u._newMemoryAgent || !u._newMemoryContent"
+                          class="text-[10px] text-terra-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed">add</button>
+                </div>
+              </div>
+              <button x-show="!u._showAddMemory" @click="u._showAddMemory = true; u._newMemoryAgent = ''; u._newMemoryContent = ''"
+                      class="text-xs text-terra-500 hover:text-terra-600 cursor-pointer">+ Add memory</button>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div x-show="users.length === 0" class="py-16 text-center text-sm text-warm-500">No users yet — they appear after someone messages Anna.</div>
+    </section>
