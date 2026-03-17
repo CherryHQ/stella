@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/db/sqlc"
 	"github.com/vaayne/anna/internal/memory"
 )
@@ -118,6 +120,45 @@ func (s *Server) getSessionMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeData(w, http.StatusOK, serializeDBMessages(rows))
+}
+
+func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("sessionID")
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return
+	}
+	if s.mem == nil {
+		writeError(w, http.StatusNotFound, "memory engine not available")
+		return
+	}
+
+	info, err := s.mem.LoadInfo(r.Context(), sessionID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	// Look up agent config.
+	var agentCfg config.Agent
+	if info.AgentID != "" {
+		agentCfg, _ = s.store.GetAgent(r.Context(), info.AgentID)
+	}
+
+	// Look up user-agent memory.
+	var userMemory string
+	if info.UserID != 0 && info.AgentID != "" {
+		userMemory, _ = s.store.GetUserAgentMemory(r.Context(), info.UserID, info.AgentID)
+	}
+
+	prompt := runner.BuildSystemPromptFromDB(runner.DBPromptParams{
+		SystemPrompt: agentCfg.SystemPrompt,
+		UserMemory:   userMemory,
+		AnnaHome:     config.AnnaHome(),
+		Workspace:    agentCfg.Workspace,
+	})
+
+	writeData(w, http.StatusOK, map[string]string{"system_prompt": prompt})
 }
 
 // serializeDBMessages converts raw DB message rows to JSON-friendly maps,

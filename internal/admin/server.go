@@ -66,6 +66,7 @@ func New(store config.Store, mem memory.Engine, db *sql.DB) *Server {
 	s.mux.HandleFunc("GET /api/sessions", s.listSessions)
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}", s.getSession)
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}/messages", s.getSessionMessages)
+	s.mux.HandleFunc("GET /api/sessions/{sessionID}/system-prompt", s.getSessionSystemPrompt)
 
 	// Settings APIs.
 	s.mux.HandleFunc("GET /api/settings/{key}", s.getSetting)
