@@ -166,12 +166,12 @@ docker buildx build --platform linux/amd64,linux/arm64 -t anna .
 
 All data lives under the anna home directory (`~/.anna` by default, configurable via `ANNA_HOME`).
 
-| Path                                       | Purpose                                         |
-| ------------------------------------------ | ------------------------------------------------ |
-| `~/.anna/anna.db`                          | Single database (config, memory, scheduler)      |
-| `~/.anna/workspaces/{agent-id}/skills/`    | Per-agent installed skills                       |
-| `~/.anna/workspaces/{agent-id}/SOUL.md`    | Optional per-agent soul/identity override        |
-| `~/.anna/cache/`                           | Model cache (regenerable, safe to delete)        |
+| Path                                    | Purpose                                     |
+| --------------------------------------- | ------------------------------------------- |
+| `~/.anna/anna.db`                       | Single database (config, memory, scheduler) |
+| `~/.anna/workspaces/{agent-id}/skills/` | Per-agent installed skills                  |
+| `~/.anna/workspaces/{agent-id}/SOUL.md` | Optional per-agent soul/identity override   |
+| `~/.anna/cache/`                        | Model cache (regenerable, safe to delete)   |
 
 The `anna.db` file is the only critical data to back up. It contains all configuration, message history, summaries, and scheduler jobs.
 

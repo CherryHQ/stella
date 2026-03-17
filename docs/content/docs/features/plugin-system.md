@@ -130,12 +130,12 @@ anna.on('session_end', function (event) {
 });
 ```
 
-| Event              | Data Fields             | Blocking                                  |
-| ------------------ | ----------------------- | ----------------------------------------- |
-| `session_start`    | `sessionId`, `channel`  | No                                        |
-| `session_end`      | `sessionId`, `channel`  | No                                        |
+| Event              | Data Fields             | Blocking                                   |
+| ------------------ | ----------------------- | ------------------------------------------ |
+| `session_start`    | `sessionId`, `channel`  | No                                         |
+| `session_end`      | `sessionId`, `channel`  | No                                         |
 | `before_tool_call` | `toolName`, `arguments` | Yes -- return a non-empty string to cancel |
-| `after_tool_call`  | `toolName`, `isError`   | No                                        |
+| `after_tool_call`  | `toolName`, `isError`   | No                                         |
 
 For `before_tool_call`, the first hook that returns a non-empty string stops execution and the tool call is cancelled. All other events are fire-and-forget.
 
