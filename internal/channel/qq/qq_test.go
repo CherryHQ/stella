@@ -458,7 +458,7 @@ func TestDownloadImageDetectsMIME(t *testing.T) {
 func TestHandleCommandHelp(t *testing.T) {
 	bot := &Bot{}
 	var reply string
-	handled := bot.handleCommand(nil, 0, "/help", "ch", "user123", func(s string) { reply = s })
+	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "/help", "user123", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /help to be handled")
 	}
@@ -470,7 +470,7 @@ func TestHandleCommandHelp(t *testing.T) {
 func TestHandleCommandStart(t *testing.T) {
 	bot := &Bot{}
 	var reply string
-	handled := bot.handleCommand(nil, 0, "/start", "ch", "user123", func(s string) { reply = s })
+	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "/start", "user123", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /start to be handled")
 	}
@@ -481,7 +481,7 @@ func TestHandleCommandStart(t *testing.T) {
 
 func TestHandleCommandUnknown(t *testing.T) {
 	bot := &Bot{}
-	handled := bot.handleCommand(nil, 0, "hello world", "ch", "user123", func(s string) {})
+	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "hello world", "user123", func(s string) {})
 	if handled {
 		t.Error("regular text should not be handled as command")
 	}
@@ -489,7 +489,7 @@ func TestHandleCommandUnknown(t *testing.T) {
 
 func TestHandleCommandEmpty(t *testing.T) {
 	bot := &Bot{}
-	handled := bot.handleCommand(nil, 0, "", "ch", "user123", func(s string) {})
+	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "", "user123", func(s string) {})
 	if handled {
 		t.Error("empty text should not be handled")
 	}
@@ -498,7 +498,7 @@ func TestHandleCommandEmpty(t *testing.T) {
 func TestHandleCommandWhoami(t *testing.T) {
 	bot := &Bot{}
 	var reply string
-	handled := bot.handleCommand(nil, 0, "/whoami", "ch", "OPEN_ID_ABC", func(s string) { reply = s })
+	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "/whoami", "OPEN_ID_ABC", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /whoami to be handled")
 	}
@@ -520,7 +520,7 @@ func TestHandleModelCommandListModels(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand(nil, 0, "", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(&channel.ResolvedChat{SessionKey: "ch"}, "", func(s string) { reply = s })
 	if !strings.Contains(reply, "openai/gpt-4") {
 		t.Errorf("expected model list, got: %s", reply)
 	}
@@ -538,7 +538,7 @@ func TestHandleModelCommandFilter(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand(nil, 0, "claude", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(&channel.ResolvedChat{SessionKey: "ch"}, "claude", func(s string) { reply = s })
 	if !strings.Contains(reply, "claude-3") {
 		t.Errorf("expected filtered results with claude, got: %s", reply)
 	}
@@ -558,7 +558,7 @@ func TestHandleModelCommandFilterNoMatch(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand(nil, 0, "gemini", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(&channel.ResolvedChat{SessionKey: "ch"}, "gemini", func(s string) { reply = s })
 	if !strings.Contains(reply, "No models matching") {
 		t.Errorf("expected no match message, got: %s", reply)
 	}
@@ -579,7 +579,7 @@ func TestHandleModelCommandSwitchByName(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand(pool, 0, "openai/gpt-4", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(&channel.ResolvedChat{Pool: pool, SessionKey: "ch"}, "openai/gpt-4", func(s string) { reply = s })
 	if !strings.Contains(reply, "Switched to openai/gpt-4") {
 		t.Errorf("expected switch confirmation, got: %s", reply)
 	}
@@ -599,7 +599,7 @@ func TestHandleModelCommandSwitchByNameUnknown(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand(nil, 0, "fake/model", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(&channel.ResolvedChat{SessionKey: "ch"}, "fake/model", func(s string) { reply = s })
 	if !strings.Contains(reply, "Unknown model") {
 		t.Errorf("expected unknown model error, got: %s", reply)
 	}
@@ -619,7 +619,7 @@ func TestHandleModelCommandSwitchError(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand(pool, 0, "openai/gpt-4", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(&channel.ResolvedChat{Pool: pool, SessionKey: "ch"}, "openai/gpt-4", func(s string) { reply = s })
 	if !strings.Contains(reply, "Error switching model") {
 		t.Errorf("expected switch error, got: %s", reply)
 	}
@@ -636,7 +636,7 @@ func TestHandleModelCommandNumericTreatedAsFilter(t *testing.T) {
 	}
 
 	var reply string
-	bot.handleModelCommand(nil, 0, "5", "ch", func(s string) { reply = s })
+	bot.handleModelCommand(&channel.ResolvedChat{SessionKey: "ch"}, "5", func(s string) { reply = s })
 	// "5" is now treated as a filter query, not an index
 	if !strings.Contains(reply, "No models matching") {
 		t.Errorf("expected no match for numeric filter, got: %s", reply)

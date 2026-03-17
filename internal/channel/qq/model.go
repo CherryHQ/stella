@@ -4,18 +4,17 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/channel"
 )
 
 // handleModelCommand processes /model with optional arguments.
 // No args → list models; text with "/" → switch by name; text → filter.
-func (b *Bot) handleModelCommand(pool *agent.Pool, userID int64, args, ch string, reply func(string)) {
+func (b *Bot) handleModelCommand(rc *channel.ResolvedChat, args string, reply func(string)) {
 	query := channel.ParseModelArgs(args)
 
 	// If the query looks like "provider/model", try switching directly.
 	if query != "" && strings.Contains(query, "/") {
-		b.switchModelByName(pool, userID, query, ch, reply)
+		b.switchModelByName(rc, query, reply)
 		return
 	}
 
@@ -32,7 +31,7 @@ func (b *Bot) handleModelCommand(pool *agent.Pool, userID int64, args, ch string
 }
 
 // switchModelByName handles model switching by "provider/model" name.
-func (b *Bot) switchModelByName(pool *agent.Pool, userID int64, name, ch string, reply func(string)) {
+func (b *Bot) switchModelByName(rc *channel.ResolvedChat, name string, reply func(string)) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	models := b.listFn()
 	var selected channel.ModelOption
@@ -49,7 +48,7 @@ func (b *Bot) switchModelByName(pool *agent.Pool, userID int64, name, ch string,
 		return
 	}
 
-	if _, err := pool.RotateSession(ch, userID); err != nil {
+	if _, err := rc.RotateSession(); err != nil {
 		reply(fmt.Sprintf("Error rotating session: %v", err))
 		return
 	}
@@ -60,9 +59,9 @@ func (b *Bot) switchModelByName(pool *agent.Pool, userID int64, name, ch string,
 		}
 	}
 	b.mu.Lock()
-	b.chatModels[ch] = selected
+	b.chatModels[rc.SessionKey] = selected
 	b.mu.Unlock()
-	logger().Info("model switched", "channel", ch, "provider", selected.Provider, "model", selected.Model)
+	logger().Info("model switched", "key", rc.SessionKey, "provider", selected.Provider, "model", selected.Model)
 	reply(fmt.Sprintf("Switched to %s/%s. Session reset.", selected.Provider, selected.Model))
 }
 

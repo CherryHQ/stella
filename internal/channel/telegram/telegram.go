@@ -274,66 +274,27 @@ func (b *Bot) stripBotMention(text string) string {
 	return strings.TrimSpace(strings.ReplaceAll(text, "@"+b.bot.Me.Username, ""))
 }
 
-// resolveSession returns the active session ID for the current chat,
-// creating a new session if none exists.
-func (b *Bot) resolveSession(c tele.Context) (string, error) {
-	pool, userID, err := b.resolvePool(c)
-	if err != nil {
-		return "", err
-	}
-	sessionKey := b.buildSessionKey(c, pool.AgentID())
-	info, err := pool.ResolveSession(sessionKey, userID)
-	if err != nil {
-		return "", err
-	}
-	return info.ID, nil
-}
-
-// buildSessionKey constructs a session key for the given Telegram context.
-func (b *Bot) buildSessionKey(c tele.Context, agentID string) string {
-	externalUserID := strconv.FormatInt(c.Sender().ID, 10)
-	channelCtx := "private"
-	if isGroup(c) {
-		channelCtx = "group:" + strconv.FormatInt(c.Chat().ID, 10)
-	}
-	return agent.BuildSessionKey(agentID, "tg", externalUserID, channelCtx)
-}
-
-// resolvePool resolves the pool and user ID for the current chat context.
-// It does: resolve user → resolve agent → get pool.
-func (b *Bot) resolvePool(c tele.Context) (*agent.Pool, int64, error) {
+// resolve performs full user/agent/pool/session-key resolution for the
+// current Telegram context. Call once per incoming message or command.
+func (b *Bot) resolve(c tele.Context) (*channel.ResolvedChat, error) {
 	sender := c.Sender()
 	if sender == nil {
-		return nil, 0, fmt.Errorf("no sender in message")
+		return nil, fmt.Errorf("no sender in message")
 	}
 
-	ctx := context.Background()
-	externalID := strconv.FormatInt(sender.ID, 10)
 	name := sender.FirstName
 	if name == "" {
 		name = sender.Username
 	}
 
-	user, err := channel.ResolveUser(ctx, b.store, externalID, "telegram", name)
-	if err != nil {
-		return nil, 0, fmt.Errorf("resolve user: %w", err)
-	}
-
-	chatCtx := channel.ChatContext{
-		Platform: "telegram",
-		ChatID:   strconv.FormatInt(c.Chat().ID, 10),
-		IsGroup:  isGroup(c),
-	}
-
-	agentID, err := channel.ResolveAgent(ctx, b.store, user, chatCtx)
-	if err != nil {
-		return nil, 0, fmt.Errorf("resolve agent: %w", err)
-	}
-
-	pool := b.poolManager.Get(agentID)
-	if pool == nil {
-		return nil, 0, fmt.Errorf("agent pool %q not found", agentID)
-	}
-
-	return pool, user.ID, nil
+	return channel.Resolve(
+		context.Background(),
+		b.poolManager,
+		b.store,
+		"telegram",
+		strconv.FormatInt(sender.ID, 10),
+		name,
+		strconv.FormatInt(c.Chat().ID, 10),
+		isGroup(c),
+	)
 }

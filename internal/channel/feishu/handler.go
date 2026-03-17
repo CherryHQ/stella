@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
-	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/channel"
 )
 
 const welcomeMessage = "Hi! I'm Anna -- your local AI assistant.\n\n" +
@@ -73,14 +73,12 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	// Resolve pool and agent for session key construction.
 	replyFn := func(reply string) { b.replyText(b.ctx, messageID, reply) }
 
-	pool, userID, err := b.resolvePool(openID)
+	rc, err := b.resolve(openID, chatID, chatType)
 	if err != nil {
-		logger().Error("resolve pool failed", "open_id", openID, "error", err)
+		logger().Error("resolve failed", "open_id", openID, "error", err)
 		replyFn(fmt.Sprintf("Error: %v", err))
 		return nil
 	}
-
-	ch := b.buildSessionKey(openID, chatID, chatType, pool.AgentID())
 
 	// Extract text for command handling.
 	text := parseTextContent(derefStr(msg.Content))
@@ -90,14 +88,14 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	// Handle commands synchronously (they're fast).
 	if text != "" {
-		if handled := b.handleCommand(pool, userID, text, ch, openID, replyFn); handled {
+		if handled := b.handleCommand(rc, text, openID, replyFn); handled {
 			return nil
 		}
 	}
 
 	// Process agent response asynchronously so the handler returns
 	// immediately, preventing Feishu from retrying the event.
-	go b.handleMessage(pool, openID, chatID, chatType, messageID, content)
+	go b.handleMessage(rc, openID, chatID, messageID, content)
 	return nil
 }
 
@@ -213,17 +211,18 @@ func parseTextContent(raw string) string {
 }
 
 // handleMessage processes an incoming message by streaming the agent response.
-func (b *Bot) handleMessage(pool *agent.Pool, openID, chatID, chatType, messageID string, content runner.MessageContent) {
-	sessionID, err := b.resolveSession(openID, chatID, chatType)
+func (b *Bot) handleMessage(rc *channel.ResolvedChat, openID, chatID, messageID string, content runner.MessageContent) {
+	info, err := rc.ResolveSession()
 	if err != nil {
 		logger().Error("resolve session failed", "open_id", openID, "error", err)
 		b.replyText(b.ctx, messageID, fmt.Sprintf("Session error: %v", err))
 		return
 	}
+	sessionID := info.ID
 
 	logger().Debug("message received", "open_id", openID, "session", sessionID)
 
-	sentMsgID, response, images, streamErr := b.streamResponse(pool, chatID, messageID, sessionID, content)
+	sentMsgID, response, images, streamErr := b.streamResponse(rc.Pool, chatID, messageID, sessionID, content)
 
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", sessionID, "error", streamErr)
@@ -249,7 +248,7 @@ func (b *Bot) handleMessage(pool *agent.Pool, openID, chatID, chatType, messageI
 
 // handleCommand checks if text is a bot command and handles it.
 // Returns true if the text was a command.
-func (b *Bot) handleCommand(pool *agent.Pool, userID int64, text, ch, senderID string, reply func(string)) bool {
+func (b *Bot) handleCommand(rc *channel.ResolvedChat, text, senderID string, reply func(string)) bool {
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
 		return false
@@ -262,36 +261,31 @@ func (b *Bot) handleCommand(pool *agent.Pool, userID int64, text, ch, senderID s
 		return true
 
 	case "/new":
-		info, err := pool.RotateSession(ch, userID)
+		info, err := rc.RotateSession()
 		if err != nil {
-			logger().Error("rotate session failed", "channel", ch, "error", err)
+			logger().Error("rotate session failed", "key", rc.SessionKey, "error", err)
 			reply(fmt.Sprintf("Error creating new session: %v", err))
 			return true
 		}
-		logger().Info("new session created", "session_id", info.ID, "channel", ch)
+		logger().Info("new session created", "session_id", info.ID, "key", rc.SessionKey)
 		reply("New session started.")
 		return true
 
 	case "/compact":
-		sessionID, err := b.resolveSession(senderID, ch, "")
+		summary, err := rc.CompactSession(b.ctx)
 		if err != nil {
-			reply(fmt.Sprintf("No active session: %v", err))
-			return true
-		}
-		summary, err := pool.CompactSession(b.ctx, sessionID)
-		if err != nil {
-			logger().Error("compact session failed", "session_id", sessionID, "error", err)
+			logger().Error("compact session failed", "key", rc.SessionKey, "error", err)
 			reply(fmt.Sprintf("Compaction failed: %v", err))
 			return true
 		}
-		logger().Info("session compacted", "session_id", sessionID, "summary_len", len(summary))
+		logger().Info("session compacted", "key", rc.SessionKey, "summary_len", len(summary))
 		reply("Session compacted.")
 		return true
 
 	case "/model":
 		origCmd := strings.Fields(text)[0]
 		args := strings.TrimSpace(strings.TrimPrefix(text, origCmd))
-		b.handleModelCommand(pool, userID, args, ch, reply)
+		b.handleModelCommand(rc, args, reply)
 		return true
 
 	case "/whoami":
