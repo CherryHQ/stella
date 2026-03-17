@@ -218,53 +218,17 @@ func channelForGroup(groupID string) string {
 	return "qq:group:" + groupID
 }
 
-// resolveSession returns the active session ID for the given message context,
-// creating a new session if none exists.
-func (b *Bot) resolveSession(authorID string, groupID string) (string, error) {
-	pool, userID, err := b.resolvePool(authorID)
-	if err != nil {
-		return "", err
-	}
-	sessionKey := b.buildSessionKey(authorID, groupID, pool.AgentID())
-	info, err := pool.ResolveSession(sessionKey, userID)
-	if err != nil {
-		return "", err
-	}
-	return info.ID, nil
-}
-
-// buildSessionKey constructs a session key for the given QQ context.
-func (b *Bot) buildSessionKey(authorID, groupID, agentID string) string {
-	channelCtx := "private"
-	if groupID != "" {
-		channelCtx = "group:" + groupID
-	}
-	return agent.BuildSessionKey(agentID, "qq", authorID, channelCtx)
-}
-
-// resolvePool resolves the pool and user ID for the current message context.
-// It does: resolve user → resolve agent → get pool.
-func (b *Bot) resolvePool(authorID string) (*agent.Pool, int64, error) {
-	ctx := context.Background()
-
-	user, err := channel.ResolveUser(ctx, b.store, authorID, "qq", "")
-	if err != nil {
-		return nil, 0, fmt.Errorf("resolve user: %w", err)
-	}
-
-	chatCtx := channel.ChatContext{
-		Platform: "qq",
-	}
-
-	agentID, err := channel.ResolveAgent(ctx, b.store, user, chatCtx)
-	if err != nil {
-		return nil, 0, fmt.Errorf("resolve agent: %w", err)
-	}
-
-	pool := b.poolManager.Get(agentID)
-	if pool == nil {
-		return nil, 0, fmt.Errorf("agent pool %q not found", agentID)
-	}
-
-	return pool, user.ID, nil
+// resolve performs full user/agent/pool/session-key resolution for the
+// given QQ message context. Call once per incoming message or command.
+func (b *Bot) resolve(authorID, groupID string) (*channel.ResolvedChat, error) {
+	return channel.Resolve(
+		context.Background(),
+		b.poolManager,
+		b.store,
+		"qq",
+		authorID,
+		"",
+		groupID,
+		groupID != "",
+	)
 }

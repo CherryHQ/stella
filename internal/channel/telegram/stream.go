@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/channel"
 	tele "gopkg.in/telebot.v4"
@@ -259,11 +260,7 @@ func truncate(s string, maxLen int) string {
 // For private chats it uses Telegram's sendMessageDraft API (Bot API 9.3+)
 // for smooth animated streaming. For groups (where drafts aren't supported)
 // it falls back to the edit-in-place approach.
-func (b *Bot) streamResponse(c tele.Context, sessionID string, prompt runner.MessageContent) (string, *toolTracker, []runner.ImageEvent, error) {
-	pool, _, err := b.resolvePool(c)
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("resolve pool: %w", err)
-	}
+func (b *Bot) streamResponse(c tele.Context, pool *agent.Pool, sessionID string, prompt runner.MessageContent) (string, *toolTracker, []runner.ImageEvent, error) {
 	events := pool.Chat(b.ctx, sessionID, prompt)
 
 	if !isGroup(c) {

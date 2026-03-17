@@ -55,33 +55,31 @@ func (b *Bot) registerHandlers() {
 	}))
 
 	b.bot.Handle("/new", b.guard(func(c tele.Context) error {
-		pool, userID, err := b.resolvePool(c)
+		rc, err := b.resolve(c)
 		if err != nil {
 			return c.Send(fmt.Sprintf("Error: %v", err))
 		}
-		ch := b.buildSessionKey(c, pool.AgentID())
-		sessionID, err := pool.RotateSession(ch, userID)
+		info, err := rc.RotateSession()
 		if err != nil {
-			logger().Error("rotate session failed", "channel", ch, "error", err)
+			logger().Error("rotate session failed", "key", rc.SessionKey, "error", err)
 			return c.Send(fmt.Sprintf("Error creating new session: %v", err))
 		}
-		logger().Info("new session created", "session_id", sessionID.ID, "channel", ch)
+		logger().Info("new session created", "session_id", info.ID, "key", rc.SessionKey)
 		return c.Send("New session started.")
 	}))
 
 	b.bot.Handle("/compact", b.guard(func(c tele.Context) error {
-		pool, _, err := b.resolvePool(c)
+		rc, err := b.resolve(c)
 		if err != nil {
 			return c.Send(fmt.Sprintf("Error: %v", err))
 		}
-		ch := b.buildSessionKey(c, pool.AgentID())
 		_ = c.Notify(tele.Typing)
-		summary, err := pool.CompactSession(b.ctx, ch)
+		summary, err := rc.CompactSession(b.ctx)
 		if err != nil {
-			logger().Error("compact session failed", "channel", ch, "error", err)
+			logger().Error("compact session failed", "key", rc.SessionKey, "error", err)
 			return c.Send(fmt.Sprintf("Compaction failed: %v", err))
 		}
-		logger().Info("session compacted", "channel", ch, "summary_len", len(summary))
+		logger().Info("session compacted", "key", rc.SessionKey, "summary_len", len(summary))
 		return c.Send("Session compacted.")
 	}))
 
@@ -173,42 +171,23 @@ func (b *Bot) handleAgent(c tele.Context) error {
 		return c.Send("Agent management is not configured.")
 	}
 
+	rc, err := b.resolve(c)
+	if err != nil {
+		return c.Send(fmt.Sprintf("Error: %v", err))
+	}
+
 	ctx := context.Background()
 	args := strings.TrimSpace(c.Message().Payload)
 
-	// Resolve user for context.
-	sender := c.Sender()
-	if sender == nil {
-		return c.Send("Cannot determine sender.")
-	}
-	externalID := strconv.FormatInt(sender.ID, 10)
-	name := sender.FirstName
-	if name == "" {
-		name = sender.Username
-	}
-	user, err := channel.ResolveUser(ctx, b.store, externalID, "telegram", name)
-	if err != nil {
-		return c.Send(fmt.Sprintf("Error resolving user: %v", err))
-	}
-
-	chatCtx := channel.ChatContext{
-		Platform: "telegram",
-		ChatID:   strconv.FormatInt(c.Chat().ID, 10),
-		IsGroup:  isGroup(c),
-	}
-
 	if args == "" {
-		// List agents with current selection marked.
 		agents, listErr := b.agentCmd.List(ctx)
 		if listErr != nil {
 			return c.Send(fmt.Sprintf("Error listing agents: %v", listErr))
 		}
-		currentAgentID, _ := channel.ResolveAgent(ctx, b.store, user, chatCtx)
-		return c.Send(channel.FormatAgentList(agents, currentAgentID))
+		return c.Send(channel.FormatAgentList(agents, rc.AgentID))
 	}
 
-	// Switch agent.
-	if err := b.agentCmd.Switch(ctx, user, chatCtx, args); err != nil {
+	if err := b.agentCmd.Switch(ctx, rc.User, rc.ChatCtx, args); err != nil {
 		return c.Send(fmt.Sprintf("Error switching agent: %v", err))
 	}
 	return c.Send(fmt.Sprintf("Switched to agent: %s", args))
@@ -266,18 +245,24 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 // handleMessage is the common flow for text and multimodal messages.
 func (b *Bot) handleMessage(c tele.Context, message runner.MessageContent) error {
 	chatID := c.Chat().ID
-	sessionID, err := b.resolveSession(c)
+	rc, err := b.resolve(c)
+	if err != nil {
+		logger().Error("resolve failed", "chat_id", chatID, "error", err)
+		return c.Send(fmt.Sprintf("Error: %v", err))
+	}
+	info, err := rc.ResolveSession()
 	if err != nil {
 		logger().Error("resolve session failed", "chat_id", chatID, "error", err)
 		return c.Send(fmt.Sprintf("Session error: %v", err))
 	}
+	sessionID := info.ID
 
 	logger().Debug("message received", "chat_id", chatID)
 
 	typingCtx, stopTyping := context.WithCancel(b.ctx)
 	go keepTyping(typingCtx, c)
 
-	response, tracker, images, streamErr := b.streamResponse(c, sessionID, message)
+	response, tracker, images, streamErr := b.streamResponse(c, rc.Pool, sessionID, message)
 
 	stopTyping()
 
