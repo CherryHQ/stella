@@ -10,6 +10,7 @@ import (
 
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/tencent-connect/botgo/event"
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/ai"
 )
@@ -31,18 +32,18 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 
 		replyFn := func(reply string) { b.replyC2C(b.ctx, authorID, msg.ID, reply) }
 
-		agentID, err := b.resolveAgentID(authorID)
+		pool, userID, err := b.resolvePool(authorID)
 		if err != nil {
-			logger().Error("resolve agent failed", "user_id", authorID, "error", err)
+			logger().Error("resolve pool failed", "user_id", authorID, "error", err)
 			replyFn(fmt.Sprintf("Error: %v", err))
 			return nil
 		}
 
 		text := strings.TrimSpace(msg.Content)
-		ch := b.buildSessionKey(authorID, "", agentID)
+		ch := b.buildSessionKey(authorID, "", pool.AgentID())
 
 		if text != "" {
-			if handled := b.handleCommand(text, ch, authorID, replyFn); handled {
+			if handled := b.handleCommand(pool, userID, text, ch, authorID, replyFn); handled {
 				return nil
 			}
 		}
@@ -74,18 +75,18 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 
 		replyFn := func(reply string) { b.replyGroup(b.ctx, groupID, msg.ID, reply) }
 
-		agentID, err := b.resolveAgentID(authorID)
+		pool, userID, err := b.resolvePool(authorID)
 		if err != nil {
-			logger().Error("resolve agent failed", "user_id", authorID, "group_id", groupID, "error", err)
+			logger().Error("resolve pool failed", "user_id", authorID, "group_id", groupID, "error", err)
 			replyFn(fmt.Sprintf("Error: %v", err))
 			return nil
 		}
 
 		text := strings.TrimSpace(msg.Content)
-		ch := b.buildSessionKey(authorID, groupID, agentID)
+		ch := b.buildSessionKey(authorID, groupID, pool.AgentID())
 
 		if text != "" {
-			if handled := b.handleCommand(text, ch, authorID, replyFn); handled {
+			if handled := b.handleCommand(pool, userID, text, ch, authorID, replyFn); handled {
 				return nil
 			}
 		}
@@ -241,7 +242,7 @@ func (b *Bot) handleMessage(authorID, groupID, msgID string, content runner.Mess
 
 // handleCommand checks if text is a bot command and handles it.
 // Returns true if the text was a command.
-func (b *Bot) handleCommand(text, ch, senderID string, reply func(string)) bool {
+func (b *Bot) handleCommand(pool *agent.Pool, userID int64, text, ch, senderID string, reply func(string)) bool {
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
 		return false
@@ -254,31 +255,36 @@ func (b *Bot) handleCommand(text, ch, senderID string, reply func(string)) bool 
 		return true
 
 	case "/new":
-		sessionID, err := b.cmd.New(ch)
+		info, err := pool.RotateSession(ch, userID)
 		if err != nil {
 			logger().Error("rotate session failed", "channel", ch, "error", err)
 			reply(fmt.Sprintf("Error creating new session: %v", err))
 			return true
 		}
-		logger().Info("new session created", "session_id", sessionID, "channel", ch)
+		logger().Info("new session created", "session_id", info.ID, "channel", ch)
 		reply("New session started.")
 		return true
 
 	case "/compact":
-		summary, err := b.cmd.Compact(b.ctx, ch)
+		sessionID, err := b.resolveSession(senderID, "")
 		if err != nil {
-			logger().Error("compact session failed", "channel", ch, "error", err)
+			reply(fmt.Sprintf("No active session: %v", err))
+			return true
+		}
+		summary, err := pool.CompactSession(b.ctx, sessionID)
+		if err != nil {
+			logger().Error("compact session failed", "session_id", sessionID, "error", err)
 			reply(fmt.Sprintf("Compaction failed: %v", err))
 			return true
 		}
-		logger().Info("session compacted", "channel", ch, "summary_len", len(summary))
+		logger().Info("session compacted", "session_id", sessionID, "summary_len", len(summary))
 		reply("Session compacted.")
 		return true
 
 	case "/model":
 		origCmd := strings.Fields(text)[0]
 		args := strings.TrimSpace(strings.TrimPrefix(text, origCmd))
-		b.handleModelCommand(args, ch, reply)
+		b.handleModelCommand(pool, userID, args, ch, reply)
 		return true
 
 	case "/whoami":

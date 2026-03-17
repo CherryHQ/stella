@@ -4,17 +4,18 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/channel"
 )
 
 // handleModelCommand processes /model with optional arguments.
 // No args → list models; text with "/" → switch by name; text → filter.
-func (b *Bot) handleModelCommand(args, ch string, reply func(string)) {
+func (b *Bot) handleModelCommand(pool *agent.Pool, userID int64, args, ch string, reply func(string)) {
 	query := channel.ParseModelArgs(args)
 
 	// If the query looks like "provider/model", try switching directly.
 	if query != "" && strings.Contains(query, "/") {
-		b.switchModelByName(query, ch, reply)
+		b.switchModelByName(pool, userID, query, ch, reply)
 		return
 	}
 
@@ -30,12 +31,33 @@ func (b *Bot) handleModelCommand(args, ch string, reply func(string)) {
 	reply(formatModelList(models, query))
 }
 
-// switchModelByName handles model switching by "provider/model" name using Commander.
-func (b *Bot) switchModelByName(name, ch string, reply func(string)) {
-	selected, err := b.cmd.ModelSwitchByName(ch, name)
-	if err != nil {
-		reply(fmt.Sprintf("Error: %v", err))
+// switchModelByName handles model switching by "provider/model" name.
+func (b *Bot) switchModelByName(pool *agent.Pool, userID int64, name, ch string, reply func(string)) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	models := b.listFn()
+	var selected channel.ModelOption
+	found := false
+	for _, m := range models {
+		if strings.ToLower(m.Provider+"/"+m.Model) == name {
+			selected = m
+			found = true
+			break
+		}
+	}
+	if !found {
+		reply(fmt.Sprintf("Unknown model %q, use /model to list available models.", name))
 		return
+	}
+
+	if _, err := pool.RotateSession(ch, userID); err != nil {
+		reply(fmt.Sprintf("Error rotating session: %v", err))
+		return
+	}
+	if b.switchFn != nil {
+		if err := b.switchFn(selected.Provider, selected.Model); err != nil {
+			reply(fmt.Sprintf("Error switching model: %v", err))
+			return
+		}
 	}
 	b.mu.Lock()
 	b.chatModels[ch] = selected
