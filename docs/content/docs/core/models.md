@@ -43,7 +43,7 @@ If no cache exists, only models explicitly listed in the config are shown.
 ```yaml
 providers:
   anthropic:
-    api_key: "sk-..."
+    api_key: 'sk-...'
 ```
 
 Or: `export ANTHROPIC_API_KEY="sk-..."`
@@ -53,8 +53,8 @@ Or: `export ANTHROPIC_API_KEY="sk-..."`
 ```yaml
 providers:
   openai:
-    api_key: "sk-..."
-    base_url: "https://api.openai.com/v1" # optional
+    api_key: 'sk-...'
+    base_url: 'https://api.openai.com/v1' # optional
 ```
 
 Or: `export OPENAI_API_KEY="sk-..."` and optionally `export OPENAI_BASE_URL="..."`
@@ -66,8 +66,8 @@ For services like Perplexity, Together.ai, or any OpenAI-compatible API:
 ```yaml
 providers:
   openai-response:
-    api_key: "sk-..."
-    base_url: "https://api.perplexity.ai"
+    api_key: 'sk-...'
+    base_url: 'https://api.perplexity.ai'
 ```
 
 Uses the same `OPENAI_API_KEY` and `OPENAI_BASE_URL` env vars as the `openai` provider.
@@ -87,11 +87,11 @@ Providers can include detailed model metadata in config:
 ```yaml
 providers:
   anthropic:
-    api_key: "sk-..."
+    api_key: 'sk-...'
     models:
       - id: claude-sonnet-4-6
         reasoning: false
-        input: ["text", "image"]
+        input: ['text', 'image']
         context_window: 200000
         max_tokens: 8192
         headers: {}

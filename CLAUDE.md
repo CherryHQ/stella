@@ -69,16 +69,7 @@ After completing any task that changes behavior, APIs, config, CLI commands, or 
 3. If adding a new subsystem, create a new doc in the appropriate category folder and add it to the folder's `meta.json`.
 4. MUST keep the builtin anna skill (`internal/agent/runner/builtin/anna/`) in sync with any user-facing changes.
 
-Doc site: `docs/` -- Fumadocs on TanStack Start, deployed to Cloudflare Workers.
-
-Docs structure (`docs/content/docs/`):
-- `index.mdx` -- Docs landing page, quick start, card links
-- `getting-started/` -- configuration.md, deployment.md
-- `core/` -- architecture.md, models.md, memory-system.md, session-compaction.md
-- `channels/` -- telegram.md, qq.md, feishu.md
-- `features/` -- scheduler-system.md, notification-system.md
-
-Each folder has a `meta.json` controlling sidebar order. All docs require YAML frontmatter (`title` at minimum).
+Doc site: `docs/` -- Fumadocs on TanStack Start, deployed to Cloudflare Workers. Content lives in `docs/content/docs/`. Each folder has a `meta.json` controlling sidebar order. All docs require YAML frontmatter (`title` at minimum).
 
 ## Release
 

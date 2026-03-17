@@ -151,10 +151,10 @@ In CLI mode (`anna chat`), no notification channels are registered, so the `noti
 ```yaml
 channels:
   telegram:
-    token: "BOT_TOKEN"
-    notify_chat: "123456789" # default chat for notifications
-    channel_id: "@my_channel" # fallback if notify_chat is empty
-    group_mode: "mention" # mention | always | disabled
+    token: 'BOT_TOKEN'
+    notify_chat: '123456789' # default chat for notifications
+    channel_id: '@my_channel' # fallback if notify_chat is empty
+    group_mode: 'mention' # mention | always | disabled
     allowed_ids: # restrict bot to these user IDs
       - 136345060
 ```

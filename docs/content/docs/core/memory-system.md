@@ -183,10 +183,10 @@ The memory engine is wired into the agent Pool. When a session uses it:
 
 Agent identity and per-user memory are stored in the database (replacing the old file-based SOUL.md/USER.md system):
 
-| Source | Table | Purpose |
-| ------ | ----- | ------- |
-| Agent soul | `settings_agents.system_prompt` | Agent identity, personality, tone. Managed via admin panel. Overridable by `SOUL.md` file in agent workspace. |
-| User memory | `ctx_agent_memory` | Per-user-per-agent notes. Injected into system prompt at session start. Updated by agent via write-only `user_memory` tool. |
+| Source      | Table                           | Purpose                                                                                                                     |
+| ----------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Agent soul  | `settings_agents.system_prompt` | Agent identity, personality, tone. Managed via admin panel. Overridable by `SOUL.md` file in agent workspace.               |
+| User memory | `ctx_agent_memory`              | Per-user-per-agent notes. Injected into system prompt at session start. Updated by agent via write-only `user_memory` tool. |
 
 - Agent workspaces: `$ANNA_HOME/workspaces/{agent_id}/`
 - `SOUL.md` in workspace overrides `settings_agents.system_prompt` if present

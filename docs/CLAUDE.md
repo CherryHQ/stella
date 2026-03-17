@@ -16,29 +16,6 @@ vp install      # install dependencies
 vp run deploy   # build + wrangler deploy
 ```
 
-## Structure
-
-```
-docs/
-  content/docs/           # markdown/mdx content (the actual docs)
-    index.mdx             # docs landing page
-    changelog.mdx         # changelog
-    getting-started/      # configuration.md, deployment.md
-    core/                 # architecture.md, models.md, memory-system.md, session-compaction.md
-    channels/             # telegram.md, qq.md, feishu.md
-    features/             # scheduler-system.md, notification-system.md
-  src/
-    routes/index.tsx      # home landing page (custom, not from mdx)
-    routes/docs/$.tsx     # docs page renderer
-    routes/__root.tsx     # html root, loads fonts + fumadocs provider
-    styles/app.css        # tailwind imports, custom theme, animations
-    lib/layout.shared.tsx # shared nav config (title, github link)
-    lib/source.ts         # fumadocs content source setup
-    components/           # mdx.tsx, not-found.tsx
-  source.config.ts        # fumadocs-mdx config
-  wrangler.jsonc          # cloudflare workers deploy config
-```
-
 ## Adding / editing docs
 
 1. Add or edit `.md`/`.mdx` files in `content/docs/`. Frontmatter requires `title` at minimum.

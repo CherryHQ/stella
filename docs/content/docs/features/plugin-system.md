@@ -15,16 +15,16 @@ A plugin is a single `.js` file that receives an `anna` host object and uses it 
 ```js
 // hello.js
 anna.registerTool({
-  name: "hello",
-  description: "Say hello to someone.",
+  name: 'hello',
+  description: 'Say hello to someone.',
   parameters: {
-    type: "object",
+    type: 'object',
     properties: {
-      name: { type: "string", description: "Name to greet" },
+      name: { type: 'string', description: 'Name to greet' },
     },
   },
   execute: function (args) {
-    return "Hello, " + (args.name || "world") + "!";
+    return 'Hello, ' + (args.name || 'world') + '!';
   },
 });
 ```
@@ -57,8 +57,8 @@ plugins:
   - path: ~/plugins/hello.js
   - path: /absolute/path/to/notify.js
     config:
-      webhook_url: "https://example.com/hook"
-      verbose: "true"
+      webhook_url: 'https://example.com/hook'
+      verbose: 'true'
 ```
 
 Each entry has:
@@ -76,19 +76,19 @@ A plugin file is executed inside an IIFE that receives the `anna` host object. A
 
 ```js
 anna.registerTool({
-  name: "my_tool", // Must be unique, cannot conflict with built-in tools
-  description: "What the tool does.",
+  name: 'my_tool', // Must be unique, cannot conflict with built-in tools
+  description: 'What the tool does.',
   parameters: {
     // JSON Schema for the input
-    type: "object",
+    type: 'object',
     properties: {
-      query: { type: "string", description: "Search query" },
+      query: { type: 'string', description: 'Search query' },
     },
   },
   execute: function (args) {
     // args is a plain object matching the schema
     // Return a string result
-    return "result: " + args.query;
+    return 'result: ' + args.query;
   },
 });
 ```
@@ -103,24 +103,24 @@ anna.registerTool({
 Subscribe to lifecycle events with `anna.on(event, handler)`:
 
 ```js
-anna.on("session_start", function (event) {
-  anna.log("info", "Session started: " + event.sessionId);
+anna.on('session_start', function (event) {
+  anna.log('info', 'Session started: ' + event.sessionId);
 });
 
-anna.on("before_tool_call", function (event) {
-  anna.log("info", "Calling: " + event.toolName);
+anna.on('before_tool_call', function (event) {
+  anna.log('info', 'Calling: ' + event.toolName);
   // Return a non-empty string to BLOCK the tool call
-  if (event.toolName === "dangerous_tool") {
-    return "blocked by policy";
+  if (event.toolName === 'dangerous_tool') {
+    return 'blocked by policy';
   }
 });
 
-anna.on("after_tool_call", function (event) {
-  anna.log("info", event.toolName + " finished, error=" + event.isError);
+anna.on('after_tool_call', function (event) {
+  anna.log('info', event.toolName + ' finished, error=' + event.isError);
 });
 
-anna.on("session_end", function (event) {
-  anna.log("info", "Session ended: " + event.sessionId);
+anna.on('session_end', function (event) {
+  anna.log('info', 'Session ended: ' + event.sessionId);
 });
 ```
 
@@ -146,8 +146,8 @@ The config map from `config.yaml`. Access values with `anna.config.key_name`.
 Write to anna's structured logger. Levels: `"debug"`, `"info"`, `"warn"`, `"error"`.
 
 ```js
-anna.log("info", "plugin loaded");
-anna.log("error", "something went wrong");
+anna.log('info', 'plugin loaded');
+anna.log('error', 'something went wrong');
 ```
 
 #### `anna.readFile(path)` / `anna.writeFile(path, content)`
@@ -157,8 +157,8 @@ Read and write files. Paths are resolved relative to the plugin directory. Absol
 **Sandboxed**: file access is restricted to the plugin's parent directory and `~/.anna/workspace/`. Attempts to access paths outside these directories are denied.
 
 ```js
-var data = anna.readFile("data.json"); // relative to plugin dir
-anna.writeFile("output.txt", "hello"); // relative to plugin dir
+var data = anna.readFile('data.json'); // relative to plugin dir
+anna.writeFile('output.txt', 'hello'); // relative to plugin dir
 var soul = anna.readFile(anna.config.soul); // absolute path from config
 ```
 
@@ -167,10 +167,10 @@ var soul = anna.readFile(anna.config.soul); // absolute path from config
 HTTP client with safety constraints. Returns `{ status, body }`.
 
 ```js
-var resp = anna.fetch("https://api.example.com/data", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ query: "hello" }),
+var resp = anna.fetch('https://api.example.com/data', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ query: 'hello' }),
   timeout: 5000, // milliseconds (default: 30s, max: 60s)
 });
 
@@ -204,21 +204,21 @@ Logs every lifecycle event — useful for debugging:
 
 ```js
 // lifecycle-logger.js
-anna.on("session_start", function (event) {
-  anna.log("info", "[lifecycle] session_start id=" + event.sessionId);
+anna.on('session_start', function (event) {
+  anna.log('info', '[lifecycle] session_start id=' + event.sessionId);
 });
 
-anna.on("session_end", function (event) {
-  anna.log("info", "[lifecycle] session_end id=" + event.sessionId);
+anna.on('session_end', function (event) {
+  anna.log('info', '[lifecycle] session_end id=' + event.sessionId);
 });
 
-anna.on("before_tool_call", function (event) {
-  anna.log("info", "[lifecycle] before_tool_call tool=" + event.toolName);
+anna.on('before_tool_call', function (event) {
+  anna.log('info', '[lifecycle] before_tool_call tool=' + event.toolName);
 });
 
-anna.on("after_tool_call", function (event) {
-  var status = event.isError ? "ERROR" : "OK";
-  anna.log("info", "[lifecycle] after_tool_call tool=" + event.toolName + " " + status);
+anna.on('after_tool_call', function (event) {
+  var status = event.isError ? 'ERROR' : 'OK';
+  anna.log('info', '[lifecycle] after_tool_call tool=' + event.toolName + ' ' + status);
 });
 ```
 
@@ -228,25 +228,25 @@ Sends a terminal bell on errors and provides a `notify` tool:
 
 ```js
 // notify.js
-anna.on("after_tool_call", function (event) {
+anna.on('after_tool_call', function (event) {
   if (event.isError) {
-    anna.log("warn", "\x07[notify] tool error: " + event.toolName);
+    anna.log('warn', '\x07[notify] tool error: ' + event.toolName);
   }
 });
 
 anna.registerTool({
-  name: "notify",
-  description: "Sends a terminal bell notification with a custom message.",
+  name: 'notify',
+  description: 'Sends a terminal bell notification with a custom message.',
   parameters: {
-    type: "object",
+    type: 'object',
     properties: {
-      message: { type: "string", description: "Notification message" },
+      message: { type: 'string', description: 'Notification message' },
     },
   },
   execute: function (args) {
-    var msg = args.message || "notification";
-    anna.log("info", "\x07[notify] " + msg);
-    return "notified: " + msg;
+    var msg = args.message || 'notification';
+    anna.log('info', '\x07[notify] ' + msg);
+    return 'notified: ' + msg;
   },
 });
 ```
@@ -260,16 +260,16 @@ Posts tool call results to an external webhook using config and fetch:
 plugins:
   - path: ~/plugins/webhook.js
     config:
-      url: "https://hooks.example.com/anna"
+      url: 'https://hooks.example.com/anna'
 ```
 
 ```js
 // webhook.js
-anna.on("after_tool_call", function (event) {
+anna.on('after_tool_call', function (event) {
   if (anna.config.url) {
     anna.fetch(anna.config.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         tool: event.toolName,
         error: event.isError,
