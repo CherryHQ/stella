@@ -25,7 +25,8 @@ type ModelSwitchFunc = channel.ModelSwitchFunc
 const defaultStreamSessionId = "stream"
 
 // RunStream reads all of stdin as a prompt, sends it to the agent, and streams the response to stdout.
-func RunStream(ctx context.Context, pool *agent.Pool) error {
+// An optional userID associates the session with a user.
+func RunStream(ctx context.Context, pool *agent.Pool, userID ...int64) error {
 	input, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return fmt.Errorf("reading stdin: %w", err)
@@ -36,7 +37,14 @@ func RunStream(ctx context.Context, pool *agent.Pool) error {
 		return fmt.Errorf("empty prompt")
 	}
 
-	stream := pool.Chat(ctx, defaultStreamSessionId, prompt)
+	// Ensure session exists with user association.
+	info, _ := pool.ResolveSession(defaultStreamSessionId, userID...)
+	sessionID := info.ID
+	if sessionID == "" {
+		sessionID = defaultStreamSessionId
+	}
+
+	stream := pool.Chat(ctx, sessionID, prompt)
 	for evt := range stream {
 		if evt.Err != nil {
 			return evt.Err
@@ -48,8 +56,9 @@ func RunStream(ctx context.Context, pool *agent.Pool) error {
 }
 
 // RunChat starts an interactive terminal chat session using Bubble Tea.
-func RunChat(ctx context.Context, pool *agent.Pool, provider, model string, listFn ModelListFunc, switchFn ModelSwitchFunc) error {
-	m := newChatModel(ctx, pool, provider, model, listFn, switchFn)
+// An optional userID associates sessions with a user for per-user memory.
+func RunChat(ctx context.Context, pool *agent.Pool, provider, model string, listFn ModelListFunc, switchFn ModelSwitchFunc, userID ...int64) error {
+	m := newChatModel(ctx, pool, provider, model, listFn, switchFn, userID...)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)

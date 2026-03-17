@@ -190,9 +190,7 @@ The `delegate` tool enables the agent to spawn child agent loops with isolated c
 
 | Tool              | Condition                         | Description                                                  |
 | ----------------- | --------------------------------- | ------------------------------------------------------------ |
-| `memory_grep`     | Always                            | Search messages and summaries by keyword                     |
-| `memory_describe` | Always                            | Inspect a summary node's metadata and lineage                |
-| `memory_expand`   | Always                            | Drill into a summary to retrieve children                    |
+| `memory`          | Always                            | Unified memory tool (grep/describe/expand/user_memory_update)|
 | `skills`          | Always                            | Skill management (search/install/list/remove from skills.sh) |
 | `scheduler`       | `scheduler.enabled: true`         | Schedule tasks (add/list/remove jobs)                        |
 | `notify`          | Gateway mode + channel configured | Send notifications via dispatcher                            |
