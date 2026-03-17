@@ -4,11 +4,11 @@ title: Scheduler System
 
 ## Status
 
-Implemented — `internal/scheduler/` package with gocron/v2 scheduler, SQLite persistence, and agent tool.
+Implemented -- `internal/scheduler/` package with gocron/v2 scheduler, SQLite persistence, admin panel CRUD, and agent tool.
 
 ## Overview
 
-Anna supports scheduled task execution so the agent can set reminders, run periodic tasks, and automate recurring work. The scheduler system delegates all scheduling to [gocron/v2](https://github.com/go-co-op/gocron) and adds persistence and an agent-facing tool on top.
+Anna supports scheduled task execution so the agent can set reminders, run periodic tasks, and automate recurring work. The scheduler system delegates all scheduling to [gocron/v2](https://github.com/go-co-op/gocron) and adds persistence, multi-agent routing, and an agent-facing tool on top.
 
 ## Architecture
 
@@ -29,7 +29,7 @@ Agent (via tool call)
         OnJobFunc callback
               |
               v
-      pool.Chat(ctx, "scheduler:{id}", message)
+      PoolManager.Chat(ctx, agentID, userID, sessionID, message)
 ```
 
 ### Package: `internal/scheduler/`
@@ -39,18 +39,18 @@ Top-level package (under `internal/`). Five files:
 | File                                | Purpose                                               |
 | ----------------------------------- | ----------------------------------------------------- |
 | `internal/scheduler/job.go`         | `Job` and `Schedule` types                            |
-| `internal/scheduler/service.go`     | `Service` — gocron wrapper, scheduling, job CRUD      |
-| `internal/scheduler/heartbeat.go`   | Heartbeat polling — decide/execute/notify via LLM     |
+| `internal/scheduler/service.go`     | `Service` -- gocron wrapper, scheduling, job CRUD     |
+| `internal/scheduler/heartbeat.go`   | Heartbeat polling -- decide/execute/notify via LLM    |
 | `internal/scheduler/persistence.go` | Database persistence (load/save/migrate jobs)         |
-| `internal/scheduler/tool.go`        | `SchedulerTool` — agent tool implementing `tool.Tool` |
+| `internal/scheduler/tool.go`        | `SchedulerTool` -- agent tool implementing `tool.Tool` |
 
 ### Key Types
 
 **Schedule** defines when a job runs. Exactly one field must be set:
 
-- `cron` — a cron expression (e.g. `"0 9 * * 1-5"` for weekdays at 9am)
-- `every` — a Go duration (e.g. `"30m"`, `"2h"`, `"24h"`)
-- `at` — an RFC3339 timestamp for a one-time job (e.g. `"2024-01-15T14:30:00+08:00"`)
+- `cron` -- a cron expression (e.g. `"0 9 * * 1-5"` for weekdays at 9am)
+- `every` -- a Go duration (e.g. `"30m"`, `"2h"`, `"24h"`)
+- `at` -- an RFC3339 timestamp for a one-time job (e.g. `"2024-01-15T14:30:00+08:00"`)
 
 **Job** is the persisted definition:
 
@@ -60,28 +60,32 @@ type Job struct {
     Name        string    // human-readable name
     Schedule    Schedule  // cron, interval, or one-time
     Message     string    // prompt sent to agent
+    AgentID     string    // target agent in the pool
+    UserID      string    // owning user
     SessionMode string    // "reuse" (default) or "new"
     Enabled     bool
     CreatedAt   time.Time
 }
 ```
 
+Jobs carry `agent_id` and `user_id` fields so the scheduler can route each job to the correct agent pool via PoolManager.
+
 ### Service Lifecycle
 
-1. `scheduler.New(db)` or `scheduler.NewFromPath(dbPath)` — creates scheduler backed by SQLite
-2. `service.SetOnJob(fn)` — sets callback (deferred wiring to resolve circular dependency)
-3. `service.Start(ctx)` — loads jobs from DB, registers all with gocron, starts scheduler
-4. `service.Stop()` — shuts down scheduler (and closes DB if opened via `NewFromPath`)
+1. `scheduler.New(db)` or `scheduler.NewFromPath(dbPath)` -- creates scheduler backed by SQLite
+2. `service.SetOnJob(fn)` -- sets callback (deferred wiring to resolve circular dependency)
+3. `service.Start(ctx)` -- loads jobs from DB, registers all with gocron, starts scheduler
+4. `service.Stop()` -- shuts down scheduler (and closes DB if opened via `NewFromPath`)
 
 ### Persistence
 
-Jobs are stored in the `sched_jobs` table in the shared SQLite database (`~/.anna/anna.db`). Each mutation (add/remove) is an individual INSERT/DELETE — no full-file rewrites.
+Jobs are stored in the `sched_jobs` table in the shared SQLite database (`~/.anna/anna.db`). Each mutation (add/remove) is an individual INSERT/DELETE -- no full-file rewrites.
 
 On first startup, if a legacy `jobs.json` file exists (from pre-DB versions), jobs are automatically migrated to the database and the file is removed.
 
 ### One-Time Jobs
 
-Jobs scheduled with `at` run exactly once at the specified time and are automatically removed from both the scheduler and `jobs.json` after execution. This keeps the job list clean without stale entries.
+Jobs scheduled with `at` run exactly once at the specified time and are automatically removed from both the scheduler and the database after execution. This keeps the job list clean without stale entries.
 
 Behavior details:
 
@@ -94,37 +98,43 @@ Behavior details:
 
 Each scheduled job's session behavior is controlled by its `session_mode`:
 
-- **`reuse`** (default) — the job gets a stable session ID `scheduler:{job.ID}`. The agent retains conversational memory across scheduled runs of the same job.
-- **`new`** — each execution gets a unique session ID `scheduler:{job.ID}:{timestamp}`. The agent starts fresh every time with no prior context.
+- **`reuse`** (default) -- the job gets a stable session ID `{agentID}:scheduler:{job.ID}` (the agent ID is prefixed when set). The agent retains conversational memory across scheduled runs of the same job.
+- **`new`** -- each execution gets a unique session ID `scheduler:{job.ID}:{timestamp}`. The agent starts fresh every time with no prior context.
 
 ## Configuration
 
-Add to `~/.anna/config.yaml`:
-
-```yaml
-scheduler:
-  enabled: true
-```
+Scheduler configuration is managed through the admin panel. Settings are stored in the `settings` table in the database. Enable or disable the scheduler and configure its behavior from the admin panel UI.
 
 Scheduler is only active when:
 
-- `scheduler.enabled` is `true`
-- `runner.type` is `go` (the Pi runner doesn't support custom tools)
+- The scheduler is enabled in the admin panel settings
+- `runner.type` is `go` (the Pi runner does not support custom tools)
+
+### Admin Panel API
+
+The admin panel exposes a full CRUD API for scheduler jobs:
+
+| Method   | Endpoint                   | Description              |
+| -------- | -------------------------- | ------------------------ |
+| `GET`    | `/api/scheduler/jobs`      | List all scheduled jobs  |
+| `POST`   | `/api/scheduler/jobs`      | Create a new job         |
+| `PUT`    | `/api/scheduler/jobs/{id}` | Update an existing job   |
+| `DELETE` | `/api/scheduler/jobs/{id}` | Delete a job             |
 
 ## Agent Tool
 
 The `scheduler` tool is automatically registered with the Go runner when scheduler is enabled. The agent uses it via tool calls with three actions:
 
-### `add` — Create a job
+### `add` -- Create a job
 
 Parameters:
 
-- `name` (required) — human-readable name
-- `message` (required) — the instruction to execute on each run
-- `cron` — cron expression (use this OR `every` OR `at`)
-- `every` — Go duration (use this OR `cron` OR `at`)
-- `at` — RFC3339 timestamp for a one-time job (use this OR `cron` OR `every`)
-- `session_mode` — `"reuse"` (default) keeps conversation history; `"new"` starts fresh each execution
+- `name` (required) -- human-readable name
+- `message` (required) -- the instruction to execute on each run
+- `cron` -- cron expression (use this OR `every` OR `at`)
+- `every` -- Go duration (use this OR `cron` OR `at`)
+- `at` -- RFC3339 timestamp for a one-time job (use this OR `cron` OR `every`)
+- `session_mode` -- `"reuse"` (default) keeps conversation history; `"new"` starts fresh each execution
 
 Example (recurring): _"Set a reminder every 30 minutes to check my email"_ triggers:
 
@@ -148,15 +158,15 @@ Example (one-time): _"Remind me at 2:40 PM to check Beijing weather"_ triggers:
 }
 ```
 
-### `list` — List all jobs
+### `list` -- List all jobs
 
 No parameters. Returns all scheduled jobs as JSON.
 
-### `remove` — Delete a job
+### `remove` -- Delete a job
 
 Parameters:
 
-- `id` (required) — job ID from `add` or `list`
+- `id` (required) -- job ID from `add` or `list`
 
 ## Heartbeat
 
@@ -174,12 +184,11 @@ Heartbeat is a built-in periodic task managed by the scheduler service. It polls
 
 ### Configuration
 
-```yaml
-heartbeat:
-  enabled: false # default: false
-  every: 10m # poll interval (Go duration)
-  file: HEARTBEAT.md # relative to workspace unless absolute
-```
+Heartbeat settings are configured through the admin panel. The following parameters are available:
+
+- **enabled** -- whether heartbeat polling is active (default: false)
+- **every** -- poll interval as a Go duration (e.g. `10m`)
+- **file** -- path to the heartbeat file, relative to workspace unless absolute (e.g. `HEARTBEAT.md`)
 
 Heartbeat only runs in `anna gateway` mode. The fast model is used for the gate decision to minimize cost.
 
@@ -189,11 +198,13 @@ The scheduler system resolves a circular dependency (service needs pool for the 
 
 1. Create `scheduler.Service` with no callback
 2. Create `scheduler.NewTool(service)` and pass to runner via `ExtraTools`
-3. Create pool with the runner factory
-4. Call `service.SetOnJob(...)` with a callback that calls `pool.Chat()`
+3. Create PoolManager with the runner factory
+4. Call `service.SetOnJob(...)` with a callback that routes via PoolManager using the job's `agent_id` and `user_id`
 5. If heartbeat is enabled, call `service.SetHeartbeat(...)` with the chat function and notifier
 6. Call `service.Start(ctx)` (or `StartEphemeral` for heartbeat-only mode) in the gateway
 7. Call `service.StartHeartbeat(ctx, every)` after channels are wired
+
+The `wireSchedulerNotifier` function routes job execution through PoolManager instead of a single pool, using each job's `agent_id` and `user_id` to reach the correct agent.
 
 ## Testing
 

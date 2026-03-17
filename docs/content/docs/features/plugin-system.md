@@ -4,7 +4,7 @@ title: Plugin System
 
 ## Overview
 
-Anna supports JavaScript plugins that extend the assistant with custom tools and lifecycle hooks. Plugins run inside an embedded [QuickJS](https://bellard.org/quickjs/) runtime — no external Node.js or npm required.
+Anna supports JavaScript plugins that extend the assistant with custom tools and lifecycle hooks. Plugins run inside an embedded [QuickJS](https://bellard.org/quickjs/) runtime -- no external Node.js or npm required.
 
 A plugin is a single `.js` file that receives an `anna` host object and uses it to register tools, subscribe to lifecycle events, and access host APIs.
 
@@ -46,31 +46,37 @@ anna plugin add <path> --config key=val  # Add with config values (repeatable)
 anna plugin remove <name|path>           # Remove a plugin (alias: rm)
 ```
 
-The `add` command writes the plugin entry into `~/.anna/config.yaml`. The `remove` command accepts either the plugin name (filename without `.js`) or the full path.
+The `add` command writes the plugin entry into the `settings` table in the database (under the `"plugins"` key). The `remove` command accepts either the plugin name (filename without `.js`) or the full path. Both commands update the `settings` table directly.
 
 ## Configuration
 
-Plugins are declared in `config.yaml` under the `plugins` key:
-
-```yaml
-plugins:
-  - path: ~/plugins/hello.js
-  - path: /absolute/path/to/notify.js
-    config:
-      webhook_url: 'https://example.com/hook'
-      verbose: 'true'
-```
-
-Each entry has:
+Plugins are stored in the `settings` table under the key `"plugins"` as a JSON array. Each entry has:
 
 | Field    | Type   | Description                                                     |
 | -------- | ------ | --------------------------------------------------------------- |
 | `path`   | string | Path to the `.js` file. Supports `~` expansion.                 |
 | `config` | map    | Optional key-value pairs passed to the plugin as `anna.config`. |
 
+Example JSON structure stored in the settings table:
+
+```json
+[
+  { "path": "~/plugins/hello.js" },
+  {
+    "path": "/absolute/path/to/notify.js",
+    "config": {
+      "webhook_url": "https://example.com/hook",
+      "verbose": "true"
+    }
+  }
+]
+```
+
+Use the `anna plugin add` and `anna plugin remove` CLI commands to manage this list, or edit it through the admin panel.
+
 ## Writing Plugins
 
-A plugin file is executed inside an IIFE that receives the `anna` host object. All registration happens at load time — there is no module system or `require`.
+A plugin file is executed inside an IIFE that receives the `anna` host object. All registration happens at load time -- there is no module system or `require`.
 
 ### Registering Tools
 
@@ -128,7 +134,7 @@ anna.on('session_end', function (event) {
 | ------------------ | ----------------------- | ----------------------------------------- |
 | `session_start`    | `sessionId`, `channel`  | No                                        |
 | `session_end`      | `sessionId`, `channel`  | No                                        |
-| `before_tool_call` | `toolName`, `arguments` | Yes — return a non-empty string to cancel |
+| `before_tool_call` | `toolName`, `arguments` | Yes -- return a non-empty string to cancel |
 | `after_tool_call`  | `toolName`, `isError`   | No                                        |
 
 For `before_tool_call`, the first hook that returns a non-empty string stops execution and the tool call is cancelled. All other events are fire-and-forget.
@@ -139,7 +145,7 @@ The `anna` object provides these APIs:
 
 #### `anna.config`
 
-The config map from `config.yaml`. Access values with `anna.config.key_name`.
+The config map from the plugin's settings entry. Access values with `anna.config.key_name`.
 
 #### `anna.log(level, message)`
 
@@ -154,7 +160,7 @@ anna.log('error', 'something went wrong');
 
 Read and write files. Paths are resolved relative to the plugin directory. Absolute paths are also accepted.
 
-**Sandboxed**: file access is restricted to the plugin's parent directory and `~/.anna/workspace/`. Attempts to access paths outside these directories are denied.
+**Sandboxed**: file access is restricted to the plugin's parent directory and `~/.anna/workspaces/`. Attempts to access paths outside these directories are denied.
 
 ```js
 var data = anna.readFile('data.json'); // relative to plugin dir
@@ -191,7 +197,7 @@ if (resp.status === 200) {
 Plugins run in a sandboxed QuickJS runtime with these restrictions:
 
 - **No Node.js APIs**: No `require`, `process`, `fs`, or `child_process`. Only the host APIs listed above are available.
-- **File access**: Sandboxed to the plugin directory and `~/.anna/workspace/`.
+- **File access**: Sandboxed to the plugin directory and `~/.anna/workspaces/`.
 - **Network access**: HTTP(S) only, SSRF-safe (private IPs blocked, DNS rebinding prevented).
 - **Concurrency**: All JS calls are serialized with a mutex since QuickJS is single-threaded.
 - **Tool name isolation**: Plugin tools cannot shadow built-in tools.
@@ -200,7 +206,7 @@ Plugins run in a sandboxed QuickJS runtime with these restrictions:
 
 ### Lifecycle Logger
 
-Logs every lifecycle event — useful for debugging:
+Logs every lifecycle event -- useful for debugging:
 
 ```js
 // lifecycle-logger.js
@@ -253,14 +259,10 @@ anna.registerTool({
 
 ### Webhook Forwarder
 
-Posts tool call results to an external webhook using config and fetch:
+Posts tool call results to an external webhook using config and fetch. Add the plugin with inline config:
 
-```yaml
-# config.yaml
-plugins:
-  - path: ~/plugins/webhook.js
-    config:
-      url: 'https://hooks.example.com/anna'
+```bash
+anna plugin add ~/plugins/webhook.js --config url=https://hooks.example.com/anna
 ```
 
 ```js

@@ -54,6 +54,8 @@ The `Engine` interface (`internal/memory/types.go`) is the main entry point:
 | `Retrieval()`                                 | Returns the `RetrievalEngine` for search/explore tools     |
 | `Close()`                                     | Releases database resources                                |
 
+**Constructor:** `NewEngineFromDB(db *sql.DB, summarizer Summarizer, opts ...EngineOption)` accepts an existing `*sql.DB` connection so the memory engine can share the same database handle used by the config store and other subsystems.
+
 Engine options: `WithFreshTail(n)`, `WithLogger(log)`.
 
 ### Database
@@ -80,15 +82,21 @@ mise run generate
 
 **Schema:**
 
-| Table                  | Purpose                                                                                 |
-| ---------------------- | --------------------------------------------------------------------------------------- |
-| `ctx_conversations`    | One per session (`session_id` → `id` mapping)                                           |
-| `ctx_messages`         | Raw messages with `role`, `content`, `token_count`, sequential `seq`                    |
-| `ctx_summaries`        | Summary nodes: `kind` (`leaf`/`condensed`), `depth`, `content`, token stats, time range |
-| `ctx_items`            | Ordered context window: each item points to either a `message_id` or `summary_id`       |
-| `ctx_summary_messages` | Links leaf summaries to their source messages (preserves lineage)                       |
-| `ctx_summary_parents`  | Links condensed summaries to their parent summaries (DAG edges)                         |
-| `ctx_message_parts`    | Structured message parts (`text`, `reasoning`, `tool`) for future use                   |
+| Table                    | Purpose                                                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------------------ |
+| `ctx_conversations`      | One per session (`session_id` -> `id` mapping). Includes `agent_id` and `user_id` columns to track which agent and user own the conversation. |
+| `ctx_messages`           | Raw messages with `role`, `content`, `token_count`, sequential `seq`                             |
+| `ctx_summaries`          | Summary nodes: `kind` (`leaf`/`condensed`), `depth`, `content`, token stats, time range          |
+| `ctx_items`              | Ordered context window: each item points to either a `message_id` or `summary_id`                |
+| `ctx_summary_messages`   | Links leaf summaries to their source messages (preserves lineage)                                |
+| `ctx_summary_parents`    | Links condensed summaries to their parent summaries (DAG edges)                                  |
+| `ctx_message_parts`      | Structured message parts (`text`, `reasoning`, `tool`) for future use                            |
+| `ctx_agent_memory`       | Per-user-per-agent notes. Primary key is `(user_id, agent_id)`. Content is injected into the system prompt at session start. |
+| `settings_agents`        | Agent configuration including `system_prompt` (agent soul), model selection, and workspace path  |
+| `settings_providers`     | LLM provider credentials and endpoints                                                           |
+| `settings_channels`      | Channel (Telegram, QQ, Feishu) configuration                                                     |
+| `settings_users`         | User records referenced by `ctx_agent_memory` and `ctx_conversations`                            |
+| `settings_channel_agents`| Maps channels to agents for multi-agent routing                                                  |
 
 ### Compaction
 
@@ -152,7 +160,7 @@ A unified `memory` tool in `internal/memory/tool/` provides all memory operation
 | `grep`               | Search messages and summaries by substring pattern                                  | `pattern` (required), `scope` (`messages`/`summaries`/`both`), `limit` (default 20) |
 | `describe`           | Inspect a summary's metadata, content, and lineage (parents/children)               | `summary_id`                                                                        |
 | `expand`             | Drill into a summary: returns source messages (leaf) or child summaries (condensed) | `summary_id`, `token_cap` (default 4000)                                            |
-| `user_memory_update` | Update persistent per-user notes (replaces entire user memory)                      | `content` (required)                                                                |
+| `user_memory_update` | Write-only update of persistent per-user-per-agent notes in `ctx_agent_memory`. Content is always injected into the system prompt; this action only writes. | `content` (required)                                                                |
 
 The tool extracts session ID, user ID, and agent ID from context (set by `Pool.Chat()`).
 
@@ -182,13 +190,30 @@ The memory engine is wired into the agent Pool. When a session uses it:
 
 ## Identity & User Memory
 
-Agent identity and per-user memory are stored in the database (replacing the old file-based SOUL.md/USER.md system):
+Agent identity and per-user memory are stored in the database and optionally overridden by workspace files.
 
-| Source      | Table                           | Purpose                                                                                                                     |
-| ----------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Agent soul  | `settings_agents.system_prompt` | Agent identity, personality, tone. Managed via admin panel. Overridable by `SOUL.md` file in agent workspace.               |
-| User memory | `ctx_agent_memory`              | Per-user-per-agent notes. Injected into system prompt at session start. Updated by agent via the `memory` tool (`user_memory_update` action). |
+### 3-Layer System Prompt
 
-- Agent workspaces: `$ANNA_HOME/workspaces/{agent_id}/`
-- `SOUL.md` in workspace overrides `settings_agents.system_prompt` if present
-- `SYSTEM.md` in workspace overrides the basic system prompt if present
+The system prompt sent to the LLM is assembled from three layers, each overridable:
+
+| Layer           | Default source                    | File override                                     | Description                                                        |
+| --------------- | --------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------ |
+| **Basic**       | Built-in system instructions      | `SYSTEM.md` in agent workspace                    | Core behavioral instructions for the LLM.                          |
+| **Agent soul**  | `settings_agents.system_prompt`   | `SOUL.md` in agent workspace                      | Agent identity, personality, and tone.                             |
+| **User memory** | `ctx_agent_memory.content`        | (none -- always from DB)                          | Per-user-per-agent notes. Automatically injected; not overridable by file. |
+
+Layers are concatenated in order (basic, then agent soul, then user memory) to form the final system prompt.
+
+### Agent Soul
+
+The agent soul defines personality and tone. It is stored in `settings_agents.system_prompt` and can be managed through the admin panel. If a `SOUL.md` file exists in the agent workspace (`$ANNA_HOME/workspaces/{agent_id}/SOUL.md`), its contents take precedence over the database value.
+
+### User Memory
+
+User memory is stored in the `ctx_agent_memory` table, keyed by `(user_id, agent_id)`. This allows each user to have distinct notes per agent. The content is always injected into the system prompt at session start.
+
+The agent updates user memory via the `memory` tool's `user_memory_update` action. This action is **write-only** -- it replaces the entire content of the `ctx_agent_memory` row for the current user/agent pair. The agent cannot read user memory through the tool; it is always provided via the system prompt injection.
+
+### Agent Workspaces
+
+Each agent has its own workspace directory at `$ANNA_HOME/workspaces/{agent_id}/`. This directory holds file overrides (`SYSTEM.md`, `SOUL.md`), skills, and any other per-agent data.
