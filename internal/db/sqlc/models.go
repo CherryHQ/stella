@@ -8,45 +8,14 @@ import (
 	"database/sql"
 )
 
-type Agent struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	ProviderID   string `json:"provider_id"`
-	Model        string `json:"model"`
-	ModelStrong  string `json:"model_strong"`
-	ModelFast    string `json:"model_fast"`
-	SystemPrompt string `json:"system_prompt"`
-	Workspace    string `json:"workspace"`
-	Enabled      int64  `json:"enabled"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
-}
-
-type Channel struct {
-	ID        string `json:"id"`
-	Enabled   int64  `json:"enabled"`
-	Config    string `json:"config"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-}
-
-type ChatAgent struct {
-	Platform  string `json:"platform"`
-	ChatID    string `json:"chat_id"`
+type CtxAgentMemory struct {
+	UserID    int64  `json:"user_id"`
 	AgentID   string `json:"agent_id"`
+	Content   string `json:"content"`
 	UpdatedAt string `json:"updated_at"`
 }
 
-type ContextItem struct {
-	ConversationID int64          `json:"conversation_id"`
-	Ordinal        int64          `json:"ordinal"`
-	ItemType       string         `json:"item_type"`
-	MessageID      sql.NullInt64  `json:"message_id"`
-	SummaryID      sql.NullString `json:"summary_id"`
-	CreatedAt      string         `json:"created_at"`
-}
-
-type Conversation struct {
+type CtxConversation struct {
 	ID             int64          `json:"id"`
 	SessionID      string         `json:"session_id"`
 	Title          sql.NullString `json:"title"`
@@ -60,7 +29,16 @@ type Conversation struct {
 	UpdatedAt      string         `json:"updated_at"`
 }
 
-type Message struct {
+type CtxItem struct {
+	ConversationID int64          `json:"conversation_id"`
+	Ordinal        int64          `json:"ordinal"`
+	ItemType       string         `json:"item_type"`
+	MessageID      sql.NullInt64  `json:"message_id"`
+	SummaryID      sql.NullString `json:"summary_id"`
+	CreatedAt      string         `json:"created_at"`
+}
+
+type CtxMessage struct {
 	ID             int64  `json:"id"`
 	ConversationID int64  `json:"conversation_id"`
 	Seq            int64  `json:"seq"`
@@ -71,7 +49,7 @@ type Message struct {
 	CreatedAt      string `json:"created_at"`
 }
 
-type MessagePart struct {
+type CtxMessagePart struct {
 	ID          string         `json:"id"`
 	MessageID   int64          `json:"message_id"`
 	PartType    string         `json:"part_type"`
@@ -84,16 +62,34 @@ type MessagePart struct {
 	Metadata    sql.NullString `json:"metadata"`
 }
 
-type Provider struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	ApiKey    string `json:"api_key"`
-	BaseUrl   string `json:"base_url"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+type CtxSummary struct {
+	ID                      string         `json:"id"`
+	ConversationID          int64          `json:"conversation_id"`
+	Kind                    string         `json:"kind"`
+	Depth                   int64          `json:"depth"`
+	Content                 string         `json:"content"`
+	TokenCount              int64          `json:"token_count"`
+	EarliestAt              sql.NullString `json:"earliest_at"`
+	LatestAt                sql.NullString `json:"latest_at"`
+	DescendantCount         int64          `json:"descendant_count"`
+	DescendantTokenCount    int64          `json:"descendant_token_count"`
+	SourceMessageTokenCount int64          `json:"source_message_token_count"`
+	CreatedAt               string         `json:"created_at"`
 }
 
-type SchedulerJob struct {
+type CtxSummaryMessage struct {
+	SummaryID string `json:"summary_id"`
+	MessageID int64  `json:"message_id"`
+	Ordinal   int64  `json:"ordinal"`
+}
+
+type CtxSummaryParent struct {
+	SummaryID       string `json:"summary_id"`
+	ParentSummaryID string `json:"parent_summary_id"`
+	Ordinal         int64  `json:"ordinal"`
+}
+
+type SchedJob struct {
 	ID            string         `json:"id"`
 	Name          string         `json:"name"`
 	ScheduleCron  string         `json:"schedule_cron"`
@@ -113,34 +109,45 @@ type Setting struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-type Summary struct {
-	ID                      string         `json:"id"`
-	ConversationID          int64          `json:"conversation_id"`
-	Kind                    string         `json:"kind"`
-	Depth                   int64          `json:"depth"`
-	Content                 string         `json:"content"`
-	TokenCount              int64          `json:"token_count"`
-	EarliestAt              sql.NullString `json:"earliest_at"`
-	LatestAt                sql.NullString `json:"latest_at"`
-	DescendantCount         int64          `json:"descendant_count"`
-	DescendantTokenCount    int64          `json:"descendant_token_count"`
-	SourceMessageTokenCount int64          `json:"source_message_token_count"`
-	CreatedAt               string         `json:"created_at"`
+type SettingsAgent struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	ProviderID   string `json:"provider_id"`
+	Model        string `json:"model"`
+	ModelStrong  string `json:"model_strong"`
+	ModelFast    string `json:"model_fast"`
+	SystemPrompt string `json:"system_prompt"`
+	Workspace    string `json:"workspace"`
+	Enabled      int64  `json:"enabled"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
-type SummaryMessage struct {
-	SummaryID string `json:"summary_id"`
-	MessageID int64  `json:"message_id"`
-	Ordinal   int64  `json:"ordinal"`
+type SettingsChannel struct {
+	ID        string `json:"id"`
+	Enabled   int64  `json:"enabled"`
+	Config    string `json:"config"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
-type SummaryParent struct {
-	SummaryID       string `json:"summary_id"`
-	ParentSummaryID string `json:"parent_summary_id"`
-	Ordinal         int64  `json:"ordinal"`
+type SettingsChannelAgent struct {
+	Platform  string `json:"platform"`
+	ChatID    string `json:"chat_id"`
+	AgentID   string `json:"agent_id"`
+	UpdatedAt string `json:"updated_at"`
 }
 
-type User struct {
+type SettingsProvider struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	ApiKey    string `json:"api_key"`
+	BaseUrl   string `json:"base_url"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type SettingsUser struct {
 	ID             int64          `json:"id"`
 	ExternalID     string         `json:"external_id"`
 	Platform       string         `json:"platform"`
@@ -148,11 +155,4 @@ type User struct {
 	DefaultAgentID sql.NullString `json:"default_agent_id"`
 	CreatedAt      string         `json:"created_at"`
 	UpdatedAt      string         `json:"updated_at"`
-}
-
-type UserAgentMemory struct {
-	UserID    int64  `json:"user_id"`
-	AgentID   string `json:"agent_id"`
-	Content   string `json:"content"`
-	UpdatedAt string `json:"updated_at"`
 }

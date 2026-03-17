@@ -282,7 +282,7 @@ func (e *engine) LoadInfo(ctx context.Context, sessionID string) (SessionInfo, e
 
 // ListInfo lists session metadata ordered by last_active descending.
 func (e *engine) ListInfo(ctx context.Context, includeArchived bool) ([]SessionInfo, error) {
-	var convs []sqlc.Conversation
+	var convs []sqlc.CtxConversation
 	var err error
 	if includeArchived {
 		convs, err = e.q.ListConversationsAll(ctx)
@@ -328,7 +328,7 @@ func (e *engine) Close() error {
 	return nil
 }
 
-func convToSessionInfo(conv sqlc.Conversation) SessionInfo {
+func convToSessionInfo(conv sqlc.CtxConversation) SessionInfo {
 	info := SessionInfo{
 		ID:       conv.SessionID,
 		Channel:  conv.Channel,
@@ -568,7 +568,7 @@ func contentBlocksToJSON(blocks []ai.ContentBlock) []contentBlockJSON {
 
 // rowsToMessages merges consecutive DB rows back into ai.Messages.
 // Adjacent assistant text + tool_call rows are merged into a single AssistantMessage.
-func rowsToMessages(msgs []sqlc.Message) []ai.Message {
+func rowsToMessages(msgs []sqlc.CtxMessage) []ai.Message {
 	var result []ai.Message
 	i := 0
 	for i < len(msgs) {
@@ -591,7 +591,7 @@ func rowsToMessages(msgs []sqlc.Message) []ai.Message {
 	return result
 }
 
-func rowToUserMessage(msg sqlc.Message) ai.UserMessage {
+func rowToUserMessage(msg sqlc.CtxMessage) ai.UserMessage {
 	if msg.EventType == EventTypeMultimodal {
 		var blocks []contentBlockJSON
 		if json.Unmarshal([]byte(msg.Content), &blocks) == nil && len(blocks) > 0 {
@@ -612,7 +612,7 @@ func rowToUserMessage(msg sqlc.Message) ai.UserMessage {
 
 // mergeAssistantRows merges an assistant text row and any following tool_call rows
 // into a single AssistantMessage. Returns the message and how many rows were consumed.
-func mergeAssistantRows(msgs []sqlc.Message, start int) (ai.AssistantMessage, int) {
+func mergeAssistantRows(msgs []sqlc.CtxMessage, start int) (ai.AssistantMessage, int) {
 	var blocks []ai.ContentBlock
 	consumed := 0
 
@@ -657,7 +657,7 @@ func decodeToolCall(content string) (ai.ToolCall, bool) {
 	return ai.ToolCall{ID: env.ID, Name: env.Tool, Arguments: args}, true
 }
 
-func rowToToolResult(msg sqlc.Message) ai.ToolResultMessage {
+func rowToToolResult(msg sqlc.CtxMessage) ai.ToolResultMessage {
 	var env toolResultEnvelope
 	if err := json.Unmarshal([]byte(msg.Content), &env); err != nil {
 		// Legacy fallback: plain text tool result.

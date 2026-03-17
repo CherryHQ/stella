@@ -115,7 +115,7 @@ func (s *Service) migrateJobsFile(ctx context.Context, dataPath string) error {
 	return nil
 }
 
-func dbRowToJob(r sqlc.SchedulerJob) Job {
+func dbRowToJob(r sqlc.SchedJob) Job {
 	t, _ := time.Parse("2006-01-02 15:04:05", r.CreatedAt)
 	j := Job{
 		ID:   r.ID,

@@ -80,7 +80,7 @@ func (a *Assembler) Assemble(ctx context.Context, convID int64, budget int, fres
 }
 
 // splitFreshTail separates the last freshTail message-type items from the rest.
-func splitFreshTail(items []sqlc.ContextItem, freshTail int) (tail []sqlc.ContextItem, older []sqlc.ContextItem) {
+func splitFreshTail(items []sqlc.CtxItem, freshTail int) (tail []sqlc.CtxItem, older []sqlc.CtxItem) {
 	// Count message items from the end.
 	msgCount := 0
 	splitIdx := len(items)
@@ -97,7 +97,7 @@ func splitFreshTail(items []sqlc.ContextItem, freshTail int) (tail []sqlc.Contex
 }
 
 // resolveItems resolves a slice of context items to ai.Messages.
-func (a *Assembler) resolveItems(ctx context.Context, items []sqlc.ContextItem) ([]ai.Message, error) {
+func (a *Assembler) resolveItems(ctx context.Context, items []sqlc.CtxItem) ([]ai.Message, error) {
 	var result []ai.Message
 	for _, item := range items {
 		msgs, err := a.resolveItem(ctx, item)
@@ -110,7 +110,7 @@ func (a *Assembler) resolveItems(ctx context.Context, items []sqlc.ContextItem) 
 }
 
 // resolveItem converts a single context item to ai.Messages.
-func (a *Assembler) resolveItem(ctx context.Context, item sqlc.ContextItem) ([]ai.Message, error) {
+func (a *Assembler) resolveItem(ctx context.Context, item sqlc.CtxItem) ([]ai.Message, error) {
 	switch item.ItemType {
 	case ItemTypeMessage:
 		if !item.MessageID.Valid {
@@ -121,7 +121,7 @@ func (a *Assembler) resolveItem(ctx context.Context, item sqlc.ContextItem) ([]a
 			return nil, fmt.Errorf("get message %d: %w", item.MessageID.Int64, err)
 		}
 		// Use rowsToMessages for single-row slices to get proper type reconstruction.
-		return rowsToMessages([]sqlc.Message{msg}), nil
+		return rowsToMessages([]sqlc.CtxMessage{msg}), nil
 
 	case ItemTypeSummary:
 		if !item.SummaryID.Valid {
@@ -144,7 +144,7 @@ func (a *Assembler) resolveItem(ctx context.Context, item sqlc.ContextItem) ([]a
 }
 
 // FormatSummaryXML formats a summary as XML for model consumption.
-func FormatSummaryXML(sum sqlc.Summary, parents []sqlc.Summary) string {
+func FormatSummaryXML(sum sqlc.CtxSummary, parents []sqlc.CtxSummary) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, `<summary id="%s" kind="%s" depth="%d"`, sum.ID, sum.Kind, sum.Depth)
