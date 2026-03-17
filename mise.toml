@@ -30,20 +30,25 @@ description = "Run anna (pass args after --)"
 depends = ["build"]
 run = "./bin/$BINARY_NAME {{arg(name='command', default='chat')}}"
 
-[tasks."run:chat"]
+[tasks.chat]
 description = "Run interactive CLI chat"
 depends = ["build"]
 run = "./bin/$BINARY_NAME chat"
 
-[tasks."run:stream"]
+[tasks.stream]
 description = "Run streaming chat (pipe prompt via stdin)"
 depends = ["build"]
 run = "./bin/$BINARY_NAME chat --stream"
 
-[tasks."run:gateway"]
+[tasks.gateway]
 description = "Run gateway daemon (Telegram, etc.)"
 depends = ["build"]
 run = "./bin/$BINARY_NAME gateway"
+
+[tasks.onboard]
+description = "Open admin panel for first-time setup"
+depends = ["build"]
+run = "./bin/$BINARY_NAME onboard"
 
 # ============================================================================
 # Code Quality Tasks
