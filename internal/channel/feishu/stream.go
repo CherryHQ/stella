@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 )
 
@@ -50,8 +51,8 @@ func toolLine(t *runner.ToolUseEvent) string {
 // streamResponse consumes the agent event stream and progressively updates
 // a reply message using Feishu's Message Update API. Returns the sent message ID,
 // final text, collected images, and any stream error.
-func (b *Bot) streamResponse(chatID, replyMsgID, sessionID string, content runner.MessageContent) (string, string, []runner.ImageEvent, error) {
-	events := b.pool.Chat(b.ctx, sessionID, content)
+func (b *Bot) streamResponse(pool *agent.Pool, chatID, replyMsgID, sessionID string, content runner.MessageContent) (string, string, []runner.ImageEvent, error) {
+	events := pool.Chat(b.ctx, sessionID, content)
 
 	var sb strings.Builder
 	var streamErr error

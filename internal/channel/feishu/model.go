@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/channel"
 )
 
@@ -19,7 +20,7 @@ type ModelSwitchFunc = channel.ModelSwitchFunc
 
 // handleModelCommand processes /model with optional arguments.
 // No args → list models; number → switch by index; text → filter.
-func (b *Bot) handleModelCommand(args, ch string, reply func(string)) {
+func (b *Bot) handleModelCommand(pool *agent.Pool, userID int64, args, ch string, reply func(string)) {
 	models := b.listFn()
 
 	if args == "" {
@@ -29,7 +30,7 @@ func (b *Bot) handleModelCommand(args, ch string, reply func(string)) {
 
 	// Numeric arg → direct switch by 1-based global index.
 	if idx, err := strconv.Atoi(args); err == nil {
-		b.switchModel(models, idx, ch, reply)
+		b.switchModel(pool, userID, models, idx, ch, reply)
 		return
 	}
 
@@ -43,7 +44,7 @@ func (b *Bot) handleModelCommand(args, ch string, reply func(string)) {
 }
 
 // switchModel handles model switching by 1-based index.
-func (b *Bot) switchModel(models []ModelOption, idx int, ch string, reply func(string)) {
+func (b *Bot) switchModel(pool *agent.Pool, userID int64, models []ModelOption, idx int, ch string, reply func(string)) {
 	if idx < 1 || idx > len(models) {
 		reply(fmt.Sprintf("Invalid selection. Use a number between 1 and %d.", len(models)))
 		return
@@ -55,7 +56,7 @@ func (b *Bot) switchModel(models []ModelOption, idx int, ch string, reply func(s
 			return
 		}
 	}
-	if _, err := b.pool.RotateSession(ch); err != nil {
+	if _, err := pool.RotateSession(ch, userID); err != nil {
 		logger().Error("rotate session after model switch failed", "channel", ch, "error", err)
 	}
 	b.mu.Lock()
