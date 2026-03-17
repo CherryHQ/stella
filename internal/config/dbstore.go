@@ -418,7 +418,7 @@ func (s *DBStore) SeedDefaults(ctx context.Context) error {
 
 // --- Helpers ---
 
-func providerFromDB(r sqlc.Provider) Provider {
+func providerFromDB(r sqlc.SettingsProvider) Provider {
 	return Provider{
 		ID:      r.ID,
 		Name:    r.Name,
@@ -448,7 +448,7 @@ func envFallback(dst *string, envKey string) {
 	}
 }
 
-func agentFromDB(r sqlc.Agent) Agent {
+func agentFromDB(r sqlc.SettingsAgent) Agent {
 	return Agent{
 		ID:           r.ID,
 		Name:         r.Name,
@@ -462,7 +462,7 @@ func agentFromDB(r sqlc.Agent) Agent {
 	}
 }
 
-func channelFromDB(r sqlc.Channel) Channel {
+func channelFromDB(r sqlc.SettingsChannel) Channel {
 	return Channel{
 		ID:      r.ID,
 		Enabled: r.Enabled == 1,
@@ -470,7 +470,7 @@ func channelFromDB(r sqlc.Channel) Channel {
 	}
 }
 
-func userFromDB(r sqlc.User) User {
+func userFromDB(r sqlc.SettingsUser) User {
 	return User{
 		ID:             r.ID,
 		ExternalID:     r.ExternalID,

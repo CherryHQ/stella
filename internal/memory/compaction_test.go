@@ -235,7 +235,7 @@ func TestCompact_Full(t *testing.T) {
 }
 
 func TestFindMessageRuns(t *testing.T) {
-	items := []sqlc.ContextItem{
+	items := []sqlc.CtxItem{
 		{Ordinal: 0, ItemType: ItemTypeMessage},
 		{Ordinal: 1, ItemType: ItemTypeMessage},
 		{Ordinal: 2, ItemType: ItemTypeSummary},
@@ -258,7 +258,7 @@ func TestFindMessageRuns(t *testing.T) {
 
 func TestFindSummaryRuns(t *testing.T) {
 	t.Run("basic grouping", func(t *testing.T) {
-		items := []sqlc.ContextItem{
+		items := []sqlc.CtxItem{
 			{Ordinal: 0, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s1", Valid: true}},
 			{Ordinal: 1, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s2", Valid: true}},
 			{Ordinal: 2, ItemType: ItemTypeMessage},
@@ -276,7 +276,7 @@ func TestFindSummaryRuns(t *testing.T) {
 	})
 
 	t.Run("different depths break runs", func(t *testing.T) {
-		items := []sqlc.ContextItem{
+		items := []sqlc.CtxItem{
 			{Ordinal: 0, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s1", Valid: true}},
 			{Ordinal: 1, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s2", Valid: true}},
 			{Ordinal: 2, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s3", Valid: true}},
@@ -293,7 +293,7 @@ func TestFindSummaryRuns(t *testing.T) {
 	})
 
 	t.Run("alternating depths produce no runs", func(t *testing.T) {
-		items := []sqlc.ContextItem{
+		items := []sqlc.CtxItem{
 			{Ordinal: 0, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s1", Valid: true}},
 			{Ordinal: 1, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s2", Valid: true}},
 			{Ordinal: 2, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s3", Valid: true}},
@@ -307,7 +307,7 @@ func TestFindSummaryRuns(t *testing.T) {
 	})
 
 	t.Run("multiple same-depth runs", func(t *testing.T) {
-		items := []sqlc.ContextItem{
+		items := []sqlc.CtxItem{
 			{Ordinal: 0, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s1", Valid: true}},
 			{Ordinal: 1, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s2", Valid: true}},
 			{Ordinal: 2, ItemType: ItemTypeSummary, SummaryID: sql.NullString{String: "s3", Valid: true}},
@@ -424,7 +424,7 @@ func TestCompactMessageRun_InvalidMessageID(t *testing.T) {
 	ctx := context.Background()
 
 	run := messageRun{
-		items: []sqlc.ContextItem{
+		items: []sqlc.CtxItem{
 			{Ordinal: 0, ItemType: ItemTypeMessage, MessageID: sql.NullInt64{Valid: false}},
 			{Ordinal: 1, ItemType: ItemTypeMessage, MessageID: sql.NullInt64{Valid: false}},
 		},

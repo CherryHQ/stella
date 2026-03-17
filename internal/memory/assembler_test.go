@@ -22,12 +22,12 @@ func setupAssemblerTest(t *testing.T) (*Assembler, *sqlc.Queries, int64) {
 	return NewAssembler(q), q, conv.ID
 }
 
-func addMessage(t *testing.T, ctx context.Context, q *sqlc.Queries, convID int64, seq int, role, content string) sqlc.Message {
+func addMessage(t *testing.T, ctx context.Context, q *sqlc.Queries, convID int64, seq int, role, content string) sqlc.CtxMessage {
 	t.Helper()
 	return addMessageWithType(t, ctx, q, convID, seq, role, EventTypeText, content)
 }
 
-func addMessageWithType(t *testing.T, ctx context.Context, q *sqlc.Queries, convID int64, seq int, role, eventType, content string) sqlc.Message {
+func addMessageWithType(t *testing.T, ctx context.Context, q *sqlc.Queries, convID int64, seq int, role, eventType, content string) sqlc.CtxMessage {
 	t.Helper()
 	msg, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
 		ConversationID: convID,
@@ -191,7 +191,7 @@ func TestAssemble_WithSummary(t *testing.T) {
 }
 
 func TestFormatSummaryXML_Leaf(t *testing.T) {
-	sum := sqlc.Summary{
+	sum := sqlc.CtxSummary{
 		ID: "sum_abc123", Kind: KindLeaf, Depth: 0,
 		Content:    "Discussed authentication flow",
 		EarliestAt: sql.NullString{String: "2026-03-10T14:30:00", Valid: true},
@@ -208,12 +208,12 @@ func TestFormatSummaryXML_Leaf(t *testing.T) {
 }
 
 func TestFormatSummaryXML_Condensed(t *testing.T) {
-	sum := sqlc.Summary{
+	sum := sqlc.CtxSummary{
 		ID: "sum_xyz789", Kind: KindCondensed, Depth: 1,
 		Content:         "High-level auth + database work",
 		DescendantCount: 4,
 	}
-	parents := []sqlc.Summary{
+	parents := []sqlc.CtxSummary{
 		{ID: "sum_abc123"},
 		{ID: "sum_def456"},
 	}
@@ -225,7 +225,7 @@ func TestFormatSummaryXML_Condensed(t *testing.T) {
 }
 
 func TestSplitFreshTail(t *testing.T) {
-	items := []sqlc.ContextItem{
+	items := []sqlc.CtxItem{
 		{Ordinal: 0, ItemType: ItemTypeSummary},
 		{Ordinal: 1, ItemType: ItemTypeMessage},
 		{Ordinal: 2, ItemType: ItemTypeMessage},

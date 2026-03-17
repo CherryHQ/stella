@@ -159,7 +159,7 @@ func (s *Server) deleteSchedulerJob(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-func dbRowToJobJSON(row sqlc.SchedulerJob) schedulerJobJSON {
+func dbRowToJobJSON(row sqlc.SchedJob) schedulerJobJSON {
 	j := schedulerJobJSON{
 		ID:          row.ID,
 		Name:        row.Name,

@@ -809,7 +809,7 @@ func TestToolResultToRows_NoError(t *testing.T) {
 
 func TestRowsToMessages_UnknownRole(t *testing.T) {
 	// Unknown role rows should be skipped.
-	msgs := []sqlc.Message{
+	msgs := []sqlc.CtxMessage{
 		{ID: 1, Role: "system", EventType: "text", Content: "ignored"},
 		{ID: 2, Role: RoleUser, EventType: EventTypeText, Content: "hello"},
 	}
@@ -823,7 +823,7 @@ func TestRowsToMessages_UnknownRole(t *testing.T) {
 }
 
 func TestMergeAssistantRows_TextFollowedByToolCalls(t *testing.T) {
-	msgs := []sqlc.Message{
+	msgs := []sqlc.CtxMessage{
 		{ID: 1, Role: RoleAssistant, EventType: EventTypeText, Content: "thinking"},
 		{ID: 2, Role: RoleAssistant, EventType: EventTypeToolCall, Content: mustMarshal(t, toolCallEnvelope{ID: "call_1", Tool: "bash", Args: json.RawMessage(`{"cmd":"ls"}`)})},
 		{ID: 3, Role: RoleAssistant, EventType: EventTypeToolCall, Content: mustMarshal(t, toolCallEnvelope{ID: "call_2", Tool: "read", Args: json.RawMessage(`{"path":"/tmp"}`)})},
@@ -853,7 +853,7 @@ func TestMergeAssistantRows_TextFollowedByToolCalls(t *testing.T) {
 }
 
 func TestMergeAssistantRows_ToolCallOnly(t *testing.T) {
-	msgs := []sqlc.Message{
+	msgs := []sqlc.CtxMessage{
 		{ID: 1, Role: RoleAssistant, EventType: EventTypeToolCall, Content: mustMarshal(t, toolCallEnvelope{ID: "call_1", Tool: "bash", Args: json.RawMessage(`{}`)})},
 	}
 	result := rowsToMessages(msgs)
@@ -873,7 +873,7 @@ func TestMergeAssistantRows_ToolCallOnly(t *testing.T) {
 }
 
 func TestMergeAssistantRows_UnknownEventType(t *testing.T) {
-	msgs := []sqlc.Message{
+	msgs := []sqlc.CtxMessage{
 		{ID: 1, Role: RoleAssistant, EventType: "unknown_type", Content: "raw content"},
 		{ID: 2, Role: RoleAssistant, EventType: EventTypeToolCall, Content: mustMarshal(t, toolCallEnvelope{ID: "call_1", Tool: "bash", Args: json.RawMessage(`{}`)})},
 	}
@@ -885,7 +885,7 @@ func TestMergeAssistantRows_UnknownEventType(t *testing.T) {
 
 func TestRowToToolResult_LegacyFallback(t *testing.T) {
 	// Non-JSON content should fall back to plain text.
-	msg := sqlc.Message{
+	msg := sqlc.CtxMessage{
 		ID:        1,
 		Role:      RoleTool,
 		EventType: EventTypeToolResult,
@@ -998,7 +998,7 @@ func TestContentBlocksToJSON_ImageBlock(t *testing.T) {
 }
 
 func TestRowToUserMessage_PlainText(t *testing.T) {
-	msg := sqlc.Message{
+	msg := sqlc.CtxMessage{
 		ID:        1,
 		Role:      RoleUser,
 		EventType: EventTypeText,
@@ -1011,7 +1011,7 @@ func TestRowToUserMessage_PlainText(t *testing.T) {
 }
 
 func TestRowToUserMessage_MultimodalInvalid(t *testing.T) {
-	msg := sqlc.Message{
+	msg := sqlc.CtxMessage{
 		ID:        1,
 		Role:      RoleUser,
 		EventType: EventTypeMultimodal,

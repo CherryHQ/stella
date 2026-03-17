@@ -95,7 +95,7 @@ func (c *CompactionEngine) runPasses(ctx context.Context, convID int64, result *
 }
 
 // leafPass finds eligible message chunks outside the fresh tail and creates leaf summaries.
-func (c *CompactionEngine) leafPass(ctx context.Context, convID int64, items []sqlc.ContextItem, result *CompactionResult) error {
+func (c *CompactionEngine) leafPass(ctx context.Context, convID int64, items []sqlc.CtxItem, result *CompactionResult) error {
 	// Find compactable message runs outside the fresh tail.
 	_, older := splitFreshTail(items, c.freshTail)
 
@@ -116,15 +116,15 @@ func (c *CompactionEngine) leafPass(ctx context.Context, convID int64, items []s
 
 // messageRun represents a contiguous sequence of message context items.
 type messageRun struct {
-	items    []sqlc.ContextItem
+	items    []sqlc.CtxItem
 	startOrd int64
 	endOrd   int64
 }
 
 // findMessageRuns finds contiguous sequences of message items with at least minSize messages.
-func findMessageRuns(items []sqlc.ContextItem, minSize int) []messageRun {
+func findMessageRuns(items []sqlc.CtxItem, minSize int) []messageRun {
 	var runs []messageRun
-	var current []sqlc.ContextItem
+	var current []sqlc.CtxItem
 
 	for _, item := range items {
 		if item.ItemType == ItemTypeMessage {
@@ -163,7 +163,7 @@ func (c *CompactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 	qtx := c.q.WithTx(tx)
 
 	// Load messages for this run.
-	var messages []sqlc.Message
+	var messages []sqlc.CtxMessage
 	var textParts []string
 	var totalTokens int64
 	var earliestAt, latestAt string
@@ -268,9 +268,9 @@ func (c *CompactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 }
 
 // condensedPass finds eligible same-depth summaries and creates condensed summaries.
-func (c *CompactionEngine) condensedPass(ctx context.Context, convID int64, items []sqlc.ContextItem, result *CompactionResult) error {
+func (c *CompactionEngine) condensedPass(ctx context.Context, convID int64, items []sqlc.CtxItem, result *CompactionResult) error {
 	// Pre-fetch all summary items so we can group by depth and avoid re-fetching.
-	sumCache := make(map[string]sqlc.Summary)
+	sumCache := make(map[string]sqlc.CtxSummary)
 	depthOf := make(map[string]int64)
 	for _, item := range items {
 		if item.ItemType != ItemTypeSummary || !item.SummaryID.Valid {
@@ -301,7 +301,7 @@ func (c *CompactionEngine) condensedPass(ctx context.Context, convID int64, item
 
 // summaryRun represents a contiguous sequence of summary context items.
 type summaryRun struct {
-	items    []sqlc.ContextItem
+	items    []sqlc.CtxItem
 	startOrd int64
 	endOrd   int64
 }
@@ -309,8 +309,8 @@ type summaryRun struct {
 // findSummaryRuns finds contiguous sequences of summary items at the same depth
 // with at least minSize items. The depthOf map provides the depth for each summary ID.
 // Runs are broken when depth changes to preserve the DAG hierarchy.
-func findSummaryRuns(items []sqlc.ContextItem, minSize int, depthOf map[string]int64) []summaryRun {
-	flushRun := func(current []sqlc.ContextItem, runs []summaryRun) []summaryRun {
+func findSummaryRuns(items []sqlc.CtxItem, minSize int, depthOf map[string]int64) []summaryRun {
+	flushRun := func(current []sqlc.CtxItem, runs []summaryRun) []summaryRun {
 		if len(current) >= minSize {
 			runs = append(runs, summaryRun{
 				items:    current,
@@ -322,7 +322,7 @@ func findSummaryRuns(items []sqlc.ContextItem, minSize int, depthOf map[string]i
 	}
 
 	var runs []summaryRun
-	var current []sqlc.ContextItem
+	var current []sqlc.CtxItem
 	var currentDepth int64
 
 	for _, item := range items {
@@ -347,7 +347,7 @@ func findSummaryRuns(items []sqlc.ContextItem, minSize int, depthOf map[string]i
 }
 
 // condenseSummaryRun creates a condensed summary from a run of summary context items.
-func (c *CompactionEngine) condenseSummaryRun(ctx context.Context, convID int64, run summaryRun, sumCache map[string]sqlc.Summary, result *CompactionResult) error {
+func (c *CompactionEngine) condenseSummaryRun(ctx context.Context, convID int64, run summaryRun, sumCache map[string]sqlc.CtxSummary, result *CompactionResult) error {
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -357,7 +357,7 @@ func (c *CompactionEngine) condenseSummaryRun(ctx context.Context, convID int64,
 	qtx := c.q.WithTx(tx)
 
 	// Load summaries from cache.
-	var summaries []sqlc.Summary
+	var summaries []sqlc.CtxSummary
 	var textParts []string
 	var totalTokens int64
 	var totalDescendants int64
