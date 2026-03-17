@@ -57,6 +57,10 @@ func New(store config.Store, mem memory.Engine, db *sql.DB) *Server {
 
 	// User APIs.
 	s.mux.HandleFunc("GET /api/users", s.listUsers)
+	s.mux.HandleFunc("PUT /api/users/{id}", s.updateUser)
+	s.mux.HandleFunc("GET /api/users/{id}/memories", s.listUserMemories)
+	s.mux.HandleFunc("PUT /api/users/{id}/memories/{agentId}", s.setUserMemory)
+	s.mux.HandleFunc("DELETE /api/users/{id}/memories/{agentId}", s.deleteUserMemory)
 
 	// Session APIs.
 	s.mux.HandleFunc("GET /api/sessions", s.listSessions)

@@ -79,6 +79,10 @@ func (m *mockStore) GetUserAgentMemory(_ context.Context, _ int64, _ string) (st
 	return "", nil
 }
 func (m *mockStore) SetUserAgentMemory(_ context.Context, _ int64, _, _ string) error { return nil }
+func (m *mockStore) ListUserMemories(_ context.Context, _ int64) ([]config.UserAgentMemory, error) {
+	return nil, nil
+}
+func (m *mockStore) DeleteUserAgentMemory(_ context.Context, _ int64, _ string) error { return nil }
 func (m *mockStore) GetSetting(_ context.Context, _ string) (string, error)           { return "", nil }
 func (m *mockStore) SetSetting(_ context.Context, _, _ string) error                  { return nil }
 func (m *mockStore) SeedDefaults(_ context.Context) error                             { return nil }

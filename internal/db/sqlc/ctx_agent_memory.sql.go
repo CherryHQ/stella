@@ -76,6 +76,38 @@ func (q *Queries) ListUserAgentMemories(ctx context.Context) ([]CtxAgentMemory, 
 	return items, nil
 }
 
+const listUserAgentMemoriesByUser = `-- name: ListUserAgentMemoriesByUser :many
+SELECT user_id, agent_id, content, updated_at FROM ctx_agent_memory WHERE user_id = ? ORDER BY agent_id
+`
+
+func (q *Queries) ListUserAgentMemoriesByUser(ctx context.Context, userID int64) ([]CtxAgentMemory, error) {
+	rows, err := q.db.QueryContext(ctx, listUserAgentMemoriesByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxAgentMemory{}
+	for rows.Next() {
+		var i CtxAgentMemory
+		if err := rows.Scan(
+			&i.UserID,
+			&i.AgentID,
+			&i.Content,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertUserAgentMemory = `-- name: UpsertUserAgentMemory :exec
 INSERT INTO ctx_agent_memory (user_id, agent_id, content, updated_at)
 VALUES (?, ?, ?, datetime('now'))
