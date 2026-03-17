@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" x-data="{ darkMode: localStorage.getItem('darkMode') === 'true' }" :class="{ 'dark': darkMode }">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,27 +7,27 @@
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Text:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script>
     tailwind.config = {
+      darkMode: 'class',
       theme: {
         extend: {
           fontFamily: {
-            sans: ['Inter', 'system-ui', 'sans-serif'],
+            serif: ['DM Serif Text', 'Georgia', 'serif'],
+            sans: ['DM Sans', 'system-ui', 'sans-serif'],
             mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
           },
           colors: {
-            surface: { 0: '#ffffff', 1: '#f8f9fa', 2: '#f1f3f5', 3: '#e9ecef', 4: '#dee2e6' },
-            ink: { 0: '#212529', 1: '#495057', 2: '#868e96', 3: '#adb5bd', 4: '#ced4da' },
-            primary: { 50: '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe', 300: '#a5b4fc', 400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca', 800: '#3730a3', 900: '#312e81' },
-            success: { 50: '#ecfdf5', 500: '#22c55e', 600: '#16a34a' },
-            danger: { 50: '#fef2f2', 500: '#ef4444', 600: '#dc2626' },
-            warn: { 50: '#fffbeb', 500: '#f59e0b', 600: '#d97706' },
-          },
-          boxShadow: {
-            'card': '0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.04)',
-            'card-hover': '0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.04)',
-            'input-focus': '0 0 0 3px rgb(99 102 241 / 0.12)',
+            terra: {
+              50: '#fdf5f2', 100: '#fbe8e0', 200: '#f6cfc0', 300: '#eead96', 400: '#e28a6a',
+              500: '#b8593a', 600: '#a04d32', 700: '#873f29', 800: '#6e3422', 900: '#5a2c1e',
+            },
+            warm: {
+              50: '#faf9f7', 100: '#f5f3ef', 200: '#e8e4dd', 300: '#d5d0c7', 400: '#b5afa4',
+              500: '#908981', 600: '#6e685f', 700: '#54504a', 800: '#3a3733', 900: '#252320',
+              950: '#171614',
+            },
           },
         },
       },
@@ -35,951 +35,739 @@
   </script>
   <style>
     [x-cloak] { display: none !important; }
-    @media (prefers-reduced-motion: reduce) {
-      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #ced4da; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #adb5bd; }
-    input::-ms-reveal { display: none; }
+    ::-webkit-scrollbar-thumb { background: #d5d0c7; border-radius: 3px; }
+    .dark ::-webkit-scrollbar-thumb { background: #54504a; }
+    *:focus-visible { outline: 2px solid #b8593a; outline-offset: 2px; }
+    .input-line { border: none; border-bottom: 1.5px solid #d5d0c7; border-radius: 0; background: transparent; }
+    .input-line:focus { border-color: #b8593a; outline: none; box-shadow: none; }
+    .dark .input-line { border-bottom-color: #54504a; }
+    .dark .input-line:focus { border-color: #e28a6a; }
   </style>
 </head>
-<body class="bg-surface-1 min-h-screen font-sans text-ink-0 antialiased">
+<body class="bg-warm-50 dark:bg-warm-950 text-warm-900 dark:text-warm-100 font-sans antialiased min-h-screen">
 
-<div x-data="adminApp()" x-init="init()" x-cloak class="min-h-screen flex flex-col">
+<div x-data="adminApp()" x-init="init()" x-cloak>
 
-  <!-- Top bar -->
-  <header class="sticky top-0 z-30 bg-surface-0/80 backdrop-blur-lg border-b border-surface-3">
-    <div class="max-w-4xl mx-auto px-5 h-14 flex items-center justify-between">
-      <div class="flex items-center gap-2.5">
-        <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center shadow-sm">
-          <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z"/></svg>
-        </div>
-        <span class="text-sm font-semibold text-ink-0 tracking-tight">Anna</span>
-        <span class="text-xs text-ink-3 hidden sm:inline">/</span>
-        <span class="text-xs text-ink-2 hidden sm:inline">Admin</span>
+  <!-- ─── TOP NAV ─── -->
+  <header class="border-b border-warm-200 dark:border-warm-800">
+    <div class="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+      <span class="font-serif italic text-terra-500 text-xl tracking-tight select-none">anna</span>
+      <nav class="hidden sm:flex items-center gap-1 text-sm" role="navigation" aria-label="Main">
+        <template x-for="(t, i) in tabs" :key="t.id">
+          <span class="flex items-center">
+            <span x-show="i > 0" class="text-warm-300 dark:text-warm-700 mx-2 select-none">/</span>
+            <button @click="tab = t.id; if(t.id !== 'sessions') { sessionDetail = null; sessionMessages = []; }"
+                    :class="tab === t.id ? 'text-terra-500 dark:text-terra-400' : 'text-warm-500 dark:text-warm-500 hover:text-warm-800 dark:hover:text-warm-300'"
+                    class="py-1 transition-colors cursor-pointer font-medium" x-text="t.label"></button>
+          </span>
+        </template>
+      </nav>
+      <!-- Mobile nav -->
+      <select x-model="tab" @change="if(tab !== 'sessions') { sessionDetail = null; sessionMessages = []; }"
+              class="sm:hidden input-line text-sm py-1 pr-6 text-warm-700 dark:text-warm-300 bg-transparent cursor-pointer">
+        <template x-for="t in tabs" :key="t.id"><option :value="t.id" x-text="t.label"></option></template>
+      </select>
+      <div class="flex items-center gap-4">
+        <span class="flex items-center gap-1.5 text-xs font-mono text-warm-500">
+          <span class="w-1.5 h-1.5 rounded-full" :class="status === 'Connected' ? 'bg-green-600 dark:bg-green-500' : 'bg-warm-400 animate-pulse'"></span>
+          <span x-text="status || '...'"></span>
+        </span>
+        <button @click="darkMode = !darkMode; localStorage.setItem('darkMode', darkMode)"
+                class="text-warm-400 hover:text-warm-700 dark:hover:text-warm-300 transition-colors cursor-pointer" aria-label="Toggle dark mode">
+          <svg x-show="!darkMode" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z"/></svg>
+          <svg x-show="darkMode" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"/></svg>
+        </button>
       </div>
-      <span class="text-xs text-ink-2" x-text="status"></span>
     </div>
   </header>
 
-  <!-- Toast -->
-  <div class="fixed top-16 left-1/2 -translate-x-1/2 z-50 w-full max-w-sm px-4"
-       x-show="toast" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-1 scale-95" x-transition:enter-end="opacity-100 translate-y-0 scale-100"
-       x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0 scale-100" x-transition:leave-end="opacity-0 -translate-y-1 scale-95">
-    <div :class="toastType === 'error' ? 'bg-danger-600' : 'bg-ink-0'" class="flex items-center gap-2 px-3.5 py-2.5 rounded-lg shadow-lg ring-1 ring-black/5 text-xs text-white">
-      <span x-text="toast" class="leading-snug"></span>
-    </div>
+  <!-- ─── TOAST ─── -->
+  <div class="fixed top-2 left-1/2 -translate-x-1/2 z-50" x-show="toast"
+       x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0"
+       x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0 -translate-y-2">
+    <div :class="toastType === 'error' ? 'text-red-700 dark:text-red-400 border-red-300 dark:border-red-800' : 'text-warm-800 dark:text-warm-200 border-warm-300 dark:border-warm-700'"
+         class="text-sm font-mono px-4 py-2 border bg-warm-50 dark:bg-warm-900 rounded-sm" x-text="toast"></div>
   </div>
 
-  <!-- Main -->
-  <main class="flex-1 max-w-4xl w-full mx-auto px-5 py-8">
+  <!-- ─── MAIN ─── -->
+  <main class="max-w-6xl mx-auto px-6 py-12">
 
-    <!-- Tab navigation -->
-    <nav class="flex gap-0.5 p-1 bg-surface-2 rounded-lg mb-8 w-fit flex-wrap" role="tablist">
-      <template x-for="(t, i) in tabs" :key="t.id">
-        <button @click="tab = t.id" role="tab" :aria-selected="tab === t.id"
-                :class="tab === t.id ? 'bg-surface-0 text-ink-0 shadow-card' : 'text-ink-2 hover:text-ink-1'"
-                class="px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-150 cursor-pointer" x-text="t.label">
-        </button>
-      </template>
-    </nav>
-
-    <!-- ==================== PROVIDERS TAB ==================== -->
+    <!-- ════════ PROVIDERS ════════ -->
     <section x-show="tab === 'providers'" x-transition.opacity.duration.150ms>
-
-      <!-- Add bar -->
-      <div class="flex items-center gap-2 mb-5">
-        <select x-model="newProviderType"
-                class="flex-1 h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm text-ink-0 shadow-card focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150 cursor-pointer appearance-none">
-          <option value="" disabled>Select provider...</option>
-          <template x-for="p in addableProviders" :key="p">
-            <option :value="p" x-text="p"></option>
-          </template>
-        </select>
-        <button @click="addProvider()" :disabled="!newProviderType"
-                class="inline-flex items-center gap-1.5 h-10 px-4 text-xs font-medium text-white bg-primary-600 rounded-lg shadow-sm hover:bg-primary-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150 cursor-pointer">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-          Add
-        </button>
-      </div>
-
-      <!-- Empty -->
-      <template x-if="providers.length === 0">
-        <div class="rounded-xl border-2 border-dashed border-surface-3 py-16 text-center">
-          <div class="w-10 h-10 rounded-full bg-surface-2 flex items-center justify-center mx-auto mb-3">
-            <svg class="w-5 h-5 text-ink-3" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-          </div>
-          <p class="text-sm text-ink-2">No providers yet</p>
-          <p class="text-xs text-ink-3 mt-0.5">Add one above to connect to an LLM API</p>
+      <p class="text-[11px] font-mono font-medium tracking-[0.15em] text-terra-500 uppercase mb-3">Providers</p>
+      <h1 class="font-serif text-3xl md:text-4xl tracking-tight mb-3">LLM connections</h1>
+      <p class="text-warm-500 text-sm mb-8 max-w-lg">API keys and endpoints for each model provider Anna can use.</p>
+      <div class="border-t border-warm-200 dark:border-warm-800 pt-8">
+        <!-- Add bar -->
+        <div class="flex items-center gap-3 mb-8">
+          <select x-model="newProviderType" class="input-line flex-1 h-10 px-0 text-sm">
+            <option value="" disabled>Select provider to add...</option>
+            <template x-for="p in addableProviders" :key="p"><option :value="p" x-text="p"></option></template>
+          </select>
+          <button @click="addProvider()" :disabled="!newProviderType"
+                  class="px-4 h-9 text-sm font-medium text-white bg-terra-500 hover:bg-terra-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors rounded-sm cursor-pointer">Add</button>
         </div>
-      </template>
 
-      <!-- Provider cards -->
-      <div class="space-y-3">
-        <template x-for="p in providers" :key="p.id">
-          <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card hover:shadow-card-hover transition-shadow duration-200 overflow-hidden">
-            <!-- Header -->
-            <div class="flex items-center justify-between px-4 py-2.5 border-b border-surface-2">
-              <div class="flex items-center gap-2">
-                <span class="text-sm font-medium text-ink-0" x-text="p.name || p.id"></span>
-                <span class="text-xs text-ink-3" x-text="'(' + p.id + ')'" x-show="p.name && p.name !== p.id"></span>
-              </div>
-              <button @click="deleteProvider(p.id)"
-                      class="p-1 rounded-md text-ink-3 hover:text-danger-500 hover:bg-danger-50 transition-colors duration-150 cursor-pointer">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
-              </button>
-            </div>
+        <!-- Empty -->
+        <div x-show="providers.length === 0" class="py-16 text-center">
+          <p class="text-warm-500 text-sm">No providers yet. Add one above to connect Anna to an LLM API.</p>
+        </div>
 
-            <!-- Body -->
-            <div class="px-4 py-4 space-y-3">
-              <div>
-                <label class="flex items-center gap-1 text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5">API Key</label>
-                <input type="password" x-model="p.api_key" placeholder="sk-..."
-                       class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm text-ink-0 font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150">
+        <!-- List -->
+        <div class="divide-y divide-warm-200 dark:divide-warm-800">
+          <template x-for="p in providers" :key="p.id">
+            <div class="py-6">
+              <div class="flex items-baseline justify-between mb-4">
+                <div class="flex items-baseline gap-3">
+                  <span class="font-medium text-lg" x-text="p.name || p.id"></span>
+                  <span class="text-xs font-mono text-warm-400" x-show="p.name && p.name !== p.id" x-text="p.id"></span>
+                </div>
+                <button @click="confirmDelete('Delete provider ' + p.id + '?', () => doDeleteProvider(p.id))"
+                        class="text-xs text-warm-400 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer">remove</button>
               </div>
-              <div>
-                <label class="flex items-center gap-1 text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5">Base URL</label>
-                <input type="text" x-model="p.base_url" :placeholder="providerDefaults[p.id]?.base_url || ''"
-                       class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm text-ink-1 font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all duration-150">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 mb-4">
+                <div>
+                  <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">API Key</label>
+                  <input type="password" x-model="p.api_key" placeholder="sk-..." class="input-line w-full h-9 text-sm font-mono">
+                </div>
+                <div>
+                  <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Base URL</label>
+                  <input type="text" x-model="p.base_url" :placeholder="providerDefaults[p.id]?.base_url || ''" class="input-line w-full h-9 text-sm font-mono">
+                </div>
               </div>
-
-              <!-- Save + Fetch models -->
-              <div class="flex items-center gap-2 pt-1">
-                <button @click="saveProvider(p)"
-                        class="inline-flex items-center gap-1.5 h-8 px-3 text-[11px] font-medium rounded-md bg-primary-600 text-white hover:bg-primary-700 transition-all duration-150 cursor-pointer">
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
-                  Save
-                </button>
-                <button @click="fetchModels(p)" :disabled="p._fetching"
-                        class="inline-flex items-center gap-1.5 h-8 px-3 text-[11px] font-medium rounded-md border bg-surface-0 border-surface-4 text-ink-1 hover:bg-surface-1 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150 cursor-pointer">
-                  <svg x-show="!p._fetching" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-                  <svg x-show="p._fetching" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
-                  <span x-text="p._fetching ? 'Fetching...' : 'Fetch Models'"></span>
+              <div class="flex items-center gap-4">
+                <button @click="saveProvider(p)" class="px-3 h-8 text-xs font-medium text-white bg-terra-500 hover:bg-terra-600 rounded-sm transition-colors cursor-pointer">Save</button>
+                <button @click="fetchModels(p)" :disabled="p._fetching" class="text-xs text-warm-500 hover:text-terra-500 transition-colors cursor-pointer disabled:opacity-40">
+                  <span x-text="p._fetching ? 'fetching...' : 'Fetch models'"></span>
                 </button>
                 <button x-show="p._modelCount > 0" @click="p._showModels = !p._showModels"
-                        class="inline-flex items-center gap-1 text-[11px] text-success-600 font-medium cursor-pointer hover:text-success-500 transition-colors">
-                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
+                        class="text-xs font-mono text-terra-500 cursor-pointer">
                   <span x-text="p._modelCount + ' models'"></span>
-                  <svg class="w-3 h-3 transition-transform" :class="p._showModels ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+                  <span x-text="p._showModels ? '↑' : '↓'"></span>
                 </button>
               </div>
-
-              <!-- Models list -->
-              <div x-show="p._showModels && providerModels[p.id]?.length" x-transition class="border-t border-surface-2 px-4 py-3">
+              <div x-show="p._showModels && providerModels[p.id]?.length" x-transition class="mt-4 pl-4 border-l-2 border-warm-200 dark:border-warm-700">
                 <div class="max-h-48 overflow-y-auto space-y-0.5">
                   <template x-for="m in providerModels[p.id] || []" :key="m">
-                    <div class="text-xs font-mono text-ink-1 py-0.5 px-1 rounded hover:bg-surface-1" x-text="m"></div>
+                    <div class="text-xs font-mono text-warm-600 dark:text-warm-400 py-0.5" x-text="m"></div>
                   </template>
                 </div>
               </div>
             </div>
-          </div>
-        </template>
+          </template>
+        </div>
       </div>
     </section>
 
-    <!-- ==================== AGENTS TAB ==================== -->
+    <!-- ════════ AGENTS ════════ -->
     <section x-show="tab === 'agents'" x-transition.opacity.duration.150ms>
-      <div class="flex justify-between items-center mb-4">
-        <h2 class="text-lg font-semibold">Agents</h2>
-        <button @click="showAgentForm = !showAgentForm; if(!showAgentForm) resetAgentForm()"
-          class="inline-flex items-center gap-1.5 h-8 px-3.5 text-xs font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-all cursor-pointer">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-          <span x-text="showAgentForm ? 'Cancel' : 'Add Agent'"></span>
-        </button>
-      </div>
-
-      <!-- Agent Form -->
-      <div x-show="showAgentForm" x-transition class="rounded-xl border border-surface-3 bg-surface-0 shadow-card overflow-hidden mb-5">
-        <div class="flex items-center gap-2 px-4 py-2.5 border-b border-surface-2">
-          <span class="text-sm font-medium text-ink-0" x-text="editingAgentId ? 'Edit Agent' : 'New Agent'"></span>
+      <p class="text-[11px] font-mono font-medium tracking-[0.15em] text-terra-500 uppercase mb-3">Agents</p>
+      <h1 class="font-serif text-3xl md:text-4xl tracking-tight mb-3">Agent configurations</h1>
+      <p class="text-warm-500 text-sm mb-8 max-w-lg">Each agent has its own model, system prompt, and workspace.</p>
+      <div class="border-t border-warm-200 dark:border-warm-800 pt-8">
+        <div class="flex items-center justify-between mb-8">
+          <span class="text-xs font-mono text-warm-400" x-text="agents.length + ' agents'"></span>
+          <button @click="showAgentForm = !showAgentForm; if(!showAgentForm) resetAgentForm()"
+                  class="text-sm text-terra-500 hover:text-terra-600 transition-colors cursor-pointer font-medium"
+                  x-text="showAgentForm ? 'Cancel' : '+ Add agent'"></button>
         </div>
-        <div class="px-4 py-4 space-y-3">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+        <!-- Agent form -->
+        <div x-show="showAgentForm" x-transition class="mb-8 pb-8 border-b border-warm-200 dark:border-warm-800">
+          <p class="text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-4" x-text="editingAgentId ? 'EDIT AGENT' : 'NEW AGENT'"></p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 mb-4">
             <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">ID (slug)</label>
-              <input x-model="agentForm.id" :disabled="!!editingAgentId"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all disabled:opacity-50" placeholder="anna">
+              <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">ID</label>
+              <input x-model="agentForm.id" :disabled="!!editingAgentId" placeholder="anna" class="input-line w-full h-9 text-sm disabled:opacity-40">
             </div>
             <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Name</label>
-              <input x-model="agentForm.name" class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all" placeholder="Anna">
+              <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Name</label>
+              <input x-model="agentForm.name" placeholder="Anna" class="input-line w-full h-9 text-sm">
             </div>
           </div>
-
-          <!-- Model fields with autocomplete -->
-          <fieldset class="space-y-3">
-            <legend class="text-[11px] font-semibold text-ink-2 uppercase tracking-wider">Models <span class="normal-case font-normal text-ink-3">format: provider/model</span></legend>
-
-            <!-- Default model -->
+          <p class="text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-3 mt-6">Models <span class="normal-case tracking-normal text-warm-400">— format: provider/model</span></p>
+          <div class="space-y-4 mb-4">
             <div x-data="modelCombo('agentForm.model')" class="relative">
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Default Model</label>
-              <div class="relative">
-                <input type="text" :value="getModelValue('model')" @input="setModelValue('model', $event.target.value); open = true; search = $event.target.value"
-                       @focus="open = true; search = ''" placeholder="anthropic/claude-sonnet-4-6"
-                       class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 pl-3 pr-8 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
-                <button @click="open = !open" type="button" tabindex="-1"
-                        class="absolute right-0 top-0 h-10 w-8 flex items-center justify-center text-ink-3 hover:text-ink-1 cursor-pointer">
-                  <svg class="w-4 h-4 transition-transform duration-150" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
-                </button>
-              </div>
-              <div x-show="open && allProviderModels().length > 0" @click.away="open = false" x-transition.opacity.duration.100ms
-                   class="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-surface-3 bg-surface-0 shadow-lg py-1">
+              <label class="block text-[10px] font-mono text-warm-400 mb-1">Default</label>
+              <input type="text" :value="getModelValue('model')" @input="setModelValue('model', $event.target.value); open = true; search = $event.target.value"
+                     @focus="open = true; search = ''" placeholder="anthropic/claude-sonnet-4-6" class="input-line w-full h-9 text-sm font-mono">
+              <div x-show="open && allProviderModels().length > 0" @click.away="open = false" x-transition.opacity
+                   class="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto border border-warm-200 dark:border-warm-700 bg-warm-50 dark:bg-warm-900 py-1">
                 <template x-for="m in filteredProviderModels(search)" :key="m">
                   <button @click="setModelValue('model', m); open = false" type="button"
-                          :class="getModelValue('model') === m ? 'bg-primary-50 text-primary-700' : 'text-ink-1 hover:bg-surface-1'"
-                          class="w-full text-left px-3 py-1.5 text-xs font-mono cursor-pointer transition-colors" x-text="m"></button>
+                          :class="getModelValue('model') === m ? 'text-terra-500' : 'text-warm-600 dark:text-warm-400'"
+                          class="w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-warm-100 dark:hover:bg-warm-800 cursor-pointer" x-text="m"></button>
                 </template>
-                <div x-show="filteredProviderModels(search).length === 0" class="px-3 py-2 text-xs text-ink-3">No matching models</div>
+                <div x-show="filteredProviderModels(search).length === 0" class="px-3 py-2 text-xs text-warm-400">No matches</div>
               </div>
             </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <!-- Strong model -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
               <div x-data="modelCombo('agentForm.model_strong')" class="relative">
-                <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Strong <span class="normal-case font-normal text-ink-3">optional</span></label>
-                <div class="relative">
-                  <input type="text" :value="getModelValue('model_strong')" @input="setModelValue('model_strong', $event.target.value); open = true; search = $event.target.value"
-                         @focus="open = true; search = ''" placeholder="Falls back to default"
-                         class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 pl-3 pr-8 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
-                  <button @click="open = !open" type="button" tabindex="-1"
-                          class="absolute right-0 top-0 h-10 w-8 flex items-center justify-center text-ink-3 hover:text-ink-1 cursor-pointer">
-                    <svg class="w-4 h-4 transition-transform duration-150" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
-                  </button>
-                </div>
-                <div x-show="open && allProviderModels().length > 0" @click.away="open = false" x-transition.opacity.duration.100ms
-                     class="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-surface-3 bg-surface-0 shadow-lg py-1">
+                <label class="block text-[10px] font-mono text-warm-400 mb-1">Strong <span class="text-warm-300">(optional)</span></label>
+                <input type="text" :value="getModelValue('model_strong')" @input="setModelValue('model_strong', $event.target.value); open = true; search = $event.target.value"
+                       @focus="open = true; search = ''" placeholder="Falls back to default" class="input-line w-full h-9 text-sm font-mono">
+                <div x-show="open && allProviderModels().length > 0" @click.away="open = false" x-transition.opacity
+                     class="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto border border-warm-200 dark:border-warm-700 bg-warm-50 dark:bg-warm-900 py-1">
                   <template x-for="m in filteredProviderModels(search)" :key="m">
-                    <button @click="setModelValue('model_strong', m); open = false" type="button"
-                            :class="getModelValue('model_strong') === m ? 'bg-primary-50 text-primary-700' : 'text-ink-1 hover:bg-surface-1'"
-                            class="w-full text-left px-3 py-1.5 text-xs font-mono cursor-pointer transition-colors" x-text="m"></button>
+                    <button @click="setModelValue('model_strong', m); open = false" type="button" class="w-full text-left px-3 py-1.5 text-xs font-mono text-warm-600 dark:text-warm-400 hover:bg-warm-100 dark:hover:bg-warm-800 cursor-pointer" x-text="m"></button>
                   </template>
                 </div>
               </div>
-
-              <!-- Fast model -->
               <div x-data="modelCombo('agentForm.model_fast')" class="relative">
-                <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Fast <span class="normal-case font-normal text-ink-3">optional</span></label>
-                <div class="relative">
-                  <input type="text" :value="getModelValue('model_fast')" @input="setModelValue('model_fast', $event.target.value); open = true; search = $event.target.value"
-                         @focus="open = true; search = ''" placeholder="Falls back to default"
-                         class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 pl-3 pr-8 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
-                  <button @click="open = !open" type="button" tabindex="-1"
-                          class="absolute right-0 top-0 h-10 w-8 flex items-center justify-center text-ink-3 hover:text-ink-1 cursor-pointer">
-                    <svg class="w-4 h-4 transition-transform duration-150" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
-                  </button>
-                </div>
-                <div x-show="open && allProviderModels().length > 0" @click.away="open = false" x-transition.opacity.duration.100ms
-                     class="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-surface-3 bg-surface-0 shadow-lg py-1">
+                <label class="block text-[10px] font-mono text-warm-400 mb-1">Fast <span class="text-warm-300">(optional)</span></label>
+                <input type="text" :value="getModelValue('model_fast')" @input="setModelValue('model_fast', $event.target.value); open = true; search = $event.target.value"
+                       @focus="open = true; search = ''" placeholder="Falls back to default" class="input-line w-full h-9 text-sm font-mono">
+                <div x-show="open && allProviderModels().length > 0" @click.away="open = false" x-transition.opacity
+                     class="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto border border-warm-200 dark:border-warm-700 bg-warm-50 dark:bg-warm-900 py-1">
                   <template x-for="m in filteredProviderModels(search)" :key="m">
-                    <button @click="setModelValue('model_fast', m); open = false" type="button"
-                            :class="getModelValue('model_fast') === m ? 'bg-primary-50 text-primary-700' : 'text-ink-1 hover:bg-surface-1'"
-                            class="w-full text-left px-3 py-1.5 text-xs font-mono cursor-pointer transition-colors" x-text="m"></button>
+                    <button @click="setModelValue('model_fast', m); open = false" type="button" class="w-full text-left px-3 py-1.5 text-xs font-mono text-warm-600 dark:text-warm-400 hover:bg-warm-100 dark:hover:bg-warm-800 cursor-pointer" x-text="m"></button>
                   </template>
                 </div>
               </div>
             </div>
-          </fieldset>
-
-          <div>
-            <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Workspace</label>
-            <input x-model="agentForm.workspace" class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all" placeholder="~/.anna/workspaces/anna">
           </div>
-          <div>
-            <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">System Prompt</label>
-            <textarea x-model="agentForm.system_prompt" rows="4" class="w-full rounded-lg border border-surface-4 bg-surface-0 px-3 py-2 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all resize-y"></textarea>
+          <div class="mb-4">
+            <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Workspace</label>
+            <input x-model="agentForm.workspace" placeholder="~/.anna/workspaces/anna" class="input-line w-full h-9 text-sm font-mono">
           </div>
-          <div class="flex items-center justify-between pt-1">
-            <label class="inline-flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" x-model="agentForm.enabled" class="accent-primary-600 w-4 h-4 rounded">
-              <span class="text-xs text-ink-1">Enabled</span>
+          <div class="mb-4">
+            <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">System Prompt</label>
+            <textarea x-model="agentForm.system_prompt" rows="4" class="input-line w-full text-sm font-mono py-2 resize-y"></textarea>
+          </div>
+          <div class="flex items-center justify-between">
+            <label class="flex items-center gap-2 cursor-pointer text-sm">
+              <input type="checkbox" x-model="agentForm.enabled" class="accent-terra-500 w-4 h-4">
+              <span>Enabled</span>
             </label>
-            <button @click="saveAgent()"
-                    class="inline-flex items-center gap-1.5 h-8 px-3.5 text-xs font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-all cursor-pointer">
-              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
-              <span x-text="editingAgentId ? 'Update' : 'Create'"></span>
-            </button>
+            <button @click="saveAgent()" class="px-4 h-9 text-sm font-medium text-white bg-terra-500 hover:bg-terra-600 rounded-sm transition-colors cursor-pointer"
+                    x-text="editingAgentId ? 'Update' : 'Create'"></button>
           </div>
         </div>
-      </div>
 
-      <!-- Agent list -->
-      <div class="space-y-2">
-        <template x-for="a in agents" :key="a.id">
-          <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card hover:shadow-card-hover transition-shadow px-4 py-3">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <span class="font-medium" x-text="a.name"></span>
-                <span class="text-sm text-ink-2" x-text="'(' + a.id + ')'"></span>
-                <span class="text-xs px-2 py-0.5 rounded-full"
-                  :class="a.enabled ? 'bg-success-50 text-success-600' : 'bg-surface-2 text-ink-2'"
-                  x-text="a.enabled ? 'enabled' : 'disabled'"></span>
+        <!-- Agent list -->
+        <div class="divide-y divide-warm-200 dark:divide-warm-800">
+          <template x-for="a in agents" :key="a.id">
+            <div class="py-5 group">
+              <div class="flex items-baseline justify-between">
+                <div class="flex items-baseline gap-3">
+                  <span class="font-medium" x-text="a.name"></span>
+                  <span class="text-xs font-mono text-warm-400" x-text="a.id"></span>
+                  <span class="text-[10px] font-mono uppercase tracking-wider" :class="a.enabled ? 'text-green-600 dark:text-green-500' : 'text-warm-400'" x-text="a.enabled ? 'on' : 'off'"></span>
+                </div>
+                <div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button @click="editAgent(a)" class="text-xs text-warm-400 hover:text-terra-500 transition-colors cursor-pointer">edit</button>
+                  <button @click="confirmDelete('Delete agent ' + a.id + '?', () => doDeleteAgent(a.id))"
+                          class="text-xs text-warm-400 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer">remove</button>
+                </div>
               </div>
-              <div class="flex items-center gap-1">
-                <button @click="editAgent(a)" class="p-1.5 rounded-md text-ink-3 hover:text-primary-600 hover:bg-primary-50 transition-colors cursor-pointer" title="Edit">
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125"/></svg>
-                </button>
-                <button @click="deleteAgent(a.id)" class="p-1.5 rounded-md text-ink-3 hover:text-danger-500 hover:bg-danger-50 transition-colors cursor-pointer" title="Delete">
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
-                </button>
-              </div>
+              <div class="text-sm font-mono text-warm-500 mt-1" x-text="a.model"></div>
             </div>
-            <div class="text-sm text-ink-2 mt-1 font-mono" x-text="a.model"></div>
-          </div>
-        </template>
-        <div x-show="agents.length === 0" class="text-sm text-ink-2 text-center py-8">No agents configured</div>
+          </template>
+        </div>
+        <div x-show="agents.length === 0 && !showAgentForm" class="py-16 text-center text-sm text-warm-500">No agents configured yet.</div>
       </div>
     </section>
 
-    <!-- ==================== CHANNELS TAB ==================== -->
+    <!-- ════════ CHANNELS ════════ -->
     <section x-show="tab === 'channels'" x-transition.opacity.duration.150ms>
+      <p class="text-[11px] font-mono font-medium tracking-[0.15em] text-terra-500 uppercase mb-3">Channels</p>
+      <h1 class="font-serif text-3xl md:text-4xl tracking-tight mb-3">Messaging platforms</h1>
+      <p class="text-warm-500 text-sm mb-8 max-w-lg">Connect Anna to Telegram, QQ, and Feishu.</p>
+      <div class="border-t border-warm-200 dark:border-warm-800 divide-y divide-warm-200 dark:divide-warm-800">
 
-      <!-- Telegram -->
-      <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card overflow-hidden">
-        <div class="flex items-center justify-between px-4 py-2.5 border-b border-surface-2">
-          <div class="flex items-center gap-2">
-            <svg class="w-5 h-5 text-[#26A5E4]" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.96 6.504-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
-            <span class="text-sm font-medium text-ink-0">Telegram</span>
-          </div>
-          <label class="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" class="sr-only peer" :checked="channelData.telegram.enabled"
-                   @change="channelData.telegram.enabled = $event.target.checked">
-            <div class="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
-          </label>
-        </div>
-
-        <div class="px-4 py-4 space-y-3" x-show="channelData.telegram.enabled" x-transition.opacity.duration.150ms>
-          <div class="flex items-center justify-between">
-            <span class="text-[11px] font-medium text-ink-2 uppercase tracking-wider">Enable Notifications</span>
-            <label class="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" class="sr-only peer" :checked="channelData.telegram.enable_notify"
-                     @change="channelData.telegram.enable_notify = $event.target.checked">
-              <div class="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+        <!-- Telegram -->
+        <div class="py-8">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <span class="font-medium text-lg">Telegram</span>
+              <span class="text-[10px] font-mono uppercase tracking-wider" :class="channelData.telegram.enabled ? 'text-green-600 dark:text-green-500' : 'text-warm-400'" x-text="channelData.telegram.enabled ? 'on' : 'off'"></span>
+            </div>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" :checked="channelData.telegram.enabled" @change="channelData.telegram.enabled = $event.target.checked" class="accent-terra-500 w-4 h-4">
+              <span class="text-warm-500">Enable</span>
             </label>
           </div>
-          <div>
-            <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Bot Token</label>
-            <input type="password" x-model="channelData.telegram.token" placeholder="From @BotFather"
-                   class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div x-show="channelData.telegram.enabled" x-transition class="space-y-4 pl-0 md:pl-6">
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" :checked="channelData.telegram.enable_notify" @change="channelData.telegram.enable_notify = $event.target.checked" class="accent-terra-500 w-4 h-4">
+              <span class="text-warm-500">Notifications</span>
+            </label>
             <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Notify Chat</label>
-              <input type="text" x-model="channelData.telegram.notify_chat" placeholder="Chat ID"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+              <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Bot Token</label>
+              <input type="password" x-model="channelData.telegram.token" placeholder="From @BotFather" class="input-line w-full h-9 text-sm font-mono">
             </div>
-            <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Channel ID</label>
-              <input type="text" x-model="channelData.telegram.channel_id" placeholder="Default channel"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Notify Chat</label>
+                <input type="text" x-model="channelData.telegram.notify_chat" placeholder="Chat ID" class="input-line w-full h-9 text-sm">
+              </div>
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Channel ID</label>
+                <input type="text" x-model="channelData.telegram.channel_id" placeholder="Default channel" class="input-line w-full h-9 text-sm">
+              </div>
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Group Mode</label>
+                <select x-model="channelData.telegram.group_mode" class="input-line w-full h-9 text-sm bg-transparent">
+                  <option value="">Default</option><option value="mention">Mention</option><option value="always">Always</option><option value="disabled">Disabled</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Allowed IDs</label>
+                <input type="text" :value="(channelData.telegram.allowed_ids || []).join(', ')" @change="channelData.telegram.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean).map(Number)" placeholder="Comma-separated" class="input-line w-full h-9 text-sm">
+              </div>
             </div>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Group Mode</label>
-              <select x-model="channelData.telegram.group_mode"
-                      class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all cursor-pointer appearance-none">
-                <option value="">Default</option>
-                <option value="mention">Mention</option>
-                <option value="always">Always</option>
-                <option value="disabled">Disabled</option>
-              </select>
-            </div>
-            <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Allowed IDs</label>
-              <input type="text" :value="(channelData.telegram.allowed_ids || []).join(', ')"
-                     @change="channelData.telegram.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean).map(Number)"
-                     placeholder="User IDs, comma-separated"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
-            </div>
-          </div>
-          <div class="flex justify-end pt-1">
-            <button @click="saveChannel('telegram')" class="inline-flex items-center gap-1.5 h-8 px-3.5 text-xs font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-all cursor-pointer">Save</button>
+            <button @click="saveChannel('telegram')" class="px-4 h-8 text-xs font-medium text-white bg-terra-500 hover:bg-terra-600 rounded-sm transition-colors cursor-pointer">Save Telegram</button>
           </div>
         </div>
-      </div>
 
-      <!-- QQ -->
-      <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card overflow-hidden mt-5">
-        <div class="flex items-center justify-between px-4 py-2.5 border-b border-surface-2">
-          <div class="flex items-center gap-2">
-            <svg class="w-5 h-5 text-[#12B7F5]" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 13.27c-.24.58-.78 1.14-1.48 1.48-.18.1-.4.18-.62.24-.56.16-1.2.12-1.74-.1a5.4 5.4 0 0 1-.8-.44 5.4 5.4 0 0 1-.8.44c-.54.22-1.18.26-1.74.1a2.5 2.5 0 0 1-.62-.24c-.7-.34-1.24-.9-1.48-1.48-.14-.34-.2-.68-.18-1.02.04-.56.24-1.12.58-1.64-.2-.56-.32-1.14-.32-1.72 0-.72.16-1.4.46-2.02.3-.64.74-1.2 1.28-1.64A4.83 4.83 0 0 1 12 6c1.14 0 2.18.4 3.02 1.06.54.44.98 1 1.28 1.64.3.62.46 1.3.46 2.02 0 .58-.12 1.16-.32 1.72.34.52.54 1.08.58 1.64.02.34-.04.68-.18 1.02-.08.06-.12.12-.18.17z"/></svg>
-            <span class="text-sm font-medium text-ink-0">QQ</span>
-          </div>
-          <label class="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" class="sr-only peer" :checked="channelData.qq.enabled"
-                   @change="channelData.qq.enabled = $event.target.checked">
-            <div class="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
-          </label>
-        </div>
-
-        <div class="px-4 py-4 space-y-3" x-show="channelData.qq.enabled" x-transition.opacity.duration.150ms>
-          <div class="flex items-center justify-between">
-            <span class="text-[11px] font-medium text-ink-2 uppercase tracking-wider">Enable Notifications</span>
-            <label class="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" class="sr-only peer" :checked="channelData.qq.enable_notify"
-                     @change="channelData.qq.enable_notify = $event.target.checked">
-              <div class="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+        <!-- QQ -->
+        <div class="py-8">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <span class="font-medium text-lg">QQ</span>
+              <span class="text-[10px] font-mono uppercase tracking-wider" :class="channelData.qq.enabled ? 'text-green-600 dark:text-green-500' : 'text-warm-400'" x-text="channelData.qq.enabled ? 'on' : 'off'"></span>
+            </div>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" :checked="channelData.qq.enabled" @change="channelData.qq.enabled = $event.target.checked" class="accent-terra-500 w-4 h-4">
+              <span class="text-warm-500">Enable</span>
             </label>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">App ID</label>
-              <input type="text" x-model="channelData.qq.app_id" placeholder="QQ Bot App ID"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+          <div x-show="channelData.qq.enabled" x-transition class="space-y-4 pl-0 md:pl-6">
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" :checked="channelData.qq.enable_notify" @change="channelData.qq.enable_notify = $event.target.checked" class="accent-terra-500 w-4 h-4">
+              <span class="text-warm-500">Notifications</span>
+            </label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">App ID</label>
+                <input type="text" x-model="channelData.qq.app_id" placeholder="QQ Bot App ID" class="input-line w-full h-9 text-sm font-mono">
+              </div>
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">App Secret</label>
+                <input type="password" x-model="channelData.qq.app_secret" class="input-line w-full h-9 text-sm font-mono">
+              </div>
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Group Mode</label>
+                <select x-model="channelData.qq.group_mode" class="input-line w-full h-9 text-sm bg-transparent">
+                  <option value="">Default (mention)</option><option value="mention">Mention</option><option value="always">Always</option><option value="disabled">Disabled</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Allowed IDs</label>
+                <input type="text" :value="(channelData.qq.allowed_ids || []).join(', ')" @change="channelData.qq.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)" placeholder="OpenIDs, comma-separated" class="input-line w-full h-9 text-sm">
+              </div>
             </div>
-            <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">App Secret</label>
-              <input type="password" x-model="channelData.qq.app_secret" placeholder="QQ Bot App Secret"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
-            </div>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Group Mode</label>
-              <select x-model="channelData.qq.group_mode"
-                      class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all cursor-pointer appearance-none">
-                <option value="">Default (mention)</option>
-                <option value="mention">Mention</option>
-                <option value="always">Always</option>
-                <option value="disabled">Disabled</option>
-              </select>
-            </div>
-            <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Allowed IDs</label>
-              <input type="text" :value="(channelData.qq.allowed_ids || []).join(', ')"
-                     @change="channelData.qq.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)"
-                     placeholder="OpenIDs, comma-separated"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
-            </div>
-          </div>
-          <div class="flex justify-end pt-1">
-            <button @click="saveChannel('qq')" class="inline-flex items-center gap-1.5 h-8 px-3.5 text-xs font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-all cursor-pointer">Save</button>
+            <button @click="saveChannel('qq')" class="px-4 h-8 text-xs font-medium text-white bg-terra-500 hover:bg-terra-600 rounded-sm transition-colors cursor-pointer">Save QQ</button>
           </div>
         </div>
-      </div>
 
-      <!-- Feishu -->
-      <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card overflow-hidden mt-5">
-        <div class="flex items-center justify-between px-4 py-2.5 border-b border-surface-2">
-          <div class="flex items-center gap-2">
-            <svg class="w-5 h-5 text-[#3370FF]" viewBox="0 0 24 24" fill="currentColor"><path d="M3.806 7.293l5.685-4.27a.75.75 0 01.9 0l5.685 4.27a.75.75 0 01.274.69l-1.63 7.164a.75.75 0 01-.724.573H5.886a.75.75 0 01-.724-.573L3.532 7.983a.75.75 0 01.274-.69zM12 2l8.485 6.364a1.5 1.5 0 01.549 1.38l-2.442 10.742a1.5 1.5 0 01-1.449 1.146H6.857a1.5 1.5 0 01-1.449-1.146L2.966 9.744a1.5 1.5 0 01.549-1.38L12 2z"/></svg>
-            <span class="text-sm font-medium text-ink-0">Feishu</span>
-          </div>
-          <label class="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" class="sr-only peer" :checked="channelData.feishu.enabled"
-                   @change="channelData.feishu.enabled = $event.target.checked">
-            <div class="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
-          </label>
-        </div>
-
-        <div class="px-4 py-4 space-y-3" x-show="channelData.feishu.enabled" x-transition.opacity.duration.150ms>
-          <div class="flex items-center justify-between">
-            <span class="text-[11px] font-medium text-ink-2 uppercase tracking-wider">Enable Notifications</span>
-            <label class="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" class="sr-only peer" :checked="channelData.feishu.enable_notify"
-                     @change="channelData.feishu.enable_notify = $event.target.checked">
-              <div class="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+        <!-- Feishu -->
+        <div class="py-8">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <span class="font-medium text-lg">Feishu</span>
+              <span class="text-[10px] font-mono uppercase tracking-wider" :class="channelData.feishu.enabled ? 'text-green-600 dark:text-green-500' : 'text-warm-400'" x-text="channelData.feishu.enabled ? 'on' : 'off'"></span>
+            </div>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" :checked="channelData.feishu.enabled" @change="channelData.feishu.enabled = $event.target.checked" class="accent-terra-500 w-4 h-4">
+              <span class="text-warm-500">Enable</span>
             </label>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">App ID</label>
-              <input type="text" x-model="channelData.feishu.app_id" placeholder="Feishu App ID"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+          <div x-show="channelData.feishu.enabled" x-transition class="space-y-4 pl-0 md:pl-6">
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" :checked="channelData.feishu.enable_notify" @change="channelData.feishu.enable_notify = $event.target.checked" class="accent-terra-500 w-4 h-4">
+              <span class="text-warm-500">Notifications</span>
+            </label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+              <div><label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">App ID</label><input type="text" x-model="channelData.feishu.app_id" class="input-line w-full h-9 text-sm font-mono"></div>
+              <div><label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">App Secret</label><input type="password" x-model="channelData.feishu.app_secret" class="input-line w-full h-9 text-sm font-mono"></div>
+              <div><label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Encrypt Key</label><input type="password" x-model="channelData.feishu.encrypt_key" placeholder="optional" class="input-line w-full h-9 text-sm font-mono"></div>
+              <div><label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Verification Token</label><input type="password" x-model="channelData.feishu.verification_token" placeholder="optional" class="input-line w-full h-9 text-sm font-mono"></div>
+              <div><label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Notify Chat</label><input type="text" x-model="channelData.feishu.notify_chat" class="input-line w-full h-9 text-sm"></div>
+              <div><label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Group Mode</label><select x-model="channelData.feishu.group_mode" class="input-line w-full h-9 text-sm bg-transparent"><option value="">Default (mention)</option><option value="mention">Mention</option><option value="always">Always</option><option value="disabled">Disabled</option></select></div>
             </div>
-            <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">App Secret</label>
-              <input type="password" x-model="channelData.feishu.app_secret" placeholder="Feishu App Secret"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
-            </div>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Encrypt Key</label>
-              <input type="password" x-model="channelData.feishu.encrypt_key" placeholder="Event encrypt key (optional)"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
-            </div>
-            <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Verification Token</label>
-              <input type="password" x-model="channelData.feishu.verification_token" placeholder="Event verification token (optional)"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
-            </div>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Notify Chat</label>
-              <input type="text" x-model="channelData.feishu.notify_chat" placeholder="Chat or open_id"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
-            </div>
-            <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Group Mode</label>
-              <select x-model="channelData.feishu.group_mode"
-                      class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all cursor-pointer appearance-none">
-                <option value="">Default (mention)</option>
-                <option value="mention">Mention</option>
-                <option value="always">Always</option>
-                <option value="disabled">Disabled</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Allowed IDs</label>
-            <input type="text" :value="(channelData.feishu.allowed_ids || []).join(', ')"
-                   @change="channelData.feishu.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)"
-                   placeholder="open_ids, comma-separated"
-                   class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
-          </div>
-          <div class="flex justify-end pt-1">
-            <button @click="saveChannel('feishu')" class="inline-flex items-center gap-1.5 h-8 px-3.5 text-xs font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-all cursor-pointer">Save</button>
+            <div><label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Allowed IDs</label><input type="text" :value="(channelData.feishu.allowed_ids || []).join(', ')" @change="channelData.feishu.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)" placeholder="open_ids, comma-separated" class="input-line w-full h-9 text-sm"></div>
+            <button @click="saveChannel('feishu')" class="px-4 h-8 text-xs font-medium text-white bg-terra-500 hover:bg-terra-600 rounded-sm transition-colors cursor-pointer">Save Feishu</button>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- ==================== USERS TAB ==================== -->
+    <!-- ════════ USERS ════════ -->
     <section x-show="tab === 'users'" x-transition.opacity.duration.150ms>
-      <h2 class="text-lg font-semibold mb-4">Users</h2>
-
-      <div class="space-y-3">
+      <p class="text-[11px] font-mono font-medium tracking-[0.15em] text-terra-500 uppercase mb-3">Users</p>
+      <h1 class="font-serif text-3xl md:text-4xl tracking-tight mb-3">User management</h1>
+      <p class="text-warm-500 text-sm mb-8 max-w-lg">Default agents and per-user memory for each connected user.</p>
+      <div class="border-t border-warm-200 dark:border-warm-800 divide-y divide-warm-200 dark:divide-warm-800">
         <template x-for="u in users" :key="u.id">
-          <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card hover:shadow-card-hover transition-shadow">
-            <!-- User header -->
-            <div class="px-4 py-3">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2.5">
-                  <div class="w-8 h-8 rounded-full bg-primary-50 flex items-center justify-center">
-                    <svg class="w-4 h-4 text-primary-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0"/></svg>
-                  </div>
-                  <div>
-                    <span class="font-medium text-sm" x-text="u.name || 'Unnamed'"></span>
-                    <span class="ml-2 text-[10px] px-1.5 py-0.5 rounded-full font-medium uppercase tracking-wider"
-                      :class="u.platform === 'telegram' ? 'bg-blue-50 text-blue-600' : u.platform === 'qq' ? 'bg-green-50 text-green-600' : u.platform === 'feishu' ? 'bg-purple-50 text-purple-600' : 'bg-surface-2 text-ink-2'"
-                      x-text="u.platform"></span>
-                  </div>
-                </div>
-                <span class="text-xs text-ink-3 font-mono" x-text="'#' + u.id + ' · ' + u.external_id"></span>
+          <div class="py-6">
+            <div class="flex items-baseline justify-between mb-3">
+              <div class="flex items-baseline gap-3">
+                <span class="font-medium" x-text="u.name || 'Unnamed'"></span>
+                <span class="text-[10px] font-mono uppercase tracking-wider text-warm-400" x-text="u.platform"></span>
               </div>
-
-              <!-- Default agent selector -->
-              <div class="flex items-center gap-2 mt-2.5">
-                <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider shrink-0">Default Agent</label>
-                <select x-model="u._defaultAgent"
-                        class="flex-1 h-8 rounded-md border border-surface-4 bg-surface-0 px-2 text-xs shadow-card focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all cursor-pointer appearance-none">
-                  <option value="">None</option>
-                  <template x-for="a in agents" :key="a.id">
-                    <option :value="a.id" x-text="a.name + ' (' + a.id + ')'"></option>
-                  </template>
-                </select>
-                <button @click="saveUserDefaultAgent(u)"
-                        :disabled="u._defaultAgent === (u.default_agent_id || '')"
-                        :class="u._defaultAgent === (u.default_agent_id || '') ? 'opacity-40 cursor-not-allowed' : 'hover:bg-primary-700 cursor-pointer'"
-                        class="h-8 px-3 text-[11px] font-medium text-white bg-primary-600 rounded-md transition-all">Save</button>
-              </div>
-
-              <!-- Memory toggle -->
-              <div class="mt-2.5">
-                <button @click="toggleUserMemory(u)"
-                        class="inline-flex items-center gap-1.5 text-xs text-ink-2 hover:text-primary-600 transition-colors cursor-pointer">
-                  <svg class="w-3.5 h-3.5 transition-transform duration-150" :class="u._showMemory ? 'rotate-90' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
-                  <span>Memory</span>
-                  <span x-show="u._memoryCount > 0" class="text-[10px] px-1.5 py-0.5 rounded-full bg-primary-50 text-primary-600 font-medium"
-                        x-text="u._memoryCount + ' agent' + (u._memoryCount > 1 ? 's' : '')"></span>
-                </button>
-              </div>
+              <span class="text-xs font-mono text-warm-400" x-text="'#' + u.id + ' · ' + u.external_id"></span>
             </div>
-
-            <!-- Memory section (expandable) -->
-            <div x-show="u._showMemory" x-transition class="border-t border-surface-2 px-4 py-3 bg-surface-1/50">
-              <div class="space-y-3">
-                <!-- Existing memories -->
-                <template x-for="mem in (userMemories[u.id] || [])" :key="mem.agent_id">
-                  <div class="rounded-lg border border-surface-3 bg-surface-0 overflow-hidden">
-                    <div class="flex items-center justify-between px-3 py-2 bg-surface-2/50 border-b border-surface-3">
-                      <div class="flex items-center gap-1.5">
-                        <svg class="w-3.5 h-3.5 text-primary-400" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/></svg>
-                        <span class="text-xs font-medium text-ink-0" x-text="mem.agent_id"></span>
-                      </div>
-                      <span class="text-[10px] text-ink-3" x-text="mem.updated_at"></span>
-                    </div>
-                    <div class="p-3">
-                      <textarea x-model="mem._content" rows="3"
-                                class="w-full rounded-md border border-surface-4 bg-surface-0 px-2.5 py-2 text-xs font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all resize-y"></textarea>
-                      <div class="flex justify-end gap-1.5 mt-2">
-                        <button @click="deleteUserMemory(u.id, mem.agent_id)"
-                                class="h-7 px-2.5 text-[11px] font-medium text-danger-500 bg-danger-50 rounded-md hover:bg-danger-600 hover:text-white transition-all cursor-pointer">Delete</button>
-                        <button @click="saveUserMemory(u.id, mem.agent_id, mem._content)"
-                                :disabled="mem._content === mem.content"
-                                :class="mem._content === mem.content ? 'opacity-40 cursor-not-allowed' : 'hover:bg-primary-700 cursor-pointer'"
-                                class="h-7 px-2.5 text-[11px] font-medium text-white bg-primary-600 rounded-md transition-all">Save</button>
-                      </div>
-                    </div>
+            <div class="flex items-center gap-3 mb-3">
+              <label class="text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider shrink-0">Default Agent</label>
+              <select x-model="u._defaultAgent" class="input-line flex-1 h-8 text-sm bg-transparent">
+                <option value="">None</option>
+                <template x-for="a in agents" :key="a.id"><option :value="a.id" x-text="a.name + ' (' + a.id + ')'"></option></template>
+              </select>
+              <button @click="saveUserDefaultAgent(u)" :disabled="u._defaultAgent === (u.default_agent_id || '')"
+                      class="px-3 h-8 text-xs font-medium text-white bg-terra-500 hover:bg-terra-600 rounded-sm transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed">Save</button>
+            </div>
+            <button @click="toggleUserMemory(u)" class="text-xs text-warm-500 hover:text-terra-500 transition-colors cursor-pointer flex items-center gap-1">
+              <span x-text="u._showMemory ? '▾' : '▸'"></span>
+              <span>Memory</span>
+              <span x-show="u._memoryCount > 0" class="font-mono text-terra-500" x-text="'(' + u._memoryCount + ')'"></span>
+            </button>
+            <div x-show="u._showMemory" x-transition class="mt-4 pl-4 border-l-2 border-warm-200 dark:border-warm-700 space-y-4">
+              <template x-for="mem in (userMemories[u.id] || [])" :key="mem.agent_id">
+                <div>
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="text-xs font-mono font-medium text-terra-500" x-text="mem.agent_id"></span>
+                    <span class="text-[10px] text-warm-400" x-text="mem.updated_at"></span>
                   </div>
-                </template>
-
-                <div x-show="(userMemories[u.id] || []).length === 0 && !u._showAddMemory"
-                     class="text-xs text-ink-3 text-center py-3">No agent memories yet</div>
-
-                <!-- Add memory form -->
-                <div x-show="u._showAddMemory" class="rounded-lg border border-primary-200 bg-primary-50/30 p-3">
-                  <div class="flex items-center gap-2 mb-2">
-                    <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider shrink-0">Agent</label>
-                    <select x-model="u._newMemoryAgent"
-                            class="flex-1 h-8 rounded-md border border-surface-4 bg-surface-0 px-2 text-xs shadow-card focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all cursor-pointer appearance-none">
-                      <option value="" disabled>Select agent...</option>
-                      <template x-for="a in agents.filter(a => !(userMemories[u.id] || []).some(m => m.agent_id === a.id))" :key="a.id">
-                        <option :value="a.id" x-text="a.name + ' (' + a.id + ')'"></option>
-                      </template>
-                    </select>
-                  </div>
-                  <textarea x-model="u._newMemoryContent" rows="3" placeholder="Enter memory content..."
-                            class="w-full rounded-md border border-surface-4 bg-surface-0 px-2.5 py-2 text-xs font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all resize-y"></textarea>
-                  <div class="flex justify-end gap-1.5 mt-2">
-                    <button @click="u._showAddMemory = false; u._newMemoryAgent = ''; u._newMemoryContent = ''"
-                            class="h-7 px-2.5 text-[11px] font-medium text-ink-2 bg-surface-2 rounded-md hover:bg-surface-3 transition-all cursor-pointer">Cancel</button>
-                    <button @click="addUserMemory(u)"
-                            :disabled="!u._newMemoryAgent || !u._newMemoryContent"
-                            :class="!u._newMemoryAgent || !u._newMemoryContent ? 'opacity-40 cursor-not-allowed' : 'hover:bg-primary-700 cursor-pointer'"
-                            class="h-7 px-2.5 text-[11px] font-medium text-white bg-primary-600 rounded-md transition-all">Add</button>
+                  <textarea x-model="mem._content" rows="2" class="input-line w-full text-xs font-mono py-1 resize-y"></textarea>
+                  <div class="flex items-center gap-2 mt-1">
+                    <button @click="confirmDelete('Delete memory for ' + mem.agent_id + '?', () => doDeleteUserMemory(u.id, mem.agent_id))" class="text-[10px] text-warm-400 hover:text-red-600 dark:hover:text-red-400 cursor-pointer">delete</button>
+                    <button @click="saveUserMemory(u.id, mem.agent_id, mem._content)" :disabled="mem._content === mem.content"
+                            class="text-[10px] text-terra-500 hover:text-terra-600 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed">save</button>
                   </div>
                 </div>
-
-                <!-- Add memory button -->
-                <button x-show="!u._showAddMemory" @click="u._showAddMemory = true; u._newMemoryAgent = ''; u._newMemoryContent = ''"
-                        class="inline-flex items-center gap-1 text-xs text-primary-600 hover:text-primary-700 transition-colors cursor-pointer">
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-                  Add memory for agent
-                </button>
+              </template>
+              <div x-show="(userMemories[u.id] || []).length === 0 && !u._showAddMemory" class="text-xs text-warm-400 py-2">No memories yet.</div>
+              <div x-show="u._showAddMemory" class="space-y-2">
+                <select x-model="u._newMemoryAgent" class="input-line w-full h-8 text-xs bg-transparent">
+                  <option value="" disabled>Select agent...</option>
+                  <template x-for="a in agents.filter(a => !(userMemories[u.id] || []).some(m => m.agent_id === a.id))" :key="a.id"><option :value="a.id" x-text="a.name + ' (' + a.id + ')'"></option></template>
+                </select>
+                <textarea x-model="u._newMemoryContent" rows="2" placeholder="Memory content..." class="input-line w-full text-xs font-mono py-1 resize-y"></textarea>
+                <div class="flex gap-2">
+                  <button @click="u._showAddMemory = false" class="text-[10px] text-warm-400 hover:text-warm-600 cursor-pointer">cancel</button>
+                  <button @click="addUserMemory(u)" :disabled="!u._newMemoryAgent || !u._newMemoryContent"
+                          class="text-[10px] text-terra-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed">add</button>
+                </div>
               </div>
+              <button x-show="!u._showAddMemory" @click="u._showAddMemory = true; u._newMemoryAgent = ''; u._newMemoryContent = ''"
+                      class="text-xs text-terra-500 hover:text-terra-600 cursor-pointer">+ Add memory</button>
             </div>
           </div>
         </template>
-        <div x-show="users.length === 0" class="text-sm text-ink-2 text-center py-8">No users yet</div>
       </div>
+      <div x-show="users.length === 0" class="py-16 text-center text-sm text-warm-500">No users yet — they appear after someone messages Anna.</div>
     </section>
 
-    <!-- ==================== SESSIONS TAB ==================== -->
+    <!-- ════════ SESSIONS ════════ -->
     <section x-show="tab === 'sessions'" x-transition.opacity.duration.150ms>
 
-      <!-- Session detail view -->
+      <!-- Session detail (transcript view) -->
       <template x-if="sessionDetail">
         <div>
-          <!-- Back button + header -->
-          <div class="flex items-center gap-3 mb-5">
-            <button @click="sessionDetail = null; sessionMessages = []; sessionSystemPrompt = ''"
-                    class="p-1.5 rounded-md text-ink-2 hover:text-ink-0 hover:bg-surface-2 transition-colors cursor-pointer">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/></svg>
-            </button>
-            <div class="flex-1 min-w-0">
-              <h2 class="text-lg font-semibold truncate" x-text="sessionDetail.title || 'Untitled Session'"></h2>
-              <div class="flex items-center gap-2 mt-0.5 flex-wrap">
-                <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium uppercase tracking-wider"
-                  :class="sessionDetail.channel === 'telegram' ? 'bg-blue-50 text-blue-600' : sessionDetail.channel === 'cli' ? 'bg-surface-2 text-ink-2' : sessionDetail.channel === 'qq' ? 'bg-green-50 text-green-600' : 'bg-purple-50 text-purple-600'"
-                  x-text="sessionDetail.channel || 'unknown'"></span>
-                <span x-show="sessionDetail.agent_name || sessionDetail.agent_id" class="text-[10px] px-1.5 py-0.5 rounded-full bg-primary-50 text-primary-600 font-medium"
-                  x-text="sessionDetail.agent_name || sessionDetail.agent_id"></span>
-                <span x-show="sessionDetail.user_name" class="text-[10px] px-1.5 py-0.5 rounded-full bg-warn-50 text-warn-600 font-medium"
-                  x-text="sessionDetail.user_name"></span>
-                <span class="text-[10px] text-ink-3" x-text="'Last active: ' + formatTime(sessionDetail.last_active)"></span>
-                <span x-show="sessionDetail.archived" class="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-2 text-ink-2 font-medium">Archived</span>
-              </div>
-            </div>
+          <button @click="sessionDetail = null; sessionMessages = []; sessionSystemPrompt = ''; showTools = false"
+                  class="text-xs text-warm-400 hover:text-warm-600 dark:hover:text-warm-300 transition-colors cursor-pointer mb-6 flex items-center gap-1">
+            <span>←</span> Back to sessions
+          </button>
+          <h1 class="font-serif text-2xl md:text-3xl tracking-tight mb-2" x-text="sessionDetail.title || 'Untitled session'"></h1>
+          <div class="flex items-center gap-3 flex-wrap text-xs font-mono text-warm-500 mb-2">
+            <span x-text="sessionDetail.channel || 'unknown'"></span>
+            <span class="text-warm-300">·</span>
+            <span x-show="sessionDetail.agent_name || sessionDetail.agent_id" x-text="sessionDetail.agent_name || sessionDetail.agent_id"></span>
+            <span x-show="sessionDetail.user_name" class="text-warm-300">·</span>
+            <span x-show="sessionDetail.user_name" x-text="sessionDetail.user_name"></span>
+            <span class="text-warm-300">·</span>
+            <span x-text="formatTime(sessionDetail.last_active)"></span>
+            <span x-show="sessionDetail.archived" class="text-warm-400">(archived)</span>
+          </div>
+          <div class="text-[10px] font-mono text-warm-400 mb-6" x-text="sessionDetail.id"></div>
+
+          <!-- Controls -->
+          <div class="flex items-center gap-4 mb-6">
+            <button @click="showTools = !showTools" :class="showTools ? 'text-terra-500' : 'text-warm-400 hover:text-warm-600'"
+                    class="text-xs font-mono cursor-pointer transition-colors" x-text="showTools ? '▾ Tools' : '▸ Tools'"></button>
           </div>
 
-          <!-- Session ID -->
-          <div class="text-[11px] text-ink-3 font-mono mb-4 px-1" x-text="sessionDetail.id"></div>
+          <!-- Tools list (inline, not sidebar) -->
+          <div x-show="showTools" x-transition class="mb-8 pl-4 border-l-2 border-terra-200 dark:border-terra-800">
+            <div x-show="toolsLoading" class="text-xs text-warm-400 py-2">Loading tools...</div>
+            <div class="divide-y divide-warm-100 dark:divide-warm-800">
+              <template x-for="tool in tools" :key="tool.name">
+                <div x-data="{ expanded: false }" class="py-2">
+                  <button @click="expanded = !expanded" class="w-full text-left cursor-pointer">
+                    <div class="flex items-baseline gap-2">
+                      <span class="text-sm font-mono font-medium" x-text="tool.name"></span>
+                      <span class="text-[10px] font-mono text-warm-400" x-text="tool.category"></span>
+                    </div>
+                    <p class="text-xs text-warm-500 mt-0.5 leading-relaxed" x-text="tool.description"></p>
+                  </button>
+                  <div x-show="expanded" x-transition class="mt-2">
+                    <pre class="text-[10px] font-mono text-warm-600 dark:text-warm-400 bg-warm-100 dark:bg-warm-900 p-3 overflow-x-auto" x-text="JSON.stringify(tool.input_schema, null, 2)"></pre>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
 
           <!-- System prompt -->
-          <div x-show="sessionSystemPrompt" x-data="{ expanded: false }" class="rounded-xl border border-surface-3 bg-surface-0 shadow-card overflow-hidden mb-4">
-            <button @click="expanded = !expanded" class="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-surface-1 transition-colors cursor-pointer">
-              <svg class="w-3.5 h-3.5 transition-transform duration-150" :class="expanded ? 'rotate-90' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
-              <svg class="w-4 h-4 text-primary-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
-              <span class="text-sm font-medium text-ink-0">System Prompt</span>
-              <span class="text-[10px] text-ink-3 ml-auto" x-text="Math.round(sessionSystemPrompt.length / 4) + ' tokens (est.)'"></span>
+          <div x-show="sessionSystemPrompt" x-data="{ expanded: false }" class="mb-8">
+            <button @click="expanded = !expanded" class="text-xs font-mono text-warm-400 hover:text-warm-600 transition-colors cursor-pointer flex items-center gap-1 mb-2">
+              <span x-text="expanded ? '▾' : '▸'"></span>
+              <span>System Prompt</span>
+              <span class="text-warm-300 ml-1" x-text="'~' + Math.round(sessionSystemPrompt.length / 4) + ' tokens'"></span>
             </button>
-            <div x-show="expanded" x-transition class="border-t border-surface-3 px-4 py-3 bg-surface-1/30 max-h-96 overflow-y-auto">
-              <pre class="text-xs font-mono text-ink-1 whitespace-pre-wrap" x-text="sessionSystemPrompt"></pre>
+            <div x-show="expanded" x-transition class="pl-4 border-l-2 border-terra-200 dark:border-terra-800 max-h-96 overflow-y-auto">
+              <pre class="text-xs font-mono text-warm-600 dark:text-warm-400 whitespace-pre-wrap leading-relaxed" x-text="sessionSystemPrompt"></pre>
             </div>
           </div>
 
-          <!-- Messages loading -->
-          <div x-show="sessionMessagesLoading" class="text-sm text-ink-2 text-center py-12">Loading messages...</div>
-
-          <!-- Message timeline -->
-          <div x-show="!sessionMessagesLoading" class="space-y-2">
-            <div x-show="sessionMessages.length === 0" class="text-sm text-ink-2 text-center py-8">No messages in this session</div>
-            <template x-for="(msg, idx) in sessionMessages" :key="idx">
-              <div>
-                <!-- User message -->
-                <template x-if="msg.role === 'user'">
-                  <div class="flex justify-end">
-                    <div class="max-w-[80%] rounded-xl rounded-tr-sm bg-primary-600 text-white px-4 py-2.5 shadow-card">
-                      <div class="text-sm whitespace-pre-wrap" x-text="msg.content || (msg.blocks ? msg.blocks.filter(b => b.type === 'text').map(b => b.text).join('') : '')"></div>
-                      <div class="text-[10px] opacity-60 mt-1 text-right" x-text="formatTime(msg.timestamp)"></div>
-                    </div>
-                  </div>
-                </template>
-
-                <!-- Assistant message -->
-                <template x-if="msg.role === 'assistant'">
-                  <div class="flex justify-start">
-                    <div class="max-w-[85%] space-y-1.5">
-                      <template x-for="(block, bi) in (msg.blocks || [])" :key="bi">
-                        <div>
-                          <!-- Thinking block -->
-                          <template x-if="block.type === 'thinking'">
-                            <div x-data="{ expanded: false }" class="rounded-lg border border-surface-3 bg-surface-1 overflow-hidden">
-                              <button @click="expanded = !expanded" class="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-ink-2 hover:bg-surface-2 transition-colors cursor-pointer">
-                                <svg class="w-3 h-3 transition-transform duration-150" :class="expanded ? 'rotate-90' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
-                                <svg class="w-3 h-3 text-ink-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 0 0 1.5-.189m-1.5.189a6.01 6.01 0 0 1-1.5-.189m3.75 7.478a12.06 12.06 0 0 1-4.5 0m3.75 2.383a14.406 14.406 0 0 1-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 1 0-7.517 0c.85.493 1.509 1.333 1.509 2.316V18"/></svg>
-                                <span x-text="block.redacted ? 'Thinking (redacted)' : 'Thinking'"></span>
-                                <span class="text-ink-3 ml-auto" x-text="block.thinking ? (block.thinking.length > 100 ? Math.round(block.thinking.length/4) + ' tokens' : '') : ''"></span>
-                              </button>
-                              <div x-show="expanded" x-transition class="px-3 py-2 border-t border-surface-3 text-xs font-mono text-ink-2 whitespace-pre-wrap max-h-64 overflow-y-auto" x-text="block.thinking || '(redacted)'"></div>
-                            </div>
-                          </template>
-                          <!-- Text block -->
-                          <template x-if="block.type === 'text'">
-                            <div class="rounded-xl rounded-tl-sm bg-surface-0 border border-surface-3 px-4 py-2.5 shadow-card">
-                              <div class="text-sm whitespace-pre-wrap" x-text="block.text"></div>
-                            </div>
-                          </template>
-                          <!-- Tool call block -->
-                          <template x-if="block.type === 'tool_call'">
-                            <div x-data="{ expanded: false }" class="rounded-lg border border-primary-200 bg-primary-50/30 overflow-hidden">
-                              <button @click="expanded = !expanded" class="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] hover:bg-primary-50 transition-colors cursor-pointer">
-                                <svg class="w-3 h-3 transition-transform duration-150" :class="expanded ? 'rotate-90' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
-                                <svg class="w-3 h-3 text-primary-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085"/></svg>
-                                <span class="font-mono font-medium text-primary-700" x-text="block.name"></span>
-                                <span class="text-ink-3 font-mono" x-text="block.id ? '(' + block.id.slice(-6) + ')' : ''"></span>
-                              </button>
-                              <div x-show="expanded" x-transition class="px-3 py-2 border-t border-primary-200 text-xs font-mono text-ink-1 whitespace-pre-wrap max-h-48 overflow-y-auto bg-surface-0" x-text="JSON.stringify(block.arguments, null, 2)"></div>
-                            </div>
-                          </template>
-                        </div>
-                      </template>
-                      <div class="flex items-center gap-2 px-1">
-                        <span x-show="msg.model" class="text-[10px] text-ink-3 font-mono" x-text="msg.model"></span>
-                        <span class="text-[10px] text-ink-3" x-text="formatTime(msg.timestamp)"></span>
+          <!-- Messages (transcript style) -->
+          <div class="border-t border-warm-200 dark:border-warm-800 pt-8">
+            <div x-show="sessionMessagesLoading" class="text-sm text-warm-400 py-12 text-center">Loading messages...</div>
+            <div x-show="!sessionMessagesLoading && sessionMessages.length === 0" class="text-sm text-warm-400 py-12 text-center">Empty session.</div>
+            <div class="space-y-6">
+              <template x-for="(msg, idx) in sessionMessages" :key="idx">
+                <div>
+                  <!-- User -->
+                  <template x-if="msg.role === 'user'">
+                    <div class="flex gap-4">
+                      <div class="w-16 shrink-0 text-right">
+                        <span class="text-[10px] font-mono font-medium tracking-wider uppercase text-warm-400">You</span>
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <div class="text-sm whitespace-pre-wrap leading-relaxed" x-text="msg.content || (msg.blocks ? msg.blocks.filter(b => b.type === 'text').map(b => b.text).join('') : '')"></div>
+                        <div class="text-[10px] font-mono text-warm-300 mt-1" x-text="formatTime(msg.timestamp)"></div>
                       </div>
                     </div>
-                  </div>
-                </template>
+                  </template>
 
-                <!-- Tool result -->
-                <template x-if="msg.role === 'tool'">
-                  <div class="flex justify-start pl-4" x-data="{ expanded: false }">
-                    <div class="max-w-[80%] rounded-lg border overflow-hidden"
-                         :class="msg.is_error ? 'border-danger-500/30 bg-danger-50/30' : 'border-success-500/30 bg-success-50/30'">
-                      <button @click="expanded = !expanded" class="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] cursor-pointer"
-                              :class="msg.is_error ? 'text-danger-600 hover:bg-danger-50' : 'text-success-600 hover:bg-success-50'">
-                        <svg class="w-3 h-3 transition-transform duration-150" :class="expanded ? 'rotate-90' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
-                        <span class="font-mono font-medium" x-text="msg.tool_name || 'tool'"></span>
-                        <span x-show="msg.is_error" class="text-[10px] px-1 rounded bg-danger-500/10 text-danger-600">error</span>
-                        <span class="text-ink-3 ml-auto text-[10px]" x-text="msg.content ? (msg.content.length > 200 ? Math.round(msg.content.length/4) + ' tokens' : msg.content.length + ' chars') : ''"></span>
-                      </button>
-                      <div x-show="expanded" x-transition class="px-3 py-2 border-t text-xs font-mono whitespace-pre-wrap max-h-64 overflow-y-auto bg-surface-0"
-                           :class="msg.is_error ? 'border-danger-500/20 text-danger-600' : 'border-success-500/20 text-ink-1'"
-                           x-text="msg.content || '(empty)'"></div>
+                  <!-- Assistant -->
+                  <template x-if="msg.role === 'assistant'">
+                    <div class="flex gap-4">
+                      <div class="w-16 shrink-0 text-right">
+                        <span class="text-[10px] font-mono font-medium tracking-wider uppercase text-terra-500">Anna</span>
+                      </div>
+                      <div class="flex-1 min-w-0 space-y-2">
+                        <template x-for="(block, bi) in (msg.blocks || [])" :key="bi">
+                          <div>
+                            <!-- Thinking -->
+                            <template x-if="block.type === 'thinking'">
+                              <div x-data="{ expanded: false }">
+                                <button @click="expanded = !expanded" class="text-[10px] font-mono text-warm-400 hover:text-warm-600 cursor-pointer flex items-center gap-1">
+                                  <span x-text="expanded ? '▾' : '▸'"></span>
+                                  <span x-text="block.redacted ? 'thinking (redacted)' : 'thinking'"></span>
+                                  <span class="text-warm-300" x-text="block.thinking && !block.redacted && block.thinking.length > 100 ? '~' + Math.round(block.thinking.length/4) + ' tokens' : ''"></span>
+                                </button>
+                                <div x-show="expanded" x-transition class="mt-1 pl-4 border-l border-warm-200 dark:border-warm-700">
+                                  <pre class="text-xs font-mono text-warm-500 italic whitespace-pre-wrap max-h-64 overflow-y-auto leading-relaxed" x-text="block.thinking || '(redacted)'"></pre>
+                                </div>
+                              </div>
+                            </template>
+                            <!-- Text -->
+                            <template x-if="block.type === 'text'">
+                              <div class="text-sm whitespace-pre-wrap leading-relaxed" x-text="block.text"></div>
+                            </template>
+                            <!-- Tool call -->
+                            <template x-if="block.type === 'tool_call'">
+                              <div x-data="{ expanded: false }" class="pl-4 border-l-2 border-terra-200 dark:border-terra-800">
+                                <button @click="expanded = !expanded" class="text-xs font-mono cursor-pointer flex items-center gap-2">
+                                  <span x-text="expanded ? '▾' : '▸'" class="text-warm-400"></span>
+                                  <span class="font-medium text-terra-600 dark:text-terra-400" x-text="block.name"></span>
+                                  <span class="text-warm-300" x-text="block.id ? block.id.slice(-6) : ''"></span>
+                                </button>
+                                <div x-show="expanded" x-transition class="mt-1">
+                                  <pre class="text-[10px] font-mono text-warm-600 dark:text-warm-400 bg-warm-100 dark:bg-warm-900 p-2 overflow-x-auto" x-text="JSON.stringify(block.arguments, null, 2)"></pre>
+                                </div>
+                              </div>
+                            </template>
+                          </div>
+                        </template>
+                        <div class="flex items-center gap-3 text-[10px] font-mono text-warm-300">
+                          <span x-show="msg.model" x-text="msg.model"></span>
+                          <span x-text="formatTime(msg.timestamp)"></span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </template>
-              </div>
-            </template>
+                  </template>
+
+                  <!-- Tool result -->
+                  <template x-if="msg.role === 'tool'">
+                    <div class="flex gap-4">
+                      <div class="w-16 shrink-0"></div>
+                      <div class="flex-1 min-w-0 pl-4" :class="msg.is_error ? 'border-l-2 border-red-400 dark:border-red-700' : 'border-l-2 border-green-400 dark:border-green-700'">
+                        <div x-data="{ expanded: false }">
+                          <button @click="expanded = !expanded" class="text-xs font-mono cursor-pointer flex items-center gap-2">
+                            <span x-text="expanded ? '▾' : '▸'" class="text-warm-400"></span>
+                            <span :class="msg.is_error ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-500'" x-text="msg.tool_name || 'tool'"></span>
+                            <span x-show="msg.is_error" class="text-red-500 text-[10px]">error</span>
+                            <span class="text-warm-300 text-[10px]" x-text="msg.content ? (msg.content.length > 200 ? '~' + Math.round(msg.content.length/4) + ' tokens' : msg.content.length + ' chars') : ''"></span>
+                          </button>
+                          <div x-show="expanded" x-transition class="mt-1">
+                            <pre class="text-[10px] font-mono whitespace-pre-wrap max-h-64 overflow-y-auto leading-relaxed"
+                                 :class="msg.is_error ? 'text-red-600 dark:text-red-400' : 'text-warm-600 dark:text-warm-400'"
+                                 x-text="msg.content || '(empty)'"></pre>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
           </div>
         </div>
       </template>
 
-      <!-- Session list (when no detail selected) -->
+      <!-- Session list -->
       <template x-if="!sessionDetail">
         <div>
-          <h2 class="text-lg font-semibold mb-4">Sessions</h2>
-          <div class="space-y-2">
+          <p class="text-[11px] font-mono font-medium tracking-[0.15em] text-terra-500 uppercase mb-3">Sessions</p>
+          <h1 class="font-serif text-3xl md:text-4xl tracking-tight mb-3">Conversations</h1>
+          <p class="text-warm-500 text-sm mb-8 max-w-lg">Browse and inspect past sessions across all channels.</p>
+          <div class="border-t border-warm-200 dark:border-warm-800 divide-y divide-warm-200 dark:divide-warm-800">
             <template x-for="s in sessions" :key="s.id">
-              <div @click="openSession(s.id)" class="rounded-xl border border-surface-3 bg-surface-0 shadow-card hover:shadow-card-hover transition-shadow px-4 py-3 cursor-pointer">
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <span class="font-medium text-sm truncate" x-text="s.title || 'Untitled'"></span>
-                    <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium uppercase tracking-wider shrink-0"
-                      :class="s.channel === 'telegram' ? 'bg-blue-50 text-blue-600' : s.channel === 'cli' ? 'bg-surface-2 text-ink-2' : s.channel === 'qq' ? 'bg-green-50 text-green-600' : 'bg-purple-50 text-purple-600'"
-                      x-text="s.channel || '?'"></span>
-                    <span x-show="s.agent_id" class="text-[10px] px-1.5 py-0.5 rounded-full bg-primary-50 text-primary-600 font-medium shrink-0" x-text="s.agent_id"></span>
-                    <span x-show="s.archived" class="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-2 text-ink-2 font-medium shrink-0">archived</span>
+              <div @click="openSession(s.id)" class="py-4 cursor-pointer group">
+                <div class="flex items-baseline justify-between">
+                  <div class="flex items-baseline gap-3 min-w-0">
+                    <span class="font-medium truncate group-hover:text-terra-500 transition-colors" x-text="s.title || 'Untitled'"></span>
+                    <span class="text-[10px] font-mono text-warm-400 shrink-0" x-text="s.channel"></span>
+                    <span x-show="s.agent_id" class="text-[10px] font-mono text-warm-400 shrink-0" x-text="s.agent_id"></span>
+                    <span x-show="s.archived" class="text-[10px] font-mono text-warm-300 shrink-0">archived</span>
                   </div>
-                  <div class="flex items-center gap-2 shrink-0 ml-3">
-                    <span class="text-[10px] text-ink-3" x-text="formatTime(s.last_active)"></span>
-                    <svg class="w-3.5 h-3.5 text-ink-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
-                  </div>
+                  <span class="text-[10px] font-mono text-warm-300 shrink-0 ml-3" x-text="formatTime(s.last_active)"></span>
                 </div>
-                <div class="text-[10px] text-ink-3 font-mono mt-1 truncate" x-text="s.id"></div>
               </div>
             </template>
-            <div x-show="sessions.length === 0" class="text-sm text-ink-2 text-center py-8">No sessions yet</div>
           </div>
+          <div x-show="sessions.length === 0" class="py-16 text-center text-sm text-warm-500">No sessions yet.</div>
         </div>
       </template>
     </section>
 
-    <!-- ==================== SCHEDULER TAB ==================== -->
+    <!-- ════════ SCHEDULER ════════ -->
     <section x-show="tab === 'scheduler'" x-transition.opacity.duration.150ms>
-
-      <!-- New / Edit form -->
-      <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card overflow-hidden mb-5">
-        <div class="flex items-center gap-2 px-4 py-2.5 border-b border-surface-2">
-          <svg class="w-4 h-4 text-primary-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
-          <span class="text-sm font-medium text-ink-0" x-text="editingJobId ? 'Edit Job' : 'New Job'"></span>
-          <button x-show="editingJobId" @click="resetJobForm()"
-                  class="ml-auto text-[11px] text-ink-2 hover:text-ink-0 cursor-pointer">Cancel</button>
-        </div>
-        <div class="px-4 py-4 space-y-3">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <p class="text-[11px] font-mono font-medium tracking-[0.15em] text-terra-500 uppercase mb-3">Scheduler</p>
+      <h1 class="font-serif text-3xl md:text-4xl tracking-tight mb-3">Scheduled tasks</h1>
+      <p class="text-warm-500 text-sm mb-8 max-w-lg">Recurring jobs that Anna executes on a schedule.</p>
+      <div class="border-t border-warm-200 dark:border-warm-800 pt-8">
+        <!-- Job form -->
+        <div class="mb-8 pb-8 border-b border-warm-200 dark:border-warm-800">
+          <div class="flex items-center justify-between mb-4">
+            <p class="text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider" x-text="editingJobId ? 'EDIT JOB' : 'NEW JOB'"></p>
+            <button x-show="editingJobId" @click="resetJobForm()" class="text-xs text-warm-400 hover:text-warm-600 cursor-pointer">Cancel</button>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 mb-4">
             <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Name</label>
-              <input type="text" x-model="jobForm.name" placeholder="Daily summary"
-                     class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+              <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Name</label>
+              <input type="text" x-model="jobForm.name" placeholder="Daily summary" class="input-line w-full h-9 text-sm">
             </div>
             <div>
-              <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Session Mode</label>
-              <select x-model="jobForm.session_mode"
-                      class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all cursor-pointer appearance-none">
-                <option value="reuse">Reuse session</option>
-                <option value="new">New session each run</option>
+              <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Session Mode</label>
+              <select x-model="jobForm.session_mode" class="input-line w-full h-9 text-sm bg-transparent">
+                <option value="reuse">Reuse session</option><option value="new">New session each run</option>
               </select>
             </div>
           </div>
-          <div>
-            <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Schedule</label>
-            <div class="flex items-center gap-2 mb-2">
-              <label class="inline-flex items-center gap-1.5 cursor-pointer">
-                <input type="radio" x-model="jobForm.schedule_type" value="cron" class="accent-primary-600">
-                <span class="text-xs text-ink-1">Cron expression</span>
-              </label>
-              <label class="inline-flex items-center gap-1.5 cursor-pointer">
-                <input type="radio" x-model="jobForm.schedule_type" value="every" class="accent-primary-600">
-                <span class="text-xs text-ink-1">Interval</span>
-              </label>
+          <div class="mb-4">
+            <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-2">Schedule</label>
+            <div class="flex items-center gap-4 mb-2">
+              <label class="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" x-model="jobForm.schedule_type" value="cron" class="accent-terra-500"> Cron</label>
+              <label class="flex items-center gap-2 text-sm cursor-pointer"><input type="radio" x-model="jobForm.schedule_type" value="every" class="accent-terra-500"> Interval</label>
             </div>
-            <input x-show="jobForm.schedule_type === 'cron'" type="text" x-model="jobForm.cron" placeholder="0 9 * * 1-5 (weekdays at 9am)"
-                   class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
-            <input x-show="jobForm.schedule_type === 'every'" type="text" x-model="jobForm.every" placeholder="30m, 2h, 1h30m"
-                   class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm font-mono shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all">
+            <input x-show="jobForm.schedule_type === 'cron'" type="text" x-model="jobForm.cron" placeholder="0 9 * * 1-5" class="input-line w-full h-9 text-sm font-mono">
+            <input x-show="jobForm.schedule_type === 'every'" type="text" x-model="jobForm.every" placeholder="30m, 2h" class="input-line w-full h-9 text-sm font-mono">
           </div>
-          <div>
-            <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Agent</label>
-            <select x-model="jobForm.agent_id"
-                    class="w-full h-10 rounded-lg border border-surface-4 bg-surface-0 px-3 text-sm shadow-card focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all cursor-pointer appearance-none">
+          <div class="mb-4">
+            <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Agent</label>
+            <select x-model="jobForm.agent_id" class="input-line w-full h-9 text-sm bg-transparent">
               <option value="">Default agent</option>
-              <template x-for="a in agents" :key="a.id">
-                <option :value="a.id" x-text="a.name"></option>
-              </template>
+              <template x-for="a in agents" :key="a.id"><option :value="a.id" x-text="a.name"></option></template>
             </select>
           </div>
-          <div>
-            <label class="text-[11px] font-medium text-ink-2 uppercase tracking-wider mb-1.5 block">Message / Instruction</label>
-            <textarea x-model="jobForm.message" rows="3" placeholder="What should the agent do when this job runs?"
-                      class="w-full rounded-lg border border-surface-4 bg-surface-0 px-3 py-2 text-sm shadow-card placeholder:text-ink-3 focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all resize-y"></textarea>
+          <div class="mb-4">
+            <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Message</label>
+            <textarea x-model="jobForm.message" rows="2" placeholder="What should the agent do?" class="input-line w-full text-sm py-2 resize-y"></textarea>
           </div>
-          <div class="flex items-center justify-between pt-1">
-            <label class="inline-flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" x-model="jobForm.enabled" class="accent-primary-600 w-4 h-4 rounded">
-              <span class="text-xs text-ink-1">Enabled</span>
-            </label>
+          <div class="flex items-center justify-between">
+            <label class="flex items-center gap-2 cursor-pointer text-sm"><input type="checkbox" x-model="jobForm.enabled" class="accent-terra-500 w-4 h-4"> Enabled</label>
             <button @click="saveJob()" :disabled="!jobForm.name || !jobForm.message || (jobForm.schedule_type === 'cron' ? !jobForm.cron : !jobForm.every)"
-                    class="inline-flex items-center gap-1.5 h-8 px-3.5 text-xs font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer">
-              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
-              <span x-text="editingJobId ? 'Update' : 'Create'"></span>
-            </button>
+                    class="px-4 h-9 text-sm font-medium text-white bg-terra-500 hover:bg-terra-600 disabled:opacity-40 disabled:cursor-not-allowed rounded-sm transition-colors cursor-pointer"
+                    x-text="editingJobId ? 'Update' : 'Create'"></button>
           </div>
         </div>
-      </div>
 
-      <!-- Job list -->
-      <template x-if="jobs.length === 0">
-        <div class="rounded-xl border-2 border-dashed border-surface-3 py-16 text-center">
-          <div class="w-10 h-10 rounded-full bg-surface-2 flex items-center justify-center mx-auto mb-3">
-            <svg class="w-5 h-5 text-ink-3" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
-          </div>
-          <p class="text-sm text-ink-2">No scheduled jobs</p>
-          <p class="text-xs text-ink-3 mt-0.5">Create one above to run tasks on a schedule</p>
-        </div>
-      </template>
-
-      <div class="space-y-2">
-        <template x-for="j in jobs" :key="j.id">
-          <div class="rounded-xl border border-surface-3 bg-surface-0 shadow-card hover:shadow-card-hover transition-shadow px-4 py-3">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-3 min-w-0">
-                <button @click="toggleJob(j)" class="shrink-0 cursor-pointer" :title="j.enabled ? 'Disable' : 'Enable'">
-                  <div class="w-8 h-5 rounded-full transition-colors duration-200 flex items-center"
-                       :class="j.enabled ? 'bg-primary-500' : 'bg-surface-4'">
-                    <div class="w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform duration-200"
-                         :class="j.enabled ? 'translate-x-[14px]' : 'translate-x-[3px]'"></div>
-                  </div>
-                </button>
-                <div class="min-w-0">
-                  <div class="text-sm font-medium text-ink-0 truncate" x-text="j.name"></div>
-                  <div class="text-[11px] text-ink-2 font-mono mt-0.5"
-                       x-text="j.cron ? ('cron: ' + j.cron) : ('every ' + j.every)"></div>
+        <!-- Job list -->
+        <div class="divide-y divide-warm-200 dark:divide-warm-800">
+          <template x-for="j in jobs" :key="j.id">
+            <div class="py-5 group">
+              <div class="flex items-baseline justify-between">
+                <div class="flex items-baseline gap-3">
+                  <span class="font-medium" x-text="j.name"></span>
+                  <span class="text-[10px] font-mono uppercase tracking-wider" :class="j.enabled ? 'text-green-600 dark:text-green-500' : 'text-warm-400'" x-text="j.enabled ? 'on' : 'off'"></span>
+                  <span class="text-xs font-mono text-warm-400" x-text="j.cron ? j.cron : 'every ' + j.every"></span>
+                </div>
+                <div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button @click="toggleJob(j)" class="text-xs text-warm-400 hover:text-warm-600 cursor-pointer" x-text="j.enabled ? 'disable' : 'enable'"></button>
+                  <button @click="editJob(j)" class="text-xs text-warm-400 hover:text-terra-500 cursor-pointer">edit</button>
+                  <button @click="confirmDelete('Delete this job?', () => doDeleteJob(j.id))" class="text-xs text-warm-400 hover:text-red-600 dark:hover:text-red-400 cursor-pointer">remove</button>
                 </div>
               </div>
-              <div class="flex items-center gap-1 shrink-0 ml-3">
-                <button @click="editJob(j)" class="p-1.5 rounded-md text-ink-3 hover:text-primary-600 hover:bg-primary-50 transition-colors cursor-pointer" title="Edit">
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125"/></svg>
-                </button>
-                <button @click="deleteJob(j.id)" class="p-1.5 rounded-md text-ink-3 hover:text-danger-500 hover:bg-danger-50 transition-colors cursor-pointer" title="Delete">
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
-                </button>
+              <div class="text-sm text-warm-500 mt-1 line-clamp-1" x-text="j.message"></div>
+              <div class="flex items-center gap-2 mt-1">
+                <span class="text-[10px] font-mono text-warm-400" x-text="j.session_mode"></span>
+                <span x-show="j.agent_id" class="text-[10px] font-mono text-warm-300">·</span>
+                <span x-show="j.agent_id" class="text-[10px] font-mono text-warm-400" x-text="j.agent_id"></span>
               </div>
             </div>
-            <div class="mt-2 text-xs text-ink-2 line-clamp-2" x-text="j.message"></div>
-            <div class="mt-1.5 flex items-center gap-2">
-              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium"
-                    :class="j.session_mode === 'new' ? 'bg-primary-50 text-primary-700' : 'bg-surface-2 text-ink-2'"
-                    x-text="j.session_mode === 'new' ? 'new session' : 'reuse session'"></span>
-              <span x-show="j.agent_id" class="text-[10px] text-ink-2" x-text="'agent: ' + j.agent_id"></span>
-            </div>
-          </div>
-        </template>
+          </template>
+        </div>
+        <div x-show="jobs.length === 0" class="py-16 text-center text-sm text-warm-500">No jobs yet. Create one above to schedule recurring tasks.</div>
       </div>
     </section>
 
-    <!-- ==================== SETTINGS TAB ==================== -->
+    <!-- ════════ SETTINGS ════════ -->
     <section x-show="tab === 'settings'" x-transition.opacity.duration.150ms>
-      <h2 class="text-lg font-semibold mb-4">Settings</h2>
-      <div class="space-y-4">
+      <p class="text-[11px] font-mono font-medium tracking-[0.15em] text-terra-500 uppercase mb-3">Settings</p>
+      <h1 class="font-serif text-3xl md:text-4xl tracking-tight mb-3">System configuration</h1>
+      <p class="text-warm-500 text-sm mb-8 max-w-lg">Raw JSON settings for runner, compaction, heartbeat, scheduler, and plugins.</p>
+      <div class="border-t border-warm-200 dark:border-warm-800 divide-y divide-warm-200 dark:divide-warm-800">
         <template x-for="key in settingsKeys" :key="key">
-          <div class="bg-white rounded-lg shadow-card p-4">
-            <div class="flex items-center justify-between mb-2">
-              <h3 class="font-medium font-mono text-sm" x-text="key"></h3>
-              <button @click="saveSetting(key)" class="inline-flex items-center gap-1.5 h-8 px-3.5 text-xs font-medium text-white bg-primary-600 rounded-md hover:bg-primary-700 transition-all cursor-pointer">Save</button>
+          <div class="py-6">
+            <div class="flex items-center justify-between mb-3">
+              <span class="font-mono font-medium" x-text="key"></span>
+              <button @click="saveSetting(key)" class="px-3 h-8 text-xs font-medium text-white bg-terra-500 hover:bg-terra-600 rounded-sm transition-colors cursor-pointer">Save</button>
             </div>
-            <textarea
-              x-model="settingsEditors[key]"
-              rows="4"
-              class="w-full px-3 py-2 border border-surface-4 rounded-md text-sm font-mono focus:outline-none focus:border-primary-400 focus:shadow-input-focus transition-all"></textarea>
+            <textarea x-model="settingsEditors[key]" rows="6" class="input-line w-full text-sm font-mono py-2 resize-y"></textarea>
           </div>
         </template>
       </div>
     </section>
-
   </main>
 
-  <!-- Footer -->
-  <footer class="border-t border-surface-3 bg-surface-0/60 backdrop-blur-sm">
-    <div class="max-w-4xl mx-auto px-5 py-3 flex items-center justify-between">
-      <span class="text-[11px] text-ink-3 font-mono">~/.anna/anna.db</span>
-      <span class="text-[11px] text-ink-3">Press <kbd class="px-1 py-0.5 bg-surface-2 rounded text-ink-2 font-mono text-[10px]">Ctrl+C</kbd> in terminal to close</span>
+  <!-- ─── FOOTER ─── -->
+  <footer class="border-t border-warm-200 dark:border-warm-800 mt-20">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between text-[10px] font-mono text-warm-400">
+      <span>~/.anna/anna.db</span>
+      <span>anna admin</span>
     </div>
   </footer>
+
+  <!-- Inline confirm (replaces modal) -->
+  <div x-show="confirmMsg" x-transition class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-warm-900 dark:bg-warm-100 text-warm-100 dark:text-warm-900 px-4 py-3 rounded-sm flex items-center gap-4 text-sm font-medium">
+    <span x-text="confirmMsg"></span>
+    <button @click="confirmAction(); confirmMsg = ''" class="text-red-400 dark:text-red-600 hover:text-red-300 cursor-pointer font-medium">Confirm</button>
+    <button @click="confirmMsg = ''" class="text-warm-400 hover:text-warm-300 dark:hover:text-warm-600 cursor-pointer">Cancel</button>
+  </div>
 </div>
 
 <script>
 function adminApp() {
   const providerDefaults = {
-    'anthropic':       { base_url: 'https://api.anthropic.com', name: 'Anthropic' },
-    'openai':          { base_url: 'https://api.openai.com/v1', name: 'OpenAI' },
+    'anthropic': { base_url: 'https://api.anthropic.com', name: 'Anthropic' },
+    'openai': { base_url: 'https://api.openai.com/v1', name: 'OpenAI' },
     'openai-response': { base_url: 'https://api.openai.com/v1', name: 'OpenAI Response' },
   };
 
@@ -997,9 +785,10 @@ function adminApp() {
     status: '',
     toast: '',
     toastType: 'success',
+    confirmMsg: '',
+    confirmAction: () => {},
     providerDefaults,
 
-    // Data
     providers: [],
     providerModels: {},
     newProviderType: '',
@@ -1011,6 +800,9 @@ function adminApp() {
     sessionMessages: [],
     sessionMessagesLoading: false,
     sessionSystemPrompt: '',
+    tools: [],
+    toolsLoading: false,
+    showTools: false,
     jobs: [],
     channelData: {
       telegram: { enabled: false, enable_notify: false, token: '', notify_chat: '', channel_id: '', group_mode: '', allowed_ids: [] },
@@ -1020,12 +812,9 @@ function adminApp() {
     settingsKeys: ['runner', 'compaction', 'heartbeat', 'scheduler', 'plugins'],
     settingsEditors: {},
 
-    // Agent form
     showAgentForm: false,
     editingAgentId: null,
     agentForm: { id: '', name: '', model: '', model_strong: '', model_fast: '', system_prompt: '', workspace: '', enabled: true },
-
-    // Job form
     editingJobId: null,
     jobForm: { name: '', cron: '', every: '', message: '', session_mode: 'reuse', enabled: true, agent_id: '', schedule_type: 'cron' },
 
@@ -1034,55 +823,24 @@ function adminApp() {
       return Object.keys(providerDefaults).filter(p => !existing.has(p));
     },
 
-    // Model helpers for agent form autocomplete
     allProviderModels() {
-      const all = [];
-      const seen = new Set();
-      for (const p of this.providers) {
-        const models = this.providerModels[p.id] || [];
-        for (const m of models) {
-          const ref = p.id + '/' + m;
-          if (!seen.has(ref)) { seen.add(ref); all.push(ref); }
-        }
-      }
+      const all = [], seen = new Set();
+      for (const p of this.providers) { for (const m of (this.providerModels[p.id] || [])) { const ref = p.id + '/' + m; if (!seen.has(ref)) { seen.add(ref); all.push(ref); } } }
       return all;
     },
+    filteredProviderModels(search) { const all = this.allProviderModels(); if (!search) return all; const q = search.toLowerCase(); return all.filter(m => m.toLowerCase().includes(q)); },
+    getModelValue(field) { return this.agentForm[field]; },
+    setModelValue(field, value) { this.agentForm[field] = value; },
 
-    filteredProviderModels(search) {
-      const all = this.allProviderModels();
-      if (!search) return all;
-      const q = search.toLowerCase();
-      return all.filter(m => m.toLowerCase().includes(q));
-    },
-
-    getModelValue(field) {
-      return this.agentForm[field];
-    },
-
-    setModelValue(field, value) {
-      this.agentForm[field] = value;
-    },
-
-    // Init
     async init() {
-      await Promise.all([
-        this.loadProviders(),
-        this.loadAgents(),
-        this.loadUsers(),
-        this.loadSessions(),
-        this.loadJobs(),
-        this.loadChannels(),
-        this.loadSettings(),
-      ]);
+      await Promise.all([this.loadProviders(), this.loadAgents(), this.loadUsers(), this.loadSessions(), this.loadJobs(), this.loadChannels(), this.loadSettings(), this.loadTools()]);
       this.newProviderType = this.addableProviders[0] || '';
       this.status = 'Connected';
     },
 
-    showToast(msg, type = 'success') {
-      this.toast = msg;
-      this.toastType = type;
-      setTimeout(() => this.toast = '', 3000);
-    },
+    showToast(msg, type = 'success') { this.toast = msg; this.toastType = type; setTimeout(() => this.toast = '', 3000); },
+
+    confirmDelete(msg, action) { this.confirmMsg = msg; this.confirmAction = action; },
 
     async api(method, path, body = null) {
       const opts = { method, headers: { 'Content-Type': 'application/json' } };
@@ -1093,341 +851,56 @@ function adminApp() {
       return json.data;
     },
 
-    // --- Providers ---
-    async loadProviders() {
-      try {
-        const list = await this.api('GET', '/api/providers') || [];
-        // Add reactive helper properties for UI state.
-        this.providers = list.map(p => ({ ...p, _fetching: false, _modelCount: 0, _showModels: false }));
-      }
-      catch(e) { console.error(e); }
-    },
+    // Providers
+    async loadProviders() { try { const list = await this.api('GET', '/api/providers') || []; this.providers = list.map(p => ({ ...p, _fetching: false, _modelCount: 0, _showModels: false })); } catch(e) { console.error(e); } },
+    async addProvider() { if (!this.newProviderType) return; const d = providerDefaults[this.newProviderType] || {}; try { await this.api('POST', '/api/providers', { id: this.newProviderType, name: d.name || this.newProviderType, api_key: '', base_url: '' }); await this.loadProviders(); this.newProviderType = this.addableProviders[0] || ''; this.showToast('Provider added'); } catch(e) { this.showToast(e.message, 'error'); } },
+    async saveProvider(p) { try { await this.api('PUT', '/api/providers/' + p.id, { id: p.id, name: p.name, api_key: p.api_key, base_url: p.base_url }); await this.loadProviders(); this.showToast('Saved'); } catch(e) { this.showToast(e.message, 'error'); } },
+    async doDeleteProvider(id) { try { await this.api('DELETE', '/api/providers/' + id); await this.loadProviders(); this.showToast('Deleted'); } catch(e) { this.showToast(e.message, 'error'); } },
+    async fetchModels(p) { p._fetching = true; try { const models = await this.api('POST', '/api/providers/' + p.id + '/models', { api_key: p.api_key, base_url: p.base_url }); this.providerModels[p.id] = models || []; p._modelCount = this.providerModels[p.id].length; this.showToast(p._modelCount + ' models fetched'); } catch(e) { this.showToast(e.message, 'error'); } finally { p._fetching = false; } },
 
-    async addProvider() {
-      if (!this.newProviderType) return;
-      const defaults = providerDefaults[this.newProviderType] || {};
-      try {
-        await this.api('POST', '/api/providers', {
-          id: this.newProviderType,
-          name: defaults.name || this.newProviderType,
-          api_key: '',
-          base_url: '',
-        });
-        await this.loadProviders();
-        this.newProviderType = this.addableProviders[0] || '';
-        this.showToast('Provider added');
-      } catch(e) { this.showToast(e.message, 'error'); }
-    },
-
-    async saveProvider(p) {
-      try {
-        await this.api('PUT', '/api/providers/' + p.id, {
-          id: p.id,
-          name: p.name,
-          api_key: p.api_key,
-          base_url: p.base_url,
-        });
-        await this.loadProviders();
-        this.showToast('Provider saved');
-      } catch(e) { this.showToast(e.message, 'error'); }
-    },
-
-    async deleteProvider(id) {
-      if (!confirm('Delete provider ' + id + '?')) return;
-      try { await this.api('DELETE', '/api/providers/' + id); await this.loadProviders(); this.showToast('Provider deleted'); }
-      catch(e) { this.showToast(e.message, 'error'); }
-    },
-
-    async fetchModels(p) {
-      p._fetching = true;
-      try {
-        const models = await this.api('POST', '/api/providers/' + p.id + '/models', {
-          api_key: p.api_key,
-          base_url: p.base_url,
-        });
-        this.providerModels[p.id] = models || [];
-        p._modelCount = this.providerModels[p.id].length;
-        this.showToast('Fetched ' + p._modelCount + ' models from ' + p.id);
-      } catch(e) { this.showToast(e.message, 'error'); }
-      finally { p._fetching = false; }
-    },
-
-    // --- Agents ---
+    // Agents
     async loadAgents() { try { this.agents = await this.api('GET', '/api/agents') || []; } catch(e) { console.error(e); } },
     resetAgentForm() { this.agentForm = { id: '', name: '', model: '', model_strong: '', model_fast: '', system_prompt: '', workspace: '', enabled: true }; this.editingAgentId = null; this.showAgentForm = false; },
-    editAgent(a) {
-      this.agentForm = { ...a };
-      this.editingAgentId = a.id;
-      this.showAgentForm = true;
-    },
-    async saveAgent() {
-      try {
-        if (this.editingAgentId) {
-          await this.api('PUT', '/api/agents/' + this.editingAgentId, this.agentForm);
-        } else {
-          await this.api('POST', '/api/agents', this.agentForm);
-        }
-        this.resetAgentForm();
-        await this.loadAgents();
-        this.showToast('Agent saved');
-      } catch(e) { this.showToast(e.message, 'error'); }
-    },
-    async deleteAgent(id) {
-      if (!confirm('Delete agent ' + id + '?')) return;
-      try { await this.api('DELETE', '/api/agents/' + id); await this.loadAgents(); this.showToast('Agent deleted'); }
-      catch(e) { this.showToast(e.message, 'error'); }
-    },
+    editAgent(a) { this.agentForm = { ...a }; this.editingAgentId = a.id; this.showAgentForm = true; },
+    async saveAgent() { try { if (this.editingAgentId) { await this.api('PUT', '/api/agents/' + this.editingAgentId, this.agentForm); } else { await this.api('POST', '/api/agents', this.agentForm); } this.resetAgentForm(); await this.loadAgents(); this.showToast('Saved'); } catch(e) { this.showToast(e.message, 'error'); } },
+    async doDeleteAgent(id) { try { await this.api('DELETE', '/api/agents/' + id); await this.loadAgents(); this.showToast('Deleted'); } catch(e) { this.showToast(e.message, 'error'); } },
 
-    // --- Channels ---
-    async loadChannels() {
-      try {
-        const channels = await this.api('GET', '/api/channels') || [];
-        for (const ch of channels) {
-          let cfg = {};
-          try { cfg = JSON.parse(ch.config || '{}'); } catch(_) {}
-          if (ch.id === 'telegram') {
-            this.channelData.telegram = {
-              enabled: ch.enabled,
-              enable_notify: cfg.enable_notify || false,
-              token: cfg.token || '',
-              notify_chat: cfg.notify_chat || '',
-              channel_id: cfg.channel_id || '',
-              group_mode: cfg.group_mode || '',
-              allowed_ids: cfg.allowed_ids || [],
-            };
-          } else if (ch.id === 'qq') {
-            this.channelData.qq = {
-              enabled: ch.enabled,
-              enable_notify: cfg.enable_notify || false,
-              app_id: cfg.app_id || '',
-              app_secret: cfg.app_secret || '',
-              group_mode: cfg.group_mode || '',
-              allowed_ids: cfg.allowed_ids || [],
-            };
-          } else if (ch.id === 'feishu') {
-            this.channelData.feishu = {
-              enabled: ch.enabled,
-              enable_notify: cfg.enable_notify || false,
-              app_id: cfg.app_id || '',
-              app_secret: cfg.app_secret || '',
-              encrypt_key: cfg.encrypt_key || '',
-              verification_token: cfg.verification_token || '',
-              notify_chat: cfg.notify_chat || '',
-              group_mode: cfg.group_mode || '',
-              allowed_ids: cfg.allowed_ids || [],
-            };
-          }
-        }
-      } catch(e) { console.error(e); }
-    },
+    // Channels
+    async loadChannels() { try { const channels = await this.api('GET', '/api/channels') || []; for (const ch of channels) { let cfg = {}; try { cfg = JSON.parse(ch.config || '{}'); } catch(_) {} if (ch.id === 'telegram') { this.channelData.telegram = { enabled: ch.enabled, enable_notify: cfg.enable_notify || false, token: cfg.token || '', notify_chat: cfg.notify_chat || '', channel_id: cfg.channel_id || '', group_mode: cfg.group_mode || '', allowed_ids: cfg.allowed_ids || [] }; } else if (ch.id === 'qq') { this.channelData.qq = { enabled: ch.enabled, enable_notify: cfg.enable_notify || false, app_id: cfg.app_id || '', app_secret: cfg.app_secret || '', group_mode: cfg.group_mode || '', allowed_ids: cfg.allowed_ids || [] }; } else if (ch.id === 'feishu') { this.channelData.feishu = { enabled: ch.enabled, enable_notify: cfg.enable_notify || false, app_id: cfg.app_id || '', app_secret: cfg.app_secret || '', encrypt_key: cfg.encrypt_key || '', verification_token: cfg.verification_token || '', notify_chat: cfg.notify_chat || '', group_mode: cfg.group_mode || '', allowed_ids: cfg.allowed_ids || [] }; } } } catch(e) { console.error(e); } },
+    async saveChannel(platform) { try { const data = this.channelData[platform]; const { enabled, ...cfg } = data; await this.api('PUT', '/api/channels/' + platform, { enabled, config: JSON.stringify(cfg) }); await this.loadChannels(); this.showToast(platform + ' saved'); } catch(e) { this.showToast(e.message, 'error'); } },
 
-    async saveChannel(platform) {
-      try {
-        const data = this.channelData[platform];
-        const { enabled, ...cfg } = data;
-        await this.api('PUT', '/api/channels/' + platform, {
-          enabled: enabled,
-          config: JSON.stringify(cfg),
-        });
-        await this.loadChannels();
-        this.showToast(platform + ' channel saved');
-      } catch(e) { this.showToast(e.message, 'error'); }
-    },
+    // Users
+    async loadUsers() { try { const list = await this.api('GET', '/api/users') || []; this.users = list.map(u => ({ ...u, _defaultAgent: u.default_agent_id || '', _showMemory: false, _memoryCount: 0, _showAddMemory: false, _newMemoryAgent: '', _newMemoryContent: '' })); } catch(e) { console.error(e); } },
+    async toggleUserMemory(u) { u._showMemory = !u._showMemory; if (u._showMemory) await this.loadUserMemories(u); },
+    async loadUserMemories(u) { try { const mems = await this.api('GET', '/api/users/' + u.id + '/memories') || []; this.userMemories[u.id] = mems.map(m => ({ ...m, _content: m.content })); u._memoryCount = mems.length; } catch(e) { this.showToast(e.message, 'error'); } },
+    async saveUserDefaultAgent(u) { try { await this.api('PUT', '/api/users/' + u.id, { default_agent_id: u._defaultAgent }); u.default_agent_id = u._defaultAgent; this.showToast('Saved'); } catch(e) { this.showToast(e.message, 'error'); } },
+    async saveUserMemory(userId, agentId, content) { try { await this.api('PUT', '/api/users/' + userId + '/memories/' + agentId, { content }); const u = this.users.find(u => u.id === userId); if (u) await this.loadUserMemories(u); this.showToast('Saved'); } catch(e) { this.showToast(e.message, 'error'); } },
+    async doDeleteUserMemory(userId, agentId) { try { await this.api('DELETE', '/api/users/' + userId + '/memories/' + agentId); const u = this.users.find(u => u.id === userId); if (u) await this.loadUserMemories(u); this.showToast('Deleted'); } catch(e) { this.showToast(e.message, 'error'); } },
+    async addUserMemory(u) { if (!u._newMemoryAgent || !u._newMemoryContent) return; try { await this.api('PUT', '/api/users/' + u.id + '/memories/' + u._newMemoryAgent, { content: u._newMemoryContent }); u._showAddMemory = false; u._newMemoryAgent = ''; u._newMemoryContent = ''; await this.loadUserMemories(u); this.showToast('Added'); } catch(e) { this.showToast(e.message, 'error'); } },
 
-    // --- Users ---
-    async loadUsers() {
-      try {
-        const list = await this.api('GET', '/api/users') || [];
-        this.users = list.map(u => ({
-          ...u,
-          _defaultAgent: u.default_agent_id || '',
-          _showMemory: false,
-          _memoryCount: 0,
-          _showAddMemory: false,
-          _newMemoryAgent: '',
-          _newMemoryContent: '',
-        }));
-      } catch(e) { console.error('loadUsers error:', e); this.showToast('Failed to load users: ' + e.message, 'error'); }
-    },
-
-    async toggleUserMemory(u) {
-      u._showMemory = !u._showMemory;
-      if (u._showMemory) await this.loadUserMemories(u);
-    },
-
-    async loadUserMemories(u) {
-      try {
-        const mems = await this.api('GET', '/api/users/' + u.id + '/memories') || [];
-        this.userMemories[u.id] = mems.map(m => ({ ...m, _content: m.content }));
-        u._memoryCount = mems.length;
-      } catch(e) { this.showToast(e.message, 'error'); }
-    },
-
-    async saveUserDefaultAgent(u) {
-      try {
-        await this.api('PUT', '/api/users/' + u.id, { default_agent_id: u._defaultAgent });
-        u.default_agent_id = u._defaultAgent;
-        this.showToast('Default agent updated');
-      } catch(e) { this.showToast(e.message, 'error'); }
-    },
-
-    async saveUserMemory(userId, agentId, content) {
-      try {
-        await this.api('PUT', '/api/users/' + userId + '/memories/' + agentId, { content });
-        const u = this.users.find(u => u.id === userId);
-        if (u) await this.loadUserMemories(u);
-        this.showToast('Memory saved');
-      } catch(e) { this.showToast(e.message, 'error'); }
-    },
-
-    async deleteUserMemory(userId, agentId) {
-      if (!confirm('Delete memory for agent ' + agentId + '?')) return;
-      try {
-        await this.api('DELETE', '/api/users/' + userId + '/memories/' + agentId);
-        const u = this.users.find(u => u.id === userId);
-        if (u) await this.loadUserMemories(u);
-        this.showToast('Memory deleted');
-      } catch(e) { this.showToast(e.message, 'error'); }
-    },
-
-    async addUserMemory(u) {
-      if (!u._newMemoryAgent || !u._newMemoryContent) return;
-      try {
-        await this.api('PUT', '/api/users/' + u.id + '/memories/' + u._newMemoryAgent, { content: u._newMemoryContent });
-        u._showAddMemory = false;
-        u._newMemoryAgent = '';
-        u._newMemoryContent = '';
-        await this.loadUserMemories(u);
-        this.showToast('Memory added');
-      } catch(e) { this.showToast(e.message, 'error'); }
-    },
-
-    // --- Sessions ---
+    // Sessions
     async loadSessions() { try { this.sessions = await this.api('GET', '/api/sessions') || []; } catch(e) { console.error(e); } },
+    async openSession(sessionID) { this.sessionMessagesLoading = true; this.sessionMessages = []; this.sessionSystemPrompt = ''; try { const enc = encodeURIComponent(sessionID); this.sessionDetail = await this.api('GET', '/api/sessions/' + enc); const [msgs, pr] = await Promise.all([this.api('GET', '/api/sessions/' + enc + '/messages'), this.api('GET', '/api/sessions/' + enc + '/system-prompt').catch(() => null)]); this.sessionMessages = msgs || []; if (pr && pr.system_prompt) this.sessionSystemPrompt = pr.system_prompt; } catch(e) { this.showToast(e.message, 'error'); } finally { this.sessionMessagesLoading = false; } },
 
-    async openSession(sessionID) {
-      this.sessionMessagesLoading = true;
-      this.sessionMessages = [];
-      this.sessionSystemPrompt = '';
-      try {
-        const encoded = encodeURIComponent(sessionID);
-        this.sessionDetail = await this.api('GET', '/api/sessions/' + encoded);
-        const [msgs, promptResp] = await Promise.all([
-          this.api('GET', '/api/sessions/' + encoded + '/messages'),
-          this.api('GET', '/api/sessions/' + encoded + '/system-prompt').catch(() => null),
-        ]);
-        this.sessionMessages = msgs || [];
-        if (promptResp && promptResp.system_prompt) this.sessionSystemPrompt = promptResp.system_prompt;
-      } catch(e) { this.showToast(e.message, 'error'); }
-      finally { this.sessionMessagesLoading = false; }
-    },
+    formatTime(ts) { if (!ts) return ''; try { let d = new Date(ts); if (isNaN(d.getTime()) && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(ts)) { d = new Date(ts.replace(' ', 'T') + 'Z'); } if (isNaN(d.getTime())) return ts; const now = new Date(), ms = now - d, min = Math.floor(ms/60000); if (min < 1) return 'just now'; if (min < 60) return min + 'm ago'; const hr = Math.floor(min/60); if (hr < 24) return hr + 'h ago'; const day = Math.floor(hr/24); if (day < 7) return day + 'd ago'; return d.toLocaleDateString(); } catch(_) { return ts; } },
 
-    formatTime(ts) {
-      if (!ts) return '';
-      try {
-        // Handle SQLite datetime format "YYYY-MM-DD HH:MM:SS" (no T, no Z)
-        let d = new Date(ts);
-        if (isNaN(d.getTime()) && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(ts)) {
-          d = new Date(ts.replace(' ', 'T') + 'Z');
-        }
-        if (isNaN(d.getTime())) return ts;
-        const now = new Date();
-        const diffMs = now - d;
-        const diffMin = Math.floor(diffMs / 60000);
-        if (diffMin < 1) return 'just now';
-        if (diffMin < 60) return diffMin + 'm ago';
-        const diffHr = Math.floor(diffMin / 60);
-        if (diffHr < 24) return diffHr + 'h ago';
-        const diffDay = Math.floor(diffHr / 24);
-        if (diffDay < 7) return diffDay + 'd ago';
-        return d.toLocaleDateString();
-      } catch(_) { return ts; }
-    },
+    // Tools
+    async loadTools() { this.toolsLoading = true; try { this.tools = await this.api('GET', '/api/tools') || []; } catch(e) { console.error(e); } finally { this.toolsLoading = false; } },
 
-    // --- Scheduler ---
+    // Scheduler
     async loadJobs() { try { this.jobs = await this.api('GET', '/api/scheduler/jobs') || []; } catch(e) { console.error(e); } },
     resetJobForm() { this.jobForm = { name: '', cron: '', every: '', message: '', session_mode: 'reuse', enabled: true, agent_id: '', schedule_type: 'cron' }; this.editingJobId = null; },
-    editJob(j) {
-      this.editingJobId = j.id;
-      this.jobForm = {
-        name: j.name,
-        message: j.message,
-        schedule_type: j.cron ? 'cron' : 'every',
-        cron: j.cron || '',
-        every: j.every || '',
-        session_mode: j.session_mode || 'reuse',
-        enabled: j.enabled,
-        agent_id: j.agent_id || '',
-      };
-    },
-    async saveJob() {
-      const payload = {
-        name: this.jobForm.name,
-        message: this.jobForm.message,
-        cron: this.jobForm.schedule_type === 'cron' ? this.jobForm.cron : '',
-        every: this.jobForm.schedule_type === 'every' ? this.jobForm.every : '',
-        session_mode: this.jobForm.session_mode,
-        enabled: this.jobForm.enabled,
-        agent_id: this.jobForm.agent_id,
-      };
-      try {
-        if (this.editingJobId) {
-          await this.api('PUT', '/api/scheduler/jobs/' + this.editingJobId, payload);
-        } else {
-          await this.api('POST', '/api/scheduler/jobs', payload);
-        }
-        this.resetJobForm();
-        await this.loadJobs();
-        this.showToast(this.editingJobId ? 'Job updated' : 'Job created');
-      } catch(e) { this.showToast(e.message, 'error'); }
-    },
-    async toggleJob(j) {
-      try {
-        await this.api('PUT', '/api/scheduler/jobs/' + j.id, {
-          name: j.name,
-          message: j.message,
-          cron: j.cron || '',
-          every: j.every || '',
-          session_mode: j.session_mode,
-          enabled: !j.enabled,
-          agent_id: j.agent_id || '',
-        });
-        await this.loadJobs();
-      } catch(e) { this.showToast(e.message, 'error'); }
-    },
-    async deleteJob(id) {
-      if (!confirm('Delete job?')) return;
-      try { await this.api('DELETE', '/api/scheduler/jobs/' + id); await this.loadJobs(); this.showToast('Job deleted'); }
-      catch(e) { this.showToast(e.message, 'error'); }
-    },
+    editJob(j) { this.editingJobId = j.id; this.jobForm = { name: j.name, message: j.message, schedule_type: j.cron ? 'cron' : 'every', cron: j.cron || '', every: j.every || '', session_mode: j.session_mode || 'reuse', enabled: j.enabled, agent_id: j.agent_id || '' }; },
+    async saveJob() { const p = { name: this.jobForm.name, message: this.jobForm.message, cron: this.jobForm.schedule_type === 'cron' ? this.jobForm.cron : '', every: this.jobForm.schedule_type === 'every' ? this.jobForm.every : '', session_mode: this.jobForm.session_mode, enabled: this.jobForm.enabled, agent_id: this.jobForm.agent_id }; try { if (this.editingJobId) { await this.api('PUT', '/api/scheduler/jobs/' + this.editingJobId, p); } else { await this.api('POST', '/api/scheduler/jobs', p); } this.resetJobForm(); await this.loadJobs(); this.showToast('Saved'); } catch(e) { this.showToast(e.message, 'error'); } },
+    async toggleJob(j) { try { await this.api('PUT', '/api/scheduler/jobs/' + j.id, { name: j.name, message: j.message, cron: j.cron || '', every: j.every || '', session_mode: j.session_mode, enabled: !j.enabled, agent_id: j.agent_id || '' }); await this.loadJobs(); } catch(e) { this.showToast(e.message, 'error'); } },
+    async doDeleteJob(id) { try { await this.api('DELETE', '/api/scheduler/jobs/' + id); await this.loadJobs(); this.showToast('Deleted'); } catch(e) { this.showToast(e.message, 'error'); } },
 
-    // --- Settings ---
-    async loadSettings() {
-      for (const key of this.settingsKeys) {
-        try {
-          const result = await this.api('GET', '/api/settings/' + key);
-          this.settingsEditors[key] = typeof result.value === 'object' ? JSON.stringify(result.value, null, 2) : (result.value || '');
-        } catch(e) {
-          this.settingsEditors[key] = '';
-        }
-      }
-    },
-    async saveSetting(key) {
-      try {
-        let val = this.settingsEditors[key];
-        try { val = JSON.parse(val); } catch(_) {}
-        await this.api('PUT', '/api/settings/' + key, { value: val });
-        this.showToast('Setting ' + key + ' saved');
-      } catch(e) { this.showToast(e.message, 'error'); }
-    },
+    // Settings
+    async loadSettings() { for (const key of this.settingsKeys) { try { const r = await this.api('GET', '/api/settings/' + key); this.settingsEditors[key] = typeof r.value === 'object' ? JSON.stringify(r.value, null, 2) : (r.value || ''); } catch(e) { this.settingsEditors[key] = ''; } } },
+    async saveSetting(key) { try { let val = this.settingsEditors[key]; try { val = JSON.parse(val); } catch(_) {} await this.api('PUT', '/api/settings/' + key, { value: val }); this.showToast(key + ' saved'); } catch(e) { this.showToast(e.message, 'error'); } },
   };
 }
-
-// Model combo helper (used by x-data on model fields)
-function modelCombo(field) {
-  return { open: false, search: '' };
-}
+function modelCombo(field) { return { open: false, search: '' }; }
 </script>
-
 </body>
 </html>
