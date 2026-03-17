@@ -24,7 +24,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: 3000,
   },
   build: {
     sourcemap: true,
@@ -34,6 +34,28 @@ export default defineConfig({
   },
   resolve: {
     tsconfigPaths: true,
+    dedupe: ['react', 'react-dom'],
+  },
+  environments: {
+    ssr: {
+      optimizeDeps: {
+        include: [
+          'react',
+          'react-dom',
+          'react-dom/server',
+          'react/jsx-runtime',
+          'react/jsx-dev-runtime',
+          'fumadocs-ui/layouts/home',
+          'fumadocs-ui/layouts/docs',
+          'fumadocs-ui/layouts/docs/page',
+          'fumadocs-ui/layouts/home/not-found',
+          'fumadocs-ui/provider/tanstack',
+          'fumadocs-ui/mdx',
+          'fumadocs-ui/components/card',
+          'fumadocs-ui/components/dialog/search-default',
+        ],
+      },
+    },
   },
   plugins: [
     mdx(sourceConfig),
