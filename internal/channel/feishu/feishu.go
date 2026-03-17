@@ -19,6 +19,7 @@ import (
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/internal/config"
 )
 
 const feishuMaxMessageLen = 4000
@@ -45,11 +46,13 @@ type Config struct {
 
 // Bot wraps a Feishu bot with agent pool integration.
 type Bot struct {
-	client   *lark.Client
-	wsClient *larkws.Client
-	pool     *agent.Pool
-	listFn   ModelListFunc
-	switchFn ModelSwitchFunc
+	client      *lark.Client
+	wsClient    *larkws.Client
+	pool        *agent.Pool // fallback pool (default agent)
+	poolManager *agent.PoolManager
+	store       config.Store
+	listFn      ModelListFunc
+	switchFn    ModelSwitchFunc
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
 
@@ -63,8 +66,25 @@ type Bot struct {
 	cancel  context.CancelFunc
 }
 
+// BotOption configures the Feishu Bot.
+type BotOption func(*Bot)
+
+// WithPoolManager sets the pool manager for multi-agent routing.
+func WithPoolManager(pm *agent.PoolManager) BotOption {
+	return func(b *Bot) {
+		b.poolManager = pm
+	}
+}
+
+// WithStore sets the config store for user resolution and agent routing.
+func WithStore(s config.Store) BotOption {
+	return func(b *Bot) {
+		b.store = s
+	}
+}
+
 // New creates a Feishu bot. Call Start to begin receiving events.
-func New(cfg Config, pool *agent.Pool, listFn ModelListFunc, switchFn ModelSwitchFunc) (*Bot, error) {
+func New(cfg Config, pool *agent.Pool, listFn ModelListFunc, switchFn ModelSwitchFunc, opts ...BotOption) (*Bot, error) {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return nil, fmt.Errorf("feishu: app_id and app_secret are required")
 	}
@@ -86,6 +106,10 @@ func New(cfg Config, pool *agent.Pool, listFn ModelListFunc, switchFn ModelSwitc
 		seenMsgs:   make(map[string]time.Time),
 		allowed:    allowed,
 		cfg:        cfg,
+	}
+
+	for _, opt := range opts {
+		opt(b)
 	}
 
 	return b, nil
@@ -220,15 +244,51 @@ func (b *Bot) isAllowed(openID string) bool {
 	return ok
 }
 
-// channelForChat returns the channel identifier for a Feishu chat.
-func channelForChat(chatID string) string {
-	return "feishu:" + chatID
+// resolvePool resolves the pool and user ID for the current message context.
+// It does: resolve user → resolve agent → get pool.
+func (b *Bot) resolvePool(openID string) (*agent.Pool, int64, error) {
+	ctx := context.Background()
+
+	user, err := channel.ResolveUser(ctx, b.store, openID, "feishu", "")
+	if err != nil {
+		return nil, 0, fmt.Errorf("resolve user: %w", err)
+	}
+
+	chatCtx := channel.ChatContext{
+		Platform: "feishu",
+	}
+
+	agentID, err := channel.ResolveAgent(ctx, b.store, user, chatCtx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("resolve agent: %w", err)
+	}
+
+	pool := b.poolManager.Get(agentID)
+	if pool == nil {
+		return nil, 0, fmt.Errorf("agent pool %q not found", agentID)
+	}
+
+	return pool, user.ID, nil
 }
 
-// resolveSession returns the active session ID for the given channel,
+// buildSessionKey constructs a session key for the given Feishu context.
+func (b *Bot) buildSessionKey(openID, chatID, chatType, agentID string) string {
+	channelCtx := "private"
+	if chatType == "group" {
+		channelCtx = "group:" + chatID
+	}
+	return agent.BuildSessionKey(agentID, "feishu", openID, channelCtx)
+}
+
+// resolveSession returns the active session ID for the given message context,
 // creating a new session if none exists.
-func (b *Bot) resolveSession(ch string) (string, error) {
-	info, err := b.pool.ResolveSession(ch)
+func (b *Bot) resolveSession(openID, chatID, chatType string) (string, error) {
+	pool, userID, err := b.resolvePool(openID)
+	if err != nil {
+		return "", err
+	}
+	sessionKey := b.buildSessionKey(openID, chatID, chatType, pool.AgentID())
+	info, err := pool.ResolveSession(sessionKey, userID)
 	if err != nil {
 		return "", err
 	}
