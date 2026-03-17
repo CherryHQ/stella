@@ -662,34 +662,151 @@
 
     <!-- ==================== SESSIONS TAB ==================== -->
     <section x-show="tab === 'sessions'" x-transition.opacity.duration.150ms>
-      <h2 class="text-lg font-semibold mb-4">Sessions</h2>
-      <div class="bg-white rounded-lg shadow-card overflow-hidden">
-        <table class="w-full text-sm">
-          <thead class="bg-surface-2">
-            <tr>
-              <th class="text-left px-4 py-2 font-medium text-ink-1">Session ID</th>
-              <th class="text-left px-4 py-2 font-medium text-ink-1">Channel</th>
-              <th class="text-left px-4 py-2 font-medium text-ink-1">Title</th>
-              <th class="text-left px-4 py-2 font-medium text-ink-1">Agent</th>
-              <th class="text-left px-4 py-2 font-medium text-ink-1">Last Active</th>
-              <th class="text-left px-4 py-2 font-medium text-ink-1">Archived</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template x-for="s in sessions" :key="s.ID">
-              <tr class="border-t border-surface-3">
-                <td class="px-4 py-2 font-mono text-xs" x-text="s.ID"></td>
-                <td class="px-4 py-2" x-text="s.Channel"></td>
-                <td class="px-4 py-2" x-text="s.Title || '-'"></td>
-                <td class="px-4 py-2" x-text="s.AgentID || '-'"></td>
-                <td class="px-4 py-2 text-xs" x-text="s.LastActive"></td>
-                <td class="px-4 py-2" x-text="s.Archived ? 'Yes' : 'No'"></td>
-              </tr>
+
+      <!-- Session detail view -->
+      <template x-if="sessionDetail">
+        <div>
+          <!-- Back button + header -->
+          <div class="flex items-center gap-3 mb-5">
+            <button @click="sessionDetail = null; sessionMessages = []"
+                    class="p-1.5 rounded-md text-ink-2 hover:text-ink-0 hover:bg-surface-2 transition-colors cursor-pointer">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/></svg>
+            </button>
+            <div class="flex-1 min-w-0">
+              <h2 class="text-lg font-semibold truncate" x-text="sessionDetail.title || 'Untitled Session'"></h2>
+              <div class="flex items-center gap-2 mt-0.5 flex-wrap">
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium uppercase tracking-wider"
+                  :class="sessionDetail.channel === 'telegram' ? 'bg-blue-50 text-blue-600' : sessionDetail.channel === 'cli' ? 'bg-surface-2 text-ink-2' : sessionDetail.channel === 'qq' ? 'bg-green-50 text-green-600' : 'bg-purple-50 text-purple-600'"
+                  x-text="sessionDetail.channel || 'unknown'"></span>
+                <span x-show="sessionDetail.agent_name || sessionDetail.agent_id" class="text-[10px] px-1.5 py-0.5 rounded-full bg-primary-50 text-primary-600 font-medium"
+                  x-text="sessionDetail.agent_name || sessionDetail.agent_id"></span>
+                <span x-show="sessionDetail.user_name" class="text-[10px] px-1.5 py-0.5 rounded-full bg-warn-50 text-warn-600 font-medium"
+                  x-text="sessionDetail.user_name"></span>
+                <span class="text-[10px] text-ink-3" x-text="'Last active: ' + formatTime(sessionDetail.last_active)"></span>
+                <span x-show="sessionDetail.archived" class="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-2 text-ink-2 font-medium">Archived</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Session ID -->
+          <div class="text-[11px] text-ink-3 font-mono mb-4 px-1" x-text="sessionDetail.id"></div>
+
+          <!-- Messages loading -->
+          <div x-show="sessionMessagesLoading" class="text-sm text-ink-2 text-center py-12">Loading messages...</div>
+
+          <!-- Message timeline -->
+          <div x-show="!sessionMessagesLoading" class="space-y-2">
+            <div x-show="sessionMessages.length === 0" class="text-sm text-ink-2 text-center py-8">No messages in this session</div>
+            <template x-for="(msg, idx) in sessionMessages" :key="idx">
+              <div>
+                <!-- User message -->
+                <template x-if="msg.role === 'user'">
+                  <div class="flex justify-end">
+                    <div class="max-w-[80%] rounded-xl rounded-tr-sm bg-primary-600 text-white px-4 py-2.5 shadow-card">
+                      <div class="text-sm whitespace-pre-wrap" x-text="msg.content || (msg.blocks ? msg.blocks.filter(b => b.type === 'text').map(b => b.text).join('') : '')"></div>
+                      <div class="text-[10px] opacity-60 mt-1 text-right" x-text="formatTime(msg.timestamp)"></div>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- Assistant message -->
+                <template x-if="msg.role === 'assistant'">
+                  <div class="flex justify-start">
+                    <div class="max-w-[85%] space-y-1.5">
+                      <template x-for="(block, bi) in (msg.blocks || [])" :key="bi">
+                        <div>
+                          <!-- Thinking block -->
+                          <template x-if="block.type === 'thinking'">
+                            <div x-data="{ expanded: false }" class="rounded-lg border border-surface-3 bg-surface-1 overflow-hidden">
+                              <button @click="expanded = !expanded" class="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-ink-2 hover:bg-surface-2 transition-colors cursor-pointer">
+                                <svg class="w-3 h-3 transition-transform duration-150" :class="expanded ? 'rotate-90' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                                <svg class="w-3 h-3 text-ink-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 0 0 1.5-.189m-1.5.189a6.01 6.01 0 0 1-1.5-.189m3.75 7.478a12.06 12.06 0 0 1-4.5 0m3.75 2.383a14.406 14.406 0 0 1-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 1 0-7.517 0c.85.493 1.509 1.333 1.509 2.316V18"/></svg>
+                                <span x-text="block.redacted ? 'Thinking (redacted)' : 'Thinking'"></span>
+                                <span class="text-ink-3 ml-auto" x-text="block.thinking ? (block.thinking.length > 100 ? Math.round(block.thinking.length/4) + ' tokens' : '') : ''"></span>
+                              </button>
+                              <div x-show="expanded" x-transition class="px-3 py-2 border-t border-surface-3 text-xs font-mono text-ink-2 whitespace-pre-wrap max-h-64 overflow-y-auto" x-text="block.thinking || '(redacted)'"></div>
+                            </div>
+                          </template>
+                          <!-- Text block -->
+                          <template x-if="block.type === 'text'">
+                            <div class="rounded-xl rounded-tl-sm bg-surface-0 border border-surface-3 px-4 py-2.5 shadow-card">
+                              <div class="text-sm whitespace-pre-wrap" x-text="block.text"></div>
+                            </div>
+                          </template>
+                          <!-- Tool call block -->
+                          <template x-if="block.type === 'tool_call'">
+                            <div x-data="{ expanded: false }" class="rounded-lg border border-primary-200 bg-primary-50/30 overflow-hidden">
+                              <button @click="expanded = !expanded" class="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] hover:bg-primary-50 transition-colors cursor-pointer">
+                                <svg class="w-3 h-3 transition-transform duration-150" :class="expanded ? 'rotate-90' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                                <svg class="w-3 h-3 text-primary-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085"/></svg>
+                                <span class="font-mono font-medium text-primary-700" x-text="block.name"></span>
+                                <span class="text-ink-3 font-mono" x-text="block.id ? '(' + block.id.slice(-6) + ')' : ''"></span>
+                              </button>
+                              <div x-show="expanded" x-transition class="px-3 py-2 border-t border-primary-200 text-xs font-mono text-ink-1 whitespace-pre-wrap max-h-48 overflow-y-auto bg-surface-0" x-text="JSON.stringify(block.arguments, null, 2)"></div>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+                      <div class="flex items-center gap-2 px-1">
+                        <span x-show="msg.model" class="text-[10px] text-ink-3 font-mono" x-text="msg.model"></span>
+                        <span class="text-[10px] text-ink-3" x-text="formatTime(msg.timestamp)"></span>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+
+                <!-- Tool result -->
+                <template x-if="msg.role === 'tool'">
+                  <div class="flex justify-start pl-4" x-data="{ expanded: false }">
+                    <div class="max-w-[80%] rounded-lg border overflow-hidden"
+                         :class="msg.is_error ? 'border-danger-500/30 bg-danger-50/30' : 'border-success-500/30 bg-success-50/30'">
+                      <button @click="expanded = !expanded" class="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] cursor-pointer"
+                              :class="msg.is_error ? 'text-danger-600 hover:bg-danger-50' : 'text-success-600 hover:bg-success-50'">
+                        <svg class="w-3 h-3 transition-transform duration-150" :class="expanded ? 'rotate-90' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                        <span class="font-mono font-medium" x-text="msg.tool_name || 'tool'"></span>
+                        <span x-show="msg.is_error" class="text-[10px] px-1 rounded bg-danger-500/10 text-danger-600">error</span>
+                        <span class="text-ink-3 ml-auto text-[10px]" x-text="msg.content ? (msg.content.length > 200 ? Math.round(msg.content.length/4) + ' tokens' : msg.content.length + ' chars') : ''"></span>
+                      </button>
+                      <div x-show="expanded" x-transition class="px-3 py-2 border-t text-xs font-mono whitespace-pre-wrap max-h-64 overflow-y-auto bg-surface-0"
+                           :class="msg.is_error ? 'border-danger-500/20 text-danger-600' : 'border-success-500/20 text-ink-1'"
+                           x-text="msg.content || '(empty)'"></div>
+                    </div>
+                  </div>
+                </template>
+              </div>
             </template>
-          </tbody>
-        </table>
-        <div x-show="sessions.length === 0" class="text-sm text-ink-2 text-center py-8">No sessions yet</div>
-      </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Session list (when no detail selected) -->
+      <template x-if="!sessionDetail">
+        <div>
+          <h2 class="text-lg font-semibold mb-4">Sessions</h2>
+          <div class="space-y-2">
+            <template x-for="s in sessions" :key="s.id">
+              <div @click="openSession(s.id)" class="rounded-xl border border-surface-3 bg-surface-0 shadow-card hover:shadow-card-hover transition-shadow px-4 py-3 cursor-pointer">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="font-medium text-sm truncate" x-text="s.title || 'Untitled'"></span>
+                    <span class="text-[10px] px-1.5 py-0.5 rounded-full font-medium uppercase tracking-wider shrink-0"
+                      :class="s.channel === 'telegram' ? 'bg-blue-50 text-blue-600' : s.channel === 'cli' ? 'bg-surface-2 text-ink-2' : s.channel === 'qq' ? 'bg-green-50 text-green-600' : 'bg-purple-50 text-purple-600'"
+                      x-text="s.channel || '?'"></span>
+                    <span x-show="s.agent_id" class="text-[10px] px-1.5 py-0.5 rounded-full bg-primary-50 text-primary-600 font-medium shrink-0" x-text="s.agent_id"></span>
+                    <span x-show="s.archived" class="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-2 text-ink-2 font-medium shrink-0">archived</span>
+                  </div>
+                  <div class="flex items-center gap-2 shrink-0 ml-3">
+                    <span class="text-[10px] text-ink-3" x-text="formatTime(s.last_active)"></span>
+                    <svg class="w-3.5 h-3.5 text-ink-3" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                  </div>
+                </div>
+                <div class="text-[10px] text-ink-3 font-mono mt-1 truncate" x-text="s.id"></div>
+              </div>
+            </template>
+            <div x-show="sessions.length === 0" class="text-sm text-ink-2 text-center py-8">No sessions yet</div>
+          </div>
+        </div>
+      </template>
     </section>
 
     <!-- ==================== SCHEDULER TAB ==================== -->
@@ -877,6 +994,9 @@ function adminApp() {
     users: [],
     userMemories: {},
     sessions: [],
+    sessionDetail: null,
+    sessionMessages: [],
+    sessionMessagesLoading: false,
     jobs: [],
     channelData: {
       telegram: { enabled: false, enable_notify: false, token: '', notify_chat: '', channel_id: '', group_mode: '', allowed_ids: [] },
@@ -1170,6 +1290,39 @@ function adminApp() {
 
     // --- Sessions ---
     async loadSessions() { try { this.sessions = await this.api('GET', '/api/sessions') || []; } catch(e) { console.error(e); } },
+
+    async openSession(sessionID) {
+      this.sessionMessagesLoading = true;
+      this.sessionMessages = [];
+      try {
+        this.sessionDetail = await this.api('GET', '/api/sessions/' + encodeURIComponent(sessionID));
+        const msgs = await this.api('GET', '/api/sessions/' + encodeURIComponent(sessionID) + '/messages') || [];
+        this.sessionMessages = msgs;
+      } catch(e) { this.showToast(e.message, 'error'); }
+      finally { this.sessionMessagesLoading = false; }
+    },
+
+    formatTime(ts) {
+      if (!ts) return '';
+      try {
+        // Handle SQLite datetime format "YYYY-MM-DD HH:MM:SS" (no T, no Z)
+        let d = new Date(ts);
+        if (isNaN(d.getTime()) && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(ts)) {
+          d = new Date(ts.replace(' ', 'T') + 'Z');
+        }
+        if (isNaN(d.getTime())) return ts;
+        const now = new Date();
+        const diffMs = now - d;
+        const diffMin = Math.floor(diffMs / 60000);
+        if (diffMin < 1) return 'just now';
+        if (diffMin < 60) return diffMin + 'm ago';
+        const diffHr = Math.floor(diffMin / 60);
+        if (diffHr < 24) return diffHr + 'h ago';
+        const diffDay = Math.floor(diffHr / 24);
+        if (diffDay < 7) return diffDay + 'd ago';
+        return d.toLocaleDateString();
+      } catch(_) { return ts; }
+    },
 
     // --- Scheduler ---
     async loadJobs() { try { this.jobs = await this.api('GET', '/api/scheduler/jobs') || []; } catch(e) { console.error(e); } },
