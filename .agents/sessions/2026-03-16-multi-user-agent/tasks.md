@@ -61,3 +61,14 @@
 - [x] 6.4 — Clean up dead code + wire deferred items: BuildSystemPromptFromDB in factory, BuildSessionKey in Telegram, remove onboard.html, remove ProviderConfig (`internal/config/`, `cmd/anna/`, `internal/agent/`, `internal/channel/telegram/`)
 - [x] 6.5 — Update documentation: builtin anna skill + references (`internal/agent/runner/builtin/anna/`)
 - [x] 6.6 — Add tests: session keys, user resolution, agent routing, user memory store, user memory tool, admin API (`*_test.go`)
+
+## Post-Phase 6: System Prompt & User Memory
+
+- [x] 7.1 — Change `NewRunnerFunc` to accept `RunnerParams{Model, UserMemory}` (`internal/agent/runner/runner.go`)
+- [x] 7.2 — Add per-session user memory loading in `Pool.getOrCreateRunner` via `UserMemoryStore` (`internal/agent/pool.go`)
+- [x] 7.3 — Wire `UserMemoryStore` into `PoolManager` and all pools (`internal/agent/pool_manager.go`, `pool_options.go`)
+- [x] 7.4 — Restructure `BuildSystemPromptFromDB` into 3 layers: basic (SYSTEM.md override) + soul (SOUL.md override) + user memory (`internal/agent/runner/prompt.go`)
+- [x] 7.5 — Make `user_memory` tool write-only (no read — content always in system prompt) (`internal/memory/tool/usermemory.go`)
+- [x] 7.6 — Remove old `BuildSystemPrompt`, `InjectUserMemory`, unused embeds/templates (`prompt.go`, `template/`)
+- [x] 7.7 — Delete unused legacy templates: `user.md`, `memories.md.tmpl` (`internal/agent/runner/template/`)
+- [x] 7.8 — Update builtin anna skill to document 3-layer prompt and write-only tool (`internal/agent/runner/builtin/anna/SKILL.md`)
