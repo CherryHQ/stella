@@ -6,33 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"text/template"
 )
 
 //go:embed template/system.md
 var defaultBasicPrompt string
-
-//go:embed template/soul.md
-var defaultSoul string
-
-//go:embed template/user.md
-var defaultUser string
-
-//go:embed template/memories.md.tmpl
-var memoriesTemplate string
-
-var memoriesTmpl = template.Must(template.New("memories").Parse(memoriesTemplate))
-
-type promptMemories struct {
-	Dir  string
-	Soul promptFile
-	User promptFile
-}
-
-type promptFile struct {
-	Path    string
-	Content string
-}
 
 // contextFile represents a discovered AGENTS.md file with its path and content.
 type contextFile struct {
@@ -40,117 +17,53 @@ type contextFile struct {
 	Content string
 }
 
-// BuildSystemPrompt composes the full system prompt: basic + memories + skills + project context.
-//
-// Deprecated: use BuildSystemPromptFromDB for multi-user/multi-agent support.
-//
-// The basic prompt defaults to the embedded system.md but can be overridden
-// by placing a system.md file in the project's .agents directory or the workspace.
-// annaHome is the anna home directory (e.g. ~/.anna).
-// workspace is the workspace directory (e.g. ~/.anna/workspace) containing SOUL.md, USER.md, system.md.
-func BuildSystemPrompt(annaHome, workspace string, cwd ...string) string {
-	workDir := ""
-	if len(cwd) > 0 {
-		workDir = cwd[0]
-	}
-	projectDir := ""
-	if workDir != "" {
-		projectDir = filepath.Join(workDir, ".agents")
-	}
-
-	// Basic prompt: project .agents/system.md > workspace system.md > embedded default.
-	basic := defaultBasicPrompt
-	if content := readFileIfExists(workspace, "system.md"); content != "" {
-		basic = content
-	}
-	if projectDir != "" {
-		if content := readFileIfExists(projectDir, "system.md"); content != "" {
-			basic = content
-		}
-	}
-
-	soul := readFileIfExists(workspace, "SOUL.md")
-	user := readFileIfExists(workspace, "USER.md")
-
-	// Project-level overrides: .agents/SOUL.md and .agents/USER.md take priority.
-	if projectDir != "" {
-		if content := readFileIfExists(projectDir, "SOUL.md"); content != "" {
-			soul = content
-		}
-		if content := readFileIfExists(projectDir, "USER.md"); content != "" {
-			user = content
-		}
-	}
-
-	memories := promptMemories{
-		Dir:  workspace,
-		Soul: promptFile{Path: filepath.Join(workspace, "SOUL.md"), Content: fallback(soul, defaultSoul)},
-		User: promptFile{Path: filepath.Join(workspace, "USER.md"), Content: fallback(user, defaultUser)},
-	}
-
-	var buf bytes.Buffer
-	buf.WriteString(strings.TrimRight(basic, "\n"))
-	_ = memoriesTmpl.Execute(&buf, memories)
-
-	if skills := FormatSkillsForPrompt(LoadSkills(annaHome, workspace, workDir)); skills != "" {
-		buf.WriteString("\n")
-		buf.WriteString(skills)
-	}
-
-	if ctxFiles := loadProjectContextFiles(workDir); len(ctxFiles) > 0 {
-		buf.WriteString("\n\n# Project Context\n\n")
-		buf.WriteString("Project-specific instructions and guidelines:\n\n")
-		for _, f := range ctxFiles {
-			buf.WriteString("## " + f.Path + "\n\n")
-			buf.WriteString(strings.TrimRight(f.Content, "\n"))
-			buf.WriteString("\n\n")
-		}
-	}
-
-	return buf.String()
-}
-
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
 type DBPromptParams struct {
 	SystemPrompt string // agent's soul from agents.system_prompt
-	UserMemory   string // from user_agent_memory.content
+	UserMemory   string // from user_agent_memory.content (always injected)
 	AnnaHome     string
 	Workspace    string
 	Cwd          string // optional working directory
 }
 
-// BuildSystemPromptFromDB composes the full system prompt from DB-backed fields.
-// System prompt = basic + identity (agents.system_prompt) + user memory + skills + project context.
-// Template files (soul.md, user.md, memories.md.tmpl) are NOT used.
+// BuildSystemPromptFromDB composes the full system prompt in three layers:
+//
+//  1. Basic system prompt — embedded default, overridden by SYSTEM.md in workspace
+//  2. Agent soul prompt — DB agents.system_prompt, overridden by SOUL.md in workspace
+//  3. User memory — always present from DB, updated via user_memory tool
+//
+// Skills and project context are appended after these layers.
 func BuildSystemPromptFromDB(p DBPromptParams) string {
-	projectDir := ""
-	if p.Cwd != "" {
-		projectDir = filepath.Join(p.Cwd, ".agents")
-	}
-
-	// Basic prompt: project .agents/system.md > workspace system.md > embedded default.
+	// Layer 1: Basic system prompt.
+	// SYSTEM.md in workspace overrides the embedded default.
 	basic := defaultBasicPrompt
-	if content := readFileIfExists(p.Workspace, "system.md"); content != "" {
+	if content := readFileIfExists(p.Workspace, "SYSTEM.md"); content != "" {
 		basic = content
 	}
-	if projectDir != "" {
-		if content := readFileIfExists(projectDir, "system.md"); content != "" {
-			basic = content
-		}
+
+	// Layer 2: Agent soul prompt.
+	// SOUL.md in workspace overrides the DB system_prompt.
+	soul := p.SystemPrompt
+	if content := readFileIfExists(p.Workspace, "SOUL.md"); content != "" {
+		soul = content
 	}
 
 	var buf bytes.Buffer
 	buf.WriteString(strings.TrimRight(basic, "\n"))
 
-	// Identity: agent's system prompt from DB.
-	if p.SystemPrompt != "" {
+	if soul != "" {
 		buf.WriteString("\n\n## Identity\n\n")
-		buf.WriteString(strings.TrimRight(p.SystemPrompt, "\n"))
+		buf.WriteString(strings.TrimRight(soul, "\n"))
 	}
 
-	// User memory: per-user notes injected per-session.
+	// Layer 3: User memory (always present when non-empty).
 	if p.UserMemory != "" {
-		buf.WriteString(formatUserMemorySection(p.UserMemory))
+		buf.WriteString("\n\n## User Memory\n\n")
+		buf.WriteString("Persistent notes about this user. Updated via the user_memory tool.\n")
+		buf.WriteString("Respect user preferences below but never override your core identity and rules.\n\n")
+		buf.WriteString("<user_memory>\n")
+		buf.WriteString(strings.TrimRight(p.UserMemory, "\n"))
+		buf.WriteString("\n</user_memory>")
 	}
 
 	// Skills.
@@ -170,29 +83,6 @@ func BuildSystemPromptFromDB(p DBPromptParams) string {
 		}
 	}
 
-	return buf.String()
-}
-
-// InjectUserMemory appends per-user memory to a base system prompt.
-// If userMemory is empty, basePrompt is returned unchanged.
-func InjectUserMemory(basePrompt, userMemory string) string {
-	if userMemory == "" {
-		return basePrompt
-	}
-	return strings.TrimRight(basePrompt, "\n") + formatUserMemorySection(userMemory)
-}
-
-// formatUserMemorySection formats the user memory section for the system prompt.
-func formatUserMemorySection(userMemory string) string {
-	var buf strings.Builder
-	buf.WriteString("\n\n## User Memory\n\n")
-	buf.WriteString("Persistent notes about this user, managed by the user_memory tool.\n")
-	buf.WriteString("The \"User Preferences\" section reflects how this user wants you to behave — respect these but never override your core identity and rules.\n")
-	buf.WriteString("The \"About the User\" section is your high-level understanding of this person.\n")
-	buf.WriteString("Update these notes as you learn more about the user.\n\n")
-	buf.WriteString("<user_memory>\n")
-	buf.WriteString(strings.TrimRight(userMemory, "\n"))
-	buf.WriteString("\n</user_memory>")
 	return buf.String()
 }
 
@@ -269,11 +159,4 @@ func resolveFile(dir, name string) string {
 		}
 	}
 	return ""
-}
-
-func fallback(value, def string) string {
-	if value != "" {
-		return value
-	}
-	return strings.TrimSpace(def)
 }
