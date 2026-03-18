@@ -1,5 +1,4 @@
 import { api } from '/static/js/api.js'
-import { allProviderModels, filteredProviderModels } from '/static/js/utils.js'
 
 /**
  * Registers the agentsPage Alpine.data component.
@@ -9,8 +8,6 @@ import { allProviderModels, filteredProviderModels } from '/static/js/utils.js'
 export function register(Alpine) {
   Alpine.data('agentsPage', () => ({
     agents: [],
-    providers: [],
-    providerModels: {},
 
     showForm: false,
     editingId: null,
@@ -23,43 +20,7 @@ export function register(Alpine) {
     confirmAction: () => {},
 
     async init() {
-      await Promise.all([
-        this.loadAgents(),
-        this.loadProvidersAndModels(),
-      ])
-    },
-
-    // --- Model helpers (available to nested x-data scopes) ---
-
-    allModels() {
-      return allProviderModels(this.providers, this.providerModels)
-    },
-
-    filteredModels(search) {
-      return filteredProviderModels(this.allModels(), search)
-    },
-
-    // --- Provider model loading ---
-
-    async loadProvidersAndModels() {
-      try {
-        const list = await api('GET', '/api/providers') || []
-        this.providers = list
-        // Fetch models for each provider in parallel
-        await Promise.all(list.map(async (p) => {
-          try {
-            const models = await api('POST', '/api/providers/' + p.id + '/models', {
-              api_key: p.api_key,
-              base_url: p.base_url,
-            })
-            this.providerModels[p.id] = models || []
-          } catch (_) {
-            // Silently skip providers that fail model fetch
-          }
-        }))
-      } catch (e) {
-        console.error(e)
-      }
+      await this.loadAgents()
     },
 
     // --- Agent CRUD ---
