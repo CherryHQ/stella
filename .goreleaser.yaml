@@ -3,7 +3,6 @@ version: 2
 before:
   hooks:
     - go mod download
-    - bash scripts/download-tools.sh
 
 builds:
   - id: anna
@@ -20,6 +19,9 @@ builds:
     goarch:
       - amd64
       - arm64
+    hooks:
+      pre:
+        - bash scripts/download-tools.sh --goos {{ .Os }} --goarch {{ .Arch }}
 
 archives:
   - id: anna
