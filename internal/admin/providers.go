@@ -134,7 +134,36 @@ func (s *Server) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
 		modelIDs = append(modelIDs, m.ID)
 	}
 
+	// Update models cache: merge newly fetched models with existing cache.
+	s.updateModelsCache(id, modelIDs)
+
 	writeData(w, http.StatusOK, modelIDs)
+}
+
+// updateModelsCache merges fetched models for a provider into the cache file.
+func (s *Server) updateModelsCache(providerID string, modelIDs []string) {
+	cache, err := config.LoadModelsCache()
+	if err != nil {
+		cache = &config.ModelsCache{}
+	}
+
+	// Remove old entries for this provider, then add new ones.
+	filtered := cache.Models[:0]
+	for _, m := range cache.Models {
+		if m.Provider != providerID {
+			filtered = append(filtered, m)
+		}
+	}
+	for _, id := range modelIDs {
+		filtered = append(filtered, config.CachedModel{Provider: providerID, Model: id})
+	}
+
+	cache.Models = filtered
+	cache.UpdatedAt = time.Now().UTC()
+
+	if err := config.SaveModelsCache(cache); err != nil {
+		s.log.Warn("failed to update models cache", "error", err)
+	}
 }
 
 // newProviderFromCreds creates an ai.ProviderAdapter from raw credentials.

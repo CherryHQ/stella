@@ -8,6 +8,7 @@ import { api } from '/static/js/api.js'
 export function register(Alpine) {
   Alpine.data('agentsPage', () => ({
     agents: [],
+    cachedModels: [],
 
     showForm: false,
     editingId: null,
@@ -20,7 +21,27 @@ export function register(Alpine) {
     confirmAction: () => {},
 
     async init() {
-      await this.loadAgents()
+      await Promise.all([
+        this.loadAgents(),
+        this.loadCachedModels(),
+      ])
+    },
+
+    // --- Cached models for autocomplete (no live API calls) ---
+
+    async loadCachedModels() {
+      try {
+        const models = await api('GET', '/api/models') || []
+        this.cachedModels = models.map(m => m.provider + '/' + m.model)
+      } catch (_) {
+        // Cache may not exist yet — model fields still work as plain text
+      }
+    },
+
+    filteredModels(search) {
+      if (!search) return this.cachedModels
+      const q = search.toLowerCase()
+      return this.cachedModels.filter(m => m.toLowerCase().includes(q))
     },
 
     // --- Agent CRUD ---

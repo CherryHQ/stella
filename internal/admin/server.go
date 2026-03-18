@@ -84,6 +84,9 @@ func New(store config.Store, mem memory.Engine, db *sql.DB) *Server {
 	s.mux.HandleFunc("GET /api/settings/{key}", s.getSetting)
 	s.mux.HandleFunc("PUT /api/settings/{key}", s.updateSetting)
 
+	// Models API (cached models, no live provider calls).
+	s.mux.HandleFunc("GET /api/models", s.listCachedModels)
+
 	// Tools API (available tools for agents).
 	s.mux.HandleFunc("GET /api/tools", s.listAgentTools)
 
