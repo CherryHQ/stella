@@ -10,16 +10,19 @@ All Go packages live under `internal/` (app-private).
 
 Side packages: `internal/channel/` (cli, telegram, qq, feishu, notifier) → `internal/scheduler/` → `internal/memory/` → `internal/agent/tool/` → `internal/toolspec/` → `internal/db/` → `internal/config/`
 
+Admin UI: `internal/admin/` — templ + Alpine.js + daisyUI. See `internal/admin/CLAUDE.md` for details.
+
 Config: `~/.anna/config.yaml` | Data: `~/.anna/workspace/` (memory.db, skills, identity files)
 
 ## Tasks
 
 ```bash
-mise run build              # → bin/anna
+mise run build              # → bin/anna (runs generate first)
 mise run test               # -race
 mise run lint               # golangci-lint
 mise run format             # gofmt + go mod tidy
-mise run generate           # sqlc codegen
+mise run generate           # templ generate + sqlc codegen
+mise run templ:watch        # watch templ files + live reload proxy
 mise run atlas:diff -- NAME # generate migration from schema changes
 mise run atlas:hash         # recalculate migration checksum
 mise run atlas:validate     # validate migration integrity
@@ -56,6 +59,7 @@ Schema source of truth: `internal/db/schemas/tables/*.sql`. Migrations are gener
 - Conventional commits: `✨ feat:`, `🐛 fix:`, `♻️ refactor:`, `📝 docs:`
 - Tests with `-race`, >80% coverage.
 - Before committing, always run `mise run format` then `mise run lint` and fix any issues.
+- Always use `mise run <task>` to run tasks — never call tools (golangci-lint, templ, sqlc, atlas, etc.) directly.
 - Never hand-write migration SQL — always generate via `atlas migrate diff`.
 - Always commit `atlas.sum` alongside migration files.
 - After generating migrations, always run `mise run generate` to sync sqlc.
