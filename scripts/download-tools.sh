@@ -36,14 +36,17 @@ download() {
   [[ -f "$dest" ]] && echo "EXISTS $name" && return
 
   local tmp; tmp="$(mktemp -d)"
+  # Isolate mise data/cache per invocation to avoid race conditions
+  # when goreleaser runs pre-hooks in parallel for different targets.
+  local mise_data; mise_data="$(mktemp -d)"
   echo "DOWNLOAD $name ($spec) ${mise_env}"
-  eval $mise_env mise install-into "$spec" "$tmp"
+  eval $mise_env MISE_DATA_DIR="$mise_data" MISE_CACHE_DIR="$mise_data/cache" mise install-into "$spec" "$tmp"
 
   local bin; bin="$(find "$tmp" -name "$name" -o -name "${name}.exe" | head -1)"
-  [[ -z "$bin" ]] && { echo "WARN: $name not found"; rm -rf "$tmp"; return; }
+  [[ -z "$bin" ]] && { echo "WARN: $name not found"; rm -rf "$tmp" "$mise_data"; return; }
 
   gzip -9 -c "$bin" > "$dest"
-  rm -rf "$tmp"
+  rm -rf "$tmp" "$mise_data"
   echo "OK $name ($(du -h "$dest" | cut -f1 | xargs))"
 }
 
