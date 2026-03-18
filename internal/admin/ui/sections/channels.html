@@ -1,0 +1,124 @@
+    <!-- ════════ CHANNELS ════════ -->
+    <section x-show="tab === 'channels'" x-transition.opacity.duration.150ms>
+      <p class="text-[11px] font-mono font-medium tracking-[0.15em] text-terra-500 uppercase mb-3">Channels</p>
+      <h1 class="font-serif text-3xl md:text-4xl tracking-tight mb-3">Messaging platforms</h1>
+      <p class="text-warm-500 text-sm mb-8 max-w-lg">Connect Anna to Telegram, QQ, and Feishu.</p>
+      <div class="border-t border-warm-200 dark:border-warm-800 divide-y divide-warm-200 dark:divide-warm-800">
+
+        <!-- Telegram -->
+        <div class="py-8">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <span class="font-medium text-lg">Telegram</span>
+              <span class="text-[10px] font-mono uppercase tracking-wider" :class="channelData.telegram.enabled ? 'text-green-600 dark:text-green-500' : 'text-warm-400'" x-text="channelData.telegram.enabled ? 'on' : 'off'"></span>
+            </div>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" :checked="channelData.telegram.enabled" @change="channelData.telegram.enabled = $event.target.checked" class="accent-terra-500 w-4 h-4">
+              <span class="text-warm-500">Enable</span>
+            </label>
+          </div>
+          <div x-show="channelData.telegram.enabled" x-transition class="space-y-4 pl-0 md:pl-6">
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" :checked="channelData.telegram.enable_notify" @change="channelData.telegram.enable_notify = $event.target.checked" class="accent-terra-500 w-4 h-4">
+              <span class="text-warm-500">Notifications</span>
+            </label>
+            <div>
+              <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Bot Token</label>
+              <input type="password" x-model="channelData.telegram.token" placeholder="From @BotFather" class="input-line w-full h-9 text-sm font-mono">
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Notify Chat</label>
+                <input type="text" x-model="channelData.telegram.notify_chat" placeholder="Chat ID" class="input-line w-full h-9 text-sm">
+              </div>
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Channel ID</label>
+                <input type="text" x-model="channelData.telegram.channel_id" placeholder="Default channel" class="input-line w-full h-9 text-sm">
+              </div>
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Group Mode</label>
+                <select x-model="channelData.telegram.group_mode" class="input-line w-full h-9 text-sm bg-transparent">
+                  <option value="">Default</option><option value="mention">Mention</option><option value="always">Always</option><option value="disabled">Disabled</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Allowed IDs</label>
+                <input type="text" :value="(channelData.telegram.allowed_ids || []).join(', ')" @change="channelData.telegram.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean).map(Number)" placeholder="Comma-separated" class="input-line w-full h-9 text-sm">
+              </div>
+            </div>
+            <button @click="saveChannel('telegram')" class="px-4 h-8 text-xs font-medium text-white bg-terra-500 hover:bg-terra-600 rounded-sm transition-colors cursor-pointer">Save Telegram</button>
+          </div>
+        </div>
+
+        <!-- QQ -->
+        <div class="py-8">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <span class="font-medium text-lg">QQ</span>
+              <span class="text-[10px] font-mono uppercase tracking-wider" :class="channelData.qq.enabled ? 'text-green-600 dark:text-green-500' : 'text-warm-400'" x-text="channelData.qq.enabled ? 'on' : 'off'"></span>
+            </div>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" :checked="channelData.qq.enabled" @change="channelData.qq.enabled = $event.target.checked" class="accent-terra-500 w-4 h-4">
+              <span class="text-warm-500">Enable</span>
+            </label>
+          </div>
+          <div x-show="channelData.qq.enabled" x-transition class="space-y-4 pl-0 md:pl-6">
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" :checked="channelData.qq.enable_notify" @change="channelData.qq.enable_notify = $event.target.checked" class="accent-terra-500 w-4 h-4">
+              <span class="text-warm-500">Notifications</span>
+            </label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">App ID</label>
+                <input type="text" x-model="channelData.qq.app_id" placeholder="QQ Bot App ID" class="input-line w-full h-9 text-sm font-mono">
+              </div>
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">App Secret</label>
+                <input type="password" x-model="channelData.qq.app_secret" class="input-line w-full h-9 text-sm font-mono">
+              </div>
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Group Mode</label>
+                <select x-model="channelData.qq.group_mode" class="input-line w-full h-9 text-sm bg-transparent">
+                  <option value="">Default (mention)</option><option value="mention">Mention</option><option value="always">Always</option><option value="disabled">Disabled</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Allowed IDs</label>
+                <input type="text" :value="(channelData.qq.allowed_ids || []).join(', ')" @change="channelData.qq.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)" placeholder="OpenIDs, comma-separated" class="input-line w-full h-9 text-sm">
+              </div>
+            </div>
+            <button @click="saveChannel('qq')" class="px-4 h-8 text-xs font-medium text-white bg-terra-500 hover:bg-terra-600 rounded-sm transition-colors cursor-pointer">Save QQ</button>
+          </div>
+        </div>
+
+        <!-- Feishu -->
+        <div class="py-8">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <span class="font-medium text-lg">Feishu</span>
+              <span class="text-[10px] font-mono uppercase tracking-wider" :class="channelData.feishu.enabled ? 'text-green-600 dark:text-green-500' : 'text-warm-400'" x-text="channelData.feishu.enabled ? 'on' : 'off'"></span>
+            </div>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" :checked="channelData.feishu.enabled" @change="channelData.feishu.enabled = $event.target.checked" class="accent-terra-500 w-4 h-4">
+              <span class="text-warm-500">Enable</span>
+            </label>
+          </div>
+          <div x-show="channelData.feishu.enabled" x-transition class="space-y-4 pl-0 md:pl-6">
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" :checked="channelData.feishu.enable_notify" @change="channelData.feishu.enable_notify = $event.target.checked" class="accent-terra-500 w-4 h-4">
+              <span class="text-warm-500">Notifications</span>
+            </label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+              <div><label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">App ID</label><input type="text" x-model="channelData.feishu.app_id" class="input-line w-full h-9 text-sm font-mono"></div>
+              <div><label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">App Secret</label><input type="password" x-model="channelData.feishu.app_secret" class="input-line w-full h-9 text-sm font-mono"></div>
+              <div><label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Encrypt Key</label><input type="password" x-model="channelData.feishu.encrypt_key" placeholder="optional" class="input-line w-full h-9 text-sm font-mono"></div>
+              <div><label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Verification Token</label><input type="password" x-model="channelData.feishu.verification_token" placeholder="optional" class="input-line w-full h-9 text-sm font-mono"></div>
+              <div><label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Notify Chat</label><input type="text" x-model="channelData.feishu.notify_chat" class="input-line w-full h-9 text-sm"></div>
+              <div><label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Group Mode</label><select x-model="channelData.feishu.group_mode" class="input-line w-full h-9 text-sm bg-transparent"><option value="">Default (mention)</option><option value="mention">Mention</option><option value="always">Always</option><option value="disabled">Disabled</option></select></div>
+            </div>
+            <div><label class="block text-[10px] font-mono font-medium text-warm-500 uppercase tracking-wider mb-1">Allowed IDs</label><input type="text" :value="(channelData.feishu.allowed_ids || []).join(', ')" @change="channelData.feishu.allowed_ids = $event.target.value.split(',').map(s => s.trim()).filter(Boolean)" placeholder="open_ids, comma-separated" class="input-line w-full h-9 text-sm"></div>
+            <button @click="saveChannel('feishu')" class="px-4 h-8 text-xs font-medium text-white bg-terra-500 hover:bg-terra-600 rounded-sm transition-colors cursor-pointer">Save Feishu</button>
+          </div>
+        </div>
+      </div>
+    </section>
