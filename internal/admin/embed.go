@@ -1,52 +1,22 @@
 package admin
 
 import (
-	"bytes"
 	"embed"
-	"fmt"
+	"io/fs"
 	"net/http"
-	"regexp"
-	"strings"
-	"sync"
 )
 
-//go:embed ui
-var adminUI embed.FS
+//go:embed ui/static
+var staticFS embed.FS
 
-var (
-	assembledUI  []byte
-	assembleOnce sync.Once
-	includeRE    = regexp.MustCompile(`\{@include\s+([^}]+)\}`)
-)
-
-// assembleHTML reads ui/index.html and replaces {@include path} markers
-// with the contents of the referenced files from the embedded filesystem.
-func assembleHTML() []byte {
-	shell, err := adminUI.ReadFile("ui/index.html")
+// staticHandler returns an http.Handler that serves files from the
+// embedded ui/static directory, stripping the "/static/" prefix so
+// that a request for GET /static/js/api.js resolves to ui/static/js/api.js.
+func staticHandler() http.Handler {
+	sub, err := fs.Sub(staticFS, "ui/static")
 	if err != nil {
-		return []byte("admin UI not found")
+		// Should never happen — the embedded path is compile-time valid.
+		panic("admin: embed sub failed: " + err.Error())
 	}
-
-	result := includeRE.ReplaceAllFunc(shell, func(match []byte) []byte {
-		sub := includeRE.FindSubmatch(match)
-		if len(sub) < 2 {
-			return match
-		}
-		path := "ui/" + strings.TrimSpace(string(sub[1]))
-		data, err := adminUI.ReadFile(path)
-		if err != nil {
-			return []byte(fmt.Sprintf("/* %s not found */", path))
-		}
-		return bytes.TrimSpace(data)
-	})
-
-	return result
-}
-
-func (s *Server) serveUI(w http.ResponseWriter, r *http.Request) {
-	assembleOnce.Do(func() {
-		assembledUI = assembleHTML()
-	})
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(assembledUI)
+	return http.StripPrefix("/static/", http.FileServer(http.FS(sub)))
 }

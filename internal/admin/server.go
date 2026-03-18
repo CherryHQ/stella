@@ -11,7 +11,7 @@ import (
 	"github.com/vaayne/anna/internal/memory"
 )
 
-// Server provides HTTP handlers for the admin API and embedded SPA.
+// Server provides HTTP handlers for the admin API and templ-rendered pages.
 type Server struct {
 	store config.Store
 	mem   memory.Engine
@@ -32,8 +32,20 @@ func New(store config.Store, mem memory.Engine, db *sql.DB) *Server {
 		log:   slog.With("component", "admin"),
 	}
 
-	// Serve embedded SPA at root.
-	s.mux.HandleFunc("GET /", s.serveUI)
+	// Serve static assets (JS modules).
+	s.mux.Handle("GET /static/", staticHandler())
+
+	// Page routes — templ-rendered HTML pages.
+	s.mux.HandleFunc("GET /providers", s.pageProviders)
+	s.mux.HandleFunc("GET /agents", s.pageAgents)
+	s.mux.HandleFunc("GET /channels", s.pageChannels)
+	s.mux.HandleFunc("GET /users", s.pageUsers)
+	s.mux.HandleFunc("GET /sessions", s.pageSessions)
+	s.mux.HandleFunc("GET /scheduler", s.pageScheduler)
+	s.mux.HandleFunc("GET /settings", s.pageSettings)
+
+	// Root redirects to /providers.
+	s.mux.HandleFunc("GET /{$}", s.redirectToProviders)
 
 	// Provider APIs.
 	s.mux.HandleFunc("GET /api/providers", s.listProviders)
@@ -82,6 +94,11 @@ func New(store config.Store, mem memory.Engine, db *sql.DB) *Server {
 	s.mux.HandleFunc("DELETE /api/scheduler/jobs/{id}", s.deleteSchedulerJob)
 
 	return s
+}
+
+// redirectToProviders sends a 302 redirect to /providers.
+func (s *Server) redirectToProviders(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/providers", http.StatusFound)
 }
 
 // Handler returns the HTTP handler with CORS and JSON middleware applied.
