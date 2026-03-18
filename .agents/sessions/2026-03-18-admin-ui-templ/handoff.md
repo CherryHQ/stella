@@ -135,3 +135,37 @@
 - Confirm dialog pattern is identical to providers page: inline `confirmMsg`, `confirmAction`, `confirmDelete()` method
 - Agent enabled status uses `badge-success` (on) / `badge-ghost` (off) daisyUI badges
 - Edit/delete buttons use `opacity-0 group-hover:opacity-100` for clean hover reveal
+
+## Phase 5: Channels + Users pages
+
+**Status:** complete
+
+**Tasks completed:**
+- 5.1: Replaced channels.templ placeholder with full channels page — uses `x-data="channelsPage()"`, imports `ui.PageHeader`, `ui.FormField`; three platform blocks (Telegram, QQ, Feishu) each with enable toggle (`toggle toggle-primary`), conditional config form (`x-show`), platform-specific fields, save button; reusable `channelBlock` templ helper component with `{ children... }` slot for platform enable/disable + content reveal pattern
+- 5.2: Created `channels.js` ESM module — exports `register(Alpine)` registering `Alpine.data('channelsPage', ...)` with `channelData` object (telegram/qq/feishu configs), `loadChannels()` (parses JSON config per platform), `saveChannel(platform)` (serializes config, calls PUT API), `parseAllowedIds(str, numeric)` and `formatAllowedIds(arr)` helpers for comma-separated ID handling (Telegram uses numeric IDs, QQ/Feishu use string IDs)
+- 5.3: Replaced users.templ placeholder with full users page — uses `x-data="usersPage()"`, imports `ui.PageHeader`, `ui.EmptyState`; user list with platform badge, name, external_id; default agent dropdown per user with save button; collapsible memory section with memory list (agent_id, updated_at, textarea, save/delete buttons), add memory form (agent dropdown filtering already-assigned agents, textarea, add/cancel), empty state; inline confirm dialog for memory deletion
+- 5.4: Created `users.js` ESM module — exports `register(Alpine)` registering `Alpine.data('usersPage', ...)` with user + agent loading (parallel init), memory CRUD (`loadUserMemories`, `saveUserMemory`, `doDeleteUserMemory`, `addUserMemory`), `toggleUserMemory` for expand/collapse, `saveUserDefaultAgent`, inline confirm dialog pattern
+- 5.5: Updated `render.go` — `pageChannels` passes `"/static/js/pages/channels.js"`, `pageUsers` passes `"/static/js/pages/users.js"` as `pageScript`
+- 5.6: Verified: `templ generate && go build ./...` succeeds, `go test -race ./internal/admin/...` passes, `mise run lint` reports 0 issues
+
+**Files changed:**
+- `internal/admin/ui/pages/channels.templ` — rewritten: full channels page replacing placeholder
+- `internal/admin/ui/static/js/pages/channels.js` — new: Alpine.data ESM module for channels
+- `internal/admin/ui/pages/users.templ` — rewritten: full users page replacing placeholder
+- `internal/admin/ui/static/js/pages/users.js` — new: Alpine.data ESM module for users
+- `internal/admin/render.go` — updated: channels and users handlers pass pageScript paths
+
+**Commits:**
+- `23adfed` — channels page with templ + daisyUI (Phase 5)
+- `8806a43` — users page with templ + daisyUI (Phase 5)
+- `51d6436` — wire channels and users page scripts in render.go
+
+**Decisions & context for next phase:**
+- Channels page uses a reusable `channelBlock(name, platform)` templ helper with `{ children... }` slot — renders the enable toggle header and conditional content reveal; platform-specific fields are passed as children
+- Channel status uses `badge-success` (on) / `badge-ghost` (off) daisyUI badges, same pattern as agents page
+- `parseAllowedIds` has a `numeric` boolean parameter — Telegram uses numeric IDs (`map(Number)`), QQ/Feishu use string IDs
+- `channelData` is a nested object with per-platform configs; `saveChannel(platform)` destructures to separate `enabled` from the config JSON before calling the API
+- Users page loads agents list independently (for default agent dropdown and memory agent dropdown) — same approach as agents page loading providers independently
+- Memory section uses the `toggleUserMemory(u)` pattern to lazy-load memories on first expand
+- Add memory form filters out agents that already have a memory for that user — `agents.filter(a => !(userMemories[u.id] || []).some(m => m.agent_id === a.id))`
+- Confirm dialog pattern is identical to agents/providers pages: inline `confirmMsg`, `confirmAction`, `confirmDelete()` method — used for memory deletion

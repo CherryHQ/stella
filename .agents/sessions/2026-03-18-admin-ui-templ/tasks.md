@@ -43,12 +43,12 @@
 
 ## Phase 5: Channels + Users pages
 
-- [ ] 5.1 — Create channels.templ page (`ui/pages/channels.templ`)
-- [ ] 5.2 — Create channels.js Alpine.data module (`ui/static/js/pages/channels.js`)
-- [ ] 5.3 — Create users.templ page (`ui/pages/users.templ`)
-- [ ] 5.4 — Create users.js Alpine.data module (`ui/static/js/pages/users.js`)
-- [ ] 5.5 — Update render.go for channels and users pages (`render.go`)
-- [ ] 5.6 — Verify channel save, user default agent, memory CRUD
+- [x] 5.1 — Create channels.templ page (`ui/pages/channels.templ`)
+- [x] 5.2 — Create channels.js Alpine.data module (`ui/static/js/pages/channels.js`)
+- [x] 5.3 — Create users.templ page (`ui/pages/users.templ`)
+- [x] 5.4 — Create users.js Alpine.data module (`ui/static/js/pages/users.js`)
+- [x] 5.5 — Update render.go for channels and users pages (`render.go`)
+- [x] 5.6 — Verify channel save, user default agent, memory CRUD
 
 ## Phase 6: Scheduler page
 
