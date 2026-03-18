@@ -5,3 +5,6 @@ coverage.html
 dist/
 handoff.md
 anna
+
+# Embedded tool binaries (downloaded via scripts/download-tools.sh)
+internal/embedded/binaries/*.gz
