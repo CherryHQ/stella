@@ -33,7 +33,7 @@ func (s *Server) pageScheduler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pageSettings(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "settings", "", pages.SettingsPage())
+	s.renderPage(w, r, "settings", "/static/js/pages/settings.js", pages.SettingsPage())
 }
 
 // renderPage sets the HTML content type and renders the layout with the
