@@ -25,7 +25,7 @@ func (s *Server) pageUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pageSessions(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "sessions", "", pages.SessionsPage())
+	s.renderPage(w, r, "sessions", "/static/js/pages/sessions.js", pages.SessionsPage())
 }
 
 func (s *Server) pageScheduler(w http.ResponseWriter, r *http.Request) {
