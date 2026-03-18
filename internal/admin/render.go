@@ -17,11 +17,11 @@ func (s *Server) pageAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pageChannels(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "channels", "", pages.ChannelsPage())
+	s.renderPage(w, r, "channels", "/static/js/pages/channels.js", pages.ChannelsPage())
 }
 
 func (s *Server) pageUsers(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "users", "", pages.UsersPage())
+	s.renderPage(w, r, "users", "/static/js/pages/users.js", pages.UsersPage())
 }
 
 func (s *Server) pageSessions(w http.ResponseWriter, r *http.Request) {
