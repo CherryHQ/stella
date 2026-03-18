@@ -59,6 +59,12 @@ func extractTools(destDir string) error {
 		return fmt.Errorf("create bin dir: %w", err)
 	}
 
+	fp := fingerprint()
+	fpFile := filepath.Join(destDir, ".embedded-version")
+	if old, err := os.ReadFile(fpFile); err == nil && string(old) == fp {
+		return nil // already up to date
+	}
+
 	entries, err := fs.ReadDir(toolsFS, toolsDir)
 	if err != nil {
 		return fmt.Errorf("read embedded tools: %w", err)
@@ -72,15 +78,28 @@ func extractTools(destDir string) error {
 		name := strings.TrimSuffix(entry.Name(), ".gz")
 		destPath := filepath.Join(destDir, name)
 
-		if _, err := os.Stat(destPath); err == nil {
-			continue // already extracted
-		}
-
 		if err := extractGzip(toolsDir+"/"+entry.Name(), destPath); err != nil {
 			return fmt.Errorf("extract %s: %w", name, err)
 		}
 	}
-	return nil
+
+	return os.WriteFile(fpFile, []byte(fp), 0o644)
+}
+
+// fingerprint returns a quick identifier based on embedded file names and sizes.
+// Changes when tool versions are bumped (different binary sizes).
+func fingerprint() string {
+	entries, err := fs.ReadDir(toolsFS, toolsDir)
+	if err != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil {
+			fmt.Fprintf(&b, "%s:%d,", e.Name(), info.Size())
+		}
+	}
+	return b.String()
 }
 
 func extractGzip(srcPath, destPath string) error {

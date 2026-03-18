@@ -99,8 +99,15 @@ var rtkPath = sync.OnceValue(func() string {
 })
 
 // wrapWithRTK prefixes the command with "rtk" if rtk is available.
+// Skips wrapping for commands starting with env var assignments
+// (e.g. "FOO=bar go test") to preserve shell semantics.
 func wrapWithRTK(command string, _ []string) string {
 	if rtkPath() == "" {
+		return command
+	}
+	// Check if first token is an env var assignment (WORD=...).
+	first, _, _ := strings.Cut(strings.TrimSpace(command), " ")
+	if strings.Contains(first, "=") {
 		return command
 	}
 	return rtkPath() + " " + command
