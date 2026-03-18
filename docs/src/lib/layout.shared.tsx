@@ -1,5 +1,6 @@
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
 import { i18n } from '@/lib/i18n';
+import { t } from '@/lib/translations';
 
 export const gitConfig = {
   user: 'vaayne',
@@ -8,6 +9,7 @@ export const gitConfig = {
 };
 
 export function baseOptions(locale: string = i18n.defaultLanguage): BaseLayoutProps {
+  const tr = t(locale);
   return {
     i18n,
     nav: {
@@ -19,8 +21,8 @@ export function baseOptions(locale: string = i18n.defaultLanguage): BaseLayoutPr
       ),
     },
     links: [
-      { text: 'About', url: `/${locale}/about` },
-      { text: 'Docs', url: `/${locale}/docs` },
+      { text: tr.about, url: `/${locale}/about` },
+      { text: tr.docs, url: `/${locale}/docs` },
     ],
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
   };

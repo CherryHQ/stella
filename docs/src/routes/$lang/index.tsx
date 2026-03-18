@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
 import { baseOptions } from '@/lib/layout.shared';
+import { t } from '@/lib/translations';
 
 export const Route = createFileRoute('/$lang/')({ component: Home });
 
@@ -15,29 +16,6 @@ const terminalLines = [
   { prompt: false, text: '      1. RS256 signing with key rotation ...' },
 ];
 
-const features = [
-  {
-    label: '01',
-    title: 'Lossless memory',
-    body: 'DAG-based context compression. Conversations grow without bounds and without losing a single detail. Every thread, every tangent, preserved.',
-  },
-  {
-    label: '02',
-    title: 'Multi-channel',
-    body: 'Terminal TUI, Telegram, QQ, Feishu. All channels share the same session and memory. Start a thought in your terminal, pick it up on Telegram.',
-  },
-  {
-    label: '03',
-    title: 'Self-hosted',
-    body: 'Single Go binary + SQLite. Your machine, your API keys. Nothing leaves your network. Deploy with Docker, systemd, or just run the binary.',
-  },
-  {
-    label: '04',
-    title: 'Built-in scheduler',
-    body: "Scheduled tasks, heartbeat monitoring, and cross-channel notifications. anna works even when you're not talking to it.",
-  },
-];
-
 function Home() {
   const { lang } = Route.useParams();
 
@@ -45,7 +23,7 @@ function Home() {
     <HomeLayout {...baseOptions(lang)}>
       <div className="home-page">
         <HeroSection lang={lang} />
-        <FeaturesSection />
+        <FeaturesSection lang={lang} />
         <MeetAnnaSection lang={lang} />
         <FooterCTA lang={lang} />
       </div>
@@ -54,6 +32,7 @@ function Home() {
 }
 
 function HeroSection({ lang }: { lang: string }) {
+  const tr = t(lang);
   return (
     <section className="px-6 pt-28 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-start">
@@ -61,20 +40,19 @@ function HeroSection({ lang }: { lang: string }) {
         <div>
           <div className="animate-fade-up stagger-1">
             <p className="text-xs font-medium tracking-[0.2em] uppercase text-[var(--color-terra)] mb-8 font-[family-name:var(--font-mono)]">
-              AI assistant / self-hosted
+              {tr.heroTag}
             </p>
           </div>
           <h1 className="animate-fade-up stagger-2 text-5xl md:text-6xl lg:text-[4.5rem] tracking-tight text-fd-foreground leading-[0.92] mb-10">
-            Your assistant
+            {tr.heroTitle1}
             <br />
-            that never
+            {tr.heroTitle2}
             <br />
-            <span className="italic text-[var(--color-terra)]">forgets</span>
+            <span className="italic text-[var(--color-terra)]">{tr.heroTitle3}</span>
           </h1>
           <div className="animate-fade-up stagger-3 max-w-md">
             <p className="text-fd-muted-foreground text-base leading-relaxed mb-12">
-              Single binary, lossless context management. Talk from your terminal or any messenger —
-              anna remembers everything.
+              {tr.heroDescription}
             </p>
           </div>
           <div className="animate-fade-up stagger-4 flex items-center gap-5">
@@ -83,7 +61,7 @@ function HeroSection({ lang }: { lang: string }) {
               params={{ lang, _splat: '' }}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-[var(--color-terra)] text-white text-sm font-medium rounded-md hover:bg-[var(--color-terra-light)] transition-colors"
             >
-              Read the docs
+              {tr.readTheDocs}
               <span aria-hidden="true">&rarr;</span>
             </Link>
             <a
@@ -92,7 +70,7 @@ function HeroSection({ lang }: { lang: string }) {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 text-fd-muted-foreground text-sm font-medium underline underline-offset-4 decoration-fd-border hover:text-fd-foreground hover:decoration-fd-foreground transition-colors"
             >
-              Source on GitHub
+              {tr.sourceOnGithub}
             </a>
           </div>
         </div>
@@ -127,11 +105,19 @@ function HeroSection({ lang }: { lang: string }) {
   );
 }
 
-function FeaturesSection() {
+function FeaturesSection({ lang }: { lang: string }) {
+  const tr = t(lang);
+  const features = [
+    { label: '01', title: tr.feature1Title, body: tr.feature1Body },
+    { label: '02', title: tr.feature2Title, body: tr.feature2Body },
+    { label: '03', title: tr.feature3Title, body: tr.feature3Body },
+    { label: '04', title: tr.feature4Title, body: tr.feature4Body },
+  ];
+
   return (
     <section className="px-6 pt-20 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto border-t border-fd-border">
       <h2 className="text-3xl md:text-4xl tracking-tight text-fd-foreground mb-20">
-        What makes anna different
+        {tr.featuresTitle}
       </h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-20 gap-y-16">
         {features.map((f) => (
@@ -155,31 +141,29 @@ function FeatureItem({ label, title, body }: { label: string; title: string; bod
 }
 
 function MeetAnnaSection({ lang }: { lang: string }) {
+  const tr = t(lang);
   return (
     <section className="px-6 pt-20 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto border-t border-fd-border">
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-12 lg:gap-20 items-center">
         <div>
           <p className="text-xs font-medium tracking-[0.2em] uppercase text-[var(--color-terra)] mb-6 font-[family-name:var(--font-mono)]">
-            Meet Anna
+            {tr.meetAnna}
           </p>
           <h2 className="text-3xl md:text-4xl tracking-tight text-fd-foreground mb-6">
-            A calm digital companion
+            {tr.meetAnnaTitle}
           </h2>
           <p className="text-fd-muted-foreground text-base leading-relaxed max-w-lg mb-4">
-            Anna is more than a tool — she is a quiet, trustworthy assistant designed for the long
-            run. She remembers your context, connects your workflows across devices, and stays
-            reliably present without getting in the way.
+            {tr.meetAnnaBody1}
           </p>
           <p className="text-fd-muted-foreground text-base leading-relaxed max-w-lg mb-8">
-            Built with real warmth and digital precision. Local-first, memory-aware, and always
-            composed.
+            {tr.meetAnnaBody2}
           </p>
           <Link
             to="/$lang/about"
             params={{ lang }}
             className="inline-flex items-center gap-2 text-[var(--color-terra)] text-sm font-medium hover:text-[var(--color-terra-light)] transition-colors"
           >
-            Learn more about Anna
+            {tr.learnMoreAboutAnna}
             <span aria-hidden="true">&rarr;</span>
           </Link>
         </div>
@@ -195,17 +179,16 @@ function MeetAnnaSection({ lang }: { lang: string }) {
   );
 }
 
-function FooterCTA(_props: { lang: string }) {
+function FooterCTA({ lang }: { lang: string }) {
+  const tr = t(lang);
   return (
     <section className="px-6 pt-16 pb-24 md:px-12 lg:px-20 max-w-7xl mx-auto">
       <div className="border-t border-fd-border pt-16 flex flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-2xl md:text-3xl tracking-tight text-fd-foreground mb-3">
-            Get started in seconds
+            {tr.getStarted}
           </h2>
-          <p className="text-fd-muted-foreground text-sm">
-            One binary, one config file. No containers required.
-          </p>
+          <p className="text-fd-muted-foreground text-sm">{tr.getStartedBody}</p>
         </div>
         <code className="text-[13px] font-[family-name:var(--font-mono)] bg-fd-muted px-4 py-2.5 rounded-md text-fd-foreground whitespace-nowrap shrink-0">
           go install github.com/vaayne/anna@latest

@@ -1,0 +1,4 @@
+{
+  "title": "コアコンセプト",
+  "pages": ["architecture", "models", "memory-system", "session-compaction"]
+}
