@@ -44,7 +44,7 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (string, er
 	}
 
 	env := envWithToolsBin()
-	command = wrapWithRTK(command, env)
+	command = wrapWithRTK(command)
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	if t.workDir != "" {
@@ -102,7 +102,7 @@ var rtkPath = sync.OnceValue(func() string {
 // rtk rewrite handles env prefixes, pipes, and unsupported commands correctly.
 // Returns the original command unchanged if rtk is unavailable or the command
 // has no rtk equivalent.
-func wrapWithRTK(command string, _ []string) string {
+func wrapWithRTK(command string) string {
 	rtk := rtkPath()
 	if rtk == "" {
 		return command

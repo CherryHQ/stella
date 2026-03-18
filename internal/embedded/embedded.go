@@ -119,7 +119,8 @@ func extractGzip(srcPath, destPath string) error {
 		return err
 	}
 
-	if _, err = io.Copy(f, gr); err != nil {
+	const maxBinarySize = 200 << 20 // 200 MB safety cap
+	if _, err = io.Copy(f, io.LimitReader(gr, maxBinarySize)); err != nil {
 		_ = f.Close()
 		return err
 	}
