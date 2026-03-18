@@ -51,3 +51,32 @@
 - Old `serveUI`, `assembleHTML`, `assembledUI`, `includeRE` code was fully removed from embed.go — replaced with clean `//go:embed ui/static` + `staticHandler()`. Old `ui/index.html`, `ui/sections/`, `ui/js/` still exist on disk but are no longer embedded or served — deletion deferred to Phase 8
 - The `GET /{$}` pattern matches only exact root `/`, so unknown paths like `/nonexistent` fall through to Go's default 404
 - render.go handlers pass empty `pageScript` for now; Phase 2+ will set real paths like `"/static/js/pages/settings.js"`
+
+## Phase 2: Shared components + Settings page
+
+**Status:** complete
+
+**Tasks completed:**
+- 2.1: Created `components.templ` with four shared daisyUI components: `PageHeader(title, subtitle)`, `EmptyState(message)`, `Badge(text, variant)` with variant helper, and `FormField(label)` using `{ children... }` slot
+- 2.2: Replaced settings.templ placeholder with full settings page — uses `x-data="settingsPage()"`, imports `ui.PageHeader`, iterates `settingsKeys` with `x-for`, textarea (`textarea textarea-bordered`) + save button (`btn btn-primary btn-sm`) per key
+- 2.3: Created `settings.js` ESM module — exports `register(Alpine)` that registers `Alpine.data('settingsPage', ...)` with `loadSettings()` (fetches each key via `api('GET', '/api/settings/' + key)`) and `saveSetting(key)` (parses JSON, calls `api('PUT', ...)`, shows toast)
+- 2.4: Updated `render.go` — `pageSettings` handler now passes `"/static/js/pages/settings.js"` as `pageScript`
+- 2.5: Verified: `templ generate && go build ./...` succeeds, `go test -race ./internal/admin/...` passes, `mise run lint` reports 0 issues
+
+**Files changed:**
+- `internal/admin/ui/components.templ` — new: shared daisyUI components (PageHeader, EmptyState, Badge, FormField)
+- `internal/admin/ui/pages/settings.templ` — rewritten: full settings editor replacing placeholder
+- `internal/admin/ui/static/js/pages/settings.js` — new: Alpine.data ESM module for settings
+- `internal/admin/render.go` — updated: settings handler passes pageScript path
+
+**Commits:**
+- `e579077` — shared daisyUI components
+- `7419863` — settings page implementation with templ + Alpine.js ESM
+
+**Decisions & context for next phase:**
+- `PageHeader` takes two string params (title, subtitle) — subtitle renders conditionally when non-empty
+- `Badge` uses a `badgeVariantClass()` helper function for mapping variant string to daisyUI class
+- `FormField` uses `{ children... }` templ slot pattern for wrapping arbitrary input content
+- Settings page JS uses `$store.toast.show()` for success/error feedback — same pattern for all future pages
+- The `pages/` directory under `ui/static/js/` now exists for page-specific ESM modules
+- Pattern established: each page's `.js` exports `register(Alpine)` which calls `Alpine.data('xyzPage', () => ({...}))`

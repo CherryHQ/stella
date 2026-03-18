@@ -2,29 +2,29 @@
 
 ## Phase 1: Foundation — templ + daisyUI shell + static serving
 
-- [ ] 1.1 — Add templ to go.mod and mise.toml tools (`go.mod`, `mise.toml`)
-- [ ] 1.2 — Update mise run generate to include templ generate (`mise.toml`)
-- [ ] 1.3 — Create layout.templ with CDN links, terra theme, content slot, ESM script loader (`ui/layout.templ`)
-- [ ] 1.4 — Create navbar.templ with page links, theme switcher, status indicator (`ui/navbar.templ`)
-- [ ] 1.5 — Create 7 placeholder page templ files (`ui/pages/*.templ`)
-- [ ] 1.6 — Create api.js ESM fetch wrapper (`ui/static/js/api.js`)
-- [ ] 1.7 — Create toast.js Alpine store (`ui/static/js/stores/toast.js`)
-- [ ] 1.8 — Create theme.js Alpine store (`ui/static/js/stores/theme.js`)
-- [ ] 1.9 — Rewrite embed.go with `//go:embed ui/static` and static file serving (`embed.go`)
-- [ ] 1.10 — Create render.go with page handler functions (`render.go`)
-- [ ] 1.11 — Update server.go with page routes, redirect, static serving (`server.go`)
-- [ ] 1.12 — Update server_test.go with page route tests (`server_test.go`)
-- [ ] 1.13 — Check golangci-lint compatibility with templ generated code (`.golangci.yml`)
-- [ ] 1.14 — Verify build compiles and shell renders in browser
-- [ ] 1.15 — Verify unknown paths return 404
+- [x] 1.1 — Add templ to go.mod and mise.toml tools (`go.mod`, `mise.toml`)
+- [x] 1.2 — Update mise run generate to include templ generate (`mise.toml`)
+- [x] 1.3 — Create layout.templ with CDN links, terra theme, content slot, ESM script loader (`ui/layout.templ`)
+- [x] 1.4 — Create navbar.templ with page links, theme switcher, status indicator (`ui/navbar.templ`)
+- [x] 1.5 — Create 7 placeholder page templ files (`ui/pages/*.templ`)
+- [x] 1.6 — Create api.js ESM fetch wrapper (`ui/static/js/api.js`)
+- [x] 1.7 — Create toast.js Alpine store (`ui/static/js/stores/toast.js`)
+- [x] 1.8 — Create theme.js Alpine store (`ui/static/js/stores/theme.js`)
+- [x] 1.9 — Rewrite embed.go with `//go:embed ui/static` and static file serving (`embed.go`)
+- [x] 1.10 — Create render.go with page handler functions (`render.go`)
+- [x] 1.11 — Update server.go with page routes, redirect, static serving (`server.go`)
+- [x] 1.12 — Update server_test.go with page route tests (`server_test.go`)
+- [x] 1.13 — Check golangci-lint compatibility with templ generated code (`.golangci.yml`)
+- [x] 1.14 — Verify build compiles and shell renders in browser
+- [x] 1.15 — Verify unknown paths return 404
 
 ## Phase 2: Shared components + Settings page
 
-- [ ] 2.1 — Create components.templ with FormField, EmptyState, Badge, PageHeader (`ui/components.templ`)
-- [ ] 2.2 — Create settings.templ page (`ui/pages/settings.templ`)
-- [ ] 2.3 — Create settings.js Alpine.data module (`ui/static/js/pages/settings.js`)
-- [ ] 2.4 — Update render.go for settings page (`render.go`)
-- [ ] 2.5 — Verify settings load/save end-to-end
+- [x] 2.1 — Create components.templ with FormField, EmptyState, Badge, PageHeader (`ui/components.templ`)
+- [x] 2.2 — Create settings.templ page (`ui/pages/settings.templ`)
+- [x] 2.3 — Create settings.js Alpine.data module (`ui/static/js/pages/settings.js`)
+- [x] 2.4 — Update render.go for settings page (`render.go`)
+- [x] 2.5 — Verify settings load/save end-to-end
 
 ## Phase 3: Providers page
 
