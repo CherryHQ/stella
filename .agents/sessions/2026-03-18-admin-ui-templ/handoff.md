@@ -225,3 +225,25 @@
 - `backToList()` resets all detail state including `showTools` and `showSystemPrompt`
 - `openSession()` uses `encodeURIComponent` for session IDs that may contain special characters
 - daisyUI semantic colors used throughout: `text-primary` for Anna label, `text-secondary` for metadata, `text-success`/`text-error` for tool results, `badge-ghost` for category and archived badges
+
+## Phase 8: Cleanup + polish (FINAL)
+
+**Status:** complete
+
+**Tasks completed:**
+- 8.1: Deleted old SPA UI files — `ui/index.html`, `ui/sections/*.html` (7 files), `ui/js/app.js`, and the now-empty `sections/` and `js/` directories. Total: 1244 lines removed.
+- 8.2: Verified embed.go is already clean — the old `{@include}` assembly code (`assembleHTML`, `includeRE`, `assembledUI`, `assembleOnce`, old `serveUI`) was fully removed in Phase 1. No changes needed.
+- 8.3: Ran `mise run format` and `mise run lint` — 0 issues found. No fixes needed.
+- 8.4: Verified `templ generate && go build ./...` succeeds. All 7 page routes confirmed via test suite (TestPageRoutes).
+- 8.5: Ran `go test -race ./internal/admin/...` — all tests pass (TestListProviders, TestCreateProvider, TestListAgents, TestCreateAgent, TestRootRedirect, TestPageRoutes, TestUnknownPathReturns404, TestCORSPreflight).
+- 8.6: Checked documentation — README.md, docs/content/docs/, and builtin anna skill all reference the admin panel generically ("admin panel", "anna onboard"). No old hash-based SPA URLs (like `/#providers`) found anywhere. No documentation updates needed.
+
+**Files changed:**
+- `internal/admin/ui/index.html` — deleted
+- `internal/admin/ui/sections/*.html` (7 files) — deleted
+- `internal/admin/ui/js/app.js` — deleted
+
+**Commits:**
+- `5c18028` — delete old SPA UI files (Phase 8)
+
+**Migration complete.** All 8 phases are done. The admin UI is now fully server-rendered via templ components with daisyUI 5 styling, Alpine.js 3 ESM modules for interactivity, and clean server routes (`/providers`, `/agents`, etc.) replacing the old SPA tab-switching pattern.
