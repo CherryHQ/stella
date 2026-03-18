@@ -35,11 +35,11 @@
 
 ## Phase 4: Agents page
 
-- [ ] 4.1 — Create utils.js with formatTime, model combo helpers (`ui/static/js/utils.js`)
-- [ ] 4.2 — Create agents.templ page (`ui/pages/agents.templ`)
-- [ ] 4.3 — Create agents.js Alpine.data module (`ui/static/js/pages/agents.js`)
-- [ ] 4.4 — Update render.go for agents page (`render.go`)
-- [ ] 4.5 — Verify agent CRUD, model dropdown
+- [x] 4.1 — Create utils.js with formatTime, model combo helpers (`ui/static/js/utils.js`)
+- [x] 4.2 — Create agents.templ page (`ui/pages/agents.templ`)
+- [x] 4.3 — Create agents.js Alpine.data module (`ui/static/js/pages/agents.js`)
+- [x] 4.4 — Update render.go for agents page (`render.go`)
+- [x] 4.5 — Verify agent CRUD, model dropdown
 
 ## Phase 5: Channels + Users pages
 
