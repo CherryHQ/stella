@@ -52,10 +52,10 @@
 
 ## Phase 6: Scheduler page
 
-- [ ] 6.1 — Create scheduler.templ page (`ui/pages/scheduler.templ`)
-- [ ] 6.2 — Create scheduler.js Alpine.data module (`ui/static/js/pages/scheduler.js`)
-- [ ] 6.3 — Update render.go for scheduler page (`render.go`)
-- [ ] 6.4 — Verify job CRUD, toggle, schedule type switching
+- [x] 6.1 — Create scheduler.templ page (`ui/pages/scheduler.templ`)
+- [x] 6.2 — Create scheduler.js Alpine.data module (`ui/static/js/pages/scheduler.js`)
+- [x] 6.3 — Update render.go for scheduler page (`render.go`)
+- [x] 6.4 — Verify job CRUD, toggle, schedule type switching
 
 ## Phase 7: Sessions page
 
