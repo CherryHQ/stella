@@ -40,16 +40,10 @@ templ AgentsPage() {
 					Models <span class="normal-case tracking-normal text-base-content/50">— format: provider/model</span>
 				</p>
 				<div class="space-y-4 mb-4">
-					@ui.FormField("Default") {
-						<input x-model="form.model" placeholder="anthropic/claude-sonnet-4-6" class="input input-bordered w-full text-sm font-mono"/>
-					}
+					@modelComboField("Default", "model", "anthropic/claude-sonnet-4-6")
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-						@ui.FormField("Strong (optional)") {
-							<input x-model="form.model_strong" placeholder="Falls back to default" class="input input-bordered w-full text-sm font-mono"/>
-						}
-						@ui.FormField("Fast (optional)") {
-							<input x-model="form.model_fast" placeholder="Falls back to default" class="input input-bordered w-full text-sm font-mono"/>
-						}
+						@modelComboField("Strong", "model_strong", "Falls back to default")
+						@modelComboField("Fast", "model_fast", "Falls back to default")
 					</div>
 				</div>
 				<!-- Workspace -->
@@ -115,6 +109,43 @@ templ AgentsPage() {
 					</div>
 				</div>
 			</div>
+		</div>
+	</div>
+}
+
+// modelComboField renders a model text input with autocomplete dropdown from cached models.
+templ modelComboField(label string, field string, placeholder string) {
+	<div x-data="{ open: false, search: '' }" class="relative">
+		<label class="label">
+			<span class="label-text font-mono text-sm">{ label }</span>
+			if field != "model" {
+				<span class="label-text-alt text-base-content/40">(optional)</span>
+			}
+		</label>
+		<input
+			type="text"
+			:value={ "form." + field }
+			@input={ "form." + field + " = $event.target.value; search = $event.target.value; open = cachedModels.length > 0" }
+			@focus="search = ''; open = cachedModels.length > 0"
+			placeholder={ placeholder }
+			class="input input-bordered w-full text-sm font-mono"
+		/>
+		<div
+			x-show="open && filteredModels(search).length > 0"
+			@click.away="open = false"
+			x-transition.opacity
+			x-cloak
+			class="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-base-100 border border-base-300 rounded-box shadow-lg py-1"
+		>
+			<template x-for="m in filteredModels(search)" :key="m">
+				<button
+					@click={ "form." + field + " = m; open = false" }
+					type="button"
+					class="w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-base-200 cursor-pointer"
+					:class={ "form." + field + " === m ? 'text-primary' : 'text-base-content/70'" }
+					x-text="m"
+				></button>
+			</template>
 		</div>
 	</div>
 }
