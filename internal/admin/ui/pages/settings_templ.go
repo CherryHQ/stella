@@ -8,6 +8,8 @@ package pages
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
+import "github.com/vaayne/anna/internal/admin/ui"
+
 func SettingsPage() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -29,7 +31,15 @@ func SettingsPage() templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"text-center py-20\"><h1 class=\"text-2xl font-serif font-bold mb-4\">Settings</h1><p class=\"text-secondary\">Coming soon — settings editor will appear here.</p></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div x-data=\"settingsPage()\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = ui.PageHeader("System configuration", "Raw JSON settings for runner, compaction, heartbeat, scheduler, and plugins.").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<div class=\"border-t border-base-300 divide-y divide-base-300\"><template x-for=\"key in settingsKeys\" :key=\"key\"><div class=\"py-6\"><div class=\"flex items-center justify-between mb-3\"><span class=\"font-mono font-medium\" x-text=\"key\"></span> <button @click=\"saveSetting(key)\" class=\"btn btn-primary btn-sm\">Save</button></div><textarea x-model=\"settingsEditors[key]\" rows=\"6\" class=\"textarea textarea-bordered w-full text-sm font-mono resize-y\"></textarea></div></template></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
