@@ -169,3 +169,29 @@
 - Memory section uses the `toggleUserMemory(u)` pattern to lazy-load memories on first expand
 - Add memory form filters out agents that already have a memory for that user — `agents.filter(a => !(userMemories[u.id] || []).some(m => m.agent_id === a.id))`
 - Confirm dialog pattern is identical to agents/providers pages: inline `confirmMsg`, `confirmAction`, `confirmDelete()` method — used for memory deletion
+
+## Phase 6: Scheduler page
+
+**Status:** complete
+
+**Tasks completed:**
+- 6.1: Replaced scheduler.templ placeholder with full scheduler page — uses `x-data="schedulerPage()"`, imports `ui.PageHeader`, `ui.EmptyState`, `ui.FormField`; job creation/edit form with name input, session mode dropdown (`select select-bordered`), schedule type radio (`radio radio-primary`) for cron vs interval with conditional inputs, agent dropdown (loaded from API), message textarea (`textarea textarea-bordered`), enabled toggle (`toggle toggle-primary`); job list with name, status badge (`badge-success`/`badge-ghost`), cron/every display, session_mode and agent_id badges; hover actions for toggle/edit/delete; inline confirm dialog for delete; empty state
+- 6.2: Created `scheduler.js` ESM module — exports `register(Alpine)` registering `Alpine.data('schedulerPage', ...)` with `loadJobs()`, `loadAgents()` (parallel init), `resetJobForm()`, `editJob()`, `saveJob()` (create/update), `toggleJob()`, `doDeleteJob()`, `confirmDelete()` pattern
+- 6.3: Updated `render.go` — `pageScheduler` handler now passes `"/static/js/pages/scheduler.js"` as `pageScript`
+- 6.4: Verified: `templ generate && go build ./...` succeeds, `go test -race ./internal/admin/...` passes, `mise run lint` reports 0 issues
+
+**Files changed:**
+- `internal/admin/ui/pages/scheduler.templ` — rewritten: full scheduler page replacing placeholder
+- `internal/admin/ui/static/js/pages/scheduler.js` — new: Alpine.data ESM module for scheduler
+- `internal/admin/render.go` — updated: scheduler handler passes pageScript path
+
+**Commits:**
+- `e3c8ad8` — scheduler page with templ + daisyUI (Phase 6)
+
+**Decisions & context for next phase:**
+- Scheduler page loads agents independently (for agent dropdown) — same pattern as other pages
+- Job form uses `schedule_type` field ('cron' or 'every') to conditionally show either cron expression or interval duration input — the non-active field is cleared when building the API payload
+- `saveJob()` builds payload from `jobForm`, sending only the active schedule field (cron or every), clearing the other
+- `toggleJob()` sends full job data with `enabled` flipped — same approach as old app.js
+- Confirm dialog pattern is identical to all other pages: inline `confirmMsg`, `confirmAction`, `confirmDelete()` method
+- Job list items show session_mode and agent_id as `badge-ghost badge-xs` badges below the message preview
