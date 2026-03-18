@@ -8,6 +8,8 @@ package pages
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
+import "github.com/vaayne/anna/internal/admin/ui"
+
 func UsersPage() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -29,7 +31,23 @@ func UsersPage() templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"text-center py-20\"><h1 class=\"text-2xl font-serif font-bold mb-4\">Users</h1><p class=\"text-secondary\">Coming soon — user management will appear here.</p></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div x-data=\"usersPage()\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = ui.PageHeader("User management", "Default agents and per-user memory for each connected user.").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<div class=\"border-t border-base-300 divide-y divide-base-300\"><template x-for=\"u in users\" :key=\"u.id\"><div class=\"py-6\"><!-- User header --><div class=\"flex items-baseline justify-between mb-3\"><div class=\"flex items-baseline gap-3\"><span class=\"font-medium\" x-text=\"u.name || 'Unnamed'\"></span> <span class=\"badge badge-ghost badge-sm font-mono uppercase\" x-text=\"u.platform\"></span></div><span class=\"text-xs font-mono text-secondary\" x-text=\"'#' + u.id + ' · ' + u.external_id\"></span></div><!-- Default agent --><div class=\"flex items-center gap-3 mb-3\"><span class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider shrink-0\">Default Agent</span> <select x-model=\"u._defaultAgent\" class=\"select select-bordered select-sm flex-1 text-sm\"><option value=\"\">None</option><template x-for=\"a in agents\" :key=\"a.id\"><option :value=\"a.id\" x-text=\"a.name + ' (' + a.id + ')'\"></option></template></select> <button @click=\"saveUserDefaultAgent(u)\" :disabled=\"u._defaultAgent === (u.default_agent_id || '')\" class=\"btn btn-primary btn-sm disabled:opacity-30\">Save</button></div><!-- Memory toggle --><button @click=\"toggleUserMemory(u)\" class=\"text-xs text-secondary hover:text-primary transition-colors cursor-pointer flex items-center gap-1\"><span x-text=\"u._showMemory ? '▾' : '▸'\"></span> <span>Memory</span> <span x-show=\"u._memoryCount > 0\" class=\"font-mono text-primary\" x-text=\"'(' + u._memoryCount + ')'\"></span></button><!-- Memory section --><div x-show=\"u._showMemory\" x-transition x-cloak class=\"mt-4 pl-4 border-l-2 border-base-300 space-y-4\"><!-- Memory list --><template x-for=\"mem in (userMemories[u.id] || [])\" :key=\"mem.agent_id\"><div><div class=\"flex items-center justify-between mb-1\"><span class=\"text-xs font-mono font-medium text-primary\" x-text=\"mem.agent_id\"></span> <span class=\"text-xs text-secondary\" x-text=\"mem.updated_at\"></span></div><textarea x-model=\"mem._content\" rows=\"2\" class=\"textarea textarea-bordered w-full text-xs font-mono resize-y\"></textarea><div class=\"flex items-center gap-2 mt-1\"><button @click=\"confirmDelete('Delete memory for ' + mem.agent_id + '?', () => doDeleteUserMemory(u.id, mem.agent_id))\" class=\"btn btn-ghost btn-xs text-secondary hover:text-error\">delete</button> <button @click=\"saveUserMemory(u.id, mem.agent_id, mem._content)\" :disabled=\"mem._content === mem.content\" class=\"btn btn-ghost btn-xs text-primary disabled:opacity-30\">save</button></div></div></template><!-- Empty state --><div x-show=\"(userMemories[u.id] || []).length === 0 && !u._showAddMemory\" class=\"text-xs text-secondary py-2\">No memories yet.</div><!-- Add memory form --><div x-show=\"u._showAddMemory\" x-cloak class=\"space-y-2\"><select x-model=\"u._newMemoryAgent\" class=\"select select-bordered select-sm w-full text-xs\"><option value=\"\" disabled>Select agent...</option><template x-for=\"a in agents.filter(a => !(userMemories[u.id] || []).some(m => m.agent_id === a.id))\" :key=\"a.id\"><option :value=\"a.id\" x-text=\"a.name + ' (' + a.id + ')'\"></option></template></select> <textarea x-model=\"u._newMemoryContent\" rows=\"2\" placeholder=\"Memory content...\" class=\"textarea textarea-bordered w-full text-xs font-mono resize-y\"></textarea><div class=\"flex gap-2\"><button @click=\"u._showAddMemory = false\" class=\"btn btn-ghost btn-xs text-secondary\">cancel</button> <button @click=\"addUserMemory(u)\" :disabled=\"!u._newMemoryAgent || !u._newMemoryContent\" class=\"btn btn-ghost btn-xs text-primary disabled:opacity-30\">add</button></div></div><!-- Add memory trigger --><button x-show=\"!u._showAddMemory\" @click=\"u._showAddMemory = true; u._newMemoryAgent = ''; u._newMemoryContent = ''\" class=\"text-xs text-primary hover:text-primary-focus cursor-pointer\">+ Add memory</button></div></div></template></div><!-- Empty state --><div x-show=\"users.length === 0\" x-cloak>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = ui.EmptyState("No users yet — they appear after someone messages Anna.").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</div><!-- Confirm dialog --><div x-show=\"confirmMsg\" x-cloak class=\"fixed inset-0 z-50 flex items-center justify-center bg-black/40\"><div class=\"card bg-base-100 shadow-xl w-full max-w-sm\" @click.away=\"confirmMsg = ''\"><div class=\"card-body\"><p class=\"text-sm\" x-text=\"confirmMsg\"></p><div class=\"card-actions justify-end mt-4\"><button @click=\"confirmMsg = ''\" class=\"btn btn-ghost btn-sm\">Cancel</button> <button @click=\"confirmAction(); confirmMsg = ''\" class=\"btn btn-error btn-sm\">Delete</button></div></div></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
