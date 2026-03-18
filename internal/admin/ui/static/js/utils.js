@@ -31,38 +31,3 @@ export function formatTime(ts) {
   }
 }
 
-/**
- * Builds a deduplicated list of "provider/model" strings from providers and
- * their fetched model lists.
- *
- * @param {Array<{id: string}>} providers - Provider objects.
- * @param {Object<string, string[]>} providerModels - Map of provider ID to model names.
- * @returns {string[]} Sorted list of "provider/model" references.
- */
-export function allProviderModels(providers, providerModels) {
-  const all = []
-  const seen = new Set()
-  for (const p of providers) {
-    for (const m of (providerModels[p.id] || [])) {
-      const ref = p.id + '/' + m
-      if (!seen.has(ref)) {
-        seen.add(ref)
-        all.push(ref)
-      }
-    }
-  }
-  return all
-}
-
-/**
- * Filters a list of model references by a search query.
- *
- * @param {string[]} models - List of "provider/model" strings.
- * @param {string} search - Search query to filter by.
- * @returns {string[]} Filtered model references.
- */
-export function filteredProviderModels(models, search) {
-  if (!search) return models
-  const q = search.toLowerCase()
-  return models.filter(m => m.toLowerCase().includes(q))
-}
