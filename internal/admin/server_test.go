@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/vaayne/anna/internal/admin"
@@ -156,6 +157,56 @@ func TestCreateAgent(t *testing.T) {
 	rr = doRequest(t, srv, "GET", "/api/agents/coder", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get status = %d, want %d", rr.Code, http.StatusOK)
+	}
+}
+
+func TestRootRedirect(t *testing.T) {
+	srv := setupAdmin(t)
+
+	rr := doRequest(t, srv, "GET", "/", nil)
+	if rr.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusFound)
+	}
+	loc := rr.Header().Get("Location")
+	if loc != "/providers" {
+		t.Errorf("Location = %q, want %q", loc, "/providers")
+	}
+}
+
+func TestPageRoutes(t *testing.T) {
+	srv := setupAdmin(t)
+
+	pages := []string{
+		"/providers", "/agents", "/channels",
+		"/users", "/sessions", "/scheduler", "/settings",
+	}
+	for _, path := range pages {
+		t.Run(path, func(t *testing.T) {
+			rr := doRequest(t, srv, "GET", path, nil)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+			}
+			ct := rr.Header().Get("Content-Type")
+			if ct != "text/html; charset=utf-8" {
+				t.Errorf("Content-Type = %q, want %q", ct, "text/html; charset=utf-8")
+			}
+			body := rr.Body.String()
+			if len(body) == 0 {
+				t.Fatal("empty body")
+			}
+			if !strings.Contains(body, "Anna Admin") {
+				t.Error("body missing page title")
+			}
+		})
+	}
+}
+
+func TestUnknownPathReturns404(t *testing.T) {
+	srv := setupAdmin(t)
+
+	rr := doRequest(t, srv, "GET", "/nonexistent", nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
 	}
 }
 
