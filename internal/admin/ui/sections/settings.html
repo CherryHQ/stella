@@ -1,0 +1,17 @@
+    <!-- ════════ SETTINGS ════════ -->
+    <section x-show="tab === 'settings'" x-transition.opacity.duration.150ms>
+      <p class="text-[11px] font-mono font-medium tracking-[0.15em] text-terra-500 uppercase mb-3">Settings</p>
+      <h1 class="font-serif text-3xl md:text-4xl tracking-tight mb-3">System configuration</h1>
+      <p class="text-warm-500 text-sm mb-8 max-w-lg">Raw JSON settings for runner, compaction, heartbeat, scheduler, and plugins.</p>
+      <div class="border-t border-warm-200 dark:border-warm-800 divide-y divide-warm-200 dark:divide-warm-800">
+        <template x-for="key in settingsKeys" :key="key">
+          <div class="py-6">
+            <div class="flex items-center justify-between mb-3">
+              <span class="font-mono font-medium" x-text="key"></span>
+              <button @click="saveSetting(key)" class="px-3 h-8 text-xs font-medium text-white bg-terra-500 hover:bg-terra-600 rounded-sm transition-colors cursor-pointer">Save</button>
+            </div>
+            <textarea x-model="settingsEditors[key]" rows="6" class="input-line w-full text-sm font-mono py-2 resize-y"></textarea>
+          </div>
+        </template>
+      </div>
+    </section>
