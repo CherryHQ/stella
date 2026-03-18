@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Server) pageProviders(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "providers", "", pages.ProvidersPage())
+	s.renderPage(w, r, "providers", "/static/js/pages/providers.js", pages.ProvidersPage())
 }
 
 func (s *Server) pageAgents(w http.ResponseWriter, r *http.Request) {
