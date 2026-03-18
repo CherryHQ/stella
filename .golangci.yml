@@ -21,3 +21,5 @@ issues:
   exclude-dirs:
     - bin
     - vendor
+  exclude-files:
+    - ".*_templ\\.go$"
