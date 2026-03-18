@@ -98,19 +98,23 @@ var rtkPath = sync.OnceValue(func() string {
 	return ""
 })
 
-// wrapWithRTK prefixes the command with "rtk" if rtk is available.
-// Skips wrapping for commands starting with env var assignments
-// (e.g. "FOO=bar go test") to preserve shell semantics.
+// wrapWithRTK uses "rtk rewrite" to determine how to wrap the command.
+// rtk rewrite handles env prefixes, pipes, and unsupported commands correctly.
+// Returns the original command unchanged if rtk is unavailable or the command
+// has no rtk equivalent.
 func wrapWithRTK(command string, _ []string) string {
-	if rtkPath() == "" {
+	rtk := rtkPath()
+	if rtk == "" {
 		return command
 	}
-	// Check if first token is an env var assignment (WORD=...).
-	first, _, _ := strings.Cut(strings.TrimSpace(command), " ")
-	if strings.Contains(first, "=") {
-		return command
+	out, err := exec.Command(rtk, "rewrite", command).Output()
+	if err != nil {
+		return command // unsupported command, use as-is
 	}
-	return rtkPath() + " " + command
+	if rewritten := strings.TrimSpace(string(out)); rewritten != "" {
+		return rewritten
+	}
+	return command
 }
 
 // envWithToolsBin returns the current environment with ANNA_HOME/bin prepended to PATH.
