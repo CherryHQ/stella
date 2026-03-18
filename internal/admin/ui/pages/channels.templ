@@ -1,8 +1,243 @@
 package pages
 
+import "github.com/vaayne/anna/internal/admin/ui"
+
 templ ChannelsPage() {
-	<div class="text-center py-20">
-		<h1 class="text-2xl font-serif font-bold mb-4">Channels</h1>
-		<p class="text-secondary">Coming soon — channel configuration will appear here.</p>
+	<div x-data="channelsPage()">
+		@ui.PageHeader("Messaging platforms", "Connect Anna to Telegram, QQ, and Feishu.")
+		<div class="border-t border-base-300 divide-y divide-base-300">
+			<!-- Telegram -->
+			@channelBlock("Telegram", "telegram") {
+				<label class="flex items-center gap-3 cursor-pointer">
+					<input
+						type="checkbox"
+						:checked="channelData.telegram.enable_notify"
+						@change="channelData.telegram.enable_notify = $event.target.checked"
+						class="toggle toggle-primary toggle-sm"
+					/>
+					<span class="text-sm">Notifications</span>
+				</label>
+				<div>
+					@ui.FormField("Bot Token") {
+						<input
+							type="password"
+							x-model="channelData.telegram.token"
+							placeholder="From @BotFather"
+							class="input input-bordered w-full text-sm font-mono"
+						/>
+					}
+				</div>
+				<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+					<div>
+						@ui.FormField("Notify Chat") {
+							<input
+								type="text"
+								x-model="channelData.telegram.notify_chat"
+								placeholder="Chat ID"
+								class="input input-bordered w-full text-sm"
+							/>
+						}
+					</div>
+					<div>
+						@ui.FormField("Channel ID") {
+							<input
+								type="text"
+								x-model="channelData.telegram.channel_id"
+								placeholder="Default channel"
+								class="input input-bordered w-full text-sm"
+							/>
+						}
+					</div>
+					<div>
+						@ui.FormField("Group Mode") {
+							<select x-model="channelData.telegram.group_mode" class="select select-bordered w-full text-sm">
+								<option value="">Default</option>
+								<option value="mention">Mention</option>
+								<option value="always">Always</option>
+								<option value="disabled">Disabled</option>
+							</select>
+						}
+					</div>
+					<div>
+						@ui.FormField("Allowed IDs") {
+							<input
+								type="text"
+								:value="formatAllowedIds(channelData.telegram.allowed_ids)"
+								@change="channelData.telegram.allowed_ids = parseAllowedIds($event.target.value, true)"
+								placeholder="Comma-separated"
+								class="input input-bordered w-full text-sm"
+							/>
+						}
+					</div>
+				</div>
+				<button @click="saveChannel('telegram')" class="btn btn-primary btn-sm">Save Telegram</button>
+			}
+			<!-- QQ -->
+			@channelBlock("QQ", "qq") {
+				<label class="flex items-center gap-3 cursor-pointer">
+					<input
+						type="checkbox"
+						:checked="channelData.qq.enable_notify"
+						@change="channelData.qq.enable_notify = $event.target.checked"
+						class="toggle toggle-primary toggle-sm"
+					/>
+					<span class="text-sm">Notifications</span>
+				</label>
+				<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+					<div>
+						@ui.FormField("App ID") {
+							<input
+								type="text"
+								x-model="channelData.qq.app_id"
+								placeholder="QQ Bot App ID"
+								class="input input-bordered w-full text-sm font-mono"
+							/>
+						}
+					</div>
+					<div>
+						@ui.FormField("App Secret") {
+							<input
+								type="password"
+								x-model="channelData.qq.app_secret"
+								class="input input-bordered w-full text-sm font-mono"
+							/>
+						}
+					</div>
+					<div>
+						@ui.FormField("Group Mode") {
+							<select x-model="channelData.qq.group_mode" class="select select-bordered w-full text-sm">
+								<option value="">Default (mention)</option>
+								<option value="mention">Mention</option>
+								<option value="always">Always</option>
+								<option value="disabled">Disabled</option>
+							</select>
+						}
+					</div>
+					<div>
+						@ui.FormField("Allowed IDs") {
+							<input
+								type="text"
+								:value="formatAllowedIds(channelData.qq.allowed_ids)"
+								@change="channelData.qq.allowed_ids = parseAllowedIds($event.target.value, false)"
+								placeholder="OpenIDs, comma-separated"
+								class="input input-bordered w-full text-sm"
+							/>
+						}
+					</div>
+				</div>
+				<button @click="saveChannel('qq')" class="btn btn-primary btn-sm">Save QQ</button>
+			}
+			<!-- Feishu -->
+			@channelBlock("Feishu", "feishu") {
+				<label class="flex items-center gap-3 cursor-pointer">
+					<input
+						type="checkbox"
+						:checked="channelData.feishu.enable_notify"
+						@change="channelData.feishu.enable_notify = $event.target.checked"
+						class="toggle toggle-primary toggle-sm"
+					/>
+					<span class="text-sm">Notifications</span>
+				</label>
+				<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+					<div>
+						@ui.FormField("App ID") {
+							<input
+								type="text"
+								x-model="channelData.feishu.app_id"
+								class="input input-bordered w-full text-sm font-mono"
+							/>
+						}
+					</div>
+					<div>
+						@ui.FormField("App Secret") {
+							<input
+								type="password"
+								x-model="channelData.feishu.app_secret"
+								class="input input-bordered w-full text-sm font-mono"
+							/>
+						}
+					</div>
+					<div>
+						@ui.FormField("Encrypt Key") {
+							<input
+								type="password"
+								x-model="channelData.feishu.encrypt_key"
+								placeholder="optional"
+								class="input input-bordered w-full text-sm font-mono"
+							/>
+						}
+					</div>
+					<div>
+						@ui.FormField("Verification Token") {
+							<input
+								type="password"
+								x-model="channelData.feishu.verification_token"
+								placeholder="optional"
+								class="input input-bordered w-full text-sm font-mono"
+							/>
+						}
+					</div>
+					<div>
+						@ui.FormField("Notify Chat") {
+							<input
+								type="text"
+								x-model="channelData.feishu.notify_chat"
+								class="input input-bordered w-full text-sm"
+							/>
+						}
+					</div>
+					<div>
+						@ui.FormField("Group Mode") {
+							<select x-model="channelData.feishu.group_mode" class="select select-bordered w-full text-sm">
+								<option value="">Default (mention)</option>
+								<option value="mention">Mention</option>
+								<option value="always">Always</option>
+								<option value="disabled">Disabled</option>
+							</select>
+						}
+					</div>
+				</div>
+				<div>
+					@ui.FormField("Allowed IDs") {
+						<input
+							type="text"
+							:value="formatAllowedIds(channelData.feishu.allowed_ids)"
+							@change="channelData.feishu.allowed_ids = parseAllowedIds($event.target.value, false)"
+							placeholder="open_ids, comma-separated"
+							class="input input-bordered w-full text-sm"
+						/>
+					}
+				</div>
+				<button @click="saveChannel('feishu')" class="btn btn-primary btn-sm">Save Feishu</button>
+			}
+		</div>
+	</div>
+}
+
+// channelBlock renders a collapsible platform section with enable toggle.
+templ channelBlock(name string, platform string) {
+	<div class="py-8">
+		<div class="flex items-center justify-between mb-4">
+			<div class="flex items-center gap-3">
+				<span class="font-medium text-lg">{ name }</span>
+				<span
+					class="badge badge-sm"
+					:class={ "channelData." + platform + ".enabled ? 'badge-success' : 'badge-ghost'" }
+					x-text={ "channelData." + platform + ".enabled ? 'on' : 'off'" }
+				></span>
+			</div>
+			<label class="flex items-center gap-3 cursor-pointer">
+				<input
+					type="checkbox"
+					:checked={ "channelData." + platform + ".enabled" }
+					@change={ "channelData." + platform + ".enabled = $event.target.checked" }
+					class="toggle toggle-primary toggle-sm"
+				/>
+				<span class="text-sm">Enable</span>
+			</label>
+		</div>
+		<div x-show={ "channelData." + platform + ".enabled" } x-transition x-cloak class="space-y-4 pl-0 md:pl-6">
+			{ children... }
+		</div>
 	</div>
 }
