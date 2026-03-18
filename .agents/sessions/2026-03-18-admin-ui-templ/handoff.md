@@ -195,3 +195,33 @@
 - `toggleJob()` sends full job data with `enabled` flipped — same approach as old app.js
 - Confirm dialog pattern is identical to all other pages: inline `confirmMsg`, `confirmAction`, `confirmDelete()` method
 - Job list items show session_mode and agent_id as `badge-ghost badge-xs` badges below the message preview
+
+## Phase 7: Sessions page
+
+**Status:** complete
+
+**Tasks completed:**
+- 7.1: Replaced sessions.templ placeholder with full sessions page — two-mode UI (list vs detail) controlled by Alpine `x-show` on `sessionDetail`. List mode shows clickable session rows with title, channel, agent_id, archived badge, relative time. Detail mode shows session metadata header, collapsible tools section (loaded from `/api/tools`), collapsible system prompt with token estimate, and full message transcript.
+- 7.2: Created `sessions.js` ESM module — exports `register(Alpine)` registering `Alpine.data('sessionsPage', ...)` with `loadSessions()`, `openSession()` (fetches detail + messages + system prompt in parallel), `loadTools()`, `backToList()`, `formatTime()` delegating to utils.js. Most logic-heavy page JS with parallel API calls and multiple view states.
+- 7.3: Updated `render.go` — `pageSessions` handler now passes `"/static/js/pages/sessions.js"` as `pageScript`
+- 7.4: Verified: `templ generate && go build ./...` succeeds, `go test -race ./internal/admin/...` passes, `mise run lint` reports 0 issues
+
+**Files changed:**
+- `internal/admin/ui/pages/sessions.templ` — rewritten: full sessions page replacing placeholder
+- `internal/admin/ui/static/js/pages/sessions.js` — new: Alpine.data ESM module for sessions
+- `internal/admin/render.go` — updated: sessions handler passes pageScript path
+
+**Commits:**
+- `001964a` — sessions page with templ + daisyUI (Phase 7)
+
+**Decisions & context for next phase:**
+- Sessions page is the most complex page with two Alpine-driven modes (list vs detail) — no server-side routing between them, just `x-show` toggling on `sessionDetail`
+- Message rendering handles three roles: user (simple text), assistant (blocks: thinking/text/tool_call), tool (results with success/error styling)
+- Thinking blocks support redaction detection (`block.redacted`) and show token estimate for long content
+- Tool call blocks show tool name + last 6 chars of call ID, with collapsible JSON arguments
+- Tool result blocks use daisyUI `border-error`/`border-success` for error/success styling, with collapsible content and token/char count
+- Tools section loads from `/api/tools` on init (parallel with sessions), displays by category badge
+- System prompt section shows token estimate (`chars / 4`) and is independently collapsible via `showSystemPrompt` flag
+- `backToList()` resets all detail state including `showTools` and `showSystemPrompt`
+- `openSession()` uses `encodeURIComponent` for session IDs that may contain special characters
+- daisyUI semantic colors used throughout: `text-primary` for Anna label, `text-secondary` for metadata, `text-success`/`text-error` for tool results, `badge-ghost` for category and archived badges

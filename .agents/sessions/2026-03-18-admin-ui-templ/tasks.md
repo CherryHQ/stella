@@ -59,10 +59,10 @@
 
 ## Phase 7: Sessions page
 
-- [ ] 7.1 — Create sessions.templ page (`ui/pages/sessions.templ`)
-- [ ] 7.2 — Create sessions.js Alpine.data module (`ui/static/js/pages/sessions.js`)
-- [ ] 7.3 — Update render.go for sessions page (`render.go`)
-- [ ] 7.4 — Verify session list, detail view, message transcript, tools, system prompt
+- [x] 7.1 — Create sessions.templ page (`ui/pages/sessions.templ`)
+- [x] 7.2 — Create sessions.js Alpine.data module (`ui/static/js/pages/sessions.js`)
+- [x] 7.3 — Update render.go for sessions page (`render.go`)
+- [x] 7.4 — Verify session list, detail view, message transcript, tools, system prompt
 
 ## Phase 8: Cleanup + polish
 
