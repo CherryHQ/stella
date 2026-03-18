@@ -1,0 +1,149 @@
+package pages
+
+import "github.com/vaayne/anna/internal/admin/ui"
+
+templ SchedulerPage() {
+	<div x-data="schedulerPage()">
+		@ui.PageHeader("Scheduled tasks", "Recurring jobs that Anna executes on a schedule.")
+		<div class="border-t border-base-300 pt-8">
+			<!-- Job form -->
+			<div class="mb-8 pb-8 border-b border-base-300">
+				<div class="flex items-center justify-between mb-4">
+					<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider" x-text="editingJobId ? 'EDIT JOB' : 'NEW JOB'"></p>
+					<button x-show="editingJobId" @click="resetJobForm()" class="text-xs text-secondary hover:text-base-content cursor-pointer">Cancel</button>
+				</div>
+				<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 mb-4">
+					<div>
+						@ui.FormField("Name") {
+							<input
+								type="text"
+								x-model="jobForm.name"
+								placeholder="Daily summary"
+								class="input input-bordered w-full text-sm"
+							/>
+						}
+					</div>
+					<div>
+						@ui.FormField("Session Mode") {
+							<select x-model="jobForm.session_mode" class="select select-bordered w-full text-sm">
+								<option value="reuse">Reuse session</option>
+								<option value="new">New session each run</option>
+							</select>
+						}
+					</div>
+				</div>
+				<!-- Schedule type -->
+				<div class="mb-4">
+					@ui.FormField("Schedule") {
+						<div class="flex items-center gap-4 mb-2">
+							<label class="flex items-center gap-2 text-sm cursor-pointer">
+								<input type="radio" x-model="jobForm.schedule_type" value="cron" class="radio radio-primary radio-sm"/>
+								<span>Cron</span>
+							</label>
+							<label class="flex items-center gap-2 text-sm cursor-pointer">
+								<input type="radio" x-model="jobForm.schedule_type" value="every" class="radio radio-primary radio-sm"/>
+								<span>Interval</span>
+							</label>
+						</div>
+						<input
+							x-show="jobForm.schedule_type === 'cron'"
+							type="text"
+							x-model="jobForm.cron"
+							placeholder="0 9 * * 1-5"
+							class="input input-bordered w-full text-sm font-mono"
+						/>
+						<input
+							x-show="jobForm.schedule_type === 'every'"
+							type="text"
+							x-model="jobForm.every"
+							placeholder="30m, 2h"
+							class="input input-bordered w-full text-sm font-mono"
+						/>
+					}
+				</div>
+				<!-- Agent -->
+				<div class="mb-4">
+					@ui.FormField("Agent") {
+						<select x-model="jobForm.agent_id" class="select select-bordered w-full text-sm">
+							<option value="">Default agent</option>
+							<template x-for="a in agents" :key="a.id">
+								<option :value="a.id" x-text="a.name"></option>
+							</template>
+						</select>
+					}
+				</div>
+				<!-- Message -->
+				<div class="mb-4">
+					@ui.FormField("Message") {
+						<textarea
+							x-model="jobForm.message"
+							rows="2"
+							placeholder="What should the agent do?"
+							class="textarea textarea-bordered w-full text-sm resize-y"
+						></textarea>
+					}
+				</div>
+				<!-- Enabled + submit -->
+				<div class="flex items-center justify-between">
+					<label class="flex items-center gap-2 cursor-pointer text-sm">
+						<input type="checkbox" x-model="jobForm.enabled" class="toggle toggle-primary toggle-sm"/>
+						<span>Enabled</span>
+					</label>
+					<button
+						@click="saveJob()"
+						:disabled="!jobForm.name || !jobForm.message || (jobForm.schedule_type === 'cron' ? !jobForm.cron : !jobForm.every)"
+						class="btn btn-primary btn-sm"
+						x-text="editingJobId ? 'Update' : 'Create'"
+					></button>
+				</div>
+			</div>
+			<!-- Job list -->
+			<div class="divide-y divide-base-300">
+				<template x-for="j in jobs" :key="j.id">
+					<div class="py-5 group">
+						<div class="flex items-baseline justify-between">
+							<div class="flex items-baseline gap-3">
+								<span class="font-medium" x-text="j.name"></span>
+								<span
+									class="badge badge-sm"
+									:class="j.enabled ? 'badge-success' : 'badge-ghost'"
+									x-text="j.enabled ? 'on' : 'off'"
+								></span>
+								<span class="text-xs font-mono text-secondary" x-text="j.cron ? j.cron : 'every ' + j.every"></span>
+							</div>
+							<div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+								<button @click="toggleJob(j)" class="text-xs text-secondary hover:text-base-content cursor-pointer" x-text="j.enabled ? 'disable' : 'enable'"></button>
+								<button @click="editJob(j)" class="text-xs text-secondary hover:text-primary cursor-pointer">edit</button>
+								<button
+									@click="confirmDelete('Delete this job?', () => doDeleteJob(j.id))"
+									class="text-xs text-secondary hover:text-error cursor-pointer"
+								>remove</button>
+							</div>
+						</div>
+						<div class="text-sm text-secondary mt-1 line-clamp-1" x-text="j.message"></div>
+						<div class="flex items-center gap-2 mt-1">
+							<span class="badge badge-ghost badge-xs" x-text="j.session_mode"></span>
+							<template x-if="j.agent_id">
+								<span class="badge badge-ghost badge-xs" x-text="j.agent_id"></span>
+							</template>
+						</div>
+					</div>
+				</template>
+			</div>
+			<!-- Empty state -->
+			<template x-if="jobs.length === 0">
+				@ui.EmptyState("No jobs yet. Create one above to schedule recurring tasks.")
+			</template>
+			<!-- Confirm dialog -->
+			<div x-show="confirmMsg" x-transition x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+				<div class="card bg-base-100 shadow-xl p-6 max-w-sm w-full">
+					<p class="mb-4" x-text="confirmMsg"></p>
+					<div class="flex justify-end gap-2">
+						<button @click="confirmMsg = ''" class="btn btn-ghost btn-sm">Cancel</button>
+						<button @click="confirmAction(); confirmMsg = ''" class="btn btn-error btn-sm">Delete</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+}

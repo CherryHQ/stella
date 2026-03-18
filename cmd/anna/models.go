@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,53 +18,11 @@ import (
 	appdb "github.com/vaayne/anna/internal/db"
 )
 
-// CachedModel is the on-disk representation of a model in models.json.
-type CachedModel struct {
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
-}
-
-// ModelsCache is the top-level structure for models.json in the workspace.
-type ModelsCache struct {
-	UpdatedAt time.Time     `json:"updated_at"`
-	Models    []CachedModel `json:"models"`
-}
-
-func modelsCachePath() string {
-	return filepath.Join(config.CachePath(), "models.json")
-}
-
-// LoadModelsCache reads the cached models from the workspace models.json.
-func LoadModelsCache() (*ModelsCache, error) {
-	data, err := os.ReadFile(modelsCachePath())
-	if err != nil {
-		return nil, err
-	}
-	var cache ModelsCache
-	if err := json.Unmarshal(data, &cache); err != nil {
-		return nil, fmt.Errorf("parse models cache: %w", err)
-	}
-	return &cache, nil
-}
-
-// SaveModelsCache writes the models cache to the cache directory.
-func SaveModelsCache(cache *ModelsCache) error {
-	path := modelsCachePath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create cache dir: %w", err)
-	}
-	data, err := json.MarshalIndent(cache, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal models cache: %w", err)
-	}
-	return os.WriteFile(path, data, 0o644)
-}
-
 // fetchModelsFromProviders queries all configured providers (from the DB Store)
 // for their model lists.
-func fetchModelsFromProviders(ctx context.Context, store config.Store) []CachedModel {
+func fetchModelsFromProviders(ctx context.Context, store config.Store) []config.CachedModel {
 	seen := make(map[string]bool)
-	var models []CachedModel
+	var models []config.CachedModel
 
 	add := func(provider, model string) {
 		key := provider + "/" + model
@@ -74,7 +30,7 @@ func fetchModelsFromProviders(ctx context.Context, store config.Store) []CachedM
 			return
 		}
 		seen[key] = true
-		models = append(models, CachedModel{Provider: provider, Model: model})
+		models = append(models, config.CachedModel{Provider: provider, Model: model})
 	}
 
 	providers, err := store.ListProviders(ctx)
@@ -126,7 +82,7 @@ func collectModelsFromStore(ctx context.Context, store config.Store, snap *confi
 	add(snap.Provider, snap.Model)
 
 	// Load from cache.
-	if cache, err := LoadModelsCache(); err == nil {
+	if cache, err := config.LoadModelsCache(); err == nil {
 		for _, m := range cache.Models {
 			add(m.Provider, m.Model)
 		}
@@ -235,16 +191,16 @@ func modelsUpdateCommand() *ucli.Command {
 			fmt.Fprintf(os.Stderr, "Fetching models from %d provider(s)...\n", len(providers))
 
 			cached := fetchModelsFromProviders(c.Context, store)
-			cache := &ModelsCache{
+			cache := &config.ModelsCache{
 				UpdatedAt: time.Now().UTC(),
 				Models:    cached,
 			}
 
-			if err := SaveModelsCache(cache); err != nil {
+			if err := config.SaveModelsCache(cache); err != nil {
 				return fmt.Errorf("save models cache: %w", err)
 			}
 
-			fmt.Fprintf(os.Stderr, "Cached %d models to %s\n", len(cached), modelsCachePath())
+			fmt.Fprintf(os.Stderr, "Cached %d models to %s\n", len(cached), config.ModelsCachePath())
 			return nil
 		},
 	}

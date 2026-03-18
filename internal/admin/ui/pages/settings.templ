@@ -1,0 +1,24 @@
+package pages
+
+import "github.com/vaayne/anna/internal/admin/ui"
+
+templ SettingsPage() {
+	<div x-data="settingsPage()">
+		@ui.PageHeader("System configuration", "Raw JSON settings for runner, compaction, heartbeat, scheduler, and plugins.")
+		<div class="border-t border-base-300 divide-y divide-base-300">
+			<template x-for="key in settingsKeys" :key="key">
+				<div class="py-6">
+					<div class="flex items-center justify-between mb-3">
+						<span class="font-mono font-medium" x-text="key"></span>
+						<button @click="saveSetting(key)" class="btn btn-primary btn-sm">Save</button>
+					</div>
+					<textarea
+						x-model="settingsEditors[key]"
+						rows="6"
+						class="textarea textarea-bordered w-full text-sm font-mono resize-y"
+					></textarea>
+				</div>
+			</template>
+		</div>
+	</div>
+}
