@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-03-18
+
+### ✨ Features
+
+- **Runner**: Embed rtk, fd, rg binaries and wrap bash with rtk ([#66](https://github.com/vaayne/anna/pull/66))
+- **Admin**: Migrate admin UI to templ + daisyUI 5 + Alpine.js ESM ([#65](https://github.com/vaayne/anna/pull/65))
+  - Settings, providers, agents, channels, users, scheduler, and sessions pages
+  - Shared daisyUI components (PageHeader, EmptyState, Badge, FormField)
+  - Delete old SPA UI files
+- **Admin**: Use models cache for agent model autocomplete
+- **Docs**: Add i18n support (en, zh, ja) ([#63](https://github.com/vaayne/anna/pull/63))
+
+### 🐛 Bug Fixes
+
+- **Admin**: Stop auto-fetching provider models on agents page load
+- **Docs**: Add root index route to redirect `/` to `/en`
+- **CI**: Exclude templ-generated files from coverage calculation
+
+### ♻️ Refactoring
+
+- **Admin**: Split admin UI into modular files ([#64](https://github.com/vaayne/anna/pull/64))
+
+### 📝 Documentation
+
+- Add admin UI CLAUDE.md and update root CLAUDE.md
+- Add i18n section to CLAUDE.md files
+
+**Full Changelog**: [v0.8.0...v0.8.1](https://github.com/vaayne/anna/compare/v0.8.0...v0.8.1)
+
 ## [0.8.0] - 2026-03-17
 
 ### ✨ Features
