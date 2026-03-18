@@ -3,7 +3,10 @@ package tool
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
+	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
@@ -20,6 +23,9 @@ type Registry struct {
 
 // NewRegistry creates a registry with the default built-in tools.
 func NewRegistry(workDir string) *Registry {
+	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
+		slog.Warn("failed to extract embedded tools", "error", err)
+	}
 	r := &Registry{tools: make(map[string]Tool)}
 	r.Register(&ReadTool{})
 	r.Register(&BashTool{workDir: workDir})

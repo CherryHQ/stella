@@ -97,6 +97,14 @@ description = "Validate Atlas migrations"
 run = "atlas migrate validate --env local"
 
 # ============================================================================
+# Embedded Tools Tasks
+# ============================================================================
+
+[tasks."tools:download"]
+description = "Download fd, rg, rtk for current platform (via mise)"
+run = "bash scripts/download-tools.sh"
+
+# ============================================================================
 # Release Tasks
 # ============================================================================
 
