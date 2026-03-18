@@ -80,3 +80,29 @@
 - Settings page JS uses `$store.toast.show()` for success/error feedback — same pattern for all future pages
 - The `pages/` directory under `ui/static/js/` now exists for page-specific ESM modules
 - Pattern established: each page's `.js` exports `register(Alpine)` which calls `Alpine.data('xyzPage', () => ({...}))`
+
+## Phase 3: Providers page
+
+**Status:** complete
+
+**Tasks completed:**
+- 3.1: Replaced providers.templ placeholder with full providers page — uses `x-data="providersPage()"`, imports `ui.PageHeader`, `ui.EmptyState`, `ui.FormField`; select dropdown for adding providers, provider cards with API key (password input) + base URL fields, save/delete buttons, fetch models with loading spinner, collapsible model list with badges, inline confirm dialog for delete
+- 3.2: Created `providers.js` ESM module — exports `register(Alpine)` registering `Alpine.data('providersPage', ...)` with `providerDefaults` (anthropic, openai, openai-response), computed `addableProviders`, CRUD methods (`loadProviders`, `addProvider`, `saveProvider`, `doDeleteProvider`), `fetchModels` with loading state, `confirmDelete` pattern
+- 3.3: Updated `render.go` — `pageProviders` handler now passes `"/static/js/pages/providers.js"` as `pageScript`
+- 3.4: Verified: `templ generate && go build ./...` succeeds, `go test -race ./internal/admin/...` passes, `mise run lint` reports 0 issues
+
+**Files changed:**
+- `internal/admin/ui/pages/providers.templ` — rewritten: full providers page replacing placeholder
+- `internal/admin/ui/static/js/pages/providers.js` — new: Alpine.data ESM module for providers
+- `internal/admin/render.go` — updated: providers handler passes pageScript path
+
+**Commits:**
+- `ece5740` — providers page with templ + daisyUI (Phase 3)
+
+**Decisions & context for next phase:**
+- Confirm dialog is implemented inline within the providers page `x-data` scope (confirmMsg, confirmAction, confirmDelete method) — not shared via layout. Future pages needing delete confirmation should use the same inline pattern
+- `providerDefaults` is a module-level constant in providers.js — maps provider ID to `{ base_url, name }` for anthropic, openai, openai-response
+- Model list uses `badge badge-ghost badge-sm` for each model name — visual distinction from plain text
+- Fetch models button shows `loading loading-spinner loading-xs` spinner during fetch — daisyUI loading component
+- After delete, `newProviderType` is refreshed from `addableProviders` so the deleted provider reappears in the add dropdown
+- The `providerModels` object is keyed by provider ID — same structure as old app.js, used by agents page for model combo dropdowns (Phase 4 will need access to this data, but agents page loads its own provider list independently)

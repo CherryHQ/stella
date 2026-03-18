@@ -28,10 +28,10 @@
 
 ## Phase 3: Providers page
 
-- [ ] 3.1 — Create providers.templ page (`ui/pages/providers.templ`)
-- [ ] 3.2 — Create providers.js Alpine.data module (`ui/static/js/pages/providers.js`)
-- [ ] 3.3 — Update render.go for providers page (`render.go`)
-- [ ] 3.4 — Verify provider CRUD, model fetching, model list
+- [x] 3.1 — Create providers.templ page (`ui/pages/providers.templ`)
+- [x] 3.2 — Create providers.js Alpine.data module (`ui/static/js/pages/providers.js`)
+- [x] 3.3 — Update render.go for providers page (`render.go`)
+- [x] 3.4 — Verify provider CRUD, model fetching, model list
 
 ## Phase 4: Agents page
 
