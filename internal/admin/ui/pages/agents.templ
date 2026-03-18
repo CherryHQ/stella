@@ -1,0 +1,152 @@
+package pages
+
+import "github.com/vaayne/anna/internal/admin/ui"
+
+templ AgentsPage() {
+	<div x-data="agentsPage()">
+		@ui.PageHeader("Agent configurations", "Each agent has its own model, system prompt, and workspace.")
+		<div class="border-t border-base-300 pt-8">
+			<!-- Top bar: count + add toggle -->
+			<div class="flex items-center justify-between mb-8">
+				<span class="text-xs font-mono text-secondary" x-text="agents.length + ' agents'"></span>
+				<button
+					@click="showForm = !showForm; if(!showForm) resetForm()"
+					class="btn btn-ghost btn-sm text-primary font-medium"
+					x-text="showForm ? 'Cancel' : '+ Add agent'"
+				></button>
+			</div>
+			<!-- Agent form -->
+			<div x-show="showForm" x-transition x-cloak class="mb-8 pb-8 border-b border-base-300">
+				<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-4" x-text="editingId ? 'EDIT AGENT' : 'NEW AGENT'"></p>
+				<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 mb-4">
+					<div>
+						@ui.FormField("ID") {
+							<input
+								x-model="form.id"
+								:disabled="!!editingId"
+								placeholder="anna"
+								class="input input-bordered w-full text-sm font-mono disabled:opacity-40"
+							/>
+						}
+					</div>
+					<div>
+						@ui.FormField("Name") {
+							<input x-model="form.name" placeholder="Anna" class="input input-bordered w-full text-sm"/>
+						}
+					</div>
+				</div>
+				<!-- Models section -->
+				<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-3 mt-6">
+					Models <span class="normal-case tracking-normal text-base-content/50">— format: provider/model</span>
+				</p>
+				<div class="space-y-4 mb-4">
+					@modelComboField("Default", "model", "anthropic/claude-sonnet-4-6")
+					<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+						@modelComboField("Strong", "model_strong", "Falls back to default")
+						@modelComboField("Fast", "model_fast", "Falls back to default")
+					</div>
+				</div>
+				<!-- Workspace -->
+				<div class="mb-4">
+					@ui.FormField("Workspace") {
+						<input x-model="form.workspace" placeholder="~/.anna/workspaces/anna" class="input input-bordered w-full text-sm font-mono"/>
+					}
+				</div>
+				<!-- System prompt -->
+				<div class="mb-4">
+					@ui.FormField("System Prompt") {
+						<textarea x-model="form.system_prompt" rows="4" class="textarea textarea-bordered w-full text-sm font-mono resize-y"></textarea>
+					}
+				</div>
+				<!-- Enabled toggle + save -->
+				<div class="flex items-center justify-between">
+					<label class="flex items-center gap-3 cursor-pointer">
+						<input type="checkbox" x-model="form.enabled" class="toggle toggle-primary toggle-sm"/>
+						<span class="text-sm">Enabled</span>
+					</label>
+					<button @click="saveAgent()" class="btn btn-primary btn-sm" x-text="editingId ? 'Update' : 'Create'"></button>
+				</div>
+			</div>
+			<!-- Empty state -->
+			<div x-show="agents.length === 0 && !showForm" x-cloak>
+				@ui.EmptyState("No agents configured yet.")
+			</div>
+			<!-- Agent list -->
+			<div class="divide-y divide-base-300">
+				<template x-for="a in agents" :key="a.id">
+					<div class="py-5 group">
+						<div class="flex items-baseline justify-between">
+							<div class="flex items-baseline gap-3">
+								<span class="font-medium" x-text="a.name"></span>
+								<span class="text-xs font-mono text-secondary" x-text="a.id"></span>
+								<span
+									class="badge badge-sm"
+									:class="a.enabled ? 'badge-success' : 'badge-ghost'"
+									x-text="a.enabled ? 'on' : 'off'"
+								></span>
+							</div>
+							<div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+								<button @click="editAgent(a)" class="btn btn-ghost btn-xs text-secondary hover:text-primary">edit</button>
+								<button
+									@click="confirmDelete('Delete agent ' + a.id + '?', () => doDeleteAgent(a.id))"
+									class="btn btn-ghost btn-xs text-secondary hover:text-error"
+								>remove</button>
+							</div>
+						</div>
+						<div class="text-sm font-mono text-secondary mt-1" x-text="a.model"></div>
+					</div>
+				</template>
+			</div>
+		</div>
+		<!-- Confirm dialog -->
+		<div x-show="confirmMsg" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+			<div class="card bg-base-100 shadow-xl w-full max-w-sm" @click.away="confirmMsg = ''">
+				<div class="card-body">
+					<p class="text-sm" x-text="confirmMsg"></p>
+					<div class="card-actions justify-end mt-4">
+						<button @click="confirmMsg = ''" class="btn btn-ghost btn-sm">Cancel</button>
+						<button @click="confirmAction(); confirmMsg = ''" class="btn btn-error btn-sm">Delete</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+// modelComboField renders a model text input with autocomplete dropdown from cached models.
+templ modelComboField(label string, field string, placeholder string) {
+	<div x-data="{ open: false, search: '' }" class="relative">
+		<label class="label">
+			<span class="label-text font-mono text-sm">{ label }</span>
+			if field != "model" {
+				<span class="label-text-alt text-base-content/40">(optional)</span>
+			}
+		</label>
+		<input
+			type="text"
+			:value={ "form." + field }
+			@input={ "form." + field + " = $event.target.value; search = $event.target.value; open = cachedModels.length > 0" }
+			@focus="search = ''; open = cachedModels.length > 0"
+			placeholder={ placeholder }
+			class="input input-bordered w-full text-sm font-mono"
+		/>
+		<div
+			x-show="open && filteredModels(search).length > 0"
+			@click.away="open = false"
+			x-transition.opacity
+			x-cloak
+			class="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-base-100 border border-base-300 rounded-box shadow-lg py-1"
+		>
+			<template x-for="m in filteredModels(search)" :key="m">
+				<button
+					@click={ "form." + field + " = m; open = false" }
+					type="button"
+					class="w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-base-200 cursor-pointer"
+					:class={ "form." + field + " === m ? 'text-primary' : 'text-base-content/70'" }
+					x-text="m"
+				></button>
+			</template>
+		</div>
+	</div>
+}
+

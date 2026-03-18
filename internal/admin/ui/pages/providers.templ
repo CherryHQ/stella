@@ -1,0 +1,90 @@
+package pages
+
+import "github.com/vaayne/anna/internal/admin/ui"
+
+templ ProvidersPage() {
+	<div x-data="providersPage()">
+		@ui.PageHeader("LLM connections", "API keys and endpoints for each model provider Anna can use.")
+		<div class="border-t border-base-300 pt-8">
+			<!-- Add provider bar -->
+			<div class="flex items-center gap-3 mb-8">
+				<select x-model="newProviderType" class="select select-bordered flex-1 text-sm">
+					<option value="" disabled>Select provider to add...</option>
+					<template x-for="p in addableProviders" :key="p">
+						<option :value="p" x-text="p"></option>
+					</template>
+				</select>
+				<button @click="addProvider()" :disabled="!newProviderType" class="btn btn-primary btn-sm">Add</button>
+			</div>
+			<!-- Empty state -->
+			<div x-show="providers.length === 0" x-cloak>
+				@ui.EmptyState("No providers yet. Add one above to connect Anna to an LLM API.")
+			</div>
+			<!-- Provider list -->
+			<div class="divide-y divide-base-300">
+				<template x-for="p in providers" :key="p.id">
+					<div class="py-6">
+						<!-- Header row: name + delete -->
+						<div class="flex items-baseline justify-between mb-4">
+							<div class="flex items-baseline gap-3">
+								<span class="font-medium text-lg" x-text="p.name || p.id"></span>
+								<span class="text-xs font-mono text-secondary" x-show="p.name && p.name !== p.id" x-text="p.id"></span>
+							</div>
+							<button
+								@click="confirmDelete('Delete provider ' + p.id + '?', () => doDeleteProvider(p.id))"
+								class="btn btn-ghost btn-xs text-secondary hover:text-error"
+							>remove</button>
+						</div>
+						<!-- Fields: API key + base URL -->
+						<div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 mb-4">
+							<div>
+								@ui.FormField("API Key") {
+									<input type="password" x-model="p.api_key" placeholder="sk-..." class="input input-bordered w-full text-sm font-mono"/>
+								}
+							</div>
+							<div>
+								@ui.FormField("Base URL") {
+									<input type="text" x-model="p.base_url" :placeholder="providerDefaults[p.id]?.base_url || ''" class="input input-bordered w-full text-sm font-mono"/>
+								}
+							</div>
+						</div>
+						<!-- Actions: save, fetch models, model count toggle -->
+						<div class="flex items-center gap-4">
+							<button @click="saveProvider(p)" class="btn btn-primary btn-sm">Save</button>
+							<button @click="fetchModels(p)" :disabled="p._fetching" class="btn btn-ghost btn-sm text-secondary">
+								<span x-show="p._fetching" class="loading loading-spinner loading-xs"></span>
+								<span x-text="p._fetching ? 'Fetching...' : 'Fetch models'"></span>
+							</button>
+							<button x-show="p._modelCount > 0" @click="p._showModels = !p._showModels" class="btn btn-ghost btn-xs font-mono text-primary">
+								<span x-text="p._modelCount + ' models'"></span>
+								<span x-text="p._showModels ? '↑' : '↓'"></span>
+							</button>
+						</div>
+						<!-- Collapsible model list -->
+						<div x-show="p._showModels && providerModels[p.id]?.length" x-transition x-cloak class="mt-4 pl-4 border-l-2 border-base-300">
+							<div class="max-h-48 overflow-y-auto space-y-0.5">
+								<template x-for="m in providerModels[p.id] || []" :key="m">
+									<div class="py-0.5">
+										<span class="badge badge-ghost badge-sm font-mono" x-text="m"></span>
+									</div>
+								</template>
+							</div>
+						</div>
+					</div>
+				</template>
+			</div>
+		</div>
+		<!-- Confirm dialog -->
+		<div x-show="confirmMsg" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+			<div class="card bg-base-100 shadow-xl w-full max-w-sm" @click.away="confirmMsg = ''">
+				<div class="card-body">
+					<p class="text-sm" x-text="confirmMsg"></p>
+					<div class="card-actions justify-end mt-4">
+						<button @click="confirmMsg = ''" class="btn btn-ghost btn-sm">Cancel</button>
+						<button @click="confirmAction(); confirmMsg = ''" class="btn btn-error btn-sm">Delete</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+}
