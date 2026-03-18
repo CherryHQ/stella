@@ -106,3 +106,32 @@
 - Fetch models button shows `loading loading-spinner loading-xs` spinner during fetch — daisyUI loading component
 - After delete, `newProviderType` is refreshed from `addableProviders` so the deleted provider reappears in the add dropdown
 - The `providerModels` object is keyed by provider ID — same structure as old app.js, used by agents page for model combo dropdowns (Phase 4 will need access to this data, but agents page loads its own provider list independently)
+
+## Phase 4: Agents page
+
+**Status:** complete
+
+**Tasks completed:**
+- 4.1: Created `utils.js` ESM module with `formatTime()` (relative time formatting), `allProviderModels()` (deduplicated provider/model list builder), and `filteredProviderModels()` (search filter helper)
+- 4.2: Replaced agents.templ placeholder with full agents page — uses `x-data="agentsPage()"`, imports `ui.PageHeader`, `ui.EmptyState`, `ui.FormField`; add/edit form with ID, name, three model combo dropdowns (default, strong, fast) with autocomplete, workspace, system prompt textarea, enabled toggle (daisyUI `toggle`), save/cancel; agent list with name, ID badge, enabled status badge, model display, edit/delete buttons on hover; inline confirm dialog
+- 4.3: Created `agents.js` ESM module — exports `register(Alpine)` registering `Alpine.data('agentsPage', ...)` with agent CRUD methods, provider+model loading (fetches providers then models in parallel for autocomplete), `allModels()` and `filteredModels()` helpers that delegate to utils.js, inline confirm dialog pattern
+- 4.4: Updated `render.go` — `pageAgents` handler now passes `"/static/js/pages/agents.js"` as `pageScript`
+- 4.5: Verified: `templ generate && go build ./...` succeeds, `go test -race ./internal/admin/...` passes, `mise run lint` reports 0 issues
+
+**Files changed:**
+- `internal/admin/ui/static/js/utils.js` — new: shared ESM utilities (formatTime, model helpers)
+- `internal/admin/ui/pages/agents.templ` — rewritten: full agents page replacing placeholder
+- `internal/admin/ui/static/js/pages/agents.js` — new: Alpine.data ESM module for agents
+- `internal/admin/render.go` — updated: agents handler passes pageScript path
+
+**Commits:**
+- `543594d` — agents page with templ + daisyUI (Phase 4)
+
+**Decisions & context for next phase:**
+- `utils.js` exports `formatTime`, `allProviderModels`, `filteredProviderModels` — reusable by sessions page (Phase 7) and any future page needing relative time or model lists
+- Model combo dropdowns use nested `x-data="{ open: false, search: '' }"` scopes inside the parent `agentsPage()` scope — the nested scope accesses parent methods (`allModels()`, `filteredModels()`, `form`) via Alpine's scope chain
+- The `modelComboField` templ component is a helper within `pages/agents.templ` — renders a labeled input with autocomplete dropdown for a given form field name
+- Agents page independently loads providers + fetches their models on init (does not share state with providers page since they are separate routes/page loads)
+- Confirm dialog pattern is identical to providers page: inline `confirmMsg`, `confirmAction`, `confirmDelete()` method
+- Agent enabled status uses `badge-success` (on) / `badge-ghost` (off) daisyUI badges
+- Edit/delete buttons use `opacity-0 group-hover:opacity-100` for clean hover reveal
