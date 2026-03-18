@@ -29,7 +29,7 @@ func (s *Server) pageSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pageScheduler(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "scheduler", "", pages.SchedulerPage())
+	s.renderPage(w, r, "scheduler", "/static/js/pages/scheduler.js", pages.SchedulerPage())
 }
 
 func (s *Server) pageSettings(w http.ResponseWriter, r *http.Request) {
