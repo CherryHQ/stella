@@ -125,6 +125,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	s.mux.Handle("PUT /api/auth/users/{id}/roles", adminAPI(s.updateAuthUserRoles))
 	s.mux.Handle("GET /api/auth/users/{id}/agents", adminAPI(s.listAuthUserAgents))
 	s.mux.Handle("PUT /api/auth/users/{id}/agents", adminAPI(s.updateAuthUserAgents))
+	s.mux.Handle("DELETE /api/auth/users/{id}/identities/{identityId}", adminAPI(s.deleteAuthUserIdentity))
 	s.mux.Handle("PUT /api/auth/users/{id}/active", adminAPI(s.updateAuthUserActive))
 
 	// Session APIs.
