@@ -39,14 +39,14 @@
 
 ## Phase 4: User Profile + Channel Linking
 
-- [ ] 4.1 — Create `internal/auth/linkcode.go` (in-memory sync.Map, 5-min TTL)
-- [ ] 4.2 — Create profile templ page (`internal/admin/ui/pages/profile.templ`)
-- [ ] 4.3 — Create profile page JS (`internal/admin/ui/static/js/pages/profile.js`)
-- [ ] 4.4 — Add profile API handlers (get profile, update password, link code, identities)
-- [ ] 4.5 — Add route + nav link for `/profile`
-- [ ] 4.6 — Modify channel handlers to intercept link-code messages
-- [ ] 4.7 — Modify `identity.go`: resolve via auth_identities with auto-migration fallback
-- [ ] 4.8 — Write tests
+- [x] 4.1 — Create `internal/auth/linkcode.go` (in-memory sync.Map, 5-min TTL)
+- [x] 4.2 — Create profile templ page (`internal/admin/ui/pages/profile.templ`)
+- [x] 4.3 — Create profile page JS (`internal/admin/ui/static/js/pages/profile.js`)
+- [x] 4.4 — Add profile API handlers (get profile, update password, link code, identities)
+- [x] 4.5 — Add route + nav link for `/profile`
+- [x] 4.6 — Modify channel handlers to intercept link-code messages
+- [x] 4.7 — Modify `identity.go`: resolve via auth_identities with auto-migration fallback
+- [x] 4.8 — Write tests
 
 ## Phase 5: Agent Scoping + Access Enforcement
 

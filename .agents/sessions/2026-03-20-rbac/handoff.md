@@ -178,3 +178,68 @@
 - **Session expiry extension**: Each authenticated request extends the session by 7 days (rolling expiry).
 - **Lazy session cleanup**: Expired sessions are deleted on each middleware invocation via `DeleteExpiredSessions`.
 - **CORS origin**: Reads from settings table key `admin.cors_origin`. Falls back to `http://localhost:8080`. Can be configured via the settings API.
+
+## Phase 4: User Profile + Channel Linking
+
+**Status:** Complete
+**Date:** 2026-03-20
+**Commits:** 4 commits on `main`
+
+### What was done
+
+1. **LinkCodeStore** (`internal/auth/linkcode.go`):
+   - In-memory `sync.Map`-based store for 6-char alphanumeric link codes
+   - `Generate(userID, platform) string` — creates code with 5-min TTL
+   - `Consume(code) (userID, platform, ok)` — single-use consumption with expiry check
+   - `IsLinkCode(s) bool` — quick format check (6 alphanumeric chars)
+   - Codes are uppercase hex from `crypto/rand`
+
+2. **Profile page** (`internal/admin/ui/pages/profile.templ`, `internal/admin/ui/static/js/pages/profile.js`):
+   - Password change form (current password, new password, confirm)
+   - Linked identities list with unlink button per identity
+   - Link code generation buttons for Telegram, QQ, Feishu
+   - Shows generated code with platform-specific instructions
+   - Alpine.js component with `api()` helper for all operations
+
+3. **Profile API handlers** (`internal/admin/profile.go`):
+   - `GET /api/auth/profile/identities` — list linked identities for current user
+   - `PUT /api/auth/profile/password` — change password (verify current, validate min 8 chars, max 72)
+   - `POST /api/auth/profile/link-code` — generate link code for platform (telegram/qq/feishu)
+   - `DELETE /api/auth/profile/identities/{id}` — unlink identity (ownership verification)
+
+4. **Routes and navigation** (`internal/admin/server.go`, `internal/admin/render.go`, `internal/admin/ui/navbar.templ`):
+   - `GET /profile` page route (accessible to all authenticated users)
+   - Profile API routes under `/api/auth/profile/`
+   - `LinkCodes()` accessor on Server for channel handlers
+   - Username in navbar is now a clickable link to `/profile`
+   - `LinkCodeStore` created once in `New()` and stored on Server
+
+5. **Channel link code interception** (`internal/channel/linkcode.go`, telegram/qq/feishu handlers):
+   - Shared `TryLinkCode()` function: checks code format, consumes, verifies platform match, creates `auth_identity`
+   - `WithAuth(authStore, linkCodes)` BotOption added to telegram, qq, feishu
+   - Each handler intercepts 6-char alphanumeric messages before command processing
+   - Platform mismatch detection (code for telegram sent to qq returns error)
+   - Already-linked accounts detected and reported
+
+6. **Auth-aware identity resolution** (`internal/channel/identity.go`, `internal/channel/resolved.go`):
+   - New `ResolvedIdentity` type with `AuthUserID` and `Roles` fields
+   - `ResolveUserWithAuth()`: looks up `auth_identities` first, falls back to `settings_users`
+   - Auto-migration: when `settings_users` record exists but no `auth_identity`, creates `auth_user` (username=`{platform}_{externalID}`, random password, `user` role) and links identity
+   - `ResolveWithAuth()`: full auth-aware resolution path
+   - `ResolvedChat` extended with `AuthUserID` and `Roles` fields
+   - Each channel bot uses `ResolveWithAuth` when `authStore` is configured, falls back to legacy `Resolve`
+
+7. **Tests**:
+   - `internal/auth/linkcode_test.go` — generate, consume, single-use, case-insensitive, uniqueness, IsLinkCode, multiple platforms
+   - `internal/admin/profile_test.go` — list identities (empty/with link), change password (success/wrong/short), generate link code (valid/invalid platform), unlink identity (own/other user), profile page route
+   - `internal/channel/identity_test.go` — auto-migration, linked identity lookup, idempotency, TryLinkCode (success/wrong platform/invalid code/non-code text)
+   - All tests pass with `-race`
+
+### Notes for next phases
+
+- **Channel bots need `WithAuth` option**: Callers that create channel bots (in `cmd/anna/gateway.go`) must pass `WithAuth(authStore, linkCodes)` to enable link code interception and auth-aware identity resolution. Without it, bots fall back to legacy behavior.
+- **`LinkCodes()` accessor on Server**: The admin Server exposes its `LinkCodeStore` via `LinkCodes()` so that `gateway.go` can pass it to channel bots.
+- **`ResolvedChat` extended**: Now carries `AuthUserID` and `Roles` — Phase 5 can use these for agent access enforcement.
+- **Auto-migration username format**: `{platform}_{externalID}` (e.g., `telegram_12345`). Auto-migrated users get a random password and the `user` role. They can set a real password via admin UI later.
+- **Backward compatibility preserved**: All existing code paths work without auth. `Resolve()` still works as before. `ResolveWithAuth()` is only called when `authStore` is non-nil.
+- **settings_users still used**: Even in the auth-aware path, `store.UpsertUser()` is called for backward compat (sessions, memories still reference `settings_users.id`). The `config.User` record is still the primary user object in `ResolvedChat`.
