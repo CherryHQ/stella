@@ -506,7 +506,7 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 		}
 	}
 
-	r, err := p.factory(ctx, runner.RunnerParams{Model: effectiveModel, UserMemory: userMem})
+	r, err := p.factory(ctx, runner.RunnerParams{Model: effectiveModel, UserMemory: userMem, UserID: sess.Info.UserID})
 	if err != nil {
 		return nil, nil, err
 	}

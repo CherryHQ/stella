@@ -47,6 +47,7 @@ type Runner interface {
 type RunnerParams struct {
 	Model      string // model ID (empty = use default)
 	UserMemory string // per-user memory to inject into system prompt
+	UserID     int64  // auth user ID (0 = no user isolation)
 }
 
 // NewRunnerFunc creates a new Runner instance with the given params.
