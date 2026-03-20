@@ -46,7 +46,35 @@ func NewRateLimiter() *RateLimiter {
 }
 
 // CheckIP verifies the IP has not exceeded the request limit.
+// Does not increment the counter — call RecordIPAttempt after a failed attempt.
 func (rl *RateLimiter) CheckIP(ip string) error {
+	now := time.Now()
+
+	val, ok := rl.ips.Load(ip)
+	if !ok {
+		return nil
+	}
+
+	rec := val.(*ipRecord)
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+
+	// Reset window if expired.
+	if now.Sub(rec.windowAt) > ipWindowDuration {
+		rec.attempts = 0
+		rec.windowAt = now
+		return nil
+	}
+
+	if rec.attempts >= ipMaxAttempts {
+		return ErrRateLimitIP
+	}
+
+	return nil
+}
+
+// RecordIPAttempt records a failed attempt for rate limiting by IP.
+func (rl *RateLimiter) RecordIPAttempt(ip string) {
 	now := time.Now()
 
 	val, _ := rl.ips.LoadOrStore(ip, &ipRecord{windowAt: now})
@@ -55,18 +83,12 @@ func (rl *RateLimiter) CheckIP(ip string) error {
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
 
-	// Reset window if expired.
 	if now.Sub(rec.windowAt) > ipWindowDuration {
 		rec.attempts = 0
 		rec.windowAt = now
 	}
 
-	if rec.attempts >= ipMaxAttempts {
-		return ErrRateLimitIP
-	}
-
 	rec.attempts++
-	return nil
 }
 
 // CheckUsername verifies the username is not in a cooldown period.

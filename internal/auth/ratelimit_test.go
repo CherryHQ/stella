@@ -9,14 +9,17 @@ import (
 func TestRateLimiterIPBasic(t *testing.T) {
 	rl := auth.NewRateLimiter()
 
-	// Should allow 10 attempts.
-	for i := 0; i < 10; i++ {
-		if err := rl.CheckIP("1.2.3.4"); err != nil {
-			t.Fatalf("attempt %d: unexpected error: %v", i+1, err)
-		}
+	// CheckIP alone should never block (no attempts recorded yet).
+	if err := rl.CheckIP("1.2.3.4"); err != nil {
+		t.Fatalf("fresh IP should not be limited: %v", err)
 	}
 
-	// 11th should fail.
+	// Record 10 failed attempts.
+	for i := 0; i < 10; i++ {
+		rl.RecordIPAttempt("1.2.3.4")
+	}
+
+	// 11th check should fail.
 	if err := rl.CheckIP("1.2.3.4"); err != auth.ErrRateLimitIP {
 		t.Errorf("expected ErrRateLimitIP, got %v", err)
 	}
@@ -24,6 +27,17 @@ func TestRateLimiterIPBasic(t *testing.T) {
 	// Different IP should still work.
 	if err := rl.CheckIP("5.6.7.8"); err != nil {
 		t.Fatalf("different IP should not be rate limited: %v", err)
+	}
+}
+
+func TestRateLimiterIPSuccessDoesNotCount(t *testing.T) {
+	rl := auth.NewRateLimiter()
+
+	// CheckIP many times without RecordIPAttempt should never block.
+	for i := 0; i < 20; i++ {
+		if err := rl.CheckIP("1.2.3.4"); err != nil {
+			t.Fatalf("successful requests should not be counted: %v", err)
+		}
 	}
 }
 

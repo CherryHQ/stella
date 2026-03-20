@@ -24,10 +24,17 @@ type Server struct {
 	q           *sqlc.Queries
 	mux         *http.ServeMux
 	log         *slog.Logger
+	corsOriginV string // cached CORS origin
 }
 
 // New creates an admin server with all API routes mounted.
 func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Engine, db *sql.DB) *Server {
+	// Read CORS origin once at startup.
+	corsOrigin := "http://localhost:8080"
+	if val, err := store.GetSetting(context.Background(), "admin.cors_origin"); err == nil && val != "" {
+		corsOrigin = val
+	}
+
 	s := &Server{
 		store:       store,
 		authStore:   authStore,
@@ -38,6 +45,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 		q:           sqlc.New(db),
 		mux:         http.NewServeMux(),
 		log:         slog.With("component", "admin"),
+		corsOriginV: corsOrigin,
 	}
 
 	// Serve static assets (JS modules).
@@ -78,12 +86,12 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	s.mux.Handle("DELETE /api/providers/{id}", adminAPI(s.deleteProvider))
 	s.mux.Handle("POST /api/providers/{id}/models", adminAPI(s.fetchProviderModels))
 
-	// Agent APIs.
+	// Agent APIs (read for all authenticated users, write for admin only).
 	s.mux.HandleFunc("GET /api/agents", s.listAgents)
-	s.mux.HandleFunc("POST /api/agents", s.createAgent)
+	s.mux.Handle("POST /api/agents", adminAPI(s.createAgent))
 	s.mux.HandleFunc("GET /api/agents/{id}", s.getAgent)
-	s.mux.HandleFunc("PUT /api/agents/{id}", s.updateAgent)
-	s.mux.HandleFunc("DELETE /api/agents/{id}", s.deleteAgent)
+	s.mux.Handle("PUT /api/agents/{id}", adminAPI(s.updateAgent))
+	s.mux.Handle("DELETE /api/agents/{id}", adminAPI(s.deleteAgent))
 
 	// Channel APIs (admin-only).
 	s.mux.Handle("GET /api/channels", adminAPI(s.listChannels))
@@ -142,12 +150,10 @@ func (s *Server) Handler() http.Handler {
 	return s.corsMiddleware(s.authMiddleware(s.jsonMiddleware(s.mux)))
 }
 
-// corsMiddleware handles CORS headers. Origin is configurable via the
-// settings table key "admin.cors_origin"; defaults to http://localhost:8080.
+// corsMiddleware handles CORS headers. Origin is read from settings at startup.
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := s.corsOrigin()
-		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Origin", s.corsOriginV)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -159,16 +165,6 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
-}
-
-// corsOrigin reads the CORS origin from the settings table. Falls back to
-// http://localhost:8080 if not configured.
-func (s *Server) corsOrigin() string {
-	val, err := s.store.GetSetting(context.Background(), "admin.cors_origin")
-	if err == nil && val != "" {
-		return val
-	}
-	return "http://localhost:8080"
 }
 
 // jsonMiddleware sets JSON content-type for /api/ routes.

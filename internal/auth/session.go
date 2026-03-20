@@ -47,6 +47,8 @@ func SetSessionCookie(w http.ResponseWriter, sessionID string, secure bool) {
 }
 
 // ClearSessionCookie removes the session cookie from the response.
+// Setting Secure=true is harmless on HTTP and ensures the cookie is properly
+// cleared on HTTPS deployments.
 func ClearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
@@ -54,6 +56,7 @@ func ClearSessionCookie(w http.ResponseWriter) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
