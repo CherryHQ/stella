@@ -104,11 +104,11 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Resolve user name.
+	// Resolve user name from auth system.
 	if info.UserID != 0 {
-		user, err := s.store.GetUser(r.Context(), info.UserID)
+		authUser, err := s.authStore.GetUser(r.Context(), info.UserID)
 		if err == nil {
-			resp.UserName = user.Name
+			resp.UserName = authUser.Username
 		}
 	}
 
