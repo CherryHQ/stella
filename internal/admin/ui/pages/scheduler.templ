@@ -72,6 +72,16 @@ templ SchedulerPage() {
 						</select>
 					}
 				</div>
+				<!-- System job toggle (admin only) -->
+				<template x-if="isAdmin">
+					<div class="mb-4">
+						<label class="flex items-center gap-2 cursor-pointer text-sm">
+							<input type="checkbox" x-model="jobForm.system_job" class="toggle toggle-secondary toggle-sm"/>
+							<span>System job</span>
+							<span class="text-xs text-secondary">(broadcasts to all users)</span>
+						</label>
+					</div>
+				</template>
 				<!-- Message -->
 				<div class="mb-4">
 					@ui.FormField("Message") {
@@ -125,6 +135,12 @@ templ SchedulerPage() {
 							<span class="badge badge-ghost badge-xs" x-text="j.session_mode"></span>
 							<template x-if="j.agent_id">
 								<span class="badge badge-ghost badge-xs" x-text="j.agent_id"></span>
+							</template>
+							<template x-if="isAdmin && !j.user_id">
+								<span class="badge badge-secondary badge-xs">system</span>
+							</template>
+							<template x-if="isAdmin && j.user_id">
+								<span class="badge badge-ghost badge-xs" x-text="'user:' + j.user_id"></span>
 							</template>
 						</div>
 					</div>

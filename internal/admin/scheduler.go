@@ -27,19 +27,29 @@ type schedulerJobJSON struct {
 }
 
 func (s *Server) listSchedulerJobs(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
+
 	rows, err := s.q.ListSchedulerJobs(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
 	jobs := make([]schedulerJobJSON, 0, len(rows))
 	for _, row := range rows {
-		jobs = append(jobs, dbRowToJobJSON(row))
+		j := dbRowToJobJSON(row)
+		// Non-admin users only see their own jobs.
+		if info != nil && !info.IsAdmin && j.UserID != info.UserID {
+			continue
+		}
+		jobs = append(jobs, j)
 	}
 	writeData(w, http.StatusOK, jobs)
 }
 
 func (s *Server) createSchedulerJob(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
+
 	var body schedulerJobJSON
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -55,6 +65,11 @@ func (s *Server) createSchedulerJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.SessionMode == "" {
 		body.SessionMode = "reuse"
+	}
+
+	// Non-admin users always own their jobs; only admins can create system jobs (user_id=0).
+	if info != nil && !info.IsAdmin {
+		body.UserID = info.UserID
 	}
 
 	id := generateShortID()
@@ -86,13 +101,21 @@ func (s *Server) createSchedulerJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateSchedulerJob(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
 	id := r.PathValue("id")
 
-	// Verify job exists.
 	existing, err := s.q.GetSchedulerJob(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
+	}
+
+	// Non-admin users can only update their own jobs.
+	if info != nil && !info.IsAdmin {
+		if !existing.UserID.Valid || existing.UserID.Int64 != info.UserID {
+			writeError(w, http.StatusForbidden, "access denied")
+			return
+		}
 	}
 
 	var body schedulerJobJSON
@@ -115,6 +138,11 @@ func (s *Server) updateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.SessionMode == "" {
 		body.SessionMode = existing.SessionMode
+	}
+
+	// Non-admin users cannot change ownership.
+	if info != nil && !info.IsAdmin {
+		body.UserID = info.UserID
 	}
 
 	enabled := int64(0)
@@ -144,12 +172,21 @@ func (s *Server) updateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteSchedulerJob(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
 	id := r.PathValue("id")
 
-	// Verify job exists.
-	if _, err := s.q.GetSchedulerJob(r.Context(), id); err != nil {
+	existing, err := s.q.GetSchedulerJob(r.Context(), id)
+	if err != nil {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
+	}
+
+	// Non-admin users can only delete their own jobs.
+	if info != nil && !info.IsAdmin {
+		if !existing.UserID.Valid || existing.UserID.Int64 != info.UserID {
+			writeError(w, http.StatusForbidden, "access denied")
+			return
+		}
 	}
 
 	if err := s.q.DeleteSchedulerJob(r.Context(), id); err != nil {

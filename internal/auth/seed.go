@@ -123,6 +123,18 @@ var builtinPolicies = []Policy{
 		IsSystem:   true,
 		Enabled:    true,
 	},
+	{
+		ID:         "system:user-own-scheduler",
+		Name:       "User Own Scheduler Jobs",
+		Effect:     EffectAllow,
+		Subjects:   `{"roles":["user"]}`,
+		Actions:    `["read","write","create","delete"]`,
+		Resources:  `["scheduler"]`,
+		Conditions: `{"resource.owner_id":{"eq":"subject.id"}}`,
+		Priority:   50,
+		IsSystem:   true,
+		Enabled:    true,
+	},
 }
 
 // SeedRolesAndPolicies ensures the built-in roles and policies exist in the

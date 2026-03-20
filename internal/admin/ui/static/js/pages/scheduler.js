@@ -9,6 +9,7 @@ export function register(Alpine) {
   Alpine.data('schedulerPage', () => ({
     jobs: [],
     agents: [],
+    isAdmin: false,
     editingJobId: null,
     jobForm: {
       name: '',
@@ -19,6 +20,7 @@ export function register(Alpine) {
       enabled: true,
       agent_id: '',
       schedule_type: 'cron',
+      system_job: false,
     },
     confirmMsg: '',
     confirmAction: () => {},
@@ -27,7 +29,17 @@ export function register(Alpine) {
       await Promise.all([
         this.loadJobs(),
         this.loadAgents(),
+        this.loadMe(),
       ])
+    },
+
+    async loadMe() {
+      try {
+        const me = await api('GET', '/api/auth/me')
+        this.isAdmin = me.is_admin || false
+      } catch (_) {
+        this.isAdmin = false
+      }
     },
 
     async loadJobs() {
@@ -56,6 +68,7 @@ export function register(Alpine) {
         enabled: true,
         agent_id: '',
         schedule_type: 'cron',
+        system_job: false,
       }
       this.editingJobId = null
     },
@@ -71,6 +84,7 @@ export function register(Alpine) {
         session_mode: j.session_mode || 'reuse',
         enabled: j.enabled,
         agent_id: j.agent_id || '',
+        system_job: !j.user_id,
       }
     },
 
@@ -83,6 +97,11 @@ export function register(Alpine) {
         session_mode: this.jobForm.session_mode,
         enabled: this.jobForm.enabled,
         agent_id: this.jobForm.agent_id,
+      }
+      // Admin can create system jobs (user_id=0) by toggling the checkbox.
+      // Non-admin: server auto-assigns user_id.
+      if (this.isAdmin && this.jobForm.system_job) {
+        payload.user_id = 0
       }
       try {
         if (this.editingJobId) {

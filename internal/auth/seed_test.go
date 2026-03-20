@@ -56,8 +56,8 @@ func TestSeedRolesAndPolicies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEnabledPolicies: %v", err)
 	}
-	if len(policies) != 8 {
-		t.Errorf("expected 8 policies, got %d", len(policies))
+	if len(policies) != 9 {
+		t.Errorf("expected 9 policies, got %d", len(policies))
 	}
 
 	policyIDs := make(map[string]bool)
@@ -73,6 +73,7 @@ func TestSeedRolesAndPolicies(t *testing.T) {
 		"system:user-own-skills",
 		"system:user-own-profile",
 		"system:user-view-agents-list",
+		"system:user-own-scheduler",
 	}
 	for _, id := range expectedPolicies {
 		if !policyIDs[id] {
@@ -93,14 +94,14 @@ func TestSeedRolesAndPolicies_Idempotent(t *testing.T) {
 		t.Fatalf("second seed should be idempotent: %v", err)
 	}
 
-	// Still only 2 roles and 8 policies.
+	// Still only 2 roles and 9 policies.
 	roles, _ := store.ListRoles(ctx)
 	if len(roles) != 2 {
 		t.Errorf("expected 2 roles after double seed, got %d", len(roles))
 	}
 	policies, _ := store.ListEnabledPolicies(ctx)
-	if len(policies) != 8 {
-		t.Errorf("expected 8 policies after double seed, got %d", len(policies))
+	if len(policies) != 9 {
+		t.Errorf("expected 9 policies after double seed, got %d", len(policies))
 	}
 }
 

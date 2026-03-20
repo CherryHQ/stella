@@ -69,13 +69,13 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	s.mux.HandleFunc("DELETE /api/auth/profile/identities/{id}", s.unlinkIdentity)
 
 	// Page routes — templ-rendered HTML pages.
-	// Admin-only pages: providers, channels, users, scheduler, settings.
+	// Admin-only pages: providers, channels, users, settings.
 	s.mux.Handle("GET /providers", s.adminOnlyMiddleware(http.HandlerFunc(s.pageProviders)))
 	s.mux.HandleFunc("GET /agents", s.pageAgents)
 	s.mux.Handle("GET /channels", s.adminOnlyMiddleware(http.HandlerFunc(s.pageChannels)))
 	s.mux.Handle("GET /users", s.adminOnlyMiddleware(http.HandlerFunc(s.pageUsers)))
 	s.mux.HandleFunc("GET /sessions", s.pageSessions)
-	s.mux.Handle("GET /scheduler", s.adminOnlyMiddleware(http.HandlerFunc(s.pageScheduler)))
+	s.mux.HandleFunc("GET /scheduler", s.pageScheduler)
 	s.mux.Handle("GET /settings", s.adminOnlyMiddleware(http.HandlerFunc(s.pageSettings)))
 	s.mux.HandleFunc("GET /profile", s.pageProfile)
 
@@ -143,11 +143,11 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	// Tools API (available tools for agents).
 	s.mux.HandleFunc("GET /api/tools", s.listAgentTools)
 
-	// Scheduler job APIs (admin-only).
-	s.mux.Handle("GET /api/scheduler/jobs", adminAPI(s.listSchedulerJobs))
-	s.mux.Handle("POST /api/scheduler/jobs", adminAPI(s.createSchedulerJob))
-	s.mux.Handle("PUT /api/scheduler/jobs/{id}", adminAPI(s.updateSchedulerJob))
-	s.mux.Handle("DELETE /api/scheduler/jobs/{id}", adminAPI(s.deleteSchedulerJob))
+	// Scheduler job APIs (all authenticated users; RBAC enforced in handlers).
+	s.mux.HandleFunc("GET /api/scheduler/jobs", s.listSchedulerJobs)
+	s.mux.HandleFunc("POST /api/scheduler/jobs", s.createSchedulerJob)
+	s.mux.HandleFunc("PUT /api/scheduler/jobs/{id}", s.updateSchedulerJob)
+	s.mux.HandleFunc("DELETE /api/scheduler/jobs/{id}", s.deleteSchedulerJob)
 
 	return s
 }
