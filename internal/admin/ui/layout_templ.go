@@ -68,7 +68,7 @@ func Layout(activePage string, pageScript string, username string, isAdmin bool,
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</main><!-- Footer --><footer class=\"border-t border-base-300 mt-20\"><div class=\"max-w-6xl mx-auto px-6 py-4 flex items-center justify-between text-[10px] font-mono opacity-50\"><span>~/.anna/anna.db</span> <span>anna admin</span></div></footer><!-- Alpine.js ESM init -->")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</main><!-- Footer --><footer class=\"border-t border-base-300 mt-20\"><div class=\"max-w-6xl mx-auto px-6 py-4 flex items-center justify-end text-[10px] font-mono opacity-50\"><span>anna admin</span></div></footer><!-- Alpine.js ESM init -->")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
