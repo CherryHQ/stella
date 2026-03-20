@@ -14,6 +14,7 @@ import (
 	"github.com/tencent-connect/botgo/openapi"
 	"github.com/tencent-connect/botgo/token"
 	"github.com/vaayne/anna/internal/agent"
+	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	"golang.org/x/oauth2"
@@ -40,6 +41,8 @@ type Bot struct {
 	sessionManager botgo.SessionManager
 	poolManager    *agent.PoolManager
 	store          config.Store
+	authStore      auth.AuthStore
+	linkCodes      *auth.LinkCodeStore
 	listFn         channel.ModelListFunc
 	switchFn       channel.ModelSwitchFunc
 
@@ -54,6 +57,15 @@ type Bot struct {
 
 // BotOption configures the QQ Bot.
 type BotOption func(*Bot)
+
+// WithAuth configures the bot with auth store and link code store for
+// account linking support.
+func WithAuth(authStore auth.AuthStore, linkCodes *auth.LinkCodeStore) BotOption {
+	return func(b *Bot) {
+		b.authStore = authStore
+		b.linkCodes = linkCodes
+	}
+}
 
 // New creates a QQ bot. Call Start to begin receiving events.
 func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc, opts ...BotOption) (*Bot, error) {

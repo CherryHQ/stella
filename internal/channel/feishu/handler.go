@@ -73,6 +73,14 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		text = stripMentions(text, mentions)
 	}
 
+	// Try link code before anything else.
+	if b.authStore != nil && b.linkCodes != nil && text != "" {
+		if resp, ok := channel.TryLinkCode(b.ctx, b.authStore, b.linkCodes, text, "feishu", openID, ""); ok {
+			replyFn(resp)
+			return nil
+		}
+	}
+
 	if text != "" {
 		if handled := b.handleCommand(rc, text, openID, replyFn); handled {
 			return nil

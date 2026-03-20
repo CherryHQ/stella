@@ -12,6 +12,7 @@ import (
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
 
 	"github.com/vaayne/anna/internal/agent"
+	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	tele "gopkg.in/telebot.v4"
@@ -39,6 +40,8 @@ type Bot struct {
 	bot         *tele.Bot
 	poolManager *agent.PoolManager
 	store       config.Store
+	authStore   auth.AuthStore
+	linkCodes   *auth.LinkCodeStore
 	agentCmd    *channel.AgentCommander
 	listFn      channel.ModelListFunc
 	switchFn    channel.ModelSwitchFunc
@@ -97,6 +100,15 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.M
 
 // BotOption configures the Telegram Bot.
 type BotOption func(*Bot)
+
+// WithAuth configures the bot with auth store and link code store for
+// account linking support.
+func WithAuth(authStore auth.AuthStore, linkCodes *auth.LinkCodeStore) BotOption {
+	return func(b *Bot) {
+		b.authStore = authStore
+		b.linkCodes = linkCodes
+	}
+}
 
 // Start begins long polling. It blocks until ctx is cancelled.
 func (b *Bot) Start(ctx context.Context) error {
