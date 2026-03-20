@@ -75,7 +75,7 @@ templ Navbar(activePage string, username string, isAdmin bool) {
 			<div class="flex items-center gap-4">
 				<!-- User info + logout -->
 				if username != "" {
-					<span class="text-xs font-mono text-secondary">{ username }</span>
+					<a href="/profile" class="text-xs font-mono text-secondary hover:text-primary transition-colors">{ username }</a>
 					<form method="POST" action="/api/auth/logout" class="inline">
 						<button type="submit" class="btn btn-ghost btn-xs text-secondary hover:text-error"
 							onclick="event.preventDefault(); fetch('/api/auth/logout', {method:'POST',credentials:'same-origin'}).then(()=>window.location.href='/login')">

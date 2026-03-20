@@ -43,6 +43,10 @@ func (s *Server) pageSettings(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, r, "settings", "/static/js/pages/settings.js", pages.SettingsPage())
 }
 
+func (s *Server) pageProfile(w http.ResponseWriter, r *http.Request) {
+	s.renderPage(w, r, "profile", "/static/js/pages/profile.js", pages.ProfilePage())
+}
+
 // renderPage sets the HTML content type and renders the layout with the
 // given page content. Auth info is extracted from context for the navbar.
 func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, activePage, pageScript string, content templ.Component) {
