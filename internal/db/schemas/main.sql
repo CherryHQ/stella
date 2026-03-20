@@ -2,7 +2,6 @@
 -- atlas:import tables/settings_providers.sql
 -- atlas:import tables/settings_agents.sql
 -- atlas:import tables/settings_channels.sql
--- atlas:import tables/settings_users.sql
 -- atlas:import tables/settings_channel_agents.sql
 -- atlas:import tables/ctx_agent_memory.sql
 -- atlas:import tables/ctx_conversations.sql

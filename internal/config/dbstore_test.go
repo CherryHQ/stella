@@ -258,62 +258,6 @@ func TestChannelCRUD(t *testing.T) {
 	}
 }
 
-func TestUserCRUD(t *testing.T) {
-	store := setupDBStore(t)
-	ctx := context.Background()
-
-	user, err := store.UpsertUser(ctx, "tg-123", "telegram", "Alice")
-	if err != nil {
-		t.Fatalf("UpsertUser: %v", err)
-	}
-	if user.ExternalID != "tg-123" || user.Platform != "telegram" || user.Name != "Alice" {
-		t.Errorf("UpsertUser = %+v", user)
-	}
-
-	got, err := store.GetUser(ctx, user.ID)
-	if err != nil {
-		t.Fatalf("GetUser: %v", err)
-	}
-	if got.Name != "Alice" {
-		t.Errorf("GetUser = %+v", got)
-	}
-
-	users, err := store.ListUsers(ctx)
-	if err != nil {
-		t.Fatalf("ListUsers: %v", err)
-	}
-	if len(users) != 1 {
-		t.Errorf("expected 1 user, got %d", len(users))
-	}
-}
-
-func TestUpdateUserDefaultAgent(t *testing.T) {
-	store := setupDBStore(t)
-	ctx := context.Background()
-
-	user, _ := store.UpsertUser(ctx, "u1", "cli", "Bob")
-
-	_ = store.CreateAgent(ctx, Agent{ID: "agent1", Name: "A1", Model: "p/m", Enabled: true})
-
-	if err := store.UpdateUserDefaultAgent(ctx, user.ID, "agent1"); err != nil {
-		t.Fatalf("UpdateUserDefaultAgent: %v", err)
-	}
-
-	got, _ := store.GetUser(ctx, user.ID)
-	if got.DefaultAgentID != "agent1" {
-		t.Errorf("DefaultAgentID = %q, want %q", got.DefaultAgentID, "agent1")
-	}
-
-	// Clear default.
-	if err := store.UpdateUserDefaultAgent(ctx, user.ID, ""); err != nil {
-		t.Fatalf("clear default: %v", err)
-	}
-	got, _ = store.GetUser(ctx, user.ID)
-	if got.DefaultAgentID != "" {
-		t.Errorf("DefaultAgentID = %q, want empty", got.DefaultAgentID)
-	}
-}
-
 func TestChatAgentCRUD(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
@@ -347,10 +291,10 @@ func TestUserAgentMemory(t *testing.T) {
 	ctx := context.Background()
 
 	_ = store.CreateAgent(ctx, Agent{ID: "agent1", Name: "A1", Model: "p/m", Enabled: true})
-	user, _ := store.UpsertUser(ctx, "u1", "cli", "User")
+	var userID int64 = 42
 
 	// Empty by default.
-	mem, err := store.GetUserAgentMemory(ctx, user.ID, "agent1")
+	mem, err := store.GetUserAgentMemory(ctx, userID, "agent1")
 	if err != nil {
 		t.Fatalf("GetUserAgentMemory: %v", err)
 	}
@@ -358,18 +302,18 @@ func TestUserAgentMemory(t *testing.T) {
 		t.Errorf("expected empty, got %q", mem)
 	}
 
-	if err := store.SetUserAgentMemory(ctx, user.ID, "agent1", "likes cats"); err != nil {
+	if err := store.SetUserAgentMemory(ctx, userID, "agent1", "likes cats"); err != nil {
 		t.Fatalf("SetUserAgentMemory: %v", err)
 	}
 
-	mem, _ = store.GetUserAgentMemory(ctx, user.ID, "agent1")
+	mem, _ = store.GetUserAgentMemory(ctx, userID, "agent1")
 	if mem != "likes cats" {
 		t.Errorf("memory = %q, want %q", mem, "likes cats")
 	}
 
 	// Overwrite.
-	_ = store.SetUserAgentMemory(ctx, user.ID, "agent1", "likes dogs")
-	mem, _ = store.GetUserAgentMemory(ctx, user.ID, "agent1")
+	_ = store.SetUserAgentMemory(ctx, userID, "agent1", "likes dogs")
+	mem, _ = store.GetUserAgentMemory(ctx, userID, "agent1")
 	if mem != "likes dogs" {
 		t.Errorf("memory = %q, want %q", mem, "likes dogs")
 	}
@@ -505,16 +449,6 @@ func TestGetChannelNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := store.GetChannel(ctx, "nope")
-	if err == nil {
-		t.Error("expected error")
-	}
-}
-
-func TestGetUserNotFound(t *testing.T) {
-	store := setupDBStore(t)
-	ctx := context.Background()
-
-	_, err := store.GetUser(ctx, 99999)
 	if err == nil {
 		t.Error("expected error")
 	}

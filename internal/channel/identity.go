@@ -21,122 +21,69 @@ type ChatContext struct {
 	IsGroup  bool
 }
 
-// ResolvedIdentity extends config.User with auth system information.
-// When AuthUserID > 0, the user has been resolved via auth_identities.
+// ResolvedIdentity holds the resolved user and their roles.
 type ResolvedIdentity struct {
-	config.User
-	AuthUserID int64    // auth_users.id (0 if not resolved via auth)
-	Roles      []string // role IDs from auth_user_roles
+	User  auth.AuthUser
+	Roles []string
 }
 
-// ResolveUser upserts a user by external ID + platform, returning the user record.
-// This is the legacy path that only uses settings_users.
-func ResolveUser(ctx context.Context, store config.Store, externalID, platform, name string) (config.User, error) {
-	user, err := store.UpsertUser(ctx, externalID, platform, name)
-	if err != nil {
-		return config.User{}, fmt.Errorf("resolve user: %w", err)
-	}
-	return user, nil
-}
-
-// ResolveUserWithAuth resolves a channel user with the auth system.
-// Resolution order:
-//  1. Look up auth_identities for (platform, externalID)
-//  2. If found: resolve to auth_user, also upsert settings_users for compatibility
-//  3. If not found: fallback to settings_users, auto-migrate to auth system
-//
-// Auto-migration: when a settings_users record exists but no auth_identity,
-// creates an auth_user (username="{platform}_{externalID}", random password)
-// with the "user" role, and links the identity.
-func ResolveUserWithAuth(ctx context.Context, store config.Store, authStore auth.AuthStore, externalID, platform, name string) (ResolvedIdentity, error) {
+// ResolveUser resolves a channel user via auth_identities.
+// If no linked identity exists, returns a zero-value user (ID=0) with no roles.
+// The caller can still proceed (e.g. unlinked users can chat without RBAC).
+func ResolveUser(ctx context.Context, authStore auth.AuthStore, platform, externalID string) (ResolvedIdentity, error) {
 	log := slog.With("component", "identity", "platform", platform, "external_id", externalID)
 
-	// Always upsert in settings_users for backward compat (sessions, memories, etc.)
-	user, err := store.UpsertUser(ctx, externalID, platform, name)
-	if err != nil {
-		return ResolvedIdentity{}, fmt.Errorf("resolve user: %w", err)
-	}
-
-	// Try auth_identities first.
 	identity, err := authStore.GetIdentityByPlatform(ctx, platform, externalID)
-	if err == nil {
-		// Found linked identity — resolve the auth user.
-		authUser, err := authStore.GetUser(ctx, identity.UserID)
-		if err != nil {
-			log.Error("auth user not found for linked identity", "user_id", identity.UserID, "error", err)
-			return ResolvedIdentity{User: user}, nil
-		}
-		if !authUser.IsActive {
-			return ResolvedIdentity{}, fmt.Errorf("account is deactivated")
-		}
-		roles, _ := authStore.ListUserRoles(ctx, authUser.ID)
-		roleIDs := make([]string, len(roles))
-		for i, r := range roles {
-			roleIDs[i] = r.ID
-		}
-		return ResolvedIdentity{
-			User:       user,
-			AuthUserID: authUser.ID,
-			Roles:      roleIDs,
-		}, nil
-	}
-
-	// No linked identity — return the legacy settings_users record without
-	// auth resolution. The user must link their account via a link code.
-	log.Debug("no linked identity found, user must link via link code")
-	return ResolvedIdentity{User: user}, nil
-}
-
-// ResolveAgent determines which agent to route to.
-// DM: user's default_agent_id
-// Group: chat_agents(platform, chat_id)
-// Fallback: first enabled agent
-func ResolveAgent(ctx context.Context, store config.Store, user config.User, chat ChatContext) (string, error) {
-	// Group chat: look up per-group agent assignment.
-	if chat.IsGroup && chat.ChatID != "" {
-		agentID, err := store.GetChatAgent(ctx, chat.Platform, chat.ChatID)
-		if err == nil && agentID != "" {
-			return agentID, nil
-		}
-	}
-
-	// DM: use user's default agent.
-	if !chat.IsGroup && user.DefaultAgentID != "" {
-		return user.DefaultAgentID, nil
-	}
-
-	// Fallback: first enabled agent.
-	agents, err := store.ListEnabledAgents(ctx)
 	if err != nil {
-		return "", fmt.Errorf("resolve agent: list enabled agents: %w", err)
+		log.Debug("no linked identity found, user must link via link code")
+		return ResolvedIdentity{}, nil
 	}
-	if len(agents) == 0 {
-		return "", fmt.Errorf("resolve agent: no enabled agents found")
+
+	user, err := authStore.GetUser(ctx, identity.UserID)
+	if err != nil {
+		log.Error("auth user not found for linked identity", "user_id", identity.UserID, "error", err)
+		return ResolvedIdentity{}, nil
 	}
-	return agents[0].ID, nil
+	if !user.IsActive {
+		return ResolvedIdentity{}, fmt.Errorf("account is deactivated")
+	}
+
+	roles, _ := authStore.ListUserRoles(ctx, user.ID)
+	roleIDs := make([]string, len(roles))
+	for i, r := range roles {
+		roleIDs[i] = r.ID
+	}
+	return ResolvedIdentity{User: user, Roles: roleIDs}, nil
 }
 
-// ResolveAgentWithAuth determines which agent to route to, checking access
-// via the policy engine. Returns ErrAgentAccessDenied if the user cannot
-// access the resolved agent.
-func ResolveAgentWithAuth(ctx context.Context, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, user config.User, identity ResolvedIdentity, chat ChatContext) (string, error) {
-	log := slog.With("component", "identity", "auth_user_id", identity.AuthUserID)
+// ResolveAgent determines which agent to route to, checking access via the
+// policy engine when auth is available. Returns ErrAgentAccessDenied if the
+// user cannot access the resolved agent.
+func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, identity ResolvedIdentity, chat ChatContext) (string, error) {
+	log := slog.With("component", "identity", "user_id", identity.User.ID)
+
+	hasAuth := engine != nil && identity.User.ID > 0
 
 	// Build subject for policy checks.
-	assignedIDs, _ := authStore.ListUserAgentIDs(ctx, identity.AuthUserID)
-	subject := auth.Subject{
-		UserID:   identity.AuthUserID,
-		Roles:    identity.Roles,
-		AgentIDs: assignedIDs,
+	var subject auth.Subject
+	if hasAuth {
+		assignedIDs, _ := authStore.ListUserAgentIDs(ctx, identity.User.ID)
+		subject = auth.Subject{
+			UserID:   identity.User.ID,
+			Roles:    identity.Roles,
+			AgentIDs: assignedIDs,
+		}
 	}
 
-	// Helper to check if user can access a specific agent.
 	canAccess := func(agentID string) bool {
+		if !hasAuth {
+			return true // no auth = no restrictions
+		}
 		agent, err := store.GetAgent(ctx, agentID)
 		if err != nil {
 			return false
 		}
-		req := auth.AccessRequest{
+		return engine.Can(ctx, auth.AccessRequest{
 			Subject: subject,
 			Action:  auth.ActionExecute,
 			Resource: auth.Resource{
@@ -144,8 +91,7 @@ func ResolveAgentWithAuth(ctx context.Context, store config.Store, authStore aut
 				ID:    agent.ID,
 				Attrs: map[string]any{"scope": agent.Scope},
 			},
-		}
-		return engine.Can(ctx, req)
+		})
 	}
 
 	// Group chat: look up per-group agent assignment.
@@ -161,12 +107,12 @@ func ResolveAgentWithAuth(ctx context.Context, store config.Store, authStore aut
 	}
 
 	// DM: use user's default agent.
-	if !chat.IsGroup && user.DefaultAgentID != "" {
-		if !canAccess(user.DefaultAgentID) {
-			log.Warn("agent access denied for DM default", "agent_id", user.DefaultAgentID)
+	if !chat.IsGroup && identity.User.DefaultAgentID != "" {
+		if !canAccess(identity.User.DefaultAgentID) {
+			log.Warn("agent access denied for DM default", "agent_id", identity.User.DefaultAgentID)
 			return "", ErrAgentAccessDenied
 		}
-		return user.DefaultAgentID, nil
+		return identity.User.DefaultAgentID, nil
 	}
 
 	// Fallback: first enabled agent the user can access.
@@ -175,16 +121,7 @@ func ResolveAgentWithAuth(ctx context.Context, store config.Store, authStore aut
 		return "", fmt.Errorf("resolve agent: list enabled agents: %w", err)
 	}
 	for _, a := range agents {
-		req := auth.AccessRequest{
-			Subject: subject,
-			Action:  auth.ActionExecute,
-			Resource: auth.Resource{
-				Type:  auth.ResourceAgent,
-				ID:    a.ID,
-				Attrs: map[string]any{"scope": a.Scope},
-			},
-		}
-		if engine.Can(ctx, req) {
+		if canAccess(a.ID) {
 			return a.ID, nil
 		}
 	}

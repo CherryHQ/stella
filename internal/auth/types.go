@@ -2,14 +2,15 @@ package auth
 
 import "time"
 
-// AuthUser represents a system user with login credentials.
+// AuthUser represents a system user with login credentials and preferences.
 type AuthUser struct {
-	ID           int64     `json:"id"`
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"-"`
-	IsActive     bool      `json:"is_active"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID             int64     `json:"id"`
+	Username       string    `json:"username"`
+	PasswordHash   string    `json:"-"`
+	IsActive       bool      `json:"is_active"`
+	DefaultAgentID string    `json:"default_agent_id,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // Role represents an extensible role (e.g., admin, user).

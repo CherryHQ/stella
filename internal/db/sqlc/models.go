@@ -47,12 +47,13 @@ type AuthSession struct {
 }
 
 type AuthUser struct {
-	ID           int64  `json:"id"`
-	Username     string `json:"username"`
-	PasswordHash string `json:"password_hash"`
-	IsActive     int64  `json:"is_active"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
+	ID             int64          `json:"id"`
+	Username       string         `json:"username"`
+	PasswordHash   string         `json:"password_hash"`
+	IsActive       int64          `json:"is_active"`
+	DefaultAgentID sql.NullString `json:"default_agent_id"`
+	CreatedAt      string         `json:"created_at"`
+	UpdatedAt      string         `json:"updated_at"`
 }
 
 type AuthUserAgent struct {
@@ -202,14 +203,4 @@ type SettingsProvider struct {
 	BaseUrl   string `json:"base_url"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
-}
-
-type SettingsUser struct {
-	ID             int64          `json:"id"`
-	ExternalID     string         `json:"external_id"`
-	Platform       string         `json:"platform"`
-	Name           string         `json:"name"`
-	DefaultAgentID sql.NullString `json:"default_agent_id"`
-	CreatedAt      string         `json:"created_at"`
-	UpdatedAt      string         `json:"updated_at"`
 }

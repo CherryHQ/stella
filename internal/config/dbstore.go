@@ -202,47 +202,6 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch Channel) error {
 	})
 }
 
-// --- Users ---
-
-func (s *DBStore) ListUsers(ctx context.Context) ([]User, error) {
-	rows, err := s.q.ListUsers(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list users: %w", err)
-	}
-	out := make([]User, len(rows))
-	for i, r := range rows {
-		out[i] = userFromDB(r)
-	}
-	return out, nil
-}
-
-func (s *DBStore) GetUser(ctx context.Context, id int64) (User, error) {
-	r, err := s.q.GetUser(ctx, id)
-	if err != nil {
-		return User{}, fmt.Errorf("get user %d: %w", id, err)
-	}
-	return userFromDB(r), nil
-}
-
-func (s *DBStore) UpsertUser(ctx context.Context, externalID, platform, name string) (User, error) {
-	r, err := s.q.UpsertUser(ctx, sqlc.UpsertUserParams{
-		ExternalID: externalID,
-		Platform:   platform,
-		Name:       name,
-	})
-	if err != nil {
-		return User{}, fmt.Errorf("upsert user: %w", err)
-	}
-	return userFromDB(r), nil
-}
-
-func (s *DBStore) UpdateUserDefaultAgent(ctx context.Context, userID int64, agentID string) error {
-	return s.q.UpdateUserDefaultAgent(ctx, sqlc.UpdateUserDefaultAgentParams{
-		ID:             userID,
-		DefaultAgentID: sql.NullString{String: agentID, Valid: agentID != ""},
-	})
-}
-
 // --- Chat Agents ---
 
 func (s *DBStore) GetChatAgent(ctx context.Context, platform, chatID string) (string, error) {
@@ -534,15 +493,5 @@ func channelFromDB(r sqlc.SettingsChannel) Channel {
 		ID:      r.ID,
 		Enabled: r.Enabled == 1,
 		Config:  r.Config,
-	}
-}
-
-func userFromDB(r sqlc.SettingsUser) User {
-	return User{
-		ID:             r.ID,
-		ExternalID:     r.ExternalID,
-		Platform:       r.Platform,
-		Name:           r.Name,
-		DefaultAgentID: r.DefaultAgentID.String,
 	}
 }

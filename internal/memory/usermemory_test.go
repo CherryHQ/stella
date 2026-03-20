@@ -27,16 +27,10 @@ func setupUserMemoryStore(t *testing.T) (*memory.UserMemoryStore, config.Store) 
 }
 
 func TestUserMemoryStoreEmptyOnNew(t *testing.T) {
-	ums, store := setupUserMemoryStore(t)
+	ums, _ := setupUserMemoryStore(t)
 	ctx := context.Background()
 
-	// Create a user so we have a valid user ID.
-	user, err := store.UpsertUser(ctx, "ext1", "telegram", "Alice")
-	if err != nil {
-		t.Fatalf("UpsertUser: %v", err)
-	}
-
-	content, err := ums.Get(ctx, user.ID, "anna")
+	content, err := ums.Get(ctx, 1, "anna")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -46,16 +40,14 @@ func TestUserMemoryStoreEmptyOnNew(t *testing.T) {
 }
 
 func TestUserMemoryStoreSetAndGet(t *testing.T) {
-	ums, store := setupUserMemoryStore(t)
+	ums, _ := setupUserMemoryStore(t)
 	ctx := context.Background()
 
-	user, _ := store.UpsertUser(ctx, "ext2", "telegram", "Bob")
-
-	if err := ums.Set(ctx, user.ID, "anna", "prefers concise answers"); err != nil {
+	if err := ums.Set(ctx, 2, "anna", "prefers concise answers"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
-	content, err := ums.Get(ctx, user.ID, "anna")
+	content, err := ums.Get(ctx, 2, "anna")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -65,18 +57,14 @@ func TestUserMemoryStoreSetAndGet(t *testing.T) {
 }
 
 func TestUserMemoryStoreIsolation(t *testing.T) {
-	ums, store := setupUserMemoryStore(t)
+	ums, _ := setupUserMemoryStore(t)
 	ctx := context.Background()
 
-	user1, _ := store.UpsertUser(ctx, "ext3", "telegram", "Charlie")
-	user2, _ := store.UpsertUser(ctx, "ext4", "telegram", "Dave")
+	_ = ums.Set(ctx, 3, "anna", "user1 memory")
+	_ = ums.Set(ctx, 4, "anna", "user2 memory")
 
-	// Set different memory for each user.
-	_ = ums.Set(ctx, user1.ID, "anna", "user1 memory")
-	_ = ums.Set(ctx, user2.ID, "anna", "user2 memory")
-
-	c1, _ := ums.Get(ctx, user1.ID, "anna")
-	c2, _ := ums.Get(ctx, user2.ID, "anna")
+	c1, _ := ums.Get(ctx, 3, "anna")
+	c2, _ := ums.Get(ctx, 4, "anna")
 
 	if c1 != "user1 memory" {
 		t.Errorf("user1 content = %q, want %q", c1, "user1 memory")
@@ -90,19 +78,15 @@ func TestUserMemoryStoreAgentIsolation(t *testing.T) {
 	ums, store := setupUserMemoryStore(t)
 	ctx := context.Background()
 
-	// Create a second agent.
 	_ = store.CreateAgent(ctx, config.Agent{
-		ID: "coder", Name: "Coder",
-		Model: "openai/gpt-4", Workspace: "/tmp/coder", Enabled: true,
+		ID: "coder", Name: "Coder", Model: "openai/gpt-4", Workspace: "/tmp/coder", Enabled: true,
 	})
 
-	user, _ := store.UpsertUser(ctx, "ext5", "telegram", "Eve")
+	_ = ums.Set(ctx, 5, "anna", "anna memory")
+	_ = ums.Set(ctx, 5, "coder", "coder memory")
 
-	_ = ums.Set(ctx, user.ID, "anna", "anna memory")
-	_ = ums.Set(ctx, user.ID, "coder", "coder memory")
-
-	annaContent, _ := ums.Get(ctx, user.ID, "anna")
-	coderContent, _ := ums.Get(ctx, user.ID, "coder")
+	annaContent, _ := ums.Get(ctx, 5, "anna")
+	coderContent, _ := ums.Get(ctx, 5, "coder")
 
 	if annaContent != "anna memory" {
 		t.Errorf("anna content = %q, want %q", annaContent, "anna memory")

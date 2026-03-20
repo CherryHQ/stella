@@ -37,15 +37,6 @@ type Channel struct {
 	Config  string `json:"config"`
 }
 
-// User represents a platform user.
-type User struct {
-	ID             int64  `json:"id"`
-	ExternalID     string `json:"external_id"`
-	Platform       string `json:"platform"`
-	Name           string `json:"name"`
-	DefaultAgentID string `json:"default_agent_id"`
-}
-
 // UserAgentMemory represents a stored memory entry for a user-agent pair.
 type UserAgentMemory struct {
 	UserID    int64  `json:"user_id"`
@@ -75,12 +66,6 @@ type Store interface {
 	ListChannels(ctx context.Context) ([]Channel, error)
 	GetChannel(ctx context.Context, id string) (Channel, error)
 	UpsertChannel(ctx context.Context, ch Channel) error
-
-	// Users
-	ListUsers(ctx context.Context) ([]User, error)
-	GetUser(ctx context.Context, id int64) (User, error)
-	UpsertUser(ctx context.Context, externalID, platform, name string) (User, error)
-	UpdateUserDefaultAgent(ctx context.Context, userID int64, agentID string) error
 
 	// Chat Agents (group -> agent mapping)
 	GetChatAgent(ctx context.Context, platform, chatID string) (string, error) // returns agentID

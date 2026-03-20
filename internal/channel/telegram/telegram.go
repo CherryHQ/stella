@@ -82,7 +82,7 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.M
 		bot:         bot,
 		poolManager: pm,
 		store:       store,
-		agentCmd:    channel.NewAgentCommander(store),
+		agentCmd:    channel.NewAgentCommander(store, nil),
 		listFn:      listFn,
 		switchFn:    switchFn,
 		md:          tgmd.TGMD(),
@@ -109,6 +109,7 @@ func WithAuth(authStore auth.AuthStore, engine *auth.PolicyEngine, linkCodes *au
 		b.authStore = authStore
 		b.engine = engine
 		b.linkCodes = linkCodes
+		b.agentCmd = channel.NewAgentCommander(b.store, authStore)
 	}
 }
 
@@ -279,25 +280,12 @@ func (b *Bot) resolve(c tele.Context) (*channel.ResolvedChat, error) {
 	chatID := strconv.FormatInt(c.Chat().ID, 10)
 	group := isGroup(c)
 
-	if b.authStore != nil {
-		return channel.ResolveWithAuth(
-			context.Background(),
-			b.poolManager,
-			b.store,
-			b.authStore,
-			b.engine,
-			"telegram",
-			senderID,
-			name,
-			chatID,
-			group,
-		)
-	}
-
 	return channel.Resolve(
 		context.Background(),
 		b.poolManager,
 		b.store,
+		b.authStore,
+		b.engine,
 		"telegram",
 		senderID,
 		name,
