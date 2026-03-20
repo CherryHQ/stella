@@ -426,7 +426,7 @@ func TestSessionCRUD(t *testing.T) {
 
 	// Update expiry.
 	newExpiry := time.Now().UTC().Add(14 * 24 * time.Hour)
-	if err := store.UpdateSessionExpiry(ctx, "sess-abc", newExpiry.Format("2006-01-02 15:04:05")); err != nil {
+	if err := store.UpdateSessionExpiry(ctx, "sess-abc", newExpiry); err != nil {
 		t.Fatalf("UpdateSessionExpiry: %v", err)
 	}
 
