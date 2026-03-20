@@ -123,6 +123,19 @@ export function register(Alpine) {
       }
     },
 
+    async unlinkIdentity(identityId) {
+      if (!this.selectedUser) return
+      try {
+        await api('DELETE', '/api/auth/users/' + this.selectedUser.id + '/identities/' + identityId)
+        // Refresh user detail.
+        this.selectedUser = await api('GET', '/api/auth/users/' + this.selectedUser.id)
+        await this.loadAuthUsers()
+        this.$store.toast.show('Identity unlinked')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
     async removeAgentFromUser(agentId) {
       if (!this.selectedUser) return
       const newIds = this.userAgentIds.filter(id => id !== agentId)

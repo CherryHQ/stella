@@ -124,7 +124,13 @@ templ UsersPage() {
 										<span class="text-sm font-mono" x-text="ident.external_id"></span>
 										<span class="text-xs text-secondary" x-show="ident.name" x-text="ident.name"></span>
 									</div>
-									<span class="text-xs text-secondary" x-text="ident.linked_at"></span>
+									<div class="flex items-center gap-2">
+										<span class="text-xs text-secondary" x-text="ident.linked_at"></span>
+										<button
+											@click="confirmDelete('Unlink ' + ident.platform + ' identity?', () => unlinkIdentity(ident.id))"
+											class="btn btn-ghost btn-xs text-error"
+										>unlink</button>
+									</div>
 								</div>
 							</template>
 							<div
