@@ -318,9 +318,7 @@ func (s *Store) ListUserAgentIDs(ctx context.Context, userID int64) ([]string, e
 		return nil, fmt.Errorf("list user agents for user %d: %w", userID, err)
 	}
 	out := make([]string, len(rows))
-	for i, r := range rows {
-		out[i] = r
-	}
+	copy(out, rows)
 	return out, nil
 }
 
@@ -330,9 +328,7 @@ func (s *Store) ListAgentUserIDs(ctx context.Context, agentID string) ([]int64, 
 		return nil, fmt.Errorf("list agent users for agent %q: %w", agentID, err)
 	}
 	out := make([]int64, len(rows))
-	for i, r := range rows {
-		out[i] = r
-	}
+	copy(out, rows)
 	return out, nil
 }
 
