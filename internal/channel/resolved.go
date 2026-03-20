@@ -6,6 +6,7 @@ import (
 
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 )
 
@@ -19,6 +20,9 @@ type ResolvedChat struct {
 	AgentID    string
 	SessionKey string
 	ChatCtx    ChatContext
+	// Auth fields (populated when auth is enabled).
+	AuthUserID int64
+	Roles      []string
 }
 
 // UserID is a convenience accessor for rc.User.ID.
@@ -57,6 +61,22 @@ func Resolve(ctx context.Context, pm *agent.PoolManager, store config.Store, pla
 		return nil, fmt.Errorf("resolve user: %w", err)
 	}
 
+	return resolveWithUser(ctx, pm, store, user, 0, nil, platform, chatID, isGroup)
+}
+
+// ResolveWithAuth performs auth-aware user -> agent -> pool -> session key resolution.
+// Uses auth_identities for identity resolution with auto-migration fallback.
+func ResolveWithAuth(ctx context.Context, pm *agent.PoolManager, store config.Store, authStore auth.AuthStore, platform, senderID, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
+	resolved, err := ResolveUserWithAuth(ctx, store, authStore, senderID, platform, senderName)
+	if err != nil {
+		return nil, fmt.Errorf("resolve user: %w", err)
+	}
+
+	return resolveWithUser(ctx, pm, store, resolved.User, resolved.AuthUserID, resolved.Roles, platform, chatID, isGroup)
+}
+
+// resolveWithUser performs agent -> pool -> session key resolution given a resolved user.
+func resolveWithUser(ctx context.Context, pm *agent.PoolManager, store config.Store, user config.User, authUserID int64, roles []string, platform, chatID string, isGroup bool) (*ResolvedChat, error) {
 	chatCtx := ChatContext{
 		Platform: platform,
 		ChatID:   chatID,
@@ -77,6 +97,7 @@ func Resolve(ctx context.Context, pm *agent.PoolManager, store config.Store, pla
 	if isGroup && chatID != "" {
 		channelCtx = "group:" + chatID
 	}
+	senderID := user.ExternalID
 	sessionKey := agent.BuildSessionKey(agentID, platform, senderID, channelCtx)
 
 	return &ResolvedChat{
@@ -85,5 +106,7 @@ func Resolve(ctx context.Context, pm *agent.PoolManager, store config.Store, pla
 		AgentID:    agentID,
 		SessionKey: sessionKey,
 		ChatCtx:    chatCtx,
+		AuthUserID: authUserID,
+		Roles:      roles,
 	}, nil
 }

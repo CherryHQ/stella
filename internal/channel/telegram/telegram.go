@@ -273,14 +273,32 @@ func (b *Bot) resolve(c tele.Context) (*channel.ResolvedChat, error) {
 		name = sender.Username
 	}
 
+	senderID := strconv.FormatInt(sender.ID, 10)
+	chatID := strconv.FormatInt(c.Chat().ID, 10)
+	group := isGroup(c)
+
+	if b.authStore != nil {
+		return channel.ResolveWithAuth(
+			context.Background(),
+			b.poolManager,
+			b.store,
+			b.authStore,
+			"telegram",
+			senderID,
+			name,
+			chatID,
+			group,
+		)
+	}
+
 	return channel.Resolve(
 		context.Background(),
 		b.poolManager,
 		b.store,
 		"telegram",
-		strconv.FormatInt(sender.ID, 10),
+		senderID,
 		name,
-		strconv.FormatInt(c.Chat().ID, 10),
-		isGroup(c),
+		chatID,
+		group,
 	)
 }
