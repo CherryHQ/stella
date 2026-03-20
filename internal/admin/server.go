@@ -19,6 +19,7 @@ type Server struct {
 	authStore   auth.AuthStore
 	engine      *auth.PolicyEngine
 	rateLimiter *auth.RateLimiter
+	linkCodes   *auth.LinkCodeStore
 	mem         memory.Engine
 	db          *sql.DB
 	q           *sqlc.Queries
@@ -40,6 +41,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 		authStore:   authStore,
 		engine:      engine,
 		rateLimiter: auth.NewRateLimiter(),
+		linkCodes:   auth.NewLinkCodeStore(),
 		mem:         mem,
 		db:          db,
 		q:           sqlc.New(db),
@@ -60,6 +62,12 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	s.mux.HandleFunc("POST /api/auth/logout", s.logoutHandler)
 	s.mux.HandleFunc("GET /api/auth/me", s.meHandler)
 
+	// Profile API routes (authenticated users).
+	s.mux.HandleFunc("GET /api/auth/profile/identities", s.listProfileIdentities)
+	s.mux.HandleFunc("PUT /api/auth/profile/password", s.changePassword)
+	s.mux.HandleFunc("POST /api/auth/profile/link-code", s.generateLinkCode)
+	s.mux.HandleFunc("DELETE /api/auth/profile/identities/{id}", s.unlinkIdentity)
+
 	// Page routes — templ-rendered HTML pages.
 	// Admin-only pages: providers, channels, users, scheduler, settings.
 	s.mux.Handle("GET /providers", s.adminOnlyMiddleware(http.HandlerFunc(s.pageProviders)))
@@ -69,6 +77,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	s.mux.HandleFunc("GET /sessions", s.pageSessions)
 	s.mux.Handle("GET /scheduler", s.adminOnlyMiddleware(http.HandlerFunc(s.pageScheduler)))
 	s.mux.Handle("GET /settings", s.adminOnlyMiddleware(http.HandlerFunc(s.pageSettings)))
+	s.mux.HandleFunc("GET /profile", s.pageProfile)
 
 	// Root redirect based on auth status.
 	s.mux.HandleFunc("GET /{$}", s.redirectRoot)
@@ -143,6 +152,11 @@ func (s *Server) redirectRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/agents", http.StatusFound)
+}
+
+// LinkCodes returns the link code store for use by channel handlers.
+func (s *Server) LinkCodes() *auth.LinkCodeStore {
+	return s.linkCodes
 }
 
 // Handler returns the HTTP handler with CORS, JSON, and auth middleware applied.
