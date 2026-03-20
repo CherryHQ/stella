@@ -29,7 +29,9 @@ type Server struct {
 }
 
 // New creates an admin server with all API routes mounted.
-func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Engine, db *sql.DB) *Server {
+// The linkCodes store is shared with channel bots so codes generated in the
+// admin panel can be consumed by channel handlers.
+func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Engine, db *sql.DB, linkCodes *auth.LinkCodeStore) *Server {
 	// Read CORS origin once at startup.
 	corsOrigin := "http://localhost:8080"
 	if val, err := store.GetSetting(context.Background(), "admin.cors_origin"); err == nil && val != "" {
@@ -41,7 +43,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 		authStore:   authStore,
 		engine:      engine,
 		rateLimiter: auth.NewRateLimiter(),
-		linkCodes:   auth.NewLinkCodeStore(),
+		linkCodes:   linkCodes,
 		mem:         mem,
 		db:          db,
 		q:           sqlc.New(db),

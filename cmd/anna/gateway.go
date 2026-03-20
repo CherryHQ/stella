@@ -74,9 +74,12 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 		return fmt.Errorf("create auth engine: %w", err)
 	}
 
+	// Link codes are shared between admin panel and channel bots.
+	linkCodes := auth.NewLinkCodeStore()
+
 	// Start admin panel server.
 	if adminPort > 0 {
-		adminSrv := admin.New(s.store, as, engine, s.mem, s.db)
+		adminSrv := admin.New(s.store, as, engine, s.mem, s.db, linkCodes)
 		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", adminPort))
 		if err != nil {
 			return fmt.Errorf("admin listen: %w", err)
@@ -103,9 +106,6 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			return nil
 		})
 	}
-
-	// Link codes are shared between admin panel and channel bots.
-	linkCodes := auth.NewLinkCodeStore()
 
 	// Load channel configs from DB.
 	tgCfg := loadChannelConfig[telegramChannelConfig](s.store, "telegram")
