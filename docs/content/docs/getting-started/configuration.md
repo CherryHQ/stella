@@ -2,7 +2,7 @@
 title: Configuration
 ---
 
-All configuration is stored in a single SQLite database at `~/.anna/anna.db`. There are no YAML config files. To set up or modify your configuration, run `anna onboard` to open the web admin panel.
+All configuration is stored in a single SQLite database at `~/.anna/anna.db`. There are no YAML config files. To set up or modify your configuration, run `anna --open` to open the web admin panel.
 
 The home directory defaults to `~/.anna` and can be changed by setting the `ANNA_HOME` environment variable.
 
@@ -166,7 +166,7 @@ The old `ANNA_*` prefix overrides for all config fields are removed. Only the fo
 | `ANTHROPIC_API_KEY` | Fallback API key for the Anthropic provider     |
 | `OPENAI_API_KEY`    | Fallback API key for the OpenAI provider        |
 
-All other configuration must be set through the admin panel (`anna onboard`) or directly in the database.
+All other configuration must be set through the admin panel (`anna --open`) or directly in the database.
 
 ## Memory Defaults
 
@@ -180,7 +180,7 @@ Lossless Context Management settings are currently hardcoded defaults. They will
 
 ## Heartbeat
 
-Heartbeat only runs in `anna gateway`. Configuration is stored in the `settings` table under the `heartbeat` key. Each tick first uses the fast model to decide `skip` vs `run`, and only `run` decisions are sent into the main heartbeat session and then delivered through the notifier. Instructions are read from the agent's `HEARTBEAT.md` file.
+Heartbeat only runs in server mode (`anna`). Configuration is stored in the `settings` table under the `heartbeat` key. Each tick first uses the fast model to decide `skip` vs `run`, and only `run` decisions are sent into the main heartbeat session and then delivered through the notifier. Instructions are read from the agent's `HEARTBEAT.md` file.
 
 ## Plugins
 

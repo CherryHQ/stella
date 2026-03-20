@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/auth/authdb"
 	appdb "github.com/vaayne/anna/internal/db"
 )
 
@@ -18,7 +17,7 @@ func setupSeedStore(t *testing.T) auth.AuthStore {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return authdb.New(db)
+	return appdb.NewAuthStore(db)
 }
 
 func TestSeedRolesAndPolicies(t *testing.T) {

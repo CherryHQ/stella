@@ -7,12 +7,12 @@ anna 包含一个通过长轮询运行的 Telegram 机器人 —— 无需 webho
 ## 设置
 
 1. 通过 [@BotFather](https://t.me/BotFather) 创建一个机器人并记录 bot token
-2. 运行 `anna onboard` 启动管理面板
+2. 运行 `anna --open` 启动管理面板
 3. 在管理面板中：添加一个 AI 提供商，然后使用你的 bot token 配置 Telegram 频道
 4. 启动网关：
 
 ```bash
-anna gateway
+anna
 ```
 
 所有频道配置（token、群组模式、允许的 ID 等）都通过管理面板管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `ANNA_HOME`。
@@ -112,7 +112,7 @@ anna gateway
 
 ## 配置参考
 
-以下所有设置都通过 `anna onboard` 管理面板管理。
+以下所有设置都通过 `anna --open` 管理面板管理。
 
 | 字段          | 描述                                      | 默认值    |
 | ------------- | ----------------------------------------- | --------- |

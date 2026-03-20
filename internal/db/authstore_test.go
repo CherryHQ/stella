@@ -1,4 +1,4 @@
-package authdb_test
+package db_test
 
 import (
 	"context"
@@ -8,12 +8,11 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/auth/authdb"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 )
 
-func setupStore(t *testing.T) (*authdb.Store, *sql.DB) {
+func setupAuthStore(t *testing.T) (*appdb.AuthStore, *sql.DB) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	db, err := appdb.OpenDB(dbPath)
@@ -21,7 +20,7 @@ func setupStore(t *testing.T) (*authdb.Store, *sql.DB) {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return authdb.New(db), db
+	return appdb.NewAuthStore(db), db
 }
 
 // seedAgent creates a test agent (needed for FK constraints on auth_user_agents).
@@ -37,7 +36,7 @@ func seedAgent(t *testing.T, db *sql.DB, id string) {
 
 func TestUserCRUD(t *testing.T) {
 	t.Parallel()
-	store, _ := setupStore(t)
+	store, _ := setupAuthStore(t)
 	ctx := context.Background()
 
 	// Create.
@@ -112,7 +111,7 @@ func TestUserCRUD(t *testing.T) {
 
 func TestUserDuplicateUsername(t *testing.T) {
 	t.Parallel()
-	store, _ := setupStore(t)
+	store, _ := setupAuthStore(t)
 	ctx := context.Background()
 
 	_, err := store.CreateUser(ctx, "bob", "hash")
@@ -127,7 +126,7 @@ func TestUserDuplicateUsername(t *testing.T) {
 
 func TestRoleCRUD(t *testing.T) {
 	t.Parallel()
-	store, _ := setupStore(t)
+	store, _ := setupAuthStore(t)
 	ctx := context.Background()
 
 	role, err := store.CreateRole(ctx, auth.Role{
@@ -177,7 +176,7 @@ func TestRoleCRUD(t *testing.T) {
 
 func TestUserRoleAssignment(t *testing.T) {
 	t.Parallel()
-	store, _ := setupStore(t)
+	store, _ := setupAuthStore(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUser(ctx, "carol", "hash")
@@ -217,7 +216,7 @@ func TestUserRoleAssignment(t *testing.T) {
 
 func TestIdentityCRUD(t *testing.T) {
 	t.Parallel()
-	store, _ := setupStore(t)
+	store, _ := setupAuthStore(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUser(ctx, "dave", "hash")
@@ -267,7 +266,7 @@ func TestIdentityCRUD(t *testing.T) {
 
 func TestIdentityUniqueConstraint(t *testing.T) {
 	t.Parallel()
-	store, _ := setupStore(t)
+	store, _ := setupAuthStore(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUser(ctx, "eve", "hash")
@@ -285,7 +284,7 @@ func TestIdentityUniqueConstraint(t *testing.T) {
 
 func TestPolicyCRUD(t *testing.T) {
 	t.Parallel()
-	store, _ := setupStore(t)
+	store, _ := setupAuthStore(t)
 	ctx := context.Background()
 
 	policy, err := store.CreatePolicy(ctx, auth.Policy{
@@ -352,7 +351,7 @@ func TestPolicyCRUD(t *testing.T) {
 
 func TestUserAgentAssignment(t *testing.T) {
 	t.Parallel()
-	store, db := setupStore(t)
+	store, db := setupAuthStore(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUser(ctx, "frank", "hash")
@@ -400,7 +399,7 @@ func TestUserAgentAssignment(t *testing.T) {
 
 func TestSessionCRUD(t *testing.T) {
 	t.Parallel()
-	store, _ := setupStore(t)
+	store, _ := setupAuthStore(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUser(ctx, "grace", "hash")
@@ -442,7 +441,7 @@ func TestSessionCRUD(t *testing.T) {
 
 func TestDeleteExpiredSessions(t *testing.T) {
 	t.Parallel()
-	store, _ := setupStore(t)
+	store, _ := setupAuthStore(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUser(ctx, "hank", "hash")
@@ -475,7 +474,7 @@ func TestDeleteExpiredSessions(t *testing.T) {
 
 func TestDeleteUserSessions(t *testing.T) {
 	t.Parallel()
-	store, _ := setupStore(t)
+	store, _ := setupAuthStore(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUser(ctx, "iris", "hash")
@@ -503,7 +502,7 @@ func TestDeleteUserSessions(t *testing.T) {
 
 func TestCascadeDeleteUser(t *testing.T) {
 	t.Parallel()
-	store, _ := setupStore(t)
+	store, _ := setupAuthStore(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUser(ctx, "jack", "hash")
@@ -538,5 +537,5 @@ func TestCascadeDeleteUser(t *testing.T) {
 	}
 }
 
-// Verify that authdb.Store satisfies auth.AuthStore interface at compile time.
-var _ auth.AuthStore = (*authdb.Store)(nil)
+// Verify that db.AuthStore satisfies auth.AuthStore interface at compile time.
+var _ auth.AuthStore = (*appdb.AuthStore)(nil)

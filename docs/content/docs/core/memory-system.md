@@ -72,7 +72,7 @@ Engine options: `WithFreshTail(n)`, `WithLogger(log)`.
 vim internal/db/schemas/tables/conversations.sql
 
 # 2. Generate migration
-mise run atlas:diff -- add_column_name
+mise run db:diff -- add_column_name
 
 # 3. Regenerate sqlc
 mise run generate

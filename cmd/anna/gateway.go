@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -16,66 +18,77 @@ import (
 	"github.com/vaayne/anna/internal/admin"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/auth/authdb"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/channel/feishu"
 	"github.com/vaayne/anna/internal/channel/qq"
 	"github.com/vaayne/anna/internal/channel/telegram"
 	"github.com/vaayne/anna/internal/config"
+	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/scheduler"
 	"golang.org/x/sync/errgroup"
 )
 
-func gatewayCommand() *ucli.Command {
-	return &ucli.Command{
-		Name:  "gateway",
-		Usage: "Start daemon services (Telegram, etc.) based on config",
-		Flags: []ucli.Flag{
-			&ucli.IntFlag{
-				Name:  "admin-port",
-				Usage: "Port for admin panel (0 = disabled)",
-				Value: 0,
-			},
+const defaultAdminPort = 25678
+
+func serverFlags() []ucli.Flag {
+	return []ucli.Flag{
+		&ucli.IntFlag{
+			Name:    "admin-port",
+			Usage:   "Port for admin panel (0 = disabled)",
+			Value:   defaultAdminPort,
+			EnvVars: []string{"PORT"},
 		},
-		Action: func(c *ucli.Context) error {
-			ctx, cancel := signal.NotifyContext(c.Context, syscall.SIGINT, syscall.SIGTERM)
-			defer cancel()
-
-			s, err := setup(ctx, true)
-			if err != nil {
-				return err
-			}
-			defer func() { _ = s.poolManager.Close() }()
-			defer func() { _ = s.pluginMgr.Close() }()
-
-			listFn := func() []channel.ModelOption {
-				return collectModelsFromStore(ctx, s.store, s.snap)
-			}
-			switchFn := modelSwitcher(s.snap, s.store, s.pool, s.extraTools, s.pluginMgr.Registry())
-			return runGateway(s.ctx, s, listFn, switchFn, c.Int("admin-port"))
+		&ucli.BoolFlag{
+			Name:  "open",
+			Usage: "Open admin panel in browser on startup",
 		},
 	}
 }
 
-func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc, adminPort int) error {
+func serverAction(c *ucli.Context) error {
+	ctx, cancel := signal.NotifyContext(c.Context, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	s, err := setup(ctx, true)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = s.poolManager.Close() }()
+	defer func() { _ = s.pluginMgr.Close() }()
+
+	listFn := func() []channel.ModelOption {
+		return collectModelsFromStore(ctx, s.store, s.snap)
+	}
+	switchFn := modelSwitcher(s.snap, s.store, s.pool, s.extraTools, s.pluginMgr.Registry())
+	return runServer(s.ctx, s, listFn, switchFn, c.Int("admin-port"), c.Bool("open"))
+}
+
+func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc, adminPort int, openBrowser bool) error {
 	g, gctx := errgroup.WithContext(ctx)
 	var channels []channel.Channel
 
 	// Create auth store and policy engine for channel bots and admin panel.
-	as := authdb.New(s.db)
+	as := appdb.NewAuthStore(s.db)
 	engine, err := auth.NewEngine(gctx, as)
 	if err != nil {
 		return fmt.Errorf("create auth engine: %w", err)
 	}
 
-	// Optionally start admin panel server.
+	// Start admin panel server.
 	if adminPort > 0 {
 		adminSrv := admin.New(s.store, as, engine, s.mem, s.db)
 		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", adminPort))
 		if err != nil {
 			return fmt.Errorf("admin listen: %w", err)
 		}
-		slog.Info("starting admin panel", "addr", ln.Addr().String())
+		addr := ln.Addr().String()
+		slog.Info("starting admin panel", "addr", addr)
+		fmt.Printf("Admin panel running at http://%s\n", addr)
+
+		if openBrowser {
+			launchBrowser("http://" + addr)
+		}
+
 		httpSrv := &http.Server{Handler: adminSrv.Handler()}
 		g.Go(func() error {
 			<-gctx.Done()
@@ -91,8 +104,7 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 		})
 	}
 
-	// Link codes are shared between admin panel and channel bots. For now,
-	// create a standalone store since we might not have an admin panel.
+	// Link codes are shared between admin panel and channel bots.
 	linkCodes := auth.NewLinkCodeStore()
 
 	// Load channel configs from DB.
@@ -175,10 +187,14 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 	}
 
 	if len(channels) == 0 {
-		return fmt.Errorf("no gateway services configured. Run 'anna onboard' to set up channels")
+		if adminPort > 0 {
+			slog.Warn("no channel services configured; running admin panel only")
+		} else {
+			return fmt.Errorf("no services to run: no channels configured and admin panel disabled")
+		}
 	}
 
-	if len(s.notifier.Channels()) == 0 {
+	if len(channels) > 0 && len(s.notifier.Channels()) == 0 {
 		slog.Warn("no enabled channels have enable_notify set to true; scheduler results and heartbeat notifications will not be delivered")
 	}
 
@@ -251,6 +267,25 @@ func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolM
 			}
 		}
 	})
+}
+
+func launchBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	}
+	if cmd != nil {
+		if err := cmd.Start(); err != nil {
+			slog.Warn("failed to open browser", "error", err)
+			return
+		}
+		go func() { _ = cmd.Wait() }()
+	}
 }
 
 // --- Channel config types for JSON deserialization ---

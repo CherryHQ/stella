@@ -14,7 +14,6 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 	agenttool "github.com/vaayne/anna/internal/agent/tool"
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/auth/authdb"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
@@ -29,13 +28,13 @@ func newApp() *ucli.App {
 		Name:    "anna",
 		Usage:   "A local AI assistant",
 		Version: displayVersion(),
+		Flags:   serverFlags(),
+		Action:  serverAction,
 		Commands: []*ucli.Command{
 			chatCommand(),
-			gatewayCommand(),
 			modelsCommand(),
 			skillsCommand(),
 			pluginCommand(),
-			onboardCommand(),
 			versionCommand(),
 			upgradeCommand(),
 		},
@@ -73,7 +72,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	}
 
 	// Seed auth roles and policies.
-	authStore := authdb.New(db)
+	authStore := appdb.NewAuthStore(db)
 	if err := auth.SeedRolesAndPolicies(parent, authStore); err != nil {
 		return nil, fmt.Errorf("seed auth: %w", err)
 	}

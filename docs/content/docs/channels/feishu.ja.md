@@ -10,12 +10,12 @@ anna には、WebSocket 経由で接続する Feishu (Lark) ボットが含ま�
 2. アプリ設定で **Bot** 機能を有効にします
 3. **Event Subscriptions** で `im.message.receive_v1` イベントを追加します
 4. アプリ設定から App ID、App Secret、Encrypt Key、Verification Token を取得します
-5. `anna onboard` を実行して管理パネルを起動します
+5. `anna --open` を実行して管理パネルを起動します
 6. 管理パネルで、AI プロバイダーを追加してから、アプリ認証情報を使用して Feishu チャンネルを設定します
 7. ゲートウェイを起動します:
 
 ```bash
-anna gateway
+anna
 ```
 
 すべてのチャンネル設定（認証情報、グループモード、許可された ID など）は管理パネルから管理されます。環境変数は、プロバイダー API キー（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）と `ANNA_HOME` に制限されています。
@@ -82,7 +82,7 @@ anna gateway
 
 ## 設定リファレンス
 
-以下のすべての設定は、`anna onboard` 管理パネルから管理されます。
+以下のすべての設定は、`anna --open` 管理パネルから管理されます。
 
 | Field                | Description                                     | Default    |
 | -------------------- | ----------------------------------------------- | ---------- |
