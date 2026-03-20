@@ -13,6 +13,8 @@ import (
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	agenttool "github.com/vaayne/anna/internal/agent/tool"
+	"github.com/vaayne/anna/internal/auth"
+	"github.com/vaayne/anna/internal/auth/authdb"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
@@ -68,6 +70,12 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Seed defaults so there's always at least one agent.
 	if err := store.SeedDefaults(parent); err != nil {
 		return nil, fmt.Errorf("seed defaults: %w", err)
+	}
+
+	// Seed auth roles and policies.
+	authStore := authdb.New(db)
+	if err := auth.SeedRolesAndPolicies(parent, authStore); err != nil {
+		return nil, fmt.Errorf("seed auth: %w", err)
 	}
 
 	// Get snapshot for the default agent (used for global settings).
