@@ -307,3 +307,72 @@
 - **Agent scope values**: `"system"` (default, all users) and `"restricted"` (only assigned users). Stored in `settings_agents.scope` column.
 - **Policy evaluation**: Uses built-in policies `system:user-system-agents` (scope == "system") and `system:user-assigned-agents` (agent_id in subject.agent_ids). Admin full access via `system:admin-full-access`.
 - **Error handling in channels**: `ErrAgentAccessDenied` is propagated through `resolve()` and surfaces to users as "Error: you don't have access to this agent, contact an admin" in all channel bots.
+
+## Phase 6: Per-User Data + Skills Isolation
+
+**Status:** Complete
+**Date:** 2026-03-20
+**Commits:** 2 commits on `main`
+
+### What was done
+
+1. **Per-user workspace directories** (`internal/agent/workspace.go`):
+   - `SetupUserWorkspace(agentID, basePath, userID)` — creates `workspaces/{agentID}/users/{userID}/.agents/skills/` and `workspaces/{agentID}/users/{userID}/data/`
+   - `UserSkillsDir(userWorkspace)` and `UserDataDir(userWorkspace)` helpers
+   - Existing `SetupWorkspace` preserved for agent-level workspace (backward compat)
+
+2. **Per-user SkillsTool** (`internal/skills/tool.go`):
+   - `NewTool` now takes `userID int64` as 4th parameter
+   - When `userID > 0`: skills path is `workspaces/{agentID}/users/{userID}/.agents/skills/`
+   - When `userID == 0`: uses existing `workspace/skills/` (backward compat)
+   - `skillsDir()` method encapsulates the path logic
+   - `install.go`, `list.go`, `load.go`, `remove.go` all use `t.skillsDir()` — changes cascade
+
+3. **LoadSkills priority chain** (`internal/agent/runner/skill.go`):
+   - New 5-level priority: project > **user** > agent > common > builtin
+   - `LoadSkills` accepts optional `userSkillsDir` variadic parameter
+   - `loadSkills` internal function takes explicit `userSkillsDir string`
+   - Agent-level workspace skills source renamed from `"user"` to `"agent"` for clarity
+
+4. **System prompt integration** (`internal/agent/runner/prompt.go`):
+   - `DBPromptParams` extended with `UserSkillsDir string`
+   - `BuildSystemPromptFromDB` passes user skills dir to `LoadSkills`
+
+5. **Per-session runner creation** (`internal/agent/factory.go`, `internal/agent/pool.go`):
+   - `RunnerParams` extended with `UserID int64` (`internal/agent/runner/runner.go`)
+   - `pool.getOrCreateRunner` passes `sess.Info.UserID` to factory
+   - Factory closure: when `UserID > 0`, calls `SetupUserWorkspace`, creates per-user `SkillsTool` replacing the agent-level template, sets `UserDataDir` and `WorkDir`
+   - `buildSessionTools` helper replaces `SkillsTool` in extra tools for per-user version
+   - `config.Snapshot` extended with `AgentID` field, set in `DBStore.Snapshot()`
+
+6. **Sandbox enforcement** (`internal/auth/sandbox.go`, `internal/agent/tool/sandbox.go`):
+   - `auth.ValidatePath(allowedDir, requestedPath)` — resolves symlinks via `filepath.EvalSymlinks`, checks prefix after `filepath.Clean`, handles non-existent files by resolving nearest ancestor
+   - `sandboxTool` wrapper in `internal/agent/tool/sandbox.go` — intercepts file path arg, validates before delegating
+   - `wrapWithSandbox(tool, allowedDir, pathKey)` — returns wrapped tool or original when no sandbox
+   - `tool.NewRegistry` accepts optional `userDataDir` variadic — wraps read/write/edit tools with sandbox, sets bash CWD to user data dir
+   - `GoRunnerConfig` extended with `UserDataDir string`
+
+7. **Agent-level skills preserved as shared** (task 6.7):
+   - Skills in `workspaces/{agentID}/skills/` remain as agent-level shared skills (source: `"agent"`)
+   - Loaded for ALL users of that agent at priority level 3 (after project and user)
+   - No migration needed — existing skills continue to work
+
+8. **Tests**:
+   - `internal/agent/workspace_test.go` — SetupUserWorkspace, idempotency, isolation, invalid inputs, helper functions
+   - `internal/auth/sandbox_test.go` — ValidatePath: within/outside dir, traversal, symlink escape, empty dir, prefix confusion, new file
+   - `internal/agent/tool/sandbox_test.go` — sandboxTool: allowed/blocked paths, no-sandbox passthrough, definition preservation, symlink escape, registry with/without sandbox
+   - `internal/skills/tool_test.go` — per-user install/remove, per-user list (shows both user + agent skills), backward compat, skillsDir() paths
+   - `internal/agent/runner/skill_test.go` — LoadSkills with user dir (user wins over agent), empty user dir backward compat
+   - All tests pass with `-race`
+
+### Notes for next phases
+
+- **`NewTool` signature changed**: Now requires 4 args: `(annaHome, workspace, cwd string, userID int64)`. All callers updated. Use `0` for agent-level/legacy behavior.
+- **`LoadSkills` variadic parameter**: Accepts optional `userSkillsDir ...string`. Existing callers with 3 args continue to work. Pass user skills dir when user isolation is active.
+- **`NewRegistry` variadic parameter**: Accepts optional `userDataDir ...string`. Existing callers with 1 arg work. Admin tools.go calls `NewRegistry("")` unchanged.
+- **`RunnerParams.UserID`**: Added. Pool passes `sess.Info.UserID` to factory. When 0, no per-user isolation.
+- **`config.Snapshot.AgentID`**: Added. Set by `DBStore.Snapshot()`. Used by factory to call `SetupUserWorkspace`.
+- **`GoRunnerConfig.UserDataDir`**: Added. When non-empty, the tool registry wraps file tools with sandbox validation and sets bash CWD.
+- **Skills source labels changed**: Agent-level workspace skills now have source `"agent"` (was `"user"`). User-installed skills have source `"user"`.
+- **Sandbox is defense-in-depth**: Not a hard security boundary. It prevents accidental cross-user file access. Admin bypass is possible by not setting `userDataDir` (which happens when `UserID == 0`).
+- **Bash tool CWD**: When `userDataDir` is set, bash commands start in the user's data directory. Without it, the system CWD or empty string is used (existing behavior).
