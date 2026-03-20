@@ -376,3 +376,58 @@
 - **Skills source labels changed**: Agent-level workspace skills now have source `"agent"` (was `"user"`). User-installed skills have source `"user"`.
 - **Sandbox is defense-in-depth**: Not a hard security boundary. It prevents accidental cross-user file access. Admin bypass is possible by not setting `userDataDir` (which happens when `UserID == 0`).
 - **Bash tool CWD**: When `userDataDir` is set, bash commands start in the user's data directory. Without it, the system CWD or empty string is used (existing behavior).
+
+## Phase 7: Admin User Management
+
+**Status:** Complete
+**Date:** 2026-03-20
+**Commits:** 1 commit on `main`
+
+### What was done
+
+1. **Auth user management API** (`internal/admin/auth_users.go`):
+   - `GET /api/auth/users` — list all auth users with roles, identities, timestamps
+   - `GET /api/auth/users/{id}` — get user detail (roles, identities, active status, timestamps)
+   - `PUT /api/auth/users/{id}/roles` — assign/remove roles (body: `{"role": "admin", "action": "assign"|"remove"}`)
+   - `GET /api/auth/users/{id}/agents` — list assigned agent IDs
+   - `PUT /api/auth/users/{id}/agents` — set assigned agents (body: `{"agent_ids": ["..."]}`)
+   - `PUT /api/auth/users/{id}/active` — activate/deactivate (body: `{"is_active": true|false}`)
+   - Self-protection: cannot remove own admin role, cannot deactivate own account
+   - Deactivation force-deletes all user sessions (force logout)
+
+2. **Routes** (`internal/admin/server.go`):
+   - All 6 new endpoints registered under `/api/auth/users/` behind `adminOnlyMiddleware`
+   - Legacy `/api/users` endpoints preserved unchanged for memory management
+
+3. **Users page** (`internal/admin/ui/pages/users.templ`, `internal/admin/ui/static/js/pages/users.js`):
+   - Tabbed layout: "Auth Users" (primary, default) + "User Memory" (legacy)
+   - Auth Users tab: lists auth_users with username, role badges (admin=primary, user=ghost), active status, linked identity badges, created timestamp
+   - User detail panel (modal): opens on click, shows full user info
+     - Status badge + activate/deactivate button
+     - Roles section with +admin / -admin toggle buttons
+     - Linked identities list (platform, external_id, name, linked_at)
+     - Agent assignments with add/remove management
+     - Metadata: created_at, updated_at
+   - User Memory tab: unchanged legacy settings_users list with memory management (lazy-loaded on tab switch)
+
+4. **Tests** (`internal/admin/auth_users_test.go`):
+   - `TestListAuthUsers` — list returns users with roles
+   - `TestGetAuthUser` / `TestGetAuthUserNotFound` — get detail, 404 handling
+   - `TestUpdateAuthUserRolesAssignAdmin` / `TestUpdateAuthUserRolesRemoveAdmin` — role promotion/demotion
+   - `TestCannotRemoveOwnAdminRole` — self-protection guard
+   - `TestUpdateAuthUserRolesInvalidAction` — validation
+   - `TestListAndUpdateAuthUserAgents` — agent assignment CRUD
+   - `TestUpdateAuthUserActive` — deactivate + verify session deletion + reactivate
+   - `TestCannotDeactivateSelf` — self-protection guard
+   - `TestNonAdminCannotAccessAuthUserAPIs` — all 6 endpoints return 403 for non-admin
+   - `TestAuthUserWithLinkedIdentities` — identity data in user response
+   - `TestLegacyUsersAPIStillWorks` — backward compat verification
+   - All tests pass with `-race`
+
+### Notes
+
+- **Backward compatibility**: Legacy `/api/users` endpoints are unchanged. The old settings_users data is still accessible via the "User Memory" tab.
+- **Agent assignment approach**: Uses `PUT /api/auth/users/{id}/agents` with full replacement semantics (set desired agent_ids, handler computes diff).
+- **Role management**: Only admin role toggle is exposed in the UI. The `user` role is always present (assigned on registration).
+- **Users page tab state**: The "User Memory" tab lazy-loads legacy users only on first switch to avoid unnecessary API calls.
+- **Session cleanup on deactivation**: When a user is deactivated, all their HTTP sessions are deleted, forcing immediate logout.

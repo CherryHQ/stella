@@ -72,9 +72,9 @@
 
 ## Phase 7: Admin User Management
 
-- [ ] 7.1 — Enhance `/users` page to show auth_users, roles, linked identities
-- [ ] 7.2 — Add role management (admin promote/demote)
-- [ ] 7.3 — Add agent assignment management
-- [ ] 7.4 — Add user detail view (sessions, skills, identities)
-- [ ] 7.5 — Cleanup old settings_users page functionality
-- [ ] 7.6 — Write tests
+- [x] 7.1 — Enhance `/users` page to show auth_users, roles, linked identities
+- [x] 7.2 — Add role management (admin promote/demote)
+- [x] 7.3 — Add agent assignment management
+- [x] 7.4 — Add user detail view (sessions, skills, identities)
+- [x] 7.5 — Cleanup old settings_users page functionality
+- [x] 7.6 — Write tests
