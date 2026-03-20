@@ -15,27 +15,27 @@
 
 ## Phase 2: Policy Engine
 
-- [ ] 2.1 — Create `internal/auth/engine.go` (PolicyEngine, Can, Must)
-- [ ] 2.2 — Implement condition evaluator (JSON conditions, operators: eq, neq, in, not_in, contains)
-- [ ] 2.3 — Implement deny-overrides algorithm
-- [ ] 2.4 — Create `internal/auth/seed.go` (8 built-in policies + 2 roles)
-- [ ] 2.5 — Integrate seed into bootstrap
-- [ ] 2.6 — Write tests (policy matching, conditions, deny-overrides, edge cases)
+- [x] 2.1 — Create `internal/auth/engine.go` (PolicyEngine, Can, Must)
+- [x] 2.2 — Implement condition evaluator (JSON conditions, operators: eq, neq, in, not_in, contains)
+- [x] 2.3 — Implement deny-overrides algorithm
+- [x] 2.4 — Create `internal/auth/seed.go` (8 built-in policies + 2 roles)
+- [x] 2.5 — Integrate seed into bootstrap
+- [x] 2.6 — Write tests (policy matching, conditions, deny-overrides, edge cases)
 
 ## Phase 3: Admin UI Authentication
 
-- [ ] 3.1 — Create `internal/auth/session.go` (crypto/rand IDs, cookies, lazy cleanup)
-- [ ] 3.2 — Create `internal/auth/ratelimit.go` (per-IP + per-username throttling)
-- [ ] 3.3 — Create login/register templ page (`internal/admin/ui/pages/login.templ`)
-- [ ] 3.4 — Create login page JS (`internal/admin/ui/static/js/pages/login.js`)
-- [ ] 3.5 — Add auth API handlers (`internal/admin/auth.go`)
-- [ ] 3.6 — Add auth middleware (`internal/admin/middleware.go`)
-- [ ] 3.7 — Harden CORS in `server.go`
-- [ ] 3.8 — Apply auth middleware to routes, exempt login/static/auth
-- [ ] 3.9 — Add admin-only route guard middleware
-- [ ] 3.10 — Modify navbar for role-based visibility
-- [ ] 3.11 — Modify root redirect (unauthenticated → login)
-- [ ] 3.12 — Write tests
+- [x] 3.1 — Create `internal/auth/session.go` (crypto/rand IDs, cookies, lazy cleanup)
+- [x] 3.2 — Create `internal/auth/ratelimit.go` (per-IP + per-username throttling)
+- [x] 3.3 — Create login/register templ page (`internal/admin/ui/pages/login.templ`)
+- [x] 3.4 — Create login page JS (`internal/admin/ui/static/js/pages/login.js`)
+- [x] 3.5 — Add auth API handlers (`internal/admin/auth.go`)
+- [x] 3.6 — Add auth middleware (`internal/admin/middleware.go`)
+- [x] 3.7 — Harden CORS in `server.go`
+- [x] 3.8 — Apply auth middleware to routes, exempt login/static/auth
+- [x] 3.9 — Add admin-only route guard middleware
+- [x] 3.10 — Modify navbar for role-based visibility
+- [x] 3.11 — Modify root redirect (unauthenticated → login)
+- [x] 3.12 — Write tests
 
 ## Phase 4: User Profile + Channel Linking
 
