@@ -210,31 +210,16 @@ func channelForGroup(groupID string) string {
 // resolve performs full user/agent/pool/session-key resolution for the
 // given QQ message context. Call once per incoming message or command.
 func (b *Bot) resolve(authorID, groupID string) (*channel.ResolvedChat, error) {
-	group := groupID != ""
-
-	if b.authStore != nil {
-		return channel.ResolveWithAuth(
-			context.Background(),
-			b.poolManager,
-			b.store,
-			b.authStore,
-			b.engine,
-			"qq",
-			authorID,
-			"",
-			groupID,
-			group,
-		)
-	}
-
 	return channel.Resolve(
 		context.Background(),
 		b.poolManager,
 		b.store,
+		b.authStore,
+		b.engine,
 		"qq",
 		authorID,
 		"",
 		groupID,
-		group,
+		groupID != "",
 	)
 }

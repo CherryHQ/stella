@@ -20,6 +20,12 @@ UPDATE auth_users SET
     updated_at = datetime('now')
 WHERE id = ?;
 
+-- name: UpdateAuthUserDefaultAgent :exec
+UPDATE auth_users SET
+    default_agent_id = ?,
+    updated_at = datetime('now')
+WHERE id = ?;
+
 -- name: DeleteAuthUser :exec
 DELETE FROM auth_users WHERE id = ?;
 

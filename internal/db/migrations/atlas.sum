@@ -1,5 +1,6 @@
-h1:Ro0C0UUk018JaEGV4aN1aMf850SAJUy2DQUS+rxrQ4s=
+h1:dJARHZ6L1Adq05wa5lAj7A65KxZiRvTBDJ9Ozrsarw4=
 20260317041843_rename_tables_with_prefixes.sql h1:Nfk81sAWddxDQvpo8pBhXJ5Sec5JcCF6tchqgt+777M=
 20260317065837_drop_agent_provider_id.sql h1:gb4CoI8GlT4P3QbksGw07M8SruOcR9pQI0Sj7/Q2rao=
 20260320104110_add-auth-tables.sql h1:6TjzFFeMMTJzy3/mGN4nrm4+SoYGhanOQY24nUbL3H4=
 20260320163425_fix_memory_user_fk.sql h1:5+E6g2dXT4U4UHGTxqNDl5L8cCsAp65S7SyPkn/9Q60=
+20260320172508_consolidate_users.sql h1:CH4MRkVaiwDC9PqjQoX65QgLkHwFx+omoZA9Jv2N5Qs=

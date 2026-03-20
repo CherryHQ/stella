@@ -63,18 +63,10 @@ func (m *mockStore) ListChannels(_ context.Context) ([]config.Channel, error) { 
 func (m *mockStore) GetChannel(_ context.Context, _ string) (config.Channel, error) {
 	return config.Channel{}, nil
 }
-func (m *mockStore) UpsertChannel(_ context.Context, _ config.Channel) error { return nil }
-func (m *mockStore) ListUsers(_ context.Context) ([]config.User, error)      { return nil, nil }
-func (m *mockStore) GetUser(_ context.Context, _ int64) (config.User, error) {
-	return config.User{}, nil
-}
-func (m *mockStore) UpsertUser(_ context.Context, _, _, _ string) (config.User, error) {
-	return config.User{}, nil
-}
-func (m *mockStore) UpdateUserDefaultAgent(_ context.Context, _ int64, _ string) error { return nil }
-func (m *mockStore) GetChatAgent(_ context.Context, _, _ string) (string, error)       { return "", nil }
-func (m *mockStore) SetChatAgent(_ context.Context, _, _, _ string) error              { return nil }
-func (m *mockStore) DeleteChatAgent(_ context.Context, _, _ string) error              { return nil }
+func (m *mockStore) UpsertChannel(_ context.Context, _ config.Channel) error     { return nil }
+func (m *mockStore) GetChatAgent(_ context.Context, _, _ string) (string, error) { return "", nil }
+func (m *mockStore) SetChatAgent(_ context.Context, _, _, _ string) error        { return nil }
+func (m *mockStore) DeleteChatAgent(_ context.Context, _, _ string) error        { return nil }
 func (m *mockStore) GetUserAgentMemory(_ context.Context, _ int64, _ string) (string, error) {
 	return "", nil
 }

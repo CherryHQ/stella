@@ -38,16 +38,14 @@ func TestResolveAgentWithAuthSystemAgent(t *testing.T) {
 	authUser, _ := ts.authStore.CreateUser(ctx, "alice", hash)
 	_ = ts.authStore.AssignRole(ctx, authUser.ID, auth.RoleUser)
 
-	user := config.User{ID: 1, ExternalID: "111", Platform: "telegram"}
 	identity := channel.ResolvedIdentity{
-		User:       user,
-		AuthUserID: authUser.ID,
-		Roles:      []string{auth.RoleUser},
+		User:  authUser,
+		Roles: []string{auth.RoleUser},
 	}
 
 	// The default "anna" agent is system-scoped, so any user should access it.
 	chat := channel.ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := channel.ResolveAgentWithAuth(ctx, ts.store, ts.authStore, ts.engine, user, identity, chat)
+	agentID, err := channel.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgentWithAuth: %v", err)
 	}
@@ -74,17 +72,17 @@ func TestResolveAgentWithAuthRestrictedDenied(t *testing.T) {
 	hash, _ := auth.HashPassword("testpass")
 	authUser, _ := ts.authStore.CreateUser(ctx, "bob", hash)
 	_ = ts.authStore.AssignRole(ctx, authUser.ID, auth.RoleUser)
+	_ = ts.authStore.UpdateUserDefaultAgent(ctx, authUser.ID, "private")
+	authUser, _ = ts.authStore.GetUser(ctx, authUser.ID) // reload with default_agent_id
 
-	user := config.User{ID: 2, ExternalID: "222", Platform: "telegram", DefaultAgentID: "private"}
 	identity := channel.ResolvedIdentity{
-		User:       user,
-		AuthUserID: authUser.ID,
-		Roles:      []string{auth.RoleUser},
+		User:  authUser,
+		Roles: []string{auth.RoleUser},
 	}
 
 	// User's default agent is "private" but they are not assigned.
 	chat := channel.ChatContext{Platform: "telegram", IsGroup: false}
-	_, err := channel.ResolveAgentWithAuth(ctx, ts.store, ts.authStore, ts.engine, user, identity, chat)
+	_, err := channel.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
 	if err == nil {
 		t.Fatal("expected error for unassigned restricted agent")
 	}
@@ -112,18 +110,18 @@ func TestResolveAgentWithAuthRestrictedAllowed(t *testing.T) {
 	authUser, _ := ts.authStore.CreateUser(ctx, "charlie", hash)
 	_ = ts.authStore.AssignRole(ctx, authUser.ID, auth.RoleUser)
 	_ = ts.authStore.AssignAgent(ctx, authUser.ID, "vip")
+	_ = ts.authStore.UpdateUserDefaultAgent(ctx, authUser.ID, "vip")
+	authUser, _ = ts.authStore.GetUser(ctx, authUser.ID)
 
-	user := config.User{ID: 3, ExternalID: "333", Platform: "telegram", DefaultAgentID: "vip"}
 	identity := channel.ResolvedIdentity{
-		User:       user,
-		AuthUserID: authUser.ID,
-		Roles:      []string{auth.RoleUser},
+		User:  authUser,
+		Roles: []string{auth.RoleUser},
 	}
 
 	chat := channel.ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := channel.ResolveAgentWithAuth(ctx, ts.store, ts.authStore, ts.engine, user, identity, chat)
+	agentID, err := channel.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
 	if err != nil {
-		t.Fatalf("ResolveAgentWithAuth: %v", err)
+		t.Fatalf("ResolveAgent: %v", err)
 	}
 	if agentID != "vip" {
 		t.Errorf("agentID = %q, want %q", agentID, "vip")
@@ -148,19 +146,19 @@ func TestResolveAgentWithAuthAdminAccessAll(t *testing.T) {
 	hash, _ := auth.HashPassword("testpass")
 	authUser, _ := ts.authStore.CreateUser(ctx, "adminuser", hash)
 	_ = ts.authStore.AssignRole(ctx, authUser.ID, auth.RoleAdmin)
+	_ = ts.authStore.UpdateUserDefaultAgent(ctx, authUser.ID, "admin-only")
+	authUser, _ = ts.authStore.GetUser(ctx, authUser.ID)
 
-	user := config.User{ID: 4, ExternalID: "444", Platform: "telegram", DefaultAgentID: "admin-only"}
 	identity := channel.ResolvedIdentity{
-		User:       user,
-		AuthUserID: authUser.ID,
-		Roles:      []string{auth.RoleAdmin},
+		User:  authUser,
+		Roles: []string{auth.RoleAdmin},
 	}
 
 	// Admin should access any agent regardless of scope.
 	chat := channel.ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := channel.ResolveAgentWithAuth(ctx, ts.store, ts.authStore, ts.engine, user, identity, chat)
+	agentID, err := channel.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
 	if err != nil {
-		t.Fatalf("ResolveAgentWithAuth: %v", err)
+		t.Fatalf("ResolveAgent: %v", err)
 	}
 	if agentID != "admin-only" {
 		t.Errorf("agentID = %q, want %q", agentID, "admin-only")
@@ -196,16 +194,14 @@ func TestResolveAgentWithAuthFallbackFiltered(t *testing.T) {
 	authUser, _ := ts.authStore.CreateUser(ctx, "dave", hash)
 	_ = ts.authStore.AssignRole(ctx, authUser.ID, auth.RoleUser)
 
-	user := config.User{ID: 5, ExternalID: "555", Platform: "telegram"}
 	identity := channel.ResolvedIdentity{
-		User:       user,
-		AuthUserID: authUser.ID,
-		Roles:      []string{auth.RoleUser},
+		User:  authUser,
+		Roles: []string{auth.RoleUser},
 	}
 
 	// Fallback should skip restricted "anna" and return system "public".
 	chat := channel.ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := channel.ResolveAgentWithAuth(ctx, ts.store, ts.authStore, ts.engine, user, identity, chat)
+	agentID, err := channel.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgentWithAuth: %v", err)
 	}
@@ -236,16 +232,14 @@ func TestResolveAgentWithAuthGroupChatDenied(t *testing.T) {
 	authUser, _ := ts.authStore.CreateUser(ctx, "eve", hash)
 	_ = ts.authStore.AssignRole(ctx, authUser.ID, auth.RoleUser)
 
-	user := config.User{ID: 6, ExternalID: "666", Platform: "telegram"}
 	identity := channel.ResolvedIdentity{
-		User:       user,
-		AuthUserID: authUser.ID,
-		Roles:      []string{auth.RoleUser},
+		User:  authUser,
+		Roles: []string{auth.RoleUser},
 	}
 
 	// Group chat with restricted agent should be denied.
 	chat := channel.ChatContext{Platform: "telegram", ChatID: "-1001234", IsGroup: true}
-	_, err := channel.ResolveAgentWithAuth(ctx, ts.store, ts.authStore, ts.engine, user, identity, chat)
+	_, err := channel.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
 	if err == nil {
 		t.Fatal("expected error for unassigned restricted agent in group chat")
 	}

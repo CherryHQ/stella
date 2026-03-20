@@ -373,12 +373,3 @@ func TestAuthUserWithLinkedIdentities(t *testing.T) {
 	}
 }
 
-func TestLegacyUsersAPIStillWorks(t *testing.T) {
-	env := setupAdmin(t)
-
-	// Old /api/users endpoint should still work.
-	rr := doRequest(t, env, "GET", "/api/users", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
-	}
-}
