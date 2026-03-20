@@ -1,29 +1,44 @@
 package ui
 
 type navItem struct {
-	ID    string
-	Label string
-	Href  string
+	ID       string
+	Label    string
+	Href     string
+	AdminOnly bool
 }
 
 var navItems = []navItem{
-	{ID: "providers", Label: "Providers", Href: "/providers"},
+	{ID: "providers", Label: "Providers", Href: "/providers", AdminOnly: true},
 	{ID: "agents", Label: "Agents", Href: "/agents"},
-	{ID: "channels", Label: "Channels", Href: "/channels"},
-	{ID: "users", Label: "Users", Href: "/users"},
+	{ID: "channels", Label: "Channels", Href: "/channels", AdminOnly: true},
+	{ID: "users", Label: "Users", Href: "/users", AdminOnly: true},
 	{ID: "sessions", Label: "Sessions", Href: "/sessions"},
-	{ID: "scheduler", Label: "Scheduler", Href: "/scheduler"},
-	{ID: "settings", Label: "Settings", Href: "/settings"},
+	{ID: "scheduler", Label: "Scheduler", Href: "/scheduler", AdminOnly: true},
+	{ID: "settings", Label: "Settings", Href: "/settings", AdminOnly: true},
 }
 
-templ Navbar(activePage string) {
+func visibleNavItems(isAdmin bool) []navItem {
+	var items []navItem
+	for _, item := range navItems {
+		if !item.AdminOnly || isAdmin {
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+templ Navbar(activePage string, username string, isAdmin bool) {
 	<header class="border-b border-base-300">
 		<div class="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
 			<!-- Logo -->
-			<a href="/providers" class="font-serif italic text-primary text-xl tracking-tight select-none">anna</a>
+			if isAdmin {
+				<a href="/providers" class="font-serif italic text-primary text-xl tracking-tight select-none">anna</a>
+			} else {
+				<a href="/agents" class="font-serif italic text-primary text-xl tracking-tight select-none">anna</a>
+			}
 			<!-- Desktop nav -->
 			<nav class="hidden sm:flex items-center gap-1 text-sm" role="navigation" aria-label="Main">
-				for i, item := range navItems {
+				for i, item := range visibleNavItems(isAdmin) {
 					if i > 0 {
 						<span class="text-base-300 mx-2 select-none">/</span>
 					}
@@ -46,7 +61,7 @@ templ Navbar(activePage string) {
 					@change="window.location.href = '/' + page"
 					class="select select-sm select-ghost"
 				>
-					for _, item := range navItems {
+					for _, item := range visibleNavItems(isAdmin) {
 						<option
 							value={ item.ID }
 							selected?={ item.ID == activePage }
@@ -56,13 +71,18 @@ templ Navbar(activePage string) {
 					}
 				</select>
 			</div>
-			<!-- Right side: status + theme -->
+			<!-- Right side: user + theme -->
 			<div class="flex items-center gap-4">
-				<!-- Status indicator -->
-				<span class="flex items-center gap-1.5 text-xs font-mono text-secondary">
-					<span class="w-1.5 h-1.5 rounded-full bg-success"></span>
-					<span>Connected</span>
-				</span>
+				<!-- User info + logout -->
+				if username != "" {
+					<span class="text-xs font-mono text-secondary">{ username }</span>
+					<form method="POST" action="/api/auth/logout" class="inline">
+						<button type="submit" class="btn btn-ghost btn-xs text-secondary hover:text-error"
+							onclick="event.preventDefault(); fetch('/api/auth/logout', {method:'POST',credentials:'same-origin'}).then(()=>window.location.href='/login')">
+							logout
+						</button>
+					</form>
+				}
 				<!-- Theme switcher -->
 				<div x-data class="dropdown dropdown-end">
 					<div tabindex="0" role="button" class="btn btn-ghost btn-xs" aria-label="Change theme">

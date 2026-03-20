@@ -14,6 +14,8 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/admin"
+	"github.com/vaayne/anna/internal/auth"
+	"github.com/vaayne/anna/internal/auth/authdb"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/memory"
@@ -57,11 +59,21 @@ func runOnboard(ctx context.Context, port int) error {
 		return fmt.Errorf("seed defaults: %w", err)
 	}
 
-	// 4. Create memory engine (for session listing in admin panel).
+	// 4. Seed auth roles/policies and create policy engine.
+	as := authdb.New(db)
+	if err := auth.SeedRolesAndPolicies(ctx, as); err != nil {
+		return fmt.Errorf("seed auth: %w", err)
+	}
+	engine, err := auth.NewEngine(ctx, as)
+	if err != nil {
+		return fmt.Errorf("create auth engine: %w", err)
+	}
+
+	// 5. Create memory engine (for session listing in admin panel).
 	mem := memory.NewEngineFromDB(db, nil)
 
-	// 5. Create admin server.
-	srv := admin.New(store, mem, db)
+	// 6. Create admin server.
+	srv := admin.New(store, as, engine, mem, db)
 
 	// 6. Listen and serve.
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
