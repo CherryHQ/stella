@@ -1,6 +1,6 @@
 package ui
 
-templ Layout(activePage string, pageScript string, content templ.Component) {
+templ Layout(activePage string, pageScript string, username string, isAdmin bool, content templ.Component) {
 	<!DOCTYPE html>
 	<html lang="en" data-theme="terra">
 	<head>
@@ -55,7 +55,7 @@ templ Layout(activePage string, pageScript string, content templ.Component) {
 		</style>
 	</head>
 	<body class="bg-base-100 text-base-content min-h-screen font-sans antialiased">
-		@Navbar(activePage)
+		@Navbar(activePage, username, isAdmin)
 		<!-- Toast -->
 		<div
 			x-data

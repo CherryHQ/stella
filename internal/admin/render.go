@@ -8,6 +8,13 @@ import (
 	"github.com/vaayne/anna/internal/admin/ui/pages"
 )
 
+func (s *Server) pageLogin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := ui.LoginLayout("/static/js/pages/login.js", pages.LoginPage()).Render(r.Context(), w); err != nil {
+		s.log.Error("render page", "page", "login", "error", err)
+	}
+}
+
 func (s *Server) pageProviders(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, r, "providers", "/static/js/pages/providers.js", pages.ProvidersPage())
 }
@@ -37,10 +44,18 @@ func (s *Server) pageSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // renderPage sets the HTML content type and renders the layout with the
-// given page content.
+// given page content. Auth info is extracted from context for the navbar.
 func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, activePage, pageScript string, content templ.Component) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := ui.Layout(activePage, pageScript, content).Render(r.Context(), w); err != nil {
+
+	username := ""
+	isAdmin := false
+	if info := UserFromContext(r.Context()); info != nil {
+		username = info.Username
+		isAdmin = info.IsAdmin
+	}
+
+	if err := ui.Layout(activePage, pageScript, username, isAdmin, content).Render(r.Context(), w); err != nil {
 		s.log.Error("render page", "page", activePage, "error", err)
 	}
 }

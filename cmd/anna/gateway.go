@@ -15,6 +15,8 @@ import (
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/admin"
 	"github.com/vaayne/anna/internal/agent"
+	"github.com/vaayne/anna/internal/auth"
+	"github.com/vaayne/anna/internal/auth/authdb"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/channel/feishu"
 	"github.com/vaayne/anna/internal/channel/qq"
@@ -61,7 +63,12 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 
 	// Optionally start admin panel server.
 	if adminPort > 0 {
-		adminSrv := admin.New(s.store, s.mem, s.db)
+		as := authdb.New(s.db)
+		engine, err := auth.NewEngine(gctx, as)
+		if err != nil {
+			return fmt.Errorf("create auth engine: %w", err)
+		}
+		adminSrv := admin.New(s.store, as, engine, s.mem, s.db)
 		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", adminPort))
 		if err != nil {
 			return fmt.Errorf("admin listen: %w", err)
