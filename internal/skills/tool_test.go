@@ -10,7 +10,7 @@ import (
 )
 
 func TestDefinition(t *testing.T) {
-	tool := NewTool("/tmp/anna", "/tmp/agents", "/tmp/cwd")
+	tool := NewTool("/tmp/anna", "/tmp/agents", "/tmp/cwd", 0)
 	def := tool.Definition()
 
 	if def.Name != "skills" {
@@ -25,7 +25,7 @@ func TestDefinition(t *testing.T) {
 }
 
 func TestExecuteUnknownAction(t *testing.T) {
-	tool := NewTool("/tmp/anna", "/tmp/agents", "/tmp/cwd")
+	tool := NewTool("/tmp/anna", "/tmp/agents", "/tmp/cwd", 0)
 	_, err := tool.Execute(context.Background(), map[string]any{"action": "bogus"})
 	if err == nil {
 		t.Error("expected error for unknown action")
@@ -34,7 +34,7 @@ func TestExecuteUnknownAction(t *testing.T) {
 
 func TestExecuteDispatch(t *testing.T) {
 	// search — missing query → error
-	tool := NewTool("/tmp/anna", "/tmp/agents", "/tmp/cwd")
+	tool := NewTool("/tmp/anna", "/tmp/agents", "/tmp/cwd", 0)
 	_, err := tool.Execute(context.Background(), map[string]any{"action": "search"})
 	if err == nil {
 		t.Error("expected error for search without query")
@@ -68,7 +68,7 @@ description: A test skill
 		t.Fatal(err)
 	}
 
-	tool := NewTool("/tmp/anna", filepath.Join(dir, ".agents"), dir)
+	tool := NewTool("/tmp/anna", filepath.Join(dir, ".agents"), dir, 0)
 	result, err := tool.list()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -101,7 +101,7 @@ func TestRemoveNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewTool("/tmp/anna", filepath.Join(dir, ".agents"), dir)
+	tool := NewTool("/tmp/anna", filepath.Join(dir, ".agents"), dir, 0)
 	_, err := tool.remove(map[string]any{"name": "nonexistent"})
 	if err == nil {
 		t.Error("expected error for nonexistent skill")
@@ -109,7 +109,7 @@ func TestRemoveNotFound(t *testing.T) {
 }
 
 func TestRemoveMissingName(t *testing.T) {
-	tool := NewTool("/tmp/anna", "/tmp/agents", "/tmp/cwd")
+	tool := NewTool("/tmp/anna", "/tmp/agents", "/tmp/cwd", 0)
 	_, err := tool.remove(map[string]any{})
 	if err == nil {
 		t.Error("expected error for missing name")
@@ -117,7 +117,7 @@ func TestRemoveMissingName(t *testing.T) {
 }
 
 func TestRemoveInvalidName(t *testing.T) {
-	tool := NewTool("/tmp/anna", "/tmp/agents", "/tmp/cwd")
+	tool := NewTool("/tmp/anna", "/tmp/agents", "/tmp/cwd", 0)
 	_, err := tool.remove(map[string]any{"name": "../../../etc"})
 	if err == nil {
 		t.Error("expected error for path traversal name")
@@ -134,7 +134,7 @@ func TestRemoveSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewTool("/tmp/anna", filepath.Join(dir, ".agents"), dir)
+	tool := NewTool("/tmp/anna", filepath.Join(dir, ".agents"), dir, 0)
 	result, err := tool.remove(map[string]any{"name": "my-skill"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -148,7 +148,7 @@ func TestRemoveSuccess(t *testing.T) {
 }
 
 func TestSearchMissingQuery(t *testing.T) {
-	tool := NewTool("/tmp/anna", "/tmp/agents", "/tmp/cwd")
+	tool := NewTool("/tmp/anna", "/tmp/agents", "/tmp/cwd", 0)
 	_, err := tool.search(context.Background(), map[string]any{})
 	if err == nil {
 		t.Error("expected error for missing query")
@@ -156,7 +156,7 @@ func TestSearchMissingQuery(t *testing.T) {
 }
 
 func TestInstallMissingSource(t *testing.T) {
-	tool := NewTool("/tmp/anna", "/tmp/agents", "/tmp/cwd")
+	tool := NewTool("/tmp/anna", "/tmp/agents", "/tmp/cwd", 0)
 	_, err := tool.install(context.Background(), map[string]any{})
 	if err == nil {
 		t.Error("expected error for missing source")
@@ -222,7 +222,7 @@ description: Test
 		t.Fatal(err)
 	}
 
-	tool := NewTool("/tmp/anna", workspace, projectDir)
+	tool := NewTool("/tmp/anna", workspace, projectDir, 0)
 	result, err := tool.install(context.Background(), map[string]any{
 		"source": srcDir,
 	})
@@ -251,7 +251,7 @@ func TestLoadSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewTool("/tmp/anna", filepath.Join(dir, ".agents"), dir)
+	tool := NewTool("/tmp/anna", filepath.Join(dir, ".agents"), dir, 0)
 
 	t.Run("loads existing skill", func(t *testing.T) {
 		result, err := tool.load(map[string]any{"name": "test-skill"})
@@ -294,9 +294,142 @@ func TestRemoveSingleCharName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewTool("/tmp/anna", filepath.Join(dir, ".agents"), dir)
+	tool := NewTool("/tmp/anna", filepath.Join(dir, ".agents"), dir, 0)
 	_, err := tool.remove(map[string]any{"name": "x"})
 	if err != nil {
 		t.Fatalf("unexpected error removing single-char skill: %v", err)
+	}
+}
+
+func TestPerUserSkillsInstallAndRemove(t *testing.T) {
+	// Setup: simulate workspaces/{agentID}/ layout.
+	base := t.TempDir()
+	agentWS := filepath.Join(base, "workspaces", "agent-1")
+	if err := os.MkdirAll(filepath.Join(agentWS, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	userID := int64(42)
+	userSkillsDir := filepath.Join(agentWS, "users", "42", ".agents", "skills")
+	if err := os.MkdirAll(userSkillsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a local skill to install.
+	srcDir := t.TempDir()
+	skillSrc := filepath.Join(srcDir, "my-skill")
+	if err := os.MkdirAll(skillSrc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillSrc, "SKILL.md"), []byte(`---
+name: my-skill
+description: User skill
+---
+# My Skill
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Install via per-user tool.
+	tool := NewTool("/tmp/anna", agentWS, "", userID)
+	result, err := tool.install(context.Background(), map[string]any{
+		"source": srcDir,
+	})
+	if err != nil {
+		t.Fatalf("install error: %v", err)
+	}
+	if !strings.Contains(result, "my-skill") {
+		t.Error("expected skill name in result")
+	}
+
+	// Verify installed in user's dir, not agent's.
+	if _, err := os.Stat(filepath.Join(userSkillsDir, "my-skill", "SKILL.md")); err != nil {
+		t.Error("skill not installed in user dir")
+	}
+	if _, err := os.Stat(filepath.Join(agentWS, "skills", "my-skill")); !os.IsNotExist(err) {
+		t.Error("skill should NOT be in agent-level dir")
+	}
+
+	// Remove via per-user tool.
+	_, err = tool.remove(map[string]any{"name": "my-skill"})
+	if err != nil {
+		t.Fatalf("remove error: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(userSkillsDir, "my-skill")); !os.IsNotExist(err) {
+		t.Error("skill should be removed from user dir")
+	}
+}
+
+func TestPerUserSkillsList(t *testing.T) {
+	// Setup agent workspace with an agent-level skill.
+	base := t.TempDir()
+	agentWS := filepath.Join(base, "workspaces", "agent-1")
+	agentSkill := filepath.Join(agentWS, "skills", "agent-skill")
+	if err := os.MkdirAll(agentSkill, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentSkill, "SKILL.md"), []byte(`---
+name: agent-skill
+description: Agent-level shared skill
+---
+# Agent Skill
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Setup user skills.
+	userSkillsDir := filepath.Join(agentWS, "users", "42", ".agents", "skills", "user-skill")
+	if err := os.MkdirAll(userSkillsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(userSkillsDir, "SKILL.md"), []byte(`---
+name: user-skill
+description: User-specific skill
+---
+# User Skill
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewTool("/tmp/anna", agentWS, "", int64(42))
+	result, err := tool.list()
+	if err != nil {
+		t.Fatalf("list error: %v", err)
+	}
+
+	// Both should appear.
+	if !strings.Contains(result, "user-skill") {
+		t.Error("expected user-skill in list")
+	}
+	if !strings.Contains(result, "agent-skill") {
+		t.Error("expected agent-skill in list")
+	}
+}
+
+func TestAgentLevelToolBackwardCompat(t *testing.T) {
+	// userID=0 should use workspace/skills/ as before.
+	base := t.TempDir()
+	agentWS := filepath.Join(base, "workspaces", "agent-1")
+	if err := os.MkdirAll(filepath.Join(agentWS, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewTool("/tmp/anna", agentWS, "", 0)
+	got := tool.skillsDir()
+	want := filepath.Join(agentWS, "skills")
+	if got != want {
+		t.Errorf("skillsDir() = %q, want %q", got, want)
+	}
+}
+
+func TestPerUserToolSkillsDir(t *testing.T) {
+	base := t.TempDir()
+	agentWS := filepath.Join(base, "workspaces", "agent-1")
+
+	tool := NewTool("/tmp/anna", agentWS, "", int64(7))
+	got := tool.skillsDir()
+	want := filepath.Join(agentWS, "users", "7", ".agents", "skills")
+	if got != want {
+		t.Errorf("skillsDir() = %q, want %q", got, want)
 	}
 }
