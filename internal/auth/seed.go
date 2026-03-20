@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 )
 
 // builtinRoles defines the system roles seeded on bootstrap.
@@ -165,22 +166,7 @@ func isAlreadyExists(err error) bool {
 	}
 	// SQLite returns "UNIQUE constraint failed" for duplicate keys.
 	errStr := err.Error()
-	return contains(errStr, "UNIQUE constraint failed") ||
-		contains(errStr, "constraint failed") ||
-		contains(errStr, "duplicate key")
-}
-
-// contains is a simple substring check (avoids importing strings just
-// for this).
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && searchSubstring(s, substr)
-}
-
-func searchSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(errStr, "UNIQUE constraint failed") ||
+		strings.Contains(errStr, "constraint failed") ||
+		strings.Contains(errStr, "duplicate key")
 }
