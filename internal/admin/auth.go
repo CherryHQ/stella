@@ -10,6 +10,13 @@ import (
 
 // registerHandler handles POST /api/auth/register.
 func (s *Server) registerHandler(w http.ResponseWriter, r *http.Request) {
+	// Rate limit registration by IP.
+	ip := clientIP(r)
+	if err := s.rateLimiter.CheckIP(ip); err != nil {
+		writeError(w, http.StatusTooManyRequests, err.Error())
+		return
+	}
+
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -24,12 +31,29 @@ func (s *Server) registerHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "username is required")
 		return
 	}
+	if len(body.Username) > 64 {
+		writeError(w, http.StatusBadRequest, "username must be at most 64 characters")
+		return
+	}
 	if len(body.Password) < 8 {
 		writeError(w, http.StatusBadRequest, "password must be at least 8 characters")
 		return
 	}
+	if len(body.Password) > 72 {
+		writeError(w, http.StatusBadRequest, "password must be at most 72 characters")
+		return
+	}
 
 	ctx := r.Context()
+
+	// Check if this will be the first user BEFORE creating, to avoid race.
+	count, err := s.authStore.CountUsers(ctx)
+	if err != nil {
+		s.log.Error("count users", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	isFirstUser := count == 0
 
 	// Hash password.
 	hash, err := auth.HashPassword(body.Password)
@@ -43,6 +67,7 @@ func (s *Server) registerHandler(w http.ResponseWriter, r *http.Request) {
 	user, err := s.authStore.CreateUser(ctx, body.Username, hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint") {
+			s.rateLimiter.RecordIPAttempt(ip)
 			writeError(w, http.StatusConflict, "username already taken")
 			return
 		}
@@ -51,15 +76,8 @@ func (s *Server) registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If first user, assign admin role; otherwise assign user role.
-	count, err := s.authStore.CountUsers(ctx)
-	if err != nil {
-		s.log.Error("count users", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	if count == 1 {
+	// Assign roles.
+	if isFirstUser {
 		_ = s.authStore.AssignRole(ctx, user.ID, auth.RoleAdmin)
 	}
 	_ = s.authStore.AssignRole(ctx, user.ID, auth.RoleUser)
@@ -118,12 +136,14 @@ func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.authStore.GetUserByUsername(ctx, body.Username)
 	if err != nil {
+		s.rateLimiter.RecordIPAttempt(ip)
 		s.rateLimiter.RecordLoginFailure(body.Username)
 		writeError(w, http.StatusUnauthorized, "invalid username or password")
 		return
 	}
 
 	if err := auth.CheckPassword(user.PasswordHash, body.Password); err != nil {
+		s.rateLimiter.RecordIPAttempt(ip)
 		s.rateLimiter.RecordLoginFailure(body.Username)
 		writeError(w, http.StatusUnauthorized, "invalid username or password")
 		return
