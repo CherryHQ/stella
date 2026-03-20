@@ -9,14 +9,24 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vaayne/anna/internal/admin"
+	"github.com/vaayne/anna/internal/auth"
+	"github.com/vaayne/anna/internal/auth/authdb"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/memory"
 )
 
-func setupAdmin(t *testing.T) *admin.Server {
+type testEnv struct {
+	srv       *admin.Server
+	authStore auth.AuthStore
+	adminUser auth.AuthUser
+	sessionID string
+}
+
+func setupAdmin(t *testing.T) *testEnv {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	db, err := appdb.OpenDB(dbPath)
@@ -30,11 +40,52 @@ func setupAdmin(t *testing.T) *admin.Server {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
+	as := authdb.New(db)
+	if err := auth.SeedRolesAndPolicies(context.Background(), as); err != nil {
+		t.Fatalf("SeedRolesAndPolicies: %v", err)
+	}
+
+	engine, err := auth.NewEngine(context.Background(), as)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
 	mem := memory.NewEngineFromDB(db, nil)
-	return admin.New(store, mem, db)
+	srv := admin.New(store, as, engine, mem, db)
+
+	// Create an admin user for authenticated requests.
+	hash, _ := auth.HashPassword("testpassword")
+	user, err := as.CreateUser(context.Background(), "testadmin", hash)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	_ = as.AssignRole(context.Background(), user.ID, auth.RoleAdmin)
+	_ = as.AssignRole(context.Background(), user.ID, auth.RoleUser)
+
+	sessionID := auth.NewSessionID()
+	_, err = as.CreateSession(context.Background(), auth.Session{
+		ID:        sessionID,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(auth.SessionDuration),
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	return &testEnv{
+		srv:       srv,
+		authStore: as,
+		adminUser: user,
+		sessionID: sessionID,
+	}
 }
 
-func doRequest(t *testing.T, srv *admin.Server, method, path string, body any) *httptest.ResponseRecorder {
+func doRequest(t *testing.T, env *testEnv, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	return doRequestWithSession(t, env.srv, env.sessionID, method, path, body)
+}
+
+func doRequestWithSession(t *testing.T, srv *admin.Server, sessionID, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
@@ -46,9 +97,17 @@ func doRequest(t *testing.T, srv *admin.Server, method, path string, body any) *
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	if sessionID != "" {
+		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: sessionID})
+	}
 	rr := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rr, req)
 	return rr
+}
+
+func doUnauthRequest(t *testing.T, srv *admin.Server, method, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	return doRequestWithSession(t, srv, "", method, path, body)
 }
 
 type apiResponse struct {
@@ -66,9 +125,9 @@ func parseResponse(t *testing.T, rr *httptest.ResponseRecorder) apiResponse {
 }
 
 func TestListProviders(t *testing.T) {
-	srv := setupAdmin(t)
+	env := setupAdmin(t)
 
-	rr := doRequest(t, srv, "GET", "/api/providers", nil)
+	rr := doRequest(t, env, "GET", "/api/providers", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
@@ -78,7 +137,6 @@ func TestListProviders(t *testing.T) {
 	if err := json.Unmarshal(resp.Data, &providers); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	// SeedDefaults creates "anthropic" provider.
 	if len(providers) == 0 {
 		t.Fatal("expected at least one provider")
 	}
@@ -88,20 +146,20 @@ func TestListProviders(t *testing.T) {
 }
 
 func TestCreateProvider(t *testing.T) {
-	srv := setupAdmin(t)
+	env := setupAdmin(t)
 
 	body := map[string]any{
 		"id":      "openai",
 		"name":    "OpenAI",
 		"api_key": "sk-test",
 	}
-	rr := doRequest(t, srv, "POST", "/api/providers", body)
+	rr := doRequest(t, env, "POST", "/api/providers", body)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
 	}
 
 	// Verify it appears in list.
-	rr = doRequest(t, srv, "GET", "/api/providers", nil)
+	rr = doRequest(t, env, "GET", "/api/providers", nil)
 	resp := parseResponse(t, rr)
 	var providers []config.Provider
 	_ = json.Unmarshal(resp.Data, &providers)
@@ -117,9 +175,9 @@ func TestCreateProvider(t *testing.T) {
 }
 
 func TestListAgents(t *testing.T) {
-	srv := setupAdmin(t)
+	env := setupAdmin(t)
 
-	rr := doRequest(t, srv, "GET", "/api/agents", nil)
+	rr := doRequest(t, env, "GET", "/api/agents", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
@@ -138,7 +196,7 @@ func TestListAgents(t *testing.T) {
 }
 
 func TestCreateAgent(t *testing.T) {
-	srv := setupAdmin(t)
+	env := setupAdmin(t)
 
 	body := config.Agent{
 		ID:           "coder",
@@ -148,22 +206,23 @@ func TestCreateAgent(t *testing.T) {
 		Workspace:    "/tmp/coder",
 		Enabled:      true,
 	}
-	rr := doRequest(t, srv, "POST", "/api/agents", body)
+	rr := doRequest(t, env, "POST", "/api/agents", body)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
 	}
 
 	// Verify via get.
-	rr = doRequest(t, srv, "GET", "/api/agents/coder", nil)
+	rr = doRequest(t, env, "GET", "/api/agents/coder", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get status = %d, want %d", rr.Code, http.StatusOK)
 	}
 }
 
 func TestRootRedirect(t *testing.T) {
-	srv := setupAdmin(t)
+	env := setupAdmin(t)
 
-	rr := doRequest(t, srv, "GET", "/", nil)
+	// Authenticated admin -> /providers.
+	rr := doRequest(t, env, "GET", "/", nil)
 	if rr.Code != http.StatusFound {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusFound)
 	}
@@ -171,10 +230,20 @@ func TestRootRedirect(t *testing.T) {
 	if loc != "/providers" {
 		t.Errorf("Location = %q, want %q", loc, "/providers")
 	}
+
+	// Unauthenticated -> /login.
+	rr = doUnauthRequest(t, env.srv, "GET", "/", nil)
+	if rr.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusFound)
+	}
+	loc = rr.Header().Get("Location")
+	if loc != "/login" {
+		t.Errorf("Location = %q, want %q", loc, "/login")
+	}
 }
 
 func TestPageRoutes(t *testing.T) {
-	srv := setupAdmin(t)
+	env := setupAdmin(t)
 
 	pages := []string{
 		"/providers", "/agents", "/channels",
@@ -182,7 +251,7 @@ func TestPageRoutes(t *testing.T) {
 	}
 	for _, path := range pages {
 		t.Run(path, func(t *testing.T) {
-			rr := doRequest(t, srv, "GET", path, nil)
+			rr := doRequest(t, env, "GET", path, nil)
 			if rr.Code != http.StatusOK {
 				t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 			}
@@ -202,22 +271,105 @@ func TestPageRoutes(t *testing.T) {
 }
 
 func TestUnknownPathReturns404(t *testing.T) {
-	srv := setupAdmin(t)
+	env := setupAdmin(t)
 
-	rr := doRequest(t, srv, "GET", "/nonexistent", nil)
+	rr := doRequest(t, env, "GET", "/nonexistent", nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
 	}
 }
 
 func TestCORSPreflight(t *testing.T) {
-	srv := setupAdmin(t)
+	env := setupAdmin(t)
 
-	rr := doRequest(t, srv, "OPTIONS", "/api/providers", nil)
+	rr := doRequest(t, env, "OPTIONS", "/api/providers", nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNoContent)
 	}
-	if rr.Header().Get("Access-Control-Allow-Origin") != "*" {
-		t.Error("missing CORS header")
+	origin := rr.Header().Get("Access-Control-Allow-Origin")
+	if origin == "" {
+		t.Error("missing CORS origin header")
+	}
+	if rr.Header().Get("Access-Control-Allow-Credentials") != "true" {
+		t.Error("missing CORS credentials header")
+	}
+}
+
+func TestLoginPageAccessible(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doUnauthRequest(t, env.srv, "GET", "/login", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	ct := rr.Header().Get("Content-Type")
+	if ct != "text/html; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want %q", ct, "text/html; charset=utf-8")
+	}
+}
+
+func TestUnauthenticatedAPIReturns401(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doUnauthRequest(t, env.srv, "GET", "/api/agents", nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusUnauthorized, rr.Body.String())
+	}
+}
+
+func TestUnauthenticatedPageRedirectsToLogin(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doUnauthRequest(t, env.srv, "GET", "/agents", nil)
+	if rr.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusFound)
+	}
+	loc := rr.Header().Get("Location")
+	if loc != "/login" {
+		t.Errorf("Location = %q, want %q", loc, "/login")
+	}
+}
+
+func TestNonAdminCannotAccessAdminRoutes(t *testing.T) {
+	env := setupAdmin(t)
+
+	// Create a non-admin user.
+	hash, _ := auth.HashPassword("userpassword")
+	user, err := env.authStore.CreateUser(context.Background(), "regularuser", hash)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	_ = env.authStore.AssignRole(context.Background(), user.ID, auth.RoleUser)
+
+	sessionID := auth.NewSessionID()
+	_, err = env.authStore.CreateSession(context.Background(), auth.Session{
+		ID:        sessionID,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(auth.SessionDuration),
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	// Admin-only API should return 403.
+	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/providers", nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
+	}
+
+	// Admin-only page should redirect to /agents.
+	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/providers", nil)
+	if rr.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusFound)
+	}
+	loc := rr.Header().Get("Location")
+	if loc != "/agents" {
+		t.Errorf("Location = %q, want %q", loc, "/agents")
+	}
+
+	// Non-admin page should be accessible.
+	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/agents", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
 }
