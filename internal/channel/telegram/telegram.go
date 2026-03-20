@@ -41,6 +41,7 @@ type Bot struct {
 	poolManager *agent.PoolManager
 	store       config.Store
 	authStore   auth.AuthStore
+	engine      *auth.PolicyEngine
 	linkCodes   *auth.LinkCodeStore
 	agentCmd    *channel.AgentCommander
 	listFn      channel.ModelListFunc
@@ -103,9 +104,10 @@ type BotOption func(*Bot)
 
 // WithAuth configures the bot with auth store and link code store for
 // account linking support.
-func WithAuth(authStore auth.AuthStore, linkCodes *auth.LinkCodeStore) BotOption {
+func WithAuth(authStore auth.AuthStore, engine *auth.PolicyEngine, linkCodes *auth.LinkCodeStore) BotOption {
 	return func(b *Bot) {
 		b.authStore = authStore
+		b.engine = engine
 		b.linkCodes = linkCodes
 	}
 }
@@ -283,6 +285,7 @@ func (b *Bot) resolve(c tele.Context) (*channel.ResolvedChat, error) {
 			b.poolManager,
 			b.store,
 			b.authStore,
+			b.engine,
 			"telegram",
 			senderID,
 			name,

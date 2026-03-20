@@ -4,12 +4,17 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 )
+
+// ErrAgentAccessDenied is returned when a user tries to use an agent they
+// don't have access to.
+var ErrAgentAccessDenied = errors.New("you don't have access to this agent, contact an admin")
 
 // ChatContext describes the chat environment for agent routing.
 type ChatContext struct {
@@ -160,6 +165,82 @@ func ResolveAgent(ctx context.Context, store config.Store, user config.User, cha
 		return "", fmt.Errorf("resolve agent: no enabled agents found")
 	}
 	return agents[0].ID, nil
+}
+
+// ResolveAgentWithAuth determines which agent to route to, checking access
+// via the policy engine. Returns ErrAgentAccessDenied if the user cannot
+// access the resolved agent.
+func ResolveAgentWithAuth(ctx context.Context, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, user config.User, identity ResolvedIdentity, chat ChatContext) (string, error) {
+	log := slog.With("component", "identity", "auth_user_id", identity.AuthUserID)
+
+	// Build subject for policy checks.
+	assignedIDs, _ := authStore.ListUserAgentIDs(ctx, identity.AuthUserID)
+	subject := auth.Subject{
+		UserID:   identity.AuthUserID,
+		Roles:    identity.Roles,
+		AgentIDs: assignedIDs,
+	}
+
+	// Helper to check if user can access a specific agent.
+	canAccess := func(agentID string) bool {
+		agent, err := store.GetAgent(ctx, agentID)
+		if err != nil {
+			return false
+		}
+		req := auth.AccessRequest{
+			Subject: subject,
+			Action:  auth.ActionExecute,
+			Resource: auth.Resource{
+				Type:  auth.ResourceAgent,
+				ID:    agent.ID,
+				Attrs: map[string]any{"scope": agent.Scope},
+			},
+		}
+		return engine.Can(ctx, req)
+	}
+
+	// Group chat: look up per-group agent assignment.
+	if chat.IsGroup && chat.ChatID != "" {
+		agentID, err := store.GetChatAgent(ctx, chat.Platform, chat.ChatID)
+		if err == nil && agentID != "" {
+			if !canAccess(agentID) {
+				log.Warn("agent access denied for group chat", "agent_id", agentID)
+				return "", ErrAgentAccessDenied
+			}
+			return agentID, nil
+		}
+	}
+
+	// DM: use user's default agent.
+	if !chat.IsGroup && user.DefaultAgentID != "" {
+		if !canAccess(user.DefaultAgentID) {
+			log.Warn("agent access denied for DM default", "agent_id", user.DefaultAgentID)
+			return "", ErrAgentAccessDenied
+		}
+		return user.DefaultAgentID, nil
+	}
+
+	// Fallback: first enabled agent the user can access.
+	agents, err := store.ListEnabledAgents(ctx)
+	if err != nil {
+		return "", fmt.Errorf("resolve agent: list enabled agents: %w", err)
+	}
+	for _, a := range agents {
+		req := auth.AccessRequest{
+			Subject: subject,
+			Action:  auth.ActionExecute,
+			Resource: auth.Resource{
+				Type:  auth.ResourceAgent,
+				ID:    a.ID,
+				Attrs: map[string]any{"scope": a.Scope},
+			},
+		}
+		if engine.Can(ctx, req) {
+			return a.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("resolve agent: no accessible enabled agents found")
 }
 
 // randomPassword generates a random 16-byte hex password for auto-migrated users.
