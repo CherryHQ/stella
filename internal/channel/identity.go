@@ -2,8 +2,6 @@ package channel
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -83,59 +81,10 @@ func ResolveUserWithAuth(ctx context.Context, store config.Store, authStore auth
 		}, nil
 	}
 
-	// Not found in auth_identities — auto-migrate from settings_users.
-	log.Info("auto-migrating channel user to auth system")
-
-	username := fmt.Sprintf("%s_%s", platform, externalID)
-	password := randomPassword()
-	hash, err := auth.HashPassword(password)
-	if err != nil {
-		log.Error("hash password for auto-migration", "error", err)
-		return ResolvedIdentity{User: user}, nil
-	}
-
-	authUser, err := authStore.CreateUser(ctx, username, hash)
-	if err != nil {
-		// May already exist (race condition or prior partial migration).
-		existing, getErr := authStore.GetUserByUsername(ctx, username)
-		if getErr != nil {
-			log.Error("create auto-migrated auth user", "error", err)
-			return ResolvedIdentity{User: user}, nil
-		}
-		authUser = existing
-	} else {
-		// Assign user role.
-		if err := authStore.AssignRole(ctx, authUser.ID, auth.RoleUser); err != nil {
-			log.Error("assign user role during auto-migration", "user_id", authUser.ID, "error", err)
-		}
-	}
-
-	// Create the identity link.
-	displayName := name
-	if displayName == "" {
-		displayName = externalID
-	}
-	_, err = authStore.CreateIdentity(ctx, auth.Identity{
-		UserID:     authUser.ID,
-		Platform:   platform,
-		ExternalID: externalID,
-		Name:       displayName,
-	})
-	if err != nil {
-		log.Error("create auto-migrated identity", "error", err)
-		// Still return the user — identity creation failed but auth user exists.
-	}
-
-	roles, _ := authStore.ListUserRoles(ctx, authUser.ID)
-	roleIDs := make([]string, len(roles))
-	for i, r := range roles {
-		roleIDs[i] = r.ID
-	}
-	return ResolvedIdentity{
-		User:       user,
-		AuthUserID: authUser.ID,
-		Roles:      roleIDs,
-	}, nil
+	// No linked identity — return the legacy settings_users record without
+	// auth resolution. The user must link their account via a link code.
+	log.Debug("no linked identity found, user must link via link code")
+	return ResolvedIdentity{User: user}, nil
 }
 
 // ResolveAgent determines which agent to route to.
@@ -241,13 +190,4 @@ func ResolveAgentWithAuth(ctx context.Context, store config.Store, authStore aut
 	}
 
 	return "", fmt.Errorf("resolve agent: no accessible enabled agents found")
-}
-
-// randomPassword generates a random 16-byte hex password for auto-migrated users.
-func randomPassword() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic("channel: crypto/rand failed: " + err.Error())
-	}
-	return hex.EncodeToString(b)
 }
