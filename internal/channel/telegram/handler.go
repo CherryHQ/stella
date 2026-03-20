@@ -164,6 +164,20 @@ func (b *Bot) handleText(c tele.Context) error {
 		text = b.stripBotMention(text)
 	}
 
+	// Try link code before anything else.
+	if b.authStore != nil && b.linkCodes != nil {
+		sender := c.Sender()
+		if sender != nil {
+			name := sender.FirstName
+			if name == "" {
+				name = sender.Username
+			}
+			if resp, ok := channel.TryLinkCode(b.ctx, b.authStore, b.linkCodes, text, "telegram", strconv.FormatInt(sender.ID, 10), name); ok {
+				return c.Send(resp)
+			}
+		}
+	}
+
 	// Try shared command handler first.
 	rc, err := b.resolve(c)
 	if err != nil {
