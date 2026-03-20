@@ -13,6 +13,7 @@ templ AgentsPage() {
 					@click="showForm = !showForm; if(!showForm) resetForm()"
 					class="btn btn-ghost btn-sm text-primary font-medium"
 					x-text="showForm ? 'Cancel' : '+ Add agent'"
+					x-show="isAdmin"
 				></button>
 			</div>
 			<!-- Agent form -->
@@ -52,6 +53,15 @@ templ AgentsPage() {
 						<input x-model="form.workspace" placeholder="~/.anna/workspaces/anna" class="input input-bordered w-full text-sm font-mono"/>
 					}
 				</div>
+				<!-- Scope -->
+				<div class="mb-4">
+					@ui.FormField("Scope") {
+						<select x-model="form.scope" class="select select-bordered w-full text-sm">
+							<option value="system">system — all users can access</option>
+							<option value="restricted">restricted — only assigned users</option>
+						</select>
+					}
+				</div>
 				<!-- System prompt -->
 				<div class="mb-4">
 					@ui.FormField("System Prompt") {
@@ -84,8 +94,17 @@ templ AgentsPage() {
 									:class="a.enabled ? 'badge-success' : 'badge-ghost'"
 									x-text="a.enabled ? 'on' : 'off'"
 								></span>
+								<span
+									x-show="a.scope === 'restricted'"
+									class="badge badge-sm badge-warning"
+								>restricted</span>
 							</div>
-							<div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+							<div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity" x-show="isAdmin">
+								<button
+									x-show="a.scope === 'restricted'"
+									@click="manageUsers(a)"
+									class="btn btn-ghost btn-xs text-secondary hover:text-primary"
+								>users</button>
 								<button @click="editAgent(a)" class="btn btn-ghost btn-xs text-secondary hover:text-primary">edit</button>
 								<button
 									@click="confirmDelete('Delete agent ' + a.id + '?', () => doDeleteAgent(a.id))"
@@ -96,6 +115,40 @@ templ AgentsPage() {
 						<div class="text-sm font-mono text-secondary mt-1" x-text="a.model"></div>
 					</div>
 				</template>
+			</div>
+		</div>
+		<!-- User assignment modal -->
+		<div x-show="showUserModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+			<div class="card bg-base-100 shadow-xl w-full max-w-md" @click.away="showUserModal = false">
+				<div class="card-body">
+					<h3 class="font-semibold text-sm" x-text="'Manage users for ' + userModalAgent"></h3>
+					<!-- Assigned users list -->
+					<div class="mt-4 space-y-2">
+						<template x-for="u in assignedUsers" :key="u.id">
+							<div class="flex items-center justify-between py-1">
+								<span class="text-sm font-mono" x-text="u.username"></span>
+								<button
+									@click="removeUser(u.id)"
+									class="btn btn-ghost btn-xs text-error"
+								>remove</button>
+							</div>
+						</template>
+						<div x-show="assignedUsers.length === 0" class="text-sm text-base-content/50">No users assigned.</div>
+					</div>
+					<!-- Add user -->
+					<div class="mt-4 flex gap-2">
+						<select x-model="addUserId" class="select select-bordered select-sm flex-1">
+							<option value="">Select user...</option>
+							<template x-for="u in availableUsers" :key="u.id">
+								<option :value="u.id" x-text="u.username"></option>
+							</template>
+						</select>
+						<button @click="addUser()" class="btn btn-primary btn-sm" :disabled="!addUserId">Add</button>
+					</div>
+					<div class="card-actions justify-end mt-4">
+						<button @click="showUserModal = false" class="btn btn-ghost btn-sm">Close</button>
+					</div>
+				</div>
 			</div>
 		</div>
 		<!-- Confirm dialog -->
@@ -149,4 +202,3 @@ templ modelComboField(label string, field string, placeholder string) {
 		</div>
 	</div>
 }
-
