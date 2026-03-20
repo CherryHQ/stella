@@ -117,6 +117,10 @@ func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
 	if a.Enabled {
 		enabled = 1
 	}
+	scope := a.Scope
+	if scope == "" {
+		scope = AgentScopeSystem
+	}
 	_, err := s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
 		ID:           a.ID,
 		Name:         a.Name,
@@ -125,6 +129,7 @@ func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
 		ModelFast:    a.ModelFast,
 		SystemPrompt: a.SystemPrompt,
 		Workspace:    a.Workspace,
+		Scope:        scope,
 		Enabled:      enabled,
 	})
 	if err != nil {
@@ -138,6 +143,10 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a Agent) error {
 	if a.Enabled {
 		enabled = 1
 	}
+	scope := a.Scope
+	if scope == "" {
+		scope = AgentScopeSystem
+	}
 	err := s.q.UpdateAgent(ctx, sqlc.UpdateAgentParams{
 		ID:           a.ID,
 		Name:         a.Name,
@@ -146,6 +155,7 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a Agent) error {
 		ModelFast:    a.ModelFast,
 		SystemPrompt: a.SystemPrompt,
 		Workspace:    a.Workspace,
+		Scope:        scope,
 		Enabled:      enabled,
 	})
 	if err != nil {
@@ -440,6 +450,7 @@ func (s *DBStore) SeedDefaults(ctx context.Context) error {
 			Model:        "anthropic/claude-sonnet-4-6",
 			SystemPrompt: defaultAnnaSoul,
 			Workspace:    workspace,
+			Scope:        AgentScopeSystem,
 			Enabled:      1,
 		})
 		if err != nil {
@@ -483,6 +494,10 @@ func envFallback(dst *string, envKey string) {
 }
 
 func agentFromDB(r sqlc.SettingsAgent) Agent {
+	scope := r.Scope
+	if scope == "" {
+		scope = AgentScopeSystem
+	}
 	return Agent{
 		ID:           r.ID,
 		Name:         r.Name,
@@ -491,6 +506,7 @@ func agentFromDB(r sqlc.SettingsAgent) Agent {
 		ModelFast:    r.ModelFast,
 		SystemPrompt: r.SystemPrompt,
 		Workspace:    r.Workspace,
+		Scope:        scope,
 		Enabled:      r.Enabled == 1,
 	}
 }
