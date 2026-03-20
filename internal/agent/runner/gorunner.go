@@ -30,6 +30,7 @@ type GoRunnerConfig struct {
 	System      string                  // optional system prompt override (bypasses default prompt building)
 	ExtraTools  []tool.Tool             // additional tools to register
 	PluginHooks engine.PluginHookRunner // optional plugin lifecycle hooks
+	UserDataDir string                  // per-user data directory for sandbox enforcement (empty = no sandbox)
 }
 
 // GoRunner implements Runner by calling LLM providers directly via Engine.
@@ -76,7 +77,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	eng := &engine.Engine{Providers: reg}
 	model := ai.Model{API: cfg.API, Name: cfg.Model}
 
-	tools := tool.NewRegistry(cfg.WorkDir)
+	tools := tool.NewRegistry(cfg.WorkDir, cfg.UserDataDir)
 	for _, t := range cfg.ExtraTools {
 		tools.Register(t)
 	}

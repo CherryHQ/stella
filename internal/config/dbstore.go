@@ -367,6 +367,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	defaultCreds := providers[defaultProvID]
 
 	snap := &Snapshot{
+		AgentID:      agentID,
 		Provider:     defaultProvID,
 		Model:        ag.Model,
 		ModelStrong:  ag.ModelStrong,

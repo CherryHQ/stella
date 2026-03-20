@@ -147,9 +147,9 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 	var extraTools []agenttool.Tool
 	extraTools = append(extraTools, pm.sharedExtraTools...)
 
-	// Per-agent skills tool.
+	// Per-agent skills tool (userID=0 for agent-level, replaced per-session when user is known).
 	cwd, _ := os.Getwd()
-	extraTools = append(extraTools, skills.NewTool(config.AnnaHome(), workspace, cwd))
+	extraTools = append(extraTools, skills.NewTool(config.AnnaHome(), workspace, cwd, 0))
 
 	// Extra tools from factory (caller-provided, e.g. agent-specific tools).
 	if pm.extraToolsFactory != nil {
