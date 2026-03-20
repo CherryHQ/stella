@@ -66,7 +66,7 @@ templ UsersPage() {
 		</div>
 		<!-- User Detail Panel -->
 		<div x-show="selectedUser" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40">
-			<div class="card bg-base-100 shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" @click.away="selectedUser = null">
+			<div class="card bg-base-100 shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" @click.away="if (!confirmMsg) selectedUser = null">
 				<div class="card-body">
 					<div class="flex items-center justify-between mb-4">
 						<h3 class="font-semibold text-lg" x-text="selectedUser?.username"></h3>
