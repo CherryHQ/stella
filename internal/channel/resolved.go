@@ -25,17 +25,23 @@ type ResolvedChat struct {
 	Roles      []string
 }
 
-// UserID is a convenience accessor for rc.User.ID.
-func (rc *ResolvedChat) UserID() int64 { return rc.User.ID }
+// UserID returns the effective user ID for session/memory scoping.
+// Prefers AuthUserID (auth system) over User.ID (legacy settings_users).
+func (rc *ResolvedChat) UserID() int64 {
+	if rc.AuthUserID > 0 {
+		return rc.AuthUserID
+	}
+	return rc.User.ID
+}
 
 // ResolveSession returns the active session for this chat, creating one if needed.
 func (rc *ResolvedChat) ResolveSession() (agent.SessionInfo, error) {
-	return rc.Pool.ResolveSession(rc.SessionKey, rc.User.ID)
+	return rc.Pool.ResolveSession(rc.SessionKey, rc.UserID())
 }
 
 // RotateSession archives the current session and creates a new one.
 func (rc *ResolvedChat) RotateSession() (agent.SessionInfo, error) {
-	return rc.Pool.RotateSession(rc.SessionKey, rc.User.ID)
+	return rc.Pool.RotateSession(rc.SessionKey, rc.UserID())
 }
 
 // CompactSession compacts the active session for this chat.
