@@ -23,16 +23,16 @@ type Role struct {
 
 // Policy represents an ABAC policy with JSON conditions.
 type Policy struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Effect     string `json:"effect"`
-	Subjects   string `json:"subjects"`
-	Actions    string `json:"actions"`
-	Resources  string `json:"resources"`
-	Conditions string `json:"conditions"`
-	Priority   int    `json:"priority"`
-	IsSystem   bool   `json:"is_system"`
-	Enabled    bool   `json:"enabled"`
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Effect     string    `json:"effect"`
+	Subjects   string    `json:"subjects"`
+	Actions    string    `json:"actions"`
+	Resources  string    `json:"resources"`
+	Conditions string    `json:"conditions"`
+	Priority   int       `json:"priority"`
+	IsSystem   bool      `json:"is_system"`
+	Enabled    bool      `json:"enabled"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
@@ -44,9 +44,9 @@ const (
 
 // AccessRequest represents a request to check authorization.
 type AccessRequest struct {
-	Subject  Subject  `json:"subject"`
-	Action   Action   `json:"action"`
-	Resource Resource `json:"resource"`
+	Subject  Subject        `json:"subject"`
+	Action   Action         `json:"action"`
+	Resource Resource       `json:"resource"`
 	Context  map[string]any `json:"context,omitempty"`
 }
 
