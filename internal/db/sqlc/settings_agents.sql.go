@@ -10,8 +10,8 @@ import (
 )
 
 const createAgent = `-- name: CreateAgent :one
-INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, workspace, enabled)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, enabled)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, name, model, model_strong, model_fast, system_prompt, workspace, scope, enabled, created_at, updated_at
 `
 
@@ -23,6 +23,7 @@ type CreateAgentParams struct {
 	ModelFast    string `json:"model_fast"`
 	SystemPrompt string `json:"system_prompt"`
 	Workspace    string `json:"workspace"`
+	Scope        string `json:"scope"`
 	Enabled      int64  `json:"enabled"`
 }
 
@@ -35,6 +36,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Setti
 		arg.ModelFast,
 		arg.SystemPrompt,
 		arg.Workspace,
+		arg.Scope,
 		arg.Enabled,
 	)
 	var i SettingsAgent
@@ -172,6 +174,7 @@ UPDATE settings_agents SET
     model_fast = ?,
     system_prompt = ?,
     workspace = ?,
+    scope = ?,
     enabled = ?,
     updated_at = datetime('now')
 WHERE id = ?
@@ -184,6 +187,7 @@ type UpdateAgentParams struct {
 	ModelFast    string `json:"model_fast"`
 	SystemPrompt string `json:"system_prompt"`
 	Workspace    string `json:"workspace"`
+	Scope        string `json:"scope"`
 	Enabled      int64  `json:"enabled"`
 	ID           string `json:"id"`
 }
@@ -196,6 +200,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error 
 		arg.ModelFast,
 		arg.SystemPrompt,
 		arg.Workspace,
+		arg.Scope,
 		arg.Enabled,
 		arg.ID,
 	)

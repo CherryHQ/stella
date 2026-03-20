@@ -10,6 +10,12 @@ type Provider struct {
 	BaseURL string `json:"base_url"`
 }
 
+// AgentScope constants define the access scope for an agent.
+const (
+	AgentScopeSystem     = "system"     // all users can access
+	AgentScopeRestricted = "restricted" // only assigned users can access
+)
+
 // Agent represents an agent definition.
 // Model fields use {provider}/{model} format (e.g. "anthropic/claude-sonnet-4-6").
 type Agent struct {
@@ -20,6 +26,7 @@ type Agent struct {
 	ModelFast    string `json:"model_fast"`
 	SystemPrompt string `json:"system_prompt"`
 	Workspace    string `json:"workspace"`
+	Scope        string `json:"scope"`
 	Enabled      bool   `json:"enabled"`
 }
 
