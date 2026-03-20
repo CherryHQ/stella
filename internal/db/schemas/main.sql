@@ -13,3 +13,10 @@
 -- atlas:import tables/ctx_summary_parents.sql
 -- atlas:import tables/ctx_items.sql
 -- atlas:import tables/sched_jobs.sql
+-- atlas:import tables/auth_users.sql
+-- atlas:import tables/auth_roles.sql
+-- atlas:import tables/auth_user_roles.sql
+-- atlas:import tables/auth_identities.sql
+-- atlas:import tables/auth_policies.sql
+-- atlas:import tables/auth_user_agents.sql
+-- atlas:import tables/auth_sessions.sql
