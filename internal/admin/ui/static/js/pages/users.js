@@ -7,8 +7,18 @@ import { api } from '/static/js/api.js'
  */
 export function register(Alpine) {
   Alpine.data('usersPage', () => ({
-    users: [],
+    tab: 'auth',
+    currentUserId: 0,
+
+    // Auth users state.
+    authUsers: [],
+    selectedUser: null,
+    userAgentIds: [],
     agents: [],
+    addAgentId: '',
+
+    // Legacy memory tab state.
+    legacyUsers: [],
     userMemories: {},
 
     confirmMsg: '',
@@ -16,15 +26,132 @@ export function register(Alpine) {
 
     async init() {
       await Promise.all([
-        this.loadUsers(),
+        this.loadCurrentUser(),
+        this.loadAuthUsers(),
         this.loadAgents(),
       ])
+      this.$watch('tab', (val) => {
+        if (val === 'memory') this.loadLegacyUsers()
+      })
     },
 
-    async loadUsers() {
+    async loadCurrentUser() {
+      try {
+        const me = await api('GET', '/api/auth/me')
+        this.currentUserId = me.id || 0
+      } catch (_) {
+        // ignore
+      }
+    },
+
+    // --- Auth Users Tab ---
+
+    async loadAuthUsers() {
+      try {
+        this.authUsers = await api('GET', '/api/auth/users') || []
+      } catch (e) {
+        console.error(e)
+      }
+    },
+
+    async selectUser(u) {
+      // Reload fresh data for the user.
+      try {
+        this.selectedUser = await api('GET', '/api/auth/users/' + u.id)
+        await this.loadUserAgents(u.id)
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    async loadUserAgents(userId) {
+      try {
+        this.userAgentIds = await api('GET', '/api/auth/users/' + userId + '/agents') || []
+        this.addAgentId = ''
+      } catch (e) {
+        this.userAgentIds = []
+      }
+    },
+
+    get availableAgents() {
+      const assigned = new Set(this.userAgentIds)
+      return this.agents.filter(a => !assigned.has(a.id))
+    },
+
+    async toggleAdminRole(action) {
+      if (!this.selectedUser) return
+      try {
+        await api('PUT', '/api/auth/users/' + this.selectedUser.id + '/roles', {
+          role: 'admin',
+          action: action,
+        })
+        // Refresh.
+        this.selectedUser = await api('GET', '/api/auth/users/' + this.selectedUser.id)
+        await this.loadAuthUsers()
+        this.$store.toast.show(action === 'assign' ? 'Admin role assigned' : 'Admin role removed')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    async toggleActive() {
+      if (!this.selectedUser) return
+      const newActive = !this.selectedUser.is_active
+      try {
+        await api('PUT', '/api/auth/users/' + this.selectedUser.id + '/active', {
+          is_active: newActive,
+        })
+        this.selectedUser = await api('GET', '/api/auth/users/' + this.selectedUser.id)
+        await this.loadAuthUsers()
+        this.$store.toast.show(newActive ? 'User activated' : 'User deactivated')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    async addAgentToUser() {
+      if (!this.selectedUser || !this.addAgentId) return
+      const newIds = [...this.userAgentIds, this.addAgentId]
+      try {
+        await api('PUT', '/api/auth/users/' + this.selectedUser.id + '/agents', {
+          agent_ids: newIds,
+        })
+        await this.loadUserAgents(this.selectedUser.id)
+        this.$store.toast.show('Agent assigned')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    async removeAgentFromUser(agentId) {
+      if (!this.selectedUser) return
+      const newIds = this.userAgentIds.filter(id => id !== agentId)
+      try {
+        await api('PUT', '/api/auth/users/' + this.selectedUser.id + '/agents', {
+          agent_ids: newIds,
+        })
+        await this.loadUserAgents(this.selectedUser.id)
+        this.$store.toast.show('Agent removed')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    // --- Legacy Memory Tab ---
+
+    async loadAgents() {
+      try {
+        this.agents = await api('GET', '/api/agents') || []
+      } catch (e) {
+        console.error(e)
+      }
+    },
+
+    async loadLegacyUsers() {
+      if (this.legacyUsers.length > 0) return // already loaded
       try {
         const list = await api('GET', '/api/users') || []
-        this.users = list.map(u => ({
+        this.legacyUsers = list.map(u => ({
           ...u,
           _defaultAgent: u.default_agent_id || '',
           _showMemory: false,
@@ -33,14 +160,6 @@ export function register(Alpine) {
           _newMemoryAgent: '',
           _newMemoryContent: '',
         }))
-      } catch (e) {
-        console.error(e)
-      }
-    },
-
-    async loadAgents() {
-      try {
-        this.agents = await api('GET', '/api/agents') || []
       } catch (e) {
         console.error(e)
       }
@@ -74,7 +193,7 @@ export function register(Alpine) {
     async saveUserMemory(userId, agentId, content) {
       try {
         await api('PUT', '/api/users/' + userId + '/memories/' + agentId, { content })
-        const u = this.users.find(u => u.id === userId)
+        const u = this.legacyUsers.find(u => u.id === userId)
         if (u) await this.loadUserMemories(u)
         this.$store.toast.show('Saved')
       } catch (e) {
@@ -85,7 +204,7 @@ export function register(Alpine) {
     async doDeleteUserMemory(userId, agentId) {
       try {
         await api('DELETE', '/api/users/' + userId + '/memories/' + agentId)
-        const u = this.users.find(u => u.id === userId)
+        const u = this.legacyUsers.find(u => u.id === userId)
         if (u) await this.loadUserMemories(u)
         this.$store.toast.show('Deleted')
       } catch (e) {
