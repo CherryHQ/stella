@@ -8,6 +8,63 @@ import (
 	"database/sql"
 )
 
+type AuthIdentity struct {
+	ID         int64  `json:"id"`
+	UserID     int64  `json:"user_id"`
+	Platform   string `json:"platform"`
+	ExternalID string `json:"external_id"`
+	Name       string `json:"name"`
+	LinkedAt   string `json:"linked_at"`
+}
+
+type AuthPolicy struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Effect     string `json:"effect"`
+	Subjects   string `json:"subjects"`
+	Actions    string `json:"actions"`
+	Resources  string `json:"resources"`
+	Conditions string `json:"conditions"`
+	Priority   int64  `json:"priority"`
+	IsSystem   int64  `json:"is_system"`
+	Enabled    int64  `json:"enabled"`
+	CreatedAt  string `json:"created_at"`
+}
+
+type AuthRole struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	IsSystem    int64  `json:"is_system"`
+	CreatedAt   string `json:"created_at"`
+}
+
+type AuthSession struct {
+	ID        string `json:"id"`
+	UserID    int64  `json:"user_id"`
+	ExpiresAt string `json:"expires_at"`
+	CreatedAt string `json:"created_at"`
+}
+
+type AuthUser struct {
+	ID           int64  `json:"id"`
+	Username     string `json:"username"`
+	PasswordHash string `json:"password_hash"`
+	IsActive     int64  `json:"is_active"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+type AuthUserAgent struct {
+	UserID  int64  `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+type AuthUserRole struct {
+	UserID int64  `json:"user_id"`
+	RoleID string `json:"role_id"`
+}
+
 type CtxAgentMemory struct {
 	UserID    int64  `json:"user_id"`
 	AgentID   string `json:"agent_id"`
@@ -117,6 +174,7 @@ type SettingsAgent struct {
 	ModelFast    string `json:"model_fast"`
 	SystemPrompt string `json:"system_prompt"`
 	Workspace    string `json:"workspace"`
+	Scope        string `json:"scope"`
 	Enabled      int64  `json:"enabled"`
 	CreatedAt    string `json:"created_at"`
 	UpdatedAt    string `json:"updated_at"`
