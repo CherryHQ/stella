@@ -232,6 +232,43 @@ func (s *Server) updateAuthUserAgents(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
+// deleteAuthUserIdentity handles DELETE /api/auth/users/{id}/identities/{identityId}.
+func (s *Server) deleteAuthUserIdentity(w http.ResponseWriter, r *http.Request) {
+	identityID, err := strconv.ParseInt(r.PathValue("identityId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid identity id")
+		return
+	}
+
+	ctx := r.Context()
+
+	// Verify the identity exists.
+	identity, err := s.authStore.GetIdentity(ctx, identityID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "identity not found")
+		return
+	}
+
+	// Verify it belongs to the specified user.
+	userID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	if identity.UserID != userID {
+		writeError(w, http.StatusBadRequest, "identity does not belong to this user")
+		return
+	}
+
+	if err := s.authStore.DeleteIdentity(ctx, identityID); err != nil {
+		s.log.Error("admin delete identity", "id", identityID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete identity")
+		return
+	}
+
+	writeData(w, http.StatusOK, map[string]string{"status": "unlinked"})
+}
+
 // updateAuthUserActive handles PUT /api/auth/users/{id}/active.
 func (s *Server) updateAuthUserActive(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
