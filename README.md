@@ -151,7 +151,7 @@ Or grab a binary from [Releases](https://github.com/vaayne/anna/releases), or se
 ### Set up
 
 ```bash
-anna onboard
+anna --open
 ```
 
 This opens a web admin panel in your browser where you can configure everything: providers, API keys, agents, channels (Telegram, QQ, Feishu), users, scheduled jobs, and settings. All configuration is stored in `~/.anna/anna.db`. There are no YAML config files.
@@ -161,21 +161,21 @@ This opens a web admin panel in your browser where you can configure everything:
 ```bash
 anna chat                   # Terminal chat (default agent)
 anna chat --agent helper    # Terminal chat with a specific agent
-anna gateway                # Start daemon (bots + scheduler)
-anna gateway --admin-port 8080  # Start daemon with admin panel
+anna                        # Start daemon (bots + scheduler)
+anna --admin-port 8080      # Start daemon with admin panel
 ```
 
-`anna chat` gives you a terminal conversation. `anna gateway` starts all your configured channels and the scheduler. Add `--admin-port` to expose the admin panel alongside the gateway for runtime configuration.
+`anna chat` gives you a terminal conversation. `anna` (bare command) starts all your configured channels and the scheduler. Add `--admin-port` to expose the admin panel alongside the daemon for runtime configuration.
 
 ## CLI reference
 
 ```bash
-anna onboard               # Open web admin panel to configure anna
+anna --open                # Open web admin panel to configure anna
 anna chat                  # Interactive terminal chat
 anna chat --agent <name>   # Chat with a specific agent
 anna chat --stream         # Pipe stdin, stream to stdout
-anna gateway               # Start daemon (bots + scheduler)
-anna gateway --admin-port <port>  # Start daemon with admin panel
+anna                       # Start daemon (bots + scheduler)
+anna --admin-port <port>   # Start daemon with admin panel
 anna models list           # List available models
 anna models set <p/m>      # Switch model (e.g. openai/gpt-4o)
 anna models search <q>     # Search models

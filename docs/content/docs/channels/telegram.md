@@ -7,12 +7,12 @@ anna includes a Telegram bot that runs via long polling -- no webhook or public 
 ## Setup
 
 1. Create a bot via [@BotFather](https://t.me/BotFather) and note the bot token
-2. Run `anna onboard` to launch the admin panel
+2. Run `anna --open` to launch the admin panel
 3. In the admin panel: add an AI provider, then configure the Telegram channel with your bot token
-4. Start the gateway:
+4. Start the daemon:
 
 ```bash
-anna gateway
+anna
 ```
 
 All channel configuration (token, group mode, allowed IDs, etc.) is managed through the admin panel. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `ANNA_HOME`.
@@ -87,7 +87,7 @@ The bot doubles as a notification backend. Configure a default notification chat
 
 Used by:
 
-- The `notify` agent tool (in gateway mode)
+- The `notify` agent tool (in server mode)
 - Scheduler job result broadcasting
 
 See [notification-system.md](/docs/features/notification-system) for the full notification architecture.
@@ -112,7 +112,7 @@ Users can switch models mid-conversation via an inline keyboard triggered by the
 
 ## Configuration Reference
 
-All settings below are managed through the `anna onboard` admin panel.
+All settings below are managed through the admin panel (`anna --open`).
 
 | Field         | Description                                     | Default    |
 | ------------- | ----------------------------------------------- | ---------- |

@@ -29,24 +29,24 @@ cd anna && go build -o anna .
 
 ### Running
 
-Run the onboard command to open the admin panel and configure anna (providers, channels, agents, etc.):
+Run the setup command to open the admin panel and configure anna (providers, channels, agents, etc.):
 
 ```bash
-anna onboard
+anna --open
 ```
 
 This starts a local web UI where you set up API keys, channels, and agent profiles. All configuration is stored in `~/.anna/anna.db` -- no manual config files needed.
 
-Start the gateway daemon:
+Start the daemon:
 
 ```bash
-anna gateway
+anna
 ```
 
-To serve the admin panel alongside the gateway (for runtime config changes):
+To serve the admin panel alongside the daemon (for runtime config changes):
 
 ```bash
-anna gateway --admin-port 8080
+anna --admin-port 8080
 ```
 
 Or use the interactive CLI:
@@ -70,14 +70,14 @@ anna upgrade --install-dir "$HOME/.local/bin"
 ```ini
 # /etc/systemd/system/anna.service
 [Unit]
-Description=anna gateway
+Description=anna server
 After=network.target
 
 [Service]
 Type=simple
 User=anna
 WorkingDirectory=/home/anna
-ExecStart=/usr/local/bin/anna gateway --admin-port 8080
+ExecStart=/usr/local/bin/anna --admin-port 8080
 Restart=on-failure
 RestartSec=5
 
@@ -93,7 +93,7 @@ WantedBy=multi-user.target
 sudo systemctl enable --now anna
 ```
 
-All configuration (channels, agents, scheduler jobs) is stored in `anna.db`. Use `anna onboard` or the admin panel to manage it.
+All configuration (channels, agents, scheduler jobs) is stored in `anna.db`. Use `anna --open` or the admin panel to manage it.
 
 ## Docker
 
@@ -109,17 +109,17 @@ Images are published to `ghcr.io/vaayne/anna` for `linux/amd64` and `linux/arm64
 
 ### Quick Start
 
-First, run onboard to configure anna:
+First, run setup to configure anna:
 
 ```bash
 docker run -it --rm \
   -v ~/.anna:/home/nonroot/.anna \
   -p 8080:8080 \
   ghcr.io/vaayne/anna:latest \
-  anna onboard
+  anna --open
 ```
 
-Then start the gateway:
+Then start the daemon:
 
 ```bash
 docker run -d \
@@ -150,7 +150,7 @@ services:
 docker compose up -d
 ```
 
-To run initial setup, use `docker compose exec anna anna onboard` or start the gateway with `--admin-port 8080` and configure via the web UI.
+To run initial setup, use `docker compose exec anna anna --open` or start the daemon with `--admin-port 8080` and configure via the web UI.
 
 ### Build Locally
 
@@ -177,7 +177,7 @@ The `anna.db` file is the only critical data to back up. It contains all configu
 
 ## Environment Variables
 
-Configuration is managed through the admin panel (via `anna onboard` or `--admin-port`). Only a small set of environment variables is supported:
+Configuration is managed through the admin panel (via `anna --open` or `--admin-port`). Only a small set of environment variables is supported:
 
 | Variable            | Required | Description                             |
 | ------------------- | -------- | --------------------------------------- |
@@ -189,11 +189,11 @@ Configuration is managed through the admin panel (via `anna onboard` or `--admin
 
 ## Health Check
 
-The gateway logs to stdout. Verify it is running:
+The daemon logs to stdout. Verify it is running:
 
 ```bash
 # Binary
-anna gateway  # Logs appear in terminal
+anna  # Logs appear in terminal
 
 # Docker
 docker logs anna

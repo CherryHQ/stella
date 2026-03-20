@@ -12,11 +12,11 @@ Each agent in anna has three model fields, stored in the database (`settings_age
 | `model_strong` | Heavy reasoning, complex tasks  |
 | `model_fast`   | Quick responses, simple queries |
 
-Both `model_strong` and `model_fast` fall back to `model` when not set. Configure these per-agent through the admin panel (`anna onboard`).
+Both `model_strong` and `model_fast` fall back to `model` when not set. Configure these per-agent through the admin panel (`anna --open`).
 
 ## Provider Setup
 
-Providers are configured through the admin panel (`anna onboard`). Each provider is stored in the `settings_providers` table with an optional API key and base URL.
+Providers are configured through the admin panel (`anna --open`). Each provider is stored in the `settings_providers` table with an optional API key and base URL.
 
 Environment variables serve as fallbacks when a provider's `api_key` field is empty in the database:
 

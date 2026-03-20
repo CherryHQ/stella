@@ -119,7 +119,7 @@ Defined via CSS custom properties `[data-theme="terra"]` in `layout.templ`. Colo
 ```bash
 mise run templ:watch        # Watch templ files, auto-regenerate + proxy
 mise run build              # Build binary (runs generate first)
-mise run onboard            # Start admin panel at localhost:8080
+anna --open                 # Start admin panel at localhost:8080
 ```
 
 ### Rules

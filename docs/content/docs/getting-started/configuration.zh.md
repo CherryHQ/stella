@@ -2,7 +2,7 @@
 title: 配置
 ---
 
-所有配置都存储在一个单独的 SQLite 数据库中，位于 `~/.anna/anna.db`。没有 YAML 配置文件。要设置或修改配置，请运行 `anna onboard` 打开 Web 管理面板。
+所有配置都存储在一个单独的 SQLite 数据库中，位于 `~/.anna/anna.db`。没有 YAML 配置文件。要设置或修改配置，请运行 `anna --open` 打开 Web 管理面板。
 
 主目录默认为 `~/.anna`，可以通过设置 `ANNA_HOME` 环境变量来更改。
 
@@ -166,7 +166,7 @@ title: 配置
 | `ANTHROPIC_API_KEY` | Anthropic 提供商的备用 API 密钥 |
 | `OPENAI_API_KEY`    | OpenAI 提供商的备用 API 密钥    |
 
-所有其他配置必须通过管理面板（`anna onboard`）或直接在数据库中设置。
+所有其他配置必须通过管理面板（`anna --open`）或直接在数据库中设置。
 
 ## 记忆默认设置
 
@@ -180,7 +180,7 @@ title: 配置
 
 ## 心跳
 
-心跳仅在 `anna gateway` 中运行。配置存储在 `settings` 表中，键为 `heartbeat`。每次心跳首先使用快速模型决定 `skip` 还是 `run`，只有 `run` 决策会被发送到主心跳会话，然后通过通知器发送。指令从 agent 的 `HEARTBEAT.md` 文件中读取。
+心跳仅在 `anna` 守护进程中运行。配置存储在 `settings` 表中，键为 `heartbeat`。每次心跳首先使用快速模型决定 `skip` 还是 `run`，只有 `run` 决策会被发送到主心跳会话，然后通过通知器发送。指令从 agent 的 `HEARTBEAT.md` 文件中读取。
 
 ## 插件
 

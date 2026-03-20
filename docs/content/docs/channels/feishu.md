@@ -10,12 +10,12 @@ anna includes a Feishu (Lark) bot that connects via WebSocket (persistent connec
 2. Enable the **Bot** capability in your app settings
 3. Under **Event Subscriptions**, add `im.message.receive_v1` event
 4. Get your App ID, App Secret, Encrypt Key, and Verification Token from the app settings
-5. Run `anna onboard` to launch the admin panel
+5. Run `anna --open` to launch the admin panel
 6. In the admin panel: add an AI provider, then configure the Feishu channel with your app credentials
-7. Start the gateway:
+7. Start the daemon:
 
 ```bash
-anna gateway
+anna
 ```
 
 All channel configuration (credentials, group mode, allowed IDs, etc.) is managed through the admin panel. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `ANNA_HOME`.
@@ -82,7 +82,7 @@ Send these commands as text messages to the bot:
 
 ## Configuration Reference
 
-All settings below are managed through the `anna onboard` admin panel.
+All settings below are managed through the admin panel (`anna --open`).
 
 | Field                | Description                                        | Default    |
 | -------------------- | -------------------------------------------------- | ---------- |

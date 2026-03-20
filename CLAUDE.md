@@ -1,6 +1,6 @@
 ## Overview
 
-anna is a self-hosted AI assistant with lossless context management (LCM). Native Go runner calling LLM providers. Two interfaces: CLI chat (Bubble Tea TUI) and gateway daemon (Telegram, QQ, Feishu bots). Built-in scheduler, heartbeat monitoring, and multi-channel notifications.
+anna is a self-hosted AI assistant with lossless context management (LCM). Native Go runner calling LLM providers. Two interfaces: CLI chat (Bubble Tea TUI) and server daemon (admin panel + Telegram, QQ, Feishu bots). Built-in scheduler, heartbeat monitoring, and multi-channel notifications.
 
 ## Packages
 
@@ -12,7 +12,7 @@ Side packages: `internal/channel/` (cli, telegram, qq, feishu, notifier) → `in
 
 Admin UI: `internal/admin/` — templ + Alpine.js + daisyUI. See `internal/admin/CLAUDE.md` for details.
 
-Config: `~/.anna/config.yaml` | Data: `~/.anna/workspace/` (memory.db, skills, identity files)
+Config + Data: `~/.anna/` (anna.db, workspace/, cache/)
 
 ## Tasks
 
@@ -23,9 +23,9 @@ mise run lint               # golangci-lint
 mise run format             # gofmt + go mod tidy
 mise run generate           # templ generate + sqlc codegen
 mise run templ:watch        # watch templ files + live reload proxy
-mise run atlas:diff -- NAME # generate migration from schema changes
-mise run atlas:hash         # recalculate migration checksum
-mise run atlas:validate     # validate migration integrity
+mise run db:diff -- NAME    # generate migration from schema changes
+mise run db:hash            # recalculate migration checksum
+mise run db:validate        # validate migration integrity
 ```
 
 ## Database Migrations
@@ -35,7 +35,7 @@ Schema source of truth: `internal/db/schemas/tables/*.sql`. Migrations are gener
 **Workflow for schema changes:**
 
 1. Edit the schema files in `internal/db/schemas/tables/`
-2. Run `mise run atlas:diff -- <name>` to generate a new migration in `internal/db/migrations/`
+2. Run `mise run db:diff -- <name>` to generate a new migration in `internal/db/migrations/`
 3. Run `mise run generate` to regenerate sqlc
 4. The migration is auto-applied on `db.OpenDB()` at startup
 

@@ -1,6 +1,6 @@
 # Channel setup
 
-All channel configuration is stored in the database and managed via the admin panel (`anna onboard`). A single bot per platform serves all agents.
+All channel configuration is stored in the database and managed via the admin panel (`anna --open`). A single bot per platform serves all agents.
 
 ## Agent routing
 
@@ -19,7 +19,7 @@ Commands available in all channels:
 
 1. Create a bot via @BotFather on Telegram
 2. Copy the token
-3. Run `anna onboard` and add it in the Channels tab
+3. Run `anna --open` and add it in the Channels tab
 
 Telegram channel config (JSON):
 ```json
@@ -35,7 +35,7 @@ Telegram channel config (JSON):
 
 Or set `ANNA_TELEGRAM_TOKEN` env var for the token only.
 
-4. Start: `anna gateway`
+4. Start: `anna`
 
 ### Features
 
@@ -63,7 +63,7 @@ Set `enable_notify: true` and `notify_chat` to a chat ID for proactive messages 
 
 1. Register at https://q.qq.com/
 2. Get AppID and AppSecret
-3. Run `anna onboard` and add it in the Channels tab
+3. Run `anna --open` and add it in the Channels tab
 
 QQ channel config (JSON):
 ```json
@@ -76,7 +76,7 @@ QQ channel config (JSON):
 }
 ```
 
-4. Start: `anna gateway`
+4. Start: `anna`
 
 Connects via WebSocket (no public URL needed). QQ currently uses the default agent only.
 
@@ -92,7 +92,7 @@ Connects via WebSocket (no public URL needed). QQ currently uses the default age
 1. Create an app at the Feishu Developer Console
 2. Get AppID and AppSecret
 3. Enable the Bot capability and subscribe to message events
-4. Run `anna onboard` and add it in the Channels tab
+4. Run `anna --open` and add it in the Channels tab
 
 Feishu channel config (JSON):
 ```json
@@ -108,7 +108,7 @@ Feishu channel config (JSON):
 }
 ```
 
-5. Start: `anna gateway`
+5. Start: `anna`
 
 Connects via WebSocket (no public URL or webhook needed). Feishu currently uses the default agent only.
 

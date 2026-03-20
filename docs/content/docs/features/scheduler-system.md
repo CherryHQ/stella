@@ -105,7 +105,7 @@ Each scheduled job's session behavior is controlled by its `session_mode`:
 
 Scheduler configuration is managed through the admin panel. Settings are stored in the `settings` table in the database. Enable or disable the scheduler and configure its behavior from the admin panel UI.
 
-Scheduler is only active when:
+Scheduler is only active in server mode (`anna`) when:
 
 - The scheduler is enabled in the admin panel settings
 - `runner.type` is `go` (the Pi runner does not support custom tools)
@@ -190,7 +190,7 @@ Heartbeat settings are configured through the admin panel. The following paramet
 - **every** -- poll interval as a Go duration (e.g. `10m`)
 - **file** -- path to the heartbeat file, relative to workspace unless absolute (e.g. `HEARTBEAT.md`)
 
-Heartbeat only runs in `anna gateway` mode. The fast model is used for the gate decision to minimize cost.
+Heartbeat only runs in server mode (`anna`). The fast model is used for the gate decision to minimize cost.
 
 ## Wiring
 
