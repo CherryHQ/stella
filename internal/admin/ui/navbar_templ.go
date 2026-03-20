@@ -214,20 +214,20 @@ func Navbar(activePage string, username string, isAdmin bool) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if username != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<span class=\"text-xs font-mono text-secondary\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<a href=\"/profile\" class=\"text-xs font-mono text-secondary hover:text-primary transition-colors\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(username)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/navbar.templ`, Line: 78, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/navbar.templ`, Line: 78, Col: 112}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "</span><form method=\"POST\" action=\"/api/auth/logout\" class=\"inline\"><button type=\"submit\" class=\"btn btn-ghost btn-xs text-secondary hover:text-error\" onclick=\"event.preventDefault(); fetch('/api/auth/logout', {method:'POST',credentials:'same-origin'}).then(()=>window.location.href='/login')\">logout</button></form>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "</a><form method=\"POST\" action=\"/api/auth/logout\" class=\"inline\"><button type=\"submit\" class=\"btn btn-ghost btn-xs text-secondary hover:text-error\" onclick=\"event.preventDefault(); fetch('/api/auth/logout', {method:'POST',credentials:'same-origin'}).then(()=>window.location.href='/login')\">logout</button></form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
