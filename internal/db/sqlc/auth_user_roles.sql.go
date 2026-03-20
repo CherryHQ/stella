@@ -26,7 +26,7 @@ func (q *Queries) AssignUserRole(ctx context.Context, arg AssignUserRoleParams) 
 }
 
 const listRoleUsers = `-- name: ListRoleUsers :many
-SELECT u.id, u.username, u.password_hash, u.is_active, u.created_at, u.updated_at FROM auth_users u
+SELECT u.id, u.username, u.password_hash, u.is_active, u.default_agent_id, u.created_at, u.updated_at FROM auth_users u
 JOIN auth_user_roles ur ON ur.user_id = u.id
 WHERE ur.role_id = ?
 ORDER BY u.username
@@ -46,6 +46,7 @@ func (q *Queries) ListRoleUsers(ctx context.Context, roleID string) ([]AuthUser,
 			&i.Username,
 			&i.PasswordHash,
 			&i.IsActive,
+			&i.DefaultAgentID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

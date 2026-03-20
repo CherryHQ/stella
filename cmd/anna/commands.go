@@ -198,11 +198,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		})
 	}
 
-	// Resolve a CLI user for local chat sessions.
+	// CLI sessions don't use auth — userID stays 0.
 	var cliUserID int64
-	if cliUser, err := channel.ResolveUser(ctx, store, "cli", "cli", "CLI User"); err == nil {
-		cliUserID = cliUser.ID
-	}
 
 	return &setupResult{
 		ctx:          ctx,

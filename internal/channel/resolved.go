@@ -16,32 +16,24 @@ import (
 // through all handler and command paths.
 type ResolvedChat struct {
 	Pool       *agent.Pool
-	User       config.User
+	User       auth.AuthUser
 	AgentID    string
 	SessionKey string
 	ChatCtx    ChatContext
-	// Auth fields (populated when auth is enabled).
-	AuthUserID int64
 	Roles      []string
 }
 
-// UserID returns the effective user ID for session/memory scoping.
-// Prefers AuthUserID (auth system) over User.ID (legacy settings_users).
-func (rc *ResolvedChat) UserID() int64 {
-	if rc.AuthUserID > 0 {
-		return rc.AuthUserID
-	}
-	return rc.User.ID
-}
+// UserID returns the user's ID (0 for unlinked users).
+func (rc *ResolvedChat) UserID() int64 { return rc.User.ID }
 
 // ResolveSession returns the active session for this chat, creating one if needed.
 func (rc *ResolvedChat) ResolveSession() (agent.SessionInfo, error) {
-	return rc.Pool.ResolveSession(rc.SessionKey, rc.UserID())
+	return rc.Pool.ResolveSession(rc.SessionKey, rc.User.ID)
 }
 
 // RotateSession archives the current session and creates a new one.
 func (rc *ResolvedChat) RotateSession() (agent.SessionInfo, error) {
-	return rc.Pool.RotateSession(rc.SessionKey, rc.UserID())
+	return rc.Pool.RotateSession(rc.SessionKey, rc.User.ID)
 }
 
 // CompactSession compacts the active session for this chat.
@@ -60,51 +52,21 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message runner.MessageContent,
 }
 
 // Resolve performs the full user -> agent -> pool -> session key resolution.
-// Call once per incoming message, then pass the result to all handlers.
-func Resolve(ctx context.Context, pm *agent.PoolManager, store config.Store, platform, senderID, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
-	user, err := ResolveUser(ctx, store, senderID, platform, senderName)
+// Uses auth_identities for identity resolution. The policy engine enforces
+// agent access when auth is available.
+func Resolve(ctx context.Context, pm *agent.PoolManager, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, platform, senderID, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
+	resolved, err := ResolveUser(ctx, authStore, platform, senderID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve user: %w", err)
 	}
 
-	return resolveWithUser(ctx, pm, store, user, 0, nil, nil, nil, platform, chatID, isGroup)
-}
-
-// ResolveWithAuth performs auth-aware user -> agent -> pool -> session key resolution.
-// Uses auth_identities for identity resolution with auto-migration fallback.
-// The policy engine enforces agent access: users can only reach agents they
-// are allowed to use (system scope or explicitly assigned).
-func ResolveWithAuth(ctx context.Context, pm *agent.PoolManager, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, platform, senderID, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
-	resolved, err := ResolveUserWithAuth(ctx, store, authStore, senderID, platform, senderName)
-	if err != nil {
-		return nil, fmt.Errorf("resolve user: %w", err)
-	}
-
-	return resolveWithUser(ctx, pm, store, resolved.User, resolved.AuthUserID, resolved.Roles, authStore, engine, platform, chatID, isGroup)
-}
-
-// resolveWithUser performs agent -> pool -> session key resolution given a resolved user.
-func resolveWithUser(ctx context.Context, pm *agent.PoolManager, store config.Store, user config.User, authUserID int64, roles []string, authStore auth.AuthStore, engine *auth.PolicyEngine, platform, chatID string, isGroup bool) (*ResolvedChat, error) {
 	chatCtx := ChatContext{
 		Platform: platform,
 		ChatID:   chatID,
 		IsGroup:  isGroup,
 	}
 
-	var agentID string
-	var err error
-
-	// Use auth-aware agent resolution when auth is available.
-	if authStore != nil && engine != nil && authUserID > 0 {
-		identity := ResolvedIdentity{
-			User:       user,
-			AuthUserID: authUserID,
-			Roles:      roles,
-		}
-		agentID, err = ResolveAgentWithAuth(ctx, store, authStore, engine, user, identity, chatCtx)
-	} else {
-		agentID, err = ResolveAgent(ctx, store, user, chatCtx)
-	}
+	agentID, err := ResolveAgent(ctx, store, authStore, engine, resolved, chatCtx)
 	if err != nil {
 		return nil, fmt.Errorf("resolve agent: %w", err)
 	}
@@ -118,16 +80,14 @@ func resolveWithUser(ctx context.Context, pm *agent.PoolManager, store config.St
 	if isGroup && chatID != "" {
 		channelCtx = "group:" + chatID
 	}
-	senderID := user.ExternalID
 	sessionKey := agent.BuildSessionKey(agentID, platform, senderID, channelCtx)
 
 	return &ResolvedChat{
 		Pool:       pool,
-		User:       user,
+		User:       resolved.User,
 		AgentID:    agentID,
 		SessionKey: sessionKey,
 		ChatCtx:    chatCtx,
-		AuthUserID: authUserID,
-		Roles:      roles,
+		Roles:      resolved.Roles,
 	}, nil
 }

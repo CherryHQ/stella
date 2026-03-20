@@ -80,6 +80,16 @@ func (s *AuthStore) UpdateUser(ctx context.Context, u auth.AuthUser) error {
 	return nil
 }
 
+func (s *AuthStore) UpdateUserDefaultAgent(ctx context.Context, userID int64, agentID string) error {
+	if err := s.q.UpdateAuthUserDefaultAgent(ctx, sqlc.UpdateAuthUserDefaultAgentParams{
+		DefaultAgentID: sql.NullString{String: agentID, Valid: agentID != ""},
+		ID:             userID,
+	}); err != nil {
+		return fmt.Errorf("update default agent for user %d: %w", userID, err)
+	}
+	return nil
+}
+
 func (s *AuthStore) DeleteUser(ctx context.Context, id int64) error {
 	if err := s.q.DeleteAuthUser(ctx, id); err != nil {
 		return fmt.Errorf("delete auth user %d: %w", id, err)
@@ -430,7 +440,7 @@ func parseAuthTime(s string) time.Time {
 }
 
 func userFromDB(r sqlc.AuthUser) auth.AuthUser {
-	return auth.AuthUser{
+	u := auth.AuthUser{
 		ID:           r.ID,
 		Username:     r.Username,
 		PasswordHash: r.PasswordHash,
@@ -438,6 +448,10 @@ func userFromDB(r sqlc.AuthUser) auth.AuthUser {
 		CreatedAt:    parseAuthTime(r.CreatedAt),
 		UpdatedAt:    parseAuthTime(r.UpdatedAt),
 	}
+	if r.DefaultAgentID.Valid {
+		u.DefaultAgentID = r.DefaultAgentID.String
+	}
+	return u
 }
 
 func roleFromDB(r sqlc.AuthRole) auth.Role {

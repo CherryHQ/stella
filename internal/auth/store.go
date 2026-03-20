@@ -14,6 +14,7 @@ type AuthStore interface {
 	GetUserByUsername(ctx context.Context, username string) (AuthUser, error)
 	ListUsers(ctx context.Context) ([]AuthUser, error)
 	UpdateUser(ctx context.Context, u AuthUser) error
+	UpdateUserDefaultAgent(ctx context.Context, userID int64, agentID string) error
 	DeleteUser(ctx context.Context, id int64) error
 	CountUsers(ctx context.Context) (int64, error)
 

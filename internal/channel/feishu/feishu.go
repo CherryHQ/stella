@@ -247,32 +247,17 @@ func (b *Bot) isAllowed(openID string) bool {
 // resolve performs full user/agent/pool/session-key resolution for the
 // given Feishu message context. Call once per incoming message or command.
 func (b *Bot) resolve(openID, chatID, chatType string) (*channel.ResolvedChat, error) {
-	group := chatType == "group"
-
-	if b.authStore != nil {
-		return channel.ResolveWithAuth(
-			context.Background(),
-			b.poolManager,
-			b.store,
-			b.authStore,
-			b.engine,
-			"feishu",
-			openID,
-			"",
-			chatID,
-			group,
-		)
-	}
-
 	return channel.Resolve(
 		context.Background(),
 		b.poolManager,
 		b.store,
+		b.authStore,
+		b.engine,
 		"feishu",
 		openID,
 		"",
 		chatID,
-		group,
+		chatType == "group",
 	)
 }
 

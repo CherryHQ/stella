@@ -265,18 +265,15 @@ func setupUserMemoryContext(t *testing.T) (*MemoryTool, *memory.UserMemoryStore,
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
-	user, err := store.UpsertUser(context.Background(), "tool-test-user", "cli", "TestUser")
-	if err != nil {
-		t.Fatalf("UpsertUser: %v", err)
-	}
+	var userID int64 = 42
 
 	memStore := memory.NewUserMemoryStore(store)
 	mt := NewMemoryTool(nil, memStore)
 
-	ctx := memory.WithUserID(context.Background(), user.ID)
+	ctx := memory.WithUserID(context.Background(), userID)
 	ctx = memory.WithAgentID(ctx, "anna")
 
-	return mt, memStore, user.ID, ctx
+	return mt, memStore, userID, ctx
 }
 
 func TestMemoryTool_UserMemoryUpdate(t *testing.T) {

@@ -5,16 +5,7 @@ import (
 	"strconv"
 )
 
-func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := s.store.ListUsers(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeData(w, http.StatusOK, users)
-}
-
-func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
+func (s *Server) updateUserDefaultAgent(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid user id")
@@ -27,7 +18,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := s.store.UpdateUserDefaultAgent(r.Context(), id, body.DefaultAgentID); err != nil {
+	if err := s.authStore.UpdateUserDefaultAgent(r.Context(), id, body.DefaultAgentID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
