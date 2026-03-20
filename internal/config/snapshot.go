@@ -17,6 +17,8 @@ type ProviderCreds struct {
 // consumption. It replaces the old *Config for code that needs provider/model
 // information for a specific agent.
 type Snapshot struct {
+	AgentID string // the agent ID this snapshot belongs to
+
 	// Provider, APIKey, BaseURL are the default provider credentials derived
 	// from the Model field's provider prefix. Kept for backward compatibility.
 	Provider     string
