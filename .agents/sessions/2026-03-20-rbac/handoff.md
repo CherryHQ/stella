@@ -243,3 +243,67 @@
 - **Auto-migration username format**: `{platform}_{externalID}` (e.g., `telegram_12345`). Auto-migrated users get a random password and the `user` role. They can set a real password via admin UI later.
 - **Backward compatibility preserved**: All existing code paths work without auth. `Resolve()` still works as before. `ResolveWithAuth()` is only called when `authStore` is non-nil.
 - **settings_users still used**: Even in the auth-aware path, `store.UpsertUser()` is called for backward compat (sessions, memories still reference `settings_users.id`). The `config.User` record is still the primary user object in `ResolvedChat`.
+
+## Phase 5: Agent Scoping + Access Enforcement
+
+**Status:** Complete
+**Date:** 2026-03-20
+**Commits:** 4 commits on `main`
+
+### What was done
+
+1. **Scope field on Agent** (`internal/config/store.go`, `internal/config/dbstore.go`):
+   - Added `Scope string` field to `config.Agent` struct
+   - Added `AgentScopeSystem` and `AgentScopeRestricted` constants
+   - Updated `agentFromDB` helper to map the scope column (defaults to `"system"`)
+   - Updated `CreateAgent` and `UpdateAgent` to include scope in DB writes
+   - Updated sqlc queries in `internal/db/queries/settings_agents.sql`
+   - Updated `SeedDefaults` to set scope on the default anna agent
+
+2. **Agent user assignment API** (`internal/admin/agents.go`, `internal/admin/server.go`):
+   - `GET /api/agents/{id}/users` — list users assigned to an agent (admin-only, returns id + username)
+   - `POST /api/agents/{id}/users` — assign user to agent (admin-only, body: `{"user_id": N}`)
+   - `DELETE /api/agents/{id}/users/{userId}` — unassign user from agent (admin-only)
+   - Routes registered in `server.go` behind `adminOnlyMiddleware`
+
+3. **Policy engine integration in admin API** (`internal/admin/agents.go`):
+   - `listAgents`: non-admin users get filtered results — only system-scoped + assigned agents
+   - `getAgent`: non-admin users get 403 for restricted agents they are not assigned to
+   - `filterAccessibleAgents()` and `canAccessAgent()` helpers build `AccessRequest` and call `engine.Can()`
+   - Subject includes `AgentIDs` loaded from `ListUserAgentIDs`, resource includes `scope` attr
+
+4. **Admin UI for agent management** (`internal/admin/ui/pages/agents.templ`, `agents.js`):
+   - Scope dropdown in agent form (system / restricted)
+   - "restricted" badge on agent list items
+   - User assignment modal: shows assigned users, add/remove buttons, user dropdown
+   - "users" button appears on restricted agents (admin only)
+   - Add/edit/delete buttons only visible to admins (`isAdmin` loaded via `/api/auth/me`)
+
+5. **Channel-side agent access enforcement** (`internal/channel/identity.go`, `internal/channel/resolved.go`):
+   - New `ResolveAgentWithAuth()` function checks agent access via policy engine
+   - DM default agent: checks access, returns `ErrAgentAccessDenied` if denied
+   - Group chat agent: checks access, returns `ErrAgentAccessDenied` if denied
+   - Fallback path: iterates enabled agents, returns first one user can access
+   - `resolveWithUser()` uses `ResolveAgentWithAuth` when auth store + engine available
+   - Error message: "you don't have access to this agent, contact an admin"
+
+6. **Channel bot wiring** (`internal/channel/telegram/telegram.go`, `qq/qq.go`, `feishu/feishu.go`, `cmd/anna/gateway.go`):
+   - Added `engine *auth.PolicyEngine` field to all three Bot structs
+   - Updated `WithAuth()` signatures to accept `(authStore, engine, linkCodes)`
+   - Updated all `ResolveWithAuth` calls to pass engine
+   - `gateway.go`: auth store + engine created before bot initialization, shared across bots + admin panel
+   - Link code store created in gateway for channel bots
+
+7. **Tests**:
+   - `internal/admin/agents_test.go` — scope in create/get/update, invalid scope, user assignment CRUD, non-admin denied for assignment API, non-admin sees only accessible agents, non-admin get access check
+   - `internal/channel/access_test.go` — system agent allowed, restricted denied, restricted allowed when assigned, admin accesses all, fallback filtering, group chat denied
+   - All tests pass with `-race`
+
+### Notes for next phases
+
+- **`WithAuth` signature changed**: Now takes 3 args: `(authStore, engine, linkCodes)` instead of 2. Gateway.go already updated.
+- **`ResolveWithAuth` signature changed**: Now takes `engine *auth.PolicyEngine` as 5th parameter.
+- **Backward compatibility preserved**: When `authStore` or `engine` is nil, the legacy `ResolveAgent` is used (no access checks). The `Resolve()` path (no auth) is unchanged.
+- **Agent scope values**: `"system"` (default, all users) and `"restricted"` (only assigned users). Stored in `settings_agents.scope` column.
+- **Policy evaluation**: Uses built-in policies `system:user-system-agents` (scope == "system") and `system:user-assigned-agents` (agent_id in subject.agent_ids). Admin full access via `system:admin-full-access`.
+- **Error handling in channels**: `ErrAgentAccessDenied` is propagated through `resolve()` and surfaces to users as "Error: you don't have access to this agent, contact an admin" in all channel bots.
