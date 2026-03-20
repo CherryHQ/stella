@@ -102,6 +102,11 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	s.mux.Handle("PUT /api/agents/{id}", adminAPI(s.updateAgent))
 	s.mux.Handle("DELETE /api/agents/{id}", adminAPI(s.deleteAgent))
 
+	// Agent user assignment APIs (admin-only).
+	s.mux.Handle("GET /api/agents/{id}/users", adminAPI(s.listAgentUsers))
+	s.mux.Handle("POST /api/agents/{id}/users", adminAPI(s.assignAgentUser))
+	s.mux.Handle("DELETE /api/agents/{id}/users/{userId}", adminAPI(s.removeAgentUser))
+
 	// Channel APIs (admin-only).
 	s.mux.Handle("GET /api/channels", adminAPI(s.listChannels))
 	s.mux.Handle("GET /api/channels/{platform}", adminAPI(s.getChannel))
