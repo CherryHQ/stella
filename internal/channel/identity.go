@@ -100,7 +100,9 @@ func ResolveUserWithAuth(ctx context.Context, store config.Store, authStore auth
 		authUser = existing
 	} else {
 		// Assign user role.
-		_ = authStore.AssignRole(ctx, authUser.ID, auth.RoleUser)
+		if err := authStore.AssignRole(ctx, authUser.ID, auth.RoleUser); err != nil {
+			log.Error("assign user role during auto-migration", "user_id", authUser.ID, "error", err)
+		}
 	}
 
 	// Create the identity link.
