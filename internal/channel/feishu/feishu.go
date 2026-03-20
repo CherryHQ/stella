@@ -18,6 +18,7 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 	"github.com/vaayne/anna/internal/agent"
+	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 )
@@ -50,6 +51,8 @@ type Bot struct {
 	wsClient    *larkws.Client
 	poolManager *agent.PoolManager
 	store       config.Store
+	authStore   auth.AuthStore
+	linkCodes   *auth.LinkCodeStore
 	listFn      ModelListFunc
 	switchFn    ModelSwitchFunc
 
@@ -67,6 +70,15 @@ type Bot struct {
 
 // BotOption configures the Feishu Bot.
 type BotOption func(*Bot)
+
+// WithAuth configures the bot with auth store and link code store for
+// account linking support.
+func WithAuth(authStore auth.AuthStore, linkCodes *auth.LinkCodeStore) BotOption {
+	return func(b *Bot) {
+		b.authStore = authStore
+		b.linkCodes = linkCodes
+	}
+}
 
 // New creates a Feishu bot. Call Start to begin receiving events.
 func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn ModelListFunc, switchFn ModelSwitchFunc, opts ...BotOption) (*Bot, error) {

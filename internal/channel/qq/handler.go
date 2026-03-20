@@ -25,6 +25,15 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 			return nil
 		}
 
+		// Try link code before anything else.
+		text := strings.TrimSpace(msg.Content)
+		if b.authStore != nil && b.linkCodes != nil && text != "" {
+			if resp, ok := channel.TryLinkCode(b.ctx, b.authStore, b.linkCodes, text, "qq", authorID, ""); ok {
+				b.replyC2C(b.ctx, authorID, msg.ID, resp)
+				return nil
+			}
+		}
+
 		content := b.buildMessageContent(msg)
 		if content == nil {
 			return nil
@@ -39,7 +48,6 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 			return nil
 		}
 
-		text := strings.TrimSpace(msg.Content)
 		if text != "" {
 			if handled := b.handleCommand(rc, text, authorID, replyFn); handled {
 				return nil
