@@ -166,7 +166,7 @@ func TestLoadSkillsDedup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	skills := loadSkills("/nonexistent/home", "/nonexistent/anna", wsDir, projectDir)
+	skills := loadSkills("/nonexistent/home", "/nonexistent/anna", wsDir, projectDir, "")
 
 	count := 0
 	for _, s := range skills {
@@ -304,7 +304,7 @@ func TestLoadSkillsProjectPriority(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	skills := loadSkills("/nonexistent/home", "/nonexistent/anna", wsDir, projectDir)
+	skills := loadSkills("/nonexistent/home", "/nonexistent/anna", wsDir, projectDir, "")
 
 	count := 0
 	for _, s := range skills {
@@ -324,7 +324,7 @@ func TestLoadSkillsProjectPriority(t *testing.T) {
 }
 
 func TestLoadSkillsNonexistentDir(t *testing.T) {
-	skills := loadSkills("/nonexistent/home", "/nonexistent/anna", "/nonexistent/agents", "/nonexistent/cwd")
+	skills := loadSkills("/nonexistent/home", "/nonexistent/anna", "/nonexistent/agents", "/nonexistent/cwd", "")
 	if len(skills) != 0 {
 		t.Errorf("expected no skills for nonexistent dirs, got %d", len(skills))
 	}
@@ -498,6 +498,87 @@ func TestBuildSystemPromptSoulOverride(t *testing.T) {
 	}
 }
 
+func TestLoadSkillsWithUserDir(t *testing.T) {
+	wsDir := t.TempDir()
+	userSkillsDir := t.TempDir()
+
+	mkSkill := func(dir, name, desc string) {
+		sd := filepath.Join(dir, name)
+		if err := os.MkdirAll(sd, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sd, "SKILL.md"),
+			[]byte("---\nname: "+name+"\ndescription: "+desc+"\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Agent-level skill.
+	mkSkill(filepath.Join(wsDir, "skills"), "shared-skill", "Agent version")
+	mkSkill(filepath.Join(wsDir, "skills"), "agent-only", "Agent only")
+
+	// User-level skill (same name overrides agent-level).
+	mkSkill(userSkillsDir, "shared-skill", "User version")
+	mkSkill(userSkillsDir, "user-only", "User only")
+
+	skills := loadSkills("/nonexistent/home", "/nonexistent/anna", wsDir, "", userSkillsDir)
+
+	byName := map[string]Skill{}
+	for _, s := range skills {
+		byName[s.Name] = s
+	}
+
+	// User version wins for shared skill.
+	if s, ok := byName["shared-skill"]; !ok {
+		t.Error("expected shared-skill")
+	} else {
+		if s.Description != "User version" {
+			t.Errorf("expected user version to win, got %q", s.Description)
+		}
+		if s.Source != "user" {
+			t.Errorf("expected source 'user', got %q", s.Source)
+		}
+	}
+
+	// Both unique skills present.
+	if _, ok := byName["agent-only"]; !ok {
+		t.Error("expected agent-only")
+	}
+	if _, ok := byName["user-only"]; !ok {
+		t.Error("expected user-only")
+	}
+}
+
+func TestLoadSkillsUserDirEmpty(t *testing.T) {
+	// When userSkillsDir is empty, behavior should be same as before.
+	wsDir := t.TempDir()
+	mkSkill := func(dir, name, desc string) {
+		sd := filepath.Join(dir, name)
+		if err := os.MkdirAll(sd, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sd, "SKILL.md"),
+			[]byte("---\nname: "+name+"\ndescription: "+desc+"\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mkSkill(filepath.Join(wsDir, "skills"), "ws-skill", "Workspace skill")
+
+	skills := loadSkills("/nonexistent/home", "/nonexistent/anna", wsDir, "", "")
+	found := false
+	for _, s := range skills {
+		if s.Name == "ws-skill" {
+			found = true
+			if s.Source != "agent" {
+				t.Errorf("expected source 'agent', got %q", s.Source)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected ws-skill")
+	}
+}
+
 func TestLoadSkillsThreeTierPriority(t *testing.T) {
 	homeDir := t.TempDir()
 	wsDir := t.TempDir()
@@ -526,7 +607,7 @@ func TestLoadSkillsThreeTierPriority(t *testing.T) {
 	mkSkill(filepath.Join(projectDir, ".agents", "skills"), "shared-skill", "Project version")
 	mkSkill(filepath.Join(projectDir, ".agents", "skills"), "proj-only", "Only in project")
 
-	skills := loadSkills(homeDir, "/nonexistent/anna", wsDir, projectDir)
+	skills := loadSkills(homeDir, "/nonexistent/anna", wsDir, projectDir, "")
 
 	byName := map[string]Skill{}
 	for _, s := range skills {

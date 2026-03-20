@@ -19,11 +19,12 @@ type contextFile struct {
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
 type DBPromptParams struct {
-	SystemPrompt string // agent's soul from agents.system_prompt
-	UserMemory   string // from user_agent_memory.content (always injected)
-	AnnaHome     string
-	Workspace    string
-	Cwd          string // optional working directory
+	SystemPrompt  string // agent's soul from agents.system_prompt
+	UserMemory    string // from user_agent_memory.content (always injected)
+	AnnaHome      string
+	Workspace     string
+	Cwd           string // optional working directory
+	UserSkillsDir string // optional per-user skills directory
 }
 
 // BuildSystemPromptFromDB composes the full system prompt in three layers:
@@ -67,7 +68,7 @@ func BuildSystemPromptFromDB(p DBPromptParams) string {
 	}
 
 	// Skills.
-	if skills := FormatSkillsForPrompt(LoadSkills(p.AnnaHome, p.Workspace, p.Cwd)); skills != "" {
+	if skills := FormatSkillsForPrompt(LoadSkills(p.AnnaHome, p.Workspace, p.Cwd, p.UserSkillsDir)); skills != "" {
 		buf.WriteString("\n")
 		buf.WriteString(skills)
 	}
