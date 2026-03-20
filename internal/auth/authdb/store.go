@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/vaayne/anna/internal/auth"
@@ -68,16 +69,22 @@ func (s *Store) UpdateUser(ctx context.Context, u auth.AuthUser) error {
 	if u.IsActive {
 		isActive = 1
 	}
-	return s.q.UpdateAuthUser(ctx, sqlc.UpdateAuthUserParams{
+	if err := s.q.UpdateAuthUser(ctx, sqlc.UpdateAuthUserParams{
 		ID:           u.ID,
 		Username:     u.Username,
 		PasswordHash: u.PasswordHash,
 		IsActive:     isActive,
-	})
+	}); err != nil {
+		return fmt.Errorf("update auth user %d: %w", u.ID, err)
+	}
+	return nil
 }
 
 func (s *Store) DeleteUser(ctx context.Context, id int64) error {
-	return s.q.DeleteAuthUser(ctx, id)
+	if err := s.q.DeleteAuthUser(ctx, id); err != nil {
+		return fmt.Errorf("delete auth user %d: %w", id, err)
+	}
+	return nil
 }
 
 func (s *Store) CountUsers(ctx context.Context) (int64, error) {
@@ -124,31 +131,43 @@ func (s *Store) ListRoles(ctx context.Context) ([]auth.Role, error) {
 }
 
 func (s *Store) UpdateRole(ctx context.Context, r auth.Role) error {
-	return s.q.UpdateAuthRole(ctx, sqlc.UpdateAuthRoleParams{
+	if err := s.q.UpdateAuthRole(ctx, sqlc.UpdateAuthRoleParams{
 		ID:          r.ID,
 		Name:        r.Name,
 		Description: r.Description,
-	})
+	}); err != nil {
+		return fmt.Errorf("update auth role %q: %w", r.ID, err)
+	}
+	return nil
 }
 
 func (s *Store) DeleteRole(ctx context.Context, id string) error {
-	return s.q.DeleteAuthRole(ctx, id)
+	if err := s.q.DeleteAuthRole(ctx, id); err != nil {
+		return fmt.Errorf("delete auth role %q: %w", id, err)
+	}
+	return nil
 }
 
 // --- User-Role assignments ---
 
 func (s *Store) AssignRole(ctx context.Context, userID int64, roleID string) error {
-	return s.q.AssignUserRole(ctx, sqlc.AssignUserRoleParams{
+	if err := s.q.AssignUserRole(ctx, sqlc.AssignUserRoleParams{
 		UserID: userID,
 		RoleID: roleID,
-	})
+	}); err != nil {
+		return fmt.Errorf("assign role %q to user %d: %w", roleID, userID, err)
+	}
+	return nil
 }
 
 func (s *Store) RemoveRole(ctx context.Context, userID int64, roleID string) error {
-	return s.q.RemoveUserRole(ctx, sqlc.RemoveUserRoleParams{
+	if err := s.q.RemoveUserRole(ctx, sqlc.RemoveUserRoleParams{
 		UserID: userID,
 		RoleID: roleID,
-	})
+	}); err != nil {
+		return fmt.Errorf("remove role %q from user %d: %w", roleID, userID, err)
+	}
+	return nil
 }
 
 func (s *Store) ListUserRoles(ctx context.Context, userID int64) ([]auth.Role, error) {
@@ -210,7 +229,10 @@ func (s *Store) ListIdentitiesByUser(ctx context.Context, userID int64) ([]auth.
 }
 
 func (s *Store) DeleteIdentity(ctx context.Context, id int64) error {
-	return s.q.DeleteAuthIdentity(ctx, id)
+	if err := s.q.DeleteAuthIdentity(ctx, id); err != nil {
+		return fmt.Errorf("delete identity %d: %w", id, err)
+	}
+	return nil
 }
 
 // --- Policies ---
@@ -279,7 +301,7 @@ func (s *Store) UpdatePolicy(ctx context.Context, p auth.Policy) error {
 	if p.Enabled {
 		enabled = 1
 	}
-	return s.q.UpdateAuthPolicy(ctx, sqlc.UpdateAuthPolicyParams{
+	if err := s.q.UpdateAuthPolicy(ctx, sqlc.UpdateAuthPolicyParams{
 		ID:         p.ID,
 		Name:       p.Name,
 		Effect:     p.Effect,
@@ -289,27 +311,39 @@ func (s *Store) UpdatePolicy(ctx context.Context, p auth.Policy) error {
 		Conditions: p.Conditions,
 		Priority:   int64(p.Priority),
 		Enabled:    enabled,
-	})
+	}); err != nil {
+		return fmt.Errorf("update policy %q: %w", p.ID, err)
+	}
+	return nil
 }
 
 func (s *Store) DeletePolicy(ctx context.Context, id string) error {
-	return s.q.DeleteAuthPolicy(ctx, id)
+	if err := s.q.DeleteAuthPolicy(ctx, id); err != nil {
+		return fmt.Errorf("delete policy %q: %w", id, err)
+	}
+	return nil
 }
 
 // --- User-Agent assignments ---
 
 func (s *Store) AssignAgent(ctx context.Context, userID int64, agentID string) error {
-	return s.q.AssignUserAgent(ctx, sqlc.AssignUserAgentParams{
+	if err := s.q.AssignUserAgent(ctx, sqlc.AssignUserAgentParams{
 		UserID:  userID,
 		AgentID: agentID,
-	})
+	}); err != nil {
+		return fmt.Errorf("assign agent %q to user %d: %w", agentID, userID, err)
+	}
+	return nil
 }
 
 func (s *Store) RemoveAgent(ctx context.Context, userID int64, agentID string) error {
-	return s.q.RemoveUserAgent(ctx, sqlc.RemoveUserAgentParams{
+	if err := s.q.RemoveUserAgent(ctx, sqlc.RemoveUserAgentParams{
 		UserID:  userID,
 		AgentID: agentID,
-	})
+	}); err != nil {
+		return fmt.Errorf("remove agent %q from user %d: %w", agentID, userID, err)
+	}
+	return nil
 }
 
 func (s *Store) ListUserAgentIDs(ctx context.Context, userID int64) ([]string, error) {
@@ -355,28 +389,43 @@ func (s *Store) GetSession(ctx context.Context, id string) (auth.Session, error)
 }
 
 func (s *Store) DeleteSession(ctx context.Context, id string) error {
-	return s.q.DeleteAuthSession(ctx, id)
+	if err := s.q.DeleteAuthSession(ctx, id); err != nil {
+		return fmt.Errorf("delete session %q: %w", id, err)
+	}
+	return nil
 }
 
 func (s *Store) DeleteExpiredSessions(ctx context.Context) error {
-	return s.q.DeleteExpiredAuthSessions(ctx)
+	if err := s.q.DeleteExpiredAuthSessions(ctx); err != nil {
+		return fmt.Errorf("delete expired sessions: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) DeleteUserSessions(ctx context.Context, userID int64) error {
-	return s.q.DeleteUserAuthSessions(ctx, userID)
+	if err := s.q.DeleteUserAuthSessions(ctx, userID); err != nil {
+		return fmt.Errorf("delete sessions for user %d: %w", userID, err)
+	}
+	return nil
 }
 
-func (s *Store) UpdateSessionExpiry(ctx context.Context, id string, expiresAt string) error {
-	return s.q.UpdateAuthSessionExpiry(ctx, sqlc.UpdateAuthSessionExpiryParams{
+func (s *Store) UpdateSessionExpiry(ctx context.Context, id string, expiresAt time.Time) error {
+	if err := s.q.UpdateAuthSessionExpiry(ctx, sqlc.UpdateAuthSessionExpiryParams{
 		ID:        id,
-		ExpiresAt: expiresAt,
-	})
+		ExpiresAt: expiresAt.UTC().Format(timeLayout),
+	}); err != nil {
+		return fmt.Errorf("update session expiry %q: %w", id, err)
+	}
+	return nil
 }
 
 // --- Helpers ---
 
 func parseTime(s string) time.Time {
-	t, _ := time.Parse(timeLayout, s)
+	t, err := time.Parse(timeLayout, s)
+	if err != nil {
+		slog.Warn("authdb: failed to parse time", "value", s, "error", err)
+	}
 	return t
 }
 

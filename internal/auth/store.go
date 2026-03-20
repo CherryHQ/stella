@@ -1,6 +1,9 @@
 package auth
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // AuthStore provides typed access to auth-related data in the database.
 // This is separate from config.Store — auth methods are NOT mixed in.
@@ -53,5 +56,5 @@ type AuthStore interface {
 	DeleteSession(ctx context.Context, id string) error
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteUserSessions(ctx context.Context, userID int64) error
-	UpdateSessionExpiry(ctx context.Context, id string, expiresAt string) error
+	UpdateSessionExpiry(ctx context.Context, id string, expiresAt time.Time) error
 }
