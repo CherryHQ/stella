@@ -61,13 +61,15 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 	g, gctx := errgroup.WithContext(ctx)
 	var channels []channel.Channel
 
+	// Create auth store and policy engine for channel bots and admin panel.
+	as := authdb.New(s.db)
+	engine, err := auth.NewEngine(gctx, as)
+	if err != nil {
+		return fmt.Errorf("create auth engine: %w", err)
+	}
+
 	// Optionally start admin panel server.
 	if adminPort > 0 {
-		as := authdb.New(s.db)
-		engine, err := auth.NewEngine(gctx, as)
-		if err != nil {
-			return fmt.Errorf("create auth engine: %w", err)
-		}
 		adminSrv := admin.New(s.store, as, engine, s.mem, s.db)
 		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", adminPort))
 		if err != nil {
@@ -89,6 +91,10 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 		})
 	}
 
+	// Link codes are shared between admin panel and channel bots. For now,
+	// create a standalone store since we might not have an admin panel.
+	linkCodes := auth.NewLinkCodeStore()
+
 	// Load channel configs from DB.
 	tgCfg := loadChannelConfig[telegramChannelConfig](s.store, "telegram")
 	qqCfg := loadChannelConfig[qqChannelConfig](s.store, "qq")
@@ -104,7 +110,9 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 			ChannelID:  tgCfg.ChannelID,
 			GroupMode:  tgCfg.GroupMode,
 			AllowedIDs: tgCfg.AllowedIDs,
-		}, s.poolManager, s.store, listFn, switchFn)
+		}, s.poolManager, s.store, listFn, switchFn,
+			telegram.WithAuth(as, engine, linkCodes),
+		)
 		if err != nil {
 			return fmt.Errorf("create telegram bot: %w", err)
 		}
@@ -128,7 +136,9 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 			AppSecret:  qqCfg.AppSecret,
 			GroupMode:  qqCfg.GroupMode,
 			AllowedIDs: qqCfg.AllowedIDs,
-		}, s.poolManager, s.store, listFn, switchFn)
+		}, s.poolManager, s.store, listFn, switchFn,
+			qq.WithAuth(as, engine, linkCodes),
+		)
 		if err != nil {
 			return fmt.Errorf("create qq bot: %w", err)
 		}
@@ -151,7 +161,9 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 			NotifyChat:        fsCfg.NotifyChat,
 			GroupMode:         fsCfg.GroupMode,
 			AllowedIDs:        fsCfg.AllowedIDs,
-		}, s.poolManager, s.store, listFn, switchFn)
+		}, s.poolManager, s.store, listFn, switchFn,
+			feishu.WithAuth(as, engine, linkCodes),
+		)
 		if err != nil {
 			return fmt.Errorf("create feishu bot: %w", err)
 		}
@@ -202,9 +214,9 @@ func runGateway(ctx context.Context, s *setupResult, listFn channel.ModelListFun
 		}
 	}
 
-	err := g.Wait()
+	waitErr := g.Wait()
 	slog.Info("gateway stopped")
-	return err
+	return waitErr
 }
 
 // wireSchedulerNotifier overrides the scheduler callback to collect the agent response
