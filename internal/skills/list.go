@@ -27,7 +27,7 @@ func (t *SkillsTool) list() (string, error) {
 			Description: s.Description,
 			Source:      s.Source,
 			Path:        s.FilePath,
-			Removable:   s.Source == "project",
+			Removable:   s.Source == "project" || s.Source == "user",
 		}
 	}
 
