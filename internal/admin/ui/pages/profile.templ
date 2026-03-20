@@ -90,7 +90,7 @@ templ ProfilePage() {
 			<div class="card bg-base-200">
 				<div class="card-body">
 					<p class="text-secondary text-sm mb-4">
-						Generate a link code, then send it as a message to the Anna bot on the selected platform.
+						Generate a link code, then send the command to the Anna bot on the selected platform.
 						The code expires in 5 minutes.
 					</p>
 					<div class="flex flex-wrap gap-2 mb-4">
@@ -110,13 +110,12 @@ templ ProfilePage() {
 					<template x-if="linkCode">
 						<div class="alert alert-info">
 							<div>
-								<p class="font-medium">Your link code:</p>
-								<p class="font-mono text-2xl tracking-widest mt-1" x-text="linkCode"></p>
-								<p class="text-sm mt-2">
-									Send this code as a message to the Anna bot on
-									<span class="font-medium" x-text="linkPlatform"></span>.
-									It will expire in 5 minutes.
-								</p>
+								<p class="font-medium">Send this command to Anna on <span x-text="linkPlatform"></span>:</p>
+								<div class="flex items-center gap-2 mt-2">
+									<code class="font-mono text-lg bg-base-100 px-3 py-1 rounded select-all" x-text="'/link ' + linkCode"></code>
+									<button @click="navigator.clipboard.writeText('/link ' + linkCode); \.toast.show('Copied!')" class="btn btn-ghost btn-xs">copy</button>
+								</div>
+								<p class="text-xs text-secondary mt-2">Expires in 5 minutes.</p>
 							</div>
 						</div>
 					</template>
