@@ -61,14 +61,14 @@
 
 ## Phase 6: Per-User Data + Skills Isolation
 
-- [ ] 6.1 — Modify `SetupWorkspace()` for per-user directories
-- [ ] 6.2 — Modify `SkillsTool` to accept `userID`, per-user skill path
-- [ ] 6.3 — Modify skill load/list/install/remove for per-user paths
-- [ ] 6.4 — Modify `LoadSkills()` in `runner/skill.go`: add user dir in priority chain
-- [ ] 6.5 — Modify runner creation to pass user ID
-- [ ] 6.6 — Add sandbox enforcement (`internal/auth/sandbox.go`, file tool integration)
-- [ ] 6.7 — Migrate existing agent-level skills as shared
-- [ ] 6.8 — Write tests
+- [x] 6.1 — Modify `SetupWorkspace()` for per-user directories
+- [x] 6.2 — Modify `SkillsTool` to accept `userID`, per-user skill path
+- [x] 6.3 — Modify skill load/list/install/remove for per-user paths
+- [x] 6.4 — Modify `LoadSkills()` in `runner/skill.go`: add user dir in priority chain
+- [x] 6.5 — Modify runner creation to pass user ID
+- [x] 6.6 — Add sandbox enforcement (`internal/auth/sandbox.go`, file tool integration)
+- [x] 6.7 — Migrate existing agent-level skills as shared
+- [x] 6.8 — Write tests
 
 ## Phase 7: Admin User Management
 
