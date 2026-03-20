@@ -1,17 +1,17 @@
 [tools]
+atlas = "0.36.0"
 go = "1.25"
+"github:a-h/templ" = "latest"
 "github:golangci/golangci-lint" = "2.11.1"
 "github:goreleaser/goreleaser" = "2.14.1"
 "github:sqlc-dev/sqlc" = "1.29.0"
-"github:a-h/templ" = "latest"
-atlas = "0.36.0"
 
 [env]
-BINARY_NAME = "anna"
 ANNA_HOME = ".agents/anna"
+BINARY_NAME = "anna"
 
 # ============================================================================
-# Build Tasks
+# Build
 # ============================================================================
 
 [tasks.build]
@@ -23,89 +23,74 @@ run = "VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || 
 description = "Remove build artifacts"
 run = "rm -rf bin/"
 
+[tasks.generate]
+description = "Generate templ components and sqlc queries"
+run = "templ generate && sqlc generate"
+
 # ============================================================================
-# Run Tasks
+# Run
 # ============================================================================
 
-[tasks.run]
-description = "Run anna (pass args after --)"
+[tasks.serve]
+description = "Start anna server (admin panel + channels)"
 depends = ["build"]
-run = "./bin/$BINARY_NAME {{arg(name='command', default='chat')}}"
+run = "./bin/$BINARY_NAME"
 
 [tasks.chat]
 description = "Run interactive CLI chat"
 depends = ["build"]
 run = "./bin/$BINARY_NAME chat"
 
-[tasks.stream]
-description = "Run streaming chat (pipe prompt via stdin)"
-depends = ["build"]
-run = "./bin/$BINARY_NAME chat --stream"
-
-[tasks.gateway]
-description = "Run gateway daemon (Telegram, etc.)"
-depends = ["build"]
-run = "./bin/$BINARY_NAME gateway"
-
-[tasks.onboard]
-description = "Open admin panel for first-time setup"
-depends = ["build"]
-run = "./bin/$BINARY_NAME onboard"
-
 # ============================================================================
-# Code Quality Tasks
+# Code Quality
 # ============================================================================
+
+[tasks.test]
+description = "Run all tests with race detection"
+run = "go test -race ./..."
+
+[tasks."test:coverage"]
+description = "Run tests with coverage report"
+run = "go test -race -coverprofile=coverage.out ./..."
 
 [tasks.lint]
 description = "Lint Go code"
 run = "golangci-lint run"
 
-[tasks.test]
-description = "Run all tests with race detection"
-run = "go test -v -race ./..."
-
-[tasks."test:coverage"]
-description = "Run tests with coverage report"
-run = "go test -v -race -coverprofile=coverage.out ./..."
-
 [tasks.format]
 description = "Format Go code and tidy modules"
 run = "gofmt -w . && go mod tidy"
 
-[tasks.generate]
-description = "Generate templ components and SQLC queries"
-run = "templ generate && sqlc generate"
+# ============================================================================
+# Dev
+# ============================================================================
 
 [tasks."templ:watch"]
 description = "Watch templ files and regenerate on change"
-run = "templ generate --watch --proxy=http://localhost:8080"
+run = "templ generate --watch --proxy=http://localhost:25678"
+
+[tasks."tools:download"]
+description = "Download fd, rg, rtk for current platform"
+run = "bash scripts/download-tools.sh"
 
 # ============================================================================
-# Atlas Migration Tasks
+# Database
 # ============================================================================
 
-[tasks."atlas:diff"]
+[tasks."db:diff"]
 description = "Generate a new Atlas migration from schema changes"
 run = "atlas migrate diff {{arg(name='name', default='migration')}} --env local"
 
-[tasks."atlas:hash"]
+[tasks."db:hash"]
 description = "Recalculate Atlas migration hash"
 run = "atlas migrate hash --env local"
 
-[tasks."atlas:validate"]
+[tasks."db:validate"]
 description = "Validate Atlas migrations"
 run = "atlas migrate validate --env local"
 
 # ============================================================================
-# Embedded Tools Tasks
-# ============================================================================
-
-[tasks."tools:download"]
-description = "Download fd, rg, rtk for current platform (via mise)"
-run = "bash scripts/download-tools.sh"
-
-# ============================================================================
-# Release Tasks
+# Release
 # ============================================================================
 
 [tasks.release]

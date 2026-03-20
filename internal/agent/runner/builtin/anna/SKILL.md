@@ -19,9 +19,9 @@ anna is a self-hosted AI assistant with multi-user and multi-agent support. She 
 
 Two modes:
 - **CLI chat**: `anna chat` (Bubble Tea TUI with streaming)
-- **Gateway daemon**: `anna gateway` (Telegram, QQ, Feishu bots + scheduler)
+- **Gateway daemon**: `anna` (Telegram, QQ, Feishu bots + scheduler, runs by default)
 
-Setup: `anna onboard` opens a web admin panel to configure everything. All configuration is stored in a SQLite database (`$ANNA_HOME/anna.db`). Data: `$ANNA_HOME/workspaces/{agent_id}/`.
+Setup: `anna --open` opens a web admin panel to configure everything. All configuration is stored in a SQLite database (`$ANNA_HOME/anna.db`). Data: `$ANNA_HOME/workspaces/{agent_id}/`.
 
 ## Architecture
 
@@ -67,12 +67,12 @@ Available in CLI, Telegram, QQ, and Feishu:
 ## CLI commands
 
 ```
-anna onboard           # Web admin panel setup
+anna                   # Start daemon (Telegram, QQ, Feishu, scheduler)
+anna --open            # Start daemon and open admin panel in browser
+anna --admin-port 8080 # Start daemon with admin panel on custom port
 anna chat              # Interactive TUI
 anna chat --agent NAME # Chat with a specific agent
 anna chat --stream     # Pipe stdin, stream stdout
-anna gateway           # Start daemon (Telegram, QQ, Feishu, scheduler)
-anna gateway --admin-port 8080  # Also start admin panel
 anna models list       # List models
 anna models set <p/m>  # Switch model
 anna models update     # Refresh model cache

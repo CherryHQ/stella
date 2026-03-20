@@ -32,7 +32,7 @@ cd anna && go build -o anna .
 运行 onboard 命令打开管理面板并配置 anna（提供商、频道、agents 等）：
 
 ```bash
-anna onboard
+anna --open
 ```
 
 这会启动一个本地 Web UI，您可以在其中设置 API 密钥、频道和 agent 配置。所有配置都存储在 `~/.anna/anna.db` 中 —— 无需手动配置文件。
@@ -40,13 +40,13 @@ anna onboard
 启动网关守护进程：
 
 ```bash
-anna gateway
+anna
 ```
 
 要在网关运行时同时提供管理面板服务（用于运行时配置更改）：
 
 ```bash
-anna gateway --admin-port 8080
+anna --admin-port 8080
 ```
 
 或使用交互式 CLI：
@@ -70,14 +70,14 @@ anna upgrade --install-dir "$HOME/.local/bin"
 ```ini
 # /etc/systemd/system/anna.service
 [Unit]
-Description=anna gateway
+Description=anna server
 After=network.target
 
 [Service]
 Type=simple
 User=anna
 WorkingDirectory=/home/anna
-ExecStart=/usr/local/bin/anna gateway --admin-port 8080
+ExecStart=/usr/local/bin/anna --admin-port 8080
 Restart=on-failure
 RestartSec=5
 
@@ -93,7 +93,7 @@ WantedBy=multi-user.target
 sudo systemctl enable --now anna
 ```
 
-所有配置（频道、agents、调度器任务）都存储在 `anna.db` 中。使用 `anna onboard` 或管理面板来管理配置。
+所有配置（频道、agents、调度器任务）都存储在 `anna.db` 中。使用 `anna --open` 来访问管理面板管理配置。
 
 ## Docker
 
@@ -116,7 +116,7 @@ docker run -it --rm \
   -v ~/.anna:/home/nonroot/.anna \
   -p 8080:8080 \
   ghcr.io/vaayne/anna:latest \
-  anna onboard
+  anna --open
 ```
 
 然后启动网关：
@@ -150,7 +150,7 @@ services:
 docker compose up -d
 ```
 
-要运行初始设置，使用 `docker compose exec anna anna onboard` 或使用 `--admin-port 8080` 启动网关并通过 Web UI 进行配置。
+要运行初始设置，使用 `docker compose exec anna anna --open` 或使用 `--admin-port 8080` 启动网关并通过 Web UI 进行配置。
 
 ### 本地构建
 
@@ -177,7 +177,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t anna .
 
 ## 环境变量
 
-配置通过管理面板管理（通过 `anna onboard` 或 `--admin-port`）。仅支持少量环境变量：
+配置通过管理面板管理（通过 `anna --open` 或 `--admin-port`）。仅支持少量环境变量：
 
 | 变量                | 必需 | 描述                          |
 | ------------------- | ---- | ----------------------------- |
@@ -193,7 +193,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t anna .
 
 ```bash
 # 二进制文件
-anna gateway  # 日志显示在终端中
+anna  # 日志显示在终端中
 
 # Docker
 docker logs anna

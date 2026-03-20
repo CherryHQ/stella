@@ -6,9 +6,8 @@ import { t } from '@/lib/translations';
 export const Route = createFileRoute('/$lang/')({ component: Home });
 
 const terminalLines = [
-  { prompt: true, text: 'anna onboard' },
-  { prompt: false, text: 'config created at ~/.anna/config.yaml' },
-  { prompt: false, text: 'opening setup at http://localhost:8080 ...' },
+  { prompt: true, text: 'anna --open' },
+  { prompt: false, text: 'Admin panel running at http://localhost:8787' },
   { prompt: true, text: 'anna chat' },
   { prompt: false, text: 'you: "summarize yesterday\'s conversation"' },
   { prompt: false, text: 'anna: Yesterday you discussed migrating the' },

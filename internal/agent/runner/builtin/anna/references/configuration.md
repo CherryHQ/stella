@@ -2,15 +2,15 @@
 
 All configuration is stored in a SQLite database at `$ANNA_HOME/anna.db` (`~/.anna/anna.db` by default).
 
-The easiest way to configure anna is `anna onboard`, which opens a web admin panel. The admin panel is also available during gateway operation via `anna gateway --admin-port 8080`.
+The easiest way to configure anna is `anna --open`, which opens a web admin panel. The admin panel is also available during gateway operation via `anna --admin-port 8080`.
 
 ## Quick start
 
-1. Run `anna onboard` to open the admin panel
+1. Run `anna --open` to open the admin panel
 2. Add a provider (e.g., "anthropic" with your API key)
 3. Create or edit an agent (set provider, model, system prompt)
 4. Configure channels (Telegram token, etc.)
-5. Start: `anna chat` or `anna gateway`
+5. Start: `anna chat` or `anna` (gateway daemon)
 
 Or just: `export ANTHROPIC_API_KEY="sk-..."` and run `anna chat`. Default bootstrapping will create an "anthropic" provider and "anna" agent automatically.
 

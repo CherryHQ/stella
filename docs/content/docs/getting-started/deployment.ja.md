@@ -29,10 +29,10 @@ cd anna && go build -o anna .
 
 ### 実行
 
-onboardコマンドを実行して管理パネルを開き、anna(プロバイダー、チャネル、エージェントなど)を設定します:
+Web管理パネルを開き、anna(プロバイダー、チャネル、エージェントなど)を設定します:
 
 ```bash
-anna onboard
+anna --open
 ```
 
 これにより、APIキー、チャネル、エージェントプロファイルを設定するローカルWebUIが起動します。すべての設定は`~/.anna/anna.db`に保存されます -- 手動での設定ファイルは不要です。
@@ -40,13 +40,13 @@ anna onboard
 gatewayデーモンを起動します:
 
 ```bash
-anna gateway
+anna
 ```
 
 gatewayと並行して管理パネルを提供する(ランタイム設定変更のため)には:
 
 ```bash
-anna gateway --admin-port 8080
+anna --admin-port 8080
 ```
 
 または、対話型CLIを使用します:
@@ -70,14 +70,14 @@ anna upgrade --install-dir "$HOME/.local/bin"
 ```ini
 # /etc/systemd/system/anna.service
 [Unit]
-Description=anna gateway
+Description=anna server
 After=network.target
 
 [Service]
 Type=simple
 User=anna
 WorkingDirectory=/home/anna
-ExecStart=/usr/local/bin/anna gateway --admin-port 8080
+ExecStart=/usr/local/bin/anna --admin-port 8080
 Restart=on-failure
 RestartSec=5
 
@@ -93,7 +93,7 @@ WantedBy=multi-user.target
 sudo systemctl enable --now anna
 ```
 
-すべての設定(チャネル、エージェント、スケジューラジョブ)は`anna.db`に保存されます。管理には`anna onboard`または管理パネルを使用します。
+すべての設定(チャネル、エージェント、スケジューラジョブ)は`anna.db`に保存されます。管理には`anna --open`または管理パネルを使用します。
 
 ## Docker
 
@@ -109,14 +109,14 @@ sudo systemctl enable --now anna
 
 ### クイックスタート
 
-まず、onboardを実行してannaを設定します:
+まず、Web管理パネルを開いてannaを設定します:
 
 ```bash
 docker run -it --rm \
   -v ~/.anna:/home/nonroot/.anna \
   -p 8080:8080 \
   ghcr.io/vaayne/anna:latest \
-  anna onboard
+  anna --open
 ```
 
 次にgatewayを起動します:
@@ -150,7 +150,7 @@ services:
 docker compose up -d
 ```
 
-初期設定を実行するには、`docker compose exec anna anna onboard`を使用するか、`--admin-port 8080`でgatewayを起動してWebUIを介して設定します。
+初期設定を実行するには、`docker compose exec anna anna --open`を使用するか、`--admin-port 8080`でgatewayを起動してWebUIを介して設定します。
 
 ### ローカルでビルド
 
@@ -177,7 +177,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t anna .
 
 ## 環境変数
 
-設定は管理パネル(`anna onboard`または`--admin-port`経由)を通じて管理されます。サポートされる環境変数は少数のみです:
+設定は管理パネル(`anna --open`または`--admin-port`経由)を通じて管理されます。サポートされる環境変数は少数のみです:
 
 | 変数                | 必須   | 説明                                          |
 | ------------------- | ------ | --------------------------------------------- |
@@ -193,7 +193,7 @@ gatewayはstdoutにログを出力します。実行中であることを確認�
 
 ```bash
 # バイナリ
-anna gateway  # ログがターミナルに表示されます
+anna  # ログがターミナルに表示されます
 
 # Docker
 docker logs anna

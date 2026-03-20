@@ -13,7 +13,6 @@ import (
 
 	"github.com/vaayne/anna/internal/admin"
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/auth/authdb"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/memory"
@@ -40,7 +39,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
-	as := authdb.New(db)
+	as := appdb.NewAuthStore(db)
 	if err := auth.SeedRolesAndPolicies(context.Background(), as); err != nil {
 		t.Fatalf("SeedRolesAndPolicies: %v", err)
 	}

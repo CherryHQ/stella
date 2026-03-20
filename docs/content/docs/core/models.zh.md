@@ -12,11 +12,11 @@ anna 中的每个代理都有三个模型字段，存储在数据库（`settings
 | `model_strong` | 重度推理、复杂任务 |
 | `model_fast`   | 快速响应、简单查询 |
 
-`model_strong` 和 `model_fast` 在未设置时都回退到 `model`。通过 admin 面板（`anna onboard`）按代理配置这些。
+`model_strong` 和 `model_fast` 在未设置时都回退到 `model`。通过 admin 面板（`anna --open`）按代理配置这些。
 
 ## 提供商设置
 
-提供商通过 admin 面板（`anna onboard`）配置。每个提供商都存储在 `settings_providers` 表中，带有可选的 API 密钥和基础 URL。
+提供商通过 admin 面板（`anna --open`）配置。每个提供商都存储在 `settings_providers` 表中，带有可选的 API 密钥和基础 URL。
 
 当提供商的 `api_key` 字段在数据库中为空时，环境变量作为回退：
 

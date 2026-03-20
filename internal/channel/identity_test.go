@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/auth/authdb"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
@@ -48,7 +47,7 @@ func setupStores(t *testing.T) testStores {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
-	as := authdb.New(db)
+	as := appdb.NewAuthStore(db)
 	if err := auth.SeedRolesAndPolicies(context.Background(), as); err != nil {
 		t.Fatalf("SeedRolesAndPolicies: %v", err)
 	}

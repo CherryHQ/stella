@@ -7,12 +7,12 @@ anna には、WebSocket 経由で接続する QQ ボットが含まれていま�
 ## セットアップ
 
 1. [QQ Bot Platform](https://q.qq.com/) で QQ Bot を登録し、AppID と AppSecret を取得します
-2. `anna onboard` を実行して管理パネルを起動します
+2. `anna --open` を実行して管理パネルを起動します
 3. 管理パネルで、AI プロバイダーを追加してから、AppID と AppSecret を使用して QQ チャンネルを設定します
 4. ゲートウェイを起動します:
 
 ```bash
-anna gateway
+anna
 ```
 
 すべてのチャンネル設定（認証情報、グループモード、許可された ID など）は管理パネルから管理されます。環境変数は、プロバイダー API キー（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）と `ANNA_HOME` に制限されています。
@@ -69,7 +69,7 @@ QQ グループメッセージは @メンションイベント（`GROUP_AT_MESSA
 
 ## 設定リファレンス
 
-以下のすべての設定は、`anna onboard` 管理パネルから管理されます。
+以下のすべての設定は、`anna --open` 管理パネルから管理されます。
 
 | Field         | Description                                   | Default    |
 | ------------- | --------------------------------------------- | ---------- |

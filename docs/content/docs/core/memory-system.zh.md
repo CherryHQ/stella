@@ -72,7 +72,7 @@ ai.Message (user/assistant/tool_result)
 vim internal/db/schemas/tables/conversations.sql
 
 # 2. 生成迁移
-mise run atlas:diff -- add_column_name
+mise run db:diff -- add_column_name
 
 # 3. 重新生成 sqlc
 mise run generate
