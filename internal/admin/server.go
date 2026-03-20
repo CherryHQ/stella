@@ -112,12 +112,20 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	s.mux.Handle("GET /api/channels/{platform}", adminAPI(s.getChannel))
 	s.mux.Handle("PUT /api/channels/{platform}", adminAPI(s.updateChannel))
 
-	// User APIs (admin-only).
+	// User APIs (admin-only) — legacy settings_users for memory management.
 	s.mux.Handle("GET /api/users", adminAPI(s.listUsers))
 	s.mux.Handle("PUT /api/users/{id}", adminAPI(s.updateUser))
 	s.mux.Handle("GET /api/users/{id}/memories", adminAPI(s.listUserMemories))
 	s.mux.Handle("PUT /api/users/{id}/memories/{agentId}", adminAPI(s.setUserMemory))
 	s.mux.Handle("DELETE /api/users/{id}/memories/{agentId}", adminAPI(s.deleteUserMemory))
+
+	// Auth user management APIs (admin-only).
+	s.mux.Handle("GET /api/auth/users", adminAPI(s.listAuthUsers))
+	s.mux.Handle("GET /api/auth/users/{id}", adminAPI(s.getAuthUser))
+	s.mux.Handle("PUT /api/auth/users/{id}/roles", adminAPI(s.updateAuthUserRoles))
+	s.mux.Handle("GET /api/auth/users/{id}/agents", adminAPI(s.listAuthUserAgents))
+	s.mux.Handle("PUT /api/auth/users/{id}/agents", adminAPI(s.updateAuthUserAgents))
+	s.mux.Handle("PUT /api/auth/users/{id}/active", adminAPI(s.updateAuthUserActive))
 
 	// Session APIs.
 	s.mux.HandleFunc("GET /api/sessions", s.listSessions)
