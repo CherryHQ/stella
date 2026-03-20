@@ -50,14 +50,14 @@
 
 ## Phase 5: Agent Scoping + Access Enforcement
 
-- [ ] 5.1 — Add `scope` field to `config.Agent` struct and agent form in admin UI
-- [ ] 5.2 — Create user-agent assignment API (`POST/DELETE /api/agents/{id}/users/{userId}`)
-- [ ] 5.3 — Create admin UI for agent user management
-- [ ] 5.4 — Integrate policy engine into admin API middleware
-- [ ] 5.5 — Integrate policy engine into channel identity resolution
-- [ ] 5.6 — Return permission denied / link prompt on channel access failures
-- [ ] 5.7 — Modify `ResolveAgent()` to filter by accessible agents
-- [ ] 5.8 — Write tests
+- [x] 5.1 — Add `scope` field to `config.Agent` struct and agent form in admin UI
+- [x] 5.2 — Create user-agent assignment API (`POST/DELETE /api/agents/{id}/users/{userId}`)
+- [x] 5.3 — Create admin UI for agent user management
+- [x] 5.4 — Integrate policy engine into admin API middleware
+- [x] 5.5 — Integrate policy engine into channel identity resolution
+- [x] 5.6 — Return permission denied / link prompt on channel access failures
+- [x] 5.7 — Modify `ResolveAgent()` to filter by accessible agents
+- [x] 5.8 — Write tests
 
 ## Phase 6: Per-User Data + Skills Isolation
 
