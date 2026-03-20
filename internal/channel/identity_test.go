@@ -2,9 +2,12 @@ package channel_test
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 
+	"github.com/vaayne/anna/internal/auth"
+	"github.com/vaayne/anna/internal/auth/authdb"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
@@ -23,6 +26,34 @@ func setupStore(t *testing.T) config.Store {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 	return store
+}
+
+type testStores struct {
+	store     config.Store
+	authStore auth.AuthStore
+	db        *sql.DB
+}
+
+func setupStores(t *testing.T) testStores {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := appdb.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	store := config.NewDBStore(db)
+	if err := store.SeedDefaults(context.Background()); err != nil {
+		t.Fatalf("SeedDefaults: %v", err)
+	}
+
+	as := authdb.New(db)
+	if err := auth.SeedRolesAndPolicies(context.Background(), as); err != nil {
+		t.Fatalf("SeedRolesAndPolicies: %v", err)
+	}
+
+	return testStores{store: store, authStore: as, db: db}
 }
 
 func TestResolveUserCreatesUser(t *testing.T) {
@@ -131,5 +162,178 @@ func TestResolveAgentGroupAssignment(t *testing.T) {
 	}
 	if agentID != "writer" {
 		t.Errorf("agentID = %q, want %q", agentID, "writer")
+	}
+}
+
+// --- Auth-aware identity resolution tests ---
+
+func TestResolveUserWithAuthAutoMigrate(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+
+	// First call should auto-migrate: create auth_user + auth_identity.
+	resolved, err := channel.ResolveUserWithAuth(ctx, ts.store, ts.authStore, "12345", "telegram", "Alice")
+	if err != nil {
+		t.Fatalf("ResolveUserWithAuth: %v", err)
+	}
+	if resolved.AuthUserID == 0 {
+		t.Error("expected non-zero AuthUserID after auto-migration")
+	}
+	if resolved.ExternalID != "12345" {
+		t.Errorf("ExternalID = %q, want %q", resolved.ExternalID, "12345")
+	}
+
+	// Check that auth_identity was created.
+	identity, err := ts.authStore.GetIdentityByPlatform(ctx, "telegram", "12345")
+	if err != nil {
+		t.Fatalf("GetIdentityByPlatform after auto-migrate: %v", err)
+	}
+	if identity.UserID != resolved.AuthUserID {
+		t.Errorf("identity.UserID = %d, want %d", identity.UserID, resolved.AuthUserID)
+	}
+
+	// Check user role was assigned.
+	hasUserRole := false
+	for _, r := range resolved.Roles {
+		if r == auth.RoleUser {
+			hasUserRole = true
+		}
+	}
+	if !hasUserRole {
+		t.Errorf("expected user role in Roles %v", resolved.Roles)
+	}
+}
+
+func TestResolveUserWithAuthLinkedIdentity(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+
+	// Pre-create auth user and identity.
+	hash, _ := auth.HashPassword("testpass1")
+	authUser, err := ts.authStore.CreateUser(ctx, "alice", hash)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	_ = ts.authStore.AssignRole(ctx, authUser.ID, auth.RoleAdmin)
+	_ = ts.authStore.AssignRole(ctx, authUser.ID, auth.RoleUser)
+	_, err = ts.authStore.CreateIdentity(ctx, auth.Identity{
+		UserID:     authUser.ID,
+		Platform:   "telegram",
+		ExternalID: "99999",
+		Name:       "Alice",
+	})
+	if err != nil {
+		t.Fatalf("CreateIdentity: %v", err)
+	}
+
+	// Resolve should find the linked identity.
+	resolved, err := channel.ResolveUserWithAuth(ctx, ts.store, ts.authStore, "99999", "telegram", "Alice")
+	if err != nil {
+		t.Fatalf("ResolveUserWithAuth: %v", err)
+	}
+	if resolved.AuthUserID != authUser.ID {
+		t.Errorf("AuthUserID = %d, want %d", resolved.AuthUserID, authUser.ID)
+	}
+	if len(resolved.Roles) != 2 {
+		t.Errorf("expected 2 roles, got %d", len(resolved.Roles))
+	}
+}
+
+func TestResolveUserWithAuthIdempotent(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+
+	// First call auto-migrates.
+	r1, err := channel.ResolveUserWithAuth(ctx, ts.store, ts.authStore, "555", "qq", "Bob")
+	if err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+
+	// Second call should find the existing identity.
+	r2, err := channel.ResolveUserWithAuth(ctx, ts.store, ts.authStore, "555", "qq", "Bob")
+	if err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+
+	if r1.AuthUserID != r2.AuthUserID {
+		t.Errorf("AuthUserID changed: %d vs %d", r1.AuthUserID, r2.AuthUserID)
+	}
+}
+
+func TestTryLinkCodeSuccess(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+	linkCodes := auth.NewLinkCodeStore()
+
+	// Create an auth user.
+	hash, _ := auth.HashPassword("testpass1")
+	authUser, _ := ts.authStore.CreateUser(ctx, "bob", hash)
+
+	// Generate a code.
+	code := linkCodes.Generate(authUser.ID, "telegram")
+
+	// Try to link.
+	resp, ok := channel.TryLinkCode(ctx, ts.authStore, linkCodes, code, "telegram", "67890", "Bob")
+	if !ok {
+		t.Fatal("expected TryLinkCode to handle the message")
+	}
+	if resp != "Account linked successfully! Your channel account is now connected to your system user." {
+		t.Errorf("unexpected response: %s", resp)
+	}
+
+	// Verify identity was created.
+	identity, err := ts.authStore.GetIdentityByPlatform(ctx, "telegram", "67890")
+	if err != nil {
+		t.Fatalf("GetIdentityByPlatform: %v", err)
+	}
+	if identity.UserID != authUser.ID {
+		t.Errorf("identity.UserID = %d, want %d", identity.UserID, authUser.ID)
+	}
+}
+
+func TestTryLinkCodeWrongPlatform(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+	linkCodes := auth.NewLinkCodeStore()
+
+	hash, _ := auth.HashPassword("testpass1")
+	authUser, _ := ts.authStore.CreateUser(ctx, "charlie", hash)
+
+	code := linkCodes.Generate(authUser.ID, "telegram")
+
+	// Try with wrong platform.
+	resp, ok := channel.TryLinkCode(ctx, ts.authStore, linkCodes, code, "qq", "111", "Charlie")
+	if !ok {
+		t.Fatal("expected TryLinkCode to handle the message")
+	}
+	if resp == "" {
+		t.Error("expected non-empty error response")
+	}
+}
+
+func TestTryLinkCodeNotACode(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+	linkCodes := auth.NewLinkCodeStore()
+
+	// Regular text should not be handled.
+	_, ok := channel.TryLinkCode(ctx, ts.authStore, linkCodes, "Hello, how are you?", "telegram", "111", "Test")
+	if ok {
+		t.Error("expected TryLinkCode to not handle regular text")
+	}
+}
+
+func TestTryLinkCodeExpiredOrInvalid(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+	linkCodes := auth.NewLinkCodeStore()
+
+	// Try with a valid-looking but non-existent code.
+	resp, ok := channel.TryLinkCode(ctx, ts.authStore, linkCodes, "AB12CD", "telegram", "111", "Test")
+	if !ok {
+		t.Fatal("expected TryLinkCode to handle the message (code format matches)")
+	}
+	if resp == "" {
+		t.Error("expected error response for invalid code")
 	}
 }
