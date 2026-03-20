@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 
 	"github.com/vaayne/anna/internal/toolspec"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
@@ -43,16 +44,35 @@ var skillsInputSchema = func() map[string]any {
 
 // SkillsTool exposes skill management as an agent tool.
 type SkillsTool struct {
-	annaHome  string
-	workspace string
-	cwd       string
+	annaHome      string
+	workspace     string // agent-level workspace (e.g. workspaces/{agentID}/)
+	cwd           string
+	userSkillsDir string // per-user skills dir (empty when userID == 0)
 }
 
-// NewTool creates a SkillsTool for the given anna home, workspace and working directory.
-// The workspace should be a per-agent workspace path (e.g. workspaces/{agentID}/)
-// so that installed skills are isolated per agent.
-func NewTool(annaHome, workspace, cwd string) *SkillsTool {
-	return &SkillsTool{annaHome: annaHome, workspace: workspace, cwd: cwd}
+// NewTool creates a SkillsTool for the given anna home, workspace, working directory, and user ID.
+// When userID > 0, skills are installed/managed in workspaces/{agentID}/users/{userID}/.agents/skills/.
+// When userID == 0, the agent-level workspace/skills/ is used (backward compat).
+func NewTool(annaHome, workspace, cwd string, userID int64) *SkillsTool {
+	var userSkillsDir string
+	if userID > 0 {
+		userSkillsDir = filepath.Join(workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")
+	}
+	return &SkillsTool{
+		annaHome:      annaHome,
+		workspace:     workspace,
+		cwd:           cwd,
+		userSkillsDir: userSkillsDir,
+	}
+}
+
+// skillsDir returns the directory where user-managed skills are installed/removed.
+// Per-user dir when set, otherwise the agent-level workspace/skills/.
+func (t *SkillsTool) skillsDir() string {
+	if t.userSkillsDir != "" {
+		return t.userSkillsDir
+	}
+	return filepath.Join(t.workspace, "skills")
 }
 
 // SkillsDefinition returns the tool definition without requiring runtime paths.

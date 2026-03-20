@@ -36,16 +36,21 @@ const (
 
 var validNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
-// LoadSkills discovers skills from project, workspace, and common directories.
-// annaHome is the anna home directory (e.g. ~/.anna), workspace is the workspace
-// dir (e.g. ~/.anna/workspace), cwd is the working directory.
-// Priority order: cwd/.agents/skills/ > workspace/skills/ > ~/.agents/skills/ > builtin
-func LoadSkills(annaHome, workspace, cwd string) []Skill {
+// LoadSkills discovers skills from project, user, workspace, and common directories.
+// annaHome is the anna home directory (e.g. ~/.anna), workspace is the agent workspace
+// dir (e.g. ~/.anna/workspaces/{agentID}), cwd is the working directory, and
+// userSkillsDir is the optional per-user skills directory.
+// Priority order: cwd/.agents/skills/ > userSkillsDir > workspace/skills/ > ~/.agents/skills/ > builtin
+func LoadSkills(annaHome, workspace, cwd string, userSkillsDir ...string) []Skill {
 	home, _ := os.UserHomeDir()
-	return loadSkills(home, annaHome, workspace, cwd)
+	var usd string
+	if len(userSkillsDir) > 0 {
+		usd = userSkillsDir[0]
+	}
+	return loadSkills(home, annaHome, workspace, cwd, usd)
 }
 
-func loadSkills(homeDir, annaHome, workspace, cwd string) []Skill {
+func loadSkills(homeDir, annaHome, workspace, cwd, userSkillsDir string) []Skill {
 	seen := map[string]bool{} // name → already loaded
 	var skills []Skill
 
@@ -74,17 +79,22 @@ func loadSkills(homeDir, annaHome, workspace, cwd string) []Skill {
 		addDir(filepath.Join(cwd, ".agents", "skills"), "project")
 	}
 
-	// 2. Workspace skills: workspace/skills/ (e.g. ~/.anna/workspace/skills/)
-	if workspace != "" {
-		addDir(filepath.Join(workspace, "skills"), "user")
+	// 2. User-specific skills: per-user installed skills (when userSkillsDir is set)
+	if userSkillsDir != "" {
+		addDir(userSkillsDir, "user")
 	}
 
-	// 3. Common skills: ~/.agents/skills/ (legacy/shared)
+	// 3. Agent-level workspace skills: workspace/skills/ (shared across all users)
+	if workspace != "" {
+		addDir(filepath.Join(workspace, "skills"), "agent")
+	}
+
+	// 4. Common skills: ~/.agents/skills/ (legacy/shared)
 	if homeDir != "" {
 		addDir(filepath.Join(homeDir, ".agents", "skills"), "common")
 	}
 
-	// 4. Builtin skills: extracted from binary (lowest priority)
+	// 5. Builtin skills: extracted from binary (lowest priority)
 	if annaHome != "" {
 		builtinDir := filepath.Join(annaHome, "cache", "builtin-skills")
 		if err := builtin.Extract(builtinDir); err != nil {

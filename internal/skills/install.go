@@ -29,7 +29,7 @@ func (t *SkillsTool) install(ctx context.Context, args map[string]any) (string, 
 		return "", fmt.Errorf("source is required for install action (e.g. owner/repo@skill-name)")
 	}
 
-	targetDir := filepath.Join(t.workspace, "skills")
+	targetDir := t.skillsDir()
 	skillName, err := install(ctx, source, targetDir)
 	if err != nil {
 		return "", err
