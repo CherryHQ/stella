@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -48,14 +49,20 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 		writeData(w, http.StatusOK, []any{})
 		return
 	}
+	info := UserFromContext(r.Context())
 	sessions, err := s.mem.ListInfo(r.Context(), true)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	resp := make([]sessionResponse, len(sessions))
-	for i, info := range sessions {
-		resp[i] = toSessionResponse(info)
+
+	resp := make([]sessionResponse, 0, len(sessions))
+	for _, si := range sessions {
+		// Non-admin users only see their own sessions.
+		if info != nil && !info.IsAdmin && si.UserID != info.UserID {
+			continue
+		}
+		resp = append(resp, toSessionResponse(si))
 	}
 	writeData(w, http.StatusOK, resp)
 }
@@ -71,15 +78,23 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := s.mem.LoadInfo(r.Context(), sessionID)
+	authInfo := UserFromContext(r.Context())
+	si, err := s.mem.LoadInfo(r.Context(), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
-	resp := sessionDetailResponse{
-		sessionResponse: toSessionResponse(info),
+	// Non-admin users can only view their own sessions.
+	if authInfo != nil && !authInfo.IsAdmin && si.UserID != authInfo.UserID {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
 	}
+
+	resp := sessionDetailResponse{
+		sessionResponse: toSessionResponse(si),
+	}
+	info := si
 
 	// Resolve agent name.
 	if info.AgentID != "" {
@@ -107,6 +122,11 @@ func (s *Server) getSessionMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ownership check for non-admin users.
+	if err := s.checkSessionAccess(w, r, sessionID); err != nil {
+		return
+	}
+
 	// Load raw DB rows to preserve created_at timestamps.
 	conv, err := s.q.GetConversationBySessionID(r.Context(), sessionID)
 	if err != nil {
@@ -122,6 +142,25 @@ func (s *Server) getSessionMessages(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, serializeDBMessages(rows))
 }
 
+// checkSessionAccess verifies the current user has access to the session.
+// Returns a non-nil error (and writes the HTTP response) if access is denied.
+func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, sessionID string) error {
+	info := UserFromContext(r.Context())
+	if info == nil || info.IsAdmin || s.mem == nil {
+		return nil
+	}
+	si, err := s.mem.LoadInfo(r.Context(), sessionID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return err
+	}
+	if si.UserID != info.UserID {
+		writeError(w, http.StatusForbidden, "access denied")
+		return fmt.Errorf("access denied")
+	}
+	return nil
+}
+
 func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")
 	if sessionID == "" {
@@ -130,6 +169,11 @@ func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) 
 	}
 	if s.mem == nil {
 		writeError(w, http.StatusNotFound, "memory engine not available")
+		return
+	}
+
+	// Ownership check for non-admin users.
+	if err := s.checkSessionAccess(w, r, sessionID); err != nil {
 		return
 	}
 

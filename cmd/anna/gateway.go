@@ -208,6 +208,9 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 		})
 	}
 
+	// Wire auth store into dispatcher for per-user notification routing.
+	s.notifier.SetAuthStore(as)
+
 	// Wire scheduler notifications and start the scheduler AFTER channels
 	// are registered, so early-firing jobs already use the dispatcher.
 	if s.schedulerSvc != nil {
@@ -236,8 +239,8 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 }
 
 // wireSchedulerNotifier overrides the scheduler callback to collect the agent response
-// and broadcast it via the notification dispatcher. When a job has an AgentID, the
-// corresponding pool is looked up via the PoolManager; otherwise the default pool is used.
+// and dispatch it via the notification dispatcher. User-owned jobs notify only their
+// owner; system jobs (user_id=0) broadcast to all channels.
 func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolManager, defaultPool *agent.Pool, dispatcher *channel.Dispatcher) {
 	schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) {
 		pool := defaultPool
@@ -262,7 +265,16 @@ func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolM
 		}
 		if result.Len() > 0 {
 			text := fmt.Sprintf("*%s*\n\n%s", job.Name, result.String())
-			if err := dispatcher.Notify(ctx, channel.Notification{Text: text}); err != nil {
+			n := channel.Notification{Text: text}
+			var err error
+			if job.UserID != 0 {
+				// User-owned job: notify only the owner.
+				err = dispatcher.NotifyUser(ctx, job.UserID, n)
+			} else {
+				// System job: broadcast to all channels.
+				err = dispatcher.Notify(ctx, n)
+			}
+			if err != nil {
 				slog.Error("scheduler notification failed", "job_id", job.ID, "error", err)
 			}
 		}
