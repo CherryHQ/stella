@@ -1,5 +1,5 @@
 CREATE TABLE ctx_agent_memory (
-    user_id    INTEGER NOT NULL REFERENCES settings_users(id),
+    user_id    INTEGER NOT NULL,
     agent_id   TEXT NOT NULL REFERENCES settings_agents(id),
     content    TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
