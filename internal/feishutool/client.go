@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -158,8 +159,12 @@ func (c *Client) refreshToken(ctx context.Context, refreshToken string) (Token, 
 		return Token{}, fmt.Errorf("get app access token: %w", err)
 	}
 
-	body := fmt.Sprintf(`{"grant_type":"refresh_token","refresh_token":%q}`,
-		refreshToken)
+	bodyMap := map[string]string{
+		"grant_type":    "refresh_token",
+		"refresh_token": refreshToken,
+	}
+	bodyBytes, _ := json.Marshal(bodyMap)
+	body := string(bodyBytes)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		"https://open.feishu.cn/open-apis/authen/v1/oidc/refresh_access_token",
@@ -176,13 +181,21 @@ func (c *Client) refreshToken(ctx context.Context, refreshToken string) (Token, 
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if resp.StatusCode != http.StatusOK {
+		return Token{}, fmt.Errorf("refresh token: HTTP %d", resp.StatusCode)
+	}
 	return parseOIDCTokenResponse(resp.Body)
 }
 
 // getAppAccessToken retrieves the app access token (tenant token) via the
 // internal Lark SDK API. This is needed for OIDC token operations.
 func (c *Client) getAppAccessToken(ctx context.Context) (string, error) {
-	body := fmt.Sprintf(`{"app_id":%q,"app_secret":%q}`, c.appID, c.appSecret)
+	bodyMap := map[string]string{
+		"app_id":     c.appID,
+		"app_secret": c.appSecret,
+	}
+	bodyBytes, _ := json.Marshal(bodyMap)
+	body := string(bodyBytes)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		"https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal",
@@ -197,6 +210,10 @@ func (c *Client) getAppAccessToken(ctx context.Context) (string, error) {
 		return "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("app access token: HTTP %d", resp.StatusCode)
+	}
 
 	var result struct {
 		Code           int    `json:"code"`
@@ -220,7 +237,12 @@ func (c *Client) ExchangeCode(ctx context.Context, code string) (Token, error) {
 		return Token{}, fmt.Errorf("get app access token: %w", err)
 	}
 
-	body := fmt.Sprintf(`{"grant_type":"authorization_code","code":%q}`, code)
+	bodyMap := map[string]string{
+		"grant_type": "authorization_code",
+		"code":       code,
+	}
+	bodyBytes, _ := json.Marshal(bodyMap)
+	body := string(bodyBytes)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		"https://open.feishu.cn/open-apis/authen/v1/oidc/access_token",
@@ -237,6 +259,9 @@ func (c *Client) ExchangeCode(ctx context.Context, code string) (Token, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if resp.StatusCode != http.StatusOK {
+		return Token{}, fmt.Errorf("exchange code: HTTP %d", resp.StatusCode)
+	}
 	return parseOIDCTokenResponse(resp.Body)
 }
 
@@ -271,9 +296,13 @@ func parseOIDCTokenResponse(body io.Reader) (Token, error) {
 
 // AuthURL returns the Feishu OAuth authorization URL for the given app and redirect URI.
 func AuthURL(appID, redirectURI, state string) string {
-	return fmt.Sprintf(
-		"https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=%s&redirect_uri=%s&state=%s",
-		appID, redirectURI, state)
+	params := url.Values{}
+	params.Set("app_id", appID)
+	if redirectURI != "" {
+		params.Set("redirect_uri", redirectURI)
+	}
+	params.Set("state", state)
+	return "https://open.feishu.cn/open-apis/authen/v1/authorize?" + params.Encode()
 }
 
 // InvokeWithUserToken calls fn with a resolved user access token.
