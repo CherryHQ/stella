@@ -130,6 +130,7 @@ func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
 		SystemPrompt: a.SystemPrompt,
 		Workspace:    a.Workspace,
 		Scope:        scope,
+		CreatorID:    a.CreatorID,
 		Enabled:      enabled,
 	})
 	if err != nil {
@@ -467,6 +468,7 @@ func agentFromDB(r sqlc.SettingsAgent) Agent {
 		SystemPrompt: r.SystemPrompt,
 		Workspace:    r.Workspace,
 		Scope:        scope,
+		CreatorID:    r.CreatorID,
 		Enabled:      r.Enabled == 1,
 	}
 }

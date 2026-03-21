@@ -13,28 +13,15 @@ templ AgentsPage() {
 					@click="showForm = !showForm; if(!showForm) resetForm()"
 					class="btn btn-ghost btn-sm text-primary font-medium"
 					x-text="showForm ? 'Cancel' : '+ Add agent'"
-					x-show="isAdmin"
 				></button>
 			</div>
 			<!-- Agent form -->
 			<div x-show="showForm" x-transition x-cloak class="mb-8 pb-8 border-b border-base-300">
 				<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-4" x-text="editingId ? 'EDIT AGENT' : 'NEW AGENT'"></p>
-				<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4 mb-4">
-					<div>
-						@ui.FormField("ID") {
-							<input
-								x-model="form.id"
-								:disabled="!!editingId"
-								placeholder="anna"
-								class="input input-bordered w-full text-sm font-mono disabled:opacity-40"
-							/>
-						}
-					</div>
-					<div>
-						@ui.FormField("Name") {
-							<input x-model="form.name" placeholder="Anna" class="input input-bordered w-full text-sm"/>
-						}
-					</div>
+				<div class="mb-4">
+					@ui.FormField("Name") {
+						<input x-model="form.name" placeholder="My Agent" class="input input-bordered w-full text-sm"/>
+					}
 				</div>
 				<!-- Models section -->
 				<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-3 mt-6">
@@ -47,14 +34,8 @@ templ AgentsPage() {
 						@modelComboField("Fast", "model_fast", "Falls back to default")
 					</div>
 				</div>
-				<!-- Workspace -->
-				<div class="mb-4">
-					@ui.FormField("Workspace") {
-						<input x-model="form.workspace" placeholder="~/.anna/workspaces/anna" class="input input-bordered w-full text-sm font-mono"/>
-					}
-				</div>
-				<!-- Scope -->
-				<div class="mb-4">
+				<!-- Scope (admin only) -->
+				<div class="mb-4" x-show="isAdmin">
 					@ui.FormField("Scope") {
 						<select x-model="form.scope" class="select select-bordered w-full text-sm">
 							<option value="system">system — all users can access</option>
@@ -99,9 +80,9 @@ templ AgentsPage() {
 									class="badge badge-sm badge-warning"
 								>restricted</span>
 							</div>
-							<div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity" x-show="isAdmin">
+							<div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity" x-show="canEditAgent(a)">
 								<button
-									x-show="a.scope === 'restricted'"
+									x-show="isAdmin && a.scope === 'restricted'"
 									@click="manageUsers(a)"
 									class="btn btn-ghost btn-xs text-secondary hover:text-primary"
 								>users</button>
