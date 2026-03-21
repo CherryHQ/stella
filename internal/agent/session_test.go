@@ -62,6 +62,54 @@ func TestBuildSessionKeyDifferentAgentsDifferentKeys(t *testing.T) {
 	}
 }
 
+func TestBuildUserSessionKey(t *testing.T) {
+	tests := []struct {
+		name           string
+		agentID        string
+		authUserID     int64
+		channelContext string
+		want           string
+	}{
+		{
+			name:           "linked user private",
+			agentID:        "anna",
+			authUserID:     42,
+			channelContext: "private",
+			want:           "anna:user:42:private",
+		},
+		{
+			name:           "different agent",
+			agentID:        "coder",
+			authUserID:     42,
+			channelContext: "private",
+			want:           "coder:user:42:private",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := BuildUserSessionKey(tt.agentID, tt.authUserID, tt.channelContext)
+			if got != tt.want {
+				t.Errorf("BuildUserSessionKey() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLinkedUserSessionKeySharedAcrossChannels(t *testing.T) {
+	// Same auth user on different platforms should get the same session key.
+	keyTG := BuildUserSessionKey("anna", 42, "private")
+	keyQQ := BuildUserSessionKey("anna", 42, "private")
+	if keyTG != keyQQ {
+		t.Errorf("linked user keys should match across platforms: %q != %q", keyTG, keyQQ)
+	}
+
+	// But different agents should differ.
+	keyOther := BuildUserSessionKey("coder", 42, "private")
+	if keyTG == keyOther {
+		t.Error("different agents should produce different keys for same user")
+	}
+}
+
 func TestCompactionConfigWithDefaults(t *testing.T) {
 	tests := []struct {
 		name          string
