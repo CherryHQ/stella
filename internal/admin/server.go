@@ -69,6 +69,9 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	s.mux.HandleFunc("PUT /api/auth/profile/password", s.changePassword)
 	s.mux.HandleFunc("POST /api/auth/profile/link-code", s.generateLinkCode)
 	s.mux.HandleFunc("DELETE /api/auth/profile/identities/{id}", s.unlinkIdentity)
+	s.mux.HandleFunc("GET /api/auth/profile/memories", s.listProfileMemories)
+	s.mux.HandleFunc("PUT /api/auth/profile/memories/{agentId}", s.setProfileMemory)
+	s.mux.HandleFunc("DELETE /api/auth/profile/memories/{agentId}", s.deleteProfileMemory)
 
 	// Page routes — templ-rendered HTML pages.
 	// Admin-only pages: providers, channels, users, settings.

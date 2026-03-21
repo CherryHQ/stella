@@ -50,7 +50,7 @@ templ ProfilePage() {
 			</div>
 		</div>
 		<!-- Linked Identities -->
-		<div>
+		<div class="mb-10">
 			<h2 class="font-serif text-xl mb-4">Linked Identities</h2>
 			<div class="card bg-base-200">
 				<div class="card-body">
@@ -120,6 +120,83 @@ templ ProfilePage() {
 					<template x-if="identities.length === 0 && !loadingIdentities">
 						<p class="text-secondary text-sm">No linked identities yet. Use the buttons above to link a platform account.</p>
 					</template>
+				</div>
+			</div>
+		</div>
+		<!-- User Memory -->
+		<div>
+			<h2 class="font-serif text-xl mb-4">Memory</h2>
+			<p class="text-secondary text-sm mb-4">
+				Per-agent memory that Anna uses to personalize responses. This content is injected into the system prompt for each conversation.
+			</p>
+			<div class="card bg-base-200">
+				<div class="card-body">
+					<template x-if="loadingMemories">
+						<div class="flex justify-center py-4">
+							<span class="loading loading-spinner loading-sm"></span>
+						</div>
+					</template>
+					<!-- Memory list -->
+					<div class="space-y-4">
+						<template x-for="mem in memories" :key="mem.agent_id">
+							<div>
+								<div class="flex items-center justify-between mb-1">
+									<span class="text-xs font-mono font-medium text-primary" x-text="mem.agent_id"></span>
+									<span class="text-xs text-secondary" x-text="mem.updated_at"></span>
+								</div>
+								<textarea
+									x-model="mem._content"
+									rows="3"
+									class="textarea textarea-bordered w-full text-xs font-mono resize-y"
+								></textarea>
+								<div class="flex items-center gap-2 mt-1">
+									<button
+										@click="if (confirm('Delete memory for ' + mem.agent_id + '?')) deleteMemory(mem.agent_id)"
+										class="btn btn-ghost btn-xs text-secondary hover:text-error"
+									>delete</button>
+									<button
+										@click="saveMemory(mem.agent_id, mem._content)"
+										:disabled="mem._content === mem.content"
+										class="btn btn-ghost btn-xs text-primary disabled:opacity-30"
+									>save</button>
+								</div>
+							</div>
+						</template>
+					</div>
+					<!-- Empty state -->
+					<template x-if="!loadingMemories && memories.length === 0 && !showAddMemory">
+						<p class="text-secondary text-sm">No memories yet.</p>
+					</template>
+					<!-- Add memory form -->
+					<div x-show="showAddMemory" x-cloak class="mt-4 space-y-2">
+						<select x-model="newMemoryAgent" class="select select-bordered select-sm w-full text-xs">
+							<option value="" disabled>Select agent...</option>
+							<template x-for="a in availableAgents" :key="a.id">
+								<option :value="a.id" x-text="a.name + ' (' + a.id + ')'"></option>
+							</template>
+						</select>
+						<textarea
+							x-model="newMemoryContent"
+							rows="3"
+							placeholder="Memory content..."
+							class="textarea textarea-bordered w-full text-xs font-mono resize-y"
+						></textarea>
+						<div class="flex gap-2">
+							<button @click="showAddMemory = false" class="btn btn-ghost btn-xs text-secondary">cancel</button>
+							<button
+								@click="addMemory()"
+								:disabled="!newMemoryAgent || !newMemoryContent"
+								class="btn btn-ghost btn-xs text-primary disabled:opacity-30"
+							>add</button>
+						</div>
+					</div>
+					<!-- Add memory trigger -->
+					<div class="mt-3" x-show="!showAddMemory">
+						<button
+							@click="showAddMemory = true; newMemoryAgent = ''; newMemoryContent = ''"
+							class="text-xs text-primary hover:text-primary-focus cursor-pointer"
+						>+ Add memory</button>
+					</div>
 				</div>
 			</div>
 		</div>

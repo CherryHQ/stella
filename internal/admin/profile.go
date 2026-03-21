@@ -157,3 +157,58 @@ func (s *Server) unlinkIdentity(w http.ResponseWriter, r *http.Request) {
 
 	writeData(w, http.StatusOK, map[string]string{"status": "unlinked"})
 }
+
+// listProfileMemories handles GET /api/auth/profile/memories.
+func (s *Server) listProfileMemories(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	memories, err := s.store.ListUserMemories(r.Context(), info.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, memories)
+}
+
+// setProfileMemory handles PUT /api/auth/profile/memories/{agentId}.
+func (s *Server) setProfileMemory(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	agentID := r.PathValue("agentId")
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if err := s.store.SetUserAgentMemory(r.Context(), info.UserID, agentID, body.Content); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, map[string]string{"status": "saved"})
+}
+
+// deleteProfileMemory handles DELETE /api/auth/profile/memories/{agentId}.
+func (s *Server) deleteProfileMemory(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	agentID := r.PathValue("agentId")
+	if err := s.store.DeleteUserAgentMemory(r.Context(), info.UserID, agentID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
