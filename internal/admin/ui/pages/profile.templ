@@ -94,7 +94,7 @@ templ ProfilePage() {
 										class="btn btn-sm btn-outline"
 									>
 										<span x-show="generating && linkPlatform === p" class="loading loading-spinner loading-xs"></span>
-										<span x-text="'Link ' + p.charAt(0).toUpperCase() + p.slice(1)"></span>
+										<span x-text="'Link ' + platformLabel[p]"></span>
 									</button>
 								</template>
 							</div>
