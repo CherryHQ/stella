@@ -90,6 +90,42 @@ func (b *Bot) registerHandlers() {
 		return c.Respond()
 	})
 
+	// Handle inline keyboard callbacks for agent selection.
+	b.bot.Handle("\fagent_select", b.guard(func(c tele.Context) error {
+		idxStr := c.Data()
+		logger().Debug("agent_select callback fired", "data", idxStr, "sender", c.Sender().ID, "chat", c.Chat().ID)
+		if err := b.switchAgentByIdx(c, atoiOr(idxStr, 0)); err != nil {
+			logger().Error("agent switch failed", "data", idxStr, "error", err)
+			return err
+		}
+		_ = c.Respond()
+		return c.Delete()
+	}))
+
+	// Handle pagination for agent keyboard.
+	b.bot.Handle("\fagent_page", b.guard(func(c tele.Context) error {
+		page, _ := strconv.Atoi(c.Data())
+
+		rc, err := b.resolve(c)
+		if err != nil {
+			return c.Send(fmt.Sprintf("Error: %v", err))
+		}
+
+		agents, listErr := b.agentCmd.List(context.Background())
+		if listErr != nil {
+			return c.Send(fmt.Sprintf("Error: %v", listErr))
+		}
+		if err := b.sendAgentPage(c, channel.IndexAgents(agents), page, rc.AgentID, true); err != nil {
+			logger().Error("agent page failed", "page", page, "error", err)
+			return err
+		}
+		return c.Respond()
+	}))
+
+	b.bot.Handle("\fagent_noop", func(c tele.Context) error {
+		return c.Respond()
+	})
+
 	b.bot.Handle(tele.OnText, b.guard(func(c tele.Context) error {
 		return b.handleText(c)
 	}))
@@ -133,7 +169,7 @@ func (b *Bot) handleModel(c tele.Context) error {
 	return b.sendModelKeyboard(c, models)
 }
 
-// handleAgent handles the /agent command: list or switch agents.
+// handleAgent handles the /agent command with inline keyboard.
 func (b *Bot) handleAgent(c tele.Context) error {
 	rc, err := b.resolve(c)
 	if err != nil {
@@ -143,18 +179,19 @@ func (b *Bot) handleAgent(c tele.Context) error {
 	ctx := context.Background()
 	args := strings.TrimSpace(c.Message().Payload)
 
-	if args == "" {
-		agents, listErr := b.agentCmd.List(ctx)
-		if listErr != nil {
-			return c.Send(fmt.Sprintf("Error listing agents: %v", listErr))
-		}
-		return c.Send(channel.FormatAgentList(agents, rc.AgentID))
+	// Direct switch by slug.
+	if args != "" {
+		return b.switchAgentBySlug(c, rc, args)
 	}
 
-	if err := b.agentCmd.Switch(ctx, rc.User, rc.ChatCtx, args); err != nil {
-		return c.Send(fmt.Sprintf("Error switching agent: %v", err))
+	agents, listErr := b.agentCmd.List(ctx)
+	if listErr != nil {
+		return c.Send(fmt.Sprintf("Error listing agents: %v", listErr))
 	}
-	return c.Send(fmt.Sprintf("Switched to agent: %s", args))
+	if len(agents) == 0 {
+		return c.Send("No agents available.")
+	}
+	return b.sendAgentKeyboard(c, channel.IndexAgents(agents), rc.AgentID)
 }
 
 // handleText processes incoming text messages.

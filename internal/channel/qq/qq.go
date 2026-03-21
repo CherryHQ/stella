@@ -44,6 +44,7 @@ type Bot struct {
 	authStore      auth.AuthStore
 	engine         *auth.PolicyEngine
 	linkCodes      *auth.LinkCodeStore
+	agentCmd       *channel.AgentCommander
 	listFn         channel.ModelListFunc
 	switchFn       channel.ModelSwitchFunc
 
@@ -66,6 +67,7 @@ func WithAuth(authStore auth.AuthStore, engine *auth.PolicyEngine, linkCodes *au
 		b.authStore = authStore
 		b.engine = engine
 		b.linkCodes = linkCodes
+		b.agentCmd = channel.NewAgentCommander(b.store, authStore)
 	}
 }
 
@@ -87,6 +89,7 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.M
 	b := &Bot{
 		poolManager: pm,
 		store:       store,
+		agentCmd:    channel.NewAgentCommander(store, nil),
 		listFn:      listFn,
 		switchFn:    switchFn,
 		chatModels:  make(map[string]channel.ModelOption),

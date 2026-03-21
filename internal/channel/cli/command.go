@@ -11,6 +11,7 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
+	{"/agent", "Switch agent"},
 	{"/compact", "Compact session history"},
 	{"/model", "Switch model"},
 	{"/new", "Start new session"},

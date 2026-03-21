@@ -248,10 +248,14 @@ func (b *Bot) handleCommand(rc *channel.ResolvedChat, text, senderID string, rep
 	}
 	cmd := strings.ToLower(fields[0])
 
-	if cmd == "/model" {
-		origCmd := fields[0]
-		args := strings.TrimSpace(strings.TrimPrefix(text, origCmd))
+	args := channel.ParseCommandArgs(text, fields[0])
+
+	switch cmd {
+	case "/model":
 		b.handleModelCommand(rc, args, reply)
+		return true
+	case "/agent":
+		channel.HandleAgentCommand(b.ctx, b.agentCmd, rc, args, reply)
 		return true
 	}
 

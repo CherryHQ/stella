@@ -41,6 +41,11 @@ func (m *chatModel) handleInput(input string) tea.Cmd {
 		m.viewport.SetContent(m.history.String())
 		m.viewport.GotoBottom()
 		return nil
+	case "/agent":
+		m.history.WriteString(systemStyle.Render("Agent switching is available in Telegram, QQ, and Feishu channels.\nUse /agent in those channels to list or switch agents.") + "\n\n")
+		m.viewport.SetContent(m.history.String())
+		m.viewport.GotoBottom()
+		return nil
 	case "/model":
 		m.models = toModelOptions(m.listModels())
 		if len(m.models) == 0 {

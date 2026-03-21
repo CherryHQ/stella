@@ -55,6 +55,49 @@ func (ac *AgentCommander) Switch(ctx context.Context, user auth.AuthUser, chat C
 	return ac.authStore.UpdateUserDefaultAgent(ctx, user.ID, ag.ID)
 }
 
+// IndexedAgent pairs a config.Agent with its 1-based global index.
+type IndexedAgent struct {
+	config.Agent
+	GlobalIdx int
+}
+
+// IndexAgents wraps a full agent list with sequential 1-based indices.
+func IndexAgents(agents []config.Agent) []IndexedAgent {
+	out := make([]IndexedAgent, len(agents))
+	for i, a := range agents {
+		out[i] = IndexedAgent{Agent: a, GlobalIdx: i + 1}
+	}
+	return out
+}
+
+// HandleAgentCommand is the shared /agent handler for text-based channels.
+// No args → list agents; text → switch by slug.
+func HandleAgentCommand(ctx context.Context, ac *AgentCommander, rc *ResolvedChat, args string, reply func(string)) {
+	slug := strings.TrimSpace(args)
+
+	if slug != "" {
+		if err := ac.Switch(ctx, rc.User, rc.ChatCtx, slug); err != nil {
+			reply(fmt.Sprintf("Error switching agent: %v", err))
+			return
+		}
+		reply(fmt.Sprintf("Switched to agent: %s", slug))
+		return
+	}
+
+	agents, err := ac.List(ctx)
+	if err != nil {
+		reply(fmt.Sprintf("Error listing agents: %v", err))
+		return
+	}
+	reply(FormatAgentList(agents, rc.AgentID))
+}
+
+// ParseCommandArgs extracts arguments after the command token.
+// Example: ParseCommandArgs("/agent foo", "/agent") returns "foo".
+func ParseCommandArgs(text, cmd string) string {
+	return strings.TrimSpace(strings.TrimPrefix(text, cmd))
+}
+
 // FormatAgentList formats the agent list for display, marking the current agent.
 func FormatAgentList(agents []config.Agent, currentAgentID string) string {
 	if len(agents) == 0 {
