@@ -43,6 +43,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	chatID := derefStr(msg.ChatId)
 	chatType := derefStr(msg.ChatType)
 	messageID := derefStr(msg.MessageId)
+	rootID := derefStr(msg.RootId)
 	mentions := msg.Mentions
 
 	if messageID != "" && b.markSeen(messageID) {
@@ -59,9 +60,9 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		return nil
 	}
 
-	replyFn := func(reply string) { b.replyText(b.ctx, messageID, reply) }
+	replyFn := func(reply string) { b.replyInThread(b.ctx, messageID, rootID, reply) }
 
-	rc, err := b.resolve(openID, chatID, chatType)
+	rc, err := b.resolveWithThread(openID, chatID, chatType, rootID)
 	if err != nil {
 		logger().Error("resolve failed", "open_id", openID, "error", err)
 		replyFn(fmt.Sprintf("Error: %v", err))
@@ -96,7 +97,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		}
 	}
 
-	go b.handleMessage(rc, openID, chatID, messageID, content)
+	go b.handleMessage(rc, openID, chatID, messageID, rootID, content)
 	return nil
 }
 
@@ -324,7 +325,7 @@ func parseTextContent(raw string) string {
 }
 
 // handleMessage processes an incoming message by streaming the agent response.
-func (b *Bot) handleMessage(rc *channel.ResolvedChat, openID, chatID, messageID string, content runner.MessageContent) {
+func (b *Bot) handleMessage(rc *channel.ResolvedChat, openID, chatID, messageID, rootID string, content runner.MessageContent) {
 	// Inject Feishu context so tools can access open_id, chat_id, message_id.
 	ctx := feishutool.WithOpenID(b.ctx, openID)
 	ctx = feishutool.WithChatID(ctx, chatID)
@@ -333,13 +334,13 @@ func (b *Bot) handleMessage(rc *channel.ResolvedChat, openID, chatID, messageID 
 	events, sessionID, err := rc.Chat(ctx, content)
 	if err != nil {
 		logger().Error("chat failed", "open_id", openID, "error", err)
-		b.replyText(b.ctx, messageID, fmt.Sprintf("Session error: %v", err))
+		b.replyInThread(b.ctx, messageID, rootID, fmt.Sprintf("Session error: %v", err))
 		return
 	}
 
-	logger().Debug("message received", "open_id", openID, "session", sessionID)
+	logger().Debug("message received", "open_id", openID, "session", sessionID, "root_id", rootID)
 
-	sentMsgID, response, images, streamErr := b.streamResponse(events, chatID, messageID)
+	sentMsgID, response, images, streamErr := b.streamResponseInThread(events, chatID, messageID, rootID)
 
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", sessionID, "error", streamErr)
@@ -354,10 +355,10 @@ func (b *Bot) handleMessage(rc *channel.ResolvedChat, openID, chatID, messageID 
 		response = "(empty response)"
 	}
 
-	b.sendFinalResponse(chatID, messageID, sentMsgID, response)
+	b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, response)
 
 	for _, img := range images {
-		b.sendImage(chatID, messageID, img)
+		b.sendImageInThread(chatID, messageID, rootID, img)
 	}
 
 	logger().Debug("response sent", "open_id", openID, "response_len", len(response), "images", len(images))

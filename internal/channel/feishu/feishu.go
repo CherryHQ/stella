@@ -257,23 +257,6 @@ func (b *Bot) isAllowed(openID string) bool {
 	return ok
 }
 
-// resolve performs full user/agent/pool/session-key resolution for the
-// given Feishu message context. Call once per incoming message or command.
-func (b *Bot) resolve(openID, chatID, chatType string) (*channel.ResolvedChat, error) {
-	return channel.Resolve(
-		context.Background(),
-		b.poolManager,
-		b.store,
-		b.authStore,
-		b.engine,
-		"feishu",
-		openID,
-		"",
-		chatID,
-		chatType == "group",
-	)
-}
-
 // textContent builds the JSON content string for a Feishu text message.
 func textContent(text string) string {
 	data, _ := json.Marshal(map[string]string{"text": text})

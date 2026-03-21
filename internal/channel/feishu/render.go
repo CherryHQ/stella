@@ -11,34 +11,6 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 )
 
-// sendFinalResponse delivers the completed response. If streaming already
-// sent a message (sentMsgID != ""), it updates that message in place.
-// Otherwise it sends a new reply, splitting into chunks if necessary.
-func (b *Bot) sendFinalResponse(chatID, replyMsgID, sentMsgID, response string) {
-	if sentMsgID != "" {
-		// Streaming already sent a message — update it with the final text.
-		chunks := splitMessage(response)
-		if err := b.patchMessage(sentMsgID, chunks[0]); err != nil {
-			logger().Error("final update failed", "error", err, "chat_id", chatID)
-		}
-		// Send overflow chunks as new replies.
-		for _, chunk := range chunks[1:] {
-			if _, err := b.sendCardReply(replyMsgID, chunk); err != nil {
-				logger().Error("send overflow chunk failed", "error", err, "chat_id", chatID)
-			}
-		}
-		return
-	}
-
-	// No streaming message was sent — send fresh reply.
-	chunks := splitMessage(response)
-	for _, chunk := range chunks {
-		if _, err := b.sendCardReply(replyMsgID, chunk); err != nil {
-			logger().Error("send final response failed", "error", err, "chat_id", chatID)
-		}
-	}
-}
-
 // sendImage decodes a base64 image, uploads it to Feishu to obtain an image_key,
 // then sends it as an image message in the chat.
 func (b *Bot) sendImage(chatID, replyMsgID string, img runner.ImageEvent) {

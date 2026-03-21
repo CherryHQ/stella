@@ -47,10 +47,11 @@ func toolLine(t *runner.ToolUseEvent) string {
 	}
 }
 
-// streamResponse consumes the agent event stream and progressively updates
-// a reply message using Feishu's Message Update API. Returns the sent message ID,
-// final text, collected images, and any stream error.
-func (b *Bot) streamResponse(events <-chan runner.Event, chatID, replyMsgID string) (string, string, []runner.ImageEvent, error) {
+// streamResponseInThread consumes the agent event stream and progressively updates
+// a reply message. Thread-aware: when rootID is non-empty, the initial card reply
+// targets the thread root.
+// When rootID is non-empty, the initial card reply targets the thread root.
+func (b *Bot) streamResponseInThread(events <-chan runner.Event, chatID, replyMsgID, rootID string) (string, string, []runner.ImageEvent, error) {
 
 	var sb strings.Builder
 	var streamErr error
@@ -95,8 +96,8 @@ func (b *Bot) streamResponse(events <-chan runner.Event, chatID, replyMsgID stri
 		display := buildStreamDisplay(current, currentTool)
 
 		if sentMsgID == "" {
-			// Send initial reply.
-			msgID, err := b.sendCardReply(replyMsgID, display)
+			// Send initial reply (thread-aware).
+			msgID, err := b.sendCardReplyInThread(rootID, replyMsgID, display)
 			if err != nil {
 				logger().Warn("stream reply failed", "error", err)
 			} else {
