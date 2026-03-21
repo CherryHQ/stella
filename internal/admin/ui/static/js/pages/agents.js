@@ -78,7 +78,14 @@ export function register(Alpine) {
 
     async loadAgents() {
       try {
-        this.agents = await api('GET', '/api/agents') || []
+        const agents = await api('GET', '/api/agents') || []
+        this.agents = agents.map(a => ({
+          ...a,
+          _showMemory: false,
+          _memory: undefined,
+          _memoryDraft: '',
+          _memoryLoaded: false,
+        }))
       } catch (e) {
         console.error(e)
       }
@@ -171,6 +178,50 @@ export function register(Alpine) {
         await api('DELETE', '/api/agents/' + this.userModalAgent + '/users/' + userId)
         await this.loadAssignedUsers(this.userModalAgent)
         this.$store.toast.show('User removed')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    // --- Per-user memory (own memory for each agent) ---
+
+    async toggleMemory(a) {
+      a._showMemory = !a._showMemory
+      if (a._showMemory && !a._memoryLoaded) {
+        await this.loadMyMemory(a)
+      }
+    },
+
+    async loadMyMemory(a) {
+      try {
+        const mems = await api('GET', '/api/auth/profile/memories') || []
+        const mem = mems.find(m => m.agent_id === a.id)
+        a._memory = mem ? mem.content : ''
+        a._memoryDraft = a._memory
+        a._memoryLoaded = true
+      } catch (e) {
+        a._memory = ''
+        a._memoryDraft = ''
+        a._memoryLoaded = true
+      }
+    },
+
+    async saveMyMemory(a) {
+      try {
+        await api('PUT', '/api/auth/profile/memories/' + a.id, { content: a._memoryDraft })
+        a._memory = a._memoryDraft
+        this.$store.toast.show('Saved')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    async deleteMyMemory(a) {
+      try {
+        await api('DELETE', '/api/auth/profile/memories/' + a.id)
+        a._memory = ''
+        a._memoryDraft = ''
+        this.$store.toast.show('Deleted')
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       }
