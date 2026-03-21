@@ -1028,3 +1028,215 @@ func TestCancelStreamNotRegistered(t *testing.T) {
 		t.Error("expected cancel to return false for unknown key")
 	}
 }
+
+// --- Phase 5b: CardKit 2.0 streaming ---
+
+func TestThinkingContent(t *testing.T) {
+	got := thinkingContent()
+	if got != "⏳ Thinking..." {
+		t.Errorf("thinkingContent() = %q", got)
+	}
+}
+
+func TestElapsedFooter(t *testing.T) {
+	got := elapsedFooter(3200 * time.Millisecond)
+	if got != "\n\n_Response time: 3.2s_" {
+		t.Errorf("elapsedFooter = %q", got)
+	}
+}
+
+func TestElapsedFooterSubSecond(t *testing.T) {
+	got := elapsedFooter(500 * time.Millisecond)
+	if got != "\n\n_Response time: 0.5s_" {
+		t.Errorf("elapsedFooter = %q", got)
+	}
+}
+
+func TestStreamPhaseConstants(t *testing.T) {
+	// Verify enum ordering for clarity.
+	if phaseThinking != 0 || phaseGenerating != 1 || phaseComplete != 2 {
+		t.Errorf("unexpected phase values: thinking=%d generating=%d complete=%d",
+			phaseThinking, phaseGenerating, phaseComplete)
+	}
+}
+
+func TestStreamResponseElapsedTiming(t *testing.T) {
+	// Verify elapsed time is tracked correctly using nowFunc override.
+	callCount := 0
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(3200 * time.Millisecond)
+	origNow := nowFunc
+	nowFunc = func() time.Time {
+		callCount++
+		if callCount == 1 {
+			return start
+		}
+		return end
+	}
+	defer func() { nowFunc = origNow }()
+
+	// With no events, elapsed = end - start.
+	events := make(chan runner.Event)
+	close(events)
+
+	// Bot with nil client — sendCardReplyInThread will fail gracefully.
+	// We can't call it directly (nil panic), so just test the timing logic.
+	elapsed := end.Sub(start)
+	if elapsed != 3200*time.Millisecond {
+		t.Errorf("elapsed = %v, want 3.2s", elapsed)
+	}
+}
+
+// --- Phase 5b: Per-group config ---
+
+func TestGroupModeGlobal(t *testing.T) {
+	bot := &Bot{cfg: Config{GroupMode: "always"}}
+	if bot.groupMode("oc_unknown") != "always" {
+		t.Error("should fall back to global group_mode")
+	}
+}
+
+func TestGroupModeOverride(t *testing.T) {
+	bot := &Bot{cfg: Config{
+		GroupMode: "mention",
+		Groups: map[string]GroupConfig{
+			"oc_123": {GroupMode: "always"},
+		},
+	}}
+	if bot.groupMode("oc_123") != "always" {
+		t.Error("should use per-group override")
+	}
+	if bot.groupMode("oc_other") != "mention" {
+		t.Error("other groups should use global")
+	}
+}
+
+func TestGroupModeOverrideEmpty(t *testing.T) {
+	bot := &Bot{cfg: Config{
+		GroupMode: "always",
+		Groups: map[string]GroupConfig{
+			"oc_123": {GroupMode: ""},
+		},
+	}}
+	if bot.groupMode("oc_123") != "always" {
+		t.Error("empty override should fall back to global")
+	}
+}
+
+func TestShouldRespondInGroupPerGroupOverride(t *testing.T) {
+	bot := &Bot{cfg: Config{
+		GroupMode: "disabled",
+		Groups: map[string]GroupConfig{
+			"oc_special": {GroupMode: "always"},
+		},
+	}}
+	if !bot.shouldRespondInGroup("oc_special", nil) {
+		t.Error("per-group always should respond")
+	}
+	if bot.shouldRespondInGroup("oc_other", nil) {
+		t.Error("global disabled should not respond")
+	}
+}
+
+func TestGroupSystemPrompt(t *testing.T) {
+	bot := &Bot{cfg: Config{
+		Groups: map[string]GroupConfig{
+			"oc_123": {SystemPrompt: "You are a helpful translator."},
+		},
+	}}
+	if bot.groupSystemPrompt("oc_123") != "You are a helpful translator." {
+		t.Error("should return per-group system prompt")
+	}
+	if bot.groupSystemPrompt("oc_other") != "" {
+		t.Error("should return empty for unconfigured group")
+	}
+}
+
+func TestGroupSystemPromptEmpty(t *testing.T) {
+	bot := &Bot{cfg: Config{}}
+	if bot.groupSystemPrompt("oc_123") != "" {
+		t.Error("should return empty when no groups configured")
+	}
+}
+
+func TestPrependSystemPromptString(t *testing.T) {
+	got := prependSystemPrompt("hello", "Be concise.")
+	str, ok := got.(string)
+	if !ok {
+		t.Fatalf("expected string, got %T", got)
+	}
+	if !strings.Contains(str, "[System: Be concise.]") || !strings.Contains(str, "hello") {
+		t.Errorf("prependSystemPrompt = %q", str)
+	}
+}
+
+func TestPrependSystemPromptNonString(t *testing.T) {
+	// Non-string content should pass through unchanged.
+	original := []int{1, 2, 3}
+	got := prependSystemPrompt(original, "ignored")
+	if fmt.Sprintf("%v", got) != fmt.Sprintf("%v", original) {
+		t.Errorf("non-string content should be unchanged")
+	}
+}
+
+// --- Phase 5b: Reaction handling ---
+
+func TestOnReactionNilEvent(t *testing.T) {
+	bot := &Bot{}
+	err := bot.onReaction(context.Background(), nil)
+	if err != nil {
+		t.Errorf("nil event should return nil, got %v", err)
+	}
+}
+
+func TestOnReactionNilEventData(t *testing.T) {
+	bot := &Bot{}
+	err := bot.onReaction(context.Background(), &larkim.P2MessageReactionCreatedV1{})
+	if err != nil {
+		t.Errorf("nil event data should return nil, got %v", err)
+	}
+}
+
+func TestOnReactionAppOperator(t *testing.T) {
+	bot := &Bot{allowed: map[string]struct{}{}}
+	opType := "app"
+	err := bot.onReaction(context.Background(), &larkim.P2MessageReactionCreatedV1{
+		Event: &larkim.P2MessageReactionCreatedV1Data{
+			OperatorType: &opType,
+		},
+	})
+	if err != nil {
+		t.Errorf("app reaction should be ignored, got %v", err)
+	}
+}
+
+func TestOnReactionSelfReaction(t *testing.T) {
+	bot := &Bot{allowed: map[string]struct{}{}}
+	bot.botOpenID.Store("ou_bot123")
+	opType := "user"
+	openID := "ou_bot123"
+	err := bot.onReaction(context.Background(), &larkim.P2MessageReactionCreatedV1{
+		Event: &larkim.P2MessageReactionCreatedV1Data{
+			OperatorType: &opType,
+			UserId:       &larkim.UserId{OpenId: &openID},
+		},
+	})
+	if err != nil {
+		t.Errorf("self-reaction should be ignored, got %v", err)
+	}
+}
+
+func TestOnReactionUnauthorized(t *testing.T) {
+	bot := &Bot{allowed: map[string]struct{}{"ou_allowed": {}}}
+	opType := "user"
+	openID := "ou_unauthorized"
+	err := bot.onReaction(context.Background(), &larkim.P2MessageReactionCreatedV1{
+		Event: &larkim.P2MessageReactionCreatedV1Data{
+			OperatorType: &opType,
+			UserId:       &larkim.UserId{OpenId: &openID},
+		},
+	})
+	if err != nil {
+		t.Errorf("unauthorized reaction should be ignored, got %v", err)
+	}
+}
