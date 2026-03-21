@@ -612,4 +612,4 @@ func buildTaskMembers(raw []any) []*larktask.Member {
 
 // currentTimeMs returns the current time in Unix milliseconds.
 // Extracted as a package-level var for testability.
-var currentTimeMs = time.Now().UnixMilli
+var currentTimeMs = func() int64 { return time.Now().UnixMilli() }
