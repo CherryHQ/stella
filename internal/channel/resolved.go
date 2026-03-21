@@ -79,7 +79,15 @@ func Resolve(ctx context.Context, pm *agent.PoolManager, store config.Store, aut
 	if isGroup && chatID != "" {
 		channelCtx = "group:" + chatID
 	}
-	sessionKey := agent.BuildSessionKey(agentID, platform, senderID, channelCtx)
+
+	// Linked users in private chats share a single session across all channels.
+	// Group chats stay platform-specific since groups are inherently per-platform.
+	var sessionKey string
+	if resolved.User.ID != 0 && !isGroup {
+		sessionKey = agent.BuildUserSessionKey(agentID, resolved.User.ID, channelCtx)
+	} else {
+		sessionKey = agent.BuildSessionKey(agentID, platform, senderID, channelCtx)
+	}
 
 	return &ResolvedChat{
 		Pool:       pool,

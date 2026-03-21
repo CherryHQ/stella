@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"fmt"
+
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/memory"
 )
@@ -32,6 +34,14 @@ func (c CompactionConfig) WithDefaults() CompactionConfig {
 // Format: {agentID}:{platform}:{externalUserID}:{channelContext}
 func BuildSessionKey(agentID, platform, externalUserID, channelContext string) string {
 	return agentID + ":" + platform + ":" + externalUserID + ":" + channelContext
+}
+
+// BuildUserSessionKey constructs a session key for a linked auth user.
+// Linked users share a single session across all channels (for the same agent
+// and channel context), so the key omits the platform-specific external ID.
+// Format: {agentID}:user:{authUserID}:{channelContext}
+func BuildUserSessionKey(agentID string, authUserID int64, channelContext string) string {
+	return agentID + ":user:" + fmt.Sprintf("%d", authUserID) + ":" + channelContext
 }
 
 // SessionInfo is an alias for memory.SessionInfo.
