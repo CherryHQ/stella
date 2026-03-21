@@ -54,7 +54,7 @@ templ Layout(activePage string, pageScript string, username string, isAdmin bool
 			}
 		</style>
 	</head>
-	<body class="bg-base-100 text-base-content min-h-screen font-sans antialiased">
+	<body class="bg-base-100 text-base-content min-h-screen font-sans antialiased flex flex-col">
 		@Navbar(activePage, username, isAdmin)
 		<!-- Toast -->
 		<div
@@ -76,13 +76,13 @@ templ Layout(activePage string, pageScript string, username string, isAdmin bool
 			></div>
 		</div>
 		<!-- Main Content -->
-		<main class="max-w-6xl mx-auto px-6 py-12">
+		<main class="max-w-6xl mx-auto px-6 py-12 flex-1 w-full">
 			@content
 		</main>
 		<!-- Footer -->
-		<footer class="border-t border-base-300 mt-20">
+		<footer class="border-t border-base-300">
 			<div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-end text-[10px] font-mono opacity-50">
-				<span>anna admin</span>
+				<span>anna</span>
 			</div>
 		</footer>
 		<!-- Alpine.js ESM init -->
