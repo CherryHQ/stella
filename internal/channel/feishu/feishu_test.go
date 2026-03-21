@@ -743,3 +743,288 @@ func TestNotifyFallbackToConfig(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+// --- buildMessageContent: new message types ---
+
+func TestParseAudioContentWithDuration(t *testing.T) {
+	got := parseAudioContent(`{"file_key":"f1","duration":5000}`)
+	if got != "[Audio message, duration: 5s]" {
+		t.Errorf("parseAudioContent = %q", got)
+	}
+}
+
+func TestParseAudioContentNoDuration(t *testing.T) {
+	got := parseAudioContent(`{"file_key":"f1"}`)
+	if got != "[Audio message]" {
+		t.Errorf("parseAudioContent = %q", got)
+	}
+}
+
+func TestParseVideoContentWithDuration(t *testing.T) {
+	got := parseVideoContent(`{"file_key":"f1","duration":10000}`)
+	if got != "[Video message, duration: 10s]" {
+		t.Errorf("parseVideoContent = %q", got)
+	}
+}
+
+func TestParseVideoContentNoDuration(t *testing.T) {
+	got := parseVideoContent(`{"file_key":"f1"}`)
+	if got != "[Video message]" {
+		t.Errorf("parseVideoContent = %q", got)
+	}
+}
+
+func TestParseFileContentWithName(t *testing.T) {
+	got := parseFileContent(`{"file_key":"f1","file_name":"report.pdf"}`)
+	if got != "[File: report.pdf]" {
+		t.Errorf("parseFileContent = %q", got)
+	}
+}
+
+func TestParseFileContentNoName(t *testing.T) {
+	got := parseFileContent(`{"file_key":"f1"}`)
+	if got != "[File]" {
+		t.Errorf("parseFileContent = %q", got)
+	}
+}
+
+func TestParseStickerContent(t *testing.T) {
+	got := parseStickerContent(`{"file_key":"stk1"}`)
+	if got != "[Sticker]" {
+		t.Errorf("parseStickerContent = %q", got)
+	}
+}
+
+func TestParseLocationContentFull(t *testing.T) {
+	got := parseLocationContent(`{"name":"Office","latitude":"39.9","longitude":"116.4"}`)
+	if got != "[Location: Office (39.9, 116.4)]" {
+		t.Errorf("parseLocationContent = %q", got)
+	}
+}
+
+func TestParseLocationContentNameOnly(t *testing.T) {
+	got := parseLocationContent(`{"name":"Office"}`)
+	if got != "[Location: Office]" {
+		t.Errorf("parseLocationContent = %q", got)
+	}
+}
+
+func TestParseLocationContentEmpty(t *testing.T) {
+	got := parseLocationContent(`{}`)
+	if got != "[Location]" {
+		t.Errorf("parseLocationContent = %q", got)
+	}
+}
+
+func TestParseShareChatContent(t *testing.T) {
+	got := parseShareChatContent(`{"chat_id":"oc_abc123"}`)
+	if got != "[Shared chat: oc_abc123]" {
+		t.Errorf("parseShareChatContent = %q", got)
+	}
+}
+
+func TestParseShareChatContentEmpty(t *testing.T) {
+	got := parseShareChatContent(`{}`)
+	if got != "[Shared chat]" {
+		t.Errorf("parseShareChatContent = %q", got)
+	}
+}
+
+func TestParseShareUserContent(t *testing.T) {
+	got := parseShareUserContent(`{"user_id":"ou_xyz"}`)
+	if got != "[Shared user: ou_xyz]" {
+		t.Errorf("parseShareUserContent = %q", got)
+	}
+}
+
+func TestParseShareUserContentEmpty(t *testing.T) {
+	got := parseShareUserContent(`{}`)
+	if got != "[Shared user]" {
+		t.Errorf("parseShareUserContent = %q", got)
+	}
+}
+
+func TestParseMergeForwardContent(t *testing.T) {
+	got := parseMergeForwardContent(`{}`)
+	if got != "[Forwarded messages]" {
+		t.Errorf("parseMergeForwardContent = %q", got)
+	}
+}
+
+func TestBuildMessageContentUnsupportedType(t *testing.T) {
+	bot := &Bot{}
+	msgType := "card_action"
+	content := ""
+	msgID := "m1"
+	msg := &larkim.EventMessage{
+		MessageType: &msgType,
+		Content:     &content,
+		MessageId:   &msgID,
+	}
+	got := bot.buildMessageContent(msg)
+	str, ok := got.(string)
+	if !ok {
+		t.Fatalf("expected string, got %T", got)
+	}
+	if str != "[Unsupported message type: card_action]" {
+		t.Errorf("unsupported type = %q", str)
+	}
+}
+
+// --- extractJSONInt ---
+
+func TestExtractJSONIntValid(t *testing.T) {
+	n, ok := extractJSONInt(`{"duration":5000}`, "duration")
+	if !ok || n != 5000 {
+		t.Errorf("extractJSONInt = %d, %v", n, ok)
+	}
+}
+
+func TestExtractJSONIntMissing(t *testing.T) {
+	_, ok := extractJSONInt(`{"other":1}`, "duration")
+	if ok {
+		t.Error("expected false for missing field")
+	}
+}
+
+func TestExtractJSONIntEmpty(t *testing.T) {
+	_, ok := extractJSONInt("", "duration")
+	if ok {
+		t.Error("expected false for empty string")
+	}
+}
+
+func TestExtractJSONIntStringValue(t *testing.T) {
+	_, ok := extractJSONInt(`{"duration":"5000"}`, "duration")
+	if ok {
+		t.Error("expected false for string value")
+	}
+}
+
+// --- Thread session key ---
+
+func TestThreadChannelCtxGroup(t *testing.T) {
+	ctx, isGroup := threadChannelCtx("oc_123", "group", "")
+	if ctx != "group:oc_123" {
+		t.Errorf("channelCtx = %q, want group:oc_123", ctx)
+	}
+	if !isGroup {
+		t.Error("expected isGroup = true")
+	}
+}
+
+func TestThreadChannelCtxGroupWithThread(t *testing.T) {
+	ctx, isGroup := threadChannelCtx("oc_123", "group", "om_root1")
+	if ctx != "group:oc_123:thread:om_root1" {
+		t.Errorf("channelCtx = %q, want group:oc_123:thread:om_root1", ctx)
+	}
+	if !isGroup {
+		t.Error("expected isGroup = true")
+	}
+}
+
+func TestThreadChannelCtxPrivate(t *testing.T) {
+	ctx, isGroup := threadChannelCtx("", "p2p", "")
+	if ctx != "private" {
+		t.Errorf("channelCtx = %q, want private", ctx)
+	}
+	if isGroup {
+		t.Error("expected isGroup = false")
+	}
+}
+
+func TestThreadSessionKeyFormat(t *testing.T) {
+	got := agent.BuildSessionKey("anna", "feishu", "ou_123", "group:oc_456:thread:om_root1")
+	want := "anna:feishu:ou_123:group:oc_456:thread:om_root1"
+	if got != want {
+		t.Errorf("BuildSessionKey thread = %q, want %q", got, want)
+	}
+}
+
+func TestReplaceChannelCtxGroup(t *testing.T) {
+	key := "anna:feishu:ou_123:group:oc_456"
+	got := replaceChannelCtx(key, "group:oc_456:thread:om_root1")
+	want := "anna:feishu:ou_123:group:oc_456:thread:om_root1"
+	if got != want {
+		t.Errorf("replaceChannelCtx = %q, want %q", got, want)
+	}
+}
+
+func TestReplaceChannelCtxPrivate(t *testing.T) {
+	key := "anna:feishu:ou_123:private"
+	got := replaceChannelCtx(key, "private")
+	if got != key {
+		t.Errorf("replaceChannelCtx = %q, want %q", got, key)
+	}
+}
+
+// --- streamKey ---
+
+func TestStreamKeyNoThread(t *testing.T) {
+	got := streamKey("oc_123", "")
+	if got != "oc_123" {
+		t.Errorf("streamKey = %q", got)
+	}
+}
+
+func TestStreamKeyWithThread(t *testing.T) {
+	got := streamKey("oc_123", "om_root1")
+	if got != "oc_123:thread:om_root1" {
+		t.Errorf("streamKey = %q", got)
+	}
+}
+
+// --- isCancelText ---
+
+func TestIsCancelTextMatches(t *testing.T) {
+	tests := []struct {
+		text string
+		want bool
+	}{
+		{"cancel", true},
+		{"Cancel", true},
+		{"CANCEL", true},
+		{"stop", true},
+		{"abort", true},
+		{"取消", true},
+		{"停止", true},
+		{"  cancel  ", true},
+		{"hello", false},
+		{"cancel please", false},
+		{"", false},
+	}
+	for _, tc := range tests {
+		got := isCancelText(tc.text)
+		if got != tc.want {
+			t.Errorf("isCancelText(%q) = %v, want %v", tc.text, got, tc.want)
+		}
+	}
+}
+
+// --- cancelStream ---
+
+func TestCancelStreamRegistered(t *testing.T) {
+	bot := &Bot{activeStreams: make(map[string]context.CancelFunc)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bot.registerStream("key1", cancel)
+
+	if !bot.cancelStream("key1") {
+		t.Error("expected cancel to succeed")
+	}
+	if ctx.Err() == nil {
+		t.Error("context should be cancelled")
+	}
+
+	// Second cancel should return false.
+	if bot.cancelStream("key1") {
+		t.Error("expected second cancel to return false")
+	}
+}
+
+func TestCancelStreamNotRegistered(t *testing.T) {
+	bot := &Bot{activeStreams: make(map[string]context.CancelFunc)}
+	if bot.cancelStream("nonexistent") {
+		t.Error("expected cancel to return false for unknown key")
+	}
+}
