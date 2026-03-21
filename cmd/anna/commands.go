@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
+	lark "github.com/larksuite/oapi-sdk-go/v3"
+	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
@@ -17,6 +19,7 @@ import (
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/vaayne/anna/internal/feishutool"
 	"github.com/vaayne/anna/internal/memory"
 	memorytool "github.com/vaayne/anna/internal/memory/tool"
 	pluginmgr "github.com/vaayne/anna/internal/plugin"
@@ -123,6 +126,20 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	sharedTools = append(sharedTools,
 		memorytool.NewMemoryTool(memoryEngine, userMemoryStore),
 	)
+
+	// Feishu tools: load config early (like scheduler/memory), create client
+	// and tools if configured, so all agents have access to Feishu APIs.
+	if fsCfg := loadChannelConfig[feishuChannelConfig](store, "feishu"); fsCfg != nil && fsCfg.AppID != "" && fsCfg.AppSecret != "" {
+		larkClient := lark.NewClient(fsCfg.AppID, fsCfg.AppSecret,
+			lark.WithLogLevel(larkcore.LogLevelWarn),
+			lark.WithEnableTokenCache(true),
+		)
+		fsClient := feishutool.NewClient(larkClient)
+		sharedTools = append(sharedTools,
+			feishutool.NewUserTool(fsClient),
+		)
+		slog.Info("feishu tools loaded")
+	}
 
 	// Collect built-in tool names for plugin collision detection.
 	builtinReg := agenttool.NewRegistry("")
