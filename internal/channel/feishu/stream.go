@@ -14,6 +14,15 @@ const streamEditInterval = time.Second
 
 const typingCursor = " \u258D"
 
+// streamPhase tracks the current streaming phase.
+type streamPhase int
+
+const (
+	phaseThinking   streamPhase = iota // Initial phase before text arrives
+	phaseGenerating                    // Text is streaming
+	phaseComplete                      // Stream finished
+)
+
 var toolEmoji = map[string]string{
 	"bash":    "⚡",
 	"read":    "📖",
@@ -47,18 +56,45 @@ func toolLine(t *runner.ToolUseEvent) string {
 	}
 }
 
+// thinkingContent returns the card content for the thinking phase.
+func thinkingContent() string {
+	return "⏳ Thinking..."
+}
+
+// elapsedFooter returns the elapsed time footer line.
+func elapsedFooter(d time.Duration) string {
+	return fmt.Sprintf("\n\n_Response time: %.1fs_", d.Seconds())
+}
+
+// nowFunc is a package-level variable for testability.
+var nowFunc = time.Now
+
 // streamResponseInThread consumes the agent event stream and progressively updates
 // a reply message. Thread-aware: when rootID is non-empty, the initial card reply
 // targets the thread root.
-// When rootID is non-empty, the initial card reply targets the thread root.
-func (b *Bot) streamResponseInThread(events <-chan runner.Event, chatID, replyMsgID, rootID string) (string, string, []runner.ImageEvent, error) {
+//
+// Phases:
+//  1. Thinking: sends initial card with "Thinking..." immediately
+//  2. Generating: updates card with streaming content + cursor
+//  3. Complete: final content with elapsed time footer
+func (b *Bot) streamResponseInThread(events <-chan runner.Event, chatID, replyMsgID, rootID string) (string, string, []runner.ImageEvent, time.Duration, error) {
+	startTime := nowFunc()
 
 	var sb strings.Builder
 	var streamErr error
 	var currentTool string
 	var sentMsgID string
 	var images []runner.ImageEvent
+	phase := phaseThinking
 	lastSend := time.Time{}
+
+	// Phase 1: Send "Thinking..." card immediately.
+	msgID, err := b.sendCardReplyInThread(rootID, replyMsgID, thinkingContent())
+	if err != nil {
+		logger().Warn("thinking card failed", "error", err)
+	} else {
+		sentMsgID = msgID
+	}
 
 	for evt := range events {
 		if evt.Err != nil {
@@ -83,7 +119,12 @@ func (b *Bot) streamResponseInThread(events <-chan runner.Event, chatID, replyMs
 
 		sb.WriteString(evt.Text)
 
-		now := time.Now()
+		// Transition to generating phase once we have content.
+		if phase == phaseThinking && (strings.TrimSpace(sb.String()) != "" || currentTool != "") {
+			phase = phaseGenerating
+		}
+
+		now := nowFunc()
 		if now.Sub(lastSend) < streamEditInterval {
 			continue
 		}
@@ -93,10 +134,11 @@ func (b *Bot) streamResponseInThread(events <-chan runner.Event, chatID, replyMs
 			continue
 		}
 
+		// Phase 2: Generating — content with cursor.
 		display := buildStreamDisplay(current, currentTool)
 
 		if sentMsgID == "" {
-			// Send initial reply (thread-aware).
+			// Fallback: if thinking card failed, send now.
 			msgID, err := b.sendCardReplyInThread(rootID, replyMsgID, display)
 			if err != nil {
 				logger().Warn("stream reply failed", "error", err)
@@ -104,7 +146,6 @@ func (b *Bot) streamResponseInThread(events <-chan runner.Event, chatID, replyMs
 				sentMsgID = msgID
 			}
 		} else {
-			// Update existing message.
 			if err := b.patchMessage(sentMsgID, display); err != nil {
 				logger().Warn("stream update failed", "error", err)
 			}
@@ -112,17 +153,11 @@ func (b *Bot) streamResponseInThread(events <-chan runner.Event, chatID, replyMs
 		lastSend = now
 	}
 
-	// Final update to remove cursor.
-	if sentMsgID != "" {
-		final := sb.String()
-		if strings.TrimSpace(final) != "" {
-			if err := b.patchMessage(sentMsgID, final); err != nil {
-				logger().Warn("final update failed", "error", err)
-			}
-		}
-	}
+	// Phase 3: Complete — remove cursor (final patch is handled by handleMessage
+	// via sendFinalResponseInThread with elapsed time appended).
+	elapsed := nowFunc().Sub(startTime)
 
-	return sentMsgID, sb.String(), images, streamErr
+	return sentMsgID, sb.String(), images, elapsed, streamErr
 }
 
 // sendCardReply sends an interactive card reply and returns the new message ID.

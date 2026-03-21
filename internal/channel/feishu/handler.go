@@ -360,7 +360,7 @@ func (b *Bot) handleMessage(rc *channel.ResolvedChat, openID, chatID, messageID,
 
 	logger().Debug("message received", "open_id", openID, "session", sessionID, "root_id", rootID)
 
-	sentMsgID, response, images, streamErr := b.streamResponseInThread(events, chatID, messageID, rootID)
+	sentMsgID, response, images, elapsed, streamErr := b.streamResponseInThread(events, chatID, messageID, rootID)
 
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", sessionID, "error", streamErr)
@@ -375,7 +375,10 @@ func (b *Bot) handleMessage(rc *channel.ResolvedChat, openID, chatID, messageID,
 		response = "(empty response)"
 	}
 
-	b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, response)
+	// Append elapsed time footer to the final response.
+	finalResponse := response + elapsedFooter(elapsed)
+
+	b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, finalResponse)
 
 	for _, img := range images {
 		b.sendImageInThread(chatID, messageID, rootID, img)
