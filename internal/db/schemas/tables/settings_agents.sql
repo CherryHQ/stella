@@ -7,6 +7,7 @@ CREATE TABLE settings_agents (
     system_prompt TEXT NOT NULL DEFAULT '',
     workspace     TEXT NOT NULL,
     scope         TEXT NOT NULL DEFAULT 'system',
+    creator_id    INTEGER NOT NULL DEFAULT 0,
     enabled       INTEGER NOT NULL DEFAULT 1,
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at    TEXT NOT NULL DEFAULT (datetime('now'))

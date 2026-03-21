@@ -197,11 +197,9 @@ func TestCreateAgent(t *testing.T) {
 	env := setupAdmin(t)
 
 	body := config.Agent{
-		ID:           "coder",
 		Name:         "Coder",
 		Model:        "anthropic/claude-sonnet-4-6",
 		SystemPrompt: "You are a coding assistant.",
-		Workspace:    "/tmp/coder",
 		Enabled:      true,
 	}
 	rr := doRequest(t, env, "POST", "/api/agents", body)
@@ -209,8 +207,18 @@ func TestCreateAgent(t *testing.T) {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
 	}
 
+	// Extract auto-generated ID from response.
+	resp := parseResponse(t, rr)
+	var created config.Agent
+	if err := json.Unmarshal(resp.Data, &created); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if created.ID == "" {
+		t.Fatal("expected non-empty auto-generated ID")
+	}
+
 	// Verify via get.
-	rr = doRequest(t, env, "GET", "/api/agents/coder", nil)
+	rr = doRequest(t, env, "GET", "/api/agents/"+created.ID, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get status = %d, want %d", rr.Code, http.StatusOK)
 	}

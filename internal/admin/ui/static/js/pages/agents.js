@@ -10,13 +10,14 @@ export function register(Alpine) {
     agents: [],
     cachedModels: [],
     isAdmin: false,
+    currentUserId: 0,
     allUsers: [],
 
     showForm: false,
     editingId: null,
     form: {
-      id: '', name: '', model: '', model_strong: '', model_fast: '',
-      system_prompt: '', workspace: '', scope: 'system', enabled: true,
+      name: '', model: '', model_strong: '', model_fast: '',
+      system_prompt: '', scope: 'system', enabled: true,
     },
 
     // User assignment modal state.
@@ -40,6 +41,7 @@ export function register(Alpine) {
       try {
         const me = await api('GET', '/api/auth/me')
         this.isAdmin = me.is_admin || false
+        this.currentUserId = me.user_id || 0
         if (this.isAdmin) {
           await this.loadAllUsers()
         }
@@ -55,6 +57,10 @@ export function register(Alpine) {
       } catch (_) {
         // admin-only endpoint, silently fail for non-admins
       }
+    },
+
+    canEditAgent(a) {
+      return this.isAdmin || (a.creator_id !== 0 && a.creator_id === this.currentUserId)
     },
 
     // --- Cached models for autocomplete (no live API calls) ---
@@ -93,8 +99,8 @@ export function register(Alpine) {
 
     resetForm() {
       this.form = {
-        id: '', name: '', model: '', model_strong: '', model_fast: '',
-        system_prompt: '', workspace: '', scope: 'system', enabled: true,
+        name: '', model: '', model_strong: '', model_fast: '',
+        system_prompt: '', scope: 'system', enabled: true,
       }
       this.editingId = null
       this.showForm = false

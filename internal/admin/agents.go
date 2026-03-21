@@ -4,11 +4,27 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 )
+
+// slugify converts a name to a URL-safe agent ID.
+// "My Cool Agent" -> "my-cool-agent"
+var nonAlphaNum = regexp.MustCompile(`[^a-z0-9-]+`)
+
+func slugify(name string) string {
+	s := strings.ToLower(strings.TrimSpace(name))
+	s = nonAlphaNum.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	if s == "" {
+		return "agent"
+	}
+	return s
+}
 
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -34,29 +50,66 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	info := UserFromContext(ctx)
+
 	var a config.Agent
 	if err := decodeJSON(r, &a); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if a.ID == "" {
-		writeError(w, http.StatusBadRequest, "id is required")
-		return
-	}
 	if a.Name == "" {
-		a.Name = a.ID
-	}
-	if a.Scope == "" {
-		a.Scope = config.AgentScopeSystem
-	}
-	if a.Scope != config.AgentScopeSystem && a.Scope != config.AgentScopeRestricted {
-		writeError(w, http.StatusBadRequest, "scope must be 'system' or 'restricted'")
+		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if err := s.store.CreateAgent(r.Context(), a); err != nil {
+
+	// Auto-generate ID from name.
+	a.ID = slugify(a.Name)
+
+	// Deduplicate: if the ID already exists, append a suffix.
+	if _, err := s.store.GetAgent(ctx, a.ID); err == nil {
+		for i := 2; ; i++ {
+			candidate := fmt.Sprintf("%s-%d", a.ID, i)
+			if _, err := s.store.GetAgent(ctx, candidate); err != nil {
+				a.ID = candidate
+				break
+			}
+		}
+	}
+
+	// Workspace is always the default path — never user-supplied.
+	a.Workspace = ""
+
+	// Set creator.
+	if info != nil {
+		a.CreatorID = info.UserID
+	}
+
+	// Non-admin users always get restricted scope, auto-assigned.
+	if info != nil && !info.IsAdmin {
+		a.Scope = config.AgentScopeRestricted
+	} else {
+		if a.Scope == "" {
+			a.Scope = config.AgentScopeSystem
+		}
+		if a.Scope != config.AgentScopeSystem && a.Scope != config.AgentScopeRestricted {
+			writeError(w, http.StatusBadRequest, "scope must be 'system' or 'restricted'")
+			return
+		}
+	}
+
+	if err := s.store.CreateAgent(ctx, a); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// Auto-assign the creator if scope is restricted and user is non-admin.
+	if info != nil && !info.IsAdmin && a.Scope == config.AgentScopeRestricted {
+		if err := s.authStore.AssignAgent(ctx, info.UserID, a.ID); err != nil {
+			s.log.Error("auto-assign agent to creator", "user_id", info.UserID, "agent_id", a.ID, "error", err)
+		}
+	}
+
 	writeData(w, http.StatusCreated, a)
 }
 
@@ -83,7 +136,21 @@ func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	info := UserFromContext(ctx)
 	id := r.PathValue("id")
+
+	// Check access: admin or creator.
+	existing, err := s.store.GetAgent(ctx, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	if info != nil && !info.IsAdmin && existing.CreatorID != info.UserID {
+		writeError(w, http.StatusForbidden, "only the creator or an admin can edit this agent")
+		return
+	}
+
 	var a config.Agent
 	if err := decodeJSON(r, &a); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -93,14 +160,21 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	if a.Name == "" {
 		a.Name = id
 	}
-	if a.Scope == "" {
-		a.Scope = config.AgentScopeSystem
+
+	// Non-admin: keep scope as-is, don't allow changing it.
+	if info != nil && !info.IsAdmin {
+		a.Scope = existing.Scope
+	} else {
+		if a.Scope == "" {
+			a.Scope = config.AgentScopeSystem
+		}
+		if a.Scope != config.AgentScopeSystem && a.Scope != config.AgentScopeRestricted {
+			writeError(w, http.StatusBadRequest, "scope must be 'system' or 'restricted'")
+			return
+		}
 	}
-	if a.Scope != config.AgentScopeSystem && a.Scope != config.AgentScopeRestricted {
-		writeError(w, http.StatusBadRequest, "scope must be 'system' or 'restricted'")
-		return
-	}
-	if err := s.store.UpdateAgent(r.Context(), a); err != nil {
+
+	if err := s.store.UpdateAgent(ctx, a); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -108,8 +182,22 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	info := UserFromContext(ctx)
 	id := r.PathValue("id")
-	if err := s.store.DeleteAgent(r.Context(), id); err != nil {
+
+	// Check access: admin or creator.
+	existing, err := s.store.GetAgent(ctx, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	if info != nil && !info.IsAdmin && existing.CreatorID != info.UserID {
+		writeError(w, http.StatusForbidden, "only the creator or an admin can delete this agent")
+		return
+	}
+
+	if err := s.store.DeleteAgent(ctx, id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

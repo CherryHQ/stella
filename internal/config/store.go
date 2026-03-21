@@ -27,6 +27,7 @@ type Agent struct {
 	SystemPrompt string `json:"system_prompt"`
 	Workspace    string `json:"workspace"`
 	Scope        string `json:"scope"`
+	CreatorID    int64  `json:"creator_id"`
 	Enabled      bool   `json:"enabled"`
 }
 

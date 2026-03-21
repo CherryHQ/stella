@@ -12,25 +12,33 @@ import (
 	"github.com/vaayne/anna/internal/config"
 )
 
+// createTestAgent creates an agent via POST and returns its auto-generated ID.
+func createTestAgent(t *testing.T, env *testEnv, a config.Agent) string {
+	t.Helper()
+	rr := doRequest(t, env, "POST", "/api/agents", a)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create agent %q: status = %d (body: %s)", a.Name, rr.Code, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var created config.Agent
+	if err := json.Unmarshal(resp.Data, &created); err != nil {
+		t.Fatalf("unmarshal created agent: %v", err)
+	}
+	return created.ID
+}
+
 func TestAgentScopeInCreateAndGet(t *testing.T) {
 	env := setupAdmin(t)
 
-	// Create a restricted agent.
-	body := config.Agent{
-		ID:        "restricted-agent",
-		Name:      "Restricted",
-		Model:     "anthropic/claude-sonnet-4-6",
-		Workspace: "/tmp/restricted",
-		Scope:     "restricted",
-		Enabled:   true,
-	}
-	rr := doRequest(t, env, "POST", "/api/agents", body)
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("create status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
-	}
+	agentID := createTestAgent(t, env, config.Agent{
+		Name:    "Restricted Agent",
+		Model:   "anthropic/claude-sonnet-4-6",
+		Scope:   "restricted",
+		Enabled: true,
+	})
 
 	// Verify scope is persisted.
-	rr = doRequest(t, env, "GET", "/api/agents/restricted-agent", nil)
+	rr := doRequest(t, env, "GET", "/api/agents/"+agentID, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get status = %d, want %d", rr.Code, http.StatusOK)
 	}
@@ -67,12 +75,10 @@ func TestAgentScopeInUpdate(t *testing.T) {
 
 	// Update anna to restricted scope.
 	body := config.Agent{
-		ID:        "anna",
-		Name:      "Anna",
-		Model:     "anthropic/claude-sonnet-4-6",
-		Workspace: "/tmp/anna",
-		Scope:     "restricted",
-		Enabled:   true,
+		Name:    "Anna",
+		Model:   "anthropic/claude-sonnet-4-6",
+		Scope:   "restricted",
+		Enabled: true,
 	}
 	rr := doRequest(t, env, "PUT", "/api/agents/anna", body)
 	if rr.Code != http.StatusOK {
@@ -93,12 +99,10 @@ func TestAgentInvalidScope(t *testing.T) {
 	env := setupAdmin(t)
 
 	body := config.Agent{
-		ID:        "bad-scope",
-		Name:      "Bad",
-		Model:     "anthropic/claude-sonnet-4-6",
-		Workspace: "/tmp/bad",
-		Scope:     "invalid",
-		Enabled:   true,
+		Name:    "Bad Scope",
+		Model:   "anthropic/claude-sonnet-4-6",
+		Scope:   "invalid",
+		Enabled: true,
 	}
 	rr := doRequest(t, env, "POST", "/api/agents", body)
 	if rr.Code != http.StatusBadRequest {
@@ -110,19 +114,12 @@ func TestAgentUserAssignment(t *testing.T) {
 	env := setupAdmin(t)
 	ctx := context.Background()
 
-	// Create a restricted agent.
-	body := config.Agent{
-		ID:        "secure",
-		Name:      "Secure",
-		Model:     "anthropic/claude-sonnet-4-6",
-		Workspace: "/tmp/secure",
-		Scope:     "restricted",
-		Enabled:   true,
-	}
-	rr := doRequest(t, env, "POST", "/api/agents", body)
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("create agent: status = %d (body: %s)", rr.Code, rr.Body.String())
-	}
+	agentID := createTestAgent(t, env, config.Agent{
+		Name:    "Secure",
+		Model:   "anthropic/claude-sonnet-4-6",
+		Scope:   "restricted",
+		Enabled: true,
+	})
 
 	// Create a user to assign.
 	hash, _ := auth.HashPassword("userpassword")
@@ -132,7 +129,7 @@ func TestAgentUserAssignment(t *testing.T) {
 	}
 
 	// List users — initially empty.
-	rr = doRequest(t, env, "GET", "/api/agents/secure/users", nil)
+	rr := doRequest(t, env, "GET", "/api/agents/"+agentID+"/users", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list users: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -147,13 +144,13 @@ func TestAgentUserAssignment(t *testing.T) {
 	}
 
 	// Assign user.
-	rr = doRequest(t, env, "POST", "/api/agents/secure/users", map[string]any{"user_id": user.ID})
+	rr = doRequest(t, env, "POST", "/api/agents/"+agentID+"/users", map[string]any{"user_id": user.ID})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("assign user: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	// Verify user appears in list.
-	rr = doRequest(t, env, "GET", "/api/agents/secure/users", nil)
+	rr = doRequest(t, env, "GET", "/api/agents/"+agentID+"/users", nil)
 	resp = parseResponse(t, rr)
 	_ = json.Unmarshal(resp.Data, &users)
 	if len(users) != 1 {
@@ -167,13 +164,13 @@ func TestAgentUserAssignment(t *testing.T) {
 	}
 
 	// Remove user.
-	rr = doRequest(t, env, "DELETE", "/api/agents/secure/users/"+strconv.FormatInt(user.ID, 10), nil)
+	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/users/"+strconv.FormatInt(user.ID, 10), nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("remove user: status = %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	// Verify user removed.
-	rr = doRequest(t, env, "GET", "/api/agents/secure/users", nil)
+	rr = doRequest(t, env, "GET", "/api/agents/"+agentID+"/users", nil)
 	resp = parseResponse(t, rr)
 	_ = json.Unmarshal(resp.Data, &users)
 	if len(users) != 0 {
@@ -207,19 +204,13 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 	env := setupAdmin(t)
 	ctx := context.Background()
 
-	// Create a restricted agent.
-	body := config.Agent{
-		ID:        "private-agent",
-		Name:      "Private",
-		Model:     "anthropic/claude-sonnet-4-6",
-		Workspace: "/tmp/private",
-		Scope:     "restricted",
-		Enabled:   true,
-	}
-	rr := doRequest(t, env, "POST", "/api/agents", body)
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("create agent: status = %d (body: %s)", rr.Code, rr.Body.String())
-	}
+	// Create a restricted agent (admin creates it).
+	agentID := createTestAgent(t, env, config.Agent{
+		Name:    "Private",
+		Model:   "anthropic/claude-sonnet-4-6",
+		Scope:   "restricted",
+		Enabled: true,
+	})
 
 	// Create non-admin user.
 	hash, _ := auth.HashPassword("userpassword")
@@ -232,8 +223,8 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 		ExpiresAt: time.Now().Add(auth.SessionDuration),
 	})
 
-	// Non-admin listing agents should see "anna" (system scope) but not "private-agent".
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents", nil)
+	// Non-admin listing agents should see "anna" (system scope) but not the restricted agent.
+	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list agents: status = %d", rr.Code)
 	}
@@ -247,7 +238,7 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 		if a.ID == "anna" {
 			foundAnna = true
 		}
-		if a.ID == "private-agent" {
+		if a.ID == agentID {
 			foundPrivate = true
 		}
 	}
@@ -255,11 +246,11 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 		t.Error("expected non-admin to see system-scoped 'anna' agent")
 	}
 	if foundPrivate {
-		t.Error("non-admin should not see restricted 'private-agent'")
+		t.Error("non-admin should not see restricted agent")
 	}
 
 	// Assign user to the restricted agent.
-	_ = env.authStore.AssignAgent(ctx, user.ID, "private-agent")
+	_ = env.authStore.AssignAgent(ctx, user.ID, agentID)
 
 	// Now listing should include the assigned agent.
 	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents", nil)
@@ -268,12 +259,12 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 
 	foundPrivate = false
 	for _, a := range agents {
-		if a.ID == "private-agent" {
+		if a.ID == agentID {
 			foundPrivate = true
 		}
 	}
 	if !foundPrivate {
-		t.Error("expected assigned user to see restricted 'private-agent'")
+		t.Error("expected assigned user to see restricted agent")
 	}
 }
 
@@ -282,18 +273,12 @@ func TestNonAdminGetAgentAccessCheck(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a restricted agent.
-	body := config.Agent{
-		ID:        "secret",
-		Name:      "Secret",
-		Model:     "anthropic/claude-sonnet-4-6",
-		Workspace: "/tmp/secret",
-		Scope:     "restricted",
-		Enabled:   true,
-	}
-	rr := doRequest(t, env, "POST", "/api/agents", body)
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("create agent: status = %d (body: %s)", rr.Code, rr.Body.String())
-	}
+	agentID := createTestAgent(t, env, config.Agent{
+		Name:    "Secret",
+		Model:   "anthropic/claude-sonnet-4-6",
+		Scope:   "restricted",
+		Enabled: true,
+	})
 
 	// Create non-admin user.
 	hash, _ := auth.HashPassword("userpassword")
@@ -307,20 +292,20 @@ func TestNonAdminGetAgentAccessCheck(t *testing.T) {
 	})
 
 	// Non-admin can get system agent.
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents/anna", nil)
+	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents/anna", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get anna: status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
 	// Non-admin cannot get restricted agent they're not assigned to.
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents/secret", nil)
+	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents/"+agentID, nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("get secret: status = %d, want %d", rr.Code, http.StatusForbidden)
 	}
 
 	// Assign user, then they can access.
-	_ = env.authStore.AssignAgent(ctx, user.ID, "secret")
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents/secret", nil)
+	_ = env.authStore.AssignAgent(ctx, user.ID, agentID)
+	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/agents/"+agentID, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get secret after assign: status = %d, want %d", rr.Code, http.StatusOK)
 	}
