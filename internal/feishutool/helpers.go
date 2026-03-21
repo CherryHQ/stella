@@ -28,12 +28,48 @@ func ParseTimeToUnix(s string) (int64, error) {
 }
 
 // ParseTimeToUnixMs parses an ISO 8601 time string to Unix milliseconds.
+// Note: if the input is a raw numeric string, ParseTimeToUnix treats it as
+// seconds, so this function returns that value * 1000. If you already have
+// milliseconds as a raw string, convert directly with strconv.ParseInt.
 func ParseTimeToUnixMs(s string) (int64, error) {
 	unix, err := ParseTimeToUnix(s)
 	if err != nil {
 		return 0, err
 	}
 	return unix * 1000, nil
+}
+
+// intArg extracts an integer argument from a tool args map.
+// Returns 0 if the key is missing or not a numeric type.
+func intArg(args map[string]any, key string) int {
+	switch v := args[key].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	default:
+		return 0
+	}
+}
+
+// boolArg extracts a boolean argument from a tool args map.
+func boolArg(args map[string]any, key string) (bool, bool) {
+	v, ok := args[key].(bool)
+	return v, ok
+}
+
+// mapArg extracts a map argument from a tool args map.
+func mapArg(args map[string]any, key string) map[string]any {
+	m, _ := args[key].(map[string]any)
+	return m
+}
+
+// sliceArg extracts a slice argument from a tool args map.
+func sliceArg(args map[string]any, key string) []any {
+	s, _ := args[key].([]any)
+	return s
 }
 
 // FormatLarkError formats a Lark API error into a human-readable string.
