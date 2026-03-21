@@ -12,7 +12,7 @@ func TestAuthURL(t *testing.T) {
 		t.Fatal("AuthURL returned empty string")
 	}
 
-	expected := "https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=cli_test123&redirect_uri=https://example.com/callback&state=ou_abc"
+	expected := "https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=cli_test123&redirect_uri=https%3A%2F%2Fexample.com%2Fcallback&state=ou_abc"
 	if url != expected {
 		t.Errorf("AuthURL = %q, want %q", url, expected)
 	}
@@ -23,8 +23,8 @@ func TestAuthURLEmptyRedirect(t *testing.T) {
 	if url == "" {
 		t.Fatal("AuthURL returned empty string")
 	}
-	// Should still produce a valid URL structure.
-	expected := "https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=cli_test123&redirect_uri=&state=state123"
+	// Should still produce a valid URL structure (no redirect_uri when empty).
+	expected := "https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=cli_test123&state=state123"
 	if url != expected {
 		t.Errorf("AuthURL = %q, want %q", url, expected)
 	}
