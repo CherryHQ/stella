@@ -151,6 +151,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		fsClient.SetAppCredentials(fsCfg.AppID, fsCfg.AppSecret)
 		sharedTools = append(sharedTools,
 			feishutool.NewUserTool(fsClient),
+			feishutool.NewCalendarTool(fsClient),
+			feishutool.NewTaskTool(fsClient),
+			feishutool.NewBitableTool(fsClient),
 		)
 		slog.Info("feishu tools loaded", "uat_enabled", tokenStore != nil)
 	}
