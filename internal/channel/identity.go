@@ -22,10 +22,9 @@ type ChatContext struct {
 	IsGroup  bool
 }
 
-// ResolvedIdentity holds the resolved user and their roles.
+// ResolvedIdentity holds the resolved user.
 type ResolvedIdentity struct {
-	User  auth.AuthUser
-	Roles []string
+	User auth.AuthUser
 }
 
 // ResolveUser resolves a channel user via auth_identities.
@@ -55,12 +54,7 @@ func ResolveUser(ctx context.Context, authStore auth.AuthStore, platform, extern
 		return ResolvedIdentity{}, fmt.Errorf("account is deactivated")
 	}
 
-	roles, _ := authStore.ListUserRoles(ctx, user.ID)
-	roleIDs := make([]string, len(roles))
-	for i, r := range roles {
-		roleIDs[i] = r.ID
-	}
-	return ResolvedIdentity{User: user, Roles: roleIDs}, nil
+	return ResolvedIdentity{User: user}, nil
 }
 
 // ResolveAgent determines which agent to route to, checking access via the
@@ -77,7 +71,7 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthSt
 		assignedIDs, _ := authStore.ListUserAgentIDs(ctx, identity.User.ID)
 		subject = auth.Subject{
 			UserID:   identity.User.ID,
-			Roles:    identity.Roles,
+			Roles:    []string{identity.User.Role},
 			AgentIDs: assignedIDs,
 		}
 	}

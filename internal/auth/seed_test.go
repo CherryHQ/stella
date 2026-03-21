@@ -20,38 +20,14 @@ func setupSeedStore(t *testing.T) auth.AuthStore {
 	return appdb.NewAuthStore(db)
 }
 
-func TestSeedRolesAndPolicies(t *testing.T) {
+func TestSeedPolicies(t *testing.T) {
 	store := setupSeedStore(t)
 	ctx := context.Background()
 
-	if err := auth.SeedRolesAndPolicies(ctx, store); err != nil {
-		t.Fatalf("SeedRolesAndPolicies: %v", err)
+	if err := auth.SeedPolicies(ctx, store); err != nil {
+		t.Fatalf("SeedPolicies: %v", err)
 	}
 
-	// Check roles.
-	roles, err := store.ListRoles(ctx)
-	if err != nil {
-		t.Fatalf("ListRoles: %v", err)
-	}
-	if len(roles) != 2 {
-		t.Errorf("expected 2 roles, got %d", len(roles))
-	}
-
-	roleIDs := make(map[string]bool)
-	for _, r := range roles {
-		roleIDs[r.ID] = true
-		if !r.IsSystem {
-			t.Errorf("role %q should be system", r.ID)
-		}
-	}
-	if !roleIDs["admin"] {
-		t.Error("missing admin role")
-	}
-	if !roleIDs["user"] {
-		t.Error("missing user role")
-	}
-
-	// Check policies.
 	policies, err := store.ListEnabledPolicies(ctx)
 	if err != nil {
 		t.Fatalf("ListEnabledPolicies: %v", err)
@@ -82,23 +58,17 @@ func TestSeedRolesAndPolicies(t *testing.T) {
 	}
 }
 
-func TestSeedRolesAndPolicies_Idempotent(t *testing.T) {
+func TestSeedPolicies_Idempotent(t *testing.T) {
 	store := setupSeedStore(t)
 	ctx := context.Background()
 
-	// Seed twice — should not error.
-	if err := auth.SeedRolesAndPolicies(ctx, store); err != nil {
+	if err := auth.SeedPolicies(ctx, store); err != nil {
 		t.Fatalf("first seed: %v", err)
 	}
-	if err := auth.SeedRolesAndPolicies(ctx, store); err != nil {
+	if err := auth.SeedPolicies(ctx, store); err != nil {
 		t.Fatalf("second seed should be idempotent: %v", err)
 	}
 
-	// Still only 2 roles and 9 policies.
-	roles, _ := store.ListRoles(ctx)
-	if len(roles) != 2 {
-		t.Errorf("expected 2 roles after double seed, got %d", len(roles))
-	}
 	policies, _ := store.ListEnabledPolicies(ctx)
 	if len(policies) != 9 {
 		t.Errorf("expected 9 policies after double seed, got %d", len(policies))
@@ -109,8 +79,8 @@ func TestNewEngine_WithSeededPolicies(t *testing.T) {
 	store := setupSeedStore(t)
 	ctx := context.Background()
 
-	if err := auth.SeedRolesAndPolicies(ctx, store); err != nil {
-		t.Fatalf("SeedRolesAndPolicies: %v", err)
+	if err := auth.SeedPolicies(ctx, store); err != nil {
+		t.Fatalf("SeedPolicies: %v", err)
 	}
 
 	engine, err := auth.NewEngine(ctx, store)
@@ -118,7 +88,6 @@ func TestNewEngine_WithSeededPolicies(t *testing.T) {
 		t.Fatalf("NewEngine: %v", err)
 	}
 
-	// Admin can manage anything.
 	if !engine.Can(ctx, auth.AccessRequest{
 		Subject:  auth.Subject{UserID: 1, Roles: []string{"admin"}},
 		Action:   auth.ActionManage,
@@ -127,7 +96,6 @@ func TestNewEngine_WithSeededPolicies(t *testing.T) {
 		t.Error("admin should have full access from seeded policies")
 	}
 
-	// Regular user cannot manage settings.
 	if engine.Can(ctx, auth.AccessRequest{
 		Subject:  auth.Subject{UserID: 2, Roles: []string{"user"}},
 		Action:   auth.ActionManage,

@@ -24,7 +24,7 @@ func (q *Queries) CountAuthUsers(ctx context.Context) (int64, error) {
 const createAuthUser = `-- name: CreateAuthUser :one
 INSERT INTO auth_users (username, password_hash)
 VALUES (?, ?)
-RETURNING id, username, password_hash, is_active, default_agent_id, created_at, updated_at
+RETURNING id, username, password_hash, role, is_active, default_agent_id, created_at, updated_at
 `
 
 type CreateAuthUserParams struct {
@@ -39,6 +39,7 @@ func (q *Queries) CreateAuthUser(ctx context.Context, arg CreateAuthUserParams) 
 		&i.ID,
 		&i.Username,
 		&i.PasswordHash,
+		&i.Role,
 		&i.IsActive,
 		&i.DefaultAgentID,
 		&i.CreatedAt,
@@ -57,7 +58,7 @@ func (q *Queries) DeleteAuthUser(ctx context.Context, id int64) error {
 }
 
 const getAuthUser = `-- name: GetAuthUser :one
-SELECT id, username, password_hash, is_active, default_agent_id, created_at, updated_at FROM auth_users WHERE id = ?
+SELECT id, username, password_hash, role, is_active, default_agent_id, created_at, updated_at FROM auth_users WHERE id = ?
 `
 
 func (q *Queries) GetAuthUser(ctx context.Context, id int64) (AuthUser, error) {
@@ -67,6 +68,7 @@ func (q *Queries) GetAuthUser(ctx context.Context, id int64) (AuthUser, error) {
 		&i.ID,
 		&i.Username,
 		&i.PasswordHash,
+		&i.Role,
 		&i.IsActive,
 		&i.DefaultAgentID,
 		&i.CreatedAt,
@@ -76,7 +78,7 @@ func (q *Queries) GetAuthUser(ctx context.Context, id int64) (AuthUser, error) {
 }
 
 const getAuthUserByUsername = `-- name: GetAuthUserByUsername :one
-SELECT id, username, password_hash, is_active, default_agent_id, created_at, updated_at FROM auth_users WHERE username = ?
+SELECT id, username, password_hash, role, is_active, default_agent_id, created_at, updated_at FROM auth_users WHERE username = ?
 `
 
 func (q *Queries) GetAuthUserByUsername(ctx context.Context, username string) (AuthUser, error) {
@@ -86,6 +88,7 @@ func (q *Queries) GetAuthUserByUsername(ctx context.Context, username string) (A
 		&i.ID,
 		&i.Username,
 		&i.PasswordHash,
+		&i.Role,
 		&i.IsActive,
 		&i.DefaultAgentID,
 		&i.CreatedAt,
@@ -95,7 +98,7 @@ func (q *Queries) GetAuthUserByUsername(ctx context.Context, username string) (A
 }
 
 const listAuthUsers = `-- name: ListAuthUsers :many
-SELECT id, username, password_hash, is_active, default_agent_id, created_at, updated_at FROM auth_users ORDER BY username
+SELECT id, username, password_hash, role, is_active, default_agent_id, created_at, updated_at FROM auth_users ORDER BY username
 `
 
 func (q *Queries) ListAuthUsers(ctx context.Context) ([]AuthUser, error) {
@@ -111,6 +114,7 @@ func (q *Queries) ListAuthUsers(ctx context.Context) ([]AuthUser, error) {
 			&i.ID,
 			&i.Username,
 			&i.PasswordHash,
+			&i.Role,
 			&i.IsActive,
 			&i.DefaultAgentID,
 			&i.CreatedAt,
@@ -169,5 +173,22 @@ type UpdateAuthUserDefaultAgentParams struct {
 
 func (q *Queries) UpdateAuthUserDefaultAgent(ctx context.Context, arg UpdateAuthUserDefaultAgentParams) error {
 	_, err := q.db.ExecContext(ctx, updateAuthUserDefaultAgent, arg.DefaultAgentID, arg.ID)
+	return err
+}
+
+const updateAuthUserRole = `-- name: UpdateAuthUserRole :exec
+UPDATE auth_users SET
+    role = ?,
+    updated_at = datetime('now')
+WHERE id = ?
+`
+
+type UpdateAuthUserRoleParams struct {
+	Role string `json:"role"`
+	ID   int64  `json:"id"`
+}
+
+func (q *Queries) UpdateAuthUserRole(ctx context.Context, arg UpdateAuthUserRoleParams) error {
+	_, err := q.db.ExecContext(ctx, updateAuthUserRole, arg.Role, arg.ID)
 	return err
 }

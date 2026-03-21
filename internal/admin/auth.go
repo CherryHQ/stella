@@ -76,11 +76,10 @@ func (s *Server) registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Assign roles.
+	// First user gets admin role.
 	if isFirstUser {
-		_ = s.authStore.AssignRole(ctx, user.ID, auth.RoleAdmin)
+		_ = s.authStore.UpdateUserRole(ctx, user.ID, auth.RoleAdmin)
 	}
-	_ = s.authStore.AssignRole(ctx, user.ID, auth.RoleUser)
 
 	// Create session.
 	sessionID := auth.NewSessionID()
@@ -198,7 +197,7 @@ func (s *Server) meHandler(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, map[string]any{
 		"id":       info.UserID,
 		"username": info.Username,
-		"roles":    info.Roles,
+		"role":     info.Role,
 		"is_admin": info.IsAdmin,
 	})
 }

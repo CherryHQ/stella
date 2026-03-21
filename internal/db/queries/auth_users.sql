@@ -20,6 +20,12 @@ UPDATE auth_users SET
     updated_at = datetime('now')
 WHERE id = ?;
 
+-- name: UpdateAuthUserRole :exec
+UPDATE auth_users SET
+    role = ?,
+    updated_at = datetime('now')
+WHERE id = ?;
+
 -- name: UpdateAuthUserDefaultAgent :exec
 UPDATE auth_users SET
     default_agent_id = ?,

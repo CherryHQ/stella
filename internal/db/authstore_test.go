@@ -124,93 +124,34 @@ func TestUserDuplicateUsername(t *testing.T) {
 	}
 }
 
-func TestRoleCRUD(t *testing.T) {
-	t.Parallel()
-	store, _ := setupAuthStore(t)
-	ctx := context.Background()
-
-	role, err := store.CreateRole(ctx, auth.Role{
-		ID: "admin", Name: "Admin", Description: "Full access", IsSystem: true,
-	})
-	if err != nil {
-		t.Fatalf("CreateRole: %v", err)
-	}
-	if role.ID != "admin" || !role.IsSystem {
-		t.Errorf("CreateRole = %+v", role)
-	}
-
-	got, err := store.GetRole(ctx, "admin")
-	if err != nil {
-		t.Fatalf("GetRole: %v", err)
-	}
-	if got.Name != "Admin" {
-		t.Errorf("GetRole name = %q", got.Name)
-	}
-
-	roles, err := store.ListRoles(ctx)
-	if err != nil {
-		t.Fatalf("ListRoles: %v", err)
-	}
-	if len(roles) != 1 {
-		t.Errorf("ListRoles = %d roles", len(roles))
-	}
-
-	got.Name = "Administrator"
-	got.Description = "Updated"
-	if err := store.UpdateRole(ctx, got); err != nil {
-		t.Fatalf("UpdateRole: %v", err)
-	}
-	updated, _ := store.GetRole(ctx, "admin")
-	if updated.Name != "Administrator" {
-		t.Errorf("after update name = %q", updated.Name)
-	}
-
-	if err := store.DeleteRole(ctx, "admin"); err != nil {
-		t.Fatalf("DeleteRole: %v", err)
-	}
-	_, err = store.GetRole(ctx, "admin")
-	if err == nil {
-		t.Error("expected error after delete")
-	}
-}
-
-func TestUserRoleAssignment(t *testing.T) {
+func TestUserRole(t *testing.T) {
 	t.Parallel()
 	store, _ := setupAuthStore(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUser(ctx, "carol", "hash")
-	_, _ = store.CreateRole(ctx, auth.Role{ID: "admin", Name: "Admin"})
-	_, _ = store.CreateRole(ctx, auth.Role{ID: "user", Name: "User"})
 
-	// Assign.
-	if err := store.AssignRole(ctx, user.ID, "admin"); err != nil {
-		t.Fatalf("AssignRole: %v", err)
-	}
-	if err := store.AssignRole(ctx, user.ID, "user"); err != nil {
-		t.Fatalf("AssignRole user: %v", err)
+	// Default role is "user".
+	if user.Role != auth.RoleUser {
+		t.Errorf("default role = %q, want %q", user.Role, auth.RoleUser)
 	}
 
-	// Idempotent assign.
-	if err := store.AssignRole(ctx, user.ID, "admin"); err != nil {
-		t.Fatalf("duplicate AssignRole: %v", err)
+	// Promote to admin.
+	if err := store.UpdateUserRole(ctx, user.ID, auth.RoleAdmin); err != nil {
+		t.Fatalf("UpdateUserRole: %v", err)
+	}
+	got, _ := store.GetUser(ctx, user.ID)
+	if got.Role != auth.RoleAdmin {
+		t.Errorf("after promote role = %q, want %q", got.Role, auth.RoleAdmin)
 	}
 
-	roles, err := store.ListUserRoles(ctx, user.ID)
-	if err != nil {
-		t.Fatalf("ListUserRoles: %v", err)
+	// Demote back to user.
+	if err := store.UpdateUserRole(ctx, user.ID, auth.RoleUser); err != nil {
+		t.Fatalf("UpdateUserRole: %v", err)
 	}
-	if len(roles) != 2 {
-		t.Errorf("ListUserRoles = %d roles, want 2", len(roles))
-	}
-
-	// Remove.
-	if err := store.RemoveRole(ctx, user.ID, "admin"); err != nil {
-		t.Fatalf("RemoveRole: %v", err)
-	}
-	roles, _ = store.ListUserRoles(ctx, user.ID)
-	if len(roles) != 1 || roles[0].ID != "user" {
-		t.Errorf("after remove = %+v", roles)
+	got, _ = store.GetUser(ctx, user.ID)
+	if got.Role != auth.RoleUser {
+		t.Errorf("after demote role = %q, want %q", got.Role, auth.RoleUser)
 	}
 }
 
@@ -506,8 +447,6 @@ func TestCascadeDeleteUser(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateUser(ctx, "jack", "hash")
-	_, _ = store.CreateRole(ctx, auth.Role{ID: "user", Name: "User"})
-	_ = store.AssignRole(ctx, user.ID, "user")
 	_, _ = store.CreateIdentity(ctx, auth.Identity{
 		UserID: user.ID, Platform: "qq", ExternalID: "qq-1",
 	})
@@ -519,11 +458,6 @@ func TestCascadeDeleteUser(t *testing.T) {
 	// Delete user should cascade.
 	if err := store.DeleteUser(ctx, user.ID); err != nil {
 		t.Fatalf("DeleteUser: %v", err)
-	}
-
-	roles, _ := store.ListUserRoles(ctx, user.ID)
-	if len(roles) != 0 {
-		t.Error("roles should be cascade deleted")
 	}
 
 	identities, _ := store.ListIdentitiesByUser(ctx, user.ID)

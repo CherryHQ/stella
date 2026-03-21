@@ -9,22 +9,6 @@ import (
 	"strings"
 )
 
-// builtinRoles defines the system roles seeded on bootstrap.
-var builtinRoles = []Role{
-	{
-		ID:          RoleAdmin,
-		Name:        "Admin",
-		Description: "Full system access",
-		IsSystem:    true,
-	},
-	{
-		ID:          RoleUser,
-		Name:        "User",
-		Description: "Standard user with scoped access",
-		IsSystem:    true,
-	},
-}
-
 // builtinPolicies defines the system policies seeded on bootstrap.
 var builtinPolicies = []Policy{
 	{
@@ -137,21 +121,9 @@ var builtinPolicies = []Policy{
 	},
 }
 
-// SeedRolesAndPolicies ensures the built-in roles and policies exist in the
-// store. It uses an idempotent pattern: existing entries are skipped.
-func SeedRolesAndPolicies(ctx context.Context, store AuthStore) error {
-	for _, role := range builtinRoles {
-		if _, err := store.CreateRole(ctx, role); err != nil {
-			// If the role already exists (unique constraint), skip it.
-			if isAlreadyExists(err) {
-				slog.Debug("auth seed: role already exists", "role_id", role.ID)
-				continue
-			}
-			return fmt.Errorf("seed role %q: %w", role.ID, err)
-		}
-		slog.Info("auth seed: created role", "role_id", role.ID)
-	}
-
+// SeedPolicies ensures the built-in policies exist in the store.
+// It uses an idempotent pattern: existing entries are skipped.
+func SeedPolicies(ctx context.Context, store AuthStore) error {
 	for _, policy := range builtinPolicies {
 		if _, err := store.CreatePolicy(ctx, policy); err != nil {
 			if isAlreadyExists(err) {

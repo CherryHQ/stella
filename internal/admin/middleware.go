@@ -16,10 +16,10 @@ const authInfoKey contextKey = "authInfo"
 
 // AuthInfo carries authenticated user data through request context.
 type AuthInfo struct {
-	UserID   int64    `json:"user_id"`
-	Username string   `json:"username"`
-	Roles    []string `json:"roles"`
-	IsAdmin  bool     `json:"is_admin"`
+	UserID   int64  `json:"user_id"`
+	Username string `json:"username"`
+	Role     string `json:"role"`
+	IsAdmin  bool   `json:"is_admin"`
 }
 
 // UserFromContext extracts the AuthInfo from a request context.
@@ -97,28 +97,11 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Load roles.
-		roles, err := s.authStore.ListUserRoles(ctx, user.ID)
-		if err != nil {
-			s.log.Error("load user roles", "user_id", user.ID, "error", err)
-			s.denyAccess(w, r)
-			return
-		}
-
-		roleIDs := make([]string, len(roles))
-		isAdmin := false
-		for i, role := range roles {
-			roleIDs[i] = role.ID
-			if role.ID == auth.RoleAdmin {
-				isAdmin = true
-			}
-		}
-
 		info := &AuthInfo{
 			UserID:   user.ID,
 			Username: user.Username,
-			Roles:    roleIDs,
-			IsAdmin:  isAdmin,
+			Role:     user.Role,
+			IsAdmin:  user.IsAdmin(),
 		}
 
 		next.ServeHTTP(w, r.WithContext(withAuthInfo(ctx, info)))

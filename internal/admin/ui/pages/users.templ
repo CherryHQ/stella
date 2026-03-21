@@ -33,13 +33,11 @@ templ UsersPage() {
 									x-text="u.username"
 								></button>
 								<span class="text-xs font-mono text-secondary" x-text="'#' + u.id"></span>
-								<template x-for="role in u.roles" :key="role">
-									<span
+								<span
 										class="badge badge-sm"
-										:class="role === 'admin' ? 'badge-primary' : 'badge-ghost'"
-										x-text="role"
+										:class="u.role === 'admin' ? 'badge-primary' : 'badge-ghost'"
+										x-text="u.role"
 									></span>
-								</template>
 								<span
 									x-show="!u.is_active"
 									class="badge badge-sm badge-error"
@@ -86,30 +84,28 @@ templ UsersPage() {
 							x-text="selectedUser?.is_active ? 'Deactivate' : 'Activate'"
 						></button>
 					</div>
-					<!-- Roles Section -->
+					<!-- Role Section -->
 					<div class="mb-4">
-						<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2">Roles</p>
-						<div class="flex items-center gap-2 flex-wrap">
-							<template x-for="role in selectedUser?.roles || []" :key="role">
-								<span
-									class="badge"
-									:class="role === 'admin' ? 'badge-primary' : 'badge-ghost'"
-									x-text="role"
-								></span>
-							</template>
-							<template x-if="selectedUser && !selectedUser.roles?.includes('admin')">
+						<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2">Role</p>
+						<div class="flex items-center gap-2">
+							<span
+								class="badge"
+								:class="selectedUser?.role === 'admin' ? 'badge-primary' : 'badge-ghost'"
+								x-text="selectedUser?.role"
+							></span>
+							<template x-if="selectedUser && selectedUser.role !== 'admin'">
 								<button
-									@click="toggleAdminRole('assign')"
+									@click="setRole('admin')"
 									class="btn btn-ghost btn-xs text-primary"
-								>+ admin</button>
+								>promote to admin</button>
 							</template>
-							<template x-if="selectedUser && selectedUser.roles?.includes('admin')">
+							<template x-if="selectedUser && selectedUser.role === 'admin'">
 								<button
-									@click="toggleAdminRole('remove')"
+									@click="setRole('user')"
 									class="btn btn-ghost btn-xs text-error"
 									:disabled="selectedUser?.id === currentUserId"
-									:title="selectedUser?.id === currentUserId ? 'Cannot remove own admin role' : ''"
-								>- admin</button>
+									:title="selectedUser?.id === currentUserId ? 'Cannot demote yourself' : ''"
+								>demote to user</button>
 							</template>
 						</div>
 					</div>
