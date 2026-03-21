@@ -55,6 +55,19 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		return nil
 	}
 
+	// Check for abort/cancel before processing the message.
+	rawText := parseTextContent(derefStr(msg.Content))
+	if chatType == "group" {
+		rawText = stripMentions(rawText, mentions)
+	}
+	if isCancelText(rawText) {
+		key := streamKey(chatID, rootID)
+		if b.cancelStream(key) {
+			b.replyInThread(b.ctx, messageID, rootID, "Cancelled.")
+		}
+		return nil
+	}
+
 	content := b.buildMessageContent(msg)
 	if content == nil {
 		return nil
@@ -326,8 +339,15 @@ func parseTextContent(raw string) string {
 
 // handleMessage processes an incoming message by streaming the agent response.
 func (b *Bot) handleMessage(rc *channel.ResolvedChat, openID, chatID, messageID, rootID string, content runner.MessageContent) {
+	// Create cancellable context for abort support.
+	ctx, cancel := context.WithCancel(b.ctx)
+	key := streamKey(chatID, rootID)
+	b.registerStream(key, cancel)
+	defer b.unregisterStream(key)
+	defer cancel()
+
 	// Inject Feishu context so tools can access open_id, chat_id, message_id.
-	ctx := feishutool.WithOpenID(b.ctx, openID)
+	ctx = feishutool.WithOpenID(ctx, openID)
 	ctx = feishutool.WithChatID(ctx, chatID)
 	ctx = feishutool.WithMessageID(ctx, messageID)
 

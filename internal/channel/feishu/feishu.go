@@ -62,9 +62,10 @@ type Bot struct {
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
 
-	mu         sync.RWMutex
-	chatModels map[string]ModelOption
-	seenMsgs   map[string]time.Time // message ID -> first seen time
+	mu            sync.RWMutex
+	chatModels    map[string]ModelOption
+	seenMsgs      map[string]time.Time          // message ID -> first seen time
+	activeStreams map[string]context.CancelFunc // streamKey -> cancel func
 
 	allowed map[string]struct{}
 	cfg     Config
@@ -110,15 +111,16 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn ModelList
 	}
 
 	b := &Bot{
-		poolManager: pm,
-		store:       store,
-		agentCmd:    channel.NewAgentCommander(store, nil),
-		listFn:      listFn,
-		switchFn:    switchFn,
-		chatModels:  make(map[string]ModelOption),
-		seenMsgs:    make(map[string]time.Time),
-		allowed:     allowed,
-		cfg:         cfg,
+		poolManager:   pm,
+		store:         store,
+		agentCmd:      channel.NewAgentCommander(store, nil),
+		listFn:        listFn,
+		switchFn:      switchFn,
+		chatModels:    make(map[string]ModelOption),
+		seenMsgs:      make(map[string]time.Time),
+		activeStreams: make(map[string]context.CancelFunc),
+		allowed:       allowed,
+		cfg:           cfg,
 	}
 
 	for _, opt := range opts {
@@ -343,6 +345,57 @@ func (b *Bot) markSeen(messageID string) bool {
 	}
 	b.seenMsgs[messageID] = now
 	return false
+}
+
+// cancelPatterns lists the text patterns that trigger abort.
+var cancelPatterns = []string{"cancel", "stop", "abort", "取消", "停止"}
+
+// isCancelText returns true if the text matches a cancel pattern.
+func isCancelText(text string) bool {
+	t := strings.TrimSpace(strings.ToLower(text))
+	for _, p := range cancelPatterns {
+		if t == p {
+			return true
+		}
+	}
+	return false
+}
+
+// streamKey builds a key for the activeStreams map.
+// For threads, uses chatID:thread:rootID; otherwise just chatID.
+func streamKey(chatID, rootID string) string {
+	if rootID != "" {
+		return chatID + ":thread:" + rootID
+	}
+	return chatID
+}
+
+// registerStream registers a cancel function for an active stream.
+func (b *Bot) registerStream(key string, cancel context.CancelFunc) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.activeStreams[key] = cancel
+}
+
+// unregisterStream removes a stream from the active streams map.
+func (b *Bot) unregisterStream(key string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.activeStreams, key)
+}
+
+// cancelStream cancels an active stream if one exists. Returns true if cancelled.
+func (b *Bot) cancelStream(key string) bool {
+	b.mu.Lock()
+	cancel, ok := b.activeStreams[key]
+	if ok {
+		delete(b.activeStreams, key)
+	}
+	b.mu.Unlock()
+	if ok {
+		cancel()
+	}
+	return ok
 }
 
 // stripMentions removes @mention placeholders from message text.
