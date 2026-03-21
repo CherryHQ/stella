@@ -164,6 +164,7 @@ type SettingsAgent struct {
 	SystemPrompt string `json:"system_prompt"`
 	Workspace    string `json:"workspace"`
 	Scope        string `json:"scope"`
+	CreatorID    int64  `json:"creator_id"`
 	Enabled      int64  `json:"enabled"`
 	CreatedAt    string `json:"created_at"`
 	UpdatedAt    string `json:"updated_at"`

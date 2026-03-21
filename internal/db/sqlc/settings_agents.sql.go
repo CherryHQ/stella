@@ -10,9 +10,9 @@ import (
 )
 
 const createAgent = `-- name: CreateAgent :one
-INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, enabled)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, name, model, model_strong, model_fast, system_prompt, workspace, scope, enabled, created_at, updated_at
+INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled, created_at, updated_at
 `
 
 type CreateAgentParams struct {
@@ -24,6 +24,7 @@ type CreateAgentParams struct {
 	SystemPrompt string `json:"system_prompt"`
 	Workspace    string `json:"workspace"`
 	Scope        string `json:"scope"`
+	CreatorID    int64  `json:"creator_id"`
 	Enabled      int64  `json:"enabled"`
 }
 
@@ -37,6 +38,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Setti
 		arg.SystemPrompt,
 		arg.Workspace,
 		arg.Scope,
+		arg.CreatorID,
 		arg.Enabled,
 	)
 	var i SettingsAgent
@@ -49,6 +51,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Setti
 		&i.SystemPrompt,
 		&i.Workspace,
 		&i.Scope,
+		&i.CreatorID,
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -66,7 +69,7 @@ func (q *Queries) DeleteAgent(ctx context.Context, id string) error {
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, name, model, model_strong, model_fast, system_prompt, workspace, scope, enabled, created_at, updated_at FROM settings_agents WHERE id = ?
+SELECT id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled, created_at, updated_at FROM settings_agents WHERE id = ?
 `
 
 func (q *Queries) GetAgent(ctx context.Context, id string) (SettingsAgent, error) {
@@ -81,6 +84,7 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (SettingsAgent, error
 		&i.SystemPrompt,
 		&i.Workspace,
 		&i.Scope,
+		&i.CreatorID,
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -89,7 +93,7 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (SettingsAgent, error
 }
 
 const listAgents = `-- name: ListAgents :many
-SELECT id, name, model, model_strong, model_fast, system_prompt, workspace, scope, enabled, created_at, updated_at FROM settings_agents ORDER BY name
+SELECT id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled, created_at, updated_at FROM settings_agents ORDER BY name
 `
 
 func (q *Queries) ListAgents(ctx context.Context) ([]SettingsAgent, error) {
@@ -110,6 +114,7 @@ func (q *Queries) ListAgents(ctx context.Context) ([]SettingsAgent, error) {
 			&i.SystemPrompt,
 			&i.Workspace,
 			&i.Scope,
+			&i.CreatorID,
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -128,7 +133,7 @@ func (q *Queries) ListAgents(ctx context.Context) ([]SettingsAgent, error) {
 }
 
 const listEnabledAgents = `-- name: ListEnabledAgents :many
-SELECT id, name, model, model_strong, model_fast, system_prompt, workspace, scope, enabled, created_at, updated_at FROM settings_agents WHERE enabled = 1 ORDER BY name
+SELECT id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled, created_at, updated_at FROM settings_agents WHERE enabled = 1 ORDER BY name
 `
 
 func (q *Queries) ListEnabledAgents(ctx context.Context) ([]SettingsAgent, error) {
@@ -149,6 +154,7 @@ func (q *Queries) ListEnabledAgents(ctx context.Context) ([]SettingsAgent, error
 			&i.SystemPrompt,
 			&i.Workspace,
 			&i.Scope,
+			&i.CreatorID,
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
