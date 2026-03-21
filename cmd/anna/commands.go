@@ -56,7 +56,8 @@ type setupResult struct {
 	extraTools   []agenttool.Tool
 	notifier     *channel.Dispatcher
 	pluginMgr    *pluginmgr.Manager
-	cliUserID    int64 // resolved CLI user for session creation
+	fsClient     *feishutool.Client // feishu client for OAuth (nil if not configured)
+	cliUserID    int64              // resolved CLI user for session creation
 }
 
 func setup(parent context.Context, gateway bool) (*setupResult, error) {
@@ -129,16 +130,29 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	// Feishu tools: load config early (like scheduler/memory), create client
 	// and tools if configured, so all agents have access to Feishu APIs.
+	var fsClient *feishutool.Client
 	if fsCfg := loadChannelConfig[feishuChannelConfig](store, "feishu"); fsCfg != nil && fsCfg.AppID != "" && fsCfg.AppSecret != "" {
+		// Create token store for UAT token management.
+		tokenStore, tsErr := feishutool.NewSQLiteTokenStore(db, fsCfg.AppSecret)
+		if tsErr != nil {
+			slog.Warn("feishu token store creation failed, UAT disabled", "error", tsErr)
+		}
+
+		var clientOpts []feishutool.ClientOption
+		if tokenStore != nil {
+			clientOpts = append(clientOpts, feishutool.WithTokenStore(tokenStore))
+		}
+
 		larkClient := lark.NewClient(fsCfg.AppID, fsCfg.AppSecret,
 			lark.WithLogLevel(larkcore.LogLevelWarn),
 			lark.WithEnableTokenCache(true),
 		)
-		fsClient := feishutool.NewClient(larkClient)
+		fsClient = feishutool.NewClient(larkClient, clientOpts...)
+		fsClient.SetAppCredentials(fsCfg.AppID, fsCfg.AppSecret)
 		sharedTools = append(sharedTools,
 			feishutool.NewUserTool(fsClient),
 		)
-		slog.Info("feishu tools loaded")
+		slog.Info("feishu tools loaded", "uat_enabled", tokenStore != nil)
 	}
 
 	// Collect built-in tool names for plugin collision detection.
@@ -230,6 +244,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		extraTools:   sharedTools,
 		notifier:     dispatcher,
 		pluginMgr:    pm,
+		fsClient:     fsClient,
 		cliUserID:    cliUserID,
 	}, nil
 }
