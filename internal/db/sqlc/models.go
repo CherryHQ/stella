@@ -31,14 +31,6 @@ type AuthPolicy struct {
 	CreatedAt  string `json:"created_at"`
 }
 
-type AuthRole struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	IsSystem    int64  `json:"is_system"`
-	CreatedAt   string `json:"created_at"`
-}
-
 type AuthSession struct {
 	ID        string `json:"id"`
 	UserID    int64  `json:"user_id"`
@@ -50,6 +42,7 @@ type AuthUser struct {
 	ID             int64          `json:"id"`
 	Username       string         `json:"username"`
 	PasswordHash   string         `json:"password_hash"`
+	Role           string         `json:"role"`
 	IsActive       int64          `json:"is_active"`
 	DefaultAgentID sql.NullString `json:"default_agent_id"`
 	CreatedAt      string         `json:"created_at"`
@@ -59,11 +52,6 @@ type AuthUser struct {
 type AuthUserAgent struct {
 	UserID  int64  `json:"user_id"`
 	AgentID string `json:"agent_id"`
-}
-
-type AuthUserRole struct {
-	UserID int64  `json:"user_id"`
-	RoleID string `json:"role_id"`
 }
 
 type CtxAgentMemory struct {

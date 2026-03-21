@@ -7,20 +7,15 @@ type AuthUser struct {
 	ID             int64     `json:"id"`
 	Username       string    `json:"username"`
 	PasswordHash   string    `json:"-"`
+	Role           string    `json:"role"`
 	IsActive       bool      `json:"is_active"`
 	DefaultAgentID string    `json:"default_agent_id,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
-// Role represents an extensible role (e.g., admin, user).
-type Role struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	IsSystem    bool      `json:"is_system"`
-	CreatedAt   time.Time `json:"created_at"`
-}
+// IsAdmin returns true if the user has the admin role.
+func (u AuthUser) IsAdmin() bool { return u.Role == RoleAdmin }
 
 // Policy represents an ABAC policy with JSON conditions.
 type Policy struct {

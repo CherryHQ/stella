@@ -40,8 +40,8 @@ func setupAdmin(t *testing.T) *testEnv {
 	}
 
 	as := appdb.NewAuthStore(db)
-	if err := auth.SeedRolesAndPolicies(context.Background(), as); err != nil {
-		t.Fatalf("SeedRolesAndPolicies: %v", err)
+	if err := auth.SeedPolicies(context.Background(), as); err != nil {
+		t.Fatalf("SeedPolicies: %v", err)
 	}
 
 	engine, err := auth.NewEngine(context.Background(), as)
@@ -58,8 +58,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	_ = as.AssignRole(context.Background(), user.ID, auth.RoleAdmin)
-	_ = as.AssignRole(context.Background(), user.ID, auth.RoleUser)
+	_ = as.UpdateUserRole(context.Background(), user.ID, auth.RoleAdmin)
 
 	sessionID := auth.NewSessionID()
 	_, err = as.CreateSession(context.Background(), auth.Session{
@@ -338,7 +337,6 @@ func TestNonAdminCannotAccessAdminRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	_ = env.authStore.AssignRole(context.Background(), user.ID, auth.RoleUser)
 
 	sessionID := auth.NewSessionID()
 	_, err = env.authStore.CreateSession(context.Background(), auth.Session{

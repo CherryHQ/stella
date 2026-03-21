@@ -20,7 +20,6 @@ type ResolvedChat struct {
 	AgentID    string
 	SessionKey string
 	ChatCtx    ChatContext
-	Roles      []string
 }
 
 // UserID returns the user's ID (0 for unlinked users).
@@ -88,6 +87,5 @@ func Resolve(ctx context.Context, pm *agent.PoolManager, store config.Store, aut
 		AgentID:    agentID,
 		SessionKey: sessionKey,
 		ChatCtx:    chatCtx,
-		Roles:      resolved.Roles,
 	}, nil
 }

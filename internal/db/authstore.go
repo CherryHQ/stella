@@ -101,95 +101,14 @@ func (s *AuthStore) CountUsers(ctx context.Context) (int64, error) {
 	return s.q.CountAuthUsers(ctx)
 }
 
-// --- Roles ---
-
-func (s *AuthStore) CreateRole(ctx context.Context, r auth.Role) (auth.Role, error) {
-	isSystem := int64(0)
-	if r.IsSystem {
-		isSystem = 1
-	}
-	row, err := s.q.CreateAuthRole(ctx, sqlc.CreateAuthRoleParams{
-		ID:          r.ID,
-		Name:        r.Name,
-		Description: r.Description,
-		IsSystem:    isSystem,
-	})
-	if err != nil {
-		return auth.Role{}, fmt.Errorf("create auth role %q: %w", r.ID, err)
-	}
-	return roleFromDB(row), nil
-}
-
-func (s *AuthStore) GetRole(ctx context.Context, id string) (auth.Role, error) {
-	r, err := s.q.GetAuthRole(ctx, id)
-	if err != nil {
-		return auth.Role{}, fmt.Errorf("get auth role %q: %w", id, err)
-	}
-	return roleFromDB(r), nil
-}
-
-func (s *AuthStore) ListRoles(ctx context.Context) ([]auth.Role, error) {
-	rows, err := s.q.ListAuthRoles(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list auth roles: %w", err)
-	}
-	out := make([]auth.Role, len(rows))
-	for i, r := range rows {
-		out[i] = roleFromDB(r)
-	}
-	return out, nil
-}
-
-func (s *AuthStore) UpdateRole(ctx context.Context, r auth.Role) error {
-	if err := s.q.UpdateAuthRole(ctx, sqlc.UpdateAuthRoleParams{
-		ID:          r.ID,
-		Name:        r.Name,
-		Description: r.Description,
+func (s *AuthStore) UpdateUserRole(ctx context.Context, userID int64, role string) error {
+	if err := s.q.UpdateAuthUserRole(ctx, sqlc.UpdateAuthUserRoleParams{
+		Role: role,
+		ID:   userID,
 	}); err != nil {
-		return fmt.Errorf("update auth role %q: %w", r.ID, err)
+		return fmt.Errorf("update role for user %d: %w", userID, err)
 	}
 	return nil
-}
-
-func (s *AuthStore) DeleteRole(ctx context.Context, id string) error {
-	if err := s.q.DeleteAuthRole(ctx, id); err != nil {
-		return fmt.Errorf("delete auth role %q: %w", id, err)
-	}
-	return nil
-}
-
-// --- User-Role assignments ---
-
-func (s *AuthStore) AssignRole(ctx context.Context, userID int64, roleID string) error {
-	if err := s.q.AssignUserRole(ctx, sqlc.AssignUserRoleParams{
-		UserID: userID,
-		RoleID: roleID,
-	}); err != nil {
-		return fmt.Errorf("assign role %q to user %d: %w", roleID, userID, err)
-	}
-	return nil
-}
-
-func (s *AuthStore) RemoveRole(ctx context.Context, userID int64, roleID string) error {
-	if err := s.q.RemoveUserRole(ctx, sqlc.RemoveUserRoleParams{
-		UserID: userID,
-		RoleID: roleID,
-	}); err != nil {
-		return fmt.Errorf("remove role %q from user %d: %w", roleID, userID, err)
-	}
-	return nil
-}
-
-func (s *AuthStore) ListUserRoles(ctx context.Context, userID int64) ([]auth.Role, error) {
-	rows, err := s.q.ListUserRoles(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("list user roles for user %d: %w", userID, err)
-	}
-	out := make([]auth.Role, len(rows))
-	for i, r := range rows {
-		out[i] = roleFromDB(r)
-	}
-	return out, nil
 }
 
 // --- Identities ---
@@ -444,6 +363,7 @@ func userFromDB(r sqlc.AuthUser) auth.AuthUser {
 		ID:           r.ID,
 		Username:     r.Username,
 		PasswordHash: r.PasswordHash,
+		Role:         r.Role,
 		IsActive:     r.IsActive == 1,
 		CreatedAt:    parseAuthTime(r.CreatedAt),
 		UpdatedAt:    parseAuthTime(r.UpdatedAt),
@@ -452,16 +372,6 @@ func userFromDB(r sqlc.AuthUser) auth.AuthUser {
 		u.DefaultAgentID = r.DefaultAgentID.String
 	}
 	return u
-}
-
-func roleFromDB(r sqlc.AuthRole) auth.Role {
-	return auth.Role{
-		ID:          r.ID,
-		Name:        r.Name,
-		Description: r.Description,
-		IsSystem:    r.IsSystem == 1,
-		CreatedAt:   parseAuthTime(r.CreatedAt),
-	}
 }
 
 func identityFromDB(r sqlc.AuthIdentity) auth.Identity {

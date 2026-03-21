@@ -78,17 +78,13 @@ export function register(Alpine) {
       return this.agents.filter(a => !assigned.has(a.id))
     },
 
-    async toggleAdminRole(action) {
+    async setRole(role) {
       if (!this.selectedUser) return
       try {
-        await api('PUT', '/api/auth/users/' + this.selectedUser.id + '/roles', {
-          role: 'admin',
-          action: action,
-        })
-        // Refresh.
+        await api('PUT', '/api/auth/users/' + this.selectedUser.id + '/role', { role })
         this.selectedUser = await api('GET', '/api/auth/users/' + this.selectedUser.id)
         await this.loadAuthUsers()
-        this.$store.toast.show(action === 'assign' ? 'Admin role assigned' : 'Admin role removed')
+        this.$store.toast.show('Role updated to ' + role)
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       }
