@@ -150,7 +150,7 @@ export function register(Alpine) {
       }
     },
 
-    // --- Legacy Memory Tab ---
+    // --- Memory Tab ---
 
     async loadAgents() {
       try {
@@ -163,9 +163,10 @@ export function register(Alpine) {
     async loadLegacyUsers() {
       if (this.legacyUsers.length > 0) return // already loaded
       try {
-        const list = await api('GET', '/api/users') || []
+        const list = await api('GET', '/api/auth/users') || []
         this.legacyUsers = list.map(u => ({
           ...u,
+          name: u.username,
           _defaultAgent: u.default_agent_id || '',
           _showMemory: false,
           _memoryCount: 0,
