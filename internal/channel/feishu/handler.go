@@ -13,6 +13,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/internal/feishutool"
 )
 
 // onMessage handles incoming Feishu messages.
@@ -201,7 +202,12 @@ func parseTextContent(raw string) string {
 
 // handleMessage processes an incoming message by streaming the agent response.
 func (b *Bot) handleMessage(rc *channel.ResolvedChat, openID, chatID, messageID string, content runner.MessageContent) {
-	events, sessionID, err := rc.Chat(b.ctx, content)
+	// Inject Feishu context so tools can access open_id, chat_id, message_id.
+	ctx := feishutool.WithOpenID(b.ctx, openID)
+	ctx = feishutool.WithChatID(ctx, chatID)
+	ctx = feishutool.WithMessageID(ctx, messageID)
+
+	events, sessionID, err := rc.Chat(ctx, content)
 	if err != nil {
 		logger().Error("chat failed", "open_id", openID, "error", err)
 		b.replyText(b.ctx, messageID, fmt.Sprintf("Session error: %v", err))
