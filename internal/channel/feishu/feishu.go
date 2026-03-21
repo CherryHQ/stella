@@ -21,6 +21,7 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/feishutool"
 )
 
 const feishuMaxMessageLen = 4000
@@ -49,6 +50,7 @@ type Config struct {
 type Bot struct {
 	client      *lark.Client
 	wsClient    *larkws.Client
+	fsClient    *feishutool.Client // feishutool client for OAuth operations
 	poolManager *agent.PoolManager
 	store       config.Store
 	authStore   auth.AuthStore
@@ -81,6 +83,14 @@ func WithAuth(authStore auth.AuthStore, engine *auth.PolicyEngine, linkCodes *au
 		b.engine = engine
 		b.linkCodes = linkCodes
 		b.agentCmd = channel.NewAgentCommander(b.store, authStore)
+	}
+}
+
+// WithFeishuClient configures the bot with a feishutool.Client for OAuth
+// and UAT token operations.
+func WithFeishuClient(c *feishutool.Client) BotOption {
+	return func(b *Bot) {
+		b.fsClient = c
 	}
 }
 

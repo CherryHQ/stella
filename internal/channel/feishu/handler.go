@@ -82,6 +82,14 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		}
 	}
 
+	// Handle /auth command before general command dispatch since it needs
+	// messageID for sending interactive cards (not just text replies).
+	if text != "" && strings.HasPrefix(strings.ToLower(strings.TrimSpace(text)), "/auth") {
+		authArgs := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "/auth"))
+		b.handleAuthCommand(openID, chatID, messageID, authArgs)
+		return nil
+	}
+
 	if text != "" {
 		if handled := b.handleCommand(rc, text, openID, replyFn); handled {
 			return nil
