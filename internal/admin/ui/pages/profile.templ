@@ -50,18 +50,16 @@ templ ProfilePage() {
 			</div>
 		</div>
 		<!-- Linked Identities -->
-		<div class="mb-10">
+		<div>
 			<h2 class="font-serif text-xl mb-4">Linked Identities</h2>
 			<div class="card bg-base-200">
 				<div class="card-body">
-					<template x-if="identities.length === 0 && !loadingIdentities">
-						<p class="text-secondary text-sm">No linked identities yet. Link a platform account below.</p>
-					</template>
 					<template x-if="loadingIdentities">
 						<div class="flex justify-center py-4">
 							<span class="loading loading-spinner loading-sm"></span>
 						</div>
 					</template>
+					<!-- Existing identities -->
 					<div class="divide-y divide-base-300">
 						<template x-for="identity in identities" :key="identity.id">
 							<div class="flex items-center justify-between py-3">
@@ -81,43 +79,46 @@ templ ProfilePage() {
 							</div>
 						</template>
 					</div>
-				</div>
-			</div>
-		</div>
-		<!-- Link New Identity -->
-		<div>
-			<h2 class="font-serif text-xl mb-4">Link New Identity</h2>
-			<div class="card bg-base-200">
-				<div class="card-body">
-					<p class="text-secondary text-sm mb-4">
-						Generate a link code, then send the command to the Anna bot on the selected platform.
-						The code expires in 5 minutes.
-					</p>
-					<div class="flex flex-wrap gap-2 mb-4">
-						<button @click="generateCode('telegram')" :disabled="generating" class="btn btn-sm btn-outline">
-							<span x-show="generating && linkPlatform === 'telegram'" class="loading loading-spinner loading-xs"></span>
-							Link Telegram
-						</button>
-						<button @click="generateCode('qq')" :disabled="generating" class="btn btn-sm btn-outline">
-							<span x-show="generating && linkPlatform === 'qq'" class="loading loading-spinner loading-xs"></span>
-							Link QQ
-						</button>
-						<button @click="generateCode('feishu')" :disabled="generating" class="btn btn-sm btn-outline">
-							<span x-show="generating && linkPlatform === 'feishu'" class="loading loading-spinner loading-xs"></span>
-							Link Feishu
-						</button>
-					</div>
-					<template x-if="linkCode">
-						<div class="alert alert-info">
-							<div>
-								<p class="font-medium">Send this command to Anna on <span x-text="linkPlatform"></span>:</p>
-								<div class="flex items-center gap-2 mt-2">
-									<code class="font-mono text-lg bg-base-100 px-3 py-1 rounded select-all" x-text="'/link ' + linkCode"></code>
-									<button @click="navigator.clipboard.writeText('/link ' + linkCode); \.toast.show('Copied!')" class="btn btn-ghost btn-xs">copy</button>
-								</div>
-								<p class="text-xs text-secondary mt-2">Expires in 5 minutes.</p>
+					<!-- Link new platform -->
+					<template x-if="!['telegram', 'qq', 'feishu'].every(p => isLinked(p))">
+						<div class="mt-4 pt-4 border-t border-base-300">
+							<p class="text-secondary text-sm mb-3">
+								Generate a link code, then send the command to Anna on the selected platform (expires in 5 minutes).
+							</p>
+							<div class="flex flex-wrap gap-2">
+								<template x-for="p in ['telegram', 'qq', 'feishu']" :key="p">
+									<button
+										x-show="!isLinked(p)"
+										@click="generateCode(p)"
+										:disabled="generating"
+										class="btn btn-sm btn-outline"
+									>
+										<span x-show="generating && linkPlatform === p" class="loading loading-spinner loading-xs"></span>
+										<span x-text="'Link ' + p.charAt(0).toUpperCase() + p.slice(1)"></span>
+									</button>
+								</template>
 							</div>
+							<template x-if="linkCode">
+								<div class="alert shadow-md mt-3">
+									<div>
+										<p class="font-medium">Send this command to Anna on <span x-text="linkPlatform"></span>:</p>
+										<div class="flex items-center gap-2 mt-2">
+											<code class="font-mono text-lg font-bold bg-base-200 text-base-content px-3 py-1 rounded select-all" x-text="'/link ' + linkCode"></code>
+											<button @click="navigator.clipboard.writeText('/link ' + linkCode); $store.toast.show('Copied!')" class="btn btn-ghost btn-xs">copy</button>
+										</div>
+										<p class="text-xs text-secondary mt-2">Expires in 5 minutes.</p>
+									</div>
+								</div>
+							</template>
 						</div>
+					</template>
+					<!-- All linked message -->
+					<template x-if="!loadingIdentities && identities.length > 0 && ['telegram', 'qq', 'feishu'].every(p => isLinked(p))">
+						<p class="text-secondary text-sm mt-4 pt-4 border-t border-base-300">All platforms linked.</p>
+					</template>
+					<!-- No identities yet -->
+					<template x-if="identities.length === 0 && !loadingIdentities">
+						<p class="text-secondary text-sm">No linked identities yet. Use the buttons above to link a platform account.</p>
 					</template>
 				</div>
 			</div>

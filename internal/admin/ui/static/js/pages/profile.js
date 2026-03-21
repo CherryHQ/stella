@@ -68,6 +68,10 @@ export function register(Alpine) {
       }
     },
 
+    isLinked(platform) {
+      return this.identities.some(i => i.platform === platform)
+    },
+
     async generateCode(platform) {
       this.generating = true
       this.linkPlatform = platform
