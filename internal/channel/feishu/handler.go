@@ -16,6 +16,68 @@ import (
 	"github.com/vaayne/anna/internal/feishutool"
 )
 
+// onReaction handles incoming Feishu reaction events.
+// When a user reacts to a message, the bot sends a text description of the
+// reaction to the agent, allowing it to respond if appropriate.
+func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCreatedV1) error {
+	if event == nil || event.Event == nil {
+		return nil
+	}
+
+	data := event.Event
+
+	// Determine operator open_id.
+	operatorType := derefStr(data.OperatorType)
+	if operatorType == "app" {
+		// Ignore reactions from apps (including ourselves).
+		return nil
+	}
+
+	var openID string
+	if data.UserId != nil && data.UserId.OpenId != nil {
+		openID = *data.UserId.OpenId
+	}
+	if openID == "" {
+		return nil
+	}
+
+	// Filter self-reactions.
+	if botID, _ := b.botOpenID.Load().(string); botID != "" && openID == botID {
+		return nil
+	}
+
+	if !b.isAllowed(openID) {
+		return nil
+	}
+
+	messageID := derefStr(data.MessageId)
+	if messageID == "" {
+		return nil
+	}
+
+	var emojiType string
+	if data.ReactionType != nil && data.ReactionType.EmojiType != nil {
+		emojiType = *data.ReactionType.EmojiType
+	}
+	if emojiType == "" {
+		return nil
+	}
+
+	// Build a text message describing the reaction and send it to the agent.
+	reactionText := fmt.Sprintf("[User reacted with %s on message %s]", emojiType, messageID)
+
+	// Resolve without thread context (reactions aren't threaded in Feishu's model).
+	// Use a private chat context so the reaction goes to the user's main session.
+	rc, err := b.resolveWithThread(openID, "", "p2p", "")
+	if err != nil {
+		logger().Error("resolve for reaction failed", "open_id", openID, "error", err)
+		return nil
+	}
+
+	go b.handleMessage(rc, openID, "", messageID, "", reactionText)
+	return nil
+}
+
 // onMessage handles incoming Feishu messages.
 func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) error {
 	if event == nil || event.Event == nil || event.Event.Message == nil {
