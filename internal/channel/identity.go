@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -35,14 +36,20 @@ func ResolveUser(ctx context.Context, authStore auth.AuthStore, platform, extern
 
 	identity, err := authStore.GetIdentityByPlatform(ctx, platform, externalID)
 	if err != nil {
-		log.Debug("no linked identity found, user must link via link code")
-		return ResolvedIdentity{}, nil
+		if isNotFound(err) {
+			log.Debug("no linked identity found, user must link via link code")
+			return ResolvedIdentity{}, nil
+		}
+		return ResolvedIdentity{}, fmt.Errorf("lookup identity: %w", err)
 	}
 
 	user, err := authStore.GetUser(ctx, identity.UserID)
 	if err != nil {
-		log.Error("auth user not found for linked identity", "user_id", identity.UserID, "error", err)
-		return ResolvedIdentity{}, nil
+		if isNotFound(err) {
+			log.Error("auth user not found for linked identity", "user_id", identity.UserID, "error", err)
+			return ResolvedIdentity{}, nil
+		}
+		return ResolvedIdentity{}, fmt.Errorf("lookup auth user: %w", err)
 	}
 	if !user.IsActive {
 		return ResolvedIdentity{}, fmt.Errorf("account is deactivated")
@@ -127,4 +134,9 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthSt
 	}
 
 	return "", fmt.Errorf("resolve agent: no accessible enabled agents found")
+}
+
+// isNotFound returns true if the error indicates a record was not found.
+func isNotFound(err error) bool {
+	return errors.Is(err, sql.ErrNoRows)
 }

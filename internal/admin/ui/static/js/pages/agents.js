@@ -50,7 +50,7 @@ export function register(Alpine) {
 
     async loadAllUsers() {
       try {
-        const users = await api('GET', '/api/users')
+        const users = await api('GET', '/api/auth/users')
         this.allUsers = users || []
       } catch (_) {
         // admin-only endpoint, silently fail for non-admins
