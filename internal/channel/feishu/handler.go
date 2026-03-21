@@ -51,7 +51,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		return nil
 	}
 
-	if chatType == "group" && !b.shouldRespondInGroup(mentions) {
+	if chatType == "group" && !b.shouldRespondInGroup(chatID, mentions) {
 		return nil
 	}
 
@@ -110,8 +110,26 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		}
 	}
 
+	// Prepend per-group system prompt to content if configured.
+	if chatType == "group" {
+		if sp := b.groupSystemPrompt(chatID); sp != "" {
+			content = prependSystemPrompt(content, sp)
+		}
+	}
+
 	go b.handleMessage(rc, openID, chatID, messageID, rootID, content)
 	return nil
+}
+
+// prependSystemPrompt adds a system prompt prefix to message content.
+func prependSystemPrompt(content runner.MessageContent, prompt string) runner.MessageContent {
+	switch c := content.(type) {
+	case string:
+		return fmt.Sprintf("[System: %s]\n\n%s", prompt, c)
+	default:
+		// For non-text content (images, etc.), wrap as-is.
+		return content
+	}
 }
 
 // buildMessageContent constructs the message content from a Feishu message.

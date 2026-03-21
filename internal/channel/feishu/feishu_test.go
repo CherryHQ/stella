@@ -297,28 +297,28 @@ func TestShouldRespondInGroupMention(t *testing.T) {
 	bot := &Bot{cfg: Config{GroupMode: "mention"}}
 	key := "@_user_1"
 	mentions := []*larkim.MentionEvent{{Key: &key}}
-	if !bot.shouldRespondInGroup(mentions) {
+	if !bot.shouldRespondInGroup("oc_test", mentions) {
 		t.Error("mention mode with mention should respond")
 	}
 }
 
 func TestShouldRespondInGroupMentionNoMentions(t *testing.T) {
 	bot := &Bot{cfg: Config{GroupMode: "mention"}}
-	if bot.shouldRespondInGroup(nil) {
+	if bot.shouldRespondInGroup("oc_test", nil) {
 		t.Error("mention mode without mentions should not respond")
 	}
 }
 
 func TestShouldRespondInGroupAlways(t *testing.T) {
 	bot := &Bot{cfg: Config{GroupMode: "always"}}
-	if !bot.shouldRespondInGroup(nil) {
+	if !bot.shouldRespondInGroup("oc_test", nil) {
 		t.Error("always mode should respond")
 	}
 }
 
 func TestShouldRespondInGroupDisabled(t *testing.T) {
 	bot := &Bot{cfg: Config{GroupMode: "disabled"}}
-	if bot.shouldRespondInGroup(nil) {
+	if bot.shouldRespondInGroup("oc_test", nil) {
 		t.Error("disabled mode should not respond")
 	}
 }

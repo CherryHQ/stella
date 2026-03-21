@@ -35,15 +35,24 @@ var mentionPlaceholderRegex = regexp.MustCompile(`@_user_\d+`)
 
 func logger() *slog.Logger { return slog.With("component", "feishu") }
 
+// GroupConfig holds per-group overrides, keyed by chat_id in Config.Groups.
+type GroupConfig struct {
+	GroupMode    string   `json:"group_mode"`    // override global group_mode for this group
+	SystemPrompt string   `json:"system_prompt"` // prepend to user message in this group
+	ToolAllow    []string `json:"tool_allow"`    // reserved: only these tools (not yet enforced)
+	ToolDeny     []string `json:"tool_deny"`     // reserved: deny these tools (not yet enforced)
+}
+
 // Config holds Feishu bot settings.
 type Config struct {
-	AppID             string   // app ID
-	AppSecret         string   // app secret
-	EncryptKey        string   // event encrypt key (from Feishu developer console)
-	VerificationToken string   // event verification token (from Feishu developer console)
-	NotifyChat        string   // default chat ID for proactive notifications
-	GroupMode         string   // "mention" | "always" | "disabled"
-	AllowedIDs        []string // user open_ids allowed (empty = allow all)
+	AppID             string                 `json:"app_id"`
+	AppSecret         string                 `json:"app_secret"`
+	EncryptKey        string                 `json:"encrypt_key"`
+	VerificationToken string                 `json:"verification_token"`
+	NotifyChat        string                 `json:"notify_chat"`
+	GroupMode         string                 `json:"group_mode"`  // "mention" | "always" | "disabled"
+	AllowedIDs        []string               `json:"allowed_ids"` // user open_ids allowed (empty = allow all)
+	Groups            map[string]GroupConfig `json:"groups"`      // per-group overrides keyed by chat_id
 }
 
 // Bot wraps a Feishu bot with agent pool integration.
@@ -283,10 +292,19 @@ func cardContent(text string) string {
 	return string(data)
 }
 
+// groupMode returns the effective group mode for the given chat.
+// Per-group config overrides the global setting.
+func (b *Bot) groupMode(chatID string) string {
+	if gc, ok := b.cfg.Groups[chatID]; ok && gc.GroupMode != "" {
+		return gc.GroupMode
+	}
+	return b.cfg.GroupMode
+}
+
 // shouldRespondInGroup checks whether the bot should respond based on group_mode
-// and whether it was mentioned.
-func (b *Bot) shouldRespondInGroup(mentions []*larkim.MentionEvent) bool {
-	switch b.cfg.GroupMode {
+// and whether it was mentioned. Uses per-group config when available.
+func (b *Bot) shouldRespondInGroup(chatID string, mentions []*larkim.MentionEvent) bool {
+	switch b.groupMode(chatID) {
 	case "disabled":
 		return false
 	case "always":
@@ -294,6 +312,14 @@ func (b *Bot) shouldRespondInGroup(mentions []*larkim.MentionEvent) bool {
 	default: // "mention"
 		return b.isBotMentioned(mentions)
 	}
+}
+
+// groupSystemPrompt returns the system prompt override for the given chat, if any.
+func (b *Bot) groupSystemPrompt(chatID string) string {
+	if gc, ok := b.cfg.Groups[chatID]; ok {
+		return gc.SystemPrompt
+	}
+	return ""
 }
 
 // isBotMentioned checks if the bot was @mentioned by comparing each mention's

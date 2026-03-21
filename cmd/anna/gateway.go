@@ -180,6 +180,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			NotifyChat:        fsCfg.NotifyChat,
 			GroupMode:         fsCfg.GroupMode,
 			AllowedIDs:        fsCfg.AllowedIDs,
+			Groups:            fsCfg.Groups,
 		}, s.poolManager, s.store, listFn, switchFn,
 			fsOpts...,
 		)
@@ -327,14 +328,15 @@ type qqChannelConfig struct {
 }
 
 type feishuChannelConfig struct {
-	AppID             string   `json:"app_id"`
-	AppSecret         string   `json:"app_secret"`
-	EncryptKey        string   `json:"encrypt_key"`
-	VerificationToken string   `json:"verification_token"`
-	NotifyChat        string   `json:"notify_chat"`
-	GroupMode         string   `json:"group_mode"`
-	AllowedIDs        []string `json:"allowed_ids"`
-	EnableNotify      bool     `json:"enable_notify"`
+	AppID             string                        `json:"app_id"`
+	AppSecret         string                        `json:"app_secret"`
+	EncryptKey        string                        `json:"encrypt_key"`
+	VerificationToken string                        `json:"verification_token"`
+	NotifyChat        string                        `json:"notify_chat"`
+	GroupMode         string                        `json:"group_mode"`
+	AllowedIDs        []string                      `json:"allowed_ids"`
+	Groups            map[string]feishu.GroupConfig `json:"groups"`
+	EnableNotify      bool                          `json:"enable_notify"`
 }
 
 // loadChannelConfig loads a channel's JSON config from the store and
