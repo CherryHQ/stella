@@ -50,8 +50,8 @@
 
 ## Phase 5b: CardKit 2.0 + Per-Group Config + Reactions
 
-- [ ] 5b.1 — Upgrade streaming to CardKit 2.0: thinking/generating/complete phases, elapsed time footer (`internal/channel/feishu/stream.go`)
-- [ ] 5b.2 — Per-group config: Groups map[string]GroupConfig, tool allow/deny, system prompt (`internal/channel/feishu/feishu.go`, `cmd/anna/gateway.go`)
-- [ ] 5b.3 — Reaction event subscription + handler (`internal/channel/feishu/feishu.go`, `handler.go`)
-- [ ] 5b.4 — Create `feishutool/reaction.go`: feishu_reaction tool (`internal/feishutool/reaction.go`)
-- [ ] 5b.5 — Tests for streaming, per-group config, reactions (`feishu/stream_test.go`, `feishu/feishu_test.go`)
+- [x] 5b.1 — Upgrade streaming to CardKit 2.0: thinking/generating/complete phases, elapsed time footer (`internal/channel/feishu/stream.go`)
+- [x] 5b.2 — Per-group config: Groups map[string]GroupConfig, tool allow/deny, system prompt (`internal/channel/feishu/feishu.go`, `cmd/anna/gateway.go`)
+- [x] 5b.3 — Reaction event subscription + handler (`internal/channel/feishu/feishu.go`, `handler.go`)
+- [x] 5b.4 — Skipped: reactions already in `feishu_im` tool (add_reaction, remove_reaction actions)
+- [x] 5b.5 — Tests for streaming, per-group config, reactions (`feishu/feishu_test.go`)

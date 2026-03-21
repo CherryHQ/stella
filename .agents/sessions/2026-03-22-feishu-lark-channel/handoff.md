@@ -174,3 +174,49 @@
 - The abort mechanism works at the context level — when `cancelStream` fires, the context passed to `rc.Chat()` is cancelled, which should propagate through the agent runner's event loop. The streaming loop itself drains the events channel which will close when the context is done.
 - `parseMergeForwardContent` returns a simple summary `[Forwarded messages]` rather than recursively expanding (would require async API calls to fetch sub-messages, which is complex and out of scope for Phase 5a).
 - Audio/video durations are divided by 1000 (Feishu sends milliseconds) to show seconds.
+
+## Phase 5b: CardKit 2.0 + Per-Group Config + Reactions (FINAL)
+
+**Status**: Complete
+**Date**: 2026-03-22
+**Commits**: 4 (8b04b29b, aaf43ed7, dde72118, 2be864ea)
+
+### What was done
+
+1. **CardKit 2.0 Streaming** (`internal/channel/feishu/stream.go`) — Three-phase streaming:
+   - Phase 1 (Thinking): Sends initial card with "Thinking..." immediately on message receipt, before any agent processing.
+   - Phase 2 (Generating): Updates card with streaming content + cursor as text flows in, with tool status inline.
+   - Phase 3 (Complete): Final content with elapsed time footer (e.g., `_Response time: 3.2s_`).
+   - Added `streamPhase` enum, `thinkingContent()`, `elapsedFooter()`, `nowFunc` for testability.
+   - `streamResponseInThread` now returns `time.Duration` (elapsed) alongside existing return values.
+
+2. **Per-Group Config** (`internal/channel/feishu/feishu.go`, `handler.go`, `cmd/anna/gateway.go`) —
+   - `GroupConfig` struct with `GroupMode`, `SystemPrompt`, `ToolAllow`, `ToolDeny` fields.
+   - `Config.Groups` map keyed by chat_id for per-group overrides.
+   - `groupMode(chatID)` resolves effective group mode (per-group > global).
+   - `groupSystemPrompt(chatID)` returns per-group system prompt.
+   - `prependSystemPrompt()` wraps text content with `[System: ...]` prefix.
+   - `shouldRespondInGroup` now accepts chatID for per-group lookup.
+   - `feishuChannelConfig` in `gateway.go` extended with `Groups` field, passed through to `feishu.Config`.
+   - ToolAllow/ToolDeny stored but not enforced — awaits per-session tool filtering in pool manager.
+
+3. **Reaction Event Handling** (`internal/channel/feishu/feishu.go`, `handler.go`) —
+   - Subscribed to `OnP2MessageReactionCreatedV1` in event dispatcher.
+   - `onReaction` handler extracts emoji type, message_id, operator open_id.
+   - Filters: app-originated reactions, self-reactions (bot), unauthorized users.
+   - Sends descriptive text `[User reacted with THUMBSUP on message om_xxx]` to agent.
+   - Reaction tool (add/remove) already exists in `feishu_im` tool — no separate tool needed.
+
+4. **Tests** — 18 new tests in `feishu_test.go`:
+   - Streaming: `thinkingContent`, `elapsedFooter` (normal + sub-second), `streamPhase` constants, elapsed timing.
+   - Per-group config: `groupMode` (global/override/empty), `shouldRespondInGroup` with per-group override, `groupSystemPrompt` (configured/empty/nil), `prependSystemPrompt` (string/non-string).
+   - Reactions: `onReaction` nil event, nil data, app operator, self-reaction, unauthorized user.
+   - Total feishu tests: 122 passing (2 pre-existing failures in oauth_test.go).
+
+### Notes
+
+- Pre-existing test failures (TestAuthURL, TestAuthURLEmptyRedirect) remain from Phase 5a — URL encoding mismatch in oauth_test.go.
+- The `nowFunc` variable in `stream.go` enables deterministic time testing without mocking the full API.
+- Reaction events are dispatched to the user's private chat session (not a group session), since Feishu reactions don't carry thread/chat context directly.
+- ToolAllow/ToolDeny in GroupConfig are stored but not enforced. The comment notes that per-session tool filtering needs pool manager support first.
+- All feishutool tests (134) continue to pass with -race.
