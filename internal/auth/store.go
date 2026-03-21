@@ -14,21 +14,10 @@ type AuthStore interface {
 	GetUserByUsername(ctx context.Context, username string) (AuthUser, error)
 	ListUsers(ctx context.Context) ([]AuthUser, error)
 	UpdateUser(ctx context.Context, u AuthUser) error
+	UpdateUserRole(ctx context.Context, userID int64, role string) error
 	UpdateUserDefaultAgent(ctx context.Context, userID int64, agentID string) error
 	DeleteUser(ctx context.Context, id int64) error
 	CountUsers(ctx context.Context) (int64, error)
-
-	// Roles
-	CreateRole(ctx context.Context, r Role) (Role, error)
-	GetRole(ctx context.Context, id string) (Role, error)
-	ListRoles(ctx context.Context) ([]Role, error)
-	UpdateRole(ctx context.Context, r Role) error
-	DeleteRole(ctx context.Context, id string) error
-
-	// User-Role assignments
-	AssignRole(ctx context.Context, userID int64, roleID string) error
-	RemoveRole(ctx context.Context, userID int64, roleID string) error
-	ListUserRoles(ctx context.Context, userID int64) ([]Role, error)
 
 	// Identities (linked channel accounts)
 	CreateIdentity(ctx context.Context, i Identity) (Identity, error)

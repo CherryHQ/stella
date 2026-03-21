@@ -144,10 +144,10 @@ func TestMeEndpoint(t *testing.T) {
 
 	resp := parseResponse(t, rr)
 	var me struct {
-		ID       int64    `json:"id"`
-		Username string   `json:"username"`
-		Roles    []string `json:"roles"`
-		IsAdmin  bool     `json:"is_admin"`
+		ID       int64  `json:"id"`
+		Username string `json:"username"`
+		Role     string `json:"role"`
+		IsAdmin  bool   `json:"is_admin"`
 	}
 	if err := json.Unmarshal(resp.Data, &me); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -185,30 +185,16 @@ func TestFirstUserGetsAdminRole(t *testing.T) {
 		t.Fatalf("register status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
 	}
 
-	// Check the second user's roles: should have "user" but not "admin".
+	// Check the second user's role: should be "user", not "admin".
 	user, err := env.authStore.GetUserByUsername(context.Background(), "seconduser")
 	if err != nil {
 		t.Fatalf("GetUserByUsername: %v", err)
 	}
-	roles, err := env.authStore.ListUserRoles(context.Background(), user.ID)
-	if err != nil {
-		t.Fatalf("ListUserRoles: %v", err)
-	}
-	hasAdmin := false
-	hasUser := false
-	for _, r := range roles {
-		if r.ID == auth.RoleAdmin {
-			hasAdmin = true
-		}
-		if r.ID == auth.RoleUser {
-			hasUser = true
-		}
-	}
-	if hasAdmin {
+	if user.Role == auth.RoleAdmin {
 		t.Error("second user should not have admin role")
 	}
-	if !hasUser {
-		t.Error("second user should have user role")
+	if user.Role != auth.RoleUser {
+		t.Errorf("second user role = %q, want %q", user.Role, auth.RoleUser)
 	}
 }
 

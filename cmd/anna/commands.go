@@ -71,9 +71,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return nil, fmt.Errorf("seed defaults: %w", err)
 	}
 
-	// Seed auth roles and policies.
+	// Seed auth policies.
 	authStore := appdb.NewAuthStore(db)
-	if err := auth.SeedRolesAndPolicies(parent, authStore); err != nil {
+	if err := auth.SeedPolicies(parent, authStore); err != nil {
 		return nil, fmt.Errorf("seed auth: %w", err)
 	}
 

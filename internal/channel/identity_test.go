@@ -34,8 +34,8 @@ func setupStores(t *testing.T) testStores {
 	}
 
 	as := appdb.NewAuthStore(db)
-	if err := auth.SeedRolesAndPolicies(context.Background(), as); err != nil {
-		t.Fatalf("SeedRolesAndPolicies: %v", err)
+	if err := auth.SeedPolicies(context.Background(), as); err != nil {
+		t.Fatalf("SeedPolicies: %v", err)
 	}
 
 	return testStores{store: store, authStore: as, db: db}
@@ -62,7 +62,6 @@ func TestResolveUserLinkedIdentity(t *testing.T) {
 	// Pre-create auth user and identity.
 	hash, _ := auth.HashPassword("testpass1")
 	authUser, _ := ts.authStore.CreateUser(ctx, "alice", hash)
-	_ = ts.authStore.AssignRole(ctx, authUser.ID, auth.RoleUser)
 	_, _ = ts.authStore.CreateIdentity(ctx, auth.Identity{
 		UserID:     authUser.ID,
 		Platform:   "telegram",
@@ -77,8 +76,8 @@ func TestResolveUserLinkedIdentity(t *testing.T) {
 	if resolved.User.ID != authUser.ID {
 		t.Errorf("User.ID = %d, want %d", resolved.User.ID, authUser.ID)
 	}
-	if len(resolved.Roles) != 1 || resolved.Roles[0] != auth.RoleUser {
-		t.Errorf("Roles = %v, want [user]", resolved.Roles)
+	if resolved.User.Role != auth.RoleUser {
+		t.Errorf("Role = %q, want %q", resolved.User.Role, auth.RoleUser)
 	}
 }
 

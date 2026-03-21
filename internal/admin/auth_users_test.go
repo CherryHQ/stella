@@ -21,12 +21,12 @@ func TestListAuthUsers(t *testing.T) {
 
 	resp := parseResponse(t, rr)
 	var users []struct {
-		ID         int64    `json:"id"`
-		Username   string   `json:"username"`
-		IsActive   bool     `json:"is_active"`
-		Roles      []string `json:"roles"`
-		Identities []any    `json:"identities"`
-		CreatedAt  string   `json:"created_at"`
+		ID         int64  `json:"id"`
+		Username   string `json:"username"`
+		IsActive   bool   `json:"is_active"`
+		Role       string `json:"role"`
+		Identities []any  `json:"identities"`
+		CreatedAt  string `json:"created_at"`
 	}
 	if err := json.Unmarshal(resp.Data, &users); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -42,13 +42,7 @@ func TestListAuthUsers(t *testing.T) {
 			if !u.IsActive {
 				t.Error("expected admin user to be active")
 			}
-			hasAdmin := false
-			for _, r := range u.Roles {
-				if r == "admin" {
-					hasAdmin = true
-				}
-			}
-			if !hasAdmin {
+			if u.Role != "admin" {
 				t.Error("expected admin user to have admin role")
 			}
 		}
@@ -68,9 +62,9 @@ func TestGetAuthUser(t *testing.T) {
 
 	resp := parseResponse(t, rr)
 	var u struct {
-		ID       int64    `json:"id"`
-		Username string   `json:"username"`
-		Roles    []string `json:"roles"`
+		ID       int64  `json:"id"`
+		Username string `json:"username"`
+		Role     string `json:"role"`
 	}
 	if err := json.Unmarshal(resp.Data, &u); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -92,84 +86,63 @@ func TestGetAuthUserNotFound(t *testing.T) {
 	}
 }
 
-func TestUpdateAuthUserRolesAssignAdmin(t *testing.T) {
+func TestUpdateAuthUserRolePromote(t *testing.T) {
 	env := setupAdmin(t)
 	ctx := context.Background()
 
-	// Create a regular user.
 	hash, _ := auth.HashPassword("password1")
 	user, err := env.authStore.CreateUser(ctx, "regular1", hash)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	_ = env.authStore.AssignRole(ctx, user.ID, auth.RoleUser)
 
-	// Assign admin role.
-	body := map[string]string{"role": "admin", "action": "assign"}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+strconv.FormatInt(user.ID, 10)+"/roles", body)
+	body := map[string]string{"role": "admin"}
+	rr := doRequest(t, env, "PUT", "/api/auth/users/"+strconv.FormatInt(user.ID, 10)+"/role", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	// Verify role assigned.
-	roles, _ := env.authStore.ListUserRoles(ctx, user.ID)
-	hasAdmin := false
-	for _, r := range roles {
-		if r.ID == auth.RoleAdmin {
-			hasAdmin = true
-		}
-	}
-	if !hasAdmin {
-		t.Error("expected user to have admin role after assignment")
+	got, _ := env.authStore.GetUser(ctx, user.ID)
+	if got.Role != auth.RoleAdmin {
+		t.Errorf("role = %q, want %q", got.Role, auth.RoleAdmin)
 	}
 }
 
-func TestUpdateAuthUserRolesRemoveAdmin(t *testing.T) {
+func TestUpdateAuthUserRoleDemote(t *testing.T) {
 	env := setupAdmin(t)
 	ctx := context.Background()
 
-	// Create another admin user.
 	hash, _ := auth.HashPassword("password2")
 	user, _ := env.authStore.CreateUser(ctx, "admin2", hash)
-	_ = env.authStore.AssignRole(ctx, user.ID, auth.RoleAdmin)
-	_ = env.authStore.AssignRole(ctx, user.ID, auth.RoleUser)
+	_ = env.authStore.UpdateUserRole(ctx, user.ID, auth.RoleAdmin)
 
-	// Remove admin role from the other admin (not self).
-	body := map[string]string{"role": "admin", "action": "remove"}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+strconv.FormatInt(user.ID, 10)+"/roles", body)
+	body := map[string]string{"role": "user"}
+	rr := doRequest(t, env, "PUT", "/api/auth/users/"+strconv.FormatInt(user.ID, 10)+"/role", body)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
-	// Verify role removed.
-	roles, _ := env.authStore.ListUserRoles(ctx, user.ID)
-	for _, r := range roles {
-		if r.ID == auth.RoleAdmin {
-			t.Error("expected admin role to be removed")
-		}
+	got, _ := env.authStore.GetUser(ctx, user.ID)
+	if got.Role != auth.RoleUser {
+		t.Errorf("role = %q, want %q", got.Role, auth.RoleUser)
 	}
 }
 
-func TestCannotRemoveOwnAdminRole(t *testing.T) {
+func TestCannotDemoteSelf(t *testing.T) {
 	env := setupAdmin(t)
 
-	body := map[string]string{"role": "admin", "action": "remove"}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+strconv.FormatInt(env.adminUser.ID, 10)+"/roles", body)
+	body := map[string]string{"role": "user"}
+	rr := doRequest(t, env, "PUT", "/api/auth/users/"+strconv.FormatInt(env.adminUser.ID, 10)+"/role", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
-
-	resp := parseResponse(t, rr)
-	if resp.Error != "cannot remove your own admin role" {
-		t.Errorf("error = %q, want %q", resp.Error, "cannot remove your own admin role")
-	}
 }
 
-func TestUpdateAuthUserRolesInvalidAction(t *testing.T) {
+func TestUpdateAuthUserRoleInvalid(t *testing.T) {
 	env := setupAdmin(t)
 
-	body := map[string]string{"role": "admin", "action": "invalid"}
-	rr := doRequest(t, env, "PUT", "/api/auth/users/"+strconv.FormatInt(env.adminUser.ID, 10)+"/roles", body)
+	body := map[string]string{"role": "superadmin"}
+	rr := doRequest(t, env, "PUT", "/api/auth/users/"+strconv.FormatInt(env.adminUser.ID, 10)+"/role", body)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
@@ -182,7 +155,6 @@ func TestListAndUpdateAuthUserAgents(t *testing.T) {
 	// Create a user.
 	hash, _ := auth.HashPassword("password3")
 	user, _ := env.authStore.CreateUser(ctx, "agentuser", hash)
-	_ = env.authStore.AssignRole(ctx, user.ID, auth.RoleUser)
 	uid := strconv.FormatInt(user.ID, 10)
 
 	// List agents - initially empty.
@@ -235,7 +207,6 @@ func TestUpdateAuthUserActive(t *testing.T) {
 	// Create a user.
 	hash, _ := auth.HashPassword("password4")
 	user, _ := env.authStore.CreateUser(ctx, "deactivateme", hash)
-	_ = env.authStore.AssignRole(ctx, user.ID, auth.RoleUser)
 	uid := strconv.FormatInt(user.ID, 10)
 
 	// Create session for the user.
@@ -300,7 +271,6 @@ func TestNonAdminCannotAccessAuthUserAPIs(t *testing.T) {
 	// Create non-admin user with session.
 	hash, _ := auth.HashPassword("password5")
 	user, _ := env.authStore.CreateUser(ctx, "nonadmin2", hash)
-	_ = env.authStore.AssignRole(ctx, user.ID, auth.RoleUser)
 
 	sessionID := auth.NewSessionID()
 	_, _ = env.authStore.CreateSession(ctx, auth.Session{
@@ -316,7 +286,7 @@ func TestNonAdminCannotAccessAuthUserAPIs(t *testing.T) {
 	}{
 		{"GET", "/api/auth/users"},
 		{"GET", "/api/auth/users/1"},
-		{"PUT", "/api/auth/users/1/roles"},
+		{"PUT", "/api/auth/users/1/role"},
 		{"GET", "/api/auth/users/1/agents"},
 		{"PUT", "/api/auth/users/1/agents"},
 		{"PUT", "/api/auth/users/1/active"},
@@ -372,4 +342,3 @@ func TestAuthUserWithLinkedIdentities(t *testing.T) {
 		t.Errorf("external_id = %q, want %q", u.Identities[0].ExternalID, "tg123")
 	}
 }
-

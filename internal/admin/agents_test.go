@@ -188,7 +188,6 @@ func TestAgentUserAssignmentNonAdminDenied(t *testing.T) {
 	// Create non-admin user session.
 	hash, _ := auth.HashPassword("userpassword")
 	user, _ := env.authStore.CreateUser(ctx, "nonadmin", hash)
-	_ = env.authStore.AssignRole(ctx, user.ID, auth.RoleUser)
 
 	sessionID := auth.NewSessionID()
 	_, _ = env.authStore.CreateSession(ctx, auth.Session{
@@ -225,7 +224,6 @@ func TestNonAdminSeesOnlyAccessibleAgents(t *testing.T) {
 	// Create non-admin user.
 	hash, _ := auth.HashPassword("userpassword")
 	user, _ := env.authStore.CreateUser(ctx, "regular", hash)
-	_ = env.authStore.AssignRole(ctx, user.ID, auth.RoleUser)
 
 	sessionID := auth.NewSessionID()
 	_, _ = env.authStore.CreateSession(ctx, auth.Session{
@@ -300,7 +298,6 @@ func TestNonAdminGetAgentAccessCheck(t *testing.T) {
 	// Create non-admin user.
 	hash, _ := auth.HashPassword("userpassword")
 	user, _ := env.authStore.CreateUser(ctx, "regular2", hash)
-	_ = env.authStore.AssignRole(ctx, user.ID, auth.RoleUser)
 
 	sessionID := auth.NewSessionID()
 	_, _ = env.authStore.CreateSession(ctx, auth.Session{

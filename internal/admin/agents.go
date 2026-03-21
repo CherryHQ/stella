@@ -211,7 +211,7 @@ func (s *Server) filterAccessibleAgents(ctx context.Context, info *AuthInfo, age
 
 	subject := auth.Subject{
 		UserID:   info.UserID,
-		Roles:    info.Roles,
+		Roles:    []string{info.Role},
 		AgentIDs: assignedIDs,
 	}
 
@@ -244,7 +244,7 @@ func (s *Server) canAccessAgent(ctx context.Context, info *AuthInfo, a config.Ag
 	req := auth.AccessRequest{
 		Subject: auth.Subject{
 			UserID:   info.UserID,
-			Roles:    info.Roles,
+			Roles:    []string{info.Role},
 			AgentIDs: assignedIDs,
 		},
 		Action: auth.ActionRead,

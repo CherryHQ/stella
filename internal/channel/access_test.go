@@ -36,11 +36,9 @@ func TestResolveAgentWithAuthSystemAgent(t *testing.T) {
 	// Create an auth user with "user" role.
 	hash, _ := auth.HashPassword("testpass")
 	authUser, _ := ts.authStore.CreateUser(ctx, "alice", hash)
-	_ = ts.authStore.AssignRole(ctx, authUser.ID, auth.RoleUser)
 
 	identity := channel.ResolvedIdentity{
-		User:  authUser,
-		Roles: []string{auth.RoleUser},
+		User: authUser,
 	}
 
 	// The default "anna" agent is system-scoped, so any user should access it.
@@ -71,13 +69,11 @@ func TestResolveAgentWithAuthRestrictedDenied(t *testing.T) {
 	// Create user with "user" role (NOT assigned to the agent).
 	hash, _ := auth.HashPassword("testpass")
 	authUser, _ := ts.authStore.CreateUser(ctx, "bob", hash)
-	_ = ts.authStore.AssignRole(ctx, authUser.ID, auth.RoleUser)
 	_ = ts.authStore.UpdateUserDefaultAgent(ctx, authUser.ID, "private")
 	authUser, _ = ts.authStore.GetUser(ctx, authUser.ID) // reload with default_agent_id
 
 	identity := channel.ResolvedIdentity{
-		User:  authUser,
-		Roles: []string{auth.RoleUser},
+		User: authUser,
 	}
 
 	// User's default agent is "private" but they are not assigned.
@@ -108,14 +104,12 @@ func TestResolveAgentWithAuthRestrictedAllowed(t *testing.T) {
 	// Create user and assign to the agent.
 	hash, _ := auth.HashPassword("testpass")
 	authUser, _ := ts.authStore.CreateUser(ctx, "charlie", hash)
-	_ = ts.authStore.AssignRole(ctx, authUser.ID, auth.RoleUser)
 	_ = ts.authStore.AssignAgent(ctx, authUser.ID, "vip")
 	_ = ts.authStore.UpdateUserDefaultAgent(ctx, authUser.ID, "vip")
 	authUser, _ = ts.authStore.GetUser(ctx, authUser.ID)
 
 	identity := channel.ResolvedIdentity{
-		User:  authUser,
-		Roles: []string{auth.RoleUser},
+		User: authUser,
 	}
 
 	chat := channel.ChatContext{Platform: "telegram", IsGroup: false}
@@ -145,13 +139,12 @@ func TestResolveAgentWithAuthAdminAccessAll(t *testing.T) {
 	// Create admin user (NOT explicitly assigned to the agent).
 	hash, _ := auth.HashPassword("testpass")
 	authUser, _ := ts.authStore.CreateUser(ctx, "adminuser", hash)
-	_ = ts.authStore.AssignRole(ctx, authUser.ID, auth.RoleAdmin)
+	_ = ts.authStore.UpdateUserRole(ctx, authUser.ID, auth.RoleAdmin)
 	_ = ts.authStore.UpdateUserDefaultAgent(ctx, authUser.ID, "admin-only")
 	authUser, _ = ts.authStore.GetUser(ctx, authUser.ID)
 
 	identity := channel.ResolvedIdentity{
-		User:  authUser,
-		Roles: []string{auth.RoleAdmin},
+		User: authUser,
 	}
 
 	// Admin should access any agent regardless of scope.
@@ -192,11 +185,9 @@ func TestResolveAgentWithAuthFallbackFiltered(t *testing.T) {
 	// Create user with no default agent, no assignment.
 	hash, _ := auth.HashPassword("testpass")
 	authUser, _ := ts.authStore.CreateUser(ctx, "dave", hash)
-	_ = ts.authStore.AssignRole(ctx, authUser.ID, auth.RoleUser)
 
 	identity := channel.ResolvedIdentity{
-		User:  authUser,
-		Roles: []string{auth.RoleUser},
+		User: authUser,
 	}
 
 	// Fallback should skip restricted "anna" and return system "public".
@@ -230,11 +221,9 @@ func TestResolveAgentWithAuthGroupChatDenied(t *testing.T) {
 	// Create user NOT assigned to the agent.
 	hash, _ := auth.HashPassword("testpass")
 	authUser, _ := ts.authStore.CreateUser(ctx, "eve", hash)
-	_ = ts.authStore.AssignRole(ctx, authUser.ID, auth.RoleUser)
 
 	identity := channel.ResolvedIdentity{
-		User:  authUser,
-		Roles: []string{auth.RoleUser},
+		User: authUser,
 	}
 
 	// Group chat with restricted agent should be denied.

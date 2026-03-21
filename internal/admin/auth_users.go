@@ -14,26 +14,15 @@ import (
 type authUserResponse struct {
 	ID         int64           `json:"id"`
 	Username   string          `json:"username"`
+	Role       string          `json:"role"`
 	IsActive   bool            `json:"is_active"`
-	Roles      []string        `json:"roles"`
 	Identities []auth.Identity `json:"identities"`
 	CreatedAt  string          `json:"created_at"`
 	UpdatedAt  string          `json:"updated_at"`
 }
 
 func (s *Server) buildAuthUserResponse(r *http.Request, u auth.AuthUser) (authUserResponse, error) {
-	ctx := r.Context()
-
-	roles, err := s.authStore.ListUserRoles(ctx, u.ID)
-	if err != nil {
-		return authUserResponse{}, fmt.Errorf("list roles: %w", err)
-	}
-	roleIDs := make([]string, len(roles))
-	for i, role := range roles {
-		roleIDs[i] = role.ID
-	}
-
-	identities, err := s.authStore.ListIdentitiesByUser(ctx, u.ID)
+	identities, err := s.authStore.ListIdentitiesByUser(r.Context(), u.ID)
 	if err != nil {
 		return authUserResponse{}, fmt.Errorf("list identities: %w", err)
 	}
@@ -41,8 +30,8 @@ func (s *Server) buildAuthUserResponse(r *http.Request, u auth.AuthUser) (authUs
 	return authUserResponse{
 		ID:         u.ID,
 		Username:   u.Username,
+		Role:       u.Role,
 		IsActive:   u.IsActive,
-		Roles:      roleIDs,
 		Identities: identities,
 		CreatedAt:  u.CreatedAt.Format("2006-01-02 15:04:05"),
 		UpdatedAt:  u.UpdatedAt.Format("2006-01-02 15:04:05"),
@@ -93,8 +82,8 @@ func (s *Server) getAuthUser(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, resp)
 }
 
-// updateAuthUserRoles handles PUT /api/auth/users/{id}/roles.
-func (s *Server) updateAuthUserRoles(w http.ResponseWriter, r *http.Request) {
+// updateAuthUserRole handles PUT /api/auth/users/{id}/role.
+func (s *Server) updateAuthUserRole(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid user id")
@@ -102,53 +91,28 @@ func (s *Server) updateAuthUserRoles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Role   string `json:"role"`
-		Action string `json:"action"` // "assign" or "remove"
+		Role string `json:"role"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 
-	if body.Role == "" {
-		writeError(w, http.StatusBadRequest, "role is required")
-		return
-	}
-	if body.Action != "assign" && body.Action != "remove" {
-		writeError(w, http.StatusBadRequest, "action must be 'assign' or 'remove'")
+	if body.Role != auth.RoleAdmin && body.Role != auth.RoleUser {
+		writeError(w, http.StatusBadRequest, "role must be 'admin' or 'user'")
 		return
 	}
 
-	// Cannot remove own admin role.
+	// Cannot demote yourself.
 	info := UserFromContext(r.Context())
-	if info != nil && info.UserID == id && body.Role == auth.RoleAdmin && body.Action == "remove" {
+	if info != nil && info.UserID == id && body.Role != auth.RoleAdmin {
 		writeError(w, http.StatusBadRequest, "cannot remove your own admin role")
 		return
 	}
 
-	// Verify user exists.
-	if _, err := s.authStore.GetUser(r.Context(), id); err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
+	if err := s.authStore.UpdateUserRole(r.Context(), id, body.Role); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update role: "+err.Error())
 		return
-	}
-
-	// Verify role exists.
-	if _, err := s.authStore.GetRole(r.Context(), body.Role); err != nil {
-		writeError(w, http.StatusNotFound, "role not found")
-		return
-	}
-
-	ctx := r.Context()
-	if body.Action == "assign" {
-		if err := s.authStore.AssignRole(ctx, id, body.Role); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to assign role: "+err.Error())
-			return
-		}
-	} else {
-		if err := s.authStore.RemoveRole(ctx, id, body.Role); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to remove role: "+err.Error())
-			return
-		}
 	}
 
 	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
