@@ -154,6 +154,13 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			feishutool.NewCalendarTool(fsClient),
 			feishutool.NewTaskTool(fsClient),
 			feishutool.NewBitableTool(fsClient),
+			feishutool.NewChatTool(fsClient),
+			feishutool.NewIMTool(fsClient),
+			feishutool.NewDocTool(fsClient),
+			feishutool.NewWikiTool(fsClient),
+			feishutool.NewSheetsTool(fsClient),
+			feishutool.NewDriveTool(fsClient),
+			feishutool.NewSearchTool(fsClient),
 		)
 		slog.Info("feishu tools loaded", "uat_enabled", tokenStore != nil)
 	}
