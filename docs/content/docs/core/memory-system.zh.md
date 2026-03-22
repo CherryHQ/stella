@@ -94,7 +94,7 @@ mise run generate
 | `ctx_agent_memory`        | 每用户每代理笔记。主键是 `(user_id, agent_id)`。内容在会话开始时注入到系统提示中。                         |
 | `settings_agents`         | 代理配置，包括 `system_prompt`（代理灵魂）、模型选择和工作区路径                                           |
 | `settings_providers`      | LLM 提供商凭证和端点                                                                                       |
-| `settings_channels`       | 通道（Telegram、QQ、Feishu）配置                                                                           |
+| `settings_channels`       | 通道（Telegram、QQ、Feishu、微信）配置                                                                     |
 | `settings_users`          | `ctx_agent_memory` 和 `ctx_conversations` 引用的用户记录                                                   |
 | `settings_channel_agents` | 将通道映射到代理以进行多代理路由                                                                           |
 

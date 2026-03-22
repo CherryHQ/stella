@@ -6,7 +6,7 @@
 
 **Your AI assistant that never forgets.**
 
-Anna is a self-hosted AI assistant that runs on your machine and talks to you through your terminal, Telegram, QQ, or Feishu. She keeps every conversation in a local SQLite database, compresses old context automatically so the LLM never hits its limit, and can recover the original detail whenever she needs it.
+Anna is a self-hosted AI assistant that runs on your machine and talks to you through your terminal, Telegram, QQ, Feishu, or WeChat. She keeps every conversation in a local SQLite database, compresses old context automatically so the LLM never hits its limit, and can recover the original detail whenever she needs it.
 
 She supports multiple agents running simultaneously, each with their own personality, model, and provider. Multiple users are handled automatically -- each person gets isolated per-agent memory that persists across sessions.
 
@@ -20,7 +20,7 @@ Anna solves this with LCM (Lossless Context Management). As conversations grow, 
 
 Beyond memory, there are a few other things worth calling out.
 
-Anna meets you where you are. Terminal, Telegram, QQ, Feishu, all sharing the same session pool and memory. Chat from your laptop in the morning, pick it up on Telegram from your phone in the evening.
+Anna meets you where you are. Terminal, Telegram, QQ, Feishu, WeChat, all sharing the same session pool and memory. Chat from your laptop in the morning, pick it up on Telegram from your phone in the evening.
 
 She does things on her own. Tell her "remind me every morning at 9am to check my email" and she will. Built-in scheduler, heartbeat file monitoring, push notifications across whatever channels you have connected.
 
@@ -33,7 +33,7 @@ And the whole thing is a single Go binary with a SQLite database. Your machine, 
 ## How it works
 
 ```
-Users (Telegram / QQ / Feishu / Terminal)
+Users (Telegram / QQ / Feishu / WeChat / Terminal)
  |
  |  /agent to switch agents
  v
@@ -80,7 +80,7 @@ In Telegram, use `/agent` to switch between agents. In DMs, your default agent i
 
 ## Channels
 
-Four channels, all sharing the same memory:
+Five channels, all sharing the same memory:
 
 | Channel | Connection | Streaming | Groups |
 |---------|-----------|-----------|--------|
@@ -88,6 +88,7 @@ Four channels, all sharing the same memory:
 | Telegram | Long polling, no public IP | Draft API | Mention / always / disabled |
 | QQ | WebSocket | Native Stream API | Mention support |
 | Feishu | WebSocket, no public IP | Edit-in-place | Mention support |
+| WeChat | Long polling (iLink Bot) | Non-streaming | DM only |
 
 One bot per platform. Agent selection is handled via the `/agent` command rather than separate bots.
 
@@ -154,7 +155,7 @@ Or grab a binary from [Releases](https://github.com/vaayne/anna/releases), or se
 anna --open
 ```
 
-This opens a web admin panel in your browser where you can configure everything: providers, API keys, agents, channels (Telegram, QQ, Feishu), users, scheduled jobs, and settings. All configuration is stored in `~/.anna/anna.db`. There are no YAML config files.
+This opens a web admin panel in your browser where you can configure everything: providers, API keys, agents, channels (Telegram, QQ, Feishu, WeChat), users, scheduled jobs, and settings. All configuration is stored in `~/.anna/anna.db`. There are no YAML config files.
 
 ### Use
 
@@ -198,6 +199,7 @@ anna upgrade               # Self-update to latest release
 | [Telegram](docs/content/docs/channels/telegram.md) | Bot setup, streaming, groups, access control |
 | [QQ Bot](docs/content/docs/channels/qq.md) | Bot setup, webhook, streaming |
 | [Feishu Bot](docs/content/docs/channels/feishu.md) | Bot setup, WebSocket, streaming |
+| [WeChat Bot](docs/content/docs/channels/weixin.md) | iLink Bot setup, QR login, DM |
 | [Scheduler System](docs/content/docs/features/scheduler-system.md) | Scheduler system, heartbeat, persistence |
 | [Plugin System](docs/content/docs/features/plugin-system.md) | JavaScript plugins, tools, hooks |
 | [Notification System](docs/content/docs/features/notification-system.md) | Dispatcher, backends, routing |

@@ -6,7 +6,7 @@ title: アーキテクチャ
 
 annaは、`main.go`で結び付けられた疎結合なパッケージのセットとして構成されています。システムは複数のユーザーと複数のエージェントをサポートし、ルーティングはメッセージごとに処理されます。コアフローは以下の通りです：
 
-1. **チャネル**（CLI、Telegram、QQ、またはFeishu）がユーザー入力を受信
+1. **チャネル**（CLI、Telegram、QQ、Feishu、またはWeChat）がユーザー入力を受信
 2. チャネルは**ユーザーを解決**（外部ID + プラットフォームでアップサート）し、**エージェントを解決**（DMデフォルト、グループバインディング、またはフォールバック）
 3. **PoolManager**がエージェントIDでエージェントの**Pool**を検索（または作成）
 4. **Pool**がセッションを管理し、**Runner**にディスパッチ
@@ -14,7 +14,7 @@ annaは、`main.go`で結び付けられた疎結合なパッケージのセッ�
 6. レスポンスがチャネル経由でユーザーにストリーミングバック
 
 ```
-Channel (CLI / Telegram / QQ / Feishu)
+Channel (CLI / Telegram / QQ / Feishu / WeChat)
     |
     v
 Resolve user (identity.go)  -->  Resolve agent (identity.go)
@@ -279,7 +279,7 @@ type Channel interface {
 }
 ```
 
-共有コマンドロジック（`/new`、`/compact`、`/model`、`/agent`、`/whoami`）は`channel.HandleCommand`にあり、各チャネルがコアロジックのために委譲します。`/model`と`/agent`は、プラットフォーム固有のUI（Telegramはインラインキーボードを使用、QQとFeishuはテキストリストを使用、CLIはTUIピッカーを使用）が必要なため、チャネルごとに処理されます。
+共有コマンドロジック（`/new`、`/compact`、`/model`、`/agent`、`/whoami`）は`channel.HandleCommand`にあり、各チャネルがコアロジックのために委譲します。`/model`と`/agent`は、プラットフォーム固有のUI（Telegramはインラインキーボードを使用、QQ、Feishu、WeChatはテキストリストを使用、CLIはTUIピッカーを使用）が必要なため、チャネルごとに処理されます。
 
 ## 管理API
 
@@ -288,8 +288,8 @@ type Channel interface {
 ## 通知フロー
 
 ```
-Agent notify tool      --> Dispatcher --> Channel (Telegram/QQ/Feishu)
-Scheduler job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu)
+Agent notify tool      --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
+Scheduler job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
 ```
 
 ディスパッチャーはセットアップの早い段階で作成されますが、バックエンドはゲートウェイサービスの開始時に後で登録されます。PoolManagerは、`ExtraToolsFactory`を介してエージェントごとの通知ツール注入をワイヤするために使用されます。詳細については、[notification-system.md](/docs/features/notification-system)を参照してください。

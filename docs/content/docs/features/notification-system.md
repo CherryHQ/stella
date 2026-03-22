@@ -8,7 +8,7 @@ Implemented -- `internal/channel/notifier.go`, `internal/channel/notify_tool.go`
 
 ## Overview
 
-Anna supports proactive notifications so the agent, scheduled jobs, and other internal triggers can push messages to users without waiting for a request. The system uses a multi-channel dispatcher that routes notifications to one or more configured channels (Telegram, QQ, with Slack/Discord planned).
+Anna supports proactive notifications so the agent, scheduled jobs, and other internal triggers can push messages to users without waiting for a request. The system uses a multi-channel dispatcher that routes notifications to one or more configured channels (Telegram, QQ, WeChat, with Slack/Discord planned).
 
 ## Architecture
 
@@ -65,7 +65,7 @@ type Channel interface {
 }
 ```
 
-Currently implemented: `telegram.Bot`, `qq.Bot`.
+Currently implemented: `telegram.Bot`, `qq.Bot`, `weixin.Bot`.
 
 ### `channel.Dispatcher`
 
@@ -204,7 +204,7 @@ Session ID for groups = group chat ID (shared context per group).
 
 ### Access Control
 
-`allowed_ids` restricts bot interaction to specific user IDs (Telegram numeric IDs, QQ OpenIDs, Feishu open_ids). When the list is empty, all users are allowed. Unauthorized users are silently ignored -- all handlers (commands, callbacks, text) are wrapped in the access check. Users can send `/whoami` to the bot to discover their ID.
+`allowed_ids` restricts bot interaction to specific user IDs (Telegram numeric IDs, QQ OpenIDs, Feishu open_ids, WeChat iLink user IDs). When the list is empty, all users are allowed. Unauthorized users are silently ignored -- all handlers (commands, callbacks, text) are wrapped in the access check. Users can send `/whoami` to the bot to discover their ID.
 
 ### Notification Delivery
 
