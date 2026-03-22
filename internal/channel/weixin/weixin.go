@@ -234,6 +234,22 @@ func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
 	return nil
 }
 
+// resolve performs full user/agent/pool/session-key resolution.
+func (b *Bot) resolve(userID string) (*channel.ResolvedChat, error) {
+	return channel.Resolve(
+		context.Background(),
+		b.poolManager,
+		b.store,
+		b.authStore,
+		b.engine,
+		"weixin",
+		userID,
+		"",     // no display name available from iLink
+		userID, // chatID = userID for DM
+		false,  // DM only for v1
+	)
+}
+
 // loadCursor loads the get_updates_buf cursor from the DB channel config.
 func (b *Bot) loadCursor() string {
 	ch, err := b.store.GetChannel(context.Background(), "weixin")
