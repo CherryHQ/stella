@@ -21,6 +21,7 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/feishutool"
 )
 
 const feishuMaxMessageLen = 4000
@@ -34,21 +35,32 @@ var mentionPlaceholderRegex = regexp.MustCompile(`@_user_\d+`)
 
 func logger() *slog.Logger { return slog.With("component", "feishu") }
 
+// GroupConfig holds per-group overrides, keyed by chat_id in Config.Groups.
+type GroupConfig struct {
+	GroupMode    string   `json:"group_mode"`    // override global group_mode for this group
+	SystemPrompt string   `json:"system_prompt"` // prepend to user message in this group
+	ToolAllow    []string `json:"tool_allow"`    // reserved: only these tools (not yet enforced)
+	ToolDeny     []string `json:"tool_deny"`     // reserved: deny these tools (not yet enforced)
+}
+
 // Config holds Feishu bot settings.
 type Config struct {
-	AppID             string   // app ID
-	AppSecret         string   // app secret
-	EncryptKey        string   // event encrypt key (from Feishu developer console)
-	VerificationToken string   // event verification token (from Feishu developer console)
-	NotifyChat        string   // default chat ID for proactive notifications
-	GroupMode         string   // "mention" | "always" | "disabled"
-	AllowedIDs        []string // user open_ids allowed (empty = allow all)
+	AppID             string                 `json:"app_id"`
+	AppSecret         string                 `json:"app_secret"`
+	EncryptKey        string                 `json:"encrypt_key"`
+	VerificationToken string                 `json:"verification_token"`
+	NotifyChat        string                 `json:"notify_chat"`
+	GroupMode         string                 `json:"group_mode"`   // "mention" | "always" | "disabled"
+	AllowedIDs        []string               `json:"allowed_ids"`  // user open_ids allowed (empty = allow all)
+	Groups            map[string]GroupConfig `json:"groups"`       // per-group overrides keyed by chat_id
+	RedirectURI       string                 `json:"redirect_uri"` // OAuth redirect URI (default: https://anna.vaayne.com/oauth/callback)
 }
 
 // Bot wraps a Feishu bot with agent pool integration.
 type Bot struct {
 	client      *lark.Client
 	wsClient    *larkws.Client
+	fsClient    *feishutool.Client // feishutool client for OAuth operations
 	poolManager *agent.PoolManager
 	store       config.Store
 	authStore   auth.AuthStore
@@ -60,9 +72,11 @@ type Bot struct {
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
 
-	mu         sync.RWMutex
-	chatModels map[string]ModelOption
-	seenMsgs   map[string]time.Time // message ID -> first seen time
+	mu            sync.RWMutex
+	chatModels    map[string]ModelOption
+	seenMsgs      map[string]time.Time          // message ID -> first seen time
+	lastSeenSweep time.Time                     // last time seenMsgs was swept
+	activeStreams map[string]context.CancelFunc // streamKey -> cancel func
 
 	allowed map[string]struct{}
 	cfg     Config
@@ -84,6 +98,14 @@ func WithAuth(authStore auth.AuthStore, engine *auth.PolicyEngine, linkCodes *au
 	}
 }
 
+// WithFeishuClient configures the bot with a feishutool.Client for OAuth
+// and UAT token operations.
+func WithFeishuClient(c *feishutool.Client) BotOption {
+	return func(b *Bot) {
+		b.fsClient = c
+	}
+}
+
 // New creates a Feishu bot. Call Start to begin receiving events.
 func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn ModelListFunc, switchFn ModelSwitchFunc, opts ...BotOption) (*Bot, error) {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
@@ -100,15 +122,16 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn ModelList
 	}
 
 	b := &Bot{
-		poolManager: pm,
-		store:       store,
-		agentCmd:    channel.NewAgentCommander(store, nil),
-		listFn:      listFn,
-		switchFn:    switchFn,
-		chatModels:  make(map[string]ModelOption),
-		seenMsgs:    make(map[string]time.Time),
-		allowed:     allowed,
-		cfg:         cfg,
+		poolManager:   pm,
+		store:         store,
+		agentCmd:      channel.NewAgentCommander(store, nil),
+		listFn:        listFn,
+		switchFn:      switchFn,
+		chatModels:    make(map[string]ModelOption),
+		seenMsgs:      make(map[string]time.Time),
+		activeStreams: make(map[string]context.CancelFunc),
+		allowed:       allowed,
+		cfg:           cfg,
 	}
 
 	for _, opt := range opts {
@@ -133,7 +156,8 @@ func (b *Bot) Start(ctx context.Context) error {
 	}
 
 	eventHandler := dispatcher.NewEventDispatcher(b.cfg.VerificationToken, b.cfg.EncryptKey).
-		OnP2MessageReceiveV1(b.onMessage)
+		OnP2MessageReceiveV1(b.onMessage).
+		OnP2MessageReactionCreatedV1(b.onReaction)
 
 	b.wsClient = larkws.NewClient(b.cfg.AppID, b.cfg.AppSecret,
 		larkws.WithEventHandler(eventHandler),
@@ -247,23 +271,6 @@ func (b *Bot) isAllowed(openID string) bool {
 	return ok
 }
 
-// resolve performs full user/agent/pool/session-key resolution for the
-// given Feishu message context. Call once per incoming message or command.
-func (b *Bot) resolve(openID, chatID, chatType string) (*channel.ResolvedChat, error) {
-	return channel.Resolve(
-		context.Background(),
-		b.poolManager,
-		b.store,
-		b.authStore,
-		b.engine,
-		"feishu",
-		openID,
-		"",
-		chatID,
-		chatType == "group",
-	)
-}
-
 // textContent builds the JSON content string for a Feishu text message.
 func textContent(text string) string {
 	data, _ := json.Marshal(map[string]string{"text": text})
@@ -288,10 +295,19 @@ func cardContent(text string) string {
 	return string(data)
 }
 
+// groupMode returns the effective group mode for the given chat.
+// Per-group config overrides the global setting.
+func (b *Bot) groupMode(chatID string) string {
+	if gc, ok := b.cfg.Groups[chatID]; ok && gc.GroupMode != "" {
+		return gc.GroupMode
+	}
+	return b.cfg.GroupMode
+}
+
 // shouldRespondInGroup checks whether the bot should respond based on group_mode
-// and whether it was mentioned.
-func (b *Bot) shouldRespondInGroup(mentions []*larkim.MentionEvent) bool {
-	switch b.cfg.GroupMode {
+// and whether it was mentioned. Uses per-group config when available.
+func (b *Bot) shouldRespondInGroup(chatID string, mentions []*larkim.MentionEvent) bool {
+	switch b.groupMode(chatID) {
 	case "disabled":
 		return false
 	case "always":
@@ -299,6 +315,14 @@ func (b *Bot) shouldRespondInGroup(mentions []*larkim.MentionEvent) bool {
 	default: // "mention"
 		return b.isBotMentioned(mentions)
 	}
+}
+
+// groupSystemPrompt returns the system prompt override for the given chat, if any.
+func (b *Bot) groupSystemPrompt(chatID string) string {
+	if gc, ok := b.cfg.Groups[chatID]; ok {
+		return gc.SystemPrompt
+	}
+	return ""
 }
 
 // isBotMentioned checks if the bot was @mentioned by comparing each mention's
@@ -331,18 +355,21 @@ func (b *Bot) isBotMentioned(mentions []*larkim.MentionEvent) bool {
 }
 
 // markSeen records a message ID and returns true if it was already seen.
-// Evicts entries older than seenMsgTTL to bound memory usage.
+// Evicts entries older than seenMsgTTL periodically to bound memory usage.
 func (b *Bot) markSeen(messageID string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	now := time.Now()
 
-	// Evict expired entries.
-	for id, t := range b.seenMsgs {
-		if now.Sub(t) > seenMsgTTL {
-			delete(b.seenMsgs, id)
+	// Sweep expired entries at most once per minute to avoid O(N) on every message.
+	if now.Sub(b.lastSeenSweep) > time.Minute {
+		for id, t := range b.seenMsgs {
+			if now.Sub(t) > seenMsgTTL {
+				delete(b.seenMsgs, id)
+			}
 		}
+		b.lastSeenSweep = now
 	}
 
 	if _, ok := b.seenMsgs[messageID]; ok {
@@ -350,6 +377,57 @@ func (b *Bot) markSeen(messageID string) bool {
 	}
 	b.seenMsgs[messageID] = now
 	return false
+}
+
+// cancelPatterns lists the text patterns that trigger abort.
+var cancelPatterns = []string{"cancel", "stop", "abort", "取消", "停止"}
+
+// isCancelText returns true if the text matches a cancel pattern.
+func isCancelText(text string) bool {
+	t := strings.TrimSpace(strings.ToLower(text))
+	for _, p := range cancelPatterns {
+		if t == p {
+			return true
+		}
+	}
+	return false
+}
+
+// streamKey builds a key for the activeStreams map.
+// For threads, uses chatID:thread:rootID; otherwise just chatID.
+func streamKey(chatID, rootID string) string {
+	if rootID != "" {
+		return chatID + ":thread:" + rootID
+	}
+	return chatID
+}
+
+// registerStream registers a cancel function for an active stream.
+func (b *Bot) registerStream(key string, cancel context.CancelFunc) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.activeStreams[key] = cancel
+}
+
+// unregisterStream removes a stream from the active streams map.
+func (b *Bot) unregisterStream(key string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.activeStreams, key)
+}
+
+// cancelStream cancels an active stream if one exists. Returns true if cancelled.
+func (b *Bot) cancelStream(key string) bool {
+	b.mu.Lock()
+	cancel, ok := b.activeStreams[key]
+	if ok {
+		delete(b.activeStreams, key)
+	}
+	b.mu.Unlock()
+	if ok {
+		cancel()
+	}
+	return ok
 }
 
 // stripMentions removes @mention placeholders from message text.

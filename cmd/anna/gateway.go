@@ -165,6 +165,13 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 	if fsCfg != nil && fsCfg.AppID != "" && fsCfg.AppSecret != "" {
 		slog.Info("starting feishu bot")
 
+		fsOpts := []feishu.BotOption{
+			feishu.WithAuth(as, engine, linkCodes),
+		}
+		if s.fsClient != nil {
+			fsOpts = append(fsOpts, feishu.WithFeishuClient(s.fsClient))
+		}
+
 		fsBot, err := feishu.New(feishu.Config{
 			AppID:             fsCfg.AppID,
 			AppSecret:         fsCfg.AppSecret,
@@ -173,8 +180,10 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			NotifyChat:        fsCfg.NotifyChat,
 			GroupMode:         fsCfg.GroupMode,
 			AllowedIDs:        fsCfg.AllowedIDs,
+			Groups:            fsCfg.Groups,
+			RedirectURI:       fsCfg.RedirectURI,
 		}, s.poolManager, s.store, listFn, switchFn,
-			feishu.WithAuth(as, engine, linkCodes),
+			fsOpts...,
 		)
 		if err != nil {
 			return fmt.Errorf("create feishu bot: %w", err)
@@ -320,14 +329,16 @@ type qqChannelConfig struct {
 }
 
 type feishuChannelConfig struct {
-	AppID             string   `json:"app_id"`
-	AppSecret         string   `json:"app_secret"`
-	EncryptKey        string   `json:"encrypt_key"`
-	VerificationToken string   `json:"verification_token"`
-	NotifyChat        string   `json:"notify_chat"`
-	GroupMode         string   `json:"group_mode"`
-	AllowedIDs        []string `json:"allowed_ids"`
-	EnableNotify      bool     `json:"enable_notify"`
+	AppID             string                        `json:"app_id"`
+	AppSecret         string                        `json:"app_secret"`
+	EncryptKey        string                        `json:"encrypt_key"`
+	VerificationToken string                        `json:"verification_token"`
+	NotifyChat        string                        `json:"notify_chat"`
+	GroupMode         string                        `json:"group_mode"`
+	AllowedIDs        []string                      `json:"allowed_ids"`
+	Groups            map[string]feishu.GroupConfig `json:"groups"`
+	RedirectURI       string                        `json:"redirect_uri"`
+	EnableNotify      bool                          `json:"enable_notify"`
 }
 
 // loadChannelConfig loads a channel's JSON config from the store and
