@@ -120,7 +120,6 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	// Weixin QR login APIs (admin-only).
 	s.mux.Handle("POST /api/channels/weixin/qr", adminAPI(s.startWeixinQR))
 	s.mux.Handle("GET /api/channels/weixin/qr/status", adminAPI(s.pollWeixinQRStatus))
-	s.mux.Handle("GET /api/channels/weixin/qr/image", adminAPI(s.proxyWeixinQRImage))
 
 	// User APIs (admin-only) — memory management and default agent.
 	s.mux.Handle("PUT /api/users/{id}/default-agent", adminAPI(s.updateUserDefaultAgent))

@@ -1,4 +1,5 @@
 import { api } from '/static/js/api.js'
+import QRCode from 'https://esm.sh/qrcode@1.5.4'
 
 /**
  * Parses a comma-separated string into an array.
@@ -152,9 +153,11 @@ export function register(Alpine) {
       try {
         const result = await api('POST', '/api/channels/weixin/qr')
         this.qrCode = result.qrcode || ''
-        // Proxy through our API to avoid CORS errors loading from weixin.qq.com
+        // Generate QR code image client-side from the URL
         const imgContent = result.qrcode_img_content || ''
-        this.qrUrl = imgContent ? '/api/channels/weixin/qr/image?url=' + encodeURIComponent(imgContent) : ''
+        if (imgContent) {
+          this.qrUrl = await QRCode.toDataURL(imgContent, { width: 256, margin: 2 })
+        }
         this.qrStatus = 'waiting'
         this._qrInterval = setInterval(() => this.pollQRStatus(), 3000)
       } catch (e) {
