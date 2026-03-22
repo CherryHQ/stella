@@ -48,23 +48,7 @@ func (b *Bot) sendAuthCard(openID, chatID, messageID string) {
 			"elements": []map[string]any{
 				{
 					"tag":     "markdown",
-					"content": "To use Feishu tools that require your identity (calendar, tasks, etc.), you need to authorize this app.\n\nClick the button below to authorize, then send the authorization code back with `/auth <code>`.",
-				},
-				{
-					"tag": "action",
-					"actions": []map[string]any{
-						{
-							"tag": "button",
-							"text": map[string]any{
-								"tag":     "plain_text",
-								"content": "Authorize",
-							},
-							"type": "primary",
-							"multi_url": map[string]any{
-								"url": authURL,
-							},
-						},
-					},
+					"content": fmt.Sprintf("To use Feishu tools that require your identity (calendar, tasks, etc.), you need to authorize this app.\n\n**[Click here to authorize](%s)**\n\nAfter authorization, copy the code from the page and send it back with `/auth <code>`.", authURL),
 				},
 			},
 		},
