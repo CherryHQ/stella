@@ -22,6 +22,7 @@ import (
 	"github.com/vaayne/anna/internal/channel/feishu"
 	"github.com/vaayne/anna/internal/channel/qq"
 	"github.com/vaayne/anna/internal/channel/telegram"
+	"github.com/vaayne/anna/internal/channel/weixin"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/scheduler"
@@ -111,6 +112,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 	tgCfg := loadChannelConfig[telegramChannelConfig](s.store, "telegram")
 	qqCfg := loadChannelConfig[qqChannelConfig](s.store, "qq")
 	fsCfg := loadChannelConfig[feishuChannelConfig](s.store, "feishu")
+	wxCfg := loadChannelConfig[weixinChannelConfig](s.store, "weixin")
 
 	// --- Telegram ---
 	if tgCfg != nil && tgCfg.Token != "" {
@@ -192,6 +194,30 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 		channels = append(channels, fsBot)
 		if fsCfg.EnableNotify {
 			s.notifier.Register(fsBot, fsCfg.NotifyChat)
+		}
+	}
+
+	// --- Weixin ---
+	if wxCfg != nil && wxCfg.BotToken != "" {
+		slog.Info("starting weixin bot")
+
+		wxBot, err := weixin.New(weixin.Config{
+			BotToken:   wxCfg.BotToken,
+			BaseURL:    wxCfg.BaseURL,
+			BotID:      wxCfg.BotID,
+			UserID:     wxCfg.UserID,
+			NotifyChat: wxCfg.NotifyChat,
+			AllowedIDs: wxCfg.AllowedIDs,
+		}, s.poolManager, s.store, listFn, switchFn,
+			weixin.WithAuth(as, engine, linkCodes),
+		)
+		if err != nil {
+			return fmt.Errorf("create weixin bot: %w", err)
+		}
+
+		channels = append(channels, wxBot)
+		if wxCfg.EnableNotify {
+			s.notifier.Register(wxBot, wxCfg.NotifyChat)
 		}
 	}
 
@@ -339,6 +365,16 @@ type feishuChannelConfig struct {
 	Groups            map[string]feishu.GroupConfig `json:"groups"`
 	RedirectURI       string                        `json:"redirect_uri"`
 	EnableNotify      bool                          `json:"enable_notify"`
+}
+
+type weixinChannelConfig struct {
+	BotToken     string   `json:"bot_token"`
+	BaseURL      string   `json:"base_url"`
+	BotID        string   `json:"bot_id"`
+	UserID       string   `json:"user_id"`
+	NotifyChat   string   `json:"notify_chat"`
+	AllowedIDs   []string `json:"allowed_ids"`
+	EnableNotify bool     `json:"enable_notify"`
 }
 
 // loadChannelConfig loads a channel's JSON config from the store and

@@ -6,7 +6,7 @@ title: 架构
 
 anna 的结构是一组松耦合的包，在 `main.go` 中组装在一起。系统支持多用户和多代理，消息路由按消息级别处理。核心流程：
 
-1. 一个**通道**（CLI、Telegram、QQ 或 Feishu）接收用户输入
+1. 一个**通道**（CLI、Telegram、QQ、Feishu 或微信）接收用户输入
 2. 通道**解析用户**（通过外部 ID + 平台进行 upsert）和**解析代理**（DM 默认、群组绑定或回退）
 3. **PoolManager** 通过代理 ID 查找（或创建）代理的 **Pool**
 4. **Pool** 管理会话并分发给 **Runner**
@@ -14,7 +14,7 @@ anna 的结构是一组松耦合的包，在 `main.go` 中组装在一起。系�
 6. 响应通过通道流回给用户
 
 ```
-Channel (CLI / Telegram / QQ / Feishu)
+Channel (CLI / Telegram / QQ / Feishu / WeChat)
     |
     v
 Resolve user (identity.go)  -->  Resolve agent (identity.go)
@@ -279,7 +279,7 @@ type Channel interface {
 }
 ```
 
-共享命令逻辑（`/new`、`/compact`、`/model`、`/agent`、`/whoami`）位于 `channel.HandleCommand` 中，每个通道委托给它以处理核心逻辑。`/model` 和 `/agent` 按通道处理，因为它们需要特定于平台的 UI（Telegram 使用内联键盘，QQ 和 Feishu 使用文本列表，CLI 使用 TUI 选择器）。
+共享命令逻辑（`/new`、`/compact`、`/model`、`/agent`、`/whoami`）位于 `channel.HandleCommand` 中，每个通道委托给它以处理核心逻辑。`/model` 和 `/agent` 按通道处理，因为它们需要特定于平台的 UI（Telegram 使用内联键盘，QQ、Feishu 和微信使用文本列表，CLI 使用 TUI 选择器）。
 
 ## Admin API
 
@@ -288,8 +288,8 @@ type Channel interface {
 ## 通知流程
 
 ```
-Agent notify tool      --> Dispatcher --> Channel (Telegram/QQ/Feishu)
-Scheduler job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu)
+Agent notify tool      --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
+Scheduler job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
 ```
 
 分发器在设置早期创建，但后端在网关服务启动时稍后注册。PoolManager 用于通过 `ExtraToolsFactory` 按代理注入通知工具。有关详细信息，请参阅 [notification-system.md](/docs/features/notification-system)。

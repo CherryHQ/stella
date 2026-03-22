@@ -54,7 +54,7 @@ One row per messaging platform.
 
 | Column    | Type    | Description                                           |
 | --------- | ------- | ----------------------------------------------------- |
-| `id`      | TEXT    | Platform identifier: `telegram`, `qq`, or `feishu`    |
+| `id`      | TEXT    | Platform identifier: `telegram`, `qq`, `feishu`, or `weixin`    |
 | `enabled` | INTEGER | 1 = active, 0 = disabled                              |
 | `config`  | TEXT    | JSON blob with platform-specific settings (see below) |
 

@@ -54,7 +54,7 @@ title: 配置
 
 | 列        | 类型    | 描述                                     |
 | --------- | ------- | ---------------------------------------- |
-| `id`      | TEXT    | 平台标识符：`telegram`、`qq` 或 `feishu` |
+| `id`      | TEXT    | 平台标识符：`telegram`、`qq`、`feishu` 或 `weixin` |
 | `enabled` | INTEGER | 1 = 启用，0 = 禁用                       |
 | `config`  | TEXT    | 包含平台特定设置的 JSON 数据（见下文）   |
 

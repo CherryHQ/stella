@@ -4,7 +4,7 @@ import "github.com/vaayne/anna/internal/admin/ui"
 
 templ ChannelsPage() {
 	<div x-data="channelsPage()">
-		@ui.PageHeader("Messaging platforms", "Connect Anna to Telegram, QQ, and Feishu.")
+		@ui.PageHeader("Messaging platforms", "Connect Anna to Telegram, QQ, Feishu, and Weixin.")
 		<div class="border-t border-base-300 divide-y divide-base-300">
 			<!-- Telegram -->
 			@channelBlock("Telegram", "telegram") {
@@ -209,6 +209,48 @@ templ ChannelsPage() {
 					}
 				</div>
 				<button @click="saveChannel('feishu')" class="btn btn-primary btn-sm">Save Feishu</button>
+			}
+			<!-- Weixin -->
+			@channelBlock("Weixin", "weixin") {
+				<label class="flex items-center gap-3 cursor-pointer">
+					<input
+						type="checkbox"
+						:checked="channelData.weixin.enable_notify"
+						@change="channelData.weixin.enable_notify = $event.target.checked"
+						class="toggle toggle-primary toggle-sm"
+					/>
+					<span class="text-sm">Notifications</span>
+				</label>
+				<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+					<div>
+						@ui.FormField("Notify Chat") {
+							<input
+								type="text"
+								x-model="channelData.weixin.notify_chat"
+								placeholder="User ID for notifications"
+								class="input input-bordered w-full text-sm"
+							/>
+							<p class="text-xs text-secondary mt-1">
+								Requires cached context_token (repopulated when user sends a message after restart).
+							</p>
+						}
+					</div>
+					<div>
+						@ui.FormField("Allowed IDs") {
+							<input
+								type="text"
+								:value="formatAllowedIds(channelData.weixin.allowed_ids)"
+								@change="channelData.weixin.allowed_ids = parseAllowedIds($event.target.value, false)"
+								placeholder="User IDs, comma-separated"
+								class="input input-bordered w-full text-sm"
+							/>
+						}
+					</div>
+				</div>
+				<p class="text-xs text-secondary">
+					To connect, go to <a href="/profile" class="link link-primary">Profile</a> and use "Link Weixin" to scan the QR code.
+				</p>
+				<button @click="saveChannel('weixin')" class="btn btn-primary btn-sm">Save Weixin</button>
 			}
 		</div>
 	</div>

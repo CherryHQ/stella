@@ -2,10 +2,10 @@
 name: anna
 description: >
   Self-knowledge about anna, the self-hosted AI assistant. Use when the user asks about
-  anna itself: configuration, setup, onboarding, providers, models, agents, channels (Telegram/QQ/Feishu),
+  anna itself: configuration, setup, onboarding, providers, models, agents, channels (Telegram/QQ/Feishu/WeChat),
   memory system (LCM), scheduled jobs, heartbeat, skills, plugins, session compaction, notifications,
   self-update, multi-agent, multi-user, or general "how does anna work" / "help me get started" questions.
-  Also triggers on "change my model", "set up telegram", "configure provider", "update anna",
+  Also triggers on "change my model", "set up telegram", "set up wechat", "configure provider", "update anna",
   "what can you do", "how do I install skills", "write a plugin", "anna onboard", "switch agent".
 ---
 
@@ -19,7 +19,7 @@ anna is a self-hosted AI assistant with multi-user and multi-agent support. She 
 
 Two modes:
 - **CLI chat**: `anna chat` (Bubble Tea TUI with streaming)
-- **Gateway daemon**: `anna` (Telegram, QQ, Feishu bots + scheduler, runs by default)
+- **Gateway daemon**: `anna` (Telegram, QQ, Feishu, WeChat bots + scheduler, runs by default)
 
 Setup: `anna --open` opens a web admin panel to configure everything. All configuration is stored in a SQLite database (`$ANNA_HOME/anna.db`). Data: `$ANNA_HOME/workspaces/{agent_id}/`.
 
@@ -27,7 +27,7 @@ Setup: `anna --open` opens a web admin panel to configure everything. All config
 
 - **Multi-agent**: Multiple agents can run simultaneously, each with its own provider, model, system prompt, and workspace. Managed via the admin panel.
 - **Multi-user**: Users are auto-created from platform identity. Each user has per-agent memory that persists across sessions.
-- **Single bot per platform**: One Telegram/QQ/Feishu bot serves all agents. Users switch agents via `/agent` command.
+- **Single bot per platform**: One Telegram/QQ/Feishu/WeChat bot serves all agents. Users switch agents via `/agent` command.
 - **Agent routing**: DMs use the user's default agent. Groups use the group's assigned agent. Fallback: first enabled agent.
 - **Session scoping**: Sessions are scoped to (agent, platform, user, chat context) so switching agents gives you a fresh conversation.
 
@@ -49,12 +49,12 @@ Read the relevant reference file for detailed guidance:
 |-------|-----------|--------------|
 | Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults |
 | Models | [references/models.md](references/models.md) | Model tiers, switching, provider setup, CLI commands |
-| Channels | [references/channels.md](references/channels.md) | Telegram/QQ/Feishu bot setup, groups, access control |
+| Channels | [references/channels.md](references/channels.md) | Telegram/QQ/Feishu/WeChat bot setup, groups, access control |
 | Update | [references/update.md](references/update.md) | How to update anna to the latest version |
 
 ## In-chat commands
 
-Available in CLI, Telegram, QQ, and Feishu:
+Available in CLI, Telegram, QQ, Feishu, and WeChat:
 
 | Command | Description |
 |---------|-------------|
@@ -67,7 +67,7 @@ Available in CLI, Telegram, QQ, and Feishu:
 ## CLI commands
 
 ```
-anna                   # Start daemon (Telegram, QQ, Feishu, scheduler)
+anna                   # Start daemon (Telegram, QQ, Feishu, WeChat, scheduler)
 anna --open            # Start daemon and open admin panel in browser
 anna --admin-port 8080 # Start daemon with admin panel on custom port
 anna chat              # Interactive TUI
@@ -106,6 +106,6 @@ These are tools you already have access to. Briefly:
 - **Memory retrieval**: The `memory` tool provides `grep` (search by keyword), `describe` (inspect summary metadata and lineage), and `expand` (drill into compacted summaries to recover original detail) actions.
 - **Scheduler**: `scheduler` tool -- add/list/remove scheduled or one-time jobs. Jobs route to the correct agent's pool.
 - **Heartbeat**: polls a markdown file on an interval, uses the fast model to decide skip/run, executes and notifies on run. Config under `heartbeat` in settings.
-- **Notifications**: `notify` tool (gateway mode only) -- send messages via Telegram/QQ/Feishu dispatcher.
+- **Notifications**: `notify` tool (gateway mode only) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.
 - **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings.
 - **Plugins**: JS extensions that add custom tools and lifecycle hooks. Single `.js` file per plugin, runs in embedded QuickJS. Host APIs: `anna.registerTool()`, `anna.on()`, `anna.log()`, `anna.readFile()`/`anna.writeFile()`, `anna.fetch()`. Config stored in settings table. Manage with `anna plugin add/remove/list`.
