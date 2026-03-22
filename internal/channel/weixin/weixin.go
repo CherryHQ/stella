@@ -51,7 +51,6 @@ type Bot struct {
 	cfg     Config
 	ctx     context.Context
 	cancel  context.CancelFunc
-	mu      sync.RWMutex
 }
 
 // BotOption configures the WeChat Bot.
@@ -199,6 +198,10 @@ func (b *Bot) handleUpdates(msgs []WeixinMessage) {
 
 // Notify sends a notification message via sendmessage. Implements channel.Channel.
 func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
+	if b.client == nil {
+		return fmt.Errorf("weixin: bot not started")
+	}
+
 	targetUser := n.ChatID
 	if targetUser == "" {
 		targetUser = b.cfg.NotifyChat
@@ -286,7 +289,7 @@ func (b *Bot) persistCursor(buf string) {
 
 	if err := b.store.UpsertChannel(context.Background(), config.Channel{
 		ID:      "weixin",
-		Enabled: true,
+		Enabled: ch.Enabled,
 		Config:  string(data),
 	}); err != nil {
 		logger().Warn("failed to persist cursor", "error", err)
@@ -324,7 +327,7 @@ func (b *Bot) clearCredentials() {
 
 	if err := b.store.UpsertChannel(context.Background(), config.Channel{
 		ID:      "weixin",
-		Enabled: true,
+		Enabled: ch.Enabled,
 		Config:  string(data),
 	}); err != nil {
 		logger().Warn("failed to clear credentials in DB", "error", err)
