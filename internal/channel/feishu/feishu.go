@@ -75,6 +75,7 @@ type Bot struct {
 	mu            sync.RWMutex
 	chatModels    map[string]ModelOption
 	seenMsgs      map[string]time.Time          // message ID -> first seen time
+	lastSeenSweep time.Time                     // last time seenMsgs was swept
 	activeStreams map[string]context.CancelFunc // streamKey -> cancel func
 
 	allowed map[string]struct{}
@@ -354,18 +355,21 @@ func (b *Bot) isBotMentioned(mentions []*larkim.MentionEvent) bool {
 }
 
 // markSeen records a message ID and returns true if it was already seen.
-// Evicts entries older than seenMsgTTL to bound memory usage.
+// Evicts entries older than seenMsgTTL periodically to bound memory usage.
 func (b *Bot) markSeen(messageID string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	now := time.Now()
 
-	// Evict expired entries.
-	for id, t := range b.seenMsgs {
-		if now.Sub(t) > seenMsgTTL {
-			delete(b.seenMsgs, id)
+	// Sweep expired entries at most once per minute to avoid O(N) on every message.
+	if now.Sub(b.lastSeenSweep) > time.Minute {
+		for id, t := range b.seenMsgs {
+			if now.Sub(t) > seenMsgTTL {
+				delete(b.seenMsgs, id)
+			}
 		}
+		b.lastSeenSweep = now
 	}
 
 	if _, ok := b.seenMsgs[messageID]; ok {

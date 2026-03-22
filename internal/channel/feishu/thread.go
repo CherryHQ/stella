@@ -24,36 +24,34 @@ func threadChannelCtx(chatID, chatType, rootID string) (channelCtx string, isGro
 	return channelCtx, isGroup
 }
 
+// threadReplyTarget returns rootID if non-empty (thread reply), otherwise messageID.
+func threadReplyTarget(messageID, rootID string) string {
+	if rootID != "" {
+		return rootID
+	}
+	return messageID
+}
+
 // replyInThread sends a text reply. When rootID is non-empty, the reply
 // targets the root message so it appears in the thread.
 func (b *Bot) replyInThread(ctx context.Context, messageID, rootID, text string) {
-	replyTo := messageID
-	if rootID != "" {
-		replyTo = rootID
-	}
-	b.replyText(ctx, replyTo, text)
+	b.replyText(ctx, threadReplyTarget(messageID, rootID), text)
 }
 
 // sendCardReplyInThread sends a card reply in the correct thread context.
 // When rootID is non-empty, the card is sent as a reply to the root message.
 func (b *Bot) sendCardReplyInThread(rootID, replyMsgID, text string) (string, error) {
-	replyTo := replyMsgID
-	if rootID != "" {
-		replyTo = rootID
-	}
-	return b.sendCardReply(replyTo, text)
+	return b.sendCardReply(threadReplyTarget(replyMsgID, rootID), text)
 }
 
 // sendFinalResponseInThread delivers the completed response with thread awareness.
 func (b *Bot) sendFinalResponseInThread(chatID, replyMsgID, rootID, sentMsgID, response string) {
+	replyTo := threadReplyTarget(replyMsgID, rootID)
+
 	if sentMsgID != "" {
 		chunks := splitMessage(response)
 		if err := b.patchMessage(sentMsgID, chunks[0]); err != nil {
 			logger().Error("final update failed", "error", err, "chat_id", chatID)
-		}
-		replyTo := replyMsgID
-		if rootID != "" {
-			replyTo = rootID
 		}
 		for _, chunk := range chunks[1:] {
 			if _, err := b.sendCardReply(replyTo, chunk); err != nil {
@@ -63,10 +61,6 @@ func (b *Bot) sendFinalResponseInThread(chatID, replyMsgID, rootID, sentMsgID, r
 		return
 	}
 
-	replyTo := replyMsgID
-	if rootID != "" {
-		replyTo = rootID
-	}
 	chunks := splitMessage(response)
 	for _, chunk := range chunks {
 		if _, err := b.sendCardReply(replyTo, chunk); err != nil {
@@ -77,11 +71,7 @@ func (b *Bot) sendFinalResponseInThread(chatID, replyMsgID, rootID, sentMsgID, r
 
 // sendImageInThread sends an image in the correct thread context.
 func (b *Bot) sendImageInThread(chatID, replyMsgID, rootID string, img runner.ImageEvent) {
-	replyTo := replyMsgID
-	if rootID != "" {
-		replyTo = rootID
-	}
-	b.sendImage(chatID, replyTo, img)
+	b.sendImage(chatID, threadReplyTarget(replyMsgID, rootID), img)
 }
 
 // resolveWithThread performs resolution with thread-aware channelCtx.

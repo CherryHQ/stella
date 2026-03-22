@@ -2,7 +2,6 @@ package feishutool
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -12,9 +11,7 @@ import (
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
-var taskInputSchema = func() map[string]any {
-	var m map[string]any
-	_ = json.Unmarshal([]byte(`{
+var taskInputSchema = mustParseSchema(`{
   "type": "object",
   "properties": {
     "action": {
@@ -83,9 +80,7 @@ var taskInputSchema = func() map[string]any {
     }
   },
   "required": ["action"]
-}`), &m)
-	return m
-}()
+}`)
 
 // TaskTool provides Feishu task management via the Task v2 API.
 type TaskTool struct {
@@ -201,16 +196,7 @@ func (t *TaskTool) listTasks(ctx context.Context, args map[string]any) (string, 
 		if !resp.Success() {
 			return fmt.Errorf("list tasks: %s", FormatLarkError(resp.Code, resp.Msg))
 		}
-		hasMore := resp.Data.HasMore != nil && *resp.Data.HasMore
-		pt := ""
-		if resp.Data.PageToken != nil {
-			pt = *resp.Data.PageToken
-		}
-		result = map[string]any{
-			"tasks":      resp.Data.Items,
-			"has_more":   hasMore,
-			"page_token": pt,
-		}
+		result = paginatedResultMap("tasks", resp.Data.Items, resp.Data.HasMore, resp.Data.PageToken)
 		return nil
 	})
 	if invokeErr != nil {
@@ -379,16 +365,7 @@ func (t *TaskTool) listTasklists(ctx context.Context, args map[string]any) (stri
 		if !resp.Success() {
 			return fmt.Errorf("list tasklists: %s", FormatLarkError(resp.Code, resp.Msg))
 		}
-		hasMore := resp.Data.HasMore != nil && *resp.Data.HasMore
-		pt := ""
-		if resp.Data.PageToken != nil {
-			pt = *resp.Data.PageToken
-		}
-		result = map[string]any{
-			"tasklists":  resp.Data.Items,
-			"has_more":   hasMore,
-			"page_token": pt,
-		}
+		result = paginatedResultMap("tasklists", resp.Data.Items, resp.Data.HasMore, resp.Data.PageToken)
 		return nil
 	})
 	if invokeErr != nil {
@@ -461,16 +438,7 @@ func (t *TaskTool) listSubtasks(ctx context.Context, args map[string]any) (strin
 		if !resp.Success() {
 			return fmt.Errorf("list subtasks: %s", FormatLarkError(resp.Code, resp.Msg))
 		}
-		hasMore := resp.Data.HasMore != nil && *resp.Data.HasMore
-		pt := ""
-		if resp.Data.PageToken != nil {
-			pt = *resp.Data.PageToken
-		}
-		result = map[string]any{
-			"tasks":      resp.Data.Items,
-			"has_more":   hasMore,
-			"page_token": pt,
-		}
+		result = paginatedResultMap("tasks", resp.Data.Items, resp.Data.HasMore, resp.Data.PageToken)
 		return nil
 	})
 	if invokeErr != nil {

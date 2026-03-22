@@ -2,7 +2,6 @@ package feishutool
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -10,9 +9,7 @@ import (
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
-var wikiInputSchema = func() map[string]any {
-	var m map[string]any
-	_ = json.Unmarshal([]byte(`{
+var wikiInputSchema = mustParseSchema(`{
   "type": "object",
   "properties": {
     "action": {
@@ -64,9 +61,7 @@ var wikiInputSchema = func() map[string]any {
     }
   },
   "required": ["action"]
-}`), &m)
-	return m
-}()
+}`)
 
 // WikiTool provides Feishu wiki space and node management.
 type WikiTool struct {
@@ -140,16 +135,7 @@ func (t *WikiTool) listSpaces(ctx context.Context, args map[string]any) (string,
 			return fmt.Errorf("list spaces: %s", FormatLarkError(resp.Code, resp.Msg))
 		}
 
-		hasMore := resp.Data.HasMore != nil && *resp.Data.HasMore
-		pt := ""
-		if resp.Data.PageToken != nil {
-			pt = *resp.Data.PageToken
-		}
-		result = map[string]any{
-			"spaces":     resp.Data.Items,
-			"has_more":   hasMore,
-			"page_token": pt,
-		}
+		result = paginatedResultMap("spaces", resp.Data.Items, resp.Data.HasMore, resp.Data.PageToken)
 		return nil
 	})
 	if invokeErr != nil {
@@ -255,16 +241,7 @@ func (t *WikiTool) listSpaceNodes(ctx context.Context, args map[string]any) (str
 			return fmt.Errorf("list space nodes: %s", FormatLarkError(resp.Code, resp.Msg))
 		}
 
-		hasMore := resp.Data.HasMore != nil && *resp.Data.HasMore
-		pt := ""
-		if resp.Data.PageToken != nil {
-			pt = *resp.Data.PageToken
-		}
-		result = map[string]any{
-			"nodes":      resp.Data.Items,
-			"has_more":   hasMore,
-			"page_token": pt,
-		}
+		result = paginatedResultMap("nodes", resp.Data.Items, resp.Data.HasMore, resp.Data.PageToken)
 		return nil
 	})
 	if invokeErr != nil {

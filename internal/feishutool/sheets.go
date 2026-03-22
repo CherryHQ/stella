@@ -11,9 +11,7 @@ import (
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
-var sheetsInputSchema = func() map[string]any {
-	var m map[string]any
-	_ = json.Unmarshal([]byte(`{
+var sheetsInputSchema = mustParseSchema(`{
   "type": "object",
   "properties": {
     "action": {
@@ -49,9 +47,7 @@ var sheetsInputSchema = func() map[string]any {
     }
   },
   "required": ["action"]
-}`), &m)
-	return m
-}()
+}`)
 
 // SheetsTool provides Feishu spreadsheet operations.
 type SheetsTool struct {

@@ -2,7 +2,6 @@ package feishutool
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -10,9 +9,7 @@ import (
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
-var searchInputSchema = func() map[string]any {
-	var m map[string]any
-	_ = json.Unmarshal([]byte(`{
+var searchInputSchema = mustParseSchema(`{
   "type": "object",
   "properties": {
     "action": {
@@ -53,9 +50,7 @@ var searchInputSchema = func() map[string]any {
     }
   },
   "required": ["action"]
-}`), &m)
-	return m
-}()
+}`)
 
 // SearchTool provides Feishu document and wiki search.
 type SearchTool struct {
@@ -127,20 +122,9 @@ func (t *SearchTool) searchDocs(ctx context.Context, args map[string]any) (strin
 			return fmt.Errorf("search docs: %s", FormatLarkError(resp.Code, resp.Msg))
 		}
 
-		hasMore := resp.Data.HasMore != nil && *resp.Data.HasMore
-		total := 0
+		result = paginatedResultMap("results", resp.Data.ResUnits, resp.Data.HasMore, resp.Data.PageToken)
 		if resp.Data.Total != nil {
-			total = *resp.Data.Total
-		}
-		pt := ""
-		if resp.Data.PageToken != nil {
-			pt = *resp.Data.PageToken
-		}
-		result = map[string]any{
-			"results":    resp.Data.ResUnits,
-			"total":      total,
-			"has_more":   hasMore,
-			"page_token": pt,
+			result["total"] = *resp.Data.Total
 		}
 		return nil
 	})

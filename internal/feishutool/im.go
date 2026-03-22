@@ -2,7 +2,6 @@ package feishutool
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -10,9 +9,7 @@ import (
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
-var imInputSchema = func() map[string]any {
-	var m map[string]any
-	_ = json.Unmarshal([]byte(`{
+var imInputSchema = mustParseSchema(`{
   "type": "object",
   "properties": {
     "action": {
@@ -85,9 +82,7 @@ var imInputSchema = func() map[string]any {
     }
   },
   "required": ["action"]
-}`), &m)
-	return m
-}()
+}`)
 
 // IMTool provides Feishu instant messaging operations.
 type IMTool struct {
@@ -270,16 +265,7 @@ func (t *IMTool) readMessages(ctx context.Context, args map[string]any) (string,
 			return fmt.Errorf("read messages: %s", FormatLarkError(resp.Code, resp.Msg))
 		}
 
-		hasMore := resp.Data.HasMore != nil && *resp.Data.HasMore
-		pt := ""
-		if resp.Data.PageToken != nil {
-			pt = *resp.Data.PageToken
-		}
-		result = map[string]any{
-			"messages":   resp.Data.Items,
-			"has_more":   hasMore,
-			"page_token": pt,
-		}
+		result = paginatedResultMap("messages", resp.Data.Items, resp.Data.HasMore, resp.Data.PageToken)
 		return nil
 	})
 	if invokeErr != nil {

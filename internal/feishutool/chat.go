@@ -2,7 +2,6 @@ package feishutool
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -10,9 +9,7 @@ import (
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
-var chatInputSchema = func() map[string]any {
-	var m map[string]any
-	_ = json.Unmarshal([]byte(`{
+var chatInputSchema = mustParseSchema(`{
   "type": "object",
   "properties": {
     "action": {
@@ -43,9 +40,7 @@ var chatInputSchema = func() map[string]any {
     }
   },
   "required": ["action"]
-}`), &m)
-	return m
-}()
+}`)
 
 // ChatTool provides Feishu chat/group management.
 type ChatTool struct {
@@ -116,16 +111,7 @@ func (t *ChatTool) searchChats(ctx context.Context, args map[string]any) (string
 			return fmt.Errorf("search chats: %s", FormatLarkError(resp.Code, resp.Msg))
 		}
 
-		hasMore := resp.Data.HasMore != nil && *resp.Data.HasMore
-		pt := ""
-		if resp.Data.PageToken != nil {
-			pt = *resp.Data.PageToken
-		}
-		result = map[string]any{
-			"chats":      resp.Data.Items,
-			"has_more":   hasMore,
-			"page_token": pt,
-		}
+		result = paginatedResultMap("chats", resp.Data.Items, resp.Data.HasMore, resp.Data.PageToken)
 		return nil
 	})
 	if invokeErr != nil {
@@ -195,16 +181,7 @@ func (t *ChatTool) listMembers(ctx context.Context, args map[string]any) (string
 			return fmt.Errorf("list members: %s", FormatLarkError(resp.Code, resp.Msg))
 		}
 
-		hasMore := resp.Data.HasMore != nil && *resp.Data.HasMore
-		pt := ""
-		if resp.Data.PageToken != nil {
-			pt = *resp.Data.PageToken
-		}
-		result = map[string]any{
-			"members":    resp.Data.Items,
-			"has_more":   hasMore,
-			"page_token": pt,
-		}
+		result = paginatedResultMap("members", resp.Data.Items, resp.Data.HasMore, resp.Data.PageToken)
 		return nil
 	})
 	if invokeErr != nil {

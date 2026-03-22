@@ -12,9 +12,7 @@ import (
 
 const maxBatchSize = 500
 
-var bitableInputSchema = func() map[string]any {
-	var m map[string]any
-	_ = json.Unmarshal([]byte(`{
+var bitableInputSchema = mustParseSchema(`{
   "type": "object",
   "properties": {
     "action": {
@@ -120,9 +118,7 @@ var bitableInputSchema = func() map[string]any {
     }
   },
   "required": ["action"]
-}`), &m)
-	return m
-}()
+}`)
 
 // BitableTool provides Feishu Bitable (multidimensional spreadsheet) management.
 type BitableTool struct {
@@ -241,16 +237,7 @@ func (t *BitableTool) listTables(ctx context.Context, args map[string]any) (stri
 		if !resp.Success() {
 			return fmt.Errorf("list tables: %s", FormatLarkError(resp.Code, resp.Msg))
 		}
-		hasMore := resp.Data.HasMore != nil && *resp.Data.HasMore
-		pt := ""
-		if resp.Data.PageToken != nil {
-			pt = *resp.Data.PageToken
-		}
-		result = map[string]any{
-			"tables":     resp.Data.Items,
-			"has_more":   hasMore,
-			"page_token": pt,
-		}
+		result = paginatedResultMap("tables", resp.Data.Items, resp.Data.HasMore, resp.Data.PageToken)
 		return nil
 	})
 	if invokeErr != nil {
@@ -338,20 +325,9 @@ func (t *BitableTool) listRecords(ctx context.Context, args map[string]any) (str
 		if !resp.Success() {
 			return fmt.Errorf("list records: %s", FormatLarkError(resp.Code, resp.Msg))
 		}
-		hasMore := resp.Data.HasMore != nil && *resp.Data.HasMore
-		pt := ""
-		if resp.Data.PageToken != nil {
-			pt = *resp.Data.PageToken
-		}
-		total := 0
+		result = paginatedResultMap("records", resp.Data.Items, resp.Data.HasMore, resp.Data.PageToken)
 		if resp.Data.Total != nil {
-			total = *resp.Data.Total
-		}
-		result = map[string]any{
-			"records":    resp.Data.Items,
-			"has_more":   hasMore,
-			"page_token": pt,
-			"total":      total,
+			result["total"] = *resp.Data.Total
 		}
 		return nil
 	})
@@ -615,16 +591,7 @@ func (t *BitableTool) listFields(ctx context.Context, args map[string]any) (stri
 		if !resp.Success() {
 			return fmt.Errorf("list fields: %s", FormatLarkError(resp.Code, resp.Msg))
 		}
-		hasMore := resp.Data.HasMore != nil && *resp.Data.HasMore
-		pt := ""
-		if resp.Data.PageToken != nil {
-			pt = *resp.Data.PageToken
-		}
-		result = map[string]any{
-			"fields":     resp.Data.Items,
-			"has_more":   hasMore,
-			"page_token": pt,
-		}
+		result = paginatedResultMap("fields", resp.Data.Items, resp.Data.HasMore, resp.Data.PageToken)
 		return nil
 	})
 	if invokeErr != nil {

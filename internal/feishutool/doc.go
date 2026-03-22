@@ -2,7 +2,6 @@ package feishutool
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -10,9 +9,7 @@ import (
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
-var docInputSchema = func() map[string]any {
-	var m map[string]any
-	_ = json.Unmarshal([]byte(`{
+var docInputSchema = mustParseSchema(`{
   "type": "object",
   "properties": {
     "action": {
@@ -42,9 +39,7 @@ var docInputSchema = func() map[string]any {
     }
   },
   "required": ["action"]
-}`), &m)
-	return m
-}()
+}`)
 
 // DocTool provides Feishu document (Docx) operations.
 type DocTool struct {
@@ -139,16 +134,7 @@ func (t *DocTool) getDocContent(ctx context.Context, args map[string]any) (strin
 			return fmt.Errorf("get doc content: %s", FormatLarkError(resp.Code, resp.Msg))
 		}
 
-		hasMore := resp.Data.HasMore != nil && *resp.Data.HasMore
-		pt := ""
-		if resp.Data.PageToken != nil {
-			pt = *resp.Data.PageToken
-		}
-		result = map[string]any{
-			"blocks":     resp.Data.Items,
-			"has_more":   hasMore,
-			"page_token": pt,
-		}
+		result = paginatedResultMap("blocks", resp.Data.Items, resp.Data.HasMore, resp.Data.PageToken)
 		return nil
 	})
 	if invokeErr != nil {

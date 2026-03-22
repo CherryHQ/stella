@@ -2,7 +2,6 @@ package feishutool
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -11,9 +10,7 @@ import (
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
-var calendarInputSchema = func() map[string]any {
-	var m map[string]any
-	_ = json.Unmarshal([]byte(`{
+var calendarInputSchema = mustParseSchema(`{
   "type": "object",
   "properties": {
     "action": {
@@ -111,9 +108,7 @@ var calendarInputSchema = func() map[string]any {
     }
   },
   "required": ["action"]
-}`), &m)
-	return m
-}()
+}`)
 
 // CalendarTool provides Feishu calendar event management.
 type CalendarTool struct {

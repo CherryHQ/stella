@@ -2,16 +2,13 @@ package feishutool
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	larkcontact "github.com/larksuite/oapi-sdk-go/v3/service/contact/v3"
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
-var userInputSchema = func() map[string]any {
-	var m map[string]any
-	_ = json.Unmarshal([]byte(`{
+var userInputSchema = mustParseSchema(`{
   "type": "object",
   "properties": {
     "action": {
@@ -35,9 +32,7 @@ var userInputSchema = func() map[string]any {
     }
   },
   "required": ["action"]
-}`), &m)
-	return m
-}()
+}`)
 
 // UserTool provides Feishu user lookup capabilities.
 // Actions: get_user (by open_id), search_user (by email/mobile).
@@ -223,26 +218,4 @@ func formatUser(u *larkcontact.User) map[string]any {
 		}
 	}
 	return m
-}
-
-// toStringSlice extracts a string slice from a tool args map.
-func toStringSlice(args map[string]any, key string) []string {
-	v, ok := args[key]
-	if !ok {
-		return nil
-	}
-	switch s := v.(type) {
-	case []any:
-		out := make([]string, 0, len(s))
-		for _, item := range s {
-			if str, ok := item.(string); ok {
-				out = append(out, str)
-			}
-		}
-		return out
-	case []string:
-		return s
-	default:
-		return nil
-	}
 }

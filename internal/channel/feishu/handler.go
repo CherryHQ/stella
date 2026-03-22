@@ -117,12 +117,14 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		return nil
 	}
 
-	// Check for abort/cancel before processing the message.
-	rawText := parseTextContent(derefStr(msg.Content))
+	// Extract text once for cancel detection, commands, and link codes.
+	text := parseTextContent(derefStr(msg.Content))
 	if chatType == "group" {
-		rawText = stripMentions(rawText, mentions)
+		text = stripMentions(text, mentions)
 	}
-	if isCancelText(rawText) {
+
+	// Check for abort/cancel before processing the message.
+	if isCancelText(text) {
 		key := streamKey(chatID, rootID)
 		if b.cancelStream(key) {
 			b.replyInThread(b.ctx, messageID, rootID, "Cancelled.")
@@ -142,12 +144,6 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		logger().Error("resolve failed", "open_id", openID, "error", err)
 		replyFn(fmt.Sprintf("Error: %v", err))
 		return nil
-	}
-
-	// Extract text for command handling.
-	text := parseTextContent(derefStr(msg.Content))
-	if chatType == "group" {
-		text = stripMentions(text, mentions)
 	}
 
 	// Try link code before anything else.

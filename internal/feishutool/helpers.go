@@ -124,3 +124,50 @@ func derefInt(n *int) int {
 	}
 	return *n
 }
+
+// toStringSlice extracts a string slice from a tool args map.
+func toStringSlice(args map[string]any, key string) []string {
+	v, ok := args[key]
+	if !ok {
+		return nil
+	}
+	switch s := v.(type) {
+	case []any:
+		out := make([]string, 0, len(s))
+		for _, item := range s {
+			if str, ok := item.(string); ok {
+				out = append(out, str)
+			}
+		}
+		return out
+	case []string:
+		return s
+	default:
+		return nil
+	}
+}
+
+// mustParseSchema parses a JSON schema string into a map, panicking on error.
+// Used for package-level schema initialization where invalid JSON is a bug.
+func mustParseSchema(jsonStr string) map[string]any {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(jsonStr), &m); err != nil {
+		panic(fmt.Sprintf("feishutool: invalid schema JSON: %v", err))
+	}
+	return m
+}
+
+// paginatedResultMap builds a standard paginated result map from Lark SDK
+// pagination fields. Reduces boilerplate across tool implementations.
+func paginatedResultMap(key string, items any, hasMore *bool, pageToken *string) map[string]any {
+	hm := hasMore != nil && *hasMore
+	pt := ""
+	if pageToken != nil {
+		pt = *pageToken
+	}
+	return map[string]any{
+		key:          items,
+		"has_more":   hm,
+		"page_token": pt,
+	}
+}

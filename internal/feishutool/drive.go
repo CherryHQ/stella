@@ -2,7 +2,6 @@ package feishutool
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
@@ -10,9 +9,7 @@ import (
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
-var driveInputSchema = func() map[string]any {
-	var m map[string]any
-	_ = json.Unmarshal([]byte(`{
+var driveInputSchema = mustParseSchema(`{
   "type": "object",
   "properties": {
     "action": {
@@ -68,9 +65,7 @@ var driveInputSchema = func() map[string]any {
     }
   },
   "required": ["action"]
-}`), &m)
-	return m
-}()
+}`)
 
 // DriveTool provides Feishu Drive file management.
 type DriveTool struct {
@@ -148,16 +143,7 @@ func (t *DriveTool) listFiles(ctx context.Context, args map[string]any) (string,
 			return fmt.Errorf("list files: %s", FormatLarkError(resp.Code, resp.Msg))
 		}
 
-		hasMore := resp.Data.HasMore != nil && *resp.Data.HasMore
-		pt := ""
-		if resp.Data.NextPageToken != nil {
-			pt = *resp.Data.NextPageToken
-		}
-		result = map[string]any{
-			"files":      resp.Data.Files,
-			"has_more":   hasMore,
-			"page_token": pt,
-		}
+		result = paginatedResultMap("files", resp.Data.Files, resp.Data.HasMore, resp.Data.NextPageToken)
 		return nil
 	})
 	if invokeErr != nil {
