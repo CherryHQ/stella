@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"time"
 
@@ -53,6 +54,35 @@ func (s *Server) pollWeixinQRStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeData(w, http.StatusOK, status)
+}
+
+// proxyWeixinQRImage proxies the QR code image from WeChat's CDN to avoid
+// CORS errors when loading it directly in the browser.
+// GET /api/channels/weixin/qr/image?url=...
+func (s *Server) proxyWeixinQRImage(w http.ResponseWriter, r *http.Request) {
+	imgURL := r.URL.Query().Get("url")
+	if imgURL == "" {
+		writeError(w, http.StatusBadRequest, "url parameter required")
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(imgURL) //nolint:gosec // URL comes from trusted iLink API response
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to fetch QR image: "+err.Error())
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		writeError(w, http.StatusBadGateway, "QR image fetch returned "+resp.Status)
+		return
+	}
+
+	// Forward content type and pipe the body.
+	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = io.Copy(w, resp.Body)
 }
 
 // saveWeixinCredentials merges iLink credentials into the existing weixin

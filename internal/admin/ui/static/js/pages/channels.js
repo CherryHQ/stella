@@ -152,7 +152,9 @@ export function register(Alpine) {
       try {
         const result = await api('POST', '/api/channels/weixin/qr')
         this.qrCode = result.qrcode || ''
-        this.qrUrl = result.qrcode_img_content || ''
+        // Proxy through our API to avoid CORS errors loading from weixin.qq.com
+        const imgContent = result.qrcode_img_content || ''
+        this.qrUrl = imgContent ? '/api/channels/weixin/qr/image?url=' + encodeURIComponent(imgContent) : ''
         this.qrStatus = 'waiting'
         this._qrInterval = setInterval(() => this.pollQRStatus(), 3000)
       } catch (e) {
