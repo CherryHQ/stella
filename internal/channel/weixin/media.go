@@ -159,7 +159,8 @@ func DownloadFromCDN(cdnBaseURL, encryptedQueryParam string) ([]byte, error) {
 
 	u := cdnBaseURL + "/c2c/download?encrypted_query_param=" + url.QueryEscape(encryptedQueryParam)
 
-	resp, err := http.Get(u) //nolint:gosec // URL is constructed from trusted CDN base + API param
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Get(u) //nolint:gosec // URL is constructed from trusted CDN base + API param
 	if err != nil {
 		return nil, fmt.Errorf("weixin: cdn download: %w", err)
 	}
