@@ -60,19 +60,21 @@ func (s *Server) pollWeixinQRStatus(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Create auth identity linking this user to the weixin account.
+		// Link auth identity if not already linked.
 		externalID := status.ILinkUserID
 		if externalID == "" {
 			externalID = status.ILinkBotID
 		}
 		if externalID != "" && s.authStore != nil {
-			if _, err := s.authStore.CreateIdentity(r.Context(), auth.Identity{
-				UserID:     info.UserID,
-				Platform:   "weixin",
-				ExternalID: externalID,
-			}); err != nil {
-				// Non-fatal: credentials saved, identity link failed.
-				s.log.Warn("create weixin identity", "user_id", info.UserID, "error", err)
+			if _, err := s.authStore.GetIdentityByPlatform(r.Context(), "weixin", externalID); err != nil {
+				// Identity doesn't exist yet — create it.
+				if _, err := s.authStore.CreateIdentity(r.Context(), auth.Identity{
+					UserID:     info.UserID,
+					Platform:   "weixin",
+					ExternalID: externalID,
+				}); err != nil {
+					s.log.Warn("create weixin identity", "user_id", info.UserID, "error", err)
+				}
 			}
 		}
 	}
