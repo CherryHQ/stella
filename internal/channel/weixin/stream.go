@@ -19,8 +19,6 @@ const (
 	// WeChat typing status expires after a few seconds.
 	typingInterval = 5 * time.Second
 
-	// typingCursor is appended to streaming display to indicate activity.
-	typingCursor = " \u258D"
 )
 
 // toolEmoji maps known tool names to display emoji.

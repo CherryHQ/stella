@@ -113,9 +113,11 @@ func (b *Bot) sendImage(msg WeixinMessage, img runner.ImageEvent) {
 				ImageItem: &ImageItem{
 					Media: &CDNMedia{
 						EncryptQueryParam: encryptedParam,
+						AESKey:            base64.StdEncoding.EncodeToString([]byte(keyHex)),
+						EncryptType:       1,
 					},
 					AESKey:  keyHex,
-					MidSize: int64(len(data)),
+					MidSize: int64(len(encrypted)),
 				},
 			},
 		},
@@ -182,6 +184,8 @@ func (b *Bot) sendFile(msg WeixinMessage, fileName string, data []byte) {
 				FileItem: &FileItem{
 					Media: &CDNMedia{
 						EncryptQueryParam: encryptedParam,
+						AESKey:            base64.StdEncoding.EncodeToString([]byte(keyHex)),
+						EncryptType:       1,
 					},
 					FileName: fileName,
 					Len:      strconv.Itoa(len(data)),
@@ -251,8 +255,10 @@ func (b *Bot) sendVideo(msg WeixinMessage, data []byte) {
 				VideoItem: &VideoItem{
 					Media: &CDNMedia{
 						EncryptQueryParam: encryptedParam,
+						AESKey:            base64.StdEncoding.EncodeToString([]byte(keyHex)),
+						EncryptType:       1,
 					},
-					VideoSize: int64(len(data)),
+					VideoSize: int64(len(encrypted)),
 				},
 			},
 		},
