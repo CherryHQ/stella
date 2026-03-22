@@ -1,5 +1,4 @@
 import { api } from '/static/js/api.js'
-import QRCode from 'https://esm.sh/qrcode@1.5.4'
 
 /**
  * Parses a comma-separated string into an array.
@@ -51,16 +50,8 @@ export function register(Alpine) {
       weixin: {
         enabled: false, enable_notify: false,
         notify_chat: '', allowed_ids: [],
-        bot_token: '', base_url: '', bot_id: '', user_id: '',
       },
     },
-
-    // QR login state
-    qrUrl: '',
-    qrStatus: '',
-    qrCode: '',
-    qrPolling: false,
-    _qrInterval: null,
 
     // Expose helpers to templates
     parseAllowedIds,
@@ -113,10 +104,6 @@ export function register(Alpine) {
               enable_notify: cfg.enable_notify || false,
               notify_chat: cfg.notify_chat || '',
               allowed_ids: cfg.allowed_ids || [],
-              bot_token: cfg.bot_token || '',
-              base_url: cfg.base_url || '',
-              bot_id: cfg.bot_id || '',
-              user_id: cfg.user_id || '',
             }
           }
         }
@@ -138,54 +125,6 @@ export function register(Alpine) {
         this.$store.toast.show(platform + ' saved')
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
-      }
-    },
-
-    async startQR() {
-      this.qrUrl = ''
-      this.qrStatus = ''
-      this.qrCode = ''
-      this.qrPolling = true
-      if (this._qrInterval) {
-        clearInterval(this._qrInterval)
-        this._qrInterval = null
-      }
-      try {
-        const result = await api('POST', '/api/channels/weixin/qr')
-        this.qrCode = result.qrcode || ''
-        // Generate QR code image client-side from the URL
-        const imgContent = result.qrcode_img_content || ''
-        if (imgContent) {
-          this.qrUrl = await QRCode.toDataURL(imgContent, { width: 256, margin: 2 })
-        }
-        this.qrStatus = 'waiting'
-        this._qrInterval = setInterval(() => this.pollQRStatus(), 3000)
-      } catch (e) {
-        this.$store.toast.show('QR code request failed: ' + e.message, 'error')
-        this.qrPolling = false
-      }
-    },
-
-    async pollQRStatus() {
-      if (!this.qrCode) return
-      try {
-        const result = await api('GET', '/api/channels/weixin/qr/status?qrcode=' + encodeURIComponent(this.qrCode))
-        if (result.status) {
-          this.qrStatus = result.status
-        }
-        if (result.status === 'confirmed') {
-          clearInterval(this._qrInterval)
-          this._qrInterval = null
-          this.qrPolling = false
-          this.$store.toast.show('Weixin login successful')
-          await this.loadChannels()
-        } else if (result.status === 'expired') {
-          clearInterval(this._qrInterval)
-          this._qrInterval = null
-          this.qrPolling = false
-        }
-      } catch (e) {
-        console.error('QR status poll error:', e)
       }
     },
   }))

@@ -549,7 +549,7 @@ func ChannelsPage() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "<label class=\"flex items-center gap-3 cursor-pointer\"><input type=\"checkbox\" :checked=\"channelData.weixin.enable_notify\" @change=\"channelData.weixin.enable_notify = $event.target.checked\" class=\"toggle toggle-primary toggle-sm\"> <span class=\"text-sm\">Notifications</span></label><!-- QR Login --> <div class=\"card bg-base-200\"><div class=\"card-body py-4\"><h3 class=\"text-sm font-medium mb-2\">QR Login</h3><template x-if=\"!qrUrl\"><button @click=\"startQR()\" :disabled=\"qrPolling\" class=\"btn btn-outline btn-sm\"><span x-show=\"qrPolling\" class=\"loading loading-spinner loading-xs\"></span> Scan QR to Login</button></template><template x-if=\"qrUrl\"><div class=\"flex flex-col items-center gap-3\"><img :src=\"qrUrl\" alt=\"WeChat QR Code\" class=\"w-48 h-48 border rounded\"><div><span class=\"badge badge-sm\" :class=\"{\n\t\t\t\t\t\t\t\t\t\t\t'badge-warning': qrStatus === 'waiting',\n\t\t\t\t\t\t\t\t\t\t\t'badge-info': qrStatus === 'scanned',\n\t\t\t\t\t\t\t\t\t\t\t'badge-success': qrStatus === 'confirmed',\n\t\t\t\t\t\t\t\t\t\t\t'badge-error': qrStatus === 'expired',\n\t\t\t\t\t\t\t\t\t\t}\" x-text=\"qrStatus\"></span></div><template x-if=\"qrStatus === 'expired'\"><button @click=\"startQR()\" class=\"btn btn-outline btn-xs\">Refresh</button></template></div></template></div></div><div class=\"grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4\"><div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "<label class=\"flex items-center gap-3 cursor-pointer\"><input type=\"checkbox\" :checked=\"channelData.weixin.enable_notify\" @change=\"channelData.weixin.enable_notify = $event.target.checked\" class=\"toggle toggle-primary toggle-sm\"> <span class=\"text-sm\">Notifications</span></label><div class=\"grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4\"><div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -601,7 +601,7 @@ func ChannelsPage() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "</div></div><button @click=\"saveChannel('weixin')\" class=\"btn btn-primary btn-sm\">Save Weixin</button>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "</div></div><p class=\"text-xs text-secondary\">To connect, go to <a href=\"/profile\" class=\"link link-primary\">Profile</a> and use \"Link Weixin\" to scan the QR code.</p><button @click=\"saveChannel('weixin')\" class=\"btn btn-primary btn-sm\">Save Weixin</button>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -648,7 +648,7 @@ func channelBlock(name string, platform string) templ.Component {
 		var templ_7745c5c3_Var25 string
 		templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 293, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 264, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 		if templ_7745c5c3_Err != nil {
@@ -661,7 +661,7 @@ func channelBlock(name string, platform string) templ.Component {
 		var templ_7745c5c3_Var26 string
 		templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs("channelData." + platform + ".enabled ? 'badge-success' : 'badge-ghost'")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 296, Col: 86}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 267, Col: 86}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 		if templ_7745c5c3_Err != nil {
@@ -674,7 +674,7 @@ func channelBlock(name string, platform string) templ.Component {
 		var templ_7745c5c3_Var27 string
 		templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs("channelData." + platform + ".enabled ? 'on' : 'off'")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 297, Col: 67}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 268, Col: 67}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 		if templ_7745c5c3_Err != nil {
@@ -687,7 +687,7 @@ func channelBlock(name string, platform string) templ.Component {
 		var templ_7745c5c3_Var28 string
 		templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs("channelData." + platform + ".enabled")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 303, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 274, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 		if templ_7745c5c3_Err != nil {
@@ -700,7 +700,7 @@ func channelBlock(name string, platform string) templ.Component {
 		var templ_7745c5c3_Var29 string
 		templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs("channelData." + platform + ".enabled = $event.target.checked")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 304, Col: 77}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 275, Col: 77}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 		if templ_7745c5c3_Err != nil {
@@ -713,7 +713,7 @@ func channelBlock(name string, platform string) templ.Component {
 		var templ_7745c5c3_Var30 string
 		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs("channelData." + platform + ".enabled")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 310, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 281, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 		if templ_7745c5c3_Err != nil {

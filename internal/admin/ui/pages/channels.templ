@@ -221,38 +221,6 @@ templ ChannelsPage() {
 					/>
 					<span class="text-sm">Notifications</span>
 				</label>
-				<!-- QR Login -->
-				<div class="card bg-base-200">
-					<div class="card-body py-4">
-						<h3 class="text-sm font-medium mb-2">QR Login</h3>
-						<template x-if="!qrUrl">
-							<button @click="startQR()" :disabled="qrPolling" class="btn btn-outline btn-sm">
-								<span x-show="qrPolling" class="loading loading-spinner loading-xs"></span>
-								Scan QR to Login
-							</button>
-						</template>
-						<template x-if="qrUrl">
-							<div class="flex flex-col items-center gap-3">
-								<img :src="qrUrl" alt="WeChat QR Code" class="w-48 h-48 border rounded"/>
-								<div>
-									<span
-										class="badge badge-sm"
-										:class="{
-											'badge-warning': qrStatus === 'waiting',
-											'badge-info': qrStatus === 'scanned',
-											'badge-success': qrStatus === 'confirmed',
-											'badge-error': qrStatus === 'expired',
-										}"
-										x-text="qrStatus"
-									></span>
-								</div>
-								<template x-if="qrStatus === 'expired'">
-									<button @click="startQR()" class="btn btn-outline btn-xs">Refresh</button>
-								</template>
-							</div>
-						</template>
-					</div>
-				</div>
 				<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
 					<div>
 						@ui.FormField("Notify Chat") {
@@ -279,6 +247,9 @@ templ ChannelsPage() {
 						}
 					</div>
 				</div>
+				<p class="text-xs text-secondary">
+					To connect, go to <a href="/profile" class="link link-primary">Profile</a> and use "Link Weixin" to scan the QR code.
+				</p>
 				<button @click="saveChannel('weixin')" class="btn btn-primary btn-sm">Save Weixin</button>
 			}
 		</div>
