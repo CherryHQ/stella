@@ -181,6 +181,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			GroupMode:         fsCfg.GroupMode,
 			AllowedIDs:        fsCfg.AllowedIDs,
 			Groups:            fsCfg.Groups,
+			RedirectURI:       fsCfg.RedirectURI,
 		}, s.poolManager, s.store, listFn, switchFn,
 			fsOpts...,
 		)
@@ -336,6 +337,7 @@ type feishuChannelConfig struct {
 	GroupMode         string                        `json:"group_mode"`
 	AllowedIDs        []string                      `json:"allowed_ids"`
 	Groups            map[string]feishu.GroupConfig `json:"groups"`
+	RedirectURI       string                        `json:"redirect_uri"`
 	EnableNotify      bool                          `json:"enable_notify"`
 }
 

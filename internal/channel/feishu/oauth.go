@@ -31,9 +31,15 @@ func (b *Bot) handleAuthCommand(openID, chatID, messageID string, args string) {
 	b.exchangeAuthCode(openID, messageID, args)
 }
 
+const defaultRedirectURI = "https://anna.vaayne.com/oauth/callback"
+
 // sendAuthCard sends an interactive card with the OAuth authorization URL.
 func (b *Bot) sendAuthCard(openID, chatID, messageID string) {
-	authURL := feishutool.AuthURL(b.cfg.AppID, "", openID)
+	redirectURI := b.cfg.RedirectURI
+	if redirectURI == "" {
+		redirectURI = defaultRedirectURI
+	}
+	authURL := feishutool.AuthURL(b.cfg.AppID, redirectURI, openID)
 
 	card := map[string]any{
 		"schema": "2.0",

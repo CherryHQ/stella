@@ -30,11 +30,11 @@ anna
 ### 仕組み
 
 1. **ユーザーが `/auth` を送信** — ボットとのチャットで
-2. **ボットがインタラクティブカードで返信** — 「認証」ボタン付き
-3. **ユーザーがボタンをクリック** — ブラウザで Feishu OAuth ページが開きます
+2. **ボットがインタラクティブカードで返信** — 認証リンク付き
+3. **ユーザーがリンクをクリック** — ブラウザで Feishu OAuth ページが開きます
 4. **ユーザーが承認** — OAuth ページで権限リクエストを承認します
-5. **ユーザーが認証コードをコピー** — リダイレクトページから
-6. **ユーザーが `/auth <code>` を送信** — 認証コードをボットに送り返します（例: `/auth abc123def456`）
+5. **Feishu がコールバックページにリダイレクト** — `anna.vaayne.com/oauth/callback` に認証コードと「コマンドをコピー」ボタンが表示されます
+6. **ユーザーがコピーして `/auth <code>` を送信** — 認証コードをボットに送り返します
 7. **ボットがコードを交換** — アクセストークンとリフレッシュトークンに交換し、暗号化してデータベースに保存します
 8. **完了** — ユーザーの ID がツール呼び出しで利用可能になります
 
@@ -50,8 +50,10 @@ anna
 `/auth` フローを機能させるには、Feishu アプリを設定します:
 
 1. Feishu Open Platform コンソールの **Security Settings** に移動します
-2. **Redirect URL** を追加します — ユーザーがコードを手動でコピーするため、任意の URL で構いません（例: `https://open.feishu.cn/`）
+2. `https://anna.vaayne.com/oauth/callback` を **Redirect URL** として追加します
 3. **Permissions & Scopes** で、使用するツールに必要なユーザーレベルの権限を申請します（[必要な権限](#必要な権限)を参照）
+
+ドキュメントサイトをセルフホストしている場合、または別のコールバック URL を使用する場合は、Feishu チャンネル設定で `redirect_uri` を設定し、その URL を Feishu アプリに登録してください。
 
 ### 認証の取り消し
 
@@ -243,3 +245,4 @@ LLM は `feishu_im` ツールの `add_reaction` と `remove_reaction` アクシ�
 | `group_mode`         | グループ動作: `mention`、`always`、`disabled`   | `mention`  |
 | `allowed_ids`        | 許可されたユーザー open_id（空 = すべて）       | `[]`       |
 | `groups`             | グループごとの設定上書き（上記参照）            | `{}`       |
+| `redirect_uri`       | OAuth リダイレクト URI                          | `https://anna.vaayne.com/oauth/callback` |

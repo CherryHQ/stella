@@ -50,9 +50,10 @@ type Config struct {
 	EncryptKey        string                 `json:"encrypt_key"`
 	VerificationToken string                 `json:"verification_token"`
 	NotifyChat        string                 `json:"notify_chat"`
-	GroupMode         string                 `json:"group_mode"`  // "mention" | "always" | "disabled"
-	AllowedIDs        []string               `json:"allowed_ids"` // user open_ids allowed (empty = allow all)
-	Groups            map[string]GroupConfig `json:"groups"`      // per-group overrides keyed by chat_id
+	GroupMode         string                 `json:"group_mode"`   // "mention" | "always" | "disabled"
+	AllowedIDs        []string               `json:"allowed_ids"`  // user open_ids allowed (empty = allow all)
+	Groups            map[string]GroupConfig `json:"groups"`       // per-group overrides keyed by chat_id
+	RedirectURI       string                 `json:"redirect_uri"` // OAuth redirect URI (default: https://anna.vaayne.com/oauth/callback)
 }
 
 // Bot wraps a Feishu bot with agent pool integration.

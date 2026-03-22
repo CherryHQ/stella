@@ -30,11 +30,11 @@ Many Feishu tools (calendar, tasks, etc.) can operate on behalf of individual us
 ### How It Works
 
 1. **User sends `/auth`** in a chat with the bot
-2. **Bot replies with an interactive card** containing an "Authorize" button
-3. **User clicks the button**, which opens the Feishu OAuth page in their browser
+2. **Bot replies with an interactive card** containing an authorization link
+3. **User clicks the link**, which opens the Feishu OAuth page in their browser
 4. **User approves** the permission request on the OAuth page
-5. **User copies the authorization code** from the redirect page
-6. **User sends `/auth <code>`** back to the bot (e.g., `/auth abc123def456`)
+5. **Feishu redirects to the callback page** at `anna.vaayne.com/oauth/callback` which displays the authorization code and a "Copy Command" button
+6. **User copies and sends `/auth <code>`** back to the bot
 7. **Bot exchanges the code** for access and refresh tokens, stores them encrypted in the database
 8. **Done** -- the user's identity is now available for tool calls
 
@@ -50,8 +50,10 @@ Many Feishu tools (calendar, tasks, etc.) can operate on behalf of individual us
 For the `/auth` flow to work, configure your Feishu app:
 
 1. Go to **Security Settings** in the Feishu Open Platform console
-2. Add a **Redirect URL** -- this can be any URL since users copy the code manually (e.g., `https://open.feishu.cn/`)
+2. Add `https://anna.vaayne.com/oauth/callback` as a **Redirect URL**
 3. Under **Permissions & Scopes**, request the user-level scopes needed by the tools you want to use (see [Required Permissions](#required-permissions))
+
+If you're self-hosting the docs site or want a different callback URL, set `redirect_uri` in the Feishu channel config and register that URL in your Feishu app instead.
 
 ### Revoking Authorization
 
@@ -243,3 +245,4 @@ All settings below are managed through the admin panel (`anna --open`).
 | `group_mode`         | Group behavior: `mention`, `always`, `disabled`    | `mention`  |
 | `allowed_ids`        | User open_ids allowed (empty = all)                | `[]`       |
 | `groups`             | Per-group config overrides (see above)             | `{}`       |
+| `redirect_uri`       | OAuth redirect URI                                 | `https://anna.vaayne.com/oauth/callback` |
