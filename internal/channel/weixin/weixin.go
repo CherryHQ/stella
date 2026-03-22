@@ -197,6 +197,43 @@ func (b *Bot) handleUpdates(msgs []WeixinMessage) {
 	logger().Info("received messages", "count", len(msgs))
 }
 
+// Notify sends a notification message via sendmessage. Implements channel.Channel.
+func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
+	targetUser := n.ChatID
+	if targetUser == "" {
+		targetUser = b.cfg.NotifyChat
+	}
+	if targetUser == "" {
+		return fmt.Errorf("weixin: no target user ID for notification")
+	}
+
+	// Look up cached context_token for the target user.
+	tokenVal, ok := b.contextTokens.Load(targetUser)
+	if !ok {
+		return fmt.Errorf("weixin: no context_token for user %s (tokens are in-memory only, repopulated when user sends a message)", targetUser)
+	}
+	contextToken, _ := tokenVal.(string)
+
+	msg := WeixinMessage{
+		ToUserID:     targetUser,
+		ClientID:     RandomClientID("notify"),
+		MessageType:  MessageTypeBot,
+		MessageState: MessageStateFinish,
+		ContextToken: contextToken,
+		ItemList: []MessageItem{
+			{
+				Type:     ItemTypeText,
+				TextItem: &TextItem{Text: n.Text},
+			},
+		},
+	}
+
+	if err := b.client.SendMessage(msg, ""); err != nil {
+		return fmt.Errorf("weixin: send notification: %w", err)
+	}
+	return nil
+}
+
 // loadCursor loads the get_updates_buf cursor from the DB channel config.
 func (b *Bot) loadCursor() string {
 	ch, err := b.store.GetChannel(context.Background(), "weixin")
