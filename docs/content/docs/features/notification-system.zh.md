@@ -8,7 +8,7 @@ title: 通知系统
 
 ## 概述
 
-Anna 支持主动通知,因此代理、定时任务和其他内部触发器可以在不等待请求的情况下向用户推送消息。该系统使用多通道分发器将通知路由到一个或多个配置的通道(Telegram、QQ,计划支持 Slack/Discord)。
+Anna 支持主动通知,因此代理、定时任务和其他内部触发器可以在不等待请求的情况下向用户推送消息。该系统使用多通道分发器将通知路由到一个或多个配置的通道(Telegram、QQ、微信,计划支持 Slack/Discord)。
 
 ## 架构
 
@@ -65,7 +65,7 @@ type Channel interface {
 }
 ```
 
-当前已实现: `telegram.Bot`, `qq.Bot`。
+当前已实现: `telegram.Bot`, `qq.Bot`, `weixin.Bot`。
 
 ### `channel.Dispatcher`
 
@@ -204,7 +204,7 @@ if slackCfg.Token != "" {
 
 ### 访问控制
 
-`allowed_ids` 限制机器人交互到特定用户 ID(Telegram 数字 ID、QQ OpenID、Feishu open_id)。当列表为空时,允许所有用户。未授权用户会被静默忽略——所有处理器(命令、回调、文本)都包装在访问检查中。用户可以向机器人发送 `/whoami` 来发现他们的 ID。
+`allowed_ids` 限制机器人交互到特定用户 ID(Telegram 数字 ID、QQ OpenID、Feishu open_id、微信 iLink 用户 ID)。当列表为空时,允许所有用户。未授权用户会被静默忽略——所有处理器(命令、回调、文本)都包装在访问检查中。用户可以向机器人发送 `/whoami` 来发现他们的 ID。
 
 ### 通知传递
 

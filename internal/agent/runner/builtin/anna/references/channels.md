@@ -117,3 +117,41 @@ Connects via WebSocket (no public URL or webhook needed). Feishu currently uses 
 - Edit-in-place streaming for progressive responses
 - Private (p2p) and group @mention support
 - Commands: `/new`, `/compact`, `/model`, `/whoami`
+
+## WeChat bot (iLink)
+
+1. Run `anna --open` and go to the Channels tab
+2. Click "Scan QR to Login" in the WeChat section
+3. Scan the QR code with your WeChat account
+4. Credentials are saved automatically on confirmation
+
+WeChat channel config (JSON):
+```json
+{
+  "bot_token": "OBTAINED_VIA_QR",
+  "base_url": "https://ilinkai.weixin.qq.com",
+  "bot_id": "AUTO",
+  "user_id": "AUTO",
+  "notify_chat": "",
+  "allowed_ids": []
+}
+```
+
+5. Start: `anna`
+
+Uses long-polling via iLink Bot API (no public URL needed). DM only for v1.
+
+### WeChat features
+
+- Long-polling message receipt via `getupdates`
+- Text messaging with 2000-char smart splitting
+- Image input/output with AES-128-ECB encryption
+- Typing indicators while processing
+- QR-code-based login via admin panel
+- Commands: `/start`, `/help`, `/new`, `/compact`, `/model`, `/agent`, `/whoami`
+
+### WeChat limitations
+
+- Notifications require a cached `context_token` (in-memory only, lost on restart)
+- No group chat support (DM only)
+- Session expiry requires manual QR re-scan from admin panel

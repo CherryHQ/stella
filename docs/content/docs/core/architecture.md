@@ -6,7 +6,7 @@ title: Architecture
 
 anna is structured as a set of loosely coupled packages wired together in `main.go`. The system supports multiple users and multiple agents, with routing handled per-message. The core flow:
 
-1. A **channel** (CLI, Telegram, QQ, or Feishu) receives user input
+1. A **channel** (CLI, Telegram, QQ, Feishu, or WeChat) receives user input
 2. The channel **resolves the user** (upsert by external ID + platform) and **resolves the agent** (DM default, group binding, or fallback)
 3. The **PoolManager** looks up (or creates) the agent's **Pool** by agent ID
 4. The **Pool** manages sessions and dispatches to a **Runner**
@@ -14,7 +14,7 @@ anna is structured as a set of loosely coupled packages wired together in `main.
 6. Responses stream back through the channel to the user
 
 ```
-Channel (CLI / Telegram / QQ / Feishu)
+Channel (CLI / Telegram / QQ / Feishu / WeChat)
     |
     v
 Resolve user (identity.go)  -->  Resolve agent (identity.go)
@@ -279,7 +279,7 @@ type Channel interface {
 }
 ```
 
-Shared command logic (`/new`, `/compact`, `/model`, `/agent`, `/whoami`) lives in `channel.HandleCommand`, which each channel delegates to for the core logic. `/model` and `/agent` are handled per-channel since they require platform-specific UI (Telegram uses inline keyboards, QQ and Feishu use text lists, CLI uses a TUI picker).
+Shared command logic (`/new`, `/compact`, `/model`, `/agent`, `/whoami`) lives in `channel.HandleCommand`, which each channel delegates to for the core logic. `/model` and `/agent` are handled per-channel since they require platform-specific UI (Telegram uses inline keyboards, QQ, Feishu, and WeChat use text lists, CLI uses a TUI picker).
 
 ## Admin API
 
@@ -288,8 +288,8 @@ The `internal/admin/` package provides an HTTP API and embedded SPA for managing
 ## Notification Flow
 
 ```
-Agent notify tool      --> Dispatcher --> Channel (Telegram/QQ/Feishu)
-Scheduler job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu)
+Agent notify tool      --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
+Scheduler job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
 ```
 
 The dispatcher is created early in setup, but backends are registered later when gateway services start. The PoolManager is used to wire notification tool injection per-agent via the `ExtraToolsFactory`. See [notification-system.md](/docs/features/notification-system) for details.

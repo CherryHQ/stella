@@ -47,6 +47,10 @@ export function register(Alpine) {
         verification_token: '', notify_chat: '',
         group_mode: '', allowed_ids: [],
       },
+      weixin: {
+        enabled: false, enable_notify: false,
+        notify_chat: '', allowed_ids: [],
+      },
     },
 
     // Expose helpers to templates
@@ -92,6 +96,13 @@ export function register(Alpine) {
               verification_token: cfg.verification_token || '',
               notify_chat: cfg.notify_chat || '',
               group_mode: cfg.group_mode || '',
+              allowed_ids: cfg.allowed_ids || [],
+            }
+          } else if (ch.id === 'weixin') {
+            this.channelData.weixin = {
+              enabled: ch.enabled,
+              enable_notify: cfg.enable_notify || false,
+              notify_chat: cfg.notify_chat || '',
               allowed_ids: cfg.allowed_ids || [],
             }
           }

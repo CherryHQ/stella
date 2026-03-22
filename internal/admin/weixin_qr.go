@@ -1,0 +1,114 @@
+package admin
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"time"
+
+	"github.com/vaayne/anna/internal/auth"
+	"github.com/vaayne/anna/internal/channel/weixin"
+	"github.com/vaayne/anna/internal/config"
+)
+
+// startWeixinQR initiates the WeChat QR login flow by requesting a QR code
+// from the iLink API. Any authenticated user can call this.
+// POST /api/channels/weixin/qr
+func (s *Server) startWeixinQR(w http.ResponseWriter, r *http.Request) {
+	client := weixin.NewClient("", "", "")
+	qr, err := client.GetQRCode("")
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to get QR code: "+err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, qr)
+}
+
+// pollWeixinQRStatus polls the QR code scan status. On confirmed, saves
+// channel credentials to DB and creates an auth identity linking the
+// current user to the weixin account.
+// GET /api/channels/weixin/qr/status?qrcode=...
+func (s *Server) pollWeixinQRStatus(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	qrcode := r.URL.Query().Get("qrcode")
+	if qrcode == "" {
+		writeError(w, http.StatusBadRequest, "qrcode parameter required")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	client := weixin.NewClient("", "", "")
+	_ = ctx
+	status, err := client.GetQRCodeStatus(qrcode, "")
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "failed to poll QR status: "+err.Error())
+		return
+	}
+
+	// On confirmed: save channel credentials and link user identity.
+	if status.Status == "confirmed" && status.BotToken != "" {
+		if err := s.saveWeixinCredentials(r.Context(), status); err != nil {
+			s.log.Error("save weixin credentials", "error", err)
+			writeError(w, http.StatusInternalServerError, "QR confirmed but failed to save credentials: "+err.Error())
+			return
+		}
+
+		// Link auth identity if not already linked.
+		externalID := status.ILinkUserID
+		if externalID == "" {
+			externalID = status.ILinkBotID
+		}
+		if externalID != "" && s.authStore != nil {
+			if _, err := s.authStore.GetIdentityByPlatform(r.Context(), "weixin", externalID); err != nil {
+				// Identity doesn't exist yet — create it.
+				if _, err := s.authStore.CreateIdentity(r.Context(), auth.Identity{
+					UserID:     info.UserID,
+					Platform:   "weixin",
+					ExternalID: externalID,
+				}); err != nil {
+					s.log.Warn("create weixin identity", "user_id", info.UserID, "error", err)
+				}
+			}
+		}
+	}
+
+	writeData(w, http.StatusOK, status)
+}
+
+// saveWeixinCredentials merges iLink credentials into the existing weixin
+// channel config in the DB.
+func (s *Server) saveWeixinCredentials(ctx context.Context, status *weixin.QRCodeStatusResponse) error {
+	var raw map[string]any
+	ch, err := s.store.GetChannel(ctx, "weixin")
+	if err != nil {
+		raw = make(map[string]any)
+		ch = config.Channel{ID: "weixin", Enabled: true}
+	} else {
+		if err := json.Unmarshal([]byte(ch.Config), &raw); err != nil {
+			raw = make(map[string]any)
+		}
+	}
+
+	raw["bot_token"] = status.BotToken
+	raw["base_url"] = status.BaseURL
+	raw["bot_id"] = status.ILinkBotID
+	raw["user_id"] = status.ILinkUserID
+
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+
+	return s.store.UpsertChannel(ctx, config.Channel{
+		ID:      "weixin",
+		Enabled: ch.Enabled,
+		Config:  string(data),
+	})
+}
