@@ -1,12 +1,18 @@
 package weixin
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/internal/channel"
 )
 
 func TestRandomWechatUIN(t *testing.T) {
@@ -296,5 +302,726 @@ func TestRandomClientID(t *testing.T) {
 	id2 := RandomClientID("anna-weixin")
 	if id == id2 {
 		t.Error("two consecutive RandomClientID calls returned the same value")
+	}
+}
+
+// --- Bot creation ---
+
+func TestNewRequiresBotToken(t *testing.T) {
+	t.Parallel()
+
+	_, err := New(Config{}, nil, nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for empty bot_token")
+	}
+	if !strings.Contains(err.Error(), "bot_token") {
+		t.Errorf("error should mention bot_token: %v", err)
+	}
+}
+
+func TestNewSuccess(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{BotToken: "test-token"}
+	bot, err := New(cfg, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if bot == nil {
+		t.Fatal("expected bot, got nil")
+	}
+	if bot.cfg.BotToken != "test-token" {
+		t.Errorf("bot_token = %q, want %q", bot.cfg.BotToken, "test-token")
+	}
+}
+
+func TestNewBuildsAllowedMap(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{BotToken: "tok", AllowedIDs: []string{"user1", "user2", "user3"}}
+	bot, err := New(cfg, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(bot.allowed) != 3 {
+		t.Errorf("allowed map len = %d, want 3", len(bot.allowed))
+	}
+	for _, id := range []string{"user1", "user2", "user3"} {
+		if _, ok := bot.allowed[id]; !ok {
+			t.Errorf("expected %q in allowed map", id)
+		}
+	}
+}
+
+func TestNewEmptyAllowedIDs(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{BotToken: "tok"}
+	bot, _ := New(cfg, nil, nil, nil, nil)
+	if len(bot.allowed) != 0 {
+		t.Errorf("allowed map len = %d, want 0", len(bot.allowed))
+	}
+}
+
+func TestNewWithAuth(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{BotToken: "tok"}
+	bot, err := New(cfg, nil, nil, nil, nil, WithAuth(nil, nil, nil))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// WithAuth sets the agentCmd, verify it was applied by checking it's not nil.
+	if bot.agentCmd == nil {
+		t.Error("expected agentCmd to be set after WithAuth")
+	}
+}
+
+// --- Name ---
+
+func TestBotName(t *testing.T) {
+	t.Parallel()
+
+	bot := &Bot{}
+	if bot.Name() != "weixin" {
+		t.Errorf("Name() = %q, want %q", bot.Name(), "weixin")
+	}
+}
+
+// --- isAllowed ---
+
+func TestIsAllowedEmptyList(t *testing.T) {
+	t.Parallel()
+
+	bot := &Bot{allowed: map[string]struct{}{}}
+	if !bot.isAllowed("anyone") {
+		t.Error("empty allowed list should allow everyone")
+	}
+}
+
+func TestIsAllowedMatch(t *testing.T) {
+	t.Parallel()
+
+	bot := &Bot{allowed: map[string]struct{}{"user1": {}}}
+	if !bot.isAllowed("user1") {
+		t.Error("user1 should be allowed")
+	}
+}
+
+func TestIsAllowedNoMatch(t *testing.T) {
+	t.Parallel()
+
+	bot := &Bot{allowed: map[string]struct{}{"user1": {}}}
+	if bot.isAllowed("user2") {
+		t.Error("user2 should not be allowed")
+	}
+}
+
+func TestIsAllowedMultipleUsers(t *testing.T) {
+	t.Parallel()
+
+	bot := &Bot{allowed: map[string]struct{}{"a": {}, "b": {}, "c": {}}}
+	if !bot.isAllowed("b") {
+		t.Error("b should be allowed")
+	}
+	if bot.isAllowed("d") {
+		t.Error("d should not be allowed")
+	}
+}
+
+// --- SplitMessage (shared, with weixin limit) ---
+
+func TestSplitMessageShort(t *testing.T) {
+	t.Parallel()
+
+	chunks := channel.SplitMessage("hello", weixinMaxMessageLen)
+	if len(chunks) != 1 || chunks[0] != "hello" {
+		t.Errorf("chunks = %v, want [hello]", chunks)
+	}
+}
+
+func TestSplitMessageExactLimit(t *testing.T) {
+	t.Parallel()
+
+	msg := strings.Repeat("a", weixinMaxMessageLen)
+	chunks := channel.SplitMessage(msg, weixinMaxMessageLen)
+	if len(chunks) != 1 {
+		t.Errorf("len(chunks) = %d, want 1", len(chunks))
+	}
+}
+
+func TestSplitMessageLong(t *testing.T) {
+	t.Parallel()
+
+	msg := strings.Repeat("a", weixinMaxMessageLen+100)
+	chunks := channel.SplitMessage(msg, weixinMaxMessageLen)
+	if len(chunks) != 2 {
+		t.Fatalf("len(chunks) = %d, want 2", len(chunks))
+	}
+	if len(chunks[0]) != weixinMaxMessageLen {
+		t.Errorf("chunk[0] len = %d, want %d", len(chunks[0]), weixinMaxMessageLen)
+	}
+	if len(chunks[1]) != 100 {
+		t.Errorf("chunk[1] len = %d, want 100", len(chunks[1]))
+	}
+}
+
+func TestSplitMessageAtNewline(t *testing.T) {
+	t.Parallel()
+
+	part1 := strings.Repeat("a", 1500)
+	part2 := strings.Repeat("b", 1000)
+	msg := part1 + "\n" + part2
+
+	chunks := channel.SplitMessage(msg, weixinMaxMessageLen)
+	if len(chunks) != 2 {
+		t.Fatalf("len(chunks) = %d, want 2", len(chunks))
+	}
+	if chunks[0] != part1+"\n" {
+		t.Errorf("chunk[0] should end at newline")
+	}
+}
+
+func TestSplitMessageEmpty(t *testing.T) {
+	t.Parallel()
+
+	chunks := channel.SplitMessage("", weixinMaxMessageLen)
+	if len(chunks) != 1 || chunks[0] != "" {
+		t.Errorf("empty message should return single empty chunk, got %v", chunks)
+	}
+}
+
+func TestSplitMessageMultibyteUTF8(t *testing.T) {
+	t.Parallel()
+
+	char := "中"
+	msg := strings.Repeat(char, weixinMaxMessageLen) // 3*weixinMaxMessageLen bytes
+	chunks := channel.SplitMessage(msg, weixinMaxMessageLen)
+	if len(chunks) < 2 {
+		t.Fatalf("expected multiple chunks, got %d", len(chunks))
+	}
+	for i, c := range chunks {
+		if len(c) > 0 && c[0]&0xC0 == 0x80 {
+			t.Errorf("chunk[%d] starts with UTF-8 continuation byte", i)
+		}
+	}
+}
+
+// --- handleUpdates filtering ---
+
+func TestHandleUpdatesSkipsBotEchoes(t *testing.T) {
+	t.Parallel()
+
+	bot := &Bot{allowed: map[string]struct{}{}}
+	msgs := []WeixinMessage{
+		{
+			MessageType:  MessageTypeBot, // bot echo, should be skipped
+			MessageState: MessageStateFinish,
+			FromUserID:   "user1",
+			ContextToken: "tok1",
+			ItemList:     []MessageItem{{Type: ItemTypeText, TextItem: &TextItem{Text: "hello"}}},
+		},
+	}
+
+	// Should not panic or process the message.
+	// The bot has no client, so if it tried to process, it would panic.
+	bot.handleUpdates(msgs)
+
+	// Verify context_token was NOT cached (message was skipped).
+	if _, ok := bot.contextTokens.Load("user1"); ok {
+		t.Error("context_token should not be cached for bot echo messages")
+	}
+}
+
+func TestHandleUpdatesSkipsPartialState(t *testing.T) {
+	t.Parallel()
+
+	bot := &Bot{allowed: map[string]struct{}{}}
+	msgs := []WeixinMessage{
+		{
+			MessageType:  MessageTypeUser,
+			MessageState: MessageStateGenerating, // partial, should be skipped
+			FromUserID:   "user1",
+			ContextToken: "tok1",
+			ItemList:     []MessageItem{{Type: ItemTypeText, TextItem: &TextItem{Text: "hello"}}},
+		},
+	}
+
+	bot.handleUpdates(msgs)
+
+	if _, ok := bot.contextTokens.Load("user1"); ok {
+		t.Error("context_token should not be cached for partial messages")
+	}
+}
+
+func TestHandleUpdatesSkipsUnauthorized(t *testing.T) {
+	t.Parallel()
+
+	bot := &Bot{allowed: map[string]struct{}{"allowed_user": {}}}
+	msgs := []WeixinMessage{
+		{
+			MessageType:  MessageTypeUser,
+			MessageState: MessageStateFinish,
+			FromUserID:   "unauthorized_user",
+			ContextToken: "tok1",
+			ItemList:     []MessageItem{{Type: ItemTypeText, TextItem: &TextItem{Text: "hello"}}},
+		},
+	}
+
+	bot.handleUpdates(msgs)
+
+	if _, ok := bot.contextTokens.Load("unauthorized_user"); ok {
+		t.Error("context_token should not be cached for unauthorized users")
+	}
+}
+
+func TestHandleUpdatesCachesContextToken(t *testing.T) {
+	t.Parallel()
+
+	// Create a minimal bot that won't crash when processing text.
+	// We set allowed empty (allow all) and provide no pool so it will
+	// error at resolve() — but the context_token should be cached before that.
+	bot := &Bot{allowed: map[string]struct{}{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bot.ctx = ctx
+
+	msgs := []WeixinMessage{
+		{
+			MessageType:  MessageTypeUser,
+			MessageState: MessageStateFinish,
+			FromUserID:   "user42",
+			ContextToken: "cached-token-xyz",
+			ItemList:     []MessageItem{}, // empty item list, so dispatch is skipped
+		},
+	}
+
+	bot.handleUpdates(msgs)
+
+	val, ok := bot.contextTokens.Load("user42")
+	if !ok {
+		t.Fatal("expected context_token to be cached")
+	}
+	if val.(string) != "cached-token-xyz" {
+		t.Errorf("cached token = %q, want %q", val, "cached-token-xyz")
+	}
+}
+
+func TestHandleUpdatesSkipsEmptyItemList(t *testing.T) {
+	t.Parallel()
+
+	bot := &Bot{allowed: map[string]struct{}{}}
+	msgs := []WeixinMessage{
+		{
+			MessageType:  MessageTypeUser,
+			MessageState: MessageStateFinish,
+			FromUserID:   "user1",
+			ContextToken: "tok",
+			ItemList:     []MessageItem{}, // no items
+		},
+	}
+
+	// Should not panic.
+	bot.handleUpdates(msgs)
+}
+
+// --- Notify ---
+
+func TestNotifyErrorWhenClientNil(t *testing.T) {
+	t.Parallel()
+
+	bot := &Bot{}
+	err := bot.Notify(context.Background(), channel.Notification{ChatID: "user1", Text: "hello"})
+	if err == nil {
+		t.Fatal("expected error when client is nil")
+	}
+	if !strings.Contains(err.Error(), "not started") {
+		t.Errorf("error should mention not started: %v", err)
+	}
+}
+
+func TestNotifyErrorWhenNoTargetUser(t *testing.T) {
+	t.Parallel()
+
+	bot := &Bot{client: NewClient("", "", "tok")}
+	err := bot.Notify(context.Background(), channel.Notification{Text: "hello"})
+	if err == nil {
+		t.Fatal("expected error when no target user")
+	}
+	if !strings.Contains(err.Error(), "no target user") {
+		t.Errorf("error should mention no target user: %v", err)
+	}
+}
+
+func TestNotifyErrorWhenNoContextToken(t *testing.T) {
+	t.Parallel()
+
+	bot := &Bot{client: NewClient("", "", "tok")}
+	err := bot.Notify(context.Background(), channel.Notification{ChatID: "user1", Text: "hello"})
+	if err == nil {
+		t.Fatal("expected error when no context_token")
+	}
+	if !strings.Contains(err.Error(), "no context_token") {
+		t.Errorf("error should mention no context_token: %v", err)
+	}
+}
+
+func TestNotifyFallsBackToNotifyChat(t *testing.T) {
+	t.Parallel()
+
+	bot := &Bot{
+		client: NewClient("", "", "tok"),
+		cfg:    Config{NotifyChat: "default_user"},
+	}
+
+	// No context_token for default_user either, so it will fail with context_token error.
+	err := bot.Notify(context.Background(), channel.Notification{Text: "hello"})
+	if err == nil {
+		t.Fatal("expected error (no context_token)")
+	}
+	// The important thing: it should try default_user, not fail with "no target user".
+	if !strings.Contains(err.Error(), "no context_token for user default_user") {
+		t.Errorf("error should be about context_token for default_user: %v", err)
+	}
+}
+
+// --- Stop ---
+
+func TestStopWithCancel(t *testing.T) {
+	t.Parallel()
+
+	_, cancel := context.WithCancel(context.Background())
+	bot := &Bot{cancel: cancel}
+	bot.Stop() // should not panic
+}
+
+func TestStopWithoutCancel(t *testing.T) {
+	t.Parallel()
+
+	bot := &Bot{}
+	bot.Stop() // should not panic when cancel is nil
+}
+
+// --- toolTracker ---
+
+func TestToolTracker(t *testing.T) {
+	t.Parallel()
+
+	var tracker toolTracker
+
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls -la"})
+	if tracker.activeTool != "bash" {
+		t.Errorf("activeTool = %q, want %q", tracker.activeTool, "bash")
+	}
+
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "done", Input: "ls -la"})
+	if tracker.activeTool != "" {
+		t.Errorf("activeTool = %q, want empty after done", tracker.activeTool)
+	}
+	if len(tracker.history) != 1 {
+		t.Fatalf("history len = %d, want 1", len(tracker.history))
+	}
+	if tracker.history[0].Tool != "bash" {
+		t.Errorf("history[0].Tool = %q, want %q", tracker.history[0].Tool, "bash")
+	}
+}
+
+func TestToolTrackerError(t *testing.T) {
+	t.Parallel()
+
+	var tracker toolTracker
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "exit 1"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "error", Detail: "command failed"})
+
+	if len(tracker.history) != 1 {
+		t.Fatalf("history len = %d, want 1", len(tracker.history))
+	}
+	if tracker.history[0].Status != "error" {
+		t.Errorf("status = %q, want %q", tracker.history[0].Status, "error")
+	}
+}
+
+func TestToolTrackerRenderFinal(t *testing.T) {
+	t.Parallel()
+
+	var tracker toolTracker
+	if got := tracker.renderFinal(); got != "" {
+		t.Errorf("renderFinal() with no history = %q, want empty", got)
+	}
+
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "main.go"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done", Detail: "42 lines"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "error", Detail: "exit 1"})
+
+	got := tracker.renderFinal()
+	if !strings.Contains(got, "——————————————————") {
+		t.Error("renderFinal() missing separator line")
+	}
+	if !strings.Contains(got, "📎 2 tools") {
+		t.Error("renderFinal() missing compact tool count")
+	}
+	if !strings.Contains(got, "read") || !strings.Contains(got, "bash") {
+		t.Error("renderFinal() missing tool names in summary")
+	}
+	if !strings.Contains(got, "❌") {
+		t.Error("renderFinal() missing error line")
+	}
+}
+
+func TestToolTrackerHasHistory(t *testing.T) {
+	t.Parallel()
+
+	var tracker toolTracker
+	if tracker.hasHistory() {
+		t.Error("hasHistory() should be false with no tools")
+	}
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "x"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done", Input: "x"})
+	if !tracker.hasHistory() {
+		t.Error("hasHistory() should be true after tool finished")
+	}
+}
+
+func TestToolTrackerStartOverwritesActive(t *testing.T) {
+	t.Parallel()
+
+	var tracker toolTracker
+	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "a.go"})
+	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls"})
+
+	if len(tracker.history) != 1 {
+		t.Fatalf("history len = %d, want 1", len(tracker.history))
+	}
+	if tracker.history[0].Tool != "read" {
+		t.Errorf("history[0].Tool = %q, want %q", tracker.history[0].Tool, "read")
+	}
+	if tracker.activeTool != "bash" {
+		t.Errorf("activeTool = %q, want %q", tracker.activeTool, "bash")
+	}
+}
+
+// --- emojiFor ---
+
+func TestEmojiFor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		tool string
+		want string
+	}{
+		{"bash", "⚡"},
+		{"read", "📖"},
+		{"write", "✏️"},
+		{"edit", "🔧"},
+		{"search", "🔍"},
+		{"unknown_tool", "🔧"},
+	}
+
+	for _, tt := range tests {
+		if got := emojiFor(tt.tool); got != tt.want {
+			t.Errorf("emojiFor(%q) = %q, want %q", tt.tool, got, tt.want)
+		}
+	}
+}
+
+// --- truncate ---
+
+func TestTruncate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input  string
+		maxLen int
+		want   string
+	}{
+		{"hello", 10, "hello"},
+		{"hello world", 8, "hello..."},
+		{"abc", 3, "abc"},
+		{"abcdef", 5, "ab..."},
+		{"", 10, ""},
+	}
+
+	for _, tt := range tests {
+		got := truncate(tt.input, tt.maxLen)
+		if got != tt.want {
+			t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
+		}
+	}
+}
+
+// --- FormatDuration (shared) ---
+
+func TestFormatDuration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		d    time.Duration
+		want string
+	}{
+		{500 * time.Millisecond, "500ms"},
+		{0, "0ms"},
+		{time.Second, "1.0s"},
+		{2500 * time.Millisecond, "2.5s"},
+	}
+
+	for _, tt := range tests {
+		got := channel.FormatDuration(tt.d)
+		if got != tt.want {
+			t.Errorf("FormatDuration(%v) = %q, want %q", tt.d, got, tt.want)
+		}
+	}
+}
+
+// --- renderToolRecord ---
+
+func TestRenderToolRecord(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		rec       toolRecord
+		wantParts []string
+	}{
+		{
+			name:      "done with input and detail",
+			rec:       toolRecord{Tool: "bash", Input: "ls -la", Status: "done", Detail: "3 files", Duration: 500 * time.Millisecond},
+			wantParts: []string{"✅", "⚡", "bash", "ls -la", "→ 3 files", "500ms"},
+		},
+		{
+			name:      "error with detail",
+			rec:       toolRecord{Tool: "bash", Input: "rm -rf /", Status: "error", Detail: "permission denied", Duration: time.Second},
+			wantParts: []string{"❌", "bash", "rm -rf /", "→ permission denied"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := renderToolRecord(tt.rec)
+			for _, part := range tt.wantParts {
+				if !strings.Contains(got, part) {
+					t.Errorf("renderToolRecord() = %q, want to contain %q", got, part)
+				}
+			}
+		})
+	}
+}
+
+// --- formatModelList ---
+
+func TestFormatModelListNoQuery(t *testing.T) {
+	t.Parallel()
+
+	models := channel.IndexModels([]channel.ModelOption{
+		{Provider: "openai", Model: "gpt-4"},
+		{Provider: "anthropic", Model: "claude-3"},
+	})
+	out := formatModelList(models, "")
+	if !strings.Contains(out, "openai/gpt-4") {
+		t.Errorf("missing model entry: %s", out)
+	}
+	if !strings.Contains(out, "anthropic/claude-3") {
+		t.Errorf("missing model entry: %s", out)
+	}
+	if strings.Contains(out, "filter") {
+		t.Error("should not show filter when query is empty")
+	}
+}
+
+func TestFormatModelListWithQuery(t *testing.T) {
+	t.Parallel()
+
+	models := channel.IndexModels([]channel.ModelOption{
+		{Provider: "openai", Model: "gpt-4"},
+	})
+	out := formatModelList(models, "openai")
+	if !strings.Contains(out, `filter: "openai"`) {
+		t.Errorf("should show filter query: %s", out)
+	}
+}
+
+// --- checkError ---
+
+func TestCheckErrorSuccess(t *testing.T) {
+	t.Parallel()
+
+	if err := checkError(0, 0, ""); err != nil {
+		t.Errorf("expected nil, got %v", err)
+	}
+}
+
+func TestCheckErrorSessionExpired(t *testing.T) {
+	t.Parallel()
+
+	err := checkError(-14, 0, "session expired")
+	if err != ErrSessionExpired {
+		t.Errorf("expected ErrSessionExpired, got %v", err)
+	}
+
+	err = checkError(0, -14, "session expired")
+	if err != ErrSessionExpired {
+		t.Errorf("expected ErrSessionExpired for errcode=-14, got %v", err)
+	}
+}
+
+func TestCheckErrorGenericRet(t *testing.T) {
+	t.Parallel()
+
+	err := checkError(-1, 0, "bad request")
+	if err == nil {
+		t.Fatal("expected error for ret=-1")
+	}
+	if !strings.Contains(err.Error(), "ret=-1") {
+		t.Errorf("error should contain ret=-1: %v", err)
+	}
+}
+
+func TestCheckErrorGenericErrcode(t *testing.T) {
+	t.Parallel()
+
+	err := checkError(0, 42, "something wrong")
+	if err == nil {
+		t.Fatal("expected error for errcode=42")
+	}
+	if !strings.Contains(err.Error(), "errcode=42") {
+		t.Errorf("error should contain errcode=42: %v", err)
+	}
+}
+
+// --- isTimeoutError ---
+
+func TestIsTimeoutErrorTrue(t *testing.T) {
+	t.Parallel()
+
+	err := &mockTimeoutError{timeout: true}
+	if !isTimeoutError(err) {
+		t.Error("expected isTimeoutError=true for timeout error")
+	}
+}
+
+func TestIsTimeoutErrorFalse(t *testing.T) {
+	t.Parallel()
+
+	err := fmt.Errorf("regular error")
+	if isTimeoutError(err) {
+		t.Error("expected isTimeoutError=false for regular error")
+	}
+}
+
+type mockTimeoutError struct {
+	timeout bool
+}
+
+func (e *mockTimeoutError) Error() string   { return "mock timeout error" }
+func (e *mockTimeoutError) Timeout() bool   { return e.timeout }
+func (e *mockTimeoutError) Temporary() bool { return false }
+
+// --- weixinMaxMessageLen constant ---
+
+func TestWeixinMaxMessageLen(t *testing.T) {
+	t.Parallel()
+
+	if weixinMaxMessageLen != 2000 {
+		t.Errorf("weixinMaxMessageLen = %d, want 2000", weixinMaxMessageLen)
 	}
 }
