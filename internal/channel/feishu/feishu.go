@@ -49,9 +49,7 @@ type Config struct {
 	AppSecret         string                 `json:"app_secret"`
 	EncryptKey        string                 `json:"encrypt_key"`
 	VerificationToken string                 `json:"verification_token"`
-	NotifyChat        string                 `json:"notify_chat"`
 	GroupMode         string                 `json:"group_mode"`   // "mention" | "always" | "disabled"
-	AllowedIDs        []string               `json:"allowed_ids"`  // user open_ids allowed (empty = allow all)
 	Groups            map[string]GroupConfig `json:"groups"`       // per-group overrides keyed by chat_id
 	RedirectURI       string                 `json:"redirect_uri"` // OAuth redirect URI (default: https://anna.vaayne.com/oauth/callback)
 }
@@ -78,10 +76,9 @@ type Bot struct {
 	lastSeenSweep time.Time                     // last time seenMsgs was swept
 	activeStreams map[string]context.CancelFunc // streamKey -> cancel func
 
-	allowed map[string]struct{}
-	cfg     Config
-	ctx     context.Context
-	cancel  context.CancelFunc
+	cfg    Config
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // BotOption configures the Feishu Bot.
@@ -116,11 +113,6 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn ModelList
 		cfg.GroupMode = "mention"
 	}
 
-	allowed := make(map[string]struct{}, len(cfg.AllowedIDs))
-	for _, id := range cfg.AllowedIDs {
-		allowed[id] = struct{}{}
-	}
-
 	b := &Bot{
 		poolManager:   pm,
 		store:         store,
@@ -130,7 +122,6 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn ModelList
 		chatModels:    make(map[string]ModelOption),
 		seenMsgs:      make(map[string]time.Time),
 		activeStreams: make(map[string]context.CancelFunc),
-		allowed:       allowed,
 		cfg:           cfg,
 	}
 
@@ -227,9 +218,6 @@ func (b *Bot) Name() string { return "feishu" }
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	chatID := n.ChatID
 	if chatID == "" {
-		chatID = b.cfg.NotifyChat
-	}
-	if chatID == "" {
 		return fmt.Errorf("feishu: no target chat ID")
 	}
 
@@ -259,16 +247,6 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 		return fmt.Errorf("feishu: notify: code=%d msg=%s", resp.Code, resp.Msg)
 	}
 	return nil
-}
-
-// isAllowed returns true if the sender is in the allowed list.
-// An empty allowed list means everyone is allowed.
-func (b *Bot) isAllowed(openID string) bool {
-	if len(b.allowed) == 0 {
-		return true
-	}
-	_, ok := b.allowed[openID]
-	return ok
 }
 
 // textContent builds the JSON content string for a Feishu text message.

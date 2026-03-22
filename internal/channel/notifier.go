@@ -25,8 +25,7 @@ type Notifier interface {
 }
 
 type channelEntry struct {
-	channel     Channel
-	defaultChat string
+	channel Channel
 }
 
 // Dispatcher routes notifications to one or more registered channels.
@@ -42,10 +41,10 @@ func NewDispatcher() *Dispatcher {
 	return &Dispatcher{}
 }
 
-// Register adds a channel with its default chat/channel target.
-func (d *Dispatcher) Register(ch Channel, defaultChat string) {
+// Register adds a channel to the dispatcher.
+func (d *Dispatcher) Register(ch Channel) {
 	d.mu.Lock()
-	d.channels = append(d.channels, channelEntry{channel: ch, defaultChat: defaultChat})
+	d.channels = append(d.channels, channelEntry{channel: ch})
 	d.mu.Unlock()
 }
 
@@ -65,9 +64,6 @@ func (d *Dispatcher) Notify(ctx context.Context, n Notification) error {
 	if n.Channel != "" {
 		for _, e := range entries {
 			if e.channel.Name() == n.Channel {
-				if n.ChatID == "" {
-					n.ChatID = e.defaultChat
-				}
 				return e.channel.Notify(ctx, n)
 			}
 		}
@@ -77,11 +73,7 @@ func (d *Dispatcher) Notify(ctx context.Context, n Notification) error {
 	// Broadcast to all channels.
 	var errs []error
 	for _, e := range entries {
-		nn := n
-		if nn.ChatID == "" {
-			nn.ChatID = e.defaultChat
-		}
-		if err := e.channel.Notify(ctx, nn); err != nil {
+		if err := e.channel.Notify(ctx, n); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", e.channel.Name(), err))
 		}
 	}

@@ -73,8 +73,8 @@ type Channel interface {
 
 ```go
 d := channel.NewDispatcher()
-d.Register(tgBot, "136345060")   // デフォルトチャット付きtelegramチャネル
-d.Register(qqBot, "")            // qqチャネル
+d.Register(tgBot)                // telegramチャネル
+d.Register(qqBot)                // qqチャネル
 
 // すべてのチャネルにブロードキャスト（各チャネルはデフォルトチャットを使用）:
 d.Notify(ctx, channel.Notification{Text: "hello"})
@@ -125,7 +125,7 @@ setup()
 
 runGateway()
   +-- Create telegram.Bot
-  +-- dispatcher.Register(tgBot, notifyChat)  <- チャネル登録
+  +-- dispatcher.Register(tgBot)               <- チャネル登録
   +-- wireSchedulerNotifier(schedulerSvc, poolManager, dispatcher) <- スケジューラー出力 -> ディスパッチャー
   +-- tgBot.Start(ctx)                        <- ポーリング開始
 ```
@@ -146,15 +146,15 @@ CLIモード（`anna chat`）では、通知チャネルは登録されないた
 
 ## 設定
 
-チャネル設定は管理パネルで管理されます。各チャネルの設定（トークン、チャットID、グループモード、許可されたID）は、データベースにJSONとして保存されます。設定ファイルを直接編集するのではなく、管理パネルUIから通知チャネルを設定してください。
+チャネル設定は管理パネルで管理されます。各チャネルの設定（トークン、チャットID、グループモード）は、データベースにJSONとして保存されます。設定ファイルを直接編集するのではなく、管理パネルUIから通知チャネルを設定してください。
 
 ### 通知ターゲット解決
 
 `Notify()`が呼び出されると、ターゲットチャットは次の順序で解決されます。
 
 1. `Notification.ChatID`（呼び出しで明示的）
-2. チャネルの登録されたデフォルトチャット（`dispatcher.Register`から）
-3. Telegramの場合: `notify_chat` -> `channel_id` -> エラー
+2. チャネルのデフォルトターゲット（チャネル設定から）
+3. Telegramの場合: `channel_id` -> エラー
 
 ## 新しいチャネルの追加
 
@@ -182,7 +182,7 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 if slackCfg.Token != "" {
     slackBot := slack.New(slackCfg)
     channels = append(channels, slackBot)
-    s.notifier.Register(slackBot, slackCfg.NotifyChannel)
+    s.notifier.Register(slackBot)
 }
 ```
 
@@ -204,7 +204,7 @@ if slackCfg.Token != "" {
 
 ### アクセス制御
 
-`allowed_ids`は、ボットとのインタラクションを特定のユーザーID（Telegram数値ID、QQ OpenID、Feishu open_id、WeChat iLinkユーザーID）に制限します。リストが空の場合、すべてのユーザーが許可されます。権限のないユーザーは静かに無視されます。すべてのハンドラー（コマンド、コールバック、テキスト）はアクセスチェックでラップされます。ユーザーは自分のIDを確認するために`/whoami`をボットに送信できます。
+アクセス制御はRBACシステムで管理されます。ユーザーはプラットフォームID（Telegram数値ID、QQ OpenID、Feishu open_id、WeChat iLinkユーザーID）を通じて認証システムに自動的に関連付けられます。権限のないユーザーは静かに無視されます。すべてのハンドラー（コマンド、コールバック、テキスト）はアクセスチェックでラップされます。ユーザーは自分のIDを確認するために`/whoami`をボットに送信できます。
 
 ### 通知配信
 

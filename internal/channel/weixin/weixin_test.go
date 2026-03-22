@@ -335,34 +335,6 @@ func TestNewSuccess(t *testing.T) {
 	}
 }
 
-func TestNewBuildsAllowedMap(t *testing.T) {
-	t.Parallel()
-
-	cfg := Config{BotToken: "tok", AllowedIDs: []string{"user1", "user2", "user3"}}
-	bot, err := New(cfg, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(bot.allowed) != 3 {
-		t.Errorf("allowed map len = %d, want 3", len(bot.allowed))
-	}
-	for _, id := range []string{"user1", "user2", "user3"} {
-		if _, ok := bot.allowed[id]; !ok {
-			t.Errorf("expected %q in allowed map", id)
-		}
-	}
-}
-
-func TestNewEmptyAllowedIDs(t *testing.T) {
-	t.Parallel()
-
-	cfg := Config{BotToken: "tok"}
-	bot, _ := New(cfg, nil, nil, nil, nil)
-	if len(bot.allowed) != 0 {
-		t.Errorf("allowed map len = %d, want 0", len(bot.allowed))
-	}
-}
-
 func TestNewWithAuth(t *testing.T) {
 	t.Parallel()
 
@@ -385,47 +357,6 @@ func TestBotName(t *testing.T) {
 	bot := &Bot{}
 	if bot.Name() != "weixin" {
 		t.Errorf("Name() = %q, want %q", bot.Name(), "weixin")
-	}
-}
-
-// --- isAllowed ---
-
-func TestIsAllowedEmptyList(t *testing.T) {
-	t.Parallel()
-
-	bot := &Bot{allowed: map[string]struct{}{}}
-	if !bot.isAllowed("anyone") {
-		t.Error("empty allowed list should allow everyone")
-	}
-}
-
-func TestIsAllowedMatch(t *testing.T) {
-	t.Parallel()
-
-	bot := &Bot{allowed: map[string]struct{}{"user1": {}}}
-	if !bot.isAllowed("user1") {
-		t.Error("user1 should be allowed")
-	}
-}
-
-func TestIsAllowedNoMatch(t *testing.T) {
-	t.Parallel()
-
-	bot := &Bot{allowed: map[string]struct{}{"user1": {}}}
-	if bot.isAllowed("user2") {
-		t.Error("user2 should not be allowed")
-	}
-}
-
-func TestIsAllowedMultipleUsers(t *testing.T) {
-	t.Parallel()
-
-	bot := &Bot{allowed: map[string]struct{}{"a": {}, "b": {}, "c": {}}}
-	if !bot.isAllowed("b") {
-		t.Error("b should be allowed")
-	}
-	if bot.isAllowed("d") {
-		t.Error("d should not be allowed")
 	}
 }
 
@@ -512,7 +443,7 @@ func TestSplitMessageMultibyteUTF8(t *testing.T) {
 func TestHandleUpdatesSkipsBotEchoes(t *testing.T) {
 	t.Parallel()
 
-	bot := &Bot{allowed: map[string]struct{}{}}
+	bot := &Bot{}
 	msgs := []WeixinMessage{
 		{
 			MessageType:  MessageTypeBot, // bot echo, should be skipped
@@ -536,7 +467,7 @@ func TestHandleUpdatesSkipsBotEchoes(t *testing.T) {
 func TestHandleUpdatesSkipsPartialState(t *testing.T) {
 	t.Parallel()
 
-	bot := &Bot{allowed: map[string]struct{}{}}
+	bot := &Bot{}
 	msgs := []WeixinMessage{
 		{
 			MessageType:  MessageTypeUser,
@@ -554,34 +485,13 @@ func TestHandleUpdatesSkipsPartialState(t *testing.T) {
 	}
 }
 
-func TestHandleUpdatesSkipsUnauthorized(t *testing.T) {
-	t.Parallel()
-
-	bot := &Bot{allowed: map[string]struct{}{"allowed_user": {}}}
-	msgs := []WeixinMessage{
-		{
-			MessageType:  MessageTypeUser,
-			MessageState: MessageStateFinish,
-			FromUserID:   "unauthorized_user",
-			ContextToken: "tok1",
-			ItemList:     []MessageItem{{Type: ItemTypeText, TextItem: &TextItem{Text: "hello"}}},
-		},
-	}
-
-	bot.handleUpdates(msgs)
-
-	if _, ok := bot.contextTokens.Load("unauthorized_user"); ok {
-		t.Error("context_token should not be cached for unauthorized users")
-	}
-}
-
 func TestHandleUpdatesCachesContextToken(t *testing.T) {
 	t.Parallel()
 
 	// Create a minimal bot that won't crash when processing text.
 	// We set allowed empty (allow all) and provide no pool so it will
 	// error at resolve() — but the context_token should be cached before that.
-	bot := &Bot{allowed: map[string]struct{}{}}
+	bot := &Bot{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	bot.ctx = ctx
@@ -610,7 +520,7 @@ func TestHandleUpdatesCachesContextToken(t *testing.T) {
 func TestHandleUpdatesSkipsEmptyItemList(t *testing.T) {
 	t.Parallel()
 
-	bot := &Bot{allowed: map[string]struct{}{}}
+	bot := &Bot{}
 	msgs := []WeixinMessage{
 		{
 			MessageType:  MessageTypeUser,
@@ -769,25 +679,6 @@ func TestNotifyErrorWhenNoContextToken(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no context_token") {
 		t.Errorf("error should mention no context_token: %v", err)
-	}
-}
-
-func TestNotifyFallsBackToNotifyChat(t *testing.T) {
-	t.Parallel()
-
-	bot := &Bot{
-		client: NewClient("", "", "tok"),
-		cfg:    Config{NotifyChat: "default_user"},
-	}
-
-	// No context_token for default_user either, so it will fail with context_token error.
-	err := bot.Notify(context.Background(), channel.Notification{Text: "hello"})
-	if err == nil {
-		t.Fatal("expected error (no context_token)")
-	}
-	// The important thing: it should try default_user, not fail with "no target user".
-	if !strings.Contains(err.Error(), "no context_token for user default_user") {
-		t.Errorf("error should be about context_token for default_user: %v", err)
 	}
 }
 

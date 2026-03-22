@@ -25,8 +25,8 @@ func TestDispatcherBroadcast(t *testing.T) {
 	d := NewDispatcher()
 	tg := &mockChannel{name: "telegram"}
 	slack := &mockChannel{name: "slack"}
-	d.Register(tg, "tg-chat")
-	d.Register(slack, "slack-channel")
+	d.Register(tg)
+	d.Register(slack)
 
 	err := d.Notify(context.Background(), Notification{Text: "hello"})
 	if err != nil {
@@ -36,14 +36,8 @@ func TestDispatcherBroadcast(t *testing.T) {
 	if len(tg.calls) != 1 {
 		t.Fatalf("telegram got %d calls, want 1", len(tg.calls))
 	}
-	if tg.calls[0].ChatID != "tg-chat" {
-		t.Errorf("telegram ChatID = %q, want %q", tg.calls[0].ChatID, "tg-chat")
-	}
 	if len(slack.calls) != 1 {
 		t.Fatalf("slack got %d calls, want 1", len(slack.calls))
-	}
-	if slack.calls[0].ChatID != "slack-channel" {
-		t.Errorf("slack ChatID = %q, want %q", slack.calls[0].ChatID, "slack-channel")
 	}
 }
 
@@ -51,8 +45,8 @@ func TestDispatcherRouteToSpecific(t *testing.T) {
 	d := NewDispatcher()
 	tg := &mockChannel{name: "telegram"}
 	slack := &mockChannel{name: "slack"}
-	d.Register(tg, "tg-chat")
-	d.Register(slack, "slack-channel")
+	d.Register(tg)
+	d.Register(slack)
 
 	err := d.Notify(context.Background(), Notification{
 		Channel: "slack",
@@ -68,15 +62,12 @@ func TestDispatcherRouteToSpecific(t *testing.T) {
 	if len(slack.calls) != 1 {
 		t.Fatalf("slack got %d calls, want 1", len(slack.calls))
 	}
-	if slack.calls[0].ChatID != "slack-channel" {
-		t.Errorf("slack ChatID = %q, want default %q", slack.calls[0].ChatID, "slack-channel")
-	}
 }
 
 func TestDispatcherExplicitChatID(t *testing.T) {
 	d := NewDispatcher()
 	tg := &mockChannel{name: "telegram"}
-	d.Register(tg, "default-chat")
+	d.Register(tg)
 
 	err := d.Notify(context.Background(), Notification{
 		Channel: "telegram",
@@ -93,7 +84,7 @@ func TestDispatcherExplicitChatID(t *testing.T) {
 
 func TestDispatcherUnknownChannel(t *testing.T) {
 	d := NewDispatcher()
-	d.Register(&mockChannel{name: "telegram"}, "chat")
+	d.Register(&mockChannel{name: "telegram"})
 
 	err := d.Notify(context.Background(), Notification{Channel: "discord", Text: "test"})
 	if err == nil {
@@ -113,8 +104,8 @@ func TestDispatcherPartialFailure(t *testing.T) {
 	d := NewDispatcher()
 	good := &mockChannel{name: "telegram"}
 	bad := &mockChannel{name: "slack", err: errors.New("slack down")}
-	d.Register(good, "chat")
-	d.Register(bad, "channel")
+	d.Register(good)
+	d.Register(bad)
 
 	err := d.Notify(context.Background(), Notification{Text: "test"})
 	if err == nil {
@@ -128,8 +119,8 @@ func TestDispatcherPartialFailure(t *testing.T) {
 
 func TestDispatcherChannels(t *testing.T) {
 	d := NewDispatcher()
-	d.Register(&mockChannel{name: "telegram"}, "")
-	d.Register(&mockChannel{name: "slack"}, "")
+	d.Register(&mockChannel{name: "telegram"})
+	d.Register(&mockChannel{name: "slack"})
 
 	names := d.Channels()
 	if len(names) != 2 {
@@ -156,7 +147,7 @@ func TestNotifyToolDefinition(t *testing.T) {
 func TestNotifyToolExecuteBroadcast(t *testing.T) {
 	d := NewDispatcher()
 	tg := &mockChannel{name: "telegram"}
-	d.Register(tg, "chat-123")
+	d.Register(tg)
 
 	tool := NewNotifyTool(d)
 	result, err := tool.Execute(context.Background(), map[string]any{
@@ -179,7 +170,7 @@ func TestNotifyToolExecuteBroadcast(t *testing.T) {
 func TestNotifyToolExecuteTargeted(t *testing.T) {
 	d := NewDispatcher()
 	tg := &mockChannel{name: "telegram"}
-	d.Register(tg, "default-chat")
+	d.Register(tg)
 
 	tool := NewNotifyTool(d)
 	result, err := tool.Execute(context.Background(), map[string]any{
@@ -215,7 +206,7 @@ func TestNotifyToolExecuteEmptyMessage(t *testing.T) {
 func TestNotifyToolExecuteError(t *testing.T) {
 	d := NewDispatcher()
 	bad := &mockChannel{name: "telegram", err: errors.New("send failed")}
-	d.Register(bad, "chat")
+	d.Register(bad)
 
 	tool := NewNotifyTool(d)
 	_, err := tool.Execute(context.Background(), map[string]any{

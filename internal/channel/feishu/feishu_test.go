@@ -247,37 +247,6 @@ func TestNewCustomGroupMode(t *testing.T) {
 	}
 }
 
-func TestNewAllowedIDs(t *testing.T) {
-	cfg := Config{AppID: "1", AppSecret: "s", AllowedIDs: []string{"u1", "u2"}}
-	bot, _ := New(cfg, nil, nil, nil, nil)
-	if len(bot.allowed) != 2 {
-		t.Errorf("allowed len = %d, want 2", len(bot.allowed))
-	}
-}
-
-// --- isAllowed ---
-
-func TestIsAllowedEmptyList(t *testing.T) {
-	bot := &Bot{allowed: map[string]struct{}{}}
-	if !bot.isAllowed("anyone") {
-		t.Error("empty allowed list should allow everyone")
-	}
-}
-
-func TestIsAllowedMatch(t *testing.T) {
-	bot := &Bot{allowed: map[string]struct{}{"u1": {}}}
-	if !bot.isAllowed("u1") {
-		t.Error("u1 should be allowed")
-	}
-}
-
-func TestIsAllowedNoMatch(t *testing.T) {
-	bot := &Bot{allowed: map[string]struct{}{"u1": {}}}
-	if bot.isAllowed("u2") {
-		t.Error("u2 should not be allowed")
-	}
-}
-
 // --- resolve session key format ---
 
 func TestResolveSessionKeyFormat(t *testing.T) {
@@ -733,11 +702,11 @@ func TestStripMentionsRegexCleanup(t *testing.T) {
 
 // --- Notify with fallback ---
 
-func TestNotifyFallbackToConfig(t *testing.T) {
-	bot := &Bot{cfg: Config{NotifyChat: ""}}
+func TestNotifyNoChatID(t *testing.T) {
+	bot := &Bot{cfg: Config{}}
 	err := bot.Notify(context.Background(), channel.Notification{Text: "hi"})
 	if err == nil {
-		t.Fatal("expected error when no chat ID configured")
+		t.Fatal("expected error when no chat ID")
 	}
 	if !strings.Contains(err.Error(), "no target chat ID") {
 		t.Errorf("unexpected error: %v", err)
@@ -1198,7 +1167,7 @@ func TestOnReactionNilEventData(t *testing.T) {
 }
 
 func TestOnReactionAppOperator(t *testing.T) {
-	bot := &Bot{allowed: map[string]struct{}{}}
+	bot := &Bot{}
 	opType := "app"
 	err := bot.onReaction(context.Background(), &larkim.P2MessageReactionCreatedV1{
 		Event: &larkim.P2MessageReactionCreatedV1Data{
@@ -1211,7 +1180,7 @@ func TestOnReactionAppOperator(t *testing.T) {
 }
 
 func TestOnReactionSelfReaction(t *testing.T) {
-	bot := &Bot{allowed: map[string]struct{}{}}
+	bot := &Bot{}
 	bot.botOpenID.Store("ou_bot123")
 	opType := "user"
 	openID := "ou_bot123"
@@ -1223,20 +1192,5 @@ func TestOnReactionSelfReaction(t *testing.T) {
 	})
 	if err != nil {
 		t.Errorf("self-reaction should be ignored, got %v", err)
-	}
-}
-
-func TestOnReactionUnauthorized(t *testing.T) {
-	bot := &Bot{allowed: map[string]struct{}{"ou_allowed": {}}}
-	opType := "user"
-	openID := "ou_unauthorized"
-	err := bot.onReaction(context.Background(), &larkim.P2MessageReactionCreatedV1{
-		Event: &larkim.P2MessageReactionCreatedV1Data{
-			OperatorType: &opType,
-			UserId:       &larkim.UserId{OpenId: &openID},
-		},
-	})
-	if err != nil {
-		t.Errorf("unauthorized reaction should be ignored, got %v", err)
 	}
 }

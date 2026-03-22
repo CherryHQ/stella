@@ -46,7 +46,7 @@ func (b *Bot) registerHandlers() {
 		if c.Sender() == nil {
 			return c.Send("Cannot determine user ID (no sender info).")
 		}
-		msg := fmt.Sprintf("Your user ID: `%d`\nThis chat ID: `%d`\n\nUse the user ID in `allowed_ids` and the chat ID in `notify_chat` or as `chat_id` for notifications.",
+		msg := fmt.Sprintf("Your user ID: `%d`\nThis chat ID: `%d`",
 			c.Sender().ID, c.Chat().ID)
 		return c.Send(msg, tele.ModeMarkdown)
 	}))
