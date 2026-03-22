@@ -625,6 +625,112 @@ func TestHandleUpdatesSkipsEmptyItemList(t *testing.T) {
 	bot.handleUpdates(msgs)
 }
 
+// --- dispatchMessage multi-item extraction ---
+// These tests verify the item extraction and routing logic in dispatchMessage
+// without needing a full agent pool. We test the exported extractMessageContent
+// helper directly to avoid nil-pointer panics from missing infrastructure.
+
+func TestExtractMessageContent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		items      []MessageItem
+		wantTexts  int // number of text fragments
+		wantImages int // number of images
+	}{
+		{
+			name: "single text",
+			items: []MessageItem{
+				{Type: ItemTypeText, TextItem: &TextItem{Text: "hello"}},
+			},
+			wantTexts: 1, wantImages: 0,
+		},
+		{
+			name: "multiple texts concatenated",
+			items: []MessageItem{
+				{Type: ItemTypeText, TextItem: &TextItem{Text: "hello"}},
+				{Type: ItemTypeText, TextItem: &TextItem{Text: "world"}},
+			},
+			wantTexts: 2, wantImages: 0,
+		},
+		{
+			name: "voice transcription extracted",
+			items: []MessageItem{
+				{Type: ItemTypeVoice, VoiceItem: &VoiceItem{Text: "transcribed speech"}},
+			},
+			wantTexts: 1, wantImages: 0,
+		},
+		{
+			name: "file placeholder",
+			items: []MessageItem{
+				{Type: ItemTypeFile, FileItem: &FileItem{FileName: "report.pdf"}},
+			},
+			wantTexts: 1, wantImages: 0,
+		},
+		{
+			name: "video placeholder",
+			items: []MessageItem{
+				{Type: ItemTypeVideo},
+			},
+			wantTexts: 1, wantImages: 0,
+		},
+		{
+			name: "image collected",
+			items: []MessageItem{
+				{Type: ItemTypeImage, ImageItem: &ImageItem{}},
+			},
+			wantTexts: 0, wantImages: 1,
+		},
+		{
+			name: "text + image mixed",
+			items: []MessageItem{
+				{Type: ItemTypeText, TextItem: &TextItem{Text: "caption"}},
+				{Type: ItemTypeImage, ImageItem: &ImageItem{}},
+			},
+			wantTexts: 1, wantImages: 1,
+		},
+		{
+			name: "multiple images with text",
+			items: []MessageItem{
+				{Type: ItemTypeText, TextItem: &TextItem{Text: "look at these"}},
+				{Type: ItemTypeImage, ImageItem: &ImageItem{}},
+				{Type: ItemTypeImage, ImageItem: &ImageItem{}},
+			},
+			wantTexts: 1, wantImages: 2,
+		},
+		{
+			name: "whitespace-only text skipped",
+			items: []MessageItem{
+				{Type: ItemTypeText, TextItem: &TextItem{Text: "   "}},
+			},
+			wantTexts: 0, wantImages: 0,
+		},
+		{
+			name: "mixed text video file",
+			items: []MessageItem{
+				{Type: ItemTypeText, TextItem: &TextItem{Text: "check this"}},
+				{Type: ItemTypeVideo},
+				{Type: ItemTypeFile, FileItem: &FileItem{FileName: "data.csv"}},
+			},
+			wantTexts: 3, wantImages: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			texts, images := extractMessageContent(tt.items)
+			if len(texts) != tt.wantTexts {
+				t.Errorf("texts = %d (%v), want %d", len(texts), texts, tt.wantTexts)
+			}
+			if len(images) != tt.wantImages {
+				t.Errorf("images = %d, want %d", len(images), tt.wantImages)
+			}
+		})
+	}
+}
+
 // --- Notify ---
 
 func TestNotifyErrorWhenClientNil(t *testing.T) {

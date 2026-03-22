@@ -38,29 +38,45 @@ func (b *Bot) handleUpdates(msgs []WeixinMessage) {
 			b.contextTokens.Store(msg.FromUserID, msg.ContextToken)
 		}
 
-		// Dispatch by first item type.
 		if len(msg.ItemList) == 0 {
 			continue
 		}
 
-		first := msg.ItemList[0]
-		switch first.Type {
-		case ItemTypeText:
-			if first.TextItem != nil {
-				b.handleText(msg, first.TextItem.Text)
-			}
-		case ItemTypeImage:
-			if first.ImageItem != nil {
-				b.handleImage(msg, first.ImageItem)
-			}
-		case ItemTypeFile:
-			logger().Debug("file message received, skipping", "user_id", msg.FromUserID)
-		case ItemTypeVideo:
-			logger().Debug("video message received, skipping", "user_id", msg.FromUserID)
-		default:
-			logger().Debug("unsupported item type", "type", first.Type, "user_id", msg.FromUserID)
+		b.dispatchMessage(msg)
+	}
+}
+
+// dispatchMessage processes all items in a message's item_list.
+// A message may contain a mix of text, images, files, and videos.
+// Text-only messages are handled as commands or chat. Messages with
+// images (possibly with text captions) become multimodal content.
+// Files/videos are noted as placeholders.
+func (b *Bot) dispatchMessage(msg WeixinMessage) {
+	texts, images := extractMessageContent(msg.ItemList)
+	combinedText := strings.Join(texts, "\n")
+	hasUnsupported := false
+	for _, item := range msg.ItemList {
+		if item.Type != ItemTypeText && item.Type != ItemTypeImage &&
+			item.Type != ItemTypeVoice && item.Type != ItemTypeFile && item.Type != ItemTypeVideo {
+			hasUnsupported = true
+			break
 		}
 	}
+
+	// Pure text message — handle as commands or chat.
+	if len(images) == 0 {
+		if combinedText != "" {
+			b.handleText(msg, combinedText)
+			return
+		}
+		if hasUnsupported {
+			logger().Debug("unsupported message items only", "user_id", msg.FromUserID)
+		}
+		return
+	}
+
+	// Message has images — build multimodal content.
+	b.handleImages(msg, images, combinedText)
 }
 
 // handleText processes incoming text messages.
@@ -114,66 +130,64 @@ func (b *Bot) handleText(msg WeixinMessage, text string) {
 	b.handleMessage(msg, rc, text)
 }
 
-// handleImage processes incoming image messages.
-func (b *Bot) handleImage(msg WeixinMessage, imageItem *ImageItem) {
-	// Resolve AES key for decryption.
-	key, err := ResolveImageKey(imageItem)
-	if err != nil {
-		// Plaintext fallback: try downloading without decryption.
-		logger().Warn("no AES key for image, attempting plaintext", "error", err)
-	}
-
-	// Determine CDN download URL.
-	if imageItem.Media == nil || imageItem.Media.EncryptQueryParam == "" {
-		logger().Warn("image missing CDN media reference", "user_id", msg.FromUserID)
-		b.sendReply(msg, "Failed to process image: no CDN reference.")
-		return
-	}
-
-	// Download encrypted data from CDN.
-	encrypted, err := DownloadFromCDN("", imageItem.Media.EncryptQueryParam)
-	if err != nil {
-		logger().Error("cdn download failed", "user_id", msg.FromUserID, "error", err)
-		b.sendReply(msg, fmt.Sprintf("Failed to download image: %v", err))
-		return
-	}
-
-	var data []byte
-	if key != nil {
-		// Decrypt.
-		data, err = DecryptAESECB(encrypted, key)
-		if err != nil {
-			logger().Error("image decrypt failed", "user_id", msg.FromUserID, "error", err)
-			b.sendReply(msg, "Failed to decrypt image.")
-			return
+// extractMessageContent walks all items and returns text fragments and image items.
+// Voice transcriptions, file names, and video placeholders are included as text.
+func extractMessageContent(items []MessageItem) (texts []string, images []*ImageItem) {
+	for _, item := range items {
+		switch item.Type {
+		case ItemTypeText:
+			if item.TextItem != nil && strings.TrimSpace(item.TextItem.Text) != "" {
+				texts = append(texts, strings.TrimSpace(item.TextItem.Text))
+			}
+		case ItemTypeImage:
+			if item.ImageItem != nil {
+				images = append(images, item.ImageItem)
+			}
+		case ItemTypeVoice:
+			if item.VoiceItem != nil && item.VoiceItem.Text != "" {
+				texts = append(texts, item.VoiceItem.Text)
+			}
+		case ItemTypeFile:
+			if item.FileItem != nil {
+				name := item.FileItem.FileName
+				if name == "" {
+					name = "file"
+				}
+				texts = append(texts, fmt.Sprintf("[file: %s]", name))
+			}
+		case ItemTypeVideo:
+			texts = append(texts, "[video]")
 		}
-	} else {
-		// Plaintext fallback.
-		data = encrypted
 	}
+	return
+}
 
-	// Detect MIME type and encode.
-	mimeType := http.DetectContentType(data)
-	encoded := base64.StdEncoding.EncodeToString(data)
-
+// handleImages processes one or more images with optional caption text.
+func (b *Bot) handleImages(msg WeixinMessage, images []*ImageItem, caption string) {
 	var content []ai.ContentBlock
 
-	// Check for caption text in other items.
-	for _, item := range msg.ItemList {
-		if item.Type == ItemTypeText && item.TextItem != nil {
-			caption := strings.TrimSpace(item.TextItem.Text)
-			if caption != "" {
-				content = append(content, ai.TextContent{Text: caption})
-				break
-			}
-		}
+	if caption != "" {
+		content = append(content, ai.TextContent{Text: caption})
 	}
 
-	content = append(content, ai.ImageContent{Data: encoded, MimeType: mimeType})
+	for _, imageItem := range images {
+		data, err := b.downloadImage(msg.FromUserID, imageItem)
+		if err != nil {
+			logger().Error("image processing failed", "user_id", msg.FromUserID, "error", err)
+			continue
+		}
+		mimeType := http.DetectContentType(data)
+		encoded := base64.StdEncoding.EncodeToString(data)
+		content = append(content, ai.ImageContent{Data: encoded, MimeType: mimeType})
+		logger().Debug("image received", "user_id", msg.FromUserID, "size", len(data), "mime", mimeType)
+	}
 
-	logger().Debug("image received", "user_id", msg.FromUserID, "size", len(data), "mime", mimeType)
+	// Nothing decoded successfully.
+	if len(content) == 0 || (len(content) == 1 && caption != "") {
+		b.sendReply(msg, "Failed to process image(s).")
+		return
+	}
 
-	// Resolve and handle.
 	rc, err := b.resolve(msg.FromUserID)
 	if err != nil {
 		logger().Error("resolve failed", "user_id", msg.FromUserID, "error", err)
@@ -182,6 +196,30 @@ func (b *Bot) handleImage(msg WeixinMessage, imageItem *ImageItem) {
 	}
 
 	b.handleMessage(msg, rc, content)
+}
+
+// downloadImage fetches and decrypts a single image from CDN.
+func (b *Bot) downloadImage(userID string, imageItem *ImageItem) ([]byte, error) {
+	if imageItem.Media == nil || imageItem.Media.EncryptQueryParam == "" {
+		return nil, fmt.Errorf("missing CDN media reference")
+	}
+
+	encrypted, err := DownloadFromCDN("", imageItem.Media.EncryptQueryParam)
+	if err != nil {
+		return nil, fmt.Errorf("cdn download: %w", err)
+	}
+
+	key, keyErr := ResolveImageKey(imageItem)
+	if keyErr != nil {
+		logger().Warn("no AES key for image, using plaintext", "user_id", userID, "error", keyErr)
+		return encrypted, nil
+	}
+
+	data, err := DecryptAESECB(encrypted, key)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt: %w", err)
+	}
+	return data, nil
 }
 
 // handleMessage is the common flow for text and multimodal messages.
