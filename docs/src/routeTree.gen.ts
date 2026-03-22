@@ -13,6 +13,7 @@ import { Route as LlmsDottxtRouteImport } from './routes/llms[.]txt'
 import { Route as LlmsFullDottxtRouteImport } from './routes/llms-full[.]txt'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LangIndexRouteImport } from './routes/$lang/index'
+import { Route as OauthCallbackRouteImport } from './routes/oauth/callback'
 import { Route as ApiSearchRouteImport } from './routes/api/search'
 import { Route as LangAboutRouteImport } from './routes/$lang/about'
 import { Route as LlmsDotmdxDocsSplatRouteImport } from './routes/llms[.]mdx.docs.$'
@@ -36,6 +37,11 @@ const IndexRoute = IndexRouteImport.update({
 const LangIndexRoute = LangIndexRouteImport.update({
   id: '/$lang/',
   path: '/$lang/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OauthCallbackRoute = OauthCallbackRouteImport.update({
+  id: '/oauth/callback',
+  path: '/oauth/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSearchRoute = ApiSearchRouteImport.update({
@@ -65,6 +71,7 @@ export interface FileRoutesByFullPath {
   '/llms.txt': typeof LlmsDottxtRoute
   '/$lang/about': typeof LangAboutRoute
   '/api/search': typeof ApiSearchRoute
+  '/oauth/callback': typeof OauthCallbackRoute
   '/$lang/': typeof LangIndexRoute
   '/$lang/docs/$': typeof LangDocsSplatRoute
   '/llms.mdx/docs/$': typeof LlmsDotmdxDocsSplatRoute
@@ -75,6 +82,7 @@ export interface FileRoutesByTo {
   '/llms.txt': typeof LlmsDottxtRoute
   '/$lang/about': typeof LangAboutRoute
   '/api/search': typeof ApiSearchRoute
+  '/oauth/callback': typeof OauthCallbackRoute
   '/$lang': typeof LangIndexRoute
   '/$lang/docs/$': typeof LangDocsSplatRoute
   '/llms.mdx/docs/$': typeof LlmsDotmdxDocsSplatRoute
@@ -86,6 +94,7 @@ export interface FileRoutesById {
   '/llms.txt': typeof LlmsDottxtRoute
   '/$lang/about': typeof LangAboutRoute
   '/api/search': typeof ApiSearchRoute
+  '/oauth/callback': typeof OauthCallbackRoute
   '/$lang/': typeof LangIndexRoute
   '/$lang/docs/$': typeof LangDocsSplatRoute
   '/llms.mdx/docs/$': typeof LlmsDotmdxDocsSplatRoute
@@ -98,6 +107,7 @@ export interface FileRouteTypes {
     | '/llms.txt'
     | '/$lang/about'
     | '/api/search'
+    | '/oauth/callback'
     | '/$lang/'
     | '/$lang/docs/$'
     | '/llms.mdx/docs/$'
@@ -108,6 +118,7 @@ export interface FileRouteTypes {
     | '/llms.txt'
     | '/$lang/about'
     | '/api/search'
+    | '/oauth/callback'
     | '/$lang'
     | '/$lang/docs/$'
     | '/llms.mdx/docs/$'
@@ -118,6 +129,7 @@ export interface FileRouteTypes {
     | '/llms.txt'
     | '/$lang/about'
     | '/api/search'
+    | '/oauth/callback'
     | '/$lang/'
     | '/$lang/docs/$'
     | '/llms.mdx/docs/$'
@@ -129,6 +141,7 @@ export interface RootRouteChildren {
   LlmsDottxtRoute: typeof LlmsDottxtRoute
   LangAboutRoute: typeof LangAboutRoute
   ApiSearchRoute: typeof ApiSearchRoute
+  OauthCallbackRoute: typeof OauthCallbackRoute
   LangIndexRoute: typeof LangIndexRoute
   LangDocsSplatRoute: typeof LangDocsSplatRoute
   LlmsDotmdxDocsSplatRoute: typeof LlmsDotmdxDocsSplatRoute
@@ -162,6 +175,13 @@ declare module '@tanstack/react-router' {
       path: '/$lang'
       fullPath: '/$lang/'
       preLoaderRoute: typeof LangIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/oauth/callback': {
+      id: '/oauth/callback'
+      path: '/oauth/callback'
+      fullPath: '/oauth/callback'
+      preLoaderRoute: typeof OauthCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/search': {
@@ -201,6 +221,7 @@ const rootRouteChildren: RootRouteChildren = {
   LlmsDottxtRoute: LlmsDottxtRoute,
   LangAboutRoute: LangAboutRoute,
   ApiSearchRoute: ApiSearchRoute,
+  OauthCallbackRoute: OauthCallbackRoute,
   LangIndexRoute: LangIndexRoute,
   LangDocsSplatRoute: LangDocsSplatRoute,
   LlmsDotmdxDocsSplatRoute: LlmsDotmdxDocsSplatRoute,
