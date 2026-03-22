@@ -68,7 +68,7 @@ export function register(Alpine) {
       }
     },
 
-    platformLabel: { telegram: 'Telegram', qq: 'QQ', feishu: 'Feishu' },
+    platformLabel: { telegram: 'Telegram', qq: 'QQ', feishu: 'Feishu', weixin: 'Weixin' },
 
     isLinked(platform) {
       return this.identities.some(i => i.platform === platform)

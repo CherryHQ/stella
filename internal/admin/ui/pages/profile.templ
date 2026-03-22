@@ -80,13 +80,13 @@ templ ProfilePage() {
 						</template>
 					</div>
 					<!-- Link new platform -->
-					<template x-if="!['telegram', 'qq', 'feishu'].every(p => isLinked(p))">
+					<template x-if="!['telegram', 'qq', 'feishu', 'weixin'].every(p => isLinked(p))">
 						<div class="mt-4 pt-4 border-t border-base-300">
 							<p class="text-secondary text-sm mb-3">
 								Generate a link code, then send the command to Anna on the selected platform (expires in 5 minutes).
 							</p>
 							<div class="flex flex-wrap gap-2">
-								<template x-for="p in ['telegram', 'qq', 'feishu']" :key="p">
+								<template x-for="p in ['telegram', 'qq', 'feishu', 'weixin']" :key="p">
 									<button
 										x-show="!isLinked(p)"
 										@click="generateCode(p)"
@@ -113,7 +113,7 @@ templ ProfilePage() {
 						</div>
 					</template>
 					<!-- All linked message -->
-					<template x-if="!loadingIdentities && identities.length > 0 && ['telegram', 'qq', 'feishu'].every(p => isLinked(p))">
+					<template x-if="!loadingIdentities && identities.length > 0 && ['telegram', 'qq', 'feishu', 'weixin'].every(p => isLinked(p))">
 						<p class="text-secondary text-sm mt-4 pt-4 border-t border-base-300">All platforms linked.</p>
 					</template>
 					<!-- No identities yet -->
