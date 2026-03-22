@@ -80,3 +80,37 @@
 - sendFile and sendVideo are implemented but not invoked from inbound handling (files/videos are logged and skipped per plan). They are available for future use by agents or notifications.
 - The handleModelCommand follows the qq/feishu text-based pattern — no inline keyboard since WeChat doesn't support that. Uses /model <provider/model> to switch.
 - No chatModels per-session cache was added since the weixin Bot struct doesn't have one. switchFn persists the model globally.
+
+## Phase 4: Gateway Integration & Admin Panel — DONE
+
+### Commits
+
+1. `3b4f52ad` — Task 4.1: Gateway integration — weixinChannelConfig type, weixin init block in gateway.go, import, channel/notifier registration.
+2. `f3d13681` — Task 4.2: QR login API — `internal/admin/weixin_qr.go` with `startWeixinQR` (POST) and `pollWeixinQRStatus` (GET) handlers, credential merge on confirmed, routes in server.go using adminAPI wrapper.
+3. `bd608523` — Task 4.3: Channels config form — Weixin block in channels.templ (enable, notify, QR login button with status badges, notify_chat with tooltip, allowed_ids). JS: channelData.weixin, loadChannels parsing, startQR/pollQRStatus with 3s interval polling.
+4. `55bb36ef` — Task 4.4: Profile link code — Added "weixin" to platform list in profile.templ and profile.js platformLabel map.
+5. `d3645ab4` — Task 4.5: Lint fixes — Fixed errcheck (resp.Body.Close), De Morgan's law in isHexString, nolint:unused for sendFile/sendVideo, regenerated templ files. `mise run generate`, `mise run format`, `mise run lint` all pass clean.
+
+### Files Created
+
+- `internal/admin/weixin_qr.go` (89 lines)
+
+### Files Modified
+
+- `cmd/anna/gateway.go` — weixin config type + init block
+- `internal/admin/server.go` — weixin QR API routes
+- `internal/admin/ui/pages/channels.templ` — weixin channel block
+- `internal/admin/ui/static/js/pages/channels.js` — weixin data + QR flow
+- `internal/admin/ui/pages/profile.templ` — weixin in platform list
+- `internal/admin/ui/static/js/pages/profile.js` — weixin label
+- `internal/channel/weixin/client.go` — errcheck fixes
+- `internal/channel/weixin/media.go` — errcheck + De Morgan fix
+- `internal/channel/weixin/render.go` — nolint:unused directives
+
+### Notes for Phase 5
+
+- All gateway wiring is done. Server start will initialize weixin channel when bot_token exists in DB.
+- QR login flow: admin clicks "Scan QR to Login" → POST /api/channels/weixin/qr → displays QR image → polls GET /api/channels/weixin/qr/status every 3s → on confirmed, credentials saved to DB and loadChannels refreshes UI.
+- Admin routes use adminAPI (adminOnlyMiddleware) wrapper — same as all other channel config routes.
+- Profile link code UI now shows weixin alongside telegram/qq/feishu.
+- Lint is fully clean (0 issues). All earlier phases' lint issues (errcheck, staticcheck, unused) were fixed.
