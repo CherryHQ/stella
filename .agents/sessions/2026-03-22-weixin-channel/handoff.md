@@ -114,3 +114,47 @@
 - Admin routes use adminAPI (adminOnlyMiddleware) wrapper — same as all other channel config routes.
 - Profile link code UI now shows weixin alongside telegram/qq/feishu.
 - Lint is fully clean (0 issues). All earlier phases' lint issues (errcheck, staticcheck, unused) were fixed.
+
+## Phase 5: Tests & Documentation — DONE
+
+### Commits
+
+1. `eade557b` — Task 5.1: Added 47 new tests to `weixin_test.go` covering: bot creation (New requires bot_token, builds allowed map, WithAuth), isAllowed filtering, message splitting with 2000-char limit, handleUpdates filtering (skips bot echoes/partial state/unauthorized, caches context_token), Notify error paths (nil client, no target, no context_token, fallback), Stop, toolTracker, emojiFor, truncate, FormatDuration, renderToolRecord, formatModelList, checkError, isTimeoutError. Total: 64 tests passing with `-race`.
+2. `8ee8b3a6` — Task 5.2: Updated docs across 20 files — README.md (channel table 4→5, WeChat row, doc link), docs index (en/zh/ja), channels meta.json (en/zh/ja), new `channels/weixin.md` doc page, architecture docs (en/zh/ja), notification-system docs (en/zh/ja), configuration docs (en/zh/ja), memory-system docs (en/zh/ja).
+3. `f9e8d7b9` — Task 5.3: Updated builtin anna skill — SKILL.md (WeChat in description, architecture, topics, commands, CLI, notifications), references/channels.md (full WeChat section with setup, config, features, limitations).
+
+### Files Created
+
+- `docs/content/docs/channels/weixin.md` (87 lines)
+
+### Files Modified
+
+- `internal/channel/weixin/weixin_test.go` — 47 new tests added (64 total)
+- `README.md` — WeChat added to channel list, table, and doc links
+- `docs/content/docs/index.mdx` — WeChat in gateway description and Channels card
+- `docs/content/docs/index.zh.mdx` — same (Chinese)
+- `docs/content/docs/index.ja.mdx` — same (Japanese)
+- `docs/content/docs/channels/meta.json` — added "weixin" to pages
+- `docs/content/docs/channels/meta.zh.json` — same
+- `docs/content/docs/channels/meta.ja.json` — same
+- `docs/content/docs/core/architecture.md` — WeChat in channel lists
+- `docs/content/docs/core/architecture.zh.md` — same
+- `docs/content/docs/core/architecture.ja.md` — same
+- `docs/content/docs/features/notification-system.md` — weixin.Bot in implemented list
+- `docs/content/docs/features/notification-system.zh.md` — same
+- `docs/content/docs/features/notification-system.ja.md` — same
+- `docs/content/docs/getting-started/configuration.md` — weixin in platform identifiers
+- `docs/content/docs/getting-started/configuration.zh.md` — same
+- `docs/content/docs/getting-started/configuration.ja.md` — same
+- `docs/content/docs/core/memory-system.md` — WeChat in channel description
+- `docs/content/docs/core/memory-system.zh.md` — same
+- `docs/content/docs/core/memory-system.ja.md` — same
+- `internal/agent/runner/builtin/anna/SKILL.md` — WeChat throughout
+- `internal/agent/runner/builtin/anna/references/channels.md` — full WeChat section
+
+### Final Status
+
+- All 64 tests pass with `-race` flag
+- Lint: 0 issues
+- Format: clean
+- All 5 phases complete
