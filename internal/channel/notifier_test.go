@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/vaayne/anna/internal/auth"
 )
 
 // mockChannel is a test Channel that records Notify calls.
@@ -215,5 +218,108 @@ func TestNotifyToolExecuteError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+// --- NotifyUser tests ---
+
+// mockAuthStore is a minimal auth.AuthStore for testing NotifyUser.
+type mockAuthStore struct {
+	auth.AuthStore // embed to satisfy interface; panics on unimplemented methods
+	user           auth.AuthUser
+	identities     []auth.Identity
+}
+
+func (m *mockAuthStore) GetUser(_ context.Context, _ int64) (auth.AuthUser, error) {
+	return m.user, nil
+}
+func (m *mockAuthStore) ListIdentitiesByUser(_ context.Context, _ int64) ([]auth.Identity, error) {
+	return m.identities, nil
+}
+
+func TestNotifyUserSendsToFirstLinked(t *testing.T) {
+	d := NewDispatcher()
+	tg := &mockChannel{name: "telegram"}
+	fs := &mockChannel{name: "feishu"}
+	d.Register(tg)
+	d.Register(fs)
+	d.SetAuthStore(&mockAuthStore{
+		user: auth.AuthUser{ID: 1},
+		identities: []auth.Identity{
+			{ID: 10, Platform: "telegram", ExternalID: "tg-123", LinkedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+			{ID: 11, Platform: "feishu", ExternalID: "fs-456", LinkedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
+		},
+	})
+
+	err := d.NotifyUser(context.Background(), 1, Notification{Text: "hello"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should send to first linked (telegram) only.
+	if len(tg.calls) != 1 {
+		t.Errorf("telegram got %d calls, want 1", len(tg.calls))
+	}
+	if tg.calls[0].ChatID != "tg-123" {
+		t.Errorf("telegram ChatID = %q, want %q", tg.calls[0].ChatID, "tg-123")
+	}
+	if len(fs.calls) != 0 {
+		t.Errorf("feishu got %d calls, want 0", len(fs.calls))
+	}
+}
+
+func TestNotifyUserSendsToPreferred(t *testing.T) {
+	d := NewDispatcher()
+	tg := &mockChannel{name: "telegram"}
+	fs := &mockChannel{name: "feishu"}
+	d.Register(tg)
+	d.Register(fs)
+
+	preferredID := int64(11)
+	d.SetAuthStore(&mockAuthStore{
+		user: auth.AuthUser{ID: 1, NotifyIdentityID: &preferredID},
+		identities: []auth.Identity{
+			{ID: 10, Platform: "telegram", ExternalID: "tg-123", LinkedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+			{ID: 11, Platform: "feishu", ExternalID: "fs-456", LinkedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
+		},
+	})
+
+	err := d.NotifyUser(context.Background(), 1, Notification{Text: "hello"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should send to preferred (feishu) only.
+	if len(fs.calls) != 1 {
+		t.Errorf("feishu got %d calls, want 1", len(fs.calls))
+	}
+	if fs.calls[0].ChatID != "fs-456" {
+		t.Errorf("feishu ChatID = %q, want %q", fs.calls[0].ChatID, "fs-456")
+	}
+	if len(tg.calls) != 0 {
+		t.Errorf("telegram got %d calls, want 0", len(tg.calls))
+	}
+}
+
+func TestNotifyUserPreferredNotFoundFallsToFirst(t *testing.T) {
+	d := NewDispatcher()
+	tg := &mockChannel{name: "telegram"}
+	d.Register(tg)
+
+	staleID := int64(999) // identity that no longer exists
+	d.SetAuthStore(&mockAuthStore{
+		user: auth.AuthUser{ID: 1, NotifyIdentityID: &staleID},
+		identities: []auth.Identity{
+			{ID: 10, Platform: "telegram", ExternalID: "tg-123"},
+		},
+	})
+
+	err := d.NotifyUser(context.Background(), 1, Notification{Text: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tg.calls) != 1 {
+		t.Fatalf("telegram got %d calls, want 1", len(tg.calls))
+	}
+	if tg.calls[0].ChatID != "tg-123" {
+		t.Errorf("ChatID = %q, want %q", tg.calls[0].ChatID, "tg-123")
 	}
 }

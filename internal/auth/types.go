@@ -4,14 +4,15 @@ import "time"
 
 // AuthUser represents a system user with login credentials and preferences.
 type AuthUser struct {
-	ID             int64     `json:"id"`
-	Username       string    `json:"username"`
-	PasswordHash   string    `json:"-"`
-	Role           string    `json:"role"`
-	IsActive       bool      `json:"is_active"`
-	DefaultAgentID string    `json:"default_agent_id,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID               int64     `json:"id"`
+	Username         string    `json:"username"`
+	PasswordHash     string    `json:"-"`
+	Role             string    `json:"role"`
+	IsActive         bool      `json:"is_active"`
+	DefaultAgentID   string    `json:"default_agent_id,omitempty"`
+	NotifyIdentityID *int64    `json:"notify_identity_id,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 // IsAdmin returns true if the user has the admin role.
