@@ -191,11 +191,6 @@ func (b *Bot) Start(ctx context.Context) error {
 	}
 }
 
-// handleUpdates is a placeholder for Phase 3 message handling.
-func (b *Bot) handleUpdates(msgs []WeixinMessage) {
-	logger().Info("received messages", "count", len(msgs))
-}
-
 // Notify sends a notification message via sendmessage. Implements channel.Channel.
 func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
 	if b.client == nil {
