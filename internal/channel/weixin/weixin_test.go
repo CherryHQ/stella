@@ -51,7 +51,7 @@ func TestAESEncryptDecryptRoundTrip(t *testing.T) {
 	}{
 		{"empty", []byte{}},
 		{"short", []byte("hello")},
-		{"exact block", []byte("0123456789abcdef")},             // 16 bytes
+		{"exact block", []byte("0123456789abcdef")},                // 16 bytes
 		{"two blocks", []byte("0123456789abcdef0123456789abcdef")}, // 32 bytes
 		{"odd length", []byte("this is 17 bytes!")},
 	}
@@ -116,13 +116,13 @@ func TestCiphertextSize(t *testing.T) {
 		rawSize  int
 		expected int
 	}{
-		{0, 16},   // ceil((0+1)/16)*16 = 16
-		{1, 16},   // ceil((1+1)/16)*16 = 16
-		{15, 16},  // ceil((15+1)/16)*16 = 16
-		{16, 32},  // ceil((16+1)/16)*16 = 32
-		{17, 32},  // ceil((17+1)/16)*16 = 32
-		{31, 32},  // ceil((31+1)/16)*16 = 32
-		{32, 48},  // ceil((32+1)/16)*16 = 48
+		{0, 16},          // ceil((0+1)/16)*16 = 16
+		{1, 16},          // ceil((1+1)/16)*16 = 16
+		{15, 16},         // ceil((15+1)/16)*16 = 16
+		{16, 32},         // ceil((16+1)/16)*16 = 32
+		{17, 32},         // ceil((17+1)/16)*16 = 32
+		{31, 32},         // ceil((31+1)/16)*16 = 32
+		{32, 48},         // ceil((32+1)/16)*16 = 48
 		{248731, 248736}, // from spec example
 	}
 

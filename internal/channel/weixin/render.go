@@ -128,6 +128,8 @@ func (b *Bot) sendImage(msg WeixinMessage, img runner.ImageEvent) {
 }
 
 // sendFile encrypts and uploads a file to CDN, then sends it as a message.
+//
+//nolint:unused // kept for future agent media sending
 func (b *Bot) sendFile(msg WeixinMessage, fileName string, data []byte) {
 	key, keyHex := RandomFileKey(), ""
 	keyBytes, err := hex.DecodeString(key)
@@ -199,6 +201,8 @@ func (b *Bot) sendFile(msg WeixinMessage, fileName string, data []byte) {
 }
 
 // sendVideo encrypts and uploads a video to CDN, then sends it as a message.
+//
+//nolint:unused // kept for future agent media sending
 func (b *Bot) sendVideo(msg WeixinMessage, data []byte) {
 	key, keyHex := RandomFileKey(), ""
 	keyBytes, err := hex.DecodeString(key)

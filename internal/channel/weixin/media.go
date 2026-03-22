@@ -135,7 +135,7 @@ func UploadToCDN(cdnBaseURL, uploadParam, filekey string, encrypted []byte) (str
 	if err != nil {
 		return "", fmt.Errorf("weixin: cdn upload: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -164,7 +164,7 @@ func DownloadFromCDN(cdnBaseURL, encryptedQueryParam string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("weixin: cdn download: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("weixin: cdn download status %d", resp.StatusCode)
@@ -227,10 +227,9 @@ func pkcs7Unpad(data []byte, blockSize int) ([]byte, error) {
 // isHexString returns true if all bytes are valid hex characters [0-9a-fA-F].
 func isHexString(b []byte) bool {
 	for _, c := range b {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 			return false
 		}
 	}
 	return true
 }
-

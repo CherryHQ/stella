@@ -85,7 +85,7 @@ type ImageItem struct {
 type VoiceItem struct {
 	Media         *CDNMedia `json:"media,omitempty"`
 	EncodeType    int       `json:"encode_type,omitempty"`
-	BitsPerSample int      `json:"bits_per_sample,omitempty"`
+	BitsPerSample int       `json:"bits_per_sample,omitempty"`
 	SampleRate    int       `json:"sample_rate,omitempty"`
 	Playtime      int       `json:"playtime,omitempty"`
 	Text          string    `json:"text,omitempty"`
@@ -139,12 +139,12 @@ type GetUpdatesRequest struct {
 
 // GetUpdatesResponse is the response body for getupdates.
 type GetUpdatesResponse struct {
-	Ret                 int             `json:"ret"`
-	ErrCode             int             `json:"errcode,omitempty"`
-	ErrMsg              string          `json:"errmsg,omitempty"`
-	Msgs                []WeixinMessage `json:"msgs,omitempty"`
-	GetUpdatesBuf       string          `json:"get_updates_buf,omitempty"`
-	LongPollingTimeoutMS int            `json:"longpolling_timeout_ms,omitempty"`
+	Ret                  int             `json:"ret"`
+	ErrCode              int             `json:"errcode,omitempty"`
+	ErrMsg               string          `json:"errmsg,omitempty"`
+	Msgs                 []WeixinMessage `json:"msgs,omitempty"`
+	GetUpdatesBuf        string          `json:"get_updates_buf,omitempty"`
+	LongPollingTimeoutMS int             `json:"longpolling_timeout_ms,omitempty"`
 }
 
 // SendMessageRequest is the request body for sendmessage.
@@ -222,7 +222,7 @@ type GetUploadURLResponse struct {
 
 // QRCodeResponse is the response from get_bot_qrcode.
 type QRCodeResponse struct {
-	QRCode          string `json:"qrcode,omitempty"`
+	QRCode           string `json:"qrcode,omitempty"`
 	QRCodeImgContent string `json:"qrcode_img_content,omitempty"`
 }
 

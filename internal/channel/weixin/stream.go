@@ -18,7 +18,6 @@ const (
 	// typingInterval is how often we re-send the typing indicator.
 	// WeChat typing status expires after a few seconds.
 	typingInterval = 5 * time.Second
-
 )
 
 // toolEmoji maps known tool names to display emoji.

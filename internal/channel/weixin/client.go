@@ -96,7 +96,7 @@ func (c *Client) GetQRCode(skRouteTag string) (*QRCodeResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("weixin: get qrcode: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result QRCodeResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -121,7 +121,7 @@ func (c *Client) GetQRCodeStatus(qrcode, skRouteTag string) (*QRCodeStatusRespon
 	if err != nil {
 		return nil, fmt.Errorf("weixin: get qrcode status: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result QRCodeStatusResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -159,7 +159,7 @@ func (c *Client) GetUpdates(buf, channelVersion string, timeout time.Duration) (
 	if err != nil {
 		return nil, fmt.Errorf("weixin: getupdates: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result GetUpdatesResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -199,7 +199,7 @@ func (c *Client) SendMessage(msg WeixinMessage, channelVersion string) error {
 	if err != nil {
 		return fmt.Errorf("weixin: sendmessage: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result SendMessageResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -237,7 +237,7 @@ func (c *Client) GetConfig(userID, contextToken, channelVersion string) (*GetCon
 	if err != nil {
 		return nil, fmt.Errorf("weixin: getconfig: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result GetConfigResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -280,7 +280,7 @@ func (c *Client) SendTyping(userID, typingTicket string, status int, channelVers
 	if err != nil {
 		return fmt.Errorf("weixin: sendtyping: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result SendTypingResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -320,7 +320,7 @@ func (c *Client) GetUploadURL(params UploadParams, channelVersion string) (*GetU
 	if err != nil {
 		return nil, fmt.Errorf("weixin: getuploadurl: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
