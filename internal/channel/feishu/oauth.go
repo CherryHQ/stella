@@ -71,11 +71,27 @@ func (b *Bot) sendAuthCard(openID, chatID, messageID string) {
 }
 
 // exchangeAuthCode exchanges an authorization code for tokens and stores them.
+// It verifies the token's owner matches the requesting user to prevent
+// cross-account token binding.
 func (b *Bot) exchangeAuthCode(openID, messageID, code string) {
 	token, err := b.fsClient.ExchangeCode(b.ctx, code)
 	if err != nil {
 		logger().Error("exchange auth code failed", "open_id", openID, "error", err)
 		b.replyText(b.ctx, messageID, fmt.Sprintf("Authorization failed: %v\n\nPlease try `/auth` again.", err))
+		return
+	}
+
+	// Verify the token belongs to the requesting user by calling the
+	// user info endpoint with the new access token.
+	tokenOpenID, err := b.fsClient.GetTokenOwner(b.ctx, token.AccessToken)
+	if err != nil {
+		logger().Error("verify token owner failed", "open_id", openID, "error", err)
+		b.replyText(b.ctx, messageID, "Authorization failed: could not verify token owner. Please try `/auth` again.")
+		return
+	}
+	if tokenOpenID != openID {
+		logger().Warn("OAuth token owner mismatch", "expected", openID, "got", tokenOpenID)
+		b.replyText(b.ctx, messageID, "Authorization failed: the authorization code belongs to a different user. Please use your own authorization link.")
 		return
 	}
 

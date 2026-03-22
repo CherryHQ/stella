@@ -63,18 +63,22 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 		return nil
 	}
 
-	// Build a text message describing the reaction and send it to the agent.
+	// Look up the reacted message to get its chat context so we resolve
+	// against the correct session (group vs private, threaded vs not).
+	chatID, chatType, rootID := b.getMessageContext(messageID)
+	if chatType == "group" && !b.shouldRespondInGroup(chatID, nil) {
+		return nil
+	}
+
 	reactionText := fmt.Sprintf("[User reacted with %s on message %s]", emojiType, messageID)
 
-	// Resolve without thread context (reactions aren't threaded in Feishu's model).
-	// Use a private chat context so the reaction goes to the user's main session.
-	rc, err := b.resolveWithThread(openID, "", "p2p", "")
+	rc, err := b.resolveWithThread(openID, chatID, chatType, rootID)
 	if err != nil {
 		logger().Error("resolve for reaction failed", "open_id", openID, "error", err)
 		return nil
 	}
 
-	go b.handleMessage(rc, openID, "", messageID, "", reactionText)
+	go b.handleMessage(rc, openID, chatID, messageID, rootID, reactionText)
 	return nil
 }
 
@@ -508,6 +512,29 @@ func (b *Bot) replyText(ctx context.Context, messageID, text string) {
 	if !resp.Success() {
 		logger().Error("reply failed", "message_id", messageID, "code", resp.Code, "msg", resp.Msg)
 	}
+}
+
+// getMessageContext fetches a message's chat_id, chat_type, and root_id via
+// the Get Message API. Returns ("", "p2p", "") on any failure so the caller
+// falls back to a private session rather than leaking across sessions.
+func (b *Bot) getMessageContext(messageID string) (chatID, chatType, rootID string) {
+	resp, err := b.client.Im.Message.Get(b.ctx,
+		larkim.NewGetMessageReqBuilder().
+			MessageId(messageID).
+			Build())
+	if err != nil || !resp.Success() || resp.Data == nil || len(resp.Data.Items) == 0 {
+		return "", "p2p", ""
+	}
+	msg := resp.Data.Items[0]
+	chatID = derefStr(msg.ChatId)
+	rootID = derefStr(msg.RootId)
+	// Message API doesn't return chat_type; derive from chat_id prefix.
+	if strings.HasPrefix(chatID, "oc_") {
+		chatType = "group"
+	} else {
+		chatType = "p2p"
+	}
+	return chatID, chatType, rootID
 }
 
 // derefStr safely dereferences a string pointer, returning empty string if nil.

@@ -2,7 +2,9 @@ package feishutool
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -113,11 +115,16 @@ func (c *Client) InvokeAsUser(ctx context.Context, requireAuth bool, fn func(ctx
 
 	token, err := c.tokenStore.Get(ctx, openID)
 	if err != nil {
-		if requireAuth {
-			return &NeedAuthError{OpenID: openID}
+		if errors.Is(err, sql.ErrNoRows) {
+			// No stored token — fall back to bot token or require auth.
+			if requireAuth {
+				return &NeedAuthError{OpenID: openID}
+			}
+			return fn(ctx, "")
 		}
-		// No stored token — fall back to bot token.
-		return fn(ctx, "")
+		// Actual error (DB failure, decryption error) — surface it
+		// instead of silently falling back to bot token.
+		return fmt.Errorf("feishutool: get token for %s: %w", openID, err)
 	}
 
 	// Auto-refresh if access token expired but refresh token is still valid.
@@ -292,6 +299,39 @@ func parseOIDCTokenResponse(body io.Reader) (Token, error) {
 		ExpiresAt:        now.Add(time.Duration(result.Data.ExpiresIn) * time.Second),
 		RefreshExpiresAt: now.Add(time.Duration(result.Data.RefreshExpiresIn) * time.Second),
 	}, nil
+}
+
+// GetTokenOwner calls the Feishu OIDC userinfo endpoint to retrieve the
+// open_id of the user who owns the given access token. Used to verify that
+// an exchanged token belongs to the expected user.
+func (c *Client) GetTokenOwner(ctx context.Context, accessToken string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://open.feishu.cn/open-apis/authen/v1/user_info", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var result struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			OpenID string `json:"open_id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("decode userinfo: %w", err)
+	}
+	if result.Code != 0 {
+		return "", fmt.Errorf("userinfo error (code=%d): %s", result.Code, result.Msg)
+	}
+	return result.Data.OpenID, nil
 }
 
 // AuthURL returns the Feishu OAuth authorization URL for the given app and redirect URI.
