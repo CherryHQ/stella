@@ -2,8 +2,11 @@ package weixin
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
@@ -112,4 +115,171 @@ func (b *Bot) isAllowed(userID string) bool {
 	}
 	_, ok := b.allowed[userID]
 	return ok
+}
+
+// Start begins long-polling for messages. It blocks until ctx is cancelled.
+func (b *Bot) Start(ctx context.Context) error {
+	b.ctx, b.cancel = context.WithCancel(ctx)
+
+	// Create the client with config values.
+	b.client = NewClient(b.cfg.BaseURL, "", b.cfg.BotToken)
+
+	// Load saved cursor from DB channel config.
+	buf := b.loadCursor()
+
+	// Poll loop with retry/backoff.
+	timeout := 35 * time.Second
+	consecutiveFailures := 0
+
+	logger().Info("polling started")
+
+	for {
+		select {
+		case <-b.ctx.Done():
+			logger().Info("polling stopped")
+			return b.ctx.Err()
+		default:
+		}
+
+		resp, err := b.client.GetUpdates(buf, "", timeout)
+		if err != nil {
+			if errors.Is(err, ErrSessionExpired) {
+				logger().Error("session expired, clearing all state")
+				b.clearCredentials()
+				return fmt.Errorf("weixin: session expired (ret=-14), credentials cleared")
+			}
+
+			// Local timeout — treat as empty response, continue.
+			if isTimeoutError(err) {
+				consecutiveFailures = 0
+				continue
+			}
+
+			consecutiveFailures++
+			wait := 2 * time.Second
+			if consecutiveFailures >= 3 {
+				wait = 30 * time.Second
+			}
+			logger().Warn("getupdates failed, retrying",
+				"error", err, "failures", consecutiveFailures, "wait", wait)
+
+			select {
+			case <-b.ctx.Done():
+				return b.ctx.Err()
+			case <-time.After(wait):
+				continue
+			}
+		}
+
+		// Success — reset failure counter.
+		consecutiveFailures = 0
+
+		// Update cursor and persist.
+		if resp.GetUpdatesBuf != "" {
+			buf = resp.GetUpdatesBuf
+			b.persistCursor(buf)
+		}
+
+		// Use adaptive timeout from response.
+		if resp.LongPollingTimeoutMS > 0 {
+			timeout = time.Duration(resp.LongPollingTimeoutMS) * time.Millisecond
+		}
+
+		// Dispatch messages.
+		if len(resp.Msgs) > 0 {
+			b.handleUpdates(resp.Msgs)
+		}
+	}
+}
+
+// handleUpdates is a placeholder for Phase 3 message handling.
+func (b *Bot) handleUpdates(msgs []WeixinMessage) {
+	logger().Info("received messages", "count", len(msgs))
+}
+
+// loadCursor loads the get_updates_buf cursor from the DB channel config.
+func (b *Bot) loadCursor() string {
+	ch, err := b.store.GetChannel(context.Background(), "weixin")
+	if err != nil {
+		return ""
+	}
+	var dc dbConfig
+	if err := json.Unmarshal([]byte(ch.Config), &dc); err != nil {
+		return ""
+	}
+	return dc.GetUpdatesBuf
+}
+
+// persistCursor saves the get_updates_buf cursor to the DB channel config.
+func (b *Bot) persistCursor(buf string) {
+	ch, err := b.store.GetChannel(context.Background(), "weixin")
+	if err != nil {
+		logger().Warn("failed to load channel config for cursor persist", "error", err)
+		return
+	}
+
+	// Merge into existing JSON config.
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(ch.Config), &raw); err != nil {
+		raw = make(map[string]any)
+	}
+	raw["get_updates_buf"] = buf
+
+	data, err := json.Marshal(raw)
+	if err != nil {
+		logger().Warn("failed to marshal cursor update", "error", err)
+		return
+	}
+
+	if err := b.store.UpsertChannel(context.Background(), config.Channel{
+		ID:      "weixin",
+		Enabled: true,
+		Config:  string(data),
+	}); err != nil {
+		logger().Warn("failed to persist cursor", "error", err)
+	}
+}
+
+// clearCredentials removes credentials and state from DB and in-memory caches.
+func (b *Bot) clearCredentials() {
+	// Clear in-memory caches.
+	b.contextTokens = sync.Map{}
+	b.typingTickets = sync.Map{}
+
+	// Clear credentials from DB.
+	ch, err := b.store.GetChannel(context.Background(), "weixin")
+	if err != nil {
+		logger().Warn("failed to load channel config for credential clear", "error", err)
+		return
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(ch.Config), &raw); err != nil {
+		raw = make(map[string]any)
+	}
+
+	delete(raw, "bot_token")
+	delete(raw, "bot_id")
+	delete(raw, "user_id")
+	delete(raw, "get_updates_buf")
+
+	data, err := json.Marshal(raw)
+	if err != nil {
+		logger().Warn("failed to marshal credential clear", "error", err)
+		return
+	}
+
+	if err := b.store.UpsertChannel(context.Background(), config.Channel{
+		ID:      "weixin",
+		Enabled: true,
+		Config:  string(data),
+	}); err != nil {
+		logger().Warn("failed to clear credentials in DB", "error", err)
+	}
+}
+
+// isTimeoutError checks if an error is a network timeout.
+func isTimeoutError(err error) bool {
+	var netErr interface{ Timeout() bool }
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
