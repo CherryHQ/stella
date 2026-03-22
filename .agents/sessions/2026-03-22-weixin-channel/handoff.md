@@ -50,3 +50,33 @@
 - `client` is created in Start() from config values, not in New() — this matches the pattern where credentials may come from DB.
 - `dbConfig` type embeds Config + GetUpdatesBuf for DB JSON serialization.
 - `clearCredentials()` deletes bot_token, bot_id, user_id, get_updates_buf from DB config and clears both sync.Maps.
+
+## Phase 3: Message Handling & Streaming — DONE
+
+### Commits
+
+1. `4b922bce` — Task 3.1: `handler.go` — handleUpdates (filter by message_type/state, cache context_token, dispatch by item type), handleText (link code → shared commands → /model → /agent → agent chat), handleImage (CDN download → AES decrypt → MIME detect → multimodal content), handleMessage (resolve → stream → render), handleModelCommand (text-based list/filter/switch, qq pattern), sendReply helper. Removed placeholder handleUpdates from weixin.go.
+2. `b7eceb84` — Task 3.2: `stream.go` — streamEvents (consume events, accumulate text, track tools), toolTracker (full history, renderFinal summary matching telegram pattern), keepTyping (typing status=1 every 5s, status=2 on cancel), getTypingTicket (cache via getconfig API).
+3. `eb9ef83d` — Task 3.3: `render.go` — sendFinalResponse (split at 2000 chars via SplitMessage, send chunks + images), sendImage (base64 decode → AES encrypt → CDN upload → sendmessage with image_item), sendFile (encrypt → upload media_type=3 → file_item), sendVideo (encrypt → upload media_type=2 → video_item). All media sends use no_need_thumb: true.
+
+### Files Created
+
+- `internal/channel/weixin/handler.go` (331 lines)
+- `internal/channel/weixin/stream.go` (297 lines)
+- `internal/channel/weixin/render.go` (280 lines)
+
+### Files Modified
+
+- `internal/channel/weixin/weixin.go` — removed placeholder handleUpdates method
+
+### Notes for Phase 4
+
+- All message handling is complete: text, image, file (log+skip), video (log+skip).
+- Commands: /start, /help, /new, /compact, /whoami (shared), /model (text-based list/switch), /agent (shared HandleAgentCommand).
+- Link code account linking works via channel.TryLinkCode.
+- context_token is cached in sync.Map on every incoming message.
+- typing_ticket is cached per user, fetched via getconfig on first use.
+- Tool tracker renders compact summary in final message (same format as telegram).
+- sendFile and sendVideo are implemented but not invoked from inbound handling (files/videos are logged and skipped per plan). They are available for future use by agents or notifications.
+- The handleModelCommand follows the qq/feishu text-based pattern — no inline keyboard since WeChat doesn't support that. Uses /model <provider/model> to switch.
+- No chatModels per-session cache was added since the weixin Bot struct doesn't have one. switchFn persists the model globally.
