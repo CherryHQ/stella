@@ -29,7 +29,7 @@ type ResolvedIdentity struct {
 
 // ResolveUser resolves a channel user via auth_identities.
 // If no linked identity exists, returns a zero-value user (ID=0) with no roles.
-// The caller can still proceed (e.g. unlinked users can chat without RBAC).
+// ResolveAgent will deny access for unlinked users.
 func ResolveUser(ctx context.Context, authStore auth.AuthStore, platform, externalID string) (ResolvedIdentity, error) {
 	log := slog.With("component", "identity", "platform", platform, "external_id", externalID)
 
@@ -58,28 +58,25 @@ func ResolveUser(ctx context.Context, authStore auth.AuthStore, platform, extern
 }
 
 // ResolveAgent determines which agent to route to, checking access via the
-// policy engine when auth is available. Returns ErrAgentAccessDenied if the
-// user cannot access the resolved agent.
+// policy engine. Returns ErrAgentAccessDenied if the user cannot access the
+// resolved agent. Unlinked users (ID=0) are always denied.
 func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, identity ResolvedIdentity, chat ChatContext) (string, error) {
 	log := slog.With("component", "identity", "user_id", identity.User.ID)
 
-	hasAuth := engine != nil && identity.User.ID > 0
+	if identity.User.ID == 0 {
+		log.Warn("unlinked user denied access")
+		return "", ErrAgentAccessDenied
+	}
 
 	// Build subject for policy checks.
-	var subject auth.Subject
-	if hasAuth {
-		assignedIDs, _ := authStore.ListUserAgentIDs(ctx, identity.User.ID)
-		subject = auth.Subject{
-			UserID:   identity.User.ID,
-			Roles:    []string{identity.User.Role},
-			AgentIDs: assignedIDs,
-		}
+	assignedIDs, _ := authStore.ListUserAgentIDs(ctx, identity.User.ID)
+	subject := auth.Subject{
+		UserID:   identity.User.ID,
+		Roles:    []string{identity.User.Role},
+		AgentIDs: assignedIDs,
 	}
 
 	canAccess := func(agentID string) bool {
-		if !hasAuth {
-			return true // no auth = no restrictions
-		}
 		agent, err := store.GetAgent(ctx, agentID)
 		if err != nil {
 			return false
