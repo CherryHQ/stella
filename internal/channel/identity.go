@@ -92,25 +92,23 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthSt
 		})
 	}
 
-	// Group chat: look up per-group agent assignment.
+	// Group chat: look up per-group agent assignment, fall through if denied.
 	if chat.IsGroup && chat.ChatID != "" {
 		agentID, err := store.GetChatAgent(ctx, chat.Platform, chat.ChatID)
 		if err == nil && agentID != "" {
-			if !canAccess(agentID) {
-				log.Warn("agent access denied for group chat", "agent_id", agentID)
-				return "", ErrAgentAccessDenied
+			if canAccess(agentID) {
+				return agentID, nil
 			}
-			return agentID, nil
+			log.Warn("agent access denied for group chat, falling back", "agent_id", agentID)
 		}
 	}
 
-	// DM: use user's default agent.
+	// DM: use user's default agent if accessible, otherwise fall through.
 	if !chat.IsGroup && identity.User.DefaultAgentID != "" {
-		if !canAccess(identity.User.DefaultAgentID) {
-			log.Warn("agent access denied for DM default", "agent_id", identity.User.DefaultAgentID)
-			return "", ErrAgentAccessDenied
+		if canAccess(identity.User.DefaultAgentID) {
+			return identity.User.DefaultAgentID, nil
 		}
-		return identity.User.DefaultAgentID, nil
+		log.Warn("agent access denied for DM default, falling back", "agent_id", identity.User.DefaultAgentID)
 	}
 
 	// Fallback: first enabled agent the user can access.

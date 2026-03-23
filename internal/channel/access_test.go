@@ -2,7 +2,6 @@ package channel_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/vaayne/anna/internal/auth"
@@ -52,7 +51,7 @@ func TestResolveAgentWithAuthSystemAgent(t *testing.T) {
 	}
 }
 
-func TestResolveAgentWithAuthRestrictedDenied(t *testing.T) {
+func TestResolveAgentWithAuthRestrictedFallback(t *testing.T) {
 	ts := setupStoresWithEngine(t)
 	ctx := context.Background()
 
@@ -77,13 +76,14 @@ func TestResolveAgentWithAuthRestrictedDenied(t *testing.T) {
 	}
 
 	// User's default agent is "private" but they are not assigned.
+	// Should fall back to the system-scoped "anna" agent.
 	chat := channel.ChatContext{Platform: "telegram", IsGroup: false}
-	_, err := channel.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
-	if err == nil {
-		t.Fatal("expected error for unassigned restricted agent")
+	agentID, err := channel.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
+	if err != nil {
+		t.Fatalf("expected fallback, got error: %v", err)
 	}
-	if !errors.Is(err, channel.ErrAgentAccessDenied) {
-		t.Errorf("expected ErrAgentAccessDenied, got: %v", err)
+	if agentID != "anna" {
+		t.Errorf("agentID = %q, want fallback to %q", agentID, "anna")
 	}
 }
 
@@ -201,7 +201,7 @@ func TestResolveAgentWithAuthFallbackFiltered(t *testing.T) {
 	}
 }
 
-func TestResolveAgentWithAuthGroupChatDenied(t *testing.T) {
+func TestResolveAgentWithAuthGroupChatFallback(t *testing.T) {
 	ts := setupStoresWithEngine(t)
 	ctx := context.Background()
 
@@ -226,13 +226,13 @@ func TestResolveAgentWithAuthGroupChatDenied(t *testing.T) {
 		User: authUser,
 	}
 
-	// Group chat with restricted agent should be denied.
+	// Group chat with restricted agent should fall back to system-scoped agent.
 	chat := channel.ChatContext{Platform: "telegram", ChatID: "-1001234", IsGroup: true}
-	_, err := channel.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
-	if err == nil {
-		t.Fatal("expected error for unassigned restricted agent in group chat")
+	agentID, err := channel.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
+	if err != nil {
+		t.Fatalf("expected fallback, got error: %v", err)
 	}
-	if !errors.Is(err, channel.ErrAgentAccessDenied) {
-		t.Errorf("expected ErrAgentAccessDenied, got: %v", err)
+	if agentID != "anna" {
+		t.Errorf("agentID = %q, want fallback to %q", agentID, "anna")
 	}
 }
