@@ -25,8 +25,7 @@ type Notifier interface {
 }
 
 type channelEntry struct {
-	channel     Channel
-	defaultChat string
+	channel Channel
 }
 
 // Dispatcher routes notifications to one or more registered channels.
@@ -42,10 +41,10 @@ func NewDispatcher() *Dispatcher {
 	return &Dispatcher{}
 }
 
-// Register adds a channel with its default chat/channel target.
-func (d *Dispatcher) Register(ch Channel, defaultChat string) {
+// Register adds a channel to the dispatcher.
+func (d *Dispatcher) Register(ch Channel) {
 	d.mu.Lock()
-	d.channels = append(d.channels, channelEntry{channel: ch, defaultChat: defaultChat})
+	d.channels = append(d.channels, channelEntry{channel: ch})
 	d.mu.Unlock()
 }
 
@@ -65,9 +64,6 @@ func (d *Dispatcher) Notify(ctx context.Context, n Notification) error {
 	if n.Channel != "" {
 		for _, e := range entries {
 			if e.channel.Name() == n.Channel {
-				if n.ChatID == "" {
-					n.ChatID = e.defaultChat
-				}
 				return e.channel.Notify(ctx, n)
 			}
 		}
@@ -77,11 +73,7 @@ func (d *Dispatcher) Notify(ctx context.Context, n Notification) error {
 	// Broadcast to all channels.
 	var errs []error
 	for _, e := range entries {
-		nn := n
-		if nn.ChatID == "" {
-			nn.ChatID = e.defaultChat
-		}
-		if err := e.channel.Notify(ctx, nn); err != nil {
+		if err := e.channel.Notify(ctx, n); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", e.channel.Name(), err))
 		}
 	}
@@ -95,9 +87,14 @@ func (d *Dispatcher) SetAuthStore(store auth.AuthStore) {
 	d.mu.Unlock()
 }
 
-// NotifyUser sends a notification to a specific user by resolving their
-// channel identities. Falls back to broadcast if the user has no linked
-// identities or if no auth store is configured.
+// NotifyUser sends a notification to a specific user via a single channel.
+//
+// Resolution order:
+//  1. If the user has a notify_identity_id preference, use that identity.
+//  2. Otherwise use the first linked identity (earliest linked_at).
+//
+// Falls back to broadcast if the user has no linked identities or if no
+// auth store is configured.
 func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n Notification) error {
 	d.mu.RLock()
 	as := d.authStore
@@ -127,36 +124,58 @@ func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n Notificatio
 		return d.Notify(ctx, n)
 	}
 
-	// Build a map of platform -> external_id for quick lookup.
-	platformIDs := make(map[string]string, len(identities))
-	for _, id := range identities {
-		platformIDs[id.Platform] = id.ExternalID
-	}
+	// Pick the target identity: preferred > first linked.
+	target := pickNotifyIdentity(ctx, as, userID, identities)
 
-	// Send to each channel where the user has a linked identity.
-	var errs []error
-	sent := false
+	// Find the matching registered channel and send.
 	for _, e := range entries {
-		externalID, ok := platformIDs[e.channel.Name()]
-		if !ok {
-			continue
-		}
-		nn := n
-		nn.ChatID = externalID
-		if err := e.channel.Notify(ctx, nn); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", e.channel.Name(), err))
-		} else {
-			sent = true
+		if e.channel.Name() == target.Platform {
+			nn := n
+			nn.ChatID = target.ExternalID
+			return e.channel.Notify(ctx, nn)
 		}
 	}
 
-	// If nothing was sent (no matching channels), fall back to broadcast.
-	if !sent && len(errs) == 0 {
-		slog.Debug("notifyUser: no matching channels for user identities, falling back to broadcast", "user_id", userID)
-		return d.Notify(ctx, n)
+	// Preferred platform has no registered channel — use first linked
+	// identity that has a registered channel.
+	for _, id := range identities {
+		for _, e := range entries {
+			if e.channel.Name() == id.Platform {
+				slog.Warn("notifyUser: preferred channel not registered, using first available",
+					"user_id", userID, "preferred", target.Platform, "fallback", id.Platform)
+				nn := n
+				nn.ChatID = id.ExternalID
+				return e.channel.Notify(ctx, nn)
+			}
+		}
 	}
 
-	return errors.Join(errs...)
+	slog.Debug("notifyUser: no matching channels for user identities, falling back to broadcast", "user_id", userID)
+	return d.Notify(ctx, n)
+}
+
+// pickNotifyIdentity returns the identity to use for notifications.
+// If the user has a notify_identity_id preference that matches one of their
+// linked identities, that identity is returned. Otherwise the first identity
+// (earliest linked_at from the DB query) is used.
+func pickNotifyIdentity(ctx context.Context, as auth.AuthStore, userID int64, identities []auth.Identity) auth.Identity {
+	user, err := as.GetUser(ctx, userID)
+	if err != nil {
+		slog.Warn("notifyUser: failed to get user, using first identity", "user_id", userID, "error", err)
+		return identities[0]
+	}
+
+	if user.NotifyIdentityID != nil {
+		for _, id := range identities {
+			if id.ID == *user.NotifyIdentityID {
+				return id
+			}
+		}
+		slog.Warn("notifyUser: preferred identity not found in linked identities, using first",
+			"user_id", userID, "notify_identity_id", *user.NotifyIdentityID)
+	}
+
+	return identities[0]
 }
 
 // Channels returns the names of all registered channels.

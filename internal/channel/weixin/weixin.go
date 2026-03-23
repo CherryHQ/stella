@@ -16,12 +16,10 @@ import (
 
 // Config holds WeChat iLink bot settings.
 type Config struct {
-	BotToken   string   `json:"bot_token"`   // iLink bot_token
-	BaseURL    string   `json:"base_url"`    // iLink base URL (default: https://ilinkai.weixin.qq.com)
-	BotID      string   `json:"bot_id"`      // ilink_bot_id
-	UserID     string   `json:"user_id"`     // ilink_user_id
-	NotifyChat string   `json:"notify_chat"` // default user ID for notifications (requires context_token)
-	AllowedIDs []string `json:"allowed_ids"` // user IDs allowed (empty = allow all)
+	BotToken string `json:"bot_token"` // iLink bot_token
+	BaseURL  string `json:"base_url"`  // iLink base URL (default: https://ilinkai.weixin.qq.com)
+	BotID    string `json:"bot_id"`    // ilink_bot_id
+	UserID   string `json:"user_id"`   // ilink_user_id
 }
 
 // dbConfig is the JSON shape persisted in settings_channels.config.
@@ -47,10 +45,9 @@ type Bot struct {
 	contextTokens sync.Map // key: userID string, value: contextToken string
 	typingTickets sync.Map // key: userID string, value: typingTicket string
 
-	allowed map[string]struct{} // empty map = allow all
-	cfg     Config
-	ctx     context.Context
-	cancel  context.CancelFunc
+	cfg    Config
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // BotOption configures the WeChat Bot.
@@ -73,18 +70,12 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.M
 		return nil, fmt.Errorf("weixin: bot_token is required")
 	}
 
-	allowed := make(map[string]struct{}, len(cfg.AllowedIDs))
-	for _, id := range cfg.AllowedIDs {
-		allowed[id] = struct{}{}
-	}
-
 	b := &Bot{
 		poolManager: pm,
 		store:       store,
 		agentCmd:    channel.NewAgentCommander(store, nil),
 		listFn:      listFn,
 		switchFn:    switchFn,
-		allowed:     allowed,
 		cfg:         cfg,
 	}
 
@@ -104,16 +95,6 @@ func (b *Bot) Stop() {
 	if b.cancel != nil {
 		b.cancel()
 	}
-}
-
-// isAllowed returns true if the user is in the allowed list.
-// An empty allowed list means everyone is allowed.
-func (b *Bot) isAllowed(userID string) bool {
-	if len(b.allowed) == 0 {
-		return true
-	}
-	_, ok := b.allowed[userID]
-	return ok
 }
 
 // Start begins long-polling for messages. It blocks until ctx is cancelled.
@@ -198,9 +179,6 @@ func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
 	}
 
 	targetUser := n.ChatID
-	if targetUser == "" {
-		targetUser = b.cfg.NotifyChat
-	}
 	if targetUser == "" {
 		return fmt.Errorf("weixin: no target user ID for notification")
 	}

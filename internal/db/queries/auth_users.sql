@@ -32,6 +32,12 @@ UPDATE auth_users SET
     updated_at = datetime('now')
 WHERE id = ?;
 
+-- name: UpdateAuthUserNotifyIdentity :exec
+UPDATE auth_users SET
+    notify_identity_id = ?,
+    updated_at = datetime('now')
+WHERE id = ?;
+
 -- name: DeleteAuthUser :exec
 DELETE FROM auth_users WHERE id = ?;
 

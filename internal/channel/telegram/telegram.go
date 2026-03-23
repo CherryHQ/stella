@@ -27,11 +27,9 @@ func logger() *slog.Logger { return slog.With("component", "telegram") }
 
 // Config holds Telegram bot settings.
 type Config struct {
-	Token      string  // bot token
-	NotifyChat string  // default chat ID for proactive notifications
-	ChannelID  string  // broadcast channel ID or @username
-	GroupMode  string  // "mention" | "always" | "disabled"
-	AllowedIDs []int64 // user IDs allowed to use the bot (empty = allow all)
+	Token     string // bot token
+	ChannelID string // broadcast channel ID or @username
+	GroupMode string // "mention" | "always" | "disabled"
 }
 
 // Bot wraps a Telegram bot with agent pool integration.
@@ -51,9 +49,8 @@ type Bot struct {
 	mu         sync.RWMutex
 	chatModels map[int64]channel.ModelOption
 
-	allowed map[int64]struct{} // empty map = allow all
-	cfg     Config
-	ctx     context.Context
+	cfg Config
+	ctx context.Context
 }
 
 // New creates a Telegram bot and registers handlers. Call Start to begin polling.
@@ -73,11 +70,6 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.M
 		cfg.GroupMode = "mention"
 	}
 
-	allowed := make(map[int64]struct{}, len(cfg.AllowedIDs))
-	for _, id := range cfg.AllowedIDs {
-		allowed[id] = struct{}{}
-	}
-
 	b := &Bot{
 		bot:         bot,
 		poolManager: pm,
@@ -87,7 +79,6 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.M
 		switchFn:    switchFn,
 		md:          tgmd.TGMD(),
 		chatModels:  make(map[int64]channel.ModelOption),
-		allowed:     allowed,
 		cfg:         cfg,
 	}
 
@@ -146,9 +137,6 @@ func (b *Bot) Name() string { return "telegram" }
 func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
 	chatID := n.ChatID
 	if chatID == "" {
-		chatID = b.cfg.NotifyChat
-	}
-	if chatID == "" {
 		chatID = b.cfg.ChannelID
 	}
 	if chatID == "" {
@@ -182,15 +170,9 @@ type chatRef string
 
 func (c chatRef) Recipient() string { return string(c) }
 
-// guard wraps a handler with access control and group mode checks.
+// guard wraps a handler with group mode checks.
 func (b *Bot) guard(h tele.HandlerFunc) tele.HandlerFunc {
 	return func(c tele.Context) error {
-		if !b.isAllowed(c) {
-			if s := c.Sender(); s != nil {
-				logger().Warn("unauthorized access", "user_id", s.ID)
-			}
-			return nil
-		}
 		// Skip group filtering for callback queries — they originate from
 		// the bot's own inline keyboards (e.g. model selection) and don't
 		// carry mention/reply context.
@@ -203,19 +185,6 @@ func (b *Bot) guard(h tele.HandlerFunc) tele.HandlerFunc {
 		}
 		return h(c)
 	}
-}
-
-// isAllowed returns true if the sender is in the allowed list.
-// An empty allowed list means everyone is allowed.
-func (b *Bot) isAllowed(c tele.Context) bool {
-	if len(b.allowed) == 0 {
-		return true
-	}
-	if c.Sender() == nil {
-		return false
-	}
-	_, ok := b.allowed[c.Sender().ID]
-	return ok
 }
 
 // isGroup returns true if the message is from a group or supergroup.

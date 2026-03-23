@@ -50,7 +50,7 @@ type Notification struct {
 
 - `Channel` empty -- broadcast to **all** registered channels
 - `Channel` set -- route to that specific channel only
-- `ChatID` empty -- each channel uses its configured default
+- `ChatID` empty -- resolved from auth identities via `NotifyUser`, or channel-specific fallback
 
 ### `channel.Channel`
 
@@ -73,16 +73,16 @@ Routes notifications to registered channels:
 
 ```go
 d := channel.NewDispatcher()
-d.Register(tgBot, "136345060")   // telegram channel with default chat
-d.Register(qqBot, "")            // qq channel
+d.Register(tgBot)   // telegram channel
+d.Register(qqBot)   // qq channel
 
-// Broadcast to all channels (each uses its default chat):
+// Broadcast to all channels:
 d.Notify(ctx, channel.Notification{Text: "hello"})
 
 // Route to specific channel:
 d.Notify(ctx, channel.Notification{Channel: "telegram", Text: "hello"})
 
-// Override the default chat:
+// Specify target chat:
 d.Notify(ctx, channel.Notification{Channel: "telegram", ChatID: "999", Text: "hello"})
 ```
 
@@ -125,7 +125,7 @@ setup()
 
 runGateway()
   +-- Create telegram.Bot
-  +-- dispatcher.Register(tgBot, notifyChat)  <- channel registered
+  +-- dispatcher.Register(tgBot)              <- channel registered
   +-- wireSchedulerNotifier(schedulerSvc, poolManager, dispatcher) <- scheduler output -> dispatcher
   +-- tgBot.Start(ctx)                        <- begin polling
 ```
@@ -150,11 +150,7 @@ Channel configuration is managed through the admin panel. Each channel's setting
 
 ### Notify Target Resolution
 
-When `Notify()` is called, the target chat is resolved in this order:
-
-1. `Notification.ChatID` (explicit in the call)
-2. Channel's registered default chat (from `dispatcher.Register`)
-3. For Telegram: `notify_chat` -> `channel_id` -> error
+For user-owned jobs, `NotifyUser()` resolves the target via `auth_identities` — each user's linked platform identity provides the chat ID. For system jobs, `Notify()` broadcasts to all registered channels using the explicit `ChatID` in the notification.
 
 ## Adding a New Channel
 
@@ -182,7 +178,7 @@ Use `channel.NewCommander(pool, listFn, switchFn)` for shared `/new`, `/compact`
 if slackCfg.Token != "" {
     slackBot := slack.New(slackCfg)
     channels = append(channels, slackBot)
-    s.notifier.Register(slackBot, slackCfg.NotifyChannel)
+    s.notifier.Register(slackBot)
 }
 ```
 
@@ -204,7 +200,7 @@ Session ID for groups = group chat ID (shared context per group).
 
 ### Access Control
 
-`allowed_ids` restricts bot interaction to specific user IDs (Telegram numeric IDs, QQ OpenIDs, Feishu open_ids, WeChat iLink user IDs). When the list is empty, all users are allowed. Unauthorized users are silently ignored -- all handlers (commands, callbacks, text) are wrapped in the access check. Users can send `/whoami` to the bot to discover their ID.
+Access control is managed through the RBAC system. Users are authenticated via `auth_identities` when they send messages, and agent access is enforced by the policy engine. Use the admin panel to manage user roles and agent assignments.
 
 ### Notification Delivery
 

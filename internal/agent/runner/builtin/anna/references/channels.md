@@ -25,10 +25,8 @@ Telegram channel config (JSON):
 ```json
 {
   "token": "BOT_TOKEN",
-  "notify_chat": "123456789",
   "channel_id": "@my_channel",
   "group_mode": "mention",
-  "allowed_ids": [136345060],
   "enable_notify": true
 }
 ```
@@ -53,11 +51,11 @@ Set `group_mode` in the channel config:
 
 ### Access control
 
-Add user IDs to `allowed_ids` array. Leave empty to allow all users. Send `/whoami` to the bot to get your user ID.
+Access control is handled by the RBAC system (auth_identities + policy engine). Use the admin panel to manage user roles and permissions.
 
 ### Notifications
 
-Set `enable_notify: true` and `notify_chat` to a chat ID for proactive messages (scheduler results, notify tool).
+Set `enable_notify: true` for proactive messages (scheduler results, notify tool). Notification targets are resolved automatically from auth_identities.
 
 ## QQ bot
 
@@ -71,7 +69,6 @@ QQ channel config (JSON):
   "app_id": "YOUR_APP_ID",
   "app_secret": "YOUR_APP_SECRET",
   "group_mode": "mention",
-  "allowed_ids": [],
   "enable_notify": false
 }
 ```
@@ -101,9 +98,7 @@ Feishu channel config (JSON):
   "app_secret": "YOUR_APP_SECRET",
   "encrypt_key": "",
   "verification_token": "",
-  "notify_chat": "oc_xxx",
   "group_mode": "mention",
-  "allowed_ids": [],
   "enable_notify": false
 }
 ```
@@ -131,9 +126,7 @@ WeChat channel config (JSON):
   "bot_token": "OBTAINED_VIA_QR",
   "base_url": "https://ilinkai.weixin.qq.com",
   "bot_id": "AUTO",
-  "user_id": "AUTO",
-  "notify_chat": "",
-  "allowed_ids": []
+  "user_id": "AUTO"
 }
 ```
 

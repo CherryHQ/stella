@@ -16,6 +16,7 @@ type AuthStore interface {
 	UpdateUser(ctx context.Context, u AuthUser) error
 	UpdateUserRole(ctx context.Context, userID int64, role string) error
 	UpdateUserDefaultAgent(ctx context.Context, userID int64, agentID string) error
+	UpdateUserNotifyIdentity(ctx context.Context, userID int64, identityID *int64) error
 	DeleteUser(ctx context.Context, id int64) error
 	CountUsers(ctx context.Context) (int64, error)
 

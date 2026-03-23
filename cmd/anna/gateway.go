@@ -119,11 +119,9 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 		slog.Info("starting telegram bot")
 
 		tgBot, err := telegram.New(telegram.Config{
-			Token:      tgCfg.Token,
-			NotifyChat: tgCfg.NotifyChat,
-			ChannelID:  tgCfg.ChannelID,
-			GroupMode:  tgCfg.GroupMode,
-			AllowedIDs: tgCfg.AllowedIDs,
+			Token:     tgCfg.Token,
+			ChannelID: tgCfg.ChannelID,
+			GroupMode: tgCfg.GroupMode,
 		}, s.poolManager, s.store, listFn, switchFn,
 			telegram.WithAuth(as, engine, linkCodes),
 		)
@@ -131,13 +129,9 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			return fmt.Errorf("create telegram bot: %w", err)
 		}
 
-		defaultChat := tgCfg.NotifyChat
-		if defaultChat == "" {
-			defaultChat = tgCfg.ChannelID
-		}
 		channels = append(channels, tgBot)
 		if tgCfg.EnableNotify {
-			s.notifier.Register(tgBot, defaultChat)
+			s.notifier.Register(tgBot)
 		}
 	}
 
@@ -146,10 +140,9 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 		slog.Info("starting qq bot")
 
 		qqBot, err := qq.New(qq.Config{
-			AppID:      qqCfg.AppID,
-			AppSecret:  qqCfg.AppSecret,
-			GroupMode:  qqCfg.GroupMode,
-			AllowedIDs: qqCfg.AllowedIDs,
+			AppID:     qqCfg.AppID,
+			AppSecret: qqCfg.AppSecret,
+			GroupMode: qqCfg.GroupMode,
 		}, s.poolManager, s.store, listFn, switchFn,
 			qq.WithAuth(as, engine, linkCodes),
 		)
@@ -159,7 +152,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 
 		channels = append(channels, qqBot)
 		if qqCfg.EnableNotify {
-			s.notifier.Register(qqBot, "")
+			s.notifier.Register(qqBot)
 		}
 	}
 
@@ -179,9 +172,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			AppSecret:         fsCfg.AppSecret,
 			EncryptKey:        fsCfg.EncryptKey,
 			VerificationToken: fsCfg.VerificationToken,
-			NotifyChat:        fsCfg.NotifyChat,
 			GroupMode:         fsCfg.GroupMode,
-			AllowedIDs:        fsCfg.AllowedIDs,
 			Groups:            fsCfg.Groups,
 			RedirectURI:       fsCfg.RedirectURI,
 		}, s.poolManager, s.store, listFn, switchFn,
@@ -193,7 +184,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 
 		channels = append(channels, fsBot)
 		if fsCfg.EnableNotify {
-			s.notifier.Register(fsBot, fsCfg.NotifyChat)
+			s.notifier.Register(fsBot)
 		}
 	}
 
@@ -202,12 +193,10 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 		slog.Info("starting weixin bot")
 
 		wxBot, err := weixin.New(weixin.Config{
-			BotToken:   wxCfg.BotToken,
-			BaseURL:    wxCfg.BaseURL,
-			BotID:      wxCfg.BotID,
-			UserID:     wxCfg.UserID,
-			NotifyChat: wxCfg.NotifyChat,
-			AllowedIDs: wxCfg.AllowedIDs,
+			BotToken: wxCfg.BotToken,
+			BaseURL:  wxCfg.BaseURL,
+			BotID:    wxCfg.BotID,
+			UserID:   wxCfg.UserID,
 		}, s.poolManager, s.store, listFn, switchFn,
 			weixin.WithAuth(as, engine, linkCodes),
 		)
@@ -217,7 +206,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 
 		channels = append(channels, wxBot)
 		if wxCfg.EnableNotify {
-			s.notifier.Register(wxBot, wxCfg.NotifyChat)
+			s.notifier.Register(wxBot)
 		}
 	}
 
@@ -338,20 +327,17 @@ func launchBrowser(url string) {
 // --- Channel config types for JSON deserialization ---
 
 type telegramChannelConfig struct {
-	Token        string  `json:"token"`
-	NotifyChat   string  `json:"notify_chat"`
-	ChannelID    string  `json:"channel_id"`
-	GroupMode    string  `json:"group_mode"`
-	AllowedIDs   []int64 `json:"allowed_ids"`
-	EnableNotify bool    `json:"enable_notify"`
+	Token        string `json:"token"`
+	ChannelID    string `json:"channel_id"`
+	GroupMode    string `json:"group_mode"`
+	EnableNotify bool   `json:"enable_notify"`
 }
 
 type qqChannelConfig struct {
-	AppID        string   `json:"app_id"`
-	AppSecret    string   `json:"app_secret"`
-	GroupMode    string   `json:"group_mode"`
-	AllowedIDs   []string `json:"allowed_ids"`
-	EnableNotify bool     `json:"enable_notify"`
+	AppID        string `json:"app_id"`
+	AppSecret    string `json:"app_secret"`
+	GroupMode    string `json:"group_mode"`
+	EnableNotify bool   `json:"enable_notify"`
 }
 
 type feishuChannelConfig struct {
@@ -359,22 +345,18 @@ type feishuChannelConfig struct {
 	AppSecret         string                        `json:"app_secret"`
 	EncryptKey        string                        `json:"encrypt_key"`
 	VerificationToken string                        `json:"verification_token"`
-	NotifyChat        string                        `json:"notify_chat"`
 	GroupMode         string                        `json:"group_mode"`
-	AllowedIDs        []string                      `json:"allowed_ids"`
 	Groups            map[string]feishu.GroupConfig `json:"groups"`
 	RedirectURI       string                        `json:"redirect_uri"`
 	EnableNotify      bool                          `json:"enable_notify"`
 }
 
 type weixinChannelConfig struct {
-	BotToken     string   `json:"bot_token"`
-	BaseURL      string   `json:"base_url"`
-	BotID        string   `json:"bot_id"`
-	UserID       string   `json:"user_id"`
-	NotifyChat   string   `json:"notify_chat"`
-	AllowedIDs   []string `json:"allowed_ids"`
-	EnableNotify bool     `json:"enable_notify"`
+	BotToken     string `json:"bot_token"`
+	BaseURL      string `json:"base_url"`
+	BotID        string `json:"bot_id"`
+	UserID       string `json:"user_id"`
+	EnableNotify bool   `json:"enable_notify"`
 }
 
 // loadChannelConfig loads a channel's JSON config from the store and

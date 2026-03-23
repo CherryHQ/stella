@@ -27,12 +27,6 @@ func (b *Bot) handleUpdates(msgs []WeixinMessage) {
 			continue
 		}
 
-		// Check allowlist.
-		if !b.isAllowed(msg.FromUserID) {
-			logger().Warn("unauthorized access", "user_id", msg.FromUserID)
-			continue
-		}
-
 		// Cache context_token for this user.
 		if msg.ContextToken != "" {
 			b.contextTokens.Store(msg.FromUserID, msg.ContextToken)

@@ -245,37 +245,6 @@ func TestNewCustomGroupMode(t *testing.T) {
 	}
 }
 
-func TestNewAllowedIDs(t *testing.T) {
-	cfg := Config{AppID: "1", AppSecret: "s", AllowedIDs: []string{"u1", "u2"}}
-	bot, _ := New(cfg, nil, nil, nil, nil)
-	if len(bot.allowed) != 2 {
-		t.Errorf("allowed len = %d, want 2", len(bot.allowed))
-	}
-}
-
-// --- isAllowed ---
-
-func TestIsAllowedEmptyList(t *testing.T) {
-	bot := &Bot{allowed: map[string]struct{}{}}
-	if !bot.isAllowed("anyone") {
-		t.Error("empty allowed list should allow everyone")
-	}
-}
-
-func TestIsAllowedMatch(t *testing.T) {
-	bot := &Bot{allowed: map[string]struct{}{"u1": {}}}
-	if !bot.isAllowed("u1") {
-		t.Error("u1 should be allowed")
-	}
-}
-
-func TestIsAllowedNoMatch(t *testing.T) {
-	bot := &Bot{allowed: map[string]struct{}{"u1": {}}}
-	if bot.isAllowed("u2") {
-		t.Error("u2 should not be allowed")
-	}
-}
-
 // --- channelForC2C / channelForGroup ---
 
 func TestChannelForC2C(t *testing.T) {

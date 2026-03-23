@@ -39,14 +39,15 @@ type AuthSession struct {
 }
 
 type AuthUser struct {
-	ID             int64          `json:"id"`
-	Username       string         `json:"username"`
-	PasswordHash   string         `json:"password_hash"`
-	Role           string         `json:"role"`
-	IsActive       int64          `json:"is_active"`
-	DefaultAgentID sql.NullString `json:"default_agent_id"`
-	CreatedAt      string         `json:"created_at"`
-	UpdatedAt      string         `json:"updated_at"`
+	ID               int64          `json:"id"`
+	Username         string         `json:"username"`
+	PasswordHash     string         `json:"password_hash"`
+	Role             string         `json:"role"`
+	IsActive         int64          `json:"is_active"`
+	DefaultAgentID   sql.NullString `json:"default_agent_id"`
+	NotifyIdentityID sql.NullInt64  `json:"notify_identity_id"`
+	CreatedAt        string         `json:"created_at"`
+	UpdatedAt        string         `json:"updated_at"`
 }
 
 type AuthUserAgent struct {

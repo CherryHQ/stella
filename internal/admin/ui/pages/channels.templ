@@ -29,16 +29,6 @@ templ ChannelsPage() {
 				</div>
 				<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
 					<div>
-						@ui.FormField("Notify Chat") {
-							<input
-								type="text"
-								x-model="channelData.telegram.notify_chat"
-								placeholder="Chat ID"
-								class="input input-bordered w-full text-sm"
-							/>
-						}
-					</div>
-					<div>
 						@ui.FormField("Channel ID") {
 							<input
 								type="text"
@@ -56,17 +46,6 @@ templ ChannelsPage() {
 								<option value="always">Always</option>
 								<option value="disabled">Disabled</option>
 							</select>
-						}
-					</div>
-					<div>
-						@ui.FormField("Allowed IDs") {
-							<input
-								type="text"
-								:value="formatAllowedIds(channelData.telegram.allowed_ids)"
-								@change="channelData.telegram.allowed_ids = parseAllowedIds($event.target.value, true)"
-								placeholder="Comma-separated"
-								class="input input-bordered w-full text-sm"
-							/>
 						}
 					</div>
 				</div>
@@ -111,17 +90,6 @@ templ ChannelsPage() {
 								<option value="always">Always</option>
 								<option value="disabled">Disabled</option>
 							</select>
-						}
-					</div>
-					<div>
-						@ui.FormField("Allowed IDs") {
-							<input
-								type="text"
-								:value="formatAllowedIds(channelData.qq.allowed_ids)"
-								@change="channelData.qq.allowed_ids = parseAllowedIds($event.target.value, false)"
-								placeholder="OpenIDs, comma-separated"
-								class="input input-bordered w-full text-sm"
-							/>
 						}
 					</div>
 				</div>
@@ -178,15 +146,6 @@ templ ChannelsPage() {
 						}
 					</div>
 					<div>
-						@ui.FormField("Notify Chat") {
-							<input
-								type="text"
-								x-model="channelData.feishu.notify_chat"
-								class="input input-bordered w-full text-sm"
-							/>
-						}
-					</div>
-					<div>
 						@ui.FormField("Group Mode") {
 							<select x-model="channelData.feishu.group_mode" class="select select-bordered w-full text-sm">
 								<option value="">Default (mention)</option>
@@ -196,17 +155,6 @@ templ ChannelsPage() {
 							</select>
 						}
 					</div>
-				</div>
-				<div>
-					@ui.FormField("Allowed IDs") {
-						<input
-							type="text"
-							:value="formatAllowedIds(channelData.feishu.allowed_ids)"
-							@change="channelData.feishu.allowed_ids = parseAllowedIds($event.target.value, false)"
-							placeholder="open_ids, comma-separated"
-							class="input input-bordered w-full text-sm"
-						/>
-					}
 				</div>
 				<button @click="saveChannel('feishu')" class="btn btn-primary btn-sm">Save Feishu</button>
 			}
@@ -221,32 +169,6 @@ templ ChannelsPage() {
 					/>
 					<span class="text-sm">Notifications</span>
 				</label>
-				<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-					<div>
-						@ui.FormField("Notify Chat") {
-							<input
-								type="text"
-								x-model="channelData.weixin.notify_chat"
-								placeholder="User ID for notifications"
-								class="input input-bordered w-full text-sm"
-							/>
-							<p class="text-xs text-secondary mt-1">
-								Requires cached context_token (repopulated when user sends a message after restart).
-							</p>
-						}
-					</div>
-					<div>
-						@ui.FormField("Allowed IDs") {
-							<input
-								type="text"
-								:value="formatAllowedIds(channelData.weixin.allowed_ids)"
-								@change="channelData.weixin.allowed_ids = parseAllowedIds($event.target.value, false)"
-								placeholder="User IDs, comma-separated"
-								class="input input-bordered w-full text-sm"
-							/>
-						}
-					</div>
-				</div>
 				<p class="text-xs text-secondary">
 					To connect, go to <a href="/profile" class="link link-primary">Profile</a> and use "Link Weixin" to scan the QR code.
 				</p>
