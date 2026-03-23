@@ -90,6 +90,20 @@ func (s *AuthStore) UpdateUserDefaultAgent(ctx context.Context, userID int64, ag
 	return nil
 }
 
+func (s *AuthStore) UpdateUserNotifyIdentity(ctx context.Context, userID int64, identityID *int64) error {
+	var v sql.NullInt64
+	if identityID != nil {
+		v = sql.NullInt64{Int64: *identityID, Valid: true}
+	}
+	if err := s.q.UpdateAuthUserNotifyIdentity(ctx, sqlc.UpdateAuthUserNotifyIdentityParams{
+		NotifyIdentityID: v,
+		ID:               userID,
+	}); err != nil {
+		return fmt.Errorf("update notify identity for user %d: %w", userID, err)
+	}
+	return nil
+}
+
 func (s *AuthStore) DeleteUser(ctx context.Context, id int64) error {
 	if err := s.q.DeleteAuthUser(ctx, id); err != nil {
 		return fmt.Errorf("delete auth user %d: %w", id, err)
@@ -370,6 +384,10 @@ func userFromDB(r sqlc.AuthUser) auth.AuthUser {
 	}
 	if r.DefaultAgentID.Valid {
 		u.DefaultAgentID = r.DefaultAgentID.String
+	}
+	if r.NotifyIdentityID.Valid {
+		id := r.NotifyIdentityID.Int64
+		u.NotifyIdentityID = &id
 	}
 	return u
 }

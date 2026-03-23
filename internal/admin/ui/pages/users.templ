@@ -135,7 +135,22 @@ templ UsersPage() {
 							>No linked identities.</div>
 						</div>
 					</div>
-					<!-- Agent Assignments Section -->
+					<!-- Notify Channel Section -->
+				<div class="mb-4" x-show="selectedUser?.identities && selectedUser.identities.length > 0">
+					<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2">Notify Channel</p>
+					<select
+						:value="selectedUser?.notify_identity_id || ''"
+						@change="setNotifyIdentity($event.target.value)"
+						class="select select-bordered select-sm w-full text-sm"
+					>
+						<option value="">Auto (first linked)</option>
+						<template x-for="ident in selectedUser?.identities || []" :key="ident.id">
+							<option :value="ident.id" x-text="ident.platform + (ident.name ? ' — ' + ident.name : ' — ' + ident.external_id)"></option>
+						</template>
+					</select>
+					<p class="text-xs text-secondary mt-1">Which channel receives scheduler and tool notifications.</p>
+				</div>
+				<!-- Agent Assignments Section -->
 					<div class="mb-4">
 						<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2">Agent Assignments</p>
 						<div class="space-y-2">

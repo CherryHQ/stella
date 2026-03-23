@@ -24,7 +24,7 @@ func (q *Queries) CountAuthUsers(ctx context.Context) (int64, error) {
 const createAuthUser = `-- name: CreateAuthUser :one
 INSERT INTO auth_users (username, password_hash)
 VALUES (?, ?)
-RETURNING id, username, password_hash, role, is_active, default_agent_id, created_at, updated_at
+RETURNING id, username, password_hash, role, is_active, default_agent_id, notify_identity_id, created_at, updated_at
 `
 
 type CreateAuthUserParams struct {
@@ -42,6 +42,7 @@ func (q *Queries) CreateAuthUser(ctx context.Context, arg CreateAuthUserParams) 
 		&i.Role,
 		&i.IsActive,
 		&i.DefaultAgentID,
+		&i.NotifyIdentityID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -58,7 +59,7 @@ func (q *Queries) DeleteAuthUser(ctx context.Context, id int64) error {
 }
 
 const getAuthUser = `-- name: GetAuthUser :one
-SELECT id, username, password_hash, role, is_active, default_agent_id, created_at, updated_at FROM auth_users WHERE id = ?
+SELECT id, username, password_hash, role, is_active, default_agent_id, notify_identity_id, created_at, updated_at FROM auth_users WHERE id = ?
 `
 
 func (q *Queries) GetAuthUser(ctx context.Context, id int64) (AuthUser, error) {
@@ -71,6 +72,7 @@ func (q *Queries) GetAuthUser(ctx context.Context, id int64) (AuthUser, error) {
 		&i.Role,
 		&i.IsActive,
 		&i.DefaultAgentID,
+		&i.NotifyIdentityID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -78,7 +80,7 @@ func (q *Queries) GetAuthUser(ctx context.Context, id int64) (AuthUser, error) {
 }
 
 const getAuthUserByUsername = `-- name: GetAuthUserByUsername :one
-SELECT id, username, password_hash, role, is_active, default_agent_id, created_at, updated_at FROM auth_users WHERE username = ?
+SELECT id, username, password_hash, role, is_active, default_agent_id, notify_identity_id, created_at, updated_at FROM auth_users WHERE username = ?
 `
 
 func (q *Queries) GetAuthUserByUsername(ctx context.Context, username string) (AuthUser, error) {
@@ -91,6 +93,7 @@ func (q *Queries) GetAuthUserByUsername(ctx context.Context, username string) (A
 		&i.Role,
 		&i.IsActive,
 		&i.DefaultAgentID,
+		&i.NotifyIdentityID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -98,7 +101,7 @@ func (q *Queries) GetAuthUserByUsername(ctx context.Context, username string) (A
 }
 
 const listAuthUsers = `-- name: ListAuthUsers :many
-SELECT id, username, password_hash, role, is_active, default_agent_id, created_at, updated_at FROM auth_users ORDER BY username
+SELECT id, username, password_hash, role, is_active, default_agent_id, notify_identity_id, created_at, updated_at FROM auth_users ORDER BY username
 `
 
 func (q *Queries) ListAuthUsers(ctx context.Context) ([]AuthUser, error) {
@@ -117,6 +120,7 @@ func (q *Queries) ListAuthUsers(ctx context.Context) ([]AuthUser, error) {
 			&i.Role,
 			&i.IsActive,
 			&i.DefaultAgentID,
+			&i.NotifyIdentityID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -173,6 +177,23 @@ type UpdateAuthUserDefaultAgentParams struct {
 
 func (q *Queries) UpdateAuthUserDefaultAgent(ctx context.Context, arg UpdateAuthUserDefaultAgentParams) error {
 	_, err := q.db.ExecContext(ctx, updateAuthUserDefaultAgent, arg.DefaultAgentID, arg.ID)
+	return err
+}
+
+const updateAuthUserNotifyIdentity = `-- name: UpdateAuthUserNotifyIdentity :exec
+UPDATE auth_users SET
+    notify_identity_id = ?,
+    updated_at = datetime('now')
+WHERE id = ?
+`
+
+type UpdateAuthUserNotifyIdentityParams struct {
+	NotifyIdentityID sql.NullInt64 `json:"notify_identity_id"`
+	ID               int64         `json:"id"`
+}
+
+func (q *Queries) UpdateAuthUserNotifyIdentity(ctx context.Context, arg UpdateAuthUserNotifyIdentityParams) error {
+	_, err := q.db.ExecContext(ctx, updateAuthUserNotifyIdentity, arg.NotifyIdentityID, arg.ID)
 	return err
 }
 

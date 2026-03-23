@@ -25,6 +25,26 @@ func (s *Server) updateUserDefaultAgent(w http.ResponseWriter, r *http.Request) 
 	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
+func (s *Server) updateUserNotifyIdentity(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	var body struct {
+		NotifyIdentityID *int64 `json:"notify_identity_id"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if err := s.authStore.UpdateUserNotifyIdentity(r.Context(), id, body.NotifyIdentityID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
 func (s *Server) listUserMemories(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {

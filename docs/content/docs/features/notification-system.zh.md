@@ -73,8 +73,8 @@ type Channel interface {
 
 ```go
 d := channel.NewDispatcher()
-d.Register(tgBot, "136345060")   // telegram 通道,带默认聊天
-d.Register(qqBot, "")            // qq 通道
+d.Register(tgBot)                // telegram 通道
+d.Register(qqBot)                // qq 通道
 
 // 广播到所有通道(每个使用其默认聊天):
 d.Notify(ctx, channel.Notification{Text: "hello"})
@@ -125,7 +125,7 @@ setup()
 
 runGateway()
   +-- Create telegram.Bot
-  +-- dispatcher.Register(tgBot, notifyChat)  <- 通道已注册
+  +-- dispatcher.Register(tgBot)               <- 通道已注册
   +-- wireSchedulerNotifier(schedulerSvc, poolManager, dispatcher) <- 调度器输出 -> 分发器
   +-- tgBot.Start(ctx)                        <- 开始轮询
 ```
@@ -146,15 +146,15 @@ runGateway()
 
 ## 配置
 
-通道配置通过管理面板管理。每个通道的设置(令牌、聊天 ID、群组模式、允许的 ID)作为 JSON 存储在数据库中。从管理面板 UI 配置通知通道,而不是直接编辑配置文件。
+通道配置通过管理面板管理。每个通道的设置(令牌、聊天 ID、群组模式)作为 JSON 存储在数据库中。从管理面板 UI 配置通知通道,而不是直接编辑配置文件。
 
 ### 通知目标解析
 
 当调用 `Notify()` 时,目标聊天按以下顺序解析:
 
 1. `Notification.ChatID`(调用中的显式值)
-2. 通道注册的默认聊天(来自 `dispatcher.Register`)
-3. 对于 Telegram: `notify_chat` -> `channel_id` -> 错误
+2. 通道的默认目标(来自通道配置)
+3. 对于 Telegram: `channel_id` -> 错误
 
 ## 添加新通道
 
@@ -182,7 +182,7 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 if slackCfg.Token != "" {
     slackBot := slack.New(slackCfg)
     channels = append(channels, slackBot)
-    s.notifier.Register(slackBot, slackCfg.NotifyChannel)
+    s.notifier.Register(slackBot)
 }
 ```
 
@@ -204,7 +204,7 @@ if slackCfg.Token != "" {
 
 ### 访问控制
 
-`allowed_ids` 限制机器人交互到特定用户 ID(Telegram 数字 ID、QQ OpenID、Feishu open_id、微信 iLink 用户 ID)。当列表为空时,允许所有用户。未授权用户会被静默忽略——所有处理器(命令、回调、文本)都包装在访问检查中。用户可以向机器人发送 `/whoami` 来发现他们的 ID。
+访问控制通过 RBAC 系统管理。用户通过平台身份(Telegram 数字 ID、QQ OpenID、Feishu open_id、微信 iLink 用户 ID)自动关联到认证系统。未授权用户会被静默忽略——所有处理器(命令、回调、文本)都包装在访问检查中。用户可以向机器人发送 `/whoami` 来发现他们的 ID。
 
 ### 通知传递
 

@@ -26,10 +26,9 @@ func logger() *slog.Logger { return slog.With("component", "qq") }
 
 // Config holds QQ Bot settings.
 type Config struct {
-	AppID      string
-	AppSecret  string
-	GroupMode  string   // "mention" | "always" | "disabled"
-	AllowedIDs []string // user OpenIDs allowed (empty = allow all)
+	AppID     string
+	AppSecret string
+	GroupMode string // "mention" | "always" | "disabled"
 }
 
 // Bot wraps a QQ bot with agent pool integration.
@@ -51,10 +50,9 @@ type Bot struct {
 	mu         sync.RWMutex
 	chatModels map[string]channel.ModelOption
 
-	allowed map[string]struct{}
-	cfg     Config
-	ctx     context.Context
-	cancel  context.CancelFunc
+	cfg    Config
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // BotOption configures the QQ Bot.
@@ -81,11 +79,6 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.M
 		cfg.GroupMode = "mention"
 	}
 
-	allowed := make(map[string]struct{}, len(cfg.AllowedIDs))
-	for _, id := range cfg.AllowedIDs {
-		allowed[id] = struct{}{}
-	}
-
 	b := &Bot{
 		poolManager: pm,
 		store:       store,
@@ -93,7 +86,6 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.M
 		listFn:      listFn,
 		switchFn:    switchFn,
 		chatModels:  make(map[string]channel.ModelOption),
-		allowed:     allowed,
 		cfg:         cfg,
 	}
 
@@ -188,16 +180,6 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	}
 
 	return nil
-}
-
-// isAllowed returns true if the sender is in the allowed list.
-// An empty allowed list means everyone is allowed.
-func (b *Bot) isAllowed(authorID string) bool {
-	if len(b.allowed) == 0 {
-		return true
-	}
-	_, ok := b.allowed[authorID]
-	return ok
 }
 
 // channelForC2C returns the channel identifier for a C2C (private) chat.

@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/vaayne/anna/internal/auth"
 )
 
 // mockChannel is a test Channel that records Notify calls.
@@ -25,8 +28,8 @@ func TestDispatcherBroadcast(t *testing.T) {
 	d := NewDispatcher()
 	tg := &mockChannel{name: "telegram"}
 	slack := &mockChannel{name: "slack"}
-	d.Register(tg, "tg-chat")
-	d.Register(slack, "slack-channel")
+	d.Register(tg)
+	d.Register(slack)
 
 	err := d.Notify(context.Background(), Notification{Text: "hello"})
 	if err != nil {
@@ -36,14 +39,8 @@ func TestDispatcherBroadcast(t *testing.T) {
 	if len(tg.calls) != 1 {
 		t.Fatalf("telegram got %d calls, want 1", len(tg.calls))
 	}
-	if tg.calls[0].ChatID != "tg-chat" {
-		t.Errorf("telegram ChatID = %q, want %q", tg.calls[0].ChatID, "tg-chat")
-	}
 	if len(slack.calls) != 1 {
 		t.Fatalf("slack got %d calls, want 1", len(slack.calls))
-	}
-	if slack.calls[0].ChatID != "slack-channel" {
-		t.Errorf("slack ChatID = %q, want %q", slack.calls[0].ChatID, "slack-channel")
 	}
 }
 
@@ -51,8 +48,8 @@ func TestDispatcherRouteToSpecific(t *testing.T) {
 	d := NewDispatcher()
 	tg := &mockChannel{name: "telegram"}
 	slack := &mockChannel{name: "slack"}
-	d.Register(tg, "tg-chat")
-	d.Register(slack, "slack-channel")
+	d.Register(tg)
+	d.Register(slack)
 
 	err := d.Notify(context.Background(), Notification{
 		Channel: "slack",
@@ -68,15 +65,12 @@ func TestDispatcherRouteToSpecific(t *testing.T) {
 	if len(slack.calls) != 1 {
 		t.Fatalf("slack got %d calls, want 1", len(slack.calls))
 	}
-	if slack.calls[0].ChatID != "slack-channel" {
-		t.Errorf("slack ChatID = %q, want default %q", slack.calls[0].ChatID, "slack-channel")
-	}
 }
 
 func TestDispatcherExplicitChatID(t *testing.T) {
 	d := NewDispatcher()
 	tg := &mockChannel{name: "telegram"}
-	d.Register(tg, "default-chat")
+	d.Register(tg)
 
 	err := d.Notify(context.Background(), Notification{
 		Channel: "telegram",
@@ -93,7 +87,7 @@ func TestDispatcherExplicitChatID(t *testing.T) {
 
 func TestDispatcherUnknownChannel(t *testing.T) {
 	d := NewDispatcher()
-	d.Register(&mockChannel{name: "telegram"}, "chat")
+	d.Register(&mockChannel{name: "telegram"})
 
 	err := d.Notify(context.Background(), Notification{Channel: "discord", Text: "test"})
 	if err == nil {
@@ -113,8 +107,8 @@ func TestDispatcherPartialFailure(t *testing.T) {
 	d := NewDispatcher()
 	good := &mockChannel{name: "telegram"}
 	bad := &mockChannel{name: "slack", err: errors.New("slack down")}
-	d.Register(good, "chat")
-	d.Register(bad, "channel")
+	d.Register(good)
+	d.Register(bad)
 
 	err := d.Notify(context.Background(), Notification{Text: "test"})
 	if err == nil {
@@ -128,8 +122,8 @@ func TestDispatcherPartialFailure(t *testing.T) {
 
 func TestDispatcherChannels(t *testing.T) {
 	d := NewDispatcher()
-	d.Register(&mockChannel{name: "telegram"}, "")
-	d.Register(&mockChannel{name: "slack"}, "")
+	d.Register(&mockChannel{name: "telegram"})
+	d.Register(&mockChannel{name: "slack"})
 
 	names := d.Channels()
 	if len(names) != 2 {
@@ -156,7 +150,7 @@ func TestNotifyToolDefinition(t *testing.T) {
 func TestNotifyToolExecuteBroadcast(t *testing.T) {
 	d := NewDispatcher()
 	tg := &mockChannel{name: "telegram"}
-	d.Register(tg, "chat-123")
+	d.Register(tg)
 
 	tool := NewNotifyTool(d)
 	result, err := tool.Execute(context.Background(), map[string]any{
@@ -179,7 +173,7 @@ func TestNotifyToolExecuteBroadcast(t *testing.T) {
 func TestNotifyToolExecuteTargeted(t *testing.T) {
 	d := NewDispatcher()
 	tg := &mockChannel{name: "telegram"}
-	d.Register(tg, "default-chat")
+	d.Register(tg)
 
 	tool := NewNotifyTool(d)
 	result, err := tool.Execute(context.Background(), map[string]any{
@@ -215,7 +209,7 @@ func TestNotifyToolExecuteEmptyMessage(t *testing.T) {
 func TestNotifyToolExecuteError(t *testing.T) {
 	d := NewDispatcher()
 	bad := &mockChannel{name: "telegram", err: errors.New("send failed")}
-	d.Register(bad, "chat")
+	d.Register(bad)
 
 	tool := NewNotifyTool(d)
 	_, err := tool.Execute(context.Background(), map[string]any{
@@ -224,5 +218,108 @@ func TestNotifyToolExecuteError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+// --- NotifyUser tests ---
+
+// mockAuthStore is a minimal auth.AuthStore for testing NotifyUser.
+type mockAuthStore struct {
+	auth.AuthStore // embed to satisfy interface; panics on unimplemented methods
+	user           auth.AuthUser
+	identities     []auth.Identity
+}
+
+func (m *mockAuthStore) GetUser(_ context.Context, _ int64) (auth.AuthUser, error) {
+	return m.user, nil
+}
+func (m *mockAuthStore) ListIdentitiesByUser(_ context.Context, _ int64) ([]auth.Identity, error) {
+	return m.identities, nil
+}
+
+func TestNotifyUserSendsToFirstLinked(t *testing.T) {
+	d := NewDispatcher()
+	tg := &mockChannel{name: "telegram"}
+	fs := &mockChannel{name: "feishu"}
+	d.Register(tg)
+	d.Register(fs)
+	d.SetAuthStore(&mockAuthStore{
+		user: auth.AuthUser{ID: 1},
+		identities: []auth.Identity{
+			{ID: 10, Platform: "telegram", ExternalID: "tg-123", LinkedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+			{ID: 11, Platform: "feishu", ExternalID: "fs-456", LinkedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
+		},
+	})
+
+	err := d.NotifyUser(context.Background(), 1, Notification{Text: "hello"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should send to first linked (telegram) only.
+	if len(tg.calls) != 1 {
+		t.Errorf("telegram got %d calls, want 1", len(tg.calls))
+	}
+	if tg.calls[0].ChatID != "tg-123" {
+		t.Errorf("telegram ChatID = %q, want %q", tg.calls[0].ChatID, "tg-123")
+	}
+	if len(fs.calls) != 0 {
+		t.Errorf("feishu got %d calls, want 0", len(fs.calls))
+	}
+}
+
+func TestNotifyUserSendsToPreferred(t *testing.T) {
+	d := NewDispatcher()
+	tg := &mockChannel{name: "telegram"}
+	fs := &mockChannel{name: "feishu"}
+	d.Register(tg)
+	d.Register(fs)
+
+	preferredID := int64(11)
+	d.SetAuthStore(&mockAuthStore{
+		user: auth.AuthUser{ID: 1, NotifyIdentityID: &preferredID},
+		identities: []auth.Identity{
+			{ID: 10, Platform: "telegram", ExternalID: "tg-123", LinkedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+			{ID: 11, Platform: "feishu", ExternalID: "fs-456", LinkedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
+		},
+	})
+
+	err := d.NotifyUser(context.Background(), 1, Notification{Text: "hello"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should send to preferred (feishu) only.
+	if len(fs.calls) != 1 {
+		t.Errorf("feishu got %d calls, want 1", len(fs.calls))
+	}
+	if fs.calls[0].ChatID != "fs-456" {
+		t.Errorf("feishu ChatID = %q, want %q", fs.calls[0].ChatID, "fs-456")
+	}
+	if len(tg.calls) != 0 {
+		t.Errorf("telegram got %d calls, want 0", len(tg.calls))
+	}
+}
+
+func TestNotifyUserPreferredNotFoundFallsToFirst(t *testing.T) {
+	d := NewDispatcher()
+	tg := &mockChannel{name: "telegram"}
+	d.Register(tg)
+
+	staleID := int64(999) // identity that no longer exists
+	d.SetAuthStore(&mockAuthStore{
+		user: auth.AuthUser{ID: 1, NotifyIdentityID: &staleID},
+		identities: []auth.Identity{
+			{ID: 10, Platform: "telegram", ExternalID: "tg-123"},
+		},
+	})
+
+	err := d.NotifyUser(context.Background(), 1, Notification{Text: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tg.calls) != 1 {
+		t.Fatalf("telegram got %d calls, want 1", len(tg.calls))
+	}
+	if tg.calls[0].ChatID != "tg-123" {
+		t.Errorf("ChatID = %q, want %q", tg.calls[0].ChatID, "tg-123")
 	}
 }

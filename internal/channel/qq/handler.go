@@ -20,10 +20,6 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 	return func(_ *dto.WSPayload, data *dto.WSC2CMessageData) error {
 		msg := (*dto.Message)(data)
 		authorID := msg.Author.ID
-		if !b.isAllowed(authorID) {
-			logger().Warn("unauthorized c2c access", "user_id", authorID)
-			return nil
-		}
 
 		// Try link code before anything else.
 		text := strings.TrimSpace(msg.Content)
@@ -65,10 +61,6 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 		msg := (*dto.Message)(data)
 		authorID := msg.Author.ID
 		groupID := msg.GroupID
-		if !b.isAllowed(authorID) {
-			logger().Warn("unauthorized group access", "user_id", authorID, "group_id", groupID)
-			return nil
-		}
 
 		if !b.shouldRespondInGroup() {
 			return nil

@@ -44,15 +44,15 @@ Channels are stored as JSON blobs in the `settings_channels` table. Configure vi
 
 **Telegram config fields:**
 - `token` -- Bot token
-- `notify_chat` -- Default chat ID for notifications
 - `channel_id` -- Broadcast channel ID or @username
 - `group_mode` -- "mention" | "always" | "disabled"
-- `allowed_ids` -- Array of user IDs (empty = allow all)
 - `enable_notify` -- Allow notify tool for this channel
 
-**QQ config fields:** `app_id`, `app_secret`, `group_mode`, `allowed_ids`, `enable_notify`
+Access control is handled by RBAC (auth_identities + policy engine). Notification targets are resolved from auth_identities.
 
-**Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `notify_chat`, `group_mode`, `allowed_ids`, `enable_notify`
+**QQ config fields:** `app_id`, `app_secret`, `group_mode`, `enable_notify`
+
+**Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `group_mode`, `enable_notify`
 
 ## Settings (key-value)
 

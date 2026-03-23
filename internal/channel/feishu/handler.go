@@ -46,10 +46,6 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 		return nil
 	}
 
-	if !b.isAllowed(openID) {
-		return nil
-	}
-
 	messageID := derefStr(data.MessageId)
 	if messageID == "" {
 		return nil
@@ -98,11 +94,6 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	openID := *sender.SenderId.OpenId
 
 	if botID, _ := b.botOpenID.Load().(string); botID != "" && openID == botID {
-		return nil
-	}
-
-	if !b.isAllowed(openID) {
-		logger().Warn("unauthorized access", "open_id", openID)
 		return nil
 	}
 

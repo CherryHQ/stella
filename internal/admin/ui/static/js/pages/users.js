@@ -132,6 +132,20 @@ export function register(Alpine) {
       }
     },
 
+    async setNotifyIdentity(identityId) {
+      if (!this.selectedUser) return
+      try {
+        const val = identityId ? parseInt(identityId, 10) : null
+        await api('PUT', '/api/users/' + this.selectedUser.id + '/notify-identity', {
+          notify_identity_id: val,
+        })
+        this.selectedUser = await api('GET', '/api/auth/users/' + this.selectedUser.id)
+        this.$store.toast.show('Notify channel updated')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
     async removeAgentFromUser(agentId) {
       if (!this.selectedUser) return
       const newIds = this.userAgentIds.filter(id => id !== agentId)
