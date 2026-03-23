@@ -3,6 +3,7 @@ package channel_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -101,13 +102,39 @@ func TestResolveUserDeactivated(t *testing.T) {
 	}
 }
 
+func TestResolveAgentUnlinkedUserDenied(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+
+	engine, err := auth.NewEngine(ctx, ts.authStore)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
+	identity := channel.ResolvedIdentity{} // no user (ID=0)
+	chat := channel.ChatContext{Platform: "telegram", IsGroup: false}
+	_, err = channel.ResolveAgent(ctx, ts.store, ts.authStore, engine, identity, chat)
+	if !errors.Is(err, channel.ErrAgentAccessDenied) {
+		t.Fatalf("expected ErrAgentAccessDenied for unlinked user, got: %v", err)
+	}
+}
+
 func TestResolveAgentFallbackToFirstEnabled(t *testing.T) {
 	ts := setupStores(t)
 	ctx := context.Background()
 
-	identity := channel.ResolvedIdentity{} // no user
+	engine, err := auth.NewEngine(ctx, ts.authStore)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
+	// Create a linked user so we pass the ID=0 check.
+	hash, _ := auth.HashPassword("testpass")
+	authUser, _ := ts.authStore.CreateUser(ctx, "testuser", hash)
+
+	identity := channel.ResolvedIdentity{User: authUser}
 	chat := channel.ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := channel.ResolveAgent(ctx, ts.store, ts.authStore, nil, identity, chat)
+	agentID, err := channel.ResolveAgent(ctx, ts.store, ts.authStore, engine, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgent: %v", err)
 	}
@@ -120,14 +147,22 @@ func TestResolveAgentGroupAssignment(t *testing.T) {
 	ts := setupStores(t)
 	ctx := context.Background()
 
+	engine, err := auth.NewEngine(ctx, ts.authStore)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
 	_ = ts.store.CreateAgent(ctx, config.Agent{
 		ID: "writer", Name: "Writer", Model: "openai/gpt-4", Workspace: "/tmp/writer", Enabled: true,
 	})
 	_ = ts.store.SetChatAgent(ctx, "telegram", "-999", "writer")
 
-	identity := channel.ResolvedIdentity{}
+	hash, _ := auth.HashPassword("testpass")
+	authUser, _ := ts.authStore.CreateUser(ctx, "groupuser", hash)
+
+	identity := channel.ResolvedIdentity{User: authUser}
 	chat := channel.ChatContext{Platform: "telegram", ChatID: "-999", IsGroup: true}
-	agentID, err := channel.ResolveAgent(ctx, ts.store, ts.authStore, nil, identity, chat)
+	agentID, err := channel.ResolveAgent(ctx, ts.store, ts.authStore, engine, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgent: %v", err)
 	}
