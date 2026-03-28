@@ -18,6 +18,7 @@ const (
 	CapabilityChannelStart     Capability = "channel.start"
 	CapabilityChannelStop      Capability = "channel.stop"
 	CapabilityChannelNotify    Capability = "channel.notify"
+	CapabilityChannelInbound   Capability = "channel.inbound"
 	CapabilityHealthCheck      Capability = "health.check"
 	CapabilityGracefulShutdown Capability = "shutdown.graceful"
 )
@@ -104,4 +105,51 @@ type ToolCallRequest struct {
 type ToolCallResponse struct {
 	Output string `json:"output,omitempty"`
 	Error  string `json:"error,omitempty"`
+}
+
+type ChannelNotification struct {
+	Channel string `json:"channel,omitempty"`
+	ChatID  string `json:"chat_id,omitempty"`
+	Text    string `json:"text,omitempty"`
+	Silent  bool   `json:"silent,omitempty"`
+}
+
+type ChannelStartRequest struct {
+	Config json.RawMessage `json:"config,omitempty"`
+}
+
+type ChannelStartResponse struct {
+	Started bool `json:"started"`
+}
+
+type ChannelStopRequest struct{}
+
+type ChannelStopResponse struct {
+	Stopped bool `json:"stopped"`
+}
+
+type ChannelNotifyRequest struct {
+	Notification ChannelNotification `json:"notification"`
+}
+
+type ChannelNotifyResponse struct {
+	Delivered bool   `json:"delivered"`
+	Error     string `json:"error,omitempty"`
+}
+
+type ChannelInboundMessage struct {
+	Platform   string         `json:"platform"`
+	ChatID     string         `json:"chat_id,omitempty"`
+	SenderID   string         `json:"sender_id,omitempty"`
+	SenderName string         `json:"sender_name,omitempty"`
+	MessageID  string         `json:"message_id,omitempty"`
+	IsGroup    bool           `json:"is_group,omitempty"`
+	Text       string         `json:"text,omitempty"`
+	Payload    map[string]any `json:"payload,omitempty"`
+}
+
+type ChannelEvent struct {
+	Kind    string                 `json:"kind"`
+	Message *ChannelInboundMessage `json:"message,omitempty"`
+	Error   *RPCError              `json:"error,omitempty"`
 }

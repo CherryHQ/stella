@@ -11,19 +11,43 @@ type Catalog struct {
 	defs map[string]Definition
 }
 
+func NewCatalog() *Catalog {
+	return &Catalog{defs: make(map[string]Definition)}
+}
+
 func Discover(roots ...string) (*Catalog, error) {
-	defs := make(map[string]Definition)
+	catalog := NewCatalog()
 
 	for _, root := range roots {
 		if root == "" {
 			continue
 		}
-		if err := walkRoot(root, defs); err != nil {
+		if err := walkRoot(root, catalog.defs); err != nil {
 			return nil, err
 		}
 	}
 
-	return &Catalog{defs: defs}, nil
+	return catalog, nil
+}
+
+func (c *Catalog) Add(def Definition) error {
+	if c == nil {
+		return fmt.Errorf("catalog is nil")
+	}
+	if existing, ok := c.defs[def.ID()]; ok {
+		return fmt.Errorf("duplicate plugin definition %q: %s and %s", def.ID(), existing.ManifestPath, def.ManifestPath)
+	}
+	c.defs[def.ID()] = def
+	return nil
+}
+
+func (c *Catalog) Merge(defs ...Definition) error {
+	for _, def := range defs {
+		if err := c.Add(def); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func walkRoot(root string, defs map[string]Definition) error {
