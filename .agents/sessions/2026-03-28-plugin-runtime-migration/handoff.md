@@ -197,3 +197,15 @@
   of a daemon-level failure.
 - Phase 4 can now focus on plugin binding config, JS compatibility, operator
   visibility, and docs.
+
+### Fixes
+
+- Switched admin/channel link-code storage from per-process in-memory state to
+  a shared DB-backed store, preserving account-linking flows after the channel
+  subprocess migration.
+- Updated both the host gateway and channel helper runtime to use the shared
+  link-code store so `/api/auth/profile/link-code` and `/link <code>` operate
+  across process boundaries.
+- Added regression coverage that opens two DB handles against the same Anna DB
+  and verifies one store instance can generate a code that another instance
+  consumes.

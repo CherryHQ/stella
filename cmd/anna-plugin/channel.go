@@ -237,12 +237,17 @@ func newChannelRuntime(ctx context.Context, workDir, userDataDir string) (*chann
 		return nil
 	}
 
+	linkCodes, err := auth.NewSharedLinkCodeStore(ctx, db)
+	if err != nil {
+		return nil, fmt.Errorf("create link code store: %w", err)
+	}
+
 	return &channelRuntimeDeps{
 		db:          db,
 		store:       store,
 		authStore:   authStore,
 		engine:      engine,
-		linkCodes:   auth.NewLinkCodeStore(),
+		linkCodes:   linkCodes,
 		poolManager: poolMgr,
 		pool:        pool,
 		snap:        snap,

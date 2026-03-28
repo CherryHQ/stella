@@ -71,7 +71,10 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 	}
 
 	// Link codes are shared between admin panel and channel bots.
-	linkCodes := auth.NewLinkCodeStore()
+	linkCodes, err := auth.NewSharedLinkCodeStore(gctx, s.db)
+	if err != nil {
+		return fmt.Errorf("create link code store: %w", err)
+	}
 
 	// Admin server is always created so channel stop functions can be registered
 	// even when the panel is disabled.
