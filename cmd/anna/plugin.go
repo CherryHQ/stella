@@ -21,6 +21,7 @@ func pluginCommand() *ucli.Command {
 			pluginListCommand(),
 			pluginAddCommand(),
 			pluginRemoveCommand(),
+			runtimePluginCommand(),
 		},
 		Action: func(c *ucli.Context) error {
 			return pluginListAction()
@@ -50,7 +51,7 @@ func pluginListAction() error {
 	}
 
 	if len(plugins) == 0 {
-		fmt.Println("No plugins configured.")
+		fmt.Println("No JavaScript plugins configured.")
 		return nil
 	}
 
@@ -65,7 +66,7 @@ func pluginListAction() error {
 func pluginAddCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "add",
-		Usage:     "Add a JS plugin",
+		Usage:     "Add a JavaScript plugin",
 		ArgsUsage: "<path>",
 		Flags: []ucli.Flag{
 			&ucli.StringSliceFlag{
@@ -131,7 +132,7 @@ func pluginRemoveCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "remove",
 		Aliases:   []string{"rm"},
-		Usage:     "Remove a plugin by name or path",
+		Usage:     "Remove a JavaScript plugin by name or path",
 		ArgsUsage: "<name|path>",
 		Action: func(c *ucli.Context) error {
 			target := c.Args().First()
