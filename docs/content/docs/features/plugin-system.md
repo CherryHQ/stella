@@ -4,7 +4,21 @@ title: Plugin System
 
 ## Overview
 
-Anna supports JavaScript plugins that extend the assistant with custom tools and lifecycle hooks. Plugins run inside an embedded [QuickJS](https://bellard.org/quickjs/) runtime -- no external Node.js or npm required.
+Anna now has two plugin paths:
+
+- **JavaScript plugins** for lightweight tools and lifecycle hooks
+- **Runtime plugins** for subprocess-based tools and channels
+
+JavaScript plugins run inside an embedded [QuickJS](https://bellard.org/quickjs/) runtime -- no external Node.js or npm required.
+
+Runtime plugins run as separate processes and communicate with anna over a versioned stdio protocol. The first built-in runtime plugin targets are the core tools (`read`, `bash`, `edit`, `write`, `webfetch`) and the network channels (`telegram`, `qq`, `feishu`, `weixin`).
+
+The two systems are intentionally separate:
+
+- The `plugins` setting still stores JavaScript plugin entries.
+- The `runtime_plugins` setting stores slot-to-plugin bindings for subprocess tools and channels.
+- `anna plugin ...` manages JavaScript plugins.
+- `anna plugin runtime ...` manages subprocess plugin bindings.
 
 A plugin is a single `.js` file that receives an `anna` host object and uses it to register tools, subscribe to lifecycle events, and access host APIs.
 
@@ -44,9 +58,15 @@ anna plugin list                         # List configured plugins
 anna plugin add <path>                   # Add a plugin
 anna plugin add <path> --config key=val  # Add with config values (repeatable)
 anna plugin remove <name|path>           # Remove a plugin (alias: rm)
+anna plugin runtime list                 # List runtime tool/channel bindings
+anna plugin runtime bind tool read tool/read
+anna plugin runtime bind channel telegram channel/telegram
+anna plugin runtime bind tool read --default
 ```
 
 The `add` command writes the plugin entry into the `settings` table in the database (under the `"plugins"` key). The `remove` command accepts either the plugin name (filename without `.js`) or the full path. Both commands update the `settings` table directly.
+
+`anna plugin runtime list` shows the effective subprocess plugin bindings for tool and channel slots, along with the resolved source and whether a channel is enabled. `anna plugin runtime bind ...` updates the `runtime_plugins` setting and lets you point a slot at a different runtime plugin ID.
 
 ## Configuration
 
@@ -73,6 +93,23 @@ Example JSON structure stored in the settings table:
 ```
 
 Use the `anna plugin add` and `anna plugin remove` CLI commands to manage this list, or edit it through the admin panel.
+
+### Runtime Plugin Bindings
+
+Subprocess plugin bindings live in the `settings` table under the key `"runtime_plugins"`:
+
+```json
+{
+  "tools": {
+    "read": "tool/read"
+  },
+  "channels": {
+    "telegram": "channel/telegram"
+  }
+}
+```
+
+Each tool or channel slot resolves to a runtime plugin ID. If a slot has no explicit override, anna falls back to the bundled plugin for that slot.
 
 ## Writing Plugins
 
@@ -201,6 +238,13 @@ Plugins run in a sandboxed QuickJS runtime with these restrictions:
 - **Network access**: HTTP(S) only, SSRF-safe (private IPs blocked, DNS rebinding prevented).
 - **Concurrency**: All JS calls are serialized with a mutex since QuickJS is single-threaded.
 - **Tool name isolation**: Plugin tools cannot shadow built-in tools.
+
+Runtime plugins have a different isolation model:
+
+- They run out of process, so a crash does not crash the main anna daemon.
+- They are supervised and restarted by the host when appropriate.
+- Their stderr is forwarded into anna's structured logs.
+- Built-in channels and tools now use this path first, which makes later replacement possible without recompiling anna.
 
 ## Examples
 

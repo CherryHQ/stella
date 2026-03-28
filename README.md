@@ -28,7 +28,9 @@ Run multiple agents at once. A coding assistant, a writing partner, a daily plan
 
 Multiple users out of the box. Users are auto-created from platform identity (Telegram user ID, QQ ID, etc). Each user gets per-agent memory stored in the database, so Anna remembers different things about different people.
 
-And the whole thing is a single Go binary with a SQLite database. Your machine, your API keys, nothing leaves your network.
+And the whole thing is a Go CLI with a SQLite database. Your machine, your API keys, nothing leaves your network.
+
+Extensibility now has two layers: JavaScript plugins for lightweight hooks and tools, and subprocess runtime plugins for replaceable built-in tools and channels.
 
 ## How it works
 
@@ -184,6 +186,9 @@ anna models set <p/m>      # Switch model (e.g. openai/gpt-4o)
 anna models search <q>     # Search models
 anna skills search <q>     # Search skills.sh
 anna skills install <s>    # Install a skill
+anna plugin list           # List configured JavaScript plugins
+anna plugin runtime list   # Show runtime tool/channel bindings
+anna plugin runtime bind tool read tool/read
 anna version               # Print version
 anna upgrade               # Self-update to latest release
 ```
@@ -203,7 +208,7 @@ anna upgrade               # Self-update to latest release
 | [Feishu Bot](docs/content/docs/channels/feishu.md) | Bot setup, WebSocket, streaming |
 | [WeChat Bot](docs/content/docs/channels/weixin.md) | iLink Bot setup, QR login, DM |
 | [Scheduler System](docs/content/docs/features/scheduler-system.md) | Scheduler system, heartbeat, persistence |
-| [Plugin System](docs/content/docs/features/plugin-system.md) | JavaScript plugins, tools, hooks |
+| [Plugin System](docs/content/docs/features/plugin-system.md) | JavaScript hooks plus subprocess tool/channel plugins |
 | [Notification System](docs/content/docs/features/notification-system.md) | Dispatcher, backends, routing |
 
 ## Development

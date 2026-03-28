@@ -29,8 +29,8 @@
 
 ## Phase 4: Integration, Compatibility, and Docs
 
-- [ ] Add plugin binding config for bundled tools/channels
-- [ ] Preserve JS plugin compatibility
-- [ ] Add plugin status/log visibility
-- [ ] Document runtime, bundled plugin layout, and migration boundaries
-- [ ] Run full test suite
+- [x] Add plugin binding config for bundled tools/channels
+- [x] Preserve JS plugin compatibility
+- [x] Add plugin status/log visibility
+- [x] Document runtime, bundled plugin layout, and migration boundaries
+- [x] Run full test suite

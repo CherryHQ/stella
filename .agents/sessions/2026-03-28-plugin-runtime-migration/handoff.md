@@ -209,3 +209,65 @@
 - Added regression coverage that opens two DB handles against the same Anna DB
   and verifies one store instance can generate a code that another instance
   consumes.
+
+## Phase 4: Integration, Compatibility, and Docs
+
+**Status:** complete
+
+**Tasks completed:**
+
+- Added a separate `runtime_plugins` setting so subprocess tool and channel
+  bindings can change independently from the legacy JS plugin list.
+- Routed the Go runner and channel gateway through runtime binding resolution,
+  which now makes built-in tool/channel slots replaceable by plugin ID.
+- Added `anna plugin runtime list` and `anna plugin runtime bind` to expose
+  effective bindings, enabled channel state, and log location to operators.
+- Preserved JS plugin compatibility by keeping `settings.plugins` untouched and
+  documenting the new boundary between JS and subprocess plugins.
+- Added binding coverage for tool replacement and channel binding resolution,
+  then ran the full Go test suite and release config validation.
+
+**Files changed:**
+
+- `internal/config/runtime_plugins.go` — runtime binding setting types and
+  load/save helpers
+- `internal/config/snapshot.go` — runtime binding snapshot field
+- `internal/config/dbstore.go` — snapshot loading for `runtime_plugins`
+- `internal/agent/tool/tool.go` — runtime tool catalog loading and binding
+  resolution
+- `internal/agent/tool/plugin_runtime.go` — bundled tool definition helpers
+- `internal/agent/factory.go` — runner config now carries runtime bindings
+- `internal/agent/runner/gorunner.go` — tool registry now respects runtime
+  bindings
+- `internal/channel/plugin_runtime.go` — bundled channel definition helpers
+- `cmd/anna/channel_plugins.go` — channel binding resolution helper
+- `cmd/anna/gateway.go` — gateway now resolves channel plugins via bindings
+- `cmd/anna/plugin_runtime_cli.go` — runtime plugin binding and status CLI
+- `cmd/anna/plugin.go` — JS plugin command wording kept distinct from runtime
+  plugin management
+- `internal/agent/tool/runtime_bindings_test.go` — replacement-path coverage
+- `cmd/anna/channel_plugins_test.go` — channel binding coverage
+- `internal/config/dbstore_test.go` — JS/runtime setting compatibility coverage
+- `README.md` — runtime plugin CLI and feature summary updates
+- `docs/content/docs/features/plugin-system.md` — JS vs subprocess plugin docs
+- `docs/content/docs/getting-started/configuration.md` — `runtime_plugins`
+  setting and plugin directory layout
+
+**Commits:**
+
+- `c393ba8` — `✨ feat: add runtime plugin bindings`
+- `61a5c76` — `✨ feat: add runtime plugin runtime CLI`
+- `1a73cce` — `🧪 test: cover runtime plugin bindings`
+
+**Decisions & context for next phase:**
+
+- The migration slice is complete for tools and channels.
+- JS plugins remain the extension path for hooks and lightweight custom tools.
+- Runtime bindings are now the control point for swapping subprocess-backed
+  tool and channel implementations.
+- Providers and memory remain deferred to later plugin phases.
+
+### Verification
+
+- `mise x -- go test ./...`
+- `mise run release:check`
