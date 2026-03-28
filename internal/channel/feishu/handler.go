@@ -13,7 +13,6 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/channel"
-	"github.com/vaayne/anna/internal/feishutool"
 )
 
 // onReaction handles incoming Feishu reaction events.
@@ -147,14 +146,6 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 			replyFn(resp)
 			return nil
 		}
-	}
-
-	// Handle /auth command before general command dispatch since it needs
-	// messageID for sending interactive cards (not just text replies).
-	if text != "" && strings.HasPrefix(strings.ToLower(strings.TrimSpace(text)), "/auth") {
-		authArgs := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "/auth"))
-		b.handleAuthCommand(openID, chatID, messageID, authArgs)
-		return nil
 	}
 
 	if text != "" {
@@ -416,11 +407,6 @@ func (b *Bot) handleMessage(rc *channel.ResolvedChat, openID, chatID, messageID,
 	b.registerStream(key, cancel)
 	defer b.unregisterStream(key)
 	defer cancel()
-
-	// Inject Feishu context so tools can access open_id, chat_id, message_id.
-	ctx = feishutool.WithOpenID(ctx, openID)
-	ctx = feishutool.WithChatID(ctx, chatID)
-	ctx = feishutool.WithMessageID(ctx, messageID)
 
 	events, sessionID, err := rc.Chat(ctx, content)
 	if err != nil {

@@ -3,16 +3,11 @@ import { createFileRoute } from '@tanstack/react-router';
 export const Route = createFileRoute('/oauth/callback')({
   component: OAuthCallback,
   head: () => ({
-    meta: [{ title: 'Authorization Code - Anna' }],
+    meta: [{ title: 'Lark CLI Authentication - Anna' }],
   }),
 });
 
 function OAuthCallback() {
-  const code =
-    typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search).get('code')
-      : null;
-
   return (
     <div
       style={{
@@ -37,25 +32,22 @@ function OAuthCallback() {
           textAlign: 'center',
         }}
       >
-        {code ? <SuccessView code={code} /> : <ErrorView />}
+        <InfoView />
       </div>
     </div>
   );
 }
 
-function SuccessView({ code }: { code: string }) {
-  const copyCode = () => {
-    navigator.clipboard.writeText(`/auth ${code}`);
-  };
-
+function InfoView() {
   return (
     <>
-      <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>&#10003;</div>
+      <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>&#9432;</div>
       <h1 style={{ fontSize: '1.5rem', fontWeight: 600, margin: '0 0 0.5rem' }}>
-        Authorization Successful
+        Feishu OAuth Was Removed
       </h1>
       <p style={{ color: '#666', margin: '0 0 1.5rem', lineHeight: 1.5 }}>
-        Copy the command below and send it to your Anna bot in Feishu:
+        Anna no longer uses the old Feishu bot OAuth callback flow for workspace
+        tools.
       </p>
       <div
         style={{
@@ -68,24 +60,10 @@ function SuccessView({ code }: { code: string }) {
           marginBottom: '1rem',
         }}
       >
-        /auth {code}
+        lark-cli config init --new
+        <br />
+        lark-cli auth login --recommend
       </div>
-      <button
-        type="button"
-        onClick={copyCode}
-        style={{
-          background: '#3370ff',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '8px',
-          padding: '0.75rem 2rem',
-          fontSize: '1rem',
-          fontWeight: 500,
-          cursor: 'pointer',
-        }}
-      >
-        Copy Command
-      </button>
       <p
         style={{
           color: '#999',
@@ -94,22 +72,8 @@ function SuccessView({ code }: { code: string }) {
           lineHeight: 1.5,
         }}
       >
-        After sending the command, you can close this page.
-      </p>
-    </>
-  );
-}
-
-function ErrorView() {
-  return (
-    <>
-      <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>&#9888;</div>
-      <h1 style={{ fontSize: '1.5rem', fontWeight: 600, margin: '0 0 0.5rem' }}>
-        No Authorization Code
-      </h1>
-      <p style={{ color: '#666', margin: 0, lineHeight: 1.5 }}>
-        No authorization code was found in the URL. Please go back to your Feishu
-        chat and send <code>/auth</code> to start the authorization flow again.
+        Add a <code>lark-cli</code> skill yourself if you want Lark workspace
+        actions, and keep Feishu configured only as a chat channel.
       </p>
     </>
   );

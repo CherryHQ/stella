@@ -73,7 +73,7 @@ func TestRunGatewayNoServices(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for no configured services")
 	}
-	if !strings.Contains(err.Error(), "no gateway services configured") {
-		t.Errorf("err = %q, want contains 'no gateway services configured'", err.Error())
+	if !strings.Contains(err.Error(), "no services to run") {
+		t.Errorf("err = %q, want contains 'no services to run'", err.Error())
 	}
 }

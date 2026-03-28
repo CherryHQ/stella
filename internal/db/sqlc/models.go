@@ -136,16 +136,6 @@ type CtxSummaryParent struct {
 	Ordinal         int64  `json:"ordinal"`
 }
 
-type FeishuToken struct {
-	OpenID           string `json:"open_id"`
-	AccessToken      string `json:"access_token"`
-	RefreshToken     string `json:"refresh_token"`
-	ExpiresAt        string `json:"expires_at"`
-	RefreshExpiresAt string `json:"refresh_expires_at"`
-	CreatedAt        string `json:"created_at"`
-	UpdatedAt        string `json:"updated_at"`
-}
-
 type SchedJob struct {
 	ID            string         `json:"id"`
 	Name          string         `json:"name"`
