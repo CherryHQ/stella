@@ -19,13 +19,13 @@
 
 ## Phase 3: Channel Plugin Migration
 
-- [ ] Define channel plugin contract and host adapter
-- [ ] Replace hard-coded channel loading with catalog-driven startup
-- [ ] Migrate Telegram channel plugin
-- [ ] Migrate QQ channel plugin
-- [ ] Migrate Feishu channel plugin
-- [ ] Migrate Weixin channel plugin
-- [ ] Add channel supervision and restart coverage
+- [x] Define channel plugin contract and host adapter
+- [x] Replace hard-coded channel loading with catalog-driven startup
+- [x] Migrate Telegram channel plugin
+- [x] Migrate QQ channel plugin
+- [x] Migrate Feishu channel plugin
+- [x] Migrate Weixin channel plugin
+- [x] Add channel supervision and restart coverage
 
 ## Phase 4: Integration, Compatibility, and Docs
 

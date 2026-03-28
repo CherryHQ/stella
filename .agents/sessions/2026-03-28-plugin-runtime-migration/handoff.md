@@ -150,3 +150,50 @@
   second packaging format.
 - JS plugins remain untouched and continue to work alongside the new runtime.
 - Phase 3 can now focus on channel plugin contracts and channel loading.
+
+## Phase 3: Channel Plugin Migration
+
+**Status:** complete
+
+**Tasks completed:**
+
+- Added a channel subprocess protocol contract for start, stop, notify, and
+  inbound event semantics in `pluginapi` and `pluginhost`.
+- Added a restartable host-side channel adapter that supervises plugin
+  processes and retries after crashes instead of taking down the daemon.
+- Replaced the hard-coded Telegram/QQ/Feishu/Weixin constructors in the main
+  gateway with catalog-driven loading and bundled channel plugin definitions.
+- Added a built-in `anna-plugin channel <name>` helper path that boots each
+  migrated channel as a subprocess plugin while preserving the existing DB
+  config and auth wiring.
+- Added focused restart coverage for the channel plugin adapter.
+
+**Files changed:**
+
+- `internal/pluginapi/types.go` — channel plugin wire types and capabilities
+- `internal/pluginhost/server.go` — channel protocol server loop
+- `internal/pluginhost/channeladapter.go` — restartable host adapter
+- `internal/pluginhost/catalog.go` — catalog merge support for bundled defs
+- `internal/channel/config.go` — shared channel config JSON types
+- `internal/channel/plugin_runtime.go` — bundled channel manifest definitions
+- `cmd/anna-plugin/channel.go` — channel plugin bootstrapper
+- `cmd/anna-plugin/main.go` — channel helper command registration
+- `cmd/anna/channel_plugins.go` — catalog-driven channel loading helpers
+- `cmd/anna/gateway.go` — removed hard-coded channel construction
+- `internal/pluginhost/channeladapter_test.go` — channel restart coverage
+
+**Commits:**
+
+- `61e7c05` — `✨ feat: add channel plugin runtime contract`
+- `cee64f2` — `✨ feat: load channels from plugin catalog`
+- `6fd8499` — `🧪 test: cover channel plugin restart handling`
+
+**Decisions & context for next phase:**
+
+- Bundled first-party channels are now launched through the same subprocess
+  helper path as future third-party channel plugins.
+- Channel config JSON remains unchanged and is still read from the DB.
+- The host now treats a channel process crash as a restartable failure instead
+  of a daemon-level failure.
+- Phase 4 can now focus on plugin binding config, JS compatibility, operator
+  visibility, and docs.
