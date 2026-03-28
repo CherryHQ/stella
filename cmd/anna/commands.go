@@ -125,8 +125,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	)
 
 	// Collect built-in tool names for plugin collision detection.
-	builtinReg := agenttool.NewRegistry("")
-	builtinNames := builtinReg.BuiltinNames()
+	builtinNames := agenttool.BuiltinToolNames()
 	builtinNames = append(builtinNames, "delegate", "skills")
 	for _, t := range sharedTools {
 		builtinNames = append(builtinNames, t.Definition().Name)

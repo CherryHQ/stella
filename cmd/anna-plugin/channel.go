@@ -184,8 +184,7 @@ func newChannelRuntime(ctx context.Context, workDir, userDataDir string) (*chann
 		memorytool.NewMemoryTool(memoryEngine, userMemoryStore),
 	}
 
-	builtinReg := agenttool.NewRegistry(workDir, userDataDir)
-	builtinNames := builtinReg.BuiltinNames()
+	builtinNames := agenttool.BuiltinToolNames()
 	builtinNames = append(builtinNames, "delegate", "skills")
 	for _, t := range sharedTools {
 		builtinNames = append(builtinNames, t.Definition().Name)

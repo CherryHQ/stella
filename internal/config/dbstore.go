@@ -327,16 +327,17 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	defaultCreds := providers[defaultProvID]
 
 	snap := &Snapshot{
-		AgentID:      agentID,
-		Provider:     defaultProvID,
-		Model:        ag.Model,
-		ModelStrong:  ag.ModelStrong,
-		ModelFast:    ag.ModelFast,
-		Workspace:    ag.Workspace,
-		APIKey:       defaultCreds.APIKey,
-		BaseURL:      defaultCreds.BaseURL,
-		SystemPrompt: ag.SystemPrompt,
-		Providers:    providers,
+		AgentID:        agentID,
+		Provider:       defaultProvID,
+		Model:          ag.Model,
+		ModelStrong:    ag.ModelStrong,
+		ModelFast:      ag.ModelFast,
+		Workspace:      ag.Workspace,
+		APIKey:         defaultCreds.APIKey,
+		BaseURL:        defaultCreds.BaseURL,
+		SystemPrompt:   ag.SystemPrompt,
+		Providers:      providers,
+		RuntimePlugins: DefaultRuntimePluginBindings(),
 	}
 
 	// Load settings.
@@ -357,6 +358,9 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	}
 	if val, err := s.GetSetting(ctx, "self_improve"); err == nil && val != "" {
 		_ = json.Unmarshal([]byte(val), &snap.SelfImprove)
+	}
+	if val, err := s.GetSetting(ctx, runtimePluginsSettingKey); err == nil && val != "" {
+		_ = json.Unmarshal([]byte(val), &snap.RuntimePlugins)
 	}
 
 	// Apply defaults.

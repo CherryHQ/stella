@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -12,10 +13,11 @@ import (
 )
 
 type pluginChannel struct {
+	name    string
 	adapter *pluginhost.ChannelAdapter
 }
 
-func (c *pluginChannel) Name() string { return c.adapter.Name() }
+func (c *pluginChannel) Name() string { return c.name }
 
 func (c *pluginChannel) Start(ctx context.Context) error { return c.adapter.Start(ctx) }
 
@@ -30,7 +32,7 @@ func (c *pluginChannel) Notify(ctx context.Context, n channel.Notification) erro
 	})
 }
 
-func loadBundledChannelCatalog(workDir string) (*pluginhost.Catalog, error) {
+func loadRuntimeChannelCatalog(workDir, userDataDir string) (*pluginhost.Catalog, error) {
 	roots := []string{}
 	for _, root := range []string{config.BundledPluginsPath(), config.InstalledPluginsPath()} {
 		if _, err := os.Stat(root); err == nil {
@@ -41,12 +43,27 @@ func loadBundledChannelCatalog(workDir string) (*pluginhost.Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := catalog.Merge(channel.BuiltinChannelDefinitions(workDir, config.AnnaHome())...); err != nil {
+	if err := catalog.Merge(channel.BuiltinChannelDefinitions(workDir, userDataDir)...); err != nil {
 		return nil, err
 	}
 	return catalog, nil
 }
 
+func resolveChannelPluginDefinition(catalog *pluginhost.Catalog, bindings config.RuntimePluginBindings, name string) (pluginhost.Definition, error) {
+	id := bindings.ChannelBinding(name)
+	def, ok := catalog.Get(id)
+	if !ok {
+		return pluginhost.Definition{}, fmt.Errorf("channel %s bound to missing plugin %s", name, id)
+	}
+	if def.Manifest.Kind != pluginapi.KindChannel {
+		return pluginhost.Definition{}, fmt.Errorf("channel %s bound to non-channel plugin %s", name, id)
+	}
+	return def, nil
+}
+
 func newChannelPlugin(name string, def pluginhost.Definition) channel.Channel {
-	return &pluginChannel{adapter: pluginhost.NewChannelAdapter(def, pluginhost.SupervisorOptions{Logger: slog.Default().With("channel", name)})}
+	return &pluginChannel{
+		name:    name,
+		adapter: pluginhost.NewChannelAdapter(def, pluginhost.SupervisorOptions{Logger: slog.Default().With("channel", name)}),
+	}
 }

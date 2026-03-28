@@ -14,23 +14,25 @@ import (
 	"github.com/vaayne/anna/internal/ai/providers/anthropic"
 	"github.com/vaayne/anna/internal/ai/providers/openai"
 	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
+	"github.com/vaayne/anna/internal/config"
 )
 
 const maxToolIterations = 40
 
 // GoRunnerConfig configures the Go runner.
 type GoRunnerConfig struct {
-	API         string // provider key: "anthropic", "openai"
-	Model       string // e.g. "claude-sonnet-4-20250514"
-	APIKey      string
-	BaseURL     string                  // optional provider base URL override
-	WorkDir     string                  // working directory for tool execution
-	Workspace   string                  // workspace dir for skills/memory (e.g. ~/.anna/workspace)
-	AnnaHome    string                  // anna home directory (e.g. ~/.anna)
-	System      string                  // optional system prompt override (bypasses default prompt building)
-	ExtraTools  []tool.Tool             // additional tools to register
-	PluginHooks engine.PluginHookRunner // optional plugin lifecycle hooks
-	UserDataDir string                  // per-user data directory for sandbox enforcement (empty = no sandbox)
+	API            string // provider key: "anthropic", "openai"
+	Model          string // e.g. "claude-sonnet-4-20250514"
+	APIKey         string
+	BaseURL        string                  // optional provider base URL override
+	WorkDir        string                  // working directory for tool execution
+	Workspace      string                  // workspace dir for skills/memory (e.g. ~/.anna/workspace)
+	AnnaHome       string                  // anna home directory (e.g. ~/.anna)
+	System         string                  // optional system prompt override (bypasses default prompt building)
+	ExtraTools     []tool.Tool             // additional tools to register
+	PluginHooks    engine.PluginHookRunner // optional plugin lifecycle hooks
+	UserDataDir    string                  // per-user data directory for sandbox enforcement (empty = no sandbox)
+	RuntimePlugins config.RuntimePluginBindings
 }
 
 // GoRunner implements Runner by calling LLM providers directly via Engine.
@@ -77,7 +79,10 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	eng := &engine.Engine{Providers: reg}
 	model := ai.Model{API: cfg.API, Name: cfg.Model}
 
-	tools := tool.NewRegistry(cfg.WorkDir, cfg.UserDataDir)
+	tools, err := tool.NewRegistryWithBindings(cfg.WorkDir, cfg.RuntimePlugins, cfg.UserDataDir)
+	if err != nil {
+		return nil, fmt.Errorf("configure runtime tool plugins: %w", err)
+	}
 	for _, t := range cfg.ExtraTools {
 		tools.Register(t)
 	}

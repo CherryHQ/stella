@@ -10,9 +10,17 @@ import (
 
 const builtinChannelPluginVersion = "1.0.0"
 
+var builtinChannelNames = []string{"telegram", "qq", "feishu", "weixin"}
+
+func BuiltinChannelNames() []string {
+	names := make([]string, len(builtinChannelNames))
+	copy(names, builtinChannelNames)
+	return names
+}
+
 func BuiltinChannelDefinitions(workDir, userDataDir string) []pluginhost.Definition {
-	defs := make([]pluginhost.Definition, 0, 4)
-	for _, name := range []string{"telegram", "qq", "feishu", "weixin"} {
+	defs := make([]pluginhost.Definition, 0, len(builtinChannelNames))
+	for _, name := range builtinChannelNames {
 		def, err := BuiltinChannelDefinition(name, workDir, userDataDir)
 		if err != nil {
 			continue

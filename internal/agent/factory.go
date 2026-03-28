@@ -61,17 +61,18 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []agenttool.Tool, plugin
 			workDir := userDataDir
 
 			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
-				API:         provID,
-				Model:       modelID,
-				APIKey:      creds.APIKey,
-				Workspace:   snap.Workspace,
-				AnnaHome:    config.AnnaHome(),
-				BaseURL:     creds.BaseURL,
-				System:      system,
-				ExtraTools:  sessionTools,
-				PluginHooks: pluginHooks,
-				WorkDir:     workDir,
-				UserDataDir: userDataDir,
+				API:            provID,
+				Model:          modelID,
+				APIKey:         creds.APIKey,
+				Workspace:      snap.Workspace,
+				AnnaHome:       config.AnnaHome(),
+				BaseURL:        creds.BaseURL,
+				System:         system,
+				ExtraTools:     sessionTools,
+				PluginHooks:    pluginHooks,
+				WorkDir:        workDir,
+				UserDataDir:    userDataDir,
+				RuntimePlugins: snap.RuntimePlugins,
 			})
 		}, nil
 	default:

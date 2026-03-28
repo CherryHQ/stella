@@ -11,6 +11,26 @@ import (
 
 const builtinPluginVersion = "1.0.0"
 
+var builtinToolNames = []string{"read", "bash", "edit", "write", "webfetch"}
+
+func BuiltinToolNames() []string {
+	names := make([]string, len(builtinToolNames))
+	copy(names, builtinToolNames)
+	return names
+}
+
+func BuiltinToolDefinitions(workDir, userDataDir string) []pluginhost.Definition {
+	defs := make([]pluginhost.Definition, 0, len(builtinToolNames))
+	for _, name := range builtinToolNames {
+		def, _, err := BuiltinToolPlugin(name, workDir, userDataDir)
+		if err != nil {
+			continue
+		}
+		defs = append(defs, def)
+	}
+	return defs
+}
+
 // BuiltinToolPlugin builds both the subprocess manifest and the local runtime
 // tool for a built-in tool name.
 func BuiltinToolPlugin(name, workDir, userDataDir string) (pluginhost.Definition, Tool, error) {

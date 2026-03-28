@@ -19,6 +19,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/selfimprove"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/scheduler"
 	"golang.org/x/sync/errgroup"
@@ -109,7 +110,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 		})
 	}
 
-	catalog, err := loadBundledChannelCatalog(s.snap.Workspace)
+	catalog, err := loadRuntimeChannelCatalog(s.snap.Workspace, config.AnnaHome())
 	if err != nil {
 		return fmt.Errorf("load channel catalog: %w", err)
 	}
@@ -133,11 +134,11 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 	}
 
 	for _, spec := range specs {
-		def, ok := catalog.Get("channel/" + spec.name)
-		if !ok {
-			return fmt.Errorf("missing bundled channel plugin: %s", spec.name)
+		def, err := resolveChannelPluginDefinition(catalog, s.snap.RuntimePlugins, spec.name)
+		if err != nil {
+			return err
 		}
-		slog.Info("starting channel plugin", "channel", spec.name)
+		slog.Info("starting channel plugin", "channel", spec.name, "plugin", def.ID())
 		ch := newChannelPlugin(spec.name, def)
 		channels = append(channels, ch)
 		adminSrv.RegisterChannelStop(spec.name, ch.Stop)
