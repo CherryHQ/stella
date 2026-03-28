@@ -73,7 +73,7 @@ func TestHelperPluginProcess(t *testing.T) {
 
 		switch env.Method {
 		case "handshake":
-			writeResponse(t, encoder, env.ID, pluginapi.HandshakeResponse{
+			writeTestResponse(t, encoder, env.ID, pluginapi.HandshakeResponse{
 				ProtocolVersion: pluginapi.ProtocolVersion,
 				Name:            "helper",
 				Version:         "1.0.0",
@@ -84,9 +84,9 @@ func TestHelperPluginProcess(t *testing.T) {
 				},
 			})
 		case "health":
-			writeResponse(t, encoder, env.ID, pluginapi.HealthResponse{OK: true})
+			writeTestResponse(t, encoder, env.ID, pluginapi.HealthResponse{OK: true})
 		case "shutdown":
-			writeResponse(t, encoder, env.ID, struct{}{})
+			writeTestResponse(t, encoder, env.ID, struct{}{})
 			return
 		default:
 			_ = encoder.Encode(pluginapi.Envelope{
@@ -116,6 +116,11 @@ func testDefinition(t *testing.T) Definition {
 		Kind:            pluginapi.KindTool,
 		ProtocolVersion: pluginapi.ProtocolVersion,
 		Entrypoint:      "helper.sh",
+		Tool: &pluginapi.ToolSpec{
+			Name:        "helper",
+			Description: "helper",
+			InputSchema: map[string]any{},
+		},
 	})
 	def, err := LoadDefinition(manifestPath)
 	if err != nil {
@@ -124,7 +129,7 @@ func testDefinition(t *testing.T) Definition {
 	return def
 }
 
-func writeResponse(t *testing.T, encoder *json.Encoder, id string, payload any) {
+func writeTestResponse(t *testing.T, encoder *json.Encoder, id string, payload any) {
 	t.Helper()
 	raw, err := json.Marshal(payload)
 	if err != nil {

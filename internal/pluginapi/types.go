@@ -30,10 +30,17 @@ type Manifest struct {
 	Entrypoint      string         `json:"entrypoint"`
 	Args            []string       `json:"args,omitempty"`
 	Description     string         `json:"description,omitempty"`
+	Tool            *ToolSpec      `json:"tool,omitempty"`
 	Capabilities    []Capability   `json:"capabilities,omitempty"`
 	ConfigSchema    map[string]any `json:"config_schema,omitempty"`
 	Permissions     map[string]any `json:"permissions,omitempty"`
 	Metadata        map[string]any `json:"metadata,omitempty"`
+}
+
+type ToolSpec struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"input_schema,omitempty"`
 }
 
 type MessageType string
@@ -82,8 +89,19 @@ type HandshakeResponse struct {
 	Version         string       `json:"version"`
 	Kind            PluginKind   `json:"kind"`
 	Capabilities    []Capability `json:"capabilities,omitempty"`
+	Tool            *ToolSpec    `json:"tool,omitempty"`
 }
 
 type HealthResponse struct {
 	OK bool `json:"ok"`
+}
+
+type ToolCallRequest struct {
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments"`
+}
+
+type ToolCallResponse struct {
+	Output string `json:"output,omitempty"`
+	Error  string `json:"error,omitempty"`
 }

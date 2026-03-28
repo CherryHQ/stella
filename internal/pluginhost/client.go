@@ -46,15 +46,29 @@ func Start(ctx context.Context, def Definition, opts StartOptions) (*Client, err
 
 	entrypoint := def.Entrypoint()
 	if entrypoint == BuiltinEntrypoint {
-		exePath, err := os.Executable()
-		if err != nil {
-			return nil, fmt.Errorf("resolve current executable: %w", err)
+		if override := os.Getenv("ANNA_PLUGIN_ENTRYPOINT"); override != "" {
+			entrypoint = override
+		} else {
+			exePath, err := os.Executable()
+			if err != nil {
+				return nil, fmt.Errorf("resolve current executable: %w", err)
+			}
+			entrypoint = exePath
 		}
-		entrypoint = exePath
 	}
 
 	cmd := exec.CommandContext(ctx, entrypoint, def.Manifest.Args...)
 	cmd.Dir = def.RootDir
+	if def.Manifest.Metadata != nil && def.Manifest.Entrypoint == BuiltinEntrypoint {
+		env := os.Environ()
+		if v, ok := def.Manifest.Metadata["work_dir"].(string); ok && v != "" {
+			env = append(env, "ANNA_PLUGIN_WORKDIR="+v)
+		}
+		if v, ok := def.Manifest.Metadata["user_data_dir"].(string); ok && v != "" {
+			env = append(env, "ANNA_PLUGIN_USER_DATA_DIR="+v)
+		}
+		cmd.Env = env
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

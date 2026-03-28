@@ -54,6 +54,8 @@ func (d Definition) Validate() error {
 		return fmt.Errorf("manifest %s: unsupported protocol_version %q", d.ManifestPath, d.Manifest.ProtocolVersion)
 	case d.Manifest.Entrypoint == "":
 		return fmt.Errorf("manifest %s: entrypoint is required", d.ManifestPath)
+	case d.Manifest.Kind == pluginapi.KindTool && d.Manifest.Tool == nil:
+		return fmt.Errorf("manifest %s: tool definition is required for tool plugins", d.ManifestPath)
 	}
 
 	entrypoint := d.Entrypoint()
@@ -71,6 +73,9 @@ func (d Definition) Validate() error {
 }
 
 func (d Definition) Entrypoint() string {
+	if d.Manifest.Entrypoint == BuiltinEntrypoint {
+		return BuiltinEntrypoint
+	}
 	if filepath.IsAbs(d.Manifest.Entrypoint) {
 		return d.Manifest.Entrypoint
 	}

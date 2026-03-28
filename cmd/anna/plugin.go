@@ -9,8 +9,10 @@ import (
 	"strings"
 
 	ucli "github.com/urfave/cli/v2"
+	agenttool "github.com/vaayne/anna/internal/agent/tool"
 	"github.com/vaayne/anna/internal/config"
 	pluginmgr "github.com/vaayne/anna/internal/plugin"
+	"github.com/vaayne/anna/internal/pluginhost"
 )
 
 func pluginCommand() *ucli.Command {
@@ -21,6 +23,7 @@ func pluginCommand() *ucli.Command {
 			pluginListCommand(),
 			pluginAddCommand(),
 			pluginRemoveCommand(),
+			pluginRuntimeCommand(),
 		},
 		Action: func(c *ucli.Context) error {
 			return pluginListAction()
@@ -169,6 +172,49 @@ func pluginRemoveCommand() *ucli.Command {
 
 			fmt.Printf("Plugin %q removed.\n", target)
 			return nil
+		},
+	}
+}
+
+func pluginRuntimeCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:   "runtime",
+		Hidden: true,
+		Subcommands: []*ucli.Command{
+			pluginRuntimeToolCommand(),
+		},
+	}
+}
+
+func pluginRuntimeToolCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:   "tool",
+		Hidden: true,
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "work-dir"},
+			&ucli.StringFlag{Name: "user-data-dir"},
+		},
+		Action: func(c *ucli.Context) error {
+			name := c.Args().First()
+			if name == "" {
+				return fmt.Errorf("usage: anna plugin runtime tool <name>")
+			}
+
+			workDir := c.String("work-dir")
+			if workDir == "" {
+				workDir = os.Getenv("ANNA_PLUGIN_WORKDIR")
+			}
+			userDataDir := c.String("user-data-dir")
+			if userDataDir == "" {
+				userDataDir = os.Getenv("ANNA_PLUGIN_USER_DATA_DIR")
+			}
+
+			def, runtime, err := agenttool.BuiltinToolPlugin(name, workDir, userDataDir)
+			if err != nil {
+				return err
+			}
+
+			return pluginhost.ServeTool(c.Context, def, runtime, os.Stdin, os.Stdout)
 		},
 	}
 }

@@ -16,6 +16,11 @@ func TestDiscover(t *testing.T) {
 		Kind:            pluginapi.KindTool,
 		ProtocolVersion: pluginapi.ProtocolVersion,
 		Entrypoint:      "plugin.sh",
+		Tool: &pluginapi.ToolSpec{
+			Name:        "read",
+			Description: "read",
+			InputSchema: map[string]any{},
+		},
 	})
 	if err := os.WriteFile(filepath.Join(root, "tool", "plugin.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -42,6 +47,11 @@ func TestDiscoverDuplicate(t *testing.T) {
 		Kind:            pluginapi.KindTool,
 		ProtocolVersion: pluginapi.ProtocolVersion,
 		Entrypoint:      "plugin.sh",
+		Tool: &pluginapi.ToolSpec{
+			Name:        "read",
+			Description: "read",
+			InputSchema: map[string]any{},
+		},
 	})
 	writeManifest(t, filepath.Join(root, "b", "plugin.json"), pluginapi.Manifest{
 		Name:            "read",
@@ -49,6 +59,11 @@ func TestDiscoverDuplicate(t *testing.T) {
 		Kind:            pluginapi.KindTool,
 		ProtocolVersion: pluginapi.ProtocolVersion,
 		Entrypoint:      "plugin.sh",
+		Tool: &pluginapi.ToolSpec{
+			Name:        "read",
+			Description: "read",
+			InputSchema: map[string]any{},
+		},
 	})
 
 	if err := os.WriteFile(filepath.Join(root, "a", "plugin.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
