@@ -98,6 +98,8 @@
   use `anna-plugin` as the builtin entrypoint instead of the main binary.
 - Updated GoReleaser packaging so release archives include both `anna` and
   `anna-plugin`, keeping the helper binary present in shipped artifacts.
+- Fixed the helper fallback path to preserve the executable suffix from the
+  current binary, so Windows installs resolve `anna-plugin.exe` correctly.
 
 ## Phase 2: Tool Plugin Migration
 

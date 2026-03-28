@@ -57,7 +57,8 @@ func Start(ctx context.Context, def Definition, opts StartOptions) (*Client, err
 			if err != nil {
 				return nil, fmt.Errorf("resolve current executable: %w", err)
 			}
-			entrypoint = filepath.Join(filepath.Dir(exePath), "anna-plugin")
+			helperName := "anna-plugin" + filepath.Ext(exePath)
+			entrypoint = filepath.Join(filepath.Dir(exePath), helperName)
 		}
 	}
 
