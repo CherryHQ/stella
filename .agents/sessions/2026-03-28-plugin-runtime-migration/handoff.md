@@ -258,6 +258,9 @@
 - `c393ba8` — `✨ feat: add runtime plugin bindings`
 - `61a5c76` — `✨ feat: add runtime plugin runtime CLI`
 - `1a73cce` — `🧪 test: cover runtime plugin bindings`
+- `1f7013c` — `📝 docs: record runtime plugin bindings`
+- `c2bfcd1` — `🧪 test: cover runtime plugin settings helpers`
+- `4afcd29` — `📝 docs: clarify runtime plugin slot bindings`
 
 **Decisions & context for next phase:**
 
