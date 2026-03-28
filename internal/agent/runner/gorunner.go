@@ -159,8 +159,13 @@ func (r *GoRunner) LastActivity() time.Time {
 	return r.lastActivity
 }
 
-// Close is a no-op for the Go runner.
-func (r *GoRunner) Close() error { return nil }
+// Close shuts down any subprocess-backed tools owned by the runner.
+func (r *GoRunner) Close() error {
+	if r.tools != nil {
+		_ = r.tools.Close()
+	}
+	return nil
+}
 
 // buildToolSet adapts tool.Registry to engine.ToolSet for Engine.
 func (r *GoRunner) buildToolSet() engine.ToolSet {

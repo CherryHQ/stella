@@ -21,10 +21,13 @@ type Registry struct {
 	tools map[string]Tool
 }
 
+type closeableTool interface {
+	Close() error
+}
+
 // NewRegistry creates a registry with the default built-in tools.
-// When userDataDir is non-empty, file tools (read, write, edit) are wrapped
-// with sandbox validation that restricts paths to the user's data directory.
-// The bash tool uses userDataDir as its working directory when set.
+// Built-ins are exposed through subprocess plugin wrappers so the runner can
+// exercise the same protocol path as later third-party plugins.
 func NewRegistry(workDir string, userDataDir ...string) *Registry {
 	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
@@ -35,18 +38,22 @@ func NewRegistry(workDir string, userDataDir ...string) *Registry {
 		sandbox = userDataDir[0]
 	}
 
-	// Use user data dir as bash work dir when available.
-	bashDir := workDir
-	if sandbox != "" {
-		bashDir = sandbox
-	}
-
 	r := &Registry{tools: make(map[string]Tool)}
-	r.Register(wrapWithSandbox(&ReadTool{}, sandbox, "file_path"))
-	r.Register(&BashTool{workDir: bashDir})
-	r.Register(wrapWithSandbox(&EditTool{}, sandbox, "file_path"))
-	r.Register(wrapWithSandbox(&WriteTool{}, sandbox, "file_path"))
-	r.Register(NewWebFetchTool())
+
+	for _, name := range []string{"read", "bash", "edit", "write", "webfetch"} {
+		def, _, err := BuiltinToolPlugin(name, workDir, sandbox)
+		if err != nil {
+			slog.Warn("failed to configure builtin tool plugin", "tool", name, "error", err)
+			continue
+		}
+		t := newPluginTool(def)
+		switch name {
+		case "read", "edit", "write":
+			r.Register(wrapWithSandbox(t, sandbox, "file_path"))
+		default:
+			r.Register(t)
+		}
+	}
 	return r
 }
 
@@ -86,4 +93,17 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]any
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
 	return t.Execute(ctx, args)
+}
+
+// Close shuts down any tools that expose a Close method.
+func (r *Registry) Close() error {
+	var lastErr error
+	for _, t := range r.tools {
+		if c, ok := t.(closeableTool); ok {
+			if err := c.Close(); err != nil {
+				lastErr = err
+			}
+		}
+	}
+	return lastErr
 }
