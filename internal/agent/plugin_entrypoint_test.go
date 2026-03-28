@@ -31,8 +31,8 @@ func runTestsWithPluginBinary(m *testing.M, rootRel string) int {
 			pluginBinaryErr = err
 			return
 		}
-		binPath := filepath.Join(dir, "anna-test-bin")
-		cmd := exec.Command("go", "build", "-o", binPath, "./cmd/anna")
+		binPath := filepath.Join(dir, "anna-plugin-test-bin")
+		cmd := exec.Command("go", "build", "-o", binPath, "./cmd/anna-plugin")
 		cmd.Dir = root
 		cmd.Env = os.Environ()
 		out, err := cmd.CombinedOutput()

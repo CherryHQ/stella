@@ -92,6 +92,10 @@
   inherited file descriptor instead of trusting env vars alone.
 - Bounded `Client.Close()` shutdown requests with a timeout so an unresponsive
   plugin cannot block runner teardown indefinitely.
+- Removed the tool runtime from the main `anna` binary entirely and moved the
+  subprocess bridge into the dedicated `cmd/anna-plugin` helper binary.
+- Updated the test harnesses and command build task so plugin-backed tools now
+  use `anna-plugin` as the builtin entrypoint instead of the main binary.
 
 ## Phase 2: Tool Plugin Migration
 

@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -18,47 +17,47 @@ import (
 )
 
 var (
-	annaBinaryOnce sync.Once
-	annaBinaryPath string
-	annaBinaryErr  error
+	annaPluginBinaryOnce sync.Once
+	annaPluginBinaryPath string
+	annaPluginBinaryErr  error
 )
 
-func buildAnnaBinary(t *testing.T) string {
+func buildAnnaPluginBinary(t *testing.T) string {
 	t.Helper()
 
-	annaBinaryOnce.Do(func() {
+	annaPluginBinaryOnce.Do(func() {
 		root, err := filepath.Abs(filepath.Join("..", ".."))
 		if err != nil {
-			annaBinaryErr = err
+			annaPluginBinaryErr = err
 			return
 		}
 		dir, err := os.MkdirTemp("", "anna-plugin-bin-")
 		if err != nil {
-			annaBinaryErr = err
+			annaPluginBinaryErr = err
 			return
 		}
-		binPath := filepath.Join(dir, "anna-test-bin")
-		cmd := exec.Command("go", "build", "-o", binPath, "./cmd/anna")
+		binPath := filepath.Join(dir, "anna-plugin-test-bin")
+		cmd := exec.Command("go", "build", "-o", binPath, "./cmd/anna-plugin")
 		cmd.Dir = root
 		cmd.Env = os.Environ()
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			annaBinaryErr = fmt.Errorf("build anna binary: %w: %s", err, string(out))
+			annaPluginBinaryErr = fmt.Errorf("build anna-plugin binary: %w: %s", err, string(out))
 			return
 		}
-		annaBinaryPath = binPath
+		annaPluginBinaryPath = binPath
 	})
-	if annaBinaryErr != nil {
-		t.Fatal(annaBinaryErr)
+	if annaPluginBinaryErr != nil {
+		t.Fatal(annaPluginBinaryErr)
 	}
-	return annaBinaryPath
+	return annaPluginBinaryPath
 }
 
 func TestPluginToolRegistryExecuteReadWriteEdit(t *testing.T) {
 	t.Setenv("ANNA_HOME", t.TempDir())
 	config.ResetAnnaHome()
 	t.Cleanup(config.ResetAnnaHome)
-	t.Setenv("ANNA_PLUGIN_ENTRYPOINT", buildAnnaBinary(t))
+	t.Setenv("ANNA_PLUGIN_ENTRYPOINT", buildAnnaPluginBinary(t))
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
@@ -122,7 +121,7 @@ func TestPluginToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 	t.Setenv("ANNA_HOME", t.TempDir())
 	config.ResetAnnaHome()
 	t.Cleanup(config.ResetAnnaHome)
-	t.Setenv("ANNA_PLUGIN_ENTRYPOINT", buildAnnaBinary(t))
+	t.Setenv("ANNA_PLUGIN_ENTRYPOINT", buildAnnaPluginBinary(t))
 
 	workDir := t.TempDir()
 	reg := agenttool.NewRegistry(workDir)
@@ -158,7 +157,7 @@ func TestPluginToolRegistrySandbox(t *testing.T) {
 	t.Setenv("ANNA_HOME", t.TempDir())
 	config.ResetAnnaHome()
 	t.Cleanup(config.ResetAnnaHome)
-	t.Setenv("ANNA_PLUGIN_ENTRYPOINT", buildAnnaBinary(t))
+	t.Setenv("ANNA_PLUGIN_ENTRYPOINT", buildAnnaPluginBinary(t))
 
 	allowed := t.TempDir()
 	outside := t.TempDir()
@@ -174,32 +173,5 @@ func TestPluginToolRegistrySandbox(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "sandbox") {
 		t.Fatalf("sandbox error = %v, want sandbox in error", err)
-	}
-}
-
-func TestMaybeRunInternalPluginRuntimeRejectsTokenMismatch(t *testing.T) {
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = reader.Close() })
-	if _, err := writer.WriteString("expected-token"); err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("ANNA_INTERNAL_PLUGIN_MODE", "tool")
-	t.Setenv("ANNA_INTERNAL_TOOL_NAME", "read")
-	t.Setenv("ANNA_INTERNAL_PLUGIN_TOKEN", "wrong-token")
-	t.Setenv("ANNA_INTERNAL_PLUGIN_TOKEN_FD", strconv.Itoa(int(reader.Fd())))
-
-	handled, err := maybeRunInternalPluginRuntime()
-	if !handled {
-		t.Fatal("expected internal runtime mode to be handled")
-	}
-	if err == nil || err.Error() != "internal plugin runtime token mismatch" {
-		t.Fatalf("maybeRunInternalPluginRuntime() error = %v, want token mismatch", err)
 	}
 }

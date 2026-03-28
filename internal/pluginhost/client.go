@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -56,43 +57,19 @@ func Start(ctx context.Context, def Definition, opts StartOptions) (*Client, err
 			if err != nil {
 				return nil, fmt.Errorf("resolve current executable: %w", err)
 			}
-			entrypoint = exePath
+			entrypoint = filepath.Join(filepath.Dir(exePath), "anna-plugin")
 		}
 	}
 
 	cmd := exec.CommandContext(ctx, entrypoint, def.Manifest.Args...)
 	cmd.Dir = def.RootDir
-	var startupClosers []io.Closer
 	if def.Manifest.Metadata != nil && def.Manifest.Entrypoint == BuiltinEntrypoint {
 		env := os.Environ()
-		env = append(env, "ANNA_INTERNAL_PLUGIN_MODE=tool")
-		if v, ok := def.Manifest.Metadata["tool_name"].(string); ok && v != "" {
-			env = append(env, "ANNA_INTERNAL_TOOL_NAME="+v)
-		}
 		if v, ok := def.Manifest.Metadata["work_dir"].(string); ok && v != "" {
 			env = append(env, "ANNA_PLUGIN_WORKDIR="+v)
 		}
 		if v, ok := def.Manifest.Metadata["user_data_dir"].(string); ok && v != "" {
 			env = append(env, "ANNA_PLUGIN_USER_DATA_DIR="+v)
-		}
-		if v, ok := def.Manifest.Metadata["runtime_token"].(string); ok && v != "" {
-			env = append(env, "ANNA_INTERNAL_PLUGIN_TOKEN="+v)
-			reader, writer, err := os.Pipe()
-			if err != nil {
-				return nil, fmt.Errorf("create runtime token pipe: %w", err)
-			}
-			if _, err := writer.WriteString(v); err != nil {
-				_ = reader.Close()
-				_ = writer.Close()
-				return nil, fmt.Errorf("write runtime token: %w", err)
-			}
-			if err := writer.Close(); err != nil {
-				_ = reader.Close()
-				return nil, fmt.Errorf("close runtime token writer: %w", err)
-			}
-			cmd.ExtraFiles = append(cmd.ExtraFiles, reader)
-			startupClosers = append(startupClosers, reader)
-			env = append(env, "ANNA_INTERNAL_PLUGIN_TOKEN_FD=3")
 		}
 		cmd.Env = env
 	}
@@ -111,13 +88,7 @@ func Start(ctx context.Context, def Definition, opts StartOptions) (*Client, err
 	}
 
 	if err := cmd.Start(); err != nil {
-		for _, closer := range startupClosers {
-			_ = closer.Close()
-		}
 		return nil, fmt.Errorf("start process: %w", err)
-	}
-	for _, closer := range startupClosers {
-		_ = closer.Close()
 	}
 
 	c := &Client{
