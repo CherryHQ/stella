@@ -460,6 +460,9 @@ func (b *Bot) handleCommand(rc *channel.ResolvedChat, text, senderID string, rep
 	args := channel.ParseCommandArgs(text, fields[0])
 
 	switch cmd {
+	case "/auth":
+		reply("The /auth command was removed. Feishu workspace OAuth is no longer supported. If you need Lark workspace access, install a lark-cli skill and run `lark-cli auth login --recommend`.")
+		return true
 	case "/model":
 		b.handleModelCommand(rc, args, reply)
 		return true
