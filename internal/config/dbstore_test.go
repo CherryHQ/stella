@@ -366,6 +366,8 @@ func TestSnapshot(t *testing.T) {
 
 	_ = store.SetSetting(ctx, "runner", `{"type":"go","idle_timeout":30}`)
 	_ = store.SetSetting(ctx, "compaction", `{"enabled":true}`)
+	_ = store.SetSetting(ctx, "plugins", `[{"path":"/tmp/example.js","config":{"mode":"test"}}]`)
+	_ = store.SetSetting(ctx, "runtime_plugins", `{"tools":{"read":"tool/custom-read"},"channels":{"telegram":"channel/custom-telegram"}}`)
 
 	snap, err := store.Snapshot(ctx, "anna")
 	if err != nil {
@@ -392,6 +394,15 @@ func TestSnapshot(t *testing.T) {
 	}
 	if snap.Runner.IdleTimeout != 30 {
 		t.Errorf("Runner.IdleTimeout = %d", snap.Runner.IdleTimeout)
+	}
+	if len(snap.Plugins) != 1 || snap.Plugins[0].Path != "/tmp/example.js" {
+		t.Errorf("Plugins = %+v", snap.Plugins)
+	}
+	if got := snap.RuntimePlugins.ToolBinding("read"); got != "tool/custom-read" {
+		t.Errorf("RuntimePlugins.ToolBinding(read) = %q", got)
+	}
+	if got := snap.RuntimePlugins.ChannelBinding("telegram"); got != "channel/custom-telegram" {
+		t.Errorf("RuntimePlugins.ChannelBinding(telegram) = %q", got)
 	}
 }
 
