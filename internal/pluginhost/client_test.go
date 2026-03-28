@@ -58,6 +58,34 @@ func TestSupervisorRestartsDeadPlugin(t *testing.T) {
 	}
 }
 
+func TestClientCancelsByKillingPluginProcess(t *testing.T) {
+	def := testDefinitionWithEnv(t, map[string]string{
+		"ANNA_PLUGIN_HELPER_SLOW_HEALTH": "1",
+	})
+
+	client, err := Start(context.Background(), def, StartOptions{})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	err = client.Health(ctx)
+	if err == nil {
+		t.Fatal("Health() error = nil, want deadline exceeded")
+	}
+	if err != context.DeadlineExceeded {
+		t.Fatalf("Health() error = %v, want %v", err, context.DeadlineExceeded)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	if client.Alive() {
+		t.Fatal("expected plugin process to be terminated after request cancellation")
+	}
+}
+
 func TestHelperPluginProcess(t *testing.T) {
 	if os.Getenv("ANNA_PLUGIN_HELPER_PROCESS") != "1" {
 		return
@@ -84,6 +112,9 @@ func TestHelperPluginProcess(t *testing.T) {
 				},
 			})
 		case "health":
+			if os.Getenv("ANNA_PLUGIN_HELPER_SLOW_HEALTH") == "1" {
+				time.Sleep(5 * time.Second)
+			}
 			writeTestResponse(t, encoder, env.ID, pluginapi.HealthResponse{OK: true})
 		case "shutdown":
 			writeTestResponse(t, encoder, env.ID, struct{}{})
@@ -102,10 +133,18 @@ func TestHelperPluginProcess(t *testing.T) {
 }
 
 func testDefinition(t *testing.T) Definition {
+	return testDefinitionWithEnv(t, nil)
+}
+
+func testDefinitionWithEnv(t *testing.T, extraEnv map[string]string) Definition {
 	t.Helper()
 	root := t.TempDir()
 	entry := filepath.Join(root, "helper.sh")
-	script := fmt.Sprintf("#!/bin/sh\nANNA_PLUGIN_HELPER_PROCESS=1 exec %q -test.run TestHelperPluginProcess --\n", os.Args[0])
+	var envPrefix string
+	for k, v := range extraEnv {
+		envPrefix += fmt.Sprintf("%s=%q ", k, v)
+	}
+	script := fmt.Sprintf("#!/bin/sh\nANNA_PLUGIN_HELPER_PROCESS=1 %sexec %q -test.run TestHelperPluginProcess --\n", envPrefix, os.Args[0])
 	if err := os.WriteFile(entry, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

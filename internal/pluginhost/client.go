@@ -30,6 +30,7 @@ type Client struct {
 	reqMu    sync.Mutex
 	closeMu  sync.Mutex
 	closed   atomic.Bool
+	cancelMu sync.Mutex
 	exitErr  atomic.Pointer[error]
 	waitDone chan struct{}
 }
@@ -61,11 +62,18 @@ func Start(ctx context.Context, def Definition, opts StartOptions) (*Client, err
 	cmd.Dir = def.RootDir
 	if def.Manifest.Metadata != nil && def.Manifest.Entrypoint == BuiltinEntrypoint {
 		env := os.Environ()
+		env = append(env, "ANNA_INTERNAL_PLUGIN_MODE=tool")
+		if v, ok := def.Manifest.Metadata["tool_name"].(string); ok && v != "" {
+			env = append(env, "ANNA_INTERNAL_TOOL_NAME="+v)
+		}
 		if v, ok := def.Manifest.Metadata["work_dir"].(string); ok && v != "" {
 			env = append(env, "ANNA_PLUGIN_WORKDIR="+v)
 		}
 		if v, ok := def.Manifest.Metadata["user_data_dir"].(string); ok && v != "" {
 			env = append(env, "ANNA_PLUGIN_USER_DATA_DIR="+v)
+		}
+		if v, ok := def.Manifest.Metadata["runtime_token"].(string); ok && v != "" {
+			env = append(env, "ANNA_INTERNAL_PLUGIN_TOKEN="+v)
 		}
 		cmd.Env = env
 	}
@@ -224,35 +232,42 @@ func (c *Client) request(ctx context.Context, method string, params any, out any
 		return err
 	}
 
-	type response struct {
-		env pluginapi.Envelope
-		err error
-	}
-	ch := make(chan response, 1)
+	done := make(chan struct{})
 	go func() {
-		resp, err := readEnvelope(c.stdout)
-		ch <- response{env: resp, err: err}
+		select {
+		case <-ctx.Done():
+			c.abortCurrentRequest()
+		case <-done:
+		}
 	}()
+	defer close(done)
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case resp := <-ch:
-		if resp.err != nil {
-			return resp.err
+	resp, err := readEnvelope(c.stdout)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
 		}
-		if resp.env.Type != pluginapi.MessageTypeResponse {
-			return fmt.Errorf("unexpected message type %q", resp.env.Type)
-		}
-		if resp.env.Error != nil {
-			return resp.env.Error
-		}
-		if out == nil || len(resp.env.Result) == 0 {
-			return nil
-		}
-		if err := json.Unmarshal(resp.env.Result, out); err != nil {
-			return fmt.Errorf("decode response: %w", err)
-		}
+		return err
+	}
+	if resp.Type != pluginapi.MessageTypeResponse {
+		return fmt.Errorf("unexpected message type %q", resp.Type)
+	}
+	if resp.Error != nil {
+		return resp.Error
+	}
+	if out == nil || len(resp.Result) == 0 {
 		return nil
+	}
+	if err := json.Unmarshal(resp.Result, out); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) abortCurrentRequest() {
+	c.cancelMu.Lock()
+	defer c.cancelMu.Unlock()
+	if c.cmd != nil && c.Alive() && c.cmd.Process != nil {
+		_ = c.cmd.Process.Kill()
 	}
 }

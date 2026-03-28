@@ -75,6 +75,20 @@
 - Tool migration should start by defining the tool RPC contract and adapter
   before converting the concrete tools.
 
+### Fixes
+
+- Removed the hidden `anna plugin runtime ...` CLI entrypoint and moved the
+  builtin tool runtime behind an internal env-driven boot path in `cmd/anna`,
+  so the subprocess bridge is no longer exposed as a normal command surface.
+- Changed request cancellation in `internal/pluginhost/client.go` to terminate
+  the current plugin process instead of leaking a blocked response reader
+  goroutine.
+- Added `Close()` forwarding to the sandbox wrapper so subprocess-backed file
+  tools actually shut down when the runner closes.
+- Added `internal/agent/tool/plugin_entrypoint_test.go` so tool package tests
+  use a real built `anna` binary as the builtin plugin entrypoint instead of
+  recursively re-running the Go test binary.
+
 ## Phase 2: Tool Plugin Migration
 
 **Status:** complete

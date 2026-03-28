@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/google/uuid"
 	"github.com/vaayne/anna/internal/pluginapi"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/toolspec"
@@ -17,6 +18,10 @@ func BuiltinToolPlugin(name, workDir, userDataDir string) (pluginhost.Definition
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = ""
+	}
+	runtimeToken := os.Getenv("ANNA_INTERNAL_PLUGIN_TOKEN")
+	if runtimeToken == "" {
+		runtimeToken = uuid.NewString()
 	}
 
 	var runtime Tool
@@ -54,14 +59,6 @@ func BuiltinToolPlugin(name, workDir, userDataDir string) (pluginhost.Definition
 		Kind:            pluginapi.KindTool,
 		ProtocolVersion: pluginapi.ProtocolVersion,
 		Entrypoint:      pluginhost.BuiltinEntrypoint,
-		Args: []string{
-			"plugin",
-			"runtime",
-			"tool",
-			name,
-			"--work-dir",
-			workDir,
-		},
 		Capabilities: []pluginapi.Capability{
 			pluginapi.CapabilityToolCall,
 			pluginapi.CapabilityHealthCheck,
@@ -69,12 +66,11 @@ func BuiltinToolPlugin(name, workDir, userDataDir string) (pluginhost.Definition
 		},
 		Tool: toolSpecFrom(def),
 		Metadata: map[string]any{
+			"tool_name":     name,
 			"work_dir":      workDir,
 			"user_data_dir": userDataDir,
+			"runtime_token": runtimeToken,
 		},
-	}
-	if userDataDir != "" {
-		manifest.Args = append(manifest.Args, "--user-data-dir", userDataDir)
 	}
 
 	return pluginhost.Definition{

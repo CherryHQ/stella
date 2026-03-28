@@ -11,7 +11,25 @@ import (
 	"testing"
 
 	readability "codeberg.org/readeck/go-readability/v2"
+	"github.com/vaayne/anna/internal/toolspec"
 )
+
+type closeRecorderTool struct {
+	closed bool
+}
+
+func (t *closeRecorderTool) Definition() toolspec.Definition {
+	return toolspec.Definition{Name: "close-recorder"}
+}
+
+func (t *closeRecorderTool) Execute(context.Context, map[string]any) (string, error) {
+	return "", nil
+}
+
+func (t *closeRecorderTool) Close() error {
+	t.closed = true
+	return nil
+}
 
 func TestRegistryDefinitions(t *testing.T) {
 	reg := NewRegistry("")
@@ -36,6 +54,22 @@ func TestRegistryExecuteUnknown(t *testing.T) {
 	_, err := reg.Execute(context.Background(), "nonexistent", nil)
 	if err == nil {
 		t.Fatal("expected error for unknown tool")
+	}
+}
+
+func TestSandboxToolCloseDelegates(t *testing.T) {
+	inner := &closeRecorderTool{}
+	wrapped := wrapWithSandbox(inner, t.TempDir(), "file_path")
+
+	closer, ok := wrapped.(closeableTool)
+	if !ok {
+		t.Fatal("wrapped sandbox tool should expose Close")
+	}
+	if err := closer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if !inner.closed {
+		t.Fatal("expected sandbox wrapper to delegate Close to inner tool")
 	}
 }
 
