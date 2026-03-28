@@ -21,7 +21,6 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/feishutool"
 )
 
 const feishuMaxMessageLen = 4000
@@ -49,16 +48,14 @@ type Config struct {
 	AppSecret         string                 `json:"app_secret"`
 	EncryptKey        string                 `json:"encrypt_key"`
 	VerificationToken string                 `json:"verification_token"`
-	GroupMode         string                 `json:"group_mode"`   // "mention" | "always" | "disabled"
-	Groups            map[string]GroupConfig `json:"groups"`       // per-group overrides keyed by chat_id
-	RedirectURI       string                 `json:"redirect_uri"` // OAuth redirect URI (default: https://anna.vaayne.com/oauth/callback)
+	GroupMode         string                 `json:"group_mode"` // "mention" | "always" | "disabled"
+	Groups            map[string]GroupConfig `json:"groups"`     // per-group overrides keyed by chat_id
 }
 
 // Bot wraps a Feishu bot with agent pool integration.
 type Bot struct {
 	client      *lark.Client
 	wsClient    *larkws.Client
-	fsClient    *feishutool.Client // feishutool client for OAuth operations
 	poolManager *agent.PoolManager
 	store       config.Store
 	authStore   auth.AuthStore
@@ -92,14 +89,6 @@ func WithAuth(authStore auth.AuthStore, engine *auth.PolicyEngine, linkCodes *au
 		b.engine = engine
 		b.linkCodes = linkCodes
 		b.agentCmd = channel.NewAgentCommander(b.store, authStore)
-	}
-}
-
-// WithFeishuClient configures the bot with a feishutool.Client for OAuth
-// and UAT token operations.
-func WithFeishuClient(c *feishutool.Client) BotOption {
-	return func(b *Bot) {
-		b.fsClient = c
 	}
 }
 

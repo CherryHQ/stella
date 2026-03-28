@@ -54,6 +54,8 @@ Access control is handled by RBAC (auth_identities + policy engine). Notificatio
 
 **Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `group_mode`, `enable_notify`
 
+Feishu is a chat channel only. Lark workspace operations no longer ship as built-in `feishu_*` tools; add a `lark-cli` skill yourself if you want that workflow.
+
 ## Settings (key-value)
 
 Global settings are stored in the `settings` table as JSON values:

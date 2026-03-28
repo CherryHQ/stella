@@ -17,4 +17,3 @@
 -- atlas:import tables/auth_policies.sql
 -- atlas:import tables/auth_user_agents.sql
 -- atlas:import tables/auth_sessions.sql
--- atlas:import tables/feishu_tokens.sql

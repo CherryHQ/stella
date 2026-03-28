@@ -105,13 +105,14 @@ Feishu channel config (JSON):
 
 5. Start: `anna`
 
-Connects via WebSocket (no public URL or webhook needed). Feishu currently uses the default agent only.
+Connects via WebSocket (no public URL or webhook needed).
 
 ### Feishu features
 
 - Edit-in-place streaming for progressive responses
 - Private (p2p) and group @mention support
-- Commands: `/new`, `/compact`, `/model`, `/whoami`
+- Commands: `/new`, `/compact`, `/model`, `/agent`, `/whoami`
+- Chat transport only. Workspace automation moved out of builtin `feishu_*` tools; add a `lark-cli` skill yourself if you want that workflow.
 
 ## WeChat bot (iLink)
 
