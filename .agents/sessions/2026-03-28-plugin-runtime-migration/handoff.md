@@ -88,6 +88,10 @@
 - Added `internal/agent/tool/plugin_entrypoint_test.go` so tool package tests
   use a real built `anna` binary as the builtin plugin entrypoint instead of
   recursively re-running the Go test binary.
+- Tightened the internal runtime gate to verify a host-provided token from an
+  inherited file descriptor instead of trusting env vars alone.
+- Bounded `Client.Close()` shutdown requests with a timeout so an unresponsive
+  plugin cannot block runner teardown indefinitely.
 
 ## Phase 2: Tool Plugin Migration
 

@@ -19,10 +19,7 @@ func BuiltinToolPlugin(name, workDir, userDataDir string) (pluginhost.Definition
 	if err != nil {
 		cwd = ""
 	}
-	runtimeToken := os.Getenv("ANNA_INTERNAL_PLUGIN_TOKEN")
-	if runtimeToken == "" {
-		runtimeToken = uuid.NewString()
-	}
+	runtimeToken := uuid.NewString()
 
 	var runtime Tool
 	var def toolspec.Definition

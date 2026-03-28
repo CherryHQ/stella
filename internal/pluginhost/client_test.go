@@ -86,6 +86,29 @@ func TestClientCancelsByKillingPluginProcess(t *testing.T) {
 	}
 }
 
+func TestClientCloseKillsUnresponsivePlugin(t *testing.T) {
+	def := testDefinitionWithEnv(t, map[string]string{
+		"ANNA_PLUGIN_HELPER_SLOW_SHUTDOWN": "1",
+	})
+
+	client, err := Start(context.Background(), def, StartOptions{})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	start := time.Now()
+	err = client.Close()
+	if err == nil {
+		t.Fatal("Close() error = nil, want killed process error")
+	}
+	if time.Since(start) > time.Second {
+		t.Fatalf("Close() took too long: %v", time.Since(start))
+	}
+	if client.Alive() {
+		t.Fatal("expected plugin process to be terminated after slow shutdown")
+	}
+}
+
 func TestHelperPluginProcess(t *testing.T) {
 	if os.Getenv("ANNA_PLUGIN_HELPER_PROCESS") != "1" {
 		return
@@ -117,6 +140,9 @@ func TestHelperPluginProcess(t *testing.T) {
 			}
 			writeTestResponse(t, encoder, env.ID, pluginapi.HealthResponse{OK: true})
 		case "shutdown":
+			if os.Getenv("ANNA_PLUGIN_HELPER_SLOW_SHUTDOWN") == "1" {
+				time.Sleep(5 * time.Second)
+			}
 			writeTestResponse(t, encoder, env.ID, struct{}{})
 			return
 		default:

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -173,5 +174,32 @@ func TestPluginToolRegistrySandbox(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "sandbox") {
 		t.Fatalf("sandbox error = %v, want sandbox in error", err)
+	}
+}
+
+func TestMaybeRunInternalPluginRuntimeRejectsTokenMismatch(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reader.Close() })
+	if _, err := writer.WriteString("expected-token"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("ANNA_INTERNAL_PLUGIN_MODE", "tool")
+	t.Setenv("ANNA_INTERNAL_TOOL_NAME", "read")
+	t.Setenv("ANNA_INTERNAL_PLUGIN_TOKEN", "wrong-token")
+	t.Setenv("ANNA_INTERNAL_PLUGIN_TOKEN_FD", strconv.Itoa(int(reader.Fd())))
+
+	handled, err := maybeRunInternalPluginRuntime()
+	if !handled {
+		t.Fatal("expected internal runtime mode to be handled")
+	}
+	if err == nil || err.Error() != "internal plugin runtime token mismatch" {
+		t.Fatalf("maybeRunInternalPluginRuntime() error = %v, want token mismatch", err)
 	}
 }
