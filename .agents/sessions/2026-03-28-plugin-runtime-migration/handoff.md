@@ -114,6 +114,7 @@
 
 - `47c34a9` — `✨ feat: add subprocess tool runtime bridge`
 - `ded0fff` — `✨ feat: run built-in tools through plugins`
+- `da97d2d` — `🧪 test: cover plugin-backed tool migration`
 
 **Decisions & context for next phase:**
 
