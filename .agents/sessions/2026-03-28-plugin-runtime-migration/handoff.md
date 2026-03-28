@@ -96,6 +96,8 @@
   subprocess bridge into the dedicated `cmd/anna-plugin` helper binary.
 - Updated the test harnesses and command build task so plugin-backed tools now
   use `anna-plugin` as the builtin entrypoint instead of the main binary.
+- Updated GoReleaser packaging so release archives include both `anna` and
+  `anna-plugin`, keeping the helper binary present in shipped artifacts.
 
 ## Phase 2: Tool Plugin Migration
 

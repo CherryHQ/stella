@@ -22,9 +22,24 @@ builds:
     hooks:
       pre:
         - bash scripts/download-tools.sh --goos {{ .Os }} --goarch {{ .Arch }}
+  - id: anna-plugin
+    main: ./cmd/anna-plugin
+    binary: anna-plugin
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
 
 archives:
   - id: anna
+    ids:
+      - anna
+      - anna-plugin
 
 changelog:
   sort: asc
