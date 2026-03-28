@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -20,11 +19,6 @@ import (
 	"github.com/vaayne/anna/internal/agent/selfimprove"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
-	"github.com/vaayne/anna/internal/channel/feishu"
-	"github.com/vaayne/anna/internal/channel/qq"
-	"github.com/vaayne/anna/internal/channel/telegram"
-	"github.com/vaayne/anna/internal/channel/weixin"
-	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/scheduler"
 	"golang.org/x/sync/errgroup"
@@ -112,101 +106,40 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 		})
 	}
 
-	// Load channel configs from DB.
-	tgCfg := loadChannelConfig[telegramChannelConfig](s.store, channel.PlatformTelegram)
-	qqCfg := loadChannelConfig[qqChannelConfig](s.store, channel.PlatformQQ)
-	fsCfg := loadChannelConfig[feishuChannelConfig](s.store, channel.PlatformFeishu)
-	wxCfg := loadChannelConfig[weixinChannelConfig](s.store, channel.PlatformWeixin)
-
-	// --- Telegram ---
-	if tgCfg != nil && tgCfg.Token != "" {
-		slog.Info("starting telegram bot")
-
-		tgBot, err := telegram.New(telegram.Config{
-			Token:     tgCfg.Token,
-			ChannelID: tgCfg.ChannelID,
-			GroupMode: tgCfg.GroupMode,
-		}, s.poolManager, s.store, listFn, switchFn,
-			telegram.WithAuth(as, engine, linkCodes),
-		)
-		if err != nil {
-			slog.Warn("telegram bot disabled", "error", err)
-		} else {
-			channels = append(channels, tgBot)
-			adminSrv.RegisterChannelStop(channel.PlatformTelegram, tgBot.Stop)
-			if tgCfg.EnableNotify {
-				s.notifier.Register(tgBot)
-			}
-		}
+	catalog, err := loadBundledChannelCatalog(s.snap.Workspace)
+	if err != nil {
+		return fmt.Errorf("load channel catalog: %w", err)
 	}
 
-	// --- QQ ---
-	if qqCfg != nil && qqCfg.AppID != "" && qqCfg.AppSecret != "" {
-		slog.Info("starting qq bot")
-
-		qqBot, err := qq.New(qq.Config{
-			AppID:     qqCfg.AppID,
-			AppSecret: qqCfg.AppSecret,
-			GroupMode: qqCfg.GroupMode,
-		}, s.poolManager, s.store, listFn, switchFn,
-			qq.WithAuth(as, engine, linkCodes),
-		)
-		if err != nil {
-			slog.Warn("qq bot disabled", "error", err)
-		} else {
-			channels = append(channels, qqBot)
-			adminSrv.RegisterChannelStop(channel.PlatformQQ, qqBot.Stop)
-			if qqCfg.EnableNotify {
-				s.notifier.Register(qqBot)
-			}
-		}
+	type channelSpec struct {
+		name   string
+		notify bool
+	}
+	specs := []channelSpec{}
+	if tgCfg := channel.LoadConfig[channel.TelegramConfig](s.store, channel.PlatformTelegram); tgCfg != nil && tgCfg.Token != "" {
+		specs = append(specs, channelSpec{name: channel.PlatformTelegram, notify: tgCfg.EnableNotify})
+	}
+	if qqCfg := channel.LoadConfig[channel.QQConfig](s.store, channel.PlatformQQ); qqCfg != nil && qqCfg.AppID != "" && qqCfg.AppSecret != "" {
+		specs = append(specs, channelSpec{name: channel.PlatformQQ, notify: qqCfg.EnableNotify})
+	}
+	if fsCfg := channel.LoadConfig[channel.FeishuConfig](s.store, channel.PlatformFeishu); fsCfg != nil && fsCfg.AppID != "" && fsCfg.AppSecret != "" {
+		specs = append(specs, channelSpec{name: channel.PlatformFeishu, notify: fsCfg.EnableNotify})
+	}
+	if wxCfg := channel.LoadConfig[channel.WeixinConfig](s.store, channel.PlatformWeixin); wxCfg != nil && wxCfg.BotToken != "" {
+		specs = append(specs, channelSpec{name: channel.PlatformWeixin, notify: wxCfg.EnableNotify})
 	}
 
-	// --- Feishu ---
-	if fsCfg != nil && fsCfg.AppID != "" && fsCfg.AppSecret != "" {
-		slog.Info("starting feishu bot")
-
-		fsBot, err := feishu.New(feishu.Config{
-			AppID:             fsCfg.AppID,
-			AppSecret:         fsCfg.AppSecret,
-			EncryptKey:        fsCfg.EncryptKey,
-			VerificationToken: fsCfg.VerificationToken,
-			GroupMode:         fsCfg.GroupMode,
-			Groups:            fsCfg.Groups,
-		}, s.poolManager, s.store, listFn, switchFn,
-			feishu.WithAuth(as, engine, linkCodes),
-		)
-		if err != nil {
-			slog.Warn("feishu bot disabled", "error", err)
-		} else {
-			channels = append(channels, fsBot)
-			adminSrv.RegisterChannelStop(channel.PlatformFeishu, fsBot.Stop)
-			if fsCfg.EnableNotify {
-				s.notifier.Register(fsBot)
-			}
+	for _, spec := range specs {
+		def, ok := catalog.Get("channel/" + spec.name)
+		if !ok {
+			return fmt.Errorf("missing bundled channel plugin: %s", spec.name)
 		}
-	}
-
-	// --- Weixin ---
-	if wxCfg != nil && wxCfg.BotToken != "" {
-		slog.Info("starting weixin bot")
-
-		wxBot, err := weixin.New(weixin.Config{
-			BotToken: wxCfg.BotToken,
-			BaseURL:  wxCfg.BaseURL,
-			BotID:    wxCfg.BotID,
-			UserID:   wxCfg.UserID,
-		}, s.poolManager, s.store, listFn, switchFn,
-			weixin.WithAuth(as, engine, linkCodes),
-		)
-		if err != nil {
-			slog.Warn("weixin bot disabled", "error", err)
-		} else {
-			channels = append(channels, wxBot)
-			adminSrv.RegisterChannelStop(channel.PlatformWeixin, wxBot.Stop)
-			if wxCfg.EnableNotify {
-				s.notifier.Register(wxBot)
-			}
+		slog.Info("starting channel plugin", "channel", spec.name)
+		ch := newChannelPlugin(spec.name, def)
+		channels = append(channels, ch)
+		adminSrv.RegisterChannelStop(spec.name, ch.Stop)
+		if spec.notify {
+			s.notifier.Register(ch)
 		}
 	}
 
@@ -333,53 +266,4 @@ func launchBrowser(url string) {
 		}
 		go func() { _ = cmd.Wait() }()
 	}
-}
-
-// --- Channel config types for JSON deserialization ---
-
-type telegramChannelConfig struct {
-	Token        string `json:"token"`
-	ChannelID    string `json:"channel_id"`
-	GroupMode    string `json:"group_mode"`
-	EnableNotify bool   `json:"enable_notify"`
-}
-
-type qqChannelConfig struct {
-	AppID        string `json:"app_id"`
-	AppSecret    string `json:"app_secret"`
-	GroupMode    string `json:"group_mode"`
-	EnableNotify bool   `json:"enable_notify"`
-}
-
-type feishuChannelConfig struct {
-	AppID             string                        `json:"app_id"`
-	AppSecret         string                        `json:"app_secret"`
-	EncryptKey        string                        `json:"encrypt_key"`
-	VerificationToken string                        `json:"verification_token"`
-	GroupMode         string                        `json:"group_mode"`
-	Groups            map[string]feishu.GroupConfig `json:"groups"`
-	EnableNotify      bool                          `json:"enable_notify"`
-}
-
-type weixinChannelConfig struct {
-	BotToken     string `json:"bot_token"`
-	BaseURL      string `json:"base_url"`
-	BotID        string `json:"bot_id"`
-	UserID       string `json:"user_id"`
-	EnableNotify bool   `json:"enable_notify"`
-}
-
-// loadChannelConfig loads a channel's JSON config from the store and
-// deserializes it into the given type. Returns nil if not found or disabled.
-func loadChannelConfig[T any](store config.Store, channelID string) *T {
-	ch, err := store.GetChannel(context.Background(), channelID)
-	if err != nil || !ch.Enabled {
-		return nil
-	}
-	var cfg T
-	if err := json.Unmarshal([]byte(ch.Config), &cfg); err != nil {
-		slog.Warn("failed to parse channel config", "channel", channelID, "error", err)
-		return nil
-	}
-	return &cfg
 }

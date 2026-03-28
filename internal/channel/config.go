@@ -48,11 +48,11 @@ type WeixinConfig struct {
 }
 
 // LoadConfig loads a channel's JSON config from the store and deserializes it
-// into the given type. Returns nil if the channel is missing or the payload
-// cannot be decoded.
+// into the given type. Returns nil if the channel is missing, disabled, or the
+// payload cannot be decoded.
 func LoadConfig[T any](store config.Store, channelID string) *T {
 	ch, err := store.GetChannel(context.Background(), channelID)
-	if err != nil {
+	if err != nil || !ch.Enabled {
 		return nil
 	}
 	var cfg T
