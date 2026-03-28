@@ -1,248 +1,122 @@
 ---
-title: 飞书机器人
+title: Feishu Bot
 ---
 
-anna 包含一个通过 WebSocket 连接的飞书（Lark）机器人（持久连接，无需公网 URL）。机器人支持 11 个飞书工作区工具、用户 OAuth 授权、流式响应、原生话题支持和按群配置。
+anna 内置了通过 WebSocket 连接的 Feishu（Lark）机器人，因此不需要公网 webhook。现在 Feishu 集成只负责聊天通道：消息、流式回复、线程、群聊和通知仍然由 anna 处理；日历、文档、任务等工作区自动化已经迁移到 `lark-cli`。
 
 ## 设置
 
-1. 在[飞书开放平台](https://open.feishu.cn/)创建一个飞书应用
-2. 在应用设置中启用**机器人**能力
-3. 在**事件订阅**下，添加以下事件：
-   - `im.message.receive_v1`（必需）— 接收消息
-   - `im.message.reaction.created_v1`（可选）— 接收表情回复
-4. 在**权限管理**下，添加[所需权限](#所需权限)部分列出的权限
-5. 从应用设置中获取你的 App ID、App Secret、Encrypt Key 和 Verification Token
-6. 运行 `anna --open` 启动管理面板
-7. 在管理面板中：添加一个 AI 提供商，然后使用你的应用凭据配置飞书频道
-8. 启动服务：
+1. 在 [飞书开放平台](https://open.feishu.cn/) 创建应用。
+2. 启用 **Bot** 能力。
+3. 在 **事件订阅** 中添加：
+   - `im.message.receive_v1`
+   - 如果需要表情事件，再添加 `im.message.reaction.created_v1`
+4. 复制 App ID、App Secret、Encrypt Key 和 Verification Token。
+5. 运行 `anna --open`，在管理面板里配置 Feishu 频道。
+6. 启动 anna：
 
 ```bash
 anna
 ```
 
-所有频道配置（凭据、群组模式、允许的 ID 等）都通过管理面板管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `ANNA_HOME`。
+## Lark 工作区自动化
 
-## 用户 OAuth 授权（UAT）
+旧的内置 `feishu_*` 工具和 `/auth` 流程已经移除。
 
-许多飞书工具（日历、任务等）可以代表用户操作，而不仅仅是机器人。这需要每个用户通过 OAuth 授权应用。
+如果你要操作日历、任务、文档、知识库、表格、云盘、联系人等工作区数据，请按需自行安装 `lark-cli` skill，并配合外部 [`lark-cli`](https://github.com/larksuite/cli) 工具。
 
-### 工作原理
+常见初始化流程：
 
-1. **用户发送 `/auth`** — 在与机器人的对话中
-2. **机器人回复一张交互卡片** — 包含授权链接
-3. **用户点击链接** — 在浏览器中打开飞书 OAuth 授权页面
-4. **用户同意授权** — 在 OAuth 页面上批准权限请求
-5. **飞书重定向到回调页面** — `anna.vaayne.com/oauth/callback` 显示授权码和"复制命令"按钮
-6. **用户复制并发送 `/auth <code>`** — 将授权码发回机器人
-7. **机器人交换令牌** — 将授权码兑换为访问令牌和刷新令牌，加密存储在数据库中
-8. **完成** — 用户的身份现在可用于工具调用
+```bash
+command -v lark-cli
+npm install -g @larksuite/cli
+lark-cli config init --new
+lark-cli auth login --recommend
+lark-cli auth status
+```
 
-### 令牌生命周期
-
-- **访问令牌** 约 2 小时后过期。机器人会自动透明地刷新。
-- **刷新令牌** 约 30 天后过期。之后用户需要重新使用 `/auth` 授权。
-- **存储**：令牌使用 AES-256-GCM 加密存储。加密密钥通过 HKDF 从 App Secret 派生。
-- **降级**：如果用户未授权，工具会回退到机器人令牌（权限较低）。
-
-### 飞书应用 OAuth 配置
-
-要使 `/auth` 流程正常工作，需要配置你的飞书应用：
-
-1. 进入飞书开放平台控制台的**安全设置**
-2. 添加 `https://anna.vaayne.com/oauth/callback` 作为**重定向 URL**
-3. 在**权限管理**下，申请工具所需的用户级权限（参见[所需权限](#所需权限)）
-
-如果你自托管文档站点或需要不同的回调 URL，请在飞书频道配置中设置 `redirect_uri`，并在飞书应用中注册该 URL。
-
-### 撤销授权
-
-用户可以随时在飞书账号设置的**已连接的应用**中撤销授权。机器人会检测到过期的令牌，并在需要时提示重新授权。
-
-## 飞书工作区工具
-
-配置飞书频道后，anna 会注册 11 个多操作工具供 LLM 代理调用。这些工具对所有代理可用，不受用户当前聊天频道的限制。
-
-| 工具 | 操作 | 描述 |
-|------|------|------|
-| `feishu_user` | get_user, search_user | 按 open_id、邮箱或手机号查找用户 |
-| `feishu_calendar` | 创建/列出/获取/更新/删除事件, add_attendees, freebusy | 完整的日历管理，支持重复事件 |
-| `feishu_task` | 创建/列出/获取/更新/完成任务, 任务列表, 子任务 | 使用 Task v2 API 的任务管理 |
-| `feishu_bitable` | 应用/表/记录/字段增删改查, 批量操作, 搜索/过滤 | 多维表格数据库操作 |
-| `feishu_chat` | 搜索, 信息, 添加/移除/列出成员 | 聊天和群组管理 |
-| `feishu_im` | 发送/回复/读取/获取/转发消息, 表情回复 | 消息和表情回复 |
-| `feishu_doc` | 创建文档, 获取内容/原始内容 | 文档创建和读取 |
-| `feishu_wiki` | 空间, 节点增删改查, 移动/复制 | 知识库管理 |
-| `feishu_sheets` | 创建/获取电子表格, 列出工作表, 读写范围 | 电子表格操作 |
-| `feishu_drive` | 列出/复制/移动/删除文件, 创建文件夹, 获取元数据 | 文件和文件夹管理 |
-| `feishu_search` | 搜索文档/知识库 | 全局文档搜索，支持过滤 |
-
-工具会优先使用用户的 OAuth 令牌（用于用户级操作，如在用户日历上创建事件），无令牌时回退到机器人令牌。
+用户自行安装的 `lark-cli` skill 可以覆盖原来的 `feishu_calendar`、`feishu_task`、`feishu_im`、`feishu_doc`、`feishu_wiki`、`feishu_sheets`、`feishu_drive`、`feishu_bitable`、`feishu_user` 和 `feishu_search` 等工作流。
 
 ## 多用户支持
 
-每个飞书用户会从其平台身份自动解析。会话按用户和代理分别管理。无需手动设置用户。
+每个 Feishu 用户都会通过平台身份自动解析。会话按用户和 agent 隔离，因此不同用户拥有各自独立的记忆和默认 agent 状态。
 
-## 流式响应
+## 流式回复
 
-机器人使用飞书的 CardKit 2.0 API 进行流式响应，分为三个阶段：
+机器人会通过原地编辑消息来实现流式输出：
 
-1. **思考中** — 立即发送一张"Thinking..."初始卡片
-2. **生成中** — 随着 LLM 生成令牌，卡片逐步更新内容
-3. **完成** — 最终卡片包含响应时间底栏（例如 _Response time: 3.2s_）
+1. 先快速发送占位回复
+2. 模型生成时持续更新内容
+3. 最终写入完整回复和耗时信息
 
-### 工具指示器
-
-在工具执行期间，流式消息会显示带有表情符号的状态指示器：
-
-| 工具     | 表情符号 |
-| -------- | -------- |
-| `bash`   | 闪电     |
-| `read`   | 书本     |
-| `write`  | 铅笔     |
-| `edit`   | 扳手     |
-| `search` | 放大镜   |
+执行工具时的状态也会在流式消息中简要显示。
 
 ## 支持的消息类型
 
-| 类型               | 行为                                    |
-| ------------------ | --------------------------------------- |
-| 文本               | 提取并发送给 LLM                        |
-| 图片               | 下载、base64 编码、作为多模态输入发送   |
-| 富文本消息（Post） | 将原始 JSON 传递给 LLM 以获取完整上下文 |
-| 音频               | 带时长的描述文本发送给 LLM              |
-| 视频               | 带时长的描述文本发送给 LLM              |
-| 文件               | 文件名和元数据发送给 LLM                |
-| 表情贴纸           | 描述文本发送给 LLM                      |
-| 位置               | 名称和坐标发送给 LLM                    |
-| 分享聊天/用户      | 聊天或用户 ID 发送给 LLM               |
-| 合并转发           | 摘要描述发送给 LLM                      |
+| 类型 | 行为 |
+| --- | --- |
+| 文本 | 作为普通文本发送给 LLM |
+| 图片 | 下载后作为多模态输入发送 |
+| 富文本 Post | 原始 JSON 直接传给 LLM |
+| 音频 | 转成带时长的描述文本 |
+| 视频 | 转成带时长的描述文本 |
+| 文件 | 转成带文件信息的描述文本 |
+| 表情贴纸 | 转成描述文本 |
+| 位置 | 尽量附带坐标信息的描述文本 |
+| 分享的群聊/用户 | 转成描述文本 |
+| 合并转发 | 转成摘要标记 |
 
-## 话题支持
+## 原生线程
 
-机器人支持飞书原生话题。当用户在话题中发送消息时，机器人会：
+如果用户在 Feishu 线程中发消息，anna 会在线程内回复，并把会话作用域绑定到该线程根消息。线程外消息仍然使用父聊天会话。
 
-- 为该话题创建**独立的代理会话**（与群聊对话隔离）
-- 在同一话题内回复
-- 维护话题专属的对话历史
+## 群组行为
 
-这允许在同一群聊中进行多个并行对话而互不干扰。
+`group_mode` 控制 anna 在群聊中的响应方式：
 
-## 取消 / 中止
+- `mention`：只有被 @ 时才回复
+- `always`：回复所有消息
+- `disabled`：从不在群里回复
 
-要取消正在进行的流式响应，发送以下任一消息：
+你也可以通过 `groups` 字段为特定群单独覆盖配置。
 
-- `cancel`、`stop`、`abort`（英文，不区分大小写）
-- `取消`、`停止`（中文）
+## 命令
 
-机器人会立即取消活跃的流式响应并回复"Cancelled."。
+Feishu 支持标准聊天命令：
 
-## 群组支持
+| 命令 | 说明 |
+| --- | --- |
+| `/new` | 开启新会话 |
+| `/compact` | 压缩当前会话历史 |
+| `/model` | 列出或切换模型 |
+| `/agent` | 列出或切换 agent |
+| `/whoami` | 显示你的平台身份 |
 
-启动时，机器人通过飞书 Bot Info API 获取自己的 `open_id`。这使得在群组中可以可靠地检测 @提及，并防止机器人响应自己的消息（无限循环保护）。
-
-在群聊中，机器人响应 @提及。在管理面板中设置群组模式：
-
-- `mention` — 响应 @提及（默认）
-- `always` — 响应所有群组消息
-- `disabled` — 完全忽略群组消息
-
-### 按群配置
-
-你可以通过在飞书频道配置 JSON 中添加 `groups` 映射来覆盖特定群聊的设置。每个键是飞书的 chat_id（例如 `oc_abc123`）：
+## 配置参考
 
 ```json
 {
-  "app_id": "cli_xxx",
-  "app_secret": "xxx",
+  "app_id": "FEISHU_APP_ID",
+  "app_secret": "FEISHU_APP_SECRET",
+  "encrypt_key": "",
+  "verification_token": "",
+  "group_mode": "mention",
+  "enable_notify": false,
   "groups": {
-    "oc_abc123": {
+    "oc_example": {
       "group_mode": "always",
-      "system_prompt": "你是 Alpha 团队的项目管理助手。"
-    },
-    "oc_def456": {
-      "group_mode": "mention",
-      "system_prompt": "你是技术支持机器人，请简洁回答。"
+      "system_prompt": "这个群里请作为基础设施助手回复。"
     }
   }
 }
 ```
 
-| 字段 | 描述 |
-|------|------|
-| `group_mode` | 覆盖该群聊的全局群组模式 |
-| `system_prompt` | 在该群聊中为每条消息添加系统提示前缀 |
-| `tool_allow` | 预留：工具名称白名单 |
-| `tool_deny` | 预留：工具名称黑名单 |
-
-## 表情回复
-
-当用户对消息添加表情回复时，机器人会将表情回复的描述发送给代理（例如 `[User reacted with THUMBSUP on message om_xxx]`）。代理可以据此做出响应。
-
-LLM 也可以通过 `feishu_im` 工具的 `add_reaction` 和 `remove_reaction` 操作来添加或移除表情回复。
-
-## 访问控制
-
-通过在管理面板中添加允许的 open_id 来限制哪些用户可以与机器人交互。留空则允许所有用户。使用 `/whoami` 命令获取你的 open_id。
-
-## 通知
-
-在管理面板中配置默认通知聊天，用于主动通知（调度器结果、代理触发的警报）。
-
-## 命令
-
-将这些命令作为文本消息发送给机器人：
-
-| 命令                | 描述                               |
-| ------------------- | ---------------------------------- |
-| `/start` 或 `/help` | 欢迎和帮助信息                     |
-| `/new`              | 开始新的会话                       |
-| `/compact`          | 压缩对话历史                       |
-| `/model`            | 列出可用模型                       |
-| `/model <number>`   | 按编号切换模型                     |
-| `/model <query>`    | 按名称过滤模型                     |
-| `/auth`             | 开始 OAuth 授权（获取授权卡片）    |
-| `/auth <code>`      | 使用授权码完成 OAuth               |
-| `/whoami`           | 显示你的用户 ID 用于配置           |
-
-## 所需权限
-
-### 机器人权限（始终需要）
-
-| 权限 | 描述 |
-|------|------|
-| `im:message` | 发送和接收消息 |
-| `im:message:send_as_bot` | 以机器人身份发送消息 |
-| `im:resource` | 访问消息资源（图片、文件） |
-| `im:chat` | 访问聊天信息 |
-| `contact:user.base:readonly` | 读取基本用户信息 |
-
-### 用户权限（用于 OAuth 工具）
-
-根据你要启用的工具添加以下权限：
-
-| 工具 | 权限 |
-|------|------|
-| 日历 | `calendar:calendar`, `calendar:calendar:readonly` |
-| 任务 | `task:task`, `task:task:readonly` |
-| 多维表格 | `bitable:app`, `bitable:app:readonly` |
-| 文档 | `docx:document`, `docx:document:readonly` |
-| 知识库 | `wiki:wiki`, `wiki:wiki:readonly` |
-| 电子表格 | `sheets:spreadsheet`, `sheets:spreadsheet:readonly` |
-| 云空间 | `drive:drive`, `drive:drive:readonly` |
-
-## 配置参考
-
-以下所有设置都通过 `anna --open` 管理面板管理。
-
-| 字段                 | 描述                                      | 默认值    |
-| -------------------- | ----------------------------------------- | --------- |
-| `app_id`             | 飞书 App ID                               | （必需）  |
-| `app_secret`         | 飞书 App Secret                           | （必需）  |
-| `encrypt_key`        | 事件加密密钥（来自事件与回调）            | （可选）  |
-| `verification_token` | 事件验证令牌（来自事件与回调）            | （可选）  |
-| `notify_chat`        | 用于主动通知的聊天 ID                     | （可选）  |
-| `group_mode`         | 群组行为：`mention`、`always`、`disabled` | `mention` |
-| `allowed_ids`        | 允许的用户 open_id（空 = 所有人）         | `[]`      |
-| `groups`             | 按群配置覆盖（参见上方）                  | `{}`      |
-| `redirect_uri`       | OAuth 重定向 URI                          | `https://anna.vaayne.com/oauth/callback` |
+| 字段 | 说明 |
+| --- | --- |
+| `app_id` | 飞书应用 App ID |
+| `app_secret` | 飞书应用 App Secret |
+| `encrypt_key` | 可选的事件加密密钥 |
+| `verification_token` | 可选的事件校验 token |
+| `group_mode` | 默认群聊行为：`mention`、`always` 或 `disabled` |
+| `enable_notify` | 允许调度器和 `notify` 输出发送到 Feishu |
+| `groups` | 按 Feishu `chat_id` 配置的群级覆盖项 |

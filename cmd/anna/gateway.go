@@ -160,13 +160,6 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 	if fsCfg != nil && fsCfg.AppID != "" && fsCfg.AppSecret != "" {
 		slog.Info("starting feishu bot")
 
-		fsOpts := []feishu.BotOption{
-			feishu.WithAuth(as, engine, linkCodes),
-		}
-		if s.fsClient != nil {
-			fsOpts = append(fsOpts, feishu.WithFeishuClient(s.fsClient))
-		}
-
 		fsBot, err := feishu.New(feishu.Config{
 			AppID:             fsCfg.AppID,
 			AppSecret:         fsCfg.AppSecret,
@@ -174,9 +167,8 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			VerificationToken: fsCfg.VerificationToken,
 			GroupMode:         fsCfg.GroupMode,
 			Groups:            fsCfg.Groups,
-			RedirectURI:       fsCfg.RedirectURI,
 		}, s.poolManager, s.store, listFn, switchFn,
-			fsOpts...,
+			feishu.WithAuth(as, engine, linkCodes),
 		)
 		if err != nil {
 			return fmt.Errorf("create feishu bot: %w", err)
@@ -347,7 +339,6 @@ type feishuChannelConfig struct {
 	VerificationToken string                        `json:"verification_token"`
 	GroupMode         string                        `json:"group_mode"`
 	Groups            map[string]feishu.GroupConfig `json:"groups"`
-	RedirectURI       string                        `json:"redirect_uri"`
 	EnableNotify      bool                          `json:"enable_notify"`
 }
 

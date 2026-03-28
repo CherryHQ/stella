@@ -451,6 +451,18 @@ func TestHandleCommandWhoami(t *testing.T) {
 	}
 }
 
+func TestHandleCommandAuthDeprecated(t *testing.T) {
+	bot := &Bot{}
+	var reply string
+	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "/auth abc123", "ou_test123", func(s string) { reply = s })
+	if !handled {
+		t.Fatal("expected /auth to be handled")
+	}
+	if !strings.Contains(reply, "removed") || !strings.Contains(reply, "lark-cli") {
+		t.Errorf("unexpected reply: %s", reply)
+	}
+}
+
 // --- handleModelCommand ---
 
 func TestHandleModelCommandListModels(t *testing.T) {

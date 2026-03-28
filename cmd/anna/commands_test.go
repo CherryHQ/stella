@@ -69,11 +69,11 @@ func TestRunGatewayNoServices(t *testing.T) {
 	config.ResetAnnaHome()
 	t.Cleanup(config.ResetAnnaHome)
 	app := newApp()
-	err := app.Run([]string{"anna", "gateway"})
+	err := app.Run([]string{"anna", "--admin-port", "0", "gateway"})
 	if err == nil {
 		t.Fatal("expected error for no configured services")
 	}
-	if !strings.Contains(err.Error(), "no gateway services configured") {
-		t.Errorf("err = %q, want contains 'no gateway services configured'", err.Error())
+	if !strings.Contains(err.Error(), "no services to run") {
+		t.Errorf("err = %q, want contains 'no services to run'", err.Error())
 	}
 }

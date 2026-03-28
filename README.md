@@ -94,6 +94,8 @@ One bot per platform. Agent selection is handled via the `/agent` command rather
 
 Every channel supports `/new`, `/compact`, `/model`, `/agent`, `/whoami`, model switching, access control, and image input.
 
+Lark workspace automation is no longer built in as `feishu_*` tools. If you want those workflows, install a `lark-cli` skill yourself and use it with `lark-cli` for calendar, docs, tasks, sheets, drive, and other workspace actions.
+
 ## Scheduler
 
 You don't write cron expressions by hand. You just tell Anna what you need.
