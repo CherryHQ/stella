@@ -13,6 +13,8 @@ JavaScript plugins run inside an embedded [QuickJS](https://bellard.org/quickjs/
 
 Runtime plugins run as separate processes and communicate with anna over a versioned stdio protocol. The first built-in runtime plugin targets are the core tools (`read`, `bash`, `edit`, `write`, `webfetch`) and the network channels (`telegram`, `qq`, `feishu`, `weixin`).
 
+Runtime bindings are slot-based. Rebinding `tool/read` or the `telegram` channel slot changes the implementation behind that slot without changing the rest of Anna's internal routing or stored channel configuration.
+
 The two systems are intentionally separate:
 
 - The `plugins` setting still stores JavaScript plugin entries.
