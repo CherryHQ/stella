@@ -36,6 +36,7 @@ type AgentConfig struct {
 	System      string
 	PluginHooks engine.PluginHookRunner // optional plugin lifecycle hooks
 	Emit        func(engine.LoopEvent)  // optional event emitter for observability
+	Presets     *PresetRegistry         // loaded agent presets (nil = no presets)
 
 	// Configurable limits (zero = use defaults).
 	MaxTasks       int // max tasks per invocation
@@ -79,10 +80,15 @@ func NewAgentTool(cfg AgentConfig) *AgentTool {
 }
 
 // AgentDefinition returns the tool definition without requiring a live config.
-func AgentDefinition() toolspec.Definition {
-	presetNames := PresetNames()
-	presetDesc := "Preset agent configuration. Available: " + strings.Join(presetNames, ", ") +
-		". Preset values are defaults that explicit fields override."
+// presets is optional — when provided, the preset enum is included in the schema.
+func AgentDefinition(presets *PresetRegistry) toolspec.Definition {
+	var presetNames []string
+	var presetDesc string
+	if presets != nil && len(presets.Names()) > 0 {
+		presetNames = presets.Names()
+		presetDesc = "Preset agent configuration. Available: " + strings.Join(presetNames, ", ") +
+			". Preset values are defaults that explicit fields override."
+	}
 
 	return toolspec.Definition{
 		Name:        agentToolName,
@@ -96,13 +102,9 @@ func AgentDefinition() toolspec.Definition {
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
-							"id":   map[string]any{"type": "string", "description": "Task identifier for result mapping."},
-							"task": map[string]any{"type": "string", "description": "Task description for the subagent."},
-							"preset": map[string]any{
-								"type":        "string",
-								"enum":        presetNames,
-								"description": presetDesc,
-							},
+							"id":     map[string]any{"type": "string", "description": "Task identifier for result mapping."},
+							"task":   map[string]any{"type": "string", "description": "Task description for the subagent."},
+							"preset": presetField(presetNames, presetDesc),
 							"context": map[string]any{
 								"type":        "string",
 								"description": "Optional context from parent (file contents, decisions, constraints) prepended to the task message.",
@@ -139,7 +141,7 @@ func AgentDefinition() toolspec.Definition {
 }
 
 func (t *AgentTool) Definition() toolspec.Definition {
-	return AgentDefinition()
+	return AgentDefinition(t.cfg.Presets)
 }
 
 func (t *AgentTool) Execute(ctx context.Context, args map[string]any) (string, error) {
@@ -249,11 +251,14 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 
 	// Apply preset defaults if specified.
 	if tc.Preset != "" {
-		if p, ok := LookupPreset(tc.Preset); ok {
+		if t.cfg.Presets == nil {
+			return taskResult{Error: "no presets available"}
+		}
+		if p, ok := t.cfg.Presets.Lookup(tc.Preset); ok {
 			tc.applyPreset(p)
 		} else {
 			return taskResult{Error: fmt.Sprintf("unknown preset: %q (available: %s)",
-				tc.Preset, strings.Join(PresetNames(), ", "))}
+				tc.Preset, strings.Join(t.cfg.Presets.Names(), ", "))}
 		}
 	}
 
@@ -468,4 +473,20 @@ func parseAgentTasks(args map[string]any) ([]agentTaskConfig, error) {
 	}
 
 	return tasks, nil
+}
+
+// presetField builds the schema entry for the preset field.
+// When no presets are available, it returns a plain string field.
+func presetField(names []string, desc string) map[string]any {
+	if len(names) == 0 {
+		return map[string]any{
+			"type":        "string",
+			"description": "Preset agent configuration name (no presets currently loaded).",
+		}
+	}
+	return map[string]any{
+		"type":        "string",
+		"enum":        names,
+		"description": desc,
+	}
 }

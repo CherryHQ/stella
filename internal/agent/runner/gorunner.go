@@ -81,6 +81,14 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	for _, t := range cfg.ExtraTools {
 		tools.Register(t)
 	}
+
+	// Load agent presets from filesystem.
+	presets := tool.NewPresetRegistry(tool.LoadAgentPresets(tool.LoadAgentPresetsConfig{
+		AnnaHome:  cfg.AnnaHome,
+		Workspace: cfg.Workspace,
+		Cwd:       cfg.WorkDir,
+	}))
+
 	tools.Register(tool.NewAgentTool(tool.AgentConfig{
 		Engine:      eng,
 		Registry:    tools,
@@ -88,6 +96,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		APIKey:      cfg.APIKey,
 		System:      system,
 		PluginHooks: cfg.PluginHooks,
+		Presets:     presets,
 	}))
 
 	return &GoRunner{

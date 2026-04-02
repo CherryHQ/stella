@@ -3,6 +3,8 @@ package tool
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -49,12 +51,38 @@ func newTestAgentToolWithConfig(response string, overrides AgentConfig) *AgentTo
 	eng := &engine.Engine{Providers: reg}
 	model := ai.Model{API: "fake", Name: "test-model"}
 
+	// Build test presets if not overridden.
+	presets := overrides.Presets
+	if presets == nil {
+		presets = NewPresetRegistry([]AgentPreset{
+			{
+				Name:        "reviewer",
+				Description: "Test reviewer preset",
+				System:      "Review code carefully.",
+				Tools:       []string{"read", "bash"},
+				HasTools:    true,
+				MaxTurns:    10,
+				Timeout:     2 * time.Minute,
+			},
+			{
+				Name:        "writer",
+				Description: "Test writer preset",
+				System:      "Write clearly.",
+				Tools:       []string{},
+				HasTools:    true,
+				MaxTurns:    5,
+				Timeout:     1 * time.Minute,
+			},
+		})
+	}
+
 	cfg := AgentConfig{
 		Engine:         eng,
 		Registry:       toolReg,
 		Model:          model,
 		APIKey:         "test-key",
 		System:         "You are a test assistant.",
+		Presets:        presets,
 		MaxTasks:       overrides.MaxTasks,
 		MaxConcurrency: overrides.MaxConcurrency,
 		MaxResultChars: overrides.MaxResultChars,
@@ -535,13 +563,17 @@ func TestAgentPresetOverriddenByExplicit(t *testing.T) {
 }
 
 func TestPresetNames(t *testing.T) {
-	names := PresetNames()
-	if len(names) == 0 {
-		t.Fatalf("expected at least one preset name")
+	presets := NewPresetRegistry([]AgentPreset{
+		{Name: "a", Description: "test a"},
+		{Name: "b", Description: "test b"},
+	})
+	names := presets.Names()
+	if len(names) != 2 {
+		t.Fatalf("expected 2 preset names, got %d", len(names))
 	}
 	for _, name := range names {
-		if _, ok := LookupPreset(name); !ok {
-			t.Fatalf("preset %q not found via LookupPreset", name)
+		if _, ok := presets.Lookup(name); !ok {
+			t.Fatalf("preset %q not found via Lookup", name)
 		}
 	}
 }
@@ -756,3 +788,171 @@ var _ Tool = (*AgentTool)(nil)
 
 // Suppress unused import warnings for toolspec.
 var _ toolspec.Definition
+
+// --- Preset loading tests ---
+
+func TestLoadPresetFromMarkdown(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a test preset file.
+	content := `---
+name: test-agent
+description: A test agent preset.
+tools: [read, bash]
+max_turns: 15
+timeout: 3m
+---
+You are a test agent. Be helpful and concise.
+`
+	if err := os.WriteFile(filepath.Join(dir, "test-agent.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	presets := loadPresetsFromDir(dir, "test")
+	if len(presets) != 1 {
+		t.Fatalf("expected 1 preset, got %d", len(presets))
+	}
+
+	p := presets[0]
+	if p.Name != "test-agent" {
+		t.Fatalf("expected name 'test-agent', got %q", p.Name)
+	}
+	if p.Description != "A test agent preset." {
+		t.Fatalf("expected description, got %q", p.Description)
+	}
+	if !strings.Contains(p.System, "test agent") {
+		t.Fatalf("expected system prompt from body, got %q", p.System)
+	}
+	if !p.HasTools || len(p.Tools) != 2 {
+		t.Fatalf("expected 2 tools with HasTools=true, got %v (HasTools=%v)", p.Tools, p.HasTools)
+	}
+	if p.MaxTurns != 15 {
+		t.Fatalf("expected max_turns=15, got %d", p.MaxTurns)
+	}
+	if p.Timeout != 3*time.Minute {
+		t.Fatalf("expected timeout=3m, got %v", p.Timeout)
+	}
+	if p.Source != "test" {
+		t.Fatalf("expected source 'test', got %q", p.Source)
+	}
+}
+
+func TestLoadPresetEmptyTools(t *testing.T) {
+	dir := t.TempDir()
+
+	content := `---
+name: no-tools
+description: Agent with no tools.
+tools: []
+---
+Just write text.
+`
+	if err := os.WriteFile(filepath.Join(dir, "no-tools.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	presets := loadPresetsFromDir(dir, "test")
+	if len(presets) != 1 {
+		t.Fatalf("expected 1 preset, got %d", len(presets))
+	}
+
+	p := presets[0]
+	if !p.HasTools {
+		t.Fatalf("expected HasTools=true for explicit empty tools")
+	}
+	if len(p.Tools) != 0 {
+		t.Fatalf("expected empty tools slice, got %v", p.Tools)
+	}
+}
+
+func TestLoadPresetNoTools(t *testing.T) {
+	dir := t.TempDir()
+
+	// No tools field at all = inherit all parent tools.
+	content := `---
+name: all-tools
+description: Agent with all tools.
+---
+Use whatever tools you need.
+`
+	if err := os.WriteFile(filepath.Join(dir, "all-tools.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	presets := loadPresetsFromDir(dir, "test")
+	if len(presets) != 1 {
+		t.Fatalf("expected 1 preset, got %d", len(presets))
+	}
+
+	p := presets[0]
+	if p.HasTools {
+		t.Fatalf("expected HasTools=false when tools key is absent")
+	}
+}
+
+func TestLoadPresetPriority(t *testing.T) {
+	// Create two directories with overlapping preset names.
+	projectDir := filepath.Join(t.TempDir(), ".agents", "agents")
+	commonDir := filepath.Join(t.TempDir(), ".agents", "agents")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(commonDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Project version wins.
+	projectContent := `---
+name: myagent
+description: Project version.
+---
+Project system prompt.
+`
+	commonContent := `---
+name: myagent
+description: Common version.
+---
+Common system prompt.
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "myagent.md"), []byte(projectContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(commonDir, "myagent.md"), []byte(commonContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// loadAgentPresets with cwd pointing to projectDir's parent.
+	cwd := filepath.Dir(filepath.Dir(projectDir)) // go up from .agents/agents/ to project root
+	homeDir := filepath.Dir(filepath.Dir(commonDir))
+	presets := loadAgentPresets(homeDir, "", "", cwd)
+
+	reg := NewPresetRegistry(presets)
+	p, ok := reg.Lookup("myagent")
+	if !ok {
+		t.Fatalf("expected to find preset 'myagent'")
+	}
+	if p.Description != "Project version." {
+		t.Fatalf("expected project version to win, got %q", p.Description)
+	}
+	if p.Source != "project" {
+		t.Fatalf("expected source 'project', got %q", p.Source)
+	}
+}
+
+func TestLoadPresetMissingDescription(t *testing.T) {
+	dir := t.TempDir()
+
+	content := `---
+name: bad
+---
+No description.
+`
+	if err := os.WriteFile(filepath.Join(dir, "bad.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	presets := loadPresetsFromDir(dir, "test")
+	if len(presets) != 0 {
+		t.Fatalf("expected 0 presets for missing description, got %d", len(presets))
+	}
+}
