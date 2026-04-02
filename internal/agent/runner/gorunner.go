@@ -81,7 +81,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	for _, t := range cfg.ExtraTools {
 		tools.Register(t)
 	}
-	tools.Register(tool.NewDelegateTool(tool.DelegateConfig{
+	tools.Register(tool.NewAgentTool(tool.AgentConfig{
 		Engine:      eng,
 		Registry:    tools,
 		Model:       model,

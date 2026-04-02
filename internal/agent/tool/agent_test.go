@@ -12,13 +12,13 @@ import (
 )
 
 // fakeProvider returns a canned text response.
-type fakeDelegateProvider struct {
+type fakeAgentProvider struct {
 	response string
 }
 
-func (f fakeDelegateProvider) API() string { return "fake" }
+func (f fakeAgentProvider) API() string { return "fake" }
 
-func (f fakeDelegateProvider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions) (ai.AssistantEventStream, error) {
+func (f fakeAgentProvider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions) (ai.AssistantEventStream, error) {
 	out := ai.NewChannelEventStream(8)
 	go func() {
 		out.Emit(ai.EventTextDelta{Text: f.response})
@@ -28,13 +28,13 @@ func (f fakeDelegateProvider) Stream(model ai.Model, ctx ai.Context, opts ai.Str
 	return out, nil
 }
 
-func (f fakeDelegateProvider) StreamSimple(model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (ai.AssistantEventStream, error) {
+func (f fakeAgentProvider) StreamSimple(model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (ai.AssistantEventStream, error) {
 	return f.Stream(model, ctx, opts.StreamOptions)
 }
 
-func newTestDelegateTool(response string) *DelegateTool {
+func newTestAgentTool(response string) *AgentTool {
 	reg := ai.NewRegistry()
-	reg.Register(fakeDelegateProvider{response: response})
+	reg.Register(fakeAgentProvider{response: response})
 
 	toolReg := &Registry{tools: make(map[string]Tool)}
 	toolReg.Register(&ReadTool{})
@@ -43,7 +43,7 @@ func newTestDelegateTool(response string) *DelegateTool {
 	eng := &engine.Engine{Providers: reg}
 	model := ai.Model{API: "fake", Name: "test-model"}
 
-	dt := NewDelegateTool(DelegateConfig{
+	dt := NewAgentTool(AgentConfig{
 		Engine:   eng,
 		Registry: toolReg,
 		Model:    model,
@@ -55,8 +55,8 @@ func newTestDelegateTool(response string) *DelegateTool {
 	return dt
 }
 
-func TestDelegateSingleTask(t *testing.T) {
-	dt := newTestDelegateTool("subagent result")
+func TestAgentSingleTask(t *testing.T) {
+	dt := newTestAgentTool("subagent result")
 
 	result, err := dt.Execute(context.Background(), map[string]any{
 		"tasks": []any{
@@ -77,8 +77,8 @@ func TestDelegateSingleTask(t *testing.T) {
 	}
 }
 
-func TestDelegateParallelTasks(t *testing.T) {
-	dt := newTestDelegateTool("parallel result")
+func TestAgentParallelTasks(t *testing.T) {
+	dt := newTestAgentTool("parallel result")
 
 	result, err := dt.Execute(context.Background(), map[string]any{
 		"tasks": []any{
@@ -97,8 +97,8 @@ func TestDelegateParallelTasks(t *testing.T) {
 	}
 }
 
-func TestDelegateToolWhitelistValid(t *testing.T) {
-	dt := newTestDelegateTool("whitelisted")
+func TestAgentToolWhitelistValid(t *testing.T) {
+	dt := newTestAgentTool("whitelisted")
 
 	result, err := dt.Execute(context.Background(), map[string]any{
 		"tasks": []any{
@@ -117,8 +117,8 @@ func TestDelegateToolWhitelistValid(t *testing.T) {
 	}
 }
 
-func TestDelegateToolWhitelistInvalid(t *testing.T) {
-	dt := newTestDelegateTool("should not appear")
+func TestAgentToolWhitelistInvalid(t *testing.T) {
+	dt := newTestAgentTool("should not appear")
 
 	result, err := dt.Execute(context.Background(), map[string]any{
 		"tasks": []any{
@@ -138,41 +138,41 @@ func TestDelegateToolWhitelistInvalid(t *testing.T) {
 	}
 }
 
-func TestDelegateDelegateExcludedFromChildren(t *testing.T) {
-	dt := newTestDelegateTool("child response")
+func TestAgentExcludedFromChildren(t *testing.T) {
+	dt := newTestAgentTool("child response")
 
 	toolSet, defs, err := dt.buildScopedTools(nil, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, ok := toolSet[delegateToolName]; ok {
-		t.Fatalf("delegate tool should be excluded from child tool set")
+	if _, ok := toolSet[agentToolName]; ok {
+		t.Fatalf("agent tool should be excluded from child tool set")
 	}
 	for _, def := range defs {
-		if def.Name == delegateToolName {
-			t.Fatalf("delegate tool should be excluded from child tool definitions")
+		if def.Name == agentToolName {
+			t.Fatalf("agent tool should be excluded from child tool definitions")
 		}
 	}
 }
 
-func TestDelegateDelegateInWhitelistIgnored(t *testing.T) {
-	dt := newTestDelegateTool("child response")
+func TestAgentInWhitelistIgnored(t *testing.T) {
+	dt := newTestAgentTool("child response")
 
-	// Requesting delegate in whitelist should silently skip it.
-	toolSet, defs, err := dt.buildScopedTools([]string{"read", "delegate"}, true)
+	// Requesting agent in whitelist should silently skip it.
+	toolSet, defs, err := dt.buildScopedTools([]string{"read", "agent"}, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, ok := toolSet[delegateToolName]; ok {
-		t.Fatalf("delegate should be excluded even when explicitly whitelisted")
+	if _, ok := toolSet[agentToolName]; ok {
+		t.Fatalf("agent should be excluded even when explicitly whitelisted")
 	}
 	if len(defs) != 1 || defs[0].Name != "read" {
 		t.Fatalf("expected only 'read' in defs, got: %v", defs)
 	}
 }
 
-func TestDelegateEmptyWhitelistGivesNoTools(t *testing.T) {
-	dt := newTestDelegateTool("no tools")
+func TestAgentEmptyWhitelistGivesNoTools(t *testing.T) {
+	dt := newTestAgentTool("no tools")
 
 	// Explicit empty whitelist should yield zero tools.
 	toolSet, defs, err := dt.buildScopedTools(nil, true)
@@ -187,7 +187,7 @@ func TestDelegateEmptyWhitelistGivesNoTools(t *testing.T) {
 	}
 }
 
-func TestDelegateTimeout(t *testing.T) {
+func TestAgentTimeout(t *testing.T) {
 	// Use a provider that keeps looping with tool calls, paired with a slow tool.
 	reg := ai.NewRegistry()
 	reg.Register(loopingProvider{})
@@ -196,7 +196,7 @@ func TestDelegateTimeout(t *testing.T) {
 	toolReg.Register(&slowTool{})
 	eng := &engine.Engine{Providers: reg}
 
-	dt := NewDelegateTool(DelegateConfig{
+	dt := NewAgentTool(AgentConfig{
 		Engine:   eng,
 		Registry: toolReg,
 		Model:    ai.Model{API: "looping", Name: "stub"},
@@ -269,7 +269,7 @@ func (s *slowTool) Execute(ctx context.Context, _ map[string]any) (string, error
 	}
 }
 
-func TestDelegateOutputTruncation(t *testing.T) {
+func TestAgentOutputTruncation(t *testing.T) {
 	long := strings.Repeat("x", maxResultChars+100)
 	truncated := truncateResult(long, maxResultChars)
 
@@ -284,8 +284,8 @@ func TestDelegateOutputTruncation(t *testing.T) {
 	}
 }
 
-func TestDelegateParseErrors(t *testing.T) {
-	dt := newTestDelegateTool("unused")
+func TestAgentParseErrors(t *testing.T) {
+	dt := newTestAgentTool("unused")
 
 	tests := []struct {
 		name string
@@ -315,7 +315,7 @@ func TestDelegateParseErrors(t *testing.T) {
 	}
 }
 
-func TestDelegatePanicRecovery(t *testing.T) {
+func TestAgentPanicRecovery(t *testing.T) {
 	// Create a provider that panics.
 	reg := ai.NewRegistry()
 	reg.Register(panicProvider{})
@@ -323,7 +323,7 @@ func TestDelegatePanicRecovery(t *testing.T) {
 	toolReg := &Registry{tools: make(map[string]Tool)}
 	eng := &engine.Engine{Providers: reg}
 
-	dt := NewDelegateTool(DelegateConfig{
+	dt := NewAgentTool(AgentConfig{
 		Engine:   eng,
 		Registry: toolReg,
 		Model:    ai.Model{API: "panic", Name: "stub"},
@@ -359,12 +359,12 @@ func (panicProvider) StreamSimple(ai.Model, ai.Context, ai.SimpleStreamOptions) 
 	panic("test panic in provider")
 }
 
-func TestDelegateDefinition(t *testing.T) {
-	dt := newTestDelegateTool("unused")
+func TestAgentDefinition(t *testing.T) {
+	dt := newTestAgentTool("unused")
 	def := dt.Definition()
 
-	if def.Name != "delegate" {
-		t.Fatalf("expected name 'delegate', got %q", def.Name)
+	if def.Name != "agent" {
+		t.Fatalf("expected name 'agent', got %q", def.Name)
 	}
 	if def.InputSchema == nil {
 		t.Fatalf("expected non-nil input schema")
@@ -447,7 +447,7 @@ func TestRegistryHas(t *testing.T) {
 }
 
 // Verify that the toolspec.Definition interface is satisfied.
-var _ Tool = (*DelegateTool)(nil)
+var _ Tool = (*AgentTool)(nil)
 
 // Suppress unused import warnings for toolspec.
 var _ toolspec.Definition

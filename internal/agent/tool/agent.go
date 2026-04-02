@@ -15,14 +15,14 @@ import (
 )
 
 const (
-	delegateToolName      = "delegate"
+	agentToolName         = "agent"
 	defaultMaxTurns       = 10
 	defaultTimeoutSeconds = 120
 	maxResultChars        = 16000 // ~4096 tokens
 )
 
-// DelegateConfig holds the dependencies needed to spawn subagent loops.
-type DelegateConfig struct {
+// AgentConfig holds the dependencies needed to spawn subagent loops.
+type AgentConfig struct {
 	Engine      *engine.Engine
 	Registry    *Registry
 	Model       ai.Model
@@ -31,27 +31,27 @@ type DelegateConfig struct {
 	PluginHooks engine.PluginHookRunner // optional plugin lifecycle hooks
 }
 
-// DelegateTool spawns child agent loops for bounded subtasks.
-type DelegateTool struct {
-	cfg DelegateConfig
+// AgentTool spawns child agent loops for bounded subtasks.
+type AgentTool struct {
+	cfg AgentConfig
 }
 
-// NewDelegateTool creates a delegate tool with the given configuration.
-func NewDelegateTool(cfg DelegateConfig) *DelegateTool {
-	return &DelegateTool{cfg: cfg}
+// NewAgentTool creates an agent tool with the given configuration.
+func NewAgentTool(cfg AgentConfig) *AgentTool {
+	return &AgentTool{cfg: cfg}
 }
 
-// DelegateDefinition returns the tool definition without requiring a live config.
-func DelegateDefinition() toolspec.Definition {
+// AgentDefinition returns the tool definition without requiring a live config.
+func AgentDefinition() toolspec.Definition {
 	return toolspec.Definition{
-		Name:        delegateToolName,
-		Description: "Delegate one or more tasks to subagents with isolated context. Multiple tasks run in parallel. Use for focused subtasks like research, code review, or drafting that benefit from fresh context.",
+		Name:        agentToolName,
+		Description: "Spawn one or more subagents with isolated context. Multiple tasks run in parallel. Use for focused subtasks like research, code review, or drafting that benefit from fresh context.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"tasks": map[string]any{
 					"type":        "array",
-					"description": "One or more subtasks to delegate. Multiple tasks run in parallel.",
+					"description": "One or more subtasks to spawn as subagents. Multiple tasks run in parallel.",
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
@@ -68,7 +68,7 @@ func DelegateDefinition() toolspec.Definition {
 							"tools": map[string]any{
 								"type":        "array",
 								"items":       map[string]any{"type": "string"},
-								"description": "Optional tool whitelist. Only these tools will be available. Defaults to all parent tools minus delegate.",
+								"description": "Optional tool whitelist. Only these tools will be available. Defaults to all parent tools minus agent.",
 							},
 							"max_turns": map[string]any{
 								"type":        "integer",
@@ -88,17 +88,17 @@ func DelegateDefinition() toolspec.Definition {
 	}
 }
 
-func (t *DelegateTool) Definition() toolspec.Definition {
-	return DelegateDefinition()
+func (t *AgentTool) Definition() toolspec.Definition {
+	return AgentDefinition()
 }
 
-func (t *DelegateTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	tasks, err := parseDelegateTasks(args)
+func (t *AgentTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+	tasks, err := parseAgentTasks(args)
 	if err != nil {
-		return "", fmt.Errorf("delegate: %w", err)
+		return "", fmt.Errorf("agent: %w", err)
 	}
 	if len(tasks) == 0 {
-		return "", fmt.Errorf("delegate: at least one task is required")
+		return "", fmt.Errorf("agent: at least one task is required")
 	}
 
 	results := make(map[string]taskResult, len(tasks))
@@ -107,7 +107,7 @@ func (t *DelegateTool) Execute(ctx context.Context, args map[string]any) (string
 
 	for _, task := range tasks {
 		wg.Add(1)
-		go func(tc delegateTaskConfig) {
+		go func(tc agentTaskConfig) {
 			defer wg.Done()
 			result := t.runSubAgent(ctx, tc)
 			mu.Lock()
@@ -120,12 +120,12 @@ func (t *DelegateTool) Execute(ctx context.Context, args map[string]any) (string
 	envelope := map[string]any{"results": results}
 	out, err := json.Marshal(envelope)
 	if err != nil {
-		return "", fmt.Errorf("delegate: marshal results: %w", err)
+		return "", fmt.Errorf("agent: marshal results: %w", err)
 	}
 	return string(out), nil
 }
 
-type delegateTaskConfig struct {
+type agentTaskConfig struct {
 	ID             string
 	Task           string
 	Model          string
@@ -141,8 +141,8 @@ type taskResult struct {
 	Error  string `json:"error,omitempty"`
 }
 
-func (t *DelegateTool) runSubAgent(parentCtx context.Context, tc delegateTaskConfig) (result taskResult) {
-	log := slog.With("component", "delegate", "task_id", tc.ID)
+func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (result taskResult) {
+	log := slog.With("component", "agent", "task_id", tc.ID)
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -215,10 +215,10 @@ func (t *DelegateTool) runSubAgent(parentCtx context.Context, tc delegateTaskCon
 }
 
 // buildScopedTools creates a filtered tool set for the child agent.
-// It always excludes "delegate" to prevent recursion.
+// It always excludes "agent" to prevent recursion.
 // If hasWhitelist is true, only the listed tools are included (empty list = no tools).
-// If hasWhitelist is false, all parent tools (minus delegate) are available.
-func (t *DelegateTool) buildScopedTools(whitelist []string, hasWhitelist bool) (engine.ToolSet, []toolspec.Definition, error) {
+// If hasWhitelist is false, all parent tools (minus agent) are available.
+func (t *AgentTool) buildScopedTools(whitelist []string, hasWhitelist bool) (engine.ToolSet, []toolspec.Definition, error) {
 	allDefs := t.cfg.Registry.Definitions()
 
 	// Build allowed set from whitelist, if provided.
@@ -226,7 +226,7 @@ func (t *DelegateTool) buildScopedTools(whitelist []string, hasWhitelist bool) (
 	if hasWhitelist {
 		allowed = make(map[string]bool, len(whitelist))
 		for _, name := range whitelist {
-			if name == delegateToolName {
+			if name == agentToolName {
 				continue
 			}
 			if !t.cfg.Registry.Has(name) {
@@ -240,7 +240,7 @@ func (t *DelegateTool) buildScopedTools(whitelist []string, hasWhitelist bool) (
 	var defs []toolspec.Definition
 
 	for _, def := range allDefs {
-		if def.Name == delegateToolName {
+		if def.Name == agentToolName {
 			continue
 		}
 		if allowed != nil && !allowed[def.Name] {
@@ -281,7 +281,7 @@ func truncateResult(s string, maxChars int) string {
 	return string(runes[:maxChars]) + "\n[truncated]"
 }
 
-func parseDelegateTasks(args map[string]any) ([]delegateTaskConfig, error) {
+func parseAgentTasks(args map[string]any) ([]agentTaskConfig, error) {
 	tasksRaw, ok := args["tasks"]
 	if !ok {
 		return nil, fmt.Errorf("tasks is required")
@@ -291,7 +291,7 @@ func parseDelegateTasks(args map[string]any) ([]delegateTaskConfig, error) {
 		return nil, fmt.Errorf("tasks must be an array")
 	}
 
-	tasks := make([]delegateTaskConfig, 0, len(tasksSlice))
+	tasks := make([]agentTaskConfig, 0, len(tasksSlice))
 	seen := make(map[string]bool, len(tasksSlice))
 
 	for i, raw := range tasksSlice {
@@ -300,7 +300,7 @@ func parseDelegateTasks(args map[string]any) ([]delegateTaskConfig, error) {
 			return nil, fmt.Errorf("tasks[%d]: must be an object", i)
 		}
 
-		tc := delegateTaskConfig{}
+		tc := agentTaskConfig{}
 
 		id, ok := obj["id"].(string)
 		if !ok || id == "" {
