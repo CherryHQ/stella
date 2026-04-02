@@ -106,9 +106,9 @@ Project-local presets override builtins with the same name. Use presets for comm
 - **Preset**: `{"tasks": [{"id": "review", "task": "Review auth module for issues", "preset": "reviewer"}]}`
 - **With context**: `{"tasks": [{"id": "fix", "task": "Fix the bug", "preset": "coder", "context": "File content of auth.go:\n..."}]}`
 - **Parallel tasks**: provide multiple items in the `tasks` array -- they run concurrently (max 5 tasks, 3 parallel)
-- **Options per task**: `preset`, `context`, `model` (override model), `system` (additional instructions), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
+- **Options per task**: `preset`, `context`, `model` (override model), `system` (additional instructions appended to base prompt; replaces preset system if both set), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
 - Subagents get fresh context (no parent history) and cannot spawn further subagents
-- Results are returned as JSON: `{"results": {"id": {"output": "...", "complete": true, "error": ""}}}`
+- Results are returned as JSON: `{"results": {"id": {"output": "...", "complete": true}}}`
 - Prefer presets over manual configuration. Delegate when a subtask benefits from fresh context or parallel execution
 
 ## Memory, scheduler, notifications

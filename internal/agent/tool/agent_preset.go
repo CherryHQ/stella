@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vaayne/anna/internal/agent/runner/builtin"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,7 +23,7 @@ type AgentPreset struct {
 	Timeout     time.Duration // 0 = use global default
 	Model       string        // empty = inherit parent model
 	FilePath    string        // absolute path to the source .md file
-	Source      string        // "project", "user", "agent", "common", or "builtin"
+	Source      string        // "project", "agent", "common", or "builtin"
 }
 
 // agentFrontmatter is the YAML frontmatter parsed from an agent preset file.
@@ -89,10 +90,14 @@ func loadAgentPresets(homeDir, annaHome, workspace, cwd string) []AgentPreset {
 		addDir(filepath.Join(homeDir, ".agents", "agents"), "common")
 	}
 
-	// 4. Builtin agents: extracted from binary (lowest priority)
+	// 4. Builtin agents: extracted from binary (lowest priority).
+	// Ensure builtins are extracted to disk (idempotent).
 	if annaHome != "" {
-		builtinDir := filepath.Join(annaHome, "cache", "builtin-skills", "agents")
-		addDir(builtinDir, "builtin")
+		builtinBaseDir := filepath.Join(annaHome, "cache", "builtin-skills")
+		if err := builtin.Extract(builtinBaseDir); err != nil {
+			slog.Warn("failed to extract builtin agents", "error", err)
+		}
+		addDir(filepath.Join(builtinBaseDir, "agents"), "builtin")
 	}
 
 	return presets
