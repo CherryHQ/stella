@@ -38,6 +38,38 @@ func TestDiscover(t *testing.T) {
 	}
 }
 
+func TestCatalogAddAndMerge(t *testing.T) {
+	c := NewCatalog()
+	def1 := Definition{Manifest: pluginapi.Manifest{Name: "a", Kind: pluginapi.KindTool}}
+	def2 := Definition{Manifest: pluginapi.Manifest{Name: "b", Kind: pluginapi.KindTool}}
+
+	if err := c.Add(def1); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+	// duplicate
+	if err := c.Add(def1); err == nil {
+		t.Fatal("Add() duplicate should error")
+	}
+	if err := c.Merge(def2); err != nil {
+		t.Fatalf("Merge() error = %v", err)
+	}
+	if got := len(c.List()); got != 2 {
+		t.Fatalf("List() len = %d, want 2", got)
+	}
+
+	// nil catalog
+	var nilCat *Catalog
+	if err := nilCat.Add(def1); err == nil {
+		t.Fatal("nil catalog Add should error")
+	}
+	if _, ok := nilCat.Get("tool/a"); ok {
+		t.Fatal("nil catalog Get should return false")
+	}
+	if nilCat.List() != nil {
+		t.Fatal("nil catalog List should return nil")
+	}
+}
+
 func TestDiscoverDuplicate(t *testing.T) {
 	root := t.TempDir()
 
