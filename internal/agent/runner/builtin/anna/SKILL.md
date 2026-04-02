@@ -92,14 +92,14 @@ You have an `agent` tool that spawns subagent loops for bounded subtasks. Use it
 
 ### Presets
 
-Use presets for common patterns (explicit fields override preset defaults):
+Presets are loaded from markdown files with YAML frontmatter. Discovery order (highest priority first):
 
-| Preset | Purpose | Tools | Max turns | Timeout |
-|--------|---------|-------|-----------|---------|
-| `researcher` | Search and synthesize information | bash, read | 15 | 3min |
-| `reviewer` | Code review (read-only) | read, bash | 10 | 2min |
-| `coder` | Implementation subtasks | all (minus agent) | 20 | 5min |
-| `writer` | Documentation and content drafting | none | 5 | 1min |
+1. `cwd/.agents/agents/` — project-local
+2. `workspace/agents/` — agent-level
+3. `~/.agents/agents/` — common/shared
+4. Builtin (embedded: `researcher`, `reviewer`, `coder`, `writer`)
+
+Project-local presets override builtins with the same name. Use presets for common patterns (explicit fields override preset defaults).
 
 ### Examples
 
