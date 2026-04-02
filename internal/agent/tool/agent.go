@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -15,10 +17,14 @@ import (
 )
 
 const (
-	agentToolName         = "agent"
+	agentToolName = "agent"
+
+	// Defaults (overridable via AgentConfig).
 	defaultMaxTurns       = 10
 	defaultTimeoutSeconds = 120
-	maxResultChars        = 16000 // ~4096 tokens
+	defaultMaxTasks       = 5
+	defaultMaxConcurrency = 3
+	defaultMaxResultChars = 16000 // ~4096 tokens
 )
 
 // AgentConfig holds the dependencies needed to spawn subagent loops.
@@ -29,20 +35,55 @@ type AgentConfig struct {
 	APIKey      string
 	System      string
 	PluginHooks engine.PluginHookRunner // optional plugin lifecycle hooks
+	Emit        func(engine.LoopEvent)  // optional event emitter for observability
+
+	// Configurable limits (zero = use defaults).
+	MaxTasks       int // max tasks per invocation
+	MaxConcurrency int // max parallel subagent goroutines
+	MaxResultChars int // max runes in result output
+}
+
+func (c AgentConfig) maxTasks() int {
+	if c.MaxTasks > 0 {
+		return c.MaxTasks
+	}
+	return defaultMaxTasks
+}
+
+func (c AgentConfig) maxConcurrency() int {
+	if c.MaxConcurrency > 0 {
+		return c.MaxConcurrency
+	}
+	return defaultMaxConcurrency
+}
+
+func (c AgentConfig) maxResultChars() int {
+	if c.MaxResultChars > 0 {
+		return c.MaxResultChars
+	}
+	return defaultMaxResultChars
 }
 
 // AgentTool spawns child agent loops for bounded subtasks.
 type AgentTool struct {
 	cfg AgentConfig
+	sem chan struct{} // concurrency semaphore
 }
 
 // NewAgentTool creates an agent tool with the given configuration.
 func NewAgentTool(cfg AgentConfig) *AgentTool {
-	return &AgentTool{cfg: cfg}
+	return &AgentTool{
+		cfg: cfg,
+		sem: make(chan struct{}, cfg.maxConcurrency()),
+	}
 }
 
 // AgentDefinition returns the tool definition without requiring a live config.
 func AgentDefinition() toolspec.Definition {
+	presetNames := PresetNames()
+	presetDesc := "Preset agent configuration. Available: " + strings.Join(presetNames, ", ") +
+		". Preset values are defaults that explicit fields override."
+
 	return toolspec.Definition{
 		Name:        agentToolName,
 		Description: "Spawn one or more subagents with isolated context. Multiple tasks run in parallel. Use for focused subtasks like research, code review, or drafting that benefit from fresh context.",
@@ -57,6 +98,15 @@ func AgentDefinition() toolspec.Definition {
 						"properties": map[string]any{
 							"id":   map[string]any{"type": "string", "description": "Task identifier for result mapping."},
 							"task": map[string]any{"type": "string", "description": "Task description for the subagent."},
+							"preset": map[string]any{
+								"type":        "string",
+								"enum":        presetNames,
+								"description": presetDesc,
+							},
+							"context": map[string]any{
+								"type":        "string",
+								"description": "Optional context from parent (file contents, decisions, constraints) prepended to the task message.",
+							},
 							"model": map[string]any{
 								"type":        "string",
 								"description": "Optional model override (e.g. 'claude-haiku-4-5-20251001'). Defaults to parent model.",
@@ -100,6 +150,9 @@ func (t *AgentTool) Execute(ctx context.Context, args map[string]any) (string, e
 	if len(tasks) == 0 {
 		return "", fmt.Errorf("agent: at least one task is required")
 	}
+	if len(tasks) > t.cfg.maxTasks() {
+		return "", fmt.Errorf("agent: too many tasks (%d), maximum is %d", len(tasks), t.cfg.maxTasks())
+	}
 
 	results := make(map[string]taskResult, len(tasks))
 	var mu sync.Mutex
@@ -109,6 +162,18 @@ func (t *AgentTool) Execute(ctx context.Context, args map[string]any) (string, e
 		wg.Add(1)
 		go func(tc agentTaskConfig) {
 			defer wg.Done()
+
+			// Acquire semaphore slot.
+			select {
+			case t.sem <- struct{}{}:
+				defer func() { <-t.sem }()
+			case <-ctx.Done():
+				mu.Lock()
+				results[tc.ID] = taskResult{Error: ctx.Err().Error()}
+				mu.Unlock()
+				return
+			}
+
 			result := t.runSubAgent(ctx, tc)
 			mu.Lock()
 			results[tc.ID] = result
@@ -128,6 +193,8 @@ func (t *AgentTool) Execute(ctx context.Context, args map[string]any) (string, e
 type agentTaskConfig struct {
 	ID             string
 	Task           string
+	Preset         string
+	Context        string // parent-provided context prepended to task message
 	Model          string
 	System         string
 	Tools          []string // nil = all tools; empty = no tools
@@ -136,9 +203,37 @@ type agentTaskConfig struct {
 	TimeoutSeconds int
 }
 
+// applyPreset merges preset defaults into the task config.
+// Explicit task fields take precedence over preset values.
+func (tc *agentTaskConfig) applyPreset(p AgentPreset) {
+	if tc.Model == "" && p.Model != "" {
+		tc.Model = p.Model
+	}
+	if tc.System == "" && p.System != "" {
+		tc.System = p.System
+	}
+	if !tc.HasTools && p.HasTools {
+		tc.Tools = p.Tools
+		tc.HasTools = true
+	}
+	if tc.MaxTurns == 0 && p.MaxTurns > 0 {
+		tc.MaxTurns = p.MaxTurns
+	}
+	if tc.TimeoutSeconds == 0 && p.Timeout > 0 {
+		tc.TimeoutSeconds = int(p.Timeout.Seconds())
+	}
+}
+
 type taskResult struct {
-	Output string `json:"output"`
-	Error  string `json:"error,omitempty"`
+	Output   string `json:"output"`
+	Error    string `json:"error,omitempty"`
+	Complete bool   `json:"complete"` // true if agent stopped naturally (not max_turns/timeout)
+}
+
+func (t *AgentTool) emit(ev engine.LoopEvent) {
+	if t.cfg.Emit != nil {
+		t.cfg.Emit(ev)
+	}
 }
 
 func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (result taskResult) {
@@ -146,10 +241,21 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 
 	defer func() {
 		if r := recover(); r != nil {
-			result = taskResult{Error: fmt.Sprintf("panic: %v", r)}
-			log.Error("subagent panicked", "error", r)
+			stack := string(debug.Stack())
+			result = taskResult{Error: fmt.Sprintf("panic: %v\n%s", r, stack)}
+			log.Error("subagent panicked", "error", r, "stack", stack)
 		}
 	}()
+
+	// Apply preset defaults if specified.
+	if tc.Preset != "" {
+		if p, ok := LookupPreset(tc.Preset); ok {
+			tc.applyPreset(p)
+		} else {
+			return taskResult{Error: fmt.Sprintf("unknown preset: %q (available: %s)",
+				tc.Preset, strings.Join(PresetNames(), ", "))}
+		}
+	}
 
 	timeout := time.Duration(defaultTimeoutSeconds) * time.Second
 	if tc.TimeoutSeconds > 0 {
@@ -192,26 +298,38 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 		PluginHooks:     t.cfg.PluginHooks,
 	}
 
-	messages := []ai.Message{
-		ai.UserMessage{Content: tc.Task},
+	// Build user message: optional context + task.
+	userContent := tc.Task
+	if tc.Context != "" {
+		userContent = tc.Context + "\n\n---\n\n" + tc.Task
 	}
 
-	log.Info("subagent started")
+	messages := []ai.Message{
+		ai.UserMessage{Content: userContent},
+	}
+
+	log.Info("subagent started", "preset", tc.Preset, "model", model.Name, "max_turns", maxTurns)
 	start := time.Now()
+
+	t.emit(SubAgentStarted{TaskID: tc.ID, Preset: tc.Preset})
 
 	history, err := t.cfg.Engine.Run(ctx, cfg, messages, nil)
 	duration := time.Since(start)
 
 	if err != nil {
 		log.Error("subagent failed", "duration", duration, "error", err)
+		t.emit(SubAgentFinished{TaskID: tc.ID, Duration: duration, Error: err.Error()})
 		return taskResult{Error: err.Error()}
 	}
 
 	log.Info("subagent finished", "duration", duration)
 
 	output := extractLastAssistantText(history)
-	output = truncateResult(output, maxResultChars)
-	return taskResult{Output: output}
+	output = truncateResult(output, t.cfg.maxResultChars())
+
+	t.emit(SubAgentFinished{TaskID: tc.ID, Duration: duration})
+
+	return taskResult{Output: output, Complete: true}
 }
 
 // buildScopedTools creates a filtered tool set for the child agent.
@@ -247,7 +365,8 @@ func (t *AgentTool) buildScopedTools(whitelist []string, hasWhitelist bool) (eng
 			continue
 		}
 		defs = append(defs, def)
-		toolSet[def.Name] = func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
+		name := def.Name // capture for closure safety
+		toolSet[name] = func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
 			result, err := t.cfg.Registry.Execute(ctx, call.Name, call.Arguments)
 			return ai.TextContent{Text: result}, err
 		}
@@ -318,6 +437,12 @@ func parseAgentTasks(args map[string]any) ([]agentTaskConfig, error) {
 		}
 		tc.Task = task
 
+		if preset, ok := obj["preset"].(string); ok {
+			tc.Preset = preset
+		}
+		if ctx, ok := obj["context"].(string); ok {
+			tc.Context = ctx
+		}
 		if model, ok := obj["model"].(string); ok {
 			tc.Model = model
 		}

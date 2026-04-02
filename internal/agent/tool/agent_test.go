@@ -2,7 +2,9 @@ package tool
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,14 +13,14 @@ import (
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
-// fakeProvider returns a canned text response.
+// fakeAgentProvider returns a canned text response.
 type fakeAgentProvider struct {
 	response string
 }
 
 func (f fakeAgentProvider) API() string { return "fake" }
 
-func (f fakeAgentProvider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions) (ai.AssistantEventStream, error) {
+func (f fakeAgentProvider) Stream(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (ai.AssistantEventStream, error) {
 	out := ai.NewChannelEventStream(8)
 	go func() {
 		out.Emit(ai.EventTextDelta{Text: f.response})
@@ -28,11 +30,15 @@ func (f fakeAgentProvider) Stream(model ai.Model, ctx ai.Context, opts ai.Stream
 	return out, nil
 }
 
-func (f fakeAgentProvider) StreamSimple(model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (ai.AssistantEventStream, error) {
-	return f.Stream(model, ctx, opts.StreamOptions)
+func (f fakeAgentProvider) StreamSimple(_ ai.Model, _ ai.Context, opts ai.SimpleStreamOptions) (ai.AssistantEventStream, error) {
+	return f.Stream(ai.Model{}, ai.Context{}, opts.StreamOptions)
 }
 
 func newTestAgentTool(response string) *AgentTool {
+	return newTestAgentToolWithConfig(response, AgentConfig{})
+}
+
+func newTestAgentToolWithConfig(response string, overrides AgentConfig) *AgentTool {
 	reg := ai.NewRegistry()
 	reg.Register(fakeAgentProvider{response: response})
 
@@ -43,13 +49,19 @@ func newTestAgentTool(response string) *AgentTool {
 	eng := &engine.Engine{Providers: reg}
 	model := ai.Model{API: "fake", Name: "test-model"}
 
-	dt := NewAgentTool(AgentConfig{
-		Engine:   eng,
-		Registry: toolReg,
-		Model:    model,
-		APIKey:   "test-key",
-		System:   "You are a test assistant.",
-	})
+	cfg := AgentConfig{
+		Engine:         eng,
+		Registry:       toolReg,
+		Model:          model,
+		APIKey:         "test-key",
+		System:         "You are a test assistant.",
+		MaxTasks:       overrides.MaxTasks,
+		MaxConcurrency: overrides.MaxConcurrency,
+		MaxResultChars: overrides.MaxResultChars,
+		Emit:           overrides.Emit,
+	}
+
+	dt := NewAgentTool(cfg)
 	toolReg.Register(dt)
 
 	return dt
@@ -74,6 +86,9 @@ func TestAgentSingleTask(t *testing.T) {
 	}
 	if !strings.Contains(result, "subagent result") {
 		t.Fatalf("expected 'subagent result' in output, got: %s", result)
+	}
+	if !strings.Contains(result, `"complete":true`) {
+		t.Fatalf("expected complete:true in result, got: %s", result)
 	}
 }
 
@@ -132,7 +147,6 @@ func TestAgentToolWhitelistInvalid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Should contain an error for the task, not a panic.
 	if !strings.Contains(result, "unknown tool") {
 		t.Fatalf("expected 'unknown tool' error in result, got: %s", result)
 	}
@@ -188,7 +202,6 @@ func TestAgentEmptyWhitelistGivesNoTools(t *testing.T) {
 }
 
 func TestAgentTimeout(t *testing.T) {
-	// Use a provider that keeps looping with tool calls, paired with a slow tool.
 	reg := ai.NewRegistry()
 	reg.Register(loopingProvider{})
 
@@ -220,11 +233,9 @@ func TestAgentTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Should complete around 1 second via context timeout, not run all turns.
 	if elapsed > 5*time.Second {
 		t.Fatalf("expected timeout around 1s, took %v", elapsed)
 	}
-	// Result should contain an error (context deadline exceeded).
 	if !strings.Contains(result, "error") {
 		t.Fatalf("expected 'error' in result, got: %s", result)
 	}
@@ -270,15 +281,14 @@ func (s *slowTool) Execute(ctx context.Context, _ map[string]any) (string, error
 }
 
 func TestAgentOutputTruncation(t *testing.T) {
-	long := strings.Repeat("x", maxResultChars+100)
-	truncated := truncateResult(long, maxResultChars)
+	long := strings.Repeat("x", defaultMaxResultChars+100)
+	truncated := truncateResult(long, defaultMaxResultChars)
 
 	if !strings.HasSuffix(truncated, "[truncated]") {
 		t.Fatalf("expected [truncated] suffix")
 	}
-	// Should be maxResultChars runes + "\n[truncated]"
 	runes := []rune(truncated)
-	expected := maxResultChars + len([]rune("\n[truncated]"))
+	expected := defaultMaxResultChars + len([]rune("\n[truncated]"))
 	if len(runes) != expected {
 		t.Fatalf("expected %d runes, got %d", expected, len(runes))
 	}
@@ -316,7 +326,6 @@ func TestAgentParseErrors(t *testing.T) {
 }
 
 func TestAgentPanicRecovery(t *testing.T) {
-	// Create a provider that panics.
 	reg := ai.NewRegistry()
 	reg.Register(panicProvider{})
 
@@ -344,6 +353,10 @@ func TestAgentPanicRecovery(t *testing.T) {
 	}
 	if !strings.Contains(result, "boom") {
 		t.Fatalf("expected task ID 'boom' in result, got: %s", result)
+	}
+	// Should include stack trace.
+	if !strings.Contains(result, "goroutine") {
+		t.Fatalf("expected stack trace in panic result, got: %s", result)
 	}
 }
 
@@ -376,6 +389,17 @@ func TestAgentDefinition(t *testing.T) {
 	}
 	if _, ok := props["tasks"]; !ok {
 		t.Fatalf("expected 'tasks' property in schema")
+	}
+
+	// Verify preset and context fields exist in task items.
+	tasks := props["tasks"].(map[string]any)
+	items := tasks["items"].(map[string]any)
+	itemProps := items["properties"].(map[string]any)
+	if _, ok := itemProps["preset"]; !ok {
+		t.Fatalf("expected 'preset' property in task items")
+	}
+	if _, ok := itemProps["context"]; !ok {
+		t.Fatalf("expected 'context' property in task items")
 	}
 }
 
@@ -446,7 +470,288 @@ func TestRegistryHas(t *testing.T) {
 	}
 }
 
-// Verify that the toolspec.Definition interface is satisfied.
+// --- Preset tests ---
+
+func TestAgentPresetApplied(t *testing.T) {
+	dt := newTestAgentTool("preset result")
+
+	result, err := dt.Execute(context.Background(), map[string]any{
+		"tasks": []any{
+			map[string]any{
+				"id":     "t1",
+				"task":   "Review my code",
+				"preset": "reviewer",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "preset result") {
+		t.Fatalf("expected output in result, got: %s", result)
+	}
+}
+
+func TestAgentPresetUnknown(t *testing.T) {
+	dt := newTestAgentTool("unused")
+
+	result, err := dt.Execute(context.Background(), map[string]any{
+		"tasks": []any{
+			map[string]any{
+				"id":     "t1",
+				"task":   "Do something",
+				"preset": "nonexistent_preset",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "unknown preset") {
+		t.Fatalf("expected 'unknown preset' error in result, got: %s", result)
+	}
+}
+
+func TestAgentPresetOverriddenByExplicit(t *testing.T) {
+	tc := agentTaskConfig{
+		MaxTurns: 25, // explicit override
+	}
+	p := AgentPreset{
+		MaxTurns: 10,
+		System:   "preset system",
+		Timeout:  3 * time.Minute,
+	}
+	tc.applyPreset(p)
+
+	if tc.MaxTurns != 25 {
+		t.Fatalf("expected explicit MaxTurns=25, got %d", tc.MaxTurns)
+	}
+	if tc.System != "preset system" {
+		t.Fatalf("expected preset system, got %q", tc.System)
+	}
+	if tc.TimeoutSeconds != 180 {
+		t.Fatalf("expected timeout 180s from preset, got %d", tc.TimeoutSeconds)
+	}
+}
+
+func TestPresetNames(t *testing.T) {
+	names := PresetNames()
+	if len(names) == 0 {
+		t.Fatalf("expected at least one preset name")
+	}
+	for _, name := range names {
+		if _, ok := LookupPreset(name); !ok {
+			t.Fatalf("preset %q not found via LookupPreset", name)
+		}
+	}
+}
+
+// --- Context passing tests ---
+
+func TestAgentContextPrepended(t *testing.T) {
+	// Use a provider that echoes back the user message.
+	reg := ai.NewRegistry()
+	reg.Register(echoProvider{})
+
+	toolReg := &Registry{tools: make(map[string]Tool)}
+	eng := &engine.Engine{Providers: reg}
+
+	dt := NewAgentTool(AgentConfig{
+		Engine:   eng,
+		Registry: toolReg,
+		Model:    ai.Model{API: "echo", Name: "test"},
+		APIKey:   "test",
+		System:   "test",
+	})
+
+	result, err := dt.Execute(context.Background(), map[string]any{
+		"tasks": []any{
+			map[string]any{
+				"id":      "t1",
+				"task":    "Summarize the file",
+				"context": "File content: hello world",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// The echo provider returns what it receives. Check context was included.
+	if !strings.Contains(result, "File content: hello world") {
+		t.Fatalf("expected context in result, got: %s", result)
+	}
+	if !strings.Contains(result, "Summarize the file") {
+		t.Fatalf("expected task in result, got: %s", result)
+	}
+}
+
+// echoProvider returns the user message content as the assistant response.
+type echoProvider struct{}
+
+func (echoProvider) API() string { return "echo" }
+
+func (echoProvider) Stream(_ ai.Model, ctx ai.Context, _ ai.StreamOptions) (ai.AssistantEventStream, error) {
+	out := ai.NewChannelEventStream(8)
+	var userText string
+	for _, msg := range ctx.Messages {
+		if um, ok := msg.(ai.UserMessage); ok {
+			if s, ok := um.Content.(string); ok {
+				userText = s
+			}
+		}
+	}
+	go func() {
+		out.Emit(ai.EventTextDelta{Text: userText})
+		out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+		out.Finish(nil)
+	}()
+	return out, nil
+}
+
+func (echoProvider) StreamSimple(_ ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (ai.AssistantEventStream, error) {
+	return echoProvider{}.Stream(ai.Model{}, ctx, opts.StreamOptions)
+}
+
+// --- Concurrency & limits tests ---
+
+func TestAgentMaxTasksExceeded(t *testing.T) {
+	dt := newTestAgentToolWithConfig("unused", AgentConfig{MaxTasks: 2})
+
+	_, err := dt.Execute(context.Background(), map[string]any{
+		"tasks": []any{
+			map[string]any{"id": "a", "task": "A"},
+			map[string]any{"id": "b", "task": "B"},
+			map[string]any{"id": "c", "task": "C"},
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected error for exceeding max tasks")
+	}
+	if !strings.Contains(err.Error(), "too many tasks") {
+		t.Fatalf("expected 'too many tasks' error, got: %v", err)
+	}
+}
+
+func TestAgentConcurrencyLimited(t *testing.T) {
+	// Track max concurrent executions.
+	var mu sync.Mutex
+	var current, maxSeen int
+
+	reg := ai.NewRegistry()
+	reg.Register(countingProvider{
+		mu:      &mu,
+		current: &current,
+		maxSeen: &maxSeen,
+	})
+
+	toolReg := &Registry{tools: make(map[string]Tool)}
+	eng := &engine.Engine{Providers: reg}
+
+	dt := NewAgentTool(AgentConfig{
+		Engine:         eng,
+		Registry:       toolReg,
+		Model:          ai.Model{API: "counting", Name: "test"},
+		APIKey:         "test",
+		System:         "test",
+		MaxConcurrency: 2,
+		MaxTasks:       10,
+	})
+
+	tasks := make([]any, 5)
+	for i := range tasks {
+		tasks[i] = map[string]any{
+			"id":   fmt.Sprintf("t%d", i),
+			"task": "Do something",
+		}
+	}
+
+	_, err := dt.Execute(context.Background(), map[string]any{"tasks": tasks})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if maxSeen > 2 {
+		t.Fatalf("expected max concurrency 2, saw %d", maxSeen)
+	}
+}
+
+// countingProvider tracks concurrent invocations.
+type countingProvider struct {
+	mu      *sync.Mutex
+	current *int
+	maxSeen *int
+}
+
+func (c countingProvider) API() string { return "counting" }
+
+func (c countingProvider) Stream(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (ai.AssistantEventStream, error) {
+	c.mu.Lock()
+	*c.current++
+	if *c.current > *c.maxSeen {
+		*c.maxSeen = *c.current
+	}
+	c.mu.Unlock()
+
+	// Small sleep to allow concurrency overlap.
+	time.Sleep(50 * time.Millisecond)
+
+	c.mu.Lock()
+	*c.current--
+	c.mu.Unlock()
+
+	out := ai.NewChannelEventStream(8)
+	go func() {
+		out.Emit(ai.EventTextDelta{Text: "done"})
+		out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+		out.Finish(nil)
+	}()
+	return out, nil
+}
+
+func (c countingProvider) StreamSimple(_ ai.Model, _ ai.Context, opts ai.SimpleStreamOptions) (ai.AssistantEventStream, error) {
+	return c.Stream(ai.Model{}, ai.Context{}, opts.StreamOptions)
+}
+
+// --- Event emission tests ---
+
+func TestAgentEmitsEvents(t *testing.T) {
+	var events []engine.LoopEvent
+	var mu sync.Mutex
+
+	dt := newTestAgentToolWithConfig("event result", AgentConfig{
+		Emit: func(ev engine.LoopEvent) {
+			mu.Lock()
+			events = append(events, ev)
+			mu.Unlock()
+		},
+	})
+
+	_, err := dt.Execute(context.Background(), map[string]any{
+		"tasks": []any{
+			map[string]any{"id": "t1", "task": "Do something"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events (started+finished), got %d", len(events))
+	}
+	if events[0].Kind() != "subAgentStarted" {
+		t.Fatalf("expected subAgentStarted, got %s", events[0].Kind())
+	}
+	if events[1].Kind() != "subAgentFinished" {
+		t.Fatalf("expected subAgentFinished, got %s", events[1].Kind())
+	}
+}
+
+// Verify that the Tool interface is satisfied.
 var _ Tool = (*AgentTool)(nil)
 
 // Suppress unused import warnings for toolspec.
