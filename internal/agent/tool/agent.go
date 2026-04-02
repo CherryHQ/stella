@@ -329,12 +329,14 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 
 	log.Info("subagent finished", "duration", duration)
 
-	output := extractLastAssistantText(history)
+	output, stopReason := extractLastAssistant(history)
 	output = truncateResult(output, t.cfg.maxResultChars())
+
+	complete := stopReason == ai.StopReasonStop || stopReason == ai.StopReasonLength
 
 	t.emit(SubAgentFinished{TaskID: tc.ID, Duration: duration})
 
-	return taskResult{Output: output, Complete: true}
+	return taskResult{Output: output, Complete: complete}
 }
 
 // buildScopedTools creates a filtered tool set for the child agent.
@@ -380,8 +382,8 @@ func (t *AgentTool) buildScopedTools(whitelist []string, hasWhitelist bool) (eng
 	return toolSet, defs, nil
 }
 
-// extractLastAssistantText returns the text content of the last assistant message.
-func extractLastAssistantText(history []ai.Message) string {
+// extractLastAssistant returns the text content and stop reason of the last assistant message.
+func extractLastAssistant(history []ai.Message) (string, ai.StopReason) {
 	for i := len(history) - 1; i >= 0; i-- {
 		msg, ok := history[i].(ai.AssistantMessage)
 		if !ok {
@@ -389,11 +391,12 @@ func extractLastAssistantText(history []ai.Message) string {
 		}
 		for _, block := range msg.Content {
 			if tc, ok := block.(ai.TextContent); ok {
-				return tc.Text
+				return tc.Text, msg.StopReason
 			}
 		}
+		return "", msg.StopReason
 	}
-	return ""
+	return "", ""
 }
 
 // truncateResult truncates a string to maxChars runes, appending a marker if truncated.

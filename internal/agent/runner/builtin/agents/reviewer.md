@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Code review with read-only access. No write or edit tools.
-tools: [read, bash]
+tools: [read]
 max_turns: 10
 timeout: 2m
 ---

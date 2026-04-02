@@ -431,7 +431,7 @@ func TestAgentDefinition(t *testing.T) {
 	}
 }
 
-func TestExtractLastAssistantText(t *testing.T) {
+func TestExtractLastAssistant(t *testing.T) {
 	tests := []struct {
 		name    string
 		history []ai.Message
@@ -478,7 +478,7 @@ func TestExtractLastAssistantText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractLastAssistantText(tt.history)
+			got, _ := extractLastAssistant(tt.history)
 			if got != tt.want {
 				t.Fatalf("expected %q, got %q", tt.want, got)
 			}
