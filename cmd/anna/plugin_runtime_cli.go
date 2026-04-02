@@ -19,9 +19,7 @@ func runtimePluginCommand() *ucli.Command {
 			runtimePluginListCommand(),
 			runtimePluginBindCommand(),
 		},
-		Action: func(c *ucli.Context) error {
-			return runtimePluginListAction(c)
-		},
+		Action: runtimePluginListAction,
 	}
 }
 
