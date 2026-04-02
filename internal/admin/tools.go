@@ -37,8 +37,8 @@ func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 		tools = append(tools, defToJSON(def, "builtin"))
 	}
 
-	// Delegate tool (always present).
-	tools = append(tools, defToJSON(tool.DelegateDefinition(), "builtin"))
+	// Agent tool (always present).
+	tools = append(tools, defToJSON(tool.AgentDefinition(nil), "builtin"))
 
 	// Shared tools (scheduler, memory, skills).
 	for _, def := range sharedToolDefinitions() {

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 )
 
-//go:embed anna
+//go:embed anna agents
 var skillsFS embed.FS
 
 // Extract writes all embedded builtin skill files to destDir.
