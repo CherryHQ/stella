@@ -40,7 +40,7 @@ type StartOptions struct {
 	Logger *slog.Logger
 }
 
-const builtinRuntimeShutdownTimeout = 250 * time.Millisecond
+const builtinRuntimeShutdownTimeout = 2 * time.Second
 
 func Start(ctx context.Context, def Definition, opts StartOptions) (*Client, error) {
 	logger := opts.Logger
