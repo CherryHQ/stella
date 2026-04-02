@@ -88,13 +88,28 @@ anna upgrade           # Self-update to latest release
 
 ## Delegation
 
-You have a `delegate` tool that spawns subagent loops for bounded subtasks. Use it when a task benefits from isolated context -- e.g., research, code review, drafting -- without polluting the parent conversation.
+You have an `agent` tool that spawns subagent loops for bounded subtasks. Use it when a task benefits from isolated context -- e.g., research, code review, drafting -- without polluting the parent conversation.
 
-- **Single task**: `{"tasks": [{"id": "review", "task": "Review auth module for issues"}]}`
-- **Parallel tasks**: provide multiple items in the `tasks` array -- they run concurrently
-- **Options per task**: `model` (override model), `system` (additional instructions), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
-- Subagents get fresh context (no parent history) and cannot delegate further
-- Results are returned as JSON: `{"results": {"id": {"output": "...", "error": ""}}}`
+### Presets
+
+Use presets for common patterns (explicit fields override preset defaults):
+
+| Preset | Purpose | Tools | Max turns | Timeout |
+|--------|---------|-------|-----------|---------|
+| `researcher` | Search and synthesize information | bash, read | 15 | 3min |
+| `reviewer` | Code review (read-only) | read, bash | 10 | 2min |
+| `coder` | Implementation subtasks | all (minus agent) | 20 | 5min |
+| `writer` | Documentation and content drafting | none | 5 | 1min |
+
+### Examples
+
+- **Preset**: `{"tasks": [{"id": "review", "task": "Review auth module for issues", "preset": "reviewer"}]}`
+- **With context**: `{"tasks": [{"id": "fix", "task": "Fix the bug", "preset": "coder", "context": "File content of auth.go:\n..."}]}`
+- **Parallel tasks**: provide multiple items in the `tasks` array -- they run concurrently (max 5 tasks, 3 parallel)
+- **Options per task**: `preset`, `context`, `model` (override model), `system` (additional instructions), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
+- Subagents get fresh context (no parent history) and cannot spawn further subagents
+- Results are returned as JSON: `{"results": {"id": {"output": "...", "complete": true, "error": ""}}}`
+- Prefer presets over manual configuration. Delegate when a subtask benefits from fresh context or parallel execution
 
 ## Memory, scheduler, notifications
 
