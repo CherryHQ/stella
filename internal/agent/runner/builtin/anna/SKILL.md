@@ -88,13 +88,28 @@ anna upgrade           # Self-update to latest release
 
 ## Delegation
 
-You have a `delegate` tool that spawns subagent loops for bounded subtasks. Use it when a task benefits from isolated context -- e.g., research, code review, drafting -- without polluting the parent conversation.
+You have an `agent` tool that spawns subagent loops for bounded subtasks. Use it when a task benefits from isolated context -- e.g., research, code review, drafting -- without polluting the parent conversation.
 
-- **Single task**: `{"tasks": [{"id": "review", "task": "Review auth module for issues"}]}`
-- **Parallel tasks**: provide multiple items in the `tasks` array -- they run concurrently
-- **Options per task**: `model` (override model), `system` (additional instructions), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
-- Subagents get fresh context (no parent history) and cannot delegate further
-- Results are returned as JSON: `{"results": {"id": {"output": "...", "error": ""}}}`
+### Presets
+
+Presets are loaded from markdown files with YAML frontmatter. Discovery order (highest priority first):
+
+1. `cwd/.agents/agents/` — project-local
+2. `workspace/agents/` — agent-level
+3. `~/.agents/agents/` — common/shared
+4. Builtin (embedded: `researcher`, `reviewer`, `coder`, `writer`)
+
+Project-local presets override builtins with the same name. Use presets for common patterns (explicit fields override preset defaults).
+
+### Examples
+
+- **Preset**: `{"tasks": [{"id": "review", "task": "Review auth module for issues", "preset": "reviewer"}]}`
+- **With context**: `{"tasks": [{"id": "fix", "task": "Fix the bug", "preset": "coder", "context": "File content of auth.go:\n..."}]}`
+- **Parallel tasks**: provide multiple items in the `tasks` array -- they run concurrently (max 5 tasks, 3 parallel)
+- **Options per task**: `preset`, `context`, `model` (override model), `system` (additional instructions appended to base prompt; replaces preset system if both set), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
+- Subagents get fresh context (no parent history) and cannot spawn further subagents
+- Results are returned as JSON: `{"results": {"id": {"output": "...", "complete": true}}}`
+- Prefer presets over manual configuration. Delegate when a subtask benefits from fresh context or parallel execution
 
 ## Memory, scheduler, notifications
 
