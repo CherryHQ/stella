@@ -12,10 +12,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Skill status constants.
+const (
+	SkillStatusDraft      = "draft"
+	SkillStatusActive     = "active"
+	SkillStatusDeprecated = "deprecated"
+)
+
 // Skill represents a discovered skill with its metadata and location.
 type Skill struct {
 	Name                   string
 	Description            string
+	Status                 string // "draft", "active", or "deprecated"
+	CreatedAt              string // RFC 3339 timestamp from frontmatter
 	FilePath               string // absolute path to the SKILL.md or .md file
 	BaseDir                string // directory containing the skill file
 	Source                 string // "user", "project", or "path"
@@ -26,6 +35,8 @@ type Skill struct {
 type skillFrontmatter struct {
 	Name                   string `yaml:"name"`
 	Description            string `yaml:"description"`
+	Status                 string `yaml:"status"`
+	CreatedAt              string `yaml:"created-at"`
 	DisableModelInvocation bool   `yaml:"disable-model-invocation"`
 }
 
@@ -162,6 +173,21 @@ func scanDir(dir, source string, isRoot bool) []Skill {
 	return skills
 }
 
+// normalizeSkillStatus normalizes an empty status to "active" and validates
+// known values. Returns the normalized status or "active" if the value is unknown.
+func normalizeSkillStatus(status string) string {
+	switch strings.TrimSpace(strings.ToLower(status)) {
+	case SkillStatusDraft:
+		return SkillStatusDraft
+	case SkillStatusActive, "":
+		return SkillStatusActive
+	case SkillStatusDeprecated:
+		return SkillStatusDeprecated
+	default:
+		return SkillStatusActive
+	}
+}
+
 func loadSkillFromFile(filePath, source string) (Skill, bool) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -190,6 +216,8 @@ func loadSkillFromFile(filePath, source string) (Skill, bool) {
 	return Skill{
 		Name:                   name,
 		Description:            fm.Description,
+		Status:                 normalizeSkillStatus(fm.Status),
+		CreatedAt:              fm.CreatedAt,
 		FilePath:               filePath,
 		BaseDir:                skillDir,
 		Source:                 source,
