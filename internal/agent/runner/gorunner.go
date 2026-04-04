@@ -20,10 +20,10 @@ const maxToolIterations = 40
 
 // GoRunnerConfig configures the Go runner.
 type GoRunnerConfig struct {
-	API            string // provider key: "anthropic", "openai"
-	Model          string // e.g. "claude-sonnet-4-20250514"
-	APIKey         string
-	BaseURL        string                  // optional provider base URL override
+	API         string // provider key: "anthropic", "openai"
+	Model       string // e.g. "claude-sonnet-4-20250514"
+	APIKey      string
+	BaseURL     string      // optional provider base URL override
 	WorkDir     string      // working directory for tool execution
 	Workspace   string      // workspace dir for skills/memory (e.g. ~/.anna/workspace)
 	AnnaHome    string      // anna home directory (e.g. ~/.anna)

@@ -50,8 +50,8 @@ type setupResult struct {
 	pool         *agent.Pool // default agent's pool (backward compat)
 	schedulerSvc *scheduler.Service
 	extraTools   []agenttool.Tool
-	notifier  *channel.Dispatcher
-	cliUserID int64 // resolved CLI user for session creation
+	notifier     *channel.Dispatcher
+	cliUserID    int64 // resolved CLI user for session creation
 }
 
 func setup(parent context.Context, gateway bool) (*setupResult, error) {
@@ -191,8 +191,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		pool:         pool,
 		schedulerSvc: schedulerSvc,
 		extraTools:   sharedTools,
-		notifier:  dispatcher,
-		cliUserID: cliUserID,
+		notifier:     dispatcher,
+		cliUserID:    cliUserID,
 	}, nil
 }
 
