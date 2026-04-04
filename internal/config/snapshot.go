@@ -21,20 +21,20 @@ type Snapshot struct {
 
 	// Provider, APIKey, BaseURL are the default provider credentials derived
 	// from the Model field's provider prefix. Kept for backward compatibility.
-	Provider       string
-	Model          string
-	ModelStrong    string
-	ModelFast      string
-	Workspace      string
-	APIKey         string
-	BaseURL        string
-	SystemPrompt   string // agent's soul/personality from DB
-	Runner         RunnerConfig
-	Compaction     CompactionConfig
-	Heartbeat      HeartbeatConfig
-	Scheduler      SchedulerConfig
-	SelfImprove    SelfImproveConfig
-	Plugins []Plugin
+	Provider     string
+	Model        string
+	ModelStrong  string
+	ModelFast    string
+	Workspace    string
+	APIKey       string
+	BaseURL      string
+	SystemPrompt string // agent's soul/personality from DB
+	Runner       RunnerConfig
+	Compaction   CompactionConfig
+	Heartbeat    HeartbeatConfig
+	Scheduler    SchedulerConfig
+	SelfImprove  SelfImproveConfig
+	Plugins      []Plugin
 
 	// Providers maps provider ID to credentials, enabling per-tier provider
 	// resolution when model_strong or model_fast use a different provider.

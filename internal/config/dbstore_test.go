@@ -470,6 +470,190 @@ func TestGetAgentNotFound(t *testing.T) {
 	}
 }
 
+func TestPluginCRUD(t *testing.T) {
+	store := setupDBStore(t)
+	ctx := context.Background()
+
+	// Create via Upsert.
+	p := Plugin{
+		ID:      "tool/read",
+		Kind:    PluginKindTool,
+		Name:    "read",
+		Enabled: true,
+		Config:  map[string]any{"timeout": float64(30)},
+	}
+	if err := store.UpsertPlugin(ctx, p); err != nil {
+		t.Fatalf("UpsertPlugin: %v", err)
+	}
+
+	// Get.
+	got, err := store.GetPlugin(ctx, "tool/read")
+	if err != nil {
+		t.Fatalf("GetPlugin: %v", err)
+	}
+	if got.Kind != PluginKindTool || got.Name != "read" || !got.Enabled {
+		t.Errorf("GetPlugin = %+v", got)
+	}
+	if got.Config["timeout"] != float64(30) {
+		t.Errorf("Config[timeout] = %v", got.Config["timeout"])
+	}
+
+	// List.
+	all, err := store.ListPlugins(ctx)
+	if err != nil {
+		t.Fatalf("ListPlugins: %v", err)
+	}
+	if len(all) != 1 {
+		t.Errorf("expected 1 plugin, got %d", len(all))
+	}
+
+	// SetEnabled.
+	if err := store.SetPluginEnabled(ctx, "tool/read", false); err != nil {
+		t.Fatalf("SetPluginEnabled: %v", err)
+	}
+	got, _ = store.GetPlugin(ctx, "tool/read")
+	if got.Enabled {
+		t.Error("expected disabled")
+	}
+
+	// ListEnabled should be empty now.
+	enabled, err := store.ListEnabledPlugins(ctx)
+	if err != nil {
+		t.Fatalf("ListEnabledPlugins: %v", err)
+	}
+	if len(enabled) != 0 {
+		t.Errorf("expected 0 enabled, got %d", len(enabled))
+	}
+
+	// SetConfig.
+	newCfg := map[string]any{"timeout": float64(60), "verbose": true}
+	if err := store.SetPluginConfig(ctx, "tool/read", newCfg); err != nil {
+		t.Fatalf("SetPluginConfig: %v", err)
+	}
+	got, _ = store.GetPlugin(ctx, "tool/read")
+	if got.Config["timeout"] != float64(60) || got.Config["verbose"] != true {
+		t.Errorf("Config after update = %+v", got.Config)
+	}
+
+	// ListByKind.
+	_ = store.UpsertPlugin(ctx, Plugin{ID: "channel/telegram", Kind: PluginKindChannel, Name: "telegram", Enabled: true, Config: map[string]any{}})
+	tools, err := store.ListPluginsByKind(ctx, PluginKindTool)
+	if err != nil {
+		t.Fatalf("ListPluginsByKind: %v", err)
+	}
+	if len(tools) != 1 || tools[0].ID != "tool/read" {
+		t.Errorf("ListPluginsByKind(tool) = %+v", tools)
+	}
+
+	// Delete.
+	if err := store.DeletePlugin(ctx, "tool/read"); err != nil {
+		t.Fatalf("DeletePlugin: %v", err)
+	}
+	_, err = store.GetPlugin(ctx, "tool/read")
+	if err == nil {
+		t.Error("expected error after delete")
+	}
+}
+
+func TestPluginSeedDefaults(t *testing.T) {
+	store := setupDBStore(t)
+	ctx := context.Background()
+
+	if err := store.SeedDefaults(ctx); err != nil {
+		t.Fatalf("SeedDefaults: %v", err)
+	}
+
+	plugins, err := store.ListPlugins(ctx)
+	if err != nil {
+		t.Fatalf("ListPlugins: %v", err)
+	}
+	if len(plugins) != 9 {
+		t.Fatalf("expected 9 built-in plugins, got %d", len(plugins))
+	}
+
+	// Verify all built-in IDs are present.
+	have := make(map[string]bool)
+	for _, p := range plugins {
+		have[p.ID] = true
+	}
+	for _, id := range BuiltinPluginIDs() {
+		if !have[id] {
+			t.Errorf("missing built-in plugin %q", id)
+		}
+	}
+}
+
+func TestPluginSeedDefaultsIdempotent(t *testing.T) {
+	store := setupDBStore(t)
+	ctx := context.Background()
+
+	if err := store.SeedDefaults(ctx); err != nil {
+		t.Fatalf("first SeedDefaults: %v", err)
+	}
+
+	// User modifies a plugin.
+	if err := store.SetPluginEnabled(ctx, "tool/read", false); err != nil {
+		t.Fatalf("SetPluginEnabled: %v", err)
+	}
+	if err := store.SetPluginConfig(ctx, "channel/telegram", map[string]any{"token": "abc"}); err != nil {
+		t.Fatalf("SetPluginConfig: %v", err)
+	}
+
+	// Second seed should NOT overwrite user changes.
+	if err := store.SeedDefaults(ctx); err != nil {
+		t.Fatalf("second SeedDefaults: %v", err)
+	}
+
+	plugins, err := store.ListPlugins(ctx)
+	if err != nil {
+		t.Fatalf("ListPlugins: %v", err)
+	}
+	if len(plugins) != 9 {
+		t.Errorf("expected 9 plugins after double seed, got %d", len(plugins))
+	}
+
+	// Verify user changes preserved.
+	readPlugin, err := store.GetPlugin(ctx, "tool/read")
+	if err != nil {
+		t.Fatalf("GetPlugin: %v", err)
+	}
+	if readPlugin.Enabled {
+		t.Error("expected tool/read to remain disabled after second seed")
+	}
+
+	tgPlugin, err := store.GetPlugin(ctx, "channel/telegram")
+	if err != nil {
+		t.Fatalf("GetPlugin: %v", err)
+	}
+	if tgPlugin.Config["token"] != "abc" {
+		t.Errorf("expected telegram config preserved, got %+v", tgPlugin.Config)
+	}
+}
+
+func TestPluginSeedMigratesChannels(t *testing.T) {
+	store := setupDBStore(t)
+	ctx := context.Background()
+
+	// Create a channel before seeding plugins.
+	_ = store.UpsertChannel(ctx, Channel{ID: "telegram", Enabled: true, Config: `{"token":"tg-123"}`})
+
+	if err := store.SeedDefaults(ctx); err != nil {
+		t.Fatalf("SeedDefaults: %v", err)
+	}
+
+	// The channel data should have been migrated.
+	p, err := store.GetPlugin(ctx, "channel/telegram")
+	if err != nil {
+		t.Fatalf("GetPlugin: %v", err)
+	}
+	if !p.Enabled {
+		t.Error("migrated telegram plugin should be enabled")
+	}
+	if p.Config["token"] != "tg-123" {
+		t.Errorf("migrated config = %+v, want token=tg-123", p.Config)
+	}
+}
+
 func TestGetChannelNotFound(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
