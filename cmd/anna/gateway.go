@@ -17,6 +17,8 @@ import (
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/admin"
 	"github.com/vaayne/anna/internal/agent"
+	"github.com/vaayne/anna/internal/agent/selfimprove"
+	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/channel/feishu"
@@ -247,6 +249,18 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 		if err := s.schedulerSvc.StartHeartbeat(ctx, s.snap.Heartbeat.Interval()); err != nil {
 			return fmt.Errorf("schedule heartbeat: %w", err)
 		}
+	}
+
+	// Start self-improvement review loop.
+	if s.snap.SelfImprove.IsEnabled() {
+		go selfimprove.StartReviewLoop(gctx, s.snap.SelfImprove, selfimprove.ReviewDeps{
+			DB:        s.db,
+			Store:     s.store,
+			Providers: ai.DefaultRegistry(),
+			Notifier:  s.notifier,
+			Workspace: s.snap.Workspace,
+			Log:       slog.Default(),
+		})
 	}
 
 	waitErr := g.Wait()
