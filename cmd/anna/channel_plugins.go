@@ -8,6 +8,7 @@ import (
 
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/internal/pluginapi"
 	"github.com/vaayne/anna/internal/pluginhost"
 )
@@ -33,6 +34,10 @@ func (c *pluginChannel) Notify(ctx context.Context, n channel.Notification) erro
 }
 
 func loadRuntimeChannelCatalog(workDir, userDataDir string) (*pluginhost.Catalog, error) {
+	if err := embedded.EnsurePlugins(config.AnnaHome()); err != nil {
+		slog.Warn("failed to extract embedded plugins", "error", err)
+	}
+
 	roots := []string{}
 	for _, root := range []string{config.BundledPluginsPath(), config.InstalledPluginsPath()} {
 		if _, err := os.Stat(root); err == nil {
