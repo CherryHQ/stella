@@ -48,9 +48,6 @@ func loadRuntimeChannelCatalog(workDir, userDataDir string) (*pluginhost.Catalog
 	if err != nil {
 		return nil, err
 	}
-	if err := catalog.Merge(channel.BuiltinChannelDefinitions(workDir, userDataDir)...); err != nil {
-		return nil, err
-	}
 	return catalog, nil
 }
 
