@@ -37,3 +37,17 @@ SELECT * FROM ctx_conversations WHERE archived = 0 ORDER BY last_active DESC;
 
 -- name: ListConversationsAll :many
 SELECT * FROM ctx_conversations ORDER BY last_active DESC;
+
+-- name: ListUnreviewedConversations :many
+SELECT * FROM ctx_conversations
+WHERE archived = 0
+  AND agent_id != ''
+  AND user_id > 0
+  AND (self_improve_reviewed_at IS NULL OR last_active > self_improve_reviewed_at)
+ORDER BY last_active ASC
+LIMIT ?;
+
+-- name: MarkConversationReviewed :exec
+UPDATE ctx_conversations
+SET self_improve_reviewed_at = datetime('now'), updated_at = datetime('now')
+WHERE id = ?;
