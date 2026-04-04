@@ -86,6 +86,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	s.mux.Handle("GET /users", s.adminOnlyMiddleware(http.HandlerFunc(s.pageUsers)))
 	s.mux.HandleFunc("GET /sessions", s.pageSessions)
 	s.mux.HandleFunc("GET /scheduler", s.pageScheduler)
+	s.mux.Handle("GET /plugins", s.adminOnlyMiddleware(http.HandlerFunc(s.pagePlugins)))
 	s.mux.Handle("GET /settings", s.adminOnlyMiddleware(http.HandlerFunc(s.pageSettings)))
 	s.mux.HandleFunc("GET /profile", s.pageProfile)
 
@@ -147,6 +148,10 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}", s.getSession)
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}/messages", s.getSessionMessages)
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}/system-prompt", s.getSessionSystemPrompt)
+
+	// Plugin APIs (admin-only).
+	s.mux.Handle("GET /api/plugins", adminAPI(s.listPlugins))
+	s.mux.Handle("PATCH /api/plugins/{id...}", adminAPI(s.togglePlugin))
 
 	// Settings APIs (admin-only).
 	s.mux.Handle("GET /api/settings/{key}", adminAPI(s.getSetting))
@@ -218,7 +223,7 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", s.corsOriginV)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 
