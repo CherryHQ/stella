@@ -203,6 +203,96 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch Channel) error {
 	})
 }
 
+// --- Plugins ---
+
+func (s *DBStore) ListPlugins(ctx context.Context) ([]Plugin, error) {
+	rows, err := s.q.ListPlugins(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list plugins: %w", err)
+	}
+	out := make([]Plugin, len(rows))
+	for i, r := range rows {
+		out[i] = pluginFromDB(r)
+	}
+	return out, nil
+}
+
+func (s *DBStore) ListPluginsByKind(ctx context.Context, kind string) ([]Plugin, error) {
+	rows, err := s.q.ListPluginsByKind(ctx, kind)
+	if err != nil {
+		return nil, fmt.Errorf("list plugins by kind %q: %w", kind, err)
+	}
+	out := make([]Plugin, len(rows))
+	for i, r := range rows {
+		out[i] = pluginFromDB(r)
+	}
+	return out, nil
+}
+
+func (s *DBStore) ListEnabledPlugins(ctx context.Context) ([]Plugin, error) {
+	rows, err := s.q.ListEnabledPlugins(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list enabled plugins: %w", err)
+	}
+	out := make([]Plugin, len(rows))
+	for i, r := range rows {
+		out[i] = pluginFromDB(r)
+	}
+	return out, nil
+}
+
+func (s *DBStore) GetPlugin(ctx context.Context, id string) (Plugin, error) {
+	r, err := s.q.GetPlugin(ctx, id)
+	if err != nil {
+		return Plugin{}, fmt.Errorf("get plugin %q: %w", id, err)
+	}
+	return pluginFromDB(r), nil
+}
+
+func (s *DBStore) UpsertPlugin(ctx context.Context, p Plugin) error {
+	configJSON, err := json.Marshal(p.Config)
+	if err != nil {
+		return fmt.Errorf("marshal plugin config %q: %w", p.ID, err)
+	}
+	enabled := int64(0)
+	if p.Enabled {
+		enabled = 1
+	}
+	return s.q.UpsertPlugin(ctx, sqlc.UpsertPluginParams{
+		ID:      p.ID,
+		Kind:    p.Kind,
+		Name:    p.Name,
+		Enabled: enabled,
+		Config:  string(configJSON),
+	})
+}
+
+func (s *DBStore) SetPluginEnabled(ctx context.Context, id string, enabled bool) error {
+	v := int64(0)
+	if enabled {
+		v = 1
+	}
+	return s.q.UpdatePluginEnabled(ctx, sqlc.UpdatePluginEnabledParams{
+		ID:      id,
+		Enabled: v,
+	})
+}
+
+func (s *DBStore) SetPluginConfig(ctx context.Context, id string, config map[string]any) error {
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("marshal plugin config %q: %w", id, err)
+	}
+	return s.q.UpdatePluginConfig(ctx, sqlc.UpdatePluginConfigParams{
+		ID:     id,
+		Config: string(configJSON),
+	})
+}
+
+func (s *DBStore) DeletePlugin(ctx context.Context, id string) error {
+	return s.q.DeletePlugin(ctx, id)
+}
+
 // --- Chat Agents ---
 
 func (s *DBStore) GetChatAgent(ctx context.Context, platform, chatID string) (string, error) {
@@ -326,6 +416,16 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	defaultProvID, _ := ParseModelRef(ag.Model)
 	defaultCreds := providers[defaultProvID]
 
+	// Load plugins from settings_plugins.
+	pluginRows, err := s.q.ListPlugins(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: list plugins: %w", err)
+	}
+	plugins := make([]Plugin, len(pluginRows))
+	for i, r := range pluginRows {
+		plugins[i] = pluginFromDB(r)
+	}
+
 	snap := &Snapshot{
 		AgentID:      agentID,
 		Provider:     defaultProvID,
@@ -337,6 +437,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 		BaseURL:      defaultCreds.BaseURL,
 		SystemPrompt: ag.SystemPrompt,
 		Providers:    providers,
+		Plugins:      plugins,
 	}
 
 	// Load settings.
@@ -352,13 +453,9 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	if val, err := s.GetSetting(ctx, "scheduler"); err == nil && val != "" {
 		_ = json.Unmarshal([]byte(val), &snap.Scheduler)
 	}
-	if val, err := s.GetSetting(ctx, "plugins"); err == nil && val != "" {
-		_ = json.Unmarshal([]byte(val), &snap.Plugins)
-	}
 	if val, err := s.GetSetting(ctx, "self_improve"); err == nil && val != "" {
 		_ = json.Unmarshal([]byte(val), &snap.SelfImprove)
 	}
-
 	// Apply defaults.
 	if snap.Runner.Type == "" {
 		snap.Runner.Type = "go"
@@ -419,6 +516,71 @@ func (s *DBStore) SeedDefaults(ctx context.Context) error {
 		})
 		if err != nil {
 			return fmt.Errorf("seed: create anna agent: %w", err)
+		}
+	}
+
+	// Seed plugins: migrate existing channels and seed all built-ins.
+	if err := s.seedPlugins(ctx); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// seedPlugins migrates settings_channels rows into settings_plugins and
+// seeds all 5 built-in plugin entries (1 tool + 4 channels). It is
+// idempotent: existing rows are preserved via INSERT OR IGNORE.
+func (s *DBStore) seedPlugins(ctx context.Context) error {
+	// Check if any plugins already exist (skip channel migration if so).
+	existing, err := s.q.ListPlugins(ctx)
+	if err != nil {
+		return fmt.Errorf("seed: list plugins: %w", err)
+	}
+
+	if len(existing) == 0 {
+		// Migrate settings_channels → settings_plugins.
+		channels, err := s.q.ListChannels(ctx)
+		if err != nil {
+			return fmt.Errorf("seed: list channels for migration: %w", err)
+		}
+		for _, ch := range channels {
+			err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
+				ID:      PluginID(PluginKindChannel, ch.ID),
+				Kind:    PluginKindChannel,
+				Name:    ch.ID,
+				Enabled: ch.Enabled,
+				Config:  ch.Config,
+			})
+			if err != nil {
+				return fmt.Errorf("seed: migrate channel %q: %w", ch.ID, err)
+			}
+		}
+	}
+
+	// Seed all 5 built-in plugins with INSERT OR IGNORE to preserve
+	// user-modified state.
+	for _, name := range builtinToolNames {
+		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
+			ID:      PluginID(PluginKindTool, name),
+			Kind:    PluginKindTool,
+			Name:    name,
+			Enabled: 1,
+			Config:  "{}",
+		})
+		if err != nil {
+			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindTool, name, err)
+		}
+	}
+	for _, name := range builtinChannelNames {
+		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
+			ID:      PluginID(PluginKindChannel, name),
+			Kind:    PluginKindChannel,
+			Name:    name,
+			Enabled: 1,
+			Config:  "{}",
+		})
+		if err != nil {
+			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindChannel, name, err)
 		}
 	}
 
@@ -491,6 +653,23 @@ func collectProviderIDs(models ...string) []string {
 		}
 	}
 	return out
+}
+
+func pluginFromDB(r sqlc.SettingsPlugin) Plugin {
+	var cfg map[string]any
+	if r.Config != "" && r.Config != "{}" {
+		_ = json.Unmarshal([]byte(r.Config), &cfg)
+	}
+	if cfg == nil {
+		cfg = make(map[string]any)
+	}
+	return Plugin{
+		ID:      r.ID,
+		Kind:    r.Kind,
+		Name:    r.Name,
+		Enabled: r.Enabled == 1,
+		Config:  cfg,
+	}
 }
 
 func channelFromDB(r sqlc.SettingsChannel) Channel {

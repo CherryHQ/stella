@@ -23,25 +23,23 @@ type GoRunnerConfig struct {
 	API         string // provider key: "anthropic", "openai"
 	Model       string // e.g. "claude-sonnet-4-20250514"
 	APIKey      string
-	BaseURL     string                  // optional provider base URL override
-	WorkDir     string                  // working directory for tool execution
-	Workspace   string                  // workspace dir for skills/memory (e.g. ~/.anna/workspace)
-	AnnaHome    string                  // anna home directory (e.g. ~/.anna)
-	System      string                  // optional system prompt override (bypasses default prompt building)
-	ExtraTools  []tool.Tool             // additional tools to register
-	PluginHooks engine.PluginHookRunner // optional plugin lifecycle hooks
-	UserDataDir string                  // per-user data directory for sandbox enforcement (empty = no sandbox)
+	BaseURL     string      // optional provider base URL override
+	WorkDir     string      // working directory for tool execution
+	Workspace   string      // workspace dir for skills/memory (e.g. ~/.anna/workspace)
+	AnnaHome    string      // anna home directory (e.g. ~/.anna)
+	System      string      // optional system prompt override (bypasses default prompt building)
+	ExtraTools  []tool.Tool // additional tools to register
+	UserDataDir string      // per-user data directory for sandbox enforcement (empty = no sandbox)
 }
 
 // GoRunner implements Runner by calling LLM providers directly via Engine.
 type GoRunner struct {
-	eng         *engine.Engine
-	reg         *ai.Registry
-	tools       *tool.Registry
-	model       ai.Model
-	apiKey      string
-	system      string
-	pluginHooks engine.PluginHookRunner
+	eng    *engine.Engine
+	reg    *ai.Registry
+	tools  *tool.Registry
+	model  ai.Model
+	apiKey string
+	system string
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -90,13 +88,12 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	}))
 
 	tools.Register(tool.NewAgentTool(tool.AgentConfig{
-		Engine:      eng,
-		Registry:    tools,
-		Model:       model,
-		APIKey:      cfg.APIKey,
-		System:      system,
-		PluginHooks: cfg.PluginHooks,
-		Presets:     presets,
+		Engine:   eng,
+		Registry: tools,
+		Model:    model,
+		APIKey:   cfg.APIKey,
+		System:   system,
+		Presets:  presets,
 	}))
 
 	return &GoRunner{
@@ -106,7 +103,6 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		model:        model,
 		apiKey:       cfg.APIKey,
 		system:       system,
-		pluginHooks:  cfg.PluginHooks,
 		lastActivity: time.Now(),
 		log:          slog.With("component", "go_runner"),
 	}, nil
@@ -134,7 +130,6 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 			Tools:           r.buildToolSet(),
 			ToolDefinitions: r.tools.Definitions(),
 			System:          r.system,
-			PluginHooks:     r.pluginHooks,
 		}
 
 		if _, err := r.eng.Run(ctx, cfg, messages, func(e engine.LoopEvent) {
@@ -159,8 +154,13 @@ func (r *GoRunner) LastActivity() time.Time {
 	return r.lastActivity
 }
 
-// Close is a no-op for the Go runner.
-func (r *GoRunner) Close() error { return nil }
+// Close shuts down any subprocess-backed tools owned by the runner.
+func (r *GoRunner) Close() error {
+	if r.tools != nil {
+		_ = r.tools.Close()
+	}
+	return nil
+}
 
 // buildToolSet adapts tool.Registry to engine.ToolSet for Engine.
 func (r *GoRunner) buildToolSet() engine.ToolSet {

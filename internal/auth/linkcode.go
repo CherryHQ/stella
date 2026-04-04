@@ -1,8 +1,12 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
+	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -23,11 +27,12 @@ type linkCodeEntry struct {
 	ExpireAt time.Time
 }
 
-// LinkCodeStore manages in-memory link codes for channel account linking.
-// Codes are single-use and expire after 5 minutes. Not persisted to DB;
-// restart clears all pending codes (acceptable for MVP).
+// LinkCodeStore manages single-use link codes for channel account linking.
+// Codes expire after 5 minutes. The default constructor keeps them in-memory;
+// the shared constructor persists them to the Anna DB for cross-process use.
 type LinkCodeStore struct {
 	codes sync.Map // string -> linkCodeEntry
+	db    *sql.DB
 }
 
 // NewLinkCodeStore creates a new link code store.
@@ -35,10 +40,32 @@ func NewLinkCodeStore() *LinkCodeStore {
 	return &LinkCodeStore{}
 }
 
+// NewSharedLinkCodeStore creates a link code store backed by the shared Anna DB
+// so admin and channel subprocesses can exchange codes across processes.
+func NewSharedLinkCodeStore(ctx context.Context, db *sql.DB) (*LinkCodeStore, error) {
+	if db == nil {
+		return nil, fmt.Errorf("link code store: nil db")
+	}
+
+	store := &LinkCodeStore{db: db}
+	if err := store.ensureSchema(ctx); err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
 // Generate creates a new 6-character alphanumeric link code for the given
 // user and platform. Returns the code string.
 func (s *LinkCodeStore) Generate(userID int64, platform string) string {
 	code := randomAlphanumeric(linkCodeLength)
+	if s.db != nil {
+		if err := s.generateShared(context.Background(), code, userID, platform); err != nil {
+			slog.Error("link code: persist generate failed", "platform", platform, "user_id", userID, "error", err)
+			return code
+		}
+		return code
+	}
+
 	s.codes.Store(code, linkCodeEntry{
 		UserID:   userID,
 		Platform: platform,
@@ -52,6 +79,10 @@ func (s *LinkCodeStore) Generate(userID int64, platform string) string {
 // Returns (0, "", false) if the code is invalid or expired.
 func (s *LinkCodeStore) Consume(code string) (int64, string, bool) {
 	code = strings.ToUpper(strings.TrimSpace(code))
+	if s.db != nil {
+		return s.consumeShared(context.Background(), code)
+	}
+
 	val, ok := s.codes.LoadAndDelete(code)
 	if !ok {
 		return 0, "", false
@@ -93,4 +124,69 @@ func randomAlphanumeric(n int) string {
 
 func isAlphanumeric(c rune) bool {
 	return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+}
+
+func (s *LinkCodeStore) ensureSchema(ctx context.Context) error {
+	const stmt = `CREATE TABLE IF NOT EXISTS auth_link_codes (
+		code TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL,
+		platform TEXT NOT NULL,
+		expire_at INTEGER NOT NULL
+	)`
+	if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+		return fmt.Errorf("link code store: ensure schema: %w", err)
+	}
+	return nil
+}
+
+func (s *LinkCodeStore) generateShared(ctx context.Context, code string, userID int64, platform string) error {
+	if err := s.deleteExpired(ctx); err != nil {
+		return err
+	}
+
+	const stmt = `INSERT OR REPLACE INTO auth_link_codes (code, user_id, platform, expire_at)
+	VALUES (?, ?, ?, ?)`
+	_, err := s.db.ExecContext(ctx, stmt, code, userID, platform, time.Now().Add(linkCodeTTL).Unix())
+	if err != nil {
+		return fmt.Errorf("link code store: insert code: %w", err)
+	}
+	return nil
+}
+
+func (s *LinkCodeStore) consumeShared(ctx context.Context, code string) (int64, string, bool) {
+	if err := s.deleteExpired(ctx); err != nil {
+		slog.Error("link code: purge expired failed", "error", err)
+		return 0, "", false
+	}
+
+	const stmt = `DELETE FROM auth_link_codes
+	WHERE code = ?
+	RETURNING user_id, platform, expire_at`
+
+	var (
+		userID   int64
+		platform string
+		expireAt int64
+	)
+	err := s.db.QueryRowContext(ctx, stmt, code).Scan(&userID, &platform, &expireAt)
+	if err == sql.ErrNoRows {
+		return 0, "", false
+	}
+	if err != nil {
+		slog.Error("link code: consume failed", "code", code, "error", err)
+		return 0, "", false
+	}
+	if time.Now().After(time.Unix(expireAt, 0)) {
+		return 0, "", false
+	}
+	return userID, platform, true
+}
+
+func (s *LinkCodeStore) deleteExpired(ctx context.Context) error {
+	const stmt = `DELETE FROM auth_link_codes WHERE expire_at <= ?`
+	_, err := s.db.ExecContext(ctx, stmt, time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("link code store: delete expired: %w", err)
+	}
+	return nil
 }

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/vaayne/anna/internal/agent/engine"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/memory"
@@ -28,7 +27,6 @@ type Pool struct {
 	compaction   CompactionConfig
 	defaultModel string                  // default model ID for new runners
 	fastModel    string                  // model ID used for compaction / fast tasks
-	pluginHooks  engine.PluginHookRunner // optional plugin lifecycle hooks
 	userMemory   *memory.UserMemoryStore // optional per-user memory for prompt injection
 	log          *slog.Logger
 }
@@ -210,14 +208,6 @@ func (p *Pool) ArchiveSession(sessionID string) error {
 		if err := p.mem.SaveInfo(context.Background(), info); err != nil {
 			p.log.Warn("failed to persist archive", "session_id", sessionID, "error", err)
 		}
-	}
-
-	// Fire session_end plugin hook.
-	if p.pluginHooks != nil {
-		_ = p.pluginHooks.RunHooks(context.Background(), "session_end", engine.SessionEvent{
-			SessionID: sessionID,
-			Channel:   info.Channel,
-		})
 	}
 
 	if r != nil {
@@ -423,12 +413,6 @@ func (p *Pool) Close() error {
 	var lastErr error
 	for id, sess := range sessions {
 		p.log.Info("closing session", "session_id", id)
-		if p.pluginHooks != nil {
-			_ = p.pluginHooks.RunHooks(context.Background(), "session_end", engine.SessionEvent{
-				SessionID: id,
-				Channel:   sess.Info.Channel,
-			})
-		}
 		if closer, ok := sess.Runner.(io.Closer); ok {
 			if err := closer.Close(); err != nil {
 				lastErr = err
@@ -519,14 +503,6 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 	// Memory: bootstrap the conversation for this session.
 	if err := p.mem.Bootstrap(context.Background(), sessionID); err != nil {
 		p.log.Warn("memory bootstrap failed", "session_id", sessionID, "error", err)
-	}
-
-	// Fire session_start plugin hook.
-	if p.pluginHooks != nil {
-		_ = p.pluginHooks.RunHooks(ctx, "session_start", engine.SessionEvent{
-			SessionID: sessionID,
-			Channel:   sess.Info.Channel,
-		})
 	}
 
 	p.log.Info("created runner", "session_id", sessionID)

@@ -2,14 +2,13 @@ package admin
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
-	"github.com/vaayne/anna/internal/channel/weixin"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/plugins/channels/weixin"
 )
 
 // startWeixinQR initiates the WeChat QR login flow by requesting a QR code
@@ -84,32 +83,27 @@ func (s *Server) pollWeixinQRStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // saveWeixinCredentials merges iLink credentials into the existing weixin
-// channel config in the DB.
+// plugin config in the DB.
 func (s *Server) saveWeixinCredentials(ctx context.Context, status *weixin.QRCodeStatusResponse) error {
-	var raw map[string]any
-	ch, err := s.store.GetChannel(ctx, channel.PlatformWeixin)
+	pluginID := config.PluginID(config.PluginKindChannel, channel.PlatformWeixin)
+	p, err := s.store.GetPlugin(ctx, pluginID)
 	if err != nil {
-		raw = make(map[string]any)
-		ch = config.Channel{ID: channel.PlatformWeixin, Enabled: true}
-	} else {
-		if err := json.Unmarshal([]byte(ch.Config), &raw); err != nil {
-			raw = make(map[string]any)
+		p = config.Plugin{
+			ID:      pluginID,
+			Kind:    config.PluginKindChannel,
+			Name:    channel.PlatformWeixin,
+			Enabled: true,
+			Config:  make(map[string]any),
 		}
 	}
-
-	raw["bot_token"] = status.BotToken
-	raw["base_url"] = status.BaseURL
-	raw["bot_id"] = status.ILinkBotID
-	raw["user_id"] = status.ILinkUserID
-
-	data, err := json.Marshal(raw)
-	if err != nil {
-		return err
+	if p.Config == nil {
+		p.Config = make(map[string]any)
 	}
 
-	return s.store.UpsertChannel(ctx, config.Channel{
-		ID:      channel.PlatformWeixin,
-		Enabled: ch.Enabled,
-		Config:  string(data),
-	})
+	p.Config["bot_token"] = status.BotToken
+	p.Config["base_url"] = status.BaseURL
+	p.Config["bot_id"] = status.ILinkBotID
+	p.Config["user_id"] = status.ILinkUserID
+
+	return s.store.UpsertPlugin(ctx, p)
 }

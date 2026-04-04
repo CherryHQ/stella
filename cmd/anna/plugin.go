@@ -4,13 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/config"
-	pluginmgr "github.com/vaayne/anna/internal/plugin"
 )
 
 func pluginCommand() *ucli.Command {
@@ -19,32 +16,48 @@ func pluginCommand() *ucli.Command {
 		Usage: "Manage plugins",
 		Subcommands: []*ucli.Command{
 			pluginListCommand(),
-			pluginAddCommand(),
-			pluginRemoveCommand(),
+			pluginEnableCommand(),
+			pluginDisableCommand(),
+			pluginConfigCommand(),
 		},
-		Action: func(c *ucli.Context) error {
-			return pluginListAction()
-		},
+		Action: pluginListAction,
 	}
 }
+
+// --- list ---
 
 func pluginListCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:  "list",
 		Usage: "List all configured plugins",
-		Action: func(c *ucli.Context) error {
-			return pluginListAction()
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{
+				Name:  "kind",
+				Usage: "Filter by plugin kind (tool or channel)",
+			},
 		},
+		Action: pluginListAction,
 	}
 }
 
-func pluginListAction() error {
+func pluginListAction(c *ucli.Context) error {
 	store, err := openStore()
 	if err != nil {
 		return err
 	}
 
-	plugins, err := loadPlugins(store)
+	ctx := context.Background()
+	kind := c.String("kind")
+
+	var plugins []config.Plugin
+	if kind != "" {
+		if kind != config.PluginKindTool && kind != config.PluginKindChannel {
+			return fmt.Errorf("invalid kind %q, must be %q or %q", kind, config.PluginKindTool, config.PluginKindChannel)
+		}
+		plugins, err = store.ListPluginsByKind(ctx, kind)
+	} else {
+		plugins, err = store.ListPlugins(ctx)
+	}
 	if err != nil {
 		return err
 	}
@@ -54,164 +67,155 @@ func pluginListAction() error {
 		return nil
 	}
 
-	fmt.Printf("%-20s %s\n", "NAME", "PATH")
+	fmt.Printf("%-24s %-10s %-8s %s\n", "ID", "KIND", "ENABLED", "CONFIG")
 	for _, p := range plugins {
-		name := pluginName(p.Path)
-		fmt.Printf("%-20s %s\n", name, p.Path)
+		fmt.Printf("%-24s %-10s %-8s %s\n", p.ID, p.Kind, yesNo(p.Enabled), truncateJSON(p.Config, 40))
 	}
 	return nil
 }
 
-func pluginAddCommand() *ucli.Command {
+// --- enable ---
+
+func pluginEnableCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:      "add",
-		Usage:     "Add a JS plugin",
-		ArgsUsage: "<path>",
-		Flags: []ucli.Flag{
-			&ucli.StringSliceFlag{
-				Name:  "config",
-				Usage: "Plugin config key=value (repeatable)",
-			},
-		},
+		Name:      "enable",
+		Usage:     "Enable a plugin",
+		ArgsUsage: "<id>",
 		Action: func(c *ucli.Context) error {
-			path := c.Args().First()
-			if path == "" {
-				return fmt.Errorf("usage: anna plugin add <path>")
-			}
-
-			resolved := pluginmgr.ExpandPath(path)
-			absPath, err := filepath.Abs(resolved)
-			if err != nil {
-				return fmt.Errorf("resolve absolute path: %w", err)
-			}
-			if _, err := os.Stat(absPath); err != nil {
-				return fmt.Errorf("path %q does not exist", path)
-			}
-
-			if !strings.HasSuffix(absPath, ".js") {
-				return fmt.Errorf("only .js plugins are supported")
-			}
-
-			pluginCfg := parsePluginConfig(c.StringSlice("config"))
-
-			store, err := openStore()
-			if err != nil {
-				return err
-			}
-
-			plugins, err := loadPlugins(store)
-			if err != nil {
-				return err
-			}
-
-			// Deduplicate by path.
-			for _, p := range plugins {
-				if p.Path == absPath {
-					return fmt.Errorf("plugin %q is already configured", absPath)
-				}
-			}
-
-			plugins = append(plugins, config.PluginConfig{
-				Path:   absPath,
-				Config: pluginCfg,
-			})
-
-			if err := savePlugins(store, plugins); err != nil {
-				return err
-			}
-
-			name := pluginName(absPath)
-			fmt.Printf("Plugin %q added.\n", name)
-			return nil
+			return setPluginEnabled(c, true)
 		},
 	}
 }
 
-func pluginRemoveCommand() *ucli.Command {
+// --- disable ---
+
+func pluginDisableCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:      "remove",
-		Aliases:   []string{"rm"},
-		Usage:     "Remove a plugin by name or path",
-		ArgsUsage: "<name|path>",
+		Name:      "disable",
+		Usage:     "Disable a plugin",
+		ArgsUsage: "<id>",
 		Action: func(c *ucli.Context) error {
-			target := c.Args().First()
-			if target == "" {
-				return fmt.Errorf("usage: anna plugin remove <name|path>")
-			}
-
-			store, err := openStore()
-			if err != nil {
-				return err
-			}
-
-			plugins, err := loadPlugins(store)
-			if err != nil {
-				return err
-			}
-
-			var remaining []config.PluginConfig
-			found := false
-			for _, p := range plugins {
-				if p.Path == target || pluginName(p.Path) == target {
-					found = true
-					continue
-				}
-				remaining = append(remaining, p)
-			}
-
-			if !found {
-				return fmt.Errorf("plugin %q not found", target)
-			}
-
-			if err := savePlugins(store, remaining); err != nil {
-				return err
-			}
-
-			fmt.Printf("Plugin %q removed.\n", target)
-			return nil
+			return setPluginEnabled(c, false)
 		},
 	}
 }
 
-// loadPlugins reads the plugins list from the settings table.
-func loadPlugins(store config.Store) ([]config.PluginConfig, error) {
-	val, err := store.GetSetting(context.Background(), "plugins")
-	if err != nil || val == "" {
-		return nil, nil
+func setPluginEnabled(c *ucli.Context, enabled bool) error {
+	id := c.Args().First()
+	if id == "" {
+		verb := "enable"
+		if !enabled {
+			verb = "disable"
+		}
+		return fmt.Errorf("usage: anna plugin %s <id>", verb)
 	}
-	var plugins []config.PluginConfig
-	if err := json.Unmarshal([]byte(val), &plugins); err != nil {
-		return nil, fmt.Errorf("parse plugins setting: %w", err)
-	}
-	return plugins, nil
-}
 
-// savePlugins writes the plugins list to the settings table.
-func savePlugins(store config.Store, plugins []config.PluginConfig) error {
-	data, err := json.Marshal(plugins)
+	store, err := openStore()
 	if err != nil {
-		return fmt.Errorf("marshal plugins: %w", err)
+		return err
 	}
-	return store.SetSetting(context.Background(), "plugins", string(data))
+
+	ctx := context.Background()
+	if _, err := store.GetPlugin(ctx, id); err != nil {
+		return fmt.Errorf("plugin %q not found", id)
+	}
+
+	if err := store.SetPluginEnabled(ctx, id, enabled); err != nil {
+		return fmt.Errorf("update plugin: %w", err)
+	}
+
+	state := "enabled"
+	if !enabled {
+		state = "disabled"
+	}
+	fmt.Printf("Plugin %q %s.\n", id, state)
+	return nil
 }
 
-// parsePluginConfig parses key=value strings into a map.
-func parsePluginConfig(pairs []string) map[string]any {
+// --- config ---
+
+func pluginConfigCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:      "config",
+		Usage:     "Show or update plugin configuration",
+		ArgsUsage: "<id> [key=val ...]",
+		Action:    pluginConfigAction,
+	}
+}
+
+func pluginConfigAction(c *ucli.Context) error {
+	id := c.Args().First()
+	if id == "" {
+		return fmt.Errorf("usage: anna plugin config <id> [key=val ...]")
+	}
+
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	p, err := store.GetPlugin(ctx, id)
+	if err != nil {
+		return fmt.Errorf("plugin %q not found", id)
+	}
+
+	// No extra args — show current config.
+	pairs := c.Args().Tail()
 	if len(pairs) == 0 {
+		out, _ := json.MarshalIndent(p.Config, "", "  ")
+		fmt.Println(string(out))
 		return nil
 	}
-	m := make(map[string]any, len(pairs))
-	for _, pair := range pairs {
-		k, v, ok := strings.Cut(pair, "=")
-		if ok {
-			m[k] = v
-		}
+
+	// Merge key=value pairs.
+	cfg := p.Config
+	if cfg == nil {
+		cfg = map[string]any{}
 	}
-	return m
+
+	for _, kv := range pairs {
+		key, val, ok := strings.Cut(kv, "=")
+		if !ok || key == "" {
+			return fmt.Errorf("invalid key=value pair: %q", kv)
+		}
+		cfg[key] = parseConfigValue(val)
+	}
+
+	if err := store.SetPluginConfig(ctx, id, cfg); err != nil {
+		return fmt.Errorf("update config: %w", err)
+	}
+
+	fmt.Printf("Plugin %q config updated.\n", id)
+	return nil
 }
 
-// pluginName returns a human-friendly name from a plugin path.
-func pluginName(path string) string {
-	base := filepath.Base(path)
-	return strings.TrimSuffix(base, filepath.Ext(base))
+// --- helpers ---
+
+func yesNo(v bool) string {
+	if v {
+		return "yes"
+	}
+	return "no"
+}
+
+func truncateJSON(m map[string]any, maxLen int) string {
+	if len(m) == 0 {
+		return "{}"
+	}
+	b, _ := json.Marshal(m)
+	s := string(b)
+	if len(s) > maxLen {
+		return s[:maxLen-3] + "..."
+	}
+	return s
+}
+
+// parseConfigValue tries JSON first (for numbers, bools, objects), falls back to string.
+func parseConfigValue(raw string) any {
+	var v any
+	if err := json.Unmarshal([]byte(raw), &v); err == nil {
+		return v
+	}
+	return raw
 }

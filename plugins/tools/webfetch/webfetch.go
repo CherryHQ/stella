@@ -1,4 +1,4 @@
-package tool
+package webfetch
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +25,9 @@ const (
 	formatJSON     = "json"
 
 	maxBodySize = 10 * 1024 * 1024 // 10MB
+
+	defaultMaxLines = 2000
+	defaultMaxBytes = 50 * 1024 // 50KB
 )
 
 // fetchResult holds the outcome of a fetch: either raw content served
@@ -37,7 +42,8 @@ type WebFetchTool struct {
 	client *http.Client
 }
 
-func NewWebFetchTool() *WebFetchTool {
+// New creates a new WebFetchTool.
+func New() *WebFetchTool {
 	return &WebFetchTool{
 		client: &http.Client{Timeout: 30 * time.Second},
 	}
@@ -92,8 +98,7 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) (string
 
 	// Server returned the requested format directly — use it as-is.
 	if result.rawContent != "" {
-		tr := TruncateHead(result.rawContent)
-		return tr.Content, nil
+		return truncateHead(result.rawContent), nil
 	}
 
 	content, err := t.render(result.article, parsed, format)
@@ -101,8 +106,7 @@ func (t *WebFetchTool) Execute(ctx context.Context, args map[string]any) (string
 		return "", err
 	}
 
-	tr := TruncateHead(content)
-	return tr.Content, nil
+	return truncateHead(content), nil
 }
 
 // acceptHeader returns the Accept header value based on the requested format.
@@ -286,4 +290,59 @@ func (t *WebFetchTool) writeMetadata(w *strings.Builder, article readability.Art
 	if author := article.Byline(); author != "" {
 		fmt.Fprintf(w, "**Author:** %s\n\n", author)
 	}
+}
+
+// truncateHead keeps the first N lines / bytes (whichever limit is hit first).
+// This is a self-contained version to avoid circular imports with internal/agent/tool.
+func truncateHead(output string) string {
+	lineLimit := maxLinesEnv()
+	byteLimit := maxBytesEnv()
+
+	if len(output) <= byteLimit {
+		lines := strings.SplitAfter(output, "\n")
+		if len(lines) <= lineLimit {
+			return output
+		}
+	}
+
+	// Truncate by keeping the first lines within both limits.
+	lines := strings.SplitAfter(output, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	var kept []string
+	keptBytes := 0
+	for _, line := range lines {
+		if len(kept) >= lineLimit || keptBytes+len(line) > byteLimit {
+			break
+		}
+		kept = append(kept, line)
+		keptBytes += len(line)
+	}
+
+	if len(kept) == len(lines) {
+		return output
+	}
+
+	return fmt.Sprintf("[Output truncated — showing first %d of %d lines (%d bytes total)]\n\n%s\n...",
+		len(kept), len(lines), len(output), strings.Join(kept, ""))
+}
+
+func maxLinesEnv() int {
+	if v := os.Getenv("ANNA_TOOL_MAX_LINES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultMaxLines
+}
+
+func maxBytesEnv() int {
+	if v := os.Getenv("ANNA_TOOL_MAX_BYTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultMaxBytes
 }

@@ -22,9 +22,10 @@ builds:
     hooks:
       pre:
         - bash scripts/download-tools.sh --goos {{ .Os }} --goarch {{ .Arch }}
-
 archives:
   - id: anna
+    ids:
+      - anna
 
 changelog:
   sort: asc
