@@ -35,10 +35,6 @@ func NewRegistry(workDir string, userDataDir ...string) *Registry {
 	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
-	if err := embedded.EnsurePlugins(config.AnnaHome()); err != nil {
-		slog.Warn("failed to extract embedded plugins", "error", err)
-	}
-
 	var sandbox string
 	if len(userDataDir) > 0 {
 		sandbox = userDataDir[0]

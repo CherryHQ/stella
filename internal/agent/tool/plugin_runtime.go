@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/vaayne/anna/internal/pluginhost"
+	"github.com/vaayne/anna/plugins/tools/webfetch"
 )
 
 var builtinToolNames = []string{"read", "bash", "edit", "write", "webfetch"}
@@ -50,7 +51,7 @@ func BuiltinToolRuntime(name, workDir, userDataDir string) (Tool, error) {
 	case "write":
 		return wrapWithSandbox(&WriteTool{}, sandbox, "file_path"), nil
 	case "webfetch":
-		return NewWebFetchTool(), nil
+		return webfetch.New(), nil
 	default:
 		return nil, fmt.Errorf("unknown builtin tool: %s", name)
 	}

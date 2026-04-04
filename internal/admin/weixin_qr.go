@@ -7,7 +7,7 @@ import (
 
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
-	"github.com/vaayne/anna/internal/channel/weixin"
+	"github.com/vaayne/anna/plugins/channels/weixin"
 	"github.com/vaayne/anna/internal/config"
 )
 
