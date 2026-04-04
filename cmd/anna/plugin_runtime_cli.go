@@ -95,9 +95,29 @@ func runtimePluginBindCommand() *ucli.Command {
 }
 
 func runtimePluginBindAction(c *ucli.Context) error {
-	kind := c.Args().Get(0)
-	slot := c.Args().Get(1)
-	pluginID := c.Args().Get(2)
+	// urfave/cli v2 stops parsing flags after the first positional arg,
+	// so --default appearing after positional args is treated as a positional arg.
+	// Manually extract it from the args.
+	useDefault := c.Bool("default")
+	var positional []string
+	for _, a := range c.Args().Slice() {
+		if a == "--default" {
+			useDefault = true
+		} else {
+			positional = append(positional, a)
+		}
+	}
+
+	var kind, slot, pluginID string
+	if len(positional) > 0 {
+		kind = positional[0]
+	}
+	if len(positional) > 1 {
+		slot = positional[1]
+	}
+	if len(positional) > 2 {
+		pluginID = positional[2]
+	}
 	if kind == "" || slot == "" {
 		return fmt.Errorf("usage: anna plugin runtime bind <tool|channel> <slot> [plugin-id]")
 	}
@@ -120,7 +140,7 @@ func runtimePluginBindAction(c *ucli.Context) error {
 		if !contains(agenttool.BuiltinToolNames(), slot) {
 			return fmt.Errorf("unknown tool slot %q", slot)
 		}
-		if c.Bool("default") {
+		if useDefault {
 			pluginID = config.DefaultRuntimePluginBindings().ToolBinding(slot)
 		}
 		if pluginID == "" {
@@ -142,7 +162,7 @@ func runtimePluginBindAction(c *ucli.Context) error {
 		if !contains(channel.BuiltinChannelNames(), slot) {
 			return fmt.Errorf("unknown channel slot %q", slot)
 		}
-		if c.Bool("default") {
+		if useDefault {
 			pluginID = config.DefaultRuntimePluginBindings().ChannelBinding(slot)
 		}
 		if pluginID == "" {

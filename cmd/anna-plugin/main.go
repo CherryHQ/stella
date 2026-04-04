@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	ucli "github.com/urfave/cli/v2"
 	agenttool "github.com/vaayne/anna/internal/agent/tool"
@@ -39,19 +40,13 @@ func channelCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "user-data-dir"},
 		},
 		Action: func(c *ucli.Context) error {
-			name := c.Args().First()
+			name, flags := extractPluginArgs(c)
 			if name == "" {
 				return fmt.Errorf("usage: anna-plugin channel <name>")
 			}
 
-			workDir := c.String("work-dir")
-			if workDir == "" {
-				workDir = os.Getenv("ANNA_PLUGIN_WORKDIR")
-			}
-			userDataDir := c.String("user-data-dir")
-			if userDataDir == "" {
-				userDataDir = os.Getenv("ANNA_PLUGIN_USER_DATA_DIR")
-			}
+			workDir := firstNonEmpty(c.String("work-dir"), flags["work-dir"], os.Getenv("ANNA_PLUGIN_WORKDIR"))
+			userDataDir := firstNonEmpty(c.String("user-data-dir"), flags["user-data-dir"], os.Getenv("ANNA_PLUGIN_USER_DATA_DIR"))
 
 			def, runtime, err := buildChannelPlugin(name, workDir, userDataDir)
 			if err != nil {
@@ -72,19 +67,13 @@ func toolCommand() *ucli.Command {
 			&ucli.StringFlag{Name: "user-data-dir"},
 		},
 		Action: func(c *ucli.Context) error {
-			name := c.Args().First()
+			name, flags := extractPluginArgs(c)
 			if name == "" {
 				return fmt.Errorf("usage: anna-plugin tool <name>")
 			}
 
-			workDir := c.String("work-dir")
-			if workDir == "" {
-				workDir = os.Getenv("ANNA_PLUGIN_WORKDIR")
-			}
-			userDataDir := c.String("user-data-dir")
-			if userDataDir == "" {
-				userDataDir = os.Getenv("ANNA_PLUGIN_USER_DATA_DIR")
-			}
+			workDir := firstNonEmpty(c.String("work-dir"), flags["work-dir"], os.Getenv("ANNA_PLUGIN_WORKDIR"))
+			userDataDir := firstNonEmpty(c.String("user-data-dir"), flags["user-data-dir"], os.Getenv("ANNA_PLUGIN_USER_DATA_DIR"))
 
 			def, runtime, err := agenttool.BuiltinToolPlugin(name, workDir, userDataDir)
 			if err != nil {
@@ -94,4 +83,39 @@ func toolCommand() *ucli.Command {
 			return pluginhost.ServeTool(c.Context, def, runtime, os.Stdin, os.Stdout)
 		},
 	}
+}
+
+// extractPluginArgs extracts the plugin name and trailing --key=value or
+// --key value flags from positional args. urfave/cli v2 stops parsing flags
+// after the first positional arg, so flags like --work-dir that appear after
+// the plugin name are treated as positional args.
+func extractPluginArgs(c *ucli.Context) (string, map[string]string) {
+	flags := make(map[string]string)
+	var name string
+	args := c.Args().Slice()
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if strings.HasPrefix(a, "--") {
+			key := strings.TrimPrefix(a, "--")
+			if k, v, ok := strings.Cut(key, "="); ok {
+				flags[k] = v
+			} else if i+1 < len(args) {
+				i++
+				flags[key] = args[i]
+			}
+		} else if name == "" {
+			name = a
+		}
+	}
+	return name, flags
+}
+
+// firstNonEmpty returns the first non-empty string from the given values.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
