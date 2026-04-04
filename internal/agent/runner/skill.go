@@ -173,9 +173,9 @@ func scanDir(dir, source string, isRoot bool) []Skill {
 	return skills
 }
 
-// normalizeSkillStatus normalizes an empty status to "active" and validates
+// NormalizeSkillStatus normalizes an empty status to "active" and validates
 // known values. Returns the normalized status or "active" if the value is unknown.
-func normalizeSkillStatus(status string) string {
+func NormalizeSkillStatus(status string) string {
 	switch strings.TrimSpace(strings.ToLower(status)) {
 	case SkillStatusDraft:
 		return SkillStatusDraft
@@ -216,7 +216,7 @@ func loadSkillFromFile(filePath, source string) (Skill, bool) {
 	return Skill{
 		Name:                   name,
 		Description:            fm.Description,
-		Status:                 normalizeSkillStatus(fm.Status),
+		Status:                 NormalizeSkillStatus(fm.Status),
 		CreatedAt:              fm.CreatedAt,
 		FilePath:               filePath,
 		BaseDir:                skillDir,
