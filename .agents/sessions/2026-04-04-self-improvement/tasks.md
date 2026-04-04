@@ -2,13 +2,13 @@
 
 ## Phase 1: Skill Lifecycle
 
-- [ ] 1.1 Add `Status` + `CreatedAt` fields to `Skill` and `skillFrontmatter`, add `normalizeSkillStatus()` helper
-- [ ] 1.2 Modify `FormatSkillsForPrompt()` to filter `deprecated` and include `<status>` tag
-- [ ] 1.3 Create `AtomicWriteFile` + package-level write lock
-- [ ] 1.4 Implement `create`, `patch`, `deprecate` actions with validation and scoping
-- [ ] 1.5 Extend skills tool schema and routing for new actions
-- [ ] 1.6 Include `status` in list output
-- [ ] 1.7 Tests for skill lifecycle
+- [x] 1.1 Add `Status` + `CreatedAt` fields to `Skill` and `skillFrontmatter`, add `normalizeSkillStatus()` helper
+- [x] 1.2 Modify `FormatSkillsForPrompt()` to filter `deprecated` and include `<status>` tag
+- [x] 1.3 Create `AtomicWriteFile` + package-level write lock
+- [x] 1.4 Implement `create`, `patch`, `deprecate` actions with validation and scoping
+- [x] 1.5 Extend skills tool schema and routing for new actions
+- [x] 1.6 Include `status` in list output
+- [x] 1.7 Tests for skill lifecycle
 
 ## Phase 2: Database + Queries
 
