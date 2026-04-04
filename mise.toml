@@ -9,7 +9,6 @@ go = "1.25"
 [env]
 ANNA_HOME = ".agents/anna"
 BINARY_NAME = "anna"
-PLUGIN_BINARY_NAME = "anna-plugin"
 
 # ============================================================================
 # Build
@@ -18,7 +17,7 @@ PLUGIN_BINARY_NAME = "anna-plugin"
 [tasks.build]
 description = "Build anna binary"
 depends = ["generate"]
-run = "VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)} && go build -ldflags=\"-X main.version=$VERSION\" -o bin/$BINARY_NAME ./cmd/anna && go build -o bin/$PLUGIN_BINARY_NAME ./cmd/anna-plugin"
+run = "VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)} && go build -ldflags=\"-X main.version=$VERSION\" -o bin/$BINARY_NAME ./cmd/anna"
 
 [tasks.clean]
 description = "Remove build artifacts"
