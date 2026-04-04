@@ -223,7 +223,7 @@ func modelSwitcher(snap *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.BaseURL = p.BaseURL
 		}
 
-		factory, err := agent.NewRunnerFactory(snap, extraTools)
+		factory, err := agent.NewRunnerFactory(snap, extraTools, nil)
 		if err != nil {
 			return err
 		}

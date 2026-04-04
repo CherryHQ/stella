@@ -13,6 +13,7 @@ import (
 	"github.com/vaayne/anna/internal/ai/providers/anthropic"
 	"github.com/vaayne/anna/internal/ai/providers/openai"
 	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
+	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
@@ -23,13 +24,14 @@ type GoRunnerConfig struct {
 	API         string // provider key: "anthropic", "openai"
 	Model       string // e.g. "claude-sonnet-4-20250514"
 	APIKey      string
-	BaseURL     string       // optional provider base URL override
-	WorkDir     string       // working directory for tool execution
-	Workspace   string       // workspace dir for skills/memory (e.g. ~/.anna/workspace)
-	AnnaHome    string       // anna home directory (e.g. ~/.anna)
-	System      string       // optional system prompt override (bypasses default prompt building)
-	ExtraTools  []tools.Tool // additional tools to register
-	UserDataDir string       // per-user data directory for sandbox enforcement (empty = no sandbox)
+	BaseURL     string             // optional provider base URL override
+	WorkDir     string             // working directory for tool execution
+	Workspace   string             // workspace dir for skills/memory (e.g. ~/.anna/workspace)
+	AnnaHome    string             // anna home directory (e.g. ~/.anna)
+	System      string             // optional system prompt override (bypasses default prompt building)
+	ExtraTools  []tools.Tool       // additional tools to register
+	UserDataDir string             // per-user data directory for sandbox enforcement (empty = no sandbox)
+	HookPlugins []hooks.HookPlugin // hook plugins for the engine loop
 }
 
 // GoRunner implements Runner by calling LLM providers directly via Engine.
@@ -37,6 +39,7 @@ type GoRunner struct {
 	eng    *engine.Engine
 	reg    *ai.Registry
 	tools  *tools.Registry
+	hooks  *hooks.HookSet
 	model  ai.Model
 	apiKey string
 	system string
@@ -87,6 +90,11 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		Cwd:       cfg.WorkDir,
 	}))
 
+	var hookSet *hooks.HookSet
+	if len(cfg.HookPlugins) > 0 {
+		hookSet = hooks.NewHookSet(cfg.HookPlugins)
+	}
+
 	toolReg.Register(tools.NewAgentTool(tools.AgentConfig{
 		Engine:   eng,
 		Registry: toolReg,
@@ -94,12 +102,14 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		APIKey:   cfg.APIKey,
 		System:   system,
 		Presets:  presets,
+		Hooks:    hookSet,
 	}))
 
 	return &GoRunner{
 		eng:          eng,
 		reg:          reg,
 		tools:        toolReg,
+		hooks:        hookSet,
 		model:        model,
 		apiKey:       cfg.APIKey,
 		system:       system,
@@ -130,6 +140,7 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 			Tools:           r.buildToolSet(),
 			ToolDefinitions: r.tools.Definitions(),
 			System:          r.system,
+			Hooks:           r.hooks,
 		}
 
 		if _, err := r.eng.Run(ctx, cfg, messages, func(e engine.LoopEvent) {
