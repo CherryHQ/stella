@@ -14,16 +14,14 @@ func pluginCommand() *ucli.Command {
 		Subcommands: []*ucli.Command{
 			pluginListCommand(),
 		},
-		Action: func(c *ucli.Context) error {
-			return pluginListAction(c)
-		},
+		Action: pluginListAction,
 	}
 }
 
 func pluginListCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "list",
-		Usage: "List all configured plugins",
+		Name:   "list",
+		Usage:  "List all configured plugins",
 		Action: pluginListAction,
 	}
 }
@@ -44,9 +42,9 @@ func pluginListAction(c *ucli.Context) error {
 		return nil
 	}
 
-	fmt.Printf("%-24s %-10s %-8s %s\n", "ID", "KIND", "ENABLED", "VERSION")
+	fmt.Printf("%-24s %-10s %-8s\n", "ID", "KIND", "ENABLED")
 	for _, p := range plugins {
-		fmt.Printf("%-24s %-10s %-8s %s\n", p.ID, p.Kind, yesNo(p.Enabled), p.Version)
+		fmt.Printf("%-24s %-10s %-8s\n", p.ID, p.Kind, yesNo(p.Enabled))
 	}
 	return nil
 }
@@ -57,4 +55,3 @@ func yesNo(v bool) string {
 	}
 	return "no"
 }
-
