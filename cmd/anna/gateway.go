@@ -113,10 +113,10 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 	}
 
 	// Load channel configs from DB.
-	tgCfg := loadChannelConfig[telegramChannelConfig](s.store, "telegram")
-	qqCfg := loadChannelConfig[qqChannelConfig](s.store, "qq")
-	fsCfg := loadChannelConfig[feishuChannelConfig](s.store, "feishu")
-	wxCfg := loadChannelConfig[weixinChannelConfig](s.store, "weixin")
+	tgCfg := loadChannelConfig[telegramChannelConfig](s.store, channel.PlatformTelegram)
+	qqCfg := loadChannelConfig[qqChannelConfig](s.store, channel.PlatformQQ)
+	fsCfg := loadChannelConfig[feishuChannelConfig](s.store, channel.PlatformFeishu)
+	wxCfg := loadChannelConfig[weixinChannelConfig](s.store, channel.PlatformWeixin)
 
 	// --- Telegram ---
 	if tgCfg != nil && tgCfg.Token != "" {
@@ -133,7 +133,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			slog.Warn("telegram bot disabled", "error", err)
 		} else {
 			channels = append(channels, tgBot)
-			adminSrv.RegisterChannelStop("telegram", tgBot.Stop)
+			adminSrv.RegisterChannelStop(channel.PlatformTelegram, tgBot.Stop)
 			if tgCfg.EnableNotify {
 				s.notifier.Register(tgBot)
 			}
@@ -155,7 +155,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			slog.Warn("qq bot disabled", "error", err)
 		} else {
 			channels = append(channels, qqBot)
-			adminSrv.RegisterChannelStop("qq", qqBot.Stop)
+			adminSrv.RegisterChannelStop(channel.PlatformQQ, qqBot.Stop)
 			if qqCfg.EnableNotify {
 				s.notifier.Register(qqBot)
 			}
@@ -180,7 +180,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			slog.Warn("feishu bot disabled", "error", err)
 		} else {
 			channels = append(channels, fsBot)
-			adminSrv.RegisterChannelStop("feishu", fsBot.Stop)
+			adminSrv.RegisterChannelStop(channel.PlatformFeishu, fsBot.Stop)
 			if fsCfg.EnableNotify {
 				s.notifier.Register(fsBot)
 			}
@@ -203,7 +203,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			slog.Warn("weixin bot disabled", "error", err)
 		} else {
 			channels = append(channels, wxBot)
-			adminSrv.RegisterChannelStop("weixin", wxBot.Stop)
+			adminSrv.RegisterChannelStop(channel.PlatformWeixin, wxBot.Stop)
 			if wxCfg.EnableNotify {
 				s.notifier.Register(wxBot)
 			}

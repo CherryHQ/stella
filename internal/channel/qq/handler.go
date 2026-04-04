@@ -24,7 +24,7 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 		// Try link code before anything else.
 		text := strings.TrimSpace(msg.Content)
 		if b.authStore != nil && b.linkCodes != nil && text != "" {
-			if resp, ok := channel.TryLinkCode(b.ctx, b.authStore, b.linkCodes, text, "qq", authorID, ""); ok {
+			if resp, ok := channel.TryLinkCode(b.ctx, b.authStore, b.linkCodes, text, channel.PlatformQQ, authorID, ""); ok {
 				b.replyC2C(b.ctx, authorID, msg.ID, resp)
 				return nil
 			}

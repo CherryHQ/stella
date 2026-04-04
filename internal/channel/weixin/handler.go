@@ -84,7 +84,7 @@ func (b *Bot) handleText(msg WeixinMessage, text string) {
 
 	// Try link code before anything else.
 	if b.authStore != nil && b.linkCodes != nil {
-		if resp, ok := channel.TryLinkCode(b.ctx, b.authStore, b.linkCodes, text, "weixin", msg.FromUserID, ""); ok {
+		if resp, ok := channel.TryLinkCode(b.ctx, b.authStore, b.linkCodes, text, channel.PlatformWeixin, msg.FromUserID, ""); ok {
 			reply(resp)
 			return
 		}

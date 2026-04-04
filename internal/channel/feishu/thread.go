@@ -88,7 +88,7 @@ func (b *Bot) resolveWithThread(openID, chatID, chatType, rootID string) (*chann
 		b.store,
 		b.authStore,
 		b.engine,
-		"feishu",
+		channel.PlatformFeishu,
 		openID,
 		"",
 		chatID,

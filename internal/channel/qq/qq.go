@@ -151,7 +151,7 @@ func (b *Bot) Stop() {
 }
 
 // Name returns the channel name. Implements channel.Channel.
-func (b *Bot) Name() string { return "qq" }
+func (b *Bot) Name() string { return channel.PlatformQQ }
 
 // Notify sends a notification message. Implements channel.Channel.
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
@@ -201,7 +201,7 @@ func (b *Bot) resolve(authorID, groupID string) (*channel.ResolvedChat, error) {
 		b.store,
 		b.authStore,
 		b.engine,
-		"qq",
+		channel.PlatformQQ,
 		authorID,
 		"",
 		groupID,

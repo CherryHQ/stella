@@ -209,7 +209,7 @@ func (b *Bot) handleText(c tele.Context) error {
 			if name == "" {
 				name = sender.Username
 			}
-			if resp, ok := channel.TryLinkCode(b.ctx, b.authStore, b.linkCodes, text, "telegram", strconv.FormatInt(sender.ID, 10), name); ok {
+			if resp, ok := channel.TryLinkCode(b.ctx, b.authStore, b.linkCodes, text, channel.PlatformTelegram, strconv.FormatInt(sender.ID, 10), name); ok {
 				return c.Send(resp)
 			}
 		}
