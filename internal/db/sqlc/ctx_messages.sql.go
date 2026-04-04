@@ -291,6 +291,49 @@ func (q *Queries) GetMessagesByConversationRange(ctx context.Context, arg GetMes
 	return items, nil
 }
 
+const getMessagesSince = `-- name: GetMessagesSince :many
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_messages
+WHERE conversation_id = ? AND created_at > ?
+ORDER BY seq ASC
+`
+
+type GetMessagesSinceParams struct {
+	ConversationID int64  `json:"conversation_id"`
+	CreatedAt      string `json:"created_at"`
+}
+
+func (q *Queries) GetMessagesSince(ctx context.Context, arg GetMessagesSinceParams) ([]CtxMessage, error) {
+	rows, err := q.db.QueryContext(ctx, getMessagesSince, arg.ConversationID, arg.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxMessage{}
+	for rows.Next() {
+		var i CtxMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.Seq,
+			&i.Role,
+			&i.EventType,
+			&i.Content,
+			&i.TokenCount,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchMessages = `-- name: SearchMessages :many
 SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_messages
 WHERE conversation_id = ? AND content LIKE ?

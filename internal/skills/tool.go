@@ -17,8 +17,8 @@ var skillsInputSchema = func() map[string]any {
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["load", "search", "install", "list", "remove"],
-      "description": "Action to perform: 'load' reads a skill's content by name, 'search' finds skills from the ecosystem, 'install' adds a skill to the project, 'list' shows installed skills, 'remove' deletes an installed skill"
+      "enum": ["load", "search", "install", "list", "remove", "create", "patch", "deprecate"],
+      "description": "Action to perform: 'load' reads a skill's content by name, 'search' finds skills from the ecosystem, 'install' adds a skill to the project, 'list' shows installed skills, 'remove' deletes an installed skill, 'create' creates a new skill (draft), 'patch' updates an existing skill's fields, 'deprecate' marks a skill as deprecated"
     },
     "query": {
       "type": "string",
@@ -34,7 +34,20 @@ var skillsInputSchema = func() map[string]any {
     },
     "name": {
       "type": "string",
-      "description": "Name of the skill (required for load and remove)"
+      "description": "Name of the skill (required for load, remove, create, patch, deprecate)"
+    },
+    "description": {
+      "type": "string",
+      "description": "Skill description (required for create, optional for patch)"
+    },
+    "content": {
+      "type": "string",
+      "description": "Skill body content in markdown (optional for create and patch)"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "active", "deprecated"],
+      "description": "Skill status (optional for patch)"
     }
   },
   "required": ["action"]
@@ -79,7 +92,7 @@ func (t *SkillsTool) skillsDir() string {
 func SkillsDefinition() toolspec.Definition {
 	return toolspec.Definition{
 		Name:        "skills",
-		Description: "Manage agent skills. Use 'load' to read a skill by name, 'search' to find skills from the ecosystem, 'install' to add a skill (e.g. owner/repo@skill-name), 'list' to see installed skills, 'remove' to delete one.",
+		Description: "Manage agent skills. Use 'load' to read a skill by name, 'search' to find skills from the ecosystem, 'install' to add a skill (e.g. owner/repo@skill-name), 'list' to see installed skills, 'remove' to delete one, 'create' to create a new skill (draft), 'patch' to update fields, 'deprecate' to mark as deprecated.",
 		InputSchema: skillsInputSchema,
 	}
 }
@@ -103,9 +116,67 @@ func (t *SkillsTool) Execute(ctx context.Context, args map[string]any) (string, 
 		return t.list()
 	case "remove":
 		return t.remove(args)
+	case "create":
+		return t.create(args)
+	case "patch":
+		return t.patch(args)
+	case "deprecate":
+		return t.deprecate(args)
 	default:
-		return "", fmt.Errorf("unknown action %q, expected load/search/install/list/remove", action)
+		return "", fmt.Errorf("unknown action %q, expected load/search/install/list/remove/create/patch/deprecate", action)
 	}
+}
+
+func (t *SkillsTool) create(args map[string]any) (string, error) {
+	name, _ := args["name"].(string)
+	description, _ := args["description"].(string)
+	content, _ := args["content"].(string)
+
+	targetDir := t.skillsDir()
+	if err := Create(name, description, content, targetDir); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("Skill %q created as draft in %s.", name, filepath.Join(targetDir, name)), nil
+}
+
+func (t *SkillsTool) patch(args map[string]any) (string, error) {
+	name, _ := args["name"].(string)
+	if name == "" {
+		return "", fmt.Errorf("name is required for patch action")
+	}
+
+	updates := make(map[string]string)
+	if v, ok := args["description"].(string); ok && v != "" {
+		updates["description"] = v
+	}
+	if v, ok := args["status"].(string); ok && v != "" {
+		updates["status"] = v
+	}
+	if v, ok := args["content"].(string); ok && v != "" {
+		updates["content"] = v
+	}
+
+	targetDir := t.skillsDir()
+	if err := Patch(name, updates, targetDir); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("Skill %q updated in %s.", name, filepath.Join(targetDir, name)), nil
+}
+
+func (t *SkillsTool) deprecate(args map[string]any) (string, error) {
+	name, _ := args["name"].(string)
+	if name == "" {
+		return "", fmt.Errorf("name is required for deprecate action")
+	}
+
+	targetDir := t.skillsDir()
+	if err := Deprecate(name, targetDir); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("Skill %q deprecated in %s.", name, filepath.Join(targetDir, name)), nil
 }
 
 func (t *SkillsTool) search(ctx context.Context, args map[string]any) (string, error) {

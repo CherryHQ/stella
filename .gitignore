@@ -3,7 +3,6 @@ cover.out
 coverage.out
 coverage.html
 dist/
-handoff.md
 anna
 
 # Embedded tool binaries (downloaded via scripts/download-tools.sh)

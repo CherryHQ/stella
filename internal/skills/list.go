@@ -9,6 +9,7 @@ import (
 type installedSkill struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Status      string `json:"status"`
 	Source      string `json:"source"`
 	Path        string `json:"path"`
 	Removable   bool   `json:"removable"`
@@ -25,6 +26,7 @@ func (t *SkillsTool) list() (string, error) {
 		results[i] = installedSkill{
 			Name:        s.Name,
 			Description: s.Description,
+			Status:      s.Status,
 			Source:      s.Source,
 			Path:        s.FilePath,
 			Removable:   s.Source == "project" || s.Source == "user",

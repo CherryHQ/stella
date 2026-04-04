@@ -35,3 +35,8 @@ SELECT * FROM ctx_messages
 WHERE conversation_id = ? AND content LIKE ?
 ORDER BY seq ASC
 LIMIT ?;
+
+-- name: GetMessagesSince :many
+SELECT * FROM ctx_messages
+WHERE conversation_id = ? AND created_at > ?
+ORDER BY seq ASC;
