@@ -30,15 +30,15 @@ func (t *closeRecorderTool) Close() error {
 func TestRegistryDefinitions(t *testing.T) {
 	reg := NewRegistry("")
 	defs := reg.Definitions()
-	if len(defs) != 5 {
-		t.Fatalf("expected 5 tool definitions, got %d", len(defs))
+	if len(defs) != 4 {
+		t.Fatalf("expected 4 tool definitions, got %d", len(defs))
 	}
 
 	names := map[string]bool{}
 	for _, d := range defs {
 		names[d.Name] = true
 	}
-	for _, name := range []string{"read", "bash", "edit", "write", "webfetch"} {
+	for _, name := range []string{"read", "bash", "edit", "write"} {
 		if !names[name] {
 			t.Errorf("missing tool definition: %s", name)
 		}
@@ -55,7 +55,7 @@ func TestRegistryExecuteUnknown(t *testing.T) {
 
 func TestSandboxToolCloseDelegates(t *testing.T) {
 	inner := &closeRecorderTool{}
-	wrapped := wrapWithSandbox(inner, t.TempDir(), "file_path")
+	wrapped := WrapWithSandbox(inner, t.TempDir(), "file_path")
 
 	closer, ok := wrapped.(closeableTool)
 	if !ok {
@@ -337,4 +337,3 @@ func TestWriteToolMissingArg(t *testing.T) {
 		t.Fatal("expected error for missing file_path")
 	}
 }
-

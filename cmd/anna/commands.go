@@ -20,6 +20,7 @@ import (
 	"github.com/vaayne/anna/internal/memory"
 	memorytool "github.com/vaayne/anna/internal/memory/tool"
 	"github.com/vaayne/anna/internal/scheduler"
+	"github.com/vaayne/anna/plugins/tools/webfetch"
 )
 
 func newApp() *ucli.App {
@@ -121,6 +122,12 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	sharedTools = append(sharedTools,
 		memorytool.NewMemoryTool(memoryEngine, userMemoryStore),
 	)
+
+	// Check if webfetch plugin is enabled.
+	webfetchPlugin, err := store.GetPlugin(parent, config.PluginID(config.PluginKindTool, "webfetch"))
+	if err == nil && webfetchPlugin.Enabled {
+		sharedTools = append(sharedTools, webfetch.New())
+	}
 
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
 

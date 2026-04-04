@@ -38,9 +38,9 @@ func (s *sandboxTool) Close() error {
 	return nil
 }
 
-// wrapWithSandbox returns a sandbox-wrapped tool if allowedDir is non-empty.
+// WrapWithSandbox returns a sandbox-wrapped tool if allowedDir is non-empty.
 // Otherwise it returns the original tool unchanged.
-func wrapWithSandbox(t Tool, allowedDir, pathKey string) Tool {
+func WrapWithSandbox(t Tool, allowedDir, pathKey string) Tool {
 	if allowedDir == "" {
 		return t
 	}

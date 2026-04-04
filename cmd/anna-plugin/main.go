@@ -10,6 +10,7 @@ import (
 	agenttool "github.com/vaayne/anna/internal/agent/tool"
 	"github.com/vaayne/anna/internal/pluginapi"
 	"github.com/vaayne/anna/internal/pluginhost"
+	"github.com/vaayne/anna/plugins/tools/webfetch"
 )
 
 func main() {
@@ -76,7 +77,7 @@ func toolCommand() *ucli.Command {
 			workDir := firstNonEmpty(c.String("work-dir"), flags["work-dir"], os.Getenv("ANNA_PLUGIN_WORKDIR"))
 			userDataDir := firstNonEmpty(c.String("user-data-dir"), flags["user-data-dir"], os.Getenv("ANNA_PLUGIN_USER_DATA_DIR"))
 
-			runtime, err := agenttool.BuiltinToolRuntime(name, workDir, userDataDir)
+			runtime, err := builtinToolRuntime(name, workDir, userDataDir)
 			if err != nil {
 				return err
 			}
@@ -140,4 +141,30 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// builtinToolRuntime returns the local Go runtime for a built-in tool.
+// This is used by the subprocess entry-point (anna-plugin) to execute tools.
+func builtinToolRuntime(name, workDir, userDataDir string) (agenttool.Tool, error) {
+	var sandbox string
+	bashDir := workDir
+	if userDataDir != "" {
+		sandbox = userDataDir
+		bashDir = userDataDir
+	}
+
+	switch name {
+	case "read":
+		return agenttool.WrapWithSandbox(&agenttool.ReadTool{}, sandbox, "file_path"), nil
+	case "bash":
+		return agenttool.NewBashTool(bashDir), nil
+	case "edit":
+		return agenttool.WrapWithSandbox(&agenttool.EditTool{}, sandbox, "file_path"), nil
+	case "write":
+		return agenttool.WrapWithSandbox(&agenttool.WriteTool{}, sandbox, "file_path"), nil
+	case "webfetch":
+		return webfetch.New(), nil
+	default:
+		return nil, fmt.Errorf("unknown builtin tool: %s", name)
+	}
 }

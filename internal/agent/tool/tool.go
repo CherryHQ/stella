@@ -8,7 +8,6 @@ import (
 
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
-	"github.com/vaayne/anna/internal/pluginapi"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/toolspec"
 )
@@ -28,42 +27,28 @@ type closeableTool interface {
 	Close() error
 }
 
-// NewRegistry creates a registry with the default built-in tools.
-// Built-ins are exposed through subprocess plugin wrappers so the runner can
-// exercise the same protocol path as later third-party plugins.
+// NewRegistry creates a registry with the four core built-in tools
+// (read, bash, edit, write) constructed directly as Go values.
+// Optional tools like webfetch are injected externally via ExtraTools.
 func NewRegistry(workDir string, userDataDir ...string) *Registry {
 	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
+
 	var sandbox string
 	if len(userDataDir) > 0 {
 		sandbox = userDataDir[0]
 	}
-
-	catalog, err := LoadCatalog()
-	if err != nil {
-		slog.Warn("failed to load tool catalog", "error", err)
-		return &Registry{tools: make(map[string]Tool)}
+	bashDir := workDir
+	if sandbox != "" {
+		bashDir = sandbox
 	}
 
 	r := &Registry{tools: make(map[string]Tool)}
-	for _, name := range BuiltinToolNames() {
-		pluginID := string(pluginapi.KindTool) + "/" + name
-		def, ok := catalog.Get(pluginID)
-		if !ok {
-			slog.Warn("tool not found in catalog", "tool", name, "plugin", pluginID)
-			continue
-		}
-
-		def = augmentDefinition(def, workDir, sandbox)
-		t := newPluginTool(def)
-		switch name {
-		case "read", "edit", "write":
-			r.Register(wrapWithSandbox(t, sandbox, "file_path"))
-		default:
-			r.Register(t)
-		}
-	}
+	r.Register(WrapWithSandbox(&ReadTool{}, sandbox, "file_path"))
+	r.Register(NewBashTool(bashDir))
+	r.Register(WrapWithSandbox(&EditTool{}, sandbox, "file_path"))
+	r.Register(WrapWithSandbox(&WriteTool{}, sandbox, "file_path"))
 	return r
 }
 

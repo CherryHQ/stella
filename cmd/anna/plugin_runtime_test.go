@@ -2,62 +2,22 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	agenttool "github.com/vaayne/anna/internal/agent/tool"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/plugins/tools/webfetch"
 )
 
-var (
-	annaPluginBinaryOnce sync.Once
-	annaPluginBinaryPath string
-	annaPluginBinaryErr  error
-)
-
-func buildAnnaPluginBinary(t *testing.T) string {
-	t.Helper()
-
-	annaPluginBinaryOnce.Do(func() {
-		root, err := filepath.Abs(filepath.Join("..", ".."))
-		if err != nil {
-			annaPluginBinaryErr = err
-			return
-		}
-		dir, err := os.MkdirTemp("", "anna-plugin-bin-")
-		if err != nil {
-			annaPluginBinaryErr = err
-			return
-		}
-		binPath := filepath.Join(dir, "anna-plugin-test-bin")
-		cmd := exec.Command("go", "build", "-o", binPath, "./cmd/anna-plugin")
-		cmd.Dir = root
-		cmd.Env = os.Environ()
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			annaPluginBinaryErr = fmt.Errorf("build anna-plugin binary: %w: %s", err, string(out))
-			return
-		}
-		annaPluginBinaryPath = binPath
-	})
-	if annaPluginBinaryErr != nil {
-		t.Fatal(annaPluginBinaryErr)
-	}
-	return annaPluginBinaryPath
-}
-
-func TestPluginToolRegistryExecuteReadWriteEdit(t *testing.T) {
+func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 	t.Setenv("ANNA_HOME", t.TempDir())
 	config.ResetAnnaHome()
 	t.Cleanup(config.ResetAnnaHome)
-	t.Setenv("ANNA_PLUGIN_ENTRYPOINT", buildAnnaPluginBinary(t))
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
@@ -117,22 +77,25 @@ func TestPluginToolRegistryExecuteReadWriteEdit(t *testing.T) {
 	}
 }
 
-func TestPluginToolRegistryExecuteBashAndWebFetch(t *testing.T) {
+func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 	t.Setenv("ANNA_HOME", t.TempDir())
 	config.ResetAnnaHome()
 	t.Cleanup(config.ResetAnnaHome)
-	t.Setenv("ANNA_PLUGIN_ENTRYPOINT", buildAnnaPluginBinary(t))
 
 	workDir := t.TempDir()
 	reg := agenttool.NewRegistry(workDir)
+	// Register webfetch as an extra tool (simulating enabled plugin).
+	reg.Register(webfetch.New())
 	defer func() { _ = reg.Close() }()
 
 	bashResult, err := reg.Execute(context.Background(), "bash", map[string]any{"command": "pwd -P"})
 	if err != nil {
 		t.Fatalf("bash execute: %v", err)
 	}
-	if !strings.Contains(bashResult, workDir) {
-		t.Fatalf("bash result = %q, want work dir %q", bashResult, workDir)
+	// Resolve symlinks (macOS /tmp -> /private/tmp).
+	resolved, _ := filepath.EvalSymlinks(workDir)
+	if !strings.Contains(bashResult, resolved) {
+		t.Fatalf("bash result = %q, want work dir %q", bashResult, resolved)
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -153,11 +116,10 @@ func TestPluginToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 	}
 }
 
-func TestPluginToolRegistrySandbox(t *testing.T) {
+func TestDirectToolRegistrySandbox(t *testing.T) {
 	t.Setenv("ANNA_HOME", t.TempDir())
 	config.ResetAnnaHome()
 	t.Cleanup(config.ResetAnnaHome)
-	t.Setenv("ANNA_PLUGIN_ENTRYPOINT", buildAnnaPluginBinary(t))
 
 	allowed := t.TempDir()
 	outside := t.TempDir()
