@@ -79,9 +79,12 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 	// Link codes are shared between admin panel and channel bots.
 	linkCodes := auth.NewLinkCodeStore()
 
+	// Admin server is always created so channel stop functions can be registered
+	// even when the panel is disabled.
+	adminSrv := admin.New(s.store, as, engine, s.mem, s.db, linkCodes)
+
 	// Start admin panel server.
 	if adminPort > 0 {
-		adminSrv := admin.New(s.store, as, engine, s.mem, s.db, linkCodes)
 		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", adminPort))
 		if err != nil {
 			return fmt.Errorf("admin listen: %w", err)
@@ -130,6 +133,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			slog.Warn("telegram bot disabled", "error", err)
 		} else {
 			channels = append(channels, tgBot)
+			adminSrv.RegisterChannelStop("telegram", tgBot.Stop)
 			if tgCfg.EnableNotify {
 				s.notifier.Register(tgBot)
 			}
@@ -151,6 +155,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			slog.Warn("qq bot disabled", "error", err)
 		} else {
 			channels = append(channels, qqBot)
+			adminSrv.RegisterChannelStop("qq", qqBot.Stop)
 			if qqCfg.EnableNotify {
 				s.notifier.Register(qqBot)
 			}
@@ -175,6 +180,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			slog.Warn("feishu bot disabled", "error", err)
 		} else {
 			channels = append(channels, fsBot)
+			adminSrv.RegisterChannelStop("feishu", fsBot.Stop)
 			if fsCfg.EnableNotify {
 				s.notifier.Register(fsBot)
 			}
@@ -197,6 +203,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			slog.Warn("weixin bot disabled", "error", err)
 		} else {
 			channels = append(channels, wxBot)
+			adminSrv.RegisterChannelStop("weixin", wxBot.Stop)
 			if wxCfg.EnableNotify {
 				s.notifier.Register(wxBot)
 			}
@@ -363,10 +370,10 @@ type weixinChannelConfig struct {
 }
 
 // loadChannelConfig loads a channel's JSON config from the store and
-// deserializes it into the given type. Returns nil if not found.
+// deserializes it into the given type. Returns nil if not found or disabled.
 func loadChannelConfig[T any](store config.Store, channelID string) *T {
 	ch, err := store.GetChannel(context.Background(), channelID)
-	if err != nil {
+	if err != nil || !ch.Enabled {
 		return nil
 	}
 	var cfg T

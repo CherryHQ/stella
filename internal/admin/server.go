@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
@@ -26,6 +27,9 @@ type Server struct {
 	mux         *http.ServeMux
 	log         *slog.Logger
 	corsOriginV string // cached CORS origin
+
+	channelMu   sync.RWMutex
+	channelStop map[string]func() // platform → stop function for running channel
 }
 
 // New creates an admin server with all API routes mounted.
@@ -50,6 +54,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 		mux:         http.NewServeMux(),
 		log:         slog.With("component", "admin"),
 		corsOriginV: corsOrigin,
+		channelStop: make(map[string]func()),
 	}
 
 	// Serve static assets (JS modules).
@@ -180,6 +185,28 @@ func (s *Server) redirectRoot(w http.ResponseWriter, r *http.Request) {
 // LinkCodes returns the link code store for use by channel handlers.
 func (s *Server) LinkCodes() *auth.LinkCodeStore {
 	return s.linkCodes
+}
+
+// RegisterChannelStop registers a stop function for a running channel so the
+// admin panel can stop it when it is disabled via the UI.
+func (s *Server) RegisterChannelStop(platform string, stop func()) {
+	s.channelMu.Lock()
+	s.channelStop[platform] = stop
+	s.channelMu.Unlock()
+}
+
+// stopChannel stops a running channel if one is registered for the platform.
+func (s *Server) stopChannel(platform string) {
+	s.channelMu.RLock()
+	stop, ok := s.channelStop[platform]
+	s.channelMu.RUnlock()
+	if ok {
+		s.log.Info("stopping channel", "platform", platform)
+		stop()
+		s.channelMu.Lock()
+		delete(s.channelStop, platform)
+		s.channelMu.Unlock()
+	}
 }
 
 // Handler returns the HTTP handler with CORS, JSON, and auth middleware applied.
