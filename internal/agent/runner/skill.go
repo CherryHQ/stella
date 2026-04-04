@@ -255,7 +255,7 @@ func parseFrontmatter(content string) (skillFrontmatter, error) {
 func FormatSkillsForPrompt(skills []Skill) string {
 	var visible []Skill
 	for _, s := range skills {
-		if !s.DisableModelInvocation {
+		if !s.DisableModelInvocation && s.Status != SkillStatusDeprecated {
 			visible = append(visible, s)
 		}
 	}
@@ -274,6 +274,7 @@ func FormatSkillsForPrompt(skills []Skill) string {
 		b.WriteString("  <skill>\n")
 		b.WriteString("    <name>" + escapeXML(s.Name) + "</name>\n")
 		b.WriteString("    <description>" + escapeXML(s.Description) + "</description>\n")
+		b.WriteString("    <status>" + escapeXML(s.Status) + "</status>\n")
 		b.WriteString("  </skill>\n")
 	}
 
