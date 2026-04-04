@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/vaayne/anna/internal/auth"
+	"github.com/vaayne/anna/internal/channel"
 )
 
 // listProfileIdentities handles GET /api/auth/profile/identities.
@@ -105,7 +106,7 @@ func (s *Server) generateLinkCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch body.Platform {
-	case "telegram", "qq", "feishu":
+	case channel.PlatformTelegram, channel.PlatformQQ, channel.PlatformFeishu:
 		// valid
 	default:
 		writeError(w, http.StatusBadRequest, "platform must be telegram, qq, or feishu")

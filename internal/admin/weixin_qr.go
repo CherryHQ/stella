@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/auth"
+	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/channel/weixin"
 	"github.com/vaayne/anna/internal/config"
 )
@@ -66,11 +67,11 @@ func (s *Server) pollWeixinQRStatus(w http.ResponseWriter, r *http.Request) {
 			externalID = status.ILinkBotID
 		}
 		if externalID != "" && s.authStore != nil {
-			if _, err := s.authStore.GetIdentityByPlatform(r.Context(), "weixin", externalID); err != nil {
+			if _, err := s.authStore.GetIdentityByPlatform(r.Context(), channel.PlatformWeixin, externalID); err != nil {
 				// Identity doesn't exist yet — create it.
 				if _, err := s.authStore.CreateIdentity(r.Context(), auth.Identity{
 					UserID:     info.UserID,
-					Platform:   "weixin",
+					Platform:   channel.PlatformWeixin,
 					ExternalID: externalID,
 				}); err != nil {
 					s.log.Warn("create weixin identity", "user_id", info.UserID, "error", err)
@@ -86,10 +87,10 @@ func (s *Server) pollWeixinQRStatus(w http.ResponseWriter, r *http.Request) {
 // channel config in the DB.
 func (s *Server) saveWeixinCredentials(ctx context.Context, status *weixin.QRCodeStatusResponse) error {
 	var raw map[string]any
-	ch, err := s.store.GetChannel(ctx, "weixin")
+	ch, err := s.store.GetChannel(ctx, channel.PlatformWeixin)
 	if err != nil {
 		raw = make(map[string]any)
-		ch = config.Channel{ID: "weixin", Enabled: true}
+		ch = config.Channel{ID: channel.PlatformWeixin, Enabled: true}
 	} else {
 		if err := json.Unmarshal([]byte(ch.Config), &raw); err != nil {
 			raw = make(map[string]any)
@@ -107,7 +108,7 @@ func (s *Server) saveWeixinCredentials(ctx context.Context, status *weixin.QRCod
 	}
 
 	return s.store.UpsertChannel(ctx, config.Channel{
-		ID:      "weixin",
+		ID:      channel.PlatformWeixin,
 		Enabled: ch.Enabled,
 		Config:  string(data),
 	})

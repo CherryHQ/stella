@@ -197,7 +197,7 @@ templ channelBlock(name string, platform string) {
 				<input
 					type="checkbox"
 					:checked={ "channelData." + platform + ".enabled" }
-					@change={ "channelData." + platform + ".enabled = $event.target.checked" }
+					@change={ "channelData." + platform + ".enabled = $event.target.checked; saveChannel('" + platform + "')" }
 					class="toggle toggle-primary toggle-sm"
 				/>
 				<span class="text-sm">Enable</span>

@@ -119,7 +119,7 @@ func newChatModel(ctx context.Context, pool *agent.Pool, provider, model string,
 	return m
 }
 
-const cliChannel = "cli"
+const cliChannel = channel.PlatformCLI
 
 // resolveSession returns the most recently active CLI session ID,
 // or creates a new session if none exist.

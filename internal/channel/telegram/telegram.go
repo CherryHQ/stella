@@ -131,7 +131,7 @@ func (b *Bot) Stop() {
 }
 
 // Name returns the channel name. Implements channel.Channel.
-func (b *Bot) Name() string { return "telegram" }
+func (b *Bot) Name() string { return channel.PlatformTelegram }
 
 // Notify sends a message to the specified chat. Implements channel.Channel.
 func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
@@ -255,7 +255,7 @@ func (b *Bot) resolve(c tele.Context) (*channel.ResolvedChat, error) {
 		b.store,
 		b.authStore,
 		b.engine,
-		"telegram",
+		channel.PlatformTelegram,
 		senderID,
 		name,
 		chatID,

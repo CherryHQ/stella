@@ -200,7 +200,7 @@ func (b *Bot) fetchBotOpenID(ctx context.Context) error {
 }
 
 // Name returns the backend name. Implements channel.Backend.
-func (b *Bot) Name() string { return "feishu" }
+func (b *Bot) Name() string { return channel.PlatformFeishu }
 
 // Notify sends a notification message. Implements channel.Backend.
 // Supports both chat IDs (oc_ prefix) and user open IDs (ou_ prefix).
