@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -114,11 +115,21 @@ func buildSkillFile(name, description, status, createdAt, body string) string {
 }
 
 // renderSkillFile renders a SKILL.md from a frontmatter map and body text.
+// Keys are sorted for deterministic output.
 func renderSkillFile(fm map[string]string, body string) string {
-	yamlBytes, _ := yaml.Marshal(fm)
+	keys := make([]string, 0, len(fm))
+	for k := range fm {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	var b strings.Builder
 	b.WriteString("---\n")
-	b.Write(yamlBytes)
+	for _, k := range keys {
+		// yaml.Marshal a single-key map to get correct quoting.
+		line, _ := yaml.Marshal(map[string]string{k: fm[k]})
+		b.Write(line)
+	}
 	b.WriteString("---\n")
 	if body != "" {
 		b.WriteString(body)
@@ -138,14 +149,18 @@ func splitFrontmatterAndBody(content string) (map[string]string, string, error) 
 		return nil, "", fmt.Errorf("no frontmatter")
 	}
 
+	// Search for closing "\n---" after the opening "---".
+	// content[3:] skips the opening "---", so endIdx is relative to position 3.
 	endIdx := strings.Index(content[3:], "\n---")
 	if endIdx == -1 {
 		return nil, "", fmt.Errorf("no closing frontmatter delimiter")
 	}
 
+	// content[4 : 3+endIdx] skips "---\n" (4 bytes) and stops before "\n---".
 	yamlStr := content[4 : 3+endIdx]
 	body := ""
-	afterFM := 3 + endIdx + 4 // skip past "\n---\n"
+	// afterFM = 3 (opening "---") + endIdx + 4 (closing "\n---\n") = first byte of body.
+	afterFM := 3 + endIdx + 4
 	if afterFM < len(content) {
 		body = content[afterFM:]
 	}

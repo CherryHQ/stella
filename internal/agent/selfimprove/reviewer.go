@@ -2,7 +2,6 @@ package selfimprove
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -96,12 +95,6 @@ func countSkillMutations(messages []ai.Message) int {
 				continue
 			}
 			action, _ := call.Arguments["action"].(string)
-			if action == "" {
-				// Try to parse from raw JSON arguments.
-				if raw, ok := call.Arguments["action"].(json.Number); ok {
-					action = raw.String()
-				}
-			}
 			if action == "create" || action == "patch" {
 				count++
 			}

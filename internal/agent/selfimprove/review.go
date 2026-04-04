@@ -29,19 +29,26 @@ type ReviewDeps struct {
 	Log       *slog.Logger
 }
 
-// newProviderRegistry creates a provider registry with all built-in adapters
-// using the base URL from the snapshot's provider credentials.
+// newProviderRegistry creates a provider registry containing only the adapter
+// required by the fast-tier model, configured with the correct base URL.
 func newProviderRegistry(snap *config.Snapshot) ai.ProviderGetter {
-	provID, _ := config.ParseModelRef(snap.ResolveModelID(config.ModelTierFast))
-	if provID == "" {
-		provID = snap.Provider
-	}
-	creds := snap.ResolveProviderCreds(provID)
+	model := snap.ResolveModelTier(config.ModelTierFast)
+	creds := snap.ResolveProviderCreds(model.API)
 
 	reg := ai.NewRegistry()
-	reg.Register(anthropic.New(anthropic.Config{BaseURL: creds.BaseURL}))
-	reg.Register(openai.New(openai.Config{BaseURL: creds.BaseURL}))
-	reg.Register(openairesponse.New(openairesponse.Config{BaseURL: creds.BaseURL}))
+	switch model.API {
+	case "anthropic":
+		reg.Register(anthropic.New(anthropic.Config{BaseURL: creds.BaseURL}))
+	case "openai":
+		reg.Register(openai.New(openai.Config{BaseURL: creds.BaseURL}))
+	case "openai-response":
+		reg.Register(openairesponse.New(openairesponse.Config{BaseURL: creds.BaseURL}))
+	default:
+		// Fall back to registering all providers for unknown API types.
+		reg.Register(anthropic.New(anthropic.Config{BaseURL: creds.BaseURL}))
+		reg.Register(openai.New(openai.Config{BaseURL: creds.BaseURL}))
+		reg.Register(openairesponse.New(openairesponse.Config{BaseURL: creds.BaseURL}))
+	}
 	return reg
 }
 
@@ -59,6 +66,10 @@ func StartReviewLoop(ctx context.Context, cfg config.SelfImproveConfig, deps Rev
 	}
 
 	log.Info("self-improve: starting review loop", "interval", interval)
+
+	// Run once immediately so users don't wait a full interval after restart.
+	ReviewTask(ctx, deps, cfg)
+	ExpireDrafts(deps.Workspace, 30*24*time.Hour, log)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -173,6 +184,10 @@ func reviewConversation(ctx context.Context, deps ReviewDeps, q *sqlc.Queries, l
 	log.Info("self-improve: reviewed", "conv", conv.ID, "agent", snap.AgentID, "user", userID, "skills_created", created)
 }
 
+// maxReviewMessages caps the number of messages loaded per conversation to
+// avoid exceeding the review model's context window.
+const maxReviewMessages = 200
+
 // buildConversationText builds the text to send to the review agent.
 func buildConversationText(ctx context.Context, q *sqlc.Queries, conv sqlc.CtxConversation) (string, error) {
 	var b strings.Builder
@@ -198,6 +213,9 @@ func buildConversationText(ctx context.Context, q *sqlc.Queries, conv sqlc.CtxCo
 		if len(msgs) == 0 {
 			return "", nil
 		}
+		if len(msgs) > maxReviewMessages {
+			msgs = msgs[len(msgs)-maxReviewMessages:]
+		}
 		for _, m := range msgs {
 			fmt.Fprintf(&b, "[%s] %s\n", m.Role, m.Content)
 		}
@@ -208,6 +226,9 @@ func buildConversationText(ctx context.Context, q *sqlc.Queries, conv sqlc.CtxCo
 		}
 		if len(msgs) == 0 {
 			return "", nil
+		}
+		if len(msgs) > maxReviewMessages {
+			msgs = msgs[len(msgs)-maxReviewMessages:]
 		}
 		for _, m := range msgs {
 			fmt.Fprintf(&b, "[%s] %s\n", m.Role, m.Content)

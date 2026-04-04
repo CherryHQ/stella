@@ -176,7 +176,8 @@ func scanDir(dir, source string, isRoot bool) []Skill {
 // NormalizeSkillStatus normalizes an empty status to "active" and validates
 // known values. Returns the normalized status or "active" if the value is unknown.
 func NormalizeSkillStatus(status string) string {
-	switch strings.TrimSpace(strings.ToLower(status)) {
+	normalized := strings.TrimSpace(strings.ToLower(status))
+	switch normalized {
 	case SkillStatusDraft:
 		return SkillStatusDraft
 	case SkillStatusActive, "":
@@ -184,6 +185,7 @@ func NormalizeSkillStatus(status string) string {
 	case SkillStatusDeprecated:
 		return SkillStatusDeprecated
 	default:
+		slog.Warn("unknown skill status, defaulting to active", "status", status)
 		return SkillStatusActive
 	}
 }
