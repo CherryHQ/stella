@@ -19,7 +19,6 @@ import (
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/memory"
 	memorytool "github.com/vaayne/anna/internal/memory/tool"
-	pluginmgr "github.com/vaayne/anna/internal/plugin"
 	"github.com/vaayne/anna/internal/scheduler"
 )
 
@@ -51,9 +50,8 @@ type setupResult struct {
 	pool         *agent.Pool // default agent's pool (backward compat)
 	schedulerSvc *scheduler.Service
 	extraTools   []agenttool.Tool
-	notifier     *channel.Dispatcher
-	pluginMgr    *pluginmgr.Manager
-	cliUserID    int64 // resolved CLI user for session creation
+	notifier  *channel.Dispatcher
+	cliUserID int64 // resolved CLI user for session creation
 }
 
 func setup(parent context.Context, gateway bool) (*setupResult, error) {
@@ -124,22 +122,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		memorytool.NewMemoryTool(memoryEngine, userMemoryStore),
 	)
 
-	// Collect built-in tool names for plugin collision detection.
-	builtinNames := agenttool.BuiltinToolNames()
-	builtinNames = append(builtinNames, "delegate", "skills")
-	for _, t := range sharedTools {
-		builtinNames = append(builtinNames, t.Definition().Name)
-	}
-
-	// Load plugins.
-	pm := pluginmgr.NewManager(slog.Default(), builtinNames)
-	pm.LoadAll(snap.Plugins)
-
-	// Add plugin tools to the shared set.
-	for _, pt := range pm.Registry().Tools() {
-		sharedTools = append(sharedTools, pluginmgr.AdaptTool(pt))
-	}
-
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
 
 	// Create PoolManager with shared tools and options.
@@ -150,7 +132,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			KeepTail:  snap.Runner.Compaction.KeepTail,
 		}.WithDefaults()),
 		agent.WithSharedExtraTools(sharedTools),
-		agent.WithPluginHooksPM(pm.Registry()),
 	)
 
 	if err := poolMgr.StartAll(ctx); err != nil {
@@ -210,15 +191,14 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		pool:         pool,
 		schedulerSvc: schedulerSvc,
 		extraTools:   sharedTools,
-		notifier:     dispatcher,
-		pluginMgr:    pm,
-		cliUserID:    cliUserID,
+		notifier:  dispatcher,
+		cliUserID: cliUserID,
 	}, nil
 }
 
 // modelSwitcher returns a function that switches the pool's runner factory
 // to use a different provider/model combination.
-func modelSwitcher(snap *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []agenttool.Tool, pluginHooks *pluginmgr.Registry) channel.ModelSwitchFunc {
+func modelSwitcher(snap *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []agenttool.Tool) channel.ModelSwitchFunc {
 	return func(provider, model string) error {
 		snap.Provider = provider
 		snap.Model = model
@@ -230,7 +210,7 @@ func modelSwitcher(snap *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.BaseURL = p.BaseURL
 		}
 
-		factory, err := agent.NewRunnerFactory(snap, extraTools, pluginHooks)
+		factory, err := agent.NewRunnerFactory(snap, extraTools)
 		if err != nil {
 			return err
 		}

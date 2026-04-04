@@ -51,12 +51,10 @@ func serverAction(c *ucli.Context) error {
 		return err
 	}
 	defer func() { _ = s.poolManager.Close() }()
-	defer func() { _ = s.pluginMgr.Close() }()
-
 	listFn := func() []channel.ModelOption {
 		return collectModelsFromStore(ctx, s.store, s.snap)
 	}
-	switchFn := modelSwitcher(s.snap, s.store, s.pool, s.extraTools, s.pluginMgr.Registry())
+	switchFn := modelSwitcher(s.snap, s.store, s.pool, s.extraTools)
 	return runServer(s.ctx, s, listFn, switchFn, c.Int("admin-port"), c.Bool("open"))
 }
 

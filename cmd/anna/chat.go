@@ -39,7 +39,6 @@ func chatCommand() *ucli.Command {
 				return err
 			}
 			defer func() { _ = s.poolManager.Close() }()
-			defer func() { _ = s.pluginMgr.Close() }()
 
 			// Resolve the target agent's pool.
 			pool := s.pool
@@ -71,7 +70,7 @@ func chatCommand() *ucli.Command {
 			listFn := func() []channel.ModelOption {
 				return collectModelsFromStore(s.ctx, s.store, snap)
 			}
-			switchFn := modelSwitcher(snap, s.store, pool, s.extraTools, s.pluginMgr.Registry())
+			switchFn := modelSwitcher(snap, s.store, pool, s.extraTools)
 			return clicmd.RunChat(s.ctx, pool, snap.Provider, snap.Model, listFn, switchFn, s.cliUserID)
 		},
 	}
