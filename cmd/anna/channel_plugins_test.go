@@ -3,16 +3,15 @@ package main
 import (
 	"testing"
 
-	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/pluginapi"
 	"github.com/vaayne/anna/internal/pluginhost"
 )
 
-func TestResolveChannelPluginDefinitionUsesRuntimeBinding(t *testing.T) {
+func TestResolveChannelPluginDefinitionLooksByName(t *testing.T) {
 	catalog := pluginhost.NewCatalog()
 	err := catalog.Add(pluginhost.Definition{
 		Manifest: pluginapi.Manifest{
-			Name:            "replacement-telegram",
+			Name:            "telegram",
 			Version:         "1.0.0",
 			Kind:            pluginapi.KindChannel,
 			ProtocolVersion: pluginapi.ProtocolVersion,
@@ -23,14 +22,11 @@ func TestResolveChannelPluginDefinitionUsesRuntimeBinding(t *testing.T) {
 		t.Fatalf("catalog.Add: %v", err)
 	}
 
-	bindings := config.DefaultRuntimePluginBindings()
-	bindings.Channels["telegram"] = "channel/replacement-telegram"
-
-	def, err := resolveChannelPluginDefinition(catalog, bindings, "telegram", "", "")
+	def, err := resolveChannelPluginDefinition(catalog, "telegram", "", "")
 	if err != nil {
 		t.Fatalf("resolveChannelPluginDefinition: %v", err)
 	}
-	if got := def.ID(); got != "channel/replacement-telegram" {
+	if got := def.ID(); got != "channel/telegram" {
 		t.Fatalf("resolveChannelPluginDefinition() = %q", got)
 	}
 }

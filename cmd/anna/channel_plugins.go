@@ -51,11 +51,11 @@ func loadRuntimeChannelCatalog(workDir, userDataDir string) (*pluginhost.Catalog
 	return catalog, nil
 }
 
-func resolveChannelPluginDefinition(catalog *pluginhost.Catalog, bindings config.RuntimePluginBindings, name, workDir, userDataDir string) (pluginhost.Definition, error) {
-	id := bindings.ChannelBinding(name)
+func resolveChannelPluginDefinition(catalog *pluginhost.Catalog, name, workDir, userDataDir string) (pluginhost.Definition, error) {
+	id := string(pluginapi.KindChannel) + "/" + name
 	def, ok := catalog.Get(id)
 	if !ok {
-		return pluginhost.Definition{}, fmt.Errorf("channel %s bound to missing plugin %s", name, id)
+		return pluginhost.Definition{}, fmt.Errorf("channel %s: plugin %s not found", name, id)
 	}
 	if def.Manifest.Kind != pluginapi.KindChannel {
 		return pluginhost.Definition{}, fmt.Errorf("channel %s bound to non-channel plugin %s", name, id)

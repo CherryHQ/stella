@@ -32,43 +32,6 @@ type closeableTool interface {
 // Built-ins are exposed through subprocess plugin wrappers so the runner can
 // exercise the same protocol path as later third-party plugins.
 func NewRegistry(workDir string, userDataDir ...string) *Registry {
-	reg, err := NewRegistryWithBindings(workDir, config.DefaultRuntimePluginBindings(), userDataDir...)
-	if err == nil && reg != nil {
-		return reg
-	}
-	slog.Warn("failed to configure runtime plugin bindings, falling back to builtin tool bindings", "error", err)
-
-	var sandbox string
-	if len(userDataDir) > 0 {
-		sandbox = userDataDir[0]
-	}
-	// Fallback: load catalog from disk and wire tools directly.
-	catalog, catalogErr := LoadCatalog(workDir, sandbox)
-	if catalogErr != nil {
-		slog.Warn("fallback catalog load also failed", "error", catalogErr)
-		return &Registry{tools: make(map[string]Tool)}
-	}
-	fallback := &Registry{tools: make(map[string]Tool)}
-	for _, name := range BuiltinToolNames() {
-		pluginID := string(pluginapi.KindTool) + "/" + name
-		def, ok := catalog.Get(pluginID)
-		if !ok {
-			slog.Warn("fallback tool not found in catalog", "tool", name)
-			continue
-		}
-		def = augmentDefinition(def, workDir, sandbox)
-		t := newPluginTool(def)
-		switch name {
-		case "read", "edit", "write":
-			fallback.Register(wrapWithSandbox(t, sandbox, "file_path"))
-		default:
-			fallback.Register(t)
-		}
-	}
-	return fallback
-}
-
-func NewRegistryWithBindings(workDir string, bindings config.RuntimePluginBindings, userDataDir ...string) (*Registry, error) {
 	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
@@ -83,22 +46,17 @@ func NewRegistryWithBindings(workDir string, bindings config.RuntimePluginBindin
 
 	catalog, err := LoadCatalog(workDir, sandbox)
 	if err != nil {
-		return nil, err
+		slog.Warn("failed to load tool catalog", "error", err)
+		return &Registry{tools: make(map[string]Tool)}
 	}
 
 	r := &Registry{tools: make(map[string]Tool)}
 	for _, name := range BuiltinToolNames() {
-		pluginID := bindings.ToolBinding(name)
+		pluginID := string(pluginapi.KindTool) + "/" + name
 		def, ok := catalog.Get(pluginID)
 		if !ok {
-			slog.Warn("tool binding not found in runtime plugin catalog", "tool", name, "plugin", pluginID)
+			slog.Warn("tool not found in catalog", "tool", name, "plugin", pluginID)
 			continue
-		}
-		if def.Manifest.Kind != pluginapi.KindTool {
-			return nil, fmt.Errorf("tool %s bound to non-tool plugin %s", name, pluginID)
-		}
-		if def.Manifest.Tool == nil || def.Manifest.Tool.Name != name {
-			return nil, fmt.Errorf("tool %s bound to plugin %s exposing tool %q", name, pluginID, toolName(def))
 		}
 
 		def = augmentDefinition(def, workDir, sandbox)
@@ -110,7 +68,7 @@ func NewRegistryWithBindings(workDir string, bindings config.RuntimePluginBindin
 			r.Register(t)
 		}
 	}
-	return r, nil
+	return r
 }
 
 // BuiltinNames returns the names of all currently registered tools.
@@ -177,11 +135,4 @@ func LoadCatalog(workDir, userDataDir string) (*pluginhost.Catalog, error) {
 		return nil, err
 	}
 	return catalog, nil
-}
-
-func toolName(def pluginhost.Definition) string {
-	if def.Manifest.Tool == nil {
-		return ""
-	}
-	return def.Manifest.Tool.Name
 }

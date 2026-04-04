@@ -78,6 +78,18 @@ func (m *mockStore) DeleteUserAgentMemory(_ context.Context, _ int64, _ string) 
 func (m *mockStore) GetSetting(_ context.Context, _ string) (string, error)           { return "", nil }
 func (m *mockStore) SetSetting(_ context.Context, _, _ string) error                  { return nil }
 func (m *mockStore) SeedDefaults(_ context.Context) error                             { return nil }
+func (m *mockStore) ListPlugins(_ context.Context) ([]config.Plugin, error)           { return nil, nil }
+func (m *mockStore) ListPluginsByKind(_ context.Context, _ string) ([]config.Plugin, error) {
+	return nil, nil
+}
+func (m *mockStore) ListEnabledPlugins(_ context.Context) ([]config.Plugin, error) { return nil, nil }
+func (m *mockStore) GetPlugin(_ context.Context, _ string) (config.Plugin, error) {
+	return config.Plugin{}, nil
+}
+func (m *mockStore) UpsertPlugin(_ context.Context, _ config.Plugin) error            { return nil }
+func (m *mockStore) SetPluginEnabled(_ context.Context, _ string, _ bool) error       { return nil }
+func (m *mockStore) SetPluginConfig(_ context.Context, _ string, _ map[string]any) error { return nil }
+func (m *mockStore) DeletePlugin(_ context.Context, _ string) error                   { return nil }
 
 func TestPoolManagerGetNil(t *testing.T) {
 	store := &mockStore{}
