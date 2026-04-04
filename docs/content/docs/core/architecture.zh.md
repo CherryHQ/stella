@@ -34,143 +34,29 @@ LLM Provider (Anthropic / OpenAI / OpenAI-compatible)
 ## 包布局
 
 ```
-cmd/anna/                             入口点，CLI 命令，服务组装
-
+cmd/anna/              入口点，CLI 命令，服务组装
 internal/
-  config/
-    store.go                          Store 接口（基于数据库的配置 CRUD）
-    dbstore.go                        DBStore 实现（基于 SQLite）
-    snapshot.go                       每个代理的只读配置快照
-    types.go                          Provider、Agent、Channel、User 类型
-
-  ai/
-    message.go                        Message、Content 类型
-    model.go                          Model、ModelCost、Context 类型
-    options.go                        RequestOptions
-    events.go                         StreamEvent 类型
-    provider.go                       Provider 接口、注册表、事件流
-    transform.go                      消息格式转换
-    providers/
-      anthropic/                      Anthropic 提供商（Messages API）
-      openai/                         OpenAI 提供商（Chat Completions API）
-      openai-response/                OpenAI 兼容提供商（Responses API）
-      register_builtins.go            自动注册所有内置提供商
-
-  agent/
-    pool_manager.go                   PoolManager（map[agentID]*Pool，延迟创建）
-    pool.go                           会话池，Chat()，runner 生命周期
-    pool_options.go                   PoolOption、ChatOption、With* 函数
-    pool_reaper.go                    空闲/死亡 runner 回收
-    pool_compaction.go                会话压缩编排
-    session.go                        每个聊天会话状态，BuildSessionKey()
-    workspace.go                      每个代理工作区设置（目录、身份文件）
-    factory.go                        每个代理 runner 工厂（Snapshot -> GoRunner）
-    engine/
-      engine.go                       代理循环引擎（多轮工具执行）
-      continue.go                     从现有历史恢复代理循环
-      types.go                        LoopConfig、ToolSet、ToolFunc
-      events.go                       循环事件类型（AgentStarted、AssistantDelta 等）
-      tool_execution.go               工具调用分发与回调
-    runner/
-      runner.go                       Runner 接口、RPC 类型、事件辅助函数
-      gorunner.go                     GoRunner：原生 LLM 提供商调用
-      prompt.go                       系统提示构建器（记忆、工具、上下文）
-      skill.go                        从代理工作区加载技能
-      stream_proxy.go                 流代理工具
-    tool/                             内置工具
-      tool.go                         Tool 接口和注册表
-      read.go                         读取文件内容
-      bash.go                         执行 shell 命令
-      write.go                        创建/覆盖文件
-      edit.go                         编辑文件部分
-      delegate.go                     子代理委托（并行子任务）
-      truncate.go                     截断大型输出到临时文件
-      webfetch.go                     获取网页内容
-
-  channel/
-    model.go                          Channel 接口、模型列表/切换类型
-    command.go                        共享 HandleCommand（/new、/compact、/model、/agent、/whoami）
-    identity.go                       ResolveUser、ResolveAgent、ChatContext
-    agent_command.go                  AgentCommander（列出/切换代理）
-    resolved.go                       ResolvedChat 类型（Pool + User + AgentID + SessionKey）
-    util.go                           共享工具（SplitMessage、FormatDuration）
-    notifier.go                       通知分发器（多通道）
-    notify_tool.go                    代理通知工具
-    cli/
-      cli.go                          交互式 TUI 入口点
-      chat.go                         Bubble Tea 聊天模型，Update()
-      chat_view.go                    View()，resize()，markdown 渲染
-      chat_input.go                   输入处理，斜杠命令自动补全
-      chat_picker.go                  模型选择器按键处理
-      command.go                      聊天内斜杠命令（/compact、/model 等）
-      model.go                        TUI 模型切换 UI
-      style.go                        终端样式
-    telegram/
-      telegram.go                     机器人设置，长轮询（实现 channel.Channel）
-      handler.go                      消息/回调处理器
-      stream.go                       流式传输（草稿 API + 编辑回退）
-      render.go                       Markdown 渲染
-      model.go                        分页模型选择器 UI
-    qq/
-      qq.go                           机器人设置，WebSocket（实现 channel.Channel）
-      handler.go                      消息处理器，命令路由
-      stream.go                       通过 QQ Stream API 流式传输
-      render.go                       消息分块
-      model.go                        基于文本的模型选择 UI
-    feishu/
-      feishu.go                       机器人设置，WebSocket，通知后端
-      handler.go                      消息事件处理器
-      stream.go                       通过消息更新流式传输（就地编辑）
-      render.go                       响应拆分
-      model.go                        基于文本的模型列表
-
-  admin/
-    server.go                         Admin HTTP API 服务器 + 嵌入式 SPA
-    agents.go                         Agent CRUD 端点
-    channels.go                       Channel 配置端点
-    providers.go                      Provider 配置端点
-    sessions.go                       会话列表/详情端点
-    settings.go                       全局设置端点
-    users.go                          用户管理端点
-    scheduler.go                      调度器任务端点
-    embed.go                          嵌入式前端资源
-    ui/                               SPA 前端（构建资源）
-
-  db/
-    embed.go                          嵌入式迁移文件系统
-    database.go                       SQLite 打开、WAL、迁移运行器
-    schemas/tables/                   模式真实来源（Atlas 读取这些）
-    migrations/                       Atlas 生成的 SQL 迁移文件
-    queries/                          sqlc 查询定义
-    sqlc/                             生成的查询代码（sqlc 输出）
-
-  scheduler/
-    service.go                        调度器服务（gocron/v2）
-    heartbeat.go                      心跳轮询（决策/执行/通知）
-    persistence.go                    任务 JSON 持久化（加载/保存）
-    job.go                            Job 和 Schedule 类型
-    tool.go                           代理调度器工具（添加/列出/移除）
-
-  memory/
-    engine.go                         内存引擎门面
-    assembler.go                      上下文窗口组装
-    compaction.go                     叶子 + 压缩聚合遍历
-    retrieval.go                      消息搜索和检索
-    summarize.go                      LLM 摘要
-    types.go                          Engine 接口、CompactionResult 等
-    context.go                        上下文项管理
-    usermemory.go                     UserMemoryStore（每用户每代理数据库访问）
-    tool/                             内存代理工具（grep/describe/expand/user_memory_update）
-
-  skills/
-    tool.go                           代理技能工具（search/install/list/remove）
-    search.go                         通过 skills.sh API 搜索技能生态
-    install.go                        Git clone + copy 安装流程（go-git）
-    list.go                           列出已安装技能
-    remove.go                         移除已安装技能
-
-  toolspec/
-    toolspec.go                       工具定义类型（零依赖叶子包）
+  config/              Store 接口、DBStore（SQLite）、Snapshot、类型
+  ai/                  Message/Content 类型、Model、Provider 接口、流式事件
+    providers/         Anthropic、OpenAI、OpenAI-Response 适配器
+  agent/               PoolManager、Pool、Session、工作区设置、runner 工厂
+    engine/            代理循环引擎（多轮工具执行）
+    runner/            GoRunner、系统提示构建器、技能加载
+  channel/             Channel 接口、身份解析、斜杠命令、通知
+    cli/               Bubble Tea TUI
+    telegram/          Telegram 机器人
+    qq/                QQ 机器人
+    feishu/            飞书机器人
+  admin/               HTTP API + 嵌入式 SPA（templ + Alpine.js + daisyUI）
+  auth/                RBAC/ABAC 策略引擎、会话、沙箱
+  db/                  SQLite、Atlas 迁移、sqlc 查询
+  scheduler/           gocron 服务、心跳、调度器工具
+  memory/              内存引擎、压缩、检索、内存工具
+  skills/              技能工具（通过 skills.sh 搜索/安装/列出/移除）
+pkg/
+  tools/               Tool 接口、注册表、内置工具（read、bash、write、edit、agent）
+plugins/
+  tools/               插件工具自动发现 + 插件工具（webfetch）
 ```
 
 ## 配置
@@ -213,36 +99,43 @@ internal/
 
 ## 工具
 
-Go runner 将工具注入 LLM 调用。工具遵循通用接口（在 `internal/agent/tool/` 中定义）。工具元数据使用来自零依赖 `internal/toolspec/` 叶子包的 `toolspec.Definition` 类型，使领域包与 `internal/ai/` 解耦：
+Go runner 将工具注入 LLM 调用。工具遵循定义在 `pkg/tools/` 中的通用接口。`tools.Definition` 类型是 `ai.ToolDefinition` 的类型别名，使领域包保持解耦：
 
 ```go
 type Tool interface {
-    Definition() toolspec.Definition
+    Definition() tools.Definition
     Execute(ctx context.Context, args map[string]any) (string, error)
 }
 ```
 
 ### 内置工具（始终可用）
 
-| 工具       | 描述                            |
-| ---------- | ------------------------------- |
-| `read`     | 使用 UTF-8 安全截断读取文件内容 |
-| `bash`     | 执行 shell 命令                 |
-| `write`    | 原子性创建/覆盖文件             |
-| `edit`     | 编辑文件部分，保留上下文        |
-| `truncate` | 将大型输出截断到临时文件        |
-| `delegate` | 为有界子任务生成子代理循环      |
-| `webfetch` | 获取网页内容                    |
+| 工具    | 描述                            |
+| ------- | ------------------------------- |
+| `read`  | 使用 UTF-8 安全截断读取文件内容 |
+| `bash`  | 执行 shell 命令                 |
+| `write` | 原子性创建/覆盖文件             |
+| `edit`  | 编辑文件部分，保留上下文        |
+| `agent` | 为有界子任务生成子代理循环      |
 
-### 委托
+### 插件工具（通过管理面板切换）
 
-`delegate` 工具使代理能够生成具有隔离上下文的子代理循环。这对于从新上下文受益的专注子任务（研究、代码审查、起草）很有用，而不会污染父对话。
+| 工具       | 描述         |
+| ---------- | ------------ |
+| `webfetch` | 获取网页内容 |
+
+插件工具位于 `plugins/tools/`，通过 `init()` 自注册。自动发现由 `plugins/tools/registry.go` 处理——添加新的插件工具只需一个空白导入，无需修改组装代码。
+
+### Agent 工具
+
+`agent` 工具使代理能够生成具有隔离上下文的子代理循环。这对于从新上下文受益的专注子任务（研究、代码审查、起草）很有用，而不会污染父对话。
 
 - 每个子任务获得仅包含任务描述的新消息历史
-- 多个任务通过 goroutine 并行运行
-- `delegate` 工具从子任务中排除以防止递归
+- 多个任务通过 goroutine 并行运行，支持可配置并发度
+- `agent` 工具从子任务中排除以防止递归
 - 子任务输出截断为 ~4096 个 token，以避免膨胀父上下文
-- 每任务选项：`model`（覆盖）、`system`（附加指令）、`tools`（白名单）、`max_turns`（默认 10）、`timeout_seconds`（默认 120）
+- 支持从带有 YAML 前置数据的 markdown 文件加载预设
+- 每任务选项：`preset`、`context`、`model`（覆盖）、`system`（附加指令）、`tools`（白名单）、`max_turns`（默认 10）、`timeout_seconds`（默认 120）
 
 ### 额外工具（有条件注入）
 

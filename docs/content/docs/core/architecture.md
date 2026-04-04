@@ -34,143 +34,29 @@ Session keys are scoped per agent: `{agentID}:{platform}:{userID}:{context}`, en
 ## Package Layout
 
 ```
-cmd/anna/                             Entry point, CLI commands, service wiring
-
+cmd/anna/              Entry point, CLI commands, service wiring
 internal/
-  config/
-    store.go                          Store interface (DB-backed config CRUD)
-    dbstore.go                        DBStore implementation (SQLite-backed)
-    snapshot.go                       Read-only config snapshot per agent
-    types.go                          Provider, Agent, Channel, User types
-
-  ai/
-    message.go                        Message, Content types
-    model.go                          Model, ModelCost, Context types
-    options.go                        RequestOptions
-    events.go                         StreamEvent types
-    provider.go                       Provider interface, registry, event stream
-    transform.go                      Message format conversions
-    providers/
-      anthropic/                      Anthropic provider (Messages API)
-      openai/                         OpenAI provider (Chat Completions API)
-      openai-response/                OpenAI-compatible provider (Responses API)
-      register_builtins.go            Auto-register all built-in providers
-
-  agent/
-    pool_manager.go                   PoolManager (map[agentID]*Pool, lazy creation)
-    pool.go                           Session pool, Chat(), runner lifecycle
-    pool_options.go                   PoolOption, ChatOption, With* funcs
-    pool_reaper.go                    Idle/dead runner reaping
-    pool_compaction.go                Session compaction orchestration
-    session.go                        Per-chat session state, BuildSessionKey()
-    workspace.go                      Per-agent workspace setup (dirs, identity files)
-    factory.go                        Per-agent runner factory (Snapshot -> GoRunner)
-    engine/
-      engine.go                       Agent loop engine (multi-turn tool execution)
-      continue.go                     Resume agent loop from existing history
-      types.go                        LoopConfig, ToolSet, ToolFunc
-      events.go                       Loop event types (AgentStarted, AssistantDelta, etc.)
-      tool_execution.go               Tool call dispatch with callbacks
-    runner/
-      runner.go                       Runner interface, RPC types, event helpers
-      gorunner.go                     GoRunner: native LLM provider calls
-      prompt.go                       System prompt builder (memory, tools, context)
-      skill.go                        Skill loading from agent workspace
-      stream_proxy.go                 Stream proxy utilities
-    tool/                             Built-in tools
-      tool.go                         Tool interface and registry
-      read.go                         Read file contents
-      bash.go                         Execute shell commands
-      write.go                        Create/overwrite files
-      edit.go                         Edit file sections
-      delegate.go                     Subagent delegation (parallel subtasks)
-      truncate.go                     Truncate large outputs to temp files
-      webfetch.go                     Fetch web page contents
-
-  channel/
-    model.go                          Channel interface, model list/switch types
-    command.go                        Shared HandleCommand (/new, /compact, /model, /agent, /whoami)
-    identity.go                       ResolveUser, ResolveAgent, ChatContext
-    agent_command.go                  AgentCommander (list/switch agents)
-    resolved.go                       ResolvedChat type (Pool + User + AgentID + SessionKey)
-    util.go                           Shared utilities (SplitMessage, FormatDuration)
-    notifier.go                       Notification dispatcher (multi-channel)
-    notify_tool.go                    Agent notify tool
-    cli/
-      cli.go                          Interactive TUI entry points
-      chat.go                         Bubble Tea chat model, Update()
-      chat_view.go                    View(), resize(), markdown rendering
-      chat_input.go                   Input handling, slash command completion
-      chat_picker.go                  Model picker key handling
-      command.go                      In-chat slash commands (/compact, /model, etc.)
-      model.go                        TUI model switching UI
-      style.go                        Terminal styling
-    telegram/
-      telegram.go                     Bot setup, long polling (implements channel.Channel)
-      handler.go                      Message/callback handlers
-      stream.go                       Streaming (draft API + edit fallback)
-      render.go                       Markdown rendering
-      model.go                        Paginated model picker UI
-    qq/
-      qq.go                           Bot setup, WebSocket (implements channel.Channel)
-      handler.go                      Message handlers, command routing
-      stream.go                       Streaming via QQ Stream API
-      render.go                       Message chunking
-      model.go                        Text-based model selection UI
-    feishu/
-      feishu.go                       Bot setup, WebSocket, notification backend
-      handler.go                      Message event handlers
-      stream.go                       Streaming via message update (edit-in-place)
-      render.go                       Response splitting
-      model.go                        Text-based model list
-
-  admin/
-    server.go                         Admin HTTP API server + embedded SPA
-    agents.go                         Agent CRUD endpoints
-    channels.go                       Channel config endpoints
-    providers.go                      Provider config endpoints
-    sessions.go                       Session list/detail endpoints
-    settings.go                       Global settings endpoints
-    users.go                          User management endpoints
-    scheduler.go                      Scheduler job endpoints
-    embed.go                          Embedded frontend assets
-    ui/                               SPA frontend (built assets)
-
-  db/
-    embed.go                          Embedded migrations FS
-    database.go                       SQLite open, WAL, migration runner
-    schemas/tables/                   Schema source of truth (Atlas reads these)
-    migrations/                       Atlas-generated SQL migration files
-    queries/                          sqlc query definitions
-    sqlc/                             Generated query code (sqlc output)
-
-  scheduler/
-    service.go                        Scheduler service (gocron/v2)
-    heartbeat.go                      Heartbeat polling (decide/execute/notify)
-    persistence.go                    Job JSON persistence (load/save)
-    job.go                            Job and Schedule types
-    tool.go                           Agent scheduler tool (add/list/remove)
-
-  memory/
-    engine.go                         Memory engine facade
-    assembler.go                      Context window assembly
-    compaction.go                     Leaf + condensed compaction passes
-    retrieval.go                      Message search and retrieval
-    summarize.go                      LLM summarization
-    types.go                          Engine interface, CompactionResult, etc.
-    context.go                        Context item management
-    usermemory.go                     UserMemoryStore (per-user-per-agent DB access)
-    tool/                             Memory agent tools (grep/describe/expand/user_memory_update)
-
-  skills/
-    tool.go                           Agent skills tool (search/install/list/remove)
-    search.go                         Skills ecosystem search via skills.sh API
-    install.go                        Git clone + copy install flow (go-git)
-    list.go                           List installed skills
-    remove.go                         Remove installed skills
-
-  toolspec/
-    toolspec.go                       Tool definition type (zero-dependency leaf package)
+  config/              Store interface, DBStore (SQLite), Snapshot, types
+  ai/                  Message/Content types, Model, Provider interface, streaming events
+    providers/         Anthropic, OpenAI, OpenAI-Response adapters
+  agent/               PoolManager, Pool, Session, workspace setup, runner factory
+    engine/            Agent loop engine (multi-turn tool execution)
+    runner/            GoRunner, system prompt builder, skill loading
+  channel/             Channel interface, identity resolution, slash commands, notify
+    cli/               Bubble Tea TUI
+    telegram/          Telegram bot
+    qq/                QQ bot
+    feishu/            Feishu bot
+  admin/               HTTP API + embedded SPA (templ + Alpine.js + daisyUI)
+  auth/                RBAC/ABAC policy engine, sessions, sandbox
+  db/                  SQLite, Atlas migrations, sqlc queries
+  scheduler/           gocron service, heartbeat, scheduler tool
+  memory/              Memory engine, compaction, retrieval, memory tool
+  skills/              Skills tool (search/install/list/remove via skills.sh)
+pkg/
+  tools/               Tool interface, registry, built-in tools (read, bash, write, edit, agent)
+plugins/
+  tools/               Plugin tool auto-discovery + plugin tools (webfetch)
 ```
 
 ## Configuration
@@ -213,36 +99,43 @@ Each provider implements the `ai.ProviderAdapter` interface for streaming respon
 
 ## Tools
 
-The Go runner injects tools into LLM calls. Tools follow a common interface (defined in `internal/agent/tool/`). Tool metadata uses the `toolspec.Definition` type from the zero-dependency `internal/toolspec/` leaf package, keeping domain packages decoupled from `internal/ai/`:
+The Go runner injects tools into LLM calls. Tools follow a common interface defined in `pkg/tools/`. The `tools.Definition` type is a type alias for `ai.ToolDefinition`, keeping domain packages decoupled:
 
 ```go
 type Tool interface {
-    Definition() toolspec.Definition
+    Definition() tools.Definition
     Execute(ctx context.Context, args map[string]any) (string, error)
 }
 ```
 
 ### Built-in Tools (always available)
 
-| Tool       | Description                                   |
-| ---------- | --------------------------------------------- |
-| `read`     | Read file contents with UTF-8 safe truncation |
-| `bash`     | Execute shell commands                        |
-| `write`    | Create/overwrite files atomically             |
-| `edit`     | Edit file sections preserving context         |
-| `truncate` | Truncate large outputs to temp files          |
-| `delegate` | Spawn subagent loops for bounded subtasks     |
-| `webfetch` | Fetch web page contents                       |
+| Tool    | Description                                   |
+| ------- | --------------------------------------------- |
+| `read`  | Read file contents with UTF-8 safe truncation |
+| `bash`  | Execute shell commands                        |
+| `write` | Create/overwrite files atomically             |
+| `edit`  | Edit file sections preserving context         |
+| `agent` | Spawn subagent loops for bounded subtasks     |
 
-### Delegation
+### Plugin Tools (toggleable via admin)
 
-The `delegate` tool enables the agent to spawn child agent loops with isolated context. This is useful for focused subtasks (research, code review, drafting) that benefit from fresh context without polluting the parent conversation.
+| Tool       | Description            |
+| ---------- | ---------------------- |
+| `webfetch` | Fetch web page contents |
+
+Plugin tools live in `plugins/tools/` and self-register via `init()`. Auto-discovery is handled by `plugins/tools/registry.go` — adding a new plugin tool requires no changes to the wiring code beyond a blank import.
+
+### Agent Tool
+
+The `agent` tool enables the agent to spawn child agent loops with isolated context. This is useful for focused subtasks (research, code review, drafting) that benefit from fresh context without polluting the parent conversation.
 
 - Each child gets a fresh message history containing only the task description
-- Multiple tasks run in parallel via goroutines
-- The `delegate` tool is excluded from children to prevent recursion
+- Multiple tasks run in parallel via goroutines with configurable concurrency
+- The `agent` tool is excluded from children to prevent recursion
 - Child output is truncated to ~4096 tokens to avoid bloating the parent context
-- Per-task options: `model` (override), `system` (additional instructions), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
+- Supports presets loaded from markdown files with YAML frontmatter
+- Per-task options: `preset`, `context`, `model` (override), `system` (additional instructions), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
 
 ### Extra Tools (conditionally injected)
 

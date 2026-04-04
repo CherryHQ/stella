@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/engine"
-	"github.com/vaayne/anna/internal/agent/tool"
 	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/ai/providers/anthropic"
 	"github.com/vaayne/anna/internal/ai/providers/openai"
 	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
+	"github.com/vaayne/anna/pkg/tools"
 )
 
 const maxToolIterations = 40
@@ -23,20 +23,20 @@ type GoRunnerConfig struct {
 	API         string // provider key: "anthropic", "openai"
 	Model       string // e.g. "claude-sonnet-4-20250514"
 	APIKey      string
-	BaseURL     string      // optional provider base URL override
-	WorkDir     string      // working directory for tool execution
-	Workspace   string      // workspace dir for skills/memory (e.g. ~/.anna/workspace)
-	AnnaHome    string      // anna home directory (e.g. ~/.anna)
-	System      string      // optional system prompt override (bypasses default prompt building)
-	ExtraTools  []tool.Tool // additional tools to register
-	UserDataDir string      // per-user data directory for sandbox enforcement (empty = no sandbox)
+	BaseURL     string       // optional provider base URL override
+	WorkDir     string       // working directory for tool execution
+	Workspace   string       // workspace dir for skills/memory (e.g. ~/.anna/workspace)
+	AnnaHome    string       // anna home directory (e.g. ~/.anna)
+	System      string       // optional system prompt override (bypasses default prompt building)
+	ExtraTools  []tools.Tool // additional tools to register
+	UserDataDir string       // per-user data directory for sandbox enforcement (empty = no sandbox)
 }
 
 // GoRunner implements Runner by calling LLM providers directly via Engine.
 type GoRunner struct {
 	eng    *engine.Engine
 	reg    *ai.Registry
-	tools  *tool.Registry
+	tools  *tools.Registry
 	model  ai.Model
 	apiKey string
 	system string
@@ -75,21 +75,21 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	eng := &engine.Engine{Providers: reg}
 	model := ai.Model{API: cfg.API, Name: cfg.Model}
 
-	tools := tool.NewRegistry(cfg.WorkDir, cfg.UserDataDir)
+	toolReg := tools.NewRegistry(cfg.WorkDir, cfg.UserDataDir)
 	for _, t := range cfg.ExtraTools {
-		tools.Register(t)
+		toolReg.Register(t)
 	}
 
 	// Load agent presets from filesystem.
-	presets := tool.NewPresetRegistry(tool.LoadAgentPresets(tool.LoadAgentPresetsConfig{
+	presets := tools.NewPresetRegistry(tools.LoadAgentPresets(tools.LoadAgentPresetsConfig{
 		AnnaHome:  cfg.AnnaHome,
 		Workspace: cfg.Workspace,
 		Cwd:       cfg.WorkDir,
 	}))
 
-	tools.Register(tool.NewAgentTool(tool.AgentConfig{
+	toolReg.Register(tools.NewAgentTool(tools.AgentConfig{
 		Engine:   eng,
-		Registry: tools,
+		Registry: toolReg,
 		Model:    model,
 		APIKey:   cfg.APIKey,
 		System:   system,
@@ -99,7 +99,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	return &GoRunner{
 		eng:          eng,
 		reg:          reg,
-		tools:        tools,
+		tools:        toolReg,
 		model:        model,
 		apiKey:       cfg.APIKey,
 		system:       system,

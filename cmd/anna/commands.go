@@ -12,7 +12,6 @@ import (
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
-	agenttool "github.com/vaayne/anna/internal/agent/tool"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
@@ -20,7 +19,11 @@ import (
 	"github.com/vaayne/anna/internal/memory"
 	memorytool "github.com/vaayne/anna/internal/memory/tool"
 	"github.com/vaayne/anna/internal/scheduler"
-	"github.com/vaayne/anna/plugins/tools/webfetch"
+	"github.com/vaayne/anna/pkg/tools"
+	plugintools "github.com/vaayne/anna/plugins/tools"
+
+	// Import plugin tools for self-registration via init().
+	_ "github.com/vaayne/anna/plugins/tools/webfetch"
 )
 
 func newApp() *ucli.App {
@@ -50,7 +53,7 @@ type setupResult struct {
 	poolManager  *agent.PoolManager
 	pool         *agent.Pool // default agent's pool (backward compat)
 	schedulerSvc *scheduler.Service
-	extraTools   []agenttool.Tool
+	extraTools   []tools.Tool
 	notifier     *channel.Dispatcher
 	cliUserID    int64 // resolved CLI user for session creation
 }
@@ -94,7 +97,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Create scheduler service and tool before the runner factory so the tool
 	// can be injected into the Go runner.
 	var schedulerSvc *scheduler.Service
-	var sharedTools []agenttool.Tool
+	var sharedTools []tools.Tool
 	if snap.Scheduler.IsEnabled() || (gateway && snap.Heartbeat.IsEnabled()) {
 		schedulerSvc, err = scheduler.NewFromPath(dbPath)
 		if err != nil {
@@ -123,15 +126,10 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		memorytool.NewMemoryTool(memoryEngine, userMemoryStore),
 	)
 
-	// Plugin tools builder: reads tool plugin state from the store and returns
-	// the corresponding tools. Called at startup and on hot-reload.
-	pluginToolsBuilder := func(ctx context.Context) []agenttool.Tool {
-		var tools []agenttool.Tool
-		p, err := store.GetPlugin(ctx, config.PluginID(config.PluginKindTool, "webfetch"))
-		if err == nil && p.Enabled {
-			tools = append(tools, webfetch.New())
-		}
-		return tools
+	// Plugin tools builder: auto-discovers registered plugin tools and returns
+	// enabled ones. Called at startup and on hot-reload.
+	pluginToolsBuilder := func(ctx context.Context) []tools.Tool {
+		return plugintools.BuildEnabled(ctx, store)
 	}
 
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
@@ -213,7 +211,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 // modelSwitcher returns a function that switches the pool's runner factory
 // to use a different provider/model combination.
-func modelSwitcher(snap *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []agenttool.Tool) channel.ModelSwitchFunc {
+func modelSwitcher(snap *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool) channel.ModelSwitchFunc {
 	return func(provider, model string) error {
 		snap.Provider = provider
 		snap.Model = model

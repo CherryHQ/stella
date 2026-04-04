@@ -7,7 +7,7 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/engine"
 	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/internal/toolspec"
+	"github.com/vaayne/anna/pkg/tools"
 )
 
 // Tool name constants used by the review agent.
@@ -24,7 +24,7 @@ type ReviewResult struct {
 
 // reviewTool is the interface shared by the skills tool and memory tool.
 type reviewTool interface {
-	Definition() toolspec.Definition
+	Definition() tools.Definition
 	Execute(ctx context.Context, args map[string]any) (string, error)
 }
 
@@ -34,7 +34,7 @@ type Reviewer struct {
 	providers       ai.ProviderGetter
 	model           ai.Model
 	tools           engine.ToolSet
-	toolDefinitions []toolspec.Definition
+	toolDefinitions []tools.Definition
 	system          string
 }
 
@@ -49,18 +49,18 @@ type ReviewerConfig struct {
 
 // NewReviewer creates a Reviewer with skill extraction and optional memory review.
 func NewReviewer(cfg ReviewerConfig) *Reviewer {
-	tools := engine.ToolSet{}
-	var defs []toolspec.Definition
+	toolSet := engine.ToolSet{}
+	var defs []tools.Definition
 
 	// Skills tool (always present).
 	skillsDef := cfg.SkillsTool.Definition()
-	tools[skillsDef.Name] = wrapTool(cfg.SkillsTool)
+	toolSet[skillsDef.Name] = wrapTool(cfg.SkillsTool)
 	defs = append(defs, skillsDef)
 
 	// Memory tool (optional).
 	if cfg.MemoryTool != nil {
 		memDef := cfg.MemoryTool.Definition()
-		tools[memDef.Name] = wrapTool(cfg.MemoryTool)
+		toolSet[memDef.Name] = wrapTool(cfg.MemoryTool)
 		defs = append(defs, memDef)
 	}
 
@@ -73,7 +73,7 @@ func NewReviewer(cfg ReviewerConfig) *Reviewer {
 	return &Reviewer{
 		providers:       cfg.Providers,
 		model:           cfg.Model,
-		tools:           tools,
+		tools:           toolSet,
 		toolDefinitions: defs,
 		system:          system,
 	}

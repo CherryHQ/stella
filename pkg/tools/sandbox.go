@@ -1,10 +1,9 @@
-package tool
+package tools
 
 import (
 	"context"
 
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/toolspec"
 )
 
 // sandboxTool wraps a Tool with path validation. It checks that the value of
@@ -16,7 +15,7 @@ type sandboxTool struct {
 	pathKey    string // argument key containing the file path (e.g. "file_path")
 }
 
-func (s *sandboxTool) Definition() toolspec.Definition {
+func (s *sandboxTool) Definition() Definition {
 	return s.inner.Definition()
 }
 
