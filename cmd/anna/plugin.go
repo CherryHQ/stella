@@ -117,6 +117,9 @@ func pluginAddAction(c *ucli.Context) error {
 	if kind != config.PluginKindTool && kind != config.PluginKindChannel {
 		return fmt.Errorf("invalid plugin kind %q, must be %q or %q", kind, config.PluginKindTool, config.PluginKindChannel)
 	}
+	if strings.Contains(name, "/") || strings.Contains(name, "..") {
+		return fmt.Errorf("invalid plugin name %q: must not contain \"/\" or \"..\"", name)
+	}
 
 	// Copy to installed plugins directory.
 	destDir := filepath.Join(config.InstalledPluginsPath(), kind, name)
@@ -380,11 +383,15 @@ func copyDir(src, dst string) error {
 			}
 			continue
 		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
 		data, err := os.ReadFile(srcPath)
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(dstPath, data, 0o644); err != nil {
+		if err := os.WriteFile(dstPath, data, info.Mode()); err != nil {
 			return err
 		}
 	}
