@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/engine"
 	agenttool "github.com/vaayne/anna/internal/agent/tool"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/memory"
@@ -51,13 +50,6 @@ func WithSharedExtraTools(tools []agenttool.Tool) PoolManagerOption {
 	}
 }
 
-// WithPluginHooksPM sets the plugin hook runner for all pools.
-func WithPluginHooksPM(hooks engine.PluginHookRunner) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.pluginHooks = hooks
-	}
-}
-
 // PoolManager manages a map of agent ID to Pool. It reads enabled agents
 // from the config Store and creates one Pool per agent.
 type PoolManager struct {
@@ -69,7 +61,6 @@ type PoolManager struct {
 	compaction        CompactionConfig
 	sharedExtraTools  []agenttool.Tool
 	extraToolsFactory ExtraToolsFactory
-	pluginHooks       engine.PluginHookRunner
 	userMemory        *memory.UserMemoryStore // per-user memory for prompt injection
 	log               *slog.Logger
 }
@@ -157,7 +148,7 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 	}
 
 	// Create runner factory.
-	factory, err := NewRunnerFactory(snap, extraTools, pm.pluginHooks)
+	factory, err := NewRunnerFactory(snap, extraTools)
 	if err != nil {
 		return fmt.Errorf("create runner factory for agent %q: %w", ag.ID, err)
 	}
@@ -170,9 +161,6 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 		WithDefaultModel(snap.ResolveModelID(config.ModelTierStrong)),
 		WithFastModel(snap.ResolveModelID(config.ModelTierFast)),
 		WithUserMemory(pm.userMemory),
-	}
-	if pm.pluginHooks != nil {
-		poolOpts = append(poolOpts, WithPluginHooks(pm.pluginHooks))
 	}
 
 	pool := NewPool(factory, pm.mem, poolOpts...)
