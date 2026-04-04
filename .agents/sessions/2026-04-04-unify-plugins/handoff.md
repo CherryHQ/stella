@@ -95,3 +95,67 @@
 - The `builtinToolNames` / `builtinChannelNames` slices are duplicated between `config/plugin.go` and `agent/tool/plugin_runtime.go` / `channel/plugin_runtime.go`. Phase 3 should consolidate to a single source of truth in `config/plugin.go`.
 - `SeedPlugin` uses `INSERT OR IGNORE`, so user-modified rows (enabled=0, custom config) are preserved across restarts.
 - Channel migration only runs when `settings_plugins` is empty — it is a one-time data migration, not a continuous sync.
+
+## Phase 3: Delete JS Plugin System & Hook Plumbing
+
+**Status:** complete
+
+**Tasks completed:**
+- 3.1: Deleted `internal/plugin/` package entirely (11 files: manager, registry, runtime, hostapi, adapt, convert, types + tests)
+- 3.2: Deleted `internal/config/runtime_plugins.go` and `runtime_plugins_test.go` (RuntimePluginBindings type, Load/Save functions)
+- 3.3: Deleted `cmd/anna/plugin_runtime_cli.go` (anna plugin runtime list/bind CLI)
+- 3.4: Removed hook plumbing from engine — deleted PluginHookRunner interface, BeforeToolCallEvent, AfterToolCallEvent, SessionEvent structs; removed PluginHooks from LoopConfig and ToolCallbacks; removed before/after hook invocations from ExecuteToolCalls
+- 3.5: Removed hook plumbing from runner — removed PluginHooks and RuntimePlugins from GoRunnerConfig/GoRunner; simplified tool registry creation to use NewRegistry (default bindings); removed PluginHooks from LoopConfig in Chat()
+- 3.6: Removed hook plumbing from pool — deleted WithPluginHooksPM, WithPluginHooks, pluginHooks field; removed all 3 hook call sites (session_start, 2x session_end)
+- 3.7: Removed PluginHooks from AgentConfig and subagent LoopConfig in agent tool
+- 3.8: Removed JS plugin manager from startup — removed pluginmgr import/usage, plugin loading, plugin tools wiring, WithPluginHooksPM from setup(); updated modelSwitcher signature
+- 3.9: Removed JS plugin manager from channel subprocess (cmd/anna-plugin/channel.go)
+- 3.10: Deleted PluginConfig struct from config.go; replaced NewRegistryWithBindings with simplified NewRegistry (direct plugin ID lookup); simplified resolveChannelPluginDefinition to not use bindings; deleted runtime_bindings_test.go; rewrote plugin.go CLI to list from settings_plugins table; added Plugin interface stubs to mockStore
+- 3.11: Verified build compiles clean — `mise run lint` (0 issues) and `mise run test` (all pass with -race)
+
+**Files deleted:**
+- `internal/plugin/` — all 11 files (JS plugin system)
+- `internal/config/runtime_plugins.go` — RuntimePluginBindings type
+- `internal/config/runtime_plugins_test.go` — its tests
+- `cmd/anna/plugin_runtime_cli.go` — runtime plugin CLI
+- `internal/agent/tool/runtime_bindings_test.go` — binding override tests
+
+**Files changed:**
+- `internal/agent/engine/types.go` — removed PluginHookRunner, event structs, PluginHooks from LoopConfig
+- `internal/agent/engine/tool_execution.go` — removed PluginHooks from ToolCallbacks, removed hook invocations
+- `internal/agent/engine/engine.go` — removed PluginHooks from ToolCallbacks initialization
+- `internal/agent/runner/gorunner.go` — removed PluginHooks, RuntimePlugins from config/struct; use NewRegistry
+- `internal/agent/factory.go` — removed pluginHooks param from NewRunnerFactory, removed RuntimePlugins
+- `internal/agent/pool_manager.go` — removed WithPluginHooksPM, pluginHooks field, updated NewRunnerFactory call
+- `internal/agent/pool.go` — removed pluginHooks field, removed 3 hook call sites
+- `internal/agent/pool_options.go` — removed WithPluginHooks
+- `internal/agent/pool_manager_test.go` — added Plugin interface stubs to mockStore
+- `internal/agent/tool/agent.go` — removed PluginHooks from AgentConfig and LoopConfig
+- `internal/agent/tool/tool.go` — replaced NewRegistryWithBindings with simplified NewRegistry (direct ID lookup)
+- `internal/config/config.go` — removed PluginConfig struct
+- `cmd/anna/commands.go` — removed pluginmgr import, plugin loading, plugin tools, pluginMgr from setupResult
+- `cmd/anna/chat.go` — removed pluginMgr.Close(), updated modelSwitcher call
+- `cmd/anna/gateway.go` — removed pluginMgr.Close(), updated modelSwitcher and resolveChannelPluginDefinition calls
+- `cmd/anna/plugin.go` — rewrote to list plugins from settings_plugins table (removed JS plugin add/remove/list)
+- `cmd/anna/channel_plugins.go` — simplified resolveChannelPluginDefinition (no bindings param)
+- `cmd/anna/channel_plugins_test.go` — updated tests for simplified signature
+- `cmd/anna/commands_test.go` — updated NewRunnerFactory calls (2 args instead of 3)
+- `cmd/anna-plugin/channel.go` — removed pluginmgr import and usage
+
+**Commits:**
+- `dad03f3f` — delete JS plugin system, runtime bindings, and runtime CLI
+- `5d6c6218` — remove hook plumbing from engine package
+- `73cd97b6` — remove hook plumbing from runner and factory
+- `0f4daae5` — remove hook plumbing from pool and pool manager
+- `1dbf035f` — remove PluginHooks from agent tool config
+- `cf5c1baf` — remove JS plugin manager from startup and model switcher
+- `1c4378b6` — remove JS plugin manager from channel subprocess
+- `e701a9f5` — remove PluginConfig type, RuntimePluginBindings, simplify tool registry
+- `a1e88549` — resolve compile errors from Phase 3 deletions
+
+**Decisions & context for next phase:**
+- `NewRegistry()` now does direct plugin ID lookup (`tool/<name>`) instead of going through RuntimePluginBindings. This is the same behavior as default bindings but without the indirection layer.
+- `resolveChannelPluginDefinition()` now takes `(catalog, name, workDir, userDataDir)` without bindings — constructs ID as `channel/<name>`.
+- The `plugin.go` CLI now shows plugins from the `settings_plugins` table. Phase 5 will rewrite the full plugin CLI.
+- `PluginConfig` (legacy JS plugin config) is fully removed. The new `Plugin` type from Phase 2 is the sole plugin representation.
+- No hook mechanism exists after this phase. If hooks are needed later, they should be re-implemented as part of the new plugin protocol.
