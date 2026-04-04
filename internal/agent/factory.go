@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/vaayne/anna/internal/agent/engine"
 	"github.com/vaayne/anna/internal/agent/runner"
 	agenttool "github.com/vaayne/anna/internal/agent/tool"
 	"github.com/vaayne/anna/internal/config"
@@ -17,7 +16,7 @@ import (
 // workspace, and system prompt. User memory and user ID are injected per-session
 // from RunnerParams. When UserID > 0, per-user workspace directories are set up
 // and per-user skills tools are created.
-func NewRunnerFactory(snap *config.Snapshot, extraTools []agenttool.Tool, pluginHooks engine.PluginHookRunner) (runner.NewRunnerFunc, error) {
+func NewRunnerFactory(snap *config.Snapshot, extraTools []agenttool.Tool) (runner.NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
 		return func(ctx context.Context, params runner.RunnerParams) (runner.Runner, error) {
@@ -61,18 +60,16 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []agenttool.Tool, plugin
 			workDir := userDataDir
 
 			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
-				API:            provID,
-				Model:          modelID,
-				APIKey:         creds.APIKey,
-				Workspace:      snap.Workspace,
-				AnnaHome:       config.AnnaHome(),
-				BaseURL:        creds.BaseURL,
-				System:         system,
-				ExtraTools:     sessionTools,
-				PluginHooks:    pluginHooks,
-				WorkDir:        workDir,
-				UserDataDir:    userDataDir,
-				RuntimePlugins: snap.RuntimePlugins,
+				API:         provID,
+				Model:       modelID,
+				APIKey:      creds.APIKey,
+				Workspace:   snap.Workspace,
+				AnnaHome:    config.AnnaHome(),
+				BaseURL:     creds.BaseURL,
+				System:      system,
+				ExtraTools:  sessionTools,
+				WorkDir:     workDir,
+				UserDataDir: userDataDir,
 			})
 		}, nil
 	default:

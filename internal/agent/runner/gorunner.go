@@ -14,7 +14,6 @@ import (
 	"github.com/vaayne/anna/internal/ai/providers/anthropic"
 	"github.com/vaayne/anna/internal/ai/providers/openai"
 	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
-	"github.com/vaayne/anna/internal/config"
 )
 
 const maxToolIterations = 40
@@ -25,25 +24,22 @@ type GoRunnerConfig struct {
 	Model          string // e.g. "claude-sonnet-4-20250514"
 	APIKey         string
 	BaseURL        string                  // optional provider base URL override
-	WorkDir        string                  // working directory for tool execution
-	Workspace      string                  // workspace dir for skills/memory (e.g. ~/.anna/workspace)
-	AnnaHome       string                  // anna home directory (e.g. ~/.anna)
-	System         string                  // optional system prompt override (bypasses default prompt building)
-	ExtraTools     []tool.Tool             // additional tools to register
-	PluginHooks    engine.PluginHookRunner // optional plugin lifecycle hooks
-	UserDataDir    string                  // per-user data directory for sandbox enforcement (empty = no sandbox)
-	RuntimePlugins config.RuntimePluginBindings
+	WorkDir     string      // working directory for tool execution
+	Workspace   string      // workspace dir for skills/memory (e.g. ~/.anna/workspace)
+	AnnaHome    string      // anna home directory (e.g. ~/.anna)
+	System      string      // optional system prompt override (bypasses default prompt building)
+	ExtraTools  []tool.Tool // additional tools to register
+	UserDataDir string      // per-user data directory for sandbox enforcement (empty = no sandbox)
 }
 
 // GoRunner implements Runner by calling LLM providers directly via Engine.
 type GoRunner struct {
-	eng         *engine.Engine
-	reg         *ai.Registry
-	tools       *tool.Registry
-	model       ai.Model
-	apiKey      string
-	system      string
-	pluginHooks engine.PluginHookRunner
+	eng    *engine.Engine
+	reg    *ai.Registry
+	tools  *tool.Registry
+	model  ai.Model
+	apiKey string
+	system string
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -79,10 +75,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	eng := &engine.Engine{Providers: reg}
 	model := ai.Model{API: cfg.API, Name: cfg.Model}
 
-	tools, err := tool.NewRegistryWithBindings(cfg.WorkDir, cfg.RuntimePlugins, cfg.UserDataDir)
-	if err != nil {
-		return nil, fmt.Errorf("configure runtime tool plugins: %w", err)
-	}
+	tools := tool.NewRegistry(cfg.WorkDir, cfg.UserDataDir)
 	for _, t := range cfg.ExtraTools {
 		tools.Register(t)
 	}
@@ -95,13 +88,12 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	}))
 
 	tools.Register(tool.NewAgentTool(tool.AgentConfig{
-		Engine:      eng,
-		Registry:    tools,
-		Model:       model,
-		APIKey:      cfg.APIKey,
-		System:      system,
-		PluginHooks: cfg.PluginHooks,
-		Presets:     presets,
+		Engine:   eng,
+		Registry: tools,
+		Model:    model,
+		APIKey:   cfg.APIKey,
+		System:   system,
+		Presets:  presets,
 	}))
 
 	return &GoRunner{
@@ -111,7 +103,6 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		model:        model,
 		apiKey:       cfg.APIKey,
 		system:       system,
-		pluginHooks:  cfg.PluginHooks,
 		lastActivity: time.Now(),
 		log:          slog.With("component", "go_runner"),
 	}, nil
@@ -139,7 +130,6 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 			Tools:           r.buildToolSet(),
 			ToolDefinitions: r.tools.Definitions(),
 			System:          r.system,
-			PluginHooks:     r.pluginHooks,
 		}
 
 		if _, err := r.eng.Run(ctx, cfg, messages, func(e engine.LoopEvent) {
