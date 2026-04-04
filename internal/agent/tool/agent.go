@@ -29,14 +29,13 @@ const (
 
 // AgentConfig holds the dependencies needed to spawn subagent loops.
 type AgentConfig struct {
-	Engine      *engine.Engine
-	Registry    *Registry
-	Model       ai.Model
-	APIKey      string
-	System      string
-	PluginHooks engine.PluginHookRunner // optional plugin lifecycle hooks
-	Emit        func(engine.LoopEvent)  // optional event emitter for observability
-	Presets     *PresetRegistry         // loaded agent presets (nil = no presets)
+	Engine   *engine.Engine
+	Registry *Registry
+	Model    ai.Model
+	APIKey   string
+	System   string
+	Emit     func(engine.LoopEvent) // optional event emitter for observability
+	Presets  *PresetRegistry        // loaded agent presets (nil = no presets)
 
 	// Configurable limits (zero = use defaults).
 	MaxTasks       int // max tasks per invocation
@@ -300,7 +299,6 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 		Tools:           toolSet,
 		ToolDefinitions: toolDefs,
 		System:          system,
-		PluginHooks:     t.cfg.PluginHooks,
 	}
 
 	// Build user message: optional context + task.

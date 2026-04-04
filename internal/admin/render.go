@@ -39,6 +39,10 @@ func (s *Server) pageScheduler(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, r, "scheduler", "/static/js/pages/scheduler.js", pages.SchedulerPage())
 }
 
+func (s *Server) pagePlugins(w http.ResponseWriter, r *http.Request) {
+	s.renderPage(w, r, "plugins", "/static/js/pages/plugins.js", pages.PluginsPage())
+}
+
 func (s *Server) pageSettings(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, r, "settings", "/static/js/pages/settings.js", pages.SettingsPage())
 }

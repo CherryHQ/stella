@@ -31,9 +31,16 @@ func (s *sandboxTool) Execute(ctx context.Context, args map[string]any) (string,
 	return s.inner.Execute(ctx, args)
 }
 
-// wrapWithSandbox returns a sandbox-wrapped tool if allowedDir is non-empty.
+func (s *sandboxTool) Close() error {
+	if c, ok := s.inner.(closeableTool); ok {
+		return c.Close()
+	}
+	return nil
+}
+
+// WrapWithSandbox returns a sandbox-wrapped tool if allowedDir is non-empty.
 // Otherwise it returns the original tool unchanged.
-func wrapWithSandbox(t Tool, allowedDir, pathKey string) Tool {
+func WrapWithSandbox(t Tool, allowedDir, pathKey string) Tool {
 	if allowedDir == "" {
 		return t
 	}

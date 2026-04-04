@@ -22,7 +22,7 @@ type Config struct {
 	UserID   string `json:"user_id"`   // ilink_user_id
 }
 
-// dbConfig is the JSON shape persisted in settings_channels.config.
+// dbConfig is the JSON shape persisted in settings_plugins.config.
 // It extends Config with runtime state fields.
 type dbConfig struct {
 	Config
@@ -226,45 +226,38 @@ func (b *Bot) resolve(userID string) (*channel.ResolvedChat, error) {
 	)
 }
 
-// loadCursor loads the get_updates_buf cursor from the DB channel config.
+// loadCursor loads the get_updates_buf cursor from the plugin config.
 func (b *Bot) loadCursor() string {
-	ch, err := b.store.GetChannel(context.Background(), channel.PlatformWeixin)
+	pluginID := config.PluginID(config.PluginKindChannel, channel.PlatformWeixin)
+	p, err := b.store.GetPlugin(context.Background(), pluginID)
 	if err != nil {
 		return ""
 	}
 	var dc dbConfig
-	if err := json.Unmarshal([]byte(ch.Config), &dc); err != nil {
+	data, err := json.Marshal(p.Config)
+	if err != nil {
+		return ""
+	}
+	if err := json.Unmarshal(data, &dc); err != nil {
 		return ""
 	}
 	return dc.GetUpdatesBuf
 }
 
-// persistCursor saves the get_updates_buf cursor to the DB channel config.
+// persistCursor saves the get_updates_buf cursor to the plugin config.
 func (b *Bot) persistCursor(buf string) {
-	ch, err := b.store.GetChannel(context.Background(), channel.PlatformWeixin)
+	pluginID := config.PluginID(config.PluginKindChannel, channel.PlatformWeixin)
+	p, err := b.store.GetPlugin(context.Background(), pluginID)
 	if err != nil {
-		logger().Warn("failed to load channel config for cursor persist", "error", err)
+		logger().Warn("failed to load plugin config for cursor persist", "error", err)
 		return
 	}
-
-	// Merge into existing JSON config.
-	var raw map[string]any
-	if err := json.Unmarshal([]byte(ch.Config), &raw); err != nil {
-		raw = make(map[string]any)
+	if p.Config == nil {
+		p.Config = make(map[string]any)
 	}
-	raw["get_updates_buf"] = buf
+	p.Config["get_updates_buf"] = buf
 
-	data, err := json.Marshal(raw)
-	if err != nil {
-		logger().Warn("failed to marshal cursor update", "error", err)
-		return
-	}
-
-	if err := b.store.UpsertChannel(context.Background(), config.Channel{
-		ID:      channel.PlatformWeixin,
-		Enabled: ch.Enabled,
-		Config:  string(data),
-	}); err != nil {
+	if err := b.store.UpsertPlugin(context.Background(), p); err != nil {
 		logger().Warn("failed to persist cursor", "error", err)
 	}
 }
@@ -275,34 +268,23 @@ func (b *Bot) clearCredentials() {
 	b.contextTokens = sync.Map{}
 	b.typingTickets = sync.Map{}
 
-	// Clear credentials from DB.
-	ch, err := b.store.GetChannel(context.Background(), channel.PlatformWeixin)
+	// Clear credentials from plugin config.
+	pluginID := config.PluginID(config.PluginKindChannel, channel.PlatformWeixin)
+	p, err := b.store.GetPlugin(context.Background(), pluginID)
 	if err != nil {
-		logger().Warn("failed to load channel config for credential clear", "error", err)
+		logger().Warn("failed to load plugin config for credential clear", "error", err)
 		return
 	}
-
-	var raw map[string]any
-	if err := json.Unmarshal([]byte(ch.Config), &raw); err != nil {
-		raw = make(map[string]any)
+	if p.Config == nil {
+		p.Config = make(map[string]any)
 	}
 
-	delete(raw, "bot_token")
-	delete(raw, "bot_id")
-	delete(raw, "user_id")
-	delete(raw, "get_updates_buf")
+	delete(p.Config, "bot_token")
+	delete(p.Config, "bot_id")
+	delete(p.Config, "user_id")
+	delete(p.Config, "get_updates_buf")
 
-	data, err := json.Marshal(raw)
-	if err != nil {
-		logger().Warn("failed to marshal credential clear", "error", err)
-		return
-	}
-
-	if err := b.store.UpsertChannel(context.Background(), config.Channel{
-		ID:      channel.PlatformWeixin,
-		Enabled: ch.Enabled,
-		Config:  string(data),
-	}); err != nil {
+	if err := b.store.UpsertPlugin(context.Background(), p); err != nil {
 		logger().Warn("failed to clear credentials in DB", "error", err)
 	}
 }

@@ -20,6 +20,11 @@ type BashTool struct {
 	workDir string
 }
 
+// NewBashTool creates a BashTool with the given working directory.
+func NewBashTool(workDir string) *BashTool {
+	return &BashTool{workDir: workDir}
+}
+
 func (t *BashTool) Definition() toolspec.Definition {
 	return toolspec.Definition{
 		Name:        "bash",

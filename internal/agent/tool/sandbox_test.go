@@ -30,7 +30,7 @@ func (f *fakeTool) Execute(_ context.Context, args map[string]any) (string, erro
 func TestSandboxToolAllowed(t *testing.T) {
 	dir := t.TempDir()
 	inner := &fakeTool{name: "read"}
-	wrapped := wrapWithSandbox(inner, dir, "file_path")
+	wrapped := WrapWithSandbox(inner, dir, "file_path")
 
 	_, err := wrapped.Execute(context.Background(), map[string]any{
 		"file_path": filepath.Join(dir, "test.txt"),
@@ -47,7 +47,7 @@ func TestSandboxToolBlocked(t *testing.T) {
 	dir := t.TempDir()
 	other := t.TempDir()
 	inner := &fakeTool{name: "read"}
-	wrapped := wrapWithSandbox(inner, dir, "file_path")
+	wrapped := WrapWithSandbox(inner, dir, "file_path")
 
 	_, err := wrapped.Execute(context.Background(), map[string]any{
 		"file_path": filepath.Join(other, "evil.txt"),
@@ -66,7 +66,7 @@ func TestSandboxToolBlocked(t *testing.T) {
 func TestSandboxToolNoSandbox(t *testing.T) {
 	// Empty allowed dir means no sandbox.
 	inner := &fakeTool{name: "write"}
-	wrapped := wrapWithSandbox(inner, "", "file_path")
+	wrapped := WrapWithSandbox(inner, "", "file_path")
 
 	// Should be the original tool, not wrapped.
 	if wrapped != inner {
@@ -76,7 +76,7 @@ func TestSandboxToolNoSandbox(t *testing.T) {
 
 func TestSandboxToolPreservesDefinition(t *testing.T) {
 	inner := &fakeTool{name: "edit"}
-	wrapped := wrapWithSandbox(inner, "/some/dir", "file_path")
+	wrapped := WrapWithSandbox(inner, "/some/dir", "file_path")
 
 	if wrapped.Definition().Name != "edit" {
 		t.Errorf("expected definition name 'edit', got %q", wrapped.Definition().Name)
@@ -94,7 +94,7 @@ func TestSandboxToolSymlinkEscape(t *testing.T) {
 	}
 
 	inner := &fakeTool{name: "read"}
-	wrapped := wrapWithSandbox(inner, dir, "file_path")
+	wrapped := WrapWithSandbox(inner, dir, "file_path")
 
 	_, err := wrapped.Execute(context.Background(), map[string]any{
 		"file_path": filepath.Join(link, "secret.txt"),

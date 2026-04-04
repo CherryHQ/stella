@@ -6,7 +6,7 @@ description: >
   memory system (LCM), scheduled jobs, heartbeat, skills, plugins, session compaction, notifications,
   self-update, multi-agent, multi-user, or general "how does anna work" / "help me get started" questions.
   Also triggers on "change my model", "set up telegram", "set up wechat", "configure provider", "update anna",
-  "what can you do", "how do I install skills", "write a plugin", "anna onboard", "switch agent".
+  "what can you do", "how do I install skills", "anna onboard", "switch agent".
 ---
 
 # Anna Self-Knowledge
@@ -79,9 +79,10 @@ anna models update     # Refresh model cache
 anna skills list       # List installed skills
 anna skills search <q> # Search skill ecosystem
 anna skills install <s># Install a skill
-anna plugin list       # List configured plugins
-anna plugin add <path> # Add a JS plugin
-anna plugin remove <n> # Remove a plugin by name or path
+anna plugin list       # List all plugins with status
+anna plugin enable <id># Enable a plugin
+anna plugin disable <id># Disable a plugin
+anna plugin config <id># View/set plugin configuration
 anna version           # Print version
 anna upgrade           # Self-update to latest release
 ```
@@ -123,4 +124,4 @@ These are tools you already have access to. Briefly:
 - **Heartbeat**: polls a markdown file on an interval, uses the fast model to decide skip/run, executes and notifies on run. Config under `heartbeat` in settings.
 - **Notifications**: `notify` tool (gateway mode only) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.
 - **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings.
-- **Plugins**: JS extensions that add custom tools and lifecycle hooks. Single `.js` file per plugin, runs in embedded QuickJS. Host APIs: `anna.registerTool()`, `anna.on()`, `anna.log()`, `anna.readFile()`/`anna.writeFile()`, `anna.fetch()`. Config stored in settings table. Manage with `anna plugin add/remove/list`.
+- **Plugins**: Compiled-in plugins that provide tools and channel integrations. 5 built-in plugins: 1 tool (webfetch) + 4 channels (telegram, qq, feishu, weixin). Core tools (read/bash/edit/write) are always enabled and are not plugins. Manage with `anna plugin list/enable/disable/config`.

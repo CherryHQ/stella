@@ -1,44 +1,89 @@
 package admin
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/vaayne/anna/internal/config"
 )
 
+// channelView is the JSON shape the admin frontend expects for channel objects.
+// It matches the legacy settings_channels format: config is a JSON string.
+type channelView struct {
+	ID      string `json:"id"`
+	Enabled bool   `json:"enabled"`
+	Config  string `json:"config"`
+}
+
+func pluginToChannelView(p config.Plugin) channelView {
+	cfgJSON, _ := json.Marshal(p.Config)
+	return channelView{
+		ID:      p.Name,
+		Enabled: p.Enabled,
+		Config:  string(cfgJSON),
+	}
+}
+
 func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
-	channels, err := s.store.ListChannels(r.Context())
+	plugins, err := s.store.ListPluginsByKind(r.Context(), config.PluginKindChannel)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, channels)
+	views := make([]channelView, len(plugins))
+	for i, p := range plugins {
+		views[i] = pluginToChannelView(p)
+	}
+	writeData(w, http.StatusOK, views)
 }
 
 func (s *Server) getChannel(w http.ResponseWriter, r *http.Request) {
 	platform := r.PathValue("platform")
-	ch, err := s.store.GetChannel(r.Context(), platform)
+	pluginID := config.PluginID(config.PluginKindChannel, platform)
+	p, err := s.store.GetPlugin(r.Context(), pluginID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "channel not found")
 		return
 	}
-	writeData(w, http.StatusOK, ch)
+	writeData(w, http.StatusOK, pluginToChannelView(p))
 }
 
 func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 	platform := r.PathValue("platform")
-	var ch config.Channel
-	if err := decodeJSON(r, &ch); err != nil {
+	var req struct {
+		Enabled bool   `json:"enabled"`
+		Config  string `json:"config"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	ch.ID = platform
-	if err := s.store.UpsertChannel(r.Context(), ch); err != nil {
+
+	var cfgMap map[string]any
+	if req.Config != "" {
+		if err := json.Unmarshal([]byte(req.Config), &cfgMap); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid config JSON: "+err.Error())
+			return
+		}
+	}
+	if cfgMap == nil {
+		cfgMap = make(map[string]any)
+	}
+
+	pluginID := config.PluginID(config.PluginKindChannel, platform)
+	p := config.Plugin{
+		ID:      pluginID,
+		Kind:    config.PluginKindChannel,
+		Name:    platform,
+		Enabled: req.Enabled,
+		Config:  cfgMap,
+	}
+	if err := s.store.UpsertPlugin(r.Context(), p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if !ch.Enabled {
+	if !req.Enabled {
 		s.stopChannel(platform)
 	}
-	writeData(w, http.StatusOK, ch)
+	writeData(w, http.StatusOK, pluginToChannelView(p))
 }

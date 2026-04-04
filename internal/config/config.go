@@ -2,12 +2,6 @@ package config
 
 import "path/filepath"
 
-// PluginConfig describes a single plugin entry.
-type PluginConfig struct {
-	Path   string         `json:"path"`
-	Config map[string]any `json:"config"`
-}
-
 // RunnerConfig configures the agent runner.
 type RunnerConfig struct {
 	Type        string           `json:"type"`

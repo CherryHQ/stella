@@ -68,6 +68,16 @@ type Store interface {
 	GetChannel(ctx context.Context, id string) (Channel, error)
 	UpsertChannel(ctx context.Context, ch Channel) error
 
+	// Plugins
+	ListPlugins(ctx context.Context) ([]Plugin, error)
+	ListPluginsByKind(ctx context.Context, kind string) ([]Plugin, error)
+	ListEnabledPlugins(ctx context.Context) ([]Plugin, error)
+	GetPlugin(ctx context.Context, id string) (Plugin, error)
+	UpsertPlugin(ctx context.Context, p Plugin) error
+	SetPluginEnabled(ctx context.Context, id string, enabled bool) error
+	SetPluginConfig(ctx context.Context, id string, config map[string]any) error
+	DeletePlugin(ctx context.Context, id string) error
+
 	// Chat Agents (group -> agent mapping)
 	GetChatAgent(ctx context.Context, platform, chatID string) (string, error) // returns agentID
 	SetChatAgent(ctx context.Context, platform, chatID, agentID string) error

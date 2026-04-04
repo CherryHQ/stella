@@ -1,10 +1,13 @@
 package auth_test
 
 import (
+	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/vaayne/anna/internal/auth"
+	appdb "github.com/vaayne/anna/internal/db"
 )
 
 func TestLinkCodeGenerate(t *testing.T) {
@@ -43,6 +46,41 @@ func TestLinkCodeConsume(t *testing.T) {
 	_, _, ok = store.Consume(code)
 	if ok {
 		t.Error("expected second Consume to fail")
+	}
+}
+
+func TestSharedLinkCodeConsumeAcrossStores(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "linkcodes.db")
+	db, err := appdb.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db2, err := appdb.OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB second handle: %v", err)
+	}
+	t.Cleanup(func() { _ = db2.Close() })
+
+	issuer, err := auth.NewSharedLinkCodeStore(context.Background(), db)
+	if err != nil {
+		t.Fatalf("NewSharedLinkCodeStore issuer: %v", err)
+	}
+	consumer, err := auth.NewSharedLinkCodeStore(context.Background(), db2)
+	if err != nil {
+		t.Fatalf("NewSharedLinkCodeStore consumer: %v", err)
+	}
+
+	code := issuer.Generate(42, "telegram")
+	userID, platform, ok := consumer.Consume(code)
+	if !ok {
+		t.Fatal("expected Consume to succeed across store instances")
+	}
+	if userID != 42 {
+		t.Errorf("userID = %d, want 42", userID)
+	}
+	if platform != "telegram" {
+		t.Errorf("platform = %q, want telegram", platform)
 	}
 }
 

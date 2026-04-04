@@ -3,11 +3,10 @@ package tool
 import (
 	"context"
 	"fmt"
-	"log/slog"
-
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/internal/toolspec"
+	"log/slog"
 )
 
 // Tool is a built-in tool that can be executed by the Go runner.
@@ -21,10 +20,13 @@ type Registry struct {
 	tools map[string]Tool
 }
 
-// NewRegistry creates a registry with the default built-in tools.
-// When userDataDir is non-empty, file tools (read, write, edit) are wrapped
-// with sandbox validation that restricts paths to the user's data directory.
-// The bash tool uses userDataDir as its working directory when set.
+type closeableTool interface {
+	Close() error
+}
+
+// NewRegistry creates a registry with the four core built-in tools
+// (read, bash, edit, write) constructed directly as Go values.
+// Optional tools like webfetch are injected externally via ExtraTools.
 func NewRegistry(workDir string, userDataDir ...string) *Registry {
 	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
@@ -34,19 +36,16 @@ func NewRegistry(workDir string, userDataDir ...string) *Registry {
 	if len(userDataDir) > 0 {
 		sandbox = userDataDir[0]
 	}
-
-	// Use user data dir as bash work dir when available.
 	bashDir := workDir
 	if sandbox != "" {
 		bashDir = sandbox
 	}
 
 	r := &Registry{tools: make(map[string]Tool)}
-	r.Register(wrapWithSandbox(&ReadTool{}, sandbox, "file_path"))
-	r.Register(&BashTool{workDir: bashDir})
-	r.Register(wrapWithSandbox(&EditTool{}, sandbox, "file_path"))
-	r.Register(wrapWithSandbox(&WriteTool{}, sandbox, "file_path"))
-	r.Register(NewWebFetchTool())
+	r.Register(WrapWithSandbox(&ReadTool{}, sandbox, "file_path"))
+	r.Register(NewBashTool(bashDir))
+	r.Register(WrapWithSandbox(&EditTool{}, sandbox, "file_path"))
+	r.Register(WrapWithSandbox(&WriteTool{}, sandbox, "file_path"))
 	return r
 }
 
@@ -86,4 +85,17 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]any
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
 	return t.Execute(ctx, args)
+}
+
+// Close shuts down any tools that expose a Close method.
+func (r *Registry) Close() error {
+	var lastErr error
+	for _, t := range r.tools {
+		if c, ok := t.(closeableTool); ok {
+			if err := c.Close(); err != nil {
+				lastErr = err
+			}
+		}
+	}
+	return lastErr
 }

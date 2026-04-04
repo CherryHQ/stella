@@ -20,6 +20,7 @@ A key-value store for global settings. Each row has a `key` (text) and a `value`
 | `compaction`   | Compaction thresholds (max_tokens, keep_tail)                 |
 | `heartbeat`    | Heartbeat polling toggle and interval                         |
 | `plugins`      | JSON array of plugin definitions                              |
+| `runtime_plugins` | JSON object of subprocess tool/channel bindings            |
 | `models_cache` | Cached model list from providers                              |
 
 ### settings_providers
@@ -145,6 +146,8 @@ Each platform stores its own JSON structure in the `config` column of `settings_
 | Path                                         | Purpose                                     | Category |
 | -------------------------------------------- | ------------------------------------------- | -------- |
 | `~/.anna/anna.db`                            | SQLite database (config, memory, scheduler) | Data     |
+| `~/.anna/plugins/bundled/`                   | Bundled runtime plugin manifests            | Data     |
+| `~/.anna/plugins/installed/`                 | User-installed runtime plugins              | Data     |
 | `~/.anna/workspaces/{agent-id}/skills/`      | Per-agent installed skills                  | Data     |
 | `~/.anna/workspaces/{agent-id}/anna.log`     | Per-agent log file                          | Data     |
 | `~/.anna/workspaces/{agent-id}/SOUL.md`      | Optional soul/identity override             | Data     |
@@ -192,3 +195,22 @@ Plugins are stored in the `settings` table under the `plugins` key as a JSON arr
   { "path": "/abs/path/notify.js", "config": { "webhook_url": "https://example.com" } }
 ]
 ```
+
+## Runtime Plugin Bindings
+
+Subprocess plugin bindings are stored separately under the `runtime_plugins` key:
+
+```json
+{
+  "tools": {
+    "read": "tool/read",
+    "bash": "tool/bash"
+  },
+  "channels": {
+    "telegram": "channel/telegram",
+    "qq": "channel/qq"
+  }
+}
+```
+
+These bindings control which runtime plugin ID handles each built-in tool or channel slot. If a slot has no explicit override, anna falls back to the bundled first-party plugin for that slot. Use `anna plugin runtime list` to inspect the effective bindings and `anna plugin runtime bind ...` to change them.
