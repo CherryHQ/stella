@@ -4,11 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
-	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
@@ -101,19 +98,4 @@ func (r *Registry) Close() error {
 		}
 	}
 	return lastErr
-}
-
-func LoadCatalog() (*pluginhost.Catalog, error) {
-	roots := []string{}
-	for _, root := range []string{config.BundledPluginsPath(), config.InstalledPluginsPath()} {
-		if _, err := os.Stat(root); err == nil {
-			roots = append(roots, root)
-		}
-	}
-
-	catalog, err := pluginhost.Discover(roots...)
-	if err != nil {
-		return nil, err
-	}
-	return catalog, nil
 }

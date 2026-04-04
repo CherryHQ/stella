@@ -17,7 +17,6 @@ import (
 	"github.com/vaayne/anna/internal/admin"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/selfimprove"
-	agenttool "github.com/vaayne/anna/internal/agent/tool"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
@@ -109,36 +108,26 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 		})
 	}
 
-	catalog, err := agenttool.LoadCatalog()
-	if err != nil {
-		return fmt.Errorf("load channel catalog: %w", err)
-	}
-
 	// Load enabled channel plugins from settings_plugins.
-	channelPlugins, err := s.store.ListPluginsByKind(gctx, config.PluginKindChannel)
-	if err != nil {
-		return fmt.Errorf("list channel plugins: %w", err)
-	}
-
-	for _, p := range channelPlugins {
-		if !p.Enabled {
+	channelNames := []string{"telegram", "qq", "feishu", "weixin"}
+	for _, name := range channelNames {
+		pluginID := config.PluginID(config.PluginKindChannel, name)
+		p, err := s.store.GetPlugin(gctx, pluginID)
+		if err != nil || !p.Enabled {
 			continue
 		}
-		// Check if the channel has valid credentials by loading its typed config.
-		if !channel.HasValidConfig(s.store, p.Name) {
-			slog.Debug("skipping channel plugin without valid config", "plugin", p.ID)
+		if !channel.HasValidConfig(s.store, name) {
+			slog.Debug("skipping channel without valid config", "channel", name)
 			continue
 		}
-
-		def, err := resolveChannelPluginDefinition(catalog, p.Name, s.snap.Workspace, config.AnnaHome())
+		ch, err := buildChannel(name, s.store, s.poolManager, as, engine, linkCodes, listFn, switchFn)
 		if err != nil {
 			return err
 		}
-		slog.Info("starting channel plugin", "channel", p.Name, "plugin", def.ID())
-		ch := newChannelPlugin(p.Name, def)
+		slog.Info("starting channel", "channel", name)
 		channels = append(channels, ch)
-		adminSrv.RegisterChannelStop(p.Name, ch.Stop)
-		if channel.IsNotifyEnabled(s.store, p.Name) {
+		adminSrv.RegisterChannelStop(name, ch.Stop)
+		if channel.IsNotifyEnabled(s.store, name) {
 			s.notifier.Register(ch)
 		}
 	}
