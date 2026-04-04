@@ -127,12 +127,12 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			telegram.WithAuth(as, engine, linkCodes),
 		)
 		if err != nil {
-			return fmt.Errorf("create telegram bot: %w", err)
-		}
-
-		channels = append(channels, tgBot)
-		if tgCfg.EnableNotify {
-			s.notifier.Register(tgBot)
+			slog.Warn("telegram bot disabled", "error", err)
+		} else {
+			channels = append(channels, tgBot)
+			if tgCfg.EnableNotify {
+				s.notifier.Register(tgBot)
+			}
 		}
 	}
 
@@ -148,12 +148,12 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			qq.WithAuth(as, engine, linkCodes),
 		)
 		if err != nil {
-			return fmt.Errorf("create qq bot: %w", err)
-		}
-
-		channels = append(channels, qqBot)
-		if qqCfg.EnableNotify {
-			s.notifier.Register(qqBot)
+			slog.Warn("qq bot disabled", "error", err)
+		} else {
+			channels = append(channels, qqBot)
+			if qqCfg.EnableNotify {
+				s.notifier.Register(qqBot)
+			}
 		}
 	}
 
@@ -172,12 +172,12 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			feishu.WithAuth(as, engine, linkCodes),
 		)
 		if err != nil {
-			return fmt.Errorf("create feishu bot: %w", err)
-		}
-
-		channels = append(channels, fsBot)
-		if fsCfg.EnableNotify {
-			s.notifier.Register(fsBot)
+			slog.Warn("feishu bot disabled", "error", err)
+		} else {
+			channels = append(channels, fsBot)
+			if fsCfg.EnableNotify {
+				s.notifier.Register(fsBot)
+			}
 		}
 	}
 
@@ -194,12 +194,12 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			weixin.WithAuth(as, engine, linkCodes),
 		)
 		if err != nil {
-			return fmt.Errorf("create weixin bot: %w", err)
-		}
-
-		channels = append(channels, wxBot)
-		if wxCfg.EnableNotify {
-			s.notifier.Register(wxBot)
+			slog.Warn("weixin bot disabled", "error", err)
+		} else {
+			channels = append(channels, wxBot)
+			if wxCfg.EnableNotify {
+				s.notifier.Register(wxBot)
+			}
 		}
 	}
 
