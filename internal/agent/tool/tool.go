@@ -44,7 +44,7 @@ func NewRegistry(workDir string, userDataDir ...string) *Registry {
 		sandbox = userDataDir[0]
 	}
 
-	catalog, err := LoadCatalog(workDir, sandbox)
+	catalog, err := LoadCatalog()
 	if err != nil {
 		slog.Warn("failed to load tool catalog", "error", err)
 		return &Registry{tools: make(map[string]Tool)}
@@ -122,7 +122,7 @@ func (r *Registry) Close() error {
 	return lastErr
 }
 
-func LoadCatalog(workDir, userDataDir string) (*pluginhost.Catalog, error) {
+func LoadCatalog() (*pluginhost.Catalog, error) {
 	roots := []string{}
 	for _, root := range []string{config.BundledPluginsPath(), config.InstalledPluginsPath()} {
 		if _, err := os.Stat(root); err == nil {

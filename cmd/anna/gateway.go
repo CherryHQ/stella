@@ -17,6 +17,7 @@ import (
 	"github.com/vaayne/anna/internal/admin"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/selfimprove"
+	agenttool "github.com/vaayne/anna/internal/agent/tool"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
@@ -108,39 +109,36 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 		})
 	}
 
-	catalog, err := loadRuntimeChannelCatalog(s.snap.Workspace, config.AnnaHome())
+	catalog, err := agenttool.LoadCatalog()
 	if err != nil {
 		return fmt.Errorf("load channel catalog: %w", err)
 	}
 
-	type channelSpec struct {
-		name   string
-		notify bool
-	}
-	specs := []channelSpec{}
-	if tgCfg := channel.LoadConfig[channel.TelegramConfig](s.store, channel.PlatformTelegram); tgCfg != nil && tgCfg.Token != "" {
-		specs = append(specs, channelSpec{name: channel.PlatformTelegram, notify: tgCfg.EnableNotify})
-	}
-	if qqCfg := channel.LoadConfig[channel.QQConfig](s.store, channel.PlatformQQ); qqCfg != nil && qqCfg.AppID != "" && qqCfg.AppSecret != "" {
-		specs = append(specs, channelSpec{name: channel.PlatformQQ, notify: qqCfg.EnableNotify})
-	}
-	if fsCfg := channel.LoadConfig[channel.FeishuConfig](s.store, channel.PlatformFeishu); fsCfg != nil && fsCfg.AppID != "" && fsCfg.AppSecret != "" {
-		specs = append(specs, channelSpec{name: channel.PlatformFeishu, notify: fsCfg.EnableNotify})
-	}
-	if wxCfg := channel.LoadConfig[channel.WeixinConfig](s.store, channel.PlatformWeixin); wxCfg != nil && wxCfg.BotToken != "" {
-		specs = append(specs, channelSpec{name: channel.PlatformWeixin, notify: wxCfg.EnableNotify})
+	// Load enabled channel plugins from settings_plugins.
+	channelPlugins, err := s.store.ListPluginsByKind(gctx, config.PluginKindChannel)
+	if err != nil {
+		return fmt.Errorf("list channel plugins: %w", err)
 	}
 
-	for _, spec := range specs {
-		def, err := resolveChannelPluginDefinition(catalog, spec.name, s.snap.Workspace, config.AnnaHome())
+	for _, p := range channelPlugins {
+		if !p.Enabled {
+			continue
+		}
+		// Check if the channel has valid credentials by loading its typed config.
+		if !channel.HasValidConfig(s.store, p.Name) {
+			slog.Debug("skipping channel plugin without valid config", "plugin", p.ID)
+			continue
+		}
+
+		def, err := resolveChannelPluginDefinition(catalog, p.Name, s.snap.Workspace, config.AnnaHome())
 		if err != nil {
 			return err
 		}
-		slog.Info("starting channel plugin", "channel", spec.name, "plugin", def.ID())
-		ch := newChannelPlugin(spec.name, def)
+		slog.Info("starting channel plugin", "channel", p.Name, "plugin", def.ID())
+		ch := newChannelPlugin(p.Name, def)
 		channels = append(channels, ch)
-		adminSrv.RegisterChannelStop(spec.name, ch.Stop)
-		if spec.notify {
+		adminSrv.RegisterChannelStop(p.Name, ch.Stop)
+		if channel.IsNotifyEnabled(s.store, p.Name) {
 			s.notifier.Register(ch)
 		}
 	}
