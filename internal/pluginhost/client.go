@@ -72,6 +72,19 @@ func Start(ctx context.Context, def Definition, opts StartOptions) (*Client, err
 		if v, ok := def.Manifest.Metadata["user_data_dir"].(string); ok && v != "" {
 			env = append(env, "ANNA_PLUGIN_USER_DATA_DIR="+v)
 		}
+		// Resolve ANNA_HOME to absolute so the plugin subprocess (which runs
+		// with a different cmd.Dir) opens the same database as the gateway.
+		for i, e := range env {
+			if strings.HasPrefix(e, "ANNA_HOME=") {
+				v := strings.TrimPrefix(e, "ANNA_HOME=")
+				if !filepath.IsAbs(v) {
+					if abs, err := filepath.Abs(v); err == nil {
+						env[i] = "ANNA_HOME=" + abs
+					}
+				}
+				break
+			}
+		}
 		cmd.Env = env
 	}
 
