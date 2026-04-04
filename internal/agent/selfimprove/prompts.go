@@ -21,7 +21,7 @@ Was a non-trivial approach used to complete a task that required trial and error
 If a relevant skill already exists, update it with what you learned.
 Otherwise, create a new skill if the approach is reusable.
 
-Use the review_skills tool with action="create", "patch", or "deprecate".
+Use the skills tool with action="create", "patch", or "deprecate".
 - Keep skill names lowercase-hyphenated (e.g. "deploy-to-staging", "fix-flaky-tests").
 - Keep descriptions concise — one sentence explaining when to use the skill.
 - Skill content should be actionable steps, not conversation summaries.

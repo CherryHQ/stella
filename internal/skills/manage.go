@@ -33,7 +33,7 @@ func Create(name, description, content, targetDir string) error {
 	skillWriteMu.Lock()
 	defer skillWriteMu.Unlock()
 
-	return AtomicWriteFile(skillFile, []byte(data), 0o644)
+	return atomicWriteFile(skillFile, []byte(data), 0o644)
 }
 
 // Patch updates frontmatter fields and/or the content body of an existing skill.
@@ -80,7 +80,7 @@ func Patch(name string, updates map[string]string, targetDir string) error {
 	skillWriteMu.Lock()
 	defer skillWriteMu.Unlock()
 
-	return AtomicWriteFile(skillFile, []byte(data), 0o644)
+	return atomicWriteFile(skillFile, []byte(data), 0o644)
 }
 
 // Deprecate sets the status of an existing skill to "deprecated".

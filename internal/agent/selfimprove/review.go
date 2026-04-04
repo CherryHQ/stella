@@ -18,6 +18,17 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/db/sqlc"
 	"github.com/vaayne/anna/internal/memory"
+	"github.com/vaayne/anna/internal/skills"
+)
+
+const (
+	// maxReviewMessages caps the number of messages loaded per conversation to
+	// avoid exceeding the review model's context window.
+	maxReviewMessages = 200
+
+	// defaultDraftMaxAge is the maximum age of a draft skill before it is
+	// automatically deprecated.
+	defaultDraftMaxAge = 30 * 24 * time.Hour
 )
 
 // ReviewDeps holds dependencies injected by the caller.
@@ -25,31 +36,8 @@ type ReviewDeps struct {
 	DB        *sql.DB
 	Store     config.Store
 	Notifier  *channel.Dispatcher
-	Workspace string // agent workspace root for ExpireDrafts
+	Workspace string
 	Log       *slog.Logger
-}
-
-// newProviderRegistry creates a provider registry containing only the adapter
-// required by the fast-tier model, configured with the correct base URL.
-func newProviderRegistry(snap *config.Snapshot) ai.ProviderGetter {
-	model := snap.ResolveModelTier(config.ModelTierFast)
-	creds := snap.ResolveProviderCreds(model.API)
-
-	reg := ai.NewRegistry()
-	switch model.API {
-	case "anthropic":
-		reg.Register(anthropic.New(anthropic.Config{BaseURL: creds.BaseURL}))
-	case "openai":
-		reg.Register(openai.New(openai.Config{BaseURL: creds.BaseURL}))
-	case "openai-response":
-		reg.Register(openairesponse.New(openairesponse.Config{BaseURL: creds.BaseURL}))
-	default:
-		// Fall back to registering all providers for unknown API types.
-		reg.Register(anthropic.New(anthropic.Config{BaseURL: creds.BaseURL}))
-		reg.Register(openai.New(openai.Config{BaseURL: creds.BaseURL}))
-		reg.Register(openairesponse.New(openairesponse.Config{BaseURL: creds.BaseURL}))
-	}
-	return reg
 }
 
 // StartReviewLoop runs the self-improvement review job on a recurring interval.
@@ -60,16 +48,14 @@ func StartReviewLoop(ctx context.Context, cfg config.SelfImproveConfig, deps Rev
 		interval = time.Hour
 	}
 
-	log := deps.Log
-	if log == nil {
-		log = slog.Default()
+	if deps.Log == nil {
+		deps.Log = slog.Default()
 	}
 
-	log.Info("self-improve: starting review loop", "interval", interval)
+	deps.Log.Info("self-improve: starting review loop", "interval", interval)
 
-	// Run once immediately so users don't wait a full interval after restart.
 	ReviewTask(ctx, deps, cfg)
-	ExpireDrafts(deps.Workspace, 30*24*time.Hour, log)
+	ExpireDrafts(deps.Workspace, defaultDraftMaxAge, deps.Log)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -80,7 +66,7 @@ func StartReviewLoop(ctx context.Context, cfg config.SelfImproveConfig, deps Rev
 			return
 		case <-ticker.C:
 			ReviewTask(ctx, deps, cfg)
-			ExpireDrafts(deps.Workspace, 30*24*time.Hour, log)
+			ExpireDrafts(deps.Workspace, defaultDraftMaxAge, deps.Log)
 		}
 	}
 }
@@ -88,55 +74,58 @@ func StartReviewLoop(ctx context.Context, cfg config.SelfImproveConfig, deps Rev
 // ReviewTask iterates over all enabled agents, finds unreviewed conversations,
 // and runs the review engine on each one.
 func ReviewTask(ctx context.Context, deps ReviewDeps, cfg config.SelfImproveConfig) {
-	log := deps.Log
-	if log == nil {
-		log = slog.Default()
-	}
-
-	q := sqlc.New(deps.DB)
-
 	agents, err := deps.Store.ListEnabledAgents(ctx)
 	if err != nil {
-		log.Error("self-improve: list agents", "error", err)
+		deps.Log.Error("self-improve: list agents", "error", err)
 		return
 	}
 
 	for _, agent := range agents {
-		reviewAgent(ctx, deps, cfg, q, log, agent)
+		reviewAgent(ctx, deps, cfg, agent)
 	}
 }
 
-func reviewAgent(ctx context.Context, deps ReviewDeps, cfg config.SelfImproveConfig, q *sqlc.Queries, log *slog.Logger, agent config.Agent) {
+func reviewAgent(ctx context.Context, deps ReviewDeps, cfg config.SelfImproveConfig, agent config.Agent) {
 	snap, err := deps.Store.Snapshot(ctx, agent.ID)
 	if err != nil {
-		log.Error("self-improve: snapshot", "agent", agent.ID, "error", err)
+		deps.Log.Error("self-improve: snapshot", "agent", agent.ID, "error", err)
 		return
 	}
 
-	model := snap.ResolveModelTier(config.ModelTierFast)
-	providers := newProviderRegistry(snap)
-
+	q := sqlc.New(deps.DB)
 	conversations, err := q.ListUnreviewedConversations(ctx, sqlc.ListUnreviewedConversationsParams{
 		AgentID: sql.NullString{String: agent.ID, Valid: true},
 		Limit:   int64(cfg.Batch()),
 	})
 	if err != nil {
-		log.Error("self-improve: list unreviewed", "agent", agent.ID, "error", err)
+		deps.Log.Error("self-improve: list unreviewed", "agent", agent.ID, "error", err)
 		return
 	}
 
 	for _, conv := range conversations {
-		reviewConversation(ctx, deps, q, log, snap, providers, model, conv)
+		reviewConversation(ctx, deps, snap, conv)
 	}
 }
 
-func reviewConversation(ctx context.Context, deps ReviewDeps, q *sqlc.Queries, log *slog.Logger, snap *config.Snapshot, providers ai.ProviderGetter, model ai.Model, conv sqlc.CtxConversation) {
+func reviewConversation(ctx context.Context, deps ReviewDeps, snap *config.Snapshot, conv sqlc.CtxConversation) {
+	log := deps.Log
+	q := sqlc.New(deps.DB)
 	userID := conv.UserID.Int64
-	userSkillsDir := filepath.Join(snap.Workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")
 
-	skills := runner.LoadSkills(config.AnnaHome(), snap.Workspace, "", userSkillsDir)
+	// Resolve the fast-tier model and create a provider registry.
+	model := snap.ResolveModelTier(config.ModelTierFast)
+	creds := snap.ResolveProviderCreds(model.API)
+
+	reg := ai.NewRegistry()
+	reg.Register(anthropic.New(anthropic.Config{BaseURL: creds.BaseURL}))
+	reg.Register(openai.New(openai.Config{BaseURL: creds.BaseURL}))
+	reg.Register(openairesponse.New(openairesponse.Config{BaseURL: creds.BaseURL}))
+
+	// Load existing skill names for the prompt (empty annaHome skips builtin extraction).
+	userSkillsDir := filepath.Join(snap.Workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")
+	allSkills := runner.LoadSkills("", snap.Workspace, "", userSkillsDir)
 	var existingNames []string
-	for _, s := range skills {
+	for _, s := range allSkills {
 		existingNames = append(existingNames, s.Name)
 	}
 
@@ -160,9 +149,9 @@ func reviewConversation(ctx context.Context, deps ReviewDeps, q *sqlc.Queries, l
 
 	memStore := memory.NewUserMemoryStore(deps.Store)
 	reviewer := NewReviewer(ReviewerConfig{
-		Providers:      providers,
+		Providers:      reg,
 		Model:          model,
-		SkillsTool:     NewReviewSkillsTool(userSkillsDir),
+		SkillsTool:     skills.NewTool("", snap.Workspace, "", userID),
 		MemoryTool:     NewReviewMemoryTool(memStore, userID, snap.AgentID),
 		ExistingSkills: existingNames,
 	})
@@ -192,10 +181,6 @@ func reviewConversation(ctx context.Context, deps ReviewDeps, q *sqlc.Queries, l
 		"skills_created", result.SkillsMutated, "memory_updated", result.MemoryUpdated)
 }
 
-// maxReviewMessages caps the number of messages loaded per conversation to
-// avoid exceeding the review model's context window.
-const maxReviewMessages = 200
-
 // buildConversationText builds the text to send to the review agent.
 func buildConversationText(ctx context.Context, q *sqlc.Queries, conv sqlc.CtxConversation) (string, error) {
 	var b strings.Builder
@@ -218,32 +203,28 @@ func buildConversationText(ctx context.Context, q *sqlc.Queries, conv sqlc.CtxCo
 		if err != nil {
 			return "", fmt.Errorf("get messages since: %w", err)
 		}
-		if len(msgs) == 0 {
-			return "", nil
-		}
-		if len(msgs) > maxReviewMessages {
-			msgs = msgs[len(msgs)-maxReviewMessages:]
-		}
-		for _, m := range msgs {
-			fmt.Fprintf(&b, "[%s] %s\n", m.Role, m.Content)
-		}
+		appendMessages(&b, msgs)
 	} else {
 		msgs, err := q.GetMessagesByConversation(ctx, conv.ID)
 		if err != nil {
 			return "", fmt.Errorf("get messages: %w", err)
 		}
-		if len(msgs) == 0 {
-			return "", nil
-		}
-		if len(msgs) > maxReviewMessages {
-			msgs = msgs[len(msgs)-maxReviewMessages:]
-		}
-		for _, m := range msgs {
-			fmt.Fprintf(&b, "[%s] %s\n", m.Role, m.Content)
-		}
+		appendMessages(&b, msgs)
 	}
 
 	return b.String(), nil
+}
+
+func appendMessages(b *strings.Builder, msgs []sqlc.CtxMessage) {
+	if len(msgs) == 0 {
+		return
+	}
+	if len(msgs) > maxReviewMessages {
+		msgs = msgs[len(msgs)-maxReviewMessages:]
+	}
+	for _, m := range msgs {
+		fmt.Fprintf(b, "[%s] %s\n", m.Role, m.Content)
+	}
 }
 
 // buildNotificationText constructs a user-facing notification from review results.

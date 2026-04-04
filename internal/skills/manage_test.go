@@ -232,7 +232,7 @@ func TestAtomicWriteFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "file.txt")
 
-	err := AtomicWriteFile(path, []byte("hello world"), 0o644)
+	err := atomicWriteFile(path, []byte("hello world"), 0o644)
 	if err != nil {
 		t.Fatalf("AtomicWriteFile: %v", err)
 	}

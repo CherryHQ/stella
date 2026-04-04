@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/skills"
 )
 
 // mockProviderGetter satisfies ai.ProviderGetter for construction tests.
@@ -18,7 +19,7 @@ func newTestReviewerConfig(dir string) ReviewerConfig {
 	return ReviewerConfig{
 		Providers:  &mockProviderGetter{},
 		Model:      ai.Model{ID: "test-model", Name: "test", API: "openai"},
-		SkillsTool: NewReviewSkillsTool(dir),
+		SkillsTool: skills.NewTool("", dir, "", 0),
 	}
 }
 
@@ -70,8 +71,8 @@ func TestReviewerToolDefinitions(t *testing.T) {
 		if len(r.toolDefinitions) != 1 {
 			t.Fatalf("tool definitions = %d, want 1", len(r.toolDefinitions))
 		}
-		if r.toolDefinitions[0].Name != "review_skills" {
-			t.Errorf("tool name = %q, want %q", r.toolDefinitions[0].Name, "review_skills")
+		if r.toolDefinitions[0].Name != toolNameSkills {
+			t.Errorf("tool name = %q, want %q", r.toolDefinitions[0].Name, toolNameSkills)
 		}
 	})
 
@@ -87,10 +88,10 @@ func TestReviewerToolDefinitions(t *testing.T) {
 		for _, d := range r.toolDefinitions {
 			names[d.Name] = true
 		}
-		if !names["review_skills"] {
-			t.Error("missing review_skills tool")
+		if !names[toolNameSkills] {
+			t.Error("missing skills tool")
 		}
-		if !names["review_memory"] {
+		if !names[toolNameMemory] {
 			t.Error("missing review_memory tool")
 		}
 	})
@@ -104,7 +105,7 @@ func TestReviewSystemPromptContent(t *testing.T) {
 		"Skills",
 		"Nothing to save.",
 		"lowercase-hyphenated",
-		"review_skills",
+		"skills tool",
 		"review_memory",
 	}
 	for _, check := range checks {
@@ -132,11 +133,11 @@ func TestCountMutations(t *testing.T) {
 				ai.AssistantMessage{
 					Content: []ai.ContentBlock{
 						ai.ToolCall{
-							Name:      "review_skills",
+							Name:      toolNameSkills,
 							Arguments: map[string]any{"action": "create", "name": "a"},
 						},
 						ai.ToolCall{
-							Name:      "review_skills",
+							Name:      toolNameSkills,
 							Arguments: map[string]any{"action": "patch", "name": "b"},
 						},
 					},
@@ -150,7 +151,7 @@ func TestCountMutations(t *testing.T) {
 				ai.AssistantMessage{
 					Content: []ai.ContentBlock{
 						ai.ToolCall{
-							Name:      "review_skills",
+							Name:      toolNameSkills,
 							Arguments: map[string]any{"action": "deprecate", "name": "c"},
 						},
 					},
@@ -164,7 +165,7 @@ func TestCountMutations(t *testing.T) {
 				ai.AssistantMessage{
 					Content: []ai.ContentBlock{
 						ai.ToolCall{
-							Name:      "review_memory",
+							Name:      toolNameMemory,
 							Arguments: map[string]any{"action": "update", "content": "user likes Go"},
 						},
 					},
@@ -178,7 +179,7 @@ func TestCountMutations(t *testing.T) {
 				ai.AssistantMessage{
 					Content: []ai.ContentBlock{
 						ai.ToolCall{
-							Name:      "review_memory",
+							Name:      toolNameMemory,
 							Arguments: map[string]any{"action": "get"},
 						},
 					},
@@ -192,11 +193,11 @@ func TestCountMutations(t *testing.T) {
 				ai.AssistantMessage{
 					Content: []ai.ContentBlock{
 						ai.ToolCall{
-							Name:      "review_skills",
+							Name:      toolNameSkills,
 							Arguments: map[string]any{"action": "create", "name": "a"},
 						},
 						ai.ToolCall{
-							Name:      "review_memory",
+							Name:      toolNameMemory,
 							Arguments: map[string]any{"action": "update", "content": "notes"},
 						},
 					},

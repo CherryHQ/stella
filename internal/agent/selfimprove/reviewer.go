@@ -10,10 +10,22 @@ import (
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
+// Tool name constants used by the review agent.
+const (
+	toolNameSkills = "skills"
+	toolNameMemory = "review_memory"
+)
+
 // ReviewResult holds the outcome of a single conversation review.
 type ReviewResult struct {
 	SkillsMutated int  // number of skills created or patched
 	MemoryUpdated bool // whether user memory was updated
+}
+
+// reviewTool is the interface shared by the skills tool and memory tool.
+type reviewTool interface {
+	Definition() toolspec.Definition
+	Execute(ctx context.Context, args map[string]any) (string, error)
 }
 
 // Reviewer runs the review agent against a single conversation to extract
@@ -30,8 +42,8 @@ type Reviewer struct {
 type ReviewerConfig struct {
 	Providers      ai.ProviderGetter
 	Model          ai.Model
-	SkillsTool     *ReviewSkillsTool
-	MemoryTool     *ReviewMemoryTool // nil if memory review is not available
+	SkillsTool     reviewTool // skills.SkillsTool or equivalent
+	MemoryTool     reviewTool // nil if memory review is not available
 	ExistingSkills []string
 }
 
@@ -67,11 +79,6 @@ func NewReviewer(cfg ReviewerConfig) *Reviewer {
 	}
 }
 
-// reviewTool is the interface shared by ReviewSkillsTool and ReviewMemoryTool.
-type reviewTool interface {
-	Execute(ctx context.Context, args map[string]any) (string, error)
-}
-
 func wrapTool(t reviewTool) engine.ToolFunc {
 	return func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
 		args := call.Arguments
@@ -87,7 +94,6 @@ func wrapTool(t reviewTool) engine.ToolFunc {
 }
 
 // Review runs the review agent on a conversation transcript.
-// Returns a ReviewResult indicating what was saved.
 func (r *Reviewer) Review(ctx context.Context, conversationText string) (ReviewResult, error) {
 	eng := &engine.Engine{Providers: r.providers}
 
@@ -126,11 +132,11 @@ func countMutations(messages []ai.Message) ReviewResult {
 			}
 			action, _ := call.Arguments["action"].(string)
 			switch call.Name {
-			case "review_skills":
+			case toolNameSkills:
 				if action == "create" || action == "patch" {
 					r.SkillsMutated++
 				}
-			case "review_memory":
+			case toolNameMemory:
 				if action == "update" {
 					r.MemoryUpdated = true
 				}

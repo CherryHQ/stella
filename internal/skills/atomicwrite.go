@@ -11,9 +11,9 @@ import (
 // from multiple review goroutines or user actions.
 var skillWriteMu sync.Mutex
 
-// AtomicWriteFile writes data to path atomically by writing to a temporary file
+// atomicWriteFile writes data to path atomically by writing to a temporary file
 // in the same directory and renaming it. The parent directory is created if needed.
-func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create parent dir: %w", err)
