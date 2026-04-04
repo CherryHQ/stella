@@ -366,8 +366,17 @@ func TestSnapshot(t *testing.T) {
 
 	_ = store.SetSetting(ctx, "runner", `{"type":"go","idle_timeout":30}`)
 	_ = store.SetSetting(ctx, "compaction", `{"enabled":true}`)
-	_ = store.SetSetting(ctx, "plugins", `[{"path":"/tmp/example.js","config":{"mode":"test"}}]`)
-	_ = store.SetSetting(ctx, "runtime_plugins", `{"tools":{"read":"tool/custom-read"},"channels":{"telegram":"channel/custom-telegram"}}`)
+
+	// Seed plugins so Snapshot can load them.
+	_ = store.SeedDefaults(ctx)
+	// Add a custom plugin to verify it appears in the snapshot.
+	_ = store.UpsertPlugin(ctx, Plugin{
+		ID:      "tool/custom",
+		Kind:    PluginKindTool,
+		Name:    "custom",
+		Enabled: true,
+		Config:  map[string]any{"mode": "test"},
+	})
 
 	snap, err := store.Snapshot(ctx, "anna")
 	if err != nil {
@@ -395,14 +404,20 @@ func TestSnapshot(t *testing.T) {
 	if snap.Runner.IdleTimeout != 30 {
 		t.Errorf("Runner.IdleTimeout = %d", snap.Runner.IdleTimeout)
 	}
-	if len(snap.Plugins) != 1 || snap.Plugins[0].Path != "/tmp/example.js" {
-		t.Errorf("Plugins = %+v", snap.Plugins)
+	// 9 built-in + 1 custom plugin.
+	if len(snap.Plugins) != 10 {
+		t.Errorf("expected 10 plugins, got %d", len(snap.Plugins))
 	}
-	if got := snap.RuntimePlugins.ToolBinding("read"); got != "tool/custom-read" {
-		t.Errorf("RuntimePlugins.ToolBinding(read) = %q", got)
+	// Verify custom plugin is present.
+	found := false
+	for _, p := range snap.Plugins {
+		if p.ID == "tool/custom" && p.Config["mode"] == "test" {
+			found = true
+			break
+		}
 	}
-	if got := snap.RuntimePlugins.ChannelBinding("telegram"); got != "channel/custom-telegram" {
-		t.Errorf("RuntimePlugins.ChannelBinding(telegram) = %q", got)
+	if !found {
+		t.Error("custom plugin not found in snapshot")
 	}
 }
 

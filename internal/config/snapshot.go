@@ -34,8 +34,7 @@ type Snapshot struct {
 	Heartbeat      HeartbeatConfig
 	Scheduler      SchedulerConfig
 	SelfImprove    SelfImproveConfig
-	Plugins        []PluginConfig
-	RuntimePlugins RuntimePluginBindings
+	Plugins []Plugin
 
 	// Providers maps provider ID to credentials, enabling per-tier provider
 	// resolution when model_strong or model_fast use a different provider.
