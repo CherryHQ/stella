@@ -3,10 +3,10 @@ package tool
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/internal/toolspec"
+	"log/slog"
 )
 
 // Tool is a built-in tool that can be executed by the Go runner.

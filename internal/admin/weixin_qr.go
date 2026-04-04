@@ -7,8 +7,8 @@ import (
 
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
-	"github.com/vaayne/anna/plugins/channels/weixin"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/plugins/channels/weixin"
 )
 
 // startWeixinQR initiates the WeChat QR login flow by requesting a QR code

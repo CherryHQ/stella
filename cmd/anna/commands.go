@@ -123,15 +123,22 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		memorytool.NewMemoryTool(memoryEngine, userMemoryStore),
 	)
 
-	// Check if webfetch plugin is enabled.
-	webfetchPlugin, err := store.GetPlugin(parent, config.PluginID(config.PluginKindTool, "webfetch"))
-	if err == nil && webfetchPlugin.Enabled {
-		sharedTools = append(sharedTools, webfetch.New())
+	// Plugin tools builder: reads tool plugin state from the store and returns
+	// the corresponding tools. Called at startup and on hot-reload.
+	pluginToolsBuilder := func(ctx context.Context) []agenttool.Tool {
+		var tools []agenttool.Tool
+		p, err := store.GetPlugin(ctx, config.PluginID(config.PluginKindTool, "webfetch"))
+		if err == nil && p.Enabled {
+			tools = append(tools, webfetch.New())
+		}
+		return tools
 	}
 
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
 
-	// Create PoolManager with shared tools and options.
+	// Create PoolManager with shared tools and plugin builder.
+	// WithSharedExtraTools sets the always-on core tools (scheduler, memory).
+	// WithPluginToolsBuilder provides the function for hot-reloadable plugin tools.
 	poolMgr := agent.NewPoolManager(store, memoryEngine,
 		agent.WithIdleTimeoutPM(idleTimeout),
 		agent.WithCompactionPM(agent.CompactionConfig{
@@ -139,6 +146,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			KeepTail:  snap.Runner.Compaction.KeepTail,
 		}.WithDefaults()),
 		agent.WithSharedExtraTools(sharedTools),
+		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 	)
 
 	if err := poolMgr.StartAll(ctx); err != nil {

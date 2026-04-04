@@ -38,5 +38,11 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 	if p.Kind == config.PluginKindChannel && !req.Enabled {
 		s.stopChannel(p.Name)
 	}
+	// Hot-reload tool plugins so the change takes effect without restart.
+	if p.Kind == config.PluginKindTool && s.poolManager != nil {
+		if err := s.poolManager.ReloadPluginTools(r.Context()); err != nil {
+			s.log.Error("failed to reload plugin tools", "plugin", id, "error", err)
+		}
+	}
 	writeData(w, http.StatusOK, p)
 }

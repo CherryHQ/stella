@@ -77,7 +77,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 
 	// Admin server is always created so channel stop functions can be registered
 	// even when the panel is disabled.
-	adminSrv := admin.New(s.store, as, engine, s.mem, s.db, linkCodes)
+	adminSrv := admin.New(s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager)
 
 	// Start admin panel server.
 	if adminPort > 0 {

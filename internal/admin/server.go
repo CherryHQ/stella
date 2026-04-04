@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/db/sqlc"
@@ -22,6 +23,7 @@ type Server struct {
 	rateLimiter *auth.RateLimiter
 	linkCodes   *auth.LinkCodeStore
 	mem         memory.Engine
+	poolManager *agent.PoolManager
 	db          *sql.DB
 	q           *sqlc.Queries
 	mux         *http.ServeMux
@@ -35,7 +37,7 @@ type Server struct {
 // New creates an admin server with all API routes mounted.
 // The linkCodes store is shared with channel bots so codes generated in the
 // admin panel can be consumed by channel handlers.
-func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Engine, db *sql.DB, linkCodes *auth.LinkCodeStore) *Server {
+func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Engine, db *sql.DB, linkCodes *auth.LinkCodeStore, poolManager *agent.PoolManager) *Server {
 	// Read CORS origin once at startup.
 	corsOrigin := "http://localhost:8080"
 	if val, err := store.GetSetting(context.Background(), "admin.cors_origin"); err == nil && val != "" {
@@ -49,6 +51,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 		rateLimiter: auth.NewRateLimiter(),
 		linkCodes:   linkCodes,
 		mem:         mem,
+		poolManager: poolManager,
 		db:          db,
 		q:           sqlc.New(db),
 		mux:         http.NewServeMux(),

@@ -50,7 +50,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	}
 
 	mem := memory.NewEngineFromDB(db, nil)
-	srv := admin.New(store, as, engine, mem, db, auth.NewLinkCodeStore())
+	srv := admin.New(store, as, engine, mem, db, auth.NewLinkCodeStore(), nil)
 
 	// Create an admin user for authenticated requests.
 	hash, _ := auth.HashPassword("testpassword")
