@@ -1,15 +1,6 @@
 package tool
 
-import (
-	"fmt"
-	"os"
-
-	"github.com/vaayne/anna/internal/pluginapi"
-	"github.com/vaayne/anna/internal/pluginhost"
-	"github.com/vaayne/anna/internal/toolspec"
-)
-
-const builtinPluginVersion = "1.0.0"
+import "fmt"
 
 var builtinToolNames = []string{"read", "bash", "edit", "write", "webfetch"}
 
@@ -19,27 +10,9 @@ func BuiltinToolNames() []string {
 	return names
 }
 
-func BuiltinToolDefinitions(workDir, userDataDir string) []pluginhost.Definition {
-	defs := make([]pluginhost.Definition, 0, len(builtinToolNames))
-	for _, name := range builtinToolNames {
-		def, _, err := BuiltinToolPlugin(name, workDir, userDataDir)
-		if err != nil {
-			continue
-		}
-		defs = append(defs, def)
-	}
-	return defs
-}
-
-// BuiltinToolPlugin builds both the subprocess manifest and the local runtime
-// tool for a built-in tool name.
-func BuiltinToolPlugin(name, workDir, userDataDir string) (pluginhost.Definition, Tool, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = ""
-	}
-	var runtime Tool
-	var def toolspec.Definition
+// BuiltinToolRuntime returns the local Go runtime for a built-in tool.
+// This is used by the subprocess entry-point (anna-plugin) to execute tools.
+func BuiltinToolRuntime(name, workDir, userDataDir string) (Tool, error) {
 	var sandbox string
 	bashDir := workDir
 	if userDataDir != "" {
@@ -49,61 +22,16 @@ func BuiltinToolPlugin(name, workDir, userDataDir string) (pluginhost.Definition
 
 	switch name {
 	case "read":
-		runtime = wrapWithSandbox(&ReadTool{}, sandbox, "file_path")
-		def = runtime.Definition()
+		return wrapWithSandbox(&ReadTool{}, sandbox, "file_path"), nil
 	case "bash":
-		runtime = &BashTool{workDir: bashDir}
-		def = runtime.Definition()
+		return &BashTool{workDir: bashDir}, nil
 	case "edit":
-		runtime = wrapWithSandbox(&EditTool{}, sandbox, "file_path")
-		def = runtime.Definition()
+		return wrapWithSandbox(&EditTool{}, sandbox, "file_path"), nil
 	case "write":
-		runtime = wrapWithSandbox(&WriteTool{}, sandbox, "file_path")
-		def = runtime.Definition()
+		return wrapWithSandbox(&WriteTool{}, sandbox, "file_path"), nil
 	case "webfetch":
-		runtime = NewWebFetchTool()
-		def = runtime.Definition()
+		return NewWebFetchTool(), nil
 	default:
-		return pluginhost.Definition{}, nil, fmt.Errorf("unknown builtin tool plugin: %s", name)
-	}
-
-	manifest := pluginapi.Manifest{
-		Name:            name,
-		Version:         builtinPluginVersion,
-		Kind:            pluginapi.KindTool,
-		ProtocolVersion: pluginapi.ProtocolVersion,
-		Entrypoint:      pluginhost.BuiltinEntrypoint,
-		Args: []string{
-			"tool",
-			name,
-			"--work-dir",
-			workDir,
-		},
-		Capabilities: []pluginapi.Capability{
-			pluginapi.CapabilityToolCall,
-			pluginapi.CapabilityHealthCheck,
-			pluginapi.CapabilityGracefulShutdown,
-		},
-		Tool: toolSpecFrom(def),
-		Metadata: map[string]any{
-			"work_dir":      workDir,
-			"user_data_dir": userDataDir,
-		},
-	}
-	if userDataDir != "" {
-		manifest.Args = append(manifest.Args, "--user-data-dir", userDataDir)
-	}
-
-	return pluginhost.Definition{
-		Manifest: manifest,
-		RootDir:  cwd,
-	}, runtime, nil
-}
-
-func toolSpecFrom(def toolspec.Definition) *pluginapi.ToolSpec {
-	return &pluginapi.ToolSpec{
-		Name:        def.Name,
-		Description: def.Description,
-		InputSchema: def.InputSchema,
+		return nil, fmt.Errorf("unknown builtin tool: %s", name)
 	}
 }

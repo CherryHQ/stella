@@ -55,9 +55,22 @@ func buildChannelPlugin(name, workDir, userDataDir string) (pluginhost.Definitio
 		return pluginhost.Definition{}, channelPluginRuntime{}, err
 	}
 
-	def, err := channelplugin.BuiltinChannelDefinition(name, workDir, userDataDir)
-	if err != nil {
-		return pluginhost.Definition{}, channelPluginRuntime{}, err
+	def := pluginhost.Definition{
+		Manifest: pluginapi.Manifest{
+			Name:            name,
+			Version:         "1.0.0",
+			Kind:            pluginapi.KindChannel,
+			ProtocolVersion: pluginapi.ProtocolVersion,
+			Entrypoint:      pluginhost.BuiltinEntrypoint,
+			Capabilities: []pluginapi.Capability{
+				pluginapi.CapabilityChannelStart,
+				pluginapi.CapabilityChannelStop,
+				pluginapi.CapabilityChannelNotify,
+				pluginapi.CapabilityChannelInbound,
+				pluginapi.CapabilityHealthCheck,
+				pluginapi.CapabilityGracefulShutdown,
+			},
+		},
 	}
 
 	switch name {

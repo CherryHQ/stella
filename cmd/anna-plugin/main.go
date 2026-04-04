@@ -8,6 +8,7 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 	agenttool "github.com/vaayne/anna/internal/agent/tool"
+	"github.com/vaayne/anna/internal/pluginapi"
 	"github.com/vaayne/anna/internal/pluginhost"
 )
 
@@ -75,9 +76,30 @@ func toolCommand() *ucli.Command {
 			workDir := firstNonEmpty(c.String("work-dir"), flags["work-dir"], os.Getenv("ANNA_PLUGIN_WORKDIR"))
 			userDataDir := firstNonEmpty(c.String("user-data-dir"), flags["user-data-dir"], os.Getenv("ANNA_PLUGIN_USER_DATA_DIR"))
 
-			def, runtime, err := agenttool.BuiltinToolPlugin(name, workDir, userDataDir)
+			runtime, err := agenttool.BuiltinToolRuntime(name, workDir, userDataDir)
 			if err != nil {
 				return err
+			}
+
+			toolDef := runtime.Definition()
+			def := pluginhost.Definition{
+				Manifest: pluginapi.Manifest{
+					Name:            name,
+					Version:         "1.0.0",
+					Kind:            pluginapi.KindTool,
+					ProtocolVersion: pluginapi.ProtocolVersion,
+					Entrypoint:      pluginhost.BuiltinEntrypoint,
+					Capabilities: []pluginapi.Capability{
+						pluginapi.CapabilityToolCall,
+						pluginapi.CapabilityHealthCheck,
+						pluginapi.CapabilityGracefulShutdown,
+					},
+					Tool: &pluginapi.ToolSpec{
+						Name:        toolDef.Name,
+						Description: toolDef.Description,
+						InputSchema: toolDef.InputSchema,
+					},
+				},
 			}
 
 			return pluginhost.ServeTool(c.Context, def, runtime, os.Stdin, os.Stdout)

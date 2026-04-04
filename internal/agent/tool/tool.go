@@ -42,11 +42,18 @@ func NewRegistry(workDir string, userDataDir ...string) *Registry {
 	if len(userDataDir) > 0 {
 		sandbox = userDataDir[0]
 	}
+	// Fallback: load catalog from disk and wire tools directly.
+	catalog, catalogErr := LoadCatalog(workDir, sandbox)
+	if catalogErr != nil {
+		slog.Warn("fallback catalog load also failed", "error", catalogErr)
+		return &Registry{tools: make(map[string]Tool)}
+	}
 	fallback := &Registry{tools: make(map[string]Tool)}
 	for _, name := range BuiltinToolNames() {
-		def, _, toolErr := BuiltinToolPlugin(name, workDir, sandbox)
-		if toolErr != nil {
-			slog.Warn("failed to configure fallback builtin tool plugin", "tool", name, "error", toolErr)
+		pluginID := string(pluginapi.KindTool) + "/" + name
+		def, ok := catalog.Get(pluginID)
+		if !ok {
+			slog.Warn("fallback tool not found in catalog", "tool", name)
 			continue
 		}
 		t := newPluginTool(def)
@@ -165,9 +172,6 @@ func LoadCatalog(workDir, userDataDir string) (*pluginhost.Catalog, error) {
 
 	catalog, err := pluginhost.Discover(roots...)
 	if err != nil {
-		return nil, err
-	}
-	if err := catalog.Merge(BuiltinToolDefinitions(workDir, userDataDir)...); err != nil {
 		return nil, err
 	}
 	return catalog, nil
