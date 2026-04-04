@@ -5,19 +5,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sync"
 )
 
-var ensurePluginsOnce sync.Once
-
 // EnsurePlugins extracts all embedded plugin manifests to annaHome/plugins/bundled/.
-// Each manifest is written to {kind}/{name}/plugin.json. Safe for concurrent calls.
+// Each manifest is written to {kind}/{name}/plugin.json.
+// Unlike EnsureTools, this always overwrites since JSON manifests are small and
+// the destination may change (e.g. different ANNA_HOME in tests).
 func EnsurePlugins(annaHome string) error {
-	var err error
-	ensurePluginsOnce.Do(func() {
-		err = extractPlugins(filepath.Join(annaHome, "plugins", "bundled"))
-	})
-	return err
+	return extractPlugins(filepath.Join(annaHome, "plugins", "bundled"))
 }
 
 func extractPlugins(destDir string) error {

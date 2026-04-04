@@ -51,7 +51,7 @@ func loadRuntimeChannelCatalog(workDir, userDataDir string) (*pluginhost.Catalog
 	return catalog, nil
 }
 
-func resolveChannelPluginDefinition(catalog *pluginhost.Catalog, bindings config.RuntimePluginBindings, name string) (pluginhost.Definition, error) {
+func resolveChannelPluginDefinition(catalog *pluginhost.Catalog, bindings config.RuntimePluginBindings, name, workDir, userDataDir string) (pluginhost.Definition, error) {
 	id := bindings.ChannelBinding(name)
 	def, ok := catalog.Get(id)
 	if !ok {
@@ -59,6 +59,20 @@ func resolveChannelPluginDefinition(catalog *pluginhost.Catalog, bindings config
 	}
 	if def.Manifest.Kind != pluginapi.KindChannel {
 		return pluginhost.Definition{}, fmt.Errorf("channel %s bound to non-channel plugin %s", name, id)
+	}
+	// Inject runtime-specific args and metadata for subprocess plugins.
+	if def.Manifest.Entrypoint == pluginhost.BuiltinEntrypoint {
+		if workDir != "" {
+			def.Manifest.Args = append(def.Manifest.Args, "--work-dir", workDir)
+		}
+		if userDataDir != "" {
+			def.Manifest.Args = append(def.Manifest.Args, "--user-data-dir", userDataDir)
+		}
+		if def.Manifest.Metadata == nil {
+			def.Manifest.Metadata = make(map[string]any)
+		}
+		def.Manifest.Metadata["work_dir"] = workDir
+		def.Manifest.Metadata["user_data_dir"] = userDataDir
 	}
 	return def, nil
 }

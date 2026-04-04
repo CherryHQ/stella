@@ -26,7 +26,7 @@ func TestResolveChannelPluginDefinitionUsesRuntimeBinding(t *testing.T) {
 	bindings := config.DefaultRuntimePluginBindings()
 	bindings.Channels["telegram"] = "channel/replacement-telegram"
 
-	def, err := resolveChannelPluginDefinition(catalog, bindings, "telegram")
+	def, err := resolveChannelPluginDefinition(catalog, bindings, "telegram", "", "")
 	if err != nil {
 		t.Fatalf("resolveChannelPluginDefinition: %v", err)
 	}

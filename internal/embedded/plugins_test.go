@@ -3,14 +3,12 @@ package embedded
 import (
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"github.com/vaayne/anna/internal/pluginhost"
 )
 
 func TestEnsurePlugins(t *testing.T) {
-	ensurePluginsOnce = sync.Once{}
 	dest := t.TempDir()
 
 	if err := EnsurePlugins(dest); err != nil {
@@ -76,15 +74,12 @@ func TestEnsurePlugins(t *testing.T) {
 }
 
 func TestEnsurePluginsIdempotent(t *testing.T) {
-	ensurePluginsOnce = sync.Once{}
 	dest := t.TempDir()
 
 	if err := EnsurePlugins(dest); err != nil {
 		t.Fatal(err)
 	}
-
-	// Reset once to allow second call.
-	ensurePluginsOnce = sync.Once{}
+	// Second call should succeed (overwrites are fine).
 	if err := EnsurePlugins(dest); err != nil {
 		t.Fatal(err)
 	}

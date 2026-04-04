@@ -134,7 +134,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 	}
 
 	for _, spec := range specs {
-		def, err := resolveChannelPluginDefinition(catalog, s.snap.RuntimePlugins, spec.name)
+		def, err := resolveChannelPluginDefinition(catalog, s.snap.RuntimePlugins, spec.name, s.snap.Workspace, config.AnnaHome())
 		if err != nil {
 			return err
 		}

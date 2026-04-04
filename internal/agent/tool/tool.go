@@ -56,6 +56,7 @@ func NewRegistry(workDir string, userDataDir ...string) *Registry {
 			slog.Warn("fallback tool not found in catalog", "tool", name)
 			continue
 		}
+		def = augmentDefinition(def, workDir, sandbox)
 		t := newPluginTool(def)
 		switch name {
 		case "read", "edit", "write":
@@ -100,6 +101,7 @@ func NewRegistryWithBindings(workDir string, bindings config.RuntimePluginBindin
 			return nil, fmt.Errorf("tool %s bound to plugin %s exposing tool %q", name, pluginID, toolName(def))
 		}
 
+		def = augmentDefinition(def, workDir, sandbox)
 		t := newPluginTool(def)
 		switch name {
 		case "read", "edit", "write":

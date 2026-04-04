@@ -1,6 +1,10 @@
 package tool
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/vaayne/anna/internal/pluginhost"
+)
 
 var builtinToolNames = []string{"read", "bash", "edit", "write", "webfetch"}
 
@@ -8,6 +12,22 @@ func BuiltinToolNames() []string {
 	names := make([]string, len(builtinToolNames))
 	copy(names, builtinToolNames)
 	return names
+}
+
+// augmentDefinition injects runtime-specific args and metadata into a catalog
+// definition loaded from disk. This adds --work-dir, --user-data-dir flags
+// and corresponding metadata that the subprocess plugin host uses.
+func augmentDefinition(def pluginhost.Definition, workDir, userDataDir string) pluginhost.Definition {
+	def.Manifest.Args = append(def.Manifest.Args, "--work-dir", workDir)
+	if def.Manifest.Metadata == nil {
+		def.Manifest.Metadata = make(map[string]any)
+	}
+	def.Manifest.Metadata["work_dir"] = workDir
+	def.Manifest.Metadata["user_data_dir"] = userDataDir
+	if userDataDir != "" {
+		def.Manifest.Args = append(def.Manifest.Args, "--user-data-dir", userDataDir)
+	}
+	return def
 }
 
 // BuiltinToolRuntime returns the local Go runtime for a built-in tool.
