@@ -516,6 +516,71 @@ func (s *DBStore) SeedDefaults(ctx context.Context) error {
 		}
 	}
 
+	// Seed plugins: migrate existing channels and seed all built-ins.
+	if err := s.seedPlugins(ctx); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// seedPlugins migrates settings_channels rows into settings_plugins and
+// seeds all 9 built-in plugin entries. It is idempotent: existing rows
+// are preserved via INSERT OR IGNORE.
+func (s *DBStore) seedPlugins(ctx context.Context) error {
+	// Check if any plugins already exist (skip channel migration if so).
+	existing, err := s.q.ListPlugins(ctx)
+	if err != nil {
+		return fmt.Errorf("seed: list plugins: %w", err)
+	}
+
+	if len(existing) == 0 {
+		// Migrate settings_channels → settings_plugins.
+		channels, err := s.q.ListChannels(ctx)
+		if err != nil {
+			return fmt.Errorf("seed: list channels for migration: %w", err)
+		}
+		for _, ch := range channels {
+			err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
+				ID:      PluginID(PluginKindChannel, ch.ID),
+				Kind:    PluginKindChannel,
+				Name:    ch.ID,
+				Enabled: ch.Enabled,
+				Config:  ch.Config,
+			})
+			if err != nil {
+				return fmt.Errorf("seed: migrate channel %q: %w", ch.ID, err)
+			}
+		}
+	}
+
+	// Seed all 9 built-in plugins with INSERT OR IGNORE to preserve
+	// user-modified state.
+	for _, name := range builtinToolNames {
+		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
+			ID:      PluginID(PluginKindTool, name),
+			Kind:    PluginKindTool,
+			Name:    name,
+			Enabled: 1,
+			Config:  "{}",
+		})
+		if err != nil {
+			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindTool, name, err)
+		}
+	}
+	for _, name := range builtinChannelNames {
+		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
+			ID:      PluginID(PluginKindChannel, name),
+			Kind:    PluginKindChannel,
+			Name:    name,
+			Enabled: 1,
+			Config:  "{}",
+		})
+		if err != nil {
+			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindChannel, name, err)
+		}
+	}
+
 	return nil
 }
 
