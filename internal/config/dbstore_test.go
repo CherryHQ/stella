@@ -404,9 +404,9 @@ func TestSnapshot(t *testing.T) {
 	if snap.Runner.IdleTimeout != 30 {
 		t.Errorf("Runner.IdleTimeout = %d", snap.Runner.IdleTimeout)
 	}
-	// 9 built-in + 1 custom plugin.
-	if len(snap.Plugins) != 10 {
-		t.Errorf("expected 10 plugins, got %d", len(snap.Plugins))
+	// 5 built-in + 1 custom plugin.
+	if len(snap.Plugins) != 6 {
+		t.Errorf("expected 6 plugins, got %d", len(snap.Plugins))
 	}
 	// Verify custom plugin is present.
 	found := false
@@ -567,8 +567,8 @@ func TestPluginSeedDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListPlugins: %v", err)
 	}
-	if len(plugins) != 9 {
-		t.Fatalf("expected 9 built-in plugins, got %d", len(plugins))
+	if len(plugins) != 5 {
+		t.Fatalf("expected 5 built-in plugins, got %d", len(plugins))
 	}
 
 	// Verify all built-in IDs are present.
@@ -592,7 +592,7 @@ func TestPluginSeedDefaultsIdempotent(t *testing.T) {
 	}
 
 	// User modifies a plugin.
-	if err := store.SetPluginEnabled(ctx, "tool/read", false); err != nil {
+	if err := store.SetPluginEnabled(ctx, "tool/webfetch", false); err != nil {
 		t.Fatalf("SetPluginEnabled: %v", err)
 	}
 	if err := store.SetPluginConfig(ctx, "channel/telegram", map[string]any{"token": "abc"}); err != nil {
@@ -608,17 +608,17 @@ func TestPluginSeedDefaultsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListPlugins: %v", err)
 	}
-	if len(plugins) != 9 {
-		t.Errorf("expected 9 plugins after double seed, got %d", len(plugins))
+	if len(plugins) != 5 {
+		t.Errorf("expected 5 plugins after double seed, got %d", len(plugins))
 	}
 
 	// Verify user changes preserved.
-	readPlugin, err := store.GetPlugin(ctx, "tool/read")
+	webfetchPlugin, err := store.GetPlugin(ctx, "tool/webfetch")
 	if err != nil {
 		t.Fatalf("GetPlugin: %v", err)
 	}
-	if readPlugin.Enabled {
-		t.Error("expected tool/read to remain disabled after second seed")
+	if webfetchPlugin.Enabled {
+		t.Error("expected tool/webfetch to remain disabled after second seed")
 	}
 
 	tgPlugin, err := store.GetPlugin(ctx, "channel/telegram")

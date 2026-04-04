@@ -528,8 +528,8 @@ func (s *DBStore) SeedDefaults(ctx context.Context) error {
 }
 
 // seedPlugins migrates settings_channels rows into settings_plugins and
-// seeds all 9 built-in plugin entries. It is idempotent: existing rows
-// are preserved via INSERT OR IGNORE.
+// seeds all 5 built-in plugin entries (1 tool + 4 channels). It is
+// idempotent: existing rows are preserved via INSERT OR IGNORE.
 func (s *DBStore) seedPlugins(ctx context.Context) error {
 	// Check if any plugins already exist (skip channel migration if so).
 	existing, err := s.q.ListPlugins(ctx)
@@ -557,7 +557,7 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 		}
 	}
 
-	// Seed all 9 built-in plugins with INSERT OR IGNORE to preserve
+	// Seed all 5 built-in plugins with INSERT OR IGNORE to preserve
 	// user-modified state.
 	for _, name := range builtinToolNames {
 		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{

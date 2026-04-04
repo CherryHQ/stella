@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	ucli "github.com/urfave/cli/v2"
@@ -18,8 +16,6 @@ func pluginCommand() *ucli.Command {
 		Usage: "Manage plugins",
 		Subcommands: []*ucli.Command{
 			pluginListCommand(),
-			pluginAddCommand(),
-			pluginRemoveCommand(),
 			pluginEnableCommand(),
 			pluginDisableCommand(),
 			pluginConfigCommand(),
@@ -75,124 +71,6 @@ func pluginListAction(c *ucli.Context) error {
 	for _, p := range plugins {
 		fmt.Printf("%-24s %-10s %-8s %s\n", p.ID, p.Kind, yesNo(p.Enabled), truncateJSON(p.Config, 40))
 	}
-	return nil
-}
-
-// --- add ---
-
-func pluginAddCommand() *ucli.Command {
-	return &ucli.Command{
-		Name:      "add",
-		Usage:     "Add a plugin from a local directory",
-		ArgsUsage: "<path>",
-		Action:    pluginAddAction,
-	}
-}
-
-func pluginAddAction(c *ucli.Context) error {
-	srcPath := c.Args().First()
-	if srcPath == "" {
-		return fmt.Errorf("usage: anna plugin add <path>")
-	}
-
-	srcPath, err := filepath.Abs(srcPath)
-	if err != nil {
-		return fmt.Errorf("resolve path: %w", err)
-	}
-
-	manifest, err := loadPluginManifest(srcPath)
-	if err != nil {
-		return err
-	}
-
-	kind, ok := manifest["kind"].(string)
-	if !ok || kind == "" {
-		return fmt.Errorf("plugin.json missing required field \"kind\"")
-	}
-	name, ok := manifest["name"].(string)
-	if !ok || name == "" {
-		return fmt.Errorf("plugin.json missing required field \"name\"")
-	}
-
-	if kind != config.PluginKindTool && kind != config.PluginKindChannel {
-		return fmt.Errorf("invalid plugin kind %q, must be %q or %q", kind, config.PluginKindTool, config.PluginKindChannel)
-	}
-	if strings.Contains(name, "/") || strings.Contains(name, "..") {
-		return fmt.Errorf("invalid plugin name %q: must not contain \"/\" or \"..\"", name)
-	}
-
-	// Copy to installed plugins directory.
-	destDir := filepath.Join(config.InstalledPluginsPath(), kind, name)
-	if err := copyDir(srcPath, destDir); err != nil {
-		return fmt.Errorf("copy plugin: %w", err)
-	}
-
-	// Upsert DB row.
-	store, err := openStore()
-	if err != nil {
-		return err
-	}
-
-	pluginID := config.PluginID(kind, name)
-	if err := store.UpsertPlugin(context.Background(), config.Plugin{
-		ID:      pluginID,
-		Kind:    kind,
-		Name:    name,
-		Enabled: true,
-		Config:  map[string]any{},
-	}); err != nil {
-		return fmt.Errorf("upsert plugin: %w", err)
-	}
-
-	fmt.Printf("Plugin %q added and enabled.\n", pluginID)
-	return nil
-}
-
-// --- remove ---
-
-func pluginRemoveCommand() *ucli.Command {
-	return &ucli.Command{
-		Name:      "remove",
-		Aliases:   []string{"rm"},
-		Usage:     "Remove an installed plugin",
-		ArgsUsage: "<id>",
-		Action:    pluginRemoveAction,
-	}
-}
-
-func pluginRemoveAction(c *ucli.Context) error {
-	id := c.Args().First()
-	if id == "" {
-		return fmt.Errorf("usage: anna plugin remove <id>")
-	}
-
-	if isBuiltinPlugin(id) {
-		return fmt.Errorf("cannot remove built-in plugin %q", id)
-	}
-
-	store, err := openStore()
-	if err != nil {
-		return err
-	}
-
-	ctx := context.Background()
-	p, err := store.GetPlugin(ctx, id)
-	if err != nil {
-		return fmt.Errorf("plugin %q not found", id)
-	}
-
-	// Delete from DB.
-	if err := store.DeletePlugin(ctx, id); err != nil {
-		return fmt.Errorf("delete plugin: %w", err)
-	}
-
-	// Remove from filesystem.
-	installDir := filepath.Join(config.InstalledPluginsPath(), p.Kind, p.Name)
-	if err := os.RemoveAll(installDir); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to remove plugin directory %s: %v\n", installDir, err)
-	}
-
-	fmt.Printf("Plugin %q removed.\n", id)
 	return nil
 }
 
@@ -333,15 +211,6 @@ func truncateJSON(m map[string]any, maxLen int) string {
 	return s
 }
 
-func isBuiltinPlugin(id string) bool {
-	for _, bid := range config.BuiltinPluginIDs() {
-		if bid == id {
-			return true
-		}
-	}
-	return false
-}
-
 // parseConfigValue tries JSON first (for numbers, bools, objects), falls back to string.
 func parseConfigValue(raw string) any {
 	var v any
@@ -349,51 +218,4 @@ func parseConfigValue(raw string) any {
 		return v
 	}
 	return raw
-}
-
-// loadPluginManifest reads and validates plugin.json at the given directory.
-func loadPluginManifest(dir string) (map[string]any, error) {
-	manifestPath := filepath.Join(dir, "plugin.json")
-	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		return nil, fmt.Errorf("plugin.json not found at %s: %w", dir, err)
-	}
-	var manifest map[string]any
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		return nil, fmt.Errorf("invalid plugin.json: %w", err)
-	}
-	return manifest, nil
-}
-
-// copyDir copies a directory tree from src to dst.
-func copyDir(src, dst string) error {
-	if err := os.MkdirAll(dst, 0o755); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-		if entry.IsDir() {
-			if err := copyDir(srcPath, dstPath); err != nil {
-				return err
-			}
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		data, err := os.ReadFile(srcPath)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(dstPath, data, info.Mode()); err != nil {
-			return err
-		}
-	}
-	return nil
 }
