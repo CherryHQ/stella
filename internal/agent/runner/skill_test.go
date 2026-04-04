@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -576,6 +577,119 @@ func TestLoadSkillsUserDirEmpty(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected ws-skill")
+	}
+}
+
+func TestNormalizeSkillStatus(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"", SkillStatusActive},
+		{"active", SkillStatusActive},
+		{"Active", SkillStatusActive},
+		{"ACTIVE", SkillStatusActive},
+		{"draft", SkillStatusDraft},
+		{"Draft", SkillStatusDraft},
+		{"deprecated", SkillStatusDeprecated},
+		{"Deprecated", SkillStatusDeprecated},
+		{"  active  ", SkillStatusActive},
+		{"unknown", SkillStatusActive},
+		{"bogus", SkillStatusActive},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("input=%q", tt.input), func(t *testing.T) {
+			got := NormalizeSkillStatus(tt.input)
+			if got != tt.want {
+				t.Errorf("NormalizeSkillStatus(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatSkillsForPromptFiltersDeprecated(t *testing.T) {
+	skills := []Skill{
+		{Name: "active-skill", Description: "Active skill", Status: SkillStatusActive},
+		{Name: "deprecated-skill", Description: "Old skill", Status: SkillStatusDeprecated},
+		{Name: "draft-skill", Description: "Draft skill", Status: SkillStatusDraft},
+	}
+
+	result := FormatSkillsForPrompt(skills)
+
+	if !strings.Contains(result, "active-skill") {
+		t.Error("expected active-skill in output")
+	}
+	if strings.Contains(result, "deprecated-skill") {
+		t.Error("deprecated-skill should be filtered out")
+	}
+	if !strings.Contains(result, "draft-skill") {
+		t.Error("expected draft-skill in output")
+	}
+}
+
+func TestFormatSkillsForPromptIncludesStatusTag(t *testing.T) {
+	skills := []Skill{
+		{Name: "my-skill", Description: "A skill", Status: SkillStatusDraft},
+	}
+
+	result := FormatSkillsForPrompt(skills)
+
+	if !strings.Contains(result, "<status>draft</status>") {
+		t.Error("expected <status>draft</status> in output")
+	}
+}
+
+func TestFormatSkillsForPromptAllDeprecated(t *testing.T) {
+	skills := []Skill{
+		{Name: "old", Description: "Old one", Status: SkillStatusDeprecated},
+	}
+
+	result := FormatSkillsForPrompt(skills)
+	if result != "" {
+		t.Errorf("expected empty output for all-deprecated skills, got %q", result)
+	}
+}
+
+func TestLoadSkillFromFileWithStatus(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "status-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: status-skill\ndescription: Has status\nstatus: draft\ncreated-at: \"2026-04-01T00:00:00Z\"\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	skills := loadSkillsFromDir(dir, "test")
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(skills))
+	}
+	if skills[0].Status != SkillStatusDraft {
+		t.Errorf("expected status 'draft', got %q", skills[0].Status)
+	}
+	if skills[0].CreatedAt != "2026-04-01T00:00:00Z" {
+		t.Errorf("expected created-at, got %q", skills[0].CreatedAt)
+	}
+}
+
+func TestLoadSkillFromFileDefaultStatus(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "no-status")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: no-status\ndescription: No status field\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	skills := loadSkillsFromDir(dir, "test")
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(skills))
+	}
+	if skills[0].Status != SkillStatusActive {
+		t.Errorf("expected default status 'active', got %q", skills[0].Status)
 	}
 }
 
