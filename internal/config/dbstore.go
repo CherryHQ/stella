@@ -203,6 +203,96 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch Channel) error {
 	})
 }
 
+// --- Plugins ---
+
+func (s *DBStore) ListPlugins(ctx context.Context) ([]Plugin, error) {
+	rows, err := s.q.ListPlugins(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list plugins: %w", err)
+	}
+	out := make([]Plugin, len(rows))
+	for i, r := range rows {
+		out[i] = pluginFromDB(r)
+	}
+	return out, nil
+}
+
+func (s *DBStore) ListPluginsByKind(ctx context.Context, kind string) ([]Plugin, error) {
+	rows, err := s.q.ListPluginsByKind(ctx, kind)
+	if err != nil {
+		return nil, fmt.Errorf("list plugins by kind %q: %w", kind, err)
+	}
+	out := make([]Plugin, len(rows))
+	for i, r := range rows {
+		out[i] = pluginFromDB(r)
+	}
+	return out, nil
+}
+
+func (s *DBStore) ListEnabledPlugins(ctx context.Context) ([]Plugin, error) {
+	rows, err := s.q.ListEnabledPlugins(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list enabled plugins: %w", err)
+	}
+	out := make([]Plugin, len(rows))
+	for i, r := range rows {
+		out[i] = pluginFromDB(r)
+	}
+	return out, nil
+}
+
+func (s *DBStore) GetPlugin(ctx context.Context, id string) (Plugin, error) {
+	r, err := s.q.GetPlugin(ctx, id)
+	if err != nil {
+		return Plugin{}, fmt.Errorf("get plugin %q: %w", id, err)
+	}
+	return pluginFromDB(r), nil
+}
+
+func (s *DBStore) UpsertPlugin(ctx context.Context, p Plugin) error {
+	configJSON, err := json.Marshal(p.Config)
+	if err != nil {
+		return fmt.Errorf("marshal plugin config %q: %w", p.ID, err)
+	}
+	enabled := int64(0)
+	if p.Enabled {
+		enabled = 1
+	}
+	return s.q.UpsertPlugin(ctx, sqlc.UpsertPluginParams{
+		ID:      p.ID,
+		Kind:    p.Kind,
+		Name:    p.Name,
+		Enabled: enabled,
+		Config:  string(configJSON),
+	})
+}
+
+func (s *DBStore) SetPluginEnabled(ctx context.Context, id string, enabled bool) error {
+	v := int64(0)
+	if enabled {
+		v = 1
+	}
+	return s.q.UpdatePluginEnabled(ctx, sqlc.UpdatePluginEnabledParams{
+		ID:      id,
+		Enabled: v,
+	})
+}
+
+func (s *DBStore) SetPluginConfig(ctx context.Context, id string, config map[string]any) error {
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("marshal plugin config %q: %w", id, err)
+	}
+	return s.q.UpdatePluginConfig(ctx, sqlc.UpdatePluginConfigParams{
+		ID:     id,
+		Config: string(configJSON),
+	})
+}
+
+func (s *DBStore) DeletePlugin(ctx context.Context, id string) error {
+	return s.q.DeletePlugin(ctx, id)
+}
+
 // --- Chat Agents ---
 
 func (s *DBStore) GetChatAgent(ctx context.Context, platform, chatID string) (string, error) {
@@ -495,6 +585,23 @@ func collectProviderIDs(models ...string) []string {
 		}
 	}
 	return out
+}
+
+func pluginFromDB(r sqlc.SettingsPlugin) Plugin {
+	var cfg map[string]any
+	if r.Config != "" && r.Config != "{}" {
+		_ = json.Unmarshal([]byte(r.Config), &cfg)
+	}
+	if cfg == nil {
+		cfg = make(map[string]any)
+	}
+	return Plugin{
+		ID:      r.ID,
+		Kind:    r.Kind,
+		Name:    r.Name,
+		Enabled: r.Enabled == 1,
+		Config:  cfg,
+	}
 }
 
 func channelFromDB(r sqlc.SettingsChannel) Channel {
