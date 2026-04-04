@@ -404,9 +404,9 @@ func TestSnapshot(t *testing.T) {
 	if snap.Runner.IdleTimeout != 30 {
 		t.Errorf("Runner.IdleTimeout = %d", snap.Runner.IdleTimeout)
 	}
-	// 5 built-in + 1 custom plugin.
-	if len(snap.Plugins) != 6 {
-		t.Errorf("expected 6 plugins, got %d", len(snap.Plugins))
+	// built-in + 1 custom plugin.
+	if len(snap.Plugins) != len(BuiltinPluginIDs())+1 {
+		t.Errorf("expected %d plugins, got %d", len(BuiltinPluginIDs())+1, len(snap.Plugins))
 	}
 	// Verify custom plugin is present.
 	found := false
@@ -567,8 +567,8 @@ func TestPluginSeedDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListPlugins: %v", err)
 	}
-	if len(plugins) != 5 {
-		t.Fatalf("expected 5 built-in plugins, got %d", len(plugins))
+	if len(plugins) != len(BuiltinPluginIDs()) {
+		t.Fatalf("expected %d built-in plugins, got %d", len(BuiltinPluginIDs()), len(plugins))
 	}
 
 	// Verify all built-in IDs are present.
@@ -608,8 +608,8 @@ func TestPluginSeedDefaultsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListPlugins: %v", err)
 	}
-	if len(plugins) != 5 {
-		t.Errorf("expected 5 plugins after double seed, got %d", len(plugins))
+	if len(plugins) != len(BuiltinPluginIDs()) {
+		t.Errorf("expected %d plugins after double seed, got %d", len(BuiltinPluginIDs()), len(plugins))
 	}
 
 	// Verify user changes preserved.
