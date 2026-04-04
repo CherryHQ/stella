@@ -142,7 +142,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	// Try link code before anything else.
 	if b.authStore != nil && b.linkCodes != nil && text != "" {
-		if resp, ok := channel.TryLinkCode(b.ctx, b.authStore, b.linkCodes, text, "feishu", openID, ""); ok {
+		if resp, ok := channel.TryLinkCode(b.ctx, b.authStore, b.linkCodes, text, channel.PlatformFeishu, openID, ""); ok {
 			replyFn(resp)
 			return nil
 		}

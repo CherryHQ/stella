@@ -2,6 +2,15 @@ package channel
 
 import "context"
 
+// Platform identifiers for each messaging channel.
+const (
+	PlatformTelegram = "telegram"
+	PlatformQQ       = "qq"
+	PlatformFeishu   = "feishu"
+	PlatformWeixin   = "weixin"
+	PlatformCLI      = "cli"
+)
+
 // Channel is a messaging platform that receives user messages and sends notifications.
 type Channel interface {
 	// Name returns a unique identifier (e.g. "telegram", "qq").

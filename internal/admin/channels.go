@@ -37,5 +37,8 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if !ch.Enabled {
+		s.stopChannel(platform)
+	}
 	writeData(w, http.StatusOK, ch)
 }

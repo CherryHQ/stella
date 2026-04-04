@@ -87,7 +87,7 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.M
 }
 
 // Name returns the channel name. Implements channel.Channel.
-func (b *Bot) Name() string { return "weixin" }
+func (b *Bot) Name() string { return channel.PlatformWeixin }
 
 // Stop gracefully shuts down the WeChat bot. Implements channel.Channel.
 func (b *Bot) Stop() {
@@ -218,7 +218,7 @@ func (b *Bot) resolve(userID string) (*channel.ResolvedChat, error) {
 		b.store,
 		b.authStore,
 		b.engine,
-		"weixin",
+		channel.PlatformWeixin,
 		userID,
 		"",     // no display name available from iLink
 		userID, // chatID = userID for DM
@@ -228,7 +228,7 @@ func (b *Bot) resolve(userID string) (*channel.ResolvedChat, error) {
 
 // loadCursor loads the get_updates_buf cursor from the DB channel config.
 func (b *Bot) loadCursor() string {
-	ch, err := b.store.GetChannel(context.Background(), "weixin")
+	ch, err := b.store.GetChannel(context.Background(), channel.PlatformWeixin)
 	if err != nil {
 		return ""
 	}
@@ -241,7 +241,7 @@ func (b *Bot) loadCursor() string {
 
 // persistCursor saves the get_updates_buf cursor to the DB channel config.
 func (b *Bot) persistCursor(buf string) {
-	ch, err := b.store.GetChannel(context.Background(), "weixin")
+	ch, err := b.store.GetChannel(context.Background(), channel.PlatformWeixin)
 	if err != nil {
 		logger().Warn("failed to load channel config for cursor persist", "error", err)
 		return
@@ -261,7 +261,7 @@ func (b *Bot) persistCursor(buf string) {
 	}
 
 	if err := b.store.UpsertChannel(context.Background(), config.Channel{
-		ID:      "weixin",
+		ID:      channel.PlatformWeixin,
 		Enabled: ch.Enabled,
 		Config:  string(data),
 	}); err != nil {
@@ -276,7 +276,7 @@ func (b *Bot) clearCredentials() {
 	b.typingTickets = sync.Map{}
 
 	// Clear credentials from DB.
-	ch, err := b.store.GetChannel(context.Background(), "weixin")
+	ch, err := b.store.GetChannel(context.Background(), channel.PlatformWeixin)
 	if err != nil {
 		logger().Warn("failed to load channel config for credential clear", "error", err)
 		return
@@ -299,7 +299,7 @@ func (b *Bot) clearCredentials() {
 	}
 
 	if err := b.store.UpsertChannel(context.Background(), config.Channel{
-		ID:      "weixin",
+		ID:      channel.PlatformWeixin,
 		Enabled: ch.Enabled,
 		Config:  string(data),
 	}); err != nil {
