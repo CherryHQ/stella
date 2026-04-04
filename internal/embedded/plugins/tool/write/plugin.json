@@ -1,0 +1,27 @@
+{
+  "name": "write",
+  "version": "1.0.0",
+  "kind": "tool",
+  "protocol_version": "anna-plugin/v1",
+  "entrypoint": "@anna",
+  "args": ["tool", "write"],
+  "capabilities": ["tool.call", "health.check", "shutdown.graceful"],
+  "tool": {
+    "name": "write",
+    "description": "Create a new file or completely overwrite an existing file with the provided content.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "file_path": {
+          "type": "string",
+          "description": "Path to the file to create or overwrite."
+        },
+        "content": {
+          "type": "string",
+          "description": "The full content to write to the file."
+        }
+      },
+      "required": ["file_path", "content"]
+    }
+  }
+}

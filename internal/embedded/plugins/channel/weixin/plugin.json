@@ -1,0 +1,10 @@
+{
+  "name": "weixin",
+  "version": "1.0.0",
+  "kind": "channel",
+  "protocol_version": "anna-plugin/v1",
+  "entrypoint": "@anna",
+  "args": ["channel", "weixin"],
+  "description": "Weixin channel plugin",
+  "capabilities": ["channel.start", "channel.stop", "channel.notify", "channel.inbound", "health.check", "shutdown.graceful"]
+}
