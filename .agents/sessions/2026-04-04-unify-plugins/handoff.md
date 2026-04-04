@@ -159,3 +159,30 @@
 - The `plugin.go` CLI now shows plugins from the `settings_plugins` table. Phase 5 will rewrite the full plugin CLI.
 - `PluginConfig` (legacy JS plugin config) is fully removed. The new `Plugin` type from Phase 2 is the sole plugin representation.
 - No hook mechanism exists after this phase. If hooks are needed later, they should be re-implemented as part of the new plugin protocol.
+
+## Phase 4: Tool Registry & Channel Gateway Use Unified Plugin Model
+
+**Status:** complete
+
+**Tasks completed:**
+- 4.1: Simplified `LoadCatalog()` signature — removed unused `workDir, userDataDir` params. `NewRegistry()` still takes these for `augmentDefinition()` at runtime.
+- 4.2: Updated `gateway.go` — replaced hardcoded platform iteration (telegram/qq/feishu/weixin) with dynamic `store.ListPluginsByKind(ctx, "channel")` loop. Each enabled channel plugin is validated via `channel.HasValidConfig()` and notify flag checked via `channel.IsNotifyEnabled()`.
+- 4.3: Deleted `loadRuntimeChannelCatalog()` from `channel_plugins.go` — replaced with shared `agenttool.LoadCatalog()` in gateway.go. `resolveChannelPluginDefinition()` kept as-is (clean after Phase 3).
+- 4.4: Updated `LoadConfig[T]` in `internal/channel/config.go` — reads from `settings_plugins` via `store.GetPlugin("channel/<name>")` instead of `store.GetChannel()`. Uses JSON roundtrip (marshal map -> unmarshal typed config).
+- 4.5: Added `HasValidConfig()` and `IsNotifyEnabled()` helpers to `internal/channel/config.go` — encapsulate per-platform credential checks. Remaining `settings_channels` reads (weixin bot cursor, admin panel) are out of scope (Phase 6).
+
+**Files changed:**
+- `internal/agent/tool/tool.go` — `LoadCatalog()` takes no params; internal call updated
+- `cmd/anna/channel_plugins.go` — deleted `loadRuntimeChannelCatalog()`, removed unused imports
+- `cmd/anna/gateway.go` — uses `agenttool.LoadCatalog()`, dynamic `ListPluginsByKind` loop
+- `internal/channel/config.go` — `LoadConfig[T]` reads from `settings_plugins`; added `HasValidConfig()`, `IsNotifyEnabled()`
+
+**Commits:**
+- `12123764` — refactor: channel startup reads from settings_plugins instead of settings_channels
+- `747ce3ac` — chore: gofmt alignment and go mod tidy cleanup
+
+**Decisions & context for next phase:**
+- `LoadConfig[T]` now reads from `settings_plugins` everywhere (both gateway.go and cmd/anna-plugin/channel.go). The subprocess channel runtime also benefits.
+- `settings_channels` is still read by weixin bot internals (cursor persist/clear) and admin panel CRUD. Phase 6 should migrate the admin panel to use `settings_plugins` and remove channel methods from Store.
+- `HasValidConfig`/`IsNotifyEnabled` use switch on platform name — when third-party channel plugins are added, these helpers should be generalized (e.g., via manifest-declared required fields).
+- `go mod tidy` removed `fastschema/qjs` and `tetratelabs/wazero` — leftover deps from the deleted JS plugin system.
