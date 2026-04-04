@@ -1,6 +1,11 @@
 package ai
 
-import "github.com/vaayne/anna/internal/toolspec"
+// ToolDefinition describes a callable tool exposed to a model.
+type ToolDefinition struct {
+	Name        string
+	Description string
+	InputSchema map[string]any
+}
 
 // Api identifies the wire protocol family.
 type Api = string
@@ -82,7 +87,7 @@ type Model struct {
 type Context struct {
 	System   string
 	Messages []Message
-	Tools    []toolspec.Definition
+	Tools    []ToolDefinition
 	Metadata map[string]string
 }
 

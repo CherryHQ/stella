@@ -1,4 +1,4 @@
-package tool
+package tools
 
 import (
 	"bytes"
@@ -12,7 +12,6 @@ import (
 
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
-	"github.com/vaayne/anna/internal/toolspec"
 )
 
 // BashTool executes bash commands.
@@ -25,8 +24,8 @@ func NewBashTool(workDir string) *BashTool {
 	return &BashTool{workDir: workDir}
 }
 
-func (t *BashTool) Definition() toolspec.Definition {
-	return toolspec.Definition{
+func (t *BashTool) Definition() Definition {
+	return Definition{
 		Name:        "bash",
 		Description: "Execute a bash command. Use for file operations like ls, rg, find, git, and other shell commands.",
 		InputSchema: map[string]any{

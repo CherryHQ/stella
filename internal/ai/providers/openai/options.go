@@ -5,7 +5,6 @@ import (
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/shared"
 	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/internal/toolspec"
 )
 
 func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) sdk.ChatCompletionNewParams {
@@ -30,7 +29,7 @@ func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) sdk.Chat
 	return params
 }
 
-func convertTools(tools []toolspec.Definition) []sdk.ChatCompletionToolParam {
+func convertTools(tools []ai.ToolDefinition) []sdk.ChatCompletionToolParam {
 	out := make([]sdk.ChatCompletionToolParam, 0, len(tools))
 	for _, t := range tools {
 		out = append(out, sdk.ChatCompletionToolParam{

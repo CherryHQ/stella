@@ -6,9 +6,9 @@ import (
 	"os"
 
 	"github.com/vaayne/anna/internal/agent/runner"
-	agenttool "github.com/vaayne/anna/internal/agent/tool"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/skills"
+	"github.com/vaayne/anna/pkg/tools"
 )
 
 // NewRunnerFactory creates a runner.NewRunnerFunc for a given config snapshot.
@@ -16,7 +16,7 @@ import (
 // workspace, and system prompt. User memory and user ID are injected per-session
 // from RunnerParams. When UserID > 0, per-user workspace directories are set up
 // and per-user skills tools are created.
-func NewRunnerFactory(snap *config.Snapshot, extraTools []agenttool.Tool) (runner.NewRunnerFunc, error) {
+func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool) (runner.NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
 		return func(ctx context.Context, params runner.RunnerParams) (runner.Runner, error) {
@@ -80,12 +80,12 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []agenttool.Tool) (runne
 // buildSessionTools creates per-session tools from the template extra tools.
 // When userID > 0, the SkillsTool is replaced with a per-user version,
 // and sandbox-aware file tools are configured.
-func buildSessionTools(templateTools []agenttool.Tool, workspace, userSkillsDir, userDataDir string, userID int64) []agenttool.Tool {
+func buildSessionTools(templateTools []tools.Tool, workspace, userSkillsDir, userDataDir string, userID int64) []tools.Tool {
 	if userID <= 0 {
 		return templateTools
 	}
 
-	result := make([]agenttool.Tool, 0, len(templateTools))
+	result := make([]tools.Tool, 0, len(templateTools))
 	for _, t := range templateTools {
 		// Replace SkillsTool with per-user version.
 		if _, ok := t.(*skills.SkillsTool); ok {

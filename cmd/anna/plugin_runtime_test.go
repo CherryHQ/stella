@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	agenttool "github.com/vaayne/anna/internal/agent/tool"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/pkg/tools"
 	"github.com/vaayne/anna/plugins/tools/webfetch"
 )
 
@@ -25,7 +25,7 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := agenttool.NewRegistry("")
+	reg := tools.NewRegistry("")
 	defer func() { _ = reg.Close() }()
 
 	readResult, err := reg.Execute(context.Background(), "read", map[string]any{"file_path": path})
@@ -83,7 +83,7 @@ func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 	t.Cleanup(config.ResetAnnaHome)
 
 	workDir := t.TempDir()
-	reg := agenttool.NewRegistry(workDir)
+	reg := tools.NewRegistry(workDir)
 	// Register webfetch as an extra tool (simulating enabled plugin).
 	reg.Register(webfetch.New())
 	defer func() { _ = reg.Close() }()
@@ -124,7 +124,7 @@ func TestDirectToolRegistrySandbox(t *testing.T) {
 	allowed := t.TempDir()
 	outside := t.TempDir()
 
-	reg := agenttool.NewRegistry("", allowed)
+	reg := tools.NewRegistry("", allowed)
 	defer func() { _ = reg.Close() }()
 
 	_, err := reg.Execute(context.Background(), "read", map[string]any{

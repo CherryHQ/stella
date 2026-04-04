@@ -34,143 +34,29 @@ LLM Provider (Anthropic / OpenAI / OpenAI-compatible)
 ## パッケージレイアウト
 
 ```
-cmd/anna/                             エントリーポイント、CLIコマンド、サービスワイヤリング
-
+cmd/anna/              エントリーポイント、CLIコマンド、サービスワイヤリング
 internal/
-  config/
-    store.go                          Storeインターフェース（DB-backed config CRUD）
-    dbstore.go                        DBStore実装（SQLite-backed）
-    snapshot.go                       エージェントごとの読み取り専用設定スナップショット
-    types.go                          Provider、Agent、Channel、Userタイプ
-
-  ai/
-    message.go                        Message、Contentタイプ
-    model.go                          Model、ModelCost、Contextタイプ
-    options.go                        RequestOptions
-    events.go                         StreamEventタイプ
-    provider.go                       Providerインターフェース、レジストリ、イベントストリーム
-    transform.go                      メッセージフォーマット変換
-    providers/
-      anthropic/                      Anthropicプロバイダー（Messages API）
-      openai/                         OpenAIプロバイダー（Chat Completions API）
-      openai-response/                OpenAI互換プロバイダー（Responses API）
-      register_builtins.go            すべてのビルトインプロバイダーの自動登録
-
-  agent/
-    pool_manager.go                   PoolManager（map[agentID]*Pool、遅延作成）
-    pool.go                           セッションプール、Chat()、runnerライフサイクル
-    pool_options.go                   PoolOption、ChatOption、With*関数
-    pool_reaper.go                    アイドル/デッドランナーの刈り取り
-    pool_compaction.go                セッションコンパクションオーケストレーション
-    session.go                        チャットごとのセッション状態、BuildSessionKey()
-    workspace.go                      エージェントごとのワークスペース設定（ディレクトリ、アイデンティティファイル）
-    factory.go                        エージェントごとのランナーファクトリー（Snapshot -> GoRunner）
-    engine/
-      engine.go                       エージェントループエンジン（マルチターンツール実行）
-      continue.go                     既存の履歴からエージェントループを再開
-      types.go                        LoopConfig、ToolSet、ToolFunc
-      events.go                       ループイベントタイプ（AgentStarted、AssistantDelta等）
-      tool_execution.go               コールバック付きツール呼び出しディスパッチ
-    runner/
-      runner.go                       Runnerインターフェース、RPCタイプ、イベントヘルパー
-      gorunner.go                     GoRunner: ネイティブLLMプロバイダー呼び出し
-      prompt.go                       システムプロンプトビルダー（memory、tools、context）
-      skill.go                        エージェントワークスペースからのスキルロード
-      stream_proxy.go                 ストリームプロキシユーティリティ
-    tool/                             ビルトインツール
-      tool.go                         Toolインターフェースとレジストリ
-      read.go                         ファイル内容の読み取り
-      bash.go                         シェルコマンドの実行
-      write.go                        ファイルの作成/上書き
-      edit.go                         ファイルセクションの編集
-      delegate.go                     サブエージェント委譲（並列サブタスク）
-      truncate.go                     大きな出力を一時ファイルに切り詰め
-      webfetch.go                     Webページ内容の取得
-
-  channel/
-    model.go                          Channelインターフェース、モデルリスト/スイッチタイプ
-    command.go                        共有HandleCommand（/new、/compact、/model、/agent、/whoami）
-    identity.go                       ResolveUser、ResolveAgent、ChatContext
-    agent_command.go                  AgentCommander（エージェントのリスト/スイッチ）
-    resolved.go                       ResolvedChatタイプ（Pool + User + AgentID + SessionKey）
-    util.go                           共有ユーティリティ（SplitMessage、FormatDuration）
-    notifier.go                       通知ディスパッチャー（マルチチャネル）
-    notify_tool.go                    エージェント通知ツール
-    cli/
-      cli.go                          インタラクティブTUIエントリーポイント
-      chat.go                         Bubble Teaチャットモデル、Update()
-      chat_view.go                    View()、resize()、markdownレンダリング
-      chat_input.go                   入力処理、スラッシュコマンド補完
-      chat_picker.go                  モデルピッカーキー処理
-      command.go                      チャット内スラッシュコマンド（/compact、/model等）
-      model.go                        TUIモデル切り替えUI
-      style.go                        ターミナルスタイリング
-    telegram/
-      telegram.go                     ボット設定、ロングポーリング（channel.Channelを実装）
-      handler.go                      メッセージ/コールバックハンドラー
-      stream.go                       ストリーミング（ドラフトAPI + editフォールバック）
-      render.go                       Markdownレンダリング
-      model.go                        ページ分割モデルピッカーUI
-    qq/
-      qq.go                           ボット設定、WebSocket（channel.Channelを実装）
-      handler.go                      メッセージハンドラー、コマンドルーティング
-      stream.go                       QQ Stream API経由のストリーミング
-      render.go                       メッセージチャンク化
-      model.go                        テキストベースのモデル選択UI
-    feishu/
-      feishu.go                       ボット設定、WebSocket、通知バックエンド
-      handler.go                      メッセージイベントハンドラー
-      stream.go                       メッセージ更新経由のストリーミング（編集インプレース）
-      render.go                       レスポンス分割
-      model.go                        テキストベースのモデルリスト
-
-  admin/
-    server.go                         管理HTTP APIサーバー + 埋め込みSPA
-    agents.go                         エージェントCRUDエンドポイント
-    channels.go                       チャネル設定エンドポイント
-    providers.go                      プロバイダー設定エンドポイント
-    sessions.go                       セッションリスト/詳細エンドポイント
-    settings.go                       グローバル設定エンドポイント
-    users.go                          ユーザー管理エンドポイント
-    scheduler.go                      スケジューラージョブエンドポイント
-    embed.go                          埋め込みフロントエンドアセット
-    ui/                               SPAフロントエンド（ビルドアセット）
-
-  db/
-    embed.go                          埋め込みマイグレーションFS
-    database.go                       SQLiteオープン、WAL、マイグレーションランナー
-    schemas/tables/                   スキーマのソースオブトゥルース（Atlasがこれらを読み取り）
-    migrations/                       Atlas生成SQLマイグレーションファイル
-    queries/                          sqlcクエリ定義
-    sqlc/                             生成されたクエリコード（sqlc出力）
-
-  scheduler/
-    service.go                        スケジューラーサービス（gocron/v2）
-    heartbeat.go                      ハートビートポーリング（決定/実行/通知）
-    persistence.go                    ジョブJSON永続化（load/save）
-    job.go                            JobとScheduleタイプ
-    tool.go                           エージェントスケジューラーツール（add/list/remove）
-
-  memory/
-    engine.go                         メモリエンジンファサード
-    assembler.go                      コンテキストウィンドウアセンブリ
-    compaction.go                     リーフ + 凝縮コンパクションパス
-    retrieval.go                      メッセージ検索と取得
-    summarize.go                      LLM要約
-    types.go                          Engineインターフェース、CompactionResult等
-    context.go                        コンテキストアイテム管理
-    usermemory.go                     UserMemoryStore（ユーザーごと・エージェントごとのDBアクセス）
-    tool/                             メモリエージェントツール（grep/describe/expand/user_memory_update）
-
-  skills/
-    tool.go                           エージェントスキルツール（search/install/list/remove）
-    search.go                         skills.sh API経由のスキルエコシステム検索
-    install.go                        Gitクローン + コピーインストールフロー（go-git）
-    list.go                           インストール済みスキルのリスト
-    remove.go                         インストール済みスキルの削除
-
-  toolspec/
-    toolspec.go                       ツール定義タイプ（ゼロ依存リーフパッケージ）
+  config/              Storeインターフェース、DBStore（SQLite）、Snapshot、タイプ
+  ai/                  Message/Contentタイプ、Model、Providerインターフェース、ストリーミングイベント
+    providers/         Anthropic、OpenAI、OpenAI-Responseアダプター
+  agent/               PoolManager、Pool、Session、ワークスペース設定、ランナーファクトリー
+    engine/            エージェントループエンジン（マルチターンツール実行）
+    runner/            GoRunner、システムプロンプトビルダー、スキルロード
+  channel/             Channelインターフェース、アイデンティティ解決、スラッシュコマンド、通知
+    cli/               Bubble Tea TUI
+    telegram/          Telegramボット
+    qq/                QQボット
+    feishu/            飛書ボット
+  admin/               HTTP API + 埋め込みSPA（templ + Alpine.js + daisyUI）
+  auth/                RBAC/ABACポリシーエンジン、セッション、サンドボックス
+  db/                  SQLite、Atlasマイグレーション、sqlcクエリ
+  scheduler/           gocronサービス、ハートビート、スケジューラーツール
+  memory/              メモリエンジン、コンパクション、検索、メモリツール
+  skills/              スキルツール（skills.sh経由でsearch/install/list/remove）
+pkg/
+  tools/               Toolインターフェース、レジストリ、ビルトインツール（read、bash、write、edit、agent）
+plugins/
+  tools/               プラグインツール自動検出 + プラグインツール（webfetch）
 ```
 
 ## 設定
@@ -213,36 +99,43 @@ internal/
 
 ## ツール
 
-Go runnerはLLM呼び出しにツールを注入します。ツールは共通インターフェース（`internal/agent/tool/`で定義）に従います。ツールメタデータは、ゼロ依存の`internal/toolspec/`リーフパッケージの`toolspec.Definition`タイプを使用し、ドメインパッケージを`internal/ai/`から分離します：
+Go runnerはLLM呼び出しにツールを注入します。ツールは`pkg/tools/`で定義された共通インターフェースに従います。`tools.Definition`タイプは`ai.ToolDefinition`の型エイリアスで、ドメインパッケージを分離します：
 
 ```go
 type Tool interface {
-    Definition() toolspec.Definition
+    Definition() tools.Definition
     Execute(ctx context.Context, args map[string]any) (string, error)
 }
 ```
 
 ### ビルトインツール（常に利用可能）
 
-| ツール     | 説明                                               |
-| ---------- | -------------------------------------------------- |
-| `read`     | UTF-8セーフな切り詰めでファイル内容を読み取り      |
-| `bash`     | シェルコマンドの実行                               |
-| `write`    | ファイルのアトミックな作成/上書き                  |
-| `edit`     | コンテキストを保持したファイルセクションの編集     |
-| `truncate` | 大きな出力を一時ファイルに切り詰め                 |
-| `delegate` | 制限されたサブタスクのサブエージェントループを生成 |
-| `webfetch` | Webページ内容の取得                                |
+| ツール  | 説明                                          |
+| ------- | --------------------------------------------- |
+| `read`  | UTF-8セーフな切り詰めでファイル内容を読み取り |
+| `bash`  | シェルコマンドの実行                          |
+| `write` | ファイルのアトミックな作成/上書き             |
+| `edit`  | コンテキストを保持したファイルセクションの編集 |
+| `agent` | 制限されたサブタスクのサブエージェントループを生成 |
 
-### 委譲
+### プラグインツール（管理画面で切り替え可能）
 
-`delegate`ツールは、エージェントが分離されたコンテキストで子エージェントループを生成できるようにします。これは、親の会話を汚染することなく、新鮮なコンテキストから利益を得る焦点を絞ったサブタスク（調査、コードレビュー、ドラフト作成）に役立ちます。
+| ツール     | 説明                |
+| ---------- | ------------------- |
+| `webfetch` | Webページ内容の取得 |
+
+プラグインツールは`plugins/tools/`にあり、`init()`で自己登録します。自動検出は`plugins/tools/registry.go`が処理します——新しいプラグインツールの追加にはブランクインポートのみが必要で、ワイヤリングコードの変更は不要です。
+
+### Agentツール
+
+`agent`ツールは、エージェントが分離されたコンテキストで子エージェントループを生成できるようにします。これは、親の会話を汚染することなく、新鮮なコンテキストから利益を得る焦点を絞ったサブタスク（調査、コードレビュー、ドラフト作成）に役立ちます。
 
 - 各子は、タスクの説明のみを含む新鮮なメッセージ履歴を取得
-- 複数のタスクがgoroutine経由で並列実行
-- 再帰を防ぐため、`delegate`ツールは子から除外されます
+- 複数のタスクがgoroutine経由で並列実行（設定可能な並行数）
+- 再帰を防ぐため、`agent`ツールは子から除外されます
 - 子の出力は、親コンテキストの膨張を避けるために約4096トークンに切り詰められます
-- タスクごとのオプション：`model`（オーバーライド）、`system`（追加の指示）、`tools`（ホワイトリスト）、`max_turns`（デフォルト10）、`timeout_seconds`（デフォルト120）
+- YAMLフロントマター付きmarkdownファイルからのプリセット読み込みをサポート
+- タスクごとのオプション：`preset`、`context`、`model`（オーバーライド）、`system`（追加の指示）、`tools`（ホワイトリスト）、`max_turns`（デフォルト10）、`timeout_seconds`（デフォルト120）
 
 ### 追加ツール（条件付き注入）
 

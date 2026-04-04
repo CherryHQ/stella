@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/vaayne/anna/internal/memory"
-	"github.com/vaayne/anna/internal/toolspec"
+	"github.com/vaayne/anna/pkg/tools"
 )
 
 var reviewMemoryInputSchema = func() map[string]any {
@@ -47,8 +47,8 @@ func NewReviewMemoryTool(memStore *memory.UserMemoryStore, userID int64, agentID
 }
 
 // Definition returns the tool definition for the LLM.
-func (t *ReviewMemoryTool) Definition() toolspec.Definition {
-	return toolspec.Definition{
+func (t *ReviewMemoryTool) Definition() tools.Definition {
+	return tools.Definition{
 		Name:        "review_memory",
 		Description: "Read and update persistent per-user memory. Use 'get' to read current content before updating, then 'update' with merged content.",
 		InputSchema: reviewMemoryInputSchema,

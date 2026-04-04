@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/vaayne/anna/internal/toolspec"
+	"github.com/vaayne/anna/pkg/tools"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
 
@@ -89,8 +89,8 @@ func (t *SkillsTool) skillsDir() string {
 }
 
 // SkillsDefinition returns the tool definition without requiring runtime paths.
-func SkillsDefinition() toolspec.Definition {
-	return toolspec.Definition{
+func SkillsDefinition() tools.Definition {
+	return tools.Definition{
 		Name:        "skills",
 		Description: "Manage agent skills. Use 'load' to read a skill by name, 'search' to find skills from the ecosystem, 'install' to add a skill (e.g. owner/repo@skill-name), 'list' to see installed skills, 'remove' to delete one, 'create' to create a new skill (draft), 'patch' to update fields, 'deprecate' to mark as deprecated.",
 		InputSchema: skillsInputSchema,
@@ -98,7 +98,7 @@ func SkillsDefinition() toolspec.Definition {
 }
 
 // Definition returns the tool definition for the LLM.
-func (t *SkillsTool) Definition() toolspec.Definition {
+func (t *SkillsTool) Definition() tools.Definition {
 	return SkillsDefinition()
 }
 

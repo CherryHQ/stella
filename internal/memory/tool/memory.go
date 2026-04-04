@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/vaayne/anna/internal/memory"
-	"github.com/vaayne/anna/internal/toolspec"
+	"github.com/vaayne/anna/pkg/tools"
 )
 
 var memoryInputSchema = func() map[string]any {
@@ -63,8 +63,8 @@ func NewMemoryTool(engine memory.Engine, memStore *memory.UserMemoryStore) *Memo
 }
 
 // MemoryDefinition returns the tool definition without requiring a live engine.
-func MemoryDefinition() toolspec.Definition {
-	return toolspec.Definition{
+func MemoryDefinition() tools.Definition {
+	return tools.Definition{
 		Name: "memory",
 		Description: `Manage conversation history and per-user persistent notes.
 
@@ -77,7 +77,7 @@ Actions:
 	}
 }
 
-func (t *MemoryTool) Definition() toolspec.Definition {
+func (t *MemoryTool) Definition() tools.Definition {
 	return MemoryDefinition()
 }
 

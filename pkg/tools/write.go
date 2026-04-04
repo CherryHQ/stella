@@ -1,19 +1,17 @@
-package tool
+package tools
 
 import (
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/vaayne/anna/internal/toolspec"
 )
 
 // WriteTool creates new files or completely overwrites existing ones.
 type WriteTool struct{}
 
-func (t *WriteTool) Definition() toolspec.Definition {
-	return toolspec.Definition{
+func (t *WriteTool) Definition() Definition {
+	return Definition{
 		Name:        "write",
 		Description: "Create a new file or completely overwrite an existing file with the provided content.",
 		InputSchema: map[string]any{

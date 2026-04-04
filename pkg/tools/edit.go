@@ -1,19 +1,17 @@
-package tool
+package tools
 
 import (
 	"context"
 	"fmt"
 	"os"
 	"strings"
-
-	"github.com/vaayne/anna/internal/toolspec"
 )
 
 // EditTool makes surgical edits to files by exact string replacement.
 type EditTool struct{}
 
-func (t *EditTool) Definition() toolspec.Definition {
-	return toolspec.Definition{
+func (t *EditTool) Definition() Definition {
+	return Definition{
 		Name:        "edit",
 		Description: "Make a surgical edit to a file. The old_string must match exactly (including whitespace and indentation). Use this for targeted changes to existing files.",
 		InputSchema: map[string]any{

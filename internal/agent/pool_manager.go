@@ -9,20 +9,20 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/runner"
-	agenttool "github.com/vaayne/anna/internal/agent/tool"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/memory"
 	"github.com/vaayne/anna/internal/skills"
+	"github.com/vaayne/anna/pkg/tools"
 )
 
 // ExtraToolsFactory creates agent-specific extra tools given a snapshot.
 // It allows callers to inject tools that depend on per-agent configuration
 // (e.g. scheduler, memory retrieval).
-type ExtraToolsFactory func(snap *config.Snapshot) []agenttool.Tool
+type ExtraToolsFactory func(snap *config.Snapshot) []tools.Tool
 
 // PluginToolsBuilder creates tools from enabled plugin state.
 // Called at startup and on hot-reload when a plugin is toggled.
-type PluginToolsBuilder func(ctx context.Context) []agenttool.Tool
+type PluginToolsBuilder func(ctx context.Context) []tools.Tool
 
 // PoolManagerOption configures a PoolManager.
 type PoolManagerOption func(*PoolManager)
@@ -49,7 +49,7 @@ func WithExtraToolsFactory(f ExtraToolsFactory) PoolManagerOption {
 }
 
 // WithSharedExtraTools sets tools shared across all agents (e.g. scheduler, memory).
-func WithSharedExtraTools(tools []agenttool.Tool) PoolManagerOption {
+func WithSharedExtraTools(tools []tools.Tool) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.coreSharedTools = tools
 		pm.sharedExtraTools = tools
@@ -72,8 +72,8 @@ type PoolManager struct {
 	mu                 sync.RWMutex
 	idleTimeout        time.Duration
 	compaction         CompactionConfig
-	coreSharedTools    []agenttool.Tool   // always-on tools (scheduler, memory, etc.)
-	sharedExtraTools   []agenttool.Tool   // coreSharedTools + plugin tools
+	coreSharedTools    []tools.Tool       // always-on tools (scheduler, memory, etc.)
+	sharedExtraTools   []tools.Tool       // coreSharedTools + plugin tools
 	pluginToolsBuilder PluginToolsBuilder // builds tools from plugin state
 	extraToolsFactory  ExtraToolsFactory
 	userMemory         *memory.UserMemoryStore // per-user memory for prompt injection
@@ -244,7 +244,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 	shared := pm.sharedExtraTools
 	pm.mu.RUnlock()
 
-	var extraTools []agenttool.Tool
+	var extraTools []tools.Tool
 	extraTools = append(extraTools, shared...)
 
 	cwd, _ := os.Getwd()
@@ -258,8 +258,8 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 }
 
 // mergeTools creates a new slice containing core tools followed by plugin tools.
-func mergeTools(core, plugin []agenttool.Tool) []agenttool.Tool {
-	merged := make([]agenttool.Tool, 0, len(core)+len(plugin))
+func mergeTools(core, plugin []tools.Tool) []tools.Tool {
+	merged := make([]tools.Tool, 0, len(core)+len(plugin))
 	merged = append(merged, core...)
 	merged = append(merged, plugin...)
 	return merged

@@ -4,11 +4,10 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/vaayne/anna/internal/agent/tool"
 	memorytool "github.com/vaayne/anna/internal/memory/tool"
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/internal/skills"
-	"github.com/vaayne/anna/internal/toolspec"
+	pkgtools "github.com/vaayne/anna/pkg/tools"
 )
 
 // toolJSON is the JSON representation of a tool definition.
@@ -19,7 +18,7 @@ type toolJSON struct {
 	Category    string         `json:"category"` // "builtin", "shared", or "extra"
 }
 
-func defToJSON(def toolspec.Definition, category string) toolJSON {
+func defToJSON(def pkgtools.Definition, category string) toolJSON {
 	return toolJSON{
 		Name:        def.Name,
 		Description: def.Description,
@@ -32,13 +31,13 @@ func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 	var tools []toolJSON
 
 	// Built-in tools from registry (Read, Bash, Edit, Write, WebFetch).
-	reg := tool.NewRegistry("")
+	reg := pkgtools.NewRegistry("")
 	for _, def := range reg.Definitions() {
 		tools = append(tools, defToJSON(def, "builtin"))
 	}
 
 	// Agent tool (always present).
-	tools = append(tools, defToJSON(tool.AgentDefinition(nil), "builtin"))
+	tools = append(tools, defToJSON(pkgtools.AgentDefinition(nil), "builtin"))
 
 	// Shared tools (scheduler, memory, skills).
 	for _, def := range sharedToolDefinitions() {
@@ -58,8 +57,8 @@ func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 
 // sharedToolDefinitions returns the canonical definitions from each tool
 // package. No runtime dependencies needed — schemas are static.
-func sharedToolDefinitions() []toolspec.Definition {
-	return []toolspec.Definition{
+func sharedToolDefinitions() []pkgtools.Definition {
+	return []pkgtools.Definition{
 		scheduler.SchedulerDefinition(),
 		memorytool.MemoryDefinition(),
 		skills.SkillsDefinition(),

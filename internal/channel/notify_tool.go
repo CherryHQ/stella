@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/vaayne/anna/internal/toolspec"
+	"github.com/vaayne/anna/pkg/tools"
 )
 
 // NotifyTool is an agent tool that sends notifications via a Dispatcher.
@@ -40,8 +40,8 @@ var notifyInputSchema = map[string]any{
 	"required": []string{"message"},
 }
 
-func (t *NotifyTool) Definition() toolspec.Definition {
-	return toolspec.Definition{
+func (t *NotifyTool) Definition() tools.Definition {
+	return tools.Definition{
 		Name:        "notify",
 		Description: "Send a notification message to the user. Supports multiple backends (Telegram, Slack, etc.). Omit 'channel' to broadcast to all configured backends. Use this for proactive messages, alerts, scheduler summaries, or long-running task results.",
 		InputSchema: notifyInputSchema,

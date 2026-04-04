@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/internal/toolspec"
 )
 
 func TestBuildParamsBasic(t *testing.T) {
@@ -51,7 +50,7 @@ func TestBuildParamsWithTools(t *testing.T) {
 	model := ai.Model{Name: "gpt-4o"}
 	ctx := ai.Context{
 		Messages: []ai.Message{ai.UserMessage{Content: "hi"}},
-		Tools: []toolspec.Definition{
+		Tools: []ai.ToolDefinition{
 			{Name: "bash", Description: "run commands", InputSchema: map[string]any{"type": "object"}},
 		},
 	}
@@ -78,7 +77,7 @@ func TestBuildParamsNoOptionalFields(t *testing.T) {
 }
 
 func TestConvertTools(t *testing.T) {
-	tools := []toolspec.Definition{
+	tools := []ai.ToolDefinition{
 		{Name: "search", Description: "find things", InputSchema: map[string]any{"type": "object"}},
 		{Name: "write", Description: "write files", InputSchema: map[string]any{"type": "object"}},
 	}

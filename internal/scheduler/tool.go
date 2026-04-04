@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/vaayne/anna/internal/toolspec"
+	"github.com/vaayne/anna/pkg/tools"
 )
 
 var schedulerInputSchema = func() map[string]any {
@@ -64,8 +64,8 @@ func NewTool(service *Service) *SchedulerTool {
 }
 
 // SchedulerDefinition returns the tool definition without requiring a live service.
-func SchedulerDefinition() toolspec.Definition {
-	return toolspec.Definition{
+func SchedulerDefinition() tools.Definition {
+	return tools.Definition{
 		Name:        "scheduler",
 		Description: "Manage scheduled tasks. Use action 'add' to create a recurring or one-time job, 'list' to see all jobs, or 'remove' to delete a job. For one-time jobs, use the 'at' field with an RFC3339 timestamp.",
 		InputSchema: schedulerInputSchema,
@@ -73,7 +73,7 @@ func SchedulerDefinition() toolspec.Definition {
 }
 
 // Definition returns the tool definition for the LLM.
-func (t *SchedulerTool) Definition() toolspec.Definition {
+func (t *SchedulerTool) Definition() tools.Definition {
 	return SchedulerDefinition()
 }
 
