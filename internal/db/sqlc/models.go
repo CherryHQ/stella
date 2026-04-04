@@ -187,6 +187,16 @@ type SettingsChannelAgent struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type SettingsPlugin struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Enabled   int64  `json:"enabled"`
+	Config    string `json:"config"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 type SettingsProvider struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
