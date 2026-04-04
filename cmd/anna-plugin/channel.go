@@ -19,7 +19,6 @@ import (
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/memory"
 	memorytool "github.com/vaayne/anna/internal/memory/tool"
-	pluginmgr "github.com/vaayne/anna/internal/plugin"
 	"github.com/vaayne/anna/internal/pluginapi"
 	"github.com/vaayne/anna/internal/pluginhost"
 )
@@ -197,18 +196,6 @@ func newChannelRuntime(ctx context.Context, workDir, userDataDir string) (*chann
 		memorytool.NewMemoryTool(memoryEngine, userMemoryStore),
 	}
 
-	builtinNames := agenttool.BuiltinToolNames()
-	builtinNames = append(builtinNames, "delegate", "skills")
-	for _, t := range sharedTools {
-		builtinNames = append(builtinNames, t.Definition().Name)
-	}
-
-	pm := pluginmgr.NewManager(slog.Default(), builtinNames)
-	pm.LoadAll(snap.Plugins)
-	for _, pt := range pm.Registry().Tools() {
-		sharedTools = append(sharedTools, pluginmgr.AdaptTool(pt))
-	}
-
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
 	poolMgr := agent.NewPoolManager(store, memoryEngine,
 		agent.WithIdleTimeoutPM(idleTimeout),
@@ -217,7 +204,6 @@ func newChannelRuntime(ctx context.Context, workDir, userDataDir string) (*chann
 			KeepTail:  snap.Runner.Compaction.KeepTail,
 		}.WithDefaults()),
 		agent.WithSharedExtraTools(sharedTools),
-		agent.WithPluginHooksPM(pm.Registry()),
 	)
 	if err := poolMgr.StartAll(ctx); err != nil {
 		return nil, fmt.Errorf("start pool manager: %w", err)
@@ -240,7 +226,7 @@ func newChannelRuntime(ctx context.Context, workDir, userDataDir string) (*chann
 			snap.BaseURL = p.BaseURL
 		}
 
-		factory, err := agent.NewRunnerFactory(snap, sharedTools, pm.Registry())
+		factory, err := agent.NewRunnerFactory(snap, sharedTools)
 		if err != nil {
 			return err
 		}
