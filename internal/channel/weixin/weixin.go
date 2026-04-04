@@ -22,7 +22,7 @@ type Config struct {
 	UserID   string `json:"user_id"`   // ilink_user_id
 }
 
-// dbConfig is the JSON shape persisted in settings_channels.config.
+// dbConfig is the JSON shape persisted in settings_plugins.config.
 // It extends Config with runtime state fields.
 type dbConfig struct {
 	Config
