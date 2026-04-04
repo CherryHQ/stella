@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/internal/toolspec"
 )
 
 func TestBuildParamsBasic(t *testing.T) {
@@ -68,7 +67,7 @@ func TestBuildParamsWithTools(t *testing.T) {
 	model := ai.Model{Name: "claude-sonnet-4-20250514"}
 	ctx := ai.Context{
 		Messages: []ai.Message{ai.UserMessage{Content: "hi"}},
-		Tools: []toolspec.Definition{
+		Tools: []ai.ToolDefinition{
 			{
 				Name:        "bash",
 				Description: "run commands",
@@ -105,7 +104,7 @@ func TestBuildParamsNoSystem(t *testing.T) {
 }
 
 func TestConvertTools(t *testing.T) {
-	tools := []toolspec.Definition{
+	tools := []ai.ToolDefinition{
 		{
 			Name:        "search",
 			Description: "search things",
@@ -131,7 +130,7 @@ func TestConvertToolsEmpty(t *testing.T) {
 }
 
 func TestConvertToolsWithRequired(t *testing.T) {
-	tools := []toolspec.Definition{
+	tools := []ai.ToolDefinition{
 		{
 			Name:        "bash",
 			Description: "run commands",

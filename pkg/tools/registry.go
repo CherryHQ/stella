@@ -1,27 +1,22 @@
-package tool
+package tools
 
 import (
 	"context"
 	"fmt"
+	"log/slog"
+
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
-	"github.com/vaayne/anna/internal/toolspec"
-	"log/slog"
 )
 
-// Tool is a built-in tool that can be executed by the Go runner.
-type Tool interface {
-	Definition() toolspec.Definition
-	Execute(ctx context.Context, args map[string]any) (string, error)
+// closeableTool is an optional interface for tools that need cleanup.
+type closeableTool interface {
+	Close() error
 }
 
 // Registry holds named tools and provides lookup + definitions.
 type Registry struct {
 	tools map[string]Tool
-}
-
-type closeableTool interface {
-	Close() error
 }
 
 // NewRegistry creates a registry with the four core built-in tools
@@ -64,8 +59,8 @@ func (r *Registry) Register(t Tool) {
 }
 
 // Definitions returns all tool definitions for passing to the LLM.
-func (r *Registry) Definitions() []toolspec.Definition {
-	defs := make([]toolspec.Definition, 0, len(r.tools))
+func (r *Registry) Definitions() []Definition {
+	defs := make([]Definition, 0, len(r.tools))
 	for _, t := range r.tools {
 		defs = append(defs, t.Definition())
 	}
