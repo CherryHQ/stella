@@ -186,3 +186,64 @@
 - `settings_channels` is still read by weixin bot internals (cursor persist/clear) and admin panel CRUD. Phase 6 should migrate the admin panel to use `settings_plugins` and remove channel methods from Store.
 - `HasValidConfig`/`IsNotifyEnabled` use switch on platform name — when third-party channel plugins are added, these helpers should be generalized (e.g., via manifest-declared required fields).
 - `go mod tidy` removed `fastschema/qjs` and `tetratelabs/wazero` — leftover deps from the deleted JS plugin system.
+
+## Phase 5: Rewrite Plugin CLI
+
+**Status:** complete
+
+**Tasks completed:**
+- 5.1: Enhanced `list` subcommand — added CONFIG column (truncated JSON), `--kind` flag to filter by tool/channel, kept as default action for `anna plugin`
+- 5.2: Added `add` subcommand — validates plugin.json at path, copies directory to `$ANNA_HOME/plugins/installed/<kind>/<name>/`, upserts DB row; added `remove` subcommand — validates plugin is not built-in, deletes from DB + filesystem
+- 5.3: Added `enable`/`disable` subcommands — validates plugin exists via `store.GetPlugin`, calls `store.SetPluginEnabled`, prints confirmation
+- 5.4: Added `config` subcommand — shows current config as indented JSON, or merges key=val pairs (parses JSON values first, falls back to string)
+- 5.5: No old helpers (`loadPlugins`, `savePlugins`, `parsePluginConfig`, `pluginName`) remained — they were already removed in Phase 3. Verified clean.
+
+**Files changed:**
+- `cmd/anna/plugin.go` — complete rewrite with 6 subcommands (list, add, remove, enable, disable, config) + helpers (truncateJSON, isBuiltinPlugin, parseConfigValue, loadPluginManifest, copyDir)
+
+**Commits:**
+- `2803bc15` — feat: rewrite plugin CLI with full subcommands
+
+### Fixes
+- Fixed `copyDir` to preserve file permissions using `entry.Info().Mode()` instead of hardcoded `0o644` (commit `7f042bf4`)
+- Added path traversal guard: plugin name must not contain `/` or `..`
+
+**Decisions & context for next phase:**
+- `copyDir` preserves source file permissions. No symlink handling.
+- `isBuiltinPlugin` checks against `config.BuiltinPluginIDs()` — any plugin whose ID matches a built-in is protected from removal.
+- `parseConfigValue` tries `json.Unmarshal` first (handles numbers, booleans, objects/arrays), falls back to raw string. This means `anna plugin config tool/foo count=42` sets count as float64, `enabled=true` as bool.
+- The `--kind` flag on `list` accepts only "tool" or "channel" — uses `config.PluginKindTool`/`config.PluginKindChannel` constants for validation.
+- No old JS-era helpers remained to remove — Phase 3 already cleaned them up.
+
+## Phase 6: Final Cleanup — Admin Panel, Docs, Verification
+
+**Status:** complete
+
+**Tasks completed:**
+- 6.1: Verified `cmd/anna/channel_plugins_test.go` tests active code (`resolveChannelPluginDefinition`, `newChannelPlugin`) — kept as-is.
+- 6.2: Verified `internal/config/dbstore_test.go` has no `RuntimePlugins`/`PluginConfig` references — clean.
+- 6.3: Verified `cmd/anna/plugin_runtime_test.go` tests subprocess tool execution via `agenttool.NewRegistry` — still valid, kept as-is.
+- 6.4: Migrated admin panel channel handlers (`internal/admin/channels.go`) from `settings_channels` to `settings_plugins`. Added `channelView` type to maintain frontend JSON contract (`config` as JSON string). Also migrated `internal/admin/weixin_qr.go` and `internal/channel/weixin/weixin.go` (cursor persist, credential clear) to use plugin store.
+- 6.5: Rewrote plugin docs (`docs/content/docs/features/plugin-system.md`, `.zh.md`, `.ja.md`) to describe the unified subprocess plugin model. Removed all JavaScript plugin, QuickJS, hooks, and runtime bindings content.
+- 6.6: Updated `README.md` (plugin section), `internal/agent/runner/builtin/anna/SKILL.md` (CLI commands and plugin description), and `internal/agent/runner/builtin/anna/references/configuration.md` (settings_plugins table reference).
+- 6.7: Full verification passed — `mise run format` clean, `mise run lint` 0 issues, `mise run test` all pass with -race.
+
+**Files changed:**
+- `internal/admin/channels.go` — rewrote to use `store.ListPluginsByKind`/`GetPlugin`/`UpsertPlugin` with `channelView` adapter
+- `internal/admin/weixin_qr.go` — migrated `saveWeixinCredentials` from `GetChannel`/`UpsertChannel` to `GetPlugin`/`UpsertPlugin`
+- `internal/channel/weixin/weixin.go` — migrated `loadCursor`/`persistCursor`/`clearCredentials` from `settings_channels` to `settings_plugins`
+- `docs/content/docs/features/plugin-system.md` — full rewrite for unified model
+- `docs/content/docs/features/plugin-system.zh.md` — full rewrite (Chinese)
+- `docs/content/docs/features/plugin-system.ja.md` — full rewrite (Japanese)
+- `README.md` — updated plugin references
+- `internal/agent/runner/builtin/anna/SKILL.md` — updated plugin CLI and description
+- `internal/agent/runner/builtin/anna/references/configuration.md` — settings_plugins table reference
+
+**Commits:**
+- `dab2f9ad` — refactor: migrate admin channel handlers from settings_channels to settings_plugins
+- `08ff4617` — docs: rewrite plugin docs for unified subprocess model
+
+**Notes for future work:**
+- `settings_channels` table and its Store methods (`ListChannels`/`GetChannel`/`UpsertChannel`) are now unused by application code at runtime. They can be removed in a follow-up migration, but the table should be kept temporarily for data safety (seedPlugins migration reads from it on first run).
+- The `Channel` type in `config/store.go` and its Store interface methods can be deprecated once settings_channels is dropped.
+- `pool_manager_test.go` mockStore still has Channel method stubs — can be removed when the Store interface is cleaned up.
