@@ -355,6 +355,9 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	if val, err := s.GetSetting(ctx, "plugins"); err == nil && val != "" {
 		_ = json.Unmarshal([]byte(val), &snap.Plugins)
 	}
+	if val, err := s.GetSetting(ctx, "self_improve"); err == nil && val != "" {
+		_ = json.Unmarshal([]byte(val), &snap.SelfImprove)
+	}
 
 	// Apply defaults.
 	if snap.Runner.Type == "" {
