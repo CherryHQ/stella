@@ -6,8 +6,3 @@ import "embed"
 var toolsFS embed.FS
 
 const toolsDir = "binaries"
-
-//go:embed plugins/*
-var pluginsFS embed.FS
-
-const pluginsDir = "plugins"

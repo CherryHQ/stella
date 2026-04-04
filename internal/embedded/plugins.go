@@ -5,6 +5,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/vaayne/anna/plugins"
 )
 
 // EnsurePlugins extracts all embedded plugin manifests to annaHome/plugins/bundled/.
@@ -16,7 +18,7 @@ func EnsurePlugins(annaHome string) error {
 }
 
 func extractPlugins(destDir string) error {
-	return fs.WalkDir(pluginsFS, pluginsDir, func(path string, d fs.DirEntry, err error) error {
+	return fs.WalkDir(plugins.FS, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -24,19 +26,12 @@ func extractPlugins(destDir string) error {
 			return nil
 		}
 
-		// path is like "plugins/tool/read/plugin.json"
-		// We want the relative part after "plugins/" → "tool/read/plugin.json"
-		rel, err := filepath.Rel(pluginsDir, path)
-		if err != nil {
-			return fmt.Errorf("relative path for %s: %w", path, err)
-		}
-
-		destPath := filepath.Join(destDir, rel)
+		destPath := filepath.Join(destDir, path)
 		if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
-			return fmt.Errorf("create dir for %s: %w", rel, err)
+			return fmt.Errorf("create dir for %s: %w", path, err)
 		}
 
-		data, err := pluginsFS.ReadFile(path)
+		data, err := plugins.FS.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read embedded %s: %w", path, err)
 		}
