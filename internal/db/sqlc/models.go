@@ -63,17 +63,18 @@ type CtxAgentMemory struct {
 }
 
 type CtxConversation struct {
-	ID             int64          `json:"id"`
-	SessionID      string         `json:"session_id"`
-	Title          sql.NullString `json:"title"`
-	Channel        string         `json:"channel"`
-	Archived       int64          `json:"archived"`
-	LastActive     string         `json:"last_active"`
-	BootstrappedAt sql.NullString `json:"bootstrapped_at"`
-	AgentID        sql.NullString `json:"agent_id"`
-	UserID         sql.NullInt64  `json:"user_id"`
-	CreatedAt      string         `json:"created_at"`
-	UpdatedAt      string         `json:"updated_at"`
+	ID                    int64          `json:"id"`
+	SessionID             string         `json:"session_id"`
+	Title                 sql.NullString `json:"title"`
+	Channel               string         `json:"channel"`
+	Archived              int64          `json:"archived"`
+	LastActive            string         `json:"last_active"`
+	BootstrappedAt        sql.NullString `json:"bootstrapped_at"`
+	AgentID               sql.NullString `json:"agent_id"`
+	UserID                sql.NullInt64  `json:"user_id"`
+	SelfImproveReviewedAt sql.NullString `json:"self_improve_reviewed_at"`
+	CreatedAt             string         `json:"created_at"`
+	UpdatedAt             string         `json:"updated_at"`
 }
 
 type CtxItem struct {

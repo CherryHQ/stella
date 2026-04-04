@@ -8,6 +8,7 @@ CREATE TABLE ctx_conversations (
     bootstrapped_at TEXT,
     agent_id TEXT,
     user_id INTEGER,
+    self_improve_reviewed_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

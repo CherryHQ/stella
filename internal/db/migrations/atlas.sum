@@ -1,4 +1,4 @@
-h1:j2V1iIGLfzHgRcROFuyIQuqzAde+pIwQsd97Huk52C4=
+h1:JoH2TKg07tx71ufjstHGm6jrrETLukfRhjStGMtWyJk=
 20260317041843_rename_tables_with_prefixes.sql h1:Nfk81sAWddxDQvpo8pBhXJ5Sec5JcCF6tchqgt+777M=
 20260317065837_drop_agent_provider_id.sql h1:gb4CoI8GlT4P3QbksGw07M8SruOcR9pQI0Sj7/Q2rao=
 20260320104110_add-auth-tables.sql h1:6TjzFFeMMTJzy3/mGN4nrm4+SoYGhanOQY24nUbL3H4=
@@ -9,3 +9,4 @@ h1:j2V1iIGLfzHgRcROFuyIQuqzAde+pIwQsd97Huk52C4=
 20260321163635_add_feishu_tokens.sql h1:hM/g/wZ9vpR/H3ZoJOyH8NUKRJpLy5Mu8Rmv90OUz5w=
 20260322151434_add-notify-identity.sql h1:+QlRGAqKwce8YXkU/6gdMv73IHmgt/wqQ8NP/6r22SA=
 20260328084600_drop_feishu_tokens.sql h1:2CHvjeF2egs2/CjCZJTw5BsOoyzPeqJrFskSmx9dWsM=
+20260404052636_add-self-improve-reviewed-at.sql h1:zhUbD8YNdK3LrBt7+nNGKVOSEas6TO5bNzkt2wxUSoM=
