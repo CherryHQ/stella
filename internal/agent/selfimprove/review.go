@@ -11,6 +11,9 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/ai/providers/anthropic"
+	"github.com/vaayne/anna/internal/ai/providers/openai"
+	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/db/sqlc"
@@ -21,10 +24,25 @@ import (
 type ReviewDeps struct {
 	DB        *sql.DB
 	Store     config.Store
-	Providers ai.ProviderGetter
 	Notifier  *channel.Dispatcher
 	Workspace string // agent workspace root for ExpireDrafts
 	Log       *slog.Logger
+}
+
+// newProviderRegistry creates a provider registry with all built-in adapters
+// using the base URL from the snapshot's provider credentials.
+func newProviderRegistry(snap *config.Snapshot) ai.ProviderGetter {
+	provID, _ := config.ParseModelRef(snap.ResolveModelID(config.ModelTierFast))
+	if provID == "" {
+		provID = snap.Provider
+	}
+	creds := snap.ResolveProviderCreds(provID)
+
+	reg := ai.NewRegistry()
+	reg.Register(anthropic.New(anthropic.Config{BaseURL: creds.BaseURL}))
+	reg.Register(openai.New(openai.Config{BaseURL: creds.BaseURL}))
+	reg.Register(openairesponse.New(openairesponse.Config{BaseURL: creds.BaseURL}))
+	return reg
 }
 
 // StartReviewLoop runs the self-improvement review job on a recurring interval.
@@ -85,26 +103,23 @@ func reviewAgent(ctx context.Context, deps ReviewDeps, cfg config.SelfImproveCon
 	}
 
 	model := snap.ResolveModelTier(config.ModelTierFast)
+	providers := newProviderRegistry(snap)
 
-	conversations, err := q.ListUnreviewedConversations(ctx, int64(cfg.Batch()))
+	conversations, err := q.ListUnreviewedConversations(ctx, sqlc.ListUnreviewedConversationsParams{
+		AgentID: sql.NullString{String: agent.ID, Valid: true},
+		Limit:   int64(cfg.Batch()),
+	})
 	if err != nil {
 		log.Error("self-improve: list unreviewed", "agent", agent.ID, "error", err)
 		return
 	}
 
 	for _, conv := range conversations {
-		if !conv.AgentID.Valid || conv.AgentID.String != agent.ID {
-			continue
-		}
-		if !conv.UserID.Valid || conv.UserID.Int64 <= 0 {
-			continue
-		}
-
-		reviewConversation(ctx, deps, q, log, snap, model, conv)
+		reviewConversation(ctx, deps, q, log, snap, providers, model, conv)
 	}
 }
 
-func reviewConversation(ctx context.Context, deps ReviewDeps, q *sqlc.Queries, log *slog.Logger, snap *config.Snapshot, model ai.Model, conv sqlc.CtxConversation) {
+func reviewConversation(ctx context.Context, deps ReviewDeps, q *sqlc.Queries, log *slog.Logger, snap *config.Snapshot, providers ai.ProviderGetter, model ai.Model, conv sqlc.CtxConversation) {
 	userID := conv.UserID.Int64
 	userSkillsDir := filepath.Join(snap.Workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")
 
@@ -114,6 +129,10 @@ func reviewConversation(ctx context.Context, deps ReviewDeps, q *sqlc.Queries, l
 		existingNames = append(existingNames, s.Name)
 	}
 
+	// Capture the watermark before loading messages so concurrent writes
+	// that arrive during the review are not skipped.
+	watermark := time.Now().UTC().Format("2006-01-02 15:04:05")
+
 	text, err := buildConversationText(ctx, q, conv)
 	if err != nil {
 		log.Error("self-improve: build text", "conv", conv.ID, "error", err)
@@ -121,18 +140,24 @@ func reviewConversation(ctx context.Context, deps ReviewDeps, q *sqlc.Queries, l
 	}
 
 	if text == "" {
-		_ = q.MarkConversationReviewed(ctx, conv.ID)
+		_ = q.MarkConversationReviewedAt(ctx, sqlc.MarkConversationReviewedAtParams{
+			SelfImproveReviewedAt: sql.NullString{String: watermark, Valid: true},
+			ID:                    conv.ID,
+		})
 		return
 	}
 
-	reviewer := NewReviewer(deps.Providers, model, userSkillsDir, existingNames)
+	reviewer := NewReviewer(providers, model, userSkillsDir, existingNames)
 	created, err := reviewer.Review(ctx, text)
 	if err != nil {
 		log.Error("self-improve: review", "conv", conv.ID, "error", err)
 		return // Don't mark reviewed on error — retry next time.
 	}
 
-	if err := q.MarkConversationReviewed(ctx, conv.ID); err != nil {
+	if err := q.MarkConversationReviewedAt(ctx, sqlc.MarkConversationReviewedAtParams{
+		SelfImproveReviewedAt: sql.NullString{String: watermark, Valid: true},
+		ID:                    conv.ID,
+	}); err != nil {
 		log.Error("self-improve: mark reviewed", "conv", conv.ID, "error", err)
 	}
 

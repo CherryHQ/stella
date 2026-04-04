@@ -216,15 +216,20 @@ func (q *Queries) ListConversationsAll(ctx context.Context) ([]CtxConversation, 
 const listUnreviewedConversations = `-- name: ListUnreviewedConversations :many
 SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, self_improve_reviewed_at, created_at, updated_at FROM ctx_conversations
 WHERE archived = 0
-  AND agent_id != ''
+  AND agent_id = ?
   AND user_id > 0
   AND (self_improve_reviewed_at IS NULL OR last_active > self_improve_reviewed_at)
 ORDER BY last_active ASC
 LIMIT ?
 `
 
-func (q *Queries) ListUnreviewedConversations(ctx context.Context, limit int64) ([]CtxConversation, error) {
-	rows, err := q.db.QueryContext(ctx, listUnreviewedConversations, limit)
+type ListUnreviewedConversationsParams struct {
+	AgentID sql.NullString `json:"agent_id"`
+	Limit   int64          `json:"limit"`
+}
+
+func (q *Queries) ListUnreviewedConversations(ctx context.Context, arg ListUnreviewedConversationsParams) ([]CtxConversation, error) {
+	rows, err := q.db.QueryContext(ctx, listUnreviewedConversations, arg.AgentID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -259,14 +264,19 @@ func (q *Queries) ListUnreviewedConversations(ctx context.Context, limit int64) 
 	return items, nil
 }
 
-const markConversationReviewed = `-- name: MarkConversationReviewed :exec
+const markConversationReviewedAt = `-- name: MarkConversationReviewedAt :exec
 UPDATE ctx_conversations
-SET self_improve_reviewed_at = datetime('now'), updated_at = datetime('now')
+SET self_improve_reviewed_at = ?, updated_at = datetime('now')
 WHERE id = ?
 `
 
-func (q *Queries) MarkConversationReviewed(ctx context.Context, id int64) error {
-	_, err := q.db.ExecContext(ctx, markConversationReviewed, id)
+type MarkConversationReviewedAtParams struct {
+	SelfImproveReviewedAt sql.NullString `json:"self_improve_reviewed_at"`
+	ID                    int64          `json:"id"`
+}
+
+func (q *Queries) MarkConversationReviewedAt(ctx context.Context, arg MarkConversationReviewedAtParams) error {
+	_, err := q.db.ExecContext(ctx, markConversationReviewedAt, arg.SelfImproveReviewedAt, arg.ID)
 	return err
 }
 
