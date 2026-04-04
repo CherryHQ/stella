@@ -79,9 +79,11 @@ anna models update     # Refresh model cache
 anna skills list       # List installed skills
 anna skills search <q> # Search skill ecosystem
 anna skills install <s># Install a skill
-anna plugin list       # List configured plugins
-anna plugin add <path> # Add a JS plugin
-anna plugin remove <n> # Remove a plugin by name or path
+anna plugin list       # List all plugins with status
+anna plugin add <path> # Install a plugin from a directory
+anna plugin remove <n> # Remove an installed plugin
+anna plugin enable <n> # Enable a plugin
+anna plugin disable <n># Disable a plugin
 anna version           # Print version
 anna upgrade           # Self-update to latest release
 ```
@@ -123,4 +125,4 @@ These are tools you already have access to. Briefly:
 - **Heartbeat**: polls a markdown file on an interval, uses the fast model to decide skip/run, executes and notifies on run. Config under `heartbeat` in settings.
 - **Notifications**: `notify` tool (gateway mode only) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.
 - **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings.
-- **Plugins**: JS extensions that add custom tools and lifecycle hooks. Single `.js` file per plugin, runs in embedded QuickJS. Host APIs: `anna.registerTool()`, `anna.on()`, `anna.log()`, `anna.readFile()`/`anna.writeFile()`, `anna.fetch()`. Config stored in settings table. Manage with `anna plugin add/remove/list`.
+- **Plugins**: Subprocess plugins that provide tools and channel integrations. Each plugin has a `plugin.json` manifest and runs as a separate process communicating over stdio. 9 built-in plugins (5 tools + 4 channels). User plugins install to `~/.anna/plugins/installed/`. Manage with `anna plugin list/add/remove/enable/disable/config`.
