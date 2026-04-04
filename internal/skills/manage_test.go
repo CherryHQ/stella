@@ -187,6 +187,17 @@ func TestPatchNoUpdates(t *testing.T) {
 	}
 }
 
+func TestPatchPathTraversal(t *testing.T) {
+	dir := t.TempDir()
+	err := Patch("../../evil", map[string]string{"description": "x"}, dir)
+	if err == nil {
+		t.Fatal("expected error for path traversal name")
+	}
+	if !strings.Contains(err.Error(), "invalid skill name") {
+		t.Errorf("expected 'invalid skill name' error, got: %v", err)
+	}
+}
+
 func TestDeprecateSkill(t *testing.T) {
 	dir := t.TempDir()
 

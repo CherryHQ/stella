@@ -42,6 +42,9 @@ func Patch(name string, updates map[string]string, targetDir string) error {
 	if name == "" {
 		return fmt.Errorf("name is required")
 	}
+	if !safeNameRe.MatchString(name) {
+		return fmt.Errorf("invalid skill name %q", name)
+	}
 	if len(updates) == 0 {
 		return fmt.Errorf("no updates provided")
 	}
