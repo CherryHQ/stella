@@ -1,0 +1,193 @@
+package selfimprove
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"log/slog"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/internal/memory"
+)
+
+// ReviewDeps holds dependencies injected by the caller.
+type ReviewDeps struct {
+	DB        *sql.DB
+	Store     config.Store
+	Providers ai.ProviderGetter
+	Notifier  *channel.Dispatcher
+	Workspace string // agent workspace root for ExpireDrafts
+	Log       *slog.Logger
+}
+
+// StartReviewLoop runs the self-improvement review job on a recurring interval.
+// It blocks until ctx is cancelled.
+func StartReviewLoop(ctx context.Context, cfg config.SelfImproveConfig, deps ReviewDeps) {
+	interval, err := time.ParseDuration(cfg.Interval())
+	if err != nil {
+		interval = time.Hour
+	}
+
+	log := deps.Log
+	if log == nil {
+		log = slog.Default()
+	}
+
+	log.Info("self-improve: starting review loop", "interval", interval)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			ReviewTask(ctx, deps, cfg)
+			ExpireDrafts(deps.Workspace, 30*24*time.Hour, log)
+		}
+	}
+}
+
+// ReviewTask iterates over all enabled agents, finds unreviewed conversations,
+// and runs the review engine on each one.
+func ReviewTask(ctx context.Context, deps ReviewDeps, cfg config.SelfImproveConfig) {
+	log := deps.Log
+	if log == nil {
+		log = slog.Default()
+	}
+
+	q := sqlc.New(deps.DB)
+
+	agents, err := deps.Store.ListEnabledAgents(ctx)
+	if err != nil {
+		log.Error("self-improve: list agents", "error", err)
+		return
+	}
+
+	for _, agent := range agents {
+		reviewAgent(ctx, deps, cfg, q, log, agent)
+	}
+}
+
+func reviewAgent(ctx context.Context, deps ReviewDeps, cfg config.SelfImproveConfig, q *sqlc.Queries, log *slog.Logger, agent config.Agent) {
+	snap, err := deps.Store.Snapshot(ctx, agent.ID)
+	if err != nil {
+		log.Error("self-improve: snapshot", "agent", agent.ID, "error", err)
+		return
+	}
+
+	model := snap.ResolveModelTier(config.ModelTierFast)
+
+	conversations, err := q.ListUnreviewedConversations(ctx, int64(cfg.Batch()))
+	if err != nil {
+		log.Error("self-improve: list unreviewed", "agent", agent.ID, "error", err)
+		return
+	}
+
+	for _, conv := range conversations {
+		if !conv.AgentID.Valid || conv.AgentID.String != agent.ID {
+			continue
+		}
+		if !conv.UserID.Valid || conv.UserID.Int64 <= 0 {
+			continue
+		}
+
+		reviewConversation(ctx, deps, q, log, snap, model, conv)
+	}
+}
+
+func reviewConversation(ctx context.Context, deps ReviewDeps, q *sqlc.Queries, log *slog.Logger, snap *config.Snapshot, model ai.Model, conv sqlc.CtxConversation) {
+	userID := conv.UserID.Int64
+	userSkillsDir := filepath.Join(snap.Workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")
+
+	skills := runner.LoadSkills(config.AnnaHome(), snap.Workspace, "", userSkillsDir)
+	var existingNames []string
+	for _, s := range skills {
+		existingNames = append(existingNames, s.Name)
+	}
+
+	text, err := buildConversationText(ctx, q, conv)
+	if err != nil {
+		log.Error("self-improve: build text", "conv", conv.ID, "error", err)
+		return
+	}
+
+	if text == "" {
+		_ = q.MarkConversationReviewed(ctx, conv.ID)
+		return
+	}
+
+	reviewer := NewReviewer(deps.Providers, model, userSkillsDir, existingNames)
+	created, err := reviewer.Review(ctx, text)
+	if err != nil {
+		log.Error("self-improve: review", "conv", conv.ID, "error", err)
+		return // Don't mark reviewed on error — retry next time.
+	}
+
+	if err := q.MarkConversationReviewed(ctx, conv.ID); err != nil {
+		log.Error("self-improve: mark reviewed", "conv", conv.ID, "error", err)
+	}
+
+	if created > 0 && deps.Notifier != nil {
+		n := channel.Notification{
+			Text: fmt.Sprintf("Self-improvement: %d new draft skill(s) extracted from your conversation. Use the skills tool to review and enable them.", created),
+		}
+		if err := deps.Notifier.NotifyUser(ctx, userID, n); err != nil {
+			log.Warn("self-improve: notify", "user", userID, "error", err)
+		}
+	}
+
+	log.Info("self-improve: reviewed", "conv", conv.ID, "agent", snap.AgentID, "user", userID, "skills_created", created)
+}
+
+// buildConversationText builds the text to send to the review agent.
+func buildConversationText(ctx context.Context, q *sqlc.Queries, conv sqlc.CtxConversation) (string, error) {
+	var b strings.Builder
+
+	if conv.SelfImproveReviewedAt.Valid {
+		summaries, err := q.GetSummariesByConversation(ctx, conv.ID)
+		if err == nil && len(summaries) > 0 {
+			b.WriteString("<prior_context>\n")
+			for _, s := range summaries {
+				b.WriteString(memory.FormatSummaryXML(s, nil))
+				b.WriteString("\n")
+			}
+			b.WriteString("</prior_context>\n\n")
+		}
+
+		msgs, err := q.GetMessagesSince(ctx, sqlc.GetMessagesSinceParams{
+			ConversationID: conv.ID,
+			CreatedAt:      conv.SelfImproveReviewedAt.String,
+		})
+		if err != nil {
+			return "", fmt.Errorf("get messages since: %w", err)
+		}
+		if len(msgs) == 0 {
+			return "", nil
+		}
+		for _, m := range msgs {
+			fmt.Fprintf(&b, "[%s] %s\n", m.Role, m.Content)
+		}
+	} else {
+		msgs, err := q.GetMessagesByConversation(ctx, conv.ID)
+		if err != nil {
+			return "", fmt.Errorf("get messages: %w", err)
+		}
+		if len(msgs) == 0 {
+			return "", nil
+		}
+		for _, m := range msgs {
+			fmt.Fprintf(&b, "[%s] %s\n", m.Role, m.Content)
+		}
+	}
+
+	return b.String(), nil
+}
