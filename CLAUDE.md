@@ -8,7 +8,9 @@ All Go packages live under `internal/` (app-private).
 
 `cmd/anna/` → `internal/agent/` (pool, session) → `internal/agent/runner/` (GoRunner) → `internal/agent/engine/` (loop, tool execution) → `internal/ai/` (providers, types, events, transforms)
 
-Side packages: `internal/channel/` (cli, telegram, qq, feishu, notifier) → `internal/scheduler/` → `internal/memory/` → `internal/agent/tool/` → `internal/toolspec/` → `internal/db/` → `internal/config/`
+Side packages: `internal/channel/` (cli, telegram, qq, feishu, notifier) → `internal/scheduler/` → `internal/memory/` → `pkg/tools/` (Tool interface, registry, built-in tools) → `internal/db/` → `internal/config/`
+
+Plugin tools: `plugins/tools/` (auto-discovery registry) → `plugins/tools/webfetch/` (self-registers via init())
 
 Admin UI: `internal/admin/` — templ + Alpine.js + daisyUI. See `internal/admin/CLAUDE.md` for details.
 

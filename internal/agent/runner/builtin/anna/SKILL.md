@@ -124,4 +124,4 @@ These are tools you already have access to. Briefly:
 - **Heartbeat**: polls a markdown file on an interval, uses the fast model to decide skip/run, executes and notifies on run. Config under `heartbeat` in settings.
 - **Notifications**: `notify` tool (gateway mode only) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.
 - **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings.
-- **Plugins**: Compiled-in plugins that provide tools and channel integrations. 5 built-in plugins: 1 tool (webfetch) + 4 channels (telegram, qq, feishu, weixin). Core tools (read/bash/edit/write) are always enabled and are not plugins. Manage with `anna plugin list/enable/disable/config`.
+- **Plugins**: Plugin tools (`plugins/tools/`) self-register via init() and are auto-discovered at startup. 5 built-in plugins: 1 tool (webfetch) + 4 channels (telegram, qq, feishu, weixin). Core tools (read/bash/edit/write/agent) are always enabled and are not plugins. Manage with `anna plugin list/enable/disable/config`.
