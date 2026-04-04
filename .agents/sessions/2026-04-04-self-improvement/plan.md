@@ -173,4 +173,11 @@ Wire the review job into scheduler, add config, notifications, draft expiry, and
 
 ## Final Status
 
-(Updated after implementation completes)
+**COMPLETE** — All 4 phases implemented and reviewed. 16 commits on `feat/self-improvement`.
+
+- All tests pass with `-race`, lint clean
+- All tasks checked off
+- Phase 1 review fix: path traversal validation in Patch
+- New files: `internal/agent/selfimprove/` (6 files), `internal/skills/atomicwrite.go`, `internal/skills/manage.go`
+- Modified: `internal/agent/runner/skill.go`, `internal/skills/tool.go`, `internal/skills/list.go`, `internal/config/config.go`, `internal/config/snapshot.go`, `internal/config/dbstore.go`, `cmd/anna/gateway.go`, `internal/agent/runner/template/system.md`
+- Migration: `20260404052636_add-self-improve-reviewed-at.sql`

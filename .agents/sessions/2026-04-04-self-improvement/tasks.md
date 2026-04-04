@@ -12,24 +12,24 @@
 
 ## Phase 2: Database + Queries
 
-- [ ] 2.1 Add `self_improve_reviewed_at TEXT` column to `ctx_conversations` schema
-- [ ] 2.2 Generate migration via `mise run db:diff -- add-self-improve-reviewed-at`
-- [ ] 2.3 Add `ListUnreviewedConversations` and `MarkConversationReviewed` queries
-- [ ] 2.4 Add `GetMessagesSince` query for incremental loading
-- [ ] 2.5 Regenerate sqlc via `mise run generate`
+- [x] 2.1 Add `self_improve_reviewed_at TEXT` column to `ctx_conversations` schema
+- [x] 2.2 Generate migration via `mise run db:diff -- add-self-improve-reviewed-at`
+- [x] 2.3 Add `ListUnreviewedConversations` and `MarkConversationReviewed` queries
+- [x] 2.4 Add `GetMessagesSince` query for incremental loading
+- [x] 2.5 Regenerate sqlc via `mise run generate`
 
 ## Phase 3: Review Engine
 
-- [ ] 3.1 Create restricted `ReviewSkillsTool`
-- [ ] 3.2 Create review agent system prompt
-- [ ] 3.3 Create `Reviewer` with local engine, fast model, restricted tools
-- [ ] 3.4 Tests for review engine
+- [x] 3.1 Create restricted `ReviewSkillsTool`
+- [x] 3.2 Create review agent system prompt
+- [x] 3.3 Create `Reviewer` with local engine, fast model, restricted tools
+- [x] 3.4 Tests for review engine
 
 ## Phase 4: Scheduled Task + Integration
 
-- [ ] 4.1 Create `ReviewTask` entry point + `Config` + `ReviewDeps` with incremental loading
-- [ ] 4.2 Add draft expiry logic — global scan, deprecate drafts >30 days
-- [ ] 4.3 Add `SelfImproveConfig` type and wire into `Snapshot`
-- [ ] 4.4 Wire self-improve into scheduler startup
-- [ ] 4.5 Add draft-skill promotion guidance to system prompt template
-- [ ] 4.6 Tests for scheduled task
+- [x] 4.1 Create `ReviewTask` entry point + `Config` + `ReviewDeps` with incremental loading
+- [x] 4.2 Add draft expiry logic — global scan, deprecate drafts >30 days
+- [x] 4.3 Add `SelfImproveConfig` type and wire into `Snapshot`
+- [x] 4.4 Wire self-improve into scheduler startup
+- [x] 4.5 Add draft-skill promotion guidance to system prompt template
+- [x] 4.6 Tests for scheduled task
