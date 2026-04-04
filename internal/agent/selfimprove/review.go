@@ -158,8 +158,15 @@ func reviewConversation(ctx context.Context, deps ReviewDeps, q *sqlc.Queries, l
 		return
 	}
 
-	reviewer := NewReviewer(providers, model, userSkillsDir, existingNames)
-	created, err := reviewer.Review(ctx, text)
+	memStore := memory.NewUserMemoryStore(deps.Store)
+	reviewer := NewReviewer(ReviewerConfig{
+		Providers:      providers,
+		Model:          model,
+		SkillsTool:     NewReviewSkillsTool(userSkillsDir),
+		MemoryTool:     NewReviewMemoryTool(memStore, userID, snap.AgentID),
+		ExistingSkills: existingNames,
+	})
+	result, err := reviewer.Review(ctx, text)
 	if err != nil {
 		log.Error("self-improve: review", "conv", conv.ID, "error", err)
 		return // Don't mark reviewed on error — retry next time.
@@ -172,16 +179,17 @@ func reviewConversation(ctx context.Context, deps ReviewDeps, q *sqlc.Queries, l
 		log.Error("self-improve: mark reviewed", "conv", conv.ID, "error", err)
 	}
 
-	if created > 0 && deps.Notifier != nil {
+	if (result.SkillsMutated > 0 || result.MemoryUpdated) && deps.Notifier != nil {
 		n := channel.Notification{
-			Text: fmt.Sprintf("Self-improvement: %d new draft skill(s) extracted from your conversation. Use the skills tool to review and enable them.", created),
+			Text: buildNotificationText(result),
 		}
 		if err := deps.Notifier.NotifyUser(ctx, userID, n); err != nil {
 			log.Warn("self-improve: notify", "user", userID, "error", err)
 		}
 	}
 
-	log.Info("self-improve: reviewed", "conv", conv.ID, "agent", snap.AgentID, "user", userID, "skills_created", created)
+	log.Info("self-improve: reviewed", "conv", conv.ID, "agent", snap.AgentID, "user", userID,
+		"skills_created", result.SkillsMutated, "memory_updated", result.MemoryUpdated)
 }
 
 // maxReviewMessages caps the number of messages loaded per conversation to
@@ -236,4 +244,16 @@ func buildConversationText(ctx context.Context, q *sqlc.Queries, conv sqlc.CtxCo
 	}
 
 	return b.String(), nil
+}
+
+// buildNotificationText constructs a user-facing notification from review results.
+func buildNotificationText(r ReviewResult) string {
+	var parts []string
+	if r.SkillsMutated > 0 {
+		parts = append(parts, fmt.Sprintf("%d new draft skill(s) extracted", r.SkillsMutated))
+	}
+	if r.MemoryUpdated {
+		parts = append(parts, "user memory updated")
+	}
+	return fmt.Sprintf("Self-improvement: %s from your conversation.", strings.Join(parts, " and "))
 }

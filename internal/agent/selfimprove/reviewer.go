@@ -10,59 +10,92 @@ import (
 	"github.com/vaayne/anna/internal/toolspec"
 )
 
-// Reviewer runs the review agent against a single conversation to extract skills.
-type Reviewer struct {
-	providers ai.ProviderGetter
-	model     ai.Model
-	toolDef   toolspec.Definition
-	toolFunc  engine.ToolFunc
-	system    string
+// ReviewResult holds the outcome of a single conversation review.
+type ReviewResult struct {
+	SkillsMutated int  // number of skills created or patched
+	MemoryUpdated bool // whether user memory was updated
 }
 
-// NewReviewer creates a Reviewer that uses the given provider and model.
-// targetDir is the writable skills directory.
-// existingSkills lists skill names already present (to avoid duplicates).
-func NewReviewer(providers ai.ProviderGetter, model ai.Model, targetDir string, existingSkills []string) *Reviewer {
-	tool := NewReviewSkillsTool(targetDir)
-	def := tool.Definition()
+// Reviewer runs the review agent against a single conversation to extract
+// skills and update user memory.
+type Reviewer struct {
+	providers       ai.ProviderGetter
+	model           ai.Model
+	tools           engine.ToolSet
+	toolDefinitions []toolspec.Definition
+	system          string
+}
 
-	toolFunc := func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
+// ReviewerConfig holds the tools and context needed to construct a Reviewer.
+type ReviewerConfig struct {
+	Providers      ai.ProviderGetter
+	Model          ai.Model
+	SkillsTool     *ReviewSkillsTool
+	MemoryTool     *ReviewMemoryTool // nil if memory review is not available
+	ExistingSkills []string
+}
+
+// NewReviewer creates a Reviewer with skill extraction and optional memory review.
+func NewReviewer(cfg ReviewerConfig) *Reviewer {
+	tools := engine.ToolSet{}
+	var defs []toolspec.Definition
+
+	// Skills tool (always present).
+	skillsDef := cfg.SkillsTool.Definition()
+	tools[skillsDef.Name] = wrapTool(cfg.SkillsTool)
+	defs = append(defs, skillsDef)
+
+	// Memory tool (optional).
+	if cfg.MemoryTool != nil {
+		memDef := cfg.MemoryTool.Definition()
+		tools[memDef.Name] = wrapTool(cfg.MemoryTool)
+		defs = append(defs, memDef)
+	}
+
+	skillList := "None"
+	if len(cfg.ExistingSkills) > 0 {
+		skillList = strings.Join(cfg.ExistingSkills, ", ")
+	}
+	system := fmt.Sprintf(combinedReviewPrompt, skillList)
+
+	return &Reviewer{
+		providers:       cfg.Providers,
+		model:           cfg.Model,
+		tools:           tools,
+		toolDefinitions: defs,
+		system:          system,
+	}
+}
+
+// reviewTool is the interface shared by ReviewSkillsTool and ReviewMemoryTool.
+type reviewTool interface {
+	Execute(ctx context.Context, args map[string]any) (string, error)
+}
+
+func wrapTool(t reviewTool) engine.ToolFunc {
+	return func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
 		args := call.Arguments
 		if args == nil {
 			args = make(map[string]any)
 		}
-		result, err := tool.Execute(ctx, args)
+		result, err := t.Execute(ctx, args)
 		if err != nil {
 			return ai.TextContent{Text: fmt.Sprintf("error: %v", err)}, nil
 		}
 		return ai.TextContent{Text: result}, nil
 	}
-
-	skillList := "None"
-	if len(existingSkills) > 0 {
-		skillList = strings.Join(existingSkills, ", ")
-	}
-	system := fmt.Sprintf(reviewSystemPrompt, skillList)
-
-	return &Reviewer{
-		providers: providers,
-		model:     model,
-		toolDef:   def,
-		toolFunc:  toolFunc,
-		system:    system,
-	}
 }
 
 // Review runs the review agent on a conversation transcript.
-// Returns the number of skills created or patched.
-func (r *Reviewer) Review(ctx context.Context, conversationText string) (int, error) {
+// Returns a ReviewResult indicating what was saved.
+func (r *Reviewer) Review(ctx context.Context, conversationText string) (ReviewResult, error) {
 	eng := &engine.Engine{Providers: r.providers}
 
 	cfg := engine.LoopConfig{
 		Model:           r.model,
 		MaxTurns:        5,
-		Tools:           engine.ToolSet{r.toolDef.Name: r.toolFunc},
-		ToolDefinitions: []toolspec.Definition{r.toolDef},
+		Tools:           r.tools,
+		ToolDefinitions: r.toolDefinitions,
 		System:          r.system,
 	}
 
@@ -72,15 +105,15 @@ func (r *Reviewer) Review(ctx context.Context, conversationText string) (int, er
 
 	result, err := eng.Run(ctx, cfg, history, nil)
 	if err != nil {
-		return 0, fmt.Errorf("review engine: %w", err)
+		return ReviewResult{}, fmt.Errorf("review engine: %w", err)
 	}
 
-	return countSkillMutations(result), nil
+	return countMutations(result), nil
 }
 
-// countSkillMutations counts tool calls that created or patched skills.
-func countSkillMutations(messages []ai.Message) int {
-	count := 0
+// countMutations counts skill mutations and memory updates in the result messages.
+func countMutations(messages []ai.Message) ReviewResult {
+	var r ReviewResult
 	for _, msg := range messages {
 		aMsg, ok := msg.(ai.AssistantMessage)
 		if !ok {
@@ -91,14 +124,18 @@ func countSkillMutations(messages []ai.Message) int {
 			if !ok {
 				continue
 			}
-			if call.Name != "review_skills" {
-				continue
-			}
 			action, _ := call.Arguments["action"].(string)
-			if action == "create" || action == "patch" {
-				count++
+			switch call.Name {
+			case "review_skills":
+				if action == "create" || action == "patch" {
+					r.SkillsMutated++
+				}
+			case "review_memory":
+				if action == "update" {
+					r.MemoryUpdated = true
+				}
 			}
 		}
 	}
-	return count
+	return r
 }

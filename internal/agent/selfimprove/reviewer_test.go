@@ -14,16 +14,22 @@ func (m *mockProviderGetter) Get(api string) (ai.ProviderAdapter, bool) {
 	return nil, false
 }
 
-func TestNewReviewer(t *testing.T) {
-	dir := t.TempDir()
-	providers := &mockProviderGetter{}
-	model := ai.Model{ID: "test-model", Name: "test", API: "openai"}
+func newTestReviewerConfig(dir string) ReviewerConfig {
+	return ReviewerConfig{
+		Providers:  &mockProviderGetter{},
+		Model:      ai.Model{ID: "test-model", Name: "test", API: "openai"},
+		SkillsTool: NewReviewSkillsTool(dir),
+	}
+}
 
-	r := NewReviewer(providers, model, dir, nil)
+func TestNewReviewer(t *testing.T) {
+	t.Parallel()
+	cfg := newTestReviewerConfig(t.TempDir())
+	r := NewReviewer(cfg)
 	if r == nil {
 		t.Fatal("NewReviewer returned nil")
 	}
-	if r.providers != providers {
+	if r.providers != cfg.Providers {
 		t.Error("providers not set")
 	}
 	if r.model.ID != "test-model" {
@@ -32,12 +38,10 @@ func TestNewReviewer(t *testing.T) {
 }
 
 func TestNewReviewerWithExistingSkills(t *testing.T) {
-	dir := t.TempDir()
-	providers := &mockProviderGetter{}
-	model := ai.Model{ID: "test-model", Name: "test", API: "openai"}
-
-	existing := []string{"deploy-to-staging", "fix-flaky-tests"}
-	r := NewReviewer(providers, model, dir, existing)
+	t.Parallel()
+	cfg := newTestReviewerConfig(t.TempDir())
+	cfg.ExistingSkills = []string{"deploy-to-staging", "fix-flaky-tests"}
+	r := NewReviewer(cfg)
 
 	if !strings.Contains(r.system, "deploy-to-staging") {
 		t.Error("system prompt should list existing skill names")
@@ -48,55 +52,82 @@ func TestNewReviewerWithExistingSkills(t *testing.T) {
 }
 
 func TestNewReviewerNoExistingSkills(t *testing.T) {
-	dir := t.TempDir()
-	providers := &mockProviderGetter{}
-	model := ai.Model{ID: "test-model", Name: "test", API: "openai"}
-
-	r := NewReviewer(providers, model, dir, nil)
+	t.Parallel()
+	cfg := newTestReviewerConfig(t.TempDir())
+	r := NewReviewer(cfg)
 	if !strings.Contains(r.system, "None") {
 		t.Error("system prompt should say 'None' when no existing skills")
 	}
 }
 
-func TestReviewerToolDefinition(t *testing.T) {
-	dir := t.TempDir()
-	providers := &mockProviderGetter{}
-	model := ai.Model{ID: "test-model", Name: "test", API: "openai"}
+func TestReviewerToolDefinitions(t *testing.T) {
+	t.Parallel()
 
-	r := NewReviewer(providers, model, dir, nil)
-	if r.toolDef.Name != "review_skills" {
-		t.Errorf("tool name = %q, want %q", r.toolDef.Name, "review_skills")
-	}
+	t.Run("skills only", func(t *testing.T) {
+		t.Parallel()
+		cfg := newTestReviewerConfig(t.TempDir())
+		r := NewReviewer(cfg)
+		if len(r.toolDefinitions) != 1 {
+			t.Fatalf("tool definitions = %d, want 1", len(r.toolDefinitions))
+		}
+		if r.toolDefinitions[0].Name != "review_skills" {
+			t.Errorf("tool name = %q, want %q", r.toolDefinitions[0].Name, "review_skills")
+		}
+	})
+
+	t.Run("skills and memory", func(t *testing.T) {
+		t.Parallel()
+		cfg := newTestReviewerConfig(t.TempDir())
+		cfg.MemoryTool = NewReviewMemoryTool(nil, 1, "agent-1")
+		r := NewReviewer(cfg)
+		if len(r.toolDefinitions) != 2 {
+			t.Fatalf("tool definitions = %d, want 2", len(r.toolDefinitions))
+		}
+		names := map[string]bool{}
+		for _, d := range r.toolDefinitions {
+			names[d.Name] = true
+		}
+		if !names["review_skills"] {
+			t.Error("missing review_skills tool")
+		}
+		if !names["review_memory"] {
+			t.Error("missing review_memory tool")
+		}
+	})
 }
 
 func TestReviewSystemPromptContent(t *testing.T) {
+	t.Parallel()
 	checks := []string{
-		"skill extraction agent",
-		"procedural knowledge",
+		"self-improvement agent",
+		"Memory",
+		"Skills",
 		"Nothing to save.",
 		"lowercase-hyphenated",
 		"review_skills",
+		"review_memory",
 	}
 	for _, check := range checks {
-		if !strings.Contains(reviewSystemPrompt, check) {
-			t.Errorf("system prompt missing phrase: %q", check)
+		if !strings.Contains(combinedReviewPrompt, check) {
+			t.Errorf("combined prompt missing phrase: %q", check)
 		}
 	}
 }
 
-func TestCountSkillMutations(t *testing.T) {
+func TestCountMutations(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		messages []ai.Message
-		want     int
+		want     ReviewResult
 	}{
 		{
 			name:     "no messages",
 			messages: nil,
-			want:     0,
+			want:     ReviewResult{},
 		},
 		{
-			name: "create and patch counted",
+			name: "skill create and patch counted",
 			messages: []ai.Message{
 				ai.AssistantMessage{
 					Content: []ai.ContentBlock{
@@ -111,7 +142,7 @@ func TestCountSkillMutations(t *testing.T) {
 					},
 				},
 			},
-			want: 2,
+			want: ReviewResult{SkillsMutated: 2},
 		},
 		{
 			name: "deprecate not counted",
@@ -125,7 +156,53 @@ func TestCountSkillMutations(t *testing.T) {
 					},
 				},
 			},
-			want: 0,
+			want: ReviewResult{},
+		},
+		{
+			name: "memory update counted",
+			messages: []ai.Message{
+				ai.AssistantMessage{
+					Content: []ai.ContentBlock{
+						ai.ToolCall{
+							Name:      "review_memory",
+							Arguments: map[string]any{"action": "update", "content": "user likes Go"},
+						},
+					},
+				},
+			},
+			want: ReviewResult{MemoryUpdated: true},
+		},
+		{
+			name: "memory get not counted",
+			messages: []ai.Message{
+				ai.AssistantMessage{
+					Content: []ai.ContentBlock{
+						ai.ToolCall{
+							Name:      "review_memory",
+							Arguments: map[string]any{"action": "get"},
+						},
+					},
+				},
+			},
+			want: ReviewResult{},
+		},
+		{
+			name: "mixed skills and memory",
+			messages: []ai.Message{
+				ai.AssistantMessage{
+					Content: []ai.ContentBlock{
+						ai.ToolCall{
+							Name:      "review_skills",
+							Arguments: map[string]any{"action": "create", "name": "a"},
+						},
+						ai.ToolCall{
+							Name:      "review_memory",
+							Arguments: map[string]any{"action": "update", "content": "notes"},
+						},
+					},
+				},
+			},
+			want: ReviewResult{SkillsMutated: 1, MemoryUpdated: true},
 		},
 		{
 			name: "other tool not counted",
@@ -139,22 +216,23 @@ func TestCountSkillMutations(t *testing.T) {
 					},
 				},
 			},
-			want: 0,
+			want: ReviewResult{},
 		},
 		{
 			name: "user messages ignored",
 			messages: []ai.Message{
 				ai.UserMessage{Content: "hello"},
 			},
-			want: 0,
+			want: ReviewResult{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := countSkillMutations(tt.messages)
+			t.Parallel()
+			got := countMutations(tt.messages)
 			if got != tt.want {
-				t.Errorf("countSkillMutations = %d, want %d", got, tt.want)
+				t.Errorf("countMutations = %+v, want %+v", got, tt.want)
 			}
 		})
 	}
