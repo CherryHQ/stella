@@ -86,18 +86,21 @@ func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, h
 		turnCfg.Model = effectiveModel
 
 		start := time.Now()
-		complete, err := streamAssistant(normalized, turnCfg, pg, emit)
+		result, err := streamAssistant(normalized, turnCfg, pg, emit)
 		duration := time.Since(start)
+		complete := result.Message
 
 		// PostLLMCall hooks: telemetry / observation.
 		if !cfg.Hooks.Empty() {
 			postCtx := &hooks.PostLLMCallContext{
-				HookMeta:   cfg.HookMeta,
-				Model:      effectiveModel.Name,
-				Usage:      complete.Usage,
-				StopReason: complete.StopReason,
-				Duration:   duration,
-				Error:      err,
+				HookMeta:         cfg.HookMeta,
+				Model:            effectiveModel.Name,
+				Provider:         effectiveModel.Provider,
+				Usage:            complete.Usage,
+				StopReason:       complete.StopReason,
+				Duration:         duration,
+				TimeToFirstToken: result.TimeToFirstToken,
+				Error:            err,
 			}
 			cfg.Hooks.RunPostLLMCall(ctx, postCtx)
 		}
@@ -166,7 +169,14 @@ func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, h
 
 // streamAssistant opens a provider stream, emits granular assistant events,
 // and assembles the final AssistantMessage.
-func streamAssistant(messages []ai.Message, cfg loopConfig, pg providers.ProviderGetter, emit func(LoopEvent)) (ai.AssistantMessage, error) {
+// streamResult bundles the assistant message with timing metadata from a stream.
+type streamResult struct {
+	Message          ai.AssistantMessage
+	TimeToFirstToken time.Duration // elapsed from stream open to first event
+}
+
+func streamAssistant(messages []ai.Message, cfg loopConfig, pg providers.ProviderGetter, emit func(LoopEvent)) (streamResult, error) {
+	streamStart := time.Now()
 	eventStream, err := providers.Stream(
 		cfg.Model,
 		ai.Context{System: cfg.System, Messages: messages, Tools: cfg.ToolDefinitions},
@@ -174,7 +184,7 @@ func streamAssistant(messages []ai.Message, cfg loopConfig, pg providers.Provide
 		pg,
 	)
 	if err != nil {
-		return ai.AssistantMessage{}, err
+		return streamResult{}, err
 	}
 
 	msg := ai.AssistantMessage{Content: make([]ai.ContentBlock, 0, 4)}
@@ -183,6 +193,7 @@ func streamAssistant(messages []ai.Message, cfg loopConfig, pg providers.Provide
 	toolCalls := map[string]ai.ToolCall{}
 	toolArgs := map[string]string{} // accumulated raw JSON per tool call ID
 	started := false
+	var ttft time.Duration
 
 	for event := range eventStream.Events() {
 		switch e := event.(type) {
@@ -211,8 +222,9 @@ func streamAssistant(messages []ai.Message, cfg loopConfig, pg providers.Provide
 			}
 		}
 
-		// Emit AssistantStarted on first event.
+		// Record time-to-first-token and emit AssistantStarted on first event.
 		if !started {
+			ttft = time.Since(streamStart)
 			started = true
 			if emit != nil {
 				emit(AssistantStarted{Message: msg})
@@ -228,7 +240,7 @@ func streamAssistant(messages []ai.Message, cfg loopConfig, pg providers.Provide
 	}
 
 	if waitErr := eventStream.Wait(); waitErr != nil {
-		return msg, waitErr
+		return streamResult{Message: msg, TimeToFirstToken: ttft}, waitErr
 	}
 
 	// Surface provider-level errors that were delivered as EventError events
@@ -236,7 +248,7 @@ func streamAssistant(messages []ai.Message, cfg loopConfig, pg providers.Provide
 	// is silently swallowed: StopReason=Error causes runLoop to return nil,
 	// and the caller never learns what went wrong.
 	if msg.StopReason == ai.StopReasonError && msg.ErrorMessage != "" {
-		return msg, fmt.Errorf("provider: %s", msg.ErrorMessage)
+		return streamResult{Message: msg, TimeToFirstToken: ttft}, fmt.Errorf("provider: %s", msg.ErrorMessage)
 	}
 
 	// Assemble final message.
@@ -260,7 +272,7 @@ func streamAssistant(messages []ai.Message, cfg loopConfig, pg providers.Provide
 		emit(AssistantFinished{Message: msg})
 	}
 
-	return msg, nil
+	return streamResult{Message: msg, TimeToFirstToken: ttft}, nil
 }
 
 // buildPartial constructs a snapshot of the in-progress assistant message.
