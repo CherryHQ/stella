@@ -125,7 +125,7 @@ func TestBuildStreamDisplayEmptyAll(t *testing.T) {
 // --- toolLine ---
 
 func TestToolLineRunning(t *testing.T) {
-	line := toolLine(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls -la"})
+	line := channel.ToolLine(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls -la"})
 	if !strings.Contains(line, "bash") || !strings.Contains(line, "ls -la") {
 		t.Errorf("unexpected line: %q", line)
 	}
@@ -133,28 +133,28 @@ func TestToolLineRunning(t *testing.T) {
 
 func TestToolLineRunningTruncatesMultibyte(t *testing.T) {
 	input := strings.Repeat("中", 61)
-	line := toolLine(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: input})
+	line := channel.ToolLine(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: input})
 	if !strings.HasSuffix(line, "...") {
 		t.Errorf("expected truncation ellipsis, got %q", line)
 	}
 }
 
 func TestToolLineError(t *testing.T) {
-	line := toolLine(&channel.ToolUseEvent{Tool: "read", Status: "error"})
+	line := channel.ToolLine(&channel.ToolUseEvent{Tool: "read", Status: "error"})
 	if !strings.Contains(line, "failed") {
 		t.Errorf("unexpected line: %q", line)
 	}
 }
 
 func TestToolLineDefault(t *testing.T) {
-	line := toolLine(&channel.ToolUseEvent{Tool: "bash", Status: "done"})
+	line := channel.ToolLine(&channel.ToolUseEvent{Tool: "bash", Status: "done"})
 	if line != "" {
 		t.Errorf("expected empty, got %q", line)
 	}
 }
 
 func TestToolLineRunningNoInput(t *testing.T) {
-	line := toolLine(&channel.ToolUseEvent{Tool: "search", Status: "running"})
+	line := channel.ToolLine(&channel.ToolUseEvent{Tool: "search", Status: "running"})
 	if !strings.Contains(line, "search") {
 		t.Errorf("unexpected line: %q", line)
 	}
@@ -164,7 +164,7 @@ func TestToolLineRunningNoInput(t *testing.T) {
 }
 
 func TestToolLineUnknownTool(t *testing.T) {
-	line := toolLine(&channel.ToolUseEvent{Tool: "custom_tool", Status: "running", Input: "x"})
+	line := channel.ToolLine(&channel.ToolUseEvent{Tool: "custom_tool", Status: "running", Input: "x"})
 	if !strings.Contains(line, "🔧") {
 		t.Errorf("unknown tool should use default emoji: %q", line)
 	}

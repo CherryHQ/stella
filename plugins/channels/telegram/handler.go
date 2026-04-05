@@ -292,8 +292,8 @@ func (b *Bot) handleStream(c tele.Context, stream *channel.ChatStream) error {
 		response = "(empty response)"
 	}
 
-	if tracker != nil && tracker.hasHistory() {
-		response += tracker.renderFinal()
+	if tracker != nil && tracker.HasHistory() {
+		response += tracker.RenderFinal()
 	}
 
 	b.sendFinalResponse(c, response, images)
