@@ -34,9 +34,13 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// If disabling a channel plugin, stop it.
-	if p.Kind == config.PluginKindChannel && !req.Enabled {
-		s.stopChannel(p.Name)
+	// Hot-reload channel plugins: start on enable, stop on disable.
+	if p.Kind == config.PluginKindChannel {
+		if req.Enabled {
+			s.startChannel(p.Name)
+		} else {
+			s.stopChannel(p.Name)
+		}
 	}
 	// Hot-reload tool plugins so the change takes effect without restart.
 	if p.Kind == config.PluginKindTool && s.poolManager != nil {

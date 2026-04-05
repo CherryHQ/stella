@@ -118,6 +118,21 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		})
 	}
 
+	// Configure channel hot-reload so the admin UI can start/stop channels.
+	adminSrv.SetChannelLifecycle(gctx,
+		func(name string) (pkgchannel.Channel, error) {
+			if !channel.HasValidConfig(s.store, name) {
+				return nil, fmt.Errorf("%s: missing or invalid config", name)
+			}
+			return buildChannel(name, coordinator, s.store)
+		},
+		func(name string, ch pkgchannel.Channel) {
+			if channel.IsNotifyEnabled(s.store, name) {
+				s.notifier.Register(ch)
+			}
+		},
+	)
+
 	// Load enabled channel plugins from settings_plugins.
 	channelNames := []string{"telegram", "qq", "feishu", "weixin"}
 	for _, name := range channelNames {

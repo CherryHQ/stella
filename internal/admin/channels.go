@@ -82,7 +82,9 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if !req.Enabled {
+	if req.Enabled {
+		s.startChannel(platform)
+	} else {
 		s.stopChannel(platform)
 	}
 	writeData(w, http.StatusOK, pluginToChannelView(p))
