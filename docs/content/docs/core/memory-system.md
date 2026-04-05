@@ -93,7 +93,7 @@ mise run generate
 | `ctx_message_parts`       | Structured message parts (`text`, `reasoning`, `tool`) for future use                                                                         |
 | `ctx_agent_memory`        | Per-user-per-agent notes. Primary key is `(user_id, agent_id)`. Content is injected into the system prompt at session start.                  |
 | `settings_agents`         | Agent configuration including `system_prompt` (agent soul), model selection, and workspace path                                               |
-| `settings_providers`      | LLM provider credentials and endpoints                                                                                                        |
+| `settings_plugins`        | Unified plugin table (tools, channels, hooks, providers). Provider credentials stored in `config` JSON.                                        |
 | `settings_channels`       | Channel (Telegram, QQ, Feishu, WeChat) configuration                                                                                          |
 | `settings_users`          | User records referenced by `ctx_agent_memory` and `ctx_conversations`                                                                         |
 | `settings_channel_agents` | Maps channels to agents for multi-agent routing                                                                                               |

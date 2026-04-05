@@ -93,7 +93,7 @@ mise run generate
 | `ctx_message_parts`       | 将来の使用のための構造化メッセージパーツ（`text`、`reasoning`、`tool`）                                                              |
 | `ctx_agent_memory`        | ユーザーごと・エージェントごとのノート。主キーは`(user_id, agent_id)`。内容はセッション開始時にシステムプロンプトに注入される。      |
 | `settings_agents`         | `system_prompt`（エージェントソウル）、モデル選択、ワークスペースパスを含むエージェント設定                                          |
-| `settings_providers`      | LLMプロバイダー認証情報とエンドポイント                                                                                              |
+| `settings_plugins`        | 統合プラグインテーブル（ツール、チャネル、フック、プロバイダー）。プロバイダー認証情報は`config` JSONに格納。                          |
 | `settings_channels`       | チャネル（Telegram、QQ、Feishu、WeChat）設定                                                                                         |
 | `settings_users`          | `ctx_agent_memory`と`ctx_conversations`によって参照されるユーザーレコード                                                            |
 | `settings_channel_agents` | マルチエージェントルーティングのためのチャネルからエージェントへのマッピング                                                         |

@@ -38,7 +38,6 @@ cmd/anna/              エントリーポイント、CLIコマンド、サービ
 internal/
   config/              Storeインターフェース、DBStore（SQLite）、Snapshot、タイプ
   ai/                  Message/Contentタイプ、Model、Providerインターフェース、ストリーミングイベント
-    providers/         Anthropic、OpenAI、OpenAI-Responseアダプター
   agent/               PoolManager、Pool、Session、ワークスペース設定、ランナーファクトリー
     engine/            エージェントループエンジン（マルチターンツール実行）
     runner/            GoRunner、システムプロンプトビルダー、スキルロード
@@ -56,7 +55,10 @@ internal/
 pkg/
   tools/               Toolインターフェース、レジストリ、ビルトインツール（read、bash、write、edit、agent）
 plugins/
-  tools/               プラグインツール自動検出 + プラグインツール（webfetch）
+  tools/               プラグインツールレジストリ + プラグインツール（webfetch）
+  hooks/               プラグインフックレジストリ + プラグインフック（rtk）
+  channels/            チャネルプラグイン（telegram、qq、feishu、weixin）
+  providers/           プロバイダープラグインレジストリ + LLMアダプター（anthropic、openai、openai-response）
 ```
 
 ## 設定
@@ -87,7 +89,7 @@ plugins/
 
 ## プロバイダー
 
-3つのLLMプロバイダーがサポートされています：
+LLMプロバイダーはプラグインベースです。Annaには3つのビルトインプロバイダーがあります：
 
 | プロバイダー      | API                  | ユースケース                                    |
 | ----------------- | -------------------- | ----------------------------------------------- |
@@ -96,6 +98,8 @@ plugins/
 | `openai-response` | Responses API        | OpenAI互換サービス（Perplexity、Together.ai等） |
 
 各プロバイダーは、ストリーミングレスポンス用の`ai.ProviderAdapter`インターフェースを実装し、オプションでモデル検出用の`ai.ModelLister`を実装します。すべてのプロバイダーは、`ImageContent`タイプを介してマルチモーダル入力（テキスト + 画像）をサポートし、ネイティブ画像フォーマット（Anthropic用のbase64ブロック、OpenAI用のデータURIimage_url）に変換します。
+
+プロバイダーは`plugins/providers/`に配置され、`init()`で自己登録します。新しいプロバイダーの追加は`plugins/providers/`にパッケージを作成するだけで、他の接続コードは不要です。詳細は[プラグインシステム](/docs/features/plugin-system)を参照してください。
 
 ## ツール
 
@@ -124,7 +128,7 @@ type Tool interface {
 | ---------- | ------------------- |
 | `webfetch` | Webページ内容の取得 |
 
-プラグインツールは`plugins/tools/`にあり、`init()`で自己登録します。自動検出は`plugins/tools/registry.go`が処理します——新しいプラグインツールの追加にはブランクインポートのみが必要で、ワイヤリングコードの変更は不要です。
+プラグインツールは`plugins/tools/`にあり、`init()`で自己登録します。新しいプラグインツールの追加にはブランクインポートのみが必要で、ワイヤリングコードの変更は不要です。完全なプラグインアーキテクチャについては[プラグインシステム](/docs/features/plugin-system)を参照してください。
 
 ### Agentツール
 

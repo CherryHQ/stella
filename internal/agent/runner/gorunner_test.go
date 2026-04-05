@@ -7,8 +7,28 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/providers"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
+
+func init() {
+	// Register a stub provider so NewGoRunner can Build("anthropic", ...).
+	// Tests replace the registry entry with their own fake after construction.
+	pluginproviders.Register("anthropic", pluginproviders.ProviderMeta{Name: "Anthropic"}, func(cfg pluginproviders.ProviderConfig) providers.ProviderAdapter {
+		return &stubProvider{}
+	})
+}
+
+type stubProvider struct{}
+
+func (s *stubProvider) API() string { return "anthropic" }
+func (s *stubProvider) Stream(ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
+	return nil, errors.New("stub")
+}
+func (s *stubProvider) StreamSimple(ai.Model, ai.Context, ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
+	return nil, errors.New("stub")
+}
 
 func TestNewGoRunnerRequiresConfig(t *testing.T) {
 	tests := []struct {
@@ -56,11 +76,11 @@ type goRunnerFakeProvider struct {
 
 func (f *goRunnerFakeProvider) API() string { return f.api }
 
-func (f *goRunnerFakeProvider) Stream(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (ai.AssistantEventStream, error) {
+func (f *goRunnerFakeProvider) Stream(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	out := ai.NewChannelEventStream(len(f.events) + 1)
+	out := providers.NewChannelEventStream(len(f.events) + 1)
 	go func() {
 		for _, evt := range f.events {
 			out.Emit(evt)
@@ -70,7 +90,7 @@ func (f *goRunnerFakeProvider) Stream(_ ai.Model, _ ai.Context, _ ai.StreamOptio
 	return out, nil
 }
 
-func (f *goRunnerFakeProvider) StreamSimple(_ ai.Model, _ ai.Context, opts ai.SimpleStreamOptions) (ai.AssistantEventStream, error) {
+func (f *goRunnerFakeProvider) StreamSimple(_ ai.Model, _ ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
 	return f.Stream(ai.Model{}, ai.Context{}, opts.StreamOptions)
 }
 
@@ -139,26 +159,12 @@ func TestChatStreamError(t *testing.T) {
 }
 
 func TestChatUnknownProvider(t *testing.T) {
-	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+	_, err := NewGoRunner(context.Background(), GoRunnerConfig{
 		API:    "nonexistent",
 		Model:  "test-model",
 		APIKey: "test-key",
 	})
-	if err != nil {
-		t.Fatalf("NewGoRunner: %v", err)
-	}
-
-	ch := r.Chat(context.Background(), nil, "hi")
-
-	var gotErr error
-	for evt := range ch {
-		if evt.Err != nil {
-			gotErr = evt.Err
-			break
-		}
-	}
-
-	if gotErr == nil {
+	if err == nil {
 		t.Fatal("expected error for unknown provider")
 	}
 }
@@ -224,14 +230,14 @@ type sequentialFakeProvider struct {
 
 func (f *sequentialFakeProvider) API() string { return f.api }
 
-func (f *sequentialFakeProvider) Stream(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (ai.AssistantEventStream, error) {
+func (f *sequentialFakeProvider) Stream(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
 	f.mu.Lock()
 	idx := f.call
 	f.call++
 	f.mu.Unlock()
 
 	events := f.rounds[idx]
-	out := ai.NewChannelEventStream(len(events) + 1)
+	out := providers.NewChannelEventStream(len(events) + 1)
 	go func() {
 		for _, evt := range events {
 			out.Emit(evt)
@@ -241,7 +247,7 @@ func (f *sequentialFakeProvider) Stream(_ ai.Model, _ ai.Context, _ ai.StreamOpt
 	return out, nil
 }
 
-func (f *sequentialFakeProvider) StreamSimple(_ ai.Model, _ ai.Context, opts ai.SimpleStreamOptions) (ai.AssistantEventStream, error) {
+func (f *sequentialFakeProvider) StreamSimple(_ ai.Model, _ ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
 	return f.Stream(ai.Model{}, ai.Context{}, opts.StreamOptions)
 }
 

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // Assembler builds context for the model within a token budget.

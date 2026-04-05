@@ -38,7 +38,6 @@ cmd/anna/              Entry point, CLI commands, service wiring
 internal/
   config/              Store interface, DBStore (SQLite), Snapshot, types
   ai/                  Message/Content types, Model, Provider interface, streaming events
-    providers/         Anthropic, OpenAI, OpenAI-Response adapters
   agent/               PoolManager, Pool, Session, workspace setup, runner factory
     engine/            Agent loop engine (multi-turn tool execution)
     runner/            GoRunner, system prompt builder, skill loading
@@ -56,7 +55,10 @@ internal/
 pkg/
   tools/               Tool interface, registry, built-in tools (read, bash, write, edit, agent)
 plugins/
-  tools/               Plugin tool auto-discovery + plugin tools (webfetch)
+  tools/               Plugin tool registry + plugin tools (webfetch)
+  hooks/               Plugin hook registry + plugin hooks (rtk)
+  channels/            Channel plugins (telegram, qq, feishu, weixin)
+  providers/           Provider plugin registry + LLM adapters (anthropic, openai, openai-response)
 ```
 
 ## Configuration
@@ -87,7 +89,7 @@ The `/agent` slash command (handled by `AgentCommander`) lets users list enabled
 
 ## Providers
 
-Three LLM providers are supported:
+LLM providers are plugin-based. Three built-in providers ship with Anna:
 
 | Provider          | API                  | Use Case                                                   |
 | ----------------- | -------------------- | ---------------------------------------------------------- |
@@ -96,6 +98,8 @@ Three LLM providers are supported:
 | `openai-response` | Responses API        | OpenAI-compatible services (Perplexity, Together.ai, etc.) |
 
 Each provider implements the `ai.ProviderAdapter` interface for streaming responses and optionally `ai.ModelLister` for model discovery. All providers support multimodal input (text + images) via the `ImageContent` type, converting to their native image format (base64 blocks for Anthropic, data URI image_url for OpenAI).
+
+Providers live in `plugins/providers/` and self-register via `init()`. Adding a new provider requires creating a package under `plugins/providers/` -- no other wiring code is needed. See [plugin-system](/docs/features/plugin-system) for details.
 
 ## Tools
 
@@ -124,7 +128,7 @@ type Tool interface {
 | ---------- | ---------------------- |
 | `webfetch` | Fetch web page contents |
 
-Plugin tools live in `plugins/tools/` and self-register via `init()`. Auto-discovery is handled by `plugins/tools/registry.go` — adding a new plugin tool requires no changes to the wiring code beyond a blank import.
+Plugin tools live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/features/plugin-system) for the full plugin architecture.
 
 ### Agent Tool
 

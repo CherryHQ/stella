@@ -13,8 +13,8 @@ import (
 
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // streamStartMsg carries the stream channel from the agent.

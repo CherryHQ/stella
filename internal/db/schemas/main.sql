@@ -1,5 +1,4 @@
 -- atlas:import tables/settings.sql
--- atlas:import tables/settings_providers.sql
 -- atlas:import tables/settings_agents.sql
 -- atlas:import tables/settings_channels.sql
 -- atlas:import tables/settings_plugins.sql

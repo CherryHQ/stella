@@ -3,7 +3,7 @@ package engine
 import (
 	"context"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
 )
 

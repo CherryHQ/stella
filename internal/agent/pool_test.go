@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/memory"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // testMemoryEngine creates an in-memory SQLite memory engine for testing.

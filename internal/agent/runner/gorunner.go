@@ -9,12 +9,11 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/engine"
-	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/internal/ai/providers/anthropic"
-	"github.com/vaayne/anna/internal/ai/providers/openai"
-	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
+	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 const maxToolIterations = 40
@@ -36,13 +35,14 @@ type GoRunnerConfig struct {
 
 // GoRunner implements Runner by calling LLM providers directly via Engine.
 type GoRunner struct {
-	eng    *engine.Engine
-	reg    *ai.Registry
-	tools  *tools.Registry
-	hooks  *hooks.HookSet
-	model  ai.Model
-	apiKey string
-	system string
+	eng     *engine.Engine
+	reg     *providers.Registry
+	tools   *tools.Registry
+	hooks   *hooks.HookSet
+	model   ai.Model
+	apiKey  string
+	baseURL string
+	system  string
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -61,10 +61,13 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		return nil, fmt.Errorf("go runner: api_key is required")
 	}
 
-	reg := ai.NewRegistry()
-	reg.Register(anthropic.New(anthropic.Config{BaseURL: cfg.BaseURL}))
-	reg.Register(openai.New(openai.Config{BaseURL: cfg.BaseURL}))
-	reg.Register(openairesponse.New(openairesponse.Config{BaseURL: cfg.BaseURL}))
+	reg, err := pluginproviders.BuildRegistry(cfg.API, pluginproviders.ProviderConfig{
+		APIKey:  cfg.APIKey,
+		BaseURL: cfg.BaseURL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("go runner: %w", err)
+	}
 
 	system := cfg.System
 	if system == "" {
@@ -100,6 +103,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		Registry: toolReg,
 		Model:    model,
 		APIKey:   cfg.APIKey,
+		BaseURL:  cfg.BaseURL,
 		System:   system,
 		Presets:  presets,
 		Hooks:    hookSet,
@@ -112,6 +116,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		hooks:        hookSet,
 		model:        model,
 		apiKey:       cfg.APIKey,
+		baseURL:      cfg.BaseURL,
 		system:       system,
 		lastActivity: time.Now(),
 		log:          slog.With("component", "go_runner"),
@@ -135,7 +140,7 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 
 		cfg := engine.LoopConfig{
 			Model:           r.model,
-			StreamOptions:   ai.StreamOptions{APIKey: r.apiKey},
+			StreamOptions:   ai.StreamOptions{APIKey: r.apiKey, BaseURL: r.baseURL},
 			MaxTurns:        maxToolIterations,
 			Tools:           r.buildToolSet(),
 			ToolDefinitions: r.tools.Definitions(),

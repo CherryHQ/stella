@@ -11,8 +11,8 @@ import (
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/tencent-connect/botgo/event"
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // c2cMessageHandler returns a handler for private (C2C) messages.

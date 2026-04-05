@@ -12,7 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/vaayne/anna/internal/agent/engine"
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
 )
 
@@ -33,6 +33,7 @@ type AgentConfig struct {
 	Registry *Registry
 	Model    ai.Model
 	APIKey   string
+	BaseURL  string
 	System   string
 	Emit     func(engine.LoopEvent) // optional event emitter for observability
 	Presets  *PresetRegistry        // loaded agent presets (nil = no presets)
@@ -295,7 +296,7 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 
 	cfg := engine.LoopConfig{
 		Model:           model,
-		StreamOptions:   ai.StreamOptions{APIKey: t.cfg.APIKey},
+		StreamOptions:   ai.StreamOptions{APIKey: t.cfg.APIKey, BaseURL: t.cfg.BaseURL},
 		MaxTurns:        maxTurns,
 		Tools:           toolSet,
 		ToolDefinitions: toolDefs,

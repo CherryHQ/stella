@@ -10,10 +10,9 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/engine"
-	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/internal/ai/providers/anthropic"
-	"github.com/vaayne/anna/internal/ai/providers/openai"
-	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
+	"github.com/vaayne/anna/pkg/ai"
+	providerapi "github.com/vaayne/anna/pkg/providers"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 func skipWithoutAPIKey(t *testing.T) string {
@@ -37,32 +36,15 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 		model = "gpt-5.4"
 	}
 
-	providers := []struct {
+	type providerCase struct {
 		name    string
 		baseURL string
-		factory func(cfg struct{ BaseURL string }) ai.ProviderAdapter
-	}{
-		{
-			name:    "anthropic",
-			baseURL: baseURL,
-			factory: func(cfg struct{ BaseURL string }) ai.ProviderAdapter {
-				return anthropic.New(anthropic.Config{BaseURL: cfg.BaseURL})
-			},
-		},
-		{
-			name:    "openai",
-			baseURL: baseURL + "/v1",
-			factory: func(cfg struct{ BaseURL string }) ai.ProviderAdapter {
-				return openai.New(openai.Config{BaseURL: cfg.BaseURL})
-			},
-		},
-		{
-			name:    "openai-response",
-			baseURL: baseURL + "/v1",
-			factory: func(cfg struct{ BaseURL string }) ai.ProviderAdapter {
-				return openairesponse.New(openairesponse.Config{BaseURL: cfg.BaseURL})
-			},
-		},
+	}
+
+	providers := []providerCase{
+		{name: "anthropic", baseURL: baseURL},
+		{name: "openai", baseURL: baseURL + "/v1"},
+		{name: "openai-response", baseURL: baseURL + "/v1"},
 	}
 
 	toolDef := ai.ToolDefinition{
@@ -82,8 +64,12 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 
 	for _, p := range providers {
 		t.Run(p.name, func(t *testing.T) {
-			reg := ai.NewRegistry()
-			reg.Register(p.factory(struct{ BaseURL string }{BaseURL: p.baseURL}))
+			adapter, ok := pluginproviders.Build(p.name, pluginproviders.ProviderConfig{BaseURL: p.baseURL})
+			if !ok {
+				t.Fatalf("provider %s not registered", p.name)
+			}
+			reg := providerapi.NewRegistry()
+			reg.Register(adapter)
 
 			eng := &engine.Engine{Providers: reg}
 

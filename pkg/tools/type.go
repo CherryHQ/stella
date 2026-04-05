@@ -3,7 +3,7 @@ package tools
 import (
 	"context"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // Definition is a callable tool definition exposed to a model.

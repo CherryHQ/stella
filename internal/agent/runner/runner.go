@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // ToolUseEvent describes a tool invocation in progress or completed.

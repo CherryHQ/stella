@@ -16,7 +16,7 @@ Both `model_strong` and `model_fast` fall back to `model` when not set. Configur
 
 ## Provider Setup
 
-Providers are configured through the admin panel (`anna --open`). Each provider is stored in the `settings_providers` table with an optional API key and base URL.
+Providers are configured through the admin panel (`anna --open`). Each provider is stored as a plugin in the `settings_plugins` table (kind=`provider`) with credentials in the `config` JSON field.
 
 Environment variables serve as fallbacks when a provider's `api_key` field is empty in the database:
 

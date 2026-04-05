@@ -31,8 +31,18 @@ func TestSeedDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListProviders: %v", err)
 	}
-	if len(providers) != 1 || providers[0].ID != "anthropic" {
-		t.Errorf("expected 1 anthropic provider, got %v", providers)
+	if len(providers) != len(builtinProviderNames) {
+		t.Errorf("expected %d providers, got %d", len(builtinProviderNames), len(providers))
+	}
+	// Anthropic should be present.
+	found := false
+	for _, p := range providers {
+		if p.ID == "anthropic" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected anthropic provider to be seeded")
 	}
 
 	agents, err := store.ListAgents(ctx)
@@ -59,8 +69,8 @@ func TestSeedDefaultsIdempotent(t *testing.T) {
 	}
 
 	providers, _ := store.ListProviders(ctx)
-	if len(providers) != 1 {
-		t.Errorf("expected 1 provider after double seed, got %d", len(providers))
+	if len(providers) != len(builtinProviderNames) {
+		t.Errorf("expected %d providers after double seed, got %d", len(builtinProviderNames), len(providers))
 	}
 }
 
@@ -353,8 +363,10 @@ func TestSnapshot(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
-	_ = store.CreateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic", APIKey: "sk-test"})
-	_ = store.CreateAgent(ctx, Agent{
+	// Seed first (matches real startup order), then configure.
+	_ = store.SeedDefaults(ctx)
+	_ = store.UpdateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic", APIKey: "sk-test"})
+	_ = store.UpdateAgent(ctx, Agent{
 		ID:           "anna",
 		Name:         "Anna",
 		Model:        "anthropic/claude-sonnet-4-6",
@@ -367,8 +379,6 @@ func TestSnapshot(t *testing.T) {
 	_ = store.SetSetting(ctx, "runner", `{"type":"go","idle_timeout":30}`)
 	_ = store.SetSetting(ctx, "compaction", `{"enabled":true}`)
 
-	// Seed plugins so Snapshot can load them.
-	_ = store.SeedDefaults(ctx)
 	// Add a custom plugin to verify it appears in the snapshot.
 	_ = store.UpsertPlugin(ctx, Plugin{
 		ID:      "tool/custom",
@@ -425,7 +435,7 @@ func TestSnapshotDefaults(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
-	_ = store.CreateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic"})
+	_ = store.SeedDefaults(ctx)
 	_ = store.CreateAgent(ctx, Agent{ID: "a", Name: "A", Model: "anthropic/m", Enabled: true})
 
 	snap, err := store.Snapshot(ctx, "a")
