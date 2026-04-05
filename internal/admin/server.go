@@ -13,6 +13,7 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/db/sqlc"
 	"github.com/vaayne/anna/internal/memory"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
 // Server provides HTTP handlers for the admin API and templ-rendered pages.
@@ -30,8 +31,11 @@ type Server struct {
 	log         *slog.Logger
 	corsOriginV string // cached CORS origin
 
-	channelMu   sync.RWMutex
-	channelStop map[string]func() // platform → stop function for running channel
+	channelMu      sync.RWMutex
+	channelStop    map[string]func()                             // platform → stop function for running channel
+	channelBuilder func(name string) (pkgchannel.Channel, error) // builds a channel by platform name
+	channelNotify  func(name string, ch pkgchannel.Channel)      // registers channel for notifications
+	channelCtx     context.Context                               // parent context for started channels
 }
 
 // New creates an admin server with all API routes mounted.
@@ -202,6 +206,53 @@ func (s *Server) RegisterChannelStop(platform string, stop func()) {
 	s.channelMu.Lock()
 	s.channelStop[platform] = stop
 	s.channelMu.Unlock()
+}
+
+// SetChannelLifecycle configures the admin server to start/stop channels dynamically.
+// builder creates a channel by platform name; notify registers it for notifications.
+func (s *Server) SetChannelLifecycle(
+	ctx context.Context,
+	builder func(name string) (pkgchannel.Channel, error),
+	notify func(name string, ch pkgchannel.Channel),
+) {
+	s.channelMu.Lock()
+	s.channelBuilder = builder
+	s.channelNotify = notify
+	s.channelCtx = ctx
+	s.channelMu.Unlock()
+}
+
+// startChannel builds, starts, and registers a channel for the given platform.
+// No-op if the channel is already running or no builder is configured.
+func (s *Server) startChannel(platform string) {
+	s.channelMu.RLock()
+	_, running := s.channelStop[platform]
+	builder := s.channelBuilder
+	notify := s.channelNotify
+	ctx := s.channelCtx
+	s.channelMu.RUnlock()
+
+	if running || builder == nil {
+		return
+	}
+
+	ch, err := builder(platform)
+	if err != nil {
+		s.log.Error("failed to build channel", "platform", platform, "error", err)
+		return
+	}
+
+	s.RegisterChannelStop(platform, ch.Stop)
+	if notify != nil {
+		notify(platform, ch)
+	}
+
+	s.log.Info("starting channel", "platform", platform)
+	go func() {
+		if err := ch.Start(ctx); err != nil && ctx.Err() == nil {
+			s.log.Error("channel stopped with error", "platform", platform, "error", err)
+		}
+	}()
 }
 
 // stopChannel stops a running channel if one is registered for the platform.
