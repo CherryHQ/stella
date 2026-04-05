@@ -11,7 +11,11 @@ import (
 	"time"
 	"unicode/utf8"
 
+	// NOTE: The agent tool imports internal/agent/engine because it is
+	// fundamentally engine orchestration code. This coupling is accepted
+	// as the agent tool is a special case among plugin tools.
 	"github.com/vaayne/anna/internal/agent/engine"
+
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/tools"

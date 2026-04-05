@@ -1,12 +1,10 @@
 package pluginhooks
 
 import (
-	"context"
 	"log/slog"
 	"sort"
 	"sync"
 
-	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/pkg/hooks"
 )
 
@@ -38,9 +36,11 @@ func Names() []string {
 	return names
 }
 
-// BuildEnabled queries the store for enabled hook plugins and returns
-// instances. Callers (NewHookSet) handle priority sorting.
-func BuildEnabled(ctx context.Context, store config.Store) []hooks.HookPlugin {
+// BuildEnabled builds hook plugins that the caller considers enabled.
+// The enabled callback returns true for plugins that should be instantiated —
+// typically by consulting the config store.
+// Callers (NewHookSet) handle priority sorting.
+func BuildEnabled(enabled func(name string) bool) []hooks.HookPlugin {
 	mu.RLock()
 	factories := make(map[string]Factory, len(registry))
 	for name, factory := range registry {
@@ -50,12 +50,8 @@ func BuildEnabled(ctx context.Context, store config.Store) []hooks.HookPlugin {
 
 	var result []hooks.HookPlugin
 	for name, factory := range factories {
-		p, err := store.GetPlugin(ctx, config.PluginID(config.PluginKindHook, name))
-		if err != nil {
-			slog.Debug("plugin hook not found in store", "name", name, "error", err)
-			continue
-		}
-		if !p.Enabled {
+		if !enabled(name) {
+			slog.Debug("plugin hook not enabled", "name", name)
 			continue
 		}
 		result = append(result, factory())

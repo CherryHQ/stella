@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/runner/builtin"
 	"gopkg.in/yaml.v3"
 )
 
@@ -39,19 +38,20 @@ type agentFrontmatter struct {
 
 // LoadAgentPresetsConfig configures the agent preset discovery paths.
 type LoadAgentPresetsConfig struct {
-	AnnaHome  string // anna home directory (e.g. ~/.anna)
-	Workspace string // agent workspace dir (e.g. ~/.anna/workspaces/{agentID})
-	Cwd       string // working directory
+	AnnaHome        string // anna home directory (e.g. ~/.anna)
+	Workspace       string // agent workspace dir (e.g. ~/.anna/workspaces/{agentID})
+	Cwd             string // working directory
+	BuiltinSkillsDir string // pre-extracted builtin skills directory (caller ensures extraction)
 }
 
 // LoadAgentPresets discovers agent presets from multiple directories.
 // Priority order: cwd/.agents/agents/ > workspace/agents/ > ~/.agents/agents/ > builtin
 func LoadAgentPresets(cfg LoadAgentPresetsConfig) []AgentPreset {
 	home, _ := os.UserHomeDir()
-	return loadAgentPresets(home, cfg.AnnaHome, cfg.Workspace, cfg.Cwd)
+	return loadAgentPresets(home, cfg.AnnaHome, cfg.Workspace, cfg.Cwd, cfg.BuiltinSkillsDir)
 }
 
-func loadAgentPresets(homeDir, annaHome, workspace, cwd string) []AgentPreset {
+func loadAgentPresets(homeDir, annaHome, workspace, cwd, builtinSkillsDir string) []AgentPreset {
 	seen := map[string]bool{}
 	var presets []AgentPreset
 
@@ -90,14 +90,9 @@ func loadAgentPresets(homeDir, annaHome, workspace, cwd string) []AgentPreset {
 		addDir(filepath.Join(homeDir, ".agents", "agents"), "common")
 	}
 
-	// 4. Builtin agents: extracted from binary (lowest priority).
-	// Ensure builtins are extracted to disk (idempotent).
-	if annaHome != "" {
-		builtinBaseDir := filepath.Join(annaHome, "cache", "builtin-skills")
-		if err := builtin.Extract(builtinBaseDir); err != nil {
-			slog.Warn("failed to extract builtin agents", "error", err)
-		}
-		addDir(filepath.Join(builtinBaseDir, "agents"), "builtin")
+	// 4. Builtin agents: pre-extracted by the runner (lowest priority).
+	if builtinSkillsDir != "" {
+		addDir(filepath.Join(builtinSkillsDir, "agents"), "builtin")
 	}
 
 	return presets

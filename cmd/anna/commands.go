@@ -128,13 +128,19 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Plugin tools builder: auto-discovers registered plugin tools and returns
 	// enabled ones. Called at startup and on hot-reload.
 	pluginToolsBuilder := func(ctx context.Context) []tools.Tool {
-		return plugintools.BuildEnabled(ctx, store, plugintools.BuildContext{})
+		return plugintools.BuildEnabled(plugintools.BuildContext{}, func(name string) bool {
+			p, err := store.GetPlugin(ctx, config.PluginID(config.PluginKindTool, name))
+			return err == nil && p.Enabled
+		})
 	}
 
 	// Plugin hooks builder: auto-discovers registered hook plugins and returns
 	// enabled ones. Called at startup and on hot-reload.
 	pluginHooksBuilder := func(ctx context.Context) []hooks.HookPlugin {
-		return pluginhooks.BuildEnabled(ctx, store)
+		return pluginhooks.BuildEnabled(func(name string) bool {
+			p, err := store.GetPlugin(ctx, config.PluginID(config.PluginKindHook, name))
+			return err == nil && p.Enabled
+		})
 	}
 
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute

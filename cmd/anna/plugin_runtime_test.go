@@ -29,7 +29,7 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 
 	reg := tools.NewRegistry()
 	reg.Register(&read.ReadTool{})
-	reg.Register(bash.NewBashTool(""))
+	reg.Register(bash.NewBashTool("", ""))
 	reg.Register(&edit.EditTool{})
 	reg.Register(&write.WriteTool{})
 	defer func() { _ = reg.Close() }()
@@ -89,7 +89,7 @@ func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 	workDir := t.TempDir()
 	reg := tools.NewRegistry()
 	reg.Register(&read.ReadTool{})
-	reg.Register(bash.NewBashTool(workDir))
+	reg.Register(bash.NewBashTool(workDir, ""))
 	reg.Register(&edit.EditTool{})
 	reg.Register(&write.WriteTool{})
 	// Register webfetch as an extra tool (simulating enabled plugin).
@@ -132,7 +132,7 @@ func TestDirectToolRegistrySandbox(t *testing.T) {
 
 	reg := tools.NewRegistry()
 	reg.Register(sandbox.WrapWithSandbox(&read.ReadTool{}, allowed, "file_path"))
-	reg.Register(bash.NewBashTool(allowed))
+	reg.Register(bash.NewBashTool(allowed, ""))
 	reg.Register(sandbox.WrapWithSandbox(&edit.EditTool{}, allowed, "file_path"))
 	reg.Register(sandbox.WrapWithSandbox(&write.WriteTool{}, allowed, "file_path"))
 	defer func() { _ = reg.Close() }()
