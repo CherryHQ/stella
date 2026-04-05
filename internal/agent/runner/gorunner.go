@@ -63,12 +63,9 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		return nil, fmt.Errorf("go runner: api_key is required")
 	}
 
-	reg, err := pluginproviders.BuildRegistry(cfg.API, pluginproviders.ProviderConfig{
-		APIKey:  cfg.APIKey,
-		BaseURL: cfg.BaseURL,
-	})
+	reg, err := buildProviderRegistry(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("go runner: %w", err)
+		return nil, err
 	}
 
 	system := cfg.System
@@ -81,48 +78,9 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	}
 
 	model := ai.Model{API: cfg.API, Name: cfg.Model}
-
-	toolReg := tools.NewRegistry()
-
-	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
-	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
-		slog.Warn("failed to extract embedded tools", "error", err)
-	}
-	toolsBinDir := embedded.BinDir(config.AnnaHome())
-
-	// Build core tools (read, bash, edit, write) via plugin registry.
-	bc := plugintools.BuildContext{
-		WorkDir:     cfg.WorkDir,
-		UserDataDir: cfg.UserDataDir,
-		AnnaHome:    cfg.AnnaHome,
-		Workspace:   cfg.Workspace,
-		ToolsBinDir: toolsBinDir,
-	}
-	for _, t := range plugintools.BuildCore(bc) {
-		toolReg.Register(t)
-	}
-
-	// Register extra tools (shared tools like memory, scheduler + plugin tools like webfetch).
-	for _, t := range cfg.ExtraTools {
-		toolReg.Register(t)
-	}
-
-	// Extract builtin skills and load agent presets from filesystem.
-	builtinSkillsDir := filepath.Join(config.AnnaHome(), "cache", "builtin-skills")
-	if err := builtin.Extract(builtinSkillsDir); err != nil {
-		slog.Warn("failed to extract builtin skills", "error", err)
-	}
-	presets := agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
-		AnnaHome:         cfg.AnnaHome,
-		Workspace:        cfg.Workspace,
-		Cwd:              cfg.WorkDir,
-		BuiltinSkillsDir: builtinSkillsDir,
-	}))
-
-	var hookSet *hooks.HookSet
-	if len(cfg.HookPlugins) > 0 {
-		hookSet = hooks.NewHookSet(cfg.HookPlugins)
-	}
+	toolReg := buildToolRegistry(cfg)
+	presets := buildAgentPresets(cfg)
+	hookSet := buildHookSet(cfg)
 
 	toolReg.Register(agenttool.NewAgentTool(agenttool.AgentConfig{
 		Providers: reg,
@@ -157,6 +115,70 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		lastActivity: time.Now(),
 		log:          slog.With("component", "go_runner"),
 	}, nil
+}
+
+// buildProviderRegistry creates the provider registry for the configured API.
+func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
+	reg, err := pluginproviders.BuildRegistry(cfg.API, pluginproviders.ProviderConfig{
+		APIKey:  cfg.APIKey,
+		BaseURL: cfg.BaseURL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("go runner: %w", err)
+	}
+	return reg, nil
+}
+
+// buildToolRegistry creates the tool registry with core and extra tools.
+func buildToolRegistry(cfg GoRunnerConfig) *tools.Registry {
+	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
+	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
+		slog.Warn("failed to extract embedded tools", "error", err)
+	}
+	toolsBinDir := embedded.BinDir(config.AnnaHome())
+
+	toolReg := tools.NewRegistry()
+
+	// Core tools (read, bash, edit, write) via plugin registry.
+	bc := plugintools.BuildContext{
+		WorkDir:     cfg.WorkDir,
+		UserDataDir: cfg.UserDataDir,
+		AnnaHome:    cfg.AnnaHome,
+		Workspace:   cfg.Workspace,
+		ToolsBinDir: toolsBinDir,
+	}
+	for _, t := range plugintools.BuildCore(bc) {
+		toolReg.Register(t)
+	}
+
+	// Extra tools (shared tools like memory, scheduler + plugin tools like webfetch).
+	for _, t := range cfg.ExtraTools {
+		toolReg.Register(t)
+	}
+
+	return toolReg
+}
+
+// buildAgentPresets extracts builtin skills and loads agent presets from filesystem.
+func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
+	builtinSkillsDir := filepath.Join(config.AnnaHome(), "cache", "builtin-skills")
+	if err := builtin.Extract(builtinSkillsDir); err != nil {
+		slog.Warn("failed to extract builtin skills", "error", err)
+	}
+	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
+		AnnaHome:         cfg.AnnaHome,
+		Workspace:        cfg.Workspace,
+		Cwd:              cfg.WorkDir,
+		BuiltinSkillsDir: builtinSkillsDir,
+	}))
+}
+
+// buildHookSet creates the hook set from configured hook plugins.
+func buildHookSet(cfg GoRunnerConfig) *hooks.HookSet {
+	if len(cfg.HookPlugins) > 0 {
+		return hooks.NewHookSet(cfg.HookPlugins)
+	}
+	return nil
 }
 
 // Chat runs the Engine agent loop with the provided history and forwards events.
