@@ -11,6 +11,7 @@ import (
 
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
 
+	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/channel"
 	tele "gopkg.in/telebot.v4"
 )
@@ -201,7 +202,7 @@ func (b *Bot) stripBotMention(text string) string {
 }
 
 // incomingMsg builds an IncomingMessage from the Telegram context.
-func (b *Bot) incomingMsg(c tele.Context, content any) channel.IncomingMessage {
+func (b *Bot) incomingMsg(c tele.Context, content []ai.ContentBlock) channel.IncomingMessage {
 	sender := c.Sender()
 	senderID := ""
 	senderName := ""

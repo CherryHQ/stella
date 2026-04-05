@@ -66,7 +66,7 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 
 	reactionText := fmt.Sprintf("[User reacted with %s on message %s]", emojiType, messageID)
 
-	msg := b.incomingMsg(openID, chatID, chatType, reactionText)
+	msg := b.incomingMsg(openID, chatID, chatType, channel.TextContent(reactionText))
 	go b.handleMessage(msg, openID, chatID, messageID, rootID)
 	return nil
 }
@@ -127,6 +127,13 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	replyFn := func(reply string) { b.replyInThread(b.ctx, messageID, rootID, reply) }
 
+	// Prepend per-group system prompt to content if configured.
+	if chatType == "group" {
+		if sp := b.groupSystemPrompt(chatID); sp != "" {
+			content = prependSystemPrompt(content, sp)
+		}
+	}
+
 	incoming := b.incomingMsg(openID, chatID, chatType, content)
 
 	// Try shared commands via the handler.
@@ -152,31 +159,18 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		}
 	}
 
-	// Prepend per-group system prompt to content if configured.
-	if chatType == "group" {
-		if sp := b.groupSystemPrompt(chatID); sp != "" {
-			content = prependSystemPrompt(content, sp)
-			incoming.Content = content
-		}
-	}
-
 	go b.handleMessage(incoming, openID, chatID, messageID, rootID)
 	return nil
 }
 
 // prependSystemPrompt adds a system prompt prefix to message content.
-func prependSystemPrompt(content any, prompt string) any {
-	switch c := content.(type) {
-	case string:
-		return fmt.Sprintf("[System: %s]\n\n%s", prompt, c)
-	default:
-		// For non-text content (images, etc.), wrap as-is.
-		return content
-	}
+func prependSystemPrompt(content []ai.ContentBlock, prompt string) []ai.ContentBlock {
+	prefix := ai.TextContent{Text: fmt.Sprintf("[System: %s]", prompt)}
+	return append([]ai.ContentBlock{prefix}, content...)
 }
 
 // buildMessageContent constructs the message content from a Feishu message.
-func (b *Bot) buildMessageContent(msg *larkim.EventMessage) any {
+func (b *Bot) buildMessageContent(msg *larkim.EventMessage) []ai.ContentBlock {
 	msgType := derefStr(msg.MessageType)
 	rawContent := derefStr(msg.Content)
 	messageID := derefStr(msg.MessageId)
@@ -188,13 +182,13 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage) any {
 		if strings.TrimSpace(text) == "" {
 			return nil
 		}
-		return text
+		return channel.TextContent(text)
 
 	case "post":
 		if strings.TrimSpace(rawContent) == "" {
 			return nil
 		}
-		return rawContent
+		return channel.TextContent(rawContent)
 
 	case "image":
 		imageKey := extractJSONField(rawContent, "image_key")
@@ -214,32 +208,32 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage) any {
 		}
 
 	case "audio":
-		return parseAudioContent(rawContent)
+		return channel.TextContent(parseAudioContent(rawContent))
 
 	case "video", "media":
-		return parseVideoContent(rawContent)
+		return channel.TextContent(parseVideoContent(rawContent))
 
 	case "file":
-		return parseFileContent(rawContent)
+		return channel.TextContent(parseFileContent(rawContent))
 
 	case "sticker":
-		return parseStickerContent(rawContent)
+		return channel.TextContent(parseStickerContent(rawContent))
 
 	case "location":
-		return parseLocationContent(rawContent)
+		return channel.TextContent(parseLocationContent(rawContent))
 
 	case "share_chat":
-		return parseShareChatContent(rawContent)
+		return channel.TextContent(parseShareChatContent(rawContent))
 
 	case "share_user":
-		return parseShareUserContent(rawContent)
+		return channel.TextContent(parseShareUserContent(rawContent))
 
 	case "merge_forward":
-		return parseMergeForwardContent(rawContent)
+		return channel.TextContent(parseMergeForwardContent(rawContent))
 
 	default:
 		logger().Debug("unsupported message type", "type", msgType)
-		return fmt.Sprintf("[Unsupported message type: %s]", msgType)
+		return channel.TextContent(fmt.Sprintf("[Unsupported message type: %s]", msgType))
 	}
 }
 

@@ -105,7 +105,7 @@ func (b *Bot) registerHandlers() {
 	b.bot.Handle("\fagent_page", b.guard(func(c tele.Context) error {
 		page, _ := strconv.Atoi(c.Data())
 
-		msg := b.incomingMsg(c, "")
+		msg := b.incomingMsg(c, nil)
 		agents, currentAgentID, err := b.handler.ListAgents(context.Background(), msg)
 		if err != nil {
 			return c.Send(fmt.Sprintf("Error: %v", err))
@@ -169,7 +169,7 @@ func (b *Bot) handleModel(c tele.Context) error {
 func (b *Bot) handleAgent(c tele.Context) error {
 	args := strings.TrimSpace(c.Message().Payload)
 
-	msg := b.incomingMsg(c, "")
+	msg := b.incomingMsg(c, nil)
 
 	// Direct switch by slug.
 	if args != "" {
@@ -197,7 +197,7 @@ func (b *Bot) handleText(c tele.Context) error {
 		text = b.stripBotMention(text)
 	}
 
-	msg := b.incomingMsg(c, text)
+	msg := b.incomingMsg(c, channel.TextContent(text))
 
 	// Parse command if present.
 	var cmd, args string

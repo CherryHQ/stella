@@ -73,7 +73,7 @@ func (b *Bot) dispatchMessage(msg WeixinMessage) {
 }
 
 // incomingMsg builds a channel.IncomingMessage from a weixin message context.
-func (b *Bot) incomingMsg(msg WeixinMessage, content any) channel.IncomingMessage {
+func (b *Bot) incomingMsg(msg WeixinMessage, content []ai.ContentBlock) channel.IncomingMessage {
 	return channel.IncomingMessage{
 		Platform:   channel.PlatformWeixin,
 		SenderID:   msg.FromUserID,
@@ -92,7 +92,7 @@ func (b *Bot) handleText(msg WeixinMessage, text string) {
 	}
 
 	reply := func(resp string) { b.sendReply(msg, resp) }
-	incoming := b.incomingMsg(msg, text)
+	incoming := b.incomingMsg(msg, channel.TextContent(text))
 
 	// Try shared commands via coordinator (/start, /new, /compact, /whoami, /link).
 	fields := strings.Fields(text)
@@ -300,7 +300,7 @@ func (b *Bot) switchModelByName(name string, reply func(string)) {
 
 // handleAgentCommand processes /agent with optional arguments.
 func (b *Bot) handleAgentCommand(msg WeixinMessage, args string, reply func(string)) {
-	incoming := b.incomingMsg(msg, "")
+	incoming := b.incomingMsg(msg, nil)
 
 	// Direct switch by slug.
 	if args != "" {

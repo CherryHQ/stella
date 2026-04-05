@@ -17,6 +17,7 @@ import (
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
+	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/channel"
 )
 
@@ -378,7 +379,7 @@ func stripMentions(text string, mentions []*larkim.MentionEvent) string {
 }
 
 // incomingMsg builds an IncomingMessage from the Feishu context.
-func (b *Bot) incomingMsg(openID, chatID string, chatType string, content any) channel.IncomingMessage {
+func (b *Bot) incomingMsg(openID, chatID string, chatType string, content []ai.ContentBlock) channel.IncomingMessage {
 	return channel.IncomingMessage{
 		Platform: channel.PlatformFeishu,
 		SenderID: openID,

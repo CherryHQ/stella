@@ -4,7 +4,11 @@
 // and render streamed responses back to the platform.
 package channel
 
-import "context"
+import (
+	"context"
+
+	"github.com/vaayne/anna/pkg/ai"
+)
 
 // Platform identifiers for each messaging channel.
 const (
@@ -68,7 +72,7 @@ type IncomingMessage struct {
 	SenderName string // display name
 	ChatID     string // group/channel ID (empty for DMs)
 	IsGroup    bool
-	Content    any // string or []ai.ContentBlock
+	Content    []ai.ContentBlock
 }
 
 // ChatStream holds the event channel and session metadata returned by HandleMessage.
