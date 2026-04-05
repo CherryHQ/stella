@@ -11,9 +11,9 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/internal/ai/providers/anthropic"
-	"github.com/vaayne/anna/internal/ai/providers/openai"
-	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
+	"github.com/vaayne/anna/plugins/providers/anthropic"
+	"github.com/vaayne/anna/plugins/providers/openai"
+	openairesponse "github.com/vaayne/anna/plugins/providers/openai-response"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/db/sqlc"

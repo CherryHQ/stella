@@ -10,7 +10,17 @@ import (
 	sdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/vaayne/anna/internal/ai"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
+
+func init() {
+	pluginproviders.Register("openai-response", pluginproviders.ProviderMeta{
+		Name:       "OpenAI Response",
+		DefaultURL: "https://api.openai.com/v1",
+	}, func(cfg pluginproviders.ProviderConfig) ai.ProviderAdapter {
+		return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL})
+	})
+}
 
 // Config configures the OpenAI Responses provider.
 type Config struct {

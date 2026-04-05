@@ -7,7 +7,17 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/vaayne/anna/internal/ai"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
+
+func init() {
+	pluginproviders.Register("anthropic", pluginproviders.ProviderMeta{
+		Name:       "Anthropic",
+		DefaultURL: "https://api.anthropic.com",
+	}, func(cfg pluginproviders.ProviderConfig) ai.ProviderAdapter {
+		return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL})
+	})
+}
 
 // Config configures the Anthropic provider.
 type Config struct {

@@ -10,9 +10,9 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/engine"
 	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/internal/ai/providers/anthropic"
-	"github.com/vaayne/anna/internal/ai/providers/openai"
-	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
+	"github.com/vaayne/anna/plugins/providers/anthropic"
+	"github.com/vaayne/anna/plugins/providers/openai"
+	openairesponse "github.com/vaayne/anna/plugins/providers/openai-response"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/tools"
 )
