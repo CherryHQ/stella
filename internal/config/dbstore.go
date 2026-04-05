@@ -557,7 +557,7 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 		}
 	}
 
-	// Seed all 5 built-in plugins with INSERT OR IGNORE to preserve
+	// Seed all built-in plugins with INSERT OR IGNORE to preserve
 	// user-modified state.
 	for _, name := range builtinToolNames {
 		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
@@ -593,6 +593,18 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 		})
 		if err != nil {
 			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindHook, name, err)
+		}
+	}
+	for _, name := range builtinProviderNames {
+		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
+			ID:      PluginID(PluginKindProvider, name),
+			Kind:    PluginKindProvider,
+			Name:    name,
+			Enabled: 1,
+			Config:  "{}",
+		})
+		if err != nil {
+			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindProvider, name, err)
 		}
 	}
 
