@@ -256,6 +256,28 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	return nil
 }
 
+// ReloadPluginProviders rebuilds the runner factory for every pool so new
+// sessions pick up changed provider credentials or enabled state. Provider
+// creds are resolved from the Snapshot at factory-build time, so a simple
+// factory rebuild is sufficient.
+func (pm *PoolManager) ReloadPluginProviders(ctx context.Context) error {
+	pm.mu.RLock()
+	pools := make(map[string]*Pool, len(pm.pools))
+	for id, p := range pm.pools {
+		pools[id] = p
+	}
+	pm.mu.RUnlock()
+
+	for agentID, pool := range pools {
+		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
+			pm.log.Error("failed to rebuild factory after provider reload", "agent_id", agentID, "error", err)
+		}
+	}
+
+	pm.log.Info("plugin providers reloaded")
+	return nil
+}
+
 // rebuildPoolFactory rebuilds and replaces the runner factory for a single pool.
 func (pm *PoolManager) rebuildPoolFactory(ctx context.Context, agentID string, pool *Pool) error {
 	snap, _, err := pm.loadAgentSnapshot(ctx, agentID)

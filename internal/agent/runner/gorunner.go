@@ -34,13 +34,14 @@ type GoRunnerConfig struct {
 
 // GoRunner implements Runner by calling LLM providers directly via Engine.
 type GoRunner struct {
-	eng    *engine.Engine
-	reg    *ai.Registry
-	tools  *tools.Registry
-	hooks  *hooks.HookSet
-	model  ai.Model
-	apiKey string
-	system string
+	eng     *engine.Engine
+	reg     *ai.Registry
+	tools   *tools.Registry
+	hooks   *hooks.HookSet
+	model   ai.Model
+	apiKey  string
+	baseURL string
+	system  string
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -59,11 +60,16 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		return nil, fmt.Errorf("go runner: api_key is required")
 	}
 
-	cfgs := make(map[string]pluginproviders.ProviderConfig, len(pluginproviders.Names()))
-	for _, name := range pluginproviders.Names() {
-		cfgs[name] = pluginproviders.ProviderConfig{BaseURL: cfg.BaseURL}
+	// Build only the provider this runner needs.
+	adapter, ok := pluginproviders.Build(cfg.API, pluginproviders.ProviderConfig{
+		APIKey:  cfg.APIKey,
+		BaseURL: cfg.BaseURL,
+	})
+	if !ok {
+		return nil, fmt.Errorf("go runner: unknown provider %q", cfg.API)
 	}
-	reg := pluginproviders.BuildAll(cfgs)
+	reg := ai.NewRegistry()
+	reg.Register(adapter)
 
 	system := cfg.System
 	if system == "" {
@@ -99,6 +105,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		Registry: toolReg,
 		Model:    model,
 		APIKey:   cfg.APIKey,
+		BaseURL:  cfg.BaseURL,
 		System:   system,
 		Presets:  presets,
 		Hooks:    hookSet,
@@ -111,6 +118,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		hooks:        hookSet,
 		model:        model,
 		apiKey:       cfg.APIKey,
+		baseURL:      cfg.BaseURL,
 		system:       system,
 		lastActivity: time.Now(),
 		log:          slog.With("component", "go_runner"),
@@ -134,7 +142,7 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 
 		cfg := engine.LoopConfig{
 			Model:           r.model,
-			StreamOptions:   ai.StreamOptions{APIKey: r.apiKey},
+			StreamOptions:   ai.StreamOptions{APIKey: r.apiKey, BaseURL: r.baseURL},
 			MaxTurns:        maxToolIterations,
 			Tools:           r.buildToolSet(),
 			ToolDefinitions: r.tools.Definitions(),

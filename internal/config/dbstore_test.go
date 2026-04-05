@@ -31,8 +31,18 @@ func TestSeedDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListProviders: %v", err)
 	}
-	if len(providers) != 1 || providers[0].ID != "anthropic" {
-		t.Errorf("expected 1 anthropic provider, got %v", providers)
+	if len(providers) != len(builtinProviderNames) {
+		t.Errorf("expected %d providers, got %d", len(builtinProviderNames), len(providers))
+	}
+	// Anthropic should be present.
+	found := false
+	for _, p := range providers {
+		if p.ID == "anthropic" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected anthropic provider to be seeded")
 	}
 
 	agents, err := store.ListAgents(ctx)
@@ -59,8 +69,8 @@ func TestSeedDefaultsIdempotent(t *testing.T) {
 	}
 
 	providers, _ := store.ListProviders(ctx)
-	if len(providers) != 1 {
-		t.Errorf("expected 1 provider after double seed, got %d", len(providers))
+	if len(providers) != len(builtinProviderNames) {
+		t.Errorf("expected %d providers after double seed, got %d", len(builtinProviderNames), len(providers))
 	}
 }
 

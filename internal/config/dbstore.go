@@ -23,59 +23,47 @@ func NewDBStore(db *sql.DB) *DBStore {
 	return &DBStore{q: sqlc.New(db)}
 }
 
-// --- Providers ---
+// --- Providers (backed by settings_plugins with kind=provider) ---
 
 func (s *DBStore) ListProviders(ctx context.Context) ([]Provider, error) {
-	rows, err := s.q.ListProviders(ctx)
+	rows, err := s.q.ListPluginsByKind(ctx, PluginKindProvider)
 	if err != nil {
 		return nil, fmt.Errorf("list providers: %w", err)
 	}
 	out := make([]Provider, len(rows))
 	for i, r := range rows {
-		out[i] = providerFromDB(r)
+		out[i] = providerFromPlugin(pluginFromDB(r))
 	}
 	return out, nil
 }
 
 func (s *DBStore) GetProvider(ctx context.Context, id string) (Provider, error) {
-	r, err := s.q.GetProvider(ctx, id)
+	pluginID := PluginID(PluginKindProvider, id)
+	r, err := s.q.GetPlugin(ctx, pluginID)
 	if err != nil {
 		return Provider{}, fmt.Errorf("get provider %q: %w", id, err)
 	}
-	p := providerFromDB(r)
-	// Env var fallback for known providers.
+	p := providerFromPlugin(pluginFromDB(r))
 	applyProviderEnvFallback(&p)
 	return p, nil
 }
 
 func (s *DBStore) CreateProvider(ctx context.Context, p Provider) error {
-	_, err := s.q.CreateProvider(ctx, sqlc.CreateProviderParams{
-		ID:      p.ID,
-		Name:    p.Name,
-		ApiKey:  p.APIKey,
-		BaseUrl: p.BaseURL,
-	})
-	if err != nil {
-		return fmt.Errorf("create provider %q: %w", p.ID, err)
-	}
-	return nil
+	plug := pluginFromProvider(p)
+	return s.UpsertPlugin(ctx, plug)
 }
 
 func (s *DBStore) UpdateProvider(ctx context.Context, p Provider) error {
-	err := s.q.UpdateProvider(ctx, sqlc.UpdateProviderParams{
-		ID:      p.ID,
-		Name:    p.Name,
-		ApiKey:  p.APIKey,
-		BaseUrl: p.BaseURL,
-	})
-	if err != nil {
+	pluginID := PluginID(PluginKindProvider, p.ID)
+	cfg := map[string]any{"api_key": p.APIKey, "base_url": p.BaseURL, "display_name": p.Name}
+	if err := s.SetPluginConfig(ctx, pluginID, cfg); err != nil {
 		return fmt.Errorf("update provider %q: %w", p.ID, err)
 	}
 	return nil
 }
 
 func (s *DBStore) DeleteProvider(ctx context.Context, id string) error {
-	return s.q.DeleteProvider(ctx, id)
+	return s.q.DeletePlugin(ctx, PluginID(PluginKindProvider, id))
 }
 
 // --- Agents ---
@@ -400,15 +388,13 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	// Collect unique provider IDs from all model refs.
 	provIDs := collectProviderIDs(ag.Model, ag.ModelStrong, ag.ModelFast)
 
-	// Resolve credentials for each provider.
+	// Resolve credentials for each provider from settings_plugins.
 	providers := make(map[string]ProviderCreds, len(provIDs))
 	for _, pid := range provIDs {
-		prov, err := s.q.GetProvider(ctx, pid)
+		p, err := s.GetProvider(ctx, pid)
 		if err != nil {
 			return nil, fmt.Errorf("snapshot: get provider %q: %w", pid, err)
 		}
-		p := providerFromDB(prov)
-		applyProviderEnvFallback(&p)
 		providers[pid] = ProviderCreds{APIKey: p.APIKey, BaseURL: p.BaseURL}
 	}
 
@@ -481,23 +467,6 @@ const defaultAnnaSoul = `You are Anna — a sharp, efficient personal AI assista
 // SeedDefaults populates the DB with sensible defaults on first bootstrap.
 // It is idempotent: if providers/agents already exist, it does nothing.
 func (s *DBStore) SeedDefaults(ctx context.Context) error {
-	// Seed default provider if none exist.
-	providers, err := s.q.ListProviders(ctx)
-	if err != nil {
-		return fmt.Errorf("seed: list providers: %w", err)
-	}
-	if len(providers) == 0 {
-		apiKey := os.Getenv("ANTHROPIC_API_KEY")
-		_, err := s.q.CreateProvider(ctx, sqlc.CreateProviderParams{
-			ID:     "anthropic",
-			Name:   "Anthropic",
-			ApiKey: apiKey,
-		})
-		if err != nil {
-			return fmt.Errorf("seed: create anthropic provider: %w", err)
-		}
-	}
-
 	// Seed default agent if none exist.
 	agents, err := s.q.ListAgents(ctx)
 	if err != nil {
@@ -596,12 +565,16 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 		}
 	}
 	for _, name := range builtinProviderNames {
+		// For provider plugins, seed credentials from environment variables
+		// so the provider is usable out of the box.
+		cfg := providerSeedConfig(name)
+		cfgJSON, _ := json.Marshal(cfg)
 		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
 			ID:      PluginID(PluginKindProvider, name),
 			Kind:    PluginKindProvider,
 			Name:    name,
 			Enabled: 1,
-			Config:  "{}",
+			Config:  string(cfgJSON),
 		})
 		if err != nil {
 			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindProvider, name, err)
@@ -613,13 +586,54 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 
 // --- Helpers ---
 
-func providerFromDB(r sqlc.SettingsProvider) Provider {
-	return Provider{
-		ID:      r.ID,
-		Name:    r.Name,
-		APIKey:  r.ApiKey,
-		BaseURL: r.BaseUrl,
+// providerFromPlugin extracts a typed Provider from a Plugin (kind=provider).
+// api_key, base_url, and display_name are stored in the plugin's config JSON.
+func providerFromPlugin(p Plugin) Provider {
+	apiKey, _ := p.Config["api_key"].(string)
+	baseURL, _ := p.Config["base_url"].(string)
+	displayName, _ := p.Config["display_name"].(string)
+	if displayName == "" {
+		displayName = p.Name
 	}
+	return Provider{
+		ID:      p.Name, // plugin Name is the provider slug (e.g. "anthropic")
+		Name:    displayName,
+		APIKey:  apiKey,
+		BaseURL: baseURL,
+	}
+}
+
+// pluginFromProvider converts a Provider into a Plugin for storage.
+func pluginFromProvider(p Provider) Plugin {
+	name := p.ID
+	return Plugin{
+		ID:      PluginID(PluginKindProvider, name),
+		Kind:    PluginKindProvider,
+		Name:    name,
+		Enabled: true,
+		Config:  map[string]any{"api_key": p.APIKey, "base_url": p.BaseURL, "display_name": p.Name},
+	}
+}
+
+// providerSeedConfig returns the initial config map for a provider plugin,
+// populated from environment variables when available.
+func providerSeedConfig(name string) map[string]any {
+	cfg := map[string]any{"api_key": "", "base_url": "", "display_name": name}
+	switch name {
+	case "anthropic":
+		cfg["display_name"] = "Anthropic"
+		cfg["api_key"] = os.Getenv("ANTHROPIC_API_KEY")
+		cfg["base_url"] = os.Getenv("ANTHROPIC_BASE_URL")
+	case "openai":
+		cfg["display_name"] = "OpenAI"
+		cfg["api_key"] = os.Getenv("OPENAI_API_KEY")
+		cfg["base_url"] = os.Getenv("OPENAI_BASE_URL")
+	case "openai-response":
+		cfg["display_name"] = "OpenAI Response"
+		cfg["api_key"] = os.Getenv("OPENAI_API_KEY")
+		cfg["base_url"] = os.Getenv("OPENAI_BASE_URL")
+	}
+	return cfg
 }
 
 // applyProviderEnvFallback fills empty API key and base URL from environment

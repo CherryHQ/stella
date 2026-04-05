@@ -21,9 +21,8 @@ All config lives in normalized SQLite tables:
 | Table | Purpose |
 |-------|---------|
 | `settings` | Key-value JSON settings (runner, scheduler, heartbeat, plugins) |
-| `settings_providers` | LLM API providers (API key, base URL) |
 | `settings_agents` | Agent definitions (provider, model, system prompt, workspace) |
-| `settings_plugins` | Plugin state and config (tools and channels) |
+| `settings_plugins` | Unified plugin table (tools, channels, hooks, providers). Provider credentials stored in `config` JSON. |
 | `settings_users` | Auto-created platform users with default agent preference |
 | `settings_channel_agents` | Per-group agent assignment |
 | `ctx_agent_memory` | Per-user-per-agent persistent notes |
@@ -96,6 +95,7 @@ Note: The old YAML-based environment variables (`ANNA_PROVIDER`, `ANNA_MODEL`, `
 ## Defaults
 
 On first run, `SeedDefaults` creates:
-- An "anthropic" provider (with env var fallback for API key)
+- All built-in provider plugins (anthropic, openai, openai-response) with env var fallback for API keys
 - An "anna" agent using the anthropic provider with `claude-sonnet-4-6` model
 - Default system prompt with anna's personality
+- All built-in tool, channel, and hook plugins

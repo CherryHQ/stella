@@ -22,17 +22,6 @@ title: 配置
 | `plugins`      | 插件定义的 JSON 数组                      |
 | `models_cache` | 从提供商缓存的模型列表                    |
 
-### settings_providers
-
-每个 LLM 提供商一行。
-
-| 列         | 类型 | 描述                                     |
-| ---------- | ---- | ---------------------------------------- |
-| `id`       | TEXT | 提供商标识（例如 `anthropic`、`openai`） |
-| `name`     | TEXT | 显示名称                                 |
-| `api_key`  | TEXT | API 密钥                                 |
-| `base_url` | TEXT | 可选的基础 URL 覆盖                      |
-
 ### settings_agents
 
 每个 agent 一行。

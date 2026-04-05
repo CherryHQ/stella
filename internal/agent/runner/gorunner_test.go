@@ -8,7 +8,26 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/ai"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
+
+func init() {
+	// Register a stub provider so NewGoRunner can Build("anthropic", ...).
+	// Tests replace the registry entry with their own fake after construction.
+	pluginproviders.Register("anthropic", pluginproviders.ProviderMeta{Name: "Anthropic"}, func(cfg pluginproviders.ProviderConfig) ai.ProviderAdapter {
+		return &stubProvider{}
+	})
+}
+
+type stubProvider struct{}
+
+func (s *stubProvider) API() string { return "anthropic" }
+func (s *stubProvider) Stream(ai.Model, ai.Context, ai.StreamOptions) (ai.AssistantEventStream, error) {
+	return nil, errors.New("stub")
+}
+func (s *stubProvider) StreamSimple(ai.Model, ai.Context, ai.SimpleStreamOptions) (ai.AssistantEventStream, error) {
+	return nil, errors.New("stub")
+}
 
 func TestNewGoRunnerRequiresConfig(t *testing.T) {
 	tests := []struct {
@@ -139,26 +158,12 @@ func TestChatStreamError(t *testing.T) {
 }
 
 func TestChatUnknownProvider(t *testing.T) {
-	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+	_, err := NewGoRunner(context.Background(), GoRunnerConfig{
 		API:    "nonexistent",
 		Model:  "test-model",
 		APIKey: "test-key",
 	})
-	if err != nil {
-		t.Fatalf("NewGoRunner: %v", err)
-	}
-
-	ch := r.Chat(context.Background(), nil, "hi")
-
-	var gotErr error
-	for evt := range ch {
-		if evt.Err != nil {
-			gotErr = evt.Err
-			break
-		}
-	}
-
-	if gotErr == nil {
+	if err == nil {
 		t.Fatal("expected error for unknown provider")
 	}
 }

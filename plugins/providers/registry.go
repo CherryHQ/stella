@@ -1,10 +1,12 @@
 package pluginproviders
 
 import (
+	"context"
 	"sort"
 	"sync"
 
 	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/internal/config"
 )
 
 // ProviderConfig holds credentials passed to the factory at build time.
@@ -92,6 +94,37 @@ func BuildAll(cfgs map[string]ProviderConfig) *ai.Registry {
 			continue
 		}
 		r.Register(reg.Factory(cfg))
+	}
+	return r
+}
+
+// BuildEnabled queries the store for enabled provider plugins, extracts
+// credentials from each plugin's config, and builds only those providers.
+func BuildEnabled(ctx context.Context, store config.Store) *ai.Registry {
+	plugins, err := store.ListPluginsByKind(ctx, config.PluginKindProvider)
+	if err != nil {
+		return ai.NewRegistry()
+	}
+
+	mu.RLock()
+	snapshot := make(map[string]Registration, len(registry))
+	for name, reg := range registry {
+		snapshot[name] = reg
+	}
+	mu.RUnlock()
+
+	r := ai.NewRegistry()
+	for _, p := range plugins {
+		if !p.Enabled {
+			continue
+		}
+		reg, ok := snapshot[p.Name]
+		if !ok {
+			continue
+		}
+		apiKey, _ := p.Config["api_key"].(string)
+		baseURL, _ := p.Config["base_url"].(string)
+		r.Register(reg.Factory(ProviderConfig{APIKey: apiKey, BaseURL: baseURL}))
 	}
 	return r
 }

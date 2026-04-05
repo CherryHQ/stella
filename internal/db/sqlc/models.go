@@ -196,12 +196,3 @@ type SettingsPlugin struct {
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }
-
-type SettingsProvider struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	ApiKey    string `json:"api_key"`
-	BaseUrl   string `json:"base_url"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-}

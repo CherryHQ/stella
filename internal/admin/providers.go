@@ -36,6 +36,7 @@ func (s *Server) createProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.reloadProviders(r.Context())
 	writeData(w, http.StatusCreated, p)
 }
 
@@ -64,6 +65,7 @@ func (s *Server) updateProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.reloadProviders(r.Context())
 	writeData(w, http.StatusOK, p)
 }
 
@@ -73,7 +75,18 @@ func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.reloadProviders(r.Context())
 	writeData(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// reloadProviders triggers a provider hot-reload if the pool manager is available.
+func (s *Server) reloadProviders(ctx context.Context) {
+	if s.poolManager == nil {
+		return
+	}
+	if err := s.poolManager.ReloadPluginProviders(ctx); err != nil {
+		s.log.Error("failed to reload providers", "error", err)
+	}
 }
 
 func (s *Server) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
