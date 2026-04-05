@@ -9,10 +9,16 @@ import (
 
 	"github.com/vaayne/anna/pkg/tools"
 	plugintools "github.com/vaayne/anna/plugins/tools"
+	"github.com/vaayne/anna/plugins/tools/sandbox"
 )
 
 func init() {
-	plugintools.Register("read", func() tools.Tool { return &ReadTool{} })
+	plugintools.Register("read", plugintools.Registration{
+		Required: true,
+		Factory: func(bc plugintools.BuildContext) (tools.Tool, error) {
+			return sandbox.WrapWithSandbox(&ReadTool{}, bc.UserDataDir, "file_path"), nil
+		},
+	})
 }
 
 // ReadTool reads file contents.

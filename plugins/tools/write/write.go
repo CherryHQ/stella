@@ -8,10 +8,16 @@ import (
 
 	"github.com/vaayne/anna/pkg/tools"
 	plugintools "github.com/vaayne/anna/plugins/tools"
+	"github.com/vaayne/anna/plugins/tools/sandbox"
 )
 
 func init() {
-	plugintools.Register("write", func() tools.Tool { return &WriteTool{} })
+	plugintools.Register("write", plugintools.Registration{
+		Required: true,
+		Factory: func(bc plugintools.BuildContext) (tools.Tool, error) {
+			return sandbox.WrapWithSandbox(&WriteTool{}, bc.UserDataDir, "file_path"), nil
+		},
+	})
 }
 
 // WriteTool creates new files or completely overwrites existing ones.

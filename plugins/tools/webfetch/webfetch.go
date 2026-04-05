@@ -20,7 +20,11 @@ import (
 )
 
 func init() {
-	plugintools.Register("webfetch", func() tools.Tool { return New() })
+	plugintools.Register("webfetch", plugintools.Registration{
+		Factory: func(_ plugintools.BuildContext) (tools.Tool, error) {
+			return New(), nil
+		},
+	})
 }
 
 const (

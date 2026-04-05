@@ -129,7 +129,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Plugin tools builder: auto-discovers registered plugin tools and returns
 	// enabled ones. Called at startup and on hot-reload.
 	pluginToolsBuilder := func(ctx context.Context) []tools.Tool {
-		return plugintools.BuildEnabled(ctx, store)
+		return plugintools.BuildEnabled(ctx, store, plugintools.BuildContext{})
 	}
 
 	// Plugin hooks builder: auto-discovers registered hook plugins and returns
