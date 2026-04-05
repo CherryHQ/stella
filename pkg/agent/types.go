@@ -1,4 +1,4 @@
-package engine
+package agent
 
 import (
 	"context"
@@ -13,8 +13,8 @@ type ToolFunc func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error
 // ToolSet maps tool names to handlers.
 type ToolSet map[string]ToolFunc
 
-// LoopConfig configures the agent loop behavior.
-type LoopConfig struct {
+// loopConfig configures the agent loop behavior.
+type loopConfig struct {
 	Model           ai.Model
 	StreamOptions   ai.StreamOptions
 	MaxTurns        int
@@ -22,6 +22,6 @@ type LoopConfig struct {
 	ToolDefinitions []ai.ToolDefinition
 	System          string
 	Interrupt       <-chan struct{}
-	Hooks           *hooks.HookSet // nil = no hooks (backward compatible)
-	HookMeta        hooks.HookMeta // shared metadata for hook invocations
+	Hooks           *hooks.HookSet
+	HookMeta        hooks.HookMeta
 }

@@ -1,4 +1,4 @@
-package engine
+package agent
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/vaayne/anna/pkg/hooks"
 )
 
-func TestExecuteToolCalls(t *testing.T) {
+func TestToolExecution(t *testing.T) {
 	calls := []ai.ToolCall{{ID: "1", Name: "echo"}, {ID: "2", Name: "missing"}}
 	tools := ToolSet{
 		"echo": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
@@ -18,7 +18,7 @@ func TestExecuteToolCalls(t *testing.T) {
 		},
 	}
 
-	results, err := ExecuteToolCalls(context.Background(), calls, tools, ToolCallbacks{}, nil, hooks.HookMeta{})
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestExecuteToolCalls(t *testing.T) {
 	}
 }
 
-func TestExecuteToolCallsToolError(t *testing.T) {
+func TestToolExecutionToolError(t *testing.T) {
 	calls := []ai.ToolCall{{ID: "1", Name: "fail"}}
 	tools := ToolSet{
 		"fail": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
@@ -41,7 +41,7 @@ func TestExecuteToolCallsToolError(t *testing.T) {
 		},
 	}
 
-	results, err := ExecuteToolCalls(context.Background(), calls, tools, ToolCallbacks{}, nil, hooks.HookMeta{})
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestExecuteToolCallsToolError(t *testing.T) {
 	}
 }
 
-func TestExecuteToolCallsPreservesContentOnError(t *testing.T) {
+func TestToolExecutionPreservesContentOnError(t *testing.T) {
 	calls := []ai.ToolCall{{ID: "1", Name: "bash"}}
 	tools := ToolSet{
 		"bash": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
@@ -58,7 +58,7 @@ func TestExecuteToolCallsPreservesContentOnError(t *testing.T) {
 		},
 	}
 
-	results, err := ExecuteToolCalls(context.Background(), calls, tools, ToolCallbacks{}, nil, hooks.HookMeta{})
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestExecuteToolCallsPreservesContentOnError(t *testing.T) {
 	}
 }
 
-func TestExecuteToolCallsEmptyContentOnError(t *testing.T) {
+func TestToolExecutionEmptyContentOnError(t *testing.T) {
 	calls := []ai.ToolCall{{ID: "1", Name: "fail"}}
 	tools := ToolSet{
 		"fail": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
@@ -85,7 +85,7 @@ func TestExecuteToolCallsEmptyContentOnError(t *testing.T) {
 		},
 	}
 
-	results, err := ExecuteToolCalls(context.Background(), calls, tools, ToolCallbacks{}, nil, hooks.HookMeta{})
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

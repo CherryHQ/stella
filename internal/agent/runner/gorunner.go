@@ -9,10 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/engine"
 	"github.com/vaayne/anna/internal/agent/runner/builtin"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
+	"github.com/vaayne/anna/internal/memory"
+	"github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/providers"
@@ -40,16 +41,11 @@ type GoRunnerConfig struct {
 	HookPlugins []hooks.HookPlugin // hook plugins for the engine loop
 }
 
-// GoRunner implements Runner by calling LLM providers directly via Engine.
+// GoRunner implements Runner by calling LLM providers directly via agent.Runner.
 type GoRunner struct {
-	eng     *engine.Engine
-	reg     *providers.Registry
-	tools   *tools.Registry
-	hooks   *hooks.HookSet
-	model   ai.Model
-	apiKey  string
-	baseURL string
-	system  string
+	runner *agent.Runner
+	reg    *providers.Registry
+	tools  *tools.Registry
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -68,12 +64,9 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		return nil, fmt.Errorf("go runner: api_key is required")
 	}
 
-	reg, err := pluginproviders.BuildRegistry(cfg.API, pluginproviders.ProviderConfig{
-		APIKey:  cfg.APIKey,
-		BaseURL: cfg.BaseURL,
-	})
+	reg, err := buildProviderRegistry(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("go runner: %w", err)
+		return nil, err
 	}
 
 	system := cfg.System
@@ -85,18 +78,69 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		})
 	}
 
-	eng := &engine.Engine{Providers: reg}
 	model := ai.Model{API: cfg.API, Name: cfg.Model}
+	toolReg := buildToolRegistry(cfg)
+	presets := buildAgentPresets(cfg)
+	hookSet := buildHookSet(cfg)
 
-	toolReg := tools.NewRegistry()
+	toolReg.Register(agenttool.NewAgentTool(agenttool.AgentConfig{
+		Providers: reg,
+		Registry:  toolReg,
+		Model:     model,
+		APIKey:    cfg.APIKey,
+		BaseURL:   cfg.BaseURL,
+		System:    system,
+		Presets:   presets,
+		Hooks:     hookSet,
+	}))
 
+	runner, err := agent.NewRunner(agent.RunnerConfig{
+		Providers:       reg,
+		Model:           model,
+		Tools:           agent.ToolSetFromRegistry(toolReg),
+		ToolDefinitions: toolReg.Definitions(),
+	},
+		agent.WithStreamOptions(ai.StreamOptions{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}),
+		agent.WithMaxTurns(maxToolIterations),
+		agent.WithSystem(system),
+		agent.WithHooks(hookSet, hooks.HookMeta{}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("go runner: %w", err)
+	}
+
+	return &GoRunner{
+		runner:       runner,
+		reg:          reg,
+		tools:        toolReg,
+		lastActivity: time.Now(),
+		log:          slog.With("component", "go_runner"),
+	}, nil
+}
+
+// buildProviderRegistry creates the provider registry for the configured API.
+func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
+	reg, err := pluginproviders.BuildRegistry(cfg.API, pluginproviders.ProviderConfig{
+		APIKey:  cfg.APIKey,
+		BaseURL: cfg.BaseURL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("go runner: %w", err)
+	}
+	return reg, nil
+}
+
+// buildToolRegistry creates the tool registry with core and extra tools.
+func buildToolRegistry(cfg GoRunnerConfig) *tools.Registry {
 	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
 	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
 	toolsBinDir := embedded.BinDir(config.AnnaHome())
 
-	// Build core tools (read, bash, edit, write) via plugin registry.
+	toolReg := tools.NewRegistry()
+
+	// Core tools (read, bash, edit, write) via plugin registry.
 	bc := plugintools.BuildContext{
 		WorkDir:     cfg.WorkDir,
 		UserDataDir: cfg.UserDataDir,
@@ -108,51 +152,33 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		toolReg.Register(t)
 	}
 
-	// Register extra tools (shared tools like memory, scheduler + plugin tools like webfetch).
+	// Extra tools (shared tools like memory, scheduler + plugin tools like webfetch).
 	for _, t := range cfg.ExtraTools {
 		toolReg.Register(t)
 	}
 
-	// Extract builtin skills and load agent presets from filesystem.
+	return toolReg
+}
+
+// buildAgentPresets extracts builtin skills and loads agent presets from filesystem.
+func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 	builtinSkillsDir := filepath.Join(config.AnnaHome(), "cache", "builtin-skills")
 	if err := builtin.Extract(builtinSkillsDir); err != nil {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
-	presets := agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
-		AnnaHome:         cfg.AnnaHome,
+	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
 		Workspace:        cfg.Workspace,
 		Cwd:              cfg.WorkDir,
 		BuiltinSkillsDir: builtinSkillsDir,
 	}))
+}
 
-	var hookSet *hooks.HookSet
+// buildHookSet creates the hook set from configured hook plugins.
+func buildHookSet(cfg GoRunnerConfig) *hooks.HookSet {
 	if len(cfg.HookPlugins) > 0 {
-		hookSet = hooks.NewHookSet(cfg.HookPlugins)
+		return hooks.NewHookSet(cfg.HookPlugins)
 	}
-
-	toolReg.Register(agenttool.NewAgentTool(agenttool.AgentConfig{
-		Engine:   eng,
-		Registry: toolReg,
-		Model:    model,
-		APIKey:   cfg.APIKey,
-		BaseURL:  cfg.BaseURL,
-		System:   system,
-		Presets:  presets,
-		Hooks:    hookSet,
-	}))
-
-	return &GoRunner{
-		eng:          eng,
-		reg:          reg,
-		tools:        toolReg,
-		hooks:        hookSet,
-		model:        model,
-		apiKey:       cfg.APIKey,
-		baseURL:      cfg.BaseURL,
-		system:       system,
-		lastActivity: time.Now(),
-		log:          slog.With("component", "go_runner"),
-	}, nil
+	return nil
 }
 
 // Chat runs the Engine agent loop with the provided history and forwards events.
@@ -166,21 +192,18 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 	go func() {
 		defer close(out)
 
+		// Inject session context into hook metadata so hooks can log it.
+		r.runner.SetHookMeta(hooks.HookMeta{
+			SessionID: memory.SessionIDFromContext(ctx),
+			UserID:    memory.UserIDFromContext(ctx),
+			AgentID:   memory.AgentIDFromContext(ctx),
+		})
+
 		messages := make([]ai.Message, len(history))
 		copy(messages, history)
 		messages = append(messages, ai.UserMessage{Content: message})
 
-		cfg := engine.LoopConfig{
-			Model:           r.model,
-			StreamOptions:   ai.StreamOptions{APIKey: r.apiKey, BaseURL: r.baseURL},
-			MaxTurns:        maxToolIterations,
-			Tools:           r.buildToolSet(),
-			ToolDefinitions: r.tools.Definitions(),
-			System:          r.system,
-			Hooks:           r.hooks,
-		}
-
-		if _, err := r.eng.Run(ctx, cfg, messages, func(e engine.LoopEvent) {
+		if _, err := r.runner.Run(ctx, messages, func(e agent.LoopEvent) {
 			for _, evt := range convertLoopEvent(e) {
 				out <- evt
 			}
@@ -210,28 +233,15 @@ func (r *GoRunner) Close() error {
 	return nil
 }
 
-// buildToolSet adapts tool.Registry to engine.ToolSet for Engine.
-func (r *GoRunner) buildToolSet() engine.ToolSet {
-	set := engine.ToolSet{}
-	for _, def := range r.tools.Definitions() {
-		name := def.Name
-		set[name] = func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
-			result, err := r.tools.Execute(ctx, name, call.Arguments)
-			return ai.TextContent{Text: result}, err
-		}
-	}
-	return set
-}
-
-// convertLoopEvent bridges engine.LoopEvent to Event(s).
-func convertLoopEvent(e engine.LoopEvent) []Event {
+// convertLoopEvent bridges agent.LoopEvent to Event(s).
+func convertLoopEvent(e agent.LoopEvent) []Event {
 	switch e := e.(type) {
-	case engine.AssistantDelta:
+	case agent.AssistantDelta:
 		if d, ok := e.Event.(ai.EventTextDelta); ok && d.Text != "" {
 			return []Event{{Text: d.Text}}
 		}
 
-	case engine.AssistantFinished:
+	case agent.AssistantFinished:
 		// Emit Store events for tool calls in the final message.
 		var events []Event
 		for _, block := range e.Message.Content {
@@ -245,14 +255,14 @@ func convertLoopEvent(e engine.LoopEvent) []Event {
 		}
 		return events
 
-	case engine.ToolStarted:
+	case agent.ToolStarted:
 		return []Event{{ToolUse: &ToolUseEvent{
 			Tool:   e.ToolCall.Name,
 			Status: "running",
 			Input:  summarizeToolInput(e.ToolCall.Name, e.ToolCall.Arguments),
 		}}}
 
-	case engine.ToolFinished:
+	case agent.ToolFinished:
 		status := "done"
 		detail := summarizeToolResult(e.Result)
 		if e.Result.IsError {
@@ -267,7 +277,7 @@ func convertLoopEvent(e engine.LoopEvent) []Event {
 			{Store: e.Result},
 		}
 
-	case engine.AgentErrored:
+	case agent.AgentErrored:
 		return []Event{{Err: e.Err}}
 	}
 

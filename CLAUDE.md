@@ -6,7 +6,7 @@ anna is a self-hosted AI assistant with lossless context management (LCM). Nativ
 
 All Go packages live under `internal/` (app-private) except public interfaces in `pkg/`.
 
-`cmd/anna/` → `internal/agent/` (pool, session) → `internal/agent/runner/` (GoRunner) → `internal/agent/engine/` (loop, tool execution) → `pkg/ai/` (types, events, transforms) → `pkg/providers/` (ProviderAdapter, Registry, stream dispatch)
+`cmd/anna/` → `internal/agent/` (pool, session) → `internal/agent/runner/` (GoRunner) → `pkg/agent/` (Runner, loop, tool execution) → `pkg/ai/` (types, events, transforms) → `pkg/providers/` (ProviderAdapter, Registry, stream dispatch)
 
 Side packages: `internal/channel/` (cli, telegram, qq, feishu, notifier) → `internal/scheduler/` → `internal/memory/` → `pkg/tools/` (Tool interface, registry, built-in tools) → `pkg/hooks/` (Hook interface, HookSet) → `internal/db/` → `internal/config/`
 
