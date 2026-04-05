@@ -17,10 +17,7 @@ import (
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
-	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/channel"
-	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/pkg/channel"
 )
 
 const feishuMaxMessageLen = 4000
@@ -54,21 +51,14 @@ type Config struct {
 
 // Bot wraps a Feishu bot with agent pool integration.
 type Bot struct {
-	client      *lark.Client
-	wsClient    *larkws.Client
-	poolManager *agent.PoolManager
-	store       config.Store
-	authStore   auth.AuthStore
-	engine      *auth.PolicyEngine
-	linkCodes   *auth.LinkCodeStore
-	agentCmd    *channel.AgentCommander
-	listFn      ModelListFunc
-	switchFn    ModelSwitchFunc
+	client   *lark.Client
+	wsClient *larkws.Client
+	handler  channel.MessageHandler
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
 
 	mu            sync.RWMutex
-	chatModels    map[string]ModelOption
+	chatModels    map[string]channel.ModelOption
 	seenMsgs      map[string]time.Time          // message ID -> first seen time
 	lastSeenSweep time.Time                     // last time seenMsgs was swept
 	activeStreams map[string]context.CancelFunc // streamKey -> cancel func
@@ -78,22 +68,8 @@ type Bot struct {
 	cancel context.CancelFunc
 }
 
-// BotOption configures the Feishu Bot.
-type BotOption func(*Bot)
-
-// WithAuth configures the bot with auth store and link code store for
-// account linking support.
-func WithAuth(authStore auth.AuthStore, engine *auth.PolicyEngine, linkCodes *auth.LinkCodeStore) BotOption {
-	return func(b *Bot) {
-		b.authStore = authStore
-		b.engine = engine
-		b.linkCodes = linkCodes
-		b.agentCmd = channel.NewAgentCommander(b.store, authStore)
-	}
-}
-
 // New creates a Feishu bot. Call Start to begin receiving events.
-func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn ModelListFunc, switchFn ModelSwitchFunc, opts ...BotOption) (*Bot, error) {
+func New(cfg Config, handler channel.MessageHandler) (*Bot, error) {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return nil, fmt.Errorf("feishu: app_id and app_secret are required")
 	}
@@ -103,19 +79,11 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn ModelList
 	}
 
 	b := &Bot{
-		poolManager:   pm,
-		store:         store,
-		agentCmd:      channel.NewAgentCommander(store, nil),
-		listFn:        listFn,
-		switchFn:      switchFn,
-		chatModels:    make(map[string]ModelOption),
+		handler:       handler,
+		chatModels:    make(map[string]channel.ModelOption),
 		seenMsgs:      make(map[string]time.Time),
 		activeStreams: make(map[string]context.CancelFunc),
 		cfg:           cfg,
-	}
-
-	for _, opt := range opts {
-		opt(b)
 	}
 
 	return b, nil
@@ -199,10 +167,10 @@ func (b *Bot) fetchBotOpenID(ctx context.Context) error {
 	return nil
 }
 
-// Name returns the backend name. Implements channel.Backend.
+// Name returns the backend name. Implements channel.Channel.
 func (b *Bot) Name() string { return channel.PlatformFeishu }
 
-// Notify sends a notification message. Implements channel.Backend.
+// Notify sends a notification message. Implements channel.Channel.
 // Supports both chat IDs (oc_ prefix) and user open IDs (ou_ prefix).
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	chatID := n.ChatID
@@ -407,4 +375,15 @@ func stripMentions(text string, mentions []*larkim.MentionEvent) string {
 	}
 	text = mentionPlaceholderRegex.ReplaceAllString(text, "")
 	return strings.TrimSpace(text)
+}
+
+// incomingMsg builds an IncomingMessage from the Feishu context.
+func (b *Bot) incomingMsg(openID, chatID string, chatType string, content any) channel.IncomingMessage {
+	return channel.IncomingMessage{
+		Platform: channel.PlatformFeishu,
+		SenderID: openID,
+		ChatID:   chatID,
+		IsGroup:  chatType == "group",
+		Content:  content,
+	}
 }

@@ -3,10 +3,9 @@ package main
 import (
 	"fmt"
 
-	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/plugins/channels/feishu"
 	"github.com/vaayne/anna/plugins/channels/qq"
 	"github.com/vaayne/anna/plugins/channels/telegram"
@@ -15,14 +14,9 @@ import (
 
 func buildChannel(
 	name string,
+	handler pkgchannel.MessageHandler,
 	store config.Store,
-	poolManager *agent.PoolManager,
-	authStore auth.AuthStore,
-	engine *auth.PolicyEngine,
-	linkCodes *auth.LinkCodeStore,
-	listFn channel.ModelListFunc,
-	switchFn channel.ModelSwitchFunc,
-) (channel.Channel, error) {
+) (pkgchannel.Channel, error) {
 	switch name {
 	case "telegram":
 		cfg := channel.LoadConfig[channel.TelegramConfig](store, name)
@@ -33,9 +27,7 @@ func buildChannel(
 			Token:     cfg.Token,
 			ChannelID: cfg.ChannelID,
 			GroupMode: cfg.GroupMode,
-		}, poolManager, store, listFn, switchFn,
-			telegram.WithAuth(authStore, engine, linkCodes),
-		)
+		}, handler)
 
 	case "qq":
 		cfg := channel.LoadConfig[channel.QQConfig](store, name)
@@ -46,9 +38,7 @@ func buildChannel(
 			AppID:     cfg.AppID,
 			AppSecret: cfg.AppSecret,
 			GroupMode: cfg.GroupMode,
-		}, poolManager, store, listFn, switchFn,
-			qq.WithAuth(authStore, engine, linkCodes),
-		)
+		}, handler)
 
 	case "feishu":
 		cfg := channel.LoadConfig[channel.FeishuConfig](store, name)
@@ -71,9 +61,7 @@ func buildChannel(
 			VerificationToken: cfg.VerificationToken,
 			GroupMode:         cfg.GroupMode,
 			Groups:            groups,
-		}, poolManager, store, listFn, switchFn,
-			feishu.WithAuth(authStore, engine, linkCodes),
-		)
+		}, handler)
 
 	case "weixin":
 		cfg := channel.LoadConfig[channel.WeixinConfig](store, name)
@@ -85,9 +73,7 @@ func buildChannel(
 			BaseURL:  cfg.BaseURL,
 			BotID:    cfg.BotID,
 			UserID:   cfg.UserID,
-		}, poolManager, store, listFn, switchFn,
-			weixin.WithAuth(authStore, engine, linkCodes),
-		)
+		}, handler)
 
 	default:
 		return nil, fmt.Errorf("unknown channel: %s", name)

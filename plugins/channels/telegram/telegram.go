@@ -11,10 +11,7 @@ import (
 
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
 
-	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/channel"
-	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/pkg/channel"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -35,16 +32,9 @@ type Config struct {
 // Bot wraps a Telegram bot with agent pool integration.
 // It implements channel.Channel.
 type Bot struct {
-	bot         *tele.Bot
-	poolManager *agent.PoolManager
-	store       config.Store
-	authStore   auth.AuthStore
-	engine      *auth.PolicyEngine
-	linkCodes   *auth.LinkCodeStore
-	agentCmd    *channel.AgentCommander
-	listFn      channel.ModelListFunc
-	switchFn    channel.ModelSwitchFunc
-	md          goldmarkMD
+	bot     *tele.Bot
+	handler channel.MessageHandler
+	md      goldmarkMD
 
 	mu         sync.RWMutex
 	chatModels map[int64]channel.ModelOption
@@ -54,7 +44,7 @@ type Bot struct {
 }
 
 // New creates a Telegram bot and registers handlers. Call Start to begin polling.
-func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc, opts ...BotOption) (*Bot, error) {
+func New(cfg Config, handler channel.MessageHandler) (*Bot, error) {
 	bot, err := tele.NewBot(tele.Settings{
 		Token: cfg.Token,
 		Poller: &tele.LongPoller{
@@ -71,37 +61,15 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.M
 	}
 
 	b := &Bot{
-		bot:         bot,
-		poolManager: pm,
-		store:       store,
-		agentCmd:    channel.NewAgentCommander(store, nil),
-		listFn:      listFn,
-		switchFn:    switchFn,
-		md:          tgmd.TGMD(),
-		chatModels:  make(map[int64]channel.ModelOption),
-		cfg:         cfg,
-	}
-
-	for _, opt := range opts {
-		opt(b)
+		bot:        bot,
+		handler:    handler,
+		md:         tgmd.TGMD(),
+		chatModels: make(map[int64]channel.ModelOption),
+		cfg:        cfg,
 	}
 
 	b.registerHandlers()
 	return b, nil
-}
-
-// BotOption configures the Telegram Bot.
-type BotOption func(*Bot)
-
-// WithAuth configures the bot with auth store and link code store for
-// account linking support.
-func WithAuth(authStore auth.AuthStore, engine *auth.PolicyEngine, linkCodes *auth.LinkCodeStore) BotOption {
-	return func(b *Bot) {
-		b.authStore = authStore
-		b.engine = engine
-		b.linkCodes = linkCodes
-		b.agentCmd = channel.NewAgentCommander(b.store, authStore)
-	}
 }
 
 // Start begins long polling. It blocks until ctx is cancelled.
@@ -145,8 +113,8 @@ func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
 
 	// Support both numeric IDs and @username for channels.
 	var chat tele.Recipient
-	if id, err := strconv.ParseInt(chatID, 10, 64); err == nil {
-		chat = &tele.Chat{ID: id}
+	if numID, err := strconv.ParseInt(chatID, 10, 64); err == nil {
+		chat = &tele.Chat{ID: numID}
 	} else {
 		chat = chatRef(chatID)
 	}
@@ -232,33 +200,24 @@ func (b *Bot) stripBotMention(text string) string {
 	return strings.TrimSpace(strings.ReplaceAll(text, "@"+b.bot.Me.Username, ""))
 }
 
-// resolve performs full user/agent/pool/session-key resolution for the
-// current Telegram context. Call once per incoming message or command.
-func (b *Bot) resolve(c tele.Context) (*channel.ResolvedChat, error) {
+// incomingMsg builds an IncomingMessage from the Telegram context.
+func (b *Bot) incomingMsg(c tele.Context, content any) channel.IncomingMessage {
 	sender := c.Sender()
-	if sender == nil {
-		return nil, fmt.Errorf("no sender in message")
+	senderID := ""
+	senderName := ""
+	if sender != nil {
+		senderID = fmt.Sprintf("%d", sender.ID)
+		senderName = sender.FirstName
+		if senderName == "" {
+			senderName = sender.Username
+		}
 	}
-
-	name := sender.FirstName
-	if name == "" {
-		name = sender.Username
+	return channel.IncomingMessage{
+		Platform:   channel.PlatformTelegram,
+		SenderID:   senderID,
+		SenderName: senderName,
+		ChatID:     fmt.Sprintf("%d", c.Chat().ID),
+		IsGroup:    isGroup(c),
+		Content:    content,
 	}
-
-	senderID := strconv.FormatInt(sender.ID, 10)
-	chatID := strconv.FormatInt(c.Chat().ID, 10)
-	group := isGroup(c)
-
-	return channel.Resolve(
-		context.Background(),
-		b.poolManager,
-		b.store,
-		b.authStore,
-		b.engine,
-		channel.PlatformTelegram,
-		senderID,
-		name,
-		chatID,
-		group,
-	)
 }

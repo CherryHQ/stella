@@ -22,6 +22,7 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/scheduler"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -51,16 +52,16 @@ func serverAction(c *ucli.Context) error {
 		return err
 	}
 	defer func() { _ = s.poolManager.Close() }()
-	listFn := func() []channel.ModelOption {
+	listFn := func() []pkgchannel.ModelOption {
 		return collectModelsFromStore(ctx, s.store, s.snap)
 	}
 	switchFn := modelSwitcher(s.snap, s.store, s.pool, s.extraTools)
 	return runServer(s.ctx, s, listFn, switchFn, c.Int("admin-port"), c.Bool("open"))
 }
 
-func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc, adminPort int, openBrowser bool) error {
+func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminPort int, openBrowser bool) error {
 	g, gctx := errgroup.WithContext(ctx)
-	var channels []channel.Channel
+	var channels []pkgchannel.Channel
 
 	// Create auth store and policy engine for channel bots and admin panel.
 	as := appdb.NewAuthStore(s.db)
@@ -78,6 +79,15 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 	// Admin server is always created so channel stop functions can be registered
 	// even when the panel is disabled.
 	adminSrv := admin.New(s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager)
+
+	// Create the coordinator that implements MessageHandler for all channels.
+	coordinator := channel.NewCoordinator(
+		s.poolManager,
+		s.store,
+		listFn,
+		switchFn,
+		channel.WithCoordinatorAuth(as, engine, linkCodes),
+	)
 
 	// Start admin panel server.
 	if adminPort > 0 {
@@ -120,7 +130,7 @@ func runServer(ctx context.Context, s *setupResult, listFn channel.ModelListFunc
 			slog.Debug("skipping channel without valid config", "channel", name)
 			continue
 		}
-		ch, err := buildChannel(name, s.store, s.poolManager, as, engine, linkCodes, listFn, switchFn)
+		ch, err := buildChannel(name, coordinator, s.store)
 		if err != nil {
 			return err
 		}

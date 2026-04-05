@@ -8,15 +8,13 @@ import (
 	"time"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
-	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/pkg/channel"
 )
 
-// --- splitMessage ---
+// --- splitMessage (now uses channel.SplitMessage) ---
 
 func TestSplitMessageShort(t *testing.T) {
-	chunks := splitMessage("hello")
+	chunks := channel.SplitMessage("hello", feishuMaxMessageLen)
 	if len(chunks) != 1 || chunks[0] != "hello" {
 		t.Errorf("chunks = %v, want [hello]", chunks)
 	}
@@ -24,7 +22,7 @@ func TestSplitMessageShort(t *testing.T) {
 
 func TestSplitMessageExactLimit(t *testing.T) {
 	msg := strings.Repeat("a", feishuMaxMessageLen)
-	chunks := splitMessage(msg)
+	chunks := channel.SplitMessage(msg, feishuMaxMessageLen)
 	if len(chunks) != 1 {
 		t.Errorf("len(chunks) = %d, want 1", len(chunks))
 	}
@@ -32,7 +30,7 @@ func TestSplitMessageExactLimit(t *testing.T) {
 
 func TestSplitMessageLong(t *testing.T) {
 	msg := strings.Repeat("a", feishuMaxMessageLen+100)
-	chunks := splitMessage(msg)
+	chunks := channel.SplitMessage(msg, feishuMaxMessageLen)
 	if len(chunks) != 2 {
 		t.Fatalf("len(chunks) = %d, want 2", len(chunks))
 	}
@@ -49,7 +47,7 @@ func TestSplitMessageAtNewline(t *testing.T) {
 	part2 := strings.Repeat("b", 2000)
 	msg := part1 + "\n" + part2
 
-	chunks := splitMessage(msg)
+	chunks := channel.SplitMessage(msg, feishuMaxMessageLen)
 	if len(chunks) != 2 {
 		t.Fatalf("len(chunks) = %d, want 2", len(chunks))
 	}
@@ -61,7 +59,7 @@ func TestSplitMessageAtNewline(t *testing.T) {
 func TestSplitMessageMultibyteUTF8(t *testing.T) {
 	char := "中"
 	msg := strings.Repeat(char, feishuMaxMessageLen) // 3*feishuMaxMessageLen bytes
-	chunks := splitMessage(msg)
+	chunks := channel.SplitMessage(msg, feishuMaxMessageLen)
 	if len(chunks) < 2 {
 		t.Fatalf("expected multiple chunks, got %d", len(chunks))
 	}
@@ -73,7 +71,7 @@ func TestSplitMessageMultibyteUTF8(t *testing.T) {
 }
 
 func TestSplitMessageEmpty(t *testing.T) {
-	chunks := splitMessage("")
+	chunks := channel.SplitMessage("", feishuMaxMessageLen)
 	if len(chunks) != 1 || chunks[0] != "" {
 		t.Errorf("empty message should return single empty chunk, got %v", chunks)
 	}
@@ -126,7 +124,7 @@ func TestBuildStreamDisplayEmptyAll(t *testing.T) {
 // --- toolLine ---
 
 func TestToolLineRunning(t *testing.T) {
-	line := toolLine(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls -la"})
+	line := toolLine(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls -la"})
 	if !strings.Contains(line, "bash") || !strings.Contains(line, "ls -la") {
 		t.Errorf("unexpected line: %q", line)
 	}
@@ -134,28 +132,28 @@ func TestToolLineRunning(t *testing.T) {
 
 func TestToolLineRunningTruncatesMultibyte(t *testing.T) {
 	input := strings.Repeat("中", 61)
-	line := toolLine(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: input})
+	line := toolLine(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: input})
 	if !strings.HasSuffix(line, "...") {
 		t.Errorf("expected truncation ellipsis, got %q", line)
 	}
 }
 
 func TestToolLineError(t *testing.T) {
-	line := toolLine(&runner.ToolUseEvent{Tool: "read", Status: "error"})
+	line := toolLine(&channel.ToolUseEvent{Tool: "read", Status: "error"})
 	if !strings.Contains(line, "failed") {
 		t.Errorf("unexpected line: %q", line)
 	}
 }
 
 func TestToolLineDefault(t *testing.T) {
-	line := toolLine(&runner.ToolUseEvent{Tool: "bash", Status: "done"})
+	line := toolLine(&channel.ToolUseEvent{Tool: "bash", Status: "done"})
 	if line != "" {
 		t.Errorf("expected empty, got %q", line)
 	}
 }
 
 func TestToolLineRunningNoInput(t *testing.T) {
-	line := toolLine(&runner.ToolUseEvent{Tool: "search", Status: "running"})
+	line := toolLine(&channel.ToolUseEvent{Tool: "search", Status: "running"})
 	if !strings.Contains(line, "search") {
 		t.Errorf("unexpected line: %q", line)
 	}
@@ -165,13 +163,13 @@ func TestToolLineRunningNoInput(t *testing.T) {
 }
 
 func TestToolLineUnknownTool(t *testing.T) {
-	line := toolLine(&runner.ToolUseEvent{Tool: "custom_tool", Status: "running", Input: "x"})
+	line := toolLine(&channel.ToolUseEvent{Tool: "custom_tool", Status: "running", Input: "x"})
 	if !strings.Contains(line, "🔧") {
 		t.Errorf("unknown tool should use default emoji: %q", line)
 	}
 }
 
-// --- filterModelsIndexed ---
+// --- filterModels (now uses channel.FilterModels) ---
 
 func TestFilterModelsIndexed(t *testing.T) {
 	models := []channel.ModelOption{
@@ -180,12 +178,12 @@ func TestFilterModelsIndexed(t *testing.T) {
 		{Provider: "openai", Model: "gpt-3.5"},
 	}
 
-	result := filterModelsIndexed(models, "openai")
+	result := channel.FilterModels(models, "openai")
 	if len(result) != 2 {
 		t.Fatalf("expected 2 matches, got %d", len(result))
 	}
-	if result[0].globalIdx != 1 || result[1].globalIdx != 3 {
-		t.Errorf("global indices should be 1 and 3, got %d and %d", result[0].globalIdx, result[1].globalIdx)
+	if result[0].GlobalIdx != 1 || result[1].GlobalIdx != 3 {
+		t.Errorf("global indices should be 1 and 3, got %d and %d", result[0].GlobalIdx, result[1].GlobalIdx)
 	}
 }
 
@@ -193,7 +191,7 @@ func TestFilterModelsIndexedNoMatch(t *testing.T) {
 	models := []channel.ModelOption{
 		{Provider: "openai", Model: "gpt-4"},
 	}
-	result := filterModelsIndexed(models, "gemini")
+	result := channel.FilterModels(models, "gemini")
 	if len(result) != 0 {
 		t.Errorf("expected 0 matches, got %d", len(result))
 	}
@@ -203,7 +201,7 @@ func TestFilterModelsIndexedCaseInsensitive(t *testing.T) {
 	models := []channel.ModelOption{
 		{Provider: "Anthropic", Model: "Claude-3"},
 	}
-	result := filterModelsIndexed(models, "CLAUDE")
+	result := channel.FilterModels(models, "CLAUDE")
 	if len(result) != 1 {
 		t.Fatalf("expected 1 match, got %d", len(result))
 	}
@@ -213,7 +211,7 @@ func TestFilterModelsIndexedCaseInsensitive(t *testing.T) {
 
 func TestNewValidConfig(t *testing.T) {
 	cfg := Config{AppID: "123", AppSecret: "secret"}
-	bot, err := New(cfg, nil, nil, nil, nil)
+	bot, err := New(cfg, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -226,14 +224,14 @@ func TestNewValidConfig(t *testing.T) {
 }
 
 func TestNewMissingAppID(t *testing.T) {
-	_, err := New(Config{AppSecret: "secret"}, nil, nil, nil, nil)
+	_, err := New(Config{AppSecret: "secret"}, nil)
 	if err == nil {
 		t.Fatal("expected error for missing app_id")
 	}
 }
 
 func TestNewMissingAppSecret(t *testing.T) {
-	_, err := New(Config{AppID: "123"}, nil, nil, nil, nil)
+	_, err := New(Config{AppID: "123"}, nil)
 	if err == nil {
 		t.Fatal("expected error for missing app_secret")
 	}
@@ -241,22 +239,9 @@ func TestNewMissingAppSecret(t *testing.T) {
 
 func TestNewCustomGroupMode(t *testing.T) {
 	cfg := Config{AppID: "1", AppSecret: "s", GroupMode: "always"}
-	bot, _ := New(cfg, nil, nil, nil, nil)
+	bot, _ := New(cfg, nil)
 	if bot.cfg.GroupMode != "always" {
 		t.Errorf("group_mode = %q, want %q", bot.cfg.GroupMode, "always")
-	}
-}
-
-// --- resolve session key format ---
-
-func TestResolveSessionKeyFormat(t *testing.T) {
-	got := agent.BuildSessionKey("anna", "feishu", "ou_123", "group:oc_456")
-	if got != "anna:feishu:ou_123:group:oc_456" {
-		t.Errorf("BuildSessionKey group = %q", got)
-	}
-	got = agent.BuildSessionKey("anna", "feishu", "ou_123", "private")
-	if got != "anna:feishu:ou_123:private" {
-		t.Errorf("BuildSessionKey private = %q", got)
 	}
 }
 
@@ -376,10 +361,10 @@ func TestDerefStrValue(t *testing.T) {
 // --- formatModelList ---
 
 func TestFormatModelListNoQuery(t *testing.T) {
-	models := []channel.ModelOption{
+	models := channel.IndexModels([]channel.ModelOption{
 		{Provider: "openai", Model: "gpt-4"},
 		{Provider: "anthropic", Model: "claude-3"},
-	}
+	})
 	out := formatModelList(models, "")
 	if !strings.Contains(out, "1. openai/gpt-4") {
 		t.Errorf("missing model entry in output: %s", out)
@@ -390,76 +375,12 @@ func TestFormatModelListNoQuery(t *testing.T) {
 }
 
 func TestFormatModelListWithQuery(t *testing.T) {
-	models := []channel.ModelOption{{Provider: "openai", Model: "gpt-4"}}
+	models := channel.IndexModels([]channel.ModelOption{
+		{Provider: "openai", Model: "gpt-4"},
+	})
 	out := formatModelList(models, "openai")
 	if !strings.Contains(out, `filter: "openai"`) {
 		t.Errorf("should show filter query: %s", out)
-	}
-}
-
-// --- handleCommand ---
-
-func TestHandleCommandHelp(t *testing.T) {
-	bot := &Bot{}
-	var reply string
-	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "/help", "ou_test123", func(s string) { reply = s })
-	if !handled {
-		t.Fatal("expected /help to be handled")
-	}
-	if !strings.Contains(reply, "Anna") {
-		t.Errorf("unexpected reply: %s", reply)
-	}
-}
-
-func TestHandleCommandStart(t *testing.T) {
-	bot := &Bot{}
-	var reply string
-	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "/start", "ou_test123", func(s string) { reply = s })
-	if !handled {
-		t.Fatal("expected /start to be handled")
-	}
-	if reply != channel.WelcomeMessage {
-		t.Errorf("unexpected reply: %s", reply)
-	}
-}
-
-func TestHandleCommandUnknown(t *testing.T) {
-	bot := &Bot{}
-	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "hello world", "ou_test123", func(s string) {})
-	if handled {
-		t.Error("regular text should not be handled as command")
-	}
-}
-
-func TestHandleCommandEmpty(t *testing.T) {
-	bot := &Bot{}
-	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "", "ou_test123", func(s string) {})
-	if handled {
-		t.Error("empty text should not be handled")
-	}
-}
-
-func TestHandleCommandWhoami(t *testing.T) {
-	bot := &Bot{}
-	var reply string
-	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "/whoami", "ou_abc123", func(s string) { reply = s })
-	if !handled {
-		t.Fatal("expected /whoami to be handled")
-	}
-	if !strings.Contains(reply, "ou_abc123") {
-		t.Errorf("expected reply to contain sender open_id, got: %s", reply)
-	}
-}
-
-func TestHandleCommandAuthDeprecated(t *testing.T) {
-	bot := &Bot{}
-	var reply string
-	handled := bot.handleCommand(&channel.ResolvedChat{SessionKey: "ch"}, "/auth abc123", "ou_test123", func(s string) { reply = s })
-	if !handled {
-		t.Fatal("expected /auth to be handled")
-	}
-	if !strings.Contains(reply, "removed") || !strings.Contains(reply, "lark-cli") {
-		t.Errorf("unexpected reply: %s", reply)
 	}
 }
 
@@ -470,12 +391,12 @@ func TestHandleModelCommandListModels(t *testing.T) {
 		{Provider: "openai", Model: "gpt-4"},
 	}
 	bot := &Bot{
-		listFn:     func() []channel.ModelOption { return models },
-		chatModels: make(map[string]ModelOption),
+		handler:    &mockHandler{models: models},
+		chatModels: make(map[string]channel.ModelOption),
 	}
 
 	var reply string
-	bot.handleModelCommand(&channel.ResolvedChat{SessionKey: "ch"}, "", func(s string) { reply = s })
+	bot.handleModelCommand("", func(s string) { reply = s })
 	if !strings.Contains(reply, "openai/gpt-4") {
 		t.Errorf("expected model list, got: %s", reply)
 	}
@@ -487,12 +408,12 @@ func TestHandleModelCommandFilter(t *testing.T) {
 		{Provider: "anthropic", Model: "claude-3"},
 	}
 	bot := &Bot{
-		listFn:     func() []channel.ModelOption { return models },
-		chatModels: make(map[string]ModelOption),
+		handler:    &mockHandler{models: models},
+		chatModels: make(map[string]channel.ModelOption),
 	}
 
 	var reply string
-	bot.handleModelCommand(&channel.ResolvedChat{SessionKey: "ch"}, "claude", func(s string) { reply = s })
+	bot.handleModelCommand("claude", func(s string) { reply = s })
 	if !strings.Contains(reply, "claude-3") {
 		t.Errorf("expected filtered results with claude, got: %s", reply)
 	}
@@ -506,30 +427,30 @@ func TestHandleModelCommandFilterNoMatch(t *testing.T) {
 		{Provider: "openai", Model: "gpt-4"},
 	}
 	bot := &Bot{
-		listFn:     func() []channel.ModelOption { return models },
-		chatModels: make(map[string]ModelOption),
+		handler:    &mockHandler{models: models},
+		chatModels: make(map[string]channel.ModelOption),
 	}
 
 	var reply string
-	bot.handleModelCommand(&channel.ResolvedChat{SessionKey: "ch"}, "gemini", func(s string) { reply = s })
+	bot.handleModelCommand("gemini", func(s string) { reply = s })
 	if !strings.Contains(reply, "No models matching") {
 		t.Errorf("expected no match message, got: %s", reply)
 	}
 }
 
-func TestHandleModelCommandInvalidIndex(t *testing.T) {
+func TestHandleModelCommandSwitchByName(t *testing.T) {
 	models := []channel.ModelOption{
 		{Provider: "openai", Model: "gpt-4"},
 	}
 	bot := &Bot{
-		listFn:     func() []channel.ModelOption { return models },
-		chatModels: make(map[string]ModelOption),
+		handler:    &mockHandler{models: models},
+		chatModels: make(map[string]channel.ModelOption),
 	}
 
 	var reply string
-	bot.handleModelCommand(&channel.ResolvedChat{SessionKey: "ch"}, "5", func(s string) { reply = s })
-	if !strings.Contains(reply, "Invalid selection") {
-		t.Errorf("expected invalid selection, got: %s", reply)
+	bot.handleModelCommand("openai/gpt-4", func(s string) { reply = s })
+	if !strings.Contains(reply, "Switched to openai/gpt-4") {
+		t.Errorf("expected switch confirmation, got: %s", reply)
 	}
 }
 
@@ -538,13 +459,12 @@ func TestHandleModelCommandSwitchError(t *testing.T) {
 		{Provider: "openai", Model: "gpt-4"},
 	}
 	bot := &Bot{
-		listFn:     func() []channel.ModelOption { return models },
-		switchFn:   func(string, string) error { return fmt.Errorf("switch failed") },
-		chatModels: make(map[string]ModelOption),
+		handler:    &mockHandler{models: models, switchErr: fmt.Errorf("switch failed")},
+		chatModels: make(map[string]channel.ModelOption),
 	}
 
 	var reply string
-	bot.handleModelCommand(&channel.ResolvedChat{SessionKey: "ch"}, "1", func(s string) { reply = s })
+	bot.handleModelCommand("openai/gpt-4", func(s string) { reply = s })
 	if !strings.Contains(reply, "Error switching model") {
 		t.Errorf("expected switch error, got: %s", reply)
 	}
@@ -567,7 +487,7 @@ func TestSendImageInvalidBase64(t *testing.T) {
 	defer cancel()
 	bot := &Bot{ctx: ctx}
 	// Invalid base64 should log error but not panic.
-	bot.sendImage("target", "msg", runner.ImageEvent{Data: "not-valid-base64!!!"})
+	bot.sendImage("target", "msg", channel.ImageEvent{Data: "not-valid-base64!!!"})
 }
 
 // --- Stop ---
@@ -882,60 +802,14 @@ func TestExtractJSONIntStringValue(t *testing.T) {
 	}
 }
 
-// --- Thread session key ---
+// --- Thread helpers ---
 
-func TestThreadChannelCtxGroup(t *testing.T) {
-	ctx, isGroup := threadChannelCtx("oc_123", "group", "")
-	if ctx != "group:oc_123" {
-		t.Errorf("channelCtx = %q, want group:oc_123", ctx)
+func TestThreadReplyTarget(t *testing.T) {
+	if threadReplyTarget("msg1", "root1") != "root1" {
+		t.Error("should return rootID when non-empty")
 	}
-	if !isGroup {
-		t.Error("expected isGroup = true")
-	}
-}
-
-func TestThreadChannelCtxGroupWithThread(t *testing.T) {
-	ctx, isGroup := threadChannelCtx("oc_123", "group", "om_root1")
-	if ctx != "group:oc_123:thread:om_root1" {
-		t.Errorf("channelCtx = %q, want group:oc_123:thread:om_root1", ctx)
-	}
-	if !isGroup {
-		t.Error("expected isGroup = true")
-	}
-}
-
-func TestThreadChannelCtxPrivate(t *testing.T) {
-	ctx, isGroup := threadChannelCtx("", "p2p", "")
-	if ctx != "private" {
-		t.Errorf("channelCtx = %q, want private", ctx)
-	}
-	if isGroup {
-		t.Error("expected isGroup = false")
-	}
-}
-
-func TestThreadSessionKeyFormat(t *testing.T) {
-	got := agent.BuildSessionKey("anna", "feishu", "ou_123", "group:oc_456:thread:om_root1")
-	want := "anna:feishu:ou_123:group:oc_456:thread:om_root1"
-	if got != want {
-		t.Errorf("BuildSessionKey thread = %q, want %q", got, want)
-	}
-}
-
-func TestReplaceChannelCtxGroup(t *testing.T) {
-	key := "anna:feishu:ou_123:group:oc_456"
-	got := replaceChannelCtx(key, "group:oc_456:thread:om_root1")
-	want := "anna:feishu:ou_123:group:oc_456:thread:om_root1"
-	if got != want {
-		t.Errorf("replaceChannelCtx = %q, want %q", got, want)
-	}
-}
-
-func TestReplaceChannelCtxPrivate(t *testing.T) {
-	key := "anna:feishu:ou_123:private"
-	got := replaceChannelCtx(key, "private")
-	if got != key {
-		t.Errorf("replaceChannelCtx = %q, want %q", got, key)
+	if threadReplyTarget("msg1", "") != "msg1" {
+		t.Error("should return messageID when rootID is empty")
 	}
 }
 
@@ -1057,15 +931,16 @@ func TestStreamResponseElapsedTiming(t *testing.T) {
 	defer func() { nowFunc = origNow }()
 
 	// With no events, elapsed = end - start.
-	events := make(chan runner.Event)
+	events := make(chan channel.Event)
 	close(events)
 
-	// Bot with nil client — sendCardReplyInThread will fail gracefully.
+	// Bot with nil client -- sendCardReplyInThread will fail gracefully.
 	// We can't call it directly (nil panic), so just test the timing logic.
 	elapsed := end.Sub(start)
 	if elapsed != 3200*time.Millisecond {
 		t.Errorf("elapsed = %v, want 3.2s", elapsed)
 	}
+	_ = events // used to verify the type compiles
 }
 
 // --- Phase 5b: Per-group config ---
@@ -1205,4 +1080,35 @@ func TestOnReactionSelfReaction(t *testing.T) {
 	if err != nil {
 		t.Errorf("self-reaction should be ignored, got %v", err)
 	}
+}
+
+// --- mockHandler for tests ---
+
+type mockHandler struct {
+	models    []channel.ModelOption
+	switchErr error
+}
+
+func (m *mockHandler) HandleMessage(_ context.Context, _ channel.IncomingMessage) (*channel.ChatStream, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *mockHandler) HandleCommand(_ context.Context, _ channel.IncomingMessage, _, _ string) (string, bool) {
+	return "", false
+}
+
+func (m *mockHandler) ListAgents(_ context.Context, _ channel.IncomingMessage) ([]channel.AgentInfo, string, error) {
+	return nil, "", nil
+}
+
+func (m *mockHandler) SwitchAgent(_ context.Context, _ channel.IncomingMessage, _ string) error {
+	return nil
+}
+
+func (m *mockHandler) ListModels() []channel.ModelOption {
+	return m.models
+}
+
+func (m *mockHandler) SwitchModel(_, _ string) error {
+	return m.switchErr
 }

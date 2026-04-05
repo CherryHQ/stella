@@ -4,17 +4,21 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
-// WelcomeMessage is the shared welcome/help text for all channels.
-const WelcomeMessage = "Hi! I'm Anna -- your local AI assistant.\n\n" +
-	"Commands:\n" +
-	"/new -- Start a fresh session\n" +
-	"/compact -- Compress conversation history\n" +
-	"/model -- Switch between models\n" +
-	"/agent -- List or switch agents\n" +
-	"/whoami -- Show your user ID\n\n" +
-	"Just send me a message to get started."
+// Re-export from pkg/channel for internal callers.
+const WelcomeMessage = pkgchannel.WelcomeMessage
+
+// Re-exported types and functions from pkg/channel.
+type IndexedModel = pkgchannel.IndexedModel
+
+var (
+	ParseModelArgs = pkgchannel.ParseModelArgs
+	IndexModels    = pkgchannel.IndexModels
+	FilterModels   = pkgchannel.FilterModels
+)
 
 // HandleCommand processes common bot commands shared across all channels.
 // Returns the response text and whether the command was handled.
@@ -50,39 +54,4 @@ func HandleCommand(ctx context.Context, rc *ResolvedChat, text, senderID string)
 	}
 
 	return "", false
-}
-
-// IndexedModel pairs a ModelOption with its 1-based global index.
-type IndexedModel struct {
-	ModelOption
-	GlobalIdx int
-}
-
-// ParseModelArgs parses /model arguments as a query string.
-// Returns empty string when no arguments are provided.
-func ParseModelArgs(args string) string {
-	return strings.TrimSpace(args)
-}
-
-// IndexModels wraps a full model list with sequential 1-based indices.
-func IndexModels(models []ModelOption) []IndexedModel {
-	out := make([]IndexedModel, len(models))
-	for i, m := range models {
-		out[i] = IndexedModel{ModelOption: m, GlobalIdx: i + 1}
-	}
-	return out
-}
-
-// FilterModels returns indexed models matching the query, preserving
-// their 1-based global indices from the full list.
-func FilterModels(models []ModelOption, query string) []IndexedModel {
-	query = strings.ToLower(query)
-	var out []IndexedModel
-	for i, m := range models {
-		label := strings.ToLower(m.Provider + "/" + m.Model)
-		if strings.Contains(label, query) {
-			out = append(out, IndexedModel{ModelOption: m, GlobalIdx: i + 1})
-		}
-	}
-	return out
 }

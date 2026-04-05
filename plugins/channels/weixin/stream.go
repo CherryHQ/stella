@@ -7,8 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/pkg/channel"
 )
 
 const (
@@ -49,7 +48,7 @@ type toolTracker struct {
 }
 
 // start registers a new tool as running.
-func (tt *toolTracker) start(t *runner.ToolUseEvent) {
+func (tt *toolTracker) start(t *channel.ToolUseEvent) {
 	if tt.activeTool != "" {
 		tt.history = append(tt.history, toolRecord{
 			Tool:     tt.activeTool,
@@ -65,7 +64,7 @@ func (tt *toolTracker) start(t *runner.ToolUseEvent) {
 }
 
 // finish records the active tool as completed.
-func (tt *toolTracker) finish(t *runner.ToolUseEvent) {
+func (tt *toolTracker) finish(t *channel.ToolUseEvent) {
 	dur := time.Since(tt.activeStart)
 	input := tt.activeInput
 	if t.Input != "" {
@@ -85,7 +84,7 @@ func (tt *toolTracker) finish(t *runner.ToolUseEvent) {
 }
 
 // handle processes a tool event, returning true if a display refresh is needed.
-func (tt *toolTracker) handle(t *runner.ToolUseEvent) bool {
+func (tt *toolTracker) handle(t *channel.ToolUseEvent) bool {
 	switch t.Status {
 	case "running":
 		tt.start(t)
@@ -206,11 +205,11 @@ func truncate(s string, maxLen int) string {
 
 // streamEvents consumes the agent event stream, accumulates text, and tracks tools.
 // Returns the final response text, tool tracker, collected images, and any stream error.
-func (b *Bot) streamEvents(msg WeixinMessage, events <-chan runner.Event) (string, *toolTracker, []runner.ImageEvent, error) {
+func (b *Bot) streamEvents(msg WeixinMessage, events <-chan channel.Event) (string, *toolTracker, []channel.ImageEvent, error) {
 	var sb strings.Builder
 	var streamErr error
 	var tt toolTracker
-	var images []runner.ImageEvent
+	var images []channel.ImageEvent
 
 	for evt := range events {
 		if evt.Err != nil {

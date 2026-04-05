@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
-	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/pkg/channel"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -73,13 +72,9 @@ func (b *Bot) sendAgentPage(c tele.Context, agents []channel.IndexedAgent, page 
 
 // switchAgentByIdx handles agent switching by 1-based index.
 func (b *Bot) switchAgentByIdx(c tele.Context, idx int) error {
-	rc, err := b.resolve(c)
-	if err != nil {
-		return c.Send(fmt.Sprintf("Error: %v", err))
-	}
+	msg := b.incomingMsg(c, "")
 
-	ctx := context.Background()
-	agents, err := b.agentCmd.List(ctx)
+	agents, _, err := b.handler.ListAgents(context.Background(), msg)
 	if err != nil {
 		return c.Send(fmt.Sprintf("Error listing agents: %v", err))
 	}
@@ -88,23 +83,10 @@ func (b *Bot) switchAgentByIdx(c tele.Context, idx int) error {
 	}
 	selected := agents[idx-1]
 
-	if err := b.agentCmd.Switch(ctx, rc.User, rc.ChatCtx, selected.ID); err != nil {
+	if err := b.handler.SwitchAgent(context.Background(), msg, selected.ID); err != nil {
 		return c.Send(fmt.Sprintf("Error switching agent: %v", err))
 	}
 
-	logger().Info("agent switched", "key", rc.SessionKey, "agent_id", selected.ID)
+	logger().Info("agent switched", "agent_id", selected.ID)
 	return c.Send(fmt.Sprintf("Switched to agent: %s (%s)", selected.ID, selected.Name))
-}
-
-// switchAgentBySlug handles agent switching by slug name.
-// Accepts a pre-resolved rc to avoid a redundant resolve call.
-func (b *Bot) switchAgentBySlug(c tele.Context, rc *channel.ResolvedChat, slug string) error {
-	slug = strings.TrimSpace(slug)
-
-	if err := b.agentCmd.Switch(context.Background(), rc.User, rc.ChatCtx, slug); err != nil {
-		return c.Send(fmt.Sprintf("Error switching agent: %v", err))
-	}
-
-	logger().Info("agent switched", "key", rc.SessionKey, "agent_id", slug)
-	return c.Send(fmt.Sprintf("Switched to agent: %s", slug))
 }

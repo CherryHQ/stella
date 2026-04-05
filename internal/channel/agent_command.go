@@ -7,6 +7,7 @@ import (
 
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
 // AgentCommander handles the /agent slash command for listing and switching agents.
@@ -55,7 +56,12 @@ func (ac *AgentCommander) Switch(ctx context.Context, user auth.AuthUser, chat C
 	return ac.authStore.UpdateUserDefaultAgent(ctx, user.ID, ag.ID)
 }
 
+// Re-exported utility from pkg/channel.
+var ParseCommandArgs = pkgchannel.ParseCommandArgs
+
 // IndexedAgent pairs a config.Agent with its 1-based global index.
+// This wraps config.Agent (not pkgchannel.AgentInfo) for backward compat
+// with internal callers that need the full Agent struct.
 type IndexedAgent struct {
 	config.Agent
 	GlobalIdx int
@@ -90,12 +96,6 @@ func HandleAgentCommand(ctx context.Context, ac *AgentCommander, rc *ResolvedCha
 		return
 	}
 	reply(FormatAgentList(agents, rc.AgentID))
-}
-
-// ParseCommandArgs extracts arguments after the command token.
-// Example: ParseCommandArgs("/agent foo", "/agent") returns "foo".
-func ParseCommandArgs(text, cmd string) string {
-	return strings.TrimSpace(strings.TrimPrefix(text, cmd))
 }
 
 // FormatAgentList formats the agent list for display, marking the current agent.

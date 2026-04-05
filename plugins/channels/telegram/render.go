@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/pkg/channel"
 	"github.com/yuin/goldmark/parser"
 	tele "gopkg.in/telebot.v4"
 )
@@ -19,7 +18,7 @@ type goldmarkMD interface {
 
 // sendFinalResponse sends the completed response with markdown rendering,
 // splitting into chunks if necessary. It also sends any collected images.
-func (b *Bot) sendFinalResponse(c tele.Context, response string, images []runner.ImageEvent) {
+func (b *Bot) sendFinalResponse(c tele.Context, response string, images []channel.ImageEvent) {
 	if err := b.sendChunkedMarkdown(c.Chat(), response, false, nil); err != nil {
 		logger().Error("sendFinalResponse failed", "chat_id", c.Chat().ID, "error", err)
 	}
@@ -29,7 +28,7 @@ func (b *Bot) sendFinalResponse(c tele.Context, response string, images []runner
 }
 
 // sendImage decodes a base64 image and sends it as a photo to the chat.
-func (b *Bot) sendImage(c tele.Context, img runner.ImageEvent) {
+func (b *Bot) sendImage(c tele.Context, img channel.ImageEvent) {
 	data, err := base64.StdEncoding.DecodeString(img.Data)
 	if err != nil {
 		logger().Error("decode image failed", "error", err)

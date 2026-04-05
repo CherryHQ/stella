@@ -10,9 +10,8 @@ import (
 	"strings"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
-	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/channel"
 )
 
 // onReaction handles incoming Feishu reaction events.
@@ -67,13 +66,8 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 
 	reactionText := fmt.Sprintf("[User reacted with %s on message %s]", emojiType, messageID)
 
-	rc, err := b.resolveWithThread(openID, chatID, chatType, rootID)
-	if err != nil {
-		logger().Error("resolve for reaction failed", "open_id", openID, "error", err)
-		return nil
-	}
-
-	go b.handleMessage(rc, openID, chatID, messageID, rootID, reactionText)
+	msg := b.incomingMsg(openID, chatID, chatType, reactionText)
+	go b.handleMessage(msg, openID, chatID, messageID, rootID)
 	return nil
 }
 
@@ -111,7 +105,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		return nil
 	}
 
-	// Extract text once for cancel detection, commands, and link codes.
+	// Extract text once for cancel detection and commands.
 	text := parseTextContent(derefStr(msg.Content))
 	if chatType == "group" {
 		text = stripMentions(text, mentions)
@@ -133,24 +127,28 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	replyFn := func(reply string) { b.replyInThread(b.ctx, messageID, rootID, reply) }
 
-	rc, err := b.resolveWithThread(openID, chatID, chatType, rootID)
-	if err != nil {
-		logger().Error("resolve failed", "open_id", openID, "error", err)
-		replyFn(fmt.Sprintf("Error: %v", err))
-		return nil
-	}
+	incoming := b.incomingMsg(openID, chatID, chatType, content)
 
-	// Try link code before anything else.
-	if b.authStore != nil && b.linkCodes != nil && text != "" {
-		if resp, ok := channel.TryLinkCode(b.ctx, b.authStore, b.linkCodes, text, channel.PlatformFeishu, openID, ""); ok {
-			replyFn(resp)
-			return nil
-		}
-	}
-
+	// Try shared commands via the handler.
 	if text != "" {
-		if handled := b.handleCommand(rc, text, openID, replyFn); handled {
-			return nil
+		fields := strings.Fields(text)
+		if len(fields) > 0 {
+			cmd := fields[0]
+			args := channel.ParseCommandArgs(text, cmd)
+
+			switch strings.ToLower(cmd) {
+			case "/auth":
+				replyFn("The /auth command was removed. Feishu workspace OAuth is no longer supported. If you need Lark workspace access, install a lark-cli skill and run `lark-cli auth login --recommend`.")
+				return nil
+			case "/model":
+				b.handleModelCommand(args, replyFn)
+				return nil
+			}
+
+			if resp, ok := b.handler.HandleCommand(b.ctx, incoming, cmd, args); ok {
+				replyFn(resp)
+				return nil
+			}
 		}
 	}
 
@@ -158,15 +156,16 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	if chatType == "group" {
 		if sp := b.groupSystemPrompt(chatID); sp != "" {
 			content = prependSystemPrompt(content, sp)
+			incoming.Content = content
 		}
 	}
 
-	go b.handleMessage(rc, openID, chatID, messageID, rootID, content)
+	go b.handleMessage(incoming, openID, chatID, messageID, rootID)
 	return nil
 }
 
 // prependSystemPrompt adds a system prompt prefix to message content.
-func prependSystemPrompt(content runner.MessageContent, prompt string) runner.MessageContent {
+func prependSystemPrompt(content any, prompt string) any {
 	switch c := content.(type) {
 	case string:
 		return fmt.Sprintf("[System: %s]\n\n%s", prompt, c)
@@ -177,7 +176,7 @@ func prependSystemPrompt(content runner.MessageContent, prompt string) runner.Me
 }
 
 // buildMessageContent constructs the message content from a Feishu message.
-func (b *Bot) buildMessageContent(msg *larkim.EventMessage) runner.MessageContent {
+func (b *Bot) buildMessageContent(msg *larkim.EventMessage) any {
 	msgType := derefStr(msg.MessageType)
 	rawContent := derefStr(msg.Content)
 	messageID := derefStr(msg.MessageId)
@@ -400,7 +399,7 @@ func parseTextContent(raw string) string {
 }
 
 // handleMessage processes an incoming message by streaming the agent response.
-func (b *Bot) handleMessage(rc *channel.ResolvedChat, openID, chatID, messageID, rootID string, content runner.MessageContent) {
+func (b *Bot) handleMessage(msg channel.IncomingMessage, openID, chatID, messageID, rootID string) {
 	// Create cancellable context for abort support.
 	ctx, cancel := context.WithCancel(b.ctx)
 	key := streamKey(chatID, rootID)
@@ -408,19 +407,19 @@ func (b *Bot) handleMessage(rc *channel.ResolvedChat, openID, chatID, messageID,
 	defer b.unregisterStream(key)
 	defer cancel()
 
-	events, sessionID, err := rc.Chat(ctx, content)
+	stream, err := b.handler.HandleMessage(ctx, msg)
 	if err != nil {
 		logger().Error("chat failed", "open_id", openID, "error", err)
 		b.replyInThread(b.ctx, messageID, rootID, fmt.Sprintf("Session error: %v", err))
 		return
 	}
 
-	logger().Debug("message received", "open_id", openID, "session", sessionID, "root_id", rootID)
+	logger().Debug("message received", "open_id", openID, "session", stream.SessionID, "root_id", rootID)
 
-	sentMsgID, response, images, elapsed, streamErr := b.streamResponseInThread(events, chatID, messageID, rootID)
+	sentMsgID, response, images, elapsed, streamErr := b.streamResponseInThread(stream.Events, chatID, messageID, rootID)
 
 	if streamErr != nil {
-		logger().Error("agent stream error", "session_id", sessionID, "error", streamErr)
+		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
 		if response == "" {
 			response = fmt.Sprintf("Agent error: %v", streamErr)
 		} else {
@@ -442,36 +441,6 @@ func (b *Bot) handleMessage(rc *channel.ResolvedChat, openID, chatID, messageID,
 	}
 
 	logger().Debug("response sent", "open_id", openID, "response_len", len(response), "images", len(images))
-}
-
-// handleCommand checks if text is a bot command and handles it.
-func (b *Bot) handleCommand(rc *channel.ResolvedChat, text, senderID string, reply func(string)) bool {
-	if resp, ok := channel.HandleCommand(b.ctx, rc, text, senderID); ok {
-		reply(resp)
-		return true
-	}
-
-	fields := strings.Fields(text)
-	if len(fields) == 0 {
-		return false
-	}
-	cmd := strings.ToLower(fields[0])
-
-	args := channel.ParseCommandArgs(text, fields[0])
-
-	switch cmd {
-	case "/auth":
-		reply("The /auth command was removed. Feishu workspace OAuth is no longer supported. If you need Lark workspace access, install a lark-cli skill and run `lark-cli auth login --recommend`.")
-		return true
-	case "/model":
-		b.handleModelCommand(rc, args, reply)
-		return true
-	case "/agent":
-		channel.HandleAgentCommand(b.ctx, b.agentCmd, rc, args, reply)
-		return true
-	}
-
-	return false
 }
 
 // replyText sends a text reply to a message.

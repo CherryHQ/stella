@@ -5,8 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/pkg/channel"
 
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
 )
@@ -129,7 +128,7 @@ func TestToolTracker(t *testing.T) {
 	var tracker toolTracker
 
 	// Start a tool.
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls -la"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls -la"})
 	if tracker.activeTool != "bash" {
 		t.Errorf("activeTool = %q, want %q", tracker.activeTool, "bash")
 	}
@@ -149,7 +148,7 @@ func TestToolTracker(t *testing.T) {
 	}
 
 	// Finish the tool.
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "done", Input: "ls -la"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "done", Input: "ls -la"})
 	if tracker.activeTool != "" {
 		t.Errorf("activeTool = %q, want empty after done", tracker.activeTool)
 	}
@@ -171,8 +170,8 @@ func TestToolTracker(t *testing.T) {
 
 func TestToolTrackerError(t *testing.T) {
 	var tracker toolTracker
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "exit 1"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "error", Detail: "command failed"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "exit 1"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "error", Detail: "command failed"})
 
 	if len(tracker.history) != 1 {
 		t.Fatalf("history len = %d, want 1", len(tracker.history))
@@ -193,11 +192,11 @@ func TestToolTrackerError(t *testing.T) {
 
 func TestToolTrackerMultipleTools(t *testing.T) {
 	var tracker toolTracker
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "main.go"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done", Input: "main.go"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "edit", Status: "running", Input: "main.go"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "edit", Status: "done", Input: "main.go"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "main.go"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "done", Input: "main.go"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "edit", Status: "running", Input: "main.go"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "edit", Status: "done", Input: "main.go"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test"})
 
 	if len(tracker.history) != 2 {
 		t.Fatalf("history len = %d, want 2", len(tracker.history))
@@ -224,10 +223,10 @@ func TestToolTrackerRenderFinal(t *testing.T) {
 		t.Errorf("renderFinal() with no history = %q, want empty", got)
 	}
 
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "main.go"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done", Detail: "42 lines"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "error", Detail: "exit 1"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "main.go"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "done", Detail: "42 lines"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "error", Detail: "exit 1"})
 
 	got := tracker.renderFinal()
 	if !strings.Contains(got, "——————————————————") {
@@ -255,12 +254,12 @@ func TestToolTrackerRenderFinal(t *testing.T) {
 
 func TestToolTrackerRenderFinalAllSuccess(t *testing.T) {
 	var tracker toolTracker
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "a.go"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "b.go"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "done"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "a.go"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "done"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "b.go"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "done"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "done"})
 
 	got := tracker.renderFinal()
 	if !strings.Contains(got, "📎 3 tools") {
@@ -280,8 +279,8 @@ func TestToolTrackerRenderFinalAllSuccess(t *testing.T) {
 
 func TestToolTrackerRenderFinalSingleTool(t *testing.T) {
 	var tracker toolTracker
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "x.go"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "x.go"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "done"})
 
 	got := tracker.renderFinal()
 	if !strings.Contains(got, "📎 1 tool (") {
@@ -294,8 +293,8 @@ func TestToolTrackerHasHistory(t *testing.T) {
 	if tracker.hasHistory() {
 		t.Error("hasHistory() should be false with no tools")
 	}
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "x"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done", Input: "x"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "x"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "done", Input: "x"})
 	if !tracker.hasHistory() {
 		t.Error("hasHistory() should be true after tool finished")
 	}
@@ -303,8 +302,8 @@ func TestToolTrackerHasHistory(t *testing.T) {
 
 func TestToolTrackerMinDisplayDuration(t *testing.T) {
 	var tracker toolTracker
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "file.go"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done", Input: "file.go"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "file.go"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "done", Input: "file.go"})
 
 	// Right after finishing, should still be displaying (minimum duration).
 	if !tracker.isDisplaying() {
@@ -315,8 +314,8 @@ func TestToolTrackerMinDisplayDuration(t *testing.T) {
 func TestToolTrackerStartOverwritesActive(t *testing.T) {
 	var tracker toolTracker
 	// Start one tool, then start another without finishing the first.
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "a.go"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "a.go"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls"})
 
 	// The first tool should be auto-finished in history.
 	if len(tracker.history) != 1 {
