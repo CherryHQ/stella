@@ -41,7 +41,7 @@ func ExecuteToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 
 		// PreToolCall hooks: may rewrite args or block execution.
 		args := call.Arguments
-		if hs != nil && !hs.Empty() {
+		if !hs.Empty() {
 			preCtx := &hooks.PreToolCallContext{
 				HookMeta:   meta,
 				ToolName:   call.Name,
@@ -90,7 +90,7 @@ func ExecuteToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		// PostToolCall hooks: observe results.
 		// Only the first TextContent block is passed — sufficient for telemetry;
 		// hooks needing full output should extend PostToolCallContext.
-		if hs != nil && !hs.Empty() {
+		if !hs.Empty() {
 			resultText := ""
 			for _, block := range result.Content {
 				if tc, ok := block.(ai.TextContent); ok {

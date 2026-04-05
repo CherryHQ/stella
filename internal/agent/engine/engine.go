@@ -59,7 +59,7 @@ func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []ai.Messa
 		effectiveSystem := cfg.System
 		effectiveToolDefs := cfg.ToolDefinitions
 		effectiveModel := cfg.Model
-		if cfg.Hooks != nil && !cfg.Hooks.Empty() {
+		if !cfg.Hooks.Empty() {
 			preCtx := &hooks.PreLLMCallContext{
 				HookMeta:        cfg.HookMeta,
 				Model:           cfg.Model.Name,
@@ -93,7 +93,7 @@ func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []ai.Messa
 		duration := time.Since(start)
 
 		// PostLLMCall hooks: telemetry / observation.
-		if cfg.Hooks != nil && !cfg.Hooks.Empty() {
+		if !cfg.Hooks.Empty() {
 			postCtx := &hooks.PostLLMCallContext{
 				HookMeta:   cfg.HookMeta,
 				Model:      effectiveModel.Name,

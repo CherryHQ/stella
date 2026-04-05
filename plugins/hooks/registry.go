@@ -42,10 +42,14 @@ func Names() []string {
 // instances. Callers (NewHookSet) handle priority sorting.
 func BuildEnabled(ctx context.Context, store config.Store) []hooks.HookPlugin {
 	mu.RLock()
-	defer mu.RUnlock()
+	factories := make(map[string]Factory, len(registry))
+	for name, factory := range registry {
+		factories[name] = factory
+	}
+	mu.RUnlock()
 
 	var result []hooks.HookPlugin
-	for name, factory := range registry {
+	for name, factory := range factories {
 		p, err := store.GetPlugin(ctx, config.PluginID(config.PluginKindHook, name))
 		if err != nil {
 			slog.Debug("plugin hook not found in store", "name", name, "error", err)
