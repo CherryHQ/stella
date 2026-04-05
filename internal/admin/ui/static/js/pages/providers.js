@@ -1,10 +1,6 @@
 import { api } from '/static/js/api.js'
 
-const providerDefaults = {
-  'anthropic': { base_url: 'https://api.anthropic.com', name: 'Anthropic' },
-  'openai': { base_url: 'https://api.openai.com/v1', name: 'OpenAI' },
-  'openai-response': { base_url: 'https://api.openai.com/v1', name: 'OpenAI Response' },
-}
+let providerDefaults = {}
 
 /**
  * Registers the providersPage Alpine.data component.
@@ -16,10 +12,13 @@ export function register(Alpine) {
     providers: [],
     providerModels: {},
     newProviderType: '',
-    providerDefaults,
 
     confirmMsg: '',
     confirmAction: () => {},
+
+    get providerDefaults() {
+      return providerDefaults
+    },
 
     get addableProviders() {
       const existing = new Set(this.providers.map(p => p.id))
@@ -27,8 +26,21 @@ export function register(Alpine) {
     },
 
     async init() {
+      await this.loadProviderTypes()
       await this.loadProviders()
       this.newProviderType = this.addableProviders[0] || ''
+    },
+
+    async loadProviderTypes() {
+      try {
+        const types = await api('GET', '/api/provider-types') || []
+        providerDefaults = {}
+        for (const t of types) {
+          providerDefaults[t.id] = { base_url: t.default_url, name: t.name }
+        }
+      } catch (e) {
+        console.error('Failed to load provider types:', e)
+      }
     },
 
     async loadProviders() {

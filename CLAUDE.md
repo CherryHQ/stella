@@ -4,13 +4,13 @@ anna is a self-hosted AI assistant with lossless context management (LCM). Nativ
 
 ## Packages
 
-All Go packages live under `internal/` (app-private).
+All Go packages live under `internal/` (app-private) except public interfaces in `pkg/`.
 
-`cmd/anna/` → `internal/agent/` (pool, session) → `internal/agent/runner/` (GoRunner) → `internal/agent/engine/` (loop, tool execution) → `internal/ai/` (providers, types, events, transforms)
+`cmd/anna/` → `internal/agent/` (pool, session) → `internal/agent/runner/` (GoRunner) → `internal/agent/engine/` (loop, tool execution) → `pkg/ai/` (types, events, transforms) → `pkg/providers/` (ProviderAdapter, Registry, stream dispatch)
 
-Side packages: `internal/channel/` (cli, telegram, qq, feishu, notifier) → `internal/scheduler/` → `internal/memory/` → `pkg/tools/` (Tool interface, registry, built-in tools) → `internal/db/` → `internal/config/`
+Side packages: `internal/channel/` (cli, telegram, qq, feishu, notifier) → `internal/scheduler/` → `internal/memory/` → `pkg/tools/` (Tool interface, registry, built-in tools) → `pkg/hooks/` (Hook interface, HookSet) → `internal/db/` → `internal/config/`
 
-Plugin tools: `plugins/tools/` (auto-discovery registry) → `plugins/tools/webfetch/` (self-registers via init())
+Plugins: `plugins/` (all.go triggers init() registration) → `plugins/tools/` (webfetch) → `plugins/hooks/` (rtk) → `plugins/channels/` (telegram, qq, feishu, weixin) → `plugins/providers/` (anthropic, openai, openai-response)
 
 Admin UI: `internal/admin/` — templ + Alpine.js + daisyUI. See `internal/admin/CLAUDE.md` for details.
 

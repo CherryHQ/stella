@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // skipWithoutAnthropicKey skips the test when ANTHROPIC_API_KEY is not set.

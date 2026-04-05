@@ -22,17 +22,6 @@ title: 設定
 | `plugins`      | プラグイン定義のJSON配列                                           |
 | `models_cache` | プロバイダーからキャッシュされたモデルリスト                       |
 
-### settings_providers
-
-LLMプロバイダーごとに1行。
-
-| カラム     | 型   | 説明                                            |
-| ---------- | ---- | ----------------------------------------------- |
-| `id`       | TEXT | プロバイダースラッグ(例: `anthropic`、`openai`) |
-| `name`     | TEXT | 表示名                                          |
-| `api_key`  | TEXT | APIキー                                         |
-| `base_url` | TEXT | オプションのベースURLオーバーライド             |
-
 ### settings_agents
 
 エージェントごとに1行。

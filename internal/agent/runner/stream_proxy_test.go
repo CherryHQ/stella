@@ -3,7 +3,7 @@ package runner
 import (
 	"testing"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {

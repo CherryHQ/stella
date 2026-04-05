@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/vaayne/anna/internal/ai"
+import "github.com/vaayne/anna/pkg/ai"
 
 // LoopEvent is the runtime event contract emitted by the agent loop.
 type LoopEvent interface {

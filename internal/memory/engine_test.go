@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 func testEngine(t *testing.T) Engine {

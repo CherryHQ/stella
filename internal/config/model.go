@@ -1,6 +1,6 @@
 package config
 
-import "github.com/vaayne/anna/internal/ai"
+import "github.com/vaayne/anna/pkg/ai"
 
 // Model tier constants.
 const (

@@ -1,0 +1,86 @@
+package openairesponse
+
+import (
+	"github.com/openai/openai-go/packages/ssestream"
+	"github.com/openai/openai-go/responses"
+	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/providers"
+)
+
+func consumeStream(sdkStream *ssestream.Stream[responses.ResponseStreamEventUnion], out *providers.ChannelEventStream) {
+	// Track item_id → call_id so argument deltas use the correct call ID.
+	itemToCall := make(map[string]string)
+
+	for sdkStream.Next() {
+		event := sdkStream.Current()
+		for _, e := range mapEvent(event, itemToCall) {
+			out.Emit(e)
+		}
+	}
+}
+
+func mapEvent(event responses.ResponseStreamEventUnion, itemToCall map[string]string) []ai.AssistantEvent {
+	var events []ai.AssistantEvent
+
+	switch event.Type {
+	case "response.output_text.delta":
+		if event.Delta.OfString != "" {
+			events = append(events, ai.EventTextDelta{Text: event.Delta.OfString})
+		}
+
+	case "response.output_item.added":
+		if event.Item.Type == "function_call" {
+			// Record item_id → call_id so argument deltas can resolve the call ID.
+			itemToCall[event.Item.ID] = event.Item.CallID
+			events = append(events, ai.EventToolCallDelta{
+				ID:   event.Item.CallID,
+				Name: event.Item.Name,
+			})
+		}
+
+	case "response.function_call_arguments.delta":
+		callID := event.ItemID
+		if mapped, ok := itemToCall[event.ItemID]; ok {
+			callID = mapped
+		}
+		events = append(events, ai.EventToolCallDelta{
+			ID:        callID,
+			Arguments: event.Delta.OfString,
+		})
+
+	case "response.function_call_arguments.done":
+		// Arguments fully accumulated via deltas; nothing extra needed.
+
+	case "response.completed":
+		usage := event.Response.Usage
+		if usage.TotalTokens > 0 || usage.InputTokens > 0 || usage.OutputTokens > 0 {
+			events = append(events, ai.EventUsage{Usage: ai.Usage{
+				InputTokens:  int(usage.InputTokens),
+				OutputTokens: int(usage.OutputTokens),
+				TotalTokens:  int(usage.TotalTokens),
+			}})
+		}
+		events = append(events, ai.EventStop{Reason: mapStopReason(event.Response.Status)})
+
+	case "response.failed":
+		events = append(events, ai.EventStop{Reason: ai.StopReasonError})
+
+	case "response.incomplete":
+		events = append(events, ai.EventStop{Reason: ai.StopReasonLength})
+	}
+
+	return events
+}
+
+func mapStopReason(status responses.ResponseStatus) ai.StopReason {
+	switch status {
+	case responses.ResponseStatusCompleted:
+		return ai.StopReasonStop
+	case responses.ResponseStatusIncomplete:
+		return ai.StopReasonLength
+	case responses.ResponseStatusFailed:
+		return ai.StopReasonError
+	default:
+		return ai.StopReasonStop
+	}
+}

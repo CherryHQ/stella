@@ -16,7 +16,7 @@ anna 中的每个代理都有三个模型字段，存储在数据库（`settings
 
 ## 提供商设置
 
-提供商通过 admin 面板（`anna --open`）配置。每个提供商都存储在 `settings_providers` 表中，带有可选的 API 密钥和基础 URL。
+提供商通过 admin 面板（`anna --open`）配置。每个提供商作为插件存储在 `settings_plugins` 表中（kind=`provider`），凭证存储在 `config` JSON 字段中。
 
 当提供商的 `api_key` 字段在数据库中为空时，环境变量作为回退：
 

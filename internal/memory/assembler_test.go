@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"testing"
 
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 func setupAssemblerTest(t *testing.T) (*Assembler, *sqlc.Queries, int64) {

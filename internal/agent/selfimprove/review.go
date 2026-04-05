@@ -10,15 +10,12 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/internal/ai/providers/anthropic"
-	"github.com/vaayne/anna/internal/ai/providers/openai"
-	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/db/sqlc"
 	"github.com/vaayne/anna/internal/memory"
 	"github.com/vaayne/anna/internal/skills"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 const (
@@ -112,14 +109,18 @@ func reviewConversation(ctx context.Context, deps ReviewDeps, snap *config.Snaps
 	q := sqlc.New(deps.DB)
 	userID := conv.UserID.Int64
 
-	// Resolve the fast-tier model and create a provider registry.
+	// Resolve the fast-tier model and build only the needed provider.
 	model := snap.ResolveModelTier(config.ModelTierFast)
 	creds := snap.ResolveProviderCreds(model.API)
 
-	reg := ai.NewRegistry()
-	reg.Register(anthropic.New(anthropic.Config{BaseURL: creds.BaseURL}))
-	reg.Register(openai.New(openai.Config{BaseURL: creds.BaseURL}))
-	reg.Register(openairesponse.New(openairesponse.Config{BaseURL: creds.BaseURL}))
+	reg, err := pluginproviders.BuildRegistry(model.API, pluginproviders.ProviderConfig{
+		APIKey:  creds.APIKey,
+		BaseURL: creds.BaseURL,
+	})
+	if err != nil {
+		log.Error("self-improve: build provider", "error", err)
+		return
+	}
 
 	// Load existing skill names for the prompt (empty annaHome skips builtin extraction).
 	userSkillsDir := filepath.Join(snap.Workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")

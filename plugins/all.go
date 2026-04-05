@@ -3,6 +3,11 @@
 package plugins
 
 import (
+	// Plugin providers.
+	_ "github.com/vaayne/anna/plugins/providers/anthropic"
+	_ "github.com/vaayne/anna/plugins/providers/openai"
+	_ "github.com/vaayne/anna/plugins/providers/openai-response"
+
 	// Plugin tools.
 	_ "github.com/vaayne/anna/plugins/tools/webfetch"
 

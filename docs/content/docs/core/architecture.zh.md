@@ -38,7 +38,6 @@ cmd/anna/              入口点，CLI 命令，服务组装
 internal/
   config/              Store 接口、DBStore（SQLite）、Snapshot、类型
   ai/                  Message/Content 类型、Model、Provider 接口、流式事件
-    providers/         Anthropic、OpenAI、OpenAI-Response 适配器
   agent/               PoolManager、Pool、Session、工作区设置、runner 工厂
     engine/            代理循环引擎（多轮工具执行）
     runner/            GoRunner、系统提示构建器、技能加载
@@ -56,7 +55,10 @@ internal/
 pkg/
   tools/               Tool 接口、注册表、内置工具（read、bash、write、edit、agent）
 plugins/
-  tools/               插件工具自动发现 + 插件工具（webfetch）
+  tools/               插件工具注册表 + 插件工具（webfetch）
+  hooks/               插件钩子注册表 + 插件钩子（rtk）
+  channels/            通道插件（telegram、qq、feishu、weixin）
+  providers/           供应商插件注册表 + LLM 适配器（anthropic、openai、openai-response）
 ```
 
 ## 配置
@@ -87,7 +89,7 @@ plugins/
 
 ## 提供商
 
-支持三种 LLM 提供商：
+LLM 提供商采用插件模式。Anna 内置三种提供商：
 
 | 提供商            | API                  | 使用场景                                      |
 | ----------------- | -------------------- | --------------------------------------------- |
@@ -96,6 +98,8 @@ plugins/
 | `openai-response` | Responses API        | OpenAI 兼容服务（Perplexity、Together.ai 等） |
 
 每个提供商都实现 `ai.ProviderAdapter` 接口以进行流式响应，并可选实现 `ai.ModelLister` 以进行模型发现。所有提供商都通过 `ImageContent` 类型支持多模态输入（文本 + 图像），转换为其原生图像格式（Anthropic 的 base64 块、OpenAI 的数据 URI image_url）。
+
+提供商位于 `plugins/providers/`，通过 `init()` 自注册。添加新的提供商只需在 `plugins/providers/` 下创建一个包——无需其他连接代码。详见[插件系统](/docs/features/plugin-system)。
 
 ## 工具
 
@@ -124,7 +128,7 @@ type Tool interface {
 | ---------- | ------------ |
 | `webfetch` | 获取网页内容 |
 
-插件工具位于 `plugins/tools/`，通过 `init()` 自注册。自动发现由 `plugins/tools/registry.go` 处理——添加新的插件工具只需一个空白导入，无需修改组装代码。
+插件工具位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/features/plugin-system)。
 
 ### Agent 工具
 

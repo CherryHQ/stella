@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/internal/ai"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // toolCallEnvelope is the JSON structure stored for tool_call events.

@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // ProviderCreds holds credentials for a single provider.

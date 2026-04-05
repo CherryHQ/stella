@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // --- test helpers ---

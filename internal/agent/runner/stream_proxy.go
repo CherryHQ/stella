@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // Envelope wraps stream events for transport.

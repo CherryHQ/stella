@@ -23,17 +23,6 @@ A key-value store for global settings. Each row has a `key` (text) and a `value`
 | `runtime_plugins` | JSON object of subprocess tool/channel bindings            |
 | `models_cache` | Cached model list from providers                              |
 
-### settings_providers
-
-One row per LLM provider.
-
-| Column     | Type | Description                                |
-| ---------- | ---- | ------------------------------------------ |
-| `id`       | TEXT | Provider slug (e.g. `anthropic`, `openai`) |
-| `name`     | TEXT | Display name                               |
-| `api_key`  | TEXT | API key                                    |
-| `base_url` | TEXT | Optional base URL override                 |
-
 ### settings_agents
 
 One row per agent.

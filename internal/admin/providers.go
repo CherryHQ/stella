@@ -5,11 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/internal/ai/providers/anthropic"
-	"github.com/vaayne/anna/internal/ai/providers/openai"
-	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/pkg/providers"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
@@ -38,6 +36,7 @@ func (s *Server) createProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.reloadProviders(r.Context())
 	writeData(w, http.StatusCreated, p)
 }
 
@@ -66,6 +65,7 @@ func (s *Server) updateProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.reloadProviders(r.Context())
 	writeData(w, http.StatusOK, p)
 }
 
@@ -75,7 +75,18 @@ func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.reloadProviders(r.Context())
 	writeData(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+// reloadProviders triggers a provider hot-reload if the pool manager is available.
+func (s *Server) reloadProviders(ctx context.Context) {
+	if s.poolManager == nil {
+		return
+	}
+	if err := s.poolManager.ReloadPluginProviders(ctx); err != nil {
+		s.log.Error("failed to reload providers", "error", err)
+	}
 }
 
 func (s *Server) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
@@ -114,7 +125,7 @@ func (s *Server) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lister, ok := provider.(ai.ModelLister)
+	lister, ok := provider.(providers.ModelLister)
 	if !ok {
 		writeError(w, http.StatusBadRequest, id+" does not support model listing")
 		return
@@ -166,16 +177,31 @@ func (s *Server) updateModelsCache(providerID string, modelIDs []string) {
 	}
 }
 
-// newProviderFromCreds creates an ai.ProviderAdapter from raw credentials.
-func newProviderFromCreds(name, apiKey, baseURL string) ai.ProviderAdapter {
-	switch name {
-	case "anthropic":
-		return anthropic.New(anthropic.Config{BaseURL: baseURL, APIKey: apiKey})
-	case "openai":
-		return openai.New(openai.Config{BaseURL: baseURL, APIKey: apiKey})
-	case "openai-response":
-		return openairesponse.New(openairesponse.Config{BaseURL: baseURL, APIKey: apiKey})
-	default:
+func (s *Server) listProviderTypes(w http.ResponseWriter, r *http.Request) {
+	type providerType struct {
+		ID         string `json:"id"`
+		Name       string `json:"name"`
+		DefaultURL string `json:"default_url"`
+	}
+
+	metas := pluginproviders.Metas()
+	types := make([]providerType, 0, len(metas))
+	for _, name := range pluginproviders.Names() {
+		m := metas[name]
+		types = append(types, providerType{
+			ID:         name,
+			Name:       m.Name,
+			DefaultURL: m.DefaultURL,
+		})
+	}
+	writeData(w, http.StatusOK, types)
+}
+
+// newProviderFromCreds creates a providers.ProviderAdapter from raw credentials.
+func newProviderFromCreds(name, apiKey, baseURL string) providers.ProviderAdapter {
+	p, ok := pluginproviders.Build(name, pluginproviders.ProviderConfig{APIKey: apiKey, BaseURL: baseURL})
+	if !ok {
 		return nil
 	}
+	return p
 }

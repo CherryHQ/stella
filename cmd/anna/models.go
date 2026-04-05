@@ -9,13 +9,11 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/internal/ai/providers/anthropic"
-	"github.com/vaayne/anna/internal/ai/providers/openai"
-	openairesponse "github.com/vaayne/anna/internal/ai/providers/openai-response"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
+	providerapi "github.com/vaayne/anna/pkg/providers"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 // fetchModelsFromProviders queries all configured providers (from the DB Store)
@@ -40,11 +38,11 @@ func fetchModelsFromProviders(ctx context.Context, store config.Store) []config.
 	}
 
 	for _, prov := range providers {
-		p := newStreamProviderFromCreds(prov.ID, prov.APIKey, prov.BaseURL)
+		p, _ := pluginproviders.Build(prov.ID, pluginproviders.ProviderConfig{APIKey: prov.APIKey, BaseURL: prov.BaseURL})
 		if p == nil {
 			continue
 		}
-		lister, ok := p.(ai.ModelLister)
+		lister, ok := p.(providerapi.ModelLister)
 		if !ok {
 			continue
 		}
@@ -98,20 +96,6 @@ func collectModelsFromStore(ctx context.Context, store config.Store, snap *confi
 	}
 
 	return models
-}
-
-// newStreamProviderFromCreds creates an ai.ProviderAdapter from raw credentials.
-func newStreamProviderFromCreds(name, apiKey, baseURL string) ai.ProviderAdapter {
-	switch name {
-	case "anthropic":
-		return anthropic.New(anthropic.Config{BaseURL: baseURL, APIKey: apiKey})
-	case "openai":
-		return openai.New(openai.Config{BaseURL: baseURL, APIKey: apiKey})
-	case "openai-response":
-		return openairesponse.New(openairesponse.Config{BaseURL: baseURL, APIKey: apiKey})
-	default:
-		return nil
-	}
 }
 
 // openStore is a helper that opens the DB and returns a Store.
