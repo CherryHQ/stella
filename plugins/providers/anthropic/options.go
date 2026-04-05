@@ -3,7 +3,7 @@ package anthropic
 import (
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) sdk.MessageNewParams {

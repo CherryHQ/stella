@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // Summary kind constants.

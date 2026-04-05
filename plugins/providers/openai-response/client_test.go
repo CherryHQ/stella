@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 func TestNewProvider(t *testing.T) {

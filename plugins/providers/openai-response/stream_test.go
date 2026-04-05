@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/openai/openai-go/responses"
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 func newItemToCall() map[string]string { return make(map[string]string) }

@@ -3,7 +3,7 @@ package anthropic
 import (
 	"testing"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 func TestBuildParamsBasic(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	sdk "github.com/openai/openai-go"
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 func TestMapChunkTextAndStop(t *testing.T) {

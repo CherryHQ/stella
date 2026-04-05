@@ -11,8 +11,8 @@ import (
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // onReaction handles incoming Feishu reaction events.

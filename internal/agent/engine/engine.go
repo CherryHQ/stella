@@ -7,13 +7,14 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/vaayne/anna/pkg/providers"
 )
 
 // Engine coordinates model generation and tool execution.
 type Engine struct {
-	Providers ai.ProviderGetter
+	Providers providers.ProviderGetter
 }
 
 // Run executes the agent loop: repeatedly generating assistant responses
@@ -169,12 +170,12 @@ func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []ai.Messa
 
 // streamAssistant opens a provider stream, emits granular assistant events,
 // and assembles the final AssistantMessage.
-func streamAssistant(messages []ai.Message, cfg LoopConfig, providers ai.ProviderGetter, emit func(LoopEvent)) (ai.AssistantMessage, error) {
-	eventStream, err := ai.Stream(
+func streamAssistant(messages []ai.Message, cfg LoopConfig, pg providers.ProviderGetter, emit func(LoopEvent)) (ai.AssistantMessage, error) {
+	eventStream, err := providers.Stream(
 		cfg.Model,
 		ai.Context{System: cfg.System, Messages: messages, Tools: cfg.ToolDefinitions},
 		cfg.StreamOptions,
-		providers,
+		pg,
 	)
 	if err != nil {
 		return ai.AssistantMessage{}, err

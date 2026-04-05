@@ -5,20 +5,21 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/providers"
 )
 
 type fakeProvider struct {
-	streamFunc func(model ai.Model, ctx ai.Context, opts ai.StreamOptions) (ai.AssistantEventStream, error)
+	streamFunc func(model ai.Model, ctx ai.Context, opts ai.StreamOptions) (providers.AssistantEventStream, error)
 }
 
 func (f fakeProvider) API() string { return "fake" }
 
-func (f fakeProvider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions) (ai.AssistantEventStream, error) {
+func (f fakeProvider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions) (providers.AssistantEventStream, error) {
 	if f.streamFunc != nil {
 		return f.streamFunc(model, ctx, opts)
 	}
-	out := ai.NewChannelEventStream(8)
+	out := providers.NewChannelEventStream(8)
 	go func() {
 		out.Emit(ai.EventTextDelta{Text: "response"})
 		out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
@@ -27,12 +28,12 @@ func (f fakeProvider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptio
 	return out, nil
 }
 
-func (f fakeProvider) StreamSimple(model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (ai.AssistantEventStream, error) {
+func (f fakeProvider) StreamSimple(model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
 	return f.Stream(model, ctx, opts.StreamOptions)
 }
 
 func newTestEngine(p fakeProvider) *Engine {
-	r := ai.NewRegistry()
+	r := providers.NewRegistry()
 	r.Register(p)
 	return &Engine{Providers: r}
 }
@@ -108,8 +109,8 @@ func TestRunEmitsStreamingEvents(t *testing.T) {
 
 func TestRunStreamingDeltasCarryPartial(t *testing.T) {
 	provider := fakeProvider{
-		streamFunc: func(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (ai.AssistantEventStream, error) {
-			out := ai.NewChannelEventStream(8)
+		streamFunc: func(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+			out := providers.NewChannelEventStream(8)
 			go func() {
 				out.Emit(ai.EventTextDelta{Text: "hello "})
 				out.Emit(ai.EventTextDelta{Text: "world"})
@@ -156,8 +157,8 @@ func TestRunMultiTurnLoop(t *testing.T) {
 	var callCount atomic.Int32
 
 	provider := fakeProvider{
-		streamFunc: func(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (ai.AssistantEventStream, error) {
-			out := ai.NewChannelEventStream(8)
+		streamFunc: func(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+			out := providers.NewChannelEventStream(8)
 			n := callCount.Add(1)
 			go func() {
 				if n <= 2 {
@@ -209,8 +210,8 @@ func TestRunMultiTurnLoop(t *testing.T) {
 
 func TestRunMaxTurnsEnforced(t *testing.T) {
 	provider := fakeProvider{
-		streamFunc: func(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (ai.AssistantEventStream, error) {
-			out := ai.NewChannelEventStream(8)
+		streamFunc: func(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+			out := providers.NewChannelEventStream(8)
 			go func() {
 				out.Emit(ai.EventToolCallDelta{ID: "call_1", Name: "test_tool", Arguments: "{}"})
 				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
@@ -239,8 +240,8 @@ func TestRunMaxTurnsEnforced(t *testing.T) {
 
 func TestRunStopsOnErrorStopReason(t *testing.T) {
 	provider := fakeProvider{
-		streamFunc: func(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (ai.AssistantEventStream, error) {
-			out := ai.NewChannelEventStream(8)
+		streamFunc: func(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+			out := providers.NewChannelEventStream(8)
 			go func() {
 				out.Emit(ai.EventError{Err: nil})
 				out.Emit(ai.EventStop{Reason: ai.StopReasonError})
@@ -265,8 +266,8 @@ func TestRunInterruptStopsLoop(t *testing.T) {
 	interrupt := make(chan struct{})
 
 	provider := fakeProvider{
-		streamFunc: func(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (ai.AssistantEventStream, error) {
-			out := ai.NewChannelEventStream(8)
+		streamFunc: func(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+			out := providers.NewChannelEventStream(8)
 			n := callCount.Add(1)
 			go func() {
 				out.Emit(ai.EventToolCallDelta{ID: "call_1", Name: "test_tool", Arguments: "{}"})

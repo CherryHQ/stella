@@ -3,10 +3,11 @@ package openai
 import (
 	sdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/packages/ssestream"
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/providers"
 )
 
-func consumeStream(sdkStream *ssestream.Stream[sdk.ChatCompletionChunk], out *ai.ChannelEventStream) {
+func consumeStream(sdkStream *ssestream.Stream[sdk.ChatCompletionChunk], out *providers.ChannelEventStream) {
 	// Track tool_call_index → tool_call_id so argument deltas carry the correct ID.
 	// OpenAI only sends tc.ID in the first chunk per tool call; subsequent chunks use Index only.
 	indexToID := make(map[int]string)

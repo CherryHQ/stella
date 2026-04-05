@@ -6,7 +6,8 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/providers"
 	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
@@ -14,7 +15,7 @@ func init() {
 	pluginproviders.Register("anthropic", pluginproviders.ProviderMeta{
 		Name:       "Anthropic",
 		DefaultURL: "https://api.anthropic.com",
-	}, func(cfg pluginproviders.ProviderConfig) ai.ProviderAdapter {
+	}, func(cfg pluginproviders.ProviderConfig) providers.ProviderAdapter {
 		return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL})
 	})
 }
@@ -25,7 +26,7 @@ type Config struct {
 	APIKey  string
 }
 
-// Provider implements ai.ProviderAdapter for Anthropic messages.
+// Provider implements providers.ProviderAdapter for Anthropic messages.
 type Provider struct {
 	client anthropic.Client
 }
@@ -46,12 +47,12 @@ func New(cfg Config) *Provider {
 func (p *Provider) API() string { return "anthropic" }
 
 // Stream starts Anthropic message stream.
-func (p *Provider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions) (ai.AssistantEventStream, error) {
+func (p *Provider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions) (providers.AssistantEventStream, error) {
 	params := buildParams(model, ctx, opts)
 	reqOpts := buildRequestOptions(opts)
 	sdkStream := p.client.Messages.NewStreaming(context.Background(), params, reqOpts...)
 
-	out := ai.NewChannelEventStream(32)
+	out := providers.NewChannelEventStream(32)
 	go func() {
 		defer out.Finish(nil)
 		consumeStream(sdkStream, out)
@@ -63,7 +64,7 @@ func (p *Provider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions)
 }
 
 // StreamSimple delegates to Stream with mapped options.
-func (p *Provider) StreamSimple(model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (ai.AssistantEventStream, error) {
+func (p *Provider) StreamSimple(model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
 	return p.Stream(model, ctx, opts.StreamOptions)
 }
 
@@ -86,7 +87,7 @@ func (p *Provider) ListModels(ctx context.Context) ([]ai.Model, error) {
 	return models, nil
 }
 
-var _ ai.ModelLister = (*Provider)(nil)
+var _ providers.ModelLister = (*Provider)(nil)
 
 func buildRequestOptions(opts ai.StreamOptions) []option.RequestOption {
 	var reqOpts []option.RequestOption

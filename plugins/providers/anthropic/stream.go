@@ -3,10 +3,11 @@ package anthropic
 import (
 	sdk "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/providers"
 )
 
-func consumeStream(sdkStream *ssestream.Stream[sdk.MessageStreamEventUnion], out *ai.ChannelEventStream) {
+func consumeStream(sdkStream *ssestream.Stream[sdk.MessageStreamEventUnion], out *providers.ChannelEventStream) {
 	// Track content_block_index → tool_call_id so argument deltas carry the correct ID.
 	blockToID := make(map[int]string)
 

@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/pkg/providers"
 	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
@@ -125,7 +125,7 @@ func (s *Server) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lister, ok := provider.(ai.ModelLister)
+	lister, ok := provider.(providers.ModelLister)
 	if !ok {
 		writeError(w, http.StatusBadRequest, id+" does not support model listing")
 		return
@@ -197,8 +197,8 @@ func (s *Server) listProviderTypes(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, types)
 }
 
-// newProviderFromCreds creates an ai.ProviderAdapter from raw credentials.
-func newProviderFromCreds(name, apiKey, baseURL string) ai.ProviderAdapter {
+// newProviderFromCreds creates a providers.ProviderAdapter from raw credentials.
+func newProviderFromCreds(name, apiKey, baseURL string) providers.ProviderAdapter {
 	p, ok := pluginproviders.Build(name, pluginproviders.ProviderConfig{APIKey: apiKey, BaseURL: baseURL})
 	if !ok {
 		return nil

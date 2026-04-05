@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // handleUpdates dispatches incoming messages from the getupdates response.

@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	sdk "github.com/anthropics/anthropic-sdk-go"
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 func convertMessages(ctx ai.Context) []sdk.MessageParam {

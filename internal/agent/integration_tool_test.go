@@ -10,7 +10,8 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/engine"
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
+	providerapi "github.com/vaayne/anna/pkg/providers"
 	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
@@ -67,7 +68,7 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 			if !ok {
 				t.Fatalf("provider %s not registered", p.name)
 			}
-			reg := ai.NewRegistry()
+			reg := providerapi.NewRegistry()
 			reg.Register(adapter)
 
 			eng := &engine.Engine{Providers: reg}

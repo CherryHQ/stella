@@ -12,8 +12,8 @@ import (
 
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/memory"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)

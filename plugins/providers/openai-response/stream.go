@@ -3,10 +3,11 @@ package openairesponse
 import (
 	"github.com/openai/openai-go/packages/ssestream"
 	"github.com/openai/openai-go/responses"
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/providers"
 )
 
-func consumeStream(sdkStream *ssestream.Stream[responses.ResponseStreamEventUnion], out *ai.ChannelEventStream) {
+func consumeStream(sdkStream *ssestream.Stream[responses.ResponseStreamEventUnion], out *providers.ChannelEventStream) {
 	// Track item_id → call_id so argument deltas use the correct call ID.
 	itemToCall := make(map[string]string)
 

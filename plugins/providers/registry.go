@@ -5,7 +5,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/providers"
 )
 
 // ProviderConfig holds credentials passed to the factory at build time.
@@ -21,7 +21,7 @@ type ProviderMeta struct {
 }
 
 // Factory creates a provider adapter from config.
-type Factory func(cfg ProviderConfig) ai.ProviderAdapter
+type Factory func(cfg ProviderConfig) providers.ProviderAdapter
 
 // Registration holds a factory plus its metadata.
 type Registration struct {
@@ -66,7 +66,7 @@ func Metas() map[string]ProviderMeta {
 }
 
 // Build creates a single provider adapter by name. Returns false if not registered.
-func Build(name string, cfg ProviderConfig) (ai.ProviderAdapter, bool) {
+func Build(name string, cfg ProviderConfig) (providers.ProviderAdapter, bool) {
 	mu.RLock()
 	reg, ok := registry[name]
 	mu.RUnlock()
@@ -76,14 +76,14 @@ func Build(name string, cfg ProviderConfig) (ai.ProviderAdapter, bool) {
 	return reg.Factory(cfg), true
 }
 
-// BuildRegistry creates a single-provider ai.Registry for the given name and config.
+// BuildRegistry creates a single-provider providers.Registry for the given name and config.
 // This is the standard way to set up a provider for engine use.
-func BuildRegistry(name string, cfg ProviderConfig) (*ai.Registry, error) {
+func BuildRegistry(name string, cfg ProviderConfig) (*providers.Registry, error) {
 	adapter, ok := Build(name, cfg)
 	if !ok {
 		return nil, fmt.Errorf("unknown provider %q", name)
 	}
-	reg := ai.NewRegistry()
+	reg := providers.NewRegistry()
 	reg.Register(adapter)
 	return reg, nil
 }

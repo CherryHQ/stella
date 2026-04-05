@@ -7,7 +7,7 @@ import (
 
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 func convertMessages(ctx ai.Context) responses.ResponseInputParam {

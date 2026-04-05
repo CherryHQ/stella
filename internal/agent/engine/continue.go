@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // Continue validates that the transcript tail is a user or tool-result message

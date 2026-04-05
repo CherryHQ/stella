@@ -9,8 +9,9 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/engine"
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
@@ -35,7 +36,7 @@ type GoRunnerConfig struct {
 // GoRunner implements Runner by calling LLM providers directly via Engine.
 type GoRunner struct {
 	eng     *engine.Engine
-	reg     *ai.Registry
+	reg     *providers.Registry
 	tools   *tools.Registry
 	hooks   *hooks.HookSet
 	model   ai.Model

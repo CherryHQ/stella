@@ -4,14 +4,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/skills"
+	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/providers"
 )
 
-// mockProviderGetter satisfies ai.ProviderGetter for construction tests.
+// mockProviderGetter satisfies providers.ProviderGetter for construction tests.
 type mockProviderGetter struct{}
 
-func (m *mockProviderGetter) Get(api string) (ai.ProviderAdapter, bool) {
+func (m *mockProviderGetter) Get(api string) (providers.ProviderAdapter, bool) {
 	return nil, false
 }
 

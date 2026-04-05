@@ -9,10 +9,10 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
+	providerapi "github.com/vaayne/anna/pkg/providers"
 	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
@@ -42,7 +42,7 @@ func fetchModelsFromProviders(ctx context.Context, store config.Store) []config.
 		if p == nil {
 			continue
 		}
-		lister, ok := p.(ai.ModelLister)
+		lister, ok := p.(providerapi.ModelLister)
 		if !ok {
 			continue
 		}

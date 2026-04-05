@@ -6,7 +6,8 @@ import (
 	"strings"
 
 	"github.com/vaayne/anna/internal/agent/engine"
-	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
@@ -31,7 +32,7 @@ type reviewTool interface {
 // Reviewer runs the review agent against a single conversation to extract
 // skills and update user memory.
 type Reviewer struct {
-	providers       ai.ProviderGetter
+	providers       providers.ProviderGetter
 	model           ai.Model
 	tools           engine.ToolSet
 	toolDefinitions []tools.Definition
@@ -40,7 +41,7 @@ type Reviewer struct {
 
 // ReviewerConfig holds the tools and context needed to construct a Reviewer.
 type ReviewerConfig struct {
-	Providers      ai.ProviderGetter
+	Providers      providers.ProviderGetter
 	Model          ai.Model
 	SkillsTool     reviewTool // skills.SkillsTool or equivalent
 	MemoryTool     reviewTool // nil if memory review is not available

@@ -1,21 +1,23 @@
-package ai
+package providers
 
 import (
 	"context"
 	"errors"
 	"sync"
+
+	"github.com/vaayne/anna/pkg/ai"
 )
 
-// Provider defines the provider adapter contract.
+// ProviderAdapter defines the provider adapter contract.
 type ProviderAdapter interface {
 	API() string
-	Stream(model Model, ctx Context, opts StreamOptions) (AssistantEventStream, error)
-	StreamSimple(model Model, ctx Context, opts SimpleStreamOptions) (AssistantEventStream, error)
+	Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions) (AssistantEventStream, error)
+	StreamSimple(model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (AssistantEventStream, error)
 }
 
 // ModelLister is an optional interface providers can implement to list available models.
 type ModelLister interface {
-	ListModels(ctx context.Context) ([]Model, error)
+	ListModels(ctx context.Context) ([]ai.Model, error)
 }
 
 // ProviderGetter provides provider lookup.
@@ -66,7 +68,7 @@ func (r *Registry) Get(api string) (ProviderAdapter, bool) {
 }
 
 // Stream dispatches request to the registered API provider.
-func Stream(model Model, ctx Context, opts StreamOptions, providers ProviderGetter) (AssistantEventStream, error) {
+func Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions, providers ProviderGetter) (AssistantEventStream, error) {
 	provider, ok := providers.Get(model.API)
 	if !ok {
 		return nil, ErrProviderNotFound
@@ -75,7 +77,7 @@ func Stream(model Model, ctx Context, opts StreamOptions, providers ProviderGett
 }
 
 // StreamSimple dispatches simplified streaming to provider.
-func StreamSimple(model Model, ctx Context, opts SimpleStreamOptions, providers ProviderGetter) (AssistantEventStream, error) {
+func StreamSimple(model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions, providers ProviderGetter) (AssistantEventStream, error) {
 	provider, ok := providers.Get(model.API)
 	if !ok {
 		return nil, ErrProviderNotFound
@@ -84,24 +86,24 @@ func StreamSimple(model Model, ctx Context, opts SimpleStreamOptions, providers 
 }
 
 // Complete consumes a full stream and assembles an assistant message.
-func Complete(model Model, ctx Context, opts CompleteOptions, providers ProviderGetter) (AssistantMessage, error) {
+func Complete(model ai.Model, ctx ai.Context, opts ai.CompleteOptions, providers ProviderGetter) (ai.AssistantMessage, error) {
 	eventStream, err := Stream(model, ctx, opts.StreamOptions, providers)
 	if err != nil {
-		return AssistantMessage{}, err
+		return ai.AssistantMessage{}, err
 	}
 
-	msg := AssistantMessage{Content: make([]ContentBlock, 0, 4)}
+	msg := ai.AssistantMessage{Content: make([]ai.ContentBlock, 0, 4)}
 	var text string
 	var thinking string
-	toolCalls := map[string]ToolCall{}
+	toolCalls := map[string]ai.ToolCall{}
 
 	for event := range eventStream.Events() {
 		switch e := event.(type) {
-		case EventTextDelta:
+		case ai.EventTextDelta:
 			text += e.Text
-		case EventThinkingDelta:
+		case ai.EventThinkingDelta:
 			thinking += e.Thinking
-		case EventToolCallDelta:
+		case ai.EventToolCallDelta:
 			call := toolCalls[e.ID]
 			call.ID = e.ID
 			if e.Name != "" {
@@ -114,14 +116,14 @@ func Complete(model Model, ctx Context, opts CompleteOptions, providers Provider
 				call.Arguments["raw"] = e.Arguments
 			}
 			toolCalls[e.ID] = call
-		case EventUsage:
+		case ai.EventUsage:
 			msg.Usage = e.Usage
-		case EventStop:
+		case ai.EventStop:
 			msg.StopReason = e.Reason
-		case EventError:
+		case ai.EventError:
 			if e.Err != nil {
 				msg.ErrorMessage = e.Err.Error()
-				msg.StopReason = StopReasonError
+				msg.StopReason = ai.StopReasonError
 			}
 		}
 	}
@@ -131,10 +133,10 @@ func Complete(model Model, ctx Context, opts CompleteOptions, providers Provider
 	}
 
 	if text != "" {
-		msg.Content = append(msg.Content, TextContent{Text: text})
+		msg.Content = append(msg.Content, ai.TextContent{Text: text})
 	}
 	if thinking != "" {
-		msg.Content = append(msg.Content, ThinkingContent{Thinking: thinking})
+		msg.Content = append(msg.Content, ai.ThinkingContent{Thinking: thinking})
 	}
 	for _, call := range toolCalls {
 		msg.Content = append(msg.Content, call)
@@ -145,14 +147,14 @@ func Complete(model Model, ctx Context, opts CompleteOptions, providers Provider
 
 // AssistantEventStream provides ordered assistant events.
 type AssistantEventStream interface {
-	Events() <-chan AssistantEvent
+	Events() <-chan ai.AssistantEvent
 	Close() error
 	Wait() error
 }
 
 // ChannelEventStream is a channel-backed AssistantEventStream.
 type ChannelEventStream struct {
-	events chan AssistantEvent
+	events chan ai.AssistantEvent
 	once   sync.Once
 	errMu  sync.RWMutex
 	err    error
@@ -160,16 +162,16 @@ type ChannelEventStream struct {
 
 // NewChannelEventStream returns a writable channel stream.
 func NewChannelEventStream(buffer int) *ChannelEventStream {
-	return &ChannelEventStream{events: make(chan AssistantEvent, buffer)}
+	return &ChannelEventStream{events: make(chan ai.AssistantEvent, buffer)}
 }
 
 // Events returns read-only event channel.
-func (s *ChannelEventStream) Events() <-chan AssistantEvent {
+func (s *ChannelEventStream) Events() <-chan ai.AssistantEvent {
 	return s.events
 }
 
 // Emit sends one event to subscribers.
-func (s *ChannelEventStream) Emit(event AssistantEvent) {
+func (s *ChannelEventStream) Emit(event ai.AssistantEvent) {
 	s.events <- event
 }
 
