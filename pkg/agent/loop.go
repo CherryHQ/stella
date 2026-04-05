@@ -136,13 +136,13 @@ func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, h
 			}
 		}
 
-		results, err := ExecuteToolCalls(ctx, calls, cfg.Tools, ToolCallbacks{
-			OnStart: func(call ai.ToolCall) {
+		results, err := executeToolCalls(ctx, calls, cfg.Tools, toolCallbacks{
+			onStart: func(call ai.ToolCall) {
 				if emit != nil {
 					emit(ToolStarted{ToolCall: call})
 				}
 			},
-			OnFinish: func(result ai.ToolResultMessage) {
+			onFinish: func(result ai.ToolResultMessage) {
 				if emit != nil {
 					emit(ToolFinished{Result: result})
 				}

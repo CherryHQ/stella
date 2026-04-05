@@ -9,19 +9,19 @@ import (
 	"github.com/vaayne/anna/pkg/hooks"
 )
 
-// ToolCallbacks emits progress events around tool execution.
-type ToolCallbacks struct {
-	OnStart  func(call ai.ToolCall)
-	OnFinish func(result ai.ToolResultMessage)
+// toolCallbacks emits progress events around tool execution.
+type toolCallbacks struct {
+	onStart  func(call ai.ToolCall)
+	onFinish func(result ai.ToolResultMessage)
 }
 
-// ExecuteToolCalls runs each tool call in order and returns result messages.
-func ExecuteToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, cb ToolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta) ([]ai.ToolResultMessage, error) {
+// executeToolCalls runs each tool call in order and returns result messages.
+func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta) ([]ai.ToolResultMessage, error) {
 	results := make([]ai.ToolResultMessage, 0, len(calls))
 
 	for _, call := range calls {
-		if cb.OnStart != nil {
-			cb.OnStart(call)
+		if cb.onStart != nil {
+			cb.onStart(call)
 		}
 
 		toolFn, ok := tools[call.Name]
@@ -33,8 +33,8 @@ func ExecuteToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				Content:    []ai.ContentBlock{ai.TextContent{Text: "tool not found"}},
 			}
 			results = append(results, result)
-			if cb.OnFinish != nil {
-				cb.OnFinish(result)
+			if cb.onFinish != nil {
+				cb.onFinish(result)
 			}
 			continue
 		}
@@ -60,8 +60,8 @@ func ExecuteToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 					Content:    []ai.ContentBlock{ai.TextContent{Text: blockMsg}},
 				}
 				results = append(results, result)
-				if cb.OnFinish != nil {
-					cb.OnFinish(result)
+				if cb.onFinish != nil {
+					cb.onFinish(result)
 				}
 				continue
 			}
@@ -111,8 +111,8 @@ func ExecuteToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		}
 
 		results = append(results, result)
-		if cb.OnFinish != nil {
-			cb.OnFinish(result)
+		if cb.onFinish != nil {
+			cb.onFinish(result)
 		}
 	}
 
