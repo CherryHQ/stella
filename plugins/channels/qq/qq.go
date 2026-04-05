@@ -12,6 +12,7 @@ import (
 	"github.com/tencent-connect/botgo/event"
 	"github.com/tencent-connect/botgo/openapi"
 	"github.com/tencent-connect/botgo/token"
+	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/channel"
 	"golang.org/x/oauth2"
 )
@@ -159,7 +160,7 @@ func channelForGroup(groupID string) string {
 }
 
 // incomingMsg builds an IncomingMessage from QQ message context.
-func incomingMsg(authorID, groupID string, content any) channel.IncomingMessage {
+func incomingMsg(authorID, groupID string, content []ai.ContentBlock) channel.IncomingMessage {
 	chatID := channelForC2C(authorID)
 	isGroup := groupID != ""
 	if isGroup {

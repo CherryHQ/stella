@@ -81,7 +81,7 @@ const (
 
 // buildMessageContent constructs the message content from a QQ message.
 // Returns nil if the message has no usable content.
-func (b *Bot) buildMessageContent(msg *dto.Message) any {
+func (b *Bot) buildMessageContent(msg *dto.Message) []ai.ContentBlock {
 	text := strings.TrimSpace(msg.Content)
 	images := extractImageAttachments(msg)
 
@@ -90,7 +90,7 @@ func (b *Bot) buildMessageContent(msg *dto.Message) any {
 	}
 
 	if len(images) == 0 {
-		return text
+		return channel.TextContent(text)
 	}
 
 	var blocks []ai.ContentBlock

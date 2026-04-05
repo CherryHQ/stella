@@ -8,6 +8,7 @@ import (
 	"time"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/channel"
 )
 
@@ -763,12 +764,15 @@ func TestBuildMessageContentUnsupportedType(t *testing.T) {
 		MessageId:   &msgID,
 	}
 	got := bot.buildMessageContent(msg)
-	str, ok := got.(string)
-	if !ok {
-		t.Fatalf("expected string, got %T", got)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(got))
 	}
-	if str != "[Unsupported message type: card_action]" {
-		t.Errorf("unsupported type = %q", str)
+	tc, ok := got[0].(ai.TextContent)
+	if !ok {
+		t.Fatalf("expected TextContent, got %T", got[0])
+	}
+	if tc.Text != "[Unsupported message type: card_action]" {
+		t.Errorf("unsupported type = %q", tc.Text)
 	}
 }
 
@@ -1015,23 +1019,40 @@ func TestGroupSystemPromptEmpty(t *testing.T) {
 	}
 }
 
-func TestPrependSystemPromptString(t *testing.T) {
-	got := prependSystemPrompt("hello", "Be concise.")
-	str, ok := got.(string)
-	if !ok {
-		t.Fatalf("expected string, got %T", got)
+func TestPrependSystemPromptText(t *testing.T) {
+	content := channel.TextContent("hello")
+	got := prependSystemPrompt(content, "Be concise.")
+	if len(got) != 2 {
+		t.Fatalf("expected 2 blocks, got %d", len(got))
 	}
-	if !strings.Contains(str, "[System: Be concise.]") || !strings.Contains(str, "hello") {
-		t.Errorf("prependSystemPrompt = %q", str)
+	prefix, ok := got[0].(ai.TextContent)
+	if !ok {
+		t.Fatalf("expected TextContent prefix, got %T", got[0])
+	}
+	if !strings.Contains(prefix.Text, "[System: Be concise.]") {
+		t.Errorf("prefix = %q", prefix.Text)
+	}
+	body, ok := got[1].(ai.TextContent)
+	if !ok {
+		t.Fatalf("expected TextContent body, got %T", got[1])
+	}
+	if body.Text != "hello" {
+		t.Errorf("body = %q", body.Text)
 	}
 }
 
-func TestPrependSystemPromptNonString(t *testing.T) {
-	// Non-string content should pass through unchanged.
-	original := []int{1, 2, 3}
-	got := prependSystemPrompt(original, "ignored")
-	if fmt.Sprintf("%v", got) != fmt.Sprintf("%v", original) {
-		t.Errorf("non-string content should be unchanged")
+func TestPrependSystemPromptImage(t *testing.T) {
+	content := []ai.ContentBlock{ai.ImageContent{Data: "abc", MimeType: "image/png"}}
+	got := prependSystemPrompt(content, "Be concise.")
+	if len(got) != 2 {
+		t.Fatalf("expected 2 blocks, got %d", len(got))
+	}
+	prefix, ok := got[0].(ai.TextContent)
+	if !ok {
+		t.Fatalf("expected TextContent prefix, got %T", got[0])
+	}
+	if !strings.Contains(prefix.Text, "[System: Be concise.]") {
+		t.Errorf("prefix = %q", prefix.Text)
 	}
 }
 

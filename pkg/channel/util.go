@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/vaayne/anna/pkg/ai"
 )
 
 // WelcomeMessage is the shared welcome/help text for all channels.
@@ -66,4 +68,9 @@ func FormatDuration(d time.Duration) string {
 // Example: ParseCommandArgs("/agent foo", "/agent") returns "foo".
 func ParseCommandArgs(text, cmd string) string {
 	return strings.TrimSpace(strings.TrimPrefix(text, cmd))
+}
+
+// TextContent wraps a plain string as a single-element []ai.ContentBlock.
+func TextContent(text string) []ai.ContentBlock {
+	return []ai.ContentBlock{ai.TextContent{Text: text}}
 }

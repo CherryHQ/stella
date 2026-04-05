@@ -8,6 +8,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/pkg/ai"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
@@ -127,7 +128,7 @@ func (c *Coordinator) HandleCommand(ctx context.Context, msg pkgchannel.Incoming
 }
 
 // chatWithRC streams a chat response using a pre-resolved chat.
-func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content any) (*pkgchannel.ChatStream, error) {
+func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
 	events, sessionID, err := rc.Chat(ctx, content)
 	if err != nil {
 		return nil, err
