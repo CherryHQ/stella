@@ -31,11 +31,12 @@ type Server struct {
 	log         *slog.Logger
 	corsOriginV string // cached CORS origin
 
-	channelMu      sync.RWMutex
-	channelStop    map[string]func()                             // platform → stop function for running channel
-	channelBuilder func(name string) (pkgchannel.Channel, error) // builds a channel by platform name
-	channelNotify  func(name string, ch pkgchannel.Channel)      // registers channel for notifications
-	channelCtx     context.Context                               // parent context for started channels
+	channelMu       sync.RWMutex
+	channelStop     map[string]func()                             // platform → stop function for running channel
+	channelBuilder  func(name string) (pkgchannel.Channel, error) // builds a channel by platform name
+	channelNotify   func(name string, ch pkgchannel.Channel)      // registers channel for notifications
+	channelUnnotify func(name string)                             // unregisters channel from notifications
+	channelCtx      context.Context                               // parent context for started channels
 }
 
 // New creates an admin server with all API routes mounted.
@@ -209,15 +210,18 @@ func (s *Server) RegisterChannelStop(platform string, stop func()) {
 }
 
 // SetChannelLifecycle configures the admin server to start/stop channels dynamically.
-// builder creates a channel by platform name; notify registers it for notifications.
+// builder creates a channel by platform name; notify registers it for notifications;
+// unnotify removes it from the notification dispatcher on stop.
 func (s *Server) SetChannelLifecycle(
 	ctx context.Context,
 	builder func(name string) (pkgchannel.Channel, error),
 	notify func(name string, ch pkgchannel.Channel),
+	unnotify func(name string),
 ) {
 	s.channelMu.Lock()
 	s.channelBuilder = builder
 	s.channelNotify = notify
+	s.channelUnnotify = unnotify
 	s.channelCtx = ctx
 	s.channelMu.Unlock()
 }
@@ -259,10 +263,14 @@ func (s *Server) startChannel(platform string) {
 func (s *Server) stopChannel(platform string) {
 	s.channelMu.RLock()
 	stop, ok := s.channelStop[platform]
+	unnotify := s.channelUnnotify
 	s.channelMu.RUnlock()
 	if ok {
 		s.log.Info("stopping channel", "platform", platform)
 		stop()
+		if unnotify != nil {
+			unnotify(platform)
+		}
 		s.channelMu.Lock()
 		delete(s.channelStop, platform)
 		s.channelMu.Unlock()

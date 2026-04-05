@@ -131,6 +131,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 				s.notifier.Register(ch)
 			}
 		},
+		func(name string) {
+			s.notifier.Unregister(name)
+		},
 	)
 
 	// Load enabled channel plugins from settings_plugins.
