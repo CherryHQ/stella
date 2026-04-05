@@ -237,8 +237,8 @@ func (b *Bot) handleIncoming(msg WeixinMessage, incoming channel.IncomingMessage
 		response = "(empty response)"
 	}
 
-	if tracker != nil && tracker.hasHistory() {
-		response += tracker.renderFinal()
+	if tracker != nil && tracker.HasHistory() {
+		response += tracker.RenderFinal()
 	}
 
 	b.sendFinalResponse(msg, response, images)
