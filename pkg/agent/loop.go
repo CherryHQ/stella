@@ -231,6 +231,14 @@ func streamAssistant(messages []ai.Message, cfg loopConfig, pg providers.Provide
 		return msg, waitErr
 	}
 
+	// Surface provider-level errors that were delivered as EventError events
+	// rather than as a stream-level Wait() error. Without this, the error
+	// is silently swallowed: StopReason=Error causes runLoop to return nil,
+	// and the caller never learns what went wrong.
+	if msg.StopReason == ai.StopReasonError && msg.ErrorMessage != "" {
+		return msg, fmt.Errorf("provider: %s", msg.ErrorMessage)
+	}
+
 	// Assemble final message.
 	if text != "" {
 		msg.Content = append(msg.Content, ai.TextContent{Text: text})

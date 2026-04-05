@@ -88,6 +88,12 @@ func NewRunner(cfg RunnerConfig, opts ...Option) (*Runner, error) {
 	return r, nil
 }
 
+// SetHookMeta updates the hook metadata (session/agent/user context).
+// Safe to call between Run invocations; not safe during a Run.
+func (r *Runner) SetHookMeta(meta hooks.HookMeta) {
+	r.hookMeta = meta
+}
+
 // Run executes the agent loop from scratch.
 func (r *Runner) Run(ctx context.Context, messages []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
 	return run(ctx, r.loopConfig(), r.providers, messages, emit)

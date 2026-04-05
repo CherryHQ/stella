@@ -59,8 +59,8 @@ func (p *Provider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions)
 	go func() {
 		defer out.Finish(nil)
 		out.Emit(ai.EventStart{})
-		consumeStream(sdkStream, out)
-		if err := sdkStream.Err(); err != nil {
+		completed := consumeStream(sdkStream, out)
+		if err := sdkStream.Err(); err != nil && !completed {
 			out.Emit(ai.EventError{Err: err})
 		}
 	}()

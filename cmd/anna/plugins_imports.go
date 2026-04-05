@@ -15,4 +15,5 @@ import (
 
 	// Plugin hooks.
 	_ "github.com/vaayne/anna/plugins/hooks/rtk"
+	_ "github.com/vaayne/anna/plugins/hooks/trace"
 )

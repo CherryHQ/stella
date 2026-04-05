@@ -61,7 +61,7 @@ func BuildEnabled(bc BuildContext, enabled func(name string) bool) []hooks.HookP
 	var result []hooks.HookPlugin
 	for name, reg := range regs {
 		if !enabled(name) {
-			slog.Debug("plugin hook not enabled", "name", name)
+			slog.Debug("plugin hook disabled", "name", name)
 			continue
 		}
 		p, err := reg.Factory(bc)

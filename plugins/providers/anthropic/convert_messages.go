@@ -12,14 +12,38 @@ func convertMessages(ctx ai.Context) []sdk.MessageParam {
 	for _, msg := range ctx.Messages {
 		switch m := msg.(type) {
 		case ai.UserMessage:
-			messages = append(messages, sdk.NewUserMessage(userContentBlocks(m.Content)...))
+			blocks := userContentBlocks(m.Content)
+			mergeOrAppendUser(&messages, blocks)
 		case ai.AssistantMessage:
-			messages = append(messages, sdk.NewAssistantMessage(assistantContentBlocks(m.Content)...))
+			blocks := assistantContentBlocks(m.Content)
+			mergeOrAppendAssistant(&messages, blocks)
 		case ai.ToolResultMessage:
-			messages = append(messages, sdk.NewUserMessage(toolResultBlock(m)))
+			mergeOrAppendUser(&messages, []sdk.ContentBlockParamUnion{toolResultBlock(m)})
 		}
 	}
 	return messages
+}
+
+// mergeOrAppendUser appends blocks to the last message if it is a user message,
+// otherwise creates a new user message. The Anthropic API requires alternating
+// roles, so consecutive user messages (e.g. multiple tool results followed by
+// a user message) must be merged into one.
+func mergeOrAppendUser(messages *[]sdk.MessageParam, blocks []sdk.ContentBlockParamUnion) {
+	if n := len(*messages); n > 0 && (*messages)[n-1].Role == sdk.MessageParamRoleUser {
+		(*messages)[n-1].Content = append((*messages)[n-1].Content, blocks...)
+		return
+	}
+	*messages = append(*messages, sdk.NewUserMessage(blocks...))
+}
+
+// mergeOrAppendAssistant appends blocks to the last message if it is an assistant
+// message, otherwise creates a new assistant message.
+func mergeOrAppendAssistant(messages *[]sdk.MessageParam, blocks []sdk.ContentBlockParamUnion) {
+	if n := len(*messages); n > 0 && (*messages)[n-1].Role == sdk.MessageParamRoleAssistant {
+		(*messages)[n-1].Content = append((*messages)[n-1].Content, blocks...)
+		return
+	}
+	*messages = append(*messages, sdk.NewAssistantMessage(blocks...))
 }
 
 func userContentBlocks(content any) []sdk.ContentBlockParamUnion {

@@ -94,19 +94,22 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 		p.log.Warn("failed to save session info", "session_id", sessionID, "error", err)
 	}
 
-	// Store user message via memory engine.
-	userMsg := ai.UserMessage{Content: message}
-	if err := p.mem.Ingest(ctx, sessionID, userMsg); err != nil {
-		p.log.Warn("memory ingest user message failed", "session_id", sessionID, "error", err)
-	}
-
 	// Assemble context within budget via memory engine.
+	// NOTE: assemble BEFORE ingesting the current user message so the
+	// assembled history does not include it — GoRunner.Chat appends
+	// the message itself, which would otherwise create a duplicate.
 	var history []ai.Message
 	assembled, err := p.mem.Assemble(ctx, sessionID, p.compaction.MaxTokens, p.compaction.KeepTail)
 	if err != nil {
 		p.log.Warn("memory assemble failed", "session_id", sessionID, "error", err)
 	} else {
 		history = assembled
+	}
+
+	// Store user message via memory engine (after assembly to avoid duplication).
+	userMsg := ai.UserMessage{Content: message}
+	if err := p.mem.Ingest(ctx, sessionID, userMsg); err != nil {
+		p.log.Warn("memory ingest user message failed", "session_id", sessionID, "error", err)
 	}
 
 	stream := r.Chat(ctx, history, message)

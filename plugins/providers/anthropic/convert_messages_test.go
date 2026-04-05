@@ -131,6 +131,91 @@ func TestConvertMessagesFullConversation(t *testing.T) {
 	}
 }
 
+func TestConvertMessagesMergesConsecutiveUserMessages(t *testing.T) {
+	ctx := ai.Context{
+		Messages: []ai.Message{
+			ai.UserMessage{Content: "first"},
+			ai.UserMessage{Content: "second"},
+		},
+	}
+	msgs := convertMessages(ctx)
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 merged user message, got %d", len(msgs))
+	}
+	if msgs[0].Role != "user" {
+		t.Errorf("role = %q, want user", msgs[0].Role)
+	}
+	if len(msgs[0].Content) != 2 {
+		t.Errorf("expected 2 content blocks, got %d", len(msgs[0].Content))
+	}
+}
+
+func TestConvertMessagesMergesToolResultWithUserMessage(t *testing.T) {
+	// assistant(tool_call) → tool_result → user(text) should produce:
+	// assistant, user (tool_result + text merged)
+	ctx := ai.Context{
+		Messages: []ai.Message{
+			ai.AssistantMessage{Content: []ai.ContentBlock{
+				ai.ToolCall{ID: "c1", Name: "bash", Arguments: map[string]any{}},
+			}},
+			ai.ToolResultMessage{ToolCallID: "c1", Content: []ai.ContentBlock{ai.TextContent{Text: "output"}}},
+			ai.UserMessage{Content: "continue"},
+		},
+	}
+	msgs := convertMessages(ctx)
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages (assistant + merged user), got %d", len(msgs))
+	}
+	if msgs[1].Role != "user" {
+		t.Errorf("second message role = %q, want user", msgs[1].Role)
+	}
+	// tool_result block + text block = 2 blocks
+	if len(msgs[1].Content) != 2 {
+		t.Errorf("expected 2 content blocks in merged user message, got %d", len(msgs[1].Content))
+	}
+}
+
+func TestConvertMessagesMergesMultipleToolResults(t *testing.T) {
+	// Parallel tool calls: assistant(2 calls) → result1 → result2
+	// Both tool results are user-role and should merge into one user message.
+	ctx := ai.Context{
+		Messages: []ai.Message{
+			ai.AssistantMessage{Content: []ai.ContentBlock{
+				ai.ToolCall{ID: "c1", Name: "read", Arguments: map[string]any{}},
+				ai.ToolCall{ID: "c2", Name: "bash", Arguments: map[string]any{}},
+			}},
+			ai.ToolResultMessage{ToolCallID: "c1", Content: []ai.ContentBlock{ai.TextContent{Text: "file"}}},
+			ai.ToolResultMessage{ToolCallID: "c2", Content: []ai.ContentBlock{ai.TextContent{Text: "output"}}},
+		},
+	}
+	msgs := convertMessages(ctx)
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages (assistant + merged tool results), got %d", len(msgs))
+	}
+	if msgs[1].Role != "user" {
+		t.Errorf("second message role = %q, want user", msgs[1].Role)
+	}
+	if len(msgs[1].Content) != 2 {
+		t.Errorf("expected 2 tool_result blocks, got %d", len(msgs[1].Content))
+	}
+}
+
+func TestConvertMessagesMergesConsecutiveAssistantMessages(t *testing.T) {
+	ctx := ai.Context{
+		Messages: []ai.Message{
+			ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "first"}}},
+			ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "second"}}},
+		},
+	}
+	msgs := convertMessages(ctx)
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 merged assistant message, got %d", len(msgs))
+	}
+	if len(msgs[0].Content) != 2 {
+		t.Errorf("expected 2 content blocks, got %d", len(msgs[0].Content))
+	}
+}
+
 func TestUserContentBlocksString(t *testing.T) {
 	blocks := userContentBlocks("hello")
 	if len(blocks) != 1 {

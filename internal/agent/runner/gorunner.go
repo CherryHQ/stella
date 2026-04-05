@@ -12,6 +12,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner/builtin"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
+	"github.com/vaayne/anna/internal/memory"
 	"github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -190,6 +191,13 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 
 	go func() {
 		defer close(out)
+
+		// Inject session context into hook metadata so hooks can log it.
+		r.runner.SetHookMeta(hooks.HookMeta{
+			SessionID: memory.SessionIDFromContext(ctx),
+			UserID:    memory.UserIDFromContext(ctx),
+			AgentID:   memory.AgentIDFromContext(ctx),
+		})
 
 		messages := make([]ai.Message, len(history))
 		copy(messages, history)
