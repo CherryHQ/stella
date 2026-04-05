@@ -151,6 +151,9 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 			case "/model":
 				b.handleModelCommand(args, replyFn)
 				return nil
+			case "/agent":
+				b.handleAgentCommand(incoming, args, replyFn)
+				return nil
 			}
 		}
 	}
