@@ -1,4 +1,4 @@
-package tools
+package agent
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/engine"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/vaayne/anna/pkg/tools"
 )
 
 const (
@@ -30,7 +31,7 @@ const (
 // AgentConfig holds the dependencies needed to spawn subagent loops.
 type AgentConfig struct {
 	Engine   *engine.Engine
-	Registry *Registry
+	Registry *tools.Registry
 	Model    ai.Model
 	APIKey   string
 	BaseURL  string
@@ -82,7 +83,7 @@ func NewAgentTool(cfg AgentConfig) *AgentTool {
 
 // AgentDefinition returns the tool definition without requiring a live config.
 // presets is optional — when provided, the preset enum is included in the schema.
-func AgentDefinition(presets *PresetRegistry) Definition {
+func AgentDefinition(presets *PresetRegistry) tools.Definition {
 	var presetNames []string
 	var presetDesc string
 	if presets != nil && len(presets.Names()) > 0 {
@@ -91,7 +92,7 @@ func AgentDefinition(presets *PresetRegistry) Definition {
 			". Preset values are defaults that explicit fields override."
 	}
 
-	return Definition{
+	return tools.Definition{
 		Name:        agentToolName,
 		Description: "Spawn one or more subagents with isolated context. Multiple tasks run in parallel. Use for focused subtasks like research, code review, or drafting that benefit from fresh context.",
 		InputSchema: map[string]any{
@@ -141,7 +142,7 @@ func AgentDefinition(presets *PresetRegistry) Definition {
 	}
 }
 
-func (t *AgentTool) Definition() Definition {
+func (t *AgentTool) Definition() tools.Definition {
 	return AgentDefinition(t.cfg.Presets)
 }
 
@@ -344,7 +345,7 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 // It always excludes "agent" to prevent recursion.
 // If hasWhitelist is true, only the listed tools are included (empty list = no tools).
 // If hasWhitelist is false, all parent tools (minus agent) are available.
-func (t *AgentTool) buildScopedTools(whitelist []string, hasWhitelist bool) (engine.ToolSet, []Definition, error) {
+func (t *AgentTool) buildScopedTools(whitelist []string, hasWhitelist bool) (engine.ToolSet, []tools.Definition, error) {
 	allDefs := t.cfg.Registry.Definitions()
 
 	// Build allowed set from whitelist, if provided.
@@ -363,7 +364,7 @@ func (t *AgentTool) buildScopedTools(whitelist []string, hasWhitelist bool) (eng
 	}
 
 	toolSet := engine.ToolSet{}
-	var defs []Definition
+	var defs []tools.Definition
 
 	for _, def := range allDefs {
 		if def.Name == agentToolName {

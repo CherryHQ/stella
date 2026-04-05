@@ -8,6 +8,11 @@ import (
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/internal/skills"
 	pkgtools "github.com/vaayne/anna/pkg/tools"
+	agenttool "github.com/vaayne/anna/plugins/tools/agent"
+	"github.com/vaayne/anna/plugins/tools/bash"
+	"github.com/vaayne/anna/plugins/tools/edit"
+	"github.com/vaayne/anna/plugins/tools/read"
+	"github.com/vaayne/anna/plugins/tools/write"
 )
 
 // toolJSON is the JSON representation of a tool definition.
@@ -30,14 +35,19 @@ func defToJSON(def pkgtools.Definition, category string) toolJSON {
 func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 	var tools []toolJSON
 
-	// Built-in tools from registry (Read, Bash, Edit, Write, WebFetch).
-	reg := pkgtools.NewRegistry("")
-	for _, def := range reg.Definitions() {
-		tools = append(tools, defToJSON(def, "builtin"))
+	// Built-in tools (Read, Bash, Edit, Write).
+	builtinTools := []pkgtools.Tool{
+		&read.ReadTool{},
+		bash.NewBashTool(""),
+		&edit.EditTool{},
+		&write.WriteTool{},
+	}
+	for _, t := range builtinTools {
+		tools = append(tools, defToJSON(t.Definition(), "builtin"))
 	}
 
 	// Agent tool (always present).
-	tools = append(tools, defToJSON(pkgtools.AgentDefinition(nil), "builtin"))
+	tools = append(tools, defToJSON(agenttool.AgentDefinition(nil), "builtin"))
 
 	// Shared tools (scheduler, memory, skills).
 	for _, def := range sharedToolDefinitions() {

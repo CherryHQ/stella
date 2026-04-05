@@ -1,17 +1,24 @@
-package tools
+package write
 
 import (
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/vaayne/anna/pkg/tools"
+	plugintools "github.com/vaayne/anna/plugins/tools"
 )
+
+func init() {
+	plugintools.Register("write", func() tools.Tool { return &WriteTool{} })
+}
 
 // WriteTool creates new files or completely overwrites existing ones.
 type WriteTool struct{}
 
-func (t *WriteTool) Definition() Definition {
-	return Definition{
+func (t *WriteTool) Definition() tools.Definition {
+	return tools.Definition{
 		Name:        "write",
 		Description: "Create a new file or completely overwrite an existing file with the provided content.",
 		InputSchema: map[string]any{

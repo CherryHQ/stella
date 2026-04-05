@@ -1,21 +1,27 @@
-package tools
+package sandbox
 
 import (
 	"context"
 
 	"github.com/vaayne/anna/internal/auth"
+	"github.com/vaayne/anna/pkg/tools"
 )
+
+// closeableTool is an optional interface for tools that need cleanup.
+type closeableTool interface {
+	Close() error
+}
 
 // sandboxTool wraps a Tool with path validation. It checks that the value of
 // the specified argument key is within the allowed directory before delegating
 // to the underlying tool. This is a defense-in-depth measure.
 type sandboxTool struct {
-	inner      Tool
+	inner      tools.Tool
 	allowedDir string
 	pathKey    string // argument key containing the file path (e.g. "file_path")
 }
 
-func (s *sandboxTool) Definition() Definition {
+func (s *sandboxTool) Definition() tools.Definition {
 	return s.inner.Definition()
 }
 
@@ -39,7 +45,7 @@ func (s *sandboxTool) Close() error {
 
 // WrapWithSandbox returns a sandbox-wrapped tool if allowedDir is non-empty.
 // Otherwise it returns the original tool unchanged.
-func WrapWithSandbox(t Tool, allowedDir, pathKey string) Tool {
+func WrapWithSandbox(t tools.Tool, allowedDir, pathKey string) tools.Tool {
 	if allowedDir == "" {
 		return t
 	}

@@ -1,17 +1,24 @@
-package tools
+package edit
 
 import (
 	"context"
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/vaayne/anna/pkg/tools"
+	plugintools "github.com/vaayne/anna/plugins/tools"
 )
+
+func init() {
+	plugintools.Register("edit", func() tools.Tool { return &EditTool{} })
+}
 
 // EditTool makes surgical edits to files by exact string replacement.
 type EditTool struct{}
 
-func (t *EditTool) Definition() Definition {
-	return Definition{
+func (t *EditTool) Definition() tools.Definition {
+	return tools.Definition{
 		Name:        "edit",
 		Description: "Make a surgical edit to a file. The old_string must match exactly (including whitespace and indentation). Use this for targeted changes to existing files.",
 		InputSchema: map[string]any{

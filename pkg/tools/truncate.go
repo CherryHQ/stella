@@ -13,8 +13,8 @@ const (
 	defaultMaxBytes = 50 * 1024 // 50KB
 )
 
-// truncationResult holds the truncated output and metadata.
-type truncationResult struct {
+// TruncationResult holds the truncated output and metadata.
+type TruncationResult struct {
 	Content     string
 	OutputLines int
 }
@@ -37,9 +37,9 @@ func maxBytes() int {
 	return defaultMaxBytes
 }
 
-// splitLines splits text into lines preserving newline suffixes.
+// SplitLines splits text into lines preserving newline suffixes.
 // Trims the trailing empty element that strings.SplitAfter produces.
-func splitLines(text string) []string {
+func SplitLines(text string) []string {
 	lines := strings.SplitAfter(text, "\n")
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
@@ -49,29 +49,29 @@ func splitLines(text string) []string {
 
 // TruncateHead keeps the first N lines / bytes (whichever limit is hit first).
 // Suitable for file reads and search results where the beginning matters most.
-func TruncateHead(output string) truncationResult {
+func TruncateHead(output string) TruncationResult {
 	return truncate(output, "first", keepHead)
 }
 
 // TruncateTail keeps the last N lines / bytes (whichever limit is hit first).
 // Suitable for command output and logs where the end matters most.
-func TruncateTail(output string) truncationResult {
+func TruncateTail(output string) TruncationResult {
 	return truncate(output, "last", keepTail)
 }
 
 // keepFunc selects which lines to keep given the full set and limits.
 type keepFunc func(lines []string, lineLimit, byteLimit int) []string
 
-func truncate(output, direction string, keep keepFunc) truncationResult {
+func truncate(output, direction string, keep keepFunc) TruncationResult {
 	lineLimit := maxLines()
 	byteLimit := maxBytes()
 	totalBytes := len(output)
 
-	lines := splitLines(output)
+	lines := SplitLines(output)
 	totalLines := len(lines)
 
 	if totalLines <= lineLimit && totalBytes <= byteLimit {
-		return truncationResult{Content: output, OutputLines: totalLines}
+		return TruncationResult{Content: output, OutputLines: totalLines}
 	}
 
 	kept := keep(lines, lineLimit, byteLimit)
@@ -79,11 +79,11 @@ func truncate(output, direction string, keep keepFunc) truncationResult {
 
 	fullPath := saveTempFile(output)
 	if fullPath == "" {
-		return truncationResult{Content: output, OutputLines: totalLines}
+		return TruncationResult{Content: output, OutputLines: totalLines}
 	}
 
 	content := formatTruncated(truncated, direction, totalLines, totalBytes, len(kept), fullPath)
-	return truncationResult{Content: content, OutputLines: len(kept)}
+	return TruncationResult{Content: content, OutputLines: len(kept)}
 }
 
 func keepHead(lines []string, lineLimit, byteLimit int) []string {

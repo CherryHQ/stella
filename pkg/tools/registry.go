@@ -3,10 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"log/slog"
-
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/embedded"
 )
 
 // closeableTool is an optional interface for tools that need cleanup.
@@ -19,29 +15,10 @@ type Registry struct {
 	tools map[string]Tool
 }
 
-// NewRegistry creates a registry with the four core built-in tools
-// (read, bash, edit, write) constructed directly as Go values.
-// Optional tools like webfetch are injected externally via ExtraTools.
-func NewRegistry(workDir string, userDataDir ...string) *Registry {
-	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
-		slog.Warn("failed to extract embedded tools", "error", err)
-	}
-
-	var sandbox string
-	if len(userDataDir) > 0 {
-		sandbox = userDataDir[0]
-	}
-	bashDir := workDir
-	if sandbox != "" {
-		bashDir = sandbox
-	}
-
-	r := &Registry{tools: make(map[string]Tool)}
-	r.Register(WrapWithSandbox(&ReadTool{}, sandbox, "file_path"))
-	r.Register(NewBashTool(bashDir))
-	r.Register(WrapWithSandbox(&EditTool{}, sandbox, "file_path"))
-	r.Register(WrapWithSandbox(&WriteTool{}, sandbox, "file_path"))
-	return r
+// NewRegistry creates an empty tool registry.
+// Tools are registered externally via Register().
+func NewRegistry() *Registry {
+	return &Registry{tools: make(map[string]Tool)}
 }
 
 // BuiltinNames returns the names of all currently registered tools.
