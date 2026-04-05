@@ -10,11 +10,8 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/plugins/providers/anthropic"
-	"github.com/vaayne/anna/plugins/providers/openai"
-	openairesponse "github.com/vaayne/anna/plugins/providers/openai-response"
 	"github.com/vaayne/anna/internal/channel"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/db/sqlc"
 	"github.com/vaayne/anna/internal/memory"
@@ -116,10 +113,11 @@ func reviewConversation(ctx context.Context, deps ReviewDeps, snap *config.Snaps
 	model := snap.ResolveModelTier(config.ModelTierFast)
 	creds := snap.ResolveProviderCreds(model.API)
 
-	reg := ai.NewRegistry()
-	reg.Register(anthropic.New(anthropic.Config{BaseURL: creds.BaseURL}))
-	reg.Register(openai.New(openai.Config{BaseURL: creds.BaseURL}))
-	reg.Register(openairesponse.New(openairesponse.Config{BaseURL: creds.BaseURL}))
+	cfgs := make(map[string]pluginproviders.ProviderConfig, len(pluginproviders.Names()))
+	for _, name := range pluginproviders.Names() {
+		cfgs[name] = pluginproviders.ProviderConfig{BaseURL: creds.BaseURL}
+	}
+	reg := pluginproviders.BuildAll(cfgs)
 
 	// Load existing skill names for the prompt (empty annaHome skips builtin extraction).
 	userSkillsDir := filepath.Join(snap.Workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")

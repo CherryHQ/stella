@@ -6,10 +6,8 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/plugins/providers/anthropic"
-	"github.com/vaayne/anna/plugins/providers/openai"
-	openairesponse "github.com/vaayne/anna/plugins/providers/openai-response"
 	"github.com/vaayne/anna/internal/config"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
@@ -168,14 +166,9 @@ func (s *Server) updateModelsCache(providerID string, modelIDs []string) {
 
 // newProviderFromCreds creates an ai.ProviderAdapter from raw credentials.
 func newProviderFromCreds(name, apiKey, baseURL string) ai.ProviderAdapter {
-	switch name {
-	case "anthropic":
-		return anthropic.New(anthropic.Config{BaseURL: baseURL, APIKey: apiKey})
-	case "openai":
-		return openai.New(openai.Config{BaseURL: baseURL, APIKey: apiKey})
-	case "openai-response":
-		return openairesponse.New(openairesponse.Config{BaseURL: baseURL, APIKey: apiKey})
-	default:
+	p, ok := pluginproviders.Build(name, pluginproviders.ProviderConfig{APIKey: apiKey, BaseURL: baseURL})
+	if !ok {
 		return nil
 	}
+	return p
 }

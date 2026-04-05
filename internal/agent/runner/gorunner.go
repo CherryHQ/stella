@@ -10,11 +10,9 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/engine"
 	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/plugins/providers/anthropic"
-	"github.com/vaayne/anna/plugins/providers/openai"
-	openairesponse "github.com/vaayne/anna/plugins/providers/openai-response"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/tools"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 const maxToolIterations = 40
@@ -61,10 +59,11 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		return nil, fmt.Errorf("go runner: api_key is required")
 	}
 
-	reg := ai.NewRegistry()
-	reg.Register(anthropic.New(anthropic.Config{BaseURL: cfg.BaseURL}))
-	reg.Register(openai.New(openai.Config{BaseURL: cfg.BaseURL}))
-	reg.Register(openairesponse.New(openairesponse.Config{BaseURL: cfg.BaseURL}))
+	cfgs := make(map[string]pluginproviders.ProviderConfig, len(pluginproviders.Names()))
+	for _, name := range pluginproviders.Names() {
+		cfgs[name] = pluginproviders.ProviderConfig{BaseURL: cfg.BaseURL}
+	}
+	reg := pluginproviders.BuildAll(cfgs)
 
 	system := cfg.System
 	if system == "" {

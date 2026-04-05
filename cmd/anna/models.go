@@ -10,10 +10,8 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/plugins/providers/anthropic"
-	"github.com/vaayne/anna/plugins/providers/openai"
-	openairesponse "github.com/vaayne/anna/plugins/providers/openai-response"
 	"github.com/vaayne/anna/internal/channel"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 )
@@ -102,16 +100,11 @@ func collectModelsFromStore(ctx context.Context, store config.Store, snap *confi
 
 // newStreamProviderFromCreds creates an ai.ProviderAdapter from raw credentials.
 func newStreamProviderFromCreds(name, apiKey, baseURL string) ai.ProviderAdapter {
-	switch name {
-	case "anthropic":
-		return anthropic.New(anthropic.Config{BaseURL: baseURL, APIKey: apiKey})
-	case "openai":
-		return openai.New(openai.Config{BaseURL: baseURL, APIKey: apiKey})
-	case "openai-response":
-		return openairesponse.New(openairesponse.Config{BaseURL: baseURL, APIKey: apiKey})
-	default:
+	p, ok := pluginproviders.Build(name, pluginproviders.ProviderConfig{APIKey: apiKey, BaseURL: baseURL})
+	if !ok {
 		return nil
 	}
+	return p
 }
 
 // openStore is a helper that opens the DB and returns a Store.
