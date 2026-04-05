@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/engine"
+	"github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	providerapi "github.com/vaayne/anna/pkg/providers"
 	pluginproviders "github.com/vaayne/anna/plugins/providers"
@@ -71,12 +71,10 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 			reg := providerapi.NewRegistry()
 			reg.Register(adapter)
 
-			eng := &engine.Engine{Providers: reg}
-
 			var toolCalled atomic.Bool
 			var capturedCity string
 
-			tools := engine.ToolSet{
+			tools := agent.ToolSet{
 				"get_weather": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
 					toolCalled.Store(true)
 					city, _ := call.Arguments["city"].(string)
@@ -85,13 +83,18 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 				},
 			}
 
-			cfg := engine.LoopConfig{
-				Model:           ai.Model{API: p.name, Name: model},
-				StreamOptions:   ai.StreamOptions{APIKey: apiKey},
-				MaxTurns:        5,
-				Tools:           tools,
-				ToolDefinitions: []ai.ToolDefinition{toolDef},
-				System:          "You are a helpful assistant. When asked about weather, always use the get_weather tool. Be concise.",
+			runner, err := agent.NewRunner(agent.RunnerConfig{
+				Providers: reg,
+				Model:     ai.Model{API: p.name, Name: model},
+				Tools:     tools,
+				ToolDefs:  []ai.ToolDefinition{toolDef},
+			},
+				agent.WithStreamOptions(ai.StreamOptions{APIKey: apiKey}),
+				agent.WithMaxTurns(5),
+				agent.WithSystem("You are a helpful assistant. When asked about weather, always use the get_weather tool. Be concise."),
+			)
+			if err != nil {
+				t.Fatalf("NewRunner error: %v", err)
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -101,9 +104,9 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 				ai.UserMessage{Content: "What's the weather in Tokyo?"},
 			}
 
-			history, err := eng.Run(ctx, cfg, messages, nil)
+			history, err := runner.Run(ctx, messages, nil)
 			if err != nil {
-				t.Fatalf("engine.Run error: %v", err)
+				t.Fatalf("runner.Run error: %v", err)
 			}
 
 			// Verify tool was called.

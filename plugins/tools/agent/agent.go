@@ -11,13 +11,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	// NOTE: The agent tool imports internal/agent/engine because it is
-	// fundamentally engine orchestration code. This coupling is accepted
-	// as the agent tool is a special case among plugin tools.
-	"github.com/vaayne/anna/internal/agent/engine"
-
+	"github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
@@ -34,15 +31,15 @@ const (
 
 // AgentConfig holds the dependencies needed to spawn subagent loops.
 type AgentConfig struct {
-	Engine   *engine.Engine
-	Registry *tools.Registry
-	Model    ai.Model
-	APIKey   string
-	BaseURL  string
-	System   string
-	Emit     func(engine.LoopEvent) // optional event emitter for observability
-	Presets  *PresetRegistry        // loaded agent presets (nil = no presets)
-	Hooks    *hooks.HookSet         // inherited by subagents (nil = no hooks)
+	Providers providers.ProviderGetter
+	Registry  *tools.Registry
+	Model     ai.Model
+	APIKey    string
+	BaseURL   string
+	System    string
+	Emit      func(agent.LoopEvent) // optional event emitter for observability
+	Presets   *PresetRegistry       // loaded agent presets (nil = no presets)
+	Hooks     *hooks.HookSet        // inherited by subagents (nil = no hooks)
 
 	// Configurable limits (zero = use defaults).
 	MaxTasks       int // max tasks per invocation
@@ -238,7 +235,7 @@ type taskResult struct {
 	Complete bool   `json:"complete"` // true if agent stopped naturally (not max_turns/timeout)
 }
 
-func (t *AgentTool) emit(ev engine.LoopEvent) {
+func (t *AgentTool) emit(ev agent.LoopEvent) {
 	if t.cfg.Emit != nil {
 		t.cfg.Emit(ev)
 	}
@@ -299,14 +296,19 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 		maxTurns = tc.MaxTurns
 	}
 
-	cfg := engine.LoopConfig{
-		Model:           model,
-		StreamOptions:   ai.StreamOptions{APIKey: t.cfg.APIKey, BaseURL: t.cfg.BaseURL},
-		MaxTurns:        maxTurns,
-		Tools:           toolSet,
-		ToolDefinitions: toolDefs,
-		System:          system,
-		Hooks:           t.cfg.Hooks,
+	runner, err := agent.NewRunner(agent.RunnerConfig{
+		Providers: t.cfg.Providers,
+		Model:     model,
+		Tools:     toolSet,
+		ToolDefs:  toolDefs,
+	},
+		agent.WithStreamOptions(ai.StreamOptions{APIKey: t.cfg.APIKey, BaseURL: t.cfg.BaseURL}),
+		agent.WithMaxTurns(maxTurns),
+		agent.WithSystem(system),
+		agent.WithHooks(t.cfg.Hooks, hooks.HookMeta{}),
+	)
+	if err != nil {
+		return taskResult{Error: fmt.Sprintf("create runner: %v", err)}
 	}
 
 	// Build user message: optional context + task.
@@ -324,7 +326,7 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 
 	t.emit(SubAgentStarted{TaskID: tc.ID, Preset: tc.Preset})
 
-	history, err := t.cfg.Engine.Run(ctx, cfg, messages, nil)
+	history, err := runner.Run(ctx, messages, nil)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -349,43 +351,27 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 // It always excludes "agent" to prevent recursion.
 // If hasWhitelist is true, only the listed tools are included (empty list = no tools).
 // If hasWhitelist is false, all parent tools (minus agent) are available.
-func (t *AgentTool) buildScopedTools(whitelist []string, hasWhitelist bool) (engine.ToolSet, []tools.Definition, error) {
-	allDefs := t.cfg.Registry.Definitions()
-
-	// Build allowed set from whitelist, if provided.
-	var allowed map[string]bool
+func (t *AgentTool) buildScopedTools(whitelist []string, hasWhitelist bool) (agent.ToolSet, []tools.Definition, error) {
 	if hasWhitelist {
-		allowed = make(map[string]bool, len(whitelist))
+		// Filter out "agent" from whitelist.
+		filtered := make([]string, 0, len(whitelist))
 		for _, name := range whitelist {
-			if name == agentToolName {
-				continue
+			if name != agentToolName {
+				filtered = append(filtered, name)
 			}
-			if !t.cfg.Registry.Has(name) {
-				return nil, nil, fmt.Errorf("unknown tool: %q", name)
-			}
-			allowed[name] = true
 		}
+		return agent.ToolSetFromRegistryFiltered(t.cfg.Registry, filtered)
 	}
 
-	toolSet := engine.ToolSet{}
-	var defs []tools.Definition
-
+	// No whitelist: all tools minus "agent".
+	allDefs := t.cfg.Registry.Definitions()
+	names := make([]string, 0, len(allDefs))
 	for _, def := range allDefs {
-		if def.Name == agentToolName {
-			continue
-		}
-		if allowed != nil && !allowed[def.Name] {
-			continue
-		}
-		defs = append(defs, def)
-		name := def.Name // capture for closure safety
-		toolSet[name] = func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
-			result, err := t.cfg.Registry.Execute(ctx, call.Name, call.Arguments)
-			return ai.TextContent{Text: result}, err
+		if def.Name != agentToolName {
+			names = append(names, def.Name)
 		}
 	}
-
-	return toolSet, defs, nil
+	return agent.ToolSetFromRegistryFiltered(t.cfg.Registry, names)
 }
 
 // extractLastAssistant returns the text content and stop reason of the last assistant message.

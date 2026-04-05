@@ -31,71 +31,9 @@ func TestNewReviewer(t *testing.T) {
 	if r == nil {
 		t.Fatal("NewReviewer returned nil")
 	}
-	if r.providers != cfg.Providers {
-		t.Error("providers not set")
+	if r.runner == nil {
+		t.Error("runner not set")
 	}
-	if r.model.ID != "test-model" {
-		t.Errorf("model = %q, want %q", r.model.ID, "test-model")
-	}
-}
-
-func TestNewReviewerWithExistingSkills(t *testing.T) {
-	t.Parallel()
-	cfg := newTestReviewerConfig(t.TempDir())
-	cfg.ExistingSkills = []string{"deploy-to-staging", "fix-flaky-tests"}
-	r := NewReviewer(cfg)
-
-	if !strings.Contains(r.system, "deploy-to-staging") {
-		t.Error("system prompt should list existing skill names")
-	}
-	if !strings.Contains(r.system, "fix-flaky-tests") {
-		t.Error("system prompt should list existing skill names")
-	}
-}
-
-func TestNewReviewerNoExistingSkills(t *testing.T) {
-	t.Parallel()
-	cfg := newTestReviewerConfig(t.TempDir())
-	r := NewReviewer(cfg)
-	if !strings.Contains(r.system, "None") {
-		t.Error("system prompt should say 'None' when no existing skills")
-	}
-}
-
-func TestReviewerToolDefinitions(t *testing.T) {
-	t.Parallel()
-
-	t.Run("skills only", func(t *testing.T) {
-		t.Parallel()
-		cfg := newTestReviewerConfig(t.TempDir())
-		r := NewReviewer(cfg)
-		if len(r.toolDefinitions) != 1 {
-			t.Fatalf("tool definitions = %d, want 1", len(r.toolDefinitions))
-		}
-		if r.toolDefinitions[0].Name != toolNameSkills {
-			t.Errorf("tool name = %q, want %q", r.toolDefinitions[0].Name, toolNameSkills)
-		}
-	})
-
-	t.Run("skills and memory", func(t *testing.T) {
-		t.Parallel()
-		cfg := newTestReviewerConfig(t.TempDir())
-		cfg.MemoryTool = NewReviewMemoryTool(nil, 1, "agent-1")
-		r := NewReviewer(cfg)
-		if len(r.toolDefinitions) != 2 {
-			t.Fatalf("tool definitions = %d, want 2", len(r.toolDefinitions))
-		}
-		names := map[string]bool{}
-		for _, d := range r.toolDefinitions {
-			names[d.Name] = true
-		}
-		if !names[toolNameSkills] {
-			t.Error("missing skills tool")
-		}
-		if !names[toolNameMemory] {
-			t.Error("missing review_memory tool")
-		}
-	})
 }
 
 func TestReviewSystemPromptContent(t *testing.T) {

@@ -1,4 +1,4 @@
-package engine
+package agent
 
 import (
 	"context"
@@ -32,15 +32,19 @@ func (f fakeProvider) StreamSimple(model ai.Model, ctx ai.Context, opts ai.Simpl
 	return f.Stream(model, ctx, opts.StreamOptions)
 }
 
-func newTestEngine(p fakeProvider) *Engine {
+func newTestRunner(p fakeProvider, opts ...Option) *Runner {
 	r := providers.NewRegistry()
 	r.Register(p)
-	return &Engine{Providers: r}
+	runner, _ := NewRunner(RunnerConfig{
+		Providers: r,
+		Model:     ai.Model{API: "fake", Name: "stub"},
+	}, opts...)
+	return runner
 }
 
-func collectEvents(engine *Engine, cfg LoopConfig, history []ai.Message) ([]ai.Message, []LoopEvent, error) {
+func collectEvents(runner *Runner, messages []ai.Message) ([]ai.Message, []LoopEvent, error) {
 	var events []LoopEvent
-	h, err := engine.Run(context.Background(), cfg, history, func(e LoopEvent) {
+	h, err := runner.Run(context.Background(), messages, func(e LoopEvent) {
 		events = append(events, e)
 	})
 	return h, events, err
@@ -56,11 +60,9 @@ func countEvents[T LoopEvent](events []LoopEvent) int {
 	return n
 }
 
-var baseCfg = LoopConfig{Model: ai.Model{API: "fake", Name: "stub"}}
-
 func TestRunEmitsStreamingEvents(t *testing.T) {
-	engine := newTestEngine(fakeProvider{})
-	history, events, err := collectEvents(engine, baseCfg, []ai.Message{ai.UserMessage{Content: "hello"}})
+	runner := newTestRunner(fakeProvider{})
+	history, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "hello"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -121,8 +123,8 @@ func TestRunStreamingDeltasCarryPartial(t *testing.T) {
 		},
 	}
 
-	engine := newTestEngine(provider)
-	_, events, err := collectEvents(engine, baseCfg, []ai.Message{ai.UserMessage{Content: "go"}})
+	runner := newTestRunner(provider)
+	_, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -174,17 +176,15 @@ func TestRunMultiTurnLoop(t *testing.T) {
 		},
 	}
 
-	engine := newTestEngine(provider)
-	cfg := LoopConfig{
-		Model: ai.Model{API: "fake", Name: "stub"},
-		Tools: ToolSet{
-			"test_tool": func(_ context.Context, _ ai.ToolCall) (ai.TextContent, error) {
-				return ai.TextContent{Text: "tool result"}, nil
-			},
+	runner := newTestRunner(provider, WithMaxTurns(0)) // 0 = use default 128
+	// Override tools after construction — tests use the unexported run() path via Runner.
+	runner.tools = ToolSet{
+		"test_tool": func(_ context.Context, _ ai.ToolCall) (ai.TextContent, error) {
+			return ai.TextContent{Text: "tool result"}, nil
 		},
 	}
 
-	history, events, err := collectEvents(engine, cfg, []ai.Message{ai.UserMessage{Content: "go"}})
+	history, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -221,18 +221,14 @@ func TestRunMaxTurnsEnforced(t *testing.T) {
 		},
 	}
 
-	engine := newTestEngine(provider)
-	cfg := LoopConfig{
-		Model:    ai.Model{API: "fake", Name: "stub"},
-		MaxTurns: 2,
-		Tools: ToolSet{
-			"test_tool": func(_ context.Context, _ ai.ToolCall) (ai.TextContent, error) {
-				return ai.TextContent{Text: "ok"}, nil
-			},
+	runner := newTestRunner(provider, WithMaxTurns(2))
+	runner.tools = ToolSet{
+		"test_tool": func(_ context.Context, _ ai.ToolCall) (ai.TextContent, error) {
+			return ai.TextContent{Text: "ok"}, nil
 		},
 	}
 
-	_, _, err := collectEvents(engine, cfg, []ai.Message{ai.UserMessage{Content: "go"}})
+	_, _, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
 	if err == nil {
 		t.Fatalf("expected max turns error")
 	}
@@ -251,8 +247,8 @@ func TestRunStopsOnErrorStopReason(t *testing.T) {
 		},
 	}
 
-	engine := newTestEngine(provider)
-	history, _, err := collectEvents(engine, baseCfg, []ai.Message{ai.UserMessage{Content: "go"}})
+	runner := newTestRunner(provider)
+	history, _, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -281,18 +277,14 @@ func TestRunInterruptStopsLoop(t *testing.T) {
 		},
 	}
 
-	engine := newTestEngine(provider)
-	cfg := LoopConfig{
-		Model:     ai.Model{API: "fake", Name: "stub"},
-		Interrupt: interrupt,
-		Tools: ToolSet{
-			"test_tool": func(_ context.Context, _ ai.ToolCall) (ai.TextContent, error) {
-				return ai.TextContent{Text: "ok"}, nil
-			},
+	runner := newTestRunner(provider, WithInterrupt(interrupt))
+	runner.tools = ToolSet{
+		"test_tool": func(_ context.Context, _ ai.ToolCall) (ai.TextContent, error) {
+			return ai.TextContent{Text: "ok"}, nil
 		},
 	}
 
-	history, _, err := collectEvents(engine, cfg, []ai.Message{ai.UserMessage{Content: "go"}})
+	history, _, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -302,8 +294,10 @@ func TestRunInterruptStopsLoop(t *testing.T) {
 }
 
 func TestContinueRequiresValidTail(t *testing.T) {
-	engine := &Engine{}
-	_, err := engine.Continue(context.Background(), LoopConfig{}, []ai.Message{ai.AssistantMessage{}}, nil)
+	r := providers.NewRegistry()
+	r.Register(fakeProvider{})
+	runner, _ := NewRunner(RunnerConfig{Providers: r})
+	_, err := runner.Continue(context.Background(), []ai.Message{ai.AssistantMessage{}}, nil)
 	if err == nil {
 		t.Fatalf("expected tail validation error")
 	}

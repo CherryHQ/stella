@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vaayne/anna/internal/agent/engine"
+	"github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
@@ -32,11 +32,7 @@ type reviewTool interface {
 // Reviewer runs the review agent against a single conversation to extract
 // skills and update user memory.
 type Reviewer struct {
-	providers       providers.ProviderGetter
-	model           ai.Model
-	tools           engine.ToolSet
-	toolDefinitions []tools.Definition
-	system          string
+	runner *agent.Runner
 }
 
 // ReviewerConfig holds the tools and context needed to construct a Reviewer.
@@ -50,18 +46,18 @@ type ReviewerConfig struct {
 
 // NewReviewer creates a Reviewer with skill extraction and optional memory review.
 func NewReviewer(cfg ReviewerConfig) *Reviewer {
-	toolSet := engine.ToolSet{}
+	toolSet := agent.ToolSet{}
 	var defs []tools.Definition
 
 	// Skills tool (always present).
 	skillsDef := cfg.SkillsTool.Definition()
-	toolSet[skillsDef.Name] = wrapTool(cfg.SkillsTool)
+	toolSet[skillsDef.Name] = agent.WrapTool(cfg.SkillsTool)
 	defs = append(defs, skillsDef)
 
 	// Memory tool (optional).
 	if cfg.MemoryTool != nil {
 		memDef := cfg.MemoryTool.Definition()
-		toolSet[memDef.Name] = wrapTool(cfg.MemoryTool)
+		toolSet[memDef.Name] = agent.WrapTool(cfg.MemoryTool)
 		defs = append(defs, memDef)
 	}
 
@@ -71,48 +67,28 @@ func NewReviewer(cfg ReviewerConfig) *Reviewer {
 	}
 	system := fmt.Sprintf(combinedReviewPrompt, skillList)
 
-	return &Reviewer{
-		providers:       cfg.Providers,
-		model:           cfg.Model,
-		tools:           toolSet,
-		toolDefinitions: defs,
-		system:          system,
-	}
-}
+	runner, _ := agent.NewRunner(agent.RunnerConfig{
+		Providers: cfg.Providers,
+		Model:     cfg.Model,
+		Tools:     toolSet,
+		ToolDefs:  defs,
+	},
+		agent.WithMaxTurns(5),
+		agent.WithSystem(system),
+	)
 
-func wrapTool(t reviewTool) engine.ToolFunc {
-	return func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
-		args := call.Arguments
-		if args == nil {
-			args = make(map[string]any)
-		}
-		result, err := t.Execute(ctx, args)
-		if err != nil {
-			return ai.TextContent{Text: fmt.Sprintf("error: %v", err)}, nil
-		}
-		return ai.TextContent{Text: result}, nil
-	}
+	return &Reviewer{runner: runner}
 }
 
 // Review runs the review agent on a conversation transcript.
 func (r *Reviewer) Review(ctx context.Context, conversationText string) (ReviewResult, error) {
-	eng := &engine.Engine{Providers: r.providers}
-
-	cfg := engine.LoopConfig{
-		Model:           r.model,
-		MaxTurns:        5,
-		Tools:           r.tools,
-		ToolDefinitions: r.toolDefinitions,
-		System:          r.system,
-	}
-
 	history := []ai.Message{
 		ai.UserMessage{Content: conversationText},
 	}
 
-	result, err := eng.Run(ctx, cfg, history, nil)
+	result, err := r.runner.Run(ctx, history, nil)
 	if err != nil {
-		return ReviewResult{}, fmt.Errorf("review engine: %w", err)
+		return ReviewResult{}, fmt.Errorf("review agent: %w", err)
 	}
 
 	return countMutations(result), nil
