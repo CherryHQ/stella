@@ -39,7 +39,7 @@ func Names() []string {
 }
 
 // BuildEnabled queries the store for enabled hook plugins and returns
-// instances sorted by Priority (ascending) then Name (lexicographic).
+// instances. Callers (NewHookSet) handle priority sorting.
 func BuildEnabled(ctx context.Context, store config.Store) []hooks.HookPlugin {
 	mu.RLock()
 	defer mu.RUnlock()
@@ -57,11 +57,5 @@ func BuildEnabled(ctx context.Context, store config.Store) []hooks.HookPlugin {
 		result = append(result, factory())
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].Priority() != result[j].Priority() {
-			return result[i].Priority() < result[j].Priority()
-		}
-		return result[i].Name() < result[j].Name()
-	})
 	return result
 }

@@ -56,6 +56,10 @@ func (hs *HookSet) Empty() bool {
 // RunPreToolCall executes all PreToolCall hooks in priority order.
 // If any hook sets Block=true, the chain short-circuits.
 // Rewritten Arguments are passed to subsequent hooks.
+//
+// Error policy: a failing hook is logged and skipped so that non-critical
+// hooks (e.g. RTK rewriting) never block tool execution. Security-critical
+// checks must live in the core engine, not in disableable hook plugins.
 func (hs *HookSet) RunPreToolCall(ctx context.Context, hctx *PreToolCallContext) (PreToolCallResult, error) {
 	if hs == nil {
 		return PreToolCallResult{}, nil
@@ -93,6 +97,8 @@ func (hs *HookSet) RunPostToolCall(ctx context.Context, hctx *PostToolCallContex
 
 // RunPreLLMCall executes all PreLLMCall hooks in priority order.
 // Mutations from each hook are applied before the next hook runs.
+//
+// Error policy: same as RunPreToolCall — log and skip.
 func (hs *HookSet) RunPreLLMCall(ctx context.Context, hctx *PreLLMCallContext) (PreLLMCallResult, error) {
 	if hs == nil {
 		return PreLLMCallResult{}, nil

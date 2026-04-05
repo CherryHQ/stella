@@ -81,6 +81,8 @@ func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []ai.Messa
 		}
 
 		// Build a per-turn config with hook mutations applied.
+		// NOTE: shallow copy — safe because LoopConfig fields are value types
+		// or slices replaced wholesale (never mutated in place).
 		turnCfg := cfg
 		turnCfg.System = effectiveSystem
 		turnCfg.ToolDefinitions = effectiveToolDefs

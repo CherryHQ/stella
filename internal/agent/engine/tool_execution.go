@@ -88,6 +88,8 @@ func ExecuteToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		}
 
 		// PostToolCall hooks: observe results.
+		// Only the first TextContent block is passed — sufficient for telemetry;
+		// hooks needing full output should extend PostToolCallContext.
 		if hs != nil && !hs.Empty() {
 			resultText := ""
 			for _, block := range result.Content {
