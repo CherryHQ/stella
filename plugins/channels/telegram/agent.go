@@ -72,7 +72,7 @@ func (b *Bot) sendAgentPage(c tele.Context, agents []channel.IndexedAgent, page 
 
 // switchAgentByIdx handles agent switching by 1-based index.
 func (b *Bot) switchAgentByIdx(c tele.Context, idx int) error {
-	msg := b.incomingMsg(c, "")
+	msg := b.incomingMsg(c, nil)
 
 	agents, _, err := b.handler.ListAgents(context.Background(), msg)
 	if err != nil {

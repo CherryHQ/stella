@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/tencent-connect/botgo/dto"
+	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/channel"
 )
 
@@ -483,7 +484,7 @@ func (m *mockHandler) SwitchModel(provider, model string) error {
 func TestHandleCommandHelp(t *testing.T) {
 	bot := &Bot{handler: &mockHandler{}}
 	var reply string
-	incoming := incomingMsg("user123", "", "")
+	incoming := incomingMsg("user123", "", nil)
 	handled := bot.handleCommand(incoming, "/help", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /help to be handled")
@@ -496,7 +497,7 @@ func TestHandleCommandHelp(t *testing.T) {
 func TestHandleCommandStart(t *testing.T) {
 	bot := &Bot{handler: &mockHandler{}}
 	var reply string
-	incoming := incomingMsg("user123", "", "")
+	incoming := incomingMsg("user123", "", nil)
 	handled := bot.handleCommand(incoming, "/start", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /start to be handled")
@@ -508,7 +509,7 @@ func TestHandleCommandStart(t *testing.T) {
 
 func TestHandleCommandUnknown(t *testing.T) {
 	bot := &Bot{handler: &mockHandler{}}
-	incoming := incomingMsg("user123", "", "")
+	incoming := incomingMsg("user123", "", nil)
 	handled := bot.handleCommand(incoming, "hello world", func(s string) {})
 	if handled {
 		t.Error("regular text should not be handled as command")
@@ -517,7 +518,7 @@ func TestHandleCommandUnknown(t *testing.T) {
 
 func TestHandleCommandEmpty(t *testing.T) {
 	bot := &Bot{handler: &mockHandler{}}
-	incoming := incomingMsg("user123", "", "")
+	incoming := incomingMsg("user123", "", nil)
 	handled := bot.handleCommand(incoming, "", func(s string) {})
 	if handled {
 		t.Error("empty text should not be handled")
@@ -527,7 +528,7 @@ func TestHandleCommandEmpty(t *testing.T) {
 func TestHandleCommandWhoami(t *testing.T) {
 	bot := &Bot{handler: &mockHandler{}}
 	var reply string
-	incoming := incomingMsg("OPEN_ID_ABC", "", "")
+	incoming := incomingMsg("OPEN_ID_ABC", "", nil)
 	handled := bot.handleCommand(incoming, "/whoami", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /whoami to be handled")
@@ -695,12 +696,15 @@ func TestBuildMessageContentTextOnly(t *testing.T) {
 	bot := &Bot{}
 	msg := &dto.Message{Content: "hello world"}
 	content := bot.buildMessageContent(msg)
-	text, ok := content.(string)
-	if !ok {
-		t.Fatalf("expected string, got %T", content)
+	if len(content) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(content))
 	}
-	if text != "hello world" {
-		t.Errorf("text = %q, want %q", text, "hello world")
+	tc, ok := content[0].(ai.TextContent)
+	if !ok {
+		t.Fatalf("expected TextContent, got %T", content[0])
+	}
+	if tc.Text != "hello world" {
+		t.Errorf("text = %q, want %q", tc.Text, "hello world")
 	}
 }
 
@@ -732,7 +736,7 @@ func TestSendImageNoOp(t *testing.T) {
 // --- incomingMsg ---
 
 func TestIncomingMsgC2C(t *testing.T) {
-	msg := incomingMsg("user1", "", "hello")
+	msg := incomingMsg("user1", "", channel.TextContent("hello"))
 	if msg.Platform != channel.PlatformQQ {
 		t.Errorf("Platform = %q, want %q", msg.Platform, channel.PlatformQQ)
 	}
@@ -748,7 +752,7 @@ func TestIncomingMsgC2C(t *testing.T) {
 }
 
 func TestIncomingMsgGroup(t *testing.T) {
-	msg := incomingMsg("user1", "group1", "hello")
+	msg := incomingMsg("user1", "group1", channel.TextContent("hello"))
 	if msg.ChatID != "qq:group:group1" {
 		t.Errorf("ChatID = %q, want %q", msg.ChatID, "qq:group:group1")
 	}
