@@ -23,12 +23,6 @@ type ReviewResult struct {
 	MemoryUpdated bool // whether user memory was updated
 }
 
-// reviewTool is the interface shared by the skills tool and memory tool.
-type reviewTool interface {
-	Definition() tools.Definition
-	Execute(ctx context.Context, args map[string]any) (string, error)
-}
-
 // Reviewer runs the review agent against a single conversation to extract
 // skills and update user memory.
 type Reviewer struct {
@@ -39,26 +33,17 @@ type Reviewer struct {
 type ReviewerConfig struct {
 	Providers      providers.ProviderGetter
 	Model          ai.Model
-	SkillsTool     reviewTool // skills.SkillsTool or equivalent
-	MemoryTool     reviewTool // nil if memory review is not available
+	SkillsTool     tools.Tool // skills.SkillsTool or equivalent
+	MemoryTool     tools.Tool // nil if memory review is not available
 	ExistingSkills []string
 }
 
 // NewReviewer creates a Reviewer with skill extraction and optional memory review.
 func NewReviewer(cfg ReviewerConfig) *Reviewer {
-	toolSet := agent.ToolSet{}
-	var defs []tools.Definition
-
-	// Skills tool (always present).
-	skillsDef := cfg.SkillsTool.Definition()
-	toolSet[skillsDef.Name] = agent.WrapTool(cfg.SkillsTool)
-	defs = append(defs, skillsDef)
-
-	// Memory tool (optional).
+	reg := tools.NewRegistry()
+	reg.Register(cfg.SkillsTool)
 	if cfg.MemoryTool != nil {
-		memDef := cfg.MemoryTool.Definition()
-		toolSet[memDef.Name] = agent.WrapTool(cfg.MemoryTool)
-		defs = append(defs, memDef)
+		reg.Register(cfg.MemoryTool)
 	}
 
 	skillList := "None"
@@ -70,8 +55,8 @@ func NewReviewer(cfg ReviewerConfig) *Reviewer {
 	runner, _ := agent.NewRunner(agent.RunnerConfig{
 		Providers: cfg.Providers,
 		Model:     cfg.Model,
-		Tools:     toolSet,
-		ToolDefs:  defs,
+		Tools:     agent.ToolSetFromRegistry(reg),
+		ToolDefs:  reg.Definitions(),
 	},
 		agent.WithMaxTurns(5),
 		agent.WithSystem(system),
