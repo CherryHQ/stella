@@ -17,7 +17,10 @@ import (
 // workspace, and system prompt. User memory and user ID are injected per-session
 // from RunnerParams. When UserID > 0, per-user workspace directories are set up
 // and per-user skills tools are created.
-func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, hookPlugins []hooks.HookPlugin) (runner.NewRunnerFunc, error) {
+//
+// Hooks are not part of the factory — they are injected via RunnerParams.HooksFn
+// by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
+func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool) (runner.NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
 		return func(ctx context.Context, params runner.RunnerParams) (runner.Runner, error) {
@@ -59,6 +62,12 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, hookPlugin
 
 			// Use user data dir as working dir when available, otherwise use system cwd.
 			workDir := userDataDir
+
+			// Resolve hooks from RunnerParams — injected by Pool, not the factory.
+			var hookPlugins []hooks.HookPlugin
+			if params.HooksFn != nil {
+				hookPlugins = params.HooksFn()
+			}
 
 			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
 				API:         provID,
