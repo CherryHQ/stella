@@ -40,6 +40,19 @@ func (d *Dispatcher) Register(ch Channel) {
 	d.mu.Unlock()
 }
 
+// Unregister removes all channels with the given name from the dispatcher.
+func (d *Dispatcher) Unregister(name string) {
+	d.mu.Lock()
+	filtered := d.channels[:0]
+	for _, e := range d.channels {
+		if e.channel.Name() != name {
+			filtered = append(filtered, e)
+		}
+	}
+	d.channels = filtered
+	d.mu.Unlock()
+}
+
 // Notify routes a notification to channels. If Notification.Channel is set,
 // only that channel receives it. Otherwise all registered channels receive it.
 func (d *Dispatcher) Notify(ctx context.Context, n Notification) error {
