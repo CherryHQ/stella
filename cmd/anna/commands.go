@@ -21,14 +21,9 @@ import (
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/tools"
+	_ "github.com/vaayne/anna/plugins" // self-register all plugin tools and hooks
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
 	plugintools "github.com/vaayne/anna/plugins/tools"
-
-	// Import plugin tools for self-registration via init().
-	_ "github.com/vaayne/anna/plugins/tools/webfetch"
-
-	// Import plugin hooks for self-registration via init().
-	_ "github.com/vaayne/anna/plugins/hooks/rtk"
 )
 
 func newApp() *ucli.App {
