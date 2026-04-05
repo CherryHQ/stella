@@ -36,18 +36,8 @@ func (b *Bot) handleModelCommand(args string, reply func(string)) {
 
 // switchModelByName handles model switching by "provider/model" name.
 func (b *Bot) switchModelByName(name string, reply func(string)) {
-	name = strings.ToLower(strings.TrimSpace(name))
-	models := b.handler.ListModels()
-	var selected channel.ModelOption
-	found := false
-	for _, m := range models {
-		if strings.ToLower(m.Provider+"/"+m.Model) == name {
-			selected = m
-			found = true
-			break
-		}
-	}
-	if !found {
+	selected, ok := channel.FindModelByName(b.handler.ListModels(), name)
+	if !ok {
 		reply(fmt.Sprintf("Unknown model %q, use /model to list available models.", name))
 		return
 	}

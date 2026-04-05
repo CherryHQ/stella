@@ -33,6 +33,14 @@ type Channel interface {
 // MessageHandler is the coordinator interface injected into channel plugins.
 // It owns user resolution, agent routing, session management, and command handling.
 type MessageHandler interface {
+	// HandleIncoming resolves the user once, tries command handling, and if the
+	// command is not handled, streams a chat response. This avoids double
+	// resolution when a plugin needs to try commands before falling through
+	// to message handling. Returns (commandResponse, handled, stream, err).
+	// If handled is true, commandResponse contains the reply and stream is nil.
+	// If handled is false, stream contains the chat response.
+	HandleIncoming(ctx context.Context, msg IncomingMessage, command, args string) (string, bool, *ChatStream, error)
+
 	// HandleMessage resolves the user, routes to an agent, and streams a response.
 	HandleMessage(ctx context.Context, msg IncomingMessage) (*ChatStream, error)
 

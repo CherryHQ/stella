@@ -1,6 +1,9 @@
 package channel
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // ModelOption represents a selectable provider/model combination.
 type ModelOption struct {
@@ -41,4 +44,31 @@ func FilterModels(models []ModelOption, query string) []IndexedModel {
 		}
 	}
 	return out
+}
+
+// FindModelByName looks up a model by "provider/model" name (case-insensitive).
+// Returns the model and true if found, zero value and false otherwise.
+func FindModelByName(models []ModelOption, name string) (ModelOption, bool) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	for _, m := range models {
+		if strings.ToLower(m.Provider+"/"+m.Model) == name {
+			return m, true
+		}
+	}
+	return ModelOption{}, false
+}
+
+// FormatModelList builds a text-based model list with bullet points.
+func FormatModelList(models []IndexedModel, query string) string {
+	var sb strings.Builder
+	sb.WriteString("Available models")
+	if query != "" {
+		fmt.Fprintf(&sb, " (filter: %q)", query)
+	}
+	sb.WriteString(":\n\n")
+	for _, m := range models {
+		fmt.Fprintf(&sb, "• %s/%s\n", m.Provider, m.Model)
+	}
+	sb.WriteString("\nUse /model <provider/model> to switch.")
+	return sb.String()
 }

@@ -3,7 +3,6 @@ package channel
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
@@ -62,31 +61,48 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 	return Resolve(ctx, c.poolManager, c.store, c.authStore, c.engine, msg.Platform, msg.SenderID, msg.SenderName, msg.ChatID, msg.IsGroup)
 }
 
+// HandleIncoming resolves the user once, tries command handling, and if the
+// command is not handled, streams a chat response. This avoids double
+// resolution when a plugin needs to try commands before messaging.
+func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
+	// Try link code first (before auth resolution, since it creates identity).
+	if c.authStore != nil && c.linkCodes != nil {
+		fullText := command
+		if args != "" {
+			fullText = command + " " + args
+		}
+		if resp, ok := TryLinkCode(ctx, c.authStore, c.linkCodes, fullText, msg.Platform, msg.SenderID, msg.SenderName); ok {
+			return resp, true, nil, nil
+		}
+	}
+
+	rc, err := c.resolve(ctx, msg)
+	if err != nil {
+		return "", false, nil, err
+	}
+
+	// Try shared commands.
+	if command != "" {
+		if resp, ok := HandleCommand(ctx, rc, command+" "+args, msg.SenderID); ok {
+			return resp, true, nil, nil
+		}
+	}
+
+	// Not a command — stream a chat response.
+	stream, err := c.chatWithRC(ctx, rc, msg.Content)
+	if err != nil {
+		return "", false, nil, err
+	}
+	return "", false, stream, nil
+}
+
 // HandleMessage resolves the user, routes to an agent, and streams a response.
 func (c *Coordinator) HandleMessage(ctx context.Context, msg pkgchannel.IncomingMessage) (*pkgchannel.ChatStream, error) {
 	rc, err := c.resolve(ctx, msg)
 	if err != nil {
 		return nil, err
 	}
-
-	events, sessionID, err := rc.Chat(ctx, msg.Content)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert internal runner.Event to pkg/channel.Event.
-	out := make(chan pkgchannel.Event, 100)
-	go func() {
-		defer close(out)
-		for evt := range events {
-			out <- convertEvent(evt)
-		}
-	}()
-
-	return &pkgchannel.ChatStream{
-		Events:    out,
-		SessionID: sessionID,
-	}, nil
+	return c.chatWithRC(ctx, rc, msg.Content)
 }
 
 // HandleCommand processes shared commands (/start, /new, /compact, /whoami, /link).
@@ -108,6 +124,27 @@ func (c *Coordinator) HandleCommand(ctx context.Context, msg pkgchannel.Incoming
 	}
 
 	return HandleCommand(ctx, rc, command+" "+args, msg.SenderID)
+}
+
+// chatWithRC streams a chat response using a pre-resolved chat.
+func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content any) (*pkgchannel.ChatStream, error) {
+	events, sessionID, err := rc.Chat(ctx, content)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(chan pkgchannel.Event, 100)
+	go func() {
+		defer close(out)
+		for evt := range events {
+			out <- convertEvent(evt)
+		}
+	}()
+
+	return &pkgchannel.ChatStream{
+		Events:    out,
+		SessionID: sessionID,
+	}, nil
 }
 
 // ListAgents returns enabled agents the user can access and the current agent ID.
@@ -151,7 +188,6 @@ func (c *Coordinator) SwitchModel(provider, model string) error {
 	return c.switchFn(provider, model)
 }
 
-// convertEvent converts an internal runner.Event to a pkg/channel.Event.
 func convertEvent(evt runner.Event) pkgchannel.Event {
 	out := pkgchannel.Event{
 		Text: evt.Text,
@@ -176,8 +212,3 @@ func convertEvent(evt runner.Event) pkgchannel.Event {
 
 // compile-time check.
 var _ pkgchannel.MessageHandler = (*Coordinator)(nil)
-
-func init() {
-	// Verify the logger is callable.
-	_ = slog.Default()
-}
