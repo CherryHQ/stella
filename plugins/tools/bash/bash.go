@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/pkg/tools"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 )
@@ -23,7 +21,7 @@ func init() {
 			if bc.UserDataDir != "" {
 				dir = bc.UserDataDir
 			}
-			return NewBashTool(dir), nil
+			return NewBashTool(dir, bc.ToolsBinDir), nil
 		},
 	})
 }
@@ -31,11 +29,13 @@ func init() {
 // BashTool executes bash commands.
 type BashTool struct {
 	workDir string
+	binDir  string
 }
 
-// NewBashTool creates a BashTool with the given working directory.
-func NewBashTool(workDir string) *BashTool {
-	return &BashTool{workDir: workDir}
+// NewBashTool creates a BashTool with the given working directory and
+// optional tools bin directory (prepended to PATH).
+func NewBashTool(workDir, binDir string) *BashTool {
+	return &BashTool{workDir: workDir, binDir: binDir}
 }
 
 func (t *BashTool) Definition() tools.Definition {
@@ -61,7 +61,7 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (string, er
 		return "", fmt.Errorf("bash: command is required")
 	}
 
-	env := envWithToolsBin()
+	env := envWithToolsBin(t.binDir)
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	if t.workDir != "" {
@@ -103,9 +103,12 @@ func formatMetadataFooter(exitCode int, elapsed time.Duration) string {
 	return fmt.Sprintf("\n[exit:%d | %s]", exitCode, formatDuration(elapsed))
 }
 
-// envWithToolsBin returns the current environment with ANNA_HOME/bin prepended to PATH.
-func envWithToolsBin() []string {
-	binDir := embedded.BinDir(config.AnnaHome())
+// envWithToolsBin returns the current environment with binDir prepended to PATH.
+// If binDir is empty the environment is returned unchanged.
+func envWithToolsBin(binDir string) []string {
+	if binDir == "" {
+		return os.Environ()
+	}
 	env := os.Environ()
 	for i, e := range env {
 		if strings.HasPrefix(e, "PATH=") {

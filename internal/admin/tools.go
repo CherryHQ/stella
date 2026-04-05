@@ -38,7 +38,7 @@ func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 	// Built-in tools (Read, Bash, Edit, Write).
 	builtinTools := []pkgtools.Tool{
 		&read.ReadTool{},
-		bash.NewBashTool(""),
+		bash.NewBashTool("", ""),
 		&edit.EditTool{},
 		&write.WriteTool{},
 	}

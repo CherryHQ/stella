@@ -4,15 +4,20 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/engine"
+	"github.com/vaayne/anna/internal/agent/runner/builtin"
+	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
+	"github.com/vaayne/anna/plugins/hooks/rtk"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
 
@@ -86,12 +91,22 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 
 	toolReg := tools.NewRegistry()
 
+	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
+	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
+		slog.Warn("failed to extract embedded tools", "error", err)
+	}
+	toolsBinDir := embedded.BinDir(config.AnnaHome())
+
+	// Configure hook plugins that need the tools bin directory.
+	rtk.SetToolsBinDir(toolsBinDir)
+
 	// Build core tools (read, bash, edit, write) via plugin registry.
 	bc := plugintools.BuildContext{
 		WorkDir:     cfg.WorkDir,
 		UserDataDir: cfg.UserDataDir,
 		AnnaHome:    cfg.AnnaHome,
 		Workspace:   cfg.Workspace,
+		ToolsBinDir: toolsBinDir,
 	}
 	for _, t := range plugintools.BuildCore(bc) {
 		toolReg.Register(t)
@@ -102,11 +117,16 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		toolReg.Register(t)
 	}
 
-	// Load agent presets from filesystem.
+	// Extract builtin skills and load agent presets from filesystem.
+	builtinSkillsDir := filepath.Join(config.AnnaHome(), "cache", "builtin-skills")
+	if err := builtin.Extract(builtinSkillsDir); err != nil {
+		slog.Warn("failed to extract builtin skills", "error", err)
+	}
 	presets := agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
-		AnnaHome:  cfg.AnnaHome,
-		Workspace: cfg.Workspace,
-		Cwd:       cfg.WorkDir,
+		AnnaHome:         cfg.AnnaHome,
+		Workspace:        cfg.Workspace,
+		Cwd:              cfg.WorkDir,
+		BuiltinSkillsDir: builtinSkillsDir,
 	}))
 
 	var hookSet *hooks.HookSet

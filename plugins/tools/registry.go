@@ -1,12 +1,10 @@
 package plugintools
 
 import (
-	"context"
 	"log/slog"
 	"sort"
 	"sync"
 
-	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
@@ -16,6 +14,7 @@ type BuildContext struct {
 	UserDataDir string // per-user sandbox directory (empty = no sandbox)
 	AnnaHome    string // anna home directory (e.g. ~/.anna)
 	Workspace   string // agent workspace dir
+	ToolsBinDir string // path to anna tools bin directory (prepended to PATH)
 }
 
 // Factory creates a tool given build context.
@@ -73,9 +72,10 @@ func BuildCore(bc BuildContext) []tools.Tool {
 	return result
 }
 
-// BuildEnabled queries the store for enabled optional (non-required) tool
-// plugins and returns instances of all that are enabled.
-func BuildEnabled(ctx context.Context, store config.Store, bc BuildContext) []tools.Tool {
+// BuildEnabled builds optional (non-required) tool plugins that the caller
+// considers enabled. The enabled callback returns true for plugins that should
+// be instantiated — typically by consulting the config store.
+func BuildEnabled(bc BuildContext, enabled func(name string) bool) []tools.Tool {
 	mu.RLock()
 	defer mu.RUnlock()
 
@@ -84,12 +84,7 @@ func BuildEnabled(ctx context.Context, store config.Store, bc BuildContext) []to
 		if reg.Required {
 			continue // core tools built via BuildCore
 		}
-		p, err := store.GetPlugin(ctx, config.PluginID(config.PluginKindTool, name))
-		if err != nil {
-			slog.Debug("plugin tool not found in store", "name", name, "error", err)
-			continue
-		}
-		if !p.Enabled {
+		if !enabled(name) {
 			continue
 		}
 		t, err := reg.Factory(bc)

@@ -3,12 +3,12 @@ package rtk
 import (
 	"context"
 	"maps"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/pkg/hooks"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
 )
@@ -40,10 +40,21 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 	return hooks.PreToolCallResult{Arguments: args}, nil
 }
 
+// toolsBinDir is set by SetToolsBinDir before the first hook invocation.
+// The runner calls this after extracting embedded tools.
+var toolsBinDir string
+
+// SetToolsBinDir configures the directory where embedded tool binaries live.
+// Must be called before the first hook invocation (typically during runner setup).
+func SetToolsBinDir(dir string) { toolsBinDir = dir }
+
 // rtkPath caches the resolved rtk binary path (empty if not found).
 var rtkPath = sync.OnceValue(func() string {
-	if p := embedded.ToolPath(config.AnnaHome(), "rtk"); p != "" {
-		return p
+	if toolsBinDir != "" {
+		p := filepath.Join(toolsBinDir, "rtk")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
 	}
 	if p, err := exec.LookPath("rtk"); err == nil {
 		return p
