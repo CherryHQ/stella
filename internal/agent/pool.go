@@ -8,6 +8,7 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/memory"
+	"github.com/vaayne/anna/pkg/hooks"
 )
 
 // Pool manages a set of sessions, each with its own history and runner.
@@ -15,6 +16,7 @@ import (
 type Pool struct {
 	agentID      string // agent this pool belongs to (empty for legacy single-agent)
 	factory      runner.NewRunnerFunc
+	hooksFn      func() []hooks.HookPlugin // injected into RunnerParams; nil = no hooks
 	sessions     map[string]*Session
 	mem          memory.Engine // memory engine — sole persistence layer
 	mu           sync.Mutex
@@ -56,6 +58,15 @@ func (p *Pool) AgentID() string {
 func (p *Pool) SetFactory(factory runner.NewRunnerFunc) {
 	p.mu.Lock()
 	p.factory = factory
+	p.mu.Unlock()
+}
+
+// SetHooks updates the hook getter used when creating new runners.
+// Changing hooks never requires rebuilding the factory or resetting sessions —
+// new runners created after this call will use the updated hooks.
+func (p *Pool) SetHooks(fn func() []hooks.HookPlugin) {
+	p.mu.Lock()
+	p.hooksFn = fn
 	p.mu.Unlock()
 }
 

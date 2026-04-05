@@ -227,24 +227,32 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 // modelSwitcher returns a function that switches the pool's runner factory
 // to use a different provider/model combination.
-func modelSwitcher(snap *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool) func(string, string) error {
+// Each switch creates a new immutable snapshot so the factory closure captures
+// no shared mutable state — eliminating races between concurrent Chat calls and
+// model switches. Hooks are stored on the Pool independently and are not affected.
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool) func(string, string) error {
 	return func(provider, model string) error {
+		// Shallow-copy the base snapshot so we never mutate shared state.
+		snap := *base
 		snap.Provider = provider
-		snap.Model = model
+		snap.Model = provider + "/" + model
 
-		// Look up provider credentials from the store.
-		p, err := store.GetProvider(context.Background(), provider)
-		if err == nil {
-			snap.APIKey = p.APIKey
-			snap.BaseURL = p.BaseURL
+		// Fetch fresh provider credentials and record them in the copy's map.
+		if p, err := store.GetProvider(context.Background(), provider); err == nil {
+			providers := make(map[string]config.ProviderCreds, len(base.Providers)+1)
+			for k, v := range base.Providers {
+				providers[k] = v
+			}
+			providers[provider] = config.ProviderCreds{APIKey: p.APIKey, BaseURL: p.BaseURL}
+			snap.Providers = providers
 		}
 
-		factory, err := agent.NewRunnerFactory(snap, extraTools, nil)
+		factory, err := agent.NewRunnerFactory(&snap, extraTools)
 		if err != nil {
 			return err
 		}
 		pool.SetFactory(factory)
-		pool.SetDefaultModel(model)
+		pool.SetDefaultModel(snap.Model)
 		return nil
 	}
 }

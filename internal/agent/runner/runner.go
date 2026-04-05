@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/hooks"
 )
 
 // ToolUseEvent describes a tool invocation in progress or completed.
@@ -45,9 +46,10 @@ type Runner interface {
 
 // RunnerParams holds parameters for creating a new Runner instance.
 type RunnerParams struct {
-	Model      string // model ID (empty = use default)
-	UserMemory string // per-user memory to inject into system prompt
-	UserID     int64  // auth user ID (0 = no user isolation)
+	Model      string                    // model ID (empty = use default)
+	UserMemory string                    // per-user memory to inject into system prompt
+	UserID     int64                     // auth user ID (0 = no user isolation)
+	HooksFn    func() []hooks.HookPlugin // resolved at runner-creation time; nil = no hooks
 }
 
 // NewRunnerFunc creates a new Runner instance with the given params.

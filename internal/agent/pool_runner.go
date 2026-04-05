@@ -50,6 +50,11 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 			sess.Info = SessionInfo{ID: sessionID, CreatedAt: time.Now(), LastActive: time.Now()}
 		}
 	}
+
+	// Snapshot all mutable pool fields while still holding the lock.
+	factory := p.factory
+	hooksFn := p.hooksFn
+	defaultModel := p.defaultModel
 	p.mu.Unlock()
 
 	// Resolve the model: explicit > session's current > pool default.
@@ -58,7 +63,7 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 		effectiveModel = sess.Model
 	}
 	if effectiveModel == "" {
-		effectiveModel = p.defaultModel
+		effectiveModel = defaultModel
 	}
 
 	// Load per-user memory for system prompt injection.
@@ -71,7 +76,7 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 		}
 	}
 
-	r, err := p.factory(ctx, runner.RunnerParams{Model: effectiveModel, UserMemory: userMem, UserID: sess.Info.UserID})
+	r, err := factory(ctx, runner.RunnerParams{Model: effectiveModel, UserMemory: userMem, UserID: sess.Info.UserID, HooksFn: hooksFn})
 	if err != nil {
 		return nil, nil, err
 	}

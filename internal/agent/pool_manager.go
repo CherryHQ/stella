@@ -117,6 +117,16 @@ func (pm *PoolManager) Get(agentID string) *Pool {
 	return pm.pools[agentID]
 }
 
+// HookPlugins returns a snapshot copy of the current enabled hook plugins.
+// Returns a copy so callers cannot mutate or alias the internal slice.
+func (pm *PoolManager) HookPlugins() []hooks.HookPlugin {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	out := make([]hooks.HookPlugin, len(pm.hookPlugins))
+	copy(out, pm.hookPlugins)
+	return out
+}
+
 // StartAll reads enabled agents from the store, creates a Pool per agent
 // with per-agent runner factory, and starts reapers.
 func (pm *PoolManager) StartAll(ctx context.Context) error {
@@ -180,6 +190,7 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 	}
 
 	pool := NewPool(factory, pm.mem, poolOpts...)
+	pool.SetHooks(pm.HookPlugins)
 	go pool.StartReaper(ctx)
 
 	pm.mu.Lock()
@@ -230,7 +241,8 @@ func (pm *PoolManager) ReloadPluginTools(ctx context.Context) error {
 }
 
 // ReloadPluginHooks rebuilds the hook plugin set from current plugin state
-// and updates the runner factory for every pool.
+// and propagates it to every pool. No factory rebuild is needed — hooks live
+// on the Pool and are injected via RunnerParams at runner-creation time.
 func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	if pm.pluginHooksBuilder == nil {
 		return nil
@@ -246,10 +258,8 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	}
 	pm.mu.Unlock()
 
-	for agentID, pool := range pools {
-		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
-			pm.log.Error("failed to rebuild factory after hook reload", "agent_id", agentID, "error", err)
-		}
+	for _, pool := range pools {
+		pool.SetHooks(pm.HookPlugins)
 	}
 
 	pm.log.Info("plugin hooks reloaded", "hook_count", len(hookPlugins))
@@ -307,10 +317,11 @@ func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*
 }
 
 // buildFactory creates a runner factory with all shared, plugin, and per-agent tools.
+// Hooks are not part of the factory — they are stored on the Pool and injected
+// via RunnerParams.HooksFn at runner-creation time.
 func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (runner.NewRunnerFunc, error) {
 	pm.mu.RLock()
 	shared := pm.sharedExtraTools
-	hookPlugins := pm.hookPlugins
 	pm.mu.RUnlock()
 
 	var extraTools []tools.Tool
@@ -323,7 +334,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 		extraTools = append(extraTools, pm.extraToolsFactory(snap)...)
 	}
 
-	return NewRunnerFactory(snap, extraTools, hookPlugins)
+	return NewRunnerFactory(snap, extraTools)
 }
 
 // mergeTools creates a new slice containing core tools followed by plugin tools.
