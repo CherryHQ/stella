@@ -9,15 +9,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/pkg/tools"
+	"github.com/vaayne/anna/plugins/tools/bash"
+	"github.com/vaayne/anna/plugins/tools/edit"
+	"github.com/vaayne/anna/plugins/tools/read"
+	"github.com/vaayne/anna/plugins/tools/sandbox"
 	"github.com/vaayne/anna/plugins/tools/webfetch"
+	"github.com/vaayne/anna/plugins/tools/write"
 )
 
 func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 	t.Setenv("ANNA_HOME", t.TempDir())
-	config.ResetAnnaHome()
-	t.Cleanup(config.ResetAnnaHome)
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "note.txt")
@@ -25,7 +27,11 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg := tools.NewRegistry("")
+	reg := tools.NewRegistry()
+	reg.Register(&read.ReadTool{})
+	reg.Register(bash.NewBashTool(""))
+	reg.Register(&edit.EditTool{})
+	reg.Register(&write.WriteTool{})
 	defer func() { _ = reg.Close() }()
 
 	readResult, err := reg.Execute(context.Background(), "read", map[string]any{"file_path": path})
@@ -79,11 +85,13 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 
 func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 	t.Setenv("ANNA_HOME", t.TempDir())
-	config.ResetAnnaHome()
-	t.Cleanup(config.ResetAnnaHome)
 
 	workDir := t.TempDir()
-	reg := tools.NewRegistry(workDir)
+	reg := tools.NewRegistry()
+	reg.Register(&read.ReadTool{})
+	reg.Register(bash.NewBashTool(workDir))
+	reg.Register(&edit.EditTool{})
+	reg.Register(&write.WriteTool{})
 	// Register webfetch as an extra tool (simulating enabled plugin).
 	reg.Register(webfetch.New())
 	defer func() { _ = reg.Close() }()
@@ -118,13 +126,15 @@ func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 
 func TestDirectToolRegistrySandbox(t *testing.T) {
 	t.Setenv("ANNA_HOME", t.TempDir())
-	config.ResetAnnaHome()
-	t.Cleanup(config.ResetAnnaHome)
 
 	allowed := t.TempDir()
 	outside := t.TempDir()
 
-	reg := tools.NewRegistry("", allowed)
+	reg := tools.NewRegistry()
+	reg.Register(sandbox.WrapWithSandbox(&read.ReadTool{}, allowed, "file_path"))
+	reg.Register(bash.NewBashTool(allowed))
+	reg.Register(sandbox.WrapWithSandbox(&edit.EditTool{}, allowed, "file_path"))
+	reg.Register(sandbox.WrapWithSandbox(&write.WriteTool{}, allowed, "file_path"))
 	defer func() { _ = reg.Close() }()
 
 	_, err := reg.Execute(context.Background(), "read", map[string]any{

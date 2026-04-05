@@ -1,4 +1,4 @@
-package tools
+package read
 
 import (
 	"bufio"
@@ -6,13 +6,20 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/vaayne/anna/pkg/tools"
+	plugintools "github.com/vaayne/anna/plugins/tools"
 )
+
+func init() {
+	plugintools.Register("read", func() tools.Tool { return &ReadTool{} })
+}
 
 // ReadTool reads file contents.
 type ReadTool struct{}
 
-func (t *ReadTool) Definition() Definition {
-	return Definition{
+func (t *ReadTool) Definition() tools.Definition {
+	return tools.Definition{
 		Name:        "read",
 		Description: "Read the contents of a file. Output is truncated to 2000 lines or 50KB. Use offset and limit to paginate through large files.",
 		InputSchema: map[string]any{
@@ -58,7 +65,7 @@ func (t *ReadTool) Execute(_ context.Context, args map[string]any) (string, erro
 	if offset <= 1 {
 		sample := make([]byte, 8*1024)
 		n, _ := f.Read(sample)
-		if n > 0 && IsBinary(string(sample[:n])) {
+		if n > 0 && tools.IsBinary(string(sample[:n])) {
 			return "", fmt.Errorf("read %s: binary file detected — use bash with xxd, file, or other tools to inspect binary content", path)
 		}
 		// Reset to beginning for normal reading.
@@ -84,7 +91,7 @@ func (t *ReadTool) Execute(_ context.Context, args map[string]any) (string, erro
 	}
 
 	content := strings.Join(lines, "")
-	tr := TruncateHead(content)
+	tr := tools.TruncateHead(content)
 
 	// Ensure pagination advances by at least 1 line to avoid infinite loops
 	// (e.g., when a single line exceeds the byte limit and OutputLines == 0).
@@ -125,7 +132,7 @@ func (t *ReadTool) readFallback(path string, offset, limit int) (string, error) 
 		return "", fmt.Errorf("read %s: %w", path, err)
 	}
 
-	allLines := splitLines(string(data))
+	allLines := tools.SplitLines(string(data))
 	totalLines := len(allLines)
 
 	start := offset - 1
@@ -139,7 +146,7 @@ func (t *ReadTool) readFallback(path string, offset, limit int) (string, error) 
 	}
 
 	content := strings.Join(selected, "")
-	tr := TruncateHead(content)
+	tr := tools.TruncateHead(content)
 
 	linesConsumed := tr.OutputLines
 	if linesConsumed < 1 {

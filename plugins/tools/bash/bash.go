@@ -1,4 +1,4 @@
-package tools
+package bash
 
 import (
 	"bytes"
@@ -11,7 +11,13 @@ import (
 
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
+	"github.com/vaayne/anna/pkg/tools"
+	plugintools "github.com/vaayne/anna/plugins/tools"
 )
+
+func init() {
+	plugintools.Register("bash", func() tools.Tool { return NewBashTool("") })
+}
 
 // BashTool executes bash commands.
 type BashTool struct {
@@ -23,8 +29,8 @@ func NewBashTool(workDir string) *BashTool {
 	return &BashTool{workDir: workDir}
 }
 
-func (t *BashTool) Definition() Definition {
-	return Definition{
+func (t *BashTool) Definition() tools.Definition {
+	return tools.Definition{
 		Name:        "bash",
 		Description: "Execute a bash command. Use for file operations like ls, rg, find, git, and other shell commands.",
 		InputSchema: map[string]any{
@@ -75,11 +81,11 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (string, er
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		}
-		tr := TruncateTail(result)
+		tr := tools.TruncateTail(result)
 		tr.Content += formatMetadataFooter(exitCode, elapsed)
 		return tr.Content, fmt.Errorf("bash: exit code %d", exitCode)
 	}
-	tr := TruncateTail(result)
+	tr := tools.TruncateTail(result)
 	tr.Content += formatMetadataFooter(0, elapsed)
 	return tr.Content, nil
 }

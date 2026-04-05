@@ -9,7 +9,11 @@ import (
 	_ "github.com/vaayne/anna/plugins/providers/openai-response"
 
 	// Plugin tools.
+	_ "github.com/vaayne/anna/plugins/tools/bash"
+	_ "github.com/vaayne/anna/plugins/tools/edit"
+	_ "github.com/vaayne/anna/plugins/tools/read"
 	_ "github.com/vaayne/anna/plugins/tools/webfetch"
+	_ "github.com/vaayne/anna/plugins/tools/write"
 
 	// Plugin hooks.
 	_ "github.com/vaayne/anna/plugins/hooks/rtk"

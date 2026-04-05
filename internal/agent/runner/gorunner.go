@@ -13,6 +13,13 @@ import (
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
+	agenttool "github.com/vaayne/anna/plugins/tools/agent"
+	"github.com/vaayne/anna/plugins/tools/bash"
+	"github.com/vaayne/anna/plugins/tools/edit"
+	"github.com/vaayne/anna/plugins/tools/read"
+	"github.com/vaayne/anna/plugins/tools/sandbox"
+	"github.com/vaayne/anna/plugins/tools/write"
+
 	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
@@ -81,13 +88,25 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	eng := &engine.Engine{Providers: reg}
 	model := ai.Model{API: cfg.API, Name: cfg.Model}
 
-	toolReg := tools.NewRegistry(cfg.WorkDir, cfg.UserDataDir)
+	toolReg := tools.NewRegistry()
+
+	// Register core tools with sandbox wrapping.
+	bashDir := cfg.WorkDir
+	if cfg.UserDataDir != "" {
+		bashDir = cfg.UserDataDir
+	}
+	toolReg.Register(sandbox.WrapWithSandbox(&read.ReadTool{}, cfg.UserDataDir, "file_path"))
+	toolReg.Register(bash.NewBashTool(bashDir))
+	toolReg.Register(sandbox.WrapWithSandbox(&edit.EditTool{}, cfg.UserDataDir, "file_path"))
+	toolReg.Register(sandbox.WrapWithSandbox(&write.WriteTool{}, cfg.UserDataDir, "file_path"))
+
+	// Register extra tools (plugin tools like webfetch).
 	for _, t := range cfg.ExtraTools {
 		toolReg.Register(t)
 	}
 
 	// Load agent presets from filesystem.
-	presets := tools.NewPresetRegistry(tools.LoadAgentPresets(tools.LoadAgentPresetsConfig{
+	presets := agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
 		AnnaHome:  cfg.AnnaHome,
 		Workspace: cfg.Workspace,
 		Cwd:       cfg.WorkDir,
@@ -98,7 +117,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		hookSet = hooks.NewHookSet(cfg.HookPlugins)
 	}
 
-	toolReg.Register(tools.NewAgentTool(tools.AgentConfig{
+	toolReg.Register(agenttool.NewAgentTool(agenttool.AgentConfig{
 		Engine:   eng,
 		Registry: toolReg,
 		Model:    model,
