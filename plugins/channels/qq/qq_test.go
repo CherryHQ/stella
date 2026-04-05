@@ -295,7 +295,7 @@ func TestFormatModelListNoQuery(t *testing.T) {
 		{Provider: "openai", Model: "gpt-4"},
 		{Provider: "anthropic", Model: "claude-3"},
 	})
-	out := formatModelList(models, "")
+	out := channel.FormatModelList(models, "")
 	if !strings.Contains(out, "• openai/gpt-4") {
 		t.Errorf("missing model entry in output: %s", out)
 	}
@@ -311,7 +311,7 @@ func TestFormatModelListWithQuery(t *testing.T) {
 	models := channel.IndexModels([]channel.ModelOption{
 		{Provider: "openai", Model: "gpt-4"},
 	})
-	out := formatModelList(models, "openai")
+	out := channel.FormatModelList(models, "openai")
 	if !strings.Contains(out, `filter: "openai"`) {
 		t.Errorf("should show filter query: %s", out)
 	}
@@ -430,6 +430,13 @@ type mockHandler struct {
 	switchAgentFn   func(ctx context.Context, msg channel.IncomingMessage, slug string) error
 }
 
+func (m *mockHandler) HandleIncoming(_ context.Context, msg channel.IncomingMessage, cmd, args string) (string, bool, *channel.ChatStream, error) {
+	resp, handled := m.HandleCommand(context.Background(), msg, cmd, args)
+	if handled {
+		return resp, true, nil, nil
+	}
+	return "", false, nil, nil
+}
 func (m *mockHandler) HandleMessage(context.Context, channel.IncomingMessage) (*channel.ChatStream, error) {
 	return nil, nil
 }

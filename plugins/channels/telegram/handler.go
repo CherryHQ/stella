@@ -199,17 +199,23 @@ func (b *Bot) handleText(c tele.Context) error {
 
 	msg := b.incomingMsg(c, text)
 
-	// Try link code / shared commands via coordinator.
-	fields := strings.Fields(text)
-	if len(fields) > 0 {
-		cmd := fields[0]
-		args := strings.TrimSpace(strings.TrimPrefix(text, cmd))
-		if resp, ok := b.handler.HandleCommand(b.ctx, msg, cmd, args); ok {
-			return c.Send(resp)
-		}
+	// Parse command if present.
+	var cmd, args string
+	if fields := strings.Fields(text); len(fields) > 0 {
+		cmd = fields[0]
+		args = strings.TrimSpace(strings.TrimPrefix(text, cmd))
 	}
 
-	return b.handleMessage(c, msg)
+	// Single resolution: try command, then fall through to chat.
+	resp, handled, stream, err := b.handler.HandleIncoming(b.ctx, msg, cmd, args)
+	if err != nil {
+		return c.Send(fmt.Sprintf("Error: %v", err))
+	}
+	if handled {
+		return c.Send(resp)
+	}
+
+	return b.handleStream(c, stream)
 }
 
 // handlePhoto processes incoming photo messages.
@@ -254,16 +260,19 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	return b.handleMessage(c, msg)
 }
 
-// handleMessage is the common flow for text and multimodal messages.
+// handleMessage resolves and streams a response for non-text messages (photos).
 func (b *Bot) handleMessage(c tele.Context, msg channel.IncomingMessage) error {
-	chatID := c.Chat().ID
-
 	stream, err := b.handler.HandleMessage(b.ctx, msg)
 	if err != nil {
-		logger().Error("chat failed", "chat_id", chatID, "error", err)
+		logger().Error("chat failed", "chat_id", c.Chat().ID, "error", err)
 		return c.Send(fmt.Sprintf("Session error: %v", err))
 	}
+	return b.handleStream(c, stream)
+}
 
+// handleStream renders a ChatStream to the Telegram chat.
+func (b *Bot) handleStream(c tele.Context, stream *channel.ChatStream) error {
+	chatID := c.Chat().ID
 	logger().Debug("message received", "chat_id", chatID)
 
 	typingCtx, stopTyping := context.WithCancel(b.ctx)

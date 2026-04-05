@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/vaayne/anna/pkg/channel"
 	tele "gopkg.in/telebot.v4"
@@ -86,18 +85,8 @@ func (b *Bot) sendModelPage(c tele.Context, models []channel.IndexedModel, page 
 
 // switchModelByName handles model switching by "provider/model" name.
 func (b *Bot) switchModelByName(c tele.Context, name string) error {
-	name = strings.ToLower(strings.TrimSpace(name))
-	models := b.handler.ListModels()
-	var selected channel.ModelOption
-	found := false
-	for _, m := range models {
-		if strings.ToLower(m.Provider+"/"+m.Model) == name {
-			selected = m
-			found = true
-			break
-		}
-	}
-	if !found {
+	selected, ok := channel.FindModelByName(b.handler.ListModels(), name)
+	if !ok {
 		return c.Send(fmt.Sprintf("Unknown model %q, use /model to list available models.", name))
 	}
 
