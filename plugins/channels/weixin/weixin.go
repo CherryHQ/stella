@@ -2,16 +2,12 @@ package weixin
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/channel"
-	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/pkg/channel"
 )
 
 // Config holds WeChat iLink bot settings.
@@ -22,65 +18,33 @@ type Config struct {
 	UserID   string `json:"user_id"`   // ilink_user_id
 }
 
-// dbConfig is the JSON shape persisted in settings_plugins.config.
-// It extends Config with runtime state fields.
-type dbConfig struct {
-	Config
-	GetUpdatesBuf string `json:"get_updates_buf,omitempty"`
-}
-
 // Bot wraps a WeChat iLink bot with agent pool integration.
 // It implements channel.Channel.
 type Bot struct {
-	client      *Client
-	poolManager *agent.PoolManager
-	store       config.Store
-	authStore   auth.AuthStore
-	engine      *auth.PolicyEngine
-	linkCodes   *auth.LinkCodeStore
-	agentCmd    *channel.AgentCommander
-	listFn      channel.ModelListFunc
-	switchFn    channel.ModelSwitchFunc
+	client  *Client
+	handler channel.MessageHandler
 
 	contextTokens sync.Map // key: userID string, value: contextToken string
 	typingTickets sync.Map // key: userID string, value: typingTicket string
+
+	// cursor holds the getupdates cursor in memory. It is lost on restart
+	// but repopulated immediately on the first getupdates response.
+	cursor string
 
 	cfg    Config
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-// BotOption configures the WeChat Bot.
-type BotOption func(*Bot)
-
-// WithAuth configures the bot with auth store and link code store for
-// account linking support.
-func WithAuth(authStore auth.AuthStore, engine *auth.PolicyEngine, linkCodes *auth.LinkCodeStore) BotOption {
-	return func(b *Bot) {
-		b.authStore = authStore
-		b.engine = engine
-		b.linkCodes = linkCodes
-		b.agentCmd = channel.NewAgentCommander(b.store, authStore)
-	}
-}
-
 // New creates a WeChat iLink bot. Call Start to begin polling.
-func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc, opts ...BotOption) (*Bot, error) {
+func New(cfg Config, handler channel.MessageHandler) (*Bot, error) {
 	if cfg.BotToken == "" {
 		return nil, fmt.Errorf("weixin: bot_token is required")
 	}
 
 	b := &Bot{
-		poolManager: pm,
-		store:       store,
-		agentCmd:    channel.NewAgentCommander(store, nil),
-		listFn:      listFn,
-		switchFn:    switchFn,
-		cfg:         cfg,
-	}
-
-	for _, opt := range opts {
-		opt(b)
+		handler: handler,
+		cfg:     cfg,
 	}
 
 	return b, nil
@@ -104,9 +68,6 @@ func (b *Bot) Start(ctx context.Context) error {
 	// Create the client with config values.
 	b.client = NewClient(b.cfg.BaseURL, "", b.cfg.BotToken)
 
-	// Load saved cursor from DB channel config.
-	buf := b.loadCursor()
-
 	// Poll loop with retry/backoff.
 	timeout := 35 * time.Second
 	consecutiveFailures := 0
@@ -121,12 +82,12 @@ func (b *Bot) Start(ctx context.Context) error {
 		default:
 		}
 
-		resp, err := b.client.GetUpdates(buf, "", timeout)
+		resp, err := b.client.GetUpdates(b.cursor, "", timeout)
 		if err != nil {
 			if errors.Is(err, ErrSessionExpired) {
 				logger().Error("session expired, clearing all state")
-				b.clearCredentials()
-				return fmt.Errorf("weixin: session expired (ret=-14), credentials cleared")
+				b.clearState()
+				return fmt.Errorf("weixin: session expired (ret=-14)")
 			}
 
 			// Local timeout — treat as empty response, continue.
@@ -154,10 +115,9 @@ func (b *Bot) Start(ctx context.Context) error {
 		// Success — reset failure counter.
 		consecutiveFailures = 0
 
-		// Update cursor and persist.
+		// Update cursor.
 		if resp.GetUpdatesBuf != "" {
-			buf = resp.GetUpdatesBuf
-			b.persistCursor(buf)
+			b.cursor = resp.GetUpdatesBuf
 		}
 
 		// Use adaptive timeout from response.
@@ -210,83 +170,11 @@ func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
 	return nil
 }
 
-// resolve performs full user/agent/pool/session-key resolution.
-func (b *Bot) resolve(userID string) (*channel.ResolvedChat, error) {
-	return channel.Resolve(
-		context.Background(),
-		b.poolManager,
-		b.store,
-		b.authStore,
-		b.engine,
-		channel.PlatformWeixin,
-		userID,
-		"",     // no display name available from iLink
-		userID, // chatID = userID for DM
-		false,  // DM only for v1
-	)
-}
-
-// loadCursor loads the get_updates_buf cursor from the plugin config.
-func (b *Bot) loadCursor() string {
-	pluginID := config.PluginID(config.PluginKindChannel, channel.PlatformWeixin)
-	p, err := b.store.GetPlugin(context.Background(), pluginID)
-	if err != nil {
-		return ""
-	}
-	var dc dbConfig
-	data, err := json.Marshal(p.Config)
-	if err != nil {
-		return ""
-	}
-	if err := json.Unmarshal(data, &dc); err != nil {
-		return ""
-	}
-	return dc.GetUpdatesBuf
-}
-
-// persistCursor saves the get_updates_buf cursor to the plugin config.
-func (b *Bot) persistCursor(buf string) {
-	pluginID := config.PluginID(config.PluginKindChannel, channel.PlatformWeixin)
-	p, err := b.store.GetPlugin(context.Background(), pluginID)
-	if err != nil {
-		logger().Warn("failed to load plugin config for cursor persist", "error", err)
-		return
-	}
-	if p.Config == nil {
-		p.Config = make(map[string]any)
-	}
-	p.Config["get_updates_buf"] = buf
-
-	if err := b.store.UpsertPlugin(context.Background(), p); err != nil {
-		logger().Warn("failed to persist cursor", "error", err)
-	}
-}
-
-// clearCredentials removes credentials and state from DB and in-memory caches.
-func (b *Bot) clearCredentials() {
-	// Clear in-memory caches.
+// clearState clears in-memory caches on session expiry.
+func (b *Bot) clearState() {
 	b.contextTokens = sync.Map{}
 	b.typingTickets = sync.Map{}
-
-	// Clear credentials from plugin config.
-	pluginID := config.PluginID(config.PluginKindChannel, channel.PlatformWeixin)
-	p, err := b.store.GetPlugin(context.Background(), pluginID)
-	if err != nil {
-		logger().Warn("failed to load plugin config for credential clear", "error", err)
-		return
-	}
-	if p.Config == nil {
-		p.Config = make(map[string]any)
-	}
-
-	delete(p.Config, "bot_token")
-	delete(p.Config, "bot_id")
-	delete(p.Config, "user_id")
-	delete(p.Config, "get_updates_buf")
-
-	if err := b.store.UpsertPlugin(context.Background(), p); err != nil {
-		logger().Warn("failed to clear credentials in DB", "error", err)
-	}
+	b.cursor = ""
 }
 
 // isTimeoutError checks if an error is a network timeout.

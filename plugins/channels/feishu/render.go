@@ -4,16 +4,14 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"strings"
-	"unicode/utf8"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
-	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/pkg/channel"
 )
 
 // sendImage decodes a base64 image, uploads it to Feishu to obtain an image_key,
 // then sends it as an image message in the chat.
-func (b *Bot) sendImage(chatID, replyMsgID string, img runner.ImageEvent) {
+func (b *Bot) sendImage(chatID, replyMsgID string, img channel.ImageEvent) {
 	data, err := base64.StdEncoding.DecodeString(img.Data)
 	if err != nil {
 		logger().Error("decode image failed", "error", err)
@@ -60,34 +58,4 @@ func (b *Bot) sendImage(chatID, replyMsgID string, img runner.ImageEvent) {
 	if !resp.Success() {
 		logger().Error("send image api error", "code", resp.Code, "msg", resp.Msg)
 	}
-}
-
-// splitMessage splits a message into chunks that fit within Feishu's message
-// length limit. It tries to split at newline boundaries when possible.
-func splitMessage(text string) []string {
-	if len(text) <= feishuMaxMessageLen {
-		return []string{text}
-	}
-
-	var chunks []string
-	for len(text) > 0 {
-		if len(text) <= feishuMaxMessageLen {
-			chunks = append(chunks, text)
-			break
-		}
-
-		cutAt := feishuMaxMessageLen
-		// Avoid splitting in the middle of a multi-byte UTF-8 character.
-		for cutAt > 0 && !utf8.RuneStart(text[cutAt]) {
-			cutAt--
-		}
-		if idx := strings.LastIndex(text[:cutAt], "\n"); idx > 0 {
-			cutAt = idx + 1
-		}
-
-		chunks = append(chunks, text[:cutAt])
-		text = text[cutAt:]
-	}
-
-	return chunks
 }

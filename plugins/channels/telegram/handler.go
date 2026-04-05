@@ -9,9 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/channel"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -106,16 +105,13 @@ func (b *Bot) registerHandlers() {
 	b.bot.Handle("\fagent_page", b.guard(func(c tele.Context) error {
 		page, _ := strconv.Atoi(c.Data())
 
-		rc, err := b.resolve(c)
+		msg := b.incomingMsg(c, "")
+		agents, currentAgentID, err := b.handler.ListAgents(context.Background(), msg)
 		if err != nil {
 			return c.Send(fmt.Sprintf("Error: %v", err))
 		}
-
-		agents, listErr := b.agentCmd.List(context.Background())
-		if listErr != nil {
-			return c.Send(fmt.Sprintf("Error: %v", listErr))
-		}
-		if err := b.sendAgentPage(c, channel.IndexAgents(agents), page, rc.AgentID, true); err != nil {
+		indexed := channel.IndexAgents(agents)
+		if err := b.sendAgentPage(c, indexed, page, currentAgentID, true); err != nil {
 			logger().Error("agent page failed", "page", page, "error", err)
 			return err
 		}
@@ -143,7 +139,7 @@ func (b *Bot) registerHandlers() {
 
 // modelList returns models optionally filtered by query.
 func (b *Bot) modelList(query string) []channel.IndexedModel {
-	models := b.listFn()
+	models := b.handler.ListModels()
 	if query == "" {
 		return channel.IndexModels(models)
 	}
@@ -171,27 +167,27 @@ func (b *Bot) handleModel(c tele.Context) error {
 
 // handleAgent handles the /agent command with inline keyboard.
 func (b *Bot) handleAgent(c tele.Context) error {
-	rc, err := b.resolve(c)
-	if err != nil {
-		return c.Send(fmt.Sprintf("Error: %v", err))
-	}
-
-	ctx := context.Background()
 	args := strings.TrimSpace(c.Message().Payload)
+
+	msg := b.incomingMsg(c, "")
 
 	// Direct switch by slug.
 	if args != "" {
-		return b.switchAgentBySlug(c, rc, args)
+		if err := b.handler.SwitchAgent(context.Background(), msg, args); err != nil {
+			return c.Send(fmt.Sprintf("Error switching agent: %v", err))
+		}
+		logger().Info("agent switched", "agent_id", args)
+		return c.Send(fmt.Sprintf("Switched to agent: %s", args))
 	}
 
-	agents, listErr := b.agentCmd.List(ctx)
-	if listErr != nil {
-		return c.Send(fmt.Sprintf("Error listing agents: %v", listErr))
+	agents, currentAgentID, err := b.handler.ListAgents(context.Background(), msg)
+	if err != nil {
+		return c.Send(fmt.Sprintf("Error listing agents: %v", err))
 	}
 	if len(agents) == 0 {
 		return c.Send("No agents available.")
 	}
-	return b.sendAgentKeyboard(c, channel.IndexAgents(agents), rc.AgentID)
+	return b.sendAgentKeyboard(c, channel.IndexAgents(agents), currentAgentID)
 }
 
 // handleText processes incoming text messages.
@@ -201,30 +197,19 @@ func (b *Bot) handleText(c tele.Context) error {
 		text = b.stripBotMention(text)
 	}
 
-	// Try link code before anything else.
-	if b.authStore != nil && b.linkCodes != nil {
-		sender := c.Sender()
-		if sender != nil {
-			name := sender.FirstName
-			if name == "" {
-				name = sender.Username
-			}
-			if resp, ok := channel.TryLinkCode(b.ctx, b.authStore, b.linkCodes, text, channel.PlatformTelegram, strconv.FormatInt(sender.ID, 10), name); ok {
-				return c.Send(resp)
-			}
+	msg := b.incomingMsg(c, text)
+
+	// Try link code / shared commands via coordinator.
+	fields := strings.Fields(text)
+	if len(fields) > 0 {
+		cmd := fields[0]
+		args := strings.TrimSpace(strings.TrimPrefix(text, cmd))
+		if resp, ok := b.handler.HandleCommand(b.ctx, msg, cmd, args); ok {
+			return c.Send(resp)
 		}
 	}
 
-	// Try shared command handler first.
-	rc, err := b.resolve(c)
-	if err != nil {
-		return c.Send(fmt.Sprintf("Error: %v", err))
-	}
-	if resp, ok := channel.HandleCommand(b.ctx, rc, text, strconv.FormatInt(c.Sender().ID, 10)); ok {
-		return c.Send(resp)
-	}
-
-	return b.handleMessage(c, rc, text)
+	return b.handleMessage(c, msg)
 }
 
 // handlePhoto processes incoming photo messages.
@@ -265,18 +250,15 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 
 	logger().Debug("photo received", "chat_id", c.Chat().ID, "size", len(data), "mime", mimeType)
 
-	rc, err := b.resolve(c)
-	if err != nil {
-		return c.Send(fmt.Sprintf("Error: %v", err))
-	}
-	return b.handleMessage(c, rc, content)
+	msg := b.incomingMsg(c, content)
+	return b.handleMessage(c, msg)
 }
 
 // handleMessage is the common flow for text and multimodal messages.
-func (b *Bot) handleMessage(c tele.Context, rc *channel.ResolvedChat, message runner.MessageContent) error {
+func (b *Bot) handleMessage(c tele.Context, msg channel.IncomingMessage) error {
 	chatID := c.Chat().ID
 
-	events, sessionID, err := rc.Chat(b.ctx, message)
+	stream, err := b.handler.HandleMessage(b.ctx, msg)
 	if err != nil {
 		logger().Error("chat failed", "chat_id", chatID, "error", err)
 		return c.Send(fmt.Sprintf("Session error: %v", err))
@@ -287,12 +269,12 @@ func (b *Bot) handleMessage(c tele.Context, rc *channel.ResolvedChat, message ru
 	typingCtx, stopTyping := context.WithCancel(b.ctx)
 	go keepTyping(typingCtx, c)
 
-	response, tracker, images, streamErr := b.streamEvents(c, events)
+	response, tracker, images, streamErr := b.streamEvents(c, stream.Events)
 
 	stopTyping()
 
 	if streamErr != nil {
-		logger().Error("agent stream error", "session_id", sessionID, "error", streamErr)
+		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
 		if response == "" {
 			response = fmt.Sprintf("Agent error: %v", streamErr)
 		} else {

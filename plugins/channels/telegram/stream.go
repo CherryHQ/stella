@@ -9,8 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/pkg/channel"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -57,7 +56,7 @@ type toolTracker struct {
 }
 
 // start registers a new tool as running.
-func (tt *toolTracker) start(t *runner.ToolUseEvent) {
+func (tt *toolTracker) start(t *channel.ToolUseEvent) {
 	// If a tool was already active, finish it as "done" (missed the finish event).
 	if tt.activeTool != "" {
 		tt.history = append(tt.history, toolRecord{
@@ -74,7 +73,7 @@ func (tt *toolTracker) start(t *runner.ToolUseEvent) {
 }
 
 // finish records the active tool as completed and enforces minimum display time.
-func (tt *toolTracker) finish(t *runner.ToolUseEvent) {
+func (tt *toolTracker) finish(t *channel.ToolUseEvent) {
 	dur := time.Since(tt.activeStart)
 	input := tt.activeInput
 	if t.Input != "" {
@@ -94,7 +93,7 @@ func (tt *toolTracker) finish(t *runner.ToolUseEvent) {
 }
 
 // handle processes a tool event, returning true if a display refresh is needed.
-func (tt *toolTracker) handle(t *runner.ToolUseEvent) bool {
+func (tt *toolTracker) handle(t *channel.ToolUseEvent) bool {
 	switch t.Status {
 	case "running":
 		tt.start(t)
@@ -259,7 +258,7 @@ func truncate(s string, maxLen int) string {
 // For private chats it uses Telegram's sendMessageDraft API (Bot API 9.3+)
 // for smooth animated streaming. For groups (where drafts aren't supported)
 // it falls back to the edit-in-place approach.
-func (b *Bot) streamEvents(c tele.Context, events <-chan runner.Event) (string, *toolTracker, []runner.ImageEvent, error) {
+func (b *Bot) streamEvents(c tele.Context, events <-chan channel.Event) (string, *toolTracker, []channel.ImageEvent, error) {
 	if !isGroup(c) {
 		text, tracker, images, fallback, err := b.streamDraft(c, events)
 		if fallback {
@@ -278,11 +277,11 @@ func (b *Bot) streamEvents(c tele.Context, events <-chan runner.Event) (string, 
 // in private chats. If the first draft call fails, it returns fallback=true
 // so the caller can switch to edit mode. The buffered text is returned so
 // no consumed events are lost.
-func (b *Bot) streamDraft(c tele.Context, events <-chan runner.Event) (text string, tracker *toolTracker, images []runner.ImageEvent, fallback bool, err error) {
+func (b *Bot) streamDraft(c tele.Context, events <-chan channel.Event) (text string, tracker *toolTracker, images []channel.ImageEvent, fallback bool, err error) {
 	var sb strings.Builder
 	var streamErr error
 	var tt toolTracker
-	var imgs []runner.ImageEvent
+	var imgs []channel.ImageEvent
 	lastSend := time.Time{}
 	draftID := rand.Int64N(1<<53) + 1
 	chatID := c.Chat().ID
@@ -335,7 +334,7 @@ func (b *Bot) streamDraft(c tele.Context, events <-chan runner.Event) (text stri
 // consuming from an existing event channel. Required for group chats where
 // sendMessageDraft is not available. Any already-buffered text from a prior
 // draft attempt is preserved via the initial parameter.
-func (b *Bot) streamEditEvents(c tele.Context, events <-chan runner.Event, initial string, existing *toolTracker, existingImages []runner.ImageEvent) (string, *toolTracker, []runner.ImageEvent, error) {
+func (b *Bot) streamEditEvents(c tele.Context, events <-chan channel.Event, initial string, existing *toolTracker, existingImages []channel.ImageEvent) (string, *toolTracker, []channel.ImageEvent, error) {
 	var sb strings.Builder
 	sb.WriteString(initial)
 	var sentMsg *tele.Message
@@ -344,7 +343,7 @@ func (b *Bot) streamEditEvents(c tele.Context, events <-chan runner.Event, initi
 	if existing != nil {
 		tt = *existing
 	}
-	var imgs []runner.ImageEvent
+	var imgs []channel.ImageEvent
 	imgs = append(imgs, existingImages...)
 	lastEdit := time.Time{}
 

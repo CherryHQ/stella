@@ -2,92 +2,66 @@ package feishu
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
-	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/pkg/channel"
 )
 
-// ModelOption re-exports channel.ModelOption for use by callers.
-type ModelOption = channel.ModelOption
-
-// ModelListFunc re-exports channel.ModelListFunc for use by callers.
-type ModelListFunc = channel.ModelListFunc
-
-// ModelSwitchFunc re-exports channel.ModelSwitchFunc for use by callers.
-type ModelSwitchFunc = channel.ModelSwitchFunc
-
 // handleModelCommand processes /model with optional arguments.
-// No args → list models; number → switch by index; text → filter.
-func (b *Bot) handleModelCommand(rc *channel.ResolvedChat, args string, reply func(string)) {
-	models := b.listFn()
+// No args -> list models; number -> switch by index; text -> filter.
+func (b *Bot) handleModelCommand(args string, reply func(string)) {
+	query := channel.ParseModelArgs(args)
+	models := b.handler.ListModels()
 
-	if args == "" {
-		reply(formatModelList(models, ""))
+	if query == "" {
+		indexed := channel.IndexModels(models)
+		reply(formatModelList(indexed, ""))
 		return
 	}
 
-	// Numeric arg → direct switch by 1-based global index.
-	if idx, err := strconv.Atoi(args); err == nil {
-		b.switchModel(rc, models, idx, reply)
+	// Check if it's a direct "provider/model" name.
+	if strings.Contains(query, "/") {
+		b.switchModelByName(query, reply)
 		return
 	}
 
-	// Text arg → filter models by substring match.
-	filtered := filterModelsIndexed(models, args)
+	// Text arg -> filter models by substring match.
+	filtered := channel.FilterModels(models, query)
 	if len(filtered) == 0 {
-		reply(fmt.Sprintf("No models matching %q.", args))
+		reply(fmt.Sprintf("No models matching %q.", query))
 		return
 	}
-	reply(formatIndexedModelList(filtered, args))
+	reply(formatModelList(filtered, query))
 }
 
-// switchModel handles model switching by 1-based index.
-func (b *Bot) switchModel(rc *channel.ResolvedChat, models []ModelOption, idx int, reply func(string)) {
-	if idx < 1 || idx > len(models) {
-		reply(fmt.Sprintf("Invalid selection. Use a number between 1 and %d.", len(models)))
-		return
-	}
-	selected := models[idx-1]
-	if b.switchFn != nil {
-		if err := b.switchFn(selected.Provider, selected.Model); err != nil {
-			reply(fmt.Sprintf("Error switching model: %v", err))
-			return
+// switchModelByName handles model switching by "provider/model" name.
+func (b *Bot) switchModelByName(name string, reply func(string)) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	models := b.handler.ListModels()
+	var selected channel.ModelOption
+	found := false
+	for _, m := range models {
+		if strings.ToLower(m.Provider+"/"+m.Model) == name {
+			selected = m
+			found = true
+			break
 		}
 	}
-	if _, err := rc.RotateSession(); err != nil {
-		logger().Error("rotate session after model switch failed", "key", rc.SessionKey, "error", err)
+	if !found {
+		reply(fmt.Sprintf("Unknown model %q, use /model to list available models.", name))
+		return
 	}
-	b.mu.Lock()
-	b.chatModels[rc.SessionKey] = selected
-	b.mu.Unlock()
-	logger().Info("model switched", "key", rc.SessionKey, "provider", selected.Provider, "model", selected.Model)
+
+	if err := b.handler.SwitchModel(selected.Provider, selected.Model); err != nil {
+		reply(fmt.Sprintf("Error switching model: %v", err))
+		return
+	}
+	logger().Info("model switched", "provider", selected.Provider, "model", selected.Model)
 	reply(fmt.Sprintf("Switched to %s/%s. Session reset.", selected.Provider, selected.Model))
 }
 
-// indexedModel pairs a ModelOption with its 1-based global index.
-type indexedModel struct {
-	ModelOption
-	globalIdx int
-}
-
 // formatModelList builds a text-based model list with 1-based numbered entries.
-func formatModelList(models []ModelOption, query string) string {
-	var sb strings.Builder
-	sb.WriteString("Available models")
-	if query != "" {
-		fmt.Fprintf(&sb, " (filter: %q)", query)
-	}
-	sb.WriteString(":\n\n")
-	for i, m := range models {
-		fmt.Fprintf(&sb, "%d. %s/%s\n", i+1, m.Provider, m.Model)
-	}
-	sb.WriteString("\nUse /model <number> to switch.")
-	return sb.String()
-}
-
-// formatIndexedModelList builds a text list preserving global indices.
-func formatIndexedModelList(models []indexedModel, query string) string {
+func formatModelList(models []channel.IndexedModel, query string) string {
 	var sb strings.Builder
 	sb.WriteString("Available models")
 	if query != "" {
@@ -95,22 +69,8 @@ func formatIndexedModelList(models []indexedModel, query string) string {
 	}
 	sb.WriteString(":\n\n")
 	for _, m := range models {
-		fmt.Fprintf(&sb, "%d. %s/%s\n", m.globalIdx, m.Provider, m.Model)
+		fmt.Fprintf(&sb, "%d. %s/%s\n", m.GlobalIdx, m.Provider, m.Model)
 	}
 	sb.WriteString("\nUse /model <number> to switch.")
 	return sb.String()
-}
-
-// filterModelsIndexed returns indexed models matching the query,
-// preserving their 1-based global indices from the full list.
-func filterModelsIndexed(models []ModelOption, query string) []indexedModel {
-	query = strings.ToLower(query)
-	var out []indexedModel
-	for i, m := range models {
-		label := strings.ToLower(m.Provider + "/" + m.Model)
-		if strings.Contains(label, query) {
-			out = append(out, indexedModel{ModelOption: m, globalIdx: i + 1})
-		}
-	}
-	return out
 }

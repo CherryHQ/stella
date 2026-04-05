@@ -1,41 +1,35 @@
 package channel
 
-import "context"
-
-// Platform identifiers for each messaging channel.
-const (
-	PlatformTelegram = "telegram"
-	PlatformQQ       = "qq"
-	PlatformFeishu   = "feishu"
-	PlatformWeixin   = "weixin"
-	PlatformCLI      = "cli"
+import (
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
-// Channel is a messaging platform that receives user messages and sends notifications.
-type Channel interface {
-	// Name returns a unique identifier (e.g. "telegram", "qq").
-	Name() string
+// Type aliases re-exported from pkg/channel so that internal callers
+// continue to compile without import changes.
 
-	// Start begins listening for messages. Blocks until ctx is cancelled.
-	Start(ctx context.Context) error
+// Platform identifiers.
+const (
+	PlatformTelegram = pkgchannel.PlatformTelegram
+	PlatformQQ       = pkgchannel.PlatformQQ
+	PlatformFeishu   = pkgchannel.PlatformFeishu
+	PlatformWeixin   = pkgchannel.PlatformWeixin
+	PlatformCLI      = pkgchannel.PlatformCLI
+)
 
-	// Stop gracefully shuts down the channel.
-	Stop()
+// Channel is the messaging platform adapter interface.
+type Channel = pkgchannel.Channel
 
-	// Notify sends a push notification to a target within this channel.
-	Notify(ctx context.Context, n Notification) error
-}
+// Notification is a push message to send to a chat.
+type Notification = pkgchannel.Notification
 
 // ModelOption represents a selectable provider/model combination.
-type ModelOption struct {
-	Provider string
-	Model    string
-}
+type ModelOption = pkgchannel.ModelOption
+
+// AgentInfo is agent metadata for display in channel UIs.
+type AgentInfo = pkgchannel.AgentInfo
 
 // ModelListFunc returns the current list of available models.
-// Called on demand so callers always see the latest cached models.
 type ModelListFunc func() []ModelOption
 
 // ModelSwitchFunc switches the active model in the pool.
-// It rebuilds the runner factory for the given provider/model pair.
 type ModelSwitchFunc func(provider, model string) error

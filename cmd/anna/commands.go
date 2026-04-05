@@ -227,7 +227,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 // modelSwitcher returns a function that switches the pool's runner factory
 // to use a different provider/model combination.
-func modelSwitcher(snap *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool) channel.ModelSwitchFunc {
+func modelSwitcher(snap *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool) func(string, string) error {
 	return func(provider, model string) error {
 		snap.Provider = provider
 		snap.Model = model

@@ -7,7 +7,7 @@ import (
 	"unicode/utf8"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
-	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/pkg/channel"
 )
 
 const streamEditInterval = time.Second
@@ -33,7 +33,7 @@ var toolEmoji = map[string]string{
 }
 
 // toolLine returns a short status line for a tool-use event.
-func toolLine(t *runner.ToolUseEvent) string {
+func toolLine(t *channel.ToolUseEvent) string {
 	emoji, ok := toolEmoji[t.Tool]
 	if !ok {
 		emoji = toolEmoji["default"]
@@ -77,14 +77,14 @@ var nowFunc = time.Now
 //  1. Thinking: sends initial card with "Thinking..." immediately
 //  2. Generating: updates card with streaming content + cursor
 //  3. Complete: final content with elapsed time footer
-func (b *Bot) streamResponseInThread(events <-chan runner.Event, chatID, replyMsgID, rootID string) (string, string, []runner.ImageEvent, time.Duration, error) {
+func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyMsgID, rootID string) (string, string, []channel.ImageEvent, time.Duration, error) {
 	startTime := nowFunc()
 
 	var sb strings.Builder
 	var streamErr error
 	var currentTool string
 	var sentMsgID string
-	var images []runner.ImageEvent
+	var images []channel.ImageEvent
 	phase := phaseThinking
 	lastSend := time.Time{}
 
@@ -134,7 +134,7 @@ func (b *Bot) streamResponseInThread(events <-chan runner.Event, chatID, replyMs
 			continue
 		}
 
-		// Phase 2: Generating — content with cursor.
+		// Phase 2: Generating -- content with cursor.
 		display := buildStreamDisplay(current, currentTool)
 
 		if sentMsgID == "" {
@@ -153,7 +153,7 @@ func (b *Bot) streamResponseInThread(events <-chan runner.Event, chatID, replyMs
 		lastSend = now
 	}
 
-	// Phase 3: Complete — remove cursor (final patch is handled by handleMessage
+	// Phase 3: Complete -- remove cursor (final patch is handled by handleMessage
 	// via sendFinalResponseInThread with elapsed time appended).
 	elapsed := nowFunc().Sub(startTime)
 
