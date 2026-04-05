@@ -12,6 +12,7 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/memory"
 	"github.com/vaayne/anna/internal/skills"
+	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
@@ -23,6 +24,10 @@ type ExtraToolsFactory func(snap *config.Snapshot) []tools.Tool
 // PluginToolsBuilder creates tools from enabled plugin state.
 // Called at startup and on hot-reload when a plugin is toggled.
 type PluginToolsBuilder func(ctx context.Context) []tools.Tool
+
+// PluginHooksBuilder creates hook plugins from enabled plugin state.
+// Called at startup and on hot-reload when a hook plugin is toggled.
+type PluginHooksBuilder func(ctx context.Context) []hooks.HookPlugin
 
 // PoolManagerOption configures a PoolManager.
 type PoolManagerOption func(*PoolManager)
@@ -63,6 +68,13 @@ func WithPluginToolsBuilder(b PluginToolsBuilder) PoolManagerOption {
 	}
 }
 
+// WithPluginHooksBuilder sets the function that builds hooks from plugin state.
+func WithPluginHooksBuilder(b PluginHooksBuilder) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.pluginHooksBuilder = b
+	}
+}
+
 // PoolManager manages a map of agent ID to Pool. It reads enabled agents
 // from the config Store and creates one Pool per agent.
 type PoolManager struct {
@@ -75,6 +87,8 @@ type PoolManager struct {
 	coreSharedTools    []tools.Tool       // always-on tools (scheduler, memory, etc.)
 	sharedExtraTools   []tools.Tool       // coreSharedTools + plugin tools
 	pluginToolsBuilder PluginToolsBuilder // builds tools from plugin state
+	hookPlugins        []hooks.HookPlugin // current enabled hook plugins
+	pluginHooksBuilder PluginHooksBuilder // builds hooks from plugin state
 	extraToolsFactory  ExtraToolsFactory
 	userMemory         *memory.UserMemoryStore // per-user memory for prompt injection
 	log                *slog.Logger
@@ -110,6 +124,11 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 	if pm.pluginToolsBuilder != nil {
 		pluginTools := pm.pluginToolsBuilder(ctx)
 		pm.sharedExtraTools = mergeTools(pm.coreSharedTools, pluginTools)
+	}
+
+	// Build initial hook plugins.
+	if pm.pluginHooksBuilder != nil {
+		pm.hookPlugins = pm.pluginHooksBuilder(ctx)
 	}
 
 	agents, err := pm.store.ListEnabledAgents(ctx)
@@ -210,6 +229,33 @@ func (pm *PoolManager) ReloadPluginTools(ctx context.Context) error {
 	return nil
 }
 
+// ReloadPluginHooks rebuilds the hook plugin set from current plugin state
+// and updates the runner factory for every pool.
+func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
+	if pm.pluginHooksBuilder == nil {
+		return nil
+	}
+
+	hookPlugins := pm.pluginHooksBuilder(ctx)
+
+	pm.mu.Lock()
+	pm.hookPlugins = hookPlugins
+	pools := make(map[string]*Pool, len(pm.pools))
+	for id, p := range pm.pools {
+		pools[id] = p
+	}
+	pm.mu.Unlock()
+
+	for agentID, pool := range pools {
+		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
+			pm.log.Error("failed to rebuild factory after hook reload", "agent_id", agentID, "error", err)
+		}
+	}
+
+	pm.log.Info("plugin hooks reloaded", "hook_count", len(hookPlugins))
+	return nil
+}
+
 // rebuildPoolFactory rebuilds and replaces the runner factory for a single pool.
 func (pm *PoolManager) rebuildPoolFactory(ctx context.Context, agentID string, pool *Pool) error {
 	snap, _, err := pm.loadAgentSnapshot(ctx, agentID)
@@ -242,6 +288,7 @@ func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*
 func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (runner.NewRunnerFunc, error) {
 	pm.mu.RLock()
 	shared := pm.sharedExtraTools
+	hookPlugins := pm.hookPlugins
 	pm.mu.RUnlock()
 
 	var extraTools []tools.Tool
@@ -254,7 +301,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 		extraTools = append(extraTools, pm.extraToolsFactory(snap)...)
 	}
 
-	return NewRunnerFactory(snap, extraTools)
+	return NewRunnerFactory(snap, extraTools, hookPlugins)
 }
 
 // mergeTools creates a new slice containing core tools followed by plugin tools.

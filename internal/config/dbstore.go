@@ -583,6 +583,18 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindChannel, name, err)
 		}
 	}
+	for _, name := range builtinHookNames {
+		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
+			ID:      PluginID(PluginKindHook, name),
+			Kind:    PluginKindHook,
+			Name:    name,
+			Enabled: 1,
+			Config:  "{}",
+		})
+		if err != nil {
+			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindHook, name, err)
+		}
+	}
 
 	return nil
 }

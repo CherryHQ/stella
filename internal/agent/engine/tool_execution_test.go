@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/hooks"
 )
 
 func TestExecuteToolCalls(t *testing.T) {
@@ -17,7 +18,7 @@ func TestExecuteToolCalls(t *testing.T) {
 		},
 	}
 
-	results, err := ExecuteToolCalls(context.Background(), calls, tools, ToolCallbacks{})
+	results, err := ExecuteToolCalls(context.Background(), calls, tools, ToolCallbacks{}, nil, hooks.HookMeta{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -40,7 +41,7 @@ func TestExecuteToolCallsToolError(t *testing.T) {
 		},
 	}
 
-	results, err := ExecuteToolCalls(context.Background(), calls, tools, ToolCallbacks{})
+	results, err := ExecuteToolCalls(context.Background(), calls, tools, ToolCallbacks{}, nil, hooks.HookMeta{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestExecuteToolCallsPreservesContentOnError(t *testing.T) {
 		},
 	}
 
-	results, err := ExecuteToolCalls(context.Background(), calls, tools, ToolCallbacks{})
+	results, err := ExecuteToolCalls(context.Background(), calls, tools, ToolCallbacks{}, nil, hooks.HookMeta{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -84,7 +85,7 @@ func TestExecuteToolCallsEmptyContentOnError(t *testing.T) {
 		},
 	}
 
-	results, err := ExecuteToolCalls(context.Background(), calls, tools, ToolCallbacks{})
+	results, err := ExecuteToolCalls(context.Background(), calls, tools, ToolCallbacks{}, nil, hooks.HookMeta{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

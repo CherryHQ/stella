@@ -13,6 +13,7 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/engine"
 	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/hooks"
 )
 
 const (
@@ -35,6 +36,7 @@ type AgentConfig struct {
 	System   string
 	Emit     func(engine.LoopEvent) // optional event emitter for observability
 	Presets  *PresetRegistry        // loaded agent presets (nil = no presets)
+	Hooks    *hooks.HookSet         // inherited by subagents (nil = no hooks)
 
 	// Configurable limits (zero = use defaults).
 	MaxTasks       int // max tasks per invocation
@@ -298,6 +300,7 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 		Tools:           toolSet,
 		ToolDefinitions: toolDefs,
 		System:          system,
+		Hooks:           t.cfg.Hooks,
 	}
 
 	// Build user message: optional context + task.

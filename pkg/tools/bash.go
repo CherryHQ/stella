@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/vaayne/anna/internal/config"
@@ -48,7 +47,6 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (string, er
 	}
 
 	env := envWithToolsBin()
-	command = wrapWithRTK(command)
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	if t.workDir != "" {
@@ -88,37 +86,6 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (string, er
 
 func formatMetadataFooter(exitCode int, elapsed time.Duration) string {
 	return fmt.Sprintf("\n[exit:%d | %s]", exitCode, formatDuration(elapsed))
-}
-
-// rtkPath caches the resolved rtk binary path (empty if not found).
-var rtkPath = sync.OnceValue(func() string {
-	// Check ANNA_HOME/bin first, then system PATH.
-	if p := embedded.ToolPath(config.AnnaHome(), "rtk"); p != "" {
-		return p
-	}
-	if p, err := exec.LookPath("rtk"); err == nil {
-		return p
-	}
-	return ""
-})
-
-// wrapWithRTK uses "rtk rewrite" to determine how to wrap the command.
-// rtk rewrite handles env prefixes, pipes, and unsupported commands correctly.
-// Returns the original command unchanged if rtk is unavailable or the command
-// has no rtk equivalent.
-func wrapWithRTK(command string) string {
-	rtk := rtkPath()
-	if rtk == "" {
-		return command
-	}
-	out, err := exec.Command(rtk, "rewrite", command).Output()
-	if err != nil {
-		return command // unsupported command, use as-is
-	}
-	if rewritten := strings.TrimSpace(string(out)); rewritten != "" {
-		return rewritten
-	}
-	return command
 }
 
 // envWithToolsBin returns the current environment with ANNA_HOME/bin prepended to PATH.

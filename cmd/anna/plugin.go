@@ -51,8 +51,8 @@ func pluginListAction(c *ucli.Context) error {
 
 	var plugins []config.Plugin
 	if kind != "" {
-		if kind != config.PluginKindTool && kind != config.PluginKindChannel {
-			return fmt.Errorf("invalid kind %q, must be %q or %q", kind, config.PluginKindTool, config.PluginKindChannel)
+		if kind != config.PluginKindTool && kind != config.PluginKindChannel && kind != config.PluginKindHook {
+			return fmt.Errorf("invalid kind %q, must be %q, %q, or %q", kind, config.PluginKindTool, config.PluginKindChannel, config.PluginKindHook)
 		}
 		plugins, err = store.ListPluginsByKind(ctx, kind)
 	} else {
