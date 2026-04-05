@@ -94,18 +94,8 @@ func (b *Bot) handleText(msg WeixinMessage, text string) {
 	reply := func(resp string) { b.sendReply(msg, resp) }
 	incoming := b.incomingMsg(msg, channel.TextContent(text))
 
-	// Try shared commands via coordinator (/start, /new, /compact, /whoami, /link).
+	// Handle plugin-local commands first.
 	fields := strings.Fields(text)
-	if len(fields) > 0 {
-		cmd := fields[0]
-		args := strings.TrimSpace(strings.TrimPrefix(text, cmd))
-		if resp, ok := b.handler.HandleCommand(b.ctx, incoming, cmd, args); ok {
-			reply(resp)
-			return
-		}
-	}
-
-	// Parse command for channel-specific handling.
 	if len(fields) > 0 {
 		cmd := strings.ToLower(fields[0])
 		args := channel.ParseCommandArgs(text, fields[0])
@@ -120,8 +110,9 @@ func (b *Bot) handleText(msg WeixinMessage, text string) {
 		}
 	}
 
-	// Normal message — send to agent.
-	b.handleMessage(msg, incoming)
+	// Delegate to coordinator (shared commands + chat streaming).
+	cmd, args := parseWeixinCommand(text)
+	b.handleIncoming(msg, incoming, cmd, args)
 }
 
 // extractMessageContent walks all items and returns text fragments and image items.
@@ -183,7 +174,7 @@ func (b *Bot) handleImages(msg WeixinMessage, images []*ImageItem, caption strin
 	}
 
 	incoming := b.incomingMsg(msg, content)
-	b.handleMessage(msg, incoming)
+	b.handleIncoming(msg, incoming, "", "")
 }
 
 // downloadImage fetches and decrypts a single image from CDN.
@@ -210,12 +201,16 @@ func (b *Bot) downloadImage(userID string, imageItem *ImageItem) ([]byte, error)
 	return data, nil
 }
 
-// handleMessage is the common flow for text and multimodal messages.
-func (b *Bot) handleMessage(msg WeixinMessage, incoming channel.IncomingMessage) {
-	stream, err := b.handler.HandleMessage(b.ctx, incoming)
+// handleIncoming delegates to the coordinator via HandleIncoming.
+func (b *Bot) handleIncoming(msg WeixinMessage, incoming channel.IncomingMessage, cmd, args string) {
+	resp, handled, stream, err := b.handler.HandleIncoming(b.ctx, incoming, cmd, args)
 	if err != nil {
 		logger().Error("chat failed", "user_id", msg.FromUserID, "error", err)
 		b.sendReply(msg, fmt.Sprintf("Session error: %v", err))
+		return
+	}
+	if handled {
+		b.sendReply(msg, resp)
 		return
 	}
 
@@ -352,4 +347,15 @@ func (b *Bot) sendReply(msg WeixinMessage, text string) {
 	if err := b.client.SendMessage(reply, ""); err != nil {
 		logger().Error("send reply failed", "user_id", msg.FromUserID, "error", err)
 	}
+}
+
+// parseWeixinCommand extracts command and args from text.
+func parseWeixinCommand(text string) (string, string) {
+	fields := strings.Fields(text)
+	if len(fields) == 0 || !strings.HasPrefix(fields[0], "/") {
+		return "", ""
+	}
+	cmd := fields[0]
+	args := channel.ParseCommandArgs(text, cmd)
+	return cmd, args
 }

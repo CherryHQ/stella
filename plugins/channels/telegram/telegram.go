@@ -34,7 +34,7 @@ type Config struct {
 // It implements channel.Channel.
 type Bot struct {
 	bot     *tele.Bot
-	handler channel.MessageHandler
+	handler channel.Handler
 	md      goldmarkMD
 
 	mu         sync.RWMutex
@@ -45,7 +45,7 @@ type Bot struct {
 }
 
 // New creates a Telegram bot and registers handlers. Call Start to begin polling.
-func New(cfg Config, handler channel.MessageHandler) (*Bot, error) {
+func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	bot, err := tele.NewBot(tele.Settings{
 		Token: cfg.Token,
 		Poller: &tele.LongPoller{

@@ -422,39 +422,29 @@ func TestDownloadImageDetectsMIME(t *testing.T) {
 
 // --- handleCommand ---
 
-// mockHandler implements channel.MessageHandler for tests.
+// mockHandler implements channel.Handler for tests.
 type mockHandler struct {
-	handleCommandFn func(ctx context.Context, msg channel.IncomingMessage, cmd, args string) (string, bool)
-	listModelsFn    func() []channel.ModelOption
-	switchModelFn   func(provider, model string) error
-	listAgentsFn    func(ctx context.Context, msg channel.IncomingMessage) ([]channel.AgentInfo, string, error)
-	switchAgentFn   func(ctx context.Context, msg channel.IncomingMessage, slug string) error
+	handleIncomingFn func(ctx context.Context, msg channel.IncomingMessage, cmd, args string) (string, bool, *channel.ChatStream, error)
+	listModelsFn     func() []channel.ModelOption
+	switchModelFn    func(provider, model string) error
+	listAgentsFn     func(ctx context.Context, msg channel.IncomingMessage) ([]channel.AgentInfo, string, error)
+	switchAgentFn    func(ctx context.Context, msg channel.IncomingMessage, slug string) error
 }
 
-func (m *mockHandler) HandleIncoming(_ context.Context, msg channel.IncomingMessage, cmd, args string) (string, bool, *channel.ChatStream, error) {
-	resp, handled := m.HandleCommand(context.Background(), msg, cmd, args)
-	if handled {
-		return resp, true, nil, nil
+func (m *mockHandler) HandleIncoming(ctx context.Context, msg channel.IncomingMessage, cmd, args string) (string, bool, *channel.ChatStream, error) {
+	if m.handleIncomingFn != nil {
+		return m.handleIncomingFn(ctx, msg, cmd, args)
+	}
+	// Default: handle shared commands.
+	switch cmd {
+	case "/start":
+		return channel.WelcomeMessage, true, nil, nil
+	case "/new":
+		return "Session reset.", true, nil, nil
+	case "/whoami":
+		return fmt.Sprintf("Your user ID: %s", msg.SenderID), true, nil, nil
 	}
 	return "", false, nil, nil
-}
-func (m *mockHandler) HandleMessage(context.Context, channel.IncomingMessage) (*channel.ChatStream, error) {
-	return nil, nil
-}
-func (m *mockHandler) HandleCommand(ctx context.Context, msg channel.IncomingMessage, cmd, args string) (string, bool) {
-	if m.handleCommandFn != nil {
-		return m.handleCommandFn(ctx, msg, cmd, args)
-	}
-	// Default: handle /help, /start, /whoami
-	switch cmd {
-	case "/help":
-		return "Anna help text", true
-	case "/start":
-		return channel.WelcomeMessage, true
-	case "/whoami":
-		return fmt.Sprintf("Your user ID: %s", msg.SenderID), true
-	}
-	return "", false
 }
 func (m *mockHandler) ListAgents(ctx context.Context, msg channel.IncomingMessage) ([]channel.AgentInfo, string, error) {
 	if m.listAgentsFn != nil {
@@ -481,11 +471,11 @@ func (m *mockHandler) SwitchModel(provider, model string) error {
 	return nil
 }
 
-func TestHandleCommandHelp(t *testing.T) {
+func TestHandleLocalCommandHelp(t *testing.T) {
 	bot := &Bot{handler: &mockHandler{}}
 	var reply string
 	incoming := incomingMsg("user123", "", nil)
-	handled := bot.handleCommand(incoming, "/help", func(s string) { reply = s })
+	handled := bot.handleLocalCommand(incoming, "/help", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /help to be handled")
 	}
@@ -494,47 +484,34 @@ func TestHandleCommandHelp(t *testing.T) {
 	}
 }
 
-func TestHandleCommandStart(t *testing.T) {
-	bot := &Bot{handler: &mockHandler{}}
-	var reply string
-	incoming := incomingMsg("user123", "", nil)
-	handled := bot.handleCommand(incoming, "/start", func(s string) { reply = s })
-	if !handled {
-		t.Fatal("expected /start to be handled")
-	}
-	if reply != channel.WelcomeMessage {
-		t.Errorf("unexpected reply: %s", reply)
-	}
-}
-
-func TestHandleCommandUnknown(t *testing.T) {
-	bot := &Bot{handler: &mockHandler{}}
-	incoming := incomingMsg("user123", "", nil)
-	handled := bot.handleCommand(incoming, "hello world", func(s string) {})
-	if handled {
-		t.Error("regular text should not be handled as command")
-	}
-}
-
-func TestHandleCommandEmpty(t *testing.T) {
-	bot := &Bot{handler: &mockHandler{}}
-	incoming := incomingMsg("user123", "", nil)
-	handled := bot.handleCommand(incoming, "", func(s string) {})
-	if handled {
-		t.Error("empty text should not be handled")
-	}
-}
-
-func TestHandleCommandWhoami(t *testing.T) {
+func TestHandleLocalCommandWhoami(t *testing.T) {
 	bot := &Bot{handler: &mockHandler{}}
 	var reply string
 	incoming := incomingMsg("OPEN_ID_ABC", "", nil)
-	handled := bot.handleCommand(incoming, "/whoami", func(s string) { reply = s })
+	handled := bot.handleLocalCommand(incoming, "/whoami", func(s string) { reply = s })
 	if !handled {
 		t.Fatal("expected /whoami to be handled")
 	}
 	if !strings.Contains(reply, "OPEN_ID_ABC") {
 		t.Errorf("expected reply to contain sender ID, got: %s", reply)
+	}
+}
+
+func TestHandleLocalCommandUnknown(t *testing.T) {
+	bot := &Bot{handler: &mockHandler{}}
+	incoming := incomingMsg("user123", "", nil)
+	handled := bot.handleLocalCommand(incoming, "hello world", func(s string) {})
+	if handled {
+		t.Error("regular text should not be handled as command")
+	}
+}
+
+func TestHandleLocalCommandEmpty(t *testing.T) {
+	bot := &Bot{handler: &mockHandler{}}
+	incoming := incomingMsg("user123", "", nil)
+	handled := bot.handleLocalCommand(incoming, "", func(s string) {})
+	if handled {
+		t.Error("empty text should not be handled")
 	}
 }
 

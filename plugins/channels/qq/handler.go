@@ -19,7 +19,6 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 	return func(_ *dto.WSPayload, data *dto.WSC2CMessageData) error {
 		msg := (*dto.Message)(data)
 		authorID := msg.Author.ID
-		text := strings.TrimSpace(msg.Content)
 
 		content := b.buildMessageContent(msg)
 		if content == nil {
@@ -29,13 +28,13 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 		replyFn := func(reply string) { b.replyC2C(b.ctx, authorID, msg.ID, reply) }
 		incoming := incomingMsg(authorID, "", content)
 
-		if text != "" {
-			if handled := b.handleCommand(incoming, text, replyFn); handled {
-				return nil
-			}
+		text := strings.TrimSpace(msg.Content)
+		if handled := b.handleLocalCommand(incoming, text, replyFn); handled {
+			return nil
 		}
 
-		b.handleMessage(authorID, "", msg.ID, incoming, scopeC2C)
+		cmd, args := parseCommand(text)
+		b.handleIncoming(authorID, "", msg.ID, incoming, cmd, args, scopeC2C)
 		return nil
 	}
 }
@@ -60,13 +59,12 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 		incoming := incomingMsg(authorID, groupID, content)
 
 		text := strings.TrimSpace(msg.Content)
-		if text != "" {
-			if handled := b.handleCommand(incoming, text, replyFn); handled {
-				return nil
-			}
+		if handled := b.handleLocalCommand(incoming, text, replyFn); handled {
+			return nil
 		}
 
-		b.handleMessage(authorID, groupID, msg.ID, incoming, scopeGroup)
+		cmd, args := parseCommand(text)
+		b.handleIncoming(authorID, groupID, msg.ID, incoming, cmd, args, scopeGroup)
 		return nil
 	}
 }
@@ -164,17 +162,23 @@ func downloadImage(ctx context.Context, rawURL string) ([]byte, string, error) {
 	return data, mime, nil
 }
 
-// handleMessage processes an incoming message by streaming the agent response.
-func (b *Bot) handleMessage(authorID, groupID, msgID string, incoming channel.IncomingMessage, scope messageScope) {
+// handleIncoming delegates to the coordinator via HandleIncoming.
+// The coordinator handles shared commands (/start, /new, /compact, /whoami, /link);
+// if not a command, it streams a chat response.
+func (b *Bot) handleIncoming(authorID, groupID, msgID string, incoming channel.IncomingMessage, cmd, args string, scope messageScope) {
 	replyTarget := authorID
 	if groupID != "" {
 		replyTarget = groupID
 	}
 
-	stream, err := b.handler.HandleMessage(b.ctx, incoming)
+	resp, handled, stream, err := b.handler.HandleIncoming(b.ctx, incoming, cmd, args)
 	if err != nil {
 		logger().Error("chat failed", "author", authorID, "error", err)
 		b.sendReply(replyTarget, msgID, fmt.Sprintf("Session error: %v", err), scope)
+		return
+	}
+	if handled {
+		b.sendReply(replyTarget, msgID, resp, scope)
 		return
 	}
 
@@ -204,20 +208,12 @@ func (b *Bot) handleMessage(authorID, groupID, msgID string, incoming channel.In
 	logger().Debug("response sent", "author", authorID, "response_len", len(response), "images", len(images))
 }
 
-// handleCommand checks if text is a bot command and handles it.
-// Returns true if the text was a command.
-func (b *Bot) handleCommand(incoming channel.IncomingMessage, text string, reply func(string)) bool {
-	fields := strings.Fields(text)
-	if len(fields) == 0 {
+// handleLocalCommand handles plugin-local commands (/model, /agent, /help, /whoami).
+// Returns true if the text was handled.
+func (b *Bot) handleLocalCommand(incoming channel.IncomingMessage, text string, reply func(string)) bool {
+	cmd, args := parseCommand(text)
+	if cmd == "" {
 		return false
-	}
-	cmd := strings.ToLower(fields[0])
-	args := channel.ParseCommandArgs(text, fields[0])
-
-	// Try shared commands via handler (/start, /new, /compact, /whoami, /help, /link).
-	if resp, ok := b.handler.HandleCommand(b.ctx, incoming, cmd, args); ok {
-		reply(resp)
-		return true
 	}
 
 	switch cmd {
@@ -227,9 +223,26 @@ func (b *Bot) handleCommand(incoming channel.IncomingMessage, text string, reply
 	case "/agent":
 		b.handleAgentCommand(incoming, args, reply)
 		return true
+	case "/help":
+		reply(channel.WelcomeMessage)
+		return true
+	case "/whoami":
+		reply(fmt.Sprintf("Your sender ID: %s", incoming.SenderID))
+		return true
 	}
 
 	return false
+}
+
+// parseCommand extracts the command and arguments from text.
+func parseCommand(text string) (string, string) {
+	fields := strings.Fields(text)
+	if len(fields) == 0 || !strings.HasPrefix(fields[0], "/") {
+		return "", ""
+	}
+	cmd := strings.ToLower(fields[0])
+	args := channel.ParseCommandArgs(text, fields[0])
+	return cmd, args
 }
 
 // shouldRespondInGroup checks whether the bot should respond based on group_mode.

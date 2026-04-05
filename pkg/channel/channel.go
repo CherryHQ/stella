@@ -34,35 +34,45 @@ type Channel interface {
 	Notify(ctx context.Context, n Notification) error
 }
 
-// MessageHandler is the coordinator interface injected into channel plugins.
+// MessageHandler is the core coordinator interface injected into channel plugins.
 // It owns user resolution, agent routing, session management, and command handling.
+// The single HandleIncoming entry point resolves the user once, tries command
+// handling, and falls through to chat streaming — eliminating double resolution.
 type MessageHandler interface {
 	// HandleIncoming resolves the user once, tries command handling, and if the
-	// command is not handled, streams a chat response. This avoids double
-	// resolution when a plugin needs to try commands before falling through
-	// to message handling. Returns (commandResponse, handled, stream, err).
+	// command is not handled, streams a chat response.
+	// Returns (commandResponse, handled, stream, err).
 	// If handled is true, commandResponse contains the reply and stream is nil.
 	// If handled is false, stream contains the chat response.
 	HandleIncoming(ctx context.Context, msg IncomingMessage, command, args string) (string, bool, *ChatStream, error)
+}
 
-	// HandleMessage resolves the user, routes to an agent, and streams a response.
-	HandleMessage(ctx context.Context, msg IncomingMessage) (*ChatStream, error)
-
-	// HandleCommand processes shared commands (/start, /new, /compact, /whoami, /link).
-	// Returns (response, handled). Unhandled commands return ("", false).
-	HandleCommand(ctx context.Context, msg IncomingMessage, command, args string) (string, bool)
-
-	// ListAgents returns enabled agents the user can access and the current agent ID.
-	ListAgents(ctx context.Context, msg IncomingMessage) ([]AgentInfo, string, error)
-
-	// SwitchAgent switches the active agent for this chat context.
-	SwitchAgent(ctx context.Context, msg IncomingMessage, agentSlug string) error
-
+// ModelManager provides model listing and switching for channel plugins
+// that support the /model command.
+type ModelManager interface {
 	// ListModels returns available models.
 	ListModels() []ModelOption
 
 	// SwitchModel switches the active model.
 	SwitchModel(provider, model string) error
+}
+
+// AgentManager provides agent listing and switching for channel plugins
+// that support the /agent command.
+type AgentManager interface {
+	// ListAgents returns enabled agents the user can access and the current agent ID.
+	ListAgents(ctx context.Context, msg IncomingMessage) ([]AgentInfo, string, error)
+
+	// SwitchAgent switches the active agent for this chat context.
+	SwitchAgent(ctx context.Context, msg IncomingMessage, agentSlug string) error
+}
+
+// Handler combines message routing with model and agent management.
+// Channel plugins typically need all three capabilities.
+type Handler interface {
+	MessageHandler
+	ModelManager
+	AgentManager
 }
 
 // IncomingMessage is the normalised input from any platform.

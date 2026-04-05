@@ -1114,14 +1114,6 @@ func (m *mockHandler) HandleIncoming(_ context.Context, _ channel.IncomingMessag
 	return "", false, nil, nil
 }
 
-func (m *mockHandler) HandleMessage(_ context.Context, _ channel.IncomingMessage) (*channel.ChatStream, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockHandler) HandleCommand(_ context.Context, _ channel.IncomingMessage, _, _ string) (string, bool) {
-	return "", false
-}
-
 func (m *mockHandler) ListAgents(_ context.Context, _ channel.IncomingMessage) ([]channel.AgentInfo, string, error) {
 	return nil, "", nil
 }
