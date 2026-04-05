@@ -98,11 +98,13 @@ type PreLLMCallHook interface {
 // PostLLMCallContext is the typed payload for PostLLMCall hooks.
 type PostLLMCallContext struct {
 	HookMeta
-	Model      string
-	Usage      ai.Usage
-	StopReason ai.StopReason
-	Duration   time.Duration
-	Error      error
+	Model            string
+	Provider         string
+	Usage            ai.Usage
+	StopReason       ai.StopReason
+	Duration         time.Duration
+	TimeToFirstToken time.Duration // zero if no streaming or first token not observed
+	Error            error
 }
 
 // PostLLMCallHook observes LLM call results (telemetry, cost tracking).

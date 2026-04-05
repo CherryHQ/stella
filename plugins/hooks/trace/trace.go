@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/vaayne/anna/pkg/hooks"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
@@ -49,11 +50,16 @@ func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (h
 
 func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) {
 	attrs := []any{
+		"provider", hctx.Provider,
 		"model", hctx.Model,
 		"stop_reason", hctx.StopReason,
-		"duration", hctx.Duration,
+		"duration", hctx.Duration.Round(time.Millisecond),
+		"ttft", hctx.TimeToFirstToken.Round(time.Millisecond),
 		"input_tokens", hctx.Usage.InputTokens,
 		"output_tokens", hctx.Usage.OutputTokens,
+		"cache_read", hctx.Usage.CacheRead,
+		"cache_write", hctx.Usage.CacheWrite,
+		"total_tokens", hctx.Usage.TotalTokens,
 		"session_id", hctx.SessionID,
 		"agent_id", hctx.AgentID,
 	}
