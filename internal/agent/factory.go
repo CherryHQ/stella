@@ -8,6 +8,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/skills"
+	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
@@ -16,7 +17,7 @@ import (
 // workspace, and system prompt. User memory and user ID are injected per-session
 // from RunnerParams. When UserID > 0, per-user workspace directories are set up
 // and per-user skills tools are created.
-func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool) (runner.NewRunnerFunc, error) {
+func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, hookPlugins []hooks.HookPlugin) (runner.NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
 		return func(ctx context.Context, params runner.RunnerParams) (runner.Runner, error) {
@@ -70,6 +71,7 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool) (runner.Ne
 				ExtraTools:  sessionTools,
 				WorkDir:     workDir,
 				UserDataDir: userDataDir,
+				HookPlugins: hookPlugins,
 			})
 		}, nil
 	default:

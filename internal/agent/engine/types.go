@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/hooks"
 )
 
 // ToolFunc executes one tool invocation.
@@ -21,4 +22,6 @@ type LoopConfig struct {
 	ToolDefinitions []ai.ToolDefinition
 	System          string
 	Interrupt       <-chan struct{}
+	Hooks           *hooks.HookSet // nil = no hooks (backward compatible)
+	HookMeta        hooks.HookMeta // shared metadata for hook invocations
 }

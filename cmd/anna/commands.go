@@ -19,11 +19,11 @@ import (
 	"github.com/vaayne/anna/internal/memory"
 	memorytool "github.com/vaayne/anna/internal/memory/tool"
 	"github.com/vaayne/anna/internal/scheduler"
+	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/tools"
+	_ "github.com/vaayne/anna/plugins" // self-register all plugin tools and hooks
+	pluginhooks "github.com/vaayne/anna/plugins/hooks"
 	plugintools "github.com/vaayne/anna/plugins/tools"
-
-	// Import plugin tools for self-registration via init().
-	_ "github.com/vaayne/anna/plugins/tools/webfetch"
 )
 
 func newApp() *ucli.App {
@@ -132,11 +132,18 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return plugintools.BuildEnabled(ctx, store)
 	}
 
+	// Plugin hooks builder: auto-discovers registered hook plugins and returns
+	// enabled ones. Called at startup and on hot-reload.
+	pluginHooksBuilder := func(ctx context.Context) []hooks.HookPlugin {
+		return pluginhooks.BuildEnabled(ctx, store)
+	}
+
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
 
-	// Create PoolManager with shared tools and plugin builder.
+	// Create PoolManager with shared tools, plugin builder, and hooks builder.
 	// WithSharedExtraTools sets the always-on core tools (scheduler, memory).
 	// WithPluginToolsBuilder provides the function for hot-reloadable plugin tools.
+	// WithPluginHooksBuilder provides the function for hot-reloadable hook plugins.
 	poolMgr := agent.NewPoolManager(store, memoryEngine,
 		agent.WithIdleTimeoutPM(idleTimeout),
 		agent.WithCompactionPM(agent.CompactionConfig{
@@ -145,6 +152,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		}.WithDefaults()),
 		agent.WithSharedExtraTools(sharedTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
+		agent.WithPluginHooksBuilder(pluginHooksBuilder),
 	)
 
 	if err := poolMgr.StartAll(ctx); err != nil {
@@ -223,7 +231,7 @@ func modelSwitcher(snap *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.BaseURL = p.BaseURL
 		}
 
-		factory, err := agent.NewRunnerFactory(snap, extraTools)
+		factory, err := agent.NewRunnerFactory(snap, extraTools, nil)
 		if err != nil {
 			return err
 		}

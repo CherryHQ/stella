@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/vaayne/anna/internal/ai"
+	"github.com/vaayne/anna/pkg/hooks"
 )
 
 // Engine coordinates model generation and tool execution.
@@ -53,7 +55,56 @@ func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []ai.Messa
 		// Normalize transcript before each model call.
 		normalized := ai.TransformMessages(history)
 
-		complete, err := streamAssistant(normalized, cfg, e.Providers, emit)
+		// PreLLMCall hooks: may modify system prompt, tool definitions, or model.
+		effectiveSystem := cfg.System
+		effectiveToolDefs := cfg.ToolDefinitions
+		effectiveModel := cfg.Model
+		if !cfg.Hooks.Empty() {
+			preCtx := &hooks.PreLLMCallContext{
+				HookMeta:        cfg.HookMeta,
+				Model:           cfg.Model.Name,
+				System:          cfg.System,
+				ToolDefinitions: cfg.ToolDefinitions,
+				MessageCount:    len(normalized),
+			}
+			result, _ := cfg.Hooks.RunPreLLMCall(ctx, preCtx)
+			if result.System != nil {
+				effectiveSystem = *result.System
+			}
+			if result.ToolDefinitions != nil {
+				effectiveToolDefs = result.ToolDefinitions
+			}
+			if result.Model != nil {
+				effectiveModel = cfg.Model
+				effectiveModel.Name = *result.Model
+			}
+		}
+
+		// Build a per-turn config with hook mutations applied.
+		// NOTE: shallow copy — safe because LoopConfig fields are value types
+		// or slices replaced wholesale (never mutated in place).
+		turnCfg := cfg
+		turnCfg.System = effectiveSystem
+		turnCfg.ToolDefinitions = effectiveToolDefs
+		turnCfg.Model = effectiveModel
+
+		start := time.Now()
+		complete, err := streamAssistant(normalized, turnCfg, e.Providers, emit)
+		duration := time.Since(start)
+
+		// PostLLMCall hooks: telemetry / observation.
+		if !cfg.Hooks.Empty() {
+			postCtx := &hooks.PostLLMCallContext{
+				HookMeta:   cfg.HookMeta,
+				Model:      effectiveModel.Name,
+				Usage:      complete.Usage,
+				StopReason: complete.StopReason,
+				Duration:   duration,
+				Error:      err,
+			}
+			cfg.Hooks.RunPostLLMCall(ctx, postCtx)
+		}
+
 		if err != nil {
 			return history, err
 		}
@@ -99,7 +150,7 @@ func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []ai.Messa
 					emit(ToolFinished{Result: result})
 				}
 			},
-		})
+		}, cfg.Hooks, cfg.HookMeta)
 		if err != nil {
 			return history, err
 		}
