@@ -7,16 +7,24 @@ import (
 	"github.com/vaayne/anna/pkg/providers"
 )
 
-func consumeStream(sdkStream *ssestream.Stream[sdk.MessageStreamEventUnion], out *providers.ChannelEventStream) {
+// consumeStream reads SSE events from the Anthropic message stream.
+// It returns true if a message_stop event was received, meaning any subsequent
+// sdkStream.Err() is a benign SDK parser artifact.
+func consumeStream(sdkStream *ssestream.Stream[sdk.MessageStreamEventUnion], out *providers.ChannelEventStream) bool {
 	// Track content_block_index → tool_call_id so argument deltas carry the correct ID.
 	blockToID := make(map[int]string)
+	completed := false
 
 	for sdkStream.Next() {
 		event := sdkStream.Current()
+		if event.Type == "message_stop" {
+			completed = true
+		}
 		for _, e := range mapEvent(event, blockToID) {
 			out.Emit(e)
 		}
 	}
+	return completed
 }
 
 func mapEvent(event sdk.MessageStreamEventUnion, blockToID map[int]string) []ai.AssistantEvent {

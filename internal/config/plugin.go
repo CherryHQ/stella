@@ -29,7 +29,7 @@ var builtinToolNames = []string{"webfetch"}
 var builtinChannelNames = []string{"telegram", "qq", "feishu", "weixin"}
 
 // builtinHookNames lists the built-in hook plugins.
-var builtinHookNames = []string{"rtk"}
+var builtinHookNames = []string{"rtk", "trace"}
 
 // builtinProviderNames lists the built-in provider plugins.
 var builtinProviderNames = []string{"anthropic", "openai", "openai-response"}

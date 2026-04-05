@@ -7,17 +7,27 @@ import (
 	"github.com/vaayne/anna/pkg/providers"
 )
 
-func consumeStream(sdkStream *ssestream.Stream[sdk.ChatCompletionChunk], out *providers.ChannelEventStream) {
+// consumeStream reads SSE events from the OpenAI chat completion stream.
+// It returns true if a finish_reason was received, meaning any subsequent
+// sdkStream.Err() is a benign SDK parser artifact.
+func consumeStream(sdkStream *ssestream.Stream[sdk.ChatCompletionChunk], out *providers.ChannelEventStream) bool {
 	// Track tool_call_index → tool_call_id so argument deltas carry the correct ID.
 	// OpenAI only sends tc.ID in the first chunk per tool call; subsequent chunks use Index only.
 	indexToID := make(map[int]string)
+	completed := false
 
 	for sdkStream.Next() {
 		chunk := sdkStream.Current()
+		for _, choice := range chunk.Choices {
+			if choice.FinishReason != "" {
+				completed = true
+			}
+		}
 		for _, e := range mapChunk(chunk, indexToID) {
 			out.Emit(e)
 		}
 	}
+	return completed
 }
 
 func mapChunk(chunk sdk.ChatCompletionChunk, indexToID map[int]string) []ai.AssistantEvent {

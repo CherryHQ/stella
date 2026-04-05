@@ -1,7 +1,6 @@
-package engine
+package agent
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,25 +9,22 @@ import (
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/providers"
+
+	"context"
 )
 
-// Engine coordinates model generation and tool execution.
-type Engine struct {
-	Providers providers.ProviderGetter
-}
-
-// Run executes the agent loop: repeatedly generating assistant responses
+// run executes the agent loop: repeatedly generating assistant responses
 // and executing tool calls until the model stops calling tools,
 // the turn limit is reached, or an interrupt/error occurs.
-func (e *Engine) Run(ctx context.Context, cfg LoopConfig, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
-	if e == nil || e.Providers == nil {
-		return nil, errors.New("engine providers not configured")
+func run(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
+	if pg == nil {
+		return nil, errors.New("agent: providers not configured")
 	}
 	if emit != nil {
 		emit(AgentStarted{})
 	}
 
-	history, err := e.runLoop(ctx, cfg, history, emit)
+	history, err := runLoop(ctx, cfg, pg, history, emit)
 	if err != nil {
 		if emit != nil {
 			emit(AgentErrored{Err: err})
@@ -42,7 +38,7 @@ func (e *Engine) Run(ctx context.Context, cfg LoopConfig, history []ai.Message, 
 	return history, nil
 }
 
-func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
+func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
 	maxTurns := cfg.MaxTurns
 	if maxTurns <= 0 {
 		maxTurns = 128
@@ -82,7 +78,7 @@ func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []ai.Messa
 		}
 
 		// Build a per-turn config with hook mutations applied.
-		// NOTE: shallow copy — safe because LoopConfig fields are value types
+		// NOTE: shallow copy — safe because loopConfig fields are value types
 		// or slices replaced wholesale (never mutated in place).
 		turnCfg := cfg
 		turnCfg.System = effectiveSystem
@@ -90,7 +86,7 @@ func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []ai.Messa
 		turnCfg.Model = effectiveModel
 
 		start := time.Now()
-		complete, err := streamAssistant(normalized, turnCfg, e.Providers, emit)
+		complete, err := streamAssistant(normalized, turnCfg, pg, emit)
 		duration := time.Since(start)
 
 		// PostLLMCall hooks: telemetry / observation.
@@ -140,13 +136,13 @@ func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []ai.Messa
 			}
 		}
 
-		results, err := ExecuteToolCalls(ctx, calls, cfg.Tools, ToolCallbacks{
-			OnStart: func(call ai.ToolCall) {
+		results, err := executeToolCalls(ctx, calls, cfg.Tools, toolCallbacks{
+			onStart: func(call ai.ToolCall) {
 				if emit != nil {
 					emit(ToolStarted{ToolCall: call})
 				}
 			},
-			OnFinish: func(result ai.ToolResultMessage) {
+			onFinish: func(result ai.ToolResultMessage) {
 				if emit != nil {
 					emit(ToolFinished{Result: result})
 				}
@@ -170,7 +166,7 @@ func (e *Engine) runLoop(ctx context.Context, cfg LoopConfig, history []ai.Messa
 
 // streamAssistant opens a provider stream, emits granular assistant events,
 // and assembles the final AssistantMessage.
-func streamAssistant(messages []ai.Message, cfg LoopConfig, pg providers.ProviderGetter, emit func(LoopEvent)) (ai.AssistantMessage, error) {
+func streamAssistant(messages []ai.Message, cfg loopConfig, pg providers.ProviderGetter, emit func(LoopEvent)) (ai.AssistantMessage, error) {
 	eventStream, err := providers.Stream(
 		cfg.Model,
 		ai.Context{System: cfg.System, Messages: messages, Tools: cfg.ToolDefinitions},
@@ -233,6 +229,14 @@ func streamAssistant(messages []ai.Message, cfg LoopConfig, pg providers.Provide
 
 	if waitErr := eventStream.Wait(); waitErr != nil {
 		return msg, waitErr
+	}
+
+	// Surface provider-level errors that were delivered as EventError events
+	// rather than as a stream-level Wait() error. Without this, the error
+	// is silently swallowed: StopReason=Error causes runLoop to return nil,
+	// and the caller never learns what went wrong.
+	if msg.StopReason == ai.StopReasonError && msg.ErrorMessage != "" {
+		return msg, fmt.Errorf("provider: %s", msg.ErrorMessage)
 	}
 
 	// Assemble final message.

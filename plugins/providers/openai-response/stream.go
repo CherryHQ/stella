@@ -7,16 +7,25 @@ import (
 	"github.com/vaayne/anna/pkg/providers"
 )
 
-func consumeStream(sdkStream *ssestream.Stream[responses.ResponseStreamEventUnion], out *providers.ChannelEventStream) {
+// consumeStream reads SSE events from the OpenAI Responses stream.
+// It returns true if the stream reached a terminal event (completed/failed/incomplete),
+// meaning any subsequent sdkStream.Err() is a benign SDK parser artifact.
+func consumeStream(sdkStream *ssestream.Stream[responses.ResponseStreamEventUnion], out *providers.ChannelEventStream) bool {
 	// Track item_id → call_id so argument deltas use the correct call ID.
 	itemToCall := make(map[string]string)
+	completed := false
 
 	for sdkStream.Next() {
 		event := sdkStream.Current()
+		switch event.Type {
+		case "response.completed", "response.failed", "response.incomplete":
+			completed = true
+		}
 		for _, e := range mapEvent(event, itemToCall) {
 			out.Emit(e)
 		}
 	}
+	return completed
 }
 
 func mapEvent(event responses.ResponseStreamEventUnion, itemToCall map[string]string) []ai.AssistantEvent {

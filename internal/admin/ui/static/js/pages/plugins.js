@@ -17,6 +17,10 @@ export function register(Alpine) {
       return this.plugins.filter(p => p.kind === 'channel')
     },
 
+    get hookPlugins() {
+      return this.plugins.filter(p => p.kind === 'hook')
+    },
+
     async init() {
       await this.loadPlugins()
     },
@@ -46,6 +50,8 @@ export function register(Alpine) {
         qq: 'QQ bot integration',
         feishu: 'Feishu (Lark) bot integration',
         weixin: 'WeChat bot integration',
+        trace: 'Trace LLM calls and tool executions',
+        rtk: 'Rewrite bash commands via rtk',
       }
       return descriptions[name] || ''
     },

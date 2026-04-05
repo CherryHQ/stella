@@ -107,8 +107,11 @@ func (p *Provider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions)
 	go func() {
 		defer out.Finish(nil)
 		out.Emit(ai.EventStart{})
-		consumeStream(sdkStream, out)
-		if err := sdkStream.Err(); err != nil {
+		completed := consumeStream(sdkStream, out)
+		if err := sdkStream.Err(); err != nil && !completed {
+			// Only surface SDK errors when the stream didn't reach a terminal
+			// event. Some SDK/proxy combinations emit a benign parse error
+			// (e.g. "unexpected end of JSON input") after the stream is done.
 			out.Emit(ai.EventError{Err: err})
 		}
 	}()
