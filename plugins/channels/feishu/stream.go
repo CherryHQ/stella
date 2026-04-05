@@ -23,39 +23,6 @@ const (
 	phaseComplete                      // Stream finished
 )
 
-var toolEmoji = map[string]string{
-	"bash":    "⚡",
-	"read":    "📖",
-	"write":   "✏️",
-	"edit":    "🔧",
-	"search":  "🔍",
-	"default": "🔧",
-}
-
-// toolLine returns a short status line for a tool-use event.
-func toolLine(t *channel.ToolUseEvent) string {
-	emoji, ok := toolEmoji[t.Tool]
-	if !ok {
-		emoji = toolEmoji["default"]
-	}
-	switch t.Status {
-	case "running":
-		input := t.Input
-		if utf8.RuneCountInString(input) > 60 {
-			r := []rune(input)
-			input = string(r[:57]) + "..."
-		}
-		if input != "" {
-			return fmt.Sprintf("%s %s: %s", emoji, t.Tool, input)
-		}
-		return fmt.Sprintf("%s %s", emoji, t.Tool)
-	case "error":
-		return fmt.Sprintf("❌ %s failed", t.Tool)
-	default:
-		return ""
-	}
-}
-
 // thinkingContent returns the card content for the thinking phase.
 func thinkingContent() string {
 	return "⏳ Thinking..."
@@ -108,7 +75,7 @@ func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyM
 		}
 
 		if evt.ToolUse != nil {
-			line := toolLine(evt.ToolUse)
+			line := channel.ToolLine(evt.ToolUse)
 			if line != "" {
 				currentTool = line
 			} else {

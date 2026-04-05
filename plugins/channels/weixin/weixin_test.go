@@ -689,54 +689,54 @@ func TestStopWithoutCancel(t *testing.T) {
 func TestToolTracker(t *testing.T) {
 	t.Parallel()
 
-	var tracker toolTracker
+	var tracker channel.ToolTracker
 
-	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls -la"})
-	if tracker.activeTool != "bash" {
-		t.Errorf("activeTool = %q, want %q", tracker.activeTool, "bash")
+	tracker.Handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls -la"})
+	if tracker.ActiveTool != "bash" {
+		t.Errorf("activeTool = %q, want %q", tracker.ActiveTool, "bash")
 	}
 
-	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "done", Input: "ls -la"})
-	if tracker.activeTool != "" {
-		t.Errorf("activeTool = %q, want empty after done", tracker.activeTool)
+	tracker.Handle(&channel.ToolUseEvent{Tool: "bash", Status: "done", Input: "ls -la"})
+	if tracker.ActiveTool != "" {
+		t.Errorf("activeTool = %q, want empty after done", tracker.ActiveTool)
 	}
-	if len(tracker.history) != 1 {
-		t.Fatalf("history len = %d, want 1", len(tracker.history))
+	if len(tracker.History) != 1 {
+		t.Fatalf("history len = %d, want 1", len(tracker.History))
 	}
-	if tracker.history[0].Tool != "bash" {
-		t.Errorf("history[0].Tool = %q, want %q", tracker.history[0].Tool, "bash")
+	if tracker.History[0].Tool != "bash" {
+		t.Errorf("history[0].Tool = %q, want %q", tracker.History[0].Tool, "bash")
 	}
 }
 
 func TestToolTrackerError(t *testing.T) {
 	t.Parallel()
 
-	var tracker toolTracker
-	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "exit 1"})
-	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "error", Detail: "command failed"})
+	var tracker channel.ToolTracker
+	tracker.Handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "exit 1"})
+	tracker.Handle(&channel.ToolUseEvent{Tool: "bash", Status: "error", Detail: "command failed"})
 
-	if len(tracker.history) != 1 {
-		t.Fatalf("history len = %d, want 1", len(tracker.history))
+	if len(tracker.History) != 1 {
+		t.Fatalf("history len = %d, want 1", len(tracker.History))
 	}
-	if tracker.history[0].Status != "error" {
-		t.Errorf("status = %q, want %q", tracker.history[0].Status, "error")
+	if tracker.History[0].Status != "error" {
+		t.Errorf("status = %q, want %q", tracker.History[0].Status, "error")
 	}
 }
 
 func TestToolTrackerRenderFinal(t *testing.T) {
 	t.Parallel()
 
-	var tracker toolTracker
-	if got := tracker.renderFinal(); got != "" {
+	var tracker channel.ToolTracker
+	if got := tracker.RenderFinal(); got != "" {
 		t.Errorf("renderFinal() with no history = %q, want empty", got)
 	}
 
-	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "main.go"})
-	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "done", Detail: "42 lines"})
-	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test"})
-	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "error", Detail: "exit 1"})
+	tracker.Handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "main.go"})
+	tracker.Handle(&channel.ToolUseEvent{Tool: "read", Status: "done", Detail: "42 lines"})
+	tracker.Handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test"})
+	tracker.Handle(&channel.ToolUseEvent{Tool: "bash", Status: "error", Detail: "exit 1"})
 
-	got := tracker.renderFinal()
+	got := tracker.RenderFinal()
 	if !strings.Contains(got, "——————————————————") {
 		t.Error("renderFinal() missing separator line")
 	}
@@ -754,13 +754,13 @@ func TestToolTrackerRenderFinal(t *testing.T) {
 func TestToolTrackerHasHistory(t *testing.T) {
 	t.Parallel()
 
-	var tracker toolTracker
-	if tracker.hasHistory() {
+	var tracker channel.ToolTracker
+	if tracker.HasHistory() {
 		t.Error("hasHistory() should be false with no tools")
 	}
-	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "x"})
-	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "done", Input: "x"})
-	if !tracker.hasHistory() {
+	tracker.Handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "x"})
+	tracker.Handle(&channel.ToolUseEvent{Tool: "read", Status: "done", Input: "x"})
+	if !tracker.HasHistory() {
 		t.Error("hasHistory() should be true after tool finished")
 	}
 }
@@ -768,18 +768,18 @@ func TestToolTrackerHasHistory(t *testing.T) {
 func TestToolTrackerStartOverwritesActive(t *testing.T) {
 	t.Parallel()
 
-	var tracker toolTracker
-	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "a.go"})
-	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls"})
+	var tracker channel.ToolTracker
+	tracker.Handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "a.go"})
+	tracker.Handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls"})
 
-	if len(tracker.history) != 1 {
-		t.Fatalf("history len = %d, want 1", len(tracker.history))
+	if len(tracker.History) != 1 {
+		t.Fatalf("history len = %d, want 1", len(tracker.History))
 	}
-	if tracker.history[0].Tool != "read" {
-		t.Errorf("history[0].Tool = %q, want %q", tracker.history[0].Tool, "read")
+	if tracker.History[0].Tool != "read" {
+		t.Errorf("history[0].Tool = %q, want %q", tracker.History[0].Tool, "read")
 	}
-	if tracker.activeTool != "bash" {
-		t.Errorf("activeTool = %q, want %q", tracker.activeTool, "bash")
+	if tracker.ActiveTool != "bash" {
+		t.Errorf("activeTool = %q, want %q", tracker.ActiveTool, "bash")
 	}
 }
 
@@ -801,8 +801,8 @@ func TestEmojiFor(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		if got := emojiFor(tt.tool); got != tt.want {
-			t.Errorf("emojiFor(%q) = %q, want %q", tt.tool, got, tt.want)
+		if got := channel.EmojiFor(tt.tool); got != tt.want {
+			t.Errorf("channel.EmojiFor(%q) = %q, want %q", tt.tool, got, tt.want)
 		}
 	}
 }
@@ -825,9 +825,9 @@ func TestTruncate(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := truncate(tt.input, tt.maxLen)
+		got := channel.Truncate(tt.input, tt.maxLen)
 		if got != tt.want {
-			t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
+			t.Errorf("channel.Truncate(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
 		}
 	}
 }
@@ -862,27 +862,27 @@ func TestRenderToolRecord(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		rec       toolRecord
+		rec       channel.ToolRecord
 		wantParts []string
 	}{
 		{
 			name:      "done with input and detail",
-			rec:       toolRecord{Tool: "bash", Input: "ls -la", Status: "done", Detail: "3 files", Duration: 500 * time.Millisecond},
+			rec:       channel.ToolRecord{Tool: "bash", Input: "ls -la", Status: "done", Detail: "3 files", Duration: 500 * time.Millisecond},
 			wantParts: []string{"✅", "⚡", "bash", "ls -la", "→ 3 files", "500ms"},
 		},
 		{
 			name:      "error with detail",
-			rec:       toolRecord{Tool: "bash", Input: "rm -rf /", Status: "error", Detail: "permission denied", Duration: time.Second},
+			rec:       channel.ToolRecord{Tool: "bash", Input: "rm -rf /", Status: "error", Detail: "permission denied", Duration: time.Second},
 			wantParts: []string{"❌", "bash", "rm -rf /", "→ permission denied"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := renderToolRecord(tt.rec)
+			got := channel.RenderToolRecord(tt.rec)
 			for _, part := range tt.wantParts {
 				if !strings.Contains(got, part) {
-					t.Errorf("renderToolRecord() = %q, want to contain %q", got, part)
+					t.Errorf("channel.RenderToolRecord() = %q, want to contain %q", got, part)
 				}
 			}
 		})
