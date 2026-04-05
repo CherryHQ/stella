@@ -11,9 +11,9 @@ import (
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/channel"
-	pluginproviders "github.com/vaayne/anna/plugins/providers"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 // fetchModelsFromProviders queries all configured providers (from the DB Store)

@@ -11,11 +11,11 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/channel"
-	pluginproviders "github.com/vaayne/anna/plugins/providers"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/db/sqlc"
 	"github.com/vaayne/anna/internal/memory"
 	"github.com/vaayne/anna/internal/skills"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 const (
