@@ -297,10 +297,10 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 	}
 
 	runner, err := agent.NewRunner(agent.RunnerConfig{
-		Providers: t.cfg.Providers,
-		Model:     model,
-		Tools:     toolSet,
-		ToolDefs:  toolDefs,
+		Providers:       t.cfg.Providers,
+		Model:           model,
+		Tools:           toolSet,
+		ToolDefinitions: toolDefs,
 	},
 		agent.WithStreamOptions(ai.StreamOptions{APIKey: t.cfg.APIKey, BaseURL: t.cfg.BaseURL}),
 		agent.WithMaxTurns(maxTurns),

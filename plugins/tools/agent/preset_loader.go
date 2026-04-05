@@ -13,7 +13,6 @@ import (
 
 // LoadAgentPresetsConfig configures the agent preset discovery paths.
 type LoadAgentPresetsConfig struct {
-	AnnaHome         string // anna home directory (e.g. ~/.anna)
 	Workspace        string // agent workspace dir (e.g. ~/.anna/workspaces/{agentID})
 	Cwd              string // working directory
 	BuiltinSkillsDir string // pre-extracted builtin skills directory (caller ensures extraction)
@@ -23,10 +22,10 @@ type LoadAgentPresetsConfig struct {
 // Priority order: cwd/.agents/agents/ > workspace/agents/ > ~/.agents/agents/ > builtin
 func LoadAgentPresets(cfg LoadAgentPresetsConfig) []AgentPreset {
 	home, _ := os.UserHomeDir()
-	return loadAgentPresets(home, cfg.AnnaHome, cfg.Workspace, cfg.Cwd, cfg.BuiltinSkillsDir)
+	return loadAgentPresets(home, cfg.Workspace, cfg.Cwd, cfg.BuiltinSkillsDir)
 }
 
-func loadAgentPresets(homeDir, annaHome, workspace, cwd, builtinSkillsDir string) []AgentPreset {
+func loadAgentPresets(homeDir, workspace, cwd, builtinSkillsDir string) []AgentPreset {
 	seen := map[string]bool{}
 	var presets []AgentPreset
 

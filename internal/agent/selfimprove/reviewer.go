@@ -39,7 +39,7 @@ type ReviewerConfig struct {
 }
 
 // NewReviewer creates a Reviewer with skill extraction and optional memory review.
-func NewReviewer(cfg ReviewerConfig) *Reviewer {
+func NewReviewer(cfg ReviewerConfig) (*Reviewer, error) {
 	reg := tools.NewRegistry()
 	reg.Register(cfg.SkillsTool)
 	if cfg.MemoryTool != nil {
@@ -52,17 +52,20 @@ func NewReviewer(cfg ReviewerConfig) *Reviewer {
 	}
 	system := fmt.Sprintf(combinedReviewPrompt, skillList)
 
-	runner, _ := agent.NewRunner(agent.RunnerConfig{
-		Providers: cfg.Providers,
-		Model:     cfg.Model,
-		Tools:     agent.ToolSetFromRegistry(reg),
-		ToolDefs:  reg.Definitions(),
+	runner, err := agent.NewRunner(agent.RunnerConfig{
+		Providers:       cfg.Providers,
+		Model:           cfg.Model,
+		Tools:           agent.ToolSetFromRegistry(reg),
+		ToolDefinitions: reg.Definitions(),
 	},
 		agent.WithMaxTurns(5),
 		agent.WithSystem(system),
 	)
+	if err != nil {
+		return nil, fmt.Errorf("new reviewer: %w", err)
+	}
 
-	return &Reviewer{runner: runner}
+	return &Reviewer{runner: runner}, nil
 }
 
 // Review runs the review agent on a conversation transcript.

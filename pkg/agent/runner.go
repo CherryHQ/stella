@@ -26,10 +26,10 @@ type Runner struct {
 
 // RunnerConfig holds the required fields for constructing a Runner.
 type RunnerConfig struct {
-	Providers providers.ProviderGetter
-	Model     ai.Model
-	Tools     ToolSet
-	ToolDefs  []ai.ToolDefinition
+	Providers       providers.ProviderGetter
+	Model           ai.Model
+	Tools           ToolSet
+	ToolDefinitions []ai.ToolDefinition
 }
 
 // Option configures optional Runner fields.
@@ -68,11 +68,19 @@ func NewRunner(cfg RunnerConfig, opts ...Option) (*Runner, error) {
 	if cfg.Providers == nil {
 		return nil, errors.New("agent: providers is required")
 	}
+	// Defensive copies: callers must not mutate after construction.
+	toolsCopy := make(ToolSet, len(cfg.Tools))
+	for k, v := range cfg.Tools {
+		toolsCopy[k] = v
+	}
+	defsCopy := make([]ai.ToolDefinition, len(cfg.ToolDefinitions))
+	copy(defsCopy, cfg.ToolDefinitions)
+
 	r := &Runner{
 		providers: cfg.Providers,
 		model:     cfg.Model,
-		tools:     cfg.Tools,
-		toolDefs:  cfg.ToolDefs,
+		tools:     toolsCopy,
+		toolDefs:  defsCopy,
 	}
 	for _, opt := range opts {
 		opt(r)

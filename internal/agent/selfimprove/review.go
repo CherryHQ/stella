@@ -149,13 +149,17 @@ func reviewConversation(ctx context.Context, deps ReviewDeps, snap *config.Snaps
 	}
 
 	memStore := memory.NewUserMemoryStore(deps.Store)
-	reviewer := NewReviewer(ReviewerConfig{
+	reviewer, err := NewReviewer(ReviewerConfig{
 		Providers:      reg,
 		Model:          model,
 		SkillsTool:     skills.NewTool("", snap.Workspace, "", userID),
 		MemoryTool:     NewReviewMemoryTool(memStore, userID, snap.AgentID),
 		ExistingSkills: existingNames,
 	})
+	if err != nil {
+		log.Error("self-improve: create reviewer", "conv", conv.ID, "error", err)
+		return
+	}
 	result, err := reviewer.Review(ctx, text)
 	if err != nil {
 		log.Error("self-improve: review", "conv", conv.ID, "error", err)

@@ -77,6 +77,15 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 	}
 
 	p.mu.Lock()
+	// Re-check: another goroutine may have installed a runner while we were unlocked.
+	if sess.Runner != nil {
+		p.mu.Unlock()
+		// Close the runner we just created — the other goroutine's runner wins.
+		if closer, ok := r.(io.Closer); ok {
+			_ = closer.Close()
+		}
+		return sess, sess.Runner, nil
+	}
 	sess.Runner = r
 	sess.Model = effectiveModel
 	p.mu.Unlock()

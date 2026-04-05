@@ -58,9 +58,6 @@ func WrapTool(t tools.Tool) ToolFunc {
 			args = make(map[string]any)
 		}
 		result, err := t.Execute(ctx, args)
-		if err != nil {
-			return ai.TextContent{Text: fmt.Sprintf("error: %v", err)}, nil
-		}
-		return ai.TextContent{Text: result}, nil
+		return ai.TextContent{Text: result}, err
 	}
 }

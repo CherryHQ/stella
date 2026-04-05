@@ -84,10 +84,10 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 			}
 
 			runner, err := agent.NewRunner(agent.RunnerConfig{
-				Providers: reg,
-				Model:     ai.Model{API: p.name, Name: model},
-				Tools:     tools,
-				ToolDefs:  []ai.ToolDefinition{toolDef},
+				Providers:       reg,
+				Model:           ai.Model{API: p.name, Name: model},
+				Tools:           tools,
+				ToolDefinitions: []ai.ToolDefinition{toolDef},
 			},
 				agent.WithStreamOptions(ai.StreamOptions{APIKey: apiKey}),
 				agent.WithMaxTurns(5),

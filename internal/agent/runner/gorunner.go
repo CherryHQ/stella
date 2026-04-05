@@ -94,10 +94,10 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	}))
 
 	runner, err := agent.NewRunner(agent.RunnerConfig{
-		Providers: reg,
-		Model:     model,
-		Tools:     agent.ToolSetFromRegistry(toolReg),
-		ToolDefs:  toolReg.Definitions(),
+		Providers:       reg,
+		Model:           model,
+		Tools:           agent.ToolSetFromRegistry(toolReg),
+		ToolDefinitions: toolReg.Definitions(),
 	},
 		agent.WithStreamOptions(ai.StreamOptions{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}),
 		agent.WithMaxTurns(maxToolIterations),
@@ -166,7 +166,6 @@ func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
 	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
-		AnnaHome:         cfg.AnnaHome,
 		Workspace:        cfg.Workspace,
 		Cwd:              cfg.WorkDir,
 		BuiltinSkillsDir: builtinSkillsDir,

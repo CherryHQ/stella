@@ -27,7 +27,10 @@ func newTestReviewerConfig(dir string) ReviewerConfig {
 func TestNewReviewer(t *testing.T) {
 	t.Parallel()
 	cfg := newTestReviewerConfig(t.TempDir())
-	r := NewReviewer(cfg)
+	r, err := NewReviewer(cfg)
+	if err != nil {
+		t.Fatalf("NewReviewer: %v", err)
+	}
 	if r == nil {
 		t.Fatal("NewReviewer returned nil")
 	}
