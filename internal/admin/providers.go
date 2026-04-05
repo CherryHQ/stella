@@ -199,8 +199,8 @@ func (s *Server) listProviderTypes(w http.ResponseWriter, r *http.Request) {
 
 // newProviderFromCreds creates a providers.ProviderAdapter from raw credentials.
 func newProviderFromCreds(name, apiKey, baseURL string) providers.ProviderAdapter {
-	p, ok := pluginproviders.Build(name, pluginproviders.ProviderConfig{APIKey: apiKey, BaseURL: baseURL})
-	if !ok {
+	p, err := pluginproviders.Build(name, pluginproviders.ProviderConfig{APIKey: apiKey, BaseURL: baseURL})
+	if err != nil {
 		return nil
 	}
 	return p

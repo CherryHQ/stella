@@ -17,7 +17,6 @@ import (
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
-	"github.com/vaayne/anna/plugins/hooks/rtk"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
 
@@ -96,9 +95,6 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
 	toolsBinDir := embedded.BinDir(config.AnnaHome())
-
-	// Configure hook plugins that need the tools bin directory.
-	rtk.SetToolsBinDir(toolsBinDir)
 
 	// Build core tools (read, bash, edit, write) via plugin registry.
 	bc := plugintools.BuildContext{

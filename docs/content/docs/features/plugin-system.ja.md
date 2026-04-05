@@ -77,11 +77,14 @@ import (
 )
 
 func init() {
-    pluginproviders.Register("gemini", pluginproviders.ProviderMeta{
-        Name:       "Google Gemini",
-        DefaultURL: "https://generativelanguage.googleapis.com",
-    }, func(cfg pluginproviders.ProviderConfig) ai.ProviderAdapter {
-        return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL})
+    pluginproviders.Register("gemini", pluginproviders.Registration{
+        Meta: pluginproviders.ProviderMeta{
+            Name:       "Google Gemini",
+            DefaultURL: "https://generativelanguage.googleapis.com",
+        },
+        Factory: func(cfg pluginproviders.ProviderConfig) (providers.ProviderAdapter, error) {
+            return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}), nil
+        },
     })
 }
 ```

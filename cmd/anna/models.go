@@ -38,7 +38,11 @@ func fetchModelsFromProviders(ctx context.Context, store config.Store) []config.
 	}
 
 	for _, prov := range providers {
-		p, _ := pluginproviders.Build(prov.ID, pluginproviders.ProviderConfig{APIKey: prov.APIKey, BaseURL: prov.BaseURL})
+		p, err := pluginproviders.Build(prov.ID, pluginproviders.ProviderConfig{APIKey: prov.APIKey, BaseURL: prov.BaseURL})
+		if err != nil {
+			slog.Debug("failed to build provider", "provider", prov.ID, "error", err)
+			continue
+		}
 		if p == nil {
 			continue
 		}

@@ -12,11 +12,14 @@ import (
 )
 
 func init() {
-	pluginproviders.Register("openai", pluginproviders.ProviderMeta{
-		Name:       "OpenAI",
-		DefaultURL: "https://api.openai.com/v1",
-	}, func(cfg pluginproviders.ProviderConfig) providers.ProviderAdapter {
-		return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL})
+	pluginproviders.Register("openai", pluginproviders.Registration{
+		Meta: pluginproviders.ProviderMeta{
+			Name:       "OpenAI",
+			DefaultURL: "https://api.openai.com/v1",
+		},
+		Factory: func(cfg pluginproviders.ProviderConfig) (providers.ProviderAdapter, error) {
+			return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}), nil
+		},
 	})
 }
 

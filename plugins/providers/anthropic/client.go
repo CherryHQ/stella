@@ -12,11 +12,14 @@ import (
 )
 
 func init() {
-	pluginproviders.Register("anthropic", pluginproviders.ProviderMeta{
-		Name:       "Anthropic",
-		DefaultURL: "https://api.anthropic.com",
-	}, func(cfg pluginproviders.ProviderConfig) providers.ProviderAdapter {
-		return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL})
+	pluginproviders.Register("anthropic", pluginproviders.Registration{
+		Meta: pluginproviders.ProviderMeta{
+			Name:       "Anthropic",
+			DefaultURL: "https://api.anthropic.com",
+		},
+		Factory: func(cfg pluginproviders.ProviderConfig) (providers.ProviderAdapter, error) {
+			return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}), nil
+		},
 	})
 }
 

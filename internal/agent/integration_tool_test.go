@@ -64,9 +64,9 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 
 	for _, p := range providers {
 		t.Run(p.name, func(t *testing.T) {
-			adapter, ok := pluginproviders.Build(p.name, pluginproviders.ProviderConfig{BaseURL: p.baseURL})
-			if !ok {
-				t.Fatalf("provider %s not registered", p.name)
+			adapter, err := pluginproviders.Build(p.name, pluginproviders.ProviderConfig{BaseURL: p.baseURL})
+			if err != nil {
+				t.Fatalf("provider %s: %v", p.name, err)
 			}
 			reg := providerapi.NewRegistry()
 			reg.Register(adapter)

@@ -15,8 +15,11 @@ import (
 func init() {
 	// Register a stub provider so NewGoRunner can Build("anthropic", ...).
 	// Tests replace the registry entry with their own fake after construction.
-	pluginproviders.Register("anthropic", pluginproviders.ProviderMeta{Name: "Anthropic"}, func(cfg pluginproviders.ProviderConfig) providers.ProviderAdapter {
-		return &stubProvider{}
+	pluginproviders.Register("anthropic", pluginproviders.Registration{
+		Meta: pluginproviders.ProviderMeta{Name: "Anthropic"},
+		Factory: func(cfg pluginproviders.ProviderConfig) (providers.ProviderAdapter, error) {
+			return &stubProvider{}, nil
+		},
 	})
 }
 
