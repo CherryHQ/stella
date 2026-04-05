@@ -16,6 +16,7 @@ import (
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/internal/memory"
 	memorytool "github.com/vaayne/anna/internal/memory/tool"
 	"github.com/vaayne/anna/internal/scheduler"
@@ -137,7 +138,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Plugin hooks builder: auto-discovers registered hook plugins and returns
 	// enabled ones. Called at startup and on hot-reload.
 	pluginHooksBuilder := func(ctx context.Context) []hooks.HookPlugin {
-		return pluginhooks.BuildEnabled(func(name string) bool {
+		return pluginhooks.BuildEnabled(pluginhooks.BuildContext{
+			ToolsBinDir: embedded.BinDir(config.AnnaHome()),
+		}, func(name string) bool {
 			p, err := store.GetPlugin(ctx, config.PluginID(config.PluginKindHook, name))
 			return err == nil && p.Enabled
 		})

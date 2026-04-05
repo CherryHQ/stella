@@ -21,7 +21,7 @@ type ProviderMeta struct {
 }
 
 // Factory creates a provider adapter from config.
-type Factory func(cfg ProviderConfig) providers.ProviderAdapter
+type Factory func(cfg ProviderConfig) (providers.ProviderAdapter, error)
 
 // Registration holds a factory plus its metadata.
 type Registration struct {
@@ -36,10 +36,10 @@ var (
 
 // Register registers a provider plugin factory by name.
 // Typically called from init() in each provider package.
-func Register(name string, meta ProviderMeta, factory Factory) {
+func Register(name string, reg Registration) {
 	mu.Lock()
 	defer mu.Unlock()
-	registry[name] = Registration{Factory: factory, Meta: meta}
+	registry[name] = reg
 }
 
 // Names returns all registered provider names in sorted order.
@@ -65,23 +65,23 @@ func Metas() map[string]ProviderMeta {
 	return out
 }
 
-// Build creates a single provider adapter by name. Returns false if not registered.
-func Build(name string, cfg ProviderConfig) (providers.ProviderAdapter, bool) {
+// Build creates a single provider adapter by name.
+func Build(name string, cfg ProviderConfig) (providers.ProviderAdapter, error) {
 	mu.RLock()
 	reg, ok := registry[name]
 	mu.RUnlock()
 	if !ok {
-		return nil, false
+		return nil, fmt.Errorf("unknown provider %q", name)
 	}
-	return reg.Factory(cfg), true
+	return reg.Factory(cfg)
 }
 
 // BuildRegistry creates a single-provider providers.Registry for the given name and config.
 // This is the standard way to set up a provider for engine use.
 func BuildRegistry(name string, cfg ProviderConfig) (*providers.Registry, error) {
-	adapter, ok := Build(name, cfg)
-	if !ok {
-		return nil, fmt.Errorf("unknown provider %q", name)
+	adapter, err := Build(name, cfg)
+	if err != nil {
+		return nil, err
 	}
 	reg := providers.NewRegistry()
 	reg.Register(adapter)

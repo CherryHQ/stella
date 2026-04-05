@@ -15,11 +15,14 @@ import (
 )
 
 func init() {
-	pluginproviders.Register("openai-response", pluginproviders.ProviderMeta{
-		Name:       "OpenAI Response",
-		DefaultURL: "https://api.openai.com/v1",
-	}, func(cfg pluginproviders.ProviderConfig) providers.ProviderAdapter {
-		return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL})
+	pluginproviders.Register("openai-response", pluginproviders.Registration{
+		Meta: pluginproviders.ProviderMeta{
+			Name:       "OpenAI Response",
+			DefaultURL: "https://api.openai.com/v1",
+		},
+		Factory: func(cfg pluginproviders.ProviderConfig) (providers.ProviderAdapter, error) {
+			return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}), nil
+		},
 	})
 }
 

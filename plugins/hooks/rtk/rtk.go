@@ -14,11 +14,22 @@ import (
 )
 
 func init() {
-	pluginhooks.Register("rtk", func() hooks.HookPlugin { return &Hook{} })
+	pluginhooks.Register("rtk", pluginhooks.Registration{
+		Factory: func(bc pluginhooks.BuildContext) (hooks.HookPlugin, error) {
+			return NewHook(bc.ToolsBinDir), nil
+		},
+	})
 }
 
 // Hook rewrites bash commands via the rtk binary.
-type Hook struct{}
+type Hook struct {
+	toolsBinDir string
+}
+
+// NewHook creates a Hook that looks for the rtk binary in the given directory.
+func NewHook(toolsBinDir string) *Hook {
+	return &Hook{toolsBinDir: toolsBinDir}
+}
 
 func (h *Hook) Name() string  { return "rtk" }
 func (h *Hook) Priority() int { return 100 }
@@ -31,7 +42,7 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 	if !ok || command == "" {
 		return hooks.PreToolCallResult{}, nil
 	}
-	rewritten := wrapWithRTK(command)
+	rewritten := h.wrapWithRTK(command)
 	if rewritten == command {
 		return hooks.PreToolCallResult{}, nil
 	}
@@ -40,31 +51,32 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 	return hooks.PreToolCallResult{Arguments: args}, nil
 }
 
-// toolsBinDir is set by SetToolsBinDir before the first hook invocation.
-// The runner calls this after extracting embedded tools.
-var toolsBinDir string
+var (
+	rtkPathOnce sync.Once
+	rtkPathVal  string
+)
 
-// SetToolsBinDir configures the directory where embedded tool binaries live.
-// Must be called before the first hook invocation (typically during runner setup).
-func SetToolsBinDir(dir string) { toolsBinDir = dir }
-
-// rtkPath caches the resolved rtk binary path (empty if not found).
-var rtkPath = sync.OnceValue(func() string {
-	if toolsBinDir != "" {
-		p := filepath.Join(toolsBinDir, "rtk")
-		if _, err := os.Stat(p); err == nil {
-			return p
+// resolveRTKPath lazily resolves the rtk binary path, checking the given
+// bin directory first, then $PATH.
+func resolveRTKPath(binDir string) string {
+	rtkPathOnce.Do(func() {
+		if binDir != "" {
+			p := filepath.Join(binDir, "rtk")
+			if _, err := os.Stat(p); err == nil {
+				rtkPathVal = p
+				return
+			}
 		}
-	}
-	if p, err := exec.LookPath("rtk"); err == nil {
-		return p
-	}
-	return ""
-})
+		if p, err := exec.LookPath("rtk"); err == nil {
+			rtkPathVal = p
+		}
+	})
+	return rtkPathVal
+}
 
 // wrapWithRTK uses "rtk rewrite" to determine how to wrap the command.
-func wrapWithRTK(command string) string {
-	rtk := rtkPath()
+func (h *Hook) wrapWithRTK(command string) string {
+	rtk := resolveRTKPath(h.toolsBinDir)
 	if rtk == "" {
 		return command
 	}
