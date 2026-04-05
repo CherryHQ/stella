@@ -14,6 +14,16 @@ type AssistantEventStream interface {
 }
 
 // ChannelEventStream is a channel-backed AssistantEventStream.
+//
+// Producers call Emit to send events, then Finish to close the stream and
+// record any terminal error. Consumers range over Events() and then call
+// Wait() to retrieve the terminal error.
+//
+// Close vs Finish: Finish is the normal shutdown path — it stores the error
+// and closes the channel. Close is for consumer-side cancellation — it closes
+// the channel without storing an error. If Close races with Finish, the first
+// caller wins (via sync.Once) and Wait() returns whatever error was stored
+// before the channel closed.
 type ChannelEventStream struct {
 	events chan ai.AssistantEvent
 	once   sync.Once
@@ -36,7 +46,9 @@ func (s *ChannelEventStream) Emit(event ai.AssistantEvent) {
 	s.events <- event
 }
 
-// Finish closes stream and stores terminal error if any.
+// Finish closes the event stream and records the terminal error.
+// After Finish, Wait() returns err and Events() is drained.
+// Safe to call concurrently with Close — first caller wins the channel close.
 func (s *ChannelEventStream) Finish(err error) {
 	s.errMu.Lock()
 	s.err = err
@@ -46,7 +58,10 @@ func (s *ChannelEventStream) Finish(err error) {
 	})
 }
 
-// Close closes the event stream.
+// Close closes the event stream from the consumer side without recording an error.
+// After Close, any pending Emit calls will panic (closed channel).
+// If Finish was called first, Close is a no-op. If Close is called first,
+// Finish still records the error for Wait() but does not re-close the channel.
 func (s *ChannelEventStream) Close() error {
 	s.once.Do(func() {
 		close(s.events)
