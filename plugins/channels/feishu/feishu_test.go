@@ -1089,6 +1089,10 @@ type mockHandler struct {
 	switchErr error
 }
 
+func (m *mockHandler) HandleIncoming(_ context.Context, _ channel.IncomingMessage, _, _ string) (string, bool, *channel.ChatStream, error) {
+	return "", false, nil, nil
+}
+
 func (m *mockHandler) HandleMessage(_ context.Context, _ channel.IncomingMessage) (*channel.ChatStream, error) {
 	return nil, fmt.Errorf("not implemented")
 }

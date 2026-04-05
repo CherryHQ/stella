@@ -270,7 +270,7 @@ func (b *Bot) handleModelCommand(args string, reply func(string)) {
 		}
 		return
 	}
-	reply(formatModelList(models, query))
+	reply(channel.FormatModelList(models, query))
 }
 
 // modelList returns models optionally filtered by query.
@@ -284,18 +284,8 @@ func (b *Bot) modelList(query string) []channel.IndexedModel {
 
 // switchModelByName handles model switching by "provider/model" name.
 func (b *Bot) switchModelByName(name string, reply func(string)) {
-	name = strings.ToLower(strings.TrimSpace(name))
-	models := b.handler.ListModels()
-	var selected channel.ModelOption
-	found := false
-	for _, m := range models {
-		if strings.ToLower(m.Provider+"/"+m.Model) == name {
-			selected = m
-			found = true
-			break
-		}
-	}
-	if !found {
+	selected, ok := channel.FindModelByName(b.handler.ListModels(), name)
+	if !ok {
 		reply(fmt.Sprintf("Unknown model %q, use /model to list available models.", name))
 		return
 	}
@@ -334,37 +324,7 @@ func (b *Bot) handleAgentCommand(msg WeixinMessage, args string, reply func(stri
 	}
 
 	indexed := channel.IndexAgents(agents)
-	reply(formatAgentList(indexed, currentAgentID))
-}
-
-// formatAgentList builds a text-based agent list.
-func formatAgentList(agents []channel.IndexedAgent, currentID string) string {
-	var sb strings.Builder
-	sb.WriteString("Available agents:\n\n")
-	for _, ag := range agents {
-		prefix := "• "
-		if ag.ID == currentID {
-			prefix = "✅ "
-		}
-		fmt.Fprintf(&sb, "%s%s (%s)\n", prefix, ag.ID, ag.Name)
-	}
-	sb.WriteString("\nUse /agent <slug> to switch.")
-	return sb.String()
-}
-
-// formatModelList builds a text-based model list.
-func formatModelList(models []channel.IndexedModel, query string) string {
-	var sb strings.Builder
-	sb.WriteString("Available models")
-	if query != "" {
-		fmt.Fprintf(&sb, " (filter: %q)", query)
-	}
-	sb.WriteString(":\n\n")
-	for _, m := range models {
-		fmt.Fprintf(&sb, "• %s/%s\n", m.Provider, m.Model)
-	}
-	sb.WriteString("\nUse /model <provider/model> to switch.")
-	return sb.String()
+	reply(channel.FormatAgentList(indexed, currentAgentID))
 }
 
 // sendReply sends a text reply to the message sender using the cached context_token.

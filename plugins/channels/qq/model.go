@@ -37,23 +37,13 @@ func (b *Bot) handleModelCommand(args string, reply func(string)) {
 		}
 		return
 	}
-	reply(formatModelList(models, query))
+	reply(channel.FormatModelList(models, query))
 }
 
 // switchModelByName handles model switching by "provider/model" name.
 func (b *Bot) switchModelByName(name string, reply func(string)) {
-	name = strings.ToLower(strings.TrimSpace(name))
-	models := b.handler.ListModels()
-	var selected channel.ModelOption
-	found := false
-	for _, m := range models {
-		if strings.ToLower(m.Provider+"/"+m.Model) == name {
-			selected = m
-			found = true
-			break
-		}
-	}
-	if !found {
+	selected, ok := channel.FindModelByName(b.handler.ListModels(), name)
+	if !ok {
 		reply(fmt.Sprintf("Unknown model %q, use /model to list available models.", name))
 		return
 	}
@@ -88,35 +78,5 @@ func (b *Bot) handleAgentCommand(incoming channel.IncomingMessage, args string, 
 		reply("No agents available.")
 		return
 	}
-	reply(formatAgentList(channel.IndexAgents(agents), currentAgentID))
-}
-
-// formatModelList builds a text-based model list.
-func formatModelList(models []channel.IndexedModel, query string) string {
-	var sb strings.Builder
-	sb.WriteString("Available models")
-	if query != "" {
-		fmt.Fprintf(&sb, " (filter: %q)", query)
-	}
-	sb.WriteString(":\n\n")
-	for _, m := range models {
-		fmt.Fprintf(&sb, "• %s/%s\n", m.Provider, m.Model)
-	}
-	sb.WriteString("\nUse /model <provider/model> to switch.")
-	return sb.String()
-}
-
-// formatAgentList builds a text-based agent list.
-func formatAgentList(agents []channel.IndexedAgent, currentAgentID string) string {
-	var sb strings.Builder
-	sb.WriteString("Available agents:\n\n")
-	for _, ag := range agents {
-		prefix := "• "
-		if ag.ID == currentAgentID {
-			prefix = "✅ "
-		}
-		fmt.Fprintf(&sb, "%s%s (%s)\n", prefix, ag.ID, ag.Name)
-	}
-	sb.WriteString("\nUse /agent <slug> to switch.")
-	return sb.String()
+	reply(channel.FormatAgentList(channel.IndexAgents(agents), currentAgentID))
 }
