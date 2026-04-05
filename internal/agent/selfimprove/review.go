@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/ai"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/db/sqlc"
@@ -114,16 +113,14 @@ func reviewConversation(ctx context.Context, deps ReviewDeps, snap *config.Snaps
 	model := snap.ResolveModelTier(config.ModelTierFast)
 	creds := snap.ResolveProviderCreds(model.API)
 
-	adapter, ok := pluginproviders.Build(model.API, pluginproviders.ProviderConfig{
+	reg, err := pluginproviders.BuildRegistry(model.API, pluginproviders.ProviderConfig{
 		APIKey:  creds.APIKey,
 		BaseURL: creds.BaseURL,
 	})
-	if !ok {
-		log.Error("self-improve: unknown provider", "provider", model.API)
+	if err != nil {
+		log.Error("self-improve: build provider", "error", err)
 		return
 	}
-	reg := ai.NewRegistry()
-	reg.Register(adapter)
 
 	// Load existing skill names for the prompt (empty annaHome skips builtin extraction).
 	userSkillsDir := filepath.Join(snap.Workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")

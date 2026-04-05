@@ -1,12 +1,11 @@
 package pluginproviders
 
 import (
-	"context"
+	"fmt"
 	"sort"
 	"sync"
 
 	"github.com/vaayne/anna/internal/ai"
-	"github.com/vaayne/anna/internal/config"
 )
 
 // ProviderConfig holds credentials passed to the factory at build time.
@@ -66,7 +65,7 @@ func Metas() map[string]ProviderMeta {
 	return out
 }
 
-// Build creates a single provider by name. Returns false if not registered.
+// Build creates a single provider adapter by name. Returns false if not registered.
 func Build(name string, cfg ProviderConfig) (ai.ProviderAdapter, bool) {
 	mu.RLock()
 	reg, ok := registry[name]
@@ -77,54 +76,14 @@ func Build(name string, cfg ProviderConfig) (ai.ProviderAdapter, bool) {
 	return reg.Factory(cfg), true
 }
 
-// BuildAll builds all registered providers that have a config entry
-// and returns a populated ai.Registry.
-func BuildAll(cfgs map[string]ProviderConfig) *ai.Registry {
-	mu.RLock()
-	snapshot := make(map[string]Registration, len(registry))
-	for name, reg := range registry {
-		snapshot[name] = reg
+// BuildRegistry creates a single-provider ai.Registry for the given name and config.
+// This is the standard way to set up a provider for engine use.
+func BuildRegistry(name string, cfg ProviderConfig) (*ai.Registry, error) {
+	adapter, ok := Build(name, cfg)
+	if !ok {
+		return nil, fmt.Errorf("unknown provider %q", name)
 	}
-	mu.RUnlock()
-
-	r := ai.NewRegistry()
-	for name, reg := range snapshot {
-		cfg, ok := cfgs[name]
-		if !ok {
-			continue
-		}
-		r.Register(reg.Factory(cfg))
-	}
-	return r
-}
-
-// BuildEnabled queries the store for enabled provider plugins, extracts
-// credentials from each plugin's config, and builds only those providers.
-func BuildEnabled(ctx context.Context, store config.Store) *ai.Registry {
-	plugins, err := store.ListPluginsByKind(ctx, config.PluginKindProvider)
-	if err != nil {
-		return ai.NewRegistry()
-	}
-
-	mu.RLock()
-	snapshot := make(map[string]Registration, len(registry))
-	for name, reg := range registry {
-		snapshot[name] = reg
-	}
-	mu.RUnlock()
-
-	r := ai.NewRegistry()
-	for _, p := range plugins {
-		if !p.Enabled {
-			continue
-		}
-		reg, ok := snapshot[p.Name]
-		if !ok {
-			continue
-		}
-		apiKey, _ := p.Config["api_key"].(string)
-		baseURL, _ := p.Config["base_url"].(string)
-		r.Register(reg.Factory(ProviderConfig{APIKey: apiKey, BaseURL: baseURL}))
-	}
-	return r
+	reg := ai.NewRegistry()
+	reg.Register(adapter)
+	return reg, nil
 }

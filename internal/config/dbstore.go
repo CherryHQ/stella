@@ -54,9 +54,8 @@ func (s *DBStore) CreateProvider(ctx context.Context, p Provider) error {
 }
 
 func (s *DBStore) UpdateProvider(ctx context.Context, p Provider) error {
-	pluginID := PluginID(PluginKindProvider, p.ID)
-	cfg := map[string]any{"api_key": p.APIKey, "base_url": p.BaseURL, "display_name": p.Name}
-	if err := s.SetPluginConfig(ctx, pluginID, cfg); err != nil {
+	plug := pluginFromProvider(p)
+	if err := s.SetPluginConfig(ctx, plug.ID, plug.Config); err != nil {
 		return fmt.Errorf("update provider %q: %w", p.ID, err)
 	}
 	return nil
@@ -385,24 +384,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 		return nil, fmt.Errorf("snapshot: get agent %q: %w", agentID, err)
 	}
 
-	// Collect unique provider IDs from all model refs.
-	provIDs := collectProviderIDs(ag.Model, ag.ModelStrong, ag.ModelFast)
-
-	// Resolve credentials for each provider from settings_plugins.
-	providers := make(map[string]ProviderCreds, len(provIDs))
-	for _, pid := range provIDs {
-		p, err := s.GetProvider(ctx, pid)
-		if err != nil {
-			return nil, fmt.Errorf("snapshot: get provider %q: %w", pid, err)
-		}
-		providers[pid] = ProviderCreds{APIKey: p.APIKey, BaseURL: p.BaseURL}
-	}
-
-	// Default provider comes from the main Model field.
-	defaultProvID, _ := ParseModelRef(ag.Model)
-	defaultCreds := providers[defaultProvID]
-
-	// Load plugins from settings_plugins.
+	// Load all plugins in one query — providers are extracted from this list.
 	pluginRows, err := s.q.ListPlugins(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: list plugins: %w", err)
@@ -411,6 +393,25 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	for i, r := range pluginRows {
 		plugins[i] = pluginFromDB(r)
 	}
+
+	// Collect unique provider IDs from all model refs.
+	provIDs := collectProviderIDs(ag.Model, ag.ModelStrong, ag.ModelFast)
+
+	// Extract provider credentials from the loaded plugins.
+	providers := make(map[string]ProviderCreds, len(provIDs))
+	for _, pid := range provIDs {
+		for i := range plugins {
+			if plugins[i].Kind == PluginKindProvider && plugins[i].Name == pid {
+				p := providerFromPlugin(plugins[i])
+				applyProviderEnvFallback(&p)
+				providers[pid] = ProviderCreds{APIKey: p.APIKey, BaseURL: p.BaseURL}
+				break
+			}
+		}
+	}
+
+	defaultProvID, _ := ParseModelRef(ag.Model)
+	defaultCreds := providers[defaultProvID]
 
 	snap := &Snapshot{
 		AgentID:      agentID,
@@ -568,15 +569,17 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 		// For provider plugins, seed credentials from environment variables
 		// so the provider is usable out of the box.
 		cfg := providerSeedConfig(name)
-		cfgJSON, _ := json.Marshal(cfg)
-		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
+		cfgJSON, err := json.Marshal(cfg)
+		if err != nil {
+			return fmt.Errorf("seed: marshal provider config %q: %w", name, err)
+		}
+		if err = s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
 			ID:      PluginID(PluginKindProvider, name),
 			Kind:    PluginKindProvider,
 			Name:    name,
 			Enabled: 1,
 			Config:  string(cfgJSON),
-		})
-		if err != nil {
+		}); err != nil {
 			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindProvider, name, err)
 		}
 	}
@@ -615,23 +618,20 @@ func pluginFromProvider(p Provider) Plugin {
 	}
 }
 
+// providerEnvVars maps provider slugs to their (apiKey, baseURL) env var names.
+var providerEnvVars = map[string][2]string{
+	"anthropic":       {"ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"},
+	"openai":          {"OPENAI_API_KEY", "OPENAI_BASE_URL"},
+	"openai-response": {"OPENAI_API_KEY", "OPENAI_BASE_URL"},
+}
+
 // providerSeedConfig returns the initial config map for a provider plugin,
 // populated from environment variables when available.
 func providerSeedConfig(name string) map[string]any {
 	cfg := map[string]any{"api_key": "", "base_url": "", "display_name": name}
-	switch name {
-	case "anthropic":
-		cfg["display_name"] = "Anthropic"
-		cfg["api_key"] = os.Getenv("ANTHROPIC_API_KEY")
-		cfg["base_url"] = os.Getenv("ANTHROPIC_BASE_URL")
-	case "openai":
-		cfg["display_name"] = "OpenAI"
-		cfg["api_key"] = os.Getenv("OPENAI_API_KEY")
-		cfg["base_url"] = os.Getenv("OPENAI_BASE_URL")
-	case "openai-response":
-		cfg["display_name"] = "OpenAI Response"
-		cfg["api_key"] = os.Getenv("OPENAI_API_KEY")
-		cfg["base_url"] = os.Getenv("OPENAI_BASE_URL")
+	if envs, ok := providerEnvVars[name]; ok {
+		cfg["api_key"] = os.Getenv(envs[0])
+		cfg["base_url"] = os.Getenv(envs[1])
 	}
 	return cfg
 }
@@ -639,13 +639,9 @@ func providerSeedConfig(name string) map[string]any {
 // applyProviderEnvFallback fills empty API key and base URL from environment
 // variables for known provider slugs.
 func applyProviderEnvFallback(p *Provider) {
-	switch p.ID {
-	case "anthropic":
-		envFallback(&p.APIKey, "ANTHROPIC_API_KEY")
-		envFallback(&p.BaseURL, "ANTHROPIC_BASE_URL")
-	case "openai", "openai-response":
-		envFallback(&p.APIKey, "OPENAI_API_KEY")
-		envFallback(&p.BaseURL, "OPENAI_BASE_URL")
+	if envs, ok := providerEnvVars[p.ID]; ok {
+		envFallback(&p.APIKey, envs[0])
+		envFallback(&p.BaseURL, envs[1])
 	}
 }
 

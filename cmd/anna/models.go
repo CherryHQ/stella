@@ -38,7 +38,7 @@ func fetchModelsFromProviders(ctx context.Context, store config.Store) []config.
 	}
 
 	for _, prov := range providers {
-		p := newStreamProviderFromCreds(prov.ID, prov.APIKey, prov.BaseURL)
+		p, _ := pluginproviders.Build(prov.ID, pluginproviders.ProviderConfig{APIKey: prov.APIKey, BaseURL: prov.BaseURL})
 		if p == nil {
 			continue
 		}
@@ -96,15 +96,6 @@ func collectModelsFromStore(ctx context.Context, store config.Store, snap *confi
 	}
 
 	return models
-}
-
-// newStreamProviderFromCreds creates an ai.ProviderAdapter from raw credentials.
-func newStreamProviderFromCreds(name, apiKey, baseURL string) ai.ProviderAdapter {
-	p, ok := pluginproviders.Build(name, pluginproviders.ProviderConfig{APIKey: apiKey, BaseURL: baseURL})
-	if !ok {
-		return nil
-	}
-	return p
 }
 
 // openStore is a helper that opens the DB and returns a Store.

@@ -60,16 +60,13 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		return nil, fmt.Errorf("go runner: api_key is required")
 	}
 
-	// Build only the provider this runner needs.
-	adapter, ok := pluginproviders.Build(cfg.API, pluginproviders.ProviderConfig{
+	reg, err := pluginproviders.BuildRegistry(cfg.API, pluginproviders.ProviderConfig{
 		APIKey:  cfg.APIKey,
 		BaseURL: cfg.BaseURL,
 	})
-	if !ok {
-		return nil, fmt.Errorf("go runner: unknown provider %q", cfg.API)
+	if err != nil {
+		return nil, fmt.Errorf("go runner: %w", err)
 	}
-	reg := ai.NewRegistry()
-	reg.Register(adapter)
 
 	system := cfg.System
 	if system == "" {
