@@ -108,6 +108,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	s.mux.Handle("PUT /api/providers/{id}", adminAPI(s.updateProvider))
 	s.mux.Handle("DELETE /api/providers/{id}", adminAPI(s.deleteProvider))
 	s.mux.Handle("POST /api/providers/{id}/models", adminAPI(s.fetchProviderModels))
+	s.mux.Handle("GET /api/provider-types", adminAPI(s.listProviderTypes))
 
 	// Agent APIs (read/create for all authenticated users, update/delete for admin or creator).
 	s.mux.HandleFunc("GET /api/agents", s.listAgents)

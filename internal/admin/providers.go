@@ -164,6 +164,26 @@ func (s *Server) updateModelsCache(providerID string, modelIDs []string) {
 	}
 }
 
+func (s *Server) listProviderTypes(w http.ResponseWriter, r *http.Request) {
+	type providerType struct {
+		ID         string `json:"id"`
+		Name       string `json:"name"`
+		DefaultURL string `json:"default_url"`
+	}
+
+	metas := pluginproviders.Metas()
+	types := make([]providerType, 0, len(metas))
+	for _, name := range pluginproviders.Names() {
+		m := metas[name]
+		types = append(types, providerType{
+			ID:         name,
+			Name:       m.Name,
+			DefaultURL: m.DefaultURL,
+		})
+	}
+	writeData(w, http.StatusOK, types)
+}
+
 // newProviderFromCreds creates an ai.ProviderAdapter from raw credentials.
 func newProviderFromCreds(name, apiKey, baseURL string) ai.ProviderAdapter {
 	p, ok := pluginproviders.Build(name, pluginproviders.ProviderConfig{APIKey: apiKey, BaseURL: baseURL})
