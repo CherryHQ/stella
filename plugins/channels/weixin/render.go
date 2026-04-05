@@ -6,13 +6,12 @@ import (
 	"encoding/hex"
 	"strconv"
 
-	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/pkg/channel"
 )
 
 // sendFinalResponse splits text at 2000 chars and sends each chunk,
 // then sends any collected images.
-func (b *Bot) sendFinalResponse(msg WeixinMessage, response string, images []runner.ImageEvent) {
+func (b *Bot) sendFinalResponse(msg WeixinMessage, response string, images []channel.ImageEvent) {
 	chunks := channel.SplitMessage(response, weixinMaxMessageLen)
 
 	contextToken := ""
@@ -45,7 +44,7 @@ func (b *Bot) sendFinalResponse(msg WeixinMessage, response string, images []run
 }
 
 // sendImage encrypts and uploads an image to CDN, then sends it as a message.
-func (b *Bot) sendImage(msg WeixinMessage, img runner.ImageEvent) {
+func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
 	data, err := decodeBase64(img.Data)
 	if err != nil {
 		logger().Error("decode image failed", "error", err)

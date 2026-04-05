@@ -10,14 +10,6 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 )
 
-// Notification represents a message to push to a user or channel.
-type Notification struct {
-	Channel string // optional: route to a specific backend ("telegram", "slack")
-	ChatID  string // target chat/channel within the backend
-	Text    string // markdown content
-	Silent  bool   // send without notification sound
-}
-
 // Notifier can push notifications. Both Dispatcher and individual channels
 // satisfy this interface, so consumers don't need to know the routing layer.
 type Notifier interface {

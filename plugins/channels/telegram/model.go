@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/pkg/channel"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -86,13 +86,8 @@ func (b *Bot) sendModelPage(c tele.Context, models []channel.IndexedModel, page 
 
 // switchModelByName handles model switching by "provider/model" name.
 func (b *Bot) switchModelByName(c tele.Context, name string) error {
-	rc, err := b.resolve(c)
-	if err != nil {
-		return c.Send(fmt.Sprintf("Error: %v", err))
-	}
-
 	name = strings.ToLower(strings.TrimSpace(name))
-	models := b.listFn()
+	models := b.handler.ListModels()
 	var selected channel.ModelOption
 	found := false
 	for _, m := range models {
@@ -106,46 +101,31 @@ func (b *Bot) switchModelByName(c tele.Context, name string) error {
 		return c.Send(fmt.Sprintf("Unknown model %q, use /model to list available models.", name))
 	}
 
-	if _, err := rc.RotateSession(); err != nil {
-		return c.Send(fmt.Sprintf("Error rotating session: %v", err))
-	}
-	if b.switchFn != nil {
-		if err := b.switchFn(selected.Provider, selected.Model); err != nil {
-			return c.Send(fmt.Sprintf("Error switching model: %v", err))
-		}
+	if err := b.handler.SwitchModel(selected.Provider, selected.Model); err != nil {
+		return c.Send(fmt.Sprintf("Error switching model: %v", err))
 	}
 	b.mu.Lock()
 	b.chatModels[c.Chat().ID] = selected
 	b.mu.Unlock()
-	logger().Info("model switched", "key", rc.SessionKey, "provider", selected.Provider, "model", selected.Model)
+	logger().Info("model switched", "provider", selected.Provider, "model", selected.Model)
 	return c.Send(fmt.Sprintf("Switched to %s/%s. Session reset.", selected.Provider, selected.Model))
 }
 
 // switchModelByIdx handles model switching by 1-based index.
 // Used internally by inline keyboard callbacks.
 func (b *Bot) switchModelByIdx(c tele.Context, idx int) error {
-	rc, err := b.resolve(c)
-	if err != nil {
-		return c.Send(fmt.Sprintf("Error: %v", err))
-	}
-
-	models := b.listFn()
+	models := b.handler.ListModels()
 	if idx < 1 || idx > len(models) {
 		return c.Send(fmt.Sprintf("Invalid selection, use a number between 1 and %d.", len(models)))
 	}
 	selected := models[idx-1]
 
-	if _, err := rc.RotateSession(); err != nil {
-		return c.Send(fmt.Sprintf("Error rotating session: %v", err))
-	}
-	if b.switchFn != nil {
-		if err := b.switchFn(selected.Provider, selected.Model); err != nil {
-			return c.Send(fmt.Sprintf("Error switching model: %v", err))
-		}
+	if err := b.handler.SwitchModel(selected.Provider, selected.Model); err != nil {
+		return c.Send(fmt.Sprintf("Error switching model: %v", err))
 	}
 	b.mu.Lock()
 	b.chatModels[c.Chat().ID] = selected
 	b.mu.Unlock()
-	logger().Info("model switched", "key", rc.SessionKey, "provider", selected.Provider, "model", selected.Model)
+	logger().Info("model switched", "provider", selected.Provider, "model", selected.Model)
 	return c.Send(fmt.Sprintf("Switched to %s/%s. Session reset.", selected.Provider, selected.Model))
 }

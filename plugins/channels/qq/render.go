@@ -2,8 +2,7 @@ package qq
 
 import (
 	"github.com/tencent-connect/botgo/dto"
-	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/pkg/channel"
 )
 
 // sendFinalResponse sends the completed response, splitting into chunks
@@ -38,6 +37,6 @@ func (b *Bot) sendFinalResponse(targetID, msgID, response string, scope messageS
 // does not accept raw binary or base64 data. Agent-generated images are
 // base64 in-memory with no public URL, so we skip them.
 // TODO: support image sending once a file-upload or proxy solution is available.
-func (b *Bot) sendImage(_ string, _ string, _ runner.ImageEvent, _ messageScope) {
+func (b *Bot) sendImage(_ string, _ string, _ channel.ImageEvent, _ messageScope) {
 	logger().Debug("skipping image send: QQ requires HTTP URL for rich media")
 }

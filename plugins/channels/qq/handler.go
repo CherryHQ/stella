@@ -10,9 +10,8 @@ import (
 
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/tencent-connect/botgo/event"
-	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/channel"
 )
 
 // c2cMessageHandler returns a handler for private (C2C) messages.
@@ -20,15 +19,7 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 	return func(_ *dto.WSPayload, data *dto.WSC2CMessageData) error {
 		msg := (*dto.Message)(data)
 		authorID := msg.Author.ID
-
-		// Try link code before anything else.
 		text := strings.TrimSpace(msg.Content)
-		if b.authStore != nil && b.linkCodes != nil && text != "" {
-			if resp, ok := channel.TryLinkCode(b.ctx, b.authStore, b.linkCodes, text, channel.PlatformQQ, authorID, ""); ok {
-				b.replyC2C(b.ctx, authorID, msg.ID, resp)
-				return nil
-			}
-		}
 
 		content := b.buildMessageContent(msg)
 		if content == nil {
@@ -36,21 +27,15 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 		}
 
 		replyFn := func(reply string) { b.replyC2C(b.ctx, authorID, msg.ID, reply) }
-
-		rc, err := b.resolve(authorID, "")
-		if err != nil {
-			logger().Error("resolve failed", "user_id", authorID, "error", err)
-			replyFn(fmt.Sprintf("Error: %v", err))
-			return nil
-		}
+		incoming := incomingMsg(authorID, "", content)
 
 		if text != "" {
-			if handled := b.handleCommand(rc, text, authorID, replyFn); handled {
+			if handled := b.handleCommand(incoming, text, replyFn); handled {
 				return nil
 			}
 		}
 
-		b.handleMessage(rc, authorID, "", msg.ID, content, scopeC2C)
+		b.handleMessage(authorID, "", msg.ID, incoming, scopeC2C)
 		return nil
 	}
 }
@@ -72,22 +57,16 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 		}
 
 		replyFn := func(reply string) { b.replyGroup(b.ctx, groupID, msg.ID, reply) }
-
-		rc, err := b.resolve(authorID, groupID)
-		if err != nil {
-			logger().Error("resolve failed", "user_id", authorID, "group_id", groupID, "error", err)
-			replyFn(fmt.Sprintf("Error: %v", err))
-			return nil
-		}
+		incoming := incomingMsg(authorID, groupID, content)
 
 		text := strings.TrimSpace(msg.Content)
 		if text != "" {
-			if handled := b.handleCommand(rc, text, authorID, replyFn); handled {
+			if handled := b.handleCommand(incoming, text, replyFn); handled {
 				return nil
 			}
 		}
 
-		b.handleMessage(rc, authorID, groupID, msg.ID, content, scopeGroup)
+		b.handleMessage(authorID, groupID, msg.ID, incoming, scopeGroup)
 		return nil
 	}
 }
@@ -102,7 +81,7 @@ const (
 
 // buildMessageContent constructs the message content from a QQ message.
 // Returns nil if the message has no usable content.
-func (b *Bot) buildMessageContent(msg *dto.Message) runner.MessageContent {
+func (b *Bot) buildMessageContent(msg *dto.Message) any {
 	text := strings.TrimSpace(msg.Content)
 	images := extractImageAttachments(msg)
 
@@ -186,25 +165,25 @@ func downloadImage(ctx context.Context, rawURL string) ([]byte, string, error) {
 }
 
 // handleMessage processes an incoming message by streaming the agent response.
-func (b *Bot) handleMessage(rc *channel.ResolvedChat, authorID, groupID, msgID string, content runner.MessageContent, scope messageScope) {
+func (b *Bot) handleMessage(authorID, groupID, msgID string, incoming channel.IncomingMessage, scope messageScope) {
 	replyTarget := authorID
 	if groupID != "" {
 		replyTarget = groupID
 	}
 
-	events, sessionID, err := rc.Chat(b.ctx, content)
+	stream, err := b.handler.HandleMessage(b.ctx, incoming)
 	if err != nil {
 		logger().Error("chat failed", "author", authorID, "error", err)
 		b.sendReply(replyTarget, msgID, fmt.Sprintf("Session error: %v", err), scope)
 		return
 	}
 
-	logger().Debug("message received", "author", authorID, "session", sessionID)
+	logger().Debug("message received", "author", authorID, "session", stream.SessionID)
 
-	response, images, streamErr := b.streamResponse(events, authorID, groupID, msgID, scope)
+	response, images, streamErr := b.streamResponse(stream.Events, authorID, groupID, msgID, scope)
 
 	if streamErr != nil {
-		logger().Error("agent stream error", "session_id", sessionID, "error", streamErr)
+		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
 		if response == "" {
 			response = fmt.Sprintf("Agent error: %v", streamErr)
 		} else {
@@ -227,27 +206,26 @@ func (b *Bot) handleMessage(rc *channel.ResolvedChat, authorID, groupID, msgID s
 
 // handleCommand checks if text is a bot command and handles it.
 // Returns true if the text was a command.
-func (b *Bot) handleCommand(rc *channel.ResolvedChat, text, senderID string, reply func(string)) bool {
-	// Try shared handler first.
-	if resp, ok := channel.HandleCommand(b.ctx, rc, text, senderID); ok {
-		reply(resp)
-		return true
-	}
-
+func (b *Bot) handleCommand(incoming channel.IncomingMessage, text string, reply func(string)) bool {
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
 		return false
 	}
 	cmd := strings.ToLower(fields[0])
-
 	args := channel.ParseCommandArgs(text, fields[0])
+
+	// Try shared commands via handler (/start, /new, /compact, /whoami, /help, /link).
+	if resp, ok := b.handler.HandleCommand(b.ctx, incoming, cmd, args); ok {
+		reply(resp)
+		return true
+	}
 
 	switch cmd {
 	case "/model":
-		b.handleModelCommand(rc, args, reply)
+		b.handleModelCommand(args, reply)
 		return true
 	case "/agent":
-		channel.HandleAgentCommand(b.ctx, b.agentCmd, rc, args, reply)
+		b.handleAgentCommand(incoming, args, reply)
 		return true
 	}
 

@@ -11,8 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/pkg/channel"
 )
 
 func TestRandomWechatUIN(t *testing.T) {
@@ -310,7 +309,7 @@ func TestRandomClientID(t *testing.T) {
 func TestNewRequiresBotToken(t *testing.T) {
 	t.Parallel()
 
-	_, err := New(Config{}, nil, nil, nil, nil)
+	_, err := New(Config{}, nil)
 	if err == nil {
 		t.Fatal("expected error for empty bot_token")
 	}
@@ -323,7 +322,7 @@ func TestNewSuccess(t *testing.T) {
 	t.Parallel()
 
 	cfg := Config{BotToken: "test-token"}
-	bot, err := New(cfg, nil, nil, nil, nil)
+	bot, err := New(cfg, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -332,20 +331,6 @@ func TestNewSuccess(t *testing.T) {
 	}
 	if bot.cfg.BotToken != "test-token" {
 		t.Errorf("bot_token = %q, want %q", bot.cfg.BotToken, "test-token")
-	}
-}
-
-func TestNewWithAuth(t *testing.T) {
-	t.Parallel()
-
-	cfg := Config{BotToken: "tok"}
-	bot, err := New(cfg, nil, nil, nil, nil, WithAuth(nil, nil, nil))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// WithAuth sets the agentCmd, verify it was applied by checking it's not nil.
-	if bot.agentCmd == nil {
-		t.Error("expected agentCmd to be set after WithAuth")
 	}
 }
 
@@ -706,12 +691,12 @@ func TestToolTracker(t *testing.T) {
 
 	var tracker toolTracker
 
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls -la"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls -la"})
 	if tracker.activeTool != "bash" {
 		t.Errorf("activeTool = %q, want %q", tracker.activeTool, "bash")
 	}
 
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "done", Input: "ls -la"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "done", Input: "ls -la"})
 	if tracker.activeTool != "" {
 		t.Errorf("activeTool = %q, want empty after done", tracker.activeTool)
 	}
@@ -727,8 +712,8 @@ func TestToolTrackerError(t *testing.T) {
 	t.Parallel()
 
 	var tracker toolTracker
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "exit 1"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "error", Detail: "command failed"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "exit 1"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "error", Detail: "command failed"})
 
 	if len(tracker.history) != 1 {
 		t.Fatalf("history len = %d, want 1", len(tracker.history))
@@ -746,10 +731,10 @@ func TestToolTrackerRenderFinal(t *testing.T) {
 		t.Errorf("renderFinal() with no history = %q, want empty", got)
 	}
 
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "main.go"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done", Detail: "42 lines"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "error", Detail: "exit 1"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "main.go"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "done", Detail: "42 lines"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "error", Detail: "exit 1"})
 
 	got := tracker.renderFinal()
 	if !strings.Contains(got, "——————————————————") {
@@ -773,8 +758,8 @@ func TestToolTrackerHasHistory(t *testing.T) {
 	if tracker.hasHistory() {
 		t.Error("hasHistory() should be false with no tools")
 	}
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "x"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "done", Input: "x"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "x"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "done", Input: "x"})
 	if !tracker.hasHistory() {
 		t.Error("hasHistory() should be true after tool finished")
 	}
@@ -784,8 +769,8 @@ func TestToolTrackerStartOverwritesActive(t *testing.T) {
 	t.Parallel()
 
 	var tracker toolTracker
-	tracker.handle(&runner.ToolUseEvent{Tool: "read", Status: "running", Input: "a.go"})
-	tracker.handle(&runner.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "read", Status: "running", Input: "a.go"})
+	tracker.handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "ls"})
 
 	if len(tracker.history) != 1 {
 		t.Fatalf("history len = %d, want 1", len(tracker.history))

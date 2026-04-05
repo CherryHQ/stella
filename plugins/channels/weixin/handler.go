@@ -7,9 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/channel"
 )
 
 // handleUpdates dispatches incoming messages from the getupdates response.
@@ -73,6 +72,18 @@ func (b *Bot) dispatchMessage(msg WeixinMessage) {
 	b.handleImages(msg, images, combinedText)
 }
 
+// incomingMsg builds a channel.IncomingMessage from a weixin message context.
+func (b *Bot) incomingMsg(msg WeixinMessage, content any) channel.IncomingMessage {
+	return channel.IncomingMessage{
+		Platform:   channel.PlatformWeixin,
+		SenderID:   msg.FromUserID,
+		SenderName: "", // no display name available from iLink
+		ChatID:     msg.FromUserID,
+		IsGroup:    false, // DM only for v1
+		Content:    content,
+	}
+}
+
 // handleText processes incoming text messages.
 func (b *Bot) handleText(msg WeixinMessage, text string) {
 	text = strings.TrimSpace(text)
@@ -81,47 +92,36 @@ func (b *Bot) handleText(msg WeixinMessage, text string) {
 	}
 
 	reply := func(resp string) { b.sendReply(msg, resp) }
+	incoming := b.incomingMsg(msg, text)
 
-	// Try link code before anything else.
-	if b.authStore != nil && b.linkCodes != nil {
-		if resp, ok := channel.TryLinkCode(b.ctx, b.authStore, b.linkCodes, text, channel.PlatformWeixin, msg.FromUserID, ""); ok {
+	// Try shared commands via coordinator (/start, /new, /compact, /whoami, /link).
+	fields := strings.Fields(text)
+	if len(fields) > 0 {
+		cmd := fields[0]
+		args := strings.TrimSpace(strings.TrimPrefix(text, cmd))
+		if resp, ok := b.handler.HandleCommand(b.ctx, incoming, cmd, args); ok {
 			reply(resp)
 			return
 		}
 	}
 
-	// Resolve user/agent/session.
-	rc, err := b.resolve(msg.FromUserID)
-	if err != nil {
-		logger().Error("resolve failed", "user_id", msg.FromUserID, "error", err)
-		reply(fmt.Sprintf("Error: %v", err))
-		return
-	}
-
-	// Try shared commands (/start, /new, /compact, /whoami).
-	if resp, ok := channel.HandleCommand(b.ctx, rc, text, msg.FromUserID); ok {
-		reply(resp)
-		return
-	}
-
 	// Parse command for channel-specific handling.
-	fields := strings.Fields(text)
 	if len(fields) > 0 {
 		cmd := strings.ToLower(fields[0])
 		args := channel.ParseCommandArgs(text, fields[0])
 
 		switch cmd {
 		case "/model":
-			b.handleModelCommand(rc, args, reply)
+			b.handleModelCommand(args, reply)
 			return
 		case "/agent":
-			channel.HandleAgentCommand(b.ctx, b.agentCmd, rc, args, reply)
+			b.handleAgentCommand(msg, args, reply)
 			return
 		}
 	}
 
 	// Normal message — send to agent.
-	b.handleMessage(msg, rc, text)
+	b.handleMessage(msg, incoming)
 }
 
 // extractMessageContent walks all items and returns text fragments and image items.
@@ -182,14 +182,8 @@ func (b *Bot) handleImages(msg WeixinMessage, images []*ImageItem, caption strin
 		return
 	}
 
-	rc, err := b.resolve(msg.FromUserID)
-	if err != nil {
-		logger().Error("resolve failed", "user_id", msg.FromUserID, "error", err)
-		b.sendReply(msg, fmt.Sprintf("Error: %v", err))
-		return
-	}
-
-	b.handleMessage(msg, rc, content)
+	incoming := b.incomingMsg(msg, content)
+	b.handleMessage(msg, incoming)
 }
 
 // downloadImage fetches and decrypts a single image from CDN.
@@ -217,26 +211,26 @@ func (b *Bot) downloadImage(userID string, imageItem *ImageItem) ([]byte, error)
 }
 
 // handleMessage is the common flow for text and multimodal messages.
-func (b *Bot) handleMessage(msg WeixinMessage, rc *channel.ResolvedChat, content runner.MessageContent) {
-	events, sessionID, err := rc.Chat(b.ctx, content)
+func (b *Bot) handleMessage(msg WeixinMessage, incoming channel.IncomingMessage) {
+	stream, err := b.handler.HandleMessage(b.ctx, incoming)
 	if err != nil {
 		logger().Error("chat failed", "user_id", msg.FromUserID, "error", err)
 		b.sendReply(msg, fmt.Sprintf("Session error: %v", err))
 		return
 	}
 
-	logger().Debug("message received", "user_id", msg.FromUserID, "session", sessionID)
+	logger().Debug("message received", "user_id", msg.FromUserID, "session", stream.SessionID)
 
 	// Start typing indicator.
 	typingCtx, stopTyping := context.WithCancel(b.ctx)
 	go b.keepTyping(typingCtx, msg)
 
-	response, tracker, images, streamErr := b.streamEvents(msg, events)
+	response, tracker, images, streamErr := b.streamEvents(msg, stream.Events)
 
 	stopTyping()
 
 	if streamErr != nil {
-		logger().Error("agent stream error", "session_id", sessionID, "error", streamErr)
+		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
 		if response == "" {
 			response = fmt.Sprintf("Agent error: %v", streamErr)
 		} else {
@@ -258,12 +252,12 @@ func (b *Bot) handleMessage(msg WeixinMessage, rc *channel.ResolvedChat, content
 
 // handleModelCommand processes /model with optional arguments.
 // No args → list models; text with "/" → switch by name; text → filter.
-func (b *Bot) handleModelCommand(rc *channel.ResolvedChat, args string, reply func(string)) {
+func (b *Bot) handleModelCommand(args string, reply func(string)) {
 	query := channel.ParseModelArgs(args)
 
 	// If the query looks like "provider/model", try switching directly.
 	if query != "" && strings.Contains(query, "/") {
-		b.switchModelByName(rc, query, reply)
+		b.switchModelByName(query, reply)
 		return
 	}
 
@@ -281,7 +275,7 @@ func (b *Bot) handleModelCommand(rc *channel.ResolvedChat, args string, reply fu
 
 // modelList returns models optionally filtered by query.
 func (b *Bot) modelList(query string) []channel.IndexedModel {
-	models := b.listFn()
+	models := b.handler.ListModels()
 	if query == "" {
 		return channel.IndexModels(models)
 	}
@@ -289,9 +283,9 @@ func (b *Bot) modelList(query string) []channel.IndexedModel {
 }
 
 // switchModelByName handles model switching by "provider/model" name.
-func (b *Bot) switchModelByName(rc *channel.ResolvedChat, name string, reply func(string)) {
+func (b *Bot) switchModelByName(name string, reply func(string)) {
 	name = strings.ToLower(strings.TrimSpace(name))
-	models := b.listFn()
+	models := b.handler.ListModels()
 	var selected channel.ModelOption
 	found := false
 	for _, m := range models {
@@ -306,18 +300,56 @@ func (b *Bot) switchModelByName(rc *channel.ResolvedChat, name string, reply fun
 		return
 	}
 
-	if _, err := rc.RotateSession(); err != nil {
-		reply(fmt.Sprintf("Error rotating session: %v", err))
+	if err := b.handler.SwitchModel(selected.Provider, selected.Model); err != nil {
+		reply(fmt.Sprintf("Error switching model: %v", err))
 		return
 	}
-	if b.switchFn != nil {
-		if err := b.switchFn(selected.Provider, selected.Model); err != nil {
-			reply(fmt.Sprintf("Error switching model: %v", err))
+	logger().Info("model switched", "provider", selected.Provider, "model", selected.Model)
+	reply(fmt.Sprintf("Switched to %s/%s. Session reset.", selected.Provider, selected.Model))
+}
+
+// handleAgentCommand processes /agent with optional arguments.
+func (b *Bot) handleAgentCommand(msg WeixinMessage, args string, reply func(string)) {
+	incoming := b.incomingMsg(msg, "")
+
+	// Direct switch by slug.
+	if args != "" {
+		if err := b.handler.SwitchAgent(context.Background(), incoming, args); err != nil {
+			reply(fmt.Sprintf("Error switching agent: %v", err))
 			return
 		}
+		logger().Info("agent switched", "agent_id", args)
+		reply(fmt.Sprintf("Switched to agent: %s", args))
+		return
 	}
-	logger().Info("model switched", "key", rc.SessionKey, "provider", selected.Provider, "model", selected.Model)
-	reply(fmt.Sprintf("Switched to %s/%s. Session reset.", selected.Provider, selected.Model))
+
+	agents, currentAgentID, err := b.handler.ListAgents(context.Background(), incoming)
+	if err != nil {
+		reply(fmt.Sprintf("Error listing agents: %v", err))
+		return
+	}
+	if len(agents) == 0 {
+		reply("No agents available.")
+		return
+	}
+
+	indexed := channel.IndexAgents(agents)
+	reply(formatAgentList(indexed, currentAgentID))
+}
+
+// formatAgentList builds a text-based agent list.
+func formatAgentList(agents []channel.IndexedAgent, currentID string) string {
+	var sb strings.Builder
+	sb.WriteString("Available agents:\n\n")
+	for _, ag := range agents {
+		prefix := "• "
+		if ag.ID == currentID {
+			prefix = "✅ "
+		}
+		fmt.Fprintf(&sb, "%s%s (%s)\n", prefix, ag.ID, ag.Name)
+	}
+	sb.WriteString("\nUse /agent <slug> to switch.")
+	return sb.String()
 }
 
 // formatModelList builds a text-based model list.

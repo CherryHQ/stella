@@ -7,7 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/tencent-connect/botgo/dto"
-	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/pkg/channel"
 )
 
 const streamEditInterval = time.Second
@@ -24,7 +24,7 @@ var toolEmoji = map[string]string{
 }
 
 // toolLine returns a short status line for a tool-use event.
-func toolLine(t *runner.ToolUseEvent) string {
+func toolLine(t *channel.ToolUseEvent) string {
 	emoji, ok := toolEmoji[t.Tool]
 	if !ok {
 		emoji = toolEmoji["default"]
@@ -50,7 +50,7 @@ func toolLine(t *runner.ToolUseEvent) string {
 // streamResponse consumes the agent event stream and progressively sends
 // updates using QQ's native Stream API. Returns the final text, collected
 // images, and any stream error.
-func (b *Bot) streamResponse(events <-chan runner.Event, authorID, groupID, msgID string, scope messageScope) (string, []runner.ImageEvent, error) {
+func (b *Bot) streamResponse(events <-chan channel.Event, authorID, groupID, msgID string, scope messageScope) (string, []channel.ImageEvent, error) {
 	targetID := authorID
 	if groupID != "" {
 		targetID = groupID
@@ -60,7 +60,7 @@ func (b *Bot) streamResponse(events <-chan runner.Event, authorID, groupID, msgI
 	var streamErr error
 	var currentTool string
 	var streamMsgID string
-	var images []runner.ImageEvent
+	var images []channel.ImageEvent
 	var seq uint32 = 1
 	lastSend := time.Time{}
 

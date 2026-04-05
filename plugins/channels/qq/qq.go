@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/tencent-connect/botgo"
@@ -13,10 +12,7 @@ import (
 	"github.com/tencent-connect/botgo/event"
 	"github.com/tencent-connect/botgo/openapi"
 	"github.com/tencent-connect/botgo/token"
-	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/channel"
-	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/pkg/channel"
 	"golang.org/x/oauth2"
 )
 
@@ -38,16 +34,8 @@ type Bot struct {
 	creds          *token.QQBotCredentials
 	tokenSource    oauth2.TokenSource
 	sessionManager botgo.SessionManager
-	poolManager    *agent.PoolManager
-	store          config.Store
-	authStore      auth.AuthStore
-	engine         *auth.PolicyEngine
-	linkCodes      *auth.LinkCodeStore
-	agentCmd       *channel.AgentCommander
-	listFn         channel.ModelListFunc
-	switchFn       channel.ModelSwitchFunc
+	handler        channel.MessageHandler
 
-	mu         sync.RWMutex
 	chatModels map[string]channel.ModelOption
 
 	cfg    Config
@@ -55,22 +43,8 @@ type Bot struct {
 	cancel context.CancelFunc
 }
 
-// BotOption configures the QQ Bot.
-type BotOption func(*Bot)
-
-// WithAuth configures the bot with auth store and link code store for
-// account linking support.
-func WithAuth(authStore auth.AuthStore, engine *auth.PolicyEngine, linkCodes *auth.LinkCodeStore) BotOption {
-	return func(b *Bot) {
-		b.authStore = authStore
-		b.engine = engine
-		b.linkCodes = linkCodes
-		b.agentCmd = channel.NewAgentCommander(b.store, authStore)
-	}
-}
-
 // New creates a QQ bot. Call Start to begin receiving events.
-func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc, opts ...BotOption) (*Bot, error) {
+func New(cfg Config, handler channel.MessageHandler) (*Bot, error) {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return nil, fmt.Errorf("qq: app_id and app_secret are required")
 	}
@@ -80,17 +54,9 @@ func New(cfg Config, pm *agent.PoolManager, store config.Store, listFn channel.M
 	}
 
 	b := &Bot{
-		poolManager: pm,
-		store:       store,
-		agentCmd:    channel.NewAgentCommander(store, nil),
-		listFn:      listFn,
-		switchFn:    switchFn,
-		chatModels:  make(map[string]channel.ModelOption),
-		cfg:         cfg,
-	}
-
-	for _, opt := range opts {
-		opt(b)
+		handler:    handler,
+		chatModels: make(map[string]channel.ModelOption),
+		cfg:        cfg,
 	}
 
 	return b, nil
@@ -192,19 +158,19 @@ func channelForGroup(groupID string) string {
 	return "qq:group:" + groupID
 }
 
-// resolve performs full user/agent/pool/session-key resolution for the
-// given QQ message context. Call once per incoming message or command.
-func (b *Bot) resolve(authorID, groupID string) (*channel.ResolvedChat, error) {
-	return channel.Resolve(
-		context.Background(),
-		b.poolManager,
-		b.store,
-		b.authStore,
-		b.engine,
-		channel.PlatformQQ,
-		authorID,
-		"",
-		groupID,
-		groupID != "",
-	)
+// incomingMsg builds an IncomingMessage from QQ message context.
+func incomingMsg(authorID, groupID string, content any) channel.IncomingMessage {
+	chatID := channelForC2C(authorID)
+	isGroup := groupID != ""
+	if isGroup {
+		chatID = channelForGroup(groupID)
+	}
+	return channel.IncomingMessage{
+		Platform:   channel.PlatformQQ,
+		SenderID:   authorID,
+		SenderName: "",
+		ChatID:     chatID,
+		IsGroup:    isGroup,
+		Content:    content,
+	}
 }
