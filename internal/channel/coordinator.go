@@ -2,7 +2,6 @@ package channel
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
@@ -12,7 +11,7 @@ import (
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
-// Coordinator implements pkgchannel.MessageHandler. It owns all business logic
+// Coordinator implements pkgchannel.Handler. It owns all business logic
 // that channels previously called directly: user/agent resolution, session
 // management, command handling, account linking, and model/agent switching.
 type Coordinator struct {
@@ -37,7 +36,7 @@ func WithCoordinatorAuth(authStore auth.AuthStore, engine *auth.PolicyEngine, li
 	}
 }
 
-// NewCoordinator creates a Coordinator that satisfies pkgchannel.MessageHandler.
+// NewCoordinator creates a Coordinator that satisfies pkgchannel.Handler.
 func NewCoordinator(
 	pm *agent.PoolManager,
 	store config.Store,
@@ -95,36 +94,6 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 		return "", false, nil, err
 	}
 	return "", false, stream, nil
-}
-
-// HandleMessage resolves the user, routes to an agent, and streams a response.
-func (c *Coordinator) HandleMessage(ctx context.Context, msg pkgchannel.IncomingMessage) (*pkgchannel.ChatStream, error) {
-	rc, err := c.resolve(ctx, msg)
-	if err != nil {
-		return nil, err
-	}
-	return c.chatWithRC(ctx, rc, msg.Content)
-}
-
-// HandleCommand processes shared commands (/start, /new, /compact, /whoami, /link).
-func (c *Coordinator) HandleCommand(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool) {
-	// Try link code first (before auth resolution, since it creates identity).
-	if c.authStore != nil && c.linkCodes != nil {
-		fullText := command
-		if args != "" {
-			fullText = command + " " + args
-		}
-		if resp, ok := TryLinkCode(ctx, c.authStore, c.linkCodes, fullText, msg.Platform, msg.SenderID, msg.SenderName); ok {
-			return resp, true
-		}
-	}
-
-	rc, err := c.resolve(ctx, msg)
-	if err != nil {
-		return fmt.Sprintf("Error: %v", err), true
-	}
-
-	return HandleCommand(ctx, rc, command+" "+args, msg.SenderID)
 }
 
 // chatWithRC streams a chat response using a pre-resolved chat.
@@ -212,4 +181,4 @@ func convertEvent(evt runner.Event) pkgchannel.Event {
 }
 
 // compile-time check.
-var _ pkgchannel.MessageHandler = (*Coordinator)(nil)
+var _ pkgchannel.Handler = (*Coordinator)(nil)

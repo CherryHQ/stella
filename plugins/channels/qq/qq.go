@@ -35,7 +35,7 @@ type Bot struct {
 	creds          *token.QQBotCredentials
 	tokenSource    oauth2.TokenSource
 	sessionManager botgo.SessionManager
-	handler        channel.MessageHandler
+	handler        channel.Handler
 
 	chatModels map[string]channel.ModelOption
 
@@ -45,7 +45,7 @@ type Bot struct {
 }
 
 // New creates a QQ bot. Call Start to begin receiving events.
-func New(cfg Config, handler channel.MessageHandler) (*Bot, error) {
+func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return nil, fmt.Errorf("qq: app_id and app_secret are required")
 	}

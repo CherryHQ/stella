@@ -67,7 +67,8 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 	reactionText := fmt.Sprintf("[User reacted with %s on message %s]", emojiType, messageID)
 
 	msg := b.incomingMsg(openID, chatID, chatType, channel.TextContent(reactionText))
-	go b.handleMessage(msg, openID, chatID, messageID, rootID)
+	replyFn := func(reply string) { b.replyInThread(b.ctx, messageID, rootID, reply) }
+	go b.handleIncoming(msg, "", "", openID, chatID, messageID, rootID, replyFn)
 	return nil
 }
 
@@ -136,7 +137,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	incoming := b.incomingMsg(openID, chatID, chatType, content)
 
-	// Try shared commands via the handler.
+	// Handle plugin-local commands first.
 	if text != "" {
 		fields := strings.Fields(text)
 		if len(fields) > 0 {
@@ -151,15 +152,12 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 				b.handleModelCommand(args, replyFn)
 				return nil
 			}
-
-			if resp, ok := b.handler.HandleCommand(b.ctx, incoming, cmd, args); ok {
-				replyFn(resp)
-				return nil
-			}
 		}
 	}
 
-	go b.handleMessage(incoming, openID, chatID, messageID, rootID)
+	// Parse command for coordinator (shared commands + chat streaming).
+	cmd, args := parseFeishuCommand(text)
+	go b.handleIncoming(incoming, cmd, args, openID, chatID, messageID, rootID, replyFn)
 	return nil
 }
 
@@ -393,7 +391,9 @@ func parseTextContent(raw string) string {
 }
 
 // handleMessage processes an incoming message by streaming the agent response.
-func (b *Bot) handleMessage(msg channel.IncomingMessage, openID, chatID, messageID, rootID string) {
+// handleIncoming delegates to the coordinator via HandleIncoming.
+// Shared commands are handled by the coordinator; otherwise a chat stream is returned.
+func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, openID, chatID, messageID, rootID string, replyFn func(string)) {
 	// Create cancellable context for abort support.
 	ctx, cancel := context.WithCancel(b.ctx)
 	key := streamKey(chatID, rootID)
@@ -401,10 +401,14 @@ func (b *Bot) handleMessage(msg channel.IncomingMessage, openID, chatID, message
 	defer b.unregisterStream(key)
 	defer cancel()
 
-	stream, err := b.handler.HandleMessage(ctx, msg)
+	resp, handled, stream, err := b.handler.HandleIncoming(ctx, msg, cmd, args)
 	if err != nil {
 		logger().Error("chat failed", "open_id", openID, "error", err)
 		b.replyInThread(b.ctx, messageID, rootID, fmt.Sprintf("Session error: %v", err))
+		return
+	}
+	if handled {
+		replyFn(resp)
 		return
 	}
 
@@ -435,6 +439,17 @@ func (b *Bot) handleMessage(msg channel.IncomingMessage, openID, chatID, message
 	}
 
 	logger().Debug("response sent", "open_id", openID, "response_len", len(response), "images", len(images))
+}
+
+// parseFeishuCommand extracts command and args from text.
+func parseFeishuCommand(text string) (string, string) {
+	fields := strings.Fields(text)
+	if len(fields) == 0 || !strings.HasPrefix(fields[0], "/") {
+		return "", ""
+	}
+	cmd := fields[0]
+	args := channel.ParseCommandArgs(text, cmd)
+	return cmd, args
 }
 
 // replyText sends a text reply to a message.

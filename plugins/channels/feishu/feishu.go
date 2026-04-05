@@ -54,7 +54,7 @@ type Config struct {
 type Bot struct {
 	client   *lark.Client
 	wsClient *larkws.Client
-	handler  channel.MessageHandler
+	handler  channel.Handler
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
 
@@ -70,7 +70,7 @@ type Bot struct {
 }
 
 // New creates a Feishu bot. Call Start to begin receiving events.
-func New(cfg Config, handler channel.MessageHandler) (*Bot, error) {
+func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return nil, fmt.Errorf("feishu: app_id and app_secret are required")
 	}
