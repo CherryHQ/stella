@@ -16,7 +16,16 @@ import (
 )
 
 func init() {
-	plugintools.Register("bash", func() tools.Tool { return NewBashTool("") })
+	plugintools.Register("bash", plugintools.Registration{
+		Required: true,
+		Factory: func(bc plugintools.BuildContext) (tools.Tool, error) {
+			dir := bc.WorkDir
+			if bc.UserDataDir != "" {
+				dir = bc.UserDataDir
+			}
+			return NewBashTool(dir), nil
+		},
+	})
 }
 
 // BashTool executes bash commands.

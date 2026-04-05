@@ -13,12 +13,8 @@ import (
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
+	plugintools "github.com/vaayne/anna/plugins/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
-	"github.com/vaayne/anna/plugins/tools/bash"
-	"github.com/vaayne/anna/plugins/tools/edit"
-	"github.com/vaayne/anna/plugins/tools/read"
-	"github.com/vaayne/anna/plugins/tools/sandbox"
-	"github.com/vaayne/anna/plugins/tools/write"
 
 	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
@@ -90,17 +86,18 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 
 	toolReg := tools.NewRegistry()
 
-	// Register core tools with sandbox wrapping.
-	bashDir := cfg.WorkDir
-	if cfg.UserDataDir != "" {
-		bashDir = cfg.UserDataDir
+	// Build core tools (read, bash, edit, write) via plugin registry.
+	bc := plugintools.BuildContext{
+		WorkDir:     cfg.WorkDir,
+		UserDataDir: cfg.UserDataDir,
+		AnnaHome:    cfg.AnnaHome,
+		Workspace:   cfg.Workspace,
 	}
-	toolReg.Register(sandbox.WrapWithSandbox(&read.ReadTool{}, cfg.UserDataDir, "file_path"))
-	toolReg.Register(bash.NewBashTool(bashDir))
-	toolReg.Register(sandbox.WrapWithSandbox(&edit.EditTool{}, cfg.UserDataDir, "file_path"))
-	toolReg.Register(sandbox.WrapWithSandbox(&write.WriteTool{}, cfg.UserDataDir, "file_path"))
+	for _, t := range plugintools.BuildCore(bc) {
+		toolReg.Register(t)
+	}
 
-	// Register extra tools (plugin tools like webfetch).
+	// Register extra tools (shared tools like memory, scheduler + plugin tools like webfetch).
 	for _, t := range cfg.ExtraTools {
 		toolReg.Register(t)
 	}

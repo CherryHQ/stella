@@ -8,10 +8,16 @@ import (
 
 	"github.com/vaayne/anna/pkg/tools"
 	plugintools "github.com/vaayne/anna/plugins/tools"
+	"github.com/vaayne/anna/plugins/tools/sandbox"
 )
 
 func init() {
-	plugintools.Register("edit", func() tools.Tool { return &EditTool{} })
+	plugintools.Register("edit", plugintools.Registration{
+		Required: true,
+		Factory: func(bc plugintools.BuildContext) (tools.Tool, error) {
+			return sandbox.WrapWithSandbox(&EditTool{}, bc.UserDataDir, "file_path"), nil
+		},
+	})
 }
 
 // EditTool makes surgical edits to files by exact string replacement.
