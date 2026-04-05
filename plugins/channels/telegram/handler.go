@@ -257,12 +257,9 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	logger().Debug("photo received", "chat_id", c.Chat().ID, "size", len(data), "mime", mimeType)
 
 	msg := b.incomingMsg(c, content)
-	return b.handleMessage(c, msg)
-}
 
-// handleMessage resolves and streams a response for non-text messages (photos).
-func (b *Bot) handleMessage(c tele.Context, msg channel.IncomingMessage) error {
-	stream, err := b.handler.HandleMessage(b.ctx, msg)
+	// Photos are never commands — pass empty command to HandleIncoming.
+	_, _, stream, err := b.handler.HandleIncoming(b.ctx, msg, "", "")
 	if err != nil {
 		logger().Error("chat failed", "chat_id", c.Chat().ID, "error", err)
 		return c.Send(fmt.Sprintf("Session error: %v", err))

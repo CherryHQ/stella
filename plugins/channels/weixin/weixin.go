@@ -22,7 +22,7 @@ type Config struct {
 // It implements channel.Channel.
 type Bot struct {
 	client  *Client
-	handler channel.MessageHandler
+	handler channel.Handler
 
 	contextTokens sync.Map // key: userID string, value: contextToken string
 	typingTickets sync.Map // key: userID string, value: typingTicket string
@@ -37,7 +37,7 @@ type Bot struct {
 }
 
 // New creates a WeChat iLink bot. Call Start to begin polling.
-func New(cfg Config, handler channel.MessageHandler) (*Bot, error) {
+func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	if cfg.BotToken == "" {
 		return nil, fmt.Errorf("weixin: bot_token is required")
 	}

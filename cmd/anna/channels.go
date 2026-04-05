@@ -14,7 +14,7 @@ import (
 
 func buildChannel(
 	name string,
-	handler pkgchannel.MessageHandler,
+	handler pkgchannel.Handler,
 	store config.Store,
 ) (pkgchannel.Channel, error) {
 	switch name {
