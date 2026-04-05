@@ -38,9 +38,9 @@ type agentFrontmatter struct {
 
 // LoadAgentPresetsConfig configures the agent preset discovery paths.
 type LoadAgentPresetsConfig struct {
-	AnnaHome        string // anna home directory (e.g. ~/.anna)
-	Workspace       string // agent workspace dir (e.g. ~/.anna/workspaces/{agentID})
-	Cwd             string // working directory
+	AnnaHome         string // anna home directory (e.g. ~/.anna)
+	Workspace        string // agent workspace dir (e.g. ~/.anna/workspaces/{agentID})
+	Cwd              string // working directory
 	BuiltinSkillsDir string // pre-extracted builtin skills directory (caller ensures extraction)
 }
 

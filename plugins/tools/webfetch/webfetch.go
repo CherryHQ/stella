@@ -296,5 +296,3 @@ func (t *WebFetchTool) writeMetadata(w *strings.Builder, article readability.Art
 		fmt.Fprintf(w, "**Author:** %s\n\n", author)
 	}
 }
-
-
