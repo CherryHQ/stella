@@ -565,22 +565,28 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindHook, name, err)
 		}
 	}
-	for _, name := range builtinProviderNames {
-		// For provider plugins, seed credentials from environment variables
-		// so the provider is usable out of the box.
-		cfg := providerSeedConfig(name)
-		cfgJSON, err := json.Marshal(cfg)
-		if err != nil {
-			return fmt.Errorf("seed: marshal provider config %q: %w", name, err)
-		}
-		if err = s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
-			ID:      PluginID(PluginKindProvider, name),
-			Kind:    PluginKindProvider,
-			Name:    name,
-			Enabled: 1,
-			Config:  string(cfgJSON),
-		}); err != nil {
-			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindProvider, name, err)
+	// Only seed provider plugins on first bootstrap. If the user later
+	// deletes a provider, it stays deleted across restarts.
+	providerPlugins, err := s.q.ListPluginsByKind(ctx, PluginKindProvider)
+	if err != nil {
+		return fmt.Errorf("seed: list provider plugins: %w", err)
+	}
+	if len(providerPlugins) == 0 {
+		for _, name := range builtinProviderNames {
+			cfg := providerSeedConfig(name)
+			cfgJSON, err := json.Marshal(cfg)
+			if err != nil {
+				return fmt.Errorf("seed: marshal provider config %q: %w", name, err)
+			}
+			if err = s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
+				ID:      PluginID(PluginKindProvider, name),
+				Kind:    PluginKindProvider,
+				Name:    name,
+				Enabled: 1,
+				Config:  string(cfgJSON),
+			}); err != nil {
+				return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindProvider, name, err)
+			}
 		}
 	}
 

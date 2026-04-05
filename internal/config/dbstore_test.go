@@ -363,8 +363,10 @@ func TestSnapshot(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
-	_ = store.CreateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic", APIKey: "sk-test"})
-	_ = store.CreateAgent(ctx, Agent{
+	// Seed first (matches real startup order), then configure.
+	_ = store.SeedDefaults(ctx)
+	_ = store.UpdateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic", APIKey: "sk-test"})
+	_ = store.UpdateAgent(ctx, Agent{
 		ID:           "anna",
 		Name:         "Anna",
 		Model:        "anthropic/claude-sonnet-4-6",
@@ -377,8 +379,6 @@ func TestSnapshot(t *testing.T) {
 	_ = store.SetSetting(ctx, "runner", `{"type":"go","idle_timeout":30}`)
 	_ = store.SetSetting(ctx, "compaction", `{"enabled":true}`)
 
-	// Seed plugins so Snapshot can load them.
-	_ = store.SeedDefaults(ctx)
 	// Add a custom plugin to verify it appears in the snapshot.
 	_ = store.UpsertPlugin(ctx, Plugin{
 		ID:      "tool/custom",
@@ -435,7 +435,7 @@ func TestSnapshotDefaults(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
-	_ = store.CreateProvider(ctx, Provider{ID: "anthropic", Name: "Anthropic"})
+	_ = store.SeedDefaults(ctx)
 	_ = store.CreateAgent(ctx, Agent{ID: "a", Name: "A", Model: "anthropic/m", Enabled: true})
 
 	snap, err := store.Snapshot(ctx, "a")
