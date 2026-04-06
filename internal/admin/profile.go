@@ -6,6 +6,7 @@ import (
 
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/internal/db/sqlc"
 )
 
 // listProfileIdentities handles GET /api/auth/profile/identities.
@@ -167,7 +168,7 @@ func (s *Server) listProfileMemories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	memories, err := s.store.ListUserMemories(r.Context(), info.UserID)
+	memories, err := s.q.ListUserAgentMemoriesByUser(r.Context(), info.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -191,7 +192,11 @@ func (s *Server) setProfileMemory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := s.store.SetUserAgentMemory(r.Context(), info.UserID, agentID, body.Content); err != nil {
+	if err := s.q.UpsertUserAgentMemory(r.Context(), sqlc.UpsertUserAgentMemoryParams{
+		UserID:  info.UserID,
+		AgentID: agentID,
+		Content: body.Content,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -207,7 +212,10 @@ func (s *Server) deleteProfileMemory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agentID := r.PathValue("agentId")
-	if err := s.store.DeleteUserAgentMemory(r.Context(), info.UserID, agentID); err != nil {
+	if err := s.q.DeleteUserAgentMemory(r.Context(), sqlc.DeleteUserAgentMemoryParams{
+		UserID:  info.UserID,
+		AgentID: agentID,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
