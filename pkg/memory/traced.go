@@ -155,7 +155,16 @@ func (t *tracedProvider) NeedsCompaction(ctx context.Context, session Session, t
 	if !ok {
 		return false
 	}
-	return c.NeedsCompaction(ctx, session, threshold)
+	start := time.Now()
+	needs := c.NeedsCompaction(ctx, session, threshold)
+	t.emit(ctx, &hooks.PostMemoryCallContext{
+		HookMeta:  metaFromSession(session),
+		Op:        hooks.MemoryOpNeedsCompaction,
+		SessionID: session.ID,
+		Duration:  time.Since(start),
+		Detail:    fmt.Sprintf("threshold=%.2f result=%v", threshold, needs),
+	})
+	return needs
 }
 
 func (t *tracedProvider) Compact(ctx context.Context, session Session, mode CompactionMode) (*CompactionResult, error) {
