@@ -1,6 +1,7 @@
 package pluginhooks
 
 import (
+	"io"
 	"log/slog"
 	"sort"
 	"sync"
@@ -73,4 +74,16 @@ func BuildEnabled(bc BuildContext, enabled func(name string) bool) []hooks.HookP
 	}
 
 	return result
+}
+
+// CloseHookPlugins closes any hook plugins that implement io.Closer.
+// Call during graceful shutdown or before replacing hook instances on reload.
+func CloseHookPlugins(plugins []hooks.HookPlugin) {
+	for _, p := range plugins {
+		if c, ok := p.(io.Closer); ok {
+			if err := c.Close(); err != nil {
+				slog.Warn("failed to close hook plugin", "name", p.Name(), "error", err)
+			}
+		}
+	}
 }

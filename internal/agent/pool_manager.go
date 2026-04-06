@@ -14,6 +14,7 @@ import (
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
 	"github.com/vaayne/anna/pkg/tools"
+	pluginhooks "github.com/vaayne/anna/plugins/hooks"
 )
 
 // ExtraToolsFactory creates agent-specific extra tools given a snapshot.
@@ -248,6 +249,7 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	hookPlugins := pm.pluginHooksBuilder(ctx)
 
 	pm.mu.Lock()
+	oldPlugins := pm.hookPlugins
 	pm.hookPlugins = hookPlugins
 	pools := make(map[string]*Pool, len(pm.pools))
 	for id, p := range pm.pools {
@@ -258,6 +260,9 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	for _, pool := range pools {
 		pool.SetHooks(pm.HookPlugins)
 	}
+
+	// Close old hook plugins that implement io.Closer (e.g. OTel exporter).
+	pluginhooks.CloseHookPlugins(oldPlugins)
 
 	pm.log.Info("plugin hooks reloaded", "hook_count", len(hookPlugins))
 	return nil
@@ -342,11 +347,13 @@ func mergeTools(core, plugin []tools.Tool) []tools.Tool {
 	return merged
 }
 
-// Close shuts down all pools.
+// Close shuts down all pools and hook plugins.
 func (pm *PoolManager) Close() error {
 	pm.mu.Lock()
 	pools := pm.pools
 	pm.pools = make(map[string]*Pool)
+	hookPlugins := pm.hookPlugins
+	pm.hookPlugins = nil
 	pm.mu.Unlock()
 
 	var lastErr error
@@ -357,5 +364,6 @@ func (pm *PoolManager) Close() error {
 			lastErr = err
 		}
 	}
+	pluginhooks.CloseHookPlugins(hookPlugins)
 	return lastErr
 }
