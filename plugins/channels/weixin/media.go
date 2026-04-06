@@ -3,16 +3,15 @@ package weixin
 import (
 	"bytes"
 	"crypto/aes"
-
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/vaayne/anna/pkg/httpclient"
 )
 
 // EncryptAESECB encrypts plaintext using AES-128-ECB with PKCS7 padding.
@@ -120,30 +119,23 @@ func UploadToCDN(cdnBaseURL, uploadParam, filekey string, encrypted []byte) (str
 		cdnBaseURL = DefaultCDNBaseURL
 	}
 
-	u := cdnBaseURL + "/c2c/upload?" +
-		"encrypted_query_param=" + url.QueryEscape(uploadParam) +
-		"&filekey=" + url.QueryEscape(filekey)
-
-	req, err := http.NewRequest(http.MethodPost, u, bytes.NewReader(encrypted))
-	if err != nil {
-		return "", fmt.Errorf("weixin: build cdn upload request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/octet-stream")
-
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
+	client := httpclient.NewWithTimeout(60 * time.Second)
+	resp, err := client.R().
+		SetHeader("Content-Type", "application/octet-stream").
+		SetQueryParam("encrypted_query_param", uploadParam).
+		SetQueryParam("filekey", filekey).
+		SetBody(encrypted).
+		Post(cdnBaseURL + "/c2c/upload")
 	if err != nil {
 		return "", fmt.Errorf("weixin: cdn upload: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		errMsg := resp.Header.Get("x-error-message")
-		return "", fmt.Errorf("weixin: cdn upload status %d: %s %s", resp.StatusCode, errMsg, string(body))
+	if resp.StatusCode() != http.StatusOK {
+		errMsg := resp.Header().Get("x-error-message")
+		return "", fmt.Errorf("weixin: cdn upload status %d: %s %s", resp.StatusCode(), errMsg, resp.String())
 	}
 
-	encryptedParam := resp.Header.Get("x-encrypted-param")
+	encryptedParam := resp.Header().Get("x-encrypted-param")
 	if encryptedParam == "" {
 		return "", fmt.Errorf("weixin: cdn upload missing x-encrypted-param header")
 	}
@@ -157,25 +149,19 @@ func DownloadFromCDN(cdnBaseURL, encryptedQueryParam string) ([]byte, error) {
 		cdnBaseURL = DefaultCDNBaseURL
 	}
 
-	u := cdnBaseURL + "/c2c/download?encrypted_query_param=" + url.QueryEscape(encryptedQueryParam)
-
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Get(u) //nolint:gosec // URL is constructed from trusted CDN base + API param
+	client := httpclient.NewWithTimeout(60 * time.Second)
+	resp, err := client.R().
+		SetQueryParam("encrypted_query_param", encryptedQueryParam).
+		Get(cdnBaseURL + "/c2c/download")
 	if err != nil {
 		return nil, fmt.Errorf("weixin: cdn download: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("weixin: cdn download status %d", resp.StatusCode)
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("weixin: cdn download status %d", resp.StatusCode())
 	}
 
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("weixin: read cdn download: %w", err)
-	}
-
-	return data, nil
+	return resp.Body(), nil
 }
 
 // RandomFileKey generates a random 16-byte hex string for CDN upload filekey.
