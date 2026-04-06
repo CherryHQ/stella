@@ -1,23 +1,37 @@
 package trace
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
-// config holds OTel settings. Exporter-level env vars (OTEL_EXPORTER_OTLP_ENDPOINT,
-// OTEL_EXPORTER_OTLP_INSECURE) are consumed natively by the gRPC exporter SDK.
+// config holds OTel exporter settings, populated from standard OTel env vars.
 type config struct {
-	Enabled     bool    // true when OTEL_EXPORTER_OTLP_ENDPOINT is set
+	Endpoint    string  // OTLP gRPC endpoint (empty = OTel disabled)
 	ServiceName string  // OTel service name
+	Insecure    bool    // use insecure gRPC connection
 	SampleRate  float64 // trace sampling rate [0.0, 1.0]
 }
 
 func loadConfig() config {
+	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+	// Normalize: the gRPC exporter's WithEndpoint expects host:port,
+	// but users may pass a URL with scheme per the OTel spec.
+	endpoint = strings.TrimPrefix(endpoint, "http://")
+	endpoint = strings.TrimPrefix(endpoint, "https://")
+
 	cfg := config{
-		Enabled:     os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "",
+		Endpoint:    endpoint,
 		ServiceName: "anna",
+		Insecure:    true,
 		SampleRate:  1.0,
 	}
 	if v := os.Getenv("OTEL_SERVICE_NAME"); v != "" {
 		cfg.ServiceName = v
+	}
+	if os.Getenv("OTEL_EXPORTER_OTLP_INSECURE") == "false" {
+		cfg.Insecure = false
 	}
 	return cfg
 }

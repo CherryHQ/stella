@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +15,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/vaayne/anna/pkg/hooks"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
@@ -79,7 +79,7 @@ func newHook() (*Hook, error) {
 	}
 
 	// Only initialize OTel exporter when an endpoint is configured.
-	if cfg.Enabled {
+	if cfg.Endpoint != "" {
 		tp, err := initTraceProvider(cfg)
 		if err != nil {
 			return nil, err
@@ -87,19 +87,22 @@ func newHook() (*Hook, error) {
 		h.tp = tp
 		h.tracer = tp.Tracer("anna")
 		go h.reaper()
-		log.Info("otel tracing enabled",
-			"endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
-			"service", cfg.ServiceName)
+		log.Info("otel tracing enabled", "endpoint", cfg.Endpoint, "service", cfg.ServiceName)
 	}
 
 	return h, nil
 }
 
 func initTraceProvider(cfg config) (*sdktrace.TracerProvider, error) {
-	// Let the gRPC exporter consume OTEL_EXPORTER_OTLP_* env vars natively
-	// (endpoint, TLS, headers, etc.) instead of manually re-parsing them.
+	opts := []otlptracegrpc.Option{
+		otlptracegrpc.WithEndpoint(cfg.Endpoint),
+	}
+	if cfg.Insecure {
+		opts = append(opts, otlptracegrpc.WithTLSCredentials(insecure.NewCredentials()))
+	}
+
 	ctx := context.Background()
-	exporter, err := otlptracegrpc.New(ctx)
+	exporter, err := otlptracegrpc.New(ctx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("otel: create exporter: %w", err)
 	}
