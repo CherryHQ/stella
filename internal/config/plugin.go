@@ -36,7 +36,7 @@ var builtinHookNames = []string{"rtk", "trace"}
 var builtinProviderNames = []string{"anthropic", "openai", "openai-response"}
 
 // builtinMemoryNames lists the built-in memory plugins.
-var builtinMemoryNames = []string{"lcm"}
+var builtinMemoryNames = []string{"lcm", "simple"}
 
 // BuiltinPluginIDs returns all built-in plugin IDs in deterministic order.
 func BuiltinPluginIDs() []string {
