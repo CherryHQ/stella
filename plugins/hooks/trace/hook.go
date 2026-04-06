@@ -1,0 +1,207 @@
+package trace
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
+	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/vaayne/anna/pkg/hooks"
+	pluginhooks "github.com/vaayne/anna/plugins/hooks"
+)
+
+func init() {
+	pluginhooks.Register("trace", pluginhooks.Registration{
+		Factory: func(_ pluginhooks.BuildContext) (hooks.HookPlugin, error) {
+			return newHook()
+		},
+	})
+}
+
+// Hook logs LLM, tool, and memory call details via slog, and optionally
+// exports OpenTelemetry traces when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+type Hook struct {
+	log    *slog.Logger
+	tracer trace.Tracer
+	tp     *sdktrace.TracerProvider // nil when OTel is disabled
+
+	mu       sync.Mutex
+	sessions map[string]*sessionTrace
+	done     chan struct{}
+}
+
+// sessionTrace tracks the active span hierarchy for one chat session.
+type sessionTrace struct {
+	chatSpan trace.Span
+	chatCtx  context.Context
+
+	turnSpan trace.Span
+	turnCtx  context.Context
+	turnNum  int
+
+	// LLM call span (one at a time per session).
+	llmSpan trace.Span
+
+	// Tool call spans keyed by ToolCallID.
+	toolSpans map[string]trace.Span
+
+	activeOps  atomic.Int32
+	lastActive time.Time
+}
+
+func newHook() (*Hook, error) {
+	cfg := loadConfig()
+	log := slog.With("hook", "trace")
+
+	h := &Hook{
+		log:      log,
+		tracer:   noop.NewTracerProvider().Tracer("anna"),
+		sessions: make(map[string]*sessionTrace),
+		done:     make(chan struct{}),
+	}
+
+	// Only initialize OTel exporter when an endpoint is configured.
+	if cfg.Endpoint != "" {
+		tp, err := initTraceProvider(cfg)
+		if err != nil {
+			return nil, err
+		}
+		h.tp = tp
+		h.tracer = tp.Tracer("anna")
+		go h.reaper()
+		log.Info("otel tracing enabled", "endpoint", cfg.Endpoint, "service", cfg.ServiceName)
+	}
+
+	return h, nil
+}
+
+func initTraceProvider(cfg config) (*sdktrace.TracerProvider, error) {
+	opts := []otlptracegrpc.Option{
+		otlptracegrpc.WithEndpoint(cfg.Endpoint),
+	}
+	if cfg.Insecure {
+		opts = append(opts, otlptracegrpc.WithTLSCredentials(insecure.NewCredentials()))
+	}
+
+	ctx := context.Background()
+	exporter, err := otlptracegrpc.New(ctx, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("otel: create exporter: %w", err)
+	}
+
+	res, err := resource.New(ctx,
+		resource.WithAttributes(semconv.ServiceName(cfg.ServiceName)),
+		resource.WithProcessRuntimeDescription(),
+		resource.WithHost(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("otel: create resource: %w", err)
+	}
+
+	var sampler sdktrace.Sampler
+	switch {
+	case cfg.SampleRate >= 1.0:
+		sampler = sdktrace.AlwaysSample()
+	case cfg.SampleRate <= 0.0:
+		sampler = sdktrace.NeverSample()
+	default:
+		sampler = sdktrace.TraceIDRatioBased(cfg.SampleRate)
+	}
+
+	return sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sampler),
+	), nil
+}
+
+func (*Hook) Name() string  { return "trace" }
+func (*Hook) Priority() int { return 0 } // runs first
+
+func (h *Hook) otelEnabled() bool { return h.tp != nil }
+
+// Close flushes pending spans and shuts down the trace provider.
+func (h *Hook) Close() error {
+	if !h.otelEnabled() {
+		return nil
+	}
+	close(h.done)
+	h.mu.Lock()
+	for id, st := range h.sessions {
+		h.endSession(st)
+		delete(h.sessions, id)
+	}
+	h.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return h.tp.Shutdown(ctx)
+}
+
+// getOrCreateSession returns the session trace, creating root span if needed.
+// Caller must hold h.mu.
+func (h *Hook) getOrCreateSession(sessionID string) *sessionTrace {
+	st, ok := h.sessions[sessionID]
+	if ok {
+		return st
+	}
+	ctx, chatSpan := h.tracer.Start(context.Background(), "chat",
+		trace.WithAttributes(
+			attribute.String("gen_ai.conversation.id", sessionID),
+		),
+	)
+	st = &sessionTrace{
+		chatSpan:   chatSpan,
+		chatCtx:    ctx,
+		toolSpans:  make(map[string]trace.Span),
+		lastActive: time.Now(),
+	}
+	h.sessions[sessionID] = st
+	return st
+}
+
+// endSession ends all active spans for a session.
+func (h *Hook) endSession(st *sessionTrace) {
+	if st.llmSpan != nil {
+		st.llmSpan.End()
+	}
+	for _, span := range st.toolSpans {
+		span.End()
+	}
+	if st.turnSpan != nil {
+		st.turnSpan.End()
+	}
+	st.chatSpan.End()
+}
+
+// reaper periodically cleans up idle sessions.
+func (h *Hook) reaper() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-h.done:
+			return
+		case <-ticker.C:
+			h.mu.Lock()
+			now := time.Now()
+			for id, st := range h.sessions {
+				if st.activeOps.Load() == 0 && now.Sub(st.lastActive) > 2*time.Minute {
+					h.endSession(st)
+					delete(h.sessions, id)
+				}
+			}
+			h.mu.Unlock()
+		}
+	}
+}
