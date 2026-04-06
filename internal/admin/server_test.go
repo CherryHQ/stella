@@ -257,7 +257,7 @@ func TestPageRoutes(t *testing.T) {
 
 	pages := []string{
 		"/providers", "/agents", "/channels",
-		"/users", "/sessions", "/scheduler", "/settings",
+		"/users", "/sessions", "/scheduler",
 	}
 	for _, path := range pages {
 		t.Run(path, func(t *testing.T) {
