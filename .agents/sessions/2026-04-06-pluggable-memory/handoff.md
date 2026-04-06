@@ -253,3 +253,95 @@ Replaced `memory.Engine` (from `internal/memory`) with `memory.Provider` (from `
 ### Context for Phase 6
 
 Phase 6 should update documentation and the builtin anna skill to reflect the new memory tool action names (`profile_get`/`profile_update` instead of `user_memory_get`/`user_memory_update`). The admin memory management endpoints (`/api/users/{id}/memories/*` and `/api/auth/profile/memories/*`) currently go through `config.Store.GetUserAgentMemory`/`SetUserAgentMemory` — Phase 6 or 7 should migrate these to use `ProfileStore` on the memory provider.
+
+## Phase 6: Simple Plugin
+
+**Status:** Complete
+
+**Date:** 2026-04-06
+
+### What was done
+
+Created the minimal Simple memory plugin at `plugins/memory/simple/`. It implements `Provider` + `ProfileStore` + `SessionManager` (3 of 7 interfaces), validating that the memory interface is not over-fitted to LCM. The plugin uses a sliding-window Assemble algorithm: return the last N messages that fit within the token budget, always honouring freshTail. No summaries, no compaction, no search, no explore, no review.
+
+### Files created
+
+- `plugins/memory/simple/plugin.go` — `init()` registration with `pluginmemory.Register("simple", ...)`
+- `plugins/memory/simple/provider.go` — `Provider` struct implementing `memory.Provider` + `memory.ProfileStore` + `memory.SessionManager`. Includes message conversion helpers duplicated from LCM (same storage format for compatibility).
+- `plugins/memory/simple/provider_test.go` — Conformance test using `memorytest.RunConformance`
+
+### Files modified
+
+- `cmd/anna/plugins_imports.go` — Added `_ "github.com/vaayne/anna/plugins/memory/simple"` blank import
+- `internal/config/plugin.go` — Added `"simple"` to `builtinMemoryNames`
+- `internal/config/dbstore.go` — Seeds `memory/simple` with `enabled=0` (disabled by default; lcm remains the default)
+
+### Commits
+
+1. `ee0fab2b` — `✨ feat: add simple memory plugin registration`
+2. `016550cd` — `✨ feat: implement simple sliding-window memory provider`
+3. `8a22f225` — `✨ feat: add simple provider conformance test`
+4. `abc17b81` — `✨ feat: add simple memory plugin blank import to trigger registration`
+5. `3dc7175d` — `✨ feat: seed memory/simple plugin as disabled by default`
+
+### Verification
+
+- `go build ./...` — passes
+- `go test -race ./plugins/memory/simple/...` — 10 tests pass (all conformance subtests for Provider + ProfileStore + SessionManager; Compactor/Searcher/Explorer/ReviewSource correctly skipped)
+- `mise run format` — clean
+- `mise run lint` — 0 issues
+
+### Key decisions
+
+- **Same storage format as LCM**: Messages are stored using the same `ctx_messages` schema with identical `messageToRows`/`rowsToMessages` conversion. This means switching between LCM and Simple preserves all stored messages. The only difference is Simple does not write `ctx_items` or `ctx_summaries`.
+- **Message conversion duplicated, not shared**: The message conversion helpers (`messageToRows`, `rowsToMessages`, `estimateMessageTokens`) are duplicated from the LCM plugin rather than extracted to a shared package. This keeps the two plugins fully independent — changes to LCM's storage format don't break Simple, and vice versa. The duplication is ~200 lines of straightforward serialization code.
+- **Token counting from messages directly**: Stats sums `token_count` from `ctx_messages` rows rather than using `GetContextTokenCount` (which queries `ctx_items`). Simple doesn't write context items, so the LCM query would always return 0.
+- **Disabled by default**: `memory/simple` is seeded with `enabled=0`. Users must explicitly enable it and disable `memory/lcm` to switch.
+- **No config options**: The simple plugin has no configurable parameters. The factory ignores `BuildContext.Config` and `BuildContext.SummarizerFn`.
+
+### Context for Phase 7
+
+Phase 7 should update documentation and the builtin anna skill to reflect the new memory tool action names (`profile_get`/`profile_update` instead of `user_memory_get`/`user_memory_update`). The admin memory management endpoints should migrate to use `ProfileStore` on the memory provider. The old `internal/memory/` package can begin deprecation now that both LCM and Simple plugins are complete and tested.
+
+## Phase 7: Delete Old Code and Update Docs
+
+**Status:** Complete
+
+**Date:** 2026-04-06
+
+### What was done
+
+Deleted `internal/memory/` (engine, tool, usermemory, context, all tests — ~6600 lines). Deleted `internal/agent/selfimprove/memorytool.go` and its test. Removed `UserAgentMemory` type and 4 memory methods from `config.Store` interface and `DBStore`. Migrated admin endpoints (`profile.go`, `users.go`) to use `sqlc.Queries` directly. Switched `gorunner.go` from `internal/memory` to `pkg/memory`. Updated `admin/tools.go` to use `memory.BuildTool(provider)`. Updated all docs and the builtin anna skill.
+
+### Files deleted
+
+- `internal/memory/` — entire directory (16 files: engine, assembler, compaction, retrieval, summarize, types, context, usermemory, tool/, all tests)
+- `internal/agent/selfimprove/memorytool.go` + `memorytool_test.go`
+
+### Files modified
+
+- `internal/config/store.go` — Removed `UserAgentMemory` type, `GetUserAgentMemory`, `SetUserAgentMemory`, `ListUserMemories`, `DeleteUserAgentMemory` from interface
+- `internal/config/dbstore.go` — Removed implementations of the 4 memory methods
+- `internal/config/dbstore_test.go` — Removed `TestUserAgentMemory`
+- `internal/agent/pool_manager_test.go` — Removed mock implementations of removed Store methods
+- `internal/agent/runner/gorunner.go` — `internal/memory` -> `pkg/memory` import
+- `internal/admin/tools.go` — `memorytool.MemoryDefinition()` -> `memory.BuildTool(s.mem).Definition()`
+- `internal/admin/profile.go` — `s.store.{List,Set,Delete}UserAgent*` -> `s.q.{ListUserAgentMemoriesByUser,UpsertUserAgentMemory,DeleteUserAgentMemory}`
+- `internal/admin/users.go` — Same migration as profile.go
+- `docs/content/docs/core/memory-system.md` — Full rewrite for pluggable architecture
+- `docs/content/docs/core/architecture.md` — Updated package layout, memory tool description
+- `internal/agent/runner/builtin/anna/SKILL.md` — Updated action names (`user_memory_update` -> `profile_update`, `grep` -> `search`)
+
+### Commits
+
+1. `33dd7e15` — `🗑️ refactor: delete internal/memory and remove config.Store memory methods`
+2. `d072515b` — `📝 docs: update memory-system.md for pluggable architecture`
+3. `c7e1ff49` — `📝 docs: update architecture.md for pluggable memory layout`
+4. `637b4ee3` — `📝 docs: update builtin anna skill for new memory action names`
+
+### Verification
+
+- `go build ./...` — passes
+- `mise run format` — clean
+- `mise run lint` — 0 issues
+- `mise run test` (with `-race`) — all tests pass across all packages
