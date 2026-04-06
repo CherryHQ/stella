@@ -100,6 +100,36 @@ func (h *Hook) OnPostToolCall(_ context.Context, hctx *hooks.PostToolCallContext
 	)
 }
 
+// --- PostMemoryCall ---
+
+func (h *Hook) OnPostMemoryCall(_ context.Context, hctx *hooks.PostMemoryCallContext) {
+	attrs := []any{
+		"op", string(hctx.Op),
+		"duration", hctx.Duration.Round(time.Millisecond),
+		"session_id", hctx.SessionID,
+		"agent_id", hctx.AgentID,
+	}
+	if hctx.MessageCount > 0 {
+		attrs = append(attrs, "message_count", hctx.MessageCount)
+	}
+	if hctx.TokenCount > 0 {
+		attrs = append(attrs, "token_count", hctx.TokenCount)
+	}
+	if hctx.TokenDelta != 0 {
+		attrs = append(attrs, "token_delta", hctx.TokenDelta)
+	}
+	if hctx.SummaryCount > 0 {
+		attrs = append(attrs, "summary_count", hctx.SummaryCount)
+	}
+	if hctx.ResultCount > 0 {
+		attrs = append(attrs, "result_count", hctx.ResultCount)
+	}
+	if hctx.Error != nil {
+		attrs = append(attrs, "error", hctx.Error)
+	}
+	h.log.Info("post_memory_call", attrs...)
+}
+
 func summarizeArgs(tool string, args map[string]any) string {
 	switch tool {
 	case "bash":

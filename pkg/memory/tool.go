@@ -52,10 +52,20 @@ func BuildTool(provider Provider, opts ...ToolOption) tools.Tool {
 		cfg:      cfg,
 	}
 
-	// Discover capabilities.
-	t.searcher, _ = provider.(Searcher)
-	t.explorer, _ = provider.(Explorer)
-	t.profileStore, _ = provider.(ProfileStore)
+	// Discover capabilities via Unwrap so traced wrappers don't
+	// advertise capabilities the inner provider does not have.
+	// We check the inner provider but store typed references to the
+	// outer (possibly traced) provider so tracing hooks fire on execution.
+	inner := Unwrap(provider)
+	if _, ok := inner.(Searcher); ok {
+		t.searcher, _ = provider.(Searcher)
+	}
+	if _, ok := inner.(Explorer); ok {
+		t.explorer, _ = provider.(Explorer)
+	}
+	if _, ok := inner.(ProfileStore); ok {
+		t.profileStore, _ = provider.(ProfileStore)
+	}
 
 	// Build the list of available actions.
 	t.actions = t.buildActions()
