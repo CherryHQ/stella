@@ -14,6 +14,7 @@ import (
 	"github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/vaayne/anna/pkg/memory"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 )
@@ -296,6 +297,13 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 		maxTurns = tc.MaxTurns
 	}
 
+	// Inherit parent session context so sub-agent spans link to the parent trace.
+	subMeta := hooks.HookMeta{
+		SessionID: memory.SessionIDFromContext(ctx) + ":subagent:" + tc.ID,
+		UserID:    memory.UserIDFromContext(ctx),
+		AgentID:   memory.AgentIDFromContext(ctx),
+	}
+
 	runner, err := agent.NewRunner(agent.RunnerConfig{
 		Providers:       t.cfg.Providers,
 		Model:           model,
@@ -305,7 +313,7 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 		agent.WithStreamOptions(ai.StreamOptions{APIKey: t.cfg.APIKey, BaseURL: t.cfg.BaseURL}),
 		agent.WithMaxTurns(maxTurns),
 		agent.WithSystem(system),
-		agent.WithHooks(t.cfg.Hooks, hooks.HookMeta{}),
+		agent.WithHooks(t.cfg.Hooks, subMeta),
 	)
 	if err != nil {
 		return taskResult{Error: fmt.Sprintf("create runner: %v", err)}
