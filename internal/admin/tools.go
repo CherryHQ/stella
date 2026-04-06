@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"sort"
 
-	memorytool "github.com/vaayne/anna/internal/memory/tool"
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/internal/skills"
+	"github.com/vaayne/anna/pkg/memory"
 	pkgtools "github.com/vaayne/anna/pkg/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
 	"github.com/vaayne/anna/plugins/tools/bash"
@@ -50,7 +50,7 @@ func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 	tools = append(tools, defToJSON(agenttool.AgentDefinition(nil), "builtin"))
 
 	// Shared tools (scheduler, memory, skills).
-	for _, def := range sharedToolDefinitions() {
+	for _, def := range s.sharedToolDefinitions() {
 		tools = append(tools, defToJSON(def, "shared"))
 	}
 
@@ -66,11 +66,14 @@ func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 }
 
 // sharedToolDefinitions returns the canonical definitions from each tool
-// package. No runtime dependencies needed — schemas are static.
-func sharedToolDefinitions() []pkgtools.Definition {
-	return []pkgtools.Definition{
+// package. The memory tool definition is built dynamically from the provider.
+func (s *Server) sharedToolDefinitions() []pkgtools.Definition {
+	defs := []pkgtools.Definition{
 		scheduler.SchedulerDefinition(),
-		memorytool.MemoryDefinition(),
 		skills.SkillsDefinition(),
 	}
+	if s.mem != nil {
+		defs = append(defs, memory.BuildTool(s.mem).Definition())
+	}
+	return defs
 }

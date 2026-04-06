@@ -308,54 +308,6 @@ func (s *DBStore) DeleteChatAgent(ctx context.Context, platform, chatID string) 
 	})
 }
 
-// --- User Agent Memory ---
-
-func (s *DBStore) GetUserAgentMemory(ctx context.Context, userID int64, agentID string) (string, error) {
-	r, err := s.q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{
-		UserID:  userID,
-		AgentID: agentID,
-	})
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return "", nil
-		}
-		return "", fmt.Errorf("get user agent memory: %w", err)
-	}
-	return r.Content, nil
-}
-
-func (s *DBStore) SetUserAgentMemory(ctx context.Context, userID int64, agentID, content string) error {
-	return s.q.UpsertUserAgentMemory(ctx, sqlc.UpsertUserAgentMemoryParams{
-		UserID:  userID,
-		AgentID: agentID,
-		Content: content,
-	})
-}
-
-func (s *DBStore) ListUserMemories(ctx context.Context, userID int64) ([]UserAgentMemory, error) {
-	rows, err := s.q.ListUserAgentMemoriesByUser(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("list user memories for user %d: %w", userID, err)
-	}
-	out := make([]UserAgentMemory, len(rows))
-	for i, r := range rows {
-		out[i] = UserAgentMemory{
-			UserID:    r.UserID,
-			AgentID:   r.AgentID,
-			Content:   r.Content,
-			UpdatedAt: r.UpdatedAt,
-		}
-	}
-	return out, nil
-}
-
-func (s *DBStore) DeleteUserAgentMemory(ctx context.Context, userID int64, agentID string) error {
-	return s.q.DeleteUserAgentMemory(ctx, sqlc.DeleteUserAgentMemoryParams{
-		UserID:  userID,
-		AgentID: agentID,
-	})
-}
-
 // --- Settings ---
 
 func (s *DBStore) GetSetting(ctx context.Context, key string) (string, error) {
