@@ -565,6 +565,19 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindHook, name, err)
 		}
 	}
+	for _, name := range builtinMemoryNames {
+		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
+			ID:      PluginID(PluginKindMemory, name),
+			Kind:    PluginKindMemory,
+			Name:    name,
+			Enabled: 1,
+			Config:  "{}",
+		})
+		if err != nil {
+			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindMemory, name, err)
+		}
+	}
+
 	// Only seed provider plugins on first bootstrap. If the user later
 	// deletes a provider, it stays deleted across restarts.
 	providerPlugins, err := s.q.ListPluginsByKind(ctx, PluginKindProvider)
