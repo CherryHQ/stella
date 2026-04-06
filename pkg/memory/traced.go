@@ -323,7 +323,17 @@ func (t *tracedProvider) SaveInfo(ctx context.Context, info SessionInfo) error {
 	if !ok {
 		return errCapabilityNotSupported("SessionManager")
 	}
-	return sm.SaveInfo(ctx, info)
+	start := time.Now()
+	err := sm.SaveInfo(ctx, info)
+	t.emit(ctx, &hooks.PostMemoryCallContext{
+		HookMeta:  hooks.HookMeta{SessionID: info.ID, UserID: info.UserID, AgentID: info.AgentID},
+		Op:        hooks.MemoryOpSaveInfo,
+		SessionID: info.ID,
+		Duration:  time.Since(start),
+		Error:     err,
+		Detail:    fmt.Sprintf("title=%q archived=%v channel=%s", info.Title, info.Archived, info.Channel),
+	})
+	return err
 }
 
 func (t *tracedProvider) LoadInfo(ctx context.Context, sessionID string) (SessionInfo, error) {
@@ -331,7 +341,17 @@ func (t *tracedProvider) LoadInfo(ctx context.Context, sessionID string) (Sessio
 	if !ok {
 		return SessionInfo{}, errCapabilityNotSupported("SessionManager")
 	}
-	return sm.LoadInfo(ctx, sessionID)
+	start := time.Now()
+	info, err := sm.LoadInfo(ctx, sessionID)
+	t.emit(ctx, &hooks.PostMemoryCallContext{
+		HookMeta:  hooks.HookMeta{SessionID: sessionID, UserID: info.UserID, AgentID: info.AgentID},
+		Op:        hooks.MemoryOpLoadInfo,
+		SessionID: sessionID,
+		Duration:  time.Since(start),
+		Error:     err,
+		Detail:    fmt.Sprintf("title=%q archived=%v channel=%s", info.Title, info.Archived, info.Channel),
+	})
+	return info, err
 }
 
 func (t *tracedProvider) ListInfo(ctx context.Context, opts ListOptions) ([]SessionInfo, error) {
@@ -339,7 +359,16 @@ func (t *tracedProvider) ListInfo(ctx context.Context, opts ListOptions) ([]Sess
 	if !ok {
 		return nil, errCapabilityNotSupported("SessionManager")
 	}
-	return sm.ListInfo(ctx, opts)
+	start := time.Now()
+	infos, err := sm.ListInfo(ctx, opts)
+	t.emit(ctx, &hooks.PostMemoryCallContext{
+		Op:          hooks.MemoryOpListInfo,
+		Duration:    time.Since(start),
+		Error:       err,
+		ResultCount: len(infos),
+		Detail:      fmt.Sprintf("agent=%s user=%d archived=%v limit=%d → %d results", opts.AgentID, opts.UserID, opts.IncludeArchived, opts.Limit, len(infos)),
+	})
+	return infos, err
 }
 
 func (t *tracedProvider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error) {
@@ -347,7 +376,17 @@ func (t *tracedProvider) LoadHistory(ctx context.Context, sessionID string) ([]a
 	if !ok {
 		return nil, errCapabilityNotSupported("SessionManager")
 	}
-	return sm.LoadHistory(ctx, sessionID)
+	start := time.Now()
+	msgs, err := sm.LoadHistory(ctx, sessionID)
+	t.emit(ctx, &hooks.PostMemoryCallContext{
+		Op:           hooks.MemoryOpLoadHistory,
+		SessionID:    sessionID,
+		Duration:     time.Since(start),
+		Error:        err,
+		MessageCount: len(msgs),
+		Detail:       formatMessages("loaded history", msgs),
+	})
+	return msgs, err
 }
 
 // ---------------------------------------------------------------------------
@@ -359,7 +398,18 @@ func (t *tracedProvider) BuildReviewContext(ctx context.Context, session Session
 	if !ok {
 		return "", errCapabilityNotSupported("ReviewSource")
 	}
-	return rs.BuildReviewContext(ctx, session, since)
+	start := time.Now()
+	text, err := rs.BuildReviewContext(ctx, session, since)
+	t.emit(ctx, &hooks.PostMemoryCallContext{
+		HookMeta:   metaFromSession(session),
+		Op:         hooks.MemoryOpBuildReview,
+		SessionID:  session.ID,
+		Duration:   time.Since(start),
+		Error:      err,
+		TokenCount: EstimateTokens(text),
+		Detail:     fmt.Sprintf("since=%s len=%d", since.Format(time.RFC3339), len(text)),
+	})
+	return text, err
 }
 
 func (t *tracedProvider) MarkReviewed(ctx context.Context, session Session, at time.Time) error {
@@ -367,7 +417,17 @@ func (t *tracedProvider) MarkReviewed(ctx context.Context, session Session, at t
 	if !ok {
 		return errCapabilityNotSupported("ReviewSource")
 	}
-	return rs.MarkReviewed(ctx, session, at)
+	start := time.Now()
+	err := rs.MarkReviewed(ctx, session, at)
+	t.emit(ctx, &hooks.PostMemoryCallContext{
+		HookMeta:  metaFromSession(session),
+		Op:        hooks.MemoryOpMarkReviewed,
+		SessionID: session.ID,
+		Duration:  time.Since(start),
+		Error:     err,
+		Detail:    fmt.Sprintf("at=%s", at.Format(time.RFC3339)),
+	})
+	return err
 }
 
 func (t *tracedProvider) ListUnreviewed(ctx context.Context, agentID string, limit int) ([]ReviewCandidate, error) {
@@ -375,7 +435,17 @@ func (t *tracedProvider) ListUnreviewed(ctx context.Context, agentID string, lim
 	if !ok {
 		return nil, errCapabilityNotSupported("ReviewSource")
 	}
-	return rs.ListUnreviewed(ctx, agentID, limit)
+	start := time.Now()
+	candidates, err := rs.ListUnreviewed(ctx, agentID, limit)
+	t.emit(ctx, &hooks.PostMemoryCallContext{
+		HookMeta:    hooks.HookMeta{AgentID: agentID},
+		Op:          hooks.MemoryOpListUnreviewed,
+		Duration:    time.Since(start),
+		Error:       err,
+		ResultCount: len(candidates),
+		Detail:      fmt.Sprintf("agent=%s limit=%d → %d candidates", agentID, limit, len(candidates)),
+	})
+	return candidates, err
 }
 
 // ---------------------------------------------------------------------------
