@@ -2,123 +2,182 @@
 title: Trace
 ---
 
-The **trace** hook plugin provides observability for anna's engine loop. It logs all LLM calls, tool executions, and memory operations via structured logging (`slog`), and optionally exports OpenTelemetry traces via OTLP gRPC to any compatible backend (Jaeger, Grafana Tempo, SigNoz, etc.).
+## Overview
 
-## How It Works
+The **trace** plugin gives you visibility into what anna is doing under the hood. Every LLM call, tool execution, and memory operation is tracked with timing, token usage, and error details.
 
-The trace hook implements all five hook points:
+It operates in two modes:
 
-| Hook Point | What It Captures |
+- **Log mode** (always on) -- structured log lines via Go's `slog`, visible in stderr. Zero configuration needed.
+- **OpenTelemetry mode** (opt-in) -- exports distributed traces via OTLP gRPC to any compatible backend (Jaeger, Grafana Tempo, SigNoz, Datadog, etc.). Activate by setting one environment variable.
+
+## Configuration
+
+### Log Mode
+
+Log mode is always active when the plugin is enabled. Control verbosity with `LOG_LEVEL`:
+
+| Level | What You See |
 | --- | --- |
-| PreLLMCall | Model, message count, tool definitions, system prompt length |
-| PostLLMCall | Provider, model, stop reason, duration, TTFT, token usage (input/output/cache) |
-| PreToolCall | Tool name, call ID, summarized arguments |
-| PostToolCall | Tool name, call ID, error status, duration, result snippet |
-| PostMemoryCall | Operation type, duration, token/message counts, detail (at TRACE level) |
-
-## Structured Logging
-
-Structured logging is always active. All events are emitted via Go's `log/slog` at `INFO` level. Set `LOG_LEVEL=TRACE` to include verbose memory detail fields.
+| `INFO` (default) | Every LLM call (model, tokens, duration, TTFT), tool call (name, duration, error), and memory operation |
+| `DEBUG` | Same as INFO plus internal engine events |
+| `TRACE` | Same as DEBUG plus full memory operation details (message content, search results, profile text) |
 
 ```bash
-# Standard logging
-LOG_LEVEL=INFO anna serve
+# Default -- LLM/tool/memory events at INFO
+anna serve
 
-# Verbose memory traces
+# Verbose -- includes memory detail fields
 LOG_LEVEL=TRACE anna serve
 ```
 
-## OpenTelemetry Tracing
+Example log output:
 
-OTel tracing activates when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Without it, the hook uses a no-op tracer and no spans are created.
+```
+level=INFO msg=post_llm_call hook=trace provider=anthropic model=claude-sonnet-4-20250514 stop_reason=tool_use duration=3.2s ttft=450ms input_tokens=12500 output_tokens=350 cache_read=8000
+level=INFO msg=post_tool_call hook=trace tool=bash call_id=call_01 is_error=false duration=1.5s result_len=256
+level=INFO msg=post_memory_call hook=trace op=compact duration=200ms token_count=8000 token_delta=-4500
+```
 
-### Quick Start with Jaeger
+### OpenTelemetry Mode
+
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable. All standard OTel environment variables are supported:
+
+| Environment Variable | Default | Description |
+| --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(empty -- OTel disabled)* | OTLP gRPC endpoint. Set this to enable OTel. |
+| `OTEL_SERVICE_NAME` | `anna` | Service name shown in your trace backend |
+| `OTEL_EXPORTER_OTLP_INSECURE` | `true` | Set to `false` to require TLS |
+
+When OTel is enabled, both modes run simultaneously -- you get log lines and exported traces.
+
+## Using with Jaeger
+
+[Jaeger](https://www.jaegertracing.io/) is the simplest way to visualize anna's traces. It accepts OTLP natively and runs as a single container.
 
 ```bash
-# 1. Start Jaeger with OTLP ingest
+# Start Jaeger
 docker run -d --name jaeger \
   -p 16686:16686 \
   -p 4317:4317 \
   jaegertracing/jaeger:latest
 
-# 2. Start anna with OTel enabled
+# Start anna with tracing
 OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 anna serve
-
-# 3. Open Jaeger UI
-open http://localhost:16686
 ```
 
-### Configuration
+Open `http://localhost:16686`, select the **anna** service, and click **Find Traces**. Each chat session appears as a trace with a waterfall view of LLM calls, tool executions, and memory operations.
 
-OTel is configured via standard OpenTelemetry environment variables:
+### Using with Other Backends
 
-| Environment Variable | Default | Description |
-| --- | --- | --- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(empty -- OTel disabled)* | OTLP gRPC endpoint (e.g. `localhost:4317`) |
-| `OTEL_SERVICE_NAME` | `anna` | Service name in traces |
-| `OTEL_EXPORTER_OTLP_INSECURE` | `true` | Set `false` to require TLS |
+Any OTLP-compatible backend works. Examples:
 
-Sampling rate is controlled by the OTel SDK's default behavior (all traces sampled). For production, configure a collector-side sampling strategy.
+```bash
+# Grafana Tempo
+OTEL_EXPORTER_OTLP_ENDPOINT=tempo.internal:4317 anna serve
 
-### Span Hierarchy
+# SigNoz
+OTEL_EXPORTER_OTLP_ENDPOINT=signoz.internal:4317 anna serve
 
-When OTel is active, the hook builds a structured trace tree per chat session:
+# OTel Collector (routes to multiple backends)
+OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317 anna serve
+
+# Cloud (with TLS)
+OTEL_EXPORTER_OTLP_ENDPOINT=otlp.vendor.com:443 \
+OTEL_EXPORTER_OTLP_INSECURE=false \
+anna serve
+```
+
+## What Gets Traced
+
+### LLM Calls
+
+Every call to an LLM provider is captured as a `gen_ai.chat` span:
+
+- Model name (requested and actual)
+- Provider (anthropic, openai, etc.)
+- Token usage: input, output, cache read, cache write
+- Time to first token (TTFT)
+- Total duration
+- Stop reason (end_turn, tool_use, max_tokens, etc.)
+- Errors
+
+### Tool Executions
+
+Each tool call is captured as a `gen_ai.execute_tool` span:
+
+- Tool name (bash, read, write, edit, webfetch, agent, etc.)
+- Call ID
+- Duration
+- Success or failure
+
+### Memory Operations
+
+Memory operations (append, assemble, compact, search, etc.) are captured as `memory.*` spans:
+
+- Operation type
+- Duration
+- Token and message counts
+- Token delta (for compaction)
+- Errors
+
+### Trace Structure
+
+Spans are organized into a hierarchy per chat session:
 
 ```
-chat {sessionID}
+chat
   └── turn 1
-       ├── gen_ai.chat              (LLM call)
-       ├── gen_ai.execute_tool      (tool: bash)
-       ├── gen_ai.execute_tool      (tool: read)
-       └── memory.append
+       ├── gen_ai.chat                 3.2s
+       ├── gen_ai.execute_tool (bash)  1.5s
+       ├── gen_ai.execute_tool (read)  0.1s
+       └── memory.append               0.02s
   └── turn 2
-       ├── gen_ai.chat
-       └── memory.compact
+       ├── gen_ai.chat                 2.8s
+       └── memory.compact              0.2s
 ```
 
-- **chat** -- root span, created on first LLM call for a session, ended after 2 minutes of inactivity
-- **turn N** -- one per LLM turn (rotated on each PreLLMCall)
-- **gen_ai.chat** -- started in PreLLMCall, ended in PostLLMCall (real timing)
-- **gen_ai.execute_tool** -- started in PreToolCall, ended in PostToolCall (real timing)
-- **memory.\*** -- backdated spans (post-hook only, duration from memory layer)
+A new **turn** starts each time anna calls the LLM. The **chat** root span covers the entire conversation and closes after 2 minutes of inactivity.
 
-### Span Attributes
+## Span Attributes Reference
 
-LLM spans follow [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/):
+LLM and tool spans follow [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/):
 
-| Attribute | Description |
-| --- | --- |
-| `gen_ai.operation.name` | `chat` or `execute_tool` |
-| `gen_ai.provider.name` | Provider identifier (e.g. `anthropic`) |
-| `gen_ai.request.model` | Requested model name |
-| `gen_ai.response.model` | Model that generated the response |
-| `gen_ai.response.finish_reasons` | Why generation stopped |
-| `gen_ai.conversation.id` | Session ID |
-| `gen_ai.usage.input_tokens` | Input tokens consumed |
-| `gen_ai.usage.output_tokens` | Output tokens generated |
-| `gen_ai.usage.cache_read.input_tokens` | Tokens served from provider cache |
-| `gen_ai.usage.cache_creation.input_tokens` | Tokens written to provider cache |
-| `gen_ai.server.time_to_first_token` | TTFT in seconds |
-| `gen_ai.tool.name` | Tool name (execute_tool spans) |
-| `gen_ai.tool.call.id` | Tool call ID (execute_tool spans) |
-| `error.type` | Error type when operation fails |
+| Attribute | Spans | Description |
+| --- | --- | --- |
+| `gen_ai.operation.name` | all | `chat` or `execute_tool` |
+| `gen_ai.provider.name` | chat | Provider identifier |
+| `gen_ai.request.model` | chat | Requested model |
+| `gen_ai.response.model` | chat | Actual model used |
+| `gen_ai.response.finish_reasons` | chat | Why generation stopped |
+| `gen_ai.conversation.id` | all | Session ID |
+| `gen_ai.usage.input_tokens` | chat | Input tokens |
+| `gen_ai.usage.output_tokens` | chat | Output tokens |
+| `gen_ai.usage.cache_read.input_tokens` | chat | Cached input tokens |
+| `gen_ai.usage.cache_creation.input_tokens` | chat | Tokens written to cache |
+| `gen_ai.server.time_to_first_token` | chat | TTFT in seconds |
+| `gen_ai.tool.name` | execute_tool | Tool name |
+| `gen_ai.tool.call.id` | execute_tool | Tool call ID |
+| `error.type` | all | Error type on failure |
 
-Memory spans use `anna.memory.*` attributes:
+Memory spans use anna-specific attributes:
 
 | Attribute | Description |
 | --- | --- |
-| `anna.memory.op` | Operation name (bootstrap, append, assemble, compact, search, etc.) |
+| `anna.memory.op` | Operation (bootstrap, append, assemble, compact, search, describe, expand, etc.) |
 | `anna.memory.session_id` | Memory session ID |
-| `anna.memory.token_count` | Token count (when applicable) |
-| `anna.memory.token_delta` | Token delta from compaction |
-| `anna.memory.message_count` | Message count (when applicable) |
+| `anna.memory.token_count` | Token count |
+| `anna.memory.token_delta` | Tokens saved by compaction (negative = reduction) |
+| `anna.memory.message_count` | Message count |
 
-## Plugin Management
+## Managing the Plugin
 
-The trace hook is enabled by default. Manage it via CLI or admin panel:
+The trace plugin is enabled by default.
 
 ```bash
 anna plugin list                   # Check status
-anna plugin disable hook/trace     # Disable trace hook
-anna plugin enable hook/trace      # Re-enable trace hook
+anna plugin disable hook/trace     # Disable all tracing
+anna plugin enable hook/trace      # Re-enable
 ```
+
+Disabling the trace plugin turns off both log mode and OTel mode. LLM calls, tool executions, and memory operations will no longer be logged or exported.
