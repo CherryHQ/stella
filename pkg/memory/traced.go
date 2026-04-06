@@ -66,6 +66,15 @@ func (t *tracedProvider) emit(ctx context.Context, hctx *hooks.PostMemoryCallCon
 	hs.RunPostMemoryCall(ctx, hctx)
 }
 
+// metaFromSession populates HookMeta from a memory Session.
+func metaFromSession(s Session) hooks.HookMeta {
+	return hooks.HookMeta{
+		SessionID: s.ID,
+		UserID:    s.UserID,
+		AgentID:   s.AgentID,
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Provider (core interface)
 // ---------------------------------------------------------------------------
@@ -76,6 +85,7 @@ func (t *tracedProvider) Bootstrap(ctx context.Context, session Session) error {
 	start := time.Now()
 	err := t.inner.Bootstrap(ctx, session)
 	t.emit(ctx, &hooks.PostMemoryCallContext{
+		HookMeta:  metaFromSession(session),
 		Op:        hooks.MemoryOpBootstrap,
 		SessionID: session.ID,
 		Duration:  time.Since(start),
@@ -88,6 +98,7 @@ func (t *tracedProvider) Append(ctx context.Context, session Session, msgs ...ai
 	start := time.Now()
 	err := t.inner.Append(ctx, session, msgs...)
 	t.emit(ctx, &hooks.PostMemoryCallContext{
+		HookMeta:     metaFromSession(session),
 		Op:           hooks.MemoryOpAppend,
 		SessionID:    session.ID,
 		Duration:     time.Since(start),
@@ -106,6 +117,7 @@ func (t *tracedProvider) Assemble(ctx context.Context, session Session, budget, 
 		tokens += EstimateTokens(MessageText(m))
 	}
 	t.emit(ctx, &hooks.PostMemoryCallContext{
+		HookMeta:     metaFromSession(session),
 		Op:           hooks.MemoryOpAssemble,
 		SessionID:    session.ID,
 		Duration:     time.Since(start),
@@ -121,6 +133,7 @@ func (t *tracedProvider) Stats(ctx context.Context, session Session) (SessionSta
 	start := time.Now()
 	stats, err := t.inner.Stats(ctx, session)
 	t.emit(ctx, &hooks.PostMemoryCallContext{
+		HookMeta:     metaFromSession(session),
 		Op:           hooks.MemoryOpStats,
 		SessionID:    session.ID,
 		Duration:     time.Since(start),
@@ -153,6 +166,7 @@ func (t *tracedProvider) Compact(ctx context.Context, session Session, mode Comp
 	start := time.Now()
 	result, err := c.Compact(ctx, session, mode)
 	hctx := &hooks.PostMemoryCallContext{
+		HookMeta:  metaFromSession(session),
 		Op:        hooks.MemoryOpCompact,
 		SessionID: session.ID,
 		Duration:  time.Since(start),
@@ -183,6 +197,7 @@ func (t *tracedProvider) Search(ctx context.Context, session Session, query Sear
 	start := time.Now()
 	results, err := s.Search(ctx, session, query)
 	t.emit(ctx, &hooks.PostMemoryCallContext{
+		HookMeta:    metaFromSession(session),
 		Op:          hooks.MemoryOpSearch,
 		SessionID:   session.ID,
 		Duration:    time.Since(start),
@@ -271,6 +286,7 @@ func (t *tracedProvider) GetProfile(ctx context.Context, userID int64, agentID s
 	start := time.Now()
 	content, err := ps.GetProfile(ctx, userID, agentID)
 	t.emit(ctx, &hooks.PostMemoryCallContext{
+		HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID},
 		Op:       hooks.MemoryOpGetProfile,
 		Duration: time.Since(start),
 		Error:    err,
@@ -288,6 +304,7 @@ func (t *tracedProvider) SetProfile(ctx context.Context, userID int64, agentID s
 	start := time.Now()
 	err := ps.SetProfile(ctx, userID, agentID, content)
 	t.emit(ctx, &hooks.PostMemoryCallContext{
+		HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID},
 		Op:       hooks.MemoryOpSetProfile,
 		Duration: time.Since(start),
 		Error:    err,
