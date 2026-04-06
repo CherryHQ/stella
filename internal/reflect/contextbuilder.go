@@ -47,12 +47,6 @@ func (s *Service) buildReviewContext(ctx context.Context, sess memory.Session, s
 		}
 	}
 
-	// If since is zero, all messages are "fresh".
-	if since.IsZero() {
-		fresh = prior
-		prior = nil
-	}
-
 	if len(fresh) == 0 {
 		return "", nil
 	}

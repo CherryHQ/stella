@@ -232,7 +232,7 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 	}
 
 	// Build the memory tool for the reviewer (profile actions only).
-	reviewTool := memory.BuildTool(s.memory, memory.WithActionsOnly("soul_get", "soul_update", "profile_get", "profile_update"))
+	reviewTool := memory.BuildTool(s.memory, memory.WithActionsOnly("profile_get", "profile_update"))
 
 	reviewer, err := newReviewer(reviewerConfig{
 		Providers:      reg,

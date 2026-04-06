@@ -2,7 +2,6 @@ package reflect
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	"github.com/vaayne/anna/internal/db/sqlc"
@@ -21,7 +20,7 @@ func newWatermarkStore(q *sqlc.Queries) *watermarkStore {
 // Returns zero time if never reviewed.
 func (ws *watermarkStore) get(ctx context.Context, sessionID string) time.Time {
 	val, err := ws.q.GetReflectWatermark(ctx, sessionID)
-	if err == sql.ErrNoRows || err != nil {
+	if err != nil {
 		return time.Time{}
 	}
 	t, err := time.Parse("2006-01-02 15:04:05", val)
