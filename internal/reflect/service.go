@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
@@ -122,16 +124,26 @@ func (s *Service) runCycle(ctx context.Context) {
 		return
 	}
 
+	ctx, span := startCycleSpan(ctx, len(agents))
+	defer span.End()
+
+	totalReviewed := 0
 	for _, agent := range agents {
 		snap, err := s.store.Snapshot(ctx, agent.ID)
 		if err != nil {
 			s.log.Error("reflect: snapshot", "agent", agent.ID, "error", err)
 			continue
 		}
-		if _, err := s.reviewAgent(ctx, snap); err != nil {
+		n, err := s.reviewAgent(ctx, snap)
+		if err != nil {
 			s.log.Error("reflect: review agent", "agent", agent.ID, "error", err)
 		}
+		totalReviewed += n
 	}
+
+	span.SetAttributes(
+		attribute.Int("anna.reflect.sessions_reviewed", totalReviewed),
+	)
 
 	expireDrafts(s.workspace, defaultDraftMaxAge, s.log)
 }
@@ -142,10 +154,16 @@ func (s *Service) reviewAgent(ctx context.Context, snap *config.Snapshot) (int, 
 		return 0, nil // can't list sessions without SessionManager
 	}
 
+	ctx, span := startAgentSpan(ctx, snap.AgentID)
+	defer span.End()
+
 	candidates, err := s.listUnreviewed(ctx, sm, snap.AgentID)
 	if err != nil {
+		recordError(span, err)
 		return 0, fmt.Errorf("list unreviewed: %w", err)
 	}
+
+	span.SetAttributes(attribute.Int("anna.reflect.candidate_count", len(candidates)))
 
 	reviewed := 0
 	for _, c := range candidates {
@@ -155,6 +173,8 @@ func (s *Service) reviewAgent(ctx context.Context, snap *config.Snapshot) (int, 
 		}
 		reviewed++
 	}
+
+	span.SetAttributes(attribute.Int("anna.reflect.sessions_reviewed", reviewed))
 	return reviewed, nil
 }
 
@@ -221,17 +241,26 @@ func (s *Service) listUnreviewed(ctx context.Context, sm memory.SessionManager, 
 }
 
 func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot, c candidate) error {
+	ctx, span := startConversationSpan(ctx, c)
+	defer span.End()
+
 	userID := c.session.UserID
 
 	// Resolve the fast-tier model and build only the needed provider.
 	model := snap.ResolveModelTier(config.ModelTierFast)
 	creds := snap.ResolveProviderCreds(model.API)
 
+	span.SetAttributes(
+		attribute.String("gen_ai.request.model", model.ID),
+		attribute.String("gen_ai.provider.name", model.API),
+	)
+
 	reg, err := pluginproviders.BuildRegistry(model.API, pluginproviders.ProviderConfig{
 		APIKey:  creds.APIKey,
 		BaseURL: creds.BaseURL,
 	})
 	if err != nil {
+		recordError(span, err)
 		return fmt.Errorf("build provider: %w", err)
 	}
 
@@ -248,11 +277,13 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 
 	text, err := s.buildReviewContext(ctx, c.session, c.lastReview)
 	if err != nil {
+		recordError(span, err)
 		return fmt.Errorf("build review context: %w", err)
 	}
 
 	if text == "" {
 		// Nothing to review — mark reviewed anyway to advance the watermark.
+		span.SetAttributes(attribute.Bool("anna.reflect.skipped", true))
 		return s.wm.set(ctx, c.session.ID, watermark)
 	}
 
@@ -267,6 +298,7 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 		ExistingSkills: existingNames,
 	})
 	if err != nil {
+		recordError(span, err)
 		return fmt.Errorf("create reviewer: %w", err)
 	}
 
@@ -276,10 +308,17 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 
 	result, err := reviewer.review(reviewCtx, text)
 	if err != nil {
+		recordError(span, err)
 		return fmt.Errorf("review: %w", err) // Don't mark reviewed on error — retry next time.
 	}
 
+	span.SetAttributes(
+		attribute.Int("anna.reflect.skills_mutated", result.SkillsMutated),
+		attribute.Bool("anna.reflect.memory_updated", result.MemoryUpdated),
+	)
+
 	if err := s.wm.set(ctx, c.session.ID, watermark); err != nil {
+		recordError(span, err)
 		return fmt.Errorf("mark reviewed: %w", err)
 	}
 
