@@ -46,10 +46,11 @@ type Runner interface {
 
 // RunnerParams holds parameters for creating a new Runner instance.
 type RunnerParams struct {
-	Model      string                    // model ID (empty = use default)
-	UserMemory string                    // per-user memory to inject into system prompt
-	UserID     int64                     // auth user ID (0 = no user isolation)
-	HooksFn    func() []hooks.HookPlugin // resolved at runner-creation time; nil = no hooks
+	Model   string                    // model ID (empty = use default)
+	Memory  any                       // memory.Provider — typed as any to avoid circular imports
+	UserID  int64                     // auth user ID (0 = no user isolation)
+	AgentID string                    // agent ID for profile loading
+	HooksFn func() []hooks.HookPlugin // resolved at runner-creation time; nil = no hooks
 }
 
 // NewRunnerFunc creates a new Runner instance with the given params.

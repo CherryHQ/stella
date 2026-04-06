@@ -2,8 +2,6 @@ package agent
 
 import (
 	"time"
-
-	"github.com/vaayne/anna/internal/memory"
 )
 
 // PoolOption configures a Pool.
@@ -41,13 +39,6 @@ func WithDefaultModel(model string) PoolOption {
 func WithFastModel(model string) PoolOption {
 	return func(p *Pool) {
 		p.fastModel = model
-	}
-}
-
-// WithUserMemory sets the per-user memory store for system prompt injection.
-func WithUserMemory(store *memory.UserMemoryStore) PoolOption {
-	return func(p *Pool) {
-		p.userMemory = store
 	}
 }
 

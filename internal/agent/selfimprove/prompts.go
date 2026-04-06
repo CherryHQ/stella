@@ -7,10 +7,10 @@ const combinedReviewPrompt = `You are a self-improvement agent. Your job is to r
 Has the user revealed things about themselves — their persona, desires, preferences, or personal details worth remembering?
 Has the user expressed expectations about how you should behave, their work style, or ways they want you to operate?
 
-If so, use the review_memory tool:
-1. First call action="get" to read the current memory.
+If so, use the memory tool:
+1. First call action="profile_get" to read the current memory.
 2. Merge your new observations into the existing content — do NOT discard what is already there.
-3. Call action="update" with the full merged content.
+3. Call action="profile_update" with the full merged content.
 
 Keep memory entries concise. Focus on durable facts and preferences, not ephemeral task details.
 

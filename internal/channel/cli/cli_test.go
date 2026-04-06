@@ -12,16 +12,20 @@ import (
 
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/memory"
+	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/memory"
+	pluginmemory "github.com/vaayne/anna/plugins/memory"
+	_ "github.com/vaayne/anna/plugins/memory/lcm"
 )
 
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-func newTestMemEngine() memory.Engine {
+func newTestMemProvider() memory.Provider {
 	dir, _ := os.MkdirTemp("", "cli-test-*")
-	eng, _ := memory.NewEngine(filepath.Join(dir, "test.db"), &memory.StaticSummarizer{Response: "test summary"})
-	return eng
+	db, _ := appdb.OpenDB(filepath.Join(dir, "test.db"))
+	p, _ := pluginmemory.Build(context.Background(), "lcm", pluginmemory.BuildContext{DB: db})
+	return p
 }
 
 // mockRunner implements runner.Runner for testing.
@@ -42,7 +46,7 @@ func newTestPool(events []runner.Event) *agent.Pool {
 	factory := func(_ context.Context, _ runner.RunnerParams) (runner.Runner, error) {
 		return &mockRunner{events: events}, nil
 	}
-	return agent.NewPool(factory, newTestMemEngine())
+	return agent.NewPool(factory, newTestMemProvider())
 }
 
 // initModel creates a chatModel and sends an initial WindowSizeMsg so the viewport is ready.

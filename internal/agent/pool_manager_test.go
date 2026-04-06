@@ -93,7 +93,7 @@ func (m *mockStore) DeletePlugin(_ context.Context, _ string) error             
 
 func TestPoolManagerGetNil(t *testing.T) {
 	store := &mockStore{}
-	mem := testMemoryEngine(t)
+	mem := testMemoryProvider(t)
 	pm := NewPoolManager(store, mem)
 
 	if got := pm.Get("nonexistent"); got != nil {
@@ -117,7 +117,7 @@ func TestPoolManagerStartAllAndGet(t *testing.T) {
 		},
 	}
 
-	mem := testMemoryEngine(t)
+	mem := testMemoryProvider(t)
 	pm := NewPoolManager(store, mem)
 
 	ctx := context.Background()
@@ -157,7 +157,7 @@ func TestPoolManagerDefaultPool(t *testing.T) {
 		},
 	}
 
-	mem := testMemoryEngine(t)
+	mem := testMemoryProvider(t)
 	pm := NewPoolManager(store, mem)
 
 	ctx := context.Background()
@@ -186,7 +186,7 @@ func TestPoolManagerClose(t *testing.T) {
 		},
 	}
 
-	mem := testMemoryEngine(t)
+	mem := testMemoryProvider(t)
 	pm := NewPoolManager(store, mem)
 
 	ctx := context.Background()
@@ -206,7 +206,7 @@ func TestPoolManagerClose(t *testing.T) {
 
 func TestPoolManagerStartAllNoAgents(t *testing.T) {
 	store := &mockStore{agents: nil}
-	mem := testMemoryEngine(t)
+	mem := testMemoryProvider(t)
 	pm := NewPoolManager(store, mem)
 
 	err := pm.StartAll(context.Background())

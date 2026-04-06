@@ -17,12 +17,12 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/embedded"
-	"github.com/vaayne/anna/internal/memory"
-	memorytool "github.com/vaayne/anna/internal/memory/tool"
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/vaayne/anna/pkg/memory"
 	"github.com/vaayne/anna/pkg/tools"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
+	pluginmemory "github.com/vaayne/anna/plugins/memory"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
@@ -47,7 +47,7 @@ func newApp() *ucli.App {
 type setupResult struct {
 	ctx          context.Context
 	db           *sql.DB
-	mem          memory.Engine
+	mem          memory.Provider
 	snap         *config.Snapshot
 	store        config.Store
 	poolManager  *agent.PoolManager
@@ -117,13 +117,18 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	dispatcher := channel.NewDispatcher()
 	// The notify tool is wired in gateway mode — channels register later.
 
-	// Memory engine: create engine for message persistence and compaction.
-	memoryEngine := memory.NewEngineFromDB(db, &memory.StaticSummarizer{Response: "compacted"}, memory.WithLogger(slog.Default()))
+	// Build memory provider via plugin registry.
+	memProvider, err := pluginmemory.Build(parent, "lcm", pluginmemory.BuildContext{
+		DB:       db,
+		AnnaHome: config.AnnaHome(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("memory plugin: %w", err)
+	}
 
-	// Unified memory tool (shared across all agents).
-	userMemoryStore := memory.NewUserMemoryStore(store)
+	// Unified memory tool (shared across all agents, adapts to provider capabilities).
 	sharedTools = append(sharedTools,
-		memorytool.NewMemoryTool(memoryEngine, userMemoryStore),
+		memory.BuildTool(memProvider),
 	)
 
 	// Plugin tools builder: auto-discovers registered plugin tools and returns
@@ -152,7 +157,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// WithSharedExtraTools sets the always-on core tools (scheduler, memory).
 	// WithPluginToolsBuilder provides the function for hot-reloadable plugin tools.
 	// WithPluginHooksBuilder provides the function for hot-reloadable hook plugins.
-	poolMgr := agent.NewPoolManager(store, memoryEngine,
+	poolMgr := agent.NewPoolManager(store, memProvider,
 		agent.WithIdleTimeoutPM(idleTimeout),
 		agent.WithCompactionPM(agent.CompactionConfig{
 			MaxTokens: snap.Runner.Compaction.MaxTokens,
@@ -213,7 +218,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	return &setupResult{
 		ctx:          ctx,
 		db:           db,
-		mem:          memoryEngine,
+		mem:          memProvider,
 		snap:         snap,
 		store:        store,
 		poolManager:  poolMgr,

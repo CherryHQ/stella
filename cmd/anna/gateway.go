@@ -210,7 +210,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// Start self-improvement review loop.
 	if s.snap.SelfImprove.IsEnabled() {
 		go selfimprove.StartReviewLoop(gctx, s.snap.SelfImprove, selfimprove.ReviewDeps{
-			DB:        s.db,
+			Memory:    s.mem,
 			Store:     s.store,
 			Notifier:  s.notifier,
 			Workspace: s.snap.Workspace,

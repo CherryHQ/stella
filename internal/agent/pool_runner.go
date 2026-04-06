@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 // getOrCreateRunner returns the session and its runner, creating both if needed.
@@ -43,9 +44,13 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 		sess = &Session{}
 		p.sessions[sessionID] = sess
 
-		// Restore metadata from memory engine if available.
-		if info, err := p.mem.LoadInfo(context.Background(), sessionID); err == nil {
-			sess.Info = info
+		// Restore metadata from memory provider if available.
+		if sm, ok := p.mem.(memory.SessionManager); ok {
+			if info, err := sm.LoadInfo(context.Background(), sessionID); err == nil {
+				sess.Info = info
+			} else {
+				sess.Info = SessionInfo{ID: sessionID, CreatedAt: time.Now(), LastActive: time.Now()}
+			}
 		} else {
 			sess.Info = SessionInfo{ID: sessionID, CreatedAt: time.Now(), LastActive: time.Now()}
 		}
@@ -66,17 +71,7 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 		effectiveModel = defaultModel
 	}
 
-	// Load per-user memory for system prompt injection.
-	var userMem string
-	if p.userMemory != nil && sess.Info.UserID != 0 && p.agentID != "" {
-		if content, err := p.userMemory.Get(ctx, sess.Info.UserID, p.agentID); err == nil {
-			userMem = content
-		} else {
-			p.log.Warn("failed to load user memory", "user_id", sess.Info.UserID, "agent_id", p.agentID, "error", err)
-		}
-	}
-
-	r, err := factory(ctx, runner.RunnerParams{Model: effectiveModel, UserMemory: userMem, UserID: sess.Info.UserID, HooksFn: hooksFn})
+	r, err := factory(ctx, runner.RunnerParams{Model: effectiveModel, Memory: p.mem, UserID: sess.Info.UserID, AgentID: p.agentID, HooksFn: hooksFn})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -96,7 +91,8 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 	p.mu.Unlock()
 
 	// Memory: bootstrap the conversation for this session.
-	if err := p.mem.Bootstrap(context.Background(), sessionID); err != nil {
+	memSession := memory.Session{ID: sessionID, AgentID: p.agentID, UserID: sess.Info.UserID}
+	if err := p.mem.Bootstrap(context.Background(), memSession); err != nil {
 		p.log.Warn("memory bootstrap failed", "session_id", sessionID, "error", err)
 	}
 
