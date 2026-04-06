@@ -186,3 +186,70 @@ Created `BuildTool(provider Provider, opts ...ToolOption) tools.Tool` in `pkg/me
 ### Context for Phase 5
 
 The tool is ready for integration. Phase 5 should wire `BuildTool` into the pool/runner so it replaces the current `MemoryTool`. The existing `internal/memory/tool/memory.go` can be deprecated once callers switch to `memory.BuildTool(provider)`. The context helpers in `pkg/memory/types.go` are compatible with the existing context values set by the runner.
+
+## Phase 5: Wire Provider into All Callers
+
+**Status:** Complete
+
+**Date:** 2026-04-06
+
+### What was done
+
+Replaced `memory.Engine` (from `internal/memory`) with `memory.Provider` (from `pkg/memory`) across all callers. Every method that was previously called directly on the Engine is now accessed either via the core Provider interface or via type assertions for optional capabilities.
+
+### Files modified
+
+- `internal/agent/pool.go` — `mem memory.Engine` → `mem memory.Provider`, removed `userMemory` field
+- `internal/agent/pool_options.go` — Removed `WithUserMemory` option
+- `internal/agent/pool_chat.go` — Build `memory.Session` at start, `Ingest` → `Append`, `Assemble` takes `Session`, `SaveInfo` via `SessionManager` type assertion
+- `internal/agent/pool_compaction.go` — `Compact`/`NeedsCompaction` via `Compactor` type assertion
+- `internal/agent/pool_runner.go` — Removed `UserMemoryStore` loading, pass `memory.Provider` + `AgentID` in `RunnerParams`, `LoadInfo`/`Bootstrap` via type assertions
+- `internal/agent/pool_session.go` — All `SaveInfo`/`LoadInfo`/`ListInfo`/`Load` via `SessionManager` type assertion
+- `internal/agent/pool_manager.go` — `mem memory.Engine` → `mem memory.Provider`, removed `userMemory` field and `NewUserMemoryStore` call
+- `internal/agent/factory.go` — Extract `memory.Provider` from `RunnerParams.Memory`, pass to `DBPromptParams`
+- `internal/agent/runner/runner.go` — `RunnerParams.UserMemory string` → `RunnerParams.Memory any` + `AgentID string`
+- `internal/agent/runner/prompt.go` — `DBPromptParams` now has `Memory memory.Provider` + `UserID` + `AgentID` instead of `UserMemory string`. `BuildSystemPromptFromDB` takes `ctx context.Context`. Profile loaded via `ProfileStore` type assertion
+- `internal/agent/runner/gorunner.go` — Updated fallback `BuildSystemPromptFromDB` call with `context.Background()`
+- `internal/agent/selfimprove/review.go` — `ReviewDeps.DB *sql.DB` → `ReviewDeps.Memory memory.Provider`. Uses `ReviewSource` for `ListUnreviewed`/`BuildReviewContext`/`MarkReviewed`. Uses `memory.BuildTool` for reviewer tool. Removed `buildConversationText` and `appendMessages` (logic now in LCM plugin's `ReviewSource`)
+- `internal/agent/selfimprove/reviewer.go` — `toolNameMemory = "review_memory"` → `"memory"`, action `"update"` → `"profile_update"`
+- `internal/agent/selfimprove/prompts.go` — Updated prompt: `review_memory` → `memory tool`, action names `get`/`update` → `profile_get`/`profile_update`
+- `internal/agent/session.go` — Import changed from `internal/memory` to `pkg/memory`
+- `internal/admin/server.go` — `mem memory.Engine` → `mem memory.Provider`
+- `internal/admin/sessions.go` — All session operations via `SessionManager` type assertion. Profile loading via `memory.Provider` in `BuildSystemPromptFromDB`
+- `cmd/anna/commands.go` — Build provider via `pluginmemory.Build("lcm", ...)`, tool via `memory.BuildTool(memProvider)`. Removed `memory.NewEngineFromDB` and `memory.NewUserMemoryStore`
+- `cmd/anna/gateway.go` — `ReviewDeps.DB` → `ReviewDeps.Memory`
+
+### Test files modified
+
+- `internal/agent/pool_test.go` — `testMemoryEngine` → `testMemoryProvider` using LCM plugin, all direct mem calls use `SessionManager` type assertion
+- `internal/agent/pool_manager_test.go` — Use `testMemoryProvider`
+- `internal/agent/integration_test.go` — Use `testMemoryProvider`
+- `internal/agent/runner/skill_test.go` — Add `context.Background()` to `BuildSystemPromptFromDB` calls
+- `internal/agent/selfimprove/review_test.go` — Removed `buildConversationText` tests (logic moved to LCM plugin)
+- `internal/agent/selfimprove/reviewer_test.go` — Updated action names in test data (`"update"` → `"profile_update"`, `"review_memory"` → `"memory tool"`)
+- `internal/agent/selfimprove/testhelper_test.go` — Removed unused `setupTestDB`, kept `containsSubstring`
+- `internal/admin/server_test.go` — Use LCM plugin provider instead of `memory.NewEngineFromDB`
+- `internal/channel/cli/cli_test.go` — Use LCM plugin provider instead of `memory.NewEngine`
+
+### Commits
+
+1. `ec70db02` — `♻️ refactor: wire memory.Provider into all callers, replacing memory.Engine`
+
+### Verification
+
+- `go build ./...` — passes
+- `mise run format` — clean
+- `mise run lint` — 0 issues
+- `go test -race ./internal/agent/... ./internal/admin/... ./cmd/anna/...` — 255 tests pass, 0 failures
+
+### Key decisions
+
+- **Single commit for all tasks**: All 12 tasks were done in one commit because the changes are tightly coupled — changing `pool.go` requires changing `pool_chat.go`, `pool_runner.go`, `factory.go`, `prompt.go`, etc. to compile. Splitting would create non-compiling intermediate states.
+- **`RunnerParams.Memory` typed as `any`**: The `runner` package cannot import `pkg/memory` without creating a dependency from the runner package on the memory package. Using `any` with a type assertion in the factory avoids this. The factory (in `internal/agent`) does the assertion.
+- **`BuildSystemPromptFromDB` takes `ctx`**: Required because `ProfileStore.GetProfile` needs a context. All callers updated. The fallback in `gorunner.go` uses `context.Background()`.
+- **Test helpers use LCM plugin**: Tests that previously used `memory.NewEngine` (creating an Engine directly) now use `pluginmemory.Build("lcm", ...)` to get a `memory.Provider`. This exercises the real plugin path and ensures the LCM plugin works correctly as a Provider.
+- **`buildConversationText` removed from review.go**: The logic is now entirely inside the LCM plugin's `BuildReviewContext` method. Tests that tested this function were removed since they're now covered by the LCM plugin's own tests.
+
+### Context for Phase 6
+
+Phase 6 should update documentation and the builtin anna skill to reflect the new memory tool action names (`profile_get`/`profile_update` instead of `user_memory_get`/`user_memory_update`). The admin memory management endpoints (`/api/users/{id}/memories/*` and `/api/auth/profile/memories/*`) currently go through `config.Store.GetUserAgentMemory`/`SetUserAgentMemory` — Phase 6 or 7 should migrate these to use `ProfileStore` on the memory provider.
