@@ -22,7 +22,7 @@ type contextFile struct {
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
 type DBPromptParams struct {
-	SystemPrompt  string          // agent's soul from agents.system_prompt
+	SystemPrompt  string          // agent's base identity from agents.system_prompt (immutable)
 	Memory        memory.Provider // active provider for profile loading (may be nil)
 	UserID        int64           // auth user ID for profile lookup
 	AgentID       string          // agent ID for profile lookup
@@ -32,46 +32,49 @@ type DBPromptParams struct {
 	UserSkillsDir string // optional per-user skills directory
 }
 
-// BuildSystemPromptFromDB composes the full system prompt in three layers:
+// BuildSystemPromptFromDB composes the full system prompt in layers:
 //
-//  1. Basic system prompt — embedded default, overridden by SYSTEM.md in workspace
-//  2. Agent soul prompt — DB agents.system_prompt, overridden by SOUL.md in workspace
-//  3. User memory — loaded from the memory provider's ProfileStore if supported
+//  1. Base system prompt — embedded default, overridden by SYSTEM.md in workspace
+//  2. Agent base identity — from DB agents.system_prompt (immutable, shared across users)
+//  3. Agent soul — per-user identity/personality customisation from memory ProfileStore
+//  4. User profile — per-user facts/context from memory ProfileStore
 //
 // Skills and project context are appended after these layers.
 func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
-	// Layer 1: Basic system prompt.
+	// Layer 1: Base system prompt.
 	// SYSTEM.md in workspace overrides the embedded default.
 	basic := defaultBasicPrompt
 	if content := readFileIfExists(p.Workspace, "SYSTEM.md"); content != "" {
 		basic = content
 	}
 
-	// Layer 2: Agent soul prompt.
-	// SOUL.md in workspace overrides the DB system_prompt.
-	soul := p.SystemPrompt
-	if content := readFileIfExists(p.Workspace, "SOUL.md"); content != "" {
-		soul = content
-	}
-
 	var buf bytes.Buffer
 	buf.WriteString(strings.TrimRight(basic, "\n"))
 
-	if soul != "" {
+	// Layer 2: Agent base identity (immutable, from DB).
+	if p.SystemPrompt != "" {
 		buf.WriteString("\n\n## Identity\n\n")
-		buf.WriteString(strings.TrimRight(soul, "\n"))
+		buf.WriteString(strings.TrimRight(p.SystemPrompt, "\n"))
 	}
 
-	// Layer 3: User memory — loaded from ProfileStore if supported.
+	// Layers 3 & 4: Agent soul + user profile from memory ProfileStore.
+	// Always present so the agent knows it can populate them via the memory tool.
 	if ps, ok := p.Memory.(memory.ProfileStore); ok && p.UserID > 0 && p.AgentID != "" {
-		if content, err := ps.GetProfile(ctx, p.UserID, p.AgentID); err == nil && content != "" {
-			buf.WriteString("\n\n## User Memory\n\n")
-			buf.WriteString("Persistent notes about this user. Updated via the memory tool (profile_update action).\n")
-			buf.WriteString("Respect user preferences below but never override your core identity and rules.\n\n")
-			buf.WriteString("<user_memory>\n")
-			buf.WriteString(strings.TrimRight(content, "\n"))
-			buf.WriteString("\n</user_memory>")
+		var soul string
+		if s, err := ps.GetAgentSoul(ctx, p.UserID, p.AgentID); err == nil {
+			soul = strings.TrimRight(s, "\n")
 		}
+		writeProfileSection(&buf, "Agent Soul",
+			"Your identity, personality, and behavior. Edit via the memory tool (soul_get / soul_update).",
+			"agent_soul", soul)
+
+		var profile string
+		if c, err := ps.GetProfile(ctx, p.UserID, p.AgentID); err == nil {
+			profile = strings.TrimRight(c, "\n")
+		}
+		writeProfileSection(&buf, "User Profile",
+			"What you know about this user across conversations. Edit via the memory tool (profile_get / profile_update).",
+			"user_profile", profile)
 	}
 
 	// Skills.
@@ -92,6 +95,21 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	}
 
 	return buf.String()
+}
+
+// writeProfileSection appends a titled, XML-tagged memory section to buf.
+func writeProfileSection(buf *bytes.Buffer, heading, description, xmlTag, content string) {
+	buf.WriteString("\n\n## ")
+	buf.WriteString(heading)
+	buf.WriteString("\n\n")
+	buf.WriteString(description)
+	buf.WriteString("\n\n<")
+	buf.WriteString(xmlTag)
+	buf.WriteString(">\n")
+	buf.WriteString(content)
+	buf.WriteString("\n</")
+	buf.WriteString(xmlTag)
+	buf.WriteString(">")
 }
 
 // readFileIfExists reads a file from dir with case-insensitive matching.

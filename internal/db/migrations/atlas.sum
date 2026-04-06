@@ -1,4 +1,4 @@
-h1:tjuQq2MOuPufCVYZiQ++p9V/XFnxuJsWf/xcEYr1cXQ=
+h1:6kj/9L7OklJWTh4X8AvTvAX73aJb4X+saExlgnliOEI=
 20260317041843_rename_tables_with_prefixes.sql h1:Nfk81sAWddxDQvpo8pBhXJ5Sec5JcCF6tchqgt+777M=
 20260317065837_drop_agent_provider_id.sql h1:gb4CoI8GlT4P3QbksGw07M8SruOcR9pQI0Sj7/Q2rao=
 20260320104110_add-auth-tables.sql h1:6TjzFFeMMTJzy3/mGN4nrm4+SoYGhanOQY24nUbL3H4=
@@ -12,3 +12,4 @@ h1:tjuQq2MOuPufCVYZiQ++p9V/XFnxuJsWf/xcEYr1cXQ=
 20260404052636_add-self-improve-reviewed-at.sql h1:zhUbD8YNdK3LrBt7+nNGKVOSEas6TO5bNzkt2wxUSoM=
 20260404092535_unify-plugins.sql h1:rH125QOJgNPYHim9wHZ/DGlLqOJ3ffHXaMsT05GGbro=
 20260405030948_merge-providers-into-plugins.sql h1:rRpcWl6LEVxIzpY5A5ii9jrO+dNNq/XonJ25rWJdZtI=
+20260406071819_add_soul_column.sql h1:Z6UfWFNeLBfUqJssFebkrj0p6kDdLdt3LsXqULmFVlk=

@@ -24,7 +24,7 @@ func (q *Queries) DeleteUserAgentMemory(ctx context.Context, arg DeleteUserAgent
 }
 
 const getUserAgentMemory = `-- name: GetUserAgentMemory :one
-SELECT user_id, agent_id, content, updated_at FROM ctx_agent_memory WHERE user_id = ? AND agent_id = ?
+SELECT user_id, agent_id, content, soul, updated_at FROM ctx_agent_memory WHERE user_id = ? AND agent_id = ?
 `
 
 type GetUserAgentMemoryParams struct {
@@ -39,13 +39,14 @@ func (q *Queries) GetUserAgentMemory(ctx context.Context, arg GetUserAgentMemory
 		&i.UserID,
 		&i.AgentID,
 		&i.Content,
+		&i.Soul,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const listUserAgentMemories = `-- name: ListUserAgentMemories :many
-SELECT user_id, agent_id, content, updated_at FROM ctx_agent_memory ORDER BY user_id, agent_id
+SELECT user_id, agent_id, content, soul, updated_at FROM ctx_agent_memory ORDER BY user_id, agent_id
 `
 
 func (q *Queries) ListUserAgentMemories(ctx context.Context) ([]CtxAgentMemory, error) {
@@ -61,6 +62,7 @@ func (q *Queries) ListUserAgentMemories(ctx context.Context) ([]CtxAgentMemory, 
 			&i.UserID,
 			&i.AgentID,
 			&i.Content,
+			&i.Soul,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -77,7 +79,7 @@ func (q *Queries) ListUserAgentMemories(ctx context.Context) ([]CtxAgentMemory, 
 }
 
 const listUserAgentMemoriesByUser = `-- name: ListUserAgentMemoriesByUser :many
-SELECT user_id, agent_id, content, updated_at FROM ctx_agent_memory WHERE user_id = ? ORDER BY agent_id
+SELECT user_id, agent_id, content, soul, updated_at FROM ctx_agent_memory WHERE user_id = ? ORDER BY agent_id
 `
 
 func (q *Queries) ListUserAgentMemoriesByUser(ctx context.Context, userID int64) ([]CtxAgentMemory, error) {
@@ -93,6 +95,7 @@ func (q *Queries) ListUserAgentMemoriesByUser(ctx context.Context, userID int64)
 			&i.UserID,
 			&i.AgentID,
 			&i.Content,
+			&i.Soul,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -106,6 +109,25 @@ func (q *Queries) ListUserAgentMemoriesByUser(ctx context.Context, userID int64)
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertAgentSoul = `-- name: UpsertAgentSoul :exec
+INSERT INTO ctx_agent_memory (user_id, agent_id, soul, updated_at)
+VALUES (?, ?, ?, datetime('now'))
+ON CONFLICT(user_id, agent_id) DO UPDATE SET
+    soul = excluded.soul,
+    updated_at = datetime('now')
+`
+
+type UpsertAgentSoulParams struct {
+	UserID  int64  `json:"user_id"`
+	AgentID string `json:"agent_id"`
+	Soul    string `json:"soul"`
+}
+
+func (q *Queries) UpsertAgentSoul(ctx context.Context, arg UpsertAgentSoulParams) error {
+	_, err := q.db.ExecContext(ctx, upsertAgentSoul, arg.UserID, arg.AgentID, arg.Soul)
+	return err
 }
 
 const upsertUserAgentMemory = `-- name: UpsertUserAgentMemory :exec

@@ -46,7 +46,7 @@ func TestBuildTool_FullProvider(t *testing.T) {
 
 	// All actions should be present.
 	actions := extractActionEnum(t, def.InputSchema)
-	expected := []string{"status", "search", "describe", "expand", "profile_get", "profile_update"}
+	expected := []string{"status", "search", "describe", "expand", "soul_get", "soul_update", "profile_get", "profile_update"}
 	assertActions(t, actions, expected)
 
 	// Schema should include all action-specific parameters.
@@ -94,11 +94,15 @@ func TestBuildTool_WithReadOnlyProfile(t *testing.T) {
 	if containsString2(actions, "profile_update") {
 		t.Error("profile_update should be absent with WithReadOnlyProfile")
 	}
+	// soul_update should still be present.
+	if !containsString2(actions, "soul_update") {
+		t.Error("expected soul_update action with WithReadOnlyProfile (only profile is read-only)")
+	}
 
-	// "content" property should be absent since profile_update is disabled.
+	// "content" property should still be present (used by soul_update).
 	props := def.InputSchema["properties"].(map[string]any)
-	if _, ok := props["content"]; ok {
-		t.Error("content property should be absent when profile_update is disabled")
+	if _, ok := props["content"]; !ok {
+		t.Error("content property should be present since soul_update is still available")
 	}
 }
 
@@ -290,6 +294,44 @@ func TestExecute_ProfileGetAndUpdate(t *testing.T) {
 	}
 	if result != "Likes Go and tea" {
 		t.Errorf("expected 'Likes Go and tea', got %q", result)
+	}
+}
+
+func TestExecute_SoulGetAndUpdate(t *testing.T) {
+	fake := memorytest.New()
+	tool := memory.BuildTool(fake)
+
+	ctx := memory.WithUserID(context.Background(), 42)
+	ctx = memory.WithAgentID(ctx, "agent1")
+
+	// soul_get on empty soul.
+	result, err := tool.Execute(ctx, map[string]any{"action": "soul_get"})
+	if err != nil {
+		t.Fatalf("unexpected error on soul_get: %v", err)
+	}
+	if result != "No agent soul defined." {
+		t.Errorf("expected empty soul message, got %q", result)
+	}
+
+	// soul_update.
+	result, err = tool.Execute(ctx, map[string]any{
+		"action":  "soul_update",
+		"content": "Be concise and friendly.",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error on soul_update: %v", err)
+	}
+	if !containsString(result, "Agent soul updated") {
+		t.Errorf("expected update confirmation, got %q", result)
+	}
+
+	// soul_get should now return the content.
+	result, err = tool.Execute(ctx, map[string]any{"action": "soul_get"})
+	if err != nil {
+		t.Fatalf("unexpected error on soul_get: %v", err)
+	}
+	if result != "Be concise and friendly." {
+		t.Errorf("expected soul content, got %q", result)
 	}
 }
 

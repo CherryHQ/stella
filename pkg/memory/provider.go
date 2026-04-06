@@ -214,20 +214,31 @@ type Explorer interface {
 // ---------------------------------------------------------------------------
 
 // ProfileStore is implemented by providers that support per-user-per-agent
-// persistent notes (also called "user memory").
+// persistent memory: agent soul (identity/personality customization) and
+// user profile (facts/context about the user).
 //
-// Profile content is free-form text managed entirely by the agent.
-// The system injects it into the system prompt at session start.
-// The agent updates it via the memory tool when it learns something worth keeping.
+// Both are scoped to (userID, agentID) — each user can customise the agent's
+// soul independently, and the agent maintains separate profile notes per user.
+// Content is free-form text managed entirely by the agent. The system injects
+// both into the system prompt at session start.
 type ProfileStore interface {
-	// GetProfile returns the current profile notes for the (userID, agentID) pair.
+	// GetProfile returns the current user profile for the (userID, agentID) pair.
 	// Returns ("", nil) if no profile exists yet (not an error).
 	GetProfile(ctx context.Context, userID int64, agentID string) (string, error)
 
-	// SetProfile overwrites the profile notes for the (userID, agentID) pair.
+	// SetProfile overwrites the user profile for the (userID, agentID) pair.
 	// Callers are responsible for merging new content with existing content
 	// before calling SetProfile — this method always replaces, never appends.
 	SetProfile(ctx context.Context, userID int64, agentID string, content string) error
+
+	// GetAgentSoul returns the agent soul for the (userID, agentID) pair.
+	// The soul defines the agent's identity, personality, and behavior as
+	// customised by this specific user. Returns ("", nil) if not set.
+	GetAgentSoul(ctx context.Context, userID int64, agentID string) (string, error)
+
+	// SetAgentSoul overwrites the agent soul for the (userID, agentID) pair.
+	// Callers are responsible for merging; this method always replaces.
+	SetAgentSoul(ctx context.Context, userID int64, agentID string, content string) error
 }
 
 // ---------------------------------------------------------------------------

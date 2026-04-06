@@ -43,6 +43,8 @@ type Fake struct {
 	sessions map[string][]ai.Message
 	// profiles maps "userID:agentID" -> content.
 	profiles map[string]string
+	// souls maps "userID:agentID" -> content.
+	souls map[string]string
 	// summaries maps summary ID -> FakeSummary.
 	summaries map[string]FakeSummary
 	// sessionInfos maps session ID -> fakeSessionInfo.
@@ -60,6 +62,7 @@ func New() *Fake {
 	return &Fake{
 		sessions:         make(map[string][]ai.Message),
 		profiles:         make(map[string]string),
+		souls:            make(map[string]string),
 		summaries:        make(map[string]FakeSummary),
 		sessionInfos:     make(map[string]fakeSessionInfo),
 		reviewWatermarks: make(map[string]time.Time),
@@ -296,6 +299,21 @@ func (f *Fake) SetProfile(_ context.Context, userID int64, agentID string, conte
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.profiles[profileKey(userID, agentID)] = content
+	return nil
+}
+
+// GetAgentSoul implements memory.ProfileStore.
+func (f *Fake) GetAgentSoul(_ context.Context, userID int64, agentID string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.souls[profileKey(userID, agentID)], nil
+}
+
+// SetAgentSoul implements memory.ProfileStore.
+func (f *Fake) SetAgentSoul(_ context.Context, userID int64, agentID string, content string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.souls[profileKey(userID, agentID)] = content
 	return nil
 }
 

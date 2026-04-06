@@ -141,7 +141,7 @@ func reviewConversation(ctx context.Context, deps ReviewDeps, snap *config.Snaps
 	}
 
 	// Build the memory tool for the reviewer (profile actions only).
-	reviewTool := memory.BuildTool(deps.Memory, memory.WithActionsOnly("profile_get", "profile_update"))
+	reviewTool := memory.BuildTool(deps.Memory, memory.WithActionsOnly("soul_get", "soul_update", "profile_get", "profile_update"))
 
 	reviewer, err := NewReviewer(ReviewerConfig{
 		Providers:      reg,

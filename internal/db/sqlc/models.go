@@ -59,6 +59,7 @@ type CtxAgentMemory struct {
 	UserID    int64  `json:"user_id"`
 	AgentID   string `json:"agent_id"`
 	Content   string `json:"content"`
+	Soul      string `json:"soul"`
 	UpdatedAt string `json:"updated_at"`
 }
 

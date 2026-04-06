@@ -132,6 +132,8 @@ const (
 	MemoryOpExpand          MemoryOp = "expand"
 	MemoryOpGetProfile      MemoryOp = "get_profile"
 	MemoryOpSetProfile      MemoryOp = "set_profile"
+	MemoryOpGetAgentSoul    MemoryOp = "get_agent_soul"
+	MemoryOpSetAgentSoul    MemoryOp = "set_agent_soul"
 	MemoryOpSaveInfo        MemoryOp = "save_info"
 	MemoryOpLoadInfo        MemoryOp = "load_info"
 	MemoryOpListInfo        MemoryOp = "list_info"

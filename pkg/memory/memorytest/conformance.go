@@ -218,6 +218,50 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 				t.Errorf("expected 'prefers Rust now', got %q", content)
 			}
 		})
+
+		t.Run("AgentSoul", func(t *testing.T) {
+			// Get nonexistent soul — should return ("", nil).
+			soul, err := ps.GetAgentSoul(ctx, 999, "nonexistent")
+			if err != nil {
+				t.Fatalf("GetAgentSoul for nonexistent: %v", err)
+			}
+			if soul != "" {
+				t.Errorf("expected empty soul, got %q", soul)
+			}
+
+			// Set and get round-trip.
+			if err := ps.SetAgentSoul(ctx, 1, "test", "You are friendly and concise."); err != nil {
+				t.Fatalf("SetAgentSoul: %v", err)
+			}
+			soul, err = ps.GetAgentSoul(ctx, 1, "test")
+			if err != nil {
+				t.Fatalf("GetAgentSoul: %v", err)
+			}
+			if soul != "You are friendly and concise." {
+				t.Errorf("expected soul text, got %q", soul)
+			}
+
+			// Replace semantics.
+			if err := ps.SetAgentSoul(ctx, 1, "test", "Be formal."); err != nil {
+				t.Fatalf("SetAgentSoul replace: %v", err)
+			}
+			soul, err = ps.GetAgentSoul(ctx, 1, "test")
+			if err != nil {
+				t.Fatalf("GetAgentSoul after replace: %v", err)
+			}
+			if soul != "Be formal." {
+				t.Errorf("expected 'Be formal.', got %q", soul)
+			}
+
+			// Soul and profile are independent.
+			profile, err := ps.GetProfile(ctx, 1, "test")
+			if err != nil {
+				t.Fatalf("GetProfile after soul update: %v", err)
+			}
+			if profile != "prefers Rust now" {
+				t.Errorf("soul update should not affect profile, got %q", profile)
+			}
+		})
 	}
 
 	if sm, ok := provider.(memory.SessionManager); ok {
