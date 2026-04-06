@@ -6,6 +6,7 @@ const (
 	PluginKindChannel  = "channel"
 	PluginKindHook     = "hook"
 	PluginKindProvider = "provider"
+	PluginKindMemory   = "memory"
 )
 
 // Plugin represents a unified plugin entry stored in settings_plugins.
@@ -34,9 +35,12 @@ var builtinHookNames = []string{"rtk", "trace"}
 // builtinProviderNames lists the built-in provider plugins.
 var builtinProviderNames = []string{"anthropic", "openai", "openai-response"}
 
+// builtinMemoryNames lists the built-in memory plugins.
+var builtinMemoryNames = []string{"lcm"}
+
 // BuiltinPluginIDs returns all built-in plugin IDs in deterministic order.
 func BuiltinPluginIDs() []string {
-	ids := make([]string, 0, len(builtinToolNames)+len(builtinChannelNames)+len(builtinHookNames)+len(builtinProviderNames))
+	ids := make([]string, 0, len(builtinToolNames)+len(builtinChannelNames)+len(builtinHookNames)+len(builtinProviderNames)+len(builtinMemoryNames))
 	for _, n := range builtinToolNames {
 		ids = append(ids, PluginID(PluginKindTool, n))
 	}
@@ -48,6 +52,9 @@ func BuiltinPluginIDs() []string {
 	}
 	for _, n := range builtinProviderNames {
 		ids = append(ids, PluginID(PluginKindProvider, n))
+	}
+	for _, n := range builtinMemoryNames {
+		ids = append(ids, PluginID(PluginKindMemory, n))
 	}
 	return ids
 }
