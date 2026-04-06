@@ -20,6 +20,8 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 		"call_id", hctx.ToolCallID,
 		"input", input,
 		"session_id", hctx.SessionID,
+		"agent_id", hctx.AgentID,
+		"user_id", hctx.UserID,
 	)
 
 	if h.otelEnabled() {
@@ -32,11 +34,21 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 				parentCtx = st.chatCtx
 			}
 
+			// Collect argument keys (not values) for the span.
+			argKeys := make([]string, 0, len(hctx.Arguments))
+			for k := range hctx.Arguments {
+				argKeys = append(argKeys, k)
+			}
+
 			_, span := h.tracer.Start(parentCtx, "gen_ai.execute_tool",
 				trace.WithAttributes(
 					attribute.String("gen_ai.operation.name", "execute_tool"),
 					attribute.String("gen_ai.tool.name", hctx.ToolName),
 					attribute.String("gen_ai.tool.call.id", hctx.ToolCallID),
+					attribute.Int64("user_id", hctx.UserID),
+					attribute.String("agent_id", hctx.AgentID),
+					attribute.Int("gen_ai.tool.argument_count", len(hctx.Arguments)),
+					attribute.StringSlice("gen_ai.tool.argument_keys", argKeys),
 				),
 			)
 
@@ -64,6 +76,8 @@ func (h *Hook) OnPostToolCall(_ context.Context, hctx *hooks.PostToolCallContext
 		"result_len", len(hctx.Result),
 		"result", resultSnippet,
 		"session_id", hctx.SessionID,
+		"agent_id", hctx.AgentID,
+		"user_id", hctx.UserID,
 	)
 
 	if !h.otelEnabled() {
@@ -85,6 +99,9 @@ func (h *Hook) OnPostToolCall(_ context.Context, hctx *hooks.PostToolCallContext
 		return
 	}
 
+	span.SetAttributes(
+		attribute.Int("gen_ai.tool.result_len", len(hctx.Result)),
+	)
 	if hctx.IsError {
 		span.SetStatus(codes.Error, "tool execution failed")
 		span.SetAttributes(attribute.String("error.type", "tool_error"))

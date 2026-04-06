@@ -25,6 +25,7 @@ func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (h
 		"system_len", len(hctx.System),
 		"session_id", hctx.SessionID,
 		"agent_id", hctx.AgentID,
+		"user_id", hctx.UserID,
 	)
 
 	if h.otelEnabled() {
@@ -37,6 +38,11 @@ func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (h
 		st.turnNum++
 		st.turnCtx, st.turnSpan = h.tracer.Start(st.chatCtx,
 			fmt.Sprintf("turn %d", st.turnNum),
+			trace.WithAttributes(
+				attribute.Int("anna.turn.number", st.turnNum),
+				attribute.Int64("user_id", hctx.UserID),
+				attribute.String("agent_id", hctx.AgentID),
+			),
 		)
 
 		_, st.llmSpan = h.tracer.Start(st.turnCtx, "gen_ai.chat",
@@ -44,6 +50,12 @@ func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (h
 				attribute.String("gen_ai.operation.name", "chat"),
 				attribute.String("gen_ai.request.model", hctx.Model),
 				attribute.String("gen_ai.conversation.id", hctx.SessionID),
+				attribute.Int64("user_id", hctx.UserID),
+				attribute.String("agent_id", hctx.AgentID),
+				attribute.Int("gen_ai.request.message_count", hctx.MessageCount),
+				attribute.Int("gen_ai.request.tool_count", len(tools)),
+				attribute.StringSlice("gen_ai.request.tool_names", tools),
+				attribute.Int("gen_ai.request.system_prompt_len", len(hctx.System)),
 			),
 		)
 		st.activeOps.Add(1)
@@ -68,6 +80,10 @@ func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) 
 		"total_tokens", hctx.Usage.TotalTokens,
 		"session_id", hctx.SessionID,
 		"agent_id", hctx.AgentID,
+		"user_id", hctx.UserID,
+	}
+	if hctx.Usage.Cost.Total > 0 {
+		attrs = append(attrs, "cost_usd", hctx.Usage.Cost.Total)
 	}
 	if hctx.Error != nil {
 		attrs = append(attrs, "error", hctx.Error)
@@ -91,6 +107,7 @@ func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) 
 		attribute.StringSlice("gen_ai.response.finish_reasons", []string{string(hctx.StopReason)}),
 		attribute.Int("gen_ai.usage.input_tokens", hctx.Usage.InputTokens),
 		attribute.Int("gen_ai.usage.output_tokens", hctx.Usage.OutputTokens),
+		attribute.Int("gen_ai.usage.total_tokens", hctx.Usage.TotalTokens),
 	)
 	if hctx.Usage.CacheRead > 0 {
 		span.SetAttributes(attribute.Int("gen_ai.usage.cache_read.input_tokens", hctx.Usage.CacheRead))
@@ -99,7 +116,10 @@ func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) 
 		span.SetAttributes(attribute.Int("gen_ai.usage.cache_creation.input_tokens", hctx.Usage.CacheWrite))
 	}
 	if hctx.TimeToFirstToken > 0 {
-		span.SetAttributes(attribute.Float64("gen_ai.server.time_to_first_token", hctx.TimeToFirstToken.Seconds()))
+		span.SetAttributes(attribute.Float64("gen_ai.server.time_to_first_token_s", hctx.TimeToFirstToken.Seconds()))
+	}
+	if hctx.Usage.Cost.Total > 0 {
+		span.SetAttributes(attribute.Float64("gen_ai.usage.cost_usd", hctx.Usage.Cost.Total))
 	}
 	if hctx.Error != nil {
 		span.RecordError(hctx.Error)
