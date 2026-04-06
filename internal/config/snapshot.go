@@ -33,7 +33,6 @@ type Snapshot struct {
 	Compaction   CompactionConfig
 	Heartbeat    HeartbeatConfig
 	Scheduler    SchedulerConfig
-	SelfImprove  SelfImproveConfig
 	Plugins      []Plugin
 
 	// Providers maps provider ID to credentials, enabling per-tier provider

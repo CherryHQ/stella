@@ -16,11 +16,11 @@ import (
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/admin"
 	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/agent/selfimprove"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/vaayne/anna/internal/reflect"
 	"github.com/vaayne/anna/internal/scheduler"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"golang.org/x/sync/errgroup"
@@ -207,15 +207,20 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		}
 	}
 
-	// Start self-improvement review loop.
-	if s.snap.SelfImprove.IsEnabled() {
-		go selfimprove.StartReviewLoop(gctx, s.snap.SelfImprove, selfimprove.ReviewDeps{
+	// Start reflect (background conversation review).
+	reflectPlugin, _ := s.store.GetPlugin(gctx, "reflect")
+	if reflectPlugin.Enabled {
+		svc := reflect.New(reflect.Config{
+			DB:        s.db,
 			Memory:    s.mem,
 			Store:     s.store,
 			Notifier:  s.notifier,
 			Workspace: s.snap.Workspace,
+			Interval:  parseDurationConfig(reflectPlugin.Config, "interval", time.Hour),
+			Batch:     parseIntConfig(reflectPlugin.Config, "batch", 5),
 			Log:       slog.Default(),
 		})
+		go func() { _ = svc.Start(gctx) }()
 	}
 
 	waitErr := g.Wait()
@@ -283,4 +288,25 @@ func launchBrowser(url string) {
 		}
 		go func() { _ = cmd.Wait() }()
 	}
+}
+
+// parseDurationConfig reads a duration string from a plugin config map.
+func parseDurationConfig(cfg map[string]any, key string, fallback time.Duration) time.Duration {
+	if v, ok := cfg[key].(string); ok {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return fallback
+}
+
+// parseIntConfig reads an integer from a plugin config map.
+func parseIntConfig(cfg map[string]any, key string, fallback int) int {
+	switch v := cfg[key].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	}
+	return fallback
 }

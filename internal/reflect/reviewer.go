@@ -1,4 +1,4 @@
-package selfimprove
+package reflect
 
 import (
 	"context"
@@ -11,35 +11,32 @@ import (
 	"github.com/vaayne/anna/pkg/tools"
 )
 
-// Tool name constants used by the review agent.
 const (
 	toolNameSkills = "skills"
 	toolNameMemory = "memory"
 )
 
-// ReviewResult holds the outcome of a single conversation review.
-type ReviewResult struct {
+// reviewResult holds the outcome of a single conversation review.
+type reviewResult struct {
 	SkillsMutated int  // number of skills created or patched
 	MemoryUpdated bool // whether user memory was updated
 }
 
-// Reviewer runs the review agent against a single conversation to extract
-// skills and update user memory.
-type Reviewer struct {
-	runner *agent.Runner
-}
-
-// ReviewerConfig holds the tools and context needed to construct a Reviewer.
-type ReviewerConfig struct {
+// reviewerConfig holds the tools and context needed to construct a reviewer.
+type reviewerConfig struct {
 	Providers      providers.ProviderGetter
 	Model          ai.Model
-	SkillsTool     tools.Tool // skills.SkillsTool or equivalent
+	SkillsTool     tools.Tool
 	MemoryTool     tools.Tool // nil if memory review is not available
 	ExistingSkills []string
 }
 
-// NewReviewer creates a Reviewer with skill extraction and optional memory review.
-func NewReviewer(cfg ReviewerConfig) (*Reviewer, error) {
+// reviewer runs the review agent against a single conversation.
+type reviewer struct {
+	runner *agent.Runner
+}
+
+func newReviewer(cfg reviewerConfig) (*reviewer, error) {
 	reg := tools.NewRegistry()
 	reg.Register(cfg.SkillsTool)
 	if cfg.MemoryTool != nil {
@@ -52,7 +49,7 @@ func NewReviewer(cfg ReviewerConfig) (*Reviewer, error) {
 	}
 	system := fmt.Sprintf(combinedReviewPrompt, skillList)
 
-	runner, err := agent.NewRunner(agent.RunnerConfig{
+	r, err := agent.NewRunner(agent.RunnerConfig{
 		Providers:       cfg.Providers,
 		Model:           cfg.Model,
 		Tools:           agent.ToolSetFromRegistry(reg),
@@ -65,26 +62,24 @@ func NewReviewer(cfg ReviewerConfig) (*Reviewer, error) {
 		return nil, fmt.Errorf("new reviewer: %w", err)
 	}
 
-	return &Reviewer{runner: runner}, nil
+	return &reviewer{runner: r}, nil
 }
 
-// Review runs the review agent on a conversation transcript.
-func (r *Reviewer) Review(ctx context.Context, conversationText string) (ReviewResult, error) {
+func (r *reviewer) review(ctx context.Context, conversationText string) (reviewResult, error) {
 	history := []ai.Message{
 		ai.UserMessage{Content: conversationText},
 	}
 
 	result, err := r.runner.Run(ctx, history, nil)
 	if err != nil {
-		return ReviewResult{}, fmt.Errorf("review agent: %w", err)
+		return reviewResult{}, fmt.Errorf("review agent: %w", err)
 	}
 
 	return countMutations(result), nil
 }
 
-// countMutations counts skill mutations and memory updates in the result messages.
-func countMutations(messages []ai.Message) ReviewResult {
-	var r ReviewResult
+func countMutations(messages []ai.Message) reviewResult {
+	var r reviewResult
 	for _, msg := range messages {
 		aMsg, ok := msg.(ai.AssistantMessage)
 		if !ok {

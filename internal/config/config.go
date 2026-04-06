@@ -63,34 +63,6 @@ func (c HeartbeatConfig) FilePath(workspace string) string {
 	return filepath.Join(workspace, c.File)
 }
 
-// SelfImproveConfig configures the self-improvement review job.
-type SelfImproveConfig struct {
-	Enabled   *bool  `json:"enabled"`    // default: false
-	Every     string `json:"every"`      // schedule interval (default "1h")
-	BatchSize int    `json:"batch_size"` // max conversations per run (default 5)
-}
-
-// IsEnabled returns whether self-improvement is enabled (defaults to false).
-func (c SelfImproveConfig) IsEnabled() bool {
-	return boolDefault(c.Enabled, false)
-}
-
-// Interval returns the configured review cadence.
-func (c SelfImproveConfig) Interval() string {
-	if c.Every == "" {
-		return "1h"
-	}
-	return c.Every
-}
-
-// Batch returns the configured batch size.
-func (c SelfImproveConfig) Batch() int {
-	if c.BatchSize <= 0 {
-		return 5
-	}
-	return c.BatchSize
-}
-
 // boolDefault dereferences a *bool pointer, returning def if the pointer is nil.
 func boolDefault(p *bool, def bool) bool {
 	if p == nil {

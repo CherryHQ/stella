@@ -1,4 +1,4 @@
-package selfimprove
+package reflect
 
 const combinedReviewPrompt = `You are a self-improvement agent. Your job is to review a conversation transcript and extract two kinds of knowledge:
 
