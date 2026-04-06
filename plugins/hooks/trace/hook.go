@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,7 +16,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/vaayne/anna/pkg/hooks"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
@@ -41,8 +41,15 @@ type Hook struct {
 	done     chan struct{}
 }
 
+// sessionKey builds a composite key to avoid collisions across agents.
+func sessionKey(agentID, sessionID string) string {
+	return agentID + ":" + sessionID
+}
+
 // sessionTrace tracks the active span hierarchy for one chat session.
 type sessionTrace struct {
+	mu sync.Mutex // protects all fields below
+
 	chatSpan trace.Span
 	chatCtx  context.Context
 
@@ -72,7 +79,7 @@ func newHook() (*Hook, error) {
 	}
 
 	// Only initialize OTel exporter when an endpoint is configured.
-	if cfg.Endpoint != "" {
+	if cfg.Enabled {
 		tp, err := initTraceProvider(cfg)
 		if err != nil {
 			return nil, err
@@ -80,22 +87,19 @@ func newHook() (*Hook, error) {
 		h.tp = tp
 		h.tracer = tp.Tracer("anna")
 		go h.reaper()
-		log.Info("otel tracing enabled", "endpoint", cfg.Endpoint, "service", cfg.ServiceName)
+		log.Info("otel tracing enabled",
+			"endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+			"service", cfg.ServiceName)
 	}
 
 	return h, nil
 }
 
 func initTraceProvider(cfg config) (*sdktrace.TracerProvider, error) {
-	opts := []otlptracegrpc.Option{
-		otlptracegrpc.WithEndpoint(cfg.Endpoint),
-	}
-	if cfg.Insecure {
-		opts = append(opts, otlptracegrpc.WithTLSCredentials(insecure.NewCredentials()))
-	}
-
+	// Let the gRPC exporter consume OTEL_EXPORTER_OTLP_* env vars natively
+	// (endpoint, TLS, headers, etc.) instead of manually re-parsing them.
 	ctx := context.Background()
-	exporter, err := otlptracegrpc.New(ctx, opts...)
+	exporter, err := otlptracegrpc.New(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("otel: create exporter: %w", err)
 	}
@@ -150,14 +154,16 @@ func (h *Hook) Close() error {
 
 // getOrCreateSession returns the session trace, creating root span if needed.
 // Caller must hold h.mu.
-func (h *Hook) getOrCreateSession(sessionID string) *sessionTrace {
-	st, ok := h.sessions[sessionID]
+func (h *Hook) getOrCreateSession(agentID, sessionID string) *sessionTrace {
+	key := sessionKey(agentID, sessionID)
+	st, ok := h.sessions[key]
 	if ok {
 		return st
 	}
 	ctx, chatSpan := h.tracer.Start(context.Background(), "chat",
 		trace.WithAttributes(
 			attribute.String("gen_ai.conversation.id", sessionID),
+			attribute.String("agent_id", agentID),
 		),
 	)
 	st = &sessionTrace{
@@ -166,7 +172,7 @@ func (h *Hook) getOrCreateSession(sessionID string) *sessionTrace {
 		toolSpans:  make(map[string]trace.Span),
 		lastActive: time.Now(),
 	}
-	h.sessions[sessionID] = st
+	h.sessions[key] = st
 	return st
 }
 
@@ -195,11 +201,19 @@ func (h *Hook) reaper() {
 		case <-ticker.C:
 			h.mu.Lock()
 			now := time.Now()
+			var expired []string
 			for id, st := range h.sessions {
-				if st.activeOps.Load() == 0 && now.Sub(st.lastActive) > 2*time.Minute {
-					h.endSession(st)
-					delete(h.sessions, id)
+				st.mu.Lock()
+				idle := st.activeOps.Load() == 0 && now.Sub(st.lastActive) > 2*time.Minute
+				st.mu.Unlock()
+				if idle {
+					expired = append(expired, id)
 				}
+			}
+			for _, id := range expired {
+				st := h.sessions[id]
+				h.endSession(st)
+				delete(h.sessions, id)
 			}
 			h.mu.Unlock()
 		}
