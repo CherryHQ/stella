@@ -55,8 +55,13 @@ func (h *Hook) OnPostMemoryCall(_ context.Context, hctx *hooks.PostMemoryCallCon
 	}
 
 	h.mu.Lock()
-	st := h.getOrCreateSession(hctx.SessionID)
+	st := h.sessions[hctx.SessionID]
 	h.mu.Unlock()
+	if st == nil {
+		// No active chat session — this is a pool management call
+		// (e.g. session lookup, archival). Skip OTel span.
+		return
+	}
 
 	parentCtx := st.chatCtx
 	if st.turnCtx != nil {
