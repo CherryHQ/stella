@@ -80,6 +80,13 @@ type PreLLMCallContext struct {
 	System          string
 	ToolDefinitions []ai.ToolDefinition
 	MessageCount    int // number of messages (avoid copying full history)
+
+	// Model/request metadata for tracing.
+	API         string   // provider API key (e.g. "anthropic", "openai")
+	Provider    string   // provider display name
+	BaseURL     string   // provider endpoint URL
+	MaxTokens   *int     // nil = not set
+	Temperature *float64 // nil = not set
 }
 
 // PreLLMCallResult carries mutations from a PreLLMCall hook.
@@ -87,6 +94,7 @@ type PreLLMCallResult struct {
 	System          *string             // non-nil = override system prompt
 	ToolDefinitions []ai.ToolDefinition // non-nil = override tool definitions
 	Model           *string             // non-nil = override model name
+	Context         context.Context     // non-nil = enriched context for provider call (e.g. with trace span)
 }
 
 // PreLLMCallHook intercepts LLM calls before they are sent.
@@ -102,7 +110,9 @@ type PreLLMCallHook interface {
 type PostLLMCallContext struct {
 	HookMeta
 	Model            string
-	Provider         string
+	Provider         string // provider display name (may be empty)
+	API              string // provider API key (e.g. "anthropic", "openai")
+	BaseURL          string // provider endpoint URL
 	Usage            ai.Usage
 	StopReason       ai.StopReason
 	Duration         time.Duration
@@ -178,7 +188,8 @@ type PostMemoryCallHook interface {
 // Fired when a chat request enters the agent pool, before any memory or LLM work.
 type PreAgentCallContext struct {
 	HookMeta
-	MessageLen int // length of the user message text
+	MessageLen int    // length of the user message text
+	Channel    string // channel the chat originated from (e.g. "cli", "telegram")
 }
 
 // PreAgentCallHook observes the start of a chat request.

@@ -47,3 +47,14 @@ func NewWithTimeout(timeout time.Duration) *resty.Client {
 		Timeout:   timeout,
 	})
 }
+
+// StdHTTPClient returns a standard *http.Client with OTel transport
+// instrumentation. No timeout is set because this client is used for
+// SSE/streaming requests where the context deadline controls cancellation.
+// otelhttp resolves the TracerProvider from the request context at call
+// time (not construction time), so it works regardless of init order.
+func StdHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+	}
+}

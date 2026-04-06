@@ -19,7 +19,7 @@ func (p *Pool) compactSessionMemory(ctx context.Context, sessionID string) (stri
 	if !ok {
 		return "", fmt.Errorf("memory provider does not support compaction")
 	}
-	session := memory.Session{ID: sessionID, AgentID: p.agentID}
+	session := p.memorySession(sessionID)
 	result, err := c.Compact(ctx, session, memory.CompactionFull)
 	if err != nil {
 		return "", fmt.Errorf("memory compact: %w", err)
@@ -47,6 +47,17 @@ func (p *Pool) NeedsCompaction(sessionID string) bool {
 	if !ok {
 		return false
 	}
-	session := memory.Session{ID: sessionID, AgentID: p.agentID}
-	return c.NeedsCompaction(context.Background(), session, float64(p.compaction.MaxTokens))
+	return c.NeedsCompaction(context.Background(), p.memorySession(sessionID), float64(p.compaction.MaxTokens))
+}
+
+// memorySession builds a memory.Session with full metadata from the in-memory session map.
+func (p *Pool) memorySession(sessionID string) memory.Session {
+	s := memory.Session{ID: sessionID, AgentID: p.agentID}
+	p.mu.Lock()
+	if sess, ok := p.sessions[sessionID]; ok {
+		s.UserID = sess.Info.UserID
+		s.Channel = sess.Info.Channel
+	}
+	p.mu.Unlock()
+	return s
 }

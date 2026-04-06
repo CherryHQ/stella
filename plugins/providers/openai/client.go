@@ -3,10 +3,11 @@ package openai
 import (
 	"context"
 	"fmt"
-
 	sdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/httpclient"
 	"github.com/vaayne/anna/pkg/providers"
 	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
@@ -36,7 +37,9 @@ type Provider struct {
 
 // New returns an OpenAI provider.
 func New(cfg Config) *Provider {
-	opts := []option.RequestOption{}
+	opts := []option.RequestOption{
+		option.WithHTTPClient(httpclient.StdHTTPClient()),
+	}
 	if cfg.APIKey != "" {
 		opts = append(opts, option.WithAPIKey(cfg.APIKey))
 	}
@@ -50,13 +53,14 @@ func New(cfg Config) *Provider {
 func (p *Provider) API() string { return "openai" }
 
 // Stream starts OpenAI chat completion stream.
-func (p *Provider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions) (providers.AssistantEventStream, error) {
+func (p *Provider) Stream(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.StreamOptions) (providers.AssistantEventStream, error) {
 	params := buildParams(model, ctx, opts)
 	reqOpts := buildRequestOptions(opts)
-	sdkStream := p.client.Chat.Completions.NewStreaming(context.Background(), params, reqOpts...)
+	sdkStream := p.client.Chat.Completions.NewStreaming(goCtx, params, reqOpts...)
 
 	out := providers.NewChannelEventStream(32)
 	go func() {
+		defer func() { _ = sdkStream.Close() }()
 		defer out.Finish(nil)
 		out.Emit(ai.EventStart{})
 		completed := consumeStream(sdkStream, out)
@@ -68,8 +72,8 @@ func (p *Provider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions)
 }
 
 // StreamSimple delegates to Stream with mapped options.
-func (p *Provider) StreamSimple(model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
-	return p.Stream(model, ctx, opts.StreamOptions)
+func (p *Provider) StreamSimple(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
+	return p.Stream(goCtx, model, ctx, opts.StreamOptions)
 }
 
 // ListModels fetches available models from the OpenAI API.

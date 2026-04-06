@@ -10,8 +10,8 @@ import (
 // ProviderAdapter defines the provider adapter contract.
 type ProviderAdapter interface {
 	API() string
-	Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions) (AssistantEventStream, error)
-	StreamSimple(model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (AssistantEventStream, error)
+	Stream(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.StreamOptions) (AssistantEventStream, error)
+	StreamSimple(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (AssistantEventStream, error)
 }
 
 // ModelLister is an optional interface providers can implement to list available models.

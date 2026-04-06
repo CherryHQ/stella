@@ -64,6 +64,7 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 	hs.RunPreAgentCall(ctx, &hooks.PreAgentCallContext{
 		HookMeta:   hookMeta,
 		MessageLen: len(msgText),
+		Channel:    sess.Info.Channel,
 	})
 
 	// Auto-compact if the session has grown too large.
