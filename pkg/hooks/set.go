@@ -9,10 +9,11 @@ import (
 // HookSet holds pre-sorted hook slices for each hook point.
 // It is immutable after construction and safe for concurrent use.
 type HookSet struct {
-	preToolCall  []PreToolCallHook
-	postToolCall []PostToolCallHook
-	preLLMCall   []PreLLMCallHook
-	postLLMCall  []PostLLMCallHook
+	preToolCall    []PreToolCallHook
+	postToolCall   []PostToolCallHook
+	preLLMCall     []PreLLMCallHook
+	postLLMCall    []PostLLMCallHook
+	postMemoryCall []PostMemoryCallHook
 }
 
 // NewHookSet builds a HookSet from a slice of HookPlugins.
@@ -42,6 +43,9 @@ func NewHookSet(plugins []HookPlugin) *HookSet {
 		if h, ok := p.(PostLLMCallHook); ok {
 			hs.postLLMCall = append(hs.postLLMCall, h)
 		}
+		if h, ok := p.(PostMemoryCallHook); ok {
+			hs.postMemoryCall = append(hs.postMemoryCall, h)
+		}
 	}
 	return hs
 }
@@ -50,7 +54,8 @@ func NewHookSet(plugins []HookPlugin) *HookSet {
 func (hs *HookSet) Empty() bool {
 	return hs == nil ||
 		(len(hs.preToolCall) == 0 && len(hs.postToolCall) == 0 &&
-			len(hs.preLLMCall) == 0 && len(hs.postLLMCall) == 0)
+			len(hs.preLLMCall) == 0 && len(hs.postLLMCall) == 0 &&
+			len(hs.postMemoryCall) == 0)
 }
 
 // RunPreToolCall executes all PreToolCall hooks in priority order.
@@ -134,5 +139,16 @@ func (hs *HookSet) RunPostLLMCall(ctx context.Context, hctx *PostLLMCallContext)
 	}
 	for _, h := range hs.postLLMCall {
 		h.OnPostLLMCall(ctx, hctx)
+	}
+}
+
+// RunPostMemoryCall executes all PostMemoryCall hooks in priority order.
+// All hooks always run; errors are logged but never short-circuit.
+func (hs *HookSet) RunPostMemoryCall(ctx context.Context, hctx *PostMemoryCallContext) {
+	if hs == nil {
+		return
+	}
+	for _, h := range hs.postMemoryCall {
+		h.OnPostMemoryCall(ctx, hctx)
 	}
 }

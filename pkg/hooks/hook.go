@@ -11,10 +11,11 @@ import (
 type HookPoint string
 
 const (
-	PreToolCall  HookPoint = "pre_tool_call"
-	PostToolCall HookPoint = "post_tool_call"
-	PreLLMCall   HookPoint = "pre_llm_call"
-	PostLLMCall  HookPoint = "post_llm_call"
+	PreToolCall    HookPoint = "pre_tool_call"
+	PostToolCall   HookPoint = "post_tool_call"
+	PreLLMCall     HookPoint = "pre_llm_call"
+	PostLLMCall    HookPoint = "post_llm_call"
+	PostMemoryCall HookPoint = "post_memory_call"
 )
 
 // HookMeta carries shared metadata available to all hook invocations.
@@ -112,6 +113,46 @@ type PostLLMCallHook interface {
 	Name() string
 	Priority() int
 	OnPostLLMCall(ctx context.Context, hctx *PostLLMCallContext)
+}
+
+// --- PostMemoryCall ---
+
+// MemoryOp identifies the memory operation being traced.
+type MemoryOp string
+
+const (
+	MemoryOpBootstrap  MemoryOp = "bootstrap"
+	MemoryOpAppend     MemoryOp = "append"
+	MemoryOpAssemble   MemoryOp = "assemble"
+	MemoryOpStats      MemoryOp = "stats"
+	MemoryOpCompact    MemoryOp = "compact"
+	MemoryOpSearch     MemoryOp = "search"
+	MemoryOpDescribe   MemoryOp = "describe"
+	MemoryOpExpand     MemoryOp = "expand"
+	MemoryOpGetProfile MemoryOp = "get_profile"
+	MemoryOpSetProfile MemoryOp = "set_profile"
+)
+
+// PostMemoryCallContext is the typed payload for PostMemoryCall hooks.
+type PostMemoryCallContext struct {
+	HookMeta
+	Op        MemoryOp
+	SessionID string // memory session ID
+	Duration  time.Duration
+	Error     error
+	// Operation-specific fields (zero values for irrelevant ops).
+	MessageCount int // Append: number of messages; Assemble: returned count
+	TokenCount   int // Assemble: total tokens; Stats: total tokens; Compact: tokens after
+	TokenDelta   int // Compact: tokens saved (negative = reduction)
+	SummaryCount int // Compact: summaries created; Stats: total summaries
+	ResultCount  int // Search: number of results
+}
+
+// PostMemoryCallHook observes memory operations after execution.
+type PostMemoryCallHook interface {
+	Name() string
+	Priority() int
+	OnPostMemoryCall(ctx context.Context, hctx *PostMemoryCallContext)
 }
 
 // --- HookPlugin ---
