@@ -15,7 +15,7 @@ type fakeProvider struct {
 
 func (f fakeProvider) API() string { return "fake" }
 
-func (f fakeProvider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions) (providers.AssistantEventStream, error) {
+func (f fakeProvider) Stream(_ context.Context, model ai.Model, ctx ai.Context, opts ai.StreamOptions) (providers.AssistantEventStream, error) {
 	if f.streamFunc != nil {
 		return f.streamFunc(model, ctx, opts)
 	}
@@ -28,8 +28,8 @@ func (f fakeProvider) Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptio
 	return out, nil
 }
 
-func (f fakeProvider) StreamSimple(model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
-	return f.Stream(model, ctx, opts.StreamOptions)
+func (f fakeProvider) StreamSimple(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
+	return f.Stream(goCtx, model, ctx, opts.StreamOptions)
 }
 
 func newTestRunner(p fakeProvider, opts ...Option) *Runner {

@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"context"
 	"sync"
 
 	"github.com/vaayne/anna/pkg/ai"
@@ -46,26 +47,26 @@ func (r *Registry) Get(api string) (ProviderAdapter, bool) {
 }
 
 // Stream dispatches request to the registered API provider.
-func Stream(model ai.Model, ctx ai.Context, opts ai.StreamOptions, providers ProviderGetter) (AssistantEventStream, error) {
+func Stream(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.StreamOptions, providers ProviderGetter) (AssistantEventStream, error) {
 	provider, ok := providers.Get(model.API)
 	if !ok {
 		return nil, ErrProviderNotFound
 	}
-	return provider.Stream(model, ctx, opts)
+	return provider.Stream(goCtx, model, ctx, opts)
 }
 
 // StreamSimple dispatches simplified streaming to provider.
-func StreamSimple(model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions, providers ProviderGetter) (AssistantEventStream, error) {
+func StreamSimple(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.SimpleStreamOptions, providers ProviderGetter) (AssistantEventStream, error) {
 	provider, ok := providers.Get(model.API)
 	if !ok {
 		return nil, ErrProviderNotFound
 	}
-	return provider.StreamSimple(model, ctx, opts)
+	return provider.StreamSimple(goCtx, model, ctx, opts)
 }
 
 // Complete consumes a full stream and assembles an assistant message.
-func Complete(model ai.Model, ctx ai.Context, opts ai.CompleteOptions, providers ProviderGetter) (ai.AssistantMessage, error) {
-	eventStream, err := Stream(model, ctx, opts.StreamOptions, providers)
+func Complete(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.CompleteOptions, providers ProviderGetter) (ai.AssistantMessage, error) {
+	eventStream, err := Stream(goCtx, model, ctx, opts.StreamOptions, providers)
 	if err != nil {
 		return ai.AssistantMessage{}, err
 	}

@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -13,10 +14,10 @@ type mockProvider struct {
 }
 
 func (m *mockProvider) API() string { return m.api }
-func (m *mockProvider) Stream(ai.Model, ai.Context, ai.StreamOptions) (AssistantEventStream, error) {
+func (m *mockProvider) Stream(context.Context, ai.Model, ai.Context, ai.StreamOptions) (AssistantEventStream, error) {
 	return nil, nil
 }
-func (m *mockProvider) StreamSimple(ai.Model, ai.Context, ai.SimpleStreamOptions) (AssistantEventStream, error) {
+func (m *mockProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.SimpleStreamOptions) (AssistantEventStream, error) {
 	return nil, nil
 }
 
@@ -56,7 +57,7 @@ func TestRegistryGetMissing(t *testing.T) {
 
 func TestStreamProviderNotFound(t *testing.T) {
 	r := NewRegistry()
-	_, err := Stream(ai.Model{API: "missing"}, ai.Context{}, ai.StreamOptions{}, r)
+	_, err := Stream(context.Background(), ai.Model{API: "missing"}, ai.Context{}, ai.StreamOptions{}, r)
 	if !errors.Is(err, ErrProviderNotFound) {
 		t.Errorf("expected ErrProviderNotFound, got %v", err)
 	}
@@ -64,7 +65,7 @@ func TestStreamProviderNotFound(t *testing.T) {
 
 func TestStreamSimpleProviderNotFound(t *testing.T) {
 	r := NewRegistry()
-	_, err := StreamSimple(ai.Model{API: "missing"}, ai.Context{}, ai.SimpleStreamOptions{}, r)
+	_, err := StreamSimple(context.Background(), ai.Model{API: "missing"}, ai.Context{}, ai.SimpleStreamOptions{}, r)
 	if !errors.Is(err, ErrProviderNotFound) {
 		t.Errorf("expected ErrProviderNotFound, got %v", err)
 	}
@@ -73,7 +74,7 @@ func TestStreamSimpleProviderNotFound(t *testing.T) {
 func TestStreamDispatchesToProvider(t *testing.T) {
 	r := NewRegistry()
 	r.Register(&mockProvider{api: "test"})
-	stream, err := Stream(ai.Model{API: "test"}, ai.Context{}, ai.StreamOptions{}, r)
+	stream, err := Stream(context.Background(), ai.Model{API: "test"}, ai.Context{}, ai.StreamOptions{}, r)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -85,7 +86,7 @@ func TestStreamDispatchesToProvider(t *testing.T) {
 func TestStreamSimpleDispatchesToProvider(t *testing.T) {
 	r := NewRegistry()
 	r.Register(&mockProvider{api: "test"})
-	stream, err := StreamSimple(ai.Model{API: "test"}, ai.Context{}, ai.SimpleStreamOptions{}, r)
+	stream, err := StreamSimple(context.Background(), ai.Model{API: "test"}, ai.Context{}, ai.SimpleStreamOptions{}, r)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -142,7 +143,7 @@ func TestChannelEventStreamClose(t *testing.T) {
 
 func TestCompleteProviderNotFound(t *testing.T) {
 	r := NewRegistry()
-	_, err := Complete(ai.Model{API: "missing"}, ai.Context{}, ai.CompleteOptions{}, r)
+	_, err := Complete(context.Background(), ai.Model{API: "missing"}, ai.Context{}, ai.CompleteOptions{}, r)
 	if !errors.Is(err, ErrProviderNotFound) {
 		t.Errorf("expected ErrProviderNotFound, got %v", err)
 	}
@@ -163,7 +164,7 @@ func TestCompleteAssemblesMessage(t *testing.T) {
 	r := NewRegistry()
 	r.Register(&streamMockProvider{api: "test", stream: s})
 
-	msg, err := Complete(ai.Model{API: "test"}, ai.Context{}, ai.CompleteOptions{}, r)
+	msg, err := Complete(context.Background(), ai.Model{API: "test"}, ai.Context{}, ai.CompleteOptions{}, r)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -188,7 +189,7 @@ func TestCompleteWithErrorEvent(t *testing.T) {
 	r := NewRegistry()
 	r.Register(&streamMockProvider{api: "test", stream: s})
 
-	msg, err := Complete(ai.Model{API: "test"}, ai.Context{}, ai.CompleteOptions{}, r)
+	msg, err := Complete(context.Background(), ai.Model{API: "test"}, ai.Context{}, ai.CompleteOptions{}, r)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -207,9 +208,9 @@ type streamMockProvider struct {
 }
 
 func (m *streamMockProvider) API() string { return m.api }
-func (m *streamMockProvider) Stream(ai.Model, ai.Context, ai.StreamOptions) (AssistantEventStream, error) {
+func (m *streamMockProvider) Stream(context.Context, ai.Model, ai.Context, ai.StreamOptions) (AssistantEventStream, error) {
 	return m.stream, nil
 }
-func (m *streamMockProvider) StreamSimple(ai.Model, ai.Context, ai.SimpleStreamOptions) (AssistantEventStream, error) {
+func (m *streamMockProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.SimpleStreamOptions) (AssistantEventStream, error) {
 	return m.stream, nil
 }

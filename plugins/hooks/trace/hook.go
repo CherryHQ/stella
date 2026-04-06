@@ -9,8 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/contrib/exporters/autoexport"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -86,6 +87,8 @@ func newHook() (*Hook, error) {
 		}
 		h.tp = tp
 		h.tracer = tp.Tracer("anna")
+		// Set as global so otelhttp and other instrumentation libraries use it.
+		otel.SetTracerProvider(tp)
 		go h.reaper()
 		log.Info("otel tracing enabled",
 			"endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
@@ -96,10 +99,8 @@ func newHook() (*Hook, error) {
 }
 
 func initTraceProvider(cfg config) (*sdktrace.TracerProvider, error) {
-	// The gRPC exporter reads OTEL_EXPORTER_OTLP_* env vars natively.
-	// Endpoint must use standard URL format: http://localhost:4317
 	ctx := context.Background()
-	exporter, err := otlptracegrpc.New(ctx)
+	exporter, err := autoexport.NewSpanExporter(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("otel: create exporter: %w", err)
 	}

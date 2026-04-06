@@ -158,6 +158,9 @@ func (hs *HookSet) RunPreLLMCall(ctx context.Context, hctx *PreLLMCallContext) (
 			hctx.Model = *result.Model
 			final.Model = result.Model
 		}
+		if result.Context != nil {
+			final.Context = result.Context
+		}
 	}
 	return final, nil
 }

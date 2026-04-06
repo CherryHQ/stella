@@ -26,10 +26,10 @@ func init() {
 type stubProvider struct{}
 
 func (s *stubProvider) API() string { return "anthropic" }
-func (s *stubProvider) Stream(ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
+func (s *stubProvider) Stream(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
 	return nil, errors.New("stub")
 }
-func (s *stubProvider) StreamSimple(ai.Model, ai.Context, ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
+func (s *stubProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
 	return nil, errors.New("stub")
 }
 
@@ -79,7 +79,7 @@ type goRunnerFakeProvider struct {
 
 func (f *goRunnerFakeProvider) API() string { return f.api }
 
-func (f *goRunnerFakeProvider) Stream(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+func (f *goRunnerFakeProvider) Stream(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -93,8 +93,8 @@ func (f *goRunnerFakeProvider) Stream(_ ai.Model, _ ai.Context, _ ai.StreamOptio
 	return out, nil
 }
 
-func (f *goRunnerFakeProvider) StreamSimple(_ ai.Model, _ ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
-	return f.Stream(ai.Model{}, ai.Context{}, opts.StreamOptions)
+func (f *goRunnerFakeProvider) StreamSimple(goCtx context.Context, _ ai.Model, _ ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
+	return f.Stream(goCtx, ai.Model{}, ai.Context{}, opts.StreamOptions)
 }
 
 // newTestGoRunner creates a GoRunner wired to a fake provider.
@@ -233,7 +233,7 @@ type sequentialFakeProvider struct {
 
 func (f *sequentialFakeProvider) API() string { return f.api }
 
-func (f *sequentialFakeProvider) Stream(_ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+func (f *sequentialFakeProvider) Stream(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
 	f.mu.Lock()
 	idx := f.call
 	f.call++
@@ -250,8 +250,8 @@ func (f *sequentialFakeProvider) Stream(_ ai.Model, _ ai.Context, _ ai.StreamOpt
 	return out, nil
 }
 
-func (f *sequentialFakeProvider) StreamSimple(_ ai.Model, _ ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
-	return f.Stream(ai.Model{}, ai.Context{}, opts.StreamOptions)
+func (f *sequentialFakeProvider) StreamSimple(goCtx context.Context, _ ai.Model, _ ai.Context, opts ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
+	return f.Stream(goCtx, ai.Model{}, ai.Context{}, opts.StreamOptions)
 }
 
 func TestChatToolUseLoop(t *testing.T) {
