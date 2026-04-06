@@ -121,16 +121,23 @@ type PostLLMCallHook interface {
 type MemoryOp string
 
 const (
-	MemoryOpBootstrap  MemoryOp = "bootstrap"
-	MemoryOpAppend     MemoryOp = "append"
-	MemoryOpAssemble   MemoryOp = "assemble"
-	MemoryOpStats      MemoryOp = "stats"
-	MemoryOpCompact    MemoryOp = "compact"
-	MemoryOpSearch     MemoryOp = "search"
-	MemoryOpDescribe   MemoryOp = "describe"
-	MemoryOpExpand     MemoryOp = "expand"
-	MemoryOpGetProfile MemoryOp = "get_profile"
-	MemoryOpSetProfile MemoryOp = "set_profile"
+	MemoryOpBootstrap      MemoryOp = "bootstrap"
+	MemoryOpAppend         MemoryOp = "append"
+	MemoryOpAssemble       MemoryOp = "assemble"
+	MemoryOpStats          MemoryOp = "stats"
+	MemoryOpCompact        MemoryOp = "compact"
+	MemoryOpSearch         MemoryOp = "search"
+	MemoryOpDescribe       MemoryOp = "describe"
+	MemoryOpExpand         MemoryOp = "expand"
+	MemoryOpGetProfile     MemoryOp = "get_profile"
+	MemoryOpSetProfile     MemoryOp = "set_profile"
+	MemoryOpSaveInfo       MemoryOp = "save_info"
+	MemoryOpLoadInfo       MemoryOp = "load_info"
+	MemoryOpListInfo       MemoryOp = "list_info"
+	MemoryOpLoadHistory    MemoryOp = "load_history"
+	MemoryOpBuildReview    MemoryOp = "build_review"
+	MemoryOpMarkReviewed   MemoryOp = "mark_reviewed"
+	MemoryOpListUnreviewed MemoryOp = "list_unreviewed"
 )
 
 // PostMemoryCallContext is the typed payload for PostMemoryCall hooks.
