@@ -566,11 +566,15 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 		}
 	}
 	for _, name := range builtinMemoryNames {
+		enabled := int64(1)
+		if name == "simple" {
+			enabled = 0 // simple is opt-in; lcm is the default
+		}
 		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
 			ID:      PluginID(PluginKindMemory, name),
 			Kind:    PluginKindMemory,
 			Name:    name,
-			Enabled: 1,
+			Enabled: enabled,
 			Config:  "{}",
 		})
 		if err != nil {
