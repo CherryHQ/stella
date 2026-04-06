@@ -143,3 +143,46 @@ Repackaged the existing `internal/memory/` engine as a plugin at `plugins/memory
 ### Context for Phase 4
 
 The LCM plugin is complete and tested. Phase 4 creates `pkg/memory/tool.go` with `BuildTool(provider)` that inspects capabilities via type assertion and generates a tool with exactly the matching actions. The Fake provider from Phase 1 can be used for testing. The LCM plugin's `FormatSummaryXML` may need to be accessed by the tool for formatting describe/expand results.
+
+## Phase 4: Tool Auto-Generation
+
+**Status:** Complete
+
+**Date:** 2026-04-06
+
+### What was done
+
+Created `BuildTool(provider Provider, opts ...ToolOption) tools.Tool` in `pkg/memory/tool.go` that inspects provider capabilities via type assertion and dynamically generates a memory tool. The tool's JSON Schema, description, and Execute dispatch all adapt to the provider's actual capabilities.
+
+### Files created
+
+- `pkg/memory/tool.go` -- `BuildTool`, `ToolOption`, `WithReadOnlyProfile`, `WithActionsOnly`, `memoryTool` (unexported) implementing `tools.Tool`. Dynamic schema/description generation, Execute dispatch to status/search/describe/expand/profile_get/profile_update.
+- `pkg/memory/tool_test.go` -- 16 tests covering full provider (all 6 actions), bare provider (status only), `WithReadOnlyProfile`, `WithActionsOnly`, Execute for every action, and error paths (missing args, missing context, unknown action).
+
+### Files modified
+
+- `pkg/memory/types.go` -- Added context helpers (`WithSessionID`/`SessionIDFromContext`, `WithUserID`/`UserIDFromContext`, `WithAgentID`/`AgentIDFromContext`) so the tool can extract session identity from context. Mirrors `internal/memory/context.go` but lives in the public package.
+
+### Commits
+
+1. `6a4fb037` -- `✨ feat: add BuildTool for dynamic memory tool generation`
+2. `173636a4` -- `✨ feat: add tool auto-generation tests`
+
+### Verification
+
+- `go build ./pkg/memory/...` -- passes
+- `go test -race ./pkg/memory/...` -- 30 tests pass across 2 packages
+- `mise run format` -- clean
+- `mise run lint` -- 0 issues
+
+### Key decisions
+
+- **Context helpers duplicated to `pkg/memory/`**: The tool needs `UserIDFromContext` and `AgentIDFromContext` to dispatch profile operations. Rather than importing `internal/memory/` (which will be deprecated), added equivalent helpers to `pkg/memory/types.go`. The `internal/memory/context.go` versions still exist for backward compatibility until Phase 7 cleanup.
+- **`sessionFromContext` helper**: Builds a `Session` from context values for `Stats` and `Search` calls. This is a bridge pattern — callers that already set context values (the current runner) can use the tool without changes. Future callers will pass Session explicitly.
+- **No `FormatSummaryXML` dependency**: The tool delegates formatting entirely to the provider's `Describe`/`Expand` return types and marshals them to JSON. No LCM-specific formatting in the generic tool.
+- **`bareProvider` test type**: A minimal struct implementing only `Provider` (5 methods) to verify the tool works correctly with zero optional capabilities — only `status` action available.
+- **`intArg` helper duplicated**: The `internal/memory/tool/helpers.go` version handles JSON number types (float64 from `json.Unmarshal`). Replicated in `pkg/memory/tool.go` to avoid importing internal packages.
+
+### Context for Phase 5
+
+The tool is ready for integration. Phase 5 should wire `BuildTool` into the pool/runner so it replaces the current `MemoryTool`. The existing `internal/memory/tool/memory.go` can be deprecated once callers switch to `memory.BuildTool(provider)`. The context helpers in `pkg/memory/types.go` are compatible with the existing context values set by the runner.
