@@ -98,8 +98,8 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 		for _, m := range got {
 			totalTokens += memory.EstimateTokens(memory.MessageText(m))
 		}
-		// The budget is approximate; we just verify we got fewer than all.
-		if len(got) > 5 {
+		// Budget of 10 tokens with ~3 token messages should yield < 5 messages.
+		if len(got) >= 5 {
 			t.Errorf("budget=10 should limit results, got %d messages (%d tokens)", len(got), totalTokens)
 		}
 	})
