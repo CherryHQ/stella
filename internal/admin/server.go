@@ -37,6 +37,11 @@ type Server struct {
 	channelNotify   func(name string, ch pkgchannel.Channel)      // registers channel for notifications
 	channelUnnotify func(name string)                             // unregisters channel from notifications
 	channelCtx      context.Context                               // parent context for started channels
+
+	reflectMu    sync.Mutex
+	reflectStart func()          // starts the reflect loop (idempotent)
+	reflectStop  func()          // cancels a running reflect loop
+	reflectCtx   context.Context // parent context
 }
 
 // New creates an admin server with all API routes mounted.
@@ -270,6 +275,32 @@ func (s *Server) stopChannel(platform string) {
 		s.channelMu.Lock()
 		delete(s.channelStop, platform)
 		s.channelMu.Unlock()
+	}
+}
+
+// SetReflectLifecycle configures the admin server to start/stop the reflect
+// service dynamically when the plugin is toggled via the UI.
+func (s *Server) SetReflectLifecycle(ctx context.Context, start func(), stop func()) {
+	s.reflectMu.Lock()
+	s.reflectStart = start
+	s.reflectStop = stop
+	s.reflectCtx = ctx
+	s.reflectMu.Unlock()
+}
+
+func (s *Server) startReflect() {
+	s.reflectMu.Lock()
+	defer s.reflectMu.Unlock()
+	if s.reflectStart != nil {
+		s.reflectStart()
+	}
+}
+
+func (s *Server) stopReflect() {
+	s.reflectMu.Lock()
+	defer s.reflectMu.Unlock()
+	if s.reflectStop != nil {
+		s.reflectStop()
 	}
 }
 

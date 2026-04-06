@@ -124,6 +124,28 @@ func TestListUnreviewed_OldestFirst(t *testing.T) {
 	}
 }
 
+func TestListUnreviewed_ZeroWatermarkTiebreaker(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: fake, wm: newFakeWatermarks(), batch: 10, log: testLogger()}
+
+	now := time.Now().UTC()
+	// Both sessions have never been reviewed (zero watermark).
+	// "older" has an earlier LastActive and should sort first.
+	seedFakeSession(t, fake, "newer", "a", 1, now)
+	seedFakeSession(t, fake, "older", "a", 2, now.Add(-3*time.Hour))
+
+	candidates, err := svc.listUnreviewed(context.Background(), fake, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2 candidates, got %d", len(candidates))
+	}
+	if candidates[0].session.ID != "older" {
+		t.Errorf("expected older session first when both have zero watermark, got %s", candidates[0].session.ID)
+	}
+}
+
 func TestListUnreviewed_BatchLimit(t *testing.T) {
 	fake := memorytest.New()
 	svc := &Service{memory: fake, wm: newFakeWatermarks(), batch: 2, log: testLogger()}
