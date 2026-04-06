@@ -122,6 +122,15 @@ func TestBuildStreamDisplayEmptyAll(t *testing.T) {
 	}
 }
 
+func TestBuildStreamDisplayLongSuffix(t *testing.T) {
+	// Suffix (tool + cursor) exceeds feishuMaxMessageLen → suffix resets to just cursor.
+	longTool := strings.Repeat("x", feishuMaxMessageLen+100)
+	d := buildStreamDisplay("text", longTool)
+	if !strings.HasSuffix(d, typingCursor) {
+		t.Errorf("expected typingCursor suffix for long tool, got %q", d)
+	}
+}
+
 // --- toolLine ---
 
 func TestToolLineRunning(t *testing.T) {
@@ -773,6 +782,44 @@ func TestBuildMessageContentUnsupportedType(t *testing.T) {
 	}
 	if tc.Text != "[Unsupported message type: card_action]" {
 		t.Errorf("unsupported type = %q", tc.Text)
+	}
+}
+
+// --- extractJSONField ---
+
+func TestExtractJSONFieldValid(t *testing.T) {
+	got := extractJSONField(`{"text":"hello"}`, "text")
+	if got != "hello" {
+		t.Errorf("expected 'hello', got %q", got)
+	}
+}
+
+func TestExtractJSONFieldMissing(t *testing.T) {
+	got := extractJSONField(`{"other":"value"}`, "text")
+	if got != "" {
+		t.Errorf("expected empty string for missing field, got %q", got)
+	}
+}
+
+func TestExtractJSONFieldEmpty(t *testing.T) {
+	got := extractJSONField("", "text")
+	if got != "" {
+		t.Errorf("expected empty string for empty input, got %q", got)
+	}
+}
+
+func TestExtractJSONFieldInvalidJSON(t *testing.T) {
+	got := extractJSONField("not json", "text")
+	if got != "" {
+		t.Errorf("expected empty string for invalid JSON, got %q", got)
+	}
+}
+
+func TestExtractJSONFieldNonString(t *testing.T) {
+	// Value is an int, not a string.
+	got := extractJSONField(`{"text":42}`, "text")
+	if got != "" {
+		t.Errorf("expected empty string for non-string value, got %q", got)
 	}
 }
 

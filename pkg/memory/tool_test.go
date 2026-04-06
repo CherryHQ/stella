@@ -106,6 +106,25 @@ func TestBuildTool_WithReadOnlyProfile(t *testing.T) {
 	}
 }
 
+func TestBuildTool_WithReadOnlySoul(t *testing.T) {
+	fake := memorytest.New()
+	tool := memory.BuildTool(fake, memory.WithReadOnlySoul())
+	def := tool.Definition()
+
+	actions := extractActionEnum(t, def.InputSchema)
+
+	if !containsString2(actions, "soul_get") {
+		t.Error("expected soul_get action with WithReadOnlySoul")
+	}
+	if containsString2(actions, "soul_update") {
+		t.Error("soul_update should be absent with WithReadOnlySoul")
+	}
+	// profile_update should still be present.
+	if !containsString2(actions, "profile_update") {
+		t.Error("expected profile_update action with WithReadOnlySoul (only soul is read-only)")
+	}
+}
+
 func TestBuildTool_WithActionsOnly(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake, memory.WithActionsOnly("status", "search"))

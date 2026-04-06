@@ -272,3 +272,99 @@ func TestMultiPointPlugin_SeparateSlices(t *testing.T) {
 		t.Errorf("expected 1 post hook, got %d", len(hs.postToolCall))
 	}
 }
+
+// --- additional agent/memory hook test helpers ---
+
+type preAgentPlugin struct {
+	mockPlugin
+	called  bool
+	channel string
+}
+
+func (p *preAgentPlugin) OnPreAgentCall(_ context.Context, hctx *PreAgentCallContext) {
+	p.called = true
+	p.channel = hctx.Channel
+}
+
+type postAgentPlugin struct {
+	mockPlugin
+	called bool
+	dur    time.Duration
+}
+
+func (p *postAgentPlugin) OnPostAgentCall(_ context.Context, hctx *PostAgentCallContext) {
+	p.called = true
+	p.dur = hctx.Duration
+}
+
+type postMemoryPlugin struct {
+	mockPlugin
+	called bool
+	op     MemoryOp
+}
+
+func (p *postMemoryPlugin) OnPostMemoryCall(_ context.Context, hctx *PostMemoryCallContext) {
+	p.called = true
+	p.op = hctx.Op
+}
+
+func TestRunPreAgentCall(t *testing.T) {
+	h := &preAgentPlugin{mockPlugin: mockPlugin{name: "agent-pre", priority: 1}}
+	hs := NewHookSet([]HookPlugin{h})
+
+	hctx := &PreAgentCallContext{Channel: "telegram", MessageLen: 42}
+	hs.RunPreAgentCall(context.Background(), hctx)
+
+	if !h.called {
+		t.Error("expected hook to be called")
+	}
+	if h.channel != "telegram" {
+		t.Errorf("expected channel 'telegram', got %q", h.channel)
+	}
+}
+
+func TestRunPreAgentCall_Nil(t *testing.T) {
+	var hs *HookSet
+	// Should not panic.
+	hs.RunPreAgentCall(context.Background(), &PreAgentCallContext{})
+}
+
+func TestRunPostAgentCall(t *testing.T) {
+	h := &postAgentPlugin{mockPlugin: mockPlugin{name: "agent-post", priority: 1}}
+	hs := NewHookSet([]HookPlugin{h})
+
+	hctx := &PostAgentCallContext{Duration: 3 * time.Second}
+	hs.RunPostAgentCall(context.Background(), hctx)
+
+	if !h.called {
+		t.Error("expected hook to be called")
+	}
+	if h.dur != 3*time.Second {
+		t.Errorf("expected 3s duration, got %v", h.dur)
+	}
+}
+
+func TestRunPostAgentCall_Nil(t *testing.T) {
+	var hs *HookSet
+	hs.RunPostAgentCall(context.Background(), &PostAgentCallContext{})
+}
+
+func TestRunPostMemoryCall(t *testing.T) {
+	h := &postMemoryPlugin{mockPlugin: mockPlugin{name: "memory-post", priority: 1}}
+	hs := NewHookSet([]HookPlugin{h})
+
+	hctx := &PostMemoryCallContext{Op: MemoryOpAppend}
+	hs.RunPostMemoryCall(context.Background(), hctx)
+
+	if !h.called {
+		t.Error("expected hook to be called")
+	}
+	if h.op != MemoryOpAppend {
+		t.Errorf("expected op MemoryOpAppend, got %q", h.op)
+	}
+}
+
+func TestRunPostMemoryCall_Nil(t *testing.T) {
+	var hs *HookSet
+	hs.RunPostMemoryCall(context.Background(), &PostMemoryCallContext{})
+}

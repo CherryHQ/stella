@@ -1007,3 +1007,64 @@ func TestWeixinMaxMessageLen(t *testing.T) {
 		t.Errorf("weixinMaxMessageLen = %d, want 2000", weixinMaxMessageLen)
 	}
 }
+
+func TestPkcs7Unpad_Valid(t *testing.T) {
+	t.Parallel()
+	// 16-byte block, pad with 4 bytes of 0x04.
+	data := append([]byte("hello world!"), []byte{0x04, 0x04, 0x04, 0x04}...)
+	got, err := pkcs7Unpad(data, 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "hello world!" {
+		t.Errorf("expected 'hello world!', got %q", got)
+	}
+}
+
+func TestPkcs7Unpad_InvalidLength(t *testing.T) {
+	t.Parallel()
+	_, err := pkcs7Unpad(nil, 16)
+	if err == nil {
+		t.Error("expected error for empty data")
+	}
+}
+
+func TestPkcs7Unpad_InvalidPaddingValue(t *testing.T) {
+	t.Parallel()
+	// Last byte is 0 (zero padding value is invalid).
+	data := make([]byte, 16)
+	_, err := pkcs7Unpad(data, 16)
+	if err == nil {
+		t.Error("expected error for zero padding")
+	}
+}
+
+func TestIsHexString_Valid(t *testing.T) {
+	t.Parallel()
+	if !isHexString([]byte("0123456789abcdefABCDEF")) {
+		t.Error("expected valid hex string")
+	}
+}
+
+func TestIsHexString_Invalid(t *testing.T) {
+	t.Parallel()
+	if isHexString([]byte("xyz")) {
+		t.Error("expected invalid hex string")
+	}
+}
+
+func TestEncryptAESECB_WrongKeySize(t *testing.T) {
+	t.Parallel()
+	_, err := EncryptAESECB([]byte("data"), []byte("short"))
+	if err == nil {
+		t.Error("expected error for wrong key size")
+	}
+}
+
+func TestDecryptAESECB_WrongKeySize(t *testing.T) {
+	t.Parallel()
+	_, err := DecryptAESECB(make([]byte, 16), []byte("short"))
+	if err == nil {
+		t.Error("expected error for wrong key size")
+	}
+}

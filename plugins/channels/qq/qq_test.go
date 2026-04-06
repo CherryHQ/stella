@@ -123,6 +123,15 @@ func TestBuildStreamDisplayEmptyAll(t *testing.T) {
 	}
 }
 
+func TestBuildStreamDisplayLongSuffix(t *testing.T) {
+	// Suffix (tool + cursor) exceeds qqMaxMessageLen → suffix resets to just cursor.
+	longTool := strings.Repeat("x", qqMaxMessageLen+100)
+	d := buildStreamDisplay("text", longTool)
+	if !strings.HasSuffix(d, typingCursor) {
+		t.Errorf("expected typingCursor suffix, got %q", d)
+	}
+}
+
 // --- toolLine ---
 
 func TestToolLineRunning(t *testing.T) {
@@ -512,6 +521,23 @@ func TestHandleLocalCommandEmpty(t *testing.T) {
 	handled := bot.handleLocalCommand(incoming, "", func(s string) {})
 	if handled {
 		t.Error("empty text should not be handled")
+	}
+}
+
+func TestHandleLocalCommandModel(t *testing.T) {
+	models := []channel.ModelOption{{Provider: "openai", Model: "gpt-4"}}
+	bot := &Bot{
+		handler:    &mockHandler{listModelsFn: func() []channel.ModelOption { return models }},
+		chatModels: make(map[string]channel.ModelOption),
+	}
+	var reply string
+	incoming := incomingMsg("user123", "", nil)
+	handled := bot.handleLocalCommand(incoming, "/model", func(s string) { reply = s })
+	if !handled {
+		t.Fatal("expected /model to be handled")
+	}
+	if !strings.Contains(reply, "gpt-4") {
+		t.Errorf("expected model list, got: %s", reply)
 	}
 }
 

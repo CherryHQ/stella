@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/openai/openai-go/responses"
 	"github.com/vaayne/anna/pkg/ai"
 )
 
@@ -123,18 +124,20 @@ func TestLeadingNewlineStripperClose(t *testing.T) {
 
 func TestMapStopReason(t *testing.T) {
 	tests := []struct {
-		status string
+		status responses.ResponseStatus
 		want   ai.StopReason
 	}{
-		{"completed", ai.StopReasonStop},
-		{"incomplete", ai.StopReasonLength},
-		{"failed", ai.StopReasonError},
-		{"unknown", ai.StopReasonStop},
+		{responses.ResponseStatusCompleted, ai.StopReasonStop},
+		{responses.ResponseStatusIncomplete, ai.StopReasonLength},
+		{responses.ResponseStatusFailed, ai.StopReasonError},
+		{"unknown_status", ai.StopReasonStop},
 	}
 	for _, tt := range tests {
-		t.Run(tt.status, func(t *testing.T) {
-			// mapStopReason takes ResponseStatus which is a string alias
-			// so we test the existing mapEvent cases instead
+		t.Run(string(tt.status), func(t *testing.T) {
+			got := mapStopReason(tt.status)
+			if got != tt.want {
+				t.Errorf("mapStopReason(%q) = %q, want %q", tt.status, got, tt.want)
+			}
 		})
 	}
 }

@@ -11,6 +11,73 @@ import (
 	readability "codeberg.org/readeck/go-readability/v2"
 )
 
+func TestWebFetchTool_Definition(t *testing.T) {
+	tool := New()
+	def := tool.Definition()
+	if def.Name != "webfetch" {
+		t.Errorf("expected name 'webfetch', got %q", def.Name)
+	}
+}
+
+func makeArticleServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = fmt.Fprint(w, `<html><head><title>Test Article</title></head><body><article><p>Hello world. This is test content for rendering. It has enough words to be parsed successfully by the readability library.</p><p>Second paragraph for completeness and more content here.</p></article></body></html>`)
+	}))
+}
+
+func TestWebFetchTool_FormatText(t *testing.T) {
+	srv := makeArticleServer(t)
+	defer srv.Close()
+
+	tool := New()
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"url":    srv.URL,
+		"format": formatText,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == "" {
+		t.Error("expected non-empty text result")
+	}
+}
+
+func TestWebFetchTool_FormatHTML(t *testing.T) {
+	srv := makeArticleServer(t)
+	defer srv.Close()
+
+	tool := New()
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"url":    srv.URL,
+		"format": formatHTML,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == "" {
+		t.Error("expected non-empty HTML result")
+	}
+}
+
+func TestWebFetchTool_FormatJSON(t *testing.T) {
+	srv := makeArticleServer(t)
+	defer srv.Close()
+
+	tool := New()
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"url":    srv.URL,
+		"format": formatJSON,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, `"url"`) {
+		t.Errorf("expected JSON with url field, got: %q", result)
+	}
+}
+
 func TestWebFetchToolNoContent(t *testing.T) {
 	// Serve minimal HTML that readability cannot extract content from (nil Node).
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
