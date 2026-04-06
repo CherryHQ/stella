@@ -25,19 +25,15 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 	)
 
 	if h.otelEnabled() {
+		key := sessionKey(hctx.AgentID, hctx.SessionID)
 		h.mu.Lock()
-		st := h.sessions[hctx.SessionID]
+		st := h.sessions[key]
 		h.mu.Unlock()
 		if st != nil {
+			st.mu.Lock()
 			parentCtx := st.turnCtx
 			if parentCtx == nil {
 				parentCtx = st.chatCtx
-			}
-
-			// Collect argument keys (not values) for the span.
-			argKeys := make([]string, 0, len(hctx.Arguments))
-			for k := range hctx.Arguments {
-				argKeys = append(argKeys, k)
 			}
 
 			_, span := h.tracer.Start(parentCtx, "gen_ai.execute_tool",
@@ -48,15 +44,14 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 					attribute.Int64("user_id", hctx.UserID),
 					attribute.String("agent_id", hctx.AgentID),
 					attribute.Int("gen_ai.tool.argument_count", len(hctx.Arguments)),
-					attribute.StringSlice("gen_ai.tool.argument_keys", argKeys),
+					attribute.String("gen_ai.tool.input", input),
 				),
 			)
 
-			h.mu.Lock()
 			st.toolSpans[hctx.ToolCallID] = span
-			st.activeOps.Add(1)
 			st.lastActive = time.Now()
-			h.mu.Unlock()
+			st.mu.Unlock()
+			st.activeOps.Add(1)
 		}
 	}
 
@@ -83,24 +78,33 @@ func (h *Hook) OnPostToolCall(_ context.Context, hctx *hooks.PostToolCallContext
 	if !h.otelEnabled() {
 		return
 	}
+	key := sessionKey(hctx.AgentID, hctx.SessionID)
 	h.mu.Lock()
-	st := h.sessions[hctx.SessionID]
+	st := h.sessions[key]
+	h.mu.Unlock()
 	if st == nil {
-		h.mu.Unlock()
 		return
 	}
+
+	st.mu.Lock()
 	span, ok := st.toolSpans[hctx.ToolCallID]
 	if ok {
 		delete(st.toolSpans, hctx.ToolCallID)
 	}
-	h.mu.Unlock()
+	st.mu.Unlock()
 
 	if !ok || span == nil {
 		return
 	}
 
+	spanResult := hctx.Result
+	if len(spanResult) > 200 {
+		spanResult = spanResult[:200] + "..."
+	}
 	span.SetAttributes(
 		attribute.Int("gen_ai.tool.result_len", len(hctx.Result)),
+		attribute.String("gen_ai.tool.result", spanResult),
+		attribute.Float64("gen_ai.tool.duration_s", hctx.Duration.Seconds()),
 	)
 	if hctx.IsError {
 		span.SetStatus(codes.Error, "tool execution failed")
@@ -109,7 +113,9 @@ func (h *Hook) OnPostToolCall(_ context.Context, hctx *hooks.PostToolCallContext
 	span.End()
 
 	st.activeOps.Add(-1)
+	st.mu.Lock()
 	st.lastActive = time.Now()
+	st.mu.Unlock()
 }
 
 func summarizeArgs(tool string, args map[string]any) string {

@@ -48,14 +48,15 @@ func (h *Hook) OnPostMemoryCall(_ context.Context, hctx *hooks.PostMemoryCallCon
 	}
 	h.log.Info("post_memory_call", attrs...)
 
-	// Memory has post-hook only, so backdate the span.
+	// Memory has post-hook only — create an instant span.
 	// Skip ops with no session ID (e.g. ListInfo is a global query).
 	if !h.otelEnabled() || hctx.SessionID == "" {
 		return
 	}
 
+	key := sessionKey(hctx.AgentID, hctx.SessionID)
 	h.mu.Lock()
-	st := h.sessions[hctx.SessionID]
+	st := h.sessions[key]
 	h.mu.Unlock()
 	if st == nil {
 		// No active chat session — this is a pool management call
@@ -63,10 +64,12 @@ func (h *Hook) OnPostMemoryCall(_ context.Context, hctx *hooks.PostMemoryCallCon
 		return
 	}
 
+	st.mu.Lock()
 	parentCtx := st.chatCtx
 	if st.turnCtx != nil {
 		parentCtx = st.turnCtx
 	}
+	st.mu.Unlock()
 
 	spanAttrs := []attribute.KeyValue{
 		attribute.Float64("anna.memory.duration_s", hctx.Duration.Seconds()),
@@ -99,5 +102,8 @@ func (h *Hook) OnPostMemoryCall(_ context.Context, hctx *hooks.PostMemoryCallCon
 		span.SetStatus(codes.Error, hctx.Error.Error())
 	}
 	span.End()
+
+	st.mu.Lock()
 	st.lastActive = time.Now()
+	st.mu.Unlock()
 }

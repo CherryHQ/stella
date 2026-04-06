@@ -21,13 +21,14 @@ func (h *Hook) OnPreAgentCall(_ context.Context, hctx *hooks.PreAgentCallContext
 
 	if h.otelEnabled() {
 		h.mu.Lock()
-		st := h.getOrCreateSession(hctx.SessionID)
-		// Set identity attributes on the root chat span.
+		st := h.getOrCreateSession(hctx.AgentID, hctx.SessionID)
+		st.mu.Lock()
 		st.chatSpan.SetAttributes(
 			attribute.Int64("user_id", hctx.UserID),
 			attribute.String("agent_id", hctx.AgentID),
 			attribute.Int("anna.chat.message_len", hctx.MessageLen),
 		)
+		st.mu.Unlock()
 		h.mu.Unlock()
 	}
 }
@@ -48,18 +49,18 @@ func (h *Hook) OnPostAgentCall(_ context.Context, hctx *hooks.PostAgentCallConte
 		return
 	}
 
+	key := sessionKey(hctx.AgentID, hctx.SessionID)
 	h.mu.Lock()
-	st := h.sessions[hctx.SessionID]
+	st := h.sessions[key]
 	if st == nil {
 		h.mu.Unlock()
 		return
 	}
-	// End turn span if still open.
-	if st.turnSpan != nil {
-		st.turnSpan.End()
-		st.turnSpan = nil
-	}
-	// End the root chat span — the chat request is complete.
+	delete(h.sessions, key)
+	h.mu.Unlock()
+
+	st.mu.Lock()
+	// Set final attributes before closing the session.
 	st.chatSpan.SetAttributes(
 		attribute.Float64("anna.chat.duration_s", hctx.Duration.Seconds()),
 		attribute.Int("anna.chat.turn_count", st.turnNum),
@@ -69,7 +70,8 @@ func (h *Hook) OnPostAgentCall(_ context.Context, hctx *hooks.PostAgentCallConte
 		st.chatSpan.SetStatus(codes.Error, hctx.Error.Error())
 		st.chatSpan.SetAttributes(attribute.String("error.type", fmt.Sprintf("%T", hctx.Error)))
 	}
-	st.chatSpan.End()
-	delete(h.sessions, hctx.SessionID)
-	h.mu.Unlock()
+	st.mu.Unlock()
+
+	// End all remaining spans (tool, LLM, turn, chat).
+	h.endSession(st)
 }
