@@ -34,7 +34,6 @@ internal/admin/
 ├── providers.go        # ...includes updateModelsCache() on model fetch
 ├── scheduler.go        # ...
 ├── sessions.go         # ...
-├── settings.go         # ...
 ├── tools.go            # ...
 ├── users.go            # ...
 ├── server_test.go      # API + page route tests
@@ -48,8 +47,7 @@ internal/admin/
     │   ├── channels.templ
     │   ├── users.templ
     │   ├── sessions.templ
-    │   ├── scheduler.templ
-    │   └── settings.templ
+    │   └── scheduler.templ
     └── static/js/
         ├── api.js              # ESM: fetch wrapper — api(method, path, body)
         ├── utils.js            # ESM: formatTime() helper
@@ -62,8 +60,7 @@ internal/admin/
             ├── channels.js
             ├── users.js
             ├── sessions.js
-            ├── scheduler.js
-            └── settings.js
+            └── scheduler.js
 ```
 
 ### Key Patterns

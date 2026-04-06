@@ -88,7 +88,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	s.mux.HandleFunc("PUT /api/auth/profile/soul/{agentId}", s.setProfileSoul)
 
 	// Page routes — templ-rendered HTML pages.
-	// Admin-only pages: providers, channels, users, settings.
+	// Admin-only pages: providers, channels, users, plugins.
 	s.mux.Handle("GET /providers", s.adminOnlyMiddleware(http.HandlerFunc(s.pageProviders)))
 	s.mux.HandleFunc("GET /agents", s.pageAgents)
 	s.mux.Handle("GET /channels", s.adminOnlyMiddleware(http.HandlerFunc(s.pageChannels)))
@@ -96,7 +96,6 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	s.mux.HandleFunc("GET /sessions", s.pageSessions)
 	s.mux.HandleFunc("GET /scheduler", s.pageScheduler)
 	s.mux.Handle("GET /plugins", s.adminOnlyMiddleware(http.HandlerFunc(s.pagePlugins)))
-	s.mux.Handle("GET /settings", s.adminOnlyMiddleware(http.HandlerFunc(s.pageSettings)))
 	s.mux.HandleFunc("GET /profile", s.pageProfile)
 
 	// Root redirect based on auth status.
@@ -162,10 +161,6 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	// Plugin APIs (admin-only).
 	s.mux.Handle("GET /api/plugins", adminAPI(s.listPlugins))
 	s.mux.Handle("PATCH /api/plugins/{id...}", adminAPI(s.togglePlugin))
-
-	// Settings APIs (admin-only).
-	s.mux.Handle("GET /api/settings/{key}", adminAPI(s.getSetting))
-	s.mux.Handle("PUT /api/settings/{key}", adminAPI(s.updateSetting))
 
 	// Models API (cached models, no live provider calls).
 	s.mux.HandleFunc("GET /api/models", s.listCachedModels)
