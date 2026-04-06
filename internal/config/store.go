@@ -38,14 +38,6 @@ type Channel struct {
 	Config  string `json:"config"`
 }
 
-// UserAgentMemory represents a stored memory entry for a user-agent pair.
-type UserAgentMemory struct {
-	UserID    int64  `json:"user_id"`
-	AgentID   string `json:"agent_id"`
-	Content   string `json:"content"`
-	UpdatedAt string `json:"updated_at"`
-}
-
 // Store provides typed access to configuration stored in the database.
 type Store interface {
 	// Providers
@@ -82,12 +74,6 @@ type Store interface {
 	GetChatAgent(ctx context.Context, platform, chatID string) (string, error) // returns agentID
 	SetChatAgent(ctx context.Context, platform, chatID, agentID string) error
 	DeleteChatAgent(ctx context.Context, platform, chatID string) error
-
-	// User Agent Memory
-	GetUserAgentMemory(ctx context.Context, userID int64, agentID string) (string, error)
-	SetUserAgentMemory(ctx context.Context, userID int64, agentID, content string) error
-	ListUserMemories(ctx context.Context, userID int64) ([]UserAgentMemory, error)
-	DeleteUserAgentMemory(ctx context.Context, userID int64, agentID string) error
 
 	// Settings (key-value JSON)
 	GetSetting(ctx context.Context, key string) (string, error) // returns JSON string

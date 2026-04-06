@@ -3,6 +3,8 @@ package admin
 import (
 	"net/http"
 	"strconv"
+
+	"github.com/vaayne/anna/internal/db/sqlc"
 )
 
 func (s *Server) updateUserDefaultAgent(w http.ResponseWriter, r *http.Request) {
@@ -51,7 +53,7 @@ func (s *Server) listUserMemories(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid user id")
 		return
 	}
-	memories, err := s.store.ListUserMemories(r.Context(), id)
+	memories, err := s.q.ListUserAgentMemoriesByUser(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -73,7 +75,11 @@ func (s *Server) setUserMemory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := s.store.SetUserAgentMemory(r.Context(), id, agentID, body.Content); err != nil {
+	if err := s.q.UpsertUserAgentMemory(r.Context(), sqlc.UpsertUserAgentMemoryParams{
+		UserID:  id,
+		AgentID: agentID,
+		Content: body.Content,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -87,7 +93,10 @@ func (s *Server) deleteUserMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	agentID := r.PathValue("agentId")
-	if err := s.store.DeleteUserAgentMemory(r.Context(), id, agentID); err != nil {
+	if err := s.q.DeleteUserAgentMemory(r.Context(), sqlc.DeleteUserAgentMemoryParams{
+		UserID:  id,
+		AgentID: agentID,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

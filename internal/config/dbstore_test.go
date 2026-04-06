@@ -296,39 +296,6 @@ func TestChatAgentCRUD(t *testing.T) {
 	}
 }
 
-func TestUserAgentMemory(t *testing.T) {
-	store := setupDBStore(t)
-	ctx := context.Background()
-
-	_ = store.CreateAgent(ctx, Agent{ID: "agent1", Name: "A1", Model: "p/m", Enabled: true})
-	var userID int64 = 42
-
-	// Empty by default.
-	mem, err := store.GetUserAgentMemory(ctx, userID, "agent1")
-	if err != nil {
-		t.Fatalf("GetUserAgentMemory: %v", err)
-	}
-	if mem != "" {
-		t.Errorf("expected empty, got %q", mem)
-	}
-
-	if err := store.SetUserAgentMemory(ctx, userID, "agent1", "likes cats"); err != nil {
-		t.Fatalf("SetUserAgentMemory: %v", err)
-	}
-
-	mem, _ = store.GetUserAgentMemory(ctx, userID, "agent1")
-	if mem != "likes cats" {
-		t.Errorf("memory = %q, want %q", mem, "likes cats")
-	}
-
-	// Overwrite.
-	_ = store.SetUserAgentMemory(ctx, userID, "agent1", "likes dogs")
-	mem, _ = store.GetUserAgentMemory(ctx, userID, "agent1")
-	if mem != "likes dogs" {
-		t.Errorf("memory = %q, want %q", mem, "likes dogs")
-	}
-}
-
 func TestSettings(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
