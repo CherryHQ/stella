@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,8 +10,6 @@ import (
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/providers"
-
-	"context"
 )
 
 // run executes the agent loop: repeatedly generating assistant responses
@@ -56,6 +55,7 @@ func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, h
 		effectiveSystem := cfg.System
 		effectiveToolDefs := cfg.ToolDefinitions
 		effectiveModel := cfg.Model
+		streamCtx := ctx // enriched by hooks with trace spans if available
 		if !cfg.Hooks.Empty() {
 			preCtx := &hooks.PreLLMCallContext{
 				HookMeta:        cfg.HookMeta,
@@ -63,17 +63,25 @@ func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, h
 				System:          cfg.System,
 				ToolDefinitions: cfg.ToolDefinitions,
 				MessageCount:    len(normalized),
+				API:             cfg.Model.API,
+				Provider:        cfg.Model.Provider,
+				BaseURL:         resolveBaseURL(cfg.Model, cfg.StreamOptions),
+				MaxTokens:       cfg.StreamOptions.MaxTokens,
+				Temperature:     cfg.StreamOptions.Temperature,
 			}
-			result, _ := cfg.Hooks.RunPreLLMCall(ctx, preCtx)
-			if result.System != nil {
-				effectiveSystem = *result.System
+			hookResult, _ := cfg.Hooks.RunPreLLMCall(ctx, preCtx)
+			if hookResult.System != nil {
+				effectiveSystem = *hookResult.System
 			}
-			if result.ToolDefinitions != nil {
-				effectiveToolDefs = result.ToolDefinitions
+			if hookResult.ToolDefinitions != nil {
+				effectiveToolDefs = hookResult.ToolDefinitions
 			}
-			if result.Model != nil {
+			if hookResult.Model != nil {
 				effectiveModel = cfg.Model
-				effectiveModel.Name = *result.Model
+				effectiveModel.Name = *hookResult.Model
+			}
+			if hookResult.Context != nil {
+				streamCtx = hookResult.Context
 			}
 		}
 
@@ -86,7 +94,7 @@ func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, h
 		turnCfg.Model = effectiveModel
 
 		start := time.Now()
-		result, err := streamAssistant(normalized, turnCfg, pg, emit)
+		result, err := streamAssistant(streamCtx, normalized, turnCfg, pg, emit)
 		duration := time.Since(start)
 		complete := result.Message
 
@@ -96,6 +104,8 @@ func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, h
 				HookMeta:         cfg.HookMeta,
 				Model:            effectiveModel.Name,
 				Provider:         effectiveModel.Provider,
+				API:              effectiveModel.API,
+				BaseURL:          resolveBaseURL(effectiveModel, cfg.StreamOptions),
 				Usage:            complete.Usage,
 				StopReason:       complete.StopReason,
 				Duration:         duration,
@@ -175,9 +185,10 @@ type streamResult struct {
 	TimeToFirstToken time.Duration // elapsed from stream open to first event
 }
 
-func streamAssistant(messages []ai.Message, cfg loopConfig, pg providers.ProviderGetter, emit func(LoopEvent)) (streamResult, error) {
+func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig, pg providers.ProviderGetter, emit func(LoopEvent)) (streamResult, error) {
 	streamStart := time.Now()
 	eventStream, err := providers.Stream(
+		ctx,
 		cfg.Model,
 		ai.Context{System: cfg.System, Messages: messages, Tools: cfg.ToolDefinitions},
 		cfg.StreamOptions,
@@ -300,4 +311,13 @@ func extractToolCalls(msg ai.AssistantMessage) []ai.ToolCall {
 		}
 	}
 	return calls
+}
+
+// resolveBaseURL returns the effective endpoint URL, preferring the
+// per-request override over the model-level default.
+func resolveBaseURL(model ai.Model, opts ai.StreamOptions) string {
+	if opts.BaseURL != "" {
+		return opts.BaseURL
+	}
+	return model.BaseURL
 }

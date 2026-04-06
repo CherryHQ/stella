@@ -17,6 +17,7 @@ func (h *Hook) OnPreAgentCall(_ context.Context, hctx *hooks.PreAgentCallContext
 		"agent_id", hctx.AgentID,
 		"user_id", hctx.UserID,
 		"message_len", hctx.MessageLen,
+		"channel", hctx.Channel,
 	)
 
 	if h.otelEnabled() {
@@ -28,6 +29,9 @@ func (h *Hook) OnPreAgentCall(_ context.Context, hctx *hooks.PreAgentCallContext
 			attribute.String("agent_id", hctx.AgentID),
 			attribute.Int("anna.chat.message_len", hctx.MessageLen),
 		)
+		if hctx.Channel != "" {
+			st.chatSpan.SetAttributes(attribute.String("anna.chat.channel", hctx.Channel))
+		}
 		st.mu.Unlock()
 		h.mu.Unlock()
 	}
