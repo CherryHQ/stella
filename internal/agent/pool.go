@@ -60,6 +60,17 @@ func (p *Pool) SetFactory(factory runner.NewRunnerFunc) {
 	p.mu.Unlock()
 }
 
+// hookPlugins returns the current hook plugins, or nil if none configured.
+func (p *Pool) hookPlugins() []hooks.HookPlugin {
+	p.mu.Lock()
+	fn := p.hooksFn
+	p.mu.Unlock()
+	if fn == nil {
+		return nil
+	}
+	return fn()
+}
+
 // SetHooks updates the hook getter used when creating new runners.
 // Changing hooks never requires rebuilding the factory or resetting sessions —
 // new runners created after this call will use the updated hooks.
