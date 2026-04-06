@@ -161,6 +161,7 @@ func (s *Service) reviewAgent(ctx context.Context, snap *config.Snapshot) (int, 
 // candidate represents a session that may need review.
 type candidate struct {
 	session    memory.Session
+	lastActive time.Time // from SessionInfo — used as tiebreaker
 	lastReview time.Time // zero if never reviewed
 }
 
@@ -197,13 +198,20 @@ func (s *Service) listUnreviewed(ctx context.Context, sm memory.SessionManager, 
 				UserID:  sess.UserID,
 				Channel: sess.Channel,
 			},
+			lastActive: sess.LastActive,
 			lastReview: wm,
 		})
 	}
 
 	// Sort oldest-first so long-unreviewed sessions get priority.
+	// When lastReview times are equal (e.g. both zero for never-reviewed),
+	// use lastActive as a stable tiebreaker so older sessions are reviewed first.
 	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].lastReview.Before(candidates[j].lastReview)
+		ri, rj := candidates[i].lastReview, candidates[j].lastReview
+		if ri.Equal(rj) {
+			return candidates[i].lastActive.Before(candidates[j].lastActive)
+		}
+		return ri.Before(rj)
 	})
 
 	if len(candidates) > s.batch {

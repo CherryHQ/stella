@@ -60,5 +60,13 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("failed to reload plugin providers", "plugin", id, "error", err)
 		}
 	}
+	// Hot-reload reflect: start on enable, stop on disable.
+	if p.ID == "reflect" {
+		if req.Enabled {
+			s.startReflect()
+		} else {
+			s.stopReflect()
+		}
+	}
 	writeData(w, http.StatusOK, p)
 }
