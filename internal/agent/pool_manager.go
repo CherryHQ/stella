@@ -10,9 +10,9 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/memory"
 	"github.com/vaayne/anna/internal/skills"
 	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/vaayne/anna/pkg/memory"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
@@ -80,7 +80,7 @@ func WithPluginHooksBuilder(b PluginHooksBuilder) PoolManagerOption {
 type PoolManager struct {
 	pools              map[string]*Pool
 	store              config.Store
-	mem                memory.Engine
+	mem                memory.Provider
 	mu                 sync.RWMutex
 	idleTimeout        time.Duration
 	compaction         CompactionConfig
@@ -90,17 +90,15 @@ type PoolManager struct {
 	hookPlugins        []hooks.HookPlugin // current enabled hook plugins
 	pluginHooksBuilder PluginHooksBuilder // builds hooks from plugin state
 	extraToolsFactory  ExtraToolsFactory
-	userMemory         *memory.UserMemoryStore // per-user memory for prompt injection
 	log                *slog.Logger
 }
 
 // NewPoolManager creates a new PoolManager.
-func NewPoolManager(store config.Store, mem memory.Engine, opts ...PoolManagerOption) *PoolManager {
+func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManagerOption) *PoolManager {
 	pm := &PoolManager{
 		pools:       make(map[string]*Pool),
 		store:       store,
 		mem:         mem,
-		userMemory:  memory.NewUserMemoryStore(store),
 		idleTimeout: 10 * time.Minute,
 		log:         slog.With("component", "pool_manager"),
 	}
@@ -186,7 +184,6 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 		WithCompaction(pm.compaction.WithDefaults()),
 		WithDefaultModel(snap.ResolveModelID(config.ModelTierStrong)),
 		WithFastModel(snap.ResolveModelID(config.ModelTierFast)),
-		WithUserMemory(pm.userMemory),
 	}
 
 	pool := NewPool(factory, pm.mem, poolOpts...)

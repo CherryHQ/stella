@@ -48,7 +48,7 @@ func TestReviewSystemPromptContent(t *testing.T) {
 		"Nothing to save.",
 		"lowercase-hyphenated",
 		"skills tool",
-		"review_memory",
+		"memory tool",
 	}
 	for _, check := range checks {
 		if !strings.Contains(combinedReviewPrompt, check) {
@@ -108,7 +108,7 @@ func TestCountMutations(t *testing.T) {
 					Content: []ai.ContentBlock{
 						ai.ToolCall{
 							Name:      toolNameMemory,
-							Arguments: map[string]any{"action": "update", "content": "user likes Go"},
+							Arguments: map[string]any{"action": "profile_update", "content": "user likes Go"},
 						},
 					},
 				},
@@ -122,7 +122,7 @@ func TestCountMutations(t *testing.T) {
 					Content: []ai.ContentBlock{
 						ai.ToolCall{
 							Name:      toolNameMemory,
-							Arguments: map[string]any{"action": "get"},
+							Arguments: map[string]any{"action": "profile_get"},
 						},
 					},
 				},
@@ -140,7 +140,7 @@ func TestCountMutations(t *testing.T) {
 						},
 						ai.ToolCall{
 							Name:      toolNameMemory,
-							Arguments: map[string]any{"action": "update", "content": "notes"},
+							Arguments: map[string]any{"action": "profile_update", "content": "notes"},
 						},
 					},
 				},

@@ -9,7 +9,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/db/sqlc"
-	"github.com/vaayne/anna/internal/memory"
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 // sessionResponse is a JSON-friendly representation of memory.SessionInfo.
@@ -45,12 +45,13 @@ func toSessionResponse(info memory.SessionInfo) sessionResponse {
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
-	if s.mem == nil {
+	sm, ok := s.mem.(memory.SessionManager)
+	if !ok {
 		writeData(w, http.StatusOK, []any{})
 		return
 	}
 	info := UserFromContext(r.Context())
-	sessions, err := s.mem.ListInfo(r.Context(), true)
+	sessions, err := sm.ListInfo(r.Context(), memory.ListOptions{IncludeArchived: true})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -73,13 +74,14 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return
 	}
-	if s.mem == nil {
-		writeError(w, http.StatusNotFound, "memory engine not available")
+	sm, ok := s.mem.(memory.SessionManager)
+	if !ok {
+		writeError(w, http.StatusNotFound, "memory provider does not support sessions")
 		return
 	}
 
 	authInfo := UserFromContext(r.Context())
-	si, err := s.mem.LoadInfo(r.Context(), sessionID)
+	si, err := sm.LoadInfo(r.Context(), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -146,10 +148,11 @@ func (s *Server) getSessionMessages(w http.ResponseWriter, r *http.Request) {
 // Returns a non-nil error (and writes the HTTP response) if access is denied.
 func (s *Server) checkSessionAccess(w http.ResponseWriter, r *http.Request, sessionID string) error {
 	info := UserFromContext(r.Context())
-	if info == nil || info.IsAdmin || s.mem == nil {
+	sm, ok := s.mem.(memory.SessionManager)
+	if info == nil || info.IsAdmin || !ok {
 		return nil
 	}
-	si, err := s.mem.LoadInfo(r.Context(), sessionID)
+	si, err := sm.LoadInfo(r.Context(), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return err
@@ -167,8 +170,9 @@ func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return
 	}
-	if s.mem == nil {
-		writeError(w, http.StatusNotFound, "memory engine not available")
+	sm, ok := s.mem.(memory.SessionManager)
+	if !ok {
+		writeError(w, http.StatusNotFound, "memory provider does not support sessions")
 		return
 	}
 
@@ -177,7 +181,7 @@ func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	info, err := s.mem.LoadInfo(r.Context(), sessionID)
+	info, err := sm.LoadInfo(r.Context(), sessionID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -189,15 +193,11 @@ func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) 
 		agentCfg, _ = s.store.GetAgent(r.Context(), info.AgentID)
 	}
 
-	// Look up user-agent memory.
-	var userMemory string
-	if info.UserID != 0 && info.AgentID != "" {
-		userMemory, _ = s.store.GetUserAgentMemory(r.Context(), info.UserID, info.AgentID)
-	}
-
-	prompt := runner.BuildSystemPromptFromDB(runner.DBPromptParams{
+	prompt := runner.BuildSystemPromptFromDB(r.Context(), runner.DBPromptParams{
 		SystemPrompt: agentCfg.SystemPrompt,
-		UserMemory:   userMemory,
+		Memory:       s.mem,
+		UserID:       info.UserID,
+		AgentID:      info.AgentID,
 		AnnaHome:     config.AnnaHome(),
 		Workspace:    agentCfg.Workspace,
 	})

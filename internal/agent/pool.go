@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/memory"
 	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 // Pool manages a set of sessions, each with its own history and runner.
@@ -18,19 +18,18 @@ type Pool struct {
 	factory      runner.NewRunnerFunc
 	hooksFn      func() []hooks.HookPlugin // injected into RunnerParams; nil = no hooks
 	sessions     map[string]*Session
-	mem          memory.Engine // memory engine — sole persistence layer
+	mem          memory.Provider // memory provider — sole persistence layer
 	mu           sync.Mutex
 	idleTimeout  time.Duration
 	compaction   CompactionConfig
-	defaultModel string                  // default model ID for new runners
-	fastModel    string                  // model ID used for compaction / fast tasks
-	userMemory   *memory.UserMemoryStore // optional per-user memory for prompt injection
+	defaultModel string // default model ID for new runners
+	fastModel    string // model ID used for compaction / fast tasks
 	log          *slog.Logger
 }
 
-// NewPool creates a new Pool with the given runner factory and memory engine.
-// The memory engine is required — it is the sole persistence layer for sessions.
-func NewPool(factory runner.NewRunnerFunc, mem memory.Engine, opts ...PoolOption) *Pool {
+// NewPool creates a new Pool with the given runner factory and memory provider.
+// The memory provider is required — it is the sole persistence layer for sessions.
+func NewPool(factory runner.NewRunnerFunc, mem memory.Provider, opts ...PoolOption) *Pool {
 	p := &Pool{
 		factory:     factory,
 		mem:         mem,

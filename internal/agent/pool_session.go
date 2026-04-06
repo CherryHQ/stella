@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 // CreateSession creates a new session with a generated ID and persists its metadata.
@@ -37,10 +38,12 @@ func (p *Pool) createSessionLocked(channel string, userID ...int64) SessionInfo 
 	return info
 }
 
-// persistNewSession saves session metadata to the memory engine and logs creation.
+// persistNewSession saves session metadata to the memory provider and logs creation.
 func (p *Pool) persistNewSession(info SessionInfo) (SessionInfo, error) {
-	if err := p.mem.SaveInfo(context.Background(), info); err != nil {
-		return info, fmt.Errorf("persist session info: %w", err)
+	if sm, ok := p.mem.(memory.SessionManager); ok {
+		if err := sm.SaveInfo(context.Background(), info); err != nil {
+			return info, fmt.Errorf("persist session info: %w", err)
+		}
 	}
 	p.log.Info("session created", "session_id", info.ID, "channel", info.Channel)
 	return info, nil
@@ -65,18 +68,20 @@ func (p *Pool) activeSessionLocked(channel string) (SessionInfo, bool) {
 	}
 
 	// Check persistent store for sessions not yet in memory.
-	items, err := p.mem.ListInfo(context.Background(), false)
-	if err == nil {
-		for _, info := range items {
-			if info.Channel != channel {
-				continue
-			}
-			if _, ok := seen[info.ID]; ok {
-				continue
-			}
-			if best == nil || info.LastActive.After(best.LastActive) {
-				info := info
-				best = &info
+	if sm, ok := p.mem.(memory.SessionManager); ok {
+		items, err := sm.ListInfo(context.Background(), memory.ListOptions{})
+		if err == nil {
+			for _, info := range items {
+				if info.Channel != channel {
+					continue
+				}
+				if _, inSeen := seen[info.ID]; inSeen {
+					continue
+				}
+				if best == nil || info.LastActive.After(best.LastActive) {
+					info := info
+					best = &info
+				}
 			}
 		}
 	}
@@ -127,16 +132,22 @@ func (p *Pool) GetSession(sessionID string) (SessionInfo, error) {
 		return sess.Info, nil
 	}
 
-	si, err := p.mem.LoadInfo(context.Background(), sessionID)
-	if err == nil {
-		return si, nil
+	if sm, ok := p.mem.(memory.SessionManager); ok {
+		si, err := sm.LoadInfo(context.Background(), sessionID)
+		if err == nil {
+			return si, nil
+		}
 	}
 	return SessionInfo{}, fmt.Errorf("session %q not found", sessionID)
 }
 
 // ListSessions returns metadata for all sessions.
 func (p *Pool) ListSessions(includeArchived bool) ([]SessionInfo, error) {
-	items, err := p.mem.ListInfo(context.Background(), includeArchived)
+	sm, ok := p.mem.(memory.SessionManager)
+	if !ok {
+		return nil, nil
+	}
+	items, err := sm.ListInfo(context.Background(), memory.ListOptions{IncludeArchived: includeArchived})
 	if err != nil {
 		return nil, err
 	}
@@ -157,11 +168,13 @@ func (p *Pool) ArchiveSession(sessionID string) error {
 	}
 	p.mu.Unlock()
 
-	info, err := p.mem.LoadInfo(context.Background(), sessionID)
-	if err == nil {
-		info.Archived = true
-		if err := p.mem.SaveInfo(context.Background(), info); err != nil {
-			p.log.Warn("failed to persist archive", "session_id", sessionID, "error", err)
+	if sm, ok := p.mem.(memory.SessionManager); ok {
+		info, err := sm.LoadInfo(context.Background(), sessionID)
+		if err == nil {
+			info.Archived = true
+			if err := sm.SaveInfo(context.Background(), info); err != nil {
+				p.log.Warn("failed to persist archive", "session_id", sessionID, "error", err)
+			}
 		}
 	}
 
@@ -175,10 +188,14 @@ func (p *Pool) ArchiveSession(sessionID string) error {
 	return nil
 }
 
-// History returns the message history for a session, loading from the memory engine.
-// Returns nil if the session has no history.
+// History returns the message history for a session, loading from the memory provider.
+// Returns nil if the session has no history or the provider does not support it.
 func (p *Pool) History(sessionID string) []ai.Message {
-	msgs, err := p.mem.Load(context.Background(), sessionID)
+	sm, ok := p.mem.(memory.SessionManager)
+	if !ok {
+		return nil
+	}
+	msgs, err := sm.LoadHistory(context.Background(), sessionID)
 	if err == nil && len(msgs) > 0 {
 		return msgs
 	}

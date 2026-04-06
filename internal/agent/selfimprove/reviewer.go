@@ -14,7 +14,7 @@ import (
 // Tool name constants used by the review agent.
 const (
 	toolNameSkills = "skills"
-	toolNameMemory = "review_memory"
+	toolNameMemory = "memory"
 )
 
 // ReviewResult holds the outcome of a single conversation review.
@@ -102,7 +102,7 @@ func countMutations(messages []ai.Message) ReviewResult {
 					r.SkillsMutated++
 				}
 			case toolNameMemory:
-				if action == "update" {
+				if action == "profile_update" {
 					r.MemoryUpdated = true
 				}
 			}

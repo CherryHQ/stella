@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/memory"
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 // CompactionConfig controls automatic session compaction.

@@ -9,14 +9,15 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/skills"
 	"github.com/vaayne/anna/pkg/hooks"
+	"github.com/vaayne/anna/pkg/memory"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
 // NewRunnerFactory creates a runner.NewRunnerFunc for a given config snapshot.
 // The returned factory creates runners scoped to one agent's provider, model,
-// workspace, and system prompt. User memory and user ID are injected per-session
-// from RunnerParams. When UserID > 0, per-user workspace directories are set up
-// and per-user skills tools are created.
+// workspace, and system prompt. Memory provider, user ID, and agent ID are
+// injected per-session from RunnerParams. When UserID > 0, per-user workspace
+// directories are set up and per-user skills tools are created.
 //
 // Hooks are not part of the factory — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
@@ -47,10 +48,18 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool) (runner.Ne
 				}
 			}
 
-			// Build the full system prompt per-session with user memory and user skills.
-			system := runner.BuildSystemPromptFromDB(runner.DBPromptParams{
+			// Extract memory provider from params (typed as any to avoid circular imports).
+			var memProvider memory.Provider
+			if params.Memory != nil {
+				memProvider, _ = params.Memory.(memory.Provider)
+			}
+
+			// Build the full system prompt per-session with profile from memory provider.
+			system := runner.BuildSystemPromptFromDB(ctx, runner.DBPromptParams{
 				SystemPrompt:  snap.SystemPrompt,
-				UserMemory:    params.UserMemory,
+				Memory:        memProvider,
+				UserID:        params.UserID,
+				AgentID:       params.AgentID,
 				AnnaHome:      config.AnnaHome(),
 				Workspace:     snap.Workspace,
 				UserSkillsDir: userSkillsDir,
