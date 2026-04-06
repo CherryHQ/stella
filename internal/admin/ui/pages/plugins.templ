@@ -4,7 +4,7 @@ import "github.com/vaayne/anna/internal/admin/ui"
 
 templ PluginsPage() {
 	<div x-data="pluginsPage()">
-		@ui.PageHeader("Plugins", "Manage built-in tools, hooks, and channel integrations.")
+		@ui.PageHeader("Plugins", "Manage built-in tools, hooks, channels, and memory backends.")
 		<div class="space-y-8">
 			<!-- Tools -->
 			<div>
@@ -99,6 +99,39 @@ templ PluginsPage() {
 					</template>
 					<template x-if="channelPlugins.length === 0">
 						<div class="px-4 py-8 text-center text-base-content/50 text-sm">No channel plugins</div>
+					</template>
+				</div>
+			</div>
+			<!-- Memory -->
+			<div>
+				<h3 class="text-base font-medium mb-3">Memory</h3>
+				<p class="text-xs text-base-content/50 mb-3">Only one memory plugin can be active at a time. Changing requires restart.</p>
+				<div class="border border-base-300 rounded-lg divide-y divide-base-300">
+					<template x-for="p in memoryPlugins" :key="p.id">
+						<div class="flex items-center justify-between px-4 py-3">
+							<div class="flex items-center gap-3">
+								<span class="font-mono font-medium text-sm" x-text="p.name"></span>
+								<span class="badge badge-accent badge-sm">memory</span>
+								<template x-if="p.enabled">
+									<span class="badge badge-success badge-sm">enabled</span>
+								</template>
+								<template x-if="!p.enabled">
+									<span class="badge badge-error badge-sm">disabled</span>
+								</template>
+							</div>
+							<div class="flex items-center gap-4">
+								<span class="text-xs text-secondary hidden sm:inline" x-text="descriptionFor(p.name)"></span>
+								<input
+									type="checkbox"
+									:checked="p.enabled"
+									@change="togglePlugin(p.id, $event.target.checked)"
+									class="toggle toggle-primary toggle-sm"
+								/>
+							</div>
+						</div>
+					</template>
+					<template x-if="memoryPlugins.length === 0">
+						<div class="px-4 py-8 text-center text-base-content/50 text-sm">No memory plugins</div>
 					</template>
 				</div>
 			</div>

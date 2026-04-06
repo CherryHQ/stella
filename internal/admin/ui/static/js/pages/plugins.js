@@ -21,6 +21,10 @@ export function register(Alpine) {
       return this.plugins.filter(p => p.kind === 'hook')
     },
 
+    get memoryPlugins() {
+      return this.plugins.filter(p => p.kind === 'memory')
+    },
+
     async init() {
       await this.loadPlugins()
     },
@@ -52,6 +56,8 @@ export function register(Alpine) {
         weixin: 'WeChat bot integration',
         trace: 'Trace LLM calls and tool executions',
         rtk: 'Rewrite bash commands via rtk',
+        lcm: 'Lossless context management with hierarchical summarisation',
+        simple: 'Sliding window — no compaction, drops old messages',
       }
       return descriptions[name] || ''
     },
