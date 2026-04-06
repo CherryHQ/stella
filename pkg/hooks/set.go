@@ -9,6 +9,8 @@ import (
 // HookSet holds pre-sorted hook slices for each hook point.
 // It is immutable after construction and safe for concurrent use.
 type HookSet struct {
+	preAgentCall   []PreAgentCallHook
+	postAgentCall  []PostAgentCallHook
 	preToolCall    []PreToolCallHook
 	postToolCall   []PostToolCallHook
 	preLLMCall     []PreLLMCallHook
@@ -31,6 +33,12 @@ func NewHookSet(plugins []HookPlugin) *HookSet {
 
 	hs := &HookSet{}
 	for _, p := range sorted {
+		if h, ok := p.(PreAgentCallHook); ok {
+			hs.preAgentCall = append(hs.preAgentCall, h)
+		}
+		if h, ok := p.(PostAgentCallHook); ok {
+			hs.postAgentCall = append(hs.postAgentCall, h)
+		}
 		if h, ok := p.(PreToolCallHook); ok {
 			hs.preToolCall = append(hs.preToolCall, h)
 		}
@@ -53,9 +61,32 @@ func NewHookSet(plugins []HookPlugin) *HookSet {
 // Empty reports whether the HookSet has no hooks at any point.
 func (hs *HookSet) Empty() bool {
 	return hs == nil ||
-		(len(hs.preToolCall) == 0 && len(hs.postToolCall) == 0 &&
+		(len(hs.preAgentCall) == 0 && len(hs.postAgentCall) == 0 &&
+			len(hs.preToolCall) == 0 && len(hs.postToolCall) == 0 &&
 			len(hs.preLLMCall) == 0 && len(hs.postLLMCall) == 0 &&
 			len(hs.postMemoryCall) == 0)
+}
+
+// RunPreAgentCall executes all PreAgentCall hooks in priority order.
+// All hooks always run; errors are logged but never short-circuit.
+func (hs *HookSet) RunPreAgentCall(ctx context.Context, hctx *PreAgentCallContext) {
+	if hs == nil {
+		return
+	}
+	for _, h := range hs.preAgentCall {
+		h.OnPreAgentCall(ctx, hctx)
+	}
+}
+
+// RunPostAgentCall executes all PostAgentCall hooks in priority order.
+// All hooks always run; errors are logged but never short-circuit.
+func (hs *HookSet) RunPostAgentCall(ctx context.Context, hctx *PostAgentCallContext) {
+	if hs == nil {
+		return
+	}
+	for _, h := range hs.postAgentCall {
+		h.OnPostAgentCall(ctx, hctx)
+	}
 }
 
 // RunPreToolCall executes all PreToolCall hooks in priority order.
