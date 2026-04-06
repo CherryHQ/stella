@@ -78,8 +78,15 @@ func (r *reviewer) review(ctx context.Context, conversationText string) (reviewR
 	return countMutations(result), nil
 }
 
+// countMutations inspects tool results (not calls) so that failed tool
+// invocations are not counted as mutations.
 func countMutations(messages []ai.Message) reviewResult {
-	var r reviewResult
+	// First pass: collect tool call metadata keyed by call ID.
+	type callMeta struct {
+		toolName string
+		action   string
+	}
+	calls := make(map[string]callMeta)
 	for _, msg := range messages {
 		aMsg, ok := msg.(ai.AssistantMessage)
 		if !ok {
@@ -91,15 +98,29 @@ func countMutations(messages []ai.Message) reviewResult {
 				continue
 			}
 			action, _ := call.Arguments["action"].(string)
-			switch call.Name {
-			case toolNameSkills:
-				if action == "create" || action == "patch" {
-					r.SkillsMutated++
-				}
-			case toolNameMemory:
-				if action == "profile_update" {
-					r.MemoryUpdated = true
-				}
+			calls[call.ID] = callMeta{toolName: call.Name, action: action}
+		}
+	}
+
+	// Second pass: count successful tool results that correspond to mutating calls.
+	var r reviewResult
+	for _, msg := range messages {
+		tr, ok := msg.(ai.ToolResultMessage)
+		if !ok || tr.IsError {
+			continue
+		}
+		meta, found := calls[tr.ToolCallID]
+		if !found {
+			continue
+		}
+		switch meta.toolName {
+		case toolNameSkills:
+			if meta.action == "create" || meta.action == "patch" {
+				r.SkillsMutated++
+			}
+		case toolNameMemory:
+			if meta.action == "profile_update" {
+				r.MemoryUpdated = true
 			}
 		}
 	}

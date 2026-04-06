@@ -36,11 +36,13 @@ func (s *Service) buildReviewContext(ctx context.Context, sess memory.Session, s
 	}
 
 	// Split into prior context and fresh content.
+	// When timestamps are zero (provider doesn't track them), treat messages
+	// as fresh to avoid classifying everything as prior and returning empty.
 	var prior, fresh []string
 	for _, m := range msgs {
 		line := fmt.Sprintf("[%s] %s", memory.MessageRole(m), memory.MessageText(m))
 		ts := memory.MessageTimestamp(m)
-		if !since.IsZero() && !ts.After(since) {
+		if !since.IsZero() && !ts.IsZero() && !ts.After(since) {
 			prior = append(prior, line)
 		} else {
 			fresh = append(fresh, line)

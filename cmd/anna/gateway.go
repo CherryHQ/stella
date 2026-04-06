@@ -208,7 +208,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	}
 
 	// Start reflect (background conversation review).
-	reflectPlugin, _ := s.store.GetPlugin(gctx, "reflect")
+	reflectPlugin, err := s.store.GetPlugin(gctx, "reflect")
+	if err != nil {
+		slog.Warn("reflect: could not load plugin config, skipping", "error", err)
+	}
 	if reflectPlugin.Enabled {
 		svc := reflect.New(reflect.Config{
 			DB:        s.db,
