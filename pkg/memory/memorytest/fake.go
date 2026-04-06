@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/memory"
@@ -447,8 +448,9 @@ func (f *Fake) ListUnreviewed(_ context.Context, agentID string, limit int) ([]m
 // ---------------------------------------------------------------------------
 
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	if utf8.RuneCountInString(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen]
+	runes := []rune(s)
+	return string(runes[:maxLen])
 }
