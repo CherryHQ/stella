@@ -2,6 +2,8 @@ package reflect
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/vaayne/anna/internal/db/sqlc"
@@ -17,17 +19,21 @@ func newWatermarkStore(q *sqlc.Queries) *watermarkStore {
 }
 
 // get returns the last reviewed timestamp for a session.
-// Returns zero time if never reviewed.
-func (ws *watermarkStore) get(ctx context.Context, sessionID string) time.Time {
+// Returns zero time and nil error if never reviewed (sql.ErrNoRows).
+// Returns a non-nil error for actual DB failures.
+func (ws *watermarkStore) get(ctx context.Context, sessionID string) (time.Time, error) {
 	val, err := ws.q.GetReflectWatermark(ctx, sessionID)
+	if err == sql.ErrNoRows {
+		return time.Time{}, nil
+	}
 	if err != nil {
-		return time.Time{}
+		return time.Time{}, fmt.Errorf("get watermark %s: %w", sessionID, err)
 	}
 	t, err := time.Parse("2006-01-02 15:04:05", val)
 	if err != nil {
-		return time.Time{}
+		return time.Time{}, fmt.Errorf("parse watermark %s: %w", sessionID, err)
 	}
-	return t
+	return t, nil
 }
 
 // set records the last reviewed timestamp for a session.

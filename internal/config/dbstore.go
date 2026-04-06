@@ -561,7 +561,7 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 		ID:      "reflect",
 		Kind:    "reflect",
 		Name:    "reflect",
-		Enabled: 1,
+		Enabled: 0,
 		Config:  `{}`,
 	}); err != nil {
 		return fmt.Errorf("seed: plugin reflect: %w", err)
