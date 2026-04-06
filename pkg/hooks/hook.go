@@ -146,6 +146,11 @@ type PostMemoryCallContext struct {
 	TokenDelta   int // Compact: tokens saved (negative = reduction)
 	SummaryCount int // Compact: summaries created; Stats: total summaries
 	ResultCount  int // Search: number of results
+	// Detail contains a human-readable dump of the operation's content.
+	// Only populated when verbose tracing is enabled. Empty in normal mode.
+	// Append: message roles/previews. Assemble: returned messages.
+	// Search: query + results. Profile: content. Compact: result breakdown.
+	Detail string
 }
 
 // PostMemoryCallHook observes memory operations after execution.
