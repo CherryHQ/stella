@@ -317,6 +317,25 @@ func rowToToolResult(msg sqlc.CtxMessage) ai.ToolResultMessage {
 }
 
 // estimateMessageTokens returns a rough token count for an ai.Message.
+// For assistant messages, includes tool call names and arguments in the estimate.
 func estimateMessageTokens(msg ai.Message) int {
-	return memory.EstimateTokens(memory.MessageText(msg))
+	switch m := msg.(type) {
+	case ai.AssistantMessage:
+		total := 0
+		for _, block := range m.Content {
+			switch b := block.(type) {
+			case ai.TextContent:
+				total += memory.EstimateTokens(b.Text)
+			case ai.ToolCall:
+				total += memory.EstimateTokens(b.Name)
+				if b.Arguments != nil {
+					data, _ := json.Marshal(b.Arguments)
+					total += memory.EstimateTokens(string(data))
+				}
+			}
+		}
+		return total
+	default:
+		return memory.EstimateTokens(memory.MessageText(msg))
+	}
 }
