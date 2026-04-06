@@ -5,7 +5,6 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,9 +13,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
 	ucli "github.com/urfave/cli/v2"
+	"github.com/vaayne/anna/pkg/httpclient"
 )
 
 const (
@@ -26,7 +25,7 @@ const (
 
 var (
 	version             = "dev"
-	upgradeHTTPClient   = &http.Client{Timeout: 30 * time.Second}
+	upgradeHTTPClient   = httpclient.New()
 	upgradeAPIBaseURL   = "https://api.github.com"
 	upgradeUserAgent    = "anna-upgrade"
 	errUnsupportedAsset = errors.New("no release asset for current platform")
@@ -114,33 +113,21 @@ func defaultInstallDir() (string, error) {
 	return filepath.Join(home, ".local", "bin"), nil
 }
 
-func fetchLatestRelease(ctx context.Context) (release *githubRelease, err error) {
+func fetchLatestRelease(ctx context.Context) (*githubRelease, error) {
 	url := strings.TrimRight(upgradeAPIBaseURL, "/") + "/repos/" + githubOwner + "/" + githubRepo + "/releases/latest"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build release request: %w", err)
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", upgradeUserAgent)
 
-	resp, err := upgradeHTTPClient.Do(req)
+	var parsed githubRelease
+	resp, err := upgradeHTTPClient.R().
+		SetContext(ctx).
+		SetHeader("Accept", "application/vnd.github+json").
+		SetHeader("User-Agent", upgradeUserAgent).
+		SetResult(&parsed).
+		Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("fetch latest release: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("close release response body: %w", closeErr)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		return nil, fmt.Errorf("fetch latest release: unexpected status %s: %s", resp.Status, strings.TrimSpace(string(body)))
-	}
-
-	var parsed githubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, fmt.Errorf("decode release response: %w", err)
+	if resp.StatusCode() != http.StatusOK {
+		return nil, fmt.Errorf("fetch latest release: unexpected status %d: %s", resp.StatusCode(), strings.TrimSpace(resp.String()))
 	}
 	if normalizeVersion(parsed.TagName) == "" {
 		return nil, fmt.Errorf("latest release tag %q is invalid", parsed.TagName)
@@ -232,38 +219,17 @@ func installReleaseAsset(ctx context.Context, asset githubReleaseAsset, installD
 	return targetPath, nil
 }
 
-func downloadFile(ctx context.Context, url, dest string) (err error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return fmt.Errorf("build asset request: %w", err)
-	}
-	req.Header.Set("User-Agent", upgradeUserAgent)
-
-	resp, err := upgradeHTTPClient.Do(req)
+func downloadFile(ctx context.Context, url, dest string) error {
+	resp, err := upgradeHTTPClient.R().
+		SetContext(ctx).
+		SetHeader("User-Agent", upgradeUserAgent).
+		SetOutput(dest).
+		Get(url)
 	if err != nil {
 		return fmt.Errorf("download asset: %w", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("close asset response body: %w", closeErr)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		return fmt.Errorf("download asset: unexpected status %s: %s", resp.Status, strings.TrimSpace(string(body)))
-	}
-
-	out, err := os.Create(dest)
-	if err != nil {
-		return fmt.Errorf("create archive file: %w", err)
-	}
-	if _, err := io.Copy(out, resp.Body); err != nil {
-		_ = out.Close()
-		return fmt.Errorf("write archive file: %w", err)
-	}
-	if err := out.Close(); err != nil {
-		return fmt.Errorf("close archive file: %w", err)
+	if resp.StatusCode() != http.StatusOK {
+		return fmt.Errorf("download asset: unexpected status %d", resp.StatusCode())
 	}
 	return nil
 }

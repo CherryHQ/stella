@@ -1,19 +1,17 @@
 package weixin
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
-	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/go-resty/resty/v2"
+	"github.com/vaayne/anna/pkg/httpclient"
 )
 
 const (
@@ -44,7 +42,7 @@ type Client struct {
 	baseURL    string
 	cdnBaseURL string
 	token      string
-	httpClient *http.Client
+	httpClient *resty.Client
 }
 
 // NewClient creates a new iLink API client.
@@ -59,7 +57,7 @@ func NewClient(baseURL, cdnBaseURL, token string) *Client {
 		baseURL:    baseURL,
 		cdnBaseURL: cdnBaseURL,
 		token:      token,
-		httpClient: &http.Client{Timeout: defaultTimeout},
+		httpClient: httpclient.NewWithTimeout(defaultTimeout),
 	}
 }
 
@@ -73,59 +71,50 @@ func randomWechatUIN() string {
 	return base64.StdEncoding.EncodeToString([]byte(dec))
 }
 
-// commonHeaders sets the required headers for all business POST requests.
-func (c *Client) commonHeaders(req *http.Request) {
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("AuthorizationType", authorizationType)
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("X-WECHAT-UIN", randomWechatUIN())
+// commonHeaders returns the required headers for all business POST requests.
+func (c *Client) commonHeaders() map[string]string {
+	return map[string]string{
+		"Content-Type":      "application/json",
+		"AuthorizationType": authorizationType,
+		"Authorization":     "Bearer " + c.token,
+		"X-WECHAT-UIN":      randomWechatUIN(),
+	}
 }
 
 // GetQRCode requests a new QR code for login.
 func (c *Client) GetQRCode(skRouteTag string) (*QRCodeResponse, error) {
-	u := c.baseURL + "/ilink/bot/get_bot_qrcode?bot_type=3"
-	req, err := http.NewRequest(http.MethodGet, u, nil)
-	if err != nil {
-		return nil, fmt.Errorf("weixin: build qrcode request: %w", err)
-	}
+	r := c.httpClient.R()
 	if skRouteTag != "" {
-		req.Header.Set("SKRouteTag", skRouteTag)
+		r.SetHeader("SKRouteTag", skRouteTag)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	var result QRCodeResponse
+	resp, err := r.SetResult(&result).Get(c.baseURL + "/ilink/bot/get_bot_qrcode?bot_type=3")
 	if err != nil {
 		return nil, fmt.Errorf("weixin: get qrcode: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	var result QRCodeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("weixin: decode qrcode response: %w", err)
+	if resp.IsError() {
+		return nil, fmt.Errorf("weixin: get qrcode: HTTP %d", resp.StatusCode())
 	}
 	return &result, nil
 }
 
 // GetQRCodeStatus polls the QR code scan status.
 func (c *Client) GetQRCodeStatus(qrcode, skRouteTag string) (*QRCodeStatusResponse, error) {
-	u := c.baseURL + "/ilink/bot/get_qrcode_status?qrcode=" + url.QueryEscape(qrcode)
-	req, err := http.NewRequest(http.MethodGet, u, nil)
-	if err != nil {
-		return nil, fmt.Errorf("weixin: build qrcode status request: %w", err)
-	}
-	req.Header.Set("iLink-App-ClientVersion", "1")
+	r := c.httpClient.R().
+		SetHeader("iLink-App-ClientVersion", "1").
+		SetQueryParam("qrcode", qrcode)
 	if skRouteTag != "" {
-		req.Header.Set("SKRouteTag", skRouteTag)
+		r.SetHeader("SKRouteTag", skRouteTag)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	var result QRCodeStatusResponse
+	resp, err := r.SetResult(&result).Get(c.baseURL + "/ilink/bot/get_qrcode_status")
 	if err != nil {
 		return nil, fmt.Errorf("weixin: get qrcode status: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	var result QRCodeStatusResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("weixin: decode qrcode status: %w", err)
+	if resp.IsError() {
+		return nil, fmt.Errorf("weixin: get qrcode status: HTTP %d", resp.StatusCode())
 	}
 	return &result, nil
 }
@@ -142,28 +131,20 @@ func (c *Client) GetUpdates(buf, channelVersion string, timeout time.Duration) (
 		BaseInfo:      BaseInfo{ChannelVersion: channelVersion},
 	}
 
-	data, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("weixin: marshal getupdates: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/ilink/bot/getupdates", bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("weixin: build getupdates request: %w", err)
-	}
-	c.commonHeaders(req)
-
 	// Use a per-request client with adaptive timeout for long-polling.
-	client := &http.Client{Timeout: timeout}
-	resp, err := client.Do(req)
+	longPollClient := httpclient.NewWithTimeout(timeout)
+
+	var result GetUpdatesResponse
+	resp, err := longPollClient.R().
+		SetHeaders(c.commonHeaders()).
+		SetBody(body).
+		SetResult(&result).
+		Post(c.baseURL + "/ilink/bot/getupdates")
 	if err != nil {
 		return nil, fmt.Errorf("weixin: getupdates: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	var result GetUpdatesResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("weixin: decode getupdates: %w", err)
+	if resp.IsError() {
+		return nil, fmt.Errorf("weixin: getupdates: HTTP %d", resp.StatusCode())
 	}
 
 	if err := checkError(result.Ret, result.ErrCode, result.ErrMsg); err != nil {
@@ -184,27 +165,14 @@ func (c *Client) SendMessage(msg WeixinMessage, channelVersion string) error {
 		BaseInfo: BaseInfo{ChannelVersion: channelVersion},
 	}
 
-	data, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("weixin: marshal sendmessage: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/ilink/bot/sendmessage", bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("weixin: build sendmessage request: %w", err)
-	}
-	c.commonHeaders(req)
-
-	resp, err := c.httpClient.Do(req)
+	var result SendMessageResponse
+	_, err := c.httpClient.R().
+		SetHeaders(c.commonHeaders()).
+		SetBody(body).
+		SetResult(&result).
+		Post(c.baseURL + "/ilink/bot/sendmessage")
 	if err != nil {
 		return fmt.Errorf("weixin: sendmessage: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	var result SendMessageResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		// SendMessageResp may be empty on success.
-		return nil
 	}
 
 	return checkError(result.Ret, result.ErrCode, result.ErrMsg)
@@ -222,26 +190,17 @@ func (c *Client) GetConfig(userID, contextToken, channelVersion string) (*GetCon
 		BaseInfo:     BaseInfo{ChannelVersion: channelVersion},
 	}
 
-	data, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("weixin: marshal getconfig: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/ilink/bot/getconfig", bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("weixin: build getconfig request: %w", err)
-	}
-	c.commonHeaders(req)
-
-	resp, err := c.httpClient.Do(req)
+	var result GetConfigResponse
+	resp, err := c.httpClient.R().
+		SetHeaders(c.commonHeaders()).
+		SetBody(body).
+		SetResult(&result).
+		Post(c.baseURL + "/ilink/bot/getconfig")
 	if err != nil {
 		return nil, fmt.Errorf("weixin: getconfig: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	var result GetConfigResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("weixin: decode getconfig: %w", err)
+	if resp.IsError() {
+		return nil, fmt.Errorf("weixin: getconfig: HTTP %d", resp.StatusCode())
 	}
 
 	if err := checkError(result.Ret, result.ErrCode, result.ErrMsg); err != nil {
@@ -265,26 +224,14 @@ func (c *Client) SendTyping(userID, typingTicket string, status int, channelVers
 		BaseInfo:     BaseInfo{ChannelVersion: channelVersion},
 	}
 
-	data, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("weixin: marshal sendtyping: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/ilink/bot/sendtyping", bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("weixin: build sendtyping request: %w", err)
-	}
-	c.commonHeaders(req)
-
-	resp, err := c.httpClient.Do(req)
+	var result SendTypingResponse
+	_, err := c.httpClient.R().
+		SetHeaders(c.commonHeaders()).
+		SetBody(body).
+		SetResult(&result).
+		Post(c.baseURL + "/ilink/bot/sendtyping")
 	if err != nil {
 		return fmt.Errorf("weixin: sendtyping: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	var result SendTypingResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil
 	}
 
 	return checkError(result.Ret, result.ErrCode, result.ErrMsg)
@@ -305,31 +252,17 @@ func (c *Client) GetUploadURL(params UploadParams, channelVersion string) (*GetU
 		BaseInfo:     BaseInfo{ChannelVersion: channelVersion},
 	}
 
-	data, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("weixin: marshal getuploadurl: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/ilink/bot/getuploadurl", bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("weixin: build getuploadurl request: %w", err)
-	}
-	c.commonHeaders(req)
-
-	resp, err := c.httpClient.Do(req)
+	var result GetUploadURLResponse
+	resp, err := c.httpClient.R().
+		SetHeaders(c.commonHeaders()).
+		SetBody(reqBody).
+		SetResult(&result).
+		Post(c.baseURL + "/ilink/bot/getuploadurl")
 	if err != nil {
 		return nil, fmt.Errorf("weixin: getuploadurl: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("weixin: read getuploadurl response: %w", err)
-	}
-
-	var result GetUploadURLResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("weixin: decode getuploadurl: %w", err)
+	if resp.IsError() {
+		return nil, fmt.Errorf("weixin: getuploadurl: HTTP %d", resp.StatusCode())
 	}
 
 	if err := checkError(result.Ret, result.ErrCode, result.ErrMsg); err != nil {

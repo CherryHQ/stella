@@ -1,18 +1,19 @@
 package webfetch
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	readability "codeberg.org/readeck/go-readability/v2"
 	md "github.com/JohannesKaufmann/html-to-markdown"
+	"github.com/go-resty/resty/v2"
+	"github.com/vaayne/anna/pkg/httpclient"
 	"github.com/vaayne/anna/pkg/tools"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 )
@@ -44,13 +45,13 @@ type fetchResult struct {
 
 // WebFetchTool fetches a URL, extracts readable content, and returns it in the requested format.
 type WebFetchTool struct {
-	client *http.Client
+	client *resty.Client
 }
 
 // New creates a new WebFetchTool.
 func New() *WebFetchTool {
 	return &WebFetchTool{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: httpclient.New(),
 	}
 }
 
@@ -125,44 +126,37 @@ func acceptHeader(format string) string {
 }
 
 func (t *WebFetchTool) fetch(ctx context.Context, rawURL string, parsed *url.URL, format string) (fetchResult, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	resp, err := t.client.R().
+		SetContext(ctx).
+		SetHeader("User-Agent", "Mozilla/5.0 (compatible; Anna/1.0)").
+		SetHeader("Accept", acceptHeader(format)).
+		Get(rawURL)
 	if err != nil {
 		return fetchResult{}, fmt.Errorf("webfetch: %w", err)
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Anna/1.0)")
-	req.Header.Set("Accept", acceptHeader(format))
 
-	resp, err := t.client.Do(req)
-	if err != nil {
-		return fetchResult{}, fmt.Errorf("webfetch: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode >= 400 {
-		return fetchResult{}, fmt.Errorf("webfetch: HTTP %d %s", resp.StatusCode, resp.Status)
+	if resp.StatusCode() >= http.StatusBadRequest {
+		return fetchResult{}, fmt.Errorf("webfetch: HTTP %d %s", resp.StatusCode(), resp.Status())
 	}
 
-	body := io.LimitReader(resp.Body, maxBodySize)
-	mediaType := parseMediaType(resp.Header.Get("Content-Type"))
+	body := resp.Body()
+	if len(body) > maxBodySize {
+		body = body[:maxBodySize]
+	}
+	mediaType := parseMediaType(resp.Header().Get("Content-Type"))
 
 	// If the server returned the preferred format directly, use it without conversion.
 	if (format == formatMarkdown && mediaType == "text/markdown") ||
 		(format == formatJSON && mediaType == "application/json") {
-		data, err := io.ReadAll(body)
-		if err != nil {
-			return fetchResult{}, fmt.Errorf("webfetch: read body: %w", err)
-		}
-		return fetchResult{rawContent: string(data)}, nil
+		return fetchResult{rawContent: string(body)}, nil
 	}
 
-	article, err := readability.FromReader(body, parsed)
+	article, err := readability.FromReader(bytes.NewReader(body), parsed)
 	if err != nil {
 		return fetchResult{}, fmt.Errorf("webfetch: readability parse failed: %w", err)
 	}
 
 	if article.Node == nil {
-		// Readability parsed the HTML but found no extractable content.
-		// Return whatever metadata was found so the LLM has something useful.
 		return fetchResult{rawContent: buildNoContentMessage(rawURL, article)}, nil
 	}
 
