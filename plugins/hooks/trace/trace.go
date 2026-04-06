@@ -19,6 +19,10 @@ func init() {
 	})
 }
 
+// levelTrace is below slog.LevelDebug. When enabled, memory traces include
+// the full Detail field (message content, search results, profile text).
+const levelTrace = slog.Level(-8)
+
 // Hook logs LLM and tool call details for debugging.
 type Hook struct {
 	log *slog.Logger
@@ -126,6 +130,9 @@ func (h *Hook) OnPostMemoryCall(_ context.Context, hctx *hooks.PostMemoryCallCon
 	}
 	if hctx.Error != nil {
 		attrs = append(attrs, "error", hctx.Error)
+	}
+	if hctx.Detail != "" && h.log.Enabled(context.Background(), levelTrace) {
+		attrs = append(attrs, "detail", hctx.Detail)
 	}
 	h.log.Info("post_memory_call", attrs...)
 }
