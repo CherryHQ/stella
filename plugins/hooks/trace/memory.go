@@ -68,8 +68,8 @@ func (h *Hook) OnPostMemoryCall(_ context.Context, hctx *hooks.PostMemoryCallCon
 		parentCtx = st.turnCtx
 	}
 
-	startTime := time.Now().Add(-hctx.Duration)
 	spanAttrs := []attribute.KeyValue{
+		attribute.Float64("anna.memory.duration_s", hctx.Duration.Seconds()),
 		attribute.String("anna.memory.op", string(hctx.Op)),
 		attribute.String("anna.memory.session_id", hctx.SessionID),
 		attribute.Int64("user_id", hctx.UserID),
@@ -92,13 +92,12 @@ func (h *Hook) OnPostMemoryCall(_ context.Context, hctx *hooks.PostMemoryCallCon
 	}
 
 	_, span := h.tracer.Start(parentCtx, fmt.Sprintf("memory.%s", hctx.Op),
-		trace.WithTimestamp(startTime),
 		trace.WithAttributes(spanAttrs...),
 	)
 	if hctx.Error != nil {
 		span.RecordError(hctx.Error)
 		span.SetStatus(codes.Error, hctx.Error.Error())
 	}
-	span.End(trace.WithTimestamp(time.Now()))
+	span.End()
 	st.lastActive = time.Now()
 }
