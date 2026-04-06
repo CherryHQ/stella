@@ -17,7 +17,7 @@ Note: Core tools (`read`, `bash`, `edit`, `write`) are always enabled and are no
 
 ## Built-in Plugins
 
-Anna ships with 9 built-in plugins:
+Anna ships with 10 built-in plugins:
 
 | Kind     | Name            | Description                                          |
 | -------- | --------------- | ---------------------------------------------------- |
@@ -26,10 +26,13 @@ Anna ships with 9 built-in plugins:
 | channel  | qq              | QQ bot                                               |
 | channel  | feishu          | Feishu (Lark) bot                                    |
 | channel  | weixin          | WeChat bot (via iLink)                               |
+| hook     | trace           | Structured logging + optional OpenTelemetry tracing  |
 | hook     | rtk             | Request tracking and cost logging                    |
 | provider | anthropic       | Anthropic Messages API (Claude models)               |
 | provider | openai          | OpenAI Chat Completions API (GPT models)             |
 | provider | openai-response | OpenAI Responses API (compatible services)           |
+
+See the [Plugins](/docs/plugins) section for detailed documentation on individual plugins.
 
 ## Plugin Architecture
 
@@ -53,6 +56,7 @@ plugins/
 │   └── weixin/                     # Channel: WeChat bot
 ├── hooks/
 │   ├── registry.go                 # Hook plugin registry
+│   ├── trace/                      # Hook: structured logging + OTel tracing
 │   └── rtk/                        # Hook: request tracking
 └── providers/
     ├── registry.go                 # Provider plugin registry
