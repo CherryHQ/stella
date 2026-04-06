@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/db/sqlc"
@@ -173,6 +174,12 @@ func (s *Server) listProfileMemories(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	defaultSoul := runner.DefaultAgentSoul()
+	for i := range memories {
+		if memories[i].Soul == "" {
+			memories[i].Soul = defaultSoul
+		}
+	}
 	writeData(w, http.StatusOK, memories)
 }
 
@@ -196,6 +203,33 @@ func (s *Server) setProfileMemory(w http.ResponseWriter, r *http.Request) {
 		UserID:  info.UserID,
 		AgentID: agentID,
 		Content: body.Content,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, map[string]string{"status": "saved"})
+}
+
+// setProfileSoul handles PUT /api/auth/profile/soul/{agentId}.
+func (s *Server) setProfileSoul(w http.ResponseWriter, r *http.Request) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	agentID := r.PathValue("agentId")
+	var body struct {
+		Soul string `json:"soul"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if err := s.q.UpsertAgentSoul(r.Context(), sqlc.UpsertAgentSoulParams{
+		UserID:  info.UserID,
+		AgentID: agentID,
+		Soul:    body.Soul,
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

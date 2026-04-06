@@ -88,8 +88,10 @@ export function register(Alpine) {
         this.agents = agents.map(a => ({
           ...a,
           _showMemory: false,
-          _memory: undefined,
-          _memoryDraft: '',
+          _soul: '',
+          _soulDraft: '',
+          _profile: '',
+          _profileDraft: '',
           _memoryLoaded: false,
         }))
       } catch (e) {
@@ -189,7 +191,7 @@ export function register(Alpine) {
       }
     },
 
-    // --- Per-user memory (own memory for each agent) ---
+    // --- Per-user personalisation (soul + profile for each agent) ---
 
     async toggleMemory(a) {
       a._showMemory = !a._showMemory
@@ -202,32 +204,35 @@ export function register(Alpine) {
       try {
         const mems = await api('GET', '/api/auth/profile/memories') || []
         const mem = mems.find(m => m.agent_id === a.id)
-        a._memory = mem ? mem.content : ''
-        a._memoryDraft = a._memory
+        a._soul = mem ? mem.soul : ''
+        a._soulDraft = a._soul
+        a._profile = mem ? mem.content : ''
+        a._profileDraft = a._profile
         a._memoryLoaded = true
       } catch (e) {
-        a._memory = ''
-        a._memoryDraft = ''
+        a._soul = ''
+        a._soulDraft = ''
+        a._profile = ''
+        a._profileDraft = ''
         a._memoryLoaded = true
       }
     },
 
-    async saveMyMemory(a) {
+    async saveMySoul(a) {
       try {
-        await api('PUT', '/api/auth/profile/memories/' + a.id, { content: a._memoryDraft })
-        a._memory = a._memoryDraft
-        this.$store.toast.show('Saved')
+        await api('PUT', '/api/auth/profile/soul/' + a.id, { soul: a._soulDraft })
+        a._soul = a._soulDraft
+        this.$store.toast.show('Soul saved')
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       }
     },
 
-    async deleteMyMemory(a) {
+    async saveMyProfile(a) {
       try {
-        await api('DELETE', '/api/auth/profile/memories/' + a.id)
-        a._memory = ''
-        a._memoryDraft = ''
-        this.$store.toast.show('Deleted')
+        await api('PUT', '/api/auth/profile/memories/' + a.id, { content: a._profileDraft })
+        a._profile = a._profileDraft
+        this.$store.toast.show('Profile saved')
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       }

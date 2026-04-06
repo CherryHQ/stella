@@ -111,7 +111,7 @@ func AgentsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div><!-- System prompt --><div class=\"mb-4\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div><!-- System prompt (readonly for non-editors) --><div class=\"mb-4\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -127,7 +127,7 @@ func AgentsPage() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<textarea x-model=\"form.system_prompt\" rows=\"4\" class=\"textarea textarea-bordered w-full text-sm font-mono resize-y\"></textarea>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<textarea x-model=\"form.system_prompt\" rows=\"4\" class=\"textarea textarea-bordered w-full text-sm font-mono resize-y\" :disabled=\"editingId && !canEditAgent({creator_id: form.creator_id})\"></textarea>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -145,7 +145,7 @@ func AgentsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</div><!-- Agent list --><div class=\"divide-y divide-base-300\"><template x-for=\"a in agents\" :key=\"a.id\"><div class=\"py-5 group\"><div class=\"flex items-baseline justify-between\"><div class=\"flex items-baseline gap-3\"><span class=\"font-medium\" x-text=\"a.name\"></span> <span class=\"text-xs font-mono text-secondary\" x-text=\"a.id\"></span> <span class=\"badge badge-sm\" :class=\"a.enabled ? 'badge-success' : 'badge-ghost'\" x-text=\"a.enabled ? 'on' : 'off'\"></span> <span x-show=\"a.scope === 'restricted'\" class=\"badge badge-sm badge-warning\">restricted</span></div><div class=\"flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity\" x-show=\"canEditAgent(a)\"><button x-show=\"isAdmin && a.scope === 'restricted'\" @click=\"manageUsers(a)\" class=\"btn btn-ghost btn-xs text-secondary hover:text-primary\">users</button> <button @click=\"editAgent(a)\" class=\"btn btn-ghost btn-xs text-secondary hover:text-primary\">edit</button> <button @click=\"confirmDelete('Delete agent ' + a.id + '?', () => doDeleteAgent(a.id))\" class=\"btn btn-ghost btn-xs text-secondary hover:text-error\">remove</button></div></div><div class=\"text-sm font-mono text-secondary mt-1\" x-text=\"a.model\"></div><!-- My Memory --><div class=\"mt-2\"><button @click=\"toggleMemory(a)\" class=\"text-xs text-secondary hover:text-primary transition-colors cursor-pointer flex items-center gap-1\"><span x-text=\"a._showMemory ? '▾' : '▸'\"></span> <span>My Memory</span></button><div x-show=\"a._showMemory\" x-transition x-cloak class=\"mt-3 pl-4 border-l-2 border-base-300\"><template x-if=\"a._memoryLoaded\"><div><textarea x-model=\"a._memoryDraft\" rows=\"3\" placeholder=\"Add personal memory for this agent...\" class=\"textarea textarea-bordered w-full text-xs font-mono resize-y\"></textarea><div class=\"flex items-center gap-2 mt-1\"><template x-if=\"a._memory !== ''\"><button @click=\"if (confirm('Delete your memory for ' + a.id + '?')) deleteMyMemory(a)\" class=\"btn btn-ghost btn-xs text-secondary hover:text-error\">delete</button></template><button @click=\"saveMyMemory(a)\" :disabled=\"a._memoryDraft === a._memory\" class=\"btn btn-ghost btn-xs text-primary disabled:opacity-30\">save</button></div></div></template><template x-if=\"!a._memoryLoaded\"><div class=\"flex justify-center py-2\"><span class=\"loading loading-spinner loading-xs\"></span></div></template></div></div></div></template></div></div><!-- User assignment modal --><div x-show=\"showUserModal\" x-cloak class=\"fixed inset-0 z-50 flex items-center justify-center bg-black/40\"><div class=\"card bg-base-100 shadow-xl w-full max-w-md\" @click.away=\"showUserModal = false\"><div class=\"card-body\"><h3 class=\"font-semibold text-sm\" x-text=\"'Manage users for ' + userModalAgent\"></h3><!-- Assigned users list --><div class=\"mt-4 space-y-2\"><template x-for=\"u in assignedUsers\" :key=\"u.id\"><div class=\"flex items-center justify-between py-1\"><span class=\"text-sm font-mono\" x-text=\"u.username\"></span> <button @click=\"removeUser(u.id)\" class=\"btn btn-ghost btn-xs text-error\">remove</button></div></template><div x-show=\"assignedUsers.length === 0\" class=\"text-sm text-base-content/50\">No users assigned.</div></div><!-- Add user --><div class=\"mt-4 flex gap-2\"><select x-model=\"addUserId\" class=\"select select-bordered select-sm flex-1\"><option value=\"\">Select user...</option><template x-for=\"u in availableUsers\" :key=\"u.id\"><option :value=\"u.id\" x-text=\"u.username\"></option></template></select> <button @click=\"addUser()\" class=\"btn btn-primary btn-sm\" :disabled=\"!addUserId\">Add</button></div><div class=\"card-actions justify-end mt-4\"><button @click=\"showUserModal = false\" class=\"btn btn-ghost btn-sm\">Close</button></div></div></div></div><!-- Confirm dialog --><div x-show=\"confirmMsg\" x-cloak class=\"fixed inset-0 z-50 flex items-center justify-center bg-black/40\"><div class=\"card bg-base-100 shadow-xl w-full max-w-sm\" @click.away=\"confirmMsg = ''\"><div class=\"card-body\"><p class=\"text-sm\" x-text=\"confirmMsg\"></p><div class=\"card-actions justify-end mt-4\"><button @click=\"confirmMsg = ''\" class=\"btn btn-ghost btn-sm\">Cancel</button> <button @click=\"confirmAction(); confirmMsg = ''\" class=\"btn btn-error btn-sm\">Delete</button></div></div></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</div><!-- Agent list --><div class=\"divide-y divide-base-300\"><template x-for=\"a in agents\" :key=\"a.id\"><div class=\"py-5 group\"><div class=\"flex items-baseline justify-between\"><div class=\"flex items-baseline gap-3\"><span class=\"font-medium\" x-text=\"a.name\"></span> <span class=\"text-xs font-mono text-secondary\" x-text=\"a.id\"></span> <span class=\"badge badge-sm\" :class=\"a.enabled ? 'badge-success' : 'badge-ghost'\" x-text=\"a.enabled ? 'on' : 'off'\"></span> <span x-show=\"a.scope === 'restricted'\" class=\"badge badge-sm badge-warning\">restricted</span></div><div class=\"flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity\" x-show=\"canEditAgent(a)\"><button x-show=\"isAdmin && a.scope === 'restricted'\" @click=\"manageUsers(a)\" class=\"btn btn-ghost btn-xs text-secondary hover:text-primary\">users</button> <button @click=\"editAgent(a)\" class=\"btn btn-ghost btn-xs text-secondary hover:text-primary\">edit</button> <button @click=\"confirmDelete('Delete agent ' + a.id + '?', () => doDeleteAgent(a.id))\" class=\"btn btn-ghost btn-xs text-secondary hover:text-error\">remove</button></div></div><div class=\"text-sm font-mono text-secondary mt-1\" x-text=\"a.model\"></div><!-- Per-user sections: Agent Soul + User Profile --><div class=\"mt-2\"><button @click=\"toggleMemory(a)\" class=\"text-xs text-secondary hover:text-primary transition-colors cursor-pointer flex items-center gap-1\"><span x-text=\"a._showMemory ? '▾' : '▸'\"></span> <span>Personalisation</span></button><div x-show=\"a._showMemory\" x-transition x-cloak class=\"mt-3 pl-4 border-l-2 border-base-300 space-y-4\"><template x-if=\"a._memoryLoaded\"><div class=\"space-y-4\"><!-- Agent Soul --><div><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-1\">Agent Soul</p><p class=\"text-xs text-base-content/50 mb-1\">Personality and behavior for this agent (your version).</p><textarea x-model=\"a._soulDraft\" rows=\"3\" placeholder=\"Customise this agent's personality...\" class=\"textarea textarea-bordered w-full text-xs font-mono resize-y\"></textarea><div class=\"flex items-center gap-2 mt-1\"><button @click=\"saveMySoul(a)\" :disabled=\"a._soulDraft === a._soul\" class=\"btn btn-ghost btn-xs text-primary disabled:opacity-30\">save</button></div></div><!-- User Profile --><div><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-1\">User Profile</p><p class=\"text-xs text-base-content/50 mb-1\">What the agent knows about you across conversations.</p><textarea x-model=\"a._profileDraft\" rows=\"3\" placeholder=\"Add context about yourself for this agent...\" class=\"textarea textarea-bordered w-full text-xs font-mono resize-y\"></textarea><div class=\"flex items-center gap-2 mt-1\"><button @click=\"saveMyProfile(a)\" :disabled=\"a._profileDraft === a._profile\" class=\"btn btn-ghost btn-xs text-primary disabled:opacity-30\">save</button></div></div></div></template><template x-if=\"!a._memoryLoaded\"><div class=\"flex justify-center py-2\"><span class=\"loading loading-spinner loading-xs\"></span></div></template></div></div></div></template></div></div><!-- User assignment modal --><div x-show=\"showUserModal\" x-cloak class=\"fixed inset-0 z-50 flex items-center justify-center bg-black/40\"><div class=\"card bg-base-100 shadow-xl w-full max-w-md\" @click.away=\"showUserModal = false\"><div class=\"card-body\"><h3 class=\"font-semibold text-sm\" x-text=\"'Manage users for ' + userModalAgent\"></h3><!-- Assigned users list --><div class=\"mt-4 space-y-2\"><template x-for=\"u in assignedUsers\" :key=\"u.id\"><div class=\"flex items-center justify-between py-1\"><span class=\"text-sm font-mono\" x-text=\"u.username\"></span> <button @click=\"removeUser(u.id)\" class=\"btn btn-ghost btn-xs text-error\">remove</button></div></template><div x-show=\"assignedUsers.length === 0\" class=\"text-sm text-base-content/50\">No users assigned.</div></div><!-- Add user --><div class=\"mt-4 flex gap-2\"><select x-model=\"addUserId\" class=\"select select-bordered select-sm flex-1\"><option value=\"\">Select user...</option><template x-for=\"u in availableUsers\" :key=\"u.id\"><option :value=\"u.id\" x-text=\"u.username\"></option></template></select> <button @click=\"addUser()\" class=\"btn btn-primary btn-sm\" :disabled=\"!addUserId\">Add</button></div><div class=\"card-actions justify-end mt-4\"><button @click=\"showUserModal = false\" class=\"btn btn-ghost btn-sm\">Close</button></div></div></div></div><!-- Confirm dialog --><div x-show=\"confirmMsg\" x-cloak class=\"fixed inset-0 z-50 flex items-center justify-center bg-black/40\"><div class=\"card bg-base-100 shadow-xl w-full max-w-sm\" @click.away=\"confirmMsg = ''\"><div class=\"card-body\"><p class=\"text-sm\" x-text=\"confirmMsg\"></p><div class=\"card-actions justify-end mt-4\"><button @click=\"confirmMsg = ''\" class=\"btn btn-ghost btn-sm\">Cancel</button> <button @click=\"confirmAction(); confirmMsg = ''\" class=\"btn btn-error btn-sm\">Delete</button></div></div></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -182,7 +182,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 194, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 216, Col: 53}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 		if templ_7745c5c3_Err != nil {
@@ -205,7 +205,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 201, Col: 27}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 223, Col: 27}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
@@ -218,7 +218,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field + " = $event.target.value; search = $event.target.value; open = cachedModels.length > 0")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 202, Col: 116}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 224, Col: 116}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
@@ -231,7 +231,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(placeholder)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 204, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 226, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
@@ -244,7 +244,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field + " = m; open = false")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 216, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 238, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -257,7 +257,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field + " === m ? 'text-primary' : 'text-base-content/70'")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 219, Col: 82}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 241, Col: 82}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
