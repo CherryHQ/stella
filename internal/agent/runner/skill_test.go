@@ -187,50 +187,46 @@ func TestLoadSkillsDedup(t *testing.T) {
 	}
 }
 
-func TestFormatSkillsForPrompt(t *testing.T) {
+func TestVisibleSkills(t *testing.T) {
 	skills := []Skill{
-		{Name: "web-search", Description: "Search the web", FilePath: "/skills/web-search/SKILL.md"},
-		{Name: "hidden", Description: "Secret skill", FilePath: "/skills/hidden/SKILL.md", DisableModelInvocation: true},
-		{Name: "code-review", Description: "Review code & suggest <improvements>", FilePath: "/skills/code-review/SKILL.md"},
+		{Name: "web-search", Description: "Search the web"},
+		{Name: "hidden", Description: "Secret skill", DisableModelInvocation: true},
+		{Name: "code-review", Description: "Review code"},
+		{Name: "old", Description: "Old skill", Status: SkillStatusDeprecated},
 	}
 
-	result := FormatSkillsForPrompt(skills)
+	visible := VisibleSkills(skills)
 
-	if !strings.Contains(result, "<available_skills>") {
-		t.Error("expected <available_skills> tag")
+	if len(visible) != 2 {
+		t.Fatalf("expected 2 visible skills, got %d", len(visible))
 	}
-	if !strings.Contains(result, "web-search") {
-		t.Error("expected web-search in output")
+	names := map[string]bool{}
+	for _, s := range visible {
+		names[s.Name] = true
 	}
-	if strings.Contains(result, "hidden") {
+	if !names["web-search"] {
+		t.Error("expected web-search in visible")
+	}
+	if !names["code-review"] {
+		t.Error("expected code-review in visible")
+	}
+	if names["hidden"] {
 		t.Error("hidden skill should be excluded (DisableModelInvocation)")
 	}
-	// Check XML escaping
-	if !strings.Contains(result, "&amp;") {
-		t.Error("expected & to be escaped")
-	}
-	if !strings.Contains(result, "&lt;improvements&gt;") {
-		t.Error("expected < > to be escaped")
-	}
-	// Should not contain file paths (location removed)
-	if strings.Contains(result, "/skills/web-search/SKILL.md") {
-		t.Error("should not include file path in prompt")
-	}
-	// Should reference skills tool with load action
-	if !strings.Contains(result, "skills tool") {
-		t.Error("expected skills tool reference in prompt")
+	if names["old"] {
+		t.Error("deprecated skill should be excluded")
 	}
 }
 
-func TestFormatSkillsForPromptEmpty(t *testing.T) {
-	result := FormatSkillsForPrompt(nil)
-	if result != "" {
-		t.Errorf("expected empty string for nil skills, got %q", result)
+func TestVisibleSkillsEmpty(t *testing.T) {
+	result := VisibleSkills(nil)
+	if len(result) != 0 {
+		t.Errorf("expected empty for nil skills, got %d", len(result))
 	}
 
-	result = FormatSkillsForPrompt([]Skill{{Name: "x", Description: "y", DisableModelInvocation: true}})
-	if result != "" {
-		t.Errorf("expected empty string when all skills are hidden, got %q", result)
+	result = VisibleSkills([]Skill{{Name: "x", Description: "y", DisableModelInvocation: true}})
+	if len(result) != 0 {
+		t.Errorf("expected empty when all skills are hidden, got %d", len(result))
 	}
 }
 
@@ -651,46 +647,38 @@ func TestNormalizeSkillStatus(t *testing.T) {
 	}
 }
 
-func TestFormatSkillsForPromptFiltersDeprecated(t *testing.T) {
+func TestVisibleSkillsFiltersDeprecated(t *testing.T) {
 	skills := []Skill{
 		{Name: "active-skill", Description: "Active skill", Status: SkillStatusActive},
 		{Name: "deprecated-skill", Description: "Old skill", Status: SkillStatusDeprecated},
 		{Name: "draft-skill", Description: "Draft skill", Status: SkillStatusDraft},
 	}
 
-	result := FormatSkillsForPrompt(skills)
+	visible := VisibleSkills(skills)
 
-	if !strings.Contains(result, "active-skill") {
-		t.Error("expected active-skill in output")
+	names := map[string]bool{}
+	for _, s := range visible {
+		names[s.Name] = true
 	}
-	if strings.Contains(result, "deprecated-skill") {
+	if !names["active-skill"] {
+		t.Error("expected active-skill in visible")
+	}
+	if names["deprecated-skill"] {
 		t.Error("deprecated-skill should be filtered out")
 	}
-	if !strings.Contains(result, "draft-skill") {
-		t.Error("expected draft-skill in output")
+	if !names["draft-skill"] {
+		t.Error("expected draft-skill in visible")
 	}
 }
 
-func TestFormatSkillsForPromptIncludesStatusTag(t *testing.T) {
-	skills := []Skill{
-		{Name: "my-skill", Description: "A skill", Status: SkillStatusDraft},
-	}
-
-	result := FormatSkillsForPrompt(skills)
-
-	if !strings.Contains(result, "<status>draft</status>") {
-		t.Error("expected <status>draft</status> in output")
-	}
-}
-
-func TestFormatSkillsForPromptAllDeprecated(t *testing.T) {
+func TestVisibleSkillsAllDeprecated(t *testing.T) {
 	skills := []Skill{
 		{Name: "old", Description: "Old one", Status: SkillStatusDeprecated},
 	}
 
-	result := FormatSkillsForPrompt(skills)
-	if result != "" {
-		t.Errorf("expected empty output for all-deprecated skills, got %q", result)
+	visible := VisibleSkills(skills)
+	if len(visible) != 0 {
+		t.Errorf("expected empty for all-deprecated skills, got %d", len(visible))
 	}
 }
 

@@ -33,13 +33,14 @@ Setup: `anna --open` opens a web admin panel to configure everything. All config
 
 ### System prompt layers
 
-The system prompt is composed in three layers:
+The system prompt is composed in layers:
 
-1. **Basic system prompt** — embedded default (`template/system.md`), overridden by `SYSTEM.md` in agent workspace
-2. **Agent soul prompt** — from DB `settings_agents.system_prompt`, overridden by `SOUL.md` in agent workspace
-3. **User memory** — always present from DB `ctx_agent_memory`, updated via the `memory` tool (`profile_update` action)
+1. **System prompt** — the agent's base system prompt from DB `agents.system_prompt`
+2. **Tools** — always-available tool descriptions (embedded `template/tools.md`)
+3. **Agent soul** — per-user identity/personality customisation from memory ProfileStore
+4. **User profile** — per-user facts/context from memory ProfileStore
 
-Skills and project context (AGENTS.md files) are appended after these layers.
+Skills (including draft skill guidance) and project context (AGENTS.md files) are appended after these layers.
 
 ## Topics
 
