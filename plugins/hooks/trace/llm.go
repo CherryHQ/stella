@@ -30,8 +30,10 @@ func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (h
 
 	if h.otelEnabled() {
 		h.mu.Lock()
-		st := h.getOrCreateSession(hctx.SessionID)
+		st := h.getOrCreateSession(hctx.AgentID, hctx.SessionID)
+		h.mu.Unlock()
 
+		st.mu.Lock()
 		if st.turnSpan != nil {
 			st.turnSpan.End()
 		}
@@ -60,7 +62,7 @@ func (h *Hook) OnPreLLMCall(_ context.Context, hctx *hooks.PreLLMCallContext) (h
 		)
 		st.activeOps.Add(1)
 		st.lastActive = time.Now()
-		h.mu.Unlock()
+		st.mu.Unlock()
 	}
 
 	return hooks.PreLLMCallResult{}, nil
@@ -93,14 +95,22 @@ func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) 
 	if !h.otelEnabled() {
 		return
 	}
+	key := sessionKey(hctx.AgentID, hctx.SessionID)
 	h.mu.Lock()
-	st := h.sessions[hctx.SessionID]
+	st := h.sessions[key]
 	h.mu.Unlock()
-	if st == nil || st.llmSpan == nil {
+	if st == nil {
 		return
 	}
 
+	st.mu.Lock()
 	span := st.llmSpan
+	if span == nil {
+		st.mu.Unlock()
+		return
+	}
+	st.mu.Unlock()
+
 	span.SetAttributes(
 		attribute.String("gen_ai.provider.name", hctx.Provider),
 		attribute.String("gen_ai.response.model", hctx.Model),
@@ -128,7 +138,9 @@ func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) 
 	}
 	span.End()
 
+	st.mu.Lock()
 	st.llmSpan = nil
-	st.activeOps.Add(-1)
 	st.lastActive = time.Now()
+	st.mu.Unlock()
+	st.activeOps.Add(-1)
 }
