@@ -389,7 +389,8 @@ func (h *Hook) OnPostMemoryCall(_ context.Context, hctx *hooks.PostMemoryCallCon
 	h.log.Info("post_memory_call", logAttrs...)
 
 	// OTel spans — memory has post-hook only, so backdate the span.
-	if !h.otelEnabled() {
+	// Skip ops with no session ID (e.g. ListInfo is a global query).
+	if !h.otelEnabled() || hctx.SessionID == "" {
 		return
 	}
 
