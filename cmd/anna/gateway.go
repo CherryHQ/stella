@@ -220,7 +220,11 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			Batch:     parseIntConfig(reflectPlugin.Config, "batch", 5),
 			Log:       slog.Default(),
 		})
-		go func() { _ = svc.Start(gctx) }()
+		go func() {
+			if err := svc.Start(gctx); err != nil && gctx.Err() == nil {
+				slog.Error("reflect: stopped unexpectedly", "error", err)
+			}
+		}()
 	}
 
 	waitErr := g.Wait()
