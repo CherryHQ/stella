@@ -2,9 +2,11 @@ package trace
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/vaayne/anna/pkg/hooks"
 )
@@ -19,7 +21,13 @@ func (h *Hook) OnPreAgentCall(_ context.Context, hctx *hooks.PreAgentCallContext
 
 	if h.otelEnabled() {
 		h.mu.Lock()
-		h.getOrCreateSession(hctx.SessionID)
+		st := h.getOrCreateSession(hctx.SessionID)
+		// Set identity attributes on the root chat span.
+		st.chatSpan.SetAttributes(
+			attribute.Int64("user_id", hctx.UserID),
+			attribute.String("agent_id", hctx.AgentID),
+			attribute.Int("anna.chat.message_len", hctx.MessageLen),
+		)
 		h.mu.Unlock()
 	}
 }
@@ -28,6 +36,7 @@ func (h *Hook) OnPostAgentCall(_ context.Context, hctx *hooks.PostAgentCallConte
 	attrs := []any{
 		"session_id", hctx.SessionID,
 		"agent_id", hctx.AgentID,
+		"user_id", hctx.UserID,
 		"duration", hctx.Duration.Round(time.Millisecond),
 	}
 	if hctx.Error != nil {
@@ -53,9 +62,12 @@ func (h *Hook) OnPostAgentCall(_ context.Context, hctx *hooks.PostAgentCallConte
 	// End the root chat span — the chat request is complete.
 	st.chatSpan.SetAttributes(
 		attribute.Float64("anna.chat.duration_s", hctx.Duration.Seconds()),
+		attribute.Int("anna.chat.turn_count", st.turnNum),
 	)
 	if hctx.Error != nil {
 		st.chatSpan.RecordError(hctx.Error)
+		st.chatSpan.SetStatus(codes.Error, hctx.Error.Error())
+		st.chatSpan.SetAttributes(attribute.String("error.type", fmt.Sprintf("%T", hctx.Error)))
 	}
 	st.chatSpan.End()
 	delete(h.sessions, hctx.SessionID)
