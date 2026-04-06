@@ -19,4 +19,5 @@ import (
 
 	// Plugin memory.
 	_ "github.com/vaayne/anna/plugins/memory/lcm"
+	_ "github.com/vaayne/anna/plugins/memory/simple"
 )
