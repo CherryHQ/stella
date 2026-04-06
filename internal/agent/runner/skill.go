@@ -252,36 +252,16 @@ func parseFrontmatter(content string) (skillFrontmatter, error) {
 	return fm, nil
 }
 
-// FormatSkillsForPrompt renders the available skills as XML for the system prompt.
-// Skills with DisableModelInvocation=true are excluded.
-func FormatSkillsForPrompt(skills []Skill) string {
+// VisibleSkills filters skills for prompt rendering: excludes DisableModelInvocation
+// and deprecated skills.
+func VisibleSkills(skills []Skill) []Skill {
 	var visible []Skill
 	for _, s := range skills {
 		if !s.DisableModelInvocation && s.Status != SkillStatusDeprecated {
 			visible = append(visible, s)
 		}
 	}
-
-	if len(visible) == 0 {
-		return ""
-	}
-
-	var b strings.Builder
-	b.WriteString("\n\n## Skills\n\nThe following skills provide specialized instructions for specific tasks.\n")
-	b.WriteString("Use the skills tool with action=\"load\" and name=\"<skill-name>\" to load a skill when the task matches its description.\n")
-	b.WriteString("When a skill file references a relative path, resolve it against the base_dir returned by the load action and use that absolute path in tool commands.\n")
-	b.WriteString("\n<available_skills>\n")
-
-	for _, s := range visible {
-		b.WriteString("  <skill>\n")
-		b.WriteString("    <name>" + escapeXML(s.Name) + "</name>\n")
-		b.WriteString("    <description>" + escapeXML(s.Description) + "</description>\n")
-		b.WriteString("    <status>" + escapeXML(s.Status) + "</status>\n")
-		b.WriteString("  </skill>\n")
-	}
-
-	b.WriteString("</available_skills>")
-	return b.String()
+	return visible
 }
 
 // ValidateSkillName checks a skill name against the Agent Skills spec.
