@@ -394,16 +394,12 @@ func (h *Hook) OnPostMemoryCall(_ context.Context, hctx *hooks.PostMemoryCallCon
 	}
 
 	h.mu.Lock()
-	st := h.sessions[hctx.SessionID]
+	st := h.getOrCreateSession(hctx.SessionID)
 	h.mu.Unlock()
 
-	parentCtx := context.Background()
-	if st != nil {
-		if st.turnCtx != nil {
-			parentCtx = st.turnCtx
-		} else {
-			parentCtx = st.chatCtx
-		}
+	parentCtx := st.chatCtx
+	if st.turnCtx != nil {
+		parentCtx = st.turnCtx
 	}
 
 	startTime := time.Now().Add(-hctx.Duration)
@@ -428,10 +424,7 @@ func (h *Hook) OnPostMemoryCall(_ context.Context, hctx *hooks.PostMemoryCallCon
 		span.SetStatus(codes.Error, hctx.Error.Error())
 	}
 	span.End(trace.WithTimestamp(time.Now()))
-
-	if st != nil {
-		st.lastActive = time.Now()
-	}
+	st.lastActive = time.Now()
 }
 
 // --- Internal helpers ---
