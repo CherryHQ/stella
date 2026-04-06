@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/memory"
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 // Chat sends a message in a session and streams back events.
@@ -43,6 +43,14 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 	}
 	if agentID != "" {
 		ctx = memory.WithAgentID(ctx, agentID)
+	}
+
+	// Construct a Session value for all memory provider calls.
+	memSession := memory.Session{
+		ID:      sessionID,
+		AgentID: agentID,
+		UserID:  sess.Info.UserID,
+		Channel: sess.Info.Channel,
 	}
 
 	msgText := runner.MessageText(message)
@@ -90,8 +98,10 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 	p.mu.Unlock()
 
 	// Persist updated session info (LastActive, Title).
-	if err := p.mem.SaveInfo(context.Background(), infoSnapshot); err != nil {
-		p.log.Warn("failed to save session info", "session_id", sessionID, "error", err)
+	if sm, ok := p.mem.(memory.SessionManager); ok {
+		if err := sm.SaveInfo(context.Background(), infoSnapshot); err != nil {
+			p.log.Warn("failed to save session info", "session_id", sessionID, "error", err)
+		}
 	}
 
 	// Assemble context within budget via memory engine.
@@ -99,29 +109,29 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 	// assembled history does not include it — GoRunner.Chat appends
 	// the message itself, which would otherwise create a duplicate.
 	var history []ai.Message
-	assembled, err := p.mem.Assemble(ctx, sessionID, p.compaction.MaxTokens, p.compaction.KeepTail)
+	assembled, err := p.mem.Assemble(ctx, memSession, p.compaction.MaxTokens, p.compaction.KeepTail)
 	if err != nil {
 		p.log.Warn("memory assemble failed", "session_id", sessionID, "error", err)
 	} else {
 		history = assembled
 	}
 
-	// Store user message via memory engine (after assembly to avoid duplication).
+	// Store user message via memory provider (after assembly to avoid duplication).
 	userMsg := ai.UserMessage{Content: message}
-	if err := p.mem.Ingest(ctx, sessionID, userMsg); err != nil {
-		p.log.Warn("memory ingest user message failed", "session_id", sessionID, "error", err)
+	if err := p.mem.Append(ctx, memSession, userMsg); err != nil {
+		p.log.Warn("memory append user message failed", "session_id", sessionID, "error", err)
 	}
 
 	stream := r.Chat(ctx, history, message)
 
-	go p.streamEvents(ctx, sessionID, stream, out)
+	go p.streamEvents(ctx, sessionID, memSession, stream, out)
 
 	return out
 }
 
-// streamEvents reads runner events, persists messages to the memory engine,
+// streamEvents reads runner events, persists messages to the memory provider,
 // and forwards events to the output channel.
-func (p *Pool) streamEvents(ctx context.Context, sessionID string, stream <-chan runner.Event, out chan<- runner.Event) {
+func (p *Pool) streamEvents(ctx context.Context, sessionID string, memSession memory.Session, stream <-chan runner.Event, out chan<- runner.Event) {
 	defer close(out)
 	persistCtx := context.WithoutCancel(ctx)
 	var textBuf strings.Builder
@@ -130,8 +140,8 @@ func (p *Pool) streamEvents(ctx context.Context, sessionID string, stream <-chan
 			// Persist any buffered text before returning on error.
 			if textBuf.Len() > 0 {
 				flushMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: textBuf.String()}}}
-				if err := p.mem.Ingest(persistCtx, sessionID, flushMsg); err != nil {
-					p.log.Warn("memory ingest error-flush failed", "session_id", sessionID, "error", err)
+				if err := p.mem.Append(persistCtx, memSession, flushMsg); err != nil {
+					p.log.Warn("memory append error-flush failed", "session_id", sessionID, "error", err)
 				}
 			}
 			out <- evt
@@ -143,13 +153,13 @@ func (p *Pool) streamEvents(ctx context.Context, sessionID string, stream <-chan
 			// Flush buffered text before storing a non-text message.
 			if textBuf.Len() > 0 {
 				flushMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: textBuf.String()}}}
-				if err := p.mem.Ingest(persistCtx, sessionID, flushMsg); err != nil {
-					p.log.Warn("memory ingest text-flush failed", "session_id", sessionID, "error", err)
+				if err := p.mem.Append(persistCtx, memSession, flushMsg); err != nil {
+					p.log.Warn("memory append text-flush failed", "session_id", sessionID, "error", err)
 				}
 				textBuf.Reset()
 			}
-			if err := p.mem.Ingest(persistCtx, sessionID, evt.Store); err != nil {
-				p.log.Warn("memory ingest store message failed", "session_id", sessionID, "error", err)
+			if err := p.mem.Append(persistCtx, memSession, evt.Store); err != nil {
+				p.log.Warn("memory append store message failed", "session_id", sessionID, "error", err)
 			}
 		}
 
@@ -169,8 +179,8 @@ func (p *Pool) streamEvents(ctx context.Context, sessionID string, stream <-chan
 	// Stream ended normally — persist the complete assistant message.
 	if textBuf.Len() > 0 {
 		finalMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: textBuf.String()}}}
-		if err := p.mem.Ingest(persistCtx, sessionID, finalMsg); err != nil {
-			p.log.Warn("memory ingest final message failed", "session_id", sessionID, "error", err)
+		if err := p.mem.Append(persistCtx, memSession, finalMsg); err != nil {
+			p.log.Warn("memory append final message failed", "session_id", sessionID, "error", err)
 		}
 	}
 }

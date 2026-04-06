@@ -12,8 +12,8 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/db/sqlc"
-	"github.com/vaayne/anna/internal/memory"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 // Server provides HTTP handlers for the admin API and templ-rendered pages.
@@ -23,7 +23,7 @@ type Server struct {
 	engine      *auth.PolicyEngine
 	rateLimiter *auth.RateLimiter
 	linkCodes   *auth.LinkCodeStore
-	mem         memory.Engine
+	mem         memory.Provider
 	poolManager *agent.PoolManager
 	db          *sql.DB
 	q           *sqlc.Queries
@@ -42,7 +42,7 @@ type Server struct {
 // New creates an admin server with all API routes mounted.
 // The linkCodes store is shared with channel bots so codes generated in the
 // admin panel can be consumed by channel handlers.
-func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Engine, db *sql.DB, linkCodes *auth.LinkCodeStore, poolManager *agent.PoolManager) *Server {
+func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Provider, db *sql.DB, linkCodes *auth.LinkCodeStore, poolManager *agent.PoolManager) *Server {
 	// Read CORS origin once at startup.
 	corsOrigin := "http://localhost:8080"
 	if val, err := store.GetSetting(context.Background(), "admin.cors_origin"); err == nil && val != "" {

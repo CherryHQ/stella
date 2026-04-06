@@ -2,7 +2,6 @@ package selfimprove
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -12,17 +11,12 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/db/sqlc"
-	"github.com/vaayne/anna/internal/memory"
 	"github.com/vaayne/anna/internal/skills"
+	"github.com/vaayne/anna/pkg/memory"
 	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 const (
-	// maxReviewMessages caps the number of messages loaded per conversation to
-	// avoid exceeding the review model's context window.
-	maxReviewMessages = 200
-
 	// defaultDraftMaxAge is the maximum age of a draft skill before it is
 	// automatically deprecated.
 	defaultDraftMaxAge = 30 * 24 * time.Hour
@@ -30,7 +24,7 @@ const (
 
 // ReviewDeps holds dependencies injected by the caller.
 type ReviewDeps struct {
-	DB        *sql.DB
+	Memory    memory.Provider
 	Store     config.Store
 	Notifier  *channel.Dispatcher
 	Workspace string
@@ -71,6 +65,12 @@ func StartReviewLoop(ctx context.Context, cfg config.SelfImproveConfig, deps Rev
 // ReviewTask iterates over all enabled agents, finds unreviewed conversations,
 // and runs the review engine on each one.
 func ReviewTask(ctx context.Context, deps ReviewDeps, cfg config.SelfImproveConfig) {
+	rs, ok := deps.Memory.(memory.ReviewSource)
+	if !ok {
+		deps.Log.Debug("self-improve: memory provider does not support review")
+		return
+	}
+
 	agents, err := deps.Store.ListEnabledAgents(ctx)
 	if err != nil {
 		deps.Log.Error("self-improve: list agents", "error", err)
@@ -78,36 +78,31 @@ func ReviewTask(ctx context.Context, deps ReviewDeps, cfg config.SelfImproveConf
 	}
 
 	for _, agent := range agents {
-		reviewAgent(ctx, deps, cfg, agent)
+		reviewAgent(ctx, deps, cfg, rs, agent)
 	}
 }
 
-func reviewAgent(ctx context.Context, deps ReviewDeps, cfg config.SelfImproveConfig, agent config.Agent) {
+func reviewAgent(ctx context.Context, deps ReviewDeps, cfg config.SelfImproveConfig, rs memory.ReviewSource, agent config.Agent) {
 	snap, err := deps.Store.Snapshot(ctx, agent.ID)
 	if err != nil {
 		deps.Log.Error("self-improve: snapshot", "agent", agent.ID, "error", err)
 		return
 	}
 
-	q := sqlc.New(deps.DB)
-	conversations, err := q.ListUnreviewedConversations(ctx, sqlc.ListUnreviewedConversationsParams{
-		AgentID: sql.NullString{String: agent.ID, Valid: true},
-		Limit:   int64(cfg.Batch()),
-	})
+	candidates, err := rs.ListUnreviewed(ctx, agent.ID, cfg.Batch())
 	if err != nil {
 		deps.Log.Error("self-improve: list unreviewed", "agent", agent.ID, "error", err)
 		return
 	}
 
-	for _, conv := range conversations {
-		reviewConversation(ctx, deps, snap, conv)
+	for _, candidate := range candidates {
+		reviewConversation(ctx, deps, snap, rs, candidate)
 	}
 }
 
-func reviewConversation(ctx context.Context, deps ReviewDeps, snap *config.Snapshot, conv sqlc.CtxConversation) {
+func reviewConversation(ctx context.Context, deps ReviewDeps, snap *config.Snapshot, rs memory.ReviewSource, candidate memory.ReviewCandidate) {
 	log := deps.Log
-	q := sqlc.New(deps.DB)
-	userID := conv.UserID.Int64
+	userID := candidate.Session.UserID
 
 	// Resolve the fast-tier model and build only the needed provider.
 	model := snap.ResolveModelTier(config.ModelTierFast)
@@ -132,45 +127,46 @@ func reviewConversation(ctx context.Context, deps ReviewDeps, snap *config.Snaps
 
 	// Capture the watermark before loading messages so concurrent writes
 	// that arrive during the review are not skipped.
-	watermark := time.Now().UTC().Format("2006-01-02 15:04:05")
+	watermark := time.Now().UTC()
 
-	text, err := buildConversationText(ctx, q, conv)
+	text, err := rs.BuildReviewContext(ctx, candidate.Session, candidate.LastReviewedAt)
 	if err != nil {
-		log.Error("self-improve: build text", "conv", conv.ID, "error", err)
+		log.Error("self-improve: build text", "session", candidate.Session.ID, "error", err)
 		return
 	}
 
 	if text == "" {
-		_ = q.MarkConversationReviewedAt(ctx, sqlc.MarkConversationReviewedAtParams{
-			SelfImproveReviewedAt: sql.NullString{String: watermark, Valid: true},
-			ID:                    conv.ID,
-		})
+		_ = rs.MarkReviewed(ctx, candidate.Session, watermark)
 		return
 	}
 
-	memStore := memory.NewUserMemoryStore(deps.Store)
+	// Build the memory tool for the reviewer (profile actions only).
+	reviewTool := memory.BuildTool(deps.Memory, memory.WithActionsOnly("profile_get", "profile_update"))
+
 	reviewer, err := NewReviewer(ReviewerConfig{
 		Providers:      reg,
 		Model:          model,
 		SkillsTool:     skills.NewTool("", snap.Workspace, "", userID),
-		MemoryTool:     NewReviewMemoryTool(memStore, userID, snap.AgentID),
+		MemoryTool:     reviewTool,
 		ExistingSkills: existingNames,
 	})
 	if err != nil {
-		log.Error("self-improve: create reviewer", "conv", conv.ID, "error", err)
+		log.Error("self-improve: create reviewer", "session", candidate.Session.ID, "error", err)
 		return
 	}
-	result, err := reviewer.Review(ctx, text)
+
+	// Inject user/agent context so the memory tool can dispatch profile operations.
+	reviewCtx := memory.WithUserID(ctx, userID)
+	reviewCtx = memory.WithAgentID(reviewCtx, snap.AgentID)
+
+	result, err := reviewer.Review(reviewCtx, text)
 	if err != nil {
-		log.Error("self-improve: review", "conv", conv.ID, "error", err)
+		log.Error("self-improve: review", "session", candidate.Session.ID, "error", err)
 		return // Don't mark reviewed on error — retry next time.
 	}
 
-	if err := q.MarkConversationReviewedAt(ctx, sqlc.MarkConversationReviewedAtParams{
-		SelfImproveReviewedAt: sql.NullString{String: watermark, Valid: true},
-		ID:                    conv.ID,
-	}); err != nil {
-		log.Error("self-improve: mark reviewed", "conv", conv.ID, "error", err)
+	if err := rs.MarkReviewed(ctx, candidate.Session, watermark); err != nil {
+		log.Error("self-improve: mark reviewed", "session", candidate.Session.ID, "error", err)
 	}
 
 	if (result.SkillsMutated > 0 || result.MemoryUpdated) && deps.Notifier != nil {
@@ -182,54 +178,8 @@ func reviewConversation(ctx context.Context, deps ReviewDeps, snap *config.Snaps
 		}
 	}
 
-	log.Info("self-improve: reviewed", "conv", conv.ID, "agent", snap.AgentID, "user", userID,
+	log.Info("self-improve: reviewed", "session", candidate.Session.ID, "agent", snap.AgentID, "user", userID,
 		"skills_created", result.SkillsMutated, "memory_updated", result.MemoryUpdated)
-}
-
-// buildConversationText builds the text to send to the review agent.
-func buildConversationText(ctx context.Context, q *sqlc.Queries, conv sqlc.CtxConversation) (string, error) {
-	var b strings.Builder
-
-	if conv.SelfImproveReviewedAt.Valid {
-		summaries, err := q.GetSummariesByConversation(ctx, conv.ID)
-		if err == nil && len(summaries) > 0 {
-			b.WriteString("<prior_context>\n")
-			for _, s := range summaries {
-				b.WriteString(memory.FormatSummaryXML(s, nil))
-				b.WriteString("\n")
-			}
-			b.WriteString("</prior_context>\n\n")
-		}
-
-		msgs, err := q.GetMessagesSince(ctx, sqlc.GetMessagesSinceParams{
-			ConversationID: conv.ID,
-			CreatedAt:      conv.SelfImproveReviewedAt.String,
-		})
-		if err != nil {
-			return "", fmt.Errorf("get messages since: %w", err)
-		}
-		appendMessages(&b, msgs)
-	} else {
-		msgs, err := q.GetMessagesByConversation(ctx, conv.ID)
-		if err != nil {
-			return "", fmt.Errorf("get messages: %w", err)
-		}
-		appendMessages(&b, msgs)
-	}
-
-	return b.String(), nil
-}
-
-func appendMessages(b *strings.Builder, msgs []sqlc.CtxMessage) {
-	if len(msgs) == 0 {
-		return
-	}
-	if len(msgs) > maxReviewMessages {
-		msgs = msgs[len(msgs)-maxReviewMessages:]
-	}
-	for _, m := range msgs {
-		fmt.Fprintf(b, "[%s] %s\n", m.Role, m.Content)
-	}
 }
 
 // buildNotificationText constructs a user-facing notification from review results.

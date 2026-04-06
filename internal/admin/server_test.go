@@ -15,7 +15,8 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/internal/memory"
+	pluginmemory "github.com/vaayne/anna/plugins/memory"
+	_ "github.com/vaayne/anna/plugins/memory/lcm"
 )
 
 type testEnv struct {
@@ -49,7 +50,10 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("NewEngine: %v", err)
 	}
 
-	mem := memory.NewEngineFromDB(db, nil)
+	mem, err := pluginmemory.Build(context.Background(), "lcm", pluginmemory.BuildContext{DB: db})
+	if err != nil {
+		t.Fatalf("Build lcm provider: %v", err)
+	}
 	srv := admin.New(store, as, engine, mem, db, auth.NewLinkCodeStore(), nil)
 
 	// Create an admin user for authenticated requests.

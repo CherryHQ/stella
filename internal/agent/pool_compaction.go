@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/vaayne/anna/internal/memory"
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 // CompactSession delegates compaction to the memory engine and returns the
@@ -13,9 +13,14 @@ func (p *Pool) CompactSession(ctx context.Context, sessionID string) (string, er
 	return p.compactSessionMemory(ctx, sessionID)
 }
 
-// compactSessionMemory delegates compaction to the memory engine.
+// compactSessionMemory delegates compaction to the memory provider.
 func (p *Pool) compactSessionMemory(ctx context.Context, sessionID string) (string, error) {
-	result, err := p.mem.Compact(ctx, sessionID, memory.CompactionFull)
+	c, ok := p.mem.(memory.Compactor)
+	if !ok {
+		return "", fmt.Errorf("memory provider does not support compaction")
+	}
+	session := memory.Session{ID: sessionID, AgentID: p.agentID}
+	result, err := c.Compact(ctx, session, memory.CompactionFull)
 	if err != nil {
 		return "", fmt.Errorf("memory compact: %w", err)
 	}
@@ -32,11 +37,16 @@ func (p *Pool) compactSessionMemory(ctx context.Context, sessionID string) (stri
 }
 
 // NeedsCompaction reports whether a session's estimated token count exceeds
-// the compaction threshold. Returns false if compaction is disabled or no
-// memory engine is set.
+// the compaction threshold. Returns false if compaction is disabled or the
+// memory provider does not support compaction.
 func (p *Pool) NeedsCompaction(sessionID string) bool {
 	if p.compaction.MaxTokens <= 0 {
 		return false
 	}
-	return p.mem.NeedsCompaction(context.Background(), sessionID, float64(p.compaction.MaxTokens))
+	c, ok := p.mem.(memory.Compactor)
+	if !ok {
+		return false
+	}
+	session := memory.Session{ID: sessionID, AgentID: p.agentID}
+	return c.NeedsCompaction(context.Background(), session, float64(p.compaction.MaxTokens))
 }

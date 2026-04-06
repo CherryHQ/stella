@@ -1,20 +1,10 @@
 package selfimprove
 
-import (
-	"database/sql"
-	"path/filepath"
-	"testing"
-
-	appdb "github.com/vaayne/anna/internal/db"
-)
-
-func setupTestDB(t *testing.T) *sql.DB {
-	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := appdb.OpenDB(dbPath)
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
+func containsSubstring(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
 	}
-	t.Cleanup(func() { _ = db.Close() })
-	return db
+	return false
 }

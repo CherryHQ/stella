@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -347,7 +348,7 @@ func TestBuildSystemPromptIncludesSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	prompt := BuildSystemPromptFromDB(DBPromptParams{
+	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{
 		AnnaHome:  "/nonexistent/anna",
 		Workspace: wsDir,
 		Cwd:       projectDir,
@@ -458,7 +459,7 @@ func TestBuildSystemPromptIncludesContextFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	prompt := BuildSystemPromptFromDB(DBPromptParams{
+	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{
 		AnnaHome:  "/nonexistent/anna",
 		Workspace: wsDir,
 		Cwd:       projectDir,
@@ -485,7 +486,7 @@ func TestBuildSystemPromptSoulOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	prompt := BuildSystemPromptFromDB(DBPromptParams{
+	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{
 		SystemPrompt: "DB soul prompt",
 		AnnaHome:     "/nonexistent/anna",
 		Workspace:    wsDir,

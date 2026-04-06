@@ -71,7 +71,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 
 	system := cfg.System
 	if system == "" {
-		system = BuildSystemPromptFromDB(DBPromptParams{
+		system = BuildSystemPromptFromDB(context.Background(), DBPromptParams{
 			AnnaHome:  cfg.AnnaHome,
 			Workspace: cfg.Workspace,
 			Cwd:       cfg.WorkDir,
