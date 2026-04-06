@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/tencent-connect/botgo/event"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/channel"
+	"github.com/vaayne/anna/pkg/httpclient"
 )
 
 // c2cMessageHandler returns a handler for private (C2C) messages.
@@ -131,35 +131,28 @@ func downloadImage(ctx context.Context, rawURL string) ([]byte, string, error) {
 		rawURL = "https://" + rawURL
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return nil, "", fmt.Errorf("create request: %w", err)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpclient.New().R().
+		SetContext(ctx).
+		Get(rawURL)
 	if err != nil {
 		return nil, "", fmt.Errorf("fetch image: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("unexpected status %d", resp.StatusCode)
+	if resp.StatusCode() != http.StatusOK {
+		return nil, "", fmt.Errorf("unexpected status %d", resp.StatusCode())
 	}
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxImageSize+1))
-	if err != nil {
-		return nil, "", fmt.Errorf("read image: %w", err)
-	}
+	data := resp.Body()
 	if len(data) > maxImageSize {
 		return nil, "", fmt.Errorf("image too large (max %d bytes)", maxImageSize)
 	}
 
-	mime := resp.Header.Get("Content-Type")
-	if mime == "" {
-		mime = http.DetectContentType(data)
+	mimeType := resp.Header().Get("Content-Type")
+	if mimeType == "" {
+		mimeType = http.DetectContentType(data)
 	}
 
-	return data, mime, nil
+	return data, mimeType, nil
 }
 
 // handleIncoming delegates to the coordinator via HandleIncoming.
