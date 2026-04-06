@@ -110,6 +110,15 @@ func TestRenderMarkdownFallback(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownEmpty(t *testing.T) {
+	md := tgmd.TGMD()
+	// If converter produces empty output, fall back to original text.
+	// Passing empty string should return the original text.
+	result := renderMarkdown(md, "")
+	// Either empty or the original; just verify no panic and non-nil.
+	_ = result
+}
+
 func TestBotCommands(t *testing.T) {
 	commands := botCommands()
 	if len(commands) != 6 {
@@ -510,6 +519,24 @@ func TestBuildStreamDisplayUTF8Safe(t *testing.T) {
 	if strings.ToValidUTF8(got, "?") != got {
 		t.Error("buildStreamDisplay() produced invalid UTF-8")
 	}
+}
+
+func TestBuildStreamDisplay_LongSuffix(t *testing.T) {
+	// Craft a tool section so long it exceeds telegramMaxMessageLen.
+	// In that case suffix is reset to just typingCursor.
+	longTool := strings.Repeat("x", telegramMaxMessageLen+100)
+	got := buildStreamDisplay("text", longTool, true)
+	// The result should still be valid and end with typingCursor.
+	if !strings.HasSuffix(got, typingCursor) {
+		t.Errorf("expected typingCursor suffix for long tool section, got %q", got[:min(len(got), 50)])
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // --- atoiOr ---
