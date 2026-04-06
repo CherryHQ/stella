@@ -21,6 +21,12 @@ var defaultSystemPrompt string
 //go:embed template/soul.md
 var defaultAgentSoul string
 
+// DefaultSystemPrompt returns the default system prompt text.
+func DefaultSystemPrompt() string { return strings.TrimSpace(defaultSystemPrompt) }
+
+// DefaultAgentSoul returns the default agent soul text.
+func DefaultAgentSoul() string { return strings.TrimSpace(defaultAgentSoul) }
+
 var systemTmpl = template.Must(template.New("system").Funcs(template.FuncMap{
 	"escapeXML": escapeXML,
 }).Parse(systemTemplate))

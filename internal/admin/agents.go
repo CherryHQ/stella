@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 )
@@ -24,6 +25,13 @@ func slugify(name string) string {
 		return "agent"
 	}
 	return s
+}
+
+// fillAgentDefaults populates empty system_prompt with the embedded default.
+func fillAgentDefaults(a *config.Agent) {
+	if a.SystemPrompt == "" {
+		a.SystemPrompt = runner.DefaultSystemPrompt()
+	}
 }
 
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +54,9 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	for i := range agents {
+		fillAgentDefaults(&agents[i])
+	}
 	writeData(w, http.StatusOK, agents)
 }
 
@@ -132,6 +143,7 @@ func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	fillAgentDefaults(&a)
 	writeData(w, http.StatusOK, a)
 }
 

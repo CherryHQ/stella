@@ -43,10 +43,15 @@ templ AgentsPage() {
 						</select>
 					}
 				</div>
-				<!-- System prompt -->
+				<!-- System prompt (readonly for non-editors) -->
 				<div class="mb-4">
 					@ui.FormField("System Prompt") {
-						<textarea x-model="form.system_prompt" rows="4" class="textarea textarea-bordered w-full text-sm font-mono resize-y"></textarea>
+						<textarea
+							x-model="form.system_prompt"
+							rows="4"
+							class="textarea textarea-bordered w-full text-sm font-mono resize-y"
+							:disabled="editingId && !canEditAgent({creator_id: form.creator_id})"
+						></textarea>
 					}
 				</div>
 				<!-- Enabled toggle + save -->
@@ -94,36 +99,53 @@ templ AgentsPage() {
 							</div>
 						</div>
 						<div class="text-sm font-mono text-secondary mt-1" x-text="a.model"></div>
-						<!-- My Memory -->
+						<!-- Per-user sections: Agent Soul + User Profile -->
 						<div class="mt-2">
 							<button
 								@click="toggleMemory(a)"
 								class="text-xs text-secondary hover:text-primary transition-colors cursor-pointer flex items-center gap-1"
 							>
 								<span x-text="a._showMemory ? '▾' : '▸'"></span>
-								<span>My Memory</span>
+								<span>Personalisation</span>
 							</button>
-							<div x-show="a._showMemory" x-transition x-cloak class="mt-3 pl-4 border-l-2 border-base-300">
+							<div x-show="a._showMemory" x-transition x-cloak class="mt-3 pl-4 border-l-2 border-base-300 space-y-4">
 								<template x-if="a._memoryLoaded">
-									<div>
-										<textarea
-											x-model="a._memoryDraft"
-											rows="3"
-											placeholder="Add personal memory for this agent..."
-											class="textarea textarea-bordered w-full text-xs font-mono resize-y"
-										></textarea>
-										<div class="flex items-center gap-2 mt-1">
-											<template x-if="a._memory !== ''">
+									<div class="space-y-4">
+										<!-- Agent Soul -->
+										<div>
+											<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-1">Agent Soul</p>
+											<p class="text-xs text-base-content/50 mb-1">Personality and behavior for this agent (your version).</p>
+											<textarea
+												x-model="a._soulDraft"
+												rows="3"
+												placeholder="Customise this agent's personality..."
+												class="textarea textarea-bordered w-full text-xs font-mono resize-y"
+											></textarea>
+											<div class="flex items-center gap-2 mt-1">
 												<button
-													@click="if (confirm('Delete your memory for ' + a.id + '?')) deleteMyMemory(a)"
-													class="btn btn-ghost btn-xs text-secondary hover:text-error"
-												>delete</button>
-											</template>
-											<button
-												@click="saveMyMemory(a)"
-												:disabled="a._memoryDraft === a._memory"
-												class="btn btn-ghost btn-xs text-primary disabled:opacity-30"
-											>save</button>
+													@click="saveMySoul(a)"
+													:disabled="a._soulDraft === a._soul"
+													class="btn btn-ghost btn-xs text-primary disabled:opacity-30"
+												>save</button>
+											</div>
+										</div>
+										<!-- User Profile -->
+										<div>
+											<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-1">User Profile</p>
+											<p class="text-xs text-base-content/50 mb-1">What the agent knows about you across conversations.</p>
+											<textarea
+												x-model="a._profileDraft"
+												rows="3"
+												placeholder="Add context about yourself for this agent..."
+												class="textarea textarea-bordered w-full text-xs font-mono resize-y"
+											></textarea>
+											<div class="flex items-center gap-2 mt-1">
+												<button
+													@click="saveMyProfile(a)"
+													:disabled="a._profileDraft === a._profile"
+													class="btn btn-ghost btn-xs text-primary disabled:opacity-30"
+												>save</button>
+											</div>
 										</div>
 									</div>
 								</template>
