@@ -126,6 +126,16 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return nil, fmt.Errorf("memory plugin: %w", err)
 	}
 
+	// Wrap with tracing. The hooksFn closure captures poolMgr which is nil now
+	// but populated before any memory operations run.
+	var poolMgr *agent.PoolManager
+	memProvider = memory.WithTracing(memProvider, func() *hooks.HookSet {
+		if poolMgr == nil {
+			return nil
+		}
+		return hooks.NewHookSet(poolMgr.HookPlugins())
+	})
+
 	// Unified memory tool (shared across all agents, adapts to provider capabilities).
 	sharedTools = append(sharedTools,
 		memory.BuildTool(memProvider),
@@ -157,7 +167,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// WithSharedExtraTools sets the always-on core tools (scheduler, memory).
 	// WithPluginToolsBuilder provides the function for hot-reloadable plugin tools.
 	// WithPluginHooksBuilder provides the function for hot-reloadable hook plugins.
-	poolMgr := agent.NewPoolManager(store, memProvider,
+	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithIdleTimeoutPM(idleTimeout),
 		agent.WithCompactionPM(agent.CompactionConfig{
 			MaxTokens: snap.Runner.Compaction.MaxTokens,
