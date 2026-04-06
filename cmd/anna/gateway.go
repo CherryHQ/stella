@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -207,27 +208,62 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		}
 	}
 
-	// Start reflect (background conversation review).
-	reflectPlugin, err := s.store.GetPlugin(gctx, "reflect")
-	if err != nil {
-		slog.Warn("reflect: could not load plugin config, skipping", "error", err)
-	}
-	if reflectPlugin.Enabled {
-		svc := reflect.New(reflect.Config{
+	// Start reflect (background conversation review) with hot-reload support.
+	var (
+		reflectCancel context.CancelFunc
+		reflectMu     sync.Mutex
+	)
+	buildReflect := func() *reflect.Service {
+		rp, err := s.store.GetPlugin(gctx, "reflect")
+		if err != nil {
+			slog.Warn("reflect: could not load plugin config", "error", err)
+			return nil
+		}
+		return reflect.New(reflect.Config{
 			DB:        s.db,
 			Memory:    s.mem,
 			Store:     s.store,
 			Notifier:  s.notifier,
 			Workspace: s.snap.Workspace,
-			Interval:  parseDurationConfig(reflectPlugin.Config, "interval", time.Hour),
-			Batch:     parseIntConfig(reflectPlugin.Config, "batch", 5),
+			Interval:  parseDurationConfig(rp.Config, "interval", time.Hour),
+			Batch:     parseIntConfig(rp.Config, "batch", 5),
 			Log:       slog.Default(),
 		})
+	}
+	startReflect := func() {
+		reflectMu.Lock()
+		defer reflectMu.Unlock()
+		if reflectCancel != nil {
+			return // already running
+		}
+		svc := buildReflect()
+		if svc == nil {
+			return
+		}
+		var rctx context.Context
+		rctx, reflectCancel = context.WithCancel(gctx)
 		go func() {
-			if err := svc.Start(gctx); err != nil && gctx.Err() == nil {
+			if err := svc.Start(rctx); err != nil && rctx.Err() == nil {
 				slog.Error("reflect: stopped unexpectedly", "error", err)
 			}
 		}()
+	}
+	stopReflect := func() {
+		reflectMu.Lock()
+		defer reflectMu.Unlock()
+		if reflectCancel != nil {
+			reflectCancel()
+			reflectCancel = nil
+		}
+	}
+	adminSrv.SetReflectLifecycle(gctx, startReflect, stopReflect)
+
+	reflectPlugin, err := s.store.GetPlugin(gctx, "reflect")
+	if err != nil {
+		slog.Warn("reflect: could not load plugin config, skipping", "error", err)
+	}
+	if reflectPlugin.Enabled {
+		startReflect()
 	}
 
 	waitErr := g.Wait()

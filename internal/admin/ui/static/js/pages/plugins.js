@@ -25,6 +25,10 @@ export function register(Alpine) {
       return this.plugins.filter(p => p.kind === 'memory')
     },
 
+    get standalonePlugins() {
+      return this.plugins.filter(p => !['tool', 'channel', 'hook', 'memory', 'provider'].includes(p.kind))
+    },
+
     async init() {
       await this.loadPlugins()
     },
@@ -58,6 +62,7 @@ export function register(Alpine) {
         rtk: 'Rewrite bash commands via rtk',
         lcm: 'Lossless context management with hierarchical summarisation',
         simple: 'Sliding window — no compaction, drops old messages',
+        reflect: 'Background conversation review — extracts skills and profile updates',
       }
       return descriptions[name] || ''
     },
