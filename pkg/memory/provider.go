@@ -262,29 +262,25 @@ type SessionManager interface {
 }
 
 // ---------------------------------------------------------------------------
-// Capability: ReviewSource
+// Capability: Reviewer
 // ---------------------------------------------------------------------------
 
-// ReviewCandidate is a session that has new content ready for self-improve review.
-type ReviewCandidate struct {
-	Session        Session   // the session to review
-	LastReviewedAt time.Time // zero if never reviewed
-	LastActive     time.Time // timestamp of most recent message
-}
-
-// ReviewSource is implemented by providers that can supply conversation content
-// to the self-improvement review loop.
-type ReviewSource interface {
+// Reviewer is implemented by providers that can format conversation content
+// for review by a background agent (the reflect system).
+//
+// This is deliberately a single method. Watermark tracking (which sessions
+// have been reviewed, when) is not the memory plugin's concern — it belongs
+// to the consumer (internal/reflect). The memory plugin's only job is:
+// "given a session and an optional time boundary, produce reviewable text."
+type Reviewer interface {
 	// BuildReviewContext returns a text representation of the conversation
-	// suitable for passing to the reviewer agent's prompt.
+	// suitable for passing to a reviewer agent's prompt.
 	//
 	// since: if non-zero, only include content created after this time.
+	//   The provider should include prior context (e.g. summaries from before
+	//   this timestamp) to give the reviewer enough background.
+	//   If zero, include all content.
+	//
 	// Returns ("", nil) if there is no content to review.
 	BuildReviewContext(ctx context.Context, session Session, since time.Time) (string, error)
-
-	// MarkReviewed records that the session was reviewed at the given timestamp.
-	MarkReviewed(ctx context.Context, session Session, at time.Time) error
-
-	// ListUnreviewed returns sessions that have new content since their last review.
-	ListUnreviewed(ctx context.Context, agentID string, limit int) ([]ReviewCandidate, error)
 }

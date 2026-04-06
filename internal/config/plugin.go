@@ -38,9 +38,12 @@ var builtinProviderNames = []string{"anthropic", "openai", "openai-response"}
 // builtinMemoryNames lists the built-in memory plugins.
 var builtinMemoryNames = []string{"lcm", "simple"}
 
+// builtinStandalonePlugins lists plugins that don't follow the kind/name pattern.
+var builtinStandalonePlugins = []string{"reflect"}
+
 // BuiltinPluginIDs returns all built-in plugin IDs in deterministic order.
 func BuiltinPluginIDs() []string {
-	ids := make([]string, 0, len(builtinToolNames)+len(builtinChannelNames)+len(builtinHookNames)+len(builtinProviderNames)+len(builtinMemoryNames))
+	ids := make([]string, 0, len(builtinToolNames)+len(builtinChannelNames)+len(builtinHookNames)+len(builtinProviderNames)+len(builtinMemoryNames)+len(builtinStandalonePlugins))
 	for _, n := range builtinToolNames {
 		ids = append(ids, PluginID(PluginKindTool, n))
 	}
@@ -56,5 +59,6 @@ func BuiltinPluginIDs() []string {
 	for _, n := range builtinMemoryNames {
 		ids = append(ids, PluginID(PluginKindMemory, n))
 	}
+	ids = append(ids, builtinStandalonePlugins...)
 	return ids
 }

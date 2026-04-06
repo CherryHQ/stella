@@ -29,7 +29,7 @@ func Unwrap(p Provider) Provider {
 // WithTracing wraps a Provider to emit PostMemoryCall hooks after each operation.
 // hooksFn is called on each operation to get the current HookSet; it may return nil.
 // The returned Provider implements all optional capability interfaces (Compactor,
-// Searcher, Explorer, ProfileStore, SessionManager, ReviewSource). Methods for
+// Searcher, Explorer, ProfileStore, SessionManager, Reviewer). Methods for
 // capabilities not supported by the inner provider return sensible zero values or errors.
 // Use [Unwrap] to check the inner provider's actual capabilities.
 //
@@ -435,16 +435,16 @@ func (t *tracedProvider) LoadHistory(ctx context.Context, sessionID string) ([]a
 }
 
 // ---------------------------------------------------------------------------
-// ReviewSource
+// Reviewer
 // ---------------------------------------------------------------------------
 
 func (t *tracedProvider) BuildReviewContext(ctx context.Context, session Session, since time.Time) (string, error) {
-	rs, ok := t.inner.(ReviewSource)
+	rv, ok := t.inner.(Reviewer)
 	if !ok {
-		return "", errCapabilityNotSupported("ReviewSource")
+		return "", errCapabilityNotSupported("Reviewer")
 	}
 	start := time.Now()
-	text, err := rs.BuildReviewContext(ctx, session, since)
+	text, err := rv.BuildReviewContext(ctx, session, since)
 	t.emit(ctx, &hooks.PostMemoryCallContext{
 		HookMeta:   metaFromSession(session),
 		Op:         hooks.MemoryOpBuildReview,
@@ -455,42 +455,6 @@ func (t *tracedProvider) BuildReviewContext(ctx context.Context, session Session
 		Detail:     fmt.Sprintf("since=%s len=%d", since.Format(time.RFC3339), len(text)),
 	})
 	return text, err
-}
-
-func (t *tracedProvider) MarkReviewed(ctx context.Context, session Session, at time.Time) error {
-	rs, ok := t.inner.(ReviewSource)
-	if !ok {
-		return errCapabilityNotSupported("ReviewSource")
-	}
-	start := time.Now()
-	err := rs.MarkReviewed(ctx, session, at)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		HookMeta:  metaFromSession(session),
-		Op:        hooks.MemoryOpMarkReviewed,
-		SessionID: session.ID,
-		Duration:  time.Since(start),
-		Error:     err,
-		Detail:    fmt.Sprintf("at=%s", at.Format(time.RFC3339)),
-	})
-	return err
-}
-
-func (t *tracedProvider) ListUnreviewed(ctx context.Context, agentID string, limit int) ([]ReviewCandidate, error) {
-	rs, ok := t.inner.(ReviewSource)
-	if !ok {
-		return nil, errCapabilityNotSupported("ReviewSource")
-	}
-	start := time.Now()
-	candidates, err := rs.ListUnreviewed(ctx, agentID, limit)
-	t.emit(ctx, &hooks.PostMemoryCallContext{
-		HookMeta:    hooks.HookMeta{AgentID: agentID},
-		Op:          hooks.MemoryOpListUnreviewed,
-		Duration:    time.Since(start),
-		Error:       err,
-		ResultCount: len(candidates),
-		Detail:      fmt.Sprintf("agent=%s limit=%d → %d candidates", agentID, limit, len(candidates)),
-	})
-	return candidates, err
 }
 
 // ---------------------------------------------------------------------------

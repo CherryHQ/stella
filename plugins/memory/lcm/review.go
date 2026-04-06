@@ -13,7 +13,7 @@ import (
 
 const maxReviewMessages = 200
 
-// BuildReviewContext implements memory.ReviewSource.
+// BuildReviewContext implements memory.Reviewer.
 func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Session, since time.Time) (string, error) {
 	conv, err := p.q.GetConversationBySessionID(ctx, session.ID)
 	if err == sql.ErrNoRows {
@@ -56,59 +56,6 @@ func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Sessio
 	}
 
 	return b.String(), nil
-}
-
-// MarkReviewed implements memory.ReviewSource.
-func (p *Provider) MarkReviewed(ctx context.Context, session memory.Session, at time.Time) error {
-	conv, err := p.q.GetConversationBySessionID(ctx, session.ID)
-	if err != nil {
-		return fmt.Errorf("get conversation: %w", err)
-	}
-
-	watermark := at.UTC().Format("2006-01-02 15:04:05")
-	return p.q.MarkConversationReviewedAt(ctx, sqlc.MarkConversationReviewedAtParams{
-		SelfImproveReviewedAt: sql.NullString{String: watermark, Valid: true},
-		ID:                    conv.ID,
-	})
-}
-
-// ListUnreviewed implements memory.ReviewSource.
-func (p *Provider) ListUnreviewed(ctx context.Context, agentID string, limit int) ([]memory.ReviewCandidate, error) {
-	if limit <= 0 {
-		limit = 10
-	}
-
-	convs, err := p.q.ListUnreviewedConversations(ctx, sqlc.ListUnreviewedConversationsParams{
-		AgentID: sql.NullString{String: agentID, Valid: true},
-		Limit:   int64(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list unreviewed: %w", err)
-	}
-
-	candidates := make([]memory.ReviewCandidate, 0, len(convs))
-	for _, conv := range convs {
-		candidate := memory.ReviewCandidate{
-			Session: memory.Session{
-				ID:      conv.SessionID,
-				AgentID: agentID,
-				Channel: conv.Channel,
-			},
-			LastActive: parseTime(conv.LastActive),
-		}
-		if conv.AgentID.Valid {
-			candidate.Session.AgentID = conv.AgentID.String
-		}
-		if conv.UserID.Valid {
-			candidate.Session.UserID = conv.UserID.Int64
-		}
-		if conv.SelfImproveReviewedAt.Valid {
-			candidate.LastReviewedAt = parseTime(conv.SelfImproveReviewedAt.String)
-		}
-		candidates = append(candidates, candidate)
-	}
-
-	return candidates, nil
 }
 
 func appendReviewMessages(b *strings.Builder, msgs []sqlc.CtxMessage) {
