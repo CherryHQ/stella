@@ -323,6 +323,42 @@ func (t *tracedProvider) SetProfile(ctx context.Context, userID int64, agentID s
 	return err
 }
 
+func (t *tracedProvider) GetAgentSoul(ctx context.Context, userID int64, agentID string) (string, error) {
+	ps, ok := t.inner.(ProfileStore)
+	if !ok {
+		return "", errCapabilityNotSupported("ProfileStore")
+	}
+	start := time.Now()
+	content, err := ps.GetAgentSoul(ctx, userID, agentID)
+	t.emit(ctx, &hooks.PostMemoryCallContext{
+		HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID},
+		Op:       hooks.MemoryOpGetAgentSoul,
+		Duration: time.Since(start),
+		Error:    err,
+		Detail: fmt.Sprintf("user=%d agent=%s len=%d content=%s",
+			userID, agentID, len(content), truncateStr(content, 300)),
+	})
+	return content, err
+}
+
+func (t *tracedProvider) SetAgentSoul(ctx context.Context, userID int64, agentID string, content string) error {
+	ps, ok := t.inner.(ProfileStore)
+	if !ok {
+		return errCapabilityNotSupported("ProfileStore")
+	}
+	start := time.Now()
+	err := ps.SetAgentSoul(ctx, userID, agentID, content)
+	t.emit(ctx, &hooks.PostMemoryCallContext{
+		HookMeta: hooks.HookMeta{UserID: userID, AgentID: agentID},
+		Op:       hooks.MemoryOpSetAgentSoul,
+		Duration: time.Since(start),
+		Error:    err,
+		Detail: fmt.Sprintf("user=%d agent=%s len=%d content=%s",
+			userID, agentID, len(content), truncateStr(content, 300)),
+	})
+	return err
+}
+
 // ---------------------------------------------------------------------------
 // SessionManager
 // ---------------------------------------------------------------------------

@@ -9,11 +9,24 @@ import (
 	"github.com/vaayne/anna/pkg/tools"
 )
 
+// Action name constants for the memory tool.
+const (
+	actionStatus        = "status"
+	actionSearch        = "search"
+	actionDescribe      = "describe"
+	actionExpand        = "expand"
+	actionSoulGet       = "soul_get"
+	actionSoulUpdate    = "soul_update"
+	actionProfileGet    = "profile_get"
+	actionProfileUpdate = "profile_update"
+)
+
 // ToolOption configures the generated memory tool.
 type ToolOption func(*toolConfig)
 
 type toolConfig struct {
 	readOnlyProfile bool
+	readOnlySoul    bool
 	actionsOnly     map[string]bool // nil means all available
 }
 
@@ -23,6 +36,13 @@ type toolConfig struct {
 func WithReadOnlyProfile() ToolOption {
 	return func(c *toolConfig) {
 		c.readOnlyProfile = true
+	}
+}
+
+// WithReadOnlySoul disables the soul_update action.
+func WithReadOnlySoul() ToolOption {
+	return func(c *toolConfig) {
+		c.readOnlySoul = true
 	}
 }
 
@@ -99,21 +119,25 @@ func (t *memoryTool) buildActions() []actionMeta {
 		actions = append(actions, actionMeta{name: name, desc: desc})
 	}
 
-	add("status", "Show session memory statistics: message count, token usage, summary count, time range.")
+	add(actionStatus, "Show session memory statistics: message count, token usage, summary count, time range.")
 
 	if t.searcher != nil {
-		add("search", "Search conversation history by keyword. Returns matching messages and summaries.")
+		add(actionSearch, "Search conversation history by keyword. Returns matching messages and summaries.")
 	}
 
 	if t.explorer != nil {
-		add("describe", "Inspect a summary's content, metadata, and lineage (parents/children).")
-		add("expand", "Drill into a summary to retrieve original messages (leaf) or child summaries (condensed).")
+		add(actionDescribe, "Inspect a summary's content, metadata, and lineage (parents/children).")
+		add(actionExpand, "Drill into a summary to retrieve original messages (leaf) or child summaries (condensed).")
 	}
 
 	if t.profileStore != nil {
-		add("profile_get", "Read the current persistent profile notes for this user+agent pair.")
+		add(actionSoulGet, "Read the current agent soul (identity, personality, behavior) for this user+agent pair.")
+		if !t.cfg.readOnlySoul {
+			add(actionSoulUpdate, "Update the agent soul. Replaces entire content — include the full updated text.")
+		}
+		add(actionProfileGet, "Read the current user profile (facts and context about this user).")
 		if !t.cfg.readOnlyProfile {
-			add("profile_update", "Update persistent profile notes. Replaces entire content — include the full updated text.")
+			add(actionProfileUpdate, "Update the user profile. Replaces entire content — include the full updated text.")
 		}
 	}
 
@@ -154,7 +178,7 @@ func (t *memoryTool) buildInputSchema() map[string]any {
 	}
 
 	// Add action-specific parameters.
-	if t.hasAction("search") {
+	if t.hasAction(actionSearch) {
 		properties["pattern"] = map[string]any{
 			"type":        "string",
 			"description": "Text pattern to search for (required for search, case-insensitive substring match)",
@@ -170,24 +194,24 @@ func (t *memoryTool) buildInputSchema() map[string]any {
 		}
 	}
 
-	if t.hasAction("describe") || t.hasAction("expand") {
+	if t.hasAction(actionDescribe) || t.hasAction(actionExpand) {
 		properties["summary_id"] = map[string]any{
 			"type":        "string",
 			"description": "The summary ID to inspect or expand (required for describe and expand)",
 		}
 	}
 
-	if t.hasAction("expand") {
+	if t.hasAction(actionExpand) {
 		properties["token_cap"] = map[string]any{
 			"type":        "integer",
 			"description": "Maximum tokens of content to return (default 4000). Only for expand",
 		}
 	}
 
-	if t.hasAction("profile_update") {
+	if t.hasAction(actionProfileUpdate) || t.hasAction(actionSoulUpdate) {
 		properties["content"] = map[string]any{
 			"type":        "string",
-			"description": "Full updated profile content. Replaces the entire existing profile (required for profile_update)",
+			"description": "Full updated content. Replaces the entire existing value (required for profile_update and soul_update)",
 		}
 	}
 
@@ -218,17 +242,21 @@ func (t *memoryTool) Execute(ctx context.Context, args map[string]any) (string, 
 	}
 
 	switch action {
-	case "status":
+	case actionStatus:
 		return t.execStatus(ctx)
-	case "search":
+	case actionSearch:
 		return t.execSearch(ctx, args)
-	case "describe":
+	case actionDescribe:
 		return t.execDescribe(ctx, args)
-	case "expand":
+	case actionExpand:
 		return t.execExpand(ctx, args)
-	case "profile_get":
+	case actionSoulGet:
+		return t.execSoulGet(ctx)
+	case actionSoulUpdate:
+		return t.execSoulUpdate(ctx, args)
+	case actionProfileGet:
 		return t.execProfileGet(ctx)
-	case "profile_update":
+	case actionProfileUpdate:
 		return t.execProfileUpdate(ctx, args)
 	default:
 		return "", fmt.Errorf("unhandled action %q", action)
@@ -311,56 +339,79 @@ func (t *memoryTool) execExpand(ctx context.Context, args map[string]any) (strin
 	return marshalJSON(result)
 }
 
-func (t *memoryTool) execProfileGet(ctx context.Context) (string, error) {
+// requireProfileCtx validates that ProfileStore and user/agent context are available.
+func (t *memoryTool) requireProfileCtx(ctx context.Context, action string) (int64, string, error) {
 	if t.profileStore == nil {
-		return "", fmt.Errorf("memory profile_get: not supported by provider")
+		return 0, "", fmt.Errorf("memory %s: not supported by provider", action)
 	}
-
 	userID := UserIDFromContext(ctx)
-	agentID := AgentIDFromContext(ctx)
 	if userID == 0 {
-		return "", fmt.Errorf("memory profile_get: no user context")
+		return 0, "", fmt.Errorf("memory %s: no user context", action)
 	}
+	agentID := AgentIDFromContext(ctx)
 	if agentID == "" {
-		return "", fmt.Errorf("memory profile_get: no agent context")
+		return 0, "", fmt.Errorf("memory %s: no agent context", action)
 	}
+	return userID, agentID, nil
+}
 
-	content, err := t.profileStore.GetProfile(ctx, userID, agentID)
+func (t *memoryTool) execStoreGet(
+	ctx context.Context,
+	action string,
+	getter func(context.Context, int64, string) (string, error),
+	emptyMsg string,
+) (string, error) {
+	userID, agentID, err := t.requireProfileCtx(ctx, action)
 	if err != nil {
-		return "", fmt.Errorf("memory profile_get: %w", err)
+		return "", err
 	}
-
+	content, err := getter(ctx, userID, agentID)
+	if err != nil {
+		return "", fmt.Errorf("memory %s: %w", action, err)
+	}
 	if content == "" {
-		return "No profile notes found.", nil
+		return emptyMsg, nil
 	}
-
 	return content, nil
 }
 
-func (t *memoryTool) execProfileUpdate(ctx context.Context, args map[string]any) (string, error) {
-	if t.profileStore == nil {
-		return "", fmt.Errorf("memory profile_update: not supported by provider")
-	}
-
+func (t *memoryTool) execStoreUpdate(
+	ctx context.Context,
+	args map[string]any,
+	action string,
+	setter func(context.Context, int64, string, string) error,
+	successMsg string,
+) (string, error) {
 	content, _ := args["content"].(string)
 	if content == "" {
-		return "", fmt.Errorf("memory profile_update: content is required")
+		return "", fmt.Errorf("memory %s: content is required", action)
 	}
+	userID, agentID, err := t.requireProfileCtx(ctx, action)
+	if err != nil {
+		return "", err
+	}
+	if err := setter(ctx, userID, agentID, content); err != nil {
+		return "", fmt.Errorf("memory %s: %w", action, err)
+	}
+	return successMsg, nil
+}
 
-	userID := UserIDFromContext(ctx)
-	agentID := AgentIDFromContext(ctx)
-	if userID == 0 {
-		return "", fmt.Errorf("memory profile_update: no user context")
-	}
-	if agentID == "" {
-		return "", fmt.Errorf("memory profile_update: no agent context")
-	}
+func (t *memoryTool) execProfileGet(ctx context.Context) (string, error) {
+	return t.execStoreGet(ctx, actionProfileGet, t.profileStore.GetProfile, "No profile notes found.")
+}
 
-	if err := t.profileStore.SetProfile(ctx, userID, agentID, content); err != nil {
-		return "", fmt.Errorf("memory profile_update: %w", err)
-	}
+func (t *memoryTool) execSoulGet(ctx context.Context) (string, error) {
+	return t.execStoreGet(ctx, actionSoulGet, t.profileStore.GetAgentSoul, "No agent soul defined.")
+}
 
-	return "Profile updated. Changes will appear in the system prompt at the next session start.", nil
+func (t *memoryTool) execProfileUpdate(ctx context.Context, args map[string]any) (string, error) {
+	return t.execStoreUpdate(ctx, args, actionProfileUpdate, t.profileStore.SetProfile,
+		"Profile updated. Changes will appear in the system prompt at the next session start.")
+}
+
+func (t *memoryTool) execSoulUpdate(ctx context.Context, args map[string]any) (string, error) {
+	return t.execStoreUpdate(ctx, args, actionSoulUpdate, t.profileStore.SetAgentSoul,
+		"Agent soul updated. Changes will appear in the system prompt at the next session start.")
 }
 
 // ---------------------------------------------------------------------------

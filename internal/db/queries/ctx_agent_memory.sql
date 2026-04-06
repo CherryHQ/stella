@@ -8,6 +8,13 @@ ON CONFLICT(user_id, agent_id) DO UPDATE SET
     content = excluded.content,
     updated_at = datetime('now');
 
+-- name: UpsertAgentSoul :exec
+INSERT INTO ctx_agent_memory (user_id, agent_id, soul, updated_at)
+VALUES (?, ?, ?, datetime('now'))
+ON CONFLICT(user_id, agent_id) DO UPDATE SET
+    soul = excluded.soul,
+    updated_at = datetime('now');
+
 -- name: DeleteUserAgentMemory :exec
 DELETE FROM ctx_agent_memory WHERE user_id = ? AND agent_id = ?;
 

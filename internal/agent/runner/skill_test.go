@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vaayne/anna/pkg/memory/memorytest"
 )
 
 func TestParseFrontmatter(t *testing.T) {
@@ -473,30 +475,71 @@ func TestBuildSystemPromptIncludesContextFiles(t *testing.T) {
 	}
 }
 
-func TestBuildSystemPromptSoulOverride(t *testing.T) {
-	dir := t.TempDir()
-	wsDir := filepath.Join(dir, "workspace")
+func TestBuildSystemPromptAgentSoulAndProfile(t *testing.T) {
+	wsDir := t.TempDir()
 
-	// Create workspace with SOUL.md that overrides DB system prompt.
-	if err := os.MkdirAll(wsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(wsDir, "SOUL.md"),
-		[]byte("File-based soul override"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	fake := memorytest.New()
+	ctx := context.Background()
 
-	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{
-		SystemPrompt: "DB soul prompt",
+	// Set up agent soul and user profile.
+	_ = fake.SetAgentSoul(ctx, 1, "test", "Be concise and friendly.")
+	_ = fake.SetProfile(ctx, 1, "test", "User is a Go developer.")
+
+	prompt := BuildSystemPromptFromDB(ctx, DBPromptParams{
+		SystemPrompt: "You are Anna.",
+		Memory:       fake,
+		UserID:       1,
+		AgentID:      "test",
 		AnnaHome:     "/nonexistent/anna",
 		Workspace:    wsDir,
 	})
 
-	if !strings.Contains(prompt, "File-based soul override") {
-		t.Error("expected SOUL.md to override DB system prompt")
+	// Base identity should be present.
+	if !strings.Contains(prompt, "You are Anna.") {
+		t.Error("expected base identity in prompt")
 	}
-	if strings.Contains(prompt, "DB soul prompt") {
-		t.Error("DB system prompt should be overridden by SOUL.md file")
+	// Agent soul section.
+	if !strings.Contains(prompt, "<agent_soul>") {
+		t.Error("expected <agent_soul> tag in prompt")
+	}
+	if !strings.Contains(prompt, "Be concise and friendly.") {
+		t.Error("expected agent soul content in prompt")
+	}
+	// User profile section.
+	if !strings.Contains(prompt, "<user_profile>") {
+		t.Error("expected <user_profile> tag in prompt")
+	}
+	if !strings.Contains(prompt, "User is a Go developer.") {
+		t.Error("expected user profile content in prompt")
+	}
+}
+
+func TestBuildSystemPromptEmptySoulAndProfile(t *testing.T) {
+	wsDir := t.TempDir()
+
+	fake := memorytest.New()
+	ctx := context.Background()
+
+	// No soul or profile set — sections should still appear.
+	prompt := BuildSystemPromptFromDB(ctx, DBPromptParams{
+		Memory:    fake,
+		UserID:    1,
+		AgentID:   "test",
+		AnnaHome:  "/nonexistent/anna",
+		Workspace: wsDir,
+	})
+
+	if !strings.Contains(prompt, "<agent_soul>") {
+		t.Error("expected <agent_soul> tag even when empty")
+	}
+	if !strings.Contains(prompt, "</agent_soul>") {
+		t.Error("expected </agent_soul> closing tag")
+	}
+	if !strings.Contains(prompt, "<user_profile>") {
+		t.Error("expected <user_profile> tag even when empty")
+	}
+	if !strings.Contains(prompt, "</user_profile>") {
+		t.Error("expected </user_profile> closing tag")
 	}
 }
 
