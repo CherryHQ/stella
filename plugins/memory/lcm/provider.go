@@ -21,7 +21,7 @@ var (
 	_ memory.Explorer       = (*Provider)(nil)
 	_ memory.ProfileStore   = (*Provider)(nil)
 	_ memory.SessionManager = (*Provider)(nil)
-	_ memory.ReviewSource   = (*Provider)(nil)
+	_ memory.Reviewer       = (*Provider)(nil)
 )
 
 // Provider implements memory.Provider and all six capability interfaces

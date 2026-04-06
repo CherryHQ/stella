@@ -49,8 +49,6 @@ type Fake struct {
 	summaries map[string]FakeSummary
 	// sessionInfos maps session ID -> fakeSessionInfo.
 	sessionInfos map[string]fakeSessionInfo
-	// reviewWatermarks maps session ID -> last reviewed timestamp.
-	reviewWatermarks map[string]time.Time
 	// bootstrapped tracks which sessions have been bootstrapped.
 	bootstrapped map[string]bool
 	// mu protects all maps.
@@ -60,13 +58,12 @@ type Fake struct {
 // New creates a new Fake provider ready for use.
 func New() *Fake {
 	return &Fake{
-		sessions:         make(map[string][]ai.Message),
-		profiles:         make(map[string]string),
-		souls:            make(map[string]string),
-		summaries:        make(map[string]FakeSummary),
-		sessionInfos:     make(map[string]fakeSessionInfo),
-		reviewWatermarks: make(map[string]time.Time),
-		bootstrapped:     make(map[string]bool),
+		sessions:     make(map[string][]ai.Message),
+		profiles:     make(map[string]string),
+		souls:        make(map[string]string),
+		summaries:    make(map[string]FakeSummary),
+		sessionInfos: make(map[string]fakeSessionInfo),
+		bootstrapped: make(map[string]bool),
 	}
 }
 
@@ -78,7 +75,7 @@ var (
 	_ memory.Explorer       = (*Fake)(nil)
 	_ memory.ProfileStore   = (*Fake)(nil)
 	_ memory.SessionManager = (*Fake)(nil)
-	_ memory.ReviewSource   = (*Fake)(nil)
+	_ memory.Reviewer       = (*Fake)(nil)
 )
 
 // ---------------------------------------------------------------------------
@@ -386,10 +383,10 @@ func (f *Fake) LoadHistory(_ context.Context, sessionID string) ([]ai.Message, e
 }
 
 // ---------------------------------------------------------------------------
-// ReviewSource
+// Reviewer
 // ---------------------------------------------------------------------------
 
-// BuildReviewContext implements memory.ReviewSource.
+// BuildReviewContext implements memory.Reviewer.
 func (f *Fake) BuildReviewContext(_ context.Context, session memory.Session, since time.Time) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -409,56 +406,6 @@ func (f *Fake) BuildReviewContext(_ context.Context, session memory.Session, sin
 	}
 
 	return b.String(), nil
-}
-
-// MarkReviewed implements memory.ReviewSource.
-func (f *Fake) MarkReviewed(_ context.Context, session memory.Session, at time.Time) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.reviewWatermarks[session.ID] = at
-	return nil
-}
-
-// ListUnreviewed implements memory.ReviewSource.
-func (f *Fake) ListUnreviewed(_ context.Context, agentID string, limit int) ([]memory.ReviewCandidate, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	var candidates []memory.ReviewCandidate
-	for sid, msgs := range f.sessions {
-		if len(msgs) == 0 {
-			continue
-		}
-
-		// Check if this session belongs to the requested agent.
-		si, ok := f.sessionInfos[sid]
-		if ok && agentID != "" && si.info.AgentID != agentID {
-			continue
-		}
-
-		lastReviewed := f.reviewWatermarks[sid]
-		lastTS := memory.MessageTimestamp(msgs[len(msgs)-1])
-
-		// Only include if there are messages after the watermark.
-		if !lastReviewed.IsZero() && !lastTS.After(lastReviewed) {
-			continue
-		}
-
-		candidates = append(candidates, memory.ReviewCandidate{
-			Session: memory.Session{
-				ID:      sid,
-				AgentID: agentID,
-			},
-			LastReviewedAt: lastReviewed,
-			LastActive:     lastTS,
-		})
-
-		if limit > 0 && len(candidates) >= limit {
-			break
-		}
-	}
-
-	return candidates, nil
 }
 
 // ---------------------------------------------------------------------------

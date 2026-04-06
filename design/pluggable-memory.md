@@ -14,7 +14,7 @@
    - 5.3 [Explorer](#53-explorer)
    - 5.4 [ProfileStore](#54-profilestore)
    - 5.5 [SessionManager](#55-sessionmanager)
-   - 5.6 [ReviewSource](#56-reviewsource)
+   - 5.6 [Reviewer](#56-reviewer)
 6. [Concurrency Contract](#6-concurrency-contract)
 7. [Tool Auto-Generation](#7-tool-auto-generation)
 8. [Plugin Registry](#8-plugin-registry)
@@ -24,15 +24,21 @@
 10. [Integration Points](#10-integration-points)
     - 10.1 [Pool / Chat loop](#101-pool--chat-loop)
     - 10.2 [System prompt injection](#102-system-prompt-injection)
-    - 10.3 [Self-improve review loop](#103-self-improve-review-loop)
-    - 10.4 [Admin panel](#104-admin-panel)
-    - 10.5 [Wiring in cmd/anna](#105-wiring-in-cmdanna)
+    - 10.3 [Admin panel](#103-admin-panel)
+    - 10.4 [Wiring in cmd/anna](#104-wiring-in-cmdanna)
 11. [Data Flow Diagram](#11-data-flow-diagram)
-12. [How to Write a Memory Plugin](#12-how-to-write-a-memory-plugin)
-13. [Testing](#13-testing)
-14. [Implementation Order](#14-implementation-order)
-15. [Design Decisions and Trade-offs](#15-design-decisions-and-trade-offs)
-16. [Package Layout](#16-package-layout)
+12. [Reflect — Background Conversation Review](#12-reflect--background-conversation-review)
+    - 12.1 [Why separate from memory?](#121-why-separate-from-memory)
+    - 12.2 [Architecture](#122-architecture)
+    - 12.3 [Watermark ownership](#123-watermark-ownership)
+    - 12.4 [Context building](#124-context-building)
+    - 12.5 [Plugin configuration](#125-plugin-configuration)
+    - 12.6 [Wiring in gateway](#126-wiring-in-gateway)
+13. [How to Write a Memory Plugin](#13-how-to-write-a-memory-plugin)
+14. [Testing](#14-testing)
+15. [Implementation Order](#15-implementation-order)
+16. [Design Decisions and Trade-offs](#16-design-decisions-and-trade-offs)
+17. [Package Layout](#17-package-layout)
 
 ---
 
@@ -107,7 +113,7 @@ This fragmentation causes several concrete problems:
         │  Explorer   (optional capability)      │
         │  ProfileStore (optional capability)    │
         │  SessionManager (optional capability)  │
-        │  ReviewSource (optional capability)    │
+        │  Reviewer   (optional capability)      │
         │                                        │
         │  BuildTool(Provider) → tools.Tool      │
         └───────────┬────────────────────────────┘
@@ -565,33 +571,29 @@ ctx_conversations
   self_improve_reviewed_at NULL        (watermark for review loop)
 ```
 
-The `self_improve_reviewed_at` column is internal to the LCM plugin and used by its `ReviewSource` implementation. It is not part of `SessionInfo` — that struct contains only what the admin panel and callers need.
+The `self_improve_reviewed_at` column is migrated out of `ctx_conversations` to the `reflect_watermarks` table owned by the reflect package (see §12). It is not part of `SessionInfo` — that struct contains only what the admin panel and callers need.
 
 ---
 
-### 5.6 ReviewSource
+### 5.6 Reviewer
 
-**What it is:** A way for the self-improve loop to get conversation content in a format suitable for the reviewer agent. The reviewer agent needs to see what happened in a conversation — but different backends store history differently.
+**What it is:** The ability for a memory provider to format conversation content for review. Only one method — the memory plugin knows how its own data is stored and can produce the best representation. Watermark tracking and orchestration are **not** part of this interface — they belong to the reflect package (see §12).
 
-**When to implement:** Any plugin that stores persistent conversation history and wants to support self-improvement. The LCM plugin implements this. A stateless plugin cannot.
+**When to implement:** Any plugin that stores persistent conversation history and wants to support background review. The LCM plugin implements this using summaries for prior context. A simple plugin could implement it using truncated raw messages. A stateless plugin would not implement it.
 
 ```go
 // pkg/memory/provider.go
 
-// ReviewCandidate is a session that has new content ready for self-improve review.
-// Returned by ListUnreviewed so the review loop knows when each session was
-// last reviewed and can pass the right `since` timestamp to BuildReviewContext.
-type ReviewCandidate struct {
-    Session        Session   // the session to review
-    LastReviewedAt time.Time // zero if never reviewed
-    LastActive     time.Time // timestamp of most recent message
-}
-
-// ReviewSource is implemented by providers that can supply conversation content
-// to the self-improvement review loop.
-type ReviewSource interface {
+// Reviewer is implemented by providers that can format conversation content
+// for review by a background agent (the reflect system, see §12).
+//
+// This is deliberately a single method. Watermark tracking (which sessions
+// have been reviewed, when) is not the memory plugin's concern — it belongs
+// to the consumer (internal/reflect). The memory plugin's only job is:
+// "given a session and an optional time boundary, produce a text summary."
+type Reviewer interface {
     // BuildReviewContext returns a text representation of the conversation
-    // suitable for passing to the reviewer agent's prompt.
+    // suitable for passing to a reviewer agent's prompt.
     //
     // since: if non-zero, only include content created after this time.
     //   The provider should include prior context (e.g. summaries from before
@@ -604,28 +606,12 @@ type ReviewSource interface {
     //
     // Returns ("", nil) if there is no content to review.
     BuildReviewContext(ctx context.Context, session Session, since time.Time) (string, error)
-
-    // MarkReviewed records that the session was reviewed at the given timestamp.
-    // The self-improve loop calls this after a successful review so the next
-    // run only processes content added after this point.
-    //
-    // Concurrency note: the self-improve loop calls MarkReviewed only after
-    // the review completes. The watermark should be the timestamp captured
-    // BEFORE loading messages (so concurrent Appends are not skipped).
-    // The caller passes this timestamp, not the provider.
-    MarkReviewed(ctx context.Context, session Session, at time.Time) error
-
-    // ListUnreviewed returns sessions that have new content since their last review.
-    // The self-improve loop calls this to find work to do.
-    // Returns ReviewCandidate (not bare Session) so the caller gets the
-    // LastReviewedAt watermark without a separate round-trip.
-    ListUnreviewed(ctx context.Context, agentID string, limit int) ([]ReviewCandidate, error)
 }
 ```
 
-**Why is `MarkReviewed` / `ListUnreviewed` part of the interface rather than in `SessionManager`?**
+**Why only `BuildReviewContext`, not `MarkReviewed` / `ListUnreviewed`?**
 
-These are review-specific operations. `SessionManager` is about user-visible session metadata (titles, last-active, archive status). The review watermark (`self_improve_reviewed_at`) is an internal implementation detail of the review loop and should not appear in the general session metadata. Putting these in `ReviewSource` keeps the boundary clear.
+The old design (`ReviewSource`) bundled watermark tracking with context building. But watermarks are the consumer's state — like a Kafka consumer offset, they belong to the consumer, not the broker. The reflect package owns its own `reflect_watermarks` table and uses `SessionManager.ListInfo` to find sessions. The memory plugin only needs to answer: "format this conversation for review."
 
 **What the LCM plugin returns from `BuildReviewContext`:**
 
@@ -691,19 +677,6 @@ func (p *Provider) withSessionLock(sessionID string, fn func() error) error {
 ```
 
 Read-only methods (`Assemble`, `Stats`, `Search`, `Describe`, `Expand`, `GetProfile`) do not acquire the session lock — they operate on committed state and are safe to call concurrently with mutations (SQLite WAL mode guarantees snapshot isolation for readers).
-
-### Watermark race prevention
-
-The self-improve loop captures the watermark timestamp **before** loading messages:
-
-```go
-watermark := time.Now().UTC()  // captured first
-text, err := rs.BuildReviewContext(ctx, session, candidate.LastReviewedAt)
-// ... run review ...
-rs.MarkReviewed(ctx, session, watermark)  // uses pre-captured timestamp
-```
-
-Any messages appended after `watermark` but before `MarkReviewed` will have a timestamp > watermark, so they will be picked up by the next review cycle. No messages are skipped.
 
 ---
 
@@ -837,7 +810,7 @@ func init() {
             Description: "Hierarchical summarisation with full history preservation",
             Capabilities: []string{
                 "compactor", "searcher", "explorer",
-                "profile", "sessions", "review",
+                "profile", "sessions", "reviewer",
             },
         },
         Factory: func(ctx context.Context, bc pluginmemory.BuildContext) (memory.Provider, error) {
@@ -875,7 +848,7 @@ Location: `plugins/memory/lcm/`
 
 This is a repackaging of `internal/memory/` as a plugin. Functionally identical to the current engine but registered through the plugin system.
 
-**Implements:** All 6 capability interfaces — `Compactor`, `Searcher`, `Explorer`, `ProfileStore`, `SessionManager`, `ReviewSource`.
+**Implements:** All 6 capability interfaces — `Compactor`, `Searcher`, `Explorer`, `ProfileStore`, `SessionManager`, `Reviewer`.
 
 **Storage:** The same SQLite tables (`ctx_*`) used today. No schema changes.
 
@@ -1072,58 +1045,7 @@ This removes the `UserMemoryStore` from `runner.DBPromptParams` and from `pool_r
 
 ---
 
-### 10.3 Self-improve review loop
-
-`internal/agent/selfimprove/review.go` currently bypasses the memory engine entirely, querying sqlc directly. In the new design it uses `ReviewSource`:
-
-```go
-// internal/agent/selfimprove/review.go
-
-func reviewConversation(ctx context.Context, deps ReviewDeps, snap *config.Snapshot, candidate memory.ReviewCandidate) {
-    rs := deps.Memory.(memory.ReviewSource) // already checked by caller
-
-    // Capture watermark BEFORE loading messages (see Concurrency Contract §6)
-    watermark := time.Now().UTC()
-
-    text, err := rs.BuildReviewContext(ctx, candidate.Session, candidate.LastReviewedAt)
-    if err != nil || text == "" {
-        return
-    }
-
-    // Build the memory tool for the reviewer (profile read-only)
-    reviewTool := memory.BuildTool(deps.Memory, memory.WithActionsOnly("profile_get", "profile_update"))
-
-    // ... run reviewer agent with reviewTool ...
-
-    if err := rs.MarkReviewed(ctx, candidate.Session, watermark); err != nil {
-        log.Error("mark reviewed", "error", err)
-    }
-}
-
-func ReviewTask(ctx context.Context, deps ReviewDeps, cfg config.SelfImproveConfig) {
-    rs, ok := deps.Memory.(memory.ReviewSource)
-    if !ok {
-        return // memory plugin does not support review
-    }
-
-    for _, agent := range agents {
-        candidates, err := rs.ListUnreviewed(ctx, agent.ID, cfg.Batch())
-        if err != nil {
-            log.Error("list unreviewed", "agent", agent.ID, "error", err)
-            continue
-        }
-        for _, c := range candidates {
-            reviewConversation(ctx, deps, snap, c)
-        }
-    }
-}
-```
-
-The `ReviewDeps` struct gains a `Memory memory.Provider` field and drops the raw `*sql.DB` dependency (the DB is now internal to the plugin).
-
----
-
-### 10.4 Admin panel
+### 10.3 Admin panel
 
 `internal/admin/server.go` currently holds a `memory.Engine`. In the new design it holds a `memory.Provider` and uses type assertions for admin-specific operations:
 
@@ -1174,7 +1096,7 @@ Admin endpoints that require a capability return `501 Not Implemented` if the ac
 
 ---
 
-### 10.5 Wiring in cmd/anna
+### 10.4 Wiring in cmd/anna
 
 ```go
 // cmd/anna/commands.go
@@ -1253,26 +1175,209 @@ pool.Chat(ctx, sessionKey, message)
 
 ═══════════════════════════════════════════════════════════
 
-Background: self-improve loop (gateway mode only)
+Background: reflect loop (gateway mode only, see §12)
         │
-        ├─► ReviewSource?.ListUnreviewed(ctx, agentID, batch)
-        │       Finds sessions with new content since last review.
+        ├─► SessionManager?.ListInfo(ctx, opts)
+        │       Find sessions with recent activity.
         │
-        ├─► ReviewSource?.BuildReviewContext(ctx, session, since)
-        │       Returns text of the conversation for the reviewer.
+        ├─► reflect.watermarks: filter to unreviewed sessions
+        │       Compare session LastActive against own watermark table.
+        │
+        ├─► Reviewer?.BuildReviewContext(ctx, session, since)
+        │       Memory plugin formats conversation for the reviewer.
         │
         ├─► Run reviewer agent
         │       Reviewer calls ProfileStore?.GetProfile to read current notes.
         │       Reviewer calls ProfileStore?.SetProfile to update notes.
         │       Reviewer creates/updates skill files on disk.
         │
-        └─► ReviewSource?.MarkReviewed(ctx, session, timestamp)
-                Records the watermark for next run.
+        └─► reflect.watermarks: MarkReviewed(session, timestamp)
+                Records the watermark in reflect's own table.
 ```
 
 ---
 
-## 12. How to Write a Memory Plugin
+## 12. Reflect — Background Conversation Review
+
+The reflect system reviews past conversations to extract durable knowledge: user preferences, reusable skills, and profile updates. It replaces the old `internal/agent/selfimprove/` package.
+
+### 12.1 Why separate from memory?
+
+The old design bundled review orchestration (`ListUnreviewed`, `MarkReviewed`) into the memory plugin via `ReviewSource`. This had two problems:
+
+1. **It polluted the memory contract.** Memory plugins exist to store and retrieve conversations. Watermark tracking is review orchestration — a consumer concern, not a storage concern. Every memory plugin author had to think about review semantics even if they didn't care about self-improvement.
+
+2. **The watermark is the consumer's state.** `self_improve_reviewed_at` on `ctx_conversations` is analogous to a Kafka consumer offset — it tracks the consumer's progress, not the broker's data. It belongs to the consumer (reflect), not the broker (memory).
+
+The memory plugin keeps exactly one review-related method: `Reviewer.BuildReviewContext`. This is the only part that genuinely belongs on the memory plugin — only the plugin knows how to format its own data (summaries, raw messages, etc.) into text suitable for review.
+
+Everything else — scheduling, finding unreviewed sessions, watermark tracking, running the reviewer agent, skill extraction, draft expiry, notifications — lives in `internal/reflect/`.
+
+### 12.2 Architecture
+
+```
+internal/reflect/
+    service.go           — New, Start, ReviewNow, review loop
+    watermark.go         — reflect_watermarks table (own storage)
+    contextbuilder.go    — builds review text via Reviewer?.BuildReviewContext
+                           or falls back to SessionManager.LoadHistory
+    reviewer.go          — wraps agent.Runner for the review agent
+    prompts.go           — review prompt template
+    expiry.go            — draft skill cleanup
+```
+
+```go
+// internal/reflect/service.go
+
+type Config struct {
+    DB        *sql.DB
+    Memory    memory.Provider
+    Store     config.Store
+    Notifier  *channel.Dispatcher
+    Workspace string
+    Interval  time.Duration
+    Batch     int
+    Log       *slog.Logger
+}
+
+type Service struct { /* ... */ }
+
+func New(cfg Config) *Service
+
+// Start runs the review loop. Blocks until ctx is cancelled.
+func (s *Service) Start(ctx context.Context) error
+
+// ReviewNow triggers an immediate review cycle for an agent.
+// Used by the admin panel "Review Now" button.
+func (s *Service) ReviewNow(ctx context.Context, agentID string) (int, error)
+```
+
+### 12.3 Watermark ownership
+
+Reflect owns its own table for tracking review progress:
+
+```sql
+CREATE TABLE reflect_watermarks (
+    session_id  TEXT NOT NULL PRIMARY KEY,
+    reviewed_at TEXT NOT NULL   -- RFC3339
+);
+```
+
+The old `self_improve_reviewed_at` column on `ctx_conversations` is dropped via migration. Existing watermark values are migrated to the new table.
+
+**Finding unreviewed sessions:**
+
+```go
+func (s *Service) listUnreviewed(ctx context.Context, agentID string, limit int) ([]candidate, error) {
+    sm, ok := s.memory.(memory.SessionManager)
+    if !ok {
+        return nil, nil
+    }
+
+    // Get recent sessions
+    sessions, err := sm.ListInfo(ctx, memory.ListOptions{
+        AgentID:         agentID,
+        IncludeArchived: false,
+        Limit:           limit * 2, // over-fetch, then filter
+    })
+
+    // Filter against own watermarks
+    var candidates []candidate
+    for _, sess := range sessions {
+        wm, _ := s.watermarks.Get(ctx, sess.ID)
+        if sess.LastActive.After(wm) {
+            candidates = append(candidates, candidate{
+                Session:        sess,
+                LastReviewedAt: wm,
+            })
+        }
+    }
+    return candidates[:min(len(candidates), limit)], nil
+}
+```
+
+**Watermark race prevention:** The reflect loop captures `watermark := time.Now().UTC()` **before** calling `BuildReviewContext`. After a successful review, it writes this pre-captured timestamp. Any messages appended during the review have a timestamp > watermark and will be picked up in the next cycle.
+
+### 12.4 Context building
+
+Reflect uses the memory plugin's `Reviewer.BuildReviewContext` if available. If the memory plugin doesn't implement `Reviewer`, reflect falls back to `SessionManager.LoadHistory` with truncation:
+
+```go
+func (s *Service) buildReviewContext(ctx context.Context, sess memory.Session, since time.Time) (string, error) {
+    // Prefer the memory plugin's optimised formatting
+    if r, ok := s.memory.(memory.Reviewer); ok {
+        return r.BuildReviewContext(ctx, sess, since)
+    }
+
+    // Fallback: load raw history via SessionManager
+    sm, ok := s.memory.(memory.SessionManager)
+    if !ok {
+        return "", nil
+    }
+
+    msgs, err := sm.LoadHistory(ctx, sess.ID)
+    if err != nil {
+        return "", err
+    }
+
+    // Split into prior context (before since) and fresh content (after since)
+    // Truncate prior context to fit a budget, write fresh messages verbatim
+    return formatForReview(msgs, since), nil
+}
+```
+
+The LCM plugin's `BuildReviewContext` produces the best output (summaries for prior context + raw messages for new content). The fallback works for any plugin that implements `SessionManager` but produces lower quality review context for long conversations.
+
+### 12.5 Plugin configuration
+
+Reflect is configured as a row in `settings_plugins`. No new plugin kind constant — it's just a plugin:
+
+```sql
+INSERT OR IGNORE INTO settings_plugins (id, kind, name, enabled, config)
+VALUES ('reflect', 'reflect', 'reflect', 1, '{}');
+```
+
+Config options stored in the `config` JSON column:
+
+| Key | Default | Description |
+|---|---|---|
+| `interval` | `"1h"` | How often the review loop runs |
+| `batch` | `5` | Max sessions to review per cycle per agent |
+
+Managed via CLI or admin UI:
+
+```bash
+anna plugin config reflect interval=2h batch=10
+anna plugin disable reflect
+anna plugin enable reflect
+```
+
+The old `config.SelfImproveConfig` on `Snapshot` is removed. All configuration comes from the plugin row.
+
+### 12.6 Wiring in gateway
+
+```go
+// cmd/anna/gateway.go
+
+reflectPlugin, _ := s.store.GetPlugin(ctx, "reflect")
+if reflectPlugin.Enabled {
+    svc := reflect.New(reflect.Config{
+        DB:        s.db,
+        Memory:    s.mem,
+        Store:     s.store,
+        Notifier:  s.notifier,
+        Workspace: s.snap.Workspace,
+        Interval:  parseDuration(reflectPlugin.Config, "interval", time.Hour),
+        Batch:     parseInt(reflectPlugin.Config, "batch", 5),
+        Log:       slog.Default(),
+    })
+    go svc.Start(gctx)
+}
+```
+
+---
+
+## 13. How to Write a Memory Plugin
 
 This section is a step-by-step guide for any engineer who wants to implement a custom memory backend.
 
@@ -1330,7 +1435,7 @@ func (p *Provider) Close() error {
 
 ### Step 3: Add optional capabilities (as needed)
 
-Implement any of `Compactor`, `Searcher`, `Explorer`, `ProfileStore`, `SessionManager`, `ReviewSource` on the same `*Provider` type. The system will discover them automatically via type assertions.
+Implement any of `Compactor`, `Searcher`, `Explorer`, `ProfileStore`, `SessionManager`, `Reviewer` on the same `*Provider` type. The system will discover them automatically via type assertions.
 
 Example: adding profile support:
 
@@ -1423,14 +1528,14 @@ func TestConformance(t *testing.T) {
 - [ ] `Close` is safe to call multiple times
 - [ ] `Close` is safe to call while other methods are in-flight
 - [ ] `ProfileStore.SetProfile` replaces (callers merge before calling)
-- [ ] `ReviewSource.BuildReviewContext` returns `("", nil)` for empty sessions (not an error)
+- [ ] `Reviewer.BuildReviewContext` returns `("", nil)` for empty sessions (not an error)
 - [ ] Thread-safe for concurrent calls on different sessions
 - [ ] Thread-safe for concurrent mutation + read on the same session
 - [ ] `memorytest.RunConformance` passes
 
 ---
 
-## 13. Testing
+## 14. Testing
 
 ### Test double: `memorytest.Fake`
 
@@ -1450,8 +1555,6 @@ type Fake struct {
     Profiles map[string]string
     // Summaries maps summary ID → content (for Explorer)
     Summaries map[string]fakeSummary
-    // ReviewWatermarks maps session ID → last reviewed timestamp
-    ReviewWatermarks map[string]time.Time
     // mu protects all maps
     mu sync.Mutex
 }
@@ -1459,7 +1562,7 @@ type Fake struct {
 func New() *Fake
 
 // Implements: Provider, Compactor, Searcher, Explorer,
-//             ProfileStore, SessionManager, ReviewSource
+//             ProfileStore, SessionManager, Reviewer
 ```
 
 **Why all interfaces?** Tests need to exercise code paths that check for capabilities. A fake that only implements `Provider` would cause all capability checks to fail, hiding bugs. The fake is the one place where it is appropriate to implement everything — because its purpose is to exercise the calling code, not to test a real storage backend.
@@ -1484,13 +1587,13 @@ Plugin authors call `memorytest.RunConformance(t, myProvider)` in their test fil
 
 ---
 
-## 14. Implementation Order
+## 15. Implementation Order
 
 This is a clean-slate replacement, not an incremental migration. Build bottom-up:
 
 ### Step 1 — Interfaces and types (`pkg/memory/`)
 
-Create `provider.go`, `types.go`. No implementation code. Compile and verify all types are correct.
+Create `provider.go`, `types.go`. No implementation code. Compile and verify all types are correct. The `Reviewer` interface has a single method (`BuildReviewContext`), replacing the old 3-method `ReviewSource`.
 
 ### Step 2 — Test infrastructure (`pkg/memory/memorytest/`)
 
@@ -1502,27 +1605,31 @@ Create `registry.go` with `Register`, `Build`, `List`. Add `PluginKindMemory` to
 
 ### Step 4 — LCM plugin (`plugins/memory/lcm/`)
 
-Move code from `internal/memory/` into the plugin package. Implement all 6 capabilities. Run conformance tests. This is the bulk of the work — it is a refactor, not a rewrite.
+Move code from `internal/memory/` into the plugin package. Implement all 6 capabilities (`Compactor`, `Searcher`, `Explorer`, `ProfileStore`, `SessionManager`, `Reviewer`). The `Reviewer` capability is a single method (`BuildReviewContext`) — watermark tracking is handled by `internal/reflect/`. Run conformance tests. This is the bulk of the work — it is a refactor, not a rewrite.
 
 ### Step 5 — Tool auto-generation (`pkg/memory/tool.go`)
 
 Implement `BuildTool`. Test with the `Fake` provider (all actions available) and with a bare `Provider` (only `status` action).
 
-### Step 6 — Wire into callers
+### Step 6 — Wire memory into callers
 
-Update `Pool`, `PoolManager`, `BuildSystemPromptFromDB`, self-improve `ReviewDeps`, and admin `Server` to use `memory.Provider` and type assertions. Update `cmd/anna/commands.go` to build the provider via the registry. Update `selfimprove/prompts.go` to reference new tool action names (`profile_get`/`profile_update` instead of `review_memory get`/`update`).
+Update `Pool`, `PoolManager`, `BuildSystemPromptFromDB`, and admin `Server` to use `memory.Provider` and type assertions. Update `cmd/anna/commands.go` to build the provider via the registry.
 
 ### Step 7 — Simple plugin (`plugins/memory/simple/`)
 
 Implement and run conformance tests. This validates the interface is not over-fitted to LCM.
 
-### Step 8 — Delete old code
+### Step 8 — Reflect package (`internal/reflect/`)
 
-Remove `internal/memory/` entirely. Remove `GetUserAgentMemory`/`SetUserAgentMemory` from `config.Store`. Remove `internal/memory/tool/`, `internal/agent/selfimprove/memorytool.go`, `internal/memory/usermemory.go`, `internal/memory/context.go`. Update docs.
+Create the reflect package. Move code from `internal/agent/selfimprove/`. Create `reflect_watermarks` table via Atlas migration. Seed `reflect` plugin row in `settings_plugins`. Wire into `cmd/anna/gateway.go`. Remove `config.SelfImproveConfig`.
+
+### Step 9 — Delete old code
+
+Remove `internal/memory/` entirely. Remove `internal/agent/selfimprove/` entirely. Remove `GetUserAgentMemory`/`SetUserAgentMemory` from `config.Store`. Remove `internal/memory/tool/`, `internal/memory/usermemory.go`, `internal/memory/context.go`. Drop `self_improve_reviewed_at` column from `ctx_conversations` via migration. Update docs.
 
 ---
 
-## 15. Design Decisions and Trade-offs
+## 16. Design Decisions and Trade-offs
 
 ### Why capability interfaces via type assertion instead of a single large interface?
 
@@ -1574,6 +1681,20 @@ Memory is conversational: it accumulates during and between sessions, specific t
 
 Mixing them would mean a memory plugin that wanted to do something clever with the user profile would also have to handle agent identity, which has completely different lifecycle and ownership semantics.
 
+### Why is reflect in `internal/reflect/`, not `plugins/reflect/`?
+
+**Alternative considered:** Put reflect under `plugins/` with dependency-inverted interfaces to avoid importing `internal/`.
+
+**Why rejected:** Reflect depends on `config.Store`, `channel.Dispatcher`, `runner.LoadSkills`, `skills.NewTool`, `skills.Deprecate` — all from `internal/`. Moving to `plugins/` would require either extracting all these to `pkg/` (large scope creep) or defining thin adapter interfaces and wiring closures in `cmd/anna/` (unnecessary boilerplate for a single concrete implementation). Since there is only one reflect implementation and no foreseeable need for swappable strategies, the simplicity of `internal/` wins.
+
+**Plugin-like behaviour without `plugins/`:** Reflect gets enable/disable and configuration through a row in `settings_plugins`. The gateway reads `store.GetPlugin(ctx, "reflect")` and conditionally starts the service. This gives operators the same control surface (CLI, admin UI) as any other plugin without the packaging overhead.
+
+### Why does reflect own watermarks instead of memory?
+
+**Alternative considered:** Keep watermarks on the memory plugin (the old `ReviewSource.MarkReviewed` / `ListUnreviewed` approach).
+
+**Why rejected:** Watermarks track the review loop's progress, not the conversation's state. They are analogous to a Kafka consumer offset — the consumer (reflect) owns them, not the broker (memory). Putting them on the memory plugin meant every memory plugin author had to implement watermark semantics even if they didn't care about review. Moving watermarks to `reflect_watermarks` removes this burden and makes memory plugins simpler to write.
+
 ### Why not support multiple simultaneous memory plugins?
 
 **Alternative considered:** Route different session types to different plugins (e.g., CLI sessions use LCM, Telegram sessions use simple).
@@ -1582,15 +1703,16 @@ Mixing them would mean a memory plugin that wanted to do something clever with t
 
 ---
 
-## 16. Package Layout
+## 17. Package Layout
 
 After migration is complete:
 
 ```
 pkg/memory/
-  provider.go        Provider interface + all 6 capability interfaces
+  provider.go        Provider interface + 6 capability interfaces
+                     (Compactor, Searcher, Explorer, ProfileStore, SessionManager, Reviewer)
   types.go           Session, SessionStats, SearchQuery, SearchResult, CompactionMode,
-                     CompactionResult, SessionInfo, ListOptions, ReviewCandidate,
+                     CompactionResult, SessionInfo, ListOptions,
                      DescribeResult, ExpandResult, ExpandMessage, ExpandChild
   tool.go            BuildTool(Provider, ...ToolOption) tools.Tool
   summarize.go       Summarizer interface + BuildPrompt + LLMSummarizer + StaticSummarizer
@@ -1611,16 +1733,26 @@ plugins/memory/
     retrieval.go     Searcher + Explorer implementation
     profile.go       ProfileStore implementation
     sessions.go      SessionManager implementation
-    review.go        ReviewSource implementation
+    review.go        Reviewer implementation (BuildReviewContext only)
     engine.go        internal helpers (session mutex, conv cache)
 
   simple/            Minimal plugin (sliding window, no compaction)
     plugin.go        init() registration
     provider.go      Provider + ProfileStore + SessionManager
+
+internal/reflect/    Background conversation review (configurable via settings_plugins)
+  service.go         New, Start, ReviewNow — review loop orchestration
+  watermark.go       reflect_watermarks table — own storage for review progress
+  contextbuilder.go  builds review text via Reviewer or SessionManager fallback
+  reviewer.go        wraps agent.Runner for the review agent
+  prompts.go         review prompt template
+  expiry.go          draft skill cleanup
 ```
 
 The `internal/memory/` package is replaced entirely. Its code moves to `pkg/memory/` (public interfaces and shared types) and `plugins/memory/lcm/` (the implementation).
 
+The `internal/agent/selfimprove/` package is replaced by `internal/reflect/`. It owns its own `reflect_watermarks` table instead of relying on `self_improve_reviewed_at` on `ctx_conversations`.
+
 The `internal/memory/tool/` directory is deleted. `internal/agent/selfimprove/memorytool.go` is deleted.
 
-`internal/config/store.go` loses `GetUserAgentMemory` and `SetUserAgentMemory`. `internal/config/dbstore.go` loses their implementations. `internal/memory/usermemory.go` is deleted.
+`internal/config/store.go` loses `GetUserAgentMemory` and `SetUserAgentMemory`. `internal/config/dbstore.go` loses their implementations. `internal/memory/usermemory.go` is deleted. `config.SelfImproveConfig` is removed — configuration lives in the `reflect` plugin row.

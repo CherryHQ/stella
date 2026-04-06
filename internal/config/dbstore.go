@@ -392,9 +392,6 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	if val, err := s.GetSetting(ctx, "scheduler"); err == nil && val != "" {
 		_ = json.Unmarshal([]byte(val), &snap.Scheduler)
 	}
-	if val, err := s.GetSetting(ctx, "self_improve"); err == nil && val != "" {
-		_ = json.Unmarshal([]byte(val), &snap.SelfImprove)
-	}
 	// Apply defaults.
 	if snap.Runner.Type == "" {
 		snap.Runner.Type = "go"
@@ -557,6 +554,17 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 				return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindProvider, name, err)
 			}
 		}
+	}
+
+	// Seed the reflect plugin (conversation review).
+	if err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
+		ID:      "reflect",
+		Kind:    "reflect",
+		Name:    "reflect",
+		Enabled: 1,
+		Config:  `{}`,
+	}); err != nil {
+		return fmt.Errorf("seed: plugin reflect: %w", err)
 	}
 
 	return nil

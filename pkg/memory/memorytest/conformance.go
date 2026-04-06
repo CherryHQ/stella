@@ -307,10 +307,10 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 		})
 	}
 
-	if rs, ok := provider.(memory.ReviewSource); ok {
-		t.Run("ReviewSource", func(t *testing.T) {
+	if rv, ok := provider.(memory.Reviewer); ok {
+		t.Run("Reviewer", func(t *testing.T) {
 			// BuildReviewContext with zero since — should return all content.
-			text, err := rs.BuildReviewContext(ctx, session, time.Time{})
+			text, err := rv.BuildReviewContext(ctx, session, time.Time{})
 			if err != nil {
 				t.Fatalf("BuildReviewContext: %v", err)
 			}
@@ -318,22 +318,11 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 				t.Error("BuildReviewContext returned empty for a session with messages")
 			}
 
-			// MarkReviewed with a timestamp well after all test messages.
-			watermark := time.Now().UTC().Add(time.Minute)
-			if err := rs.MarkReviewed(ctx, session, watermark); err != nil {
-				t.Fatalf("MarkReviewed: %v", err)
-			}
-
-			// ListUnreviewed should not include this session now
-			// (unless new messages were added after the watermark).
-			candidates, err := rs.ListUnreviewed(ctx, "test", 10)
+			// BuildReviewContext with a future since — should not error.
+			future := time.Now().UTC().Add(time.Hour)
+			_, err = rv.BuildReviewContext(ctx, session, future)
 			if err != nil {
-				t.Fatalf("ListUnreviewed: %v", err)
-			}
-			for _, c := range candidates {
-				if c.Session.ID == session.ID {
-					t.Error("session should not appear in ListUnreviewed after MarkReviewed")
-				}
+				t.Fatalf("BuildReviewContext with future since: %v", err)
 			}
 		})
 	}

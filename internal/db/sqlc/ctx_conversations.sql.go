@@ -13,7 +13,7 @@ import (
 const createConversation = `-- name: CreateConversation :one
 INSERT INTO ctx_conversations (session_id, title)
 VALUES (?, ?)
-RETURNING id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, self_improve_reviewed_at, created_at, updated_at
+RETURNING id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at
 `
 
 type CreateConversationParams struct {
@@ -34,7 +34,6 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 		&i.BootstrappedAt,
 		&i.AgentID,
 		&i.UserID,
-		&i.SelfImproveReviewedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -44,7 +43,7 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 const createConversationFull = `-- name: CreateConversationFull :one
 INSERT INTO ctx_conversations (session_id, title, channel, archived, last_active, agent_id, user_id)
 VALUES (?, ?, ?, ?, ?, ?, ?)
-RETURNING id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, self_improve_reviewed_at, created_at, updated_at
+RETURNING id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at
 `
 
 type CreateConversationFullParams struct {
@@ -78,7 +77,6 @@ func (q *Queries) CreateConversationFull(ctx context.Context, arg CreateConversa
 		&i.BootstrappedAt,
 		&i.AgentID,
 		&i.UserID,
-		&i.SelfImproveReviewedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -86,7 +84,7 @@ func (q *Queries) CreateConversationFull(ctx context.Context, arg CreateConversa
 }
 
 const getConversation = `-- name: GetConversation :one
-SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, self_improve_reviewed_at, created_at, updated_at FROM ctx_conversations WHERE id = ?
+SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations WHERE id = ?
 `
 
 func (q *Queries) GetConversation(ctx context.Context, id int64) (CtxConversation, error) {
@@ -102,7 +100,6 @@ func (q *Queries) GetConversation(ctx context.Context, id int64) (CtxConversatio
 		&i.BootstrappedAt,
 		&i.AgentID,
 		&i.UserID,
-		&i.SelfImproveReviewedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -110,7 +107,7 @@ func (q *Queries) GetConversation(ctx context.Context, id int64) (CtxConversatio
 }
 
 const getConversationBySessionID = `-- name: GetConversationBySessionID :one
-SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, self_improve_reviewed_at, created_at, updated_at FROM ctx_conversations WHERE session_id = ?
+SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations WHERE session_id = ?
 `
 
 func (q *Queries) GetConversationBySessionID(ctx context.Context, sessionID string) (CtxConversation, error) {
@@ -126,7 +123,6 @@ func (q *Queries) GetConversationBySessionID(ctx context.Context, sessionID stri
 		&i.BootstrappedAt,
 		&i.AgentID,
 		&i.UserID,
-		&i.SelfImproveReviewedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -134,7 +130,7 @@ func (q *Queries) GetConversationBySessionID(ctx context.Context, sessionID stri
 }
 
 const listConversations = `-- name: ListConversations :many
-SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, self_improve_reviewed_at, created_at, updated_at FROM ctx_conversations WHERE archived = 0 ORDER BY last_active DESC
+SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations WHERE archived = 0 ORDER BY last_active DESC
 `
 
 func (q *Queries) ListConversations(ctx context.Context) ([]CtxConversation, error) {
@@ -156,7 +152,6 @@ func (q *Queries) ListConversations(ctx context.Context) ([]CtxConversation, err
 			&i.BootstrappedAt,
 			&i.AgentID,
 			&i.UserID,
-			&i.SelfImproveReviewedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -174,7 +169,7 @@ func (q *Queries) ListConversations(ctx context.Context) ([]CtxConversation, err
 }
 
 const listConversationsAll = `-- name: ListConversationsAll :many
-SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, self_improve_reviewed_at, created_at, updated_at FROM ctx_conversations ORDER BY last_active DESC
+SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversations ORDER BY last_active DESC
 `
 
 func (q *Queries) ListConversationsAll(ctx context.Context) ([]CtxConversation, error) {
@@ -196,7 +191,6 @@ func (q *Queries) ListConversationsAll(ctx context.Context) ([]CtxConversation, 
 			&i.BootstrappedAt,
 			&i.AgentID,
 			&i.UserID,
-			&i.SelfImproveReviewedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -211,73 +205,6 @@ func (q *Queries) ListConversationsAll(ctx context.Context) ([]CtxConversation, 
 		return nil, err
 	}
 	return items, nil
-}
-
-const listUnreviewedConversations = `-- name: ListUnreviewedConversations :many
-SELECT id, session_id, title, channel, archived, last_active, bootstrapped_at, agent_id, user_id, self_improve_reviewed_at, created_at, updated_at FROM ctx_conversations
-WHERE archived = 0
-  AND agent_id = ?
-  AND user_id > 0
-  AND (self_improve_reviewed_at IS NULL OR last_active > self_improve_reviewed_at)
-ORDER BY last_active ASC
-LIMIT ?
-`
-
-type ListUnreviewedConversationsParams struct {
-	AgentID sql.NullString `json:"agent_id"`
-	Limit   int64          `json:"limit"`
-}
-
-func (q *Queries) ListUnreviewedConversations(ctx context.Context, arg ListUnreviewedConversationsParams) ([]CtxConversation, error) {
-	rows, err := q.db.QueryContext(ctx, listUnreviewedConversations, arg.AgentID, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []CtxConversation{}
-	for rows.Next() {
-		var i CtxConversation
-		if err := rows.Scan(
-			&i.ID,
-			&i.SessionID,
-			&i.Title,
-			&i.Channel,
-			&i.Archived,
-			&i.LastActive,
-			&i.BootstrappedAt,
-			&i.AgentID,
-			&i.UserID,
-			&i.SelfImproveReviewedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const markConversationReviewedAt = `-- name: MarkConversationReviewedAt :exec
-UPDATE ctx_conversations
-SET self_improve_reviewed_at = ?, updated_at = datetime('now')
-WHERE id = ?
-`
-
-type MarkConversationReviewedAtParams struct {
-	SelfImproveReviewedAt sql.NullString `json:"self_improve_reviewed_at"`
-	ID                    int64          `json:"id"`
-}
-
-func (q *Queries) MarkConversationReviewedAt(ctx context.Context, arg MarkConversationReviewedAtParams) error {
-	_, err := q.db.ExecContext(ctx, markConversationReviewedAt, arg.SelfImproveReviewedAt, arg.ID)
-	return err
 }
 
 const updateConversationAgentUser = `-- name: UpdateConversationAgentUser :exec

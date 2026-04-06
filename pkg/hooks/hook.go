@@ -151,8 +151,6 @@ const (
 	MemoryOpListInfo        MemoryOp = "list_info"
 	MemoryOpLoadHistory     MemoryOp = "load_history"
 	MemoryOpBuildReview     MemoryOp = "build_review"
-	MemoryOpMarkReviewed    MemoryOp = "mark_reviewed"
-	MemoryOpListUnreviewed  MemoryOp = "list_unreviewed"
 )
 
 // PostMemoryCallContext is the typed payload for PostMemoryCall hooks.
