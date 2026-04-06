@@ -11,6 +11,8 @@ import (
 type HookPoint string
 
 const (
+	PreAgentCall   HookPoint = "pre_agent_call"
+	PostAgentCall  HookPoint = "post_agent_call"
 	PreToolCall    HookPoint = "pre_tool_call"
 	PostToolCall   HookPoint = "post_tool_call"
 	PreLLMCall     HookPoint = "pre_llm_call"
@@ -168,6 +170,37 @@ type PostMemoryCallHook interface {
 	Name() string
 	Priority() int
 	OnPostMemoryCall(ctx context.Context, hctx *PostMemoryCallContext)
+}
+
+// --- PreAgentCall / PostAgentCall ---
+
+// PreAgentCallContext is the typed payload for PreAgentCall hooks.
+// Fired when a chat request enters the agent pool, before any memory or LLM work.
+type PreAgentCallContext struct {
+	HookMeta
+	MessageLen int // length of the user message text
+}
+
+// PreAgentCallHook observes the start of a chat request.
+type PreAgentCallHook interface {
+	Name() string
+	Priority() int
+	OnPreAgentCall(ctx context.Context, hctx *PreAgentCallContext)
+}
+
+// PostAgentCallContext is the typed payload for PostAgentCall hooks.
+// Fired when the chat stream completes (all events consumed and persisted).
+type PostAgentCallContext struct {
+	HookMeta
+	Duration time.Duration
+	Error    error
+}
+
+// PostAgentCallHook observes the completion of a chat request.
+type PostAgentCallHook interface {
+	Name() string
+	Priority() int
+	OnPostAgentCall(ctx context.Context, hctx *PostAgentCallContext)
 }
 
 // --- HookPlugin ---

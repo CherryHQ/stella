@@ -8,6 +8,7 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
 )
 
@@ -55,6 +56,15 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 
 	msgText := runner.MessageText(message)
 	p.log.Debug("chat started", "session_id", sessionID, "message_len", len(msgText))
+
+	// Fire PreAgentCall hook — marks the start of a chat request.
+	chatStart := time.Now()
+	hs := hooks.NewHookSet(p.hookPlugins())
+	hookMeta := hooks.HookMeta{SessionID: sessionID, UserID: sess.Info.UserID, AgentID: agentID}
+	hs.RunPreAgentCall(ctx, &hooks.PreAgentCallContext{
+		HookMeta:   hookMeta,
+		MessageLen: len(msgText),
+	})
 
 	// Auto-compact if the session has grown too large.
 	if p.NeedsCompaction(sessionID) {
@@ -124,19 +134,28 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 
 	stream := r.Chat(ctx, history, message)
 
-	go p.streamEvents(ctx, sessionID, memSession, stream, out)
+	go p.streamEvents(ctx, sessionID, memSession, stream, out, hs, hookMeta, chatStart)
 
 	return out
 }
 
 // streamEvents reads runner events, persists messages to the memory provider,
 // and forwards events to the output channel.
-func (p *Pool) streamEvents(ctx context.Context, sessionID string, memSession memory.Session, stream <-chan runner.Event, out chan<- runner.Event) {
-	defer close(out)
+func (p *Pool) streamEvents(ctx context.Context, sessionID string, memSession memory.Session, stream <-chan runner.Event, out chan<- runner.Event, hs *hooks.HookSet, hookMeta hooks.HookMeta, chatStart time.Time) {
+	var chatErr error
+	defer func() {
+		hs.RunPostAgentCall(ctx, &hooks.PostAgentCallContext{
+			HookMeta: hookMeta,
+			Duration: time.Since(chatStart),
+			Error:    chatErr,
+		})
+		close(out)
+	}()
 	persistCtx := context.WithoutCancel(ctx)
 	var textBuf strings.Builder
 	for evt := range stream {
 		if evt.Err != nil {
+			chatErr = evt.Err
 			// Persist any buffered text before returning on error.
 			if textBuf.Len() > 0 {
 				flushMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: textBuf.String()}}}
