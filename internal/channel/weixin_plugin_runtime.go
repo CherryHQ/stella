@@ -37,7 +37,7 @@ func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.ManagedRuntime {
 			}, handler)
 		}
 	}
-	return newBotManagedRuntime(botRuntimeDeps[WeixinConfig]{
+	return NewBotManagedRuntime(BotRuntimeDeps[WeixinConfig]{
 		Parent:               deps.Parent,
 		Handler:              deps.Handler,
 		Notifier:             deps.Notifier,

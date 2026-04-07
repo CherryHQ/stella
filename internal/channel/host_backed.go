@@ -1,5 +1,10 @@
 package channel
 
+const (
+	TelegramPluginID    = "channel/telegram"
+	TelegramRuntimeName = "bot"
+)
+
 type HostBackedChannel struct {
 	Name     string
 	PluginID string

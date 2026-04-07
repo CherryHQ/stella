@@ -39,7 +39,7 @@ func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.ManagedRuntime {
 			}, handler)
 		}
 	}
-	return newBotManagedRuntime(botRuntimeDeps[FeishuConfig]{
+	return NewBotManagedRuntime(BotRuntimeDeps[FeishuConfig]{
 		Parent:               deps.Parent,
 		Handler:              deps.Handler,
 		Notifier:             deps.Notifier,

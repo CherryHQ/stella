@@ -84,7 +84,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		Workspace: t.TempDir(),
 	})
 	resetTelegramRuntime := telegramplugin.SetRuntimeFactoryForTesting(func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error) {
-		return channel.NewTelegramManagedRuntime(channel.TelegramRuntimeDeps{
+		return telegramplugin.NewManagedRuntime(telegramplugin.RuntimeDeps{
 			Parent:   context.Background(),
 			Handler:  testChannelHandler{},
 			Notifier: dispatcher,

@@ -50,7 +50,7 @@ func TestSelfRegisteredTelegramPluginAppliesAndReportsStatus(t *testing.T) {
 	host.SetChannelRuntimeServices(services)
 
 	reset := SetRuntimeFactoryForTesting(func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error) {
-		return internalchannel.NewTelegramManagedRuntime(internalchannel.TelegramRuntimeDeps{
+		return NewManagedRuntime(RuntimeDeps{
 			Parent:   context.Background(),
 			Handler:  fakeChannelHandler{},
 			Notifier: dispatcher,
@@ -145,20 +145,6 @@ func (s *stubStore) GetSetting(context.Context, string) (string, error)         
 func (s *stubStore) SetSetting(context.Context, string, string) error             { return nil }
 func (s *stubStore) Snapshot(context.Context, string) (*config.Snapshot, error)   { return nil, nil }
 func (s *stubStore) SeedDefaults(context.Context) error                           { return nil }
-
-type fakeChannelHandler struct{}
-
-func (fakeChannelHandler) HandleIncoming(context.Context, pkgchannel.IncomingMessage, string, string) (string, bool, *pkgchannel.ChatStream, error) {
-	return "", false, nil, nil
-}
-func (fakeChannelHandler) ListModels() []pkgchannel.ModelOption { return nil }
-func (fakeChannelHandler) SwitchModel(string, string) error     { return nil }
-func (fakeChannelHandler) ListAgents(context.Context, pkgchannel.IncomingMessage) ([]pkgchannel.AgentInfo, string, error) {
-	return nil, "", nil
-}
-func (fakeChannelHandler) SwitchAgent(context.Context, pkgchannel.IncomingMessage, string) error {
-	return nil
-}
 
 type testChannel struct{ stop chan struct{} }
 

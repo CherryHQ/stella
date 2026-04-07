@@ -37,11 +37,11 @@ var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, e
 		}
 		notifier = typed
 	}
-	return internalchannel.NewTelegramManagedRuntime(internalchannel.TelegramRuntimeDeps{
+	_ = host.Logger(PluginID)
+	return NewManagedRuntime(RuntimeDeps{
 		Parent:   parent,
 		Handler:  handler,
 		Notifier: notifier,
-		Log:      host.Logger(PluginID),
 		NewChannel: func(cfg internalchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{Token: cfg.Token, ChannelID: cfg.ChannelID, GroupMode: cfg.GroupMode}, handler)
 		},
@@ -69,8 +69,8 @@ func init() {
 		host.Registry().RegisterConfig(pkgplugins.ConfigRegistration{
 			PluginID:      PluginID,
 			DefaultConfig: func() map[string]any { return map[string]any{} },
-			Validate:      func(raw map[string]any) error { _, err := internalchannel.DecodeTelegramPluginConfig(raw); return err },
-			Redact:        internalchannel.RedactTelegramPluginConfig,
+			Validate:      func(raw map[string]any) error { _, err := DecodeConfig(raw); return err },
+			Redact:        RedactConfig,
 		})
 		host.Registry().RegisterRuntime(pkgplugins.RuntimeRegistration{PluginID: PluginID, Name: RuntimeName, Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
 			return newRuntime(ctx.Services)
