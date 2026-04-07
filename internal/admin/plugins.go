@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/vaayne/anna/internal/config"
+	annamcp "github.com/vaayne/anna/internal/mcp"
 )
 
 func (s *Server) listPlugins(w http.ResponseWriter, r *http.Request) {
@@ -13,6 +14,15 @@ func (s *Server) listPlugins(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeData(w, http.StatusOK, plugins)
+}
+
+func (s *Server) getPluginStatus(w http.ResponseWriter, r *http.Request) {
+	id := config.PluginID(r.PathValue("kind"), r.PathValue("name"))
+	if id == config.PluginID(config.PluginKindTool, annamcp.PluginName) {
+		writeData(w, http.StatusOK, map[string]any{"servers": s.mcpStatusSnapshot()})
+		return
+	}
+	writeData(w, http.StatusOK, map[string]any{})
 }
 
 func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
@@ -48,6 +58,13 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("failed to reload plugin tools", "plugin", id, "error", err)
 		}
 	}
+	if p.ID == config.PluginID(config.PluginKindTool, "mcp") {
+		if req.Enabled {
+			s.startMCP()
+		} else {
+			s.stopMCP()
+		}
+	}
 	// Hot-reload hook plugins so the change takes effect without restart.
 	if p.Kind == config.PluginKindHook && s.poolManager != nil {
 		if err := s.poolManager.ReloadPluginHooks(r.Context()); err != nil {
@@ -67,6 +84,39 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 		} else {
 			s.stopReflect()
 		}
+	}
+	writeData(w, http.StatusOK, p)
+}
+
+func (s *Server) updatePluginConfig(w http.ResponseWriter, r *http.Request) {
+	id := config.PluginID(r.PathValue("kind"), r.PathValue("name"))
+	var req struct {
+		Config map[string]any `json:"config"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if req.Config == nil {
+		req.Config = map[string]any{}
+	}
+	if id == config.PluginID(config.PluginKindTool, "mcp") {
+		if _, err := annamcp.DecodeConfig(req.Config); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if err := s.store.SetPluginConfig(r.Context(), id, req.Config); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	p, err := s.store.GetPlugin(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if p.ID == config.PluginID(config.PluginKindTool, "mcp") {
+		s.reconcileMCP()
 	}
 	writeData(w, http.StatusOK, p)
 }
