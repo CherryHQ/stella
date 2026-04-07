@@ -11,9 +11,9 @@
 
 ## Phase 2: Telegram pilot — registration ownership only
 
-- [ ] 2.1 — Add Telegram plugin self-registration package entrypoint (`plugins/channels/telegram/plugin.go`)
-- [ ] 2.2 — Remove Telegram-specific registration glue from host/bootstrap in the same cutover (`internal/pluginhost/telegram.go`, `cmd/anna/plugins_imports.go`, `cmd/anna/gateway.go`)
-- [ ] 2.3 — Add regression coverage for self-registered Telegram runtime/config/status behavior (Telegram plugin/runtime tests)
+- [x] 2.1 — Add Telegram plugin self-registration package entrypoint (`plugins/channels/telegram/plugin.go`)
+- [x] 2.2 — Remove Telegram-specific registration glue from host/bootstrap in the same cutover (`internal/pluginhost/telegram.go`, `cmd/anna/plugins_imports.go`, `cmd/anna/gateway.go`)
+- [x] 2.3 — Add regression coverage for self-registered Telegram runtime/config/status behavior (Telegram plugin/runtime tests)
 
 ## Phase 3: Telegram completion — plugin-owned config/runtime
 
