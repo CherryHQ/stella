@@ -51,6 +51,7 @@ This handoff file is also the running implementation log for future sessions.
   - concrete schemas are registered for MCP and Telegram
 - Extracted the Telegram plugin config type into `pkg/channel`, so Telegram plugin code no longer depends on an app-private config struct for its persisted config shape.
 - Extracted shared channel plugin config decode/clone helpers into `pkg/channel`, so Telegram config handling no longer imports `internal/channel` just to parse or redact persisted config maps.
+- Extracted the generic managed channel bot runtime into `pkg/channelruntime`, so Telegram runtime wiring no longer depends on `internal/channel`.
 - Extracted the MCP plugin config model and decoder into `pkg/mcp`, so MCP plugin config handling no longer depends on an app-private config package.
 - Extracted MCP tool/status/result data types into `pkg/mcp`, so plugin-facing MCP data no longer depends on app-private type definitions.
 - Removed the remaining admin-side pluginhost compatibility branches:
@@ -99,12 +100,12 @@ The repository already has a useful base, but it is still transitional:
 - Config schemas now exist as host-readable data for the plugins that have been wired so far, instead of living only as Go validation callbacks.
 - Telegram config is now a public package contract in `pkg/channel`, not an app-private type in `internal/channel`.
 - Shared channel config decode/clone helpers are now public package contracts in `pkg/channel`, and the old `internal/channel` wrapper layer has been removed.
+- Shared managed channel runtime orchestration now lives in `pkg/channelruntime`, which is the stable package boundary for code that depends on both `pkg/channel` and `pkg/plugins`.
 - MCP config is now a public package contract in `pkg/mcp`, not an app-private type in `internal/mcp`.
 - MCP tool metadata, execution result shape, and server status are now public package contracts in `pkg/mcp`.
 - Admin plugin config/status/toggle flows now assume one plugin host exists, matching the actual application wiring.
 - `plugins/tools/mcp` is the best current reference for a multi-capability unit, but it still depends on `internal/mcp`.
-- `plugins/channels/telegram` has started moving ownership into the package, but it still imports `internal/channel` types and runtime helpers.
-- `plugins/channels/telegram/config.go` now imports only `pkg/channel`; the remaining `internal/channel` imports are runtime-oriented.
+- `plugins/channels/telegram` production code now imports only `pkg/...`; remaining `internal/channel` imports in that package are test-only.
 - Core tools are still separate because `plugins/tools/registry.go` owns the required-tool boot path used by the Go runner.
 - `cmd/anna/plugins_imports.go` is still the blank-import bootstrap for built-ins. That is acceptable for repo-scoped plugins.
 
@@ -176,10 +177,13 @@ The repository already has a useful base, but it is still transitional:
   This must be normalized deliberately during migration.
 - Required tools are still built through `plugintools.BuildCore(...)`. That path was not changed in this slice.
 - Schema coverage is still partial. MCP and Telegram are wired; other managed plugins still rely on validate/redact callbacks without schema data.
-- Telegram still depends on `internal/channel` for runtime orchestration and dispatcher integration; only the config type moved out in this slice.
-- Telegram still depends on `internal/channel` for runtime orchestration and dispatcher integration; config map decode/redaction helpers have already been moved out.
+- Telegram production code no longer depends on `internal/channel`; runtime orchestration now uses `pkg/channelruntime` plus the public notification registry contract in `pkg/plugins`.
 - MCP still depends on `internal/mcp` for the manager/runtime implementation and status types; only the config model and decoder moved out in this slice.
 - MCP still depends on `internal/mcp` for the manager/runtime implementation; the extracted `pkg/mcp` types are data contracts only.
+- Remaining non-test plugin imports of `internal/...` are now concentrated in:
+  - `plugins/tools/mcp` -> `internal/mcp`
+  - `plugins/memory/lcm` -> `internal/db/sqlc`
+  - `plugins/memory/simple` -> `internal/db/sqlc`
 - Admin construction now hard-requires `pluginhost`; the old nil-host compatibility path is gone.
 - `Go init()` blank-import registration is still acceptable for repo-level built-ins, but it should not remain the only discovery logic in the design language.
 
@@ -206,6 +210,15 @@ The repository already has a useful base, but it is still transitional:
 - Updated the internal QQ, Feishu, and Weixin managed runtime config helpers to use the same public helper functions, so there is only one channel config decode path.
 - Removed the dead `internal/channel` wrapper exports and deleted `internal/channel/plugin_runtime_config.go`.
 - Ran focused tests for `pkg/channel`, `internal/channel`, `plugins/channels/telegram`, `internal/admin`, and `cmd/anna`, then ran `go test ./...` successfully.
+
+### 2026-04-08 — Telegram runtime extraction
+
+- Moved the generic managed channel bot runtime out of `internal/channel` into the new public package `pkg/channelruntime`.
+- Updated Telegram managed runtime wiring to use `pkg/channelruntime` plus the public `pkg/plugins.NotificationRegistry` interface instead of `internal/channel.Dispatcher`.
+- Updated internal QQ, Feishu, and Weixin managed runtimes to use the same public runtime helper, then removed `internal/channel/bot_runtime.go`.
+- Updated downstream tests and host wiring to the new Telegram runtime dependency shape.
+- Verified that `plugins/channels/telegram` no longer imports `internal/channel` in production code.
+- Ran focused tests for `pkg/channel`, `pkg/channelruntime`, `internal/channel`, `plugins/channels/telegram`, `internal/pluginhost`, and `cmd/anna`, then ran `go test ./...` successfully.
 
 ## Session Log
 

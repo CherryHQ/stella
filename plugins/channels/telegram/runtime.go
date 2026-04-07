@@ -5,32 +5,32 @@ import (
 	"fmt"
 	"time"
 
-	internalchannel "github.com/vaayne/anna/internal/channel"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgchannelruntime "github.com/vaayne/anna/pkg/channelruntime"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 type RuntimeDeps struct {
-	Parent     context.Context
-	Handler    pkgchannel.Handler
-	Notifier   *internalchannel.Dispatcher
-	Now        func() time.Time
-	NewChannel func(pkgchannel.TelegramConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
+	Parent        context.Context
+	Handler       pkgchannel.Handler
+	Notifications pkgplugins.NotificationRegistry
+	Now           func() time.Time
+	NewChannel    func(pkgchannel.TelegramConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
 
 func NewManagedRuntime(deps RuntimeDeps) pkgplugins.ManagedRuntime {
 	if deps.NewChannel == nil {
-		panic(fmt.Sprintf("telegram: missing %s runtime channel factory", internalchannel.PlatformTelegram))
+		panic(fmt.Sprintf("telegram: missing %s runtime channel factory", pkgchannel.PlatformTelegram))
 	}
 	return newBotManagedRuntime(botRuntimeDeps(deps))
 }
 
 type botRuntimeDeps struct {
-	Parent     context.Context
-	Handler    pkgchannel.Handler
-	Notifier   *internalchannel.Dispatcher
-	Now        func() time.Time
-	NewChannel func(pkgchannel.TelegramConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
+	Parent        context.Context
+	Handler       pkgchannel.Handler
+	Notifications pkgplugins.NotificationRegistry
+	Now           func() time.Time
+	NewChannel    func(pkgchannel.TelegramConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
 
 func newBotManagedRuntime(deps botRuntimeDeps) pkgplugins.ManagedRuntime {
@@ -40,11 +40,11 @@ func newBotManagedRuntime(deps botRuntimeDeps) pkgplugins.ManagedRuntime {
 	if deps.Now == nil {
 		deps.Now = func() time.Time { return time.Now().UTC() }
 	}
-	return internalchannel.NewBotManagedRuntime(internalchannel.BotRuntimeDeps[pkgchannel.TelegramConfig]{
+	return pkgchannelruntime.NewBotManagedRuntime(pkgchannelruntime.BotRuntimeDeps[pkgchannel.TelegramConfig]{
 		Parent:               deps.Parent,
 		Handler:              deps.Handler,
-		Notifier:             deps.Notifier,
-		Platform:             internalchannel.PlatformTelegram,
+		Notifier:             deps.Notifications,
+		Platform:             pkgchannel.PlatformTelegram,
 		DecodeConfig:         DecodeConfig,
 		ValidateConfig:       validateConfig,
 		NotificationsEnabled: func(cfg pkgchannel.TelegramConfig) bool { return cfg.EnableNotify },

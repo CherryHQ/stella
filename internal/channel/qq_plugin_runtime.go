@@ -6,6 +6,7 @@ import (
 	"time"
 
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgchannelruntime "github.com/vaayne/anna/pkg/channelruntime"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	qqplugin "github.com/vaayne/anna/plugins/channels/qq"
 )
@@ -18,13 +19,11 @@ const (
 type QQRuntimeDeps struct {
 	Parent     context.Context
 	Handler    pkgchannel.Handler
-	Notifier   *Dispatcher
+	Notifier   pkgplugins.NotificationRegistry
 	Log        *slog.Logger
 	Now        func() time.Time
 	NewChannel func(QQConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
-
-type qqManagedRuntime = botManagedRuntime[QQConfig]
 
 func NewQQManagedRuntime(deps QQRuntimeDeps) pkgplugins.ManagedRuntime {
 	if deps.NewChannel == nil {
@@ -36,7 +35,7 @@ func NewQQManagedRuntime(deps QQRuntimeDeps) pkgplugins.ManagedRuntime {
 			}, handler)
 		}
 	}
-	return NewBotManagedRuntime(BotRuntimeDeps[QQConfig]{
+	return pkgchannelruntime.NewBotManagedRuntime(pkgchannelruntime.BotRuntimeDeps[QQConfig]{
 		Parent:               deps.Parent,
 		Handler:              deps.Handler,
 		Notifier:             deps.Notifier,

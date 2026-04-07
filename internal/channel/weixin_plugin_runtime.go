@@ -6,6 +6,7 @@ import (
 	"time"
 
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgchannelruntime "github.com/vaayne/anna/pkg/channelruntime"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	weixinplugin "github.com/vaayne/anna/plugins/channels/weixin"
 )
@@ -18,13 +19,11 @@ const (
 type WeixinRuntimeDeps struct {
 	Parent     context.Context
 	Handler    pkgchannel.Handler
-	Notifier   *Dispatcher
+	Notifier   pkgplugins.NotificationRegistry
 	Log        *slog.Logger
 	Now        func() time.Time
 	NewChannel func(WeixinConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
-
-type weixinManagedRuntime = botManagedRuntime[WeixinConfig]
 
 func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.ManagedRuntime {
 	if deps.NewChannel == nil {
@@ -37,7 +36,7 @@ func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.ManagedRuntime {
 			}, handler)
 		}
 	}
-	return NewBotManagedRuntime(BotRuntimeDeps[WeixinConfig]{
+	return pkgchannelruntime.NewBotManagedRuntime(pkgchannelruntime.BotRuntimeDeps[WeixinConfig]{
 		Parent:               deps.Parent,
 		Handler:              deps.Handler,
 		Notifier:             deps.Notifier,

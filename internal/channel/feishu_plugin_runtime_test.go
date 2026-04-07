@@ -49,7 +49,7 @@ func TestFeishuManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 			}
 			return second, nil
 		},
-	}).(*feishuManagedRuntime)
+	})
 
 	state := pkgplugins.PluginState{ID: FeishuPluginID, Enabled: true, Config: map[string]any{
 		"app_id":             "fs-app",

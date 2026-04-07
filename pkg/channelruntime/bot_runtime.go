@@ -1,4 +1,4 @@
-package channel
+package channelruntime
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 type BotRuntimeDeps[T any] struct {
 	Parent               context.Context
 	Handler              pkgchannel.Handler
-	Notifier             *Dispatcher
+	Notifier             pkgplugins.NotificationRegistry
 	Log                  *slog.Logger
 	Now                  func() time.Time
 	Platform             string

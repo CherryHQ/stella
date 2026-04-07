@@ -51,9 +51,9 @@ func TestSelfRegisteredTelegramPluginAppliesAndReportsStatus(t *testing.T) {
 
 	reset := SetRuntimeFactoryForTesting(func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error) {
 		return NewManagedRuntime(RuntimeDeps{
-			Parent:   context.Background(),
-			Handler:  fakeChannelHandler{},
-			Notifier: dispatcher,
+			Parent:        context.Background(),
+			Handler:       fakeChannelHandler{},
+			Notifications: dispatcher,
 			NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 				return newTestChannel(), nil
 			},
