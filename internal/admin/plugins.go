@@ -56,7 +56,7 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Hot-reload legacy channel plugins: host-backed channels reapply through the plugin host.
+	// Non-host-backed channel plugins still use the admin channel lifecycle hooks.
 	if p.Kind == config.PluginKindChannel && !isHostBackedChannelPlugin(canonicalID) {
 		if req.Enabled {
 			s.startChannel(p.Name)

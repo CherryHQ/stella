@@ -18,7 +18,6 @@ import (
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
-	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/pluginhost"
 	internalreflect "github.com/vaayne/anna/internal/reflect"
@@ -195,30 +194,6 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			s.notifier.Unregister(name)
 		},
 	)
-
-	// Load enabled legacy channel plugins from settings_plugins.
-	channelNames := []string{}
-	for _, name := range channelNames {
-		pluginID := config.PluginID(config.PluginKindChannel, name)
-		p, err := s.store.GetPlugin(gctx, pluginID)
-		if err != nil || !p.Enabled {
-			continue
-		}
-		if !channel.HasValidConfig(s.store, name) {
-			slog.Debug("skipping channel without valid config", "channel", name)
-			continue
-		}
-		ch, err := buildChannel(name, coordinator, s.store)
-		if err != nil {
-			return err
-		}
-		slog.Info("starting channel", "channel", name)
-		channels = append(channels, ch)
-		adminSrv.RegisterChannelStop(name, ch.Stop)
-		if channel.IsNotifyEnabled(s.store, name) {
-			s.notifier.Register(ch)
-		}
-	}
 
 	hostBackedConfigured := false
 	for _, hostBackedChannel := range hostBackedChannels {
