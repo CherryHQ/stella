@@ -19,6 +19,7 @@ import (
 	annamcp "github.com/vaayne/anna/internal/mcp"
 	"github.com/vaayne/anna/internal/pluginhost"
 	internalreflect "github.com/vaayne/anna/internal/reflect"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pluginmemory "github.com/vaayne/anna/plugins/memory"
 	_ "github.com/vaayne/anna/plugins/memory/lcm"
 	mcp "github.com/vaayne/anna/plugins/tools/mcp"
@@ -77,6 +78,14 @@ func setupAdmin(t *testing.T) *testEnv {
 		Store:     store,
 		Notifier:  dispatcher,
 		Workspace: t.TempDir(),
+	})
+	phost.RegisterTelegram(pluginhost.TelegramDeps{
+		Parent:   context.Background(),
+		Handler:  testChannelHandler{},
+		Notifier: dispatcher,
+		NewChannel: func(cfg channel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			return newTestChannel(channel.PlatformTelegram), nil
+		},
 	})
 	if err := phost.ApplyPlugin(context.Background(), internalreflect.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(reflect): %v", err)
@@ -153,6 +162,34 @@ func parseResponse(t *testing.T, rr *httptest.ResponseRecorder) apiResponse {
 		t.Fatalf("decode response: %v (body: %s)", err, rr.Body.String())
 	}
 	return resp
+}
+
+type testChannel struct {
+	name string
+}
+
+func newTestChannel(name string) *testChannel { return &testChannel{name: name} }
+
+func (c *testChannel) Name() string { return c.name }
+func (c *testChannel) Start(ctx context.Context) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (c *testChannel) Stop()                                                       {}
+func (c *testChannel) Notify(ctx context.Context, n pkgchannel.Notification) error { return nil }
+
+type testChannelHandler struct{}
+
+func (testChannelHandler) HandleIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
+	return "", false, nil, nil
+}
+func (testChannelHandler) ListModels() []pkgchannel.ModelOption     { return nil }
+func (testChannelHandler) SwitchModel(provider, model string) error { return nil }
+func (testChannelHandler) ListAgents(ctx context.Context, msg pkgchannel.IncomingMessage) ([]pkgchannel.AgentInfo, string, error) {
+	return nil, "", nil
+}
+func (testChannelHandler) SwitchAgent(ctx context.Context, msg pkgchannel.IncomingMessage, agentSlug string) error {
+	return nil
 }
 
 func TestListProviders(t *testing.T) {
@@ -371,6 +408,54 @@ func TestReflectPluginConfigAndStatus(t *testing.T) {
 	}
 }
 
+func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "PUT", "/api/channels/telegram", map[string]any{
+		"enabled": true,
+		"config":  `{"token":"tg-token","enable_notify":true,"group_mode":"mention"}`,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/telegram", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var payload struct {
+		State    string         `json:"state"`
+		Message  string         `json:"message"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal telegram status: %v", err)
+	}
+	if payload.State != "running" {
+		t.Fatalf("telegram state = %q, want running", payload.State)
+	}
+	if payload.Metadata["notify_enabled"] != true {
+		t.Fatalf("notify_enabled = %#v, want true", payload.Metadata["notify_enabled"])
+	}
+
+	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/telegram", map[string]any{"enabled": false})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/telegram", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal telegram status after disable: %v", err)
+	}
+	if payload.State != "stopped" {
+		t.Fatalf("telegram state after disable = %q, want stopped", payload.State)
+	}
+}
 
 func TestCreateAgent(t *testing.T) {
 	env := setupAdmin(t)

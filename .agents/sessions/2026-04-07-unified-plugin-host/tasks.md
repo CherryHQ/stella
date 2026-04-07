@@ -69,3 +69,13 @@
 - [x] 8.4: Route admin reflect config/status/toggle behavior through generic host plumbing
 - [x] 8.5: Add focused tests for reflect runtime reapply/disable behavior and admin integration
 - [x] 8.6: Update docs and session notes for the reflect slice
+
+## Phase 9: Telegram Host Migration Slice
+
+- [x] 9.1: Register `channel/telegram` with host-backed config, runtime, and status capabilities
+- [x] 9.2: Add a Telegram managed runtime that owns build/start/stop/reapply and notification registration
+- [x] 9.3: Replace bespoke gateway Telegram startup with host-backed `Apply` while leaving other channels unchanged
+- [x] 9.4: Route `/channels/telegram` admin save/toggle behavior through host-backed config/runtime plumbing without changing the UI shape
+- [x] 9.5: Keep `settings_plugins` compatibility with the existing `channel/telegram` row and no schema changes
+- [x] 9.6: Add focused tests for Telegram runtime behavior and admin integration
+- [x] 9.7: Update docs and session notes for the Telegram slice

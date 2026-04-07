@@ -59,7 +59,7 @@ Today the architecture is split like this:
 2. Plugin-facing host contracts are defined in `pkg/plugins/`
 3. The process-wide plugin host lives in `internal/pluginhost/`
 4. Existing kind-specific registries still exist as compatibility adapters for tools, hooks, providers, and memory
-5. MCP and reflect are now the host-backed validation targets: MCP owns config validation, runtime lifecycle, status, tool exposure, and prompt inventory, while reflect owns config validation, runtime lifecycle, and status through the same host
+5. MCP, reflect, and Telegram are now the host-backed validation targets: MCP owns config validation, runtime lifecycle, status, tool exposure, and prompt inventory; reflect owns config validation, runtime lifecycle, and status through the same host; Telegram is the first channel migrated to host-backed config, runtime lifecycle, and status while preserving the existing channel admin UX
 
 `cmd/anna/plugins_imports.go` provides the blank imports that trigger built-in plugin registration at startup.
 
@@ -121,3 +121,4 @@ The MCP plugin stores its server definitions as JSON in `settings_plugins.config
 
 The reflect plugin keeps its existing standalone `settings_plugins` row (`id="reflect"`) and now reconciles its background review loop through the unified host as well. Admin config/toggle changes reapply the reflect runtime through the generic host-backed config/status plumbing without any schema changes.
 
+The Telegram channel keeps using the existing `settings_plugins` row (`id="channel/telegram"`) and the same `/channels` admin UI, but its runtime lifecycle now reconciles through the unified host. Saving or toggling Telegram config updates host-backed config/runtime/status state without changing the other channel implementations yet.

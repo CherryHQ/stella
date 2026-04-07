@@ -20,6 +20,7 @@ import (
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/vaayne/anna/internal/pluginhost"
 	internalreflect "github.com/vaayne/anna/internal/reflect"
 	"github.com/vaayne/anna/internal/scheduler"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
@@ -89,6 +90,17 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		channel.WithCoordinatorAuth(as, engine, linkCodes),
 	)
 
+	if s.pluginHost != nil {
+		s.pluginHost.RegisterTelegram(pluginhost.TelegramDeps{
+			Parent:   gctx,
+			Handler:  coordinator,
+			Notifier: s.notifier,
+		})
+		if err := s.pluginHost.ApplyPlugin(gctx, channel.TelegramPluginID); err != nil {
+			return fmt.Errorf("apply telegram runtime: %w", err)
+		}
+	}
+
 	// Start admin panel server.
 	if adminPort > 0 {
 		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", adminPort))
@@ -137,7 +149,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	)
 
 	// Load enabled channel plugins from settings_plugins.
-	channelNames := []string{"telegram", "qq", "feishu", "weixin"}
+	channelNames := []string{"qq", "feishu", "weixin"}
 	for _, name := range channelNames {
 		pluginID := config.PluginID(config.PluginKindChannel, name)
 		p, err := s.store.GetPlugin(gctx, pluginID)
@@ -160,7 +172,12 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		}
 	}
 
-	if len(channels) == 0 {
+	telegramConfigured := false
+	if p, err := s.store.GetPlugin(gctx, channel.TelegramPluginID); err == nil && p.Enabled && channel.HasValidConfig(s.store, channel.PlatformTelegram) {
+		telegramConfigured = true
+	}
+
+	if len(channels) == 0 && !telegramConfigured {
 		if adminPort > 0 {
 			slog.Warn("no channel services configured; running admin panel only")
 		} else {

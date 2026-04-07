@@ -3,6 +3,7 @@ package admin
 import (
 	"net/http"
 
+	internalchannel "github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	annamcp "github.com/vaayne/anna/internal/mcp"
 )
@@ -57,7 +58,7 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Hot-reload channel plugins: start on enable, stop on disable.
-	if p.Kind == config.PluginKindChannel {
+	if p.Kind == config.PluginKindChannel && canonicalID != internalchannel.TelegramPluginID {
 		if req.Enabled {
 			s.startChannel(p.Name)
 		} else {
