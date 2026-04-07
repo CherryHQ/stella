@@ -3,6 +3,7 @@ package admin
 import (
 	"net/http"
 
+	internalchannel "github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	annamcp "github.com/vaayne/anna/internal/mcp"
 )
@@ -57,7 +58,7 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Non-host-backed channel plugins still use the admin channel lifecycle hooks.
-	if p.Kind == config.PluginKindChannel && !isHostBackedChannelPlugin(canonicalID) {
+	if p.Kind == config.PluginKindChannel && !internalchannel.IsHostBackedPlugin(canonicalID) {
 		if req.Enabled {
 			s.startChannel(p.Name)
 		} else {
