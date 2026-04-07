@@ -15,6 +15,7 @@ type ToolRegistration struct {
 	PluginID    string
 	Name        string
 	Description string
+	Required    bool
 	Build       func(ctx ToolContext) (tools.Tool, error)
 }
 
