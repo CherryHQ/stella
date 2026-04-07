@@ -14,22 +14,24 @@ import (
 type Option func(*Host)
 
 type Host struct {
-	store        config.Store
-	log          *slog.Logger
-	config       *configService
-	runtimes     *RuntimeHost
-	mu           sync.RWMutex
-	pluginIDs    map[string]struct{}
-	legacyIDs    map[string]string
-	toolRegs     map[string]pkgplugins.ToolRegistration
-	providerRegs map[string]pkgplugins.ProviderRegistration
-	hookRegs     map[string]pkgplugins.HookRegistration
-	channelRegs  map[string]pkgplugins.ChannelRegistration
-	memoryRegs   map[string]pkgplugins.MemoryRegistration
-	runtimeRegs  map[string]pkgplugins.RuntimeRegistration
-	configRegs   map[string]pkgplugins.ConfigRegistration
-	statusRegs   map[string]pkgplugins.StatusRegistration
-	promptRegs   map[string]pkgplugins.PromptInventoryRegistration
+	store          config.Store
+	log            *slog.Logger
+	config         *configService
+	runtimes       *RuntimeHost
+	mu             sync.RWMutex
+	pluginIDs      map[string]struct{}
+	legacyIDs      map[string]string
+	metadataRegs   map[string]pkgplugins.PluginMeta
+	channelRuntime pkgplugins.ChannelRuntimeServices
+	toolRegs       map[string]pkgplugins.ToolRegistration
+	providerRegs   map[string]pkgplugins.ProviderRegistration
+	hookRegs       map[string]pkgplugins.HookRegistration
+	channelRegs    map[string]pkgplugins.ChannelRegistration
+	memoryRegs     map[string]pkgplugins.MemoryRegistration
+	runtimeRegs    map[string]pkgplugins.RuntimeRegistration
+	configRegs     map[string]pkgplugins.ConfigRegistration
+	statusRegs     map[string]pkgplugins.StatusRegistration
+	promptRegs     map[string]pkgplugins.PromptInventoryRegistration
 }
 
 func New(store config.Store, opts ...Option) *Host {
@@ -38,6 +40,7 @@ func New(store config.Store, opts ...Option) *Host {
 		log:          slog.With("component", "plugin_host"),
 		pluginIDs:    map[string]struct{}{},
 		legacyIDs:    map[string]string{},
+		metadataRegs: map[string]pkgplugins.PluginMeta{},
 		toolRegs:     map[string]pkgplugins.ToolRegistration{},
 		providerRegs: map[string]pkgplugins.ProviderRegistration{},
 		hookRegs:     map[string]pkgplugins.HookRegistration{},
@@ -111,6 +114,9 @@ func (h *Host) LoadCatalog(catalog *pkgplugins.Catalog) error {
 		}
 		h.RegisterPluginID(id)
 		plugin.Register(h)
+	}
+	if err := h.ValidateRegistrations(); err != nil {
+		return err
 	}
 	return nil
 }
