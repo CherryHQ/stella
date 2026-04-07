@@ -205,5 +205,6 @@ Transport-specific fields will be optional, with validation based on `transport`
 - Implemented the MCP plugin end-to-end on branch `feat/mcp-plugin`.
 - Added built-in `tool/mcp` plugin seeding, shared MCP runtime management, official Go MCP SDK transport bootstrap, server supervision with restart/backoff/suppression, normalized `mcp` tool actions (`list|get|exec`), admin MCP config editing, prompt integration for valid MCP tools, updated docs, and builtin anna skill sync.
 - Added a UI polish pass for the MCP admin editor: structured args/env/headers editing, transport-specific field grouping, local validation, save/dirty state feedback, and live runtime status badges via a new admin MCP status endpoint.
+- Addressed PR review correctness issues: clean nil `Wait()` shutdown handling, configured remote MCP header propagation, and deterministic canonical ID rebuilding under sanitized-ID collisions.
 - Verification completed with `mise run generate`, `mise run format`, `mise run lint`, and `mise run test`.
 - Notable implementation decision: `http` currently reuses the official streamable HTTP client transport, which matches modern MCP HTTP behavior in the official SDK.

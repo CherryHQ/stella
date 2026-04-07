@@ -119,6 +119,13 @@ func (m *Manager) runServer(ctx context.Context, cfg ServerConfig) {
 		case err := <-errCh:
 			m.clearServerSession(cfg.Name)
 			m.clearServerTools(cfg.Name)
+			if err == nil {
+				m.updateServerStatus(cfg.Name, func(status *ServerStatus) {
+					status.State = serverStateStopped
+					status.LastError = ""
+				})
+				return
+			}
 			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 				m.updateServerStatus(cfg.Name, func(status *ServerStatus) {
 					status.State = serverStateStopped
