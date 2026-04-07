@@ -6,6 +6,7 @@ import (
 	"time"
 
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgchannelruntime "github.com/vaayne/anna/pkg/channelruntime"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	feishuplugin "github.com/vaayne/anna/plugins/channels/feishu"
 )
@@ -18,13 +19,11 @@ const (
 type FeishuRuntimeDeps struct {
 	Parent     context.Context
 	Handler    pkgchannel.Handler
-	Notifier   *Dispatcher
+	Notifier   pkgplugins.NotificationRegistry
 	Log        *slog.Logger
 	Now        func() time.Time
 	NewChannel func(FeishuConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
-
-type feishuManagedRuntime = botManagedRuntime[FeishuConfig]
 
 func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.ManagedRuntime {
 	if deps.NewChannel == nil {
@@ -39,7 +38,7 @@ func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.ManagedRuntime {
 			}, handler)
 		}
 	}
-	return NewBotManagedRuntime(BotRuntimeDeps[FeishuConfig]{
+	return pkgchannelruntime.NewBotManagedRuntime(pkgchannelruntime.BotRuntimeDeps[FeishuConfig]{
 		Parent:               deps.Parent,
 		Handler:              deps.Handler,
 		Notifier:             deps.Notifier,

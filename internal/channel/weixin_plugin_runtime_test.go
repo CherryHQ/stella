@@ -49,7 +49,7 @@ func TestWeixinManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 			}
 			return second, nil
 		},
-	}).(*weixinManagedRuntime)
+	})
 
 	state := pkgplugins.PluginState{ID: WeixinPluginID, Enabled: true, Config: map[string]any{"bot_token": "wx-token", "base_url": "https://wx.example", "bot_id": "bot-1", "user_id": "user-1", "enable_notify": true}}
 	if err := runtime.Apply(context.Background(), state); err != nil {

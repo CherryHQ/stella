@@ -49,7 +49,7 @@ func TestQQManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 			}
 			return second, nil
 		},
-	}).(*qqManagedRuntime)
+	})
 
 	state := pkgplugins.PluginState{ID: QQPluginID, Enabled: true, Config: map[string]any{"app_id": "qq-app", "app_secret": "qq-secret", "enable_notify": true, "group_mode": "mention"}}
 	if err := runtime.Apply(context.Background(), state); err != nil {

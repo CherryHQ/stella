@@ -37,10 +37,10 @@ func TestManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 	second := newFakeTelegramChannel()
 	built := 0
 	runtime := NewManagedRuntime(RuntimeDeps{
-		Parent:   context.Background(),
-		Handler:  fakeChannelHandler{},
-		Notifier: notifier,
-		Now:      func() time.Time { return now },
+		Parent:        context.Background(),
+		Handler:       fakeChannelHandler{},
+		Notifications: notifier,
+		Now:           func() time.Time { return now },
 		NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			built++
 			if built == 1 {

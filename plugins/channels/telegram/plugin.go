@@ -4,14 +4,13 @@ import (
 	"context"
 	"fmt"
 
-	internalchannel "github.com/vaayne/anna/internal/channel"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 const (
-	PluginID    = internalchannel.TelegramPluginID
-	RuntimeName = internalchannel.TelegramRuntimeName
+	PluginID    = "channel/telegram"
+	RuntimeName = "bot"
 )
 
 var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error) {
@@ -27,20 +26,11 @@ var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, e
 	if handler == nil {
 		return nil, fmt.Errorf("telegram: missing channel handler")
 	}
-	notifications := channelRuntime.Notifications()
-	var notifier *internalchannel.Dispatcher
-	if notifications != nil {
-		typed, ok := notifications.(*internalchannel.Dispatcher)
-		if !ok {
-			return nil, fmt.Errorf("telegram: unsupported notification registry %T", notifications)
-		}
-		notifier = typed
-	}
 	_ = host.Logger(PluginID)
 	return NewManagedRuntime(RuntimeDeps{
-		Parent:   parent,
-		Handler:  handler,
-		Notifier: notifier,
+		Parent:        parent,
+		Handler:       handler,
+		Notifications: channelRuntime.Notifications(),
 		NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{Token: cfg.Token, ChannelID: cfg.ChannelID, GroupMode: cfg.GroupMode}, handler)
 		},
