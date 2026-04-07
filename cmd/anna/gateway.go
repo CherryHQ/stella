@@ -99,6 +99,22 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		if err := s.pluginHost.ApplyPlugin(gctx, channel.TelegramPluginID); err != nil {
 			return fmt.Errorf("apply telegram runtime: %w", err)
 		}
+		s.pluginHost.RegisterQQ(pluginhost.QQDeps{
+			Parent:   gctx,
+			Handler:  coordinator,
+			Notifier: s.notifier,
+		})
+		if err := s.pluginHost.ApplyPlugin(gctx, channel.QQPluginID); err != nil {
+			return fmt.Errorf("apply qq runtime: %w", err)
+		}
+		s.pluginHost.RegisterFeishu(pluginhost.FeishuDeps{
+			Parent:   gctx,
+			Handler:  coordinator,
+			Notifier: s.notifier,
+		})
+		if err := s.pluginHost.ApplyPlugin(gctx, channel.FeishuPluginID); err != nil {
+			return fmt.Errorf("apply feishu runtime: %w", err)
+		}
 	}
 
 	// Start admin panel server.
@@ -148,8 +164,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		},
 	)
 
-	// Load enabled channel plugins from settings_plugins.
-	channelNames := []string{"qq", "feishu", "weixin"}
+	// Load enabled legacy channel plugins from settings_plugins.
+	channelNames := []string{"weixin"}
 	for _, name := range channelNames {
 		pluginID := config.PluginID(config.PluginKindChannel, name)
 		p, err := s.store.GetPlugin(gctx, pluginID)
@@ -172,12 +188,16 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		}
 	}
 
-	telegramConfigured := false
-	if p, err := s.store.GetPlugin(gctx, channel.TelegramPluginID); err == nil && p.Enabled && channel.HasValidConfig(s.store, channel.PlatformTelegram) {
-		telegramConfigured = true
+	hostBackedConfigured := false
+	for _, pluginID := range []string{channel.TelegramPluginID, channel.QQPluginID, channel.FeishuPluginID} {
+		platform := strings.TrimPrefix(pluginID, "channel/")
+		if p, err := s.store.GetPlugin(gctx, pluginID); err == nil && p.Enabled && channel.HasValidConfig(s.store, platform) {
+			hostBackedConfigured = true
+			break
+		}
 	}
 
-	if len(channels) == 0 && !telegramConfigured {
+	if len(channels) == 0 && !hostBackedConfigured {
 		if adminPort > 0 {
 			slog.Warn("no channel services configured; running admin panel only")
 		} else {
