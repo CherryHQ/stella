@@ -88,6 +88,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		switchFn,
 		channel.WithCoordinatorAuth(as, engine, linkCodes),
 	)
+	if s.channelRuntimeServices != nil {
+		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)
+	}
 
 	hostBackedRegistrations := map[string]func(){
 		channel.TelegramPluginID: func() {
