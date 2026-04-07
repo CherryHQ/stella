@@ -51,7 +51,7 @@ See the [Plugins](/docs/plugins) section for detailed documentation on individua
 
 ## Plugin Architecture
 
-During the migration to the unified host, Anna keeps the existing package layout while moving ownership to plugin-centric registration.
+Anna keeps the existing package layout, but plugin ownership is now unified under the plugin host.
 
 Today the architecture is split like this:
 
@@ -59,13 +59,13 @@ Today the architecture is split like this:
 2. Plugin-facing host contracts are defined in `pkg/plugins/`
 3. The process-wide plugin host lives in `internal/pluginhost/`
 4. Existing kind-specific registries still exist as compatibility adapters for tools, hooks, providers, and memory
-5. MCP, reflect, and Telegram are now the host-backed validation targets: MCP owns config validation, runtime lifecycle, status, tool exposure, and prompt inventory; reflect owns config validation, runtime lifecycle, and status through the same host; Telegram is the first channel migrated to host-backed config, runtime lifecycle, and status while preserving the existing channel admin UX
+5. MCP, reflect, and all built-in messaging channels are host-backed: MCP owns config validation, runtime lifecycle, status, tool exposure, and prompt inventory; reflect owns config validation, runtime lifecycle, and status through the same host; Telegram, QQ, Feishu, and Weixin all reconcile channel config, runtime lifecycle, and status through the host while preserving their existing plugin rows and admin UX
 
 `cmd/anna/plugins_imports.go` provides the blank imports that trigger built-in plugin registration at startup.
 
 ### Adding a New Plugin
 
-New host-backed plugins should register through `pkg/plugins.Register(...)` and declare the capabilities they own. Legacy kind-specific registry registration is still supported during the migration, but new advanced plugins should prefer the unified host.
+New plugins should register through `pkg/plugins.Register(...)` and declare the capabilities they own. Legacy kind-specific registry registration still exists for compatibility, but new advanced plugins should prefer the unified host.
 
 Example -- adding a new provider capability through the legacy registry:
 
@@ -115,10 +115,10 @@ anna plugin config <id> k=v    # Set plugin configuration key-value pairs
 
 ## Admin Panel
 
-Channel plugins, provider plugins, memory plugins, standalone runtimes, and the MCP plugin are configured via the admin panel (`anna --open`). The admin panel writes to the `settings_plugins` table and now routes MCP config/status through the unified plugin host while preserving the existing MCP UI and legacy route shape.
+Channel plugins, provider plugins, memory plugins, standalone runtimes, and the MCP plugin are configured via the admin panel (`anna --open`). The admin panel writes to the `settings_plugins` table while routing host-backed config, status, and runtime apply operations through the unified plugin host.
 
 The MCP plugin stores its server definitions as JSON in `settings_plugins.config`, with an admin form editor for multiple servers/transports, transport-specific fields, structured args/env/header editors, and live runtime status badges for discovered/suppressed servers.
 
-The reflect plugin keeps its existing standalone `settings_plugins` row (`id="reflect"`) and now reconciles its background review loop through the unified host as well. Admin config/toggle changes reapply the reflect runtime through the generic host-backed config/status plumbing without any schema changes.
+The reflect plugin keeps its existing standalone `settings_plugins` row (`id="reflect"`) and reconciles its background review loop through the unified host without any schema changes.
 
-The Telegram channel keeps using the existing `settings_plugins` row (`id="channel/telegram"`) and the same `/channels` admin UI, but its runtime lifecycle now reconciles through the unified host. Saving or toggling Telegram config updates host-backed config/runtime/status state without changing the other channel implementations yet.
+The Telegram, QQ, Feishu, and Weixin channels keep using their existing `settings_plugins` rows (`id="channel/..."`) and the same `/channels` admin UI, but their config validation, runtime lifecycle, and status are now all host-backed. Saving or toggling channel config re-applies the corresponding managed runtime through the plugin host while preserving existing plugin IDs, admin UX, and channel-specific behavior.
