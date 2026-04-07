@@ -10,12 +10,12 @@
 
 ## Phase 2: Server Lifecycle + Discovery Cache
 
-- [ ] 2.1: Implement per-server supervisor state
-- [ ] 2.2: Implement official Go MCP library transport client bootstrap adapters
-- [ ] 2.3: Implement start/stop/restart/suppression behavior
-- [ ] 2.4: Implement discovery cache + snapshot APIs
-- [ ] 2.5: Wire plugin enable/disable lifecycle hooks
-- [ ] 2.6: Add lifecycle/cache tests
+- [x] 2.1: Implement per-server supervisor state
+- [x] 2.2: Implement official Go MCP library transport client bootstrap adapters
+- [x] 2.3: Implement start/stop/restart/suppression behavior
+- [x] 2.4: Implement discovery cache + snapshot APIs
+- [x] 2.5: Wire plugin enable/disable lifecycle hooks
+- [x] 2.6: Add lifecycle/cache tests
 
 ## Phase 3: `mcp` Tool Execution Surface
 

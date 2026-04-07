@@ -38,3 +38,42 @@
 - Canonical IDs are generated from stripped lowercase alphanumeric server/tool names; collisions currently receive deterministic numeric suffixes
 - The runtime manager is intentionally minimal and not yet connected to real MCP transports or lifecycle hooks
 - `mcp exec` is still a stub that returns a normalized not-implemented result; Phase 2/3 should replace it with official Go MCP transport-backed behavior
+
+## Phase 2: Server Lifecycle + Discovery Cache
+
+**Status:** complete
+
+**Tasks completed:**
+
+- 2.1: Implemented per-server runtime state with status snapshots, active session tracking, and per-server discovery cache ownership
+- 2.2: Added official Go MCP SDK transport bootstrap for stdio, SSE, and streamable HTTP/HTTP transports
+- 2.3: Implemented reconcile/start/stop/restart flow with bounded backoff and suppression for always-failing servers
+- 2.4: Added tool discovery refresh from MCP `tools/list`, canonical cache rebuilds, and normalized exec result mapping from live MCP sessions
+- 2.5: Wired MCP lifecycle into app startup and admin plugin toggling so enable/disable reconciles the shared manager
+- 2.6: Added lifecycle/cache tests covering discovery, suppression, and normalized exec behavior with fake sessions
+
+**Files changed:**
+
+- `internal/mcp/manager.go` — manager reconcile logic, cache rebuilding, normalized exec result handling
+- `internal/mcp/session.go` — official Go MCP SDK session + transport bootstrap adapter
+- `internal/mcp/store.go` — load MCP plugin config/enabled state from plugin store
+- `internal/mcp/supervisor.go` — supervisor loop, failure handling, tool discovery, status snapshots
+- `internal/mcp/manager_test.go` — updated manager registration expectations
+- `internal/mcp/supervisor_test.go` — lifecycle, suppression, exec normalization tests
+- `cmd/anna/commands.go` — build and initialize shared MCP manager during setup
+- `cmd/anna/gateway.go` — wire admin MCP lifecycle hooks into runtime reconcile logic
+- `internal/admin/server.go` — added MCP lifecycle hook registration helpers
+- `internal/admin/plugins.go` — start/stop MCP runtime on plugin toggle
+- `go.mod` / `go.sum` — added official Go MCP SDK dependency
+- `.agents/sessions/2026-04-07-mcp-plugin/tasks.md` — checked off Phase 2 tasks
+
+**Commits:**
+
+- `HEAD` — `✨ feat: add MCP server supervision`
+
+**Decisions & context for next phase:**
+
+- `TransportHTTP` currently reuses the official streamable HTTP client transport, which is the closest official SDK transport for modern HTTP MCP servers
+- The manager now executes real MCP tool calls, so Phase 3 mainly needs to refine tool-level validation and response shaping rather than invent a new execution path
+- Admin config mutation/reconcile on config edits is not wired yet; Phase 4 should trigger `reconcileMCP()` after config saves
+- Prompt integration can now safely consume `ValidTools()` because discovery cache only contains currently connected server tools
