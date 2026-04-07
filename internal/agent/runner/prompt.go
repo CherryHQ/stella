@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/template"
 
+	annamcp "github.com/vaayne/anna/internal/mcp"
 	"github.com/vaayne/anna/pkg/memory"
 )
 
@@ -39,11 +40,12 @@ type contextFile struct {
 
 // promptData holds all pre-computed data for the system prompt template.
 type promptData struct {
-	SystemPrompt string        // agent's base system prompt from DB
-	AgentSoul    string        // per-user agent soul from ProfileStore
-	UserProfile  string        // per-user profile from ProfileStore
-	Skills       []Skill       // visible skills (non-deprecated, invocable)
-	ContextFiles []contextFile // AGENTS.md files (root → leaf)
+	SystemPrompt string             // agent's base system prompt from DB
+	AgentSoul    string             // per-user agent soul from ProfileStore
+	UserProfile  string             // per-user profile from ProfileStore
+	Skills       []Skill            // visible skills (non-deprecated, invocable)
+	MCPTools     []annamcp.ToolInfo // valid MCP tools when MCP plugin is enabled
+	ContextFiles []contextFile      // AGENTS.md files (root → leaf)
 }
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
@@ -93,6 +95,11 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 
 	// Skills.
 	data.Skills = VisibleSkills(LoadSkills(p.AnnaHome, p.Workspace, p.Cwd, p.UserSkillsDir))
+
+	// MCP tools.
+	if mgr := annamcp.DefaultManager(); mgr != nil && mgr.Enabled() {
+		data.MCPTools = mgr.ValidTools()
+	}
 
 	// Project context.
 	data.ContextFiles = loadProjectContextFiles(p.Cwd)

@@ -136,3 +136,65 @@
 - The UI stores `args`, `env`, and `headers` through structured form fields but still uses JSON textareas for nested key/value and array data, which is a good compromise for now
 - Config saves already trigger runtime reconciliation, so prompt integration can assume the manager reflects the latest persisted MCP configuration
 - The remaining core feature gap is prompt exposure of valid MCP tools plus explicit `get`-before-`exec` instructions
+
+## Phase 5: Prompt Integration
+
+**Status:** complete
+
+**Tasks completed:**
+
+- 5.1: Extended prompt data with MCP tool inventory
+- 5.2: Loaded prompt MCP inventory from the shared runtime manager snapshot
+- 5.3: Rendered only valid MCP tools in the system prompt tools section
+- 5.4: Added explicit prompt guidance requiring `mcp get` before `mcp exec`
+- 5.5: Added prompt rendering tests for MCP-enabled and MCP-disabled cases
+
+**Files changed:**
+
+- `internal/agent/runner/prompt.go` — attached valid MCP tools to prompt data
+- `internal/agent/runner/template/system_prompt.tmpl` — rendered MCP prompt inventory + usage guidance
+- `internal/agent/runner/prompt_mcp_test.go` — prompt integration tests
+- `.agents/sessions/2026-04-07-mcp-plugin/tasks.md` — checked off Phase 5 tasks
+
+**Commits:**
+
+- `HEAD` — `📝 docs: wire MCP prompt inventory`
+
+**Decisions & context for next phase:**
+
+- Prompt rendering reads only `ValidTools()` from the shared manager, so offline/suppressed servers do not leak into the prompt
+- The MCP prompt section is intentionally lightweight; the authoritative schema still comes from `mcp get`
+- Remaining work is docs/skill sync and final verification
+
+## Phase 6: Wiring, Docs, and Verification
+
+**Status:** complete
+
+**Tasks completed:**
+
+- 6.1: Shared one MCP runtime manager across setup, admin lifecycle, and the `mcp` tool plugin
+- 6.2: Hooked runtime hot reload for plugin enable/disable and config saves
+- 6.3: Updated plugin system and architecture docs (en/zh/ja) for the MCP plugin
+- 6.4: Updated builtin anna skill documentation for MCP behavior and the `get`-before-`exec` rule
+- 6.5: Ran `mise run format`, `mise run lint`, and `mise run test`
+
+**Files changed:**
+
+- `docs/content/docs/features/plugin-system.md`
+- `docs/content/docs/features/plugin-system.zh.md`
+- `docs/content/docs/features/plugin-system.ja.md`
+- `docs/content/docs/core/architecture.md`
+- `docs/content/docs/core/architecture.zh.md`
+- `docs/content/docs/core/architecture.ja.md`
+- `internal/agent/runner/builtin/anna/SKILL.md`
+- `.agents/sessions/2026-04-07-mcp-plugin/plan.md`
+- `.agents/sessions/2026-04-07-mcp-plugin/tasks.md`
+
+**Commits:**
+
+- `HEAD` — `📝 docs: wire MCP prompt inventory`
+
+**Decisions & context for next phase:**
+
+- Full verification passed; the branch is ready for review
+- `http` transport remains implemented via the official streamable HTTP client transport, which should be documented if naming clarity becomes an issue later
