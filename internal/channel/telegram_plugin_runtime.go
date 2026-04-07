@@ -2,12 +2,12 @@ package channel
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	telegramplugin "github.com/vaayne/anna/plugins/channels/telegram"
 )
 
 const (
@@ -28,13 +28,7 @@ type telegramManagedRuntime = botManagedRuntime[TelegramConfig]
 
 func NewTelegramManagedRuntime(deps TelegramRuntimeDeps) pkgplugins.ManagedRuntime {
 	if deps.NewChannel == nil {
-		deps.NewChannel = func(cfg TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
-			return telegramplugin.New(telegramplugin.Config{
-				Token:     cfg.Token,
-				ChannelID: cfg.ChannelID,
-				GroupMode: cfg.GroupMode,
-			}, handler)
-		}
+		panic(fmt.Sprintf("channel: missing %s runtime channel factory", PlatformTelegram))
 	}
 	return newBotManagedRuntime(botRuntimeDeps[TelegramConfig]{
 		Parent:               deps.Parent,
