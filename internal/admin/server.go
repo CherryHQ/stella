@@ -164,6 +164,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	// Plugin APIs (admin-only).
 	s.mux.Handle("GET /api/plugins", adminAPI(s.listPlugins))
 	s.mux.Handle("GET /api/plugin-status/{kind}/{name}", adminAPI(s.getPluginStatus))
+	s.mux.Handle("GET /api/plugin-config-schema/{kind}/{name}", adminAPI(s.getPluginConfigSchema))
 	s.mux.Handle("PATCH /api/plugins/{id...}", adminAPI(s.togglePlugin))
 	s.mux.Handle("PUT /api/plugin-config/{kind}/{name}", adminAPI(s.updatePluginConfig))
 

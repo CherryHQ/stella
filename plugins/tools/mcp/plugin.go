@@ -20,6 +20,7 @@ func init() {
 		host.Registry().RegisterConfig(pkgplugins.ConfigRegistration{
 			PluginID:      PluginID,
 			DefaultConfig: func() map[string]any { return map[string]any{"servers": []any{}} },
+			Schema:        configSchema(),
 			Validate:      func(raw map[string]any) error { _, err := annamcp.DecodeConfig(raw); return err },
 			Redact: func(raw map[string]any) map[string]any {
 				cfg, err := annamcp.DecodeConfig(raw)
@@ -66,6 +67,66 @@ func init() {
 			return items, nil
 		}})
 	}))
+}
+
+func configSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"servers": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"name": map[string]any{
+							"type":        "string",
+							"description": "Unique server name.",
+						},
+						"enabled": map[string]any{
+							"type":        "boolean",
+							"description": "Whether the server should be connected.",
+							"default":     true,
+						},
+						"transport": map[string]any{
+							"type":        "string",
+							"enum":        []any{annamcp.TransportStdio, annamcp.TransportSSE, annamcp.TransportStreamableHTTP, annamcp.TransportHTTP},
+							"description": "How Anna connects to the MCP server.",
+						},
+						"command": map[string]any{
+							"type":        "string",
+							"description": "Program to launch for stdio transport.",
+						},
+						"args": map[string]any{
+							"type":        "array",
+							"items":       map[string]any{"type": "string"},
+							"description": "Command-line arguments for stdio transport.",
+						},
+						"env": map[string]any{
+							"type":                 "object",
+							"additionalProperties": map[string]any{"type": "string"},
+							"description":          "Environment variables for stdio transport.",
+						},
+						"url": map[string]any{
+							"type":        "string",
+							"description": "Remote endpoint URL for HTTP, SSE, or streamable HTTP transport.",
+						},
+						"headers": map[string]any{
+							"type":                 "object",
+							"additionalProperties": map[string]any{"type": "string"},
+							"description":          "HTTP headers for remote transports.",
+						},
+						"timeout_seconds": map[string]any{
+							"type":        "integer",
+							"minimum":     0,
+							"default":     annamcp.DefaultTimeoutSeconds,
+							"description": "Timeout for connection and discovery operations.",
+						},
+					},
+					"required": []any{"name", "transport"},
+				},
+			},
+		},
+	}
 }
 
 type runtimeAccessor interface{ Manager() *annamcp.Manager }

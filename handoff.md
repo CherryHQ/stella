@@ -44,6 +44,11 @@ This handoff file is also the running implementation log for future sessions.
   - MCP plugin registration is now canonical as `tool/mcp`
   - `internal/pluginhost` no longer translates plugin IDs through `RegisterLegacyID`, `resolvePluginID`, or config alias inference
   - backend callers now use canonical plugin IDs directly
+- Introduced the first schema-driven config slice:
+  - `pkg/plugins.ConfigRegistration` now carries schema data
+  - `internal/pluginhost` can return config schemas by plugin ID
+  - admin now exposes plugin config schema through a dedicated backend endpoint
+  - concrete schemas are registered for MCP and Telegram
 
 ## Key Decisions
 
@@ -58,6 +63,7 @@ This handoff file is also the running implementation log for future sessions.
 - The core architectural rule is still strict: plugin packages should import only `pkg/...`; if a plugin needs a reusable helper, move that helper out of `internal/...`.
 - Replace split builder paths before attempting bigger packaging or persistence refactors.
 - No fallback code and no compatibility code. If a path is obsolete, remove it instead of translating through it.
+- The schema phase is backend-first. Expose schema data through host/admin contracts first; UI rendering can consume it later.
 
 ## Files Changed
 
@@ -82,6 +88,7 @@ The repository already has a useful base, but it is still transitional:
   - config/state bridging
 - `internal/pluginhost` is now the single contribution source for optional tools, hooks, providers, and memory once `RegisterLegacyCapabilities(...)` has been called during setup.
 - MCP now uses the same canonical plugin ID in runtime registration, persistence, and backend callers: `tool/mcp`.
+- Config schemas now exist as host-readable data for the plugins that have been wired so far, instead of living only as Go validation callbacks.
 - `plugins/tools/mcp` is the best current reference for a multi-capability unit, but it still depends on `internal/mcp`.
 - `plugins/channels/telegram` has started moving ownership into the package, but it still imports `internal/channel` types and runtime helpers.
 - Core tools are still separate because `plugins/tools/registry.go` owns the required-tool boot path used by the Go runner.
@@ -108,7 +115,7 @@ The repository already has a useful base, but it is still transitional:
 
 ### Phase 3: Make config schema-driven
 
-1. Add a real schema type under `pkg/plugins` for host-owned config handling.
+1. Expand schema coverage under `pkg/plugins` so host-owned config handling does not depend on bespoke knowledge.
 2. Migrate current per-plugin config registrations so the host can render/edit config consistently.
 3. Preserve typed decode helpers inside plugins, but make the host contract schema-driven.
 4. Replace ad hoc admin branching with host-driven config/status behavior where possible.
@@ -154,6 +161,7 @@ The repository already has a useful base, but it is still transitional:
   - `reflect`
   This must be normalized deliberately during migration.
 - Required tools are still built through `plugintools.BuildCore(...)`. That path was not changed in this slice.
+- Schema coverage is still partial. MCP and Telegram are wired; other managed plugins still rely on validate/redact callbacks without schema data.
 - `Go init()` blank-import registration is still acceptable for repo-level built-ins, but it should not remain the only discovery logic in the design language.
 
 ## Next Steps
@@ -161,9 +169,10 @@ The repository already has a useful base, but it is still transitional:
 1. Decide whether core tools should be lifted into `pkg/plugins.ToolRegistration` or intentionally remain outside the plugin host.
 2. Audit `plugins/tools/mcp` and `plugins/channels/telegram` for `internal/...` imports and pick the next concrete extraction into `pkg/...`.
 3. Normalize persisted plugin IDs and host discovery rules so built-ins and persisted rows use one deliberate identity model.
-4. Introduce a schema-backed config contract under `pkg/plugins` instead of per-plugin ad hoc validation only.
+4. Expand schema coverage to the remaining managed plugins and start removing ad hoc admin/plugin-specific config logic where the schema is now sufficient.
 5. Continue removing mixed-ID special casing so pluginhost uses one canonical identity model without compatibility shims.
-6. Update this `handoff.md` after every meaningful step with:
+6. Audit `plugins/tools/mcp` and `plugins/channels/telegram` for `internal/...` imports and extract the next reusable `pkg/...` surface.
+7. Update this `handoff.md` after every meaningful step with:
    - what changed
    - what is now safe to remove
    - what the next agent should do next
@@ -218,6 +227,22 @@ The repository already has a useful base, but it is still transitional:
 - Removed `RegisterLegacyID(...)`, `resolvePluginID(...)`, and config alias inference from `internal/pluginhost`.
 - Updated CLI and backend callers to use canonical plugin IDs directly instead of relying on host translation.
 - Left the admin UI unchanged because it already addresses MCP as `tool/mcp`.
-- Verification is in progress for the full repository test suite.
+- Verified the entire repository with `go test ./...`.
 - Safe to remove next:
   - remaining code paths that still rely on mixed standalone IDs like `reflect`
+
+### 2026-04-08 — schema-backed plugin config, first slice
+
+- Extended `pkg/plugins.ConfigRegistration` with schema data and a defensive schema clone helper.
+- Added `pluginhost.ConfigSchema(pluginID)` so the host can expose config shape as data.
+- Added `GET /api/plugin-config-schema/{kind}/{name}` in admin as the first backend read path for schema-driven config.
+- Registered concrete schemas for:
+  - `tool/mcp`
+  - `channel/telegram`
+- Added regression tests for:
+  - deep-copying schema definitions
+  - host schema lookup by plugin ID
+  - admin schema endpoints for MCP and Telegram
+- Verification is in progress for the full repository test suite.
+- Safe to remove next:
+  - plugin-specific schema knowledge in backend handlers once remaining plugins are described through `ConfigRegistration.Schema`

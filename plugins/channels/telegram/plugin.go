@@ -69,6 +69,7 @@ func init() {
 		host.Registry().RegisterConfig(pkgplugins.ConfigRegistration{
 			PluginID:      PluginID,
 			DefaultConfig: func() map[string]any { return map[string]any{} },
+			Schema:        configSchema(),
 			Validate:      func(raw map[string]any) error { _, err := DecodeConfig(raw); return err },
 			Redact:        RedactConfig,
 		})
@@ -96,6 +97,33 @@ func init() {
 			}, nil
 		}})
 	}))
+}
+
+func configSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"token": map[string]any{
+				"type":        "string",
+				"description": "Telegram bot token.",
+			},
+			"channel_id": map[string]any{
+				"type":        "string",
+				"description": "Optional default channel or chat ID.",
+			},
+			"group_mode": map[string]any{
+				"type":        "string",
+				"enum":        []any{"", "mention"},
+				"description": "How group chats are handled.",
+			},
+			"enable_notify": map[string]any{
+				"type":        "boolean",
+				"description": "Whether scheduler and system notifications are delivered to Telegram.",
+				"default":     false,
+			},
+		},
+		"required": []any{"token"},
+	}
 }
 
 // SetRuntimeFactoryForTesting swaps the Telegram managed runtime factory for tests.

@@ -108,6 +108,30 @@ func TestPromptToolsUsesPluginIDDirectly(t *testing.T) {
 	}
 }
 
+func TestConfigSchemaUsesPluginIDDirectly(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{}}
+	host := New(store)
+	host.RegisterPluginID("tool/mcp")
+	host.RegisterConfig(pkgplugins.ConfigRegistration{
+		PluginID: "tool/mcp",
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"servers": map[string]any{"type": "array"},
+			},
+		},
+	})
+
+	schema := host.ConfigSchema("tool/mcp")
+	props := schema["properties"].(map[string]any)
+	props["servers"].(map[string]any)["type"] = "object"
+
+	original := host.ConfigSchema("tool/mcp")
+	if got := original["properties"].(map[string]any)["servers"].(map[string]any)["type"]; got != "array" {
+		t.Fatalf("expected schema clone, got %#v", got)
+	}
+}
+
 func TestRuntimeApplyCreatesAndApplies(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{"tool/mcp": {ID: "tool/mcp", Enabled: true, Config: map[string]any{"x": 1}}}}
 	host := New(store)

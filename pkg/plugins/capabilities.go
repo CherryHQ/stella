@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -66,6 +67,7 @@ type RuntimeRegistration struct {
 type ConfigRegistration struct {
 	PluginID      string
 	DefaultConfig func() map[string]any
+	Schema        map[string]any
 	Validate      func(raw map[string]any) error
 	Redact        func(raw map[string]any) map[string]any
 }
@@ -84,6 +86,22 @@ func (r ConfigRegistration) Redacted(raw map[string]any) map[string]any {
 		return cloneMap(raw)
 	}
 	return cloneMap(r.Redact(cloneMap(raw)))
+}
+
+// SchemaDefinition returns a defensive deep copy of the registered config schema.
+func (r ConfigRegistration) SchemaDefinition() map[string]any {
+	if len(r.Schema) == 0 {
+		return map[string]any{}
+	}
+	b, err := json.Marshal(r.Schema)
+	if err != nil {
+		return cloneMap(r.Schema)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(b, &out); err != nil {
+		return cloneMap(r.Schema)
+	}
+	return out
 }
 
 // StatusRegistration registers plugin-owned status reporting.

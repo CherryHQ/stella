@@ -31,6 +31,15 @@ func (s *Server) getPluginStatus(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, status)
 }
 
+func (s *Server) getPluginConfigSchema(w http.ResponseWriter, r *http.Request) {
+	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
+	if s.pluginHost == nil {
+		writeData(w, http.StatusOK, map[string]any{})
+		return
+	}
+	writeData(w, http.StatusOK, s.pluginHost.ConfigSchema(id))
+}
+
 func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req struct {
