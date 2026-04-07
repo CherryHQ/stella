@@ -79,3 +79,13 @@
 - [x] 9.5: Keep `settings_plugins` compatibility with the existing `channel/telegram` row and no schema changes
 - [x] 9.6: Add focused tests for Telegram runtime behavior and admin integration
 - [x] 9.7: Update docs and session notes for the Telegram slice
+
+## Phase 10: QQ Host Migration Slice
+
+- [x] 10.1: Register `channel/qq` with host-backed config, runtime, and status capabilities
+- [x] 10.2: Add a QQ managed runtime that owns build/start/stop/reapply and notification registration
+- [x] 10.3: Replace bespoke gateway QQ startup with host-backed `Apply` while leaving Feishu and Weixin unchanged
+- [x] 10.4: Route `/channels/qq` admin save/toggle behavior through host-backed config/runtime plumbing without changing the UI shape
+- [x] 10.5: Keep `settings_plugins` compatibility with the existing `channel/qq` row and no schema changes
+- [x] 10.6: Add focused tests for QQ runtime behavior and admin integration
+- [x] 10.7: Update docs and session notes for the QQ slice
