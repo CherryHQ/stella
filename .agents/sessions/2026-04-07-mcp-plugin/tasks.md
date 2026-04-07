@@ -35,16 +35,16 @@
 
 ## Phase 5: Prompt Integration
 
-- [ ] 5.1: Extend prompt data model for MCP inventory
-- [ ] 5.2: Add manager-backed MCP inventory snapshot adapter
-- [ ] 5.3: Render only valid MCP tools in system prompt template
-- [ ] 5.4: Add explicit `mcp get` before `mcp exec` instruction
-- [ ] 5.5: Add prompt rendering tests
+- [x] 5.1: Extend prompt data model for MCP inventory
+- [x] 5.2: Add manager-backed MCP inventory snapshot adapter
+- [x] 5.3: Render only valid MCP tools in system prompt template
+- [x] 5.4: Add explicit `mcp get` before `mcp exec` instruction
+- [x] 5.5: Add prompt rendering tests
 
 ## Phase 6: Wiring, Docs, and Verification
 
-- [ ] 6.1: Share runtime manager across startup/admin/tool layers
-- [ ] 6.2: Hook plugin hot reload for enable/disable/config changes
-- [ ] 6.3: Update docs for MCP plugin behavior
-- [ ] 6.4: Update builtin anna skill docs
-- [ ] 6.5: Run format + lint + test
+- [x] 6.1: Share runtime manager across startup/admin/tool layers
+- [x] 6.2: Hook plugin hot reload for enable/disable/config changes
+- [x] 6.3: Update docs for MCP plugin behavior
+- [x] 6.4: Update builtin anna skill docs
+- [x] 6.5: Run format + lint + test

@@ -8,7 +8,7 @@ Anna 采用编译内置的插件模型。所有插件都直接编译到 anna 二
 
 四种插件类型：
 
-- **工具插件**提供 LLM 代理可以调用的工具（如 `webfetch`）。
+- **工具插件**提供 LLM 代理可以调用的工具（如 `mcp`、`webfetch`）。
 - **通道插件**提供消息平台集成（如 `telegram`、`qq`、`feishu`、`weixin`）。
 - **钩子插件**拦截引擎生命周期事件（如工具调用前后、LLM 调用前后）。
 - **供应商插件**提供 LLM API 适配器（如 `anthropic`、`openai`、`openai-response`）。
@@ -21,6 +21,7 @@ Anna 内置了 9 个插件：
 
 | 类型     | 名称            | 描述                                   |
 | -------- | --------------- | -------------------------------------- |
+| tool     | mcp             | 连接已配置的 MCP 服务器并代理 MCP 工具 |
 | tool     | webfetch        | 获取网页                               |
 | channel  | telegram        | Telegram 机器人                        |
 | channel  | qq              | QQ 机器人                              |
@@ -45,6 +46,7 @@ plugins/
 ├── all.go                          # 空白导入触发 init() 注册
 ├── tools/
 │   ├── registry.go                 # 工具插件注册表
+│   ├── mcp/                        # 工具：MCP 代理与服务器管理
 │   └── webfetch/                   # 工具：网页获取
 ├── channels/
 │   ├── telegram/                   # 通道：Telegram 机器人
@@ -113,4 +115,4 @@ anna plugin config <id> k=v    # 设置插件配置键值对
 
 ## 管理面板
 
-通道插件和供应商插件通过管理面板（`anna --open`）配置。管理面板写入 `settings_plugins` 表，并提供管理令牌、密钥和插件特定设置的界面。供应商插件会在供应商页面动态显示——添加新的供应商插件会自动出现在管理界面的下拉列表中。
+通道插件、供应商插件以及内置的 `tool/mcp` 插件都通过管理面板（`anna --open`）配置。管理面板写入 `settings_plugins` 表，并提供管理令牌、密钥和插件特定设置的界面。MCP 插件把服务器定义以 JSON 形式保存在 `settings_plugins.config` 中，同时在插件页面提供多服务器/多传输方式的表单编辑器。

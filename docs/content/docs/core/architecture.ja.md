@@ -55,7 +55,7 @@ internal/
 pkg/
   tools/               Toolインターフェース、レジストリ、ビルトインツール（read、bash、write、edit、agent）
 plugins/
-  tools/               プラグインツールレジストリ + プラグインツール（webfetch）
+  tools/               プラグインツールレジストリ + プラグインツール（mcp、webfetch）
   hooks/               プラグインフックレジストリ + プラグインフック（rtk）
   channels/            チャネルプラグイン（telegram、qq、feishu、weixin）
   providers/           プロバイダープラグインレジストリ + LLMアダプター（anthropic、openai、openai-response）
@@ -126,6 +126,7 @@ type Tool interface {
 
 | ツール     | 説明                |
 | ---------- | ------------------- |
+| `mcp` | 1つの汎用Anna MCPツール経由で設定済みMCPサーバーをプロキシ |
 | `webfetch` | Webページ内容の取得 |
 
 プラグインツールは`plugins/tools/`にあり、`init()`で自己登録します。新しいプラグインツールの追加にはブランクインポートのみが必要で、ワイヤリングコードの変更は不要です。完全なプラグインアーキテクチャについては[プラグインシステム](/docs/features/plugin-system)を参照してください。
