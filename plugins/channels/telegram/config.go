@@ -1,20 +1,19 @@
 package telegram
 
 import (
-	internalchannel "github.com/vaayne/anna/internal/channel"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
 func DecodeConfig(raw map[string]any) (pkgchannel.TelegramConfig, error) {
-	return internalchannel.DecodePluginConfig[pkgchannel.TelegramConfig](raw, pkgchannel.PlatformTelegram)
+	return pkgchannel.DecodePluginConfig[pkgchannel.TelegramConfig](raw, pkgchannel.PlatformTelegram)
 }
 
 func RedactConfig(raw map[string]any) map[string]any {
 	cfg, err := DecodeConfig(raw)
 	if err != nil {
-		return internalchannel.CloneConfigMap(raw)
+		return pkgchannel.CloneConfigMap(raw)
 	}
-	out := internalchannel.CloneConfigMap(raw)
+	out := pkgchannel.CloneConfigMap(raw)
 	if cfg.Token != "" {
 		out["token"] = "***"
 	}

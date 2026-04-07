@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-func decodePluginConfig[T any](raw map[string]any, label string) (T, error) {
+func DecodePluginConfig[T any](raw map[string]any, label string) (T, error) {
 	var cfg T
 	if raw == nil {
 		return cfg, nil
@@ -20,7 +20,7 @@ func decodePluginConfig[T any](raw map[string]any, label string) (T, error) {
 	return cfg, nil
 }
 
-func cloneConfigMap(src map[string]any) map[string]any {
+func CloneConfigMap(src map[string]any) map[string]any {
 	if len(src) == 0 {
 		return map[string]any{}
 	}

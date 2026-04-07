@@ -52,15 +52,15 @@ func NewQQManagedRuntime(deps QQRuntimeDeps) pkgplugins.ManagedRuntime {
 }
 
 func DecodeQQPluginConfig(raw map[string]any) (QQConfig, error) {
-	return decodePluginConfig[QQConfig](raw, "qq")
+	return pkgchannel.DecodePluginConfig[QQConfig](raw, "qq")
 }
 
 func RedactQQPluginConfig(raw map[string]any) map[string]any {
 	cfg, err := DecodeQQPluginConfig(raw)
 	if err != nil {
-		return cloneConfigMap(raw)
+		return pkgchannel.CloneConfigMap(raw)
 	}
-	out := cloneConfigMap(raw)
+	out := pkgchannel.CloneConfigMap(raw)
 	if cfg.AppSecret != "" {
 		out["app_secret"] = "***"
 	}
