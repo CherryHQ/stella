@@ -8,32 +8,11 @@ import (
 	"sync"
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 )
 
-// ToolInfo is Anna's cached normalized view of one MCP tool.
-type ToolInfo struct {
-	ID           string         `json:"id"`
-	ServerName   string         `json:"server_name"`
-	ToolName     string         `json:"tool_name"`
-	Name         string         `json:"name"`
-	Description  string         `json:"description"`
-	InputSchema  map[string]any `json:"input_schema,omitempty"`
-	OutputSchema map[string]any `json:"output_schema,omitempty"`
-	Annotations  map[string]any `json:"annotations,omitempty"`
-	Valid        bool           `json:"valid"`
-}
-
-// ExecResult is the normalized result shape returned by the mcp tool.
-type ExecResult struct {
-	OK         bool           `json:"ok"`
-	ID         string         `json:"id"`
-	ServerName string         `json:"server_name"`
-	ToolName   string         `json:"tool_name"`
-	Content    any            `json:"content,omitempty"`
-	Structured map[string]any `json:"structured,omitempty"`
-	IsError    bool           `json:"is_error"`
-	Meta       map[string]any `json:"meta,omitempty"`
-}
+type ToolInfo = pkgmcp.ToolInfo
+type ExecResult = pkgmcp.ExecResult
 
 // Manager is the shared process-wide runtime for MCP state.
 type Manager struct {

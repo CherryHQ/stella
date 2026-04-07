@@ -7,6 +7,7 @@ import (
 	"time"
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 )
 
 const (
@@ -27,17 +28,7 @@ type SupervisorConfig struct {
 	BackoffMax       time.Duration
 }
 
-type ServerStatus struct {
-	Name                string    `json:"name"`
-	Transport           string    `json:"transport"`
-	State               string    `json:"state"`
-	Failures            int       `json:"failures"`
-	Suppressed          bool      `json:"suppressed"`
-	LastError           string    `json:"last_error,omitempty"`
-	LastConnectedAt     time.Time `json:"last_connected_at,omitempty"`
-	LastDiscoveredAt    time.Time `json:"last_discovered_at,omitempty"`
-	DiscoveredToolCount int       `json:"discovered_tool_count"`
-}
+type ServerStatus = pkgmcp.ServerStatus
 
 type serverRuntime struct {
 	cfg     ServerConfig
