@@ -479,11 +479,15 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 	// Seed all built-in plugins with INSERT OR IGNORE to preserve
 	// user-modified state.
 	for _, name := range builtinToolNames {
+		enabled := int64(1)
+		if name == "mcp" {
+			enabled = 0
+		}
 		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
 			ID:      PluginID(PluginKindTool, name),
 			Kind:    PluginKindTool,
 			Name:    name,
-			Enabled: 1,
+			Enabled: enabled,
 			Config:  "{}",
 		})
 		if err != nil {

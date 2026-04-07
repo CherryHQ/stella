@@ -53,6 +53,7 @@ export function register(Alpine) {
 
     descriptionFor(name) {
       const descriptions = {
+        mcp: 'Connect and proxy configured MCP servers',
         webfetch: 'Fetch and extract web page content',
         telegram: 'Telegram bot integration',
         qq: 'QQ bot integration',
