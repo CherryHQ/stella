@@ -247,6 +247,37 @@ func TestUpdateMCPPluginConfigRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestGetMCPPluginStatus(t *testing.T) {
+	env := setupAdmin(t)
+	env.srv.SetMCPLifecycle(nil, nil, nil, func() any {
+		return []annamcp.ServerStatus{{
+			Name:                "github",
+			Transport:           annamcp.TransportStdio,
+			State:               "running",
+			DiscoveredToolCount: 2,
+		}}
+	})
+
+	rr := doRequest(t, env, "GET", "/api/plugin-status/tool/mcp", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	resp := parseResponse(t, rr)
+	var payload struct {
+		Servers []annamcp.ServerStatus `json:"servers"`
+	}
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal status payload: %v", err)
+	}
+	if len(payload.Servers) != 1 {
+		t.Fatalf("len(payload.Servers) = %d, want 1", len(payload.Servers))
+	}
+	if payload.Servers[0].Name != "github" || payload.Servers[0].DiscoveredToolCount != 2 {
+		t.Fatalf("unexpected server status: %+v", payload.Servers[0])
+	}
+}
+
 func TestCreateAgent(t *testing.T) {
 	env := setupAdmin(t)
 

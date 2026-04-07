@@ -140,6 +140,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			}
 			s.mcpManager.Reconcile(gctx, cfg, enabled)
 		},
+		func() any {
+			return s.mcpManager.Statuses()
+		},
 	)
 
 	// Configure channel hot-reload so the admin UI can start/stop channels.

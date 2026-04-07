@@ -16,6 +16,15 @@ func (s *Server) listPlugins(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, plugins)
 }
 
+func (s *Server) getPluginStatus(w http.ResponseWriter, r *http.Request) {
+	id := config.PluginID(r.PathValue("kind"), r.PathValue("name"))
+	if id == config.PluginID(config.PluginKindTool, annamcp.PluginName) {
+		writeData(w, http.StatusOK, map[string]any{"servers": s.mcpStatusSnapshot()})
+		return
+	}
+	writeData(w, http.StatusOK, map[string]any{})
+}
+
 func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req struct {

@@ -115,4 +115,4 @@ anna plugin config <id> k=v    # 设置插件配置键值对
 
 ## 管理面板
 
-通道插件、供应商插件以及内置的 `tool/mcp` 插件都通过管理面板（`anna --open`）配置。管理面板写入 `settings_plugins` 表，并提供管理令牌、密钥和插件特定设置的界面。MCP 插件把服务器定义以 JSON 形式保存在 `settings_plugins.config` 中，同时在插件页面提供多服务器/多传输方式的表单编辑器。
+通道插件、供应商插件以及内置的 `tool/mcp` 插件都通过管理面板（`anna --open`）配置。管理面板写入 `settings_plugins` 表，并提供管理令牌、密钥和插件特定设置的界面。MCP 插件把服务器定义以 JSON 形式保存在 `settings_plugins.config` 中，同时在插件页面提供多服务器/多传输方式的表单编辑器、按传输方式显示的字段、结构化的 args/env/headers 编辑，以及已发现/被抑制服务器的实时状态徽标。
