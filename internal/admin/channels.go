@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	internalchannel "github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 )
 
@@ -71,7 +72,7 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pluginID := config.PluginID(config.PluginKindChannel, platform)
-	if s.pluginHost != nil && isHostBackedChannelPlugin(pluginID) {
+	if s.pluginHost != nil && internalchannel.IsHostBackedPlugin(pluginID) {
 		if err := s.pluginHost.ValidateConfig(pluginID, cfgMap); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
