@@ -112,7 +112,13 @@ func TestTelegramManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 }
 
 func TestTelegramManagedRuntimeMissingTokenMarksError(t *testing.T) {
-	runtime := NewTelegramManagedRuntime(TelegramRuntimeDeps{Parent: context.Background(), Handler: fakeChannelHandler{}})
+	runtime := NewTelegramManagedRuntime(TelegramRuntimeDeps{
+		Parent:  context.Background(),
+		Handler: fakeChannelHandler{},
+		NewChannel: func(cfg TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			return newFakeTelegramChannel(), nil
+		},
+	})
 	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: TelegramPluginID, Enabled: true, Config: map[string]any{}}); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
