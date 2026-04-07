@@ -48,3 +48,12 @@
 - [x] 6.3: Update docs for MCP plugin behavior
 - [x] 6.4: Update builtin anna skill docs
 - [x] 6.5: Run format + lint + test
+
+## Phase 7: MCP Admin UX Polish
+
+- [x] 7.1: Inspect current MCP admin UI/backend and capture polish scope
+- [x] 7.2: Expose lightweight MCP runtime status to the admin UI
+- [x] 7.3: Refactor the MCP editor into clearer per-server cards and transport-specific sections
+- [x] 7.4: Replace raw JSON-first args/env/headers editing with structured editors that preserve config compatibility
+- [x] 7.5: Add client-side validation plus dirty/saving/saved feedback
+- [x] 7.6: Update docs/session notes and rerun generate + format + lint + test

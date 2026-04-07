@@ -180,9 +180,30 @@ Transport-specific fields will be optional, with validation based on `transport`
 - Initial plan drafted after inspecting current plugin registry, admin plugin toggle flow, pool hot reload behavior, and prompt template structure.
 - Requirements refined: use the official Go MCP library, render only valid MCP tools in prompt, and keep a runtime canonical-ID map rather than deriving IDs ad hoc at call time.
 
-## Final Status
+## UI Polish Addendum
+
+### Goals
+
+- Improve MCP editor readability and hierarchy on the Plugins page without changing MCP config persistence or runtime behavior
+- Replace raw JSON-first UX for `args`, `env`, and `headers` with structured editors while preserving the existing config shape
+- Add local validation, dirty/save feedback, and clearer plugin-enabled/runtime-state messaging
+- Expose lightweight MCP runtime server status to the admin UI so operators can see running/backoff/suppressed/discovered state at a glance
+
+### Plan
+
+#### Phase 7: MCP Admin UX Polish
+
+1. Add a lightweight admin status endpoint for `tool/mcp` backed by the shared runtime manager's existing status snapshot
+2. Refactor the MCP editor into richer per-server cards with summary badges, clearer transport copy, and transport-specific sections
+3. Replace JSON text fields for args/env/headers with structured list/key-value editors that serialize back to the same persisted config
+4. Add client-side validation for required fields, duplicate server names, timeout bounds, and duplicate env/header keys
+5. Add explicit dirty/saving/saved feedback and plugin-disabled/no-enabled-server guidance banners
+6. Update docs/session artifacts and run generate/format/lint/test
+
+### Final Status
 
 - Implemented the MCP plugin end-to-end on branch `feat/mcp-plugin`.
 - Added built-in `tool/mcp` plugin seeding, shared MCP runtime management, official Go MCP SDK transport bootstrap, server supervision with restart/backoff/suppression, normalized `mcp` tool actions (`list|get|exec`), admin MCP config editing, prompt integration for valid MCP tools, updated docs, and builtin anna skill sync.
-- Verification completed with `mise run format`, `mise run lint`, and `mise run test`.
+- Added a UI polish pass for the MCP admin editor: structured args/env/headers editing, transport-specific field grouping, local validation, save/dirty state feedback, and live runtime status badges via a new admin MCP status endpoint.
+- Verification completed with `mise run generate`, `mise run format`, `mise run lint`, and `mise run test`.
 - Notable implementation decision: `http` currently reuses the official streamable HTTP client transport, which matches modern MCP HTTP behavior in the official SDK.

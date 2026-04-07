@@ -47,6 +47,7 @@ type Server struct {
 	mcpStart     func()
 	mcpStop      func()
 	mcpReconcile func()
+	mcpStatus    func() any
 }
 
 // New creates an admin server with all API routes mounted.
@@ -170,6 +171,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 
 	// Plugin APIs (admin-only).
 	s.mux.Handle("GET /api/plugins", adminAPI(s.listPlugins))
+	s.mux.Handle("GET /api/plugin-status/{kind}/{name}", adminAPI(s.getPluginStatus))
 	s.mux.Handle("PATCH /api/plugins/{id...}", adminAPI(s.togglePlugin))
 	s.mux.Handle("PUT /api/plugin-config/{kind}/{name}", adminAPI(s.updatePluginConfig))
 
@@ -310,12 +312,13 @@ func (s *Server) stopReflect() {
 	}
 }
 
-func (s *Server) SetMCPLifecycle(start func(), stop func(), reconcile func()) {
+func (s *Server) SetMCPLifecycle(start func(), stop func(), reconcile func(), status func() any) {
 	s.mcpMu.Lock()
 	defer s.mcpMu.Unlock()
 	s.mcpStart = start
 	s.mcpStop = stop
 	s.mcpReconcile = reconcile
+	s.mcpStatus = status
 }
 
 func (s *Server) startMCP() {
@@ -340,6 +343,15 @@ func (s *Server) reconcileMCP() {
 	if s.mcpReconcile != nil {
 		s.mcpReconcile()
 	}
+}
+
+func (s *Server) mcpStatusSnapshot() any {
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
+	if s.mcpStatus != nil {
+		return s.mcpStatus()
+	}
+	return nil
 }
 
 // Handler returns the HTTP handler with CORS, JSON, and auth middleware applied.

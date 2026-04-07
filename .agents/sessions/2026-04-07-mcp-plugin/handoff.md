@@ -198,3 +198,41 @@
 
 - Full verification passed; the branch is ready for review
 - `http` transport remains implemented via the official streamable HTTP client transport, which should be documented if naming clarity becomes an issue later
+
+## Phase 7: MCP Admin UX Polish
+
+**Status:** complete
+
+**Tasks completed:**
+
+- 7.1: Re-inspected the MCP plugins page, admin plugin endpoints, runtime status model, and existing session docs before changing UI behavior
+- 7.2: Added a lightweight admin MCP status endpoint backed by the shared runtime manager so the UI can show running/backoff/suppressed/discovered server state
+- 7.3: Refactored the MCP editor into clearer summary + per-server cards with better hierarchy, transport-specific copy, and runtime detail panels
+- 7.4: Replaced JSON-first args/env/headers inputs with structured argument rows and key/value editors while preserving the existing persisted config shape
+- 7.5: Added client-side validation, duplicate-name detection, and explicit dirty/saving/saved feedback so save behavior is easier to understand
+- 7.6: Updated plugin docs/session notes and reran generate/format/lint/test
+
+**Files changed:**
+
+- `internal/admin/server.go` — added MCP status hook plumbing and a plugin-status route
+- `internal/admin/plugins.go` — added MCP plugin status handler
+- `cmd/anna/gateway.go` — wired admin MCP status snapshots from the shared runtime manager
+- `internal/admin/ui/pages/plugins.templ` — redesigned MCP editor layout and runtime/status presentation
+- `internal/admin/ui/pages/plugins_templ.go` — regenerated templ output
+- `internal/admin/ui/static/js/pages/plugins.js` — added structured MCP form state, validation, save-state handling, and status loading
+- `internal/admin/server_test.go` — added MCP plugin status endpoint coverage
+- `docs/content/docs/features/plugin-system.md`
+- `docs/content/docs/features/plugin-system.zh.md`
+- `docs/content/docs/features/plugin-system.ja.md`
+- `.agents/sessions/2026-04-07-mcp-plugin/plan.md`
+- `.agents/sessions/2026-04-07-mcp-plugin/tasks.md`
+
+**Commits:**
+
+- `HEAD` — pending final polish commit
+
+**Decisions & tradeoffs:**
+
+- Kept config compatibility by translating structured UI rows back into the exact same `servers[].args/env/headers` JSON shape already consumed by `internal/mcp.DecodeConfig`
+- Added a separate status endpoint instead of changing the persisted plugin payload shape, which keeps storage/API compatibility cleaner and avoids mixing runtime state into config data
+- Chose lightweight client-side validation over introducing new backend-only schema rules, so UX improves without changing the MCP runtime/tool contract

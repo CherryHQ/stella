@@ -119,4 +119,4 @@ anna plugin config <id> k=v    # Set plugin configuration key-value pairs
 
 ## Admin Panel
 
-Channel plugins, provider plugins, and the built-in `tool/mcp` plugin are configured via the admin panel (`anna --open`). The admin panel writes to the `settings_plugins` table and provides a UI for managing tokens, keys, and plugin-specific settings. The MCP plugin stores its server definitions as JSON in `settings_plugins.config`, with an admin form editor for multiple servers/transports.
+Channel plugins, provider plugins, and the built-in `tool/mcp` plugin are configured via the admin panel (`anna --open`). The admin panel writes to the `settings_plugins` table and provides a UI for managing tokens, keys, and plugin-specific settings. The MCP plugin stores its server definitions as JSON in `settings_plugins.config`, with an admin form editor for multiple servers/transports, transport-specific fields, structured args/env/header editors, and live runtime status badges for discovered/suppressed servers.
