@@ -87,6 +87,22 @@ func setupAdmin(t *testing.T) *testEnv {
 			return newTestChannel(channel.PlatformTelegram), nil
 		},
 	})
+	phost.RegisterQQ(pluginhost.QQDeps{
+		Parent:   context.Background(),
+		Handler:  testChannelHandler{},
+		Notifier: dispatcher,
+		NewChannel: func(cfg channel.QQConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			return newTestChannel(channel.PlatformQQ), nil
+		},
+	})
+	phost.RegisterFeishu(pluginhost.FeishuDeps{
+		Parent:   context.Background(),
+		Handler:  testChannelHandler{},
+		Notifier: dispatcher,
+		NewChannel: func(cfg channel.FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			return newTestChannel(channel.PlatformFeishu), nil
+		},
+	})
 	if err := phost.ApplyPlugin(context.Background(), internalreflect.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(reflect): %v", err)
 	}
@@ -454,6 +470,107 @@ func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 	}
 	if payload.State != "stopped" {
 		t.Fatalf("telegram state after disable = %q, want stopped", payload.State)
+	}
+}
+
+func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "PUT", "/api/channels/qq", map[string]any{
+		"enabled": true,
+		"config":  `{"app_id":"qq-app","app_secret":"qq-secret","enable_notify":true,"group_mode":"mention"}`,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/qq", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var payload struct {
+		State    string         `json:"state"`
+		Message  string         `json:"message"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal qq status: %v", err)
+	}
+	if payload.State != "running" {
+		t.Fatalf("qq state = %q, want running", payload.State)
+	}
+	if payload.Metadata["notify_enabled"] != true {
+		t.Fatalf("notify_enabled = %#v, want true", payload.Metadata["notify_enabled"])
+	}
+
+	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/qq", map[string]any{"enabled": false})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/qq", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal qq status after disable: %v", err)
+	}
+	if payload.State != "stopped" {
+		t.Fatalf("qq state after disable = %q, want stopped", payload.State)
+	}
+}
+
+func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "PUT", "/api/channels/feishu", map[string]any{
+		"enabled": true,
+		"config":  `{"app_id":"fs-app","app_secret":"fs-secret","encrypt_key":"enc","verification_token":"verify","enable_notify":true,"group_mode":"mention","groups":{"oc_123":{"group_mode":"always","system_prompt":"be brief"}}}`,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/feishu", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var payload struct {
+		State    string         `json:"state"`
+		Message  string         `json:"message"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal feishu status: %v", err)
+	}
+	if payload.State != "running" {
+		t.Fatalf("feishu state = %q, want running", payload.State)
+	}
+	if payload.Metadata["notify_enabled"] != true {
+		t.Fatalf("notify_enabled = %#v, want true", payload.Metadata["notify_enabled"])
+	}
+	if payload.Metadata["group_count"] != float64(1) {
+		t.Fatalf("group_count = %#v, want 1", payload.Metadata["group_count"])
+	}
+
+	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/feishu", map[string]any{"enabled": false})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/feishu", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal feishu status after disable: %v", err)
+	}
+	if payload.State != "stopped" {
+		t.Fatalf("feishu state after disable = %q, want stopped", payload.State)
 	}
 }
 

@@ -72,7 +72,7 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pluginID := config.PluginID(config.PluginKindChannel, platform)
-	if s.pluginHost != nil && pluginID == internalchannel.TelegramPluginID {
+	if s.pluginHost != nil && (pluginID == internalchannel.TelegramPluginID || pluginID == internalchannel.QQPluginID || pluginID == internalchannel.FeishuPluginID) {
 		if err := s.pluginHost.ValidateConfig(pluginID, cfgMap); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
