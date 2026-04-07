@@ -6,6 +6,7 @@ import (
 	"time"
 
 	annamcp "github.com/vaayne/anna/internal/mcp"
+	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
 )
@@ -21,9 +22,9 @@ func init() {
 			PluginID:      PluginID,
 			DefaultConfig: func() map[string]any { return map[string]any{"servers": []any{}} },
 			Schema:        configSchema(),
-			Validate:      func(raw map[string]any) error { _, err := annamcp.DecodeConfig(raw); return err },
+			Validate:      func(raw map[string]any) error { _, err := pkgmcp.DecodeConfig(raw); return err },
 			Redact: func(raw map[string]any) map[string]any {
-				cfg, err := annamcp.DecodeConfig(raw)
+				cfg, err := pkgmcp.DecodeConfig(raw)
 				if err != nil {
 					return raw
 				}
@@ -89,7 +90,7 @@ func configSchema() map[string]any {
 						},
 						"transport": map[string]any{
 							"type":        "string",
-							"enum":        []any{annamcp.TransportStdio, annamcp.TransportSSE, annamcp.TransportStreamableHTTP, annamcp.TransportHTTP},
+							"enum":        []any{pkgmcp.TransportStdio, pkgmcp.TransportSSE, pkgmcp.TransportStreamableHTTP, pkgmcp.TransportHTTP},
 							"description": "How Anna connects to the MCP server.",
 						},
 						"command": map[string]any{
@@ -118,7 +119,7 @@ func configSchema() map[string]any {
 						"timeout_seconds": map[string]any{
 							"type":        "integer",
 							"minimum":     0,
-							"default":     annamcp.DefaultTimeoutSeconds,
+							"default":     pkgmcp.DefaultTimeoutSeconds,
 							"description": "Timeout for connection and discovery operations.",
 						},
 					},
