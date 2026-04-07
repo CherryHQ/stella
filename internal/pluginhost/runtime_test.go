@@ -9,16 +9,16 @@ import (
 )
 
 func TestRuntimeLookup(t *testing.T) {
-	store := &stubStore{plugins: map[string]config.Plugin{"mcp": {ID: "mcp", Enabled: true}}}
+	store := &stubStore{plugins: map[string]config.Plugin{"tool/mcp": {ID: "tool/mcp", Enabled: true}}}
 	host := New(store)
-	host.RegisterPluginID("mcp")
-	host.RegisterRuntime(pkgplugins.RuntimeRegistration{PluginID: "mcp", Name: "main", Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
+	host.RegisterPluginID("tool/mcp")
+	host.RegisterRuntime(pkgplugins.RuntimeRegistration{PluginID: "tool/mcp", Name: "main", Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
 		return runtimeStub{apply: func(context.Context, pkgplugins.PluginState) error { return nil }}, nil
 	}})
-	if err := host.ApplyPlugin(context.Background(), "mcp"); err != nil {
+	if err := host.ApplyPlugin(context.Background(), "tool/mcp"); err != nil {
 		t.Fatal(err)
 	}
-	handle, ok := host.Runtime().Get("mcp", "main")
+	handle, ok := host.Runtime().Get("tool/mcp", "main")
 	if !ok {
 		t.Fatal("expected runtime handle")
 	}

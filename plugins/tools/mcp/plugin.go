@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	PluginID    = "mcp"
+	PluginID    = "tool/mcp"
 	RuntimeName = "manager"
 )
 

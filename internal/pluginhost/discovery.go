@@ -32,25 +32,22 @@ func (h *Host) ManagedPlugins() []string {
 }
 
 func (h *Host) HasRuntime(pluginID string) bool {
-	canonical := h.resolvePluginID(pluginID)
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	return hasRuntimeLocked(h.runtimeRegs, canonical)
+	return hasRuntimeLocked(h.runtimeRegs, pluginID)
 }
 
 func (h *Host) HasConfig(pluginID string) bool {
-	canonical := h.resolvePluginID(pluginID)
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	_, ok := h.configRegs[canonical]
+	_, ok := h.configRegs[pluginID]
 	return ok
 }
 
 func (h *Host) HasStatus(pluginID string) bool {
-	canonical := h.resolvePluginID(pluginID)
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	_, ok := h.statusRegs[canonical]
+	_, ok := h.statusRegs[pluginID]
 	return ok
 }
 
@@ -71,18 +68,17 @@ func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.Regist
 		return nil, err
 	}
 	for _, plugin := range persisted {
-		canonicalID := h.resolvePluginID(plugin.ID)
-		entry, ok := registered[canonicalID]
+		entry, ok := registered[plugin.ID]
 		if !ok {
 			entry = pkgplugins.RegisteredPlugin{
-				Meta:  inferredPluginMeta(plugin, canonicalID),
-				State: pkgplugins.PluginState{ID: canonicalID, Enabled: false, Config: map[string]any{}},
+				Meta:  inferredPluginMeta(plugin, plugin.ID),
+				State: pkgplugins.PluginState{ID: plugin.ID, Enabled: false, Config: map[string]any{}},
 			}
 		}
-		entry.State = pkgplugins.PluginState{ID: canonicalID, Enabled: plugin.Enabled, Config: cloneMap(plugin.Config)}
+		entry.State = pkgplugins.PluginState{ID: plugin.ID, Enabled: plugin.Enabled, Config: cloneMap(plugin.Config)}
 		entry.Persisted = true
 		entry.PersistedID = plugin.ID
-		registered[canonicalID] = entry
+		registered[plugin.ID] = entry
 	}
 
 	out := make([]pkgplugins.RegisteredPlugin, 0, len(registered))

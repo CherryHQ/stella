@@ -68,11 +68,10 @@ func setupAdmin(t *testing.T) *testEnv {
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher)
 	phost := pluginhost.New(store, pluginhost.WithChannelRuntimeServices(channelRuntimeServices))
-	phost.RegisterLegacyID("mcp", annamcp.PluginID())
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
-	if err := phost.ApplyPlugin(context.Background(), "mcp"); err != nil {
+	if err := phost.ApplyPlugin(context.Background(), annamcp.PluginID()); err != nil {
 		t.Fatalf("ApplyPlugin(mcp): %v", err)
 	}
 	phost.RegisterReflect(pluginhost.ReflectDeps{
@@ -351,7 +350,7 @@ func TestGetMCPPluginStatus(t *testing.T) {
 	if err := env.store.SetPluginConfig(context.Background(), annamcp.PluginID(), map[string]any{"servers": []any{}}); err != nil {
 		t.Fatalf("SetPluginConfig: %v", err)
 	}
-	if err := env.pluginHost.ApplyPlugin(context.Background(), "mcp"); err != nil {
+	if err := env.pluginHost.ApplyPlugin(context.Background(), annamcp.PluginID()); err != nil {
 		t.Fatalf("ApplyPlugin: %v", err)
 	}
 	if _, ok := mcp.LookupRuntime(env.pluginHost.Services()); !ok {
