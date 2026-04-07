@@ -8,27 +8,27 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
-type WeixinDeps struct {
+type QQDeps struct {
 	Parent     context.Context
 	Handler    pkgchannel.Handler
 	Notifier   *internalchannel.Dispatcher
-	NewChannel func(internalchannel.WeixinConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
+	NewChannel func(internalchannel.QQConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
 
-func (h *Host) RegisterWeixin(deps WeixinDeps) {
+func (h *Host) RegisterQQ(deps QQDeps) {
 	h.registerManagedRuntime(managedRuntimeRegistration{
-		pluginID:      internalchannel.WeixinPluginID,
-		runtimeName:   internalchannel.WeixinRuntimeName,
+		pluginID:      internalchannel.QQPluginID,
+		runtimeName:   internalchannel.QQRuntimeName,
 		defaultConfig: emptyConfig,
-		validate:      validateByDecode(internalchannel.DecodeWeixinPluginConfig),
-		redact:        internalchannel.RedactWeixinPluginConfig,
+		validate:      validateByDecode(internalchannel.DecodeQQPluginConfig),
+		redact:        internalchannel.RedactQQPluginConfig,
 		factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
-			return internalchannel.NewWeixinManagedRuntime(internalchannel.WeixinRuntimeDeps{
+			return internalchannel.NewQQManagedRuntime(internalchannel.QQRuntimeDeps{
 				Parent:     deps.Parent,
 				Handler:    deps.Handler,
 				Notifier:   deps.Notifier,
 				NewChannel: deps.NewChannel,
-				Log:        h.Logger(internalchannel.WeixinPluginID),
+				Log:        h.Logger(internalchannel.QQPluginID),
 			}), nil
 		},
 	})
