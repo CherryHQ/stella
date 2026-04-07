@@ -15,6 +15,7 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
+	annamcp "github.com/vaayne/anna/internal/mcp"
 	pluginmemory "github.com/vaayne/anna/plugins/memory"
 	_ "github.com/vaayne/anna/plugins/memory/lcm"
 )
@@ -194,6 +195,55 @@ func TestListAgents(t *testing.T) {
 	}
 	if agents[0].ID != "anna" {
 		t.Errorf("agent ID = %q, want %q", agents[0].ID, "anna")
+	}
+}
+
+func TestUpdateMCPPluginConfig(t *testing.T) {
+	env := setupAdmin(t)
+
+	body := map[string]any{
+		"config": map[string]any{
+			"servers": []any{
+				map[string]any{
+					"name":      "github",
+					"enabled":   true,
+					"transport": annamcp.TransportStdio,
+					"command":   "npx",
+				},
+			},
+		},
+	}
+	rr := doRequest(t, env, "PUT", "/api/plugin-config/tool/mcp", body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	resp := parseResponse(t, rr)
+	var plugin config.Plugin
+	if err := json.Unmarshal(resp.Data, &plugin); err != nil {
+		t.Fatalf("unmarshal plugin: %v", err)
+	}
+	if plugin.ID != config.PluginID(config.PluginKindTool, annamcp.PluginName) {
+		t.Fatalf("plugin.ID = %q", plugin.ID)
+	}
+	servers, ok := plugin.Config["servers"].([]any)
+	if !ok || len(servers) != 1 {
+		t.Fatalf("unexpected plugin config: %#v", plugin.Config)
+	}
+}
+
+func TestUpdateMCPPluginConfigRejectsInvalidConfig(t *testing.T) {
+	env := setupAdmin(t)
+	body := map[string]any{
+		"config": map[string]any{
+			"servers": []any{
+				map[string]any{"name": "bad", "transport": annamcp.TransportStdio},
+			},
+		},
+	}
+	rr := doRequest(t, env, "PUT", "/api/plugin-config/tool/mcp", body)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 }
 

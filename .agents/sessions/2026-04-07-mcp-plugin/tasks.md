@@ -27,11 +27,11 @@
 
 ## Phase 4: Admin API + Plugins UI
 
-- [ ] 4.1: Add admin endpoint(s) for MCP plugin config updates
-- [ ] 4.2: Add MCP config form to Plugins page
-- [ ] 4.3: Support multi-server editing with transport-specific fields
-- [ ] 4.4: Trigger runtime reconciliation after config changes
-- [ ] 4.5: Add admin auth/persistence tests
+- [x] 4.1: Add admin endpoint(s) for MCP plugin config updates
+- [x] 4.2: Add MCP config form to Plugins page
+- [x] 4.3: Support multi-server editing with transport-specific fields
+- [x] 4.4: Trigger runtime reconciliation after config changes
+- [x] 4.5: Add admin auth/persistence tests
 
 ## Phase 5: Prompt Integration
 

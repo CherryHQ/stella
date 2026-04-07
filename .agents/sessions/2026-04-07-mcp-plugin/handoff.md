@@ -105,3 +105,34 @@
 - The `mcp` tool now relies on the shared manager for both discovery and execution, so admin config updates only need to reconcile the manager and reload plugin tools for new sessions
 - `get` returns the cached normalized tool detail; prompt guidance in Phase 5 should explicitly tell the model to call `get` before every `exec`
 - The admin page still lacks MCP form editing and config persistence APIs, which is the main remaining product-facing gap before prompt integration
+
+## Phase 4: Admin API + Plugins UI
+
+**Status:** complete
+
+**Tasks completed:**
+
+- 4.1: Added an admin-only MCP plugin config update API with validation against typed MCP config rules
+- 4.2: Added an MCP server editor to the Plugins page under the `mcp` tool plugin row
+- 4.3: Supported multiple server entries with transport-specific fields (`stdio`, `sse`, `streamable_http`, `http`)
+- 4.4: Reconciled the shared MCP runtime after config saves so background sessions update without restart
+- 4.5: Added admin tests for MCP config save success and invalid-config rejection
+
+**Files changed:**
+
+- `internal/admin/server.go` — added MCP config route
+- `internal/admin/plugins.go` — added config update handler and MCP reconcile trigger
+- `internal/admin/ui/pages/plugins.templ` — added MCP server editor form
+- `internal/admin/ui/static/js/pages/plugins.js` — added MCP config editing, parsing, and save logic
+- `internal/admin/server_test.go` — added MCP config API tests
+- `.agents/sessions/2026-04-07-mcp-plugin/tasks.md` — checked off Phase 4 tasks
+
+**Commits:**
+
+- `HEAD` — `✨ feat: add MCP admin config editor`
+
+**Decisions & context for next phase:**
+
+- The UI stores `args`, `env`, and `headers` through structured form fields but still uses JSON textareas for nested key/value and array data, which is a good compromise for now
+- Config saves already trigger runtime reconciliation, so prompt integration can assume the manager reflects the latest persisted MCP configuration
+- The remaining core feature gap is prompt exposure of valid MCP tools plus explicit `get`-before-`exec` instructions
