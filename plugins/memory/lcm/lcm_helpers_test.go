@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 )
 
 func TestToInt(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 )
 
 func (s *Server) updateUserDefaultAgent(w http.ResponseWriter, r *http.Request) {

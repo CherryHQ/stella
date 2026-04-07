@@ -11,9 +11,9 @@ import (
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/db/sqlc"
 	"github.com/vaayne/anna/internal/pluginhost"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
 )
 

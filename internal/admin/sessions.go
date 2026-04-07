@@ -8,7 +8,7 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
 )
 

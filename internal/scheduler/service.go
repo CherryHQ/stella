@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/vaayne/anna/internal/channel"
 	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 )
 
 // errOneTimeJobPast is returned by scheduleJob when a one-time job's timestamp
