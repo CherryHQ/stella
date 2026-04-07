@@ -50,6 +50,7 @@ This handoff file is also the running implementation log for future sessions.
   - admin now exposes plugin config schema through a dedicated backend endpoint
   - concrete schemas are registered for MCP and Telegram
 - Extracted the Telegram plugin config type into `pkg/channel`, so Telegram plugin code no longer depends on an app-private config struct for its persisted config shape.
+- Extracted the MCP plugin config model and decoder into `pkg/mcp`, so MCP plugin config handling no longer depends on an app-private config package.
 
 ## Key Decisions
 
@@ -91,6 +92,7 @@ The repository already has a useful base, but it is still transitional:
 - MCP now uses the same canonical plugin ID in runtime registration, persistence, and backend callers: `tool/mcp`.
 - Config schemas now exist as host-readable data for the plugins that have been wired so far, instead of living only as Go validation callbacks.
 - Telegram config is now a public package contract in `pkg/channel`, not an app-private type in `internal/channel`.
+- MCP config is now a public package contract in `pkg/mcp`, not an app-private type in `internal/mcp`.
 - `plugins/tools/mcp` is the best current reference for a multi-capability unit, but it still depends on `internal/mcp`.
 - `plugins/channels/telegram` has started moving ownership into the package, but it still imports `internal/channel` types and runtime helpers.
 - Core tools are still separate because `plugins/tools/registry.go` owns the required-tool boot path used by the Go runner.
@@ -165,6 +167,7 @@ The repository already has a useful base, but it is still transitional:
 - Required tools are still built through `plugintools.BuildCore(...)`. That path was not changed in this slice.
 - Schema coverage is still partial. MCP and Telegram are wired; other managed plugins still rely on validate/redact callbacks without schema data.
 - Telegram still depends on `internal/channel` for runtime orchestration and dispatcher integration; only the config type moved out in this slice.
+- MCP still depends on `internal/mcp` for the manager/runtime implementation and status types; only the config model and decoder moved out in this slice.
 - `Go init()` blank-import registration is still acceptable for repo-level built-ins, but it should not remain the only discovery logic in the design language.
 
 ## Next Steps
@@ -175,8 +178,9 @@ The repository already has a useful base, but it is still transitional:
 4. Expand schema coverage to the remaining managed plugins and start removing ad hoc admin/plugin-specific config logic where the schema is now sufficient.
 5. Continue removing mixed-ID special casing so pluginhost uses one canonical identity model without compatibility shims.
 6. Continue extracting reusable channel/runtime contracts from `internal/channel` into `pkg/channel`, starting with the next Telegram-facing type or helper that materially shrinks plugin imports.
-7. Audit `plugins/tools/mcp` for the first reusable `pkg/...` extraction from `internal/mcp`.
-8. Update this `handoff.md` after every meaningful step with:
+7. Continue extracting reusable MCP contracts from `internal/mcp` into `pkg/mcp`, starting with the next config-adjacent type that does not pull runtime orchestration with it.
+8. Audit the remaining plugin packages importing `internal/db/sqlc` and decide whether those storage contracts should move to `pkg/...` or remain app-private.
+9. Update this `handoff.md` after every meaningful step with:
    - what changed
    - what is now safe to remove
    - what the next agent should do next
@@ -260,3 +264,13 @@ The repository already has a useful base, but it is still transitional:
 - Verification is in progress for the full repository test suite.
 - Safe to remove next:
   - the next Telegram-facing config/runtime helper in `internal/channel` that can become a stable `pkg/channel` contract
+
+### 2026-04-08 — first pkg/mcp extraction
+
+- Added `pkg/mcp` with the MCP config model, server config model, transport constants, timeout default, and config decoder.
+- Replaced the old `internal/mcp/config.go` implementation with public-type aliases and a thin wrapper to the new package.
+- Updated the MCP plugin to use `pkg/mcp` for config validation and schema constants.
+- This does not remove the runtime dependency on `internal/mcp.Manager`; it only moves the config model/decoder into a stable public package.
+- Verification is in progress for the full repository test suite.
+- Safe to remove next:
+  - the next MCP-facing type in `internal/mcp` that is pure data rather than runtime orchestration
