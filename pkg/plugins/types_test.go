@@ -108,3 +108,24 @@ func TestConfigRegistrationHelpersWithoutCallbacks(t *testing.T) {
 		t.Fatalf("expected cloned raw config, got %v", got)
 	}
 }
+
+func TestConfigRegistrationSchemaDefinitionDeepCopies(t *testing.T) {
+	reg := ConfigRegistration{
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"token": map[string]any{"type": "string"},
+			},
+		},
+	}
+
+	schema := reg.SchemaDefinition()
+	props := schema["properties"].(map[string]any)
+	token := props["token"].(map[string]any)
+	token["type"] = "integer"
+
+	original := reg.Schema["properties"].(map[string]any)["token"].(map[string]any)
+	if got := original["type"]; got != "string" {
+		t.Fatalf("expected original schema to stay isolated, got %v", got)
+	}
+}

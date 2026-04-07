@@ -374,6 +374,50 @@ func TestGetMCPPluginStatus(t *testing.T) {
 	}
 }
 
+func TestGetMCPPluginConfigSchema(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "GET", "/api/plugin-config-schema/tool/mcp", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	resp := parseResponse(t, rr)
+	var schema map[string]any
+	if err := json.Unmarshal(resp.Data, &schema); err != nil {
+		t.Fatalf("unmarshal schema: %v", err)
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema properties = %#v", schema["properties"])
+	}
+	if _, ok := props["servers"]; !ok {
+		t.Fatalf("expected servers property in schema: %#v", schema)
+	}
+}
+
+func TestGetTelegramPluginConfigSchema(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "GET", "/api/plugin-config-schema/channel/telegram", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	resp := parseResponse(t, rr)
+	var schema map[string]any
+	if err := json.Unmarshal(resp.Data, &schema); err != nil {
+		t.Fatalf("unmarshal schema: %v", err)
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema properties = %#v", schema["properties"])
+	}
+	if _, ok := props["token"]; !ok {
+		t.Fatalf("expected token property in schema: %#v", schema)
+	}
+}
+
 func TestReflectPluginConfigAndStatus(t *testing.T) {
 	env := setupAdmin(t)
 

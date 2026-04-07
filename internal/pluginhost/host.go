@@ -189,6 +189,16 @@ func (h *Host) RedactConfig(pluginID string, raw map[string]any) map[string]any 
 	return reg.Redacted(raw)
 }
 
+func (h *Host) ConfigSchema(pluginID string) map[string]any {
+	h.mu.RLock()
+	reg, ok := h.configRegs[pluginID]
+	h.mu.RUnlock()
+	if !ok {
+		return map[string]any{}
+	}
+	return reg.SchemaDefinition()
+}
+
 func (h *Host) DesiredState(ctx context.Context, pluginID string) (pkgplugins.PluginState, error) {
 	return h.config.Get(ctx, pluginID)
 }
