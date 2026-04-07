@@ -8,11 +8,7 @@ import (
 	"sync"
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 )
-
-type ToolInfo = pkgmcp.ToolInfo
-type ExecResult = pkgmcp.ExecResult
 
 // Manager is the shared process-wide runtime for MCP state.
 type Manager struct {

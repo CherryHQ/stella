@@ -7,7 +7,6 @@ import (
 	"time"
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 )
 
 const (
@@ -27,8 +26,6 @@ type SupervisorConfig struct {
 	BackoffBase      time.Duration
 	BackoffMax       time.Duration
 }
-
-type ServerStatus = pkgmcp.ServerStatus
 
 type serverRuntime struct {
 	cfg     ServerConfig

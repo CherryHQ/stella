@@ -54,6 +54,7 @@ This handoff file is also the running implementation log for future sessions.
 - Extracted the generic managed channel bot runtime into `pkg/channelruntime`, so Telegram runtime wiring no longer depends on `internal/channel`.
 - Extracted the MCP plugin config model and decoder into `pkg/mcp`, so MCP plugin config handling no longer depends on an app-private config package.
 - Extracted MCP tool/status/result data types into `pkg/mcp`, so plugin-facing MCP data no longer depends on app-private type definitions.
+- Moved the MCP manager/session/supervisor/canonical-ID runtime into `pkg/mcp`, so MCP plugin runtime and tool code no longer depend on `internal/mcp`.
 - Removed the remaining admin-side pluginhost compatibility branches:
   - admin plugin config/status endpoints now require a plugin host
   - admin server construction now panics if `pluginHost` is nil
@@ -103,8 +104,9 @@ The repository already has a useful base, but it is still transitional:
 - Shared managed channel runtime orchestration now lives in `pkg/channelruntime`, which is the stable package boundary for code that depends on both `pkg/channel` and `pkg/plugins`.
 - MCP config is now a public package contract in `pkg/mcp`, not an app-private type in `internal/mcp`.
 - MCP tool metadata, execution result shape, and server status are now public package contracts in `pkg/mcp`.
+- MCP runtime behavior now also lives in `pkg/mcp`: manager lifecycle, MCP session dialing, server supervision, and canonical tool ID handling are no longer app-private.
 - Admin plugin config/status/toggle flows now assume one plugin host exists, matching the actual application wiring.
-- `plugins/tools/mcp` is the best current reference for a multi-capability unit, but it still depends on `internal/mcp`.
+- `plugins/tools/mcp` production code now imports only `pkg/...`.
 - `plugins/channels/telegram` production code now imports only `pkg/...`; remaining `internal/channel` imports in that package are test-only.
 - Core tools are still separate because `plugins/tools/registry.go` owns the required-tool boot path used by the Go runner.
 - `cmd/anna/plugins_imports.go` is still the blank-import bootstrap for built-ins. That is acceptable for repo-scoped plugins.
@@ -178,10 +180,7 @@ The repository already has a useful base, but it is still transitional:
 - Required tools are still built through `plugintools.BuildCore(...)`. That path was not changed in this slice.
 - Schema coverage is still partial. MCP and Telegram are wired; other managed plugins still rely on validate/redact callbacks without schema data.
 - Telegram production code no longer depends on `internal/channel`; runtime orchestration now uses `pkg/channelruntime` plus the public notification registry contract in `pkg/plugins`.
-- MCP still depends on `internal/mcp` for the manager/runtime implementation and status types; only the config model and decoder moved out in this slice.
-- MCP still depends on `internal/mcp` for the manager/runtime implementation; the extracted `pkg/mcp` types are data contracts only.
 - Remaining non-test plugin imports of `internal/...` are now concentrated in:
-  - `plugins/tools/mcp` -> `internal/mcp`
   - `plugins/memory/lcm` -> `internal/db/sqlc`
   - `plugins/memory/simple` -> `internal/db/sqlc`
 - Admin construction now hard-requires `pluginhost`; the old nil-host compatibility path is gone.
@@ -219,6 +218,15 @@ The repository already has a useful base, but it is still transitional:
 - Updated downstream tests and host wiring to the new Telegram runtime dependency shape.
 - Verified that `plugins/channels/telegram` no longer imports `internal/channel` in production code.
 - Ran focused tests for `pkg/channel`, `pkg/channelruntime`, `internal/channel`, `plugins/channels/telegram`, `internal/pluginhost`, and `cmd/anna`, then ran `go test ./...` successfully.
+
+### 2026-04-08 — MCP runtime extraction
+
+- Moved the MCP manager runtime from `internal/mcp` into `pkg/mcp`, including session dialing, supervisor lifecycle, and canonical tool ID handling.
+- Updated `plugins/tools/mcp` to construct and consume `pkg/mcp.Manager` directly for both the managed runtime and the proxy tool.
+- Updated CLI and admin test callers to use `pkg/mcp.PluginID` and `pkg/mcp` transport/status types directly.
+- Removed the remaining `internal/mcp` package files after moving their live behavior and tests into `pkg/mcp`.
+- Verified that `plugins/tools/mcp` no longer imports `internal/mcp` in production code.
+- Ran focused tests for `pkg/mcp`, `plugins/tools/mcp`, `cmd/anna`, and `internal/admin`, then ran `go test ./...` successfully.
 
 ## Session Log
 

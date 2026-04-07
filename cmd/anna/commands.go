@@ -17,10 +17,10 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/embedded"
-	annamcp "github.com/vaayne/anna/internal/mcp"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/pkg/hooks"
+	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
@@ -104,7 +104,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return nil, fmt.Errorf("load plugin catalog: %w", err)
 	}
 	phost.RegisterLegacyCapabilities(pluginhost.LegacyBuildDeps{DB: db, AnnaHome: config.AnnaHome(), ToolsBinDir: embedded.BinDir(config.AnnaHome())})
-	if err := phost.ApplyPlugin(ctx, annamcp.PluginID()); err != nil {
+	if err := phost.ApplyPlugin(ctx, pkgmcp.PluginID); err != nil {
 		return nil, fmt.Errorf("apply mcp runtime: %w", err)
 	}
 
@@ -198,7 +198,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
 		agent.WithPromptToolsBuilder(func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error) {
-			return phost.PromptTools(ctx, annamcp.PluginID())
+			return phost.PromptTools(ctx, pkgmcp.PluginID)
 		}),
 	)
 
