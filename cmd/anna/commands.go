@@ -47,18 +47,19 @@ func newApp() *ucli.App {
 }
 
 type setupResult struct {
-	ctx          context.Context
-	db           *sql.DB
-	mem          memory.Provider
-	snap         *config.Snapshot
-	store        config.Store
-	pluginHost   *pluginhost.Host
-	poolManager  *agent.PoolManager
-	pool         *agent.Pool // default agent's pool (backward compat)
-	schedulerSvc *scheduler.Service
-	extraTools   []tools.Tool
-	notifier     *channel.Dispatcher
-	cliUserID    int64 // resolved CLI user for session creation
+	ctx                    context.Context
+	db                     *sql.DB
+	mem                    memory.Provider
+	snap                   *config.Snapshot
+	store                  config.Store
+	pluginHost             *pluginhost.Host
+	channelRuntimeServices *pluginhost.ChannelRuntimeServices
+	poolManager            *agent.PoolManager
+	pool                   *agent.Pool // default agent's pool (backward compat)
+	schedulerSvc           *scheduler.Service
+	extraTools             []tools.Tool
+	notifier               *channel.Dispatcher
+	cliUserID              int64 // resolved CLI user for session creation
 }
 
 func setup(parent context.Context, gateway bool) (*setupResult, error) {
@@ -97,7 +98,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	ctx, cancel := context.WithCancel(parent)
 	_ = cancel // cancel is deferred via the caller's lifecycle
 
-	phost := pluginhost.New(store)
+	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
+	phost := pluginhost.New(store, pluginhost.WithChannelRuntimeServices(channelRuntimeServices))
 	phost.RegisterLegacyID("mcp", annamcp.PluginID())
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		return nil, fmt.Errorf("load plugin catalog: %w", err)
@@ -247,18 +249,19 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	var cliUserID int64
 
 	return &setupResult{
-		ctx:          ctx,
-		db:           db,
-		mem:          memProvider,
-		snap:         snap,
-		store:        store,
-		pluginHost:   phost,
-		poolManager:  poolMgr,
-		pool:         pool,
-		schedulerSvc: schedulerSvc,
-		extraTools:   sharedTools,
-		notifier:     dispatcher,
-		cliUserID:    cliUserID,
+		ctx:                    ctx,
+		db:                     db,
+		mem:                    memProvider,
+		snap:                   snap,
+		store:                  store,
+		pluginHost:             phost,
+		channelRuntimeServices: channelRuntimeServices,
+		poolManager:            poolMgr,
+		pool:                   pool,
+		schedulerSvc:           schedulerSvc,
+		extraTools:             sharedTools,
+		notifier:               dispatcher,
+		cliUserID:              cliUserID,
 	}, nil
 }
 
