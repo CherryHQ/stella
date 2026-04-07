@@ -16,20 +16,13 @@ type FeishuDeps struct {
 }
 
 func (h *Host) RegisterFeishu(deps FeishuDeps) {
-	h.RegisterPluginID(internalchannel.FeishuPluginID)
-	h.RegisterConfig(pkgplugins.ConfigRegistration{
-		PluginID:      internalchannel.FeishuPluginID,
-		DefaultConfig: func() map[string]any { return map[string]any{} },
-		Validate: func(raw map[string]any) error {
-			_, err := internalchannel.DecodeFeishuPluginConfig(raw)
-			return err
-		},
-		Redact: internalchannel.RedactFeishuPluginConfig,
-	})
-	h.RegisterRuntime(pkgplugins.RuntimeRegistration{
-		PluginID: internalchannel.FeishuPluginID,
-		Name:     internalchannel.FeishuRuntimeName,
-		Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
+	h.registerManagedRuntime(managedRuntimeRegistration{
+		pluginID:      internalchannel.FeishuPluginID,
+		runtimeName:   internalchannel.FeishuRuntimeName,
+		defaultConfig: emptyConfig,
+		validate:      validateByDecode(internalchannel.DecodeFeishuPluginConfig),
+		redact:        internalchannel.RedactFeishuPluginConfig,
+		factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
 			return internalchannel.NewFeishuManagedRuntime(internalchannel.FeishuRuntimeDeps{
 				Parent:     deps.Parent,
 				Handler:    deps.Handler,
@@ -37,21 +30,6 @@ func (h *Host) RegisterFeishu(deps FeishuDeps) {
 				NewChannel: deps.NewChannel,
 				Log:        h.Logger(internalchannel.FeishuPluginID),
 			}), nil
-		},
-	})
-	h.RegisterStatus(pkgplugins.StatusRegistration{
-		PluginID: internalchannel.FeishuPluginID,
-		Get: func(ctx context.Context) (any, error) {
-			snap, err := h.runtimes.Snapshot(ctx, internalchannel.FeishuPluginID, internalchannel.FeishuRuntimeName)
-			if err != nil {
-				return nil, err
-			}
-			return map[string]any{
-				"state":      snap.State,
-				"message":    snap.Message,
-				"updated_at": snap.UpdatedAt,
-				"metadata":   snap.Metadata,
-			}, nil
 		},
 	})
 }

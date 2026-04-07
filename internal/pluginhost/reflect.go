@@ -21,20 +21,13 @@ type ReflectDeps struct {
 }
 
 func (h *Host) RegisterReflect(deps ReflectDeps) {
-	h.RegisterPluginID(internalreflect.PluginID)
-	h.RegisterConfig(pkgplugins.ConfigRegistration{
-		PluginID:      internalreflect.PluginID,
-		DefaultConfig: internalreflect.DefaultPluginConfig,
-		Validate: func(raw map[string]any) error {
-			_, err := internalreflect.DecodePluginConfig(raw)
-			return err
-		},
-		Redact: internalreflect.RedactPluginConfig,
-	})
-	h.RegisterRuntime(pkgplugins.RuntimeRegistration{
-		PluginID: internalreflect.PluginID,
-		Name:     internalreflect.RuntimeName,
-		Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
+	h.registerManagedRuntime(managedRuntimeRegistration{
+		pluginID:      internalreflect.PluginID,
+		runtimeName:   internalreflect.RuntimeName,
+		defaultConfig: internalreflect.DefaultPluginConfig,
+		validate:      validateByDecode(internalreflect.DecodePluginConfig),
+		redact:        internalreflect.RedactPluginConfig,
+		factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
 			return internalreflect.NewManagedRuntime(internalreflect.RuntimeDeps{
 				Parent:    deps.Parent,
 				DB:        deps.DB,
@@ -44,21 +37,6 @@ func (h *Host) RegisterReflect(deps ReflectDeps) {
 				Workspace: deps.Workspace,
 				Log:       h.Logger(internalreflect.PluginID),
 			}), nil
-		},
-	})
-	h.RegisterStatus(pkgplugins.StatusRegistration{
-		PluginID: internalreflect.PluginID,
-		Get: func(ctx context.Context) (any, error) {
-			snap, err := h.runtimes.Snapshot(ctx, internalreflect.PluginID, internalreflect.RuntimeName)
-			if err != nil {
-				return nil, err
-			}
-			return map[string]any{
-				"state":      snap.State,
-				"message":    snap.Message,
-				"updated_at": snap.UpdatedAt,
-				"metadata":   snap.Metadata,
-			}, nil
 		},
 	})
 }
