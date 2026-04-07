@@ -16,10 +16,10 @@ import (
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
-	annamcp "github.com/vaayne/anna/internal/mcp"
 	"github.com/vaayne/anna/internal/pluginhost"
 	internalreflect "github.com/vaayne/anna/internal/reflect"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	telegramplugin "github.com/vaayne/anna/plugins/channels/telegram"
 	pluginmemory "github.com/vaayne/anna/plugins/memory"
@@ -71,7 +71,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
-	if err := phost.ApplyPlugin(context.Background(), annamcp.PluginID()); err != nil {
+	if err := phost.ApplyPlugin(context.Background(), pkgmcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(mcp): %v", err)
 	}
 	phost.RegisterReflect(pluginhost.ReflectDeps{
@@ -312,7 +312,7 @@ func TestUpdateMCPPluginConfig(t *testing.T) {
 				map[string]any{
 					"name":      "github",
 					"enabled":   true,
-					"transport": annamcp.TransportStdio,
+					"transport": pkgmcp.TransportStdio,
 					"command":   "npx",
 				},
 			},
@@ -328,7 +328,7 @@ func TestUpdateMCPPluginConfig(t *testing.T) {
 	if err := json.Unmarshal(resp.Data, &plugin); err != nil {
 		t.Fatalf("unmarshal plugin: %v", err)
 	}
-	if plugin.ID != config.PluginID(config.PluginKindTool, annamcp.PluginName) {
+	if plugin.ID != pkgmcp.PluginID {
 		t.Fatalf("plugin.ID = %q", plugin.ID)
 	}
 	servers, ok := plugin.Config["servers"].([]any)
@@ -342,7 +342,7 @@ func TestUpdateMCPPluginConfigRejectsInvalidConfig(t *testing.T) {
 	body := map[string]any{
 		"config": map[string]any{
 			"servers": []any{
-				map[string]any{"name": "bad", "transport": annamcp.TransportStdio},
+				map[string]any{"name": "bad", "transport": pkgmcp.TransportStdio},
 			},
 		},
 	}
@@ -354,13 +354,13 @@ func TestUpdateMCPPluginConfigRejectsInvalidConfig(t *testing.T) {
 
 func TestGetMCPPluginStatus(t *testing.T) {
 	env := setupAdmin(t)
-	if err := env.store.SetPluginEnabled(context.Background(), annamcp.PluginID(), true); err != nil {
+	if err := env.store.SetPluginEnabled(context.Background(), pkgmcp.PluginID, true); err != nil {
 		t.Fatalf("SetPluginEnabled: %v", err)
 	}
-	if err := env.store.SetPluginConfig(context.Background(), annamcp.PluginID(), map[string]any{"servers": []any{}}); err != nil {
+	if err := env.store.SetPluginConfig(context.Background(), pkgmcp.PluginID, map[string]any{"servers": []any{}}); err != nil {
 		t.Fatalf("SetPluginConfig: %v", err)
 	}
-	if err := env.pluginHost.ApplyPlugin(context.Background(), annamcp.PluginID()); err != nil {
+	if err := env.pluginHost.ApplyPlugin(context.Background(), pkgmcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin: %v", err)
 	}
 	if _, ok := mcp.LookupRuntime(env.pluginHost.Services()); !ok {
@@ -374,7 +374,7 @@ func TestGetMCPPluginStatus(t *testing.T) {
 
 	resp := parseResponse(t, rr)
 	var payload struct {
-		Servers []annamcp.ServerStatus `json:"servers"`
+		Servers []pkgmcp.ServerStatus `json:"servers"`
 	}
 	if err := json.Unmarshal(resp.Data, &payload); err != nil {
 		t.Fatalf("unmarshal status payload: %v", err)

@@ -6,6 +6,9 @@ import (
 )
 
 const (
+	PluginName = "mcp"
+	PluginID   = "tool/mcp"
+
 	TransportStdio          = "stdio"
 	TransportSSE            = "sse"
 	TransportStreamableHTTP = "streamable_http"

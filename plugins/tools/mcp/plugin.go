@@ -5,7 +5,6 @@ import (
 	"sort"
 	"time"
 
-	annamcp "github.com/vaayne/anna/internal/mcp"
 	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
@@ -39,7 +38,7 @@ func init() {
 			},
 		})
 		host.Registry().RegisterRuntime(pkgplugins.RuntimeRegistration{PluginID: PluginID, Name: RuntimeName, Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
-			return &managedRuntime{manager: annamcp.NewManager()}, nil
+			return &managedRuntime{manager: pkgmcp.NewManager()}, nil
 		}})
 		host.Registry().RegisterTool(pkgplugins.ToolRegistration{PluginID: PluginID, Name: "mcp", Description: "Proxy MCP tools managed by the MCP plugin.", Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
 			rt, ok := LookupRuntime(ctx.Services)
@@ -130,14 +129,14 @@ func configSchema() map[string]any {
 	}
 }
 
-type runtimeAccessor interface{ Manager() *annamcp.Manager }
+type runtimeAccessor interface{ Manager() *pkgmcp.Manager }
 
-type managedRuntime struct{ manager *annamcp.Manager }
+type managedRuntime struct{ manager *pkgmcp.Manager }
 
-func (r *managedRuntime) Manager() *annamcp.Manager { return r.manager }
-func (r *managedRuntime) RuntimeAccessor() any      { return runtimeWrapper{manager: r.manager} }
+func (r *managedRuntime) Manager() *pkgmcp.Manager { return r.manager }
+func (r *managedRuntime) RuntimeAccessor() any     { return runtimeWrapper{manager: r.manager} }
 func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginState) error {
-	cfg, err := annamcp.DecodeConfig(desired.Config)
+	cfg, err := pkgmcp.DecodeConfig(desired.Config)
 	if err != nil {
 		return err
 	}
@@ -145,7 +144,7 @@ func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginSta
 	return nil
 }
 func (r *managedRuntime) Stop(ctx context.Context) error {
-	r.manager.Reconcile(ctx, annamcp.Config{}, false)
+	r.manager.Reconcile(ctx, pkgmcp.Config{}, false)
 	return nil
 }
 func (r *managedRuntime) Snapshot(ctx context.Context) (pkgplugins.RuntimeSnapshot, error) {

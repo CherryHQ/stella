@@ -7,7 +7,7 @@ import (
 	"time"
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	annamcp "github.com/vaayne/anna/internal/mcp"
+	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 )
 
 type fakeSession struct {
@@ -53,8 +53,8 @@ func waitFor(t *testing.T, timeout time.Duration, fn func() bool) {
 }
 
 func TestToolListAndGet(t *testing.T) {
-	mgr := annamcp.NewManager()
-	mgr.Configure(annamcp.Config{Servers: []annamcp.ServerConfig{{Name: "github", Enabled: true, Transport: annamcp.TransportStdio, Command: "cmd"}}}, true)
+	mgr := pkgmcp.NewManager()
+	mgr.Configure(pkgmcp.Config{Servers: []pkgmcp.ServerConfig{{Name: "github", Enabled: true, Transport: pkgmcp.TransportStdio, Command: "cmd"}}}, true)
 	mgr.RegisterTool("github", "search_repos", "Search Repos", "Search repositories", map[string]any{"type": "object"}, map[string]any{"type": "object"}, map[string]any{"read_only_hint": true})
 	tool := New(mgr)
 
@@ -84,11 +84,11 @@ func TestToolListAndGet(t *testing.T) {
 }
 
 func TestToolExec(t *testing.T) {
-	mgr := annamcp.NewManager()
+	mgr := pkgmcp.NewManager()
 	sess := newFakeSession(&officialmcp.Tool{Name: "hello", Description: "Hello"})
 	sess.callResult = &officialmcp.CallToolResult{Content: []officialmcp.Content{&officialmcp.TextContent{Text: "hi"}}}
-	mgr.SetDial(func(context.Context, annamcp.ServerConfig) (annamcp.Session, error) { return sess, nil })
-	mgr.Reconcile(context.Background(), annamcp.Config{Servers: []annamcp.ServerConfig{{Name: "demo", Enabled: true, Transport: annamcp.TransportStdio, Command: "cmd"}}}, true)
+	mgr.SetDial(func(context.Context, pkgmcp.ServerConfig) (pkgmcp.Session, error) { return sess, nil })
+	mgr.Reconcile(context.Background(), pkgmcp.Config{Servers: []pkgmcp.ServerConfig{{Name: "demo", Enabled: true, Transport: pkgmcp.TransportStdio, Command: "cmd"}}}, true)
 	waitFor(t, time.Second, func() bool { return len(mgr.ValidTools()) == 1 })
 	proxy := New(mgr)
 	toolID := mgr.ValidTools()[0].ID
@@ -107,7 +107,7 @@ func TestToolExec(t *testing.T) {
 }
 
 func TestToolValidation(t *testing.T) {
-	proxy := New(annamcp.NewManager())
+	proxy := New(pkgmcp.NewManager())
 	if _, err := proxy.Execute(context.Background(), map[string]any{"action": "get"}); err == nil {
 		t.Fatal("expected get id validation error")
 	}

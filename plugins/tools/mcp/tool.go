@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 
-	annamcp "github.com/vaayne/anna/internal/mcp"
 	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	"github.com/vaayne/anna/pkg/tools"
 	plugintools "github.com/vaayne/anna/plugins/tools"
@@ -15,18 +14,18 @@ import (
 func init() {
 	plugintools.Register("mcp", plugintools.Registration{
 		Factory: func(_ plugintools.BuildContext) (tools.Tool, error) {
-			return New(annamcp.DefaultManager()), nil
+			return New(pkgmcp.DefaultManager()), nil
 		},
 	})
 }
 
 type Tool struct {
-	manager *annamcp.Manager
+	manager *pkgmcp.Manager
 }
 
-func New(manager *annamcp.Manager) *Tool {
+func New(manager *pkgmcp.Manager) *Tool {
 	if manager == nil {
-		manager = annamcp.DefaultManager()
+		manager = pkgmcp.DefaultManager()
 	}
 	return &Tool{manager: manager}
 }

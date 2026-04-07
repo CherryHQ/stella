@@ -5,12 +5,12 @@ import (
 	"log/slog"
 	"testing"
 
-	annamcp "github.com/vaayne/anna/internal/mcp"
+	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 func TestPromptInventoryRegistrationReturnsMCPTools(t *testing.T) {
-	host := &testServiceHost{lookup: testRuntimeLookup{handle: testRuntimeHandle{runtime: runtimeWrapper{manager: annamcp.NewManager()}}}}
+	host := &testServiceHost{lookup: testRuntimeLookup{handle: testRuntimeHandle{runtime: runtimeWrapper{manager: pkgmcp.NewManager()}}}}
 	rt, ok := LookupRuntime(host)
 	if !ok || rt.Manager() == nil {
 		t.Fatal("expected runtime")
