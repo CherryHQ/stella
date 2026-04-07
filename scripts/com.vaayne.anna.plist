@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS LaunchAgent for anna daemon.
+
+  Install (substitutes your home directory and anna binary path automatically):
+    sed "s|HOME_DIR|$HOME|g; s|ANNA_BIN|$(which anna)|g" com.vaayne.anna.plist \
+      > ~/Library/LaunchAgents/com.vaayne.anna.plist
+    mkdir -p ~/Library/Logs/anna
+    launchctl load ~/Library/LaunchAgents/com.vaayne.anna.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.vaayne.anna.plist
+    rm ~/Library/LaunchAgents/com.vaayne.anna.plist
+
+  Logs:
+    ~/Library/Logs/anna/anna.log
+
+  All configuration is managed via: anna --open
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.vaayne.anna</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>ANNA_BIN</string>
+        <!-- Uncomment to expose the admin panel on port 8080 -->
+        <!-- <string>--admin-port</string> -->
+        <!-- <string>8080</string> -->
+    </array>
+
+    <!-- Start automatically when the user logs in -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart on crash; do not restart on clean exit -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Log destinations (HOME_DIR is replaced by the install command above) -->
+    <key>StandardOutPath</key>
+    <string>HOME_DIR/Library/Logs/anna/anna.log</string>
+    <key>StandardErrorPath</key>
+    <string>HOME_DIR/Library/Logs/anna/anna.log</string>
+
+    <!-- Throttle rapid restarts: wait 10 s between attempts -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>

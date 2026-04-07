@@ -67,33 +67,46 @@ anna upgrade --install-dir "$HOME/.local/bin"
 
 ### Systemdサービス(Linux)
 
-```ini
-# /etc/systemd/system/anna.service
-[Unit]
-Description=anna server
-After=network.target
-
-[Service]
-Type=simple
-User=anna
-WorkingDirectory=/home/anna
-ExecStart=/usr/local/bin/anna --admin-port 8080
-Restart=on-failure
-RestartSec=5
-
-# APIキー -- その他のすべての設定はデータベースに保存
-Environment=ANTHROPIC_API_KEY=sk-...
-Environment=ANNA_HOME=/home/anna/.anna
-
-[Install]
-WantedBy=multi-user.target
-```
+すぐに使えるユニットファイルが[`scripts/anna.service`](https://github.com/vaayne/anna/blob/main/scripts/anna.service)に用意されています。
 
 ```bash
+# 専用ユーザーを作成
+sudo useradd --system --no-create-home --shell /bin/false anna
+sudo mkdir -p /home/anna/.anna
+sudo chown anna:anna /home/anna/.anna
+
+# ユニットファイルをインストール（anna バイナリパスを自動置換）
+sudo sed "s|ANNA_BIN|$(which anna)|g" scripts/anna.service \
+  > /etc/systemd/system/anna.service
+sudo systemctl daemon-reload
 sudo systemctl enable --now anna
+sudo journalctl -u anna -f   # ログを追跡
 ```
 
 すべての設定(チャネル、エージェント、スケジューラジョブ)は`anna.db`に保存されます。管理には`anna --open`または管理パネルを使用します。
+
+### LaunchAgent(macOS)
+
+すぐに使えるplistが[`scripts/com.vaayne.anna.plist`](https://github.com/vaayne/anna/blob/main/scripts/com.vaayne.anna.plist)に用意されています。
+
+```bash
+# インストール —— $HOMEとannaバイナリパスを自動的に置換
+sed "s|HOME_DIR|$HOME|g; s|ANNA_BIN|$(which anna)|g" scripts/com.vaayne.anna.plist \
+  > ~/Library/LaunchAgents/com.vaayne.anna.plist
+mkdir -p ~/Library/Logs/anna
+
+launchctl load ~/Library/LaunchAgents/com.vaayne.anna.plist
+
+# 管理
+launchctl start com.vaayne.anna
+launchctl stop  com.vaayne.anna
+
+# アンインストール
+launchctl unload ~/Library/LaunchAgents/com.vaayne.anna.plist
+rm ~/Library/LaunchAgents/com.vaayne.anna.plist
+```
+
+ログは`~/Library/Logs/anna/anna.log`に書き込まれます。エージェントはログイン時に自動起動し、クラッシュ時に自動再起動します。APIキーやその他すべての設定は`anna --open`または管理パネルから行います。
 
 ## Docker
 

@@ -67,33 +67,46 @@ anna upgrade --install-dir "$HOME/.local/bin"
 
 ### Systemd 服务（Linux）
 
-```ini
-# /etc/systemd/system/anna.service
-[Unit]
-Description=anna server
-After=network.target
-
-[Service]
-Type=simple
-User=anna
-WorkingDirectory=/home/anna
-ExecStart=/usr/local/bin/anna --admin-port 8080
-Restart=on-failure
-RestartSec=5
-
-# API 密钥 —— 所有其他配置都存储在数据库中
-Environment=ANTHROPIC_API_KEY=sk-...
-Environment=ANNA_HOME=/home/anna/.anna
-
-[Install]
-WantedBy=multi-user.target
-```
+项目提供了现成的 unit 文件：[`scripts/anna.service`](https://github.com/vaayne/anna/blob/main/scripts/anna.service)。
 
 ```bash
+# 创建专用用户
+sudo useradd --system --no-create-home --shell /bin/false anna
+sudo mkdir -p /home/anna/.anna
+sudo chown anna:anna /home/anna/.anna
+
+# 安装 unit 文件，自动替换实际的 anna 二进制路径
+sudo sed "s|ANNA_BIN|$(which anna)|g" scripts/anna.service \
+  > /etc/systemd/system/anna.service
+sudo systemctl daemon-reload
 sudo systemctl enable --now anna
+sudo journalctl -u anna -f   # 跟踪日志
 ```
 
 所有配置（频道、agents、调度器任务）都存储在 `anna.db` 中。使用 `anna --open` 来访问管理面板管理配置。
+
+### LaunchAgent（macOS）
+
+项目提供了现成的 plist 文件：[`scripts/com.vaayne.anna.plist`](https://github.com/vaayne/anna/blob/main/scripts/com.vaayne.anna.plist)。
+
+```bash
+# 安装 —— 自动替换 $HOME 路径和 anna 二进制路径
+sed "s|HOME_DIR|$HOME|g; s|ANNA_BIN|$(which anna)|g" scripts/com.vaayne.anna.plist \
+  > ~/Library/LaunchAgents/com.vaayne.anna.plist
+mkdir -p ~/Library/Logs/anna
+
+launchctl load ~/Library/LaunchAgents/com.vaayne.anna.plist
+
+# 管理
+launchctl start com.vaayne.anna
+launchctl stop  com.vaayne.anna
+
+# 卸载
+launchctl unload ~/Library/LaunchAgents/com.vaayne.anna.plist
+rm ~/Library/LaunchAgents/com.vaayne.anna.plist
+```
+
+日志写入 `~/Library/Logs/anna/anna.log`。agent 在登录时自动启动，崩溃后自动重启。API 密钥和其他所有配置均通过 `anna --open` 或管理面板设置。
 
 ## Docker
 

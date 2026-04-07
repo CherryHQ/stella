@@ -1,0 +1,31 @@
+[Unit]
+Description=anna — self-hosted AI assistant daemon
+Documentation=https://anna.vaayne.com/docs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=anna
+Group=anna
+WorkingDirectory=/home/anna
+
+ExecStart=ANNA_BIN
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# Data directory — all config lives in the database
+Environment=ANNA_HOME=/home/anna/.anna
+
+# Optional: expose admin panel for runtime config changes
+# ExecStart=ANNA_BIN --admin-port 8080
+
+# Harden the service
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/anna/.anna
+
+[Install]
+WantedBy=multi-user.target
