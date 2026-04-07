@@ -15,7 +15,7 @@ type RuntimeDeps struct {
 	Handler    pkgchannel.Handler
 	Notifier   *internalchannel.Dispatcher
 	Now        func() time.Time
-	NewChannel func(internalchannel.TelegramConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
+	NewChannel func(pkgchannel.TelegramConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
 
 func NewManagedRuntime(deps RuntimeDeps) pkgplugins.ManagedRuntime {
@@ -30,7 +30,7 @@ type botRuntimeDeps struct {
 	Handler    pkgchannel.Handler
 	Notifier   *internalchannel.Dispatcher
 	Now        func() time.Time
-	NewChannel func(internalchannel.TelegramConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
+	NewChannel func(pkgchannel.TelegramConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
 
 func newBotManagedRuntime(deps botRuntimeDeps) pkgplugins.ManagedRuntime {
@@ -40,21 +40,21 @@ func newBotManagedRuntime(deps botRuntimeDeps) pkgplugins.ManagedRuntime {
 	if deps.Now == nil {
 		deps.Now = func() time.Time { return time.Now().UTC() }
 	}
-	return internalchannel.NewBotManagedRuntime(internalchannel.BotRuntimeDeps[internalchannel.TelegramConfig]{
+	return internalchannel.NewBotManagedRuntime(internalchannel.BotRuntimeDeps[pkgchannel.TelegramConfig]{
 		Parent:               deps.Parent,
 		Handler:              deps.Handler,
 		Notifier:             deps.Notifier,
 		Platform:             internalchannel.PlatformTelegram,
 		DecodeConfig:         DecodeConfig,
 		ValidateConfig:       validateConfig,
-		NotificationsEnabled: func(cfg internalchannel.TelegramConfig) bool { return cfg.EnableNotify },
+		NotificationsEnabled: func(cfg pkgchannel.TelegramConfig) bool { return cfg.EnableNotify },
 		NewChannel:           deps.NewChannel,
 		Snapshot:             runtimeSnapshot,
 		Now:                  deps.Now,
 	})
 }
 
-func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg internalchannel.TelegramConfig) pkgplugins.RuntimeSnapshot {
+func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.TelegramConfig) pkgplugins.RuntimeSnapshot {
 	return pkgplugins.RuntimeSnapshot{
 		State:     state,
 		Message:   message,

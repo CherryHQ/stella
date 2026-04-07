@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	internalchannel "github.com/vaayne/anna/internal/channel"
-	"github.com/vaayne/anna/internal/config"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
@@ -42,7 +41,7 @@ var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, e
 		Parent:   parent,
 		Handler:  handler,
 		Notifier: notifier,
-		NewChannel: func(cfg internalchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{Token: cfg.Token, ChannelID: cfg.ChannelID, GroupMode: cfg.GroupMode}, handler)
 		},
 	}), nil
@@ -52,8 +51,8 @@ func init() {
 	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
 		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
 			ID:                    PluginID,
-			Kind:                  config.PluginKindChannel,
-			Name:                  internalchannel.PlatformTelegram,
+			Kind:                  "channel",
+			Name:                  pkgchannel.PlatformTelegram,
 			DisplayName:           "Telegram",
 			Managed:               true,
 			AdminVisible:          true,

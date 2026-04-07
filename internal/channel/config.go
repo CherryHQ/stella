@@ -6,14 +6,10 @@ import (
 	"log/slog"
 
 	"github.com/vaayne/anna/internal/config"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
-type TelegramConfig struct {
-	Token        string `json:"token"`
-	ChannelID    string `json:"channel_id"`
-	GroupMode    string `json:"group_mode"`
-	EnableNotify bool   `json:"enable_notify"`
-}
+type TelegramConfig = pkgchannel.TelegramConfig
 
 type QQConfig struct {
 	AppID        string `json:"app_id"`

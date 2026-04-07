@@ -20,7 +20,7 @@ func newFakeTelegramChannel() *fakeTelegramChannel {
 	return &fakeTelegramChannel{started: make(chan struct{}), stopped: make(chan struct{})}
 }
 
-func (c *fakeTelegramChannel) Name() string { return internalchannel.PlatformTelegram }
+func (c *fakeTelegramChannel) Name() string { return pkgchannel.PlatformTelegram }
 func (c *fakeTelegramChannel) Start(ctx context.Context) error {
 	close(c.started)
 	<-ctx.Done()
@@ -41,7 +41,7 @@ func TestManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		Handler:  fakeChannelHandler{},
 		Notifier: notifier,
 		Now:      func() time.Time { return now },
-		NewChannel: func(cfg internalchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			built++
 			if built == 1 {
 				return first, nil
@@ -55,7 +55,7 @@ func TestManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		t.Fatalf("first apply: %v", err)
 	}
 	waitClosed(t, first.started, "first start")
-	if got := notifier.Channels(); len(got) != 1 || got[0] != internalchannel.PlatformTelegram {
+	if got := notifier.Channels(); len(got) != 1 || got[0] != pkgchannel.PlatformTelegram {
 		t.Fatalf("notifier channels after first apply = %v", got)
 	}
 
@@ -100,7 +100,7 @@ func TestManagedRuntimeMissingTokenMarksError(t *testing.T) {
 	runtime := NewManagedRuntime(RuntimeDeps{
 		Parent:  context.Background(),
 		Handler: fakeChannelHandler{},
-		NewChannel: func(cfg internalchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return newFakeTelegramChannel(), nil
 		},
 	})
@@ -120,7 +120,7 @@ func TestManagedRuntimeBuildFailureReturnsError(t *testing.T) {
 	runtime := NewManagedRuntime(RuntimeDeps{
 		Parent:  context.Background(),
 		Handler: fakeChannelHandler{},
-		NewChannel: func(cfg internalchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return nil, errors.New("boom")
 		},
 	})
