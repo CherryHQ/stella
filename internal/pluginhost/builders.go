@@ -90,6 +90,16 @@ func (h *Host) BuildProvider(name string, stateConfig map[string]any) (providers
 	})
 }
 
+func (h *Host) BuildProviderRegistry(name string, stateConfig map[string]any) (*providers.Registry, error) {
+	adapter, err := h.BuildProvider(name, stateConfig)
+	if err != nil {
+		return nil, err
+	}
+	reg := providers.NewRegistry()
+	reg.Register(adapter)
+	return reg, nil
+}
+
 func (h *Host) BuildMemory(ctx context.Context, name string, db *sql.DB, annaHome string, cfg map[string]any, summarizerFn func(context.Context, string) (string, error)) (memory.Provider, error) {
 	h.mu.RLock()
 	reg, ok := h.memoryRegs[name]

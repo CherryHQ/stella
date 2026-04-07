@@ -56,6 +56,7 @@ This handoff file is also the running implementation log for future sessions.
 - Extracted MCP tool/status/result data types into `pkg/mcp`, so plugin-facing MCP data no longer depends on app-private type definitions.
 - Moved the MCP manager/session/supervisor/canonical-ID runtime into `pkg/mcp`, so MCP plugin runtime and tool code no longer depend on `internal/mcp`.
 - Moved the generated SQLC package into `pkg/db/sqlc`, so the memory plugins no longer depend on `internal/db/sqlc`.
+- Switched production provider construction to `pluginhost`, so runner/admin/models/reflect no longer build providers through `plugins/providers` directly.
 - Removed the remaining admin-side pluginhost compatibility branches:
   - admin plugin config/status endpoints now require a plugin host
   - admin server construction now panics if `pluginHost` is nil
@@ -107,6 +108,11 @@ The repository already has a useful base, but it is still transitional:
 - MCP tool metadata, execution result shape, and server status are now public package contracts in `pkg/mcp`.
 - MCP runtime behavior now also lives in `pkg/mcp`: manager lifecycle, MCP session dialing, server supervision, and canonical tool ID handling are no longer app-private.
 - Shared database query contracts now live in `pkg/db/sqlc`, not `internal/db/sqlc`.
+- Production provider construction now flows through `internal/pluginhost`:
+  - runner provider registries
+  - admin provider validation/model fetch
+  - CLI model cache refresh
+  - reflect review provider setup
 - Admin plugin config/status/toggle flows now assume one plugin host exists, matching the actual application wiring.
 - `plugins/tools/mcp` production code now imports only `pkg/...`.
 - `plugins/channels/telegram` production code now imports only `pkg/...`; remaining `internal/channel` imports in that package are test-only.
@@ -187,6 +193,9 @@ The repository already has a useful base, but it is still transitional:
   - production `plugins/...` packages import only `pkg/...`
   - optional tool/hook/provider/memory contributions resolve through `internal/pluginhost`
   - no provider/memory fallback path remains
+- Remaining production host-cleanup work is now concentrated in the required-tool path:
+  - `internal/agent/runner/gorunner.go` still builds core tools through `plugintools.BuildCore(...)`
+  - required tool registration still lives in `plugins/tools/registry.go`
 - Admin construction now hard-requires `pluginhost`; the old nil-host compatibility path is gone.
 - `Go init()` blank-import registration is still acceptable for repo-level built-ins, but it should not remain the only discovery logic in the design language.
 
@@ -239,6 +248,15 @@ The repository already has a useful base, but it is still transitional:
 - Updated `sqlc.yaml` so regeneration now targets `pkg/db/sqlc`.
 - Verified that there are no remaining production `plugins/...` imports of `internal/...`.
 - Ran focused tests for `plugins/memory/...`, `internal/config`, `internal/db`, `internal/admin`, `internal/reflect`, and `internal/scheduler`, then ran `go test ./...` successfully.
+
+### 2026-04-08 — provider host unification
+
+- Added host-side provider builders for both single adapters and one-provider registries.
+- Switched the Go runner factory path to require an explicit provider-registry builder and wired production callers to `pluginhost`.
+- Switched admin provider model fetch, CLI provider model cache refresh, and reflect review provider setup to build through `pluginhost` instead of `plugins/providers`.
+- Added host-side provider type discovery so admin provider-type listing no longer reads the legacy provider registry directly.
+- Verified that production code outside `internal/pluginhost/adapters.go` no longer calls `pluginproviders.Build(...)` or `pluginproviders.BuildRegistry(...)`.
+- Ran focused tests for `internal/agent/runner`, `internal/agent`, `internal/admin`, `internal/reflect`, `cmd/anna`, and `internal/pluginhost`, then ran `go test ./...` successfully.
 
 ## Session Log
 

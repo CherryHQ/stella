@@ -8,6 +8,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/channel"
 	clicmd "github.com/vaayne/anna/internal/channel/cli"
+	"github.com/vaayne/anna/pkg/providers"
 )
 
 func chatCommand() *ucli.Command {
@@ -70,7 +71,12 @@ func chatCommand() *ucli.Command {
 			listFn := func() []channel.ModelOption {
 				return collectModelsFromStore(s.ctx, s.store, snap)
 			}
-			switchFn := modelSwitcher(snap, s.store, pool, s.extraTools)
+			switchFn := modelSwitcher(snap, s.store, pool, s.extraTools, func(api, apiKey, baseURL string) (*providers.Registry, error) {
+				return s.pluginHost.BuildProviderRegistry(api, map[string]any{
+					"api_key":  apiKey,
+					"base_url": baseURL,
+				})
+			})
 			return clicmd.RunChat(s.ctx, pool, snap.Provider, snap.Model, listFn, switchFn, s.cliUserID)
 		},
 	}

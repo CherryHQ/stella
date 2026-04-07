@@ -2,13 +2,32 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/providers"
 )
+
+type commandTestProvider struct{}
+
+func (commandTestProvider) API() string { return "anthropic" }
+func (commandTestProvider) Stream(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
+	return nil, errors.New("not implemented")
+}
+func (commandTestProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
+	return nil, errors.New("not implemented")
+}
+
+func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Registry, error) {
+	reg := providers.NewRegistry()
+	reg.Register(commandTestProvider{})
+	return reg, nil
+}
 
 func TestNewRunnerFactoryGo(t *testing.T) {
 	snap := &config.Snapshot{
@@ -19,7 +38,7 @@ func TestNewRunnerFactoryGo(t *testing.T) {
 	}
 	snap.Workspace = t.TempDir()
 
-	factory, err := agent.NewRunnerFactory(snap, nil, nil)
+	factory, err := agent.NewRunnerFactory(snap, nil, testProviderRegistryBuilder, nil)
 	if err != nil {
 		t.Fatalf("NewRunnerFactory: %v", err)
 	}
@@ -39,7 +58,7 @@ func TestNewRunnerFactoryUnknown(t *testing.T) {
 		Runner: config.RunnerConfig{Type: "invalid"},
 	}
 
-	_, err := agent.NewRunnerFactory(snap, nil, nil)
+	_, err := agent.NewRunnerFactory(snap, nil, testProviderRegistryBuilder, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown runner type")
 	}

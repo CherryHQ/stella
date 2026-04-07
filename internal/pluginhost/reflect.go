@@ -9,6 +9,7 @@ import (
 	internalreflect "github.com/vaayne/anna/internal/reflect"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/providers"
 )
 
 type ReflectDeps struct {
@@ -36,6 +37,12 @@ func (h *Host) RegisterReflect(deps ReflectDeps) {
 				Notifier:  deps.Notifier,
 				Workspace: deps.Workspace,
 				Log:       h.Logger(internalreflect.PluginID),
+				Providers: func(api, apiKey, baseURL string) (*providers.Registry, error) {
+					return h.BuildProviderRegistry(api, map[string]any{
+						"api_key":  apiKey,
+						"base_url": baseURL,
+					})
+				},
 			}), nil
 		},
 	})

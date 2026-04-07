@@ -14,6 +14,7 @@ import (
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
 )
@@ -33,6 +34,7 @@ type PluginHooksBuilder func(ctx context.Context) []hooks.HookPlugin
 
 // PromptToolsBuilder returns structured prompt inventory for the active plugin host.
 type PromptToolsBuilder func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error)
+type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
 
 // PoolManagerOption configures a PoolManager.
 type PoolManagerOption func(*PoolManager)
@@ -87,23 +89,30 @@ func WithPromptToolsBuilder(b PromptToolsBuilder) PoolManagerOption {
 	}
 }
 
+func WithProviderRegistryBuilder(b ProviderRegistryBuilder) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.providerRegistryBuilder = b
+	}
+}
+
 // PoolManager manages a map of agent ID to Pool. It reads enabled agents
 // from the config Store and creates one Pool per agent.
 type PoolManager struct {
-	pools              map[string]*Pool
-	store              config.Store
-	mem                memory.Provider
-	mu                 sync.RWMutex
-	idleTimeout        time.Duration
-	compaction         CompactionConfig
-	coreSharedTools    []tools.Tool       // always-on tools (scheduler, memory, etc.)
-	sharedExtraTools   []tools.Tool       // coreSharedTools + plugin tools
-	pluginToolsBuilder PluginToolsBuilder // builds tools from plugin state
-	hookPlugins        []hooks.HookPlugin // current enabled hook plugins
-	pluginHooksBuilder PluginHooksBuilder // builds hooks from plugin state
-	promptToolsBuilder PromptToolsBuilder // builds prompt inventory from plugin state
-	extraToolsFactory  ExtraToolsFactory
-	log                *slog.Logger
+	pools                   map[string]*Pool
+	store                   config.Store
+	mem                     memory.Provider
+	mu                      sync.RWMutex
+	idleTimeout             time.Duration
+	compaction              CompactionConfig
+	coreSharedTools         []tools.Tool       // always-on tools (scheduler, memory, etc.)
+	sharedExtraTools        []tools.Tool       // coreSharedTools + plugin tools
+	pluginToolsBuilder      PluginToolsBuilder // builds tools from plugin state
+	hookPlugins             []hooks.HookPlugin // current enabled hook plugins
+	pluginHooksBuilder      PluginHooksBuilder // builds hooks from plugin state
+	promptToolsBuilder      PromptToolsBuilder // builds prompt inventory from plugin state
+	providerRegistryBuilder ProviderRegistryBuilder
+	extraToolsFactory       ExtraToolsFactory
+	log                     *slog.Logger
 }
 
 // NewPoolManager creates a new PoolManager.
@@ -348,7 +357,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 		extraTools = append(extraTools, pm.extraToolsFactory(snap)...)
 	}
 
-	return NewRunnerFactory(snap, extraTools, pm.promptToolsBuilder)
+	return NewRunnerFactory(snap, extraTools, pm.providerRegistryBuilder, pm.promptToolsBuilder)
 }
 
 // mergeTools creates a new slice containing core tools followed by plugin tools.

@@ -11,6 +11,7 @@ import (
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
@@ -22,7 +23,7 @@ import (
 //
 // Hooks are not part of the factory — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
-func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error)) (runner.NewRunnerFunc, error) {
+func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error)) (runner.NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
 		return func(ctx context.Context, params runner.RunnerParams) (runner.Runner, error) {
@@ -97,6 +98,7 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, promptTool
 				WorkDir:     workDir,
 				UserDataDir: userDataDir,
 				HookPlugins: hookPlugins,
+				Providers:   providerRegistryBuilder,
 			})
 		}, nil
 	default:

@@ -12,6 +12,7 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/providers"
 )
 
 const (
@@ -77,6 +78,7 @@ type RuntimeDeps struct {
 	Notifier   *channel.Dispatcher
 	Workspace  string
 	Log        *slog.Logger
+	Providers  func(api, apiKey, baseURL string) (*providers.Registry, error)
 	NewService func(Config) serviceRunner
 	Now        func() time.Time
 }
@@ -142,6 +144,7 @@ func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginSta
 		Interval:  cfg.Interval,
 		Batch:     cfg.Batch,
 		Log:       r.deps.Log,
+		Providers: r.deps.Providers,
 	})
 	rctx, stop := context.WithCancel(r.deps.Parent)
 	r.cancel = stop

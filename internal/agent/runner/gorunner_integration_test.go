@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/providers"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 // skipWithoutAnthropicKey skips the test when ANTHROPIC_API_KEY is not set.
@@ -26,11 +28,19 @@ func integrationConfig(t *testing.T) GoRunnerConfig {
 		model = "claude-sonnet-4-20250514"
 	}
 	return GoRunnerConfig{
-		API:     "anthropic",
-		Model:   model,
-		APIKey:  os.Getenv("ANTHROPIC_API_KEY"),
-		BaseURL: os.Getenv("ANTHROPIC_BASE_URL"),
+		API:       "anthropic",
+		Model:     model,
+		APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
+		BaseURL:   os.Getenv("ANTHROPIC_BASE_URL"),
+		Providers: integrationProviderRegistryBuilder,
 	}
+}
+
+func integrationProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Registry, error) {
+	return pluginproviders.BuildRegistry(api, pluginproviders.ProviderConfig{
+		APIKey:  apiKey,
+		BaseURL: baseURL,
+	})
 }
 
 func TestIntegrationSingleTurn(t *testing.T) {
