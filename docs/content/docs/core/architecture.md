@@ -58,7 +58,7 @@ plugins/
   memory/              Memory plugin registry + implementations
     lcm/               Lossless Context Management (default) — DAG summaries, compaction, search
     simple/            Sliding-window memory — last N messages, no summaries
-  tools/               Plugin tool registry + plugin tools (webfetch)
+  tools/               Plugin tool registry + plugin tools (mcp, webfetch)
   hooks/               Plugin hook registry + plugin hooks (rtk)
   channels/            Channel plugins (telegram, qq, feishu, weixin)
   providers/           Provider plugin registry + LLM adapters (anthropic, openai, openai-response)
@@ -129,6 +129,7 @@ type Tool interface {
 
 | Tool       | Description            |
 | ---------- | ---------------------- |
+| `mcp` | Proxy configured MCP servers through one generic Anna MCP tool |
 | `webfetch` | Fetch web page contents |
 
 Plugin tools live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/features/plugin-system) for the full plugin architecture.

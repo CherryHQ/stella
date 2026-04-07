@@ -8,7 +8,7 @@ Anna uses a compiled-in plugin model. All plugins are built directly into the an
 
 Four plugin kinds:
 
-- **Tool plugins** provide tools that the LLM agent can call (e.g., `webfetch`).
+- **Tool plugins** provide tools that the LLM agent can call (e.g., `mcp`, `webfetch`).
 - **Channel plugins** provide messaging platform integrations (e.g., `telegram`, `qq`, `feishu`, `weixin`).
 - **Hook plugins** intercept engine lifecycle events (e.g., pre/post tool calls, pre/post LLM calls).
 - **Provider plugins** provide LLM API adapters (e.g., `anthropic`, `openai`, `openai-response`).
@@ -17,10 +17,11 @@ Note: Core tools (`read`, `bash`, `edit`, `write`) are always enabled and are no
 
 ## Built-in Plugins
 
-Anna ships with 10 built-in plugins:
+Anna ships with 11 built-in plugins:
 
 | Kind     | Name            | Description                                          |
 | -------- | --------------- | ---------------------------------------------------- |
+| tool     | mcp             | Connect to configured MCP servers and proxy MCP tools |
 | tool     | webfetch        | Fetch web pages                                      |
 | channel  | telegram        | Telegram bot                                         |
 | channel  | qq              | QQ bot                                               |
@@ -48,6 +49,7 @@ plugins/
 ├── all.go                          # Blank imports trigger init() registration
 ├── tools/
 │   ├── registry.go                 # Tool plugin registry
+│   ├── mcp/                        # Tool: MCP proxy + server manager
 │   └── webfetch/                   # Tool: web page fetcher
 ├── channels/
 │   ├── telegram/                   # Channel: Telegram bot
@@ -117,4 +119,4 @@ anna plugin config <id> k=v    # Set plugin configuration key-value pairs
 
 ## Admin Panel
 
-Channel plugins and provider plugins are configured via the admin panel (`anna --open`). The admin panel writes to the `settings_plugins` table and provides a UI for managing tokens, keys, and plugin-specific settings. Provider plugins appear dynamically in the providers page -- adding a new provider plugin automatically makes it available in the admin UI dropdown.
+Channel plugins, provider plugins, and the built-in `tool/mcp` plugin are configured via the admin panel (`anna --open`). The admin panel writes to the `settings_plugins` table and provides a UI for managing tokens, keys, and plugin-specific settings. The MCP plugin stores its server definitions as JSON in `settings_plugins.config`, with an admin form editor for multiple servers/transports, transport-specific fields, structured args/env/header editors, and live runtime status badges for discovered/suppressed servers.

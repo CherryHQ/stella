@@ -55,7 +55,7 @@ internal/
 pkg/
   tools/               Tool 接口、注册表、内置工具（read、bash、write、edit、agent）
 plugins/
-  tools/               插件工具注册表 + 插件工具（webfetch）
+  tools/               插件工具注册表 + 插件工具（mcp、webfetch）
   hooks/               插件钩子注册表 + 插件钩子（rtk）
   channels/            通道插件（telegram、qq、feishu、weixin）
   providers/           供应商插件注册表 + LLM 适配器（anthropic、openai、openai-response）
@@ -126,6 +126,7 @@ type Tool interface {
 
 | 工具       | 描述         |
 | ---------- | ------------ |
+| `mcp` | 通过一个通用 Anna MCP 工具代理已配置的 MCP 服务器 |
 | `webfetch` | 获取网页内容 |
 
 插件工具位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/features/plugin-system)。

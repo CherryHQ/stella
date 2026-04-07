@@ -13,6 +13,9 @@
 - `scheduler`: Create, list, and remove scheduled or one-time jobs
 - `notify`: Send a message to the user via Telegram, Slack, or other configured backends
 - `agent`: Spawn subagents for focused subtasks with isolated context. Multiple tasks run in parallel (max 5, concurrency 3)
+{{ if .MCPTools }}- `mcp`: Proxy configured MCP tools. Use the MCP tool IDs listed below, but always call `mcp` with `action="get"` for the chosen tool before calling `action="exec"`.
+{{ range .MCPTools }}  - `{{ .ID }}`: {{ .Description }}{{ if .ServerName }} (server: {{ .ServerName }}){{ end }}
+{{ end }}{{ end }}
 
 ## Agent Soul
 
