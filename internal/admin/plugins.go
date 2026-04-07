@@ -17,7 +17,7 @@ func (s *Server) listPlugins(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getPluginStatus(w http.ResponseWriter, r *http.Request) {
-	id := config.PluginID(r.PathValue("kind"), r.PathValue("name"))
+	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
 	if s.pluginHost == nil {
 		writeData(w, http.StatusOK, map[string]any{})
 		return
@@ -70,7 +70,7 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("failed to reload plugin tools", "plugin", id, "error", err)
 		}
 	}
-	if s.pluginHost != nil && canonicalID == annamcp.PluginName {
+	if s.pluginHost != nil {
 		if err := s.pluginHost.ApplyPlugin(r.Context(), canonicalID); err != nil {
 			s.log.Error("failed to apply plugin runtime", "plugin", canonicalID, "error", err)
 		}
@@ -87,19 +87,11 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("failed to reload plugin providers", "plugin", id, "error", err)
 		}
 	}
-	// Hot-reload reflect: start on enable, stop on disable.
-	if p.ID == "reflect" {
-		if req.Enabled {
-			s.startReflect()
-		} else {
-			s.stopReflect()
-		}
-	}
 	writeData(w, http.StatusOK, p)
 }
 
 func (s *Server) updatePluginConfig(w http.ResponseWriter, r *http.Request) {
-	id := config.PluginID(r.PathValue("kind"), r.PathValue("name"))
+	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
 	canonicalID := id
 	if s.pluginHost != nil {
 		canonicalID = s.pluginHost.ResolvePluginID(id)
@@ -140,10 +132,17 @@ func (s *Server) updatePluginConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if s.pluginHost != nil && canonicalID == annamcp.PluginName {
+	if s.pluginHost != nil {
 		if err := s.pluginHost.ApplyPlugin(r.Context(), canonicalID); err != nil {
 			s.log.Error("failed to apply plugin runtime", "plugin", canonicalID, "error", err)
 		}
 	}
 	writeData(w, http.StatusOK, p)
+}
+
+func pluginRouteID(kind, name string) string {
+	if kind == name {
+		return name
+	}
+	return config.PluginID(kind, name)
 }

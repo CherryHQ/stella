@@ -206,3 +206,39 @@
 **Decisions & context for next phase:**
 
 - Follow-up work should migrate reflect into a host-backed runtime/status plugin and then revisit channels once runtime semantics have proven out under MCP
+
+## Phase 8: Reflect Host Migration Slice
+
+**Status:** complete
+
+**Tasks completed:**
+
+- Registered reflect as a host-backed plugin capability set with config validation, managed runtime, and status reporting
+- Replaced bespoke reflect start/stop wiring in `cmd/anna/gateway.go` with generic host `ApplyPlugin` orchestration
+- Preserved the existing standalone `settings_plugins` row (`id="reflect"`) and routed admin config/status requests through the generic host-backed plumbing without schema changes
+- Added focused runtime tests for reflect apply/reconfigure/disable behavior and admin integration coverage for reflect config/status/toggle flows
+- Updated plugin system docs and the builtin Anna skill to note reflect as the second host-backed validation target
+
+**Files changed:**
+
+- `cmd/anna/commands.go`
+- `cmd/anna/gateway.go`
+- `internal/admin/plugins.go`
+- `internal/admin/server.go`
+- `internal/admin/server_test.go`
+- `internal/pluginhost/reflect.go`
+- `internal/reflect/plugin_runtime.go`
+- `internal/reflect/plugin_runtime_test.go`
+- `docs/content/docs/features/plugin-system.md`
+- `internal/agent/runner/builtin/anna/SKILL.md`
+- `.agents/sessions/2026-04-07-unified-plugin-host/tasks.md`
+- `.agents/sessions/2026-04-07-unified-plugin-host/handoff.md`
+
+**Commits:**
+
+- pending final squash for later phases
+
+**Decisions & context for next phase:**
+
+- Reflect stayed on its existing storage row and admin route shape; the only special handling added was standalone route ID normalization (`reflect/reflect` → `reflect`) so generic config/status endpoints can keep working without changing persistence
+- Host runtime application is now generic in admin for any plugin with runtime registrations; channels remain separately hot-reloaded and broader channel host migration is still intentionally deferred

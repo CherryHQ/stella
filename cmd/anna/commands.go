@@ -155,6 +155,15 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return hooks.NewHookSet(poolMgr.HookPlugins())
 	})
 
+	phost.RegisterReflect(pluginhost.ReflectDeps{
+		Parent:    ctx,
+		DB:        db,
+		Memory:    memProvider,
+		Store:     store,
+		Notifier:  dispatcher,
+		Workspace: snap.Workspace,
+	})
+
 	// Unified memory tool (shared across all agents, adapts to provider capabilities).
 	sharedTools = append(sharedTools,
 		memory.BuildTool(memProvider),
