@@ -103,6 +103,14 @@ func setupAdmin(t *testing.T) *testEnv {
 			return newTestChannel(channel.PlatformFeishu), nil
 		},
 	})
+	phost.RegisterWeixin(pluginhost.WeixinDeps{
+		Parent:   context.Background(),
+		Handler:  testChannelHandler{},
+		Notifier: dispatcher,
+		NewChannel: func(cfg channel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			return newTestChannel(channel.PlatformWeixin), nil
+		},
+	})
 	if err := phost.ApplyPlugin(context.Background(), internalreflect.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(reflect): %v", err)
 	}
@@ -571,6 +579,58 @@ func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 	}
 	if payload.State != "stopped" {
 		t.Fatalf("feishu state after disable = %q, want stopped", payload.State)
+	}
+}
+
+func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "PUT", "/api/channels/weixin", map[string]any{
+		"enabled": true,
+		"config":  `{"bot_token":"wx-token","base_url":"https://wx.example","bot_id":"bot-1","user_id":"user-1","enable_notify":true}`,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/weixin", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var payload struct {
+		State    string         `json:"state"`
+		Message  string         `json:"message"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal weixin status: %v", err)
+	}
+	if payload.State != "running" {
+		t.Fatalf("weixin state = %q, want running", payload.State)
+	}
+	if payload.Metadata["notify_enabled"] != true {
+		t.Fatalf("notify_enabled = %#v, want true", payload.Metadata["notify_enabled"])
+	}
+	if payload.Metadata["has_bot_identity"] != true {
+		t.Fatalf("has_bot_identity = %#v, want true", payload.Metadata["has_bot_identity"])
+	}
+
+	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/weixin", map[string]any{"enabled": false})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/weixin", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal weixin status after disable: %v", err)
+	}
+	if payload.State != "stopped" {
+		t.Fatalf("weixin state after disable = %q, want stopped", payload.State)
 	}
 }
 

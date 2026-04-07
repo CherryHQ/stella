@@ -58,7 +58,7 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Hot-reload legacy channel plugins: host-backed channels reapply through the plugin host.
-	if p.Kind == config.PluginKindChannel && canonicalID != internalchannel.TelegramPluginID && canonicalID != internalchannel.QQPluginID && canonicalID != internalchannel.FeishuPluginID {
+	if p.Kind == config.PluginKindChannel && canonicalID != internalchannel.TelegramPluginID && canonicalID != internalchannel.QQPluginID && canonicalID != internalchannel.FeishuPluginID && canonicalID != internalchannel.WeixinPluginID {
 		if req.Enabled {
 			s.startChannel(p.Name)
 		} else {

@@ -115,6 +115,14 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		if err := s.pluginHost.ApplyPlugin(gctx, channel.FeishuPluginID); err != nil {
 			return fmt.Errorf("apply feishu runtime: %w", err)
 		}
+		s.pluginHost.RegisterWeixin(pluginhost.WeixinDeps{
+			Parent:   gctx,
+			Handler:  coordinator,
+			Notifier: s.notifier,
+		})
+		if err := s.pluginHost.ApplyPlugin(gctx, channel.WeixinPluginID); err != nil {
+			return fmt.Errorf("apply weixin runtime: %w", err)
+		}
 	}
 
 	// Start admin panel server.
@@ -165,7 +173,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	)
 
 	// Load enabled legacy channel plugins from settings_plugins.
-	channelNames := []string{"weixin"}
+	channelNames := []string{}
 	for _, name := range channelNames {
 		pluginID := config.PluginID(config.PluginKindChannel, name)
 		p, err := s.store.GetPlugin(gctx, pluginID)
@@ -189,7 +197,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	}
 
 	hostBackedConfigured := false
-	for _, pluginID := range []string{channel.TelegramPluginID, channel.QQPluginID, channel.FeishuPluginID} {
+	for _, pluginID := range []string{channel.TelegramPluginID, channel.QQPluginID, channel.FeishuPluginID, channel.WeixinPluginID} {
 		platform := strings.TrimPrefix(pluginID, "channel/")
 		if p, err := s.store.GetPlugin(gctx, pluginID); err == nil && p.Enabled && channel.HasValidConfig(s.store, platform) {
 			hostBackedConfigured = true
