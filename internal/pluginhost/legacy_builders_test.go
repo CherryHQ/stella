@@ -2,6 +2,7 @@ package pluginhost
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/vaayne/anna/internal/config"
@@ -123,6 +124,40 @@ func TestRegisterLegacyCapabilitiesBuildsMemoryThroughHost(t *testing.T) {
 	}
 	if mem.name != name {
 		t.Fatalf("unexpected memory provider: %#v", mem)
+	}
+}
+
+func TestBuildProviderRequiresHostRegistration(t *testing.T) {
+	const name = "host-unprimed-provider"
+	pluginproviders.Register(name, pluginproviders.Registration{
+		Meta: pluginproviders.ProviderMeta{Name: "Unprimed Provider"},
+		Factory: func(cfg pluginproviders.ProviderConfig) (providers.ProviderAdapter, error) {
+			return testProvider{apiKey: cfg.APIKey}, nil
+		},
+	})
+
+	host := New(&stubStore{plugins: map[string]config.Plugin{}})
+	_, err := host.BuildProvider(name, map[string]any{"api_key": "k"})
+	if !errors.Is(err, providers.ErrProviderNotFound) {
+		t.Fatalf("BuildProvider error = %v, want %v", err, providers.ErrProviderNotFound)
+	}
+}
+
+func TestBuildMemoryRequiresHostRegistration(t *testing.T) {
+	const name = "host-unprimed-memory"
+	pluginmemory.Register(name, pluginmemory.Registration{
+		Factory: func(_ context.Context, _ pluginmemory.BuildContext) (memory.Provider, error) {
+			return testMemory{name: name}, nil
+		},
+	})
+
+	host := New(&stubStore{plugins: map[string]config.Plugin{}})
+	provider, err := host.BuildMemory(context.Background(), name, nil, "/tmp/anna", map[string]any{"enabled": true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider != nil {
+		t.Fatalf("expected nil provider without host registration, got %T", provider)
 	}
 }
 

@@ -11,8 +11,6 @@ import (
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
-	pluginmemory "github.com/vaayne/anna/plugins/memory"
-	pluginproviders "github.com/vaayne/anna/plugins/providers"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
@@ -79,41 +77,31 @@ func (h *Host) BuildProvider(name string, stateConfig map[string]any) (providers
 	h.mu.RLock()
 	reg, ok := h.providerRegs[name]
 	h.mu.RUnlock()
-	if ok && reg.Build != nil {
-		return reg.Build(pkgplugins.ProviderContext{
-			Services: h,
-			State: pkgplugins.PluginState{
-				ID:      reg.PluginID,
-				Enabled: true,
-				Config:  cloneMap(stateConfig),
-			},
-		})
-	}
-	registryReg, ok := pluginproviders.Get(name)
-	if !ok {
+	if !ok || reg.Build == nil {
 		return nil, providers.ErrProviderNotFound
 	}
-	apiKey, _ := stateConfig["api_key"].(string)
-	baseURL, _ := stateConfig["base_url"].(string)
-	return registryReg.Factory(pluginproviders.ProviderConfig{APIKey: apiKey, BaseURL: baseURL})
+	return reg.Build(pkgplugins.ProviderContext{
+		Services: h,
+		State: pkgplugins.PluginState{
+			ID:      reg.PluginID,
+			Enabled: true,
+			Config:  cloneMap(stateConfig),
+		},
+	})
 }
 
 func (h *Host) BuildMemory(ctx context.Context, name string, db *sql.DB, annaHome string, cfg map[string]any, summarizerFn func(context.Context, string) (string, error)) (memory.Provider, error) {
 	h.mu.RLock()
 	reg, ok := h.memoryRegs[name]
 	h.mu.RUnlock()
-	if ok && reg.Build != nil {
-		return reg.Build(ctx, pkgplugins.MemoryContext{
-			Services:     h,
-			State:        pkgplugins.PluginState{ID: reg.PluginID, Enabled: true, Config: cloneMap(cfg)},
-			DB:           db,
-			AnnaHome:     annaHome,
-			SummarizerFn: summarizerFn,
-		})
-	}
-	registryReg, ok := pluginmemory.Get(name)
-	if !ok {
+	if !ok || reg.Build == nil {
 		return nil, nil
 	}
-	return registryReg.Factory(ctx, pluginmemory.BuildContext{DB: db, AnnaHome: annaHome, Config: cfg, SummarizerFn: summarizerFn})
+	return reg.Build(ctx, pkgplugins.MemoryContext{
+		Services:     h,
+		State:        pkgplugins.PluginState{ID: reg.PluginID, Enabled: true, Config: cloneMap(cfg)},
+		DB:           db,
+		AnnaHome:     annaHome,
+		SummarizerFn: summarizerFn,
+	})
 }

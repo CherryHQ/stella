@@ -36,6 +36,10 @@ This handoff file is also the running implementation log for future sessions.
   - `pkg/plugins.MemoryContext` gained `DB`, `AnnaHome`, and `SummarizerFn` so memory builds can move through the host contract
 - Added focused tests that verify legacy tool/hook/provider/memory registrations are buildable through `internal/pluginhost`.
 - Ran `go test ./...` successfully after the changes.
+- Removed the remaining provider and memory builder fallback to legacy registries:
+  - `internal/pluginhost.BuildProvider(...)` now requires a host registration
+  - `internal/pluginhost.BuildMemory(...)` now requires a host registration
+- Added regression tests that prove unprimed hosts do not silently fall back to legacy provider/memory registries.
 
 ## Key Decisions
 
@@ -143,7 +147,6 @@ The repository already has a useful base, but it is still transitional:
   - `channel/telegram`
   - `reflect`
   This must be normalized deliberately during migration.
-- `BuildProvider` and `BuildMemory` still keep a defensive fallback to legacy registries. That is deliberate compatibility, not the desired end state.
 - Required tools are still built through `plugintools.BuildCore(...)`. That path was not changed in this slice.
 - `Go init()` blank-import registration is still acceptable for repo-level built-ins, but it should not remain the only discovery logic in the design language.
 
@@ -153,7 +156,7 @@ The repository already has a useful base, but it is still transitional:
 2. Audit `plugins/tools/mcp` and `plugins/channels/telegram` for `internal/...` imports and pick the next concrete extraction into `pkg/...`.
 3. Normalize persisted plugin IDs and host discovery rules so built-ins and persisted rows use one deliberate identity model.
 4. Introduce a schema-backed config contract under `pkg/plugins` instead of per-plugin ad hoc validation only.
-5. Remove the remaining legacy-registry fallback from `BuildProvider` and `BuildMemory` once setup guarantees host priming everywhere.
+5. Remove legacy ID aliasing so pluginhost uses one canonical identity model without compatibility shims.
 6. Update this `handoff.md` after every meaningful step with:
    - what changed
    - what is now safe to remove
@@ -191,5 +194,14 @@ The repository already has a useful base, but it is still transitional:
 - Added `internal/pluginhost/legacy_builders_test.go` covering legacy tool/hook/provider/memory construction through the host.
 - Verified the entire repository with `go test ./...`.
 - Safe to remove next:
-  - the remaining fallback paths in `BuildProvider` and `BuildMemory` once all setup entry points guarantee `RegisterLegacyCapabilities(...)`
   - any dead assumptions that host registrations are metadata-only for legacy contributions
+
+### 2026-04-08 — no-fallback provider and memory builds
+
+- Removed the remaining provider and memory fallback path from `internal/pluginhost/builders.go`.
+- `BuildProvider(...)` now resolves only through host registrations and returns `providers.ErrProviderNotFound` when the host has not been primed.
+- `BuildMemory(...)` now resolves only through host registrations and returns `nil` when the host has not been primed.
+- Added regression tests proving the host no longer silently consults legacy provider/memory registries.
+- Verified the entire repository with `go test ./...`.
+- Safe to remove next:
+  - `RegisterLegacyID(...)`, `resolvePluginID(...)`, and `configService` alias inference once `mcp` and any other persisted rows are made canonical
