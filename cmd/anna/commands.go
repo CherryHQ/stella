@@ -23,6 +23,7 @@ import (
 	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
 	plugintools "github.com/vaayne/anna/plugins/tools"
@@ -175,6 +176,12 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	pluginToolsBuilder := func(ctx context.Context) []tools.Tool {
 		return phost.BuildEnabledTools(ctx, plugintools.BuildContext{})
 	}
+	providerRegistryBuilder := func(api, apiKey, baseURL string) (*providers.Registry, error) {
+		return phost.BuildProviderRegistry(api, map[string]any{
+			"api_key":  apiKey,
+			"base_url": baseURL,
+		})
+	}
 
 	// Plugin hooks builder: auto-discovers registered hook plugins and returns
 	// enabled ones. Called at startup and on hot-reload.
@@ -197,6 +204,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithSharedExtraTools(sharedTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
+		agent.WithProviderRegistryBuilder(providerRegistryBuilder),
 		agent.WithPromptToolsBuilder(func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error) {
 			return phost.PromptTools(ctx, pkgmcp.PluginID)
 		}),
@@ -271,7 +279,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 // Each switch creates a new immutable snapshot so the factory closure captures
 // no shared mutable state — eliminating races between concurrent Chat calls and
 // model switches. Hooks are stored on the Pool independently and are not affected.
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool) func(string, string) error {
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)) func(string, string) error {
 	return func(provider, model string) error {
 		// Shallow-copy the base snapshot so we never mutate shared state.
 		snap := *base
@@ -288,7 +296,7 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.Providers = providers
 		}
 
-		factory, err := agent.NewRunnerFactory(&snap, extraTools, nil)
+		factory, err := agent.NewRunnerFactory(&snap, extraTools, providerRegistryBuilder, nil)
 		if err != nil {
 			return err
 		}

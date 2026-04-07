@@ -25,7 +25,7 @@ import (
 	"github.com/vaayne/anna/internal/skills"
 	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
-	pluginproviders "github.com/vaayne/anna/plugins/providers"
+	"github.com/vaayne/anna/pkg/providers"
 )
 
 const (
@@ -44,6 +44,7 @@ type Config struct {
 	Interval  time.Duration
 	Batch     int
 	Log       *slog.Logger
+	Providers func(api, apiKey, baseURL string) (*providers.Registry, error)
 }
 
 // watermarker abstracts watermark storage for testability.
@@ -62,6 +63,7 @@ type Service struct {
 	interval  time.Duration
 	batch     int
 	log       *slog.Logger
+	providers func(api, apiKey, baseURL string) (*providers.Registry, error)
 }
 
 // New creates a new reflect service.
@@ -85,6 +87,7 @@ func New(cfg Config) *Service {
 		interval:  cfg.Interval,
 		batch:     cfg.Batch,
 		log:       cfg.Log,
+		providers: cfg.Providers,
 	}
 }
 
@@ -255,10 +258,10 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 		attribute.String("gen_ai.provider.name", model.API),
 	)
 
-	reg, err := pluginproviders.BuildRegistry(model.API, pluginproviders.ProviderConfig{
-		APIKey:  creds.APIKey,
-		BaseURL: creds.BaseURL,
-	})
+	if s.providers == nil {
+		return fmt.Errorf("build provider: provider registry builder is required")
+	}
+	reg, err := s.providers(model.API, creds.APIKey, creds.BaseURL)
 	if err != nil {
 		recordError(span, err)
 		return fmt.Errorf("build provider: %w", err)

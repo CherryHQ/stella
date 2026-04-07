@@ -23,6 +23,7 @@ import (
 	internalreflect "github.com/vaayne/anna/internal/reflect"
 	"github.com/vaayne/anna/internal/scheduler"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	"github.com/vaayne/anna/pkg/providers"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -55,7 +56,12 @@ func serverAction(c *ucli.Context) error {
 	listFn := func() []pkgchannel.ModelOption {
 		return collectModelsFromStore(ctx, s.store, s.snap)
 	}
-	switchFn := modelSwitcher(s.snap, s.store, s.pool, s.extraTools)
+	switchFn := modelSwitcher(s.snap, s.store, s.pool, s.extraTools, func(api, apiKey, baseURL string) (*providers.Registry, error) {
+		return s.pluginHost.BuildProviderRegistry(api, map[string]any{
+			"api_key":  apiKey,
+			"base_url": baseURL,
+		})
+	})
 	return runServer(s.ctx, s, listFn, switchFn, c.Int("admin-port"), c.Bool("open"))
 }
 

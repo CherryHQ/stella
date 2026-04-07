@@ -20,11 +20,11 @@ import (
 	"github.com/vaayne/anna/pkg/tools"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
-
-	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 const maxToolIterations = 40
+
+type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
 
 // GoRunnerConfig configures the Go runner.
 type GoRunnerConfig struct {
@@ -39,6 +39,7 @@ type GoRunnerConfig struct {
 	ExtraTools  []tools.Tool       // additional tools to register
 	UserDataDir string             // per-user data directory for sandbox enforcement (empty = no sandbox)
 	HookPlugins []hooks.HookPlugin // hook plugins for the engine loop
+	Providers   ProviderRegistryBuilder
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.
@@ -120,10 +121,10 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 
 // buildProviderRegistry creates the provider registry for the configured API.
 func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
-	reg, err := pluginproviders.BuildRegistry(cfg.API, pluginproviders.ProviderConfig{
-		APIKey:  cfg.APIKey,
-		BaseURL: cfg.BaseURL,
-	})
+	if cfg.Providers == nil {
+		return nil, fmt.Errorf("go runner: provider registry builder is required")
+	}
+	reg, err := cfg.Providers(cfg.API, cfg.APIKey, cfg.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("go runner: %w", err)
 	}

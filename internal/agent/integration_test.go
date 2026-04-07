@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/pkg/providers"
+	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 func skipWithoutAnthropicKey(t *testing.T) {
@@ -27,10 +29,11 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 
 	factory := func(ctx context.Context, _ runner.RunnerParams) (runner.Runner, error) {
 		return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
-			API:     "anthropic",
-			Model:   model,
-			APIKey:  os.Getenv("ANTHROPIC_API_KEY"),
-			BaseURL: os.Getenv("ANTHROPIC_BASE_URL"),
+			API:       "anthropic",
+			Model:     model,
+			APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
+			BaseURL:   os.Getenv("ANTHROPIC_BASE_URL"),
+			Providers: integrationProviderRegistryBuilder,
 		})
 	}
 
@@ -76,4 +79,11 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 	if !strings.Contains(lower, "blue") {
 		t.Errorf("turn 2 response %q does not contain 'blue' — pool history may not be working", turn2)
 	}
+}
+
+func integrationProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Registry, error) {
+	return pluginproviders.BuildRegistry(api, pluginproviders.ProviderConfig{
+		APIKey:  apiKey,
+		BaseURL: baseURL,
+	})
 }

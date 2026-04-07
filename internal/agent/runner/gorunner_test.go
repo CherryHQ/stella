@@ -33,6 +33,13 @@ func (s *stubProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.Si
 	return nil, errors.New("stub")
 }
 
+func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Registry, error) {
+	return pluginproviders.BuildRegistry(api, pluginproviders.ProviderConfig{
+		APIKey:  apiKey,
+		BaseURL: baseURL,
+	})
+}
+
 func TestNewGoRunnerRequiresConfig(t *testing.T) {
 	tests := []struct {
 		name string
@@ -55,9 +62,10 @@ func TestNewGoRunnerRequiresConfig(t *testing.T) {
 
 func TestNewGoRunnerSuccess(t *testing.T) {
 	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:    "anthropic",
-		Model:  "claude-sonnet-4-20250514",
-		APIKey: "test-key",
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -101,9 +109,10 @@ func (f *goRunnerFakeProvider) StreamSimple(goCtx context.Context, _ ai.Model, _
 func newTestGoRunner(t *testing.T, fp *goRunnerFakeProvider) *GoRunner {
 	t.Helper()
 	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:    fp.api,
-		Model:  "test-model",
-		APIKey: "test-key",
+		API:       fp.api,
+		Model:     "test-model",
+		APIKey:    "test-key",
+		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
@@ -163,9 +172,10 @@ func TestChatStreamError(t *testing.T) {
 
 func TestChatUnknownProvider(t *testing.T) {
 	_, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:    "nonexistent",
-		Model:  "test-model",
-		APIKey: "test-key",
+		API:       "nonexistent",
+		Model:     "test-model",
+		APIKey:    "test-key",
+		Providers: testProviderRegistryBuilder,
 	})
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
@@ -272,10 +282,11 @@ func TestChatToolUseLoop(t *testing.T) {
 	}
 
 	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:     fp.api,
-		Model:   "test-model",
-		APIKey:  "test-key",
-		WorkDir: dir,
+		API:       fp.api,
+		Model:     "test-model",
+		APIKey:    "test-key",
+		WorkDir:   dir,
+		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
@@ -299,9 +310,10 @@ func TestChatToolUseLoop(t *testing.T) {
 
 func TestAliveAlwaysTrue(t *testing.T) {
 	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:    "anthropic",
-		Model:  "test-model",
-		APIKey: "test-key",
+		API:       "anthropic",
+		Model:     "test-model",
+		APIKey:    "test-key",
+		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
