@@ -5,17 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	annamcp "github.com/vaayne/anna/internal/mcp"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 func TestBuildSystemPromptIncludesMCPTools(t *testing.T) {
-	mgr := annamcp.NewManager()
-	mgr.Configure(annamcp.Config{}, true)
-	mgr.RegisterTool("github", "search_repos", "Search Repos", "Search repositories", map[string]any{"type": "object"}, nil, nil)
-	annamcp.SetDefaultManager(mgr)
-	t.Cleanup(func() { annamcp.SetDefaultManager(annamcp.NewManager()) })
-
-	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{SystemPrompt: "You are Anna."})
+	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{SystemPrompt: "You are Anna.", PromptTools: []pkgplugins.PromptToolInfo{{Name: "mcp__github__searchrepos", Description: "Search repositories", Metadata: map[string]any{"server_name": "github"}}}})
 	if !strings.Contains(prompt, "`mcp`: Proxy configured MCP tools") {
 		t.Fatalf("expected MCP tool section in prompt: %s", prompt)
 	}
@@ -28,7 +22,6 @@ func TestBuildSystemPromptIncludesMCPTools(t *testing.T) {
 }
 
 func TestBuildSystemPromptOmitsMCPToolsWhenDisabled(t *testing.T) {
-	annamcp.SetDefaultManager(annamcp.NewManager())
 	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{SystemPrompt: "You are Anna."})
 	if strings.Contains(prompt, "Proxy configured MCP tools") {
 		t.Fatalf("did not expect MCP prompt section when manager disabled: %s", prompt)

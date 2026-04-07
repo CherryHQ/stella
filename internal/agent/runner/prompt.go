@@ -9,8 +9,8 @@ import (
 	"strings"
 	"text/template"
 
-	annamcp "github.com/vaayne/anna/internal/mcp"
 	"github.com/vaayne/anna/pkg/memory"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 //go:embed template/system_prompt.tmpl
@@ -40,12 +40,18 @@ type contextFile struct {
 
 // promptData holds all pre-computed data for the system prompt template.
 type promptData struct {
-	SystemPrompt string             // agent's base system prompt from DB
-	AgentSoul    string             // per-user agent soul from ProfileStore
-	UserProfile  string             // per-user profile from ProfileStore
-	Skills       []Skill            // visible skills (non-deprecated, invocable)
-	MCPTools     []annamcp.ToolInfo // valid MCP tools when MCP plugin is enabled
-	ContextFiles []contextFile      // AGENTS.md files (root → leaf)
+	SystemPrompt string            // agent's base system prompt from DB
+	AgentSoul    string            // per-user agent soul from ProfileStore
+	UserProfile  string            // per-user profile from ProfileStore
+	Skills       []Skill           // visible skills (non-deprecated, invocable)
+	MCPTools     []promptToolEntry // prompt inventory for MCP-discovered tools
+	ContextFiles []contextFile     // AGENTS.md files (root → leaf)
+}
+
+type promptToolEntry struct {
+	ID          string
+	Description string
+	ServerName  string
 }
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
@@ -58,6 +64,7 @@ type DBPromptParams struct {
 	Workspace     string
 	Cwd           string // optional working directory
 	UserSkillsDir string // optional per-user skills directory
+	PromptTools   []pkgplugins.PromptToolInfo
 }
 
 // BuildSystemPromptFromDB composes the full system prompt by populating a
@@ -96,9 +103,13 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	// Skills.
 	data.Skills = VisibleSkills(LoadSkills(p.AnnaHome, p.Workspace, p.Cwd, p.UserSkillsDir))
 
-	// MCP tools.
-	if mgr := annamcp.DefaultManager(); mgr != nil && mgr.Enabled() {
-		data.MCPTools = mgr.ValidTools()
+	// MCP prompt inventory.
+	for _, tool := range p.PromptTools {
+		entry := promptToolEntry{ID: tool.Name, Description: tool.Description}
+		if serverName, _ := tool.Metadata["server_name"].(string); serverName != "" {
+			entry.ServerName = serverName
+		}
+		data.MCPTools = append(data.MCPTools, entry)
 	}
 
 	// Project context.

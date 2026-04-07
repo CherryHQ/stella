@@ -16,15 +16,19 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	annamcp "github.com/vaayne/anna/internal/mcp"
+	"github.com/vaayne/anna/internal/pluginhost"
 	pluginmemory "github.com/vaayne/anna/plugins/memory"
 	_ "github.com/vaayne/anna/plugins/memory/lcm"
+	mcp "github.com/vaayne/anna/plugins/tools/mcp"
 )
 
 type testEnv struct {
-	srv       *admin.Server
-	authStore auth.AuthStore
-	adminUser auth.AuthUser
-	sessionID string
+	srv        *admin.Server
+	store      config.Store
+	pluginHost *pluginhost.Host
+	authStore  auth.AuthStore
+	adminUser  auth.AuthUser
+	sessionID  string
 }
 
 func setupAdmin(t *testing.T) *testEnv {
@@ -55,7 +59,15 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("Build lcm provider: %v", err)
 	}
-	srv := admin.New(store, as, engine, mem, db, auth.NewLinkCodeStore(), nil)
+	phost := pluginhost.New(store)
+	phost.RegisterLegacyID("mcp", annamcp.PluginID())
+	if err := phost.LoadDefaultCatalog(); err != nil {
+		t.Fatalf("LoadDefaultCatalog: %v", err)
+	}
+	if err := phost.ApplyPlugin(context.Background(), "mcp"); err != nil {
+		t.Fatalf("ApplyPlugin(mcp): %v", err)
+	}
+	srv := admin.New(store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
 
 	// Create an admin user for authenticated requests.
 	hash, _ := auth.HashPassword("testpassword")
@@ -76,10 +88,12 @@ func setupAdmin(t *testing.T) *testEnv {
 	}
 
 	return &testEnv{
-		srv:       srv,
-		authStore: as,
-		adminUser: user,
-		sessionID: sessionID,
+		srv:        srv,
+		store:      store,
+		pluginHost: phost,
+		authStore:  as,
+		adminUser:  user,
+		sessionID:  sessionID,
 	}
 }
 
@@ -249,14 +263,18 @@ func TestUpdateMCPPluginConfigRejectsInvalidConfig(t *testing.T) {
 
 func TestGetMCPPluginStatus(t *testing.T) {
 	env := setupAdmin(t)
-	env.srv.SetMCPLifecycle(nil, nil, nil, func() any {
-		return []annamcp.ServerStatus{{
-			Name:                "github",
-			Transport:           annamcp.TransportStdio,
-			State:               "running",
-			DiscoveredToolCount: 2,
-		}}
-	})
+	if err := env.store.SetPluginEnabled(context.Background(), annamcp.PluginID(), true); err != nil {
+		t.Fatalf("SetPluginEnabled: %v", err)
+	}
+	if err := env.store.SetPluginConfig(context.Background(), annamcp.PluginID(), map[string]any{"servers": []any{}}); err != nil {
+		t.Fatalf("SetPluginConfig: %v", err)
+	}
+	if err := env.pluginHost.ApplyPlugin(context.Background(), "mcp"); err != nil {
+		t.Fatalf("ApplyPlugin: %v", err)
+	}
+	if _, ok := mcp.LookupRuntime(env.pluginHost.Services()); !ok {
+		t.Fatal("expected mcp runtime")
+	}
 
 	rr := doRequest(t, env, "GET", "/api/plugin-status/tool/mcp", nil)
 	if rr.Code != http.StatusOK {
@@ -270,11 +288,8 @@ func TestGetMCPPluginStatus(t *testing.T) {
 	if err := json.Unmarshal(resp.Data, &payload); err != nil {
 		t.Fatalf("unmarshal status payload: %v", err)
 	}
-	if len(payload.Servers) != 1 {
-		t.Fatalf("len(payload.Servers) = %d, want 1", len(payload.Servers))
-	}
-	if payload.Servers[0].Name != "github" || payload.Servers[0].DiscoveredToolCount != 2 {
-		t.Fatalf("unexpected server status: %+v", payload.Servers[0])
+	if len(payload.Servers) != 0 {
+		t.Fatalf("len(payload.Servers) = %d, want 0", len(payload.Servers))
 	}
 }
 

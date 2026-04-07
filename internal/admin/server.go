@@ -12,6 +12,7 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/internal/pluginhost"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/memory"
 )
@@ -25,6 +26,7 @@ type Server struct {
 	linkCodes   *auth.LinkCodeStore
 	mem         memory.Provider
 	poolManager *agent.PoolManager
+	pluginHost  *pluginhost.Host
 	db          *sql.DB
 	q           *sqlc.Queries
 	mux         *http.ServeMux
@@ -43,17 +45,12 @@ type Server struct {
 	reflectStop  func()          // cancels a running reflect loop
 	reflectCtx   context.Context // parent context
 
-	mcpMu        sync.Mutex
-	mcpStart     func()
-	mcpStop      func()
-	mcpReconcile func()
-	mcpStatus    func() any
 }
 
 // New creates an admin server with all API routes mounted.
 // The linkCodes store is shared with channel bots so codes generated in the
 // admin panel can be consumed by channel handlers.
-func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Provider, db *sql.DB, linkCodes *auth.LinkCodeStore, poolManager *agent.PoolManager) *Server {
+func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Provider, db *sql.DB, linkCodes *auth.LinkCodeStore, poolManager *agent.PoolManager, pluginHost *pluginhost.Host) *Server {
 	// Read CORS origin once at startup.
 	corsOrigin := "http://localhost:8080"
 	if val, err := store.GetSetting(context.Background(), "admin.cors_origin"); err == nil && val != "" {
@@ -69,6 +66,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 		mem:         mem,
 		poolManager: poolManager,
 		db:          db,
+		pluginHost:  pluginHost,
 		q:           sqlc.New(db),
 		mux:         http.NewServeMux(),
 		log:         slog.With("component", "admin"),
@@ -310,48 +308,6 @@ func (s *Server) stopReflect() {
 	if s.reflectStop != nil {
 		s.reflectStop()
 	}
-}
-
-func (s *Server) SetMCPLifecycle(start func(), stop func(), reconcile func(), status func() any) {
-	s.mcpMu.Lock()
-	defer s.mcpMu.Unlock()
-	s.mcpStart = start
-	s.mcpStop = stop
-	s.mcpReconcile = reconcile
-	s.mcpStatus = status
-}
-
-func (s *Server) startMCP() {
-	s.mcpMu.Lock()
-	defer s.mcpMu.Unlock()
-	if s.mcpStart != nil {
-		s.mcpStart()
-	}
-}
-
-func (s *Server) stopMCP() {
-	s.mcpMu.Lock()
-	defer s.mcpMu.Unlock()
-	if s.mcpStop != nil {
-		s.mcpStop()
-	}
-}
-
-func (s *Server) reconcileMCP() {
-	s.mcpMu.Lock()
-	defer s.mcpMu.Unlock()
-	if s.mcpReconcile != nil {
-		s.mcpReconcile()
-	}
-}
-
-func (s *Server) mcpStatusSnapshot() any {
-	s.mcpMu.Lock()
-	defer s.mcpMu.Unlock()
-	if s.mcpStatus != nil {
-		return s.mcpStatus()
-	}
-	return nil
 }
 
 // Handler returns the HTTP handler with CORS, JSON, and auth middleware applied.
