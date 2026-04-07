@@ -8,6 +8,13 @@ import (
 	annamcp "github.com/vaayne/anna/internal/mcp"
 )
 
+var hostBackedChannelPluginIDs = map[string]struct{}{
+	internalchannel.TelegramPluginID: {},
+	internalchannel.QQPluginID:       {},
+	internalchannel.FeishuPluginID:   {},
+	internalchannel.WeixinPluginID:   {},
+}
+
 func (s *Server) listPlugins(w http.ResponseWriter, r *http.Request) {
 	plugins, err := s.store.ListPlugins(r.Context())
 	if err != nil {
@@ -58,7 +65,7 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Hot-reload legacy channel plugins: host-backed channels reapply through the plugin host.
-	if p.Kind == config.PluginKindChannel && canonicalID != internalchannel.TelegramPluginID && canonicalID != internalchannel.QQPluginID && canonicalID != internalchannel.FeishuPluginID && canonicalID != internalchannel.WeixinPluginID {
+	if p.Kind == config.PluginKindChannel && !isHostBackedChannelPlugin(canonicalID) {
 		if req.Enabled {
 			s.startChannel(p.Name)
 		} else {
@@ -146,4 +153,9 @@ func pluginRouteID(kind, name string) string {
 		return name
 	}
 	return config.PluginID(kind, name)
+}
+
+func isHostBackedChannelPlugin(id string) bool {
+	_, ok := hostBackedChannelPluginIDs[id]
+	return ok
 }
