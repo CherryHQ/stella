@@ -1,6 +1,11 @@
 package plugins
 
-import "github.com/vaayne/anna/pkg/channel"
+import (
+	"context"
+	"database/sql"
+
+	"github.com/vaayne/anna/pkg/channel"
+)
 
 // ToolContext is the narrow build context for tool capabilities.
 type ToolContext struct {
@@ -35,8 +40,11 @@ type ChannelContext struct {
 
 // MemoryContext is the narrow build context for memory capabilities.
 type MemoryContext struct {
-	Services ServiceHost
-	State    PluginState
+	Services     ServiceHost
+	State        PluginState
+	DB           *sql.DB
+	AnnaHome     string
+	SummarizerFn func(context.Context, string) (string, error)
 }
 
 // RuntimeContext is the narrow construction context for runtime capabilities.

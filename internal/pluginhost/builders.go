@@ -17,25 +17,31 @@ import (
 )
 
 func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContext) []tools.Tool {
-	names := plugintools.Names()
-	sort.Strings(names)
+	h.mu.RLock()
+	regs := make([]pkgplugins.ToolRegistration, 0, len(h.toolRegs))
+	for _, reg := range h.toolRegs {
+		regs = append(regs, reg)
+	}
+	h.mu.RUnlock()
+	sort.Slice(regs, func(i, j int) bool { return regs[i].Name < regs[j].Name })
 	var out []tools.Tool
-	for _, name := range names {
-		if name == "mcp" {
-			if tool := h.buildToolFromHost(ctx, "mcp", bc); tool != nil {
-				out = append(out, tool)
-			}
+	for _, reg := range regs {
+		if reg.Required {
 			continue
 		}
-		reg, ok := plugintools.Get(name)
-		if !ok || reg.Required {
+		state, err := h.DesiredState(ctx, reg.PluginID)
+		if err != nil || !state.Enabled || reg.Build == nil {
 			continue
 		}
-		p, err := h.store.GetPlugin(ctx, "tool/"+name)
-		if err != nil || !p.Enabled {
-			continue
-		}
-		t, err := reg.Factory(bc)
+		t, err := reg.Build(pkgplugins.ToolContext{
+			Services:    h,
+			State:       state,
+			WorkDir:     bc.WorkDir,
+			UserDataDir: bc.UserDataDir,
+			AnnaHome:    bc.AnnaHome,
+			Workspace:   bc.Workspace,
+			ToolsBinDir: bc.ToolsBinDir,
+		})
 		if err == nil && t != nil {
 			out = append(out, t)
 		}
@@ -43,47 +49,25 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContex
 	return out
 }
 
-func (h *Host) buildToolFromHost(ctx context.Context, pluginID string, bc plugintools.BuildContext) tools.Tool {
-	canonical := h.resolvePluginID(pluginID)
-	state, err := h.DesiredState(ctx, canonical)
-	if err != nil || !state.Enabled {
-		return nil
-	}
+func (h *Host) BuildEnabledHooks(ctx context.Context, bc pluginhooks.BuildContext) []hooks.HookPlugin {
 	h.mu.RLock()
-	var reg pkgplugins.ToolRegistration
-	var ok bool
-	for _, candidate := range h.toolRegs {
-		if candidate.PluginID == canonical {
-			reg = candidate
-			ok = true
-			break
-		}
+	regs := make([]pkgplugins.HookRegistration, 0, len(h.hookRegs))
+	for _, reg := range h.hookRegs {
+		regs = append(regs, reg)
 	}
 	h.mu.RUnlock()
-	if !ok || reg.Build == nil {
-		return nil
-	}
-	t, err := reg.Build(pkgplugins.ToolContext{Services: h, State: state, WorkDir: bc.WorkDir, UserDataDir: bc.UserDataDir, AnnaHome: bc.AnnaHome, Workspace: bc.Workspace, ToolsBinDir: bc.ToolsBinDir})
-	if err != nil {
-		return nil
-	}
-	return t
-}
-
-func (h *Host) BuildEnabledHooks(ctx context.Context, bc pluginhooks.BuildContext) []hooks.HookPlugin {
-	names := pluginhooks.Names()
-	sort.Strings(names)
+	sort.Slice(regs, func(i, j int) bool { return regs[i].Name < regs[j].Name })
 	var out []hooks.HookPlugin
-	for _, name := range names {
-		reg, ok := pluginhooks.Get(name)
-		if !ok {
+	for _, reg := range regs {
+		state, err := h.DesiredState(ctx, reg.PluginID)
+		if err != nil || !state.Enabled || reg.Build == nil {
 			continue
 		}
-		p, err := h.store.GetPlugin(ctx, "hook/"+name)
-		if err != nil || !p.Enabled {
-			continue
-		}
-		item, err := reg.Factory(bc)
+		item, err := reg.Build(pkgplugins.HookContext{
+			Services:    h,
+			State:       state,
+			ToolsBinDir: bc.ToolsBinDir,
+		})
 		if err == nil && item != nil {
 			out = append(out, item)
 		}
@@ -92,19 +76,44 @@ func (h *Host) BuildEnabledHooks(ctx context.Context, bc pluginhooks.BuildContex
 }
 
 func (h *Host) BuildProvider(name string, stateConfig map[string]any) (providers.ProviderAdapter, error) {
-	reg, ok := pluginproviders.Get(name)
+	h.mu.RLock()
+	reg, ok := h.providerRegs[name]
+	h.mu.RUnlock()
+	if ok && reg.Build != nil {
+		return reg.Build(pkgplugins.ProviderContext{
+			Services: h,
+			State: pkgplugins.PluginState{
+				ID:      reg.PluginID,
+				Enabled: true,
+				Config:  cloneMap(stateConfig),
+			},
+		})
+	}
+	registryReg, ok := pluginproviders.Get(name)
 	if !ok {
 		return nil, providers.ErrProviderNotFound
 	}
 	apiKey, _ := stateConfig["api_key"].(string)
 	baseURL, _ := stateConfig["base_url"].(string)
-	return reg.Factory(pluginproviders.ProviderConfig{APIKey: apiKey, BaseURL: baseURL})
+	return registryReg.Factory(pluginproviders.ProviderConfig{APIKey: apiKey, BaseURL: baseURL})
 }
 
 func (h *Host) BuildMemory(ctx context.Context, name string, db *sql.DB, annaHome string, cfg map[string]any, summarizerFn func(context.Context, string) (string, error)) (memory.Provider, error) {
-	reg, ok := pluginmemory.Get(name)
+	h.mu.RLock()
+	reg, ok := h.memoryRegs[name]
+	h.mu.RUnlock()
+	if ok && reg.Build != nil {
+		return reg.Build(ctx, pkgplugins.MemoryContext{
+			Services:     h,
+			State:        pkgplugins.PluginState{ID: reg.PluginID, Enabled: true, Config: cloneMap(cfg)},
+			DB:           db,
+			AnnaHome:     annaHome,
+			SummarizerFn: summarizerFn,
+		})
+	}
+	registryReg, ok := pluginmemory.Get(name)
 	if !ok {
 		return nil, nil
 	}
-	return reg.Factory(ctx, pluginmemory.BuildContext{DB: db, AnnaHome: annaHome, Config: cfg, SummarizerFn: summarizerFn})
+	return registryReg.Factory(ctx, pluginmemory.BuildContext{DB: db, AnnaHome: annaHome, Config: cfg, SummarizerFn: summarizerFn})
 }
