@@ -19,6 +19,7 @@ type RegistryHost interface {
 	RegisterConfig(ConfigRegistration)
 	RegisterStatus(StatusRegistration)
 	RegisterPromptInventory(PromptInventoryRegistration)
+	RegisterMetadata(PluginMeta)
 }
 
 // ServiceHost exposes narrow platform services available to plugins.
@@ -26,4 +27,5 @@ type ServiceHost interface {
 	Logger(pluginID string) *slog.Logger
 	Config() ConfigService
 	Runtime() RuntimeLookup
+	ChannelRuntime() ChannelRuntimeServices
 }
