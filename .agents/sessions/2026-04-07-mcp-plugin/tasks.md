@@ -19,11 +19,11 @@
 
 ## Phase 3: `mcp` Tool Execution Surface
 
-- [ ] 3.1: Implement `mcp` tool definition
-- [ ] 3.2: Implement `list` normalization
-- [ ] 3.3: Implement `get` normalization
-- [ ] 3.4: Implement `exec` normalization
-- [ ] 3.5: Add tool action/error-path tests
+- [x] 3.1: Implement `mcp` tool definition
+- [x] 3.2: Implement `list` normalization
+- [x] 3.3: Implement `get` normalization
+- [x] 3.4: Implement `exec` normalization
+- [x] 3.5: Add tool action/error-path tests
 
 ## Phase 4: Admin API + Plugins UI
 
