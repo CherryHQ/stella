@@ -40,10 +40,8 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	canonicalID := id
 	if s.pluginHost != nil {
-		canonicalID = s.pluginHost.ResolvePluginID(id)
-		if err := s.pluginHost.SetEnabled(r.Context(), canonicalID, req.Enabled); err != nil {
+		if err := s.pluginHost.SetEnabled(r.Context(), id, req.Enabled); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -58,7 +56,7 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Non-host-backed channel plugins still use the admin channel lifecycle hooks.
-	if p.Kind == config.PluginKindChannel && !internalchannel.IsHostBackedPlugin(canonicalID) {
+	if p.Kind == config.PluginKindChannel && !internalchannel.IsHostBackedPlugin(id) {
 		if req.Enabled {
 			s.startChannel(p.Name)
 		} else {
@@ -72,8 +70,8 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if s.pluginHost != nil {
-		if err := s.pluginHost.ApplyPlugin(r.Context(), canonicalID); err != nil {
-			s.log.Error("failed to apply plugin runtime", "plugin", canonicalID, "error", err)
+		if err := s.pluginHost.ApplyPlugin(r.Context(), id); err != nil {
+			s.log.Error("failed to apply plugin runtime", "plugin", id, "error", err)
 		}
 	}
 	// Hot-reload hook plugins so the change takes effect without restart.
@@ -93,10 +91,6 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) updatePluginConfig(w http.ResponseWriter, r *http.Request) {
 	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
-	canonicalID := id
-	if s.pluginHost != nil {
-		canonicalID = s.pluginHost.ResolvePluginID(id)
-	}
 	var req struct {
 		Config map[string]any `json:"config"`
 	}
@@ -108,11 +102,11 @@ func (s *Server) updatePluginConfig(w http.ResponseWriter, r *http.Request) {
 		req.Config = map[string]any{}
 	}
 	if s.pluginHost != nil {
-		if err := s.pluginHost.ValidateConfig(canonicalID, req.Config); err != nil {
+		if err := s.pluginHost.ValidateConfig(id, req.Config); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if err := s.pluginHost.Config().Set(r.Context(), canonicalID, req.Config); err != nil {
+		if err := s.pluginHost.Config().Set(r.Context(), id, req.Config); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -134,8 +128,8 @@ func (s *Server) updatePluginConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.pluginHost != nil {
-		if err := s.pluginHost.ApplyPlugin(r.Context(), canonicalID); err != nil {
-			s.log.Error("failed to apply plugin runtime", "plugin", canonicalID, "error", err)
+		if err := s.pluginHost.ApplyPlugin(r.Context(), id); err != nil {
+			s.log.Error("failed to apply plugin runtime", "plugin", id, "error", err)
 		}
 	}
 	writeData(w, http.StatusOK, p)

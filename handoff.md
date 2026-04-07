@@ -40,6 +40,10 @@ This handoff file is also the running implementation log for future sessions.
   - `internal/pluginhost.BuildProvider(...)` now requires a host registration
   - `internal/pluginhost.BuildMemory(...)` now requires a host registration
 - Added regression tests that prove unprimed hosts do not silently fall back to legacy provider/memory registries.
+- Removed the remaining MCP legacy ID alias path:
+  - MCP plugin registration is now canonical as `tool/mcp`
+  - `internal/pluginhost` no longer translates plugin IDs through `RegisterLegacyID`, `resolvePluginID`, or config alias inference
+  - backend callers now use canonical plugin IDs directly
 
 ## Key Decisions
 
@@ -53,6 +57,7 @@ This handoff file is also the running implementation log for future sessions.
   - host-driven contribution discovery
 - The core architectural rule is still strict: plugin packages should import only `pkg/...`; if a plugin needs a reusable helper, move that helper out of `internal/...`.
 - Replace split builder paths before attempting bigger packaging or persistence refactors.
+- No fallback code and no compatibility code. If a path is obsolete, remove it instead of translating through it.
 
 ## Files Changed
 
@@ -76,6 +81,7 @@ The repository already has a useful base, but it is still transitional:
   - discovery
   - config/state bridging
 - `internal/pluginhost` is now the single contribution source for optional tools, hooks, providers, and memory once `RegisterLegacyCapabilities(...)` has been called during setup.
+- MCP now uses the same canonical plugin ID in runtime registration, persistence, and backend callers: `tool/mcp`.
 - `plugins/tools/mcp` is the best current reference for a multi-capability unit, but it still depends on `internal/mcp`.
 - `plugins/channels/telegram` has started moving ownership into the package, but it still imports `internal/channel` types and runtime helpers.
 - Core tools are still separate because `plugins/tools/registry.go` owns the required-tool boot path used by the Go runner.
@@ -92,7 +98,7 @@ The repository already has a useful base, but it is still transitional:
 ### Phase 2: Normalize identity and persistence
 
 1. Normalize mixed IDs deliberately:
-   - `mcp`
+   - `tool/mcp`
    - `channel/telegram`
    - `reflect`
 2. Decide and document one compatibility rule for persisted rows:
@@ -143,7 +149,7 @@ The repository already has a useful base, but it is still transitional:
 
 - The worktree warning from the earlier planning session was stale. In this session the relevant tracked changes were only the host unification edits listed above plus untracked design/handoff files.
 - The current code still has mixed identity shapes:
-  - `mcp`
+  - `tool/mcp`
   - `channel/telegram`
   - `reflect`
   This must be normalized deliberately during migration.
@@ -156,7 +162,7 @@ The repository already has a useful base, but it is still transitional:
 2. Audit `plugins/tools/mcp` and `plugins/channels/telegram` for `internal/...` imports and pick the next concrete extraction into `pkg/...`.
 3. Normalize persisted plugin IDs and host discovery rules so built-ins and persisted rows use one deliberate identity model.
 4. Introduce a schema-backed config contract under `pkg/plugins` instead of per-plugin ad hoc validation only.
-5. Remove legacy ID aliasing so pluginhost uses one canonical identity model without compatibility shims.
+5. Continue removing mixed-ID special casing so pluginhost uses one canonical identity model without compatibility shims.
 6. Update this `handoff.md` after every meaningful step with:
    - what changed
    - what is now safe to remove
@@ -204,4 +210,14 @@ The repository already has a useful base, but it is still transitional:
 - Added regression tests proving the host no longer silently consults legacy provider/memory registries.
 - Verified the entire repository with `go test ./...`.
 - Safe to remove next:
-  - `RegisterLegacyID(...)`, `resolvePluginID(...)`, and `configService` alias inference once `mcp` and any other persisted rows are made canonical
+  - remaining mixed-ID assumptions after MCP identity is made canonical
+
+### 2026-04-08 — canonical MCP plugin identity
+
+- Changed the self-registered MCP plugin ID from `mcp` to `tool/mcp` so it matches persisted state and backend routes.
+- Removed `RegisterLegacyID(...)`, `resolvePluginID(...)`, and config alias inference from `internal/pluginhost`.
+- Updated CLI and backend callers to use canonical plugin IDs directly instead of relying on host translation.
+- Left the admin UI unchanged because it already addresses MCP as `tool/mcp`.
+- Verification is in progress for the full repository test suite.
+- Safe to remove next:
+  - remaining code paths that still rely on mixed standalone IDs like `reflect`

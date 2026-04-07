@@ -20,7 +20,6 @@ type Host struct {
 	runtimes       *RuntimeHost
 	mu             sync.RWMutex
 	pluginIDs      map[string]struct{}
-	legacyIDs      map[string]string
 	metadataRegs   map[string]pkgplugins.PluginMeta
 	channelRuntime pkgplugins.ChannelRuntimeServices
 	toolRegs       map[string]pkgplugins.ToolRegistration
@@ -39,7 +38,6 @@ func New(store config.Store, opts ...Option) *Host {
 		store:        store,
 		log:          slog.With("component", "plugin_host"),
 		pluginIDs:    map[string]struct{}{},
-		legacyIDs:    map[string]string{},
 		metadataRegs: map[string]pkgplugins.PluginMeta{},
 		toolRegs:     map[string]pkgplugins.ToolRegistration{},
 		providerRegs: map[string]pkgplugins.ProviderRegistration{},
@@ -51,7 +49,7 @@ func New(store config.Store, opts ...Option) *Host {
 		statusRegs:   map[string]pkgplugins.StatusRegistration{},
 		promptRegs:   map[string]pkgplugins.PromptInventoryRegistration{},
 	}
-	h.config = &configService{store: store, aliases: map[string]string{}}
+	h.config = &configService{store: store}
 	h.runtimes = NewRuntimeHost(h)
 	for _, opt := range opts {
 		opt(h)
@@ -76,31 +74,6 @@ func (h *Host) RegisterPluginID(id string) {
 		panic(fmt.Sprintf("pluginhost: duplicate plugin id %q", id))
 	}
 	h.pluginIDs[id] = struct{}{}
-}
-
-func (h *Host) RegisterLegacyID(pluginID, legacyID string) {
-	if pluginID == "" || legacyID == "" {
-		panic("pluginhost: empty legacy id mapping")
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if existing, ok := h.legacyIDs[legacyID]; ok && existing != pluginID {
-		panic(fmt.Sprintf("pluginhost: legacy id %q already mapped to %q", legacyID, existing))
-	}
-	h.legacyIDs[legacyID] = pluginID
-	h.config.aliases[pluginID] = legacyID
-}
-
-func (h *Host) resolvePluginID(id string) string {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	if _, ok := h.pluginIDs[id]; ok {
-		return id
-	}
-	if canonical, ok := h.legacyIDs[id]; ok {
-		return canonical
-	}
-	return id
 }
 
 func (h *Host) LoadCatalog(catalog *pkgplugins.Catalog) error {
@@ -182,16 +155,13 @@ func registerUnique[T any](m map[string]T, key string, reg T, kind string) {
 func runtimeKey(pluginID, name string) string { return pluginID + "/" + name }
 func promptKey(pluginID, name string) string  { return pluginID + "/" + name }
 
-func (h *Host) ResolvePluginID(id string) string { return h.resolvePluginID(id) }
-
 func (h *Host) SetEnabled(ctx context.Context, pluginID string, enabled bool) error {
-	return h.config.SetEnabled(ctx, h.resolvePluginID(pluginID), enabled)
+	return h.config.SetEnabled(ctx, pluginID, enabled)
 }
 
 func (h *Host) Status(ctx context.Context, pluginID string) (any, error) {
-	canonical := h.resolvePluginID(pluginID)
 	h.mu.RLock()
-	reg, ok := h.statusRegs[canonical]
+	reg, ok := h.statusRegs[pluginID]
 	h.mu.RUnlock()
 	if !ok || reg.Get == nil {
 		return map[string]any{}, nil
@@ -200,9 +170,8 @@ func (h *Host) Status(ctx context.Context, pluginID string) (any, error) {
 }
 
 func (h *Host) ValidateConfig(pluginID string, raw map[string]any) error {
-	canonical := h.resolvePluginID(pluginID)
 	h.mu.RLock()
-	reg, ok := h.configRegs[canonical]
+	reg, ok := h.configRegs[pluginID]
 	h.mu.RUnlock()
 	if !ok || reg.Validate == nil {
 		return nil
@@ -211,9 +180,8 @@ func (h *Host) ValidateConfig(pluginID string, raw map[string]any) error {
 }
 
 func (h *Host) RedactConfig(pluginID string, raw map[string]any) map[string]any {
-	canonical := h.resolvePluginID(pluginID)
 	h.mu.RLock()
-	reg, ok := h.configRegs[canonical]
+	reg, ok := h.configRegs[pluginID]
 	h.mu.RUnlock()
 	if !ok {
 		return cloneMap(raw)
@@ -222,21 +190,20 @@ func (h *Host) RedactConfig(pluginID string, raw map[string]any) map[string]any 
 }
 
 func (h *Host) DesiredState(ctx context.Context, pluginID string) (pkgplugins.PluginState, error) {
-	return h.config.Get(ctx, h.resolvePluginID(pluginID))
+	return h.config.Get(ctx, pluginID)
 }
 
 func (h *Host) ApplyPlugin(ctx context.Context, pluginID string) error {
-	return h.runtimes.ApplyPlugin(ctx, h.resolvePluginID(pluginID))
+	return h.runtimes.ApplyPlugin(ctx, pluginID)
 }
 
 func (h *Host) Stop(ctx context.Context) error { return h.runtimes.Stop(ctx) }
 
 func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.PromptToolInfo, error) {
-	canonical := h.resolvePluginID(pluginID)
 	h.mu.RLock()
 	regs := make([]pkgplugins.PromptInventoryRegistration, 0, len(h.promptRegs))
 	for _, reg := range h.promptRegs {
-		if reg.PluginID == canonical {
+		if reg.PluginID == pluginID {
 			regs = append(regs, reg)
 		}
 	}

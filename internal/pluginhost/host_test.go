@@ -80,27 +80,26 @@ func (s *stubStore) SetSetting(context.Context, string, string) error           
 func (s *stubStore) Snapshot(context.Context, string) (*config.Snapshot, error)   { return nil, nil }
 func (s *stubStore) SeedDefaults(context.Context) error                           { return nil }
 
-func TestConfigServiceLegacyAlias(t *testing.T) {
+func TestConfigServiceUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{"tool/mcp": {ID: "tool/mcp", Enabled: true, Config: map[string]any{"x": 1}}}}
 	host := New(store)
-	host.RegisterLegacyID("mcp", "tool/mcp")
-	state, err := host.DesiredState(context.Background(), "mcp")
+	state, err := host.DesiredState(context.Background(), "tool/mcp")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.ID != "mcp" || !state.Enabled || state.Config["x"] != 1 {
+	if state.ID != "tool/mcp" || !state.Enabled || state.Config["x"] != 1 {
 		t.Fatalf("bad state: %#v", state)
 	}
 }
 
-func TestPromptToolsUsesCanonicalResolution(t *testing.T) {
+func TestPromptToolsUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
-	host.RegisterPluginID("mcp")
-	host.RegisterPromptInventory(pkgplugins.PromptInventoryRegistration{PluginID: "mcp", Name: "tools", GetTools: func(context.Context) ([]pkgplugins.PromptToolInfo, error) {
+	host.RegisterPluginID("tool/mcp")
+	host.RegisterPromptInventory(pkgplugins.PromptInventoryRegistration{PluginID: "tool/mcp", Name: "tools", GetTools: func(context.Context) ([]pkgplugins.PromptToolInfo, error) {
 		return []pkgplugins.PromptToolInfo{{Name: "mcp__docs__search"}}, nil
 	}})
-	tools, err := host.PromptTools(context.Background(), "mcp")
+	tools, err := host.PromptTools(context.Background(), "tool/mcp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,20 +109,20 @@ func TestPromptToolsUsesCanonicalResolution(t *testing.T) {
 }
 
 func TestRuntimeApplyCreatesAndApplies(t *testing.T) {
-	store := &stubStore{plugins: map[string]config.Plugin{"mcp": {ID: "mcp", Enabled: true, Config: map[string]any{"x": 1}}}}
+	store := &stubStore{plugins: map[string]config.Plugin{"tool/mcp": {ID: "tool/mcp", Enabled: true, Config: map[string]any{"x": 1}}}}
 	host := New(store)
-	host.RegisterPluginID("mcp")
+	host.RegisterPluginID("tool/mcp")
 	called := 0
-	host.RegisterRuntime(pkgplugins.RuntimeRegistration{PluginID: "mcp", Name: "main", Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
+	host.RegisterRuntime(pkgplugins.RuntimeRegistration{PluginID: "tool/mcp", Name: "main", Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
 		return runtimeStub{apply: func(_ context.Context, desired pkgplugins.PluginState) error {
 			called++
-			if desired.ID != "mcp" {
+			if desired.ID != "tool/mcp" {
 				t.Fatal(desired.ID)
 			}
 			return nil
 		}}, nil
 	}})
-	if err := host.ApplyPlugin(context.Background(), "mcp"); err != nil {
+	if err := host.ApplyPlugin(context.Background(), "tool/mcp"); err != nil {
 		t.Fatal(err)
 	}
 	if called != 1 {

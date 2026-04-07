@@ -100,12 +100,11 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	phost := pluginhost.New(store, pluginhost.WithChannelRuntimeServices(channelRuntimeServices))
-	phost.RegisterLegacyID("mcp", annamcp.PluginID())
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		return nil, fmt.Errorf("load plugin catalog: %w", err)
 	}
 	phost.RegisterLegacyCapabilities(pluginhost.LegacyBuildDeps{DB: db, AnnaHome: config.AnnaHome(), ToolsBinDir: embedded.BinDir(config.AnnaHome())})
-	if err := phost.ApplyPlugin(ctx, "mcp"); err != nil {
+	if err := phost.ApplyPlugin(ctx, annamcp.PluginID()); err != nil {
 		return nil, fmt.Errorf("apply mcp runtime: %w", err)
 	}
 
@@ -198,7 +197,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithSharedExtraTools(sharedTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
-		agent.WithPromptToolsBuilder(func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error) { return phost.PromptTools(ctx, "mcp") }),
+		agent.WithPromptToolsBuilder(func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error) {
+			return phost.PromptTools(ctx, annamcp.PluginID())
+		}),
 	)
 
 	if err := poolMgr.StartAll(ctx); err != nil {
