@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 )
 
 // watermarkStore tracks review progress per session.

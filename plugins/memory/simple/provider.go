@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/internal/db/sqlc"
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
 )
 

@@ -55,6 +55,7 @@ This handoff file is also the running implementation log for future sessions.
 - Extracted the MCP plugin config model and decoder into `pkg/mcp`, so MCP plugin config handling no longer depends on an app-private config package.
 - Extracted MCP tool/status/result data types into `pkg/mcp`, so plugin-facing MCP data no longer depends on app-private type definitions.
 - Moved the MCP manager/session/supervisor/canonical-ID runtime into `pkg/mcp`, so MCP plugin runtime and tool code no longer depend on `internal/mcp`.
+- Moved the generated SQLC package into `pkg/db/sqlc`, so the memory plugins no longer depend on `internal/db/sqlc`.
 - Removed the remaining admin-side pluginhost compatibility branches:
   - admin plugin config/status endpoints now require a plugin host
   - admin server construction now panics if `pluginHost` is nil
@@ -105,9 +106,11 @@ The repository already has a useful base, but it is still transitional:
 - MCP config is now a public package contract in `pkg/mcp`, not an app-private type in `internal/mcp`.
 - MCP tool metadata, execution result shape, and server status are now public package contracts in `pkg/mcp`.
 - MCP runtime behavior now also lives in `pkg/mcp`: manager lifecycle, MCP session dialing, server supervision, and canonical tool ID handling are no longer app-private.
+- Shared database query contracts now live in `pkg/db/sqlc`, not `internal/db/sqlc`.
 - Admin plugin config/status/toggle flows now assume one plugin host exists, matching the actual application wiring.
 - `plugins/tools/mcp` production code now imports only `pkg/...`.
 - `plugins/channels/telegram` production code now imports only `pkg/...`; remaining `internal/channel` imports in that package are test-only.
+- `plugins/memory/lcm` and `plugins/memory/simple` production code now import `pkg/db/sqlc`; there are no remaining production `plugins/...` imports of `internal/...`.
 - Core tools are still separate because `plugins/tools/registry.go` owns the required-tool boot path used by the Go runner.
 - `cmd/anna/plugins_imports.go` is still the blank-import bootstrap for built-ins. That is acceptable for repo-scoped plugins.
 
@@ -180,9 +183,10 @@ The repository already has a useful base, but it is still transitional:
 - Required tools are still built through `plugintools.BuildCore(...)`. That path was not changed in this slice.
 - Schema coverage is still partial. MCP and Telegram are wired; other managed plugins still rely on validate/redact callbacks without schema data.
 - Telegram production code no longer depends on `internal/channel`; runtime orchestration now uses `pkg/channelruntime` plus the public notification registry contract in `pkg/plugins`.
-- Remaining non-test plugin imports of `internal/...` are now concentrated in:
-  - `plugins/memory/lcm` -> `internal/db/sqlc`
-  - `plugins/memory/simple` -> `internal/db/sqlc`
+- The package-boundary migration goal is complete:
+  - production `plugins/...` packages import only `pkg/...`
+  - optional tool/hook/provider/memory contributions resolve through `internal/pluginhost`
+  - no provider/memory fallback path remains
 - Admin construction now hard-requires `pluginhost`; the old nil-host compatibility path is gone.
 - `Go init()` blank-import registration is still acceptable for repo-level built-ins, but it should not remain the only discovery logic in the design language.
 
@@ -227,6 +231,14 @@ The repository already has a useful base, but it is still transitional:
 - Removed the remaining `internal/mcp` package files after moving their live behavior and tests into `pkg/mcp`.
 - Verified that `plugins/tools/mcp` no longer imports `internal/mcp` in production code.
 - Ran focused tests for `pkg/mcp`, `plugins/tools/mcp`, `cmd/anna`, and `internal/admin`, then ran `go test ./...` successfully.
+
+### 2026-04-08 — SQLC package extraction
+
+- Moved the generated SQLC package from `internal/db/sqlc` to `pkg/db/sqlc`.
+- Updated the memory plugins and all internal callers to use the new public import path.
+- Updated `sqlc.yaml` so regeneration now targets `pkg/db/sqlc`.
+- Verified that there are no remaining production `plugins/...` imports of `internal/...`.
+- Ran focused tests for `plugins/memory/...`, `internal/config`, `internal/db`, `internal/admin`, `internal/reflect`, and `internal/scheduler`, then ran `go test ./...` successfully.
 
 ## Session Log
 
