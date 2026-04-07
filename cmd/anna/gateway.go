@@ -90,38 +90,62 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		channel.WithCoordinatorAuth(as, engine, linkCodes),
 	)
 
+	hostBackedChannels := []struct {
+		pluginID string
+		name     string
+		register func()
+	}{
+		{
+			pluginID: channel.TelegramPluginID,
+			name:     "telegram",
+			register: func() {
+				s.pluginHost.RegisterTelegram(pluginhost.TelegramDeps{
+					Parent:   gctx,
+					Handler:  coordinator,
+					Notifier: s.notifier,
+				})
+			},
+		},
+		{
+			pluginID: channel.QQPluginID,
+			name:     "qq",
+			register: func() {
+				s.pluginHost.RegisterQQ(pluginhost.QQDeps{
+					Parent:   gctx,
+					Handler:  coordinator,
+					Notifier: s.notifier,
+				})
+			},
+		},
+		{
+			pluginID: channel.FeishuPluginID,
+			name:     "feishu",
+			register: func() {
+				s.pluginHost.RegisterFeishu(pluginhost.FeishuDeps{
+					Parent:   gctx,
+					Handler:  coordinator,
+					Notifier: s.notifier,
+				})
+			},
+		},
+		{
+			pluginID: channel.WeixinPluginID,
+			name:     "weixin",
+			register: func() {
+				s.pluginHost.RegisterWeixin(pluginhost.WeixinDeps{
+					Parent:   gctx,
+					Handler:  coordinator,
+					Notifier: s.notifier,
+				})
+			},
+		},
+	}
 	if s.pluginHost != nil {
-		s.pluginHost.RegisterTelegram(pluginhost.TelegramDeps{
-			Parent:   gctx,
-			Handler:  coordinator,
-			Notifier: s.notifier,
-		})
-		if err := s.pluginHost.ApplyPlugin(gctx, channel.TelegramPluginID); err != nil {
-			return fmt.Errorf("apply telegram runtime: %w", err)
-		}
-		s.pluginHost.RegisterQQ(pluginhost.QQDeps{
-			Parent:   gctx,
-			Handler:  coordinator,
-			Notifier: s.notifier,
-		})
-		if err := s.pluginHost.ApplyPlugin(gctx, channel.QQPluginID); err != nil {
-			return fmt.Errorf("apply qq runtime: %w", err)
-		}
-		s.pluginHost.RegisterFeishu(pluginhost.FeishuDeps{
-			Parent:   gctx,
-			Handler:  coordinator,
-			Notifier: s.notifier,
-		})
-		if err := s.pluginHost.ApplyPlugin(gctx, channel.FeishuPluginID); err != nil {
-			return fmt.Errorf("apply feishu runtime: %w", err)
-		}
-		s.pluginHost.RegisterWeixin(pluginhost.WeixinDeps{
-			Parent:   gctx,
-			Handler:  coordinator,
-			Notifier: s.notifier,
-		})
-		if err := s.pluginHost.ApplyPlugin(gctx, channel.WeixinPluginID); err != nil {
-			return fmt.Errorf("apply weixin runtime: %w", err)
+		for _, hostBackedChannel := range hostBackedChannels {
+			hostBackedChannel.register()
+			if err := s.pluginHost.ApplyPlugin(gctx, hostBackedChannel.pluginID); err != nil {
+				return fmt.Errorf("apply %s runtime: %w", hostBackedChannel.name, err)
+			}
 		}
 	}
 
@@ -197,9 +221,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	}
 
 	hostBackedConfigured := false
-	for _, pluginID := range []string{channel.TelegramPluginID, channel.QQPluginID, channel.FeishuPluginID, channel.WeixinPluginID} {
-		platform := strings.TrimPrefix(pluginID, "channel/")
-		if p, err := s.store.GetPlugin(gctx, pluginID); err == nil && p.Enabled && channel.HasValidConfig(s.store, platform) {
+	for _, hostBackedChannel := range hostBackedChannels {
+		if p, err := s.store.GetPlugin(gctx, hostBackedChannel.pluginID); err == nil && p.Enabled && channel.HasValidConfig(s.store, hostBackedChannel.name) {
 			hostBackedConfigured = true
 			break
 		}
