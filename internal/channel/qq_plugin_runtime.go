@@ -36,7 +36,7 @@ func NewQQManagedRuntime(deps QQRuntimeDeps) pkgplugins.ManagedRuntime {
 			}, handler)
 		}
 	}
-	return newBotManagedRuntime(botRuntimeDeps[QQConfig]{
+	return NewBotManagedRuntime(BotRuntimeDeps[QQConfig]{
 		Parent:               deps.Parent,
 		Handler:              deps.Handler,
 		Notifier:             deps.Notifier,

@@ -11,7 +11,7 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
-type botRuntimeDeps[T any] struct {
+type BotRuntimeDeps[T any] struct {
 	Parent               context.Context
 	Handler              pkgchannel.Handler
 	Notifier             *Dispatcher
@@ -26,7 +26,7 @@ type botRuntimeDeps[T any] struct {
 }
 
 type botManagedRuntime[T any] struct {
-	deps botRuntimeDeps[T]
+	deps BotRuntimeDeps[T]
 
 	mu         sync.RWMutex
 	cancel     context.CancelFunc
@@ -34,7 +34,7 @@ type botManagedRuntime[T any] struct {
 	snapshot   pkgplugins.RuntimeSnapshot
 }
 
-func newBotManagedRuntime[T any](deps botRuntimeDeps[T]) *botManagedRuntime[T] {
+func NewBotManagedRuntime[T any](deps BotRuntimeDeps[T]) *botManagedRuntime[T] {
 	if deps.Parent == nil {
 		deps.Parent = context.Background()
 	}

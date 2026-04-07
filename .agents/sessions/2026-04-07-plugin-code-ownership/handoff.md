@@ -28,17 +28,15 @@
 - Blockers:
   - None.
 
-## Phase 2 — Telegram pilot registration cutover
+## Phase 2 — Telegram registration cutover
 
 - Status: complete
 - What was done:
   - Added Telegram plugin self-registration under `plugins/channels/telegram/plugin.go` for metadata, config, runtime, and status.
   - Removed the Telegram-specific host registration shim and switched app bootstrap to rely on the plugin catalog + blank import for Telegram.
-  - Kept Telegram runtime/config ownership in `internal/channel` for now, but removed the old implicit default constructor path so the plugin package now owns runtime construction.
-  - Added regression tests covering self-registered Telegram completeness and apply/status behavior, and updated existing runtime tests to reflect the explicit channel factory requirement.
+  - Added regression tests covering self-registered Telegram completeness and apply/status behavior.
 - What changed:
   - `plugins/channels/telegram/plugin.go`, `plugins/channels/telegram/plugin_test.go`
-  - `internal/channel/telegram_plugin_runtime.go`, `internal/channel/telegram_plugin_runtime_test.go`
   - `cmd/anna/plugins_imports.go`, `cmd/anna/gateway.go`
   - `internal/admin/server_test.go`
   - deleted `internal/pluginhost/telegram.go`
@@ -48,8 +46,33 @@
   - `6dbe3b9c` — `♻️ refactor: cut over telegram bootstrap to self-registration`
   - `6bc5cee0` — `✅ test: cover self-registered telegram runtime behavior`
 - Context for next phase:
-  - Telegram registration is now owned exclusively by the plugin package; the next step is moving Telegram config/runtime/status ownership itself out of `internal/channel`.
-  - `internal/channel.NewTelegramManagedRuntime` now requires an explicit `NewChannel` factory, which lets plugin-owned registration provide the concrete Telegram implementation without an import cycle.
-  - Gateway still has explicit host-backed bootstrap knowledge for QQ/Feishu/Weixin and a direct Telegram `ApplyPlugin` call; discovery-driven apply cleanup remains for later phases.
+  - Registration ownership is fully cut over to the plugin package.
+  - The remaining Telegram-specific ownership move is config/runtime/test code out of `internal/channel`.
+- Blockers:
+  - None.
+
+## Phase 3 — Telegram runtime/config ownership completion
+
+- Status: complete
+- What was done:
+  - Promoted generic managed bot runtime scaffolding in `internal/channel/bot_runtime.go` into reusable exported support consumed by plugin-owned runtimes.
+  - Moved Telegram config decode/redact/validate logic into `plugins/channels/telegram/config.go` and runtime ownership into `plugins/channels/telegram/runtime.go`.
+  - Deleted `internal/channel/telegram_plugin_runtime.go` and moved Telegram runtime/config tests into the plugin package.
+  - Added shared internal test helpers so QQ/Feishu/Weixin runtime tests no longer depended on Telegram test symbols.
+- What changed:
+  - `plugins/channels/telegram/config.go`, `plugins/channels/telegram/config_test.go`
+  - `plugins/channels/telegram/runtime.go`, `plugins/channels/telegram/runtime_test.go`, `plugins/channels/telegram/test_helpers_test.go`
+  - `plugins/channels/telegram/plugin.go`, `plugins/channels/telegram/plugin_test.go`
+  - `internal/channel/bot_runtime.go`, `internal/channel/runtime_test_helpers_test.go`
+  - `internal/channel/config.go`, `internal/channel/config_test.go`
+  - `internal/channel/qq_plugin_runtime.go`, `internal/channel/feishu_plugin_runtime.go`, `internal/channel/weixin_plugin_runtime.go`
+  - `internal/channel/host_backed.go`
+  - deleted `internal/channel/telegram_plugin_runtime.go`, `internal/channel/telegram_plugin_runtime_test.go`
+- Commits:
+  - pending commit for Phase 3 cleanup
+- Context for next phase:
+  - Telegram is now cleanly owned under `plugins/channels/telegram` for registration, config, runtime, and plugin-specific tests.
+  - `internal/channel` retains only generic managed runtime support plus shared channel config structs/accessors still used by current admin/gateway paths.
+  - QQ/Feishu/Weixin can follow the same runtime ownership pattern in later phases.
 - Blockers:
   - None.

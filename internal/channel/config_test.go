@@ -143,32 +143,3 @@ func TestIsNotifyEnabled(t *testing.T) {
 		t.Error("expected false for missing platform")
 	}
 }
-
-func TestDecodeTelegramPluginConfig(t *testing.T) {
-	cfg, err := DecodeTelegramPluginConfig(map[string]any{
-		"token":         "tg-token",
-		"channel_id":    "@anna",
-		"group_mode":    "mention",
-		"enable_notify": true,
-	})
-	if err != nil {
-		t.Fatalf("DecodeTelegramPluginConfig: %v", err)
-	}
-	if cfg.Token != "tg-token" || cfg.ChannelID != "@anna" || cfg.GroupMode != "mention" || !cfg.EnableNotify {
-		t.Fatalf("decoded config = %#v", cfg)
-	}
-}
-
-func TestRedactTelegramPluginConfig(t *testing.T) {
-	got := RedactTelegramPluginConfig(map[string]any{
-		"token":         "secret",
-		"channel_id":    "@anna",
-		"enable_notify": true,
-	})
-	if got["token"] != "***" {
-		t.Fatalf("redacted token = %#v, want %q", got["token"], "***")
-	}
-	if got["channel_id"] != "@anna" {
-		t.Fatalf("channel_id = %#v, want %q", got["channel_id"], "@anna")
-	}
-}

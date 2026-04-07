@@ -17,10 +17,10 @@
 
 ## Phase 3: Telegram completion — plugin-owned config/runtime
 
-- [ ] 3.1 — Extract generic managed channel runtime scaffolding into plugin-agnostic internal support (`internal/channelruntime/...` or refactored equivalents)
-- [ ] 3.2 — Move Telegram config schema/defaults/validation/redaction into plugin package (`plugins/channels/telegram/config.go`, related callers/tests)
-- [ ] 3.3 — Move Telegram managed runtime ownership into plugin package (`plugins/channels/telegram/runtime.go`, generic runtime support files)
-- [ ] 3.4 — Remove Telegram-specific ownership from `internal/channel` (`internal/channel/telegram_plugin_runtime.go`, `internal/channel/config.go`, related tests)
+- [x] 3.1 — Extract generic managed channel runtime scaffolding into plugin-agnostic internal support (`internal/channelruntime/...` or refactored equivalents)
+- [x] 3.2 — Move Telegram config schema/defaults/validation/redaction into plugin package (`plugins/channels/telegram/config.go`, related callers/tests)
+- [x] 3.3 — Move Telegram managed runtime ownership into plugin package (`plugins/channels/telegram/runtime.go`, generic runtime support files)
+- [x] 3.4 — Remove Telegram-specific ownership from `internal/channel` (`internal/channel/telegram_plugin_runtime.go`, `internal/channel/config.go`, related tests)
 
 ## Phase 4: Remaining host-backed channels
 

@@ -371,8 +371,8 @@ For each migrated channel:
 
 ## Review Feedback
 
-Pending reviewer feedback.
+Reviewer step skipped by user instruction during implementation.
 
 ## Final Status
 
-Not started.
+In progress. Phase 1, Phase 2, and Phase 3 (Telegram runtime/config ownership completion) are implemented. Telegram now self-registers from `plugins/channels/telegram`, owns its config/runtime tests under the plugin package, and `internal/channel/telegram_plugin_runtime.go` has been deleted as part of the clean cutover. Remaining phases are unchanged.
