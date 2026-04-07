@@ -171,6 +171,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	// Plugin APIs (admin-only).
 	s.mux.Handle("GET /api/plugins", adminAPI(s.listPlugins))
 	s.mux.Handle("PATCH /api/plugins/{id...}", adminAPI(s.togglePlugin))
+	s.mux.Handle("PUT /api/plugin-config/{kind}/{name}", adminAPI(s.updatePluginConfig))
 
 	// Models API (cached models, no live provider calls).
 	s.mux.HandleFunc("GET /api/models", s.listCachedModels)
