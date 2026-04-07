@@ -2,12 +2,12 @@
 
 ## Phase 1: Host metadata and service-extension scaffolding
 
-- [ ] 1.1 — Add channel runtime service interfaces and host extension plumbing (`pkg/plugins/host.go`, `pkg/plugins/services_channel.go`, `internal/pluginhost/host.go`, `internal/pluginhost/service_extensions.go`)
-- [ ] 1.2 — Add plugin metadata registration and host discovery APIs with the minimum schema needed for admin/gateway replacement (`pkg/plugins/metadata.go`, `internal/pluginhost/host.go`, `internal/pluginhost/metadata.go`, `internal/pluginhost/discovery.go`)
-- [ ] 1.3 — Add registration completeness validation so metadata-declared managed/config/status plugins cannot exist in a partial registration state (`internal/pluginhost/host.go`, `internal/pluginhost/metadata.go`, related tests)
-- [ ] 1.4 — Define merged built-in + persisted-state discovery semantics for admin/bootstrap (`internal/pluginhost/discovery.go`, admin/bootstrap tests as needed)
-- [ ] 1.5 — Wire channel runtime services into bootstrap without changing behavior (`cmd/anna/commands.go`, `cmd/anna/gateway.go`)
-- [ ] 1.6 — Add/adjust host tests for metadata, completeness validation, duplicate protection, merged discovery, and service extensions (`internal/pluginhost/host_test.go`, related new tests)
+- [x] 1.1 — Add channel runtime service interfaces and host extension plumbing (`pkg/plugins/host.go`, `pkg/plugins/services_channel.go`, `internal/pluginhost/host.go`, `internal/pluginhost/service_extensions.go`)
+- [x] 1.2 — Add plugin metadata registration and host discovery APIs with the minimum schema needed for admin/gateway replacement (`pkg/plugins/metadata.go`, `internal/pluginhost/host.go`, `internal/pluginhost/metadata.go`, `internal/pluginhost/discovery.go`)
+- [x] 1.3 — Add registration completeness validation so metadata-declared managed/config/status plugins cannot exist in a partial registration state (`internal/pluginhost/host.go`, `internal/pluginhost/metadata.go`, related tests)
+- [x] 1.4 — Define merged built-in + persisted-state discovery semantics for admin/bootstrap (`internal/pluginhost/discovery.go`, admin/bootstrap tests as needed)
+- [x] 1.5 — Wire channel runtime services into bootstrap without changing behavior (`cmd/anna/commands.go`, `cmd/anna/gateway.go`)
+- [x] 1.6 — Add/adjust host tests for metadata, completeness validation, duplicate protection, merged discovery, and service extensions (`internal/pluginhost/host_test.go`, related new tests)
 
 ## Phase 2: Telegram pilot — registration ownership only
 
