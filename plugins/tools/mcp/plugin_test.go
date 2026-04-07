@@ -54,12 +54,14 @@ func (*testRegistry) RegisterStatus(pkgplugins.StatusRegistration)     {}
 func (r *testRegistry) RegisterPromptInventory(reg pkgplugins.PromptInventoryRegistration) {
 	r.prompt = reg
 }
+func (*testRegistry) RegisterMetadata(pkgplugins.PluginMeta) {}
 
 type testServiceHost struct{ lookup testRuntimeLookup }
 
-func (*testServiceHost) Logger(string) *slog.Logger          { return nil }
-func (*testServiceHost) Config() pkgplugins.ConfigService    { return nil }
-func (h *testServiceHost) Runtime() pkgplugins.RuntimeLookup { return h.lookup }
+func (*testServiceHost) Logger(string) *slog.Logger                        { return nil }
+func (*testServiceHost) Config() pkgplugins.ConfigService                  { return nil }
+func (h *testServiceHost) Runtime() pkgplugins.RuntimeLookup               { return h.lookup }
+func (*testServiceHost) ChannelRuntime() pkgplugins.ChannelRuntimeServices { return nil }
 
 type testRuntimeLookup struct{ handle testRuntimeHandle }
 
