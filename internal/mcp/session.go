@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"os/exec"
+	"sort"
 	"time"
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -30,7 +31,7 @@ func defaultDial(ctx context.Context, server ServerConfig) (Session, error) {
 }
 
 func newTransport(server ServerConfig) (officialmcp.Transport, error) {
-	httpClient := &http.Client{Timeout: time.Duration(server.TimeoutSeconds) * time.Second}
+	httpClient := newHTTPClient(server.TimeoutSeconds, server.Headers)
 	switch server.Transport {
 	case TransportStdio:
 		cmd := exec.Command(server.Command, server.Args...)
@@ -47,15 +48,57 @@ func newTransport(server ServerConfig) (officialmcp.Transport, error) {
 	}
 }
 
+func newHTTPClient(timeoutSeconds int, headers map[string]string) *http.Client {
+	client := &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second}
+	if len(headers) == 0 {
+		return client
+	}
+	client.Transport = headerRoundTripper{base: http.DefaultTransport, headers: cloneHeaders(headers)}
+	return client
+}
+
 func flattenEnv(env map[string]string) []string {
 	if len(env) == 0 {
 		return nil
 	}
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
 	result := make([]string, 0, len(env))
-	for key, value := range env {
-		result = append(result, key+"="+value)
+	for _, key := range keys {
+		result = append(result, key+"="+env[key])
 	}
 	return result
+}
+
+func cloneHeaders(headers map[string]string) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(headers))
+	for key, value := range headers {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+type headerRoundTripper struct {
+	base    http.RoundTripper
+	headers map[string]string
+}
+
+func (rt headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	base := rt.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	clone := req.Clone(req.Context())
+	for key, value := range rt.headers {
+		clone.Header.Set(key, value)
+	}
+	return base.RoundTrip(clone)
 }
 
 type ErrUnsupportedTransport struct {

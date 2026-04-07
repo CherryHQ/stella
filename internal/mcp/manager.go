@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -243,7 +244,22 @@ func (m *Manager) clearServerToolsLocked(serverName string) {
 func (m *Manager) rebuildToolsLocked() {
 	m.ids.Reset()
 	m.tools = map[string]ToolInfo{}
-	for _, infos := range m.serverTools {
+	serverNames := make([]string, 0, len(m.serverTools))
+	for serverName := range m.serverTools {
+		serverNames = append(serverNames, serverName)
+	}
+	sort.Strings(serverNames)
+	for _, serverName := range serverNames {
+		infos := append([]ToolInfo(nil), m.serverTools[serverName]...)
+		sort.Slice(infos, func(i, j int) bool {
+			if infos[i].ToolName != infos[j].ToolName {
+				return infos[i].ToolName < infos[j].ToolName
+			}
+			if infos[i].Name != infos[j].Name {
+				return infos[i].Name < infos[j].Name
+			}
+			return infos[i].Description < infos[j].Description
+		})
 		for _, info := range infos {
 			info.ID = m.ids.Add(info.ServerName, info.ToolName)
 			m.tools[info.ID] = info

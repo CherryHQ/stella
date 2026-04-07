@@ -236,3 +236,35 @@
 - Kept config compatibility by translating structured UI rows back into the exact same `servers[].args/env/headers` JSON shape already consumed by `internal/mcp.DecodeConfig`
 - Added a separate status endpoint instead of changing the persisted plugin payload shape, which keeps storage/API compatibility cleaner and avoids mixing runtime state into config data
 - Chose lightweight client-side validation over introducing new backend-only schema rules, so UX improves without changing the MCP runtime/tool contract
+
+## Phase 8: PR Review Fixes
+
+**Status:** complete
+
+**Tasks completed:**
+
+- 8.1: Guarded clean `session.Wait()` shutdowns so nil wait results mark the server stopped instead of flowing into failure handling
+- 8.2: Applied configured remote MCP headers through the HTTP client used by SSE/HTTP transports
+- 8.3: Made canonical tool ID rebuilding deterministic by sorting server/tool traversal before collision-sensitive ID assignment
+- 8.4: Added regression coverage for nil wait shutdowns, HTTP header propagation helpers, deterministic env flattening, and stable canonical IDs across rebuild order changes
+- 8.5: Reran format/lint/test
+
+**Files changed:**
+
+- `internal/mcp/supervisor.go`
+- `internal/mcp/session.go`
+- `internal/mcp/manager.go`
+- `internal/mcp/supervisor_test.go`
+- `internal/mcp/session_test.go`
+- `internal/mcp/manager_test.go`
+- `.agents/sessions/2026-04-07-mcp-plugin/tasks.md`
+
+**Commits:**
+
+- `HEAD` — pending PR review fix commit
+
+**Decisions & tradeoffs:**
+
+- Treated nil `Wait()` as a clean stop rather than a retryable failure, which matches the reviewer’s failure-mode concern and avoids panic paths
+- Injected remote headers at the shared HTTP client layer so both SSE and streamable HTTP transports inherit the same behavior without transport-specific duplication
+- Sorted both server names and per-server tool slices before canonical ID allocation so suffix assignment remains stable even when map iteration order changes

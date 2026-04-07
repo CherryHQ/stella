@@ -57,3 +57,11 @@
 - [x] 7.4: Replace raw JSON-first args/env/headers editing with structured editors that preserve config compatibility
 - [x] 7.5: Add client-side validation plus dirty/saving/saved feedback
 - [x] 7.6: Update docs/session notes and rerun generate + format + lint + test
+
+## Phase 8: PR Review Fixes
+
+- [x] 8.1: Guard nil `session.Wait()` shutdowns so clean remote disconnects do not panic the supervisor
+- [x] 8.2: Propagate configured HTTP headers into remote MCP transports
+- [x] 8.3: Make canonical MCP tool ID rebuilding deterministic across reconciles
+- [x] 8.4: Add regression tests for shutdown, headers, and canonical ID stability
+- [x] 8.5: Run format + lint + test

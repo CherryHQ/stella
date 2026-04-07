@@ -132,3 +132,21 @@ func TestManagerExecNormalizesResponse(t *testing.T) {
 		t.Fatalf("unexpected structured content: %+v", result.Structured)
 	}
 }
+
+func TestManagerHandlesNilWaitErrorAsCleanStop(t *testing.T) {
+	mgr := NewManager()
+	sess := newFakeSession(&officialmcp.Tool{Name: "hello", Description: "Hello"})
+	mgr.SetDial(func(context.Context, ServerConfig) (Session, error) { return sess, nil })
+	mgr.Reconcile(context.Background(), Config{Servers: []ServerConfig{{Name: "demo", Enabled: true, Transport: TransportStdio, Command: "cmd"}}}, true)
+	waitFor(t, time.Second, func() bool { return len(mgr.ValidTools()) == 1 })
+
+	sess.waitCh <- nil
+
+	waitFor(t, time.Second, func() bool {
+		statuses := mgr.Statuses()
+		return len(statuses) == 1 && statuses[0].State == serverStateStopped
+	})
+	if len(mgr.ValidTools()) != 0 {
+		t.Fatalf("expected tools cleared after clean stop, got %+v", mgr.ValidTools())
+	}
+}

@@ -1,6 +1,8 @@
 package mcp
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestManagerRegistersValidTools(t *testing.T) {
 	mgr := NewManager()
@@ -23,5 +25,41 @@ func TestManagerRegistersValidTools(t *testing.T) {
 	}
 	if resolved.ServerName != "github" || resolved.ToolName != "search_repos" {
 		t.Fatalf("resolved = %+v", resolved)
+	}
+}
+
+func TestManagerCanonicalIDsAreDeterministicAcrossRebuilds(t *testing.T) {
+	mgr := NewManager()
+	mgr.serverTools = map[string][]ToolInfo{
+		"b-server": {
+			{ServerName: "b-server", ToolName: "tool!", Name: "tool!"},
+		},
+		"a-server": {
+			{ServerName: "a-server", ToolName: "tool", Name: "tool"},
+		},
+	}
+
+	mgr.rebuildToolsLocked()
+	first := mgr.ListTools()
+	firstIDs := map[string]string{}
+	for _, tool := range first {
+		firstIDs[tool.ServerName+"/"+tool.ToolName] = tool.ID
+	}
+
+	mgr.serverTools = map[string][]ToolInfo{
+		"a-server": {
+			{ServerName: "a-server", ToolName: "tool", Name: "tool"},
+		},
+		"b-server": {
+			{ServerName: "b-server", ToolName: "tool!", Name: "tool!"},
+		},
+	}
+	mgr.rebuildToolsLocked()
+	second := mgr.ListTools()
+	for _, tool := range second {
+		key := tool.ServerName + "/" + tool.ToolName
+		if firstIDs[key] != tool.ID {
+			t.Fatalf("canonical ID for %s changed: %q -> %q", key, firstIDs[key], tool.ID)
+		}
 	}
 }
