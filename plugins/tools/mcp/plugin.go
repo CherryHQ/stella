@@ -51,7 +51,7 @@ func init() {
 		host.Registry().RegisterStatus(pkgplugins.StatusRegistration{PluginID: PluginID, Get: func(ctx context.Context) (any, error) {
 			rt, ok := LookupRuntime(host.Services())
 			if !ok {
-				return map[string]any{"servers": []annamcp.ServerStatus{}}, nil
+				return map[string]any{"servers": []pkgmcp.ServerStatus{}}, nil
 			}
 			return map[string]any{"servers": rt.Manager().Statuses()}, nil
 		}})

@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	annamcp "github.com/vaayne/anna/internal/mcp"
+	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	"github.com/vaayne/anna/pkg/tools"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 )
@@ -98,7 +99,7 @@ type listItem struct {
 	ServerName  string `json:"server_name"`
 }
 
-func listResponse(tools []annamcp.ToolInfo) []listItem {
+func listResponse(tools []pkgmcp.ToolInfo) []listItem {
 	items := make([]listItem, 0, len(tools))
 	for _, tool := range tools {
 		items = append(items, listItem{
