@@ -3,17 +3,9 @@ package admin
 import (
 	"net/http"
 
-	internalchannel "github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	annamcp "github.com/vaayne/anna/internal/mcp"
 )
-
-var hostBackedChannelPluginIDs = map[string]struct{}{
-	internalchannel.TelegramPluginID: {},
-	internalchannel.QQPluginID:       {},
-	internalchannel.FeishuPluginID:   {},
-	internalchannel.WeixinPluginID:   {},
-}
 
 func (s *Server) listPlugins(w http.ResponseWriter, r *http.Request) {
 	plugins, err := s.store.ListPlugins(r.Context())
@@ -153,9 +145,4 @@ func pluginRouteID(kind, name string) string {
 		return name
 	}
 	return config.PluginID(kind, name)
-}
-
-func isHostBackedChannelPlugin(id string) bool {
-	_, ok := hostBackedChannelPluginIDs[id]
-	return ok
 }
