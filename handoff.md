@@ -50,6 +50,7 @@ This handoff file is also the running implementation log for future sessions.
   - admin now exposes plugin config schema through a dedicated backend endpoint
   - concrete schemas are registered for MCP and Telegram
 - Extracted the Telegram plugin config type into `pkg/channel`, so Telegram plugin code no longer depends on an app-private config struct for its persisted config shape.
+- Extracted shared channel plugin config decode/clone helpers into `pkg/channel`, so Telegram config handling no longer imports `internal/channel` just to parse or redact persisted config maps.
 - Extracted the MCP plugin config model and decoder into `pkg/mcp`, so MCP plugin config handling no longer depends on an app-private config package.
 - Extracted MCP tool/status/result data types into `pkg/mcp`, so plugin-facing MCP data no longer depends on app-private type definitions.
 - Removed the remaining admin-side pluginhost compatibility branches:
@@ -97,11 +98,13 @@ The repository already has a useful base, but it is still transitional:
 - MCP now uses the same canonical plugin ID in runtime registration, persistence, and backend callers: `tool/mcp`.
 - Config schemas now exist as host-readable data for the plugins that have been wired so far, instead of living only as Go validation callbacks.
 - Telegram config is now a public package contract in `pkg/channel`, not an app-private type in `internal/channel`.
+- Shared channel config decode/clone helpers are now public package contracts in `pkg/channel`, and the old `internal/channel` wrapper layer has been removed.
 - MCP config is now a public package contract in `pkg/mcp`, not an app-private type in `internal/mcp`.
 - MCP tool metadata, execution result shape, and server status are now public package contracts in `pkg/mcp`.
 - Admin plugin config/status/toggle flows now assume one plugin host exists, matching the actual application wiring.
 - `plugins/tools/mcp` is the best current reference for a multi-capability unit, but it still depends on `internal/mcp`.
 - `plugins/channels/telegram` has started moving ownership into the package, but it still imports `internal/channel` types and runtime helpers.
+- `plugins/channels/telegram/config.go` now imports only `pkg/channel`; the remaining `internal/channel` imports are runtime-oriented.
 - Core tools are still separate because `plugins/tools/registry.go` owns the required-tool boot path used by the Go runner.
 - `cmd/anna/plugins_imports.go` is still the blank-import bootstrap for built-ins. That is acceptable for repo-scoped plugins.
 
@@ -174,6 +177,7 @@ The repository already has a useful base, but it is still transitional:
 - Required tools are still built through `plugintools.BuildCore(...)`. That path was not changed in this slice.
 - Schema coverage is still partial. MCP and Telegram are wired; other managed plugins still rely on validate/redact callbacks without schema data.
 - Telegram still depends on `internal/channel` for runtime orchestration and dispatcher integration; only the config type moved out in this slice.
+- Telegram still depends on `internal/channel` for runtime orchestration and dispatcher integration; config map decode/redaction helpers have already been moved out.
 - MCP still depends on `internal/mcp` for the manager/runtime implementation and status types; only the config model and decoder moved out in this slice.
 - MCP still depends on `internal/mcp` for the manager/runtime implementation; the extracted `pkg/mcp` types are data contracts only.
 - Admin construction now hard-requires `pluginhost`; the old nil-host compatibility path is gone.
@@ -194,6 +198,14 @@ The repository already has a useful base, but it is still transitional:
    - what changed
    - what is now safe to remove
    - what the next agent should do next
+
+### 2026-04-08 — channel config helper extraction
+
+- Moved generic channel plugin config decode/clone helpers from `internal/channel` into `pkg/channel`.
+- Updated Telegram config handling to use `pkg/channel.DecodePluginConfig(...)` and `pkg/channel.CloneConfigMap(...)` directly.
+- Updated the internal QQ, Feishu, and Weixin managed runtime config helpers to use the same public helper functions, so there is only one channel config decode path.
+- Removed the dead `internal/channel` wrapper exports and deleted `internal/channel/plugin_runtime_config.go`.
+- Ran focused tests for `pkg/channel`, `internal/channel`, `plugins/channels/telegram`, `internal/admin`, and `cmd/anna`, then ran `go test ./...` successfully.
 
 ## Session Log
 

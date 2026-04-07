@@ -55,15 +55,15 @@ func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.ManagedRuntime {
 }
 
 func DecodeFeishuPluginConfig(raw map[string]any) (FeishuConfig, error) {
-	return decodePluginConfig[FeishuConfig](raw, "feishu")
+	return pkgchannel.DecodePluginConfig[FeishuConfig](raw, "feishu")
 }
 
 func RedactFeishuPluginConfig(raw map[string]any) map[string]any {
 	cfg, err := DecodeFeishuPluginConfig(raw)
 	if err != nil {
-		return cloneConfigMap(raw)
+		return pkgchannel.CloneConfigMap(raw)
 	}
-	out := cloneConfigMap(raw)
+	out := pkgchannel.CloneConfigMap(raw)
 	if cfg.AppSecret != "" {
 		out["app_secret"] = "***"
 	}

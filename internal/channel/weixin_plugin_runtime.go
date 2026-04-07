@@ -53,15 +53,15 @@ func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.ManagedRuntime {
 }
 
 func DecodeWeixinPluginConfig(raw map[string]any) (WeixinConfig, error) {
-	return decodePluginConfig[WeixinConfig](raw, "weixin")
+	return pkgchannel.DecodePluginConfig[WeixinConfig](raw, "weixin")
 }
 
 func RedactWeixinPluginConfig(raw map[string]any) map[string]any {
 	cfg, err := DecodeWeixinPluginConfig(raw)
 	if err != nil {
-		return cloneConfigMap(raw)
+		return pkgchannel.CloneConfigMap(raw)
 	}
-	out := cloneConfigMap(raw)
+	out := pkgchannel.CloneConfigMap(raw)
 	if cfg.BotToken != "" {
 		out["bot_token"] = "***"
 	}

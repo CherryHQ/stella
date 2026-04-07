@@ -91,14 +91,6 @@ var channelConfigAccessors = map[string]channelConfigAccess{
 	},
 }
 
-func DecodePluginConfig[T any](raw map[string]any, plugin string) (T, error) {
-	return decodePluginConfig[T](raw, plugin)
-}
-
-func CloneConfigMap(raw map[string]any) map[string]any {
-	return cloneConfigMap(raw)
-}
-
 // LoadConfig loads a channel plugin's config from the settings_plugins table
 // and deserializes it into the given type. Returns nil if the plugin is missing,
 // disabled, or the payload cannot be decoded.
