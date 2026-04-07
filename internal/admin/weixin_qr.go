@@ -95,6 +95,9 @@ func (s *Server) saveWeixinCredentials(ctx context.Context, status *weixin.QRCod
 			Enabled: true,
 			Config:  make(map[string]any),
 		}
+		if err := s.store.UpsertPlugin(ctx, p); err != nil {
+			return err
+		}
 	}
 	if p.Config == nil {
 		p.Config = make(map[string]any)
@@ -104,6 +107,19 @@ func (s *Server) saveWeixinCredentials(ctx context.Context, status *weixin.QRCod
 	p.Config["base_url"] = status.BaseURL
 	p.Config["bot_id"] = status.ILinkBotID
 	p.Config["user_id"] = status.ILinkUserID
+
+	if s.pluginHost != nil {
+		if err := s.pluginHost.ValidateConfig(pluginID, p.Config); err != nil {
+			return err
+		}
+		if err := s.pluginHost.Config().Set(ctx, pluginID, p.Config); err != nil {
+			return err
+		}
+		if err := s.pluginHost.ApplyPlugin(ctx, pluginID); err != nil {
+			s.log.Error("failed to apply plugin runtime", "plugin", pluginID, "error", err)
+		}
+		return nil
+	}
 
 	return s.store.UpsertPlugin(ctx, p)
 }
