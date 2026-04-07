@@ -52,6 +52,9 @@ This handoff file is also the running implementation log for future sessions.
 - Extracted the Telegram plugin config type into `pkg/channel`, so Telegram plugin code no longer depends on an app-private config struct for its persisted config shape.
 - Extracted the MCP plugin config model and decoder into `pkg/mcp`, so MCP plugin config handling no longer depends on an app-private config package.
 - Extracted MCP tool/status/result data types into `pkg/mcp`, so plugin-facing MCP data no longer depends on app-private type definitions.
+- Removed the remaining admin-side pluginhost compatibility branches:
+  - admin plugin config/status endpoints now require a plugin host
+  - admin server construction now panics if `pluginHost` is nil
 
 ## Key Decisions
 
@@ -67,6 +70,7 @@ This handoff file is also the running implementation log for future sessions.
 - Replace split builder paths before attempting bigger packaging or persistence refactors.
 - No fallback code and no compatibility code. If a path is obsolete, remove it instead of translating through it.
 - The schema phase is backend-first. Expose schema data through host/admin contracts first; UI rendering can consume it later.
+- Admin plugin operations are now host-required, not dual-pathed through direct store mutations.
 
 ## Files Changed
 
@@ -95,6 +99,7 @@ The repository already has a useful base, but it is still transitional:
 - Telegram config is now a public package contract in `pkg/channel`, not an app-private type in `internal/channel`.
 - MCP config is now a public package contract in `pkg/mcp`, not an app-private type in `internal/mcp`.
 - MCP tool metadata, execution result shape, and server status are now public package contracts in `pkg/mcp`.
+- Admin plugin config/status/toggle flows now assume one plugin host exists, matching the actual application wiring.
 - `plugins/tools/mcp` is the best current reference for a multi-capability unit, but it still depends on `internal/mcp`.
 - `plugins/channels/telegram` has started moving ownership into the package, but it still imports `internal/channel` types and runtime helpers.
 - Core tools are still separate because `plugins/tools/registry.go` owns the required-tool boot path used by the Go runner.
@@ -171,6 +176,7 @@ The repository already has a useful base, but it is still transitional:
 - Telegram still depends on `internal/channel` for runtime orchestration and dispatcher integration; only the config type moved out in this slice.
 - MCP still depends on `internal/mcp` for the manager/runtime implementation and status types; only the config model and decoder moved out in this slice.
 - MCP still depends on `internal/mcp` for the manager/runtime implementation; the extracted `pkg/mcp` types are data contracts only.
+- Admin construction now hard-requires `pluginhost`; the old nil-host compatibility path is gone.
 - `Go init()` blank-import registration is still acceptable for repo-level built-ins, but it should not remain the only discovery logic in the design language.
 
 ## Next Steps
@@ -182,8 +188,8 @@ The repository already has a useful base, but it is still transitional:
 5. Continue removing mixed-ID special casing so pluginhost uses one canonical identity model without compatibility shims.
 6. Continue extracting reusable channel/runtime contracts from `internal/channel` into `pkg/channel`, starting with the next Telegram-facing type or helper that materially shrinks plugin imports.
 7. Continue extracting reusable MCP contracts from `internal/mcp` into `pkg/mcp`, starting with the next pure-data type that does not pull runtime orchestration with it.
-8. Remove remaining admin/pluginhost compatibility branches that are no longer needed now that runtime setup always provides one host.
-9. Audit the remaining plugin packages importing `internal/db/sqlc` and decide whether those storage contracts should move to `pkg/...` or remain app-private.
+8. Audit the remaining plugin packages importing `internal/db/sqlc` and decide whether those storage contracts should move to `pkg/...` or remain app-private.
+9. Continue extracting pure-data/plugin-facing types from `internal/channel` and `internal/mcp` where that meaningfully shrinks plugin imports.
 10. Update this `handoff.md` after every meaningful step with:
    - what changed
    - what is now safe to remove
@@ -288,3 +294,12 @@ The repository already has a useful base, but it is still transitional:
 - Verification is in progress for the full repository test suite.
 - Safe to remove next:
   - admin/pluginhost branches that still pretend plugin host setup is optional for plugin config/status operations
+
+### 2026-04-08 — admin pluginhost is mandatory
+
+- Removed the remaining nil-`pluginHost` branches from admin plugin config/status/toggle/schema endpoints.
+- `internal/admin.New(...)` now panics if `pluginHost` is nil, making the invariant explicit instead of silently supporting a compatibility path that the app no longer uses.
+- Added a regression test covering the constructor invariant.
+- Verification is in progress for the full repository test suite.
+- Safe to remove next:
+  - any remaining code that treats plugin operations as valid without `pluginhost`

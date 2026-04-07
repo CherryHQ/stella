@@ -5,7 +5,6 @@ import (
 
 	internalchannel "github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
-	annamcp "github.com/vaayne/anna/internal/mcp"
 )
 
 func (s *Server) listPlugins(w http.ResponseWriter, r *http.Request) {
@@ -19,10 +18,6 @@ func (s *Server) listPlugins(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getPluginStatus(w http.ResponseWriter, r *http.Request) {
 	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
-	if s.pluginHost == nil {
-		writeData(w, http.StatusOK, map[string]any{})
-		return
-	}
 	status, err := s.pluginHost.Status(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -33,10 +28,6 @@ func (s *Server) getPluginStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getPluginConfigSchema(w http.ResponseWriter, r *http.Request) {
 	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
-	if s.pluginHost == nil {
-		writeData(w, http.StatusOK, map[string]any{})
-		return
-	}
 	writeData(w, http.StatusOK, s.pluginHost.ConfigSchema(id))
 }
 
@@ -49,12 +40,7 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if s.pluginHost != nil {
-		if err := s.pluginHost.SetEnabled(r.Context(), id, req.Enabled); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	} else if err := s.store.SetPluginEnabled(r.Context(), id, req.Enabled); err != nil {
+	if err := s.pluginHost.SetEnabled(r.Context(), id, req.Enabled); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -78,10 +64,8 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("failed to reload plugin tools", "plugin", id, "error", err)
 		}
 	}
-	if s.pluginHost != nil {
-		if err := s.pluginHost.ApplyPlugin(r.Context(), id); err != nil {
-			s.log.Error("failed to apply plugin runtime", "plugin", id, "error", err)
-		}
+	if err := s.pluginHost.ApplyPlugin(r.Context(), id); err != nil {
+		s.log.Error("failed to apply plugin runtime", "plugin", id, "error", err)
 	}
 	// Hot-reload hook plugins so the change takes effect without restart.
 	if p.Kind == config.PluginKindHook && s.poolManager != nil {
@@ -110,36 +94,21 @@ func (s *Server) updatePluginConfig(w http.ResponseWriter, r *http.Request) {
 	if req.Config == nil {
 		req.Config = map[string]any{}
 	}
-	if s.pluginHost != nil {
-		if err := s.pluginHost.ValidateConfig(id, req.Config); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if err := s.pluginHost.Config().Set(r.Context(), id, req.Config); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	} else {
-		if id == config.PluginID(config.PluginKindTool, "mcp") {
-			if _, err := annamcp.DecodeConfig(req.Config); err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-		}
-		if err := s.store.SetPluginConfig(r.Context(), id, req.Config); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
+	if err := s.pluginHost.ValidateConfig(id, req.Config); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.pluginHost.Config().Set(r.Context(), id, req.Config); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	p, err := s.store.GetPlugin(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if s.pluginHost != nil {
-		if err := s.pluginHost.ApplyPlugin(r.Context(), id); err != nil {
-			s.log.Error("failed to apply plugin runtime", "plugin", id, "error", err)
-		}
+	if err := s.pluginHost.ApplyPlugin(r.Context(), id); err != nil {
+		s.log.Error("failed to apply plugin runtime", "plugin", id, "error", err)
 	}
 	writeData(w, http.StatusOK, p)
 }
