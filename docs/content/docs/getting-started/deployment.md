@@ -67,33 +67,46 @@ anna upgrade --install-dir "$HOME/.local/bin"
 
 ### Systemd Service (Linux)
 
-```ini
-# /etc/systemd/system/anna.service
-[Unit]
-Description=anna server
-After=network.target
-
-[Service]
-Type=simple
-User=anna
-WorkingDirectory=/home/anna
-ExecStart=/usr/local/bin/anna --admin-port 8080
-Restart=on-failure
-RestartSec=5
-
-# API keys — all other config lives in the database
-Environment=ANTHROPIC_API_KEY=sk-...
-Environment=ANNA_HOME=/home/anna/.anna
-
-[Install]
-WantedBy=multi-user.target
-```
+A ready-to-use unit file is provided at [`scripts/anna.service`](https://github.com/vaayne/anna/blob/main/scripts/anna.service).
 
 ```bash
+# Create a dedicated user
+sudo useradd --system --no-create-home --shell /bin/false anna
+sudo mkdir -p /home/anna/.anna
+sudo chown anna:anna /home/anna/.anna
+
+# Install the unit file, substituting the actual anna binary path
+sudo sed "s|ANNA_BIN|$(which anna)|g" scripts/anna.service \
+  > /etc/systemd/system/anna.service
+sudo systemctl daemon-reload
 sudo systemctl enable --now anna
+sudo journalctl -u anna -f   # follow logs
 ```
 
 All configuration (channels, agents, scheduler jobs) is stored in `anna.db`. Use `anna --open` or the admin panel to manage it.
+
+### LaunchAgent (macOS)
+
+A ready-to-use plist is provided at [`scripts/com.vaayne.anna.plist`](https://github.com/vaayne/anna/blob/main/scripts/com.vaayne.anna.plist).
+
+```bash
+# Install — substitutes $HOME and anna binary path automatically
+sed "s|HOME_DIR|$HOME|g; s|ANNA_BIN|$(which anna)|g" scripts/com.vaayne.anna.plist \
+  > ~/Library/LaunchAgents/com.vaayne.anna.plist
+mkdir -p ~/Library/Logs/anna
+
+launchctl load ~/Library/LaunchAgents/com.vaayne.anna.plist
+
+# Manage
+launchctl start com.vaayne.anna
+launchctl stop  com.vaayne.anna
+
+# Uninstall
+launchctl unload ~/Library/LaunchAgents/com.vaayne.anna.plist
+rm ~/Library/LaunchAgents/com.vaayne.anna.plist
+```
+
+Logs are written to `~/Library/Logs/anna/anna.log`. The agent starts automatically on login and restarts on crash. Configure API keys and everything else via `anna --open` or the admin panel.
 
 ## Docker
 
