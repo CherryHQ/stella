@@ -280,3 +280,40 @@
 - Telegram kept the existing `channel/telegram` persistence row and `/channels` admin surface; only runtime/config/status ownership moved into the unified host
 - The slice intentionally does not generalize a full channel host abstraction yet; QQ/Feishu/Weixin still use the existing channel builder and admin hot-reload path
 - This validates host-backed channel lifecycle semantics without committing the codebase to a broad channel migration all at once
+
+## Phase 10: QQ Host Migration Slice
+
+**Status:** complete
+
+**Tasks completed:**
+
+- Registered `channel/qq` with host-backed config, managed runtime, and status reporting
+- Added a QQ managed runtime in `internal/channel` that owns build/start/stop/reapply behavior and notification dispatcher registration
+- Replaced bespoke gateway QQ startup with host-backed `ApplyPlugin` orchestration while leaving Feishu and Weixin on the older path
+- Routed `/api/channels/qq` save behavior and plugin toggle behavior through host-backed config/runtime plumbing without changing the existing admin UX or persistence row
+- Added focused runtime tests for QQ and admin integration coverage for QQ status/toggle flows
+- Updated plugin system docs and the builtin Anna skill to note QQ as the second host-backed channel validation target
+
+**Files changed:**
+
+- `cmd/anna/gateway.go`
+- `internal/admin/channels.go`
+- `internal/admin/plugins.go`
+- `internal/admin/server_test.go`
+- `internal/channel/qq_plugin_runtime.go`
+- `internal/channel/qq_plugin_runtime_test.go`
+- `internal/pluginhost/qq.go`
+- `docs/content/docs/features/plugin-system.md`
+- `internal/agent/runner/builtin/anna/SKILL.md`
+- `.agents/sessions/2026-04-07-unified-plugin-host/tasks.md`
+- `.agents/sessions/2026-04-07-unified-plugin-host/handoff.md`
+
+**Commits:**
+
+- pending final squash for later phases
+
+**Decisions & context for next phase:**
+
+- QQ kept the existing `channel/qq` persistence row and `/channels` admin surface; only runtime/config/status ownership moved into the unified host
+- Feishu and Weixin still use the legacy channel builder/admin hot-reload path, which keeps the migration slice narrow and avoids premature generic abstraction
+- If another channel slice follows, it should still be concrete and implementation-first unless duplication across Telegram/QQ clearly justifies extraction
