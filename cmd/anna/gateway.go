@@ -10,7 +10,6 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -21,7 +20,7 @@ import (
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/internal/reflect"
+	internalreflect "github.com/vaayne/anna/internal/reflect"
 	"github.com/vaayne/anna/internal/scheduler"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"golang.org/x/sync/errgroup"
@@ -208,62 +207,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		}
 	}
 
-	// Start reflect (background conversation review) with hot-reload support.
-	var (
-		reflectCancel context.CancelFunc
-		reflectMu     sync.Mutex
-	)
-	buildReflect := func() *reflect.Service {
-		rp, err := s.store.GetPlugin(gctx, "reflect")
-		if err != nil {
-			slog.Warn("reflect: could not load plugin config", "error", err)
-			return nil
-		}
-		return reflect.New(reflect.Config{
-			DB:        s.db,
-			Memory:    s.mem,
-			Store:     s.store,
-			Notifier:  s.notifier,
-			Workspace: s.snap.Workspace,
-			Interval:  parseDurationConfig(rp.Config, "interval", time.Hour),
-			Batch:     parseIntConfig(rp.Config, "batch", 5),
-			Log:       slog.Default(),
-		})
-	}
-	startReflect := func() {
-		reflectMu.Lock()
-		defer reflectMu.Unlock()
-		if reflectCancel != nil {
-			return // already running
-		}
-		svc := buildReflect()
-		if svc == nil {
-			return
-		}
-		var rctx context.Context
-		rctx, reflectCancel = context.WithCancel(gctx)
-		go func() {
-			if err := svc.Start(rctx); err != nil && rctx.Err() == nil {
-				slog.Error("reflect: stopped unexpectedly", "error", err)
-			}
-		}()
-	}
-	stopReflect := func() {
-		reflectMu.Lock()
-		defer reflectMu.Unlock()
-		if reflectCancel != nil {
-			reflectCancel()
-			reflectCancel = nil
-		}
-	}
-	adminSrv.SetReflectLifecycle(gctx, startReflect, stopReflect)
-
-	reflectPlugin, err := s.store.GetPlugin(gctx, "reflect")
-	if err != nil {
-		slog.Warn("reflect: could not load plugin config, skipping", "error", err)
-	}
-	if reflectPlugin.Enabled {
-		startReflect()
+	if err := s.pluginHost.ApplyPlugin(gctx, internalreflect.PluginID); err != nil {
+		return fmt.Errorf("apply reflect runtime: %w", err)
 	}
 
 	waitErr := g.Wait()
@@ -331,25 +276,4 @@ func launchBrowser(url string) {
 		}
 		go func() { _ = cmd.Wait() }()
 	}
-}
-
-// parseDurationConfig reads a duration string from a plugin config map.
-func parseDurationConfig(cfg map[string]any, key string, fallback time.Duration) time.Duration {
-	if v, ok := cfg[key].(string); ok {
-		if d, err := time.ParseDuration(v); err == nil {
-			return d
-		}
-	}
-	return fallback
-}
-
-// parseIntConfig reads an integer from a plugin config map.
-func parseIntConfig(cfg map[string]any, key string, fallback int) int {
-	switch v := cfg[key].(type) {
-	case float64:
-		return int(v)
-	case int:
-		return v
-	}
-	return fallback
 }

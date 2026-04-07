@@ -13,10 +13,12 @@ import (
 
 	"github.com/vaayne/anna/internal/admin"
 	"github.com/vaayne/anna/internal/auth"
+	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	annamcp "github.com/vaayne/anna/internal/mcp"
 	"github.com/vaayne/anna/internal/pluginhost"
+	internalreflect "github.com/vaayne/anna/internal/reflect"
 	pluginmemory "github.com/vaayne/anna/plugins/memory"
 	_ "github.com/vaayne/anna/plugins/memory/lcm"
 	mcp "github.com/vaayne/anna/plugins/tools/mcp"
@@ -59,6 +61,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("Build lcm provider: %v", err)
 	}
+	dispatcher := channel.NewDispatcher()
 	phost := pluginhost.New(store)
 	phost.RegisterLegacyID("mcp", annamcp.PluginID())
 	if err := phost.LoadDefaultCatalog(); err != nil {
@@ -66,6 +69,17 @@ func setupAdmin(t *testing.T) *testEnv {
 	}
 	if err := phost.ApplyPlugin(context.Background(), "mcp"); err != nil {
 		t.Fatalf("ApplyPlugin(mcp): %v", err)
+	}
+	phost.RegisterReflect(pluginhost.ReflectDeps{
+		Parent:    context.Background(),
+		DB:        db,
+		Memory:    mem,
+		Store:     store,
+		Notifier:  dispatcher,
+		Workspace: t.TempDir(),
+	})
+	if err := phost.ApplyPlugin(context.Background(), internalreflect.PluginID); err != nil {
+		t.Fatalf("ApplyPlugin(reflect): %v", err)
 	}
 	srv := admin.New(store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
 
@@ -292,6 +306,71 @@ func TestGetMCPPluginStatus(t *testing.T) {
 		t.Fatalf("len(payload.Servers) = %d, want 0", len(payload.Servers))
 	}
 }
+
+func TestReflectPluginConfigAndStatus(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "PUT", "/api/plugin-config/reflect/reflect", map[string]any{
+		"config": map[string]any{"interval": "30m", "batch": 3},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("config status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "PATCH", "/api/plugins/reflect", map[string]any{"enabled": true})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("toggle status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/reflect/reflect", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var payload struct {
+		State    string         `json:"state"`
+		Message  string         `json:"message"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal reflect status: %v", err)
+	}
+	if payload.State != "running" {
+		t.Fatalf("reflect state = %q, want running", payload.State)
+	}
+	if payload.Metadata["interval"] != "30m0s" {
+		t.Fatalf("interval metadata = %#v, want %q", payload.Metadata["interval"], "30m0s")
+	}
+	if payload.Metadata["batch"] != float64(3) {
+		t.Fatalf("batch metadata = %#v, want 3", payload.Metadata["batch"])
+	}
+
+	rr = doRequest(t, env, "PATCH", "/api/plugins/reflect", map[string]any{"enabled": false})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	var plugin config.Plugin
+	if err := json.Unmarshal(resp.Data, &plugin); err != nil {
+		t.Fatalf("unmarshal plugin: %v", err)
+	}
+	if plugin.ID != internalreflect.PluginID || plugin.Enabled {
+		t.Fatalf("unexpected plugin payload: %#v", plugin)
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/reflect/reflect", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal reflect status after disable: %v", err)
+	}
+	if payload.State != "stopped" {
+		t.Fatalf("reflect state after disable = %q, want stopped", payload.State)
+	}
+}
+
 
 func TestCreateAgent(t *testing.T) {
 	env := setupAdmin(t)

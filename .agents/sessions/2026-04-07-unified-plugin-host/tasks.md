@@ -60,3 +60,12 @@
 - [x] 7.4: Update plugin-system docs if needed
 - [x] 7.5: Update builtin anna skill if needed
 - [x] 7.6: Record reflect/channel follow-up work without implementing it
+
+## Phase 8: Reflect Host Migration Slice
+
+- [x] 8.1: Register reflect with host-backed config, runtime, and status capabilities
+- [x] 8.2: Replace bespoke gateway reflect lifecycle wiring with host-backed `Apply`
+- [x] 8.3: Reuse existing standalone `reflect` persistence row without schema changes
+- [x] 8.4: Route admin reflect config/status/toggle behavior through generic host plumbing
+- [x] 8.5: Add focused tests for reflect runtime reapply/disable behavior and admin integration
+- [x] 8.6: Update docs and session notes for the reflect slice

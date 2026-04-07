@@ -59,7 +59,7 @@ Today the architecture is split like this:
 2. Plugin-facing host contracts are defined in `pkg/plugins/`
 3. The process-wide plugin host lives in `internal/pluginhost/`
 4. Existing kind-specific registries still exist as compatibility adapters for tools, hooks, providers, and memory
-5. MCP is the first fully host-backed plugin: it owns config validation, runtime lifecycle, status, tool exposure, and prompt inventory
+5. MCP and reflect are now the host-backed validation targets: MCP owns config validation, runtime lifecycle, status, tool exposure, and prompt inventory, while reflect owns config validation, runtime lifecycle, and status through the same host
 
 `cmd/anna/plugins_imports.go` provides the blank imports that trigger built-in plugin registration at startup.
 
@@ -118,3 +118,6 @@ anna plugin config <id> k=v    # Set plugin configuration key-value pairs
 Channel plugins, provider plugins, memory plugins, standalone runtimes, and the MCP plugin are configured via the admin panel (`anna --open`). The admin panel writes to the `settings_plugins` table and now routes MCP config/status through the unified plugin host while preserving the existing MCP UI and legacy route shape.
 
 The MCP plugin stores its server definitions as JSON in `settings_plugins.config`, with an admin form editor for multiple servers/transports, transport-specific fields, structured args/env/header editors, and live runtime status badges for discovered/suppressed servers.
+
+The reflect plugin keeps its existing standalone `settings_plugins` row (`id="reflect"`) and now reconciles its background review loop through the unified host as well. Admin config/toggle changes reapply the reflect runtime through the generic host-backed config/status plumbing without any schema changes.
+
