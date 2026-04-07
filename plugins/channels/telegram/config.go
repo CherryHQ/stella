@@ -1,9 +1,12 @@
 package telegram
 
-import internalchannel "github.com/vaayne/anna/internal/channel"
+import (
+	internalchannel "github.com/vaayne/anna/internal/channel"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
+)
 
-func DecodeConfig(raw map[string]any) (internalchannel.TelegramConfig, error) {
-	return internalchannel.DecodePluginConfig[internalchannel.TelegramConfig](raw, internalchannel.PlatformTelegram)
+func DecodeConfig(raw map[string]any) (pkgchannel.TelegramConfig, error) {
+	return internalchannel.DecodePluginConfig[pkgchannel.TelegramConfig](raw, pkgchannel.PlatformTelegram)
 }
 
 func RedactConfig(raw map[string]any) map[string]any {
@@ -18,7 +21,7 @@ func RedactConfig(raw map[string]any) map[string]any {
 	return out
 }
 
-func validateConfig(cfg internalchannel.TelegramConfig) string {
+func validateConfig(cfg pkgchannel.TelegramConfig) string {
 	if cfg.Token == "" {
 		return "telegram: missing token"
 	}

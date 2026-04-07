@@ -30,7 +30,7 @@ func TestSelfRegisteredTelegramPluginIsComplete(t *testing.T) {
 			continue
 		}
 		found = true
-		if meta.Kind != config.PluginKindChannel || meta.Name != internalchannel.PlatformTelegram || !meta.Managed || !meta.AdminVisible {
+		if meta.Kind != "channel" || meta.Name != pkgchannel.PlatformTelegram || !meta.Managed || !meta.AdminVisible {
 			t.Fatalf("unexpected telegram metadata: %#v", meta)
 		}
 	}
@@ -41,7 +41,7 @@ func TestSelfRegisteredTelegramPluginIsComplete(t *testing.T) {
 
 func TestSelfRegisteredTelegramPluginAppliesAndReportsStatus(t *testing.T) {
 	store := newStubStore()
-	store.plugins[PluginID] = config.Plugin{ID: PluginID, Kind: config.PluginKindChannel, Name: internalchannel.PlatformTelegram, Enabled: true, Config: map[string]any{"token": "tg-token", "enable_notify": true}}
+	store.plugins[PluginID] = config.Plugin{ID: PluginID, Kind: "channel", Name: pkgchannel.PlatformTelegram, Enabled: true, Config: map[string]any{"token": "tg-token", "enable_notify": true}}
 
 	host := pluginhost.New(store)
 	services := pluginhost.NewChannelRuntimeServices()
@@ -54,7 +54,7 @@ func TestSelfRegisteredTelegramPluginAppliesAndReportsStatus(t *testing.T) {
 			Parent:   context.Background(),
 			Handler:  fakeChannelHandler{},
 			Notifier: dispatcher,
-			NewChannel: func(cfg internalchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 				return newTestChannel(), nil
 			},
 		}), nil
@@ -78,7 +78,7 @@ func TestSelfRegisteredTelegramPluginAppliesAndReportsStatus(t *testing.T) {
 	if payload["state"] != pkgplugins.RuntimeStateRunning {
 		t.Fatalf("state = %#v, want %q", payload["state"], pkgplugins.RuntimeStateRunning)
 	}
-	if got := dispatcher.Channels(); len(got) != 1 || got[0] != internalchannel.PlatformTelegram {
+	if got := dispatcher.Channels(); len(got) != 1 || got[0] != pkgchannel.PlatformTelegram {
 		t.Fatalf("dispatcher channels = %v", got)
 	}
 }
@@ -149,7 +149,7 @@ func (s *stubStore) SeedDefaults(context.Context) error                         
 type testChannel struct{ stop chan struct{} }
 
 func newTestChannel() *testChannel                                         { return &testChannel{stop: make(chan struct{})} }
-func (*testChannel) Name() string                                          { return internalchannel.PlatformTelegram }
+func (*testChannel) Name() string                                          { return pkgchannel.PlatformTelegram }
 func (c *testChannel) Start(ctx context.Context) error                     { <-ctx.Done(); close(c.stop); return ctx.Err() }
 func (*testChannel) Stop()                                                 {}
 func (*testChannel) Notify(context.Context, pkgchannel.Notification) error { return nil }
