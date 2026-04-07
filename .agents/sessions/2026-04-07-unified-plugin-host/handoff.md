@@ -242,3 +242,41 @@
 
 - Reflect stayed on its existing storage row and admin route shape; the only special handling added was standalone route ID normalization (`reflect/reflect` → `reflect`) so generic config/status endpoints can keep working without changing persistence
 - Host runtime application is now generic in admin for any plugin with runtime registrations; channels remain separately hot-reloaded and broader channel host migration is still intentionally deferred
+
+## Phase 9: Telegram Host Migration Slice
+
+**Status:** complete
+
+**Tasks completed:**
+
+- Registered `channel/telegram` with host-backed config validation, managed runtime, and status reporting
+- Added a Telegram managed runtime in `internal/channel` that owns build/start/stop/reapply behavior and notification dispatcher registration
+- Replaced bespoke gateway Telegram startup with host-backed `ApplyPlugin` orchestration while leaving QQ/Feishu/Weixin on the older path
+- Routed `/api/channels/telegram` save behavior and plugin toggle behavior through host-backed config/runtime plumbing without changing the existing admin UX or persistence row
+- Added focused runtime tests for Telegram and admin integration coverage for Telegram status/toggle flows
+- Updated plugin system docs and the builtin Anna skill to note Telegram as the first host-backed channel validation target
+
+**Files changed:**
+
+- `cmd/anna/gateway.go`
+- `internal/admin/channels.go`
+- `internal/admin/plugins.go`
+- `internal/admin/server_test.go`
+- `internal/channel/config_test.go`
+- `internal/channel/telegram_plugin_runtime.go`
+- `internal/channel/telegram_plugin_runtime_test.go`
+- `internal/pluginhost/telegram.go`
+- `docs/content/docs/features/plugin-system.md`
+- `internal/agent/runner/builtin/anna/SKILL.md`
+- `.agents/sessions/2026-04-07-unified-plugin-host/tasks.md`
+- `.agents/sessions/2026-04-07-unified-plugin-host/handoff.md`
+
+**Commits:**
+
+- pending final squash for later phases
+
+**Decisions & context for next phase:**
+
+- Telegram kept the existing `channel/telegram` persistence row and `/channels` admin surface; only runtime/config/status ownership moved into the unified host
+- The slice intentionally does not generalize a full channel host abstraction yet; QQ/Feishu/Weixin still use the existing channel builder and admin hot-reload path
+- This validates host-backed channel lifecycle semantics without committing the codebase to a broad channel migration all at once
