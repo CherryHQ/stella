@@ -86,6 +86,14 @@ func List() []string {
 	return names
 }
 
+// Get returns a registered memory provider factory by name.
+func Get(name string) (Registration, bool) {
+	mu.RLock()
+	defer mu.RUnlock()
+	reg, ok := registry[name]
+	return reg, ok
+}
+
 // Metas returns a copy of all registered provider metadata keyed by name.
 func Metas() map[string]ProviderMeta {
 	mu.RLock()

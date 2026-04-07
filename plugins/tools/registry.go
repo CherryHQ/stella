@@ -51,6 +51,14 @@ func Names() []string {
 	return names
 }
 
+// Get returns a registered tool factory by name.
+func Get(name string) (Registration, bool) {
+	mu.RLock()
+	defer mu.RUnlock()
+	reg, ok := registry[name]
+	return reg, ok
+}
+
 // BuildCore builds all Required tools. Called per-session by the runner.
 func BuildCore(bc BuildContext) []tools.Tool {
 	mu.RLock()
