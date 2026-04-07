@@ -93,13 +93,6 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	}
 
 	hostBackedRegistrations := map[string]func(){
-		channel.TelegramPluginID: func() {
-			s.pluginHost.RegisterTelegram(pluginhost.TelegramDeps{
-				Parent:   gctx,
-				Handler:  coordinator,
-				Notifier: s.notifier,
-			})
-		},
 		channel.QQPluginID: func() {
 			s.pluginHost.RegisterQQ(pluginhost.QQDeps{
 				Parent:   gctx,
@@ -123,11 +116,18 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		},
 	}
 	if s.pluginHost != nil {
-		for _, hostBackedChannel := range channel.HostBackedChannels {
+		for _, hostBackedChannel := range []channel.HostBackedChannel{
+			{Name: channel.PlatformQQ, PluginID: channel.QQPluginID},
+			{Name: channel.PlatformFeishu, PluginID: channel.FeishuPluginID},
+			{Name: channel.PlatformWeixin, PluginID: channel.WeixinPluginID},
+		} {
 			hostBackedRegistrations[hostBackedChannel.PluginID]()
 			if err := s.pluginHost.ApplyPlugin(gctx, hostBackedChannel.PluginID); err != nil {
 				return fmt.Errorf("apply %s runtime: %w", hostBackedChannel.Name, err)
 			}
+		}
+		if err := s.pluginHost.ApplyPlugin(gctx, channel.TelegramPluginID); err != nil {
+			return fmt.Errorf("apply %s runtime: %w", channel.PlatformTelegram, err)
 		}
 	}
 

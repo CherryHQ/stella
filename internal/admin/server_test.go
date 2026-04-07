@@ -20,6 +20,8 @@ import (
 	"github.com/vaayne/anna/internal/pluginhost"
 	internalreflect "github.com/vaayne/anna/internal/reflect"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	telegramplugin "github.com/vaayne/anna/plugins/channels/telegram"
 	pluginmemory "github.com/vaayne/anna/plugins/memory"
 	_ "github.com/vaayne/anna/plugins/memory/lcm"
 	mcp "github.com/vaayne/anna/plugins/tools/mcp"
@@ -63,7 +65,9 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("Build lcm provider: %v", err)
 	}
 	dispatcher := channel.NewDispatcher()
-	phost := pluginhost.New(store)
+	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
+	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher)
+	phost := pluginhost.New(store, pluginhost.WithChannelRuntimeServices(channelRuntimeServices))
 	phost.RegisterLegacyID("mcp", annamcp.PluginID())
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
@@ -79,14 +83,17 @@ func setupAdmin(t *testing.T) *testEnv {
 		Notifier:  dispatcher,
 		Workspace: t.TempDir(),
 	})
-	phost.RegisterTelegram(pluginhost.TelegramDeps{
-		Parent:   context.Background(),
-		Handler:  testChannelHandler{},
-		Notifier: dispatcher,
-		NewChannel: func(cfg channel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
-			return newTestChannel(channel.PlatformTelegram), nil
-		},
+	resetTelegramRuntime := telegramplugin.SetRuntimeFactoryForTesting(func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error) {
+		return channel.NewTelegramManagedRuntime(channel.TelegramRuntimeDeps{
+			Parent:   context.Background(),
+			Handler:  testChannelHandler{},
+			Notifier: dispatcher,
+			NewChannel: func(cfg channel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+				return newTestChannel(channel.PlatformTelegram), nil
+			},
+		}), nil
 	})
+	t.Cleanup(resetTelegramRuntime)
 	phost.RegisterQQ(pluginhost.QQDeps{
 		Parent:   context.Background(),
 		Handler:  testChannelHandler{},
