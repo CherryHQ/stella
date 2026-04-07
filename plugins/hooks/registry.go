@@ -47,6 +47,14 @@ func Names() []string {
 	return names
 }
 
+// Get returns a registered hook factory by name.
+func Get(name string) (Registration, bool) {
+	mu.RLock()
+	defer mu.RUnlock()
+	reg, ok := registry[name]
+	return reg, ok
+}
+
 // BuildEnabled builds hook plugins that the caller considers enabled.
 // The enabled callback returns true for plugins that should be instantiated —
 // typically by consulting the config store.
