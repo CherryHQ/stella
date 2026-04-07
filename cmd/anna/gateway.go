@@ -21,6 +21,7 @@ import (
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
+	annamcp "github.com/vaayne/anna/internal/mcp"
 	"github.com/vaayne/anna/internal/reflect"
 	"github.com/vaayne/anna/internal/scheduler"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
@@ -118,6 +119,28 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			return nil
 		})
 	}
+
+	adminSrv.SetMCPLifecycle(
+		func() {
+			cfg, enabled, err := annamcp.LoadPluginState(gctx, s.store)
+			if err != nil {
+				slog.Error("mcp: failed to load plugin state", "error", err)
+				return
+			}
+			s.mcpManager.Reconcile(gctx, cfg, enabled)
+		},
+		func() {
+			s.mcpManager.Reconcile(gctx, annamcp.Config{}, false)
+		},
+		func() {
+			cfg, enabled, err := annamcp.LoadPluginState(gctx, s.store)
+			if err != nil {
+				slog.Error("mcp: failed to reconcile plugin state", "error", err)
+				return
+			}
+			s.mcpManager.Reconcile(gctx, cfg, enabled)
+		},
+	)
 
 	// Configure channel hot-reload so the admin UI can start/stop channels.
 	adminSrv.SetChannelLifecycle(gctx,

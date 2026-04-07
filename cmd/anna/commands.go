@@ -17,6 +17,7 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/embedded"
+	annamcp "github.com/vaayne/anna/internal/mcp"
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
@@ -50,6 +51,7 @@ type setupResult struct {
 	mem          memory.Provider
 	snap         *config.Snapshot
 	store        config.Store
+	mcpManager   *annamcp.Manager
 	poolManager  *agent.PoolManager
 	pool         *agent.Pool // default agent's pool (backward compat)
 	schedulerSvc *scheduler.Service
@@ -93,6 +95,14 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	ctx, cancel := context.WithCancel(parent)
 	_ = cancel // cancel is deferred via the caller's lifecycle
+
+	mcpManager := annamcp.NewManager()
+	annamcp.SetDefaultManager(mcpManager)
+	if mcpCfg, mcpEnabled, err := annamcp.LoadPluginState(parent, store); err == nil {
+		mcpManager.Reconcile(ctx, mcpCfg, mcpEnabled)
+	} else {
+		return nil, fmt.Errorf("load mcp plugin state: %w", err)
+	}
 
 	// Create scheduler service and tool before the runner factory so the tool
 	// can be injected into the Go runner.
@@ -231,6 +241,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		mem:          memProvider,
 		snap:         snap,
 		store:        store,
+		mcpManager:   mcpManager,
 		poolManager:  poolMgr,
 		pool:         pool,
 		schedulerSvc: schedulerSvc,

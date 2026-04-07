@@ -42,6 +42,11 @@ type Server struct {
 	reflectStart func()          // starts the reflect loop (idempotent)
 	reflectStop  func()          // cancels a running reflect loop
 	reflectCtx   context.Context // parent context
+
+	mcpMu        sync.Mutex
+	mcpStart     func()
+	mcpStop      func()
+	mcpReconcile func()
 }
 
 // New creates an admin server with all API routes mounted.
@@ -301,6 +306,38 @@ func (s *Server) stopReflect() {
 	defer s.reflectMu.Unlock()
 	if s.reflectStop != nil {
 		s.reflectStop()
+	}
+}
+
+func (s *Server) SetMCPLifecycle(start func(), stop func(), reconcile func()) {
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
+	s.mcpStart = start
+	s.mcpStop = stop
+	s.mcpReconcile = reconcile
+}
+
+func (s *Server) startMCP() {
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
+	if s.mcpStart != nil {
+		s.mcpStart()
+	}
+}
+
+func (s *Server) stopMCP() {
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
+	if s.mcpStop != nil {
+		s.mcpStop()
+	}
+}
+
+func (s *Server) reconcileMCP() {
+	s.mcpMu.Lock()
+	defer s.mcpMu.Unlock()
+	if s.mcpReconcile != nil {
+		s.mcpReconcile()
 	}
 }
 
