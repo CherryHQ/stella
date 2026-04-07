@@ -150,6 +150,16 @@ func setupAdmin(t *testing.T) *testEnv {
 	}
 }
 
+func TestNewPanicsWithoutPluginHost(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic")
+		}
+	}()
+
+	_ = admin.New(nil, nil, nil, nil, nil, nil, nil, nil)
+}
+
 func doRequest(t *testing.T, env *testEnv, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	return doRequestWithSession(t, env.srv, env.sessionID, method, path, body)
