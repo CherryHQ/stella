@@ -1,6 +1,9 @@
 package main
 
 import (
+	// Plugin channels.
+	_ "github.com/vaayne/anna/plugins/channels/telegram"
+
 	// Plugin providers.
 	_ "github.com/vaayne/anna/plugins/providers/anthropic"
 	_ "github.com/vaayne/anna/plugins/providers/openai"
