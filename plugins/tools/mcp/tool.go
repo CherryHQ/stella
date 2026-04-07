@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	annamcp "github.com/vaayne/anna/internal/mcp"
 	"github.com/vaayne/anna/pkg/tools"
@@ -107,6 +108,15 @@ func listResponse(tools []annamcp.ToolInfo) []listItem {
 			ServerName:  tool.ServerName,
 		})
 	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].ServerName != items[j].ServerName {
+			return items[i].ServerName < items[j].ServerName
+		}
+		if items[i].Name != items[j].Name {
+			return items[i].Name < items[j].Name
+		}
+		return items[i].ID < items[j].ID
+	})
 	return items
 }
 

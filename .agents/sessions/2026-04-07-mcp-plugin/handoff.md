@@ -77,3 +77,31 @@
 - The manager now executes real MCP tool calls, so Phase 3 mainly needs to refine tool-level validation and response shaping rather than invent a new execution path
 - Admin config mutation/reconcile on config edits is not wired yet; Phase 4 should trigger `reconcileMCP()` after config saves
 - Prompt integration can now safely consume `ValidTools()` because discovery cache only contains currently connected server tools
+
+## Phase 3: `mcp` Tool Execution Surface
+
+**Status:** complete
+
+**Tasks completed:**
+
+- 3.1: Completed the `mcp` tool surface with the stable `list|get|exec` action contract
+- 3.2: Normalized `list` output to sorted lightweight metadata (`id`, `name`, `description`, `server_name`)
+- 3.3: Kept `get` on the full normalized cached tool detail payload for schema introspection
+- 3.4: Reused the live manager execution path to return normalized MCP exec results through the tool
+- 3.5: Added tool tests for list/get/exec and validation/error paths
+
+**Files changed:**
+
+- `plugins/tools/mcp/tool.go` — sorted list normalization and stable proxy behavior
+- `plugins/tools/mcp/tool_test.go` — list/get/exec contract tests and validation tests
+- `.agents/sessions/2026-04-07-mcp-plugin/tasks.md` — checked off Phase 3 tasks
+
+**Commits:**
+
+- `HEAD` — `✨ feat: finalize MCP proxy tool actions`
+
+**Decisions & context for next phase:**
+
+- The `mcp` tool now relies on the shared manager for both discovery and execution, so admin config updates only need to reconcile the manager and reload plugin tools for new sessions
+- `get` returns the cached normalized tool detail; prompt guidance in Phase 5 should explicitly tell the model to call `get` before every `exec`
+- The admin page still lacks MCP form editing and config persistence APIs, which is the main remaining product-facing gap before prompt integration
