@@ -18,12 +18,13 @@ import (
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/embedded"
 	annamcp "github.com/vaayne/anna/internal/mcp"
+	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
-	pluginmemory "github.com/vaayne/anna/plugins/memory"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
@@ -51,7 +52,7 @@ type setupResult struct {
 	mem          memory.Provider
 	snap         *config.Snapshot
 	store        config.Store
-	mcpManager   *annamcp.Manager
+	pluginHost   *pluginhost.Host
 	poolManager  *agent.PoolManager
 	pool         *agent.Pool // default agent's pool (backward compat)
 	schedulerSvc *scheduler.Service
@@ -96,12 +97,14 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	ctx, cancel := context.WithCancel(parent)
 	_ = cancel // cancel is deferred via the caller's lifecycle
 
-	mcpManager := annamcp.NewManager()
-	annamcp.SetDefaultManager(mcpManager)
-	if mcpCfg, mcpEnabled, err := annamcp.LoadPluginState(parent, store); err == nil {
-		mcpManager.Reconcile(ctx, mcpCfg, mcpEnabled)
-	} else {
-		return nil, fmt.Errorf("load mcp plugin state: %w", err)
+	phost := pluginhost.New(store)
+	phost.RegisterLegacyID("mcp", annamcp.PluginID())
+	if err := phost.LoadDefaultCatalog(); err != nil {
+		return nil, fmt.Errorf("load plugin catalog: %w", err)
+	}
+	phost.RegisterLegacyCapabilities(pluginhost.LegacyBuildDeps{DB: db, AnnaHome: config.AnnaHome(), ToolsBinDir: embedded.BinDir(config.AnnaHome())})
+	if err := phost.ApplyPlugin(ctx, "mcp"); err != nil {
+		return nil, fmt.Errorf("apply mcp runtime: %w", err)
 	}
 
 	// Create scheduler service and tool before the runner factory so the tool
@@ -127,11 +130,17 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	dispatcher := channel.NewDispatcher()
 	// The notify tool is wired in gateway mode — channels register later.
 
-	// Build memory provider via plugin registry.
-	memProvider, err := pluginmemory.Build(parent, "lcm", pluginmemory.BuildContext{
-		DB:       db,
-		AnnaHome: config.AnnaHome(),
-	})
+	// Build memory provider via the host compatibility adapter.
+	memoryName := "lcm"
+	if plugins, err := store.ListPluginsByKind(parent, config.PluginKindMemory); err == nil {
+		for _, plugin := range plugins {
+			if plugin.Enabled {
+				memoryName = plugin.Name
+				break
+			}
+		}
+	}
+	memProvider, err := phost.BuildMemory(parent, memoryName, db, config.AnnaHome(), map[string]any{}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("memory plugin: %w", err)
 	}
@@ -154,21 +163,13 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Plugin tools builder: auto-discovers registered plugin tools and returns
 	// enabled ones. Called at startup and on hot-reload.
 	pluginToolsBuilder := func(ctx context.Context) []tools.Tool {
-		return plugintools.BuildEnabled(plugintools.BuildContext{}, func(name string) bool {
-			p, err := store.GetPlugin(ctx, config.PluginID(config.PluginKindTool, name))
-			return err == nil && p.Enabled
-		})
+		return phost.BuildEnabledTools(ctx, plugintools.BuildContext{})
 	}
 
 	// Plugin hooks builder: auto-discovers registered hook plugins and returns
 	// enabled ones. Called at startup and on hot-reload.
 	pluginHooksBuilder := func(ctx context.Context) []hooks.HookPlugin {
-		return pluginhooks.BuildEnabled(pluginhooks.BuildContext{
-			ToolsBinDir: embedded.BinDir(config.AnnaHome()),
-		}, func(name string) bool {
-			p, err := store.GetPlugin(ctx, config.PluginID(config.PluginKindHook, name))
-			return err == nil && p.Enabled
-		})
+		return phost.BuildEnabledHooks(ctx, pluginhooks.BuildContext{ToolsBinDir: embedded.BinDir(config.AnnaHome())})
 	}
 
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
@@ -186,6 +187,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithSharedExtraTools(sharedTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
+		agent.WithPromptToolsBuilder(func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error) { return phost.PromptTools(ctx, "mcp") }),
 	)
 
 	if err := poolMgr.StartAll(ctx); err != nil {
@@ -241,7 +243,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		mem:          memProvider,
 		snap:         snap,
 		store:        store,
-		mcpManager:   mcpManager,
+		pluginHost:   phost,
 		poolManager:  poolMgr,
 		pool:         pool,
 		schedulerSvc: schedulerSvc,
@@ -273,7 +275,7 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.Providers = providers
 		}
 
-		factory, err := agent.NewRunnerFactory(&snap, extraTools)
+		factory, err := agent.NewRunnerFactory(&snap, extraTools, nil)
 		if err != nil {
 			return err
 		}

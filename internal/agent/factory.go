@@ -10,6 +10,7 @@ import (
 	"github.com/vaayne/anna/internal/skills"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
@@ -21,7 +22,7 @@ import (
 //
 // Hooks are not part of the factory — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
-func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool) (runner.NewRunnerFunc, error) {
+func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error)) (runner.NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
 		return func(ctx context.Context, params runner.RunnerParams) (runner.Runner, error) {
@@ -54,6 +55,11 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool) (runner.Ne
 				memProvider, _ = params.Memory.(memory.Provider)
 			}
 
+			var promptTools []pkgplugins.PromptToolInfo
+			if promptToolsFn != nil {
+				promptTools, _ = promptToolsFn(ctx)
+			}
+
 			// Build the full system prompt per-session with profile from memory provider.
 			system := runner.BuildSystemPromptFromDB(ctx, runner.DBPromptParams{
 				SystemPrompt:  snap.SystemPrompt,
@@ -63,6 +69,7 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool) (runner.Ne
 				AnnaHome:      config.AnnaHome(),
 				Workspace:     snap.Workspace,
 				UserSkillsDir: userSkillsDir,
+				PromptTools:   promptTools,
 			})
 
 			// Build per-session extra tools.
