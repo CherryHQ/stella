@@ -23,6 +23,7 @@ func init() {
 			Kind:         "provider",
 			Name:         "openai-response",
 			DisplayName:  "OpenAI Response",
+			Description:  "OpenAI Responses API provider.",
 			AdminVisible: true,
 			Capabilities: []string{
 				pkgplugins.CapabilityProvider,

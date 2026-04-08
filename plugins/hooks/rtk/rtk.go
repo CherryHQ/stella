@@ -20,6 +20,7 @@ func init() {
 			Kind:         "hook",
 			Name:         "rtk",
 			DisplayName:  "RTK",
+			Description:  "Rewrite bash commands through the rtk binary.",
 			AdminVisible: true,
 			Capabilities: []string{
 				pkgplugins.CapabilityHook,

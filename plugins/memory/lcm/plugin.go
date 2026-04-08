@@ -15,6 +15,7 @@ func init() {
 			Kind:         "memory",
 			Name:         "lcm",
 			DisplayName:  "Lossless Context Management",
+			Description:  "Hierarchical summary-based memory with full-history preservation.",
 			AdminVisible: true,
 			Capabilities: []string{
 				pkgplugins.CapabilityMemory,

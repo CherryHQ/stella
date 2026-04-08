@@ -24,6 +24,7 @@ func (h *Host) RegisterFeishu(deps FeishuDeps) {
 			Kind:                  "channel",
 			Name:                  internalchannel.PlatformFeishu,
 			DisplayName:           "Feishu",
+			Description:           "Feishu bot integration.",
 			AdminVisible:          true,
 			SupportsNotifications: true,
 			Capabilities: []string{

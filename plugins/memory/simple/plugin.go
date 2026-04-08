@@ -15,6 +15,7 @@ func init() {
 			Kind:         "memory",
 			Name:         "simple",
 			DisplayName:  "Simple Sliding Window",
+			Description:  "Sliding-window memory without compaction or summaries.",
 			AdminVisible: true,
 			Capabilities: []string{
 				pkgplugins.CapabilityMemory,

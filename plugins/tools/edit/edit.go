@@ -18,6 +18,7 @@ func init() {
 			Kind:        "tool",
 			Name:        "edit",
 			DisplayName: "Edit",
+			Description: "Apply exact string replacements to existing files.",
 			Capabilities: []string{
 				pkgplugins.CapabilityTool,
 			},

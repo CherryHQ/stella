@@ -25,6 +25,7 @@ func init() {
 			Kind:         "tool",
 			Name:         "webfetch",
 			DisplayName:  "WebFetch",
+			Description:  "Fetch and extract readable web page content.",
 			AdminVisible: true,
 			Capabilities: []string{
 				pkgplugins.CapabilityTool,

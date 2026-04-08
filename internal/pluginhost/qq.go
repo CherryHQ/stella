@@ -24,6 +24,7 @@ func (h *Host) RegisterQQ(deps QQDeps) {
 			Kind:                  "channel",
 			Name:                  internalchannel.PlatformQQ,
 			DisplayName:           "QQ",
+			Description:           "QQ bot integration.",
 			AdminVisible:          true,
 			SupportsNotifications: true,
 			Capabilities: []string{

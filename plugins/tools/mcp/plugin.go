@@ -22,6 +22,7 @@ func init() {
 			Kind:         "tool",
 			Name:         "mcp",
 			DisplayName:  "MCP",
+			Description:  "Connect and proxy configured MCP servers.",
 			Managed:      true,
 			AdminVisible: true,
 			HasConfig:    true,

@@ -19,6 +19,7 @@ func init() {
 			Kind:        "tool",
 			Name:        "read",
 			DisplayName: "Read",
+			Description: "Read file contents with pagination and truncation.",
 			Capabilities: []string{
 				pkgplugins.CapabilityTool,
 			},

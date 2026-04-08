@@ -19,6 +19,7 @@ type PluginMeta struct {
 	Kind                  string
 	Name                  string
 	DisplayName           string
+	Description           string
 	Managed               bool
 	AdminVisible          bool
 	HasConfig             bool

@@ -20,6 +20,7 @@ func init() {
 			Kind:         "provider",
 			Name:         "openai",
 			DisplayName:  "OpenAI",
+			Description:  "OpenAI Chat Completions API provider.",
 			AdminVisible: true,
 			Capabilities: []string{
 				pkgplugins.CapabilityProvider,

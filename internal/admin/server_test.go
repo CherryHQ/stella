@@ -486,6 +486,7 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 		Enabled               bool           `json:"enabled"`
 		Config                map[string]any `json:"config"`
 		DisplayName           string         `json:"display_name"`
+		Description           string         `json:"description"`
 		Managed               bool           `json:"managed"`
 		AdminVisible          bool           `json:"admin_visible"`
 		HasConfig             bool           `json:"has_config"`
@@ -507,6 +508,9 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	if telegram.DisplayName != "Telegram" || !telegram.Managed || !telegram.AdminVisible || !telegram.HasConfig || !telegram.HasStatus || !telegram.SupportsNotifications {
 		t.Fatalf("unexpected telegram plugin payload: %#v", telegram)
 	}
+	if telegram.Description != "Telegram bot integration." {
+		t.Fatalf("telegram description = %q, want %q", telegram.Description, "Telegram bot integration.")
+	}
 	if telegram.Config["token"] != "***" {
 		t.Fatalf("expected redacted telegram token, got %#v", telegram.Config["token"])
 	}
@@ -519,6 +523,9 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	reflect := byID[internalreflect.PluginID]
 	if reflect.DisplayName != "Reflect" || !reflect.Managed || !reflect.HasConfig || !reflect.HasStatus {
 		t.Fatalf("unexpected reflect plugin payload: %#v", reflect)
+	}
+	if reflect.Description == "" {
+		t.Fatalf("expected reflect description in payload: %#v", reflect)
 	}
 }
 
