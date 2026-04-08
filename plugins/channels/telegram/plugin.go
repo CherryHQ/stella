@@ -44,6 +44,7 @@ func init() {
 			Kind:                  "channel",
 			Name:                  pkgchannel.PlatformTelegram,
 			DisplayName:           "Telegram",
+			Description:           "Telegram bot integration.",
 			Managed:               true,
 			AdminVisible:          true,
 			HasConfig:             true,

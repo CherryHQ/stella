@@ -18,6 +18,7 @@ func init() {
 			Kind:        "tool",
 			Name:        "write",
 			DisplayName: "Write",
+			Description: "Create or fully overwrite files.",
 			Capabilities: []string{
 				pkgplugins.CapabilityTool,
 			},

@@ -29,6 +29,7 @@ func init() {
 			Kind:         "hook",
 			Name:         "trace",
 			DisplayName:  "Trace",
+			Description:  "Capture tracing for LLM, tool, and memory activity.",
 			AdminVisible: true,
 			Capabilities: []string{
 				pkgplugins.CapabilityHook,

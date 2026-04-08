@@ -20,6 +20,7 @@ func init() {
 			Kind:         "provider",
 			Name:         "anthropic",
 			DisplayName:  "Anthropic",
+			Description:  "Anthropic Messages API provider.",
 			AdminVisible: true,
 			Capabilities: []string{
 				pkgplugins.CapabilityProvider,

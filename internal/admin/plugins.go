@@ -24,6 +24,7 @@ type pluginView struct {
 	Enabled               bool           `json:"enabled"`
 	Config                map[string]any `json:"config"`
 	DisplayName           string         `json:"display_name"`
+	Description           string         `json:"description"`
 	Managed               bool           `json:"managed"`
 	AdminVisible          bool           `json:"admin_visible"`
 	HasConfig             bool           `json:"has_config"`
@@ -44,6 +45,7 @@ func flattenRegisteredPlugins(s *Server, plugins []pkgplugins.RegisteredPlugin) 
 			Enabled:               plugin.State.Enabled,
 			Config:                s.pluginHost.RedactConfig(plugin.Meta.ID, plugin.State.Config),
 			DisplayName:           plugin.Meta.DisplayName,
+			Description:           plugin.Meta.Description,
 			Managed:               plugin.Meta.Managed,
 			AdminVisible:          plugin.Meta.AdminVisible,
 			HasConfig:             plugin.Meta.HasConfig,

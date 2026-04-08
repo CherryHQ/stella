@@ -20,6 +20,7 @@ func init() {
 			Kind:        "tool",
 			Name:        "bash",
 			DisplayName: "Bash",
+			Description: "Execute shell commands in the current workspace.",
 			Capabilities: []string{
 				pkgplugins.CapabilityTool,
 			},

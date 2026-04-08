@@ -24,6 +24,7 @@ func (h *Host) RegisterWeixin(deps WeixinDeps) {
 			Kind:                  "channel",
 			Name:                  internalchannel.PlatformWeixin,
 			DisplayName:           "Weixin",
+			Description:           "Weixin iLink bot integration.",
 			AdminVisible:          true,
 			SupportsNotifications: true,
 			Capabilities: []string{

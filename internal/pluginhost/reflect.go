@@ -30,6 +30,7 @@ func (h *Host) RegisterReflect(deps ReflectDeps) {
 			Kind:         "reflect",
 			Name:         "reflect",
 			DisplayName:  "Reflect",
+			Description:  "Background conversation review and profile extraction.",
 			AdminVisible: true,
 			Capabilities: []string{
 				pkgplugins.CapabilityRuntime,
