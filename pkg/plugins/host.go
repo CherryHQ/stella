@@ -20,6 +20,7 @@ type RegistryHost interface {
 	RegisterStatus(StatusRegistration)
 	RegisterPromptInventory(PromptInventoryRegistration)
 	RegisterSystemPrompt(SystemPromptRegistration)
+	RegisterBeforeRun(BeforeRunRegistration)
 	RegisterMetadata(PluginMeta)
 }
 

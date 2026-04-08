@@ -84,6 +84,11 @@ type SystemPromptSection struct {
 	Content string `json:"content"`
 }
 
+// BeforeRunResult is the mutable per-run output from lifecycle plugins.
+type BeforeRunResult struct {
+	SystemPrompt string `json:"system_prompt,omitempty"`
+}
+
 func cloneMap(src map[string]any) map[string]any {
 	if len(src) == 0 {
 		return map[string]any{}

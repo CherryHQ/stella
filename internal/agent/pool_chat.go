@@ -10,6 +10,7 @@ import (
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 // Chat sends a message in a session and streams back events.
@@ -125,6 +126,31 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 		p.log.Warn("memory assemble failed", "session_id", sessionID, "error", err)
 	} else {
 		history = assembled
+	}
+
+	if p.beforeRunFn != nil {
+		baseSystem := ""
+		if promter, ok := r.(runner.SystemPrompter); ok {
+			baseSystem = promter.SystemPrompt()
+		}
+		if result, err := p.beforeRunFn(ctx, pkgplugins.BeforeRunContext{
+			SessionID:    sessionID,
+			Channel:      sess.Info.Channel,
+			UserID:       sess.Info.UserID,
+			AgentID:      agentID,
+			Model:        sess.Model,
+			MessageText:  msgText,
+			SystemPrompt: baseSystem,
+			History:      history,
+		}); err != nil {
+			go func() {
+				out <- runner.Event{Err: fmt.Errorf("before run: %w", err)}
+				close(out)
+			}()
+			return out
+		} else if result.SystemPrompt != "" && result.SystemPrompt != baseSystem {
+			ctx = runner.WithSystemOverride(ctx, result.SystemPrompt)
+		}
 	}
 
 	// Store user message via memory provider (after assembly to avoid duplication).

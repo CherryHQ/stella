@@ -126,3 +126,11 @@ type SystemPromptRegistration struct {
 	Required bool
 	Build    func(ctx context.Context, build SystemPromptContext) (SystemPromptSection, error)
 }
+
+// BeforeRunRegistration registers a dynamic per-run lifecycle hook owned by a plugin.
+type BeforeRunRegistration struct {
+	PluginID string
+	Name     string
+	Required bool
+	Run      func(ctx context.Context, build BeforeRunContext) (BeforeRunResult, error)
+}

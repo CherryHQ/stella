@@ -33,6 +33,7 @@ type PluginHooksBuilder func(ctx context.Context) []hooks.HookPlugin
 // PromptToolsBuilder returns structured prompt inventory for the active plugin host.
 type PromptToolsBuilder func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error)
 type PromptSectionsBuilder func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
+type BeforeRunBuilder func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error)
 type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
 type CoreToolsBuilder = runner.CoreToolsBuilder
 
@@ -95,6 +96,12 @@ func WithPromptSectionsBuilder(b PromptSectionsBuilder) PoolManagerOption {
 	}
 }
 
+func WithBeforeRunBuilderPM(b BeforeRunBuilder) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.beforeRunBuilder = b
+	}
+}
+
 func WithProviderRegistryBuilder(b ProviderRegistryBuilder) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.providerRegistryBuilder = b
@@ -123,6 +130,7 @@ type PoolManager struct {
 	pluginHooksBuilder      PluginHooksBuilder // builds hooks from plugin state
 	promptToolsBuilder      PromptToolsBuilder // builds prompt inventory from plugin state
 	promptSectionsBuilder   PromptSectionsBuilder
+	beforeRunBuilder        BeforeRunBuilder
 	coreToolsBuilder        CoreToolsBuilder
 	providerRegistryBuilder ProviderRegistryBuilder
 	extraToolsFactory       ExtraToolsFactory
@@ -220,6 +228,7 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 		WithCompaction(pm.compaction.WithDefaults()),
 		WithDefaultModel(snap.ResolveModelID(config.ModelTierStrong)),
 		WithFastModel(snap.ResolveModelID(config.ModelTierFast)),
+		WithBeforeRunBuilder(pm.beforeRunBuilder),
 	}
 
 	pool := NewPool(factory, pm.mem, poolOpts...)

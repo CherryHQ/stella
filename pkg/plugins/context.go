@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 
+	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/channel"
 )
 
@@ -63,4 +64,18 @@ type SystemPromptContext struct {
 	UserID      int64
 	AgentID     string
 	UserDataDir string
+}
+
+// BeforeRunContext is the narrow per-run lifecycle context exposed to plugins.
+type BeforeRunContext struct {
+	Services     ServiceHost
+	State        PluginState
+	SessionID    string
+	Channel      string
+	UserID       int64
+	AgentID      string
+	Model        string
+	MessageText  string
+	SystemPrompt string
+	History      []ai.Message
 }
