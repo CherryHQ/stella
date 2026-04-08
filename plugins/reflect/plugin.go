@@ -12,9 +12,6 @@ var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, e
 	if services == nil {
 		return nil, fmt.Errorf("reflect: runtime services unavailable")
 	}
-	if services.DB() == nil {
-		return nil, fmt.Errorf("reflect: missing database")
-	}
 	if services.Memory() == nil {
 		return nil, fmt.Errorf("reflect: missing memory provider")
 	}
@@ -24,9 +21,13 @@ var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, e
 	if services.ParentContext() == nil {
 		return nil, fmt.Errorf("reflect: missing parent context")
 	}
+	if host.StateStore() == nil {
+		return nil, fmt.Errorf("reflect: missing plugin state store")
+	}
 	return NewManagedRuntime(RuntimeDeps{
 		Services:      services,
 		Notifications: host.Notifications(),
+		StateStore:    host.StateStore(),
 		Log:           host.Logger(PluginID),
 	}), nil
 }

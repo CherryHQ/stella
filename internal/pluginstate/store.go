@@ -1,0 +1,79 @@
+package pluginstate
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+
+	"github.com/vaayne/anna/pkg/db/sqlc"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+)
+
+type Store struct {
+	q *sqlc.Queries
+}
+
+func New(db *sql.DB) *Store {
+	return &Store{q: sqlc.New(db)}
+}
+
+func (s *Store) Get(ctx context.Context, pluginID string, scope pkgplugins.PluginStateScope, key string) (map[string]any, bool, error) {
+	scope = scope.Normalize()
+	raw, err := s.q.GetPluginStateEntry(ctx, sqlc.GetPluginStateEntryParams{
+		PluginID:  pluginID,
+		ScopeKind: scope.Kind,
+		ScopeID:   scope.ID,
+		StateKey:  key,
+	})
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("get plugin state %s/%s/%s/%s: %w", pluginID, scope.Kind, scope.ID, key, err)
+	}
+	value := map[string]any{}
+	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+		return nil, false, fmt.Errorf("decode plugin state %s/%s/%s/%s: %w", pluginID, scope.Kind, scope.ID, key, err)
+	}
+	return cloneMap(value), true, nil
+}
+
+func (s *Store) Set(ctx context.Context, pluginID string, scope pkgplugins.PluginStateScope, key string, value map[string]any) error {
+	scope = scope.Normalize()
+	encoded, err := json.Marshal(cloneMap(value))
+	if err != nil {
+		return fmt.Errorf("encode plugin state %s/%s/%s/%s: %w", pluginID, scope.Kind, scope.ID, key, err)
+	}
+	return s.q.UpsertPluginStateEntry(ctx, sqlc.UpsertPluginStateEntryParams{
+		PluginID:  pluginID,
+		ScopeKind: scope.Kind,
+		ScopeID:   scope.ID,
+		StateKey:  key,
+		Value:     string(encoded),
+	})
+}
+
+func (s *Store) Delete(ctx context.Context, pluginID string, scope pkgplugins.PluginStateScope, key string) error {
+	scope = scope.Normalize()
+	if err := s.q.DeletePluginStateEntry(ctx, sqlc.DeletePluginStateEntryParams{
+		PluginID:  pluginID,
+		ScopeKind: scope.Kind,
+		ScopeID:   scope.ID,
+		StateKey:  key,
+	}); err != nil {
+		return fmt.Errorf("delete plugin state %s/%s/%s/%s: %w", pluginID, scope.Kind, scope.ID, key, err)
+	}
+	return nil
+}
+
+func cloneMap(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return map[string]any{}
+	}
+	out := make(map[string]any, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}

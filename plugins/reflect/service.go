@@ -2,11 +2,9 @@ package reflect
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
 	"time"
 
-	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
@@ -20,15 +18,15 @@ const (
 
 // Config holds dependencies for the reflect service.
 type Config struct {
-	DB        *sql.DB
-	Memory    memory.Provider
-	Store     pkgplugins.ReflectStore
-	Notifier  pkgplugins.NotificationService
-	Workspace string
-	Interval  time.Duration
-	Batch     int
-	Log       *slog.Logger
-	Providers func(api, apiKey, baseURL string) (*providers.Registry, error)
+	StateStore pkgplugins.PluginStateStore
+	Memory     memory.Provider
+	Store      pkgplugins.ReflectStore
+	Notifier   pkgplugins.NotificationService
+	Workspace  string
+	Interval   time.Duration
+	Batch      int
+	Log        *slog.Logger
+	Providers  func(api, apiKey, baseURL string) (*providers.Registry, error)
 }
 
 // watermarker abstracts watermark storage for testability.
@@ -66,7 +64,7 @@ func New(cfg Config) *Service {
 		memory:    cfg.Memory,
 		store:     cfg.Store,
 		notifier:  cfg.Notifier,
-		wm:        newWatermarkStore(sqlc.New(cfg.DB)),
+		wm:        newWatermarkStore(cfg.StateStore),
 		workspace: cfg.Workspace,
 		interval:  cfg.Interval,
 		batch:     cfg.Batch,

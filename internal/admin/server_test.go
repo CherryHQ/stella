@@ -17,6 +17,7 @@ import (
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/pluginhost"
+	"github.com/vaayne/anna/internal/pluginstate"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
@@ -67,14 +68,16 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("Build lcm provider: %v", err)
 	}
 	dispatcher := notify.NewDispatcher()
+	stateStore := pluginstate.New(db)
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher)
 	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
-	reflectRuntimeServices.Set(context.Background(), db, mem, store, t.TempDir(), func(api, apiKey, baseURL string) (*providers.Registry, error) {
+	reflectRuntimeServices.Set(context.Background(), mem, store, t.TempDir(), func(api, apiKey, baseURL string) (*providers.Registry, error) {
 		return providers.NewRegistry(), nil
 	})
 	phost := pluginhost.New(store,
 		pluginhost.WithNotificationService(dispatcher),
+		pluginhost.WithStateStore(stateStore),
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
 		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
 	)

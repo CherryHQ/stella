@@ -17,6 +17,7 @@ type serviceRunner interface {
 type RuntimeDeps struct {
 	Services      pkgplugins.ReflectRuntimeServices
 	Notifications pkgplugins.NotificationService
+	StateStore    pkgplugins.PluginStateStore
 	Log           *slog.Logger
 	NewService    func(Config) serviceRunner
 	Now           func() time.Time
@@ -75,15 +76,15 @@ func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginSta
 	}
 
 	svc := r.deps.NewService(Config{
-		DB:        r.deps.Services.DB(),
-		Memory:    r.deps.Services.Memory(),
-		Store:     r.deps.Services.Store(),
-		Notifier:  r.deps.Notifications,
-		Workspace: r.deps.Services.Workspace(),
-		Interval:  cfg.Interval,
-		Batch:     cfg.Batch,
-		Log:       r.deps.Log,
-		Providers: r.deps.Services.BuildProviders,
+		StateStore: r.deps.StateStore,
+		Memory:     r.deps.Services.Memory(),
+		Store:      r.deps.Services.Store(),
+		Notifier:   r.deps.Notifications,
+		Workspace:  r.deps.Services.Workspace(),
+		Interval:   cfg.Interval,
+		Batch:      cfg.Batch,
+		Log:        r.deps.Log,
+		Providers:  r.deps.Services.BuildProviders,
 	})
 	parent := r.deps.Services.ParentContext()
 	if parent == nil {

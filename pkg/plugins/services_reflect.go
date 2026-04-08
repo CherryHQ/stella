@@ -2,7 +2,6 @@ package plugins
 
 import (
 	"context"
-	"database/sql"
 	"strings"
 
 	"github.com/vaayne/anna/pkg/ai"
@@ -92,7 +91,6 @@ type ReflectStore interface {
 
 type ReflectRuntimeServices interface {
 	ParentContext() context.Context
-	DB() *sql.DB
 	Memory() memory.Provider
 	Store() ReflectStore
 	Workspace() string
