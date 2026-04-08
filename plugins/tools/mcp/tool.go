@@ -8,16 +8,7 @@ import (
 
 	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	"github.com/vaayne/anna/pkg/tools"
-	plugintools "github.com/vaayne/anna/plugins/tools"
 )
-
-func init() {
-	plugintools.Register("mcp", plugintools.Registration{
-		Factory: func(_ plugintools.BuildContext) (tools.Tool, error) {
-			return New(pkgmcp.DefaultManager()), nil
-		},
-	})
-}
 
 type Tool struct {
 	manager *pkgmcp.Manager

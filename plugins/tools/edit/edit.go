@@ -6,18 +6,32 @@ import (
 	"os"
 	"strings"
 
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
-	plugintools "github.com/vaayne/anna/plugins/tools"
 	"github.com/vaayne/anna/plugins/tools/sandbox"
 )
 
 func init() {
-	plugintools.Register("edit", plugintools.Registration{
-		Required: true,
-		Factory: func(bc plugintools.BuildContext) (tools.Tool, error) {
-			return sandbox.WrapWithSandbox(&EditTool{}, bc.UserDataDir, "file_path"), nil
-		},
-	})
+	pkgplugins.Register("tool/edit", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
+		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+			ID:          "tool/edit",
+			Kind:        "tool",
+			Name:        "edit",
+			DisplayName: "Edit",
+			Capabilities: []string{
+				pkgplugins.CapabilityTool,
+			},
+		})
+		host.Registry().RegisterTool(pkgplugins.ToolRegistration{
+			PluginID:    "tool/edit",
+			Name:        "edit",
+			Description: "Edit existing files.",
+			Required:    true,
+			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
+				return sandbox.WrapWithSandbox(&EditTool{}, ctx.UserDataDir, "file_path"), nil
+			},
+		})
+	}))
 }
 
 // EditTool makes surgical edits to files by exact string replacement.

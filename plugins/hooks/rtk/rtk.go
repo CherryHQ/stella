@@ -10,15 +10,29 @@ import (
 	"sync"
 
 	"github.com/vaayne/anna/pkg/hooks"
-	pluginhooks "github.com/vaayne/anna/plugins/hooks"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 func init() {
-	pluginhooks.Register("rtk", pluginhooks.Registration{
-		Factory: func(bc pluginhooks.BuildContext) (hooks.HookPlugin, error) {
-			return NewHook(bc.ToolsBinDir), nil
-		},
-	})
+	pkgplugins.Register("hook/rtk", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
+		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+			ID:           "hook/rtk",
+			Kind:         "hook",
+			Name:         "rtk",
+			DisplayName:  "RTK",
+			AdminVisible: true,
+			Capabilities: []string{
+				pkgplugins.CapabilityHook,
+			},
+		})
+		host.Registry().RegisterHook(pkgplugins.HookRegistration{
+			PluginID: "hook/rtk",
+			Name:     "rtk",
+			Build: func(ctx pkgplugins.HookContext) (hooks.HookPlugin, error) {
+				return NewHook(ctx.ToolsBinDir), nil
+			},
+		})
+	}))
 }
 
 // Hook rewrites bash commands via the rtk binary.

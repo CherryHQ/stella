@@ -15,8 +15,7 @@ import (
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/memory"
-	pluginmemory "github.com/vaayne/anna/plugins/memory"
-	_ "github.com/vaayne/anna/plugins/memory/lcm"
+	lcmmemory "github.com/vaayne/anna/plugins/memory/lcm"
 )
 
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -24,7 +23,7 @@ var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 func newTestMemProvider() memory.Provider {
 	dir, _ := os.MkdirTemp("", "cli-test-*")
 	db, _ := appdb.OpenDB(filepath.Join(dir, "test.db"))
-	p, _ := pluginmemory.Build(context.Background(), "lcm", pluginmemory.BuildContext{DB: db})
+	p, _ := lcmmemory.New(db, nil, nil)
 	return p
 }
 

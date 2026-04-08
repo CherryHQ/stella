@@ -14,16 +14,31 @@ import (
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/go-resty/resty/v2"
 	"github.com/vaayne/anna/pkg/httpclient"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
-	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
 func init() {
-	plugintools.Register("webfetch", plugintools.Registration{
-		Factory: func(_ plugintools.BuildContext) (tools.Tool, error) {
-			return New(), nil
-		},
-	})
+	pkgplugins.Register("tool/webfetch", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
+		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+			ID:           "tool/webfetch",
+			Kind:         "tool",
+			Name:         "webfetch",
+			DisplayName:  "WebFetch",
+			AdminVisible: true,
+			Capabilities: []string{
+				pkgplugins.CapabilityTool,
+			},
+		})
+		host.Registry().RegisterTool(pkgplugins.ToolRegistration{
+			PluginID:    "tool/webfetch",
+			Name:        "webfetch",
+			Description: "Fetch and extract readable web content.",
+			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
+				return New(), nil
+			},
+		})
+	}))
 }
 
 const (

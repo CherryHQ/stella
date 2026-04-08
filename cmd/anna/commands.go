@@ -104,7 +104,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		return nil, fmt.Errorf("load plugin catalog: %w", err)
 	}
-	phost.RegisterLegacyCapabilities(pluginhost.LegacyBuildDeps{DB: db, AnnaHome: config.AnnaHome(), ToolsBinDir: embedded.BinDir(config.AnnaHome())})
 	if err := phost.ApplyPlugin(ctx, pkgmcp.PluginID); err != nil {
 		return nil, fmt.Errorf("apply mcp runtime: %w", err)
 	}

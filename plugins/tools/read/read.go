@@ -7,18 +7,32 @@ import (
 	"os"
 	"strings"
 
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
-	plugintools "github.com/vaayne/anna/plugins/tools"
 	"github.com/vaayne/anna/plugins/tools/sandbox"
 )
 
 func init() {
-	plugintools.Register("read", plugintools.Registration{
-		Required: true,
-		Factory: func(bc plugintools.BuildContext) (tools.Tool, error) {
-			return sandbox.WrapWithSandbox(&ReadTool{}, bc.UserDataDir, "file_path"), nil
-		},
-	})
+	pkgplugins.Register("tool/read", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
+		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+			ID:          "tool/read",
+			Kind:        "tool",
+			Name:        "read",
+			DisplayName: "Read",
+			Capabilities: []string{
+				pkgplugins.CapabilityTool,
+			},
+		})
+		host.Registry().RegisterTool(pkgplugins.ToolRegistration{
+			PluginID:    "tool/read",
+			Name:        "read",
+			Description: "Read file contents.",
+			Required:    true,
+			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
+				return sandbox.WrapWithSandbox(&ReadTool{}, ctx.UserDataDir, "file_path"), nil
+			},
+		})
+	}))
 }
 
 // ReadTool reads file contents.

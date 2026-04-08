@@ -10,20 +10,9 @@ import (
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
-	pluginproviders "github.com/vaayne/anna/plugins/providers"
 	plugintools "github.com/vaayne/anna/plugins/tools"
+	bashtool "github.com/vaayne/anna/plugins/tools/bash"
 )
-
-func init() {
-	// Register a stub provider so NewGoRunner can Build("anthropic", ...).
-	// Tests replace the registry entry with their own fake after construction.
-	pluginproviders.Register("anthropic", pluginproviders.Registration{
-		Meta: pluginproviders.ProviderMeta{Name: "Anthropic"},
-		Factory: func(cfg pluginproviders.ProviderConfig) (providers.ProviderAdapter, error) {
-			return &stubProvider{}, nil
-		},
-	})
-}
 
 type stubProvider struct{}
 
@@ -36,14 +25,16 @@ func (s *stubProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.Si
 }
 
 func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Registry, error) {
-	return pluginproviders.BuildRegistry(api, pluginproviders.ProviderConfig{
-		APIKey:  apiKey,
-		BaseURL: baseURL,
-	})
+	if api != "anthropic" {
+		return nil, providers.ErrProviderNotFound
+	}
+	reg := providers.NewRegistry()
+	reg.Register(&stubProvider{})
+	return reg, nil
 }
 
-func testCoreToolsBuilder(plugintools.BuildContext) []tools.Tool {
-	return plugintools.BuildCore(plugintools.BuildContext{})
+func testCoreToolsBuilder(bc plugintools.BuildContext) []tools.Tool {
+	return []tools.Tool{bashtool.NewBashTool(bc.WorkDir, bc.ToolsBinDir)}
 }
 
 func TestNewGoRunnerRequiresConfig(t *testing.T) {
