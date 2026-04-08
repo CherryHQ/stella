@@ -63,6 +63,14 @@ This handoff file is also the running implementation log for future sessions.
 - Removed the remaining admin-side pluginhost compatibility branches:
   - admin plugin config/status endpoints now require a plugin host
   - admin server construction now panics if `pluginHost` is nil
+- Extracted skill discovery and skill management into `pkg/skills`, so review/runtime code no longer depends on `internal/skills` or runner-local skill catalog code.
+- Moved the reflect runtime package from `internal/reflect` to `plugins/reflect`, and replaced the hardcoded `pluginhost.RegisterReflect(...)` path with a narrow host service extension.
+- Extracted QQ, Feishu, and Weixin persisted config types into `pkg/channel`.
+- Moved QQ, Feishu, and Weixin runtime/config ownership from `internal/channel` + `internal/pluginhost` into:
+  - `plugins/channels/qq`
+  - `plugins/channels/feishu`
+  - `plugins/channels/weixin`
+- Removed the remaining static internal channel plugin registry; gateway/admin now derive channel runtime behavior from `pluginhost` registrations and canonical plugin IDs instead of `internal/channel/host_backed.go`.
 
 ## Key Decisions
 
@@ -109,6 +117,7 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - MCP tool metadata, execution result shape, and server status are now public package contracts in `pkg/mcp`.
 - MCP runtime behavior now also lives in `pkg/mcp`: manager lifecycle, MCP session dialing, server supervision, and canonical tool ID handling are no longer app-private.
 - Shared database query contracts now live in `pkg/db/sqlc`, not `internal/db/sqlc`.
+- Shared skill discovery, validation, and skill-management tool code now live in `pkg/skills`, not `internal/skills` or `internal/agent/runner/skill.go`.
 - Production provider construction now flows through `internal/pluginhost`:
   - runner provider registries
   - admin provider validation/model fetch
@@ -116,6 +125,9 @@ The migration target from `extension-design.md` is now implemented for the in-re
   - reflect review provider setup
 - Production memory construction now flows through `internal/pluginhost` without any registry adapter step.
 - Production core and optional tool construction both flow through `internal/pluginhost`.
+- Reflect runtime/config/status now live in `plugins/reflect`, discovered through the default catalog plus host-provided reflect services.
+- QQ, Feishu, and Weixin runtime/config/status now live in their plugin packages, discovered through the default catalog plus shared channel runtime services.
+- There are no remaining plugin-owned runtime/config packages under `internal/...`.
 - The old split registries are gone as runtime/discovery systems:
   - `plugins/providers`
   - `plugins/memory`
@@ -205,39 +217,32 @@ The migration target from `extension-design.md` is now implemented for the in-re
 
 ## Next Steps
 
-The migration is done, but the cleanup is not. The next mandate is to clean the remaining app-private orchestration packages until they are small, obvious, and boring:
+The plugin-ownership cleanup is done. The next mandate is ordinary app cleanup: make the remaining orchestration packages smaller, clearer, and less coupled.
 
-1. Clean `internal/reflect` first.
-   - Split review orchestration, config/runtime wiring, provider setup, and persistence-facing logic into narrower units.
-   - Keep only app-private composition in `internal/reflect`; move reusable data/contracts out if they are stable.
-2. Clean `internal/channel` next.
-   - Separate channel lifecycle, notification dispatch, identity/linking, CLI wiring, and host-backed runtime adapters.
-   - Reduce the package so it is no longer a broad “everything channel-related” bucket.
-3. Clean adjacent orchestration packages after that:
-   - `internal/admin`
-   - `internal/scheduler`
-   - `cmd/anna`
-4. Revisit the blank-import bootstrap only after the internal cleanup work stops uncovering structural changes.
+Recommended order:
 
-Rules for the cleanup phase:
+1. Clean `internal/channel`.
+   - Separate lifecycle, notification dispatch, identity/linking, and CLI-specific concerns.
+   - Keep using `pluginhost` discovery instead of reintroducing channel-specific registries or static lists.
+2. Clean `internal/admin`.
+   - Reduce cross-handler coupling now that plugin and channel operations are uniformly host-backed.
+3. Clean `cmd/anna`.
+   - Split bootstrap/wiring responsibilities into narrower setup units.
+4. Clean scheduler/notification plumbing after that.
+5. Revisit the blank-import bootstrap only after the wiring packages stop moving.
+
+Rules for the cleanup phase remain:
 
 - No fallback code.
 - No compatibility layers just to preserve old shapes.
-- Prefer splitting large packages into smaller internal packages over adding more files to the same broad package.
-- If a helper is stable and reused across package boundaries, move it to `pkg/...`; otherwise keep it internal and local.
-- Each cleanup slice should be a coherent phase with tests green and its own commit.
+- Prefer smaller internal packages over broad “misc” buckets.
+- Move helpers to `pkg/...` only when they are genuinely stable and cross-package.
+- Keep each cleanup slice coherent, tested, and committed separately.
 
-Suggested cleanup order after the current schema/admin work:
+Success condition now:
 
-1. `internal/reflect`
-2. `internal/channel`
-3. scheduler/notification plumbing
-4. `internal/admin`
-5. `cmd/anna`
-
-Success condition for this phase:
-
-- fewer cross-package responsibilities hidden inside broad `internal/...` packages
+- no plugin-owned code under `internal/...`
+- fewer cross-package responsibilities hidden inside broad app-private packages
 - smaller package APIs
 - less wiring logic mixed with domain behavior
 - no new architecture debt introduced while cleaning code shape
@@ -461,6 +466,22 @@ This is a real second migration, not a cleanup detail. It should only start afte
   - `managed_runtime.go` for runtime dependency wiring, lifecycle, and runtime snapshots
 - Removed the old mixed `plugin_runtime.go` shape.
 - Verified with focused tests for `internal/reflect`, `internal/pluginhost`, `internal/admin`, and `cmd/anna`, then ran `go test ./...`.
+
+### 2026-04-08 — plugin ownership cleanup completed
+
+- Extracted skills into `pkg/skills` and removed the old `internal/skills` package plus the runner-local skill catalog implementation.
+- Moved the reflect plugin from `internal/reflect` to `plugins/reflect`.
+- Added `pkg/plugins.ReflectRuntimeServices` plus the `pluginhost` service extension that feeds reflect its app-private runtime inputs without making the plugin import `internal/...`.
+- Moved QQ, Feishu, and Weixin runtime/config ownership into their plugin packages and removed:
+  - `internal/pluginhost/qq.go`
+  - `internal/pluginhost/feishu.go`
+  - `internal/pluginhost/weixin.go`
+  - `internal/channel/qq_plugin_runtime.go`
+  - `internal/channel/feishu_plugin_runtime.go`
+  - `internal/channel/weixin_plugin_runtime.go`
+- Extracted QQ, Feishu, and Weixin persisted config types into `pkg/channel`.
+- Removed `internal/channel/host_backed.go`; gateway and admin now drive channel behavior from `pluginhost` registrations instead of an internal hardcoded plugin list.
+- Verified repeatedly with focused package tests and ran `go test ./...` successfully after each phase.
 
 ## Session Log
 
