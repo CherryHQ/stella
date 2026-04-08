@@ -52,3 +52,15 @@ type RuntimeContext struct {
 	Services ServiceHost
 	State    PluginState
 }
+
+// SystemPromptContext is the shared build context for prompt contributions.
+type SystemPromptContext struct {
+	Services    ServiceHost
+	State       PluginState
+	AnnaHome    string
+	Workspace   string
+	Cwd         string
+	UserID      int64
+	AgentID     string
+	UserDataDir string
+}

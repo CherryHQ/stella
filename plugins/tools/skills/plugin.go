@@ -20,6 +20,7 @@ func init() {
 			Description: "Manage local agent skills.",
 			Capabilities: []string{
 				pkgplugins.CapabilityTool,
+				pkgplugins.CapabilityPrompt,
 			},
 		})
 		host.Registry().RegisterTool(pkgplugins.ToolRegistration{
@@ -31,6 +32,12 @@ func init() {
 				cwd, _ := os.Getwd()
 				return NewTool(ctx.AnnaHome, ctx.Workspace, cwd, userSkillsDir(ctx.UserDataDir)), nil
 			},
+		})
+		host.Registry().RegisterSystemPrompt(pkgplugins.SystemPromptRegistration{
+			PluginID: PluginID,
+			Name:     "skills",
+			Required: true,
+			Build:    buildPromptSection,
 		})
 	}))
 }

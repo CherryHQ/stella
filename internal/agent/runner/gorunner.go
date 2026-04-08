@@ -16,6 +16,7 @@ import (
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 	plugintools "github.com/vaayne/anna/plugins/tools"
@@ -29,19 +30,20 @@ type CoreToolsBuilder func(plugintools.BuildContext) []tools.Tool
 
 // GoRunnerConfig configures the Go runner.
 type GoRunnerConfig struct {
-	API         string // provider key: "anthropic", "openai"
-	Model       string // e.g. "claude-sonnet-4-20250514"
-	APIKey      string
-	BaseURL     string             // optional provider base URL override
-	WorkDir     string             // working directory for tool execution
-	Workspace   string             // workspace dir for skills/memory (e.g. ~/.anna/workspace)
-	AnnaHome    string             // anna home directory (e.g. ~/.anna)
-	System      string             // optional system prompt override (bypasses default prompt building)
-	ExtraTools  []tools.Tool       // additional tools to register
-	UserDataDir string             // per-user data directory for sandbox enforcement (empty = no sandbox)
-	HookPlugins []hooks.HookPlugin // hook plugins for the engine loop
-	CoreTools   CoreToolsBuilder
-	Providers   ProviderRegistryBuilder
+	API            string // provider key: "anthropic", "openai"
+	Model          string // e.g. "claude-sonnet-4-20250514"
+	APIKey         string
+	BaseURL        string // optional provider base URL override
+	WorkDir        string // working directory for tool execution
+	Workspace      string // workspace dir for skills/memory (e.g. ~/.anna/workspace)
+	AnnaHome       string // anna home directory (e.g. ~/.anna)
+	System         string // optional system prompt override (bypasses default prompt building)
+	PromptSections []pkgplugins.SystemPromptSection
+	ExtraTools     []tools.Tool       // additional tools to register
+	UserDataDir    string             // per-user data directory for sandbox enforcement (empty = no sandbox)
+	HookPlugins    []hooks.HookPlugin // hook plugins for the engine loop
+	CoreTools      CoreToolsBuilder
+	Providers      ProviderRegistryBuilder
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.
@@ -75,9 +77,11 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	system := cfg.System
 	if system == "" {
 		system = BuildSystemPromptFromDB(context.Background(), DBPromptParams{
-			AnnaHome:  cfg.AnnaHome,
-			Workspace: cfg.Workspace,
-			Cwd:       cfg.WorkDir,
+			AnnaHome:       cfg.AnnaHome,
+			Workspace:      cfg.Workspace,
+			Cwd:            cfg.WorkDir,
+			UserDataDir:    cfg.UserDataDir,
+			PromptSections: cfg.PromptSections,
 		})
 	}
 

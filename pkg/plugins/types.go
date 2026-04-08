@@ -78,6 +78,12 @@ func (i PromptToolInfo) Clone() PromptToolInfo {
 	return i
 }
 
+// SystemPromptSection is a structured prompt contribution from a plugin.
+type SystemPromptSection struct {
+	Title   string `json:"title"`
+	Content string `json:"content"`
+}
+
 func cloneMap(src map[string]any) map[string]any {
 	if len(src) == 0 {
 		return map[string]any{}

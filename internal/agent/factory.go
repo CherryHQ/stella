@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
@@ -21,7 +22,7 @@ import (
 //
 // Hooks are not part of the factory — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
-func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsBuilder runner.CoreToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error)) (runner.NewRunnerFunc, error) {
+func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsBuilder runner.CoreToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)) (runner.NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
 		return func(ctx context.Context, params runner.RunnerParams) (runner.Runner, error) {
@@ -36,14 +37,13 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsB
 				provID = snap.Provider
 			}
 			creds := snap.ResolveProviderCreds(provID)
+			cwd, _ := os.Getwd()
 
 			// Determine per-user paths when user ID is set.
-			var userSkillsDir string
 			var userDataDir string
 			if params.UserID > 0 {
 				userDir, err := SetupUserWorkspace(snap.AgentID, config.AnnaHome(), params.UserID)
 				if err == nil {
-					userSkillsDir = UserSkillsDir(userDir)
 					userDataDir = UserDataDir(userDir)
 				}
 			}
@@ -58,17 +58,30 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsB
 			if promptToolsFn != nil {
 				promptTools, _ = promptToolsFn(ctx)
 			}
+			var promptSections []pkgplugins.SystemPromptSection
+			if promptSectionsFn != nil {
+				promptSections, _ = promptSectionsFn(ctx, pkgplugins.SystemPromptContext{
+					AnnaHome:    config.AnnaHome(),
+					Workspace:   snap.Workspace,
+					Cwd:         cwd,
+					UserID:      params.UserID,
+					AgentID:     params.AgentID,
+					UserDataDir: userDataDir,
+				})
+			}
 
 			// Build the full system prompt per-session with profile from memory provider.
 			system := runner.BuildSystemPromptFromDB(ctx, runner.DBPromptParams{
-				SystemPrompt:  snap.SystemPrompt,
-				Memory:        memProvider,
-				UserID:        params.UserID,
-				AgentID:       params.AgentID,
-				AnnaHome:      config.AnnaHome(),
-				Workspace:     snap.Workspace,
-				UserSkillsDir: userSkillsDir,
-				PromptTools:   promptTools,
+				SystemPrompt:   snap.SystemPrompt,
+				Memory:         memProvider,
+				UserID:         params.UserID,
+				AgentID:        params.AgentID,
+				AnnaHome:       config.AnnaHome(),
+				Workspace:      snap.Workspace,
+				Cwd:            cwd,
+				UserDataDir:    userDataDir,
+				PromptTools:    promptTools,
+				PromptSections: promptSections,
 			})
 
 			// Use user data dir as working dir when available, otherwise use system cwd.
@@ -81,19 +94,20 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsB
 			}
 
 			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
-				API:         provID,
-				Model:       modelID,
-				APIKey:      creds.APIKey,
-				Workspace:   snap.Workspace,
-				AnnaHome:    config.AnnaHome(),
-				BaseURL:     creds.BaseURL,
-				System:      system,
-				ExtraTools:  extraTools,
-				WorkDir:     workDir,
-				UserDataDir: userDataDir,
-				HookPlugins: hookPlugins,
-				CoreTools:   coreToolsBuilder,
-				Providers:   providerRegistryBuilder,
+				API:            provID,
+				Model:          modelID,
+				APIKey:         creds.APIKey,
+				Workspace:      snap.Workspace,
+				AnnaHome:       config.AnnaHome(),
+				BaseURL:        creds.BaseURL,
+				System:         system,
+				PromptSections: promptSections,
+				ExtraTools:     extraTools,
+				WorkDir:        workDir,
+				UserDataDir:    userDataDir,
+				HookPlugins:    hookPlugins,
+				CoreTools:      coreToolsBuilder,
+				Providers:      providerRegistryBuilder,
 			})
 		}, nil
 	default:

@@ -42,14 +42,15 @@ type testRegistry struct {
 	prompt pkgplugins.PromptInventoryRegistration
 }
 
-func (*testRegistry) RegisterTool(pkgplugins.ToolRegistration)         {}
-func (*testRegistry) RegisterProvider(pkgplugins.ProviderRegistration) {}
-func (*testRegistry) RegisterChannel(pkgplugins.ChannelRegistration)   {}
-func (*testRegistry) RegisterHook(pkgplugins.HookRegistration)         {}
-func (*testRegistry) RegisterMemory(pkgplugins.MemoryRegistration)     {}
-func (*testRegistry) RegisterRuntime(pkgplugins.RuntimeRegistration)   {}
-func (*testRegistry) RegisterConfig(pkgplugins.ConfigRegistration)     {}
-func (*testRegistry) RegisterStatus(pkgplugins.StatusRegistration)     {}
+func (*testRegistry) RegisterTool(pkgplugins.ToolRegistration)                 {}
+func (*testRegistry) RegisterProvider(pkgplugins.ProviderRegistration)         {}
+func (*testRegistry) RegisterChannel(pkgplugins.ChannelRegistration)           {}
+func (*testRegistry) RegisterHook(pkgplugins.HookRegistration)                 {}
+func (*testRegistry) RegisterMemory(pkgplugins.MemoryRegistration)             {}
+func (*testRegistry) RegisterRuntime(pkgplugins.RuntimeRegistration)           {}
+func (*testRegistry) RegisterConfig(pkgplugins.ConfigRegistration)             {}
+func (*testRegistry) RegisterStatus(pkgplugins.StatusRegistration)             {}
+func (*testRegistry) RegisterSystemPrompt(pkgplugins.SystemPromptRegistration) {}
 func (r *testRegistry) RegisterPromptInventory(reg pkgplugins.PromptInventoryRegistration) {
 	r.prompt = reg
 }

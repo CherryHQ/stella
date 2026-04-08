@@ -118,3 +118,11 @@ type PromptInventoryRegistration struct {
 	Name     string
 	GetTools func(ctx context.Context) ([]PromptToolInfo, error)
 }
+
+// SystemPromptRegistration registers prompt contribution owned by a plugin.
+type SystemPromptRegistration struct {
+	PluginID string
+	Name     string
+	Required bool
+	Build    func(ctx context.Context, build SystemPromptContext) (SystemPromptSection, error)
+}

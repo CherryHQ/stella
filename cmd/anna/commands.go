@@ -208,6 +208,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithPromptToolsBuilder(func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error) {
 			return phost.PromptTools(ctx, mcpplugin.PluginID)
 		}),
+		agent.WithPromptSectionsBuilder(func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
+			return phost.SystemPromptSections(ctx, build)
+		}),
 	)
 
 	if err := poolMgr.StartAll(ctx); err != nil {
@@ -297,7 +300,7 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.Providers = providers
 		}
 
-		factory, err := agent.NewRunnerFactory(&snap, extraTools, coreToolsBuilder, providerRegistryBuilder, nil)
+		factory, err := agent.NewRunnerFactory(&snap, extraTools, coreToolsBuilder, providerRegistryBuilder, nil, nil)
 		if err != nil {
 			return err
 		}
