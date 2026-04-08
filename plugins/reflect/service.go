@@ -50,16 +50,7 @@ type Service struct {
 
 // New creates a new reflect service.
 func New(cfg Config) *Service {
-	if cfg.Log == nil {
-		cfg.Log = slog.Default()
-	}
-	if cfg.Interval <= 0 {
-		cfg.Interval = time.Hour
-	}
-	if cfg.Batch <= 0 {
-		cfg.Batch = 5
-	}
-
+	cfg = normalizeConfig(cfg)
 	return &Service{
 		memory:    cfg.Memory,
 		store:     cfg.Store,
@@ -71,4 +62,17 @@ func New(cfg Config) *Service {
 		log:       cfg.Log,
 		providers: cfg.Providers,
 	}
+}
+
+func normalizeConfig(cfg Config) Config {
+	if cfg.Log == nil {
+		cfg.Log = slog.Default()
+	}
+	if cfg.Interval <= 0 {
+		cfg.Interval = time.Hour
+	}
+	if cfg.Batch <= 0 {
+		cfg.Batch = 5
+	}
+	return cfg
 }

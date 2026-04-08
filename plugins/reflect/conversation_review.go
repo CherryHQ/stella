@@ -89,20 +89,23 @@ func (s *Service) newConversationReviewer(snap *pkgplugins.ReflectSnapshot, user
 	return newReviewer(reviewerConfig{
 		Providers:      reg,
 		Model:          model,
-		SkillsTool:     skillstool.NewTool("", snap.Workspace, "", filepath.Join(snap.Workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")),
+		SkillsTool:     skillstool.NewTool("", snap.Workspace, "", userSkillsDir(snap.Workspace, userID)),
 		MemoryTool:     memory.BuildTool(s.memory, memory.WithActionsOnly("profile_get", "profile_update")),
 		ExistingSkills: loadExistingSkillNames(snap.Workspace, userID),
 	})
 }
 
 func loadExistingSkillNames(workspace string, userID int64) []string {
-	userSkillsDir := filepath.Join(workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")
-	allSkills := skillstool.LoadSkills("", workspace, "", userSkillsDir)
+	allSkills := skillstool.LoadSkills("", workspace, "", userSkillsDir(workspace, userID))
 	names := make([]string, 0, len(allSkills))
 	for _, sk := range allSkills {
 		names = append(names, sk.Name)
 	}
 	return names
+}
+
+func userSkillsDir(workspace string, userID int64) string {
+	return filepath.Join(workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")
 }
 
 func (s *Service) notifyReviewResult(ctx context.Context, userID int64, result reviewResult) {
