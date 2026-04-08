@@ -7,3 +7,4 @@ dist/
 # Embedded tool binaries (downloaded via scripts/download-tools.sh)
 internal/embedded/binaries/*.gz
 cmd/anna/.agents/
+internal/agent/runner/.agents/
