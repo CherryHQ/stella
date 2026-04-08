@@ -86,6 +86,10 @@ This handoff file is also the running implementation log for future sessions.
   - shared text `/model` and `/agent` handling now lives in `pkg/channel`
   - Feishu keeps numbered model selection as a presentation difference, but uses the same shared command flow underneath
 - Fixed the Telegram test seam after the managed-channel registration refactor by keeping its runtime factory late-bound; test overrides now still replace the runtime constructor instead of freezing the production constructor at init time.
+- Removed `pkg/mcp` after re-checking the ownership boundary:
+  - MCP config, IDs, manager, session, supervisor, and data types now live directly in `plugins/tools/mcp`
+  - app/test callers now import `plugins/tools/mcp` directly for MCP-owned constants and types
+  - there is no remaining fake “shared MCP package” layer
 - Started `internal/admin` cleanup by extracting route registration out of `server.go`.
 - Continued `internal/admin` cleanup by moving channel lifecycle management out of `server.go`.
 - Continued `internal/admin` cleanup by moving HTTP wrapper methods and JSON response helpers out of `server.go`.
@@ -131,9 +135,8 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - Telegram config is now a public package contract in `pkg/channel`, not an app-private type in `internal/channel`.
 - Shared channel config decode/clone helpers are now public package contracts in `pkg/channel`, and the old `internal/channel` wrapper layer has been removed.
 - Shared managed channel runtime orchestration now lives in `pkg/plugins`, which is the stable package boundary for managed runtime helpers that depend on both channel contracts and plugin lifecycle contracts.
-- MCP config is now a public package contract in `pkg/mcp`, not an app-private type in `internal/mcp`.
-- MCP tool metadata, execution result shape, and server status are now public package contracts in `pkg/mcp`.
-- MCP runtime behavior now also lives in `pkg/mcp`: manager lifecycle, MCP session dialing, server supervision, and canonical tool ID handling are no longer app-private.
+- MCP now lives as one ownership unit inside `plugins/tools/mcp`: config, IDs, manager lifecycle, session dialing, server supervision, data types, runtime wiring, and proxy-tool behavior are all package-local there.
+- `pkg/mcp` no longer exists; it was an intermediate migration stop, not the final design.
 - Shared database query contracts now live in `pkg/db/sqlc`, not `internal/db/sqlc`.
 - Shared skill discovery, validation, and skill-management tool code now live in `pkg/skills`, not `internal/skills` or `internal/agent/runner/skill.go`.
 - Production provider construction now flows through `internal/pluginhost`:
@@ -161,7 +164,7 @@ The migration target from `extension-design.md` is now implemented for the in-re
   - the old registration logic from `plugins/tools`
   - the old registration logic from `plugins/hooks`
 - Admin plugin config/status/toggle flows now assume one plugin host exists, matching the actual application wiring.
-- `plugins/tools/mcp` production code now imports only `pkg/...`.
+- `plugins/tools/mcp` now owns its full implementation directly instead of depending on a separate `pkg/mcp` package.
 - `plugins/channels/telegram` production code now imports only `pkg/...`; remaining `internal/channel` imports in that package are test-only.
 - `plugins/memory/lcm` and `plugins/memory/simple` production code now import `pkg/db/sqlc`; there are no remaining production `plugins/...` imports of `internal/...`.
 - `cmd/anna/plugins_imports.go` is still the blank-import bootstrap for built-ins. That is acceptable for repo-scoped plugins.
@@ -358,6 +361,14 @@ This is a real second migration, not a cleanup detail. It should only start afte
 4. Do the same for Weixin.
 5. Delete hardcoded pluginhost registration shims and static host-backed channel lists.
 6. Re-evaluate whether to do the full naming/ID/interface rewrite from `extension-design.md`.
+
+### 2026-04-08 — MCP ownership correction
+
+- Re-checked the extension boundary and concluded `pkg/mcp` was only a migration waypoint, not a stable shared package.
+- Moved MCP config, IDs, manager, session, supervisor, and status/result/tool data from `pkg/mcp` into `plugins/tools/mcp`.
+- Updated CLI/admin/pluginhost tests and callers to import `plugins/tools/mcp` directly for MCP-owned constants and types.
+- Removed the `pkg/mcp` package entirely.
+- Ran focused tests for `plugins/tools/mcp`, `cmd/anna`, `internal/admin`, and `internal/pluginhost`, then ran `go test ./...` successfully.
 
 ### 2026-04-08 — channel config helper extraction
 
