@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/runner"
 	"gopkg.in/yaml.v3"
 )
 
@@ -28,7 +27,7 @@ func Create(name, description, content, targetDir string) error {
 		return fmt.Errorf("skill %q already exists at %s", name, skillFile)
 	}
 
-	data := buildSkillFile(name, description, runner.SkillStatusDraft, time.Now().UTC().Format(time.RFC3339), content)
+	data := buildSkillFile(name, description, SkillStatusDraft, time.Now().UTC().Format(time.RFC3339), content)
 
 	skillWriteMu.Lock()
 	defer skillWriteMu.Unlock()
@@ -68,7 +67,7 @@ func Patch(name string, updates map[string]string, targetDir string) error {
 		fm["description"] = v
 	}
 	if v, ok := updates["status"]; ok {
-		normalized := runner.NormalizeSkillStatus(v)
+		normalized := NormalizeSkillStatus(v)
 		fm["status"] = normalized
 	}
 	if v, ok := updates["content"]; ok {
@@ -86,7 +85,7 @@ func Patch(name string, updates map[string]string, targetDir string) error {
 // Deprecate sets the status of an existing skill to "deprecated".
 // targetDir must be the writable skills directory.
 func Deprecate(name, targetDir string) error {
-	return Patch(name, map[string]string{"status": runner.SkillStatusDeprecated}, targetDir)
+	return Patch(name, map[string]string{"status": SkillStatusDeprecated}, targetDir)
 }
 
 // validateCreateInput checks required fields for skill creation.

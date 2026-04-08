@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/vaayne/anna/internal/agent/runner"
 )
 
 func TestCreateSkill(t *testing.T) {
@@ -215,7 +213,7 @@ func TestDeprecateSkill(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 
-	if !strings.Contains(string(data), "status: "+runner.SkillStatusDeprecated) {
+	if !strings.Contains(string(data), "status: "+SkillStatusDeprecated) {
 		t.Error("expected status: deprecated")
 	}
 }

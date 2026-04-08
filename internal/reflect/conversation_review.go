@@ -9,13 +9,12 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/skills"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/memory"
 	"github.com/vaayne/anna/pkg/providers"
+	"github.com/vaayne/anna/pkg/skills"
 )
 
 func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot, c candidate) error {
@@ -98,7 +97,7 @@ func (s *Service) newConversationReviewer(snap *config.Snapshot, userID int64, m
 
 func loadExistingSkillNames(workspace string, userID int64) []string {
 	userSkillsDir := filepath.Join(workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")
-	allSkills := runner.LoadSkills("", workspace, "", userSkillsDir)
+	allSkills := skills.LoadSkills("", workspace, "", userSkillsDir)
 	names := make([]string, 0, len(allSkills))
 	for _, sk := range allSkills {
 		names = append(names, sk.Name)

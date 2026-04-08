@@ -11,6 +11,7 @@ import (
 
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/skills"
 )
 
 //go:embed template/system_prompt.tmpl
@@ -43,7 +44,7 @@ type promptData struct {
 	SystemPrompt string            // agent's base system prompt from DB
 	AgentSoul    string            // per-user agent soul from ProfileStore
 	UserProfile  string            // per-user profile from ProfileStore
-	Skills       []Skill           // visible skills (non-deprecated, invocable)
+	Skills       []skills.Skill    // visible skills (non-deprecated, invocable)
 	MCPTools     []promptToolEntry // prompt inventory for MCP-discovered tools
 	ContextFiles []contextFile     // AGENTS.md files (root → leaf)
 }
@@ -101,7 +102,7 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	}
 
 	// Skills.
-	data.Skills = VisibleSkills(LoadSkills(p.AnnaHome, p.Workspace, p.Cwd, p.UserSkillsDir))
+	data.Skills = skills.VisibleSkills(skills.LoadSkills(p.AnnaHome, p.Workspace, p.Cwd, p.UserSkillsDir))
 
 	// MCP prompt inventory.
 	for _, tool := range p.PromptTools {
@@ -179,4 +180,13 @@ func resolveFile(dir, name string) string {
 		}
 	}
 	return ""
+}
+
+func escapeXML(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, `"`, "&quot;")
+	s = strings.ReplaceAll(s, "'", "&apos;")
+	return s
 }

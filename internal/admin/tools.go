@@ -5,8 +5,8 @@ import (
 	"sort"
 
 	"github.com/vaayne/anna/internal/scheduler"
-	"github.com/vaayne/anna/internal/skills"
 	"github.com/vaayne/anna/pkg/memory"
+	"github.com/vaayne/anna/pkg/skills"
 	pkgtools "github.com/vaayne/anna/pkg/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
 	"github.com/vaayne/anna/plugins/tools/bash"

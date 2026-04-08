@@ -3,8 +3,6 @@ package skills
 import (
 	"fmt"
 	"os"
-
-	"github.com/vaayne/anna/internal/agent/runner"
 )
 
 func (t *SkillsTool) load(args map[string]any) (string, error) {
@@ -13,7 +11,7 @@ func (t *SkillsTool) load(args map[string]any) (string, error) {
 		return "", fmt.Errorf("name is required for load action")
 	}
 
-	all := runner.LoadSkills(t.annaHome, t.workspace, t.cwd, t.userSkillsDir)
+	all := LoadSkills(t.annaHome, t.workspace, t.cwd, t.userSkillsDir)
 	for _, s := range all {
 		if s.Name == name {
 			data, err := os.ReadFile(s.FilePath)

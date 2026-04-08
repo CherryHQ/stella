@@ -1,4 +1,4 @@
-package runner
+package skills
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/vaayne/anna/internal/agent/runner/builtin"
+	"github.com/vaayne/anna/pkg/skills/builtin"
 	"gopkg.in/yaml.v3"
 )
 

@@ -10,9 +10,8 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/skills"
+	"github.com/vaayne/anna/pkg/skills"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
 
@@ -140,14 +139,14 @@ func skillsListAction() error {
 		return err
 	}
 	cwd, _ := os.Getwd()
-	loaded := runner.LoadSkills(config.AnnaHome(), snap.Workspace, cwd)
+	loaded := skills.LoadSkills(config.AnnaHome(), snap.Workspace, cwd)
 	if len(loaded) == 0 {
 		fmt.Println("No skills installed.")
 		return nil
 	}
 
 	// Group by source
-	grouped := map[string][]runner.Skill{}
+	grouped := map[string][]skills.Skill{}
 	var sourceOrder []string
 	seen := map[string]bool{}
 	for _, s := range loaded {
@@ -183,7 +182,7 @@ func skillsListJSON() error {
 		return err
 	}
 	cwd, _ := os.Getwd()
-	loaded := runner.LoadSkills(config.AnnaHome(), snap.Workspace, cwd)
+	loaded := skills.LoadSkills(config.AnnaHome(), snap.Workspace, cwd)
 
 	type entry struct {
 		Name        string `json:"name"`

@@ -7,11 +7,11 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/skills"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
+	"github.com/vaayne/anna/pkg/skills"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
