@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/chatroute"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
 func TestHandleCommandHelp(t *testing.T) {
@@ -13,7 +14,7 @@ func TestHandleCommandHelp(t *testing.T) {
 	if !ok {
 		t.Fatal("expected handled")
 	}
-	if resp != WelcomeMessage {
+	if resp != pkgchannel.WelcomeMessage {
 		t.Errorf("response = %q", resp)
 	}
 }
@@ -24,7 +25,7 @@ func TestHandleCommandStart(t *testing.T) {
 	if !ok {
 		t.Fatal("expected handled")
 	}
-	if resp != WelcomeMessage {
+	if resp != pkgchannel.WelcomeMessage {
 		t.Errorf("response = %q", resp)
 	}
 }
@@ -76,7 +77,7 @@ func TestParseModelArgs(t *testing.T) {
 		{" openai/gpt-4 ", "openai/gpt-4"},
 	}
 	for _, tt := range tests {
-		got := ParseModelArgs(tt.input)
+		got := pkgchannel.ParseModelArgs(tt.input)
 		if got != tt.want {
 			t.Errorf("ParseModelArgs(%q) = %q, want %q", tt.input, got, tt.want)
 		}
@@ -84,11 +85,11 @@ func TestParseModelArgs(t *testing.T) {
 }
 
 func TestIndexModels(t *testing.T) {
-	models := []ModelOption{
+	models := []pkgchannel.ModelOption{
 		{Provider: "a", Model: "1"},
 		{Provider: "b", Model: "2"},
 	}
-	indexed := IndexModels(models)
+	indexed := pkgchannel.IndexModels(models)
 	if len(indexed) != 2 {
 		t.Fatalf("len = %d, want 2", len(indexed))
 	}
@@ -98,12 +99,12 @@ func TestIndexModels(t *testing.T) {
 }
 
 func TestFilterModels(t *testing.T) {
-	models := []ModelOption{
+	models := []pkgchannel.ModelOption{
 		{Provider: "openai", Model: "gpt-4"},
 		{Provider: "anthropic", Model: "claude-3"},
 		{Provider: "openai", Model: "gpt-3.5"},
 	}
-	filtered := FilterModels(models, "gpt")
+	filtered := pkgchannel.FilterModels(models, "gpt")
 	if len(filtered) != 2 {
 		t.Fatalf("len = %d, want 2", len(filtered))
 	}

@@ -10,17 +10,17 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/channel"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
-// ModelOption re-exports channel.ModelOption for use by callers.
-type ModelOption = channel.ModelOption
+// ModelOption re-exports pkg/channel.ModelOption for use by callers.
+type ModelOption = pkgchannel.ModelOption
 
-// ModelListFunc re-exports channel.ModelListFunc for use by callers.
-type ModelListFunc = channel.ModelListFunc
+// ModelListFunc re-exports the model-list callback shape for use by callers.
+type ModelListFunc = func() []pkgchannel.ModelOption
 
-// ModelSwitchFunc re-exports channel.ModelSwitchFunc for use by callers.
-type ModelSwitchFunc = channel.ModelSwitchFunc
+// ModelSwitchFunc re-exports the model-switch callback shape for use by callers.
+type ModelSwitchFunc = func(provider, model string) error
 
 const defaultStreamSessionId = "stream"
 

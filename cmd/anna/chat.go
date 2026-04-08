@@ -6,8 +6,8 @@ import (
 	"syscall"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/internal/channel"
 	clicmd "github.com/vaayne/anna/internal/channel/cli"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 	plugintools "github.com/vaayne/anna/plugins/tools"
@@ -70,7 +70,7 @@ func chatCommand() *ucli.Command {
 			if c.Bool("stream") {
 				return clicmd.RunStream(s.ctx, pool, s.cliUserID)
 			}
-			listFn := func() []channel.ModelOption {
+			listFn := func() []pkgchannel.ModelOption {
 				return collectModelsFromStore(s.ctx, s.store, snap)
 			}
 			switchFn := modelSwitcher(

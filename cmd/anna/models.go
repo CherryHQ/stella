@@ -9,10 +9,10 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/pluginhost"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	providerapi "github.com/vaayne/anna/pkg/providers"
 )
 
@@ -78,9 +78,9 @@ func newProviderHost(store config.Store) (*pluginhost.Host, error) {
 
 // collectModelsFromStore builds the list of available provider/model pairs
 // using the Store and models cache.
-func collectModelsFromStore(ctx context.Context, store config.Store, snap *config.Snapshot) []channel.ModelOption {
+func collectModelsFromStore(ctx context.Context, store config.Store, snap *config.Snapshot) []pkgchannel.ModelOption {
 	seen := make(map[string]bool)
-	var models []channel.ModelOption
+	var models []pkgchannel.ModelOption
 
 	add := func(provider, model string) {
 		key := provider + "/" + model
@@ -88,7 +88,7 @@ func collectModelsFromStore(ctx context.Context, store config.Store, snap *confi
 			return
 		}
 		seen[key] = true
-		models = append(models, channel.ModelOption{Provider: provider, Model: model})
+		models = append(models, pkgchannel.ModelOption{Provider: provider, Model: model})
 	}
 
 	// Current model first.
@@ -287,7 +287,7 @@ func modelsSearchCommand() *ucli.Command {
 			}
 
 			models := collectModelsFromStore(c.Context, store, snap)
-			var matched []channel.ModelOption
+			var matched []pkgchannel.ModelOption
 			for _, m := range models {
 				label := strings.ToLower(m.Provider + "/" + m.Model)
 				if strings.Contains(label, query) {
@@ -307,7 +307,7 @@ func modelsSearchCommand() *ucli.Command {
 }
 
 // printModelsGrouped prints models grouped by provider, marking the active one.
-func printModelsGrouped(models []channel.ModelOption, activeProvider, activeModel string) {
+func printModelsGrouped(models []pkgchannel.ModelOption, activeProvider, activeModel string) {
 	grouped := make(map[string][]string)
 	var provOrder []string
 	seen := make(map[string]bool)
