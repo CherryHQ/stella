@@ -1,7 +1,6 @@
 package feishu
 
 import (
-	"context"
 	"fmt"
 
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
@@ -46,34 +45,27 @@ var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, e
 
 func init() {
 	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
-			ID:                    PluginID,
-			Kind:                  "channel",
-			Name:                  pkgchannel.PlatformFeishu,
-			DisplayName:           "Feishu",
-			Description:           "Feishu bot integration.",
-			Managed:               true,
-			AdminVisible:          true,
-			HasConfig:             true,
-			HasStatus:             true,
-			SupportsNotifications: true,
-			Capabilities: []string{
-				pkgplugins.CapabilityRuntime,
-				pkgplugins.CapabilityConfig,
-				pkgplugins.CapabilityStatus,
+		pkgplugins.RegisterManagedChannelPlugin(host, pkgplugins.ManagedChannelPluginRegistration{
+			PluginID:    PluginID,
+			RuntimeName: RuntimeName,
+			Meta: pkgplugins.PluginMeta{
+				ID:                    PluginID,
+				Kind:                  "channel",
+				Name:                  pkgchannel.PlatformFeishu,
+				DisplayName:           "Feishu",
+				Description:           "Feishu bot integration.",
+				AdminVisible:          true,
+				SupportsNotifications: true,
+				Capabilities: []string{
+					pkgplugins.CapabilityRuntime,
+					pkgplugins.CapabilityConfig,
+					pkgplugins.CapabilityStatus,
+				},
 			},
-		})
-		host.Registry().RegisterConfig(pkgplugins.ConfigRegistration{
-			PluginID:      PluginID,
 			DefaultConfig: func() map[string]any { return map[string]any{} },
 			Schema:        configSchema(),
 			Validate:      func(raw map[string]any) error { _, err := DecodeConfig(raw); return err },
 			Redact:        RedactConfig,
-		})
-		host.Registry().RegisterChannel(pkgplugins.ChannelRegistration{
-			PluginID:              PluginID,
-			Name:                  pkgchannel.PlatformFeishu,
-			SupportsNotifications: true,
 			Configured: func(raw map[string]any) bool {
 				cfg, err := DecodeConfig(raw)
 				return err == nil && validateConfig(cfg) == ""
@@ -82,36 +74,7 @@ func init() {
 				cfg, err := DecodeConfig(raw)
 				return err == nil && cfg.EnableNotify
 			},
-		})
-		host.Registry().RegisterRuntime(pkgplugins.RuntimeRegistration{
-			PluginID: PluginID,
-			Name:     RuntimeName,
-			Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
-				return newRuntime(ctx.Services)
-			},
-		})
-		host.Registry().RegisterStatus(pkgplugins.StatusRegistration{
-			PluginID: PluginID,
-			Get: func(ctx context.Context) (any, error) {
-				handle, ok := host.Services().Runtime().Get(PluginID, RuntimeName)
-				if !ok {
-					return map[string]any{
-						"state":      pkgplugins.RuntimeStateStopped,
-						"updated_at": nil,
-						"metadata":   map[string]any{},
-					}, nil
-				}
-				snap, err := handle.Snapshot(ctx)
-				if err != nil {
-					return nil, err
-				}
-				return map[string]any{
-					"state":      snap.State,
-					"message":    snap.Message,
-					"updated_at": snap.UpdatedAt,
-					"metadata":   snap.Metadata,
-				}, nil
-			},
+			RuntimeFactory: newRuntime,
 		})
 	}))
 }
