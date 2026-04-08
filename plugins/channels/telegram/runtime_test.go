@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	internalchannel "github.com/vaayne/anna/internal/channel"
+	internalnotify "github.com/vaayne/anna/internal/notify"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
@@ -32,7 +32,7 @@ func (*fakeTelegramChannel) Notify(context.Context, pkgchannel.Notification) err
 
 func TestManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 	now := time.Date(2026, 4, 7, 13, 0, 0, 0, time.UTC)
-	notifier := internalchannel.NewDispatcher()
+	notifier := internalnotify.NewDispatcher()
 	first := newFakeTelegramChannel()
 	second := newFakeTelegramChannel()
 	built := 0

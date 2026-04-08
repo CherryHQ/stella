@@ -1,4 +1,4 @@
-package channel
+package notify
 
 import (
 	"context"
@@ -8,16 +8,17 @@ import (
 	"sync"
 
 	"github.com/vaayne/anna/internal/auth"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
 // Notifier can push notifications. Both Dispatcher and individual channels
 // satisfy this interface, so consumers don't need to know the routing layer.
 type Notifier interface {
-	Notify(ctx context.Context, n Notification) error
+	Notify(ctx context.Context, n pkgchannel.Notification) error
 }
 
 type channelEntry struct {
-	channel Channel
+	channel pkgchannel.Channel
 }
 
 // Dispatcher routes notifications to one or more registered channels.
@@ -34,7 +35,7 @@ func NewDispatcher() *Dispatcher {
 }
 
 // Register adds a channel to the dispatcher.
-func (d *Dispatcher) Register(ch Channel) {
+func (d *Dispatcher) Register(ch pkgchannel.Channel) {
 	d.mu.Lock()
 	d.channels = append(d.channels, channelEntry{channel: ch})
 	d.mu.Unlock()
@@ -55,7 +56,7 @@ func (d *Dispatcher) Unregister(name string) {
 
 // Notify routes a notification to channels. If Notification.Channel is set,
 // only that channel receives it. Otherwise all registered channels receive it.
-func (d *Dispatcher) Notify(ctx context.Context, n Notification) error {
+func (d *Dispatcher) Notify(ctx context.Context, n pkgchannel.Notification) error {
 	d.mu.RLock()
 	entries := make([]channelEntry, len(d.channels))
 	copy(entries, d.channels)
@@ -65,7 +66,6 @@ func (d *Dispatcher) Notify(ctx context.Context, n Notification) error {
 		return fmt.Errorf("no notification channels registered")
 	}
 
-	// Route to a specific channel.
 	if n.Channel != "" {
 		for _, e := range entries {
 			if e.channel.Name() == n.Channel {
@@ -75,7 +75,6 @@ func (d *Dispatcher) Notify(ctx context.Context, n Notification) error {
 		return fmt.Errorf("unknown notification channel %q", n.Channel)
 	}
 
-	// Broadcast to all channels.
 	var errs []error
 	for _, e := range entries {
 		if err := e.channel.Notify(ctx, n); err != nil {
@@ -100,7 +99,7 @@ func (d *Dispatcher) SetAuthStore(store auth.AuthStore) {
 //
 // Falls back to broadcast if the user has no linked identities or if no
 // auth store is configured.
-func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n Notification) error {
+func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n pkgchannel.Notification) error {
 	d.mu.RLock()
 	as := d.authStore
 	entries := make([]channelEntry, len(d.channels))
@@ -111,7 +110,6 @@ func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n Notificatio
 		return fmt.Errorf("no notification channels registered")
 	}
 
-	// If no auth store, fall back to broadcast.
 	if as == nil {
 		slog.Warn("notifyUser: no auth store configured, falling back to broadcast", "user_id", userID)
 		return d.Notify(ctx, n)
@@ -123,16 +121,13 @@ func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n Notificatio
 		return d.Notify(ctx, n)
 	}
 
-	// No linked identities — fall back to broadcast.
 	if len(identities) == 0 {
 		slog.Debug("notifyUser: user has no linked identities, falling back to broadcast", "user_id", userID)
 		return d.Notify(ctx, n)
 	}
 
-	// Pick the target identity: preferred > first linked.
 	target := pickNotifyIdentity(ctx, as, userID, identities)
 
-	// Find the matching registered channel and send.
 	for _, e := range entries {
 		if e.channel.Name() == target.Platform {
 			nn := n
@@ -141,8 +136,6 @@ func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n Notificatio
 		}
 	}
 
-	// Preferred platform has no registered channel — use first linked
-	// identity that has a registered channel.
 	for _, id := range identities {
 		for _, e := range entries {
 			if e.channel.Name() == id.Platform {

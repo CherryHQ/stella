@@ -13,10 +13,10 @@ import (
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/embedded"
+	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -60,7 +60,7 @@ type setupResult struct {
 	pool                   *agent.Pool // default agent's pool (backward compat)
 	schedulerSvc           *scheduler.Service
 	extraTools             []tools.Tool
-	notifier               *channel.Dispatcher
+	notifier               *notify.Dispatcher
 	cliUserID              int64 // resolved CLI user for session creation
 }
 
@@ -133,7 +133,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	}
 
 	// Notification dispatcher + tool.
-	dispatcher := channel.NewDispatcher()
+	dispatcher := notify.NewDispatcher()
 	// The notify tool is wired in gateway mode — channels register later.
 
 	// Build memory provider via the host compatibility adapter.

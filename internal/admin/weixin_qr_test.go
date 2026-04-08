@@ -10,6 +10,7 @@ import (
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/pluginhost"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	weixinplugin "github.com/vaayne/anna/plugins/channels/weixin"
@@ -62,7 +63,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build lcm provider: %v", err)
 	}
-	dispatcher := channel.NewDispatcher()
+	dispatcher := notify.NewDispatcher()
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	channelRuntimeServices.Set(context.Background(), testWeixinHandler{}, dispatcher)
 	phost := pluginhost.New(store, pluginhost.WithChannelRuntimeServices(channelRuntimeServices))
