@@ -21,6 +21,7 @@ import (
 	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
+	_ "github.com/vaayne/anna/plugins/channels/feishu"
 	_ "github.com/vaayne/anna/plugins/channels/qq"
 	telegramplugin "github.com/vaayne/anna/plugins/channels/telegram"
 	lcmmemory "github.com/vaayne/anna/plugins/memory/lcm"
@@ -93,14 +94,6 @@ func setupAdmin(t *testing.T) *testEnv {
 		}), nil
 	})
 	t.Cleanup(resetTelegramRuntime)
-	phost.RegisterFeishu(pluginhost.FeishuDeps{
-		Parent:   context.Background(),
-		Handler:  testChannelHandler{},
-		Notifier: dispatcher,
-		NewChannel: func(cfg channel.FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
-			return newTestChannel(channel.PlatformFeishu), nil
-		},
-	})
 	phost.RegisterWeixin(pluginhost.WeixinDeps{
 		Parent:   context.Background(),
 		Handler:  testChannelHandler{},
