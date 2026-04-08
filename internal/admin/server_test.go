@@ -90,7 +90,7 @@ func setupAdmin(t *testing.T) *testEnv {
 			Parent:        context.Background(),
 			Handler:       testChannelHandler{},
 			Notifications: dispatcher,
-			NewChannel: func(cfg channel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 				return newTestChannel(channel.PlatformTelegram), nil
 			},
 		}), nil
