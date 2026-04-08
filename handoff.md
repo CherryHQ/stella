@@ -125,6 +125,13 @@ This handoff file is also the running implementation log for future sessions.
 - No fallback code and no compatibility code. If a path is obsolete, remove it instead of translating through it.
 - The schema phase is backend-first. Expose schema data through host/admin contracts first; UI rendering can consume it later.
 - Admin plugin operations are now host-required, not dual-pathed through direct store mutations.
+- The next platform expansion should expose host capabilities, not `internal/...` package access.
+- Capability order is:
+  - run lifecycle hooks
+  - notifications
+  - plugin state storage
+  - identity/auth
+  - only then reconsider any DB-facing service
 
 ## Files Changed
 
@@ -193,6 +200,27 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - `cmd/anna/plugins_imports.go` is still the blank-import bootstrap for built-ins. That is acceptable for repo-scoped plugins.
 
 ## Implementation Plan
+
+### Next Capability Roadmap
+
+1. Phase A: run lifecycle hooks
+   - A1: `BeforeRun` prompt mutation
+   - A2: tool lifecycle hooks if needed
+   - A3: provider-request hooks only if the earlier slices prove insufficient
+2. Phase B: notification capability
+3. Phase C: plugin state storage
+4. Phase D: identity/auth capability
+5. Phase E: DB capability reassessment
+
+The rule for all of these phases is the same:
+
+- expose narrow services through `pkg/plugins`
+- route them through `internal/pluginhost`
+- do not let plugin packages import app-private packages directly
+
+### Active Phase
+
+Phase A1: add a narrow `BeforeRun` lifecycle hook so enabled plugins can mutate the effective system prompt for one run at a time.
 
 ### Phase 1: Finish host unification
 

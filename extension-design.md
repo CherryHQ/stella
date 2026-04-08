@@ -343,6 +343,82 @@ The final model should keep both:
 
 That is the closest Anna equivalent to pi's extension power without copying pi's UI-specific runtime model.
 
+## Capability Roadmap
+
+The next platform work should expose more extension power through host capabilities, not by leaking `internal/...` packages.
+
+Priority order:
+
+1. **Run lifecycle hooks**
+2. **Notification capability**
+3. **Plugin state storage**
+4. **Identity/auth capability**
+5. **DB-facing capability only if still necessary**
+
+### Phase A: Run Lifecycle Hooks
+
+Goal: let extensions influence one run at a time without owning the whole runner.
+
+Start narrow:
+
+- `BeforeRun`
+  - receives current run context
+  - may replace or augment the effective system prompt for that run
+- later phases may add:
+  - `BeforeToolCall`
+  - `AfterToolResult`
+  - `BeforeProviderRequest`
+
+Important rule:
+
+- do not start with a giant event bus
+- add only the hooks that map to real repo extension needs
+
+### Phase B: Notification Capability
+
+Goal: let extensions notify users without importing `internal/notify` or channel internals.
+
+Expose a narrow host service:
+
+- send a notification to a user
+- optionally include structured status/event metadata
+
+### Phase C: Plugin State Storage
+
+Goal: let extensions persist their own state without raw database access.
+
+Expose a narrow storage surface:
+
+- plugin-scoped key/value state
+- optional per-user and per-agent scoping
+- small document/blob payloads if needed
+
+This should solve most extension persistence needs before raw SQL is considered.
+
+### Phase D: Identity/Auth Capability
+
+Goal: let extensions act on user-aware context without importing `internal/auth`.
+
+Expose a narrow identity surface:
+
+- current user/agent/session identity
+- identity lookup where needed
+- permission checks for sensitive actions
+
+The host should remain the owner of policy.
+
+### Phase E: DB Capability Re-evaluation
+
+Only after Phases A-D are in place should the platform decide whether any DB-facing extension capability is still necessary.
+
+If a DB capability is needed, prefer:
+
+- domain-specific repository services
+- read-only query surfaces
+- explicitly scoped persistence helpers
+
+Do not expose `*sql.DB` broadly as a shortcut.
+
 Extensions may contribute:
 
 - prompt-visible tools
