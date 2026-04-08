@@ -3,7 +3,6 @@ package admin
 import (
 	"net/http"
 
-	internalchannel "github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
@@ -102,14 +101,6 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-	// Non-host-backed channel plugins still use the admin channel lifecycle hooks.
-	if p.Kind == config.PluginKindChannel && !internalchannel.IsHostBackedPlugin(id) {
-		if req.Enabled {
-			s.startChannel(p.Name)
-		} else {
-			s.stopChannel(p.Name)
-		}
 	}
 	// Hot-reload tool plugins so the change takes effect without restart.
 	if p.Kind == config.PluginKindTool && s.poolManager != nil {

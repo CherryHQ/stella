@@ -82,7 +82,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		t.Fatalf("saveWeixinCredentials: %v", err)
 	}
 
-	plugin, err := store.GetPlugin(context.Background(), channel.WeixinPluginID)
+	plugin, err := store.GetPlugin(context.Background(), config.PluginID(config.PluginKindChannel, channel.PlatformWeixin))
 	if err != nil {
 		t.Fatalf("GetPlugin: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		t.Fatalf("bot_token = %#v, want %q", plugin.Config["bot_token"], "wx-token")
 	}
 
-	runtimeStatus, err := phost.Status(context.Background(), channel.WeixinPluginID)
+	runtimeStatus, err := phost.Status(context.Background(), config.PluginID(config.PluginKindChannel, channel.PlatformWeixin))
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	internalchannel "github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgmcp "github.com/vaayne/anna/pkg/mcp"
@@ -229,9 +228,9 @@ func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T)
 	}
 
 	for _, pluginID := range []string{
-		internalchannel.QQPluginID,
-		internalchannel.FeishuPluginID,
-		internalchannel.WeixinPluginID,
+		qqplugin.PluginID,
+		feishuplugin.PluginID,
+		weixinplugin.PluginID,
 		reflectplugin.PluginID,
 	} {
 		entry, ok := seen[pluginID]
