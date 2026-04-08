@@ -108,22 +108,16 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)
 	}
 
-	hostBackedRegistrations := map[string]func(){}
+	var registeredChannelPlugins []string
 	if s.pluginHost != nil {
-		for _, hostBackedChannel := range []channel.HostBackedChannel{
-			{Name: channel.PlatformQQ, PluginID: channel.QQPluginID},
-			{Name: channel.PlatformFeishu, PluginID: channel.FeishuPluginID},
-			{Name: channel.PlatformWeixin, PluginID: channel.WeixinPluginID},
-		} {
-			if register := hostBackedRegistrations[hostBackedChannel.PluginID]; register != nil {
-				register()
+		for _, meta := range s.pluginHost.ListRegisteredPlugins() {
+			if meta.Kind != "channel" {
+				continue
 			}
-			if err := s.pluginHost.ApplyPlugin(gctx, hostBackedChannel.PluginID); err != nil {
-				return fmt.Errorf("apply %s runtime: %w", hostBackedChannel.Name, err)
+			registeredChannelPlugins = append(registeredChannelPlugins, meta.ID)
+			if err := s.pluginHost.ApplyPlugin(gctx, meta.ID); err != nil {
+				return fmt.Errorf("apply %s runtime: %w", meta.Name, err)
 			}
-		}
-		if err := s.pluginHost.ApplyPlugin(gctx, channel.TelegramPluginID); err != nil {
-			return fmt.Errorf("apply %s runtime: %w", channel.PlatformTelegram, err)
 		}
 	}
 
@@ -175,8 +169,12 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	)
 
 	hostBackedConfigured := false
-	for _, hostBackedChannel := range channel.HostBackedChannels {
-		if p, err := s.store.GetPlugin(gctx, hostBackedChannel.PluginID); err == nil && p.Enabled && channel.HasValidConfig(s.store, hostBackedChannel.Name) {
+	for _, pluginID := range registeredChannelPlugins {
+		plugin, err := s.store.GetPlugin(gctx, pluginID)
+		if err != nil || !plugin.Enabled {
+			continue
+		}
+		if channel.HasValidConfig(s.store, plugin.Name) {
 			hostBackedConfigured = true
 			break
 		}
