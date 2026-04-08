@@ -75,6 +75,7 @@ This handoff file is also the running implementation log for future sessions.
 - Continued `internal/channel` cleanup by moving chat identity resolution, link-code handling, agent routing, and session-key resolution into `internal/chatroute`.
 - Continued `internal/channel` cleanup by moving store-backed channel config access into `internal/channelconfig`.
 - Continued `internal/channel` cleanup by removing the remaining pkg-channel re-export shim from `internal/channel`.
+- Continued `internal/channel` cleanup by moving the shared slash-command handler into `internal/chatcommand`.
 
 ## Key Decisions
 
@@ -136,6 +137,7 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - Chat identity/linking and agent/session routing now live in `internal/chatroute` instead of `internal/channel`.
 - Store-backed channel config loading and validation now live in `internal/channelconfig` instead of `internal/channel`.
 - Platform constants, model option aliases, and formatting helpers now come directly from `pkg/channel`; `internal/channel` no longer re-exports them.
+- The shared slash-command handler now lives in `internal/chatcommand`; `internal/channel` is down to the coordinator surface plus the CLI subpackage.
 - The old split registries are gone as runtime/discovery systems:
   - `plugins/providers`
   - `plugins/memory`
@@ -234,6 +236,7 @@ Recommended order:
    - Chat identity/linking and agent/session routing are already moved to `internal/chatroute`.
    - Store-backed channel config access is already moved to `internal/channelconfig`.
    - The pkg-channel re-export shim is already gone.
+   - The shared slash-command handler is already moved to `internal/chatcommand`.
    - Next cuts are lifecycle/coordinator shaping and CLI-specific concerns.
    - Keep using `pluginhost` discovery instead of reintroducing channel-specific registries or static lists.
 2. Clean `internal/admin`.
@@ -524,6 +527,13 @@ This is a real second migration, not a cleanup detail. It should only start afte
 - Updated CLI, admin, and command/model callers to use `pkg/channel` directly where the stable public API already existed.
 - Deleted `internal/channel/model.go`, `internal/channel/util.go`, and the redundant `internal/channel/util_test.go`.
 - Verified with focused tests for `internal/channel`, `internal/channel/cli`, `internal/admin`, and `cmd/anna`.
+
+### 2026-04-08 — shared command extraction
+
+- Moved the shared `/start`, `/help`, `/new`, `/compact`, and `/whoami` handler from `internal/channel` into the new app-private package `internal/chatcommand`.
+- Updated the channel coordinator to call `internal/chatcommand.Handle(...)` instead of carrying the command logic in-package.
+- Deleted the old `internal/channel/command.go` and `internal/channel/command_test.go` files.
+- Verified with focused tests for `internal/chatcommand`, `internal/channel`, `internal/channel/cli`, and `cmd/anna`.
 
 ## Session Log
 

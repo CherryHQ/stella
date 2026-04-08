@@ -6,6 +6,7 @@ import (
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
+	"github.com/vaayne/anna/internal/chatcommand"
 	"github.com/vaayne/anna/internal/chatroute"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/pkg/ai"
@@ -84,7 +85,7 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 
 	// Try shared commands.
 	if command != "" {
-		if resp, ok := HandleCommand(ctx, rc, command+" "+args, msg.SenderID); ok {
+		if resp, ok := chatcommand.Handle(ctx, rc, command+" "+args, msg.SenderID); ok {
 			return resp, true, nil, nil
 		}
 	}
