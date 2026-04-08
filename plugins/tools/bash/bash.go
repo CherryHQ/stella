@@ -9,21 +9,35 @@ import (
 	"strings"
 	"time"
 
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
-	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
 func init() {
-	plugintools.Register("bash", plugintools.Registration{
-		Required: true,
-		Factory: func(bc plugintools.BuildContext) (tools.Tool, error) {
-			dir := bc.WorkDir
-			if bc.UserDataDir != "" {
-				dir = bc.UserDataDir
-			}
-			return NewBashTool(dir, bc.ToolsBinDir), nil
-		},
-	})
+	pkgplugins.Register("tool/bash", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
+		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+			ID:          "tool/bash",
+			Kind:        "tool",
+			Name:        "bash",
+			DisplayName: "Bash",
+			Capabilities: []string{
+				pkgplugins.CapabilityTool,
+			},
+		})
+		host.Registry().RegisterTool(pkgplugins.ToolRegistration{
+			PluginID:    "tool/bash",
+			Name:        "bash",
+			Description: "Execute bash commands.",
+			Required:    true,
+			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
+				dir := ctx.WorkDir
+				if ctx.UserDataDir != "" {
+					dir = ctx.UserDataDir
+				}
+				return NewBashTool(dir, ctx.ToolsBinDir), nil
+			},
+		})
+	}))
 }
 
 // BashTool executes bash commands.

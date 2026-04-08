@@ -19,15 +19,29 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/vaayne/anna/pkg/hooks"
-	pluginhooks "github.com/vaayne/anna/plugins/hooks"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 func init() {
-	pluginhooks.Register("trace", pluginhooks.Registration{
-		Factory: func(_ pluginhooks.BuildContext) (hooks.HookPlugin, error) {
-			return newHook()
-		},
-	})
+	pkgplugins.Register("hook/trace", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
+		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+			ID:           "hook/trace",
+			Kind:         "hook",
+			Name:         "trace",
+			DisplayName:  "Trace",
+			AdminVisible: true,
+			Capabilities: []string{
+				pkgplugins.CapabilityHook,
+			},
+		})
+		host.Registry().RegisterHook(pkgplugins.HookRegistration{
+			PluginID: "hook/trace",
+			Name:     "trace",
+			Build: func(ctx pkgplugins.HookContext) (hooks.HookPlugin, error) {
+				return newHook()
+			},
+		})
+	}))
 }
 
 // Hook logs LLM, tool, and memory call details via slog, and optionally

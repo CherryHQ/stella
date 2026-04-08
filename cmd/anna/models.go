@@ -73,7 +73,6 @@ func newProviderHost(store config.Store) (*pluginhost.Host, error) {
 	if err := host.LoadDefaultCatalog(); err != nil {
 		return nil, err
 	}
-	host.RegisterLegacyCapabilities(pluginhost.LegacyBuildDeps{})
 	return host, nil
 }
 

@@ -10,7 +10,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
-	pluginproviders "github.com/vaayne/anna/plugins/providers"
+	anthropicprovider "github.com/vaayne/anna/plugins/providers/anthropic"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
@@ -85,10 +85,15 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 }
 
 func integrationProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Registry, error) {
-	return pluginproviders.BuildRegistry(api, pluginproviders.ProviderConfig{
+	if api != "anthropic" {
+		return nil, providers.ErrProviderNotFound
+	}
+	reg := providers.NewRegistry()
+	reg.Register(anthropicprovider.New(anthropicprovider.Config{
 		APIKey:  apiKey,
 		BaseURL: baseURL,
-	})
+	}))
+	return reg, nil
 }
 
 func integrationCoreToolsBuilder(plugintools.BuildContext) []tools.Tool { return nil }

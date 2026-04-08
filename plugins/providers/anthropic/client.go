@@ -3,25 +3,42 @@ package anthropic
 import (
 	"context"
 	"fmt"
+
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/httpclient"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
-	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 func init() {
-	pluginproviders.Register("anthropic", pluginproviders.Registration{
-		Meta: pluginproviders.ProviderMeta{
-			Name:       "Anthropic",
-			DefaultURL: "https://api.anthropic.com",
-		},
-		Factory: func(cfg pluginproviders.ProviderConfig) (providers.ProviderAdapter, error) {
-			return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}), nil
-		},
-	})
+	pkgplugins.Register("provider/anthropic", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
+		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+			ID:           "provider/anthropic",
+			Kind:         "provider",
+			Name:         "anthropic",
+			DisplayName:  "Anthropic",
+			AdminVisible: true,
+			Capabilities: []string{
+				pkgplugins.CapabilityProvider,
+			},
+		})
+		host.Registry().RegisterProvider(pkgplugins.ProviderRegistration{
+			PluginID: "provider/anthropic",
+			Name:     "anthropic",
+			Meta: pkgplugins.ProviderMeta{
+				Name:       "Anthropic",
+				DefaultURL: "https://api.anthropic.com",
+			},
+			Build: func(ctx pkgplugins.ProviderContext) (providers.ProviderAdapter, error) {
+				apiKey, _ := ctx.State.Config["api_key"].(string)
+				baseURL, _ := ctx.State.Config["base_url"].(string)
+				return New(Config{APIKey: apiKey, BaseURL: baseURL}), nil
+			},
+		})
+	}))
 }
 
 // Config configures the Anthropic provider.

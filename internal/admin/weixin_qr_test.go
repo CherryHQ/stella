@@ -13,8 +13,7 @@ import (
 	"github.com/vaayne/anna/internal/pluginhost"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	weixinplugin "github.com/vaayne/anna/plugins/channels/weixin"
-	pluginmemory "github.com/vaayne/anna/plugins/memory"
-	_ "github.com/vaayne/anna/plugins/memory/lcm"
+	lcmmemory "github.com/vaayne/anna/plugins/memory/lcm"
 )
 
 type testWeixinChannel struct{}
@@ -59,7 +58,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
-	mem, err := pluginmemory.Build(context.Background(), "lcm", pluginmemory.BuildContext{DB: db})
+	mem, err := lcmmemory.New(db, nil, nil)
 	if err != nil {
 		t.Fatalf("Build lcm provider: %v", err)
 	}

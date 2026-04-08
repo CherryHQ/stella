@@ -22,8 +22,7 @@ import (
 	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	telegramplugin "github.com/vaayne/anna/plugins/channels/telegram"
-	pluginmemory "github.com/vaayne/anna/plugins/memory"
-	_ "github.com/vaayne/anna/plugins/memory/lcm"
+	lcmmemory "github.com/vaayne/anna/plugins/memory/lcm"
 	mcp "github.com/vaayne/anna/plugins/tools/mcp"
 )
 
@@ -60,7 +59,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("NewEngine: %v", err)
 	}
 
-	mem, err := pluginmemory.Build(context.Background(), "lcm", pluginmemory.BuildContext{DB: db})
+	mem, err := lcmmemory.New(db, nil, nil)
 	if err != nil {
 		t.Fatalf("Build lcm provider: %v", err)
 	}

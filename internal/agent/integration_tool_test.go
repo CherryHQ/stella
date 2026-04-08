@@ -12,7 +12,9 @@ import (
 	"github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	providerapi "github.com/vaayne/anna/pkg/providers"
-	pluginproviders "github.com/vaayne/anna/plugins/providers"
+	anthropicprovider "github.com/vaayne/anna/plugins/providers/anthropic"
+	openaiprovider "github.com/vaayne/anna/plugins/providers/openai"
+	openairesponseprovider "github.com/vaayne/anna/plugins/providers/openai-response"
 )
 
 func skipWithoutAPIKey(t *testing.T) string {
@@ -64,9 +66,16 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 
 	for _, p := range providers {
 		t.Run(p.name, func(t *testing.T) {
-			adapter, err := pluginproviders.Build(p.name, pluginproviders.ProviderConfig{BaseURL: p.baseURL})
-			if err != nil {
-				t.Fatalf("provider %s: %v", p.name, err)
+			var adapter providerapi.ProviderAdapter
+			switch p.name {
+			case "anthropic":
+				adapter = anthropicprovider.New(anthropicprovider.Config{BaseURL: p.baseURL})
+			case "openai":
+				adapter = openaiprovider.New(openaiprovider.Config{BaseURL: p.baseURL})
+			case "openai-response":
+				adapter = openairesponseprovider.New(openairesponseprovider.Config{BaseURL: p.baseURL})
+			default:
+				t.Fatalf("unknown provider %s", p.name)
 			}
 			reg := providerapi.NewRegistry()
 			reg.Register(adapter)

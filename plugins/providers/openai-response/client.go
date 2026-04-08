@@ -12,20 +12,36 @@ import (
 
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/httpclient"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
-	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 func init() {
-	pluginproviders.Register("openai-response", pluginproviders.Registration{
-		Meta: pluginproviders.ProviderMeta{
-			Name:       "OpenAI Response",
-			DefaultURL: "https://api.openai.com/v1",
-		},
-		Factory: func(cfg pluginproviders.ProviderConfig) (providers.ProviderAdapter, error) {
-			return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}), nil
-		},
-	})
+	pkgplugins.Register("provider/openai-response", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
+		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+			ID:           "provider/openai-response",
+			Kind:         "provider",
+			Name:         "openai-response",
+			DisplayName:  "OpenAI Response",
+			AdminVisible: true,
+			Capabilities: []string{
+				pkgplugins.CapabilityProvider,
+			},
+		})
+		host.Registry().RegisterProvider(pkgplugins.ProviderRegistration{
+			PluginID: "provider/openai-response",
+			Name:     "openai-response",
+			Meta: pkgplugins.ProviderMeta{
+				Name:       "OpenAI Response",
+				DefaultURL: "https://api.openai.com/v1",
+			},
+			Build: func(ctx pkgplugins.ProviderContext) (providers.ProviderAdapter, error) {
+				apiKey, _ := ctx.State.Config["api_key"].(string)
+				baseURL, _ := ctx.State.Config["base_url"].(string)
+				return New(Config{APIKey: apiKey, BaseURL: baseURL}), nil
+			},
+		})
+	}))
 }
 
 // Config configures the OpenAI Responses provider.

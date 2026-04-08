@@ -12,8 +12,7 @@ import (
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/memory"
-	pluginmemory "github.com/vaayne/anna/plugins/memory"
-	_ "github.com/vaayne/anna/plugins/memory/lcm"
+	lcmmemory "github.com/vaayne/anna/plugins/memory/lcm"
 )
 
 // testMemoryProvider creates an LCM memory provider backed by an in-memory SQLite DB.
@@ -26,9 +25,7 @@ func testMemoryProvider(t *testing.T) memory.Provider {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	p, err := pluginmemory.Build(context.Background(), "lcm", pluginmemory.BuildContext{
-		DB: db,
-	})
+	p, err := lcmmemory.New(db, nil, nil)
 	if err != nil {
 		t.Fatalf("Build lcm provider: %v", err)
 	}

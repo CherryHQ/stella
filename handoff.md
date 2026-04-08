@@ -58,6 +58,8 @@ This handoff file is also the running implementation log for future sessions.
 - Moved the generated SQLC package into `pkg/db/sqlc`, so the memory plugins no longer depend on `internal/db/sqlc`.
 - Switched production provider construction to `pluginhost`, so runner/admin/models/reflect no longer build providers through `plugins/providers` directly.
 - Switched production core-tool construction to `pluginhost`, so runner/pool/model-switcher no longer build required tools through `plugintools.BuildCore(...)` directly.
+- Converted the remaining built-in tools, hooks, providers, and memory implementations to register directly in `pkg/plugins`, so `LoadDefaultCatalog()` now discovers the whole built-in repo plugin set without any legacy mirroring step.
+- Removed the legacy host adapter layer and deleted the dead root provider/memory registries; the remaining root `plugins/tools` and `plugins/hooks` packages are now just narrow shared helper surfaces, not parallel registration systems.
 - Removed the remaining admin-side pluginhost compatibility branches:
   - admin plugin config/status endpoints now require a plugin host
   - admin server construction now panics if `pluginHost` is nil
@@ -82,15 +84,13 @@ This handoff file is also the running implementation log for future sessions.
 
 - `extension-design.md` — rewritten into the final repo-scoped extension-system design.
 - `handoff.md` — created as the implementation handoff and running log file.
-- `internal/pluginhost/adapters.go` — legacy tool/hook/provider/memory registries now register real host build functions instead of host-visible placeholders only.
-- `internal/pluginhost/builders.go` — enabled tools/hooks/providers/memory now resolve through host registrations first; optional legacy fallback remains only when the host was not primed.
+- `internal/pluginhost/builders.go` — enabled tools/hooks/providers/memory and required core tools all resolve directly through host registrations.
 - `pkg/plugins/capabilities.go` — `ToolRegistration` now carries `Required`.
 - `pkg/plugins/context.go` — `MemoryContext` now carries the inputs needed to construct memory providers through host-owned registrations.
-- `internal/pluginhost/legacy_builders_test.go` — added regression tests covering host-driven builds for legacy tool/hook/provider/memory registrations.
 
 ## Current State
 
-The repository already has a useful base, but it is still transitional:
+The migration target from `extension-design.md` is now implemented for the in-repo plugin system:
 
 - `pkg/plugins` already models “one owner, many capabilities”, but the API surface still uses plugin terminology and plugin-specific state types.
 - `internal/pluginhost` already does the right class of work:
@@ -99,7 +99,7 @@ The repository already has a useful base, but it is still transitional:
   - runtime orchestration
   - discovery
   - config/state bridging
-- `internal/pluginhost` is now the single contribution source for optional tools, hooks, providers, and memory once `RegisterLegacyCapabilities(...)` has been called during setup.
+- `internal/pluginhost` is now the single contribution source for built-in tools, hooks, providers, channels, runtimes, and memory through `LoadDefaultCatalog()` alone.
 - MCP now uses the same canonical plugin ID in runtime registration, persistence, and backend callers: `tool/mcp`.
 - Config schemas now exist as host-readable data for the plugins that have been wired so far, instead of living only as Go validation callbacks.
 - Telegram config is now a public package contract in `pkg/channel`, not an app-private type in `internal/channel`.
@@ -114,11 +114,17 @@ The repository already has a useful base, but it is still transitional:
   - admin provider validation/model fetch
   - CLI model cache refresh
   - reflect review provider setup
+- Production memory construction now flows through `internal/pluginhost` without any registry adapter step.
+- Production core and optional tool construction both flow through `internal/pluginhost`.
+- The old split registries are gone as runtime/discovery systems:
+  - `plugins/providers`
+  - `plugins/memory`
+  - the old registration logic from `plugins/tools`
+  - the old registration logic from `plugins/hooks`
 - Admin plugin config/status/toggle flows now assume one plugin host exists, matching the actual application wiring.
 - `plugins/tools/mcp` production code now imports only `pkg/...`.
 - `plugins/channels/telegram` production code now imports only `pkg/...`; remaining `internal/channel` imports in that package are test-only.
 - `plugins/memory/lcm` and `plugins/memory/simple` production code now import `pkg/db/sqlc`; there are no remaining production `plugins/...` imports of `internal/...`.
-- Core tools are still separate because `plugins/tools/registry.go` owns the required-tool boot path used by the Go runner.
 - `cmd/anna/plugins_imports.go` is still the blank-import bootstrap for built-ins. That is acceptable for repo-scoped plugins.
 
 ## Implementation Plan
@@ -187,35 +193,21 @@ The repository already has a useful base, but it is still transitional:
   - `channel/telegram`
   - `reflect`
   This must be normalized deliberately during migration.
-- Required tools are still built through `plugintools.BuildCore(...)`. That path was not changed in this slice.
 - Schema coverage is still partial. MCP and Telegram are wired; other managed plugins still rely on validate/redact callbacks without schema data.
 - Telegram production code no longer depends on `internal/channel`; runtime orchestration now uses `pkg/channelruntime` plus the public notification registry contract in `pkg/plugins`.
-- The package-boundary migration goal is complete:
+- The migration goal is complete:
   - production `plugins/...` packages import only `pkg/...`
-  - optional tool/hook/provider/memory contributions resolve through `internal/pluginhost`
+  - all built-in tool/hook/provider/memory contributions resolve through `internal/pluginhost`
   - no provider/memory fallback path remains
-- Remaining production host-cleanup work is now concentrated in the required-tool path:
-  - `internal/agent/runner/gorunner.go` now requires an injected core-tool builder and no longer calls `plugintools.BuildCore(...)`
-  - pool/factory/model-switcher wiring now passes a host-owned core-tool builder end to end
-  - the remaining split is discovery/registration input: `internal/pluginhost.RegisterLegacyCapabilities(...)` still mirrors legacy tool/hook/provider/memory registries into the host
+  - no legacy registration mirroring step remains
 - Admin construction now hard-requires `pluginhost`; the old nil-host compatibility path is gone.
 - `Go init()` blank-import registration is still acceptable for repo-level built-ins, but it should not remain the only discovery logic in the design language.
 
 ## Next Steps
 
-1. Decide whether core tools should be lifted into `pkg/plugins.ToolRegistration` or intentionally remain outside the plugin host.
-2. Audit `plugins/tools/mcp` and `plugins/channels/telegram` for `internal/...` imports and pick the next concrete extraction into `pkg/...`.
-3. Normalize persisted plugin IDs and host discovery rules so built-ins and persisted rows use one deliberate identity model.
-4. Expand schema coverage to the remaining managed plugins and start removing ad hoc admin/plugin-specific config logic where the schema is now sufficient.
-5. Continue removing mixed-ID special casing so pluginhost uses one canonical identity model without compatibility shims.
-6. Continue extracting reusable channel/runtime contracts from `internal/channel` into `pkg/channel`, starting with the next Telegram-facing type or helper that materially shrinks plugin imports.
-7. Continue extracting reusable MCP contracts from `internal/mcp` into `pkg/mcp`, starting with the next pure-data type that does not pull runtime orchestration with it.
-8. Audit the remaining plugin packages importing `internal/db/sqlc` and decide whether those storage contracts should move to `pkg/...` or remain app-private.
-9. Continue extracting pure-data/plugin-facing types from `internal/channel` and `internal/mcp` where that meaningfully shrinks plugin imports.
-10. Update this `handoff.md` after every meaningful step with:
-   - what changed
-   - what is now safe to remove
-   - what the next agent should do next
+1. Expand schema coverage to the remaining managed plugins if admin should become fully schema-driven.
+2. Revisit whether the blank-import bootstrap should remain the permanent built-in discovery mechanism, or whether a generated catalog is worth the extra complexity later.
+3. Treat any further work here as normal product cleanup, not migration debt: the package-boundary and single-host invariants are already satisfied.
 
 ### 2026-04-08 — channel config helper extraction
 
@@ -266,6 +258,15 @@ The repository already has a useful base, but it is still transitional:
 - Added host-side provider type discovery so admin provider-type listing no longer reads the legacy provider registry directly.
 - Verified that production code outside `internal/pluginhost/adapters.go` no longer calls `pluginproviders.Build(...)` or `pluginproviders.BuildRegistry(...)`.
 - Ran focused tests for `internal/agent/runner`, `internal/agent`, `internal/admin`, `internal/reflect`, `cmd/anna`, and `internal/pluginhost`, then ran `go test ./...` successfully.
+
+### 2026-04-08 — final built-in catalog unification
+
+- Converted the remaining built-in tool, hook, provider, and memory packages to register themselves directly with `pkg/plugins`.
+- Removed `internal/pluginhost.RegisterLegacyCapabilities(...)` and deleted the host adapter layer entirely.
+- Removed the dead root provider and memory registry packages, and reduced the root tool/hook packages to the narrow helper APIs still used in production.
+- Updated production setup and model-host construction so `LoadDefaultCatalog()` is the only built-in discovery step.
+- Rewired tests that used the deleted registries to use direct constructors instead.
+- Verified the cleanup with focused suites, invariant searches, and `go test ./...`.
 
 ## Session Log
 
