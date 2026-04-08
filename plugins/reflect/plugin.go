@@ -25,8 +25,9 @@ var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, e
 		return nil, fmt.Errorf("reflect: missing parent context")
 	}
 	return NewManagedRuntime(RuntimeDeps{
-		Services: services,
-		Log:      host.Logger(PluginID),
+		Services:      services,
+		Notifications: host.Notifications(),
+		Log:           host.Logger(PluginID),
 	}), nil
 }
 

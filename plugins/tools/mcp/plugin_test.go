@@ -62,6 +62,7 @@ type testServiceHost struct{ lookup testRuntimeLookup }
 func (*testServiceHost) Logger(string) *slog.Logger                        { return nil }
 func (*testServiceHost) Config() pkgplugins.ConfigService                  { return nil }
 func (h *testServiceHost) Runtime() pkgplugins.RuntimeLookup               { return h.lookup }
+func (*testServiceHost) Notifications() pkgplugins.NotificationService     { return nil }
 func (*testServiceHost) ChannelRuntime() pkgplugins.ChannelRuntimeServices { return nil }
 func (*testServiceHost) ReflectRuntime() pkgplugins.ReflectRuntimeServices { return nil }
 

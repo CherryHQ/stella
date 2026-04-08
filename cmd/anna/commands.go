@@ -102,7 +102,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
+	dispatcher := notify.NewDispatcher()
 	phost := pluginhost.New(store,
+		pluginhost.WithNotificationService(dispatcher),
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
 		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
 	)
@@ -133,7 +135,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	}
 
 	// Notification dispatcher + tool.
-	dispatcher := notify.NewDispatcher()
 	// The notify tool is wired in gateway mode — channels register later.
 
 	// Build memory provider via the host compatibility adapter.
@@ -180,7 +181,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			"base_url": baseURL,
 		})
 	}
-	reflectRuntimeServices.Set(ctx, db, memProvider, store, snap.Workspace, dispatcher, providerRegistryBuilder)
+	reflectRuntimeServices.Set(ctx, db, memProvider, store, snap.Workspace, providerRegistryBuilder)
 
 	// Plugin hooks builder: auto-discovers registered hook plugins and returns
 	// enabled ones. Called at startup and on hot-reload.

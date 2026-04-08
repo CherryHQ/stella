@@ -29,6 +29,7 @@ type ServiceHost interface {
 	Logger(pluginID string) *slog.Logger
 	Config() ConfigService
 	Runtime() RuntimeLookup
+	Notifications() NotificationService
 	ChannelRuntime() ChannelRuntimeServices
 	ReflectRuntime() ReflectRuntimeServices
 }

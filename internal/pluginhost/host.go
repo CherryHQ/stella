@@ -22,6 +22,7 @@ type Host struct {
 	mu               sync.RWMutex
 	pluginIDs        map[string]struct{}
 	metadataRegs     map[string]pkgplugins.PluginMeta
+	notifications    pkgplugins.NotificationService
 	channelRuntime   pkgplugins.ChannelRuntimeServices
 	reflectRuntime   pkgplugins.ReflectRuntimeServices
 	toolRegs         map[string]pkgplugins.ToolRegistration

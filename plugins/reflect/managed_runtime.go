@@ -15,10 +15,11 @@ type serviceRunner interface {
 }
 
 type RuntimeDeps struct {
-	Services   pkgplugins.ReflectRuntimeServices
-	Log        *slog.Logger
-	NewService func(Config) serviceRunner
-	Now        func() time.Time
+	Services      pkgplugins.ReflectRuntimeServices
+	Notifications pkgplugins.NotificationService
+	Log           *slog.Logger
+	NewService    func(Config) serviceRunner
+	Now           func() time.Time
 }
 
 type managedRuntime struct {
@@ -77,7 +78,7 @@ func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginSta
 		DB:        r.deps.Services.DB(),
 		Memory:    r.deps.Services.Memory(),
 		Store:     r.deps.Services.Store(),
-		Notifier:  r.deps.Services.Notifications(),
+		Notifier:  r.deps.Notifications,
 		Workspace: r.deps.Services.Workspace(),
 		Interval:  cfg.Interval,
 		Batch:     cfg.Batch,

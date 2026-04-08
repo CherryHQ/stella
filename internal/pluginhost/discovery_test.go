@@ -189,6 +189,19 @@ func TestChannelRuntimeServicesExtension(t *testing.T) {
 	}
 }
 
+func TestNotificationServiceExtension(t *testing.T) {
+	notifications := &fakeNotificationService{}
+	host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithNotificationService(notifications))
+
+	resolved := host.Services().Notifications()
+	if resolved == nil {
+		t.Fatal("expected notification service")
+	}
+	if resolved != notifications {
+		t.Fatalf("unexpected notification service: %#v", resolved)
+	}
+}
+
 func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}})
 
@@ -328,3 +341,13 @@ type fakeNotificationRegistry struct{}
 
 func (*fakeNotificationRegistry) Register(pkgchannel.Channel) {}
 func (*fakeNotificationRegistry) Unregister(string)           {}
+
+type fakeNotificationService struct{}
+
+func (*fakeNotificationService) Notify(context.Context, pkgchannel.Notification) error {
+	return nil
+}
+
+func (*fakeNotificationService) NotifyUser(context.Context, int64, pkgchannel.Notification) error {
+	return nil
+}
