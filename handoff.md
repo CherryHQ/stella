@@ -77,6 +77,15 @@ This handoff file is also the running implementation log for future sessions.
 - Continued `internal/channel` cleanup by removing the remaining pkg-channel re-export shim from `internal/channel`.
 - Continued `internal/channel` cleanup by keeping the shared slash-command handler in-package instead of a separate micro-package.
 - Continued `internal/channel` cleanup by moving the terminal chat UI package into `internal/chatcli`, leaving `internal/channel` as the single app-private home for channel interaction flow.
+- Simplified channel ownership boundaries further:
+  - `internal/channel` no longer hardcodes per-channel readiness and notification rules
+  - readiness now comes from plugin-owned channel registrations resolved through `internal/pluginhost`
+- Unified managed bot-channel registration in `pkg/plugins`, so Telegram, QQ, Feishu, and Weixin no longer repeat the same metadata/config/runtime/status wiring shape in each plugin package.
+- Simplified QQ, Feishu, and Weixin command flow:
+  - shared slash-command parsing now lives in `pkg/channel`
+  - shared text `/model` and `/agent` handling now lives in `pkg/channel`
+  - Feishu keeps numbered model selection as a presentation difference, but uses the same shared command flow underneath
+- Fixed the Telegram test seam after the managed-channel registration refactor by keeping its runtime factory late-bound; test overrides now still replace the runtime constructor instead of freezing the production constructor at init time.
 - Started `internal/admin` cleanup by extracting route registration out of `server.go`.
 - Continued `internal/admin` cleanup by moving channel lifecycle management out of `server.go`.
 - Continued `internal/admin` cleanup by moving HTTP wrapper methods and JSON response helpers out of `server.go`.
@@ -140,6 +149,8 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - Notification dispatch, per-user notification routing, and the notify tool now live in `internal/notify` instead of `internal/channel`.
 - Chat identity/linking, agent/session routing, shared channel commands, and store-backed channel config access now live together in `internal/channel`.
 - Platform constants, model option aliases, and formatting helpers now come directly from `pkg/channel`; `internal/channel` no longer re-exports them.
+- Shared slash-command parsing and shared text `/model` and `/agent` flows for QQ, Feishu, and Weixin now also live in `pkg/channel`.
+- Channel readiness and notification-enabled checks are now plugin-owned registration behavior surfaced through `internal/pluginhost`, not an app-local map in `internal/channel`.
 - The terminal chat UI now lives in `internal/chatcli`, not under `internal/channel`.
 - `internal/admin/server.go` is no longer the only place that owns route registration; registration now lives in `internal/admin/routes.go`.
 - `internal/admin/server.go` no longer owns channel start/stop lifecycle methods; those now live in `internal/admin/channel_lifecycle.go`.
@@ -221,7 +232,7 @@ The migration target from `extension-design.md` is now implemented for the in-re
   - `channel/telegram`
   - `reflect`
   This must be normalized deliberately during migration.
-- Schema coverage is still partial. MCP and Telegram are wired; other managed plugins still rely on validate/redact callbacks without schema data.
+- Schema coverage is still partial. MCP and all managed channels are wired; some non-channel managed plugins still rely on validate/redact callbacks without full schema data.
 - Telegram production code no longer depends on `internal/channel`; runtime orchestration now uses managed runtime helpers from `pkg/plugins` plus the public notification registry contract there.
 - The migration goal is complete:
   - production `plugins/...` packages import only `pkg/...`
@@ -238,12 +249,11 @@ The plugin-ownership cleanup is done. The next mandate is ordinary app cleanup: 
 Recommended order:
 
 1. Clean `internal/channel`.
-   - Notification dispatch is already moved to `internal/notify`.
-   - Chat identity/linking and agent/session routing are already moved to `internal/chatroute`.
-   - Store-backed channel config access is already moved to `internal/channelconfig`.
-   - The pkg-channel re-export shim is already gone.
-   - The shared slash-command handler is already moved to `internal/chatcommand`.
-   - The CLI package should no longer live under `internal/channel`.
+   - Keep it as one app-private interaction package; do not reintroduce the earlier micro-package split.
+   - Leave only real cross-cutting helpers outside it:
+     - `internal/notify`
+     - `internal/chatcli`
+   - Prefer pushing shared command and readiness policy down into `pkg/channel` or plugin registrations when the logic is truly plugin-owned.
    - Next cuts are lifecycle/coordinator shaping after the CLI move.
    - Keep using `pluginhost` discovery instead of reintroducing channel-specific registries or static lists.
 2. Clean `internal/admin`.
