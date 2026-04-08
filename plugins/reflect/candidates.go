@@ -26,11 +26,11 @@ func (s *Service) listUnreviewed(ctx context.Context, sm memory.SessionManager, 
 
 	candidates := make([]candidate, 0, len(sessions))
 	for _, sess := range sessions {
-		candidate, ok := s.unreviewedCandidate(ctx, sess)
+		cand, ok := s.unreviewedCandidate(ctx, sess)
 		if !ok {
 			continue
 		}
-		candidates = append(candidates, candidate)
+		candidates = append(candidates, cand)
 	}
 
 	sortCandidates(candidates)

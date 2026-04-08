@@ -58,11 +58,7 @@ func (s *Service) buildReviewContext(ctx context.Context, sess memory.Session, s
 	// Include truncated prior context.
 	if len(prior) > 0 {
 		b.WriteString("<prior_context>\n")
-		// Keep last N messages as prior context.
-		if len(prior) > maxFallbackMessages {
-			prior = prior[len(prior)-maxFallbackMessages:]
-		}
-		for _, line := range prior {
+		for _, line := range tailLines(prior, maxFallbackMessages) {
 			b.WriteString(line)
 			b.WriteString("\n")
 		}
@@ -70,13 +66,17 @@ func (s *Service) buildReviewContext(ctx context.Context, sess memory.Session, s
 	}
 
 	// Write fresh messages verbatim.
-	if len(fresh) > maxFallbackMessages {
-		fresh = fresh[len(fresh)-maxFallbackMessages:]
-	}
-	for _, line := range fresh {
+	for _, line := range tailLines(fresh, maxFallbackMessages) {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
 
 	return b.String(), nil
+}
+
+func tailLines(lines []string, max int) []string {
+	if len(lines) <= max {
+		return lines
+	}
+	return lines[len(lines)-max:]
 }
