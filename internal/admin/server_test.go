@@ -24,6 +24,7 @@ import (
 	_ "github.com/vaayne/anna/plugins/channels/feishu"
 	_ "github.com/vaayne/anna/plugins/channels/qq"
 	telegramplugin "github.com/vaayne/anna/plugins/channels/telegram"
+	_ "github.com/vaayne/anna/plugins/channels/weixin"
 	lcmmemory "github.com/vaayne/anna/plugins/memory/lcm"
 	reflectplugin "github.com/vaayne/anna/plugins/reflect"
 	mcp "github.com/vaayne/anna/plugins/tools/mcp"
@@ -94,14 +95,6 @@ func setupAdmin(t *testing.T) *testEnv {
 		}), nil
 	})
 	t.Cleanup(resetTelegramRuntime)
-	phost.RegisterWeixin(pluginhost.WeixinDeps{
-		Parent:   context.Background(),
-		Handler:  testChannelHandler{},
-		Notifier: dispatcher,
-		NewChannel: func(cfg channel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
-			return newTestChannel(channel.PlatformWeixin), nil
-		},
-	})
 	if err := phost.ApplyPlugin(context.Background(), reflectplugin.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(reflect): %v", err)
 	}

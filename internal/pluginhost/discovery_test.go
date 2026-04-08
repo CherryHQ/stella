@@ -11,6 +11,7 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	feishuplugin "github.com/vaayne/anna/plugins/channels/feishu"
 	qqplugin "github.com/vaayne/anna/plugins/channels/qq"
+	weixinplugin "github.com/vaayne/anna/plugins/channels/weixin"
 	reflectplugin "github.com/vaayne/anna/plugins/reflect"
 	_ "github.com/vaayne/anna/plugins/tools/mcp"
 )
@@ -205,7 +206,12 @@ func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T)
 	}
 	host.RegisterPluginID(feishuplugin.PluginID)
 	feishuPlugin.Register(host)
-	host.RegisterWeixin(WeixinDeps{})
+	weixinPlugin, ok := pkgplugins.Get(weixinplugin.PluginID)
+	if !ok {
+		t.Fatalf("missing plugin %q", weixinplugin.PluginID)
+	}
+	host.RegisterPluginID(weixinplugin.PluginID)
+	weixinPlugin.Register(host)
 	reflectPlugin, ok := pkgplugins.Get(reflectplugin.PluginID)
 	if !ok {
 		t.Fatalf("missing plugin %q", reflectplugin.PluginID)

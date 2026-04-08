@@ -63,15 +63,12 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		t.Fatalf("Build lcm provider: %v", err)
 	}
 	dispatcher := channel.NewDispatcher()
-	phost := pluginhost.New(store)
-	phost.RegisterWeixin(pluginhost.WeixinDeps{
-		Parent:   context.Background(),
-		Handler:  testWeixinHandler{},
-		Notifier: dispatcher,
-		NewChannel: func(cfg channel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
-			return testWeixinChannel{}, nil
-		},
-	})
+	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
+	channelRuntimeServices.Set(context.Background(), testWeixinHandler{}, dispatcher)
+	phost := pluginhost.New(store, pluginhost.WithChannelRuntimeServices(channelRuntimeServices))
+	if err := phost.LoadDefaultCatalog(); err != nil {
+		t.Fatalf("LoadDefaultCatalog: %v", err)
+	}
 	srv := New(store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
 
 	status := &weixinplugin.QRCodeStatusResponse{
