@@ -64,6 +64,7 @@ func (*testServiceHost) Config() pkgplugins.ConfigService                  { ret
 func (h *testServiceHost) Runtime() pkgplugins.RuntimeLookup               { return h.lookup }
 func (*testServiceHost) Notifications() pkgplugins.NotificationService     { return nil }
 func (*testServiceHost) StateStore() pkgplugins.PluginStateStore           { return nil }
+func (*testServiceHost) Auth() pkgplugins.AuthService                      { return nil }
 func (*testServiceHost) ChannelRuntime() pkgplugins.ChannelRuntimeServices { return nil }
 func (*testServiceHost) ReflectRuntime() pkgplugins.ReflectRuntimeServices { return nil }
 

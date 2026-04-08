@@ -76,6 +76,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		return providers.NewRegistry(), nil
 	})
 	phost := pluginhost.New(store,
+		pluginhost.WithAuthService(pluginhost.NewAuthService(as)),
 		pluginhost.WithNotificationService(dispatcher),
 		pluginhost.WithStateStore(stateStore),
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),

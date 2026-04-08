@@ -106,6 +106,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	dispatcher := notify.NewDispatcher()
 	stateStore := pluginstate.New(db)
 	phost := pluginhost.New(store,
+		pluginhost.WithAuthService(pluginhost.NewAuthService(authStore)),
 		pluginhost.WithNotificationService(dispatcher),
 		pluginhost.WithStateStore(stateStore),
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),

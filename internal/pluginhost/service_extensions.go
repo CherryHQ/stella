@@ -54,6 +54,27 @@ func (h *Host) StateStore() pkgplugins.PluginStateStore {
 	return h.stateStore
 }
 
+// WithAuthService injects the narrow auth directory available to plugins.
+func WithAuthService(service pkgplugins.AuthService) Option {
+	return func(h *Host) {
+		h.authService = service
+	}
+}
+
+// SetAuthService updates the auth service extension after host construction.
+func (h *Host) SetAuthService(service pkgplugins.AuthService) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.authService = service
+}
+
+// Auth returns the injected auth service, if any.
+func (h *Host) Auth() pkgplugins.AuthService {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.authService
+}
+
 // WithChannelRuntimeServices injects the narrow services used by managed channel runtimes.
 func WithChannelRuntimeServices(services pkgplugins.ChannelRuntimeServices) Option {
 	return func(h *Host) {

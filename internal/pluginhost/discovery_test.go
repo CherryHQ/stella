@@ -215,6 +215,19 @@ func TestStateStoreExtension(t *testing.T) {
 	}
 }
 
+func TestAuthServiceExtension(t *testing.T) {
+	authService := &fakeAuthService{}
+	host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithAuthService(authService))
+
+	resolved := host.Services().Auth()
+	if resolved == nil {
+		t.Fatal("expected auth service")
+	}
+	if resolved != authService {
+		t.Fatalf("unexpected auth service: %#v", resolved)
+	}
+}
+
 func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}})
 
@@ -377,4 +390,18 @@ func (*fakePluginStateStore) Set(context.Context, string, pkgplugins.PluginState
 
 func (*fakePluginStateStore) Delete(context.Context, string, pkgplugins.PluginStateScope, string) error {
 	return nil
+}
+
+type fakeAuthService struct{}
+
+func (*fakeAuthService) GetUser(context.Context, int64) (pkgplugins.UserInfo, error) {
+	return pkgplugins.UserInfo{}, nil
+}
+
+func (*fakeAuthService) ListUserIdentities(context.Context, int64) ([]pkgplugins.LinkedIdentity, error) {
+	return nil, nil
+}
+
+func (*fakeAuthService) GetIdentityByPlatform(context.Context, string, string) (pkgplugins.LinkedIdentity, error) {
+	return pkgplugins.LinkedIdentity{}, nil
 }

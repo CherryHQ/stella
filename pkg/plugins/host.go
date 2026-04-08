@@ -31,6 +31,7 @@ type ServiceHost interface {
 	Runtime() RuntimeLookup
 	Notifications() NotificationService
 	StateStore() PluginStateStore
+	Auth() AuthService
 	ChannelRuntime() ChannelRuntimeServices
 	ReflectRuntime() ReflectRuntimeServices
 }
