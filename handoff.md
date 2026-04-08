@@ -298,6 +298,25 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - Added admin regression coverage for metadata exposure and config redaction in the plugin list endpoint.
 - Verified with focused tests for `internal/admin` and `internal/pluginhost`.
 
+### 2026-04-08 — plugin description normalization
+
+- Added `Description` to `pkg/plugins.PluginMeta` so plugin discovery can carry user-facing summaries without a second frontend-side lookup table.
+- Filled in explicit descriptions for the built-in tools, hooks, providers, memory implementations, Telegram, MCP, and the host-backed QQ, Feishu, Weixin, and Reflect registrations.
+- Extended the admin plugin list payload to include `description` directly from host discovery metadata.
+- Added admin regression coverage proving the plugin list endpoint now returns normalized descriptions alongside redacted config.
+
+### 2026-04-08 — admin plugin metadata UI normalization
+
+- Updated the admin plugins page to render host-backed metadata directly:
+  - `display_name` for labels
+  - `id` for the canonical identifier
+  - `description` for user-facing summaries
+  - metadata badges for managed/config/status/notification capability
+- Removed the hardcoded plugin description map from the frontend JavaScript.
+- Added schema-backed config field summaries to plugin rows by loading `/api/plugin-config-schema/{kind}/{name}` for plugins that expose config.
+- Kept the specialized MCP editor intact, but moved its section guard to the canonical plugin ID instead of name matching.
+- Verified the combined backend and admin UI normalization with `go test ./...`.
+
 ## Session Log
 
 ### 2026-04-08 — planning session

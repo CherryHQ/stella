@@ -8,6 +8,7 @@ import { api } from '/static/js/api.js'
 export function register(Alpine) {
   Alpine.data('pluginsPage', () => ({
     plugins: [],
+    pluginSchemas: {},
     mcpServers: [],
     mcpStatuses: [],
     mcpSaving: false,
@@ -77,7 +78,11 @@ export function register(Alpine) {
 
     async loadPlugins() {
       try {
-        this.plugins = await api('GET', '/api/plugins') || []
+        this.plugins = (await api('GET', '/api/plugins') || []).map(plugin => ({
+          ...plugin,
+          capabilities: Array.isArray(plugin.capabilities) ? plugin.capabilities : [],
+        }))
+        await this.loadPluginSchemas()
         const mcpPlugin = this.plugins.find(p => p.id === 'tool/mcp')
         this.mcpServers = this.normalizeMcpServers(mcpPlugin?.config?.servers || [])
         this.mcpSavedSignature = this.snapshotMcpSignature()
@@ -85,6 +90,21 @@ export function register(Alpine) {
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       }
+    },
+
+    async loadPluginSchemas() {
+      const results = await Promise.all(
+        this.plugins
+          .filter(plugin => plugin.has_config)
+          .map(async plugin => {
+            try {
+              return [plugin.id, await api('GET', this.pluginSchemaPath(plugin)) || {}]
+            } catch {
+              return [plugin.id, null]
+            }
+          }),
+      )
+      this.pluginSchemas = Object.fromEntries(results.filter(([, schema]) => !!schema))
     },
 
     async loadMcpStatus() {
@@ -416,21 +436,53 @@ export function register(Alpine) {
       return date.toLocaleString()
     },
 
-    descriptionFor(name) {
-      const descriptions = {
-        mcp: 'Connect and proxy configured MCP servers',
-        webfetch: 'Fetch and extract web page content',
-        telegram: 'Telegram bot integration',
-        qq: 'QQ bot integration',
-        feishu: 'Feishu (Lark) bot integration',
-        weixin: 'WeChat bot integration',
-        trace: 'Trace LLM calls and tool executions',
-        rtk: 'Rewrite bash commands via rtk',
-        lcm: 'Lossless context management with hierarchical summarisation',
-        simple: 'Sliding window — no compaction, drops old messages',
-        reflect: 'Background conversation review — extracts skills and profile updates',
+    pluginSchemaPath(plugin) {
+      return '/api/plugin-config-schema/' + encodeURIComponent(plugin.kind) + '/' + encodeURIComponent(plugin.name)
+    },
+
+    pluginLabel(plugin) {
+      return plugin.display_name || plugin.name || plugin.id
+    },
+
+    pluginDescription(plugin) {
+      return plugin.description || ''
+    },
+
+    pluginMetaBadges(plugin) {
+      const badges = []
+      if (plugin.managed) {
+        badges.push({ key: 'managed', label: 'managed', className: 'badge-primary' })
       }
-      return descriptions[name] || ''
+      if (plugin.has_config) {
+        badges.push({ key: 'config', label: 'config', className: 'badge-neutral' })
+      }
+      if (plugin.has_status) {
+        badges.push({ key: 'status', label: 'status', className: 'badge-neutral' })
+      }
+      if (plugin.supports_notifications) {
+        badges.push({ key: 'notifications', label: 'notifications', className: 'badge-info' })
+      }
+      const hiddenCapabilities = new Set([plugin.kind, 'config', 'status'])
+      for (const capability of plugin.capabilities || []) {
+        if (hiddenCapabilities.has(capability)) {
+          continue
+        }
+        badges.push({ key: 'capability:' + capability, label: capability, className: 'badge-ghost' })
+      }
+      return badges
+    },
+
+    pluginSchemaSummary(plugin) {
+      const schema = this.pluginSchemas[plugin.id]
+      const properties = Object.keys(schema?.properties || {})
+      if (properties.length === 0) {
+        return ''
+      }
+      const preview = properties.slice(0, 3).join(', ')
+      if (properties.length <= 3) {
+        return 'Config fields: ' + preview
+      }
+      return 'Config fields: ' + preview + ', +' + (properties.length - 3) + ' more'
     },
   }))
 }
