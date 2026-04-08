@@ -202,6 +202,19 @@ func TestNotificationServiceExtension(t *testing.T) {
 	}
 }
 
+func TestStateStoreExtension(t *testing.T) {
+	stateStore := &fakePluginStateStore{}
+	host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithStateStore(stateStore))
+
+	resolved := host.Services().StateStore()
+	if resolved == nil {
+		t.Fatal("expected state store")
+	}
+	if resolved != stateStore {
+		t.Fatalf("unexpected state store: %#v", resolved)
+	}
+}
+
 func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}})
 
@@ -349,5 +362,19 @@ func (*fakeNotificationService) Notify(context.Context, pkgchannel.Notification)
 }
 
 func (*fakeNotificationService) NotifyUser(context.Context, int64, pkgchannel.Notification) error {
+	return nil
+}
+
+type fakePluginStateStore struct{}
+
+func (*fakePluginStateStore) Get(context.Context, string, pkgplugins.PluginStateScope, string) (map[string]any, bool, error) {
+	return nil, false, nil
+}
+
+func (*fakePluginStateStore) Set(context.Context, string, pkgplugins.PluginStateScope, string, map[string]any) error {
+	return nil
+}
+
+func (*fakePluginStateStore) Delete(context.Context, string, pkgplugins.PluginStateScope, string) error {
 	return nil
 }

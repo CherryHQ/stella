@@ -137,9 +137,14 @@ type CtxSummaryParent struct {
 	Ordinal         int64  `json:"ordinal"`
 }
 
-type ReflectWatermark struct {
-	SessionID  string `json:"session_id"`
-	ReviewedAt string `json:"reviewed_at"`
+type PluginStateEntry struct {
+	PluginID  string `json:"plugin_id"`
+	ScopeKind string `json:"scope_kind"`
+	ScopeID   string `json:"scope_id"`
+	StateKey  string `json:"state_key"`
+	Value     string `json:"value"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type SchedJob struct {

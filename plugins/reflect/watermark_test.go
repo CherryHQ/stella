@@ -2,31 +2,23 @@ package reflect
 
 import (
 	"context"
-	"database/sql"
+	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/pkg/db/sqlc"
-	_ "modernc.org/sqlite"
+	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/vaayne/anna/internal/pluginstate"
 )
 
 func newTestWatermarkStore(t *testing.T) *watermarkStore {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	_, err = db.Exec(`CREATE TABLE reflect_watermarks (
-		session_id TEXT NOT NULL PRIMARY KEY,
-		reviewed_at TEXT NOT NULL
-	)`)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return newWatermarkStore(sqlc.New(db))
+	return newWatermarkStore(pluginstate.New(db))
 }
 
 func TestWatermarkStore_GetMissing(t *testing.T) {

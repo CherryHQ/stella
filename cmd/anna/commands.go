@@ -18,6 +18,7 @@ import (
 	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/pluginhost"
+	"github.com/vaayne/anna/internal/pluginstate"
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
@@ -103,8 +104,10 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
 	dispatcher := notify.NewDispatcher()
+	stateStore := pluginstate.New(db)
 	phost := pluginhost.New(store,
 		pluginhost.WithNotificationService(dispatcher),
+		pluginhost.WithStateStore(stateStore),
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
 		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
 	)
@@ -181,7 +184,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			"base_url": baseURL,
 		})
 	}
-	reflectRuntimeServices.Set(ctx, db, memProvider, store, snap.Workspace, providerRegistryBuilder)
+	reflectRuntimeServices.Set(ctx, memProvider, store, snap.Workspace, providerRegistryBuilder)
 
 	// Plugin hooks builder: auto-discovers registered hook plugins and returns
 	// enabled ones. Called at startup and on hot-reload.

@@ -2,7 +2,6 @@ package reflect
 
 import (
 	"context"
-	"database/sql"
 	"sync"
 	"testing"
 	"time"
@@ -146,7 +145,6 @@ type fakeReflectRuntimeServices struct {
 }
 
 func (s fakeReflectRuntimeServices) ParentContext() context.Context { return s.parent }
-func (fakeReflectRuntimeServices) DB() *sql.DB                      { return nil }
 func (fakeReflectRuntimeServices) Memory() memory.Provider          { return nil }
 func (fakeReflectRuntimeServices) Store() pkgplugins.ReflectStore   { return nil }
 func (fakeReflectRuntimeServices) Workspace() string                { return "" }

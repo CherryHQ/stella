@@ -2,7 +2,6 @@ package pluginhost
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"sync"
 
@@ -32,6 +31,27 @@ func (h *Host) Notifications() pkgplugins.NotificationService {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.notifications
+}
+
+// WithStateStore injects the narrow plugin state store available to plugins.
+func WithStateStore(store pkgplugins.PluginStateStore) Option {
+	return func(h *Host) {
+		h.stateStore = store
+	}
+}
+
+// SetStateStore updates the plugin state store extension after host construction.
+func (h *Host) SetStateStore(store pkgplugins.PluginStateStore) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.stateStore = store
+}
+
+// StateStore returns the injected plugin state store, if any.
+func (h *Host) StateStore() pkgplugins.PluginStateStore {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.stateStore
 }
 
 // WithChannelRuntimeServices injects the narrow services used by managed channel runtimes.
@@ -118,7 +138,6 @@ func (s *ChannelRuntimeServices) Notifications() pkgplugins.NotificationRegistry
 type ReflectRuntimeServices struct {
 	mu             sync.RWMutex
 	parent         context.Context
-	db             *sql.DB
 	memory         memory.Provider
 	store          config.Store
 	workspace      string
@@ -129,11 +148,10 @@ func NewReflectRuntimeServices() *ReflectRuntimeServices {
 	return &ReflectRuntimeServices{}
 }
 
-func (s *ReflectRuntimeServices) Set(parent context.Context, db *sql.DB, mem memory.Provider, store config.Store, workspace string, buildProviders func(api, apiKey, baseURL string) (*providers.Registry, error)) {
+func (s *ReflectRuntimeServices) Set(parent context.Context, mem memory.Provider, store config.Store, workspace string, buildProviders func(api, apiKey, baseURL string) (*providers.Registry, error)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.parent = parent
-	s.db = db
 	s.memory = mem
 	s.store = store
 	s.workspace = workspace
@@ -144,12 +162,6 @@ func (s *ReflectRuntimeServices) ParentContext() context.Context {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.parent
-}
-
-func (s *ReflectRuntimeServices) DB() *sql.DB {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.db
 }
 
 func (s *ReflectRuntimeServices) Memory() memory.Provider {
