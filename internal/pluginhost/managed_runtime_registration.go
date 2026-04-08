@@ -19,9 +19,17 @@ func validateByDecode[T any](decode func(map[string]any) (T, error)) func(map[st
 
 func (h *Host) registerManagedRuntime(reg managedRuntimeRegistration) {
 	h.RegisterPluginID(reg.pluginID)
+	if reg.metadata.ID != "" {
+		meta := reg.metadata.Clone()
+		meta.Managed = true
+		meta.HasConfig = true
+		meta.HasStatus = true
+		h.RegisterMetadata(meta)
+	}
 	h.RegisterConfig(pkgplugins.ConfigRegistration{
 		PluginID:      reg.pluginID,
 		DefaultConfig: reg.defaultConfig,
+		Schema:        reg.schema,
 		Validate:      reg.validate,
 		Redact:        reg.redact,
 	})
@@ -54,7 +62,9 @@ func (h *Host) runtimeStatus(ctx context.Context, pluginID, runtimeName string) 
 type managedRuntimeRegistration struct {
 	pluginID      string
 	runtimeName   string
+	metadata      pkgplugins.PluginMeta
 	defaultConfig func() map[string]any
+	schema        map[string]any
 	validate      func(map[string]any) error
 	redact        func(map[string]any) map[string]any
 	factory       func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error)

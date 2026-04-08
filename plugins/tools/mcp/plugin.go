@@ -17,6 +17,22 @@ const (
 
 func init() {
 	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
+		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+			ID:           PluginID,
+			Kind:         "tool",
+			Name:         "mcp",
+			DisplayName:  "MCP",
+			Managed:      true,
+			AdminVisible: true,
+			HasConfig:    true,
+			HasStatus:    true,
+			Capabilities: []string{
+				pkgplugins.CapabilityTool,
+				pkgplugins.CapabilityRuntime,
+				pkgplugins.CapabilityConfig,
+				pkgplugins.CapabilityStatus,
+			},
+		})
 		host.Registry().RegisterConfig(pkgplugins.ConfigRegistration{
 			PluginID:      PluginID,
 			DefaultConfig: func() map[string]any { return map[string]any{"servers": []any{}} },
