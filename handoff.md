@@ -262,7 +262,15 @@ The rule for all of these phases is the same:
 
 ### Active Phase
 
-Capability roadmap complete through Phase E. No general DB-facing plugin capability is approved; keep raw DB access limited to the existing memory-provider build context until a concrete extension need proves a narrower service is required.
+Phase A2: add host-owned tool lifecycle registrations so plugins can intercept tool calls through `pluginhost` instead of depending on the legacy hook plugin system.
+
+Target shape:
+
+- `BeforeToolCall` registration for argument rewrite and blocking
+- `AfterToolResult` registration for result rewrite on the real execution path
+- deterministic ordering with the existing hook system:
+  - host lifecycle before old pre-tool hooks
+  - host lifecycle after execution but before old post-tool hooks
 
 ### Phase 1: Finish host unification
 
