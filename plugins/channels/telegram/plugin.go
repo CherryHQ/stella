@@ -67,7 +67,9 @@ func init() {
 				cfg, err := DecodeConfig(raw)
 				return err == nil && cfg.EnableNotify
 			},
-			RuntimeFactory: newRuntime,
+			RuntimeFactory: func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error) {
+				return newRuntime(host)
+			},
 		})
 	}))
 }

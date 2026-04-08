@@ -375,7 +375,7 @@ func TestFormatModelListNoQuery(t *testing.T) {
 		{Provider: "openai", Model: "gpt-4"},
 		{Provider: "anthropic", Model: "claude-3"},
 	})
-	out := formatModelList(models, "")
+	out := channel.FormatNumberedModelList(models, "")
 	if !strings.Contains(out, "1. openai/gpt-4") {
 		t.Errorf("missing model entry in output: %s", out)
 	}
@@ -388,7 +388,7 @@ func TestFormatModelListWithQuery(t *testing.T) {
 	models := channel.IndexModels([]channel.ModelOption{
 		{Provider: "openai", Model: "gpt-4"},
 	})
-	out := formatModelList(models, "openai")
+	out := channel.FormatNumberedModelList(models, "openai")
 	if !strings.Contains(out, `filter: "openai"`) {
 		t.Errorf("should show filter query: %s", out)
 	}

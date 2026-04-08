@@ -1,6 +1,8 @@
 package channel
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -44,5 +46,49 @@ func TestFormatAgentList_WithCurrent(t *testing.T) {
 	}
 	if !strings.Contains(got, "a1") || !strings.Contains(got, "a2") {
 		t.Errorf("expected both agents in output, got %q", got)
+	}
+}
+
+func TestHandleAgentCommandSwitch(t *testing.T) {
+	var switched string
+	var reply string
+
+	HandleAgentCommand(AgentCommandHandler{
+		Incoming: IncomingMessage{SenderID: "u1"},
+		Args:     "anna",
+		Reply:    func(s string) { reply = s },
+		ListAgents: func(context.Context, IncomingMessage) ([]AgentInfo, string, error) {
+			t.Fatal("list agents should not be called for direct switch")
+			return nil, "", nil
+		},
+		SwitchAgent: func(_ context.Context, msg IncomingMessage, agentID string) error {
+			if msg.SenderID != "u1" {
+				t.Fatalf("unexpected incoming message: %+v", msg)
+			}
+			switched = agentID
+			return nil
+		},
+	})
+
+	if switched != "anna" {
+		t.Fatalf("expected switch to anna, got %q", switched)
+	}
+	if !strings.Contains(reply, "Switched to agent: anna") {
+		t.Fatalf("unexpected reply: %q", reply)
+	}
+}
+
+func TestHandleAgentCommandListError(t *testing.T) {
+	var reply string
+
+	HandleAgentCommand(AgentCommandHandler{
+		Reply: func(s string) { reply = s },
+		ListAgents: func(context.Context, IncomingMessage) ([]AgentInfo, string, error) {
+			return nil, "", fmt.Errorf("boom")
+		},
+	})
+
+	if !strings.Contains(reply, "Error listing agents") {
+		t.Fatalf("unexpected reply: %q", reply)
 	}
 }

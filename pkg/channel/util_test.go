@@ -88,6 +88,25 @@ func TestParseCommandArgs(t *testing.T) {
 	}
 }
 
+func TestParseSlashCommand(t *testing.T) {
+	tests := []struct {
+		text     string
+		wantCmd  string
+		wantArgs string
+	}{
+		{text: "/model openai/gpt-4", wantCmd: "/model", wantArgs: "openai/gpt-4"},
+		{text: " /Agent anna ", wantCmd: "/agent", wantArgs: "anna"},
+		{text: "hello", wantCmd: "", wantArgs: ""},
+	}
+
+	for _, tc := range tests {
+		gotCmd, gotArgs := ParseSlashCommand(tc.text)
+		if gotCmd != tc.wantCmd || gotArgs != tc.wantArgs {
+			t.Errorf("ParseSlashCommand(%q) = (%q, %q), want (%q, %q)", tc.text, gotCmd, gotArgs, tc.wantCmd, tc.wantArgs)
+		}
+	}
+}
+
 func TestTextContent(t *testing.T) {
 	blocks := TextContent("hello")
 	if len(blocks) != 1 {
