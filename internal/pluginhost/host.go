@@ -14,41 +14,43 @@ import (
 type Option func(*Host)
 
 type Host struct {
-	store          config.Store
-	log            *slog.Logger
-	config         *configService
-	runtimes       *RuntimeHost
-	mu             sync.RWMutex
-	pluginIDs      map[string]struct{}
-	metadataRegs   map[string]pkgplugins.PluginMeta
-	channelRuntime pkgplugins.ChannelRuntimeServices
-	reflectRuntime pkgplugins.ReflectRuntimeServices
-	toolRegs       map[string]pkgplugins.ToolRegistration
-	providerRegs   map[string]pkgplugins.ProviderRegistration
-	hookRegs       map[string]pkgplugins.HookRegistration
-	channelRegs    map[string]pkgplugins.ChannelRegistration
-	memoryRegs     map[string]pkgplugins.MemoryRegistration
-	runtimeRegs    map[string]pkgplugins.RuntimeRegistration
-	configRegs     map[string]pkgplugins.ConfigRegistration
-	statusRegs     map[string]pkgplugins.StatusRegistration
-	promptRegs     map[string]pkgplugins.PromptInventoryRegistration
+	store            config.Store
+	log              *slog.Logger
+	config           *configService
+	runtimes         *RuntimeHost
+	mu               sync.RWMutex
+	pluginIDs        map[string]struct{}
+	metadataRegs     map[string]pkgplugins.PluginMeta
+	channelRuntime   pkgplugins.ChannelRuntimeServices
+	reflectRuntime   pkgplugins.ReflectRuntimeServices
+	toolRegs         map[string]pkgplugins.ToolRegistration
+	providerRegs     map[string]pkgplugins.ProviderRegistration
+	hookRegs         map[string]pkgplugins.HookRegistration
+	channelRegs      map[string]pkgplugins.ChannelRegistration
+	memoryRegs       map[string]pkgplugins.MemoryRegistration
+	runtimeRegs      map[string]pkgplugins.RuntimeRegistration
+	configRegs       map[string]pkgplugins.ConfigRegistration
+	statusRegs       map[string]pkgplugins.StatusRegistration
+	promptRegs       map[string]pkgplugins.PromptInventoryRegistration
+	systemPromptRegs map[string]pkgplugins.SystemPromptRegistration
 }
 
 func New(store config.Store, opts ...Option) *Host {
 	h := &Host{
-		store:        store,
-		log:          slog.With("component", "plugin_host"),
-		pluginIDs:    map[string]struct{}{},
-		metadataRegs: map[string]pkgplugins.PluginMeta{},
-		toolRegs:     map[string]pkgplugins.ToolRegistration{},
-		providerRegs: map[string]pkgplugins.ProviderRegistration{},
-		hookRegs:     map[string]pkgplugins.HookRegistration{},
-		channelRegs:  map[string]pkgplugins.ChannelRegistration{},
-		memoryRegs:   map[string]pkgplugins.MemoryRegistration{},
-		runtimeRegs:  map[string]pkgplugins.RuntimeRegistration{},
-		configRegs:   map[string]pkgplugins.ConfigRegistration{},
-		statusRegs:   map[string]pkgplugins.StatusRegistration{},
-		promptRegs:   map[string]pkgplugins.PromptInventoryRegistration{},
+		store:            store,
+		log:              slog.With("component", "plugin_host"),
+		pluginIDs:        map[string]struct{}{},
+		metadataRegs:     map[string]pkgplugins.PluginMeta{},
+		toolRegs:         map[string]pkgplugins.ToolRegistration{},
+		providerRegs:     map[string]pkgplugins.ProviderRegistration{},
+		hookRegs:         map[string]pkgplugins.HookRegistration{},
+		channelRegs:      map[string]pkgplugins.ChannelRegistration{},
+		memoryRegs:       map[string]pkgplugins.MemoryRegistration{},
+		runtimeRegs:      map[string]pkgplugins.RuntimeRegistration{},
+		configRegs:       map[string]pkgplugins.ConfigRegistration{},
+		statusRegs:       map[string]pkgplugins.StatusRegistration{},
+		promptRegs:       map[string]pkgplugins.PromptInventoryRegistration{},
+		systemPromptRegs: map[string]pkgplugins.SystemPromptRegistration{},
 	}
 	h.config = &configService{store: store}
 	h.runtimes = NewRuntimeHost(h)
@@ -142,6 +144,11 @@ func (h *Host) RegisterPromptInventory(reg pkgplugins.PromptInventoryRegistratio
 	defer h.mu.Unlock()
 	registerUnique(h.promptRegs, promptKey(reg.PluginID, reg.Name), reg, "prompt inventory")
 }
+func (h *Host) RegisterSystemPrompt(reg pkgplugins.SystemPromptRegistration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	registerUnique(h.systemPromptRegs, promptKey(reg.PluginID, reg.Name), reg, "system prompt")
+}
 
 func registerUnique[T any](m map[string]T, key string, reg T, kind string) {
 	if key == "" {
@@ -232,6 +239,55 @@ func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.P
 		for _, tool := range tools {
 			out = append(out, tool.Clone())
 		}
+	}
+	return out, nil
+}
+
+func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
+	h.mu.RLock()
+	regs := make([]pkgplugins.SystemPromptRegistration, 0, len(h.systemPromptRegs))
+	for _, reg := range h.systemPromptRegs {
+		regs = append(regs, reg)
+	}
+	h.mu.RUnlock()
+	sort.Slice(regs, func(i, j int) bool { return regs[i].Name < regs[j].Name })
+
+	var out []pkgplugins.SystemPromptSection
+	for _, reg := range regs {
+		if reg.Build == nil {
+			continue
+		}
+		state := build.State
+		if reg.Required {
+			state = pkgplugins.PluginState{
+				ID:      reg.PluginID,
+				Enabled: true,
+				Config:  h.defaultConfigFor(reg.PluginID),
+			}
+		} else {
+			var err error
+			state, err = h.DesiredState(ctx, reg.PluginID)
+			if err != nil || !state.Enabled {
+				continue
+			}
+		}
+		section, err := reg.Build(ctx, pkgplugins.SystemPromptContext{
+			Services:    h,
+			State:       state,
+			AnnaHome:    build.AnnaHome,
+			Workspace:   build.Workspace,
+			Cwd:         build.Cwd,
+			UserID:      build.UserID,
+			AgentID:     build.AgentID,
+			UserDataDir: build.UserDataDir,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if section.Title == "" || section.Content == "" {
+			continue
+		}
+		out = append(out, section)
 	}
 	return out, nil
 }

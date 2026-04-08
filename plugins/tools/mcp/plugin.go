@@ -27,6 +27,7 @@ func init() {
 			HasStatus:    true,
 			Capabilities: []string{
 				pkgplugins.CapabilityTool,
+				pkgplugins.CapabilityPrompt,
 				pkgplugins.CapabilityRuntime,
 				pkgplugins.CapabilityConfig,
 				pkgplugins.CapabilityStatus,

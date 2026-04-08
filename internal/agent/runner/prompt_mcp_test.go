@@ -27,3 +27,18 @@ func TestBuildSystemPromptOmitsMCPToolsWhenDisabled(t *testing.T) {
 		t.Fatalf("did not expect MCP prompt section when manager disabled: %s", prompt)
 	}
 }
+
+func TestBuildSystemPromptIncludesPromptSections(t *testing.T) {
+	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{
+		SystemPrompt: "You are Anna.",
+		PromptSections: []pkgplugins.SystemPromptSection{
+			{Title: "Skills", Content: "<available_skills>\n  <skill>demo</skill>\n</available_skills>"},
+		},
+	})
+	if !strings.Contains(prompt, "## Skills") {
+		t.Fatalf("expected prompt section title in prompt: %s", prompt)
+	}
+	if !strings.Contains(prompt, "<available_skills>") {
+		t.Fatalf("expected prompt section content in prompt: %s", prompt)
+	}
+}

@@ -4,12 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	mcpplugin "github.com/vaayne/anna/plugins/tools/mcp"
 )
 
 // sessionResponse is a JSON-friendly representation of memory.SessionInfo.
@@ -192,14 +196,42 @@ func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) 
 	if info.AgentID != "" {
 		agentCfg, _ = s.store.GetAgent(r.Context(), info.AgentID)
 	}
+	cwd, _ := os.Getwd()
+	var userDataDir string
+	if info.UserID > 0 && info.AgentID != "" {
+		if userDir, err := agent.SetupUserWorkspace(info.AgentID, config.AnnaHome(), info.UserID); err == nil {
+			userDataDir = agent.UserDataDir(userDir)
+		}
+	}
+	promptSections, err := s.pluginHost.SystemPromptSections(r.Context(), pkgplugins.SystemPromptContext{
+		AnnaHome:    config.AnnaHome(),
+		Workspace:   agentCfg.Workspace,
+		Cwd:         cwd,
+		UserID:      info.UserID,
+		AgentID:     info.AgentID,
+		UserDataDir: userDataDir,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	promptTools, err := s.pluginHost.PromptTools(r.Context(), mcpplugin.PluginID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	prompt := runner.BuildSystemPromptFromDB(r.Context(), runner.DBPromptParams{
-		SystemPrompt: agentCfg.SystemPrompt,
-		Memory:       s.mem,
-		UserID:       info.UserID,
-		AgentID:      info.AgentID,
-		AnnaHome:     config.AnnaHome(),
-		Workspace:    agentCfg.Workspace,
+		SystemPrompt:   agentCfg.SystemPrompt,
+		Memory:         s.mem,
+		UserID:         info.UserID,
+		AgentID:        info.AgentID,
+		AnnaHome:       config.AnnaHome(),
+		Workspace:      agentCfg.Workspace,
+		Cwd:            cwd,
+		UserDataDir:    userDataDir,
+		PromptTools:    promptTools,
+		PromptSections: promptSections,
 	})
 
 	writeData(w, http.StatusOK, map[string]string{"system_prompt": prompt})

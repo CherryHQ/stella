@@ -8,6 +8,7 @@ const (
 	CapabilityConfig   = "config"
 	CapabilityStatus   = "status"
 	CapabilityTool     = "tool"
+	CapabilityPrompt   = "prompt"
 	CapabilityProvider = "provider"
 	CapabilityHook     = "hook"
 	CapabilityMemory   = "memory"

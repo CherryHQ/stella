@@ -108,6 +108,30 @@ func TestPromptToolsUsesPluginIDDirectly(t *testing.T) {
 	}
 }
 
+func TestSystemPromptSectionsUsePluginIDDirectly(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{}}
+	host := New(store)
+	host.RegisterPluginID("tool/skills")
+	host.RegisterSystemPrompt(pkgplugins.SystemPromptRegistration{
+		PluginID: "tool/skills",
+		Name:     "skills",
+		Required: true,
+		Build: func(context.Context, pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
+			return pkgplugins.SystemPromptSection{
+				Title:   "Skills",
+				Content: "<available_skills></available_skills>",
+			}, nil
+		},
+	})
+	sections, err := host.SystemPromptSections(context.Background(), pkgplugins.SystemPromptContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sections) != 1 || sections[0].Title != "Skills" {
+		t.Fatalf("unexpected prompt sections: %#v", sections)
+	}
+}
+
 func TestConfigSchemaUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)

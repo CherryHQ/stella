@@ -32,6 +32,7 @@ type PluginHooksBuilder func(ctx context.Context) []hooks.HookPlugin
 
 // PromptToolsBuilder returns structured prompt inventory for the active plugin host.
 type PromptToolsBuilder func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error)
+type PromptSectionsBuilder func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
 type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
 type CoreToolsBuilder = runner.CoreToolsBuilder
 
@@ -88,6 +89,12 @@ func WithPromptToolsBuilder(b PromptToolsBuilder) PoolManagerOption {
 	}
 }
 
+func WithPromptSectionsBuilder(b PromptSectionsBuilder) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.promptSectionsBuilder = b
+	}
+}
+
 func WithProviderRegistryBuilder(b ProviderRegistryBuilder) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.providerRegistryBuilder = b
@@ -115,6 +122,7 @@ type PoolManager struct {
 	hookPlugins             []hooks.HookPlugin // current enabled hook plugins
 	pluginHooksBuilder      PluginHooksBuilder // builds hooks from plugin state
 	promptToolsBuilder      PromptToolsBuilder // builds prompt inventory from plugin state
+	promptSectionsBuilder   PromptSectionsBuilder
 	coreToolsBuilder        CoreToolsBuilder
 	providerRegistryBuilder ProviderRegistryBuilder
 	extraToolsFactory       ExtraToolsFactory
@@ -360,7 +368,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 		extraTools = append(extraTools, pm.extraToolsFactory(snap)...)
 	}
 
-	return NewRunnerFactory(snap, extraTools, pm.coreToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder)
+	return NewRunnerFactory(snap, extraTools, pm.coreToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder)
 }
 
 // mergeTools creates a new slice containing core tools followed by plugin tools.
