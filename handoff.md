@@ -109,6 +109,12 @@ This handoff file is also the running implementation log for future sessions.
   - `internal/agent/runner` now supports a per-run system prompt override through context instead of mutating shared runner state
   - metadata validation now checks both prompt contributions and the new lifecycle capability instead of silently accepting undeclared holes
   - focused tests cover host lifecycle resolution and pool-level system prompt override behavior
+- Implemented Phase B of capability expansion:
+  - `pkg/plugins.ServiceHost` now exposes a generic `NotificationService`
+  - `internal/pluginhost` now carries the app notification dispatcher as a host-owned service extension
+  - reflect runtime/service wiring now uses the generic host notification service instead of a reflect-only notifier seam
+  - managed channel notification registration remains a separate runtime service because it is channel lifecycle plumbing, not user-visible delivery
+  - focused tests cover host notification service resolution through `pluginhost`
 - Finished the remaining skills ownership move:
   - skill discovery, install/remove, patch/deprecate, validation, and builtin skill assets now live in `plugins/tools/skills`
   - `cmd/anna/skills.go` and `plugins/reflect/*` now import the skills plugin package directly
@@ -180,6 +186,10 @@ The migration target from `extension-design.md` is now implemented for the in-re
   - `internal/pluginhost` chains enabled lifecycle registrations in deterministic plugin/name order
   - runner calls can override the effective system prompt for one request without mutating cached runner state
   - the platform can now support pi-style per-run prompt shaping without exposing app-private packages
+- Extension-owned notification delivery now exists as a first-class host capability:
+  - `pkg/plugins.ServiceHost` exposes `Notifications()`
+  - plugins can notify all configured channels or a specific user without importing `internal/notify`
+  - reflect now uses the generic host service instead of a plugin-specific notification contract
 - Production provider construction now flows through `internal/pluginhost`:
   - runner provider registries
   - admin provider validation/model fetch
@@ -232,17 +242,7 @@ The rule for all of these phases is the same:
 
 ### Active Phase
 
-Phase B: add a notification capability so plugins can send user-visible events without importing `internal/notify` or channel internals.
-
-Phase B design:
-
-- add a narrow notification service to `pkg/plugins.ServiceHost`
-- expose only:
-  - `Notify(ctx, notification)`
-  - `NotifyUser(ctx, userID, notification)`
-- route the implementation through `internal/pluginhost`
-- inject the existing app dispatcher from setup code
-- use the new service to collapse plugin-specific notification contracts where possible
+Phase C: add plugin-owned state storage so plugins can persist durable data without importing DB packages or relying on bespoke app tables.
 
 ### Phase 1: Finish host unification
 
