@@ -76,6 +76,8 @@ This handoff file is also the running implementation log for future sessions.
 - Continued `internal/channel` cleanup by moving store-backed channel config access into `internal/channelconfig`.
 - Continued `internal/channel` cleanup by removing the remaining pkg-channel re-export shim from `internal/channel`.
 - Continued `internal/channel` cleanup by moving the shared slash-command handler into `internal/chatcommand`.
+- Continued `internal/channel` cleanup by moving the terminal chat UI package into `internal/chatcli`, leaving `internal/channel` coordinator-only.
+- Started `internal/admin` cleanup by extracting route registration out of `server.go`.
 
 ## Key Decisions
 
@@ -138,6 +140,8 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - Store-backed channel config loading and validation now live in `internal/channelconfig` instead of `internal/channel`.
 - Platform constants, model option aliases, and formatting helpers now come directly from `pkg/channel`; `internal/channel` no longer re-exports them.
 - The shared slash-command handler now lives in `internal/chatcommand`; `internal/channel` is down to the coordinator surface.
+- The terminal chat UI now lives in `internal/chatcli`, not under `internal/channel`.
+- `internal/admin/server.go` is no longer the only place that owns route registration; registration now lives in `internal/admin/routes.go`.
 - The old split registries are gone as runtime/discovery systems:
   - `plugins/providers`
   - `plugins/memory`
@@ -241,7 +245,8 @@ Recommended order:
    - Next cuts are lifecycle/coordinator shaping after the CLI move.
    - Keep using `pluginhost` discovery instead of reintroducing channel-specific registries or static lists.
 2. Clean `internal/admin`.
-   - Reduce cross-handler coupling now that plugin and channel operations are uniformly host-backed.
+   - Route registration is already split out of `server.go`.
+   - Next cuts are channel lifecycle extraction and other narrow server responsibilities.
 3. Clean `cmd/anna`.
    - Split bootstrap/wiring responsibilities into narrower setup units.
 4. Clean scheduler/notification plumbing after that.
@@ -541,6 +546,13 @@ This is a real second migration, not a cleanup detail. It should only start afte
 - Moved the terminal chat UI package from `internal/channel/cli` to `internal/chatcli`.
 - Updated the `anna chat` command to import `internal/chatcli` directly.
 - Left package internals unchanged; this phase only fixed package ownership so the remaining `internal/channel` package is coordinator-only.
+
+### 2026-04-08 — admin route registration extraction
+
+- Moved admin mux wiring out of `internal/admin/server.go` into the new `internal/admin/routes.go`.
+- Split route registration by concern: static/auth/profile/pages/providers/agents/channels/users/auth-users/sessions/plugins/models/tools/scheduler.
+- Reduced `server.go` to construction, channel lifecycle management, middleware, and JSON helpers instead of one large constructor with every route inline.
+- Verified with focused tests for `internal/admin` and `cmd/anna`.
 
 ## Session Log
 
