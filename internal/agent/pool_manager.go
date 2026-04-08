@@ -9,6 +9,7 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
+	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
@@ -102,6 +103,12 @@ func WithBeforeRunBuilderPM(b BeforeRunBuilder) PoolManagerOption {
 	}
 }
 
+func WithToolLifecyclePM(tl *coreagent.ToolLifecycle) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.toolLifecycle = tl
+	}
+}
+
 func WithProviderRegistryBuilder(b ProviderRegistryBuilder) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.providerRegistryBuilder = b
@@ -131,6 +138,7 @@ type PoolManager struct {
 	promptToolsBuilder      PromptToolsBuilder // builds prompt inventory from plugin state
 	promptSectionsBuilder   PromptSectionsBuilder
 	beforeRunBuilder        BeforeRunBuilder
+	toolLifecycle           *coreagent.ToolLifecycle
 	coreToolsBuilder        CoreToolsBuilder
 	providerRegistryBuilder ProviderRegistryBuilder
 	extraToolsFactory       ExtraToolsFactory
@@ -377,7 +385,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 		extraTools = append(extraTools, pm.extraToolsFactory(snap)...)
 	}
 
-	return NewRunnerFactory(snap, extraTools, pm.coreToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder)
+	return NewRunnerFactory(snap, extraTools, pm.coreToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle)
 }
 
 // mergeTools creates a new slice containing core tools followed by plugin tools.

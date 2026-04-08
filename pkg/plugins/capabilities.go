@@ -134,3 +134,19 @@ type BeforeRunRegistration struct {
 	Required bool
 	Run      func(ctx context.Context, build BeforeRunContext) (BeforeRunResult, error)
 }
+
+// BeforeToolCallRegistration registers a pre-tool lifecycle hook owned by a plugin.
+type BeforeToolCallRegistration struct {
+	PluginID string
+	Name     string
+	Required bool
+	Run      func(ctx context.Context, build BeforeToolCallContext) (BeforeToolCallResult, error)
+}
+
+// AfterToolResultRegistration registers a post-tool lifecycle hook owned by a plugin.
+type AfterToolResultRegistration struct {
+	PluginID string
+	Name     string
+	Required bool
+	Run      func(ctx context.Context, build AfterToolResultContext) (AfterToolResult, error)
+}

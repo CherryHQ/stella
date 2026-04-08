@@ -21,6 +21,8 @@ type RegistryHost interface {
 	RegisterPromptInventory(PromptInventoryRegistration)
 	RegisterSystemPrompt(SystemPromptRegistration)
 	RegisterBeforeRun(BeforeRunRegistration)
+	RegisterBeforeToolCall(BeforeToolCallRegistration)
+	RegisterAfterToolResult(AfterToolResultRegistration)
 	RegisterMetadata(PluginMeta)
 }
 

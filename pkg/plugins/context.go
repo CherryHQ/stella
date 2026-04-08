@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/channel"
@@ -80,4 +81,33 @@ type BeforeRunContext struct {
 	MessageText  string
 	SystemPrompt string
 	History      []ai.Message
+}
+
+// BeforeToolCallContext is the narrow per-tool-call lifecycle context exposed to plugins.
+type BeforeToolCallContext struct {
+	Services   ServiceHost
+	State      PluginState
+	SessionID  string
+	Channel    string
+	UserID     int64
+	AgentID    string
+	ToolName   string
+	ToolCallID string
+	Arguments  map[string]any
+}
+
+// AfterToolResultContext is the narrow post-tool lifecycle context exposed to plugins.
+type AfterToolResultContext struct {
+	Services   ServiceHost
+	State      PluginState
+	SessionID  string
+	Channel    string
+	UserID     int64
+	AgentID    string
+	ToolName   string
+	ToolCallID string
+	Arguments  map[string]any
+	Result     string
+	IsError    bool
+	Duration   time.Duration
 }

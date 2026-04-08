@@ -22,6 +22,7 @@ type Runner struct {
 	interrupt     <-chan struct{}
 	hooks         *hooks.HookSet
 	hookMeta      hooks.HookMeta
+	toolLifecycle *ToolLifecycle
 }
 
 // RunnerConfig holds the required fields for constructing a Runner.
@@ -60,6 +61,13 @@ func WithHooks(hs *hooks.HookSet, meta hooks.HookMeta) Option {
 	return func(r *Runner) {
 		r.hooks = hs
 		r.hookMeta = meta
+	}
+}
+
+// WithToolLifecycle sets optional tool lifecycle hooks for the loop.
+func WithToolLifecycle(tl *ToolLifecycle) Option {
+	return func(r *Runner) {
+		r.toolLifecycle = tl
 	}
 }
 
@@ -123,5 +131,6 @@ func (r *Runner) loopConfig() loopConfig {
 		Interrupt:       r.interrupt,
 		Hooks:           r.hooks,
 		HookMeta:        r.hookMeta,
+		ToolLifecycle:   r.toolLifecycle,
 	}
 }

@@ -25,6 +25,7 @@ type HookMeta struct {
 	SessionID string
 	UserID    int64
 	AgentID   string
+	Channel   string
 }
 
 // --- PreToolCall ---

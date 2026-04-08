@@ -89,6 +89,19 @@ type BeforeRunResult struct {
 	SystemPrompt string `json:"system_prompt,omitempty"`
 }
 
+// BeforeToolCallResult is the mutable pre-execution output from tool lifecycle plugins.
+type BeforeToolCallResult struct {
+	Arguments map[string]any `json:"arguments,omitempty"`
+	Block     bool           `json:"block,omitempty"`
+	BlockMsg  string         `json:"block_msg,omitempty"`
+}
+
+// AfterToolResult is the mutable post-execution output from tool lifecycle plugins.
+type AfterToolResult struct {
+	Result  *string `json:"result,omitempty"`
+	IsError *bool   `json:"is_error,omitempty"`
+}
+
 func cloneMap(src map[string]any) map[string]any {
 	if len(src) == 0 {
 		return map[string]any{}

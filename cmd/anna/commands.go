@@ -20,6 +20,7 @@ import (
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/pluginstate"
 	"github.com/vaayne/anna/internal/scheduler"
+	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
@@ -199,6 +200,48 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// WithSharedExtraTools sets the always-on core tools (scheduler, memory).
 	// WithPluginToolsBuilder provides the function for hot-reloadable plugin tools.
 	// WithPluginHooksBuilder provides the function for hot-reloadable hook plugins.
+	toolLifecycle := &coreagent.ToolLifecycle{
+		BeforeCall: func(ctx context.Context, call coreagent.ToolCallContext) (coreagent.ToolCallMutation, error) {
+			result, err := phost.BeforeToolCall(ctx, pkgplugins.BeforeToolCallContext{
+				SessionID:  call.SessionID,
+				Channel:    call.Channel,
+				UserID:     call.UserID,
+				AgentID:    call.AgentID,
+				ToolName:   call.ToolName,
+				ToolCallID: call.ToolCallID,
+				Arguments:  call.Arguments,
+			})
+			if err != nil {
+				return coreagent.ToolCallMutation{}, err
+			}
+			return coreagent.ToolCallMutation{
+				Arguments: result.Arguments,
+				Block:     result.Block,
+				BlockMsg:  result.BlockMsg,
+			}, nil
+		},
+		AfterCall: func(ctx context.Context, result coreagent.ToolResultContext) (coreagent.ToolResultMutation, error) {
+			mutation, err := phost.AfterToolResult(ctx, pkgplugins.AfterToolResultContext{
+				SessionID:  result.SessionID,
+				Channel:    result.Channel,
+				UserID:     result.UserID,
+				AgentID:    result.AgentID,
+				ToolName:   result.ToolName,
+				ToolCallID: result.ToolCallID,
+				Arguments:  result.Arguments,
+				Result:     result.Result,
+				IsError:    result.IsError,
+				Duration:   result.Duration,
+			})
+			if err != nil {
+				return coreagent.ToolResultMutation{}, err
+			}
+			return coreagent.ToolResultMutation{
+				Result:  mutation.Result,
+				IsError: mutation.IsError,
+			}, nil
+		},
+	}
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithIdleTimeoutPM(idleTimeout),
 		agent.WithCompactionPM(agent.CompactionConfig{
@@ -219,6 +262,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithBeforeRunBuilderPM(func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
 			return phost.BeforeRun(ctx, build)
 		}),
+		agent.WithToolLifecyclePM(toolLifecycle),
 	)
 
 	if err := poolMgr.StartAll(ctx); err != nil {
@@ -308,7 +352,7 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.Providers = providers
 		}
 
-		factory, err := agent.NewRunnerFactory(&snap, extraTools, coreToolsBuilder, providerRegistryBuilder, nil, nil)
+		factory, err := agent.NewRunnerFactory(&snap, extraTools, coreToolsBuilder, providerRegistryBuilder, nil, nil, nil)
 		if err != nil {
 			return err
 		}

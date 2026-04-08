@@ -63,8 +63,8 @@ func (h *Host) ValidateRegistrations() error {
 					return fmt.Errorf("pluginhost: metadata for %q declares channel capability but no channel is registered", meta.ID)
 				}
 			case pkgplugins.CapabilityLifecycle:
-				if !hasBeforeRunLocked(h.beforeRunRegs, meta.ID) {
-					return fmt.Errorf("pluginhost: metadata for %q declares lifecycle capability but no before-run hook is registered", meta.ID)
+				if !hasLifecycleLocked(h.beforeRunRegs, h.beforeToolRegs, h.afterToolRegs, meta.ID) {
+					return fmt.Errorf("pluginhost: metadata for %q declares lifecycle capability but no lifecycle hook is registered", meta.ID)
 				}
 			case pkgplugins.CapabilityRuntime:
 				if !hasRuntimeLocked(h.runtimeRegs, meta.ID) {
@@ -191,6 +191,28 @@ func hasBeforeRunLocked(regs map[string]pkgplugins.BeforeRunRegistration, plugin
 		}
 	}
 	return false
+}
+
+func hasBeforeToolLocked(regs map[string]pkgplugins.BeforeToolCallRegistration, pluginID string) bool {
+	for _, reg := range regs {
+		if reg.PluginID == pluginID {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAfterToolLocked(regs map[string]pkgplugins.AfterToolResultRegistration, pluginID string) bool {
+	for _, reg := range regs {
+		if reg.PluginID == pluginID {
+			return true
+		}
+	}
+	return false
+}
+
+func hasLifecycleLocked(beforeRunRegs map[string]pkgplugins.BeforeRunRegistration, beforeToolRegs map[string]pkgplugins.BeforeToolCallRegistration, afterToolRegs map[string]pkgplugins.AfterToolResultRegistration, pluginID string) bool {
+	return hasBeforeRunLocked(beforeRunRegs, pluginID) || hasBeforeToolLocked(beforeToolRegs, pluginID) || hasAfterToolLocked(afterToolRegs, pluginID)
 }
 
 func hasMemoryLocked(regs map[string]pkgplugins.MemoryRegistration, pluginID string) bool {
