@@ -1,10 +1,6 @@
 package skills
 
-import (
-	"encoding/json"
-
-	"github.com/vaayne/anna/internal/agent/runner"
-)
+import "encoding/json"
 
 type installedSkill struct {
 	Name        string `json:"name"`
@@ -16,7 +12,7 @@ type installedSkill struct {
 }
 
 func (t *SkillsTool) list() (string, error) {
-	all := runner.LoadSkills(t.annaHome, t.workspace, t.cwd, t.userSkillsDir)
+	all := LoadSkills(t.annaHome, t.workspace, t.cwd, t.userSkillsDir)
 	if len(all) == 0 {
 		return "No skills installed.", nil
 	}

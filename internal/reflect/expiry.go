@@ -6,8 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/skills"
+	"github.com/vaayne/anna/pkg/skills"
 )
 
 // expireDrafts scans user and agent skill directories, deprecating draft skills
@@ -44,9 +43,9 @@ func expireDraftsInDir(dir string, cutoff time.Time, log *slog.Logger) {
 		return
 	}
 
-	loaded := runner.LoadSkills("", "", "", dir)
+	loaded := skills.LoadSkills("", "", "", dir)
 	for _, s := range loaded {
-		if s.Status != runner.SkillStatusDraft {
+		if s.Status != skills.SkillStatusDraft {
 			continue
 		}
 		if s.CreatedAt == "" {
