@@ -440,15 +440,33 @@ Start narrow:
 - `BeforeRun`
   - receives current run context
   - may replace or augment the effective system prompt for that run
-- later phases may add:
-  - `BeforeToolCall`
-  - `AfterToolResult`
-  - `BeforeProviderRequest`
+
+Next narrow expansion:
+
+- `BeforeToolCall`
+  - receives session/user/agent/tool context plus arguments
+  - may rewrite arguments
+  - may block execution with a synthetic result
+- `AfterToolResult`
+  - receives the final tool result text, error state, and duration
+  - may rewrite the result text and error flag before the transcript sees it
+- `BeforeProviderRequest`
+  - only if the earlier slices prove insufficient
 
 Important rule:
 
 - do not start with a giant event bus
 - add only the hooks that map to real repo extension needs
+
+Tool lifecycle ordering should stay explicit and deterministic:
+
+1. host-owned `BeforeToolCall` lifecycle registrations
+2. legacy `PreToolCall` hook plugins
+3. actual tool execution
+4. host-owned `AfterToolResult` lifecycle registrations
+5. legacy `PostToolCall` hook plugins
+
+That keeps pluginhost as the authoritative extension path while preserving the existing hook plugin surface for tracing and other observer-style behavior.
 
 ### Phase B: Notification Capability
 
