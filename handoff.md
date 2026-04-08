@@ -102,6 +102,13 @@ This handoff file is also the running implementation log for future sessions.
   - runner pool setup and admin session prompt rendering now both gather prompt sections through the host
   - `plugins/tools/skills` now owns the old hardcoded skills prompt block through a required prompt-section registration
   - `plugins/tools/mcp` now advertises prompt capability in metadata to reflect its prompt inventory contribution
+- Implemented Phase A1 of capability expansion:
+  - `pkg/plugins` now exposes `BeforeRunRegistration`, `BeforeRunContext`, and `BeforeRunResult`
+  - `internal/pluginhost` now resolves enabled per-run lifecycle hooks through `BeforeRun(...)`
+  - `internal/agent.Pool` now invokes the host-owned `BeforeRun` pipeline before each runner call
+  - `internal/agent/runner` now supports a per-run system prompt override through context instead of mutating shared runner state
+  - metadata validation now checks both prompt contributions and the new lifecycle capability instead of silently accepting undeclared holes
+  - focused tests cover host lifecycle resolution and pool-level system prompt override behavior
 - Finished the remaining skills ownership move:
   - skill discovery, install/remove, patch/deprecate, validation, and builtin skill assets now live in `plugins/tools/skills`
   - `cmd/anna/skills.go` and `plugins/reflect/*` now import the skills plugin package directly
@@ -168,6 +175,11 @@ The migration target from `extension-design.md` is now implemented for the in-re
   - runner/admin prompt builders gather prompt sections through `internal/pluginhost`
   - `plugins/tools/skills` owns both the `skills` tool and the skills prompt block
   - the remaining prompt-design follow-up is narrower dynamic run hooks, not more hardcoded prompt text
+- Extension-owned per-run prompt mutation now exists as a first-class lifecycle capability:
+  - `pkg/plugins` exposes a generic `BeforeRun` contract
+  - `internal/pluginhost` chains enabled lifecycle registrations in deterministic plugin/name order
+  - runner calls can override the effective system prompt for one request without mutating cached runner state
+  - the platform can now support pi-style per-run prompt shaping without exposing app-private packages
 - Production provider construction now flows through `internal/pluginhost`:
   - runner provider registries
   - admin provider validation/model fetch
@@ -220,7 +232,7 @@ The rule for all of these phases is the same:
 
 ### Active Phase
 
-Phase A1: add a narrow `BeforeRun` lifecycle hook so enabled plugins can mutate the effective system prompt for one run at a time.
+Phase B: add a notification capability so plugins can send user-visible events without importing `internal/notify` or channel internals.
 
 ### Phase 1: Finish host unification
 
