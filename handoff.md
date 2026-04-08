@@ -234,6 +234,16 @@ The rule for all of these phases is the same:
 
 Phase B: add a notification capability so plugins can send user-visible events without importing `internal/notify` or channel internals.
 
+Phase B design:
+
+- add a narrow notification service to `pkg/plugins.ServiceHost`
+- expose only:
+  - `Notify(ctx, notification)`
+  - `NotifyUser(ctx, userID, notification)`
+- route the implementation through `internal/pluginhost`
+- inject the existing app dispatcher from setup code
+- use the new service to collapse plugin-specific notification contracts where possible
+
 ### Phase 1: Finish host unification
 
 1. Remove the remaining builder fallback dependence on legacy registries where possible.
