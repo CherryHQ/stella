@@ -102,6 +102,10 @@ This handoff file is also the running implementation log for future sessions.
   - runner pool setup and admin session prompt rendering now both gather prompt sections through the host
   - `plugins/tools/skills` now owns the old hardcoded skills prompt block through a required prompt-section registration
   - `plugins/tools/mcp` now advertises prompt capability in metadata to reflect its prompt inventory contribution
+- Finished the remaining skills ownership move:
+  - skill discovery, install/remove, patch/deprecate, validation, and builtin skill assets now live in `plugins/tools/skills`
+  - `cmd/anna/skills.go` and `plugins/reflect/*` now import the skills plugin package directly
+  - `pkg/skills` has been deleted instead of left behind as a public compatibility layer
 - Started `internal/admin` cleanup by extracting route registration out of `server.go`.
 - Continued `internal/admin` cleanup by moving channel lifecycle management out of `server.go`.
 - Continued `internal/admin` cleanup by moving HTTP wrapper methods and JSON response helpers out of `server.go`.
@@ -150,8 +154,8 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - MCP now lives as one ownership unit inside `plugins/tools/mcp`: config, IDs, manager lifecycle, session dialing, server supervision, data types, runtime wiring, and proxy-tool behavior are all package-local there.
 - `pkg/mcp` no longer exists; it was an intermediate migration stop, not the final design.
 - Shared database query contracts now live in `pkg/db/sqlc`, not `internal/db/sqlc`.
-- Shared skill discovery, validation, install/remove, and skill-management library code now live in `pkg/skills`, not `internal/skills` or `internal/agent/runner/skill.go`.
-- The `skills` agent tool now lives in `plugins/tools/skills` as a required built-in tool plugin, not in `pkg/skills`.
+- All skills ownership now lives in `plugins/tools/skills`: tool runtime, prompt contribution, discovery, validation, install/remove, patch/deprecate, and builtin skill assets.
+- `pkg/skills` no longer exists; the earlier extraction there was an intermediate migration stop, not the final ownership boundary.
 - Extension-owned prompt contribution now exists as a first-class host capability:
   - `pkg/plugins` exposes generic prompt-section contribution rather than a skills-specific API
   - runner/admin prompt builders gather prompt sections through `internal/pluginhost`
