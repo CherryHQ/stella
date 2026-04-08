@@ -67,6 +67,36 @@ func RedactWeixinPluginConfig(raw map[string]any) map[string]any {
 	return out
 }
 
+func WeixinPluginConfigSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"bot_token": map[string]any{
+				"type":        "string",
+				"description": "Weixin iLink bot token.",
+			},
+			"base_url": map[string]any{
+				"type":        "string",
+				"description": "Optional Weixin iLink base URL override.",
+			},
+			"bot_id": map[string]any{
+				"type":        "string",
+				"description": "Optional Weixin bot identity.",
+			},
+			"user_id": map[string]any{
+				"type":        "string",
+				"description": "Optional Weixin user identity.",
+			},
+			"enable_notify": map[string]any{
+				"type":        "boolean",
+				"description": "Whether scheduler and system notifications are delivered to Weixin.",
+				"default":     false,
+			},
+		},
+		"required": []any{"bot_token"},
+	}
+}
+
 func validateWeixinConfig(cfg WeixinConfig) string {
 	if cfg.BotToken == "" {
 		return "weixin: missing bot_token"

@@ -4,9 +4,13 @@ import (
 	"context"
 	"testing"
 
+	internalchannel "github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
+	internalreflect "github.com/vaayne/anna/internal/reflect"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	_ "github.com/vaayne/anna/plugins/tools/mcp"
 )
 
 func TestRegisterMetadataPanicsOnDuplicate(t *testing.T) {
@@ -182,6 +186,64 @@ func TestChannelRuntimeServicesExtension(t *testing.T) {
 	if resolved.Notifications() != notifications {
 		t.Fatalf("unexpected notification registry: %#v", resolved.Notifications())
 	}
+}
+
+func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T) {
+	host := New(&stubStore{plugins: map[string]config.Plugin{}})
+
+	host.RegisterQQ(QQDeps{})
+	host.RegisterFeishu(FeishuDeps{})
+	host.RegisterWeixin(WeixinDeps{})
+	host.RegisterReflect(ReflectDeps{})
+
+	plugins, err := host.ListAdminVisiblePlugins(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]pkgplugins.RegisteredPlugin{}
+	for _, plugin := range plugins {
+		seen[plugin.Meta.ID] = plugin
+	}
+
+	for _, pluginID := range []string{
+		internalchannel.QQPluginID,
+		internalchannel.FeishuPluginID,
+		internalchannel.WeixinPluginID,
+		internalreflect.PluginID,
+	} {
+		entry, ok := seen[pluginID]
+		if !ok {
+			t.Fatalf("missing admin-visible plugin %q in %#v", pluginID, seen)
+		}
+		if !entry.Meta.Managed || !entry.Meta.HasConfig || !entry.Meta.HasStatus {
+			t.Fatalf("unexpected metadata for %q: %#v", pluginID, entry.Meta)
+		}
+		if len(host.ConfigSchema(pluginID)) == 0 {
+			t.Fatalf("expected non-empty schema for %q", pluginID)
+		}
+	}
+}
+
+func TestLoadDefaultCatalogIncludesMCPMetadata(t *testing.T) {
+	host := New(&stubStore{plugins: map[string]config.Plugin{}})
+	if err := host.LoadDefaultCatalog(); err != nil {
+		t.Fatalf("LoadDefaultCatalog: %v", err)
+	}
+
+	metas := host.ListRegisteredPlugins()
+	for _, meta := range metas {
+		if meta.ID != pkgmcp.PluginID {
+			continue
+		}
+		if !meta.Managed || !meta.AdminVisible || !meta.HasConfig || !meta.HasStatus {
+			t.Fatalf("unexpected mcp metadata: %#v", meta)
+		}
+		if got := host.ConfigSchema(pkgmcp.PluginID); len(got) == 0 {
+			t.Fatal("expected non-empty mcp schema")
+		}
+		return
+	}
+	t.Fatalf("missing metadata for %q", pkgmcp.PluginID)
 }
 
 type fakeChannelHandler struct{}

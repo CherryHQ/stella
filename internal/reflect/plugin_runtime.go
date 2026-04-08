@@ -31,6 +31,25 @@ func DefaultPluginConfig() map[string]any {
 	return map[string]any{}
 }
 
+func PluginConfigSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"interval": map[string]any{
+				"type":        "string",
+				"description": "Review interval as a Go duration string.",
+				"default":     defaultReviewPeriod.String(),
+			},
+			"batch": map[string]any{
+				"type":        "integer",
+				"description": "Maximum number of conversations reviewed per run.",
+				"minimum":     1,
+				"default":     defaultReviewBatch,
+			},
+		},
+	}
+}
+
 func DecodePluginConfig(raw map[string]any) (PluginConfig, error) {
 	cfg := PluginConfig{
 		Interval: defaultReviewPeriod,

@@ -66,6 +66,33 @@ func RedactQQPluginConfig(raw map[string]any) map[string]any {
 	return out
 }
 
+func QQPluginConfigSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"app_id": map[string]any{
+				"type":        "string",
+				"description": "QQ bot app ID.",
+			},
+			"app_secret": map[string]any{
+				"type":        "string",
+				"description": "QQ bot app secret.",
+			},
+			"group_mode": map[string]any{
+				"type":        "string",
+				"enum":        []any{"", "mention", "always", "disabled"},
+				"description": "How group chats are handled.",
+			},
+			"enable_notify": map[string]any{
+				"type":        "boolean",
+				"description": "Whether scheduler and system notifications are delivered to QQ.",
+				"default":     false,
+			},
+		},
+		"required": []any{"app_id", "app_secret"},
+	}
+}
+
 func validateQQConfig(cfg QQConfig) string {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return "qq: missing app_id or app_secret"

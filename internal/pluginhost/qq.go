@@ -17,9 +17,24 @@ type QQDeps struct {
 
 func (h *Host) RegisterQQ(deps QQDeps) {
 	h.registerManagedRuntime(managedRuntimeRegistration{
-		pluginID:      internalchannel.QQPluginID,
-		runtimeName:   internalchannel.QQRuntimeName,
+		pluginID:    internalchannel.QQPluginID,
+		runtimeName: internalchannel.QQRuntimeName,
+		metadata: pkgplugins.PluginMeta{
+			ID:                    internalchannel.QQPluginID,
+			Kind:                  "channel",
+			Name:                  internalchannel.PlatformQQ,
+			DisplayName:           "QQ",
+			AdminVisible:          true,
+			SupportsNotifications: true,
+			Capabilities: []string{
+				pkgplugins.CapabilityChannel,
+				pkgplugins.CapabilityRuntime,
+				pkgplugins.CapabilityConfig,
+				pkgplugins.CapabilityStatus,
+			},
+		},
 		defaultConfig: emptyConfig,
+		schema:        internalchannel.QQPluginConfigSchema(),
 		validate:      validateByDecode(internalchannel.DecodeQQPluginConfig),
 		redact:        internalchannel.RedactQQPluginConfig,
 		factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {

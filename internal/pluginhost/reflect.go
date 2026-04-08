@@ -23,9 +23,22 @@ type ReflectDeps struct {
 
 func (h *Host) RegisterReflect(deps ReflectDeps) {
 	h.registerManagedRuntime(managedRuntimeRegistration{
-		pluginID:      internalreflect.PluginID,
-		runtimeName:   internalreflect.RuntimeName,
+		pluginID:    internalreflect.PluginID,
+		runtimeName: internalreflect.RuntimeName,
+		metadata: pkgplugins.PluginMeta{
+			ID:           internalreflect.PluginID,
+			Kind:         "reflect",
+			Name:         "reflect",
+			DisplayName:  "Reflect",
+			AdminVisible: true,
+			Capabilities: []string{
+				pkgplugins.CapabilityRuntime,
+				pkgplugins.CapabilityConfig,
+				pkgplugins.CapabilityStatus,
+			},
+		},
 		defaultConfig: internalreflect.DefaultPluginConfig,
+		schema:        internalreflect.PluginConfigSchema(),
 		validate:      validateByDecode(internalreflect.DecodePluginConfig),
 		redact:        internalreflect.RedactPluginConfig,
 		factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {

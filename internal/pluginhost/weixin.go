@@ -17,9 +17,24 @@ type WeixinDeps struct {
 
 func (h *Host) RegisterWeixin(deps WeixinDeps) {
 	h.registerManagedRuntime(managedRuntimeRegistration{
-		pluginID:      internalchannel.WeixinPluginID,
-		runtimeName:   internalchannel.WeixinRuntimeName,
+		pluginID:    internalchannel.WeixinPluginID,
+		runtimeName: internalchannel.WeixinRuntimeName,
+		metadata: pkgplugins.PluginMeta{
+			ID:                    internalchannel.WeixinPluginID,
+			Kind:                  "channel",
+			Name:                  internalchannel.PlatformWeixin,
+			DisplayName:           "Weixin",
+			AdminVisible:          true,
+			SupportsNotifications: true,
+			Capabilities: []string{
+				pkgplugins.CapabilityChannel,
+				pkgplugins.CapabilityRuntime,
+				pkgplugins.CapabilityConfig,
+				pkgplugins.CapabilityStatus,
+			},
+		},
 		defaultConfig: emptyConfig,
+		schema:        internalchannel.WeixinPluginConfigSchema(),
 		validate:      validateByDecode(internalchannel.DecodeWeixinPluginConfig),
 		redact:        internalchannel.RedactWeixinPluginConfig,
 		factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {

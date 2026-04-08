@@ -75,6 +75,69 @@ func RedactFeishuPluginConfig(raw map[string]any) map[string]any {
 	return out
 }
 
+func FeishuPluginConfigSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"app_id": map[string]any{
+				"type":        "string",
+				"description": "Feishu bot app ID.",
+			},
+			"app_secret": map[string]any{
+				"type":        "string",
+				"description": "Feishu bot app secret.",
+			},
+			"encrypt_key": map[string]any{
+				"type":        "string",
+				"description": "Optional Feishu event encryption key.",
+			},
+			"verification_token": map[string]any{
+				"type":        "string",
+				"description": "Optional Feishu verification token.",
+			},
+			"group_mode": map[string]any{
+				"type":        "string",
+				"enum":        []any{"", "mention", "always", "disabled"},
+				"description": "Default group-chat handling mode.",
+			},
+			"groups": map[string]any{
+				"type": "object",
+				"additionalProperties": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"group_mode": map[string]any{
+							"type":        "string",
+							"enum":        []any{"", "mention", "always", "disabled"},
+							"description": "Override group mode for this chat.",
+						},
+						"system_prompt": map[string]any{
+							"type":        "string",
+							"description": "Optional system prompt override for this chat.",
+						},
+						"tool_allow": map[string]any{
+							"type":        "array",
+							"items":       map[string]any{"type": "string"},
+							"description": "Reserved allowlist of tools for this chat.",
+						},
+						"tool_deny": map[string]any{
+							"type":        "array",
+							"items":       map[string]any{"type": "string"},
+							"description": "Reserved denylist of tools for this chat.",
+						},
+					},
+				},
+				"description": "Per-chat overrides keyed by Feishu chat ID.",
+			},
+			"enable_notify": map[string]any{
+				"type":        "boolean",
+				"description": "Whether scheduler and system notifications are delivered to Feishu.",
+				"default":     false,
+			},
+		},
+		"required": []any{"app_id", "app_secret"},
+	}
+}
+
 func validateFeishuConfig(cfg FeishuConfig) string {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return "feishu: missing app_id or app_secret"

@@ -17,9 +17,24 @@ type FeishuDeps struct {
 
 func (h *Host) RegisterFeishu(deps FeishuDeps) {
 	h.registerManagedRuntime(managedRuntimeRegistration{
-		pluginID:      internalchannel.FeishuPluginID,
-		runtimeName:   internalchannel.FeishuRuntimeName,
+		pluginID:    internalchannel.FeishuPluginID,
+		runtimeName: internalchannel.FeishuRuntimeName,
+		metadata: pkgplugins.PluginMeta{
+			ID:                    internalchannel.FeishuPluginID,
+			Kind:                  "channel",
+			Name:                  internalchannel.PlatformFeishu,
+			DisplayName:           "Feishu",
+			AdminVisible:          true,
+			SupportsNotifications: true,
+			Capabilities: []string{
+				pkgplugins.CapabilityChannel,
+				pkgplugins.CapabilityRuntime,
+				pkgplugins.CapabilityConfig,
+				pkgplugins.CapabilityStatus,
+			},
+		},
 		defaultConfig: emptyConfig,
+		schema:        internalchannel.FeishuPluginConfigSchema(),
 		validate:      validateByDecode(internalchannel.DecodeFeishuPluginConfig),
 		redact:        internalchannel.RedactFeishuPluginConfig,
 		factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
