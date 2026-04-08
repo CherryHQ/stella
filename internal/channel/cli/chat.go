@@ -13,8 +13,8 @@ import (
 
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/pkg/ai"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
 // streamStartMsg carries the stream channel from the agent.
@@ -61,8 +61,8 @@ type chatModel struct {
 	width       int
 	height      int
 	ready       bool
-	switchModel channel.ModelSwitchFunc
-	listModels  channel.ModelListFunc
+	switchModel ModelSwitchFunc
+	listModels  ModelListFunc
 
 	// Slash command completion
 	completing     bool
@@ -85,7 +85,7 @@ type chatModel struct {
 	modelFilter    string
 }
 
-func newChatModel(ctx context.Context, pool *agent.Pool, provider, model string, listFn channel.ModelListFunc, switchFn channel.ModelSwitchFunc, userID ...int64) chatModel {
+func newChatModel(ctx context.Context, pool *agent.Pool, provider, model string, listFn ModelListFunc, switchFn ModelSwitchFunc, userID ...int64) chatModel {
 	ta := textarea.New()
 	ta.Placeholder = "Type a message... (Enter to send, Alt+Enter for newline)"
 	ta.Focus()
@@ -119,7 +119,7 @@ func newChatModel(ctx context.Context, pool *agent.Pool, provider, model string,
 	return m
 }
 
-const cliChannel = channel.PlatformCLI
+const cliChannel = pkgchannel.PlatformCLI
 
 // resolveSession returns the most recently active CLI session ID,
 // or creates a new session if none exist.
@@ -284,7 +284,7 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.historyPrefix += agentBorderStyle.Render(m.renderMarkdown(m.currentRaw.String())) + "\n"
 				m.currentRaw.Reset()
 			}
-			elapsed := channel.FormatDuration(time.Since(m.toolStartTime))
+			elapsed := pkgchannel.FormatDuration(time.Since(m.toolStartTime))
 			m.status = ""
 			m.historyPrefix += toolDoneStyle.Render(fmt.Sprintf("    ✓ %s (%s)", label, elapsed)) + "\n"
 		case "error":
@@ -292,7 +292,7 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.historyPrefix += agentBorderStyle.Render(m.renderMarkdown(m.currentRaw.String())) + "\n"
 				m.currentRaw.Reset()
 			}
-			elapsed := channel.FormatDuration(time.Since(m.toolStartTime))
+			elapsed := pkgchannel.FormatDuration(time.Since(m.toolStartTime))
 			m.status = ""
 			line := fmt.Sprintf("    ✗ %s (%s)", label, elapsed)
 			if msg.detail != "" {

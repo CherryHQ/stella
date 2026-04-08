@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vaayne/anna/internal/channel"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
 // modelOption represents a selectable provider/model combination.
@@ -13,8 +13,8 @@ type modelOption struct {
 	model    string
 }
 
-// toModelOptions converts channel.ModelOption slice to internal modelOption slice.
-func toModelOptions(opts []channel.ModelOption) []modelOption {
+// toModelOptions converts pkg/channel model options to internal modelOption values.
+func toModelOptions(opts []pkgchannel.ModelOption) []modelOption {
 	result := make([]modelOption, len(opts))
 	for i, m := range opts {
 		result[i] = modelOption{provider: m.Provider, model: m.Model}

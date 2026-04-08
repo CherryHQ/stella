@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/notify"
@@ -19,7 +18,7 @@ import (
 
 type testWeixinChannel struct{}
 
-func (testWeixinChannel) Name() string { return channel.PlatformWeixin }
+func (testWeixinChannel) Name() string { return pkgchannel.PlatformWeixin }
 func (testWeixinChannel) Start(ctx context.Context) error {
 	<-ctx.Done()
 	return ctx.Err()
@@ -83,7 +82,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		t.Fatalf("saveWeixinCredentials: %v", err)
 	}
 
-	plugin, err := store.GetPlugin(context.Background(), config.PluginID(config.PluginKindChannel, channel.PlatformWeixin))
+	plugin, err := store.GetPlugin(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformWeixin))
 	if err != nil {
 		t.Fatalf("GetPlugin: %v", err)
 	}
@@ -91,7 +90,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		t.Fatalf("bot_token = %#v, want %q", plugin.Config["bot_token"], "wx-token")
 	}
 
-	runtimeStatus, err := phost.Status(context.Background(), config.PluginID(config.PluginKindChannel, channel.PlatformWeixin))
+	runtimeStatus, err := phost.Status(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformWeixin))
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}

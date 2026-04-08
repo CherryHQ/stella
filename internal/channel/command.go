@@ -9,18 +9,6 @@ import (
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
-// Re-export from pkg/channel for internal callers.
-const WelcomeMessage = pkgchannel.WelcomeMessage
-
-// Re-exported types and functions from pkg/channel.
-type IndexedModel = pkgchannel.IndexedModel
-
-var (
-	ParseModelArgs = pkgchannel.ParseModelArgs
-	IndexModels    = pkgchannel.IndexModels
-	FilterModels   = pkgchannel.FilterModels
-)
-
 // HandleCommand processes common bot commands shared across all channels.
 // Returns the response text and whether the command was handled.
 // /model and /agent are left to each channel (they need platform-specific UI).
@@ -33,7 +21,7 @@ func HandleCommand(ctx context.Context, rc *chatroute.ResolvedChat, text, sender
 
 	switch cmd {
 	case "/start", "/help":
-		return WelcomeMessage, true
+		return pkgchannel.WelcomeMessage, true
 
 	case "/new":
 		info, err := rc.RotateSession()

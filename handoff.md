@@ -74,6 +74,7 @@ This handoff file is also the running implementation log for future sessions.
 - Started `internal/channel` cleanup by moving notification dispatch and the notify tool into `internal/notify`, so channel orchestration no longer owns scheduler/gateway notification routing.
 - Continued `internal/channel` cleanup by moving chat identity resolution, link-code handling, agent routing, and session-key resolution into `internal/chatroute`.
 - Continued `internal/channel` cleanup by moving store-backed channel config access into `internal/channelconfig`.
+- Continued `internal/channel` cleanup by removing the remaining pkg-channel re-export shim from `internal/channel`.
 
 ## Key Decisions
 
@@ -134,6 +135,7 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - Notification dispatch, per-user notification routing, and the notify tool now live in `internal/notify` instead of `internal/channel`.
 - Chat identity/linking and agent/session routing now live in `internal/chatroute` instead of `internal/channel`.
 - Store-backed channel config loading and validation now live in `internal/channelconfig` instead of `internal/channel`.
+- Platform constants, model option aliases, and formatting helpers now come directly from `pkg/channel`; `internal/channel` no longer re-exports them.
 - The old split registries are gone as runtime/discovery systems:
   - `plugins/providers`
   - `plugins/memory`
@@ -231,6 +233,7 @@ Recommended order:
    - Notification dispatch is already moved to `internal/notify`.
    - Chat identity/linking and agent/session routing are already moved to `internal/chatroute`.
    - Store-backed channel config access is already moved to `internal/channelconfig`.
+   - The pkg-channel re-export shim is already gone.
    - Next cuts are lifecycle/coordinator shaping and CLI-specific concerns.
    - Keep using `pluginhost` discovery instead of reintroducing channel-specific registries or static lists.
 2. Clean `internal/admin`.
@@ -514,6 +517,13 @@ This is a real second migration, not a cleanup detail. It should only start afte
 - Updated admin Telegram runtime tests to stop depending on the removed `internal/channel` config aliases.
 - Deleted the old `internal/channel/config.go` and `internal/channel/config_test.go` files.
 - Verified with focused tests for `internal/channelconfig`, `internal/channel`, `internal/admin`, and `cmd/anna`.
+
+### 2026-04-08 — pkg channel shim removal
+
+- Removed the remaining `internal/channel` alias layer for platform constants, model-option types, and formatting helpers.
+- Updated CLI, admin, and command/model callers to use `pkg/channel` directly where the stable public API already existed.
+- Deleted `internal/channel/model.go`, `internal/channel/util.go`, and the redundant `internal/channel/util_test.go`.
+- Verified with focused tests for `internal/channel`, `internal/channel/cli`, `internal/admin`, and `cmd/anna`.
 
 ## Session Log
 

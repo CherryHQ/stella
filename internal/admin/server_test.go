@@ -13,7 +13,6 @@ import (
 
 	"github.com/vaayne/anna/internal/admin"
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/notify"
@@ -91,7 +90,7 @@ func setupAdmin(t *testing.T) *testEnv {
 			Handler:       testChannelHandler{},
 			Notifications: dispatcher,
 			NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
-				return newTestChannel(channel.PlatformTelegram), nil
+				return newTestChannel(pkgchannel.PlatformTelegram), nil
 			},
 		}), nil
 	})
@@ -446,7 +445,7 @@ func TestGetAdditionalPluginConfigSchemas(t *testing.T) {
 func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	env := setupAdmin(t)
 
-	if err := env.store.SetPluginConfig(context.Background(), config.PluginID(config.PluginKindChannel, channel.PlatformTelegram), map[string]any{
+	if err := env.store.SetPluginConfig(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram), map[string]any{
 		"token":         "telegram-secret",
 		"group_mode":    "mention",
 		"enable_notify": true,
@@ -484,7 +483,7 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 		byID[plugin.ID] = plugin
 	}
 
-	telegram := byID[config.PluginID(config.PluginKindChannel, channel.PlatformTelegram)]
+	telegram := byID[config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram)]
 	if telegram.DisplayName != "Telegram" || !telegram.Managed || !telegram.AdminVisible || !telegram.HasConfig || !telegram.HasStatus || !telegram.SupportsNotifications {
 		t.Fatalf("unexpected telegram plugin payload: %#v", telegram)
 	}
@@ -495,7 +494,7 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 		t.Fatalf("expected redacted telegram token, got %#v", telegram.Config["token"])
 	}
 
-	qq := byID[config.PluginID(config.PluginKindChannel, channel.PlatformQQ)]
+	qq := byID[config.PluginID(config.PluginKindChannel, pkgchannel.PlatformQQ)]
 	if qq.DisplayName != "QQ" || !qq.SupportsNotifications {
 		t.Fatalf("unexpected qq plugin payload: %#v", qq)
 	}
@@ -512,7 +511,7 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 func TestGetPluginConfigReturnsRawConfig(t *testing.T) {
 	env := setupAdmin(t)
 
-	if err := env.store.SetPluginConfig(context.Background(), config.PluginID(config.PluginKindChannel, channel.PlatformTelegram), map[string]any{
+	if err := env.store.SetPluginConfig(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram), map[string]any{
 		"token":         "telegram-secret",
 		"group_mode":    "mention",
 		"enable_notify": true,
