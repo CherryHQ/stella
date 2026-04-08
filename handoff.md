@@ -115,6 +115,12 @@ This handoff file is also the running implementation log for future sessions.
   - reflect runtime/service wiring now uses the generic host notification service instead of a reflect-only notifier seam
   - managed channel notification registration remains a separate runtime service because it is channel lifecycle plumbing, not user-visible delivery
   - focused tests cover host notification service resolution through `pluginhost`
+- Implemented Phase C of capability expansion:
+  - `pkg/plugins.ServiceHost` now exposes a scoped plugin state store
+  - plugin state is stored as host-owned JSON KV entries keyed by plugin, scope, and key
+  - `internal/pluginstate` now provides the SQLite-backed implementation used by setup and tests
+  - reflect watermarks now persist through the generic plugin state service instead of a dedicated `reflect_watermarks` table
+  - reflect runtime no longer depends on database access just to store its watermark cursor
 - Finished the remaining skills ownership move:
   - skill discovery, install/remove, patch/deprecate, validation, and builtin skill assets now live in `plugins/tools/skills`
   - `cmd/anna/skills.go` and `plugins/reflect/*` now import the skills plugin package directly
@@ -190,6 +196,10 @@ The migration target from `extension-design.md` is now implemented for the in-re
   - `pkg/plugins.ServiceHost` exposes `Notifications()`
   - plugins can notify all configured channels or a specific user without importing `internal/notify`
   - reflect now uses the generic host service instead of a plugin-specific notification contract
+- Extension-owned durable state now exists as a first-class host capability:
+  - `pkg/plugins.ServiceHost` exposes `StateStore()`
+  - plugins can persist scoped JSON state without importing DB packages
+  - reflect is the first migrated consumer, using session-scoped plugin state for review watermarks
 - Production provider construction now flows through `internal/pluginhost`:
   - runner provider registries
   - admin provider validation/model fetch
@@ -242,19 +252,7 @@ The rule for all of these phases is the same:
 
 ### Active Phase
 
-Phase C: add plugin-owned state storage so plugins can persist durable data without importing DB packages or relying on bespoke app tables.
-
-Phase C design:
-
-- add a scoped JSON KV store to `pkg/plugins`
-- key the store by:
-  - `plugin_id`
-  - `scope_kind`
-  - `scope_id`
-  - `key`
-- route the implementation through `internal/pluginhost`
-- back it with one host-owned table instead of plugin-specific tables
-- use reflect watermarks as the first migration target so the phase removes one bespoke persistence path
+Phase D: add identity/auth capability so plugins can resolve users and permission-sensitive identity information without importing auth or DB packages.
 
 ### Phase 1: Finish host unification
 
