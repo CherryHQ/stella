@@ -69,6 +69,16 @@ func (s *Server) getPluginStatus(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, status)
 }
 
+func (s *Server) getPluginConfig(w http.ResponseWriter, r *http.Request) {
+	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
+	state, err := s.pluginHost.Config().Get(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, state.Config)
+}
+
 func (s *Server) getPluginConfigSchema(w http.ResponseWriter, r *http.Request) {
 	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
 	writeData(w, http.StatusOK, s.pluginHost.ConfigSchema(id))
