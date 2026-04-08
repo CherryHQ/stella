@@ -121,6 +121,12 @@ This handoff file is also the running implementation log for future sessions.
   - `internal/pluginstate` now provides the SQLite-backed implementation used by setup and tests
   - reflect watermarks now persist through the generic plugin state service instead of a dedicated `reflect_watermarks` table
   - reflect runtime no longer depends on database access just to store its watermark cursor
+- Implemented Phase D of capability expansion:
+  - `pkg/plugins.ServiceHost` now exposes a narrow auth directory service
+  - plugins can resolve users and linked identities without importing `internal/auth` or DB-backed auth stores
+  - `internal/pluginhost` now adapts the existing auth store into the public plugin auth service
+  - `internal/notify` now depends on the public auth directory instead of `internal/auth`
+  - focused tests cover host auth service resolution and user-notification routing through the new service
 - Finished the remaining skills ownership move:
   - skill discovery, install/remove, patch/deprecate, validation, and builtin skill assets now live in `plugins/tools/skills`
   - `cmd/anna/skills.go` and `plugins/reflect/*` now import the skills plugin package directly
@@ -200,6 +206,10 @@ The migration target from `extension-design.md` is now implemented for the in-re
   - `pkg/plugins.ServiceHost` exposes `StateStore()`
   - plugins can persist scoped JSON state without importing DB packages
   - reflect is the first migrated consumer, using session-scoped plugin state for review watermarks
+- Extension-owned user and identity lookup now exists as a first-class host capability:
+  - `pkg/plugins.ServiceHost` exposes `Auth()`
+  - plugins can resolve users, roles, active status, and linked identities without importing auth internals
+  - authorization policy evaluation is still intentionally out of scope for the public plugin surface
 - Production provider construction now flows through `internal/pluginhost`:
   - runner provider registries
   - admin provider validation/model fetch
@@ -252,18 +262,7 @@ The rule for all of these phases is the same:
 
 ### Active Phase
 
-Phase D: add identity/auth capability so plugins can resolve users and permission-sensitive identity information without importing auth or DB packages.
-
-Phase D design:
-
-- add a narrow auth directory service to `pkg/plugins.ServiceHost`
-- expose only:
-  - `GetUser(...)`
-  - `ListUserIdentities(...)`
-  - `GetIdentityByPlatform(...)`
-- include role and active-status metadata in the public user type
-- do not expose the full policy engine yet
-- migrate `internal/notify` to the new service so identity routing stops depending on `internal/auth`
+Phase E: reassess whether any DB-facing plugin capability is still necessary now that notifications, state storage, and auth directory services exist.
 
 ### Phase 1: Finish host unification
 
