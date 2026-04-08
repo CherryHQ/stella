@@ -366,6 +366,25 @@ Success condition for this phase:
 - Kept the existing MCP editor as the specialized path for `tool/mcp`; generic schema editing now covers the channel plugins and Reflect.
 - Verified the combined backend and UI behavior with another full `go test ./...` pass.
 
+### 2026-04-08 — reflect service responsibility split
+
+- Started the post-migration cleanup mandate in `internal/reflect`.
+- Split the broad `service.go` file by responsibility:
+  - `loop.go` now owns review loop and agent-cycle orchestration
+  - `candidates.go` now owns unreviewed-session selection and ordering
+  - `conversation_review.go` now owns single-conversation review execution, provider setup, reviewer construction, and notification dispatch
+- Left package behavior unchanged while shrinking the main service file down to dependency/config ownership.
+- Verified with focused tests for `internal/reflect`, `internal/pluginhost`, `internal/admin`, and `cmd/anna`, then ran `go test ./...`.
+
+### 2026-04-08 — reflect runtime/config split
+
+- Continued the `internal/reflect` cleanup by separating plugin config/schema concerns from managed runtime lifecycle.
+- Added:
+  - `plugin_config.go` for plugin constants, schema/defaults, decode helpers, and config redaction
+  - `managed_runtime.go` for runtime dependency wiring, lifecycle, and runtime snapshots
+- Removed the old mixed `plugin_runtime.go` shape.
+- Verified with focused tests for `internal/reflect`, `internal/pluginhost`, `internal/admin`, and `cmd/anna`, then ran `go test ./...`.
+
 ## Session Log
 
 ### 2026-04-08 — planning session
