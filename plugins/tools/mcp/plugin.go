@@ -5,13 +5,11 @@ import (
 	"sort"
 	"time"
 
-	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
 const (
-	PluginID    = "tool/mcp"
 	RuntimeName = "manager"
 )
 
@@ -38,9 +36,9 @@ func init() {
 			PluginID:      PluginID,
 			DefaultConfig: func() map[string]any { return map[string]any{"servers": []any{}} },
 			Schema:        configSchema(),
-			Validate:      func(raw map[string]any) error { _, err := pkgmcp.DecodeConfig(raw); return err },
+			Validate:      func(raw map[string]any) error { _, err := DecodeConfig(raw); return err },
 			Redact: func(raw map[string]any) map[string]any {
-				cfg, err := pkgmcp.DecodeConfig(raw)
+				cfg, err := DecodeConfig(raw)
 				if err != nil {
 					return raw
 				}
@@ -55,7 +53,7 @@ func init() {
 			},
 		})
 		host.Registry().RegisterRuntime(pkgplugins.RuntimeRegistration{PluginID: PluginID, Name: RuntimeName, Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
-			return &managedRuntime{manager: pkgmcp.NewManager()}, nil
+			return &managedRuntime{manager: NewManager()}, nil
 		}})
 		host.Registry().RegisterTool(pkgplugins.ToolRegistration{PluginID: PluginID, Name: "mcp", Description: "Proxy MCP tools managed by the MCP plugin.", Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
 			rt, ok := LookupRuntime(ctx.Services)
@@ -67,7 +65,7 @@ func init() {
 		host.Registry().RegisterStatus(pkgplugins.StatusRegistration{PluginID: PluginID, Get: func(ctx context.Context) (any, error) {
 			rt, ok := LookupRuntime(host.Services())
 			if !ok {
-				return map[string]any{"servers": []pkgmcp.ServerStatus{}}, nil
+				return map[string]any{"servers": []ServerStatus{}}, nil
 			}
 			return map[string]any{"servers": rt.Manager().Statuses()}, nil
 		}})
@@ -106,7 +104,7 @@ func configSchema() map[string]any {
 						},
 						"transport": map[string]any{
 							"type":        "string",
-							"enum":        []any{pkgmcp.TransportStdio, pkgmcp.TransportSSE, pkgmcp.TransportStreamableHTTP, pkgmcp.TransportHTTP},
+							"enum":        []any{TransportStdio, TransportSSE, TransportStreamableHTTP, TransportHTTP},
 							"description": "How Anna connects to the MCP server.",
 						},
 						"command": map[string]any{
@@ -135,7 +133,7 @@ func configSchema() map[string]any {
 						"timeout_seconds": map[string]any{
 							"type":        "integer",
 							"minimum":     0,
-							"default":     pkgmcp.DefaultTimeoutSeconds,
+							"default":     DefaultTimeoutSeconds,
 							"description": "Timeout for connection and discovery operations.",
 						},
 					},
@@ -146,14 +144,14 @@ func configSchema() map[string]any {
 	}
 }
 
-type runtimeAccessor interface{ Manager() *pkgmcp.Manager }
+type runtimeAccessor interface{ Manager() *Manager }
 
-type managedRuntime struct{ manager *pkgmcp.Manager }
+type managedRuntime struct{ manager *Manager }
 
-func (r *managedRuntime) Manager() *pkgmcp.Manager { return r.manager }
-func (r *managedRuntime) RuntimeAccessor() any     { return runtimeWrapper{manager: r.manager} }
+func (r *managedRuntime) Manager() *Manager    { return r.manager }
+func (r *managedRuntime) RuntimeAccessor() any { return runtimeWrapper{manager: r.manager} }
 func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginState) error {
-	cfg, err := pkgmcp.DecodeConfig(desired.Config)
+	cfg, err := DecodeConfig(desired.Config)
 	if err != nil {
 		return err
 	}
@@ -161,7 +159,7 @@ func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginSta
 	return nil
 }
 func (r *managedRuntime) Stop(ctx context.Context) error {
-	r.manager.Reconcile(ctx, pkgmcp.Config{}, false)
+	r.manager.Reconcile(ctx, Config{}, false)
 	return nil
 }
 func (r *managedRuntime) Snapshot(ctx context.Context) (pkgplugins.RuntimeSnapshot, error) {
