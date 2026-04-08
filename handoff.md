@@ -51,7 +51,7 @@ This handoff file is also the running implementation log for future sessions.
   - concrete schemas are registered for MCP and Telegram
 - Extracted the Telegram plugin config type into `pkg/channel`, so Telegram plugin code no longer depends on an app-private config struct for its persisted config shape.
 - Extracted shared channel plugin config decode/clone helpers into `pkg/channel`, so Telegram config handling no longer imports `internal/channel` just to parse or redact persisted config maps.
-- Extracted the generic managed channel bot runtime into `pkg/channelruntime`, so Telegram runtime wiring no longer depends on `internal/channel`.
+- Extracted the generic managed channel bot runtime into a public package helper, so Telegram runtime wiring no longer depends on `internal/channel`.
 - Extracted the MCP plugin config model and decoder into `pkg/mcp`, so MCP plugin config handling no longer depends on an app-private config package.
 - Extracted MCP tool/status/result data types into `pkg/mcp`, so plugin-facing MCP data no longer depends on app-private type definitions.
 - Moved the MCP manager/session/supervisor/canonical-ID runtime into `pkg/mcp`, so MCP plugin runtime and tool code no longer depend on `internal/mcp`.
@@ -121,7 +121,7 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - Config schemas now exist as host-readable data for the plugins that have been wired so far, instead of living only as Go validation callbacks.
 - Telegram config is now a public package contract in `pkg/channel`, not an app-private type in `internal/channel`.
 - Shared channel config decode/clone helpers are now public package contracts in `pkg/channel`, and the old `internal/channel` wrapper layer has been removed.
-- Shared managed channel runtime orchestration now lives in `pkg/channelruntime`, which is the stable package boundary for code that depends on both `pkg/channel` and `pkg/plugins`.
+- Shared managed channel runtime orchestration now lives in `pkg/plugins`, which is the stable package boundary for managed runtime helpers that depend on both channel contracts and plugin lifecycle contracts.
 - MCP config is now a public package contract in `pkg/mcp`, not an app-private type in `internal/mcp`.
 - MCP tool metadata, execution result shape, and server status are now public package contracts in `pkg/mcp`.
 - MCP runtime behavior now also lives in `pkg/mcp`: manager lifecycle, MCP session dialing, server supervision, and canonical tool ID handling are no longer app-private.
@@ -222,7 +222,7 @@ The migration target from `extension-design.md` is now implemented for the in-re
   - `reflect`
   This must be normalized deliberately during migration.
 - Schema coverage is still partial. MCP and Telegram are wired; other managed plugins still rely on validate/redact callbacks without schema data.
-- Telegram production code no longer depends on `internal/channel`; runtime orchestration now uses `pkg/channelruntime` plus the public notification registry contract in `pkg/plugins`.
+- Telegram production code no longer depends on `internal/channel`; runtime orchestration now uses managed runtime helpers from `pkg/plugins` plus the public notification registry contract there.
 - The migration goal is complete:
   - production `plugins/...` packages import only `pkg/...`
   - all built-in tool/hook/provider/memory contributions resolve through `internal/pluginhost`
@@ -359,12 +359,12 @@ This is a real second migration, not a cleanup detail. It should only start afte
 
 ### 2026-04-08 — Telegram runtime extraction
 
-- Moved the generic managed channel bot runtime out of `internal/channel` into the new public package `pkg/channelruntime`.
-- Updated Telegram managed runtime wiring to use `pkg/channelruntime` plus the public `pkg/plugins.NotificationRegistry` interface instead of `internal/channel.Dispatcher`.
+- Moved the generic managed channel bot runtime out of `internal/channel` into a public package helper.
+- Updated Telegram managed runtime wiring to use a managed runtime helper plus the public `pkg/plugins.NotificationRegistry` interface instead of `internal/channel.Dispatcher`.
 - Updated internal QQ, Feishu, and Weixin managed runtimes to use the same public runtime helper, then removed `internal/channel/bot_runtime.go`.
 - Updated downstream tests and host wiring to the new Telegram runtime dependency shape.
 - Verified that `plugins/channels/telegram` no longer imports `internal/channel` in production code.
-- Ran focused tests for `pkg/channel`, `pkg/channelruntime`, `internal/channel`, `plugins/channels/telegram`, `internal/pluginhost`, and `cmd/anna`, then ran `go test ./...` successfully.
+- Ran focused tests for `pkg/channel`, the managed runtime helper package, `internal/channel`, `plugins/channels/telegram`, `internal/pluginhost`, and `cmd/anna`, then ran `go test ./...` successfully.
 
 ### 2026-04-08 — MCP runtime extraction
 
@@ -564,6 +564,13 @@ This is a real second migration, not a cleanup detail. It should only start afte
 - Kept `internal/notify` separate because it is genuinely cross-cutting runtime infrastructure, and kept `internal/chatcli` separate because it is a distinct terminal UI package.
 - Updated gateway/channel construction to use `internal/channel` directly again.
 - Verified with focused tests for `internal/channel` and `cmd/anna`, then ran `go test ./...`.
+
+### 2026-04-08 — channel runtime helper moved into plugins
+
+- Removed the top-level `pkg/channelruntime` package.
+- Moved the generic bot managed-runtime helper into `pkg/plugins/bot_runtime.go`, because it depends on plugin lifecycle types (`ManagedRuntime`, `PluginState`, `RuntimeSnapshot`, `NotificationRegistry`) more than on channel-domain contracts.
+- Updated Telegram, QQ, Feishu, and Weixin runtime wiring to import the helper from `pkg/plugins` directly.
+- Verified with focused tests for `pkg/plugins`, `plugins/channels/...`, and `cmd/anna`, then ran `go test ./...`.
 
 ### 2026-04-08 — admin route registration extraction
 
