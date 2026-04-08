@@ -268,6 +268,36 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - Rewired tests that used the deleted registries to use direct constructors instead.
 - Verified the cleanup with focused suites, invariant searches, and `go test ./...`.
 
+### 2026-04-08 — metadata and schema normalization
+
+- Added explicit metadata for the remaining managed built-ins that were still relying on inferred rows:
+  - `tool/mcp`
+  - `channel/qq`
+  - `channel/feishu`
+  - `channel/weixin`
+  - `reflect`
+- Extended the managed-runtime registration helper so host-backed plugins can register config schema together with config/status/runtime behavior.
+- Added concrete config schemas for QQ, Feishu, Weixin, and Reflect.
+- Added regression coverage proving host-backed managed plugins now surface metadata and schema through `pluginhost`, and that MCP now exposes explicit metadata from the default catalog.
+- Verified with focused tests for `internal/pluginhost`, `internal/admin`, `internal/channel`, `internal/reflect`, and `plugins/tools/mcp`.
+
+### 2026-04-08 — admin plugin discovery normalization
+
+- Changed `GET /api/plugins` to read from `pluginhost.ListAdminVisiblePlugins(...)` instead of the raw store list.
+- Kept the response flat for the existing UI, but now include normalized metadata fields:
+  - `display_name`
+  - `managed`
+  - `admin_visible`
+  - `has_config`
+  - `has_status`
+  - `capabilities`
+  - `supports_notifications`
+  - `persisted`
+  - `persisted_id`
+- Plugin configs returned by the list endpoint now flow through `pluginhost.RedactConfig(...)`, so channel/tool secrets are not leaked through the plugin list payload.
+- Added admin regression coverage for metadata exposure and config redaction in the plugin list endpoint.
+- Verified with focused tests for `internal/admin` and `internal/pluginhost`.
+
 ## Session Log
 
 ### 2026-04-08 — planning session

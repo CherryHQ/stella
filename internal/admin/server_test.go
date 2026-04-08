@@ -427,6 +427,101 @@ func TestGetTelegramPluginConfigSchema(t *testing.T) {
 	}
 }
 
+func TestGetAdditionalPluginConfigSchemas(t *testing.T) {
+	env := setupAdmin(t)
+
+	tests := []struct {
+		path         string
+		propertyName string
+	}{
+		{path: "/api/plugin-config-schema/channel/qq", propertyName: "app_id"},
+		{path: "/api/plugin-config-schema/channel/feishu", propertyName: "app_id"},
+		{path: "/api/plugin-config-schema/channel/weixin", propertyName: "bot_token"},
+		{path: "/api/plugin-config-schema/reflect/reflect", propertyName: "interval"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			rr := doRequest(t, env, "GET", tt.path, nil)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+			}
+
+			resp := parseResponse(t, rr)
+			var schema map[string]any
+			if err := json.Unmarshal(resp.Data, &schema); err != nil {
+				t.Fatalf("unmarshal schema: %v", err)
+			}
+			props, ok := schema["properties"].(map[string]any)
+			if !ok {
+				t.Fatalf("schema properties = %#v", schema["properties"])
+			}
+			if _, ok := props[tt.propertyName]; !ok {
+				t.Fatalf("expected %q property in schema: %#v", tt.propertyName, schema)
+			}
+		})
+	}
+}
+
+func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
+	env := setupAdmin(t)
+
+	if err := env.store.SetPluginConfig(context.Background(), channel.TelegramPluginID, map[string]any{
+		"token":         "telegram-secret",
+		"group_mode":    "mention",
+		"enable_notify": true,
+	}); err != nil {
+		t.Fatalf("SetPluginConfig(telegram): %v", err)
+	}
+
+	rr := doRequest(t, env, "GET", "/api/plugins", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	resp := parseResponse(t, rr)
+	type pluginListItem struct {
+		ID                    string         `json:"id"`
+		Kind                  string         `json:"kind"`
+		Enabled               bool           `json:"enabled"`
+		Config                map[string]any `json:"config"`
+		DisplayName           string         `json:"display_name"`
+		Managed               bool           `json:"managed"`
+		AdminVisible          bool           `json:"admin_visible"`
+		HasConfig             bool           `json:"has_config"`
+		HasStatus             bool           `json:"has_status"`
+		Capabilities          []string       `json:"capabilities"`
+		SupportsNotifications bool           `json:"supports_notifications"`
+	}
+	var plugins []pluginListItem
+	if err := json.Unmarshal(resp.Data, &plugins); err != nil {
+		t.Fatalf("unmarshal plugins: %v", err)
+	}
+
+	byID := map[string]pluginListItem{}
+	for _, plugin := range plugins {
+		byID[plugin.ID] = plugin
+	}
+
+	telegram := byID[channel.TelegramPluginID]
+	if telegram.DisplayName != "Telegram" || !telegram.Managed || !telegram.AdminVisible || !telegram.HasConfig || !telegram.HasStatus || !telegram.SupportsNotifications {
+		t.Fatalf("unexpected telegram plugin payload: %#v", telegram)
+	}
+	if telegram.Config["token"] != "***" {
+		t.Fatalf("expected redacted telegram token, got %#v", telegram.Config["token"])
+	}
+
+	qq := byID[channel.QQPluginID]
+	if qq.DisplayName != "QQ" || !qq.SupportsNotifications {
+		t.Fatalf("unexpected qq plugin payload: %#v", qq)
+	}
+
+	reflect := byID[internalreflect.PluginID]
+	if reflect.DisplayName != "Reflect" || !reflect.Managed || !reflect.HasConfig || !reflect.HasStatus {
+		t.Fatalf("unexpected reflect plugin payload: %#v", reflect)
+	}
+}
+
 func TestReflectPluginConfigAndStatus(t *testing.T) {
 	env := setupAdmin(t)
 

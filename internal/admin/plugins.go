@@ -5,15 +5,56 @@ import (
 
 	internalchannel "github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 func (s *Server) listPlugins(w http.ResponseWriter, r *http.Request) {
-	plugins, err := s.store.ListPlugins(r.Context())
+	plugins, err := s.pluginHost.ListAdminVisiblePlugins(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, plugins)
+	writeData(w, http.StatusOK, flattenRegisteredPlugins(s, plugins))
+}
+
+type pluginView struct {
+	ID                    string         `json:"id"`
+	Kind                  string         `json:"kind"`
+	Name                  string         `json:"name"`
+	Enabled               bool           `json:"enabled"`
+	Config                map[string]any `json:"config"`
+	DisplayName           string         `json:"display_name"`
+	Managed               bool           `json:"managed"`
+	AdminVisible          bool           `json:"admin_visible"`
+	HasConfig             bool           `json:"has_config"`
+	HasStatus             bool           `json:"has_status"`
+	Capabilities          []string       `json:"capabilities"`
+	SupportsNotifications bool           `json:"supports_notifications"`
+	Persisted             bool           `json:"persisted"`
+	PersistedID           string         `json:"persisted_id"`
+}
+
+func flattenRegisteredPlugins(s *Server, plugins []pkgplugins.RegisteredPlugin) []pluginView {
+	out := make([]pluginView, 0, len(plugins))
+	for _, plugin := range plugins {
+		out = append(out, pluginView{
+			ID:                    plugin.Meta.ID,
+			Kind:                  plugin.Meta.Kind,
+			Name:                  plugin.Meta.Name,
+			Enabled:               plugin.State.Enabled,
+			Config:                s.pluginHost.RedactConfig(plugin.Meta.ID, plugin.State.Config),
+			DisplayName:           plugin.Meta.DisplayName,
+			Managed:               plugin.Meta.Managed,
+			AdminVisible:          plugin.Meta.AdminVisible,
+			HasConfig:             plugin.Meta.HasConfig,
+			HasStatus:             plugin.Meta.HasStatus,
+			Capabilities:          plugin.Meta.SortedCapabilities(),
+			SupportsNotifications: plugin.Meta.SupportsNotifications,
+			Persisted:             plugin.Persisted,
+			PersistedID:           plugin.PersistedID,
+		})
+	}
+	return out
 }
 
 func (s *Server) getPluginStatus(w http.ResponseWriter, r *http.Request) {
