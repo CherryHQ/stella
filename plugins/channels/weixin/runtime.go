@@ -1,4 +1,4 @@
-package channel
+package weixin
 
 import (
 	"context"
@@ -8,27 +8,21 @@ import (
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgchannelruntime "github.com/vaayne/anna/pkg/channelruntime"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	weixinplugin "github.com/vaayne/anna/plugins/channels/weixin"
-)
-
-const (
-	WeixinPluginID    = "channel/weixin"
-	WeixinRuntimeName = "bot"
 )
 
 type WeixinRuntimeDeps struct {
-	Parent     context.Context
-	Handler    pkgchannel.Handler
-	Notifier   pkgplugins.NotificationRegistry
-	Log        *slog.Logger
-	Now        func() time.Time
-	NewChannel func(WeixinConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
+	Parent        context.Context
+	Handler       pkgchannel.Handler
+	Notifications pkgplugins.NotificationRegistry
+	Log           *slog.Logger
+	Now           func() time.Time
+	NewChannel    func(pkgchannel.WeixinConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
 
 func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.ManagedRuntime {
 	if deps.NewChannel == nil {
-		deps.NewChannel = func(cfg WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
-			return weixinplugin.New(weixinplugin.Config{
+		deps.NewChannel = func(cfg pkgchannel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			return New(Config{
 				BotToken: cfg.BotToken,
 				BaseURL:  cfg.BaseURL,
 				BotID:    cfg.BotID,
@@ -36,27 +30,27 @@ func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.ManagedRuntime {
 			}, handler)
 		}
 	}
-	return pkgchannelruntime.NewBotManagedRuntime(pkgchannelruntime.BotRuntimeDeps[WeixinConfig]{
+	return pkgchannelruntime.NewBotManagedRuntime(pkgchannelruntime.BotRuntimeDeps[pkgchannel.WeixinConfig]{
 		Parent:               deps.Parent,
 		Handler:              deps.Handler,
-		Notifier:             deps.Notifier,
+		Notifier:             deps.Notifications,
 		Log:                  deps.Log,
 		Now:                  deps.Now,
-		Platform:             PlatformWeixin,
-		DecodeConfig:         DecodeWeixinPluginConfig,
-		ValidateConfig:       validateWeixinConfig,
-		NotificationsEnabled: func(cfg WeixinConfig) bool { return cfg.EnableNotify },
+		Platform:             pkgchannel.PlatformWeixin,
+		DecodeConfig:         DecodeConfig,
+		ValidateConfig:       validateConfig,
+		NotificationsEnabled: func(cfg pkgchannel.WeixinConfig) bool { return cfg.EnableNotify },
 		NewChannel:           deps.NewChannel,
-		Snapshot:             weixinRuntimeSnapshot,
+		Snapshot:             runtimeSnapshot,
 	})
 }
 
-func DecodeWeixinPluginConfig(raw map[string]any) (WeixinConfig, error) {
-	return pkgchannel.DecodePluginConfig[WeixinConfig](raw, "weixin")
+func DecodeConfig(raw map[string]any) (pkgchannel.WeixinConfig, error) {
+	return pkgchannel.DecodePluginConfig[pkgchannel.WeixinConfig](raw, "weixin")
 }
 
-func RedactWeixinPluginConfig(raw map[string]any) map[string]any {
-	cfg, err := DecodeWeixinPluginConfig(raw)
+func RedactConfig(raw map[string]any) map[string]any {
+	cfg, err := DecodeConfig(raw)
 	if err != nil {
 		return pkgchannel.CloneConfigMap(raw)
 	}
@@ -67,7 +61,7 @@ func RedactWeixinPluginConfig(raw map[string]any) map[string]any {
 	return out
 }
 
-func WeixinPluginConfigSchema() map[string]any {
+func configSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -97,14 +91,14 @@ func WeixinPluginConfigSchema() map[string]any {
 	}
 }
 
-func validateWeixinConfig(cfg WeixinConfig) string {
+func validateConfig(cfg pkgchannel.WeixinConfig) string {
 	if cfg.BotToken == "" {
 		return "weixin: missing bot_token"
 	}
 	return ""
 }
 
-func weixinRuntimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg WeixinConfig) pkgplugins.RuntimeSnapshot {
+func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.WeixinConfig) pkgplugins.RuntimeSnapshot {
 	return pkgplugins.RuntimeSnapshot{
 		State:     state,
 		Message:   message,

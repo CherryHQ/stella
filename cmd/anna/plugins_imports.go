@@ -5,6 +5,7 @@ import (
 	_ "github.com/vaayne/anna/plugins/channels/feishu"
 	_ "github.com/vaayne/anna/plugins/channels/qq"
 	_ "github.com/vaayne/anna/plugins/channels/telegram"
+	_ "github.com/vaayne/anna/plugins/channels/weixin"
 
 	// Plugin providers.
 	_ "github.com/vaayne/anna/plugins/providers/anthropic"

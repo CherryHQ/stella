@@ -1,0 +1,102 @@
+package weixin
+
+import (
+	"context"
+	"fmt"
+
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+)
+
+const (
+	PluginID    = "channel/weixin"
+	RuntimeName = "bot"
+)
+
+var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error) {
+	channelRuntime := host.ChannelRuntime()
+	if channelRuntime == nil {
+		return nil, fmt.Errorf("weixin: channel runtime services unavailable")
+	}
+	parent := channelRuntime.ParentContext()
+	if parent == nil {
+		return nil, fmt.Errorf("weixin: missing parent context")
+	}
+	handler := channelRuntime.Handler()
+	if handler == nil {
+		return nil, fmt.Errorf("weixin: missing channel handler")
+	}
+	return NewWeixinManagedRuntime(WeixinRuntimeDeps{
+		Parent:        parent,
+		Handler:       handler,
+		Notifications: channelRuntime.Notifications(),
+		Log:           host.Logger(PluginID),
+		NewChannel: func(cfg pkgchannel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			return New(Config{
+				BotToken: cfg.BotToken,
+				BaseURL:  cfg.BaseURL,
+				BotID:    cfg.BotID,
+				UserID:   cfg.UserID,
+			}, handler)
+		},
+	}), nil
+}
+
+func init() {
+	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
+		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+			ID:                    PluginID,
+			Kind:                  "channel",
+			Name:                  pkgchannel.PlatformWeixin,
+			DisplayName:           "Weixin",
+			Description:           "Weixin iLink bot integration.",
+			Managed:               true,
+			AdminVisible:          true,
+			HasConfig:             true,
+			HasStatus:             true,
+			SupportsNotifications: true,
+			Capabilities: []string{
+				pkgplugins.CapabilityRuntime,
+				pkgplugins.CapabilityConfig,
+				pkgplugins.CapabilityStatus,
+			},
+		})
+		host.Registry().RegisterConfig(pkgplugins.ConfigRegistration{
+			PluginID:      PluginID,
+			DefaultConfig: func() map[string]any { return map[string]any{} },
+			Schema:        configSchema(),
+			Validate:      func(raw map[string]any) error { _, err := DecodeConfig(raw); return err },
+			Redact:        RedactConfig,
+		})
+		host.Registry().RegisterRuntime(pkgplugins.RuntimeRegistration{
+			PluginID: PluginID,
+			Name:     RuntimeName,
+			Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
+				return newRuntime(ctx.Services)
+			},
+		})
+		host.Registry().RegisterStatus(pkgplugins.StatusRegistration{
+			PluginID: PluginID,
+			Get: func(ctx context.Context) (any, error) {
+				handle, ok := host.Services().Runtime().Get(PluginID, RuntimeName)
+				if !ok {
+					return map[string]any{
+						"state":      pkgplugins.RuntimeStateStopped,
+						"updated_at": nil,
+						"metadata":   map[string]any{},
+					}, nil
+				}
+				snap, err := handle.Snapshot(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{
+					"state":      snap.State,
+					"message":    snap.Message,
+					"updated_at": snap.UpdatedAt,
+					"metadata":   snap.Metadata,
+				}, nil
+			},
+		})
+	}))
+}

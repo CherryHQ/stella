@@ -5,6 +5,7 @@ const (
 	TelegramRuntimeName = "bot"
 	QQPluginID          = "channel/qq"
 	FeishuPluginID      = "channel/feishu"
+	WeixinPluginID      = "channel/weixin"
 )
 
 type HostBackedChannel struct {

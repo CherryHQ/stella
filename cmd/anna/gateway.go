@@ -19,7 +19,6 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/scheduler"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/providers"
@@ -109,15 +108,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)
 	}
 
-	hostBackedRegistrations := map[string]func(){
-		channel.WeixinPluginID: func() {
-			s.pluginHost.RegisterWeixin(pluginhost.WeixinDeps{
-				Parent:   gctx,
-				Handler:  coordinator,
-				Notifier: s.notifier,
-			})
-		},
-	}
+	hostBackedRegistrations := map[string]func(){}
 	if s.pluginHost != nil {
 		for _, hostBackedChannel := range []channel.HostBackedChannel{
 			{Name: channel.PlatformQQ, PluginID: channel.QQPluginID},
