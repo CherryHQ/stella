@@ -78,6 +78,7 @@ This handoff file is also the running implementation log for future sessions.
 - Continued `internal/channel` cleanup by moving the shared slash-command handler into `internal/chatcommand`.
 - Continued `internal/channel` cleanup by moving the terminal chat UI package into `internal/chatcli`, leaving `internal/channel` coordinator-only.
 - Started `internal/admin` cleanup by extracting route registration out of `server.go`.
+- Continued `internal/admin` cleanup by moving channel lifecycle management out of `server.go`.
 
 ## Key Decisions
 
@@ -142,6 +143,7 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - The shared slash-command handler now lives in `internal/chatcommand`; `internal/channel` is down to the coordinator surface.
 - The terminal chat UI now lives in `internal/chatcli`, not under `internal/channel`.
 - `internal/admin/server.go` is no longer the only place that owns route registration; registration now lives in `internal/admin/routes.go`.
+- `internal/admin/server.go` no longer owns channel start/stop lifecycle methods; those now live in `internal/admin/channel_lifecycle.go`.
 - The old split registries are gone as runtime/discovery systems:
   - `plugins/providers`
   - `plugins/memory`
@@ -246,7 +248,8 @@ Recommended order:
    - Keep using `pluginhost` discovery instead of reintroducing channel-specific registries or static lists.
 2. Clean `internal/admin`.
    - Route registration is already split out of `server.go`.
-   - Next cuts are channel lifecycle extraction and other narrow server responsibilities.
+   - Channel lifecycle extraction is already done.
+   - Next cuts are remaining narrow server responsibilities and any handler grouping that still looks too broad.
 3. Clean `cmd/anna`.
    - Split bootstrap/wiring responsibilities into narrower setup units.
 4. Clean scheduler/notification plumbing after that.
@@ -552,6 +555,17 @@ This is a real second migration, not a cleanup detail. It should only start afte
 - Moved admin mux wiring out of `internal/admin/server.go` into the new `internal/admin/routes.go`.
 - Split route registration by concern: static/auth/profile/pages/providers/agents/channels/users/auth-users/sessions/plugins/models/tools/scheduler.
 - Reduced `server.go` to construction, channel lifecycle management, middleware, and JSON helpers instead of one large constructor with every route inline.
+- Verified with focused tests for `internal/admin` and `cmd/anna`.
+
+### 2026-04-08 — admin channel lifecycle extraction
+
+- Moved channel lifecycle methods out of `internal/admin/server.go` into the new `internal/admin/channel_lifecycle.go`.
+- Kept the lifecycle API unchanged:
+  - `RegisterChannelStop(...)`
+  - `SetChannelLifecycle(...)`
+  - `startChannel(...)`
+  - `stopChannel(...)`
+- Reduced `server.go` further so it now mostly owns construction and HTTP/middleware helpers.
 - Verified with focused tests for `internal/admin` and `cmd/anna`.
 
 ## Session Log
