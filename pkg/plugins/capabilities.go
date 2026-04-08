@@ -39,6 +39,8 @@ type ChannelRegistration struct {
 	PluginID              string
 	Name                  string
 	SupportsNotifications bool
+	Configured            func(raw map[string]any) bool
+	NotificationsEnabled  func(raw map[string]any) bool
 	Build                 func(ctx ChannelContext) (channel.Channel, error)
 }
 
