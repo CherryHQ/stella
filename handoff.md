@@ -91,6 +91,11 @@ This handoff file is also the running implementation log for future sessions.
   - MCP config, IDs, manager, session, supervisor, and data types now live directly in `plugins/tools/mcp`
   - app/test callers now import `plugins/tools/mcp` directly for MCP-owned constants and types
   - there is no remaining fake “shared MCP package” layer
+- Re-checked the design against `pi-mono` and tightened the target architecture:
+  - extension-owned prompt behavior must be first-class, not app hardcode
+  - declarative system-prompt sections are the immediate host capability
+  - narrower run lifecycle hooks should follow for pi-style dynamic per-run behavior
+  - `skills` should be implemented as one extension that contributes both a tool and prompt content
 - Started `internal/admin` cleanup by extracting route registration out of `server.go`.
 - Continued `internal/admin` cleanup by moving channel lifecycle management out of `server.go`.
 - Continued `internal/admin` cleanup by moving HTTP wrapper methods and JSON response helpers out of `server.go`.
@@ -141,6 +146,11 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - Shared database query contracts now live in `pkg/db/sqlc`, not `internal/db/sqlc`.
 - Shared skill discovery, validation, install/remove, and skill-management library code now live in `pkg/skills`, not `internal/skills` or `internal/agent/runner/skill.go`.
 - The `skills` agent tool now lives in `plugins/tools/skills` as a required built-in tool plugin, not in `pkg/skills`.
+- The next architecture slice is extension-owned prompt contribution:
+  - `pkg/plugins` should expose generic prompt-section contribution
+  - runner/admin prompt builders should gather prompt sections through `internal/pluginhost`
+  - `plugins/tools/skills` should own both the `skills` tool and the skills prompt block
+  - later dynamic run hooks should build on that instead of re-hardcoding prompt behavior in app code
 - Production provider construction now flows through `internal/pluginhost`:
   - runner provider registries
   - admin provider validation/model fetch
