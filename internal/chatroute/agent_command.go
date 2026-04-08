@@ -1,4 +1,4 @@
-package channel
+package chatroute
 
 import (
 	"context"
@@ -27,15 +27,13 @@ func (ac *AgentCommander) List(ctx context.Context) ([]config.Agent, error) {
 }
 
 // Switch sets the active agent for a DM (updates user's default_agent_id)
-// or a group chat (updates chat_agents). Returns an error if the agent slug
-// is not found or not enabled.
+// or a group chat (updates chat_agents).
 func (ac *AgentCommander) Switch(ctx context.Context, user auth.AuthUser, chat ChatContext, agentSlug string) error {
 	agentSlug = strings.TrimSpace(agentSlug)
 	if agentSlug == "" {
 		return fmt.Errorf("agent slug is required")
 	}
 
-	// Verify the agent exists and is enabled.
 	ag, err := ac.store.GetAgent(ctx, agentSlug)
 	if err != nil {
 		return fmt.Errorf("agent %q not found", agentSlug)
@@ -45,23 +43,18 @@ func (ac *AgentCommander) Switch(ctx context.Context, user auth.AuthUser, chat C
 	}
 
 	if chat.IsGroup && chat.ChatID != "" {
-		// Group: update chat_agents mapping.
 		return ac.store.SetChatAgent(ctx, chat.Platform, chat.ChatID, ag.ID)
 	}
 
-	// DM: update user's default agent.
 	if user.ID == 0 {
 		return fmt.Errorf("link your account first to set a default agent")
 	}
 	return ac.authStore.UpdateUserDefaultAgent(ctx, user.ID, ag.ID)
 }
 
-// Re-exported utility from pkg/channel.
 var ParseCommandArgs = pkgchannel.ParseCommandArgs
 
 // IndexedAgent pairs a config.Agent with its 1-based global index.
-// This wraps config.Agent (not pkgchannel.AgentInfo) for backward compat
-// with internal callers that need the full Agent struct.
 type IndexedAgent struct {
 	config.Agent
 	GlobalIdx int
@@ -77,7 +70,6 @@ func IndexAgents(agents []config.Agent) []IndexedAgent {
 }
 
 // HandleAgentCommand is the shared /agent handler for text-based channels.
-// No args → list agents; text → switch by slug.
 func HandleAgentCommand(ctx context.Context, ac *AgentCommander, rc *ResolvedChat, args string, reply func(string)) {
 	slug := strings.TrimSpace(args)
 

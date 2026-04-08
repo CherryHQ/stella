@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/vaayne/anna/internal/chatroute"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
@@ -23,7 +24,7 @@ var (
 // HandleCommand processes common bot commands shared across all channels.
 // Returns the response text and whether the command was handled.
 // /model and /agent are left to each channel (they need platform-specific UI).
-func HandleCommand(ctx context.Context, rc *ResolvedChat, text, senderID string) (string, bool) {
+func HandleCommand(ctx context.Context, rc *chatroute.ResolvedChat, text, senderID string) (string, bool) {
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
 		return "", false

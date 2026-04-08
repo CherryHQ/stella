@@ -72,6 +72,7 @@ This handoff file is also the running implementation log for future sessions.
   - `plugins/channels/weixin`
 - Removed the remaining static internal channel plugin registry; gateway/admin now derive channel runtime behavior from `pluginhost` registrations and canonical plugin IDs instead of `internal/channel/host_backed.go`.
 - Started `internal/channel` cleanup by moving notification dispatch and the notify tool into `internal/notify`, so channel orchestration no longer owns scheduler/gateway notification routing.
+- Continued `internal/channel` cleanup by moving chat identity resolution, link-code handling, agent routing, and session-key resolution into `internal/chatroute`.
 
 ## Key Decisions
 
@@ -130,6 +131,7 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - QQ, Feishu, and Weixin runtime/config/status now live in their plugin packages, discovered through the default catalog plus shared channel runtime services.
 - There are no remaining plugin-owned runtime/config packages under `internal/...`.
 - Notification dispatch, per-user notification routing, and the notify tool now live in `internal/notify` instead of `internal/channel`.
+- Chat identity/linking and agent/session routing now live in `internal/chatroute` instead of `internal/channel`.
 - The old split registries are gone as runtime/discovery systems:
   - `plugins/providers`
   - `plugins/memory`
@@ -225,7 +227,8 @@ Recommended order:
 
 1. Clean `internal/channel`.
    - Notification dispatch is already moved to `internal/notify`.
-   - Next cuts are lifecycle, identity/linking, and CLI-specific concerns.
+   - Chat identity/linking and agent/session routing are already moved to `internal/chatroute`.
+   - Next cuts are lifecycle/config access and CLI-specific concerns.
    - Keep using `pluginhost` discovery instead of reintroducing channel-specific registries or static lists.
 2. Clean `internal/admin`.
    - Reduce cross-handler coupling now that plugin and channel operations are uniformly host-backed.
@@ -492,6 +495,14 @@ This is a real second migration, not a cleanup detail. It should only start afte
 - Updated gateway setup, scheduler heartbeat/job delivery, admin tests, and Telegram plugin tests to use `internal/notify.Dispatcher` directly.
 - Deleted the old `internal/channel/notifier.go`, `internal/channel/notifier_test.go`, and `internal/channel/notify_tool.go` files.
 - Verified with focused tests for `internal/notify`, `internal/scheduler`, `plugins/channels/telegram`, `internal/admin`, and `cmd/anna`, then ran `go test ./...`.
+
+### 2026-04-08 — chat routing extraction
+
+- Moved chat identity resolution, link-code handling, agent selection, and session-key resolution from `internal/channel` into the new app-private package `internal/chatroute`.
+- Updated the channel coordinator and generic command handling to depend on `internal/chatroute.ResolvedChat` instead of local `internal/channel` routing types.
+- Moved the routing and access regression tests from `internal/channel` into `internal/chatroute`.
+- Deleted the old `internal/channel/identity.go`, `internal/channel/linkcode.go`, `internal/channel/resolved.go`, and `internal/channel/agent_command.go` files.
+- Verified with focused tests for `internal/chatroute`, `internal/channel`, `plugins/channels/{telegram,qq,feishu,weixin}`, and `cmd/anna`.
 
 ## Session Log
 

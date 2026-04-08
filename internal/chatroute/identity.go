@@ -1,4 +1,4 @@
-package channel
+package chatroute
 
 import (
 	"context"
@@ -17,8 +17,8 @@ var ErrAgentAccessDenied = errors.New("you don't have access to this agent, cont
 
 // ChatContext describes the chat environment for agent routing.
 type ChatContext struct {
-	Platform string // "telegram", "qq", "feishu", "cli"
-	ChatID   string // group/channel ID (empty for DMs)
+	Platform string
+	ChatID   string
 	IsGroup  bool
 }
 
@@ -68,7 +68,6 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthSt
 		return "", ErrAgentAccessDenied
 	}
 
-	// Build subject for policy checks.
 	assignedIDs, _ := authStore.ListUserAgentIDs(ctx, identity.User.ID)
 	subject := auth.Subject{
 		UserID:   identity.User.ID,
@@ -92,7 +91,6 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthSt
 		})
 	}
 
-	// Group chat: look up per-group agent assignment, fall through if denied.
 	if chat.IsGroup && chat.ChatID != "" {
 		agentID, err := store.GetChatAgent(ctx, chat.Platform, chat.ChatID)
 		if err == nil && agentID != "" {
@@ -103,7 +101,6 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthSt
 		}
 	}
 
-	// DM: use user's default agent if accessible, otherwise fall through.
 	if !chat.IsGroup && identity.User.DefaultAgentID != "" {
 		if canAccess(identity.User.DefaultAgentID) {
 			return identity.User.DefaultAgentID, nil
@@ -111,7 +108,6 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthSt
 		log.Warn("agent access denied for DM default, falling back", "agent_id", identity.User.DefaultAgentID)
 	}
 
-	// Fallback: first enabled agent the user can access.
 	agents, err := store.ListEnabledAgents(ctx)
 	if err != nil {
 		return "", fmt.Errorf("resolve agent: list enabled agents: %w", err)
@@ -125,7 +121,6 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthSt
 	return "", fmt.Errorf("resolve agent: no accessible enabled agents found")
 }
 
-// isNotFound returns true if the error indicates a record was not found.
 func isNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)
 }

@@ -3,10 +3,12 @@ package channel
 import (
 	"context"
 	"testing"
+
+	"github.com/vaayne/anna/internal/chatroute"
 )
 
 func TestHandleCommandHelp(t *testing.T) {
-	rc := &ResolvedChat{SessionKey: "ch"}
+	rc := &chatroute.ResolvedChat{SessionKey: "ch"}
 	resp, ok := HandleCommand(context.Background(), rc, "/help", "user1")
 	if !ok {
 		t.Fatal("expected handled")
@@ -17,7 +19,7 @@ func TestHandleCommandHelp(t *testing.T) {
 }
 
 func TestHandleCommandStart(t *testing.T) {
-	rc := &ResolvedChat{SessionKey: "ch"}
+	rc := &chatroute.ResolvedChat{SessionKey: "ch"}
 	resp, ok := HandleCommand(context.Background(), rc, "/start", "user1")
 	if !ok {
 		t.Fatal("expected handled")
@@ -28,7 +30,7 @@ func TestHandleCommandStart(t *testing.T) {
 }
 
 func TestHandleCommandWhoami(t *testing.T) {
-	rc := &ResolvedChat{SessionKey: "ch"}
+	rc := &chatroute.ResolvedChat{SessionKey: "ch"}
 	resp, ok := HandleCommand(context.Background(), rc, "/whoami", "SENDER_123")
 	if !ok {
 		t.Fatal("expected handled")
@@ -39,7 +41,7 @@ func TestHandleCommandWhoami(t *testing.T) {
 }
 
 func TestHandleCommandUnknown(t *testing.T) {
-	rc := &ResolvedChat{SessionKey: "ch"}
+	rc := &chatroute.ResolvedChat{SessionKey: "ch"}
 	_, ok := HandleCommand(context.Background(), rc, "hello world", "user1")
 	if ok {
 		t.Error("regular text should not be handled")
@@ -47,7 +49,7 @@ func TestHandleCommandUnknown(t *testing.T) {
 }
 
 func TestHandleCommandEmpty(t *testing.T) {
-	rc := &ResolvedChat{SessionKey: "ch"}
+	rc := &chatroute.ResolvedChat{SessionKey: "ch"}
 	_, ok := HandleCommand(context.Background(), rc, "", "user1")
 	if ok {
 		t.Error("empty text should not be handled")
@@ -55,7 +57,7 @@ func TestHandleCommandEmpty(t *testing.T) {
 }
 
 func TestHandleCommandModel(t *testing.T) {
-	rc := &ResolvedChat{SessionKey: "ch"}
+	rc := &chatroute.ResolvedChat{SessionKey: "ch"}
 	_, ok := HandleCommand(context.Background(), rc, "/model gpt-4", "user1")
 	if ok {
 		t.Error("/model should NOT be handled (left to channels)")
