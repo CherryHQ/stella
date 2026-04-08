@@ -6,17 +6,16 @@ import (
 	"fmt"
 	"sort"
 
-	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
 type Tool struct {
-	manager *pkgmcp.Manager
+	manager *Manager
 }
 
-func New(manager *pkgmcp.Manager) *Tool {
+func New(manager *Manager) *Tool {
 	if manager == nil {
-		manager = pkgmcp.DefaultManager()
+		manager = DefaultManager()
 	}
 	return &Tool{manager: manager}
 }
@@ -89,7 +88,7 @@ type listItem struct {
 	ServerName  string `json:"server_name"`
 }
 
-func listResponse(tools []pkgmcp.ToolInfo) []listItem {
+func listResponse(tools []ToolInfo) []listItem {
 	items := make([]listItem, 0, len(tools))
 	for _, tool := range tools {
 		items = append(items, listItem{

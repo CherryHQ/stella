@@ -6,13 +6,12 @@ import (
 
 	"github.com/vaayne/anna/internal/config"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	feishuplugin "github.com/vaayne/anna/plugins/channels/feishu"
 	qqplugin "github.com/vaayne/anna/plugins/channels/qq"
 	weixinplugin "github.com/vaayne/anna/plugins/channels/weixin"
 	reflectplugin "github.com/vaayne/anna/plugins/reflect"
-	_ "github.com/vaayne/anna/plugins/tools/mcp"
+	mcpplugin "github.com/vaayne/anna/plugins/tools/mcp"
 )
 
 func TestRegisterMetadataPanicsOnDuplicate(t *testing.T) {
@@ -297,18 +296,18 @@ func TestLoadDefaultCatalogIncludesMCPMetadata(t *testing.T) {
 
 	metas := host.ListRegisteredPlugins()
 	for _, meta := range metas {
-		if meta.ID != pkgmcp.PluginID {
+		if meta.ID != mcpplugin.PluginID {
 			continue
 		}
 		if !meta.Managed || !meta.AdminVisible || !meta.HasConfig || !meta.HasStatus {
 			t.Fatalf("unexpected mcp metadata: %#v", meta)
 		}
-		if got := host.ConfigSchema(pkgmcp.PluginID); len(got) == 0 {
+		if got := host.ConfigSchema(mcpplugin.PluginID); len(got) == 0 {
 			t.Fatal("expected non-empty mcp schema")
 		}
 		return
 	}
-	t.Fatalf("missing metadata for %q", pkgmcp.PluginID)
+	t.Fatalf("missing metadata for %q", mcpplugin.PluginID)
 }
 
 type fakeChannelHandler struct{}

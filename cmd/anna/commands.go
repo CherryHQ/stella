@@ -20,13 +20,13 @@ import (
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/pkg/hooks"
-	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
 	plugintools "github.com/vaayne/anna/plugins/tools"
+	mcpplugin "github.com/vaayne/anna/plugins/tools/mcp"
 )
 
 func newApp() *ucli.App {
@@ -109,7 +109,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		return nil, fmt.Errorf("load plugin catalog: %w", err)
 	}
-	if err := phost.ApplyPlugin(ctx, pkgmcp.PluginID); err != nil {
+	if err := phost.ApplyPlugin(ctx, mcpplugin.PluginID); err != nil {
 		return nil, fmt.Errorf("apply mcp runtime: %w", err)
 	}
 
@@ -206,7 +206,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithCoreToolsBuilder(coreToolsBuilder),
 		agent.WithProviderRegistryBuilder(providerRegistryBuilder),
 		agent.WithPromptToolsBuilder(func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error) {
-			return phost.PromptTools(ctx, pkgmcp.PluginID)
+			return phost.PromptTools(ctx, mcpplugin.PluginID)
 		}),
 	)
 
