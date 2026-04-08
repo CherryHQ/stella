@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/vaayne/anna/internal/auth"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 // Notifier can push notifications. Both Dispatcher and individual channels
@@ -24,9 +24,9 @@ type channelEntry struct {
 // Dispatcher routes notifications to one or more registered channels.
 // It implements Notifier so it can be passed to tools and scheduler wiring.
 type Dispatcher struct {
-	mu        sync.RWMutex
-	channels  []channelEntry
-	authStore auth.AuthStore // optional; set via SetAuthStore for per-user notifications
+	mu       sync.RWMutex
+	channels []channelEntry
+	auth     pkgplugins.AuthService // optional; set via SetAuthService for per-user notifications
 }
 
 // NewDispatcher creates an empty dispatcher. Register channels before use.
@@ -84,10 +84,10 @@ func (d *Dispatcher) Notify(ctx context.Context, n pkgchannel.Notification) erro
 	return errors.Join(errs...)
 }
 
-// SetAuthStore configures the auth store for per-user notification routing.
-func (d *Dispatcher) SetAuthStore(store auth.AuthStore) {
+// SetAuthService configures the auth directory for per-user notification routing.
+func (d *Dispatcher) SetAuthService(service pkgplugins.AuthService) {
 	d.mu.Lock()
-	d.authStore = store
+	d.auth = service
 	d.mu.Unlock()
 }
 
@@ -101,7 +101,7 @@ func (d *Dispatcher) SetAuthStore(store auth.AuthStore) {
 // auth store is configured.
 func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n pkgchannel.Notification) error {
 	d.mu.RLock()
-	as := d.authStore
+	as := d.auth
 	entries := make([]channelEntry, len(d.channels))
 	copy(entries, d.channels)
 	d.mu.RUnlock()
@@ -115,7 +115,7 @@ func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n pkgchannel.
 		return d.Notify(ctx, n)
 	}
 
-	identities, err := as.ListIdentitiesByUser(ctx, userID)
+	identities, err := as.ListUserIdentities(ctx, userID)
 	if err != nil {
 		slog.Warn("notifyUser: failed to list identities, falling back to broadcast", "user_id", userID, "error", err)
 		return d.Notify(ctx, n)
@@ -156,7 +156,7 @@ func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n pkgchannel.
 // If the user has a notify_identity_id preference that matches one of their
 // linked identities, that identity is returned. Otherwise the first identity
 // (earliest linked_at from the DB query) is used.
-func pickNotifyIdentity(ctx context.Context, as auth.AuthStore, userID int64, identities []auth.Identity) auth.Identity {
+func pickNotifyIdentity(ctx context.Context, as pkgplugins.AuthService, userID int64, identities []pkgplugins.LinkedIdentity) pkgplugins.LinkedIdentity {
 	user, err := as.GetUser(ctx, userID)
 	if err != nil {
 		slog.Warn("notifyUser: failed to get user, using first identity", "user_id", userID, "error", err)

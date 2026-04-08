@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/auth"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 type mockChannel struct {
@@ -220,18 +220,21 @@ func TestToolExecuteError(t *testing.T) {
 	}
 }
 
-type mockAuthStore struct {
-	auth.AuthStore
-	user       auth.AuthUser
-	identities []auth.Identity
+type mockAuthService struct {
+	user       pkgplugins.UserInfo
+	identities []pkgplugins.LinkedIdentity
 }
 
-func (m *mockAuthStore) GetUser(_ context.Context, _ int64) (auth.AuthUser, error) {
+func (m *mockAuthService) GetUser(_ context.Context, _ int64) (pkgplugins.UserInfo, error) {
 	return m.user, nil
 }
 
-func (m *mockAuthStore) ListIdentitiesByUser(_ context.Context, _ int64) ([]auth.Identity, error) {
+func (m *mockAuthService) ListUserIdentities(_ context.Context, _ int64) ([]pkgplugins.LinkedIdentity, error) {
 	return m.identities, nil
+}
+
+func (*mockAuthService) GetIdentityByPlatform(_ context.Context, _, _ string) (pkgplugins.LinkedIdentity, error) {
+	return pkgplugins.LinkedIdentity{}, errors.New("not implemented")
 }
 
 func TestNotifyUserSendsToFirstLinked(t *testing.T) {
@@ -240,9 +243,9 @@ func TestNotifyUserSendsToFirstLinked(t *testing.T) {
 	fs := &mockChannel{name: "feishu"}
 	d.Register(tg)
 	d.Register(fs)
-	d.SetAuthStore(&mockAuthStore{
-		user: auth.AuthUser{ID: 1},
-		identities: []auth.Identity{
+	d.SetAuthService(&mockAuthService{
+		user: pkgplugins.UserInfo{ID: 1},
+		identities: []pkgplugins.LinkedIdentity{
 			{ID: 10, Platform: "telegram", ExternalID: "tg-123", LinkedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
 			{ID: 11, Platform: "feishu", ExternalID: "fs-456", LinkedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
 		},
@@ -271,9 +274,9 @@ func TestNotifyUserSendsToPreferred(t *testing.T) {
 	d.Register(fs)
 
 	preferredID := int64(11)
-	d.SetAuthStore(&mockAuthStore{
-		user: auth.AuthUser{ID: 1, NotifyIdentityID: &preferredID},
-		identities: []auth.Identity{
+	d.SetAuthService(&mockAuthService{
+		user: pkgplugins.UserInfo{ID: 1, NotifyIdentityID: &preferredID},
+		identities: []pkgplugins.LinkedIdentity{
 			{ID: 10, Platform: "telegram", ExternalID: "tg-123", LinkedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
 			{ID: 11, Platform: "feishu", ExternalID: "fs-456", LinkedAt: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
 		},
@@ -300,9 +303,9 @@ func TestNotifyUserPreferredNotFoundFallsToFirst(t *testing.T) {
 	d.Register(tg)
 
 	staleID := int64(999)
-	d.SetAuthStore(&mockAuthStore{
-		user: auth.AuthUser{ID: 1, NotifyIdentityID: &staleID},
-		identities: []auth.Identity{
+	d.SetAuthService(&mockAuthService{
+		user: pkgplugins.UserInfo{ID: 1, NotifyIdentityID: &staleID},
+		identities: []pkgplugins.LinkedIdentity{
 			{ID: 10, Platform: "telegram", ExternalID: "tg-123"},
 		},
 	})

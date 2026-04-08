@@ -24,6 +24,7 @@ type Host struct {
 	metadataRegs     map[string]pkgplugins.PluginMeta
 	notifications    pkgplugins.NotificationService
 	stateStore       pkgplugins.PluginStateStore
+	authService      pkgplugins.AuthService
 	channelRuntime   pkgplugins.ChannelRuntimeServices
 	reflectRuntime   pkgplugins.ReflectRuntimeServices
 	toolRegs         map[string]pkgplugins.ToolRegistration

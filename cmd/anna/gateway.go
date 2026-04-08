@@ -203,8 +203,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		})
 	}
 
-	// Wire auth store into dispatcher for per-user notification routing.
-	s.notifier.SetAuthStore(as)
+	// Wire auth directory into dispatcher for per-user notification routing.
+	s.notifier.SetAuthService(s.pluginHost.Services().Auth())
 
 	// Wire scheduler notifications and start the scheduler AFTER channels
 	// are registered, so early-firing jobs already use the dispatcher.
