@@ -211,6 +211,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithPromptSectionsBuilder(func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
 			return phost.SystemPromptSections(ctx, build)
 		}),
+		agent.WithBeforeRunBuilderPM(func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
+			return phost.BeforeRun(ctx, build)
+		}),
 	)
 
 	if err := poolMgr.StartAll(ctx); err != nil {

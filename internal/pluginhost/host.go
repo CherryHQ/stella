@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/pkg/ai"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
@@ -26,6 +27,7 @@ type Host struct {
 	toolRegs         map[string]pkgplugins.ToolRegistration
 	providerRegs     map[string]pkgplugins.ProviderRegistration
 	hookRegs         map[string]pkgplugins.HookRegistration
+	beforeRunRegs    map[string]pkgplugins.BeforeRunRegistration
 	channelRegs      map[string]pkgplugins.ChannelRegistration
 	memoryRegs       map[string]pkgplugins.MemoryRegistration
 	runtimeRegs      map[string]pkgplugins.RuntimeRegistration
@@ -44,6 +46,7 @@ func New(store config.Store, opts ...Option) *Host {
 		toolRegs:         map[string]pkgplugins.ToolRegistration{},
 		providerRegs:     map[string]pkgplugins.ProviderRegistration{},
 		hookRegs:         map[string]pkgplugins.HookRegistration{},
+		beforeRunRegs:    map[string]pkgplugins.BeforeRunRegistration{},
 		channelRegs:      map[string]pkgplugins.ChannelRegistration{},
 		memoryRegs:       map[string]pkgplugins.MemoryRegistration{},
 		runtimeRegs:      map[string]pkgplugins.RuntimeRegistration{},
@@ -118,6 +121,11 @@ func (h *Host) RegisterHook(reg pkgplugins.HookRegistration) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.hookRegs, reg.Name, reg, "hook")
+}
+func (h *Host) RegisterBeforeRun(reg pkgplugins.BeforeRunRegistration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	registerUnique(h.beforeRunRegs, promptKey(reg.PluginID, reg.Name), reg, "before run")
 }
 func (h *Host) RegisterMemory(reg pkgplugins.MemoryRegistration) {
 	h.mu.Lock()
@@ -226,7 +234,9 @@ func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.P
 		}
 	}
 	h.mu.RUnlock()
-	sort.Slice(regs, func(i, j int) bool { return regs[i].Name < regs[j].Name })
+	sort.Slice(regs, func(i, j int) bool {
+		return promptKey(regs[i].PluginID, regs[i].Name) < promptKey(regs[j].PluginID, regs[j].Name)
+	})
 	var out []pkgplugins.PromptToolInfo
 	for _, reg := range regs {
 		if reg.GetTools == nil {
@@ -250,7 +260,9 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 		regs = append(regs, reg)
 	}
 	h.mu.RUnlock()
-	sort.Slice(regs, func(i, j int) bool { return regs[i].Name < regs[j].Name })
+	sort.Slice(regs, func(i, j int) bool {
+		return promptKey(regs[i].PluginID, regs[i].Name) < promptKey(regs[j].PluginID, regs[j].Name)
+	})
 
 	var out []pkgplugins.SystemPromptSection
 	for _, reg := range regs {
@@ -290,6 +302,59 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 		out = append(out, section)
 	}
 	return out, nil
+}
+
+func (h *Host) BeforeRun(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
+	h.mu.RLock()
+	regs := make([]pkgplugins.BeforeRunRegistration, 0, len(h.beforeRunRegs))
+	for _, reg := range h.beforeRunRegs {
+		regs = append(regs, reg)
+	}
+	h.mu.RUnlock()
+	sort.Slice(regs, func(i, j int) bool { return regs[i].Name < regs[j].Name })
+
+	current := build.SystemPrompt
+	for _, reg := range regs {
+		if reg.Run == nil {
+			continue
+		}
+
+		state := build.State
+		if reg.Required {
+			state = pkgplugins.PluginState{
+				ID:      reg.PluginID,
+				Enabled: true,
+				Config:  h.defaultConfigFor(reg.PluginID),
+			}
+		} else {
+			var err error
+			state, err = h.DesiredState(ctx, reg.PluginID)
+			if err != nil || !state.Enabled {
+				continue
+			}
+		}
+
+		result, err := reg.Run(ctx, pkgplugins.BeforeRunContext{
+			Services:     h,
+			State:        state,
+			SessionID:    build.SessionID,
+			Channel:      build.Channel,
+			UserID:       build.UserID,
+			AgentID:      build.AgentID,
+			Model:        build.Model,
+			MessageText:  build.MessageText,
+			SystemPrompt: current,
+			History:      append([]ai.Message(nil), build.History...),
+		})
+		if err != nil {
+			return pkgplugins.BeforeRunResult{}, err
+		}
+		if result.SystemPrompt != "" {
+			current = result.SystemPrompt
+		}
+	}
+
+	return pkgplugins.BeforeRunResult{SystemPrompt: current}, nil
 }
 
 func cloneMap(src map[string]any) map[string]any {

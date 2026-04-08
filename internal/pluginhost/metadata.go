@@ -62,6 +62,10 @@ func (h *Host) ValidateRegistrations() error {
 				if !hasChannelLocked(h.channelRegs, meta.ID) {
 					return fmt.Errorf("pluginhost: metadata for %q declares channel capability but no channel is registered", meta.ID)
 				}
+			case pkgplugins.CapabilityLifecycle:
+				if !hasBeforeRunLocked(h.beforeRunRegs, meta.ID) {
+					return fmt.Errorf("pluginhost: metadata for %q declares lifecycle capability but no before-run hook is registered", meta.ID)
+				}
 			case pkgplugins.CapabilityRuntime:
 				if !hasRuntimeLocked(h.runtimeRegs, meta.ID) {
 					return fmt.Errorf("pluginhost: metadata for %q declares runtime capability but no runtime is registered", meta.ID)
@@ -77,6 +81,10 @@ func (h *Host) ValidateRegistrations() error {
 			case pkgplugins.CapabilityTool:
 				if !hasToolLocked(h.toolRegs, meta.ID) {
 					return fmt.Errorf("pluginhost: metadata for %q declares tool capability but no tool is registered", meta.ID)
+				}
+			case pkgplugins.CapabilityPrompt:
+				if !hasPromptLocked(h.promptRegs, h.systemPromptRegs, h.beforeRunRegs, meta.ID) {
+					return fmt.Errorf("pluginhost: metadata for %q declares prompt capability but no prompt contribution is registered", meta.ID)
 				}
 			case pkgplugins.CapabilityProvider:
 				if !hasProviderLocked(h.providerRegs, meta.ID) {
@@ -176,8 +184,36 @@ func hasHookLocked(regs map[string]pkgplugins.HookRegistration, pluginID string)
 	return false
 }
 
+func hasBeforeRunLocked(regs map[string]pkgplugins.BeforeRunRegistration, pluginID string) bool {
+	for _, reg := range regs {
+		if reg.PluginID == pluginID {
+			return true
+		}
+	}
+	return false
+}
+
 func hasMemoryLocked(regs map[string]pkgplugins.MemoryRegistration, pluginID string) bool {
 	for _, reg := range regs {
+		if reg.PluginID == pluginID {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPromptLocked(promptRegs map[string]pkgplugins.PromptInventoryRegistration, systemRegs map[string]pkgplugins.SystemPromptRegistration, beforeRunRegs map[string]pkgplugins.BeforeRunRegistration, pluginID string) bool {
+	for _, reg := range promptRegs {
+		if reg.PluginID == pluginID {
+			return true
+		}
+	}
+	for _, reg := range systemRegs {
+		if reg.PluginID == pluginID {
+			return true
+		}
+	}
+	for _, reg := range beforeRunRegs {
 		if reg.PluginID == pluginID {
 			return true
 		}

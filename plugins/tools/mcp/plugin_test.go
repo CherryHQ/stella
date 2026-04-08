@@ -51,6 +51,7 @@ func (*testRegistry) RegisterRuntime(pkgplugins.RuntimeRegistration)           {
 func (*testRegistry) RegisterConfig(pkgplugins.ConfigRegistration)             {}
 func (*testRegistry) RegisterStatus(pkgplugins.StatusRegistration)             {}
 func (*testRegistry) RegisterSystemPrompt(pkgplugins.SystemPromptRegistration) {}
+func (*testRegistry) RegisterBeforeRun(pkgplugins.BeforeRunRegistration)       {}
 func (r *testRegistry) RegisterPromptInventory(reg pkgplugins.PromptInventoryRegistration) {
 	r.prompt = reg
 }

@@ -3,15 +3,16 @@ package plugins
 import "sort"
 
 const (
-	CapabilityChannel  = "channel"
-	CapabilityRuntime  = "runtime"
-	CapabilityConfig   = "config"
-	CapabilityStatus   = "status"
-	CapabilityTool     = "tool"
-	CapabilityPrompt   = "prompt"
-	CapabilityProvider = "provider"
-	CapabilityHook     = "hook"
-	CapabilityMemory   = "memory"
+	CapabilityChannel   = "channel"
+	CapabilityRuntime   = "runtime"
+	CapabilityLifecycle = "lifecycle"
+	CapabilityConfig    = "config"
+	CapabilityStatus    = "status"
+	CapabilityTool      = "tool"
+	CapabilityPrompt    = "prompt"
+	CapabilityProvider  = "provider"
+	CapabilityHook      = "hook"
+	CapabilityMemory    = "memory"
 )
 
 // PluginMeta is the minimum host discovery contract for a registered plugin.

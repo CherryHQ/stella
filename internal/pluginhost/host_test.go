@@ -132,6 +132,64 @@ func TestSystemPromptSectionsUsePluginIDDirectly(t *testing.T) {
 	}
 }
 
+func TestBeforeRunUsesPluginIDDirectly(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{}}
+	host := New(store)
+	host.RegisterPluginID("tool/skills")
+	host.RegisterBeforeRun(pkgplugins.BeforeRunRegistration{
+		PluginID: "tool/skills",
+		Name:     "skills",
+		Required: true,
+		Run: func(context.Context, pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
+			return pkgplugins.BeforeRunResult{SystemPrompt: "override"}, nil
+		},
+	})
+
+	result, err := host.BeforeRun(context.Background(), pkgplugins.BeforeRunContext{SystemPrompt: "base"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SystemPrompt != "override" {
+		t.Fatalf("unexpected before-run result: %#v", result)
+	}
+}
+
+func TestValidateRegistrationsChecksPromptAndLifecycleCapabilities(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{}}
+	host := New(store)
+	host.RegisterPluginID("tool/skills")
+	host.RegisterMetadata(pkgplugins.PluginMeta{
+		ID:           "tool/skills",
+		Kind:         "tool",
+		Name:         "skills",
+		DisplayName:  "Skills",
+		Capabilities: []string{pkgplugins.CapabilityPrompt, pkgplugins.CapabilityLifecycle},
+	})
+	host.RegisterBeforeRun(pkgplugins.BeforeRunRegistration{
+		PluginID: "tool/skills",
+		Name:     "skills",
+		Required: true,
+		Run: func(context.Context, pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
+			return pkgplugins.BeforeRunResult{}, nil
+		},
+	})
+	host.RegisterSystemPrompt(pkgplugins.SystemPromptRegistration{
+		PluginID: "tool/skills",
+		Name:     "skills",
+		Required: true,
+		Build: func(context.Context, pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
+			return pkgplugins.SystemPromptSection{
+				Title:   "Skills",
+				Content: "content",
+			}, nil
+		},
+	})
+
+	if err := host.ValidateRegistrations(); err != nil {
+		t.Fatalf("ValidateRegistrations: %v", err)
+	}
+}
+
 func TestConfigSchemaUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)

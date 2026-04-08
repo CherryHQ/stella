@@ -48,9 +48,13 @@ type GoRunnerConfig struct {
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.
 type GoRunner struct {
-	runner *agent.Runner
-	reg    *providers.Registry
-	tools  *tools.Registry
+	runner        *agent.Runner
+	reg           *providers.Registry
+	tools         *tools.Registry
+	model         ai.Model
+	streamOptions ai.StreamOptions
+	system        string
+	hookSet       *hooks.HookSet
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -104,28 +108,37 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		Hooks:     hookSet,
 	}))
 
-	runner, err := agent.NewRunner(agent.RunnerConfig{
-		Providers:       reg,
-		Model:           model,
-		Tools:           agent.ToolSetFromRegistry(toolReg),
-		ToolDefinitions: toolReg.Definitions(),
-	},
-		agent.WithStreamOptions(ai.StreamOptions{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}),
-		agent.WithMaxTurns(maxToolIterations),
-		agent.WithSystem(system),
-		agent.WithHooks(hookSet, hooks.HookMeta{}),
-	)
+	streamOptions := ai.StreamOptions{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}
+	runner, err := newAgentRunner(reg, toolReg, model, streamOptions, system, hookSet)
 	if err != nil {
 		return nil, fmt.Errorf("go runner: %w", err)
 	}
 
 	return &GoRunner{
-		runner:       runner,
-		reg:          reg,
-		tools:        toolReg,
-		lastActivity: time.Now(),
-		log:          slog.With("component", "go_runner"),
+		runner:        runner,
+		reg:           reg,
+		tools:         toolReg,
+		model:         model,
+		streamOptions: streamOptions,
+		system:        system,
+		hookSet:       hookSet,
+		lastActivity:  time.Now(),
+		log:           slog.With("component", "go_runner"),
 	}, nil
+}
+
+func newAgentRunner(reg *providers.Registry, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet) (*agent.Runner, error) {
+	return agent.NewRunner(agent.RunnerConfig{
+		Providers:       reg,
+		Model:           model,
+		Tools:           agent.ToolSetFromRegistry(toolReg),
+		ToolDefinitions: toolReg.Definitions(),
+	},
+		agent.WithStreamOptions(streamOptions),
+		agent.WithMaxTurns(maxToolIterations),
+		agent.WithSystem(system),
+		agent.WithHooks(hookSet, hooks.HookMeta{}),
+	)
 }
 
 // buildProviderRegistry creates the provider registry for the configured API.
@@ -205,8 +218,18 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 	go func() {
 		defer close(out)
 
+		loopRunner := r.runner
+		if override, ok := SystemOverrideFromContext(ctx); ok && override != r.system {
+			tempRunner, err := newAgentRunner(r.reg, r.tools, r.model, r.streamOptions, override, r.hookSet)
+			if err != nil {
+				out <- Event{Err: fmt.Errorf("go runner: %w", err)}
+				return
+			}
+			loopRunner = tempRunner
+		}
+
 		// Inject session context into hook metadata so hooks can log it.
-		r.runner.SetHookMeta(hooks.HookMeta{
+		loopRunner.SetHookMeta(hooks.HookMeta{
 			SessionID: memory.SessionIDFromContext(ctx),
 			UserID:    memory.UserIDFromContext(ctx),
 			AgentID:   memory.AgentIDFromContext(ctx),
@@ -216,7 +239,7 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 		copy(messages, history)
 		messages = append(messages, ai.UserMessage{Content: message})
 
-		if _, err := r.runner.Run(ctx, messages, func(e agent.LoopEvent) {
+		if _, err := loopRunner.Run(ctx, messages, func(e agent.LoopEvent) {
 			for _, evt := range convertLoopEvent(e) {
 				out <- evt
 			}
@@ -237,6 +260,9 @@ func (r *GoRunner) LastActivity() time.Time {
 	defer r.mu.Unlock()
 	return r.lastActivity
 }
+
+// SystemPrompt returns the runner's base system prompt before per-run overrides.
+func (r *GoRunner) SystemPrompt() string { return r.system }
 
 // Close shuts down any subprocess-backed tools owned by the runner.
 func (r *GoRunner) Close() error {
