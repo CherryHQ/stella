@@ -46,6 +46,9 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 	if agentID != "" {
 		ctx = memory.WithAgentID(ctx, agentID)
 	}
+	if sess.Info.Channel != "" {
+		ctx = runner.WithChannel(ctx, sess.Info.Channel)
+	}
 
 	// Construct a Session value for all memory provider calls.
 	memSession := memory.Session{
@@ -61,7 +64,7 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 	// Fire PreAgentCall hook — marks the start of a chat request.
 	chatStart := time.Now()
 	hs := hooks.NewHookSet(p.hookPlugins())
-	hookMeta := hooks.HookMeta{SessionID: sessionID, UserID: sess.Info.UserID, AgentID: agentID}
+	hookMeta := hooks.HookMeta{SessionID: sessionID, UserID: sess.Info.UserID, AgentID: agentID, Channel: sess.Info.Channel}
 	hs.RunPreAgentCall(ctx, &hooks.PreAgentCallContext{
 		HookMeta:   hookMeta,
 		MessageLen: len(msgText),

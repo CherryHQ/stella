@@ -31,6 +31,8 @@ type Host struct {
 	providerRegs     map[string]pkgplugins.ProviderRegistration
 	hookRegs         map[string]pkgplugins.HookRegistration
 	beforeRunRegs    map[string]pkgplugins.BeforeRunRegistration
+	beforeToolRegs   map[string]pkgplugins.BeforeToolCallRegistration
+	afterToolRegs    map[string]pkgplugins.AfterToolResultRegistration
 	channelRegs      map[string]pkgplugins.ChannelRegistration
 	memoryRegs       map[string]pkgplugins.MemoryRegistration
 	runtimeRegs      map[string]pkgplugins.RuntimeRegistration
@@ -50,6 +52,8 @@ func New(store config.Store, opts ...Option) *Host {
 		providerRegs:     map[string]pkgplugins.ProviderRegistration{},
 		hookRegs:         map[string]pkgplugins.HookRegistration{},
 		beforeRunRegs:    map[string]pkgplugins.BeforeRunRegistration{},
+		beforeToolRegs:   map[string]pkgplugins.BeforeToolCallRegistration{},
+		afterToolRegs:    map[string]pkgplugins.AfterToolResultRegistration{},
 		channelRegs:      map[string]pkgplugins.ChannelRegistration{},
 		memoryRegs:       map[string]pkgplugins.MemoryRegistration{},
 		runtimeRegs:      map[string]pkgplugins.RuntimeRegistration{},
@@ -129,6 +133,16 @@ func (h *Host) RegisterBeforeRun(reg pkgplugins.BeforeRunRegistration) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.beforeRunRegs, promptKey(reg.PluginID, reg.Name), reg, "before run")
+}
+func (h *Host) RegisterBeforeToolCall(reg pkgplugins.BeforeToolCallRegistration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	registerUnique(h.beforeToolRegs, promptKey(reg.PluginID, reg.Name), reg, "before tool call")
+}
+func (h *Host) RegisterAfterToolResult(reg pkgplugins.AfterToolResultRegistration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	registerUnique(h.afterToolRegs, promptKey(reg.PluginID, reg.Name), reg, "after tool result")
 }
 func (h *Host) RegisterMemory(reg pkgplugins.MemoryRegistration) {
 	h.mu.Lock()

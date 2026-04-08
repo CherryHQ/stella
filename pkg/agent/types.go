@@ -24,4 +24,5 @@ type loopConfig struct {
 	Interrupt       <-chan struct{}
 	Hooks           *hooks.HookSet
 	HookMeta        hooks.HookMeta
+	ToolLifecycle   *ToolLifecycle
 }

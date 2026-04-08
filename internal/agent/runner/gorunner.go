@@ -12,7 +12,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner/builtin"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
-	"github.com/vaayne/anna/pkg/agent"
+	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
@@ -42,19 +42,21 @@ type GoRunnerConfig struct {
 	ExtraTools     []tools.Tool       // additional tools to register
 	UserDataDir    string             // per-user data directory for sandbox enforcement (empty = no sandbox)
 	HookPlugins    []hooks.HookPlugin // hook plugins for the engine loop
+	ToolLifecycle  *coreagent.ToolLifecycle
 	CoreTools      CoreToolsBuilder
 	Providers      ProviderRegistryBuilder
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.
 type GoRunner struct {
-	runner        *agent.Runner
+	runner        *coreagent.Runner
 	reg           *providers.Registry
 	tools         *tools.Registry
 	model         ai.Model
 	streamOptions ai.StreamOptions
 	system        string
 	hookSet       *hooks.HookSet
+	toolLifecycle *coreagent.ToolLifecycle
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -98,18 +100,19 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	hookSet := buildHookSet(cfg)
 
 	toolReg.Register(agenttool.NewAgentTool(agenttool.AgentConfig{
-		Providers: reg,
-		Registry:  toolReg,
-		Model:     model,
-		APIKey:    cfg.APIKey,
-		BaseURL:   cfg.BaseURL,
-		System:    system,
-		Presets:   presets,
-		Hooks:     hookSet,
+		Providers:     reg,
+		Registry:      toolReg,
+		Model:         model,
+		APIKey:        cfg.APIKey,
+		BaseURL:       cfg.BaseURL,
+		System:        system,
+		Presets:       presets,
+		Hooks:         hookSet,
+		ToolLifecycle: cfg.ToolLifecycle,
 	}))
 
 	streamOptions := ai.StreamOptions{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}
-	runner, err := newAgentRunner(reg, toolReg, model, streamOptions, system, hookSet)
+	runner, err := newAgentRunner(reg, toolReg, model, streamOptions, system, hookSet, cfg.ToolLifecycle)
 	if err != nil {
 		return nil, fmt.Errorf("go runner: %w", err)
 	}
@@ -122,22 +125,24 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		streamOptions: streamOptions,
 		system:        system,
 		hookSet:       hookSet,
+		toolLifecycle: cfg.ToolLifecycle,
 		lastActivity:  time.Now(),
 		log:           slog.With("component", "go_runner"),
 	}, nil
 }
 
-func newAgentRunner(reg *providers.Registry, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet) (*agent.Runner, error) {
-	return agent.NewRunner(agent.RunnerConfig{
+func newAgentRunner(reg *providers.Registry, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle) (*coreagent.Runner, error) {
+	return coreagent.NewRunner(coreagent.RunnerConfig{
 		Providers:       reg,
 		Model:           model,
-		Tools:           agent.ToolSetFromRegistry(toolReg),
+		Tools:           coreagent.ToolSetFromRegistry(toolReg),
 		ToolDefinitions: toolReg.Definitions(),
 	},
-		agent.WithStreamOptions(streamOptions),
-		agent.WithMaxTurns(maxToolIterations),
-		agent.WithSystem(system),
-		agent.WithHooks(hookSet, hooks.HookMeta{}),
+		coreagent.WithStreamOptions(streamOptions),
+		coreagent.WithMaxTurns(maxToolIterations),
+		coreagent.WithSystem(system),
+		coreagent.WithHooks(hookSet, hooks.HookMeta{}),
+		coreagent.WithToolLifecycle(toolLifecycle),
 	)
 }
 
@@ -220,7 +225,7 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 
 		loopRunner := r.runner
 		if override, ok := SystemOverrideFromContext(ctx); ok && override != r.system {
-			tempRunner, err := newAgentRunner(r.reg, r.tools, r.model, r.streamOptions, override, r.hookSet)
+			tempRunner, err := newAgentRunner(r.reg, r.tools, r.model, r.streamOptions, override, r.hookSet, r.toolLifecycle)
 			if err != nil {
 				out <- Event{Err: fmt.Errorf("go runner: %w", err)}
 				return
@@ -233,13 +238,17 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 			SessionID: memory.SessionIDFromContext(ctx),
 			UserID:    memory.UserIDFromContext(ctx),
 			AgentID:   memory.AgentIDFromContext(ctx),
+			Channel: func() string {
+				channel, _ := ChannelFromContext(ctx)
+				return channel
+			}(),
 		})
 
 		messages := make([]ai.Message, len(history))
 		copy(messages, history)
 		messages = append(messages, ai.UserMessage{Content: message})
 
-		if _, err := loopRunner.Run(ctx, messages, func(e agent.LoopEvent) {
+		if _, err := loopRunner.Run(ctx, messages, func(e coreagent.LoopEvent) {
 			for _, evt := range convertLoopEvent(e) {
 				out <- evt
 			}
@@ -273,14 +282,14 @@ func (r *GoRunner) Close() error {
 }
 
 // convertLoopEvent bridges agent.LoopEvent to Event(s).
-func convertLoopEvent(e agent.LoopEvent) []Event {
+func convertLoopEvent(e coreagent.LoopEvent) []Event {
 	switch e := e.(type) {
-	case agent.AssistantDelta:
+	case coreagent.AssistantDelta:
 		if d, ok := e.Event.(ai.EventTextDelta); ok && d.Text != "" {
 			return []Event{{Text: d.Text}}
 		}
 
-	case agent.AssistantFinished:
+	case coreagent.AssistantFinished:
 		// Emit Store events for tool calls in the final message.
 		var events []Event
 		for _, block := range e.Message.Content {
@@ -294,14 +303,14 @@ func convertLoopEvent(e agent.LoopEvent) []Event {
 		}
 		return events
 
-	case agent.ToolStarted:
+	case coreagent.ToolStarted:
 		return []Event{{ToolUse: &ToolUseEvent{
 			Tool:   e.ToolCall.Name,
 			Status: "running",
 			Input:  summarizeToolInput(e.ToolCall.Name, e.ToolCall.Arguments),
 		}}}
 
-	case agent.ToolFinished:
+	case coreagent.ToolFinished:
 		status := "done"
 		detail := summarizeToolResult(e.Result)
 		if e.Result.IsError {
@@ -316,7 +325,7 @@ func convertLoopEvent(e agent.LoopEvent) []Event {
 			{Store: e.Result},
 		}
 
-	case agent.AgentErrored:
+	case coreagent.AgentErrored:
 		return []Event{{Err: e.Err}}
 	}
 

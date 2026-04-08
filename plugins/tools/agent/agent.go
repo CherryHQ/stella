@@ -32,15 +32,16 @@ const (
 
 // AgentConfig holds the dependencies needed to spawn subagent loops.
 type AgentConfig struct {
-	Providers providers.ProviderGetter
-	Registry  *tools.Registry
-	Model     ai.Model
-	APIKey    string
-	BaseURL   string
-	System    string
-	Emit      func(agent.LoopEvent) // optional event emitter for observability
-	Presets   *PresetRegistry       // loaded agent presets (nil = no presets)
-	Hooks     *hooks.HookSet        // inherited by subagents (nil = no hooks)
+	Providers     providers.ProviderGetter
+	Registry      *tools.Registry
+	Model         ai.Model
+	APIKey        string
+	BaseURL       string
+	System        string
+	Emit          func(agent.LoopEvent) // optional event emitter for observability
+	Presets       *PresetRegistry       // loaded agent presets (nil = no presets)
+	Hooks         *hooks.HookSet        // inherited by subagents (nil = no hooks)
+	ToolLifecycle *agent.ToolLifecycle
 
 	// Configurable limits (zero = use defaults).
 	MaxTasks       int // max tasks per invocation
@@ -314,6 +315,7 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 		agent.WithMaxTurns(maxTurns),
 		agent.WithSystem(system),
 		agent.WithHooks(t.cfg.Hooks, subMeta),
+		agent.WithToolLifecycle(t.cfg.ToolLifecycle),
 	)
 	if err != nil {
 		return taskResult{Error: fmt.Sprintf("create runner: %v", err)}

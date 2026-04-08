@@ -154,6 +154,69 @@ func TestBeforeRunUsesPluginIDDirectly(t *testing.T) {
 	}
 }
 
+func TestBeforeToolCallUsesPluginIDDirectly(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{}}
+	host := New(store)
+	host.RegisterPluginID("tool/filter")
+	host.RegisterBeforeToolCall(pkgplugins.BeforeToolCallRegistration{
+		PluginID: "tool/filter",
+		Name:     "filter",
+		Required: true,
+		Run: func(context.Context, pkgplugins.BeforeToolCallContext) (pkgplugins.BeforeToolCallResult, error) {
+			return pkgplugins.BeforeToolCallResult{
+				Arguments: map[string]any{"q": "rewritten"},
+				Block:     true,
+				BlockMsg:  "blocked",
+			}, nil
+		},
+	})
+
+	result, err := host.BeforeToolCall(context.Background(), pkgplugins.BeforeToolCallContext{
+		ToolName:  "webfetch",
+		Arguments: map[string]any{"q": "original"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Block || result.BlockMsg != "blocked" {
+		t.Fatalf("unexpected before-tool result: %#v", result)
+	}
+	if got := result.Arguments["q"]; got != "rewritten" {
+		t.Fatalf("arguments not rewritten: %#v", result.Arguments)
+	}
+}
+
+func TestAfterToolResultUsesPluginIDDirectly(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{}}
+	host := New(store)
+	host.RegisterPluginID("tool/filter")
+	host.RegisterAfterToolResult(pkgplugins.AfterToolResultRegistration{
+		PluginID: "tool/filter",
+		Name:     "filter",
+		Required: true,
+		Run: func(context.Context, pkgplugins.AfterToolResultContext) (pkgplugins.AfterToolResult, error) {
+			text := "rewritten"
+			isError := false
+			return pkgplugins.AfterToolResult{Result: &text, IsError: &isError}, nil
+		},
+	})
+
+	result, err := host.AfterToolResult(context.Background(), pkgplugins.AfterToolResultContext{
+		ToolName: "webfetch",
+		Result:   "original",
+		IsError:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Result == nil || *result.Result != "rewritten" {
+		t.Fatalf("unexpected after-tool result: %#v", result)
+	}
+	if result.IsError == nil || *result.IsError {
+		t.Fatalf("unexpected after-tool error flag: %#v", result)
+	}
+}
+
 func TestValidateRegistrationsChecksPromptAndLifecycleCapabilities(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
@@ -182,6 +245,31 @@ func TestValidateRegistrationsChecksPromptAndLifecycleCapabilities(t *testing.T)
 				Title:   "Skills",
 				Content: "content",
 			}, nil
+		},
+	})
+
+	if err := host.ValidateRegistrations(); err != nil {
+		t.Fatalf("ValidateRegistrations: %v", err)
+	}
+}
+
+func TestValidateRegistrationsAcceptsToolLifecycleOnly(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{}}
+	host := New(store)
+	host.RegisterPluginID("tool/filter")
+	host.RegisterMetadata(pkgplugins.PluginMeta{
+		ID:           "tool/filter",
+		Kind:         "tool",
+		Name:         "filter",
+		DisplayName:  "Filter",
+		Capabilities: []string{pkgplugins.CapabilityLifecycle},
+	})
+	host.RegisterBeforeToolCall(pkgplugins.BeforeToolCallRegistration{
+		PluginID: "tool/filter",
+		Name:     "filter",
+		Required: true,
+		Run: func(context.Context, pkgplugins.BeforeToolCallContext) (pkgplugins.BeforeToolCallResult, error) {
+			return pkgplugins.BeforeToolCallResult{}, nil
 		},
 	})
 
