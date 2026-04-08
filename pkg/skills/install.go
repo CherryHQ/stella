@@ -23,22 +23,6 @@ func Install(ctx context.Context, source, targetDir string) (string, error) {
 	return install(ctx, source, targetDir)
 }
 
-func (t *SkillsTool) install(ctx context.Context, args map[string]any) (string, error) {
-	source, _ := args["source"].(string)
-	if source == "" {
-		return "", fmt.Errorf("source is required for install action (e.g. owner/repo@skill-name)")
-	}
-
-	targetDir := t.skillsDir()
-	skillName, err := install(ctx, source, targetDir)
-	if err != nil {
-		return "", err
-	}
-
-	installed := filepath.Join(targetDir, skillName)
-	return fmt.Sprintf("Skill %q installed to %s.", skillName, installed), nil
-}
-
 // install is the shared implementation for both the public Install function and the tool method.
 func install(ctx context.Context, source, targetDir string) (string, error) {
 	// Handle anna's #ref syntax in shorthand: owner/repo@skill#ref

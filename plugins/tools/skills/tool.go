@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 
+	pkgskills "github.com/vaayne/anna/pkg/skills"
 	"github.com/vaayne/anna/pkg/tools"
-	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
 
 var skillsInputSchema = func() map[string]any {
@@ -55,23 +56,15 @@ var skillsInputSchema = func() map[string]any {
 	return m
 }()
 
-// SkillsTool exposes skill management as an agent tool.
-type SkillsTool struct {
+type Tool struct {
 	annaHome      string
-	workspace     string // agent-level workspace (e.g. workspaces/{agentID}/)
+	workspace     string
 	cwd           string
-	userSkillsDir string // per-user skills dir (empty when userID == 0)
+	userSkillsDir string
 }
 
-// NewTool creates a SkillsTool for the given anna home, workspace, working directory, and user ID.
-// When userID > 0, skills are installed/managed in workspaces/{agentID}/users/{userID}/.agents/skills/.
-// When userID == 0, the agent-level workspace/skills/ is used (backward compat).
-func NewTool(annaHome, workspace, cwd string, userID int64) *SkillsTool {
-	var userSkillsDir string
-	if userID > 0 {
-		userSkillsDir = filepath.Join(workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")
-	}
-	return &SkillsTool{
+func NewTool(annaHome, workspace, cwd, userSkillsDir string) *Tool {
+	return &Tool{
 		annaHome:      annaHome,
 		workspace:     workspace,
 		cwd:           cwd,
@@ -79,17 +72,14 @@ func NewTool(annaHome, workspace, cwd string, userID int64) *SkillsTool {
 	}
 }
 
-// skillsDir returns the directory where user-managed skills are installed/removed.
-// Per-user dir when set, otherwise the agent-level workspace/skills/.
-func (t *SkillsTool) skillsDir() string {
+func (t *Tool) skillsDir() string {
 	if t.userSkillsDir != "" {
 		return t.userSkillsDir
 	}
 	return filepath.Join(t.workspace, "skills")
 }
 
-// SkillsDefinition returns the tool definition without requiring runtime paths.
-func SkillsDefinition() tools.Definition {
+func pkgskillsToolDefinition() tools.Definition {
 	return tools.Definition{
 		Name:        "skills",
 		Description: "Manage agent skills. Use 'load' to read a skill by name, 'search' to find skills from the ecosystem, 'install' to add a skill (e.g. owner/repo@skill-name), 'list' to see installed skills, 'remove' to delete one, 'create' to create a new skill (draft), 'patch' to update fields, 'deprecate' to mark as deprecated.",
@@ -97,13 +87,11 @@ func SkillsDefinition() tools.Definition {
 	}
 }
 
-// Definition returns the tool definition for the LLM.
-func (t *SkillsTool) Definition() tools.Definition {
-	return SkillsDefinition()
+func (t *Tool) Definition() tools.Definition {
+	return pkgskillsToolDefinition()
 }
 
-// Execute runs the skills tool action.
-func (t *SkillsTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	action, _ := args["action"].(string)
 	switch action {
 	case "load":
@@ -127,20 +115,20 @@ func (t *SkillsTool) Execute(ctx context.Context, args map[string]any) (string, 
 	}
 }
 
-func (t *SkillsTool) create(args map[string]any) (string, error) {
+func (t *Tool) create(args map[string]any) (string, error) {
 	name, _ := args["name"].(string)
 	description, _ := args["description"].(string)
 	content, _ := args["content"].(string)
 
 	targetDir := t.skillsDir()
-	if err := Create(name, description, content, targetDir); err != nil {
+	if err := pkgskills.Create(name, description, content, targetDir); err != nil {
 		return "", err
 	}
 
 	return fmt.Sprintf("Skill %q created as draft in %s.", name, filepath.Join(targetDir, name)), nil
 }
 
-func (t *SkillsTool) patch(args map[string]any) (string, error) {
+func (t *Tool) patch(args map[string]any) (string, error) {
 	name, _ := args["name"].(string)
 	if name == "" {
 		return "", fmt.Errorf("name is required for patch action")
@@ -158,47 +146,74 @@ func (t *SkillsTool) patch(args map[string]any) (string, error) {
 	}
 
 	targetDir := t.skillsDir()
-	if err := Patch(name, updates, targetDir); err != nil {
+	if err := pkgskills.Patch(name, updates, targetDir); err != nil {
 		return "", err
 	}
 
 	return fmt.Sprintf("Skill %q updated in %s.", name, filepath.Join(targetDir, name)), nil
 }
 
-func (t *SkillsTool) deprecate(args map[string]any) (string, error) {
+func (t *Tool) deprecate(args map[string]any) (string, error) {
 	name, _ := args["name"].(string)
 	if name == "" {
 		return "", fmt.Errorf("name is required for deprecate action")
 	}
 
 	targetDir := t.skillsDir()
-	if err := Deprecate(name, targetDir); err != nil {
+	if err := pkgskills.Deprecate(name, targetDir); err != nil {
 		return "", err
 	}
 
 	return fmt.Sprintf("Skill %q deprecated in %s.", name, filepath.Join(targetDir, name)), nil
 }
 
-func (t *SkillsTool) search(ctx context.Context, args map[string]any) (string, error) {
-	query, _ := args["query"].(string)
-	if query == "" {
-		return "", fmt.Errorf("query is required for search action")
+type installedSkill struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+	Source      string `json:"source"`
+	Path        string `json:"path"`
+	Removable   bool   `json:"removable"`
+}
+
+func (t *Tool) list() (string, error) {
+	all := pkgskills.LoadSkills(t.annaHome, t.workspace, t.cwd, t.userSkillsDir)
+	if len(all) == 0 {
+		return "No skills installed.", nil
 	}
 
-	limit := 10
-	if v, ok := args["limit"].(float64); ok && v > 0 {
-		limit = int(v)
-	}
-
-	results, err := mcpskills.Search(ctx, query, limit)
-	if err != nil {
-		return "", err
-	}
-
-	if len(results) == 0 {
-		return "No skills found.", nil
+	results := make([]installedSkill, len(all))
+	for i, s := range all {
+		results[i] = installedSkill{
+			Name:        s.Name,
+			Description: s.Description,
+			Status:      s.Status,
+			Source:      s.Source,
+			Path:        s.FilePath,
+			Removable:   s.Source == "project" || s.Source == "user",
+		}
 	}
 
 	out, _ := json.MarshalIndent(results, "", "  ")
-	return fmt.Sprintf("Found %d skills:\n%s\n\nInstall with: skills tool action=install source=\"owner/repo@skill-name\"", len(results), out), nil
+	return string(out), nil
+}
+
+func (t *Tool) load(args map[string]any) (string, error) {
+	name, _ := args["name"].(string)
+	if name == "" {
+		return "", fmt.Errorf("name is required for load action")
+	}
+
+	all := pkgskills.LoadSkills(t.annaHome, t.workspace, t.cwd, t.userSkillsDir)
+	for _, s := range all {
+		if s.Name == name {
+			data, err := os.ReadFile(s.FilePath)
+			if err != nil {
+				return "", fmt.Errorf("load skill %q: %w", name, err)
+			}
+			return fmt.Sprintf("<skill_content name=%q base_dir=%q>\n%s\n</skill_content>", s.Name, s.BaseDir, data), nil
+		}
+	}
+
+	return "", fmt.Errorf("skill %q not found", name)
 }

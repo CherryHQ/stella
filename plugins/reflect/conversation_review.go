@@ -15,6 +15,7 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/skills"
+	skillstool "github.com/vaayne/anna/plugins/tools/skills"
 )
 
 func (s *Service) reviewConversation(ctx context.Context, snap *pkgplugins.ReflectSnapshot, c candidate) error {
@@ -89,7 +90,7 @@ func (s *Service) newConversationReviewer(snap *pkgplugins.ReflectSnapshot, user
 	return newReviewer(reviewerConfig{
 		Providers:      reg,
 		Model:          model,
-		SkillsTool:     skills.NewTool("", snap.Workspace, "", userID),
+		SkillsTool:     skillstool.NewTool("", snap.Workspace, "", filepath.Join(snap.Workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")),
 		MemoryTool:     memory.BuildTool(s.memory, memory.WithActionsOnly("profile_get", "profile_update")),
 		ExistingSkills: loadExistingSkillNames(snap.Workspace, userID),
 	})
