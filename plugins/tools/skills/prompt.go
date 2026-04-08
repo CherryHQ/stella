@@ -5,11 +5,10 @@ import (
 	"strings"
 
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	pkgskills "github.com/vaayne/anna/pkg/skills"
 )
 
 func buildPromptSection(_ context.Context, build pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
-	skills := pkgskills.VisibleSkills(pkgskills.LoadSkills(
+	skills := VisibleSkills(LoadSkills(
 		build.AnnaHome,
 		build.Workspace,
 		build.Cwd,

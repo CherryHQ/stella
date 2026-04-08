@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/vaayne/anna/pkg/skills"
+	skillstool "github.com/vaayne/anna/plugins/tools/skills"
 )
 
 // expireDrafts scans user and agent skill directories, deprecating draft skills
@@ -43,9 +43,9 @@ func expireDraftsInDir(dir string, cutoff time.Time, log *slog.Logger) {
 		return
 	}
 
-	loaded := skills.LoadSkills("", "", "", dir)
+	loaded := skillstool.LoadSkills("", "", "", dir)
 	for _, s := range loaded {
-		if s.Status != skills.SkillStatusDraft {
+		if s.Status != skillstool.SkillStatusDraft {
 			continue
 		}
 		if s.CreatedAt == "" {
@@ -59,7 +59,7 @@ func expireDraftsInDir(dir string, cutoff time.Time, log *slog.Logger) {
 		}
 
 		if created.Before(cutoff) {
-			if err := skills.Deprecate(s.Name, dir); err != nil {
+			if err := skillstool.Deprecate(s.Name, dir); err != nil {
 				log.Error("reflect: expire draft", "skill", s.Name, "error", err)
 				continue
 			}

@@ -25,7 +25,6 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	}
 	tmpPath := tmp.Name()
 
-	// Clean up on failure.
 	ok := false
 	defer func() {
 		if !ok {
