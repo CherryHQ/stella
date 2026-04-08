@@ -79,6 +79,7 @@ This handoff file is also the running implementation log for future sessions.
 - Continued `internal/channel` cleanup by moving the terminal chat UI package into `internal/chatcli`, leaving `internal/channel` coordinator-only.
 - Started `internal/admin` cleanup by extracting route registration out of `server.go`.
 - Continued `internal/admin` cleanup by moving channel lifecycle management out of `server.go`.
+- Continued `internal/admin` cleanup by moving HTTP wrapper methods and JSON response helpers out of `server.go`.
 
 ## Key Decisions
 
@@ -144,6 +145,7 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - The terminal chat UI now lives in `internal/chatcli`, not under `internal/channel`.
 - `internal/admin/server.go` is no longer the only place that owns route registration; registration now lives in `internal/admin/routes.go`.
 - `internal/admin/server.go` no longer owns channel start/stop lifecycle methods; those now live in `internal/admin/channel_lifecycle.go`.
+- `internal/admin/server.go` no longer owns HTTP wrapper methods or JSON response helpers; those now live in `internal/admin/http.go` and `internal/admin/response.go`.
 - The old split registries are gone as runtime/discovery systems:
   - `plugins/providers`
   - `plugins/memory`
@@ -249,7 +251,8 @@ Recommended order:
 2. Clean `internal/admin`.
    - Route registration is already split out of `server.go`.
    - Channel lifecycle extraction is already done.
-   - Next cuts are remaining narrow server responsibilities and any handler grouping that still looks too broad.
+   - HTTP/middleware/response helpers are already separated.
+   - Next cuts are handler grouping inside the larger admin resource files.
 3. Clean `cmd/anna`.
    - Split bootstrap/wiring responsibilities into narrower setup units.
 4. Clean scheduler/notification plumbing after that.
@@ -566,6 +569,13 @@ This is a real second migration, not a cleanup detail. It should only start afte
   - `startChannel(...)`
   - `stopChannel(...)`
 - Reduced `server.go` further so it now mostly owns construction and HTTP/middleware helpers.
+- Verified with focused tests for `internal/admin` and `cmd/anna`.
+
+### 2026-04-08 — admin HTTP helper extraction
+
+- Moved `redirectRoot(...)`, `Handler()`, `corsMiddleware(...)`, and `jsonMiddleware(...)` out of `internal/admin/server.go` into `internal/admin/http.go`.
+- Moved `writeData(...)`, `writeError(...)`, and `decodeJSON(...)` out of `internal/admin/server.go` into `internal/admin/response.go`.
+- Reduced `server.go` again so it now mostly holds server state, construction, and the `LinkCodes()` accessor.
 - Verified with focused tests for `internal/admin` and `cmd/anna`.
 
 ## Session Log
