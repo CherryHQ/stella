@@ -41,11 +41,9 @@ func TestCreateSkill(t *testing.T) {
 
 func TestCreateSkillAlreadyExists(t *testing.T) {
 	dir := t.TempDir()
-
 	if err := Create("my-skill", "First", "", dir); err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-
 	err := Create("my-skill", "Second", "", dir)
 	if err == nil {
 		t.Fatal("expected error for duplicate skill")
@@ -57,7 +55,6 @@ func TestCreateSkillAlreadyExists(t *testing.T) {
 
 func TestCreateSkillValidation(t *testing.T) {
 	dir := t.TempDir()
-
 	tests := []struct {
 		name string
 		desc string
@@ -83,26 +80,21 @@ func TestCreateSkillValidation(t *testing.T) {
 
 func TestPatchSkillDescription(t *testing.T) {
 	dir := t.TempDir()
-
 	if err := Create("patch-me", "Original description", "# Body", dir); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-
 	err := Patch("patch-me", map[string]string{"description": "Updated description"}, dir)
 	if err != nil {
 		t.Fatalf("patch: %v", err)
 	}
-
 	data, err := os.ReadFile(filepath.Join(dir, "patch-me", "SKILL.md"))
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-
 	content := string(data)
 	if !strings.Contains(content, "description: Updated description") {
 		t.Error("expected updated description")
 	}
-	// Body should be preserved.
 	if !strings.Contains(content, "# Body") {
 		t.Error("expected body to be preserved")
 	}
@@ -110,21 +102,17 @@ func TestPatchSkillDescription(t *testing.T) {
 
 func TestPatchSkillStatus(t *testing.T) {
 	dir := t.TempDir()
-
 	if err := Create("status-skill", "A skill", "", dir); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-
 	err := Patch("status-skill", map[string]string{"status": "active"}, dir)
 	if err != nil {
 		t.Fatalf("patch: %v", err)
 	}
-
 	data, err := os.ReadFile(filepath.Join(dir, "status-skill", "SKILL.md"))
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-
 	if !strings.Contains(string(data), "status: active") {
 		t.Error("expected status: active")
 	}
@@ -132,21 +120,17 @@ func TestPatchSkillStatus(t *testing.T) {
 
 func TestPatchSkillContent(t *testing.T) {
 	dir := t.TempDir()
-
 	if err := Create("content-skill", "A skill", "# Old body", dir); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-
 	err := Patch("content-skill", map[string]string{"content": "# New body\nWith details."}, dir)
 	if err != nil {
 		t.Fatalf("patch: %v", err)
 	}
-
 	data, err := os.ReadFile(filepath.Join(dir, "content-skill", "SKILL.md"))
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-
 	content := string(data)
 	if strings.Contains(content, "# Old body") {
 		t.Error("old body should be replaced")
@@ -158,11 +142,9 @@ func TestPatchSkillContent(t *testing.T) {
 
 func TestPatchSkillEmptyDescription(t *testing.T) {
 	dir := t.TempDir()
-
 	if err := Create("desc-skill", "A skill", "", dir); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-
 	err := Patch("desc-skill", map[string]string{"description": ""}, dir)
 	if err == nil {
 		t.Fatal("expected error for empty description")
@@ -198,21 +180,17 @@ func TestPatchPathTraversal(t *testing.T) {
 
 func TestDeprecateSkill(t *testing.T) {
 	dir := t.TempDir()
-
 	if err := Create("dep-skill", "A skill", "", dir); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-
 	err := Deprecate("dep-skill", dir)
 	if err != nil {
 		t.Fatalf("deprecate: %v", err)
 	}
-
 	data, err := os.ReadFile(filepath.Join(dir, "dep-skill", "SKILL.md"))
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-
 	if !strings.Contains(string(data), "status: "+SkillStatusDeprecated) {
 		t.Error("expected status: deprecated")
 	}
@@ -229,12 +207,10 @@ func TestDeprecateSkillNotFound(t *testing.T) {
 func TestAtomicWriteFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sub", "file.txt")
-
 	err := atomicWriteFile(path, []byte("hello world"), 0o644)
 	if err != nil {
 		t.Fatalf("AtomicWriteFile: %v", err)
 	}
-
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -242,7 +218,6 @@ func TestAtomicWriteFile(t *testing.T) {
 	if string(data) != "hello world" {
 		t.Errorf("content = %q, want %q", string(data), "hello world")
 	}
-
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("stat: %v", err)

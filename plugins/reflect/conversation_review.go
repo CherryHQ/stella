@@ -14,7 +14,6 @@ import (
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/skills"
 	skillstool "github.com/vaayne/anna/plugins/tools/skills"
 )
 
@@ -98,7 +97,7 @@ func (s *Service) newConversationReviewer(snap *pkgplugins.ReflectSnapshot, user
 
 func loadExistingSkillNames(workspace string, userID int64) []string {
 	userSkillsDir := filepath.Join(workspace, "users", fmt.Sprintf("%d", userID), ".agents", "skills")
-	allSkills := skills.LoadSkills("", workspace, "", userSkillsDir)
+	allSkills := skillstool.LoadSkills("", workspace, "", userSkillsDir)
 	names := make([]string, 0, len(allSkills))
 	for _, sk := range allSkills {
 		names = append(names, sk.Name)

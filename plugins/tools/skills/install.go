@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	pkgskills "github.com/vaayne/anna/pkg/skills"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
 
@@ -41,7 +40,7 @@ func (t *Tool) install(ctx context.Context, args map[string]any) (string, error)
 	}
 
 	targetDir := t.skillsDir()
-	skillName, err := pkgskills.Install(ctx, source, targetDir)
+	skillName, err := Install(ctx, source, targetDir)
 	if err != nil {
 		return "", err
 	}
@@ -57,7 +56,7 @@ func (t *Tool) remove(args map[string]any) (string, error) {
 	}
 
 	skillDir := filepath.Join(t.skillsDir(), name)
-	if err := pkgskills.Remove(name, skillDir); err != nil {
+	if err := Remove(name, skillDir); err != nil {
 		return "", fmt.Errorf("%w (only skills in %s can be removed)", err, t.skillsDir())
 	}
 

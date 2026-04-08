@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 
-	pkgskills "github.com/vaayne/anna/pkg/skills"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
@@ -121,7 +120,7 @@ func (t *Tool) create(args map[string]any) (string, error) {
 	content, _ := args["content"].(string)
 
 	targetDir := t.skillsDir()
-	if err := pkgskills.Create(name, description, content, targetDir); err != nil {
+	if err := Create(name, description, content, targetDir); err != nil {
 		return "", err
 	}
 
@@ -146,7 +145,7 @@ func (t *Tool) patch(args map[string]any) (string, error) {
 	}
 
 	targetDir := t.skillsDir()
-	if err := pkgskills.Patch(name, updates, targetDir); err != nil {
+	if err := Patch(name, updates, targetDir); err != nil {
 		return "", err
 	}
 
@@ -160,7 +159,7 @@ func (t *Tool) deprecate(args map[string]any) (string, error) {
 	}
 
 	targetDir := t.skillsDir()
-	if err := pkgskills.Deprecate(name, targetDir); err != nil {
+	if err := Deprecate(name, targetDir); err != nil {
 		return "", err
 	}
 
@@ -177,7 +176,7 @@ type installedSkill struct {
 }
 
 func (t *Tool) list() (string, error) {
-	all := pkgskills.LoadSkills(t.annaHome, t.workspace, t.cwd, t.userSkillsDir)
+	all := LoadSkills(t.annaHome, t.workspace, t.cwd, t.userSkillsDir)
 	if len(all) == 0 {
 		return "No skills installed.", nil
 	}
@@ -204,7 +203,7 @@ func (t *Tool) load(args map[string]any) (string, error) {
 		return "", fmt.Errorf("name is required for load action")
 	}
 
-	all := pkgskills.LoadSkills(t.annaHome, t.workspace, t.cwd, t.userSkillsDir)
+	all := LoadSkills(t.annaHome, t.workspace, t.cwd, t.userSkillsDir)
 	for _, s := range all {
 		if s.Name == name {
 			data, err := os.ReadFile(s.FilePath)

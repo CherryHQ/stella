@@ -11,22 +11,11 @@ import (
 )
 
 // Install fetches a skill from source and installs it into targetDir.
-// Source formats:
-//   - "owner/repo@skill-name" or "owner/repo@skill-name#ref" (GitHub shorthand)
-//   - "https://github.com/owner/repo/tree/branch/path" (GitHub URL)
-//   - "https://gitlab.com/owner/repo" (GitLab URL)
-//   - "./local/path" (local directory)
-//   - "https://example.com/SKILL.md" (direct URL)
-//
-// Returns the installed skill name.
 func Install(ctx context.Context, source, targetDir string) (string, error) {
-	return install(ctx, source, targetDir)
+	return installSource(ctx, source, targetDir)
 }
 
-// install is the shared implementation for both the public Install function and the tool method.
-func install(ctx context.Context, source, targetDir string) (string, error) {
-	// Handle anna's #ref syntax in shorthand: owner/repo@skill#ref
-	// mcphub's ParseSource doesn't split #ref from shorthand, so we pre-process it.
+func installSource(ctx context.Context, source, targetDir string) (string, error) {
 	ref := ""
 	if !strings.HasPrefix(source, "http://") && !strings.HasPrefix(source, "https://") &&
 		!strings.HasPrefix(source, "/") && !strings.HasPrefix(source, ".") {
@@ -40,8 +29,6 @@ func install(ctx context.Context, source, targetDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid source %q: %w", source, err)
 	}
-
-	// Apply pre-processed ref if ParseSource didn't capture one.
 	if ref != "" && parsed.Ref == "" {
 		parsed.Ref = ref
 	}

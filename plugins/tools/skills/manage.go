@@ -21,8 +21,6 @@ func Create(name, description, content, targetDir string) error {
 
 	skillDir := filepath.Join(targetDir, name)
 	skillFile := filepath.Join(skillDir, "SKILL.md")
-
-	// Refuse to overwrite an existing skill.
 	if _, err := os.Stat(skillFile); err == nil {
 		return fmt.Errorf("skill %q already exists at %s", name, skillFile)
 	}
@@ -37,7 +35,6 @@ func Create(name, description, content, targetDir string) error {
 
 // Patch updates frontmatter fields and/or the content body of an existing skill.
 // Supported update keys: "description", "status", "content" (body after frontmatter).
-// targetDir must be the writable skills directory.
 func Patch(name string, updates map[string]string, targetDir string) error {
 	if name == "" {
 		return fmt.Errorf("name is required")
@@ -67,8 +64,7 @@ func Patch(name string, updates map[string]string, targetDir string) error {
 		fm["description"] = v
 	}
 	if v, ok := updates["status"]; ok {
-		normalized := NormalizeSkillStatus(v)
-		fm["status"] = normalized
+		fm["status"] = NormalizeSkillStatus(v)
 	}
 	if v, ok := updates["content"]; ok {
 		body = v
@@ -83,12 +79,10 @@ func Patch(name string, updates map[string]string, targetDir string) error {
 }
 
 // Deprecate sets the status of an existing skill to "deprecated".
-// targetDir must be the writable skills directory.
 func Deprecate(name, targetDir string) error {
 	return Patch(name, map[string]string{"status": SkillStatusDeprecated}, targetDir)
 }
 
-// validateCreateInput checks required fields for skill creation.
 func validateCreateInput(name, description string) []string {
 	var errs []string
 	if name == "" {
@@ -102,7 +96,6 @@ func validateCreateInput(name, description string) []string {
 	return errs
 }
 
-// buildSkillFile renders a complete SKILL.md with frontmatter and body.
 func buildSkillFile(name, description, status, createdAt, body string) string {
 	fm := map[string]string{
 		"name":        name,
@@ -113,8 +106,6 @@ func buildSkillFile(name, description, status, createdAt, body string) string {
 	return renderSkillFile(fm, body)
 }
 
-// renderSkillFile renders a SKILL.md from a frontmatter map and body text.
-// Keys are sorted for deterministic output.
 func renderSkillFile(fm map[string]string, body string) string {
 	keys := make([]string, 0, len(fm))
 	for k := range fm {
@@ -125,7 +116,6 @@ func renderSkillFile(fm map[string]string, body string) string {
 	var b strings.Builder
 	b.WriteString("---\n")
 	for _, k := range keys {
-		// yaml.Marshal a single-key map to get correct quoting.
 		line, _ := yaml.Marshal(map[string]string{k: fm[k]})
 		b.Write(line)
 	}
@@ -139,7 +129,6 @@ func renderSkillFile(fm map[string]string, body string) string {
 	return b.String()
 }
 
-// splitFrontmatterAndBody splits a SKILL.md into its frontmatter fields and body.
 func splitFrontmatterAndBody(content string) (map[string]string, string, error) {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	content = strings.ReplaceAll(content, "\r", "\n")
@@ -148,17 +137,13 @@ func splitFrontmatterAndBody(content string) (map[string]string, string, error) 
 		return nil, "", fmt.Errorf("no frontmatter")
 	}
 
-	// Search for closing "\n---" after the opening "---".
-	// content[3:] skips the opening "---", so endIdx is relative to position 3.
 	endIdx := strings.Index(content[3:], "\n---")
 	if endIdx == -1 {
 		return nil, "", fmt.Errorf("no closing frontmatter delimiter")
 	}
 
-	// content[4 : 3+endIdx] skips "---\n" (4 bytes) and stops before "\n---".
 	yamlStr := content[4 : 3+endIdx]
 	body := ""
-	// afterFM = 3 (opening "---") + endIdx + 4 (closing "\n---\n") = first byte of body.
 	afterFM := 3 + endIdx + 4
 	if afterFM < len(content) {
 		body = content[afterFM:]
