@@ -244,6 +244,18 @@ The rule for all of these phases is the same:
 
 Phase C: add plugin-owned state storage so plugins can persist durable data without importing DB packages or relying on bespoke app tables.
 
+Phase C design:
+
+- add a scoped JSON KV store to `pkg/plugins`
+- key the store by:
+  - `plugin_id`
+  - `scope_kind`
+  - `scope_id`
+  - `key`
+- route the implementation through `internal/pluginhost`
+- back it with one host-owned table instead of plugin-specific tables
+- use reflect watermarks as the first migration target so the phase removes one bespoke persistence path
+
 ### Phase 1: Finish host unification
 
 1. Remove the remaining builder fallback dependence on legacy registries where possible.

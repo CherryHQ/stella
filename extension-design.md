@@ -214,6 +214,27 @@ Rules:
 That gives extensions repo-level power to send user-visible events while
 keeping routing, identity preference, and delivery policy centralized.
 
+Plugin state storage should follow the same rule: expose a host-owned service,
+not raw database handles.
+
+The shape should be a scoped JSON KV store:
+
+```go
+type PluginStateScope struct {
+	Kind string
+	ID   string
+}
+
+type PluginStateStore interface {
+	Get(ctx context.Context, pluginID string, scope PluginStateScope, key string) (map[string]any, bool, error)
+	Set(ctx context.Context, pluginID string, scope PluginStateScope, key string, value map[string]any) error
+	Delete(ctx context.Context, pluginID string, scope PluginStateScope, key string) error
+}
+```
+
+This is strong enough for plugin-owned runtime state, cursors, and watermarks,
+while keeping schema, migrations, and DB policy host-owned.
+
 ## What Should Stay Internal
 
 `internal/extensionhost` is still valid in the final state.
