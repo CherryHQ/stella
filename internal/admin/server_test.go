@@ -529,6 +529,35 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	}
 }
 
+func TestGetPluginConfigReturnsRawConfig(t *testing.T) {
+	env := setupAdmin(t)
+
+	if err := env.store.SetPluginConfig(context.Background(), channel.TelegramPluginID, map[string]any{
+		"token":         "telegram-secret",
+		"group_mode":    "mention",
+		"enable_notify": true,
+	}); err != nil {
+		t.Fatalf("SetPluginConfig(telegram): %v", err)
+	}
+
+	rr := doRequest(t, env, "GET", "/api/plugin-config/channel/telegram", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	resp := parseResponse(t, rr)
+	var cfg map[string]any
+	if err := json.Unmarshal(resp.Data, &cfg); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	if cfg["token"] != "telegram-secret" {
+		t.Fatalf("token = %#v, want %q", cfg["token"], "telegram-secret")
+	}
+	if cfg["group_mode"] != "mention" {
+		t.Fatalf("group_mode = %#v, want %q", cfg["group_mode"], "mention")
+	}
+}
+
 func TestReflectPluginConfigAndStatus(t *testing.T) {
 	env := setupAdmin(t)
 
