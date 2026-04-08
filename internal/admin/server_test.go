@@ -17,12 +17,13 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/pluginhost"
-	internalreflect "github.com/vaayne/anna/internal/reflect"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/providers"
 	telegramplugin "github.com/vaayne/anna/plugins/channels/telegram"
 	lcmmemory "github.com/vaayne/anna/plugins/memory/lcm"
+	reflectplugin "github.com/vaayne/anna/plugins/reflect"
 	mcp "github.com/vaayne/anna/plugins/tools/mcp"
 )
 
@@ -66,21 +67,20 @@ func setupAdmin(t *testing.T) *testEnv {
 	dispatcher := channel.NewDispatcher()
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher)
-	phost := pluginhost.New(store, pluginhost.WithChannelRuntimeServices(channelRuntimeServices))
+	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
+	reflectRuntimeServices.Set(context.Background(), db, mem, store, t.TempDir(), dispatcher, func(api, apiKey, baseURL string) (*providers.Registry, error) {
+		return providers.NewRegistry(), nil
+	})
+	phost := pluginhost.New(store,
+		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
+		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
+	)
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
 	if err := phost.ApplyPlugin(context.Background(), pkgmcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(mcp): %v", err)
 	}
-	phost.RegisterReflect(pluginhost.ReflectDeps{
-		Parent:    context.Background(),
-		DB:        db,
-		Memory:    mem,
-		Store:     store,
-		Notifier:  dispatcher,
-		Workspace: t.TempDir(),
-	})
 	resetTelegramRuntime := telegramplugin.SetRuntimeFactoryForTesting(func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error) {
 		return telegramplugin.NewManagedRuntime(telegramplugin.RuntimeDeps{
 			Parent:        context.Background(),
@@ -116,7 +116,7 @@ func setupAdmin(t *testing.T) *testEnv {
 			return newTestChannel(channel.PlatformWeixin), nil
 		},
 	})
-	if err := phost.ApplyPlugin(context.Background(), internalreflect.PluginID); err != nil {
+	if err := phost.ApplyPlugin(context.Background(), reflectplugin.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(reflect): %v", err)
 	}
 	srv := admin.New(store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
@@ -520,7 +520,7 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 		t.Fatalf("unexpected qq plugin payload: %#v", qq)
 	}
 
-	reflect := byID[internalreflect.PluginID]
+	reflect := byID[reflectplugin.PluginID]
 	if reflect.DisplayName != "Reflect" || !reflect.Managed || !reflect.HasConfig || !reflect.HasStatus {
 		t.Fatalf("unexpected reflect plugin payload: %#v", reflect)
 	}
@@ -605,7 +605,7 @@ func TestReflectPluginConfigAndStatus(t *testing.T) {
 	if err := json.Unmarshal(resp.Data, &plugin); err != nil {
 		t.Fatalf("unmarshal plugin: %v", err)
 	}
-	if plugin.ID != internalreflect.PluginID || plugin.Enabled {
+	if plugin.ID != reflectplugin.PluginID || plugin.Enabled {
 		t.Fatalf("unexpected plugin payload: %#v", plugin)
 	}
 

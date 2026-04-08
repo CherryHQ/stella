@@ -6,10 +6,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/vaayne/anna/internal/channel"
-	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
 )
 
@@ -23,8 +22,8 @@ const (
 type Config struct {
 	DB        *sql.DB
 	Memory    memory.Provider
-	Store     config.Store
-	Notifier  *channel.Dispatcher
+	Store     pkgplugins.ReflectStore
+	Notifier  pkgplugins.ReflectNotifier
 	Workspace string
 	Interval  time.Duration
 	Batch     int
@@ -41,8 +40,8 @@ type watermarker interface {
 // Service runs background conversation review.
 type Service struct {
 	memory    memory.Provider
-	store     config.Store
-	notifier  *channel.Dispatcher
+	store     pkgplugins.ReflectStore
+	notifier  pkgplugins.ReflectNotifier
 	wm        watermarker
 	workspace string
 	interval  time.Duration

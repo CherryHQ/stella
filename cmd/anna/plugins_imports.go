@@ -9,6 +9,9 @@ import (
 	_ "github.com/vaayne/anna/plugins/providers/openai"
 	_ "github.com/vaayne/anna/plugins/providers/openai-response"
 
+	// Plugin runtimes.
+	_ "github.com/vaayne/anna/plugins/reflect"
+
 	// Plugin tools.
 	_ "github.com/vaayne/anna/plugins/tools/bash"
 	_ "github.com/vaayne/anna/plugins/tools/edit"

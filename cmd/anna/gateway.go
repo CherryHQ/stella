@@ -20,11 +20,11 @@ import (
 	"github.com/vaayne/anna/internal/channel"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/pluginhost"
-	internalreflect "github.com/vaayne/anna/internal/reflect"
 	"github.com/vaayne/anna/internal/scheduler"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
+	reflectplugin "github.com/vaayne/anna/plugins/reflect"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	"golang.org/x/sync/errgroup"
 )
@@ -250,7 +250,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		}
 	}
 
-	if err := s.pluginHost.ApplyPlugin(gctx, internalreflect.PluginID); err != nil {
+	if err := s.pluginHost.ApplyPlugin(gctx, reflectplugin.PluginID); err != nil {
 		return fmt.Errorf("apply reflect runtime: %w", err)
 	}
 

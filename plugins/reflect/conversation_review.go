@@ -9,20 +9,20 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/vaayne/anna/internal/channel"
-	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/pkg/ai"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/memory"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/skills"
 )
 
-func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot, c candidate) error {
+func (s *Service) reviewConversation(ctx context.Context, snap *pkgplugins.ReflectSnapshot, c candidate) error {
 	ctx, span := startConversationSpan(ctx, c)
 	defer span.End()
 
 	userID := c.session.UserID
-	model := snap.ResolveModelTier(config.ModelTierFast)
+	model := snap.ResolveModelTier(pkgplugins.ReflectModelTierFast)
 	creds := snap.ResolveProviderCreds(model.API)
 
 	span.SetAttributes(
@@ -85,7 +85,7 @@ func (s *Service) buildProviders(api, apiKey, baseURL string) (*providers.Regist
 	return s.providers(api, apiKey, baseURL)
 }
 
-func (s *Service) newConversationReviewer(snap *config.Snapshot, userID int64, model ai.Model, reg *providers.Registry) (*reviewer, error) {
+func (s *Service) newConversationReviewer(snap *pkgplugins.ReflectSnapshot, userID int64, model ai.Model, reg *providers.Registry) (*reviewer, error) {
 	return newReviewer(reviewerConfig{
 		Providers:      reg,
 		Model:          model,
@@ -110,7 +110,7 @@ func (s *Service) notifyReviewResult(ctx context.Context, userID int64, result r
 		return
 	}
 
-	n := channel.Notification{Text: buildNotificationText(result)}
+	n := pkgchannel.Notification{Text: buildNotificationText(result)}
 	if err := s.notifier.NotifyUser(ctx, userID, n); err != nil {
 		s.log.Warn("reflect: notify", "user", userID, "error", err)
 	}

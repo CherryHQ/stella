@@ -2,11 +2,14 @@ package reflect
 
 import (
 	"context"
+	"database/sql"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/providers"
 )
 
 type fakeService struct {
@@ -37,8 +40,8 @@ func TestManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		services []*fakeService
 	)
 	runtime := NewManagedRuntime(RuntimeDeps{
-		Parent: context.Background(),
-		Now:    func() time.Time { return now },
+		Services: fakeReflectRuntimeServices{parent: context.Background()},
+		Now:      func() time.Time { return now },
 		NewService: func(cfg Config) serviceRunner {
 			mu.Lock()
 			defer mu.Unlock()
@@ -136,4 +139,20 @@ func waitClosed(t *testing.T, ch <-chan struct{}, label string) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timeout waiting for %s", label)
 	}
+}
+
+type fakeReflectRuntimeServices struct {
+	parent context.Context
+}
+
+func (s fakeReflectRuntimeServices) ParentContext() context.Context { return s.parent }
+func (fakeReflectRuntimeServices) DB() *sql.DB                      { return nil }
+func (fakeReflectRuntimeServices) Memory() memory.Provider          { return nil }
+func (fakeReflectRuntimeServices) Store() pkgplugins.ReflectStore   { return nil }
+func (fakeReflectRuntimeServices) Workspace() string                { return "" }
+func (fakeReflectRuntimeServices) Notifications() pkgplugins.ReflectNotifier {
+	return nil
+}
+func (fakeReflectRuntimeServices) BuildProviders(string, string, string) (*providers.Registry, error) {
+	return nil, nil
 }

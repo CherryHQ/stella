@@ -55,6 +55,7 @@ type setupResult struct {
 	store                  config.Store
 	pluginHost             *pluginhost.Host
 	channelRuntimeServices *pluginhost.ChannelRuntimeServices
+	reflectRuntimeServices *pluginhost.ReflectRuntimeServices
 	poolManager            *agent.PoolManager
 	pool                   *agent.Pool // default agent's pool (backward compat)
 	schedulerSvc           *scheduler.Service
@@ -100,7 +101,11 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	_ = cancel // cancel is deferred via the caller's lifecycle
 
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
-	phost := pluginhost.New(store, pluginhost.WithChannelRuntimeServices(channelRuntimeServices))
+	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
+	phost := pluginhost.New(store,
+		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
+		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
+	)
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		return nil, fmt.Errorf("load plugin catalog: %w", err)
 	}
@@ -156,15 +161,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return hooks.NewHookSet(poolMgr.HookPlugins())
 	})
 
-	phost.RegisterReflect(pluginhost.ReflectDeps{
-		Parent:    ctx,
-		DB:        db,
-		Memory:    memProvider,
-		Store:     store,
-		Notifier:  dispatcher,
-		Workspace: snap.Workspace,
-	})
-
 	// Unified memory tool (shared across all agents, adapts to provider capabilities).
 	sharedTools = append(sharedTools,
 		memory.BuildTool(memProvider),
@@ -184,6 +180,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			"base_url": baseURL,
 		})
 	}
+	reflectRuntimeServices.Set(ctx, db, memProvider, store, snap.Workspace, dispatcher, providerRegistryBuilder)
 
 	// Plugin hooks builder: auto-discovers registered hook plugins and returns
 	// enabled ones. Called at startup and on hot-reload.
@@ -268,6 +265,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		store:                  store,
 		pluginHost:             phost,
 		channelRuntimeServices: channelRuntimeServices,
+		reflectRuntimeServices: reflectRuntimeServices,
 		poolManager:            poolMgr,
 		pool:                   pool,
 		schedulerSvc:           schedulerSvc,

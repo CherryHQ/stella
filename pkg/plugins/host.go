@@ -28,4 +28,5 @@ type ServiceHost interface {
 	Config() ConfigService
 	Runtime() RuntimeLookup
 	ChannelRuntime() ChannelRuntimeServices
+	ReflectRuntime() ReflectRuntimeServices
 }
