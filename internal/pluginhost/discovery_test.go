@@ -246,6 +246,49 @@ func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T)
 	}
 }
 
+func TestChannelConfiguredAndNotificationsEnabledComeFromPluginRegistrations(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{
+		qqplugin.PluginID: {
+			ID:      qqplugin.PluginID,
+			Kind:    config.PluginKindChannel,
+			Name:    pkgchannel.PlatformQQ,
+			Enabled: true,
+			Config: map[string]any{
+				"app_id":        "qq-app",
+				"app_secret":    "qq-secret",
+				"enable_notify": true,
+			},
+		},
+		weixinplugin.PluginID: {
+			ID:      weixinplugin.PluginID,
+			Kind:    config.PluginKindChannel,
+			Name:    pkgchannel.PlatformWeixin,
+			Enabled: true,
+			Config:  map[string]any{},
+		},
+	}}
+	host := New(store)
+	if err := host.LoadDefaultCatalog(); err != nil {
+		t.Fatalf("LoadDefaultCatalog: %v", err)
+	}
+
+	if !host.ChannelConfigured(context.Background(), pkgchannel.PlatformQQ) {
+		t.Fatal("expected qq to be configured")
+	}
+	if !host.ChannelNotificationsEnabled(context.Background(), pkgchannel.PlatformQQ) {
+		t.Fatal("expected qq notifications enabled")
+	}
+	if host.ChannelConfigured(context.Background(), pkgchannel.PlatformWeixin) {
+		t.Fatal("expected weixin to be not configured")
+	}
+	if host.ChannelNotificationsEnabled(context.Background(), pkgchannel.PlatformWeixin) {
+		t.Fatal("expected weixin notifications disabled")
+	}
+	if host.ChannelConfigured(context.Background(), "missing") {
+		t.Fatal("expected missing channel to be not configured")
+	}
+}
+
 func TestLoadDefaultCatalogIncludesMCPMetadata(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}})
 	if err := host.LoadDefaultCatalog(); err != nil {

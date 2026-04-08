@@ -63,6 +63,19 @@ func init() {
 			Validate:      func(raw map[string]any) error { _, err := DecodeConfig(raw); return err },
 			Redact:        RedactConfig,
 		})
+		host.Registry().RegisterChannel(pkgplugins.ChannelRegistration{
+			PluginID:              PluginID,
+			Name:                  pkgchannel.PlatformTelegram,
+			SupportsNotifications: true,
+			Configured: func(raw map[string]any) bool {
+				cfg, err := DecodeConfig(raw)
+				return err == nil && validateConfig(cfg) == ""
+			},
+			NotificationsEnabled: func(raw map[string]any) bool {
+				cfg, err := DecodeConfig(raw)
+				return err == nil && cfg.EnableNotify
+			},
+		})
 		host.Registry().RegisterRuntime(pkgplugins.RuntimeRegistration{PluginID: PluginID, Name: RuntimeName, Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
 			return newRuntime(ctx.Services)
 		}})
