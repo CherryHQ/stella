@@ -6,7 +6,6 @@ import (
 	"time"
 
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	pkgchannelruntime "github.com/vaayne/anna/pkg/channelruntime"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
@@ -40,7 +39,7 @@ func newBotManagedRuntime(deps botRuntimeDeps) pkgplugins.ManagedRuntime {
 	if deps.Now == nil {
 		deps.Now = func() time.Time { return time.Now().UTC() }
 	}
-	return pkgchannelruntime.NewBotManagedRuntime(pkgchannelruntime.BotRuntimeDeps[pkgchannel.TelegramConfig]{
+	return pkgplugins.NewBotManagedRuntime(pkgplugins.BotRuntimeDeps[pkgchannel.TelegramConfig]{
 		Parent:               deps.Parent,
 		Handler:              deps.Handler,
 		Notifier:             deps.Notifications,
