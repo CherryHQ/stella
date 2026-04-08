@@ -57,6 +57,7 @@ This handoff file is also the running implementation log for future sessions.
 - Moved the MCP manager/session/supervisor/canonical-ID runtime into `pkg/mcp`, so MCP plugin runtime and tool code no longer depend on `internal/mcp`.
 - Moved the generated SQLC package into `pkg/db/sqlc`, so the memory plugins no longer depend on `internal/db/sqlc`.
 - Switched production provider construction to `pluginhost`, so runner/admin/models/reflect no longer build providers through `plugins/providers` directly.
+- Switched production core-tool construction to `pluginhost`, so runner/pool/model-switcher no longer build required tools through `plugintools.BuildCore(...)` directly.
 - Removed the remaining admin-side pluginhost compatibility branches:
   - admin plugin config/status endpoints now require a plugin host
   - admin server construction now panics if `pluginHost` is nil
@@ -194,8 +195,9 @@ The repository already has a useful base, but it is still transitional:
   - optional tool/hook/provider/memory contributions resolve through `internal/pluginhost`
   - no provider/memory fallback path remains
 - Remaining production host-cleanup work is now concentrated in the required-tool path:
-  - `internal/agent/runner/gorunner.go` still builds core tools through `plugintools.BuildCore(...)`
-  - required tool registration still lives in `plugins/tools/registry.go`
+  - `internal/agent/runner/gorunner.go` now requires an injected core-tool builder and no longer calls `plugintools.BuildCore(...)`
+  - pool/factory/model-switcher wiring now passes a host-owned core-tool builder end to end
+  - the remaining split is discovery/registration input: `internal/pluginhost.RegisterLegacyCapabilities(...)` still mirrors legacy tool/hook/provider/memory registries into the host
 - Admin construction now hard-requires `pluginhost`; the old nil-host compatibility path is gone.
 - `Go init()` blank-import registration is still acceptable for repo-level built-ins, but it should not remain the only discovery logic in the design language.
 
@@ -238,6 +240,13 @@ The repository already has a useful base, but it is still transitional:
 - Updated `plugins/tools/mcp` to construct and consume `pkg/mcp.Manager` directly for both the managed runtime and the proxy tool.
 - Updated CLI and admin test callers to use `pkg/mcp.PluginID` and `pkg/mcp` transport/status types directly.
 - Removed the remaining `internal/mcp` package files after moving their live behavior and tests into `pkg/mcp`.
+
+### 2026-04-08 — Core tool host routing
+
+- Added `internal/pluginhost.BuildCoreTools(...)` so required tool construction now goes through host registrations just like optional tools.
+- Updated `internal/pluginhost.RegisterLegacyCapabilities(...)` to mirror required legacy tool registrations into the host instead of skipping them.
+- Added explicit `CoreToolsBuilder` injection to the Go runner, runner factory, pool manager, setup path, and model switcher so production runner creation no longer calls `plugintools.BuildCore(...)`.
+- Updated runner/agent/CLI tests to provide explicit core-tool builders and verified the focused suites plus `go test ./...`.
 - Verified that `plugins/tools/mcp` no longer imports `internal/mcp` in production code.
 - Ran focused tests for `pkg/mcp`, `plugins/tools/mcp`, `cmd/anna`, and `internal/admin`, then ran `go test ./...` successfully.
 

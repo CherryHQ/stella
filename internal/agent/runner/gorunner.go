@@ -25,6 +25,7 @@ import (
 const maxToolIterations = 40
 
 type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
+type CoreToolsBuilder func(plugintools.BuildContext) []tools.Tool
 
 // GoRunnerConfig configures the Go runner.
 type GoRunnerConfig struct {
@@ -39,6 +40,7 @@ type GoRunnerConfig struct {
 	ExtraTools  []tools.Tool       // additional tools to register
 	UserDataDir string             // per-user data directory for sandbox enforcement (empty = no sandbox)
 	HookPlugins []hooks.HookPlugin // hook plugins for the engine loop
+	CoreTools   CoreToolsBuilder
 	Providers   ProviderRegistryBuilder
 }
 
@@ -80,7 +82,10 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	}
 
 	model := ai.Model{API: cfg.API, Name: cfg.Model}
-	toolReg := buildToolRegistry(cfg)
+	toolReg, err := buildToolRegistry(cfg)
+	if err != nil {
+		return nil, err
+	}
 	presets := buildAgentPresets(cfg)
 	hookSet := buildHookSet(cfg)
 
@@ -132,7 +137,7 @@ func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
 }
 
 // buildToolRegistry creates the tool registry with core and extra tools.
-func buildToolRegistry(cfg GoRunnerConfig) *tools.Registry {
+func buildToolRegistry(cfg GoRunnerConfig) (*tools.Registry, error) {
 	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
 	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
@@ -142,6 +147,9 @@ func buildToolRegistry(cfg GoRunnerConfig) *tools.Registry {
 	toolReg := tools.NewRegistry()
 
 	// Core tools (read, bash, edit, write) via plugin registry.
+	if cfg.CoreTools == nil {
+		return nil, fmt.Errorf("go runner: core tools builder is required")
+	}
 	bc := plugintools.BuildContext{
 		WorkDir:     cfg.WorkDir,
 		UserDataDir: cfg.UserDataDir,
@@ -149,7 +157,7 @@ func buildToolRegistry(cfg GoRunnerConfig) *tools.Registry {
 		Workspace:   cfg.Workspace,
 		ToolsBinDir: toolsBinDir,
 	}
-	for _, t := range plugintools.BuildCore(bc) {
+	for _, t := range cfg.CoreTools(bc) {
 		toolReg.Register(t)
 	}
 
@@ -158,7 +166,7 @@ func buildToolRegistry(cfg GoRunnerConfig) *tools.Registry {
 		toolReg.Register(t)
 	}
 
-	return toolReg
+	return toolReg, nil
 }
 
 // buildAgentPresets extracts builtin skills and loads agent presets from filesystem.

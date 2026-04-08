@@ -47,6 +47,39 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContex
 	return out
 }
 
+func (h *Host) BuildCoreTools(bc plugintools.BuildContext) []tools.Tool {
+	h.mu.RLock()
+	regs := make([]pkgplugins.ToolRegistration, 0, len(h.toolRegs))
+	for _, reg := range h.toolRegs {
+		regs = append(regs, reg)
+	}
+	h.mu.RUnlock()
+	sort.Slice(regs, func(i, j int) bool { return regs[i].Name < regs[j].Name })
+	var out []tools.Tool
+	for _, reg := range regs {
+		if !reg.Required || reg.Build == nil {
+			continue
+		}
+		t, err := reg.Build(pkgplugins.ToolContext{
+			Services: h,
+			State: pkgplugins.PluginState{
+				ID:      reg.PluginID,
+				Enabled: true,
+				Config:  h.defaultConfigFor(reg.PluginID),
+			},
+			WorkDir:     bc.WorkDir,
+			UserDataDir: bc.UserDataDir,
+			AnnaHome:    bc.AnnaHome,
+			Workspace:   bc.Workspace,
+			ToolsBinDir: bc.ToolsBinDir,
+		})
+		if err == nil && t != nil {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 func (h *Host) BuildEnabledHooks(ctx context.Context, bc pluginhooks.BuildContext) []hooks.HookPlugin {
 	h.mu.RLock()
 	regs := make([]pkgplugins.HookRegistration, 0, len(h.hookRegs))

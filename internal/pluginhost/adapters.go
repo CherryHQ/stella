@@ -28,7 +28,7 @@ func (h *Host) RegisterLegacyCapabilities(deps LegacyBuildDeps) {
 			continue
 		}
 		reg, ok := plugintools.Get(name)
-		if !ok || reg.Required {
+		if !ok {
 			continue
 		}
 		legacyReg := reg

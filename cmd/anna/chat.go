@@ -9,6 +9,8 @@ import (
 	"github.com/vaayne/anna/internal/channel"
 	clicmd "github.com/vaayne/anna/internal/channel/cli"
 	"github.com/vaayne/anna/pkg/providers"
+	"github.com/vaayne/anna/pkg/tools"
+	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
 func chatCommand() *ucli.Command {
@@ -71,12 +73,21 @@ func chatCommand() *ucli.Command {
 			listFn := func() []channel.ModelOption {
 				return collectModelsFromStore(s.ctx, s.store, snap)
 			}
-			switchFn := modelSwitcher(snap, s.store, pool, s.extraTools, func(api, apiKey, baseURL string) (*providers.Registry, error) {
-				return s.pluginHost.BuildProviderRegistry(api, map[string]any{
-					"api_key":  apiKey,
-					"base_url": baseURL,
-				})
-			})
+			switchFn := modelSwitcher(
+				snap,
+				s.store,
+				pool,
+				s.extraTools,
+				func(bc plugintools.BuildContext) []tools.Tool {
+					return s.pluginHost.BuildCoreTools(bc)
+				},
+				func(api, apiKey, baseURL string) (*providers.Registry, error) {
+					return s.pluginHost.BuildProviderRegistry(api, map[string]any{
+						"api_key":  apiKey,
+						"base_url": baseURL,
+					})
+				},
+			)
 			return clicmd.RunChat(s.ctx, pool, snap.Provider, snap.Model, listFn, switchFn, s.cliUserID)
 		},
 	}

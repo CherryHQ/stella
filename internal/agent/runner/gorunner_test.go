@@ -9,7 +9,9 @@ import (
 
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
+	"github.com/vaayne/anna/pkg/tools"
 	pluginproviders "github.com/vaayne/anna/plugins/providers"
+	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
 func init() {
@@ -40,6 +42,10 @@ func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Regist
 	})
 }
 
+func testCoreToolsBuilder(plugintools.BuildContext) []tools.Tool {
+	return plugintools.BuildCore(plugintools.BuildContext{})
+}
+
 func TestNewGoRunnerRequiresConfig(t *testing.T) {
 	tests := []struct {
 		name string
@@ -65,6 +71,7 @@ func TestNewGoRunnerSuccess(t *testing.T) {
 		API:       "anthropic",
 		Model:     "claude-sonnet-4-20250514",
 		APIKey:    "test-key",
+		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
@@ -112,6 +119,7 @@ func newTestGoRunner(t *testing.T, fp *goRunnerFakeProvider) *GoRunner {
 		API:       fp.api,
 		Model:     "test-model",
 		APIKey:    "test-key",
+		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
@@ -175,6 +183,7 @@ func TestChatUnknownProvider(t *testing.T) {
 		API:       "nonexistent",
 		Model:     "test-model",
 		APIKey:    "test-key",
+		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
 	})
 	if err == nil {
@@ -286,6 +295,7 @@ func TestChatToolUseLoop(t *testing.T) {
 		Model:     "test-model",
 		APIKey:    "test-key",
 		WorkDir:   dir,
+		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
@@ -313,6 +323,7 @@ func TestAliveAlwaysTrue(t *testing.T) {
 		API:       "anthropic",
 		Model:     "test-model",
 		APIKey:    "test-key",
+		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
