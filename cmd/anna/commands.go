@@ -176,6 +176,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	pluginToolsBuilder := func(ctx context.Context) []tools.Tool {
 		return phost.BuildEnabledTools(ctx, plugintools.BuildContext{})
 	}
+	coreToolsBuilder := func(bc plugintools.BuildContext) []tools.Tool {
+		return phost.BuildCoreTools(bc)
+	}
 	providerRegistryBuilder := func(api, apiKey, baseURL string) (*providers.Registry, error) {
 		return phost.BuildProviderRegistry(api, map[string]any{
 			"api_key":  apiKey,
@@ -204,6 +207,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithSharedExtraTools(sharedTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
+		agent.WithCoreToolsBuilder(coreToolsBuilder),
 		agent.WithProviderRegistryBuilder(providerRegistryBuilder),
 		agent.WithPromptToolsBuilder(func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error) {
 			return phost.PromptTools(ctx, pkgmcp.PluginID)
@@ -279,7 +283,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 // Each switch creates a new immutable snapshot so the factory closure captures
 // no shared mutable state — eliminating races between concurrent Chat calls and
 // model switches. Hooks are stored on the Pool independently and are not affected.
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)) func(string, string) error {
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool, coreToolsBuilder runner.CoreToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)) func(string, string) error {
 	return func(provider, model string) error {
 		// Shallow-copy the base snapshot so we never mutate shared state.
 		snap := *base
@@ -296,7 +300,7 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.Providers = providers
 		}
 
-		factory, err := agent.NewRunnerFactory(&snap, extraTools, providerRegistryBuilder, nil)
+		factory, err := agent.NewRunnerFactory(&snap, extraTools, coreToolsBuilder, providerRegistryBuilder, nil)
 		if err != nil {
 			return err
 		}

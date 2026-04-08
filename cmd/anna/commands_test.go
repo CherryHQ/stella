@@ -11,6 +11,8 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
+	"github.com/vaayne/anna/pkg/tools"
+	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
 type commandTestProvider struct{}
@@ -29,6 +31,8 @@ func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Regist
 	return reg, nil
 }
 
+func testCoreToolsBuilder(plugintools.BuildContext) []tools.Tool { return nil }
+
 func TestNewRunnerFactoryGo(t *testing.T) {
 	snap := &config.Snapshot{
 		Provider: "anthropic",
@@ -38,7 +42,7 @@ func TestNewRunnerFactoryGo(t *testing.T) {
 	}
 	snap.Workspace = t.TempDir()
 
-	factory, err := agent.NewRunnerFactory(snap, nil, testProviderRegistryBuilder, nil)
+	factory, err := agent.NewRunnerFactory(snap, nil, testCoreToolsBuilder, testProviderRegistryBuilder, nil)
 	if err != nil {
 		t.Fatalf("NewRunnerFactory: %v", err)
 	}
@@ -58,7 +62,7 @@ func TestNewRunnerFactoryUnknown(t *testing.T) {
 		Runner: config.RunnerConfig{Type: "invalid"},
 	}
 
-	_, err := agent.NewRunnerFactory(snap, nil, testProviderRegistryBuilder, nil)
+	_, err := agent.NewRunnerFactory(snap, nil, testCoreToolsBuilder, testProviderRegistryBuilder, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown runner type")
 	}

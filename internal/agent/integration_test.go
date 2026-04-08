@@ -9,7 +9,9 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/pkg/providers"
+	"github.com/vaayne/anna/pkg/tools"
 	pluginproviders "github.com/vaayne/anna/plugins/providers"
+	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
 func skipWithoutAnthropicKey(t *testing.T) {
@@ -33,6 +35,7 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 			Model:     model,
 			APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
 			BaseURL:   os.Getenv("ANTHROPIC_BASE_URL"),
+			CoreTools: integrationCoreToolsBuilder,
 			Providers: integrationProviderRegistryBuilder,
 		})
 	}
@@ -87,3 +90,5 @@ func integrationProviderRegistryBuilder(api, apiKey, baseURL string) (*providers
 		BaseURL: baseURL,
 	})
 }
+
+func integrationCoreToolsBuilder(plugintools.BuildContext) []tools.Tool { return nil }
