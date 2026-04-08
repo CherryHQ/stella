@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/vaayne/anna/internal/channelconfig"
+	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/plugins/channels/feishu"
@@ -19,7 +19,7 @@ func buildChannel(
 ) (pkgchannel.Channel, error) {
 	switch name {
 	case "telegram":
-		cfg := channelconfig.Load[pkgchannel.TelegramConfig](store, name)
+		cfg := channel.LoadConfig[pkgchannel.TelegramConfig](store, name)
 		if cfg == nil || cfg.Token == "" {
 			return nil, fmt.Errorf("telegram: missing channel config")
 		}
@@ -30,7 +30,7 @@ func buildChannel(
 		}, handler)
 
 	case "qq":
-		cfg := channelconfig.Load[pkgchannel.QQConfig](store, name)
+		cfg := channel.LoadConfig[pkgchannel.QQConfig](store, name)
 		if cfg == nil || cfg.AppID == "" || cfg.AppSecret == "" {
 			return nil, fmt.Errorf("qq: missing channel config")
 		}
@@ -41,7 +41,7 @@ func buildChannel(
 		}, handler)
 
 	case "feishu":
-		cfg := channelconfig.Load[pkgchannel.FeishuConfig](store, name)
+		cfg := channel.LoadConfig[pkgchannel.FeishuConfig](store, name)
 		if cfg == nil || cfg.AppID == "" || cfg.AppSecret == "" {
 			return nil, fmt.Errorf("feishu: missing channel config")
 		}
@@ -64,7 +64,7 @@ func buildChannel(
 		}, handler)
 
 	case "weixin":
-		cfg := channelconfig.Load[pkgchannel.WeixinConfig](store, name)
+		cfg := channel.LoadConfig[pkgchannel.WeixinConfig](store, name)
 		if cfg == nil || cfg.BotToken == "" {
 			return nil, fmt.Errorf("weixin: missing channel config")
 		}

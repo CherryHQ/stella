@@ -6,8 +6,6 @@ import (
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/chatcommand"
-	"github.com/vaayne/anna/internal/chatroute"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/pkg/ai"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
@@ -59,8 +57,8 @@ func NewCoordinator(
 }
 
 // resolve performs the full user -> agent -> pool -> session key resolution.
-func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessage) (*chatroute.ResolvedChat, error) {
-	return chatroute.Resolve(ctx, c.poolManager, c.store, c.authStore, c.engine, msg.Platform, msg.SenderID, msg.SenderName, msg.ChatID, msg.IsGroup)
+func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessage) (*ResolvedChat, error) {
+	return Resolve(ctx, c.poolManager, c.store, c.authStore, c.engine, msg.Platform, msg.SenderID, msg.SenderName, msg.ChatID, msg.IsGroup)
 }
 
 // HandleIncoming resolves the user once, tries command handling, and if the
@@ -73,7 +71,7 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 		if args != "" {
 			fullText = command + " " + args
 		}
-		if resp, ok := chatroute.TryLinkCode(ctx, c.authStore, c.linkCodes, fullText, msg.Platform, msg.SenderID, msg.SenderName); ok {
+		if resp, ok := TryLinkCode(ctx, c.authStore, c.linkCodes, fullText, msg.Platform, msg.SenderID, msg.SenderName); ok {
 			return resp, true, nil, nil
 		}
 	}
@@ -85,7 +83,7 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 
 	// Try shared commands.
 	if command != "" {
-		if resp, ok := chatcommand.Handle(ctx, rc, command+" "+args, msg.SenderID); ok {
+		if resp, ok := HandleCommand(ctx, rc, command+" "+args, msg.SenderID); ok {
 			return resp, true, nil, nil
 		}
 	}
@@ -99,7 +97,7 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 }
 
 // chatWithRC streams a chat response using a pre-resolved chat.
-func (c *Coordinator) chatWithRC(ctx context.Context, rc *chatroute.ResolvedChat, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
+func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
 	events, sessionID, err := rc.Chat(ctx, content)
 	if err != nil {
 		return nil, err
@@ -126,7 +124,7 @@ func (c *Coordinator) ListAgents(ctx context.Context, msg pkgchannel.IncomingMes
 		return nil, "", err
 	}
 
-	ac := chatroute.NewAgentCommander(c.store, c.authStore)
+	ac := NewAgentCommander(c.store, c.authStore)
 	agents, err := ac.List(ctx)
 	if err != nil {
 		return nil, "", err
@@ -146,7 +144,7 @@ func (c *Coordinator) SwitchAgent(ctx context.Context, msg pkgchannel.IncomingMe
 		return err
 	}
 
-	ac := chatroute.NewAgentCommander(c.store, c.authStore)
+	ac := NewAgentCommander(c.store, c.authStore)
 	return ac.Switch(ctx, rc.User, rc.ChatCtx, agentSlug)
 }
 

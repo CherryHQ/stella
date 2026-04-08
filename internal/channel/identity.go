@@ -1,4 +1,4 @@
-package chatroute
+package channel
 
 import (
 	"context"
@@ -11,25 +11,18 @@ import (
 	"github.com/vaayne/anna/internal/config"
 )
 
-// ErrAgentAccessDenied is returned when a user tries to use an agent they
-// don't have access to.
 var ErrAgentAccessDenied = errors.New("you don't have access to this agent, contact an admin")
 
-// ChatContext describes the chat environment for agent routing.
 type ChatContext struct {
 	Platform string
 	ChatID   string
 	IsGroup  bool
 }
 
-// ResolvedIdentity holds the resolved user.
 type ResolvedIdentity struct {
 	User auth.AuthUser
 }
 
-// ResolveUser resolves a channel user via auth_identities.
-// If no linked identity exists, returns a zero-value user (ID=0) with no roles.
-// ResolveAgent will deny access for unlinked users.
 func ResolveUser(ctx context.Context, authStore auth.AuthStore, platform, externalID string) (ResolvedIdentity, error) {
 	log := slog.With("component", "identity", "platform", platform, "external_id", externalID)
 
@@ -57,9 +50,6 @@ func ResolveUser(ctx context.Context, authStore auth.AuthStore, platform, extern
 	return ResolvedIdentity{User: user}, nil
 }
 
-// ResolveAgent determines which agent to route to, checking access via the
-// policy engine. Returns ErrAgentAccessDenied if the user cannot access the
-// resolved agent. Unlinked users (ID=0) are always denied.
 func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, identity ResolvedIdentity, chat ChatContext) (string, error) {
 	log := slog.With("component", "identity", "user_id", identity.User.ID)
 

@@ -1,4 +1,4 @@
-package channelconfig
+package channel
 
 import (
 	"context"
@@ -38,7 +38,7 @@ func TestLoadConfig(t *testing.T) {
 		Config:  map[string]any{"token": "abc123", "enable_notify": true},
 	})
 
-	cfg := Load[pkgchannel.TelegramConfig](store, "telegram")
+	cfg := LoadConfig[pkgchannel.TelegramConfig](store, "telegram")
 	if cfg == nil {
 		t.Fatal("expected non-nil config")
 	}
@@ -59,7 +59,7 @@ func TestLoadConfigDisabled(t *testing.T) {
 		Config:  map[string]any{"token": "abc123"},
 	})
 
-	cfg := Load[pkgchannel.TelegramConfig](store, "telegram")
+	cfg := LoadConfig[pkgchannel.TelegramConfig](store, "telegram")
 	if cfg != nil {
 		t.Error("expected nil for disabled plugin")
 	}
@@ -67,7 +67,7 @@ func TestLoadConfigDisabled(t *testing.T) {
 
 func TestLoadConfigMissing(t *testing.T) {
 	store := newMockStore()
-	cfg := Load[pkgchannel.TelegramConfig](store, "telegram")
+	cfg := LoadConfig[pkgchannel.TelegramConfig](store, "telegram")
 	if cfg != nil {
 		t.Error("expected nil for missing plugin")
 	}
