@@ -1,4 +1,4 @@
-package channel
+package qq
 
 import (
 	"context"
@@ -8,54 +8,48 @@ import (
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgchannelruntime "github.com/vaayne/anna/pkg/channelruntime"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	qqplugin "github.com/vaayne/anna/plugins/channels/qq"
-)
-
-const (
-	QQPluginID    = "channel/qq"
-	QQRuntimeName = "bot"
 )
 
 type QQRuntimeDeps struct {
-	Parent     context.Context
-	Handler    pkgchannel.Handler
-	Notifier   pkgplugins.NotificationRegistry
-	Log        *slog.Logger
-	Now        func() time.Time
-	NewChannel func(QQConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
+	Parent        context.Context
+	Handler       pkgchannel.Handler
+	Notifications pkgplugins.NotificationRegistry
+	Log           *slog.Logger
+	Now           func() time.Time
+	NewChannel    func(pkgchannel.QQConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
 
 func NewQQManagedRuntime(deps QQRuntimeDeps) pkgplugins.ManagedRuntime {
 	if deps.NewChannel == nil {
-		deps.NewChannel = func(cfg QQConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
-			return qqplugin.New(qqplugin.Config{
+		deps.NewChannel = func(cfg pkgchannel.QQConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			return New(Config{
 				AppID:     cfg.AppID,
 				AppSecret: cfg.AppSecret,
 				GroupMode: cfg.GroupMode,
 			}, handler)
 		}
 	}
-	return pkgchannelruntime.NewBotManagedRuntime(pkgchannelruntime.BotRuntimeDeps[QQConfig]{
+	return pkgchannelruntime.NewBotManagedRuntime(pkgchannelruntime.BotRuntimeDeps[pkgchannel.QQConfig]{
 		Parent:               deps.Parent,
 		Handler:              deps.Handler,
-		Notifier:             deps.Notifier,
+		Notifier:             deps.Notifications,
 		Log:                  deps.Log,
 		Now:                  deps.Now,
-		Platform:             PlatformQQ,
-		DecodeConfig:         DecodeQQPluginConfig,
-		ValidateConfig:       validateQQConfig,
-		NotificationsEnabled: func(cfg QQConfig) bool { return cfg.EnableNotify },
+		Platform:             pkgchannel.PlatformQQ,
+		DecodeConfig:         DecodeConfig,
+		ValidateConfig:       validateConfig,
+		NotificationsEnabled: func(cfg pkgchannel.QQConfig) bool { return cfg.EnableNotify },
 		NewChannel:           deps.NewChannel,
-		Snapshot:             qqRuntimeSnapshot,
+		Snapshot:             runtimeSnapshot,
 	})
 }
 
-func DecodeQQPluginConfig(raw map[string]any) (QQConfig, error) {
-	return pkgchannel.DecodePluginConfig[QQConfig](raw, "qq")
+func DecodeConfig(raw map[string]any) (pkgchannel.QQConfig, error) {
+	return pkgchannel.DecodePluginConfig[pkgchannel.QQConfig](raw, "qq")
 }
 
-func RedactQQPluginConfig(raw map[string]any) map[string]any {
-	cfg, err := DecodeQQPluginConfig(raw)
+func RedactConfig(raw map[string]any) map[string]any {
+	cfg, err := DecodeConfig(raw)
 	if err != nil {
 		return pkgchannel.CloneConfigMap(raw)
 	}
@@ -66,7 +60,7 @@ func RedactQQPluginConfig(raw map[string]any) map[string]any {
 	return out
 }
 
-func QQPluginConfigSchema() map[string]any {
+func configSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -93,14 +87,14 @@ func QQPluginConfigSchema() map[string]any {
 	}
 }
 
-func validateQQConfig(cfg QQConfig) string {
+func validateConfig(cfg pkgchannel.QQConfig) string {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return "qq: missing app_id or app_secret"
 	}
 	return ""
 }
 
-func qqRuntimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg QQConfig) pkgplugins.RuntimeSnapshot {
+func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.QQConfig) pkgplugins.RuntimeSnapshot {
 	return pkgplugins.RuntimeSnapshot{
 		State:     state,
 		Message:   message,

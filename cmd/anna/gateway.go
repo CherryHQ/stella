@@ -110,13 +110,6 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	}
 
 	hostBackedRegistrations := map[string]func(){
-		channel.QQPluginID: func() {
-			s.pluginHost.RegisterQQ(pluginhost.QQDeps{
-				Parent:   gctx,
-				Handler:  coordinator,
-				Notifier: s.notifier,
-			})
-		},
 		channel.FeishuPluginID: func() {
 			s.pluginHost.RegisterFeishu(pluginhost.FeishuDeps{
 				Parent:   gctx,
@@ -138,7 +131,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			{Name: channel.PlatformFeishu, PluginID: channel.FeishuPluginID},
 			{Name: channel.PlatformWeixin, PluginID: channel.WeixinPluginID},
 		} {
-			hostBackedRegistrations[hostBackedChannel.PluginID]()
+			if register := hostBackedRegistrations[hostBackedChannel.PluginID]; register != nil {
+				register()
+			}
 			if err := s.pluginHost.ApplyPlugin(gctx, hostBackedChannel.PluginID); err != nil {
 				return fmt.Errorf("apply %s runtime: %w", hostBackedChannel.Name, err)
 			}

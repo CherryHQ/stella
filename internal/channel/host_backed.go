@@ -3,6 +3,7 @@ package channel
 const (
 	TelegramPluginID    = "channel/telegram"
 	TelegramRuntimeName = "bot"
+	QQPluginID          = "channel/qq"
 )
 
 type HostBackedChannel struct {

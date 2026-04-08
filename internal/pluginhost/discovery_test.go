@@ -9,6 +9,7 @@ import (
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	qqplugin "github.com/vaayne/anna/plugins/channels/qq"
 	reflectplugin "github.com/vaayne/anna/plugins/reflect"
 	_ "github.com/vaayne/anna/plugins/tools/mcp"
 )
@@ -191,7 +192,12 @@ func TestChannelRuntimeServicesExtension(t *testing.T) {
 func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}})
 
-	host.RegisterQQ(QQDeps{})
+	qqPlugin, ok := pkgplugins.Get(qqplugin.PluginID)
+	if !ok {
+		t.Fatalf("missing plugin %q", qqplugin.PluginID)
+	}
+	host.RegisterPluginID(qqplugin.PluginID)
+	qqPlugin.Register(host)
 	host.RegisterFeishu(FeishuDeps{})
 	host.RegisterWeixin(WeixinDeps{})
 	reflectPlugin, ok := pkgplugins.Get(reflectplugin.PluginID)
