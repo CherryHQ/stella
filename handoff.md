@@ -63,7 +63,8 @@ This handoff file is also the running implementation log for future sessions.
 - Removed the remaining admin-side pluginhost compatibility branches:
   - admin plugin config/status endpoints now require a plugin host
   - admin server construction now panics if `pluginHost` is nil
-- Extracted skill discovery and skill management into `pkg/skills`, so review/runtime code no longer depends on `internal/skills` or runner-local skill catalog code.
+- Extracted the shared skills library into `pkg/skills`, so prompt/review/CLI code no longer depends on `internal/skills` or runner-local skill catalog code.
+- Moved the agent-facing `skills` tool out of `pkg/skills` and into `plugins/tools/skills`, so tool ownership now matches the plugin system instead of being manually wired by app code.
 - Moved the reflect runtime package from `internal/reflect` to `plugins/reflect`, and replaced the hardcoded `pluginhost.RegisterReflect(...)` path with a narrow host service extension.
 - Extracted QQ, Feishu, and Weixin persisted config types into `pkg/channel`.
 - Moved QQ, Feishu, and Weixin runtime/config ownership from `internal/channel` + `internal/pluginhost` into:
@@ -138,7 +139,8 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - MCP now lives as one ownership unit inside `plugins/tools/mcp`: config, IDs, manager lifecycle, session dialing, server supervision, data types, runtime wiring, and proxy-tool behavior are all package-local there.
 - `pkg/mcp` no longer exists; it was an intermediate migration stop, not the final design.
 - Shared database query contracts now live in `pkg/db/sqlc`, not `internal/db/sqlc`.
-- Shared skill discovery, validation, and skill-management tool code now live in `pkg/skills`, not `internal/skills` or `internal/agent/runner/skill.go`.
+- Shared skill discovery, validation, install/remove, and skill-management library code now live in `pkg/skills`, not `internal/skills` or `internal/agent/runner/skill.go`.
+- The `skills` agent tool now lives in `plugins/tools/skills` as a required built-in tool plugin, not in `pkg/skills`.
 - Production provider construction now flows through `internal/pluginhost`:
   - runner provider registries
   - admin provider validation/model fetch
@@ -165,6 +167,7 @@ The migration target from `extension-design.md` is now implemented for the in-re
   - the old registration logic from `plugins/hooks`
 - Admin plugin config/status/toggle flows now assume one plugin host exists, matching the actual application wiring.
 - `plugins/tools/mcp` now owns its full implementation directly instead of depending on a separate `pkg/mcp` package.
+- `plugins/tools/skills` now owns the `skills` agent tool directly; `internal/agent` no longer manually appends or rewrites a `pkg/skills` tool instance.
 - `plugins/channels/telegram` production code now imports only `pkg/...`; remaining `internal/channel` imports in that package are test-only.
 - `plugins/memory/lcm` and `plugins/memory/simple` production code now import `pkg/db/sqlc`; there are no remaining production `plugins/...` imports of `internal/...`.
 - `cmd/anna/plugins_imports.go` is still the blank-import bootstrap for built-ins. That is acceptable for repo-scoped plugins.
@@ -369,6 +372,16 @@ This is a real second migration, not a cleanup detail. It should only start afte
 - Updated CLI/admin/pluginhost tests and callers to import `plugins/tools/mcp` directly for MCP-owned constants and types.
 - Removed the `pkg/mcp` package entirely.
 - Ran focused tests for `plugins/tools/mcp`, `cmd/anna`, `internal/admin`, and `internal/pluginhost`, then ran `go test ./...` successfully.
+
+### 2026-04-08 — skills tool ownership correction
+
+- Re-checked `pkg/skills` and split it by real responsibility instead of keeping the mixed library-plus-tool shape.
+- Kept `pkg/skills` as the shared library for discovery, prompt visibility, install/remove, and skill file management.
+- Moved the agent-facing `skills` tool wrapper from `pkg/skills` into `plugins/tools/skills`.
+- Registered `tool/skills` as a required built-in tool plugin and added it to the blank-import bootstrap.
+- Removed the manual `skills` tool injection/replacement logic from `internal/agent`; per-session scoping now comes from the plugin tool builder instead.
+- Updated reflect and admin callers to use the plugin-owned tool definition/constructor where they need the actual tool wrapper.
+- Ran focused tests for `plugins/tools/skills`, `pkg/skills`, `internal/agent`, `plugins/reflect`, `internal/admin`, and `cmd/anna`, then ran `go test ./...` successfully.
 
 ### 2026-04-08 — channel config helper extraction
 
