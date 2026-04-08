@@ -1,4 +1,4 @@
-package chatroute
+package channel
 
 import (
 	"context"
@@ -9,10 +9,6 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 )
 
-// TryLinkCode checks if a message is a "/link <code>" command. If so, it
-// consumes the code, creates an auth_identity linking the sender's channel
-// account to the system user, and returns a response message + true.
-// Returns ("", false) if the text is not a link command.
 func TryLinkCode(ctx context.Context, authStore auth.AuthStore, linkCodes *auth.LinkCodeStore, text, platform, senderID, senderName string) (string, bool) {
 	code := parseLinkCommand(text)
 	if code == "" {

@@ -1,4 +1,4 @@
-package chatroute
+package channel
 
 import (
 	"context"
@@ -10,24 +10,19 @@ import (
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
-// AgentCommander handles the /agent slash command for listing and switching agents.
 type AgentCommander struct {
 	store     config.Store
 	authStore auth.AuthStore
 }
 
-// NewAgentCommander creates a new AgentCommander backed by the given stores.
 func NewAgentCommander(store config.Store, authStore auth.AuthStore) *AgentCommander {
 	return &AgentCommander{store: store, authStore: authStore}
 }
 
-// List returns all enabled agents.
 func (ac *AgentCommander) List(ctx context.Context) ([]config.Agent, error) {
 	return ac.store.ListEnabledAgents(ctx)
 }
 
-// Switch sets the active agent for a DM (updates user's default_agent_id)
-// or a group chat (updates chat_agents).
 func (ac *AgentCommander) Switch(ctx context.Context, user auth.AuthUser, chat ChatContext, agentSlug string) error {
 	agentSlug = strings.TrimSpace(agentSlug)
 	if agentSlug == "" {
@@ -54,13 +49,11 @@ func (ac *AgentCommander) Switch(ctx context.Context, user auth.AuthUser, chat C
 
 var ParseCommandArgs = pkgchannel.ParseCommandArgs
 
-// IndexedAgent pairs a config.Agent with its 1-based global index.
 type IndexedAgent struct {
 	config.Agent
 	GlobalIdx int
 }
 
-// IndexAgents wraps a full agent list with sequential 1-based indices.
 func IndexAgents(agents []config.Agent) []IndexedAgent {
 	out := make([]IndexedAgent, len(agents))
 	for i, a := range agents {
@@ -69,7 +62,6 @@ func IndexAgents(agents []config.Agent) []IndexedAgent {
 	return out
 }
 
-// HandleAgentCommand is the shared /agent handler for text-based channels.
 func HandleAgentCommand(ctx context.Context, ac *AgentCommander, rc *ResolvedChat, args string, reply func(string)) {
 	slug := strings.TrimSpace(args)
 
@@ -90,7 +82,6 @@ func HandleAgentCommand(ctx context.Context, ac *AgentCommander, rc *ResolvedCha
 	reply(FormatAgentList(agents, rc.AgentID))
 }
 
-// FormatAgentList formats the agent list for display, marking the current agent.
 func FormatAgentList(agents []config.Agent, currentAgentID string) string {
 	if len(agents) == 0 {
 		return "No agents available."

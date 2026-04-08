@@ -1,11 +1,10 @@
-package chatroute_test
+package channel
 
 import (
 	"context"
 	"testing"
 
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/chatroute"
 	"github.com/vaayne/anna/internal/config"
 )
 
@@ -34,10 +33,10 @@ func TestResolveAgentWithAuthSystemAgent(t *testing.T) {
 	hash, _ := auth.HashPassword("testpass")
 	authUser, _ := ts.authStore.CreateUser(ctx, "alice", hash)
 
-	identity := chatroute.ResolvedIdentity{User: authUser}
+	identity := ResolvedIdentity{User: authUser}
 
-	chat := chatroute.ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := chatroute.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
+	chat := ChatContext{Platform: "telegram", IsGroup: false}
+	agentID, err := ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgentWithAuth: %v", err)
 	}
@@ -64,10 +63,10 @@ func TestResolveAgentWithAuthRestrictedFallback(t *testing.T) {
 	_ = ts.authStore.UpdateUserDefaultAgent(ctx, authUser.ID, "private")
 	authUser, _ = ts.authStore.GetUser(ctx, authUser.ID)
 
-	identity := chatroute.ResolvedIdentity{User: authUser}
+	identity := ResolvedIdentity{User: authUser}
 
-	chat := chatroute.ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := chatroute.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
+	chat := ChatContext{Platform: "telegram", IsGroup: false}
+	agentID, err := ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
 	if err != nil {
 		t.Fatalf("expected fallback, got error: %v", err)
 	}
@@ -95,10 +94,10 @@ func TestResolveAgentWithAuthRestrictedAllowed(t *testing.T) {
 	_ = ts.authStore.UpdateUserDefaultAgent(ctx, authUser.ID, "vip")
 	authUser, _ = ts.authStore.GetUser(ctx, authUser.ID)
 
-	identity := chatroute.ResolvedIdentity{User: authUser}
+	identity := ResolvedIdentity{User: authUser}
 
-	chat := chatroute.ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := chatroute.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
+	chat := ChatContext{Platform: "telegram", IsGroup: false}
+	agentID, err := ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgent: %v", err)
 	}
@@ -126,10 +125,10 @@ func TestResolveAgentWithAuthAdminAccessAll(t *testing.T) {
 	_ = ts.authStore.UpdateUserDefaultAgent(ctx, authUser.ID, "admin-only")
 	authUser, _ = ts.authStore.GetUser(ctx, authUser.ID)
 
-	identity := chatroute.ResolvedIdentity{User: authUser}
+	identity := ResolvedIdentity{User: authUser}
 
-	chat := chatroute.ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := chatroute.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
+	chat := ChatContext{Platform: "telegram", IsGroup: false}
+	agentID, err := ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgent: %v", err)
 	}
@@ -163,10 +162,10 @@ func TestResolveAgentWithAuthFallbackFiltered(t *testing.T) {
 	hash, _ := auth.HashPassword("testpass")
 	authUser, _ := ts.authStore.CreateUser(ctx, "dave", hash)
 
-	identity := chatroute.ResolvedIdentity{User: authUser}
+	identity := ResolvedIdentity{User: authUser}
 
-	chat := chatroute.ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := chatroute.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
+	chat := ChatContext{Platform: "telegram", IsGroup: false}
+	agentID, err := ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgentWithAuth: %v", err)
 	}
@@ -193,10 +192,10 @@ func TestResolveAgentWithAuthGroupChatFallback(t *testing.T) {
 	hash, _ := auth.HashPassword("testpass")
 	authUser, _ := ts.authStore.CreateUser(ctx, "eve", hash)
 
-	identity := chatroute.ResolvedIdentity{User: authUser}
+	identity := ResolvedIdentity{User: authUser}
 
-	chat := chatroute.ChatContext{Platform: "telegram", ChatID: "-1001234", IsGroup: true}
-	agentID, err := chatroute.ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
+	chat := ChatContext{Platform: "telegram", ChatID: "-1001234", IsGroup: true}
+	agentID, err := ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
 	if err != nil {
 		t.Fatalf("expected fallback, got error: %v", err)
 	}

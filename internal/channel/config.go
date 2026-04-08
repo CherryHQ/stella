@@ -1,4 +1,4 @@
-package channelconfig
+package channel
 
 import (
 	"context"
@@ -17,50 +17,47 @@ type channelAccess struct {
 var accessors = map[string]channelAccess{
 	pkgchannel.PlatformTelegram: {
 		hasValid: func(store config.Store, name string) bool {
-			cfg := Load[pkgchannel.TelegramConfig](store, name)
+			cfg := LoadConfig[pkgchannel.TelegramConfig](store, name)
 			return cfg != nil && cfg.Token != ""
 		},
 		notifyEnabled: func(store config.Store, name string) bool {
-			cfg := Load[pkgchannel.TelegramConfig](store, name)
+			cfg := LoadConfig[pkgchannel.TelegramConfig](store, name)
 			return cfg != nil && cfg.EnableNotify
 		},
 	},
 	pkgchannel.PlatformQQ: {
 		hasValid: func(store config.Store, name string) bool {
-			cfg := Load[pkgchannel.QQConfig](store, name)
+			cfg := LoadConfig[pkgchannel.QQConfig](store, name)
 			return cfg != nil && cfg.AppID != "" && cfg.AppSecret != ""
 		},
 		notifyEnabled: func(store config.Store, name string) bool {
-			cfg := Load[pkgchannel.QQConfig](store, name)
+			cfg := LoadConfig[pkgchannel.QQConfig](store, name)
 			return cfg != nil && cfg.EnableNotify
 		},
 	},
 	pkgchannel.PlatformFeishu: {
 		hasValid: func(store config.Store, name string) bool {
-			cfg := Load[pkgchannel.FeishuConfig](store, name)
+			cfg := LoadConfig[pkgchannel.FeishuConfig](store, name)
 			return cfg != nil && cfg.AppID != "" && cfg.AppSecret != ""
 		},
 		notifyEnabled: func(store config.Store, name string) bool {
-			cfg := Load[pkgchannel.FeishuConfig](store, name)
+			cfg := LoadConfig[pkgchannel.FeishuConfig](store, name)
 			return cfg != nil && cfg.EnableNotify
 		},
 	},
 	pkgchannel.PlatformWeixin: {
 		hasValid: func(store config.Store, name string) bool {
-			cfg := Load[pkgchannel.WeixinConfig](store, name)
+			cfg := LoadConfig[pkgchannel.WeixinConfig](store, name)
 			return cfg != nil && cfg.BotToken != ""
 		},
 		notifyEnabled: func(store config.Store, name string) bool {
-			cfg := Load[pkgchannel.WeixinConfig](store, name)
+			cfg := LoadConfig[pkgchannel.WeixinConfig](store, name)
 			return cfg != nil && cfg.EnableNotify
 		},
 	},
 }
 
-// Load loads a channel plugin config from the settings_plugins table and
-// deserializes it into the given type. Returns nil if the plugin is missing,
-// disabled, or the payload cannot be decoded.
-func Load[T any](store config.Store, channelID string) *T {
+func LoadConfig[T any](store config.Store, channelID string) *T {
 	pluginID := config.PluginID(config.PluginKindChannel, channelID)
 	p, err := store.GetPlugin(context.Background(), pluginID)
 	if err != nil || !p.Enabled {
@@ -80,7 +77,6 @@ func Load[T any](store config.Store, channelID string) *T {
 	return &cfg
 }
 
-// HasValidConfig checks whether a channel has required credentials configured.
 func HasValidConfig(store config.Store, name string) bool {
 	access, ok := accessors[name]
 	if !ok || access.hasValid == nil {
@@ -89,7 +85,6 @@ func HasValidConfig(store config.Store, name string) bool {
 	return access.hasValid(store, name)
 }
 
-// IsNotifyEnabled checks whether a channel has notifications enabled.
 func IsNotifyEnabled(store config.Store, name string) bool {
 	access, ok := accessors[name]
 	if !ok || access.notifyEnabled == nil {

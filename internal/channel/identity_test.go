@@ -1,4 +1,4 @@
-package chatroute_test
+package channel
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/chatroute"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 )
@@ -46,7 +45,7 @@ func TestResolveUserNoIdentity(t *testing.T) {
 	ts := setupStores(t)
 	ctx := context.Background()
 
-	resolved, err := chatroute.ResolveUser(ctx, ts.authStore, "telegram", "12345")
+	resolved, err := ResolveUser(ctx, ts.authStore, "telegram", "12345")
 	if err != nil {
 		t.Fatalf("ResolveUser: %v", err)
 	}
@@ -68,7 +67,7 @@ func TestResolveUserLinkedIdentity(t *testing.T) {
 		Name:       "Alice",
 	})
 
-	resolved, err := chatroute.ResolveUser(ctx, ts.authStore, "telegram", "99999")
+	resolved, err := ResolveUser(ctx, ts.authStore, "telegram", "99999")
 	if err != nil {
 		t.Fatalf("ResolveUser: %v", err)
 	}
@@ -94,7 +93,7 @@ func TestResolveUserDeactivated(t *testing.T) {
 		ExternalID: "111",
 	})
 
-	_, err := chatroute.ResolveUser(ctx, ts.authStore, "qq", "111")
+	_, err := ResolveUser(ctx, ts.authStore, "qq", "111")
 	if err == nil {
 		t.Error("expected error for deactivated user")
 	}
@@ -109,10 +108,10 @@ func TestResolveAgentUnlinkedUserDenied(t *testing.T) {
 		t.Fatalf("NewEngine: %v", err)
 	}
 
-	identity := chatroute.ResolvedIdentity{}
-	chat := chatroute.ChatContext{Platform: "telegram", IsGroup: false}
-	_, err = chatroute.ResolveAgent(ctx, ts.store, ts.authStore, engine, identity, chat)
-	if !errors.Is(err, chatroute.ErrAgentAccessDenied) {
+	identity := ResolvedIdentity{}
+	chat := ChatContext{Platform: "telegram", IsGroup: false}
+	_, err = ResolveAgent(ctx, ts.store, ts.authStore, engine, identity, chat)
+	if !errors.Is(err, ErrAgentAccessDenied) {
 		t.Fatalf("expected ErrAgentAccessDenied for unlinked user, got: %v", err)
 	}
 }
@@ -129,9 +128,9 @@ func TestResolveAgentFallbackToFirstEnabled(t *testing.T) {
 	hash, _ := auth.HashPassword("testpass")
 	authUser, _ := ts.authStore.CreateUser(ctx, "testuser", hash)
 
-	identity := chatroute.ResolvedIdentity{User: authUser}
-	chat := chatroute.ChatContext{Platform: "telegram", IsGroup: false}
-	agentID, err := chatroute.ResolveAgent(ctx, ts.store, ts.authStore, engine, identity, chat)
+	identity := ResolvedIdentity{User: authUser}
+	chat := ChatContext{Platform: "telegram", IsGroup: false}
+	agentID, err := ResolveAgent(ctx, ts.store, ts.authStore, engine, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgent: %v", err)
 	}
@@ -157,9 +156,9 @@ func TestResolveAgentGroupAssignment(t *testing.T) {
 	hash, _ := auth.HashPassword("testpass")
 	authUser, _ := ts.authStore.CreateUser(ctx, "groupuser", hash)
 
-	identity := chatroute.ResolvedIdentity{User: authUser}
-	chat := chatroute.ChatContext{Platform: "telegram", ChatID: "-999", IsGroup: true}
-	agentID, err := chatroute.ResolveAgent(ctx, ts.store, ts.authStore, engine, identity, chat)
+	identity := ResolvedIdentity{User: authUser}
+	chat := ChatContext{Platform: "telegram", ChatID: "-999", IsGroup: true}
+	agentID, err := ResolveAgent(ctx, ts.store, ts.authStore, engine, identity, chat)
 	if err != nil {
 		t.Fatalf("ResolveAgent: %v", err)
 	}
@@ -178,7 +177,7 @@ func TestTryLinkCodeSuccess(t *testing.T) {
 
 	code := linkCodes.Generate(authUser.ID, "telegram")
 
-	resp, ok := chatroute.TryLinkCode(ctx, ts.authStore, linkCodes, "/link "+code, "telegram", "67890", "Bob")
+	resp, ok := TryLinkCode(ctx, ts.authStore, linkCodes, "/link "+code, "telegram", "67890", "Bob")
 	if !ok {
 		t.Fatal("expected TryLinkCode to handle the message")
 	}
@@ -205,7 +204,7 @@ func TestTryLinkCodeWrongPlatform(t *testing.T) {
 
 	code := linkCodes.Generate(authUser.ID, "telegram")
 
-	resp, ok := chatroute.TryLinkCode(ctx, ts.authStore, linkCodes, "/link "+code, "qq", "111", "Charlie")
+	resp, ok := TryLinkCode(ctx, ts.authStore, linkCodes, "/link "+code, "qq", "111", "Charlie")
 	if !ok {
 		t.Fatal("expected TryLinkCode to handle the message")
 	}
@@ -219,7 +218,7 @@ func TestTryLinkCodeNotACode(t *testing.T) {
 	ctx := context.Background()
 	linkCodes := auth.NewLinkCodeStore()
 
-	_, ok := chatroute.TryLinkCode(ctx, ts.authStore, linkCodes, "Hello, how are you?", "telegram", "111", "Test")
+	_, ok := TryLinkCode(ctx, ts.authStore, linkCodes, "Hello, how are you?", "telegram", "111", "Test")
 	if ok {
 		t.Error("expected TryLinkCode to not handle regular text")
 	}
@@ -230,7 +229,7 @@ func TestTryLinkCodeExpiredOrInvalid(t *testing.T) {
 	ctx := context.Background()
 	linkCodes := auth.NewLinkCodeStore()
 
-	resp, ok := chatroute.TryLinkCode(ctx, ts.authStore, linkCodes, "/link AB12CD", "telegram", "111", "Test")
+	resp, ok := TryLinkCode(ctx, ts.authStore, linkCodes, "/link AB12CD", "telegram", "111", "Test")
 	if !ok {
 		t.Fatal("expected TryLinkCode to handle the message (code format matches)")
 	}
