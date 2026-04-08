@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"sync"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/skills"
 	"github.com/vaayne/anna/pkg/tools"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
 )
@@ -357,9 +355,6 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 
 	var extraTools []tools.Tool
 	extraTools = append(extraTools, shared...)
-
-	cwd, _ := os.Getwd()
-	extraTools = append(extraTools, skills.NewTool(config.AnnaHome(), snap.Workspace, cwd, 0))
 
 	if pm.extraToolsFactory != nil {
 		extraTools = append(extraTools, pm.extraToolsFactory(snap)...)

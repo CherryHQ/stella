@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
@@ -11,7 +10,6 @@ import (
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/skills"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
@@ -73,10 +71,6 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsB
 				PromptTools:   promptTools,
 			})
 
-			// Build per-session extra tools.
-			// Replace any SkillsTool with a per-user one when UserID > 0.
-			sessionTools := buildSessionTools(extraTools, snap.Workspace, userSkillsDir, userDataDir, params.UserID)
-
 			// Use user data dir as working dir when available, otherwise use system cwd.
 			workDir := userDataDir
 
@@ -94,7 +88,7 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsB
 				AnnaHome:    config.AnnaHome(),
 				BaseURL:     creds.BaseURL,
 				System:      system,
-				ExtraTools:  sessionTools,
+				ExtraTools:  extraTools,
 				WorkDir:     workDir,
 				UserDataDir: userDataDir,
 				HookPlugins: hookPlugins,
@@ -105,25 +99,4 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsB
 	default:
 		return nil, fmt.Errorf("unknown runner type: %q", snap.Runner.Type)
 	}
-}
-
-// buildSessionTools creates per-session tools from the template extra tools.
-// When userID > 0, the SkillsTool is replaced with a per-user version,
-// and sandbox-aware file tools are configured.
-func buildSessionTools(templateTools []tools.Tool, workspace, userSkillsDir, userDataDir string, userID int64) []tools.Tool {
-	if userID <= 0 {
-		return templateTools
-	}
-
-	result := make([]tools.Tool, 0, len(templateTools))
-	for _, t := range templateTools {
-		// Replace SkillsTool with per-user version.
-		if _, ok := t.(*skills.SkillsTool); ok {
-			cwd, _ := os.Getwd()
-			result = append(result, skills.NewTool(config.AnnaHome(), workspace, cwd, userID))
-			continue
-		}
-		result = append(result, t)
-	}
-	return result
 }

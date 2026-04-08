@@ -25,21 +25,3 @@ func Remove(name, skillDir string) error {
 
 	return nil
 }
-
-func (t *SkillsTool) remove(args map[string]any) (string, error) {
-	name, _ := args["name"].(string)
-	if name == "" {
-		return "", fmt.Errorf("name is required for remove action")
-	}
-
-	if !safeNameRe.MatchString(name) {
-		return "", fmt.Errorf("invalid skill name %q: must be lowercase alphanumeric with hyphens", name)
-	}
-
-	skillDir := fmt.Sprintf("%s/%s", t.skillsDir(), name)
-	if err := Remove(name, skillDir); err != nil {
-		return "", fmt.Errorf("%w (only skills in %s can be removed)", err, t.skillsDir())
-	}
-
-	return fmt.Sprintf("Skill %q removed from %s.", name, skillDir), nil
-}
