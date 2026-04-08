@@ -110,13 +110,6 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	}
 
 	hostBackedRegistrations := map[string]func(){
-		channel.FeishuPluginID: func() {
-			s.pluginHost.RegisterFeishu(pluginhost.FeishuDeps{
-				Parent:   gctx,
-				Handler:  coordinator,
-				Notifier: s.notifier,
-			})
-		},
 		channel.WeixinPluginID: func() {
 			s.pluginHost.RegisterWeixin(pluginhost.WeixinDeps{
 				Parent:   gctx,

@@ -1,4 +1,4 @@
-package channel
+package feishu
 
 import (
 	"context"
@@ -19,7 +19,7 @@ func newFakeFeishuChannel() *fakeFeishuChannel {
 	return &fakeFeishuChannel{started: make(chan struct{}), stopped: make(chan struct{})}
 }
 
-func (c *fakeFeishuChannel) Name() string { return PlatformFeishu }
+func (c *fakeFeishuChannel) Name() string { return pkgchannel.PlatformFeishu }
 func (c *fakeFeishuChannel) Start(ctx context.Context) error {
 	close(c.started)
 	<-ctx.Done()
@@ -33,16 +33,16 @@ func (c *fakeFeishuChannel) Notify(ctx context.Context, n pkgchannel.Notificatio
 
 func TestFeishuManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 	now := time.Date(2026, 4, 7, 15, 0, 0, 0, time.UTC)
-	notifier := NewDispatcher()
+	notifier := newFakeNotificationRegistry()
 	first := newFakeFeishuChannel()
 	second := newFakeFeishuChannel()
 	built := 0
 	runtime := NewFeishuManagedRuntime(FeishuRuntimeDeps{
-		Parent:   context.Background(),
-		Handler:  fakeChannelHandler{},
-		Notifier: notifier,
-		Now:      func() time.Time { return now },
-		NewChannel: func(cfg FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		Parent:        context.Background(),
+		Handler:       fakeChannelHandler{},
+		Notifications: notifier,
+		Now:           func() time.Time { return now },
+		NewChannel: func(cfg pkgchannel.FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			built++
 			if built == 1 {
 				return first, nil
@@ -51,7 +51,7 @@ func TestFeishuManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		},
 	})
 
-	state := pkgplugins.PluginState{ID: FeishuPluginID, Enabled: true, Config: map[string]any{
+	state := pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{
 		"app_id":             "fs-app",
 		"app_secret":         "fs-secret",
 		"encrypt_key":        "enc",
@@ -66,7 +66,7 @@ func TestFeishuManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		t.Fatalf("first apply: %v", err)
 	}
 	waitClosed(t, first.started, "first feishu start")
-	if got := notifier.Channels(); len(got) != 1 || got[0] != PlatformFeishu {
+	if got := notifier.Channels(); len(got) != 1 || got[0] != pkgchannel.PlatformFeishu {
 		t.Fatalf("notifier channels after first apply = %v", got)
 	}
 
@@ -84,7 +84,7 @@ func TestFeishuManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		t.Fatalf("group_count = %#v, want 1", snap.Metadata["group_count"])
 	}
 
-	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: FeishuPluginID, Enabled: true, Config: map[string]any{"app_id": "fs-app-2", "app_secret": "fs-secret-2"}}); err != nil {
+	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"app_id": "fs-app-2", "app_secret": "fs-secret-2"}}); err != nil {
 		t.Fatalf("reconfigure apply: %v", err)
 	}
 	waitClosed(t, first.stopped, "first feishu stop")
@@ -93,7 +93,7 @@ func TestFeishuManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		t.Fatalf("notifier channels after reconfigure = %v, want []", got)
 	}
 
-	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: FeishuPluginID, Enabled: false, Config: map[string]any{"app_id": "fs-app-2", "app_secret": "fs-secret-2"}}); err != nil {
+	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: PluginID, Enabled: false, Config: map[string]any{"app_id": "fs-app-2", "app_secret": "fs-secret-2"}}); err != nil {
 		t.Fatalf("disable apply: %v", err)
 	}
 	waitClosed(t, second.stopped, "second feishu stop")
@@ -112,7 +112,7 @@ func TestFeishuManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 
 func TestFeishuManagedRuntimeMissingCredentialsMarksError(t *testing.T) {
 	runtime := NewFeishuManagedRuntime(FeishuRuntimeDeps{Parent: context.Background(), Handler: fakeChannelHandler{}})
-	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: FeishuPluginID, Enabled: true, Config: map[string]any{"app_id": "fs-app"}}); err != nil {
+	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"app_id": "fs-app"}}); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	snap, err := runtime.Snapshot(context.Background())
@@ -128,17 +128,17 @@ func TestFeishuManagedRuntimeBuildFailureReturnsError(t *testing.T) {
 	runtime := NewFeishuManagedRuntime(FeishuRuntimeDeps{
 		Parent:  context.Background(),
 		Handler: fakeChannelHandler{},
-		NewChannel: func(cfg FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+		NewChannel: func(cfg pkgchannel.FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return nil, errors.New("boom")
 		},
 	})
-	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: FeishuPluginID, Enabled: true, Config: map[string]any{"app_id": "fs-app", "app_secret": "fs-secret"}}); err == nil {
+	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"app_id": "fs-app", "app_secret": "fs-secret"}}); err == nil {
 		t.Fatal("expected build error")
 	}
 }
 
 func TestDecodeAndRedactFeishuPluginConfig(t *testing.T) {
-	cfg, err := DecodeFeishuPluginConfig(map[string]any{
+	cfg, err := DecodeConfig(map[string]any{
 		"app_id":             "fs-app",
 		"app_secret":         "fs-secret",
 		"encrypt_key":        "enc",
@@ -150,7 +150,7 @@ func TestDecodeAndRedactFeishuPluginConfig(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("DecodeFeishuPluginConfig: %v", err)
+		t.Fatalf("DecodeConfig: %v", err)
 	}
 	if cfg.AppID != "fs-app" || cfg.AppSecret != "fs-secret" || cfg.EncryptKey != "enc" || cfg.VerificationToken != "verify" || cfg.GroupMode != "mention" || !cfg.EnableNotify {
 		t.Fatalf("decoded config = %#v", cfg)
@@ -159,7 +159,7 @@ func TestDecodeAndRedactFeishuPluginConfig(t *testing.T) {
 		t.Fatalf("decoded groups = %#v", cfg.Groups)
 	}
 
-	got := RedactFeishuPluginConfig(map[string]any{
+	got := RedactConfig(map[string]any{
 		"app_id":             "fs-app",
 		"app_secret":         "fs-secret",
 		"encrypt_key":        "enc",
@@ -177,5 +177,56 @@ func TestDecodeAndRedactFeishuPluginConfig(t *testing.T) {
 	}
 	if got["app_id"] != "fs-app" {
 		t.Fatalf("app_id = %#v, want %q", got["app_id"], "fs-app")
+	}
+}
+
+type fakeChannelHandler struct{}
+
+func (fakeChannelHandler) HandleIncoming(context.Context, pkgchannel.IncomingMessage, string, string) (string, bool, *pkgchannel.ChatStream, error) {
+	return "", false, nil, nil
+}
+
+func (fakeChannelHandler) ListModels() []pkgchannel.ModelOption { return nil }
+
+func (fakeChannelHandler) SwitchModel(string, string) error { return nil }
+
+func (fakeChannelHandler) ListAgents(context.Context, pkgchannel.IncomingMessage) ([]pkgchannel.AgentInfo, string, error) {
+	return nil, "", nil
+}
+
+func (fakeChannelHandler) SwitchAgent(context.Context, pkgchannel.IncomingMessage, string) error {
+	return nil
+}
+
+type fakeNotificationRegistry struct {
+	names map[string]struct{}
+}
+
+func newFakeNotificationRegistry() *fakeNotificationRegistry {
+	return &fakeNotificationRegistry{names: map[string]struct{}{}}
+}
+
+func (r *fakeNotificationRegistry) Register(ch pkgchannel.Channel) {
+	r.names[ch.Name()] = struct{}{}
+}
+
+func (r *fakeNotificationRegistry) Unregister(name string) {
+	delete(r.names, name)
+}
+
+func (r *fakeNotificationRegistry) Channels() []string {
+	out := make([]string, 0, len(r.names))
+	for name := range r.names {
+		out = append(out, name)
+	}
+	return out
+}
+
+func waitClosed(t *testing.T, ch <-chan struct{}, label string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timeout waiting for %s", label)
 	}
 }

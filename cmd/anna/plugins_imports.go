@@ -2,6 +2,7 @@ package main
 
 import (
 	// Plugin channels.
+	_ "github.com/vaayne/anna/plugins/channels/feishu"
 	_ "github.com/vaayne/anna/plugins/channels/qq"
 	_ "github.com/vaayne/anna/plugins/channels/telegram"
 

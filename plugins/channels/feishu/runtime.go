@@ -1,4 +1,4 @@
-package channel
+package feishu
 
 import (
 	"context"
@@ -8,57 +8,51 @@ import (
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgchannelruntime "github.com/vaayne/anna/pkg/channelruntime"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	feishuplugin "github.com/vaayne/anna/plugins/channels/feishu"
-)
-
-const (
-	FeishuPluginID    = "channel/feishu"
-	FeishuRuntimeName = "bot"
 )
 
 type FeishuRuntimeDeps struct {
-	Parent     context.Context
-	Handler    pkgchannel.Handler
-	Notifier   pkgplugins.NotificationRegistry
-	Log        *slog.Logger
-	Now        func() time.Time
-	NewChannel func(FeishuConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
+	Parent        context.Context
+	Handler       pkgchannel.Handler
+	Notifications pkgplugins.NotificationRegistry
+	Log           *slog.Logger
+	Now           func() time.Time
+	NewChannel    func(pkgchannel.FeishuConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
 
 func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.ManagedRuntime {
 	if deps.NewChannel == nil {
-		deps.NewChannel = func(cfg FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
-			return feishuplugin.New(feishuplugin.Config{
+		deps.NewChannel = func(cfg pkgchannel.FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			return New(Config{
 				AppID:             cfg.AppID,
 				AppSecret:         cfg.AppSecret,
 				EncryptKey:        cfg.EncryptKey,
 				VerificationToken: cfg.VerificationToken,
 				GroupMode:         cfg.GroupMode,
-				Groups:            feishuGroupsToPluginConfig(cfg.Groups),
+				Groups:            groupsToPluginConfig(cfg.Groups),
 			}, handler)
 		}
 	}
-	return pkgchannelruntime.NewBotManagedRuntime(pkgchannelruntime.BotRuntimeDeps[FeishuConfig]{
+	return pkgchannelruntime.NewBotManagedRuntime(pkgchannelruntime.BotRuntimeDeps[pkgchannel.FeishuConfig]{
 		Parent:               deps.Parent,
 		Handler:              deps.Handler,
-		Notifier:             deps.Notifier,
+		Notifier:             deps.Notifications,
 		Log:                  deps.Log,
 		Now:                  deps.Now,
-		Platform:             PlatformFeishu,
-		DecodeConfig:         DecodeFeishuPluginConfig,
-		ValidateConfig:       validateFeishuConfig,
-		NotificationsEnabled: func(cfg FeishuConfig) bool { return cfg.EnableNotify },
+		Platform:             pkgchannel.PlatformFeishu,
+		DecodeConfig:         DecodeConfig,
+		ValidateConfig:       validateConfig,
+		NotificationsEnabled: func(cfg pkgchannel.FeishuConfig) bool { return cfg.EnableNotify },
 		NewChannel:           deps.NewChannel,
-		Snapshot:             feishuRuntimeSnapshot,
+		Snapshot:             runtimeSnapshot,
 	})
 }
 
-func DecodeFeishuPluginConfig(raw map[string]any) (FeishuConfig, error) {
-	return pkgchannel.DecodePluginConfig[FeishuConfig](raw, "feishu")
+func DecodeConfig(raw map[string]any) (pkgchannel.FeishuConfig, error) {
+	return pkgchannel.DecodePluginConfig[pkgchannel.FeishuConfig](raw, "feishu")
 }
 
-func RedactFeishuPluginConfig(raw map[string]any) map[string]any {
-	cfg, err := DecodeFeishuPluginConfig(raw)
+func RedactConfig(raw map[string]any) map[string]any {
+	cfg, err := DecodeConfig(raw)
 	if err != nil {
 		return pkgchannel.CloneConfigMap(raw)
 	}
@@ -75,7 +69,7 @@ func RedactFeishuPluginConfig(raw map[string]any) map[string]any {
 	return out
 }
 
-func FeishuPluginConfigSchema() map[string]any {
+func configSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -138,14 +132,14 @@ func FeishuPluginConfigSchema() map[string]any {
 	}
 }
 
-func validateFeishuConfig(cfg FeishuConfig) string {
+func validateConfig(cfg pkgchannel.FeishuConfig) string {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return "feishu: missing app_id or app_secret"
 	}
 	return ""
 }
 
-func feishuRuntimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg FeishuConfig) pkgplugins.RuntimeSnapshot {
+func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.FeishuConfig) pkgplugins.RuntimeSnapshot {
 	return pkgplugins.RuntimeSnapshot{
 		State:     state,
 		Message:   message,
@@ -161,13 +155,13 @@ func feishuRuntimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message
 	}
 }
 
-func feishuGroupsToPluginConfig(groups map[string]FeishuGroup) map[string]feishuplugin.GroupConfig {
+func groupsToPluginConfig(groups map[string]pkgchannel.FeishuGroup) map[string]GroupConfig {
 	if len(groups) == 0 {
 		return nil
 	}
-	out := make(map[string]feishuplugin.GroupConfig, len(groups))
+	out := make(map[string]GroupConfig, len(groups))
 	for k, v := range groups {
-		out[k] = feishuplugin.GroupConfig{
+		out[k] = GroupConfig{
 			GroupMode:    v.GroupMode,
 			SystemPrompt: v.SystemPrompt,
 			ToolAllow:    append([]string(nil), v.ToolAllow...),
