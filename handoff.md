@@ -262,7 +262,7 @@ The rule for all of these phases is the same:
 
 ### Active Phase
 
-Phase E: reassess whether any DB-facing plugin capability is still necessary now that notifications, state storage, and auth directory services exist.
+Capability roadmap complete through Phase E. No general DB-facing plugin capability is approved; keep raw DB access limited to the existing memory-provider build context until a concrete extension need proves a narrower service is required.
 
 ### Phase 1: Finish host unification
 
@@ -829,3 +829,22 @@ This is a real second migration, not a cleanup detail. It should only start afte
 - Verification is in progress for the full repository test suite.
 - Safe to remove next:
   - any remaining code that treats plugin operations as valid without `pluginhost`
+
+### 2026-04-08 — DB capability decision
+
+- Finished the capability roadmap reassessment after adding:
+  - run lifecycle hooks
+  - notification service
+  - plugin state storage
+  - auth directory lookups
+- Decided not to add any general DB-facing capability to `pkg/plugins.ServiceHost`.
+- The only remaining raw DB surface is the existing memory-provider build input:
+  - `pkg/plugins.MemoryContext.DB`
+- That DB handle remains a narrow construction-time exception for memory implementations, not a general extension service.
+- Future extension data needs should prefer:
+  - plugin state storage
+  - domain-specific repository services
+  - read-only query surfaces
+- Verified this decision against the current tree:
+  - there is no broader production plugin DB use outside memory construction
+  - no new code changes were required for this phase

@@ -40,6 +40,8 @@ type ChannelContext struct {
 }
 
 // MemoryContext is the narrow build context for memory capabilities.
+// DB is a construction-time exception for memory providers, not a general
+// plugin service surface.
 type MemoryContext struct {
 	Services     ServiceHost
 	State        PluginState

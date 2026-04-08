@@ -487,7 +487,20 @@ The host should remain the owner of policy.
 
 Only after Phases A-D are in place should the platform decide whether any DB-facing extension capability is still necessary.
 
-If a DB capability is needed, prefer:
+Decision:
+
+- do not add a general DB capability to `pkg/plugins.ServiceHost`
+- keep raw DB access out of normal extension services
+- keep `MemoryContext.DB` as a narrow construction-time exception for memory-provider implementations
+
+The current platform surface is sufficient for normal extension behavior:
+
+- prompt contributions and per-run hooks
+- notifications
+- plugin-owned state storage
+- auth directory lookups
+
+If a future data-access need appears, prefer:
 
 - domain-specific repository services
 - read-only query surfaces
