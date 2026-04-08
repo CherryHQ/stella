@@ -10,38 +10,10 @@ import (
 )
 
 type TelegramConfig = pkgchannel.TelegramConfig
-
-type QQConfig struct {
-	AppID        string `json:"app_id"`
-	AppSecret    string `json:"app_secret"`
-	GroupMode    string `json:"group_mode"`
-	EnableNotify bool   `json:"enable_notify"`
-}
-
-type FeishuConfig struct {
-	AppID             string                 `json:"app_id"`
-	AppSecret         string                 `json:"app_secret"`
-	EncryptKey        string                 `json:"encrypt_key"`
-	VerificationToken string                 `json:"verification_token"`
-	GroupMode         string                 `json:"group_mode"`
-	Groups            map[string]FeishuGroup `json:"groups"`
-	EnableNotify      bool                   `json:"enable_notify"`
-}
-
-type FeishuGroup struct {
-	GroupMode    string   `json:"group_mode"`
-	SystemPrompt string   `json:"system_prompt"`
-	ToolAllow    []string `json:"tool_allow"`
-	ToolDeny     []string `json:"tool_deny"`
-}
-
-type WeixinConfig struct {
-	BotToken     string `json:"bot_token"`
-	BaseURL      string `json:"base_url"`
-	BotID        string `json:"bot_id"`
-	UserID       string `json:"user_id"`
-	EnableNotify bool   `json:"enable_notify"`
-}
+type QQConfig = pkgchannel.QQConfig
+type FeishuConfig = pkgchannel.FeishuConfig
+type FeishuGroup = pkgchannel.FeishuGroup
+type WeixinConfig = pkgchannel.WeixinConfig
 
 type channelConfigAccess struct {
 	hasValid      func(config.Store, string) bool
