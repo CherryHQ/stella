@@ -242,6 +242,83 @@ Success condition for this phase:
 - less wiring logic mixed with domain behavior
 - no new architecture debt introduced while cleaning code shape
 
+## Extension Design Gap Analysis
+
+Re-checked `extension-design.md` against the current codebase. The repo now satisfies the old migration invariants, but it still does **not** satisfy the design's ownership rule:
+
+- no repo-owned plugin behavior should live under `internal/...`
+- host discovery should not depend on extension-specific registration paths
+- one ownership unit should carry all of an extension's contributions
+
+Current mismatches:
+
+1. `reflect` still lives in `internal/reflect`.
+   - Runtime, config schema/defaults, reviewer logic, watermarking, and service orchestration are still owned by an internal package.
+   - `internal/pluginhost/reflect.go` is an extension-specific host registration path.
+
+2. `qq`, `feishu`, and `weixin` are split across `plugins/...` and `internal/...`.
+   - Bot/channel implementations live in `plugins/channels/{qq,feishu,weixin}`.
+   - Managed runtime wrappers, plugin IDs, config schema helpers, and decode/redact logic still live in `internal/channel/*_plugin_runtime.go`.
+   - `internal/pluginhost/{qq,feishu,weixin}.go` is still hardcoded per-extension registration logic.
+
+3. `internal/channel/host_backed.go` still hardcodes the host-backed channel plugin list.
+   - That should be discoverable from registered extension metadata/contributions instead of a second static list.
+
+4. The host contract is still plugin-centric rather than the final design's single-extension manifest/contribution model.
+   - `pkg/plugins` still exposes per-kind registration structs.
+   - IDs are still `kind/name` rather than the design's flat extension ID plus derived contribution IDs.
+   - This is a larger model migration than the ownership cleanup above.
+
+## Full Adoption Plan
+
+To fully adopt the design goal that no repo-owned plugin behavior remains in `internal/...`, the work should proceed in this order:
+
+### Phase A: Move repo-owned extensions out of `internal/...`
+
+1. Move `reflect` ownership into `plugins/reflect`.
+   - Keep only app-private composition helpers in internal packages.
+   - If reusable helpers emerge, move them to `pkg/...` first, then move the extension package.
+
+2. Move QQ/Feishu/Weixin plugin-owned runtime/config code out of `internal/channel`.
+   - Create self-owned plugin registration/runtime files in:
+     - `plugins/channels/qq`
+     - `plugins/channels/feishu`
+     - `plugins/channels/weixin`
+   - Leave only shared channel orchestration helpers in `internal/...` or `pkg/...` depending on stability.
+
+3. Delete extension-specific host registration entry points after those moves:
+   - `internal/pluginhost/RegisterReflect`
+   - `internal/pluginhost/RegisterQQ`
+   - `internal/pluginhost/RegisterFeishu`
+   - `internal/pluginhost/RegisterWeixin`
+
+4. Remove `internal/channel/host_backed.go` as a source of truth.
+   - Replace it with discovery derived from host metadata/contributions.
+
+### Phase B: Finish host discovery cleanup
+
+1. Ensure `LoadDefaultCatalog()` plus blank imports is the only repo-extension discovery path.
+2. Remove any remaining extension-specific branching in admin/CLI/bootstrap that depends on hardcoded plugin IDs when the host can infer the same information.
+
+### Phase C: Decide whether to do the literal model rewrite from the design doc
+
+This is separate from the ownership cleanup above. It includes:
+
+- moving from plugin-centric naming to extension-centric naming
+- replacing `kind/name` IDs with flat extension IDs plus derived contribution IDs
+- collapsing the public registration model toward one extension manifest + contribution set
+
+This is a real second migration, not a cleanup detail. It should only start after Phase A and Phase B are done, otherwise the repo will be changing ownership layout and core model semantics at the same time.
+
+## Immediate Implementation Order
+
+1. Finish cleaning `internal/reflect`, then move it into `plugins/reflect`.
+2. Extract and move QQ plugin-owned runtime/config code into `plugins/channels/qq`.
+3. Do the same for Feishu.
+4. Do the same for Weixin.
+5. Delete hardcoded pluginhost registration shims and static host-backed channel lists.
+6. Re-evaluate whether to do the full naming/ID/interface rewrite from `extension-design.md`.
+
 ### 2026-04-08 — channel config helper extraction
 
 - Moved generic channel plugin config decode/clone helpers from `internal/channel` into `pkg/channel`.
