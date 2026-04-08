@@ -95,23 +95,17 @@ func (b *Bot) handleText(msg WeixinMessage, text string) {
 	incoming := b.incomingMsg(msg, channel.TextContent(text))
 
 	// Handle plugin-local commands first.
-	fields := strings.Fields(text)
-	if len(fields) > 0 {
-		cmd := strings.ToLower(fields[0])
-		args := channel.ParseCommandArgs(text, fields[0])
-
-		switch cmd {
-		case "/model":
-			b.handleModelCommand(args, reply)
-			return
-		case "/agent":
-			b.handleAgentCommand(msg, args, reply)
-			return
-		}
+	cmd, args := channel.ParseSlashCommand(text)
+	switch cmd {
+	case "/model":
+		b.handleModelCommand(args, reply)
+		return
+	case "/agent":
+		b.handleAgentCommand(msg, args, reply)
+		return
 	}
 
 	// Delegate to coordinator (shared commands + chat streaming).
-	cmd, args := parseWeixinCommand(text)
 	b.handleIncoming(msg, incoming, cmd, args)
 }
 
@@ -246,80 +240,30 @@ func (b *Bot) handleIncoming(msg WeixinMessage, incoming channel.IncomingMessage
 }
 
 // handleModelCommand processes /model with optional arguments.
-// No args → list models; text with "/" → switch by name; text → filter.
 func (b *Bot) handleModelCommand(args string, reply func(string)) {
-	query := channel.ParseModelArgs(args)
-
-	// If the query looks like "provider/model", try switching directly.
-	if query != "" && strings.Contains(query, "/") {
-		b.switchModelByName(query, reply)
-		return
-	}
-
-	models := b.modelList(query)
-	if len(models) == 0 {
-		if query != "" {
-			reply(fmt.Sprintf("No models matching %q.", query))
-		} else {
-			reply("No models configured.")
-		}
-		return
-	}
-	reply(channel.FormatModelList(models, query))
-}
-
-// modelList returns models optionally filtered by query.
-func (b *Bot) modelList(query string) []channel.IndexedModel {
-	models := b.handler.ListModels()
-	if query == "" {
-		return channel.IndexModels(models)
-	}
-	return channel.FilterModels(models, query)
-}
-
-// switchModelByName handles model switching by "provider/model" name.
-func (b *Bot) switchModelByName(name string, reply func(string)) {
-	selected, ok := channel.FindModelByName(b.handler.ListModels(), name)
-	if !ok {
-		reply(fmt.Sprintf("Unknown model %q, use /model to list available models.", name))
-		return
-	}
-
-	if err := b.handler.SwitchModel(selected.Provider, selected.Model); err != nil {
-		reply(fmt.Sprintf("Error switching model: %v", err))
-		return
-	}
-	logger().Info("model switched", "provider", selected.Provider, "model", selected.Model)
-	reply(fmt.Sprintf("Switched to %s/%s. Session reset.", selected.Provider, selected.Model))
+	channel.HandleModelCommand(channel.ModelCommandHandler{
+		Args:        args,
+		Reply:       reply,
+		ListModels:  b.handler.ListModels,
+		SwitchModel: b.handler.SwitchModel,
+		OnSwitched: func(selected channel.ModelOption) {
+			logger().Info("model switched", "provider", selected.Provider, "model", selected.Model)
+		},
+	})
 }
 
 // handleAgentCommand processes /agent with optional arguments.
 func (b *Bot) handleAgentCommand(msg WeixinMessage, args string, reply func(string)) {
-	incoming := b.incomingMsg(msg, nil)
-
-	// Direct switch by slug.
-	if args != "" {
-		if err := b.handler.SwitchAgent(context.Background(), incoming, args); err != nil {
-			reply(fmt.Sprintf("Error switching agent: %v", err))
-			return
-		}
-		logger().Info("agent switched", "agent_id", args)
-		reply(fmt.Sprintf("Switched to agent: %s", args))
-		return
-	}
-
-	agents, currentAgentID, err := b.handler.ListAgents(context.Background(), incoming)
-	if err != nil {
-		reply(fmt.Sprintf("Error listing agents: %v", err))
-		return
-	}
-	if len(agents) == 0 {
-		reply("No agents available.")
-		return
-	}
-
-	indexed := channel.IndexAgents(agents)
-	reply(channel.FormatAgentList(indexed, currentAgentID))
+	channel.HandleAgentCommand(channel.AgentCommandHandler{
+		Incoming:    b.incomingMsg(msg, nil),
+		Args:        args,
+		Reply:       reply,
+		ListAgents:  b.handler.ListAgents,
+		SwitchAgent: b.handler.SwitchAgent,
+		OnSwitched: func(agentID string) {
+			logger().Info("agent switched", "agent_id", agentID)
+		},
+	})
 }
 
 // sendReply sends a text reply to the message sender using the cached context_token.
@@ -347,15 +291,4 @@ func (b *Bot) sendReply(msg WeixinMessage, text string) {
 	if err := b.client.SendMessage(reply, ""); err != nil {
 		logger().Error("send reply failed", "user_id", msg.FromUserID, "error", err)
 	}
-}
-
-// parseWeixinCommand extracts command and args from text.
-func parseWeixinCommand(text string) (string, string) {
-	fields := strings.Fields(text)
-	if len(fields) == 0 || !strings.HasPrefix(fields[0], "/") {
-		return "", ""
-	}
-	cmd := fields[0]
-	args := channel.ParseCommandArgs(text, cmd)
-	return cmd, args
 }

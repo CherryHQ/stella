@@ -139,27 +139,22 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	// Handle plugin-local commands first.
 	if text != "" {
-		fields := strings.Fields(text)
-		if len(fields) > 0 {
-			cmd := fields[0]
-			args := channel.ParseCommandArgs(text, cmd)
-
-			switch strings.ToLower(cmd) {
-			case "/auth":
-				replyFn("The /auth command was removed. Feishu workspace OAuth is no longer supported. If you need Lark workspace access, install a lark-cli skill and run `lark-cli auth login --recommend`.")
-				return nil
-			case "/model":
-				b.handleModelCommand(args, replyFn)
-				return nil
-			case "/agent":
-				b.handleAgentCommand(incoming, args, replyFn)
-				return nil
-			}
+		cmd, args := channel.ParseSlashCommand(text)
+		switch cmd {
+		case "/auth":
+			replyFn("The /auth command was removed. Feishu workspace OAuth is no longer supported. If you need Lark workspace access, install a lark-cli skill and run `lark-cli auth login --recommend`.")
+			return nil
+		case "/model":
+			b.handleModelCommand(args, replyFn)
+			return nil
+		case "/agent":
+			b.handleAgentCommand(incoming, args, replyFn)
+			return nil
 		}
 	}
 
 	// Parse command for coordinator (shared commands + chat streaming).
-	cmd, args := parseFeishuCommand(text)
+	cmd, args := channel.ParseSlashCommand(text)
 	go b.handleIncoming(incoming, cmd, args, openID, chatID, messageID, rootID, replyFn)
 	return nil
 }
@@ -442,17 +437,6 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, openID, cha
 	}
 
 	logger().Debug("response sent", "open_id", openID, "response_len", len(response), "images", len(images))
-}
-
-// parseFeishuCommand extracts command and args from text.
-func parseFeishuCommand(text string) (string, string) {
-	fields := strings.Fields(text)
-	if len(fields) == 0 || !strings.HasPrefix(fields[0], "/") {
-		return "", ""
-	}
-	cmd := fields[0]
-	args := channel.ParseCommandArgs(text, cmd)
-	return cmd, args
 }
 
 // replyText sends a text reply to a message.
