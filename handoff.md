@@ -254,6 +254,17 @@ The rule for all of these phases is the same:
 
 Phase D: add identity/auth capability so plugins can resolve users and permission-sensitive identity information without importing auth or DB packages.
 
+Phase D design:
+
+- add a narrow auth directory service to `pkg/plugins.ServiceHost`
+- expose only:
+  - `GetUser(...)`
+  - `ListUserIdentities(...)`
+  - `GetIdentityByPlatform(...)`
+- include role and active-status metadata in the public user type
+- do not expose the full policy engine yet
+- migrate `internal/notify` to the new service so identity routing stops depending on `internal/auth`
+
 ### Phase 1: Finish host unification
 
 1. Remove the remaining builder fallback dependence on legacy registries where possible.

@@ -235,6 +235,30 @@ type PluginStateStore interface {
 This is strong enough for plugin-owned runtime state, cursors, and watermarks,
 while keeping schema, migrations, and DB policy host-owned.
 
+Identity and auth access should also start as a narrow host-owned directory,
+not as a full export of the policy engine.
+
+The first shape should be:
+
+```go
+type AuthService interface {
+	GetUser(ctx context.Context, userID int64) (UserInfo, error)
+	ListUserIdentities(ctx context.Context, userID int64) ([]LinkedIdentity, error)
+	GetIdentityByPlatform(ctx context.Context, platform, externalID string) (LinkedIdentity, error)
+}
+```
+
+Rules:
+
+- expose the service through `pkg/plugins.ServiceHost`
+- include enough user metadata for role-aware behavior, but not the full auth engine
+- do not expose `internal/auth`
+- do not expose direct DB-backed auth stores to plugins
+
+This is enough for plugin-owned routing, user-aware behavior, and identity
+lookup, while leaving policy evaluation as a later deliberate capability if it
+turns out to be necessary.
+
 ## What Should Stay Internal
 
 `internal/extensionhost` is still valid in the final state.
