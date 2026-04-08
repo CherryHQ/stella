@@ -23,7 +23,7 @@ type Config struct {
 	DB        *sql.DB
 	Memory    memory.Provider
 	Store     pkgplugins.ReflectStore
-	Notifier  pkgplugins.ReflectNotifier
+	Notifier  pkgplugins.NotificationService
 	Workspace string
 	Interval  time.Duration
 	Batch     int
@@ -41,7 +41,7 @@ type watermarker interface {
 type Service struct {
 	memory    memory.Provider
 	store     pkgplugins.ReflectStore
-	notifier  pkgplugins.ReflectNotifier
+	notifier  pkgplugins.NotificationService
 	wm        watermarker
 	workspace string
 	interval  time.Duration

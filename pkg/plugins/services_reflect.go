@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/vaayne/anna/pkg/ai"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/memory"
 	"github.com/vaayne/anna/pkg/providers"
 )
@@ -91,17 +90,12 @@ type ReflectStore interface {
 	Snapshot(ctx context.Context, agentID string) (*ReflectSnapshot, error)
 }
 
-type ReflectNotifier interface {
-	NotifyUser(ctx context.Context, userID int64, n pkgchannel.Notification) error
-}
-
 type ReflectRuntimeServices interface {
 	ParentContext() context.Context
 	DB() *sql.DB
 	Memory() memory.Provider
 	Store() ReflectStore
 	Workspace() string
-	Notifications() ReflectNotifier
 	BuildProviders(api, apiKey, baseURL string) (*providers.Registry, error)
 }
 

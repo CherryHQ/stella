@@ -13,6 +13,27 @@ import (
 	"github.com/vaayne/anna/pkg/providers"
 )
 
+// WithNotificationService injects the narrow notification service available to plugins.
+func WithNotificationService(service pkgplugins.NotificationService) Option {
+	return func(h *Host) {
+		h.notifications = service
+	}
+}
+
+// SetNotificationService updates the notification service extension after host construction.
+func (h *Host) SetNotificationService(service pkgplugins.NotificationService) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.notifications = service
+}
+
+// Notifications returns the injected notification service, if any.
+func (h *Host) Notifications() pkgplugins.NotificationService {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.notifications
+}
+
 // WithChannelRuntimeServices injects the narrow services used by managed channel runtimes.
 func WithChannelRuntimeServices(services pkgplugins.ChannelRuntimeServices) Option {
 	return func(h *Host) {
@@ -101,7 +122,6 @@ type ReflectRuntimeServices struct {
 	memory         memory.Provider
 	store          config.Store
 	workspace      string
-	notifications  pkgplugins.ReflectNotifier
 	buildProviders func(api, apiKey, baseURL string) (*providers.Registry, error)
 }
 
@@ -109,7 +129,7 @@ func NewReflectRuntimeServices() *ReflectRuntimeServices {
 	return &ReflectRuntimeServices{}
 }
 
-func (s *ReflectRuntimeServices) Set(parent context.Context, db *sql.DB, mem memory.Provider, store config.Store, workspace string, notifications pkgplugins.ReflectNotifier, buildProviders func(api, apiKey, baseURL string) (*providers.Registry, error)) {
+func (s *ReflectRuntimeServices) Set(parent context.Context, db *sql.DB, mem memory.Provider, store config.Store, workspace string, buildProviders func(api, apiKey, baseURL string) (*providers.Registry, error)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.parent = parent
@@ -117,7 +137,6 @@ func (s *ReflectRuntimeServices) Set(parent context.Context, db *sql.DB, mem mem
 	s.memory = mem
 	s.store = store
 	s.workspace = workspace
-	s.notifications = notifications
 	s.buildProviders = buildProviders
 }
 
@@ -152,12 +171,6 @@ func (s *ReflectRuntimeServices) Workspace() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.workspace
-}
-
-func (s *ReflectRuntimeServices) Notifications() pkgplugins.ReflectNotifier {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.notifications
 }
 
 func (s *ReflectRuntimeServices) BuildProviders(api, apiKey, baseURL string) (*providers.Registry, error) {

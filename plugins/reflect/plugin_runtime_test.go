@@ -150,9 +150,6 @@ func (fakeReflectRuntimeServices) DB() *sql.DB                      { return nil
 func (fakeReflectRuntimeServices) Memory() memory.Provider          { return nil }
 func (fakeReflectRuntimeServices) Store() pkgplugins.ReflectStore   { return nil }
 func (fakeReflectRuntimeServices) Workspace() string                { return "" }
-func (fakeReflectRuntimeServices) Notifications() pkgplugins.ReflectNotifier {
-	return nil
-}
 func (fakeReflectRuntimeServices) BuildProviders(string, string, string) (*providers.Registry, error) {
 	return nil, nil
 }

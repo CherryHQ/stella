@@ -70,10 +70,11 @@ func setupAdmin(t *testing.T) *testEnv {
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher)
 	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
-	reflectRuntimeServices.Set(context.Background(), db, mem, store, t.TempDir(), dispatcher, func(api, apiKey, baseURL string) (*providers.Registry, error) {
+	reflectRuntimeServices.Set(context.Background(), db, mem, store, t.TempDir(), func(api, apiKey, baseURL string) (*providers.Registry, error) {
 		return providers.NewRegistry(), nil
 	})
 	phost := pluginhost.New(store,
+		pluginhost.WithNotificationService(dispatcher),
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
 		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
 	)
