@@ -205,9 +205,42 @@ The migration target from `extension-design.md` is now implemented for the in-re
 
 ## Next Steps
 
-1. Expand schema coverage to the remaining managed plugins if admin should become fully schema-driven.
-2. Revisit whether the blank-import bootstrap should remain the permanent built-in discovery mechanism, or whether a generated catalog is worth the extra complexity later.
-3. Treat any further work here as normal product cleanup, not migration debt: the package-boundary and single-host invariants are already satisfied.
+The migration is done, but the cleanup is not. The next mandate is to clean the remaining app-private orchestration packages until they are small, obvious, and boring:
+
+1. Clean `internal/reflect` first.
+   - Split review orchestration, config/runtime wiring, provider setup, and persistence-facing logic into narrower units.
+   - Keep only app-private composition in `internal/reflect`; move reusable data/contracts out if they are stable.
+2. Clean `internal/channel` next.
+   - Separate channel lifecycle, notification dispatch, identity/linking, CLI wiring, and host-backed runtime adapters.
+   - Reduce the package so it is no longer a broad “everything channel-related” bucket.
+3. Clean adjacent orchestration packages after that:
+   - `internal/admin`
+   - `internal/scheduler`
+   - `cmd/anna`
+4. Revisit the blank-import bootstrap only after the internal cleanup work stops uncovering structural changes.
+
+Rules for the cleanup phase:
+
+- No fallback code.
+- No compatibility layers just to preserve old shapes.
+- Prefer splitting large packages into smaller internal packages over adding more files to the same broad package.
+- If a helper is stable and reused across package boundaries, move it to `pkg/...`; otherwise keep it internal and local.
+- Each cleanup slice should be a coherent phase with tests green and its own commit.
+
+Suggested cleanup order after the current schema/admin work:
+
+1. `internal/reflect`
+2. `internal/channel`
+3. scheduler/notification plumbing
+4. `internal/admin`
+5. `cmd/anna`
+
+Success condition for this phase:
+
+- fewer cross-package responsibilities hidden inside broad `internal/...` packages
+- smaller package APIs
+- less wiring logic mixed with domain behavior
+- no new architecture debt introduced while cleaning code shape
 
 ### 2026-04-08 — channel config helper extraction
 
