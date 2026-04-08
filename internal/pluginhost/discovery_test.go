@@ -6,10 +6,10 @@ import (
 
 	internalchannel "github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
-	internalreflect "github.com/vaayne/anna/internal/reflect"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgmcp "github.com/vaayne/anna/pkg/mcp"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	reflectplugin "github.com/vaayne/anna/plugins/reflect"
 	_ "github.com/vaayne/anna/plugins/tools/mcp"
 )
 
@@ -194,7 +194,12 @@ func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T)
 	host.RegisterQQ(QQDeps{})
 	host.RegisterFeishu(FeishuDeps{})
 	host.RegisterWeixin(WeixinDeps{})
-	host.RegisterReflect(ReflectDeps{})
+	reflectPlugin, ok := pkgplugins.Get(reflectplugin.PluginID)
+	if !ok {
+		t.Fatalf("missing plugin %q", reflectplugin.PluginID)
+	}
+	host.RegisterPluginID(reflectplugin.PluginID)
+	reflectPlugin.Register(host)
 
 	plugins, err := host.ListAdminVisiblePlugins(context.Background())
 	if err != nil {
@@ -209,7 +214,7 @@ func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T)
 		internalchannel.QQPluginID,
 		internalchannel.FeishuPluginID,
 		internalchannel.WeixinPluginID,
-		internalreflect.PluginID,
+		reflectplugin.PluginID,
 	} {
 		entry, ok := seen[pluginID]
 		if !ok {

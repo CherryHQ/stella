@@ -2,16 +2,12 @@ package reflect
 
 import (
 	"context"
-	"database/sql"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/internal/channel"
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/providers"
 )
 
 type serviceRunner interface {
@@ -19,14 +15,8 @@ type serviceRunner interface {
 }
 
 type RuntimeDeps struct {
-	Parent     context.Context
-	DB         *sql.DB
-	Memory     memory.Provider
-	Store      config.Store
-	Notifier   *channel.Dispatcher
-	Workspace  string
+	Services   pkgplugins.ReflectRuntimeServices
 	Log        *slog.Logger
-	Providers  func(api, apiKey, baseURL string) (*providers.Registry, error)
 	NewService func(Config) serviceRunner
 	Now        func() time.Time
 }
@@ -43,9 +33,6 @@ type managedRuntime struct {
 func NewManagedRuntime(deps RuntimeDeps) pkgplugins.ManagedRuntime {
 	if deps.Log == nil {
 		deps.Log = slog.Default()
-	}
-	if deps.Parent == nil {
-		deps.Parent = context.Background()
 	}
 	if deps.NewService == nil {
 		deps.NewService = func(cfg Config) serviceRunner { return New(cfg) }
@@ -64,6 +51,9 @@ func NewManagedRuntime(deps RuntimeDeps) pkgplugins.ManagedRuntime {
 }
 
 func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginState) error {
+	if r.deps.Services == nil {
+		return fmt.Errorf("reflect: runtime services unavailable")
+	}
 	cfg, err := DecodePluginConfig(desired.Config)
 	if err != nil {
 		return err
@@ -84,17 +74,21 @@ func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginSta
 	}
 
 	svc := r.deps.NewService(Config{
-		DB:        r.deps.DB,
-		Memory:    r.deps.Memory,
-		Store:     r.deps.Store,
-		Notifier:  r.deps.Notifier,
-		Workspace: r.deps.Workspace,
+		DB:        r.deps.Services.DB(),
+		Memory:    r.deps.Services.Memory(),
+		Store:     r.deps.Services.Store(),
+		Notifier:  r.deps.Services.Notifications(),
+		Workspace: r.deps.Services.Workspace(),
 		Interval:  cfg.Interval,
 		Batch:     cfg.Batch,
 		Log:       r.deps.Log,
-		Providers: r.deps.Providers,
+		Providers: r.deps.Services.BuildProviders,
 	})
-	rctx, stop := context.WithCancel(r.deps.Parent)
+	parent := r.deps.Services.ParentContext()
+	if parent == nil {
+		parent = context.Background()
+	}
+	rctx, stop := context.WithCancel(parent)
 	r.cancel = stop
 	r.snapshot = runtimeSnapshot(r.deps.Now(), pkgplugins.RuntimeStateRunning, "reflect running", cfg)
 	r.mu.Unlock()

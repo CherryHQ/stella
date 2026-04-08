@@ -22,6 +22,7 @@ type Host struct {
 	pluginIDs      map[string]struct{}
 	metadataRegs   map[string]pkgplugins.PluginMeta
 	channelRuntime pkgplugins.ChannelRuntimeServices
+	reflectRuntime pkgplugins.ReflectRuntimeServices
 	toolRegs       map[string]pkgplugins.ToolRegistration
 	providerRegs   map[string]pkgplugins.ProviderRegistration
 	hookRegs       map[string]pkgplugins.HookRegistration

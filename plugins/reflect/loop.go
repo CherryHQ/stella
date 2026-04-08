@@ -7,8 +7,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/pkg/memory"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 // Start runs the review loop. Blocks until ctx is cancelled.
@@ -68,7 +68,7 @@ func (s *Service) runCycle(ctx context.Context) {
 	expireDrafts(s.workspace, defaultDraftMaxAge, s.log)
 }
 
-func (s *Service) reviewAgent(ctx context.Context, snap *config.Snapshot) (int, error) {
+func (s *Service) reviewAgent(ctx context.Context, snap *pkgplugins.ReflectSnapshot) (int, error) {
 	sm, ok := s.memory.(memory.SessionManager)
 	if !ok {
 		return 0, nil
