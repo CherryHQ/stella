@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	internalchannel "github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
+	internalnotify "github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/pluginhost"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
@@ -14,7 +14,7 @@ import (
 func TestSelfRegisteredTelegramPluginIsComplete(t *testing.T) {
 	host := pluginhost.New(newStubStore())
 	services := pluginhost.NewChannelRuntimeServices()
-	services.Set(context.Background(), fakeChannelHandler{}, internalchannel.NewDispatcher())
+	services.Set(context.Background(), fakeChannelHandler{}, internalnotify.NewDispatcher())
 	host.SetChannelRuntimeServices(services)
 
 	if err := host.LoadDefaultCatalog(); err != nil {
@@ -45,7 +45,7 @@ func TestSelfRegisteredTelegramPluginAppliesAndReportsStatus(t *testing.T) {
 
 	host := pluginhost.New(store)
 	services := pluginhost.NewChannelRuntimeServices()
-	dispatcher := internalchannel.NewDispatcher()
+	dispatcher := internalnotify.NewDispatcher()
 	services.Set(context.Background(), fakeChannelHandler{}, dispatcher)
 	host.SetChannelRuntimeServices(services)
 

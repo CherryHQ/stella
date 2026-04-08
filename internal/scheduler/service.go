@@ -11,8 +11,8 @@ import (
 
 	"github.com/go-co-op/gocron/v2"
 	"github.com/google/uuid"
-	"github.com/vaayne/anna/internal/channel"
 	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/pkg/db/sqlc"
 )
 
@@ -44,7 +44,7 @@ type Service struct {
 	// Heartbeat (optional, configured via SetHeartbeat).
 	heartbeatCfg      *HeartbeatConfig
 	heartbeatChat     ChatFunc
-	heartbeatNotifier channel.Notifier
+	heartbeatNotifier notify.Notifier
 }
 
 // New creates a scheduler service backed by the given database.

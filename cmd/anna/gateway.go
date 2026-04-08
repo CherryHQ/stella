@@ -19,6 +19,7 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/scheduler"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/providers"
@@ -239,7 +240,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 // wireSchedulerNotifier overrides the scheduler callback to collect the agent response
 // and dispatch it via the notification dispatcher. User-owned jobs notify only their
 // owner; system jobs (user_id=0) broadcast to all channels.
-func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolManager, defaultPool *agent.Pool, dispatcher *channel.Dispatcher) {
+func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolManager, defaultPool *agent.Pool, dispatcher *notify.Dispatcher) {
 	schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) {
 		pool := defaultPool
 		if job.AgentID != "" {
@@ -263,7 +264,7 @@ func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolM
 		}
 		if result.Len() > 0 {
 			text := fmt.Sprintf("*%s*\n\n%s", job.Name, result.String())
-			n := channel.Notification{Text: text}
+			n := pkgchannel.Notification{Text: text}
 			var err error
 			if job.UserID != 0 {
 				// User-owned job: notify only the owner.

@@ -16,6 +16,7 @@ import (
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/pluginhost"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgmcp "github.com/vaayne/anna/pkg/mcp"
@@ -67,7 +68,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("Build lcm provider: %v", err)
 	}
-	dispatcher := channel.NewDispatcher()
+	dispatcher := notify.NewDispatcher()
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher)
 	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()

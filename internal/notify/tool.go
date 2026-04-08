@@ -1,23 +1,24 @@
-package channel
+package notify
 
 import (
 	"context"
 	"fmt"
 
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
-// NotifyTool is an agent tool that sends notifications via a Dispatcher.
-type NotifyTool struct {
+// Tool is an agent tool that sends notifications via a Dispatcher.
+type Tool struct {
 	dispatcher *Dispatcher
 }
 
-// NewNotifyTool creates a notify tool backed by the given dispatcher.
-func NewNotifyTool(dispatcher *Dispatcher) *NotifyTool {
-	return &NotifyTool{dispatcher: dispatcher}
+// NewTool creates a notify tool backed by the given dispatcher.
+func NewTool(dispatcher *Dispatcher) *Tool {
+	return &Tool{dispatcher: dispatcher}
 }
 
-var notifyInputSchema = map[string]any{
+var inputSchema = map[string]any{
 	"type": "object",
 	"properties": map[string]any{
 		"message": map[string]any{
@@ -40,15 +41,15 @@ var notifyInputSchema = map[string]any{
 	"required": []string{"message"},
 }
 
-func (t *NotifyTool) Definition() tools.Definition {
+func (t *Tool) Definition() tools.Definition {
 	return tools.Definition{
 		Name:        "notify",
 		Description: "Send a notification message to the user. Supports multiple backends (Telegram, Slack, etc.). Omit 'channel' to broadcast to all configured backends. Use this for proactive messages, alerts, scheduler summaries, or long-running task results.",
-		InputSchema: notifyInputSchema,
+		InputSchema: inputSchema,
 	}
 }
 
-func (t *NotifyTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	message, _ := args["message"].(string)
 	if message == "" {
 		return "", fmt.Errorf("message is required")
@@ -58,7 +59,7 @@ func (t *NotifyTool) Execute(ctx context.Context, args map[string]any) (string, 
 	chatID, _ := args["chat_id"].(string)
 	silent, _ := args["silent"].(bool)
 
-	err := t.dispatcher.Notify(ctx, Notification{
+	err := t.dispatcher.Notify(ctx, pkgchannel.Notification{
 		Channel: ch,
 		ChatID:  chatID,
 		Text:    message,

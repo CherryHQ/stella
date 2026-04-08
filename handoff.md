@@ -71,6 +71,7 @@ This handoff file is also the running implementation log for future sessions.
   - `plugins/channels/feishu`
   - `plugins/channels/weixin`
 - Removed the remaining static internal channel plugin registry; gateway/admin now derive channel runtime behavior from `pluginhost` registrations and canonical plugin IDs instead of `internal/channel/host_backed.go`.
+- Started `internal/channel` cleanup by moving notification dispatch and the notify tool into `internal/notify`, so channel orchestration no longer owns scheduler/gateway notification routing.
 
 ## Key Decisions
 
@@ -128,6 +129,7 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - Reflect runtime/config/status now live in `plugins/reflect`, discovered through the default catalog plus host-provided reflect services.
 - QQ, Feishu, and Weixin runtime/config/status now live in their plugin packages, discovered through the default catalog plus shared channel runtime services.
 - There are no remaining plugin-owned runtime/config packages under `internal/...`.
+- Notification dispatch, per-user notification routing, and the notify tool now live in `internal/notify` instead of `internal/channel`.
 - The old split registries are gone as runtime/discovery systems:
   - `plugins/providers`
   - `plugins/memory`
@@ -222,7 +224,8 @@ The plugin-ownership cleanup is done. The next mandate is ordinary app cleanup: 
 Recommended order:
 
 1. Clean `internal/channel`.
-   - Separate lifecycle, notification dispatch, identity/linking, and CLI-specific concerns.
+   - Notification dispatch is already moved to `internal/notify`.
+   - Next cuts are lifecycle, identity/linking, and CLI-specific concerns.
    - Keep using `pluginhost` discovery instead of reintroducing channel-specific registries or static lists.
 2. Clean `internal/admin`.
    - Reduce cross-handler coupling now that plugin and channel operations are uniformly host-backed.
@@ -482,6 +485,13 @@ This is a real second migration, not a cleanup detail. It should only start afte
 - Extracted QQ, Feishu, and Weixin persisted config types into `pkg/channel`.
 - Removed `internal/channel/host_backed.go`; gateway and admin now drive channel behavior from `pluginhost` registrations instead of an internal hardcoded plugin list.
 - Verified repeatedly with focused package tests and ran `go test ./...` successfully after each phase.
+
+### 2026-04-08 — notification dispatch extraction
+
+- Moved notification dispatch, per-user notification routing, and the notify tool from `internal/channel` into the new app-private package `internal/notify`.
+- Updated gateway setup, scheduler heartbeat/job delivery, admin tests, and Telegram plugin tests to use `internal/notify.Dispatcher` directly.
+- Deleted the old `internal/channel/notifier.go`, `internal/channel/notifier_test.go`, and `internal/channel/notify_tool.go` files.
+- Verified with focused tests for `internal/notify`, `internal/scheduler`, `plugins/channels/telegram`, `internal/admin`, and `cmd/anna`, then ran `go test ./...`.
 
 ## Session Log
 

@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/internal/notify"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
 const (
@@ -33,7 +34,7 @@ type Decision struct {
 }
 
 // SetHeartbeat configures the heartbeat on the scheduler service.
-func (s *Service) SetHeartbeat(cfg HeartbeatConfig, chat ChatFunc, notifier channel.Notifier) {
+func (s *Service) SetHeartbeat(cfg HeartbeatConfig, chat ChatFunc, notifier notify.Notifier) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.heartbeatCfg = &cfg
@@ -102,7 +103,7 @@ func (s *Service) heartbeatPoll(ctx context.Context) error {
 	}
 
 	text := "*Heartbeat*\n\n" + result
-	if err := notifier.Notify(ctx, channel.Notification{Text: text}); err != nil {
+	if err := notifier.Notify(ctx, pkgchannel.Notification{Text: text}); err != nil {
 		return fmt.Errorf("notify heartbeat result: %w", err)
 	}
 
