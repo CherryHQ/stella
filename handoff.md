@@ -73,6 +73,7 @@ This handoff file is also the running implementation log for future sessions.
 - Removed the remaining static internal channel plugin registry; gateway/admin now derive channel runtime behavior from `pluginhost` registrations and canonical plugin IDs instead of `internal/channel/host_backed.go`.
 - Started `internal/channel` cleanup by moving notification dispatch and the notify tool into `internal/notify`, so channel orchestration no longer owns scheduler/gateway notification routing.
 - Continued `internal/channel` cleanup by moving chat identity resolution, link-code handling, agent routing, and session-key resolution into `internal/chatroute`.
+- Continued `internal/channel` cleanup by moving store-backed channel config access into `internal/channelconfig`.
 
 ## Key Decisions
 
@@ -132,6 +133,7 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - There are no remaining plugin-owned runtime/config packages under `internal/...`.
 - Notification dispatch, per-user notification routing, and the notify tool now live in `internal/notify` instead of `internal/channel`.
 - Chat identity/linking and agent/session routing now live in `internal/chatroute` instead of `internal/channel`.
+- Store-backed channel config loading and validation now live in `internal/channelconfig` instead of `internal/channel`.
 - The old split registries are gone as runtime/discovery systems:
   - `plugins/providers`
   - `plugins/memory`
@@ -228,7 +230,8 @@ Recommended order:
 1. Clean `internal/channel`.
    - Notification dispatch is already moved to `internal/notify`.
    - Chat identity/linking and agent/session routing are already moved to `internal/chatroute`.
-   - Next cuts are lifecycle/config access and CLI-specific concerns.
+   - Store-backed channel config access is already moved to `internal/channelconfig`.
+   - Next cuts are lifecycle/coordinator shaping and CLI-specific concerns.
    - Keep using `pluginhost` discovery instead of reintroducing channel-specific registries or static lists.
 2. Clean `internal/admin`.
    - Reduce cross-handler coupling now that plugin and channel operations are uniformly host-backed.
@@ -503,6 +506,14 @@ This is a real second migration, not a cleanup detail. It should only start afte
 - Moved the routing and access regression tests from `internal/channel` into `internal/chatroute`.
 - Deleted the old `internal/channel/identity.go`, `internal/channel/linkcode.go`, `internal/channel/resolved.go`, and `internal/channel/agent_command.go` files.
 - Verified with focused tests for `internal/chatroute`, `internal/channel`, `plugins/channels/{telegram,qq,feishu,weixin}`, and `cmd/anna`.
+
+### 2026-04-08 — channel config access extraction
+
+- Moved store-backed channel config loading, validity checks, and notification-enable checks from `internal/channel` into the new app-private package `internal/channelconfig`.
+- Updated gateway and channel construction to use `internal/channelconfig` plus the public `pkg/channel` config types directly.
+- Updated admin Telegram runtime tests to stop depending on the removed `internal/channel` config aliases.
+- Deleted the old `internal/channel/config.go` and `internal/channel/config_test.go` files.
+- Verified with focused tests for `internal/channelconfig`, `internal/channel`, `internal/admin`, and `cmd/anna`.
 
 ## Session Log
 

@@ -18,6 +18,7 @@ import (
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/internal/channelconfig"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/scheduler"
@@ -154,13 +155,13 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// Configure channel hot-reload so the admin UI can start/stop channels.
 	adminSrv.SetChannelLifecycle(gctx,
 		func(name string) (pkgchannel.Channel, error) {
-			if !channel.HasValidConfig(s.store, name) {
+			if !channelconfig.HasValidConfig(s.store, name) {
 				return nil, fmt.Errorf("%s: missing or invalid config", name)
 			}
 			return buildChannel(name, coordinator, s.store)
 		},
 		func(name string, ch pkgchannel.Channel) {
-			if channel.IsNotifyEnabled(s.store, name) {
+			if channelconfig.IsNotifyEnabled(s.store, name) {
 				s.notifier.Register(ch)
 			}
 		},
@@ -175,7 +176,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		if err != nil || !plugin.Enabled {
 			continue
 		}
-		if channel.HasValidConfig(s.store, plugin.Name) {
+		if channelconfig.HasValidConfig(s.store, plugin.Name) {
 			hostBackedConfigured = true
 			break
 		}
