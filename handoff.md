@@ -137,7 +137,7 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - Chat identity/linking and agent/session routing now live in `internal/chatroute` instead of `internal/channel`.
 - Store-backed channel config loading and validation now live in `internal/channelconfig` instead of `internal/channel`.
 - Platform constants, model option aliases, and formatting helpers now come directly from `pkg/channel`; `internal/channel` no longer re-exports them.
-- The shared slash-command handler now lives in `internal/chatcommand`; `internal/channel` is down to the coordinator surface plus the CLI subpackage.
+- The shared slash-command handler now lives in `internal/chatcommand`; `internal/channel` is down to the coordinator surface.
 - The old split registries are gone as runtime/discovery systems:
   - `plugins/providers`
   - `plugins/memory`
@@ -237,7 +237,8 @@ Recommended order:
    - Store-backed channel config access is already moved to `internal/channelconfig`.
    - The pkg-channel re-export shim is already gone.
    - The shared slash-command handler is already moved to `internal/chatcommand`.
-   - Next cuts are lifecycle/coordinator shaping and CLI-specific concerns.
+   - The CLI package should no longer live under `internal/channel`.
+   - Next cuts are lifecycle/coordinator shaping after the CLI move.
    - Keep using `pluginhost` discovery instead of reintroducing channel-specific registries or static lists.
 2. Clean `internal/admin`.
    - Reduce cross-handler coupling now that plugin and channel operations are uniformly host-backed.
@@ -534,6 +535,12 @@ This is a real second migration, not a cleanup detail. It should only start afte
 - Updated the channel coordinator to call `internal/chatcommand.Handle(...)` instead of carrying the command logic in-package.
 - Deleted the old `internal/channel/command.go` and `internal/channel/command_test.go` files.
 - Verified with focused tests for `internal/chatcommand`, `internal/channel`, `internal/channel/cli`, and `cmd/anna`.
+
+### 2026-04-08 — CLI package extraction
+
+- Moved the terminal chat UI package from `internal/channel/cli` to `internal/chatcli`.
+- Updated the `anna chat` command to import `internal/chatcli` directly.
+- Left package internals unchanged; this phase only fixed package ownership so the remaining `internal/channel` package is coordinator-only.
 
 ## Session Log
 

@@ -6,7 +6,7 @@ import (
 	"syscall"
 
 	ucli "github.com/urfave/cli/v2"
-	clicmd "github.com/vaayne/anna/internal/channel/cli"
+	clicmd "github.com/vaayne/anna/internal/chatcli"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
