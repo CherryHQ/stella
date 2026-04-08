@@ -17,6 +17,8 @@ An extension may contribute multiple things:
 - channels
 - memory backends
 - managed runtimes
+- system prompt sections
+- run lifecycle hooks
 - prompt inventory
 - config schema
 - status
@@ -256,7 +258,90 @@ This is a host-side runtime contract used by repo extensions that own managed ba
 
 ## Prompt Integration
 
-Prompt contribution should stay inventory-based.
+Prompt integration should not be hardcoded in app code.
+
+The host owns prompt assembly. Extensions own prompt contributions.
+
+There are two distinct layers:
+
+1. **Declarative prompt sections**
+2. **Run lifecycle hooks**
+
+Do not collapse these into one mechanism.
+
+### Declarative Prompt Sections
+
+Prompt sections are for stable, structured prompt content contributed by an extension.
+
+Examples:
+
+- `skills` contributes a section that explains how to use the `skills` tool and what skills are available
+- `mcp` contributes a section that describes discovered MCP tools
+- a future repo-policy extension contributes a section with repository operating rules
+
+This should be modeled as a normal extension contribution, not as an app-owned special case.
+
+```go
+type SystemPromptSectionContribution struct {
+	Name string
+	Build func(ctx context.Context, build PromptContext) (PromptSection, error)
+}
+```
+
+Required rules:
+
+- the host decides whether the owning extension is enabled
+- the host gathers sections from enabled extensions
+- the host orders and renders the final prompt
+- extensions contribute content, not full-template ownership
+
+This is the right level for predictable, reusable prompt building.
+
+### Run Lifecycle Hooks
+
+Prompt sections are not enough for full extension power.
+
+Pi's `before_agent_start` model shows the missing class of behavior: some extensions need to react to a specific run, current prompt, or current runtime state.
+
+Anna should support a narrow lifecycle hook layer for those cases.
+
+The first high-value hook is:
+
+```go
+type BeforeRunHook interface {
+	BeforeRun(ctx context.Context, req RunRequest) (RunMutation, error)
+}
+```
+
+Where `RunMutation` can do a small set of things:
+
+- append or replace system prompt text for this run
+- inject structured context/messages for this run
+- optionally annotate run metadata for observability
+
+Do **not** start with a giant open-ended event bus. Start with a small set of run hooks that map to real needs.
+
+The ordering should be:
+
+1. base system prompt from agent config
+2. host-built declarative prompt sections from enabled extensions
+3. run hook mutations from enabled extensions
+4. final prompt sent to the runner
+
+This keeps the system understandable while still allowing extension-owned behavior.
+
+### Why Both Layers Exist
+
+If only declarative sections exist, extensions cannot adapt prompt behavior per run.
+
+If only runtime hooks exist, every stable prompt block becomes imperative code and prompt assembly becomes harder to reason about.
+
+The final model should keep both:
+
+- sections for stable owned prompt content
+- lifecycle hooks for dynamic run-time behavior
+
+That is the closest Anna equivalent to pi's extension power without copying pi's UI-specific runtime model.
 
 Extensions may contribute:
 
