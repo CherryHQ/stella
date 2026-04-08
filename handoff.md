@@ -72,11 +72,11 @@ This handoff file is also the running implementation log for future sessions.
   - `plugins/channels/weixin`
 - Removed the remaining static internal channel plugin registry; gateway/admin now derive channel runtime behavior from `pluginhost` registrations and canonical plugin IDs instead of `internal/channel/host_backed.go`.
 - Started `internal/channel` cleanup by moving notification dispatch and the notify tool into `internal/notify`, so channel orchestration no longer owns scheduler/gateway notification routing.
-- Continued `internal/channel` cleanup by moving chat identity resolution, link-code handling, agent routing, and session-key resolution into `internal/chatroute`.
-- Continued `internal/channel` cleanup by moving store-backed channel config access into `internal/channelconfig`.
+- Continued `internal/channel` cleanup by splitting chat identity resolution, link-code handling, agent routing, and session-key resolution into separate files.
+- Continued `internal/channel` cleanup by keeping store-backed channel config access in-package instead of a separate micro-package.
 - Continued `internal/channel` cleanup by removing the remaining pkg-channel re-export shim from `internal/channel`.
-- Continued `internal/channel` cleanup by moving the shared slash-command handler into `internal/chatcommand`.
-- Continued `internal/channel` cleanup by moving the terminal chat UI package into `internal/chatcli`, leaving `internal/channel` coordinator-only.
+- Continued `internal/channel` cleanup by keeping the shared slash-command handler in-package instead of a separate micro-package.
+- Continued `internal/channel` cleanup by moving the terminal chat UI package into `internal/chatcli`, leaving `internal/channel` as the single app-private home for channel interaction flow.
 - Started `internal/admin` cleanup by extracting route registration out of `server.go`.
 - Continued `internal/admin` cleanup by moving channel lifecycle management out of `server.go`.
 - Continued `internal/admin` cleanup by moving HTTP wrapper methods and JSON response helpers out of `server.go`.
@@ -138,10 +138,8 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - QQ, Feishu, and Weixin runtime/config/status now live in their plugin packages, discovered through the default catalog plus shared channel runtime services.
 - There are no remaining plugin-owned runtime/config packages under `internal/...`.
 - Notification dispatch, per-user notification routing, and the notify tool now live in `internal/notify` instead of `internal/channel`.
-- Chat identity/linking and agent/session routing now live in `internal/chatroute` instead of `internal/channel`.
-- Store-backed channel config loading and validation now live in `internal/channelconfig` instead of `internal/channel`.
+- Chat identity/linking, agent/session routing, shared channel commands, and store-backed channel config access now live together in `internal/channel`.
 - Platform constants, model option aliases, and formatting helpers now come directly from `pkg/channel`; `internal/channel` no longer re-exports them.
-- The shared slash-command handler now lives in `internal/chatcommand`; `internal/channel` is down to the coordinator surface.
 - The terminal chat UI now lives in `internal/chatcli`, not under `internal/channel`.
 - `internal/admin/server.go` is no longer the only place that owns route registration; registration now lives in `internal/admin/routes.go`.
 - `internal/admin/server.go` no longer owns channel start/stop lifecycle methods; those now live in `internal/admin/channel_lifecycle.go`.
@@ -551,7 +549,21 @@ This is a real second migration, not a cleanup detail. It should only start afte
 
 - Moved the terminal chat UI package from `internal/channel/cli` to `internal/chatcli`.
 - Updated the `anna chat` command to import `internal/chatcli` directly.
-- Left package internals unchanged; this phase only fixed package ownership so the remaining `internal/channel` package is coordinator-only.
+- Left package internals unchanged; this phase only fixed package ownership.
+
+### 2026-04-08 — channel balance reset
+
+- Reviewed the previous `internal/channel` split and decided the micro-packages added more navigation cost than architectural value.
+- Folded `internal/chatroute`, `internal/chatcommand`, and `internal/channelconfig` back into `internal/channel` while keeping the file-level split:
+  - `identity.go`
+  - `linkcode.go`
+  - `resolved_chat.go`
+  - `agent_switch.go`
+  - `commands.go`
+  - `config.go`
+- Kept `internal/notify` separate because it is genuinely cross-cutting runtime infrastructure, and kept `internal/chatcli` separate because it is a distinct terminal UI package.
+- Updated gateway/channel construction to use `internal/channel` directly again.
+- Verified with focused tests for `internal/channel` and `cmd/anna`, then ran `go test ./...`.
 
 ### 2026-04-08 — admin route registration extraction
 
