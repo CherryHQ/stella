@@ -317,6 +317,22 @@ The migration target from `extension-design.md` is now implemented for the in-re
 - Kept the specialized MCP editor intact, but moved its section guard to the canonical plugin ID instead of name matching.
 - Verified the combined backend and admin UI normalization with `go test ./...`.
 
+### 2026-04-08 — raw plugin config endpoint
+
+- Added `GET /api/plugin-config/{kind}/{name}` as an admin-only raw config read path backed by `pluginhost.Config().Get(...)`.
+- Kept `/api/plugins` redacted for discovery/list rendering, while making config editors able to fetch non-redacted values on demand.
+- Added admin regression coverage proving raw plugin config reads return the stored config instead of the redacted plugin-list view.
+
+### 2026-04-08 — schema-driven plugin config editor
+
+- Extended the admin plugins page with a generic schema-driven config editor for current non-MCP configurable plugins.
+- The page now:
+  - loads raw config only when an editor is opened
+  - maps schema fields to enums, booleans, scalar inputs, or JSON textareas for object/array fields
+  - saves through `PUT /api/plugin-config/{kind}/{name}` using the host-owned validation/apply path
+- Kept the existing MCP editor as the specialized path for `tool/mcp`; generic schema editing now covers the channel plugins and Reflect.
+- Verified the combined backend and UI behavior with another full `go test ./...` pass.
+
 ## Session Log
 
 ### 2026-04-08 — planning session
