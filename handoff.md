@@ -109,6 +109,17 @@ This handoff file is also the running implementation log for future sessions.
   - `internal/agent/runner` now supports a per-run system prompt override through context instead of mutating shared runner state
   - metadata validation now checks both prompt contributions and the new lifecycle capability instead of silently accepting undeclared holes
   - focused tests cover host lifecycle resolution and pool-level system prompt override behavior
+- Implemented Phase A2 of capability expansion:
+  - `pkg/plugins` now exposes `BeforeToolCallRegistration`, `BeforeToolCallContext`, `BeforeToolCallResult`, `AfterToolResultRegistration`, `AfterToolResultContext`, and `AfterToolResult`
+  - `internal/pluginhost` now resolves enabled tool lifecycle registrations through `BeforeToolCall(...)` and `AfterToolResult(...)`
+  - the shared agent loop now runs tool lifecycle in deterministic order:
+    - host-owned `BeforeToolCall`
+    - legacy `PreToolCall` hooks
+    - tool execution
+    - host-owned `AfterToolResult`
+    - legacy `PostToolCall` hooks
+  - nested subagents created by the `agent` tool inherit the same lifecycle path instead of bypassing pluginhost
+  - focused tests cover host lifecycle resolution, tool-loop mutation ordering, and subagent-compatible runner wiring
 - Implemented Phase B of capability expansion:
   - `pkg/plugins.ServiceHost` now exposes a generic `NotificationService`
   - `internal/pluginhost` now carries the app notification dispatcher as a host-owned service extension
@@ -262,15 +273,7 @@ The rule for all of these phases is the same:
 
 ### Active Phase
 
-Phase A2: add host-owned tool lifecycle registrations so plugins can intercept tool calls through `pluginhost` instead of depending on the legacy hook plugin system.
-
-Target shape:
-
-- `BeforeToolCall` registration for argument rewrite and blocking
-- `AfterToolResult` registration for result rewrite on the real execution path
-- deterministic ordering with the existing hook system:
-  - host lifecycle before old pre-tool hooks
-  - host lifecycle after execution but before old post-tool hooks
+Capability roadmap complete through Phase A2 and Phase E. The remaining extension-power gap is now optional higher-order work like provider-request hooks, not missing access to app internals.
 
 ### Phase 1: Finish host unification
 
@@ -856,3 +859,21 @@ This is a real second migration, not a cleanup detail. It should only start afte
 - Verified this decision against the current tree:
   - there is no broader production plugin DB use outside memory construction
   - no new code changes were required for this phase
+
+### 2026-04-08 — tool lifecycle hooks
+
+- Implemented host-owned tool lifecycle registrations:
+  - `BeforeToolCall`
+  - `AfterToolResult`
+- Added the new lifecycle contracts to `pkg/plugins` and host registration methods to `internal/pluginhost`.
+- Added a generic tool lifecycle layer to `pkg/agent` so the shared agent loop can apply host-owned lifecycle without importing plugin concepts directly.
+- Wired the real execution path in deterministic order:
+  - host lifecycle before old pre-tool hooks
+  - host lifecycle after execution but before old post-tool hooks
+- Propagated channel/session metadata into the runner context so lifecycle hooks see the real chat context.
+- Updated the nested `agent` tool so subagent loops inherit the same tool lifecycle behavior.
+- Added focused tests for:
+  - direct host resolution of before/after tool lifecycle
+  - lifecycle metadata validation
+  - tool-loop mutation and ordering
+- Verified the entire repository with `go test ./...`.
