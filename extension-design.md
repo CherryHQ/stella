@@ -183,6 +183,37 @@ Its responsibilities are:
 
 The host owns orchestration. It does not own extension behavior.
 
+## Host-Owned Services
+
+Extensions should gain power through narrow host services, not through direct
+imports of app-private packages.
+
+The next capability surfaces should be:
+
+- notifications
+- plugin state storage
+- identity/auth lookups
+- later, only if still justified, structured data access
+
+Notifications are the immediate next step. The shape should be:
+
+```go
+type NotificationService interface {
+	Notify(ctx context.Context, n channel.Notification) error
+	NotifyUser(ctx context.Context, userID int64, n channel.Notification) error
+}
+```
+
+Rules:
+
+- expose the service through `pkg/plugins.ServiceHost`
+- back it with app-owned routing inside `internal/pluginhost`
+- do not expose `internal/notify`
+- do not expose raw channel registries
+
+That gives extensions repo-level power to send user-visible events while
+keeping routing, identity preference, and delivery policy centralized.
+
 ## What Should Stay Internal
 
 `internal/extensionhost` is still valid in the final state.
