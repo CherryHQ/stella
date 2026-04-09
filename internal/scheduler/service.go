@@ -22,25 +22,26 @@ import (
 var errOneTimeJobPast = errors.New("one-time job timestamp is in the past")
 
 // OnJobFunc is called when a scheduled job fires.
-type OnJobFunc func(ctx context.Context, job Job)
+type OnJobFunc func(ctx context.Context, job Job) error
 
 // TaskFunc is a lightweight scheduled callback that is not persisted as a scheduled job.
 type TaskFunc func(ctx context.Context)
 
 // Service manages scheduled jobs backed by gocron/v2 with database persistence.
 type Service struct {
-	scheduler gocron.Scheduler
-	onJob     OnJobFunc
-	listeners []OnJobFunc
-	db        *sql.DB
-	q         *sqlc.Queries
-	ownsDB    bool            // true when Service opened the DB itself
-	dataPath  string          // legacy data dir for jobs.json migration
-	ctx       context.Context // lifecycle context from Start
-	mu        sync.Mutex
-	jobs      map[string]Job
-	gids      map[string]uuid.UUID // job ID -> gocron job UUID
-	log       *slog.Logger
+	scheduler       gocron.Scheduler
+	onJob           OnJobFunc
+	listeners       []OnJobFunc
+	db              *sql.DB
+	q               *sqlc.Queries
+	ownsDB          bool            // true when Service opened the DB itself
+	dataPath        string          // legacy data dir for jobs.json migration
+	ctx             context.Context // lifecycle context from Start
+	mu              sync.Mutex
+	jobs            map[string]Job
+	gids            map[string]uuid.UUID // job ID -> gocron job UUID
+	log             *slog.Logger
+	userJobsEnabled bool
 
 	// Heartbeat (optional, configured via SetHeartbeat).
 	heartbeatCfg      *HeartbeatConfig
@@ -56,12 +57,13 @@ func New(db *sql.DB) (*Service, error) {
 		return nil, fmt.Errorf("create scheduler: %w", err)
 	}
 	return &Service{
-		scheduler: s,
-		db:        db,
-		q:         sqlc.New(db),
-		jobs:      make(map[string]Job),
-		gids:      make(map[string]uuid.UUID),
-		log:       slog.With("component", "scheduler"),
+		scheduler:       s,
+		db:              db,
+		q:               sqlc.New(db),
+		jobs:            make(map[string]Job),
+		gids:            make(map[string]uuid.UUID),
+		log:             slog.With("component", "scheduler"),
+		userJobsEnabled: true,
 	}, nil
 }
 
@@ -85,6 +87,13 @@ func NewFromPath(dbPath string) (*Service, error) {
 // exist. If set, Start will attempt a one-time migration from file to DB.
 func (s *Service) SetLegacyDataPath(path string) {
 	s.dataPath = path
+}
+
+// SetUserJobsEnabled controls whether persisted user-owned scheduler jobs are loaded.
+func (s *Service) SetUserJobsEnabled(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.userJobsEnabled = enabled
 }
 
 // SetOnJob sets the primary callback invoked when a job fires.
@@ -121,6 +130,11 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 			s.log.Warn("failed to migrate legacy jobs.json", "error", err)
 		}
 	}
+	if loadPersisted {
+		if err := s.migrateLegacyPluginJobs(ctx); err != nil {
+			return fmt.Errorf("migrate legacy plugin jobs: %w", err)
+		}
+	}
 
 	var jobs []Job
 	var err error
@@ -136,6 +150,9 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 	if loadPersisted {
 		for _, j := range jobs {
 			s.jobs[j.ID] = j
+			if j.OwnerKind == JobOwnerUser && !s.userJobsEnabled {
+				continue
+			}
 			if j.Enabled {
 				if err := s.scheduleJob(ctx, j); err != nil {
 					if errors.Is(err, errOneTimeJobPast) {
@@ -202,37 +219,8 @@ func (s *Service) AddJob(name, message string, sched Schedule, sessionMode strin
 	if message == "" {
 		return Job{}, fmt.Errorf("message is required")
 	}
-	setCount := 0
-	if sched.Cron != "" {
-		setCount++
-	}
-	if sched.Every != "" {
-		setCount++
-	}
-	if sched.At != "" {
-		setCount++
-	}
-	if setCount == 0 {
-		return Job{}, fmt.Errorf("schedule requires one of cron, every, or at")
-	}
-	if setCount > 1 {
-		return Job{}, fmt.Errorf("schedule must have exactly one of cron, every, or at")
-	}
-
-	// Validate schedule before persisting.
-	if sched.Every != "" {
-		if _, err := time.ParseDuration(sched.Every); err != nil {
-			return Job{}, fmt.Errorf("invalid duration %q: %w", sched.Every, err)
-		}
-	}
-	if sched.At != "" {
-		t, err := time.Parse(time.RFC3339, sched.At)
-		if err != nil {
-			return Job{}, fmt.Errorf("invalid at timestamp %q: must be RFC3339 format: %w", sched.At, err)
-		}
-		if !t.After(time.Now()) {
-			return Job{}, fmt.Errorf("at timestamp %q is in the past", sched.At)
-		}
+	if err := validateSchedule(sched); err != nil {
+		return Job{}, err
 	}
 
 	if sessionMode == "" {
@@ -242,14 +230,17 @@ func (s *Service) AddJob(name, message string, sched Schedule, sessionMode strin
 		return Job{}, fmt.Errorf("invalid session_mode %q: must be %q or %q", sessionMode, SessionReuse, SessionNew)
 	}
 
+	now := time.Now().UTC()
 	job := Job{
 		ID:          uuid.New().String()[:8],
+		OwnerKind:   JobOwnerUser,
 		Name:        name,
 		Schedule:    sched,
 		Message:     message,
 		SessionMode: sessionMode,
 		Enabled:     true,
-		CreatedAt:   time.Now(),
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	s.mu.Lock()
@@ -272,6 +263,91 @@ func (s *Service) AddJob(name, message string, sched Schedule, sessionMode strin
 
 	s.log.Info("job added", "id", job.ID, "name", name)
 	return job, nil
+}
+
+// AddPluginJob creates, persists, and schedules a plugin-owned job.
+func (s *Service) AddPluginJob(pluginID, key, runtimeName, name, description string, sched Schedule, payload map[string]any) (Job, error) {
+	if pluginID == "" {
+		return Job{}, fmt.Errorf("plugin_id is required")
+	}
+	if key == "" {
+		return Job{}, fmt.Errorf("job key is required")
+	}
+	if runtimeName == "" {
+		return Job{}, fmt.Errorf("runtime name is required")
+	}
+	if name == "" {
+		return Job{}, fmt.Errorf("name is required")
+	}
+	if err := validateSchedule(sched); err != nil {
+		return Job{}, err
+	}
+	now := time.Now().UTC()
+	job := Job{
+		ID:          uuid.New().String()[:8],
+		OwnerKind:   JobOwnerPlugin,
+		PluginID:    pluginID,
+		JobKey:      key,
+		RuntimeName: runtimeName,
+		Name:        name,
+		Description: description,
+		Schedule:    sched,
+		Payload:     clonePayload(payload),
+		SessionMode: SessionReuse,
+		Enabled:     true,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.scheduleJob(s.ctx, job); err != nil {
+		return Job{}, fmt.Errorf("schedule job: %w", err)
+	}
+	if err := s.insertJob(s.ctx, job); err != nil {
+		if gid, ok := s.gids[job.ID]; ok {
+			_ = s.scheduler.RemoveJob(gid)
+			delete(s.gids, job.ID)
+		}
+		return Job{}, fmt.Errorf("persist job: %w", err)
+	}
+	s.jobs[job.ID] = job
+	return job, nil
+}
+
+func validateSchedule(sched Schedule) error {
+	setCount := 0
+	if sched.Cron != "" {
+		setCount++
+	}
+	if sched.Every != "" {
+		setCount++
+	}
+	if sched.At != "" {
+		setCount++
+	}
+	if setCount == 0 {
+		return fmt.Errorf("schedule requires one of cron, every, or at")
+	}
+	if setCount > 1 {
+		return fmt.Errorf("schedule must have exactly one of cron, every, or at")
+	}
+	if sched.Every != "" {
+		if _, err := time.ParseDuration(sched.Every); err != nil {
+			return fmt.Errorf("invalid duration %q: %w", sched.Every, err)
+		}
+	}
+	if sched.At != "" {
+		t, err := time.Parse(time.RFC3339, sched.At)
+		if err != nil {
+			return fmt.Errorf("invalid at timestamp %q: must be RFC3339 format: %w", sched.At, err)
+		}
+		if !t.After(time.Now()) {
+			return fmt.Errorf("at timestamp %q is in the past", sched.At)
+		}
+	}
+	return nil
 }
 
 // RemoveJob unschedules and removes a job.
@@ -342,11 +418,32 @@ func (s *Service) scheduleJob(ctx context.Context, job Job) error {
 		fn := s.onJob
 		listeners := append([]OnJobFunc(nil), s.listeners...)
 		s.mu.Unlock()
+		var runErr error
 		if fn != nil {
-			fn(ctx, captured)
+			if err := fn(ctx, captured); err != nil {
+				runErr = err
+			}
 		}
 		for _, listener := range listeners {
-			listener(ctx, captured)
+			if err := listener(ctx, captured); err != nil && runErr == nil {
+				runErr = err
+			}
+		}
+		ranAt := time.Now().UTC()
+		s.mu.Lock()
+		if jobState, ok := s.jobs[captured.ID]; ok {
+			jobState.LastRunAt = &ranAt
+			if runErr != nil {
+				jobState.LastError = runErr.Error()
+			} else {
+				jobState.LastError = ""
+			}
+			jobState.UpdatedAt = ranAt
+			s.jobs[captured.ID] = jobState
+		}
+		s.mu.Unlock()
+		if err := s.recordJobRun(ctx, captured.ID, ranAt, runErr); err != nil {
+			s.log.Warn("failed to record scheduler job run", "id", captured.ID, "error", err)
 		}
 		if isOneTime {
 			go s.removeOneTimeJob(captured.ID)

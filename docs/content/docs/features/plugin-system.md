@@ -12,6 +12,7 @@ The runtime now uses a **unified plugin host**:
 - a plugin may register multiple **capabilities**: tool, provider, channel, hook, memory, runtime, config, status, and prompt inventory
 - plugin identity and capability identity stay separate
 - runtime plugins use declarative `Apply(ctx, desired PluginState)` semantics
+- plugins can consume narrow host-owned services such as notifications, state storage, auth lookups, and plugin-owned scheduler reconciliation
 
 Plugin-facing contracts live in `pkg/plugins/`. The host implementation lives in `internal/pluginhost/`.
 
@@ -59,7 +60,7 @@ Today the architecture is split like this:
 2. Plugin-facing host contracts are defined in `pkg/plugins/`
 3. The process-wide plugin host lives in `internal/pluginhost/`
 4. Existing kind-specific registries still exist as compatibility adapters for tools, hooks, providers, and memory
-5. MCP, reflect, and all built-in messaging channels are host-backed: MCP owns config validation, runtime lifecycle, status, tool exposure, and prompt inventory; reflect owns config validation, runtime lifecycle, and status through the same host; Telegram, QQ, Feishu, and Weixin all reconcile channel config, runtime lifecycle, and status through the host while preserving their existing plugin rows and admin UX
+5. MCP, reflect, and all built-in messaging channels are host-backed: MCP owns config validation, runtime lifecycle, status, tool exposure, and prompt inventory; reflect owns config validation, runtime lifecycle, status, and scheduler-backed periodic review through the same host; Telegram, QQ, Feishu, and Weixin all reconcile channel config, runtime lifecycle, and status through the host while preserving their existing plugin rows and admin UX
 
 `cmd/anna/plugins_imports.go` provides the blank imports that trigger built-in plugin registration at startup.
 
@@ -119,6 +120,6 @@ Channel plugins, provider plugins, memory plugins, standalone runtimes, and the 
 
 The MCP plugin stores its server definitions as JSON in `settings_plugins.config`, with an admin form editor for multiple servers/transports, transport-specific fields, structured args/env/header editors, and live runtime status badges for discovered/suppressed servers.
 
-The reflect plugin keeps its existing standalone `settings_plugins` row (`id="reflect"`) and reconciles its background review loop through the unified host without any schema changes.
+The reflect plugin keeps its existing standalone `settings_plugins` row (`id="reflect"`) and now reconciles a plugin-owned scheduled review job through the unified host. The scheduler persists first-class plugin ownership metadata in `sched_jobs`, and the admin scheduler page exposes those plugin-managed jobs as read-only status rows.
 
 The Telegram, QQ, Feishu, and Weixin channels keep using their existing `settings_plugins` rows (`id="channel/..."`) and the same `/channels` admin UI, but their config validation, runtime lifecycle, and status are now all host-backed. Saving or toggling channel config re-applies the corresponding managed runtime through the plugin host while preserving existing plugin IDs, admin UX, and channel-specific behavior.

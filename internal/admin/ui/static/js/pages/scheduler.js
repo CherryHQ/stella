@@ -58,6 +58,13 @@ export function register(Alpine) {
       }
     },
 
+    jobScheduleText(j) {
+      if (j.cron) return j.cron
+      if (j.every) return 'every ' + j.every
+      if (j.at) return 'at ' + j.at
+      return 'unscheduled'
+    },
+
     resetJobForm() {
       this.jobForm = {
         name: '',
@@ -74,6 +81,7 @@ export function register(Alpine) {
     },
 
     editJob(j) {
+      if (j.owner_kind === 'plugin') return
       this.editingJobId = j.id
       this.jobForm = {
         name: j.name,
@@ -118,6 +126,7 @@ export function register(Alpine) {
     },
 
     async toggleJob(j) {
+      if (j.owner_kind === 'plugin') return
       try {
         await api('PUT', '/api/scheduler/jobs/' + j.id, {
           name: j.name,
@@ -135,6 +144,8 @@ export function register(Alpine) {
     },
 
     async doDeleteJob(id) {
+      const job = this.jobs.find((item) => item.id === id)
+      if (job?.owner_kind === 'plugin') return
       try {
         await api('DELETE', '/api/scheduler/jobs/' + id)
         await this.loadJobs()

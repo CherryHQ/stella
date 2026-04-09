@@ -35,6 +35,9 @@ type SchedulerJob struct {
 	Payload     map[string]any    `json:"payload,omitempty"`
 	Enabled     bool              `json:"enabled"`
 	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+	LastRunAt   *time.Time        `json:"last_run_at,omitempty"`
+	LastError   string            `json:"last_error,omitempty"`
 }
 
 // ScheduledJobRunner is implemented by managed runtimes that can handle plugin-owned scheduled jobs.
