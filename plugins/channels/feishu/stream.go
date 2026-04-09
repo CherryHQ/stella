@@ -130,8 +130,11 @@ func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyM
 // sendCardReply sends an interactive card reply and returns the new message ID.
 // Cards support the Patch API for in-place streaming edits.
 func (b *Bot) sendCardReply(replyMsgID, text string) (string, error) {
+	apiCtx, cancel := b.apiContext()
+	defer cancel()
+
 	content := cardContent(text)
-	resp, err := b.client.Im.Message.Reply(b.ctx,
+	resp, err := b.client.Im.Message.Reply(apiCtx,
 		larkim.NewReplyMessageReqBuilder().
 			MessageId(replyMsgID).
 			Body(larkim.NewReplyMessageReqBodyBuilder().
@@ -153,8 +156,11 @@ func (b *Bot) sendCardReply(replyMsgID, text string) (string, error) {
 
 // patchMessage edits an existing card message in place using the Patch API.
 func (b *Bot) patchMessage(messageID, text string) error {
+	apiCtx, cancel := b.apiContext()
+	defer cancel()
+
 	content := cardContent(text)
-	resp, err := b.client.Im.Message.Patch(b.ctx,
+	resp, err := b.client.Im.Message.Patch(apiCtx,
 		larkim.NewPatchMessageReqBuilder().
 			MessageId(messageID).
 			Body(larkim.NewPatchMessageReqBodyBuilder().

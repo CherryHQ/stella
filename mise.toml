@@ -47,11 +47,19 @@ run = "./bin/$BINARY_NAME chat"
 # ============================================================================
 
 [tasks.test]
-description = "Run all tests with race detection"
-run = "go test -race ./..."
+description = "Run all tests"
+run = "go test ./..."
 
 [tasks."test:coverage"]
 description = "Run tests with coverage report"
+run = "go test -coverprofile=coverage.out ./..."
+
+[tasks."test:race"]
+description = "Run all tests with race detection (CI)"
+run = "go test -race ./..."
+
+[tasks."test:coverage:race"]
+description = "Run tests with race detection and coverage report (CI)"
 run = "go test -race -coverprofile=coverage.out ./..."
 
 [tasks.lint]
