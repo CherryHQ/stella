@@ -33,6 +33,27 @@ func (h *Host) Notifications() pkgplugins.NotificationService {
 	return h.notifications
 }
 
+// WithSchedulerService injects the narrow scheduler service available to plugins.
+func WithSchedulerService(service pkgplugins.SchedulerService) Option {
+	return func(h *Host) {
+		h.scheduler = service
+	}
+}
+
+// SetSchedulerService updates the scheduler service extension after host construction.
+func (h *Host) SetSchedulerService(service pkgplugins.SchedulerService) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.scheduler = service
+}
+
+// Scheduler returns the injected scheduler service, if any.
+func (h *Host) Scheduler() pkgplugins.SchedulerService {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.scheduler
+}
+
 // WithStateStore injects the narrow plugin state store available to plugins.
 func WithStateStore(store pkgplugins.PluginStateStore) Option {
 	return func(h *Host) {

@@ -31,6 +31,7 @@ type TaskFunc func(ctx context.Context)
 type Service struct {
 	scheduler gocron.Scheduler
 	onJob     OnJobFunc
+	listeners []OnJobFunc
 	db        *sql.DB
 	q         *sqlc.Queries
 	ownsDB    bool            // true when Service opened the DB itself
@@ -86,11 +87,21 @@ func (s *Service) SetLegacyDataPath(path string) {
 	s.dataPath = path
 }
 
-// SetOnJob sets the callback invoked when a job fires.
+// SetOnJob sets the primary callback invoked when a job fires.
 func (s *Service) SetOnJob(fn OnJobFunc) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onJob = fn
+}
+
+// AddOnJobListener appends an additional callback invoked when a job fires.
+func (s *Service) AddOnJobListener(fn OnJobFunc) {
+	if fn == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.listeners = append(s.listeners, fn)
 }
 
 // Start loads persisted jobs and starts the scheduler.
@@ -329,9 +340,13 @@ func (s *Service) scheduleJob(ctx context.Context, job Job) error {
 	gj, err := s.scheduler.NewJob(jobDef, gocron.NewTask(func() {
 		s.mu.Lock()
 		fn := s.onJob
+		listeners := append([]OnJobFunc(nil), s.listeners...)
 		s.mu.Unlock()
 		if fn != nil {
 			fn(ctx, captured)
+		}
+		for _, listener := range listeners {
+			listener(ctx, captured)
 		}
 		if isOneTime {
 			go s.removeOneTimeJob(captured.ID)

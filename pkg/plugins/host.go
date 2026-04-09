@@ -32,6 +32,7 @@ type ServiceHost interface {
 	Config() ConfigService
 	Runtime() RuntimeLookup
 	Notifications() NotificationService
+	Scheduler() SchedulerService
 	StateStore() PluginStateStore
 	Auth() AuthService
 	ChannelRuntime() ChannelRuntimeServices

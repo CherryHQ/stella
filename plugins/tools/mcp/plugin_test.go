@@ -66,6 +66,7 @@ func (*testServiceHost) Logger(string) *slog.Logger                        { ret
 func (*testServiceHost) Config() pkgplugins.ConfigService                  { return nil }
 func (h *testServiceHost) Runtime() pkgplugins.RuntimeLookup               { return h.lookup }
 func (*testServiceHost) Notifications() pkgplugins.NotificationService     { return nil }
+func (*testServiceHost) Scheduler() pkgplugins.SchedulerService            { return nil }
 func (*testServiceHost) StateStore() pkgplugins.PluginStateStore           { return nil }
 func (*testServiceHost) Auth() pkgplugins.AuthService                      { return nil }
 func (*testServiceHost) ChannelRuntime() pkgplugins.ChannelRuntimeServices { return nil }

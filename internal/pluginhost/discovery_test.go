@@ -202,6 +202,19 @@ func TestNotificationServiceExtension(t *testing.T) {
 	}
 }
 
+func TestSchedulerServiceExtension(t *testing.T) {
+	scheduler := &fakeSchedulerService{}
+	host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithSchedulerService(scheduler))
+
+	resolved := host.Services().Scheduler()
+	if resolved == nil {
+		t.Fatal("expected scheduler service")
+	}
+	if resolved != scheduler {
+		t.Fatalf("unexpected scheduler service: %#v", resolved)
+	}
+}
+
 func TestStateStoreExtension(t *testing.T) {
 	stateStore := &fakePluginStateStore{}
 	host := New(&stubStore{plugins: map[string]config.Plugin{}}, WithStateStore(stateStore))
@@ -376,6 +389,24 @@ func (*fakeNotificationService) Notify(context.Context, pkgchannel.Notification)
 
 func (*fakeNotificationService) NotifyUser(context.Context, int64, pkgchannel.Notification) error {
 	return nil
+}
+
+type fakeSchedulerService struct{}
+
+func (*fakeSchedulerService) ReconcilePluginJobs(context.Context, string, []pkgplugins.SchedulerJobSpec) error {
+	return nil
+}
+
+func (*fakeSchedulerService) DeletePluginJobs(context.Context, string) error {
+	return nil
+}
+
+func (*fakeSchedulerService) DeletePluginJob(context.Context, string, string) error {
+	return nil
+}
+
+func (*fakeSchedulerService) ListPluginJobs(context.Context, string) ([]pkgplugins.SchedulerJob, error) {
+	return nil, nil
 }
 
 type fakePluginStateStore struct{}

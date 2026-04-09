@@ -227,6 +227,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 // owner; system jobs (user_id=0) broadcast to all channels.
 func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolManager, defaultPool *agent.Pool, dispatcher *notify.Dispatcher) {
 	schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) {
+		if scheduler.IsPluginJob(job) {
+			return
+		}
 		pool := defaultPool
 		if job.AgentID != "" {
 			if p := poolMgr.Get(job.AgentID); p != nil {
