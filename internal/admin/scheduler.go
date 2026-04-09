@@ -9,12 +9,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/pkg/db/sqlc"
-)
-
-const (
-	schedulerOwnerUser   = "user"
-	schedulerOwnerPlugin = "plugin"
 )
 
 // schedulerJobJSON is the JSON representation for scheduler jobs.
@@ -55,7 +51,7 @@ func (s *Server) listSchedulerJobs(w http.ResponseWriter, r *http.Request) {
 		j := dbRowToJobJSON(row)
 		// Non-admin users only see their own user-owned jobs.
 		if info != nil && !info.IsAdmin {
-			if j.OwnerKind == schedulerOwnerPlugin || j.UserID != info.UserID {
+			if j.OwnerKind == scheduler.JobOwnerPlugin || j.UserID != info.UserID {
 				continue
 			}
 		}
@@ -98,7 +94,7 @@ func (s *Server) createSchedulerJob(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Format("2006-01-02 15:04:05")
 	_, err := s.q.CreateSchedulerJob(r.Context(), sqlc.CreateSchedulerJobParams{
 		ID:            id,
-		OwnerKind:     schedulerOwnerUser,
+		OwnerKind:     scheduler.JobOwnerUser,
 		PluginID:      "",
 		JobKey:        "",
 		RuntimeName:   "",
@@ -137,7 +133,7 @@ func (s *Server) updateSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if existing.OwnerKind == schedulerOwnerPlugin {
+	if existing.OwnerKind == scheduler.JobOwnerPlugin {
 		writeError(w, http.StatusBadRequest, "plugin-owned jobs are read-only in admin")
 		return
 	}
@@ -222,7 +218,7 @@ func (s *Server) deleteSchedulerJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if existing.OwnerKind == schedulerOwnerPlugin {
+	if existing.OwnerKind == scheduler.JobOwnerPlugin {
 		writeError(w, http.StatusBadRequest, "plugin-owned jobs are read-only in admin")
 		return
 	}

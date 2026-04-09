@@ -111,79 +111,52 @@ func (a schedulerServiceAdapter) ListPluginJobs(ctx context.Context, pluginID st
 		if job.OwnerKind != internalscheduler.JobOwnerPlugin || job.PluginID != pluginID {
 			continue
 		}
-		out = append(out, pkgplugins.SchedulerJob{
-			ID:          job.ID,
-			PluginID:    job.PluginID,
-			Key:         job.JobKey,
-			RuntimeName: job.RuntimeName,
-			Name:        job.Name,
-			Description: job.Description,
-			Schedule: pkgplugins.SchedulerSchedule{
-				Cron:  job.Schedule.Cron,
-				Every: job.Schedule.Every,
-				At:    job.Schedule.At,
-			},
-			Payload:   clonePayload(job.Payload),
-			Enabled:   job.Enabled,
-			CreatedAt: job.CreatedAt,
-			UpdatedAt: job.UpdatedAt,
-			LastRunAt: job.LastRunAt,
-			LastError: job.LastError,
-		})
+		out = append(out, pluginJobFromInternal(job))
 	}
 	return out, nil
 }
 
 func (a schedulerServiceAdapter) createPluginJob(pluginID string, spec pkgplugins.SchedulerJobSpec) (pkgplugins.SchedulerJob, error) {
-	job, err := a.service.AddPluginJob(pluginID, spec.Key, spec.RuntimeName, spec.Name, spec.Description, internalscheduler.Schedule{
-		Cron:  spec.Schedule.Cron,
-		Every: spec.Schedule.Every,
-		At:    spec.Schedule.At,
-	}, spec.Payload)
+	job, err := a.service.AddPluginJob(
+		pluginID,
+		spec.Key,
+		spec.RuntimeName,
+		spec.Name,
+		spec.Description,
+		internalscheduler.Schedule{
+			Cron:  spec.Schedule.Cron,
+			Every: spec.Schedule.Every,
+			At:    spec.Schedule.At,
+		},
+		spec.Payload,
+	)
 	if err != nil {
 		return pkgplugins.SchedulerJob{}, err
 	}
-	return pkgplugins.SchedulerJob{
-		ID:          job.ID,
-		PluginID:    pluginID,
-		Key:         spec.Key,
-		RuntimeName: spec.RuntimeName,
-		Name:        spec.Name,
-		Description: spec.Description,
-		Schedule:    spec.Schedule,
-		Payload:     clonePayload(spec.Payload),
-		Enabled:     job.Enabled,
-		CreatedAt:   job.CreatedAt,
-		UpdatedAt:   job.UpdatedAt,
-		LastRunAt:   job.LastRunAt,
-		LastError:   job.LastError,
-	}, nil
+	return pluginJobFromInternal(job), nil
 }
 
 func (a schedulerServiceAdapter) dispatchPluginJob(ctx context.Context, job internalscheduler.Job) error {
 	if job.OwnerKind != internalscheduler.JobOwnerPlugin {
 		return nil
 	}
-	pluginID, key, runtimeName, payload := job.PluginID, job.JobKey, job.RuntimeName, job.Payload
 	if a.host == nil {
-		return fmt.Errorf("host unavailable for plugin %s job %s", pluginID, key)
+		return fmt.Errorf("host unavailable for plugin %s job %s", job.PluginID, job.JobKey)
 	}
-	handle, ok := a.host.Runtime().Get(pluginID, runtimeName)
+
+	handle, ok := a.host.Runtime().Get(job.PluginID, job.RuntimeName)
 	if !ok {
-		return fmt.Errorf("runtime unavailable for plugin %s runtime %s", pluginID, runtimeName)
+		return fmt.Errorf("runtime unavailable for plugin %s runtime %s", job.PluginID, job.RuntimeName)
 	}
 	accessor, ok := handle.(interface{ RuntimeAccessor() any })
 	if !ok {
-		return fmt.Errorf("runtime accessor unavailable for plugin %s runtime %s", pluginID, runtimeName)
+		return fmt.Errorf("runtime accessor unavailable for plugin %s runtime %s", job.PluginID, job.RuntimeName)
 	}
 	runner, ok := accessor.RuntimeAccessor().(pkgplugins.ScheduledJobRunner)
 	if !ok {
-		return fmt.Errorf("runtime %s/%s does not handle scheduled jobs", pluginID, runtimeName)
+		return fmt.Errorf("runtime %s/%s does not handle scheduled jobs", job.PluginID, job.RuntimeName)
 	}
-	if err := runner.RunScheduledJob(ctx, key, clonePayload(payload)); err != nil {
-		return err
-	}
-	return nil
+	return runner.RunScheduledJob(ctx, job.JobKey, clonePayload(job.Payload))
 }
 
 func validatePluginJobSpec(job pkgplugins.SchedulerJobSpec) error {
@@ -223,6 +196,28 @@ func schedulerJobsEqual(current pkgplugins.SchedulerJob, desired pkgplugins.Sche
 		current.Description == desired.Description &&
 		current.Schedule == desired.Schedule &&
 		reflect.DeepEqual(current.Payload, desired.Payload)
+}
+
+func pluginJobFromInternal(job internalscheduler.Job) pkgplugins.SchedulerJob {
+	return pkgplugins.SchedulerJob{
+		ID:          job.ID,
+		PluginID:    job.PluginID,
+		Key:         job.JobKey,
+		RuntimeName: job.RuntimeName,
+		Name:        job.Name,
+		Description: job.Description,
+		Schedule: pkgplugins.SchedulerSchedule{
+			Cron:  job.Schedule.Cron,
+			Every: job.Schedule.Every,
+			At:    job.Schedule.At,
+		},
+		Payload:   clonePayload(job.Payload),
+		Enabled:   job.Enabled,
+		CreatedAt: job.CreatedAt,
+		UpdatedAt: job.UpdatedAt,
+		LastRunAt: job.LastRunAt,
+		LastError: job.LastError,
+	}
 }
 
 func clonePayload(src map[string]any) map[string]any {
