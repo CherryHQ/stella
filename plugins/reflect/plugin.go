@@ -91,6 +91,7 @@ func runtimeDeps(host pkgplugins.ServiceHost) (RuntimeDeps, error) {
 		Services:      services,
 		Notifications: host.Notifications(),
 		StateStore:    host.StateStore(),
+		Scheduler:     host.Scheduler(),
 		Log:           host.Logger(PluginID),
 	}, nil
 }

@@ -23,6 +23,7 @@ type Host struct {
 	pluginIDs        map[string]struct{}
 	metadataRegs     map[string]pkgplugins.PluginMeta
 	notifications    pkgplugins.NotificationService
+	scheduler        pkgplugins.SchedulerService
 	stateStore       pkgplugins.PluginStateStore
 	authService      pkgplugins.AuthService
 	channelRuntime   pkgplugins.ChannelRuntimeServices

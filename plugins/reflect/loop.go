@@ -15,7 +15,7 @@ import (
 func (s *Service) Start(ctx context.Context) error {
 	s.log.Info("reflect: starting review loop", "interval", s.interval)
 
-	s.runCycle(ctx)
+	s.RunOnce(ctx)
 
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
@@ -28,6 +28,11 @@ func (s *Service) Start(ctx context.Context) error {
 			s.runCycle(ctx)
 		}
 	}
+}
+
+// RunOnce executes a single review cycle.
+func (s *Service) RunOnce(ctx context.Context) {
+	s.runCycle(ctx)
 }
 
 // ReviewNow triggers an immediate review cycle for an agent.

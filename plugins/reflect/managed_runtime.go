@@ -12,12 +12,14 @@ import (
 
 type serviceRunner interface {
 	Start(ctx context.Context) error
+	RunOnce(ctx context.Context)
 }
 
 type RuntimeDeps struct {
 	Services      pkgplugins.ReflectRuntimeServices
 	Notifications pkgplugins.NotificationService
 	StateStore    pkgplugins.PluginStateStore
+	Scheduler     pkgplugins.SchedulerService
 	Log           *slog.Logger
 	NewService    func(Config) serviceRunner
 	Now           func() time.Time
@@ -29,6 +31,7 @@ type managedRuntime struct {
 	mu         sync.RWMutex
 	cancel     context.CancelFunc
 	generation int
+	config     PluginConfig
 	snapshot   pkgplugins.RuntimeSnapshot
 }
 
@@ -69,10 +72,30 @@ func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginSta
 	if cancel != nil {
 		cancel()
 	}
+	r.config = cfg
 	if !desired.Enabled {
 		r.snapshot = runtimeSnapshot(r.deps.Now(), pkgplugins.RuntimeStateStopped, "reflect disabled", cfg)
 		r.mu.Unlock()
+		if r.deps.Scheduler != nil {
+			return r.deps.Scheduler.DeletePluginJobs(ctx, PluginID)
+		}
 		return nil
+	}
+
+	if r.deps.Scheduler != nil {
+		r.snapshot = runtimeSnapshot(r.deps.Now(), pkgplugins.RuntimeStateRunning, "reflect scheduled", cfg)
+		r.mu.Unlock()
+		return r.deps.Scheduler.ReconcilePluginJobs(ctx, PluginID, []pkgplugins.SchedulerJobSpec{{
+			Key:         "review",
+			RuntimeName: RuntimeName,
+			Name:        "Reflect Review",
+			Description: "Run reflect conversation review.",
+			Schedule: pkgplugins.SchedulerSchedule{
+				Every: cfg.Interval.String(),
+			},
+			Payload: map[string]any{"batch": cfg.Batch},
+			Enabled: true,
+		}})
 	}
 
 	svc := r.deps.NewService(Config{
@@ -122,14 +145,20 @@ func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginSta
 
 func (r *managedRuntime) Stop(ctx context.Context) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.generation++
 	if r.cancel != nil {
 		r.cancel()
 		r.cancel = nil
 	}
-	cfg, _ := DecodePluginConfig(nil)
+	cfg := r.config
+	if cfg.Interval <= 0 {
+		cfg, _ = DecodePluginConfig(nil)
+	}
 	r.snapshot = runtimeSnapshot(r.deps.Now(), pkgplugins.RuntimeStateStopped, "reflect stopped", cfg)
+	r.mu.Unlock()
+	if r.deps.Scheduler != nil {
+		return r.deps.Scheduler.DeletePluginJobs(ctx, PluginID)
+	}
 	return nil
 }
 
@@ -137,6 +166,35 @@ func (r *managedRuntime) Snapshot(ctx context.Context) (pkgplugins.RuntimeSnapsh
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.snapshot.Clone(), nil
+}
+
+func (r *managedRuntime) RuntimeAccessor() any { return r }
+
+func (r *managedRuntime) RunScheduledJob(ctx context.Context, key string, payload map[string]any) error {
+	if key != "review" {
+		return fmt.Errorf("reflect: unknown scheduled job %q", key)
+	}
+
+	r.mu.RLock()
+	cfg := r.config
+	r.mu.RUnlock()
+	if cfg.Interval <= 0 {
+		cfg, _ = DecodePluginConfig(nil)
+	}
+
+	svc := r.deps.NewService(Config{
+		StateStore: r.deps.StateStore,
+		Memory:     r.deps.Services.Memory(),
+		Store:      r.deps.Services.Store(),
+		Notifier:   r.deps.Notifications,
+		Workspace:  r.deps.Services.Workspace(),
+		Interval:   cfg.Interval,
+		Batch:      cfg.Batch,
+		Log:        r.deps.Log,
+		Providers:  r.deps.Services.BuildProviders,
+	})
+	svc.RunOnce(ctx)
+	return nil
 }
 
 func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg PluginConfig) pkgplugins.RuntimeSnapshot {

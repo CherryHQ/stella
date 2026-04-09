@@ -120,27 +120,23 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return nil, fmt.Errorf("apply mcp runtime: %w", err)
 	}
 
-	// Create scheduler service and tool before the runner factory so the tool
-	// can be injected into the Go runner.
-	var schedulerSvc *scheduler.Service
-	var sharedTools []tools.Tool
-	if snap.Scheduler.IsEnabled() || (gateway && snap.Heartbeat.IsEnabled()) {
-		schedulerSvc, err = scheduler.NewFromPath(dbPath)
-		if err != nil {
-			return nil, fmt.Errorf("create scheduler service: %w", err)
-		}
-		dataDir := snap.Scheduler.DataDir
-		if dataDir == "" {
-			dataDir = filepath.Join(snap.Workspace, "scheduler")
-		}
-		schedulerSvc.SetLegacyDataPath(dataDir)
-		if snap.Scheduler.IsEnabled() {
-			sharedTools = append(sharedTools, scheduler.NewTool(schedulerSvc))
-		}
+	// Create the shared scheduler service before runner construction so both
+	// plugin-owned jobs and the user-facing scheduler tool can use it.
+	schedulerSvc, err := scheduler.NewFromPath(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("create scheduler service: %w", err)
 	}
+	dataDir := snap.Scheduler.DataDir
+	if dataDir == "" {
+		dataDir = filepath.Join(snap.Workspace, "scheduler")
+	}
+	schedulerSvc.SetLegacyDataPath(dataDir)
+	phost.SetSchedulerService(newSchedulerServiceAdapter(schedulerSvc, phost))
 
-	// Notification dispatcher + tool.
-	// The notify tool is wired in gateway mode — channels register later.
+	var sharedTools []tools.Tool
+	if snap.Scheduler.IsEnabled() {
+		sharedTools = append(sharedTools, scheduler.NewTool(schedulerSvc))
+	}
 
 	// Build memory provider via the host compatibility adapter.
 	memoryName := "lcm"
@@ -292,6 +288,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Route to the correct pool via PoolManager when the job has an AgentID.
 	if schedulerSvc != nil {
 		schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) {
+			if scheduler.IsPluginJob(job) {
+				return
+			}
 			targetPool := pool
 			if job.AgentID != "" {
 				if p := poolMgr.Get(job.AgentID); p != nil {

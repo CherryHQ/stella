@@ -31,6 +31,8 @@ func (s *fakeService) Start(ctx context.Context) error {
 	return ctx.Err()
 }
 
+func (s *fakeService) RunOnce(ctx context.Context) {}
+
 func TestManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 	now := time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC)
 	var (
@@ -110,6 +112,44 @@ func TestManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 	}
 }
 
+func TestManagedRuntimeUsesSchedulerCapabilityWhenAvailable(t *testing.T) {
+	scheduler := &fakeSchedulerService{}
+	runtime := NewManagedRuntime(RuntimeDeps{
+		Services:  fakeReflectRuntimeServices{parent: context.Background()},
+		Scheduler: scheduler,
+		Now:       func() time.Time { return time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC) },
+		NewService: func(cfg Config) serviceRunner {
+			t.Fatal("unexpected background service when scheduler capability is available")
+			return nil
+		},
+	}).(*managedRuntime)
+
+	state := pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"interval": "30m", "batch": 4}}
+	if err := runtime.Apply(context.Background(), state); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if scheduler.reconcileCalls != 1 {
+		t.Fatalf("reconcile calls = %d, want 1", scheduler.reconcileCalls)
+	}
+	if scheduler.lastPluginID != PluginID {
+		t.Fatalf("plugin id = %q, want %q", scheduler.lastPluginID, PluginID)
+	}
+	if len(scheduler.lastJobs) != 1 {
+		t.Fatalf("jobs len = %d, want 1", len(scheduler.lastJobs))
+	}
+	job := scheduler.lastJobs[0]
+	if job.Key != "review" || job.RuntimeName != RuntimeName || job.Schedule.Every != "30m0s" {
+		t.Fatalf("unexpected scheduled job: %#v", job)
+	}
+
+	if err := runtime.Stop(context.Background()); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if scheduler.deleteCalls != 1 {
+		t.Fatalf("delete calls = %d, want 1", scheduler.deleteCalls)
+	}
+}
+
 func TestDecodePluginConfigPreservesReviewLoopDefaults(t *testing.T) {
 	cfg, err := DecodePluginConfig(nil)
 	if err != nil {
@@ -138,6 +178,31 @@ func waitClosed(t *testing.T, ch <-chan struct{}, label string) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timeout waiting for %s", label)
 	}
+}
+
+type fakeSchedulerService struct {
+	reconcileCalls int
+	deleteCalls    int
+	lastPluginID   string
+	lastJobs       []pkgplugins.SchedulerJobSpec
+}
+
+func (s *fakeSchedulerService) ReconcilePluginJobs(_ context.Context, pluginID string, jobs []pkgplugins.SchedulerJobSpec) error {
+	s.reconcileCalls++
+	s.lastPluginID = pluginID
+	s.lastJobs = append([]pkgplugins.SchedulerJobSpec(nil), jobs...)
+	return nil
+}
+
+func (s *fakeSchedulerService) DeletePluginJobs(context.Context, string) error {
+	s.deleteCalls++
+	return nil
+}
+
+func (*fakeSchedulerService) DeletePluginJob(context.Context, string, string) error { return nil }
+
+func (*fakeSchedulerService) ListPluginJobs(context.Context, string) ([]pkgplugins.SchedulerJob, error) {
+	return nil, nil
 }
 
 type fakeReflectRuntimeServices struct {
