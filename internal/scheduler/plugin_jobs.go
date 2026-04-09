@@ -2,13 +2,12 @@ package scheduler
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 )
 
-const pluginJobMessagePrefix = "__anna_plugin_job__:"
+const legacyPluginJobMessagePrefix = "__anna_plugin_job__:"
 
-type pluginJobEnvelope struct {
+type legacyPluginJobEnvelope struct {
 	PluginID    string         `json:"plugin_id"`
 	Key         string         `json:"key"`
 	RuntimeName string         `json:"runtime_name"`
@@ -16,34 +15,21 @@ type pluginJobEnvelope struct {
 	Description string         `json:"description,omitempty"`
 }
 
-func EncodePluginJobMessage(pluginID, key, runtimeName, description string, payload map[string]any) (string, error) {
-	body, err := json.Marshal(pluginJobEnvelope{
-		PluginID:    pluginID,
-		Key:         key,
-		RuntimeName: runtimeName,
-		Payload:     clonePayload(payload),
-		Description: description,
-	})
-	if err != nil {
-		return "", fmt.Errorf("encode plugin job: %w", err)
-	}
-	return pluginJobMessagePrefix + string(body), nil
-}
-
+// DecodePluginJob decodes the legacy reserved-message plugin job envelope.
+// It remains only for migration of pre-schema-hardening scheduler rows.
 func DecodePluginJob(job Job) (pluginID, key, runtimeName, description string, payload map[string]any, ok bool) {
-	if !strings.HasPrefix(job.Message, pluginJobMessagePrefix) {
+	if !strings.HasPrefix(job.Message, legacyPluginJobMessagePrefix) {
 		return "", "", "", "", nil, false
 	}
-	var env pluginJobEnvelope
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(job.Message, pluginJobMessagePrefix)), &env); err != nil {
+	var env legacyPluginJobEnvelope
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(job.Message, legacyPluginJobMessagePrefix)), &env); err != nil {
 		return "", "", "", "", nil, false
 	}
 	return env.PluginID, env.Key, env.RuntimeName, env.Description, clonePayload(env.Payload), env.PluginID != "" && env.Key != ""
 }
 
 func IsPluginJob(job Job) bool {
-	_, _, _, _, _, ok := DecodePluginJob(job)
-	return ok
+	return job.OwnerKind == JobOwnerPlugin
 }
 
 func clonePayload(src map[string]any) map[string]any {

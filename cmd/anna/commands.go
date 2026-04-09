@@ -131,6 +131,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		dataDir = filepath.Join(snap.Workspace, "scheduler")
 	}
 	schedulerSvc.SetLegacyDataPath(dataDir)
+	schedulerSvc.SetUserJobsEnabled(snap.Scheduler.IsEnabled())
 	phost.SetSchedulerService(newSchedulerServiceAdapter(schedulerSvc, phost))
 
 	var sharedTools []tools.Tool
@@ -287,9 +288,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Wire the scheduler callback now that pool exists.
 	// Route to the correct pool via PoolManager when the job has an AgentID.
 	if schedulerSvc != nil {
-		schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) {
+		schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) error {
 			if scheduler.IsPluginJob(job) {
-				return
+				return nil
 			}
 			targetPool := pool
 			if job.AgentID != "" {
@@ -300,11 +301,14 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			sessionID := job.SessionID()
 			msg := fmt.Sprintf("[Scheduled Task] %s\n\nInstruction: %s", job.Name, job.Message)
 			ch := targetPool.Chat(ctx, sessionID, msg)
+			var runErr error
 			for evt := range ch {
 				if evt.Err != nil {
+					runErr = evt.Err
 					slog.Error("scheduler job error", "job_id", job.ID, "error", evt.Err)
 				}
 			}
+			return runErr
 		})
 	}
 

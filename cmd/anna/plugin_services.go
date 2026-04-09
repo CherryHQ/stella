@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"reflect"
 
 	internalscheduler "github.com/vaayne/anna/internal/scheduler"
@@ -109,40 +108,38 @@ func (a schedulerServiceAdapter) ListPluginJobs(ctx context.Context, pluginID st
 	jobs := a.service.ListJobs()
 	out := make([]pkgplugins.SchedulerJob, 0, len(jobs))
 	for _, job := range jobs {
-		owner, key, runtimeName, description, payload, ok := internalscheduler.DecodePluginJob(job)
-		if !ok || owner != pluginID {
+		if job.OwnerKind != internalscheduler.JobOwnerPlugin || job.PluginID != pluginID {
 			continue
 		}
 		out = append(out, pkgplugins.SchedulerJob{
 			ID:          job.ID,
-			PluginID:    owner,
-			Key:         key,
-			RuntimeName: runtimeName,
+			PluginID:    job.PluginID,
+			Key:         job.JobKey,
+			RuntimeName: job.RuntimeName,
 			Name:        job.Name,
-			Description: description,
+			Description: job.Description,
 			Schedule: pkgplugins.SchedulerSchedule{
 				Cron:  job.Schedule.Cron,
 				Every: job.Schedule.Every,
 				At:    job.Schedule.At,
 			},
-			Payload:   payload,
+			Payload:   clonePayload(job.Payload),
 			Enabled:   job.Enabled,
 			CreatedAt: job.CreatedAt,
+			UpdatedAt: job.UpdatedAt,
+			LastRunAt: job.LastRunAt,
+			LastError: job.LastError,
 		})
 	}
 	return out, nil
 }
 
 func (a schedulerServiceAdapter) createPluginJob(pluginID string, spec pkgplugins.SchedulerJobSpec) (pkgplugins.SchedulerJob, error) {
-	message, err := internalscheduler.EncodePluginJobMessage(pluginID, spec.Key, spec.RuntimeName, spec.Description, spec.Payload)
-	if err != nil {
-		return pkgplugins.SchedulerJob{}, err
-	}
-	job, err := a.service.AddJob(spec.Name, message, internalscheduler.Schedule{
+	job, err := a.service.AddPluginJob(pluginID, spec.Key, spec.RuntimeName, spec.Name, spec.Description, internalscheduler.Schedule{
 		Cron:  spec.Schedule.Cron,
 		Every: spec.Schedule.Every,
 		At:    spec.Schedule.At,
-	}, internalscheduler.SessionReuse)
+	}, spec.Payload)
 	if err != nil {
 		return pkgplugins.SchedulerJob{}, err
 	}
@@ -157,36 +154,36 @@ func (a schedulerServiceAdapter) createPluginJob(pluginID string, spec pkgplugin
 		Payload:     clonePayload(spec.Payload),
 		Enabled:     job.Enabled,
 		CreatedAt:   job.CreatedAt,
+		UpdatedAt:   job.UpdatedAt,
+		LastRunAt:   job.LastRunAt,
+		LastError:   job.LastError,
 	}, nil
 }
 
-func (a schedulerServiceAdapter) dispatchPluginJob(ctx context.Context, job internalscheduler.Job) {
-	pluginID, key, runtimeName, _, payload, ok := internalscheduler.DecodePluginJob(job)
-	if !ok {
-		return
+func (a schedulerServiceAdapter) dispatchPluginJob(ctx context.Context, job internalscheduler.Job) error {
+	if job.OwnerKind != internalscheduler.JobOwnerPlugin {
+		return nil
 	}
+	pluginID, key, runtimeName, payload := job.PluginID, job.JobKey, job.RuntimeName, job.Payload
 	if a.host == nil {
-		slog.Error("scheduler plugin job dropped: host unavailable", "plugin_id", pluginID, "key", key)
-		return
+		return fmt.Errorf("host unavailable for plugin %s job %s", pluginID, key)
 	}
 	handle, ok := a.host.Runtime().Get(pluginID, runtimeName)
 	if !ok {
-		slog.Warn("scheduler plugin job dropped: runtime unavailable", "plugin_id", pluginID, "runtime", runtimeName, "key", key)
-		return
+		return fmt.Errorf("runtime unavailable for plugin %s runtime %s", pluginID, runtimeName)
 	}
 	accessor, ok := handle.(interface{ RuntimeAccessor() any })
 	if !ok {
-		slog.Warn("scheduler plugin job dropped: runtime accessor unavailable", "plugin_id", pluginID, "runtime", runtimeName, "key", key)
-		return
+		return fmt.Errorf("runtime accessor unavailable for plugin %s runtime %s", pluginID, runtimeName)
 	}
 	runner, ok := accessor.RuntimeAccessor().(pkgplugins.ScheduledJobRunner)
 	if !ok {
-		slog.Warn("scheduler plugin job dropped: runtime does not handle scheduled jobs", "plugin_id", pluginID, "runtime", runtimeName, "key", key)
-		return
+		return fmt.Errorf("runtime %s/%s does not handle scheduled jobs", pluginID, runtimeName)
 	}
 	if err := runner.RunScheduledJob(ctx, key, clonePayload(payload)); err != nil {
-		slog.Error("scheduler plugin job failed", "plugin_id", pluginID, "runtime", runtimeName, "key", key, "error", err)
+		return err
 	}
+	return nil
 }
 
 func validatePluginJobSpec(job pkgplugins.SchedulerJobSpec) error {

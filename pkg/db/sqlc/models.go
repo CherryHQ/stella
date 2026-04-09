@@ -149,16 +149,25 @@ type PluginStateEntry struct {
 
 type SchedJob struct {
 	ID            string         `json:"id"`
+	OwnerKind     string         `json:"owner_kind"`
+	PluginID      string         `json:"plugin_id"`
+	JobKey        string         `json:"job_key"`
+	RuntimeName   string         `json:"runtime_name"`
 	Name          string         `json:"name"`
+	Description   string         `json:"description"`
 	ScheduleCron  string         `json:"schedule_cron"`
 	ScheduleEvery string         `json:"schedule_every"`
 	ScheduleAt    string         `json:"schedule_at"`
 	Message       string         `json:"message"`
+	Payload       string         `json:"payload"`
 	SessionMode   string         `json:"session_mode"`
 	Enabled       int64          `json:"enabled"`
 	AgentID       sql.NullString `json:"agent_id"`
 	UserID        sql.NullInt64  `json:"user_id"`
 	CreatedAt     string         `json:"created_at"`
+	UpdatedAt     string         `json:"updated_at"`
+	LastRunAt     sql.NullString `json:"last_run_at"`
+	LastError     string         `json:"last_error"`
 }
 
 type Setting struct {

@@ -194,15 +194,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// Wire scheduler notifications and start the scheduler AFTER channels
 	// are registered, so early-firing jobs already use the dispatcher.
 	if s.schedulerSvc != nil {
-		if s.snap.Scheduler.IsEnabled() {
-			wireSchedulerNotifier(s.schedulerSvc, s.poolManager, s.pool, s.notifier)
-			if err := s.schedulerSvc.Start(ctx); err != nil {
-				return fmt.Errorf("start scheduler: %w", err)
-			}
-		} else {
-			if err := s.schedulerSvc.StartEphemeral(ctx); err != nil {
-				return fmt.Errorf("start shared scheduler: %w", err)
-			}
+		wireSchedulerNotifier(s.schedulerSvc, s.poolManager, s.pool, s.notifier)
+		if err := s.schedulerSvc.Start(ctx); err != nil {
+			return fmt.Errorf("start scheduler: %w", err)
 		}
 		defer func() { _ = s.schedulerSvc.Stop() }()
 	}
@@ -226,9 +220,9 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 // and dispatch it via the notification dispatcher. User-owned jobs notify only their
 // owner; system jobs (user_id=0) broadcast to all channels.
 func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolManager, defaultPool *agent.Pool, dispatcher *notify.Dispatcher) {
-	schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) {
+	schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) error {
 		if scheduler.IsPluginJob(job) {
-			return
+			return nil
 		}
 		pool := defaultPool
 		if job.AgentID != "" {
@@ -250,21 +244,22 @@ func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolM
 				result.WriteString(evt.Text)
 			}
 		}
+		var runErr error
 		if result.Len() > 0 {
 			text := fmt.Sprintf("*%s*\n\n%s", job.Name, result.String())
 			n := pkgchannel.Notification{Text: text}
-			var err error
 			if job.UserID != 0 {
 				// User-owned job: notify only the owner.
-				err = dispatcher.NotifyUser(ctx, job.UserID, n)
+				runErr = dispatcher.NotifyUser(ctx, job.UserID, n)
 			} else {
 				// System job: broadcast to all channels.
-				err = dispatcher.Notify(ctx, n)
+				runErr = dispatcher.Notify(ctx, n)
 			}
-			if err != nil {
-				slog.Error("scheduler notification failed", "job_id", job.ID, "error", err)
+			if runErr != nil {
+				slog.Error("scheduler notification failed", "job_id", job.ID, "error", runErr)
 			}
 		}
+		return runErr
 	})
 }
 
