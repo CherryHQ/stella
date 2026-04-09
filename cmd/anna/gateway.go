@@ -109,18 +109,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)
 	}
 
-	var registeredChannelPlugins []string
-	if s.pluginHost != nil {
-		for _, meta := range s.pluginHost.ListRegisteredPlugins() {
-			if meta.Kind != "channel" {
-				continue
-			}
-			registeredChannelPlugins = append(registeredChannelPlugins, meta.ID)
-			if err := s.pluginHost.ApplyPlugin(gctx, meta.ID); err != nil {
-				return fmt.Errorf("apply %s runtime: %w", meta.Name, err)
-			}
-		}
-	}
+	managedChannels := applyManagedChannelPlugins(gctx, s.pluginHost)
 
 	// Start admin panel server.
 	if adminPort > 0 {
@@ -169,27 +158,23 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		},
 	)
 
-	hostBackedConfigured := false
-	for _, pluginID := range registeredChannelPlugins {
-		plugin, err := s.store.GetPlugin(gctx, pluginID)
-		if err != nil || !plugin.Enabled {
-			continue
-		}
-		if s.pluginHost.ChannelConfigured(gctx, plugin.Name) {
-			hostBackedConfigured = true
-			break
-		}
-	}
-
-	if len(channels) == 0 && !hostBackedConfigured {
+	if len(channels) == 0 && managedChannels.Started == 0 {
 		if adminPort > 0 {
-			slog.Warn("no channel services configured; running admin panel only")
+			if managedChannels.Configured > 0 {
+				slog.Warn("no channel services running; configured managed channel runtimes failed to start, running admin panel only", "configured_channels", managedChannels.Configured)
+			} else {
+				slog.Warn("no channel services configured; running admin panel only")
+			}
 		} else {
-			return fmt.Errorf("no services to run: no channels configured and admin panel disabled")
+			reason := "no channels configured"
+			if managedChannels.Configured > 0 {
+				reason = "configured channels failed to start"
+			}
+			return fmt.Errorf("no services to run: %s and admin panel disabled", reason)
 		}
 	}
 
-	if len(channels) > 0 && len(s.notifier.Channels()) == 0 {
+	if managedChannels.Started > 0 && len(s.notifier.Channels()) == 0 {
 		slog.Warn("no enabled channels have enable_notify set to true; scheduler results and heartbeat notifications will not be delivered")
 	}
 

@@ -59,7 +59,7 @@ Schema source of truth: `internal/db/schemas/tables/*.sql`. Migrations are gener
 - No dead code or orphaned comments.
 - Use `unicode/utf8` for safe string truncation.
 - Conventional commits: `✨ feat:`, `🐛 fix:`, `♻️ refactor:`, `📝 docs:`
-- Tests with `-race`, minimum 60% coverage required before push.
+- Run tests locally without `-race` by default; race-enabled test runs are CI-only. Minimum 60% coverage required before push.
 - Before committing, always run `mise run format` then `mise run lint` and fix any issues.
 - Always use `mise run <task>` to run tasks — never call tools (golangci-lint, templ, sqlc, atlas, etc.) directly.
 - Never hand-write migration SQL — always generate via `atlas migrate diff`.
