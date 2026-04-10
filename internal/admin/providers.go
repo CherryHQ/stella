@@ -2,7 +2,9 @@ package admin
 
 import (
 	"context"
+	"maps"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/vaayne/anna/internal/config"
@@ -88,6 +90,33 @@ func (s *Server) reloadProviders(ctx context.Context) {
 	}
 }
 
+type providerModelItem struct {
+	ID      string         `json:"id"`
+	Name    string         `json:"name,omitempty"`
+	Source  string         `json:"source"`
+	Enabled bool           `json:"enabled"`
+	Config  map[string]any `json:"config,omitempty"`
+}
+
+func disabledModelSet(ids []string) map[string]bool {
+	disabled := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		disabled[id] = true
+	}
+	return disabled
+}
+
+func (s *Server) listProviderModels(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	provider, err := s.store.GetProvider(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "provider not found")
+		return
+	}
+
+	writeData(w, http.StatusOK, s.mergedProviderModels(provider))
+}
+
 func (s *Server) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -147,10 +176,79 @@ func (s *Server) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
 		modelIDs = append(modelIDs, m.ID)
 	}
 
-	// Update models cache: merge newly fetched models with existing cache.
+	// Update models cache: replace fetched entries for this provider, but keep
+	// user-added provider config models separate so fetches never overwrite them.
 	s.updateModelsCache(id, modelIDs)
 
-	writeData(w, http.StatusOK, modelIDs)
+	providerCfg, err := s.store.GetProvider(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "reload provider config: "+err.Error())
+		return
+	}
+
+	writeData(w, http.StatusOK, s.mergedProviderModels(providerCfg))
+}
+
+func configMap(value any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	m, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	maps.Copy(out, m)
+	return out
+}
+
+func (s *Server) mergedProviderModels(provider config.Provider) []providerModelItem {
+	disabled := disabledModelSet(provider.DisabledModels)
+	items := make(map[string]providerModelItem)
+	for id, raw := range provider.Models {
+		cfg := configMap(raw)
+		name := id
+		if v, ok := cfg["name"].(string); ok && v != "" {
+			name = v
+		}
+		items[id] = providerModelItem{
+			ID:      id,
+			Name:    name,
+			Source:  "custom",
+			Enabled: !disabled[id],
+			Config:  cfg,
+		}
+	}
+
+	cache, err := config.LoadModelsCache()
+	if err == nil {
+		for _, model := range cache.Models {
+			if model.Provider != provider.ID {
+				continue
+			}
+			if _, exists := items[model.Model]; exists {
+				continue
+			}
+			items[model.Model] = providerModelItem{
+				ID:      model.Model,
+				Name:    model.Model,
+				Source:  "fetched",
+				Enabled: !disabled[model.Model],
+			}
+		}
+	}
+
+	out := make([]providerModelItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Source != out[j].Source {
+			return out[i].Source < out[j].Source
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
 }
 
 // updateModelsCache merges fetched models for a provider into the cache file.

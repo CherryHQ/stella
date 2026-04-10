@@ -4,10 +4,12 @@ import "context"
 
 // Provider represents an LLM API provider.
 type Provider struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	APIKey  string `json:"api_key"`
-	BaseURL string `json:"base_url"`
+	ID             string         `json:"id"`
+	Name           string         `json:"name"`
+	APIKey         string         `json:"api_key"`
+	BaseURL        string         `json:"base_url"`
+	Models         map[string]any `json:"models,omitempty"`
+	DisabledModels []string       `json:"disabled_models,omitempty"`
 }
 
 // AgentScope constants define the access scope for an agent.

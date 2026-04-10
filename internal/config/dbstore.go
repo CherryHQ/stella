@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 
@@ -586,23 +587,33 @@ func providerFromPlugin(p Plugin) Provider {
 	if displayName == "" {
 		displayName = p.Name
 	}
+	models := configMap(p.Config["models"])
 	return Provider{
-		ID:      p.Name, // plugin Name is the provider slug (e.g. "anthropic")
-		Name:    displayName,
-		APIKey:  apiKey,
-		BaseURL: baseURL,
+		ID:             p.Name, // plugin Name is the provider slug (e.g. "anthropic")
+		Name:           displayName,
+		APIKey:         apiKey,
+		BaseURL:        baseURL,
+		Models:         models,
+		DisabledModels: stringSlice(p.Config["disabled_models"]),
 	}
 }
 
 // pluginFromProvider converts a Provider into a Plugin for storage.
 func pluginFromProvider(p Provider) Plugin {
 	name := p.ID
+	config := map[string]any{"api_key": p.APIKey, "base_url": p.BaseURL, "display_name": p.Name}
+	if len(p.Models) > 0 {
+		config["models"] = p.Models
+	}
+	if len(p.DisabledModels) > 0 {
+		config["disabled_models"] = p.DisabledModels
+	}
 	return Plugin{
 		ID:      PluginID(PluginKindProvider, name),
 		Kind:    PluginKindProvider,
 		Name:    name,
 		Enabled: true,
-		Config:  map[string]any{"api_key": p.APIKey, "base_url": p.BaseURL, "display_name": p.Name},
+		Config:  config,
 	}
 }
 
@@ -638,6 +649,41 @@ func envFallback(dst *string, envKey string) {
 		if v := os.Getenv(envKey); v != "" {
 			*dst = v
 		}
+	}
+}
+
+func configMap(value any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	m, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	maps.Copy(out, m)
+	return out
+}
+
+func stringSlice(value any) []string {
+	if value == nil {
+		return nil
+	}
+	switch vv := value.(type) {
+	case []string:
+		out := make([]string, len(vv))
+		copy(out, vv)
+		return out
+	case []any:
+		out := make([]string, 0, len(vv))
+		for _, item := range vv {
+			if s, ok := item.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
 	}
 }
 

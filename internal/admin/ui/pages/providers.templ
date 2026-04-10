@@ -48,8 +48,93 @@ templ ProvidersPage() {
 								}
 							</div>
 						</div>
+						<div class="mb-4 space-y-4">
+							<div class="rounded-xl border border-base-300 bg-base-100 p-4 space-y-4">
+								<div class="flex items-start justify-between gap-3 flex-wrap">
+									<div>
+										<p class="text-sm font-medium">Custom models</p>
+										<p class="text-xs text-secondary">Add provider-specific models with a guided form. Fetching models only updates discovered models and never overwrites these custom entries.</p>
+									</div>
+									<button @click="openCustomModelForm(p)" class="btn btn-ghost btn-sm">Add custom model</button>
+								</div>
+								<div x-show="p._showCustomModelForm" x-cloak class="rounded-lg border border-base-300 bg-base-200/40 p-4 space-y-4">
+									<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+										<div>
+											@ui.FormField("Model ID") {
+												<input type="text" x-model="p._customModelForm.id" placeholder="qwen3.6-plus" class="input input-bordered w-full text-sm font-mono"/>
+											}
+										</div>
+										<div>
+											@ui.FormField("Display name") {
+												<input type="text" x-model="p._customModelForm.name" placeholder="Qwen3.6 Plus" class="input input-bordered w-full text-sm"/>
+											}
+										</div>
+										<div>
+											@ui.FormField("Input modalities") {
+												<input type="text" x-model="p._customModelForm.input_modalities" placeholder="text, image" class="input input-bordered w-full text-sm"/>
+											}
+										</div>
+										<div>
+											@ui.FormField("Output modalities") {
+												<input type="text" x-model="p._customModelForm.output_modalities" placeholder="text" class="input input-bordered w-full text-sm"/>
+											}
+										</div>
+										<div>
+											@ui.FormField("Context limit") {
+												<input type="number" min="0" x-model="p._customModelForm.context_limit" placeholder="1000000" class="input input-bordered w-full text-sm"/>
+											}
+										</div>
+										<div>
+											@ui.FormField("Output limit") {
+												<input type="number" min="0" x-model="p._customModelForm.output_limit" placeholder="65536" class="input input-bordered w-full text-sm"/>
+											}
+										</div>
+									</div>
+									<div class="grid grid-cols-1 md:grid-cols-[auto_1fr] gap-4 items-start">
+										<label class="label cursor-pointer justify-start gap-3 rounded-lg border border-base-300 px-4 py-3">
+											<input type="checkbox" x-model="p._customModelForm.thinking_enabled" class="toggle toggle-primary toggle-sm"/>
+											<div>
+												<p class="text-sm">Thinking enabled</p>
+												<p class="text-xs text-secondary">Adds <span class="font-mono">options.thinking.type = enabled</span>.</p>
+											</div>
+										</label>
+										<div>
+											@ui.FormField("Thinking budget tokens") {
+												<input type="number" min="0" x-model="p._customModelForm.thinking_budget_tokens" placeholder="8192" :disabled="!p._customModelForm.thinking_enabled" class="input input-bordered w-full text-sm"/>
+											}
+										</div>
+									</div>
+									<div class="flex items-center gap-3 justify-end">
+										<button @click="cancelCustomModelForm(p)" class="btn btn-ghost btn-sm">Cancel</button>
+										<button @click="submitCustomModel(p)" class="btn btn-primary btn-sm" x-text="p._customModelForm.original_id ? 'Update model' : 'Add model'"></button>
+									</div>
+								</div>
+								<div class="border-t border-base-300 pt-4 space-y-3">
+									<button @click="p._showAdvancedJSON = !p._showAdvancedJSON" class="text-xs font-mono text-secondary hover:text-base-content">
+										<span x-text="p._showAdvancedJSON ? 'Hide advanced JSON editor' : 'Show advanced JSON editor'"></span>
+									</button>
+									<div x-show="p._showAdvancedJSON" x-cloak class="space-y-2">
+										@ui.FormField("Custom models JSON") {
+											<textarea
+												x-model="p._customModelsJSON"
+												rows="10"
+												placeholder='{
+  "qwen3.6-plus": {
+    "name": "Qwen3.6 Plus"
+  }
+}'
+												class="textarea textarea-bordered w-full text-xs font-mono"
+											></textarea>
+										}
+										<div class="flex justify-end">
+											<button @click="applyAdvancedJSON(p)" class="btn btn-ghost btn-xs">Apply JSON</button>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
 						<!-- Actions: save, fetch models, model count toggle -->
-						<div class="flex items-center gap-4">
+						<div class="flex items-center gap-4 flex-wrap">
 							<button @click="saveProvider(p)" class="btn btn-primary btn-sm">Save</button>
 							<button @click="fetchModels(p)" :disabled="p._fetching" class="btn btn-ghost btn-sm text-secondary">
 								<span x-show="p._fetching" class="loading loading-spinner loading-xs"></span>
@@ -61,14 +146,33 @@ templ ProvidersPage() {
 							</button>
 						</div>
 						<!-- Collapsible model list -->
-						<div x-show="p._showModels && providerModels[p.id]?.length" x-transition x-cloak class="mt-4 pl-4 border-l-2 border-base-300">
-							<div class="max-h-48 overflow-y-auto space-y-0.5">
-								<template x-for="m in providerModels[p.id] || []" :key="m">
-									<div class="py-0.5">
-										<span class="badge badge-ghost badge-sm font-mono" x-text="m"></span>
+						<div x-show="p._showModels" x-transition x-cloak class="mt-4 pl-4 border-l-2 border-base-300 space-y-3">
+							<p class="text-xs text-secondary">Toggle models on or off, then save. Custom models can be edited with the form or in the advanced JSON editor.</p>
+							<div x-show="providerModels[p.id]?.length" class="max-h-80 overflow-y-auto space-y-2">
+								<template x-for="m in providerModels[p.id] || []" :key="m.id + ':' + m.source">
+									<div class="flex items-center justify-between gap-3 rounded-lg border border-base-300 px-3 py-2">
+										<div class="min-w-0 space-y-1">
+											<div class="flex items-center gap-2 flex-wrap">
+												<span class="font-mono text-sm" x-text="m.id"></span>
+												<span class="badge badge-ghost badge-xs" x-text="m.source"></span>
+												<span class="badge badge-xs" :class="m.enabled ? 'badge-success' : 'badge-ghost'" x-text="m.enabled ? 'enabled' : 'disabled'"></span>
+											</div>
+											<template x-if="m.name && m.name !== m.id">
+												<p class="text-xs text-secondary" x-text="m.name"></p>
+											</template>
+										</div>
+										<div class="flex items-center gap-3 shrink-0">
+											<label class="label cursor-pointer justify-start gap-2 py-0">
+												<input type="checkbox" :checked="m.enabled" @change="toggleModelEnabled(p, m)" class="toggle toggle-primary toggle-sm"/>
+												<span class="label-text text-sm">Enabled</span>
+											</label>
+											<button x-show="m.source === 'custom'" @click="editCustomModel(p, m)" class="btn btn-ghost btn-xs">edit</button>
+											<button x-show="m.source === 'custom'" @click="removeCustomModel(p, m.id)" class="btn btn-ghost btn-xs text-error">remove</button>
+										</div>
 									</div>
 								</template>
 							</div>
+							<div x-show="!providerModels[p.id]?.length" class="text-xs text-secondary py-2">No models yet. Fetch from the provider or add custom models above.</div>
 						</div>
 					</div>
 				</template>

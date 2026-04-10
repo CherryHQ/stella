@@ -63,6 +63,7 @@ func (s *Server) registerProviderRoutes() {
 	s.mux.Handle("GET /api/providers/{id}", adminAPI(s.getProvider))
 	s.mux.Handle("PUT /api/providers/{id}", adminAPI(s.updateProvider))
 	s.mux.Handle("DELETE /api/providers/{id}", adminAPI(s.deleteProvider))
+	s.mux.Handle("GET /api/providers/{id}/models", adminAPI(s.listProviderModels))
 	s.mux.Handle("POST /api/providers/{id}/models", adminAPI(s.fetchProviderModels))
 	s.mux.Handle("GET /api/provider-types", adminAPI(s.listProviderTypes))
 }
