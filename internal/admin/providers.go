@@ -30,8 +30,14 @@ func (s *Server) createProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "id is required")
 		return
 	}
+	if p.Type == "" {
+		p.Type = p.ID
+	}
 	if p.Name == "" {
 		p.Name = p.ID
+	}
+	if !p.Enabled {
+		p.Enabled = true
 	}
 	if err := s.store.CreateProvider(r.Context(), p); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -58,7 +64,15 @@ func (s *Server) updateProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
+	existing, err := s.store.GetProvider(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "provider not found")
+		return
+	}
 	p.ID = id
+	if p.Type == "" {
+		p.Type = existing.Type
+	}
 	if p.Name == "" {
 		p.Name = id
 	}
@@ -147,12 +161,22 @@ func (s *Server) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider, err := s.pluginHost.BuildProvider(id, map[string]any{
+	providerCfg, err := s.store.GetProvider(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "provider not found")
+		return
+	}
+
+	providerType := providerCfg.Type
+	if providerType == "" {
+		providerType = providerCfg.ID
+	}
+	provider, err := s.pluginHost.BuildProvider(providerType, map[string]any{
 		"api_key":  body.APIKey,
 		"base_url": body.BaseURL,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "unknown provider: "+id)
+		writeError(w, http.StatusBadRequest, "unknown provider type: "+providerType)
 		return
 	}
 
@@ -180,7 +204,7 @@ func (s *Server) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
 	// user-added provider config models separate so fetches never overwrite them.
 	s.updateModelsCache(id, modelIDs)
 
-	providerCfg, err := s.store.GetProvider(r.Context(), id)
+	providerCfg, err = s.store.GetProvider(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "reload provider config: "+err.Error())
 		return

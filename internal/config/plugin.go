@@ -32,7 +32,7 @@ var builtinChannelNames = []string{"telegram", "qq", "feishu", "weixin"}
 // builtinHookNames lists the built-in hook plugins.
 var builtinHookNames = []string{"rtk", "trace"}
 
-// builtinProviderNames lists the built-in provider plugins.
+// builtinProviderNames lists the built-in provider types.
 var builtinProviderNames = []string{"anthropic", "openai", "openai-response"}
 
 // builtinMemoryNames lists the built-in memory plugins.
@@ -42,8 +42,9 @@ var builtinMemoryNames = []string{"lcm", "simple"}
 var builtinStandalonePlugins = []string{"reflect"}
 
 // BuiltinPluginIDs returns all built-in plugin IDs in deterministic order.
+// Provider instances are stored separately in settings_providers.
 func BuiltinPluginIDs() []string {
-	ids := make([]string, 0, len(builtinToolNames)+len(builtinChannelNames)+len(builtinHookNames)+len(builtinProviderNames)+len(builtinMemoryNames)+len(builtinStandalonePlugins))
+	ids := make([]string, 0, len(builtinToolNames)+len(builtinChannelNames)+len(builtinHookNames)+len(builtinMemoryNames)+len(builtinStandalonePlugins))
 	for _, n := range builtinToolNames {
 		ids = append(ids, PluginID(PluginKindTool, n))
 	}
@@ -52,9 +53,6 @@ func BuiltinPluginIDs() []string {
 	}
 	for _, n := range builtinHookNames {
 		ids = append(ids, PluginID(PluginKindHook, n))
-	}
-	for _, n := range builtinProviderNames {
-		ids = append(ids, PluginID(PluginKindProvider, n))
 	}
 	for _, n := range builtinMemoryNames {
 		ids = append(ids, PluginID(PluginKindMemory, n))

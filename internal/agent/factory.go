@@ -38,6 +38,10 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsB
 				provID = snap.Provider
 			}
 			creds := snap.ResolveProviderCreds(provID)
+			apiName := creds.Type
+			if apiName == "" {
+				apiName = provID
+			}
 			cwd, _ := os.Getwd()
 
 			// Determine per-user paths when user ID is set.
@@ -95,7 +99,7 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsB
 			}
 
 			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
-				API:            provID,
+				API:            apiName,
 				Model:          modelID,
 				APIKey:         creds.APIKey,
 				Workspace:      snap.Workspace,

@@ -25,46 +25,72 @@ func NewDBStore(db *sql.DB) *DBStore {
 	return &DBStore{q: sqlc.New(db)}
 }
 
-// --- Providers (backed by settings_plugins with kind=provider) ---
+// --- Providers (backed by settings_providers) ---
 
 func (s *DBStore) ListProviders(ctx context.Context) ([]Provider, error) {
-	rows, err := s.q.ListPluginsByKind(ctx, PluginKindProvider)
+	rows, err := s.q.ListProviders(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list providers: %w", err)
 	}
 	out := make([]Provider, len(rows))
 	for i, r := range rows {
-		out[i] = providerFromPlugin(pluginFromDB(r))
+		out[i] = providerFromDB(r)
+		applyProviderEnvFallback(&out[i])
 	}
 	return out, nil
 }
 
 func (s *DBStore) GetProvider(ctx context.Context, id string) (Provider, error) {
-	pluginID := PluginID(PluginKindProvider, id)
-	r, err := s.q.GetPlugin(ctx, pluginID)
+	r, err := s.q.GetProvider(ctx, id)
 	if err != nil {
 		return Provider{}, fmt.Errorf("get provider %q: %w", id, err)
 	}
-	p := providerFromPlugin(pluginFromDB(r))
+	p := providerFromDB(r)
 	applyProviderEnvFallback(&p)
 	return p, nil
 }
 
 func (s *DBStore) CreateProvider(ctx context.Context, p Provider) error {
-	plug := pluginFromProvider(p)
-	return s.UpsertPlugin(ctx, plug)
+	configJSON, err := json.Marshal(providerConfig(p))
+	if err != nil {
+		return fmt.Errorf("create provider %q: marshal config: %w", p.ID, err)
+	}
+	enabled := int64(1)
+	if _, err := s.q.CreateProvider(ctx, sqlc.CreateProviderParams{
+		ID:      p.ID,
+		Type:    providerType(p),
+		Name:    providerName(p),
+		Enabled: enabled,
+		Config:  string(configJSON),
+	}); err != nil {
+		return fmt.Errorf("create provider %q: %w", p.ID, err)
+	}
+	return nil
 }
 
 func (s *DBStore) UpdateProvider(ctx context.Context, p Provider) error {
-	plug := pluginFromProvider(p)
-	if err := s.SetPluginConfig(ctx, plug.ID, plug.Config); err != nil {
+	configJSON, err := json.Marshal(providerConfig(p))
+	if err != nil {
+		return fmt.Errorf("update provider %q: marshal config: %w", p.ID, err)
+	}
+	enabled := int64(0)
+	if p.Enabled {
+		enabled = 1
+	}
+	if err := s.q.UpdateProvider(ctx, sqlc.UpdateProviderParams{
+		Type:    providerType(p),
+		Name:    providerName(p),
+		Enabled: enabled,
+		Config:  string(configJSON),
+		ID:      p.ID,
+	}); err != nil {
 		return fmt.Errorf("update provider %q: %w", p.ID, err)
 	}
 	return nil
 }
 
 func (s *DBStore) DeleteProvider(ctx context.Context, id string) error {
-	return s.q.DeletePlugin(ctx, PluginID(PluginKindProvider, id))
+	return s.q.DeleteProvider(ctx, id)
 }
 
 // --- Agents ---
@@ -338,7 +364,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 		return nil, fmt.Errorf("snapshot: get agent %q: %w", agentID, err)
 	}
 
-	// Load all plugins in one query — providers are extracted from this list.
+	// Load plugins once for non-provider plugin state exposed in the snapshot.
 	pluginRows, err := s.q.ListPlugins(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: list plugins: %w", err)
@@ -348,19 +374,22 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 		plugins[i] = pluginFromDB(r)
 	}
 
-	// Collect unique provider IDs from all model refs.
 	provIDs := collectProviderIDs(ag.Model, ag.ModelStrong, ag.ModelFast)
+	providerRows, err := s.q.ListProviders(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: list providers: %w", err)
+	}
+	providerByID := make(map[string]Provider, len(providerRows))
+	for _, row := range providerRows {
+		provider := providerFromDB(row)
+		applyProviderEnvFallback(&provider)
+		providerByID[provider.ID] = provider
+	}
 
-	// Extract provider credentials from the loaded plugins.
 	providers := make(map[string]ProviderCreds, len(provIDs))
 	for _, pid := range provIDs {
-		for i := range plugins {
-			if plugins[i].Kind == PluginKindProvider && plugins[i].Name == pid {
-				p := providerFromPlugin(plugins[i])
-				applyProviderEnvFallback(&p)
-				providers[pid] = ProviderCreds{APIKey: p.APIKey, BaseURL: p.BaseURL}
-				break
-			}
+		if provider, ok := providerByID[pid]; ok {
+			providers[pid] = ProviderCreds{Type: provider.Type, APIKey: provider.APIKey, BaseURL: provider.BaseURL}
 		}
 	}
 
@@ -442,6 +471,9 @@ func (s *DBStore) SeedDefaults(ctx context.Context) error {
 
 	// Seed plugins: migrate existing channels and seed all built-ins.
 	if err := s.seedPlugins(ctx); err != nil {
+		return err
+	}
+	if err := s.seedProviders(ctx); err != nil {
 		return err
 	}
 
@@ -537,31 +569,6 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 		}
 	}
 
-	// Only seed provider plugins on first bootstrap. If the user later
-	// deletes a provider, it stays deleted across restarts.
-	providerPlugins, err := s.q.ListPluginsByKind(ctx, PluginKindProvider)
-	if err != nil {
-		return fmt.Errorf("seed: list provider plugins: %w", err)
-	}
-	if len(providerPlugins) == 0 {
-		for _, name := range builtinProviderNames {
-			cfg := providerSeedConfig(name)
-			cfgJSON, err := json.Marshal(cfg)
-			if err != nil {
-				return fmt.Errorf("seed: marshal provider config %q: %w", name, err)
-			}
-			if err = s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
-				ID:      PluginID(PluginKindProvider, name),
-				Kind:    PluginKindProvider,
-				Name:    name,
-				Enabled: 1,
-				Config:  string(cfgJSON),
-			}); err != nil {
-				return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindProvider, name, err)
-			}
-		}
-	}
-
 	// Seed the reflect plugin (conversation review).
 	if err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
 		ID:      "reflect",
@@ -578,43 +585,143 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 
 // --- Helpers ---
 
-// providerFromPlugin extracts a typed Provider from a Plugin (kind=provider).
-// api_key, base_url, and display_name are stored in the plugin's config JSON.
-func providerFromPlugin(p Plugin) Provider {
-	apiKey, _ := p.Config["api_key"].(string)
-	baseURL, _ := p.Config["base_url"].(string)
-	displayName, _ := p.Config["display_name"].(string)
-	if displayName == "" {
-		displayName = p.Name
+func (s *DBStore) seedProviders(ctx context.Context) error {
+	providers, err := s.q.ListProviders(ctx)
+	if err != nil {
+		return fmt.Errorf("seed: list providers: %w", err)
 	}
-	models := configMap(p.Config["models"])
+	if len(providers) > 0 {
+		return nil
+	}
+
+	providerPlugins, err := s.q.ListPluginsByKind(ctx, PluginKindProvider)
+	if err != nil {
+		return fmt.Errorf("seed: list legacy provider plugins: %w", err)
+	}
+	if len(providerPlugins) > 0 {
+		for _, row := range providerPlugins {
+			plugin := pluginFromDB(row)
+			legacy := legacyProviderFromPlugin(plugin)
+			configJSON, err := json.Marshal(providerConfig(legacy))
+			if err != nil {
+				return fmt.Errorf("seed: marshal migrated provider %q: %w", legacy.ID, err)
+			}
+			if err := s.q.SeedProvider(ctx, sqlc.SeedProviderParams{
+				ID:      legacy.ID,
+				Type:    providerType(legacy),
+				Name:    providerName(legacy),
+				Enabled: boolToInt64(legacy.Enabled),
+				Config:  string(configJSON),
+			}); err != nil {
+				return fmt.Errorf("seed: migrate provider %q: %w", legacy.ID, err)
+			}
+		}
+		return nil
+	}
+
+	for _, name := range builtinProviderNames {
+		provider := Provider{
+			ID:      name,
+			Type:    name,
+			Name:    name,
+			Enabled: true,
+			APIKey:  "",
+			BaseURL: "",
+		}
+		configJSON, err := json.Marshal(providerConfig(provider))
+		if err != nil {
+			return fmt.Errorf("seed: marshal provider config %q: %w", name, err)
+		}
+		if err := s.q.SeedProvider(ctx, sqlc.SeedProviderParams{
+			ID:      provider.ID,
+			Type:    provider.Type,
+			Name:    provider.Name,
+			Enabled: 1,
+			Config:  string(configJSON),
+		}); err != nil {
+			return fmt.Errorf("seed: provider %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func providerFromDB(r sqlc.SettingsProvider) Provider {
+	cfg := map[string]any{}
+	if r.Config != "" {
+		_ = json.Unmarshal([]byte(r.Config), &cfg)
+	}
+	apiKey, _ := cfg["api_key"].(string)
+	baseURL, _ := cfg["base_url"].(string)
+	models := configMap(cfg["models"])
 	return Provider{
-		ID:             p.Name, // plugin Name is the provider slug (e.g. "anthropic")
-		Name:           displayName,
+		ID:             r.ID,
+		Type:           r.Type,
+		Name:           providerDisplayName(r.Name, r.ID),
+		Enabled:        r.Enabled == 1,
 		APIKey:         apiKey,
 		BaseURL:        baseURL,
 		Models:         models,
+		DisabledModels: stringSlice(cfg["disabled_models"]),
+	}
+}
+
+func legacyProviderFromPlugin(p Plugin) Provider {
+	apiKey, _ := p.Config["api_key"].(string)
+	baseURL, _ := p.Config["base_url"].(string)
+	typeName := p.Name
+	if value, ok := p.Config["type"].(string); ok && value != "" {
+		typeName = value
+	}
+	displayName, _ := p.Config["display_name"].(string)
+	return Provider{
+		ID:             p.Name,
+		Type:           typeName,
+		Name:           providerDisplayName(displayName, p.Name),
+		Enabled:        p.Enabled,
+		APIKey:         apiKey,
+		BaseURL:        baseURL,
+		Models:         configMap(p.Config["models"]),
 		DisabledModels: stringSlice(p.Config["disabled_models"]),
 	}
 }
 
-// pluginFromProvider converts a Provider into a Plugin for storage.
-func pluginFromProvider(p Provider) Plugin {
-	name := p.ID
-	config := map[string]any{"api_key": p.APIKey, "base_url": p.BaseURL, "display_name": p.Name}
+func providerConfig(p Provider) map[string]any {
+	config := map[string]any{"api_key": p.APIKey, "base_url": p.BaseURL}
 	if len(p.Models) > 0 {
 		config["models"] = p.Models
 	}
 	if len(p.DisabledModels) > 0 {
 		config["disabled_models"] = p.DisabledModels
 	}
-	return Plugin{
-		ID:      PluginID(PluginKindProvider, name),
-		Kind:    PluginKindProvider,
-		Name:    name,
-		Enabled: true,
-		Config:  config,
+	return config
+}
+
+func providerType(p Provider) string {
+	if p.Type != "" {
+		return p.Type
 	}
+	return p.ID
+}
+
+func providerName(p Provider) string {
+	if p.Name != "" {
+		return p.Name
+	}
+	return p.ID
+}
+
+func providerDisplayName(name, fallback string) string {
+	if name != "" {
+		return name
+	}
+	return fallback
+}
+
+func boolToInt64(value bool) int64 {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 // providerEnvVars maps provider slugs to their (apiKey, baseURL) env var names.
@@ -624,21 +731,14 @@ var providerEnvVars = map[string][2]string{
 	"openai-response": {"OPENAI_API_KEY", "OPENAI_BASE_URL"},
 }
 
-// providerSeedConfig returns the initial config map for a provider plugin,
-// populated from environment variables when available.
-func providerSeedConfig(name string) map[string]any {
-	cfg := map[string]any{"api_key": "", "base_url": "", "display_name": name}
-	if envs, ok := providerEnvVars[name]; ok {
-		cfg["api_key"] = os.Getenv(envs[0])
-		cfg["base_url"] = os.Getenv(envs[1])
-	}
-	return cfg
-}
-
 // applyProviderEnvFallback fills empty API key and base URL from environment
 // variables for known provider slugs.
 func applyProviderEnvFallback(p *Provider) {
-	if envs, ok := providerEnvVars[p.ID]; ok {
+	providerKey := p.Type
+	if providerKey == "" {
+		providerKey = p.ID
+	}
+	if envs, ok := providerEnvVars[providerKey]; ok {
 		envFallback(&p.APIKey, envs[0])
 		envFallback(&p.BaseURL, envs[1])
 	}
