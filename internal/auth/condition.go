@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -127,32 +128,17 @@ func evalOp(op, leftVal string, rightRaw any, req AccessRequest) bool {
 		// leftVal should be a single value; right should resolve to a
 		// collection (JSON array string or attribute reference to a list).
 		collection := resolveCollection(rightRaw, req)
-		for _, item := range collection {
-			if leftVal == item {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(collection, leftVal)
 
 	case OpNotIn:
 		collection := resolveCollection(rightRaw, req)
-		for _, item := range collection {
-			if leftVal == item {
-				return false
-			}
-		}
-		return true
+		return !slices.Contains(collection, leftVal)
 
 	case OpContains:
 		// leftVal should resolve to a collection; right is a single value.
 		leftCollection := resolveCollection(leftVal, req)
 		rightVal := resolveOperand(rightRaw, req)
-		for _, item := range leftCollection {
-			if item == rightVal {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(leftCollection, rightVal)
 
 	default:
 		slog.Warn("policy engine: unknown operator", "op", op)

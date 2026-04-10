@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"maps"
 
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -22,6 +23,7 @@ type Runner struct {
 	interrupt     <-chan struct{}
 	hooks         *hooks.HookSet
 	hookMeta      hooks.HookMeta
+	toolLifecycle *ToolLifecycle
 }
 
 // RunnerConfig holds the required fields for constructing a Runner.
@@ -63,6 +65,13 @@ func WithHooks(hs *hooks.HookSet, meta hooks.HookMeta) Option {
 	}
 }
 
+// WithToolLifecycle sets optional tool lifecycle hooks for the loop.
+func WithToolLifecycle(tl *ToolLifecycle) Option {
+	return func(r *Runner) {
+		r.toolLifecycle = tl
+	}
+}
+
 // NewRunner constructs a Runner with the given config and options.
 func NewRunner(cfg RunnerConfig, opts ...Option) (*Runner, error) {
 	if cfg.Providers == nil {
@@ -70,9 +79,7 @@ func NewRunner(cfg RunnerConfig, opts ...Option) (*Runner, error) {
 	}
 	// Defensive copies: callers must not mutate after construction.
 	toolsCopy := make(ToolSet, len(cfg.Tools))
-	for k, v := range cfg.Tools {
-		toolsCopy[k] = v
-	}
+	maps.Copy(toolsCopy, cfg.Tools)
 	defsCopy := make([]ai.ToolDefinition, len(cfg.ToolDefinitions))
 	copy(defsCopy, cfg.ToolDefinitions)
 
@@ -123,5 +130,6 @@ func (r *Runner) loopConfig() loopConfig {
 		Interrupt:       r.interrupt,
 		Hooks:           r.hooks,
 		HookMeta:        r.hookMeta,
+		ToolLifecycle:   r.toolLifecycle,
 	}
 }

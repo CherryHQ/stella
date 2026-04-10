@@ -33,7 +33,7 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 			return nil
 		}
 
-		cmd, args := parseCommand(text)
+		cmd, args := channel.ParseSlashCommand(text)
 		b.handleIncoming(authorID, "", msg.ID, incoming, cmd, args, scopeC2C)
 		return nil
 	}
@@ -63,7 +63,7 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 			return nil
 		}
 
-		cmd, args := parseCommand(text)
+		cmd, args := channel.ParseSlashCommand(text)
 		b.handleIncoming(authorID, groupID, msg.ID, incoming, cmd, args, scopeGroup)
 		return nil
 	}
@@ -204,7 +204,7 @@ func (b *Bot) handleIncoming(authorID, groupID, msgID string, incoming channel.I
 // handleLocalCommand handles plugin-local commands (/model, /agent, /help, /whoami).
 // Returns true if the text was handled.
 func (b *Bot) handleLocalCommand(incoming channel.IncomingMessage, text string, reply func(string)) bool {
-	cmd, args := parseCommand(text)
+	cmd, args := channel.ParseSlashCommand(text)
 	if cmd == "" {
 		return false
 	}
@@ -225,17 +225,6 @@ func (b *Bot) handleLocalCommand(incoming channel.IncomingMessage, text string, 
 	}
 
 	return false
-}
-
-// parseCommand extracts the command and arguments from text.
-func parseCommand(text string) (string, string) {
-	fields := strings.Fields(text)
-	if len(fields) == 0 || !strings.HasPrefix(fields[0], "/") {
-		return "", ""
-	}
-	cmd := strings.ToLower(fields[0])
-	args := channel.ParseCommandArgs(text, fields[0])
-	return cmd, args
 }
 
 // shouldRespondInGroup checks whether the bot should respond based on group_mode.

@@ -5,13 +5,13 @@ import (
 	"sort"
 
 	"github.com/vaayne/anna/internal/scheduler"
-	"github.com/vaayne/anna/internal/skills"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgtools "github.com/vaayne/anna/pkg/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
 	"github.com/vaayne/anna/plugins/tools/bash"
 	"github.com/vaayne/anna/plugins/tools/edit"
 	"github.com/vaayne/anna/plugins/tools/read"
+	skillstool "github.com/vaayne/anna/plugins/tools/skills"
 	"github.com/vaayne/anna/plugins/tools/write"
 )
 
@@ -70,7 +70,7 @@ func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 func (s *Server) sharedToolDefinitions() []pkgtools.Definition {
 	defs := []pkgtools.Definition{
 		scheduler.SchedulerDefinition(),
-		skills.SkillsDefinition(),
+		skillstool.SkillsDefinition(),
 	}
 	if s.mem != nil {
 		defs = append(defs, memory.BuildTool(s.mem).Definition())

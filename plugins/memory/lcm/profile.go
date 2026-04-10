@@ -3,9 +3,10 @@ package lcm
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
-	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 )
 
 // getMemoryRow fetches the ctx_agent_memory row, returning nil for non-existent rows.
@@ -14,7 +15,7 @@ func (p *Provider) getMemoryRow(ctx context.Context, userID int64, agentID strin
 		UserID:  userID,
 		AgentID: agentID,
 	})
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

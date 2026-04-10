@@ -124,7 +124,7 @@ func TestChannelEventStreamFinishWithError(t *testing.T) {
 	for range s.Events() {
 	}
 
-	if got := s.Wait(); got != want {
+	if got := s.Wait(); !errors.Is(got, want) {
 		t.Errorf("Wait() = %v, want %v", got, want)
 	}
 }

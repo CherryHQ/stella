@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/vaayne/anna/internal/auth"
@@ -15,12 +16,12 @@ func TestRateLimiterIPBasic(t *testing.T) {
 	}
 
 	// Record 10 failed attempts.
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		rl.RecordIPAttempt("1.2.3.4")
 	}
 
 	// 11th check should fail.
-	if err := rl.CheckIP("1.2.3.4"); err != auth.ErrRateLimitIP {
+	if err := rl.CheckIP("1.2.3.4"); !errors.Is(err, auth.ErrRateLimitIP) {
 		t.Errorf("expected ErrRateLimitIP, got %v", err)
 	}
 
@@ -34,7 +35,7 @@ func TestRateLimiterIPSuccessDoesNotCount(t *testing.T) {
 	rl := auth.NewRateLimiter()
 
 	// CheckIP many times without RecordIPAttempt should never block.
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		if err := rl.CheckIP("1.2.3.4"); err != nil {
 			t.Fatalf("successful requests should not be counted: %v", err)
 		}
@@ -50,12 +51,12 @@ func TestRateLimiterUsernameFailures(t *testing.T) {
 	}
 
 	// Record 5 failures.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		rl.RecordLoginFailure("testuser")
 	}
 
 	// Should be rate limited.
-	if err := rl.CheckUsername("testuser"); err != auth.ErrRateLimitUsername {
+	if err := rl.CheckUsername("testuser"); !errors.Is(err, auth.ErrRateLimitUsername) {
 		t.Errorf("expected ErrRateLimitUsername, got %v", err)
 	}
 
@@ -69,7 +70,7 @@ func TestRateLimiterLoginSuccess(t *testing.T) {
 	rl := auth.NewRateLimiter()
 
 	// Record 4 failures.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		rl.RecordLoginFailure("testuser")
 	}
 
@@ -77,11 +78,11 @@ func TestRateLimiterLoginSuccess(t *testing.T) {
 	rl.RecordLoginSuccess("testuser")
 
 	// Should be able to fail again.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		rl.RecordLoginFailure("testuser")
 	}
 
-	if err := rl.CheckUsername("testuser"); err != auth.ErrRateLimitUsername {
+	if err := rl.CheckUsername("testuser"); !errors.Is(err, auth.ErrRateLimitUsername) {
 		t.Errorf("expected ErrRateLimitUsername after new failures, got %v", err)
 	}
 }
@@ -90,7 +91,7 @@ func TestRateLimiterBelowThreshold(t *testing.T) {
 	rl := auth.NewRateLimiter()
 
 	// 4 failures is below threshold.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		rl.RecordLoginFailure("testuser")
 	}
 

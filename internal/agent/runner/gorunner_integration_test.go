@@ -8,6 +8,10 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/providers"
+	"github.com/vaayne/anna/pkg/tools"
+	anthropicprovider "github.com/vaayne/anna/plugins/providers/anthropic"
+	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
 // skipWithoutAnthropicKey skips the test when ANTHROPIC_API_KEY is not set.
@@ -26,12 +30,28 @@ func integrationConfig(t *testing.T) GoRunnerConfig {
 		model = "claude-sonnet-4-20250514"
 	}
 	return GoRunnerConfig{
-		API:     "anthropic",
-		Model:   model,
-		APIKey:  os.Getenv("ANTHROPIC_API_KEY"),
-		BaseURL: os.Getenv("ANTHROPIC_BASE_URL"),
+		API:       "anthropic",
+		Model:     model,
+		APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
+		BaseURL:   os.Getenv("ANTHROPIC_BASE_URL"),
+		CoreTools: integrationCoreToolsBuilder,
+		Providers: integrationProviderRegistryBuilder,
 	}
 }
+
+func integrationProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Registry, error) {
+	if api != "anthropic" {
+		return nil, providers.ErrProviderNotFound
+	}
+	reg := providers.NewRegistry()
+	reg.Register(anthropicprovider.New(anthropicprovider.Config{
+		APIKey:  apiKey,
+		BaseURL: baseURL,
+	}))
+	return reg, nil
+}
+
+func integrationCoreToolsBuilder(plugintools.BuildContext) []tools.Tool { return nil }
 
 func TestIntegrationSingleTurn(t *testing.T) {
 	cfg := integrationConfig(t)
@@ -123,15 +143,15 @@ func TestIntegrationSystemPrompt(t *testing.T) {
 
 	ch := r.Chat(ctx, nil, "What is 2+2?")
 
-	var collected string
+	var collected strings.Builder
 	for evt := range ch {
 		if evt.Err != nil {
 			t.Fatalf("stream error: %v", evt.Err)
 		}
-		collected += evt.Text
+		collected.WriteString(evt.Text)
 	}
 
-	trimmed := strings.TrimSpace(collected)
+	trimmed := strings.TrimSpace(collected.String())
 	if !strings.HasPrefix(trimmed, "{") {
 		t.Errorf("expected JSON response starting with '{', got %q", trimmed)
 	}
@@ -156,15 +176,15 @@ func TestIntegrationCustomBaseURL(t *testing.T) {
 
 	ch := r.Chat(ctx, nil, "Say hi")
 
-	var collected string
+	var collected strings.Builder
 	for evt := range ch {
 		if evt.Err != nil {
 			t.Fatalf("stream error: %v", evt.Err)
 		}
-		collected += evt.Text
+		collected.WriteString(evt.Text)
 	}
 
-	if collected == "" {
+	if collected.Len() == 0 {
 		t.Fatal("expected non-empty response from custom base URL")
 	}
 }

@@ -10,7 +10,6 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -19,12 +18,14 @@ import (
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
-	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
-	annamcp "github.com/vaayne/anna/internal/mcp"
-	"github.com/vaayne/anna/internal/reflect"
+	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/scheduler"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	"github.com/vaayne/anna/pkg/providers"
+	"github.com/vaayne/anna/pkg/tools"
+	reflectplugin "github.com/vaayne/anna/plugins/reflect"
+	plugintools "github.com/vaayne/anna/plugins/tools"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -57,7 +58,24 @@ func serverAction(c *ucli.Context) error {
 	listFn := func() []pkgchannel.ModelOption {
 		return collectModelsFromStore(ctx, s.store, s.snap)
 	}
-	switchFn := modelSwitcher(s.snap, s.store, s.pool, s.extraTools)
+	switchFn := modelSwitcher(
+		s.snap,
+		s.store,
+		s.pool,
+		s.extraTools,
+		func(bc plugintools.BuildContext) []tools.Tool {
+			return s.pluginHost.BuildCoreTools(bc)
+		},
+		func(api, apiKey, baseURL string) (*providers.Registry, error) {
+			return s.pluginHost.BuildProviderRegistry(api, map[string]any{
+				"api_key":  apiKey,
+				"base_url": baseURL,
+			})
+		},
+		s.promptToolsBuilder,
+		s.promptSectionsBuilder,
+		s.toolLifecycle,
+	)
 	return runServer(s.ctx, s, listFn, switchFn, c.Int("admin-port"), c.Bool("open"))
 }
 
@@ -80,7 +98,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	// Admin server is always created so channel stop functions can be registered
 	// even when the panel is disabled.
-	adminSrv := admin.New(s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager)
+	adminSrv := admin.New(s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
 
 	// Create the coordinator that implements MessageHandler for all channels.
 	coordinator := channel.NewCoordinator(
@@ -90,6 +108,11 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		switchFn,
 		channel.WithCoordinatorAuth(as, engine, linkCodes),
 	)
+	if s.channelRuntimeServices != nil {
+		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)
+	}
+
+	managedChannels := applyManagedChannelPlugins(gctx, s.pluginHost)
 
 	// Start admin panel server.
 	if adminPort > 0 {
@@ -120,41 +143,16 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		})
 	}
 
-	adminSrv.SetMCPLifecycle(
-		func() {
-			cfg, enabled, err := annamcp.LoadPluginState(gctx, s.store)
-			if err != nil {
-				slog.Error("mcp: failed to load plugin state", "error", err)
-				return
-			}
-			s.mcpManager.Reconcile(gctx, cfg, enabled)
-		},
-		func() {
-			s.mcpManager.Reconcile(gctx, annamcp.Config{}, false)
-		},
-		func() {
-			cfg, enabled, err := annamcp.LoadPluginState(gctx, s.store)
-			if err != nil {
-				slog.Error("mcp: failed to reconcile plugin state", "error", err)
-				return
-			}
-			s.mcpManager.Reconcile(gctx, cfg, enabled)
-		},
-		func() any {
-			return s.mcpManager.Statuses()
-		},
-	)
-
 	// Configure channel hot-reload so the admin UI can start/stop channels.
 	adminSrv.SetChannelLifecycle(gctx,
 		func(name string) (pkgchannel.Channel, error) {
-			if !channel.HasValidConfig(s.store, name) {
+			if !s.pluginHost.ChannelConfigured(gctx, name) {
 				return nil, fmt.Errorf("%s: missing or invalid config", name)
 			}
 			return buildChannel(name, coordinator, s.store)
 		},
 		func(name string, ch pkgchannel.Channel) {
-			if channel.IsNotifyEnabled(s.store, name) {
+			if s.pluginHost.ChannelNotificationsEnabled(gctx, name) {
 				s.notifier.Register(ch)
 			}
 		},
@@ -163,39 +161,23 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		},
 	)
 
-	// Load enabled channel plugins from settings_plugins.
-	channelNames := []string{"telegram", "qq", "feishu", "weixin"}
-	for _, name := range channelNames {
-		pluginID := config.PluginID(config.PluginKindChannel, name)
-		p, err := s.store.GetPlugin(gctx, pluginID)
-		if err != nil || !p.Enabled {
-			continue
-		}
-		if !channel.HasValidConfig(s.store, name) {
-			slog.Debug("skipping channel without valid config", "channel", name)
-			continue
-		}
-		ch, err := buildChannel(name, coordinator, s.store)
-		if err != nil {
-			return err
-		}
-		slog.Info("starting channel", "channel", name)
-		channels = append(channels, ch)
-		adminSrv.RegisterChannelStop(name, ch.Stop)
-		if channel.IsNotifyEnabled(s.store, name) {
-			s.notifier.Register(ch)
-		}
-	}
-
-	if len(channels) == 0 {
+	if len(channels) == 0 && managedChannels.Started == 0 {
 		if adminPort > 0 {
-			slog.Warn("no channel services configured; running admin panel only")
+			if managedChannels.Configured > 0 {
+				slog.Warn("no channel services running; configured managed channel runtimes failed to start, running admin panel only", "configured_channels", managedChannels.Configured)
+			} else {
+				slog.Warn("no channel services configured; running admin panel only")
+			}
 		} else {
-			return fmt.Errorf("no services to run: no channels configured and admin panel disabled")
+			reason := "no channels configured"
+			if managedChannels.Configured > 0 {
+				reason = "configured channels failed to start"
+			}
+			return fmt.Errorf("no services to run: %s and admin panel disabled", reason)
 		}
 	}
 
-	if len(channels) > 0 && len(s.notifier.Channels()) == 0 {
+	if managedChannels.Started > 0 && len(s.notifier.Channels()) == 0 {
 		slog.Warn("no enabled channels have enable_notify set to true; scheduler results and heartbeat notifications will not be delivered")
 	}
 
@@ -209,21 +191,25 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		})
 	}
 
-	// Wire auth store into dispatcher for per-user notification routing.
-	s.notifier.SetAuthStore(as)
+	// Managed channel runtimes are started by plugin application rather than by the
+	// legacy channels slice. When the admin panel is disabled, keep the gateway alive
+	// until shutdown so managed runtimes can continue serving traffic.
+	if adminPort == 0 && managedChannels.Started > 0 {
+		g.Go(func() error {
+			<-gctx.Done()
+			return nil
+		})
+	}
+
+	// Wire auth directory into dispatcher for per-user notification routing.
+	s.notifier.SetAuthService(s.pluginHost.Auth())
 
 	// Wire scheduler notifications and start the scheduler AFTER channels
 	// are registered, so early-firing jobs already use the dispatcher.
 	if s.schedulerSvc != nil {
-		if s.snap.Scheduler.IsEnabled() {
-			wireSchedulerNotifier(s.schedulerSvc, s.poolManager, s.pool, s.notifier)
-			if err := s.schedulerSvc.Start(ctx); err != nil {
-				return fmt.Errorf("start scheduler: %w", err)
-			}
-		} else {
-			if err := s.schedulerSvc.StartEphemeral(ctx); err != nil {
-				return fmt.Errorf("start shared scheduler: %w", err)
-			}
+		wireSchedulerNotifier(s.schedulerSvc, s.poolManager, s.pool, s.notifier)
+		if err := s.schedulerSvc.Start(ctx); err != nil {
+			return fmt.Errorf("start scheduler: %w", err)
 		}
 		defer func() { _ = s.schedulerSvc.Stop() }()
 	}
@@ -234,62 +220,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		}
 	}
 
-	// Start reflect (background conversation review) with hot-reload support.
-	var (
-		reflectCancel context.CancelFunc
-		reflectMu     sync.Mutex
-	)
-	buildReflect := func() *reflect.Service {
-		rp, err := s.store.GetPlugin(gctx, "reflect")
-		if err != nil {
-			slog.Warn("reflect: could not load plugin config", "error", err)
-			return nil
-		}
-		return reflect.New(reflect.Config{
-			DB:        s.db,
-			Memory:    s.mem,
-			Store:     s.store,
-			Notifier:  s.notifier,
-			Workspace: s.snap.Workspace,
-			Interval:  parseDurationConfig(rp.Config, "interval", time.Hour),
-			Batch:     parseIntConfig(rp.Config, "batch", 5),
-			Log:       slog.Default(),
-		})
-	}
-	startReflect := func() {
-		reflectMu.Lock()
-		defer reflectMu.Unlock()
-		if reflectCancel != nil {
-			return // already running
-		}
-		svc := buildReflect()
-		if svc == nil {
-			return
-		}
-		var rctx context.Context
-		rctx, reflectCancel = context.WithCancel(gctx)
-		go func() {
-			if err := svc.Start(rctx); err != nil && rctx.Err() == nil {
-				slog.Error("reflect: stopped unexpectedly", "error", err)
-			}
-		}()
-	}
-	stopReflect := func() {
-		reflectMu.Lock()
-		defer reflectMu.Unlock()
-		if reflectCancel != nil {
-			reflectCancel()
-			reflectCancel = nil
-		}
-	}
-	adminSrv.SetReflectLifecycle(gctx, startReflect, stopReflect)
-
-	reflectPlugin, err := s.store.GetPlugin(gctx, "reflect")
-	if err != nil {
-		slog.Warn("reflect: could not load plugin config, skipping", "error", err)
-	}
-	if reflectPlugin.Enabled {
-		startReflect()
+	if err := s.pluginHost.ApplyPlugin(gctx, reflectplugin.PluginID); err != nil {
+		return fmt.Errorf("apply reflect runtime: %w", err)
 	}
 
 	waitErr := g.Wait()
@@ -300,8 +232,11 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 // wireSchedulerNotifier overrides the scheduler callback to collect the agent response
 // and dispatch it via the notification dispatcher. User-owned jobs notify only their
 // owner; system jobs (user_id=0) broadcast to all channels.
-func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolManager, defaultPool *agent.Pool, dispatcher *channel.Dispatcher) {
-	schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) {
+func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolManager, defaultPool *agent.Pool, dispatcher *notify.Dispatcher) {
+	schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) error {
+		if scheduler.IsPluginJob(job) {
+			return nil
+		}
 		pool := defaultPool
 		if job.AgentID != "" {
 			if p := poolMgr.Get(job.AgentID); p != nil {
@@ -322,21 +257,22 @@ func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolM
 				result.WriteString(evt.Text)
 			}
 		}
+		var runErr error
 		if result.Len() > 0 {
 			text := fmt.Sprintf("*%s*\n\n%s", job.Name, result.String())
-			n := channel.Notification{Text: text}
-			var err error
+			n := pkgchannel.Notification{Text: text}
 			if job.UserID != 0 {
 				// User-owned job: notify only the owner.
-				err = dispatcher.NotifyUser(ctx, job.UserID, n)
+				runErr = dispatcher.NotifyUser(ctx, job.UserID, n)
 			} else {
 				// System job: broadcast to all channels.
-				err = dispatcher.Notify(ctx, n)
+				runErr = dispatcher.Notify(ctx, n)
 			}
-			if err != nil {
-				slog.Error("scheduler notification failed", "job_id", job.ID, "error", err)
+			if runErr != nil {
+				slog.Error("scheduler notification failed", "job_id", job.ID, "error", runErr)
 			}
 		}
+		return runErr
 	})
 }
 
@@ -357,25 +293,4 @@ func launchBrowser(url string) {
 		}
 		go func() { _ = cmd.Wait() }()
 	}
-}
-
-// parseDurationConfig reads a duration string from a plugin config map.
-func parseDurationConfig(cfg map[string]any, key string, fallback time.Duration) time.Duration {
-	if v, ok := cfg[key].(string); ok {
-		if d, err := time.ParseDuration(v); err == nil {
-			return d
-		}
-	}
-	return fallback
-}
-
-// parseIntConfig reads an integer from a plugin config map.
-func parseIntConfig(cfg map[string]any, key string, fallback int) int {
-	switch v := cfg[key].(type) {
-	case float64:
-		return int(v)
-	case int:
-		return v
-	}
-	return fallback
 }

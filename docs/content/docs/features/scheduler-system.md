@@ -8,7 +8,7 @@ Implemented -- `internal/scheduler/` package with gocron/v2 scheduler, SQLite pe
 
 ## Overview
 
-Anna supports scheduled task execution so the agent can set reminders, run periodic tasks, and automate recurring work. The scheduler system delegates all scheduling to [gocron/v2](https://github.com/go-co-op/gocron) and adds persistence, multi-agent routing, and an agent-facing tool on top.
+Anna supports scheduled task execution so the agent can set reminders, run periodic tasks, and automate recurring work. The scheduler system delegates all scheduling to [gocron/v2](https://github.com/go-co-op/gocron) and adds persistence, multi-agent routing, plugin-owned job reconciliation, and an agent-facing tool on top.
 
 ## Architecture
 
@@ -56,19 +56,28 @@ Top-level package (under `internal/`). Five files:
 
 ```go
 type Job struct {
-    ID          string    // short UUID
-    Name        string    // human-readable name
-    Schedule    Schedule  // cron, interval, or one-time
-    Message     string    // prompt sent to agent
-    AgentID     string    // target agent in the pool
-    UserID      string    // owning user
-    SessionMode string    // "reuse" (default) or "new"
+    ID          string         // short UUID
+    OwnerKind   string         // "user" or "plugin"
+    PluginID    string         // owning plugin for plugin jobs
+    JobKey      string         // stable plugin-scoped key
+    RuntimeName string         // target managed runtime for plugin jobs
+    Name        string         // human-readable name
+    Description string         // optional admin-facing description
+    Schedule    Schedule       // cron, interval, or one-time
+    Message     string         // prompt sent to agent for user jobs
+    Payload     map[string]any // structured runtime payload for plugin jobs
+    AgentID     string         // target agent in the pool
+    UserID      string         // owning user
+    SessionMode string         // "reuse" (default) or "new"
     Enabled     bool
     CreatedAt   time.Time
+    UpdatedAt   time.Time
+    LastRunAt   *time.Time
+    LastError   string
 }
 ```
 
-Jobs carry `agent_id` and `user_id` fields so the scheduler can route each job to the correct agent pool via PoolManager.
+User-owned jobs carry `agent_id` and `user_id` so the scheduler can route each job to the correct agent pool via PoolManager. Plugin-owned jobs instead carry first-class ownership fields (`owner_kind`, `plugin_id`, `job_key`, `runtime_name`) plus structured JSON payload.
 
 ### Service Lifecycle
 
@@ -79,9 +88,9 @@ Jobs carry `agent_id` and `user_id` fields so the scheduler can route each job t
 
 ### Persistence
 
-Jobs are stored in the `sched_jobs` table in the shared SQLite database (`~/.anna/anna.db`). Each mutation (add/remove) is an individual INSERT/DELETE -- no full-file rewrites.
+Jobs are stored in the `sched_jobs` table in the shared SQLite database (`~/.anna/anna.db`). Each row now stores first-class ownership metadata, structured plugin payload, and execution status fields such as `last_run_at` and `last_error`.
 
-On first startup, if a legacy `jobs.json` file exists (from pre-DB versions), jobs are automatically migrated to the database and the file is removed.
+On first startup, if a legacy `jobs.json` file exists (from pre-DB versions), jobs are automatically migrated to the database and the file is removed. Older plugin-owned jobs that were encoded through a reserved scheduler message envelope are migrated at runtime into the first-class ownership columns.
 
 ### One-Time Jobs
 
@@ -116,14 +125,33 @@ The admin panel exposes a full CRUD API for scheduler jobs:
 
 | Method   | Endpoint                   | Description             |
 | -------- | -------------------------- | ----------------------- |
-| `GET`    | `/api/scheduler/jobs`      | List all scheduled jobs |
-| `POST`   | `/api/scheduler/jobs`      | Create a new job        |
-| `PUT`    | `/api/scheduler/jobs/{id}` | Update an existing job  |
-| `DELETE` | `/api/scheduler/jobs/{id}` | Delete a job            |
+| `GET`    | `/api/scheduler/jobs`      | List scheduled jobs and plugin-owned status rows |
+| `POST`   | `/api/scheduler/jobs`      | Create a new user/system job                      |
+| `PUT`    | `/api/scheduler/jobs/{id}` | Update an existing user/system job                |
+| `DELETE` | `/api/scheduler/jobs/{id}` | Delete a user/system job                          |
+
+Plugin-owned jobs are visible in the admin scheduler page as read-only rows showing the owning plugin, runtime, key, payload, and last run/error status.
+
+## Plugin Scheduler Capability
+
+Managed runtimes consume scheduler through `pkg/plugins.SchedulerService`:
+
+- `ReconcilePluginJobs(ctx, pluginID, jobs)`
+- `DeletePluginJobs(ctx, pluginID)`
+- `DeletePluginJob(ctx, pluginID, key)`
+- `ListPluginJobs(ctx, pluginID)`
+
+This gives plugins declarative enable/disable semantics:
+
+- plugin enabled or reconfigured -> reconcile desired jobs
+- plugin disabled or stopped -> delete plugin-owned jobs
+- scheduled execution -> routed back into the owning managed runtime via `ScheduledJobRunner`
+
+`plugins/reflect/` is the first built-in runtime using this path.
 
 ## Agent Tool
 
-The `scheduler` tool is automatically registered with the Go runner when scheduler is enabled. The agent uses it via tool calls with three actions:
+The `scheduler` tool is automatically registered with the Go runner when scheduler is enabled. It only exposes user-owned jobs; plugin-owned jobs are hidden from `list` and are managed by the plugin host instead. The agent uses it via tool calls with three actions:
 
 ### `add` -- Create a job
 

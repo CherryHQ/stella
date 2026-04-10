@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 )
 
@@ -131,13 +132,8 @@ func matchSubjects(subjectsJSON string, subject Subject) bool {
 	}
 
 	for _, pr := range ps.Roles {
-		if pr == "*" {
+		if pr == "*" || slices.Contains(subject.Roles, pr) {
 			return true
-		}
-		for _, sr := range subject.Roles {
-			if pr == sr {
-				return true
-			}
 		}
 	}
 

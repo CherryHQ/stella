@@ -85,6 +85,11 @@ type ActivityTracker interface {
 	LastActivity() time.Time
 }
 
+// SystemPrompter is an optional interface for runners that expose their base system prompt.
+type SystemPrompter interface {
+	SystemPrompt() string
+}
+
 // MessageText extracts and joins all text from a message.
 func MessageText(message MessageContent) string {
 	switch m := message.(type) {

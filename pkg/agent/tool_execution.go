@@ -16,7 +16,7 @@ type toolCallbacks struct {
 }
 
 // executeToolCalls runs each tool call in order and returns result messages.
-func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta) ([]ai.ToolResultMessage, error) {
+func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle) ([]ai.ToolResultMessage, error) {
 	results := make([]ai.ToolResultMessage, 0, len(calls))
 
 	for _, call := range calls {
@@ -39,8 +39,42 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			continue
 		}
 
-		// PreToolCall hooks: may rewrite args or block execution.
 		args := call.Arguments
+		if lifecycle != nil && lifecycle.BeforeCall != nil {
+			mutation, err := lifecycle.BeforeCall(ctx, ToolCallContext{
+				SessionID:  meta.SessionID,
+				Channel:    meta.Channel,
+				UserID:     meta.UserID,
+				AgentID:    meta.AgentID,
+				ToolName:   call.Name,
+				ToolCallID: call.ID,
+				Arguments:  cloneArgs(args),
+			})
+			if err != nil {
+				return nil, err
+			}
+			if mutation.Block {
+				blockMsg := mutation.BlockMessage
+				if blockMsg == "" {
+					blockMsg = "tool call blocked by lifecycle"
+				}
+				result := ai.ToolResultMessage{
+					ToolCallID: call.ID,
+					ToolName:   call.Name,
+					Content:    []ai.ContentBlock{ai.TextContent{Text: blockMsg}},
+				}
+				results = append(results, result)
+				if cb.onFinish != nil {
+					cb.onFinish(result)
+				}
+				continue
+			}
+			if mutation.Arguments != nil {
+				args = mutation.Arguments
+			}
+		}
+
+		// PreToolCall hooks: may rewrite args or block execution.
 		if !hs.Empty() {
 			preCtx := &hooks.PreToolCallContext{
 				HookMeta:   meta,
@@ -50,7 +84,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			}
 			preResult, _ := hs.RunPreToolCall(ctx, preCtx)
 			if preResult.Block {
-				blockMsg := preResult.BlockMsg
+				blockMsg := preResult.BlockMessage
 				if blockMsg == "" {
 					blockMsg = "tool call blocked by hook"
 				}
@@ -87,17 +121,43 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			result.Content = []ai.ContentBlock{ai.TextContent{Text: errText}}
 		}
 
+		resultText := ""
+		for _, block := range result.Content {
+			if tc, ok := block.(ai.TextContent); ok {
+				resultText = tc.Text
+				break
+			}
+		}
+
+		if lifecycle != nil && lifecycle.AfterCall != nil {
+			mutation, err := lifecycle.AfterCall(ctx, ToolResultContext{
+				SessionID:  meta.SessionID,
+				Channel:    meta.Channel,
+				UserID:     meta.UserID,
+				AgentID:    meta.AgentID,
+				ToolName:   call.Name,
+				ToolCallID: call.ID,
+				Arguments:  cloneArgs(args),
+				Result:     resultText,
+				IsError:    result.IsError,
+				Duration:   duration,
+			})
+			if err != nil {
+				return nil, err
+			}
+			if mutation.Result != nil {
+				resultText = *mutation.Result
+				result.Content = []ai.ContentBlock{ai.TextContent{Text: resultText}}
+			}
+			if mutation.IsError != nil {
+				result.IsError = *mutation.IsError
+			}
+		}
+
 		// PostToolCall hooks: observe results.
 		// Only the first TextContent block is passed — sufficient for telemetry;
 		// hooks needing full output should extend PostToolCallContext.
 		if !hs.Empty() {
-			resultText := ""
-			for _, block := range result.Content {
-				if tc, ok := block.(ai.TextContent); ok {
-					resultText = tc.Text
-					break
-				}
-			}
 			postCtx := &hooks.PostToolCallContext{
 				HookMeta:   meta,
 				ToolName:   call.Name,

@@ -16,7 +16,7 @@ func TestBuildParamsBasic(t *testing.T) {
 	opts := ai.StreamOptions{}
 
 	params := buildParams(model, ctx, opts)
-	if string(params.Model) != "gpt-4o" {
+	if params.Model != "gpt-4o" {
 		t.Errorf("model = %q, want gpt-4o", params.Model)
 	}
 }

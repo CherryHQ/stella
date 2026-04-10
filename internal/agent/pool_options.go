@@ -56,3 +56,10 @@ func WithModel(model string) ChatOption {
 		o.model = model
 	}
 }
+
+// WithBeforeRunBuilder sets the per-run lifecycle hook builder used by the pool.
+func WithBeforeRunBuilder(b BeforeRunBuilder) PoolOption {
+	return func(p *Pool) {
+		p.beforeRunFn = b
+	}
+}

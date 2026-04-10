@@ -375,7 +375,7 @@ func TestFormatModelListNoQuery(t *testing.T) {
 		{Provider: "openai", Model: "gpt-4"},
 		{Provider: "anthropic", Model: "claude-3"},
 	})
-	out := formatModelList(models, "")
+	out := channel.FormatNumberedModelList(models, "")
 	if !strings.Contains(out, "1. openai/gpt-4") {
 		t.Errorf("missing model entry in output: %s", out)
 	}
@@ -388,7 +388,7 @@ func TestFormatModelListWithQuery(t *testing.T) {
 	models := channel.IndexModels([]channel.ModelOption{
 		{Provider: "openai", Model: "gpt-4"},
 	})
-	out := formatModelList(models, "openai")
+	out := channel.FormatNumberedModelList(models, "openai")
 	if !strings.Contains(out, `filter: "openai"`) {
 		t.Errorf("should show filter query: %s", out)
 	}
@@ -493,8 +493,7 @@ func TestNotifyEmptyChatID(t *testing.T) {
 // --- sendImage ---
 
 func TestSendImageInvalidBase64(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	bot := &Bot{ctx: ctx}
 	// Invalid base64 should log error but not panic.
 	bot.sendImage("target", "msg", channel.ImageEvent{Data: "not-valid-base64!!!"})

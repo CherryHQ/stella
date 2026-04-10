@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vaayne/anna/internal/db/sqlc"
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 )
 
 // assembler builds context for the model within a token budget.
@@ -43,10 +43,7 @@ func (a *assembler) assemble(ctx context.Context, convID int64, budget int, fres
 		tailTokens += estimateMessageTokens(m)
 	}
 
-	remaining := budget - tailTokens
-	if remaining < 0 {
-		remaining = 0
-	}
+	remaining := max(budget-tailTokens, 0)
 
 	// Select older items that fit within remaining budget, newest first.
 	var olderMsgs []ai.Message

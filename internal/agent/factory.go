@@ -7,9 +7,11 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/skills"
+	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
@@ -21,7 +23,7 @@ import (
 //
 // Hooks are not part of the factory — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
-func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool) (runner.NewRunnerFunc, error) {
+func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsBuilder runner.CoreToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle) (runner.NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
 		return func(ctx context.Context, params runner.RunnerParams) (runner.Runner, error) {
@@ -36,14 +38,13 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool) (runner.Ne
 				provID = snap.Provider
 			}
 			creds := snap.ResolveProviderCreds(provID)
+			cwd, _ := os.Getwd()
 
 			// Determine per-user paths when user ID is set.
-			var userSkillsDir string
 			var userDataDir string
 			if params.UserID > 0 {
 				userDir, err := SetupUserWorkspace(snap.AgentID, config.AnnaHome(), params.UserID)
 				if err == nil {
-					userSkillsDir = UserSkillsDir(userDir)
 					userDataDir = UserDataDir(userDir)
 				}
 			}
@@ -54,20 +55,35 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool) (runner.Ne
 				memProvider, _ = params.Memory.(memory.Provider)
 			}
 
+			var promptTools []pkgplugins.PromptToolInfo
+			if promptToolsFn != nil {
+				promptTools, _ = promptToolsFn(ctx)
+			}
+			var promptSections []pkgplugins.SystemPromptSection
+			if promptSectionsFn != nil {
+				promptSections, _ = promptSectionsFn(ctx, pkgplugins.SystemPromptContext{
+					AnnaHome:    config.AnnaHome(),
+					Workspace:   snap.Workspace,
+					Cwd:         cwd,
+					UserID:      params.UserID,
+					AgentID:     params.AgentID,
+					UserDataDir: userDataDir,
+				})
+			}
+
 			// Build the full system prompt per-session with profile from memory provider.
 			system := runner.BuildSystemPromptFromDB(ctx, runner.DBPromptParams{
-				SystemPrompt:  snap.SystemPrompt,
-				Memory:        memProvider,
-				UserID:        params.UserID,
-				AgentID:       params.AgentID,
-				AnnaHome:      config.AnnaHome(),
-				Workspace:     snap.Workspace,
-				UserSkillsDir: userSkillsDir,
+				SystemPrompt:   snap.SystemPrompt,
+				Memory:         memProvider,
+				UserID:         params.UserID,
+				AgentID:        params.AgentID,
+				AnnaHome:       config.AnnaHome(),
+				Workspace:      snap.Workspace,
+				Cwd:            cwd,
+				UserDataDir:    userDataDir,
+				PromptTools:    promptTools,
+				PromptSections: promptSections,
 			})
-
-			// Build per-session extra tools.
-			// Replace any SkillsTool with a per-user one when UserID > 0.
-			sessionTools := buildSessionTools(extraTools, snap.Workspace, userSkillsDir, userDataDir, params.UserID)
 
 			// Use user data dir as working dir when available, otherwise use system cwd.
 			workDir := userDataDir
@@ -79,41 +95,24 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool) (runner.Ne
 			}
 
 			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
-				API:         provID,
-				Model:       modelID,
-				APIKey:      creds.APIKey,
-				Workspace:   snap.Workspace,
-				AnnaHome:    config.AnnaHome(),
-				BaseURL:     creds.BaseURL,
-				System:      system,
-				ExtraTools:  sessionTools,
-				WorkDir:     workDir,
-				UserDataDir: userDataDir,
-				HookPlugins: hookPlugins,
+				API:            provID,
+				Model:          modelID,
+				APIKey:         creds.APIKey,
+				Workspace:      snap.Workspace,
+				AnnaHome:       config.AnnaHome(),
+				BaseURL:        creds.BaseURL,
+				System:         system,
+				PromptSections: promptSections,
+				ExtraTools:     extraTools,
+				WorkDir:        workDir,
+				UserDataDir:    userDataDir,
+				HookPlugins:    hookPlugins,
+				ToolLifecycle:  toolLifecycle,
+				CoreTools:      coreToolsBuilder,
+				Providers:      providerRegistryBuilder,
 			})
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown runner type: %q", snap.Runner.Type)
 	}
-}
-
-// buildSessionTools creates per-session tools from the template extra tools.
-// When userID > 0, the SkillsTool is replaced with a per-user version,
-// and sandbox-aware file tools are configured.
-func buildSessionTools(templateTools []tools.Tool, workspace, userSkillsDir, userDataDir string, userID int64) []tools.Tool {
-	if userID <= 0 {
-		return templateTools
-	}
-
-	result := make([]tools.Tool, 0, len(templateTools))
-	for _, t := range templateTools {
-		// Replace SkillsTool with per-user version.
-		if _, ok := t.(*skills.SkillsTool); ok {
-			cwd, _ := os.Getwd()
-			result = append(result, skills.NewTool(config.AnnaHome(), workspace, cwd, userID))
-			continue
-		}
-		result = append(result, t)
-	}
-	return result
 }

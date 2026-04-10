@@ -67,7 +67,11 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 	reactionText := fmt.Sprintf("[User reacted with %s on message %s]", emojiType, messageID)
 
 	msg := b.incomingMsg(openID, chatID, chatType, channel.TextContent(reactionText))
-	replyFn := func(reply string) { b.replyInThread(b.ctx, messageID, rootID, reply) }
+	replyFn := func(reply string) {
+		replyCtx, cancel := b.apiContext()
+		defer cancel()
+		b.replyInThread(replyCtx, messageID, rootID, reply)
+	}
 	go b.handleIncoming(msg, "", "", openID, chatID, messageID, rootID, replyFn)
 	return nil
 }
@@ -116,7 +120,9 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	if isCancelText(text) {
 		key := streamKey(chatID, rootID)
 		if b.cancelStream(key) {
-			b.replyInThread(b.ctx, messageID, rootID, "Cancelled.")
+			replyCtx, cancel := b.apiContext()
+			defer cancel()
+			b.replyInThread(replyCtx, messageID, rootID, "Cancelled.")
 		}
 		return nil
 	}
@@ -126,7 +132,11 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		return nil
 	}
 
-	replyFn := func(reply string) { b.replyInThread(b.ctx, messageID, rootID, reply) }
+	replyFn := func(reply string) {
+		replyCtx, cancel := b.apiContext()
+		defer cancel()
+		b.replyInThread(replyCtx, messageID, rootID, reply)
+	}
 
 	// Prepend per-group system prompt to content if configured.
 	if chatType == "group" {
@@ -139,27 +149,22 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	// Handle plugin-local commands first.
 	if text != "" {
-		fields := strings.Fields(text)
-		if len(fields) > 0 {
-			cmd := fields[0]
-			args := channel.ParseCommandArgs(text, cmd)
-
-			switch strings.ToLower(cmd) {
-			case "/auth":
-				replyFn("The /auth command was removed. Feishu workspace OAuth is no longer supported. If you need Lark workspace access, install a lark-cli skill and run `lark-cli auth login --recommend`.")
-				return nil
-			case "/model":
-				b.handleModelCommand(args, replyFn)
-				return nil
-			case "/agent":
-				b.handleAgentCommand(incoming, args, replyFn)
-				return nil
-			}
+		cmd, args := channel.ParseSlashCommand(text)
+		switch cmd {
+		case "/auth":
+			replyFn("The /auth command was removed. Feishu workspace OAuth is no longer supported. If you need Lark workspace access, install a lark-cli skill and run `lark-cli auth login --recommend`.")
+			return nil
+		case "/model":
+			b.handleModelCommand(args, replyFn)
+			return nil
+		case "/agent":
+			b.handleAgentCommand(incoming, args, replyFn)
+			return nil
 		}
 	}
 
 	// Parse command for coordinator (shared commands + chat streaming).
-	cmd, args := parseFeishuCommand(text)
+	cmd, args := channel.ParseSlashCommand(text)
 	go b.handleIncoming(incoming, cmd, args, openID, chatID, messageID, rootID, replyFn)
 	return nil
 }
@@ -351,7 +356,10 @@ func parseMergeForwardContent(raw string) string {
 
 // downloadImage downloads an image from Feishu using the MessageResource API.
 func (b *Bot) downloadImage(messageID, imageKey string) ([]byte, string, error) {
-	resp, err := b.client.Im.MessageResource.Get(b.ctx,
+	apiCtx, cancel := b.apiContext()
+	defer cancel()
+
+	resp, err := b.client.Im.MessageResource.Get(apiCtx,
 		larkim.NewGetMessageResourceReqBuilder().
 			MessageId(messageID).
 			FileKey(imageKey).
@@ -397,8 +405,9 @@ func parseTextContent(raw string) string {
 // handleIncoming delegates to the coordinator via HandleIncoming.
 // Shared commands are handled by the coordinator; otherwise a chat stream is returned.
 func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, openID, chatID, messageID, rootID string, replyFn func(string)) {
-	// Create cancellable context for abort support.
-	ctx, cancel := context.WithCancel(b.ctx)
+	// Use an operation-scoped context so in-flight work survives bot restarts,
+	// while still supporting explicit user cancellation and bounded execution.
+	ctx, cancel := b.operationContext()
 	key := streamKey(chatID, rootID)
 	b.registerStream(key, cancel)
 	defer b.unregisterStream(key)
@@ -407,7 +416,9 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, openID, cha
 	resp, handled, stream, err := b.handler.HandleIncoming(ctx, msg, cmd, args)
 	if err != nil {
 		logger().Error("chat failed", "open_id", openID, "error", err)
-		b.replyInThread(b.ctx, messageID, rootID, fmt.Sprintf("Session error: %v", err))
+		replyCtx, cancel := b.apiContext()
+		defer cancel()
+		b.replyInThread(replyCtx, messageID, rootID, fmt.Sprintf("Session error: %v", err))
 		return
 	}
 	if handled {
@@ -444,17 +455,6 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, openID, cha
 	logger().Debug("response sent", "open_id", openID, "response_len", len(response), "images", len(images))
 }
 
-// parseFeishuCommand extracts command and args from text.
-func parseFeishuCommand(text string) (string, string) {
-	fields := strings.Fields(text)
-	if len(fields) == 0 || !strings.HasPrefix(fields[0], "/") {
-		return "", ""
-	}
-	cmd := fields[0]
-	args := channel.ParseCommandArgs(text, cmd)
-	return cmd, args
-}
-
 // replyText sends a text reply to a message.
 func (b *Bot) replyText(ctx context.Context, messageID, text string) {
 	content := textContent(text)
@@ -479,7 +479,10 @@ func (b *Bot) replyText(ctx context.Context, messageID, text string) {
 // the Get Message API. Returns ("", "p2p", "") on any failure so the caller
 // falls back to a private session rather than leaking across sessions.
 func (b *Bot) getMessageContext(messageID string) (chatID, chatType, rootID string) {
-	resp, err := b.client.Im.Message.Get(b.ctx,
+	apiCtx, cancel := b.apiContext()
+	defer cancel()
+
+	resp, err := b.client.Im.Message.Get(apiCtx,
 		larkim.NewGetMessageReqBuilder().
 			MessageId(messageID).
 			Build())

@@ -12,8 +12,8 @@ import (
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/memory"
-	pluginmemory "github.com/vaayne/anna/plugins/memory"
-	_ "github.com/vaayne/anna/plugins/memory/lcm"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	lcmmemory "github.com/vaayne/anna/plugins/memory/lcm"
 )
 
 // testMemoryProvider creates an LCM memory provider backed by an in-memory SQLite DB.
@@ -26,9 +26,7 @@ func testMemoryProvider(t *testing.T) memory.Provider {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	p, err := pluginmemory.Build(context.Background(), "lcm", pluginmemory.BuildContext{
-		DB: db,
-	})
+	p, err := lcmmemory.New(db, nil, nil)
 	if err != nil {
 		t.Fatalf("Build lcm provider: %v", err)
 	}
@@ -40,6 +38,8 @@ func testMemoryProvider(t *testing.T) memory.Provider {
 type mockRunner struct {
 	mu           sync.Mutex
 	events       []runner.Event
+	system       string
+	seenOverride string
 	closed       bool
 	lastActivity time.Time
 	alive        bool
@@ -48,14 +48,18 @@ type mockRunner struct {
 func newMockRunner(events []runner.Event) *mockRunner {
 	return &mockRunner{
 		events:       events,
+		system:       "base system prompt",
 		lastActivity: time.Now(),
 		alive:        true,
 	}
 }
 
-func (m *mockRunner) Chat(_ context.Context, _ []ai.Message, _ runner.MessageContent) <-chan runner.Event {
+func (m *mockRunner) Chat(ctx context.Context, _ []ai.Message, _ runner.MessageContent) <-chan runner.Event {
 	m.mu.Lock()
 	m.lastActivity = time.Now()
+	if override, ok := runner.SystemOverrideFromContext(ctx); ok {
+		m.seenOverride = override
+	}
 	events := m.events
 	m.mu.Unlock()
 
@@ -87,6 +91,12 @@ func (m *mockRunner) LastActivity() time.Time {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.lastActivity
+}
+
+func (m *mockRunner) SystemPrompt() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.system
 }
 
 // mockRunnerFactory returns a NewRunnerFunc that creates mockRunners with the
@@ -168,6 +178,31 @@ func TestPoolChat(t *testing.T) {
 
 	if collected != "Hello world" {
 		t.Errorf("collected = %q, want %q", collected, "Hello world")
+	}
+}
+
+func TestPoolChatAppliesBeforeRunSystemOverride(t *testing.T) {
+	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	pool := NewPool(factory, testMemoryProvider(t), WithBeforeRunBuilder(func(context.Context, pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
+		return pkgplugins.BeforeRunResult{SystemPrompt: "override system prompt"}, nil
+	}))
+	defer func() { _ = pool.Close() }()
+
+	stream := pool.Chat(context.Background(), "session-1", "test")
+	for evt := range stream {
+		if evt.Err != nil {
+			t.Fatalf("unexpected error: %v", evt.Err)
+		}
+	}
+
+	if len(*runners) != 1 {
+		t.Fatalf("expected 1 runner created, got %d", len(*runners))
+	}
+
+	(*runners)[0].mu.Lock()
+	defer (*runners)[0].mu.Unlock()
+	if (*runners)[0].seenOverride != "override system prompt" {
+		t.Fatalf("seen override = %q, want %q", (*runners)[0].seenOverride, "override system prompt")
 	}
 }
 
@@ -1321,7 +1356,7 @@ func TestPoolCompactSessionWithMemEngine(t *testing.T) {
 
 	// Ingest enough messages to have something to compact.
 	ctx := context.Background()
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		msg := fmt.Sprintf("message number %d with enough content to fill tokens", i)
 		stream := pool.Chat(ctx, info.ID, msg)
 		for range stream {

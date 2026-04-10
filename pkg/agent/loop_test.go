@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"testing"
 
@@ -164,7 +165,7 @@ func TestRunMultiTurnLoop(t *testing.T) {
 			n := callCount.Add(1)
 			go func() {
 				if n <= 2 {
-					out.Emit(ai.EventToolCallDelta{ID: "call_" + string(rune('0'+n)), Name: "test_tool", Arguments: "{}"})
+					out.Emit(ai.EventToolCallDelta{ID: fmt.Sprintf("call_%d", n), Name: "test_tool", Arguments: "{}"})
 					out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
 				} else {
 					out.Emit(ai.EventTextDelta{Text: "done"})

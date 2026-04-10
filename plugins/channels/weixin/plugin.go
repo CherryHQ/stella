@@ -1,0 +1,78 @@
+package weixin
+
+import (
+	"fmt"
+
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+)
+
+const (
+	PluginID    = "channel/weixin"
+	RuntimeName = "bot"
+)
+
+var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) {
+	channelRuntime := platform.ChannelPlatform()
+	if channelRuntime == nil {
+		return nil, fmt.Errorf("weixin: channel runtime services unavailable")
+	}
+	parent := channelRuntime.ParentContext()
+	if parent == nil {
+		return nil, fmt.Errorf("weixin: missing parent context")
+	}
+	handler := channelRuntime.Handler()
+	if handler == nil {
+		return nil, fmt.Errorf("weixin: missing channel handler")
+	}
+	return NewWeixinManagedRuntime(WeixinRuntimeDeps{
+		Parent:        parent,
+		Handler:       handler,
+		Notifications: channelRuntime.Notifications(),
+		Log:           platform.Logger(),
+		NewChannel: func(cfg pkgchannel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+			return New(Config{
+				BotToken: cfg.BotToken,
+				BaseURL:  cfg.BaseURL,
+				BotID:    cfg.BotID,
+				UserID:   cfg.UserID,
+			}, handler)
+		},
+	}), nil
+}
+
+func init() {
+	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
+		pkgplugins.RegisterManagedChannelPlugin(host, pkgplugins.ManagedChannelPluginRegistration{
+			PluginID:    PluginID,
+			RuntimeName: RuntimeName,
+			Meta: pkgplugins.PluginInfo{
+				ID:                    PluginID,
+				Kind:                  "channel",
+				Name:                  pkgchannel.PlatformWeixin,
+				DisplayName:           "Weixin",
+				Description:           "Weixin iLink bot integration.",
+				AdminVisible:          true,
+				SupportsNotifications: true,
+				Capabilities: []string{
+					pkgplugins.CapabilityRuntime,
+					pkgplugins.CapabilityConfig,
+					pkgplugins.CapabilityStatus,
+				},
+			},
+			DefaultConfig: func() map[string]any { return map[string]any{} },
+			Schema:        configSchema(),
+			Validate:      func(raw map[string]any) error { _, err := DecodeConfig(raw); return err },
+			Redact:        RedactConfig,
+			Configured: func(raw map[string]any) bool {
+				cfg, err := DecodeConfig(raw)
+				return err == nil && validateConfig(cfg) == ""
+			},
+			NotificationsEnabled: func(raw map[string]any) bool {
+				cfg, err := DecodeConfig(raw)
+				return err == nil && cfg.EnableNotify
+			},
+			RuntimeFactory: newRuntime,
+		})
+	}))
+}

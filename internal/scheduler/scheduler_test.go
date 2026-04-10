@@ -221,10 +221,11 @@ func TestOnJobCallbackFires(t *testing.T) {
 
 	var mu sync.Mutex
 	var fired []string
-	svc.SetOnJob(func(_ context.Context, job Job) {
+	svc.SetOnJob(func(_ context.Context, job Job) error {
 		mu.Lock()
 		fired = append(fired, job.ID)
 		mu.Unlock()
+		return nil
 	})
 
 	_, err := svc.AddJob("quick", "ping", Schedule{Every: "100ms"}, "")
@@ -334,10 +335,11 @@ func TestOneTimeJobFiresAndAutoRemoves(t *testing.T) {
 
 	var mu sync.Mutex
 	var fired []string
-	svc.SetOnJob(func(_ context.Context, job Job) {
+	svc.SetOnJob(func(_ context.Context, job Job) error {
 		mu.Lock()
 		fired = append(fired, job.ID)
 		mu.Unlock()
+		return nil
 	})
 
 	// Schedule 200ms from now.

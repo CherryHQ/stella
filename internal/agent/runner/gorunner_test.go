@@ -9,19 +9,10 @@ import (
 
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
-	pluginproviders "github.com/vaayne/anna/plugins/providers"
+	"github.com/vaayne/anna/pkg/tools"
+	plugintools "github.com/vaayne/anna/plugins/tools"
+	bashtool "github.com/vaayne/anna/plugins/tools/bash"
 )
-
-func init() {
-	// Register a stub provider so NewGoRunner can Build("anthropic", ...).
-	// Tests replace the registry entry with their own fake after construction.
-	pluginproviders.Register("anthropic", pluginproviders.Registration{
-		Meta: pluginproviders.ProviderMeta{Name: "Anthropic"},
-		Factory: func(cfg pluginproviders.ProviderConfig) (providers.ProviderAdapter, error) {
-			return &stubProvider{}, nil
-		},
-	})
-}
 
 type stubProvider struct{}
 
@@ -31,6 +22,19 @@ func (s *stubProvider) Stream(context.Context, ai.Model, ai.Context, ai.StreamOp
 }
 func (s *stubProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
 	return nil, errors.New("stub")
+}
+
+func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Registry, error) {
+	if api != "anthropic" {
+		return nil, providers.ErrProviderNotFound
+	}
+	reg := providers.NewRegistry()
+	reg.Register(&stubProvider{})
+	return reg, nil
+}
+
+func testCoreToolsBuilder(bc plugintools.BuildContext) []tools.Tool {
+	return []tools.Tool{bashtool.NewBashTool(bc.WorkDir, bc.ToolsBinDir)}
 }
 
 func TestNewGoRunnerRequiresConfig(t *testing.T) {
@@ -55,9 +59,11 @@ func TestNewGoRunnerRequiresConfig(t *testing.T) {
 
 func TestNewGoRunnerSuccess(t *testing.T) {
 	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:    "anthropic",
-		Model:  "claude-sonnet-4-20250514",
-		APIKey: "test-key",
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		CoreTools: testCoreToolsBuilder,
+		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -101,9 +107,11 @@ func (f *goRunnerFakeProvider) StreamSimple(goCtx context.Context, _ ai.Model, _
 func newTestGoRunner(t *testing.T, fp *goRunnerFakeProvider) *GoRunner {
 	t.Helper()
 	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:    fp.api,
-		Model:  "test-model",
-		APIKey: "test-key",
+		API:       fp.api,
+		Model:     "test-model",
+		APIKey:    "test-key",
+		CoreTools: testCoreToolsBuilder,
+		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
@@ -163,9 +171,11 @@ func TestChatStreamError(t *testing.T) {
 
 func TestChatUnknownProvider(t *testing.T) {
 	_, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:    "nonexistent",
-		Model:  "test-model",
-		APIKey: "test-key",
+		API:       "nonexistent",
+		Model:     "test-model",
+		APIKey:    "test-key",
+		CoreTools: testCoreToolsBuilder,
+		Providers: testProviderRegistryBuilder,
 	})
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
@@ -272,10 +282,12 @@ func TestChatToolUseLoop(t *testing.T) {
 	}
 
 	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:     fp.api,
-		Model:   "test-model",
-		APIKey:  "test-key",
-		WorkDir: dir,
+		API:       fp.api,
+		Model:     "test-model",
+		APIKey:    "test-key",
+		WorkDir:   dir,
+		CoreTools: testCoreToolsBuilder,
+		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
@@ -299,9 +311,11 @@ func TestChatToolUseLoop(t *testing.T) {
 
 func TestAliveAlwaysTrue(t *testing.T) {
 	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:    "anthropic",
-		Model:  "test-model",
-		APIKey: "test-key",
+		API:       "anthropic",
+		Model:     "test-model",
+		APIKey:    "test-key",
+		CoreTools: testCoreToolsBuilder,
+		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)

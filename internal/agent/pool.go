@@ -17,6 +17,7 @@ type Pool struct {
 	agentID      string // agent this pool belongs to (empty for legacy single-agent)
 	factory      runner.NewRunnerFunc
 	hooksFn      func() []hooks.HookPlugin // injected into RunnerParams; nil = no hooks
+	beforeRunFn  BeforeRunBuilder
 	sessions     map[string]*Session
 	mem          memory.Provider // memory provider — sole persistence layer
 	mu           sync.Mutex

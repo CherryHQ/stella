@@ -9,16 +9,16 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/vaayne/anna/internal/pluginhost"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	providerapi "github.com/vaayne/anna/pkg/providers"
-	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 // fetchModelsFromProviders queries all configured providers (from the DB Store)
 // for their model lists.
-func fetchModelsFromProviders(ctx context.Context, store config.Store) []config.CachedModel {
+func fetchModelsFromProviders(ctx context.Context, store config.Store, host *pluginhost.Host) []config.CachedModel {
 	seen := make(map[string]bool)
 	var models []config.CachedModel
 
@@ -38,7 +38,10 @@ func fetchModelsFromProviders(ctx context.Context, store config.Store) []config.
 	}
 
 	for _, prov := range providers {
-		p, err := pluginproviders.Build(prov.ID, pluginproviders.ProviderConfig{APIKey: prov.APIKey, BaseURL: prov.BaseURL})
+		p, err := host.BuildProvider(prov.ID, map[string]any{
+			"api_key":  prov.APIKey,
+			"base_url": prov.BaseURL,
+		})
 		if err != nil {
 			slog.Debug("failed to build provider", "provider", prov.ID, "error", err)
 			continue
@@ -65,11 +68,19 @@ func fetchModelsFromProviders(ctx context.Context, store config.Store) []config.
 	return models
 }
 
+func newProviderHost(store config.Store) (*pluginhost.Host, error) {
+	host := pluginhost.New(store)
+	if err := host.LoadDefaultCatalog(); err != nil {
+		return nil, err
+	}
+	return host, nil
+}
+
 // collectModelsFromStore builds the list of available provider/model pairs
 // using the Store and models cache.
-func collectModelsFromStore(ctx context.Context, store config.Store, snap *config.Snapshot) []channel.ModelOption {
+func collectModelsFromStore(ctx context.Context, store config.Store, snap *config.Snapshot) []pkgchannel.ModelOption {
 	seen := make(map[string]bool)
-	var models []channel.ModelOption
+	var models []pkgchannel.ModelOption
 
 	add := func(provider, model string) {
 		key := provider + "/" + model
@@ -77,7 +88,7 @@ func collectModelsFromStore(ctx context.Context, store config.Store, snap *confi
 			return
 		}
 		seen[key] = true
-		models = append(models, channel.ModelOption{Provider: provider, Model: model})
+		models = append(models, pkgchannel.ModelOption{Provider: provider, Model: model})
 	}
 
 	// Current model first.
@@ -178,7 +189,11 @@ func modelsUpdateCommand() *ucli.Command {
 			}
 			fmt.Fprintf(os.Stderr, "Fetching models from %d provider(s)...\n", len(providers))
 
-			cached := fetchModelsFromProviders(c.Context, store)
+			host, err := newProviderHost(store)
+			if err != nil {
+				return fmt.Errorf("load plugin host: %w", err)
+			}
+			cached := fetchModelsFromProviders(c.Context, store, host)
 			cache := &config.ModelsCache{
 				UpdatedAt: time.Now().UTC(),
 				Models:    cached,
@@ -272,7 +287,7 @@ func modelsSearchCommand() *ucli.Command {
 			}
 
 			models := collectModelsFromStore(c.Context, store, snap)
-			var matched []channel.ModelOption
+			var matched []pkgchannel.ModelOption
 			for _, m := range models {
 				label := strings.ToLower(m.Provider + "/" + m.Model)
 				if strings.Contains(label, query) {
@@ -292,7 +307,7 @@ func modelsSearchCommand() *ucli.Command {
 }
 
 // printModelsGrouped prints models grouped by provider, marking the active one.
-func printModelsGrouped(models []channel.ModelOption, activeProvider, activeModel string) {
+func printModelsGrouped(models []pkgchannel.ModelOption, activeProvider, activeModel string) {
 	grouped := make(map[string][]string)
 	var provOrder []string
 	seen := make(map[string]bool)
