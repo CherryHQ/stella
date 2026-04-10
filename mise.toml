@@ -18,7 +18,7 @@ LOG_LEVEL = "trace"
 [tasks.build]
 description = "Build anna binary"
 depends = ["generate"]
-run = "goreleaser build --single-target --snapshot --clean --output bin/$BINARY_NAME"
+run = "mkdir -p bin && VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)} && go build -ldflags=\"-X main.version=$VERSION\" -o bin/$BINARY_NAME ./cmd/anna"
 
 [tasks.clean]
 description = "Remove build artifacts"

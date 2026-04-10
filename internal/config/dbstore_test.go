@@ -112,6 +112,66 @@ func TestProviderCRUD(t *testing.T) {
 	}
 }
 
+func TestProviderCustomModelsAndDisabledModels(t *testing.T) {
+	store := setupDBStore(t)
+	ctx := context.Background()
+
+	wantModels := map[string]any{
+		"qwen3.6-plus": map[string]any{
+			"name": "Qwen3.6 Plus",
+			"options": map[string]any{
+				"thinking": map[string]any{"type": "enabled", "budgetTokens": float64(8192)},
+			},
+		},
+	}
+	wantDisabled := []string{"qwen3.5-plus"}
+	p := Provider{
+		ID:             "openai",
+		Name:           "OpenAI",
+		APIKey:         "sk-test",
+		Models:         wantModels,
+		DisabledModels: wantDisabled,
+	}
+	if err := store.CreateProvider(ctx, p); err != nil {
+		t.Fatalf("CreateProvider: %v", err)
+	}
+
+	got, err := store.GetProvider(ctx, "openai")
+	if err != nil {
+		t.Fatalf("GetProvider: %v", err)
+	}
+	if got.Models["qwen3.6-plus"] == nil {
+		t.Fatalf("custom model missing: %+v", got.Models)
+	}
+	if len(got.DisabledModels) != 1 || got.DisabledModels[0] != "qwen3.5-plus" {
+		t.Fatalf("DisabledModels = %v", got.DisabledModels)
+	}
+
+	got.Models["qwen3.5-plus"] = map[string]any{"name": "Qwen3.5 Plus"}
+	got.DisabledModels = []string{"qwen3.6-plus"}
+	if err := store.UpdateProvider(ctx, got); err != nil {
+		t.Fatalf("UpdateProvider: %v", err)
+	}
+
+	updated, err := store.GetProvider(ctx, "openai")
+	if err != nil {
+		t.Fatalf("GetProvider after update: %v", err)
+	}
+	if updated.Models["qwen3.5-plus"] == nil {
+		t.Fatalf("updated model missing: %+v", updated.Models)
+	}
+	if len(updated.DisabledModels) != 1 || updated.DisabledModels[0] != "qwen3.6-plus" {
+		t.Fatalf("updated DisabledModels = %v", updated.DisabledModels)
+	}
+	modelCfg, ok := updated.Models["qwen3.6-plus"].(map[string]any)
+	if !ok {
+		t.Fatalf("updated custom model type = %T", updated.Models["qwen3.6-plus"])
+	}
+	if modelCfg["name"] != "Qwen3.6 Plus" {
+		t.Fatalf("updated custom model = %+v", modelCfg)
+	}
+}
+
 func TestProviderEnvFallback(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()

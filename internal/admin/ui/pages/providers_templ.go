@@ -99,7 +99,215 @@ func ProvidersPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div></div><!-- Actions: save, fetch models, model count toggle --><div class=\"flex items-center gap-4\"><button @click=\"saveProvider(p)\" class=\"btn btn-primary btn-sm\">Save</button> <button @click=\"fetchModels(p)\" :disabled=\"p._fetching\" class=\"btn btn-ghost btn-sm text-secondary\"><span x-show=\"p._fetching\" class=\"loading loading-spinner loading-xs\"></span> <span x-text=\"p._fetching ? 'Fetching...' : 'Fetch models'\"></span></button> <button x-show=\"p._modelCount > 0\" @click=\"p._showModels = !p._showModels\" class=\"btn btn-ghost btn-xs font-mono text-primary\"><span x-text=\"p._modelCount + ' models'\"></span> <span x-text=\"p._showModels ? '↑' : '↓'\"></span></button></div><!-- Collapsible model list --><div x-show=\"p._showModels && providerModels[p.id]?.length\" x-transition x-cloak class=\"mt-4 pl-4 border-l-2 border-base-300\"><div class=\"max-h-48 overflow-y-auto space-y-0.5\"><template x-for=\"m in providerModels[p.id] || []\" :key=\"m\"><div class=\"py-0.5\"><span class=\"badge badge-ghost badge-sm font-mono\" x-text=\"m\"></span></div></template></div></div></div></template></div></div><!-- Confirm dialog --><div x-show=\"confirmMsg\" x-cloak class=\"fixed inset-0 z-50 flex items-center justify-center bg-black/40\"><div class=\"card bg-base-100 shadow-xl w-full max-w-sm\" @click.away=\"confirmMsg = ''\"><div class=\"card-body\"><p class=\"text-sm\" x-text=\"confirmMsg\"></p><div class=\"card-actions justify-end mt-4\"><button @click=\"confirmMsg = ''\" class=\"btn btn-ghost btn-sm\">Cancel</button> <button @click=\"confirmAction(); confirmMsg = ''\" class=\"btn btn-error btn-sm\">Delete</button></div></div></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div></div><div class=\"mb-4 space-y-4\"><div class=\"rounded-xl border border-base-300 bg-base-100 p-4 space-y-4\"><div class=\"flex items-start justify-between gap-3 flex-wrap\"><div><p class=\"text-sm font-medium\">Custom models</p><p class=\"text-xs text-secondary\">Add provider-specific models with a guided form. Fetching models only updates discovered models and never overwrites these custom entries.</p></div><button @click=\"openCustomModelForm(p)\" class=\"btn btn-ghost btn-sm\">Add custom model</button></div><div x-show=\"p._showCustomModelForm\" x-cloak class=\"rounded-lg border border-base-300 bg-base-200/40 p-4 space-y-4\"><div class=\"grid grid-cols-1 md:grid-cols-2 gap-4\"><div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var4 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<input type=\"text\" x-model=\"p._customModelForm.id\" placeholder=\"qwen3.6-plus\" class=\"input input-bordered w-full text-sm font-mono\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = ui.FormField("Model ID").Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div><div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var5 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<input type=\"text\" x-model=\"p._customModelForm.name\" placeholder=\"Qwen3.6 Plus\" class=\"input input-bordered w-full text-sm\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = ui.FormField("Display name").Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</div><div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var6 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<input type=\"text\" x-model=\"p._customModelForm.input_modalities\" placeholder=\"text, image\" class=\"input input-bordered w-full text-sm\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = ui.FormField("Input modalities").Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</div><div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var7 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<input type=\"text\" x-model=\"p._customModelForm.output_modalities\" placeholder=\"text\" class=\"input input-bordered w-full text-sm\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = ui.FormField("Output modalities").Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</div><div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var8 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<input type=\"number\" min=\"0\" x-model=\"p._customModelForm.context_limit\" placeholder=\"1000000\" class=\"input input-bordered w-full text-sm\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = ui.FormField("Context limit").Render(templ.WithChildren(ctx, templ_7745c5c3_Var8), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "</div><div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var9 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<input type=\"number\" min=\"0\" x-model=\"p._customModelForm.output_limit\" placeholder=\"65536\" class=\"input input-bordered w-full text-sm\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = ui.FormField("Output limit").Render(templ.WithChildren(ctx, templ_7745c5c3_Var9), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</div></div><div class=\"grid grid-cols-1 md:grid-cols-[auto_1fr] gap-4 items-start\"><label class=\"label cursor-pointer justify-start gap-3 rounded-lg border border-base-300 px-4 py-3\"><input type=\"checkbox\" x-model=\"p._customModelForm.thinking_enabled\" class=\"toggle toggle-primary toggle-sm\"><div><p class=\"text-sm\">Thinking enabled</p><p class=\"text-xs text-secondary\">Adds <span class=\"font-mono\">options.thinking.type = enabled</span>.</p></div></label><div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var10 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<input type=\"number\" min=\"0\" x-model=\"p._customModelForm.thinking_budget_tokens\" placeholder=\"8192\" :disabled=\"!p._customModelForm.thinking_enabled\" class=\"input input-bordered w-full text-sm\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = ui.FormField("Thinking budget tokens").Render(templ.WithChildren(ctx, templ_7745c5c3_Var10), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</div></div><div class=\"flex items-center gap-3 justify-end\"><button @click=\"cancelCustomModelForm(p)\" class=\"btn btn-ghost btn-sm\">Cancel</button> <button @click=\"submitCustomModel(p)\" class=\"btn btn-primary btn-sm\" x-text=\"p._customModelForm.original_id ? 'Update model' : 'Add model'\"></button></div></div><div class=\"border-t border-base-300 pt-4 space-y-3\"><button @click=\"p._showAdvancedJSON = !p._showAdvancedJSON\" class=\"text-xs font-mono text-secondary hover:text-base-content\"><span x-text=\"p._showAdvancedJSON ? 'Hide advanced JSON editor' : 'Show advanced JSON editor'\"></span></button><div x-show=\"p._showAdvancedJSON\" x-cloak class=\"space-y-2\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var11 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<textarea x-model=\"p._customModelsJSON\" rows=\"10\" placeholder='{\n  \"qwen3.6-plus\": {\n    \"name\": \"Qwen3.6 Plus\"\n  }\n}' class=\"textarea textarea-bordered w-full text-xs font-mono\"></textarea>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = ui.FormField("Custom models JSON").Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<div class=\"flex justify-end\"><button @click=\"applyAdvancedJSON(p)\" class=\"btn btn-ghost btn-xs\">Apply JSON</button></div></div></div></div></div><!-- Actions: save, fetch models, model count toggle --><div class=\"flex items-center gap-4 flex-wrap\"><button @click=\"saveProvider(p)\" class=\"btn btn-primary btn-sm\">Save</button> <button @click=\"fetchModels(p)\" :disabled=\"p._fetching\" class=\"btn btn-ghost btn-sm text-secondary\"><span x-show=\"p._fetching\" class=\"loading loading-spinner loading-xs\"></span> <span x-text=\"p._fetching ? 'Fetching...' : 'Fetch models'\"></span></button> <button x-show=\"p._modelCount > 0\" @click=\"p._showModels = !p._showModels\" class=\"btn btn-ghost btn-xs font-mono text-primary\"><span x-text=\"p._modelCount + ' models'\"></span> <span x-text=\"p._showModels ? '↑' : '↓'\"></span></button></div><!-- Collapsible model list --><div x-show=\"p._showModels\" x-transition x-cloak class=\"mt-4 pl-4 border-l-2 border-base-300 space-y-3\"><p class=\"text-xs text-secondary\">Toggle models on or off, then save. Custom models can be edited with the form or in the advanced JSON editor.</p><div x-show=\"providerModels[p.id]?.length\" class=\"max-h-80 overflow-y-auto space-y-2\"><template x-for=\"m in providerModels[p.id] || []\" :key=\"m.id + ':' + m.source\"><div class=\"flex items-center justify-between gap-3 rounded-lg border border-base-300 px-3 py-2\"><div class=\"min-w-0 space-y-1\"><div class=\"flex items-center gap-2 flex-wrap\"><span class=\"font-mono text-sm\" x-text=\"m.id\"></span> <span class=\"badge badge-ghost badge-xs\" x-text=\"m.source\"></span> <span class=\"badge badge-xs\" :class=\"m.enabled ? 'badge-success' : 'badge-ghost'\" x-text=\"m.enabled ? 'enabled' : 'disabled'\"></span></div><template x-if=\"m.name && m.name !== m.id\"><p class=\"text-xs text-secondary\" x-text=\"m.name\"></p></template></div><div class=\"flex items-center gap-3 shrink-0\"><label class=\"label cursor-pointer justify-start gap-2 py-0\"><input type=\"checkbox\" :checked=\"m.enabled\" @change=\"toggleModelEnabled(p, m)\" class=\"toggle toggle-primary toggle-sm\"> <span class=\"label-text text-sm\">Enabled</span></label> <button x-show=\"m.source === 'custom'\" @click=\"editCustomModel(p, m)\" class=\"btn btn-ghost btn-xs\">edit</button> <button x-show=\"m.source === 'custom'\" @click=\"removeCustomModel(p, m.id)\" class=\"btn btn-ghost btn-xs text-error\">remove</button></div></div></template></div><div x-show=\"!providerModels[p.id]?.length\" class=\"text-xs text-secondary py-2\">No models yet. Fetch from the provider or add custom models above.</div></div></div></template></div></div><!-- Confirm dialog --><div x-show=\"confirmMsg\" x-cloak class=\"fixed inset-0 z-50 flex items-center justify-center bg-black/40\"><div class=\"card bg-base-100 shadow-xl w-full max-w-sm\" @click.away=\"confirmMsg = ''\"><div class=\"card-body\"><p class=\"text-sm\" x-text=\"confirmMsg\"></p><div class=\"card-actions justify-end mt-4\"><button @click=\"confirmMsg = ''\" class=\"btn btn-ghost btn-sm\">Cancel</button> <button @click=\"confirmAction(); confirmMsg = ''\" class=\"btn btn-error btn-sm\">Delete</button></div></div></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
