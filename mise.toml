@@ -18,7 +18,7 @@ LOG_LEVEL = "trace"
 [tasks.build]
 description = "Build anna binary"
 depends = ["generate"]
-run = "VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)} && go build -ldflags=\"-X main.version=$VERSION\" -o bin/$BINARY_NAME ./cmd/anna"
+run = "goreleaser build --single-target --snapshot --clean --output bin/$BINARY_NAME"
 
 [tasks.clean]
 description = "Remove build artifacts"
@@ -62,13 +62,9 @@ run = "go test -race ./..."
 description = "Run tests with race detection and coverage report (CI)"
 run = "go test -race -coverprofile=coverage.out ./..."
 
-[tasks.lint]
-description = "Lint Go code"
-run = "golangci-lint run"
-
 [tasks.format]
-description = "Format Go code and tidy modules"
-run = "gofmt -w . && go mod tidy"
+description = "Fix and format Go code"
+run = "golangci-lint run --fix ./..."
 
 # ============================================================================
 # Dev

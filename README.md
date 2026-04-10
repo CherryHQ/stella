@@ -216,10 +216,9 @@ anna upgrade               # Self-update to latest release
 ## Development
 
 ```bash
-mise run build       # Build binary -> bin/anna
+mise run build       # Build binary -> bin/anna via GoReleaser
 mise run test        # Run tests with -race
-mise run lint        # golangci-lint
-mise run format      # gofmt + go mod tidy
+mise run format      # golangci-lint run --fix
 ```
 
 Or: `go build -o anna . && go test -race ./...`
