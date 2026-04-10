@@ -15,45 +15,53 @@ const (
 	CapabilityMemory    = "memory"
 )
 
-// PluginMeta is the minimum host discovery contract for a registered plugin.
-type PluginMeta struct {
-	ID                    string
-	Kind                  string
-	Name                  string
-	DisplayName           string
-	Description           string
-	Managed               bool
-	AdminVisible          bool
-	HasConfig             bool
-	HasStatus             bool
-	Capabilities          []string
-	SupportsNotifications bool
+// PluginInfo is the host discovery metadata registered by a plugin.
+// Capability traits are derived from actual registrations rather than declared here.
+type PluginInfo struct {
+	ID                    string   `json:"id"`
+	Kind                  string   `json:"kind,omitempty"`
+	Name                  string   `json:"name,omitempty"`
+	DisplayName           string   `json:"display_name,omitempty"`
+	Description           string   `json:"description,omitempty"`
+	Managed               bool     `json:"managed,omitempty"`
+	AdminVisible          bool     `json:"admin_visible,omitempty"`
+	HasConfig             bool     `json:"has_config,omitempty"`
+	HasStatus             bool     `json:"has_status,omitempty"`
+	Capabilities          []string `json:"capabilities,omitempty"`
+	SupportsNotifications bool     `json:"supports_notifications,omitempty"`
 }
 
-// Clone returns a shallow copy with an independent capability slice.
-func (m PluginMeta) Clone() PluginMeta {
+// Clone returns a shallow copy.
+func (m PluginInfo) Clone() PluginInfo {
 	m.Capabilities = append([]string(nil), m.Capabilities...)
 	return m
 }
 
-// SortedCapabilities returns a normalized, sorted copy of the capability list.
-func (m PluginMeta) SortedCapabilities() []string {
-	caps := append([]string(nil), m.Capabilities...)
-	sort.Strings(caps)
-	return caps
-}
-
 // RegisteredPlugin is the merged discovery view of registered metadata and persisted state.
 type RegisteredPlugin struct {
-	Meta        PluginMeta
-	State       PluginState
-	Persisted   bool
-	PersistedID string
+	Info                  PluginInfo
+	Kind                  string
+	Name                  string
+	SupportsNotifications bool
+	HasConfig             bool
+	HasStatus             bool
+	Capabilities          []string
+	State                 PluginState
+	Persisted             bool
+	PersistedID           string
 }
 
 // Clone returns a shallow copy with independent nested maps/slices.
 func (p RegisteredPlugin) Clone() RegisteredPlugin {
-	p.Meta = p.Meta.Clone()
+	p.Info = p.Info.Clone()
+	p.Capabilities = append([]string(nil), p.Capabilities...)
 	p.State = p.State.Clone()
 	return p
+}
+
+// SortedCapabilities returns a normalized, sorted copy of the capability list.
+func (p RegisteredPlugin) SortedCapabilities() []string {
+	caps := append([]string(nil), p.Capabilities...)
+	sort.Strings(caps)
+	return caps
 }

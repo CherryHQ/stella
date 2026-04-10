@@ -6,8 +6,8 @@ import (
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
-// NotificationService exposes user-visible notification delivery through the host.
-type NotificationService interface {
+// Notifier exposes user-visible notification delivery through the host.
+type Notifier interface {
 	Notify(ctx context.Context, n pkgchannel.Notification) error
 	NotifyUser(ctx context.Context, userID int64, n pkgchannel.Notification) error
 }

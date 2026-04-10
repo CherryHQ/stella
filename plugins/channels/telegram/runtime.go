@@ -12,12 +12,12 @@ import (
 type RuntimeDeps struct {
 	Parent        context.Context
 	Handler       pkgchannel.Handler
-	Notifications pkgplugins.NotificationRegistry
+	Notifications pkgplugins.ChannelRegistry
 	Now           func() time.Time
 	NewChannel    func(pkgchannel.TelegramConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
 
-func NewManagedRuntime(deps RuntimeDeps) pkgplugins.ManagedRuntime {
+func NewManagedRuntime(deps RuntimeDeps) pkgplugins.Runtime {
 	if deps.NewChannel == nil {
 		panic(fmt.Sprintf("telegram: missing %s runtime channel factory", pkgchannel.PlatformTelegram))
 	}
@@ -27,12 +27,12 @@ func NewManagedRuntime(deps RuntimeDeps) pkgplugins.ManagedRuntime {
 type botRuntimeDeps struct {
 	Parent        context.Context
 	Handler       pkgchannel.Handler
-	Notifications pkgplugins.NotificationRegistry
+	Notifications pkgplugins.ChannelRegistry
 	Now           func() time.Time
 	NewChannel    func(pkgchannel.TelegramConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
 
-func newBotManagedRuntime(deps botRuntimeDeps) pkgplugins.ManagedRuntime {
+func newBotManagedRuntime(deps botRuntimeDeps) pkgplugins.Runtime {
 	if deps.Parent == nil {
 		deps.Parent = context.Background()
 	}
@@ -53,8 +53,8 @@ func newBotManagedRuntime(deps botRuntimeDeps) pkgplugins.ManagedRuntime {
 	})
 }
 
-func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.TelegramConfig) pkgplugins.RuntimeSnapshot {
-	return pkgplugins.RuntimeSnapshot{
+func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.TelegramConfig) pkgplugins.RuntimeStatus {
+	return pkgplugins.RuntimeStatus{
 		State:     state,
 		Message:   message,
 		UpdatedAt: now,

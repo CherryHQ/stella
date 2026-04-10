@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +18,29 @@ import (
 	"github.com/vaayne/anna/plugins/tools/webfetch"
 	"github.com/vaayne/anna/plugins/tools/write"
 )
+
+func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server) {
+	t.Helper()
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Skipf("local test server unavailable: %v", r)
+		}
+	}()
+
+	if port := os.Getenv("PORT"); port != "" {
+		ln, err := net.Listen("tcp", "127.0.0.1:"+port)
+		if err != nil {
+			t.Skipf("listen on PORT=%q: %v", port, err)
+		}
+		srv = httptest.NewUnstartedServer(handler)
+		srv.Listener = ln
+		srv.Start()
+		return srv
+	}
+
+	return httptest.NewServer(handler)
+}
 
 func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 	t.Setenv("ANNA_HOME", t.TempDir())
@@ -106,7 +130,7 @@ func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 		t.Fatalf("bash result = %q, want work dir %q", bashResult, resolved)
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		_, _ = w.Write([]byte("<html><body><main><h1>Plugin Fetch</h1><p>ok</p></main></body></html>"))
 	}))

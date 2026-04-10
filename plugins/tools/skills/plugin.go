@@ -12,7 +12,7 @@ const PluginID = "tool/skills"
 
 func init() {
 	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
 			ID:          PluginID,
 			Kind:        "tool",
 			Name:        "skills",
@@ -23,7 +23,7 @@ func init() {
 				pkgplugins.CapabilityPrompt,
 			},
 		})
-		host.Registry().RegisterTool(pkgplugins.ToolRegistration{
+		host.Registry().RegisterTool(pkgplugins.ToolSpec{
 			PluginID:    PluginID,
 			Name:        "skills",
 			Description: "Manage local agent skills.",
@@ -33,7 +33,7 @@ func init() {
 				return NewTool(ctx.AnnaHome, ctx.Workspace, cwd, userSkillsDir(ctx.UserDataDir)), nil
 			},
 		})
-		host.Registry().RegisterSystemPrompt(pkgplugins.SystemPromptRegistration{
+		host.Registry().RegisterSystemPrompt(pkgplugins.SystemPromptSpec{
 			PluginID: PluginID,
 			Name:     "skills",
 			Required: true,

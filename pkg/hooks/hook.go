@@ -42,7 +42,7 @@ type PreToolCallContext struct {
 type PreToolCallResult struct {
 	Arguments map[string]any // non-nil = rewritten args for next hook / execution
 	Block     bool           // true = skip tool execution
-	BlockMsg  string         // synthetic result text when blocked
+	BlockMessage  string         // synthetic result text when blocked
 }
 
 // PreToolCallHook intercepts tool calls before execution.

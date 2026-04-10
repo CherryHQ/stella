@@ -54,7 +54,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				return nil, err
 			}
 			if mutation.Block {
-				blockMsg := mutation.BlockMsg
+				blockMsg := mutation.BlockMessage
 				if blockMsg == "" {
 					blockMsg = "tool call blocked by lifecycle"
 				}
@@ -84,7 +84,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 			}
 			preResult, _ := hs.RunPreToolCall(ctx, preCtx)
 			if preResult.Block {
-				blockMsg := preResult.BlockMsg
+				blockMsg := preResult.BlockMessage
 				if blockMsg == "" {
 					blockMsg = "tool call blocked by hook"
 				}

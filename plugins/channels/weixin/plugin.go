@@ -12,7 +12,7 @@ const (
 	RuntimeName = "bot"
 )
 
-var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error) {
+var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.Runtime, error) {
 	channelRuntime := host.ChannelRuntime()
 	if channelRuntime == nil {
 		return nil, fmt.Errorf("weixin: channel runtime services unavailable")
@@ -46,7 +46,7 @@ func init() {
 		pkgplugins.RegisterManagedChannelPlugin(host, pkgplugins.ManagedChannelPluginRegistration{
 			PluginID:    PluginID,
 			RuntimeName: RuntimeName,
-			Meta: pkgplugins.PluginMeta{
+			Meta: pkgplugins.PluginInfo{
 				ID:                    PluginID,
 				Kind:                  "channel",
 				Name:                  pkgchannel.PlatformWeixin,

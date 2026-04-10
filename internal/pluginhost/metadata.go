@@ -8,7 +8,7 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
-func (h *Host) RegisterMetadata(meta pkgplugins.PluginMeta) {
+func (h *Host) RegisterMetadata(meta pkgplugins.PluginInfo) {
 	meta = normalizeMetadata(meta)
 	validateMetadataShape(meta)
 
@@ -20,9 +20,9 @@ func (h *Host) RegisterMetadata(meta pkgplugins.PluginMeta) {
 	registerUnique(h.metadataRegs, meta.ID, meta, "metadata")
 }
 
-func (h *Host) ListRegisteredPlugins() []pkgplugins.PluginMeta {
+func (h *Host) ListRegisteredPlugins() []pkgplugins.PluginInfo {
 	h.mu.RLock()
-	metas := make([]pkgplugins.PluginMeta, 0, len(h.metadataRegs))
+	metas := make([]pkgplugins.PluginInfo, 0, len(h.metadataRegs))
 	for _, meta := range h.metadataRegs {
 		metas = append(metas, meta.Clone())
 	}
@@ -104,7 +104,7 @@ func (h *Host) ValidateRegistrations() error {
 	return nil
 }
 
-func normalizeMetadata(meta pkgplugins.PluginMeta) pkgplugins.PluginMeta {
+func normalizeMetadata(meta pkgplugins.PluginInfo) pkgplugins.PluginInfo {
 	meta = meta.Clone()
 	seen := make(map[string]struct{}, len(meta.Capabilities))
 	caps := make([]string, 0, len(meta.Capabilities))
@@ -124,7 +124,7 @@ func normalizeMetadata(meta pkgplugins.PluginMeta) pkgplugins.PluginMeta {
 	return meta
 }
 
-func validateMetadataShape(meta pkgplugins.PluginMeta) {
+func validateMetadataShape(meta pkgplugins.PluginInfo) {
 	if meta.ID == "" {
 		panic("pluginhost: metadata missing plugin id")
 	}
@@ -139,7 +139,7 @@ func validateMetadataShape(meta pkgplugins.PluginMeta) {
 	}
 }
 
-func hasRuntimeLocked(regs map[string]pkgplugins.RuntimeRegistration, pluginID string) bool {
+func hasRuntimeLocked(regs map[string]pkgplugins.RuntimeSpec, pluginID string) bool {
 	for _, reg := range regs {
 		if reg.PluginID == pluginID {
 			return true
@@ -148,7 +148,7 @@ func hasRuntimeLocked(regs map[string]pkgplugins.RuntimeRegistration, pluginID s
 	return false
 }
 
-func hasToolLocked(regs map[string]pkgplugins.ToolRegistration, pluginID string) bool {
+func hasToolLocked(regs map[string]pkgplugins.ToolSpec, pluginID string) bool {
 	for _, reg := range regs {
 		if reg.PluginID == pluginID {
 			return true
@@ -157,7 +157,7 @@ func hasToolLocked(regs map[string]pkgplugins.ToolRegistration, pluginID string)
 	return false
 }
 
-func hasProviderLocked(regs map[string]pkgplugins.ProviderRegistration, pluginID string) bool {
+func hasProviderLocked(regs map[string]pkgplugins.ProviderSpec, pluginID string) bool {
 	for _, reg := range regs {
 		if reg.PluginID == pluginID {
 			return true
@@ -166,7 +166,7 @@ func hasProviderLocked(regs map[string]pkgplugins.ProviderRegistration, pluginID
 	return false
 }
 
-func hasChannelLocked(regs map[string]pkgplugins.ChannelRegistration, pluginID string) bool {
+func hasChannelLocked(regs map[string]pkgplugins.ChannelSpec, pluginID string) bool {
 	for _, reg := range regs {
 		if reg.PluginID == pluginID {
 			return true
@@ -175,7 +175,7 @@ func hasChannelLocked(regs map[string]pkgplugins.ChannelRegistration, pluginID s
 	return false
 }
 
-func hasHookLocked(regs map[string]pkgplugins.HookRegistration, pluginID string) bool {
+func hasHookLocked(regs map[string]pkgplugins.HookSpec, pluginID string) bool {
 	for _, reg := range regs {
 		if reg.PluginID == pluginID {
 			return true
@@ -184,7 +184,7 @@ func hasHookLocked(regs map[string]pkgplugins.HookRegistration, pluginID string)
 	return false
 }
 
-func hasBeforeRunLocked(regs map[string]pkgplugins.BeforeRunRegistration, pluginID string) bool {
+func hasBeforeRunLocked(regs map[string]pkgplugins.BeforeRunSpec, pluginID string) bool {
 	for _, reg := range regs {
 		if reg.PluginID == pluginID {
 			return true
@@ -193,7 +193,7 @@ func hasBeforeRunLocked(regs map[string]pkgplugins.BeforeRunRegistration, plugin
 	return false
 }
 
-func hasBeforeToolLocked(regs map[string]pkgplugins.BeforeToolCallRegistration, pluginID string) bool {
+func hasBeforeToolLocked(regs map[string]pkgplugins.BeforeToolCallSpec, pluginID string) bool {
 	for _, reg := range regs {
 		if reg.PluginID == pluginID {
 			return true
@@ -202,7 +202,7 @@ func hasBeforeToolLocked(regs map[string]pkgplugins.BeforeToolCallRegistration, 
 	return false
 }
 
-func hasAfterToolLocked(regs map[string]pkgplugins.AfterToolResultRegistration, pluginID string) bool {
+func hasAfterToolLocked(regs map[string]pkgplugins.AfterToolResultSpec, pluginID string) bool {
 	for _, reg := range regs {
 		if reg.PluginID == pluginID {
 			return true
@@ -211,11 +211,11 @@ func hasAfterToolLocked(regs map[string]pkgplugins.AfterToolResultRegistration, 
 	return false
 }
 
-func hasLifecycleLocked(beforeRunRegs map[string]pkgplugins.BeforeRunRegistration, beforeToolRegs map[string]pkgplugins.BeforeToolCallRegistration, afterToolRegs map[string]pkgplugins.AfterToolResultRegistration, pluginID string) bool {
+func hasLifecycleLocked(beforeRunRegs map[string]pkgplugins.BeforeRunSpec, beforeToolRegs map[string]pkgplugins.BeforeToolCallSpec, afterToolRegs map[string]pkgplugins.AfterToolResultSpec, pluginID string) bool {
 	return hasBeforeRunLocked(beforeRunRegs, pluginID) || hasBeforeToolLocked(beforeToolRegs, pluginID) || hasAfterToolLocked(afterToolRegs, pluginID)
 }
 
-func hasMemoryLocked(regs map[string]pkgplugins.MemoryRegistration, pluginID string) bool {
+func hasMemoryLocked(regs map[string]pkgplugins.MemorySpec, pluginID string) bool {
 	for _, reg := range regs {
 		if reg.PluginID == pluginID {
 			return true
@@ -224,7 +224,7 @@ func hasMemoryLocked(regs map[string]pkgplugins.MemoryRegistration, pluginID str
 	return false
 }
 
-func hasPromptLocked(promptRegs map[string]pkgplugins.PromptInventoryRegistration, systemRegs map[string]pkgplugins.SystemPromptRegistration, beforeRunRegs map[string]pkgplugins.BeforeRunRegistration, pluginID string) bool {
+func hasPromptLocked(promptRegs map[string]pkgplugins.PromptInventorySpec, systemRegs map[string]pkgplugins.SystemPromptSpec, beforeRunRegs map[string]pkgplugins.BeforeRunSpec, pluginID string) bool {
 	for _, reg := range promptRegs {
 		if reg.PluginID == pluginID {
 			return true

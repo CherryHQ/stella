@@ -15,7 +15,7 @@ import (
 
 func init() {
 	pkgplugins.Register("provider/openai", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
 			ID:           "provider/openai",
 			Kind:         "provider",
 			Name:         "openai",
@@ -26,7 +26,7 @@ func init() {
 				pkgplugins.CapabilityProvider,
 			},
 		})
-		host.Registry().RegisterProvider(pkgplugins.ProviderRegistration{
+		host.Registry().RegisterProvider(pkgplugins.ProviderSpec{
 			PluginID: "provider/openai",
 			Name:     "openai",
 			Meta: pkgplugins.ProviderMeta{

@@ -9,7 +9,7 @@ import (
 
 func (h *Host) BeforeToolCall(ctx context.Context, build pkgplugins.BeforeToolCallContext) (pkgplugins.BeforeToolCallResult, error) {
 	h.mu.RLock()
-	regs := make([]pkgplugins.BeforeToolCallRegistration, 0, len(h.beforeToolRegs))
+	regs := make([]pkgplugins.BeforeToolCallSpec, 0, len(h.beforeToolRegs))
 	for _, reg := range h.beforeToolRegs {
 		regs = append(regs, reg)
 	}
@@ -58,7 +58,7 @@ func (h *Host) BeforeToolCall(ctx context.Context, build pkgplugins.BeforeToolCa
 		}
 		if result.Block {
 			blocked = true
-			blockMsg = result.BlockMsg
+			blockMsg = result.BlockMessage
 			break
 		}
 	}
@@ -66,13 +66,13 @@ func (h *Host) BeforeToolCall(ctx context.Context, build pkgplugins.BeforeToolCa
 	return pkgplugins.BeforeToolCallResult{
 		Arguments: args,
 		Block:     blocked,
-		BlockMsg:  blockMsg,
+		BlockMessage:  blockMsg,
 	}, nil
 }
 
 func (h *Host) AfterToolResult(ctx context.Context, build pkgplugins.AfterToolResultContext) (pkgplugins.AfterToolResult, error) {
 	h.mu.RLock()
-	regs := make([]pkgplugins.AfterToolResultRegistration, 0, len(h.afterToolRegs))
+	regs := make([]pkgplugins.AfterToolResultSpec, 0, len(h.afterToolRegs))
 	for _, reg := range h.afterToolRegs {
 		regs = append(regs, reg)
 	}

@@ -3,32 +3,39 @@ package plugins
 import "context"
 
 const (
-	PluginStateScopeGlobal  = "global"
-	PluginStateScopeUser    = "user"
-	PluginStateScopeAgent   = "agent"
-	PluginStateScopeSession = "session"
+	StateScopeGlobal  = "global"
+	StateScopeUser    = "user"
+	StateScopeAgent   = "agent"
+	StateScopeSession = "session"
 )
 
-// PluginStateScope identifies the owner of a stored plugin state entry.
-type PluginStateScope struct {
+// StateScope identifies the owner of a stored plugin state entry.
+type StateScope struct {
 	Kind string
 	ID   string
 }
 
 // Normalize returns the canonical scope shape used by the host store.
-func (s PluginStateScope) Normalize() PluginStateScope {
+func (s StateScope) Normalize() StateScope {
 	if s.Kind == "" {
-		return PluginStateScope{Kind: PluginStateScopeGlobal}
+		return StateScope{Kind: StateScopeGlobal}
 	}
-	if s.Kind == PluginStateScopeGlobal {
-		return PluginStateScope{Kind: PluginStateScopeGlobal}
+	if s.Kind == StateScopeGlobal {
+		return StateScope{Kind: StateScopeGlobal}
 	}
 	return s
 }
 
-// PluginStateStore exposes host-owned plugin persistence without leaking DB packages.
+// StateStore exposes host-owned plugin persistence without leaking DB packages.
+type StateStore interface {
+	Get(ctx context.Context, scope StateScope, key string) (map[string]any, bool, error)
+	Set(ctx context.Context, scope StateScope, key string, value map[string]any) error
+	Delete(ctx context.Context, scope StateScope, key string) error
+}
+
+// PluginStateStore is the legacy unscoped plugin persistence interface retained for migration.
 type PluginStateStore interface {
-	Get(ctx context.Context, pluginID string, scope PluginStateScope, key string) (map[string]any, bool, error)
-	Set(ctx context.Context, pluginID string, scope PluginStateScope, key string, value map[string]any) error
-	Delete(ctx context.Context, pluginID string, scope PluginStateScope, key string) error
+	Get(ctx context.Context, pluginID string, scope StateScope, key string) (map[string]any, bool, error)
+	Set(ctx context.Context, pluginID string, scope StateScope, key string, value map[string]any) error
+	Delete(ctx context.Context, pluginID string, scope StateScope, key string) error
 }

@@ -16,8 +16,8 @@ type serviceRunner interface {
 }
 
 type RuntimeDeps struct {
-	Services      pkgplugins.ReflectRuntimeServices
-	Notifications pkgplugins.NotificationService
+	Services      pkgplugins.ReflectPlatform
+	Notifications pkgplugins.Notifier
 	StateStore    pkgplugins.PluginStateStore
 	Scheduler     pkgplugins.SchedulerService
 	Log           *slog.Logger
@@ -32,10 +32,10 @@ type managedRuntime struct {
 	cancel     context.CancelFunc
 	generation int
 	config     PluginConfig
-	snapshot   pkgplugins.RuntimeSnapshot
+	snapshot   pkgplugins.RuntimeStatus
 }
 
-func NewManagedRuntime(deps RuntimeDeps) pkgplugins.ManagedRuntime {
+func NewManagedRuntime(deps RuntimeDeps) pkgplugins.Runtime {
 	if deps.Log == nil {
 		deps.Log = slog.Default()
 	}
@@ -47,12 +47,20 @@ func NewManagedRuntime(deps RuntimeDeps) pkgplugins.ManagedRuntime {
 	}
 	return &managedRuntime{
 		deps: deps,
-		snapshot: pkgplugins.RuntimeSnapshot{
+		snapshot: pkgplugins.RuntimeStatus{
 			State:     pkgplugins.RuntimeStateStopped,
 			UpdatedAt: deps.Now(),
 			Metadata:  map[string]any{},
 		},
 	}
+}
+
+func (r *managedRuntime) Start(ctx context.Context, desired pkgplugins.PluginState) error {
+	return r.Apply(ctx, desired)
+}
+
+func (r *managedRuntime) Reconcile(ctx context.Context, desired pkgplugins.PluginState) error {
+	return r.Apply(ctx, desired)
 }
 
 func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginState) error {
@@ -162,10 +170,14 @@ func (r *managedRuntime) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (r *managedRuntime) Snapshot(ctx context.Context) (pkgplugins.RuntimeSnapshot, error) {
+func (r *managedRuntime) Snapshot(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.snapshot.Clone(), nil
+}
+
+func (r *managedRuntime) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
+	return r.Snapshot(ctx)
 }
 
 func (r *managedRuntime) RuntimeAccessor() any { return r }
@@ -197,8 +209,8 @@ func (r *managedRuntime) RunScheduledJob(ctx context.Context, key string, payloa
 	return nil
 }
 
-func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg PluginConfig) pkgplugins.RuntimeSnapshot {
-	return pkgplugins.RuntimeSnapshot{
+func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg PluginConfig) pkgplugins.RuntimeStatus {
+	return pkgplugins.RuntimeStatus{
 		State:     state,
 		Message:   message,
 		UpdatedAt: now,

@@ -16,7 +16,7 @@ import (
 
 func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContext) []tools.Tool {
 	h.mu.RLock()
-	regs := make([]pkgplugins.ToolRegistration, 0, len(h.toolRegs))
+	regs := make([]pkgplugins.ToolSpec, 0, len(h.toolRegs))
 	for _, reg := range h.toolRegs {
 		regs = append(regs, reg)
 	}
@@ -49,7 +49,7 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContex
 
 func (h *Host) BuildCoreTools(bc plugintools.BuildContext) []tools.Tool {
 	h.mu.RLock()
-	regs := make([]pkgplugins.ToolRegistration, 0, len(h.toolRegs))
+	regs := make([]pkgplugins.ToolSpec, 0, len(h.toolRegs))
 	for _, reg := range h.toolRegs {
 		regs = append(regs, reg)
 	}
@@ -82,7 +82,7 @@ func (h *Host) BuildCoreTools(bc plugintools.BuildContext) []tools.Tool {
 
 func (h *Host) BuildEnabledHooks(ctx context.Context, bc pluginhooks.BuildContext) []hooks.HookPlugin {
 	h.mu.RLock()
-	regs := make([]pkgplugins.HookRegistration, 0, len(h.hookRegs))
+	regs := make([]pkgplugins.HookSpec, 0, len(h.hookRegs))
 	for _, reg := range h.hookRegs {
 		regs = append(regs, reg)
 	}

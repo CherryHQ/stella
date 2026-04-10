@@ -12,7 +12,7 @@ const (
 	RuntimeName = "bot"
 )
 
-var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error) {
+var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.Runtime, error) {
 	channelRuntime := host.ChannelRuntime()
 	if channelRuntime == nil {
 		return nil, fmt.Errorf("telegram: channel runtime services unavailable")
@@ -41,7 +41,7 @@ func init() {
 		pkgplugins.RegisterManagedChannelPlugin(host, pkgplugins.ManagedChannelPluginRegistration{
 			PluginID:    PluginID,
 			RuntimeName: RuntimeName,
-			Meta: pkgplugins.PluginMeta{
+			Meta: pkgplugins.PluginInfo{
 				ID:                    PluginID,
 				Kind:                  "channel",
 				Name:                  pkgchannel.PlatformTelegram,
@@ -67,7 +67,7 @@ func init() {
 				cfg, err := DecodeConfig(raw)
 				return err == nil && cfg.EnableNotify
 			},
-			RuntimeFactory: func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error) {
+			RuntimeFactory: func(host pkgplugins.ServiceHost) (pkgplugins.Runtime, error) {
 				return newRuntime(host)
 			},
 		})
@@ -102,9 +102,9 @@ func configSchema() map[string]any {
 }
 
 // SetRuntimeFactoryForTesting swaps the Telegram managed runtime factory for tests.
-func SetRuntimeFactoryForTesting(factory func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error)) func() {
+func SetRuntimeFactoryForTesting(factory func(host pkgplugins.ServiceHost) (pkgplugins.Runtime, error)) func() {
 	prev := newRuntime
-	newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error) {
+	newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.Runtime, error) {
 		return factory(host)
 	}
 	return func() { newRuntime = prev }

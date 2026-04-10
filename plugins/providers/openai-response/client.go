@@ -18,7 +18,7 @@ import (
 
 func init() {
 	pkgplugins.Register("provider/openai-response", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
 			ID:           "provider/openai-response",
 			Kind:         "provider",
 			Name:         "openai-response",
@@ -29,7 +29,7 @@ func init() {
 				pkgplugins.CapabilityProvider,
 			},
 		})
-		host.Registry().RegisterProvider(pkgplugins.ProviderRegistration{
+		host.Registry().RegisterProvider(pkgplugins.ProviderSpec{
 			PluginID: "provider/openai-response",
 			Name:     "openai-response",
 			Meta: pkgplugins.ProviderMeta{

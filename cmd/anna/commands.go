@@ -56,8 +56,8 @@ type setupResult struct {
 	snap                   *config.Snapshot
 	store                  config.Store
 	pluginHost             *pluginhost.Host
-	channelRuntimeServices *pluginhost.ChannelRuntimeServices
-	reflectRuntimeServices *pluginhost.ReflectRuntimeServices
+	channelRuntimeServices *pluginhost.ChannelPlatform
+	reflectRuntimeServices *pluginhost.ReflectPlatform
 	poolManager            *agent.PoolManager
 	pool                   *agent.Pool // default agent's pool (backward compat)
 	schedulerSvc           *scheduler.Service
@@ -214,7 +214,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			return coreagent.ToolCallMutation{
 				Arguments: result.Arguments,
 				Block:     result.Block,
-				BlockMsg:  result.BlockMsg,
+				BlockMessage:  result.BlockMessage,
 			}, nil
 		},
 		AfterCall: func(ctx context.Context, result coreagent.ToolResultContext) (coreagent.ToolResultMutation, error) {

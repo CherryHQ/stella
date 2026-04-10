@@ -78,9 +78,16 @@ func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.Regist
 		if !meta.AdminVisible {
 			continue
 		}
+		hasConfig, hasStatus, supportsNotifications, capabilities := h.derivedTraits(meta.ID)
 		registered[meta.ID] = pkgplugins.RegisteredPlugin{
-			Meta:  meta,
-			State: pkgplugins.PluginState{ID: meta.ID, Enabled: false, Config: h.defaultConfigFor(meta.ID)},
+			Info:                  meta,
+			Kind:                  meta.Kind,
+			Name:                  meta.Name,
+			HasConfig:             hasConfig,
+			HasStatus:             hasStatus,
+			Capabilities:          capabilities,
+			SupportsNotifications: supportsNotifications,
+			State:                 pkgplugins.PluginState{ID: meta.ID, Enabled: false, Config: h.defaultConfigFor(meta.ID)},
 		}
 	}
 
@@ -92,7 +99,9 @@ func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.Regist
 		entry, ok := registered[plugin.ID]
 		if !ok {
 			entry = pkgplugins.RegisteredPlugin{
-				Meta:  inferredPluginMeta(plugin, plugin.ID),
+				Info:  inferredPluginMeta(plugin, plugin.ID),
+				Kind:  plugin.Kind,
+				Name:  plugin.Name,
 				State: pkgplugins.PluginState{ID: plugin.ID, Enabled: false, Config: map[string]any{}},
 			}
 		}
@@ -107,15 +116,101 @@ func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.Regist
 		out = append(out, entry.Clone())
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].Meta.Kind != out[j].Meta.Kind {
-			return out[i].Meta.Kind < out[j].Meta.Kind
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
 		}
-		if out[i].Meta.Name != out[j].Meta.Name {
-			return out[i].Meta.Name < out[j].Meta.Name
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
 		}
-		return out[i].Meta.ID < out[j].Meta.ID
+		return out[i].Info.ID < out[j].Info.ID
 	})
 	return out, nil
+}
+
+func (h *Host) derivedTraits(pluginID string) (hasConfig bool, hasStatus bool, supportsNotifications bool, capabilities []string) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	capSet := map[string]struct{}{}
+	add := func(capability string) {
+		if capability == "" {
+			return
+		}
+		capSet[capability] = struct{}{}
+	}
+
+	for _, reg := range h.toolRegs {
+		if reg.PluginID == pluginID {
+			add(pkgplugins.CapabilityTool)
+		}
+	}
+	for _, reg := range h.providerRegs {
+		if reg.PluginID == pluginID {
+			add(pkgplugins.CapabilityProvider)
+		}
+	}
+	for _, reg := range h.channelRegs {
+		if reg.PluginID == pluginID {
+			add(pkgplugins.CapabilityChannel)
+			supportsNotifications = supportsNotifications || reg.SupportsNotifications
+		}
+	}
+	for _, reg := range h.hookRegs {
+		if reg.PluginID == pluginID {
+			add(pkgplugins.CapabilityHook)
+		}
+	}
+	for _, reg := range h.memoryRegs {
+		if reg.PluginID == pluginID {
+			add(pkgplugins.CapabilityMemory)
+		}
+	}
+	for _, reg := range h.runtimeRegs {
+		if reg.PluginID == pluginID {
+			add(pkgplugins.CapabilityRuntime)
+		}
+	}
+	if _, ok := h.configRegs[pluginID]; ok {
+		hasConfig = true
+		add(pkgplugins.CapabilityConfig)
+	}
+	if _, ok := h.statusRegs[pluginID]; ok {
+		hasStatus = true
+		add(pkgplugins.CapabilityStatus)
+	}
+	for _, reg := range h.promptRegs {
+		if reg.PluginID == pluginID {
+			add(pkgplugins.CapabilityPrompt)
+		}
+	}
+	for _, reg := range h.systemPromptRegs {
+		if reg.PluginID == pluginID {
+			add(pkgplugins.CapabilityPrompt)
+		}
+	}
+	for _, reg := range h.beforeRunRegs {
+		if reg.PluginID == pluginID {
+			add(pkgplugins.CapabilityPrompt)
+			add(pkgplugins.CapabilityLifecycle)
+		}
+	}
+	for _, reg := range h.beforeToolRegs {
+		if reg.PluginID == pluginID {
+			add(pkgplugins.CapabilityLifecycle)
+		}
+	}
+	for _, reg := range h.afterToolRegs {
+		if reg.PluginID == pluginID {
+			add(pkgplugins.CapabilityLifecycle)
+		}
+	}
+
+	capabilities = make([]string, 0, len(capSet))
+	for capability := range capSet {
+		capabilities = append(capabilities, capability)
+	}
+	sort.Strings(capabilities)
+	return hasConfig, hasStatus, supportsNotifications, capabilities
 }
 
 func (h *Host) defaultConfigFor(pluginID string) map[string]any {
@@ -128,8 +223,8 @@ func (h *Host) defaultConfigFor(pluginID string) map[string]any {
 	return reg.Defaults()
 }
 
-func inferredPluginMeta(plugin config.Plugin, canonicalID string) pkgplugins.PluginMeta {
-	meta := pkgplugins.PluginMeta{
+func inferredPluginMeta(plugin config.Plugin, canonicalID string) pkgplugins.PluginInfo {
+	meta := pkgplugins.PluginInfo{
 		ID:           canonicalID,
 		Kind:         plugin.Kind,
 		Name:         plugin.Name,

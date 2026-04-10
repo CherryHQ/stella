@@ -26,7 +26,7 @@ type channelEntry struct {
 type Dispatcher struct {
 	mu       sync.RWMutex
 	channels []channelEntry
-	auth     pkgplugins.AuthService // optional; set via SetAuthService for per-user notifications
+	auth     pkgplugins.Auth // optional; set via SetAuthService for per-user notifications
 }
 
 // NewDispatcher creates an empty dispatcher. Register channels before use.
@@ -85,7 +85,7 @@ func (d *Dispatcher) Notify(ctx context.Context, n pkgchannel.Notification) erro
 }
 
 // SetAuthService configures the auth directory for per-user notification routing.
-func (d *Dispatcher) SetAuthService(service pkgplugins.AuthService) {
+func (d *Dispatcher) SetAuthService(service pkgplugins.Auth) {
 	d.mu.Lock()
 	d.auth = service
 	d.mu.Unlock()
@@ -156,7 +156,7 @@ func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n pkgchannel.
 // If the user has a notify_identity_id preference that matches one of their
 // linked identities, that identity is returned. Otherwise the first identity
 // (earliest linked_at from the DB query) is used.
-func pickNotifyIdentity(ctx context.Context, as pkgplugins.AuthService, userID int64, identities []pkgplugins.LinkedIdentity) pkgplugins.LinkedIdentity {
+func pickNotifyIdentity(ctx context.Context, as pkgplugins.Auth, userID int64, identities []pkgplugins.LinkedIdentity) pkgplugins.LinkedIdentity {
 	user, err := as.GetUser(ctx, userID)
 	if err != nil {
 		slog.Warn("notifyUser: failed to get user, using first identity", "user_id", userID, "error", err)

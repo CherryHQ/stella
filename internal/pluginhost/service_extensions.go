@@ -13,21 +13,21 @@ import (
 )
 
 // WithNotificationService injects the narrow notification service available to plugins.
-func WithNotificationService(service pkgplugins.NotificationService) Option {
+func WithNotificationService(service pkgplugins.Notifier) Option {
 	return func(h *Host) {
 		h.notifications = service
 	}
 }
 
 // SetNotificationService updates the notification service extension after host construction.
-func (h *Host) SetNotificationService(service pkgplugins.NotificationService) {
+func (h *Host) SetNotificationService(service pkgplugins.Notifier) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.notifications = service
 }
 
 // Notifications returns the injected notification service, if any.
-func (h *Host) Notifications() pkgplugins.NotificationService {
+func (h *Host) Notifications() pkgplugins.Notifier {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.notifications
@@ -76,81 +76,81 @@ func (h *Host) StateStore() pkgplugins.PluginStateStore {
 }
 
 // WithAuthService injects the narrow auth directory available to plugins.
-func WithAuthService(service pkgplugins.AuthService) Option {
+func WithAuthService(service pkgplugins.Auth) Option {
 	return func(h *Host) {
 		h.authService = service
 	}
 }
 
 // SetAuthService updates the auth service extension after host construction.
-func (h *Host) SetAuthService(service pkgplugins.AuthService) {
+func (h *Host) SetAuthService(service pkgplugins.Auth) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.authService = service
 }
 
 // Auth returns the injected auth service, if any.
-func (h *Host) Auth() pkgplugins.AuthService {
+func (h *Host) Auth() pkgplugins.Auth {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.authService
 }
 
 // WithChannelRuntimeServices injects the narrow services used by managed channel runtimes.
-func WithChannelRuntimeServices(services pkgplugins.ChannelRuntimeServices) Option {
+func WithChannelRuntimeServices(services pkgplugins.ChannelPlatform) Option {
 	return func(h *Host) {
 		h.channelRuntime = services
 	}
 }
 
 // SetChannelRuntimeServices updates the channel runtime service extension after host construction.
-func (h *Host) SetChannelRuntimeServices(services pkgplugins.ChannelRuntimeServices) {
+func (h *Host) SetChannelRuntimeServices(services pkgplugins.ChannelPlatform) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.channelRuntime = services
 }
 
 // ChannelRuntime returns the injected channel runtime service extension, if any.
-func (h *Host) ChannelRuntime() pkgplugins.ChannelRuntimeServices {
+func (h *Host) ChannelRuntime() pkgplugins.ChannelPlatform {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.channelRuntime
 }
 
 // WithReflectRuntimeServices injects the narrow services used by the reflect managed runtime.
-func WithReflectRuntimeServices(services pkgplugins.ReflectRuntimeServices) Option {
+func WithReflectRuntimeServices(services pkgplugins.ReflectPlatform) Option {
 	return func(h *Host) {
 		h.reflectRuntime = services
 	}
 }
 
 // SetReflectRuntimeServices updates the reflect runtime service extension after host construction.
-func (h *Host) SetReflectRuntimeServices(services pkgplugins.ReflectRuntimeServices) {
+func (h *Host) SetReflectRuntimeServices(services pkgplugins.ReflectPlatform) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.reflectRuntime = services
 }
 
 // ReflectRuntime returns the injected reflect runtime service extension, if any.
-func (h *Host) ReflectRuntime() pkgplugins.ReflectRuntimeServices {
+func (h *Host) ReflectRuntime() pkgplugins.ReflectPlatform {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.reflectRuntime
 }
 
-// ChannelRuntimeServices is a mutable host extension bag for managed channel runtimes.
-type ChannelRuntimeServices struct {
+// ChannelPlatform is a mutable host extension bag for managed channel runtimes.
+type ChannelPlatform struct {
 	mu            sync.RWMutex
 	parent        context.Context
 	handler       pkgchannel.Handler
-	notifications pkgplugins.NotificationRegistry
+	notifications pkgplugins.ChannelRegistry
 }
 
-func NewChannelRuntimeServices() *ChannelRuntimeServices {
-	return &ChannelRuntimeServices{}
+func NewChannelRuntimeServices() *ChannelPlatform {
+	return &ChannelPlatform{}
 }
 
-func (s *ChannelRuntimeServices) Set(parent context.Context, handler pkgchannel.Handler, notifications pkgplugins.NotificationRegistry) {
+func (s *ChannelPlatform) Set(parent context.Context, handler pkgchannel.Handler, notifications pkgplugins.ChannelRegistry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.parent = parent
@@ -158,26 +158,26 @@ func (s *ChannelRuntimeServices) Set(parent context.Context, handler pkgchannel.
 	s.notifications = notifications
 }
 
-func (s *ChannelRuntimeServices) ParentContext() context.Context {
+func (s *ChannelPlatform) ParentContext() context.Context {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.parent
 }
 
-func (s *ChannelRuntimeServices) Handler() pkgchannel.Handler {
+func (s *ChannelPlatform) Handler() pkgchannel.Handler {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.handler
 }
 
-func (s *ChannelRuntimeServices) Notifications() pkgplugins.NotificationRegistry {
+func (s *ChannelPlatform) Notifications() pkgplugins.ChannelRegistry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.notifications
 }
 
-// ReflectRuntimeServices is a mutable host extension bag for the reflect managed runtime.
-type ReflectRuntimeServices struct {
+// ReflectPlatform is a mutable host extension bag for the reflect managed runtime.
+type ReflectPlatform struct {
 	mu             sync.RWMutex
 	parent         context.Context
 	memory         memory.Provider
@@ -186,11 +186,11 @@ type ReflectRuntimeServices struct {
 	buildProviders func(api, apiKey, baseURL string) (*providers.Registry, error)
 }
 
-func NewReflectRuntimeServices() *ReflectRuntimeServices {
-	return &ReflectRuntimeServices{}
+func NewReflectRuntimeServices() *ReflectPlatform {
+	return &ReflectPlatform{}
 }
 
-func (s *ReflectRuntimeServices) Set(parent context.Context, mem memory.Provider, store config.Store, workspace string, buildProviders func(api, apiKey, baseURL string) (*providers.Registry, error)) {
+func (s *ReflectPlatform) Set(parent context.Context, mem memory.Provider, store config.Store, workspace string, buildProviders func(api, apiKey, baseURL string) (*providers.Registry, error)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.parent = parent
@@ -200,19 +200,19 @@ func (s *ReflectRuntimeServices) Set(parent context.Context, mem memory.Provider
 	s.buildProviders = buildProviders
 }
 
-func (s *ReflectRuntimeServices) ParentContext() context.Context {
+func (s *ReflectPlatform) ParentContext() context.Context {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.parent
 }
 
-func (s *ReflectRuntimeServices) Memory() memory.Provider {
+func (s *ReflectPlatform) Memory() memory.Provider {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.memory
 }
 
-func (s *ReflectRuntimeServices) Store() pkgplugins.ReflectStore {
+func (s *ReflectPlatform) Store() pkgplugins.ReflectStore {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.store == nil {
@@ -221,13 +221,13 @@ func (s *ReflectRuntimeServices) Store() pkgplugins.ReflectStore {
 	return reflectConfigStore{store: s.store}
 }
 
-func (s *ReflectRuntimeServices) Workspace() string {
+func (s *ReflectPlatform) Workspace() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.workspace
 }
 
-func (s *ReflectRuntimeServices) BuildProviders(api, apiKey, baseURL string) (*providers.Registry, error) {
+func (s *ReflectPlatform) BuildProviders(api, apiKey, baseURL string) (*providers.Registry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.buildProviders == nil {

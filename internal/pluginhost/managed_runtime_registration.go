@@ -26,19 +26,19 @@ func (h *Host) registerManagedRuntime(reg managedRuntimeRegistration) {
 		meta.HasStatus = true
 		h.RegisterMetadata(meta)
 	}
-	h.RegisterConfig(pkgplugins.ConfigRegistration{
+	h.RegisterConfig(pkgplugins.AdminSpec{
 		PluginID:      reg.pluginID,
 		DefaultConfig: reg.defaultConfig,
 		Schema:        reg.schema,
 		Validate:      reg.validate,
 		Redact:        reg.redact,
 	})
-	h.RegisterRuntime(pkgplugins.RuntimeRegistration{
+	h.RegisterRuntime(pkgplugins.RuntimeSpec{
 		PluginID: reg.pluginID,
 		Name:     reg.runtimeName,
 		Factory:  reg.factory,
 	})
-	h.RegisterStatus(pkgplugins.StatusRegistration{
+	h.RegisterStatus(pkgplugins.AdminSpec{
 		PluginID: reg.pluginID,
 		Get: func(ctx context.Context) (any, error) {
 			return h.runtimeStatus(ctx, reg.pluginID, reg.runtimeName)
@@ -62,10 +62,10 @@ func (h *Host) runtimeStatus(ctx context.Context, pluginID, runtimeName string) 
 type managedRuntimeRegistration struct {
 	pluginID      string
 	runtimeName   string
-	metadata      pkgplugins.PluginMeta
+	metadata      pkgplugins.PluginInfo
 	defaultConfig func() map[string]any
 	schema        map[string]any
 	validate      func(map[string]any) error
 	redact        func(map[string]any) map[string]any
-	factory       func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error)
+	factory       func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error)
 }

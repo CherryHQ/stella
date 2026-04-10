@@ -88,7 +88,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err := phost.ApplyPlugin(context.Background(), mcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(mcp): %v", err)
 	}
-	resetTelegramRuntime := telegramplugin.SetRuntimeFactoryForTesting(func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error) {
+	resetTelegramRuntime := telegramplugin.SetRuntimeFactoryForTesting(func(host pkgplugins.ServiceHost) (pkgplugins.Runtime, error) {
 		return telegramplugin.NewManagedRuntime(telegramplugin.RuntimeDeps{
 			Parent:        context.Background(),
 			Handler:       testChannelHandler{},

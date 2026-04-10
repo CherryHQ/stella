@@ -11,8 +11,8 @@ import (
 	"github.com/vaayne/anna/pkg/tools"
 )
 
-// ToolRegistration registers a tool capability owned by a plugin.
-type ToolRegistration struct {
+// ToolSpec declares a tool capability owned by a plugin.
+type ToolSpec struct {
 	PluginID    string
 	Name        string
 	Description string
@@ -26,16 +26,16 @@ type ProviderMeta struct {
 	DefaultURL string
 }
 
-// ProviderRegistration registers a provider capability owned by a plugin.
-type ProviderRegistration struct {
+// ProviderSpec declares a provider capability owned by a plugin.
+type ProviderSpec struct {
 	PluginID string
 	Name     string
 	Meta     ProviderMeta
 	Build    func(ctx ProviderContext) (providers.ProviderAdapter, error)
 }
 
-// ChannelRegistration registers a channel capability owned by a plugin.
-type ChannelRegistration struct {
+// ChannelSpec declares a channel capability owned by a plugin.
+type ChannelSpec struct {
 	PluginID              string
 	Name                  string
 	SupportsNotifications bool
@@ -44,38 +44,42 @@ type ChannelRegistration struct {
 	Build                 func(ctx ChannelContext) (channel.Channel, error)
 }
 
-// HookRegistration registers a hook capability owned by a plugin.
-type HookRegistration struct {
+// HookSpec declares a hook capability owned by a plugin.
+type HookSpec struct {
 	PluginID string
 	Name     string
 	Build    func(ctx HookContext) (hooks.HookPlugin, error)
 }
 
-// MemoryRegistration registers a memory capability owned by a plugin.
-type MemoryRegistration struct {
+// MemorySpec declares a memory capability owned by a plugin.
+type MemorySpec struct {
 	PluginID string
 	Name     string
 	Build    func(ctx context.Context, build MemoryContext) (memory.Provider, error)
 }
 
-// RuntimeRegistration registers a managed runtime capability owned by a plugin.
-type RuntimeRegistration struct {
+// RuntimeSpec declares a managed runtime capability owned by a plugin.
+type RuntimeSpec struct {
 	PluginID string
 	Name     string
-	Factory  func(ctx RuntimeContext) (ManagedRuntime, error)
+	Factory  func(ctx RuntimeContext) (Runtime, error)
+	Build    func(ctx RuntimeContext) (Runtime, error)
 }
 
-// ConfigRegistration registers plugin-owned config defaults and validation.
-type ConfigRegistration struct {
+// AdminSpec declares plugin-owned admin behavior: config defaults, schema, validation,
+// redaction, and status.
+type AdminSpec struct {
 	PluginID      string
 	DefaultConfig func() map[string]any
 	Schema        map[string]any
 	Validate      func(raw map[string]any) error
 	Redact        func(raw map[string]any) map[string]any
+	Get           func(ctx context.Context) (any, error)
+	Status        func(ctx context.Context, build AdminContext) (any, error)
 }
 
 // Defaults returns a defensive copy of the registered default config.
-func (r ConfigRegistration) Defaults() map[string]any {
+func (r AdminSpec) Defaults() map[string]any {
 	if r.DefaultConfig == nil {
 		return map[string]any{}
 	}
@@ -83,7 +87,7 @@ func (r ConfigRegistration) Defaults() map[string]any {
 }
 
 // Redacted returns a redacted copy of raw config, or a cloned copy when no redactor is set.
-func (r ConfigRegistration) Redacted(raw map[string]any) map[string]any {
+func (r AdminSpec) Redacted(raw map[string]any) map[string]any {
 	if r.Redact == nil {
 		return cloneMap(raw)
 	}
@@ -91,7 +95,7 @@ func (r ConfigRegistration) Redacted(raw map[string]any) map[string]any {
 }
 
 // SchemaDefinition returns a defensive deep copy of the registered config schema.
-func (r ConfigRegistration) SchemaDefinition() map[string]any {
+func (r AdminSpec) SchemaDefinition() map[string]any {
 	if len(r.Schema) == 0 {
 		return map[string]any{}
 	}
@@ -106,47 +110,45 @@ func (r ConfigRegistration) SchemaDefinition() map[string]any {
 	return out
 }
 
-// StatusRegistration registers plugin-owned status reporting.
-type StatusRegistration struct {
-	PluginID string
-	Get      func(ctx context.Context) (any, error)
+// PromptInventorySpec declares structured tool inventory contribution.
+type PromptInventorySpec struct {
+	PluginID       string
+	Name           string
+	LegacyGetTools func(ctx context.Context) ([]PromptToolInfo, error)
+	GetTools       func(ctx context.Context, build PromptInventoryContext) ([]PromptToolInfo, error)
 }
 
-// PromptInventoryRegistration registers structured tool inventory contribution.
-type PromptInventoryRegistration struct {
-	PluginID string
-	Name     string
-	GetTools func(ctx context.Context) ([]PromptToolInfo, error)
-}
-
-// SystemPromptRegistration registers prompt contribution owned by a plugin.
-type SystemPromptRegistration struct {
+// SystemPromptSpec declares prompt contribution owned by a plugin.
+type SystemPromptSpec struct {
 	PluginID string
 	Name     string
 	Required bool
 	Build    func(ctx context.Context, build SystemPromptContext) (SystemPromptSection, error)
 }
 
-// BeforeRunRegistration registers a dynamic per-run lifecycle hook owned by a plugin.
-type BeforeRunRegistration struct {
+// BeforeRunSpec declares a dynamic per-run lifecycle hook owned by a plugin.
+type BeforeRunSpec struct {
 	PluginID string
 	Name     string
+	Order    int
 	Required bool
 	Run      func(ctx context.Context, build BeforeRunContext) (BeforeRunResult, error)
 }
 
-// BeforeToolCallRegistration registers a pre-tool lifecycle hook owned by a plugin.
-type BeforeToolCallRegistration struct {
+// BeforeToolCallSpec declares a pre-tool lifecycle hook owned by a plugin.
+type BeforeToolCallSpec struct {
 	PluginID string
 	Name     string
+	Order    int
 	Required bool
 	Run      func(ctx context.Context, build BeforeToolCallContext) (BeforeToolCallResult, error)
 }
 
-// AfterToolResultRegistration registers a post-tool lifecycle hook owned by a plugin.
-type AfterToolResultRegistration struct {
+// AfterToolResultSpec declares a post-tool lifecycle hook owned by a plugin.
+type AfterToolResultSpec struct {
 	PluginID string
 	Name     string
+	Order    int
 	Required bool
 	Run      func(ctx context.Context, build AfterToolResultContext) (AfterToolResult, error)
 }

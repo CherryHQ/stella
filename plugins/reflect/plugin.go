@@ -7,7 +7,7 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
-var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error) {
+var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.Runtime, error) {
 	deps, err := runtimeDeps(host)
 	if err != nil {
 		return nil, err
@@ -17,7 +17,7 @@ var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, e
 
 func init() {
 	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
 			ID:           PluginID,
 			Kind:         "reflect",
 			Name:         "reflect",
@@ -33,21 +33,21 @@ func init() {
 				pkgplugins.CapabilityStatus,
 			},
 		})
-		host.Registry().RegisterConfig(pkgplugins.ConfigRegistration{
+		host.Registry().RegisterConfig(pkgplugins.AdminSpec{
 			PluginID:      PluginID,
 			DefaultConfig: DefaultPluginConfig,
 			Schema:        PluginConfigSchema(),
 			Validate:      func(raw map[string]any) error { _, err := DecodePluginConfig(raw); return err },
 			Redact:        RedactPluginConfig,
 		})
-		host.Registry().RegisterRuntime(pkgplugins.RuntimeRegistration{
+		host.Registry().RegisterRuntime(pkgplugins.RuntimeSpec{
 			PluginID: PluginID,
 			Name:     RuntimeName,
-			Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
+			Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
 				return newRuntime(ctx.Services)
 			},
 		})
-		host.Registry().RegisterStatus(pkgplugins.StatusRegistration{
+		host.Registry().RegisterStatus(pkgplugins.AdminSpec{
 			PluginID: PluginID,
 			Get: func(ctx context.Context) (any, error) {
 				handle, ok := host.Services().Runtime().Get(PluginID, RuntimeName)
@@ -64,7 +64,7 @@ func init() {
 	}))
 }
 
-func SetRuntimeFactoryForTesting(factory func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error)) func() {
+func SetRuntimeFactoryForTesting(factory func(host pkgplugins.ServiceHost) (pkgplugins.Runtime, error)) func() {
 	prev := newRuntime
 	newRuntime = factory
 	return func() { newRuntime = prev }
@@ -104,7 +104,7 @@ func stoppedStatus() map[string]any {
 	}
 }
 
-func runtimeStatus(snap pkgplugins.RuntimeSnapshot) map[string]any {
+func runtimeStatus(snap pkgplugins.RuntimeStatus) map[string]any {
 	return map[string]any{
 		"state":      snap.State,
 		"message":    snap.Message,
