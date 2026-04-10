@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"unicode"
@@ -100,8 +101,6 @@ func (r *CanonicalRegistry) Snapshot() map[string]Target {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make(map[string]Target, len(r.byID))
-	for id, target := range r.byID {
-		out[id] = target
-	}
+	maps.Copy(out, r.byID)
 	return out
 }

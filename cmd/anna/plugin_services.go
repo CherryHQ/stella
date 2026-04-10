@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
 
 	internalscheduler "github.com/vaayne/anna/internal/scheduler"
@@ -225,8 +226,6 @@ func clonePayload(src map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	out := make(map[string]any, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
+	maps.Copy(out, src)
 	return out
 }

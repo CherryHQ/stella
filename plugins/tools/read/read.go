@@ -116,10 +116,7 @@ func (t *ReadTool) Execute(_ context.Context, args map[string]any) (string, erro
 
 	// Ensure pagination advances by at least 1 line to avoid infinite loops
 	// (e.g., when a single line exceeds the byte limit and OutputLines == 0).
-	linesConsumed := tr.OutputLines
-	if linesConsumed < 1 {
-		linesConsumed = 1
-	}
+	linesConsumed := max(tr.OutputLines, 1)
 	lastLineShown := offset + linesConsumed - 1
 	if lastLineShown < totalLines {
 		hint := fmt.Sprintf("\n[Use offset=%d to continue reading]", lastLineShown+1)
@@ -156,10 +153,7 @@ func (t *ReadTool) readFallback(path string, offset, limit int) (string, error) 
 	allLines := tools.SplitLines(string(data))
 	totalLines := len(allLines)
 
-	start := offset - 1
-	if start > totalLines {
-		start = totalLines
-	}
+	start := min(offset-1, totalLines)
 	selected := allLines[start:]
 
 	if limit > 0 && limit < len(selected) {
@@ -169,10 +163,7 @@ func (t *ReadTool) readFallback(path string, offset, limit int) (string, error) 
 	content := strings.Join(selected, "")
 	tr := tools.TruncateHead(content)
 
-	linesConsumed := tr.OutputLines
-	if linesConsumed < 1 {
-		linesConsumed = 1
-	}
+	linesConsumed := max(tr.OutputLines, 1)
 	lastLineShown := offset + linesConsumed - 1
 	if lastLineShown < totalLines {
 		hint := fmt.Sprintf("\n[Use offset=%d to continue reading]", lastLineShown+1)

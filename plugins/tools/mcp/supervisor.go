@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -158,10 +159,7 @@ func (m *Manager) handleServerFailure(ctx context.Context, cfg ServerConfig, err
 	if maxDelay <= 0 {
 		maxDelay = defaultBackoffMax
 	}
-	delay := base << (failures - 1)
-	if delay > maxDelay {
-		delay = maxDelay
-	}
+	delay := min(base<<(failures-1), maxDelay)
 	m.mu.Unlock()
 
 	m.clearServerTools(cfg.Name)
@@ -254,9 +252,7 @@ func anyToMap(v any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(m))
-	for k, val := range m {
-		out[k] = val
-	}
+	maps.Copy(out, m)
 	return out
 }
 

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"os/exec"
 	"sort"
@@ -78,9 +79,7 @@ func cloneHeaders(headers map[string]string) map[string]string {
 		return nil
 	}
 	cloned := make(map[string]string, len(headers))
-	for key, value := range headers {
-		cloned[key] = value
-	}
+	maps.Copy(cloned, headers)
 	return cloned
 }
 

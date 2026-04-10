@@ -1356,7 +1356,7 @@ func TestPoolCompactSessionWithMemEngine(t *testing.T) {
 
 	// Ingest enough messages to have something to compact.
 	ctx := context.Background()
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		msg := fmt.Sprintf("message number %d with enough content to fill tokens", i)
 		stream := pool.Chat(ctx, info.ID, msg)
 		for range stream {

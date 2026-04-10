@@ -43,8 +43,8 @@ type Snapshot struct {
 // ParseModelRef splits a "provider/model" string into its parts.
 // If the string contains no "/", it returns ("", ref) as fallback.
 func ParseModelRef(ref string) (provider, model string) {
-	if i := strings.Index(ref, "/"); i >= 0 {
-		return ref[:i], ref[i+1:]
+	if provider, model, ok := strings.Cut(ref, "/"); ok {
+		return provider, model
 	}
 	return "", ref
 }

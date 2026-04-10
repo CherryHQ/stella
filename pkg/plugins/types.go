@@ -60,7 +60,7 @@ const (
 type RuntimeStatus struct {
 	State     RuntimeState   `json:"state"`
 	Message   string         `json:"message,omitempty"`
-	UpdatedAt time.Time      `json:"updated_at,omitempty"`
+	UpdatedAt time.Time      `json:"updated_at"`
 	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 

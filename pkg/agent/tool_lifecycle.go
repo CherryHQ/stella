@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"maps"
 	"time"
 )
 
@@ -54,8 +55,6 @@ func cloneArgs(src map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	out := make(map[string]any, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
+	maps.Copy(out, src)
 	return out
 }

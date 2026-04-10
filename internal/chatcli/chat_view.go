@@ -30,10 +30,7 @@ func (m *chatModel) resize() {
 		completionHeight = len(m.completions)
 	}
 
-	vpHeight := m.height - chrome - m.textarea.Height() - completionHeight
-	if vpHeight < 1 {
-		vpHeight = 1
-	}
+	vpHeight := max(m.height-chrome-m.textarea.Height()-completionHeight, 1)
 
 	innerWidth := m.width - padX*2
 
@@ -103,10 +100,7 @@ func (m chatModel) View() string {
 	// Title bar: "Anna" left, "provider/model" right
 	title := titleStyle.Render("Anna")
 	modelInfo := modelInfoStyle.Render(m.provider + "/" + m.model)
-	titleGap := m.width - padX*2 - lipgloss.Width(title) - lipgloss.Width(modelInfo)
-	if titleGap < 0 {
-		titleGap = 0
-	}
+	titleGap := max(m.width-padX*2-lipgloss.Width(title)-lipgloss.Width(modelInfo), 0)
 	header := pad + title + strings.Repeat(" ", titleGap) + modelInfo + pad
 
 	// Input area — two thin separator lines with > prompt
@@ -136,10 +130,7 @@ func (m chatModel) View() string {
 	if m.status != "" {
 		status = statusStyle.Render(m.status)
 	}
-	helpGap := m.width - padX*2 - lipgloss.Width(helpText) - lipgloss.Width(status)
-	if helpGap < 0 {
-		helpGap = 0
-	}
+	helpGap := max(m.width-padX*2-lipgloss.Width(helpText)-lipgloss.Width(status), 0)
 	helpBar := pad + helpText + strings.Repeat(" ", helpGap) + status
 
 	// Viewport with padding

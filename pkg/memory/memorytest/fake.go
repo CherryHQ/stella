@@ -117,10 +117,7 @@ func (f *Fake) Assemble(_ context.Context, session memory.Session, budget, fresh
 	}
 
 	// Always include at least freshTail messages from the end.
-	tailStart := len(msgs) - freshTail
-	if tailStart < 0 {
-		tailStart = 0
-	}
+	tailStart := max(len(msgs)-freshTail, 0)
 
 	// Walk backwards from tailStart to fill budget with older messages.
 	tail := msgs[tailStart:]

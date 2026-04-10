@@ -31,10 +31,7 @@ func (b *Bot) sendModelPage(c tele.Context, models []channel.IndexedModel, page 
 	}
 
 	start := page * modelsPerPage
-	end := start + modelsPerPage
-	if end > len(models) {
-		end = len(models)
-	}
+	end := min(start+modelsPerPage, len(models))
 
 	b.mu.RLock()
 	active, hasActive := b.chatModels[c.Chat().ID]

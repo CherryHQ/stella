@@ -98,8 +98,8 @@ type ReflectPlatform interface {
 }
 
 func parseReflectModelRef(ref string) (provider, model string) {
-	if i := strings.Index(ref, "/"); i >= 0 {
-		return ref[:i], ref[i+1:]
+	if provider, model, ok := strings.Cut(ref, "/"); ok {
+		return provider, model
 	}
 	return "", ref
 }
