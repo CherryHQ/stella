@@ -1,5 +1,7 @@
 package plugintools
 
+import "github.com/vaayne/anna/internal/sandbox/boxshclient"
+
 // BuildContext carries per-session configuration for tool construction.
 type BuildContext struct {
 	WorkDir     string // working directory for tool execution
@@ -7,4 +9,5 @@ type BuildContext struct {
 	AnnaHome    string // anna home directory (e.g. ~/.anna)
 	Workspace   string // agent workspace dir
 	ToolsBinDir string // path to anna tools bin directory (prepended to PATH)
+	Backend     *boxshclient.SharedBackend // boxsh sandbox backend (Linux/macOS only; nil on Windows or when sandbox disabled)
 }

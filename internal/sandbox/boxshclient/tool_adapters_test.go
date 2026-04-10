@@ -605,9 +605,10 @@ func TestBashAdapter_BinDirPrefixing(t *testing.T) {
 	tmpDir := t.TempDir()
 	boxshPath := filepath.Join(tmpDir, "boxsh")
 
-	// Track received commands
+	// Track received commands - store raw JSON lines for verification
 	commandsFile := filepath.Join(tmpDir, "commands.log")
 
+	// Use a simpler approach: log the entire line and verify in Go
 	script := fmt.Sprintf(`#!/bin/bash
 logfile="%s"
 while read -r line; do
@@ -616,8 +617,8 @@ while read -r line; do
 		echo "{\"jsonrpc\":\"2.0\",\"result\":\"pong\",\"id\":$id}"
 	elif [[ "$line" == *'"method":"exec"'* ]]; then
 		id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
-		cmd=$(echo "$line" | sed 's/.*"command":"\([^"]*\)".*/\1/')
-		echo "$cmd" >> "$logfile"
+		# Log the entire line for verification in Go
+		echo "$line" >> "$logfile"
 		echo "{\"jsonrpc\":\"2.0\",\"result\":{\"stdout\":\"ok\",\"stderr\":\"\",\"exit_code\":0},\"id\":$id}"
 	elif [[ "$line" == *'"method":"quit"'* ]]; then
 		exit 0
@@ -665,7 +666,12 @@ done
 		t.Fatalf("failed to read commands log: %v", err)
 	}
 
-	if !strings.Contains(string(logged), "export PATH=") || !strings.Contains(string(logged), binDir) {
-		t.Errorf("expected PATH export with binDir in logged command, got: %s", string(logged))
+	// The JSON should contain the binDir somewhere in the command parameter
+	loggedStr := string(logged)
+	if !strings.Contains(loggedStr, "export PATH=") {
+		t.Errorf("expected PATH export in logged command, got: %s", loggedStr)
+	}
+	if !strings.Contains(loggedStr, binDir) {
+		t.Errorf("expected binDir %q in logged command, got: %s", binDir, loggedStr)
 	}
 }

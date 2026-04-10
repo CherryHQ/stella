@@ -89,11 +89,12 @@ func TestNewGoRunnerRequiresConfig(t *testing.T) {
 
 func TestNewGoRunnerSuccess(t *testing.T) {
 	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
-		API:       "anthropic",
-		Model:     "claude-sonnet-4-20250514",
-		APIKey:    "test-key",
-		CoreTools: testCoreToolsBuilder,
-		Providers: testProviderRegistryBuilder,
+		API:            "anthropic",
+		Model:          "claude-sonnet-4-20250514",
+		APIKey:         "test-key",
+		CoreTools:      testCoreToolsBuilder,
+		Providers:      testProviderRegistryBuilder,
+		DisableSandbox: true,
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -114,13 +115,14 @@ func TestNewGoRunnerPreflightExtractsManagedTools(t *testing.T) {
 	workspace := t.TempDir()
 
 	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:       "anthropic",
-		Model:     "claude-sonnet-4-20250514",
-		APIKey:    "test-key",
-		AnnaHome:  annaHome,
-		Workspace: workspace,
-		CoreTools: testCoreToolsBuilder,
-		Providers: testProviderRegistryBuilder,
+		API:            "anthropic",
+		Model:          "claude-sonnet-4-20250514",
+		APIKey:         "test-key",
+		AnnaHome:       annaHome,
+		Workspace:      workspace,
+		CoreTools:      testCoreToolsBuilder,
+		Providers:      testProviderRegistryBuilder,
+		DisableSandbox: true,
 	})
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
@@ -163,11 +165,12 @@ func (f *goRunnerFakeProvider) StreamSimple(goCtx context.Context, _ ai.Model, _
 func newTestGoRunner(t *testing.T, fp *goRunnerFakeProvider) *GoRunner {
 	t.Helper()
 	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
-		API:       fp.api,
-		Model:     "test-model",
-		APIKey:    "test-key",
-		CoreTools: testCoreToolsBuilder,
-		Providers: testProviderRegistryBuilder,
+		API:            fp.api,
+		Model:          "test-model",
+		APIKey:         "test-key",
+		CoreTools:      testCoreToolsBuilder,
+		Providers:      testProviderRegistryBuilder,
+		DisableSandbox: true,
 	}))
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
@@ -227,11 +230,12 @@ func TestChatStreamError(t *testing.T) {
 
 func TestChatUnknownProvider(t *testing.T) {
 	_, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
-		API:       "nonexistent",
-		Model:     "test-model",
-		APIKey:    "test-key",
-		CoreTools: testCoreToolsBuilder,
-		Providers: testProviderRegistryBuilder,
+		API:            "nonexistent",
+		Model:          "test-model",
+		APIKey:         "test-key",
+		CoreTools:      testCoreToolsBuilder,
+		Providers:      testProviderRegistryBuilder,
+		DisableSandbox: true,
 	}))
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
@@ -338,12 +342,13 @@ func TestChatToolUseLoop(t *testing.T) {
 	}
 
 	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
-		API:       fp.api,
-		Model:     "test-model",
-		APIKey:    "test-key",
-		WorkDir:   dir,
-		CoreTools: testCoreToolsBuilder,
-		Providers: testProviderRegistryBuilder,
+		API:            fp.api,
+		Model:          "test-model",
+		APIKey:         "test-key",
+		WorkDir:        dir,
+		CoreTools:      testCoreToolsBuilder,
+		Providers:      testProviderRegistryBuilder,
+		DisableSandbox: true,
 	}))
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
@@ -367,11 +372,12 @@ func TestChatToolUseLoop(t *testing.T) {
 
 func TestAliveAlwaysTrue(t *testing.T) {
 	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
-		API:       "anthropic",
-		Model:     "test-model",
-		APIKey:    "test-key",
-		CoreTools: testCoreToolsBuilder,
-		Providers: testProviderRegistryBuilder,
+		API:            "anthropic",
+		Model:          "test-model",
+		APIKey:         "test-key",
+		CoreTools:      testCoreToolsBuilder,
+		Providers:      testProviderRegistryBuilder,
+		DisableSandbox: true,
 	}))
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)

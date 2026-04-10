@@ -12,6 +12,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner/builtin"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
+	"github.com/vaayne/anna/internal/sandbox/boxshclient"
 	internalsandbox "github.com/vaayne/anna/internal/sandbox"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
@@ -49,6 +50,7 @@ type GoRunnerConfig struct {
 	CoreTools      CoreToolsBuilder
 	Providers      ProviderRegistryBuilder
 	Sandbox        config.SandboxConfig
+	DisableSandbox bool // for testing: disable boxsh sandbox even on Linux/macOS
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.
@@ -61,6 +63,7 @@ type GoRunner struct {
 	system        string
 	hookSet       *hooks.HookSet
 	toolLifecycle *coreagent.ToolLifecycle
+	backend       *boxshclient.SharedBackend // boxsh sandbox backend (Linux/macOS only)
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -96,12 +99,28 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	}
 
 	model := ai.Model{API: cfg.API, Name: cfg.Model}
-	toolReg, err := buildToolRegistry(cfg)
+
+	// Create and start boxsh backend on Linux/macOS (unless disabled for testing).
+	var backend *boxshclient.SharedBackend
+	if !cfg.DisableSandbox && boxshclient.PlatformSupportsBoxsh() {
+		backend, err = createAndStartBackend(ctx, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("go runner: %w", err)
+		}
+	}
+
+	toolReg, err := buildToolRegistry(cfg, backend)
 	if err != nil {
+		if backend != nil {
+			_ = backend.Close()
+		}
 		return nil, err
 	}
 	if err := preflightSandbox(ctx, cfg); err != nil {
 		_ = toolReg.Close()
+		if backend != nil {
+			_ = backend.Close()
+		}
 		return nil, err
 	}
 	presets := buildAgentPresets(cfg)
@@ -122,6 +141,9 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	streamOptions := ai.StreamOptions{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}
 	runner, err := newAgentRunner(reg, toolReg, model, streamOptions, system, hookSet, cfg.ToolLifecycle)
 	if err != nil {
+		if backend != nil {
+			_ = backend.Close()
+		}
 		return nil, fmt.Errorf("go runner: %w", err)
 	}
 
@@ -134,9 +156,37 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		system:        system,
 		hookSet:       hookSet,
 		toolLifecycle: cfg.ToolLifecycle,
+		backend:       backend,
 		lastActivity:  time.Now(),
 		log:           slog.With("component", "go_runner"),
 	}, nil
+}
+
+// createAndStartBackend creates and starts the boxsh shared backend.
+func createAndStartBackend(ctx context.Context, cfg GoRunnerConfig) (*boxshclient.SharedBackend, error) {
+	annaHome := cfg.AnnaHome
+	if annaHome == "" {
+		annaHome = config.AnnaHome()
+	}
+
+	backendCfg := boxshclient.BackendConfig{
+		AnnaHome:    annaHome,
+		Workspace:   cfg.Workspace,
+		UserDataDir: cfg.UserDataDir,
+		Sandbox:     cfg.Sandbox,
+		WorkDir:     cfg.WorkDir,
+	}
+
+	backend, err := boxshclient.NewSharedBackend(backendCfg)
+	if err != nil {
+		return nil, fmt.Errorf("create boxsh backend: %w", err)
+	}
+
+	if err := backend.Start(ctx, backendCfg); err != nil {
+		return nil, fmt.Errorf("start boxsh backend: %w", err)
+	}
+
+	return backend, nil
 }
 
 func newAgentRunner(reg *providers.Registry, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle) (*coreagent.Runner, error) {
@@ -167,7 +217,7 @@ func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
 }
 
 // buildToolRegistry creates the tool registry with core and extra tools.
-func buildToolRegistry(cfg GoRunnerConfig) (*tools.Registry, error) {
+func buildToolRegistry(cfg GoRunnerConfig, backend *boxshclient.SharedBackend) (*tools.Registry, error) {
 	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
 	annaHome := cfg.AnnaHome
 	if annaHome == "" {
@@ -190,6 +240,7 @@ func buildToolRegistry(cfg GoRunnerConfig) (*tools.Registry, error) {
 		AnnaHome:    cfg.AnnaHome,
 		Workspace:   cfg.Workspace,
 		ToolsBinDir: toolsBinDir,
+		Backend:     backend,
 	}
 	for _, t := range cfg.CoreTools(bc) {
 		toolReg.Register(t)
@@ -288,8 +339,14 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 	return out
 }
 
-// Alive always returns true — the Go runner has no subprocess to die.
-func (r *GoRunner) Alive() bool { return true }
+// Alive reports whether the runner is healthy.
+// On Linux/macOS, it also checks the boxsh backend health.
+func (r *GoRunner) Alive() bool {
+	if r.backend != nil && !r.backend.Alive() {
+		return false
+	}
+	return true
+}
 
 // LastActivity returns the time of the last Chat call.
 func (r *GoRunner) LastActivity() time.Time {
@@ -301,10 +358,24 @@ func (r *GoRunner) LastActivity() time.Time {
 // SystemPrompt returns the runner's base system prompt before per-run overrides.
 func (r *GoRunner) SystemPrompt() string { return r.system }
 
-// Close shuts down any subprocess-backed tools owned by the runner.
+// Close shuts down any subprocess-backed tools and the boxsh backend.
 func (r *GoRunner) Close() error {
+	var errs []error
+
 	if r.tools != nil {
-		_ = r.tools.Close()
+		if err := r.tools.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if r.backend != nil {
+		if err := r.backend.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return errs[0]
 	}
 	return nil
 }
