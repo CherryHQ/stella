@@ -210,6 +210,7 @@ func (testChannelHandler) SwitchModel(provider, model string) error { return nil
 func (testChannelHandler) ListAgents(ctx context.Context, msg pkgchannel.IncomingMessage) ([]pkgchannel.AgentInfo, string, error) {
 	return nil, "", nil
 }
+
 func (testChannelHandler) SwitchAgent(ctx context.Context, msg pkgchannel.IncomingMessage, agentSlug string) error {
 	return nil
 }

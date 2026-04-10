@@ -17,7 +17,7 @@ import (
 // is created if it doesn't exist.
 func OpenDB(dbPath string) (*sql.DB, error) {
 	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("db: create dir: %w", err)
 	}
 

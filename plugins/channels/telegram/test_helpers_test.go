@@ -18,6 +18,7 @@ func (fakeChannelHandler) SwitchModel(string, string) error     { return nil }
 func (fakeChannelHandler) ListAgents(context.Context, pkgchannel.IncomingMessage) ([]pkgchannel.AgentInfo, string, error) {
 	return nil, "", nil
 }
+
 func (fakeChannelHandler) SwitchAgent(context.Context, pkgchannel.IncomingMessage, string) error {
 	return nil
 }

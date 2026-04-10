@@ -29,7 +29,6 @@ type Server struct {
 	mux         *http.ServeMux
 	log         *slog.Logger
 	corsOriginV string // cached CORS origin
-
 }
 
 // New creates an admin server with all API routes mounted.

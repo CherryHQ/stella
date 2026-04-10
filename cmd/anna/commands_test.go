@@ -25,6 +25,7 @@ func (commandTestProvider) API() string { return "anthropic" }
 func (commandTestProvider) Stream(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
 	return nil, errors.New("not implemented")
 }
+
 func (commandTestProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
 	return nil, errors.New("not implemented")
 }
@@ -62,6 +63,7 @@ func (commandTestStore) UpsertChannel(context.Context, config.Channel) error { r
 func (commandTestStore) ListPlugins(context.Context) ([]config.Plugin, error) {
 	return nil, nil
 }
+
 func (commandTestStore) ListPluginsByKind(context.Context, string) ([]config.Plugin, error) {
 	return nil, nil
 }
@@ -91,6 +93,7 @@ func (commandTestMemory) Append(context.Context, memory.Session, ...ai.Message) 
 func (commandTestMemory) Assemble(context.Context, memory.Session, int, int) ([]ai.Message, error) {
 	return nil, nil
 }
+
 func (commandTestMemory) Stats(context.Context, memory.Session) (memory.SessionStats, error) {
 	return memory.SessionStats{}, nil
 }

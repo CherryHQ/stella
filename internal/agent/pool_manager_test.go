@@ -46,6 +46,7 @@ func (m *mockStore) Snapshot(_ context.Context, agentID string) (*config.Snapsho
 
 // Stub out all other Store methods to satisfy the interface.
 func (m *mockStore) ListProviders(_ context.Context) ([]config.Provider, error) { return nil, nil }
+
 func (m *mockStore) GetProvider(_ context.Context, _ string) (config.Provider, error) {
 	return config.Provider{}, nil
 }

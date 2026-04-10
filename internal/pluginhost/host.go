@@ -135,51 +135,61 @@ func (h *Host) AddTool(reg pkgplugins.ToolSpec) {
 	defer h.mu.Unlock()
 	registerUnique(h.toolRegs, reg.Name, reg, "tool")
 }
+
 func (h *Host) AddProvider(reg pkgplugins.ProviderSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.providerRegs, reg.Name, reg, "provider")
 }
+
 func (h *Host) AddChannel(reg pkgplugins.ChannelSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.channelRegs, reg.Name, reg, "channel")
 }
+
 func (h *Host) AddHook(reg pkgplugins.HookSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.hookRegs, reg.Name, reg, "hook")
 }
+
 func (h *Host) AddBeforeRun(reg pkgplugins.BeforeRunSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.beforeRunRegs, promptKey(reg.PluginID, reg.Name), reg, "before run")
 }
+
 func (h *Host) AddBeforeToolCall(reg pkgplugins.BeforeToolCallSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.beforeToolRegs, promptKey(reg.PluginID, reg.Name), reg, "before tool call")
 }
+
 func (h *Host) AddAfterToolResult(reg pkgplugins.AfterToolResultSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.afterToolRegs, promptKey(reg.PluginID, reg.Name), reg, "after tool result")
 }
+
 func (h *Host) AddMemory(reg pkgplugins.MemorySpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.memoryRegs, reg.Name, reg, "memory")
 }
+
 func (h *Host) AddRuntime(reg pkgplugins.RuntimeSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.runtimeRegs, runtimeKey(reg.PluginID, reg.Name), reg, "runtime")
 }
+
 func (h *Host) AddPromptInventory(reg pkgplugins.PromptInventorySpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.promptRegs, promptKey(reg.PluginID, reg.Name), reg, "prompt inventory")
 }
+
 func (h *Host) AddSystemPrompt(reg pkgplugins.SystemPromptSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

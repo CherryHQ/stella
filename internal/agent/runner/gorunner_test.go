@@ -20,6 +20,7 @@ func (s *stubProvider) API() string { return "anthropic" }
 func (s *stubProvider) Stream(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
 	return nil, errors.New("stub")
 }
+
 func (s *stubProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
 	return nil, errors.New("stub")
 }

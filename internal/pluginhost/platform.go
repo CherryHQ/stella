@@ -20,9 +20,11 @@ func (p pluginPlatform) Logger() *slog.Logger { return p.host.Logger(p.pluginID)
 func (p pluginPlatform) ConfigStore() pkgplugins.ConfigStore {
 	return scopedConfigStore{service: p.host.config, pluginID: p.pluginID}
 }
+
 func (p pluginPlatform) StateStore() pkgplugins.StateStore {
 	return scopedStateStore{store: p.host.stateStore, pluginID: p.pluginID}
 }
+
 func (p pluginPlatform) Scheduler() pkgplugins.Scheduler {
 	return scopedScheduler{scheduler: p.host.scheduler, pluginID: p.pluginID}
 }
@@ -32,6 +34,7 @@ func (p pluginPlatform) RuntimeLookup() pkgplugins.RuntimeLookup { return p.host
 func (p pluginPlatform) ChannelPlatform() pkgplugins.ChannelPlatform {
 	return p.host.ChannelRuntime()
 }
+
 func (p pluginPlatform) ReflectPlatform() pkgplugins.ReflectPlatform {
 	return p.host.ReflectRuntime()
 }

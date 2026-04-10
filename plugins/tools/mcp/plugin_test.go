@@ -67,6 +67,7 @@ type testRuntimeLookup struct{ handle testRuntimeHandle }
 func (l testRuntimeLookup) Get(pluginID, runtimeName string) (pkgplugins.RuntimeHandle, bool) {
 	return l.handle, pluginID == PluginID && runtimeName == RuntimeName
 }
+
 func (l testRuntimeLookup) Lookup(pluginID, runtimeName string) (pkgplugins.RuntimeHandle, bool) {
 	return l.Get(pluginID, runtimeName)
 }
@@ -76,6 +77,7 @@ type testRuntimeHandle struct{ runtime runtimeAccessor }
 func (h testRuntimeHandle) Snapshot(context.Context) (pkgplugins.RuntimeStatus, error) {
 	return pkgplugins.RuntimeStatus{}, nil
 }
+
 func (h testRuntimeHandle) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
 	return h.Snapshot(ctx)
 }

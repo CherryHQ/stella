@@ -5,8 +5,7 @@ import (
 	"testing"
 )
 
-type stubHost struct {
-}
+type stubHost struct{}
 
 func (h stubHost) SetInfo(PluginInfo)                     {}
 func (h stubHost) AddAdmin(AdminSpec)                     {}

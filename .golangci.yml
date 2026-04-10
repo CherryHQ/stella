@@ -22,6 +22,8 @@ linters:
 formatters:
   enable:
     - gofmt
+    - gofumpt
+    - goimports
 
 issues:
   exclude-dirs:
