@@ -63,6 +63,9 @@ type setupResult struct {
 	schedulerSvc           *scheduler.Service
 	extraTools             []tools.Tool
 	notifier               *notify.Dispatcher
+	promptToolsBuilder     func(context.Context) ([]pkgplugins.PromptToolInfo, error)
+	promptSectionsBuilder  func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
+	toolLifecycle          *coreagent.ToolLifecycle
 	cliUserID              int64 // resolved CLI user for session creation
 }
 
@@ -239,6 +242,13 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			}, nil
 		},
 	}
+	promptToolsBuilder := func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error) {
+		return phost.PromptTools(ctx, mcpplugin.PluginID)
+	}
+	promptSectionsBuilder := func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
+		return phost.SystemPromptSections(ctx, build)
+	}
+
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithIdleTimeoutPM(idleTimeout),
 		agent.WithCompactionPM(agent.CompactionConfig{
@@ -250,12 +260,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
 		agent.WithCoreToolsBuilder(coreToolsBuilder),
 		agent.WithProviderRegistryBuilder(providerRegistryBuilder),
-		agent.WithPromptToolsBuilder(func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error) {
-			return phost.PromptTools(ctx, mcpplugin.PluginID)
-		}),
-		agent.WithPromptSectionsBuilder(func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
-			return phost.SystemPromptSections(ctx, build)
-		}),
+		agent.WithPromptToolsBuilder(promptToolsBuilder),
+		agent.WithPromptSectionsBuilder(promptSectionsBuilder),
 		agent.WithBeforeRunBuilderPM(func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
 			return phost.BeforeRun(ctx, build)
 		}),
@@ -329,6 +335,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		schedulerSvc:           schedulerSvc,
 		extraTools:             sharedTools,
 		notifier:               dispatcher,
+		promptToolsBuilder:     promptToolsBuilder,
+		promptSectionsBuilder:  promptSectionsBuilder,
+		toolLifecycle:          toolLifecycle,
 		cliUserID:              cliUserID,
 	}, nil
 }
@@ -338,7 +347,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 // Each switch creates a new immutable snapshot so the factory closure captures
 // no shared mutable state — eliminating races between concurrent Chat calls and
 // model switches. Hooks are stored on the Pool independently and are not affected.
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool, coreToolsBuilder runner.CoreToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)) func(string, string) error {
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool, coreToolsBuilder runner.CoreToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle) func(string, string) error {
 	return func(provider, model string) error {
 		// Shallow-copy the base snapshot so we never mutate shared state.
 		snap := *base
@@ -355,7 +364,7 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.Providers = providers
 		}
 
-		factory, err := agent.NewRunnerFactory(&snap, extraTools, coreToolsBuilder, providerRegistryBuilder, nil, nil, nil)
+		factory, err := agent.NewRunnerFactory(&snap, extraTools, coreToolsBuilder, providerRegistryBuilder, promptToolsFn, promptSectionsFn, toolLifecycle)
 		if err != nil {
 			return err
 		}

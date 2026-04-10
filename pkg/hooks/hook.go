@@ -40,9 +40,9 @@ type PreToolCallContext struct {
 
 // PreToolCallResult tells the engine what to do after a PreToolCall hook.
 type PreToolCallResult struct {
-	Arguments map[string]any // non-nil = rewritten args for next hook / execution
-	Block     bool           // true = skip tool execution
-	BlockMessage  string         // synthetic result text when blocked
+	Arguments    map[string]any // non-nil = rewritten args for next hook / execution
+	Block        bool           // true = skip tool execution
+	BlockMessage string         // synthetic result text when blocked
 }
 
 // PreToolCallHook intercepts tool calls before execution.

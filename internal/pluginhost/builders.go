@@ -3,6 +3,7 @@ package pluginhost
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"sort"
 
 	"github.com/vaayne/anna/pkg/hooks"
@@ -137,8 +138,11 @@ func (h *Host) BuildMemory(ctx context.Context, name string, db *sql.DB, annaHom
 	h.mu.RLock()
 	reg, ok := h.memoryRegs[name]
 	h.mu.RUnlock()
-	if !ok || reg.Build == nil {
-		return nil, nil
+	if !ok {
+		return nil, fmt.Errorf("unknown memory plugin: %q", name)
+	}
+	if reg.Build == nil {
+		return nil, fmt.Errorf("memory plugin %q does not provide a builder", name)
 	}
 	return reg.Build(ctx, pkgplugins.MemoryContext{
 		Platform:     h.platform(reg.PluginID),

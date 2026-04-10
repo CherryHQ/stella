@@ -24,9 +24,9 @@ type ToolCallContext struct {
 
 // ToolCallMutation describes how a pre-tool lifecycle hook changes execution.
 type ToolCallMutation struct {
-	Arguments map[string]any
-	Block     bool
-	BlockMessage  string
+	Arguments    map[string]any
+	Block        bool
+	BlockMessage string
 }
 
 // ToolResultContext describes one completed tool call.
