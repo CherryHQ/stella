@@ -31,7 +31,7 @@ if [[ -n "$GOOS" ]]; then
 fi
 
 download() {
-  local name="$1" spec="$2"
+  local name="$1" spec="$2" optional="${3:-false}"
   local dest="$BINARIES_DIR/${name}.gz"
   [[ -f "$dest" ]] && echo "EXISTS $name" && return
 
@@ -40,7 +40,14 @@ download() {
   # when goreleaser runs pre-hooks in parallel for different targets.
   local mise_data; mise_data="$(mktemp -d)"
   echo "DOWNLOAD $name ($spec) ${mise_env}"
-  eval $mise_env MISE_DATA_DIR="$mise_data" MISE_CACHE_DIR="$mise_data/cache" mise install-into "$spec" "$tmp"
+  if ! eval $mise_env MISE_DATA_DIR="$mise_data" MISE_CACHE_DIR="$mise_data/cache" mise install-into "$spec" "$tmp"; then
+    rm -rf "$tmp" "$mise_data"
+    if [[ "$optional" == "true" ]]; then
+      echo "WARN: skipping optional tool $name for ${GOOS:-$(uname -s)}/${GOARCH:-$(uname -m)}"
+      return
+    fi
+    return 1
+  fi
 
   local bin; bin="$(find "$tmp" -name "$name" -o -name "${name}.exe" | head -1)"
   [[ -z "$bin" ]] && { echo "WARN: $name not found"; rm -rf "$tmp" "$mise_data"; return; }
@@ -52,6 +59,6 @@ download() {
 
 download fd  "github:sharkdp/fd@${FD_VERSION}"
 download rg  "github:BurntSushi/ripgrep@${RG_VERSION}"
-download rtk "github:rtk-ai/rtk@${RTK_VERSION}"
+download rtk "github:rtk-ai/rtk@${RTK_VERSION}" true
 
 echo "Done."
