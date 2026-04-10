@@ -128,4 +128,4 @@ anna --open                 # Start admin panel at localhost:8080
 - Keep templ files under 300 lines — split into sub-components if needed
 - `*_templ.go` files are auto-generated — never edit manually, excluded from lint
 - Always use `mise run <task>` to run tasks — never call templ, golangci-lint, etc. directly
-- Run `mise run format` then `mise run lint` before committing
+- Run `mise run format` before committing

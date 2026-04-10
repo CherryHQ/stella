@@ -1,4 +1,4 @@
-name: Lint and Test
+name: Format and Test
 
 on:
   push:
@@ -12,8 +12,8 @@ permissions:
   pull-requests: write
 
 jobs:
-  lint:
-    name: Lint
+  format:
+    name: Format
     runs-on: ubicloud-standard-2
     steps:
       - name: Checkout code
@@ -27,8 +27,8 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run lint
-        run: mise run lint
+      - name: Run format
+        run: mise run format
 
   test:
     name: Test
