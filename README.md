@@ -143,6 +143,27 @@ anna skills remove skill-name
 
 Search, install, and manage skills from the CLI or mid-conversation. Each agent has its own skills directory at `~/.anna/workspaces/{agent-id}/skills/`.
 
+## Security and Sandboxing
+
+On Linux and macOS, Anna uses the `boxsh` sandbox for agent code execution. The `bash`, `read`, `write`, and `edit` tools run through a copy-on-write overlay filesystem that isolates each session:
+
+- Each agent session gets its own ephemeral workspace
+- File modifications don't affect the underlying source workspace
+- Path traversal outside the sandbox is blocked
+- Network access is disabled by default
+
+Per-agent network policy can be configured through the admin panel:
+
+| Mode | Description |
+|------|-------------|
+| `disabled` | No outbound network (default) |
+| `allow_all` | Unrestricted outbound access |
+| `whitelist` | Only specified hosts/CIDRs allowed |
+
+On Linux, the sandbox uses mount namespaces and overlayfs for strong isolation. On macOS, the guarantees are weaker due to platform limitations—sandboxing uses Seatbelt policies and APFS clonefile rather than true mount namespaces. Windows does not use sandboxing; agents run with the same permissions as the Anna process.
+
+See [Architecture](/docs/core/architecture) for detailed platform guarantees and limitations.
+
 ## Quick start
 
 ### Install

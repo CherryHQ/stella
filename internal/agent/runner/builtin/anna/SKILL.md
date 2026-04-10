@@ -30,6 +30,7 @@ Setup: `anna --open` opens a web admin panel to configure everything. All config
 - **Single bot per platform**: One Telegram/QQ/Feishu/WeChat bot serves all agents. Users switch agents via `/agent` command.
 - **Agent routing**: DMs use the user's default agent. Groups use the group's assigned agent. Fallback: first enabled agent.
 - **Session scoping**: Sessions are scoped to (agent, platform, user, chat context) so switching agents gives you a fresh conversation.
+- **Sandboxing**: On Linux and macOS, agents run through a `boxsh` sandbox with copy-on-write filesystem isolation. Each session gets an ephemeral overlay that doesn't modify the source workspace. Network access is disabled by default and can be set to `disabled`, `allow_all`, or `whitelist` per agent. Path traversal outside the workspace is blocked. Windows does not use sandboxing.
 
 ### System prompt layers
 
