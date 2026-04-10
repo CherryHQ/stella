@@ -23,4 +23,4 @@
 - [x] Phase 4.2 Add isolation tests for cross-workspace denial
 - [x] Phase 4.3 Add network policy tests for disabled / allow_all / whitelist
 - [x] Phase 4.4 Document Linux/macOS guarantees and limitations
-- [ ] Phase 4.5 Update README and user-facing docs
+- [x] Phase 4.5 Update README and user-facing docs

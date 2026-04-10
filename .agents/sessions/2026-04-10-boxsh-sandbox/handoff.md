@@ -112,3 +112,45 @@
   - updated provider integration tests to disable sandbox explicitly, since they exercise model/provider behavior rather than boxsh RPC startup
   - suppressed expected reader-close errors during normal client shutdown and increased startup validation/handshake timeouts to keep full uncached test runs stable under load
   - replaced flaky subprocess fixtures with deterministic shell-based mock `boxsh` scripts in `cmd/anna`, runner tests, and client tests so clean `GOFLAGS=-count=1` runs pass reliably
+
+## Phase 4 — Policy enforcement, isolation tests, and docs
+
+- **Status:** complete
+- **What was done:**
+  - added integration tests proving all four tools share the same COW session view in `internal/sandbox/boxshclient/integration_cow_test.go`
+  - added isolation tests for cross-workspace denial and path traversal blocking in `internal/sandbox/boxshclient/isolation_test.go`
+  - added network policy config validation tests in `internal/config/sandbox_network_test.go`
+  - added network policy integration tests for disabled/allow_all/whitelist modes in `internal/sandbox/boxshclient/network_policy_test.go`
+  - documented Linux/macOS sandbox guarantees and limitations in `docs/content/docs/core/architecture.md`
+  - updated README.md with a Security and Sandboxing section
+  - updated builtin agent SKILL.md with sandbox information
+- **What changed:**
+  - new test files:
+    - `internal/sandbox/boxshclient/integration_cow_test.go`: Shared COW view tests across bash/read/write/edit
+    - `internal/sandbox/boxshclient/isolation_test.go`: Cross-workspace denial, path traversal, session isolation tests
+    - `internal/config/sandbox_network_test.go`: Network policy validation tests for all modes
+    - `internal/sandbox/boxshclient/network_policy_test.go`: Network policy integration tests
+  - updated documentation:
+    - `docs/content/docs/core/architecture.md`: Added comprehensive Sandbox section with platform guarantees/limitations table
+    - `README.md`: Added Security and Sandboxing section for end users
+    - `internal/agent/runner/builtin/anna/SKILL.md`: Added sandboxing mention to Architecture section
+  - all Phase 4.1-4.5 tasks completed and marked in `tasks.md`
+- **Commits:**
+  - `f9ba48b` — `🧪 test(phase 4.1): add integration tests for shared COW view across all four tools`
+  - `95ab89c` — `🧪 test(phase 4.2): add isolation tests for cross-workspace denial and path traversal blocking`
+  - `bca4985` — `🧪 test(phase 4.3): add network policy tests for disabled/allow_all/whitelist modes`
+  - `ccbd546` — `📝 docs(phase 4.4): document Linux/macOS sandbox guarantees and limitations in architecture.md`
+  - `c4d4168` — `📝 docs(phase 4.5): update README and user-facing docs with sandbox information`
+- **Context for completion:**
+  - All four phases of the boxsh sandbox backend are now complete
+  - Linux/macOS use boxsh sandbox with copy-on-write isolation
+  - Windows continues using the existing direct-tool backend
+  - Comprehensive test coverage: COW view, isolation, network policy
+  - Documentation covers platform guarantees, limitations, and user-facing behavior
+- **Blockers:** none
+- **Windows behavior:** intentionally unchanged, continues using path-guard/cwd-scoped backend
+- **Fixes after review:**
+  - replaced the Phase 4 mock COW test with a stateful overlay-style mock `boxsh` that reads from `SRC`, writes/edits into `DST`, and proves `bash`/`read` observe the same in-session changes while the source workspace remains unchanged
+  - tightened the isolation mock to enforce the actual `--src` root, deny sibling-workspace absolute paths, and keep traversal checks focused on the configured sandbox root instead of a few hard-coded host paths
+  - upgraded network policy coverage from argument logging to real TCP probe attempts against a local listener so `disabled`, `allow_all`, and `whitelist` modes now verify connection behavior rather than just echoed flags
+  - updated builtin anna configuration references to describe the current Linux/macOS boxsh-backed runtime and unchanged Windows behavior

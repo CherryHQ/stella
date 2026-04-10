@@ -51,10 +51,8 @@ func TestSandboxNetworkConfig_Validate_DisabledMode(t *testing.T) {
 				if tt.errMsg != "" && !containsString(err.Error(), tt.errMsg) {
 					t.Errorf("Validate() error = %v, should contain %q", err, tt.errMsg)
 				}
-			} else {
-				if err != nil {
-					t.Errorf("Validate() unexpected error: %v", err)
-				}
+			} else if err != nil {
+				t.Errorf("Validate() unexpected error: %v", err)
 			}
 		})
 	}
@@ -107,10 +105,8 @@ func TestSandboxNetworkConfig_Validate_AllowAllMode(t *testing.T) {
 				if tt.errMsg != "" && !containsString(err.Error(), tt.errMsg) {
 					t.Errorf("Validate() error = %v, should contain %q", err, tt.errMsg)
 				}
-			} else {
-				if err != nil {
-					t.Errorf("Validate() unexpected error: %v", err)
-				}
+			} else if err != nil {
+				t.Errorf("Validate() unexpected error: %v", err)
 			}
 		})
 	}
@@ -210,10 +206,8 @@ func TestSandboxNetworkConfig_Validate_WhitelistMode(t *testing.T) {
 				if tt.errMsg != "" && !containsString(err.Error(), tt.errMsg) {
 					t.Errorf("Validate() error = %v, should contain %q", err, tt.errMsg)
 				}
-			} else {
-				if err != nil {
-					t.Errorf("Validate() unexpected error: %v", err)
-				}
+			} else if err != nil {
+				t.Errorf("Validate() unexpected error: %v", err)
 			}
 		})
 	}
@@ -257,11 +251,9 @@ func TestSandboxNetworkConfig_Validate_InvalidMode(t *testing.T) {
 				if err != nil {
 					t.Errorf("Validate() with empty mode should default to disabled and be valid, got error: %v", err)
 				}
-			} else {
+			} else if err == nil {
 				// Other invalid modes should produce errors
-				if err == nil {
-					t.Errorf("Validate() expected error for mode %q, got nil", tt.mode)
-				}
+				t.Errorf("Validate() expected error for mode %q, got nil", tt.mode)
 			}
 		})
 	}
@@ -359,10 +351,8 @@ func TestSandboxNetworkConfig_AllowlistEntryValidation(t *testing.T) {
 				if tt.errMsg != "" && !containsString(err.Error(), tt.errMsg) {
 					t.Errorf("Validate() error = %v, should contain %q", err, tt.errMsg)
 				}
-			} else {
-				if err != nil {
-					t.Errorf("Validate() unexpected error for entry %q: %v", tt.entry, err)
-				}
+			} else if err != nil {
+				t.Errorf("Validate() unexpected error for entry %q: %v", tt.entry, err)
 			}
 		})
 	}

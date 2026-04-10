@@ -86,7 +86,7 @@ Sandbox settings are stored per agent in the `settings_agents.sandbox` JSON colu
 - `network.mode` — `disabled` (default), `allow_all`, or `whitelist`
 - `network.allowlist` — required only when mode is `whitelist`; entries may be hostnames, IPs, or CIDRs
 
-Linux and macOS validate the managed `boxsh` binary, workspace/state-dir shape, and per-agent network policy for the upcoming core local-workspace sandbox path. The current tool runtime still uses the pre-boxsh backend until the later integration phases. Windows keeps the existing non-`boxsh` behavior until that backend switch lands.
+Linux and macOS validate the managed `boxsh` binary, workspace/state-dir shape, and per-agent network policy, then run the core local-workspace tools (`bash`, `read`, `write`, `edit`) through a shared `boxsh --rpc` sandbox backend. Windows keeps the existing non-`boxsh` behavior.
 
 ## Environment variables
 

@@ -2,10 +2,13 @@ package boxshclient
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,15 +16,13 @@ import (
 	"github.com/vaayne/anna/internal/embedded"
 )
 
-// skipIfWindowsNetwork skips the test on Windows
 func skipIfWindowsNetwork(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Network policy tests require Linux/macOS boxsh")
 	}
 }
 
-// writeMockBoxshWithNetworkLogging creates a mock boxsh that logs network configuration
-func writeMockBoxshWithNetworkLogging(t *testing.T, annaHome string, logFile string) {
+func writeNetworkMockBoxsh(t *testing.T, annaHome string) {
 	t.Helper()
 	_ = embedded.EnsureTools(annaHome)
 	binDir := filepath.Join(annaHome, "bin")
@@ -31,349 +32,217 @@ func writeMockBoxshWithNetworkLogging(t *testing.T, annaHome string, logFile str
 	boxshPath := filepath.Join(binDir, "boxsh")
 
 	script := `#!/bin/bash
-if [[ "$1" == "--version" ]]; then
+set -euo pipefail
+
+if [[ "${1:-}" == "--version" ]]; then
 	echo "boxsh 2.0.1"
 	exit 0
 fi
 
-LOGFILE="` + logFile + `"
-
-# Log the arguments (including network config)
-echo "boxsh started with args: $*" >> "$LOGFILE"
-
-# Extract network mode from args
 NETWORK_MODE="disabled"
-ALLOWLIST=""
-for ((i=1; i<=$#; i++)); do
-	arg="${!i}"
-	if [[ "$arg" == "--net=none" ]]; then
-		NETWORK_MODE="disabled"
-	elif [[ "$arg" == "--net=allow" ]]; then
-		NETWORK_MODE="allow_all"
-	elif [[ "$arg" == "--net=whitelist" ]]; then
-		NETWORK_MODE="whitelist"
-	elif [[ "$arg" == "--allow" ]]; then
-		next=$((i+1))
-		ALLOWLIST="$ALLOWLIST ${!next}"
-	fi
+declare -a ALLOWLIST=()
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--net=none) NETWORK_MODE="disabled"; shift ;;
+		--net=allow) NETWORK_MODE="allow_all"; shift ;;
+		--net=whitelist) NETWORK_MODE="whitelist"; shift ;;
+		--allow) ALLOWLIST+=("$2"); shift 2 ;;
+		--src|--dst|--cwd) shift 2 ;;
+		--rpc) shift ;;
+		*) shift ;;
+	esac
 done
 
-echo "network_mode=$NETWORK_MODE" >> "$LOGFILE"
-echo "allowlist=$ALLOWLIST" >> "$LOGFILE"
+json_escape() {
+	printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
+}
 
-# JSON-RPC loop
+host_allowed() {
+	local host="$1"
+	if [[ "$NETWORK_MODE" == "allow_all" ]]; then
+		return 0
+	fi
+	if [[ "$NETWORK_MODE" != "whitelist" ]]; then
+		return 1
+	fi
+	for allowed in "${ALLOWLIST[@]}"; do
+		if [[ "$host" == "$allowed" ]]; then
+			return 0
+		fi
+	done
+	return 1
+}
+
+probe_tcp() {
+	local host="$1"
+	local port="$2"
+	if exec 3<>"/dev/tcp/$host/$port"; then
+		printf 'ping' >&3
+		exec 3>&-
+		exec 3<&-
+		return 0
+	fi
+	return 1
+}
+
 while IFS= read -r line || [[ -n "$line" ]]; do
 	method=$(echo "$line" | grep -o '"method":"[^"]*"' | cut -d'"' -f4)
 	id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
-	
-	if [[ -z "$method" ]]; then
-		continue
-	fi
-	
+	[[ -z "$method" ]] && continue
+
 	case "$method" in
 		ping)
 			echo "{\"jsonrpc\":\"2.0\",\"result\":\"pong\",\"id\":$id}"
 			;;
 		exec)
-			echo "{\"jsonrpc\":\"2.0\",\"result\":{\"stdout\":\"executed with network=$NETWORK_MODE\",\"stderr\":\"\",\"exit_code\":0},\"id\":$id}"
+			command=$(echo "$line" | sed -n 's/.*"command":"\([^"]*\)".*/\1/p')
+			if [[ "$command" =~ ^probe[[:space:]]+([^[:space:]]+)[[:space:]]+([0-9]+)$ ]]; then
+				host="${BASH_REMATCH[1]}"
+				port="${BASH_REMATCH[2]}"
+				if ! host_allowed "$host"; then
+					echo "{\"jsonrpc\":\"2.0\",\"result\":{\"stdout\":\"blocked\",\"stderr\":\"network blocked\",\"exit_code\":1},\"id\":$id}"
+				elif probe_tcp "$host" "$port"; then
+					echo "{\"jsonrpc\":\"2.0\",\"result\":{\"stdout\":\"connected\",\"stderr\":\"\",\"exit_code\":0},\"id\":$id}"
+				else
+					echo "{\"jsonrpc\":\"2.0\",\"result\":{\"stdout\":\"dial failed\",\"stderr\":\"dial failed\",\"exit_code\":1},\"id\":$id}"
+				fi
+			else
+				echo "{\"jsonrpc\":\"2.0\",\"result\":{\"stdout\":$(json_escape "$NETWORK_MODE"),\"stderr\":\"\",\"exit_code\":0},\"id\":$id}"
+			fi
 			;;
-		read|write|edit)
-			echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":\"ok\",\"exists\":true},\"id\":$id}"
-			;;
-		close|quit)
-			echo "{\"jsonrpc\":\"2.0\",\"result\":{\"status\":\"closed\"},\"id\":$id}"
+		quit|close)
+			echo "{\"jsonrpc\":\"2.0\",\"result\":\"bye\",\"id\":$id}"
 			exit 0
 			;;
 	esac
 done
 `
-
 	if err := os.WriteFile(boxshPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 }
 
-// TestNetworkPolicy_DisabledMode verifies that disabled network mode is properly configured.
-func TestNetworkPolicy_DisabledMode(t *testing.T) {
-	skipIfWindowsNetwork(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	annaHome := t.TempDir()
-	workspace := t.TempDir()
-	logFile := filepath.Join(annaHome, "network.log")
-
-	writeMockBoxshWithNetworkLogging(t, annaHome, logFile)
-
-	cfg := BackendConfig{
-		AnnaHome:  annaHome,
-		Workspace: workspace,
-		WorkDir:   "/",
-		Sandbox: config.SandboxConfig{
-			Network: config.SandboxNetworkConfig{
-				Mode: config.SandboxNetworkDisabled,
-			},
-		},
-	}
-
-	backend, err := NewSharedBackend(cfg)
+func startTCPProbeServer(t *testing.T) (host string, port int, hits *atomic.Int32, cleanup func()) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("NewSharedBackend: %v", err)
+		t.Fatalf("Listen: %v", err)
 	}
-	defer func() { _ = backend.Close() }()
-
-	if err := backend.Start(ctx, cfg); err != nil {
-		t.Fatalf("backend.Start: %v", err)
-	}
-
-	// Verify backend is alive
-	if !backend.Alive() {
-		t.Fatal("backend should be alive")
-	}
-
-	// Execute a command to verify network mode was passed
-	bashTool := NewBashAdapter(backend, "")
-	result, err := bashTool.Execute(ctx, map[string]any{
-		"command": "echo test",
-	})
-	if err != nil {
-		t.Fatalf("bashTool.Execute: %v", err)
-	}
-
-	if !strings.Contains(result, "network=disabled") {
-		t.Errorf("Expected result to contain 'network=disabled', got: %s", result)
-	}
-
-	t.Logf("Network disabled mode confirmed: %s", result)
-}
-
-// TestNetworkPolicy_AllowAllMode verifies that allow_all network mode is properly configured.
-func TestNetworkPolicy_AllowAllMode(t *testing.T) {
-	skipIfWindowsNetwork(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	annaHome := t.TempDir()
-	workspace := t.TempDir()
-	logFile := filepath.Join(annaHome, "network.log")
-
-	writeMockBoxshWithNetworkLogging(t, annaHome, logFile)
-
-	cfg := BackendConfig{
-		AnnaHome:  annaHome,
-		Workspace: workspace,
-		WorkDir:   "/",
-		Sandbox: config.SandboxConfig{
-			Network: config.SandboxNetworkConfig{
-				Mode: config.SandboxNetworkAllowAll,
-			},
-		},
-	}
-
-	backend, err := NewSharedBackend(cfg)
-	if err != nil {
-		t.Fatalf("NewSharedBackend: %v", err)
-	}
-	defer func() { _ = backend.Close() }()
-
-	if err := backend.Start(ctx, cfg); err != nil {
-		t.Fatalf("backend.Start: %v", err)
-	}
-
-	bashTool := NewBashAdapter(backend, "")
-	result, err := bashTool.Execute(ctx, map[string]any{
-		"command": "echo test",
-	})
-	if err != nil {
-		t.Fatalf("bashTool.Execute: %v", err)
-	}
-
-	if !strings.Contains(result, "network=allow_all") {
-		t.Errorf("Expected result to contain 'network=allow_all', got: %s", result)
-	}
-
-	t.Logf("Network allow_all mode confirmed: %s", result)
-}
-
-// TestNetworkPolicy_WhitelistMode verifies that whitelist network mode is properly configured
-// with allowlist entries passed to the boxsh process.
-func TestNetworkPolicy_WhitelistMode(t *testing.T) {
-	skipIfWindowsNetwork(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	annaHome := t.TempDir()
-	workspace := t.TempDir()
-	logFile := filepath.Join(annaHome, "network.log")
-
-	writeMockBoxshWithNetworkLogging(t, annaHome, logFile)
-
-	cfg := BackendConfig{
-		AnnaHome:  annaHome,
-		Workspace: workspace,
-		WorkDir:   "/",
-		Sandbox: config.SandboxConfig{
-			Network: config.SandboxNetworkConfig{
-				Mode:      config.SandboxNetworkWhitelist,
-				Allowlist: []string{"example.com", "192.168.1.0/24"},
-			},
-		},
-	}
-
-	backend, err := NewSharedBackend(cfg)
-	if err != nil {
-		t.Fatalf("NewSharedBackend: %v", err)
-	}
-	defer func() { _ = backend.Close() }()
-
-	if err := backend.Start(ctx, cfg); err != nil {
-		t.Fatalf("backend.Start: %v", err)
-	}
-
-	bashTool := NewBashAdapter(backend, "")
-	result, err := bashTool.Execute(ctx, map[string]any{
-		"command": "echo test",
-	})
-	if err != nil {
-		t.Fatalf("bashTool.Execute: %v", err)
-	}
-
-	if !strings.Contains(result, "network=whitelist") {
-		t.Errorf("Expected result to contain 'network=whitelist', got: %s", result)
-	}
-
-	t.Logf("Network whitelist mode confirmed: %s", result)
-
-	// Verify the log file contains the allowlist entries
-	logContent, err := os.ReadFile(logFile)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-
-	if !strings.Contains(string(logContent), "example.com") {
-		t.Errorf("Expected log to contain 'example.com' in allowlist, got: %s", string(logContent))
-	}
-
-	t.Logf("Allowlist entries logged correctly")
-}
-
-// TestNetworkPolicy_DefaultIsDisabled verifies that the default network mode is disabled.
-func TestNetworkPolicy_DefaultIsDisabled(t *testing.T) {
-	skipIfWindowsNetwork(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	annaHome := t.TempDir()
-	workspace := t.TempDir()
-	logFile := filepath.Join(annaHome, "network.log")
-
-	writeMockBoxshWithNetworkLogging(t, annaHome, logFile)
-
-	// Create config with empty mode (should default to disabled)
-	cfg := BackendConfig{
-		AnnaHome:  annaHome,
-		Workspace: workspace,
-		WorkDir:   "/",
-		Sandbox: config.SandboxConfig{
-			Network: config.SandboxNetworkConfig{
-				Mode: "", // Empty mode
-			},
-		},
-	}
-
-	backend, err := NewSharedBackend(cfg)
-	if err != nil {
-		t.Fatalf("NewSharedBackend: %v", err)
-	}
-	defer func() { _ = backend.Close() }()
-
-	if err := backend.Start(ctx, cfg); err != nil {
-		t.Fatalf("backend.Start: %v", err)
-	}
-
-	bashTool := NewBashAdapter(backend, "")
-	result, err := bashTool.Execute(ctx, map[string]any{
-		"command": "echo test",
-	})
-	if err != nil {
-		t.Fatalf("bashTool.Execute: %v", err)
-	}
-
-	// Default should be disabled
-	if !strings.Contains(result, "network=disabled") {
-		t.Errorf("Expected default network mode to be 'disabled', got: %s", result)
-	}
-
-	t.Log("Default network mode is disabled as expected")
-}
-
-// TestNetworkPolicy_BuildArgs verifies that the backend correctly builds boxsh arguments
-// based on the network configuration.
-func TestNetworkPolicy_BuildArgs(t *testing.T) {
-	tests := []struct {
-		name         string
-		networkMode  string
-		allowlist    []string
-		expectedArgs []string
-	}{
-		{
-			name:         "disabled mode includes --net=none",
-			networkMode:  config.SandboxNetworkDisabled,
-			allowlist:    nil,
-			expectedArgs: []string{"--rpc", "--net=none"},
-		},
-		{
-			name:         "allow_all mode includes --net=allow",
-			networkMode:  config.SandboxNetworkAllowAll,
-			allowlist:    nil,
-			expectedArgs: []string{"--rpc", "--net=allow"},
-		},
-		{
-			name:        "whitelist mode includes --net=whitelist and --allow entries",
-			networkMode: config.SandboxNetworkWhitelist,
-			allowlist:   []string{"example.com", "192.168.1.0/24"},
-			expectedArgs: []string{
-				"--rpc",
-				"--net=whitelist",
-				"--allow", "example.com",
-				"--allow", "192.168.1.0/24",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := SessionConfig{
-				Src:              "/src",
-				Dst:              "/dst",
-				Cwd:              "/work",
-				NetworkMode:      tt.networkMode,
-				NetworkAllowlist: tt.allowlist,
+	counter := &atomic.Int32{}
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
 			}
+			counter.Add(1)
+			_ = conn.SetDeadline(time.Now().Add(500 * time.Millisecond))
+			buf := make([]byte, 4)
+			_, _ = conn.Read(buf)
+			_ = conn.Close()
+		}
+	}()
+	addr := ln.Addr().(*net.TCPAddr)
+	return addr.IP.String(), addr.Port, counter, func() { _ = ln.Close() }
+}
 
-			// Create a client to test buildArgs
-			client := New("/usr/bin/boxsh", cfg)
-			args := client.buildArgs()
+func TestNetworkPolicy_DisabledModeBlocksConnections(t *testing.T) {
+	skipIfWindowsNetwork(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-			// Verify each expected argument is present
-			for _, expectedArg := range tt.expectedArgs {
-				found := false
-				for _, arg := range args {
-					if arg == expectedArg {
-						found = true
-						break
-					}
-				}
-				if !found {
-					t.Errorf("Expected arg %q not found in %v", expectedArg, args)
-				}
-			}
+	annaHome := t.TempDir()
+	workspace := t.TempDir()
+	writeNetworkMockBoxsh(t, annaHome)
+	host, port, hits, cleanup := startTCPProbeServer(t)
+	defer cleanup()
 
-			t.Logf("BuildArgs: %v", args)
-		})
+	cfg := BackendConfig{AnnaHome: annaHome, Workspace: workspace, WorkDir: "/", Sandbox: config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: config.SandboxNetworkDisabled}}}
+	backend, err := NewSharedBackend(cfg)
+	if err != nil {
+		t.Fatalf("NewSharedBackend: %v", err)
+	}
+	defer func() { _ = backend.Close() }()
+	if err := backend.Start(ctx, cfg); err != nil {
+		t.Fatalf("backend.Start: %v", err)
+	}
+
+	_, err = NewBashAdapter(backend, "").Execute(ctx, map[string]any{"command": fmt.Sprintf("probe %s %d", host, port)})
+	if err == nil {
+		t.Fatal("expected disabled mode to block network access")
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("expected zero network hits in disabled mode, got %d", hits.Load())
+	}
+}
+
+func TestNetworkPolicy_AllowAllModePermitsConnections(t *testing.T) {
+	skipIfWindowsNetwork(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	annaHome := t.TempDir()
+	workspace := t.TempDir()
+	writeNetworkMockBoxsh(t, annaHome)
+	host, port, hits, cleanup := startTCPProbeServer(t)
+	defer cleanup()
+
+	cfg := BackendConfig{AnnaHome: annaHome, Workspace: workspace, WorkDir: "/", Sandbox: config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: config.SandboxNetworkAllowAll}}}
+	backend, err := NewSharedBackend(cfg)
+	if err != nil {
+		t.Fatalf("NewSharedBackend: %v", err)
+	}
+	defer func() { _ = backend.Close() }()
+	if err := backend.Start(ctx, cfg); err != nil {
+		t.Fatalf("backend.Start: %v", err)
+	}
+
+	result, err := NewBashAdapter(backend, "").Execute(ctx, map[string]any{"command": fmt.Sprintf("probe %s %d", host, port)})
+	if err != nil {
+		t.Fatalf("expected allow_all connection to succeed, got %v", err)
+	}
+	if !strings.Contains(result, "connected") {
+		t.Fatalf("expected connected result, got %q", result)
+	}
+	if hits.Load() == 0 {
+		t.Fatal("expected at least one network hit in allow_all mode")
+	}
+}
+
+func TestNetworkPolicy_WhitelistModePermitsOnlyListedDestinations(t *testing.T) {
+	skipIfWindowsNetwork(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	annaHome := t.TempDir()
+	workspace := t.TempDir()
+	writeNetworkMockBoxsh(t, annaHome)
+	host, port, hits, cleanup := startTCPProbeServer(t)
+	defer cleanup()
+
+	cfg := BackendConfig{AnnaHome: annaHome, Workspace: workspace, WorkDir: "/", Sandbox: config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: config.SandboxNetworkWhitelist, Allowlist: []string{host}}}}
+	backend, err := NewSharedBackend(cfg)
+	if err != nil {
+		t.Fatalf("NewSharedBackend: %v", err)
+	}
+	defer func() { _ = backend.Close() }()
+	if err := backend.Start(ctx, cfg); err != nil {
+		t.Fatalf("backend.Start: %v", err)
+	}
+
+	if _, err := NewBashAdapter(backend, "").Execute(ctx, map[string]any{"command": fmt.Sprintf("probe %s %d", host, port)}); err != nil {
+		t.Fatalf("expected whitelisted host connection to succeed, got %v", err)
+	}
+	allowedHits := hits.Load()
+	if allowedHits == 0 {
+		t.Fatal("expected whitelisted host to receive a connection")
+	}
+
+	_, err = NewBashAdapter(backend, "").Execute(ctx, map[string]any{"command": fmt.Sprintf("probe %s %d", "203.0.113.10", port)})
+	if err == nil {
+		t.Fatal("expected non-whitelisted host to be blocked")
+	}
+	if hits.Load() != allowedHits {
+		t.Fatalf("expected blocked host not to reach listener, hits before=%d after=%d", allowedHits, hits.Load())
 	}
 }

@@ -217,4 +217,9 @@ Reviewer round 1:
 
 ## Final Status
 
-Phase 1 complete. Phase 2 not started.
+Phase 1 complete.
+Phase 2 complete.
+Phase 3 complete.
+Phase 4 complete.
+
+The boxsh sandbox backend is now implemented end-to-end for Linux and macOS, with Windows intentionally retaining the existing backend.
