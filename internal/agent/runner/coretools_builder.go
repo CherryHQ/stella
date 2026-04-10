@@ -15,7 +15,10 @@ func CoreToolsBuilderWithBoxsh(delegate CoreToolsBuilder) CoreToolsBuilder {
 	return func(bc plugintools.BuildContext) []tools.Tool {
 		// On Windows or when no backend available, use delegate.
 		if runtime.GOOS == "windows" || bc.Backend == nil {
-			return delegate(bc)
+			if delegate != nil {
+				return delegate(bc)
+			}
+			return nil
 		}
 
 		// On Linux/macOS with backend, use boxsh-backed adapters.
