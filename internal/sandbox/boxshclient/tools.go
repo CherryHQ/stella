@@ -2,7 +2,6 @@ package boxshclient
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 )
 
@@ -81,8 +80,8 @@ type EditParams struct {
 
 // EditResult is the result from the Edit method.
 type EditResult struct {
-	Path        string `json:"path"`
-	Replacements int   `json:"replacements"`
+	Path         string `json:"path"`
+	Replacements int    `json:"replacements"`
 }
 
 // Edit applies a string replacement to a file in the sandbox.
@@ -140,14 +139,4 @@ func (c *Client) Stat(ctx context.Context, params StatParams) (*StatResult, erro
 		return nil, fmt.Errorf("boxshclient stat: %w", err)
 	}
 	return &result, nil
-}
-
-// rawCall performs a raw JSON-RPC call with the given method and parameters.
-// This is used internally and exposed for advanced use cases.
-func (c *Client) rawCall(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	var result json.RawMessage
-	if err := c.call(ctx, method, params, &result); err != nil {
-		return nil, err
-	}
-	return result, nil
 }
