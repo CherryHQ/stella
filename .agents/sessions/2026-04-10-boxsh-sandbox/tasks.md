@@ -19,7 +19,7 @@
 - [x] Phase 3.5 Ensure runner/tool cleanup closes boxsh and removes ephemeral session upperdirs
 - [x] Phase 3.6 Remove redundant Linux/macOS reliance on path-guard wrappers where superseded
 
-- [ ] Phase 4.1 Add integration tests for shared COW view across all four tools
+- [x] Phase 4.1 Add integration tests for shared COW view across all four tools
 - [ ] Phase 4.2 Add isolation tests for cross-workspace denial
 - [ ] Phase 4.3 Add network policy tests for disabled / allow_all / whitelist
 - [ ] Phase 4.4 Document Linux/macOS guarantees and limitations
