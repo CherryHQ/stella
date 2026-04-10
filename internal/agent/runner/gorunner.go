@@ -12,6 +12,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner/builtin"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
+	internalsandbox "github.com/vaayne/anna/internal/sandbox"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -47,6 +48,7 @@ type GoRunnerConfig struct {
 	ToolLifecycle  *coreagent.ToolLifecycle
 	CoreTools      CoreToolsBuilder
 	Providers      ProviderRegistryBuilder
+	Sandbox        config.SandboxConfig
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.
@@ -66,7 +68,7 @@ type GoRunner struct {
 }
 
 // NewGoRunner creates a Go runner with built-in providers.
-func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
+func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	if cfg.API == "" {
 		return nil, fmt.Errorf("go runner: api is required")
 	}
@@ -96,6 +98,10 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	model := ai.Model{API: cfg.API, Name: cfg.Model}
 	toolReg, err := buildToolRegistry(cfg)
 	if err != nil {
+		return nil, err
+	}
+	if err := preflightSandbox(ctx, cfg); err != nil {
+		_ = toolReg.Close()
 		return nil, err
 	}
 	presets := buildAgentPresets(cfg)
@@ -163,10 +169,14 @@ func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
 // buildToolRegistry creates the tool registry with core and extra tools.
 func buildToolRegistry(cfg GoRunnerConfig) (*tools.Registry, error) {
 	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
-	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
+	annaHome := cfg.AnnaHome
+	if annaHome == "" {
+		annaHome = config.AnnaHome()
+	}
+	if err := embedded.EnsureTools(annaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
-	toolsBinDir := embedded.BinDir(config.AnnaHome())
+	toolsBinDir := embedded.BinDir(annaHome)
 
 	toolReg := tools.NewRegistry()
 
@@ -195,7 +205,11 @@ func buildToolRegistry(cfg GoRunnerConfig) (*tools.Registry, error) {
 
 // buildAgentPresets extracts builtin skills and loads agent presets from filesystem.
 func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
-	builtinSkillsDir := filepath.Join(config.AnnaHome(), "cache", "builtin-skills")
+	annaHome := cfg.AnnaHome
+	if annaHome == "" {
+		annaHome = config.AnnaHome()
+	}
+	builtinSkillsDir := filepath.Join(annaHome, "cache", "builtin-skills")
 	if err := builtin.Extract(builtinSkillsDir); err != nil {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
@@ -204,6 +218,18 @@ func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 		Cwd:              cfg.WorkDir,
 		BuiltinSkillsDir: builtinSkillsDir,
 	}))
+}
+
+func preflightSandbox(ctx context.Context, cfg GoRunnerConfig) error {
+	if err := internalsandbox.Preflight(ctx, internalsandbox.PreflightConfig{
+		AnnaHome:    cfg.AnnaHome,
+		Workspace:   cfg.Workspace,
+		UserDataDir: cfg.UserDataDir,
+		Sandbox:     cfg.Sandbox,
+	}); err != nil {
+		return fmt.Errorf("go runner: %w", err)
+	}
+	return nil
 }
 
 // buildHookSet creates the hook set from configured hook plugins.

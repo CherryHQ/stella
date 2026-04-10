@@ -110,6 +110,7 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsB
 				ExtraTools:     extraTools,
 				WorkDir:        workDir,
 				UserDataDir:    userDataDir,
+				Sandbox:        snap.Sandbox,
 				HookPlugins:    hookPlugins,
 				ToolLifecycle:  toolLifecycle,
 				CoreTools:      coreToolsBuilder,

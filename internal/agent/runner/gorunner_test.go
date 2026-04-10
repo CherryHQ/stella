@@ -3,10 +3,14 @@ package runner
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
@@ -38,6 +42,31 @@ func testCoreToolsBuilder(bc plugintools.BuildContext) []tools.Tool {
 	return []tools.Tool{bashtool.NewBashTool(bc.WorkDir, bc.ToolsBinDir)}
 }
 
+func testRunnerPaths(t *testing.T) (annaHome, workspace string) {
+	t.Helper()
+	annaHome = t.TempDir()
+	workspace = t.TempDir()
+	binDir := filepath.Join(annaHome, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	_ = embedded.EnsureTools(annaHome)
+	boxshPath := filepath.Join(binDir, "boxsh")
+	_ = os.Remove(boxshPath)
+	if err := os.WriteFile(boxshPath, []byte("#!/bin/sh\necho boxsh 2.0.1\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	return annaHome, workspace
+}
+
+func withTestRunnerPaths(t *testing.T, cfg GoRunnerConfig) GoRunnerConfig {
+	t.Helper()
+	annaHome, workspace := testRunnerPaths(t)
+	cfg.AnnaHome = annaHome
+	cfg.Workspace = workspace
+	return cfg
+}
+
 func TestNewGoRunnerRequiresConfig(t *testing.T) {
 	tests := []struct {
 		name string
@@ -59,13 +88,13 @@ func TestNewGoRunnerRequiresConfig(t *testing.T) {
 }
 
 func TestNewGoRunnerSuccess(t *testing.T) {
-	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
 		API:       "anthropic",
 		Model:     "claude-sonnet-4-20250514",
 		APIKey:    "test-key",
 		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
-	})
+	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -74,6 +103,32 @@ func TestNewGoRunnerSuccess(t *testing.T) {
 	}
 	if err := r.Close(); err != nil {
 		t.Errorf("Close: %v", err)
+	}
+}
+
+func TestNewGoRunnerPreflightExtractsManagedTools(t *testing.T) {
+	if !slices.Contains(embedded.ToolNames(), "boxsh") {
+		t.Skip("embedded boxsh binary not present; run mise run tools:download first")
+	}
+	annaHome := t.TempDir()
+	workspace := t.TempDir()
+
+	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		AnnaHome:  annaHome,
+		Workspace: workspace,
+		CoreTools: testCoreToolsBuilder,
+		Providers: testProviderRegistryBuilder,
+	})
+	if err != nil {
+		t.Fatalf("NewGoRunner: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	if _, err := os.Stat(filepath.Join(annaHome, "bin", "boxsh")); err != nil {
+		t.Fatalf("stat extracted boxsh: %v", err)
 	}
 }
 
@@ -107,13 +162,13 @@ func (f *goRunnerFakeProvider) StreamSimple(goCtx context.Context, _ ai.Model, _
 // newTestGoRunner creates a GoRunner wired to a fake provider.
 func newTestGoRunner(t *testing.T, fp *goRunnerFakeProvider) *GoRunner {
 	t.Helper()
-	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
 		API:       fp.api,
 		Model:     "test-model",
 		APIKey:    "test-key",
 		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
-	})
+	}))
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
 	}
@@ -171,13 +226,13 @@ func TestChatStreamError(t *testing.T) {
 }
 
 func TestChatUnknownProvider(t *testing.T) {
-	_, err := NewGoRunner(context.Background(), GoRunnerConfig{
+	_, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
 		API:       "nonexistent",
 		Model:     "test-model",
 		APIKey:    "test-key",
 		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
-	})
+	}))
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
 	}
@@ -282,14 +337,14 @@ func TestChatToolUseLoop(t *testing.T) {
 		},
 	}
 
-	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
 		API:       fp.api,
 		Model:     "test-model",
 		APIKey:    "test-key",
 		WorkDir:   dir,
 		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
-	})
+	}))
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
 	}
@@ -311,13 +366,13 @@ func TestChatToolUseLoop(t *testing.T) {
 }
 
 func TestAliveAlwaysTrue(t *testing.T) {
-	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
 		API:       "anthropic",
 		Model:     "test-model",
 		APIKey:    "test-key",
 		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
-	})
+	}))
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
 	}

@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/embedded"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/memory"
@@ -99,7 +102,27 @@ func (commandTestMemory) Stats(context.Context, memory.Session) (memory.SessionS
 }
 func (commandTestMemory) Close() error { return nil }
 
+func setupCommandTestAnnaHome(t *testing.T) string {
+	t.Helper()
+	annaHome := t.TempDir()
+	binDir := filepath.Join(annaHome, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	_ = embedded.EnsureTools(annaHome)
+	boxshPath := filepath.Join(binDir, "boxsh")
+	_ = os.Remove(boxshPath)
+	if err := os.WriteFile(boxshPath, []byte("#!/bin/sh\necho boxsh 2.0.1\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	t.Setenv("ANNA_HOME", annaHome)
+	config.ResetAnnaHome()
+	t.Cleanup(config.ResetAnnaHome)
+	return annaHome
+}
+
 func TestNewRunnerFactoryGo(t *testing.T) {
+	setupCommandTestAnnaHome(t)
 	snap := &config.Snapshot{
 		Provider: "anthropic",
 		Model:    "test-model",
@@ -168,9 +191,7 @@ func TestRunGatewayNoServices(t *testing.T) {
 }
 
 func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
-	t.Setenv("ANNA_HOME", t.TempDir())
-	config.ResetAnnaHome()
-	t.Cleanup(config.ResetAnnaHome)
+	setupCommandTestAnnaHome(t)
 
 	snap := &config.Snapshot{
 		Provider: "anthropic",

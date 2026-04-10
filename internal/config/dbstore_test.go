@@ -394,7 +394,10 @@ func TestSnapshot(t *testing.T) {
 		ModelStrong:  "anthropic/claude-opus-4-6",
 		SystemPrompt: "You are Anna.",
 		Workspace:    "/tmp/anna",
-		Enabled:      true,
+		Sandbox: SandboxConfig{
+			Network: SandboxNetworkConfig{Mode: SandboxNetworkWhitelist, Allowlist: []string{"example.com"}},
+		},
+		Enabled: true,
 	})
 
 	_ = store.SetSetting(ctx, "runner", `{"type":"go","idle_timeout":30}`)
@@ -434,6 +437,12 @@ func TestSnapshot(t *testing.T) {
 	}
 	if snap.Runner.IdleTimeout != 30 {
 		t.Errorf("Runner.IdleTimeout = %d", snap.Runner.IdleTimeout)
+	}
+	if snap.Sandbox.NetworkMode() != SandboxNetworkWhitelist {
+		t.Errorf("Sandbox.NetworkMode() = %q", snap.Sandbox.NetworkMode())
+	}
+	if len(snap.Sandbox.Network.Allowlist) != 1 || snap.Sandbox.Network.Allowlist[0] != "example.com" {
+		t.Errorf("Sandbox.Network.Allowlist = %#v", snap.Sandbox.Network.Allowlist)
 	}
 	// built-in + 1 custom plugin.
 	if len(snap.Plugins) != len(BuiltinPluginIDs())+1 {
@@ -478,6 +487,22 @@ func TestSnapshotNotFound(t *testing.T) {
 	_, err := store.Snapshot(ctx, "nonexistent")
 	if err == nil {
 		t.Error("expected error for nonexistent agent")
+	}
+}
+
+func TestCreateAgentRejectsInvalidSandbox(t *testing.T) {
+	store := setupDBStore(t)
+	ctx := context.Background()
+
+	err := store.CreateAgent(ctx, Agent{
+		ID:      "bad-sandbox",
+		Name:    "Bad Sandbox",
+		Model:   "anthropic/m",
+		Enabled: true,
+		Sandbox: SandboxConfig{Network: SandboxNetworkConfig{Mode: "bogus"}},
+	})
+	if err == nil {
+		t.Fatal("expected invalid sandbox config error")
 	}
 }
 

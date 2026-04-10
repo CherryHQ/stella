@@ -41,16 +41,17 @@ const (
 // Agent represents an agent definition.
 // Model fields use {provider}/{model} format (e.g. "anthropic/claude-sonnet-4-6").
 type Agent struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Model        string `json:"model"`
-	ModelStrong  string `json:"model_strong"`
-	ModelFast    string `json:"model_fast"`
-	SystemPrompt string `json:"system_prompt"`
-	Workspace    string `json:"workspace"`
-	Scope        string `json:"scope"`
-	CreatorID    int64  `json:"creator_id"`
-	Enabled      bool   `json:"enabled"`
+	ID           string        `json:"id"`
+	Name         string        `json:"name"`
+	Model        string        `json:"model"`
+	ModelStrong  string        `json:"model_strong"`
+	ModelFast    string        `json:"model_fast"`
+	SystemPrompt string        `json:"system_prompt"`
+	Workspace    string        `json:"workspace"`
+	Sandbox      SandboxConfig `json:"sandbox"`
+	Scope        string        `json:"scope"`
+	CreatorID    int64         `json:"creator_id"`
+	Enabled      bool          `json:"enabled"`
 }
 
 // Channel represents a platform channel configuration.

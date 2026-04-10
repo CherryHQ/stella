@@ -132,6 +132,8 @@ type Tool interface {
 | `mcp` | Proxy configured MCP servers through one generic Anna MCP tool |
 | `webfetch` | Fetch web page contents |
 
+On Linux and macOS, the core local-workspace tool path is moving to a managed `boxsh` sandbox backend. In this phase, Anna resolves `boxsh` from its managed embedded tools directory and fails closed during runner startup if the required binary, workspace/state-dir shape, or per-agent sandbox config is invalid. The core tools still run on the current backend until the later boxsh runtime integration phase. Windows retains the current direct-tool backend until that switch lands.
+
 Plugin tools live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/features/plugin-system) for the full plugin architecture.
 
 ### Agent Tool

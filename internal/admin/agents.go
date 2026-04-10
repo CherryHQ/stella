@@ -46,6 +46,10 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	if err := a.Sandbox.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// Auto-generate ID from name.
 	a.ID = slugify(a.Name)
@@ -144,6 +148,10 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	a.ID = id
 	if a.Name == "" {
 		a.Name = id
+	}
+	if err := a.Sandbox.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	// Non-admin: keep scope as-is, don't allow changing it.

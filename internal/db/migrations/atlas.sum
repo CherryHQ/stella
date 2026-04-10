@@ -1,4 +1,4 @@
-h1:JRCuo9I5pqYdbiOxU7mBcMAj9L3BkLSnKPDlSsNvK7s=
+h1:FN8OvaWkBUwYM5JmErTkGOxS22hfS1ENFX6xUnu8dcQ=
 20260317041843_rename_tables_with_prefixes.sql h1:Nfk81sAWddxDQvpo8pBhXJ5Sec5JcCF6tchqgt+777M=
 20260317065837_drop_agent_provider_id.sql h1:gb4CoI8GlT4P3QbksGw07M8SruOcR9pQI0Sj7/Q2rao=
 20260320104110_add-auth-tables.sql h1:6TjzFFeMMTJzy3/mGN4nrm4+SoYGhanOQY24nUbL3H4=
@@ -16,4 +16,5 @@ h1:JRCuo9I5pqYdbiOxU7mBcMAj9L3BkLSnKPDlSsNvK7s=
 20260406094126_reflect-watermarks.sql h1:uyYhZK7kaF9sNReos1RODrlOl6V/pByFjx8uf3fIZr0=
 20260408093000_plugin-state-entries.sql h1:ElCxv79Vj3/OO317MSsTsRkkUB28zeC82ebTS7hkHe4=
 20260409092833_sched_jobs_plugin_ownership.sql h1:mgqXvUkWg7dRDY7M5p+q1k1KgskuVEPG4aydXQbLj30=
-20260410164201_provider_instances.sql h1:mvPJUfYSDIhBXPq/0Slm6blnLOkcNKsg8C4hB+6z65g=
+20260410085006_add_agent_sandbox.sql h1:uYkIuhtQbpfnQ3gkqUWVBd1Nm+vZ0ffxgW5uj+utvTo=
+20260410164201_provider_instances.sql h1:yHwFvp8aAMp/UZ06OhcUnYMZ0EV5hlr/QpO7DDSbfrM=

@@ -3,11 +3,13 @@ package agent
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 	anthropicprovider "github.com/vaayne/anna/plugins/providers/anthropic"
@@ -29,12 +31,27 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 		model = "claude-sonnet-4-20250514"
 	}
 
+	annaHome := t.TempDir()
+	workspace := t.TempDir()
+	binDir := filepath.Join(annaHome, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	_ = embedded.EnsureTools(annaHome)
+	boxshPath := filepath.Join(binDir, "boxsh")
+	_ = os.Remove(boxshPath)
+	if err := os.WriteFile(boxshPath, []byte("#!/bin/sh\necho boxsh 2.0.1\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
 	factory := func(ctx context.Context, _ runner.RunnerParams) (runner.Runner, error) {
 		return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
 			API:       "anthropic",
 			Model:     model,
 			APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
 			BaseURL:   os.Getenv("ANTHROPIC_BASE_URL"),
+			AnnaHome:  annaHome,
+			Workspace: workspace,
 			CoreTools: integrationCoreToolsBuilder,
 			Providers: integrationProviderRegistryBuilder,
 		})
