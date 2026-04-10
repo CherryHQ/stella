@@ -5,13 +5,11 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
-	"sync"
 
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/pluginhost"
-	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
 )
@@ -32,12 +30,6 @@ type Server struct {
 	log         *slog.Logger
 	corsOriginV string // cached CORS origin
 
-	channelMu       sync.RWMutex
-	channelStop     map[string]func()                             // platform → stop function for running channel
-	channelBuilder  func(name string) (pkgchannel.Channel, error) // builds a channel by platform name
-	channelNotify   func(name string, ch pkgchannel.Channel)      // registers channel for notifications
-	channelUnnotify func(name string)                             // unregisters channel from notifications
-	channelCtx      context.Context                               // parent context for started channels
 }
 
 // New creates an admin server with all API routes mounted.
@@ -68,7 +60,6 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 		mux:         http.NewServeMux(),
 		log:         slog.With("component", "admin"),
 		corsOriginV: corsOrigin,
-		channelStop: make(map[string]func()),
 	}
 
 	s.registerRoutes()
