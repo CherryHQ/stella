@@ -79,38 +79,24 @@ func newProviderHost(store config.Store) (*pluginhost.Host, error) {
 // collectModelsFromStore builds the list of available provider/model pairs
 // using the Store and models cache.
 func collectModelsFromStore(ctx context.Context, store config.Store, snap *config.Snapshot) []pkgchannel.ModelOption {
-	seen := make(map[string]bool)
-	var models []pkgchannel.ModelOption
+	collector := newModelOptionCollector()
+	collector.Add(snap.Provider, snap.Model)
 
-	add := func(provider, model string) {
-		key := provider + "/" + model
-		if seen[key] {
-			return
-		}
-		seen[key] = true
-		models = append(models, pkgchannel.ModelOption{Provider: provider, Model: model})
-	}
-
-	// Current model first.
-	add(snap.Provider, snap.Model)
-
-	// Load from cache.
 	if cache, err := config.LoadModelsCache(); err == nil {
-		for _, m := range cache.Models {
-			add(m.Provider, m.Model)
+		for _, model := range cache.Models {
+			collector.Add(model.Provider, model.Model)
 		}
-		return models
+		return collector.Models()
 	}
 
-	// Fallback: list from provider API via store.
 	providers, err := store.ListProviders(ctx)
 	if err == nil {
-		for _, prov := range providers {
-			add(prov.ID, snap.Model)
+		for _, provider := range providers {
+			collector.Add(provider.ID, snap.Model)
 		}
 	}
 
-	return models
+	return collector.Models()
 }
 
 // openStore is a helper that opens the DB and returns a Store.
@@ -133,6 +119,18 @@ func defaultSnapshot(ctx context.Context, store config.Store) (*config.Snapshot,
 		return nil, fmt.Errorf("no enabled agents found")
 	}
 	return store.Snapshot(ctx, agents[0].ID)
+}
+
+func openStoreAndDefaultSnapshot(ctx context.Context) (config.Store, *config.Snapshot, error) {
+	store, err := openStore()
+	if err != nil {
+		return nil, nil, err
+	}
+	snap, err := defaultSnapshot(ctx, store)
+	if err != nil {
+		return nil, nil, err
+	}
+	return store, snap, nil
 }
 
 func modelsCommand() *ucli.Command {
@@ -159,11 +157,7 @@ func modelsListCommand() *ucli.Command {
 }
 
 func modelsListAction(c *ucli.Context) error {
-	store, err := openStore()
-	if err != nil {
-		return err
-	}
-	snap, err := defaultSnapshot(c.Context, store)
+	store, snap, err := openStoreAndDefaultSnapshot(c.Context)
 	if err != nil {
 		return err
 	}
@@ -214,11 +208,7 @@ func modelsCurrentCommand() *ucli.Command {
 		Name:  "current",
 		Usage: "Show the active provider and model",
 		Action: func(c *ucli.Context) error {
-			store, err := openStore()
-			if err != nil {
-				return err
-			}
-			snap, err := defaultSnapshot(c.Context, store)
+			_, snap, err := openStoreAndDefaultSnapshot(c.Context)
 			if err != nil {
 				return err
 			}
@@ -235,29 +225,17 @@ func modelsSetCommand() *ucli.Command {
 		ArgsUsage: "<provider/model>",
 		Action: func(c *ucli.Context) error {
 			arg := c.Args().First()
-			if arg == "" {
-				return fmt.Errorf("usage: anna models set <provider/model>")
-			}
-
-			provider, model, ok := strings.Cut(arg, "/")
-			if !ok || provider == "" || model == "" {
-				return fmt.Errorf("invalid format %q, expected provider/model", arg)
+			provider, model, err := parseProviderModelArg(arg)
+			if err != nil {
+				return err
 			}
 
 			store, err := openStore()
 			if err != nil {
 				return err
 			}
-
-			// Update the default agent's model in the DB.
-			agents, err := store.ListEnabledAgents(c.Context)
-			if err != nil || len(agents) == 0 {
-				return fmt.Errorf("no enabled agents found")
-			}
-			agent := agents[0]
-			agent.Model = arg // store as provider/model
-			if err := store.UpdateAgent(c.Context, agent); err != nil {
-				return fmt.Errorf("update agent: %w", err)
+			if err := updateDefaultAgentModel(c.Context, store, arg); err != nil {
+				return err
 			}
 
 			fmt.Printf("Switched to %s/%s\n", provider, model)
@@ -272,29 +250,17 @@ func modelsSearchCommand() *ucli.Command {
 		Usage:     "Search models by name (e.g. anna models search gpt)",
 		ArgsUsage: "<query>",
 		Action: func(c *ucli.Context) error {
-			query := strings.ToLower(c.Args().First())
+			query := strings.TrimSpace(c.Args().First())
 			if query == "" {
 				return fmt.Errorf("usage: anna models search <query>")
 			}
 
-			store, err := openStore()
-			if err != nil {
-				return err
-			}
-			snap, err := defaultSnapshot(c.Context, store)
+			store, snap, err := openStoreAndDefaultSnapshot(c.Context)
 			if err != nil {
 				return err
 			}
 
-			models := collectModelsFromStore(c.Context, store, snap)
-			var matched []pkgchannel.ModelOption
-			for _, m := range models {
-				label := strings.ToLower(m.Provider + "/" + m.Model)
-				if strings.Contains(label, query) {
-					matched = append(matched, m)
-				}
-			}
-
+			matched := searchModels(collectModelsFromStore(c.Context, store, snap), query)
 			if len(matched) == 0 {
 				fmt.Fprintf(os.Stderr, "No models matching %q\n", query)
 				return nil
@@ -304,6 +270,64 @@ func modelsSearchCommand() *ucli.Command {
 			return nil
 		},
 	}
+}
+
+func parseProviderModelArg(arg string) (string, string, error) {
+	if arg == "" {
+		return "", "", fmt.Errorf("usage: anna models set <provider/model>")
+	}
+	provider, model, ok := strings.Cut(arg, "/")
+	if !ok || provider == "" || model == "" {
+		return "", "", fmt.Errorf("invalid format %q, expected provider/model", arg)
+	}
+	return provider, model, nil
+}
+
+func updateDefaultAgentModel(ctx context.Context, store config.Store, model string) error {
+	agents, err := store.ListEnabledAgents(ctx)
+	if err != nil || len(agents) == 0 {
+		return fmt.Errorf("no enabled agents found")
+	}
+	agent := agents[0]
+	agent.Model = model
+	if err := store.UpdateAgent(ctx, agent); err != nil {
+		return fmt.Errorf("update agent: %w", err)
+	}
+	return nil
+}
+
+func searchModels(models []pkgchannel.ModelOption, query string) []pkgchannel.ModelOption {
+	query = strings.ToLower(query)
+	var matched []pkgchannel.ModelOption
+	for _, model := range models {
+		label := strings.ToLower(model.Provider + "/" + model.Model)
+		if strings.Contains(label, query) {
+			matched = append(matched, model)
+		}
+	}
+	return matched
+}
+
+type modelOptionCollector struct {
+	seen   map[string]bool
+	models []pkgchannel.ModelOption
+}
+
+func newModelOptionCollector() *modelOptionCollector {
+	return &modelOptionCollector{seen: make(map[string]bool)}
+}
+
+func (c *modelOptionCollector) Add(provider, model string) {
+	key := provider + "/" + model
+	if c.seen[key] {
+		return
+	}
+	c.seen[key] = true
+	c.models = append(c.models, pkgchannel.ModelOption{Provider: provider, Model: model})
+}
+
+func (c *modelOptionCollector) Models() []pkgchannel.ModelOption {
+	return c.models
 }
 
 // printModelsGrouped prints models grouped by provider, marking the active one.

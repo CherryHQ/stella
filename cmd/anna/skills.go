@@ -26,8 +26,7 @@ func skillsCommand() *ucli.Command {
 			skillsRemoveCommand(),
 		},
 		Action: func(c *ucli.Context) error {
-			// Default: list
-			return skillsListAction()
+			return skillsListAction(c.Context)
 		},
 	}
 }
@@ -122,24 +121,18 @@ func skillsListCommand() *ucli.Command {
 		},
 		Action: func(c *ucli.Context) error {
 			if c.Bool("json") {
-				return skillsListJSON()
+				return skillsListJSON(c.Context)
 			}
-			return skillsListAction()
+			return skillsListAction(c.Context)
 		},
 	}
 }
 
-func skillsListAction() error {
-	store, err := openStore()
+func skillsListAction(ctx context.Context) error {
+	loaded, err := loadInstalledSkills(ctx)
 	if err != nil {
 		return err
 	}
-	snap, err := defaultSnapshot(context.Background(), store)
-	if err != nil {
-		return err
-	}
-	cwd, _ := os.Getwd()
-	loaded := skillstool.LoadSkills(config.AnnaHome(), snap.Workspace, cwd)
 	if len(loaded) == 0 {
 		fmt.Println("No skills installed.")
 		return nil
@@ -172,17 +165,11 @@ func skillsListAction() error {
 	return nil
 }
 
-func skillsListJSON() error {
-	store, err := openStore()
+func skillsListJSON(ctx context.Context) error {
+	loaded, err := loadInstalledSkills(ctx)
 	if err != nil {
 		return err
 	}
-	snap, err := defaultSnapshot(context.Background(), store)
-	if err != nil {
-		return err
-	}
-	cwd, _ := os.Getwd()
-	loaded := skillstool.LoadSkills(config.AnnaHome(), snap.Workspace, cwd)
 
 	type entry struct {
 		Name        string `json:"name"`
@@ -204,6 +191,19 @@ func skillsListJSON() error {
 	out, _ := json.MarshalIndent(entries, "", "  ")
 	fmt.Println(string(out))
 	return nil
+}
+
+func loadInstalledSkills(ctx context.Context) ([]skillstool.Skill, error) {
+	store, err := openStore()
+	if err != nil {
+		return nil, err
+	}
+	snap, err := defaultSnapshot(ctx, store)
+	if err != nil {
+		return nil, err
+	}
+	cwd, _ := os.Getwd()
+	return skillstool.LoadSkills(config.AnnaHome(), snap.Workspace, cwd), nil
 }
 
 func skillsRemoveCommand() *ucli.Command {

@@ -22,10 +22,7 @@ import (
 	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/scheduler"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/tools"
 	reflectplugin "github.com/vaayne/anna/plugins/reflect"
-	plugintools "github.com/vaayne/anna/plugins/tools"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -55,28 +52,7 @@ func serverAction(c *ucli.Context) error {
 		return err
 	}
 	defer func() { _ = s.poolManager.Close() }()
-	listFn := func() []pkgchannel.ModelOption {
-		return collectModelsFromStore(ctx, s.store, s.snap)
-	}
-	switchFn := modelSwitcher(
-		s.snap,
-		s.store,
-		s.pool,
-		s.extraTools,
-		func(bc plugintools.BuildContext) []tools.Tool {
-			return s.pluginHost.BuildCoreTools(bc)
-		},
-		func(api, apiKey, baseURL string) (*providers.Registry, error) {
-			return s.pluginHost.BuildProviderRegistry(api, map[string]any{
-				"api_key":  apiKey,
-				"base_url": baseURL,
-			})
-		},
-		s.promptToolsBuilder,
-		s.promptSectionsBuilder,
-		s.toolLifecycle,
-	)
-	return runServer(s.ctx, s, listFn, switchFn, c.Int("admin-port"), c.Bool("open"))
+	return runServer(s.ctx, s, s.modelListFunc(s.snap), s.modelSwitchFunc(s.snap, s.pool), c.Int("admin-port"), c.Bool("open"))
 }
 
 func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminPort int, openBrowser bool) error {
