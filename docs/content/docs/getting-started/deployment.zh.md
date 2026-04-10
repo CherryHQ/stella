@@ -46,7 +46,8 @@ anna
 要在网关运行时同时提供管理面板服务（用于运行时配置更改）：
 
 ```bash
-anna --admin-port 8080
+anna --port 8080
+anna --host 0.0.0.0 --port 8080
 ```
 
 或使用交互式 CLI：
@@ -163,7 +164,7 @@ services:
 docker compose up -d
 ```
 
-要运行初始设置，使用 `docker compose exec anna anna --open` 或使用 `--admin-port 8080` 启动网关并通过 Web UI 进行配置。
+要运行初始设置，使用 `docker compose exec anna anna --open` 或使用 `--port 8080` 启动网关并通过 Web UI 进行配置。
 
 ### 本地构建
 
@@ -190,7 +191,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t anna .
 
 ## 环境变量
 
-配置通过管理面板管理（通过 `anna --open` 或 `--admin-port`）。仅支持少量环境变量：
+配置通过管理面板管理（通过 `anna --open` 或 `--port`）。还支持使用 `HOST` 和 `PORT` 绑定管理面板，其余仅支持少量环境变量：
 
 | 变量                | 必需 | 描述                          |
 | ------------------- | ---- | ----------------------------- |

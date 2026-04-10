@@ -46,7 +46,8 @@ anna
 To serve the admin panel alongside the daemon (for runtime config changes):
 
 ```bash
-anna --admin-port 8080
+anna --port 8080
+anna --host 0.0.0.0 --port 8080
 ```
 
 Or use the interactive CLI:
@@ -163,7 +164,7 @@ services:
 docker compose up -d
 ```
 
-To run initial setup, use `docker compose exec anna anna --open` or start the daemon with `--admin-port 8080` and configure via the web UI.
+To run initial setup, use `docker compose exec anna anna --open` or start the daemon with `--port 8080` and configure via the web UI.
 
 ### Build Locally
 
@@ -190,7 +191,7 @@ The `anna.db` file is the only critical data to back up. It contains all configu
 
 ## Environment Variables
 
-Configuration is managed through the admin panel (via `anna --open` or `--admin-port`). Only a small set of environment variables is supported:
+Configuration is managed through the admin panel (via `anna --open` or `--port`). `HOST` and `PORT` are supported for binding the admin server, and only a small set of other environment variables is supported:
 
 | Variable            | Required | Description                             |
 | ------------------- | -------- | --------------------------------------- |
