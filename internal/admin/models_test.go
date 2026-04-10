@@ -37,20 +37,22 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 		ID:     "openai",
 		Name:   "OpenAI",
 		APIKey: "sk-test",
-		Models: map[string]any{
-			"qwen3.6-plus": map[string]any{"name": "Qwen 3.6 Plus"},
-			"custom-only":  map[string]any{"name": "Custom Only"},
+		Models: map[string]config.ProviderModel{
+			"qwen3.6-plus":     {ID: "qwen3.6-plus", Name: "Qwen 3.6 Plus", Enabled: true},
+			"custom-only":      {ID: "custom-only", Name: "Custom Only", Enabled: true},
+			"disabled-fetched": {ID: "disabled-fetched", Name: "disabled-fetched", Enabled: false},
+			"disabled-custom":  {ID: "disabled-custom", Name: "disabled-custom", Enabled: false},
 		},
-		DisabledModels: []string{"disabled-fetched", "disabled-custom"},
 	}); err != nil {
 		t.Fatalf("CreateProvider(openai): %v", err)
 	}
 	if err := store.CreateProvider(ctx, config.Provider{
-		ID:             "anthropic",
-		Name:           "Anthropic",
-		APIKey:         "sk-test",
-		Models:         map[string]any{"disabled-custom": map[string]any{"name": "Disabled Custom"}},
-		DisabledModels: []string{"disabled-custom"},
+		ID:     "anthropic",
+		Name:   "Anthropic",
+		APIKey: "sk-test",
+		Models: map[string]config.ProviderModel{
+			"disabled-custom": {ID: "disabled-custom", Name: "Disabled Custom", Enabled: false},
+		},
 	}); err != nil {
 		t.Fatalf("CreateProvider(anthropic): %v", err)
 	}

@@ -20,13 +20,16 @@ func (s *Server) listCachedModels(w http.ResponseWriter, r *http.Request) {
 	seen := make(map[string]bool)
 	filtered := make([]config.CachedModel, 0)
 	providerByID := make(map[string]config.Provider, len(providers))
-	providerDisabled := make(map[string]map[string]bool, len(providers))
-	add := func(providerID, modelID string, disabled map[string]bool) {
-		if providerID == "" || modelID == "" || disabled[modelID] {
+	modelEnabled := make(map[string]map[string]bool, len(providers))
+	add := func(providerID, modelID string, enabled map[string]bool) {
+		if providerID == "" || modelID == "" {
 			return
 		}
 		provider, ok := providerByID[providerID]
 		if !ok || !provider.Enabled {
+			return
+		}
+		if value, ok := enabled[modelID]; ok && !value {
 			return
 		}
 		key := providerID + "/" + modelID
@@ -38,16 +41,17 @@ func (s *Server) listCachedModels(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, provider := range providers {
 		providerByID[provider.ID] = provider
-		disabled := disabledModelSet(provider.DisabledModels)
-		providerDisabled[provider.ID] = disabled
-		for modelID := range provider.Models {
-			add(provider.ID, modelID, disabled)
+		enabled := make(map[string]bool, len(provider.Models))
+		for modelID, model := range provider.Models {
+			enabled[modelID] = model.Enabled
+			add(provider.ID, modelID, enabled)
 		}
+		modelEnabled[provider.ID] = enabled
 	}
 
 	if cache, err := config.LoadModelsCache(); err == nil {
 		for _, model := range cache.Models {
-			add(model.Provider, model.Model, providerDisabled[model.Provider])
+			add(model.Provider, model.Model, modelEnabled[model.Provider])
 		}
 	}
 

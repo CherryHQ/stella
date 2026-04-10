@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"maps"
 	"net/http"
 	"sort"
 	"time"
@@ -105,19 +104,11 @@ func (s *Server) reloadProviders(ctx context.Context) {
 }
 
 type providerModelItem struct {
-	ID      string         `json:"id"`
-	Name    string         `json:"name,omitempty"`
-	Source  string         `json:"source"`
-	Enabled bool           `json:"enabled"`
-	Config  map[string]any `json:"config,omitempty"`
-}
-
-func disabledModelSet(ids []string) map[string]bool {
-	disabled := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		disabled[id] = true
-	}
-	return disabled
+	ID      string               `json:"id"`
+	Name    string               `json:"name,omitempty"`
+	Source  string               `json:"source"`
+	Enabled bool                 `json:"enabled"`
+	Config  config.ProviderModel `json:"config,omitempty"`
 }
 
 func (s *Server) listProviderModels(w http.ResponseWriter, r *http.Request) {
@@ -213,33 +204,18 @@ func (s *Server) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, s.mergedProviderModels(providerCfg))
 }
 
-func configMap(value any) map[string]any {
-	if value == nil {
-		return nil
-	}
-	m, ok := value.(map[string]any)
-	if !ok {
-		return nil
-	}
-	out := make(map[string]any, len(m))
-	maps.Copy(out, m)
-	return out
-}
-
 func (s *Server) mergedProviderModels(provider config.Provider) []providerModelItem {
-	disabled := disabledModelSet(provider.DisabledModels)
 	items := make(map[string]providerModelItem)
-	for id, raw := range provider.Models {
-		cfg := configMap(raw)
-		name := id
-		if v, ok := cfg["name"].(string); ok && v != "" {
-			name = v
+	for id, cfg := range provider.Models {
+		name := cfg.Name
+		if name == "" {
+			name = id
 		}
 		items[id] = providerModelItem{
 			ID:      id,
 			Name:    name,
 			Source:  "custom",
-			Enabled: !disabled[id],
+			Enabled: cfg.Enabled,
 			Config:  cfg,
 		}
 	}
@@ -257,7 +233,7 @@ func (s *Server) mergedProviderModels(provider config.Provider) []providerModelI
 				ID:      model.Model,
 				Name:    model.Model,
 				Source:  "fetched",
-				Enabled: !disabled[model.Model],
+				Enabled: true,
 			}
 		}
 	}
