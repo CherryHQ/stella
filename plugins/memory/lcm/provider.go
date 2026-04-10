@@ -3,6 +3,7 @@ package lcm
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -158,7 +159,7 @@ func (p *Provider) Assemble(ctx context.Context, session memory.Session, budget,
 // Stats implements memory.Provider.
 func (p *Provider) Stats(ctx context.Context, session memory.Session) (memory.SessionStats, error) {
 	conv, err := p.q.GetConversationBySessionID(ctx, session.ID)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return memory.SessionStats{}, nil
 	}
 	if err != nil {

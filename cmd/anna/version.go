@@ -395,7 +395,7 @@ func installBinary(srcPath, targetPath string, executable bool) error {
 	if err := renameFile(tmpPath, targetPath); err != nil {
 		if _, statErr := os.Stat(backupPath); statErr == nil {
 			if restoreErr := renameFile(backupPath, targetPath); restoreErr != nil {
-				return fmt.Errorf("install binary: %w (restore failed: %v)", err, restoreErr)
+				return fmt.Errorf("install binary: %w (restore failed: %w)", err, restoreErr)
 			}
 		}
 		return fmt.Errorf("install binary: %w", err)

@@ -1,6 +1,7 @@
 package openairesponse
 
 import (
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -78,7 +79,7 @@ func TestLeadingNewlineStripperNoNewlines(t *testing.T) {
 	s := &leadingNewlineStripper{rc: io.NopCloser(strings.NewReader("hello world"))}
 	buf := make([]byte, 32)
 	n, err := s.Read(buf)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		t.Fatalf("Read error: %v", err)
 	}
 	if string(buf[:n]) != "hello world" {
@@ -90,7 +91,7 @@ func TestLeadingNewlineStripperWithNewlines(t *testing.T) {
 	s := &leadingNewlineStripper{rc: io.NopCloser(strings.NewReader("\n\r\nhello"))}
 	buf := make([]byte, 32)
 	n, err := s.Read(buf)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		t.Fatalf("Read error: %v", err)
 	}
 	if string(buf[:n]) != "hello" {

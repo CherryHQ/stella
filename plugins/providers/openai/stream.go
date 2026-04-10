@@ -50,7 +50,7 @@ func mapChunk(chunk sdk.ChatCompletionChunk, indexToID map[int]string) []ai.Assi
 			})
 		}
 		if choice.FinishReason != "" {
-			events = append(events, ai.EventStop{Reason: mapStopReason(string(choice.FinishReason))})
+			events = append(events, ai.EventStop{Reason: mapStopReason(choice.FinishReason)})
 		}
 	}
 

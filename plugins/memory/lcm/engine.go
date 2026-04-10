@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -67,7 +68,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, sessionID string
 		p.cacheConvID(sessionID, conv.ID)
 		return conv.ID, nil
 	}
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return 0, fmt.Errorf("get conversation: %w", err)
 	}
 

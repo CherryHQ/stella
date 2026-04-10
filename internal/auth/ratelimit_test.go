@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/vaayne/anna/internal/auth"
@@ -20,7 +21,7 @@ func TestRateLimiterIPBasic(t *testing.T) {
 	}
 
 	// 11th check should fail.
-	if err := rl.CheckIP("1.2.3.4"); err != auth.ErrRateLimitIP {
+	if err := rl.CheckIP("1.2.3.4"); !errors.Is(err, auth.ErrRateLimitIP) {
 		t.Errorf("expected ErrRateLimitIP, got %v", err)
 	}
 
@@ -55,7 +56,7 @@ func TestRateLimiterUsernameFailures(t *testing.T) {
 	}
 
 	// Should be rate limited.
-	if err := rl.CheckUsername("testuser"); err != auth.ErrRateLimitUsername {
+	if err := rl.CheckUsername("testuser"); !errors.Is(err, auth.ErrRateLimitUsername) {
 		t.Errorf("expected ErrRateLimitUsername, got %v", err)
 	}
 
@@ -81,7 +82,7 @@ func TestRateLimiterLoginSuccess(t *testing.T) {
 		rl.RecordLoginFailure("testuser")
 	}
 
-	if err := rl.CheckUsername("testuser"); err != auth.ErrRateLimitUsername {
+	if err := rl.CheckUsername("testuser"); !errors.Is(err, auth.ErrRateLimitUsername) {
 		t.Errorf("expected ErrRateLimitUsername after new failures, got %v", err)
 	}
 }

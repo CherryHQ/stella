@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -936,12 +937,12 @@ func TestCheckErrorSessionExpired(t *testing.T) {
 	t.Parallel()
 
 	err := checkError(-14, 0, "session expired")
-	if err != ErrSessionExpired {
+	if !errors.Is(err, ErrSessionExpired) {
 		t.Errorf("expected ErrSessionExpired, got %v", err)
 	}
 
 	err = checkError(0, -14, "session expired")
-	if err != ErrSessionExpired {
+	if !errors.Is(err, ErrSessionExpired) {
 		t.Errorf("expected ErrSessionExpired for errcode=-14, got %v", err)
 	}
 }

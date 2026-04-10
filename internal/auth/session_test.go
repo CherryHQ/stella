@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -100,7 +101,7 @@ func TestClearSessionCookie(t *testing.T) {
 func TestGetSessionCookieMissing(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	_, err := auth.GetSessionCookie(req)
-	if err != auth.ErrNoSession {
+	if !errors.Is(err, auth.ErrNoSession) {
 		t.Errorf("err = %v, want ErrNoSession", err)
 	}
 }
@@ -109,7 +110,7 @@ func TestGetSessionCookieEmpty(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: ""})
 	_, err := auth.GetSessionCookie(req)
-	if err != auth.ErrNoSession {
+	if !errors.Is(err, auth.ErrNoSession) {
 		t.Errorf("err = %v, want ErrNoSession", err)
 	}
 }
