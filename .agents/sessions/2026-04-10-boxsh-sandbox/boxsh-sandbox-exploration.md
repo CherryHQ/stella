@@ -14,9 +14,9 @@ The right integration shape is:
 
 - ship `boxsh` as a **prebuilt binary**, using the same binary-management pattern Anna already uses for external tools like `rtk`
 - integrate it at the **core tool boundary**, not by sandboxing the whole Anna process
-- roll it out as an **opt-in backend first**
-- treat **Linux** as the primary target
-- treat **macOS** as a weaker, experimental backend until Anna-specific behavior is verified
+- make it the **required backend on Linux and macOS**
+- keep **Windows** on the current behavior
+- treat **macOS** as a weaker implementation than Linux and document the limits explicitly
 
 This is promising enough to proceed to implementation.
 
@@ -162,11 +162,11 @@ Use clearer terminology:
 - `path_guard` — current behavior
 - `boxsh` — new backend
 
-Initial rollout recommendation:
+Current plan decision:
 
-- global default remains `path_guard`
-- per-agent override may opt into `boxsh`
-- later, after Linux validation, revisit whether Linux should default to `boxsh`
+- Linux and macOS require `boxsh`
+- Windows keeps the current `path_guard`/cwd-scoped backend
+- there is no backend-selection toggle in phase 1
 
 ---
 
@@ -333,9 +333,7 @@ This is a **tool backend** project first.
 These are the real product/engineering decisions that remain open:
 
 1. **Configuration scope**
-   - global only
-   - per-agent only
-   - global default with per-agent override
+   - decided: per-agent sandbox policy only
 
 2. **Session persistence**
    - ephemeral COW upperdir only
@@ -346,8 +344,8 @@ These are the real product/engineering decisions that remain open:
    - what is the macOS equivalent policy?
 
 4. **Failure policy**
-   - configured `boxsh` backend with missing binary should fail closed
-   - unspecified/default backend should stay on `path_guard`
+   - Linux/macOS should fail closed when the managed `boxsh` binary or sandbox prerequisites are invalid
+   - Windows should stay on the current backend
 
 5. **Result formatting**
    - preserve current `bash` footer formatting exactly

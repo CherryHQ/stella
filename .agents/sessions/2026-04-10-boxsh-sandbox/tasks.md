@@ -1,10 +1,10 @@
 # Tasks: boxsh sandbox backend
 
-- [ ] Phase 1.1 Extend managed binary download/extraction flow to include `boxsh`
-- [ ] Phase 1.2 Add managed-only boxsh binary resolution helpers and tests
-- [ ] Phase 1.3 Add Linux/macOS startup preflight for binary/platform/filesystem/network validation
-- [ ] Phase 1.4 Add sandbox network policy config types and snapshot loading
-- [ ] Phase 1.5 Update exploration/docs for mandatory Linux/macOS boxsh usage and Windows skip path
+- [x] Phase 1.1 Extend managed binary download/extraction flow to include `boxsh`
+- [x] Phase 1.2 Add managed-only boxsh binary resolution helpers and tests
+- [x] Phase 1.3 Add Linux/macOS startup preflight for binary/platform/filesystem/network validation
+- [x] Phase 1.4 Add per-agent sandbox network policy config types and snapshot loading
+- [x] Phase 1.5 Update exploration/docs for mandatory Linux/macOS boxsh usage and Windows skip path
 
 - [ ] Phase 2.1 Implement `internal/sandbox/boxshclient/` process lifecycle and JSON-RPC transport
 - [ ] Phase 2.2 Implement tool methods for `Exec`, `Read`, `Write`, `Edit`

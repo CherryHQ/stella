@@ -56,7 +56,7 @@ Anna will keep its existing runner architecture and tool names, but on Linux/mac
   - `bash`, `read`, `write`, and `edit` all use the same long-lived `boxsh` process so they share one filesystem view.
   - This requires one shared backend object per runner instance, not four independently constructed sandbox sessions.
 - **Network policy**
-  - New global runner-level setting for sandbox network mode: `disabled` (default), `allow_all`, `whitelist`.
+  - New per-agent sandbox setting for network mode: `disabled` (default), `allow_all`, `whitelist`.
   - Linux maps directly to boxsh namespace flags/binds.
   - macOS uses the strongest available boxsh policy path, with behavior documented separately.
 - **Failure behavior**
@@ -81,8 +81,8 @@ Anna will keep its existing runner architecture and tool names, but on Linux/mac
   - Ensure all four core tools are built around one shared backend instance per runner.
   - Keep Windows on the existing Go tool implementations.
 - **Config plumbing**
-  - Extend runner settings with sandbox network config.
-  - Load via existing `settings` store and `config.Snapshot` path.
+  - Extend agent config with sandbox network config.
+  - Load via existing `settings_agents` store and `config.Snapshot` path.
 - **Startup preflight**
   - Validate binary availability, selected platform support, sandbox root shape, required COW/filesystem capability, and selected network mode before a sandboxed runner starts.
   - Fail closed on Linux/macOS when guarantees cannot be met.
@@ -107,8 +107,8 @@ Anna will keep its existing runner architecture and tool names, but on Linux/mac
    Files: new helper in `internal/sandbox/...` or `internal/embedded/...`, tests.
 3. Add startup preflight checks for Linux/macOS that validate managed binary presence, platform support, filesystem/COW prerequisites, and selected network mode.  
    Files: new helper in `internal/sandbox/...`, runner integration points, tests.
-4. Add sandbox network policy config types and snapshot loading.  
-   Files: `internal/config/config.go`, `internal/config/snapshot.go`, `internal/config/dbstore.go`, config tests.
+4. Add per-agent sandbox network policy config types and snapshot loading.  
+   Files: `internal/config/config.go`, `internal/config/store.go`, `internal/config/snapshot.go`, `internal/config/dbstore.go`, DB schema/migrations, config tests.
 5. Document the required Linux/macOS behavior and Windows skip path in exploration/architecture docs.  
    Files: `docs/boxsh-sandbox-exploration.md`, relevant docs pages.
 
@@ -162,7 +162,7 @@ Anna will keep its existing runner architecture and tool names, but on Linux/mac
 ## Testing Strategy
 
 - **Config tests**
-  - runner config loads sandbox network settings from `settings`
+  - agent config loads sandbox network settings from `settings_agents.sandbox`
   - invalid network modes / malformed whitelist values fail validation
 - **Embedded binary tests**
   - `boxsh` is extracted alongside existing binaries
@@ -217,4 +217,4 @@ Reviewer round 1:
 
 ## Final Status
 
-Not started.
+Phase 1 complete. Phase 2 not started.
