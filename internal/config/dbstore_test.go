@@ -112,25 +112,27 @@ func TestProviderCRUD(t *testing.T) {
 	}
 }
 
-func TestProviderCustomModelsAndDisabledModels(t *testing.T) {
+func TestProviderCustomModels(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
-	wantModels := map[string]any{
-		"qwen3.6-plus": map[string]any{
-			"name": "Qwen3.6 Plus",
-			"options": map[string]any{
-				"thinking": map[string]any{"type": "enabled", "budgetTokens": float64(8192)},
-			},
+	wantModels := map[string]ProviderModel{
+		"qwen3.6-plus": {
+			ID:            "qwen3.6-plus",
+			Name:          "Qwen3.6 Plus",
+			Enabled:       true,
+			Reasoning:     true,
+			Input:         []string{"text", "image"},
+			Output:        []string{"text"},
+			ContextWindow: 1000000,
+			MaxTokens:     65536,
 		},
 	}
-	wantDisabled := []string{"qwen3.5-plus"}
 	p := Provider{
-		ID:             "openai",
-		Name:           "OpenAI",
-		APIKey:         "sk-test",
-		Models:         wantModels,
-		DisabledModels: wantDisabled,
+		ID:     "openai",
+		Name:   "OpenAI",
+		APIKey: "sk-test",
+		Models: wantModels,
 	}
 	if err := store.CreateProvider(ctx, p); err != nil {
 		t.Fatalf("CreateProvider: %v", err)
@@ -140,15 +142,14 @@ func TestProviderCustomModelsAndDisabledModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProvider: %v", err)
 	}
-	if got.Models["qwen3.6-plus"] == nil {
+	if got.Models["qwen3.6-plus"].Name != "Qwen3.6 Plus" {
 		t.Fatalf("custom model missing: %+v", got.Models)
 	}
-	if len(got.DisabledModels) != 1 || got.DisabledModels[0] != "qwen3.5-plus" {
-		t.Fatalf("DisabledModels = %v", got.DisabledModels)
+	if !got.Models["qwen3.6-plus"].Enabled {
+		t.Fatalf("custom model should be enabled: %+v", got.Models["qwen3.6-plus"])
 	}
 
-	got.Models["qwen3.5-plus"] = map[string]any{"name": "Qwen3.5 Plus"}
-	got.DisabledModels = []string{"qwen3.6-plus"}
+	got.Models["qwen3.5-plus"] = ProviderModel{ID: "qwen3.5-plus", Name: "Qwen3.5 Plus", Enabled: false}
 	if err := store.UpdateProvider(ctx, got); err != nil {
 		t.Fatalf("UpdateProvider: %v", err)
 	}
@@ -157,18 +158,11 @@ func TestProviderCustomModelsAndDisabledModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProvider after update: %v", err)
 	}
-	if updated.Models["qwen3.5-plus"] == nil {
+	if updated.Models["qwen3.5-plus"].Name != "Qwen3.5 Plus" {
 		t.Fatalf("updated model missing: %+v", updated.Models)
 	}
-	if len(updated.DisabledModels) != 1 || updated.DisabledModels[0] != "qwen3.6-plus" {
-		t.Fatalf("updated DisabledModels = %v", updated.DisabledModels)
-	}
-	modelCfg, ok := updated.Models["qwen3.6-plus"].(map[string]any)
-	if !ok {
-		t.Fatalf("updated custom model type = %T", updated.Models["qwen3.6-plus"])
-	}
-	if modelCfg["name"] != "Qwen3.6 Plus" {
-		t.Fatalf("updated custom model = %+v", modelCfg)
+	if updated.Models["qwen3.5-plus"].Enabled {
+		t.Fatalf("updated model should remain disabled: %+v", updated.Models["qwen3.5-plus"])
 	}
 }
 

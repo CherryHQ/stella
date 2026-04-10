@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 
@@ -652,16 +651,14 @@ func providerFromDB(r sqlc.SettingsProvider) Provider {
 	}
 	apiKey, _ := cfg["api_key"].(string)
 	baseURL, _ := cfg["base_url"].(string)
-	models := configMap(cfg["models"])
 	return Provider{
-		ID:             r.ID,
-		Type:           r.Type,
-		Name:           providerDisplayName(r.Name, r.ID),
-		Enabled:        r.Enabled == 1,
-		APIKey:         apiKey,
-		BaseURL:        baseURL,
-		Models:         models,
-		DisabledModels: stringSlice(cfg["disabled_models"]),
+		ID:      r.ID,
+		Type:    r.Type,
+		Name:    providerDisplayName(r.Name, r.ID),
+		Enabled: r.Enabled == 1,
+		APIKey:  apiKey,
+		BaseURL: baseURL,
+		Models:  providerModelsFromAny(cfg["models"]),
 	}
 }
 
@@ -674,26 +671,28 @@ func legacyProviderFromPlugin(p Plugin) Provider {
 	}
 	displayName, _ := p.Config["display_name"].(string)
 	return Provider{
-		ID:             p.Name,
-		Type:           typeName,
-		Name:           providerDisplayName(displayName, p.Name),
-		Enabled:        p.Enabled,
-		APIKey:         apiKey,
-		BaseURL:        baseURL,
-		Models:         configMap(p.Config["models"]),
-		DisabledModels: stringSlice(p.Config["disabled_models"]),
+		ID:      p.Name,
+		Type:    typeName,
+		Name:    providerDisplayName(displayName, p.Name),
+		Enabled: p.Enabled,
+		APIKey:  apiKey,
+		BaseURL: baseURL,
+		Models:  providerModelsFromAny(p.Config["models"]),
 	}
 }
 
-func providerConfig(p Provider) map[string]any {
-	config := map[string]any{"api_key": p.APIKey, "base_url": p.BaseURL}
-	if len(p.Models) > 0 {
-		config["models"] = p.Models
+type providerConfigPayload struct {
+	APIKey  string                   `json:"api_key"`
+	BaseURL string                   `json:"base_url"`
+	Models  map[string]ProviderModel `json:"models,omitempty"`
+}
+
+func providerConfig(p Provider) providerConfigPayload {
+	return providerConfigPayload{
+		APIKey:  p.APIKey,
+		BaseURL: p.BaseURL,
+		Models:  normalizeProviderModels(p.Models),
 	}
-	if len(p.DisabledModels) > 0 {
-		config["disabled_models"] = p.DisabledModels
-	}
-	return config
 }
 
 func providerType(p Provider) string {
@@ -724,6 +723,59 @@ func boolToInt64(value bool) int64 {
 	return 0
 }
 
+func normalizeProviderModels(models map[string]ProviderModel) map[string]ProviderModel {
+	if len(models) == 0 {
+		return nil
+	}
+	out := make(map[string]ProviderModel, len(models))
+	for id, model := range models {
+		if model.ID == "" {
+			model.ID = id
+		}
+		if model.Name == "" {
+			model.Name = id
+		}
+		if !model.Enabled {
+			model.Enabled = false
+		}
+		out[id] = model
+	}
+	return out
+}
+
+func providerModelsFromAny(value any) map[string]ProviderModel {
+	if value == nil {
+		return nil
+	}
+	rawModels, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	models := make(map[string]ProviderModel, len(rawModels))
+	for id, raw := range rawModels {
+		data, err := json.Marshal(raw)
+		if err != nil {
+			continue
+		}
+		var model ProviderModel
+		if err := json.Unmarshal(data, &model); err != nil {
+			continue
+		}
+		rawModel, _ := raw.(map[string]any)
+		if _, hasEnabled := rawModel["enabled"]; !hasEnabled {
+			model.Enabled = true
+		}
+		if model.ID == "" {
+			model.ID = id
+		}
+		if model.Name == "" {
+			model.Name = id
+		}
+		models[id] = model
+	}
+	return models
+}
+
 // providerEnvVars maps provider slugs to their (apiKey, baseURL) env var names.
 var providerEnvVars = map[string][2]string{
 	"anthropic":       {"ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"},
@@ -749,41 +801,6 @@ func envFallback(dst *string, envKey string) {
 		if v := os.Getenv(envKey); v != "" {
 			*dst = v
 		}
-	}
-}
-
-func configMap(value any) map[string]any {
-	if value == nil {
-		return nil
-	}
-	m, ok := value.(map[string]any)
-	if !ok {
-		return nil
-	}
-	out := make(map[string]any, len(m))
-	maps.Copy(out, m)
-	return out
-}
-
-func stringSlice(value any) []string {
-	if value == nil {
-		return nil
-	}
-	switch vv := value.(type) {
-	case []string:
-		out := make([]string, len(vv))
-		copy(out, vv)
-		return out
-	case []any:
-		out := make([]string, 0, len(vv))
-		for _, item := range vv {
-			if s, ok := item.(string); ok && s != "" {
-				out = append(out, s)
-			}
-		}
-		return out
-	default:
-		return nil
 	}
 }
 
