@@ -10,9 +10,8 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/skills"
+	skillstool "github.com/vaayne/anna/plugins/tools/skills"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
 
@@ -100,7 +99,7 @@ func skillsInstallCommand() *ucli.Command {
 
 			fmt.Fprintf(os.Stderr, "Installing from %s...\n", source)
 
-			name, err := skills.Install(c.Context, source, targetDir)
+			name, err := skillstool.Install(c.Context, source, targetDir)
 			if err != nil {
 				return err
 			}
@@ -140,14 +139,14 @@ func skillsListAction() error {
 		return err
 	}
 	cwd, _ := os.Getwd()
-	loaded := runner.LoadSkills(config.AnnaHome(), snap.Workspace, cwd)
+	loaded := skillstool.LoadSkills(config.AnnaHome(), snap.Workspace, cwd)
 	if len(loaded) == 0 {
 		fmt.Println("No skills installed.")
 		return nil
 	}
 
 	// Group by source
-	grouped := map[string][]runner.Skill{}
+	grouped := map[string][]skillstool.Skill{}
 	var sourceOrder []string
 	seen := map[string]bool{}
 	for _, s := range loaded {
@@ -183,7 +182,7 @@ func skillsListJSON() error {
 		return err
 	}
 	cwd, _ := os.Getwd()
-	loaded := runner.LoadSkills(config.AnnaHome(), snap.Workspace, cwd)
+	loaded := skillstool.LoadSkills(config.AnnaHome(), snap.Workspace, cwd)
 
 	type entry struct {
 		Name        string `json:"name"`
@@ -229,7 +228,7 @@ func skillsRemoveCommand() *ucli.Command {
 			}
 			skillDir := filepath.Join(snap.SkillsPath(), name)
 
-			if err := skills.Remove(name, skillDir); err != nil {
+			if err := skillstool.Remove(name, skillDir); err != nil {
 				return err
 			}
 

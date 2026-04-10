@@ -2,13 +2,99 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
+	coreagent "github.com/vaayne/anna/pkg/agent"
+	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/memory"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/providers"
+	"github.com/vaayne/anna/pkg/tools"
+	plugintools "github.com/vaayne/anna/plugins/tools"
 )
+
+type commandTestProvider struct{}
+
+func (commandTestProvider) API() string { return "anthropic" }
+func (commandTestProvider) Stream(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
+	return nil, errors.New("not implemented")
+}
+func (commandTestProvider) StreamSimple(context.Context, ai.Model, ai.Context, ai.SimpleStreamOptions) (providers.AssistantEventStream, error) {
+	return nil, errors.New("not implemented")
+}
+
+func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Registry, error) {
+	reg := providers.NewRegistry()
+	reg.Register(commandTestProvider{})
+	return reg, nil
+}
+
+func testCoreToolsBuilder(plugintools.BuildContext) []tools.Tool { return nil }
+
+type commandTestStore struct{}
+
+func (commandTestStore) ListProviders(context.Context) ([]config.Provider, error) { return nil, nil }
+func (commandTestStore) GetProvider(context.Context, string) (config.Provider, error) {
+	return config.Provider{}, errors.New("not found")
+}
+func (commandTestStore) CreateProvider(context.Context, config.Provider) error     { return nil }
+func (commandTestStore) UpdateProvider(context.Context, config.Provider) error     { return nil }
+func (commandTestStore) DeleteProvider(context.Context, string) error              { return nil }
+func (commandTestStore) ListAgents(context.Context) ([]config.Agent, error)        { return nil, nil }
+func (commandTestStore) ListEnabledAgents(context.Context) ([]config.Agent, error) { return nil, nil }
+func (commandTestStore) GetAgent(context.Context, string) (config.Agent, error) {
+	return config.Agent{}, nil
+}
+func (commandTestStore) CreateAgent(context.Context, config.Agent) error        { return nil }
+func (commandTestStore) UpdateAgent(context.Context, config.Agent) error        { return nil }
+func (commandTestStore) DeleteAgent(context.Context, string) error              { return nil }
+func (commandTestStore) ListChannels(context.Context) ([]config.Channel, error) { return nil, nil }
+func (commandTestStore) GetChannel(context.Context, string) (config.Channel, error) {
+	return config.Channel{}, nil
+}
+func (commandTestStore) UpsertChannel(context.Context, config.Channel) error { return nil }
+func (commandTestStore) ListPlugins(context.Context) ([]config.Plugin, error) {
+	return nil, nil
+}
+func (commandTestStore) ListPluginsByKind(context.Context, string) ([]config.Plugin, error) {
+	return nil, nil
+}
+func (commandTestStore) ListEnabledPlugins(context.Context) ([]config.Plugin, error) { return nil, nil }
+func (commandTestStore) GetPlugin(context.Context, string) (config.Plugin, error) {
+	return config.Plugin{}, nil
+}
+func (commandTestStore) UpsertPlugin(context.Context, config.Plugin) error    { return nil }
+func (commandTestStore) SetPluginEnabled(context.Context, string, bool) error { return nil }
+func (commandTestStore) SetPluginConfig(context.Context, string, map[string]any) error {
+	return nil
+}
+func (commandTestStore) DeletePlugin(context.Context, string) error                   { return nil }
+func (commandTestStore) GetChatAgent(context.Context, string, string) (string, error) { return "", nil }
+func (commandTestStore) SetChatAgent(context.Context, string, string, string) error   { return nil }
+func (commandTestStore) DeleteChatAgent(context.Context, string, string) error        { return nil }
+func (commandTestStore) GetSetting(context.Context, string) (string, error)           { return "", nil }
+func (commandTestStore) SetSetting(context.Context, string, string) error             { return nil }
+func (commandTestStore) Snapshot(context.Context, string) (*config.Snapshot, error)   { return nil, nil }
+func (commandTestStore) SeedDefaults(context.Context) error                           { return nil }
+
+type commandTestMemory struct{}
+
+func (commandTestMemory) Name() string                                                { return "test" }
+func (commandTestMemory) Bootstrap(context.Context, memory.Session) error             { return nil }
+func (commandTestMemory) Append(context.Context, memory.Session, ...ai.Message) error { return nil }
+func (commandTestMemory) Assemble(context.Context, memory.Session, int, int) ([]ai.Message, error) {
+	return nil, nil
+}
+func (commandTestMemory) Stats(context.Context, memory.Session) (memory.SessionStats, error) {
+	return memory.SessionStats{}, nil
+}
+func (commandTestMemory) Close() error { return nil }
 
 func TestNewRunnerFactoryGo(t *testing.T) {
 	snap := &config.Snapshot{
@@ -19,7 +105,7 @@ func TestNewRunnerFactoryGo(t *testing.T) {
 	}
 	snap.Workspace = t.TempDir()
 
-	factory, err := agent.NewRunnerFactory(snap, nil)
+	factory, err := agent.NewRunnerFactory(snap, nil, testCoreToolsBuilder, testProviderRegistryBuilder, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewRunnerFactory: %v", err)
 	}
@@ -39,7 +125,7 @@ func TestNewRunnerFactoryUnknown(t *testing.T) {
 		Runner: config.RunnerConfig{Type: "invalid"},
 	}
 
-	_, err := agent.NewRunnerFactory(snap, nil)
+	_, err := agent.NewRunnerFactory(snap, nil, testCoreToolsBuilder, testProviderRegistryBuilder, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown runner type")
 	}
@@ -75,5 +161,62 @@ func TestRunGatewayNoServices(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no services to run") {
 		t.Errorf("err = %q, want contains 'no services to run'", err.Error())
+	}
+}
+
+func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
+	t.Setenv("ANNA_HOME", t.TempDir())
+	config.ResetAnnaHome()
+	t.Cleanup(config.ResetAnnaHome)
+
+	snap := &config.Snapshot{
+		Provider: "anthropic",
+		Model:    "anthropic/old-model",
+		APIKey:   "test-key",
+		Runner:   config.RunnerConfig{Type: "go"},
+	}
+	snap.Workspace = t.TempDir()
+
+	initialFactory, err := agent.NewRunnerFactory(snap, nil, testCoreToolsBuilder, testProviderRegistryBuilder, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewRunnerFactory: %v", err)
+	}
+
+	pool := agent.NewPool(initialFactory, commandTestMemory{}, agent.WithDefaultModel(snap.Model))
+
+	promptToolsCalls := 0
+	promptSectionsCalls := 0
+	switchFn := modelSwitcher(
+		snap,
+		commandTestStore{},
+		pool,
+		nil,
+		testCoreToolsBuilder,
+		testProviderRegistryBuilder,
+		func(context.Context) ([]pkgplugins.PromptToolInfo, error) {
+			promptToolsCalls++
+			return nil, nil
+		},
+		func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
+			promptSectionsCalls++
+			return nil, nil
+		},
+		&coreagent.ToolLifecycle{},
+	)
+
+	if err := switchFn("anthropic", "new-model"); err != nil {
+		t.Fatalf("switchFn: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	for range pool.Chat(ctx, "session-switch", "hello") {
+	}
+
+	if promptToolsCalls == 0 {
+		t.Fatal("expected prompt tools builder to be preserved after model switch")
+	}
+	if promptSectionsCalls == 0 {
+		t.Fatal("expected prompt sections builder to be preserved after model switch")
 	}
 }

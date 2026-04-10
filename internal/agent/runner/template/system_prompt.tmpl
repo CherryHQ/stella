@@ -32,19 +32,11 @@ What you know about this user. Edit via the memory tool (profile_get / profile_u
 <user_profile>
 {{ .UserProfile }}
 </user_profile>
-{{ if .Skills }}
+{{ range .PromptSections }}
 
-## Skills
+## {{ .Title }}
 
-Load a skill with the skills tool: action="load", name="<skill-name>". Resolve relative paths against the base_dir returned by load. Draft skills can be enabled with action="patch", name="<skill-name>", status="active".
-
-<available_skills>
-{{ range .Skills }}  <skill>
-    <name>{{ .Name | escapeXML }}</name>
-    <description>{{ .Description | escapeXML }}</description>
-    <status>{{ .Status | escapeXML }}</status>
-  </skill>
-{{ end }}</available_skills>
+{{ .Content }}
 {{ end }}
 {{ if .ContextFiles }}
 

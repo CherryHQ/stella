@@ -30,9 +30,9 @@ type preToolCallPlugin struct {
 func (p *preToolCallPlugin) OnPreToolCall(_ context.Context, hctx *PreToolCallContext) (PreToolCallResult, error) {
 	p.called = true
 	return PreToolCallResult{
-		Arguments: p.rewrite,
-		Block:     p.block,
-		BlockMsg:  p.blockMsg,
+		Arguments:    p.rewrite,
+		Block:        p.block,
+		BlockMessage: p.blockMsg,
 	}, nil
 }
 
@@ -166,8 +166,8 @@ func TestRunPreToolCall_BlockShortCircuits(t *testing.T) {
 	if !result.Block {
 		t.Error("expected block=true")
 	}
-	if result.BlockMsg != "blocked by policy" {
-		t.Errorf("expected block message, got %q", result.BlockMsg)
+	if result.BlockMessage != "blocked by policy" {
+		t.Errorf("expected block message, got %q", result.BlockMessage)
 	}
 	if h2.called {
 		t.Error("hooks after blocker should not run")

@@ -9,10 +9,6 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 )
 
-// TryLinkCode checks if a message is a "/link <code>" command. If so, it
-// consumes the code, creates an auth_identity linking the sender's channel
-// account to the system user, and returns a response message + true.
-// Returns ("", false) if the text is not a link command.
 func TryLinkCode(ctx context.Context, authStore auth.AuthStore, linkCodes *auth.LinkCodeStore, text, platform, senderID, senderName string) (string, bool) {
 	code := parseLinkCommand(text)
 	if code == "" {
@@ -24,17 +20,14 @@ func TryLinkCode(ctx context.Context, authStore auth.AuthStore, linkCodes *auth.
 		return "Link code is invalid or has expired (codes last 5 minutes). Generate a new one from the admin profile page and try again.", true
 	}
 
-	// Verify the code was generated for this platform.
 	if codePlatform != platform {
 		return fmt.Sprintf("This link code was generated for %s, not %s. Generate a new code and select %s as the platform.", codePlatform, platform, platform), true
 	}
 
-	// Check if this identity is already linked.
 	if existing, err := authStore.GetIdentityByPlatform(ctx, platform, senderID); err == nil {
 		return fmt.Sprintf("This %s account is already linked to user #%d. Ask an admin to unlink it first from the user management page.", platform, existing.UserID), true
 	}
 
-	// Create the identity link.
 	_, err := authStore.CreateIdentity(ctx, auth.Identity{
 		UserID:     userID,
 		Platform:   platform,
@@ -50,12 +43,9 @@ func TryLinkCode(ctx context.Context, authStore auth.AuthStore, linkCodes *auth.
 	return "Account linked successfully! Your channel account is now connected to your system user.", true
 }
 
-// parseLinkCommand extracts the code from a "/link <code>" command.
-// Returns the code string if the message matches, or "" if not a link command.
 func parseLinkCommand(text string) string {
 	text = strings.TrimSpace(text)
 
-	// Accept "/link CODE" or "/link CODE" (with leading slash).
 	lower := strings.ToLower(text)
 	if strings.HasPrefix(lower, "/link ") {
 		code := strings.TrimSpace(text[6:])
@@ -65,7 +55,6 @@ func parseLinkCommand(text string) string {
 		return ""
 	}
 
-	// Also accept bare 6-char code for backward compat.
 	if auth.IsLinkCode(text) {
 		return text
 	}

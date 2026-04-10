@@ -71,21 +71,25 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pluginID := config.PluginID(config.PluginKindChannel, platform)
-	p := config.Plugin{
-		ID:      pluginID,
-		Kind:    config.PluginKindChannel,
-		Name:    platform,
-		Enabled: req.Enabled,
-		Config:  cfgMap,
+	if err := s.pluginHost.ValidateConfig(pluginID, cfgMap); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
-	if err := s.store.UpsertPlugin(r.Context(), p); err != nil {
+	if err := s.pluginHost.Config().Set(r.Context(), pluginID, cfgMap); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if req.Enabled {
-		s.startChannel(platform)
-	} else {
-		s.stopChannel(platform)
+	if err := s.pluginHost.SetEnabled(r.Context(), pluginID, req.Enabled); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.pluginHost.ApplyPlugin(r.Context(), pluginID); err != nil {
+		s.log.Error("failed to apply plugin runtime", "plugin", pluginID, "error", err)
+	}
+	p, err := s.store.GetPlugin(r.Context(), pluginID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	writeData(w, http.StatusOK, pluginToChannelView(p))
 }

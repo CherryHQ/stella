@@ -18,8 +18,11 @@ func (b *Bot) sendImage(chatID, replyMsgID string, img channel.ImageEvent) {
 		return
 	}
 
+	uploadCtx, cancelUpload := b.apiContext()
+	defer cancelUpload()
+
 	// Upload image to get image_key.
-	uploadResp, err := b.client.Im.Image.Create(b.ctx,
+	uploadResp, err := b.client.Im.Image.Create(uploadCtx,
 		larkim.NewCreateImageReqBuilder().
 			Body(larkim.NewCreateImageReqBodyBuilder().
 				ImageType("message").
@@ -42,8 +45,11 @@ func (b *Bot) sendImage(chatID, replyMsgID string, img channel.ImageEvent) {
 	imageKey := *uploadResp.Data.ImageKey
 
 	// Send image message as a reply.
+	replyCtx, cancelReply := b.apiContext()
+	defer cancelReply()
+
 	content, _ := json.Marshal(map[string]string{"image_key": imageKey})
-	resp, err := b.client.Im.Message.Reply(b.ctx,
+	resp, err := b.client.Im.Message.Reply(replyCtx,
 		larkim.NewReplyMessageReqBuilder().
 			MessageId(replyMsgID).
 			Body(larkim.NewReplyMessageReqBodyBuilder().

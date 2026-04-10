@@ -122,7 +122,7 @@ func TestLinkCodeUniqueness(t *testing.T) {
 	store := auth.NewLinkCodeStore()
 	seen := make(map[string]bool)
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		code := store.Generate(int64(i), "telegram")
 		if seen[code] {
 			t.Errorf("duplicate code generated: %s", code)

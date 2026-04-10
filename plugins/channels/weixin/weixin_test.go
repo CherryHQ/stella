@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -477,9 +478,7 @@ func TestHandleUpdatesCachesContextToken(t *testing.T) {
 	// We set allowed empty (allow all) and provide no pool so it will
 	// error at resolve() — but the context_token should be cached before that.
 	bot := &Bot{}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	bot.ctx = ctx
+	bot.ctx = t.Context()
 
 	msgs := []WeixinMessage{
 		{
@@ -936,12 +935,12 @@ func TestCheckErrorSessionExpired(t *testing.T) {
 	t.Parallel()
 
 	err := checkError(-14, 0, "session expired")
-	if err != ErrSessionExpired {
+	if !errors.Is(err, ErrSessionExpired) {
 		t.Errorf("expected ErrSessionExpired, got %v", err)
 	}
 
 	err = checkError(0, -14, "session expired")
-	if err != ErrSessionExpired {
+	if !errors.Is(err, ErrSessionExpired) {
 		t.Errorf("expected ErrSessionExpired for errcode=-14, got %v", err)
 	}
 }

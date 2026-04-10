@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 )
 
 // loadJobs reads all persisted jobs from the database.
@@ -27,24 +27,27 @@ func (s *Service) loadJobs(ctx context.Context) ([]Job, error) {
 
 // insertJob persists a new job to the database.
 func (s *Service) insertJob(ctx context.Context, job Job) error {
-	enabled := int64(0)
-	if job.Enabled {
-		enabled = 1
-	}
-	_, err := s.q.CreateSchedulerJob(ctx, sqlc.CreateSchedulerJobParams{
-		ID:            job.ID,
-		Name:          job.Name,
-		ScheduleCron:  job.Schedule.Cron,
-		ScheduleEvery: job.Schedule.Every,
-		ScheduleAt:    job.Schedule.At,
-		Message:       job.Message,
-		SessionMode:   job.SessionMode,
-		Enabled:       enabled,
-		AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
-		UserID:        sql.NullInt64{Int64: job.UserID, Valid: job.UserID != 0},
-		CreatedAt:     job.CreatedAt.UTC().Format("2006-01-02 15:04:05"),
-	})
+	_, err := s.q.CreateSchedulerJob(ctx, createSchedulerJobParams(job))
 	return err
+}
+
+// updateJob persists an existing job to the database.
+func (s *Service) updateJob(ctx context.Context, job Job) error {
+	return s.q.UpdateSchedulerJob(ctx, updateSchedulerJobParams(job))
+}
+
+// recordJobRun persists execution metadata for a job.
+func (s *Service) recordJobRun(ctx context.Context, id string, ranAt time.Time, runErr error) error {
+	lastError := ""
+	if runErr != nil {
+		lastError = runErr.Error()
+	}
+	return s.q.RecordSchedulerJobRun(ctx, sqlc.RecordSchedulerJobRunParams{
+		LastRunAt: sql.NullString{String: ranAt.UTC().Format("2006-01-02 15:04:05"), Valid: true},
+		LastError: lastError,
+		UpdatedAt: ranAt.UTC().Format("2006-01-02 15:04:05"),
+		ID:        id,
+	})
 }
 
 // deleteJob removes a job from the database.
@@ -84,24 +87,7 @@ func (s *Service) migrateJobsFile(ctx context.Context, dataPath string) error {
 
 	qtx := s.q.WithTx(tx)
 	for _, job := range jobs {
-		enabled := int64(0)
-		if job.Enabled {
-			enabled = 1
-		}
-		_, err := qtx.CreateSchedulerJob(ctx, sqlc.CreateSchedulerJobParams{
-			ID:            job.ID,
-			Name:          job.Name,
-			ScheduleCron:  job.Schedule.Cron,
-			ScheduleEvery: job.Schedule.Every,
-			ScheduleAt:    job.Schedule.At,
-			Message:       job.Message,
-			SessionMode:   job.SessionMode,
-			Enabled:       enabled,
-			AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
-			UserID:        sql.NullInt64{Int64: job.UserID, Valid: job.UserID != 0},
-			CreatedAt:     job.CreatedAt.UTC().Format("2006-01-02 15:04:05"),
-		})
-		if err != nil {
+		if _, err := qtx.CreateSchedulerJob(ctx, createSchedulerJobParams(job)); err != nil {
 			return fmt.Errorf("migrate job %s: %w", job.ID, err)
 		}
 	}
@@ -115,20 +101,129 @@ func (s *Service) migrateJobsFile(ctx context.Context, dataPath string) error {
 	return nil
 }
 
+// migrateLegacyPluginJobs converts plugin-owned jobs that still use the old
+// reserved message envelope into first-class ownership columns.
+func (s *Service) migrateLegacyPluginJobs(ctx context.Context) error {
+	rows, err := s.q.ListSchedulerJobs(ctx)
+	if err != nil {
+		return fmt.Errorf("list scheduler jobs: %w", err)
+	}
+	for _, row := range rows {
+		if row.OwnerKind == JobOwnerPlugin {
+			continue
+		}
+		job := dbRowToJob(row)
+		pluginID, key, runtimeName, description, payload, ok := DecodePluginJob(job)
+		if !ok {
+			continue
+		}
+		job.OwnerKind = JobOwnerPlugin
+		job.PluginID = pluginID
+		job.JobKey = key
+		job.RuntimeName = runtimeName
+		job.Description = description
+		job.Payload = payload
+		job.Message = ""
+		job.UpdatedAt = time.Now().UTC()
+		if err := s.updateJob(ctx, job); err != nil {
+			return fmt.Errorf("migrate legacy plugin job %s: %w", job.ID, err)
+		}
+	}
+	return nil
+}
+
+func createSchedulerJobParams(job Job) sqlc.CreateSchedulerJobParams {
+	enabled := int64(0)
+	if job.Enabled {
+		enabled = 1
+	}
+	createdAt := job.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	updatedAt := job.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = createdAt
+	}
+	return sqlc.CreateSchedulerJobParams{
+		ID:            job.ID,
+		OwnerKind:     normalizeOwnerKind(job.OwnerKind),
+		PluginID:      job.PluginID,
+		JobKey:        job.JobKey,
+		RuntimeName:   job.RuntimeName,
+		Name:          job.Name,
+		Description:   job.Description,
+		ScheduleCron:  job.Schedule.Cron,
+		ScheduleEvery: job.Schedule.Every,
+		ScheduleAt:    job.Schedule.At,
+		Message:       job.Message,
+		Payload:       encodePayload(job.Payload),
+		SessionMode:   job.SessionMode,
+		Enabled:       enabled,
+		AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
+		UserID:        sql.NullInt64{Int64: job.UserID, Valid: job.UserID != 0},
+		CreatedAt:     createdAt.UTC().Format("2006-01-02 15:04:05"),
+		UpdatedAt:     updatedAt.UTC().Format("2006-01-02 15:04:05"),
+		LastRunAt:     nullableTime(job.LastRunAt),
+		LastError:     job.LastError,
+	}
+}
+
+func updateSchedulerJobParams(job Job) sqlc.UpdateSchedulerJobParams {
+	enabled := int64(0)
+	if job.Enabled {
+		enabled = 1
+	}
+	updatedAt := job.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
+	return sqlc.UpdateSchedulerJobParams{
+		OwnerKind:     normalizeOwnerKind(job.OwnerKind),
+		PluginID:      job.PluginID,
+		JobKey:        job.JobKey,
+		RuntimeName:   job.RuntimeName,
+		Name:          job.Name,
+		Description:   job.Description,
+		ScheduleCron:  job.Schedule.Cron,
+		ScheduleEvery: job.Schedule.Every,
+		ScheduleAt:    job.Schedule.At,
+		Message:       job.Message,
+		Payload:       encodePayload(job.Payload),
+		SessionMode:   job.SessionMode,
+		Enabled:       enabled,
+		AgentID:       sql.NullString{String: job.AgentID, Valid: job.AgentID != ""},
+		UserID:        sql.NullInt64{Int64: job.UserID, Valid: job.UserID != 0},
+		UpdatedAt:     updatedAt.UTC().Format("2006-01-02 15:04:05"),
+		LastRunAt:     nullableTime(job.LastRunAt),
+		LastError:     job.LastError,
+		ID:            job.ID,
+	}
+}
+
 func dbRowToJob(r sqlc.SchedJob) Job {
-	t, _ := time.Parse("2006-01-02 15:04:05", r.CreatedAt)
+	createdAt, _ := time.Parse("2006-01-02 15:04:05", r.CreatedAt)
+	updatedAt, _ := time.Parse("2006-01-02 15:04:05", r.UpdatedAt)
 	j := Job{
-		ID:   r.ID,
-		Name: r.Name,
+		ID:          r.ID,
+		OwnerKind:   normalizeOwnerKind(r.OwnerKind),
+		PluginID:    r.PluginID,
+		JobKey:      r.JobKey,
+		RuntimeName: r.RuntimeName,
+		Name:        r.Name,
+		Description: r.Description,
 		Schedule: Schedule{
 			Cron:  r.ScheduleCron,
 			Every: r.ScheduleEvery,
 			At:    r.ScheduleAt,
 		},
 		Message:     r.Message,
+		Payload:     decodePayload(r.Payload),
 		SessionMode: r.SessionMode,
 		Enabled:     r.Enabled != 0,
-		CreatedAt:   t,
+		CreatedAt:   createdAt,
+		UpdatedAt:   updatedAt,
+		LastError:   r.LastError,
 	}
 	if r.AgentID.Valid {
 		j.AgentID = r.AgentID.String
@@ -136,5 +231,49 @@ func dbRowToJob(r sqlc.SchedJob) Job {
 	if r.UserID.Valid {
 		j.UserID = r.UserID.Int64
 	}
+	if r.LastRunAt.Valid {
+		if parsed, err := time.Parse("2006-01-02 15:04:05", r.LastRunAt.String); err == nil {
+			j.LastRunAt = &parsed
+		}
+	}
 	return j
+}
+
+func normalizeOwnerKind(kind string) string {
+	if kind == JobOwnerPlugin {
+		return JobOwnerPlugin
+	}
+	return JobOwnerUser
+}
+
+func encodePayload(payload map[string]any) string {
+	if len(payload) == 0 {
+		return "{}"
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
+}
+
+func decodePayload(raw string) map[string]any {
+	if raw == "" {
+		return map[string]any{}
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return map[string]any{}
+	}
+	if payload == nil {
+		return map[string]any{}
+	}
+	return payload
+}
+
+func nullableTime(t *time.Time) sql.NullString {
+	if t == nil || t.IsZero() {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: t.UTC().Format("2006-01-02 15:04:05"), Valid: true}
 }

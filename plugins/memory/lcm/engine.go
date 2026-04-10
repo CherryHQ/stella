@@ -4,11 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
-	"github.com/vaayne/anna/internal/db/sqlc"
 	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
 )
 
@@ -67,7 +68,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, sessionID string
 		p.cacheConvID(sessionID, conv.ID)
 		return conv.ID, nil
 	}
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return 0, fmt.Errorf("get conversation: %w", err)
 	}
 

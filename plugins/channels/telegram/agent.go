@@ -31,10 +31,7 @@ func (b *Bot) sendAgentPage(c tele.Context, agents []channel.IndexedAgent, page 
 	}
 
 	start := page * agentsPerPage
-	end := start + agentsPerPage
-	if end > len(agents) {
-		end = len(agents)
-	}
+	end := min(start+agentsPerPage, len(agents))
 
 	markup := &tele.ReplyMarkup{}
 	var rows []tele.Row

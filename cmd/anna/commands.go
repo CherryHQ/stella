@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,18 +14,22 @@ import (
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/embedded"
-	annamcp "github.com/vaayne/anna/internal/mcp"
+	"github.com/vaayne/anna/internal/notify"
+	"github.com/vaayne/anna/internal/pluginhost"
+	"github.com/vaayne/anna/internal/pluginstate"
 	"github.com/vaayne/anna/internal/scheduler"
+	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
-	pluginmemory "github.com/vaayne/anna/plugins/memory"
 	plugintools "github.com/vaayne/anna/plugins/tools"
+	mcpplugin "github.com/vaayne/anna/plugins/tools/mcp"
 )
 
 func newApp() *ucli.App {
@@ -46,18 +51,23 @@ func newApp() *ucli.App {
 }
 
 type setupResult struct {
-	ctx          context.Context
-	db           *sql.DB
-	mem          memory.Provider
-	snap         *config.Snapshot
-	store        config.Store
-	mcpManager   *annamcp.Manager
-	poolManager  *agent.PoolManager
-	pool         *agent.Pool // default agent's pool (backward compat)
-	schedulerSvc *scheduler.Service
-	extraTools   []tools.Tool
-	notifier     *channel.Dispatcher
-	cliUserID    int64 // resolved CLI user for session creation
+	ctx                    context.Context
+	db                     *sql.DB
+	mem                    memory.Provider
+	snap                   *config.Snapshot
+	store                  config.Store
+	pluginHost             *pluginhost.Host
+	channelRuntimeServices *pluginhost.ChannelPlatform
+	reflectRuntimeServices *pluginhost.ReflectPlatform
+	poolManager            *agent.PoolManager
+	pool                   *agent.Pool // default agent pool shared with CLI and channel entrypoints
+	schedulerSvc           *scheduler.Service
+	extraTools             []tools.Tool
+	notifier               *notify.Dispatcher
+	promptToolsBuilder     func(context.Context) ([]pkgplugins.PromptToolInfo, error)
+	promptSectionsBuilder  func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
+	toolLifecycle          *coreagent.ToolLifecycle
+	cliUserID              int64 // resolved CLI user for session creation
 }
 
 func setup(parent context.Context, gateway bool) (*setupResult, error) {
@@ -96,42 +106,54 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	ctx, cancel := context.WithCancel(parent)
 	_ = cancel // cancel is deferred via the caller's lifecycle
 
-	mcpManager := annamcp.NewManager()
-	annamcp.SetDefaultManager(mcpManager)
-	if mcpCfg, mcpEnabled, err := annamcp.LoadPluginState(parent, store); err == nil {
-		mcpManager.Reconcile(ctx, mcpCfg, mcpEnabled)
-	} else {
-		return nil, fmt.Errorf("load mcp plugin state: %w", err)
+	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
+	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
+	dispatcher := notify.NewDispatcher()
+	stateStore := pluginstate.New(db)
+	phost := pluginhost.New(store,
+		pluginhost.WithAuthService(pluginhost.NewAuthService(authStore)),
+		pluginhost.WithNotificationService(dispatcher),
+		pluginhost.WithStateStore(stateStore),
+		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
+		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
+	)
+	if err := phost.LoadDefaultCatalog(); err != nil {
+		return nil, fmt.Errorf("load plugin catalog: %w", err)
+	}
+	if err := phost.ApplyPlugin(ctx, mcpplugin.PluginID); err != nil {
+		return nil, fmt.Errorf("apply mcp runtime: %w", err)
 	}
 
-	// Create scheduler service and tool before the runner factory so the tool
-	// can be injected into the Go runner.
-	var schedulerSvc *scheduler.Service
+	// Create the shared scheduler service before runner construction so both
+	// plugin-owned jobs and the user-facing scheduler tool can use it.
+	schedulerSvc, err := scheduler.NewFromPath(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("create scheduler service: %w", err)
+	}
+	dataDir := snap.Scheduler.DataDir
+	if dataDir == "" {
+		dataDir = filepath.Join(snap.Workspace, "scheduler")
+	}
+	schedulerSvc.SetLegacyDataPath(dataDir)
+	schedulerSvc.SetUserJobsEnabled(snap.Scheduler.IsEnabled())
+	phost.SetSchedulerService(newSchedulerServiceAdapter(schedulerSvc, phost.Runtime()))
+
 	var sharedTools []tools.Tool
-	if snap.Scheduler.IsEnabled() || (gateway && snap.Heartbeat.IsEnabled()) {
-		schedulerSvc, err = scheduler.NewFromPath(dbPath)
-		if err != nil {
-			return nil, fmt.Errorf("create scheduler service: %w", err)
-		}
-		dataDir := snap.Scheduler.DataDir
-		if dataDir == "" {
-			dataDir = filepath.Join(snap.Workspace, "scheduler")
-		}
-		schedulerSvc.SetLegacyDataPath(dataDir)
-		if snap.Scheduler.IsEnabled() {
-			sharedTools = append(sharedTools, scheduler.NewTool(schedulerSvc))
-		}
+	if snap.Scheduler.IsEnabled() {
+		sharedTools = append(sharedTools, scheduler.NewTool(schedulerSvc))
 	}
 
-	// Notification dispatcher + tool.
-	dispatcher := channel.NewDispatcher()
-	// The notify tool is wired in gateway mode — channels register later.
-
-	// Build memory provider via plugin registry.
-	memProvider, err := pluginmemory.Build(parent, "lcm", pluginmemory.BuildContext{
-		DB:       db,
-		AnnaHome: config.AnnaHome(),
-	})
+	// Build memory provider through the plugin host so memory plugins use the same registration path.
+	memoryName := "lcm"
+	if plugins, err := store.ListPluginsByKind(parent, config.PluginKindMemory); err == nil {
+		for _, plugin := range plugins {
+			if plugin.Enabled {
+				memoryName = plugin.Name
+				break
+			}
+		}
+	}
+	memProvider, err := phost.BuildMemory(parent, memoryName, db, config.AnnaHome(), map[string]any{}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("memory plugin: %w", err)
 	}
@@ -154,21 +176,23 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Plugin tools builder: auto-discovers registered plugin tools and returns
 	// enabled ones. Called at startup and on hot-reload.
 	pluginToolsBuilder := func(ctx context.Context) []tools.Tool {
-		return plugintools.BuildEnabled(plugintools.BuildContext{}, func(name string) bool {
-			p, err := store.GetPlugin(ctx, config.PluginID(config.PluginKindTool, name))
-			return err == nil && p.Enabled
+		return phost.BuildEnabledTools(ctx, plugintools.BuildContext{})
+	}
+	coreToolsBuilder := func(bc plugintools.BuildContext) []tools.Tool {
+		return phost.BuildCoreTools(bc)
+	}
+	providerRegistryBuilder := func(api, apiKey, baseURL string) (*providers.Registry, error) {
+		return phost.BuildProviderRegistry(api, map[string]any{
+			"api_key":  apiKey,
+			"base_url": baseURL,
 		})
 	}
+	reflectRuntimeServices.Set(ctx, memProvider, store, snap.Workspace, providerRegistryBuilder)
 
 	// Plugin hooks builder: auto-discovers registered hook plugins and returns
 	// enabled ones. Called at startup and on hot-reload.
 	pluginHooksBuilder := func(ctx context.Context) []hooks.HookPlugin {
-		return pluginhooks.BuildEnabled(pluginhooks.BuildContext{
-			ToolsBinDir: embedded.BinDir(config.AnnaHome()),
-		}, func(name string) bool {
-			p, err := store.GetPlugin(ctx, config.PluginID(config.PluginKindHook, name))
-			return err == nil && p.Enabled
-		})
+		return phost.BuildEnabledHooks(ctx, pluginhooks.BuildContext{ToolsBinDir: embedded.BinDir(config.AnnaHome())})
 	}
 
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
@@ -177,6 +201,55 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// WithSharedExtraTools sets the always-on core tools (scheduler, memory).
 	// WithPluginToolsBuilder provides the function for hot-reloadable plugin tools.
 	// WithPluginHooksBuilder provides the function for hot-reloadable hook plugins.
+	toolLifecycle := &coreagent.ToolLifecycle{
+		BeforeCall: func(ctx context.Context, call coreagent.ToolCallContext) (coreagent.ToolCallMutation, error) {
+			result, err := phost.BeforeToolCall(ctx, pkgplugins.BeforeToolCallContext{
+				SessionID:  call.SessionID,
+				Channel:    call.Channel,
+				UserID:     call.UserID,
+				AgentID:    call.AgentID,
+				ToolName:   call.ToolName,
+				ToolCallID: call.ToolCallID,
+				Arguments:  call.Arguments,
+			})
+			if err != nil {
+				return coreagent.ToolCallMutation{}, err
+			}
+			return coreagent.ToolCallMutation{
+				Arguments:    result.Arguments,
+				Block:        result.Block,
+				BlockMessage: result.BlockMessage,
+			}, nil
+		},
+		AfterCall: func(ctx context.Context, result coreagent.ToolResultContext) (coreagent.ToolResultMutation, error) {
+			mutation, err := phost.AfterToolResult(ctx, pkgplugins.AfterToolResultContext{
+				SessionID:  result.SessionID,
+				Channel:    result.Channel,
+				UserID:     result.UserID,
+				AgentID:    result.AgentID,
+				ToolName:   result.ToolName,
+				ToolCallID: result.ToolCallID,
+				Arguments:  result.Arguments,
+				Result:     result.Result,
+				IsError:    result.IsError,
+				Duration:   result.Duration,
+			})
+			if err != nil {
+				return coreagent.ToolResultMutation{}, err
+			}
+			return coreagent.ToolResultMutation{
+				Result:  mutation.Result,
+				IsError: mutation.IsError,
+			}, nil
+		},
+	}
+	promptToolsBuilder := func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error) {
+		return phost.PromptTools(ctx, mcpplugin.PluginID)
+	}
+	promptSectionsBuilder := func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
+		return phost.SystemPromptSections(ctx, build)
+	}
+
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithIdleTimeoutPM(idleTimeout),
 		agent.WithCompactionPM(agent.CompactionConfig{
@@ -186,6 +259,14 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithSharedExtraTools(sharedTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
+		agent.WithCoreToolsBuilder(coreToolsBuilder),
+		agent.WithProviderRegistryBuilder(providerRegistryBuilder),
+		agent.WithPromptToolsBuilder(promptToolsBuilder),
+		agent.WithPromptSectionsBuilder(promptSectionsBuilder),
+		agent.WithBeforeRunBuilderPM(func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
+			return phost.BeforeRun(ctx, build)
+		}),
+		agent.WithToolLifecyclePM(toolLifecycle),
 	)
 
 	if err := poolMgr.StartAll(ctx); err != nil {
@@ -214,7 +295,10 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Wire the scheduler callback now that pool exists.
 	// Route to the correct pool via PoolManager when the job has an AgentID.
 	if schedulerSvc != nil {
-		schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) {
+		schedulerSvc.SetOnJob(func(ctx context.Context, job scheduler.Job) error {
+			if scheduler.IsPluginJob(job) {
+				return nil
+			}
 			targetPool := pool
 			if job.AgentID != "" {
 				if p := poolMgr.Get(job.AgentID); p != nil {
@@ -224,11 +308,14 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			sessionID := job.SessionID()
 			msg := fmt.Sprintf("[Scheduled Task] %s\n\nInstruction: %s", job.Name, job.Message)
 			ch := targetPool.Chat(ctx, sessionID, msg)
+			var runErr error
 			for evt := range ch {
 				if evt.Err != nil {
+					runErr = evt.Err
 					slog.Error("scheduler job error", "job_id", job.ID, "error", evt.Err)
 				}
 			}
+			return runErr
 		})
 	}
 
@@ -236,18 +323,23 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	var cliUserID int64
 
 	return &setupResult{
-		ctx:          ctx,
-		db:           db,
-		mem:          memProvider,
-		snap:         snap,
-		store:        store,
-		mcpManager:   mcpManager,
-		poolManager:  poolMgr,
-		pool:         pool,
-		schedulerSvc: schedulerSvc,
-		extraTools:   sharedTools,
-		notifier:     dispatcher,
-		cliUserID:    cliUserID,
+		ctx:                    ctx,
+		db:                     db,
+		mem:                    memProvider,
+		snap:                   snap,
+		store:                  store,
+		pluginHost:             phost,
+		channelRuntimeServices: channelRuntimeServices,
+		reflectRuntimeServices: reflectRuntimeServices,
+		poolManager:            poolMgr,
+		pool:                   pool,
+		schedulerSvc:           schedulerSvc,
+		extraTools:             sharedTools,
+		notifier:               dispatcher,
+		promptToolsBuilder:     promptToolsBuilder,
+		promptSectionsBuilder:  promptSectionsBuilder,
+		toolLifecycle:          toolLifecycle,
+		cliUserID:              cliUserID,
 	}, nil
 }
 
@@ -256,7 +348,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 // Each switch creates a new immutable snapshot so the factory closure captures
 // no shared mutable state — eliminating races between concurrent Chat calls and
 // model switches. Hooks are stored on the Pool independently and are not affected.
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool) func(string, string) error {
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool, coreToolsBuilder runner.CoreToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle) func(string, string) error {
 	return func(provider, model string) error {
 		// Shallow-copy the base snapshot so we never mutate shared state.
 		snap := *base
@@ -266,14 +358,12 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 		// Fetch fresh provider credentials and record them in the copy's map.
 		if p, err := store.GetProvider(context.Background(), provider); err == nil {
 			providers := make(map[string]config.ProviderCreds, len(base.Providers)+1)
-			for k, v := range base.Providers {
-				providers[k] = v
-			}
+			maps.Copy(providers, base.Providers)
 			providers[provider] = config.ProviderCreds{APIKey: p.APIKey, BaseURL: p.BaseURL}
 			snap.Providers = providers
 		}
 
-		factory, err := agent.NewRunnerFactory(&snap, extraTools)
+		factory, err := agent.NewRunnerFactory(&snap, extraTools, coreToolsBuilder, providerRegistryBuilder, promptToolsFn, promptSectionsFn, toolLifecycle)
 		if err != nil {
 			return err
 		}

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"text/template"
 
-	annamcp "github.com/vaayne/anna/internal/mcp"
 	"github.com/vaayne/anna/pkg/memory"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 //go:embed template/system_prompt.tmpl
@@ -40,24 +40,32 @@ type contextFile struct {
 
 // promptData holds all pre-computed data for the system prompt template.
 type promptData struct {
-	SystemPrompt string             // agent's base system prompt from DB
-	AgentSoul    string             // per-user agent soul from ProfileStore
-	UserProfile  string             // per-user profile from ProfileStore
-	Skills       []Skill            // visible skills (non-deprecated, invocable)
-	MCPTools     []annamcp.ToolInfo // valid MCP tools when MCP plugin is enabled
-	ContextFiles []contextFile      // AGENTS.md files (root → leaf)
+	SystemPrompt   string            // agent's base system prompt from DB
+	AgentSoul      string            // per-user agent soul from ProfileStore
+	UserProfile    string            // per-user profile from ProfileStore
+	MCPTools       []promptToolEntry // prompt inventory for MCP-discovered tools
+	PromptSections []pkgplugins.SystemPromptSection
+	ContextFiles   []contextFile // AGENTS.md files (root → leaf)
+}
+
+type promptToolEntry struct {
+	ID          string
+	Description string
+	ServerName  string
 }
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
 type DBPromptParams struct {
-	SystemPrompt  string          // agent's full system prompt from DB (the base layer)
-	Memory        memory.Provider // active provider for profile loading (may be nil)
-	UserID        int64           // auth user ID for profile lookup
-	AgentID       string          // agent ID for profile lookup
-	AnnaHome      string
-	Workspace     string
-	Cwd           string // optional working directory
-	UserSkillsDir string // optional per-user skills directory
+	SystemPrompt   string          // agent's full system prompt from DB (the base layer)
+	Memory         memory.Provider // active provider for profile loading (may be nil)
+	UserID         int64           // auth user ID for profile lookup
+	AgentID        string          // agent ID for profile lookup
+	AnnaHome       string
+	Workspace      string
+	Cwd            string // optional working directory
+	UserDataDir    string // optional per-user data directory
+	PromptTools    []pkgplugins.PromptToolInfo
+	PromptSections []pkgplugins.SystemPromptSection
 }
 
 // BuildSystemPromptFromDB composes the full system prompt by populating a
@@ -68,7 +76,7 @@ type DBPromptParams struct {
 //  2. Tools — always-available tool descriptions (in the template)
 //  3. Agent soul — per-user identity/personality from memory ProfileStore
 //  4. User profile — per-user facts/context from memory ProfileStore
-//  5. Skills — discovered skills with draft guidance
+//  5. Extension prompt sections — stable prompt content owned by plugins
 //  6. Project context — AGENTS.md files from cwd ancestors
 func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	sysPrompt := strings.TrimSpace(p.SystemPrompt)
@@ -93,13 +101,16 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 		}
 	}
 
-	// Skills.
-	data.Skills = VisibleSkills(LoadSkills(p.AnnaHome, p.Workspace, p.Cwd, p.UserSkillsDir))
-
-	// MCP tools.
-	if mgr := annamcp.DefaultManager(); mgr != nil && mgr.Enabled() {
-		data.MCPTools = mgr.ValidTools()
+	// MCP prompt inventory.
+	for _, tool := range p.PromptTools {
+		entry := promptToolEntry{ID: tool.Name, Description: tool.Description}
+		if serverName, _ := tool.Metadata["server_name"].(string); serverName != "" {
+			entry.ServerName = serverName
+		}
+		data.MCPTools = append(data.MCPTools, entry)
 	}
+
+	data.PromptSections = append(data.PromptSections, p.PromptSections...)
 
 	// Project context.
 	data.ContextFiles = loadProjectContextFiles(p.Cwd)
@@ -168,4 +179,13 @@ func resolveFile(dir, name string) string {
 		}
 	}
 	return ""
+}
+
+func escapeXML(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, `"`, "&quot;")
+	s = strings.ReplaceAll(s, "'", "&apos;")
+	return s
 }

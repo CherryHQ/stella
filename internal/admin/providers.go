@@ -7,7 +7,6 @@ import (
 
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/pkg/providers"
-	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
@@ -119,8 +118,11 @@ func (s *Server) fetchProviderModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider := newProviderFromCreds(id, body.APIKey, body.BaseURL)
-	if provider == nil {
+	provider, err := s.pluginHost.BuildProvider(id, map[string]any{
+		"api_key":  body.APIKey,
+		"base_url": body.BaseURL,
+	})
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "unknown provider: "+id)
 		return
 	}
@@ -184,24 +186,13 @@ func (s *Server) listProviderTypes(w http.ResponseWriter, r *http.Request) {
 		DefaultURL string `json:"default_url"`
 	}
 
-	metas := pluginproviders.Metas()
-	types := make([]providerType, 0, len(metas))
-	for _, name := range pluginproviders.Names() {
-		m := metas[name]
+	types := make([]providerType, 0)
+	for _, provider := range s.pluginHost.ListProviderTypes() {
 		types = append(types, providerType{
-			ID:         name,
-			Name:       m.Name,
-			DefaultURL: m.DefaultURL,
+			ID:         provider.ID,
+			Name:       provider.Name,
+			DefaultURL: provider.DefaultURL,
 		})
 	}
 	writeData(w, http.StatusOK, types)
-}
-
-// newProviderFromCreds creates a providers.ProviderAdapter from raw credentials.
-func newProviderFromCreds(name, apiKey, baseURL string) providers.ProviderAdapter {
-	p, err := pluginproviders.Build(name, pluginproviders.ProviderConfig{APIKey: apiKey, BaseURL: baseURL})
-	if err != nil {
-		return nil
-	}
-	return p
 }

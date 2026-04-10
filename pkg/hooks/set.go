@@ -113,7 +113,7 @@ func (hs *HookSet) RunPreToolCall(ctx context.Context, hctx *PreToolCallContext)
 		}
 		if result.Block {
 			final.Block = true
-			final.BlockMsg = result.BlockMsg
+			final.BlockMessage = result.BlockMessage
 			return final, nil
 		}
 	}

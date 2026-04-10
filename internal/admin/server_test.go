@@ -15,16 +15,28 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
-	annamcp "github.com/vaayne/anna/internal/mcp"
-	pluginmemory "github.com/vaayne/anna/plugins/memory"
-	_ "github.com/vaayne/anna/plugins/memory/lcm"
+	"github.com/vaayne/anna/internal/notify"
+	"github.com/vaayne/anna/internal/pluginhost"
+	"github.com/vaayne/anna/internal/pluginstate"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/providers"
+	_ "github.com/vaayne/anna/plugins/channels/feishu"
+	_ "github.com/vaayne/anna/plugins/channels/qq"
+	telegramplugin "github.com/vaayne/anna/plugins/channels/telegram"
+	_ "github.com/vaayne/anna/plugins/channels/weixin"
+	lcmmemory "github.com/vaayne/anna/plugins/memory/lcm"
+	reflectplugin "github.com/vaayne/anna/plugins/reflect"
+	mcp "github.com/vaayne/anna/plugins/tools/mcp"
 )
 
 type testEnv struct {
-	srv       *admin.Server
-	authStore auth.AuthStore
-	adminUser auth.AuthUser
-	sessionID string
+	srv        *admin.Server
+	store      config.Store
+	pluginHost *pluginhost.Host
+	authStore  auth.AuthStore
+	adminUser  auth.AuthUser
+	sessionID  string
 }
 
 func setupAdmin(t *testing.T) *testEnv {
@@ -51,11 +63,46 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("NewEngine: %v", err)
 	}
 
-	mem, err := pluginmemory.Build(context.Background(), "lcm", pluginmemory.BuildContext{DB: db})
+	mem, err := lcmmemory.New(db, nil, nil)
 	if err != nil {
 		t.Fatalf("Build lcm provider: %v", err)
 	}
-	srv := admin.New(store, as, engine, mem, db, auth.NewLinkCodeStore(), nil)
+	dispatcher := notify.NewDispatcher()
+	stateStore := pluginstate.New(db)
+	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
+	channelRuntimeServices.Set(context.Background(), testChannelHandler{}, dispatcher)
+	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
+	reflectRuntimeServices.Set(context.Background(), mem, store, t.TempDir(), func(api, apiKey, baseURL string) (*providers.Registry, error) {
+		return providers.NewRegistry(), nil
+	})
+	phost := pluginhost.New(store,
+		pluginhost.WithAuthService(pluginhost.NewAuthService(as)),
+		pluginhost.WithNotificationService(dispatcher),
+		pluginhost.WithStateStore(stateStore),
+		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
+		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
+	)
+	if err := phost.LoadDefaultCatalog(); err != nil {
+		t.Fatalf("LoadDefaultCatalog: %v", err)
+	}
+	if err := phost.ApplyPlugin(context.Background(), mcp.PluginID); err != nil {
+		t.Fatalf("ApplyPlugin(mcp): %v", err)
+	}
+	resetTelegramRuntime := telegramplugin.SetRuntimeFactoryForTesting(func(pkgplugins.Platform) (pkgplugins.Runtime, error) {
+		return telegramplugin.NewManagedRuntime(telegramplugin.RuntimeDeps{
+			Parent:        context.Background(),
+			Handler:       testChannelHandler{},
+			Notifications: dispatcher,
+			NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
+				return newTestChannel(pkgchannel.PlatformTelegram), nil
+			},
+		}), nil
+	})
+	t.Cleanup(resetTelegramRuntime)
+	if err := phost.ApplyPlugin(context.Background(), reflectplugin.PluginID); err != nil {
+		t.Fatalf("ApplyPlugin(reflect): %v", err)
+	}
+	srv := admin.New(store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
 
 	// Create an admin user for authenticated requests.
 	hash, _ := auth.HashPassword("testpassword")
@@ -76,11 +123,23 @@ func setupAdmin(t *testing.T) *testEnv {
 	}
 
 	return &testEnv{
-		srv:       srv,
-		authStore: as,
-		adminUser: user,
-		sessionID: sessionID,
+		srv:        srv,
+		store:      store,
+		pluginHost: phost,
+		authStore:  as,
+		adminUser:  user,
+		sessionID:  sessionID,
 	}
+}
+
+func TestNewPanicsWithoutPluginHost(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic")
+		}
+	}()
+
+	_ = admin.New(nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func doRequest(t *testing.T, env *testEnv, method, path string, body any) *httptest.ResponseRecorder {
@@ -125,6 +184,34 @@ func parseResponse(t *testing.T, rr *httptest.ResponseRecorder) apiResponse {
 		t.Fatalf("decode response: %v (body: %s)", err, rr.Body.String())
 	}
 	return resp
+}
+
+type testChannel struct {
+	name string
+}
+
+func newTestChannel(name string) *testChannel { return &testChannel{name: name} }
+
+func (c *testChannel) Name() string { return c.name }
+func (c *testChannel) Start(ctx context.Context) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (c *testChannel) Stop()                                                       {}
+func (c *testChannel) Notify(ctx context.Context, n pkgchannel.Notification) error { return nil }
+
+type testChannelHandler struct{}
+
+func (testChannelHandler) HandleIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
+	return "", false, nil, nil
+}
+func (testChannelHandler) ListModels() []pkgchannel.ModelOption     { return nil }
+func (testChannelHandler) SwitchModel(provider, model string) error { return nil }
+func (testChannelHandler) ListAgents(ctx context.Context, msg pkgchannel.IncomingMessage) ([]pkgchannel.AgentInfo, string, error) {
+	return nil, "", nil
+}
+func (testChannelHandler) SwitchAgent(ctx context.Context, msg pkgchannel.IncomingMessage, agentSlug string) error {
+	return nil
 }
 
 func TestListProviders(t *testing.T) {
@@ -207,7 +294,7 @@ func TestUpdateMCPPluginConfig(t *testing.T) {
 				map[string]any{
 					"name":      "github",
 					"enabled":   true,
-					"transport": annamcp.TransportStdio,
+					"transport": mcp.TransportStdio,
 					"command":   "npx",
 				},
 			},
@@ -223,7 +310,7 @@ func TestUpdateMCPPluginConfig(t *testing.T) {
 	if err := json.Unmarshal(resp.Data, &plugin); err != nil {
 		t.Fatalf("unmarshal plugin: %v", err)
 	}
-	if plugin.ID != config.PluginID(config.PluginKindTool, annamcp.PluginName) {
+	if plugin.ID != mcp.PluginID {
 		t.Fatalf("plugin.ID = %q", plugin.ID)
 	}
 	servers, ok := plugin.Config["servers"].([]any)
@@ -237,7 +324,7 @@ func TestUpdateMCPPluginConfigRejectsInvalidConfig(t *testing.T) {
 	body := map[string]any{
 		"config": map[string]any{
 			"servers": []any{
-				map[string]any{"name": "bad", "transport": annamcp.TransportStdio},
+				map[string]any{"name": "bad", "transport": mcp.TransportStdio},
 			},
 		},
 	}
@@ -249,14 +336,18 @@ func TestUpdateMCPPluginConfigRejectsInvalidConfig(t *testing.T) {
 
 func TestGetMCPPluginStatus(t *testing.T) {
 	env := setupAdmin(t)
-	env.srv.SetMCPLifecycle(nil, nil, nil, func() any {
-		return []annamcp.ServerStatus{{
-			Name:                "github",
-			Transport:           annamcp.TransportStdio,
-			State:               "running",
-			DiscoveredToolCount: 2,
-		}}
-	})
+	if err := env.store.SetPluginEnabled(context.Background(), mcp.PluginID, true); err != nil {
+		t.Fatalf("SetPluginEnabled: %v", err)
+	}
+	if err := env.store.SetPluginConfig(context.Background(), mcp.PluginID, map[string]any{"servers": []any{}}); err != nil {
+		t.Fatalf("SetPluginConfig: %v", err)
+	}
+	if err := env.pluginHost.ApplyPlugin(context.Background(), mcp.PluginID); err != nil {
+		t.Fatalf("ApplyPlugin: %v", err)
+	}
+	if _, ok := mcp.LookupRuntime(env.pluginHost.Runtime()); !ok {
+		t.Fatal("expected mcp runtime")
+	}
 
 	rr := doRequest(t, env, "GET", "/api/plugin-status/tool/mcp", nil)
 	if rr.Code != http.StatusOK {
@@ -265,16 +356,454 @@ func TestGetMCPPluginStatus(t *testing.T) {
 
 	resp := parseResponse(t, rr)
 	var payload struct {
-		Servers []annamcp.ServerStatus `json:"servers"`
+		Servers []mcp.ServerStatus `json:"servers"`
 	}
 	if err := json.Unmarshal(resp.Data, &payload); err != nil {
 		t.Fatalf("unmarshal status payload: %v", err)
 	}
-	if len(payload.Servers) != 1 {
-		t.Fatalf("len(payload.Servers) = %d, want 1", len(payload.Servers))
+	if len(payload.Servers) != 0 {
+		t.Fatalf("len(payload.Servers) = %d, want 0", len(payload.Servers))
 	}
-	if payload.Servers[0].Name != "github" || payload.Servers[0].DiscoveredToolCount != 2 {
-		t.Fatalf("unexpected server status: %+v", payload.Servers[0])
+}
+
+func TestGetMCPPluginConfigSchema(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "GET", "/api/plugin-config-schema/tool/mcp", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	resp := parseResponse(t, rr)
+	var schema map[string]any
+	if err := json.Unmarshal(resp.Data, &schema); err != nil {
+		t.Fatalf("unmarshal schema: %v", err)
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema properties = %#v", schema["properties"])
+	}
+	if _, ok := props["servers"]; !ok {
+		t.Fatalf("expected servers property in schema: %#v", schema)
+	}
+}
+
+func TestGetTelegramPluginConfigSchema(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "GET", "/api/plugin-config-schema/channel/telegram", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	resp := parseResponse(t, rr)
+	var schema map[string]any
+	if err := json.Unmarshal(resp.Data, &schema); err != nil {
+		t.Fatalf("unmarshal schema: %v", err)
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema properties = %#v", schema["properties"])
+	}
+	if _, ok := props["token"]; !ok {
+		t.Fatalf("expected token property in schema: %#v", schema)
+	}
+}
+
+func TestGetAdditionalPluginConfigSchemas(t *testing.T) {
+	env := setupAdmin(t)
+
+	tests := []struct {
+		path         string
+		propertyName string
+	}{
+		{path: "/api/plugin-config-schema/channel/qq", propertyName: "app_id"},
+		{path: "/api/plugin-config-schema/channel/feishu", propertyName: "app_id"},
+		{path: "/api/plugin-config-schema/channel/weixin", propertyName: "bot_token"},
+		{path: "/api/plugin-config-schema/reflect/reflect", propertyName: "interval"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			rr := doRequest(t, env, "GET", tt.path, nil)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+			}
+
+			resp := parseResponse(t, rr)
+			var schema map[string]any
+			if err := json.Unmarshal(resp.Data, &schema); err != nil {
+				t.Fatalf("unmarshal schema: %v", err)
+			}
+			props, ok := schema["properties"].(map[string]any)
+			if !ok {
+				t.Fatalf("schema properties = %#v", schema["properties"])
+			}
+			if _, ok := props[tt.propertyName]; !ok {
+				t.Fatalf("expected %q property in schema: %#v", tt.propertyName, schema)
+			}
+		})
+	}
+}
+
+func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
+	env := setupAdmin(t)
+
+	if err := env.store.SetPluginConfig(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram), map[string]any{
+		"token":         "telegram-secret",
+		"group_mode":    "mention",
+		"enable_notify": true,
+	}); err != nil {
+		t.Fatalf("SetPluginConfig(telegram): %v", err)
+	}
+
+	rr := doRequest(t, env, "GET", "/api/plugins", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	resp := parseResponse(t, rr)
+	type pluginListItem struct {
+		ID                    string         `json:"id"`
+		Kind                  string         `json:"kind"`
+		Enabled               bool           `json:"enabled"`
+		Config                map[string]any `json:"config"`
+		DisplayName           string         `json:"display_name"`
+		Description           string         `json:"description"`
+		Managed               bool           `json:"managed"`
+		AdminVisible          bool           `json:"admin_visible"`
+		HasConfig             bool           `json:"has_config"`
+		HasStatus             bool           `json:"has_status"`
+		Capabilities          []string       `json:"capabilities"`
+		SupportsNotifications bool           `json:"supports_notifications"`
+	}
+	var plugins []pluginListItem
+	if err := json.Unmarshal(resp.Data, &plugins); err != nil {
+		t.Fatalf("unmarshal plugins: %v", err)
+	}
+
+	byID := map[string]pluginListItem{}
+	for _, plugin := range plugins {
+		byID[plugin.ID] = plugin
+	}
+
+	telegram := byID[config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram)]
+	if telegram.DisplayName != "Telegram" || !telegram.Managed || !telegram.AdminVisible || !telegram.HasConfig || !telegram.HasStatus || !telegram.SupportsNotifications {
+		t.Fatalf("unexpected telegram plugin payload: %#v", telegram)
+	}
+	if telegram.Description != "Telegram bot integration." {
+		t.Fatalf("telegram description = %q, want %q", telegram.Description, "Telegram bot integration.")
+	}
+	if telegram.Config["token"] != "***" {
+		t.Fatalf("expected redacted telegram token, got %#v", telegram.Config["token"])
+	}
+
+	qq := byID[config.PluginID(config.PluginKindChannel, pkgchannel.PlatformQQ)]
+	if qq.DisplayName != "QQ" || !qq.SupportsNotifications {
+		t.Fatalf("unexpected qq plugin payload: %#v", qq)
+	}
+
+	reflect := byID[reflectplugin.PluginID]
+	if reflect.DisplayName != "Reflect" || !reflect.Managed || !reflect.HasConfig || !reflect.HasStatus {
+		t.Fatalf("unexpected reflect plugin payload: %#v", reflect)
+	}
+	if reflect.Description == "" {
+		t.Fatalf("expected reflect description in payload: %#v", reflect)
+	}
+}
+
+func TestGetPluginConfigReturnsRawConfig(t *testing.T) {
+	env := setupAdmin(t)
+
+	if err := env.store.SetPluginConfig(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram), map[string]any{
+		"token":         "telegram-secret",
+		"group_mode":    "mention",
+		"enable_notify": true,
+	}); err != nil {
+		t.Fatalf("SetPluginConfig(telegram): %v", err)
+	}
+
+	rr := doRequest(t, env, "GET", "/api/plugin-config/channel/telegram", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	resp := parseResponse(t, rr)
+	var cfg map[string]any
+	if err := json.Unmarshal(resp.Data, &cfg); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	if cfg["token"] != "telegram-secret" {
+		t.Fatalf("token = %#v, want %q", cfg["token"], "telegram-secret")
+	}
+	if cfg["group_mode"] != "mention" {
+		t.Fatalf("group_mode = %#v, want %q", cfg["group_mode"], "mention")
+	}
+}
+
+func TestReflectPluginConfigAndStatus(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "PUT", "/api/plugin-config/reflect/reflect", map[string]any{
+		"config": map[string]any{"interval": "30m", "batch": 3},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("config status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "PATCH", "/api/plugins/reflect", map[string]any{"enabled": true})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("toggle status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/reflect/reflect", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var payload struct {
+		State    string         `json:"state"`
+		Message  string         `json:"message"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal reflect status: %v", err)
+	}
+	if payload.State != "running" {
+		t.Fatalf("reflect state = %q, want running", payload.State)
+	}
+	if payload.Metadata["interval"] != "30m0s" {
+		t.Fatalf("interval metadata = %#v, want %q", payload.Metadata["interval"], "30m0s")
+	}
+	if payload.Metadata["batch"] != float64(3) {
+		t.Fatalf("batch metadata = %#v, want 3", payload.Metadata["batch"])
+	}
+
+	rr = doRequest(t, env, "PATCH", "/api/plugins/reflect", map[string]any{"enabled": false})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	var plugin config.Plugin
+	if err := json.Unmarshal(resp.Data, &plugin); err != nil {
+		t.Fatalf("unmarshal plugin: %v", err)
+	}
+	if plugin.ID != reflectplugin.PluginID || plugin.Enabled {
+		t.Fatalf("unexpected plugin payload: %#v", plugin)
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/reflect/reflect", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal reflect status after disable: %v", err)
+	}
+	if payload.State != "stopped" {
+		t.Fatalf("reflect state after disable = %q, want stopped", payload.State)
+	}
+}
+
+func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "PUT", "/api/channels/telegram", map[string]any{
+		"enabled": true,
+		"config":  `{"token":"tg-token","enable_notify":true,"group_mode":"mention"}`,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/telegram", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var payload struct {
+		State    string         `json:"state"`
+		Message  string         `json:"message"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal telegram status: %v", err)
+	}
+	if payload.State != "running" {
+		t.Fatalf("telegram state = %q, want running", payload.State)
+	}
+	if payload.Metadata["notify_enabled"] != true {
+		t.Fatalf("notify_enabled = %#v, want true", payload.Metadata["notify_enabled"])
+	}
+
+	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/telegram", map[string]any{"enabled": false})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/telegram", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal telegram status after disable: %v", err)
+	}
+	if payload.State != "stopped" {
+		t.Fatalf("telegram state after disable = %q, want stopped", payload.State)
+	}
+}
+
+func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "PUT", "/api/channels/qq", map[string]any{
+		"enabled": true,
+		"config":  `{"app_id":"qq-app","app_secret":"qq-secret","enable_notify":true,"group_mode":"mention"}`,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/qq", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var payload struct {
+		State    string         `json:"state"`
+		Message  string         `json:"message"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal qq status: %v", err)
+	}
+	if payload.State != "running" {
+		t.Fatalf("qq state = %q, want running", payload.State)
+	}
+	if payload.Metadata["notify_enabled"] != true {
+		t.Fatalf("notify_enabled = %#v, want true", payload.Metadata["notify_enabled"])
+	}
+
+	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/qq", map[string]any{"enabled": false})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/qq", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal qq status after disable: %v", err)
+	}
+	if payload.State != "stopped" {
+		t.Fatalf("qq state after disable = %q, want stopped", payload.State)
+	}
+}
+
+func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "PUT", "/api/channels/feishu", map[string]any{
+		"enabled": true,
+		"config":  `{"app_id":"fs-app","app_secret":"fs-secret","encrypt_key":"enc","verification_token":"verify","enable_notify":true,"group_mode":"mention","groups":{"oc_123":{"group_mode":"always","system_prompt":"be brief"}}}`,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/feishu", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var payload struct {
+		State    string         `json:"state"`
+		Message  string         `json:"message"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal feishu status: %v", err)
+	}
+	if payload.State != "running" {
+		t.Fatalf("feishu state = %q, want running", payload.State)
+	}
+	if payload.Metadata["notify_enabled"] != true {
+		t.Fatalf("notify_enabled = %#v, want true", payload.Metadata["notify_enabled"])
+	}
+	if payload.Metadata["group_count"] != float64(1) {
+		t.Fatalf("group_count = %#v, want 1", payload.Metadata["group_count"])
+	}
+
+	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/feishu", map[string]any{"enabled": false})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/feishu", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal feishu status after disable: %v", err)
+	}
+	if payload.State != "stopped" {
+		t.Fatalf("feishu state after disable = %q, want stopped", payload.State)
+	}
+}
+
+func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "PUT", "/api/channels/weixin", map[string]any{
+		"enabled": true,
+		"config":  `{"bot_token":"wx-token","base_url":"https://wx.example","bot_id":"bot-1","user_id":"user-1","enable_notify":true}`,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/weixin", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var payload struct {
+		State    string         `json:"state"`
+		Message  string         `json:"message"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal weixin status: %v", err)
+	}
+	if payload.State != "running" {
+		t.Fatalf("weixin state = %q, want running", payload.State)
+	}
+	if payload.Metadata["notify_enabled"] != true {
+		t.Fatalf("notify_enabled = %#v, want true", payload.Metadata["notify_enabled"])
+	}
+	if payload.Metadata["has_bot_identity"] != true {
+		t.Fatalf("has_bot_identity = %#v, want true", payload.Metadata["has_bot_identity"])
+	}
+
+	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/weixin", map[string]any{"enabled": false})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "GET", "/api/plugin-status/channel/weixin", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status after disable = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	if err := json.Unmarshal(resp.Data, &payload); err != nil {
+		t.Fatalf("unmarshal weixin status after disable: %v", err)
+	}
+	if payload.State != "stopped" {
+		t.Fatalf("weixin state after disable = %q, want stopped", payload.State)
 	}
 }
 

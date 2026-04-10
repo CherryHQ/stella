@@ -4,11 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
-	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 )
 
 // DBStore implements Store using sqlc queries backed by SQLite.
@@ -313,7 +314,7 @@ func (s *DBStore) DeleteChatAgent(ctx context.Context, platform, chatID string) 
 func (s *DBStore) GetSetting(ctx context.Context, key string) (string, error) {
 	r, err := s.q.GetSetting(ctx, key)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return "", nil
 		}
 		return "", fmt.Errorf("get setting %q: %w", key, err)

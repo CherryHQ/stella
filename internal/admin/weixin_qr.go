@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/plugins/channels/weixin"
 )
 
@@ -66,11 +66,11 @@ func (s *Server) pollWeixinQRStatus(w http.ResponseWriter, r *http.Request) {
 			externalID = status.ILinkBotID
 		}
 		if externalID != "" && s.authStore != nil {
-			if _, err := s.authStore.GetIdentityByPlatform(r.Context(), channel.PlatformWeixin, externalID); err != nil {
+			if _, err := s.authStore.GetIdentityByPlatform(r.Context(), pkgchannel.PlatformWeixin, externalID); err != nil {
 				// Identity doesn't exist yet — create it.
 				if _, err := s.authStore.CreateIdentity(r.Context(), auth.Identity{
 					UserID:     info.UserID,
-					Platform:   channel.PlatformWeixin,
+					Platform:   pkgchannel.PlatformWeixin,
 					ExternalID: externalID,
 				}); err != nil {
 					s.log.Warn("create weixin identity", "user_id", info.UserID, "error", err)
@@ -85,15 +85,18 @@ func (s *Server) pollWeixinQRStatus(w http.ResponseWriter, r *http.Request) {
 // saveWeixinCredentials merges iLink credentials into the existing weixin
 // plugin config in the DB.
 func (s *Server) saveWeixinCredentials(ctx context.Context, status *weixin.QRCodeStatusResponse) error {
-	pluginID := config.PluginID(config.PluginKindChannel, channel.PlatformWeixin)
+	pluginID := config.PluginID(config.PluginKindChannel, pkgchannel.PlatformWeixin)
 	p, err := s.store.GetPlugin(ctx, pluginID)
 	if err != nil {
 		p = config.Plugin{
 			ID:      pluginID,
 			Kind:    config.PluginKindChannel,
-			Name:    channel.PlatformWeixin,
+			Name:    pkgchannel.PlatformWeixin,
 			Enabled: true,
 			Config:  make(map[string]any),
+		}
+		if err := s.store.UpsertPlugin(ctx, p); err != nil {
+			return err
 		}
 	}
 	if p.Config == nil {
@@ -104,6 +107,19 @@ func (s *Server) saveWeixinCredentials(ctx context.Context, status *weixin.QRCod
 	p.Config["base_url"] = status.BaseURL
 	p.Config["bot_id"] = status.ILinkBotID
 	p.Config["user_id"] = status.ILinkUserID
+
+	if s.pluginHost != nil {
+		if err := s.pluginHost.ValidateConfig(pluginID, p.Config); err != nil {
+			return err
+		}
+		if err := s.pluginHost.Config().Set(ctx, pluginID, p.Config); err != nil {
+			return err
+		}
+		if err := s.pluginHost.ApplyPlugin(ctx, pluginID); err != nil {
+			s.log.Error("failed to apply plugin runtime", "plugin", pluginID, "error", err)
+		}
+		return nil
+	}
 
 	return s.store.UpsertPlugin(ctx, p)
 }

@@ -6,8 +6,11 @@ import (
 	"syscall"
 
 	ucli "github.com/urfave/cli/v2"
-	"github.com/vaayne/anna/internal/channel"
-	clicmd "github.com/vaayne/anna/internal/channel/cli"
+	clicmd "github.com/vaayne/anna/internal/chatcli"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	"github.com/vaayne/anna/pkg/providers"
+	"github.com/vaayne/anna/pkg/tools"
+	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
 func chatCommand() *ucli.Command {
@@ -67,10 +70,27 @@ func chatCommand() *ucli.Command {
 			if c.Bool("stream") {
 				return clicmd.RunStream(s.ctx, pool, s.cliUserID)
 			}
-			listFn := func() []channel.ModelOption {
+			listFn := func() []pkgchannel.ModelOption {
 				return collectModelsFromStore(s.ctx, s.store, snap)
 			}
-			switchFn := modelSwitcher(snap, s.store, pool, s.extraTools)
+			switchFn := modelSwitcher(
+				snap,
+				s.store,
+				pool,
+				s.extraTools,
+				func(bc plugintools.BuildContext) []tools.Tool {
+					return s.pluginHost.BuildCoreTools(bc)
+				},
+				func(api, apiKey, baseURL string) (*providers.Registry, error) {
+					return s.pluginHost.BuildProviderRegistry(api, map[string]any{
+						"api_key":  apiKey,
+						"base_url": baseURL,
+					})
+				},
+				s.promptToolsBuilder,
+				s.promptSectionsBuilder,
+				s.toolLifecycle,
+			)
 			return clicmd.RunChat(s.ctx, pool, snap.Provider, snap.Model, listFn, switchFn, s.cliUserID)
 		},
 	}

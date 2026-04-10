@@ -1,6 +1,11 @@
 -- name: CreateSchedulerJob :one
-INSERT INTO sched_jobs (id, name, schedule_cron, schedule_every, schedule_at, message, session_mode, enabled, agent_id, user_id, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO sched_jobs (
+    id, owner_kind, plugin_id, job_key, runtime_name,
+    name, description, schedule_cron, schedule_every, schedule_at,
+    message, payload, session_mode, enabled, agent_id, user_id,
+    created_at, updated_at, last_run_at, last_error
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: ListSchedulerJobs :many
@@ -11,8 +16,15 @@ SELECT * FROM sched_jobs WHERE id = ?;
 
 -- name: UpdateSchedulerJob :exec
 UPDATE sched_jobs
-SET name = ?, schedule_cron = ?, schedule_every = ?, schedule_at = ?,
-    message = ?, session_mode = ?, enabled = ?, agent_id = ?, user_id = ?
+SET owner_kind = ?, plugin_id = ?, job_key = ?, runtime_name = ?,
+    name = ?, description = ?, schedule_cron = ?, schedule_every = ?, schedule_at = ?,
+    message = ?, payload = ?, session_mode = ?, enabled = ?, agent_id = ?, user_id = ?,
+    updated_at = ?, last_run_at = ?, last_error = ?
+WHERE id = ?;
+
+-- name: RecordSchedulerJobRun :exec
+UPDATE sched_jobs
+SET last_run_at = ?, last_error = ?, updated_at = ?
 WHERE id = ?;
 
 -- name: DeleteSchedulerJob :exec

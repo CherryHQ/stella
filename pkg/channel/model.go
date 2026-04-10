@@ -72,3 +72,18 @@ func FormatModelList(models []IndexedModel, query string) string {
 	sb.WriteString("\nUse /model <provider/model> to switch.")
 	return sb.String()
 }
+
+// FormatNumberedModelList builds a text-based model list with numbered entries.
+func FormatNumberedModelList(models []IndexedModel, query string) string {
+	var sb strings.Builder
+	sb.WriteString("Available models")
+	if query != "" {
+		fmt.Fprintf(&sb, " (filter: %q)", query)
+	}
+	sb.WriteString(":\n\n")
+	for _, m := range models {
+		fmt.Fprintf(&sb, "%d. %s/%s\n", m.GlobalIdx, m.Provider, m.Model)
+	}
+	sb.WriteString("\nUse /model <number> to switch.")
+	return sb.String()
+}

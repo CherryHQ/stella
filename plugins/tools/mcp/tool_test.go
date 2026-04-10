@@ -7,55 +7,12 @@ import (
 	"time"
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	annamcp "github.com/vaayne/anna/internal/mcp"
 )
 
-type fakeSession struct {
-	tools      []*officialmcp.Tool
-	callResult *officialmcp.CallToolResult
-	waitCh     chan error
-}
-
-func newFakeSession(tools ...*officialmcp.Tool) *fakeSession {
-	return &fakeSession{tools: tools, waitCh: make(chan error, 1)}
-}
-
-func (s *fakeSession) Close() error {
-	select {
-	case s.waitCh <- context.Canceled:
-	default:
-	}
-	return nil
-}
-
-func (s *fakeSession) Wait() error {
-	return <-s.waitCh
-}
-
-func (s *fakeSession) ListTools(context.Context, *officialmcp.ListToolsParams) (*officialmcp.ListToolsResult, error) {
-	return &officialmcp.ListToolsResult{Tools: s.tools}, nil
-}
-
-func (s *fakeSession) CallTool(context.Context, *officialmcp.CallToolParams) (*officialmcp.CallToolResult, error) {
-	return s.callResult, nil
-}
-
-func waitFor(t *testing.T, timeout time.Duration, fn func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if fn() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("condition not met before timeout")
-}
-
 func TestToolListAndGet(t *testing.T) {
-	mgr := annamcp.NewManager()
-	mgr.Configure(annamcp.Config{Servers: []annamcp.ServerConfig{{Name: "github", Enabled: true, Transport: annamcp.TransportStdio, Command: "cmd"}}}, true)
-	mgr.RegisterTool("github", "search_repos", "Search Repos", "Search repositories", map[string]any{"type": "object"}, map[string]any{"type": "object"}, map[string]any{"read_only_hint": true})
+	mgr := NewManager()
+	mgr.Configure(Config{Servers: []ServerConfig{{Name: "github", Enabled: true, Transport: TransportStdio, Command: "cmd"}}}, true)
+	mgr.AddTool("github", "search_repos", "Search Repos", "Search repositories", map[string]any{"type": "object"}, map[string]any{"type": "object"}, map[string]any{"read_only_hint": true})
 	tool := New(mgr)
 
 	listJSON, err := tool.Execute(context.Background(), map[string]any{"action": "list"})
@@ -84,11 +41,11 @@ func TestToolListAndGet(t *testing.T) {
 }
 
 func TestToolExec(t *testing.T) {
-	mgr := annamcp.NewManager()
+	mgr := NewManager()
 	sess := newFakeSession(&officialmcp.Tool{Name: "hello", Description: "Hello"})
 	sess.callResult = &officialmcp.CallToolResult{Content: []officialmcp.Content{&officialmcp.TextContent{Text: "hi"}}}
-	mgr.SetDial(func(context.Context, annamcp.ServerConfig) (annamcp.Session, error) { return sess, nil })
-	mgr.Reconcile(context.Background(), annamcp.Config{Servers: []annamcp.ServerConfig{{Name: "demo", Enabled: true, Transport: annamcp.TransportStdio, Command: "cmd"}}}, true)
+	mgr.SetDial(func(context.Context, ServerConfig) (Session, error) { return sess, nil })
+	mgr.Reconcile(context.Background(), Config{Servers: []ServerConfig{{Name: "demo", Enabled: true, Transport: TransportStdio, Command: "cmd"}}}, true)
 	waitFor(t, time.Second, func() bool { return len(mgr.ValidTools()) == 1 })
 	proxy := New(mgr)
 	toolID := mgr.ValidTools()[0].ID
@@ -107,7 +64,7 @@ func TestToolExec(t *testing.T) {
 }
 
 func TestToolValidation(t *testing.T) {
-	proxy := New(annamcp.NewManager())
+	proxy := New(NewManager())
 	if _, err := proxy.Execute(context.Background(), map[string]any{"action": "get"}); err == nil {
 		t.Fatal("expected get id validation error")
 	}

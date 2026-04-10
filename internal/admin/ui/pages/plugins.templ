@@ -12,19 +12,32 @@ templ PluginsPage() {
 				<div class="border border-base-300 rounded-lg divide-y divide-base-300">
 					<template x-for="p in toolPlugins" :key="p.id">
 						<div>
-							<div class="flex items-center justify-between px-4 py-3">
-								<div class="flex items-center gap-3">
-									<span class="font-mono font-medium text-sm" x-text="p.name"></span>
-									<span class="badge badge-ghost badge-sm">tool</span>
-									<template x-if="p.enabled">
-										<span class="badge badge-success badge-sm">enabled</span>
+							<div class="flex items-start justify-between gap-4 px-4 py-3">
+								<div class="min-w-0 flex-1 space-y-2">
+									<div class="flex items-center gap-2 flex-wrap">
+										<span class="font-medium text-sm" x-text="pluginLabel(p)"></span>
+										<span class="font-mono text-[11px] text-secondary" x-text="p.id"></span>
+										<span class="badge badge-ghost badge-sm">tool</span>
+										<template x-if="p.enabled">
+											<span class="badge badge-success badge-sm">enabled</span>
+										</template>
+										<template x-if="!p.enabled">
+											<span class="badge badge-error badge-sm">disabled</span>
+										</template>
+									</div>
+									<template x-if="pluginDescription(p)">
+										<p class="text-xs text-secondary leading-relaxed" x-text="pluginDescription(p)"></p>
 									</template>
-									<template x-if="!p.enabled">
-										<span class="badge badge-error badge-sm">disabled</span>
-									</template>
+									<div class="flex items-center gap-2 flex-wrap">
+										<template x-for="badge in pluginMetaBadges(p)" :key="badge.key">
+											<span class="badge badge-sm" :class="badge.className" x-text="badge.label"></span>
+										</template>
+										<template x-if="pluginSchemaSummary(p)">
+											<span class="text-[11px] text-secondary" x-text="pluginSchemaSummary(p)"></span>
+										</template>
+									</div>
 								</div>
-								<div class="flex items-center gap-4">
-									<span class="text-xs text-secondary hidden sm:inline" x-text="descriptionFor(p.name)"></span>
+								<div class="pt-1">
 									<input
 										type="checkbox"
 										:checked="p.enabled"
@@ -33,7 +46,7 @@ templ PluginsPage() {
 									/>
 								</div>
 							</div>
-							<template x-if="p.name === 'mcp'">
+							<template x-if="p.id === 'tool/mcp'">
 								<div class="px-4 pb-4 border-t border-base-300 bg-base-100/50">
 									<div class="flex flex-col gap-4 pt-4">
 										<div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -278,19 +291,29 @@ templ PluginsPage() {
 				<h3 class="text-base font-medium mb-3">Hooks</h3>
 				<div class="border border-base-300 rounded-lg divide-y divide-base-300">
 					<template x-for="p in hookPlugins" :key="p.id">
-						<div class="flex items-center justify-between px-4 py-3">
-							<div class="flex items-center gap-3">
-								<span class="font-mono font-medium text-sm" x-text="p.name"></span>
-								<span class="badge badge-warning badge-sm">hook</span>
-								<template x-if="p.enabled">
-									<span class="badge badge-success badge-sm">enabled</span>
+						<div class="flex items-start justify-between gap-4 px-4 py-3">
+							<div class="min-w-0 flex-1 space-y-2">
+								<div class="flex items-center gap-2 flex-wrap">
+									<span class="font-medium text-sm" x-text="pluginLabel(p)"></span>
+									<span class="font-mono text-[11px] text-secondary" x-text="p.id"></span>
+									<span class="badge badge-warning badge-sm">hook</span>
+									<template x-if="p.enabled">
+										<span class="badge badge-success badge-sm">enabled</span>
+									</template>
+									<template x-if="!p.enabled">
+										<span class="badge badge-error badge-sm">disabled</span>
+									</template>
+								</div>
+								<template x-if="pluginDescription(p)">
+									<p class="text-xs text-secondary leading-relaxed" x-text="pluginDescription(p)"></p>
 								</template>
-								<template x-if="!p.enabled">
-									<span class="badge badge-error badge-sm">disabled</span>
-								</template>
+								<div class="flex items-center gap-2 flex-wrap">
+									<template x-for="badge in pluginMetaBadges(p)" :key="badge.key">
+										<span class="badge badge-sm" :class="badge.className" x-text="badge.label"></span>
+									</template>
+								</div>
 							</div>
-							<div class="flex items-center gap-4">
-								<span class="text-xs text-secondary hidden sm:inline" x-text="descriptionFor(p.name)"></span>
+							<div class="pt-1">
 								<input
 									type="checkbox"
 									:checked="p.enabled"
@@ -310,26 +333,100 @@ templ PluginsPage() {
 				<h3 class="text-base font-medium mb-3">Channels</h3>
 				<div class="border border-base-300 rounded-lg divide-y divide-base-300">
 					<template x-for="p in channelPlugins" :key="p.id">
-						<div class="flex items-center justify-between px-4 py-3">
-							<div class="flex items-center gap-3">
-								<span class="font-mono font-medium text-sm" x-text="p.name"></span>
-								<span class="badge badge-info badge-sm">channel</span>
-								<template x-if="p.enabled">
-									<span class="badge badge-success badge-sm">enabled</span>
-								</template>
-								<template x-if="!p.enabled">
-									<span class="badge badge-error badge-sm">disabled</span>
-								</template>
+						<div>
+							<div class="flex items-start justify-between gap-4 px-4 py-3">
+								<div class="min-w-0 flex-1 space-y-2">
+									<div class="flex items-center gap-2 flex-wrap">
+										<span class="font-medium text-sm" x-text="pluginLabel(p)"></span>
+										<span class="font-mono text-[11px] text-secondary" x-text="p.id"></span>
+										<span class="badge badge-info badge-sm">channel</span>
+										<template x-if="p.enabled">
+											<span class="badge badge-success badge-sm">enabled</span>
+										</template>
+										<template x-if="!p.enabled">
+											<span class="badge badge-error badge-sm">disabled</span>
+										</template>
+									</div>
+									<template x-if="pluginDescription(p)">
+										<p class="text-xs text-secondary leading-relaxed" x-text="pluginDescription(p)"></p>
+									</template>
+									<div class="flex items-center gap-2 flex-wrap">
+										<template x-for="badge in pluginMetaBadges(p)" :key="badge.key">
+											<span class="badge badge-sm" :class="badge.className" x-text="badge.label"></span>
+										</template>
+										<template x-if="pluginSchemaSummary(p)">
+											<span class="text-[11px] text-secondary" x-text="pluginSchemaSummary(p)"></span>
+										</template>
+									</div>
+								</div>
+								<div class="flex items-center gap-2 pt-1">
+									<template x-if="hasGenericConfigEditor(p)">
+										<button @click="togglePluginConfigEditor(p)" class="btn btn-ghost btn-xs" x-text="isPluginConfigOpen(p) ? 'Hide config' : 'Edit config'"></button>
+									</template>
+									<template x-if="pluginConfigIsSaving(p)">
+										<span class="badge badge-info badge-sm">saving…</span>
+									</template>
+									<input
+										type="checkbox"
+										:checked="p.enabled"
+										@change="togglePlugin(p.id, $event.target.checked)"
+										class="toggle toggle-primary toggle-sm"
+									/>
+								</div>
 							</div>
-							<div class="flex items-center gap-4">
-								<span class="text-xs text-secondary hidden sm:inline" x-text="descriptionFor(p.name)"></span>
-								<input
-									type="checkbox"
-									:checked="p.enabled"
-									@change="togglePlugin(p.id, $event.target.checked)"
-									class="toggle toggle-primary toggle-sm"
-								/>
-							</div>
+							<template x-if="hasGenericConfigEditor(p) && isPluginConfigOpen(p)">
+								<div class="px-4 pb-4 border-t border-base-300 bg-base-100/50">
+									<div class="pt-4 space-y-4">
+										<div class="flex items-center justify-between gap-3 flex-wrap">
+											<div class="space-y-1">
+												<p class="text-sm font-medium">Plugin config</p>
+												<p class="text-xs text-secondary">Schema-driven editor for <span class="font-mono" x-text="p.id"></span>.</p>
+											</div>
+											<div class="flex items-center gap-2 flex-wrap">
+												<template x-if="pluginConfigIsLoading(p)">
+													<span class="badge badge-info badge-sm">loading…</span>
+												</template>
+												<button @click="resetPluginConfigDraft(p)" :disabled="pluginConfigIsLoading(p) || pluginConfigIsSaving(p)" class="btn btn-ghost btn-xs">Reset</button>
+												<button @click="savePluginConfig(p)" :disabled="pluginConfigIsLoading(p) || pluginConfigIsSaving(p)" class="btn btn-primary btn-xs">Save config</button>
+											</div>
+										</div>
+										<template x-if="pluginConfigIsLoading(p)">
+											<div class="rounded-lg border border-base-300 bg-base-100 px-4 py-6 text-sm text-secondary">Loading plugin config…</div>
+										</template>
+										<template x-if="!pluginConfigIsLoading(p)">
+											<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+												<template x-for="field in pluginSchemaFields(p)" :key="field.name">
+													<div class="space-y-1" :class="pluginFieldIsComplex(field) ? 'lg:col-span-2' : ''">
+														<label class="text-xs font-medium text-secondary" :for="pluginFieldID(p, field)" x-text="field.name"></label>
+														<template x-if="pluginFieldHasEnum(field)">
+															<select :id="pluginFieldID(p, field)" x-model="pluginConfigDrafts[p.id][field.name]" class="select select-bordered select-sm w-full">
+																<template x-for="option in field.schema.enum" :key="String(option)">
+																	<option :value="option" x-text="pluginFieldOptionLabel(option)"></option>
+																</template>
+															</select>
+														</template>
+														<template x-if="!pluginFieldHasEnum(field) && pluginFieldType(field.schema) === 'boolean'">
+															<label class="label cursor-pointer justify-start gap-3 rounded-lg border border-base-300 px-3 py-2">
+																<input :id="pluginFieldID(p, field)" x-model="pluginConfigDrafts[p.id][field.name]" type="checkbox" class="toggle toggle-primary toggle-sm" />
+																<span class="label-text text-sm" x-text="field.name"></span>
+															</label>
+														</template>
+														<template x-if="!pluginFieldHasEnum(field) && pluginFieldType(field.schema) !== 'boolean' && !pluginFieldIsComplex(field)">
+															<input :id="pluginFieldID(p, field)" x-model="pluginConfigDrafts[p.id][field.name]" :type="pluginFieldInputType(field)" :placeholder="pluginFieldPlaceholder(field)" class="input input-bordered input-sm w-full" :class="pluginFieldInputType(field) === 'password' ? 'font-mono' : ''" />
+														</template>
+														<template x-if="pluginFieldIsComplex(field)">
+															<textarea :id="pluginFieldID(p, field)" x-model="pluginConfigDrafts[p.id][field.name]" :rows="pluginFieldRows(field)" class="textarea textarea-bordered w-full font-mono text-xs" :placeholder="pluginFieldPlaceholder(field)"></textarea>
+														</template>
+														<template x-if="pluginFieldDescription(field)">
+															<p class="text-[11px] leading-relaxed text-secondary" x-text="pluginFieldDescription(field)"></p>
+														</template>
+													</div>
+												</template>
+											</div>
+										</template>
+									</div>
+								</div>
+							</template>
 						</div>
 					</template>
 					<template x-if="channelPlugins.length === 0">
@@ -343,19 +440,29 @@ templ PluginsPage() {
 				<p class="text-xs text-base-content/50 mb-3">Only one memory plugin can be active at a time. Changing requires restart.</p>
 				<div class="border border-base-300 rounded-lg divide-y divide-base-300">
 					<template x-for="p in memoryPlugins" :key="p.id">
-						<div class="flex items-center justify-between px-4 py-3">
-							<div class="flex items-center gap-3">
-								<span class="font-mono font-medium text-sm" x-text="p.name"></span>
-								<span class="badge badge-accent badge-sm">memory</span>
-								<template x-if="p.enabled">
-									<span class="badge badge-success badge-sm">enabled</span>
+						<div class="flex items-start justify-between gap-4 px-4 py-3">
+							<div class="min-w-0 flex-1 space-y-2">
+								<div class="flex items-center gap-2 flex-wrap">
+									<span class="font-medium text-sm" x-text="pluginLabel(p)"></span>
+									<span class="font-mono text-[11px] text-secondary" x-text="p.id"></span>
+									<span class="badge badge-accent badge-sm">memory</span>
+									<template x-if="p.enabled">
+										<span class="badge badge-success badge-sm">enabled</span>
+									</template>
+									<template x-if="!p.enabled">
+										<span class="badge badge-error badge-sm">disabled</span>
+									</template>
+								</div>
+								<template x-if="pluginDescription(p)">
+									<p class="text-xs text-secondary leading-relaxed" x-text="pluginDescription(p)"></p>
 								</template>
-								<template x-if="!p.enabled">
-									<span class="badge badge-error badge-sm">disabled</span>
-								</template>
+								<div class="flex items-center gap-2 flex-wrap">
+									<template x-for="badge in pluginMetaBadges(p)" :key="badge.key">
+										<span class="badge badge-sm" :class="badge.className" x-text="badge.label"></span>
+									</template>
+								</div>
 							</div>
-							<div class="flex items-center gap-4">
-								<span class="text-xs text-secondary hidden sm:inline" x-text="descriptionFor(p.name)"></span>
+							<div class="pt-1">
 								<input
 									type="checkbox"
 									:checked="p.enabled"
@@ -376,26 +483,100 @@ templ PluginsPage() {
 				<p class="text-xs text-base-content/50 mb-3">Background services that run independently. Toggling takes effect immediately.</p>
 				<div class="border border-base-300 rounded-lg divide-y divide-base-300">
 					<template x-for="p in standalonePlugins" :key="p.id">
-						<div class="flex items-center justify-between px-4 py-3">
-							<div class="flex items-center gap-3">
-								<span class="font-mono font-medium text-sm" x-text="p.name"></span>
-								<span class="badge badge-neutral badge-sm" x-text="p.kind"></span>
-								<template x-if="p.enabled">
-									<span class="badge badge-success badge-sm">enabled</span>
-								</template>
-								<template x-if="!p.enabled">
-									<span class="badge badge-error badge-sm">disabled</span>
-								</template>
+						<div>
+							<div class="flex items-start justify-between gap-4 px-4 py-3">
+								<div class="min-w-0 flex-1 space-y-2">
+									<div class="flex items-center gap-2 flex-wrap">
+										<span class="font-medium text-sm" x-text="pluginLabel(p)"></span>
+										<span class="font-mono text-[11px] text-secondary" x-text="p.id"></span>
+										<span class="badge badge-neutral badge-sm" x-text="p.kind"></span>
+										<template x-if="p.enabled">
+											<span class="badge badge-success badge-sm">enabled</span>
+										</template>
+										<template x-if="!p.enabled">
+											<span class="badge badge-error badge-sm">disabled</span>
+										</template>
+									</div>
+									<template x-if="pluginDescription(p)">
+										<p class="text-xs text-secondary leading-relaxed" x-text="pluginDescription(p)"></p>
+									</template>
+									<div class="flex items-center gap-2 flex-wrap">
+										<template x-for="badge in pluginMetaBadges(p)" :key="badge.key">
+											<span class="badge badge-sm" :class="badge.className" x-text="badge.label"></span>
+										</template>
+										<template x-if="pluginSchemaSummary(p)">
+											<span class="text-[11px] text-secondary" x-text="pluginSchemaSummary(p)"></span>
+										</template>
+									</div>
+								</div>
+								<div class="flex items-center gap-2 pt-1">
+									<template x-if="hasGenericConfigEditor(p)">
+										<button @click="togglePluginConfigEditor(p)" class="btn btn-ghost btn-xs" x-text="isPluginConfigOpen(p) ? 'Hide config' : 'Edit config'"></button>
+									</template>
+									<template x-if="pluginConfigIsSaving(p)">
+										<span class="badge badge-info badge-sm">saving…</span>
+									</template>
+									<input
+										type="checkbox"
+										:checked="p.enabled"
+										@change="togglePlugin(p.id, $event.target.checked)"
+										class="toggle toggle-primary toggle-sm"
+									/>
+								</div>
 							</div>
-							<div class="flex items-center gap-4">
-								<span class="text-xs text-secondary hidden sm:inline" x-text="descriptionFor(p.name)"></span>
-								<input
-									type="checkbox"
-									:checked="p.enabled"
-									@change="togglePlugin(p.id, $event.target.checked)"
-									class="toggle toggle-primary toggle-sm"
-								/>
-							</div>
+							<template x-if="hasGenericConfigEditor(p) && isPluginConfigOpen(p)">
+								<div class="px-4 pb-4 border-t border-base-300 bg-base-100/50">
+									<div class="pt-4 space-y-4">
+										<div class="flex items-center justify-between gap-3 flex-wrap">
+											<div class="space-y-1">
+												<p class="text-sm font-medium">Plugin config</p>
+												<p class="text-xs text-secondary">Schema-driven editor for <span class="font-mono" x-text="p.id"></span>.</p>
+											</div>
+											<div class="flex items-center gap-2 flex-wrap">
+												<template x-if="pluginConfigIsLoading(p)">
+													<span class="badge badge-info badge-sm">loading…</span>
+												</template>
+												<button @click="resetPluginConfigDraft(p)" :disabled="pluginConfigIsLoading(p) || pluginConfigIsSaving(p)" class="btn btn-ghost btn-xs">Reset</button>
+												<button @click="savePluginConfig(p)" :disabled="pluginConfigIsLoading(p) || pluginConfigIsSaving(p)" class="btn btn-primary btn-xs">Save config</button>
+											</div>
+										</div>
+										<template x-if="pluginConfigIsLoading(p)">
+											<div class="rounded-lg border border-base-300 bg-base-100 px-4 py-6 text-sm text-secondary">Loading plugin config…</div>
+										</template>
+										<template x-if="!pluginConfigIsLoading(p)">
+											<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+												<template x-for="field in pluginSchemaFields(p)" :key="field.name">
+													<div class="space-y-1" :class="pluginFieldIsComplex(field) ? 'lg:col-span-2' : ''">
+														<label class="text-xs font-medium text-secondary" :for="pluginFieldID(p, field)" x-text="field.name"></label>
+														<template x-if="pluginFieldHasEnum(field)">
+															<select :id="pluginFieldID(p, field)" x-model="pluginConfigDrafts[p.id][field.name]" class="select select-bordered select-sm w-full">
+																<template x-for="option in field.schema.enum" :key="String(option)">
+																	<option :value="option" x-text="pluginFieldOptionLabel(option)"></option>
+																</template>
+															</select>
+														</template>
+														<template x-if="!pluginFieldHasEnum(field) && pluginFieldType(field.schema) === 'boolean'">
+															<label class="label cursor-pointer justify-start gap-3 rounded-lg border border-base-300 px-3 py-2">
+																<input :id="pluginFieldID(p, field)" x-model="pluginConfigDrafts[p.id][field.name]" type="checkbox" class="toggle toggle-primary toggle-sm" />
+																<span class="label-text text-sm" x-text="field.name"></span>
+															</label>
+														</template>
+														<template x-if="!pluginFieldHasEnum(field) && pluginFieldType(field.schema) !== 'boolean' && !pluginFieldIsComplex(field)">
+															<input :id="pluginFieldID(p, field)" x-model="pluginConfigDrafts[p.id][field.name]" :type="pluginFieldInputType(field)" :placeholder="pluginFieldPlaceholder(field)" class="input input-bordered input-sm w-full" :class="pluginFieldInputType(field) === 'password' ? 'font-mono' : ''" />
+														</template>
+														<template x-if="pluginFieldIsComplex(field)">
+															<textarea :id="pluginFieldID(p, field)" x-model="pluginConfigDrafts[p.id][field.name]" :rows="pluginFieldRows(field)" class="textarea textarea-bordered w-full font-mono text-xs" :placeholder="pluginFieldPlaceholder(field)"></textarea>
+														</template>
+														<template x-if="pluginFieldDescription(field)">
+															<p class="text-[11px] leading-relaxed text-secondary" x-text="pluginFieldDescription(field)"></p>
+														</template>
+													</div>
+												</template>
+											</div>
+										</template>
+									</div>
+								</div>
+							</template>
 						</div>
 					</template>
 				</div>

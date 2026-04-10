@@ -8,6 +8,10 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/pkg/providers"
+	"github.com/vaayne/anna/pkg/tools"
+	anthropicprovider "github.com/vaayne/anna/plugins/providers/anthropic"
+	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
 func skipWithoutAnthropicKey(t *testing.T) {
@@ -27,10 +31,12 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 
 	factory := func(ctx context.Context, _ runner.RunnerParams) (runner.Runner, error) {
 		return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
-			API:     "anthropic",
-			Model:   model,
-			APIKey:  os.Getenv("ANTHROPIC_API_KEY"),
-			BaseURL: os.Getenv("ANTHROPIC_BASE_URL"),
+			API:       "anthropic",
+			Model:     model,
+			APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
+			BaseURL:   os.Getenv("ANTHROPIC_BASE_URL"),
+			CoreTools: integrationCoreToolsBuilder,
+			Providers: integrationProviderRegistryBuilder,
 		})
 	}
 
@@ -44,14 +50,14 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 
 	// Turn 1: establish context.
 	stream := pool.Chat(ctx, sessionID, "My favorite color is blue. Just say OK.")
-	var turn1 string
+	var turn1 strings.Builder
 	for evt := range stream {
 		if evt.Err != nil {
 			t.Fatalf("turn 1 error: %v", evt.Err)
 		}
-		turn1 += evt.Text
+		turn1.WriteString(evt.Text)
 	}
-	if turn1 == "" {
+	if turn1.Len() == 0 {
 		t.Fatal("turn 1: expected non-empty response")
 	}
 
@@ -77,3 +83,17 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 		t.Errorf("turn 2 response %q does not contain 'blue' — pool history may not be working", turn2)
 	}
 }
+
+func integrationProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Registry, error) {
+	if api != "anthropic" {
+		return nil, providers.ErrProviderNotFound
+	}
+	reg := providers.NewRegistry()
+	reg.Register(anthropicprovider.New(anthropicprovider.Config{
+		APIKey:  apiKey,
+		BaseURL: baseURL,
+	}))
+	return reg, nil
+}
+
+func integrationCoreToolsBuilder(plugintools.BuildContext) []tools.Tool { return nil }

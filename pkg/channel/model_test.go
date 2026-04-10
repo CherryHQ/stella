@@ -145,3 +145,16 @@ func TestFormatModelList_WithFilter(t *testing.T) {
 		t.Errorf("expected filter annotation, got %q", out)
 	}
 }
+
+func TestFormatNumberedModelList(t *testing.T) {
+	models := []IndexedModel{
+		{ModelOption: ModelOption{Provider: "anthropic", Model: "claude-3"}, GlobalIdx: 2},
+	}
+	out := FormatNumberedModelList(models, "claude")
+	if !strings.Contains(out, "2. anthropic/claude-3") {
+		t.Errorf("expected numbered model in output, got %q", out)
+	}
+	if !strings.Contains(out, `filter: "claude"`) {
+		t.Errorf("expected filter annotation, got %q", out)
+	}
+}

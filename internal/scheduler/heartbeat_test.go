@@ -8,7 +8,8 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/internal/notify"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
 type chatCall struct {
@@ -18,11 +19,11 @@ type chatCall struct {
 }
 
 type fakeNotifier struct {
-	calls []channel.Notification
+	calls []pkgchannel.Notification
 	err   error
 }
 
-func (f *fakeNotifier) Notify(_ context.Context, n channel.Notification) error {
+func (f *fakeNotifier) Notify(_ context.Context, n pkgchannel.Notification) error {
 	f.calls = append(f.calls, n)
 	return f.err
 }
@@ -44,7 +45,7 @@ func makeChatFunc(calls *[]chatCall, responses map[string][]runner.Event) ChatFu
 	}
 }
 
-func newHeartbeatTestService(t *testing.T, cfg HeartbeatConfig, calls *[]chatCall, responses map[string][]runner.Event, notifier channel.Notifier) *Service {
+func newHeartbeatTestService(t *testing.T, cfg HeartbeatConfig, calls *[]chatCall, responses map[string][]runner.Event, notifier notify.Notifier) *Service {
 	t.Helper()
 	db := testDB(t)
 	svc, err := New(db)

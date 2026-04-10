@@ -6,26 +6,16 @@ import (
 	"fmt"
 	"sort"
 
-	annamcp "github.com/vaayne/anna/internal/mcp"
 	"github.com/vaayne/anna/pkg/tools"
-	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
-func init() {
-	plugintools.Register("mcp", plugintools.Registration{
-		Factory: func(_ plugintools.BuildContext) (tools.Tool, error) {
-			return New(annamcp.DefaultManager()), nil
-		},
-	})
-}
-
 type Tool struct {
-	manager *annamcp.Manager
+	manager *Manager
 }
 
-func New(manager *annamcp.Manager) *Tool {
+func New(manager *Manager) *Tool {
 	if manager == nil {
-		manager = annamcp.DefaultManager()
+		manager = DefaultManager()
 	}
 	return &Tool{manager: manager}
 }
@@ -98,7 +88,7 @@ type listItem struct {
 	ServerName  string `json:"server_name"`
 }
 
-func listResponse(tools []annamcp.ToolInfo) []listItem {
+func listResponse(tools []ToolInfo) []listItem {
 	items := make([]listItem, 0, len(tools))
 	for _, tool := range tools {
 		items = append(items, listItem{

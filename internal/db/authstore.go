@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/auth"
-	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 )
 
 const authTimeLayout = "2006-01-02 15:04:05"

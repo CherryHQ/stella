@@ -3,11 +3,12 @@ package lcm
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/internal/db/sqlc"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
 )
 
@@ -16,7 +17,7 @@ const maxReviewMessages = 200
 // BuildReviewContext implements memory.Reviewer.
 func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Session, since time.Time) (string, error) {
 	conv, err := p.q.GetConversationBySessionID(ctx, session.ID)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {

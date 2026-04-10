@@ -18,7 +18,7 @@ func TestToolExecution(t *testing.T) {
 		},
 	}
 
-	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{})
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestToolExecutionToolError(t *testing.T) {
 		},
 	}
 
-	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{})
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestToolExecutionPreservesContentOnError(t *testing.T) {
 		},
 	}
 
-	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{})
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestToolExecutionEmptyContentOnError(t *testing.T) {
 		},
 	}
 
-	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{})
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -93,4 +93,109 @@ func TestToolExecutionEmptyContentOnError(t *testing.T) {
 	if text != "boom" {
 		t.Errorf("with empty content, should just show error, got: %q", text)
 	}
+}
+
+func TestToolExecutionAppliesLifecycleMutations(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "echo", Arguments: map[string]any{"q": "original"}}}
+	tools := ToolSet{
+		"echo": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
+			if got := call.Arguments["q"]; got != "rewritten" {
+				t.Fatalf("unexpected arguments: %#v", call.Arguments)
+			}
+			return ai.TextContent{Text: "raw"}, nil
+		},
+	}
+	lifecycle := &ToolLifecycle{
+		BeforeCall: func(context.Context, ToolCallContext) (ToolCallMutation, error) {
+			return ToolCallMutation{Arguments: map[string]any{"q": "rewritten"}}, nil
+		},
+		AfterCall: func(context.Context, ToolResultContext) (ToolResultMutation, error) {
+			text := "final"
+			isError := false
+			return ToolResultMutation{Result: &text, IsError: &isError}, nil
+		},
+	}
+
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{
+		SessionID: "session-1",
+		Channel:   "cli",
+	}, lifecycle)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if got := results[0].Content[0].(ai.TextContent).Text; got != "final" {
+		t.Fatalf("unexpected result text: %q", got)
+	}
+	if results[0].IsError {
+		t.Fatal("expected lifecycle to clear error flag")
+	}
+}
+
+func TestToolExecutionOrdersLifecycleBeforeAndAfterHooks(t *testing.T) {
+	var order []string
+	calls := []ai.ToolCall{{ID: "1", Name: "echo", Arguments: map[string]any{"q": "original"}}}
+	tools := ToolSet{
+		"echo": func(ctx context.Context, call ai.ToolCall) (ai.TextContent, error) {
+			order = append(order, "tool")
+			if got := call.Arguments["q"]; got != "hooked" {
+				t.Fatalf("unexpected tool arguments: %#v", call.Arguments)
+			}
+			return ai.TextContent{Text: "raw"}, nil
+		},
+	}
+	lifecycle := &ToolLifecycle{
+		BeforeCall: func(context.Context, ToolCallContext) (ToolCallMutation, error) {
+			order = append(order, "before-lifecycle")
+			return ToolCallMutation{Arguments: map[string]any{"q": "lifecycle"}}, nil
+		},
+		AfterCall: func(context.Context, ToolResultContext) (ToolResultMutation, error) {
+			order = append(order, "after-lifecycle")
+			text := "final"
+			return ToolResultMutation{Result: &text}, nil
+		},
+	}
+	hs := hooks.NewHookSet([]hooks.HookPlugin{toolExecutionHook{
+		pre: func(_ context.Context, hctx *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+			order = append(order, "before-hook")
+			if got := hctx.Arguments["q"]; got != "lifecycle" {
+				t.Fatalf("unexpected pre-hook arguments: %#v", hctx.Arguments)
+			}
+			return hooks.PreToolCallResult{Arguments: map[string]any{"q": "hooked"}}, nil
+		},
+		post: func(_ context.Context, hctx *hooks.PostToolCallContext) {
+			order = append(order, "after-hook")
+			if hctx.Result != "final" {
+				t.Fatalf("unexpected post-hook result: %q", hctx.Result)
+			}
+		},
+	}})
+
+	_, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, hs, hooks.HookMeta{}, lifecycle)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := strings.Join(order, ",")
+	want := "before-lifecycle,before-hook,tool,after-lifecycle,after-hook"
+	if got != want {
+		t.Fatalf("order = %q, want %q", got, want)
+	}
+}
+
+type toolExecutionHook struct {
+	pre  func(context.Context, *hooks.PreToolCallContext) (hooks.PreToolCallResult, error)
+	post func(context.Context, *hooks.PostToolCallContext)
+}
+
+func (toolExecutionHook) Name() string  { return "test" }
+func (toolExecutionHook) Priority() int { return 0 }
+
+func (h toolExecutionHook) OnPreToolCall(ctx context.Context, hctx *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+	return h.pre(ctx, hctx)
+}
+
+func (h toolExecutionHook) OnPostToolCall(ctx context.Context, hctx *hooks.PostToolCallContext) {
+	h.post(ctx, hctx)
 }

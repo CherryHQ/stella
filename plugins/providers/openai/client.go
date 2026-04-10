@@ -3,25 +3,43 @@ package openai
 import (
 	"context"
 	"fmt"
+
 	sdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/httpclient"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
-	pluginproviders "github.com/vaayne/anna/plugins/providers"
 )
 
 func init() {
-	pluginproviders.Register("openai", pluginproviders.Registration{
-		Meta: pluginproviders.ProviderMeta{
-			Name:       "OpenAI",
-			DefaultURL: "https://api.openai.com/v1",
-		},
-		Factory: func(cfg pluginproviders.ProviderConfig) (providers.ProviderAdapter, error) {
-			return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}), nil
-		},
-	})
+	pkgplugins.Register("provider/openai", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
+		host.SetInfo(pkgplugins.PluginInfo{
+			ID:           "provider/openai",
+			Kind:         "provider",
+			Name:         "openai",
+			DisplayName:  "OpenAI",
+			Description:  "OpenAI Chat Completions API provider.",
+			AdminVisible: true,
+			Capabilities: []string{
+				pkgplugins.CapabilityProvider,
+			},
+		})
+		host.AddProvider(pkgplugins.ProviderSpec{
+			PluginID: "provider/openai",
+			Name:     "openai",
+			Meta: pkgplugins.ProviderMeta{
+				Name:       "OpenAI",
+				DefaultURL: "https://api.openai.com/v1",
+			},
+			Build: func(ctx pkgplugins.ProviderContext) (providers.ProviderAdapter, error) {
+				apiKey, _ := ctx.State.Config["api_key"].(string)
+				baseURL, _ := ctx.State.Config["base_url"].(string)
+				return New(Config{APIKey: apiKey, BaseURL: baseURL}), nil
+			},
+		})
+	}))
 }
 
 // Config configures the OpenAI provider.

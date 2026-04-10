@@ -45,8 +45,8 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run tests with coverage
-        run: mise run test:coverage
+      - name: Run tests with race detection and coverage
+        run: mise run test:coverage:race
 
       - name: Check coverage threshold
         run: |

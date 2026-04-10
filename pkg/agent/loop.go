@@ -160,7 +160,7 @@ func runLoop(ctx context.Context, cfg loopConfig, pg providers.ProviderGetter, h
 					emit(ToolFinished{Result: result})
 				}
 			},
-		}, cfg.Hooks, cfg.HookMeta)
+		}, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle)
 		if err != nil {
 			return history, err
 		}

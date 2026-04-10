@@ -6,18 +6,33 @@ import (
 	"os"
 	"path/filepath"
 
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
-	plugintools "github.com/vaayne/anna/plugins/tools"
 	"github.com/vaayne/anna/plugins/tools/sandbox"
 )
 
 func init() {
-	plugintools.Register("write", plugintools.Registration{
-		Required: true,
-		Factory: func(bc plugintools.BuildContext) (tools.Tool, error) {
-			return sandbox.WrapWithSandbox(&WriteTool{}, bc.UserDataDir, "file_path"), nil
-		},
-	})
+	pkgplugins.Register("tool/write", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
+		host.SetInfo(pkgplugins.PluginInfo{
+			ID:          "tool/write",
+			Kind:        "tool",
+			Name:        "write",
+			DisplayName: "Write",
+			Description: "Create or fully overwrite files.",
+			Capabilities: []string{
+				pkgplugins.CapabilityTool,
+			},
+		})
+		host.AddTool(pkgplugins.ToolSpec{
+			PluginID:    "tool/write",
+			Name:        "write",
+			Description: "Write complete file contents.",
+			Required:    true,
+			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
+				return sandbox.WrapWithSandbox(&WriteTool{}, ctx.UserDataDir, "file_path"), nil
+			},
+		})
+	}))
 }
 
 // WriteTool creates new files or completely overwrites existing ones.

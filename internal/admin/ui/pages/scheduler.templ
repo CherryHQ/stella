@@ -111,38 +111,65 @@ templ SchedulerPage() {
 			<div class="divide-y divide-base-300">
 				<template x-for="j in jobs" :key="j.id">
 					<div class="py-5 group">
-						<div class="flex items-baseline justify-between">
-							<div class="flex items-baseline gap-3">
+						<div class="flex items-baseline justify-between gap-4">
+							<div class="flex items-baseline gap-3 flex-wrap">
 								<span class="font-medium" x-text="j.name"></span>
 								<span
 									class="badge badge-sm"
 									:class="j.enabled ? 'badge-success' : 'badge-ghost'"
 									x-text="j.enabled ? 'on' : 'off'"
 								></span>
-								<span class="text-xs font-mono text-secondary" x-text="j.cron ? j.cron : 'every ' + j.every"></span>
+								<span class="text-xs font-mono text-secondary" x-text="jobScheduleText(j)"></span>
+								<template x-if="j.owner_kind === 'plugin'">
+									<span class="badge badge-info badge-xs" x-text="'plugin:' + j.plugin_id"></span>
+								</template>
 							</div>
 							<div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-								<button @click="toggleJob(j)" class="text-xs text-secondary hover:text-base-content cursor-pointer" x-text="j.enabled ? 'disable' : 'enable'"></button>
-								<button @click="editJob(j)" class="text-xs text-secondary hover:text-primary cursor-pointer">edit</button>
-								<button
-									@click="confirmDelete('Delete this job?', () => doDeleteJob(j.id))"
-									class="text-xs text-secondary hover:text-error cursor-pointer"
-								>remove</button>
+								<template x-if="j.owner_kind !== 'plugin'">
+									<div class="flex items-center gap-3">
+										<button @click="toggleJob(j)" class="text-xs text-secondary hover:text-base-content cursor-pointer" x-text="j.enabled ? 'disable' : 'enable'"></button>
+										<button @click="editJob(j)" class="text-xs text-secondary hover:text-primary cursor-pointer">edit</button>
+										<button
+											@click="confirmDelete('Delete this job?', () => doDeleteJob(j.id))"
+											class="text-xs text-secondary hover:text-error cursor-pointer"
+										>remove</button>
+									</div>
+								</template>
+								<template x-if="j.owner_kind === 'plugin'">
+									<span class="text-xs text-secondary">managed by plugin</span>
+								</template>
 							</div>
 						</div>
-						<div class="text-sm text-secondary mt-1 line-clamp-1" x-text="j.message"></div>
-						<div class="flex items-center gap-2 mt-1">
-							<span class="badge badge-ghost badge-xs" x-text="j.session_mode"></span>
+						<div class="text-sm text-secondary mt-1" x-text="j.owner_kind === 'plugin' ? (j.description || 'Plugin-owned scheduled job') : j.message"></div>
+						<div class="flex items-center gap-2 mt-2 flex-wrap">
+							<template x-if="j.owner_kind !== 'plugin'">
+								<span class="badge badge-ghost badge-xs" x-text="j.session_mode"></span>
+							</template>
 							<template x-if="j.agent_id">
 								<span class="badge badge-ghost badge-xs" x-text="j.agent_id"></span>
 							</template>
-							<template x-if="isAdmin && !j.user_id">
+							<template x-if="j.owner_kind === 'plugin'">
+								<span class="contents">
+									<span class="badge badge-ghost badge-xs" x-text="'key:' + j.job_key"></span>
+									<span class="badge badge-ghost badge-xs" x-text="'runtime:' + j.runtime_name"></span>
+								</span>
+							</template>
+							<template x-if="isAdmin && j.owner_kind !== 'plugin' && !j.user_id">
 								<span class="badge badge-secondary badge-xs">system</span>
 							</template>
-							<template x-if="isAdmin && j.user_id">
+							<template x-if="isAdmin && j.owner_kind !== 'plugin' && j.user_id">
 								<span class="badge badge-ghost badge-xs" x-text="'user:' + j.user_id"></span>
 							</template>
+							<template x-if="j.last_run_at">
+								<span class="badge badge-ghost badge-xs" x-text="'last run: ' + j.last_run_at"></span>
+							</template>
+							<template x-if="j.last_error">
+								<span class="badge badge-error badge-xs" x-text="'error: ' + j.last_error"></span>
+							</template>
 						</div>
+						<template x-if="j.owner_kind === 'plugin' && j.payload && Object.keys(j.payload).length">
+							<pre class="mt-3 text-xs bg-base-200 rounded-lg p-3 overflow-x-auto" x-text="JSON.stringify(j.payload, null, 2)"></pre>
+						</template>
 					</div>
 				</template>
 			</div>

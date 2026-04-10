@@ -70,6 +70,17 @@ func ParseCommandArgs(text, cmd string) string {
 	return strings.TrimSpace(strings.TrimPrefix(text, cmd))
 }
 
+// ParseSlashCommand extracts a slash command and its arguments.
+// The returned command is always lowercased.
+func ParseSlashCommand(text string) (string, string) {
+	text = strings.TrimSpace(text)
+	fields := strings.Fields(text)
+	if len(fields) == 0 || !strings.HasPrefix(fields[0], "/") {
+		return "", ""
+	}
+	return strings.ToLower(fields[0]), ParseCommandArgs(text, fields[0])
+}
+
 // TextContent wraps a plain string as a single-element []ai.ContentBlock.
 func TextContent(text string) []ai.ContentBlock {
 	return []ai.ContentBlock{ai.TextContent{Text: text}}

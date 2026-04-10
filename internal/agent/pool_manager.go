@@ -4,15 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
+	"maps"
 	"sync"
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/skills"
+	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
 )
@@ -29,6 +31,13 @@ type PluginToolsBuilder func(ctx context.Context) []tools.Tool
 // PluginHooksBuilder creates hook plugins from enabled plugin state.
 // Called at startup and on hot-reload when a hook plugin is toggled.
 type PluginHooksBuilder func(ctx context.Context) []hooks.HookPlugin
+
+// PromptToolsBuilder returns structured prompt inventory for the active plugin host.
+type PromptToolsBuilder func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error)
+type PromptSectionsBuilder func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
+type BeforeRunBuilder func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error)
+type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
+type CoreToolsBuilder = runner.CoreToolsBuilder
 
 // PoolManagerOption configures a PoolManager.
 type PoolManagerOption func(*PoolManager)
@@ -76,22 +85,65 @@ func WithPluginHooksBuilder(b PluginHooksBuilder) PoolManagerOption {
 	}
 }
 
+// WithPromptToolsBuilder sets the function that returns prompt inventory items.
+func WithPromptToolsBuilder(b PromptToolsBuilder) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.promptToolsBuilder = b
+	}
+}
+
+func WithPromptSectionsBuilder(b PromptSectionsBuilder) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.promptSectionsBuilder = b
+	}
+}
+
+func WithBeforeRunBuilderPM(b BeforeRunBuilder) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.beforeRunBuilder = b
+	}
+}
+
+func WithToolLifecyclePM(tl *coreagent.ToolLifecycle) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.toolLifecycle = tl
+	}
+}
+
+func WithProviderRegistryBuilder(b ProviderRegistryBuilder) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.providerRegistryBuilder = b
+	}
+}
+
+func WithCoreToolsBuilder(b CoreToolsBuilder) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.coreToolsBuilder = b
+	}
+}
+
 // PoolManager manages a map of agent ID to Pool. It reads enabled agents
 // from the config Store and creates one Pool per agent.
 type PoolManager struct {
-	pools              map[string]*Pool
-	store              config.Store
-	mem                memory.Provider
-	mu                 sync.RWMutex
-	idleTimeout        time.Duration
-	compaction         CompactionConfig
-	coreSharedTools    []tools.Tool       // always-on tools (scheduler, memory, etc.)
-	sharedExtraTools   []tools.Tool       // coreSharedTools + plugin tools
-	pluginToolsBuilder PluginToolsBuilder // builds tools from plugin state
-	hookPlugins        []hooks.HookPlugin // current enabled hook plugins
-	pluginHooksBuilder PluginHooksBuilder // builds hooks from plugin state
-	extraToolsFactory  ExtraToolsFactory
-	log                *slog.Logger
+	pools                   map[string]*Pool
+	store                   config.Store
+	mem                     memory.Provider
+	mu                      sync.RWMutex
+	idleTimeout             time.Duration
+	compaction              CompactionConfig
+	coreSharedTools         []tools.Tool       // always-on tools (scheduler, memory, etc.)
+	sharedExtraTools        []tools.Tool       // coreSharedTools + plugin tools
+	pluginToolsBuilder      PluginToolsBuilder // builds tools from plugin state
+	hookPlugins             []hooks.HookPlugin // current enabled hook plugins
+	pluginHooksBuilder      PluginHooksBuilder // builds hooks from plugin state
+	promptToolsBuilder      PromptToolsBuilder // builds prompt inventory from plugin state
+	promptSectionsBuilder   PromptSectionsBuilder
+	beforeRunBuilder        BeforeRunBuilder
+	toolLifecycle           *coreagent.ToolLifecycle
+	coreToolsBuilder        CoreToolsBuilder
+	providerRegistryBuilder ProviderRegistryBuilder
+	extraToolsFactory       ExtraToolsFactory
+	log                     *slog.Logger
 }
 
 // NewPoolManager creates a new PoolManager.
@@ -185,6 +237,7 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 		WithCompaction(pm.compaction.WithDefaults()),
 		WithDefaultModel(snap.ResolveModelID(config.ModelTierStrong)),
 		WithFastModel(snap.ResolveModelID(config.ModelTierFast)),
+		WithBeforeRunBuilder(pm.beforeRunBuilder),
 	}
 
 	pool := NewPool(factory, pm.mem, poolOpts...)
@@ -223,9 +276,7 @@ func (pm *PoolManager) ReloadPluginTools(ctx context.Context) error {
 	pm.mu.Lock()
 	pm.sharedExtraTools = mergeTools(pm.coreSharedTools, pluginTools)
 	pools := make(map[string]*Pool, len(pm.pools))
-	for id, p := range pm.pools {
-		pools[id] = p
-	}
+	maps.Copy(pools, pm.pools)
 	pm.mu.Unlock()
 
 	for agentID, pool := range pools {
@@ -252,9 +303,7 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	oldPlugins := pm.hookPlugins
 	pm.hookPlugins = hookPlugins
 	pools := make(map[string]*Pool, len(pm.pools))
-	for id, p := range pm.pools {
-		pools[id] = p
-	}
+	maps.Copy(pools, pm.pools)
 	pm.mu.Unlock()
 
 	for _, pool := range pools {
@@ -275,9 +324,7 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 func (pm *PoolManager) ReloadPluginProviders(ctx context.Context) error {
 	pm.mu.RLock()
 	pools := make(map[string]*Pool, len(pm.pools))
-	for id, p := range pm.pools {
-		pools[id] = p
-	}
+	maps.Copy(pools, pm.pools)
 	pm.mu.RUnlock()
 
 	for agentID, pool := range pools {
@@ -329,14 +376,11 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 	var extraTools []tools.Tool
 	extraTools = append(extraTools, shared...)
 
-	cwd, _ := os.Getwd()
-	extraTools = append(extraTools, skills.NewTool(config.AnnaHome(), snap.Workspace, cwd, 0))
-
 	if pm.extraToolsFactory != nil {
 		extraTools = append(extraTools, pm.extraToolsFactory(snap)...)
 	}
 
-	return NewRunnerFactory(snap, extraTools)
+	return NewRunnerFactory(snap, extraTools, pm.coreToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle)
 }
 
 // mergeTools creates a new slice containing core tools followed by plugin tools.

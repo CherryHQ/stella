@@ -112,11 +112,18 @@ func (t *SchedulerTool) add(args map[string]any) (string, error) {
 
 func (t *SchedulerTool) list() (string, error) {
 	jobs := t.service.ListJobs()
-	if len(jobs) == 0 {
+	visible := make([]Job, 0, len(jobs))
+	for _, job := range jobs {
+		if IsPluginJob(job) {
+			continue
+		}
+		visible = append(visible, job)
+	}
+	if len(visible) == 0 {
 		return "No scheduled jobs.", nil
 	}
 
-	out, _ := json.MarshalIndent(jobs, "", "  ")
+	out, _ := json.MarshalIndent(visible, "", "  ")
 	return string(out), nil
 }
 

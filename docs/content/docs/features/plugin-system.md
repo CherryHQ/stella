@@ -4,119 +4,68 @@ title: Plugin System
 
 ## Overview
 
-Anna uses a compiled-in plugin model. All plugins are built directly into the anna binary -- there is no subprocess protocol, no separate processes, and no third-party plugin installation. Plugins are Go packages under `plugins/` that self-register via `init()` and implement standard interfaces.
+Anna uses a compiled-in plugin system. Plugins are built into the `anna` binary and registered at startup through Go package initialization.
 
-Four plugin kinds:
+The final public design is intentionally small:
 
-- **Tool plugins** provide tools that the LLM agent can call (e.g., `mcp`, `webfetch`).
-- **Channel plugins** provide messaging platform integrations (e.g., `telegram`, `qq`, `feishu`, `weixin`).
-- **Hook plugins** intercept engine lifecycle events (e.g., pre/post tool calls, pre/post LLM calls).
-- **Provider plugins** provide LLM API adapters (e.g., `anthropic`, `openai`, `openai-response`).
+- `Host` is the registration surface
+- `Platform` is the scoped service surface used inside capability callbacks
+- one plugin can own multiple capabilities under a single plugin ID
 
-Note: Core tools (`read`, `bash`, `edit`, `write`) are always enabled and are not plugins.
+This lets a feature own its metadata, config, status, runtime lifecycle, and tool exposure in one place without leaking host internals into plugin code.
 
-## Built-in Plugins
+## What Plugins Can Own
 
-Anna ships with 11 built-in plugins:
+Built-in plugins can register capabilities for:
 
-| Kind     | Name            | Description                                          |
-| -------- | --------------- | ---------------------------------------------------- |
-| tool     | mcp             | Connect to configured MCP servers and proxy MCP tools |
-| tool     | webfetch        | Fetch web pages                                      |
-| channel  | telegram        | Telegram bot                                         |
-| channel  | qq              | QQ bot                                               |
-| channel  | feishu          | Feishu (Lark) bot                                    |
-| channel  | weixin          | WeChat bot (via iLink)                               |
-| hook     | trace           | Structured logging + optional OpenTelemetry tracing  |
-| hook     | rtk             | Request tracking and cost logging                    |
-| provider | anthropic       | Anthropic Messages API (Claude models)               |
-| provider | openai          | OpenAI Chat Completions API (GPT models)             |
-| provider | openai-response | OpenAI Responses API (compatible services)           |
+- tools
+- providers
+- channels
+- hooks
+- memory providers
+- managed runtimes
+- config and status
+- prompt inventory
+- system prompt sections
+- lifecycle hooks
 
-See the [Plugins](/docs/plugins) section for detailed documentation on individual plugins.
+Examples in the current tree:
 
-## Plugin Architecture
+- `tool/notify` is a simple tool plugin
+- `tool/mcp` owns config, runtime, status, tool exposure, and prompt inventory
+- `channel/telegram` owns config, status, channel registration, and runtime lifecycle
+- `reflect` owns config, status, and a managed runtime
 
-All plugin kinds follow the same pattern:
+## Why The Design Matters
 
-1. Each plugin is a Go package under `plugins/{kind}/{name}/`
-2. The package's `init()` function calls the kind-specific registry's `Register()` method
-3. A blank import in `plugins/all.go` triggers registration at startup
-4. The registry's `BuildEnabled()` (or `BuildAll()` for providers) instantiates active plugins at runtime
+The host now has one public mental model instead of multiple overlapping registration APIs.
 
-```
-plugins/
-├── all.go                          # Blank imports trigger init() registration
-├── tools/
-│   ├── registry.go                 # Tool plugin registry
-│   ├── mcp/                        # Tool: MCP proxy + server manager
-│   └── webfetch/                   # Tool: web page fetcher
-├── channels/
-│   ├── telegram/                   # Channel: Telegram bot
-│   ├── qq/                         # Channel: QQ bot
-│   ├── feishu/                     # Channel: Feishu bot
-│   └── weixin/                     # Channel: WeChat bot
-├── hooks/
-│   ├── registry.go                 # Hook plugin registry
-│   ├── trace/                      # Hook: structured logging + OTel tracing
-│   └── rtk/                        # Hook: request tracking
-└── providers/
-    ├── registry.go                 # Provider plugin registry
-    ├── anthropic/                  # Provider: Anthropic API
-    ├── openai/                     # Provider: OpenAI Chat Completions
-    └── openai-response/            # Provider: OpenAI Responses API
-```
+That gives Anna:
 
-### Adding a New Plugin
+- plugin-scoped access to host services
+- cleaner ownership boundaries
+- easier testing
+- more coherent admin and runtime orchestration
 
-To add a new plugin, create a package under the appropriate `plugins/{kind}/` directory with an `init()` function that registers with the kind's registry. Then add a blank import to `plugins/all.go`. No other wiring code is needed.
+## Built-In Plugin Areas
 
-Example -- adding a new provider:
+Anna ships built-in plugins across several areas:
 
-```go
-// plugins/providers/gemini/client.go
-package gemini
+| Kind      | Examples |
+| --- | --- |
+| tool | `mcp`, `webfetch`, `notify` |
+| channel | `telegram`, `qq`, `feishu`, `weixin` |
+| hook | `trace`, `rtk` |
+| provider | `anthropic`, `openai`, `openai-response` |
+| memory | `lcm`, `simple` |
+| runtime | `reflect` |
 
-import (
-    pluginproviders "github.com/vaayne/anna/plugins/providers"
-    "github.com/vaayne/anna/internal/ai"
-)
+## Read The Plugin Docs
 
-func init() {
-    pluginproviders.Register("gemini", pluginproviders.Registration{
-        Meta: pluginproviders.ProviderMeta{
-            Name:       "Google Gemini",
-            DefaultURL: "https://generativelanguage.googleapis.com",
-        },
-        Factory: func(cfg pluginproviders.ProviderConfig) (providers.ProviderAdapter, error) {
-            return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}), nil
-        },
-    })
-}
-```
+The feature overview is intentionally short. For the actual plugin API and authoring model, use the dedicated plugin docs:
 
-## Storage
-
-Plugin state is stored in the `settings_plugins` table in the database. Each plugin has:
-
-| Field     | Type       | Description                                         |
-| --------- | ---------- | --------------------------------------------------- |
-| `id`      | string     | Plugin ID (`kind/name`, e.g., `tool/webfetch`)      |
-| `kind`    | string     | `tool`, `channel`, `hook`, or `provider`            |
-| `name`    | string     | Plugin name                                         |
-| `enabled` | bool       | Whether the plugin is active                        |
-| `config`  | JSON map   | Plugin-specific configuration (tokens, keys, etc.)  |
-
-## CLI Commands
-
-```bash
-anna plugin list               # List all plugins with status
-anna plugin enable <id>        # Enable a plugin
-anna plugin disable <id>       # Disable a plugin
-anna plugin config <id>        # View plugin configuration
-anna plugin config <id> k=v    # Set plugin configuration key-value pairs
-```
-
-## Admin Panel
-
-Channel plugins, provider plugins, and the built-in `tool/mcp` plugin are configured via the admin panel (`anna --open`). The admin panel writes to the `settings_plugins` table and provides a UI for managing tokens, keys, and plugin-specific settings. The MCP plugin stores its server definitions as JSON in `settings_plugins.config`, with an admin form editor for multiple servers/transports, transport-specific fields, structured args/env/header editors, and live runtime status badges for discovered/suppressed servers.
+- [Plugin Overview](/docs/plugins/overview)
+- [Create a Plugin](/docs/plugins/create-a-plugin)
+- [Capabilities](/docs/plugins/capabilities)
+- [Platform API](/docs/plugins/platform)
+- [Examples](/docs/plugins/examples)

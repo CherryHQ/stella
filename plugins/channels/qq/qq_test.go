@@ -3,8 +3,10 @@ package qq
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -12,6 +14,29 @@ import (
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/channel"
 )
+
+func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server) {
+	t.Helper()
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Skipf("local test server unavailable: %v", r)
+		}
+	}()
+
+	if port := os.Getenv("PORT"); port != "" {
+		ln, err := net.Listen("tcp", "127.0.0.1:"+port)
+		if err != nil {
+			t.Skipf("listen on PORT=%q: %v", port, err)
+		}
+		srv = httptest.NewUnstartedServer(handler)
+		srv.Listener = ln
+		srv.Start()
+		return srv
+	}
+
+	return httptest.NewServer(handler)
+}
 
 // --- SplitMessage (shared) ---
 
@@ -355,7 +380,7 @@ func TestExtractImageAttachmentsFiltersImages(t *testing.T) {
 // --- downloadImage ---
 
 func TestDownloadImageSuccess(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		_, _ = w.Write([]byte("fakepng"))
 	}))
@@ -374,7 +399,7 @@ func TestDownloadImageSuccess(t *testing.T) {
 }
 
 func TestDownloadImageAddsScheme(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "image/jpeg")
 		_, _ = w.Write([]byte("ok"))
 	}))
@@ -390,7 +415,7 @@ func TestDownloadImageAddsScheme(t *testing.T) {
 }
 
 func TestDownloadImageBadStatus(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer srv.Close()
@@ -402,7 +427,7 @@ func TestDownloadImageBadStatus(t *testing.T) {
 }
 
 func TestDownloadImageTooLarge(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		_, _ = w.Write(make([]byte, maxImageSize+10))
 	}))
@@ -415,7 +440,7 @@ func TestDownloadImageTooLarge(t *testing.T) {
 }
 
 func TestDownloadImageDetectsMIME(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("hello"))
 	}))
 	defer srv.Close()

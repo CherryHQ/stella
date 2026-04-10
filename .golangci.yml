@@ -5,13 +5,19 @@ run:
 
 linters:
   enable:
+    - bodyclose
+    - copyloopvar
     - errcheck
+    - errorlint
     - govet
     - ineffassign
+    - misspell
+    - nilerr
     - staticcheck
+    - unconvert
     - unused
     - gocritic
-    - misspell
+    - modernize
 
 formatters:
   enable:

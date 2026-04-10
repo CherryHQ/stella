@@ -270,7 +270,7 @@ type SessionManager interface {
 //
 // This is deliberately a single method. Watermark tracking (which sessions
 // have been reviewed, when) is not the memory plugin's concern — it belongs
-// to the consumer (internal/reflect). The memory plugin's only job is:
+// to the consumer (`plugins/reflect`). The memory plugin's only job is:
 // "given a session and an optional time boundary, produce reviewable text."
 type Reviewer interface {
 	// BuildReviewContext returns a text representation of the conversation

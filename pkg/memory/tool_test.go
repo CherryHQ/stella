@@ -3,6 +3,7 @@ package memory_test
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
@@ -467,10 +468,5 @@ func stringContains(s, substr string) bool {
 }
 
 func containsString2(slice []string, s string) bool {
-	for _, v := range slice {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, s)
 }
