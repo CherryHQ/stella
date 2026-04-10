@@ -72,6 +72,9 @@ func serverAction(c *ucli.Context) error {
 				"base_url": baseURL,
 			})
 		},
+		s.promptToolsBuilder,
+		s.promptSectionsBuilder,
+		s.toolLifecycle,
 	)
 	return runServer(s.ctx, s, listFn, switchFn, c.Int("admin-port"), c.Bool("open"))
 }
@@ -184,6 +187,16 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			if err := ch.Start(gctx); err != nil && gctx.Err() == nil {
 				return fmt.Errorf("%s: %w", ch.Name(), err)
 			}
+			return nil
+		})
+	}
+
+	// Managed channel runtimes are started by plugin application rather than by the
+	// legacy channels slice. When the admin panel is disabled, keep the gateway alive
+	// until shutdown so managed runtimes can continue serving traffic.
+	if adminPort == 0 && managedChannels.Started > 0 {
+		g.Go(func() error {
+			<-gctx.Done()
 			return nil
 		})
 	}

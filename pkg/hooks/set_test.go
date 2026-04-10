@@ -30,9 +30,9 @@ type preToolCallPlugin struct {
 func (p *preToolCallPlugin) OnPreToolCall(_ context.Context, hctx *PreToolCallContext) (PreToolCallResult, error) {
 	p.called = true
 	return PreToolCallResult{
-		Arguments: p.rewrite,
-		Block:     p.block,
-		BlockMessage:  p.blockMsg,
+		Arguments:    p.rewrite,
+		Block:        p.block,
+		BlockMessage: p.blockMsg,
 	}, nil
 }
 

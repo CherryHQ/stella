@@ -87,6 +87,9 @@ func chatCommand() *ucli.Command {
 						"base_url": baseURL,
 					})
 				},
+				s.promptToolsBuilder,
+				s.promptSectionsBuilder,
+				s.toolLifecycle,
 			)
 			return clicmd.RunChat(s.ctx, pool, snap.Provider, snap.Model, listFn, switchFn, s.cliUserID)
 		},
