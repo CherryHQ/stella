@@ -30,8 +30,16 @@ const defaultAdminPort = 25678
 
 func serverFlags() []ucli.Flag {
 	return []ucli.Flag{
+		&ucli.StringFlag{
+			Name:    "host",
+			Aliases: []string{"admin-host"},
+			Usage:   "Host/interface for admin panel",
+			Value:   "127.0.0.1",
+			EnvVars: []string{"HOST"},
+		},
 		&ucli.IntFlag{
-			Name:    "admin-port",
+			Name:    "port",
+			Aliases: []string{"admin-port"},
 			Usage:   "Port for admin panel (0 = disabled)",
 			Value:   defaultAdminPort,
 			EnvVars: []string{"PORT"},
@@ -52,10 +60,10 @@ func serverAction(c *ucli.Context) error {
 		return err
 	}
 	defer func() { _ = s.poolManager.Close() }()
-	return runServer(s.ctx, s, s.modelListFunc(s.snap), s.modelSwitchFunc(s.snap, s.pool), c.Int("admin-port"), c.Bool("open"))
+	return runServer(s.ctx, s, s.modelListFunc(s.snap), s.modelSwitchFunc(s.snap, s.pool), c.String("host"), c.Int("port"), c.Bool("open"))
 }
 
-func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminPort int, openBrowser bool) error {
+func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int, openBrowser bool) error {
 	g, gctx := errgroup.WithContext(ctx)
 	var channels []pkgchannel.Channel
 
@@ -92,16 +100,17 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	// Start admin panel server.
 	if adminPort > 0 {
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", adminPort))
+		listenAddr := adminListenAddress(adminHost, adminPort)
+		ln, err := net.Listen("tcp", listenAddr)
 		if err != nil {
 			return fmt.Errorf("admin listen: %w", err)
 		}
 		addr := ln.Addr().String()
 		slog.Info("starting admin panel", "addr", addr)
-		fmt.Printf("Admin panel running at http://%s\n", addr)
+		fmt.Printf("Admin panel running at %s\n", adminURLForDisplay(adminHost, adminPort, addr))
 
 		if openBrowser {
-			launchBrowser("http://" + addr)
+			launchBrowser(adminBrowserURL(adminHost, adminPort, addr))
 		}
 
 		httpSrv := &http.Server{Handler: adminSrv.Handler()}
@@ -248,6 +257,43 @@ func launchBrowser(url string) {
 		return
 	}
 	go func() { _ = cmd.Wait() }()
+}
+
+func adminListenAddress(host string, port int) string {
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, fmt.Sprintf("%d", port))
+}
+
+func adminURLForDisplay(host string, port int, fallbackAddr string) string {
+	displayHost := host
+	if displayHost == "" {
+		displayHost = hostFromAddr(fallbackAddr)
+	}
+	if displayHost == "" {
+		displayHost = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(displayHost, fmt.Sprintf("%d", port))
+}
+
+func adminBrowserURL(host string, port int, fallbackAddr string) string {
+	browserHost := host
+	if browserHost == "" {
+		browserHost = hostFromAddr(fallbackAddr)
+	}
+	if browserHost == "" || browserHost == "0.0.0.0" || browserHost == "::" {
+		browserHost = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(browserHost, fmt.Sprintf("%d", port))
+}
+
+func hostFromAddr(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return ""
+	}
+	return host
 }
 
 func browserCommand(url string) *exec.Cmd {

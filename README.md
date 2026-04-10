@@ -166,21 +166,23 @@ This opens a web admin panel in your browser where you can configure everything:
 ```bash
 anna chat                   # Terminal chat (default agent)
 anna chat --agent helper    # Terminal chat with a specific agent
-anna                        # Start daemon (bots + scheduler)
-anna --admin-port 8080      # Start daemon with admin panel
+anna                         # Start daemon (bots + scheduler)
+anna --port 8080             # Start daemon with admin panel
+anna --host 0.0.0.0 --port 8080  # Bind admin panel to all interfaces
 ```
 
-`anna chat` gives you a terminal conversation. `anna` (bare command) starts all your configured channels and the scheduler. Add `--admin-port` to expose the admin panel alongside the daemon for runtime configuration.
+`anna chat` gives you a terminal conversation. `anna` (bare command) starts all your configured channels and the scheduler. Add `--port` to expose the admin panel alongside the daemon for runtime configuration. `HOST` and `PORT` environment variables are also supported.
 
 ## CLI reference
 
 ```bash
-anna --open                # Open web admin panel to configure anna
-anna chat                  # Interactive terminal chat
-anna chat --agent <name>   # Chat with a specific agent
-anna chat --stream         # Pipe stdin, stream to stdout
-anna                       # Start daemon (bots + scheduler)
-anna --admin-port <port>   # Start daemon with admin panel
+anna --open                        # Open web admin panel to configure anna
+anna chat                          # Interactive terminal chat
+anna chat --agent <name>           # Chat with a specific agent
+anna chat --stream                 # Pipe stdin, stream to stdout
+anna                               # Start daemon (bots + scheduler)
+anna --port <port>                 # Start daemon with admin panel
+anna --host <host> --port <port>   # Bind admin panel to a specific host/interface
 anna models list           # List available models
 anna models set <p/m>      # Switch model (e.g. openai/gpt-4o)
 anna models search <q>     # Search models

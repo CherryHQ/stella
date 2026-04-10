@@ -68,10 +68,11 @@ Available in CLI, Telegram, QQ, Feishu, and WeChat:
 ## CLI commands
 
 ```
-anna                   # Start daemon (Telegram, QQ, Feishu, WeChat, scheduler)
-anna --open            # Start daemon and open admin panel in browser
-anna --admin-port 8080 # Start daemon with admin panel on custom port
-anna chat              # Interactive TUI
+anna                              # Start daemon (Telegram, QQ, Feishu, WeChat, scheduler)
+anna --open                       # Start daemon and open admin panel in browser
+anna --port 8080                  # Start daemon with admin panel on custom port
+anna --host 0.0.0.0 --port 8080   # Bind admin panel to all interfaces
+anna chat                         # Interactive TUI
 anna chat --agent NAME # Chat with a specific agent
 anna chat --stream     # Pipe stdin, stream stdout
 anna models list       # List models

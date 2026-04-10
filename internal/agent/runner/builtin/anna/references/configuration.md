@@ -2,7 +2,7 @@
 
 All configuration is stored in a SQLite database at `$ANNA_HOME/anna.db` (`~/.anna/anna.db` by default).
 
-The easiest way to configure anna is `anna --open`, which opens a web admin panel. The admin panel is also available during gateway operation via `anna --admin-port 8080`.
+The easiest way to configure anna is `anna --open`, which opens a web admin panel. The admin panel is also available during gateway operation via `anna --port 8080` or `anna --host 0.0.0.0 --port 8080`.
 
 ## Quick start
 

@@ -46,7 +46,8 @@ anna
 gatewayと並行して管理パネルを提供する(ランタイム設定変更のため)には:
 
 ```bash
-anna --admin-port 8080
+anna --port 8080
+anna --host 0.0.0.0 --port 8080
 ```
 
 または、対話型CLIを使用します:
@@ -163,7 +164,7 @@ services:
 docker compose up -d
 ```
 
-初期設定を実行するには、`docker compose exec anna anna --open`を使用するか、`--admin-port 8080`でgatewayを起動してWebUIを介して設定します。
+初期設定を実行するには、`docker compose exec anna anna --open`を使用するか、`--port 8080`でgatewayを起動してWebUIを介して設定します。
 
 ### ローカルでビルド
 
@@ -190,7 +191,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t anna .
 
 ## 環境変数
 
-設定は管理パネル(`anna --open`または`--admin-port`経由)を通じて管理されます。サポートされる環境変数は少数のみです:
+設定は管理パネル(`anna --open`または`--port`経由)を通じて管理されます。管理パネルのバインドには `HOST` と `PORT` も使え、その他にサポートされる環境変数は少数のみです:
 
 | 変数                | 必須   | 説明                                          |
 | ------------------- | ------ | --------------------------------------------- |
