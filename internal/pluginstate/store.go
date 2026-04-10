@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/vaayne/anna/pkg/db/sqlc"
@@ -26,7 +27,7 @@ func (s *Store) Get(ctx context.Context, pluginID string, scope pkgplugins.State
 		ScopeID:   scope.ID,
 		StateKey:  key,
 	})
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, nil
 	}
 	if err != nil {

@@ -3,6 +3,7 @@ package bash
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -102,7 +103,8 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (string, er
 
 	if err != nil {
 		exitCode := 1
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
 		}
 		tr := tools.TruncateTail(result)

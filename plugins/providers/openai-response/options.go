@@ -3,7 +3,6 @@ package openairesponse
 import (
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
-	"github.com/openai/openai-go/shared"
 	"github.com/vaayne/anna/pkg/ai"
 )
 
@@ -11,7 +10,7 @@ func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) response
 	input := convertMessages(ctx)
 
 	params := responses.ResponseNewParams{
-		Model: shared.ResponsesModel(model.Name),
+		Model: model.Name,
 		Input: responses.ResponseNewParamsInputUnion{
 			OfInputItemList: input,
 		},

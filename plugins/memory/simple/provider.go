@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -138,7 +139,7 @@ func (p *Provider) Assemble(ctx context.Context, session memory.Session, budget,
 // Stats implements memory.Provider.
 func (p *Provider) Stats(ctx context.Context, session memory.Session) (memory.SessionStats, error) {
 	conv, err := p.q.GetConversationBySessionID(ctx, session.ID)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return memory.SessionStats{}, nil
 	}
 	if err != nil {
@@ -180,7 +181,7 @@ func (p *Provider) getMemoryRow(ctx context.Context, userID int64, agentID strin
 		UserID:  userID,
 		AgentID: agentID,
 	})
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -238,7 +239,7 @@ func (p *Provider) SetAgentSoul(ctx context.Context, userID int64, agentID strin
 // SaveInfo implements memory.SessionManager.
 func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error {
 	conv, err := p.q.GetConversationBySessionID(ctx, info.ID)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		lastActive := info.LastActive
 		if lastActive.IsZero() {
 			lastActive = time.Now().UTC()
@@ -339,7 +340,7 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 // LoadHistory implements memory.SessionManager.
 func (p *Provider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error) {
 	conv, err := p.q.GetConversationBySessionID(ctx, sessionID)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -383,7 +384,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, sessionID string
 		p.cacheConvID(sessionID, conv.ID)
 		return conv.ID, nil
 	}
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return 0, fmt.Errorf("get conversation: %w", err)
 	}
 

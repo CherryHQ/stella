@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -300,7 +301,7 @@ func TestEngine_Must(t *testing.T) {
 	if err == nil {
 		t.Error("Must should return error when denied")
 	}
-	if err != ErrAccessDenied {
+	if !errors.Is(err, ErrAccessDenied) {
 		t.Errorf("expected ErrAccessDenied, got %v", err)
 	}
 }
