@@ -16,16 +16,6 @@ import (
 	lcmmemory "github.com/vaayne/anna/plugins/memory/lcm"
 )
 
-type testWeixinChannel struct{}
-
-func (testWeixinChannel) Name() string { return pkgchannel.PlatformWeixin }
-func (testWeixinChannel) Start(ctx context.Context) error {
-	<-ctx.Done()
-	return ctx.Err()
-}
-func (testWeixinChannel) Stop()                                                       {}
-func (testWeixinChannel) Notify(ctx context.Context, n pkgchannel.Notification) error { return nil }
-
 type testWeixinHandler struct{}
 
 func (testWeixinHandler) HandleIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
