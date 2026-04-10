@@ -64,3 +64,51 @@
   - removed `Client.Start`/`Close` self-deadlocks by moving handshake and shutdown RPCs outside the lifecycle mutex and adding explicit `started`/`closing` state
   - replaced the shared response channel with per-request pending channels plus serialized stdin writes so concurrent tool calls cannot steal or drop each other's responses
   - added process-exit monitoring and subprocess-backed tests for successful start/close, handshake failure, dead-process detection, and out-of-order concurrent responses
+
+## Phase 3 — Core tool integration on Linux/macOS
+
+- **Status:** complete
+- **What was done:**
+  - introduced boxsh-backed tool adapters (`BashAdapter`, `ReadAdapter`, `WriteAdapter`, `EditAdapter`) in `internal/sandbox/boxshclient/`
+  - wired Linux/macOS core tools through boxsh in `gorunner.go` via `CoreToolsBuilderWithBoxsh` helper
+  - propagated boxsh backend health into runner liveness via `Alive()` method
+  - preserved Windows current backend behavior by using delegate builder on Windows
+  - ensured runner/tool lifecycle closes boxsh process and cleans up ephemeral session upperdirs
+  - removed redundant Linux/macOS path-guard wrapper reliance by creating boxsh-backed tools directly without `WrapWithSandbox`
+  - added `DisableSandbox` config option for testing to allow tests to bypass backend creation
+  - added comprehensive tests for tool adapters and `CoreToolsBuilderWithBoxsh` behavior
+- **What changed:**
+  - new files:
+    - `internal/sandbox/boxshclient/tool_adapters.go`: boxsh-backed tool implementations
+    - `internal/sandbox/boxshclient/tool_adapters_test.go`: adapter tests
+    - `internal/agent/runner/coretools_builder.go`: platform-aware builder helper
+    - `internal/agent/runner/coretools_builder_test.go`: builder behavior tests
+  - modified files:
+    - `internal/agent/runner/gorunner.go`: added backend field, `createAndStartBackend()`, updated `Alive()`, `Close()`, `buildToolRegistry()`
+    - `plugins/tools/registry.go`: added `Backend` field to `BuildContext`
+    - `internal/agent/runner/gorunner_test.go`: added `DisableSandbox: true` to test configs
+  - all Phase 3.1-3.6 tasks completed and marked in `tasks.md`
+- **Commits:**
+  - `7e1914a` — `✨ feat: Phase 3.1 - add boxsh-backed tool adapters for bash, read, write, edit`
+  - `f08e1b6` — `✨ feat: Phase 3.2 - wire Linux/macOS core tools through boxsh backend in gorunner.go`
+  - `744251a` — `✨ feat: Phase 3.3-3.6 - runner health, Windows behavior, cleanup, remove path-guard redundancy`
+- **Context for next phase:**
+  - Phase 3 completes the core tool integration. On Linux/macOS, tools now execute through boxsh RPC; on Windows, they continue using direct Go execution.
+  - Phase 4 should focus on:
+    - Integration tests proving cross-workspace access is blocked by construction
+    - Network policy tests for disabled/allow_all/whitelist modes
+    - Verifying shared COW view across all four tools
+    - Documentation updates for the new sandbox model
+  - Current implementation notes:
+    - Runner `Alive()` returns false if the boxsh process dies (on Linux/macOS)
+    - Runner `Close()` terminates the boxsh process and cleans up session directories
+    - The `CoreToolsBuilderWithBoxsh` helper automatically selects the right implementation based on platform and backend availability
+    - Tests use `DisableSandbox: true` to avoid requiring a real boxsh binary
+- **Blockers:** none
+- **Fixes after review:**
+  - moved sandbox preparation ahead of backend startup so managed tool extraction and preflight validation happen before `createAndStartBackend()` on Linux/macOS
+  - skipped sandbox preflight entirely when `DisableSandbox` is set so unit tests can opt out cleanly without validating irrelevant managed binaries
+  - added end-to-end runner tests that verify `GoRunner` actually routes `bash` through boxsh, reports dead backend health, and removes the ephemeral session dir on close
+  - updated provider integration tests to disable sandbox explicitly, since they exercise model/provider behavior rather than boxsh RPC startup
+  - suppressed expected reader-close errors during normal client shutdown and increased startup validation/handshake timeouts to keep full uncached test runs stable under load
+  - replaced flaky subprocess fixtures with deterministic shell-based mock `boxsh` scripts in `cmd/anna`, runner tests, and client tests so clean `GOFLAGS=-count=1` runs pass reliably

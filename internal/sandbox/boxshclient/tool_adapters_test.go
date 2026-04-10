@@ -5,98 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
-	"time"
 )
-
-// setupTestBackend creates a test backend with a temporary session directory.
-func setupTestBackend(t *testing.T) (*SharedBackend, string, func()) {
-	if !PlatformSupportsBoxsh() {
-		t.Skip("boxsh not supported on this platform")
-	}
-
-	// Create a temporary directory to act as the sandbox root (SRC).
-	srcDir := t.TempDir()
-
-	// Create a fake boxsh binary that simulates RPC responses.
-	boxshDir := t.TempDir()
-	boxshPath := filepath.Join(boxshDir, "boxsh")
-
-	// Create a mock boxsh that understands basic RPC calls.
-	mockScript := `#!/bin/bash
-# Mock boxsh RPC server for testing
-if [ "$1" = "--version" ]; then
-	echo "boxsh version 0.1.0"
-	exit 0
-fi
-
-# Read JSON-RPC requests and respond
-while IFS= read -r line; do
-	# Parse method from JSON (simple grep approach)
-	if echo "$line" | grep -q '"method":"ping"'; then
-		echo '{"jsonrpc":"2.0","result":"pong","id":1}'
-	elif echo "$line" | grep -q '"method":"exec"'; then
-		# Extract command from params (simplified)
-		if echo "$line" | grep -q '"command":"echo'; then
-			echo "$line" | grep -o '"command":"[^"]*"' | cut -d'"' -f4 | sed 's/echo //'
-		fi
-		echo '{"jsonrpc":"2.0","result":{"stdout":"test output","stderr":"","exit_code":0},"id":2}'
-	elif echo "$line" | grep -q '"method":"read"'; then
-		echo '{"jsonrpc":"2.0","result":{"content":"file contents","total_lines":10,"truncated":false},"id":3}'
-	elif echo "$line" | grep -q '"method":"write"'; then
-		echo '{"jsonrpc":"2.0","result":{"bytes_written":100,"path":"/test/file.txt"},"id":4}'
-	elif echo "$line" | grep -q '"method":"edit"'; then
-		echo '{"jsonrpc":"2.0","result":{"path":"/test/file.txt","replacements":1},"id":5}'
-	elif echo "$line" | grep -q '"method":"quit"'; then
-		echo '{"jsonrpc":"2.0","result":null,"id":99}'
-		exit 0
-	fi
-done
-`
-	if runtime.GOOS == "windows" {
-		// Windows mock would need a different approach
-		t.Skip("Windows mock not implemented")
-	}
-
-	if err := os.WriteFile(boxshPath, []byte(mockScript), 0o755); err != nil {
-		t.Fatalf("failed to create mock boxsh: %v", err)
-	}
-
-	// Create backend
-	backend := &SharedBackend{
-		binaryPath: boxshPath,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Create session dir manually for the test
-	sessionDir := t.TempDir()
-	backend.sessionDir = sessionDir
-
-	// The mock script needs to handle the actual execution
-	// For unit tests, we'll test the adapter logic directly without real RPC
-	client := New(boxshPath, SessionConfig{
-		Src: srcDir,
-		Dst: sessionDir,
-		Cwd: srcDir,
-	})
-	if err := client.Start(ctx); err != nil {
-		// Mock might not work perfectly, that's OK for adapter tests
-		// We'll test with a manual client injection
-		t.Logf("Mock start (may fail): %v", err)
-	}
-
-	backend.client = client
-
-	cleanup := func() {
-		_ = backend.Close()
-	}
-
-	return backend, srcDir, cleanup
-}
 
 func TestBashAdapter_Definition(t *testing.T) {
 	backend := &SharedBackend{}
@@ -191,7 +102,7 @@ func TestEditAdapter_Execute_MissingOldString(t *testing.T) {
 	adapter := NewEditAdapter(backend)
 
 	_, err := adapter.Execute(context.Background(), map[string]any{
-		"file_path": "/test/file.txt",
+		"file_path":  "/test/file.txt",
 		"new_string": "new",
 	})
 	if err == nil || !strings.Contains(err.Error(), "old_string is required") {
@@ -344,7 +255,7 @@ done
 	}); err != nil {
 		t.Fatalf("failed to start backend: %v", err)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	// Create adapter and test
 	adapter := NewBashAdapter(backend, "")
@@ -413,7 +324,7 @@ done
 	}); err != nil {
 		t.Fatalf("failed to start backend: %v", err)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	adapter := NewReadAdapter(backend)
 
@@ -476,7 +387,7 @@ done
 	}); err != nil {
 		t.Fatalf("failed to start backend: %v", err)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	adapter := NewWriteAdapter(backend)
 
@@ -538,7 +449,7 @@ done
 	}); err != nil {
 		t.Fatalf("failed to start backend: %v", err)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	adapter := NewEditAdapter(backend)
 
@@ -648,7 +559,7 @@ done
 	}); err != nil {
 		t.Fatalf("failed to start backend: %v", err)
 	}
-	defer backend.Close()
+	defer func() { _ = backend.Close() }()
 
 	binDir := "/test/tools/bin"
 	adapter := NewBashAdapter(backend, binDir)

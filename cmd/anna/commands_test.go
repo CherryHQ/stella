@@ -112,7 +112,24 @@ func setupCommandTestAnnaHome(t *testing.T) string {
 	_ = embedded.EnsureTools(annaHome)
 	boxshPath := filepath.Join(binDir, "boxsh")
 	_ = os.Remove(boxshPath)
-	if err := os.WriteFile(boxshPath, []byte("#!/bin/sh\necho boxsh 2.0.1\n"), 0o755); err != nil {
+	boxshStub := `#!/bin/bash
+if [[ "$1" == "--version" ]]; then
+	echo boxsh 2.0.1
+	exit 0
+fi
+
+while read -r line; do
+	if [[ "$line" == *'"method":"ping"'* ]]; then
+		id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
+		echo "{\"jsonrpc\":\"2.0\",\"result\":\"pong\",\"id\":$id}"
+	elif [[ "$line" == *'"method":"quit"'* ]]; then
+		id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
+		echo "{\"jsonrpc\":\"2.0\",\"result\":\"bye\",\"id\":$id}"
+		exit 0
+	fi
+done
+`
+	if err := os.WriteFile(boxshPath, []byte(boxshStub), 0o755); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	t.Setenv("ANNA_HOME", annaHome)

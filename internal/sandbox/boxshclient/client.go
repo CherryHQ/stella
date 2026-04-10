@@ -197,7 +197,7 @@ func (c *Client) buildArgs() []string {
 
 // handshake verifies the session is ready by calling a ping method.
 func (c *Client) handshake(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	var result string
@@ -326,6 +326,10 @@ func (c *Client) readLoop(stdout io.Reader) {
 		if err := decoder.Decode(&resp); err != nil {
 			if err != io.EOF {
 				c.mu.Lock()
+				if c.closing || c.closed || isExpectedReaderClose(err) {
+					c.mu.Unlock()
+					return
+				}
 				if c.readerErr == nil {
 					c.readerErr = fmt.Errorf("boxshclient: decode error: %w", err)
 				}
@@ -558,4 +562,12 @@ func done(ch <-chan struct{}) bool {
 	default:
 		return false
 	}
+}
+
+func isExpectedReaderClose(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "file already closed") || strings.Contains(msg, "closed pipe")
 }

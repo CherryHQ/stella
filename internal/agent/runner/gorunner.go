@@ -12,8 +12,8 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner/builtin"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
-	"github.com/vaayne/anna/internal/sandbox/boxshclient"
 	internalsandbox "github.com/vaayne/anna/internal/sandbox"
+	"github.com/vaayne/anna/internal/sandbox/boxshclient"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -100,6 +100,10 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 
 	model := ai.Model{API: cfg.API, Name: cfg.Model}
 
+	if err := prepareSandbox(ctx, cfg); err != nil {
+		return nil, err
+	}
+
 	// Create and start boxsh backend on Linux/macOS (unless disabled for testing).
 	var backend *boxshclient.SharedBackend
 	if !cfg.DisableSandbox && boxshclient.PlatformSupportsBoxsh() {
@@ -111,13 +115,6 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 
 	toolReg, err := buildToolRegistry(cfg, backend)
 	if err != nil {
-		if backend != nil {
-			_ = backend.Close()
-		}
-		return nil, err
-	}
-	if err := preflightSandbox(ctx, cfg); err != nil {
-		_ = toolReg.Close()
 		if backend != nil {
 			_ = backend.Close()
 		}
@@ -242,7 +239,8 @@ func buildToolRegistry(cfg GoRunnerConfig, backend *boxshclient.SharedBackend) (
 		ToolsBinDir: toolsBinDir,
 		Backend:     backend,
 	}
-	for _, t := range cfg.CoreTools(bc) {
+	coreToolsBuilder := CoreToolsBuilderWithBoxsh(cfg.CoreTools)
+	for _, t := range coreToolsBuilder(bc) {
 		toolReg.Register(t)
 	}
 
@@ -271,9 +269,19 @@ func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 	}))
 }
 
-func preflightSandbox(ctx context.Context, cfg GoRunnerConfig) error {
+func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
+	annaHome := cfg.AnnaHome
+	if annaHome == "" {
+		annaHome = config.AnnaHome()
+	}
+	if err := embedded.EnsureTools(annaHome); err != nil {
+		slog.Warn("failed to extract embedded tools", "error", err)
+	}
+	if cfg.DisableSandbox {
+		return nil
+	}
 	if err := internalsandbox.Preflight(ctx, internalsandbox.PreflightConfig{
-		AnnaHome:    cfg.AnnaHome,
+		AnnaHome:    annaHome,
 		Workspace:   cfg.Workspace,
 		UserDataDir: cfg.UserDataDir,
 		Sandbox:     cfg.Sandbox,

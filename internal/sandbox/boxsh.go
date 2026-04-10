@@ -120,7 +120,7 @@ func Preflight(ctx context.Context, cfg PreflightConfig) error {
 		return fmt.Errorf("sandbox: remove temp file in %q: %w", stateDir, err)
 	}
 
-	validateCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	validateCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	_, err = ValidateManagedBoxshBinary(validateCtx, annaHome)
 	return err

@@ -44,14 +44,15 @@ func integrationConfig(t *testing.T) GoRunnerConfig {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	return GoRunnerConfig{
-		API:       "anthropic",
-		Model:     model,
-		APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
-		BaseURL:   os.Getenv("ANTHROPIC_BASE_URL"),
-		AnnaHome:  annaHome,
-		Workspace: workspace,
-		CoreTools: integrationCoreToolsBuilder,
-		Providers: integrationProviderRegistryBuilder,
+		API:            "anthropic",
+		Model:          model,
+		APIKey:         os.Getenv("ANTHROPIC_API_KEY"),
+		BaseURL:        os.Getenv("ANTHROPIC_BASE_URL"),
+		AnnaHome:       annaHome,
+		Workspace:      workspace,
+		CoreTools:      integrationCoreToolsBuilder,
+		Providers:      integrationProviderRegistryBuilder,
+		DisableSandbox: true,
 	}
 }
 

@@ -1,9 +1,7 @@
 package boxshclient
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -303,104 +301,59 @@ func TestClientRoutesOutOfOrderResponses(t *testing.T) {
 	}
 }
 
-func TestBoxshHelperProcess(t *testing.T) {
-	if os.Getenv("GO_WANT_BOXSH_HELPER") != "1" {
-		return
-	}
-
-	mode := os.Getenv("BOXSH_HELPER_MODE")
-	scanner := bufio.NewScanner(os.Stdin)
-	encoder := json.NewEncoder(os.Stdout)
-	var encodeMu sync.Mutex
-	send := func(resp Response) {
-		encodeMu.Lock()
-		defer encodeMu.Unlock()
-		mustEncode(encoder, resp)
-	}
-
-	for scanner.Scan() {
-		var req Request
-		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(2)
-		}
-
-		switch req.Method {
-		case "ping":
-			result := any("pong")
-			if mode == "bad-handshake" {
-				result = any("nope")
-			}
-			send(Response{JSONRPC: "2.0", ID: req.ID, Result: mustJSON(result)})
-			if mode == "exit-after-handshake" {
-				os.Exit(0)
-			}
-		case "quit":
-			send(Response{JSONRPC: "2.0", ID: req.ID, Result: mustJSON("bye")})
-			os.Exit(0)
-		case "exec":
-			var params ExecParams
-			mustUnmarshal(req.Params, &params)
-			if mode == "out-of-order" {
-				go func(id uint64, command string) {
-					time.Sleep(50 * time.Millisecond)
-					send(Response{JSONRPC: "2.0", ID: id, Result: mustJSON(ExecResult{Stdout: command, ExitCode: 0})})
-				}(req.ID, params.Command)
-				continue
-			}
-			send(Response{JSONRPC: "2.0", ID: req.ID, Result: mustJSON(ExecResult{Stdout: params.Command, ExitCode: 0})})
-		case "stat":
-			send(Response{JSONRPC: "2.0", ID: req.ID, Result: mustJSON(StatResult{Exists: true, ModTime: "1970-01-01T00:00:00Z"})})
-		default:
-			send(Response{JSONRPC: "2.0", ID: req.ID, Error: &RPCError{Code: -32601, Message: "method not found"}})
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
-	}
-	os.Exit(0)
-}
-
 func newHelperClient(t *testing.T, mode string) *Client {
 	t.Helper()
 
 	wrapper := filepath.Join(t.TempDir(), "boxsh-helper.sh")
-	script := fmt.Sprintf("#!/bin/sh\nGO_WANT_BOXSH_HELPER=1 BOXSH_HELPER_MODE=%s exec %q -test.run=TestBoxshHelperProcess\n", mode, os.Args[0])
+	script := fmt.Sprintf(`#!/bin/bash
+mode=%q
+
+if [[ "$1" == "--version" ]]; then
+	echo boxsh 2.0.1
+	exit 0
+fi
+
+while read -r line; do
+	if [[ "$line" == *'"method":"ping"'* ]]; then
+		id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
+		if [[ "$mode" == "bad-handshake" ]]; then
+			echo "{\"jsonrpc\":\"2.0\",\"result\":\"nope\",\"id\":$id}"
+		else
+			echo "{\"jsonrpc\":\"2.0\",\"result\":\"pong\",\"id\":$id}"
+		fi
+		if [[ "$mode" == "exit-after-handshake" ]]; then
+			sleep 0.05
+			exit 0
+		fi
+	elif [[ "$line" == *'"method":"quit"'* ]]; then
+		id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
+		echo "{\"jsonrpc\":\"2.0\",\"result\":\"bye\",\"id\":$id}"
+		exit 0
+	elif [[ "$line" == *'"method":"exec"'* ]]; then
+		id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
+		cmd=$(echo "$line" | sed 's/.*"command":"\([^"]*\)".*/\1/')
+		if [[ "$mode" == "out-of-order" ]]; then
+			(sleep 0.05; echo "{\"jsonrpc\":\"2.0\",\"result\":{\"stdout\":\"$cmd\",\"stderr\":\"\",\"exit_code\":0},\"id\":$id}") &
+		else
+			echo "{\"jsonrpc\":\"2.0\",\"result\":{\"stdout\":\"$cmd\",\"stderr\":\"\",\"exit_code\":0},\"id\":$id}"
+		fi
+	elif [[ "$line" == *'"method":"stat"'* ]]; then
+		id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
+		echo "{\"jsonrpc\":\"2.0\",\"result\":{\"exists\":true,\"is_dir\":false,\"size\":0,\"mod_time\":\"1970-01-01T00:00:00Z\"},\"id\":$id}"
+	fi
+done
+`, mode)
 	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
 		t.Fatalf("write helper wrapper: %v", err)
 	}
 
+	root := t.TempDir()
 	return New(wrapper, SessionConfig{
-		Src:         t.TempDir(),
+		Src:         root,
 		Dst:         t.TempDir(),
-		Cwd:         t.TempDir(),
+		Cwd:         root,
 		NetworkMode: "disabled",
 	})
-}
-
-func mustEncode(encoder *json.Encoder, resp Response) {
-	if err := encoder.Encode(resp); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
-	}
-}
-
-func mustJSON(v any) json.RawMessage {
-	data, err := json.Marshal(v)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
-	}
-	return data
-}
-
-func mustUnmarshal(data []byte, v any) {
-	if err := json.Unmarshal(data, v); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
-	}
 }
 
 // Helper functions.

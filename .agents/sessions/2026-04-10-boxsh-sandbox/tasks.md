@@ -12,12 +12,12 @@
 - [x] Phase 2.4 Implement session workspace helpers for user-session and non-user-session sandbox roots plus ephemeral session `DST`
 - [x] Phase 2.5 Normalize boxsh responses into Anna-compatible tool results/errors
 
-- [ ] Phase 3.1 Introduce boxsh-backed adapters for `bash`, `read`, `write`, and `edit`
-- [ ] Phase 3.2 Wire Linux/macOS core tools through boxsh in `gorunner.go`
-- [ ] Phase 3.3 Propagate boxsh health into runner liveness
-- [ ] Phase 3.4 Preserve Windows current backend behavior
-- [ ] Phase 3.5 Ensure runner/tool cleanup closes boxsh and removes ephemeral session upperdirs
-- [ ] Phase 3.6 Remove redundant Linux/macOS reliance on path-guard wrappers where superseded
+- [x] Phase 3.1 Introduce boxsh-backed adapters for `bash`, `read`, `write`, and `edit`
+- [x] Phase 3.2 Wire Linux/macOS core tools through boxsh in `gorunner.go`
+- [x] Phase 3.3 Propagate boxsh health into runner liveness
+- [x] Phase 3.4 Preserve Windows current backend behavior
+- [x] Phase 3.5 Ensure runner/tool cleanup closes boxsh and removes ephemeral session upperdirs
+- [x] Phase 3.6 Remove redundant Linux/macOS reliance on path-guard wrappers where superseded
 
 - [ ] Phase 4.1 Add integration tests for shared COW view across all four tools
 - [ ] Phase 4.2 Add isolation tests for cross-workspace denial
