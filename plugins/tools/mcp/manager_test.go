@@ -7,7 +7,7 @@ import (
 func TestManagerRegistersValidTools(t *testing.T) {
 	mgr := NewManager()
 	mgr.Configure(Config{Servers: []ServerConfig{{Name: "github", Enabled: true, Transport: TransportStdio, Command: "npx"}}}, true)
-	tool := mgr.RegisterTool("github", "search_repos", "search_repos", "Search repos", map[string]any{"type": "object"}, nil, nil)
+	tool := mgr.AddTool("github", "search_repos", "search_repos", "Search repos", map[string]any{"type": "object"}, nil, nil)
 	if !mgr.Enabled() {
 		t.Fatal("expected manager enabled")
 	}

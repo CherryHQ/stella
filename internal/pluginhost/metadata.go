@@ -8,18 +8,6 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
-func (h *Host) RegisterMetadata(meta pkgplugins.PluginInfo) {
-	meta = normalizeMetadata(meta)
-	validateMetadataShape(meta)
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if _, ok := h.pluginIDs[meta.ID]; !ok {
-		panic(fmt.Sprintf("pluginhost: metadata registered for unknown plugin id %q", meta.ID))
-	}
-	registerUnique(h.metadataRegs, meta.ID, meta, "metadata")
-}
-
 func (h *Host) ListRegisteredPlugins() []pkgplugins.PluginInfo {
 	h.mu.RLock()
 	metas := make([]pkgplugins.PluginInfo, 0, len(h.metadataRegs))

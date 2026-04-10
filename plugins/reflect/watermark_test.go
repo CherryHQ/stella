@@ -8,6 +8,7 @@ import (
 
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/pluginstate"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 func newTestWatermarkStore(t *testing.T) *watermarkStore {
@@ -18,7 +19,23 @@ func newTestWatermarkStore(t *testing.T) *watermarkStore {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	return newWatermarkStore(pluginstate.New(db))
+	return newWatermarkStore(testStateStore{store: pluginstate.New(db)})
+}
+
+type testStateStore struct {
+	store *pluginstate.Store
+}
+
+func (s testStateStore) Get(ctx context.Context, scope pkgplugins.StateScope, key string) (map[string]any, bool, error) {
+	return s.store.Get(ctx, PluginID, scope, key)
+}
+
+func (s testStateStore) Set(ctx context.Context, scope pkgplugins.StateScope, key string, value map[string]any) error {
+	return s.store.Set(ctx, PluginID, scope, key, value)
+}
+
+func (s testStateStore) Delete(ctx context.Context, scope pkgplugins.StateScope, key string) error {
+	return s.store.Delete(ctx, PluginID, scope, key)
 }
 
 func TestWatermarkStore_GetMissing(t *testing.T) {

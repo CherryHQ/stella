@@ -13,7 +13,7 @@ import (
 
 func init() {
 	pkgplugins.Register("tool/write", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
+		host.SetInfo(pkgplugins.PluginInfo{
 			ID:          "tool/write",
 			Kind:        "tool",
 			Name:        "write",
@@ -23,7 +23,7 @@ func init() {
 				pkgplugins.CapabilityTool,
 			},
 		})
-		host.Registry().RegisterTool(pkgplugins.ToolSpec{
+		host.AddTool(pkgplugins.ToolSpec{
 			PluginID:    "tool/write",
 			Name:        "write",
 			Description: "Write complete file contents.",

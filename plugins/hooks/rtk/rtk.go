@@ -15,7 +15,7 @@ import (
 
 func init() {
 	pkgplugins.Register("hook/rtk", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
+		host.SetInfo(pkgplugins.PluginInfo{
 			ID:           "hook/rtk",
 			Kind:         "hook",
 			Name:         "rtk",
@@ -26,7 +26,7 @@ func init() {
 				pkgplugins.CapabilityHook,
 			},
 		})
-		host.Registry().RegisterHook(pkgplugins.HookSpec{
+		host.AddHook(pkgplugins.HookSpec{
 			PluginID: "hook/rtk",
 			Name:     "rtk",
 			Build: func(ctx pkgplugins.HookContext) (hooks.HookPlugin, error) {

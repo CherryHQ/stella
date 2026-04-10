@@ -10,12 +10,12 @@ import (
 
 // watermarkStore tracks review progress per session.
 type watermarkStore struct {
-	store pkgplugins.PluginStateStore
+	store pkgplugins.StateStore
 }
 
 const reviewWatermarkKey = "review_watermark"
 
-func newWatermarkStore(store pkgplugins.PluginStateStore) *watermarkStore {
+func newWatermarkStore(store pkgplugins.StateStore) *watermarkStore {
 	return &watermarkStore{store: store}
 }
 
@@ -23,7 +23,7 @@ func newWatermarkStore(store pkgplugins.PluginStateStore) *watermarkStore {
 // Returns zero time and nil error if never reviewed (sql.ErrNoRows).
 // Returns a non-nil error for actual DB failures.
 func (ws *watermarkStore) get(ctx context.Context, sessionID string) (time.Time, error) {
-	val, ok, err := ws.store.Get(ctx, PluginID, pkgplugins.StateScope{
+	val, ok, err := ws.store.Get(ctx, pkgplugins.StateScope{
 		Kind: pkgplugins.StateScopeSession,
 		ID:   sessionID,
 	}, reviewWatermarkKey)
@@ -46,7 +46,7 @@ func (ws *watermarkStore) get(ctx context.Context, sessionID string) (time.Time,
 
 // set records the last reviewed timestamp for a session.
 func (ws *watermarkStore) set(ctx context.Context, sessionID string, at time.Time) error {
-	return ws.store.Set(ctx, PluginID, pkgplugins.StateScope{
+	return ws.store.Set(ctx, pkgplugins.StateScope{
 		Kind: pkgplugins.StateScopeSession,
 		ID:   sessionID,
 	}, reviewWatermarkKey, map[string]any{

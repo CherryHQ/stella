@@ -11,11 +11,11 @@ import (
 
 type schedulerServiceAdapter struct {
 	service *internalscheduler.Service
-	host    pkgplugins.ServiceHost
+	lookup  pkgplugins.RuntimeLookup
 }
 
-func newSchedulerServiceAdapter(service *internalscheduler.Service, host pkgplugins.ServiceHost) schedulerServiceAdapter {
-	adapter := schedulerServiceAdapter{service: service, host: host}
+func newSchedulerServiceAdapter(service *internalscheduler.Service, lookup pkgplugins.RuntimeLookup) schedulerServiceAdapter {
+	adapter := schedulerServiceAdapter{service: service, lookup: lookup}
 	if service != nil {
 		service.AddOnJobListener(adapter.dispatchPluginJob)
 	}
@@ -140,11 +140,11 @@ func (a schedulerServiceAdapter) dispatchPluginJob(ctx context.Context, job inte
 	if job.OwnerKind != internalscheduler.JobOwnerPlugin {
 		return nil
 	}
-	if a.host == nil {
+	if a.lookup == nil {
 		return fmt.Errorf("host unavailable for plugin %s job %s", job.PluginID, job.JobKey)
 	}
 
-	handle, ok := a.host.Runtime().Get(job.PluginID, job.RuntimeName)
+	handle, ok := a.lookup.Lookup(job.PluginID, job.RuntimeName)
 	if !ok {
 		return fmt.Errorf("runtime unavailable for plugin %s runtime %s", job.PluginID, job.RuntimeName)
 	}

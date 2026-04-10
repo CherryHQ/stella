@@ -52,11 +52,3 @@ type Scheduler interface {
 	DeleteJob(ctx context.Context, key string) error
 	ListJobs(ctx context.Context) ([]SchedulerJob, error)
 }
-
-// SchedulerService is the legacy unscoped scheduler interface retained for migration.
-type SchedulerService interface {
-	ReconcilePluginJobs(ctx context.Context, pluginID string, jobs []SchedulerJobSpec) error
-	DeletePluginJobs(ctx context.Context, pluginID string) error
-	DeletePluginJob(ctx context.Context, pluginID string, key string) error
-	ListPluginJobs(ctx context.Context, pluginID string) ([]SchedulerJob, error)
-}

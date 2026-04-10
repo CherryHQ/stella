@@ -59,7 +59,7 @@ type setupResult struct {
 	channelRuntimeServices *pluginhost.ChannelPlatform
 	reflectRuntimeServices *pluginhost.ReflectPlatform
 	poolManager            *agent.PoolManager
-	pool                   *agent.Pool // default agent's pool (backward compat)
+	pool                   *agent.Pool // default agent pool shared with CLI and channel entrypoints
 	schedulerSvc           *scheduler.Service
 	extraTools             []tools.Tool
 	notifier               *notify.Dispatcher
@@ -132,14 +132,14 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	}
 	schedulerSvc.SetLegacyDataPath(dataDir)
 	schedulerSvc.SetUserJobsEnabled(snap.Scheduler.IsEnabled())
-	phost.SetSchedulerService(newSchedulerServiceAdapter(schedulerSvc, phost))
+	phost.SetSchedulerService(newSchedulerServiceAdapter(schedulerSvc, phost.Runtime()))
 
 	var sharedTools []tools.Tool
 	if snap.Scheduler.IsEnabled() {
 		sharedTools = append(sharedTools, scheduler.NewTool(schedulerSvc))
 	}
 
-	// Build memory provider via the host compatibility adapter.
+	// Build memory provider through the plugin host so memory plugins use the same registration path.
 	memoryName := "lcm"
 	if plugins, err := store.ListPluginsByKind(parent, config.PluginKindMemory); err == nil {
 		for _, plugin := range plugins {
@@ -212,9 +212,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 				return coreagent.ToolCallMutation{}, err
 			}
 			return coreagent.ToolCallMutation{
-				Arguments: result.Arguments,
-				Block:     result.Block,
-				BlockMessage:  result.BlockMessage,
+				Arguments:    result.Arguments,
+				Block:        result.Block,
+				BlockMessage: result.BlockMessage,
 			}, nil
 		},
 		AfterCall: func(ctx context.Context, result coreagent.ToolResultContext) (coreagent.ToolResultMutation, error) {

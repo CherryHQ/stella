@@ -122,7 +122,7 @@ func (m *Manager) Config() Config {
 	return m.config
 }
 
-func (m *Manager) RegisterTool(serverName, toolName, displayName, description string, inputSchema, outputSchema, annotations map[string]any) ToolInfo {
+func (m *Manager) AddTool(serverName, toolName, displayName, description string, inputSchema, outputSchema, annotations map[string]any) ToolInfo {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	info := ToolInfo{

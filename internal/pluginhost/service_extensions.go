@@ -33,43 +33,43 @@ func (h *Host) Notifications() pkgplugins.Notifier {
 	return h.notifications
 }
 
-// WithSchedulerService injects the narrow scheduler service available to plugins.
-func WithSchedulerService(service pkgplugins.SchedulerService) Option {
+// WithSchedulerService injects the host scheduler backend available to plugins.
+func WithSchedulerService(service SchedulerBackend) Option {
 	return func(h *Host) {
 		h.scheduler = service
 	}
 }
 
-// SetSchedulerService updates the scheduler service extension after host construction.
-func (h *Host) SetSchedulerService(service pkgplugins.SchedulerService) {
+// SetSchedulerService updates the scheduler backend after host construction.
+func (h *Host) SetSchedulerService(service SchedulerBackend) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.scheduler = service
 }
 
-// Scheduler returns the injected scheduler service, if any.
-func (h *Host) Scheduler() pkgplugins.SchedulerService {
+// Scheduler returns the injected scheduler backend, if any.
+func (h *Host) Scheduler() SchedulerBackend {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.scheduler
 }
 
-// WithStateStore injects the narrow plugin state store available to plugins.
-func WithStateStore(store pkgplugins.PluginStateStore) Option {
+// WithStateStore injects the host plugin state backend available to plugins.
+func WithStateStore(store StateStoreBackend) Option {
 	return func(h *Host) {
 		h.stateStore = store
 	}
 }
 
-// SetStateStore updates the plugin state store extension after host construction.
-func (h *Host) SetStateStore(store pkgplugins.PluginStateStore) {
+// SetStateStore updates the plugin state backend after host construction.
+func (h *Host) SetStateStore(store StateStoreBackend) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.stateStore = store
 }
 
-// StateStore returns the injected plugin state store, if any.
-func (h *Host) StateStore() pkgplugins.PluginStateStore {
+// StateStore returns the injected plugin state backend, if any.
+func (h *Host) StateStore() StateStoreBackend {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.stateStore

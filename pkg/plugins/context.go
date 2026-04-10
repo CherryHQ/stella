@@ -12,7 +12,6 @@ import (
 // ToolContext is the narrow build context for tool capabilities.
 type ToolContext struct {
 	Platform    Platform
-	Services    ServiceHost
 	State       PluginState
 	WorkDir     string
 	UserDataDir string
@@ -24,14 +23,12 @@ type ToolContext struct {
 // ProviderContext is the narrow build context for provider capabilities.
 type ProviderContext struct {
 	Platform Platform
-	Services ServiceHost
 	State    PluginState
 }
 
 // HookContext is the narrow build context for hook capabilities.
 type HookContext struct {
 	Platform    Platform
-	Services    ServiceHost
 	State       PluginState
 	ToolsBinDir string
 }
@@ -39,7 +36,6 @@ type HookContext struct {
 // ChannelContext is the narrow build context for channel capabilities.
 type ChannelContext struct {
 	Platform Platform
-	Services ServiceHost
 	State    PluginState
 	Handler  channel.Handler
 }
@@ -49,7 +45,6 @@ type ChannelContext struct {
 // plugin service surface.
 type MemoryContext struct {
 	Platform     Platform
-	Services     ServiceHost
 	State        PluginState
 	DB           *sql.DB
 	AnnaHome     string
@@ -59,28 +54,24 @@ type MemoryContext struct {
 // RuntimeContext is the narrow construction context for runtime capabilities.
 type RuntimeContext struct {
 	Platform Platform
-	Services ServiceHost
 	State    PluginState
 }
 
 // AdminContext is the narrow build context for plugin admin/status behavior.
 type AdminContext struct {
 	Platform Platform
-	Services ServiceHost
 	State    PluginState
 }
 
 // PromptInventoryContext is the narrow build context for prompt inventory contributions.
 type PromptInventoryContext struct {
 	Platform Platform
-	Services ServiceHost
 	State    PluginState
 }
 
 // SystemPromptContext is the shared build context for prompt contributions.
 type SystemPromptContext struct {
 	Platform    Platform
-	Services    ServiceHost
 	State       PluginState
 	AnnaHome    string
 	Workspace   string
@@ -93,7 +84,6 @@ type SystemPromptContext struct {
 // BeforeRunContext is the narrow per-run lifecycle context exposed to plugins.
 type BeforeRunContext struct {
 	Platform     Platform
-	Services     ServiceHost
 	State        PluginState
 	SessionID    string
 	Channel      string
@@ -108,7 +98,6 @@ type BeforeRunContext struct {
 // BeforeToolCallContext is the narrow per-tool-call lifecycle context exposed to plugins.
 type BeforeToolCallContext struct {
 	Platform   Platform
-	Services   ServiceHost
 	State      PluginState
 	SessionID  string
 	Channel    string
@@ -122,7 +111,6 @@ type BeforeToolCallContext struct {
 // AfterToolResultContext is the narrow post-tool lifecycle context exposed to plugins.
 type AfterToolResultContext struct {
 	Platform   Platform
-	Services   ServiceHost
 	State      PluginState
 	SessionID  string
 	Channel    string

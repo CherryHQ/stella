@@ -13,7 +13,7 @@ const PluginID = "tool/notify"
 
 func init() {
 	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
+		host.SetInfo(pkgplugins.PluginInfo{
 			ID:          PluginID,
 			Kind:        "tool",
 			Name:        "notify",
@@ -23,13 +23,13 @@ func init() {
 				pkgplugins.CapabilityTool,
 			},
 		})
-		host.Registry().RegisterTool(pkgplugins.ToolSpec{
+		host.AddTool(pkgplugins.ToolSpec{
 			PluginID:    PluginID,
 			Name:        "notify",
 			Description: "Send a notification message to the user.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				service := ctx.Services.Notifications()
+				service := ctx.Platform.Notifier()
 				if service == nil {
 					return nil, nil
 				}

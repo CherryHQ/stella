@@ -24,23 +24,23 @@ func (h *Host) registerManagedRuntime(reg managedRuntimeRegistration) {
 		meta.Managed = true
 		meta.HasConfig = true
 		meta.HasStatus = true
-		h.RegisterMetadata(meta)
+		h.SetInfo(meta)
 	}
-	h.RegisterConfig(pkgplugins.AdminSpec{
+	h.AddAdmin(pkgplugins.AdminSpec{
 		PluginID:      reg.pluginID,
 		DefaultConfig: reg.defaultConfig,
 		Schema:        reg.schema,
 		Validate:      reg.validate,
 		Redact:        reg.redact,
 	})
-	h.RegisterRuntime(pkgplugins.RuntimeSpec{
+	h.AddRuntime(pkgplugins.RuntimeSpec{
 		PluginID: reg.pluginID,
 		Name:     reg.runtimeName,
-		Factory:  reg.factory,
+		Build:    reg.factory,
 	})
-	h.RegisterStatus(pkgplugins.AdminSpec{
+	h.AddAdmin(pkgplugins.AdminSpec{
 		PluginID: reg.pluginID,
-		Get: func(ctx context.Context) (any, error) {
+		Status: func(ctx context.Context, _ pkgplugins.AdminContext) (any, error) {
 			return h.runtimeStatus(ctx, reg.pluginID, reg.runtimeName)
 		},
 	})

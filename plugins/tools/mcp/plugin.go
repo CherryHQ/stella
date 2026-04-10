@@ -15,7 +15,7 @@ const (
 
 func init() {
 	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
+		host.SetInfo(pkgplugins.PluginInfo{
 			ID:           PluginID,
 			Kind:         "tool",
 			Name:         "mcp",
@@ -33,7 +33,7 @@ func init() {
 				pkgplugins.CapabilityStatus,
 			},
 		})
-		host.Registry().RegisterConfig(pkgplugins.AdminSpec{
+		host.AddAdmin(pkgplugins.AdminSpec{
 			PluginID:      PluginID,
 			DefaultConfig: func() map[string]any { return map[string]any{"servers": []any{}} },
 			Schema:        configSchema(),
@@ -53,25 +53,25 @@ func init() {
 				return out
 			},
 		})
-		host.Registry().RegisterRuntime(pkgplugins.RuntimeSpec{PluginID: PluginID, Name: RuntimeName, Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
+		host.AddRuntime(pkgplugins.RuntimeSpec{PluginID: PluginID, Name: RuntimeName, Build: func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
 			return &managedRuntime{manager: NewManager()}, nil
 		}})
-		host.Registry().RegisterTool(pkgplugins.ToolSpec{PluginID: PluginID, Name: "mcp", Description: "Proxy MCP tools managed by the MCP plugin.", Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-			rt, ok := LookupRuntime(ctx.Services)
+		host.AddTool(pkgplugins.ToolSpec{PluginID: PluginID, Name: "mcp", Description: "Proxy MCP tools managed by the MCP plugin.", Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
+			rt, ok := LookupRuntime(ctx.Platform.RuntimeLookup())
 			if !ok {
 				return New(nil), nil
 			}
 			return New(rt.Manager()), nil
 		}})
-		host.Registry().RegisterStatus(pkgplugins.AdminSpec{PluginID: PluginID, Get: func(ctx context.Context) (any, error) {
-			rt, ok := LookupRuntime(host.Services())
+		host.AddAdmin(pkgplugins.AdminSpec{PluginID: PluginID, Status: func(ctx context.Context, build pkgplugins.AdminContext) (any, error) {
+			rt, ok := LookupRuntime(build.Platform.RuntimeLookup())
 			if !ok {
 				return map[string]any{"servers": []ServerStatus{}}, nil
 			}
 			return map[string]any{"servers": rt.Manager().Statuses()}, nil
 		}})
-		host.Registry().RegisterPromptInventory(pkgplugins.PromptInventorySpec{PluginID: PluginID, Name: "tools", LegacyGetTools: func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error) {
-			rt, ok := LookupRuntime(host.Services())
+		host.AddPromptInventory(pkgplugins.PromptInventorySpec{PluginID: PluginID, Name: "tools", GetTools: func(ctx context.Context, build pkgplugins.PromptInventoryContext) ([]pkgplugins.PromptToolInfo, error) {
+			rt, ok := LookupRuntime(build.Platform.RuntimeLookup())
 			if !ok {
 				return nil, nil
 			}
@@ -187,11 +187,11 @@ func (r *managedRuntime) Status(ctx context.Context) (pkgplugins.RuntimeStatus, 
 	return r.Snapshot(ctx)
 }
 
-func LookupRuntime(host pkgplugins.ServiceHost) (runtimeAccessor, bool) {
-	if host == nil {
+func LookupRuntime(lookup pkgplugins.RuntimeLookup) (runtimeAccessor, bool) {
+	if lookup == nil {
 		return nil, false
 	}
-	handle, ok := host.Runtime().Get(PluginID, RuntimeName)
+	handle, ok := lookup.Lookup(PluginID, RuntimeName)
 	if !ok {
 		return nil, false
 	}
