@@ -132,7 +132,120 @@ type Tool interface {
 | `mcp` | Proxy configured MCP servers through one generic Anna MCP tool |
 | `webfetch` | Fetch web page contents |
 
-On Linux and macOS, the core local-workspace tool path is moving to a managed `boxsh` sandbox backend. In this phase, Anna resolves `boxsh` from its managed embedded tools directory and fails closed during runner startup if the required binary, workspace/state-dir shape, or per-agent sandbox config is invalid. The core tools still run on the current backend until the later boxsh runtime integration phase. Windows retains the current direct-tool backend until that switch lands.
+On Linux and macOS, the core local-workspace tools run through a managed `boxsh` sandbox backend. The `bash`, `read`, `write`, and `edit` tools execute through a shared long-lived `boxsh --rpc` subprocess that provides filesystem and process isolation. Windows retains the direct-tool backend without sandboxing.
+
+### Sandbox Architecture
+
+The sandbox system uses a copy-on-write (COW) overlay filesystem model:
+
+- **Source (SRC)**: The read-only lower layer. For user sessions, this is `UserDataDir`. For system sessions, this is the agent workspace root.
+- **Destination (DST)**: An ephemeral per-session upperdir where writes land. Created when the runner starts, cleaned up on close.
+- **Working Directory (CWD)**: Tool execution context, resolved within the sandbox root.
+
+All four core tools share the same COW view through a single `boxsh` process per runner:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Go Runner                               │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐           │
+│  │  bash   │ │  read   │ │  write  │ │  edit   │           │
+│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘           │
+│       └─────────────┬─────────────┘                         │
+│                     ▼                                       │
+│            ┌──────────────┐                               │
+│            │ SharedBackend │                              │
+│            │  (boxsh RPC)  │                              │
+│            └──────┬───────┘                               │
+└───────────────────┼─────────────────────────────────────────┘
+                    │
+         ┌──────────┴──────────┐
+         ▼                     ▼
+    ┌─────────┐           ┌─────────┐
+    │   SRC   │ (ro)      │   DST   │ (rw, ephemeral)
+    │ (lower) │           │ (upper) │
+    └─────────┘           └─────────┘
+```
+
+### Platform Guarantees and Limitations
+
+| Feature | Linux | macOS | Windows |
+|---------|-------|-------|---------|
+| Process isolation | Full (user/mount namespace) | Policy-based (Seatbelt) | Not available |
+| Filesystem isolation | Mount namespace + overlayfs | clonefile(2) on APFS | Not available |
+| Network isolation | Full namespace support | Policy-based | Not available |
+| COW semantics | Complete isolation | Copy-on-write via APFS | Not available |
+| Required binary | `boxsh` (embedded) | `boxsh` (embedded) | N/A |
+
+**Linux Guarantees:**
+- Full mount namespace isolation. The sandbox root is a distinct mount point.
+- overlayfs or fuse-overlayfs fallback for COW semantics.
+- Network namespace support with `disabled`, `allow_all`, and `whitelist` modes.
+- All path access is constrained to the sandbox root.
+
+**Linux Limitations:**
+- Some filesystem/kernel combinations require `fuse-overlayfs`.
+- Network whitelist depends on iptables/nftables availability.
+
+**macOS Guarantees:**
+- Process-level sandboxing via Seatbelt (`sandbox_init`).
+- COW semantics on APFS via `clonefile(2)`.
+- Policy-based network restrictions (weaker than Linux namespace isolation).
+
+**macOS Limitations:**
+- No mount namespace equivalent. Filesystem isolation is policy-based, not absolute.
+- Weaker guarantees around `/tmp` and host visibility.
+- Network policy is more restrictive than Linux's namespace approach.
+- Behavior should be validated empirically rather than assumed equivalent to Linux.
+
+**Windows:**
+- Uses the existing direct-tool backend.
+- Path guards enforce `UserDataDir` boundaries.
+- No process or filesystem sandboxing.
+
+### Network Policy Configuration
+
+Per-agent sandbox network policy is configured via the admin API or database:
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| `disabled` | No outbound network access (default) | Maximum security for untrusted code |
+| `allow_all` | Unrestricted outbound access | Trusted agents requiring full network |
+| `whitelist` | Only specified hosts/CIDRs allowed | Restricted access to known endpoints |
+
+Whitelist entries can be:
+- Hostnames: `api.example.com`, `github.com`
+- IPv4 addresses: `192.168.1.1`
+- IPv4 CIDRs: `192.168.0.0/24`, `10.0.0.0/8`
+- IPv6 addresses: `::1`, `2001:db8::1`
+- IPv6 CIDRs: `2001:db8::/32`
+
+Configuration example:
+```json
+{
+  "sandbox": {
+    "network": {
+      "mode": "whitelist",
+      "allowlist": ["api.github.com", "pypi.org", "192.168.1.0/24"]
+    }
+  }
+}
+```
+
+### Failure Behavior
+
+On Linux and macOS, runner startup fails closed when:
+- The managed `boxsh` binary is missing or invalid
+- The workspace/state-dir shape is incorrect
+- Network policy configuration is invalid
+- Filesystem prerequisites (overlayfs/COW capability) are unavailable
+
+This ensures that sandboxed execution is either fully functional or does not run at all, preventing silent security downgrades.
+
+### Migration Notes
+
+- Windows behavior is unchanged; continues using direct-tool execution.
+- Existing path-guard tests are supplemented with sandbox-specific tests, not replaced.
+- The `DisableSandbox` config option exists for testing and emergency bypass only.
 
 Plugin tools live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/features/plugin-system) for the full plugin architecture.
 
