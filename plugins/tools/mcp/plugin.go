@@ -154,9 +154,11 @@ func (r *managedRuntime) RuntimeAccessor() any { return runtimeWrapper{manager: 
 func (r *managedRuntime) Start(ctx context.Context, desired pkgplugins.PluginState) error {
 	return r.Apply(ctx, desired)
 }
+
 func (r *managedRuntime) Reconcile(ctx context.Context, desired pkgplugins.PluginState) error {
 	return r.Apply(ctx, desired)
 }
+
 func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginState) error {
 	cfg, err := DecodeConfig(desired.Config)
 	if err != nil {
@@ -165,10 +167,12 @@ func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginSta
 	r.manager.Reconcile(ctx, cfg, desired.Enabled)
 	return nil
 }
+
 func (r *managedRuntime) Stop(ctx context.Context) error {
 	r.manager.Reconcile(ctx, Config{}, false)
 	return nil
 }
+
 func (r *managedRuntime) Snapshot(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
 	statuses := r.manager.Statuses()
 	state := pkgplugins.RuntimeStateStopped
@@ -183,6 +187,7 @@ func (r *managedRuntime) Snapshot(ctx context.Context) (pkgplugins.RuntimeStatus
 	}
 	return pkgplugins.RuntimeStatus{State: state, UpdatedAt: time.Now().UTC(), Metadata: map[string]any{"servers": statuses}}, nil
 }
+
 func (r *managedRuntime) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
 	return r.Snapshot(ctx)
 }

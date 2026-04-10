@@ -131,12 +131,15 @@ func (p *nonReviewerProvider) Name() string { return "non-reviewer" }
 func (p *nonReviewerProvider) Bootstrap(ctx context.Context, session memory.Session) error {
 	return p.inner.Bootstrap(ctx, session)
 }
+
 func (p *nonReviewerProvider) Append(ctx context.Context, session memory.Session, msgs ...ai.Message) error {
 	return p.inner.Append(ctx, session, msgs...)
 }
+
 func (p *nonReviewerProvider) Assemble(ctx context.Context, session memory.Session, budget, freshTail int) ([]ai.Message, error) {
 	return p.inner.Assemble(ctx, session, budget, freshTail)
 }
+
 func (p *nonReviewerProvider) Stats(ctx context.Context, session memory.Session) (memory.SessionStats, error) {
 	return p.inner.Stats(ctx, session)
 }
@@ -146,12 +149,15 @@ func (p *nonReviewerProvider) Close() error { return nil }
 func (p *nonReviewerProvider) SaveInfo(ctx context.Context, info memory.SessionInfo) error {
 	return p.inner.SaveInfo(ctx, info)
 }
+
 func (p *nonReviewerProvider) LoadInfo(ctx context.Context, sessionID string) (memory.SessionInfo, error) {
 	return p.inner.LoadInfo(ctx, sessionID)
 }
+
 func (p *nonReviewerProvider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
 	return p.inner.ListInfo(ctx, opts)
 }
+
 func (p *nonReviewerProvider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error) {
 	return p.inner.LoadHistory(ctx, sessionID)
 }

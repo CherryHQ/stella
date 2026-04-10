@@ -25,8 +25,10 @@ import (
 
 const maxToolIterations = 40
 
-type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
-type CoreToolsBuilder func(plugintools.BuildContext) []tools.Tool
+type (
+	ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
+	CoreToolsBuilder        func(plugintools.BuildContext) []tools.Tool
+)
 
 // GoRunnerConfig configures the Go runner.
 type GoRunnerConfig struct {

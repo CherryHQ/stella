@@ -114,6 +114,7 @@ func (s *stubStore) ListPlugins(context.Context) ([]config.Plugin, error) {
 	}
 	return plugins, nil
 }
+
 func (s *stubStore) ListPluginsByKind(context.Context, string) ([]config.Plugin, error) {
 	return nil, nil
 }
@@ -121,16 +122,19 @@ func (s *stubStore) ListEnabledPlugins(context.Context) ([]config.Plugin, error)
 func (s *stubStore) GetPlugin(_ context.Context, id string) (config.Plugin, error) {
 	return s.plugins[id], nil
 }
+
 func (s *stubStore) UpsertPlugin(_ context.Context, plugin config.Plugin) error {
 	s.plugins[plugin.ID] = plugin
 	return nil
 }
+
 func (s *stubStore) SetPluginEnabled(_ context.Context, id string, enabled bool) error {
 	p := s.plugins[id]
 	p.Enabled = enabled
 	s.plugins[id] = p
 	return nil
 }
+
 func (s *stubStore) SetPluginConfig(_ context.Context, id string, cfg map[string]any) error {
 	p := s.plugins[id]
 	p.Config = cfg

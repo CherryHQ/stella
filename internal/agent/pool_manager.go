@@ -33,11 +33,13 @@ type PluginToolsBuilder func(ctx context.Context) []tools.Tool
 type PluginHooksBuilder func(ctx context.Context) []hooks.HookPlugin
 
 // PromptToolsBuilder returns structured prompt inventory for the active plugin host.
-type PromptToolsBuilder func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error)
-type PromptSectionsBuilder func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
-type BeforeRunBuilder func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error)
-type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
-type CoreToolsBuilder = runner.CoreToolsBuilder
+type (
+	PromptToolsBuilder      func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error)
+	PromptSectionsBuilder   func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
+	BeforeRunBuilder        func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error)
+	ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
+	CoreToolsBuilder        = runner.CoreToolsBuilder
+)
 
 // PoolManagerOption configures a PoolManager.
 type PoolManagerOption func(*PoolManager)

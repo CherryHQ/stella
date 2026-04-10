@@ -480,24 +480,28 @@ func (m *mockHandler) HandleIncoming(ctx context.Context, msg channel.IncomingMe
 	}
 	return "", false, nil, nil
 }
+
 func (m *mockHandler) ListAgents(ctx context.Context, msg channel.IncomingMessage) ([]channel.AgentInfo, string, error) {
 	if m.listAgentsFn != nil {
 		return m.listAgentsFn(ctx, msg)
 	}
 	return nil, "", nil
 }
+
 func (m *mockHandler) SwitchAgent(ctx context.Context, msg channel.IncomingMessage, slug string) error {
 	if m.switchAgentFn != nil {
 		return m.switchAgentFn(ctx, msg, slug)
 	}
 	return nil
 }
+
 func (m *mockHandler) ListModels() []channel.ModelOption {
 	if m.listModelsFn != nil {
 		return m.listModelsFn()
 	}
 	return nil
 }
+
 func (m *mockHandler) SwitchModel(provider, model string) error {
 	if m.switchModelFn != nil {
 		return m.switchModelFn(provider, model)

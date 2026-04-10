@@ -2,8 +2,10 @@ package runner
 
 import "context"
 
-type systemOverrideKey struct{}
-type channelKey struct{}
+type (
+	systemOverrideKey struct{}
+	channelKey        struct{}
+)
 
 // WithSystemOverride returns a child context that carries a per-run system prompt override.
 func WithSystemOverride(ctx context.Context, system string) context.Context {

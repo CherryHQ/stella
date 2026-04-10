@@ -44,6 +44,7 @@ func (s *stubStore) ListPlugins(context.Context) ([]config.Plugin, error) {
 	})
 	return plugins, nil
 }
+
 func (s *stubStore) ListPluginsByKind(_ context.Context, kind string) ([]config.Plugin, error) {
 	plugins := make([]config.Plugin, 0, len(s.plugins))
 	for _, plugin := range s.plugins {
@@ -65,6 +66,7 @@ func (s *stubStore) SetPluginEnabled(_ context.Context, id string, enabled bool)
 	s.plugins[id] = p
 	return nil
 }
+
 func (s *stubStore) SetPluginConfig(_ context.Context, id string, cfg map[string]any) error {
 	p := s.plugins[id]
 	p.Config = cfg
@@ -343,9 +345,11 @@ type runtimeStub struct {
 func (r runtimeStub) Apply(ctx context.Context, desired pkgplugins.PluginState) error {
 	return r.apply(ctx, desired)
 }
+
 func (r runtimeStub) Start(ctx context.Context, desired pkgplugins.PluginState) error {
 	return r.Apply(ctx, desired)
 }
+
 func (r runtimeStub) Reconcile(ctx context.Context, desired pkgplugins.PluginState) error {
 	return r.Apply(ctx, desired)
 }
@@ -353,6 +357,7 @@ func (r runtimeStub) Stop(context.Context) error { return nil }
 func (r runtimeStub) Snapshot(context.Context) (pkgplugins.RuntimeStatus, error) {
 	return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateRunning}, nil
 }
+
 func (r runtimeStub) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
 	return r.Snapshot(ctx)
 }
