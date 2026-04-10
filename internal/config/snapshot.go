@@ -9,6 +9,7 @@ import (
 
 // ProviderCreds holds credentials for a single provider.
 type ProviderCreds struct {
+	Type    string
 	APIKey  string
 	BaseURL string
 }
@@ -83,15 +84,19 @@ func (s *Snapshot) ResolveModelTier(tier string) ai.Model {
 		provID = s.Provider
 	}
 
+	api := provID
 	baseURL := s.BaseURL
 	if creds, ok := s.Providers[provID]; ok {
+		if creds.Type != "" {
+			api = creds.Type
+		}
 		baseURL = creds.BaseURL
 	}
 
 	return ai.Model{
 		ID:       modelID,
 		Name:     modelID,
-		API:      provID,
+		API:      api,
 		Provider: provID,
 		BaseURL:  baseURL,
 	}
@@ -106,7 +111,7 @@ func (s *Snapshot) ResolveProviderCreds(providerID string) ProviderCreds {
 	if creds, ok := s.Providers[providerID]; ok {
 		return creds
 	}
-	return ProviderCreds{APIKey: s.APIKey, BaseURL: s.BaseURL}
+	return ProviderCreds{Type: s.Provider, APIKey: s.APIKey, BaseURL: s.BaseURL}
 }
 
 // SkillsPath returns the skills directory inside the workspace.

@@ -8,21 +8,9 @@ import (
 )
 
 // listCachedModels returns enabled models from provider config + fetched cache,
-// filtered to only include models whose provider plugin is currently enabled.
+// filtered to only include models whose provider instance is enabled.
 // No provider API calls — reads only from the DB and ~/.anna/cache/models.json.
 func (s *Server) listCachedModels(w http.ResponseWriter, r *http.Request) {
-	plugins, err := s.store.ListPluginsByKind(r.Context(), config.PluginKindProvider)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "list providers: "+err.Error())
-		return
-	}
-	providerEnabled := make(map[string]bool, len(plugins))
-	for _, p := range plugins {
-		if p.Enabled {
-			providerEnabled[p.Name] = true
-		}
-	}
-
 	providers, err := s.store.ListProviders(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "list provider config: "+err.Error())
@@ -31,8 +19,14 @@ func (s *Server) listCachedModels(w http.ResponseWriter, r *http.Request) {
 
 	seen := make(map[string]bool)
 	filtered := make([]config.CachedModel, 0)
+	providerByID := make(map[string]config.Provider, len(providers))
+	providerDisabled := make(map[string]map[string]bool, len(providers))
 	add := func(providerID, modelID string, disabled map[string]bool) {
-		if providerID == "" || modelID == "" || !providerEnabled[providerID] || disabled[modelID] {
+		if providerID == "" || modelID == "" || disabled[modelID] {
+			return
+		}
+		provider, ok := providerByID[providerID]
+		if !ok || !provider.Enabled {
 			return
 		}
 		key := providerID + "/" + modelID
@@ -42,9 +36,8 @@ func (s *Server) listCachedModels(w http.ResponseWriter, r *http.Request) {
 		seen[key] = true
 		filtered = append(filtered, config.CachedModel{Provider: providerID, Model: modelID})
 	}
-
-	providerDisabled := make(map[string]map[string]bool, len(providers))
 	for _, provider := range providers {
+		providerByID[provider.ID] = provider
 		disabled := disabledModelSet(provider.DisabledModels)
 		providerDisabled[provider.ID] = disabled
 		for modelID := range provider.Models {

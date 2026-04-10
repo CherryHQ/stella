@@ -240,8 +240,10 @@ func TestCreateProvider(t *testing.T) {
 	env := setupAdmin(t)
 
 	body := map[string]any{
-		"id":      "openai",
-		"name":    "OpenAI",
+		"id":      "openai-main",
+		"type":    "openai",
+		"name":    "OpenAI Main",
+		"enabled": true,
 		"api_key": "sk-test",
 	}
 	rr := doRequest(t, env, "POST", "/api/providers", body)
@@ -256,7 +258,7 @@ func TestCreateProvider(t *testing.T) {
 	_ = json.Unmarshal(resp.Data, &providers)
 	found := false
 	for _, p := range providers {
-		if p.ID == "openai" {
+		if p.ID == "openai-main" {
 			found = true
 		}
 	}

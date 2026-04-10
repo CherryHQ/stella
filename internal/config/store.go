@@ -5,7 +5,9 @@ import "context"
 // Provider represents an LLM API provider.
 type Provider struct {
 	ID             string         `json:"id"`
+	Type           string         `json:"type"`
 	Name           string         `json:"name"`
+	Enabled        bool           `json:"enabled"`
 	APIKey         string         `json:"api_key"`
 	BaseURL        string         `json:"base_url"`
 	Models         map[string]any `json:"models,omitempty"`

@@ -7,14 +7,16 @@ templ ProvidersPage() {
 		@ui.PageHeader("LLM connections", "API keys and endpoints for each model provider Anna can use.")
 		<div class="border-t border-base-300 pt-8">
 			<!-- Add provider bar -->
-			<div class="flex items-center gap-3 mb-8">
-				<select x-model="newProviderType" class="select select-bordered flex-1 text-sm">
-					<option value="" disabled>Select provider to add...</option>
+			<div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-3 mb-8">
+				<select x-model="newProviderType" class="select select-bordered text-sm">
+					<option value="" disabled>Select provider type...</option>
 					<template x-for="p in addableProviders" :key="p">
 						<option :value="p" x-text="p"></option>
 					</template>
 				</select>
-				<button @click="addProvider()" :disabled="!newProviderType" class="btn btn-primary btn-sm">Add</button>
+				<input x-model="newProviderID" type="text" placeholder="provider id (e.g. openrouter)" class="input input-bordered text-sm font-mono"/>
+				<input x-model="newProviderName" type="text" placeholder="display name" class="input input-bordered text-sm"/>
+				<button @click="addProvider()" :disabled="!newProviderType || !newProviderID" class="btn btn-primary btn-sm">Add</button>
 			</div>
 			<!-- Empty state -->
 			<div x-show="providers.length === 0" x-cloak>
@@ -26,9 +28,11 @@ templ ProvidersPage() {
 					<div class="py-6">
 						<!-- Header row: name + delete -->
 						<div class="flex items-baseline justify-between mb-4">
-							<div class="flex items-baseline gap-3">
+							<div class="flex items-baseline gap-3 flex-wrap">
 								<span class="font-medium text-lg" x-text="p.name || p.id"></span>
-								<span class="text-xs font-mono text-secondary" x-show="p.name && p.name !== p.id" x-text="p.id"></span>
+								<span class="text-xs font-mono text-secondary" x-text="p.id"></span>
+								<span class="badge badge-ghost badge-sm" x-text="p.type"></span>
+								<span class="badge badge-sm" :class="p.enabled ? 'badge-success' : 'badge-ghost'" x-text="p.enabled ? 'enabled' : 'disabled'"></span>
 							</div>
 							<button
 								@click="confirmDelete('Delete provider ' + p.id + '?', () => doDeleteProvider(p.id))"
@@ -44,7 +48,7 @@ templ ProvidersPage() {
 							</div>
 							<div>
 								@ui.FormField("Base URL") {
-									<input type="text" x-model="p.base_url" :placeholder="providerDefaults[p.id]?.base_url || ''" class="input input-bordered w-full text-sm font-mono"/>
+									<input type="text" x-model="p.base_url" :placeholder="providerDefaults[p.type]?.base_url || ''" class="input input-bordered w-full text-sm font-mono"/>
 								}
 							</div>
 						</div>
@@ -135,6 +139,10 @@ templ ProvidersPage() {
 						</div>
 						<!-- Actions: save, fetch models, model count toggle -->
 						<div class="flex items-center gap-4 flex-wrap">
+							<label class="label cursor-pointer justify-start gap-2 py-0">
+								<input type="checkbox" x-model="p.enabled" class="toggle toggle-primary toggle-sm"/>
+								<span class="label-text text-sm">Enabled</span>
+							</label>
 							<button @click="saveProvider(p)" class="btn btn-primary btn-sm">Save</button>
 							<button @click="fetchModels(p)" :disabled="p._fetching" class="btn btn-ghost btn-sm text-secondary">
 								<span x-show="p._fetching" class="loading loading-spinner loading-xs"></span>

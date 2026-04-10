@@ -38,7 +38,11 @@ func fetchModelsFromProviders(ctx context.Context, store config.Store, host *plu
 	}
 
 	for _, prov := range providers {
-		p, err := host.BuildProvider(prov.ID, map[string]any{
+		providerType := prov.Type
+		if providerType == "" {
+			providerType = prov.ID
+		}
+		p, err := host.BuildProvider(providerType, map[string]any{
 			"api_key":  prov.APIKey,
 			"base_url": prov.BaseURL,
 		})

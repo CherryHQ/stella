@@ -181,7 +181,15 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return phost.BuildCoreTools(bc)
 	}
 	providerRegistryBuilder := func(api, apiKey, baseURL string) (*providers.Registry, error) {
-		return phost.BuildProviderRegistry(api, map[string]any{
+		provider, err := store.GetProvider(ctx, api)
+		if err != nil {
+			return nil, err
+		}
+		providerType := provider.Type
+		if providerType == "" {
+			providerType = provider.ID
+		}
+		return phost.BuildProviderRegistry(providerType, map[string]any{
 			"api_key":  apiKey,
 			"base_url": baseURL,
 		})
@@ -357,7 +365,7 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 		if p, err := store.GetProvider(context.Background(), provider); err == nil {
 			providers := make(map[string]config.ProviderCreds, len(base.Providers)+1)
 			maps.Copy(providers, base.Providers)
-			providers[provider] = config.ProviderCreds{APIKey: p.APIKey, BaseURL: p.BaseURL}
+			providers[provider] = config.ProviderCreds{Type: p.Type, APIKey: p.APIKey, BaseURL: p.BaseURL}
 			snap.Providers = providers
 		}
 
@@ -387,7 +395,15 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 			return s.pluginHost.BuildCoreTools(bc)
 		},
 		func(api, apiKey, baseURL string) (*providers.Registry, error) {
-			return s.pluginHost.BuildProviderRegistry(api, map[string]any{
+			provider, err := s.store.GetProvider(s.ctx, api)
+			if err != nil {
+				return nil, err
+			}
+			providerType := provider.Type
+			if providerType == "" {
+				providerType = provider.ID
+			}
+			return s.pluginHost.BuildProviderRegistry(providerType, map[string]any{
 				"api_key":  apiKey,
 				"base_url": baseURL,
 			})

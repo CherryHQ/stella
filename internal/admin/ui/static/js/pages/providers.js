@@ -86,6 +86,8 @@ function normalizeProvider(provider) {
   const models = provider.models || {}
   return {
     ...provider,
+    type: provider.type || provider.id,
+    enabled: provider.enabled !== false,
     models,
     disabled_models: Array.isArray(provider.disabled_models) ? [...provider.disabled_models] : [],
     _fetching: false,
@@ -108,6 +110,8 @@ export function register(Alpine) {
     providers: [],
     providerModels: {},
     newProviderType: '',
+    newProviderID: '',
+    newProviderName: '',
 
     confirmMsg: '',
     confirmAction: () => {},
@@ -117,8 +121,7 @@ export function register(Alpine) {
     },
 
     get addableProviders() {
-      const existing = new Set(this.providers.map(p => p.id))
-      return Object.keys(providerDefaults).filter(p => !existing.has(p))
+      return Object.keys(providerDefaults)
     },
 
     async init() {
@@ -180,10 +183,17 @@ export function register(Alpine) {
     async addProvider() {
       if (!this.newProviderType) return
       const d = providerDefaults[this.newProviderType] || {}
+      const providerID = (this.newProviderID || '').trim()
+      if (!providerID) {
+        this.$store.toast.show('Provider ID is required', 'error')
+        return
+      }
       try {
         await api('POST', '/api/providers', {
-          id: this.newProviderType,
-          name: d.name || this.newProviderType,
+          id: providerID,
+          type: this.newProviderType,
+          name: (this.newProviderName || '').trim() || d.name || providerID,
+          enabled: true,
           api_key: '',
           base_url: '',
           models: {},
@@ -191,6 +201,8 @@ export function register(Alpine) {
         })
         await this.loadProviders()
         this.newProviderType = this.addableProviders[0] || ''
+        this.newProviderID = ''
+        this.newProviderName = ''
         this.$store.toast.show('Provider added')
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
@@ -295,7 +307,9 @@ export function register(Alpine) {
         p.models = this.parseCustomModels(p)
         await api('PUT', '/api/providers/' + p.id, {
           id: p.id,
+          type: p.type,
           name: p.name,
+          enabled: p.enabled,
           api_key: p.api_key,
           base_url: p.base_url,
           models: p.models,
