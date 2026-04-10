@@ -4,122 +4,68 @@ title: Plugin System
 
 ## Overview
 
-Anna uses a compiled-in plugin model. All plugins are built directly into the anna binary -- there is no subprocess protocol, no separate processes, and no third-party plugin installation.
+Anna uses a compiled-in plugin system. Plugins are built into the `anna` binary and registered at startup through Go package initialization.
 
-The runtime now uses a **unified plugin host**:
+The final public design is intentionally small:
 
-- a **plugin** is the ownership unit for config, lifecycle, runtime services, and capability registration
-- a plugin may register multiple **capabilities**: tool, provider, channel, hook, memory, runtime, config, status, and prompt inventory
-- plugin identity and capability identity stay separate
-- runtime plugins use declarative `Apply(ctx, desired PluginState)` semantics
-- plugins can consume narrow host-owned services such as notifications, state storage, auth lookups, and plugin-owned scheduler reconciliation
+- `Host` is the registration surface
+- `Platform` is the scoped service surface used inside capability callbacks
+- one plugin can own multiple capabilities under a single plugin ID
 
-Plugin-facing contracts live in `pkg/plugins/`. The host implementation lives in `internal/pluginhost/`.
+This lets a feature own its metadata, config, status, runtime lifecycle, and tool exposure in one place without leaking host internals into plugin code.
 
-Current built-in plugin capabilities cover:
+## What Plugins Can Own
 
-- **Tool plugins** for agent-callable tools (for example `mcp`, `webfetch`)
-- **Channel plugins** for messaging integrations (`telegram`, `qq`, `feishu`, `weixin`)
-- **Hook plugins** for engine interception (`trace`, `rtk`)
-- **Provider plugins** for LLM adapters (`anthropic`, `openai`, `openai-response`)
-- **Memory plugins** for conversation storage (`lcm`, `simple`)
-- **Runtime/status plugins** for background services such as MCP and reflect
+Built-in plugins can register capabilities for:
 
-Note: Core tools (`read`, `bash`, `edit`, `write`) are always enabled and are not plugins.
+- tools
+- providers
+- channels
+- hooks
+- memory providers
+- managed runtimes
+- config and status
+- prompt inventory
+- system prompt sections
+- lifecycle hooks
 
-## Built-in Plugins
+Examples in the current tree:
 
-Anna ships with built-in plugins across tools, channels, hooks, providers, memory, and standalone runtimes:
+- `tool/notify` is a simple tool plugin
+- `tool/mcp` owns config, runtime, status, tool exposure, and prompt inventory
+- `channel/telegram` owns config, status, channel registration, and runtime lifecycle
+- `reflect` owns config, status, and a managed runtime
 
-| Kind      | Name            | Description                                           |
-| --------- | --------------- | ----------------------------------------------------- |
-| tool      | mcp             | Connect to configured MCP servers and proxy MCP tools |
-| tool      | webfetch        | Fetch web pages                                       |
-| channel   | telegram        | Telegram bot                                          |
-| channel   | qq              | QQ bot                                                |
-| channel   | feishu          | Feishu (Lark) bot                                     |
-| channel   | weixin          | WeChat bot (via iLink)                                |
-| hook      | trace           | Structured logging + optional OpenTelemetry tracing   |
-| hook      | rtk             | Request tracking and cost logging                     |
-| provider  | anthropic       | Anthropic Messages API (Claude models)                |
-| provider  | openai          | OpenAI Chat Completions API (GPT models)              |
-| provider  | openai-response | OpenAI Responses API (compatible services)            |
-| memory    | lcm             | Lossless Context Management                           |
-| memory    | simple          | Sliding-window memory                                 |
-| runtime   | reflect         | Background conversation review                        |
+## Why The Design Matters
 
-See the [Plugins](/docs/plugins) section for detailed documentation on individual plugins.
+The host now has one public mental model instead of multiple overlapping registration APIs.
 
-## Plugin Architecture
+That gives Anna:
 
-Anna keeps the existing package layout, but plugin ownership is now unified under the plugin host.
+- plugin-scoped access to host services
+- cleaner ownership boundaries
+- easier testing
+- more coherent admin and runtime orchestration
 
-Today the architecture is split like this:
+## Built-In Plugin Areas
 
-1. Each built-in plugin package still lives under `plugins/{kind}/{name}/`
-2. Plugin-facing host contracts are defined in `pkg/plugins/`
-3. The process-wide plugin host lives in `internal/pluginhost/`
-4. Existing kind-specific registries still exist as compatibility adapters for tools, hooks, providers, and memory
-5. MCP, reflect, and all built-in messaging channels are host-backed: MCP owns config validation, runtime lifecycle, status, tool exposure, and prompt inventory; reflect owns config validation, runtime lifecycle, status, and scheduler-backed periodic review through the same host; Telegram, QQ, Feishu, and Weixin all reconcile channel config, runtime lifecycle, and status through the host while preserving their existing plugin rows and admin UX
+Anna ships built-in plugins across several areas:
 
-`cmd/anna/plugins_imports.go` provides the blank imports that trigger built-in plugin registration at startup.
+| Kind      | Examples |
+| --- | --- |
+| tool | `mcp`, `webfetch`, `notify` |
+| channel | `telegram`, `qq`, `feishu`, `weixin` |
+| hook | `trace`, `rtk` |
+| provider | `anthropic`, `openai`, `openai-response` |
+| memory | `lcm`, `simple` |
+| runtime | `reflect` |
 
-### Adding a New Plugin
+## Read The Plugin Docs
 
-New plugins should register through `pkg/plugins.Register(...)` and declare the capabilities they own. Legacy kind-specific registry registration still exists for compatibility, but new advanced plugins should prefer the unified host.
+The feature overview is intentionally short. For the actual plugin API and authoring model, use the dedicated plugin docs:
 
-Example -- adding a new provider capability through the legacy registry:
-
-```go
-// plugins/providers/gemini/client.go
-package gemini
-
-import (
-    pluginproviders "github.com/vaayne/anna/plugins/providers"
-    "github.com/vaayne/anna/internal/ai"
-)
-
-func init() {
-    pluginproviders.Register("gemini", pluginproviders.Registration{
-        Meta: pluginproviders.ProviderMeta{
-            Name:       "Google Gemini",
-            DefaultURL: "https://generativelanguage.googleapis.com",
-        },
-        Factory: func(cfg pluginproviders.ProviderConfig) (providers.ProviderAdapter, error) {
-            return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}), nil
-        },
-    })
-}
-```
-
-## Storage
-
-Plugin state is stored in the `settings_plugins` table in the database. Each plugin has:
-
-| Field     | Type       | Description                                         |
-| --------- | ---------- | --------------------------------------------------- |
-| `id`      | string     | Plugin ID (`kind/name`, e.g., `tool/webfetch`)      |
-| `kind`    | string     | `tool`, `channel`, `hook`, or `provider`            |
-| `name`    | string     | Plugin name                                         |
-| `enabled` | bool       | Whether the plugin is active                        |
-| `config`  | JSON map   | Plugin-specific configuration (tokens, keys, etc.)  |
-
-## CLI Commands
-
-```bash
-anna plugin list               # List all plugins with status
-anna plugin enable <id>        # Enable a plugin
-anna plugin disable <id>       # Disable a plugin
-anna plugin config <id>        # View plugin configuration
-anna plugin config <id> k=v    # Set plugin configuration key-value pairs
-```
-
-## Admin Panel
-
-Channel plugins, provider plugins, memory plugins, standalone runtimes, and the MCP plugin are configured via the admin panel (`anna --open`). The admin panel writes to the `settings_plugins` table while routing host-backed config, status, and runtime apply operations through the unified plugin host.
-
-The MCP plugin stores its server definitions as JSON in `settings_plugins.config`, with an admin form editor for multiple servers/transports, transport-specific fields, structured args/env/header editors, and live runtime status badges for discovered/suppressed servers.
-
-The reflect plugin keeps its existing standalone `settings_plugins` row (`id="reflect"`) and now reconciles a plugin-owned scheduled review job through the unified host. The scheduler persists first-class plugin ownership metadata in `sched_jobs`, and the admin scheduler page exposes those plugin-managed jobs as read-only status rows.
-
-The Telegram, QQ, Feishu, and Weixin channels keep using their existing `settings_plugins` rows (`id="channel/..."`) and the same `/channels` admin UI, but their config validation, runtime lifecycle, and status are now all host-backed. Saving or toggling channel config re-applies the corresponding managed runtime through the plugin host while preserving existing plugin IDs, admin UX, and channel-specific behavior.
+- [Plugin Overview](/docs/plugins/overview)
+- [Create a Plugin](/docs/plugins/create-a-plugin)
+- [Capabilities](/docs/plugins/capabilities)
+- [Platform API](/docs/plugins/platform)
+- [Examples](/docs/plugins/examples)

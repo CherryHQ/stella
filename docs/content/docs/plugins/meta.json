@@ -1,4 +1,4 @@
 {
   "title": "Plugins",
-  "pages": ["trace"]
+  "pages": ["overview", "create-a-plugin", "capabilities", "platform", "examples", "trace"]
 }
