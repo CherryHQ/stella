@@ -105,10 +105,32 @@ function normalizeProvider(provider) {
  *
  * @param {import('alpinejs').Alpine} Alpine
  */
+function groupProvidersByType(providers) {
+  const groups = []
+  const byType = new Map()
+
+  for (const provider of providers) {
+    if (!byType.has(provider.type)) {
+      const group = { type: provider.type, providers: [] }
+      byType.set(provider.type, group)
+      groups.push(group)
+    }
+    byType.get(provider.type).providers.push(provider)
+  }
+
+  for (const group of groups) {
+    group.providers.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id) || a.id.localeCompare(b.id))
+  }
+
+  groups.sort((a, b) => a.type.localeCompare(b.type))
+  return groups
+}
+
 export function register(Alpine) {
   Alpine.data('providersPage', () => ({
     providers: [],
     providerModels: {},
+    providerTypes: [],
     newProviderType: '',
     newProviderID: '',
     newProviderName: '',
@@ -121,13 +143,17 @@ export function register(Alpine) {
     },
 
     get addableProviders() {
-      return Object.keys(providerDefaults)
+      return this.providerTypes.map(type => type.id)
+    },
+
+    get groupedProviders() {
+      return groupProvidersByType(this.providers)
     },
 
     async init() {
       await this.loadProviderTypes()
       await this.loadProviders()
-      this.newProviderType = this.addableProviders[0] || ''
+      this.newProviderType = this.providerTypes[0]?.id || ''
     },
 
     async loadProviderTypes() {
@@ -137,6 +163,12 @@ export function register(Alpine) {
         for (const t of types) {
           providerDefaults[t.id] = { base_url: t.default_url, name: t.name }
         }
+        this.providerTypes = [...types]
+          .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id))
+          .map(type => ({
+            id: type.id,
+            label: type.name || type.id,
+          }))
       } catch (e) {
         console.error('Failed to load provider types:', e)
       }
@@ -188,6 +220,10 @@ export function register(Alpine) {
         this.$store.toast.show('Provider ID is required', 'error')
         return
       }
+      if (this.providerByID(providerID)) {
+        this.$store.toast.show('Provider ID already exists', 'error')
+        return
+      }
       try {
         await api('POST', '/api/providers', {
           id: providerID,
@@ -200,7 +236,7 @@ export function register(Alpine) {
           disabled_models: [],
         })
         await this.loadProviders()
-        this.newProviderType = this.addableProviders[0] || ''
+        this.newProviderType = this.providerTypes[0]?.id || ''
         this.newProviderID = ''
         this.newProviderName = ''
         this.$store.toast.show('Provider added')
@@ -300,6 +336,10 @@ export function register(Alpine) {
       if (p._customModelForm?.original_id === modelID || p._customModelForm?.id === modelID) {
         this.cancelCustomModelForm(p)
       }
+    },
+
+    providerTypeLabel(type) {
+      return providerDefaults[type]?.name || type
     },
 
     async saveProvider(p) {
