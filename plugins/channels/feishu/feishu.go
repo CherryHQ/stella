@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -321,12 +322,7 @@ var cancelPatterns = []string{"cancel", "stop", "abort", "取消", "停止"}
 // isCancelText returns true if the text matches a cancel pattern.
 func isCancelText(text string) bool {
 	t := strings.TrimSpace(strings.ToLower(text))
-	for _, p := range cancelPatterns {
-		if t == p {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(cancelPatterns, t)
 }
 
 // streamKey builds a key for the activeStreams map.

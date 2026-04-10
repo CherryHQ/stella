@@ -43,10 +43,7 @@ func (a *assembler) assemble(ctx context.Context, convID int64, budget int, fres
 		tailTokens += estimateMessageTokens(m)
 	}
 
-	remaining := budget - tailTokens
-	if remaining < 0 {
-		remaining = 0
-	}
+	remaining := max(budget-tailTokens, 0)
 
 	// Select older items that fit within remaining budget, newest first.
 	var olderMsgs []ai.Message

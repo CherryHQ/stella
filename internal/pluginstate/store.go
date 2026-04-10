@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 
 	"github.com/vaayne/anna/pkg/db/sqlc"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
@@ -73,8 +74,6 @@ func cloneMap(src map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	out := make(map[string]any, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
+	maps.Copy(out, src)
 	return out
 }

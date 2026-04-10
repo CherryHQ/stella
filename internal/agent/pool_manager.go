@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sync"
 	"time"
 
@@ -275,9 +276,7 @@ func (pm *PoolManager) ReloadPluginTools(ctx context.Context) error {
 	pm.mu.Lock()
 	pm.sharedExtraTools = mergeTools(pm.coreSharedTools, pluginTools)
 	pools := make(map[string]*Pool, len(pm.pools))
-	for id, p := range pm.pools {
-		pools[id] = p
-	}
+	maps.Copy(pools, pm.pools)
 	pm.mu.Unlock()
 
 	for agentID, pool := range pools {
@@ -304,9 +303,7 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 	oldPlugins := pm.hookPlugins
 	pm.hookPlugins = hookPlugins
 	pools := make(map[string]*Pool, len(pm.pools))
-	for id, p := range pm.pools {
-		pools[id] = p
-	}
+	maps.Copy(pools, pm.pools)
 	pm.mu.Unlock()
 
 	for _, pool := range pools {
@@ -327,9 +324,7 @@ func (pm *PoolManager) ReloadPluginHooks(ctx context.Context) error {
 func (pm *PoolManager) ReloadPluginProviders(ctx context.Context) error {
 	pm.mu.RLock()
 	pools := make(map[string]*Pool, len(pm.pools))
-	for id, p := range pm.pools {
-		pools[id] = p
-	}
+	maps.Copy(pools, pm.pools)
 	pm.mu.RUnlock()
 
 	for agentID, pool := range pools {

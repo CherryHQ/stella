@@ -41,12 +41,13 @@ func TestLoadConfig(t *testing.T) {
 	cfg := LoadConfig[pkgchannel.TelegramConfig](store, "telegram")
 	if cfg == nil {
 		t.Fatal("expected non-nil config")
-	}
-	if cfg.Token != "abc123" {
-		t.Errorf("Token = %q, want abc123", cfg.Token)
-	}
-	if !cfg.EnableNotify {
-		t.Error("expected EnableNotify = true")
+	} else {
+		if cfg.Token != "abc123" {
+			t.Errorf("Token = %q, want abc123", cfg.Token)
+		}
+		if !cfg.EnableNotify {
+			t.Error("expected EnableNotify = true")
+		}
 	}
 }
 

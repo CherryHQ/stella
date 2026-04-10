@@ -3,6 +3,7 @@ package channel
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 )
 
 func DecodePluginConfig[T any](raw map[string]any, label string) (T, error) {
@@ -25,8 +26,6 @@ func CloneConfigMap(src map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	out := make(map[string]any, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
+	maps.Copy(out, src)
 	return out
 }

@@ -151,7 +151,7 @@ func TestListUnreviewed_BatchLimit(t *testing.T) {
 	svc := &Service{memory: fake, wm: newFakeWatermarks(), batch: 2, log: testLogger()}
 
 	now := time.Now().UTC()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		seedFakeSession(t, fake, fmt.Sprintf("s%d", i), "a", int64(i+1), now.Add(time.Duration(i)*time.Minute))
 	}
 

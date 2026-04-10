@@ -493,8 +493,7 @@ func TestNotifyEmptyChatID(t *testing.T) {
 // --- sendImage ---
 
 func TestSendImageInvalidBase64(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	bot := &Bot{ctx: ctx}
 	// Invalid base64 should log error but not panic.
 	bot.sendImage("target", "msg", channel.ImageEvent{Data: "not-valid-base64!!!"})

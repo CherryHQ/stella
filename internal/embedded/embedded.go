@@ -47,8 +47,8 @@ func ToolNames() []string {
 	}
 	var names []string
 	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".gz") {
-			names = append(names, strings.TrimSuffix(e.Name(), ".gz"))
+		if name, ok := strings.CutSuffix(e.Name(), ".gz"); ok {
+			names = append(names, name)
 		}
 	}
 	return names

@@ -41,7 +41,7 @@ type Job struct {
 	AgentID     string         `json:"agent_id,omitempty"` // agent to route to (empty = default)
 	UserID      int64          `json:"user_id,omitempty"`  // user context (0 = none)
 	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at,omitempty"`
+	UpdatedAt   time.Time      `json:"updated_at"`
 	LastRunAt   *time.Time     `json:"last_run_at,omitempty"`
 	LastError   string         `json:"last_error,omitempty"`
 }

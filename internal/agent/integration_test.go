@@ -50,14 +50,14 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 
 	// Turn 1: establish context.
 	stream := pool.Chat(ctx, sessionID, "My favorite color is blue. Just say OK.")
-	var turn1 string
+	var turn1 strings.Builder
 	for evt := range stream {
 		if evt.Err != nil {
 			t.Fatalf("turn 1 error: %v", evt.Err)
 		}
-		turn1 += evt.Text
+		turn1.WriteString(evt.Text)
 	}
-	if turn1 == "" {
+	if turn1.Len() == 0 {
 		t.Fatal("turn 1: expected non-empty response")
 	}
 

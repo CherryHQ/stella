@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"maps"
 
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -78,9 +79,7 @@ func NewRunner(cfg RunnerConfig, opts ...Option) (*Runner, error) {
 	}
 	// Defensive copies: callers must not mutate after construction.
 	toolsCopy := make(ToolSet, len(cfg.Tools))
-	for k, v := range cfg.Tools {
-		toolsCopy[k] = v
-	}
+	maps.Copy(toolsCopy, cfg.Tools)
 	defsCopy := make([]ai.ToolDefinition, len(cfg.ToolDefinitions))
 	copy(defsCopy, cfg.ToolDefinitions)
 

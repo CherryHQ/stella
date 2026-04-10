@@ -438,8 +438,7 @@ func normalizeVersion(v string) string {
 	if trimmed == "" {
 		return ""
 	}
-	parts := strings.Split(trimmed, ".")
-	for _, part := range parts {
+	for part := range strings.SplitSeq(trimmed, ".") {
 		if part == "" {
 			return ""
 		}

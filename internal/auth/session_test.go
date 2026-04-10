@@ -39,21 +39,22 @@ func TestSetAndGetSessionCookie(t *testing.T) {
 	}
 	if found == nil {
 		t.Fatal("session cookie not found")
-	}
-	if found.Value != "test-session-id" {
-		t.Errorf("cookie value = %q, want %q", found.Value, "test-session-id")
-	}
-	if !found.HttpOnly {
-		t.Error("cookie should be HttpOnly")
-	}
-	if found.SameSite != http.SameSiteLaxMode {
-		t.Error("cookie should be SameSite=Lax")
-	}
-	if found.Secure {
-		t.Error("cookie should not be Secure for non-secure")
-	}
-	if found.Path != "/" {
-		t.Errorf("cookie path = %q, want %q", found.Path, "/")
+	} else {
+		if found.Value != "test-session-id" {
+			t.Errorf("cookie value = %q, want %q", found.Value, "test-session-id")
+		}
+		if !found.HttpOnly {
+			t.Error("cookie should be HttpOnly")
+		}
+		if found.SameSite != http.SameSiteLaxMode {
+			t.Error("cookie should be SameSite=Lax")
+		}
+		if found.Secure {
+			t.Error("cookie should not be Secure for non-secure")
+		}
+		if found.Path != "/" {
+			t.Errorf("cookie path = %q, want %q", found.Path, "/")
+		}
 	}
 
 	// Test Get.

@@ -37,8 +37,7 @@ func TestNewRegistry(t *testing.T) {
 	r := NewRegistry()
 	if r == nil {
 		t.Fatal("NewRegistry returned nil")
-	}
-	if len(r.tools) != 0 {
+	} else if len(r.tools) != 0 {
 		t.Errorf("expected empty registry, got %d tools", len(r.tools))
 	}
 }

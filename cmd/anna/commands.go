@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -357,9 +358,7 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 		// Fetch fresh provider credentials and record them in the copy's map.
 		if p, err := store.GetProvider(context.Background(), provider); err == nil {
 			providers := make(map[string]config.ProviderCreds, len(base.Providers)+1)
-			for k, v := range base.Providers {
-				providers[k] = v
-			}
+			maps.Copy(providers, base.Providers)
 			providers[provider] = config.ProviderCreds{APIKey: p.APIKey, BaseURL: p.BaseURL}
 			snap.Providers = providers
 		}

@@ -42,8 +42,7 @@ func TestWithAuthInfo_RoundTrip(t *testing.T) {
 	got := UserFromContext(ctx)
 	if got == nil {
 		t.Fatal("expected non-nil AuthInfo from context")
-	}
-	if got.UserID != 42 {
+	} else if got.UserID != 42 {
 		t.Errorf("expected UserID=42, got %d", got.UserID)
 	}
 }

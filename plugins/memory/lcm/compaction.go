@@ -52,7 +52,7 @@ func (c *compactionEngine) compact(ctx context.Context, convID int64, mode memor
 
 	case memory.CompactionFull:
 		// Repeat leaf+condensed passes until no more compaction is possible.
-		for i := 0; i < 10; i++ { // safety limit
+		for i := range 10 { // safety limit
 			leafBefore := result.LeafSummariesCreated
 			condensedBefore := result.CondensedSummariesCreated
 			if err := c.runPasses(ctx, convID, result); err != nil {
@@ -192,10 +192,7 @@ func (c *compactionEngine) compactMessageRun(ctx context.Context, convID int64, 
 
 	// Generate summary.
 	text := strings.Join(textParts, "\n")
-	targetTokens := int(totalTokens) / 3
-	if targetTokens < 10 {
-		targetTokens = 10
-	}
+	targetTokens := max(int(totalTokens)/3, 10)
 
 	summary, err := c.summarizer.Summarize(ctx, text, memory.SummarizeOptions{
 		TargetTokens: targetTokens,
@@ -395,10 +392,7 @@ func (c *compactionEngine) condenseSummaryRun(ctx context.Context, convID int64,
 	newDepth := maxDepth + 1
 	// Condensed summaries are already compressed, so use /2 (not /3 like leaf)
 	// for less aggressive reduction to preserve detail.
-	targetTokens := int(totalTokens) / 2
-	if targetTokens < 10 {
-		targetTokens = 10
-	}
+	targetTokens := max(int(totalTokens)/2, 10)
 
 	content, err := c.summarizer.Summarize(ctx, text, memory.SummarizeOptions{
 		IsCondensed:  true,

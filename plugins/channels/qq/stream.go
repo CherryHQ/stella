@@ -146,10 +146,7 @@ func buildStreamDisplay(text, currentTool string) string {
 	}
 
 	if len(display)+len(suffix) > qqMaxMessageLen {
-		cutAt := qqMaxMessageLen - len(suffix) - 3
-		if cutAt < 0 {
-			cutAt = 0
-		}
+		cutAt := max(qqMaxMessageLen-len(suffix)-3, 0)
 		for cutAt > 0 && !utf8.RuneStart(display[cutAt]) {
 			cutAt--
 		}

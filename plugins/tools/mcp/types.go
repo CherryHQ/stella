@@ -35,7 +35,7 @@ type ServerStatus struct {
 	Failures            int       `json:"failures"`
 	Suppressed          bool      `json:"suppressed"`
 	LastError           string    `json:"last_error,omitempty"`
-	LastConnectedAt     time.Time `json:"last_connected_at,omitempty"`
-	LastDiscoveredAt    time.Time `json:"last_discovered_at,omitempty"`
+	LastConnectedAt     time.Time `json:"last_connected_at"`
+	LastDiscoveredAt    time.Time `json:"last_discovered_at"`
 	DiscoveredToolCount int       `json:"discovered_tool_count"`
 }

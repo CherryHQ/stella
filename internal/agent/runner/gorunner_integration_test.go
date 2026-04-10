@@ -143,15 +143,15 @@ func TestIntegrationSystemPrompt(t *testing.T) {
 
 	ch := r.Chat(ctx, nil, "What is 2+2?")
 
-	var collected string
+	var collected strings.Builder
 	for evt := range ch {
 		if evt.Err != nil {
 			t.Fatalf("stream error: %v", evt.Err)
 		}
-		collected += evt.Text
+		collected.WriteString(evt.Text)
 	}
 
-	trimmed := strings.TrimSpace(collected)
+	trimmed := strings.TrimSpace(collected.String())
 	if !strings.HasPrefix(trimmed, "{") {
 		t.Errorf("expected JSON response starting with '{', got %q", trimmed)
 	}
@@ -176,15 +176,15 @@ func TestIntegrationCustomBaseURL(t *testing.T) {
 
 	ch := r.Chat(ctx, nil, "Say hi")
 
-	var collected string
+	var collected strings.Builder
 	for evt := range ch {
 		if evt.Err != nil {
 			t.Fatalf("stream error: %v", evt.Err)
 		}
-		collected += evt.Text
+		collected.WriteString(evt.Text)
 	}
 
-	if collected == "" {
+	if collected.Len() == 0 {
 		t.Fatal("expected non-empty response from custom base URL")
 	}
 }

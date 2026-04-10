@@ -194,10 +194,7 @@ func buildStreamDisplay(text, toolSection string, hasTools bool) string {
 	}
 
 	if len(display)+len(suffix) > telegramMaxMessageLen {
-		cutAt := telegramMaxMessageLen - len(suffix) - 3
-		if cutAt < 0 {
-			cutAt = 0
-		}
+		cutAt := max(telegramMaxMessageLen-len(suffix)-3, 0)
 		for cutAt > 0 && !utf8.RuneStart(display[cutAt]) {
 			cutAt--
 		}

@@ -24,13 +24,14 @@ func TestStdHTTPClient(t *testing.T) {
 	c := StdHTTPClient()
 	if c == nil {
 		t.Fatal("StdHTTPClient() returned nil")
-	}
-	if c.Transport == nil {
-		t.Error("expected non-nil transport")
-	}
-	// No timeout set on StdHTTPClient (SSE/streaming use context deadline).
-	if c.Timeout != 0 {
-		t.Errorf("expected zero timeout, got %v", c.Timeout)
+	} else {
+		if c.Transport == nil {
+			t.Error("expected non-nil transport")
+		}
+		// No timeout set on StdHTTPClient (SSE/streaming use context deadline).
+		if c.Timeout != 0 {
+			t.Errorf("expected zero timeout, got %v", c.Timeout)
+		}
 	}
 }
 

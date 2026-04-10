@@ -55,7 +55,7 @@ func TestTruncateTail_NoTruncation(t *testing.T) {
 func TestTruncateHead_LargeInput(t *testing.T) {
 	// Build input larger than defaults (>2000 lines).
 	var sb strings.Builder
-	for i := 0; i < 2500; i++ {
+	for range 2500 {
 		sb.WriteString("line\n")
 	}
 	input := sb.String()
@@ -71,7 +71,7 @@ func TestTruncateHead_LargeInput(t *testing.T) {
 
 func TestTruncateTail_LargeInput(t *testing.T) {
 	var sb strings.Builder
-	for i := 0; i < 2500; i++ {
+	for range 2500 {
 		sb.WriteString("line\n")
 	}
 	input := sb.String()

@@ -478,9 +478,7 @@ func TestHandleUpdatesCachesContextToken(t *testing.T) {
 	// We set allowed empty (allow all) and provide no pool so it will
 	// error at resolve() — but the context_token should be cached before that.
 	bot := &Bot{}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	bot.ctx = ctx
+	bot.ctx = t.Context()
 
 	msgs := []WeixinMessage{
 		{
