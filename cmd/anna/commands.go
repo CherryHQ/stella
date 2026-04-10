@@ -22,6 +22,7 @@ import (
 	"github.com/vaayne/anna/internal/pluginstate"
 	"github.com/vaayne/anna/internal/scheduler"
 	coreagent "github.com/vaayne/anna/pkg/agent"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
@@ -58,7 +59,6 @@ type setupResult struct {
 	store                  config.Store
 	pluginHost             *pluginhost.Host
 	channelRuntimeServices *pluginhost.ChannelPlatform
-	reflectRuntimeServices *pluginhost.ReflectPlatform
 	poolManager            *agent.PoolManager
 	pool                   *agent.Pool // default agent pool shared with CLI and channel entrypoints
 	schedulerSvc           *scheduler.Service
@@ -103,8 +103,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return nil, fmt.Errorf("load config snapshot: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(parent)
-	_ = cancel // cancel is deferred via the caller's lifecycle
+	ctx := parent
 
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	reflectRuntimeServices := pluginhost.NewReflectRuntimeServices()
@@ -330,7 +329,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		store:                  store,
 		pluginHost:             phost,
 		channelRuntimeServices: channelRuntimeServices,
-		reflectRuntimeServices: reflectRuntimeServices,
 		poolManager:            poolMgr,
 		pool:                   pool,
 		schedulerSvc:           schedulerSvc,
@@ -371,6 +369,33 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 		pool.SetDefaultModel(snap.Model)
 		return nil
 	}
+}
+
+func (s *setupResult) modelListFunc(snap *config.Snapshot) func() []pkgchannel.ModelOption {
+	return func() []pkgchannel.ModelOption {
+		return collectModelsFromStore(s.ctx, s.store, snap)
+	}
+}
+
+func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) func(string, string) error {
+	return modelSwitcher(
+		snap,
+		s.store,
+		pool,
+		s.extraTools,
+		func(bc plugintools.BuildContext) []tools.Tool {
+			return s.pluginHost.BuildCoreTools(bc)
+		},
+		func(api, apiKey, baseURL string) (*providers.Registry, error) {
+			return s.pluginHost.BuildProviderRegistry(api, map[string]any{
+				"api_key":  apiKey,
+				"base_url": baseURL,
+			})
+		},
+		s.promptToolsBuilder,
+		s.promptSectionsBuilder,
+		s.toolLifecycle,
+	)
 }
 
 func setupLogFile() error {

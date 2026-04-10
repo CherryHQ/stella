@@ -46,31 +46,16 @@ func pluginListAction(c *ucli.Context) error {
 		return err
 	}
 
-	ctx := context.Background()
-	kind := c.String("kind")
-
-	var plugins []config.Plugin
-	if kind != "" {
-		if kind != config.PluginKindTool && kind != config.PluginKindChannel && kind != config.PluginKindHook {
-			return fmt.Errorf("invalid kind %q, must be %q, %q, or %q", kind, config.PluginKindTool, config.PluginKindChannel, config.PluginKindHook)
-		}
-		plugins, err = store.ListPluginsByKind(ctx, kind)
-	} else {
-		plugins, err = store.ListPlugins(ctx)
-	}
+	plugins, err := listPlugins(context.Background(), store, c.String("kind"))
 	if err != nil {
 		return err
 	}
-
 	if len(plugins) == 0 {
 		fmt.Println("No plugins configured.")
 		return nil
 	}
 
-	fmt.Printf("%-24s %-10s %-8s %s\n", "ID", "KIND", "ENABLED", "CONFIG")
-	for _, p := range plugins {
-		fmt.Printf("%-24s %-10s %-8s %s\n", p.ID, p.Kind, yesNo(p.Enabled), truncateJSON(p.Config, 40))
-	}
+	printPlugins(plugins)
 	return nil
 }
 
@@ -103,10 +88,7 @@ func pluginDisableCommand() *ucli.Command {
 func setPluginEnabled(c *ucli.Context, enabled bool) error {
 	id := c.Args().First()
 	if id == "" {
-		verb := "enable"
-		if !enabled {
-			verb = "disable"
-		}
+		verb := pluginEnabledVerb(enabled)
 		return fmt.Errorf("usage: anna plugin %s <id>", verb)
 	}
 
@@ -116,19 +98,14 @@ func setPluginEnabled(c *ucli.Context, enabled bool) error {
 	}
 
 	ctx := context.Background()
-	if _, err := store.GetPlugin(ctx, id); err != nil {
-		return fmt.Errorf("plugin %q not found", id)
+	if _, err := getPlugin(ctx, store, id); err != nil {
+		return err
 	}
-
 	if err := store.SetPluginEnabled(ctx, id, enabled); err != nil {
 		return fmt.Errorf("update plugin: %w", err)
 	}
 
-	state := "enabled"
-	if !enabled {
-		state = "disabled"
-	}
-	fmt.Printf("Plugin %q %s.\n", id, state)
+	fmt.Printf("Plugin %q %s.\n", id, pluginEnabledState(enabled))
 	return nil
 }
 
@@ -155,9 +132,9 @@ func pluginConfigAction(c *ucli.Context) error {
 	}
 
 	ctx := context.Background()
-	p, err := store.GetPlugin(ctx, id)
+	p, err := getPlugin(ctx, store, id)
 	if err != nil {
-		return fmt.Errorf("plugin %q not found", id)
+		return err
 	}
 
 	// No extra args — show current config.
@@ -191,6 +168,54 @@ func pluginConfigAction(c *ucli.Context) error {
 }
 
 // --- helpers ---
+
+func listPlugins(ctx context.Context, store config.Store, kind string) ([]config.Plugin, error) {
+	if kind == "" {
+		return store.ListPlugins(ctx)
+	}
+	if !isValidPluginKind(kind) {
+		return nil, fmt.Errorf("invalid kind %q, must be %q, %q, or %q", kind, config.PluginKindTool, config.PluginKindChannel, config.PluginKindHook)
+	}
+	return store.ListPluginsByKind(ctx, kind)
+}
+
+func getPlugin(ctx context.Context, store config.Store, id string) (config.Plugin, error) {
+	plugin, err := store.GetPlugin(ctx, id)
+	if err != nil {
+		return config.Plugin{}, fmt.Errorf("plugin %q not found", id)
+	}
+	return plugin, nil
+}
+
+func printPlugins(plugins []config.Plugin) {
+	fmt.Printf("%-24s %-10s %-8s %s\n", "ID", "KIND", "ENABLED", "CONFIG")
+	for _, plugin := range plugins {
+		fmt.Printf("%-24s %-10s %-8s %s\n", plugin.ID, plugin.Kind, yesNo(plugin.Enabled), truncateJSON(plugin.Config, 40))
+	}
+}
+
+func isValidPluginKind(kind string) bool {
+	switch kind {
+	case config.PluginKindTool, config.PluginKindChannel, config.PluginKindHook:
+		return true
+	default:
+		return false
+	}
+}
+
+func pluginEnabledVerb(enabled bool) string {
+	if enabled {
+		return "enable"
+	}
+	return "disable"
+}
+
+func pluginEnabledState(enabled bool) string {
+	if enabled {
+		return "enabled"
+	}
+	return "disabled"
+}
 
 func yesNo(v bool) string {
 	if v {
