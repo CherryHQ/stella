@@ -15,11 +15,11 @@ import (
 // It manages the lifecycle of a single boxsh --rpc process that is
 // reused by bash, read, write, and edit operations.
 type SharedBackend struct {
-	client       *Client
-	binaryPath   string
-	sessionDir   string // ephemeral DST directory
-	cleanupOnce  sync.Once
-	mu           sync.RWMutex
+	client      *Client
+	binaryPath  string
+	sessionDir  string // ephemeral DST directory
+	cleanupOnce sync.Once
+	mu          sync.RWMutex
 }
 
 // BackendConfig configures the shared backend.

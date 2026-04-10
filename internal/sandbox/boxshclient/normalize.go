@@ -115,10 +115,10 @@ func (n *Normalizer) NormalizeRead(result *ReadResult, filePath string, requeste
 	}
 
 	metadata := map[string]any{
-		"file_path":    filePath,
-		"total_lines":  result.TotalLines,
-		"shown_lines":  outputLines,
-		"truncated":    result.Truncated,
+		"file_path":   filePath,
+		"total_lines": result.TotalLines,
+		"shown_lines": outputLines,
+		"truncated":   result.Truncated,
 	}
 
 	return &NormalizeResult{
@@ -170,8 +170,8 @@ func (n *Normalizer) NormalizeError(err error, toolName string) *NormalizeResult
 	content := fmt.Sprintf("%s: %v", toolName, err)
 
 	return &NormalizeResult{
-		Content:  content,
-		IsError:  true,
+		Content: content,
+		IsError: true,
 		Metadata: map[string]any{
 			"error_type": "execution_error",
 			"tool":       toolName,

@@ -3,14 +3,17 @@ package boxshclient
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,19 +24,22 @@ import (
 // Client manages a boxsh --rpc subprocess and provides typed RPC methods.
 type Client struct {
 	binaryPath string
-	cmd        *exec.Cmd
-	stdin      io.WriteCloser
-	stdout     *bufio.Reader
-	stderr     io.ReadCloser
 
-	mu       sync.Mutex
-	closed   bool
-	idCounter uint64
-
-	// respCh receives decoded responses keyed by request ID.
-	respCh chan responseWrapper
-	// errCh receives fatal errors from the reader goroutine.
-	errCh chan error
+	mu          sync.Mutex
+	writeMu     sync.Mutex
+	cmd         *exec.Cmd
+	stdin       io.WriteCloser
+	stdout      io.ReadCloser
+	stderr      io.ReadCloser
+	closed      bool
+	closing     bool
+	started     bool
+	idCounter   uint64
+	pending     map[uint64]chan responseWrapper
+	processDone chan struct{}
+	waitErr     error
+	readerErr   error
+	stderrBuf   bytes.Buffer
 
 	// sessionConfig holds the sandbox session configuration.
 	sessionConfig SessionConfig
@@ -94,19 +100,22 @@ func New(binaryPath string, cfg SessionConfig) *Client {
 	return &Client{
 		binaryPath:    binaryPath,
 		sessionConfig: cfg,
-		respCh:        make(chan responseWrapper, 10),
-		errCh:         make(chan error, 1),
+		pending:       make(map[uint64]chan responseWrapper),
 	}
 }
 
 // Start launches the boxsh --rpc subprocess and initializes the session.
 func (c *Client) Start(ctx context.Context) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if c.closed {
+		c.mu.Unlock()
 		return fmt.Errorf("boxshclient: client is closed")
 	}
+	if c.started {
+		c.mu.Unlock()
+		return fmt.Errorf("boxshclient: client already started")
+	}
+	c.mu.Unlock()
 
 	args := c.buildArgs()
 	cmd := exec.CommandContext(ctx, c.binaryPath, args...)
@@ -128,17 +137,28 @@ func (c *Client) Start(ctx context.Context) error {
 		return fmt.Errorf("boxshclient: start: %w", err)
 	}
 
+	processDone := make(chan struct{})
+
+	c.mu.Lock()
 	c.cmd = cmd
 	c.stdin = stdin
-	c.stdout = bufio.NewReader(stdout)
+	c.stdout = stdout
 	c.stderr = stderr
+	c.started = true
+	c.closing = false
+	c.waitErr = nil
+	c.readerErr = nil
+	c.processDone = processDone
+	c.pending = make(map[uint64]chan responseWrapper)
+	c.stderrBuf.Reset()
+	c.mu.Unlock()
 
-	// Start the response reader goroutine.
-	go c.readLoop()
+	go c.readLoop(stdout)
+	go c.waitLoop(cmd, processDone)
+	go c.captureStderr(stderr)
 
-	// Perform health check / handshake.
 	if err := c.handshake(ctx); err != nil {
-		_ = c.closeInternal()
+		_ = c.Close()
 		return fmt.Errorf("boxshclient: handshake: %w", err)
 	}
 
@@ -177,11 +197,9 @@ func (c *Client) buildArgs() []string {
 
 // handshake verifies the session is ready by calling a ping method.
 func (c *Client) handshake(ctx context.Context) error {
-	// Use a short timeout for handshake.
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// The ping method simply echoes back. This validates the RPC channel.
 	var result string
 	if err := c.call(ctx, "ping", map[string]any{}, &result); err != nil {
 		return err
@@ -197,80 +215,135 @@ func (c *Client) Alive() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.cmd == nil || c.closed {
+	if !c.started || c.closed {
 		return false
 	}
-
-	// Non-blocking check if process has exited.
-	select {
-	case err := <-c.errCh:
-		// Process has exited.
-		_ = err
+	if c.readerErr != nil || c.waitErr != nil {
 		return false
-	default:
-		return c.cmd.ProcessState == nil || !c.cmd.ProcessState.Exited()
 	}
+	return !done(c.processDone)
 }
 
 // Close shuts down the boxsh process and cleans up resources.
 func (c *Client) Close() error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.closeInternal()
-}
-
-func (c *Client) closeInternal() error {
 	if c.closed {
+		c.mu.Unlock()
 		return nil
 	}
-	c.closed = true
-
-	// Signal the boxsh process to exit gracefully via RPC.
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_ = c.call(ctx, "quit", map[string]any{}, nil)
-
-	// Close stdin to signal EOF.
-	if c.stdin != nil {
-		_ = c.stdin.Close()
+	if !c.started {
+		c.closed = true
+		c.mu.Unlock()
+		return nil
 	}
-
-	// Wait for process exit with timeout.
-	if c.cmd != nil && c.cmd.Process != nil {
-		done := make(chan error, 1)
-		go func() {
-			done <- c.cmd.Wait()
-		}()
-
+	if c.closing {
+		processDone := c.processDone
+		c.mu.Unlock()
 		select {
-		case <-done:
-			// Process exited normally.
+		case <-processDone:
+			return nil
 		case <-time.After(5 * time.Second):
-			// Force kill after timeout.
-			_ = c.cmd.Process.Kill()
-			<-done
+			return fmt.Errorf("boxshclient: close timeout waiting for process exit")
 		}
 	}
 
-	close(c.respCh)
-	return nil
+	c.closing = true
+	stdin := c.stdin
+	cmd := c.cmd
+	processDone := c.processDone
+	c.mu.Unlock()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	_ = c.call(shutdownCtx, "quit", map[string]any{}, nil)
+	cancel()
+
+	if stdin != nil {
+		_ = stdin.Close()
+	}
+
+	if processDone != nil {
+		select {
+		case <-processDone:
+		case <-time.After(5 * time.Second):
+			if cmd != nil && cmd.Process != nil {
+				_ = cmd.Process.Kill()
+				<-processDone
+			}
+		}
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	err := c.readerErr
+	if err == nil && c.waitErr != nil && !errors.Is(c.waitErr, io.EOF) {
+		err = c.waitErr
+	}
+	c.closed = true
+	c.closing = false
+	c.stdin = nil
+	c.stdout = nil
+	c.stderr = nil
+	c.cmd = nil
+	c.pending = nil
+	return err
+}
+
+func (c *Client) waitLoop(cmd *exec.Cmd, processDone chan struct{}) {
+	err := cmd.Wait()
+
+	c.mu.Lock()
+	if c.waitErr == nil {
+		if err != nil {
+			c.waitErr = fmt.Errorf("boxshclient: process exit: %w", err)
+		} else {
+			c.waitErr = io.EOF
+		}
+		if c.closed || c.closing {
+			c.waitErr = nil
+		}
+	}
+	pending := c.drainPendingLocked(c.terminalErrLocked())
+	c.mu.Unlock()
+
+	for _, ch := range pending {
+		ch <- responseWrapper{err: c.terminalErr()}
+	}
+	close(processDone)
+}
+
+func (c *Client) captureStderr(stderr io.Reader) {
+	if stderr == nil {
+		return
+	}
+	_, _ = io.Copy(&c.stderrBuf, stderr)
 }
 
 // readLoop continuously reads JSON-RPC responses from stdout.
-func (c *Client) readLoop() {
-	decoder := json.NewDecoder(c.stdout)
+func (c *Client) readLoop(stdout io.Reader) {
+	decoder := json.NewDecoder(bufio.NewReader(stdout))
 	for {
 		var resp Response
 		if err := decoder.Decode(&resp); err != nil {
 			if err != io.EOF {
-				select {
-				case c.errCh <- fmt.Errorf("boxshclient: decode error: %w", err):
-				default:
+				c.mu.Lock()
+				if c.readerErr == nil {
+					c.readerErr = fmt.Errorf("boxshclient: decode error: %w", err)
+				}
+				pending := c.drainPendingLocked(c.terminalErrLocked())
+				c.mu.Unlock()
+				for _, ch := range pending {
+					ch <- responseWrapper{err: c.terminalErr()}
 				}
 			}
 			return
 		}
-		c.respCh <- responseWrapper{resp: &resp}
+
+		c.mu.Lock()
+		ch := c.pending[resp.ID]
+		c.mu.Unlock()
+		if ch != nil {
+			ch <- responseWrapper{resp: &resp}
+		}
 	}
 }
 
@@ -295,54 +368,115 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 		return fmt.Errorf("boxshclient: marshal request: %w", err)
 	}
 
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return fmt.Errorf("boxshclient: client closed")
+	respCh, stdin, processDone, err := c.registerCall(id, method)
+	if err != nil {
+		return err
 	}
-	stdin := c.stdin
-	c.mu.Unlock()
+	defer c.unregisterCall(id)
 
-	// Write the request followed by newline.
-	if _, err := fmt.Fprintf(stdin, "%s\n", reqJSON); err != nil {
+	c.writeMu.Lock()
+	_, err = fmt.Fprintf(stdin, "%s\n", reqJSON)
+	c.writeMu.Unlock()
+	if err != nil {
 		return fmt.Errorf("boxshclient: write request: %w", err)
 	}
 
-	// Wait for response matching the request ID.
-	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("boxshclient: call %s: %w", method, ctx.Err())
-		case err := <-c.errCh:
-			return fmt.Errorf("boxshclient: reader error: %w", err)
-		case wrap, ok := <-c.respCh:
-			if !ok {
-				return fmt.Errorf("boxshclient: response channel closed")
-			}
-			if wrap.err != nil {
-				return wrap.err
-			}
-			if wrap.resp.ID != id {
-				// Not our response, continue waiting.
-				continue
-			}
-			if wrap.resp.Error != nil {
-				return wrap.resp.Error
-			}
-			if result != nil && wrap.resp.Result != nil {
-				if err := json.Unmarshal(wrap.resp.Result, result); err != nil {
-					return fmt.Errorf("boxshclient: unmarshal result: %w", err)
-				}
-			}
-			return nil
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("boxshclient: call %s: %w", method, ctx.Err())
+	case <-processDone:
+		return c.terminalErr()
+	case wrap := <-respCh:
+		if wrap.err != nil {
+			return wrap.err
 		}
+		if wrap.resp == nil {
+			return fmt.Errorf("boxshclient: empty response for %s", method)
+		}
+		if wrap.resp.Error != nil {
+			return wrap.resp.Error
+		}
+		if result != nil && wrap.resp.Result != nil {
+			if err := json.Unmarshal(wrap.resp.Result, result); err != nil {
+				return fmt.Errorf("boxshclient: unmarshal result: %w", err)
+			}
+		}
+		return nil
 	}
 }
 
-// Stderr returns the stderr output from the boxsh process (if captured).
+func (c *Client) registerCall(id uint64, method string) (chan responseWrapper, io.WriteCloser, <-chan struct{}, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return nil, nil, nil, fmt.Errorf("boxshclient: client closed")
+	}
+	if c.closing && method != "quit" {
+		return nil, nil, nil, fmt.Errorf("boxshclient: client is shutting down")
+	}
+	if !c.started || c.stdin == nil {
+		return nil, nil, nil, fmt.Errorf("boxshclient: client not started")
+	}
+	if c.readerErr != nil || c.waitErr != nil || done(c.processDone) {
+		return nil, nil, nil, c.terminalErrLocked()
+	}
+
+	respCh := make(chan responseWrapper, 1)
+	c.pending[id] = respCh
+	return respCh, c.stdin, c.processDone, nil
+}
+
+func (c *Client) unregisterCall(id uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.pending != nil {
+		delete(c.pending, id)
+	}
+}
+
+func (c *Client) drainPendingLocked(err error) []chan responseWrapper {
+	if len(c.pending) == 0 {
+		return nil
+	}
+	channels := make([]chan responseWrapper, 0, len(c.pending))
+	for id, ch := range c.pending {
+		delete(c.pending, id)
+		if ch != nil {
+			channels = append(channels, ch)
+		}
+	}
+	return channels
+}
+
+func (c *Client) terminalErr() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.terminalErrLocked()
+}
+
+func (c *Client) terminalErrLocked() error {
+	if c.readerErr != nil {
+		return c.readerErr
+	}
+	if c.waitErr != nil && !errors.Is(c.waitErr, io.EOF) {
+		return c.waitErr
+	}
+	if c.closed {
+		return fmt.Errorf("boxshclient: client closed")
+	}
+	if c.closing {
+		return fmt.Errorf("boxshclient: client is shutting down")
+	}
+	if !c.started {
+		return fmt.Errorf("boxshclient: client not started")
+	}
+	return fmt.Errorf("boxshclient: process exited")
+}
+
+// Stderr returns buffered stderr output from the boxsh process.
 func (c *Client) Stderr() string {
-	// TODO: implement buffered stderr capture if needed.
-	return ""
+	return strings.TrimSpace(c.stderrBuf.String())
 }
 
 // PlatformSupportsBoxsh reports whether the current platform supports boxsh sandboxing.
@@ -385,17 +519,43 @@ func ResolveSandboxCwd(sandboxRoot, workDir string) string {
 		return sandboxRoot
 	}
 
-	// Ensure workDir is absolute.
-	if !filepath.IsAbs(workDir) {
-		workDir = filepath.Join(sandboxRoot, workDir)
+	candidate := workDir
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(sandboxRoot, candidate)
 	}
+	candidate = filepath.Clean(candidate)
 
-	// Check if workDir is under sandboxRoot.
-	rel, err := filepath.Rel(sandboxRoot, workDir)
-	if err != nil || rel == "" || rel == "." || (len(rel) > 0 && rel[0] == '.') {
-		// Not under sandbox root, default to sandbox root.
+	if !isWithinRoot(sandboxRoot, candidate) {
 		return sandboxRoot
 	}
 
-	return workDir
+	return candidate
+}
+
+func isWithinRoot(root, target string) bool {
+	root = filepath.Clean(root)
+	target = filepath.Clean(target)
+	if root == "" || !filepath.IsAbs(root) || !filepath.IsAbs(target) {
+		return false
+	}
+	if target == root {
+		return true
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func done(ch <-chan struct{}) bool {
+	if ch == nil {
+		return false
+	}
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
 }

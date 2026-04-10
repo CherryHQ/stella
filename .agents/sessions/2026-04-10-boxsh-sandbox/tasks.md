@@ -6,11 +6,11 @@
 - [x] Phase 1.4 Add per-agent sandbox network policy config types and snapshot loading
 - [x] Phase 1.5 Update exploration/docs for mandatory Linux/macOS boxsh usage and Windows skip path
 
-- [ ] Phase 2.1 Implement `internal/sandbox/boxshclient/` process lifecycle and JSON-RPC transport
-- [ ] Phase 2.2 Implement tool methods for `Exec`, `Read`, `Write`, `Edit`
-- [ ] Phase 2.3 Implement shared backend construction so all four tools use one boxsh session
-- [ ] Phase 2.4 Implement session workspace helpers for user-session and non-user-session sandbox roots plus ephemeral session `DST`
-- [ ] Phase 2.5 Normalize boxsh responses into Anna-compatible tool results/errors
+- [x] Phase 2.1 Implement `internal/sandbox/boxshclient/` process lifecycle and JSON-RPC transport
+- [x] Phase 2.2 Implement tool methods for `Exec`, `Read`, `Write`, `Edit`
+- [x] Phase 2.3 Implement shared backend construction so all four tools use one boxsh session
+- [x] Phase 2.4 Implement session workspace helpers for user-session and non-user-session sandbox roots plus ephemeral session `DST`
+- [x] Phase 2.5 Normalize boxsh responses into Anna-compatible tool results/errors
 
 - [ ] Phase 3.1 Introduce boxsh-backed adapters for `bash`, `read`, `write`, and `edit`
 - [ ] Phase 3.2 Wire Linux/macOS core tools through boxsh in `gorunner.go`

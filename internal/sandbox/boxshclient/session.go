@@ -110,12 +110,12 @@ func (m *SessionManager) CreateSession(opts SessionOptions) (*SessionInfo, error
 	}
 
 	session := &SessionInfo{
-		Src:                src,
-		Dst:                dst,
-		Cwd:                cwd,
-		NetworkMode:        networkMode,
-		NetworkAllowlist:   opts.Sandbox.Network.Allowlist,
-		IsUserSession:      opts.UserDataDir != "",
+		Src:              src,
+		Dst:              dst,
+		Cwd:              cwd,
+		NetworkMode:      networkMode,
+		NetworkAllowlist: opts.Sandbox.Network.Allowlist,
+		IsUserSession:    opts.UserDataDir != "",
 	}
 
 	return session, nil

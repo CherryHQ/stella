@@ -1,10 +1,16 @@
 package boxshclient
 
 import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestNewClient(t *testing.T) {
@@ -43,7 +49,6 @@ func TestCreateAndCleanupSessionDir(t *testing.T) {
 		t.Fatalf("CreateSessionDir: %v", err)
 	}
 
-	// Verify directory was created.
 	info, err := os.Stat(sessionDir)
 	if err != nil {
 		t.Fatalf("Stat session dir: %v", err)
@@ -52,17 +57,14 @@ func TestCreateAndCleanupSessionDir(t *testing.T) {
 		t.Fatal("Session path is not a directory")
 	}
 
-	// Verify pattern in name.
 	if !contains(filepath.Base(sessionDir), "boxsh-session-") {
 		t.Errorf("Session dir name %q doesn't contain 'boxsh-session-'", filepath.Base(sessionDir))
 	}
 
-	// Cleanup.
 	if err := CleanupSessionDir(sessionDir); err != nil {
 		t.Fatalf("CleanupSessionDir: %v", err)
 	}
 
-	// Verify cleanup.
 	if _, err := os.Stat(sessionDir); !os.IsNotExist(err) {
 		t.Error("Session dir should have been removed")
 	}
@@ -105,6 +107,12 @@ func TestResolveSandboxCwd(t *testing.T) {
 			sandboxRoot: "/workspace",
 			workDir:     "/workspace/src/project",
 			want:        "/workspace/src/project",
+		},
+		{
+			name:        "hidden child under root stays valid",
+			sandboxRoot: "/workspace",
+			workDir:     "/workspace/.hidden",
+			want:        "/workspace/.hidden",
 		},
 		{
 			name:        "workdir outside root defaults to root",
@@ -191,6 +199,207 @@ func TestClientAliveWhenNotStarted(t *testing.T) {
 func TestCleanupSessionDirWithEmptyPath(t *testing.T) {
 	if err := CleanupSessionDir(""); err != nil {
 		t.Errorf("CleanupSessionDir with empty path should not error: %v", err)
+	}
+}
+
+func TestClientStartAndClose(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("helper wrapper uses a POSIX shell")
+	}
+
+	client := newHelperClient(t, "normal")
+	if err := client.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !client.Alive() {
+		t.Fatal("client should be alive after successful start")
+	}
+
+	if err := client.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if client.Alive() {
+		t.Fatal("client should not be alive after Close")
+	}
+}
+
+func TestClientStartHandshakeFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("helper wrapper uses a POSIX shell")
+	}
+
+	client := newHelperClient(t, "bad-handshake")
+	if err := client.Start(context.Background()); err == nil {
+		t.Fatal("expected handshake failure")
+	}
+}
+
+func TestClientAliveDetectsExitedProcess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("helper wrapper uses a POSIX shell")
+	}
+
+	client := newHelperClient(t, "exit-after-handshake")
+	if err := client.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for client.Alive() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if client.Alive() {
+		t.Fatal("client should report dead after helper exits")
+	}
+}
+
+func TestClientRoutesOutOfOrderResponses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("helper wrapper uses a POSIX shell")
+	}
+
+	client := newHelperClient(t, "out-of-order")
+	if err := client.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	errCh := make(chan error, 2)
+
+	go func() {
+		defer wg.Done()
+		result, err := client.Exec(context.Background(), ExecParams{Command: "echo first"})
+		if err != nil {
+			errCh <- fmt.Errorf("exec: %w", err)
+			return
+		}
+		if result.Stdout != "echo first" {
+			errCh <- fmt.Errorf("exec stdout = %q, want %q", result.Stdout, "echo first")
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		result, err := client.Stat(context.Background(), StatParams{Path: "/workspace/file.txt"})
+		if err != nil {
+			errCh <- fmt.Errorf("stat: %w", err)
+			return
+		}
+		if !result.Exists || result.ModTime != "1970-01-01T00:00:00Z" {
+			errCh <- fmt.Errorf("unexpected stat result: %+v", result)
+		}
+	}()
+
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestBoxshHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_BOXSH_HELPER") != "1" {
+		return
+	}
+
+	mode := os.Getenv("BOXSH_HELPER_MODE")
+	scanner := bufio.NewScanner(os.Stdin)
+	encoder := json.NewEncoder(os.Stdout)
+	var encodeMu sync.Mutex
+	send := func(resp Response) {
+		encodeMu.Lock()
+		defer encodeMu.Unlock()
+		mustEncode(encoder, resp)
+	}
+
+	for scanner.Scan() {
+		var req Request
+		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+
+		switch req.Method {
+		case "ping":
+			result := any("pong")
+			if mode == "bad-handshake" {
+				result = any("nope")
+			}
+			send(Response{JSONRPC: "2.0", ID: req.ID, Result: mustJSON(result)})
+			if mode == "exit-after-handshake" {
+				os.Exit(0)
+			}
+		case "quit":
+			send(Response{JSONRPC: "2.0", ID: req.ID, Result: mustJSON("bye")})
+			os.Exit(0)
+		case "exec":
+			var params ExecParams
+			mustUnmarshal(req.Params, &params)
+			if mode == "out-of-order" {
+				go func(id uint64, command string) {
+					time.Sleep(50 * time.Millisecond)
+					send(Response{JSONRPC: "2.0", ID: id, Result: mustJSON(ExecResult{Stdout: command, ExitCode: 0})})
+				}(req.ID, params.Command)
+				continue
+			}
+			send(Response{JSONRPC: "2.0", ID: req.ID, Result: mustJSON(ExecResult{Stdout: params.Command, ExitCode: 0})})
+		case "stat":
+			send(Response{JSONRPC: "2.0", ID: req.ID, Result: mustJSON(StatResult{Exists: true, ModTime: "1970-01-01T00:00:00Z"})})
+		default:
+			send(Response{JSONRPC: "2.0", ID: req.ID, Error: &RPCError{Code: -32601, Message: "method not found"}})
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	os.Exit(0)
+}
+
+func newHelperClient(t *testing.T, mode string) *Client {
+	t.Helper()
+
+	wrapper := filepath.Join(t.TempDir(), "boxsh-helper.sh")
+	script := fmt.Sprintf("#!/bin/sh\nGO_WANT_BOXSH_HELPER=1 BOXSH_HELPER_MODE=%s exec %q -test.run=TestBoxshHelperProcess\n", mode, os.Args[0])
+	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
+		t.Fatalf("write helper wrapper: %v", err)
+	}
+
+	return New(wrapper, SessionConfig{
+		Src:         t.TempDir(),
+		Dst:         t.TempDir(),
+		Cwd:         t.TempDir(),
+		NetworkMode: "disabled",
+	})
+}
+
+func mustEncode(encoder *json.Encoder, resp Response) {
+	if err := encoder.Encode(resp); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+}
+
+func mustJSON(v any) json.RawMessage {
+	data, err := json.Marshal(v)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	return data
+}
+
+func mustUnmarshal(data []byte, v any) {
+	if err := json.Unmarshal(data, v); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
 	}
 }
 
