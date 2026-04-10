@@ -15,7 +15,7 @@ import (
 
 func init() {
 	pkgplugins.Register("tool/bash", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
 			ID:          "tool/bash",
 			Kind:        "tool",
 			Name:        "bash",
@@ -25,7 +25,7 @@ func init() {
 				pkgplugins.CapabilityTool,
 			},
 		})
-		host.Registry().RegisterTool(pkgplugins.ToolRegistration{
+		host.Registry().RegisterTool(pkgplugins.ToolSpec{
 			PluginID:    "tool/bash",
 			Name:        "bash",
 			Description: "Execute bash commands.",

@@ -28,16 +28,16 @@ func (h *Host) ChannelNotificationsEnabled(ctx context.Context, name string) boo
 	return reg.NotificationsEnabled(cloneMap(state.Config))
 }
 
-func (h *Host) channelState(ctx context.Context, name string) (state pkgplugins.PluginState, reg pkgplugins.ChannelRegistration, ok bool) {
+func (h *Host) channelState(ctx context.Context, name string) (state pkgplugins.PluginState, reg pkgplugins.ChannelSpec, ok bool) {
 	h.mu.RLock()
 	reg, ok = h.channelRegs[name]
 	h.mu.RUnlock()
 	if !ok {
-		return pkgplugins.PluginState{}, pkgplugins.ChannelRegistration{}, false
+		return pkgplugins.PluginState{}, pkgplugins.ChannelSpec{}, false
 	}
 	desired, err := h.DesiredState(ctx, reg.PluginID)
 	if err != nil {
-		return pkgplugins.PluginState{}, pkgplugins.ChannelRegistration{}, false
+		return pkgplugins.PluginState{}, pkgplugins.ChannelSpec{}, false
 	}
 	return desired.Clone(), reg, true
 }

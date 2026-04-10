@@ -12,7 +12,7 @@ func TestRuntimeLookup(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{"tool/mcp": {ID: "tool/mcp", Enabled: true}}}
 	host := New(store)
 	host.RegisterPluginID("tool/mcp")
-	host.RegisterRuntime(pkgplugins.RuntimeRegistration{PluginID: "tool/mcp", Name: "main", Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
+	host.RegisterRuntime(pkgplugins.RuntimeSpec{PluginID: "tool/mcp", Name: "main", Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
 		return runtimeStub{apply: func(context.Context, pkgplugins.PluginState) error { return nil }}, nil
 	}})
 	if err := host.ApplyPlugin(context.Background(), "tool/mcp"); err != nil {

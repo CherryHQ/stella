@@ -89,7 +89,7 @@ type ReflectStore interface {
 	Snapshot(ctx context.Context, agentID string) (*ReflectSnapshot, error)
 }
 
-type ReflectRuntimeServices interface {
+type ReflectPlatform interface {
 	ParentContext() context.Context
 	Memory() memory.Provider
 	Store() ReflectStore

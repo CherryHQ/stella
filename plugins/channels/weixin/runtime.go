@@ -12,13 +12,13 @@ import (
 type WeixinRuntimeDeps struct {
 	Parent        context.Context
 	Handler       pkgchannel.Handler
-	Notifications pkgplugins.NotificationRegistry
+	Notifications pkgplugins.ChannelRegistry
 	Log           *slog.Logger
 	Now           func() time.Time
 	NewChannel    func(pkgchannel.WeixinConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
 
-func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.ManagedRuntime {
+func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.Runtime {
 	if deps.NewChannel == nil {
 		deps.NewChannel = func(cfg pkgchannel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
@@ -97,8 +97,8 @@ func validateConfig(cfg pkgchannel.WeixinConfig) string {
 	return ""
 }
 
-func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.WeixinConfig) pkgplugins.RuntimeSnapshot {
-	return pkgplugins.RuntimeSnapshot{
+func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.WeixinConfig) pkgplugins.RuntimeStatus {
+	return pkgplugins.RuntimeStatus{
 		State:     state,
 		Message:   message,
 		UpdatedAt: now,

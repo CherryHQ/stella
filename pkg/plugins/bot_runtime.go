@@ -13,7 +13,7 @@ import (
 type BotRuntimeDeps[T any] struct {
 	Parent               context.Context
 	Handler              pkgchannel.Handler
-	Notifier             NotificationRegistry
+	Notifier             ChannelRegistry
 	Log                  *slog.Logger
 	Now                  func() time.Time
 	Platform             string
@@ -21,7 +21,7 @@ type BotRuntimeDeps[T any] struct {
 	ValidateConfig       func(T) string
 	NotificationsEnabled func(T) bool
 	NewChannel           func(T, pkgchannel.Handler) (pkgchannel.Channel, error)
-	Snapshot             func(time.Time, RuntimeState, string, T) RuntimeSnapshot
+	Snapshot             func(time.Time, RuntimeState, string, T) RuntimeStatus
 }
 
 type botManagedRuntime[T any] struct {
@@ -30,7 +30,7 @@ type botManagedRuntime[T any] struct {
 	mu         sync.RWMutex
 	cancel     context.CancelFunc
 	generation int
-	snapshot   RuntimeSnapshot
+	snapshot   RuntimeStatus
 }
 
 func NewBotManagedRuntime[T any](deps BotRuntimeDeps[T]) *botManagedRuntime[T] {
@@ -60,7 +60,7 @@ func NewBotManagedRuntime[T any](deps BotRuntimeDeps[T]) *botManagedRuntime[T] {
 	}
 	return &botManagedRuntime[T]{
 		deps: deps,
-		snapshot: RuntimeSnapshot{
+		snapshot: RuntimeStatus{
 			State:     RuntimeStateStopped,
 			UpdatedAt: deps.Now(),
 			Metadata:  map[string]any{},
@@ -68,7 +68,15 @@ func NewBotManagedRuntime[T any](deps BotRuntimeDeps[T]) *botManagedRuntime[T] {
 	}
 }
 
+func (r *botManagedRuntime[T]) Start(ctx context.Context, desired PluginState) error {
+	return r.Reconcile(ctx, desired)
+}
+
 func (r *botManagedRuntime[T]) Apply(ctx context.Context, desired PluginState) error {
+	return r.Reconcile(ctx, desired)
+}
+
+func (r *botManagedRuntime[T]) Reconcile(ctx context.Context, desired PluginState) error {
 	cfg, err := r.deps.DecodeConfig(desired.Config)
 	if err != nil {
 		return err
@@ -156,8 +164,12 @@ func (r *botManagedRuntime[T]) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (r *botManagedRuntime[T]) Snapshot(ctx context.Context) (RuntimeSnapshot, error) {
+func (r *botManagedRuntime[T]) Status(ctx context.Context) (RuntimeStatus, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.snapshot.Clone(), nil
+}
+
+func (r *botManagedRuntime[T]) Snapshot(ctx context.Context) (RuntimeStatus, error) {
+	return r.Status(ctx)
 }

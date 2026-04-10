@@ -21,7 +21,7 @@ func newTestStore(t *testing.T) *Store {
 
 func TestStoreSetGetDelete(t *testing.T) {
 	store := newTestStore(t)
-	scope := pkgplugins.PluginStateScope{Kind: pkgplugins.PluginStateScopeSession, ID: "sess-1"}
+	scope := pkgplugins.StateScope{Kind: pkgplugins.StateScopeSession, ID: "sess-1"}
 
 	got, ok, err := store.Get(context.Background(), "reflect", scope, "watermark")
 	if err != nil {
@@ -62,11 +62,11 @@ func TestStoreSetGetDelete(t *testing.T) {
 func TestStoreNormalizesGlobalScope(t *testing.T) {
 	store := newTestStore(t)
 
-	if err := store.Set(context.Background(), "reflect", pkgplugins.PluginStateScope{}, "config", map[string]any{"v": "x"}); err != nil {
+	if err := store.Set(context.Background(), "reflect", pkgplugins.StateScope{}, "config", map[string]any{"v": "x"}); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
-	got, ok, err := store.Get(context.Background(), "reflect", pkgplugins.PluginStateScope{Kind: pkgplugins.PluginStateScopeGlobal, ID: "ignored"}, "config")
+	got, ok, err := store.Get(context.Background(), "reflect", pkgplugins.StateScope{Kind: pkgplugins.StateScopeGlobal, ID: "ignored"}, "config")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}

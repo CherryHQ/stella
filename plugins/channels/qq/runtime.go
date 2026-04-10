@@ -12,13 +12,13 @@ import (
 type QQRuntimeDeps struct {
 	Parent        context.Context
 	Handler       pkgchannel.Handler
-	Notifications pkgplugins.NotificationRegistry
+	Notifications pkgplugins.ChannelRegistry
 	Log           *slog.Logger
 	Now           func() time.Time
 	NewChannel    func(pkgchannel.QQConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
 
-func NewQQManagedRuntime(deps QQRuntimeDeps) pkgplugins.ManagedRuntime {
+func NewQQManagedRuntime(deps QQRuntimeDeps) pkgplugins.Runtime {
 	if deps.NewChannel == nil {
 		deps.NewChannel = func(cfg pkgchannel.QQConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
@@ -93,8 +93,8 @@ func validateConfig(cfg pkgchannel.QQConfig) string {
 	return ""
 }
 
-func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.QQConfig) pkgplugins.RuntimeSnapshot {
-	return pkgplugins.RuntimeSnapshot{
+func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.QQConfig) pkgplugins.RuntimeStatus {
+	return pkgplugins.RuntimeStatus{
 		State:     state,
 		Message:   message,
 		UpdatedAt: now,

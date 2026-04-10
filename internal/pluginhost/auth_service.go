@@ -11,7 +11,7 @@ type authService struct {
 	store auth.AuthStore
 }
 
-func NewAuthService(store auth.AuthStore) pkgplugins.AuthService {
+func NewAuthService(store auth.AuthStore) pkgplugins.Auth {
 	if store == nil {
 		return nil
 	}

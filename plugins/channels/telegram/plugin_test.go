@@ -49,7 +49,7 @@ func TestSelfRegisteredTelegramPluginAppliesAndReportsStatus(t *testing.T) {
 	services.Set(context.Background(), fakeChannelHandler{}, dispatcher)
 	host.SetChannelRuntimeServices(services)
 
-	reset := SetRuntimeFactoryForTesting(func(host pkgplugins.ServiceHost) (pkgplugins.ManagedRuntime, error) {
+	reset := SetRuntimeFactoryForTesting(func(host pkgplugins.ServiceHost) (pkgplugins.Runtime, error) {
 		return NewManagedRuntime(RuntimeDeps{
 			Parent:        context.Background(),
 			Handler:       fakeChannelHandler{},

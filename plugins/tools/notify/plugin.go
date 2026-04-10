@@ -13,7 +13,7 @@ const PluginID = "tool/notify"
 
 func init() {
 	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
 			ID:          PluginID,
 			Kind:        "tool",
 			Name:        "notify",
@@ -23,7 +23,7 @@ func init() {
 				pkgplugins.CapabilityTool,
 			},
 		})
-		host.Registry().RegisterTool(pkgplugins.ToolRegistration{
+		host.Registry().RegisterTool(pkgplugins.ToolSpec{
 			PluginID:    PluginID,
 			Name:        "notify",
 			Description: "Send a notification message to the user.",
@@ -41,7 +41,7 @@ func init() {
 
 // Tool is an agent tool that sends notifications through the plugin host.
 type Tool struct {
-	service pkgplugins.NotificationService
+	service pkgplugins.Notifier
 }
 
 var inputSchema = map[string]any{

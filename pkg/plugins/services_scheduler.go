@@ -40,12 +40,20 @@ type SchedulerJob struct {
 	LastError   string            `json:"last_error,omitempty"`
 }
 
-// ScheduledJobRunner is implemented by managed runtimes that can handle plugin-owned scheduled jobs.
+// ScheduledJobRunner is implemented by runtimes that can handle plugin-owned scheduled jobs.
 type ScheduledJobRunner interface {
 	RunScheduledJob(ctx context.Context, key string, payload map[string]any) error
 }
 
-// SchedulerService exposes plugin-owned scheduled job reconciliation through the host.
+// Scheduler exposes plugin-owned scheduled job reconciliation through the host.
+type Scheduler interface {
+	ReconcileJobs(ctx context.Context, jobs []SchedulerJobSpec) error
+	DeleteJobs(ctx context.Context) error
+	DeleteJob(ctx context.Context, key string) error
+	ListJobs(ctx context.Context) ([]SchedulerJob, error)
+}
+
+// SchedulerService is the legacy unscoped scheduler interface retained for migration.
 type SchedulerService interface {
 	ReconcilePluginJobs(ctx context.Context, pluginID string, jobs []SchedulerJobSpec) error
 	DeletePluginJobs(ctx context.Context, pluginID string) error

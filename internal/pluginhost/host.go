@@ -21,26 +21,26 @@ type Host struct {
 	runtimes         *RuntimeHost
 	mu               sync.RWMutex
 	pluginIDs        map[string]struct{}
-	metadataRegs     map[string]pkgplugins.PluginMeta
-	notifications    pkgplugins.NotificationService
+	metadataRegs     map[string]pkgplugins.PluginInfo
+	notifications    pkgplugins.Notifier
 	scheduler        pkgplugins.SchedulerService
 	stateStore       pkgplugins.PluginStateStore
-	authService      pkgplugins.AuthService
-	channelRuntime   pkgplugins.ChannelRuntimeServices
-	reflectRuntime   pkgplugins.ReflectRuntimeServices
-	toolRegs         map[string]pkgplugins.ToolRegistration
-	providerRegs     map[string]pkgplugins.ProviderRegistration
-	hookRegs         map[string]pkgplugins.HookRegistration
-	beforeRunRegs    map[string]pkgplugins.BeforeRunRegistration
-	beforeToolRegs   map[string]pkgplugins.BeforeToolCallRegistration
-	afterToolRegs    map[string]pkgplugins.AfterToolResultRegistration
-	channelRegs      map[string]pkgplugins.ChannelRegistration
-	memoryRegs       map[string]pkgplugins.MemoryRegistration
-	runtimeRegs      map[string]pkgplugins.RuntimeRegistration
-	configRegs       map[string]pkgplugins.ConfigRegistration
-	statusRegs       map[string]pkgplugins.StatusRegistration
-	promptRegs       map[string]pkgplugins.PromptInventoryRegistration
-	systemPromptRegs map[string]pkgplugins.SystemPromptRegistration
+	authService      pkgplugins.Auth
+	channelRuntime   pkgplugins.ChannelPlatform
+	reflectRuntime   pkgplugins.ReflectPlatform
+	toolRegs         map[string]pkgplugins.ToolSpec
+	providerRegs     map[string]pkgplugins.ProviderSpec
+	hookRegs         map[string]pkgplugins.HookSpec
+	beforeRunRegs    map[string]pkgplugins.BeforeRunSpec
+	beforeToolRegs   map[string]pkgplugins.BeforeToolCallSpec
+	afterToolRegs    map[string]pkgplugins.AfterToolResultSpec
+	channelRegs      map[string]pkgplugins.ChannelSpec
+	memoryRegs       map[string]pkgplugins.MemorySpec
+	runtimeRegs      map[string]pkgplugins.RuntimeSpec
+	configRegs       map[string]pkgplugins.AdminSpec
+	statusRegs       map[string]pkgplugins.AdminSpec
+	promptRegs       map[string]pkgplugins.PromptInventorySpec
+	systemPromptRegs map[string]pkgplugins.SystemPromptSpec
 }
 
 func New(store config.Store, opts ...Option) *Host {
@@ -48,20 +48,20 @@ func New(store config.Store, opts ...Option) *Host {
 		store:            store,
 		log:              slog.With("component", "plugin_host"),
 		pluginIDs:        map[string]struct{}{},
-		metadataRegs:     map[string]pkgplugins.PluginMeta{},
-		toolRegs:         map[string]pkgplugins.ToolRegistration{},
-		providerRegs:     map[string]pkgplugins.ProviderRegistration{},
-		hookRegs:         map[string]pkgplugins.HookRegistration{},
-		beforeRunRegs:    map[string]pkgplugins.BeforeRunRegistration{},
-		beforeToolRegs:   map[string]pkgplugins.BeforeToolCallRegistration{},
-		afterToolRegs:    map[string]pkgplugins.AfterToolResultRegistration{},
-		channelRegs:      map[string]pkgplugins.ChannelRegistration{},
-		memoryRegs:       map[string]pkgplugins.MemoryRegistration{},
-		runtimeRegs:      map[string]pkgplugins.RuntimeRegistration{},
-		configRegs:       map[string]pkgplugins.ConfigRegistration{},
-		statusRegs:       map[string]pkgplugins.StatusRegistration{},
-		promptRegs:       map[string]pkgplugins.PromptInventoryRegistration{},
-		systemPromptRegs: map[string]pkgplugins.SystemPromptRegistration{},
+		metadataRegs:     map[string]pkgplugins.PluginInfo{},
+		toolRegs:         map[string]pkgplugins.ToolSpec{},
+		providerRegs:     map[string]pkgplugins.ProviderSpec{},
+		hookRegs:         map[string]pkgplugins.HookSpec{},
+		beforeRunRegs:    map[string]pkgplugins.BeforeRunSpec{},
+		beforeToolRegs:   map[string]pkgplugins.BeforeToolCallSpec{},
+		afterToolRegs:    map[string]pkgplugins.AfterToolResultSpec{},
+		channelRegs:      map[string]pkgplugins.ChannelSpec{},
+		memoryRegs:       map[string]pkgplugins.MemorySpec{},
+		runtimeRegs:      map[string]pkgplugins.RuntimeSpec{},
+		configRegs:       map[string]pkgplugins.AdminSpec{},
+		statusRegs:       map[string]pkgplugins.AdminSpec{},
+		promptRegs:       map[string]pkgplugins.PromptInventorySpec{},
+		systemPromptRegs: map[string]pkgplugins.SystemPromptSpec{},
 	}
 	h.config = &configService{store: store}
 	h.runtimes = NewRuntimeHost(h)
@@ -110,67 +110,87 @@ func (h *Host) LoadCatalog(catalog *pkgplugins.Catalog) error {
 
 func (h *Host) LoadDefaultCatalog() error { return h.LoadCatalog(defaultCatalog()) }
 
-func (h *Host) RegisterTool(reg pkgplugins.ToolRegistration) {
+func (h *Host) SetInfo(info pkgplugins.PluginInfo) { h.RegisterMetadata(info) }
+
+func (h *Host) AddTool(reg pkgplugins.ToolSpec)                       { h.RegisterTool(reg) }
+func (h *Host) AddProvider(reg pkgplugins.ProviderSpec)               { h.RegisterProvider(reg) }
+func (h *Host) AddChannel(reg pkgplugins.ChannelSpec)                 { h.RegisterChannel(reg) }
+func (h *Host) AddHook(reg pkgplugins.HookSpec)                       { h.RegisterHook(reg) }
+func (h *Host) AddMemory(reg pkgplugins.MemorySpec)                   { h.RegisterMemory(reg) }
+func (h *Host) AddRuntime(reg pkgplugins.RuntimeSpec)                 { h.RegisterRuntime(reg) }
+func (h *Host) AddPromptInventory(reg pkgplugins.PromptInventorySpec) { h.RegisterPromptInventory(reg) }
+func (h *Host) AddSystemPrompt(reg pkgplugins.SystemPromptSpec)       { h.RegisterSystemPrompt(reg) }
+func (h *Host) AddBeforeRun(reg pkgplugins.BeforeRunSpec)             { h.RegisterBeforeRun(reg) }
+func (h *Host) AddBeforeToolCall(reg pkgplugins.BeforeToolCallSpec)   { h.RegisterBeforeToolCall(reg) }
+func (h *Host) AddAfterToolResult(reg pkgplugins.AfterToolResultSpec) { h.RegisterAfterToolResult(reg) }
+func (h *Host) AddAdmin(reg pkgplugins.AdminSpec) {
+	h.RegisterConfig(reg)
+	if reg.Status != nil {
+		h.RegisterStatus(reg)
+	}
+}
+
+func (h *Host) RegisterTool(reg pkgplugins.ToolSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.toolRegs, reg.Name, reg, "tool")
 }
-func (h *Host) RegisterProvider(reg pkgplugins.ProviderRegistration) {
+func (h *Host) RegisterProvider(reg pkgplugins.ProviderSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.providerRegs, reg.Name, reg, "provider")
 }
-func (h *Host) RegisterChannel(reg pkgplugins.ChannelRegistration) {
+func (h *Host) RegisterChannel(reg pkgplugins.ChannelSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.channelRegs, reg.Name, reg, "channel")
 }
-func (h *Host) RegisterHook(reg pkgplugins.HookRegistration) {
+func (h *Host) RegisterHook(reg pkgplugins.HookSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.hookRegs, reg.Name, reg, "hook")
 }
-func (h *Host) RegisterBeforeRun(reg pkgplugins.BeforeRunRegistration) {
+func (h *Host) RegisterBeforeRun(reg pkgplugins.BeforeRunSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.beforeRunRegs, promptKey(reg.PluginID, reg.Name), reg, "before run")
 }
-func (h *Host) RegisterBeforeToolCall(reg pkgplugins.BeforeToolCallRegistration) {
+func (h *Host) RegisterBeforeToolCall(reg pkgplugins.BeforeToolCallSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.beforeToolRegs, promptKey(reg.PluginID, reg.Name), reg, "before tool call")
 }
-func (h *Host) RegisterAfterToolResult(reg pkgplugins.AfterToolResultRegistration) {
+func (h *Host) RegisterAfterToolResult(reg pkgplugins.AfterToolResultSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.afterToolRegs, promptKey(reg.PluginID, reg.Name), reg, "after tool result")
 }
-func (h *Host) RegisterMemory(reg pkgplugins.MemoryRegistration) {
+func (h *Host) RegisterMemory(reg pkgplugins.MemorySpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.memoryRegs, reg.Name, reg, "memory")
 }
-func (h *Host) RegisterRuntime(reg pkgplugins.RuntimeRegistration) {
+func (h *Host) RegisterRuntime(reg pkgplugins.RuntimeSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.runtimeRegs, runtimeKey(reg.PluginID, reg.Name), reg, "runtime")
 }
-func (h *Host) RegisterConfig(reg pkgplugins.ConfigRegistration) {
+func (h *Host) RegisterConfig(reg pkgplugins.AdminSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.configRegs, reg.PluginID, reg, "config")
 }
-func (h *Host) RegisterStatus(reg pkgplugins.StatusRegistration) {
+func (h *Host) RegisterStatus(reg pkgplugins.AdminSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.statusRegs, reg.PluginID, reg, "status")
 }
-func (h *Host) RegisterPromptInventory(reg pkgplugins.PromptInventoryRegistration) {
+func (h *Host) RegisterPromptInventory(reg pkgplugins.PromptInventorySpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.promptRegs, promptKey(reg.PluginID, reg.Name), reg, "prompt inventory")
 }
-func (h *Host) RegisterSystemPrompt(reg pkgplugins.SystemPromptRegistration) {
+func (h *Host) RegisterSystemPrompt(reg pkgplugins.SystemPromptSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.systemPromptRegs, promptKey(reg.PluginID, reg.Name), reg, "system prompt")
@@ -197,10 +217,17 @@ func (h *Host) Status(ctx context.Context, pluginID string) (any, error) {
 	h.mu.RLock()
 	reg, ok := h.statusRegs[pluginID]
 	h.mu.RUnlock()
-	if !ok || reg.Get == nil {
+	if !ok || (reg.Status == nil && reg.Get == nil) {
 		return map[string]any{}, nil
 	}
-	return reg.Get(ctx)
+	if reg.Status == nil {
+		return reg.Get(ctx)
+	}
+	state, err := h.DesiredState(ctx, pluginID)
+	if err != nil {
+		return nil, err
+	}
+	return reg.Status(ctx, pkgplugins.AdminContext{Platform: h.platform(pluginID), State: state})
 }
 
 func (h *Host) ValidateConfig(pluginID string, raw map[string]any) error {
@@ -245,7 +272,7 @@ func (h *Host) Stop(ctx context.Context) error { return h.runtimes.Stop(ctx) }
 
 func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.PromptToolInfo, error) {
 	h.mu.RLock()
-	regs := make([]pkgplugins.PromptInventoryRegistration, 0, len(h.promptRegs))
+	regs := make([]pkgplugins.PromptInventorySpec, 0, len(h.promptRegs))
 	for _, reg := range h.promptRegs {
 		if reg.PluginID == pluginID {
 			regs = append(regs, reg)
@@ -257,10 +284,19 @@ func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.P
 	})
 	var out []pkgplugins.PromptToolInfo
 	for _, reg := range regs {
-		if reg.GetTools == nil {
+		if reg.GetTools == nil && reg.LegacyGetTools == nil {
 			continue
 		}
-		tools, err := reg.GetTools(ctx)
+		state, err := h.DesiredState(ctx, reg.PluginID)
+		if err != nil {
+			state = pkgplugins.PluginState{ID: reg.PluginID, Config: h.defaultConfigFor(reg.PluginID)}
+		}
+		var tools []pkgplugins.PromptToolInfo
+		if reg.GetTools != nil {
+			tools, err = reg.GetTools(ctx, pkgplugins.PromptInventoryContext{Platform: h.platform(reg.PluginID), Services: h, State: state})
+		} else {
+			tools, err = reg.LegacyGetTools(ctx)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -273,7 +309,7 @@ func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.P
 
 func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
 	h.mu.RLock()
-	regs := make([]pkgplugins.SystemPromptRegistration, 0, len(h.systemPromptRegs))
+	regs := make([]pkgplugins.SystemPromptSpec, 0, len(h.systemPromptRegs))
 	for _, reg := range h.systemPromptRegs {
 		regs = append(regs, reg)
 	}
@@ -302,7 +338,7 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 			}
 		}
 		section, err := reg.Build(ctx, pkgplugins.SystemPromptContext{
-			Services:    h,
+			Platform:    h.platform(reg.PluginID),
 			State:       state,
 			AnnaHome:    build.AnnaHome,
 			Workspace:   build.Workspace,
@@ -324,12 +360,20 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 
 func (h *Host) BeforeRun(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
 	h.mu.RLock()
-	regs := make([]pkgplugins.BeforeRunRegistration, 0, len(h.beforeRunRegs))
+	regs := make([]pkgplugins.BeforeRunSpec, 0, len(h.beforeRunRegs))
 	for _, reg := range h.beforeRunRegs {
 		regs = append(regs, reg)
 	}
 	h.mu.RUnlock()
-	sort.Slice(regs, func(i, j int) bool { return regs[i].Name < regs[j].Name })
+	sort.Slice(regs, func(i, j int) bool {
+		if regs[i].Order != regs[j].Order {
+			return regs[i].Order < regs[j].Order
+		}
+		if regs[i].PluginID != regs[j].PluginID {
+			return regs[i].PluginID < regs[j].PluginID
+		}
+		return regs[i].Name < regs[j].Name
+	})
 
 	current := build.SystemPrompt
 	for _, reg := range regs {
@@ -353,7 +397,7 @@ func (h *Host) BeforeRun(ctx context.Context, build pkgplugins.BeforeRunContext)
 		}
 
 		result, err := reg.Run(ctx, pkgplugins.BeforeRunContext{
-			Services:     h,
+			Platform:     h.platform(reg.PluginID),
 			State:        state,
 			SessionID:    build.SessionID,
 			Channel:      build.Channel,
@@ -376,12 +420,5 @@ func (h *Host) BeforeRun(ctx context.Context, build pkgplugins.BeforeRunContext)
 }
 
 func cloneMap(src map[string]any) map[string]any {
-	if len(src) == 0 {
-		return map[string]any{}
-	}
-	out := make(map[string]any, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
-	return out
+	return pkgplugins.PluginState{Config: src}.Clone().Config
 }

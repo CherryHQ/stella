@@ -17,7 +17,7 @@ import (
 func TestRegisterMetadataPanicsOnDuplicate(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}})
 	host.RegisterPluginID("channel/telegram")
-	host.RegisterMetadata(pkgplugins.PluginMeta{
+	host.RegisterMetadata(pkgplugins.PluginInfo{
 		ID:          "channel/telegram",
 		Kind:        config.PluginKindChannel,
 		Name:        "telegram",
@@ -30,7 +30,7 @@ func TestRegisterMetadataPanicsOnDuplicate(t *testing.T) {
 		}
 	}()
 
-	host.RegisterMetadata(pkgplugins.PluginMeta{
+	host.RegisterMetadata(pkgplugins.PluginInfo{
 		ID:          "channel/telegram",
 		Kind:        config.PluginKindChannel,
 		Name:        "telegram",
@@ -41,7 +41,7 @@ func TestRegisterMetadataPanicsOnDuplicate(t *testing.T) {
 func TestLoadCatalogFailsOnIncompleteManagedMetadata(t *testing.T) {
 	catalog := pkgplugins.NewCatalog()
 	catalog.Register("channel/telegram", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
 			ID:          "channel/telegram",
 			Kind:        config.PluginKindChannel,
 			Name:        "telegram",
@@ -83,7 +83,7 @@ func TestDiscoveryReportsRegistrationsAndMergedAdminView(t *testing.T) {
 	}}
 	host := New(store)
 	host.RegisterPluginID("channel/telegram")
-	host.RegisterMetadata(pkgplugins.PluginMeta{
+	host.RegisterMetadata(pkgplugins.PluginInfo{
 		ID:                    "channel/telegram",
 		Kind:                  config.PluginKindChannel,
 		Name:                  "telegram",
@@ -100,12 +100,12 @@ func TestDiscoveryReportsRegistrationsAndMergedAdminView(t *testing.T) {
 			pkgplugins.CapabilityStatus,
 		},
 	})
-	host.RegisterConfig(pkgplugins.ConfigRegistration{PluginID: "channel/telegram", DefaultConfig: func() map[string]any { return map[string]any{"token": ""} }})
-	host.RegisterChannel(pkgplugins.ChannelRegistration{PluginID: "channel/telegram", Name: "telegram"})
-	host.RegisterRuntime(pkgplugins.RuntimeRegistration{PluginID: "channel/telegram", Name: "bot", Factory: func(pkgplugins.RuntimeContext) (pkgplugins.ManagedRuntime, error) {
+	host.RegisterConfig(pkgplugins.AdminSpec{PluginID: "channel/telegram", DefaultConfig: func() map[string]any { return map[string]any{"token": ""} }})
+	host.RegisterChannel(pkgplugins.ChannelSpec{PluginID: "channel/telegram", Name: "telegram"})
+	host.RegisterRuntime(pkgplugins.RuntimeSpec{PluginID: "channel/telegram", Name: "bot", Factory: func(pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
 		return runtimeStub{apply: func(context.Context, pkgplugins.PluginState) error { return nil }}, nil
 	}})
-	host.RegisterStatus(pkgplugins.StatusRegistration{PluginID: "channel/telegram", Get: func(context.Context) (any, error) { return map[string]any{}, nil }})
+	host.RegisterStatus(pkgplugins.AdminSpec{PluginID: "channel/telegram", Get: func(context.Context) (any, error) { return map[string]any{}, nil }})
 	if err := host.ValidateRegistrations(); err != nil {
 		t.Fatalf("ValidateRegistrations: %v", err)
 	}
@@ -127,10 +127,10 @@ func TestDiscoveryReportsRegistrationsAndMergedAdminView(t *testing.T) {
 	if len(plugins) != 2 {
 		t.Fatalf("expected 2 plugins, got %#v", plugins)
 	}
-	if plugins[0].Meta.ID != "channel/telegram" || !plugins[0].Persisted || !plugins[0].State.Enabled || plugins[0].State.Config["token"] != "abc" {
+	if plugins[0].Info.ID != "channel/telegram" || !plugins[0].Persisted || !plugins[0].State.Enabled || plugins[0].State.Config["token"] != "abc" {
 		t.Fatalf("unexpected registered overlay entry: %#v", plugins[0])
 	}
-	if plugins[1].Meta.ID != "provider/custom" || !plugins[1].Persisted || plugins[1].PersistedID != "provider/custom" {
+	if plugins[1].Info.ID != "provider/custom" || !plugins[1].Persisted || plugins[1].PersistedID != "provider/custom" {
 		t.Fatalf("unexpected persisted-only entry: %#v", plugins[1])
 	}
 }
@@ -138,7 +138,7 @@ func TestDiscoveryReportsRegistrationsAndMergedAdminView(t *testing.T) {
 func TestAdminVisibleDiscoveryIncludesBuiltinsBeforePersistedState(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}})
 	host.RegisterPluginID("channel/telegram")
-	host.RegisterMetadata(pkgplugins.PluginMeta{
+	host.RegisterMetadata(pkgplugins.PluginInfo{
 		ID:           "channel/telegram",
 		Kind:         config.PluginKindChannel,
 		Name:         "telegram",
@@ -146,7 +146,7 @@ func TestAdminVisibleDiscoveryIncludesBuiltinsBeforePersistedState(t *testing.T)
 		AdminVisible: true,
 		HasConfig:    true,
 	})
-	host.RegisterConfig(pkgplugins.ConfigRegistration{PluginID: "channel/telegram", DefaultConfig: func() map[string]any { return map[string]any{"token": ""} }})
+	host.RegisterConfig(pkgplugins.AdminSpec{PluginID: "channel/telegram", DefaultConfig: func() map[string]any { return map[string]any{"token": ""} }})
 
 	plugins, err := host.ListAdminVisiblePlugins(context.Background())
 	if err != nil {
@@ -275,7 +275,7 @@ func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T)
 	}
 	seen := map[string]pkgplugins.RegisteredPlugin{}
 	for _, plugin := range plugins {
-		seen[plugin.Meta.ID] = plugin
+		seen[plugin.Info.ID] = plugin
 	}
 
 	for _, pluginID := range []string{
@@ -288,8 +288,8 @@ func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T)
 		if !ok {
 			t.Fatalf("missing admin-visible plugin %q in %#v", pluginID, seen)
 		}
-		if !entry.Meta.Managed || !entry.Meta.HasConfig || !entry.Meta.HasStatus {
-			t.Fatalf("unexpected metadata for %q: %#v", pluginID, entry.Meta)
+		if !entry.Info.Managed || !entry.HasConfig || !entry.HasStatus {
+			t.Fatalf("unexpected metadata for %q: %#v", pluginID, entry)
 		}
 		if len(host.ConfigSchema(pluginID)) == 0 {
 			t.Fatalf("expected non-empty schema for %q", pluginID)
@@ -411,15 +411,15 @@ func (*fakeSchedulerService) ListPluginJobs(context.Context, string) ([]pkgplugi
 
 type fakePluginStateStore struct{}
 
-func (*fakePluginStateStore) Get(context.Context, string, pkgplugins.PluginStateScope, string) (map[string]any, bool, error) {
+func (*fakePluginStateStore) Get(context.Context, string, pkgplugins.StateScope, string) (map[string]any, bool, error) {
 	return nil, false, nil
 }
 
-func (*fakePluginStateStore) Set(context.Context, string, pkgplugins.PluginStateScope, string, map[string]any) error {
+func (*fakePluginStateStore) Set(context.Context, string, pkgplugins.StateScope, string, map[string]any) error {
 	return nil
 }
 
-func (*fakePluginStateStore) Delete(context.Context, string, pkgplugins.PluginStateScope, string) error {
+func (*fakePluginStateStore) Delete(context.Context, string, pkgplugins.StateScope, string) error {
 	return nil
 }
 

@@ -10,8 +10,21 @@ type stubHost struct {
 	services ServiceHost
 }
 
-func (h stubHost) Registry() RegistryHost { return h.registry }
-func (h stubHost) Services() ServiceHost  { return h.services }
+func (h stubHost) Registry() RegistryHost                 { return h.registry }
+func (h stubHost) Services() ServiceHost                  { return h.services }
+func (h stubHost) SetInfo(PluginInfo)                     {}
+func (h stubHost) AddAdmin(AdminSpec)                     {}
+func (h stubHost) AddTool(ToolSpec)                       {}
+func (h stubHost) AddProvider(ProviderSpec)               {}
+func (h stubHost) AddChannel(ChannelSpec)                 {}
+func (h stubHost) AddHook(HookSpec)                       {}
+func (h stubHost) AddMemory(MemorySpec)                   {}
+func (h stubHost) AddRuntime(RuntimeSpec)                 {}
+func (h stubHost) AddPromptInventory(PromptInventorySpec) {}
+func (h stubHost) AddSystemPrompt(SystemPromptSpec)       {}
+func (h stubHost) AddBeforeRun(BeforeRunSpec)             {}
+func (h stubHost) AddBeforeToolCall(BeforeToolCallSpec)   {}
+func (h stubHost) AddAfterToolResult(AfterToolResultSpec) {}
 
 func TestPluginFuncRegister(t *testing.T) {
 	called := false

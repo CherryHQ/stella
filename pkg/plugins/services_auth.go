@@ -27,8 +27,8 @@ type LinkedIdentity struct {
 	LinkedAt   time.Time
 }
 
-// AuthService exposes narrow user and identity lookups without leaking auth internals.
-type AuthService interface {
+// Auth exposes narrow user and identity lookups without leaking auth internals.
+type Auth interface {
 	GetUser(ctx context.Context, userID int64) (UserInfo, error)
 	ListUserIdentities(ctx context.Context, userID int64) ([]LinkedIdentity, error)
 	GetIdentityByPlatform(ctx context.Context, platform, externalID string) (LinkedIdentity, error)

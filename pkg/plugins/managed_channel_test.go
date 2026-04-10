@@ -17,19 +17,27 @@ func (s runtimeLookupStub) Get(pluginID string, runtimeName string) (RuntimeHand
 	return s.handle, true
 }
 
-type runtimeHandleStub struct {
-	snapshot RuntimeSnapshot
+func (s runtimeLookupStub) Lookup(pluginID string, runtimeName string) (RuntimeHandle, bool) {
+	return s.Get(pluginID, runtimeName)
 }
 
-func (s runtimeHandleStub) Snapshot(context.Context) (RuntimeSnapshot, error) {
+type runtimeHandleStub struct {
+	snapshot RuntimeStatus
+}
+
+func (s runtimeHandleStub) Snapshot(context.Context) (RuntimeStatus, error) {
 	return s.snapshot, nil
+}
+
+func (s runtimeHandleStub) Status(ctx context.Context) (RuntimeStatus, error) {
+	return s.Snapshot(ctx)
 }
 
 func TestManagedRuntimeStatus(t *testing.T) {
 	now := time.Now().UTC()
 	status, err := managedRuntimeStatus(context.Background(), runtimeLookupStub{
 		handle: runtimeHandleStub{
-			snapshot: RuntimeSnapshot{
+			snapshot: RuntimeStatus{
 				State:     RuntimeStateRunning,
 				Message:   "running",
 				UpdatedAt: now,

@@ -13,7 +13,7 @@ import (
 
 func init() {
 	pkgplugins.Register("tool/edit", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
 			ID:          "tool/edit",
 			Kind:        "tool",
 			Name:        "edit",
@@ -23,7 +23,7 @@ func init() {
 				pkgplugins.CapabilityTool,
 			},
 		})
-		host.Registry().RegisterTool(pkgplugins.ToolRegistration{
+		host.Registry().RegisterTool(pkgplugins.ToolSpec{
 			PluginID:    "tool/edit",
 			Name:        "edit",
 			Description: "Edit existing files.",

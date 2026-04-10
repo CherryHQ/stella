@@ -17,8 +17,8 @@ type RuntimeHost struct {
 }
 
 type runtimeEntry struct {
-	reg     pkgplugins.RuntimeRegistration
-	managed pkgplugins.ManagedRuntime
+	reg     pkgplugins.RuntimeSpec
+	managed pkgplugins.Runtime
 }
 
 func NewRuntimeHost(host *Host) *RuntimeHost {
@@ -35,6 +35,10 @@ func (h *RuntimeHost) Get(pluginID string, runtimeName string) (pkgplugins.Runti
 	return runtimeHandle{entry: entry}, true
 }
 
+func (h *RuntimeHost) Lookup(pluginID string, runtimeName string) (pkgplugins.RuntimeHandle, bool) {
+	return h.Get(pluginID, runtimeName)
+}
+
 func (h *RuntimeHost) ApplyPlugin(ctx context.Context, pluginID string) error {
 	desired, err := h.host.DesiredState(ctx, pluginID)
 	if err != nil {
@@ -49,10 +53,10 @@ func (h *RuntimeHost) ApplyPlugin(ctx context.Context, pluginID string) error {
 	return nil
 }
 
-func (h *RuntimeHost) registrations(pluginID string) []pkgplugins.RuntimeRegistration {
+func (h *RuntimeHost) registrations(pluginID string) []pkgplugins.RuntimeSpec {
 	h.host.mu.RLock()
 	defer h.host.mu.RUnlock()
-	regs := make([]pkgplugins.RuntimeRegistration, 0, len(h.host.runtimeRegs))
+	regs := make([]pkgplugins.RuntimeSpec, 0, len(h.host.runtimeRegs))
 	for _, reg := range h.host.runtimeRegs {
 		if reg.PluginID == pluginID {
 			regs = append(regs, reg)
@@ -62,7 +66,7 @@ func (h *RuntimeHost) registrations(pluginID string) []pkgplugins.RuntimeRegistr
 	return regs
 }
 
-func (h *RuntimeHost) applyOne(ctx context.Context, reg pkgplugins.RuntimeRegistration, desired pkgplugins.PluginState) error {
+func (h *RuntimeHost) applyOne(ctx context.Context, reg pkgplugins.RuntimeSpec, desired pkgplugins.PluginState) error {
 	key := runtimeKey(reg.PluginID, reg.Name)
 	h.mu.Lock()
 	entry := h.rt[key]
@@ -73,10 +77,14 @@ func (h *RuntimeHost) applyOne(ctx context.Context, reg pkgplugins.RuntimeRegist
 	managed := entry.managed
 	h.mu.Unlock()
 	if managed == nil {
-		if reg.Factory == nil {
-			return fmt.Errorf("runtime %s has no factory", key)
+		build := reg.Build
+		if build == nil {
+			build = reg.Factory
 		}
-		created, err := reg.Factory(pkgplugins.RuntimeContext{Services: h.host, State: desired.Clone()})
+		if build == nil {
+			return fmt.Errorf("runtime %s has no builder", key)
+		}
+		created, err := build(pkgplugins.RuntimeContext{Platform: h.host.platform(reg.PluginID), Services: h.host, State: desired.Clone()})
 		if err != nil {
 			return fmt.Errorf("create runtime %s: %w", key, err)
 		}
@@ -110,21 +118,25 @@ func (h *RuntimeHost) Stop(ctx context.Context) error {
 	return lastErr
 }
 
-func (h *RuntimeHost) Snapshot(ctx context.Context, pluginID string, runtimeName string) (pkgplugins.RuntimeSnapshot, error) {
+func (h *RuntimeHost) Snapshot(ctx context.Context, pluginID string, runtimeName string) (pkgplugins.RuntimeStatus, error) {
 	handle, ok := h.Get(pluginID, runtimeName)
 	if !ok {
-		return pkgplugins.RuntimeSnapshot{State: pkgplugins.RuntimeStateStopped, UpdatedAt: time.Now().UTC()}, nil
+		return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateStopped, UpdatedAt: time.Now().UTC()}, nil
 	}
 	return handle.Snapshot(ctx)
 }
 
 type runtimeHandle struct{ entry *runtimeEntry }
 
-func (h runtimeHandle) Snapshot(ctx context.Context) (pkgplugins.RuntimeSnapshot, error) {
+func (h runtimeHandle) Snapshot(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
 	if h.entry == nil || h.entry.managed == nil {
-		return pkgplugins.RuntimeSnapshot{State: pkgplugins.RuntimeStateStopped, UpdatedAt: time.Now().UTC()}, nil
+		return pkgplugins.RuntimeStatus{State: pkgplugins.RuntimeStateStopped, UpdatedAt: time.Now().UTC()}, nil
 	}
 	return h.entry.managed.Snapshot(ctx)
+}
+
+func (h runtimeHandle) Status(ctx context.Context) (pkgplugins.RuntimeStatus, error) {
+	return h.Snapshot(ctx)
 }
 
 func (h runtimeHandle) RuntimeAccessor() any {

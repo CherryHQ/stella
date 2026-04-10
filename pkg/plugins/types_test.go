@@ -25,7 +25,7 @@ func TestPluginStateCloneCopiesConfig(t *testing.T) {
 
 func TestRuntimeSnapshotCloneCopiesMetadata(t *testing.T) {
 	now := time.Now().UTC()
-	snapshot := RuntimeSnapshot{
+	snapshot := RuntimeStatus{
 		State:     RuntimeStateRunning,
 		Message:   "ready",
 		UpdatedAt: now,
@@ -62,7 +62,7 @@ func TestPromptToolInfoCloneCopiesMetadata(t *testing.T) {
 }
 
 func TestConfigRegistrationHelpers(t *testing.T) {
-	reg := ConfigRegistration{
+	reg := AdminSpec{
 		PluginID: "mcp",
 		DefaultConfig: func() map[string]any {
 			return map[string]any{"token": "secret"}
@@ -95,7 +95,7 @@ func TestConfigRegistrationHelpers(t *testing.T) {
 }
 
 func TestConfigRegistrationHelpersWithoutCallbacks(t *testing.T) {
-	reg := ConfigRegistration{}
+	reg := AdminSpec{}
 	if got := reg.Defaults(); len(got) != 0 {
 		t.Fatalf("expected empty defaults, got %#v", got)
 	}
@@ -110,7 +110,7 @@ func TestConfigRegistrationHelpersWithoutCallbacks(t *testing.T) {
 }
 
 func TestConfigRegistrationSchemaDefinitionDeepCopies(t *testing.T) {
-	reg := ConfigRegistration{
+	reg := AdminSpec{
 		Schema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

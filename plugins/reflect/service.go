@@ -21,7 +21,7 @@ type Config struct {
 	StateStore pkgplugins.PluginStateStore
 	Memory     memory.Provider
 	Store      pkgplugins.ReflectStore
-	Notifier   pkgplugins.NotificationService
+	Notifier   pkgplugins.Notifier
 	Workspace  string
 	Interval   time.Duration
 	Batch      int
@@ -39,7 +39,7 @@ type watermarker interface {
 type Service struct {
 	memory    memory.Provider
 	store     pkgplugins.ReflectStore
-	notifier  pkgplugins.NotificationService
+	notifier  pkgplugins.Notifier
 	wm        watermarker
 	workspace string
 	interval  time.Duration

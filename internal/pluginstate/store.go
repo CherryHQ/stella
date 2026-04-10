@@ -18,7 +18,7 @@ func New(db *sql.DB) *Store {
 	return &Store{q: sqlc.New(db)}
 }
 
-func (s *Store) Get(ctx context.Context, pluginID string, scope pkgplugins.PluginStateScope, key string) (map[string]any, bool, error) {
+func (s *Store) Get(ctx context.Context, pluginID string, scope pkgplugins.StateScope, key string) (map[string]any, bool, error) {
 	scope = scope.Normalize()
 	raw, err := s.q.GetPluginStateEntry(ctx, sqlc.GetPluginStateEntryParams{
 		PluginID:  pluginID,
@@ -39,7 +39,7 @@ func (s *Store) Get(ctx context.Context, pluginID string, scope pkgplugins.Plugi
 	return cloneMap(value), true, nil
 }
 
-func (s *Store) Set(ctx context.Context, pluginID string, scope pkgplugins.PluginStateScope, key string, value map[string]any) error {
+func (s *Store) Set(ctx context.Context, pluginID string, scope pkgplugins.StateScope, key string, value map[string]any) error {
 	scope = scope.Normalize()
 	encoded, err := json.Marshal(cloneMap(value))
 	if err != nil {
@@ -54,7 +54,7 @@ func (s *Store) Set(ctx context.Context, pluginID string, scope pkgplugins.Plugi
 	})
 }
 
-func (s *Store) Delete(ctx context.Context, pluginID string, scope pkgplugins.PluginStateScope, key string) error {
+func (s *Store) Delete(ctx context.Context, pluginID string, scope pkgplugins.StateScope, key string) error {
 	scope = scope.Normalize()
 	if err := s.q.DeletePluginStateEntry(ctx, sqlc.DeletePluginStateEntryParams{
 		PluginID:  pluginID,

@@ -12,13 +12,13 @@ import (
 type FeishuRuntimeDeps struct {
 	Parent        context.Context
 	Handler       pkgchannel.Handler
-	Notifications pkgplugins.NotificationRegistry
+	Notifications pkgplugins.ChannelRegistry
 	Log           *slog.Logger
 	Now           func() time.Time
 	NewChannel    func(pkgchannel.FeishuConfig, pkgchannel.Handler) (pkgchannel.Channel, error)
 }
 
-func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.ManagedRuntime {
+func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.Runtime {
 	if deps.NewChannel == nil {
 		deps.NewChannel = func(cfg pkgchannel.FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
@@ -138,8 +138,8 @@ func validateConfig(cfg pkgchannel.FeishuConfig) string {
 	return ""
 }
 
-func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.FeishuConfig) pkgplugins.RuntimeSnapshot {
-	return pkgplugins.RuntimeSnapshot{
+func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.FeishuConfig) pkgplugins.RuntimeStatus {
+	return pkgplugins.RuntimeStatus{
 		State:     state,
 		Message:   message,
 		UpdatedAt: now,

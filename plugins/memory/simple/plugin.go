@@ -10,7 +10,7 @@ import (
 
 func init() {
 	pkgplugins.Register("memory/simple", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginMeta{
+		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
 			ID:           "memory/simple",
 			Kind:         "memory",
 			Name:         "simple",
@@ -21,7 +21,7 @@ func init() {
 				pkgplugins.CapabilityMemory,
 			},
 		})
-		host.Registry().RegisterMemory(pkgplugins.MemoryRegistration{
+		host.Registry().RegisterMemory(pkgplugins.MemorySpec{
 			PluginID: "memory/simple",
 			Name:     "simple",
 			Build: func(ctx context.Context, build pkgplugins.MemoryContext) (memory.Provider, error) {

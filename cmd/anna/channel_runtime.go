@@ -8,7 +8,7 @@ import (
 )
 
 type managedChannelRuntimeHost interface {
-	ListRegisteredPlugins() []pkgplugins.PluginMeta
+	ListRegisteredPlugins() []pkgplugins.PluginInfo
 	ApplyPlugin(context.Context, string) error
 	ChannelConfigured(context.Context, string) bool
 }

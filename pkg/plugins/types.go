@@ -9,7 +9,7 @@ import (
 type PluginState struct {
 	ID      string         `json:"id"`
 	Enabled bool           `json:"enabled"`
-	Config  map[string]any `json:"config"`
+	Config  map[string]any `json:"config,omitempty"`
 }
 
 // Clone returns a shallow copy with an independent config map.
@@ -18,7 +18,13 @@ func (s PluginState) Clone() PluginState {
 	return s
 }
 
-// ConfigService exposes plugin-owned config persistence through a narrow interface.
+// ConfigStore exposes plugin-owned config persistence through a narrow interface.
+type ConfigStore interface {
+	Get(ctx context.Context) (PluginState, error)
+	Set(ctx context.Context, config map[string]any) error
+}
+
+// ConfigService is the legacy unscoped config interface retained for migration.
 type ConfigService interface {
 	Get(ctx context.Context, pluginID string) (PluginState, error)
 	Set(ctx context.Context, pluginID string, config map[string]any) error
@@ -27,18 +33,23 @@ type ConfigService interface {
 // RuntimeLookup resolves running runtime handles by plugin and runtime capability ID.
 type RuntimeLookup interface {
 	Get(pluginID string, runtimeName string) (RuntimeHandle, bool)
+	Lookup(pluginID string, runtimeName string) (RuntimeHandle, bool)
 }
 
-// RuntimeHandle exposes snapshot access to a running runtime.
+// RuntimeHandle exposes status access to a running runtime.
 type RuntimeHandle interface {
-	Snapshot(ctx context.Context) (RuntimeSnapshot, error)
+	Snapshot(ctx context.Context) (RuntimeStatus, error)
+	Status(ctx context.Context) (RuntimeStatus, error)
 }
 
-// ManagedRuntime is implemented by plugin-owned long-lived runtime services.
-type ManagedRuntime interface {
+// Runtime is implemented by plugin-owned long-lived runtime services.
+type Runtime interface {
 	Apply(ctx context.Context, desired PluginState) error
+	Start(ctx context.Context, desired PluginState) error
+	Reconcile(ctx context.Context, desired PluginState) error
 	Stop(ctx context.Context) error
-	Snapshot(ctx context.Context) (RuntimeSnapshot, error)
+	Snapshot(ctx context.Context) (RuntimeStatus, error)
+	Status(ctx context.Context) (RuntimeStatus, error)
 }
 
 // RuntimeState is the shared high-level runtime state used by host orchestration.
@@ -51,8 +62,8 @@ const (
 	RuntimeStateError   RuntimeState = "error"
 )
 
-// RuntimeSnapshot is the minimal shared runtime snapshot envelope.
-type RuntimeSnapshot struct {
+// RuntimeStatus is the minimal shared runtime status envelope.
+type RuntimeStatus struct {
 	State     RuntimeState   `json:"state"`
 	Message   string         `json:"message,omitempty"`
 	UpdatedAt time.Time      `json:"updated_at,omitempty"`
@@ -60,7 +71,7 @@ type RuntimeSnapshot struct {
 }
 
 // Clone returns a shallow copy with independent metadata.
-func (s RuntimeSnapshot) Clone() RuntimeSnapshot {
+func (s RuntimeStatus) Clone() RuntimeStatus {
 	s.Metadata = cloneMap(s.Metadata)
 	return s
 }
@@ -91,9 +102,9 @@ type BeforeRunResult struct {
 
 // BeforeToolCallResult is the mutable pre-execution output from tool lifecycle plugins.
 type BeforeToolCallResult struct {
-	Arguments map[string]any `json:"arguments,omitempty"`
-	Block     bool           `json:"block,omitempty"`
-	BlockMsg  string         `json:"block_msg,omitempty"`
+	Arguments    map[string]any `json:"arguments,omitempty"`
+	Block        bool           `json:"block,omitempty"`
+	BlockMessage string         `json:"block_message,omitempty"`
 }
 
 // AfterToolResult is the mutable post-execution output from tool lifecycle plugins.
@@ -108,7 +119,22 @@ func cloneMap(src map[string]any) map[string]any {
 	}
 	out := make(map[string]any, len(src))
 	for k, v := range src {
-		out[k] = v
+		out[k] = cloneValue(v)
 	}
 	return out
+}
+
+func cloneValue(v any) any {
+	switch vv := v.(type) {
+	case map[string]any:
+		return cloneMap(vv)
+	case []any:
+		out := make([]any, len(vv))
+		for i := range vv {
+			out[i] = cloneValue(vv[i])
+		}
+		return out
+	default:
+		return v
+	}
 }

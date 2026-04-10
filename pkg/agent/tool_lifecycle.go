@@ -26,7 +26,7 @@ type ToolCallContext struct {
 type ToolCallMutation struct {
 	Arguments map[string]any
 	Block     bool
-	BlockMsg  string
+	BlockMessage  string
 }
 
 // ToolResultContext describes one completed tool call.

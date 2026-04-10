@@ -10,14 +10,14 @@ import (
 )
 
 type fakeManagedChannelRuntimeHost struct {
-	metas      []pkgplugins.PluginMeta
+	metas      []pkgplugins.PluginInfo
 	configured map[string]bool
 	applyErrs  map[string]error
 	applyCalls []string
 }
 
-func (h *fakeManagedChannelRuntimeHost) ListRegisteredPlugins() []pkgplugins.PluginMeta {
-	return append([]pkgplugins.PluginMeta(nil), h.metas...)
+func (h *fakeManagedChannelRuntimeHost) ListRegisteredPlugins() []pkgplugins.PluginInfo {
+	return append([]pkgplugins.PluginInfo(nil), h.metas...)
 }
 
 func (h *fakeManagedChannelRuntimeHost) ApplyPlugin(_ context.Context, pluginID string) error {
@@ -37,7 +37,7 @@ func (h *fakeManagedChannelRuntimeHost) ChannelConfigured(_ context.Context, nam
 
 func TestApplyManagedChannelPluginsContinuesAfterStartupError(t *testing.T) {
 	host := &fakeManagedChannelRuntimeHost{
-		metas: []pkgplugins.PluginMeta{
+		metas: []pkgplugins.PluginInfo{
 			{ID: "channel/telegram", Kind: "channel", Name: "telegram"},
 			{ID: "tool/webfetch", Kind: "tool", Name: "webfetch"},
 			{ID: "channel/qq", Kind: "channel", Name: "qq"},
@@ -71,7 +71,7 @@ func TestApplyManagedChannelPluginsContinuesAfterStartupError(t *testing.T) {
 
 func TestApplyManagedChannelPluginsCountsOnlyConfiguredSuccessfulChannels(t *testing.T) {
 	host := &fakeManagedChannelRuntimeHost{
-		metas: []pkgplugins.PluginMeta{
+		metas: []pkgplugins.PluginInfo{
 			{ID: "channel/telegram", Kind: "channel", Name: "telegram"},
 			{ID: "channel/feishu", Kind: "channel", Name: "feishu"},
 		},

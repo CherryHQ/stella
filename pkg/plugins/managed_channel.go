@@ -5,54 +5,50 @@ import "context"
 type ManagedChannelPluginRegistration struct {
 	PluginID             string
 	RuntimeName          string
-	Meta                 PluginMeta
+	Meta                 PluginInfo
+	Info                 PluginInfo
 	DefaultConfig        func() map[string]any
 	Schema               map[string]any
 	Validate             func(raw map[string]any) error
 	Redact               func(raw map[string]any) map[string]any
 	Configured           func(raw map[string]any) bool
 	NotificationsEnabled func(raw map[string]any) bool
-	RuntimeFactory       func(ServiceHost) (ManagedRuntime, error)
+	RuntimeFactory       func(ServiceHost) (Runtime, error)
 }
 
 func RegisterManagedChannelPlugin(host Host, reg ManagedChannelPluginRegistration) {
-	meta := reg.Meta.Clone()
-	if meta.ID == "" {
-		meta.ID = reg.PluginID
+	info := reg.Info.Clone()
+	if info.ID == "" {
+		info = reg.Meta.Clone()
 	}
-	if meta.Kind == "" {
-		meta.Kind = "channel"
+	if info.ID == "" {
+		info.ID = reg.PluginID
 	}
-	meta.Managed = true
-	meta.HasConfig = true
-	meta.HasStatus = true
+	info.Managed = true
 
-	host.Registry().RegisterMetadata(meta)
-	host.Registry().RegisterConfig(ConfigRegistration{
+	host.SetInfo(info)
+	host.AddAdmin(AdminSpec{
 		PluginID:      reg.PluginID,
 		DefaultConfig: reg.DefaultConfig,
 		Schema:        reg.Schema,
 		Validate:      reg.Validate,
 		Redact:        reg.Redact,
+		Status: func(ctx context.Context, build AdminContext) (any, error) {
+			return managedRuntimeStatus(ctx, build.Platform.RuntimeLookup(), reg.PluginID, reg.RuntimeName)
+		},
 	})
-	host.Registry().RegisterChannel(ChannelRegistration{
+	host.AddChannel(ChannelSpec{
 		PluginID:              reg.PluginID,
-		Name:                  meta.Name,
-		SupportsNotifications: meta.SupportsNotifications,
+		Name:                  info.Name,
+		SupportsNotifications: reg.NotificationsEnabled != nil,
 		Configured:            reg.Configured,
 		NotificationsEnabled:  reg.NotificationsEnabled,
 	})
-	host.Registry().RegisterRuntime(RuntimeRegistration{
+	host.AddRuntime(RuntimeSpec{
 		PluginID: reg.PluginID,
 		Name:     reg.RuntimeName,
-		Factory: func(ctx RuntimeContext) (ManagedRuntime, error) {
+		Build: func(ctx RuntimeContext) (Runtime, error) {
 			return reg.RuntimeFactory(ctx.Services)
-		},
-	})
-	host.Registry().RegisterStatus(StatusRegistration{
-		PluginID: reg.PluginID,
-		Get: func(ctx context.Context) (any, error) {
-			return managedRuntimeStatus(ctx, host.Services().Runtime(), reg.PluginID, reg.RuntimeName)
 		},
 	})
 }
