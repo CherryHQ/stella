@@ -10,8 +10,8 @@ templ ProvidersPage() {
 			<div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-3 mb-8">
 				<select x-model="newProviderType" class="select select-bordered text-sm">
 					<option value="" disabled>Select provider type...</option>
-					<template x-for="p in addableProviders" :key="p">
-						<option :value="p" x-text="p"></option>
+					<template x-for="providerType in providerTypes" :key="providerType.id">
+						<option :value="providerType.id" x-text="providerType.label + ' (' + providerType.id + ')' "></option>
 					</template>
 				</select>
 				<input x-model="newProviderID" type="text" placeholder="provider id (e.g. openrouter)" class="input input-bordered text-sm font-mono"/>
@@ -23,9 +23,17 @@ templ ProvidersPage() {
 				@ui.EmptyState("No providers yet. Add one above to connect Anna to an LLM API.")
 			</div>
 			<!-- Provider list -->
-			<div class="divide-y divide-base-300">
-				<template x-for="p in providers" :key="p.id">
-					<div class="py-6">
+			<div class="space-y-8">
+				<template x-for="group in groupedProviders" :key="group.type">
+					<div>
+						<div class="flex items-center gap-3 mb-4">
+							<h3 class="text-sm font-medium" x-text="providerTypeLabel(group.type)"></h3>
+							<span class="badge badge-ghost badge-sm font-mono" x-text="group.type"></span>
+							<span class="text-xs text-secondary" x-text="group.providers.length + ' configured'"></span>
+						</div>
+						<div class="divide-y divide-base-300 border border-base-300 rounded-xl px-4">
+							<template x-for="p in group.providers" :key="p.id">
+								<div class="py-6">
 						<!-- Header row: name + delete -->
 						<div class="flex items-baseline justify-between mb-4">
 							<div class="flex items-baseline gap-3 flex-wrap">
@@ -181,6 +189,9 @@ templ ProvidersPage() {
 								</template>
 							</div>
 							<div x-show="!providerModels[p.id]?.length" class="text-xs text-secondary py-2">No models yet. Fetch from the provider or add custom models above.</div>
+						</div>
+								</div>
+							</template>
 						</div>
 					</div>
 				</template>
