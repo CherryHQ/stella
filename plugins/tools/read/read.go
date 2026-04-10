@@ -14,7 +14,7 @@ import (
 
 func init() {
 	pkgplugins.Register("tool/read", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
+		host.SetInfo(pkgplugins.PluginInfo{
 			ID:          "tool/read",
 			Kind:        "tool",
 			Name:        "read",
@@ -24,7 +24,7 @@ func init() {
 				pkgplugins.CapabilityTool,
 			},
 		})
-		host.Registry().RegisterTool(pkgplugins.ToolSpec{
+		host.AddTool(pkgplugins.ToolSpec{
 			PluginID:    "tool/read",
 			Name:        "read",
 			Description: "Read file contents.",

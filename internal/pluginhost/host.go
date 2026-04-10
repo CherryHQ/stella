@@ -23,8 +23,8 @@ type Host struct {
 	pluginIDs        map[string]struct{}
 	metadataRegs     map[string]pkgplugins.PluginInfo
 	notifications    pkgplugins.Notifier
-	scheduler        pkgplugins.SchedulerService
-	stateStore       pkgplugins.PluginStateStore
+	scheduler        SchedulerBackend
+	stateStore       StateStoreBackend
 	authService      pkgplugins.Auth
 	channelRuntime   pkgplugins.ChannelPlatform
 	reflectRuntime   pkgplugins.ReflectPlatform
@@ -71,11 +71,8 @@ func New(store config.Store, opts ...Option) *Host {
 	return h
 }
 
-func (h *Host) Registry() pkgplugins.RegistryHost { return h }
-func (h *Host) Services() pkgplugins.ServiceHost  { return h }
-
 func (h *Host) Logger(pluginID string) *slog.Logger { return h.log.With("plugin", pluginID) }
-func (h *Host) Config() pkgplugins.ConfigService    { return h.config }
+func (h *Host) Config() ConfigBackend               { return h.config }
 func (h *Host) Runtime() pkgplugins.RuntimeLookup   { return h.runtimes }
 
 func (h *Host) RegisterPluginID(id string) {
@@ -110,87 +107,80 @@ func (h *Host) LoadCatalog(catalog *pkgplugins.Catalog) error {
 
 func (h *Host) LoadDefaultCatalog() error { return h.LoadCatalog(defaultCatalog()) }
 
-func (h *Host) SetInfo(info pkgplugins.PluginInfo) { h.RegisterMetadata(info) }
+func (h *Host) SetInfo(info pkgplugins.PluginInfo) {
+	info = normalizeMetadata(info)
+	validateMetadataShape(info)
 
-func (h *Host) AddTool(reg pkgplugins.ToolSpec)                       { h.RegisterTool(reg) }
-func (h *Host) AddProvider(reg pkgplugins.ProviderSpec)               { h.RegisterProvider(reg) }
-func (h *Host) AddChannel(reg pkgplugins.ChannelSpec)                 { h.RegisterChannel(reg) }
-func (h *Host) AddHook(reg pkgplugins.HookSpec)                       { h.RegisterHook(reg) }
-func (h *Host) AddMemory(reg pkgplugins.MemorySpec)                   { h.RegisterMemory(reg) }
-func (h *Host) AddRuntime(reg pkgplugins.RuntimeSpec)                 { h.RegisterRuntime(reg) }
-func (h *Host) AddPromptInventory(reg pkgplugins.PromptInventorySpec) { h.RegisterPromptInventory(reg) }
-func (h *Host) AddSystemPrompt(reg pkgplugins.SystemPromptSpec)       { h.RegisterSystemPrompt(reg) }
-func (h *Host) AddBeforeRun(reg pkgplugins.BeforeRunSpec)             { h.RegisterBeforeRun(reg) }
-func (h *Host) AddBeforeToolCall(reg pkgplugins.BeforeToolCallSpec)   { h.RegisterBeforeToolCall(reg) }
-func (h *Host) AddAfterToolResult(reg pkgplugins.AfterToolResultSpec) { h.RegisterAfterToolResult(reg) }
-func (h *Host) AddAdmin(reg pkgplugins.AdminSpec) {
-	h.RegisterConfig(reg)
-	if reg.Status != nil {
-		h.RegisterStatus(reg)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.pluginIDs[info.ID]; !ok {
+		panic(fmt.Sprintf("pluginhost: metadata registered for unknown plugin id %q", info.ID))
 	}
+	registerUnique(h.metadataRegs, info.ID, info, "metadata")
 }
 
-func (h *Host) RegisterTool(reg pkgplugins.ToolSpec) {
+func (h *Host) AddAdmin(reg pkgplugins.AdminSpec) {
+	h.mu.Lock()
+	if reg.DefaultConfig != nil || len(reg.Schema) > 0 || reg.Validate != nil || reg.Redact != nil {
+		registerUnique(h.configRegs, reg.PluginID, reg, "config")
+	}
+	if reg.Status != nil {
+		registerUnique(h.statusRegs, reg.PluginID, reg, "status")
+	}
+	h.mu.Unlock()
+}
+
+func (h *Host) AddTool(reg pkgplugins.ToolSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.toolRegs, reg.Name, reg, "tool")
 }
-func (h *Host) RegisterProvider(reg pkgplugins.ProviderSpec) {
+func (h *Host) AddProvider(reg pkgplugins.ProviderSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.providerRegs, reg.Name, reg, "provider")
 }
-func (h *Host) RegisterChannel(reg pkgplugins.ChannelSpec) {
+func (h *Host) AddChannel(reg pkgplugins.ChannelSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.channelRegs, reg.Name, reg, "channel")
 }
-func (h *Host) RegisterHook(reg pkgplugins.HookSpec) {
+func (h *Host) AddHook(reg pkgplugins.HookSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.hookRegs, reg.Name, reg, "hook")
 }
-func (h *Host) RegisterBeforeRun(reg pkgplugins.BeforeRunSpec) {
+func (h *Host) AddBeforeRun(reg pkgplugins.BeforeRunSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.beforeRunRegs, promptKey(reg.PluginID, reg.Name), reg, "before run")
 }
-func (h *Host) RegisterBeforeToolCall(reg pkgplugins.BeforeToolCallSpec) {
+func (h *Host) AddBeforeToolCall(reg pkgplugins.BeforeToolCallSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.beforeToolRegs, promptKey(reg.PluginID, reg.Name), reg, "before tool call")
 }
-func (h *Host) RegisterAfterToolResult(reg pkgplugins.AfterToolResultSpec) {
+func (h *Host) AddAfterToolResult(reg pkgplugins.AfterToolResultSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.afterToolRegs, promptKey(reg.PluginID, reg.Name), reg, "after tool result")
 }
-func (h *Host) RegisterMemory(reg pkgplugins.MemorySpec) {
+func (h *Host) AddMemory(reg pkgplugins.MemorySpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.memoryRegs, reg.Name, reg, "memory")
 }
-func (h *Host) RegisterRuntime(reg pkgplugins.RuntimeSpec) {
+func (h *Host) AddRuntime(reg pkgplugins.RuntimeSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.runtimeRegs, runtimeKey(reg.PluginID, reg.Name), reg, "runtime")
 }
-func (h *Host) RegisterConfig(reg pkgplugins.AdminSpec) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	registerUnique(h.configRegs, reg.PluginID, reg, "config")
-}
-func (h *Host) RegisterStatus(reg pkgplugins.AdminSpec) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	registerUnique(h.statusRegs, reg.PluginID, reg, "status")
-}
-func (h *Host) RegisterPromptInventory(reg pkgplugins.PromptInventorySpec) {
+func (h *Host) AddPromptInventory(reg pkgplugins.PromptInventorySpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.promptRegs, promptKey(reg.PluginID, reg.Name), reg, "prompt inventory")
 }
-func (h *Host) RegisterSystemPrompt(reg pkgplugins.SystemPromptSpec) {
+func (h *Host) AddSystemPrompt(reg pkgplugins.SystemPromptSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	registerUnique(h.systemPromptRegs, promptKey(reg.PluginID, reg.Name), reg, "system prompt")
@@ -217,11 +207,8 @@ func (h *Host) Status(ctx context.Context, pluginID string) (any, error) {
 	h.mu.RLock()
 	reg, ok := h.statusRegs[pluginID]
 	h.mu.RUnlock()
-	if !ok || (reg.Status == nil && reg.Get == nil) {
+	if !ok || reg.Status == nil {
 		return map[string]any{}, nil
-	}
-	if reg.Status == nil {
-		return reg.Get(ctx)
 	}
 	state, err := h.DesiredState(ctx, pluginID)
 	if err != nil {
@@ -284,19 +271,14 @@ func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.P
 	})
 	var out []pkgplugins.PromptToolInfo
 	for _, reg := range regs {
-		if reg.GetTools == nil && reg.LegacyGetTools == nil {
+		if reg.GetTools == nil {
 			continue
 		}
 		state, err := h.DesiredState(ctx, reg.PluginID)
 		if err != nil {
 			state = pkgplugins.PluginState{ID: reg.PluginID, Config: h.defaultConfigFor(reg.PluginID)}
 		}
-		var tools []pkgplugins.PromptToolInfo
-		if reg.GetTools != nil {
-			tools, err = reg.GetTools(ctx, pkgplugins.PromptInventoryContext{Platform: h.platform(reg.PluginID), Services: h, State: state})
-		} else {
-			tools, err = reg.LegacyGetTools(ctx)
-		}
+		tools, err := reg.GetTools(ctx, pkgplugins.PromptInventoryContext{Platform: h.platform(reg.PluginID), State: state})
 		if err != nil {
 			return nil, err
 		}

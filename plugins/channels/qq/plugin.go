@@ -12,8 +12,8 @@ const (
 	RuntimeName = "bot"
 )
 
-var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.Runtime, error) {
-	channelRuntime := host.ChannelRuntime()
+var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) {
+	channelRuntime := platform.ChannelPlatform()
 	if channelRuntime == nil {
 		return nil, fmt.Errorf("qq: channel runtime services unavailable")
 	}
@@ -29,7 +29,7 @@ var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.Runtime, error) {
 		Parent:        parent,
 		Handler:       handler,
 		Notifications: channelRuntime.Notifications(),
-		Log:           host.Logger(PluginID),
+		Log:           platform.Logger(),
 		NewChannel: func(cfg pkgchannel.QQConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
 				AppID:     cfg.AppID,

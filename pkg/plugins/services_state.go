@@ -32,10 +32,3 @@ type StateStore interface {
 	Set(ctx context.Context, scope StateScope, key string, value map[string]any) error
 	Delete(ctx context.Context, scope StateScope, key string) error
 }
-
-// PluginStateStore is the legacy unscoped plugin persistence interface retained for migration.
-type PluginStateStore interface {
-	Get(ctx context.Context, pluginID string, scope StateScope, key string) (map[string]any, bool, error)
-	Set(ctx context.Context, pluginID string, scope StateScope, key string, value map[string]any) error
-	Delete(ctx context.Context, pluginID string, scope StateScope, key string) error
-}

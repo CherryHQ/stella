@@ -62,7 +62,6 @@ type MemorySpec struct {
 type RuntimeSpec struct {
 	PluginID string
 	Name     string
-	Factory  func(ctx RuntimeContext) (Runtime, error)
 	Build    func(ctx RuntimeContext) (Runtime, error)
 }
 
@@ -74,7 +73,6 @@ type AdminSpec struct {
 	Schema        map[string]any
 	Validate      func(raw map[string]any) error
 	Redact        func(raw map[string]any) map[string]any
-	Get           func(ctx context.Context) (any, error)
 	Status        func(ctx context.Context, build AdminContext) (any, error)
 }
 
@@ -112,10 +110,9 @@ func (r AdminSpec) SchemaDefinition() map[string]any {
 
 // PromptInventorySpec declares structured tool inventory contribution.
 type PromptInventorySpec struct {
-	PluginID       string
-	Name           string
-	LegacyGetTools func(ctx context.Context) ([]PromptToolInfo, error)
-	GetTools       func(ctx context.Context, build PromptInventoryContext) ([]PromptToolInfo, error)
+	PluginID string
+	Name     string
+	GetTools func(ctx context.Context, build PromptInventoryContext) ([]PromptToolInfo, error)
 }
 
 // SystemPromptSpec declares prompt contribution owned by a plugin.

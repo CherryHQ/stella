@@ -40,7 +40,7 @@ func (h *Host) BeforeToolCall(ctx context.Context, build pkgplugins.BeforeToolCa
 		}
 
 		result, err := reg.Run(ctx, pkgplugins.BeforeToolCallContext{
-			Services:   h,
+			Platform:   h.platform(reg.PluginID),
 			State:      state,
 			SessionID:  build.SessionID,
 			Channel:    build.Channel,
@@ -64,9 +64,9 @@ func (h *Host) BeforeToolCall(ctx context.Context, build pkgplugins.BeforeToolCa
 	}
 
 	return pkgplugins.BeforeToolCallResult{
-		Arguments: args,
-		Block:     blocked,
-		BlockMessage:  blockMsg,
+		Arguments:    args,
+		Block:        blocked,
+		BlockMessage: blockMsg,
 	}, nil
 }
 
@@ -102,7 +102,7 @@ func (h *Host) AfterToolResult(ctx context.Context, build pkgplugins.AfterToolRe
 		}
 
 		mutation, err := reg.Run(ctx, pkgplugins.AfterToolResultContext{
-			Services:   h,
+			Platform:   h.platform(reg.PluginID),
 			State:      state,
 			SessionID:  build.SessionID,
 			Channel:    build.Channel,

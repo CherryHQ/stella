@@ -18,8 +18,8 @@ type serviceRunner interface {
 type RuntimeDeps struct {
 	Services      pkgplugins.ReflectPlatform
 	Notifications pkgplugins.Notifier
-	StateStore    pkgplugins.PluginStateStore
-	Scheduler     pkgplugins.SchedulerService
+	StateStore    pkgplugins.StateStore
+	Scheduler     pkgplugins.Scheduler
 	Log           *slog.Logger
 	NewService    func(Config) serviceRunner
 	Now           func() time.Time
@@ -85,7 +85,7 @@ func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginSta
 		r.snapshot = runtimeSnapshot(r.deps.Now(), pkgplugins.RuntimeStateStopped, "reflect disabled", cfg)
 		r.mu.Unlock()
 		if r.deps.Scheduler != nil {
-			return r.deps.Scheduler.DeletePluginJobs(ctx, PluginID)
+			return r.deps.Scheduler.DeleteJobs(ctx)
 		}
 		return nil
 	}
@@ -93,7 +93,7 @@ func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginSta
 	if r.deps.Scheduler != nil {
 		r.snapshot = runtimeSnapshot(r.deps.Now(), pkgplugins.RuntimeStateRunning, "reflect scheduled", cfg)
 		r.mu.Unlock()
-		return r.deps.Scheduler.ReconcilePluginJobs(ctx, PluginID, []pkgplugins.SchedulerJobSpec{{
+		return r.deps.Scheduler.ReconcileJobs(ctx, []pkgplugins.SchedulerJobSpec{{
 			Key:         "review",
 			RuntimeName: RuntimeName,
 			Name:        "Reflect Review",
@@ -165,7 +165,7 @@ func (r *managedRuntime) Stop(ctx context.Context) error {
 	r.snapshot = runtimeSnapshot(r.deps.Now(), pkgplugins.RuntimeStateStopped, "reflect stopped", cfg)
 	r.mu.Unlock()
 	if r.deps.Scheduler != nil {
-		return r.deps.Scheduler.DeletePluginJobs(ctx, PluginID)
+		return r.deps.Scheduler.DeleteJobs(ctx)
 	}
 	return nil
 }

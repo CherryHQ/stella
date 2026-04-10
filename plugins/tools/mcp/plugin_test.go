@@ -9,19 +9,21 @@ import (
 )
 
 func TestPromptInventoryRegistrationReturnsMCPTools(t *testing.T) {
-	host := &testServiceHost{lookup: testRuntimeLookup{handle: testRuntimeHandle{runtime: runtimeWrapper{manager: NewManager()}}}}
-	rt, ok := LookupRuntime(host)
+	lookup := testRuntimeLookup{handle: testRuntimeHandle{runtime: runtimeWrapper{manager: NewManager()}}}
+	rt, ok := LookupRuntime(lookup)
 	if !ok || rt.Manager() == nil {
 		t.Fatal("expected runtime")
 	}
-	rt.Manager().RegisterTool("docs", "search", "Search", "Search docs", nil, nil, nil)
+	rt.Manager().AddTool("docs", "search", "Search", "Search docs", nil, nil, nil)
 	plugin, ok := pkgplugins.Get(PluginID)
 	if !ok {
 		t.Fatal("expected mcp plugin registration")
 	}
-	registry := &testRegistry{}
-	plugin.Register(testHost{registry: registry, services: host})
-	items, err := registry.prompt.LegacyGetTools(context.Background())
+	host := &testHost{}
+	plugin.Register(host)
+	items, err := host.prompt.GetTools(context.Background(), pkgplugins.PromptInventoryContext{
+		Platform: testPlatform{lookup: lookup},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,72 +33,34 @@ func TestPromptInventoryRegistrationReturnsMCPTools(t *testing.T) {
 }
 
 type testHost struct {
-	registry *testRegistry
-	services *testServiceHost
-}
-
-func (h testHost) Registry() pkgplugins.RegistryHost  { return h.registry }
-func (h testHost) Services() pkgplugins.ServiceHost   { return h.services }
-func (h testHost) SetInfo(info pkgplugins.PluginInfo) { h.registry.RegisterMetadata(info) }
-func (h testHost) AddAdmin(reg pkgplugins.AdminSpec) {
-	h.registry.RegisterConfig(reg)
-	if reg.Status != nil || reg.Get != nil {
-		h.registry.RegisterStatus(reg)
-	}
-}
-func (h testHost) AddTool(reg pkgplugins.ToolSpec)         { h.registry.RegisterTool(reg) }
-func (h testHost) AddProvider(reg pkgplugins.ProviderSpec) { h.registry.RegisterProvider(reg) }
-func (h testHost) AddChannel(reg pkgplugins.ChannelSpec)   { h.registry.RegisterChannel(reg) }
-func (h testHost) AddHook(reg pkgplugins.HookSpec)         { h.registry.RegisterHook(reg) }
-func (h testHost) AddMemory(reg pkgplugins.MemorySpec)     { h.registry.RegisterMemory(reg) }
-func (h testHost) AddRuntime(reg pkgplugins.RuntimeSpec)   { h.registry.RegisterRuntime(reg) }
-func (h testHost) AddPromptInventory(reg pkgplugins.PromptInventorySpec) {
-	h.registry.RegisterPromptInventory(reg)
-}
-func (h testHost) AddSystemPrompt(reg pkgplugins.SystemPromptSpec) {
-	h.registry.RegisterSystemPrompt(reg)
-}
-func (h testHost) AddBeforeRun(reg pkgplugins.BeforeRunSpec) { h.registry.RegisterBeforeRun(reg) }
-func (h testHost) AddBeforeToolCall(reg pkgplugins.BeforeToolCallSpec) {
-	h.registry.RegisterBeforeToolCall(reg)
-}
-func (h testHost) AddAfterToolResult(reg pkgplugins.AfterToolResultSpec) {
-	h.registry.RegisterAfterToolResult(reg)
-}
-
-type testRegistry struct {
 	prompt pkgplugins.PromptInventorySpec
 }
 
-func (*testRegistry) RegisterTool(pkgplugins.ToolSpec)                 {}
-func (*testRegistry) RegisterProvider(pkgplugins.ProviderSpec)         {}
-func (*testRegistry) RegisterChannel(pkgplugins.ChannelSpec)           {}
-func (*testRegistry) RegisterHook(pkgplugins.HookSpec)                 {}
-func (*testRegistry) RegisterMemory(pkgplugins.MemorySpec)             {}
-func (*testRegistry) RegisterRuntime(pkgplugins.RuntimeSpec)           {}
-func (*testRegistry) RegisterConfig(pkgplugins.AdminSpec)              {}
-func (*testRegistry) RegisterStatus(pkgplugins.AdminSpec)              {}
-func (*testRegistry) RegisterSystemPrompt(pkgplugins.SystemPromptSpec) {}
-func (*testRegistry) RegisterBeforeRun(pkgplugins.BeforeRunSpec)       {}
-func (*testRegistry) RegisterBeforeToolCall(pkgplugins.BeforeToolCallSpec) {
-}
-func (*testRegistry) RegisterAfterToolResult(pkgplugins.AfterToolResultSpec) {}
-func (r *testRegistry) RegisterPromptInventory(reg pkgplugins.PromptInventorySpec) {
-	r.prompt = reg
-}
-func (*testRegistry) RegisterMetadata(pkgplugins.PluginInfo) {}
+func (*testHost) SetInfo(pkgplugins.PluginInfo)                           {}
+func (*testHost) AddAdmin(pkgplugins.AdminSpec)                           {}
+func (*testHost) AddTool(pkgplugins.ToolSpec)                             {}
+func (*testHost) AddProvider(pkgplugins.ProviderSpec)                     {}
+func (*testHost) AddChannel(pkgplugins.ChannelSpec)                       {}
+func (*testHost) AddHook(pkgplugins.HookSpec)                             {}
+func (*testHost) AddMemory(pkgplugins.MemorySpec)                         {}
+func (*testHost) AddRuntime(pkgplugins.RuntimeSpec)                       {}
+func (h *testHost) AddPromptInventory(reg pkgplugins.PromptInventorySpec) { h.prompt = reg }
+func (*testHost) AddSystemPrompt(pkgplugins.SystemPromptSpec)             {}
+func (*testHost) AddBeforeRun(pkgplugins.BeforeRunSpec)                   {}
+func (*testHost) AddBeforeToolCall(pkgplugins.BeforeToolCallSpec)         {}
+func (*testHost) AddAfterToolResult(pkgplugins.AfterToolResultSpec)       {}
 
-type testServiceHost struct{ lookup testRuntimeLookup }
+type testPlatform struct{ lookup testRuntimeLookup }
 
-func (*testServiceHost) Logger(string) *slog.Logger                 { return nil }
-func (*testServiceHost) Config() pkgplugins.ConfigService           { return nil }
-func (h *testServiceHost) Runtime() pkgplugins.RuntimeLookup        { return h.lookup }
-func (*testServiceHost) Notifications() pkgplugins.Notifier         { return nil }
-func (*testServiceHost) Scheduler() pkgplugins.SchedulerService     { return nil }
-func (*testServiceHost) StateStore() pkgplugins.PluginStateStore    { return nil }
-func (*testServiceHost) Auth() pkgplugins.Auth                      { return nil }
-func (*testServiceHost) ChannelRuntime() pkgplugins.ChannelPlatform { return nil }
-func (*testServiceHost) ReflectRuntime() pkgplugins.ReflectPlatform { return nil }
+func (testPlatform) Logger() *slog.Logger                        { return nil }
+func (testPlatform) ConfigStore() pkgplugins.ConfigStore         { return nil }
+func (testPlatform) StateStore() pkgplugins.StateStore           { return nil }
+func (testPlatform) Scheduler() pkgplugins.Scheduler             { return nil }
+func (testPlatform) Notifier() pkgplugins.Notifier               { return nil }
+func (testPlatform) Auth() pkgplugins.Auth                       { return nil }
+func (p testPlatform) RuntimeLookup() pkgplugins.RuntimeLookup   { return p.lookup }
+func (testPlatform) ChannelPlatform() pkgplugins.ChannelPlatform { return nil }
+func (testPlatform) ReflectPlatform() pkgplugins.ReflectPlatform { return nil }
 
 type testRuntimeLookup struct{ handle testRuntimeHandle }
 

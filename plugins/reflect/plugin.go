@@ -7,8 +7,8 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
-var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.Runtime, error) {
-	deps, err := runtimeDeps(host)
+var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) {
+	deps, err := runtimeDeps(platform)
 	if err != nil {
 		return nil, err
 	}
@@ -17,7 +17,7 @@ var newRuntime = func(host pkgplugins.ServiceHost) (pkgplugins.Runtime, error) {
 
 func init() {
 	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
+		host.SetInfo(pkgplugins.PluginInfo{
 			ID:           PluginID,
 			Kind:         "reflect",
 			Name:         "reflect",
@@ -33,45 +33,37 @@ func init() {
 				pkgplugins.CapabilityStatus,
 			},
 		})
-		host.Registry().RegisterConfig(pkgplugins.AdminSpec{
+		host.AddAdmin(pkgplugins.AdminSpec{
 			PluginID:      PluginID,
 			DefaultConfig: DefaultPluginConfig,
 			Schema:        PluginConfigSchema(),
 			Validate:      func(raw map[string]any) error { _, err := DecodePluginConfig(raw); return err },
 			Redact:        RedactPluginConfig,
 		})
-		host.Registry().RegisterRuntime(pkgplugins.RuntimeSpec{
+		host.AddRuntime(pkgplugins.RuntimeSpec{
 			PluginID: PluginID,
 			Name:     RuntimeName,
-			Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
-				return newRuntime(ctx.Services)
+			Build: func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
+				return newRuntime(ctx.Platform)
 			},
 		})
-		host.Registry().RegisterStatus(pkgplugins.AdminSpec{
+		host.AddAdmin(pkgplugins.AdminSpec{
 			PluginID: PluginID,
-			Get: func(ctx context.Context) (any, error) {
-				handle, ok := host.Services().Runtime().Get(PluginID, RuntimeName)
-				if !ok {
-					return stoppedStatus(), nil
-				}
-				snap, err := handle.Snapshot(ctx)
-				if err != nil {
-					return nil, err
-				}
-				return runtimeStatus(snap), nil
+			Status: func(ctx context.Context, build pkgplugins.AdminContext) (any, error) {
+				return runtimeStatusFromLookup(ctx, build.Platform.RuntimeLookup())
 			},
 		})
 	}))
 }
 
-func SetRuntimeFactoryForTesting(factory func(host pkgplugins.ServiceHost) (pkgplugins.Runtime, error)) func() {
+func SetRuntimeFactoryForTesting(factory func(platform pkgplugins.Platform) (pkgplugins.Runtime, error)) func() {
 	prev := newRuntime
 	newRuntime = factory
 	return func() { newRuntime = prev }
 }
 
-func runtimeDeps(host pkgplugins.ServiceHost) (RuntimeDeps, error) {
-	services := host.ReflectRuntime()
+func runtimeDeps(platform pkgplugins.Platform) (RuntimeDeps, error) {
+	services := platform.ReflectPlatform()
 	if services == nil {
 		return RuntimeDeps{}, fmt.Errorf("reflect: runtime services unavailable")
 	}
@@ -84,16 +76,31 @@ func runtimeDeps(host pkgplugins.ServiceHost) (RuntimeDeps, error) {
 	if services.ParentContext() == nil {
 		return RuntimeDeps{}, fmt.Errorf("reflect: missing parent context")
 	}
-	if host.StateStore() == nil {
+	if platform.StateStore() == nil {
 		return RuntimeDeps{}, fmt.Errorf("reflect: missing plugin state store")
 	}
 	return RuntimeDeps{
 		Services:      services,
-		Notifications: host.Notifications(),
-		StateStore:    host.StateStore(),
-		Scheduler:     host.Scheduler(),
-		Log:           host.Logger(PluginID),
+		Notifications: platform.Notifier(),
+		StateStore:    platform.StateStore(),
+		Scheduler:     platform.Scheduler(),
+		Log:           platform.Logger(),
 	}, nil
+}
+
+func runtimeStatusFromLookup(ctx context.Context, lookup pkgplugins.RuntimeLookup) (any, error) {
+	if lookup == nil {
+		return stoppedStatus(), nil
+	}
+	handle, ok := lookup.Lookup(PluginID, RuntimeName)
+	if !ok {
+		return stoppedStatus(), nil
+	}
+	snap, err := handle.Snapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return runtimeStatus(snap), nil
 }
 
 func stoppedStatus() map[string]any {

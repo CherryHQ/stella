@@ -131,9 +131,6 @@ func TestManagedRuntimeUsesSchedulerCapabilityWhenAvailable(t *testing.T) {
 	if scheduler.reconcileCalls != 1 {
 		t.Fatalf("reconcile calls = %d, want 1", scheduler.reconcileCalls)
 	}
-	if scheduler.lastPluginID != PluginID {
-		t.Fatalf("plugin id = %q, want %q", scheduler.lastPluginID, PluginID)
-	}
 	if len(scheduler.lastJobs) != 1 {
 		t.Fatalf("jobs len = %d, want 1", len(scheduler.lastJobs))
 	}
@@ -183,25 +180,23 @@ func waitClosed(t *testing.T, ch <-chan struct{}, label string) {
 type fakeSchedulerService struct {
 	reconcileCalls int
 	deleteCalls    int
-	lastPluginID   string
 	lastJobs       []pkgplugins.SchedulerJobSpec
 }
 
-func (s *fakeSchedulerService) ReconcilePluginJobs(_ context.Context, pluginID string, jobs []pkgplugins.SchedulerJobSpec) error {
+func (s *fakeSchedulerService) ReconcileJobs(_ context.Context, jobs []pkgplugins.SchedulerJobSpec) error {
 	s.reconcileCalls++
-	s.lastPluginID = pluginID
 	s.lastJobs = append([]pkgplugins.SchedulerJobSpec(nil), jobs...)
 	return nil
 }
 
-func (s *fakeSchedulerService) DeletePluginJobs(context.Context, string) error {
+func (s *fakeSchedulerService) DeleteJobs(context.Context) error {
 	s.deleteCalls++
 	return nil
 }
 
-func (*fakeSchedulerService) DeletePluginJob(context.Context, string, string) error { return nil }
+func (*fakeSchedulerService) DeleteJob(context.Context, string) error { return nil }
 
-func (*fakeSchedulerService) ListPluginJobs(context.Context, string) ([]pkgplugins.SchedulerJob, error) {
+func (*fakeSchedulerService) ListJobs(context.Context) ([]pkgplugins.SchedulerJob, error) {
 	return nil, nil
 }
 

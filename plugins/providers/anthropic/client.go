@@ -15,7 +15,7 @@ import (
 
 func init() {
 	pkgplugins.Register("provider/anthropic", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
+		host.SetInfo(pkgplugins.PluginInfo{
 			ID:           "provider/anthropic",
 			Kind:         "provider",
 			Name:         "anthropic",
@@ -26,7 +26,7 @@ func init() {
 				pkgplugins.CapabilityProvider,
 			},
 		})
-		host.Registry().RegisterProvider(pkgplugins.ProviderSpec{
+		host.AddProvider(pkgplugins.ProviderSpec{
 			PluginID: "provider/anthropic",
 			Name:     "anthropic",
 			Meta: pkgplugins.ProviderMeta{

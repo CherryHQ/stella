@@ -13,7 +13,7 @@ type ManagedChannelPluginRegistration struct {
 	Redact               func(raw map[string]any) map[string]any
 	Configured           func(raw map[string]any) bool
 	NotificationsEnabled func(raw map[string]any) bool
-	RuntimeFactory       func(ServiceHost) (Runtime, error)
+	RuntimeFactory       func(Platform) (Runtime, error)
 }
 
 func RegisterManagedChannelPlugin(host Host, reg ManagedChannelPluginRegistration) {
@@ -48,7 +48,7 @@ func RegisterManagedChannelPlugin(host Host, reg ManagedChannelPluginRegistratio
 		PluginID: reg.PluginID,
 		Name:     reg.RuntimeName,
 		Build: func(ctx RuntimeContext) (Runtime, error) {
-			return reg.RuntimeFactory(ctx.Services)
+			return reg.RuntimeFactory(ctx.Platform)
 		},
 	})
 }

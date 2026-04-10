@@ -96,7 +96,7 @@ func TestPromptToolsUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/mcp")
-	host.RegisterPromptInventory(pkgplugins.PromptInventorySpec{PluginID: "tool/mcp", Name: "tools", LegacyGetTools: func(context.Context) ([]pkgplugins.PromptToolInfo, error) {
+	host.AddPromptInventory(pkgplugins.PromptInventorySpec{PluginID: "tool/mcp", Name: "tools", GetTools: func(context.Context, pkgplugins.PromptInventoryContext) ([]pkgplugins.PromptToolInfo, error) {
 		return []pkgplugins.PromptToolInfo{{Name: "mcp__docs__search"}}, nil
 	}})
 	tools, err := host.PromptTools(context.Background(), "tool/mcp")
@@ -112,7 +112,7 @@ func TestSystemPromptSectionsUsePluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/skills")
-	host.RegisterSystemPrompt(pkgplugins.SystemPromptSpec{
+	host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
 		PluginID: "tool/skills",
 		Name:     "skills",
 		Required: true,
@@ -136,7 +136,7 @@ func TestBeforeRunUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/skills")
-	host.RegisterBeforeRun(pkgplugins.BeforeRunSpec{
+	host.AddBeforeRun(pkgplugins.BeforeRunSpec{
 		PluginID: "tool/skills",
 		Name:     "skills",
 		Required: true,
@@ -158,7 +158,7 @@ func TestBeforeToolCallUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/filter")
-	host.RegisterBeforeToolCall(pkgplugins.BeforeToolCallSpec{
+	host.AddBeforeToolCall(pkgplugins.BeforeToolCallSpec{
 		PluginID: "tool/filter",
 		Name:     "filter",
 		Required: true,
@@ -190,7 +190,7 @@ func TestAfterToolResultUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/filter")
-	host.RegisterAfterToolResult(pkgplugins.AfterToolResultSpec{
+	host.AddAfterToolResult(pkgplugins.AfterToolResultSpec{
 		PluginID: "tool/filter",
 		Name:     "filter",
 		Required: true,
@@ -221,14 +221,14 @@ func TestValidateRegistrationsChecksPromptAndLifecycleCapabilities(t *testing.T)
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/skills")
-	host.RegisterMetadata(pkgplugins.PluginInfo{
+	host.SetInfo(pkgplugins.PluginInfo{
 		ID:           "tool/skills",
 		Kind:         "tool",
 		Name:         "skills",
 		DisplayName:  "Skills",
 		Capabilities: []string{pkgplugins.CapabilityPrompt, pkgplugins.CapabilityLifecycle},
 	})
-	host.RegisterBeforeRun(pkgplugins.BeforeRunSpec{
+	host.AddBeforeRun(pkgplugins.BeforeRunSpec{
 		PluginID: "tool/skills",
 		Name:     "skills",
 		Required: true,
@@ -236,7 +236,7 @@ func TestValidateRegistrationsChecksPromptAndLifecycleCapabilities(t *testing.T)
 			return pkgplugins.BeforeRunResult{}, nil
 		},
 	})
-	host.RegisterSystemPrompt(pkgplugins.SystemPromptSpec{
+	host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
 		PluginID: "tool/skills",
 		Name:     "skills",
 		Required: true,
@@ -257,14 +257,14 @@ func TestValidateRegistrationsAcceptsToolLifecycleOnly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/filter")
-	host.RegisterMetadata(pkgplugins.PluginInfo{
+	host.SetInfo(pkgplugins.PluginInfo{
 		ID:           "tool/filter",
 		Kind:         "tool",
 		Name:         "filter",
 		DisplayName:  "Filter",
 		Capabilities: []string{pkgplugins.CapabilityLifecycle},
 	})
-	host.RegisterBeforeToolCall(pkgplugins.BeforeToolCallSpec{
+	host.AddBeforeToolCall(pkgplugins.BeforeToolCallSpec{
 		PluginID: "tool/filter",
 		Name:     "filter",
 		Required: true,
@@ -282,7 +282,7 @@ func TestConfigSchemaUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/mcp")
-	host.RegisterConfig(pkgplugins.AdminSpec{
+	host.AddAdmin(pkgplugins.AdminSpec{
 		PluginID: "tool/mcp",
 		Schema: map[string]any{
 			"type": "object",
@@ -307,7 +307,7 @@ func TestRuntimeApplyCreatesAndApplies(t *testing.T) {
 	host := New(store)
 	host.RegisterPluginID("tool/mcp")
 	called := 0
-	host.RegisterRuntime(pkgplugins.RuntimeSpec{PluginID: "tool/mcp", Name: "main", Factory: func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
+	host.AddRuntime(pkgplugins.RuntimeSpec{PluginID: "tool/mcp", Name: "main", Build: func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
 		return runtimeStub{apply: func(_ context.Context, desired pkgplugins.PluginState) error {
 			called++
 			if desired.ID != "tool/mcp" {

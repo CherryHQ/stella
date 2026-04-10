@@ -24,12 +24,6 @@ type ConfigStore interface {
 	Set(ctx context.Context, config map[string]any) error
 }
 
-// ConfigService is the legacy unscoped config interface retained for migration.
-type ConfigService interface {
-	Get(ctx context.Context, pluginID string) (PluginState, error)
-	Set(ctx context.Context, pluginID string, config map[string]any) error
-}
-
 // RuntimeLookup resolves running runtime handles by plugin and runtime capability ID.
 type RuntimeLookup interface {
 	Get(pluginID string, runtimeName string) (RuntimeHandle, bool)

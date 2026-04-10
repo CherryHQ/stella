@@ -20,7 +20,7 @@ import (
 
 func init() {
 	pkgplugins.Register("tool/webfetch", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
-		host.Registry().RegisterMetadata(pkgplugins.PluginInfo{
+		host.SetInfo(pkgplugins.PluginInfo{
 			ID:           "tool/webfetch",
 			Kind:         "tool",
 			Name:         "webfetch",
@@ -31,7 +31,7 @@ func init() {
 				pkgplugins.CapabilityTool,
 			},
 		})
-		host.Registry().RegisterTool(pkgplugins.ToolSpec{
+		host.AddTool(pkgplugins.ToolSpec{
 			PluginID:    "tool/webfetch",
 			Name:        "webfetch",
 			Description: "Fetch and extract readable web content.",

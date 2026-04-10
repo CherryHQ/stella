@@ -6,12 +6,8 @@ import (
 )
 
 type stubHost struct {
-	registry RegistryHost
-	services ServiceHost
 }
 
-func (h stubHost) Registry() RegistryHost                 { return h.registry }
-func (h stubHost) Services() ServiceHost                  { return h.services }
 func (h stubHost) SetInfo(PluginInfo)                     {}
 func (h stubHost) AddAdmin(AdminSpec)                     {}
 func (h stubHost) AddTool(ToolSpec)                       {}

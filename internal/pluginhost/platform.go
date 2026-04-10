@@ -37,7 +37,7 @@ func (p pluginPlatform) ReflectPlatform() pkgplugins.ReflectPlatform {
 }
 
 type scopedConfigStore struct {
-	service  pkgplugins.ConfigService
+	service  ConfigBackend
 	pluginID string
 }
 
@@ -50,7 +50,7 @@ func (s scopedConfigStore) Set(ctx context.Context, config map[string]any) error
 }
 
 type scopedStateStore struct {
-	store    pkgplugins.PluginStateStore
+	store    StateStoreBackend
 	pluginID string
 }
 
@@ -76,7 +76,7 @@ func (s scopedStateStore) Delete(ctx context.Context, scope pkgplugins.StateScop
 }
 
 type scopedScheduler struct {
-	scheduler pkgplugins.SchedulerService
+	scheduler SchedulerBackend
 	pluginID  string
 }
 

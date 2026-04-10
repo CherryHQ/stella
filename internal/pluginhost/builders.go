@@ -32,7 +32,7 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContex
 			continue
 		}
 		t, err := reg.Build(pkgplugins.ToolContext{
-			Services:    h,
+			Platform:    h.platform(reg.PluginID),
 			State:       state,
 			WorkDir:     bc.WorkDir,
 			UserDataDir: bc.UserDataDir,
@@ -61,7 +61,7 @@ func (h *Host) BuildCoreTools(bc plugintools.BuildContext) []tools.Tool {
 			continue
 		}
 		t, err := reg.Build(pkgplugins.ToolContext{
-			Services: h,
+			Platform: h.platform(reg.PluginID),
 			State: pkgplugins.PluginState{
 				ID:      reg.PluginID,
 				Enabled: true,
@@ -95,7 +95,7 @@ func (h *Host) BuildEnabledHooks(ctx context.Context, bc pluginhooks.BuildContex
 			continue
 		}
 		item, err := reg.Build(pkgplugins.HookContext{
-			Services:    h,
+			Platform:    h.platform(reg.PluginID),
 			State:       state,
 			ToolsBinDir: bc.ToolsBinDir,
 		})
@@ -114,7 +114,7 @@ func (h *Host) BuildProvider(name string, stateConfig map[string]any) (providers
 		return nil, providers.ErrProviderNotFound
 	}
 	return reg.Build(pkgplugins.ProviderContext{
-		Services: h,
+		Platform: h.platform(reg.PluginID),
 		State: pkgplugins.PluginState{
 			ID:      reg.PluginID,
 			Enabled: true,
@@ -141,7 +141,7 @@ func (h *Host) BuildMemory(ctx context.Context, name string, db *sql.DB, annaHom
 		return nil, nil
 	}
 	return reg.Build(ctx, pkgplugins.MemoryContext{
-		Services:     h,
+		Platform:     h.platform(reg.PluginID),
 		State:        pkgplugins.PluginState{ID: reg.PluginID, Enabled: true, Config: cloneMap(cfg)},
 		DB:           db,
 		AnnaHome:     annaHome,

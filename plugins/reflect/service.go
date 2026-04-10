@@ -18,7 +18,7 @@ const (
 
 // Config holds dependencies for the reflect service.
 type Config struct {
-	StateStore pkgplugins.PluginStateStore
+	StateStore pkgplugins.StateStore
 	Memory     memory.Provider
 	Store      pkgplugins.ReflectStore
 	Notifier   pkgplugins.Notifier
