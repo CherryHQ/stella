@@ -11,6 +11,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-04-10
+
+### ✨ Features
+
+- **Plugins**: Introduce a unified plugin host runtime and migrate channels, tools, providers, MCP, and memory integrations onto the host-backed platform
+- **Plugins**: Add MCP tool plugin runtime with admin config editor and prompt integration ([#85](https://github.com/vaayne/anna/pull/85))
+- **Plugins**: Add typed plugin hook system and extension-owned prompt contributions ([#78](https://github.com/vaayne/anna/pull/78))
+- **Providers**: Make AI providers a first-class plugin type ([#79](https://github.com/vaayne/anna/pull/79))
+- **Memory**: Introduce pluggable memory providers with LCM and simple memory plugins, plus dynamic tool generation ([#82](https://github.com/vaayne/anna/pull/82))
+- **Tracing**: Add optional OpenTelemetry tracing with chat, tool, provider, and memory lifecycle coverage ([#84](https://github.com/vaayne/anna/pull/84))
+- **Automation**: Add self-improvement system for autonomous skill extraction ([#75](https://github.com/vaayne/anna/pull/75))
+- **Agent Tool**: Add presets, concurrency limits, context passing, and observability improvements ([#74](https://github.com/vaayne/anna/pull/74))
+- **Channels**: Add WeChat (weixin) iLink Bot channel ([#69](https://github.com/vaayne/anna/pull/69))
+- **Channels**: Enhance Feishu channel with Lark workspace tools ([#68](https://github.com/vaayne/anna/pull/68))
+- **Auth**: Add RBAC + ABAC permission system for multi-agent multi-user deployments ([#67](https://github.com/vaayne/anna/pull/67))
+- **Gateway**: Add host and port flags for gateway startup
+- **Plugins**: Add schema-driven plugin config editor and plugin-owned scheduler capabilities
+
+### 🐛 Bug Fixes
+
+- **Plugins**: Preserve plugin hooks across runtime switches
+- **Channels**: Improve initialization reliability and decouple startup failures ([#76](https://github.com/vaayne/anna/pull/76))
+- **Tracing**: Fix span lifecycle, context propagation, and race issues across memory and provider instrumentation
+- **Admin**: Fix plugin and channel configuration regressions during the host-backed migration
+
+### ♻️ Refactoring
+
+- **Plugins**: Unify the plugin system around a single subprocess model ([#72](https://github.com/vaayne/anna/pull/72))
+- **Plugins**: Complete unified plugin host cleanup and remove legacy host surfaces ([#89](https://github.com/vaayne/anna/pull/89))
+- **Channels**: Extract shared channel runtime infrastructure into `pkg/channel` and convert channel implementations into thin adapters ([#80](https://github.com/vaayne/anna/pull/80))
+- **Agent**: Move the agent engine to `pkg/agent` with a Runner abstraction ([#81](https://github.com/vaayne/anna/pull/81))
+- **Architecture**: Simplify command wiring, gateway control flow, and legacy channel lifecycle code
+
+### 📝 Documentation
+
+- Add plugin architecture and authoring guide
+- Add OpenTelemetry tracing documentation and deployment guidance
+- Unify agent instructions and remove stale docs
+
+### 📦 Dependencies
+
+- Bump `github.com/go-git/go-git/v5` to `v5.17.1` ([#73](https://github.com/vaayne/anna/pull/73))
+- Bump `github.com/modelcontextprotocol/go-sdk` to `v1.4.1` ([#87](https://github.com/vaayne/anna/pull/87))
+- Bump `go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp` to `v0.19.0` ([#86](https://github.com/vaayne/anna/pull/86))
+- Bump `go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp` to `v1.43.0` ([#88](https://github.com/vaayne/anna/pull/88))
+
+**Full Changelog**: [v0.8.1...v0.9.0](https://github.com/vaayne/anna/compare/v0.8.1...v0.9.0)
+
 ## [0.8.1] - 2026-03-18
 
 ### ✨ Features
