@@ -162,17 +162,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	)
 
 	if len(channels) == 0 && managedChannels.Started == 0 {
+		reason := noRunningChannelReason(managedChannels)
 		if adminPort > 0 {
-			if managedChannels.Configured > 0 {
-				slog.Warn("no channel services running; configured managed channel runtimes failed to start, running admin panel only", "configured_channels", managedChannels.Configured)
-			} else {
-				slog.Warn("no channel services configured; running admin panel only")
-			}
+			slog.Warn(reason+"; running admin panel only", "configured_channels", managedChannels.Configured)
 		} else {
-			reason := "no channels configured"
-			if managedChannels.Configured > 0 {
-				reason = "configured channels failed to start"
-			}
 			return fmt.Errorf("no services to run: %s and admin panel disabled", reason)
 		}
 	}
@@ -237,17 +230,11 @@ func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolM
 		if scheduler.IsPluginJob(job) {
 			return nil
 		}
-		pool := defaultPool
-		if job.AgentID != "" {
-			if p := poolMgr.Get(job.AgentID); p != nil {
-				pool = p
-			} else {
-				slog.Warn("scheduler job references unknown agent, using default pool",
-					"job_id", job.ID, "agent_id", job.AgentID)
-			}
-		}
+
+		pool := schedulerPool(job, poolMgr, defaultPool)
 		sessionID := job.SessionID()
 		msg := fmt.Sprintf("[Scheduled Task] %s\n\nInstruction: %s", job.Name, job.Message)
+
 		var result strings.Builder
 		for evt := range pool.Chat(ctx, sessionID, msg) {
 			if evt.Err != nil {
@@ -257,40 +244,71 @@ func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolM
 				result.WriteString(evt.Text)
 			}
 		}
-		var runErr error
-		if result.Len() > 0 {
-			text := fmt.Sprintf("*%s*\n\n%s", job.Name, result.String())
-			n := pkgchannel.Notification{Text: text}
-			if job.UserID != 0 {
-				// User-owned job: notify only the owner.
-				runErr = dispatcher.NotifyUser(ctx, job.UserID, n)
-			} else {
-				// System job: broadcast to all channels.
-				runErr = dispatcher.Notify(ctx, n)
-			}
-			if runErr != nil {
-				slog.Error("scheduler notification failed", "job_id", job.ID, "error", runErr)
-			}
+		if result.Len() == 0 {
+			return nil
 		}
-		return runErr
+
+		n := pkgchannel.Notification{Text: fmt.Sprintf("*%s*\n\n%s", job.Name, result.String())}
+		err := dispatchSchedulerNotification(ctx, dispatcher, job, n)
+		if err != nil {
+			slog.Error("scheduler notification failed", "job_id", job.ID, "error", err)
+		}
+		return err
 	})
 }
 
+func schedulerPool(job scheduler.Job, poolMgr *agent.PoolManager, defaultPool *agent.Pool) *agent.Pool {
+	if job.AgentID == "" {
+		return defaultPool
+	}
+
+	pool := poolMgr.Get(job.AgentID)
+	if pool != nil {
+		return pool
+	}
+
+	slog.Warn("scheduler job references unknown agent, using default pool",
+		"job_id", job.ID, "agent_id", job.AgentID)
+	return defaultPool
+}
+
+func dispatchSchedulerNotification(ctx context.Context, dispatcher *notify.Dispatcher, job scheduler.Job, notification pkgchannel.Notification) error {
+	if job.UserID != 0 {
+		return dispatcher.NotifyUser(ctx, job.UserID, notification)
+	}
+
+	return dispatcher.Notify(ctx, notification)
+}
+
 func launchBrowser(url string) {
-	var cmd *exec.Cmd
+	cmd := browserCommand(url)
+	if cmd == nil {
+		return
+	}
+	if err := cmd.Start(); err != nil {
+		slog.Warn("failed to open browser", "error", err)
+		return
+	}
+	go func() { _ = cmd.Wait() }()
+}
+
+func browserCommand(url string) *exec.Cmd {
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		return exec.Command("open", url)
 	case "linux":
-		cmd = exec.Command("xdg-open", url)
+		return exec.Command("xdg-open", url)
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		return nil
 	}
-	if cmd != nil {
-		if err := cmd.Start(); err != nil {
-			slog.Warn("failed to open browser", "error", err)
-			return
-		}
-		go func() { _ = cmd.Wait() }()
+}
+
+func noRunningChannelReason(managedChannels managedChannelRuntimeSummary) string {
+	if managedChannels.Configured > 0 {
+		return "configured channels failed to start"
 	}
+
+	return "no channels configured"
 }
