@@ -39,7 +39,7 @@ func ChannelsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<section class=\"border-t border-base-300 pt-8\"><div class=\"flex items-center justify-between gap-4 mb-6\"><div><h2 class=\"text-lg font-medium\">Available channels</h2><p class=\"text-sm text-secondary mt-1\">Link the platform account on the channel you use. Dedicated channels always use their bound agent.</p></div><span class=\"text-xs font-mono text-secondary\" x-text=\"linkedIdentities.length + ' linked'\"></span></div><template x-if=\"loadingLinks\"><div class=\"flex justify-center py-8\"><span class=\"loading loading-spinner loading-sm\"></span></div></template><div x-show=\"!loadingLinks\" x-cloak class=\"divide-y divide-base-300 border-y border-base-300\"><template x-for=\"channel in publicChannels\" :key=\"channel.id\"><div class=\"py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4\"><div class=\"min-w-0\"><div class=\"flex items-baseline gap-3 flex-wrap\"><span class=\"font-medium\" x-text=\"channelTitle(channel)\"></span> <span class=\"badge badge-ghost badge-sm\" x-text=\"channel.type\"></span> <span class=\"badge badge-sm\" :class=\"isLinked(channel.type) ? 'badge-success' : 'badge-ghost'\" x-text=\"isLinked(channel.type) ? 'linked' : 'not linked'\"></span></div><template x-if=\"channel.agent_id\"><p class=\"text-sm mt-1\"><span class=\"text-secondary\">Uses agent </span> <a :href=\"agentHref(channel)\" class=\"link link-primary font-mono\" x-text=\"agentLabel(channel)\"></a></p></template><p class=\"text-sm text-secondary mt-1\" x-text=\"channelDescription(channel)\"></p><template x-if=\"identityFor(channel.type)\"><p class=\"text-xs font-mono text-base-content/50 mt-2\" x-text=\"identityLabel(identityFor(channel.type))\"></p></template></div><div class=\"flex items-center gap-2 shrink-0\"><button x-show=\"!isLinked(channel.type) && channel.type !== 'weixin'\" @click=\"generateCode(channel.type)\" :disabled=\"generating\" class=\"btn btn-sm btn-outline\"><span x-show=\"generating && linkPlatform === channel.type\" class=\"loading loading-spinner loading-xs\"></span> <span x-text=\"'Link ' + channel.label\"></span></button> <button x-show=\"!isLinked(channel.type) && channel.type === 'weixin'\" @click=\"startWeixinQR()\" :disabled=\"wxQrPolling\" class=\"btn btn-sm btn-outline\"><span x-show=\"wxQrPolling\" class=\"loading loading-spinner loading-xs\"></span> Link Weixin</button> <button x-show=\"isLinked(channel.type)\" @click=\"unlinkIdentity(identityFor(channel.type)?.id)\" class=\"btn btn-ghost btn-xs text-secondary hover:text-error\">unlink</button></div></div></template><template x-if=\"publicChannels.length === 0\"><div class=\"py-8 text-sm text-secondary\">No enabled messaging channels are available.</div></template></div><template x-if=\"linkCode\"><div class=\"alert shadow-md mt-4\"><div><p class=\"font-medium\">Send this command to Anna on <span x-text=\"platformLabel[linkPlatform] || linkPlatform\"></span>:</p><div class=\"flex items-center gap-2 mt-2\"><code class=\"font-mono text-lg font-bold bg-base-200 text-base-content px-3 py-1 rounded select-all\" x-text=\"'/link ' + linkCode\"></code> <button @click=\"copyLinkCode()\" class=\"btn btn-ghost btn-xs\">copy</button></div><p class=\"text-xs text-secondary mt-2\">Expires in 5 minutes.</p></div></div></template><template x-if=\"wxQrUrl\"><div class=\"card bg-base-200 mt-4\"><div class=\"card-body py-4 items-center\"><p class=\"text-sm font-medium mb-2\">Scan with WeChat to link your account</p><img :src=\"wxQrUrl\" alt=\"WeChat QR Code\" class=\"w-48 h-48 border rounded\"> <span class=\"badge badge-sm mt-2\" :class=\"{\n\t\t\t\t\t\t\t\t'badge-warning': wxQrStatus === 'waiting',\n\t\t\t\t\t\t\t\t'badge-info': wxQrStatus === 'scaned',\n\t\t\t\t\t\t\t\t'badge-success': wxQrStatus === 'confirmed',\n\t\t\t\t\t\t\t\t'badge-error': wxQrStatus === 'expired',\n\t\t\t\t\t\t\t}\" x-text=\"wxQrStatus\"></span><template x-if=\"wxQrStatus === 'expired'\"><button @click=\"startWeixinQR()\" class=\"btn btn-outline btn-xs mt-1\">Refresh</button></template></div></div></template></section><div x-show=\"isAdmin\" x-cloak class=\"border-t border-base-300 divide-y divide-base-300 mt-8\"><!-- Telegram -->")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<section class=\"border-t border-base-300 pt-8\"><div class=\"flex items-center justify-between gap-4 mb-6\"><div><h2 class=\"text-lg font-medium\">Available channels</h2><p class=\"text-sm text-secondary mt-1\">Link the platform account on the channel you use. Dedicated channels always use their bound agent.</p></div><span class=\"text-xs font-mono text-secondary\" x-text=\"linkedIdentities.length + ' linked'\"></span></div><template x-if=\"loadingLinks\"><div class=\"flex justify-center py-8\"><span class=\"loading loading-spinner loading-sm\"></span></div></template><div x-show=\"!loadingLinks\" x-cloak class=\"divide-y divide-base-300 border-y border-base-300\"><template x-for=\"channel in publicChannels\" :key=\"channel.id\"><div class=\"py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4\"><div class=\"min-w-0\"><div class=\"flex items-baseline gap-3 flex-wrap\"><span class=\"font-medium\" x-text=\"channelTitle(channel)\"></span> <span class=\"badge badge-ghost badge-sm\" x-text=\"channel.type\"></span> <span class=\"badge badge-sm\" :class=\"isLinked(channel.type) ? 'badge-success' : 'badge-ghost'\" x-text=\"isLinked(channel.type) ? 'linked' : 'not linked'\"></span></div><template x-if=\"channel.agent_id\"><p class=\"text-sm mt-1\"><span class=\"text-secondary\">Uses agent </span> <a :href=\"agentHref(channel)\" class=\"link link-primary font-mono\" x-text=\"agentLabel(channel)\"></a></p></template><p class=\"text-sm text-secondary mt-1\" x-text=\"channelDescription(channel)\"></p><template x-if=\"identityFor(channel.type)\"><p class=\"text-xs font-mono text-base-content/50 mt-2\" x-text=\"identityLabel(identityFor(channel.type))\"></p></template></div><div class=\"flex items-center gap-2 shrink-0\"><button x-show=\"!isLinked(channel.type) && channel.type !== 'weixin'\" @click=\"generateCode(channel.type)\" :disabled=\"generating\" class=\"btn btn-sm btn-outline\"><span x-show=\"generating && linkPlatform === channel.type\" class=\"loading loading-spinner loading-xs\"></span> <span x-text=\"'Link ' + channel.label\"></span></button> <button x-show=\"!isLinked(channel.type) && channel.type === 'weixin'\" @click=\"startWeixinQR()\" :disabled=\"wxQrPolling\" class=\"btn btn-sm btn-outline\"><span x-show=\"wxQrPolling\" class=\"loading loading-spinner loading-xs\"></span> Link Weixin</button> <button x-show=\"isLinked(channel.type)\" @click=\"unlinkIdentity(identityFor(channel.type)?.id)\" class=\"btn btn-ghost btn-xs text-secondary hover:text-error\">unlink</button></div></div></template><template x-if=\"publicChannels.length === 0\"><div class=\"py-8 text-sm text-secondary\">No enabled messaging channels are available.</div></template></div><template x-if=\"linkCode\"><div class=\"alert shadow-md mt-4\"><div><p class=\"font-medium\">Send this command to Anna on <span x-text=\"platformLabel[linkPlatform] || linkPlatform\"></span>:</p><div class=\"flex items-center gap-2 mt-2\"><code class=\"font-mono text-lg font-bold bg-base-200 text-base-content px-3 py-1 rounded select-all\" x-text=\"'/link ' + linkCode\"></code> <button @click=\"copyLinkCode()\" class=\"btn btn-ghost btn-xs\">copy</button></div><p class=\"text-xs text-secondary mt-2\">Expires in 5 minutes.</p></div></div></template><template x-if=\"wxQrUrl\"><div class=\"card bg-base-200 mt-4\"><div class=\"card-body py-4 items-center\"><p class=\"text-sm font-medium mb-2\">Scan with WeChat to link your account</p><img :src=\"wxQrUrl\" alt=\"WeChat QR Code\" class=\"w-48 h-48 border rounded\"> <span class=\"badge badge-sm mt-2\" :class=\"{\n\t\t\t\t\t\t\t\t'badge-warning': wxQrStatus === 'waiting',\n\t\t\t\t\t\t\t\t'badge-info': wxQrStatus === 'scaned',\n\t\t\t\t\t\t\t\t'badge-success': wxQrStatus === 'confirmed',\n\t\t\t\t\t\t\t\t'badge-error': wxQrStatus === 'expired',\n\t\t\t\t\t\t\t}\" x-text=\"wxQrStatus\"></span><template x-if=\"wxQrStatus === 'expired'\"><button @click=\"startWeixinQR()\" class=\"btn btn-outline btn-xs mt-1\">Refresh</button></template></div></div></template></section><div x-show=\"isAdmin\" x-cloak class=\"border-t border-base-300 divide-y divide-base-300 mt-8\"><p class=\"text-sm text-secondary py-6\">Edit channel configuration here. Enable or disable channel plugins on the <a href=\"/plugins\" class=\"link link-primary\">Plugins</a> page.</p><!-- Telegram -->")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -429,7 +429,7 @@ func ChannelsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "</div><div x-show=\"isAdmin\" x-cloak class=\"border-t border-base-300 pt-8 mt-8\"><div class=\"flex items-center justify-between gap-4 mb-6\"><div><h2 class=\"text-lg font-medium\">Channel instances</h2><p class=\"text-sm text-secondary mt-1\">Use separate bot credentials for dedicated agents or teams.</p></div><span class=\"text-xs font-mono text-secondary\" x-text=\"channels.length + ' instances'\"></span></div><div class=\"border border-base-300 rounded-xl p-4 mb-8 space-y-4\"><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider\">New instance</p><div class=\"grid grid-cols-1 md:grid-cols-4 gap-4\"><div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "</div><div x-show=\"isAdmin\" x-cloak class=\"border-t border-base-300 pt-8 mt-8\"><div class=\"flex items-center justify-between gap-4 mb-6\"><div><h2 class=\"text-lg font-medium\">Channel instances</h2><p class=\"text-sm text-secondary mt-1\">Use separate bot credentials for dedicated agents or teams.</p></div><span class=\"text-xs font-mono text-secondary\" x-text=\"channels.length + ' instances'\"></span></div><div class=\"border border-base-300 rounded-xl p-4 mb-8 space-y-4\"><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider\">New instance</p><div class=\"grid grid-cols-1 md:grid-cols-3 gap-4\"><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -507,7 +507,7 @@ func ChannelsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "</div><label class=\"flex items-end gap-3 cursor-pointer pb-3\"><input type=\"checkbox\" x-model=\"newChannel.enabled\" class=\"toggle toggle-primary toggle-sm\"> <span class=\"text-sm\">Enabled</span></label></div><div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "</div></div><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -533,7 +533,7 @@ func ChannelsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "</div><button @click=\"createChannel()\" :disabled=\"!newChannel.id || !newChannel.type\" class=\"btn btn-primary btn-sm\">Create instance</button></div><div class=\"space-y-8\"><template x-for=\"group in groupedChannels\" :key=\"group.type\"><div><div class=\"flex items-center gap-3 mb-4\"><h3 class=\"text-sm font-medium\" x-text=\"group.type\"></h3><span class=\"text-xs text-secondary\" x-text=\"group.channels.length + ' instances'\"></span></div><div class=\"divide-y divide-base-300 border border-base-300 rounded-xl px-4\"><template x-for=\"ch in group.channels\" :key=\"ch.id\"><div class=\"py-5\"><div class=\"flex items-center justify-between gap-4 mb-4\"><button @click=\"ch._collapsed = !ch._collapsed\" class=\"flex items-center gap-3 text-left min-w-0 flex-1 cursor-pointer\"><span class=\"text-xs text-secondary\" x-text=\"ch._collapsed ? '▸' : '▾'\"></span><div class=\"flex items-baseline gap-3 flex-wrap min-w-0\"><span class=\"font-medium\" x-text=\"ch.id\"></span> <span class=\"badge badge-ghost badge-sm\" x-text=\"ch.type\"></span> <span class=\"badge badge-sm\" :class=\"ch.enabled ? 'badge-success' : 'badge-ghost'\" x-text=\"ch.enabled ? 'enabled' : 'disabled'\"></span> <span x-show=\"ch.agent_id\" class=\"badge badge-primary badge-sm\" x-text=\"'agent: ' + ch.agent_id\"></span></div></button><div class=\"flex items-center gap-2 shrink-0\"><button @click=\"ch._collapsed = !ch._collapsed\" class=\"btn btn-ghost btn-xs\" x-text=\"ch._collapsed ? 'Edit' : 'Collapse'\"></button> <button x-show=\"ch.id !== ch.type\" @click=\"confirmDelete('Delete channel instance ' + ch.id + '?', () => doDeleteChannel(ch.id))\" class=\"btn btn-ghost btn-xs text-secondary hover:text-error\">remove</button></div></div><div x-show=\"!ch._collapsed\" x-cloak class=\"space-y-4\"><div class=\"grid grid-cols-1 md:grid-cols-3 gap-4\"><div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "</div><button @click=\"createChannel()\" :disabled=\"!newChannel.id || !newChannel.type\" class=\"btn btn-primary btn-sm\">Create instance</button></div><div class=\"space-y-8\"><template x-for=\"group in groupedChannels\" :key=\"group.type\"><div><div class=\"flex items-center gap-3 mb-4\"><h3 class=\"text-sm font-medium\" x-text=\"group.type\"></h3><span class=\"text-xs text-secondary\" x-text=\"group.channels.length + ' instances'\"></span></div><div class=\"divide-y divide-base-300 border border-base-300 rounded-xl px-4\"><template x-for=\"ch in group.channels\" :key=\"ch.id\"><div class=\"py-5\"><div class=\"flex items-center justify-between gap-4 mb-4\"><button @click=\"ch._collapsed = !ch._collapsed\" class=\"flex items-center gap-3 text-left min-w-0 flex-1 cursor-pointer\"><span class=\"text-xs text-secondary\" x-text=\"ch._collapsed ? '▸' : '▾'\"></span><div class=\"flex items-baseline gap-3 flex-wrap min-w-0\"><span class=\"font-medium\" x-text=\"ch.id\"></span> <span class=\"badge badge-ghost badge-sm\" x-text=\"ch.type\"></span> <span x-show=\"ch.agent_id\" class=\"badge badge-primary badge-sm\" x-text=\"'agent: ' + ch.agent_id\"></span></div></button><div class=\"flex items-center gap-2 shrink-0\"><button @click=\"ch._collapsed = !ch._collapsed\" class=\"btn btn-ghost btn-xs\" x-text=\"ch._collapsed ? 'Edit' : 'Collapse'\"></button> <button x-show=\"ch.id !== ch.type\" @click=\"confirmDelete('Delete channel instance ' + ch.id + '?', () => doDeleteChannel(ch.id))\" class=\"btn btn-ghost btn-xs text-secondary hover:text-error\">remove</button></div></div><div x-show=\"!ch._collapsed\" x-cloak class=\"space-y-4\"><div class=\"grid grid-cols-1 md:grid-cols-2 gap-4\"><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -585,7 +585,7 @@ func ChannelsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "</div><label class=\"flex items-end gap-3 cursor-pointer pb-3\"><input type=\"checkbox\" x-model=\"ch.enabled\" class=\"toggle toggle-primary toggle-sm\"> <span class=\"text-sm\">Enabled</span></label></div><div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "</div></div><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -619,7 +619,7 @@ func ChannelsPage() templ.Component {
 	})
 }
 
-// channelBlock renders a collapsible platform section with enable toggle.
+// channelBlock renders a platform configuration section.
 func channelBlock(name string, platform string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -646,9 +646,9 @@ func channelBlock(name string, platform string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var25 string
-		templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs("channelTypeEnabled('" + platform + "')")
+		templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs("channelEnabled('" + platform + "')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 411, Col: 68}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 405, Col: 64}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 		if templ_7745c5c3_Err != nil {
@@ -661,82 +661,17 @@ func channelBlock(name string, platform string) templ.Component {
 		var templ_7745c5c3_Var26 string
 		templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 414, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 408, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "</span> <span class=\"badge badge-sm\" :class=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "</span></div><a href=\"/plugins\" class=\"text-xs text-secondary hover:text-primary transition-colors\">Manage plugin</a></div><div class=\"space-y-4 pl-0 md:pl-6\"><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var27 string
-		templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs("channelData." + platform + ".enabled ? 'badge-success' : 'badge-ghost'")
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 417, Col: 86}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "\" x-text=\"")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var28 string
-		templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs("channelData." + platform + ".enabled ? 'on' : 'off'")
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 418, Col: 67}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "\"></span></div><label class=\"flex items-center gap-3 cursor-pointer\"><input type=\"checkbox\" :checked=\"")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var29 string
-		templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs("channelData." + platform + ".enabled")
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 424, Col: 54}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "\" @change=\"")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var30 string
-		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs("channelData." + platform + ".enabled = $event.target.checked; saveChannel('" + platform + "')")
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 425, Col: 110}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "\" class=\"toggle toggle-primary toggle-sm\"> <span class=\"text-sm\">Enable</span></label></div><div x-show=\"")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var31 string
-		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs("channelData." + platform + ".enabled")
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 431, Col: 54}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "\" x-transition x-cloak class=\"space-y-4 pl-0 md:pl-6\"><div>")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Var32 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var27 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -748,30 +683,30 @@ func channelBlock(name string, platform string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "<select x-model=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "<select x-model=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var33 string
-			templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs("channelData." + platform + ".agent_id")
+			var templ_7745c5c3_Var28 string
+			templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs("channelData." + platform + ".agent_id")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 434, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 415, Col: 62}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "\" class=\"select select-bordered w-full text-sm\"><option value=\"\">All agents</option><template x-for=\"a in agents\" :key=\"a.id\"><option :value=\"a.id\" x-text=\"a.name + ' (' + a.id + ')'\"></option></template></select>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "\" class=\"select select-bordered w-full text-sm\"><option value=\"\">All agents</option><template x-for=\"a in agents\" :key=\"a.id\"><option :value=\"a.id\" x-text=\"a.name + ' (' + a.id + ')'\"></option></template></select>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Dedicated Agent").Render(templ.WithChildren(ctx, templ_7745c5c3_Var32), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ui.FormField("Dedicated Agent").Render(templ.WithChildren(ctx, templ_7745c5c3_Var27), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -779,7 +714,7 @@ func channelBlock(name string, platform string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "</div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "</div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -890,6 +890,50 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	}
 }
 
+func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
+	env := setupAdmin(t)
+
+	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+		ID:      pkgchannel.PlatformTelegram,
+		Type:    pkgchannel.PlatformTelegram,
+		Enabled: false,
+		Config:  `{}`,
+	}); err != nil {
+		t.Fatalf("UpsertChannel telegram: %v", err)
+	}
+	if err := env.store.UpsertPlugin(context.Background(), config.Plugin{
+		ID:      config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram),
+		Kind:    config.PluginKindChannel,
+		Name:    pkgchannel.PlatformTelegram,
+		Enabled: true,
+		Config:  map[string]any{},
+	}); err != nil {
+		t.Fatalf("UpsertPlugin telegram: %v", err)
+	}
+
+	rr := doRequest(t, env, "PUT", "/api/channels/telegram", map[string]any{
+		"enabled": true,
+		"config":  `{"token":"tg-token","enable_notify":true}`,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	ch, err := env.store.GetChannel(context.Background(), pkgchannel.PlatformTelegram)
+	if err != nil {
+		t.Fatalf("GetChannel telegram: %v", err)
+	}
+	if ch.Enabled {
+		t.Fatal("channel config update should not enable channel")
+	}
+	plugin, err := env.store.GetPlugin(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram))
+	if err != nil {
+		t.Fatalf("GetPlugin telegram: %v", err)
+	}
+	if !plugin.Enabled {
+		t.Fatal("channel config update should not disable channel plugin")
+	}
+}
+
 func TestNonAdminCanOpenChannelsPageButNotChannelConfig(t *testing.T) {
 	env := setupAdmin(t)
 

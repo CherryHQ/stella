@@ -108,7 +108,6 @@ export function register(Alpine) {
       id: '',
       type: 'telegram',
       agent_id: '',
-      enabled: true,
       config: '{}',
     },
 
@@ -125,6 +124,10 @@ export function register(Alpine) {
 
     channelTypeEnabled(type) {
       return this.enabledChannelTypeIDs.includes(type)
+    },
+
+    channelEnabled(type) {
+      return this.channelTypeEnabled(type) && Boolean(this.channelData[type]?.enabled)
     },
 
     async init() {
@@ -314,7 +317,7 @@ export function register(Alpine) {
         this.channelData = defaultChannelData()
         this.channels = channels
           .map(normalizeChannel)
-          .filter(ch => this.channelTypeEnabled(ch.type))
+          .filter(ch => this.channelTypeEnabled(ch.type) && ch.enabled)
 
         for (const ch of this.channels) {
           const cfg = parseConfig(ch.config)
@@ -366,7 +369,6 @@ export function register(Alpine) {
         await api('PUT', '/api/channels/' + platform, {
           type: platform,
           agent_id: data.agent_id || '',
-          enabled: data.enabled,
           config: JSON.stringify(legacyConfig(platform, data)),
         })
         await this.loadChannels()
@@ -383,10 +385,9 @@ export function register(Alpine) {
           id: this.newChannel.id.trim(),
           type: this.newChannel.type,
           agent_id: this.newChannel.agent_id || '',
-          enabled: this.newChannel.enabled,
           config: this.newChannel.config || '{}',
         })
-        this.newChannel = { id: '', type: saved.type || 'telegram', agent_id: '', enabled: true, config: '{}' }
+        this.newChannel = { id: '', type: saved.type || 'telegram', agent_id: '', config: '{}' }
         await this.loadChannels()
         this.$store.toast.show(saved.id + ' created')
       } catch (e) {
@@ -400,12 +401,10 @@ export function register(Alpine) {
         const saved = await api('PUT', '/api/channels/' + encodeURIComponent(ch.id), {
           type: ch.type,
           agent_id: ch.agent_id || '',
-          enabled: ch.enabled,
           config: JSON.stringify(cfg),
         })
         ch.config = configString(parseConfig(saved.config))
         ch.agent_id = saved.agent_id || ''
-        ch.enabled = saved.enabled
         await this.loadChannels()
         this.$store.toast.show(ch.id + ' saved')
       } catch (e) {
