@@ -1,11 +1,12 @@
 # Channel setup
 
-All channel configuration is stored in the database and managed via the admin panel (`anna --open`). A single bot per platform serves all agents.
+All channel configuration is stored in the database and managed via the admin panel (`anna --open`). Each channel row is a bot instance with an `id`, platform `type`, optional dedicated `agent_id`, enabled flag, and JSON config. Multiple instances can share the same type, such as two Feishu bots bound to different agents.
 
 ## Agent routing
 
 - **DMs**: Use the user's default agent (set via `/agent` command)
 - **Groups**: Use the group's assigned agent (set via `/agent` command in the group)
+- **Dedicated channels**: If a channel instance has `agent_id`, all chats on that channel use the bound agent and `/agent` switching is disabled there
 - **Fallback**: First enabled agent
 
 Commands available in all channels:
@@ -75,7 +76,7 @@ QQ channel config (JSON):
 
 4. Start: `anna`
 
-Connects via WebSocket (no public URL needed). QQ currently uses the default agent only.
+Connects via WebSocket (no public URL needed). QQ supports the same channel instance routing as other chat channels.
 
 ### QQ features
 

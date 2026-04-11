@@ -56,6 +56,8 @@ type Agent struct {
 // Channel represents a platform channel configuration.
 type Channel struct {
 	ID      string `json:"id"`
+	Type    string `json:"type"`
+	AgentID string `json:"agent_id,omitempty"`
 	Enabled bool   `json:"enabled"`
 	Config  string `json:"config"`
 }
@@ -79,8 +81,10 @@ type Store interface {
 
 	// Channels
 	ListChannels(ctx context.Context) ([]Channel, error)
+	ListChannelsByType(ctx context.Context, channelType string) ([]Channel, error)
 	GetChannel(ctx context.Context, id string) (Channel, error)
 	UpsertChannel(ctx context.Context, ch Channel) error
+	DeleteChannel(ctx context.Context, id string) error
 
 	// Plugins
 	ListPlugins(ctx context.Context) ([]Plugin, error)
@@ -93,9 +97,9 @@ type Store interface {
 	DeletePlugin(ctx context.Context, id string) error
 
 	// Chat Agents (group -> agent mapping)
-	GetChatAgent(ctx context.Context, platform, chatID string) (string, error) // returns agentID
-	SetChatAgent(ctx context.Context, platform, chatID, agentID string) error
-	DeleteChatAgent(ctx context.Context, platform, chatID string) error
+	GetChatAgent(ctx context.Context, channelID, platform, chatID string) (string, error) // returns agentID
+	SetChatAgent(ctx context.Context, channelID, platform, chatID, agentID string) error
+	DeleteChatAgent(ctx context.Context, channelID, platform, chatID string) error
 
 	// Settings (key-value JSON)
 	GetSetting(ctx context.Context, key string) (string, error) // returns JSON string

@@ -10,32 +10,31 @@ import (
 
 type mockPluginStore struct {
 	config.Store
-	plugins map[string]config.Plugin
+	channels map[string]config.Channel
 }
 
-func (m *mockPluginStore) GetPlugin(_ context.Context, id string) (config.Plugin, error) {
-	p, ok := m.plugins[id]
+func (m *mockPluginStore) GetChannel(_ context.Context, id string) (config.Channel, error) {
+	ch, ok := m.channels[id]
 	if !ok {
-		return config.Plugin{}, context.DeadlineExceeded
+		return config.Channel{}, context.DeadlineExceeded
 	}
-	return p, nil
+	return ch, nil
 }
 
-func newMockStore(plugins ...config.Plugin) *mockPluginStore {
-	m := &mockPluginStore{plugins: make(map[string]config.Plugin)}
-	for _, p := range plugins {
-		m.plugins[p.ID] = p
+func newMockStore(channels ...config.Channel) *mockPluginStore {
+	m := &mockPluginStore{channels: make(map[string]config.Channel)}
+	for _, ch := range channels {
+		m.channels[ch.ID] = ch
 	}
 	return m
 }
 
 func TestLoadConfig(t *testing.T) {
-	store := newMockStore(config.Plugin{
-		ID:      "channel/telegram",
-		Kind:    config.PluginKindChannel,
-		Name:    "telegram",
+	store := newMockStore(config.Channel{
+		ID:      "telegram",
+		Type:    "telegram",
 		Enabled: true,
-		Config:  map[string]any{"token": "abc123", "enable_notify": true},
+		Config:  `{"token":"abc123","enable_notify":true}`,
 	})
 
 	cfg := LoadConfig[pkgchannel.TelegramConfig](store, "telegram")
@@ -52,12 +51,11 @@ func TestLoadConfig(t *testing.T) {
 }
 
 func TestLoadConfigDisabled(t *testing.T) {
-	store := newMockStore(config.Plugin{
-		ID:      "channel/telegram",
-		Kind:    config.PluginKindChannel,
-		Name:    "telegram",
+	store := newMockStore(config.Channel{
+		ID:      "telegram",
+		Type:    "telegram",
 		Enabled: false,
-		Config:  map[string]any{"token": "abc123"},
+		Config:  `{"token":"abc123"}`,
 	})
 
 	cfg := LoadConfig[pkgchannel.TelegramConfig](store, "telegram")

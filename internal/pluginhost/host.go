@@ -265,6 +265,10 @@ func (h *Host) ApplyPlugin(ctx context.Context, pluginID string) error {
 	return h.runtimes.ApplyPlugin(ctx, pluginID)
 }
 
+func (h *Host) ApplyChannel(ctx context.Context, channel config.Channel) error {
+	return h.runtimes.ApplyChannel(ctx, channel)
+}
+
 func (h *Host) Stop(ctx context.Context) error { return h.runtimes.Stop(ctx) }
 
 func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.PromptToolInfo, error) {

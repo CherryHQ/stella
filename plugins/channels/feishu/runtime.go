@@ -22,6 +22,7 @@ func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.Runtime {
 	if deps.NewChannel == nil {
 		deps.NewChannel = func(cfg pkgchannel.FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
+				InstanceID:        cfg.InstanceID,
 				AppID:             cfg.AppID,
 				AppSecret:         cfg.AppSecret,
 				EncryptKey:        cfg.EncryptKey,
@@ -39,11 +40,19 @@ func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.Runtime {
 		Now:                  deps.Now,
 		Platform:             pkgchannel.PlatformFeishu,
 		DecodeConfig:         DecodeConfig,
+		ConfigureConfig:      configureConfig,
 		ValidateConfig:       validateConfig,
 		NotificationsEnabled: func(cfg pkgchannel.FeishuConfig) bool { return cfg.EnableNotify },
 		NewChannel:           deps.NewChannel,
 		Snapshot:             runtimeSnapshot,
 	})
+}
+
+func configureConfig(cfg pkgchannel.FeishuConfig, desired pkgplugins.PluginState) pkgchannel.FeishuConfig {
+	if cfg.InstanceID == "" {
+		cfg.InstanceID = desired.ID
+	}
+	return cfg
 }
 
 func DecodeConfig(raw map[string]any) (pkgchannel.FeishuConfig, error) {

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -83,43 +84,65 @@ func (s *Server) pollWeixinQRStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // saveWeixinCredentials merges iLink credentials into the existing weixin
-// plugin config in the DB.
+// channel instance config in the DB.
 func (s *Server) saveWeixinCredentials(ctx context.Context, status *weixin.QRCodeStatusResponse) error {
 	pluginID := config.PluginID(config.PluginKindChannel, pkgchannel.PlatformWeixin)
-	p, err := s.store.GetPlugin(ctx, pluginID)
+	ch, err := s.store.GetChannel(ctx, pkgchannel.PlatformWeixin)
+	cfg := make(map[string]any)
 	if err != nil {
-		p = config.Plugin{
-			ID:      pluginID,
-			Kind:    config.PluginKindChannel,
-			Name:    pkgchannel.PlatformWeixin,
+		ch = config.Channel{
+			ID:      pkgchannel.PlatformWeixin,
+			Type:    pkgchannel.PlatformWeixin,
 			Enabled: true,
-			Config:  make(map[string]any),
 		}
-		if err := s.store.UpsertPlugin(ctx, p); err != nil {
-			return err
+	} else if ch.Config != "" {
+		_ = json.Unmarshal([]byte(ch.Config), &cfg)
+		if cfg == nil {
+			cfg = make(map[string]any)
 		}
 	}
-	if p.Config == nil {
-		p.Config = make(map[string]any)
+	if ch.Type == "" {
+		ch.Type = pkgchannel.PlatformWeixin
 	}
 
-	p.Config["bot_token"] = status.BotToken
-	p.Config["base_url"] = status.BaseURL
-	p.Config["bot_id"] = status.ILinkBotID
-	p.Config["user_id"] = status.ILinkUserID
+	cfg["bot_token"] = status.BotToken
+	cfg["base_url"] = status.BaseURL
+	cfg["bot_id"] = status.ILinkBotID
+	cfg["user_id"] = status.ILinkUserID
+
+	plugin := config.Plugin{
+		ID:      pluginID,
+		Kind:    config.PluginKindChannel,
+		Name:    pkgchannel.PlatformWeixin,
+		Enabled: ch.Enabled,
+		Config:  cfg,
+	}
+	if err := s.store.UpsertPlugin(ctx, plugin); err != nil {
+		return err
+	}
 
 	if s.pluginHost != nil {
-		if err := s.pluginHost.ValidateConfig(pluginID, p.Config); err != nil {
+		if err := s.pluginHost.ValidateConfig(pluginID, cfg); err != nil {
 			return err
 		}
-		if err := s.pluginHost.Config().Set(ctx, pluginID, p.Config); err != nil {
+		cfgJSON, err := json.Marshal(cfg)
+		if err != nil {
 			return err
 		}
-		if err := s.pluginHost.ApplyPlugin(ctx, pluginID); err != nil {
-			s.log.Error("failed to apply plugin runtime", "plugin", pluginID, "error", err)
+		ch.Config = string(cfgJSON)
+		if err := s.store.UpsertChannel(ctx, ch); err != nil {
+			return err
+		}
+		if err := s.pluginHost.ApplyChannel(ctx, ch); err != nil {
+			s.log.Error("failed to apply channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
 		}
 		return nil
 	}
 
-	return s.store.UpsertPlugin(ctx, p)
+	cfgJSON, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	ch.Config = string(cfgJSON)
+	return s.store.UpsertChannel(ctx, ch)
 }

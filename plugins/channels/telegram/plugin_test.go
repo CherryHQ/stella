@@ -103,10 +103,15 @@ func (s *stubStore) CreateAgent(context.Context, config.Agent) error        { re
 func (s *stubStore) UpdateAgent(context.Context, config.Agent) error        { return nil }
 func (s *stubStore) DeleteAgent(context.Context, string) error              { return nil }
 func (s *stubStore) ListChannels(context.Context) ([]config.Channel, error) { return nil, nil }
+func (s *stubStore) ListChannelsByType(context.Context, string) ([]config.Channel, error) {
+	return nil, nil
+}
+
 func (s *stubStore) GetChannel(context.Context, string) (config.Channel, error) {
 	return config.Channel{}, nil
 }
 func (s *stubStore) UpsertChannel(context.Context, config.Channel) error { return nil }
+func (s *stubStore) DeleteChannel(context.Context, string) error         { return nil }
 func (s *stubStore) ListPlugins(context.Context) ([]config.Plugin, error) {
 	plugins := make([]config.Plugin, 0, len(s.plugins))
 	for _, plugin := range s.plugins {
@@ -141,14 +146,16 @@ func (s *stubStore) SetPluginConfig(_ context.Context, id string, cfg map[string
 	s.plugins[id] = p
 	return nil
 }
-func (s *stubStore) DeletePlugin(context.Context, string) error                   { return nil }
-func (s *stubStore) GetChatAgent(context.Context, string, string) (string, error) { return "", nil }
-func (s *stubStore) SetChatAgent(context.Context, string, string, string) error   { return nil }
-func (s *stubStore) DeleteChatAgent(context.Context, string, string) error        { return nil }
-func (s *stubStore) GetSetting(context.Context, string) (string, error)           { return "", nil }
-func (s *stubStore) SetSetting(context.Context, string, string) error             { return nil }
-func (s *stubStore) Snapshot(context.Context, string) (*config.Snapshot, error)   { return nil, nil }
-func (s *stubStore) SeedDefaults(context.Context) error                           { return nil }
+func (s *stubStore) DeletePlugin(context.Context, string) error { return nil }
+func (s *stubStore) GetChatAgent(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
+func (s *stubStore) SetChatAgent(context.Context, string, string, string, string) error { return nil }
+func (s *stubStore) DeleteChatAgent(context.Context, string, string, string) error      { return nil }
+func (s *stubStore) GetSetting(context.Context, string) (string, error)                 { return "", nil }
+func (s *stubStore) SetSetting(context.Context, string, string) error                   { return nil }
+func (s *stubStore) Snapshot(context.Context, string) (*config.Snapshot, error)         { return nil, nil }
+func (s *stubStore) SeedDefaults(context.Context) error                                 { return nil }
 
 type testChannel struct{ stop chan struct{} }
 

@@ -32,10 +32,11 @@ var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) 
 		Log:           platform.Logger(),
 		NewChannel: func(cfg pkgchannel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
-				BotToken: cfg.BotToken,
-				BaseURL:  cfg.BaseURL,
-				BotID:    cfg.BotID,
-				UserID:   cfg.UserID,
+				InstanceID: cfg.InstanceID,
+				BotToken:   cfg.BotToken,
+				BaseURL:    cfg.BaseURL,
+				BotID:      cfg.BotID,
+				UserID:     cfg.UserID,
 			}, handler)
 		},
 	}), nil

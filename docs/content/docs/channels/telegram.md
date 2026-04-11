@@ -15,7 +15,7 @@ anna includes a Telegram bot that runs via long polling -- no webhook or public 
 anna
 ```
 
-All channel configuration (token, group mode, allowed IDs, etc.) is managed through the admin panel. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `ANNA_HOME`.
+All channel configuration (token, group mode, allowed IDs, dedicated agent binding, etc.) is managed through the admin panel. You can create multiple Telegram channel instances if you have multiple bots. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `ANNA_HOME`.
 
 ## Multi-User Support
 
@@ -29,6 +29,8 @@ The `/agent` command lets users switch between available agents:
 - `/agent <name>` -- switch to a specific agent
 
 In DMs, this sets the user's default agent. In groups, it sets the active agent for the entire group.
+
+If a channel instance is bound to a dedicated agent in the admin panel, all chats on that bot use the bound agent and `/agent` switching is disabled for that channel.
 
 ## Streaming Responses
 

@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/vaayne/anna/internal/config"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
@@ -26,6 +27,18 @@ func (h *fakeManagedChannelRuntimeHost) ApplyPlugin(_ context.Context, pluginID 
 		return nil
 	}
 	return h.applyErrs[pluginID]
+}
+
+func (h *fakeManagedChannelRuntimeHost) ListChannels(context.Context) ([]config.Channel, error) {
+	return nil, nil
+}
+
+func (h *fakeManagedChannelRuntimeHost) ApplyChannel(context.Context, config.Channel) error {
+	return nil
+}
+
+func (h *fakeManagedChannelRuntimeHost) ChannelInstanceConfigured(config.Channel) bool {
+	return false
 }
 
 func (h *fakeManagedChannelRuntimeHost) ChannelConfigured(_ context.Context, name string) bool {

@@ -7,10 +7,20 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
+const deleteChannel = `-- name: DeleteChannel :exec
+DELETE FROM settings_channels WHERE id = ?
+`
+
+func (q *Queries) DeleteChannel(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteChannel, id)
+	return err
+}
+
 const getChannel = `-- name: GetChannel :one
-SELECT id, enabled, config, created_at, updated_at FROM settings_channels WHERE id = ?
+SELECT id, type, agent_id, enabled, config, created_at, updated_at FROM settings_channels WHERE id = ?
 `
 
 func (q *Queries) GetChannel(ctx context.Context, id string) (SettingsChannel, error) {
@@ -18,6 +28,8 @@ func (q *Queries) GetChannel(ctx context.Context, id string) (SettingsChannel, e
 	var i SettingsChannel
 	err := row.Scan(
 		&i.ID,
+		&i.Type,
+		&i.AgentID,
 		&i.Enabled,
 		&i.Config,
 		&i.CreatedAt,
@@ -27,7 +39,7 @@ func (q *Queries) GetChannel(ctx context.Context, id string) (SettingsChannel, e
 }
 
 const listChannels = `-- name: ListChannels :many
-SELECT id, enabled, config, created_at, updated_at FROM settings_channels ORDER BY id
+SELECT id, type, agent_id, enabled, config, created_at, updated_at FROM settings_channels ORDER BY type, id
 `
 
 func (q *Queries) ListChannels(ctx context.Context) ([]SettingsChannel, error) {
@@ -41,6 +53,43 @@ func (q *Queries) ListChannels(ctx context.Context) ([]SettingsChannel, error) {
 		var i SettingsChannel
 		if err := rows.Scan(
 			&i.ID,
+			&i.Type,
+			&i.AgentID,
+			&i.Enabled,
+			&i.Config,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChannelsByType = `-- name: ListChannelsByType :many
+SELECT id, type, agent_id, enabled, config, created_at, updated_at FROM settings_channels WHERE type = ? ORDER BY id
+`
+
+func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]SettingsChannel, error) {
+	rows, err := q.db.QueryContext(ctx, listChannelsByType, type_)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SettingsChannel{}
+	for rows.Next() {
+		var i SettingsChannel
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.AgentID,
 			&i.Enabled,
 			&i.Config,
 			&i.CreatedAt,
@@ -60,21 +109,31 @@ func (q *Queries) ListChannels(ctx context.Context) ([]SettingsChannel, error) {
 }
 
 const upsertChannel = `-- name: UpsertChannel :exec
-INSERT INTO settings_channels (id, enabled, config, updated_at)
-VALUES (?, ?, ?, datetime('now'))
+INSERT INTO settings_channels (id, type, agent_id, enabled, config, updated_at)
+VALUES (?, ?, ?, ?, ?, datetime('now'))
 ON CONFLICT(id) DO UPDATE SET
+    type = excluded.type,
+    agent_id = excluded.agent_id,
     enabled = excluded.enabled,
     config = excluded.config,
     updated_at = datetime('now')
 `
 
 type UpsertChannelParams struct {
-	ID      string `json:"id"`
-	Enabled int64  `json:"enabled"`
-	Config  string `json:"config"`
+	ID      string         `json:"id"`
+	Type    string         `json:"type"`
+	AgentID sql.NullString `json:"agent_id"`
+	Enabled int64          `json:"enabled"`
+	Config  string         `json:"config"`
 }
 
 func (q *Queries) UpsertChannel(ctx context.Context, arg UpsertChannelParams) error {
-	_, err := q.db.ExecContext(ctx, upsertChannel, arg.ID, arg.Enabled, arg.Config)
+	_, err := q.db.ExecContext(ctx, upsertChannel,
+		arg.ID,
+		arg.Type,
+		arg.AgentID,
+		arg.Enabled,
+		arg.Config,
+	)
 	return err
 }

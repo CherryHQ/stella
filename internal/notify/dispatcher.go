@@ -46,7 +46,7 @@ func (d *Dispatcher) Unregister(name string) {
 	d.mu.Lock()
 	filtered := d.channels[:0]
 	for _, e := range d.channels {
-		if e.channel.Name() != name {
+		if !channelMatches(e.channel, name) {
 			filtered = append(filtered, e)
 		}
 	}
@@ -68,7 +68,7 @@ func (d *Dispatcher) Notify(ctx context.Context, n pkgchannel.Notification) erro
 
 	if n.Channel != "" {
 		for _, e := range entries {
-			if e.channel.Name() == n.Channel {
+			if channelMatches(e.channel, n.Channel) {
 				return e.channel.Notify(ctx, n)
 			}
 		}
@@ -129,7 +129,7 @@ func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n pkgchannel.
 	target := pickNotifyIdentity(ctx, as, userID, identities)
 
 	for _, e := range entries {
-		if e.channel.Name() == target.Platform {
+		if channelMatches(e.channel, target.Platform) {
 			nn := n
 			nn.ChatID = target.ExternalID
 			return e.channel.Notify(ctx, nn)
@@ -138,7 +138,7 @@ func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n pkgchannel.
 
 	for _, id := range identities {
 		for _, e := range entries {
-			if e.channel.Name() == id.Platform {
+			if channelMatches(e.channel, id.Platform) {
 				slog.Warn("notifyUser: preferred channel not registered, using first available",
 					"user_id", userID, "preferred", target.Platform, "fallback", id.Platform)
 				nn := n
@@ -150,6 +150,20 @@ func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n pkgchannel.
 
 	slog.Debug("notifyUser: no matching channels for user identities, falling back to broadcast", "user_id", userID)
 	return d.Notify(ctx, n)
+}
+
+type platformNamedChannel interface {
+	Platform() string
+}
+
+func channelMatches(ch pkgchannel.Channel, name string) bool {
+	if ch.Name() == name {
+		return true
+	}
+	if typed, ok := ch.(platformNamedChannel); ok {
+		return typed.Platform() == name
+	}
+	return false
 }
 
 // pickNotifyIdentity returns the identity to use for notifications.
