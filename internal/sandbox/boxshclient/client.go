@@ -53,6 +53,9 @@ type SessionConfig struct {
 	Dst string
 	// Cwd is the working directory inside the sandbox.
 	Cwd string
+	// ToolsBinDir is exposed read-only so managed helper binaries like fd/rg/rtk
+	// remain executable from inside the sandbox.
+	ToolsBinDir string
 	// Network mode: disabled, allow_all, or whitelist.
 	NetworkMode string
 	// NetworkAllowlist is kept for config compatibility. Current boxsh only
@@ -177,6 +180,9 @@ func (c *Client) buildArgs() ([]string, error) {
 		return nil, fmt.Errorf("boxshclient: src and dst are required")
 	}
 	args = append(args, "--bind", fmt.Sprintf("cow:%s:%s", c.sessionConfig.Src, c.sessionConfig.Dst))
+	if c.sessionConfig.ToolsBinDir != "" {
+		args = append(args, "--bind", fmt.Sprintf("ro:%s", c.sessionConfig.ToolsBinDir))
+	}
 
 	switch c.sessionConfig.NetworkMode {
 	case "", config.SandboxNetworkDisabled:

@@ -172,6 +172,7 @@ func createAndStartBackend(ctx context.Context, cfg GoRunnerConfig) (*boxshclien
 		UserDataDir: cfg.UserDataDir,
 		Sandbox:     cfg.Sandbox,
 		WorkDir:     cfg.WorkDir,
+		ToolsBinDir: embedded.BinDir(annaHome),
 	}
 
 	backend, err := boxshclient.NewSharedBackend(backendCfg)

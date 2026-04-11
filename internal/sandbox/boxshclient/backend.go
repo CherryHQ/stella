@@ -49,6 +49,10 @@ type BackendConfig struct {
 	// SessionBaseDir is the base directory for ephemeral session directories.
 	// Defaults to AnnaHome/cache/sandbox/sessions.
 	SessionBaseDir string
+
+	// ToolsBinDir is mounted read-only into the sandbox so managed helper
+	// binaries remain available from shell commands.
+	ToolsBinDir string
 }
 
 // NewSharedBackend creates a new shared backend without starting it.
@@ -122,6 +126,7 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 		Src:              src,
 		Dst:              sessionDir,
 		Cwd:              cwd,
+		ToolsBinDir:      cfg.ToolsBinDir,
 		NetworkMode:      cfg.Sandbox.NetworkMode(),
 		NetworkAllowlist: cfg.Sandbox.Network.Allowlist,
 	}
@@ -141,6 +146,7 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 		"src", src,
 		"dst", sessionDir,
 		"cwd", cwd,
+		"tools_bin_dir", cfg.ToolsBinDir,
 		"network_mode", sessionCfg.NetworkMode,
 		"user_data_dir", cfg.UserDataDir,
 	)

@@ -107,6 +107,11 @@ func TestBuildArgs(t *testing.T) {
 			want: []string{"--rpc", "--sandbox", "--bind", "cow:/src:/dst"},
 		},
 		{
+			name: "tools bin readonly bind",
+			cfg:  SessionConfig{Src: "/src", Dst: "/dst", Cwd: "/dst", ToolsBinDir: "/tools/bin", NetworkMode: "allow_all"},
+			want: []string{"--rpc", "--sandbox", "--bind", "cow:/src:/dst", "--bind", "ro:/tools/bin"},
+		},
+		{
 			name:    "whitelist unsupported",
 			cfg:     SessionConfig{Src: "/src", Dst: "/dst", Cwd: "/dst", NetworkMode: "whitelist", NetworkAllowlist: []string{"example.com"}},
 			wantErr: "whitelist network mode is not supported",

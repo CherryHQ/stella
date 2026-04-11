@@ -350,7 +350,51 @@ func (pm *PoolManager) rebuildPoolFactory(ctx context.Context, agentID string, p
 		return err
 	}
 	pool.SetFactory(factory)
+	pool.SetDefaultModel(snap.ResolveModelID(config.ModelTierStrong))
+	pool.SetFastModel(snap.ResolveModelID(config.ModelTierFast))
 	return nil
+}
+
+// SyncAgent reloads one agent's pool configuration immediately. If the agent
+// was deleted or disabled, its pool is closed and removed. If it exists and is
+// enabled, an existing pool is rebuilt and its live session runners are reset
+// so subsequent requests use the latest snapshot.
+func (pm *PoolManager) SyncAgent(ctx context.Context, agentID string) error {
+	ag, err := pm.store.GetAgent(ctx, agentID)
+	if err != nil {
+		return pm.removeAgentPool(agentID)
+	}
+	if !ag.Enabled {
+		return pm.removeAgentPool(agentID)
+	}
+
+	pm.mu.RLock()
+	pool := pm.pools[agentID]
+	pm.mu.RUnlock()
+
+	if pool == nil {
+		return pm.startAgent(ctx, ag)
+	}
+	if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
+		return err
+	}
+	if err := pool.ResetRunners(); err != nil {
+		pm.log.Warn("failed to reset agent runners after sync", "agent_id", agentID, "error", err)
+	}
+	pm.log.Info("agent pool reloaded", "agent_id", agentID)
+	return nil
+}
+
+func (pm *PoolManager) removeAgentPool(agentID string) error {
+	pm.mu.Lock()
+	pool := pm.pools[agentID]
+	delete(pm.pools, agentID)
+	pm.mu.Unlock()
+	if pool == nil {
+		return nil
+	}
+	pm.log.Info("removing agent pool", "agent_id", agentID)
+	return pool.Close()
 }
 
 // loadAgentSnapshot loads the config snapshot for an agent and sets up its workspace.

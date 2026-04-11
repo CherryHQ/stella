@@ -90,6 +90,11 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if s.poolManager != nil {
+		if err := s.poolManager.SyncAgent(ctx, a.ID); err != nil {
+			s.log.Error("sync agent pool after create", "agent_id", a.ID, "error", err)
+		}
+	}
 
 	// Auto-assign the creator if scope is restricted and user is non-admin.
 	if info != nil && !info.IsAdmin && a.Scope == config.AgentScopeRestricted {
@@ -171,6 +176,11 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if s.poolManager != nil {
+		if err := s.poolManager.SyncAgent(ctx, a.ID); err != nil {
+			s.log.Error("sync agent pool after update", "agent_id", a.ID, "error", err)
+		}
+	}
 	writeData(w, http.StatusOK, a)
 }
 
@@ -193,6 +203,11 @@ func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.DeleteAgent(ctx, id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if s.poolManager != nil {
+		if err := s.poolManager.SyncAgent(ctx, id); err != nil {
+			s.log.Error("sync agent pool after delete", "agent_id", id, "error", err)
+		}
 	}
 	writeData(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
