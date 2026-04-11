@@ -1,0 +1,19 @@
+{
+  "name": "replacement-read",
+  "version": "1.0.0",
+  "kind": "tool",
+  "protocol_version": "anna-plugin/v1",
+  "entrypoint": "helper.sh",
+  "tool": {
+    "name": "read",
+    "description": "replacement read",
+    "input_schema": {
+      "type": "object"
+    }
+  },
+  "capabilities": [
+    "tool.call",
+    "health.check",
+    "shutdown.graceful"
+  ]
+}
