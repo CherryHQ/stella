@@ -8,7 +8,7 @@ The easiest way to configure anna is `anna --open`, which opens a web admin pane
 
 1. Run `anna --open` to open the admin panel
 2. Add a provider (e.g., "anthropic" with your API key)
-3. Create or edit an agent (set provider, model, system prompt)
+3. Create or edit an agent (set provider, model, system prompt, and sandbox network mode)
 4. Configure channels (Telegram token, etc.)
 5. Start: `anna chat` or `anna` (gateway daemon)
 
@@ -81,7 +81,7 @@ All paths are relative to `$ANNA_HOME` (`~/.anna` by default).
 
 ## Sandbox settings
 
-Sandbox settings are stored per agent in the `settings_agents.sandbox` JSON column:
+Sandbox settings are stored per agent in the `settings_agents.sandbox` JSON column and can be edited in the admin panel on each agent:
 
 - `network.mode` — `disabled` (default), `allow_all`, or `whitelist`
 - `network.allowlist` — required only when mode is `whitelist`; entries may be hostnames, IPs, or CIDRs

@@ -149,7 +149,7 @@ Each platform stores its own JSON structure in the `config` column of `settings_
 - **anna.db** is the single source of truth for all configuration, memory, and scheduler data.
 - **workspaces/** contains per-agent data. Each agent gets its own directory keyed by agent ID.
 - **cache/** contains regenerable data. Run `anna models update` to rebuild.
-- **agent sandbox config** lives on each agent record (`settings_agents.sandbox`). In this phase, Anna validates the per-agent network policy, workspace/state-dir shape, and managed-`boxsh` startup prerequisites on Linux and macOS. It does not switch the core tool runtime to `boxsh` yet. Windows keeps the existing non-`boxsh` behavior until that backend switch lands.
+- **agent sandbox config** lives on each agent record (`settings_agents.sandbox`) and is editable from the agent form in the admin panel. In this phase, Anna validates the per-agent network policy, workspace/state-dir shape, and managed-`boxsh` startup prerequisites on Linux and macOS. Windows keeps the existing non-`boxsh` behavior.
 
 ## Environment Variables
 
