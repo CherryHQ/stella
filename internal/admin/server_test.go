@@ -810,6 +810,100 @@ func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 	}
 }
 
+func TestChannelLinkOptionsOnlyIncludeEnabledChannels(t *testing.T) {
+	env := setupAdmin(t)
+
+	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+		ID:      pkgchannel.PlatformTelegram,
+		Type:    pkgchannel.PlatformTelegram,
+		Enabled: true,
+		Config:  `{}`,
+	}); err != nil {
+		t.Fatalf("UpsertChannel telegram: %v", err)
+	}
+	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+		ID:      pkgchannel.PlatformFeishu,
+		Type:    pkgchannel.PlatformFeishu,
+		Enabled: false,
+		Config:  `{}`,
+	}); err != nil {
+		t.Fatalf("UpsertChannel feishu: %v", err)
+	}
+	if err := env.store.UpsertPlugin(context.Background(), config.Plugin{
+		ID:      config.PluginID(config.PluginKindChannel, pkgchannel.PlatformQQ),
+		Kind:    config.PluginKindChannel,
+		Name:    pkgchannel.PlatformQQ,
+		Enabled: false,
+		Config:  map[string]any{},
+	}); err != nil {
+		t.Fatalf("UpsertPlugin qq: %v", err)
+	}
+
+	rr := doRequest(t, env, "GET", "/api/channels/link-options", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var options []struct {
+		ID      string `json:"id"`
+		Label   string `json:"label"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.Unmarshal(resp.Data, &options); err != nil {
+		t.Fatalf("unmarshal link options: %v", err)
+	}
+	ids := make(map[string]bool, len(options))
+	for _, option := range options {
+		if !option.Enabled {
+			t.Fatalf("option %q is disabled", option.ID)
+		}
+		ids[option.ID] = true
+	}
+	if !ids[pkgchannel.PlatformTelegram] {
+		t.Fatalf("expected telegram link option, got %#v", options)
+	}
+	if ids[pkgchannel.PlatformFeishu] {
+		t.Fatalf("feishu disabled channel should not be linkable: %#v", options)
+	}
+	if ids[pkgchannel.PlatformQQ] {
+		t.Fatalf("qq disabled plugin should not be linkable: %#v", options)
+	}
+}
+
+func TestNonAdminCanOpenChannelsPageButNotChannelConfig(t *testing.T) {
+	env := setupAdmin(t)
+
+	hash, _ := auth.HashPassword("userpassword")
+	user, err := env.authStore.CreateUser(context.Background(), "regularuser", hash)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	sessionID := auth.NewSessionID()
+	_, err = env.authStore.CreateSession(context.Background(), auth.Session{
+		ID:        sessionID,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(auth.SessionDuration),
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/channels", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("channels page status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/channels/link-options", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("link options status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/channels", nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("channel config status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
+	}
+}
+
 func TestCreateAgent(t *testing.T) {
 	env := setupAdmin(t)
 

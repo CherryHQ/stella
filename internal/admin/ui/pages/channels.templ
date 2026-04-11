@@ -5,7 +5,98 @@ import "github.com/vaayne/anna/internal/admin/ui"
 templ ChannelsPage() {
 	<div x-data="channelsPage()">
 		@ui.PageHeader("Messaging platforms", "Connect Anna to Telegram, QQ, Feishu, and Weixin.")
-		<div class="border-t border-base-300 divide-y divide-base-300">
+		<section class="border-t border-base-300 pt-8">
+			<div class="flex items-center justify-between gap-4 mb-6">
+				<div>
+					<h2 class="text-lg font-medium">Your channel links</h2>
+					<p class="text-sm text-secondary mt-1">Link a platform once. Agent-dedicated channels reuse the same platform link.</p>
+				</div>
+				<span class="text-xs font-mono text-secondary" x-text="linkedIdentities.length + ' linked'"></span>
+			</div>
+			<template x-if="loadingLinks">
+				<div class="flex justify-center py-8">
+					<span class="loading loading-spinner loading-sm"></span>
+				</div>
+			</template>
+			<div x-show="!loadingLinks" x-cloak class="divide-y divide-base-300 border-y border-base-300">
+				<template x-for="platform in linkablePlatforms" :key="platform.id">
+					<div class="py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+						<div class="min-w-0">
+							<div class="flex items-baseline gap-3">
+								<span class="font-medium" x-text="platform.label"></span>
+								<span class="badge badge-sm" :class="isLinked(platform.id) ? 'badge-success' : 'badge-ghost'" x-text="isLinked(platform.id) ? 'linked' : 'not linked'"></span>
+							</div>
+							<p class="text-sm text-secondary mt-1" x-text="linkHint(platform.id)"></p>
+							<template x-if="identityFor(platform.id)">
+								<p class="text-xs font-mono text-base-content/50 mt-2" x-text="identityLabel(identityFor(platform.id))"></p>
+							</template>
+						</div>
+						<div class="flex items-center gap-2 shrink-0">
+							<button
+								x-show="!isLinked(platform.id) && platform.id !== 'weixin'"
+								@click="generateCode(platform.id)"
+								:disabled="generating"
+								class="btn btn-sm btn-outline"
+							>
+								<span x-show="generating && linkPlatform === platform.id" class="loading loading-spinner loading-xs"></span>
+								<span x-text="'Link ' + platform.label"></span>
+							</button>
+							<button
+								x-show="!isLinked(platform.id) && platform.id === 'weixin'"
+								@click="startWeixinQR()"
+								:disabled="wxQrPolling"
+								class="btn btn-sm btn-outline"
+							>
+								<span x-show="wxQrPolling" class="loading loading-spinner loading-xs"></span>
+								Link Weixin
+							</button>
+							<button
+								x-show="isLinked(platform.id)"
+								@click="unlinkIdentity(identityFor(platform.id)?.id)"
+								class="btn btn-ghost btn-xs text-secondary hover:text-error"
+							>unlink</button>
+						</div>
+					</div>
+				</template>
+				<template x-if="linkablePlatforms.length === 0">
+					<div class="py-8 text-sm text-secondary">No messaging platforms are available.</div>
+				</template>
+			</div>
+			<template x-if="linkCode">
+				<div class="alert shadow-md mt-4">
+					<div>
+						<p class="font-medium">Send this command to Anna on <span x-text="platformLabel[linkPlatform] || linkPlatform"></span>:</p>
+						<div class="flex items-center gap-2 mt-2">
+							<code class="font-mono text-lg font-bold bg-base-200 text-base-content px-3 py-1 rounded select-all" x-text="'/link ' + linkCode"></code>
+							<button @click="copyLinkCode()" class="btn btn-ghost btn-xs">copy</button>
+						</div>
+						<p class="text-xs text-secondary mt-2">Expires in 5 minutes.</p>
+					</div>
+				</div>
+			</template>
+			<template x-if="wxQrUrl">
+				<div class="card bg-base-200 mt-4">
+					<div class="card-body py-4 items-center">
+						<p class="text-sm font-medium mb-2">Scan with WeChat to link your account</p>
+						<img :src="wxQrUrl" alt="WeChat QR Code" class="w-48 h-48 border rounded"/>
+						<span
+							class="badge badge-sm mt-2"
+							:class="{
+								'badge-warning': wxQrStatus === 'waiting',
+								'badge-info': wxQrStatus === 'scaned',
+								'badge-success': wxQrStatus === 'confirmed',
+								'badge-error': wxQrStatus === 'expired',
+							}"
+							x-text="wxQrStatus"
+						></span>
+						<template x-if="wxQrStatus === 'expired'">
+							<button @click="startWeixinQR()" class="btn btn-outline btn-xs mt-1">Refresh</button>
+						</template>
+					</div>
+				</div>
+			</template>
+		</section>
+		<div x-show="isAdmin" x-cloak class="border-t border-base-300 divide-y divide-base-300 mt-8">
 			<!-- Telegram -->
 			@channelBlock("Telegram", "telegram") {
 				<label class="flex items-center gap-3 cursor-pointer">
@@ -178,7 +269,7 @@ templ ChannelsPage() {
 				<button @click="saveChannel('weixin')" class="btn btn-primary btn-sm">Save Weixin</button>
 			}
 		</div>
-		<div class="border-t border-base-300 pt-8 mt-8">
+		<div x-show="isAdmin" x-cloak class="border-t border-base-300 pt-8 mt-8">
 			<div class="flex items-center justify-between gap-4 mb-6">
 				<div>
 					<h2 class="text-lg font-medium">Channel instances</h2>

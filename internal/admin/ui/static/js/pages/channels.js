@@ -1,4 +1,5 @@
 import { api } from '/static/js/api.js'
+import QRCode from 'https://esm.sh/qrcode@1.5.4'
 
 const channelTypes = [
   { id: 'telegram', label: 'Telegram' },
@@ -87,8 +88,20 @@ export function register(Alpine) {
   Alpine.data('channelsPage', () => ({
     channelTypes,
     enabledChannelTypeIDs: channelTypes.map(type => type.id),
+    isAdmin: false,
     agents: [],
     channels: [],
+    linkablePlatforms: [],
+    linkedIdentities: [],
+    loadingLinks: false,
+    linkCode: '',
+    linkPlatform: '',
+    generating: false,
+    wxQrUrl: '',
+    wxQrStatus: '',
+    wxQrCode: '',
+    wxQrPolling: false,
+    _wxQrInterval: null,
     channelData: defaultChannelData(),
     newChannel: {
       id: '',
@@ -114,8 +127,144 @@ export function register(Alpine) {
     },
 
     async init() {
+      await this.loadCurrentUser()
+      await Promise.all([this.loadLinkOptions(), this.loadIdentities()])
+      if (!this.isAdmin) return
       await this.loadChannelPlugins()
       await Promise.all([this.loadAgents(), this.loadChannels()])
+    },
+
+    async loadCurrentUser() {
+      try {
+        const me = await api('GET', '/api/auth/me')
+        this.isAdmin = Boolean(me?.is_admin)
+      } catch (e) {
+        console.error(e)
+      }
+    },
+
+    async loadLinkOptions() {
+      this.loadingLinks = true
+      try {
+        this.linkablePlatforms = await api('GET', '/api/channels/link-options') || []
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.loadingLinks = false
+      }
+    },
+
+    async loadIdentities() {
+      try {
+        this.linkedIdentities = await api('GET', '/api/auth/profile/identities') || []
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    identityFor(platform) {
+      return this.linkedIdentities.find(identity => identity.platform === platform) || null
+    },
+
+    isLinked(platform) {
+      return Boolean(this.identityFor(platform))
+    },
+
+    identityLabel(identity) {
+      if (!identity) return ''
+      const name = identity.name ? identity.name + ' · ' : ''
+      return name + identity.external_id
+    },
+
+    linkHint(platform) {
+      if (this.isLinked(platform)) {
+        return 'Used for this platform and any agent-dedicated channels on it.'
+      }
+      if (platform === 'weixin') {
+        return 'Scan a QR code to connect this account.'
+      }
+      return 'Generate a one-time code, then send /link to Anna on this platform.'
+    },
+
+    async generateCode(platform) {
+      this.generating = true
+      this.linkPlatform = platform
+      this.linkCode = ''
+      this.wxQrUrl = ''
+      this.wxQrStatus = ''
+      try {
+        const result = await api('POST', '/api/auth/profile/link-code', { platform })
+        this.linkCode = result.code
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.generating = false
+      }
+    },
+
+    copyLinkCode() {
+      navigator.clipboard.writeText('/link ' + this.linkCode)
+      this.$store.toast.show('Copied')
+    },
+
+    async startWeixinQR() {
+      this.linkCode = ''
+      this.wxQrUrl = ''
+      this.wxQrStatus = ''
+      this.wxQrCode = ''
+      this.wxQrPolling = true
+      if (this._wxQrInterval) {
+        clearInterval(this._wxQrInterval)
+        this._wxQrInterval = null
+      }
+      try {
+        const result = await api('POST', '/api/channels/weixin/qr')
+        this.wxQrCode = result.qrcode || ''
+        const imgContent = result.qrcode_img_content || ''
+        if (imgContent) {
+          this.wxQrUrl = await QRCode.toDataURL(imgContent, { width: 256, margin: 2 })
+        }
+        this.wxQrStatus = 'waiting'
+        this._wxQrInterval = setInterval(() => this.pollWeixinQRStatus(), 3000)
+      } catch (e) {
+        this.$store.toast.show('QR request failed: ' + e.message, 'error')
+        this.wxQrPolling = false
+      }
+    },
+
+    async pollWeixinQRStatus() {
+      if (!this.wxQrCode) return
+      try {
+        const result = await api('GET', '/api/channels/weixin/qr/status?qrcode=' + encodeURIComponent(this.wxQrCode))
+        if (result.status) {
+          this.wxQrStatus = result.status
+        }
+        if (result.status === 'confirmed') {
+          clearInterval(this._wxQrInterval)
+          this._wxQrInterval = null
+          this.wxQrPolling = false
+          this.wxQrUrl = ''
+          this.$store.toast.show('Weixin account linked successfully')
+          await this.loadIdentities()
+        } else if (result.status === 'expired') {
+          clearInterval(this._wxQrInterval)
+          this._wxQrInterval = null
+          this.wxQrPolling = false
+        }
+      } catch (e) {
+        console.error('QR status poll error:', e)
+      }
+    },
+
+    async unlinkIdentity(id) {
+      if (!id || !confirm('Unlink this identity?')) return
+      try {
+        await api('DELETE', '/api/auth/profile/identities/' + id)
+        this.$store.toast.show('Identity unlinked')
+        await this.loadIdentities()
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
     },
 
     async loadChannelPlugins() {
