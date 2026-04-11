@@ -173,7 +173,6 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Type    *string `json:"type"`
 		AgentID *string `json:"agent_id"`
-		Enabled bool    `json:"enabled"`
 		Config  string  `json:"config"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
@@ -205,13 +204,22 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 	} else if existingErr == nil {
 		agentID = existing.AgentID
 	}
+	enabled := s.defaultChannelEnabled(r, channelType)
+	if existingErr == nil {
+		enabled = existing.Enabled
+	}
 	ch := config.Channel{
 		ID:      id,
 		Type:    channelType,
 		AgentID: agentID,
-		Enabled: req.Enabled,
+		Enabled: enabled,
 	}
 	s.saveChannel(w, r, ch, cfgMap, http.StatusOK)
+}
+
+func (s *Server) defaultChannelEnabled(r *http.Request, channelType string) bool {
+	plugin, err := s.store.GetPlugin(r.Context(), config.PluginID(config.PluginKindChannel, channelType))
+	return err == nil && plugin.Enabled
 }
 
 func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.Channel, cfgMap map[string]any, status int) bool {
@@ -231,11 +239,12 @@ func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.C
 		return false
 	}
 	if ch.ID == ch.Type {
+		pluginEnabled := s.defaultChannelEnabled(r, ch.Type)
 		if err := s.store.UpsertPlugin(r.Context(), config.Plugin{
 			ID:      pluginID,
 			Kind:    config.PluginKindChannel,
 			Name:    ch.Type,
-			Enabled: ch.Enabled,
+			Enabled: pluginEnabled,
 			Config:  cfgMap,
 		}); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -272,7 +281,6 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 		ID      string `json:"id"`
 		Type    string `json:"type"`
 		AgentID string `json:"agent_id"`
-		Enabled bool   `json:"enabled"`
 		Config  string `json:"config"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
@@ -288,7 +296,7 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid config JSON: "+err.Error())
 		return
 	}
-	ch := config.Channel{ID: req.ID, Type: req.Type, AgentID: req.AgentID, Enabled: req.Enabled}
+	ch := config.Channel{ID: req.ID, Type: req.Type, AgentID: req.AgentID, Enabled: s.defaultChannelEnabled(r, req.Type)}
 	s.saveChannel(w, r, ch, cfgMap, http.StatusCreated)
 }
 

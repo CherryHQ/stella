@@ -104,6 +104,9 @@ templ ChannelsPage() {
 			</template>
 		</section>
 		<div x-show="isAdmin" x-cloak class="border-t border-base-300 divide-y divide-base-300 mt-8">
+			<p class="text-sm text-secondary py-6">
+				Edit channel configuration here. Enable or disable channel plugins on the <a href="/plugins" class="link link-primary">Plugins</a> page.
+			</p>
 			<!-- Telegram -->
 			@channelBlock("Telegram", "telegram") {
 				<label class="flex items-center gap-3 cursor-pointer">
@@ -286,7 +289,7 @@ templ ChannelsPage() {
 			</div>
 			<div class="border border-base-300 rounded-xl p-4 mb-8 space-y-4">
 				<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider">New instance</p>
-				<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+				<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 					<div>
 						@ui.FormField("ID") {
 							<input x-model="newChannel.id" type="text" placeholder="feishu-coder" class="input input-bordered w-full text-sm font-mono"/>
@@ -311,10 +314,6 @@ templ ChannelsPage() {
 							</select>
 						}
 					</div>
-					<label class="flex items-end gap-3 cursor-pointer pb-3">
-						<input type="checkbox" x-model="newChannel.enabled" class="toggle toggle-primary toggle-sm"/>
-						<span class="text-sm">Enabled</span>
-					</label>
 				</div>
 				<div>
 					@ui.FormField("Config JSON") {
@@ -339,7 +338,6 @@ templ ChannelsPage() {
 											<div class="flex items-baseline gap-3 flex-wrap min-w-0">
 												<span class="font-medium" x-text="ch.id"></span>
 												<span class="badge badge-ghost badge-sm" x-text="ch.type"></span>
-												<span class="badge badge-sm" :class="ch.enabled ? 'badge-success' : 'badge-ghost'" x-text="ch.enabled ? 'enabled' : 'disabled'"></span>
 												<span x-show="ch.agent_id" class="badge badge-primary badge-sm" x-text="'agent: ' + ch.agent_id"></span>
 											</div>
 										</button>
@@ -353,7 +351,7 @@ templ ChannelsPage() {
 										</div>
 									</div>
 									<div x-show="!ch._collapsed" x-cloak class="space-y-4">
-										<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+										<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 											<div>
 												@ui.FormField("Type") {
 													<select x-model="ch.type" class="select select-bordered w-full text-sm">
@@ -373,10 +371,6 @@ templ ChannelsPage() {
 													</select>
 												}
 											</div>
-											<label class="flex items-end gap-3 cursor-pointer pb-3">
-												<input type="checkbox" x-model="ch.enabled" class="toggle toggle-primary toggle-sm"/>
-												<span class="text-sm">Enabled</span>
-											</label>
 										</div>
 										<div>
 											@ui.FormField("Config JSON") {
@@ -406,29 +400,16 @@ templ ChannelsPage() {
 	</div>
 }
 
-// channelBlock renders a collapsible platform section with enable toggle.
+// channelBlock renders a platform configuration section.
 templ channelBlock(name string, platform string) {
-	<div class="py-8" x-show={ "channelTypeEnabled('" + platform + "')" } x-cloak>
+	<div class="py-8" x-show={ "channelEnabled('" + platform + "')" } x-cloak>
 		<div class="flex items-center justify-between mb-4">
 			<div class="flex items-center gap-3">
 				<span class="font-medium text-lg">{ name }</span>
-				<span
-					class="badge badge-sm"
-					:class={ "channelData." + platform + ".enabled ? 'badge-success' : 'badge-ghost'" }
-					x-text={ "channelData." + platform + ".enabled ? 'on' : 'off'" }
-				></span>
 			</div>
-			<label class="flex items-center gap-3 cursor-pointer">
-				<input
-					type="checkbox"
-					:checked={ "channelData." + platform + ".enabled" }
-					@change={ "channelData." + platform + ".enabled = $event.target.checked; saveChannel('" + platform + "')" }
-					class="toggle toggle-primary toggle-sm"
-				/>
-				<span class="text-sm">Enable</span>
-			</label>
+			<a href="/plugins" class="text-xs text-secondary hover:text-primary transition-colors">Manage plugin</a>
 		</div>
-		<div x-show={ "channelData." + platform + ".enabled" } x-transition x-cloak class="space-y-4 pl-0 md:pl-6">
+		<div class="space-y-4 pl-0 md:pl-6">
 			<div>
 				@ui.FormField("Dedicated Agent") {
 					<select x-model={ "channelData." + platform + ".agent_id" } class="select select-bordered w-full text-sm">
