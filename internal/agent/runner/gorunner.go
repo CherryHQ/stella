@@ -64,7 +64,7 @@ type GoRunner struct {
 	system        string
 	hookSet       *hooks.HookSet
 	toolLifecycle *coreagent.ToolLifecycle
-	backend       *boxshclient.SharedBackend // boxsh sandbox backend (Linux/macOS only)
+	backend       sandboxBackend
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -105,13 +105,9 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		return nil, err
 	}
 
-	// Create and start boxsh backend on Linux/macOS (unless disabled for testing).
-	var backend *boxshclient.SharedBackend
-	if !cfg.DisableSandbox && boxshclient.PlatformSupportsBoxsh() {
-		backend, err = createAndStartBackend(ctx, cfg)
-		if err != nil {
-			return nil, fmt.Errorf("go runner: %w", err)
-		}
+	backend, err := resolveSandboxBackend(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("go runner: %w", err)
 	}
 
 	toolReg, err := buildToolRegistry(cfg, backend)
@@ -228,7 +224,7 @@ func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
 }
 
 // buildToolRegistry creates the tool registry with core and extra tools.
-func buildToolRegistry(cfg GoRunnerConfig, backend *boxshclient.SharedBackend) (*tools.Registry, error) {
+func buildToolRegistry(cfg GoRunnerConfig, backend sandboxBackend) (*tools.Registry, error) {
 	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
 	annaHome := cfg.AnnaHome
 	if annaHome == "" {
@@ -251,9 +247,9 @@ func buildToolRegistry(cfg GoRunnerConfig, backend *boxshclient.SharedBackend) (
 		AnnaHome:    cfg.AnnaHome,
 		Workspace:   cfg.Workspace,
 		ToolsBinDir: toolsBinDir,
-		Backend:     backend,
+		Sandbox:     backend.Runtime(),
 	}
-	coreToolsBuilder := CoreToolsBuilderWithBoxsh(cfg.CoreTools)
+	coreToolsBuilder := CoreToolsBuilderWithSandbox(cfg.CoreTools, backend)
 	for _, t := range coreToolsBuilder(bc) {
 		toolReg.Register(t)
 	}
@@ -377,10 +373,7 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 // Alive reports whether the runner is healthy.
 // On Linux/macOS, it also checks the boxsh backend health.
 func (r *GoRunner) Alive() bool {
-	if r.backend != nil && !r.backend.Alive() {
-		return false
-	}
-	return true
+	return r.backend.Alive()
 }
 
 // LastActivity returns the time of the last Chat call.
@@ -403,10 +396,8 @@ func (r *GoRunner) Close() error {
 		}
 	}
 
-	if r.backend != nil {
-		if err := r.backend.Close(); err != nil {
-			errs = append(errs, err)
-		}
+	if err := r.backend.Close(); err != nil {
+		errs = append(errs, err)
 	}
 
 	if len(errs) > 0 {

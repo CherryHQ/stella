@@ -40,6 +40,7 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContex
 			AnnaHome:    bc.AnnaHome,
 			Workspace:   bc.Workspace,
 			ToolsBinDir: bc.ToolsBinDir,
+			Sandbox:     bc.Sandbox,
 		})
 		if err == nil && t != nil {
 			out = append(out, t)
@@ -73,6 +74,7 @@ func (h *Host) BuildCoreTools(bc plugintools.BuildContext) []tools.Tool {
 			AnnaHome:    bc.AnnaHome,
 			Workspace:   bc.Workspace,
 			ToolsBinDir: bc.ToolsBinDir,
+			Sandbox:     bc.Sandbox,
 		})
 		if err == nil && t != nil {
 			out = append(out, t)
