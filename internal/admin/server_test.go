@@ -881,12 +881,8 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	if _, ok := byID[pkgchannel.PlatformQQ]; ok {
 		t.Fatalf("qq disabled plugin should not be public: %#v", channels)
 	}
-	dedicated, ok := byID["feishu-anna"]
-	if !ok {
-		t.Fatalf("expected dedicated channel, got %#v", channels)
-	}
-	if dedicated.AgentID != "anna" || dedicated.AgentName != "Anna" {
-		t.Fatalf("dedicated agent = %q/%q, want anna/Anna", dedicated.AgentID, dedicated.AgentName)
+	if _, ok := byID["feishu-anna"]; ok {
+		t.Fatalf("dedicated instances should not appear in public channels: %#v", channels)
 	}
 }
 

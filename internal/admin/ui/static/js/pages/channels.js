@@ -8,27 +8,6 @@ const channelTypes = [
   { id: 'weixin', label: 'Weixin' },
 ]
 
-function defaultChannelData() {
-  return {
-    telegram: {
-      enabled: false, agent_id: '', enable_notify: false,
-      token: '', channel_id: '', group_mode: '',
-    },
-    qq: {
-      enabled: false, agent_id: '', enable_notify: false,
-      app_id: '', app_secret: '', group_mode: '',
-    },
-    feishu: {
-      enabled: false, agent_id: '', enable_notify: false,
-      app_id: '', app_secret: '', encrypt_key: '',
-      verification_token: '', group_mode: '',
-    },
-    weixin: {
-      enabled: false, agent_id: '', enable_notify: false,
-    },
-  }
-}
-
 function parseConfig(raw) {
   try {
     return JSON.parse(raw || '{}')
@@ -37,46 +16,101 @@ function parseConfig(raw) {
   }
 }
 
-function configString(value) {
-  return JSON.stringify(value || {}, null, 2)
+function platformDefaults(type) {
+  switch (type) {
+    case 'telegram':
+      return {
+        enable_notify: false,
+        token: '',
+        channel_id: '',
+        group_mode: '',
+      }
+    case 'qq':
+      return {
+        enable_notify: false,
+        app_id: '',
+        app_secret: '',
+        group_mode: '',
+      }
+    case 'feishu':
+      return {
+        enable_notify: false,
+        app_id: '',
+        app_secret: '',
+        encrypt_key: '',
+        verification_token: '',
+        group_mode: '',
+      }
+    case 'weixin':
+      return {
+        enable_notify: false,
+      }
+    default:
+      return {}
+  }
+}
+
+function serializePlatformConfig(type, data) {
+  switch (type) {
+    case 'telegram':
+      return {
+        enable_notify: !!data.enable_notify,
+        token: data.token || '',
+        channel_id: data.channel_id || '',
+        group_mode: data.group_mode || '',
+      }
+    case 'qq':
+      return {
+        enable_notify: !!data.enable_notify,
+        app_id: data.app_id || '',
+        app_secret: data.app_secret || '',
+        group_mode: data.group_mode || '',
+      }
+    case 'feishu':
+      return {
+        enable_notify: !!data.enable_notify,
+        app_id: data.app_id || '',
+        app_secret: data.app_secret || '',
+        encrypt_key: data.encrypt_key || '',
+        verification_token: data.verification_token || '',
+        group_mode: data.group_mode || '',
+      }
+    case 'weixin':
+      return {
+        enable_notify: !!data.enable_notify,
+      }
+    default:
+      return {}
+  }
+}
+
+function hasConfig(type, data) {
+  const cfg = serializePlatformConfig(type, data)
+  return Object.values(cfg).some(value => {
+    if (typeof value === 'boolean') return value
+    return String(value || '').trim() !== ''
+  })
+}
+
+function newInstanceDraft(type = 'telegram', id = '') {
+  return {
+    id,
+    type,
+    ...platformDefaults(type),
+  }
 }
 
 function normalizeChannel(ch) {
+  const type = ch.type || ch.id
+  const cfg = parseConfig(ch.config)
   return {
     ...ch,
-    type: ch.type || ch.id,
+    type,
     agent_id: ch.agent_id || '',
-    config: configString(parseConfig(ch.config)),
-    _collapsed: ch.id === (ch.type || ch.id),
+    _collapsed: true,
+    ...platformDefaults(type),
+    ...cfg,
   }
-}
-
-function groupChannelsByType(channels) {
-  const groups = []
-  const byType = new Map()
-
-  for (const channel of channels) {
-    const type = channel.type || channel.id
-    if (!byType.has(type)) {
-      const group = { type, channels: [] }
-      byType.set(type, group)
-      groups.push(group)
-    }
-    byType.get(type).channels.push(channel)
-  }
-
-  for (const group of groups) {
-    group.channels.sort((a, b) => a.id.localeCompare(b.id))
-  }
-  groups.sort((a, b) => a.type.localeCompare(b.type))
-  return groups
-}
-
-function legacyConfig(data) {
-  const cfg = { ...data }
-  delete cfg.enabled
-  delete cfg.agent_id
-  return cfg
 }
 
 /**
@@ -89,12 +123,13 @@ export function register(Alpine) {
     channelTypes,
     enabledChannelTypeIDs: channelTypes.map(type => type.id),
     isAdmin: false,
-    agents: [],
-    channels: [],
     publicChannels: [],
     linkedIdentities: [],
+    instances: [],
+    loadingPlatforms: false,
+    loadingInstances: false,
     platformLabel: { telegram: 'Telegram', qq: 'QQ', feishu: 'Feishu', weixin: 'Weixin' },
-    loadingLinks: false,
+
     linkCode: '',
     linkPlatform: '',
     generating: false,
@@ -103,39 +138,30 @@ export function register(Alpine) {
     wxQrCode: '',
     wxQrPolling: false,
     _wxQrInterval: null,
-    channelData: defaultChannelData(),
-    newChannel: {
-      id: '',
-      type: 'telegram',
-      agent_id: '',
-      config: '{}',
-    },
+
+    creatingInstance: false,
+    showNewInstanceForm: false,
+    newChannel: newInstanceDraft(),
 
     confirmMsg: '',
     confirmAction: () => {},
 
-    get groupedChannels() {
-      return groupChannelsByType(this.channels)
-    },
-
     get visibleChannelTypes() {
-      return this.channelTypes.filter(type => this.channelTypeEnabled(type.id))
-    },
-
-    channelTypeEnabled(type) {
-      return this.enabledChannelTypeIDs.includes(type)
-    },
-
-    channelEnabled(type) {
-      return this.channelTypeEnabled(type) && Boolean(this.channelData[type]?.enabled)
+      return this.channelTypes.filter(type => this.enabledChannelTypeIDs.includes(type.id))
     },
 
     async init() {
       await this.loadCurrentUser()
-      await Promise.all([this.loadPublicChannels(), this.loadIdentities()])
-      if (!this.isAdmin) return
-      await this.loadChannelPlugins()
-      await Promise.all([this.loadAgents(), this.loadChannels()])
+      if (this.isAdmin) {
+        await Promise.all([
+          this.loadChannelPlugins(),
+          this.loadPlatformsAndIdentities(),
+          this.loadInstances(),
+        ])
+        this.syncNewChannelType(this.newChannel.type)
+        return
+      }
+      await this.loadPlatformsAndIdentities()
     },
 
     async loadCurrentUser() {
@@ -147,14 +173,18 @@ export function register(Alpine) {
       }
     },
 
+    async loadPlatformsAndIdentities() {
+      await Promise.all([this.loadPublicChannels(), this.loadIdentities()])
+    },
+
     async loadPublicChannels() {
-      this.loadingLinks = true
+      this.loadingPlatforms = true
       try {
         this.publicChannels = await api('GET', '/api/channels/public') || []
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       } finally {
-        this.loadingLinks = false
+        this.loadingPlatforms = false
       }
     },
 
@@ -164,6 +194,40 @@ export function register(Alpine) {
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       }
+    },
+
+    async loadChannelPlugins() {
+      try {
+        const plugins = await api('GET', '/api/plugins') || []
+        const enabled = plugins
+          .filter(p => p.kind === 'channel' && p.enabled)
+          .map(p => p.name || String(p.id || '').replace(/^channel\//, ''))
+        this.enabledChannelTypeIDs = enabled.length > 0 ? enabled : []
+      } catch (e) {
+        console.error(e)
+        this.enabledChannelTypeIDs = this.channelTypes.map(type => type.id)
+      }
+    },
+
+    async loadInstances() {
+      this.loadingInstances = true
+      try {
+        const channels = await api('GET', '/api/channels') || []
+        this.instances = channels
+          .map(normalizeChannel)
+          .filter(ch => ch.id !== ch.type && this.enabledChannelTypeIDs.includes(ch.type) && ch.enabled)
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.loadingInstances = false
+      }
+    },
+
+    syncNewChannelType(type) {
+      const nextType = this.enabledChannelTypeIDs.includes(type)
+        ? type
+        : this.visibleChannelTypes[0]?.id || ''
+      this.newChannel = newInstanceDraft(nextType, this.newChannel.id || '')
     },
 
     identityFor(platform) {
@@ -180,30 +244,20 @@ export function register(Alpine) {
       return name + identity.external_id
     },
 
-    channelTitle(channel) {
-      if (channel.id === channel.type) return channel.label
-      return channel.label + ' - ' + channel.id
-    },
-
-    agentLabel(channel) {
-      return channel.agent_name ? channel.agent_name + ' (' + channel.agent_id + ')' : channel.agent_id
-    },
-
-    agentHref(channel) {
-      return '/agents?agent=' + encodeURIComponent(channel.agent_id || '')
-    },
-
-    channelDescription(channel) {
-      if (channel.agent_id) {
-        if (this.isLinked(channel.type)) {
-          return 'This dedicated channel routes messages and notifications through its bound agent. Your ' + channel.label + ' link is already connected.'
-        }
-        return 'This dedicated channel routes messages and notifications through its bound agent. Link your ' + channel.label + ' account once to use it.'
-      }
+    platformDescription(channel) {
+      if (!channel) return ''
       if (this.isLinked(channel.type)) {
-        return 'Available to all agents. Your ' + channel.label + ' account link is connected.'
+        return 'Your ' + channel.label + ' account is linked and ready to use with Anna.'
       }
-      return 'Available to all agents. Link your ' + channel.label + ' account to receive replies and notifications on this platform.'
+      if (channel.type === 'weixin') {
+        return 'Link your Weixin account by scanning a QR code.'
+      }
+      return 'Link your ' + channel.label + ' account once to chat with Anna on this platform.'
+    },
+
+    linkedAgentLabel(channel) {
+      if (!channel?.agent_id) return ''
+      return channel.agent_name ? channel.agent_name + ' (' + channel.agent_id + ')' : channel.agent_id
     },
 
     async generateCode(platform) {
@@ -291,125 +345,60 @@ export function register(Alpine) {
       }
     },
 
-    async loadChannelPlugins() {
-      try {
-        const plugins = await api('GET', '/api/plugins') || []
-        const enabled = plugins
-          .filter(p => p.kind === 'channel' && p.enabled)
-          .map(p => p.name || String(p.id || '').replace(/^channel\//, ''))
-        this.enabledChannelTypeIDs = enabled.length > 0 ? enabled : []
-        if (!this.channelTypeEnabled(this.newChannel.type)) {
-          this.newChannel.type = this.visibleChannelTypes[0]?.id || ''
-        }
-      } catch (e) {
-        console.error(e)
-        this.enabledChannelTypeIDs = this.channelTypes.map(type => type.id)
+    toggleNewInstanceForm() {
+      this.showNewInstanceForm = !this.showNewInstanceForm
+      if (this.showNewInstanceForm) {
+        this.syncNewChannelType(this.newChannel.type)
       }
     },
 
-    async loadAgents() {
-      try {
-        this.agents = await api('GET', '/api/agents') || []
-      } catch (e) {
-        console.error(e)
-      }
+    instanceStatus(ch) {
+      return hasConfig(ch.type, ch) ? 'Configured' : 'Needs config'
     },
 
-    async loadChannels() {
-      try {
-        const channels = await api('GET', '/api/channels') || []
-        this.channelData = defaultChannelData()
-        this.channels = channels
-          .map(normalizeChannel)
-          .filter(ch => this.channelTypeEnabled(ch.type) && ch.enabled)
-
-        for (const ch of this.channels) {
-          const cfg = parseConfig(ch.config)
-          if (ch.id === 'telegram') {
-            this.channelData.telegram = {
-              enabled: ch.enabled,
-              agent_id: ch.agent_id || '',
-              enable_notify: cfg.enable_notify || false,
-              token: cfg.token || '',
-              channel_id: cfg.channel_id || '',
-              group_mode: cfg.group_mode || '',
-            }
-          } else if (ch.id === 'qq') {
-            this.channelData.qq = {
-              enabled: ch.enabled,
-              agent_id: ch.agent_id || '',
-              enable_notify: cfg.enable_notify || false,
-              app_id: cfg.app_id || '',
-              app_secret: cfg.app_secret || '',
-              group_mode: cfg.group_mode || '',
-            }
-          } else if (ch.id === 'feishu') {
-            this.channelData.feishu = {
-              enabled: ch.enabled,
-              agent_id: ch.agent_id || '',
-              enable_notify: cfg.enable_notify || false,
-              app_id: cfg.app_id || '',
-              app_secret: cfg.app_secret || '',
-              encrypt_key: cfg.encrypt_key || '',
-              verification_token: cfg.verification_token || '',
-              group_mode: cfg.group_mode || '',
-            }
-          } else if (ch.id === 'weixin') {
-            this.channelData.weixin = {
-              enabled: ch.enabled,
-              agent_id: ch.agent_id || '',
-              enable_notify: cfg.enable_notify || false,
-            }
-          }
-        }
-      } catch (e) {
-        console.error(e)
-      }
-    },
-
-    async saveChannel(platform) {
-      try {
-        const data = { ...this.channelData[platform] }
-        await api('PUT', '/api/channels/' + platform, {
-          type: platform,
-          agent_id: data.agent_id || '',
-          config: JSON.stringify(legacyConfig(data)),
-        })
-        await this.loadChannels()
-        this.$store.toast.show(platform + ' saved')
-      } catch (e) {
-        this.$store.toast.show(e.message, 'error')
-      }
+    instanceStatusClass(ch) {
+      return hasConfig(ch.type, ch) ? 'badge-success' : 'badge-ghost'
     },
 
     async createChannel() {
+      const id = this.newChannel.id.trim()
+      if (!id || !this.newChannel.type) {
+        this.$store.toast.show('ID and platform are required', 'error')
+        return
+      }
+      if (id === this.newChannel.type) {
+        this.$store.toast.show('Dedicated instance ID must not match the platform ID', 'error')
+        return
+      }
+
+      this.creatingInstance = true
       try {
-        JSON.parse(this.newChannel.config || '{}')
         const saved = await api('POST', '/api/channels', {
-          id: this.newChannel.id.trim(),
+          id,
           type: this.newChannel.type,
-          agent_id: this.newChannel.agent_id || '',
-          config: this.newChannel.config || '{}',
+          agent_id: '',
+          config: JSON.stringify(serializePlatformConfig(this.newChannel.type, this.newChannel)),
         })
-        this.newChannel = { id: '', type: saved.type || 'telegram', agent_id: '', config: '{}' }
-        await this.loadChannels()
+        this.newChannel = newInstanceDraft(saved.type || this.visibleChannelTypes[0]?.id || '')
+        this.showNewInstanceForm = false
+        await this.loadInstances()
         this.$store.toast.show(saved.id + ' created')
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.creatingInstance = false
       }
     },
 
     async saveInstance(ch) {
       try {
-        const cfg = JSON.parse(ch.config || '{}')
         const saved = await api('PUT', '/api/channels/' + encodeURIComponent(ch.id), {
           type: ch.type,
           agent_id: ch.agent_id || '',
-          config: JSON.stringify(cfg),
+          config: JSON.stringify(serializePlatformConfig(ch.type, ch)),
         })
-        ch.config = configString(parseConfig(saved.config))
-        ch.agent_id = saved.agent_id || ''
-        await this.loadChannels()
+        Object.assign(ch, normalizeChannel(saved))
+        ch._collapsed = false
         this.$store.toast.show(ch.id + ' saved')
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
@@ -419,7 +408,7 @@ export function register(Alpine) {
     async doDeleteChannel(id) {
       try {
         await api('DELETE', '/api/channels/' + encodeURIComponent(id))
-        await this.loadChannels()
+        await this.loadInstances()
         this.$store.toast.show(id + ' deleted')
       } catch (e) {
         this.$store.toast.show(e.message, 'error')

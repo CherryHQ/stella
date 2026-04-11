@@ -101,6 +101,9 @@ func (s *Server) listPublicChannels(w http.ResponseWriter, r *http.Request) {
 		if !ch.Enabled || !enabledPlugins[channelType] {
 			continue
 		}
+		if ch.ID != channelType {
+			continue
+		}
 		agentName := ""
 		if ch.AgentID != "" {
 			var ok bool
