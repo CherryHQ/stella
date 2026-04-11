@@ -29,7 +29,6 @@ func init() {
 				Name:        "read",
 				Description: "Read file contents.",
 				Required:    true,
-				Sandboxed:   true,
 				Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
 					return sandbox.WrapWithSandbox(&ReadTool{}, ctx.UserDataDir, "file_path"), nil
 				},

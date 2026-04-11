@@ -28,7 +28,6 @@ func init() {
 			Name:        "edit",
 			Description: "Edit existing files.",
 			Required:    true,
-			Sandboxed:   true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
 				return sandbox.WrapWithSandbox(&EditTool{}, ctx.UserDataDir, "file_path"), nil
 			},

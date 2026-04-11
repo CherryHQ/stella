@@ -134,8 +134,6 @@ type Tool interface {
 
 On Linux and macOS, the core local-workspace tools run through a managed `boxsh` sandbox backend. The `bash`, `read`, `write`, and `edit` tools execute through a shared long-lived `boxsh --rpc` subprocess that provides filesystem and process isolation. Windows retains the direct-tool backend without sandboxing.
 
-When `boxsh` sandboxing is active, optional plugin tools that are not marked sandbox-compatible are not registered. This prevents unsandboxed plugin execution on Linux/macOS.
-
 ### Sandbox Architecture
 
 The sandbox system uses a copy-on-write (COW) overlay filesystem model:

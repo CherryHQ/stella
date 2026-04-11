@@ -35,7 +35,6 @@ func init() {
 			PluginID:    "tool/webfetch",
 			Name:        "webfetch",
 			Description: "Fetch and extract readable web content.",
-			Sandboxed:   false,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
 				return New(), nil
 			},

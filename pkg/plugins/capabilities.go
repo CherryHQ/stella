@@ -17,10 +17,6 @@ type ToolSpec struct {
 	Name        string
 	Description string
 	Required    bool
-	// Sandboxed reports whether the tool implementation executes inside the
-	// managed sandbox boundary on Linux/macOS. Optional plugin tools that are
-	// not sandboxed are not exposed when boxsh sandboxing is active.
-	Sandboxed bool
 	Build       func(ctx ToolContext) (tools.Tool, error)
 }
 

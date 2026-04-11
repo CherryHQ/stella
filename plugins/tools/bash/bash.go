@@ -31,7 +31,6 @@ func init() {
 			Name:        "bash",
 			Description: "Execute bash commands.",
 			Required:    true,
-			Sandboxed:   true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
 				dir := ctx.WorkDir
 				if ctx.UserDataDir != "" {

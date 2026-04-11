@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log/slog"
-	"runtime"
 	"sort"
 
 	"github.com/vaayne/anna/pkg/hooks"
@@ -26,17 +24,8 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContex
 	h.mu.RUnlock()
 	sort.Slice(regs, func(i, j int) bool { return regs[i].Name < regs[j].Name })
 	var out []tools.Tool
-	sandboxEnforced := runtime.GOOS != "windows" && bc.Backend != nil
 	for _, reg := range regs {
 		if reg.Required {
-			continue
-		}
-		if sandboxEnforced && !reg.Sandboxed {
-			slog.Warn("skipping non-sandboxed plugin tool while boxsh sandbox is active",
-				"component", "plugin_host",
-				"tool", reg.Name,
-				"plugin_id", reg.PluginID,
-			)
 			continue
 		}
 		state, err := h.DesiredState(ctx, reg.PluginID)
