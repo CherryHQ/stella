@@ -810,7 +810,7 @@ func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 	}
 }
 
-func TestChannelLinkOptionsOnlyIncludeEnabledChannels(t *testing.T) {
+func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	env := setupAdmin(t)
 
 	if err := env.store.UpsertChannel(context.Background(), config.Channel{
@@ -829,6 +829,15 @@ func TestChannelLinkOptionsOnlyIncludeEnabledChannels(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertChannel feishu: %v", err)
 	}
+	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+		ID:      "feishu-anna",
+		Type:    pkgchannel.PlatformFeishu,
+		AgentID: "anna",
+		Enabled: true,
+		Config:  `{}`,
+	}); err != nil {
+		t.Fatalf("UpsertChannel feishu-anna: %v", err)
+	}
 	if err := env.store.UpsertPlugin(context.Background(), config.Plugin{
 		ID:      config.PluginID(config.PluginKindChannel, pkgchannel.PlatformQQ),
 		Kind:    config.PluginKindChannel,
@@ -839,34 +848,45 @@ func TestChannelLinkOptionsOnlyIncludeEnabledChannels(t *testing.T) {
 		t.Fatalf("UpsertPlugin qq: %v", err)
 	}
 
-	rr := doRequest(t, env, "GET", "/api/channels/link-options", nil)
+	rr := doRequest(t, env, "GET", "/api/channels/public", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 	resp := parseResponse(t, rr)
-	var options []struct {
-		ID      string `json:"id"`
-		Label   string `json:"label"`
-		Enabled bool   `json:"enabled"`
+	type publicChannelPayload struct {
+		ID        string `json:"id"`
+		Type      string `json:"type"`
+		Label     string `json:"label"`
+		AgentID   string `json:"agent_id"`
+		AgentName string `json:"agent_name"`
+		Enabled   bool   `json:"enabled"`
 	}
-	if err := json.Unmarshal(resp.Data, &options); err != nil {
-		t.Fatalf("unmarshal link options: %v", err)
+	var channels []publicChannelPayload
+	if err := json.Unmarshal(resp.Data, &channels); err != nil {
+		t.Fatalf("unmarshal public channels: %v", err)
 	}
-	ids := make(map[string]bool, len(options))
-	for _, option := range options {
-		if !option.Enabled {
-			t.Fatalf("option %q is disabled", option.ID)
+	byID := make(map[string]publicChannelPayload, len(channels))
+	for _, channel := range channels {
+		if !channel.Enabled {
+			t.Fatalf("channel %q is disabled", channel.ID)
 		}
-		ids[option.ID] = true
+		byID[channel.ID] = channel
 	}
-	if !ids[pkgchannel.PlatformTelegram] {
-		t.Fatalf("expected telegram link option, got %#v", options)
+	if _, ok := byID[pkgchannel.PlatformTelegram]; !ok {
+		t.Fatalf("expected telegram public channel, got %#v", channels)
 	}
-	if ids[pkgchannel.PlatformFeishu] {
-		t.Fatalf("feishu disabled channel should not be linkable: %#v", options)
+	if _, ok := byID[pkgchannel.PlatformFeishu]; ok {
+		t.Fatalf("feishu disabled channel should not be public: %#v", channels)
 	}
-	if ids[pkgchannel.PlatformQQ] {
-		t.Fatalf("qq disabled plugin should not be linkable: %#v", options)
+	if _, ok := byID[pkgchannel.PlatformQQ]; ok {
+		t.Fatalf("qq disabled plugin should not be public: %#v", channels)
+	}
+	dedicated, ok := byID["feishu-anna"]
+	if !ok {
+		t.Fatalf("expected dedicated channel, got %#v", channels)
+	}
+	if dedicated.AgentID != "anna" || dedicated.AgentName != "Anna" {
+		t.Fatalf("dedicated agent = %q/%q, want anna/Anna", dedicated.AgentID, dedicated.AgentName)
 	}
 }
 
@@ -893,9 +913,9 @@ func TestNonAdminCanOpenChannelsPageButNotChannelConfig(t *testing.T) {
 		t.Fatalf("channels page status = %d, want %d", rr.Code, http.StatusOK)
 	}
 
-	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/channels/link-options", nil)
+	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/channels/public", nil)
 	if rr.Code != http.StatusOK {
-		t.Fatalf("link options status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+		t.Fatalf("public channels status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 
 	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/channels", nil)

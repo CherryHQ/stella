@@ -8,8 +8,8 @@ templ ChannelsPage() {
 		<section class="border-t border-base-300 pt-8">
 			<div class="flex items-center justify-between gap-4 mb-6">
 				<div>
-					<h2 class="text-lg font-medium">Your channel links</h2>
-					<p class="text-sm text-secondary mt-1">Link a platform once. Agent-dedicated channels reuse the same platform link.</p>
+					<h2 class="text-lg font-medium">Available channels</h2>
+					<p class="text-sm text-secondary mt-1">Link the platform account on the channel you use. Dedicated channels always use their bound agent.</p>
 				</div>
 				<span class="text-xs font-mono text-secondary" x-text="linkedIdentities.length + ' linked'"></span>
 			</div>
@@ -19,30 +19,37 @@ templ ChannelsPage() {
 				</div>
 			</template>
 			<div x-show="!loadingLinks" x-cloak class="divide-y divide-base-300 border-y border-base-300">
-				<template x-for="platform in linkablePlatforms" :key="platform.id">
+				<template x-for="channel in publicChannels" :key="channel.id">
 					<div class="py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
 						<div class="min-w-0">
-							<div class="flex items-baseline gap-3">
-								<span class="font-medium" x-text="platform.label"></span>
-								<span class="badge badge-sm" :class="isLinked(platform.id) ? 'badge-success' : 'badge-ghost'" x-text="isLinked(platform.id) ? 'linked' : 'not linked'"></span>
+							<div class="flex items-baseline gap-3 flex-wrap">
+								<span class="font-medium" x-text="channelTitle(channel)"></span>
+								<span class="badge badge-ghost badge-sm" x-text="channel.type"></span>
+								<span class="badge badge-sm" :class="isLinked(channel.type) ? 'badge-success' : 'badge-ghost'" x-text="isLinked(channel.type) ? 'linked' : 'not linked'"></span>
 							</div>
-							<p class="text-sm text-secondary mt-1" x-text="linkHint(platform.id)"></p>
-							<template x-if="identityFor(platform.id)">
-								<p class="text-xs font-mono text-base-content/50 mt-2" x-text="identityLabel(identityFor(platform.id))"></p>
+							<template x-if="channel.agent_id">
+								<p class="text-sm mt-1">
+									<span class="text-secondary">Uses agent </span>
+									<a :href="agentHref(channel)" class="link link-primary font-mono" x-text="agentLabel(channel)"></a>
+								</p>
+							</template>
+							<p class="text-sm text-secondary mt-1" x-text="channelDescription(channel)"></p>
+							<template x-if="identityFor(channel.type)">
+								<p class="text-xs font-mono text-base-content/50 mt-2" x-text="identityLabel(identityFor(channel.type))"></p>
 							</template>
 						</div>
 						<div class="flex items-center gap-2 shrink-0">
 							<button
-								x-show="!isLinked(platform.id) && platform.id !== 'weixin'"
-								@click="generateCode(platform.id)"
+								x-show="!isLinked(channel.type) && channel.type !== 'weixin'"
+								@click="generateCode(channel.type)"
 								:disabled="generating"
 								class="btn btn-sm btn-outline"
 							>
-								<span x-show="generating && linkPlatform === platform.id" class="loading loading-spinner loading-xs"></span>
-								<span x-text="'Link ' + platform.label"></span>
+								<span x-show="generating && linkPlatform === channel.type" class="loading loading-spinner loading-xs"></span>
+								<span x-text="'Link ' + channel.label"></span>
 							</button>
 							<button
-								x-show="!isLinked(platform.id) && platform.id === 'weixin'"
+								x-show="!isLinked(channel.type) && channel.type === 'weixin'"
 								@click="startWeixinQR()"
 								:disabled="wxQrPolling"
 								class="btn btn-sm btn-outline"
@@ -51,15 +58,15 @@ templ ChannelsPage() {
 								Link Weixin
 							</button>
 							<button
-								x-show="isLinked(platform.id)"
-								@click="unlinkIdentity(identityFor(platform.id)?.id)"
+								x-show="isLinked(channel.type)"
+								@click="unlinkIdentity(identityFor(channel.type)?.id)"
 								class="btn btn-ghost btn-xs text-secondary hover:text-error"
 							>unlink</button>
 						</div>
 					</div>
 				</template>
-				<template x-if="linkablePlatforms.length === 0">
-					<div class="py-8 text-sm text-secondary">No messaging platforms are available.</div>
+				<template x-if="publicChannels.length === 0">
+					<div class="py-8 text-sm text-secondary">No enabled messaging channels are available.</div>
 				</template>
 			</div>
 			<template x-if="linkCode">

@@ -35,6 +35,7 @@ export function register(Alpine) {
         this.loadCachedModels(),
         this.loadCurrentUser(),
       ])
+      this.focusAgentFromURL()
     },
 
     async loadCurrentUser() {
@@ -85,8 +86,10 @@ export function register(Alpine) {
     async loadAgents() {
       try {
         const agents = await api('GET', '/api/agents') || []
+        const requestedAgent = this.requestedAgentID()
         this.agents = agents.map(a => ({
           ...a,
+          _highlight: a.id === requestedAgent,
           _showMemory: false,
           _soul: '',
           _soulDraft: '',
@@ -97,6 +100,22 @@ export function register(Alpine) {
       } catch (e) {
         console.error(e)
       }
+    },
+
+    requestedAgentID() {
+      return new URLSearchParams(window.location.search).get('agent') || ''
+    },
+
+    focusAgentFromURL() {
+      const requestedAgent = this.requestedAgentID()
+      if (!requestedAgent) return
+      requestAnimationFrame(() => {
+        const el = Array.from(document.querySelectorAll('[data-agent-id]'))
+          .find(node => node.dataset.agentId === requestedAgent)
+        if (el) {
+          el.scrollIntoView({ block: 'center' })
+        }
+      })
     },
 
     resetForm() {

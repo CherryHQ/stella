@@ -91,8 +91,9 @@ export function register(Alpine) {
     isAdmin: false,
     agents: [],
     channels: [],
-    linkablePlatforms: [],
+    publicChannels: [],
     linkedIdentities: [],
+    platformLabel: { telegram: 'Telegram', qq: 'QQ', feishu: 'Feishu', weixin: 'Weixin' },
     loadingLinks: false,
     linkCode: '',
     linkPlatform: '',
@@ -128,7 +129,7 @@ export function register(Alpine) {
 
     async init() {
       await this.loadCurrentUser()
-      await Promise.all([this.loadLinkOptions(), this.loadIdentities()])
+      await Promise.all([this.loadPublicChannels(), this.loadIdentities()])
       if (!this.isAdmin) return
       await this.loadChannelPlugins()
       await Promise.all([this.loadAgents(), this.loadChannels()])
@@ -143,10 +144,10 @@ export function register(Alpine) {
       }
     },
 
-    async loadLinkOptions() {
+    async loadPublicChannels() {
       this.loadingLinks = true
       try {
-        this.linkablePlatforms = await api('GET', '/api/channels/link-options') || []
+        this.publicChannels = await api('GET', '/api/channels/public') || []
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       } finally {
@@ -176,14 +177,30 @@ export function register(Alpine) {
       return name + identity.external_id
     },
 
-    linkHint(platform) {
-      if (this.isLinked(platform)) {
-        return 'Used for this platform and any agent-dedicated channels on it.'
+    channelTitle(channel) {
+      if (channel.id === channel.type) return channel.label
+      return channel.label + ' - ' + channel.id
+    },
+
+    agentLabel(channel) {
+      return channel.agent_name ? channel.agent_name + ' (' + channel.agent_id + ')' : channel.agent_id
+    },
+
+    agentHref(channel) {
+      return '/agents?agent=' + encodeURIComponent(channel.agent_id || '')
+    },
+
+    channelDescription(channel) {
+      if (channel.agent_id) {
+        if (this.isLinked(channel.type)) {
+          return 'This dedicated channel routes messages and notifications through its bound agent. Your ' + channel.label + ' link is already connected.'
+        }
+        return 'This dedicated channel routes messages and notifications through its bound agent. Link your ' + channel.label + ' account once to use it.'
       }
-      if (platform === 'weixin') {
-        return 'Scan a QR code to connect this account.'
+      if (this.isLinked(channel.type)) {
+        return 'Available to all agents. Your ' + channel.label + ' account link is connected.'
       }
-      return 'Generate a one-time code, then send /link to Anna on this platform.'
+      return 'Available to all agents. Link your ' + channel.label + ' account to receive replies and notifications on this platform.'
     },
 
     async generateCode(platform) {
