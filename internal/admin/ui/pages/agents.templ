@@ -70,7 +70,7 @@ templ AgentsPage() {
 			<!-- Agent list -->
 			<div class="divide-y divide-base-300">
 				<template x-for="a in agents" :key="a.id">
-					<div class="py-5 group">
+					<div class="py-5 group transition-colors" :data-agent-id="a.id" :class="a._highlight ? 'bg-primary/5 -mx-3 px-3 rounded-lg' : ''">
 						<div class="flex items-baseline justify-between">
 							<div class="flex items-baseline gap-3">
 								<span class="font-medium" x-text="a.name"></span>

@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 
 	"github.com/vaayne/anna/internal/config"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
@@ -18,10 +19,13 @@ type channelView struct {
 	Config  string `json:"config"`
 }
 
-type channelLinkOption struct {
-	ID      string `json:"id"`
-	Label   string `json:"label"`
-	Enabled bool   `json:"enabled"`
+type publicChannelView struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Label     string `json:"label"`
+	AgentID   string `json:"agent_id,omitempty"`
+	AgentName string `json:"agent_name,omitempty"`
+	Enabled   bool   `json:"enabled"`
 }
 
 var channelLinkLabels = map[string]string{
@@ -48,7 +52,7 @@ func channelToView(ch config.Channel) channelView {
 	}
 }
 
-func (s *Server) listChannelLinkOptions(w http.ResponseWriter, r *http.Request) {
+func (s *Server) listPublicChannels(w http.ResponseWriter, r *http.Request) {
 	plugins, err := s.store.ListPluginsByKind(r.Context(), config.PluginKindChannel)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -61,35 +65,84 @@ func (s *Server) listChannelLinkOptions(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	agents, err := s.store.ListAgents(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	info := UserFromContext(r.Context())
+	if info != nil && !info.IsAdmin {
+		agents, err = s.filterAccessibleAgents(r.Context(), info, agents)
+		if err != nil {
+			s.log.Error("filter accessible agents for public channels", "user_id", info.UserID, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to filter agents")
+			return
+		}
+	}
+	agentNames := make(map[string]string, len(agents))
+	for _, agent := range agents {
+		if !agent.Enabled {
+			continue
+		}
+		agentNames[agent.ID] = agent.Name
+	}
+
 	channels, err := s.store.ListChannels(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	enabledChannels := make(map[string]bool, len(channels))
+	views := make([]publicChannelView, 0, len(channels))
 	for _, ch := range channels {
 		channelType := ch.Type
 		if channelType == "" {
 			channelType = ch.ID
 		}
-		if ch.Enabled && enabledPlugins[channelType] {
-			enabledChannels[channelType] = true
-		}
-	}
-
-	options := make([]channelLinkOption, 0, len(channelLinkOrder))
-	for _, id := range channelLinkOrder {
-		label, ok := channelLinkLabels[id]
-		if !ok || !enabledChannels[id] {
+		if !ch.Enabled || !enabledPlugins[channelType] {
 			continue
 		}
-		options = append(options, channelLinkOption{
-			ID:      id,
-			Label:   label,
-			Enabled: true,
+		agentName := ""
+		if ch.AgentID != "" {
+			var ok bool
+			agentName, ok = agentNames[ch.AgentID]
+			if !ok {
+				continue
+			}
+		}
+		label, ok := channelLinkLabels[channelType]
+		if !ok {
+			label = channelType
+		}
+		views = append(views, publicChannelView{
+			ID:        ch.ID,
+			Type:      channelType,
+			Label:     label,
+			AgentID:   ch.AgentID,
+			AgentName: agentName,
+			Enabled:   true,
 		})
 	}
-	writeData(w, http.StatusOK, options)
+	sortPublicChannels(views)
+	writeData(w, http.StatusOK, views)
+}
+
+func sortPublicChannels(channels []publicChannelView) {
+	order := make(map[string]int, len(channelLinkOrder))
+	for i, id := range channelLinkOrder {
+		order[id] = i
+	}
+	sort.Slice(channels, func(i, j int) bool {
+		left, right := channels[i], channels[j]
+		leftOrder, leftKnown := order[left.Type]
+		rightOrder, rightKnown := order[right.Type]
+		if leftKnown && rightKnown && leftOrder != rightOrder {
+			return leftOrder < rightOrder
+		}
+		if left.Type != right.Type {
+			return left.Type < right.Type
+		}
+		return left.ID < right.ID
+	})
 }
 
 func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {

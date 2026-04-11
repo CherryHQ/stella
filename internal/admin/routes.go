@@ -87,7 +87,7 @@ func (s *Server) registerChannelRoutes() {
 	adminAPI := func(handler http.HandlerFunc) http.Handler {
 		return s.adminOnlyMiddleware(handler)
 	}
-	s.mux.HandleFunc("GET /api/channels/link-options", s.listChannelLinkOptions)
+	s.mux.HandleFunc("GET /api/channels/public", s.listPublicChannels)
 	s.mux.Handle("GET /api/channels", adminAPI(s.listChannels))
 	s.mux.Handle("POST /api/channels", adminAPI(s.createChannel))
 	s.mux.Handle("GET /api/channels/{id}", adminAPI(s.getChannel))
