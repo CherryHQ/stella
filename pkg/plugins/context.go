@@ -9,6 +9,22 @@ import (
 	"github.com/vaayne/anna/pkg/channel"
 )
 
+// SandboxExecResult is the normalized command execution result returned by a
+// sandbox runtime.
+type SandboxExecResult struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
+}
+
+// SandboxRuntime is the host-provided sandbox execution surface exposed to
+// plugin tool builders. Implementations should execute commands inside the
+// active sandbox when available.
+type SandboxRuntime interface {
+	Enabled() bool
+	Exec(ctx context.Context, command string, timeoutSeconds int) (SandboxExecResult, error)
+}
+
 // ToolContext is the narrow build context for tool capabilities.
 type ToolContext struct {
 	Platform    Platform
@@ -18,6 +34,7 @@ type ToolContext struct {
 	AnnaHome    string
 	Workspace   string
 	ToolsBinDir string
+	Sandbox     SandboxRuntime
 }
 
 // ProviderContext is the narrow build context for provider capabilities.

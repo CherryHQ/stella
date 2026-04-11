@@ -32,15 +32,16 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContex
 		if err != nil || !state.Enabled || reg.Build == nil {
 			continue
 		}
-		t, err := reg.Build(pkgplugins.ToolContext{
-			Platform:    h.platform(reg.PluginID),
-			State:       state,
-			WorkDir:     bc.WorkDir,
-			UserDataDir: bc.UserDataDir,
-			AnnaHome:    bc.AnnaHome,
-			Workspace:   bc.Workspace,
-			ToolsBinDir: bc.ToolsBinDir,
-		})
+			t, err := reg.Build(pkgplugins.ToolContext{
+				Platform:    h.platform(reg.PluginID),
+				State:       state,
+				WorkDir:     bc.WorkDir,
+				UserDataDir: bc.UserDataDir,
+				AnnaHome:    bc.AnnaHome,
+				Workspace:   bc.Workspace,
+				ToolsBinDir: bc.ToolsBinDir,
+				Sandbox:     bc.Sandbox,
+			})
 		if err == nil && t != nil {
 			out = append(out, t)
 		}
@@ -61,19 +62,20 @@ func (h *Host) BuildCoreTools(bc plugintools.BuildContext) []tools.Tool {
 		if !reg.Required || reg.Build == nil {
 			continue
 		}
-		t, err := reg.Build(pkgplugins.ToolContext{
-			Platform: h.platform(reg.PluginID),
-			State: pkgplugins.PluginState{
+			t, err := reg.Build(pkgplugins.ToolContext{
+				Platform: h.platform(reg.PluginID),
+				State: pkgplugins.PluginState{
 				ID:      reg.PluginID,
 				Enabled: true,
 				Config:  h.defaultConfigFor(reg.PluginID),
 			},
-			WorkDir:     bc.WorkDir,
-			UserDataDir: bc.UserDataDir,
-			AnnaHome:    bc.AnnaHome,
-			Workspace:   bc.Workspace,
-			ToolsBinDir: bc.ToolsBinDir,
-		})
+				WorkDir:     bc.WorkDir,
+				UserDataDir: bc.UserDataDir,
+				AnnaHome:    bc.AnnaHome,
+				Workspace:   bc.Workspace,
+				ToolsBinDir: bc.ToolsBinDir,
+				Sandbox:     bc.Sandbox,
+			})
 		if err == nil && t != nil {
 			out = append(out, t)
 		}
