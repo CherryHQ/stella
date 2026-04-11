@@ -53,9 +53,9 @@ type SessionConfig struct {
 	Dst string
 	// Cwd is the working directory inside the sandbox.
 	Cwd string
-	// ToolsBinDir is exposed read-only so managed helper binaries like fd/rg/rtk
-	// remain executable from inside the sandbox.
-	ToolsBinDir string
+	// ReadOnlyDirs are additional host directories bound read-only into the
+	// sandbox so executables from PATH remain usable.
+	ReadOnlyDirs []string
 	// Network mode: disabled, allow_all, or whitelist.
 	NetworkMode string
 	// NetworkAllowlist is kept for config compatibility. Current boxsh only
@@ -180,8 +180,8 @@ func (c *Client) buildArgs() ([]string, error) {
 		return nil, fmt.Errorf("boxshclient: src and dst are required")
 	}
 	args = append(args, "--bind", fmt.Sprintf("cow:%s:%s", c.sessionConfig.Src, c.sessionConfig.Dst))
-	if c.sessionConfig.ToolsBinDir != "" {
-		args = append(args, "--bind", fmt.Sprintf("ro:%s", c.sessionConfig.ToolsBinDir))
+	for _, dir := range uniqueCleanAbsPaths(c.sessionConfig.ReadOnlyDirs) {
+		args = append(args, "--bind", fmt.Sprintf("ro:%s", dir))
 	}
 
 	switch c.sessionConfig.NetworkMode {
@@ -576,4 +576,21 @@ func isExpectedReaderClose(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "file already closed") || strings.Contains(msg, "closed pipe")
+}
+
+func uniqueCleanAbsPaths(paths []string) []string {
+	seen := make(map[string]bool, len(paths))
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		path = filepath.Clean(path)
+		if !filepath.IsAbs(path) || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	return out
 }

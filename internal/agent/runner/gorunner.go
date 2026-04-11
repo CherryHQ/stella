@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -172,7 +173,10 @@ func createAndStartBackend(ctx context.Context, cfg GoRunnerConfig) (*boxshclien
 		UserDataDir: cfg.UserDataDir,
 		Sandbox:     cfg.Sandbox,
 		WorkDir:     cfg.WorkDir,
-		ToolsBinDir: embedded.BinDir(annaHome),
+		ReadOnlyDirs: collectSandboxReadOnlyDirs(
+			embedded.BinDir(annaHome),
+			os.Getenv("PATH"),
+		),
 	}
 
 	backend, err := boxshclient.NewSharedBackend(backendCfg)
@@ -190,6 +194,7 @@ func createAndStartBackend(ctx context.Context, cfg GoRunnerConfig) (*boxshclien
 		"user_data_dir", cfg.UserDataDir,
 		"work_dir", cfg.WorkDir,
 		"network_mode", cfg.Sandbox.NetworkMode(),
+		"readonly_dir_count", len(backendCfg.ReadOnlyDirs),
 	)
 
 	return backend, nil
@@ -262,6 +267,19 @@ func buildToolRegistry(cfg GoRunnerConfig, backend *boxshclient.SharedBackend) (
 }
 
 // buildAgentPresets extracts builtin skills and loads agent presets from filesystem.
+func collectSandboxReadOnlyDirs(toolsBinDir, pathEnv string) []string {
+	dirs := []string{toolsBinDir}
+	for _, dir := range filepath.SplitList(pathEnv) {
+		if dir == "" || !filepath.IsAbs(dir) {
+			continue
+		}
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
+}
+
 func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 	annaHome := cfg.AnnaHome
 	if annaHome == "" {

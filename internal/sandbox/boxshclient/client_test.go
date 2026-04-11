@@ -107,9 +107,9 @@ func TestBuildArgs(t *testing.T) {
 			want: []string{"--rpc", "--sandbox", "--bind", "cow:/src:/dst"},
 		},
 		{
-			name: "tools bin readonly bind",
-			cfg:  SessionConfig{Src: "/src", Dst: "/dst", Cwd: "/dst", ToolsBinDir: "/tools/bin", NetworkMode: "allow_all"},
-			want: []string{"--rpc", "--sandbox", "--bind", "cow:/src:/dst", "--bind", "ro:/tools/bin"},
+			name: "readonly binds from path dirs",
+			cfg:  SessionConfig{Src: "/src", Dst: "/dst", Cwd: "/dst", ReadOnlyDirs: []string{"/tools/bin", "/usr/local/bin", "/tools/bin"}, NetworkMode: "allow_all"},
+			want: []string{"--rpc", "--sandbox", "--bind", "cow:/src:/dst", "--bind", "ro:/tools/bin", "--bind", "ro:/usr/local/bin"},
 		},
 		{
 			name:    "whitelist unsupported",

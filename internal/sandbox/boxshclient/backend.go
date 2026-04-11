@@ -50,9 +50,9 @@ type BackendConfig struct {
 	// Defaults to AnnaHome/cache/sandbox/sessions.
 	SessionBaseDir string
 
-	// ToolsBinDir is mounted read-only into the sandbox so managed helper
-	// binaries remain available from shell commands.
-	ToolsBinDir string
+	// ReadOnlyDirs are mounted read-only into the sandbox so helper binaries
+	// and user PATH directories remain available from shell commands.
+	ReadOnlyDirs []string
 }
 
 // NewSharedBackend creates a new shared backend without starting it.
@@ -126,7 +126,7 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 		Src:              src,
 		Dst:              sessionDir,
 		Cwd:              cwd,
-		ToolsBinDir:      cfg.ToolsBinDir,
+		ReadOnlyDirs:     cfg.ReadOnlyDirs,
 		NetworkMode:      cfg.Sandbox.NetworkMode(),
 		NetworkAllowlist: cfg.Sandbox.Network.Allowlist,
 	}
@@ -146,7 +146,7 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 		"src", src,
 		"dst", sessionDir,
 		"cwd", cwd,
-		"tools_bin_dir", cfg.ToolsBinDir,
+		"readonly_dir_count", len(uniqueCleanAbsPaths(cfg.ReadOnlyDirs)),
 		"network_mode", sessionCfg.NetworkMode,
 		"user_data_dir", cfg.UserDataDir,
 	)
