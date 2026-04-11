@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/pkg/ai"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/hooks"
 )
 
@@ -108,7 +109,8 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		execCall := call
 		execCall.Arguments = args
 		start := time.Now()
-		content, err := toolFn(ctx, execCall)
+		toolCtx := pkgchannel.WithNotificationAgentID(ctx, meta.AgentID)
+		content, err := toolFn(toolCtx, execCall)
 		duration := time.Since(start)
 
 		result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name, Content: []ai.ContentBlock{content}}

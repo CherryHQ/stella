@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/vaayne/anna/internal/config"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
@@ -21,12 +22,17 @@ type channelEntry struct {
 	channel pkgchannel.Channel
 }
 
+type channelStore interface {
+	ListChannels(ctx context.Context) ([]config.Channel, error)
+}
+
 // Dispatcher routes notifications to one or more registered channels.
 // It implements Notifier so it can be passed to tools and scheduler wiring.
 type Dispatcher struct {
 	mu       sync.RWMutex
 	channels []channelEntry
 	auth     pkgplugins.Auth // optional; set via SetAuthService for per-user notifications
+	store    channelStore    // optional; used to route agent-bound channel instances
 }
 
 // NewDispatcher creates an empty dispatcher. Register channels before use.
@@ -60,19 +66,37 @@ func (d *Dispatcher) Notify(ctx context.Context, n pkgchannel.Notification) erro
 	d.mu.RLock()
 	entries := make([]channelEntry, len(d.channels))
 	copy(entries, d.channels)
+	store := d.store
 	d.mu.RUnlock()
 
 	if len(entries) == 0 {
 		return fmt.Errorf("no notification channels registered")
 	}
 
+	channels := listConfiguredChannels(ctx, store)
+
 	if n.Channel != "" {
+		if e, ok := exactEntry(entries, n.Channel); ok {
+			return e.channel.Notify(ctx, n)
+		}
+		if e, ok := nonDedicatedEntryForPlatform(entries, channels, n.Channel); ok {
+			return e.channel.Notify(ctx, n)
+		}
 		for _, e := range entries {
 			if channelMatches(e.channel, n.Channel) {
 				return e.channel.Notify(ctx, n)
 			}
 		}
 		return fmt.Errorf("unknown notification channel %q", n.Channel)
+	}
+
+	if e, _, ok := dedicatedEntryForAgent(entries, channels, n.AgentID); ok {
+		return e.channel.Notify(ctx, n)
+	}
+
+	entries = broadcastEntries(entries, channels)
+	if len(entries) == 0 {
+		return fmt.Errorf("no non-dedicated notification channels registered")
 	}
 
 	var errs []error
@@ -91,11 +115,21 @@ func (d *Dispatcher) SetAuthService(service pkgplugins.Auth) {
 	d.mu.Unlock()
 }
 
+// SetChannelStore configures the channel directory for agent-bound routing.
+func (d *Dispatcher) SetChannelStore(store channelStore) {
+	d.mu.Lock()
+	d.store = store
+	d.mu.Unlock()
+}
+
 // NotifyUser sends a notification to a specific user via a single channel.
 //
 // Resolution order:
-//  1. If the user has a notify_identity_id preference, use that identity.
-//  2. Otherwise use the first linked identity (earliest linked_at).
+//  1. If the notification came from an agent with a dedicated channel and the
+//     user has that platform identity, use the dedicated channel.
+//  2. If the user has a notify_identity_id preference, use that platform's
+//     non-dedicated channel.
+//  3. Otherwise use the first linked identity with a non-dedicated channel.
 //
 // Falls back to broadcast if the user has no linked identities or if no
 // auth store is configured.
@@ -104,6 +138,7 @@ func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n pkgchannel.
 	as := d.auth
 	entries := make([]channelEntry, len(d.channels))
 	copy(entries, d.channels)
+	store := d.store
 	d.mu.RUnlock()
 
 	if len(entries) == 0 {
@@ -127,24 +162,29 @@ func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n pkgchannel.
 	}
 
 	target := pickNotifyIdentity(ctx, as, userID, identities)
+	channels := listConfiguredChannels(ctx, store)
 
-	for _, e := range entries {
-		if channelMatches(e.channel, target.Platform) {
+	if e, ch, ok := dedicatedEntryForAgent(entries, channels, n.AgentID); ok {
+		if id, ok := identityForPlatform(identities, channelTypeForEntry(ch, e)); ok {
 			nn := n
-			nn.ChatID = target.ExternalID
+			nn.ChatID = id.ExternalID
 			return e.channel.Notify(ctx, nn)
 		}
 	}
 
+	if e, ok := nonDedicatedEntryForPlatform(entries, channels, target.Platform); ok {
+		nn := n
+		nn.ChatID = target.ExternalID
+		return e.channel.Notify(ctx, nn)
+	}
+
 	for _, id := range identities {
-		for _, e := range entries {
-			if channelMatches(e.channel, id.Platform) {
-				slog.Warn("notifyUser: preferred channel not registered, using first available",
-					"user_id", userID, "preferred", target.Platform, "fallback", id.Platform)
-				nn := n
-				nn.ChatID = id.ExternalID
-				return e.channel.Notify(ctx, nn)
-			}
+		if e, ok := nonDedicatedEntryForPlatform(entries, channels, id.Platform); ok {
+			slog.Warn("notifyUser: preferred channel not registered, using first available",
+				"user_id", userID, "preferred", target.Platform, "fallback", id.Platform)
+			nn := n
+			nn.ChatID = id.ExternalID
+			return e.channel.Notify(ctx, nn)
 		}
 	}
 
@@ -164,6 +204,117 @@ func channelMatches(ch pkgchannel.Channel, name string) bool {
 		return typed.Platform() == name
 	}
 	return false
+}
+
+func exactEntry(entries []channelEntry, name string) (channelEntry, bool) {
+	for _, e := range entries {
+		if e.channel.Name() == name {
+			return e, true
+		}
+	}
+	return channelEntry{}, false
+}
+
+func listConfiguredChannels(ctx context.Context, store channelStore) []config.Channel {
+	if store == nil {
+		return nil
+	}
+	channels, err := store.ListChannels(ctx)
+	if err != nil {
+		slog.Warn("notify: failed to list channel config, using registered channels only", "error", err)
+		return nil
+	}
+	return channels
+}
+
+func channelTypeForEntry(ch config.Channel, entry channelEntry) string {
+	if ch.Type != "" {
+		return ch.Type
+	}
+	if typed, ok := entry.channel.(platformNamedChannel); ok {
+		return typed.Platform()
+	}
+	return entry.channel.Name()
+}
+
+func configForEntry(channels []config.Channel, entry channelEntry) (config.Channel, bool) {
+	for _, ch := range channels {
+		if ch.ID == entry.channel.Name() {
+			return ch, true
+		}
+	}
+	return config.Channel{}, false
+}
+
+func entryIsDedicated(channels []config.Channel, entry channelEntry) bool {
+	ch, ok := configForEntry(channels, entry)
+	return ok && ch.AgentID != ""
+}
+
+func dedicatedEntryForAgent(entries []channelEntry, channels []config.Channel, agentID string) (channelEntry, config.Channel, bool) {
+	if agentID == "" {
+		return channelEntry{}, config.Channel{}, false
+	}
+	for _, ch := range channels {
+		if !ch.Enabled || ch.AgentID != agentID {
+			continue
+		}
+		for _, e := range entries {
+			if e.channel.Name() == ch.ID {
+				return e, ch, true
+			}
+		}
+	}
+	return channelEntry{}, config.Channel{}, false
+}
+
+func nonDedicatedEntryForPlatform(entries []channelEntry, channels []config.Channel, platform string) (channelEntry, bool) {
+	if platform == "" {
+		return channelEntry{}, false
+	}
+	if len(channels) == 0 {
+		for _, e := range entries {
+			if channelMatches(e.channel, platform) {
+				return e, true
+			}
+		}
+		return channelEntry{}, false
+	}
+	for _, e := range entries {
+		ch, ok := configForEntry(channels, e)
+		if ok {
+			if ch.AgentID == "" && channelTypeForEntry(ch, e) == platform {
+				return e, true
+			}
+			continue
+		}
+		if channelMatches(e.channel, platform) {
+			return e, true
+		}
+	}
+	return channelEntry{}, false
+}
+
+func broadcastEntries(entries []channelEntry, channels []config.Channel) []channelEntry {
+	if len(channels) == 0 {
+		return entries
+	}
+	out := make([]channelEntry, 0, len(entries))
+	for _, e := range entries {
+		if !entryIsDedicated(channels, e) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func identityForPlatform(identities []pkgplugins.LinkedIdentity, platform string) (pkgplugins.LinkedIdentity, bool) {
+	for _, id := range identities {
+		if id.Platform == platform {
+			return id, true
+		}
+	}
+	return pkgplugins.LinkedIdentity{}, false
 }
 
 // pickNotifyIdentity returns the identity to use for notifications.
