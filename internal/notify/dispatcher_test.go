@@ -6,22 +6,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vaayne/anna/internal/config"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 type mockChannel struct {
 	name  string
+	typ   string
 	calls []pkgchannel.Notification
 	err   error
 }
 
 func (m *mockChannel) Name() string                  { return m.name }
+func (m *mockChannel) Platform() string              { return m.typ }
 func (m *mockChannel) Start(_ context.Context) error { return nil }
 func (m *mockChannel) Stop()                         {}
 func (m *mockChannel) Notify(_ context.Context, n pkgchannel.Notification) error {
 	m.calls = append(m.calls, n)
 	return m.err
+}
+
+type mockChannelStore struct {
+	channels []config.Channel
+}
+
+func (m mockChannelStore) ListChannels(context.Context) ([]config.Channel, error) {
+	return m.channels, nil
 }
 
 func TestDispatcherBroadcast(t *testing.T) {
@@ -41,6 +52,52 @@ func TestDispatcherBroadcast(t *testing.T) {
 	}
 	if len(slack.calls) != 1 {
 		t.Fatalf("slack got %d calls, want 1", len(slack.calls))
+	}
+}
+
+func TestDispatcherAgentBoundBroadcastUsesDedicatedChannel(t *testing.T) {
+	d := NewDispatcher()
+	general := &mockChannel{name: "feishu", typ: "feishu"}
+	dedicated := &mockChannel{name: "feishu-coder", typ: "feishu"}
+	d.Register(general)
+	d.Register(dedicated)
+	d.SetChannelStore(mockChannelStore{channels: []config.Channel{
+		{ID: "feishu", Type: "feishu", Enabled: true},
+		{ID: "feishu-coder", Type: "feishu", AgentID: "coder", Enabled: true},
+	}})
+
+	err := d.Notify(context.Background(), pkgchannel.Notification{AgentID: "coder", Text: "hello"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(dedicated.calls) != 1 {
+		t.Fatalf("dedicated got %d calls, want 1", len(dedicated.calls))
+	}
+	if len(general.calls) != 0 {
+		t.Fatalf("general got %d calls, want 0", len(general.calls))
+	}
+}
+
+func TestDispatcherBroadcastSkipsDedicatedChannels(t *testing.T) {
+	d := NewDispatcher()
+	general := &mockChannel{name: "feishu", typ: "feishu"}
+	dedicated := &mockChannel{name: "feishu-coder", typ: "feishu"}
+	d.Register(general)
+	d.Register(dedicated)
+	d.SetChannelStore(mockChannelStore{channels: []config.Channel{
+		{ID: "feishu", Type: "feishu", Enabled: true},
+		{ID: "feishu-coder", Type: "feishu", AgentID: "coder", Enabled: true},
+	}})
+
+	err := d.Notify(context.Background(), pkgchannel.Notification{AgentID: "other", Text: "hello"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(general.calls) != 1 {
+		t.Fatalf("general got %d calls, want 1", len(general.calls))
+	}
+	if len(dedicated.calls) != 0 {
+		t.Fatalf("dedicated got %d calls, want 0", len(dedicated.calls))
 	}
 }
 
@@ -232,5 +289,69 @@ func TestNotifyUserPreferredNotFoundFallsToFirst(t *testing.T) {
 	}
 	if tg.calls[0].ChatID != "tg-123" {
 		t.Errorf("ChatID = %q, want %q", tg.calls[0].ChatID, "tg-123")
+	}
+}
+
+func TestNotifyUserAgentBoundUsesDedicatedChannel(t *testing.T) {
+	d := NewDispatcher()
+	general := &mockChannel{name: "feishu", typ: "feishu"}
+	dedicated := &mockChannel{name: "feishu-coder", typ: "feishu"}
+	d.Register(general)
+	d.Register(dedicated)
+	d.SetChannelStore(mockChannelStore{channels: []config.Channel{
+		{ID: "feishu", Type: "feishu", Enabled: true},
+		{ID: "feishu-coder", Type: "feishu", AgentID: "coder", Enabled: true},
+	}})
+	d.SetAuthService(&mockAuthService{
+		user: pkgplugins.UserInfo{ID: 1},
+		identities: []pkgplugins.LinkedIdentity{
+			{ID: 10, Platform: "feishu", ExternalID: "fs-123"},
+		},
+	})
+
+	err := d.NotifyUser(context.Background(), 1, pkgchannel.Notification{AgentID: "coder", Text: "hello"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(dedicated.calls) != 1 {
+		t.Fatalf("dedicated got %d calls, want 1", len(dedicated.calls))
+	}
+	if dedicated.calls[0].ChatID != "fs-123" {
+		t.Fatalf("dedicated ChatID = %q, want fs-123", dedicated.calls[0].ChatID)
+	}
+	if len(general.calls) != 0 {
+		t.Fatalf("general got %d calls, want 0", len(general.calls))
+	}
+}
+
+func TestNotifyUserOtherAgentUsesPlatformChannel(t *testing.T) {
+	d := NewDispatcher()
+	general := &mockChannel{name: "feishu", typ: "feishu"}
+	dedicated := &mockChannel{name: "feishu-coder", typ: "feishu"}
+	d.Register(general)
+	d.Register(dedicated)
+	d.SetChannelStore(mockChannelStore{channels: []config.Channel{
+		{ID: "feishu", Type: "feishu", Enabled: true},
+		{ID: "feishu-coder", Type: "feishu", AgentID: "coder", Enabled: true},
+	}})
+	d.SetAuthService(&mockAuthService{
+		user: pkgplugins.UserInfo{ID: 1},
+		identities: []pkgplugins.LinkedIdentity{
+			{ID: 10, Platform: "feishu", ExternalID: "fs-123"},
+		},
+	})
+
+	err := d.NotifyUser(context.Background(), 1, pkgchannel.Notification{AgentID: "writer", Text: "hello"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(general.calls) != 1 {
+		t.Fatalf("general got %d calls, want 1", len(general.calls))
+	}
+	if general.calls[0].ChatID != "fs-123" {
+		t.Fatalf("general ChatID = %q, want fs-123", general.calls[0].ChatID)
+	}
+	if len(dedicated.calls) != 0 {
+		t.Fatalf("dedicated got %d calls, want 0", len(dedicated.calls))
 	}
 }

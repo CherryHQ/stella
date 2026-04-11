@@ -119,6 +119,7 @@ type ToolUseEvent struct {
 type Notification struct {
 	Channel string // optional: route to a specific backend
 	ChatID  string // target chat/channel within the backend
+	AgentID string // optional: agent that produced the notification
 	Text    string // markdown content
 	Silent  bool   // send without notification sound
 }

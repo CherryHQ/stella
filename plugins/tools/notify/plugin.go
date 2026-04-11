@@ -88,6 +88,7 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	err := t.service.Notify(ctx, pkgchannel.Notification{
 		Channel: ch,
 		ChatID:  chatID,
+		AgentID: pkgchannel.NotificationAgentIDFromContext(ctx),
 		Text:    message,
 		Silent:  silent,
 	})
