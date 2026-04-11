@@ -250,7 +250,7 @@ func buildToolRegistry(cfg GoRunnerConfig, backend sandboxBackend) (*tools.Regis
 		Backend:     backend.Boxsh(),
 		Sandbox:     backend.Runtime(),
 	}
-	coreToolsBuilder := CoreToolsBuilderWithBoxsh(cfg.CoreTools)
+	coreToolsBuilder := CoreToolsBuilderWithSandbox(cfg.CoreTools, backend)
 	for _, t := range coreToolsBuilder(bc) {
 		toolReg.Register(t)
 	}

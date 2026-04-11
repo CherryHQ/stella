@@ -92,30 +92,30 @@ Windows continues to run without `boxsh`.
 
 ## Migration Plan
 
-### Phase 1 (already started)
+### Phase 1 ✅
 
-- Define and thread `SandboxRuntime` through tool contexts.
-- Provide disabled runtime object when sandbox backend is unavailable.
+- `SandboxRuntime` is threaded through tool contexts.
+- Disabled runtime is provided when sandbox backend is unavailable.
 
-### Phase 2
+### Phase 2 ✅
 
-- Add backend factory + runner-internal backend interface.
-- Route runner startup/shutdown via backend interface.
+- Backend factory and runner-internal backend interface are implemented.
+- Runner startup/shutdown uses backend abstraction.
 
-### Phase 3
+### Phase 3 ✅
 
-- Remove `BuildContext.Backend` dependence from plugin host checks.
-- Use only generic sandbox runtime/capability checks.
+- `BuildContext.Backend` dependence was removed from plugin host checks.
+- Plugin tool build path uses generic sandbox runtime context.
 
-### Phase 4
+### Phase 4 ✅
 
-- Refactor core tool builder to backend-neutral naming and interfaces.
-- Keep `boxsh` adapter implementation behind backend interface.
+- Core tool builder is backend-neutral (`CoreToolsBuilderWithSandbox`).
+- `boxsh` adapters are isolated behind backend abstraction.
 
-### Phase 5
+### Phase 5 ✅ (initial)
 
-- Add optional second backend implementation for parity testing.
-- Validate behavior with shared contract tests.
+- Two backends (`boxsh`, `noop`) are selectable.
+- Contract tests for backend/runtime behavior are in place; parity can be extended as new backends are added.
 
 ## Testing Strategy
 
@@ -142,4 +142,3 @@ Windows continues to run without `boxsh`.
 2. Do we need network policy introspection APIs in plugin context?
 3. Should backend selection be per-agent, global, or both?
 4. What is the minimum capability set a backend must provide to be considered "sandbox-enabled"?
-

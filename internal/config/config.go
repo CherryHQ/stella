@@ -37,6 +37,7 @@ const (
 
 // SandboxConfig configures the sandbox backend.
 type SandboxConfig struct {
+	Backend string               `json:"backend"`
 	Network SandboxNetworkConfig `json:"network"`
 }
 
@@ -54,8 +55,22 @@ func (c SandboxConfig) NetworkMode() string {
 	return c.Network.Mode
 }
 
+// BackendName returns sandbox backend with defaults applied.
+func (c SandboxConfig) BackendName() string {
+	if c.Backend == "" {
+		return "auto"
+	}
+	return c.Backend
+}
+
 // Validate returns an error when the sandbox configuration is invalid.
 func (c SandboxConfig) Validate() error {
+	switch c.BackendName() {
+	case "auto", "boxsh", "noop":
+	default:
+		return fmt.Errorf("sandbox.backend must be one of %q, %q, or %q", "auto", "boxsh", "noop")
+	}
+
 	switch mode := c.NetworkMode(); mode {
 	case SandboxNetworkDisabled, SandboxNetworkAllowAll:
 		if len(c.Network.Allowlist) > 0 {

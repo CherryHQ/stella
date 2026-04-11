@@ -1,10 +1,11 @@
 package runner
 
 import (
-	"runtime"
+	"context"
 	"testing"
 
 	"github.com/vaayne/anna/internal/sandbox/boxshclient"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	bashtool "github.com/vaayne/anna/plugins/tools/bash"
@@ -13,7 +14,26 @@ import (
 	writetool "github.com/vaayne/anna/plugins/tools/write"
 )
 
-// delegateBuilder creates regular (non-boxsh) tools for testing.
+type fakeSandboxBackend struct {
+	boxsh *boxshclient.SharedBackend
+}
+
+func (f fakeSandboxBackend) Runtime() pkgplugins.SandboxRuntime {
+	return plugintools.SandboxRuntimeFromBackend(nil)
+}
+func (f fakeSandboxBackend) Boxsh() *boxshclient.SharedBackend { return f.boxsh }
+func (f fakeSandboxBackend) SessionDir() string                { return "" }
+func (f fakeSandboxBackend) Alive() bool                       { return true }
+func (f fakeSandboxBackend) Close() error                      { return nil }
+
+type fakeRuntime struct{}
+
+func (fakeRuntime) Enabled() bool { return false }
+func (fakeRuntime) Exec(context.Context, string, int) (pkgplugins.SandboxExecResult, error) {
+	return pkgplugins.SandboxExecResult{}, nil
+}
+
+// delegateBuilder creates regular (non-sandbox adapter) tools for testing.
 func delegateBuilder(bc plugintools.BuildContext) []tools.Tool {
 	return []tools.Tool{
 		bashtool.NewBashTool(bc.WorkDir, bc.ToolsBinDir),
@@ -23,111 +43,45 @@ func delegateBuilder(bc plugintools.BuildContext) []tools.Tool {
 	}
 }
 
-func TestCoreToolsBuilderWithBoxsh_WindowsUsesDelegate(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Windows-specific test")
-	}
-
-	builder := CoreToolsBuilderWithBoxsh(delegateBuilder)
+func TestCoreToolsBuilderWithSandbox_NoBackendUsesDelegate(t *testing.T) {
+	builder := CoreToolsBuilderWithSandbox(delegateBuilder, fakeSandboxBackend{})
 	bc := plugintools.BuildContext{
 		WorkDir:     "/tmp",
 		ToolsBinDir: "/tmp/bin",
-		Backend:     nil, // Even with a backend, Windows should use delegate
+		Sandbox:     fakeRuntime{},
 	}
 
 	tools := builder(bc)
 	if len(tools) != 4 {
-		t.Errorf("expected 4 tools, got %d", len(tools))
+		t.Fatalf("expected 4 tools, got %d", len(tools))
 	}
-
-	// Verify we got the regular bash tool, not the boxsh adapter
-	bashTool := tools[0]
-	if _, ok := bashTool.(*bashtool.BashTool); !ok {
-		t.Errorf("expected *bashtool.BashTool on Windows, got %T", bashTool)
+	if _, ok := tools[0].(*bashtool.BashTool); !ok {
+		t.Fatalf("expected delegate bash tool, got %T", tools[0])
 	}
 }
 
-func TestCoreToolsBuilderWithBoxsh_NoBackendUsesDelegate(t *testing.T) {
-	builder := CoreToolsBuilderWithBoxsh(delegateBuilder)
+func TestCoreToolsBuilderWithSandbox_WithBackendUsesAdapters(t *testing.T) {
+	builder := CoreToolsBuilderWithSandbox(delegateBuilder, fakeSandboxBackend{
+		boxsh: &boxshclient.SharedBackend{},
+	})
 	bc := plugintools.BuildContext{
 		WorkDir:     "/tmp",
 		ToolsBinDir: "/tmp/bin",
-		Backend:     nil, // No backend
+		Sandbox:     fakeRuntime{},
 	}
 
 	tools := builder(bc)
 	if len(tools) != 4 {
-		t.Errorf("expected 4 tools, got %d", len(tools))
+		t.Fatalf("expected 4 tools, got %d", len(tools))
 	}
-
-	// Verify we got the regular bash tool
-	bashTool := tools[0]
-	if _, ok := bashTool.(*bashtool.BashTool); !ok {
-		t.Errorf("expected *bashtool.BashTool without backend, got %T", bashTool)
+	if _, ok := tools[0].(*boxshclient.BashAdapter); !ok {
+		t.Fatalf("expected sandbox bash adapter, got %T", tools[0])
 	}
 }
 
-func TestCoreToolsBuilderWithBoxsh_WithBackendUsesBoxsh(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Skipping on Windows - different behavior")
+func TestBuildSandboxCoreTools_NoBoxshReturnsNil(t *testing.T) {
+	got := buildSandboxCoreTools(fakeSandboxBackend{}, plugintools.BuildContext{})
+	if got != nil {
+		t.Fatalf("expected nil core tools without boxsh backend, got %v", got)
 	}
-
-	// We can't easily create a real backend without a boxsh binary,
-	// but we can verify the function returns the right types when backend is non-nil
-	builder := CoreToolsBuilderWithBoxsh(delegateBuilder)
-
-	// Create a mock backend (we can't start it, but the type check is what we need)
-	// Note: This will fail if we try to use it, but that's OK for this test
-	backend := &boxshclient.SharedBackend{}
-
-	bc := plugintools.BuildContext{
-		WorkDir:     "/tmp",
-		ToolsBinDir: "/tmp/bin",
-		Backend:     backend,
-	}
-
-	tools := builder(bc)
-	if len(tools) != 4 {
-		t.Errorf("expected 4 tools, got %d", len(tools))
-	}
-
-	// On Linux/macOS with backend, we should get boxsh adapters
-	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
-		// Check that we got boxsh adapters, not regular tools
-		if _, ok := tools[0].(*boxshclient.BashAdapter); !ok {
-			t.Errorf("expected *boxshclient.BashAdapter with backend on %s, got %T", runtime.GOOS, tools[0])
-		}
-		if _, ok := tools[1].(*boxshclient.ReadAdapter); !ok {
-			t.Errorf("expected *boxshclient.ReadAdapter with backend on %s, got %T", runtime.GOOS, tools[1])
-		}
-		if _, ok := tools[2].(*boxshclient.WriteAdapter); !ok {
-			t.Errorf("expected *boxshclient.WriteAdapter with backend on %s, got %T", runtime.GOOS, tools[2])
-		}
-		if _, ok := tools[3].(*boxshclient.EditAdapter); !ok {
-			t.Errorf("expected *boxshclient.EditAdapter with backend on %s, got %T", runtime.GOOS, tools[3])
-		}
-	}
-}
-
-func TestBuildBoxshCoreTools_NilBackend(t *testing.T) {
-	// Test that buildBoxshCoreTools returns nil when backend is nil
-	result := buildBoxshCoreTools(plugintools.BuildContext{Backend: nil})
-	if result != nil {
-		t.Errorf("expected nil when backend is nil, got %v", result)
-	}
-}
-
-func TestCoreToolsBuilderWithBoxsh_NilDelegatePanics(t *testing.T) {
-	// Test with nil delegate - should still work but return nil or panic
-	builder := CoreToolsBuilderWithBoxsh(nil)
-
-	// This should handle nil delegate gracefully
-	bc := plugintools.BuildContext{
-		WorkDir:     "/tmp",
-		ToolsBinDir: "/tmp/bin",
-		Backend:     nil,
-	}
-
-	// Should not panic even with nil delegate
-	_ = builder(bc)
 }

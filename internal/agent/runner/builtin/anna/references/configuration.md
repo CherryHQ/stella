@@ -83,10 +83,11 @@ All paths are relative to `$ANNA_HOME` (`~/.anna` by default).
 
 Sandbox settings are stored per agent in the `settings_agents.sandbox` JSON column and can be edited in the admin panel on each agent:
 
+- `backend` — `auto` (default), `boxsh`, or `noop`
 - `network.mode` — `disabled` (default), `allow_all`, or `whitelist`
 - `network.allowlist` — required only when mode is `whitelist`; entries may be hostnames, IPs, or CIDRs
 
-Linux and macOS validate the managed `boxsh` binary, workspace/state-dir shape, and per-agent network policy, then run the core local-workspace tools (`bash`, `read`, `write`, `edit`) through a shared `boxsh --rpc` sandbox backend. Windows keeps the existing non-`boxsh` behavior.
+Linux and macOS validate the managed `boxsh` backend when selected, workspace/state-dir shape, and per-agent network policy, then run the core local-workspace tools (`bash`, `read`, `write`, `edit`) through a shared sandbox backend. Windows typically resolves `auto` to the `noop` backend.
 
 ## Environment variables
 

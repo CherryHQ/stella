@@ -18,7 +18,7 @@ type ProviderModel struct {
 	Output        []string          `json:"output,omitempty"`
 	ContextWindow int               `json:"contextWindow,omitempty"`
 	MaxTokens     int               `json:"maxTokens,omitempty"`
-	Cost          ProviderModelCost `json:"cost,omitempty"`
+	Cost          ProviderModelCost `json:"cost,omitzero"`
 }
 
 // Provider represents an LLM API provider.
