@@ -100,6 +100,28 @@ func writeMockRPCBoxsh(t *testing.T, annaHome string, exitAfterHandshake bool) s
 	return commandsLog
 }
 
+func writeIncompatibleRPCBoxsh(t *testing.T, annaHome string) {
+	t.Helper()
+	_ = embedded.EnsureTools(annaHome)
+	binDir := filepath.Join(annaHome, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	boxshPath := filepath.Join(binDir, "boxsh")
+	script := "#!/bin/bash\n" +
+		"if [[ \"$1\" == \"--version\" ]]; then\n" +
+		"\techo boxsh 2.0.1\n" +
+		"\texit 0\n" +
+		"fi\n" +
+		"while read -r line; do\n" +
+		"\tid=$(echo \"$line\" | grep -o '\"id\":[0-9]*' | cut -d: -f2)\n" +
+		"\techo \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"error\\\":{\\\"code\\\":-32000,\\\"message\\\":\\\"parse_error: unknown method: ping\\\"},\\\"id\\\":$id}\"\n" +
+		"done\n"
+	if err := os.WriteFile(boxshPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+}
+
 func withTestRunnerPaths(t *testing.T, cfg GoRunnerConfig) GoRunnerConfig {
 	t.Helper()
 	annaHome, workspace := testRunnerPaths(t)
@@ -226,6 +248,42 @@ func TestNewGoRunnerUsesBoxshCoreToolsAndCleansUp(t *testing.T) {
 	}
 	if _, err := os.Stat(sessionDir); !os.IsNotExist(err) {
 		t.Fatalf("expected session dir cleanup, stat err = %v", err)
+	}
+}
+
+func TestNewGoRunnerFallsBackWhenBoxshBackendStartFails(t *testing.T) {
+	if boxshclient.PlatformSupportsBoxsh() == false {
+		t.Skip("boxsh integration only applies on linux/darwin")
+	}
+
+	annaHome := t.TempDir()
+	workspace := t.TempDir()
+	writeIncompatibleRPCBoxsh(t, annaHome)
+
+	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		AnnaHome:  annaHome,
+		Workspace: workspace,
+		CoreTools: testCoreToolsBuilder,
+		Providers: testProviderRegistryBuilder,
+	})
+	if err != nil {
+		t.Fatalf("NewGoRunner should fall back instead of failing: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	if r.backend != nil {
+		t.Fatal("expected boxsh backend startup failure to fall back to direct tools")
+	}
+
+	result, err := r.tools.Execute(context.Background(), "bash", map[string]any{"command": "printf fallback-ok"})
+	if err != nil {
+		t.Fatalf("execute fallback bash: %v", err)
+	}
+	if !strings.Contains(result, "fallback-ok") {
+		t.Fatalf("expected fallback bash result, got %q", result)
 	}
 }
 
