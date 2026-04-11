@@ -24,15 +24,16 @@ func init() {
 				pkgplugins.CapabilityTool,
 			},
 		})
-		host.AddTool(pkgplugins.ToolSpec{
-			PluginID:    "tool/read",
-			Name:        "read",
-			Description: "Read file contents.",
-			Required:    true,
-			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return sandbox.WrapWithSandbox(&ReadTool{}, ctx.UserDataDir, "file_path"), nil
-			},
-		})
+			host.AddTool(pkgplugins.ToolSpec{
+				PluginID:    "tool/read",
+				Name:        "read",
+				Description: "Read file contents.",
+				Required:    true,
+				Sandboxed:   true,
+				Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
+					return sandbox.WrapWithSandbox(&ReadTool{}, ctx.UserDataDir, "file_path"), nil
+				},
+			})
 	}))
 }
 

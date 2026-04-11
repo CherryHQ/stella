@@ -152,6 +152,8 @@ On Linux and macOS, Anna uses the `boxsh` sandbox for agent code execution. The 
 - Path traversal outside the sandbox is blocked
 - Network access is disabled by default
 
+Optional plugin tools are only exposed when their implementation is marked sandbox-compatible; non-sandboxed plugin tools are skipped while boxsh is active.
+
 Per-agent network policy can be configured through the admin panel:
 
 | Mode | Description |

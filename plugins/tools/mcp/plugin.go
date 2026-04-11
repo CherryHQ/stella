@@ -56,7 +56,7 @@ func init() {
 		host.AddRuntime(pkgplugins.RuntimeSpec{PluginID: PluginID, Name: RuntimeName, Build: func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
 			return &managedRuntime{manager: NewManager()}, nil
 		}})
-		host.AddTool(pkgplugins.ToolSpec{PluginID: PluginID, Name: "mcp", Description: "Proxy MCP tools managed by the MCP plugin.", Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
+		host.AddTool(pkgplugins.ToolSpec{PluginID: PluginID, Name: "mcp", Description: "Proxy MCP tools managed by the MCP plugin.", Sandboxed: false, Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
 			rt, ok := LookupRuntime(ctx.Platform.RuntimeLookup())
 			if !ok {
 				return New(nil), nil

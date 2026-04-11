@@ -28,6 +28,7 @@ func init() {
 			Name:        "write",
 			Description: "Write complete file contents.",
 			Required:    true,
+			Sandboxed:   true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
 				return sandbox.WrapWithSandbox(&WriteTool{}, ctx.UserDataDir, "file_path"), nil
 			},

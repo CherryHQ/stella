@@ -252,6 +252,7 @@ func buildToolRegistry(cfg GoRunnerConfig, backend *boxshclient.SharedBackend) (
 		Workspace:   cfg.Workspace,
 		ToolsBinDir: toolsBinDir,
 		Backend:     backend,
+		Sandbox:     plugintools.SandboxRuntimeFromBackend(backend),
 	}
 	coreToolsBuilder := CoreToolsBuilderWithBoxsh(cfg.CoreTools)
 	for _, t := range coreToolsBuilder(bc) {

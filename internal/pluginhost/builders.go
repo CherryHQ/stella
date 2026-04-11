@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
+	"runtime"
 	"sort"
 
 	"github.com/vaayne/anna/pkg/hooks"
@@ -24,23 +26,33 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContex
 	h.mu.RUnlock()
 	sort.Slice(regs, func(i, j int) bool { return regs[i].Name < regs[j].Name })
 	var out []tools.Tool
+	sandboxEnforced := runtime.GOOS != "windows" && bc.Backend != nil
 	for _, reg := range regs {
 		if reg.Required {
+			continue
+		}
+		if sandboxEnforced && !reg.Sandboxed {
+			slog.Warn("skipping non-sandboxed plugin tool while boxsh sandbox is active",
+				"component", "plugin_host",
+				"tool", reg.Name,
+				"plugin_id", reg.PluginID,
+			)
 			continue
 		}
 		state, err := h.DesiredState(ctx, reg.PluginID)
 		if err != nil || !state.Enabled || reg.Build == nil {
 			continue
 		}
-		t, err := reg.Build(pkgplugins.ToolContext{
-			Platform:    h.platform(reg.PluginID),
-			State:       state,
-			WorkDir:     bc.WorkDir,
-			UserDataDir: bc.UserDataDir,
-			AnnaHome:    bc.AnnaHome,
-			Workspace:   bc.Workspace,
-			ToolsBinDir: bc.ToolsBinDir,
-		})
+			t, err := reg.Build(pkgplugins.ToolContext{
+				Platform:    h.platform(reg.PluginID),
+				State:       state,
+				WorkDir:     bc.WorkDir,
+				UserDataDir: bc.UserDataDir,
+				AnnaHome:    bc.AnnaHome,
+				Workspace:   bc.Workspace,
+				ToolsBinDir: bc.ToolsBinDir,
+				Sandbox:     bc.Sandbox,
+			})
 		if err == nil && t != nil {
 			out = append(out, t)
 		}
@@ -61,19 +73,20 @@ func (h *Host) BuildCoreTools(bc plugintools.BuildContext) []tools.Tool {
 		if !reg.Required || reg.Build == nil {
 			continue
 		}
-		t, err := reg.Build(pkgplugins.ToolContext{
-			Platform: h.platform(reg.PluginID),
-			State: pkgplugins.PluginState{
+			t, err := reg.Build(pkgplugins.ToolContext{
+				Platform: h.platform(reg.PluginID),
+				State: pkgplugins.PluginState{
 				ID:      reg.PluginID,
 				Enabled: true,
 				Config:  h.defaultConfigFor(reg.PluginID),
 			},
-			WorkDir:     bc.WorkDir,
-			UserDataDir: bc.UserDataDir,
-			AnnaHome:    bc.AnnaHome,
-			Workspace:   bc.Workspace,
-			ToolsBinDir: bc.ToolsBinDir,
-		})
+				WorkDir:     bc.WorkDir,
+				UserDataDir: bc.UserDataDir,
+				AnnaHome:    bc.AnnaHome,
+				Workspace:   bc.Workspace,
+				ToolsBinDir: bc.ToolsBinDir,
+				Sandbox:     bc.Sandbox,
+			})
 		if err == nil && t != nil {
 			out = append(out, t)
 		}
