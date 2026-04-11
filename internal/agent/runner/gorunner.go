@@ -183,6 +183,14 @@ func createAndStartBackend(ctx context.Context, cfg GoRunnerConfig) (*boxshclien
 		return nil, fmt.Errorf("start boxsh backend: %w", err)
 	}
 
+	slog.Info("go runner using boxsh core tools",
+		"component", "go_runner",
+		"workspace", cfg.Workspace,
+		"user_data_dir", cfg.UserDataDir,
+		"work_dir", cfg.WorkDir,
+		"network_mode", cfg.Sandbox.NetworkMode(),
+	)
+
 	return backend, nil
 }
 

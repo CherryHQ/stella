@@ -3,6 +3,7 @@ package boxshclient
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -134,6 +135,15 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 	}
 
 	b.client = client
+	slog.Info("boxsh backend started",
+		"component", "boxsh_backend",
+		"binary", b.binaryPath,
+		"src", src,
+		"dst", sessionDir,
+		"cwd", cwd,
+		"network_mode", sessionCfg.NetworkMode,
+		"user_data_dir", cfg.UserDataDir,
+	)
 	return nil
 }
 
@@ -185,6 +195,11 @@ func (b *SharedBackend) Close() error {
 		}
 	})
 
+	slog.Info("boxsh backend stopped",
+		"component", "boxsh_backend",
+		"binary", b.binaryPath,
+		"dst", sessionDir,
+	)
 	if len(errs) > 0 {
 		return errs[0]
 	}
