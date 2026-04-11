@@ -49,13 +49,14 @@ type Client struct {
 type SessionConfig struct {
 	// Src is the source workspace (read-only lower layer).
 	Src string
-	// Dst is the destination upperdir (read-write layer).
+	// Dst is the destination overlay root exposed inside the sandbox.
 	Dst string
 	// Cwd is the working directory inside the sandbox.
 	Cwd string
 	// Network mode: disabled, allow_all, or whitelist.
 	NetworkMode string
-	// NetworkAllowlist is the list of allowed hosts/CIDRs for whitelist mode.
+	// NetworkAllowlist is kept for config compatibility. Current boxsh only
+	// supports allow-all or fully disabled networking.
 	NetworkAllowlist []string
 }
 
@@ -63,8 +64,8 @@ type SessionConfig struct {
 type Request struct {
 	JSONRPC string          `json:"jsonrpc"`
 	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params"`
-	ID      uint64          `json:"id"`
+	Params  json.RawMessage `json:"params,omitempty"`
+	ID      uint64          `json:"id,omitempty"`
 }
 
 // Response is a JSON-RPC response.
@@ -117,7 +118,10 @@ func (c *Client) Start(ctx context.Context) error {
 	}
 	c.mu.Unlock()
 
-	args := c.buildArgs()
+	args, err := c.buildArgs()
+	if err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, c.binaryPath, args...)
 
 	stdin, err := cmd.StdinPipe()
@@ -166,46 +170,52 @@ func (c *Client) Start(ctx context.Context) error {
 }
 
 // buildArgs constructs the boxsh command-line arguments.
-func (c *Client) buildArgs() []string {
-	args := []string{"--rpc"}
+func (c *Client) buildArgs() ([]string, error) {
+	args := []string{"--rpc", "--sandbox"}
 
-	if c.sessionConfig.Src != "" {
-		args = append(args, "--src", c.sessionConfig.Src)
+	if c.sessionConfig.Src == "" || c.sessionConfig.Dst == "" {
+		return nil, fmt.Errorf("boxshclient: src and dst are required")
 	}
-	if c.sessionConfig.Dst != "" {
-		args = append(args, "--dst", c.sessionConfig.Dst)
-	}
-	if c.sessionConfig.Cwd != "" {
-		args = append(args, "--cwd", c.sessionConfig.Cwd)
-	}
+	args = append(args, "--bind", fmt.Sprintf("cow:%s:%s", c.sessionConfig.Src, c.sessionConfig.Dst))
 
-	// Network mode flags.
 	switch c.sessionConfig.NetworkMode {
-	case config.SandboxNetworkDisabled:
-		args = append(args, "--net=none")
+	case "", config.SandboxNetworkDisabled:
+		args = append(args, "--new-net-ns")
 	case config.SandboxNetworkAllowAll:
-		args = append(args, "--net=allow")
+		// no-op
 	case config.SandboxNetworkWhitelist:
-		args = append(args, "--net=whitelist")
-		for _, entry := range c.sessionConfig.NetworkAllowlist {
-			args = append(args, "--allow", entry)
-		}
+		return nil, fmt.Errorf("boxshclient: whitelist network mode is not supported by boxsh 2.0.1")
+	default:
+		return nil, fmt.Errorf("boxshclient: unsupported network mode %q", c.sessionConfig.NetworkMode)
 	}
 
-	return args
+	return args, nil
 }
 
-// handshake verifies the session is ready by calling a ping method.
+// handshake verifies the session is ready using boxsh's initialize request.
 func (c *Client) handshake(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	var result string
-	if err := c.call(ctx, "ping", map[string]any{}, &result); err != nil {
+	var result struct {
+		ProtocolVersion string `json:"protocolVersion"`
+		ServerInfo      struct {
+			Name    string `json:"name"`
+			Version string `json:"version"`
+		} `json:"serverInfo"`
+	}
+	if err := c.call(ctx, "initialize", map[string]any{
+		"protocolVersion": "2024-11-05",
+		"capabilities":    map[string]any{},
+		"clientInfo": map[string]any{
+			"name":    "anna",
+			"version": "dev",
+		},
+	}, &result); err != nil {
 		return err
 	}
-	if result != "pong" {
-		return fmt.Errorf("unexpected ping response: %q", result)
+	if !strings.EqualFold(result.ServerInfo.Name, "boxsh") {
+		return fmt.Errorf("unexpected initialize response from %q", result.ServerInfo.Name)
 	}
 	return nil
 }
@@ -252,10 +262,6 @@ func (c *Client) Close() error {
 	cmd := c.cmd
 	processDone := c.processDone
 	c.mu.Unlock()
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	_ = c.call(shutdownCtx, "quit", map[string]any{}, nil)
-	cancel()
 
 	if stdin != nil {
 		_ = stdin.Close()
@@ -360,13 +366,7 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 		return fmt.Errorf("boxshclient: marshal params: %w", err)
 	}
 
-	req := Request{
-		JSONRPC: "2.0",
-		Method:  method,
-		Params:  paramsJSON,
-		ID:      id,
-	}
-
+	req := Request{JSONRPC: "2.0", Method: method, Params: paramsJSON, ID: id}
 	reqJSON, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("boxshclient: marshal request: %w", err)
@@ -416,7 +416,7 @@ func (c *Client) registerCall(id uint64, method string) (chan responseWrapper, i
 	if c.closed {
 		return nil, nil, nil, fmt.Errorf("boxshclient: client closed")
 	}
-	if c.closing && method != "quit" {
+	if c.closing {
 		return nil, nil, nil, fmt.Errorf("boxshclient: client is shutting down")
 	}
 	if !c.started || c.stdin == nil {
@@ -493,14 +493,14 @@ func PlatformSupportsBoxsh() bool {
 	}
 }
 
-// CreateSessionDir creates an ephemeral session directory for the upperdir (DST).
+// CreateSessionDir creates an ephemeral session directory for the overlay root.
 // The caller is responsible for cleaning up the directory.
 func CreateSessionDir(baseDir string) (string, error) {
 	if err := os.MkdirAll(baseDir, 0o755); err != nil {
 		return "", fmt.Errorf("boxshclient: create session base dir: %w", err)
 	}
 
-	sessionDir, err := os.MkdirTemp(baseDir, "boxsh-session-*")
+	sessionDir, err := os.MkdirTemp(baseDir, ".anna-boxsh-session-")
 	if err != nil {
 		return "", fmt.Errorf("boxshclient: create session dir: %w", err)
 	}

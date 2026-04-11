@@ -99,19 +99,11 @@ func (n *Normalizer) NormalizeRead(result *ReadResult, filePath string, requeste
 	truncated = tr.Content
 	outputLines = tr.OutputLines
 
-	// Add pagination hint if there are more lines.
-	// Ensure pagination advances by at least 1 line to avoid infinite loops
-	// (e.g., when a single line exceeds the byte limit and OutputLines == 0).
-	linesConsumed := max(outputLines, 1)
-	lastLineShown := requestedOffset + linesConsumed - 1
-	if lastLineShown < result.TotalLines {
-		hint := fmt.Sprintf("\n[Use offset=%d to continue reading]", lastLineShown+1)
-		truncated += hint
-	}
-
-	// Add truncation indicator if content was truncated.
+	// Add a truncation indicator when boxsh reports that more content exists.
 	if result.Truncated && !strings.HasSuffix(truncated, "...]") {
-		truncated += "\n[Content truncated - use offset/limit to paginate]"
+		linesConsumed := max(outputLines, 1)
+		nextOffset := requestedOffset + linesConsumed
+		truncated += fmt.Sprintf("\n[Content truncated - use offset=%d to continue]", nextOffset)
 	}
 
 	metadata := map[string]any{

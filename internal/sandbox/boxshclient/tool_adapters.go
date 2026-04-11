@@ -4,6 +4,8 @@ package boxshclient
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/vaayne/anna/pkg/tools"
@@ -18,11 +20,7 @@ type BashAdapter struct {
 
 // NewBashAdapter creates a new boxsh-backed bash tool.
 func NewBashAdapter(backend *SharedBackend, binDir string) *BashAdapter {
-	return &BashAdapter{
-		backend:    backend,
-		normalizer: NewNormalizer(),
-		binDir:     binDir,
-	}
+	return &BashAdapter{backend: backend, normalizer: NewNormalizer(), binDir: binDir}
 }
 
 // Definition returns the tool definition for bash.
@@ -33,10 +31,8 @@ func (a *BashAdapter) Definition() tools.Definition {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"command": map[string]any{
-					"type":        "string",
-					"description": "The bash command to execute.",
-				},
+				"command": map[string]any{"type": "string", "description": "The bash command to execute."},
+				"timeout": map[string]any{"type": "integer", "description": "Timeout in seconds."},
 			},
 			"required": []string{"command"},
 		},
@@ -55,15 +51,23 @@ func (a *BashAdapter) Execute(ctx context.Context, args map[string]any) (string,
 		return "", fmt.Errorf("bash: boxsh backend not available")
 	}
 
-	// Prepend tools bin to PATH if configured.
-	if a.binDir != "" {
-		command = fmt.Sprintf("export PATH=%q:$PATH; %s", a.binDir, command)
+	cwd, err := a.backend.SandboxRoot(ctx)
+	if err != nil {
+		return "", fmt.Errorf("bash: resolve sandbox root: %w", err)
+	}
+	if client.sessionConfig.Cwd != "" {
+		cwd = client.sessionConfig.Cwd
 	}
 
-	start := time.Now()
-	result, err := client.Exec(ctx, ExecParams{Command: command})
-	elapsed := time.Since(start)
+	prefix := ""
+	if a.binDir != "" {
+		prefix += fmt.Sprintf("export PATH=%s:$PATH; ", shellQuote(a.binDir))
+	}
+	command = prefix + fmt.Sprintf("cd %s && %s", shellQuote(cwd), command)
 
+	start := time.Now()
+	result, err := client.Exec(ctx, ExecParams{Command: command, Timeout: intArg(args, "timeout", 0)})
+	elapsed := time.Since(start)
 	if err != nil {
 		norm := a.normalizer.NormalizeError(err, "bash")
 		return norm.Content, fmt.Errorf("bash: %w", err)
@@ -84,10 +88,7 @@ type ReadAdapter struct {
 
 // NewReadAdapter creates a new boxsh-backed read tool.
 func NewReadAdapter(backend *SharedBackend) *ReadAdapter {
-	return &ReadAdapter{
-		backend:    backend,
-		normalizer: NewNormalizer(),
-	}
+	return &ReadAdapter{backend: backend, normalizer: NewNormalizer()}
 }
 
 // Definition returns the tool definition for read.
@@ -98,18 +99,9 @@ func (a *ReadAdapter) Definition() tools.Definition {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"file_path": map[string]any{
-					"type":        "string",
-					"description": "Absolute or relative path to the file to read.",
-				},
-				"offset": map[string]any{
-					"type":        "integer",
-					"description": "Line number to start reading from (1-based). Defaults to 1.",
-				},
-				"limit": map[string]any{
-					"type":        "integer",
-					"description": "Maximum number of lines to read. Defaults to all lines.",
-				},
+				"file_path": map[string]any{"type": "string", "description": "Absolute or relative path to the file to read."},
+				"offset":    map[string]any{"type": "integer", "description": "Line number to start reading from (1-based). Defaults to 1."},
+				"limit":     map[string]any{"type": "integer", "description": "Maximum number of lines to read. Defaults to all lines."},
 			},
 			"required": []string{"file_path"},
 		},
@@ -133,19 +125,17 @@ func (a *ReadAdapter) Execute(ctx context.Context, args map[string]any) (string,
 	if offset < 1 {
 		offset = 1
 	}
+	resolvedPath, err := resolveToolPath(ctx, a.backend, path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", path, err)
+	}
 
-	result, err := client.Read(ctx, ReadParams{
-		FilePath: path,
-		Offset:   offset,
-		Limit:    limit,
-	})
+	result, err := client.Read(ctx, ReadParams{FilePath: resolvedPath, Offset: offset, Limit: limit})
 	if err != nil {
 		norm := a.normalizer.NormalizeError(err, "read")
 		return norm.Content, fmt.Errorf("read %s: %w", path, err)
 	}
-
-	norm := a.normalizer.NormalizeRead(result, path, offset)
-	return norm.Content, nil
+	return a.normalizer.NormalizeRead(result, path, offset).Content, nil
 }
 
 // WriteAdapter writes files through the boxsh sandbox.
@@ -156,10 +146,7 @@ type WriteAdapter struct {
 
 // NewWriteAdapter creates a new boxsh-backed write tool.
 func NewWriteAdapter(backend *SharedBackend) *WriteAdapter {
-	return &WriteAdapter{
-		backend:    backend,
-		normalizer: NewNormalizer(),
-	}
+	return &WriteAdapter{backend: backend, normalizer: NewNormalizer()}
 }
 
 // Definition returns the tool definition for write.
@@ -170,14 +157,8 @@ func (a *WriteAdapter) Definition() tools.Definition {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"file_path": map[string]any{
-					"type":        "string",
-					"description": "Path to the file to create or overwrite.",
-				},
-				"content": map[string]any{
-					"type":        "string",
-					"description": "The full content to write to the file.",
-				},
+				"file_path": map[string]any{"type": "string", "description": "Path to the file to create or overwrite."},
+				"content":   map[string]any{"type": "string", "description": "The full content to write to the file."},
 			},
 			"required": []string{"file_path", "content"},
 		},
@@ -188,7 +169,6 @@ func (a *WriteAdapter) Definition() tools.Definition {
 func (a *WriteAdapter) Execute(ctx context.Context, args map[string]any) (string, error) {
 	path, _ := args["file_path"].(string)
 	content, _ := args["content"].(string)
-
 	if path == "" {
 		return "", fmt.Errorf("write: file_path is required")
 	}
@@ -197,18 +177,17 @@ func (a *WriteAdapter) Execute(ctx context.Context, args map[string]any) (string
 	if client == nil {
 		return "", fmt.Errorf("write: boxsh backend not available")
 	}
+	resolvedPath, err := resolveToolPath(ctx, a.backend, path)
+	if err != nil {
+		return "", fmt.Errorf("write %s: %w", path, err)
+	}
 
-	result, err := client.Write(ctx, WriteParams{
-		FilePath: path,
-		Content:  content,
-	})
+	result, err := client.Write(ctx, WriteParams{FilePath: resolvedPath, Content: content})
 	if err != nil {
 		norm := a.normalizer.NormalizeError(err, "write")
 		return norm.Content, fmt.Errorf("write %s: %w", path, err)
 	}
-
-	norm := a.normalizer.NormalizeWrite(result)
-	return norm.Content, nil
+	return a.normalizer.NormalizeWrite(result).Content, nil
 }
 
 // EditAdapter edits files through the boxsh sandbox.
@@ -219,10 +198,7 @@ type EditAdapter struct {
 
 // NewEditAdapter creates a new boxsh-backed edit tool.
 func NewEditAdapter(backend *SharedBackend) *EditAdapter {
-	return &EditAdapter{
-		backend:    backend,
-		normalizer: NewNormalizer(),
-	}
+	return &EditAdapter{backend: backend, normalizer: NewNormalizer()}
 }
 
 // Definition returns the tool definition for edit.
@@ -233,18 +209,9 @@ func (a *EditAdapter) Definition() tools.Definition {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"file_path": map[string]any{
-					"type":        "string",
-					"description": "Path to the file to edit.",
-				},
-				"old_string": map[string]any{
-					"type":        "string",
-					"description": "The exact text to find and replace. Must match the file content exactly.",
-				},
-				"new_string": map[string]any{
-					"type":        "string",
-					"description": "The replacement text.",
-				},
+				"file_path":  map[string]any{"type": "string", "description": "Path to the file to edit."},
+				"old_string": map[string]any{"type": "string", "description": "The exact text to find and replace. Must match the file content exactly."},
+				"new_string": map[string]any{"type": "string", "description": "The replacement text."},
 			},
 			"required": []string{"file_path", "old_string", "new_string"},
 		},
@@ -256,7 +223,6 @@ func (a *EditAdapter) Execute(ctx context.Context, args map[string]any) (string,
 	path, _ := args["file_path"].(string)
 	oldStr, _ := args["old_string"].(string)
 	newStr, _ := args["new_string"].(string)
-
 	if path == "" {
 		return "", fmt.Errorf("edit: file_path is required")
 	}
@@ -268,19 +234,17 @@ func (a *EditAdapter) Execute(ctx context.Context, args map[string]any) (string,
 	if client == nil {
 		return "", fmt.Errorf("edit: boxsh backend not available")
 	}
+	resolvedPath, err := resolveToolPath(ctx, a.backend, path)
+	if err != nil {
+		return "", fmt.Errorf("edit %s: %w", path, err)
+	}
 
-	result, err := client.Edit(ctx, EditParams{
-		FilePath:  path,
-		OldString: oldStr,
-		NewString: newStr,
-	})
+	result, err := client.Edit(ctx, EditParams{FilePath: resolvedPath, Edits: []EditSpec{{OldText: oldStr, NewText: newStr}}})
 	if err != nil {
 		norm := a.normalizer.NormalizeError(err, "edit")
 		return norm.Content, fmt.Errorf("edit %s: %w", path, err)
 	}
-
-	norm := a.normalizer.NormalizeEdit(result)
-	return norm.Content, nil
+	return a.normalizer.NormalizeEdit(result).Content, nil
 }
 
 // intArg extracts an integer argument with a default value.
@@ -297,4 +261,53 @@ func intArg(args map[string]any, key string, defaultVal int) int {
 	default:
 		return defaultVal
 	}
+}
+
+func resolveToolPath(ctx context.Context, backend *SharedBackend, path string) (string, error) {
+	root, err := backend.SandboxRoot(ctx)
+	if err != nil {
+		return "", err
+	}
+	backend.mu.RLock()
+	srcRoot := backend.sessionSrc
+	backend.mu.RUnlock()
+
+	if !filepath.IsAbs(path) {
+		return filepath.Join(root, path), nil
+	}
+	if isWithinRoot(root, path) {
+		return path, nil
+	}
+	if srcRoot != "" && isWithinRoot(srcRoot, path) {
+		rel, err := filepath.Rel(srcRoot, path)
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(root, rel), nil
+	}
+	if sandboxRelativeAbsolute(path) {
+		return filepath.Join(root, strings.TrimPrefix(path, string(filepath.Separator))), nil
+	}
+	if err := ValidateSandboxPath(root, path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func sandboxRelativeAbsolute(path string) bool {
+	if !filepath.IsAbs(path) {
+		return false
+	}
+	trimmed := strings.Trim(path, string(filepath.Separator))
+	if trimmed == "" {
+		return true
+	}
+	return len(strings.Split(trimmed, string(filepath.Separator))) <= 2
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }

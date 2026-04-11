@@ -3,6 +3,7 @@ package boxshclient
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -17,7 +18,8 @@ import (
 type SharedBackend struct {
 	client      *Client
 	binaryPath  string
-	sessionDir  string // ephemeral DST directory
+	sessionDir  string // ephemeral overlay root exposed inside the sandbox
+	sessionSrc  string
 	cleanupOnce sync.Once
 	mu          sync.RWMutex
 }
@@ -89,26 +91,30 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 		UserDataDir: cfg.UserDataDir,
 	})
 
-	// Create ephemeral session directory (DST).
+	// Create an ephemeral overlay root on the same filesystem as SRC.
+	// boxsh's current overlay implementation requires that to avoid cross-device
+	// copy-on-write failures on macOS.
 	sessionBaseDir := cfg.SessionBaseDir
 	if sessionBaseDir == "" {
-		annaHome := cfg.AnnaHome
-		if annaHome == "" {
-			annaHome = config.AnnaHome()
-		}
-		sessionBaseDir = filepath.Join(annaHome, "cache", "sandbox", "sessions")
+		sessionBaseDir = filepath.Dir(src)
 	}
 
 	sessionDir, err := CreateSessionDir(sessionBaseDir)
 	if err != nil {
 		return fmt.Errorf("boxshclient: create session dir: %w", err)
 	}
+	if err := os.Remove(sessionDir); err != nil {
+		return fmt.Errorf("boxshclient: prepare session dir: %w", err)
+	}
+	if err := os.Mkdir(sessionDir, 0o755); err != nil {
+		return fmt.Errorf("boxshclient: recreate session dir: %w", err)
+	}
 	b.sessionDir = sessionDir
+	b.sessionSrc = src
 
-	// Resolve working directory inside the sandbox.
-	// The effective sandbox root for the session is the overlay of SRC -> DST.
-	// Paths resolve against DST first, then fall back to SRC.
-	cwd := ResolveSandboxCwd(src, cfg.WorkDir)
+	// boxsh mounts the overlay at DST, so remap the requested workdir from SRC
+	// into the overlay root.
+	cwd := remapCwdToSessionRoot(src, sessionDir, cfg.WorkDir)
 
 	// Build session configuration.
 	sessionCfg := SessionConfig{
@@ -159,6 +165,7 @@ func (b *SharedBackend) Close() error {
 	b.client = nil
 	sessionDir := b.sessionDir
 	b.sessionDir = ""
+	b.sessionSrc = ""
 	b.mu.Unlock()
 
 	var errs []error
@@ -206,7 +213,7 @@ func (b *SharedBackend) SandboxRoot(ctx context.Context) (string, error) {
 	// We can determine this by stat-ing a known path or returning cached value.
 	// For now, we return the session configuration's Src field via reflection
 	// on the client configuration.
-	return client.sessionConfig.Src, nil
+	return client.sessionConfig.Dst, nil
 }
 
 // IsSharedBackendError reports whether an error originated from the shared backend.
@@ -216,4 +223,16 @@ func IsSharedBackendError(err error) bool {
 	}
 	// Check if the error message contains boxshclient prefix.
 	return len(err.Error()) > 12 && err.Error()[:12] == "boxshclient:"
+}
+
+func remapCwdToSessionRoot(srcRoot, dstRoot, workDir string) string {
+	srcCwd := ResolveSandboxCwd(srcRoot, workDir)
+	if srcCwd == srcRoot {
+		return dstRoot
+	}
+	rel, err := filepath.Rel(srcRoot, srcCwd)
+	if err != nil || rel == "." {
+		return dstRoot
+	}
+	return filepath.Join(dstRoot, rel)
 }

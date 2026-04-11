@@ -105,15 +105,11 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	}
 
 	// Create and start boxsh backend on Linux/macOS (unless disabled for testing).
-	// If backend startup fails, log and fall back to the existing direct-tool path
-	// so chat sessions remain usable while boxsh integration catches up with the
-	// managed binary protocol.
 	var backend *boxshclient.SharedBackend
 	if !cfg.DisableSandbox && boxshclient.PlatformSupportsBoxsh() {
 		backend, err = createAndStartBackend(ctx, cfg)
 		if err != nil {
-			slog.Warn("boxsh backend unavailable, falling back to direct core tools", "error", err)
-			backend = nil
+			return nil, fmt.Errorf("go runner: %w", err)
 		}
 	}
 

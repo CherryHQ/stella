@@ -148,13 +148,13 @@ func TestNormalizeReadWithPaginationHint(t *testing.T) {
 
 	result := &ReadResult{
 		Content:    strings.Repeat("line\n", 20),
-		TotalLines: 100,
-		Truncated:  false,
+		TotalLines: 20,
+		Truncated:  true,
 	}
 
 	norm := n.NormalizeRead(result, "/path/to/file.txt", 1)
 
-	if !strings.Contains(norm.Content, "Use offset=") {
+	if !strings.Contains(norm.Content, "offset=") {
 		t.Errorf("Content should contain pagination hint, got: %q", norm.Content)
 	}
 }

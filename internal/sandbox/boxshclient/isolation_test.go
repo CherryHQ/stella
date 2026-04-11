@@ -37,11 +37,18 @@ if [[ "${1:-}" == "--version" ]]; then
 fi
 
 SRC=""
+DST=""
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-		--src) SRC="$2"; shift 2 ;;
-		--dst|--cwd|--allow) shift 2 ;;
-		--rpc|--net=none|--net=allow|--net=whitelist) shift ;;
+		--bind)
+			binding="$2"
+			if [[ "$binding" == cow:* ]]; then
+				payload="${binding#cow:}"
+				SRC="${payload%%:*}"
+				DST="${payload#*:}"
+			fi
+			shift 2 ;;
+		--sandbox|--rpc|--new-net-ns) shift ;;
 		*) shift ;;
 	esac
 done
@@ -59,7 +66,7 @@ is_allowed_path() {
 		return 1
 	fi
 	if [[ "$requested" = /* ]]; then
-		[[ "$requested" == "$SRC" || "$requested" == "$SRC"/* ]]
+		[[ "$requested" == "$DST" || "$requested" == "$DST"/* ]]
 		return $?
 	fi
 	return 0
@@ -71,37 +78,34 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 	[[ -z "$method" ]] && continue
 
 	case "$method" in
-		ping)
-			echo "{\"jsonrpc\":\"2.0\",\"result\":\"pong\",\"id\":$id}"
+		initialize)
+			echo "{\"jsonrpc\":\"2.0\",\"result\":{\"serverInfo\":{\"name\":\"boxsh\",\"version\":\"2.0.1\"},\"protocolVersion\":\"2024-11-05\"},\"id\":$id}"
 			;;
-		exec)
-			command=$(echo "$line" | sed -n 's/.*"command":"\([^"]*\)".*/\1/p')
-			if [[ "$command" =~ [[:space:]](/[^[:space:]]+) ]]; then
-				candidate="${BASH_REMATCH[1]}"
-				if ! is_allowed_path "$candidate"; then
-					echo "{\"jsonrpc\":\"2.0\",\"result\":{\"stdout\":\"\",\"stderr\":\"access denied: path outside workspace\",\"exit_code\":1},\"id\":$id}"
+		tools/call)
+			if [[ "$line" == *'"name":"bash"'* ]]; then
+				command=$(echo "$line" | sed -n 's/.*"command":"\([^"]*\)".*/\1/p')
+				if [[ "$command" =~ [[:space:]](/[^[:space:]]+) ]]; then
+					candidate="${BASH_REMATCH[1]}"
+					if ! is_allowed_path "$candidate"; then
+						echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"access denied: path outside workspace\"}],\"structuredContent\":{\"stdout\":\"\",\"stderr\":\"access denied: path outside workspace\",\"exit_code\":1},\"isError\":true},\"id\":$id}"
+						continue
+					fi
+				fi
+				echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"executed\"}],\"structuredContent\":{\"stdout\":\"executed\",\"stderr\":\"\",\"exit_code\":0}},\"id\":$id}"
+			else
+				path=$(echo "$line" | sed -n 's/.*"path":"\([^"]*\)".*/\1/p')
+				if ! is_allowed_path "$path"; then
+					echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"access denied: path outside workspace\"}],\"isError\":true},\"id\":$id}"
 					continue
 				fi
+				if [[ "$line" == *'"name":"read"'* ]]; then
+					echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"file content\"}],\"structuredContent\":{\"truncation\":{\"line_count\":1,\"truncated\":false}}},\"id\":$id}"
+				elif [[ "$line" == *'"name":"write"'* ]]; then
+					echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"written 12 bytes\"}]},\"id\":$id}"
+				else
+					echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"OK\"}],\"structuredContent\":{\"diff\":\"diff\",\"firstChangedLine\":1}},\"id\":$id}"
+				fi
 			fi
-			echo "{\"jsonrpc\":\"2.0\",\"result\":{\"stdout\":\"executed\",\"stderr\":\"\",\"exit_code\":0},\"id\":$id}"
-			;;
-		read|write|edit)
-			path=$(echo "$line" | sed -n 's/.*"file_path":"\([^"]*\)".*/\1/p')
-			if ! is_allowed_path "$path"; then
-				echo "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32000,\"message\":\"access denied: path outside workspace\"},\"id\":$id}"
-				continue
-			fi
-			if [[ "$method" == "read" ]]; then
-				echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":\"file content\",\"total_lines\":1,\"truncated\":false},\"id\":$id}"
-			elif [[ "$method" == "write" ]]; then
-				echo "{\"jsonrpc\":\"2.0\",\"result\":{\"bytes_written\":12,\"path\":$(json_escape "$path")},\"id\":$id}"
-			else
-				echo "{\"jsonrpc\":\"2.0\",\"result\":{\"path\":$(json_escape "$path"),\"replacements\":1},\"id\":$id}"
-			fi
-			;;
-		quit|close)
-			echo "{\"jsonrpc\":\"2.0\",\"result\":\"bye\",\"id\":$id}"
-			exit 0
 			;;
 	esac
 done
@@ -150,13 +154,13 @@ func TestIsolation_CrossWorkspaceAccessBlocked(t *testing.T) {
 	editTool := NewEditAdapter(backend)
 	bashTool := NewBashAdapter(backend, "")
 
-	if _, err := readTool.Execute(ctx, map[string]any{"file_path": filepath.Join(siblingRoot, "secret.txt")}); err == nil || !strings.Contains(err.Error(), "access denied") {
+	if _, err := readTool.Execute(ctx, map[string]any{"file_path": filepath.Join(siblingRoot, "secret.txt")}); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
 		t.Fatalf("expected sibling workspace denial, got %v", err)
 	}
-	if _, err := writeTool.Execute(ctx, map[string]any{"file_path": filepath.Join(siblingRoot, "hack.txt"), "content": "nope"}); err == nil || !strings.Contains(err.Error(), "access denied") {
+	if _, err := writeTool.Execute(ctx, map[string]any{"file_path": filepath.Join(siblingRoot, "hack.txt"), "content": "nope"}); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
 		t.Fatalf("expected sibling workspace write denial, got %v", err)
 	}
-	if _, err := editTool.Execute(ctx, map[string]any{"file_path": filepath.Join(siblingRoot, "secret.txt"), "old_string": "a", "new_string": "b"}); err == nil || !strings.Contains(err.Error(), "access denied") {
+	if _, err := editTool.Execute(ctx, map[string]any{"file_path": filepath.Join(siblingRoot, "secret.txt"), "old_string": "a", "new_string": "b"}); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
 		t.Fatalf("expected sibling workspace edit denial, got %v", err)
 	}
 	if _, err := bashTool.Execute(ctx, map[string]any{"command": "cat " + filepath.Join(siblingRoot, "secret.txt")}); err == nil {
@@ -199,10 +203,10 @@ func TestIsolation_ParentDirectoryTraversalBlocked(t *testing.T) {
 	}
 
 	readTool := NewReadAdapter(backend)
-	if _, err := readTool.Execute(ctx, map[string]any{"file_path": "../other-agent/secrets.txt"}); err == nil || !strings.Contains(err.Error(), "access denied") {
+	if _, err := readTool.Execute(ctx, map[string]any{"file_path": "../other-agent/secrets.txt"}); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
 		t.Fatalf("expected parent traversal denial, got %v", err)
 	}
-	if _, err := readTool.Execute(ctx, map[string]any{"file_path": filepath.Join(allowedRoot, "..", "..", "secret.txt")}); err == nil || !strings.Contains(err.Error(), "access denied") {
+	if _, err := readTool.Execute(ctx, map[string]any{"file_path": filepath.Join(allowedRoot, "..", "..", "secret.txt")}); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
 		t.Fatalf("expected absolute traversal denial, got %v", err)
 	}
 }

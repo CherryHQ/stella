@@ -38,17 +38,19 @@ fi
 
 SRC=""
 DST=""
-NETMODE="disabled"
+NETMODE="allow_all"
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-		--src) SRC="$2"; shift 2 ;;
-		--dst) DST="$2"; shift 2 ;;
-		--cwd) shift 2 ;;
-		--net=none) NETMODE="disabled"; shift ;;
-		--net=allow) NETMODE="allow_all"; shift ;;
-		--net=whitelist) NETMODE="whitelist"; shift ;;
-		--allow) shift 2 ;;
-		--rpc) shift ;;
+		--bind)
+			binding="$2"
+			if [[ "$binding" == cow:* ]]; then
+				payload="${binding#cow:}"
+				SRC="${payload%%:*}"
+				DST="${payload#*:}"
+			fi
+			shift 2 ;;
+		--new-net-ns) NETMODE="disabled"; shift ;;
+		--sandbox|--rpc) shift ;;
 		*) shift ;;
 	esac
 done
@@ -62,7 +64,15 @@ json_escape() {
 resolve_overlay_path() {
 	local requested="$1"
 	local rel
-	if [[ "$requested" = /* ]]; then
+	if [[ "$requested" == "$DST" ]]; then
+		rel=""
+	elif [[ "$requested" == "$DST"/* ]]; then
+		rel="${requested#"$DST"/}"
+	elif [[ "$requested" == "$SRC" ]]; then
+		rel=""
+	elif [[ "$requested" == "$SRC"/* ]]; then
+		rel="${requested#"$SRC"/}"
+	elif [[ "$requested" = /* ]]; then
 		rel="${requested#/}"
 	else
 		rel="$requested"
@@ -87,56 +97,52 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 	[[ -z "$method" ]] && continue
 
 	case "$method" in
-		ping)
-			echo "{\"jsonrpc\":\"2.0\",\"result\":\"pong\",\"id\":$id}"
+		initialize)
+			echo "{\"jsonrpc\":\"2.0\",\"result\":{\"serverInfo\":{\"name\":\"boxsh\",\"version\":\"2.0.1\"},\"protocolVersion\":\"2024-11-05\"},\"id\":$id}"
 			;;
-		exec)
-			command=$(echo "$line" | sed -n 's/.*"command":"\([^"]*\)".*/\1/p')
-			stdout=""
-			if [[ "$command" =~ ^cat[[:space:]]+(.+)$ ]]; then
-				path="${BASH_REMATCH[1]}"
-				stdout=$(read_overlay_file "$path")
-			elif [[ "$command" =~ ^test[[:space:]]-f[[:space:]]+(.+)$ ]]; then
-				path="${BASH_REMATCH[1]}"
+		tools/call)
+			if [[ "$line" == *'"name":"bash"'* ]]; then
+				command=$(echo "$line" | sed -n 's/.*"command":"\([^"]*\)".*/\1/p')
+				stdout=""
+				if [[ "$command" =~ cat[[:space:]]+(/[^[:space:]]+) ]]; then
+					path="${BASH_REMATCH[1]}"
+					stdout=$(read_overlay_file "$path")
+				elif [[ "$command" =~ test[[:space:]]-f[[:space:]]+(/[^[:space:]]+) ]]; then
+					path="${BASH_REMATCH[1]}"
+					rel=$(resolve_overlay_path "$path")
+					if [[ -f "$DST/$rel" || -f "$SRC/$rel" ]]; then stdout="exists"; fi
+				else
+					stdout="$command"
+				fi
+				echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":$(json_escape "$stdout")}],\"structuredContent\":{\"stdout\":$(json_escape "$stdout"),\"stderr\":\"\",\"exit_code\":0}},\"id\":$id}"
+			elif [[ "$line" == *'"name":"read"'* ]]; then
+				path=$(echo "$line" | sed -n 's/.*"path":"\([^"]*\)".*/\1/p')
+				content=$(read_overlay_file "$path")
+				lines=0
+				if [[ -n "$content" ]]; then lines=$(printf '%s' "$content" | awk 'END{print NR}'); fi
+				echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":$(json_escape "$content")}],\"structuredContent\":{\"truncation\":{\"line_count\":$lines,\"truncated\":false}}},\"id\":$id}"
+			elif [[ "$line" == *'"name":"write"'* ]]; then
+				path=$(echo "$line" | sed -n 's/.*"path":"\([^"]*\)".*/\1/p')
+				content=$(echo "$line" | sed -n 's/.*"content":"\([^"]*\)".*/\1/p')
 				rel=$(resolve_overlay_path "$path")
-				if [[ -f "$DST/$rel" || -f "$SRC/$rel" ]]; then stdout="exists"; fi
+				mkdir -p "$(dirname "$DST/$rel")"
+				printf '%s' "$content" > "$DST/$rel"
+				bytes=$(printf '%s' "$content" | wc -c | tr -d ' ')
+				echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"written $bytes bytes\"}]},\"id\":$id}"
 			else
-				stdout="$command"
+				path=$(echo "$line" | sed -n 's/.*"path":"\([^"]*\)".*/\1/p')
+				old=$(echo "$line" | sed -n 's/.*"oldText":"\([^"]*\)".*/\1/p')
+				new=$(echo "$line" | sed -n 's/.*"newText":"\([^"]*\)".*/\1/p')
+				rel=$(resolve_overlay_path "$path")
+				content=$(read_overlay_file "$path")
+				updated="${content/$old/$new}"
+				mkdir -p "$(dirname "$DST/$rel")"
+				printf '%s' "$updated" > "$DST/$rel"
+				repl=0
+				first=0
+				if [[ "$content" != "$updated" ]]; then repl=1; first=1; fi
+				echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"OK\"}],\"structuredContent\":{\"diff\":\"diff\",\"firstChangedLine\":$first}},\"id\":$id}"
 			fi
-			echo "{\"jsonrpc\":\"2.0\",\"result\":{\"stdout\":$(json_escape "$stdout"),\"stderr\":\"\",\"exit_code\":0},\"id\":$id}"
-			;;
-		read)
-			path=$(echo "$line" | sed -n 's/.*"file_path":"\([^"]*\)".*/\1/p')
-			content=$(read_overlay_file "$path")
-			lines=0
-			if [[ -n "$content" ]]; then lines=$(printf '%s' "$content" | awk 'END{print NR}'); fi
-			echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":$(json_escape "$content"),\"total_lines\":$lines,\"truncated\":false},\"id\":$id}"
-			;;
-		write)
-			path=$(echo "$line" | sed -n 's/.*"file_path":"\([^"]*\)".*/\1/p')
-			content=$(echo "$line" | sed -n 's/.*"content":"\([^"]*\)".*/\1/p')
-			rel=$(resolve_overlay_path "$path")
-			mkdir -p "$(dirname "$DST/$rel")"
-			printf '%s' "$content" > "$DST/$rel"
-			bytes=$(printf '%s' "$content" | wc -c | tr -d ' ')
-			echo "{\"jsonrpc\":\"2.0\",\"result\":{\"bytes_written\":$bytes,\"path\":$(json_escape "$path")},\"id\":$id}"
-			;;
-		edit)
-			path=$(echo "$line" | sed -n 's/.*"file_path":"\([^"]*\)".*/\1/p')
-			old=$(echo "$line" | sed -n 's/.*"old_string":"\([^"]*\)".*/\1/p')
-			new=$(echo "$line" | sed -n 's/.*"new_string":"\([^"]*\)".*/\1/p')
-			rel=$(resolve_overlay_path "$path")
-			content=$(read_overlay_file "$path")
-			updated="${content/$old/$new}"
-			mkdir -p "$(dirname "$DST/$rel")"
-			printf '%s' "$updated" > "$DST/$rel"
-			repl=0
-			[[ "$content" != "$updated" ]] && repl=1
-			echo "{\"jsonrpc\":\"2.0\",\"result\":{\"path\":$(json_escape "$path"),\"replacements\":$repl},\"id\":$id}"
-			;;
-		quit|close)
-			echo "{\"jsonrpc\":\"2.0\",\"result\":\"bye\",\"id\":$id}"
-			exit 0
 			;;
 	esac
 done

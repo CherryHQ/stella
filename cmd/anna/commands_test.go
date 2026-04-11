@@ -119,13 +119,11 @@ if [[ "$1" == "--version" ]]; then
 fi
 
 while read -r line; do
-	if [[ "$line" == *'"method":"ping"'* ]]; then
-		id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
-		echo "{\"jsonrpc\":\"2.0\",\"result\":\"pong\",\"id\":$id}"
-	elif [[ "$line" == *'"method":"quit"'* ]]; then
-		id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
-		echo "{\"jsonrpc\":\"2.0\",\"result\":\"bye\",\"id\":$id}"
-		exit 0
+	id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
+	if [[ "$line" == *'"method":"initialize"'* ]]; then
+		echo "{\"jsonrpc\":\"2.0\",\"result\":{\"serverInfo\":{\"name\":\"boxsh\",\"version\":\"2.0.1\"},\"protocolVersion\":\"2024-11-05\"},\"id\":$id}"
+	elif [[ "$line" == *'"method":"tools/call"'* ]]; then
+		echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"structuredContent\":{\"stdout\":\"ok\",\"stderr\":\"\",\"exit_code\":0}},\"id\":$id}"
 	fi
 done
 `

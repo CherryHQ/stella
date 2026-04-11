@@ -39,16 +39,13 @@ if [[ "${1:-}" == "--version" ]]; then
 	exit 0
 fi
 
-NETWORK_MODE="disabled"
+NETWORK_MODE="allow_all"
 declare -a ALLOWLIST=()
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-		--net=none) NETWORK_MODE="disabled"; shift ;;
-		--net=allow) NETWORK_MODE="allow_all"; shift ;;
-		--net=whitelist) NETWORK_MODE="whitelist"; shift ;;
-		--allow) ALLOWLIST+=("$2"); shift 2 ;;
-		--src|--dst|--cwd) shift 2 ;;
-		--rpc) shift ;;
+		--new-net-ns) NETWORK_MODE="disabled"; shift ;;
+		--bind) shift 2 ;;
+		--sandbox|--rpc) shift ;;
 		*) shift ;;
 	esac
 done
@@ -91,28 +88,25 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 	[[ -z "$method" ]] && continue
 
 	case "$method" in
-		ping)
-			echo "{\"jsonrpc\":\"2.0\",\"result\":\"pong\",\"id\":$id}"
+		initialize)
+			echo "{\"jsonrpc\":\"2.0\",\"result\":{\"serverInfo\":{\"name\":\"boxsh\",\"version\":\"2.0.1\"},\"protocolVersion\":\"2024-11-05\"},\"id\":$id}"
 			;;
-		exec)
+		tools/call)
 			command=$(echo "$line" | sed -n 's/.*"command":"\([^"]*\)".*/\1/p')
-			if [[ "$command" =~ ^probe[[:space:]]+([^[:space:]]+)[[:space:]]+([0-9]+)$ ]]; then
-				host="${BASH_REMATCH[1]}"
-				port="${BASH_REMATCH[2]}"
+			probe=$(printf '%s' "$command" | grep -oE 'probe [^ ]+ [0-9]+' | tail -n1 | sed 's/^probe //')
+			if [[ -n "$probe" ]]; then
+				host="${probe%% *}"
+				port="${probe##* }"
 				if ! host_allowed "$host"; then
-					echo "{\"jsonrpc\":\"2.0\",\"result\":{\"stdout\":\"blocked\",\"stderr\":\"network blocked\",\"exit_code\":1},\"id\":$id}"
+					echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"blocked\\nnetwork blocked\"}],\"structuredContent\":{\"stdout\":\"blocked\",\"stderr\":\"network blocked\",\"exit_code\":1},\"isError\":true},\"id\":$id}"
 				elif probe_tcp "$host" "$port"; then
-					echo "{\"jsonrpc\":\"2.0\",\"result\":{\"stdout\":\"connected\",\"stderr\":\"\",\"exit_code\":0},\"id\":$id}"
+					echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"connected\"}],\"structuredContent\":{\"stdout\":\"connected\",\"stderr\":\"\",\"exit_code\":0}},\"id\":$id}"
 				else
-					echo "{\"jsonrpc\":\"2.0\",\"result\":{\"stdout\":\"dial failed\",\"stderr\":\"dial failed\",\"exit_code\":1},\"id\":$id}"
+					echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"dial failed\"}],\"structuredContent\":{\"stdout\":\"dial failed\",\"stderr\":\"dial failed\",\"exit_code\":1},\"isError\":true},\"id\":$id}"
 				fi
 			else
-				echo "{\"jsonrpc\":\"2.0\",\"result\":{\"stdout\":$(json_escape "$NETWORK_MODE"),\"stderr\":\"\",\"exit_code\":0},\"id\":$id}"
+				echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":$(json_escape "$NETWORK_MODE")}],\"structuredContent\":{\"stdout\":$(json_escape "$NETWORK_MODE"),\"stderr\":\"\",\"exit_code\":0}},\"id\":$id}"
 			fi
-			;;
-		quit|close)
-			echo "{\"jsonrpc\":\"2.0\",\"result\":\"bye\",\"id\":$id}"
-			exit 0
 			;;
 	esac
 done
@@ -209,7 +203,7 @@ func TestNetworkPolicy_AllowAllModePermitsConnections(t *testing.T) {
 	}
 }
 
-func TestNetworkPolicy_WhitelistModePermitsOnlyListedDestinations(t *testing.T) {
+func TestNetworkPolicy_WhitelistModeUnsupported(t *testing.T) {
 	skipIfWindowsNetwork(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -217,7 +211,7 @@ func TestNetworkPolicy_WhitelistModePermitsOnlyListedDestinations(t *testing.T) 
 	annaHome := t.TempDir()
 	workspace := t.TempDir()
 	writeNetworkMockBoxsh(t, annaHome)
-	host, port, hits, cleanup := startTCPProbeServer(t)
+	host, _, _, cleanup := startTCPProbeServer(t)
 	defer cleanup()
 
 	cfg := BackendConfig{AnnaHome: annaHome, Workspace: workspace, WorkDir: "/", Sandbox: config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: config.SandboxNetworkWhitelist, Allowlist: []string{host}}}}
@@ -226,23 +220,7 @@ func TestNetworkPolicy_WhitelistModePermitsOnlyListedDestinations(t *testing.T) 
 		t.Fatalf("NewSharedBackend: %v", err)
 	}
 	defer func() { _ = backend.Close() }()
-	if err := backend.Start(ctx, cfg); err != nil {
-		t.Fatalf("backend.Start: %v", err)
-	}
-
-	if _, err := NewBashAdapter(backend, "").Execute(ctx, map[string]any{"command": fmt.Sprintf("probe %s %d", host, port)}); err != nil {
-		t.Fatalf("expected whitelisted host connection to succeed, got %v", err)
-	}
-	allowedHits := hits.Load()
-	if allowedHits == 0 {
-		t.Fatal("expected whitelisted host to receive a connection")
-	}
-
-	_, err = NewBashAdapter(backend, "").Execute(ctx, map[string]any{"command": fmt.Sprintf("probe %s %d", "203.0.113.10", port)})
-	if err == nil {
-		t.Fatal("expected non-whitelisted host to be blocked")
-	}
-	if hits.Load() != allowedHits {
-		t.Fatalf("expected blocked host not to reach listener, hits before=%d after=%d", allowedHits, hits.Load())
+	if err := backend.Start(ctx, cfg); err == nil || !strings.Contains(err.Error(), "whitelist network mode is not supported") {
+		t.Fatalf("expected whitelist unsupported error, got %v", err)
 	}
 }

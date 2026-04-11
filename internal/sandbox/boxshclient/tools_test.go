@@ -128,9 +128,8 @@ func TestWriteResultUnmarshal(t *testing.T) {
 
 func TestEditParamsMarshal(t *testing.T) {
 	params := EditParams{
-		FilePath:  "/path/to/file.txt",
-		OldString: "old",
-		NewString: "new",
+		FilePath: "/path/to/file.txt",
+		Edits:    []EditSpec{{OldText: "old", NewText: "new"}},
 	}
 	data, err := json.Marshal(params)
 	if err != nil {
@@ -145,11 +144,8 @@ func TestEditParamsMarshal(t *testing.T) {
 	if decoded.FilePath != params.FilePath {
 		t.Errorf("FilePath = %q, want %q", decoded.FilePath, params.FilePath)
 	}
-	if decoded.OldString != params.OldString {
-		t.Errorf("OldString = %q, want %q", decoded.OldString, params.OldString)
-	}
-	if decoded.NewString != params.NewString {
-		t.Errorf("NewString = %q, want %q", decoded.NewString, params.NewString)
+	if len(decoded.Edits) != 1 || decoded.Edits[0].OldText != "old" || decoded.Edits[0].NewText != "new" {
+		t.Errorf("Edits = %+v, want one old/new replacement", decoded.Edits)
 	}
 }
 

@@ -70,9 +70,9 @@ func writeMockRPCBoxsh(t *testing.T, annaHome string, exitAfterHandshake bool) s
 	}
 	boxshPath := filepath.Join(binDir, "boxsh")
 	commandsLog := filepath.Join(annaHome, "boxsh-commands.log")
-	exitAfterPing := ""
+	exitAfterInit := ""
 	if exitAfterHandshake {
-		exitAfterPing = "\n\t\t\texit 0"
+		exitAfterInit = "\n\t\t\texit 0"
 	}
 	script := "#!/bin/bash\n" +
 		"logfile=\"" + commandsLog + "\"\n" +
@@ -81,45 +81,18 @@ func writeMockRPCBoxsh(t *testing.T, annaHome string, exitAfterHandshake bool) s
 		"\texit 0\n" +
 		"fi\n" +
 		"while read -r line; do\n" +
-		"\tif [[ \"$line\" == *'\"method\":\"ping\"'* ]]; then\n" +
-		"\t\tid=$(echo \"$line\" | grep -o '\"id\":[0-9]*' | cut -d: -f2)\n" +
-		"\t\techo \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"result\\\":\\\"pong\\\",\\\"id\\\":$id}\"" + exitAfterPing + "\n" +
-		"\telif [[ \"$line\" == *'\"method\":\"exec\"'* ]]; then\n" +
-		"\t\tid=$(echo \"$line\" | grep -o '\"id\":[0-9]*' | cut -d: -f2)\n" +
+		"\tid=$(echo \"$line\" | grep -o '\"id\":[0-9]*' | cut -d: -f2)\n" +
+		"\tif [[ \"$line\" == *'\"method\":\"initialize\"'* ]]; then\n" +
+		"\t\techo \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"result\\\":{\\\"serverInfo\\\":{\\\"name\\\":\\\"boxsh\\\",\\\"version\\\":\\\"2.0.1\\\"},\\\"protocolVersion\\\":\\\"2024-11-05\\\"},\\\"id\\\":$id}\"" + exitAfterInit + "\n" +
+		"\telif [[ \"$line\" == *'\"method\":\"tools/call\"'* ]]; then\n" +
 		"\t\techo \"$line\" >> \"$logfile\"\n" +
-		"\t\techo \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"result\\\":{\\\"stdout\\\":\\\"ok\\\",\\\"stderr\\\":\\\"\\\",\\\"exit_code\\\":0},\\\"id\\\":$id}\"\n" +
-		"\telif [[ \"$line\" == *'\"method\":\"quit\"'* ]]; then\n" +
-		"\t\tid=$(echo \"$line\" | grep -o '\"id\":[0-9]*' | cut -d: -f2)\n" +
-		"\t\techo \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"result\\\":\\\"bye\\\",\\\"id\\\":$id}\"\n" +
-		"\t\texit 0\n" +
+		"\t\techo \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"result\\\":{\\\"content\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"ok\\\"}],\\\"structuredContent\\\":{\\\"stdout\\\":\\\"ok\\\",\\\"stderr\\\":\\\"\\\",\\\"exit_code\\\":0}},\\\"id\\\":$id}\"\n" +
 		"\tfi\n" +
 		"done\n"
 	if err := os.WriteFile(boxshPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	return commandsLog
-}
-
-func writeIncompatibleRPCBoxsh(t *testing.T, annaHome string) {
-	t.Helper()
-	_ = embedded.EnsureTools(annaHome)
-	binDir := filepath.Join(annaHome, "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	boxshPath := filepath.Join(binDir, "boxsh")
-	script := "#!/bin/bash\n" +
-		"if [[ \"$1\" == \"--version\" ]]; then\n" +
-		"\techo boxsh 2.0.1\n" +
-		"\texit 0\n" +
-		"fi\n" +
-		"while read -r line; do\n" +
-		"\tid=$(echo \"$line\" | grep -o '\"id\":[0-9]*' | cut -d: -f2)\n" +
-		"\techo \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"error\\\":{\\\"code\\\":-32000,\\\"message\\\":\\\"parse_error: unknown method: ping\\\"},\\\"id\\\":$id}\"\n" +
-		"done\n"
-	if err := os.WriteFile(boxshPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
 }
 
 func withTestRunnerPaths(t *testing.T, cfg GoRunnerConfig) GoRunnerConfig {
@@ -239,8 +212,8 @@ func TestNewGoRunnerUsesBoxshCoreToolsAndCleansUp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read commands log: %v", err)
 	}
-	if !strings.Contains(string(logged), `"method":"exec"`) {
-		t.Fatalf("expected exec RPC in log, got %s", string(logged))
+	if !strings.Contains(string(logged), `"method":"tools/call"`) {
+		t.Fatalf("expected tools/call RPC in log, got %s", string(logged))
 	}
 
 	if err := r.Close(); err != nil {
@@ -248,42 +221,6 @@ func TestNewGoRunnerUsesBoxshCoreToolsAndCleansUp(t *testing.T) {
 	}
 	if _, err := os.Stat(sessionDir); !os.IsNotExist(err) {
 		t.Fatalf("expected session dir cleanup, stat err = %v", err)
-	}
-}
-
-func TestNewGoRunnerFallsBackWhenBoxshBackendStartFails(t *testing.T) {
-	if boxshclient.PlatformSupportsBoxsh() == false {
-		t.Skip("boxsh integration only applies on linux/darwin")
-	}
-
-	annaHome := t.TempDir()
-	workspace := t.TempDir()
-	writeIncompatibleRPCBoxsh(t, annaHome)
-
-	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:       "anthropic",
-		Model:     "claude-sonnet-4-20250514",
-		APIKey:    "test-key",
-		AnnaHome:  annaHome,
-		Workspace: workspace,
-		CoreTools: testCoreToolsBuilder,
-		Providers: testProviderRegistryBuilder,
-	})
-	if err != nil {
-		t.Fatalf("NewGoRunner should fall back instead of failing: %v", err)
-	}
-	defer func() { _ = r.Close() }()
-
-	if r.backend != nil {
-		t.Fatal("expected boxsh backend startup failure to fall back to direct tools")
-	}
-
-	result, err := r.tools.Execute(context.Background(), "bash", map[string]any{"command": "printf fallback-ok"})
-	if err != nil {
-		t.Fatalf("execute fallback bash: %v", err)
-	}
-	if !strings.Contains(result, "fallback-ok") {
-		t.Fatalf("expected fallback bash result, got %q", result)
 	}
 }
 
