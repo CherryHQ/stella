@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/vaayne/anna/internal/config"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
 
 // channelView is the JSON shape the admin frontend expects for channel objects.
@@ -17,6 +18,26 @@ type channelView struct {
 	Config  string `json:"config"`
 }
 
+type channelLinkOption struct {
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Enabled bool   `json:"enabled"`
+}
+
+var channelLinkLabels = map[string]string{
+	pkgchannel.PlatformTelegram: "Telegram",
+	pkgchannel.PlatformQQ:       "QQ",
+	pkgchannel.PlatformFeishu:   "Feishu",
+	pkgchannel.PlatformWeixin:   "Weixin",
+}
+
+var channelLinkOrder = []string{
+	pkgchannel.PlatformTelegram,
+	pkgchannel.PlatformQQ,
+	pkgchannel.PlatformFeishu,
+	pkgchannel.PlatformWeixin,
+}
+
 func channelToView(ch config.Channel) channelView {
 	return channelView{
 		ID:      ch.ID,
@@ -25,6 +46,50 @@ func channelToView(ch config.Channel) channelView {
 		Enabled: ch.Enabled,
 		Config:  ch.Config,
 	}
+}
+
+func (s *Server) listChannelLinkOptions(w http.ResponseWriter, r *http.Request) {
+	plugins, err := s.store.ListPluginsByKind(r.Context(), config.PluginKindChannel)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	enabledPlugins := make(map[string]bool, len(plugins))
+	for _, plugin := range plugins {
+		if plugin.Enabled {
+			enabledPlugins[plugin.Name] = true
+		}
+	}
+
+	channels, err := s.store.ListChannels(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	enabledChannels := make(map[string]bool, len(channels))
+	for _, ch := range channels {
+		channelType := ch.Type
+		if channelType == "" {
+			channelType = ch.ID
+		}
+		if ch.Enabled && enabledPlugins[channelType] {
+			enabledChannels[channelType] = true
+		}
+	}
+
+	options := make([]channelLinkOption, 0, len(channelLinkOrder))
+	for _, id := range channelLinkOrder {
+		label, ok := channelLinkLabels[id]
+		if !ok || !enabledChannels[id] {
+			continue
+		}
+		options = append(options, channelLinkOption{
+			ID:      id,
+			Label:   label,
+			Enabled: true,
+		})
+	}
+	writeData(w, http.StatusOK, options)
 }
 
 func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
