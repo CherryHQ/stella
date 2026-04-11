@@ -247,6 +247,7 @@ func buildToolRegistry(cfg GoRunnerConfig, backend sandboxBackend) (*tools.Regis
 		AnnaHome:    cfg.AnnaHome,
 		Workspace:   cfg.Workspace,
 		ToolsBinDir: toolsBinDir,
+		Backend:     backend.Boxsh(),
 		Sandbox:     backend.Runtime(),
 	}
 	coreToolsBuilder := CoreToolsBuilderWithSandbox(cfg.CoreTools, backend)
