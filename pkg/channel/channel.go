@@ -78,6 +78,7 @@ type Handler interface {
 // IncomingMessage is the normalised input from any platform.
 type IncomingMessage struct {
 	Platform   string // "telegram", "qq", etc.
+	ChannelID  string // configured channel instance ID; defaults to Platform.
 	SenderID   string // platform-specific user ID
 	SenderName string // display name
 	ChatID     string // group/channel ID (empty for DMs)

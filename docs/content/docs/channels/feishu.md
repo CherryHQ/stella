@@ -19,6 +19,8 @@ anna includes a Feishu (Lark) bot that connects over WebSocket, so you do not ne
 anna
 ```
 
+You can create multiple Feishu channel instances in the admin panel. Each instance can use its own Feishu app credentials and can optionally be bound to a dedicated agent.
+
 ## Lark Workspace Automation
 
 The old built-in `feishu_*` tools and `/auth` flow were removed.

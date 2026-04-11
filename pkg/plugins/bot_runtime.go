@@ -18,6 +18,7 @@ type BotRuntimeDeps[T any] struct {
 	Now                  func() time.Time
 	Platform             string
 	DecodeConfig         func(map[string]any) (T, error)
+	ConfigureConfig      func(T, PluginState) T
 	ValidateConfig       func(T) string
 	NotificationsEnabled func(T) bool
 	NewChannel           func(T, pkgchannel.Handler) (pkgchannel.Channel, error)
@@ -27,10 +28,11 @@ type BotRuntimeDeps[T any] struct {
 type botManagedRuntime[T any] struct {
 	deps BotRuntimeDeps[T]
 
-	mu         sync.RWMutex
-	cancel     context.CancelFunc
-	generation int
-	snapshot   RuntimeStatus
+	mu          sync.RWMutex
+	cancel      context.CancelFunc
+	generation  int
+	snapshot    RuntimeStatus
+	channelName string
 }
 
 func NewBotManagedRuntime[T any](deps BotRuntimeDeps[T]) *botManagedRuntime[T] {
@@ -81,6 +83,9 @@ func (r *botManagedRuntime[T]) Reconcile(ctx context.Context, desired PluginStat
 	if err != nil {
 		return err
 	}
+	if r.deps.ConfigureConfig != nil {
+		cfg = r.deps.ConfigureConfig(cfg, desired)
+	}
 
 	r.mu.Lock()
 	r.generation++
@@ -91,9 +96,13 @@ func (r *botManagedRuntime[T]) Reconcile(ctx context.Context, desired PluginStat
 		cancel()
 	}
 	if r.deps.Notifier != nil {
-		r.deps.Notifier.Unregister(r.deps.Platform)
+		r.deps.Notifier.Unregister(desired.ID)
+		if r.channelName != "" && r.channelName != desired.ID {
+			r.deps.Notifier.Unregister(r.channelName)
+		}
 	}
 	if !desired.Enabled {
+		r.channelName = ""
 		r.snapshot = r.deps.Snapshot(r.deps.Now(), RuntimeStateStopped, r.deps.Platform+" disabled", cfg)
 		r.mu.Unlock()
 		return nil
@@ -110,16 +119,17 @@ func (r *botManagedRuntime[T]) Reconcile(ctx context.Context, desired PluginStat
 		r.mu.Unlock()
 		return fmt.Errorf("build %s channel: %w", r.deps.Platform, err)
 	}
-	if ch.Name() != r.deps.Platform {
-		r.snapshot = r.deps.Snapshot(r.deps.Now(), RuntimeStateError, r.deps.Platform+": unexpected channel name", cfg)
+	if ch.Name() == "" {
+		r.snapshot = r.deps.Snapshot(r.deps.Now(), RuntimeStateError, r.deps.Platform+": empty channel name", cfg)
 		r.mu.Unlock()
-		return fmt.Errorf("build %s channel: unexpected channel name %q", r.deps.Platform, ch.Name())
+		return fmt.Errorf("build %s channel: empty channel name", r.deps.Platform)
 	}
 	if r.deps.NotificationsEnabled(cfg) && r.deps.Notifier != nil {
 		r.deps.Notifier.Register(ch)
 	}
 	childCtx, stop := context.WithCancel(r.deps.Parent)
 	r.cancel = stop
+	r.channelName = ch.Name()
 	r.snapshot = r.deps.Snapshot(r.deps.Now(), RuntimeStateRunning, r.deps.Platform+" running", cfg)
 	r.mu.Unlock()
 
@@ -131,9 +141,10 @@ func (r *botManagedRuntime[T]) Reconcile(ctx context.Context, desired PluginStat
 			return
 		}
 		if r.deps.Notifier != nil {
-			r.deps.Notifier.Unregister(r.deps.Platform)
+			r.deps.Notifier.Unregister(ch.Name())
 		}
 		r.cancel = nil
+		r.channelName = ""
 		message := r.deps.Platform + " stopped"
 		state := RuntimeStateStopped
 		if err != nil && childCtx.Err() == nil {
@@ -158,8 +169,13 @@ func (r *botManagedRuntime[T]) Stop(ctx context.Context) error {
 		r.cancel = nil
 	}
 	if r.deps.Notifier != nil {
-		r.deps.Notifier.Unregister(r.deps.Platform)
+		if r.channelName != "" {
+			r.deps.Notifier.Unregister(r.channelName)
+		} else {
+			r.deps.Notifier.Unregister(r.deps.Platform)
+		}
 	}
+	r.channelName = ""
 	r.snapshot = r.deps.Snapshot(r.deps.Now(), RuntimeStateStopped, r.deps.Platform+" stopped", zero)
 	return nil
 }

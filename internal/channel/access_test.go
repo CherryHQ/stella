@@ -187,7 +187,7 @@ func TestResolveAgentWithAuthGroupChatFallback(t *testing.T) {
 		Enabled:   true,
 	})
 
-	_ = ts.store.SetChatAgent(ctx, "telegram", "-1001234", "group-agent")
+	_ = ts.store.SetChatAgent(ctx, "telegram", "telegram", "-1001234", "group-agent")
 
 	hash, _ := auth.HashPassword("testpass")
 	authUser, _ := ts.authStore.CreateUser(ctx, "eve", hash)

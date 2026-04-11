@@ -88,8 +88,10 @@ func (s *Server) registerChannelRoutes() {
 		return s.adminOnlyMiddleware(handler)
 	}
 	s.mux.Handle("GET /api/channels", adminAPI(s.listChannels))
-	s.mux.Handle("GET /api/channels/{platform}", adminAPI(s.getChannel))
-	s.mux.Handle("PUT /api/channels/{platform}", adminAPI(s.updateChannel))
+	s.mux.Handle("POST /api/channels", adminAPI(s.createChannel))
+	s.mux.Handle("GET /api/channels/{id}", adminAPI(s.getChannel))
+	s.mux.Handle("PUT /api/channels/{id}", adminAPI(s.updateChannel))
+	s.mux.Handle("DELETE /api/channels/{id}", adminAPI(s.deleteChannel))
 	s.mux.HandleFunc("POST /api/channels/weixin/qr", s.startWeixinQR)
 	s.mux.HandleFunc("GET /api/channels/weixin/qr/status", s.pollWeixinQRStatus)
 }

@@ -249,6 +249,7 @@ func TestNewValidConfig(t *testing.T) {
 	}
 	if bot == nil {
 		t.Fatal("expected bot, got nil")
+		return
 	}
 	if bot.cfg.GroupMode != "mention" {
 		t.Errorf("default group_mode = %q, want %q", bot.cfg.GroupMode, "mention")

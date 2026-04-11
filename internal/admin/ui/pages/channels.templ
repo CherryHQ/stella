@@ -178,12 +178,139 @@ templ ChannelsPage() {
 				<button @click="saveChannel('weixin')" class="btn btn-primary btn-sm">Save Weixin</button>
 			}
 		</div>
+		<div class="border-t border-base-300 pt-8 mt-8">
+			<div class="flex items-center justify-between gap-4 mb-6">
+				<div>
+					<h2 class="text-lg font-medium">Channel instances</h2>
+					<p class="text-sm text-secondary mt-1">Use separate bot credentials for dedicated agents or teams.</p>
+				</div>
+				<span class="text-xs font-mono text-secondary" x-text="channels.length + ' instances'"></span>
+			</div>
+			<div class="border border-base-300 rounded-xl p-4 mb-8 space-y-4">
+				<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider">New instance</p>
+				<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+					<div>
+						@ui.FormField("ID") {
+							<input x-model="newChannel.id" type="text" placeholder="feishu-coder" class="input input-bordered w-full text-sm font-mono"/>
+						}
+					</div>
+					<div>
+						@ui.FormField("Type") {
+							<select x-model="newChannel.type" class="select select-bordered w-full text-sm">
+								<template x-for="type in visibleChannelTypes" :key="type.id">
+									<option :value="type.id" x-text="type.label"></option>
+								</template>
+							</select>
+						}
+					</div>
+					<div>
+						@ui.FormField("Dedicated Agent") {
+							<select x-model="newChannel.agent_id" class="select select-bordered w-full text-sm">
+								<option value="">All agents</option>
+								<template x-for="a in agents" :key="a.id">
+									<option :value="a.id" x-text="a.name + ' (' + a.id + ')'"></option>
+								</template>
+							</select>
+						}
+					</div>
+					<label class="flex items-end gap-3 cursor-pointer pb-3">
+						<input type="checkbox" x-model="newChannel.enabled" class="toggle toggle-primary toggle-sm"/>
+						<span class="text-sm">Enabled</span>
+					</label>
+				</div>
+				<div>
+					@ui.FormField("Config JSON") {
+						<textarea x-model="newChannel.config" rows="5" class="textarea textarea-bordered w-full text-xs font-mono resize-y"></textarea>
+					}
+				</div>
+				<button @click="createChannel()" :disabled="!newChannel.id || !newChannel.type" class="btn btn-primary btn-sm">Create instance</button>
+			</div>
+			<div class="space-y-8">
+				<template x-for="group in groupedChannels" :key="group.type">
+					<div>
+						<div class="flex items-center gap-3 mb-4">
+							<h3 class="text-sm font-medium" x-text="group.type"></h3>
+							<span class="text-xs text-secondary" x-text="group.channels.length + ' instances'"></span>
+						</div>
+						<div class="divide-y divide-base-300 border border-base-300 rounded-xl px-4">
+							<template x-for="ch in group.channels" :key="ch.id">
+								<div class="py-5">
+									<div class="flex items-center justify-between gap-4 mb-4">
+										<button @click="ch._collapsed = !ch._collapsed" class="flex items-center gap-3 text-left min-w-0 flex-1 cursor-pointer">
+											<span class="text-xs text-secondary" x-text="ch._collapsed ? '▸' : '▾'"></span>
+											<div class="flex items-baseline gap-3 flex-wrap min-w-0">
+												<span class="font-medium" x-text="ch.id"></span>
+												<span class="badge badge-ghost badge-sm" x-text="ch.type"></span>
+												<span class="badge badge-sm" :class="ch.enabled ? 'badge-success' : 'badge-ghost'" x-text="ch.enabled ? 'enabled' : 'disabled'"></span>
+												<span x-show="ch.agent_id" class="badge badge-primary badge-sm" x-text="'agent: ' + ch.agent_id"></span>
+											</div>
+										</button>
+										<div class="flex items-center gap-2 shrink-0">
+											<button @click="ch._collapsed = !ch._collapsed" class="btn btn-ghost btn-xs" x-text="ch._collapsed ? 'Edit' : 'Collapse'"></button>
+											<button
+												x-show="ch.id !== ch.type"
+												@click="confirmDelete('Delete channel instance ' + ch.id + '?', () => doDeleteChannel(ch.id))"
+												class="btn btn-ghost btn-xs text-secondary hover:text-error"
+											>remove</button>
+										</div>
+									</div>
+									<div x-show="!ch._collapsed" x-cloak class="space-y-4">
+										<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+											<div>
+												@ui.FormField("Type") {
+													<select x-model="ch.type" class="select select-bordered w-full text-sm">
+														<template x-for="type in visibleChannelTypes" :key="type.id">
+															<option :value="type.id" x-text="type.label"></option>
+														</template>
+													</select>
+												}
+											</div>
+											<div>
+												@ui.FormField("Dedicated Agent") {
+													<select x-model="ch.agent_id" class="select select-bordered w-full text-sm">
+														<option value="">All agents</option>
+														<template x-for="a in agents" :key="a.id">
+															<option :value="a.id" x-text="a.name + ' (' + a.id + ')'"></option>
+														</template>
+													</select>
+												}
+											</div>
+											<label class="flex items-end gap-3 cursor-pointer pb-3">
+												<input type="checkbox" x-model="ch.enabled" class="toggle toggle-primary toggle-sm"/>
+												<span class="text-sm">Enabled</span>
+											</label>
+										</div>
+										<div>
+											@ui.FormField("Config JSON") {
+												<textarea x-model="ch.config" rows="7" class="textarea textarea-bordered w-full text-xs font-mono resize-y"></textarea>
+											}
+										</div>
+										<button @click="saveInstance(ch)" class="btn btn-primary btn-sm">Save instance</button>
+									</div>
+								</div>
+							</template>
+						</div>
+					</div>
+				</template>
+			</div>
+		</div>
+		<div x-show="confirmMsg" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+			<div class="card bg-base-100 shadow-xl w-full max-w-sm" @click.away="confirmMsg = ''">
+				<div class="card-body">
+					<p class="text-sm" x-text="confirmMsg"></p>
+					<div class="card-actions justify-end mt-4">
+						<button @click="confirmMsg = ''" class="btn btn-ghost btn-sm">Cancel</button>
+						<button @click="confirmAction(); confirmMsg = ''" class="btn btn-error btn-sm">Delete</button>
+					</div>
+				</div>
+			</div>
+		</div>
 	</div>
 }
 
 // channelBlock renders a collapsible platform section with enable toggle.
 templ channelBlock(name string, platform string) {
-	<div class="py-8">
+	<div class="py-8" x-show={ "channelTypeEnabled('" + platform + "')" } x-cloak>
 		<div class="flex items-center justify-between mb-4">
 			<div class="flex items-center gap-3">
 				<span class="font-medium text-lg">{ name }</span>
@@ -204,6 +331,16 @@ templ channelBlock(name string, platform string) {
 			</label>
 		</div>
 		<div x-show={ "channelData." + platform + ".enabled" } x-transition x-cloak class="space-y-4 pl-0 md:pl-6">
+			<div>
+				@ui.FormField("Dedicated Agent") {
+					<select x-model={ "channelData." + platform + ".agent_id" } class="select select-bordered w-full text-sm">
+						<option value="">All agents</option>
+						<template x-for="a in agents" :key="a.id">
+							<option :value="a.id" x-text="a.name + ' (' + a.id + ')'"></option>
+						</template>
+					</select>
+				}
+			</div>
 			{ children... }
 		</div>
 	</div>

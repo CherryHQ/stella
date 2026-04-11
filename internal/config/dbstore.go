@@ -197,6 +197,18 @@ func (s *DBStore) ListChannels(ctx context.Context) ([]Channel, error) {
 	return out, nil
 }
 
+func (s *DBStore) ListChannelsByType(ctx context.Context, channelType string) ([]Channel, error) {
+	rows, err := s.q.ListChannelsByType(ctx, channelType)
+	if err != nil {
+		return nil, fmt.Errorf("list %s channels: %w", channelType, err)
+	}
+	out := make([]Channel, len(rows))
+	for i, r := range rows {
+		out[i] = channelFromDB(r)
+	}
+	return out, nil
+}
+
 func (s *DBStore) GetChannel(ctx context.Context, id string) (Channel, error) {
 	r, err := s.q.GetChannel(ctx, id)
 	if err != nil {
@@ -206,15 +218,21 @@ func (s *DBStore) GetChannel(ctx context.Context, id string) (Channel, error) {
 }
 
 func (s *DBStore) UpsertChannel(ctx context.Context, ch Channel) error {
-	enabled := int64(0)
-	if ch.Enabled {
-		enabled = 1
+	channelType := ch.Type
+	if channelType == "" {
+		channelType = ch.ID
 	}
 	return s.q.UpsertChannel(ctx, sqlc.UpsertChannelParams{
 		ID:      ch.ID,
-		Enabled: enabled,
+		Type:    channelType,
+		AgentID: sql.NullString{String: ch.AgentID, Valid: ch.AgentID != ""},
+		Enabled: boolToInt64(ch.Enabled),
 		Config:  ch.Config,
 	})
+}
+
+func (s *DBStore) DeleteChannel(ctx context.Context, id string) error {
+	return s.q.DeleteChannel(ctx, id)
 }
 
 // --- Plugins ---
@@ -309,29 +327,47 @@ func (s *DBStore) DeletePlugin(ctx context.Context, id string) error {
 
 // --- Chat Agents ---
 
-func (s *DBStore) GetChatAgent(ctx context.Context, platform, chatID string) (string, error) {
+func (s *DBStore) GetChatAgent(ctx context.Context, channelID, platform, chatID string) (string, error) {
+	if channelID == "" {
+		channelID = platform
+	}
 	r, err := s.q.GetChatAgent(ctx, sqlc.GetChatAgentParams{
-		Platform: platform,
-		ChatID:   chatID,
+		ChannelID: channelID,
+		Platform:  platform,
+		ChatID:    chatID,
 	})
 	if err != nil {
-		return "", fmt.Errorf("get chat agent: %w", err)
+		r, err = s.q.GetLegacyChatAgent(ctx, sqlc.GetLegacyChatAgentParams{
+			Platform: platform,
+			ChatID:   chatID,
+		})
+		if err != nil {
+			return "", fmt.Errorf("get chat agent: %w", err)
+		}
 	}
 	return r.AgentID, nil
 }
 
-func (s *DBStore) SetChatAgent(ctx context.Context, platform, chatID, agentID string) error {
+func (s *DBStore) SetChatAgent(ctx context.Context, channelID, platform, chatID, agentID string) error {
+	if channelID == "" {
+		channelID = platform
+	}
 	return s.q.UpsertChatAgent(ctx, sqlc.UpsertChatAgentParams{
-		Platform: platform,
-		ChatID:   chatID,
-		AgentID:  agentID,
+		ChannelID: channelID,
+		Platform:  platform,
+		ChatID:    chatID,
+		AgentID:   agentID,
 	})
 }
 
-func (s *DBStore) DeleteChatAgent(ctx context.Context, platform, chatID string) error {
+func (s *DBStore) DeleteChatAgent(ctx context.Context, channelID, platform, chatID string) error {
+	if channelID == "" {
+		channelID = platform
+	}
 	return s.q.DeleteChatAgent(ctx, sqlc.DeleteChatAgentParams{
-		Platform: platform,
-		ChatID:   chatID,
+		ChannelID: channelID,
+		Platform:  platform,
+		ChatID:    chatID,
 	})
 }
 
@@ -472,6 +508,9 @@ func (s *DBStore) SeedDefaults(ctx context.Context) error {
 	if err := s.seedPlugins(ctx); err != nil {
 		return err
 	}
+	if err := s.seedChannelInstances(ctx); err != nil {
+		return err
+	}
 	if err := s.seedProviders(ctx); err != nil {
 		return err
 	}
@@ -579,6 +618,60 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 		return fmt.Errorf("seed: plugin reflect: %w", err)
 	}
 
+	return nil
+}
+
+func (s *DBStore) seedChannelInstances(ctx context.Context) error {
+	existing, err := s.q.ListChannels(ctx)
+	if err != nil {
+		return fmt.Errorf("seed: list channel instances: %w", err)
+	}
+	existingByID := make(map[string]struct{}, len(existing))
+	for _, ch := range existing {
+		existingByID[ch.ID] = struct{}{}
+		if ch.Type == "" {
+			if err := s.UpsertChannel(ctx, channelFromDB(ch)); err != nil {
+				return fmt.Errorf("seed: backfill channel type %q: %w", ch.ID, err)
+			}
+		}
+	}
+
+	if len(existing) == 0 {
+		plugins, err := s.q.ListPluginsByKind(ctx, PluginKindChannel)
+		if err != nil {
+			return fmt.Errorf("seed: list channel plugins: %w", err)
+		}
+		for _, row := range plugins {
+			plugin := pluginFromDB(row)
+			configJSON, err := json.Marshal(plugin.Config)
+			if err != nil {
+				return fmt.Errorf("seed: marshal channel %q config: %w", plugin.Name, err)
+			}
+			if err := s.UpsertChannel(ctx, Channel{
+				ID:      plugin.Name,
+				Type:    plugin.Name,
+				Enabled: plugin.Enabled,
+				Config:  string(configJSON),
+			}); err != nil {
+				return fmt.Errorf("seed: channel instance %q: %w", plugin.Name, err)
+			}
+			existingByID[plugin.Name] = struct{}{}
+		}
+	}
+
+	for _, name := range builtinChannelNames {
+		if _, ok := existingByID[name]; ok {
+			continue
+		}
+		if err := s.UpsertChannel(ctx, Channel{
+			ID:      name,
+			Type:    name,
+			Enabled: true,
+			Config:  "{}",
+		}); err != nil {
+			return fmt.Errorf("seed: default channel instance %q: %w", name, err)
+		}
+	}
 	return nil
 }
 
@@ -858,8 +951,18 @@ func pluginFromDB(r sqlc.SettingsPlugin) Plugin {
 }
 
 func channelFromDB(r sqlc.SettingsChannel) Channel {
+	agentID := ""
+	if r.AgentID.Valid {
+		agentID = r.AgentID.String
+	}
+	channelType := r.Type
+	if channelType == "" {
+		channelType = r.ID
+	}
 	return Channel{
 		ID:      r.ID,
+		Type:    channelType,
+		AgentID: agentID,
 		Enabled: r.Enabled == 1,
 		Config:  r.Config,
 	}

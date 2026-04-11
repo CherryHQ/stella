@@ -22,9 +22,10 @@ func NewQQManagedRuntime(deps QQRuntimeDeps) pkgplugins.Runtime {
 	if deps.NewChannel == nil {
 		deps.NewChannel = func(cfg pkgchannel.QQConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
-				AppID:     cfg.AppID,
-				AppSecret: cfg.AppSecret,
-				GroupMode: cfg.GroupMode,
+				InstanceID: cfg.InstanceID,
+				AppID:      cfg.AppID,
+				AppSecret:  cfg.AppSecret,
+				GroupMode:  cfg.GroupMode,
 			}, handler)
 		}
 	}
@@ -36,11 +37,19 @@ func NewQQManagedRuntime(deps QQRuntimeDeps) pkgplugins.Runtime {
 		Now:                  deps.Now,
 		Platform:             pkgchannel.PlatformQQ,
 		DecodeConfig:         DecodeConfig,
+		ConfigureConfig:      configureConfig,
 		ValidateConfig:       validateConfig,
 		NotificationsEnabled: func(cfg pkgchannel.QQConfig) bool { return cfg.EnableNotify },
 		NewChannel:           deps.NewChannel,
 		Snapshot:             runtimeSnapshot,
 	})
+}
+
+func configureConfig(cfg pkgchannel.QQConfig, desired pkgplugins.PluginState) pkgchannel.QQConfig {
+	if cfg.InstanceID == "" {
+		cfg.InstanceID = desired.ID
+	}
+	return cfg
 }
 
 func DecodeConfig(raw map[string]any) (pkgchannel.QQConfig, error) {

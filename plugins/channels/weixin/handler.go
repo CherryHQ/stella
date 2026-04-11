@@ -76,6 +76,7 @@ func (b *Bot) dispatchMessage(msg WeixinMessage) {
 func (b *Bot) incomingMsg(msg WeixinMessage, content []ai.ContentBlock) channel.IncomingMessage {
 	return channel.IncomingMessage{
 		Platform:   channel.PlatformWeixin,
+		ChannelID:  b.Name(),
 		SenderID:   msg.FromUserID,
 		SenderName: "", // no display name available from iLink
 		ChatID:     msg.FromUserID,

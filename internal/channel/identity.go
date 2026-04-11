@@ -14,9 +14,10 @@ import (
 var ErrAgentAccessDenied = errors.New("you don't have access to this agent, contact an admin")
 
 type ChatContext struct {
-	Platform string
-	ChatID   string
-	IsGroup  bool
+	Platform  string
+	ChannelID string
+	ChatID    string
+	IsGroup   bool
 }
 
 type ResolvedIdentity struct {
@@ -81,8 +82,23 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthSt
 		})
 	}
 
+	channelID := chat.ChannelID
+	if channelID == "" {
+		channelID = chat.Platform
+	}
+	if channelID != "" {
+		ch, err := store.GetChannel(ctx, channelID)
+		if err == nil && ch.AgentID != "" {
+			if canAccess(ch.AgentID) {
+				return ch.AgentID, nil
+			}
+			log.Warn("agent access denied for dedicated channel", "channel_id", channelID, "agent_id", ch.AgentID)
+			return "", ErrAgentAccessDenied
+		}
+	}
+
 	if chat.IsGroup && chat.ChatID != "" {
-		agentID, err := store.GetChatAgent(ctx, chat.Platform, chat.ChatID)
+		agentID, err := store.GetChatAgent(ctx, channelID, chat.Platform, chat.ChatID)
 		if err == nil && agentID != "" {
 			if canAccess(agentID) {
 				return agentID, nil

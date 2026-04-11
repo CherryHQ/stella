@@ -328,11 +328,11 @@ func TestChatAgentCRUD(t *testing.T) {
 
 	_ = store.CreateAgent(ctx, Agent{ID: "agent1", Name: "A1", Model: "p/m", Enabled: true})
 
-	if err := store.SetChatAgent(ctx, "telegram", "group-42", "agent1"); err != nil {
+	if err := store.SetChatAgent(ctx, "telegram", "telegram", "group-42", "agent1"); err != nil {
 		t.Fatalf("SetChatAgent: %v", err)
 	}
 
-	agentID, err := store.GetChatAgent(ctx, "telegram", "group-42")
+	agentID, err := store.GetChatAgent(ctx, "telegram", "telegram", "group-42")
 	if err != nil {
 		t.Fatalf("GetChatAgent: %v", err)
 	}
@@ -340,11 +340,11 @@ func TestChatAgentCRUD(t *testing.T) {
 		t.Errorf("agentID = %q, want %q", agentID, "agent1")
 	}
 
-	if err := store.DeleteChatAgent(ctx, "telegram", "group-42"); err != nil {
+	if err := store.DeleteChatAgent(ctx, "telegram", "telegram", "group-42"); err != nil {
 		t.Fatalf("DeleteChatAgent: %v", err)
 	}
 
-	_, err = store.GetChatAgent(ctx, "telegram", "group-42")
+	_, err = store.GetChatAgent(ctx, "telegram", "telegram", "group-42")
 	if err == nil {
 		t.Error("expected error after delete")
 	}

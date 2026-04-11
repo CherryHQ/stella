@@ -22,10 +22,11 @@ func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.Runtime {
 	if deps.NewChannel == nil {
 		deps.NewChannel = func(cfg pkgchannel.WeixinConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
-				BotToken: cfg.BotToken,
-				BaseURL:  cfg.BaseURL,
-				BotID:    cfg.BotID,
-				UserID:   cfg.UserID,
+				InstanceID: cfg.InstanceID,
+				BotToken:   cfg.BotToken,
+				BaseURL:    cfg.BaseURL,
+				BotID:      cfg.BotID,
+				UserID:     cfg.UserID,
 			}, handler)
 		}
 	}
@@ -37,11 +38,19 @@ func NewWeixinManagedRuntime(deps WeixinRuntimeDeps) pkgplugins.Runtime {
 		Now:                  deps.Now,
 		Platform:             pkgchannel.PlatformWeixin,
 		DecodeConfig:         DecodeConfig,
+		ConfigureConfig:      configureConfig,
 		ValidateConfig:       validateConfig,
 		NotificationsEnabled: func(cfg pkgchannel.WeixinConfig) bool { return cfg.EnableNotify },
 		NewChannel:           deps.NewChannel,
 		Snapshot:             runtimeSnapshot,
 	})
+}
+
+func configureConfig(cfg pkgchannel.WeixinConfig, desired pkgplugins.PluginState) pkgchannel.WeixinConfig {
+	if cfg.InstanceID == "" {
+		cfg.InstanceID = desired.ID
+	}
+	return cfg
 }
 
 func DecodeConfig(raw map[string]any) (pkgchannel.WeixinConfig, error) {

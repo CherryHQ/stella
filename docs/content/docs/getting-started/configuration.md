@@ -40,11 +40,13 @@ One row per agent.
 
 ### settings_channels
 
-One row per messaging platform.
+One row per channel instance. Multiple rows can share the same platform `type`, such as multiple Feishu bot instances.
 
 | Column    | Type    | Description                                           |
 | --------- | ------- | ----------------------------------------------------- |
-| `id`      | TEXT    | Platform identifier: `telegram`, `qq`, `feishu`, or `weixin`    |
+| `id`      | TEXT    | Channel instance identifier, such as `telegram` or `feishu-coder` |
+| `type`    | TEXT    | Platform type: `telegram`, `qq`, `feishu`, or `weixin` |
+| `agent_id` | TEXT   | Optional dedicated agent for this channel instance |
 | `enabled` | INTEGER | 1 = active, 0 = disabled                              |
 | `config`  | TEXT    | JSON blob with platform-specific settings (see below) |
 
@@ -66,11 +68,12 @@ Routes a specific group chat to a specific agent.
 
 | Column     | Type | Description                      |
 | ---------- | ---- | -------------------------------- |
+| `channel_id` | TEXT | Channel instance identifier |
 | `platform` | TEXT | Platform identifier              |
 | `chat_id`  | TEXT | Group or chat ID on the platform |
 | `agent_id` | TEXT | FK to `settings_agents.id`       |
 
-Composite primary key: `(platform, chat_id)`.
+Composite primary key: `(channel_id, chat_id)`.
 
 ## Runner Settings
 
