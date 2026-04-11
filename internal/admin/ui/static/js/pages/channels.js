@@ -72,7 +72,7 @@ function groupChannelsByType(channels) {
   return groups
 }
 
-function legacyConfig(platform, data) {
+function legacyConfig(data) {
   const cfg = { ...data }
   delete cfg.enabled
   delete cfg.agent_id
@@ -227,16 +227,24 @@ export function register(Alpine) {
       this.$store.toast.show('Copied')
     },
 
+    clearWeixinQRInterval() {
+      if (!this._wxQrInterval) return
+      clearInterval(this._wxQrInterval)
+      this._wxQrInterval = null
+    },
+
+    stopWeixinQRPolling() {
+      this.clearWeixinQRInterval()
+      this.wxQrPolling = false
+    },
+
     async startWeixinQR() {
       this.linkCode = ''
       this.wxQrUrl = ''
       this.wxQrStatus = ''
       this.wxQrCode = ''
       this.wxQrPolling = true
-      if (this._wxQrInterval) {
-        clearInterval(this._wxQrInterval)
-        this._wxQrInterval = null
-      }
+      this.clearWeixinQRInterval()
       try {
         const result = await api('POST', '/api/channels/weixin/qr')
         this.wxQrCode = result.qrcode || ''
@@ -260,16 +268,12 @@ export function register(Alpine) {
           this.wxQrStatus = result.status
         }
         if (result.status === 'confirmed') {
-          clearInterval(this._wxQrInterval)
-          this._wxQrInterval = null
-          this.wxQrPolling = false
+          this.stopWeixinQRPolling()
           this.wxQrUrl = ''
           this.$store.toast.show('Weixin account linked successfully')
           await this.loadIdentities()
         } else if (result.status === 'expired') {
-          clearInterval(this._wxQrInterval)
-          this._wxQrInterval = null
-          this.wxQrPolling = false
+          this.stopWeixinQRPolling()
         }
       } catch (e) {
         console.error('QR status poll error:', e)
@@ -369,7 +373,7 @@ export function register(Alpine) {
         await api('PUT', '/api/channels/' + platform, {
           type: platform,
           agent_id: data.agent_id || '',
-          config: JSON.stringify(legacyConfig(platform, data)),
+          config: JSON.stringify(legacyConfig(data)),
         })
         await this.loadChannels()
         this.$store.toast.show(platform + ' saved')

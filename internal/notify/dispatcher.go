@@ -166,25 +166,19 @@ func (d *Dispatcher) NotifyUser(ctx context.Context, userID int64, n pkgchannel.
 
 	if e, ch, ok := dedicatedEntryForAgent(entries, channels, n.AgentID); ok {
 		if id, ok := identityForPlatform(identities, channelTypeForEntry(ch, e)); ok {
-			nn := n
-			nn.ChatID = id.ExternalID
-			return e.channel.Notify(ctx, nn)
+			return notifyWithChatID(ctx, e, n, id.ExternalID)
 		}
 	}
 
 	if e, ok := nonDedicatedEntryForPlatform(entries, channels, target.Platform); ok {
-		nn := n
-		nn.ChatID = target.ExternalID
-		return e.channel.Notify(ctx, nn)
+		return notifyWithChatID(ctx, e, n, target.ExternalID)
 	}
 
 	for _, id := range identities {
 		if e, ok := nonDedicatedEntryForPlatform(entries, channels, id.Platform); ok {
 			slog.Warn("notifyUser: preferred channel not registered, using first available",
 				"user_id", userID, "preferred", target.Platform, "fallback", id.Platform)
-			nn := n
-			nn.ChatID = id.ExternalID
-			return e.channel.Notify(ctx, nn)
+			return notifyWithChatID(ctx, e, n, id.ExternalID)
 		}
 	}
 
@@ -315,6 +309,12 @@ func identityForPlatform(identities []pkgplugins.LinkedIdentity, platform string
 		}
 	}
 	return pkgplugins.LinkedIdentity{}, false
+}
+
+func notifyWithChatID(ctx context.Context, entry channelEntry, n pkgchannel.Notification, chatID string) error {
+	nn := n
+	nn.ChatID = chatID
+	return entry.channel.Notify(ctx, nn)
 }
 
 // pickNotifyIdentity returns the identity to use for notifications.

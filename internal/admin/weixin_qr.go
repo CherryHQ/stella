@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"time"
 
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
@@ -42,11 +41,7 @@ func (s *Server) pollWeixinQRStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
 	client := weixin.NewClient("", "", "")
-	_ = ctx
 	status, err := client.GetQRCodeStatus(qrcode, "")
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "failed to poll QR status: "+err.Error())
@@ -125,18 +120,6 @@ func (s *Server) saveWeixinCredentials(ctx context.Context, status *weixin.QRCod
 		if err := s.pluginHost.ValidateConfig(pluginID, cfg); err != nil {
 			return err
 		}
-		cfgJSON, err := json.Marshal(cfg)
-		if err != nil {
-			return err
-		}
-		ch.Config = string(cfgJSON)
-		if err := s.store.UpsertChannel(ctx, ch); err != nil {
-			return err
-		}
-		if err := s.pluginHost.ApplyChannel(ctx, ch); err != nil {
-			s.log.Error("failed to apply channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
-		}
-		return nil
 	}
 
 	cfgJSON, err := json.Marshal(cfg)
@@ -144,5 +127,13 @@ func (s *Server) saveWeixinCredentials(ctx context.Context, status *weixin.QRCod
 		return err
 	}
 	ch.Config = string(cfgJSON)
-	return s.store.UpsertChannel(ctx, ch)
+	if err := s.store.UpsertChannel(ctx, ch); err != nil {
+		return err
+	}
+	if s.pluginHost != nil {
+		if err := s.pluginHost.ApplyChannel(ctx, ch); err != nil {
+			s.log.Error("failed to apply channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
+		}
+	}
+	return nil
 }

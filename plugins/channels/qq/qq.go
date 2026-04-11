@@ -120,13 +120,17 @@ func (b *Bot) Stop() {
 
 // Name returns the channel name. Implements channel.Channel.
 func (b *Bot) Name() string {
-	if b.cfg.InstanceID != "" {
-		return b.cfg.InstanceID
-	}
-	return channel.PlatformQQ
+	return qqChannelName(b.cfg.InstanceID)
 }
 
 func (b *Bot) Platform() string { return channel.PlatformQQ }
+
+func qqChannelName(instanceID string) string {
+	if instanceID != "" {
+		return instanceID
+	}
+	return channel.PlatformQQ
+}
 
 // Notify sends a notification message. Implements channel.Channel.
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
@@ -168,11 +172,15 @@ func channelForGroup(groupID string) string {
 }
 
 func incomingMsg(authorID, groupID string, content []ai.ContentBlock) channel.IncomingMessage {
-	return (&Bot{}).incomingMsg(authorID, groupID, content)
+	return incomingMsgForChannel(qqChannelName(""), authorID, groupID, content)
 }
 
 // incomingMsg builds an IncomingMessage from QQ message context.
 func (b *Bot) incomingMsg(authorID, groupID string, content []ai.ContentBlock) channel.IncomingMessage {
+	return incomingMsgForChannel(b.Name(), authorID, groupID, content)
+}
+
+func incomingMsgForChannel(channelID, authorID, groupID string, content []ai.ContentBlock) channel.IncomingMessage {
 	chatID := channelForC2C(authorID)
 	isGroup := groupID != ""
 	if isGroup {
@@ -180,7 +188,7 @@ func (b *Bot) incomingMsg(authorID, groupID string, content []ai.ContentBlock) c
 	}
 	return channel.IncomingMessage{
 		Platform:   channel.PlatformQQ,
-		ChannelID:  b.Name(),
+		ChannelID:  channelID,
 		SenderID:   authorID,
 		SenderName: "",
 		ChatID:     chatID,

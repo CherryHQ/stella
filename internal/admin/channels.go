@@ -181,15 +181,10 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	existing, existingErr := s.store.GetChannel(r.Context(), id)
-	var cfgMap map[string]any
-	if req.Config != "" {
-		if err := json.Unmarshal([]byte(req.Config), &cfgMap); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid config JSON: "+err.Error())
-			return
-		}
-	}
-	if cfgMap == nil {
-		cfgMap = make(map[string]any)
+	cfgMap, err := parseChannelConfig(req.Config)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid config JSON: "+err.Error())
+		return
 	}
 
 	channelType := id
