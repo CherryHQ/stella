@@ -11,6 +11,7 @@ import (
 
 func TestToolListAndGet(t *testing.T) {
 	mgr := NewManager()
+	mgr.Configure(Config{Servers: []ServerConfig{{Name: "github", Enabled: true, Transport: TransportStdio, Command: "cmd"}}}, true)
 	mgr.AddTool("github", "search_repos", "Search Repos", "Search repositories", map[string]any{"type": "object"}, map[string]any{"type": "object"}, map[string]any{"read_only_hint": true})
 	tool := New(mgr)
 
