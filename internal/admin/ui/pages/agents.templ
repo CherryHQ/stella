@@ -72,7 +72,7 @@ templ AgentsPage() {
 				<template x-for="a in agents" :key="a.id">
 					<div class="py-5 group transition-colors" :data-agent-id="a.id" :class="a._highlight ? 'bg-primary/5 -mx-3 px-3 rounded-lg' : ''">
 						<div class="flex items-baseline justify-between">
-							<div class="flex items-baseline gap-3">
+							<div class="flex items-baseline gap-3 flex-wrap">
 								<span class="font-medium" x-text="a.name"></span>
 								<span class="text-xs font-mono text-secondary" x-text="a.id"></span>
 								<span
@@ -84,8 +84,16 @@ templ AgentsPage() {
 									x-show="a.scope === 'restricted'"
 									class="badge badge-sm badge-warning"
 								>restricted</span>
+								<template x-for="channel in dedicatedChannelsForAgent(a.id)" :key="channel.id">
+									<span class="badge badge-outline badge-sm" x-text="channel.id"></span>
+								</template>
 							</div>
 							<div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity" x-show="canEditAgent(a)">
+								<button
+									x-show="isAdmin"
+									@click="manageChannels(a)"
+									class="btn btn-ghost btn-xs text-secondary hover:text-primary"
+								>channels</button>
 								<button
 									x-show="isAdmin && a.scope === 'restricted'"
 									@click="manageUsers(a)"
@@ -158,6 +166,34 @@ templ AgentsPage() {
 						</div>
 					</div>
 				</template>
+			</div>
+		</div>
+		<!-- Dedicated channel binding modal -->
+		<div x-show="showChannelModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+			<div class="card bg-base-100 shadow-xl w-full max-w-md" @click.away="showChannelModal = false">
+				<div class="card-body">
+					<h3 class="font-semibold text-sm" x-text="'Dedicated channels for ' + channelModalAgent"></h3>
+					<p class="text-xs text-secondary">Bind dedicated channel instances to this agent. Unbound instances stay available for other agents.</p>
+					<div class="mt-4 space-y-2 max-h-72 overflow-y-auto">
+						<template x-for="channel in availableDedicatedChannels(channelModalAgent)" :key="channel.id">
+							<label class="flex items-center justify-between gap-3 rounded-lg border border-base-300 px-3 py-2 cursor-pointer">
+								<div class="min-w-0">
+									<p class="text-sm font-mono" x-text="channel.id"></p>
+									<p class="text-xs text-secondary" x-text="channel.type"></p>
+								</div>
+								<input type="checkbox" :value="channel.id" x-model="selectedChannelIDs" class="checkbox checkbox-sm checkbox-primary" />
+							</label>
+						</template>
+						<div x-show="availableDedicatedChannels(channelModalAgent).length === 0" class="text-sm text-base-content/50">No dedicated channel instances available.</div>
+					</div>
+					<div class="card-actions justify-end mt-4">
+						<button @click="showChannelModal = false" class="btn btn-ghost btn-sm">Cancel</button>
+						<button @click="saveChannelBindings()" :disabled="savingChannels" class="btn btn-primary btn-sm">
+							<span x-show="savingChannels" class="loading loading-spinner loading-xs"></span>
+							Save
+						</button>
+					</div>
+				</div>
 			</div>
 		</div>
 		<!-- User assignment modal -->

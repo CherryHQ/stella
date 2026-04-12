@@ -203,3 +203,39 @@ func TestResolveAgentWithAuthGroupChatFallback(t *testing.T) {
 		t.Errorf("agentID = %q, want fallback to %q", agentID, "anna")
 	}
 }
+
+func TestResolveAgentDedicatedChannelBypassesAgentAssignment(t *testing.T) {
+	ts := setupStoresWithEngine(t)
+	ctx := context.Background()
+
+	_ = ts.store.CreateAgent(ctx, config.Agent{
+		ID:        "dedicated",
+		Name:      "Dedicated",
+		Model:     "anthropic/claude-sonnet-4-6",
+		Workspace: "/tmp/dedicated",
+		Scope:     config.AgentScopeRestricted,
+		Enabled:   true,
+	})
+	if err := ts.store.UpsertChannel(ctx, config.Channel{
+		ID:      "telegram-support",
+		Type:    "telegram",
+		AgentID: "dedicated",
+		Enabled: true,
+		Config:  `{"token":"tg-token"}`,
+	}); err != nil {
+		t.Fatalf("UpsertChannel: %v", err)
+	}
+
+	hash, _ := auth.HashPassword("testpass")
+	authUser, _ := ts.authStore.CreateUser(ctx, "frank", hash)
+	identity := ResolvedIdentity{User: authUser}
+
+	chat := ChatContext{Platform: "telegram", ChannelID: "telegram-support", ChatID: "123", IsGroup: false}
+	agentID, err := ResolveAgent(ctx, ts.store, ts.authStore, ts.engine, identity, chat)
+	if err != nil {
+		t.Fatalf("ResolveAgent: %v", err)
+	}
+	if agentID != "dedicated" {
+		t.Errorf("agentID = %q, want %q", agentID, "dedicated")
+	}
+}

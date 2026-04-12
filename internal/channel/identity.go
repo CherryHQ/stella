@@ -89,11 +89,14 @@ func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthSt
 	if channelID != "" {
 		ch, err := store.GetChannel(ctx, channelID)
 		if err == nil && ch.AgentID != "" {
-			if canAccess(ch.AgentID) {
-				return ch.AgentID, nil
+			agent, agentErr := store.GetAgent(ctx, ch.AgentID)
+			if agentErr != nil {
+				return "", fmt.Errorf("resolve agent: dedicated channel agent %q not found", ch.AgentID)
 			}
-			log.Warn("agent access denied for dedicated channel", "channel_id", channelID, "agent_id", ch.AgentID)
-			return "", ErrAgentAccessDenied
+			if !agent.Enabled {
+				return "", fmt.Errorf("resolve agent: dedicated channel agent %q is not enabled", ch.AgentID)
+			}
+			return ch.AgentID, nil
 		}
 	}
 
