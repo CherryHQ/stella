@@ -67,7 +67,7 @@
 - Corrected the canonical relaxed-mode example so explicit opt-in is shown in the `Policy` itself.
 - Updated rollout notes to use `Host.StartProcess` for MCP stdio and normalized debug event names to the underscore convention.
 - Expanded the `Host` filesystem contract with mkdir/remove/rename/temp primitives so skills migration scope matches the documented host surface.
-- Reconciled relaxed whitelist behavior for the boxsh backend across the compatibility matrix and fail-closed examples.
+- Reconciled relaxed whitelist behavior for the boxsh backend across the compatibility matrix and fail-closed examples in both the spec and matrix.
 - Clarified that filesystem and HTTP metrics are emitted directly by `Host` implementations rather than requiring separate observer callbacks.
 
 **Phase 2 Ready:**

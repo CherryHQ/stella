@@ -333,9 +333,10 @@ Unsupported policy requests fail by default:
 
 ```go
 func (f *boxshFactory) CreateSession(ctx context.Context, policy Policy) (Session, error) {
-    if policy.Network.Mode == NetworkWhitelist {
-        return nil, fmt.Errorf("boxsh: whitelist mode not supported (requires boxsh >= 2.1)")
+    if policy.Network.Mode == NetworkWhitelist && !policy.Relaxed {
+        return nil, fmt.Errorf("boxsh: whitelist mode requires boxsh >= 2.1 or Relaxed=true")
     }
+    // In relaxed mode, whitelist is downgraded to allow_all with observability.
     // ... create session
 }
 ```
