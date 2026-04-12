@@ -7,6 +7,8 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
+const channelPluginConfigError = "channel instance config lives on /channels, not plugin config"
+
 func (s *Server) listPlugins(w http.ResponseWriter, r *http.Request) {
 	plugins, err := s.pluginHost.ListAdminVisiblePlugins(r.Context())
 	if err != nil {
@@ -69,8 +71,8 @@ func (s *Server) getPluginStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getPluginConfig(w http.ResponseWriter, r *http.Request) {
-	if pluginKind := r.PathValue("kind"); pluginKind == config.PluginKindChannel {
-		writeError(w, http.StatusBadRequest, "channel instance config lives on /channels, not plugin config")
+	if channelPluginConfigRequest(r) {
+		writeError(w, http.StatusBadRequest, channelPluginConfigError)
 		return
 	}
 	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
@@ -131,8 +133,8 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updatePluginConfig(w http.ResponseWriter, r *http.Request) {
-	if pluginKind := r.PathValue("kind"); pluginKind == config.PluginKindChannel {
-		writeError(w, http.StatusBadRequest, "channel instance config lives on /channels, not plugin config")
+	if channelPluginConfigRequest(r) {
+		writeError(w, http.StatusBadRequest, channelPluginConfigError)
 		return
 	}
 	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
@@ -170,4 +172,8 @@ func pluginRouteID(kind, name string) string {
 		return name
 	}
 	return config.PluginID(kind, name)
+}
+
+func channelPluginConfigRequest(r *http.Request) bool {
+	return r.PathValue("kind") == config.PluginKindChannel
 }
