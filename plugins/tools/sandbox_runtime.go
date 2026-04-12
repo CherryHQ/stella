@@ -33,23 +33,12 @@ func (r boxshSandboxRuntime) Enabled() bool {
 	return r.backend != nil && r.backend.Alive()
 }
 
-func (r boxshSandboxRuntime) Exec(ctx context.Context, command string, timeoutSeconds int) (pkgplugins.SandboxExecResult, error) {
+func (r boxshSandboxRuntime) Exec(context.Context, string, int) (pkgplugins.SandboxExecResult, error) {
 	if r.backend == nil {
 		return pkgplugins.SandboxExecResult{}, fmt.Errorf("sandbox runtime: backend is not configured")
 	}
 	if !r.backend.Alive() {
 		return pkgplugins.SandboxExecResult{}, fmt.Errorf("sandbox runtime: backend is not running")
 	}
-	res, err := r.backend.Client().Exec(ctx, boxshclient.ExecParams{
-		Command: command,
-		Timeout: timeoutSeconds,
-	})
-	if err != nil {
-		return pkgplugins.SandboxExecResult{}, err
-	}
-	return pkgplugins.SandboxExecResult{
-		Stdout:   res.Stdout,
-		Stderr:   res.Stderr,
-		ExitCode: res.ExitCode,
-	}, nil
+	return pkgplugins.SandboxExecResult{}, fmt.Errorf("sandbox runtime: direct plugin Exec is fail-closed in Phase 2; use the sandbox session/host path before enabling execution")
 }
