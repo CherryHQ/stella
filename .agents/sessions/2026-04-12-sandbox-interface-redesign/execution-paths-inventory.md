@@ -37,7 +37,7 @@ This document inventories all filesystem, process, and network access paths in A
 | **write** | `os.MkdirAll`, `os.WriteFile` | N/A | N/A | **TO-BE-MEDIATED** |
 | **edit** | `os.ReadFile`, `os.WriteFile` | N/A | N/A | **TO-BE-MEDIATED** |
 | **webfetch** | N/A | N/A | `resty.Client` HTTP calls | **TO-BE-MEDIATED** |
-| **notify** | N/A | N/A | Via `Notifier` interface | **MEDIATED** (interface-based) |
+| **notify** | N/A | N/A | Via `Notifier` interface | **TO-BE-MEDIATED** | Notification dispatch currently bypasses `sandbox.Host`; decide in Phase 5 whether it becomes host-mediated or an explicit exception |
 | **skills** | `os.ReadFile`, `os.ReadDir`, `os.Stat`, `os.WriteFile`, `os.MkdirAll` | N/A | N/A (search uses external) | **TO-BE-MEDIATED** |
 | **agent (subagent)** | N/A | N/A | N/A (delegates to runner) | **MEDIATED** (uses existing runner) |
 
@@ -137,8 +137,8 @@ All local-side operations (process spawning, HTTP requests) must be mediated thr
 |--------|-------|----------|---------------|-----------|
 | webfetch | 1 | 0 | 1 | 0 |
 | MCP (HTTP transports) | 1 | 0 | 1 | 0 |
-| notify | 1 | 1 | 0 | 0 |
-| **Total** | **3** | **1** | **2** | **0** |
+| notify | 1 | 0 | 1 | 0 |
+| **Total** | **3** | **0** | **3** | **0** |
 
 ## Classification Definitions
 

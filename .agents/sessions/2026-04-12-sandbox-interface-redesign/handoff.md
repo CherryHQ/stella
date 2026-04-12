@@ -61,7 +61,9 @@
 ### Fixes
 - Reconciled the canonical `Policy` contract across the design artifacts: added `Backend` and `Relaxed` to the spec and standardized `Factory.Supported(policy) error`.
 - Added the missing first-cut `Host` request/result type appendix and clarified exec/HTTP semantics for Phase 2.
-- Aligned execution-path inventory classifications with the exceptions register and updated summary counts.
+- Expanded the host transport contract to cover argv-based process spawning and streaming HTTP so MCP stdio/SSE/StreamableHTTP are represented explicitly.
+- Removed the duplicate observer interface from the design spec and made `observability-requirements.md` the canonical observer contract.
+- Aligned execution-path inventory classifications with the exceptions register, including reclassifying `notify` as to-be-mediated and updating summary counts.
 
 **Phase 2 Ready:**
 - [x] Design artifacts reviewed and complete

@@ -110,14 +110,15 @@ type Host interface {
     Stat(ctx context.Context, path string) (StatResult, error)
     ListDir(ctx context.Context, path string) ([]DirEntry, error)
     
-    // Process operations. Command uses shell semantics in the first cut to
-    // preserve parity with the existing bash tool contract. Cwd and env are
-    // controlled explicitly through ExecOptions.
+    // Shell-oriented process execution for parity with the existing bash tool.
     Exec(ctx context.Context, command string, opts ExecOptions) (ExecResult, error)
+
+    // Argv-oriented process spawning for stdio transports such as local MCP servers.
+    StartProcess(ctx context.Context, req ProcessRequest) (ProcessHandle, error)
     
-    // Network operations. The first cut provides request/response HTTP plus
-    // streaming-capable transport hooks sufficient for SSE and StreamableHTTP.
+    // Network operations.
     HTTPRequest(ctx context.Context, opts HTTPOptions) (HTTPResult, error)
+    OpenHTTPStream(ctx context.Context, opts HTTPOptions) (HTTPStream, error)
     
     // Session-relative path resolution
     ResolvePath(path string) (string, error)
@@ -173,19 +174,41 @@ type ExecResult struct {
     ExitCode int
 }
 
+type ProcessRequest struct {
+    Path    string
+    Args    []string
+    Cwd     string
+    Env     map[string]string
+    Timeout time.Duration
+}
+
+type ProcessHandle interface {
+    PID() int
+    Wait(ctx context.Context) (ExecResult, error)
+    Stdin() io.WriteCloser
+    Stdout() io.ReadCloser
+    Stderr() io.ReadCloser
+    Close() error
+}
+
 type HTTPOptions struct {
     Method  string
     URL     string
     Header  map[string]string
     Body    []byte
     Timeout time.Duration
-    Stream  bool // permits SSE/streamable HTTP handling in the first cut
 }
 
 type HTTPResult struct {
     StatusCode int
     Header     map[string][]string
     Body       []byte
+}
+
+type HTTPStream interface {
+    Header() map[string][]string
+    Reader() io.ReadCloser
+    Close() error
 }
 ```
 
@@ -318,10 +341,10 @@ First-cut transport requirements:
 
 | Transport | MCP Support | Sandbox Mediation | Notes |
 |-----------|-------------|-------------------|-------|
-| stdio (local process) | ✅ | Process spawning via Host.Exec | Local MCP servers |
-| SSE (Server-Sent Events) | ✅ | HTTP via Host.HTTPRequest | Remote streaming |
-| Streamable HTTP | ✅ | HTTP via Host.HTTPRequest | MCP 2024-11 spec |
-| HTTP (legacy) | ✅ | HTTP via Host.HTTPRequest | Legacy MCP |
+| stdio (local process) | ✅ | Process spawning via Host.StartProcess | Local MCP servers |
+| SSE (Server-Sent Events) | ✅ | Streaming via Host.OpenHTTPStream | Remote streaming |
+| Streamable HTTP | ✅ | Streaming via Host.OpenHTTPStream | MCP 2024-11 spec |
+| HTTP (legacy) | ✅ | Request/response via Host.HTTPRequest | Legacy MCP |
 | WebSocket | ⚠️ | Future extension | Not required in first cut |
 
 All local-side transport operations (process spawning, HTTP requests) are mediated through Host.
@@ -342,12 +365,4 @@ Events/logs emitted by sandbox layer:
 | `sandbox.exec.started` | Debug | Command execution |
 | `sandbox.exec.finished` | Debug | Command completion |
 
-```go
-// Observability interface (injected into Host implementations)
-type Observer interface {
-    PolicyDenied(policy Policy, operation string, reason string)
-    RelaxedModeSelected(policy Policy, reason string)
-    UnsupportedBackend(policy Policy, backend string, reason string)
-    ExceptionUsed(path string, owner string, reason string)
-}
-```
+The canonical observer contract lives in `observability-requirements.md`. `design-spec.md` intentionally does not restate a second divergent interface; Phase 2 should implement the typed, context-aware observer defined there.
