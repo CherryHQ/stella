@@ -120,6 +120,7 @@
 - Enforced Phase 2 boxsh cwd and read-only semantics by resolving relative paths from `WorkingDir` and fail-closing mutating operations against `ReadOnlyPaths`.
 - Closed the remaining readonly-subtree bypass by enforcing `ensureWritable` for `WriteFile` / `EditFile` and adding a regression test for readonly subdirectories nested under `WorkspaceRoot`.
 - Tightened Phase 2 fail-closed behavior further: mutating boxsh host operations now fail closed whenever `ReadOnlyPaths` overlap `WorkspaceRoot`, preventing symlink/alias escapes before Phase 4+ can add stronger mediation.
+- Closed the remaining plugin-facing bypass by making `plugins/tools/sandbox_runtime.go` fail closed for direct exec in Phase 2 instead of bypassing the new session/host policy checks.
 
 **Decisions & context for next phase:**
 
