@@ -18,6 +18,13 @@ An immutable, backend-agnostic session policy describing requested limits for:
 ```go
 // Policy is an immutable session policy independent of any backend.
 type Policy struct {
+    // Backend selects a specific backend when non-empty. Empty means auto-select.
+    Backend string
+
+    // Relaxed explicitly allows reduced enforcement on partially compatible backends.
+    // It is never implied by fallback.
+    Relaxed bool
+
     // Filesystem policy
     Filesystem FilesystemPolicy
     
@@ -103,15 +110,82 @@ type Host interface {
     Stat(ctx context.Context, path string) (StatResult, error)
     ListDir(ctx context.Context, path string) ([]DirEntry, error)
     
-    // Process operations
+    // Process operations. Command uses shell semantics in the first cut to
+    // preserve parity with the existing bash tool contract. Cwd and env are
+    // controlled explicitly through ExecOptions.
     Exec(ctx context.Context, command string, opts ExecOptions) (ExecResult, error)
     
-    // Network operations
+    // Network operations. The first cut provides request/response HTTP plus
+    // streaming-capable transport hooks sufficient for SSE and StreamableHTTP.
     HTTPRequest(ctx context.Context, opts HTTPOptions) (HTTPResult, error)
     
     // Session-relative path resolution
     ResolvePath(path string) (string, error)
     WorkingDir() string
+}
+```
+
+#### Host request/result types (first-cut contract)
+
+```go
+type ReadResult struct {
+    Content    []byte
+    Truncated  bool
+    NextOffset int
+}
+
+type WriteResult struct {
+    BytesWritten int
+}
+
+type Edit struct {
+    OldText string
+    NewText string
+}
+
+type EditResult struct {
+    AppliedEdits int
+}
+
+type StatResult struct {
+    Exists  bool
+    IsDir   bool
+    Size    int64
+    Mode    fs.FileMode
+    ModTime time.Time
+}
+
+type DirEntry struct {
+    Name  string
+    IsDir bool
+    Size  int64
+}
+
+type ExecOptions struct {
+    Cwd     string
+    Env     map[string]string
+    Timeout time.Duration
+}
+
+type ExecResult struct {
+    Stdout   string
+    Stderr   string
+    ExitCode int
+}
+
+type HTTPOptions struct {
+    Method  string
+    URL     string
+    Header  map[string]string
+    Body    []byte
+    Timeout time.Duration
+    Stream  bool // permits SSE/streamable HTTP handling in the first cut
+}
+
+type HTTPResult struct {
+    StatusCode int
+    Header     map[string][]string
+    Body       []byte
 }
 ```
 
@@ -135,8 +209,10 @@ type Factory interface {
     // and returns a Session. Fails closed if policy unsupported.
     CreateSession(ctx context.Context, policy Policy) (Session, error)
     
-    // Supported returns whether this factory can handle the policy.
-    Supported(policy Policy) bool
+    // Supported returns nil when the backend can satisfy the policy.
+    // It returns an explanatory error when the policy is unsupported
+    // or requires explicit relaxed mode.
+    Supported(policy Policy) error
     
     // Name returns the backend identifier.
     Name() string

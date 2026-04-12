@@ -12,7 +12,7 @@
 - [x] 1.2: Inventoried built-in tool (bash/read/write/edit) filesystem/process/network access paths
 - [x] 1.3: Inventoried plugin tool (webfetch, skills, agent, notify, mcp) access paths
 - [x] 1.4: Inventoried MCP-related local execution and transport paths (stdio, SSE, HTTP)
-- [x] 1.5: Classified all paths as mediated (4), to-be-mediated (25+), or explicit exception (8)
+- [x] 1.5: Classified all paths as mediated (4), to-be-mediated (18+), or explicit exception (8+)
 - [x] 1.6: Defined unsupported backend/policy behavior with fail-closed semantics
 - [x] 1.7: Defined relaxed-mode creation rules (explicit opt-in only, never implicit fallback)
 - [x] 1.8: Defined required transport classes for plugin/MCP: stdio, SSE, StreamableHTTP, HTTP
@@ -57,6 +57,11 @@
 - **Exceptions register established**: 8 exceptions documented with owners and closure plans (EX-001 through EX-008)
 - **Rollout plan approved**: 6 phases from types introduction to cleanup
 - **Core finding**: Dual implementation path exists (boxsh adapters + native tools) - Phase 4 will unify
+
+### Fixes
+- Reconciled the canonical `Policy` contract across the design artifacts: added `Backend` and `Relaxed` to the spec and standardized `Factory.Supported(policy) error`.
+- Added the missing first-cut `Host` request/result type appendix and clarified exec/HTTP semantics for Phase 2.
+- Aligned execution-path inventory classifications with the exceptions register and updated summary counts.
 
 **Phase 2 Ready:**
 - [x] Design artifacts reviewed and complete

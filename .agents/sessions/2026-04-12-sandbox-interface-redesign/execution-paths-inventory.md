@@ -83,7 +83,7 @@ All local-side operations (process spawning, HTTP requests) must be mediated thr
 |-----------|-------------|----------------|----------------|-------|
 | **builtin/embed.go** | Filesystem | `os.RemoveAll`, `os.MkdirAll`, `os.WriteFile` | **EXCEPTION** | One-time extraction at startup, not per-tool |
 | **gorunner.go** | Process | `os.Getenv("PATH")`, `os.Stat` for sandbox setup | **TO-BE-MEDIATED** | Backend initialization only |
-| **prompt.go** | Filesystem | `os.ReadFile`, `os.ReadDir`, `os.Stat` | **TO-BE-MEDIATED** | Skill/prompt file loading |
+| **prompt.go** | Filesystem | `os.ReadFile`, `os.ReadDir`, `os.Stat` | **EXCEPTION (EX-005)** | System prompt loading at construction/build time; revisit in Phase 5 |
 
 ### Path: `internal/sandbox/`
 
@@ -97,7 +97,7 @@ All local-side operations (process spawning, HTTP requests) must be mediated thr
 
 | Component | Access Type | Implementation | Classification | Notes |
 |-----------|-------------|----------------|----------------|-------|
-| **catalog.go** | Filesystem | `os.UserHomeDir`, `os.Stat`, `os.ReadDir`, `os.ReadFile` | **TO-BE-MEDIATED** | Skill catalog loading |
+| **catalog.go** | Filesystem | `os.UserHomeDir`, `os.Stat`, `os.ReadDir`, `os.ReadFile` | **EXCEPTION (EX-004)** | Skill catalog metadata loading; revisit in Phase 5 |
 | **manage.go** | Filesystem | `os.Stat`, `os.ReadFile` | **TO-BE-MEDIATED** | Skill installation |
 | **atomicwrite.go** | Filesystem | `os.MkdirAll`, `os.CreateTemp`, `os.Remove`, `os.Rename` | **TO-BE-MEDIATED** | Atomic file operations |
 | **tool.go** | Filesystem | `os.ReadFile` | **TO-BE-MEDIATED** | Skill content loading |
@@ -107,7 +107,7 @@ All local-side operations (process spawning, HTTP requests) must be mediated thr
 
 | Component | Access Type | Implementation | Classification | Notes |
 |-----------|-------------|----------------|----------------|-------|
-| **preset_loader.go** | Filesystem | `os.UserHomeDir`, `os.Stat`, `os.ReadDir`, `os.ReadFile` | **TO-BE-MEDIATED** | Agent preset loading |
+| **preset_loader.go** | Filesystem | `os.UserHomeDir`, `os.Stat`, `os.ReadDir`, `os.ReadFile` | **EXCEPTION (EX-003)** | Preset/config loading at construction time; revisit in Phase 5 |
 
 ## Summary by Category
 
@@ -117,10 +117,10 @@ All local-side operations (process spawning, HTTP requests) must be mediated thr
 |--------|-------|----------|----------------|-----------|
 | Core tools (plugin) | 4 | 0 | 4 | 0 |
 | Boxsh adapters | 4 | 4 | 0 | 0 |
-| Skills tools | 15+ | 0 | 15+ | 0 |
+| Skills tools | 15+ | 0 | 11+ | 4 |
 | MCP (stdio) | 1 | 0 | 1 | 0 |
-| Runner/internal | 8+ | 0 | 5+ | 3+ |
-| **Total** | **32+** | **4** | **25+** | **3+** |
+| Runner/internal | 8+ | 0 | 2+ | 6+ |
+| **Total** | **32+** | **4** | **18+** | **8+** |
 
 ### Process Access
 
@@ -150,9 +150,9 @@ Direct use of `os`, `exec`, `net/http` packages. Must be migrated to use `sandbo
 
 ### Explicit Exception
 Known direct access that is:
-1. One-time initialization (not per-tool execution)
-2. Build-time only
-3. Explicitly documented and accepted with owner/reason
+1. One-time initialization or build/construction-time only, or
+2. Explicitly documented in `exceptions-register.md` with an exception ID, owner, and closure plan, and
+3. Not treated as mediated until explicitly migrated
 
 ## Migration Priority
 
