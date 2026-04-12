@@ -192,7 +192,7 @@ func TestNewGoRunnerUsesBoxshCoreToolsAndCleansUp(t *testing.T) {
 		t.Fatalf("NewGoRunner: %v", err)
 	}
 
-	sessionDir := r.backend.SessionDir()
+	sessionDir := r.session.SessionDir()
 	if sessionDir == "" {
 		t.Fatal("expected boxsh session dir to be created")
 	}

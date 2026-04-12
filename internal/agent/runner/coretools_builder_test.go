@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/vaayne/anna/internal/sandbox/boxshclient"
+	"github.com/vaayne/anna/internal/sandbox"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
 	plugintools "github.com/vaayne/anna/plugins/tools"
@@ -14,17 +14,28 @@ import (
 	writetool "github.com/vaayne/anna/plugins/tools/write"
 )
 
-type fakeSandboxBackend struct {
-	boxsh *boxshclient.SharedBackend
+func fakeRunnerSession(backend string, host sandbox.Host) *runnerSession {
+	return &runnerSession{
+		session: &fakeSession{host: host, alive: true},
+		policy:  sandbox.Policy{Backend: backend, Relaxed: true},
+	}
 }
 
-func (f fakeSandboxBackend) Runtime() pkgplugins.SandboxRuntime {
-	return plugintools.SandboxRuntimeFromBackend(nil)
+type fakeSession struct {
+	host   sandbox.Host
+	alive  bool
+	policy sandbox.Policy
 }
-func (f fakeSandboxBackend) Boxsh() *boxshclient.SharedBackend { return f.boxsh }
-func (f fakeSandboxBackend) SessionDir() string                { return "" }
-func (f fakeSandboxBackend) Alive() bool                       { return true }
-func (f fakeSandboxBackend) Close() error                      { return nil }
+
+func (f *fakeSession) Host() sandbox.Host     { return f.host }
+func (f *fakeSession) Policy() sandbox.Policy { return f.policy }
+func (f *fakeSession) Close() error           { return nil }
+func (f *fakeSession) Alive() bool            { return f.alive }
+func (f *fakeSession) Done() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}
 
 type fakeRuntime struct{}
 
@@ -33,7 +44,6 @@ func (fakeRuntime) Exec(context.Context, string, int) (pkgplugins.SandboxExecRes
 	return pkgplugins.SandboxExecResult{}, nil
 }
 
-// delegateBuilder creates regular (non-sandbox adapter) tools for testing.
 func delegateBuilder(bc plugintools.BuildContext) []tools.Tool {
 	return []tools.Tool{
 		bashtool.NewBashTool(bc.WorkDir, bc.ToolsBinDir),
@@ -43,15 +53,9 @@ func delegateBuilder(bc plugintools.BuildContext) []tools.Tool {
 	}
 }
 
-func TestCoreToolsBuilderWithSandbox_NoBackendUsesDelegate(t *testing.T) {
-	builder := CoreToolsBuilderWithSandbox(delegateBuilder, fakeSandboxBackend{})
-	bc := plugintools.BuildContext{
-		WorkDir:     "/tmp",
-		ToolsBinDir: "/tmp/bin",
-		Sandbox:     fakeRuntime{},
-	}
-
-	tools := builder(bc)
+func TestCoreToolsBuilderWithSandbox_NoSessionUsesDelegate(t *testing.T) {
+	builder := CoreToolsBuilderWithSandbox(delegateBuilder, nil)
+	tools := builder(plugintools.BuildContext{WorkDir: "/tmp", ToolsBinDir: "/tmp/bin", Sandbox: fakeRuntime{}})
 	if len(tools) != 4 {
 		t.Fatalf("expected 4 tools, got %d", len(tools))
 	}
@@ -60,28 +64,94 @@ func TestCoreToolsBuilderWithSandbox_NoBackendUsesDelegate(t *testing.T) {
 	}
 }
 
-func TestCoreToolsBuilderWithSandbox_WithBackendUsesAdapters(t *testing.T) {
-	builder := CoreToolsBuilderWithSandbox(delegateBuilder, fakeSandboxBackend{
-		boxsh: &boxshclient.SharedBackend{},
-	})
-	bc := plugintools.BuildContext{
-		WorkDir:     "/tmp",
-		ToolsBinDir: "/tmp/bin",
-		Sandbox:     fakeRuntime{},
-	}
-
-	tools := builder(bc)
+func TestCoreToolsBuilderWithSandbox_WithNilSessionUsesDelegate(t *testing.T) {
+	builder := CoreToolsBuilderWithSandbox(delegateBuilder, &runnerSession{session: nil})
+	tools := builder(plugintools.BuildContext{WorkDir: "/tmp", ToolsBinDir: "/tmp/bin", Sandbox: fakeRuntime{}})
 	if len(tools) != 4 {
 		t.Fatalf("expected 4 tools, got %d", len(tools))
 	}
-	if _, ok := tools[0].(*boxshclient.BashAdapter); !ok {
-		t.Fatalf("expected sandbox bash adapter, got %T", tools[0])
+	if _, ok := tools[0].(*bashtool.BashTool); !ok {
+		t.Fatalf("expected delegate bash tool, got %T", tools[0])
 	}
 }
 
-func TestBuildSandboxCoreTools_NoBoxshReturnsNil(t *testing.T) {
-	got := buildSandboxCoreTools(fakeSandboxBackend{}, plugintools.BuildContext{})
-	if got != nil {
-		t.Fatalf("expected nil core tools without boxsh backend, got %v", got)
+func TestCoreToolsBuilderWithSandbox_UsesHostToolsWhenBoxshSessionAvailable(t *testing.T) {
+	session := fakeRunnerSession("boxsh", &fakeHost{})
+	builder := CoreToolsBuilderWithSandbox(delegateBuilder, session)
+	tools := builder(plugintools.BuildContext{})
+	if len(tools) != 4 {
+		t.Fatalf("expected 4 tools, got %d", len(tools))
+	}
+	if _, ok := tools[0].(*hostBashTool); !ok {
+		t.Fatalf("expected host bash tool, got %T", tools[0])
+	}
+	if _, ok := tools[1].(*hostReadTool); !ok {
+		t.Fatalf("expected host read tool, got %T", tools[1])
 	}
 }
+
+func TestCoreToolsBuilderWithSandbox_LocalSessionUsesDelegate(t *testing.T) {
+	session := fakeRunnerSession("local", &fakeHost{})
+	builder := CoreToolsBuilderWithSandbox(delegateBuilder, session)
+	tools := builder(plugintools.BuildContext{WorkDir: "/tmp", ToolsBinDir: "/tmp/bin"})
+	if len(tools) != 4 {
+		t.Fatalf("expected 4 tools, got %d", len(tools))
+	}
+	if _, ok := tools[0].(*bashtool.BashTool); !ok {
+		t.Fatalf("expected delegate bash tool, got %T", tools[0])
+	}
+}
+
+func TestBuildSandboxCoreTools_NoHostReturnsNil(t *testing.T) {
+	session := fakeRunnerSession("boxsh", nil)
+	got := buildSandboxCoreTools(session, plugintools.BuildContext{})
+	if got != nil {
+		t.Fatalf("expected nil core tools without host, got %v", got)
+	}
+}
+
+type fakeHost struct{}
+
+func (f *fakeHost) ReadFile(ctx context.Context, path string, offset, limit int) (sandbox.ReadResult, error) {
+	return sandbox.ReadResult{Content: []byte("hello")}, nil
+}
+
+func (f *fakeHost) WriteFile(ctx context.Context, path string, content []byte) (sandbox.WriteResult, error) {
+	return sandbox.WriteResult{BytesWritten: len(content)}, nil
+}
+
+func (f *fakeHost) EditFile(ctx context.Context, path string, edits []sandbox.Edit) (sandbox.EditResult, error) {
+	return sandbox.EditResult{AppliedEdits: len(edits)}, nil
+}
+
+func (f *fakeHost) Stat(ctx context.Context, path string) (sandbox.StatResult, error) {
+	return sandbox.StatResult{}, nil
+}
+
+func (f *fakeHost) ListDir(ctx context.Context, path string) ([]sandbox.DirEntry, error) {
+	return nil, nil
+}
+func (f *fakeHost) MkdirAll(ctx context.Context, path string, perm uint32) error  { return nil }
+func (f *fakeHost) Remove(ctx context.Context, path string, recursive bool) error { return nil }
+func (f *fakeHost) Rename(ctx context.Context, oldPath, newPath string) error     { return nil }
+func (f *fakeHost) CreateTemp(ctx context.Context, dir, pattern string) (sandbox.TempFile, error) {
+	return nil, nil
+}
+
+func (f *fakeHost) Exec(ctx context.Context, command string, opts sandbox.ExecOptions) (sandbox.ExecResult, error) {
+	return sandbox.ExecResult{Stdout: "ok", ExitCode: 0}, nil
+}
+
+func (f *fakeHost) StartProcess(ctx context.Context, req sandbox.ProcessRequest) (sandbox.ProcessHandle, error) {
+	return nil, nil
+}
+
+func (f *fakeHost) HTTPRequest(ctx context.Context, opts sandbox.HTTPOptions) (sandbox.HTTPResult, error) {
+	return sandbox.HTTPResult{}, nil
+}
+
+func (f *fakeHost) OpenHTTPStream(ctx context.Context, opts sandbox.HTTPOptions) (sandbox.HTTPStream, error) {
+	return nil, nil
+}
+func (f *fakeHost) ResolvePath(path string) (string, error) { return path, nil }
+func (f *fakeHost) WorkingDir() string                      { return "/tmp" }

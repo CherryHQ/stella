@@ -7,6 +7,15 @@ import (
 	"sync"
 )
 
+// defaultRegistry is the global default registry instance.
+var defaultRegistry = DefaultRegistry()
+
+// GlobalRegistry returns the global default registry.
+// This provides convenient access to the standard set of backends.
+func GlobalRegistry() *Registry {
+	return defaultRegistry
+}
+
 // Factory creates sessions from policies.
 // Each backend implementation provides a Factory to validate and create sessions.
 type Factory interface {

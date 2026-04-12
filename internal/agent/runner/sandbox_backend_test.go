@@ -5,7 +5,155 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/sandbox"
 )
+
+// TestResolveSessionNoopWhenDisabled tests that disabled sandbox creates noop session.
+func TestResolveSessionNoopWhenDisabled(t *testing.T) {
+	session, err := resolveSession(context.Background(), GoRunnerConfig{
+		DisableSandbox: true,
+		WorkDir:        t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("resolveSession() error = %v", err)
+	}
+	if session == nil {
+		t.Fatal("resolveSession() returned nil session")
+	}
+	if !session.Alive() {
+		t.Fatal("noop session should be alive")
+	}
+	if session.Policy().Backend != "local" {
+		t.Fatalf("noop session should use local backend, got %q", session.Policy().Backend)
+	}
+	if !session.Policy().Relaxed {
+		t.Fatal("noop session should be relaxed")
+	}
+
+	// Clean up
+	if err := session.Close(); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+}
+
+// TestResolveSessionCreatesLocalOnUnsupportedPlatform tests local fallback.
+func TestResolveSessionCreatesLocalOnUnsupportedPlatform(t *testing.T) {
+	session, err := resolveSession(context.Background(), GoRunnerConfig{
+		Sandbox: config.SandboxConfig{
+			Backend: "local",
+		},
+		WorkDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("resolveSession() error = %v", err)
+	}
+	if session == nil {
+		t.Fatal("resolveSession() returned nil session")
+	}
+	if session.Policy().Backend != "local" {
+		t.Fatalf("expected local backend, got %q", session.Policy().Backend)
+	}
+
+	// Clean up
+	_ = session.Close()
+}
+
+// TestResolveSessionRejectsUnknownBackend tests error handling.
+func TestResolveSessionRejectsUnknownBackend(t *testing.T) {
+	_, err := resolveSession(context.Background(), GoRunnerConfig{
+		Sandbox: config.SandboxConfig{
+			Backend: "unknown",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown backend")
+	}
+}
+
+// TestRunnerSessionLifecycle tests the runnerSession lifecycle.
+func TestRunnerSessionLifecycle(t *testing.T) {
+	// Create a local session for testing
+	policy := sandbox.Policy{
+		Backend: "local",
+		Relaxed: true,
+		Filesystem: sandbox.FilesystemPolicy{
+			WorkingDir:   t.TempDir(),
+			AllowEscapes: true,
+		},
+	}
+
+	factory := sandbox.GlobalRegistry().Get("local")
+	if factory == nil {
+		t.Fatal("local factory not available")
+	}
+
+	session, err := factory.CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	rs := &runnerSession{
+		session: session,
+		policy:  policy,
+	}
+
+	// Test Alive
+	if !rs.Alive() {
+		t.Error("session should be alive")
+	}
+
+	// Test Done channel
+	select {
+	case <-rs.Done():
+		t.Error("Done() should not be closed before Close()")
+	default:
+		// Expected
+	}
+
+	// Test Close
+	if err := rs.Close(); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+
+	// After close, should not be alive
+	if rs.Alive() {
+		t.Error("session should not be alive after Close()")
+	}
+
+	// Done channel should be closed
+	select {
+	case <-rs.Done():
+		// Expected
+	default:
+		t.Error("Done() should be closed after Close()")
+	}
+}
+
+// TestRunnerSessionNilHandling tests nil session safety.
+func TestRunnerSessionNilHandling(t *testing.T) {
+	var rs *runnerSession
+
+	// Should handle nil gracefully
+	if rs.Alive() {
+		t.Error("nil session should not be alive")
+	}
+
+	// Done should return closed channel for nil
+	done := rs.Done()
+	select {
+	case <-done:
+		// Expected
+	default:
+		t.Error("nil session Done() should be closed")
+	}
+
+	// Close should not panic
+	if err := rs.Close(); err != nil {
+		t.Errorf("Close on nil: %v", err)
+	}
+}
+
+// Legacy tests for backward compatibility during migration
 
 func TestResolveSandboxBackendNoopWhenDisabled(t *testing.T) {
 	backend, err := resolveSandboxBackend(context.Background(), GoRunnerConfig{

@@ -64,7 +64,7 @@ type GoRunner struct {
 	system        string
 	hookSet       *hooks.HookSet
 	toolLifecycle *coreagent.ToolLifecycle
-	backend       sandboxBackend
+	session       *runnerSession // Phase 3: session-based sandbox (replaces backend)
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -105,15 +105,15 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		return nil, err
 	}
 
-	backend, err := resolveSandboxBackend(ctx, cfg)
+	session, err := resolveSession(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("go runner: %w", err)
 	}
 
-	toolReg, err := buildToolRegistry(cfg, backend)
+	toolReg, err := buildToolRegistry(cfg, session)
 	if err != nil {
-		if backend != nil {
-			_ = backend.Close()
+		if session != nil {
+			_ = session.Close()
 		}
 		return nil, err
 	}
@@ -135,8 +135,8 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	streamOptions := ai.StreamOptions{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}
 	runner, err := newAgentRunner(reg, toolReg, model, streamOptions, system, hookSet, cfg.ToolLifecycle)
 	if err != nil {
-		if backend != nil {
-			_ = backend.Close()
+		if session != nil {
+			_ = session.Close()
 		}
 		return nil, fmt.Errorf("go runner: %w", err)
 	}
@@ -150,7 +150,7 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		system:        system,
 		hookSet:       hookSet,
 		toolLifecycle: cfg.ToolLifecycle,
-		backend:       backend,
+		session:       session,
 		lastActivity:  time.Now(),
 		log:           slog.With("component", "go_runner"),
 	}, nil
@@ -224,7 +224,8 @@ func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
 }
 
 // buildToolRegistry creates the tool registry with core and extra tools.
-func buildToolRegistry(cfg GoRunnerConfig, backend sandboxBackend) (*tools.Registry, error) {
+// Phase 3: Uses runnerSession instead of sandboxBackend, removes Backend leakage.
+func buildToolRegistry(cfg GoRunnerConfig, session *runnerSession) (*tools.Registry, error) {
 	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
 	annaHome := cfg.AnnaHome
 	if annaHome == "" {
@@ -241,16 +242,20 @@ func buildToolRegistry(cfg GoRunnerConfig, backend sandboxBackend) (*tools.Regis
 	if cfg.CoreTools == nil {
 		return nil, fmt.Errorf("go runner: core tools builder is required")
 	}
+
+	// Phase 3: BuildContext no longer contains Backend field.
+	// Host is injected at execution time, not build time.
 	bc := plugintools.BuildContext{
 		WorkDir:     cfg.WorkDir,
 		UserDataDir: cfg.UserDataDir,
 		AnnaHome:    cfg.AnnaHome,
 		Workspace:   cfg.Workspace,
 		ToolsBinDir: toolsBinDir,
-		Backend:     backend.Boxsh(),
-		Sandbox:     backend.Runtime(),
+		Sandbox:     session.Runtime(),
 	}
-	coreToolsBuilder := CoreToolsBuilderWithSandbox(cfg.CoreTools, backend)
+
+	// Use legacy builder during migration; Phase 4 will unify onto Host-based tools.
+	coreToolsBuilder := CoreToolsBuilderWithSandbox(cfg.CoreTools, session)
 	for _, t := range coreToolsBuilder(bc) {
 		toolReg.Register(t)
 	}
@@ -372,9 +377,12 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 }
 
 // Alive reports whether the runner is healthy.
-// On Linux/macOS, it also checks the boxsh backend health.
+// Delegates to the session's lifecycle state.
 func (r *GoRunner) Alive() bool {
-	return r.backend.Alive()
+	if r.session == nil {
+		return false
+	}
+	return r.session.Alive()
 }
 
 // LastActivity returns the time of the last Chat call.
@@ -387,7 +395,8 @@ func (r *GoRunner) LastActivity() time.Time {
 // SystemPrompt returns the runner's base system prompt before per-run overrides.
 func (r *GoRunner) SystemPrompt() string { return r.system }
 
-// Close shuts down any subprocess-backed tools and the boxsh backend.
+// Close shuts down any subprocess-backed tools and the sandbox session.
+// Guarantees cleanup of session resources regardless of state.
 func (r *GoRunner) Close() error {
 	var errs []error
 
@@ -397,8 +406,10 @@ func (r *GoRunner) Close() error {
 		}
 	}
 
-	if err := r.backend.Close(); err != nil {
-		errs = append(errs, err)
+	if r.session != nil {
+		if err := r.session.Close(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	if len(errs) > 0 {
