@@ -260,6 +260,23 @@ func TestLocalFactorySupported(t *testing.T) {
 		}
 	})
 
+	t.Run("AllowAllWithEscapesStillRequiresRelaxed", func(t *testing.T) {
+		policy := Policy{
+			Relaxed: false,
+			Filesystem: FilesystemPolicy{
+				WorkingDir:   t.TempDir(),
+				AllowEscapes: true,
+			},
+			Network: NetworkPolicy{
+				Mode: NetworkAllowAll,
+			},
+		}
+
+		if err := factory.Supported(policy); err == nil {
+			t.Error("Supported() = nil, want error for local backend without relaxed even when escapes are allowed")
+		}
+	})
+
 	t.Run("AllowAllWithRelaxedAllowed", func(t *testing.T) {
 		policy := Policy{
 			Relaxed: true,

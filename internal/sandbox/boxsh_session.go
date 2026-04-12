@@ -2,17 +2,11 @@ package sandbox
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
-	"maps"
-	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/sandbox/boxshclient"
@@ -390,187 +384,35 @@ func (h *boxshHost) Exec(ctx context.Context, command string, opts ExecOptions) 
 	return ExecResult{Stdout: result.Stdout, Stderr: result.Stderr, ExitCode: result.ExitCode}, nil
 }
 
-func (h *boxshHost) StartProcess(ctx context.Context, req ProcessRequest) (ProcessHandle, error) {
-	policy := h.session.policy.Process
-
-	// Determine working directory
-	cwd := req.Cwd
-	if cwd == "" {
-		cwd = h.session.policy.Filesystem.WorkingDir
-	}
-
-	// Merge environment
-	env := os.Environ()
-	if !policy.InheritEnv {
-		env = nil
-	}
-	for k, v := range policy.Environment {
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
-	}
-	for k, v := range req.Env {
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
-	}
-
-	// For boxsh, we spawn the process outside the sandbox but with network policy applied
-	// In a full implementation, this would use a boxsh spawn RPC
-	var execCtx context.Context
-	var cancel context.CancelFunc
-
-	timeout := req.Timeout
-	if timeout == 0 {
-		timeout = policy.Timeout
-	}
-
-	if timeout > 0 {
-		execCtx, cancel = context.WithTimeout(ctx, timeout)
-	} else {
-		execCtx, cancel = context.WithCancel(ctx)
-	}
-
-	cmd := exec.CommandContext(execCtx, req.Path, req.Args...)
-	cmd.Dir = cwd
-	cmd.Env = env
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-
-	if err := cmd.Start(); err != nil {
-		cancel()
-		return nil, err
-	}
-
-	return &boxshProcessHandle{
-		cmd:    cmd,
-		stdin:  stdin,
-		stdout: stdout,
-		stderr: stderr,
-		cancel: cancel,
-	}, nil
+func (h *boxshHost) StartProcess(context.Context, ProcessRequest) (ProcessHandle, error) {
+	return nil, fmt.Errorf("sandbox: boxsh Host.StartProcess is not implemented in Phase 2; fail closed until transport mediation is wired")
 }
 
-func (h *boxshHost) HTTPRequest(ctx context.Context, opts HTTPOptions) (HTTPResult, error) {
-	policy := h.session.policy.Network
-
-	// Boxsh should enforce network policy, but we check here for fail-closed
-	if policy.Mode == NetworkDisabled {
-		return HTTPResult{}, fmt.Errorf("sandbox: network access denied by policy")
-	}
-
-	// Determine timeout
-	timeout := opts.Timeout
-	if timeout == 0 {
-		timeout = policy.Timeout
-	}
-	if timeout == 0 {
-		timeout = 30 * time.Second
-	}
-
-	// Create request
-	var body io.Reader
-	if len(opts.Body) > 0 {
-		body = strings.NewReader(string(opts.Body))
-	}
-
-	req, err := http.NewRequestWithContext(ctx, opts.Method, opts.URL, body)
-	if err != nil {
-		return HTTPResult{}, err
-	}
-
-	for k, v := range opts.Header {
-		req.Header.Set(k, v)
-	}
-
-	// Execute with timeout
-	client := &http.Client{Timeout: timeout}
-	resp, err := client.Do(req)
-	if err != nil {
-		return HTTPResult{}, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return HTTPResult{}, err
-	}
-
-	// Convert headers
-	headers := make(map[string][]string)
-	maps.Copy(headers, resp.Header)
-
-	return HTTPResult{
-		StatusCode: resp.StatusCode,
-		Header:     headers,
-		Body:       respBody,
-	}, nil
+func (h *boxshHost) HTTPRequest(context.Context, HTTPOptions) (HTTPResult, error) {
+	return HTTPResult{}, fmt.Errorf("sandbox: boxsh Host.HTTPRequest is not implemented in Phase 2; fail closed until transport mediation is wired")
 }
 
-func (h *boxshHost) OpenHTTPStream(ctx context.Context, opts HTTPOptions) (HTTPStream, error) {
-	policy := h.session.policy.Network
-
-	// Boxsh should enforce network policy
-	if policy.Mode == NetworkDisabled {
-		return nil, fmt.Errorf("sandbox: network access denied by policy")
-	}
-
-	// Determine timeout
-	timeout := opts.Timeout
-	if timeout == 0 {
-		timeout = policy.Timeout
-	}
-	if timeout == 0 {
-		timeout = 30 * time.Second
-	}
-
-	// Create request
-	var body io.Reader
-	if len(opts.Body) > 0 {
-		body = strings.NewReader(string(opts.Body))
-	}
-
-	req, err := http.NewRequestWithContext(ctx, opts.Method, opts.URL, body)
-	if err != nil {
-		return nil, err
-	}
-
-	for k, v := range opts.Header {
-		req.Header.Set(k, v)
-	}
-
-	// Use a client that doesn't enforce timeout on body reads
-	client := &http.Client{Timeout: timeout}
-	resp, err := client.Do(req) //nolint:bodyclose // body ownership is transferred to boxshHTTPStream
-	if err != nil {
-		return nil, err
-	}
-
-	return &boxshHTTPStream{
-		resp:   resp,
-		reader: resp.Body,
-	}, nil
+func (h *boxshHost) OpenHTTPStream(context.Context, HTTPOptions) (HTTPStream, error) {
+	return nil, fmt.Errorf("sandbox: boxsh Host.OpenHTTPStream is not implemented in Phase 2; fail closed until transport mediation is wired")
 }
 
 func (h *boxshHost) ResolvePath(path string) (string, error) {
-	if filepath.IsAbs(path) {
-		return path, nil
+	root, err := h.session.backend.SandboxRoot(context.Background())
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(path) {
+		return filepath.Join(root, path), nil
 	}
 
-	workingDir := h.session.policy.Filesystem.WorkingDir
-	return filepath.Join(workingDir, path), nil
+	srcRoot := h.session.policy.Filesystem.WorkingDir
+	if rel, err := filepath.Rel(srcRoot, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return filepath.Join(root, rel), nil
+	}
+	if rel, err := filepath.Rel(root, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return path, nil
+	}
+	return "", fmt.Errorf("sandbox: path %q is outside boxsh session root", path)
 }
 
 func (h *boxshHost) WorkingDir() string {
@@ -593,99 +435,4 @@ func (f *boxshTempFile) Close() error {
 		return err
 	}
 	return os.Remove(path)
-}
-
-// boxshProcessHandle implements ProcessHandle for boxsh sessions.
-type boxshProcessHandle struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout io.ReadCloser
-	stderr io.ReadCloser
-	cancel context.CancelFunc
-	mu     sync.Mutex
-	closed bool
-}
-
-func (p *boxshProcessHandle) PID() int {
-	if p.cmd != nil && p.cmd.Process != nil {
-		return p.cmd.Process.Pid
-	}
-	return 0
-}
-
-func (p *boxshProcessHandle) Wait(ctx context.Context) (ExecResult, error) {
-	done := make(chan error, 1)
-	go func() {
-		done <- p.cmd.Wait()
-	}()
-
-	select {
-	case <-ctx.Done():
-		_ = p.Close()
-		return ExecResult{}, ctx.Err()
-	case err := <-done:
-		exitCode := 0
-		if err != nil {
-			exitErr := &exec.ExitError{}
-			if errors.As(err, &exitErr) {
-				exitCode = exitErr.ExitCode()
-			} else {
-				return ExecResult{}, err
-			}
-		}
-
-		// Read any remaining output
-		stdout, _ := io.ReadAll(p.stdout)
-		stderr, _ := io.ReadAll(p.stderr)
-
-		return ExecResult{
-			Stdout:   string(stdout),
-			Stderr:   string(stderr),
-			ExitCode: exitCode,
-		}, nil
-	}
-}
-
-func (p *boxshProcessHandle) Stdin() io.WriteCloser { return p.stdin }
-func (p *boxshProcessHandle) Stdout() io.ReadCloser { return p.stdout }
-func (p *boxshProcessHandle) Stderr() io.ReadCloser { return p.stderr }
-
-func (p *boxshProcessHandle) Close() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.closed {
-		return nil
-	}
-	p.closed = true
-
-	p.cancel()
-
-	if p.cmd != nil && p.cmd.Process != nil {
-		_ = p.cmd.Process.Kill()
-	}
-
-	_ = p.stdin.Close()
-	_ = p.stdout.Close()
-	_ = p.stderr.Close()
-
-	return nil
-}
-
-// boxshHTTPStream implements HTTPStream for boxsh sessions.
-type boxshHTTPStream struct {
-	resp   *http.Response
-	reader io.ReadCloser
-}
-
-func (s *boxshHTTPStream) Header() map[string][]string {
-	headers := make(map[string][]string)
-	maps.Copy(headers, s.resp.Header)
-	return headers
-}
-
-func (s *boxshHTTPStream) Reader() io.ReadCloser { return s.reader }
-
-func (s *boxshHTTPStream) Close() error {
-	return s.reader.Close()
 }

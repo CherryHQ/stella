@@ -23,32 +23,12 @@ func (f *localFactory) Name() string    { return "local" }
 func (f *localFactory) Available() bool { return true }
 
 func (f *localFactory) Supported(policy Policy) error {
-	// Local backend is explicit relaxed mode only for policies that require
-	// real sandbox enforcement.
 	if !policy.Relaxed {
-		if policy.NetworkModeOrDefault() == NetworkDisabled {
-			return &PolicyCompatibilityError{
-				Backend:          f.Name(),
-				Policy:           policy,
-				Reason:           "local backend cannot enforce network disabled",
-				RelaxedWouldHelp: true,
-			}
-		}
-		if policy.RequiresWhitelist() {
-			return &PolicyCompatibilityError{
-				Backend:          f.Name(),
-				Policy:           policy,
-				Reason:           "local backend cannot enforce network whitelist",
-				RelaxedWouldHelp: true,
-			}
-		}
-		if !policy.Filesystem.AllowEscapes {
-			return &PolicyCompatibilityError{
-				Backend:          f.Name(),
-				Policy:           policy,
-				Reason:           "local backend filesystem restrictions are advisory only",
-				RelaxedWouldHelp: true,
-			}
+		return &PolicyCompatibilityError{
+			Backend:          f.Name(),
+			Policy:           policy,
+			Reason:           "local backend requires explicit relaxed mode",
+			RelaxedWouldHelp: true,
 		}
 	}
 
