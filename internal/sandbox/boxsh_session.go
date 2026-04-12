@@ -449,13 +449,50 @@ func (h *boxshHost) ResolvePath(path string) (string, error) {
 	}
 
 	srcRoot := h.session.policy.Filesystem.WorkingDir
-	if rel, err := filepath.Rel(srcRoot, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return filepath.Join(root, rel), nil
-	}
-	if rel, err := filepath.Rel(root, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if isWithinRoot(root, path) {
 		return path, nil
 	}
-	return "", fmt.Errorf("sandbox: path %q is outside boxsh session root", path)
+	if isWithinRoot(srcRoot, path) {
+		rel, err := filepath.Rel(srcRoot, path)
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(root, rel), nil
+	}
+	for _, ro := range h.session.policy.Filesystem.ReadOnlyPaths {
+		if isWithinRoot(ro, path) {
+			return path, nil
+		}
+	}
+	if sandboxRelativeAbsolute(path) {
+		return filepath.Join(root, strings.TrimPrefix(path, string(filepath.Separator))), nil
+	}
+	if err := boxshclient.ValidateSandboxPath(root, path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func isWithinRoot(root, path string) bool {
+	if root == "" {
+		return false
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+func sandboxRelativeAbsolute(path string) bool {
+	if !filepath.IsAbs(path) {
+		return false
+	}
+	trimmed := strings.Trim(path, string(filepath.Separator))
+	if trimmed == "" {
+		return true
+	}
+	return len(strings.Split(trimmed, string(filepath.Separator))) <= 2
 }
 
 func (h *boxshHost) WorkingDir() string {
