@@ -5,9 +5,28 @@ import { api } from '/static/js/api.js'
  *
  * @param {import('alpinejs').Alpine} Alpine
  */
+function parseChannelConfig(raw) {
+  try {
+    return JSON.parse(raw || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function normalizeChannel(channel) {
+  return {
+    ...channel,
+    type: channel.type || channel.id,
+    agent_id: channel.agent_id || '',
+    config: channel.config || '{}',
+    _config: parseChannelConfig(channel.config),
+  }
+}
+
 export function register(Alpine) {
   Alpine.data('agentsPage', () => ({
     agents: [],
+    channels: [],
     cachedModels: [],
     isAdmin: false,
     currentUserId: 0,
@@ -26,6 +45,12 @@ export function register(Alpine) {
     assignedUsers: [],
     addUserId: '',
 
+    // Dedicated channel binding modal state.
+    showChannelModal: false,
+    channelModalAgent: '',
+    selectedChannelIDs: [],
+    savingChannels: false,
+
     confirmMsg: '',
     confirmAction: () => {},
 
@@ -35,6 +60,9 @@ export function register(Alpine) {
         this.loadCachedModels(),
         this.loadCurrentUser(),
       ])
+      if (this.isAdmin) {
+        await this.loadChannels()
+      }
       this.focusAgentFromURL()
     },
 
@@ -57,6 +85,15 @@ export function register(Alpine) {
         this.allUsers = users || []
       } catch (_) {
         // admin-only endpoint, silently fail for non-admins
+      }
+    },
+
+    async loadChannels() {
+      try {
+        const channels = await api('GET', '/api/channels') || []
+        this.channels = channels.map(normalizeChannel)
+      } catch (_) {
+        this.channels = []
       }
     },
 
@@ -207,6 +244,49 @@ export function register(Alpine) {
         this.$store.toast.show('User removed')
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    dedicatedChannelsForAgent(agentId) {
+      return this.channels.filter(channel => channel.id !== channel.type && channel.agent_id === agentId)
+    },
+
+    availableDedicatedChannels(agentId) {
+      return this.channels.filter(channel => channel.id !== channel.type && channel.enabled && (!channel.agent_id || channel.agent_id === agentId))
+    },
+
+    async manageChannels(agent) {
+      this.channelModalAgent = agent.id
+      await this.loadChannels()
+      this.selectedChannelIDs = this.dedicatedChannelsForAgent(agent.id).map(channel => channel.id)
+      this.showChannelModal = true
+    },
+
+    async saveChannelBindings() {
+      this.savingChannels = true
+      try {
+        const selected = new Set(this.selectedChannelIDs)
+        const current = this.availableDedicatedChannels(this.channelModalAgent)
+        for (const channel of current) {
+          const wantsAgent = selected.has(channel.id)
+          const nextAgentID = wantsAgent ? this.channelModalAgent : ''
+          if ((channel.agent_id || '') === nextAgentID) {
+            continue
+          }
+          await api('PUT', '/api/channels/' + encodeURIComponent(channel.id), {
+            type: channel.type,
+            agent_id: nextAgentID,
+            config: JSON.stringify(channel._config || {}),
+          })
+        }
+        await this.loadChannels()
+        await this.loadAgents()
+        this.showChannelModal = false
+        this.$store.toast.show('Dedicated channels updated')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.savingChannels = false
       }
     },
 
