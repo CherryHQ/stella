@@ -198,6 +198,10 @@ func TestNetworkPolicy_AllowAllModePermitsConnections(t *testing.T) {
 	if !strings.Contains(result, "connected") {
 		t.Fatalf("expected connected result, got %q", result)
 	}
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for hits.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if hits.Load() == 0 {
 		t.Fatal("expected at least one network hit in allow_all mode")
 	}

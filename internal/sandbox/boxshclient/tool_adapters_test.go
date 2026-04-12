@@ -3,6 +3,7 @@ package boxshclient
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -166,12 +167,22 @@ func TestAdapters_NilClient(t *testing.T) {
 	}
 }
 
+func systemBoxshPath(t *testing.T) string {
+	t.Helper()
+	path, err := exec.LookPath("boxsh")
+	if err != nil {
+		t.Skip("boxsh not found in PATH")
+	}
+	return path
+}
+
 func TestToolAdapters_IntegrationWithRealBoxsh(t *testing.T) {
 	if !PlatformSupportsBoxsh() {
 		t.Skip("boxsh not supported on this platform")
 	}
 	ctx := context.Background()
 	annaHome := t.TempDir()
+	boxshPath := systemBoxshPath(t)
 	workspace := filepath.Join(t.TempDir(), "workspace")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatalf("mkdir workspace: %v", err)
@@ -179,11 +190,11 @@ func TestToolAdapters_IntegrationWithRealBoxsh(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "test.txt"), []byte("line1\nline2\n"), 0o644); err != nil {
 		t.Fatalf("write test file: %v", err)
 	}
-	backend, err := NewSharedBackend(BackendConfig{AnnaHome: annaHome, BinaryPath: "boxsh", Workspace: workspace})
+	backend, err := NewSharedBackend(BackendConfig{AnnaHome: annaHome, BinaryPath: boxshPath, Workspace: workspace})
 	if err != nil {
 		t.Fatalf("NewSharedBackend: %v", err)
 	}
-	if err := backend.Start(ctx, BackendConfig{AnnaHome: annaHome, BinaryPath: "boxsh", Workspace: workspace}); err != nil {
+	if err := backend.Start(ctx, BackendConfig{AnnaHome: annaHome, BinaryPath: boxshPath, Workspace: workspace}); err != nil {
 		t.Fatalf("backend.Start: %v", err)
 	}
 	defer func() { _ = backend.Close() }()
@@ -225,6 +236,7 @@ func TestBashAdapter_BinDirPrefixing(t *testing.T) {
 	}
 	ctx := context.Background()
 	annaHome := t.TempDir()
+	boxshPath := systemBoxshPath(t)
 	workspace := filepath.Join(t.TempDir(), "workspace")
 	binDir := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
@@ -237,11 +249,11 @@ func TestBashAdapter_BinDirPrefixing(t *testing.T) {
 	if err := os.WriteFile(toolPath, []byte("#!/bin/sh\nprintf prefixed-ok\n"), 0o755); err != nil {
 		t.Fatalf("write tool: %v", err)
 	}
-	backend, err := NewSharedBackend(BackendConfig{AnnaHome: annaHome, BinaryPath: "boxsh", Workspace: workspace})
+	backend, err := NewSharedBackend(BackendConfig{AnnaHome: annaHome, BinaryPath: boxshPath, Workspace: workspace})
 	if err != nil {
 		t.Fatalf("NewSharedBackend: %v", err)
 	}
-	if err := backend.Start(ctx, BackendConfig{AnnaHome: annaHome, BinaryPath: "boxsh", Workspace: workspace}); err != nil {
+	if err := backend.Start(ctx, BackendConfig{AnnaHome: annaHome, BinaryPath: boxshPath, Workspace: workspace}); err != nil {
 		t.Fatalf("backend.Start: %v", err)
 	}
 	defer func() { _ = backend.Close() }()

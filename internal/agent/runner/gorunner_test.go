@@ -72,7 +72,7 @@ func writeMockRPCBoxsh(t *testing.T, annaHome string, exitAfterHandshake bool) s
 	commandsLog := filepath.Join(annaHome, "boxsh-commands.log")
 	exitAfterInit := ""
 	if exitAfterHandshake {
-		exitAfterInit = "\n\t\t\texit 0"
+		exitAfterInit = "\n\t\t\tsleep 0.1\n\t\t\texit 0"
 	}
 	script := "#!/bin/bash\n" +
 		"logfile=\"" + commandsLog + "\"\n" +
