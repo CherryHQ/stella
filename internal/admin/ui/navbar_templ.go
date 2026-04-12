@@ -18,7 +18,7 @@ type navItem struct {
 var navItems = []navItem{
 	{ID: "providers", Label: "Providers", Href: "/providers", AdminOnly: true},
 	{ID: "agents", Label: "Agents", Href: "/agents"},
-	{ID: "channels", Label: "Channels", Href: "/channels", AdminOnly: true},
+	{ID: "channels", Label: "Channels", Href: "/channels"},
 	{ID: "users", Label: "Users", Href: "/users", AdminOnly: true},
 	{ID: "sessions", Label: "Sessions", Href: "/sessions"},
 	{ID: "scheduler", Label: "Scheduler", Href: "/scheduler"},

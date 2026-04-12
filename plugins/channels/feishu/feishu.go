@@ -43,6 +43,7 @@ type GroupConfig struct {
 
 // Config holds Feishu bot settings.
 type Config struct {
+	InstanceID        string                 `json:"-"`
 	AppID             string                 `json:"app_id"`
 	AppSecret         string                 `json:"app_secret"`
 	EncryptKey        string                 `json:"encrypt_key"`
@@ -170,7 +171,14 @@ func (b *Bot) fetchBotOpenID(ctx context.Context) error {
 }
 
 // Name returns the backend name. Implements channel.Channel.
-func (b *Bot) Name() string { return channel.PlatformFeishu }
+func (b *Bot) Name() string {
+	if b.cfg.InstanceID != "" {
+		return b.cfg.InstanceID
+	}
+	return channel.PlatformFeishu
+}
+
+func (b *Bot) Platform() string { return channel.PlatformFeishu }
 
 // Notify sends a notification message. Implements channel.Channel.
 // Supports both chat IDs (oc_ prefix) and user open IDs (ou_ prefix).
@@ -377,10 +385,11 @@ func stripMentions(text string, mentions []*larkim.MentionEvent) string {
 // incomingMsg builds an IncomingMessage from the Feishu context.
 func (b *Bot) incomingMsg(openID, chatID string, chatType string, content []ai.ContentBlock) channel.IncomingMessage {
 	return channel.IncomingMessage{
-		Platform: channel.PlatformFeishu,
-		SenderID: openID,
-		ChatID:   chatID,
-		IsGroup:  chatType == "group",
-		Content:  content,
+		Platform:  channel.PlatformFeishu,
+		ChannelID: b.Name(),
+		SenderID:  openID,
+		ChatID:    chatID,
+		IsGroup:   chatType == "group",
+		Content:   content,
 	}
 }

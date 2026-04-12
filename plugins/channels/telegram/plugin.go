@@ -31,7 +31,7 @@ var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) 
 		Handler:       handler,
 		Notifications: channelRuntime.Notifications(),
 		NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
-			return New(Config{Token: cfg.Token, ChannelID: cfg.ChannelID, GroupMode: cfg.GroupMode}, handler)
+			return New(Config{InstanceID: cfg.InstanceID, Token: cfg.Token, ChannelID: cfg.ChannelID, GroupMode: cfg.GroupMode}, handler)
 		},
 	}), nil
 }

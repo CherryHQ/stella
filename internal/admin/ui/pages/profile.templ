@@ -4,7 +4,7 @@ import "github.com/vaayne/anna/internal/admin/ui"
 
 templ ProfilePage() {
 	<div x-data="profilePage()">
-		@ui.PageHeader("Profile", "Manage your account and linked identities.")
+		@ui.PageHeader("Profile", "Manage your account.")
 		<!-- Password Change -->
 		<div class="mb-10">
 			<h2 class="font-serif text-xl mb-4">Change Password</h2>
@@ -46,114 +46,6 @@ templ ProfilePage() {
 							Change Password
 						</button>
 					</div>
-				</div>
-			</div>
-		</div>
-		<!-- Linked Identities -->
-		<div>
-			<h2 class="font-serif text-xl mb-4">Linked Identities</h2>
-			<div class="card bg-base-200">
-				<div class="card-body">
-					<template x-if="loadingIdentities">
-						<div class="flex justify-center py-4">
-							<span class="loading loading-spinner loading-sm"></span>
-						</div>
-					</template>
-					<!-- Existing identities -->
-					<div class="divide-y divide-base-300">
-						<template x-for="identity in identities" :key="identity.id">
-							<div class="flex items-center justify-between py-3">
-								<div>
-									<span class="badge badge-ghost badge-sm mr-2" x-text="identity.platform"></span>
-									<span class="font-mono text-sm" x-text="identity.external_id"></span>
-									<template x-if="identity.name">
-										<span class="text-secondary text-sm ml-2" x-text="'(' + identity.name + ')'"></span>
-									</template>
-								</div>
-								<button
-									@click="unlinkIdentity(identity.id)"
-									class="btn btn-ghost btn-xs text-error hover:bg-error/10"
-								>
-									unlink
-								</button>
-							</div>
-						</template>
-					</div>
-					<!-- Link new platform -->
-					<template x-if="!['telegram', 'qq', 'feishu', 'weixin'].every(p => isLinked(p))">
-						<div class="mt-4 pt-4 border-t border-base-300">
-							<p class="text-secondary text-sm mb-3">
-								Link a platform account to your anna identity.
-							</p>
-							<div class="flex flex-wrap gap-2">
-								<!-- Code-based linking for telegram/qq/feishu -->
-								<template x-for="p in ['telegram', 'qq', 'feishu']" :key="p">
-									<button
-										x-show="!isLinked(p)"
-										@click="generateCode(p)"
-										:disabled="generating"
-										class="btn btn-sm btn-outline"
-									>
-										<span x-show="generating && linkPlatform === p" class="loading loading-spinner loading-xs"></span>
-										<span x-text="'Link ' + platformLabel[p]"></span>
-									</button>
-								</template>
-								<!-- QR-based linking for weixin -->
-								<button
-									x-show="!isLinked('weixin')"
-									@click="startWeixinQR()"
-									:disabled="wxQrPolling"
-									class="btn btn-sm btn-outline"
-								>
-									<span x-show="wxQrPolling" class="loading loading-spinner loading-xs"></span>
-									Link Weixin
-								</button>
-							</div>
-							<!-- Link code result (telegram/qq/feishu) -->
-							<template x-if="linkCode">
-								<div class="alert shadow-md mt-3">
-									<div>
-										<p class="font-medium">Send this command to Anna on <span x-text="linkPlatform"></span>:</p>
-										<div class="flex items-center gap-2 mt-2">
-											<code class="font-mono text-lg font-bold bg-base-200 text-base-content px-3 py-1 rounded select-all" x-text="'/link ' + linkCode"></code>
-											<button @click="navigator.clipboard.writeText('/link ' + linkCode); $store.toast.show('Copied!')" class="btn btn-ghost btn-xs">copy</button>
-										</div>
-										<p class="text-xs text-secondary mt-2">Expires in 5 minutes.</p>
-									</div>
-								</div>
-							</template>
-							<!-- Weixin QR code -->
-							<template x-if="wxQrUrl">
-								<div class="card bg-base-200 mt-3">
-									<div class="card-body py-4 items-center">
-										<p class="text-sm font-medium mb-2">Scan with WeChat to link your account</p>
-										<img :src="wxQrUrl" alt="WeChat QR Code" class="w-48 h-48 border rounded"/>
-										<span
-											class="badge badge-sm mt-2"
-											:class="{
-												'badge-warning': wxQrStatus === 'waiting',
-												'badge-info': wxQrStatus === 'scaned',
-												'badge-success': wxQrStatus === 'confirmed',
-												'badge-error': wxQrStatus === 'expired',
-											}"
-											x-text="wxQrStatus"
-										></span>
-										<template x-if="wxQrStatus === 'expired'">
-											<button @click="startWeixinQR()" class="btn btn-outline btn-xs mt-1">Refresh</button>
-										</template>
-									</div>
-								</div>
-							</template>
-						</div>
-					</template>
-					<!-- All linked message -->
-					<template x-if="!loadingIdentities && identities.length > 0 && ['telegram', 'qq', 'feishu', 'weixin'].every(p => isLinked(p))">
-						<p class="text-secondary text-sm mt-4 pt-4 border-t border-base-300">All platforms linked.</p>
-					</template>
-					<!-- No identities yet -->
-					<template x-if="identities.length === 0 && !loadingIdentities">
-						<p class="text-secondary text-sm">No linked identities yet. Use the buttons above to link a platform account.</p>
-					</template>
 				</div>
 			</div>
 		</div>

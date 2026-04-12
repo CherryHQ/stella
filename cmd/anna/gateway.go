@@ -215,7 +215,10 @@ func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolM
 			return nil
 		}
 
-		n := pkgchannel.Notification{Text: fmt.Sprintf("*%s*\n\n%s", job.Name, result.String())}
+		n := pkgchannel.Notification{
+			AgentID: pool.AgentID(),
+			Text:    fmt.Sprintf("*%s*\n\n%s", job.Name, result.String()),
+		}
 		err := dispatchSchedulerNotification(ctx, dispatcher, job, n)
 		if err != nil {
 			slog.Error("scheduler notification failed", "job_id", job.ID, "error", err)

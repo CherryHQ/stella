@@ -127,7 +127,7 @@ func TestDiscoveryReportsRegistrationsAndMergedAdminView(t *testing.T) {
 	if len(plugins) != 2 {
 		t.Fatalf("expected 2 plugins, got %#v", plugins)
 	}
-	if plugins[0].Info.ID != "channel/telegram" || !plugins[0].Persisted || !plugins[0].State.Enabled || plugins[0].State.Config["token"] != "abc" {
+	if plugins[0].Info.ID != "channel/telegram" || !plugins[0].Persisted || !plugins[0].State.Enabled || plugins[0].HasConfig || len(plugins[0].State.Config) != 0 {
 		t.Fatalf("unexpected registered overlay entry: %#v", plugins[0])
 	}
 	if plugins[1].Info.ID != "provider/custom" || !plugins[1].Persisted || plugins[1].PersistedID != "provider/custom" {
@@ -161,8 +161,8 @@ func TestAdminVisibleDiscoveryIncludesBuiltinsBeforePersistedState(t *testing.T)
 	if plugins[0].State.ID != "channel/telegram" || plugins[0].State.Enabled {
 		t.Fatalf("unexpected default state: %#v", plugins[0].State)
 	}
-	if _, ok := plugins[0].State.Config["token"]; !ok {
-		t.Fatalf("expected default config in discovery entry: %#v", plugins[0].State.Config)
+	if plugins[0].HasConfig || len(plugins[0].State.Config) != 0 {
+		t.Fatalf("expected channel plugin config to be hidden in discovery entry: %#v", plugins[0])
 	}
 }
 
@@ -288,8 +288,15 @@ func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T)
 		if !ok {
 			t.Fatalf("missing admin-visible plugin %q in %#v", pluginID, seen)
 		}
-		if !entry.Info.Managed || !entry.HasConfig || !entry.HasStatus {
+		if !entry.Info.Managed || !entry.HasStatus {
 			t.Fatalf("unexpected metadata for %q: %#v", pluginID, entry)
+		}
+		if pluginID == reflectplugin.PluginID {
+			if !entry.HasConfig {
+				t.Fatalf("expected reflect plugin config metadata for %q: %#v", pluginID, entry)
+			}
+		} else if entry.HasConfig {
+			t.Fatalf("expected channel plugin config to be hidden for %q: %#v", pluginID, entry)
 		}
 		if len(host.ConfigSchema(pluginID)) == 0 {
 			t.Fatalf("expected non-empty schema for %q", pluginID)

@@ -32,9 +32,10 @@ var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) 
 		Log:           platform.Logger(),
 		NewChannel: func(cfg pkgchannel.QQConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
-				AppID:     cfg.AppID,
-				AppSecret: cfg.AppSecret,
-				GroupMode: cfg.GroupMode,
+				InstanceID: cfg.InstanceID,
+				AppID:      cfg.AppID,
+				AppSecret:  cfg.AppSecret,
+				GroupMode:  cfg.GroupMode,
 			}, handler)
 		},
 	}), nil
