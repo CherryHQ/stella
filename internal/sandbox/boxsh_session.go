@@ -511,6 +511,9 @@ func isWithinRoot(root, path string) bool {
 }
 
 func (h *boxshHost) ensureWritable(path string) error {
+	if h.hasReadOnlyOverlap() {
+		return fmt.Errorf("sandbox: boxsh mutating host operations are fail-closed when ReadOnlyPaths overlap WorkspaceRoot in Phase 2")
+	}
 	logicalPath := path
 	if !filepath.IsAbs(logicalPath) {
 		logicalPath = filepath.Join(h.session.policy.Filesystem.WorkingDir, logicalPath)

@@ -35,7 +35,7 @@ func TestBoxshHostEnsureWritableBlocksReadOnlySubdirUnderWorkspaceRoot(t *testin
 	if err == nil {
 		t.Fatal("expected readonly nested path to be rejected")
 	}
-	if !strings.Contains(err.Error(), "read-only") {
-		t.Fatalf("expected read-only error, got %v", err)
+	if !strings.Contains(err.Error(), "fail-closed") && !strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("expected readonly/fail-closed error, got %v", err)
 	}
 }
