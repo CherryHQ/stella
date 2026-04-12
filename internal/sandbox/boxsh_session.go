@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/sandbox/boxshclient"
@@ -81,12 +82,14 @@ func (f *boxshFactory) CreateSession(ctx context.Context, policy Policy) (Sessio
 		return nil, fmt.Errorf("boxsh session: start backend: %w", err)
 	}
 
-	return &boxshSession{
+	session := &boxshSession{
 		policy:  policy,
 		backend: backend,
 		client:  backend.Client(),
 		done:    make(chan struct{}),
-	}, nil
+	}
+	go session.watchBackend()
+	return session, nil
 }
 
 // boxshSession is a boxsh-backed sandbox session.
@@ -96,6 +99,7 @@ type boxshSession struct {
 	client   *boxshclient.Client
 	host     *boxshHost
 	done     chan struct{}
+	doneOnce sync.Once
 	closed   bool
 	closeErr error
 	mu       sync.RWMutex
@@ -123,6 +127,29 @@ func (s *boxshSession) Alive() bool {
 
 func (s *boxshSession) Done() <-chan struct{} { return s.done }
 
+func (s *boxshSession) closeDone() {
+	s.doneOnce.Do(func() { close(s.done) })
+}
+
+func (s *boxshSession) watchBackend() {
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
+		s.mu.RLock()
+		closed := s.closed
+		backend := s.backend
+		s.mu.RUnlock()
+		if closed {
+			s.closeDone()
+			return
+		}
+		if backend == nil || !backend.Alive() {
+			s.closeDone()
+			return
+		}
+	}
+}
+
 func (s *boxshSession) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -139,7 +166,7 @@ func (s *boxshSession) Close() error {
 		s.closeErr = s.client.Close()
 	}
 
-	close(s.done)
+	s.closeDone()
 	return s.closeErr
 }
 
@@ -155,7 +182,11 @@ func (h *boxshHost) ReadFile(ctx context.Context, path string, offset, limit int
 	}
 
 	// Use boxsh client for file read
-	result, err := client.Read(ctx, boxshclient.ReadParams{FilePath: path, Offset: offset, Limit: limit})
+	resolved, err := h.ResolvePath(path)
+	if err != nil {
+		return ReadResult{}, err
+	}
+	result, err := client.Read(ctx, boxshclient.ReadParams{FilePath: resolved, Offset: offset, Limit: limit})
 	if err != nil {
 		return ReadResult{}, err
 	}
@@ -179,7 +210,11 @@ func (h *boxshHost) WriteFile(ctx context.Context, path string, content []byte) 
 	}
 
 	// Use boxsh client for file write
-	result, err := client.Write(ctx, boxshclient.WriteParams{FilePath: path, Content: string(content)})
+	resolved, err := h.ResolvePath(path)
+	if err != nil {
+		return WriteResult{}, err
+	}
+	result, err := client.Write(ctx, boxshclient.WriteParams{FilePath: resolved, Content: string(content)})
 	if err != nil {
 		return WriteResult{}, err
 	}
@@ -308,6 +343,10 @@ func (h *boxshHost) CreateTemp(ctx context.Context, dir, pattern string) (TempFi
 	if resolvedDir == "" {
 		resolvedDir = policy.WorkingDir
 	}
+	resolvedDir, err := h.ResolvePath(resolvedDir)
+	if err != nil {
+		return nil, err
+	}
 
 	// Ensure the directory exists
 	if err := os.MkdirAll(resolvedDir, 0o755); err != nil {
@@ -329,6 +368,10 @@ func (h *boxshHost) Exec(ctx context.Context, command string, opts ExecOptions) 
 	cwd := opts.Cwd
 	if cwd == "" {
 		cwd = h.session.policy.Filesystem.WorkingDir
+	}
+	cwd, err := h.ResolvePath(cwd)
+	if err != nil {
+		return ExecResult{}, err
 	}
 
 	// Merge environment
