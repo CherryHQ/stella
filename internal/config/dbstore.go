@@ -523,61 +523,27 @@ func (s *DBStore) SeedDefaults(ctx context.Context) error {
 func (s *DBStore) seedPlugins(ctx context.Context) error {
 	// Seed all built-in plugins with INSERT OR IGNORE to preserve
 	// user-modified state.
-	for _, name := range builtinToolNames {
-		enabled := int64(1)
+	if err := s.seedBuiltinPlugins(ctx, PluginKindTool, builtinToolNames, func(name string) int64 {
 		if name == "mcp" {
-			enabled = 0
+			return 0
 		}
-		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
-			ID:      PluginID(PluginKindTool, name),
-			Kind:    PluginKindTool,
-			Name:    name,
-			Enabled: enabled,
-			Config:  "{}",
-		})
-		if err != nil {
-			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindTool, name, err)
-		}
+		return 1
+	}); err != nil {
+		return err
 	}
-	for _, name := range builtinChannelNames {
-		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
-			ID:      PluginID(PluginKindChannel, name),
-			Kind:    PluginKindChannel,
-			Name:    name,
-			Enabled: 1,
-			Config:  "{}",
-		})
-		if err != nil {
-			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindChannel, name, err)
-		}
+	if err := s.seedBuiltinPlugins(ctx, PluginKindChannel, builtinChannelNames, nil); err != nil {
+		return err
 	}
-	for _, name := range builtinHookNames {
-		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
-			ID:      PluginID(PluginKindHook, name),
-			Kind:    PluginKindHook,
-			Name:    name,
-			Enabled: 1,
-			Config:  "{}",
-		})
-		if err != nil {
-			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindHook, name, err)
-		}
+	if err := s.seedBuiltinPlugins(ctx, PluginKindHook, builtinHookNames, nil); err != nil {
+		return err
 	}
-	for _, name := range builtinMemoryNames {
-		enabled := int64(1)
+	if err := s.seedBuiltinPlugins(ctx, PluginKindMemory, builtinMemoryNames, func(name string) int64 {
 		if name == "simple" {
-			enabled = 0 // simple is opt-in; lcm is the default
+			return 0 // simple is opt-in; lcm is the default
 		}
-		err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
-			ID:      PluginID(PluginKindMemory, name),
-			Kind:    PluginKindMemory,
-			Name:    name,
-			Enabled: enabled,
-			Config:  "{}",
-		})
-		if err != nil {
-			return fmt.Errorf("seed: plugin %s/%s: %w", PluginKindMemory, name, err)
-		}
+		return 1
+	}); err != nil {
+		return err
 	}
 
 	// Seed the reflect plugin (conversation review).
@@ -646,6 +612,25 @@ func (s *DBStore) seedChannelInstances(ctx context.Context) error {
 			Config:  "{}",
 		}); err != nil {
 			return fmt.Errorf("seed: default channel instance %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func (s *DBStore) seedBuiltinPlugins(ctx context.Context, kind string, names []string, enabledFor func(string) int64) error {
+	for _, name := range names {
+		enabled := int64(1)
+		if enabledFor != nil {
+			enabled = enabledFor(name)
+		}
+		if err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
+			ID:      PluginID(kind, name),
+			Kind:    kind,
+			Name:    name,
+			Enabled: enabled,
+			Config:  "{}",
+		}); err != nil {
+			return fmt.Errorf("seed: plugin %s/%s: %w", kind, name, err)
 		}
 	}
 	return nil
