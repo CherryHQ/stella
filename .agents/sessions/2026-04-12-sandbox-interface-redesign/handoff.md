@@ -109,6 +109,11 @@
 
 - `6900c40` — `✨ feat: add phase 2 sandbox session abstractions`
 
+### Fixes
+- Tightened `localFactory` so explicit relaxed mode is required for all local sessions, matching the Phase 1 fail-closed contract.
+- Changed boxsh `Host.StartProcess`, `Host.HTTPRequest`, and `Host.OpenHTTPStream` to fail closed until real transport mediation exists, instead of silently bypassing the sandbox.
+- Made `boxshHost.ResolvePath` remap absolute paths into the boxsh session root so filesystem operations target the overlay view rather than the host workspace.
+
 **Decisions & context for next phase:**
 
 - Phase 2 compiles and passes `go test ./...`, `go test ./internal/sandbox ./internal/sandbox/boxshclient`, and `mise run format`
