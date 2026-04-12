@@ -129,3 +129,53 @@
 - `boxsh` is hidden behind `sandbox.Session` / `sandbox.Host`, but runner/build contexts still leak older boxsh-specific seams and must be refactored in Phase 3
 - `Host` now includes the filesystem/process/network primitives required by the Phase 1 contract, including `StartProcess` and streaming HTTP
 - The contract tests currently exercise `local` directly and only run `boxsh` when a managed binary is available in the environment
+
+## Phase 3: Refactor runner and execution-time contexts onto the abstraction
+
+**Status:** complete
+
+**Tasks completed:**
+
+- 3.1: Replaced the runner's backend resolution path with `runnerSession` creation through `resolveSession`, keeping only a deprecated legacy backend shim for compatibility tests
+- 3.2: Removed build-time `BuildContext.Backend` leakage and updated runner/plugin build wiring to use sandbox-agnostic build context
+- 3.3: Introduced execution-time host injection for boxsh-backed core tools via host-backed runner tools and a host-backed plugin sandbox runtime
+- 3.4: Defined and tested runner/session lifecycle semantics for noop, local, and boxsh paths: liveness, done-channel behavior, backend death propagation, and cleanup on close
+- 3.5: Added runner/core-tool/runtime integration coverage for host-backed execution and session lifecycle handling
+
+**Files changed:**
+
+- `internal/agent/runner/gorunner.go` — runner now owns `runnerSession` instead of the old backend seam and builds tools from session-aware context
+- `internal/agent/runner/sandbox_backend.go` — new `runnerSession`, session factories, noop/local/boxsh resolution, lifecycle helpers, and deprecated compatibility shim
+- `internal/agent/runner/coretools_builder.go` — host-backed core tool path for boxsh sessions without build-time backend leakage
+- `internal/agent/runner/coretools_builder_test.go` — session/host core tool builder coverage
+- `internal/agent/runner/sandbox_backend_test.go` — runner session lifecycle coverage
+- `internal/agent/runner/gorunner_test.go` — runner integration coverage updated for session-based sandboxing
+- `plugins/tools/registry.go` — `BuildContext.Backend` removed from plugin build-time context
+- `plugins/tools/sandbox_runtime.go` — host-backed plugin sandbox runtime added; non-boxsh/noop paths remain fail-closed
+- `plugins/tools/sandbox_runtime_test.go` — plugin sandbox runtime host-path coverage
+- `internal/sandbox/factory.go` — global registry access used by the runner session factories
+- `.agents/sessions/2026-04-12-sandbox-interface-redesign/tasks.md` — Phase 3 tasks marked complete
+
+### Fixes
+- Preserved fail-closed unsupported-platform behavior by keeping `auto` on non-boxsh platforms mapped to `noop`, not relaxed/local execution.
+- Kept plugin-facing sandbox runtime disabled for non-boxsh sessions so relaxed/local mode does not appear sandboxed to plugin tools.
+- Reintroduced plugin sandbox runtime capability for boxsh through a host-backed runtime rather than re-exposing `boxshclient` at build time.
+- Moved boxsh core tools onto a host-backed execution surface while preserving PATH prefixing for managed tools and current normalized bash output.
+- Kept local/noop core tools on the delegate path until full Phase 4 parity work lands, avoiding a premature behavior regression.
+- Fixed host-backed `read` / `edit` semantics by doing line-based pagination and uniqueness checks at the tool layer instead of relying on raw host offsets.
+- Preserved runner semantics for disabled sandbox sessions: no subprocess-backed liveness dependency, safe nil handling, and close stability.
+- Added a guarded `ANNA_HOME` handoff during boxsh session construction so session-based creation still resolves the requested managed boxsh binary in tests and custom runner setups.
+
+**Validation:**
+
+- `mise run format`
+- `go test ./internal/agent/runner ./plugins/tools ./internal/sandbox`
+- `go test ./...`
+
+**Decisions & context for Phase 4:**
+
+- Phase 3 is approved with `runnerSession` as the runner-owned lifecycle wrapper around `sandbox.Session`.
+- Build-time plugin/tool context is now sandbox-agnostic; backend identity is no longer passed through `BuildContext`.
+- Execution-time mediation now flows through `sandbox.Host` for the boxsh-backed core tool path and plugin sandbox runtime.
+- Local/relaxed execution remains explicitly non-sandboxed at the plugin runtime layer and still uses delegate/native core tools until Phase 4 parity is complete.
+- Phase 4 should finish the host-based parity work for `bash/read/write/edit` and then remove the duplicate adapter path entirely.

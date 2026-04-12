@@ -24,15 +24,15 @@
 - [x] Add policy compatibility tests for fail-closed behavior
 
 ## Phase 3: Refactor runner and execution-time contexts onto the abstraction
-- [ ] Replace runner boxsh-leaking seams with session-based factory usage
-- [ ] Remove build-time `BuildContext.Backend` leakage
-- [ ] Introduce execution-time host injection
-- [ ] Define concurrency semantics
-- [ ] Define shared state visibility semantics
-- [ ] Define cancellation semantics
-- [ ] Define liveness-loss handling
-- [ ] Define cleanup-on-close guarantees
-- [ ] Add runner and lifecycle integration tests
+- [x] Replace runner boxsh-leaking seams with session-based factory usage
+- [x] Remove build-time `BuildContext.Backend` leakage
+- [x] Introduce execution-time host injection
+- [x] Define concurrency semantics
+- [x] Define shared state visibility semantics
+- [x] Define cancellation semantics
+- [x] Define liveness-loss handling
+- [x] Define cleanup-on-close guarantees
+- [x] Add runner and lifecycle integration tests
 
 ## Phase 4: Unify core tools and remove duplicate adapter path
 - [ ] Create parity matrix for `bash/read/write/edit`
