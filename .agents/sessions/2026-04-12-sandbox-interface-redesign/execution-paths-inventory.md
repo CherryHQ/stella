@@ -100,6 +100,7 @@ All local-side operations (process spawning, HTTP requests) must be mediated thr
 | **catalog.go** | Filesystem | `os.UserHomeDir`, `os.Stat`, `os.ReadDir`, `os.ReadFile` | **EXCEPTION (EX-004)** | Skill catalog metadata loading; revisit in Phase 5 |
 | **manage.go** | Filesystem | `os.Stat`, `os.ReadFile` | **TO-BE-MEDIATED** | Skill installation |
 | **atomicwrite.go** | Filesystem | `os.MkdirAll`, `os.CreateTemp`, `os.Remove`, `os.Rename` | **TO-BE-MEDIATED** | Atomic file operations |
+| **remove_lib.go** | Filesystem | `os.Stat`, `os.RemoveAll` | **TO-BE-MEDIATED** | Skill removal path |
 | **tool.go** | Filesystem | `os.ReadFile` | **TO-BE-MEDIATED** | Skill content loading |
 | **builtin/embed.go** | Filesystem | `os.RemoveAll`, `os.MkdirAll`, `os.WriteFile` | **EXCEPTION** | One-time extraction |
 
@@ -117,10 +118,10 @@ All local-side operations (process spawning, HTTP requests) must be mediated thr
 |--------|-------|----------|----------------|-----------|
 | Core tools (plugin) | 4 | 0 | 4 | 0 |
 | Boxsh adapters | 4 | 4 | 0 | 0 |
-| Skills tools | 15+ | 0 | 11+ | 4 |
+| Skills tools | 16+ | 0 | 12+ | 4 |
 | MCP (stdio) | 1 | 0 | 1 | 0 |
 | Runner/internal | 8+ | 0 | 2+ | 6+ |
-| **Total** | **32+** | **4** | **18+** | **8+** |
+| **Total** | **33+** | **4** | **19+** | **8+** |
 
 ### Process Access
 

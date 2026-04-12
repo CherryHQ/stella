@@ -104,7 +104,7 @@ func buildTools(bc BuildContext) []tools.Tool {
 ### Phase 5 (Plugin/MCP Mediation)
 
 **Breaking Changes:**
-- MCP stdio transport uses `Host.Exec`
+- MCP stdio transport uses `Host.StartProcess`
 - `webfetch` uses `Host.HTTPRequest`
 - Skills tools use `Host` methods
 
@@ -191,7 +191,7 @@ const (
 
 ### Phase 5 (Plugin/MCP)
 
-1. Migrate MCP stdio to `Host.Exec`
+1. Migrate MCP stdio to `Host.StartProcess`
 2. Migrate webfetch to `Host.HTTPRequest`
 3. Migrate skills tools to `Host` filesystem methods
 4. Add bypass detection/lint rules

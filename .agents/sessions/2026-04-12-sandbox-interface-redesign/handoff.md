@@ -63,7 +63,9 @@
 - Added the missing first-cut `Host` request/result type appendix and clarified exec/HTTP semantics for Phase 2.
 - Expanded the host transport contract to cover argv-based process spawning and streaming HTTP so MCP stdio/SSE/StreamableHTTP are represented explicitly.
 - Removed the duplicate observer interface from the design spec and made `observability-requirements.md` the canonical observer contract.
-- Aligned execution-path inventory classifications with the exceptions register, including reclassifying `notify` as to-be-mediated and updating summary counts.
+- Aligned execution-path inventory classifications with the exceptions register, including reclassifying `notify` as to-be-mediated, adding the missing `skills/remove_lib.go` path, and updating summary counts.
+- Corrected the canonical relaxed-mode example so explicit opt-in is shown in the `Policy` itself.
+- Updated rollout notes to use `Host.StartProcess` for MCP stdio and normalized debug event names to the underscore convention.
 
 **Phase 2 Ready:**
 - [x] Design artifacts reviewed and complete

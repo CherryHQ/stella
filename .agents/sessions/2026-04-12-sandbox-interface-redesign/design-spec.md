@@ -298,6 +298,8 @@ Local/unsandboxed sessions are created ONLY through explicit opt-in:
 ```go
 // Explicit relaxed policy - never implicit fallback
 relaxedPolicy := sandbox.Policy{
+    Backend: "local",
+    Relaxed: true,
     Filesystem: sandbox.FilesystemPolicy{
         AllowEscapes: true, // Explicit opt-in
     },
@@ -308,7 +310,9 @@ relaxedPolicy := sandbox.Policy{
 
 // Config-driven relaxed mode
 if cfg.Sandbox.Backend == "noop" || cfg.Sandbox.Backend == "local" {
-    // Explicit opt-in via configuration
+    // Explicit opt-in via configuration is reflected in policy creation.
+    policy.Backend = "local"
+    policy.Relaxed = true
     factory = localFactory
 }
 ```
@@ -362,7 +366,7 @@ Events/logs emitted by sandbox layer:
 | `sandbox.exception_used` | Warn | Non-mediated path used (bypass) |
 | `sandbox.session_created` | Info | Session start with policy summary |
 | `sandbox.session_closed` | Info | Session cleanup |
-| `sandbox.exec.started` | Debug | Command execution |
-| `sandbox.exec.finished` | Debug | Command completion |
+| `sandbox.exec_started` | Debug | Command execution |
+| `sandbox.exec_finished` | Debug | Command completion |
 
 The canonical observer contract lives in `observability-requirements.md`. `design-spec.md` intentionally does not restate a second divergent interface; Phase 2 should implement the typed, context-aware observer defined there.
