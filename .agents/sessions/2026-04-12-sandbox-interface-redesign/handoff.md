@@ -115,6 +115,7 @@
 - Made `boxshHost.ResolvePath` remap absolute paths into the boxsh session root so filesystem operations target the overlay view rather than the host workspace.
 - Resolved boxsh host path-model drift by routing `ReadFile`, `WriteFile`, `CreateTemp`, and default `Exec` cwd through the same resolve/remap path logic.
 - Added backend-liveness coverage so `Done()` closes when the boxsh backend becomes unavailable, not only on explicit `Close()`.
+- Aligned boxsh host path semantics with the existing adapter model by accepting sandbox-absolute paths and read-only mounted paths through shared remap logic.
 
 **Decisions & context for next phase:**
 
