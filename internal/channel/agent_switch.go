@@ -23,10 +23,29 @@ func (ac *AgentCommander) List(ctx context.Context) ([]config.Agent, error) {
 	return ac.store.ListEnabledAgents(ctx)
 }
 
+func (ac *AgentCommander) ListForChat(ctx context.Context, chat ChatContext) ([]config.Agent, error) {
+	agents, err := ac.store.ListEnabledAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return filterDedicatedAgents(ctx, ac.store, agents, chat)
+}
+
 func (ac *AgentCommander) Switch(ctx context.Context, user auth.AuthUser, chat ChatContext, agentSlug string) error {
 	agentSlug = strings.TrimSpace(agentSlug)
 	if agentSlug == "" {
 		return fmt.Errorf("agent slug is required")
+	}
+
+	channelID := chat.ChannelID
+	if channelID == "" {
+		channelID = chat.Platform
+	}
+	if channelID != "" {
+		ch, err := ac.store.GetChannel(ctx, channelID)
+		if err == nil && ch.AgentID != "" {
+			return fmt.Errorf("channel %q is dedicated to agent %q", channelID, ch.AgentID)
+		}
 	}
 
 	ag, err := ac.store.GetAgent(ctx, agentSlug)
@@ -36,9 +55,12 @@ func (ac *AgentCommander) Switch(ctx context.Context, user auth.AuthUser, chat C
 	if !ag.Enabled {
 		return fmt.Errorf("agent %q is not enabled", agentSlug)
 	}
+	if dedicated, ok := agentDedicatedToOtherChannel(ctx, ac.store, ag.ID, channelID); ok {
+		return fmt.Errorf("agent %q is dedicated to channel %q", ag.ID, dedicated)
+	}
 
 	if chat.IsGroup && chat.ChatID != "" {
-		return ac.store.SetChatAgent(ctx, chat.Platform, chat.ChatID, ag.ID)
+		return ac.store.SetChatAgent(ctx, channelID, chat.Platform, chat.ChatID, ag.ID)
 	}
 
 	if user.ID == 0 {
@@ -79,7 +101,58 @@ func HandleAgentCommand(ctx context.Context, ac *AgentCommander, rc *ResolvedCha
 		reply(fmt.Sprintf("Error listing agents: %v", err))
 		return
 	}
+	agents, err = filterDedicatedAgents(ctx, ac.store, agents, rc.ChatCtx)
+	if err != nil {
+		reply(fmt.Sprintf("Error listing agents: %v", err))
+		return
+	}
 	reply(FormatAgentList(agents, rc.AgentID))
+}
+
+func filterDedicatedAgents(ctx context.Context, store config.Store, agents []config.Agent, chat ChatContext) ([]config.Agent, error) {
+	channelID := chat.ChannelID
+	if channelID == "" {
+		channelID = chat.Platform
+	}
+	channels, err := store.ListChannels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	dedicated := map[string]string{}
+	currentDedicatedAgent := ""
+	for _, ch := range channels {
+		if ch.ID == channelID {
+			currentDedicatedAgent = ch.AgentID
+			continue
+		}
+		if ch.AgentID == "" {
+			continue
+		}
+		dedicated[ch.AgentID] = ch.ID
+	}
+	out := make([]config.Agent, 0, len(agents))
+	for _, ag := range agents {
+		if currentDedicatedAgent != "" && ag.ID != currentDedicatedAgent {
+			continue
+		}
+		if _, ok := dedicated[ag.ID]; !ok {
+			out = append(out, ag)
+		}
+	}
+	return out, nil
+}
+
+func agentDedicatedToOtherChannel(ctx context.Context, store config.Store, agentID, channelID string) (string, bool) {
+	channels, err := store.ListChannels(ctx)
+	if err != nil {
+		return "", false
+	}
+	for _, ch := range channels {
+		if ch.AgentID == agentID && ch.ID != channelID {
+			return ch.ID, true
+		}
+	}
+	return "", false
 }
 
 func FormatAgentList(agents []config.Agent, currentAgentID string) string {

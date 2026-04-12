@@ -2,6 +2,7 @@ package channel
 
 // TelegramConfig is the persisted Telegram channel plugin configuration.
 type TelegramConfig struct {
+	InstanceID   string `json:"-"`
 	Token        string `json:"token"`
 	ChannelID    string `json:"channel_id"`
 	GroupMode    string `json:"group_mode"`
@@ -10,6 +11,7 @@ type TelegramConfig struct {
 
 // QQConfig is the persisted QQ channel plugin configuration.
 type QQConfig struct {
+	InstanceID   string `json:"-"`
 	AppID        string `json:"app_id"`
 	AppSecret    string `json:"app_secret"`
 	GroupMode    string `json:"group_mode"`
@@ -26,6 +28,7 @@ type FeishuGroup struct {
 
 // FeishuConfig is the persisted Feishu channel plugin configuration.
 type FeishuConfig struct {
+	InstanceID        string                 `json:"-"`
 	AppID             string                 `json:"app_id"`
 	AppSecret         string                 `json:"app_secret"`
 	EncryptKey        string                 `json:"encrypt_key"`
@@ -37,6 +40,7 @@ type FeishuConfig struct {
 
 // WeixinConfig is the persisted Weixin channel plugin configuration.
 type WeixinConfig struct {
+	InstanceID   string `json:"-"`
 	BotToken     string `json:"bot_token"`
 	BaseURL      string `json:"base_url"`
 	BotID        string `json:"bot_id"`

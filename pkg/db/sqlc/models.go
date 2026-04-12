@@ -193,14 +193,17 @@ type SettingsAgent struct {
 }
 
 type SettingsChannel struct {
-	ID        string `json:"id"`
-	Enabled   int64  `json:"enabled"`
-	Config    string `json:"config"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID        string         `json:"id"`
+	Type      string         `json:"type"`
+	AgentID   sql.NullString `json:"agent_id"`
+	Enabled   int64          `json:"enabled"`
+	Config    string         `json:"config"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
 }
 
 type SettingsChannelAgent struct {
+	ChannelID string `json:"channel_id"`
 	Platform  string `json:"platform"`
 	ChatID    string `json:"chat_id"`
 	AgentID   string `json:"agent_id"`

@@ -23,9 +23,10 @@ func logger() *slog.Logger { return slog.With("component", "qq") }
 
 // Config holds QQ Bot settings.
 type Config struct {
-	AppID     string
-	AppSecret string
-	GroupMode string // "mention" | "always" | "disabled"
+	InstanceID string
+	AppID      string
+	AppSecret  string
+	GroupMode  string // "mention" | "always" | "disabled"
 }
 
 // Bot wraps a QQ bot with agent pool integration.
@@ -118,7 +119,18 @@ func (b *Bot) Stop() {
 }
 
 // Name returns the channel name. Implements channel.Channel.
-func (b *Bot) Name() string { return channel.PlatformQQ }
+func (b *Bot) Name() string {
+	return qqChannelName(b.cfg.InstanceID)
+}
+
+func (b *Bot) Platform() string { return channel.PlatformQQ }
+
+func qqChannelName(instanceID string) string {
+	if instanceID != "" {
+		return instanceID
+	}
+	return channel.PlatformQQ
+}
 
 // Notify sends a notification message. Implements channel.Channel.
 func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
@@ -159,8 +171,16 @@ func channelForGroup(groupID string) string {
 	return "qq:group:" + groupID
 }
 
-// incomingMsg builds an IncomingMessage from QQ message context.
 func incomingMsg(authorID, groupID string, content []ai.ContentBlock) channel.IncomingMessage {
+	return incomingMsgForChannel(qqChannelName(""), authorID, groupID, content)
+}
+
+// incomingMsg builds an IncomingMessage from QQ message context.
+func (b *Bot) incomingMsg(authorID, groupID string, content []ai.ContentBlock) channel.IncomingMessage {
+	return incomingMsgForChannel(b.Name(), authorID, groupID, content)
+}
+
+func incomingMsgForChannel(channelID, authorID, groupID string, content []ai.ContentBlock) channel.IncomingMessage {
 	chatID := channelForC2C(authorID)
 	isGroup := groupID != ""
 	if isGroup {
@@ -168,6 +188,7 @@ func incomingMsg(authorID, groupID string, content []ai.ContentBlock) channel.In
 	}
 	return channel.IncomingMessage{
 		Platform:   channel.PlatformQQ,
+		ChannelID:  channelID,
 		SenderID:   authorID,
 		SenderName: "",
 		ChatID:     chatID,

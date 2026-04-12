@@ -41,12 +41,19 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message runner.MessageContent,
 }
 
 func Resolve(ctx context.Context, pm *agent.PoolManager, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, platform, senderID, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
+	return ResolveWithChannel(ctx, pm, store, authStore, engine, platform, platform, senderID, senderName, chatID, isGroup)
+}
+
+func ResolveWithChannel(ctx context.Context, pm *agent.PoolManager, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, platform, channelID, senderID, senderName, chatID string, isGroup bool) (*ResolvedChat, error) {
+	if channelID == "" {
+		channelID = platform
+	}
 	resolved, err := ResolveUser(ctx, authStore, platform, senderID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve user: %w", err)
 	}
 
-	chatCtx := ChatContext{Platform: platform, ChatID: chatID, IsGroup: isGroup}
+	chatCtx := ChatContext{Platform: platform, ChannelID: channelID, ChatID: chatID, IsGroup: isGroup}
 
 	agentID, err := ResolveAgent(ctx, store, authStore, engine, resolved, chatCtx)
 	if err != nil {
@@ -61,6 +68,9 @@ func Resolve(ctx context.Context, pm *agent.PoolManager, store config.Store, aut
 	channelCtx := "private"
 	if isGroup && chatID != "" {
 		channelCtx = "group:" + chatID
+	}
+	if channelID != "" && channelID != platform {
+		channelCtx = "channel:" + channelID + ":" + channelCtx
 	}
 
 	var sessionKey string

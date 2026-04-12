@@ -79,6 +79,7 @@ func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.Regist
 			continue
 		}
 		hasConfig, hasStatus, supportsNotifications, capabilities := h.derivedTraits(meta.ID)
+		hasConfig, stateConfig := adminVisiblePluginConfig(meta.Kind, hasConfig, h.defaultConfigFor(meta.ID))
 		registered[meta.ID] = pkgplugins.RegisteredPlugin{
 			Info:                  meta,
 			Kind:                  meta.Kind,
@@ -87,7 +88,7 @@ func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.Regist
 			HasStatus:             hasStatus,
 			Capabilities:          capabilities,
 			SupportsNotifications: supportsNotifications,
-			State:                 pkgplugins.PluginState{ID: meta.ID, Enabled: false, Config: h.defaultConfigFor(meta.ID)},
+			State:                 pkgplugins.PluginState{ID: meta.ID, Enabled: false, Config: stateConfig},
 		}
 	}
 
@@ -105,7 +106,9 @@ func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.Regist
 				State: pkgplugins.PluginState{ID: plugin.ID, Enabled: false, Config: map[string]any{}},
 			}
 		}
-		entry.State = pkgplugins.PluginState{ID: plugin.ID, Enabled: plugin.Enabled, Config: cloneMap(plugin.Config)}
+		hasConfig, stateConfig := adminVisiblePluginConfig(entry.Kind, entry.HasConfig, cloneMap(plugin.Config))
+		entry.HasConfig = hasConfig
+		entry.State = pkgplugins.PluginState{ID: plugin.ID, Enabled: plugin.Enabled, Config: stateConfig}
 		entry.Persisted = true
 		entry.PersistedID = plugin.ID
 		registered[plugin.ID] = entry
@@ -221,6 +224,13 @@ func (h *Host) defaultConfigFor(pluginID string) map[string]any {
 		return map[string]any{}
 	}
 	return reg.Defaults()
+}
+
+func adminVisiblePluginConfig(kind string, hasConfig bool, cfg map[string]any) (bool, map[string]any) {
+	if kind == config.PluginKindChannel {
+		return false, map[string]any{}
+	}
+	return hasConfig, cfg
 }
 
 func inferredPluginMeta(plugin config.Plugin, canonicalID string) pkgplugins.PluginInfo {

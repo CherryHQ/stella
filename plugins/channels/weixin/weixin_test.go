@@ -329,6 +329,7 @@ func TestNewSuccess(t *testing.T) {
 	}
 	if bot == nil {
 		t.Fatal("expected bot, got nil")
+		return
 	}
 	if bot.cfg.BotToken != "test-token" {
 		t.Errorf("bot_token = %q, want %q", bot.cfg.BotToken, "test-token")

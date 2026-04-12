@@ -35,12 +35,12 @@ run = "templ generate && sqlc generate"
 [tasks.serve]
 description = "Start anna server (admin panel + channels)"
 depends = ["build"]
-run = "./bin/$BINARY_NAME"
+run = 'ANNA_HOME="$HOME/.anna-dev" ./bin/$BINARY_NAME'
 
 [tasks.chat]
 description = "Run interactive CLI chat"
 depends = ["build"]
-run = "./bin/$BINARY_NAME chat"
+run = 'ANNA_HOME="$HOME/.anna-dev" ./bin/$BINARY_NAME chat'
 
 # ============================================================================
 # Code Quality

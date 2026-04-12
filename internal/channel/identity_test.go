@@ -151,7 +151,7 @@ func TestResolveAgentGroupAssignment(t *testing.T) {
 	_ = ts.store.CreateAgent(ctx, config.Agent{
 		ID: "writer", Name: "Writer", Model: "openai/gpt-4", Workspace: "/tmp/writer", Enabled: true,
 	})
-	_ = ts.store.SetChatAgent(ctx, "telegram", "-999", "writer")
+	_ = ts.store.SetChatAgent(ctx, "telegram", "telegram", "-999", "writer")
 
 	hash, _ := auth.HashPassword("testpass")
 	authUser, _ := ts.authStore.CreateUser(ctx, "groupuser", hash)

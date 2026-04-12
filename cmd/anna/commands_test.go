@@ -59,10 +59,15 @@ func (commandTestStore) CreateAgent(context.Context, config.Agent) error        
 func (commandTestStore) UpdateAgent(context.Context, config.Agent) error        { return nil }
 func (commandTestStore) DeleteAgent(context.Context, string) error              { return nil }
 func (commandTestStore) ListChannels(context.Context) ([]config.Channel, error) { return nil, nil }
+func (commandTestStore) ListChannelsByType(context.Context, string) ([]config.Channel, error) {
+	return nil, nil
+}
+
 func (commandTestStore) GetChannel(context.Context, string) (config.Channel, error) {
 	return config.Channel{}, nil
 }
 func (commandTestStore) UpsertChannel(context.Context, config.Channel) error { return nil }
+func (commandTestStore) DeleteChannel(context.Context, string) error         { return nil }
 func (commandTestStore) ListPlugins(context.Context) ([]config.Plugin, error) {
 	return nil, nil
 }
@@ -79,14 +84,19 @@ func (commandTestStore) SetPluginEnabled(context.Context, string, bool) error { 
 func (commandTestStore) SetPluginConfig(context.Context, string, map[string]any) error {
 	return nil
 }
-func (commandTestStore) DeletePlugin(context.Context, string) error                   { return nil }
-func (commandTestStore) GetChatAgent(context.Context, string, string) (string, error) { return "", nil }
-func (commandTestStore) SetChatAgent(context.Context, string, string, string) error   { return nil }
-func (commandTestStore) DeleteChatAgent(context.Context, string, string) error        { return nil }
-func (commandTestStore) GetSetting(context.Context, string) (string, error)           { return "", nil }
-func (commandTestStore) SetSetting(context.Context, string, string) error             { return nil }
-func (commandTestStore) Snapshot(context.Context, string) (*config.Snapshot, error)   { return nil, nil }
-func (commandTestStore) SeedDefaults(context.Context) error                           { return nil }
+func (commandTestStore) DeletePlugin(context.Context, string) error { return nil }
+func (commandTestStore) GetChatAgent(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
+
+func (commandTestStore) SetChatAgent(context.Context, string, string, string, string) error {
+	return nil
+}
+func (commandTestStore) DeleteChatAgent(context.Context, string, string, string) error { return nil }
+func (commandTestStore) GetSetting(context.Context, string) (string, error)            { return "", nil }
+func (commandTestStore) SetSetting(context.Context, string, string) error              { return nil }
+func (commandTestStore) Snapshot(context.Context, string) (*config.Snapshot, error)    { return nil, nil }
+func (commandTestStore) SeedDefaults(context.Context) error                            { return nil }
 
 type commandTestMemory struct{}
 

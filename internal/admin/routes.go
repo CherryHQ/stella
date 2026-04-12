@@ -46,7 +46,7 @@ func (s *Server) registerProfileRoutes() {
 func (s *Server) registerPageRoutes() {
 	s.mux.Handle("GET /providers", s.adminOnlyMiddleware(http.HandlerFunc(s.pageProviders)))
 	s.mux.HandleFunc("GET /agents", s.pageAgents)
-	s.mux.Handle("GET /channels", s.adminOnlyMiddleware(http.HandlerFunc(s.pageChannels)))
+	s.mux.HandleFunc("GET /channels", s.pageChannels)
 	s.mux.Handle("GET /users", s.adminOnlyMiddleware(http.HandlerFunc(s.pageUsers)))
 	s.mux.HandleFunc("GET /sessions", s.pageSessions)
 	s.mux.HandleFunc("GET /scheduler", s.pageScheduler)
@@ -87,9 +87,12 @@ func (s *Server) registerChannelRoutes() {
 	adminAPI := func(handler http.HandlerFunc) http.Handler {
 		return s.adminOnlyMiddleware(handler)
 	}
+	s.mux.HandleFunc("GET /api/channels/public", s.listPublicChannels)
 	s.mux.Handle("GET /api/channels", adminAPI(s.listChannels))
-	s.mux.Handle("GET /api/channels/{platform}", adminAPI(s.getChannel))
-	s.mux.Handle("PUT /api/channels/{platform}", adminAPI(s.updateChannel))
+	s.mux.Handle("POST /api/channels", adminAPI(s.createChannel))
+	s.mux.Handle("GET /api/channels/{id}", adminAPI(s.getChannel))
+	s.mux.Handle("PUT /api/channels/{id}", adminAPI(s.updateChannel))
+	s.mux.Handle("DELETE /api/channels/{id}", adminAPI(s.deleteChannel))
 	s.mux.HandleFunc("POST /api/channels/weixin/qr", s.startWeixinQR)
 	s.mux.HandleFunc("GET /api/channels/weixin/qr/status", s.pollWeixinQRStatus)
 }

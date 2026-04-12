@@ -1,4 +1,101 @@
 import { api } from '/static/js/api.js'
+import QRCode from 'https://esm.sh/qrcode@1.5.4'
+
+const platformMeta = {
+  telegram: {
+    label: 'Telegram',
+    defaults: {
+      enable_notify: false,
+      token: '',
+      channel_id: '',
+      group_mode: '',
+    },
+  },
+  qq: {
+    label: 'QQ',
+    defaults: {
+      enable_notify: false,
+      app_id: '',
+      app_secret: '',
+      group_mode: '',
+    },
+  },
+  feishu: {
+    label: 'Feishu',
+    defaults: {
+      enable_notify: false,
+      app_id: '',
+      app_secret: '',
+      encrypt_key: '',
+      verification_token: '',
+      group_mode: '',
+    },
+  },
+  weixin: {
+    label: 'Weixin',
+    defaults: {
+      enable_notify: false,
+    },
+  },
+}
+
+const channelTypes = Object.entries(platformMeta).map(([id, meta]) => ({ id, label: meta.label }))
+const defaultChannelType = channelTypes[0]?.id || ''
+
+function parseConfig(raw) {
+  try {
+    return JSON.parse(raw || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function platformConfigDefaults(type) {
+  return { ...(platformMeta[type]?.defaults || {}) }
+}
+
+function normalizeConfigValue(defaultValue, value) {
+  if (typeof defaultValue === 'boolean') {
+    return Boolean(value)
+  }
+  return value || ''
+}
+
+function serializePlatformConfig(type, data) {
+  return Object.fromEntries(
+    Object.entries(platformConfigDefaults(type)).map(([key, defaultValue]) => [
+      key,
+      normalizeConfigValue(defaultValue, data[key]),
+    ]),
+  )
+}
+
+function hasConfig(type, data) {
+  return Object.values(serializePlatformConfig(type, data)).some(value => {
+    if (typeof value === 'boolean') return value
+    return String(value).trim() !== ''
+  })
+}
+
+function newInstanceDraft(type = defaultChannelType, id = '') {
+  return {
+    id,
+    type,
+    ...platformConfigDefaults(type),
+  }
+}
+
+function normalizeChannel(ch) {
+  const type = ch.type || ch.id
+  return {
+    ...ch,
+    type,
+    agent_id: ch.agent_id || '',
+    _collapsed: true,
+    ...platformConfigDefaults(type),
+    ...parseConfig(ch.config),
+  }
+}
 
 /**
  * Registers the channelsPage Alpine.data component.
@@ -7,87 +104,315 @@ import { api } from '/static/js/api.js'
  */
 export function register(Alpine) {
   Alpine.data('channelsPage', () => ({
-    channelData: {
-      telegram: {
-        enabled: false, enable_notify: false,
-        token: '', channel_id: '', group_mode: '',
-      },
-      qq: {
-        enabled: false, enable_notify: false,
-        app_id: '', app_secret: '', group_mode: '',
-      },
-      feishu: {
-        enabled: false, enable_notify: false,
-        app_id: '', app_secret: '', encrypt_key: '',
-        verification_token: '', group_mode: '',
-      },
-      weixin: {
-        enabled: false, enable_notify: false,
-      },
+    channelTypes,
+    enabledChannelTypeIDs: channelTypes.map(type => type.id),
+    isAdmin: false,
+    publicChannels: [],
+    linkedIdentities: [],
+    instances: [],
+    loadingPlatforms: false,
+    loadingInstances: false,
+
+    linkCode: '',
+    linkPlatform: '',
+    generating: false,
+    wxQrUrl: '',
+    wxQrStatus: '',
+    wxQrCode: '',
+    wxQrPolling: false,
+    _wxQrInterval: null,
+
+    creatingInstance: false,
+    showNewInstanceForm: false,
+    newChannel: newInstanceDraft(),
+
+    confirmMsg: '',
+    confirmAction: () => {},
+
+    get visibleChannelTypes() {
+      return this.channelTypes.filter(type => this.enabledChannelTypeIDs.includes(type.id))
+    },
+
+    get fallbackChannelType() {
+      return this.visibleChannelTypes[0]?.id || defaultChannelType
     },
 
     async init() {
-      await this.loadChannels()
+      await this.loadCurrentUser()
+      if (this.isAdmin) {
+        await Promise.all([
+          this.loadChannelPlugins(),
+          this.loadPlatformsAndIdentities(),
+          this.loadInstances(),
+        ])
+        this.resetNewChannel(this.newChannel.type, this.newChannel.id)
+        return
+      }
+      await this.loadPlatformsAndIdentities()
     },
 
-    async loadChannels() {
+    resetNewChannel(type = this.fallbackChannelType, id = '') {
+      const nextType = this.enabledChannelTypeIDs.includes(type) ? type : this.fallbackChannelType
+      this.newChannel = newInstanceDraft(nextType, id)
+    },
+
+    resetLinkState() {
+      this.linkCode = ''
+      this.wxQrUrl = ''
+      this.wxQrStatus = ''
+      this.wxQrCode = ''
+    },
+
+    platformLabel(type) {
+      return platformMeta[type]?.label || type
+    },
+
+    channelConfig(ch) {
+      return JSON.stringify(serializePlatformConfig(ch.type, ch))
+    },
+
+    async loadCurrentUser() {
       try {
-        const channels = await api('GET', '/api/channels') || []
-        for (const ch of channels) {
-          let cfg = {}
-          try { cfg = JSON.parse(ch.config || '{}') } catch (_) { /* ignore */ }
-          if (ch.id === 'telegram') {
-            this.channelData.telegram = {
-              enabled: ch.enabled,
-              enable_notify: cfg.enable_notify || false,
-              token: cfg.token || '',
-              channel_id: cfg.channel_id || '',
-              group_mode: cfg.group_mode || '',
-            }
-          } else if (ch.id === 'qq') {
-            this.channelData.qq = {
-              enabled: ch.enabled,
-              enable_notify: cfg.enable_notify || false,
-              app_id: cfg.app_id || '',
-              app_secret: cfg.app_secret || '',
-              group_mode: cfg.group_mode || '',
-            }
-          } else if (ch.id === 'feishu') {
-            this.channelData.feishu = {
-              enabled: ch.enabled,
-              enable_notify: cfg.enable_notify || false,
-              app_id: cfg.app_id || '',
-              app_secret: cfg.app_secret || '',
-              encrypt_key: cfg.encrypt_key || '',
-              verification_token: cfg.verification_token || '',
-              group_mode: cfg.group_mode || '',
-            }
-          } else if (ch.id === 'weixin') {
-            this.channelData.weixin = {
-              enabled: ch.enabled,
-              enable_notify: cfg.enable_notify || false,
-            }
-          }
-        }
+        const me = await api('GET', '/api/auth/me')
+        this.isAdmin = Boolean(me?.is_admin)
       } catch (e) {
         console.error(e)
       }
     },
 
-    async saveChannel(platform) {
+    async loadPlatformsAndIdentities() {
+      await Promise.all([this.loadPublicChannels(), this.loadIdentities()])
+    },
+
+    async loadPublicChannels() {
+      this.loadingPlatforms = true
       try {
-        const data = { ...this.channelData[platform] }
-        const enabled = data.enabled
-        delete data.enabled
-        await api('PUT', '/api/channels/' + platform, {
-          enabled,
-          config: JSON.stringify(data),
-        })
-        await this.loadChannels()
-        this.$store.toast.show(platform + ' saved')
+        this.publicChannels = await api('GET', '/api/channels/public') || []
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.loadingPlatforms = false
+      }
+    },
+
+    async loadIdentities() {
+      try {
+        this.linkedIdentities = await api('GET', '/api/auth/profile/identities') || []
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       }
+    },
+
+    async loadChannelPlugins() {
+      try {
+        const plugins = await api('GET', '/api/plugins') || []
+        const enabled = plugins
+          .filter(p => p.kind === 'channel' && p.enabled)
+          .map(p => p.name || String(p.id || '').replace(/^channel\//, ''))
+        this.enabledChannelTypeIDs = enabled
+      } catch (e) {
+        console.error(e)
+        this.enabledChannelTypeIDs = channelTypes.map(type => type.id)
+      }
+    },
+
+    async loadInstances() {
+      this.loadingInstances = true
+      try {
+        const channels = await api('GET', '/api/channels') || []
+        this.instances = channels
+          .map(normalizeChannel)
+          .filter(ch => ch.id !== ch.type && this.enabledChannelTypeIDs.includes(ch.type) && ch.enabled)
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.loadingInstances = false
+      }
+    },
+
+    identityFor(platform) {
+      return this.linkedIdentities.find(identity => identity.platform === platform) || null
+    },
+
+    isLinked(platform) {
+      return Boolean(this.identityFor(platform))
+    },
+
+    identityLabel(identity) {
+      if (!identity) return ''
+      const name = identity.name ? identity.name + ' · ' : ''
+      return name + identity.external_id
+    },
+
+    platformDescription(channel) {
+      if (!channel) return ''
+      if (this.isLinked(channel.type)) {
+        return 'Your ' + channel.label + ' account is linked and ready to use with Anna.'
+      }
+      if (channel.type === 'weixin') {
+        return 'Link your Weixin account by scanning a QR code.'
+      }
+      return 'Link your ' + channel.label + ' account once to chat with Anna on this platform.'
+    },
+
+    linkedAgentLabel(channel) {
+      if (!channel?.agent_id) return ''
+      return channel.agent_name ? channel.agent_name + ' (' + channel.agent_id + ')' : channel.agent_id
+    },
+
+    async generateCode(platform) {
+      this.generating = true
+      this.linkPlatform = platform
+      this.resetLinkState()
+      try {
+        const result = await api('POST', '/api/auth/profile/link-code', { platform })
+        this.linkCode = result.code
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.generating = false
+      }
+    },
+
+    copyLinkCode() {
+      navigator.clipboard.writeText('/link ' + this.linkCode)
+      this.$store.toast.show('Copied')
+    },
+
+    clearWeixinQRInterval() {
+      if (!this._wxQrInterval) return
+      clearInterval(this._wxQrInterval)
+      this._wxQrInterval = null
+    },
+
+    stopWeixinQRPolling() {
+      this.clearWeixinQRInterval()
+      this.wxQrPolling = false
+    },
+
+    async startWeixinQR() {
+      this.resetLinkState()
+      this.wxQrPolling = true
+      this.clearWeixinQRInterval()
+      try {
+        const result = await api('POST', '/api/channels/weixin/qr')
+        this.wxQrCode = result.qrcode || ''
+        const imgContent = result.qrcode_img_content || ''
+        if (imgContent) {
+          this.wxQrUrl = await QRCode.toDataURL(imgContent, { width: 256, margin: 2 })
+        }
+        this.wxQrStatus = 'waiting'
+        this._wxQrInterval = setInterval(() => this.pollWeixinQRStatus(), 3000)
+      } catch (e) {
+        this.$store.toast.show('QR request failed: ' + e.message, 'error')
+        this.wxQrPolling = false
+      }
+    },
+
+    async pollWeixinQRStatus() {
+      if (!this.wxQrCode) return
+      try {
+        const result = await api('GET', '/api/channels/weixin/qr/status?qrcode=' + encodeURIComponent(this.wxQrCode))
+        if (result.status) {
+          this.wxQrStatus = result.status
+        }
+        if (result.status === 'confirmed') {
+          this.stopWeixinQRPolling()
+          this.wxQrUrl = ''
+          this.$store.toast.show('Weixin account linked successfully')
+          await this.loadIdentities()
+        } else if (result.status === 'expired') {
+          this.stopWeixinQRPolling()
+        }
+      } catch (e) {
+        console.error('QR status poll error:', e)
+      }
+    },
+
+    async unlinkIdentity(id) {
+      if (!id || !confirm('Unlink this identity?')) return
+      try {
+        await api('DELETE', '/api/auth/profile/identities/' + id)
+        this.$store.toast.show('Identity unlinked')
+        await this.loadIdentities()
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    toggleNewInstanceForm() {
+      this.showNewInstanceForm = !this.showNewInstanceForm
+      if (this.showNewInstanceForm) {
+        this.resetNewChannel(this.newChannel.type, this.newChannel.id)
+      }
+    },
+
+    instanceStatus(ch) {
+      return hasConfig(ch.type, ch) ? 'Configured' : 'Needs config'
+    },
+
+    instanceStatusClass(ch) {
+      return hasConfig(ch.type, ch) ? 'badge-success' : 'badge-ghost'
+    },
+
+    async createChannel() {
+      const id = this.newChannel.id.trim()
+      if (!id || !this.newChannel.type) {
+        this.$store.toast.show('ID and platform are required', 'error')
+        return
+      }
+      if (id === this.newChannel.type) {
+        this.$store.toast.show('Dedicated instance ID must not match the platform ID', 'error')
+        return
+      }
+
+      this.creatingInstance = true
+      try {
+        const saved = await api('POST', '/api/channels', {
+          id,
+          type: this.newChannel.type,
+          agent_id: '',
+          config: this.channelConfig(this.newChannel),
+        })
+        this.resetNewChannel(saved.type || this.fallbackChannelType)
+        this.showNewInstanceForm = false
+        await this.loadInstances()
+        this.$store.toast.show(saved.id + ' created')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.creatingInstance = false
+      }
+    },
+
+    async saveInstance(ch) {
+      try {
+        const saved = await api('PUT', '/api/channels/' + encodeURIComponent(ch.id), {
+          type: ch.type,
+          agent_id: ch.agent_id || '',
+          config: this.channelConfig(ch),
+        })
+        Object.assign(ch, normalizeChannel(saved))
+        ch._collapsed = false
+        this.$store.toast.show(ch.id + ' saved')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    async doDeleteChannel(id) {
+      try {
+        await api('DELETE', '/api/channels/' + encodeURIComponent(id))
+        await this.loadInstances()
+        this.$store.toast.show(id + ' deleted')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    confirmDelete(message, action) {
+      this.confirmMsg = message
+      this.confirmAction = action
     },
   }))
 }

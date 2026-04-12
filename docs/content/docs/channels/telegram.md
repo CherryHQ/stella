@@ -8,14 +8,14 @@ anna includes a Telegram bot that runs via long polling -- no webhook or public 
 
 1. Create a bot via [@BotFather](https://t.me/BotFather) and note the bot token
 2. Run `anna --open` to launch the admin panel
-3. In the admin panel: add an AI provider, then configure the Telegram channel with your bot token
+3. In the admin panel: add an AI provider, then go to the Channels page and configure a Telegram channel instance with your bot token
 4. Start the daemon:
 
 ```bash
 anna
 ```
 
-All channel configuration (token, group mode, allowed IDs, etc.) is managed through the admin panel. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `ANNA_HOME`.
+All channel configuration (token, group mode, allowed IDs, dedicated agent binding, etc.) is managed through the admin panel. You can create multiple Telegram channel instances if you have multiple bots. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `ANNA_HOME`.
 
 ## Multi-User Support
 
@@ -29,6 +29,8 @@ The `/agent` command lets users switch between available agents:
 - `/agent <name>` -- switch to a specific agent
 
 In DMs, this sets the user's default agent. In groups, it sets the active agent for the entire group.
+
+If a channel instance is bound to a dedicated agent in the admin panel, all chats on that bot use the bound agent and `/agent` switching is disabled for that channel.
 
 ## Streaming Responses
 

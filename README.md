@@ -92,7 +92,7 @@ Five channels, all sharing the same memory:
 | Feishu | WebSocket, no public IP | Edit-in-place | Mention support |
 | WeChat | Long polling (iLink Bot) | Non-streaming | DM only |
 
-One bot per platform. Agent selection is handled via the `/agent` command rather than separate bots.
+You can run multiple bot instances for the same platform. Leave a channel unbound to let users switch agents with `/agent`, or bind a channel instance to a dedicated agent so that bot always routes to that agent.
 
 Every channel supports `/new`, `/compact`, `/model`, `/agent`, `/whoami`, model switching, access control, and image input.
 
