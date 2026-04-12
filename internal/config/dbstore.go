@@ -561,42 +561,79 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 }
 
 func (s *DBStore) seedChannelInstances(ctx context.Context) error {
-	existing, err := s.q.ListChannels(ctx)
+	existingByID, missingTypeIDs, err := s.loadExistingChannels(ctx)
 	if err != nil {
-		return fmt.Errorf("seed: list channel instances: %w", err)
+		return err
 	}
-	existingByID := make(map[string]Channel, len(existing))
-	for _, row := range existing {
+	if err := s.backfillChannelTypes(ctx, existingByID, missingTypeIDs); err != nil {
+		return err
+	}
+
+	pluginByName, err := s.loadChannelPlugins(ctx)
+	if err != nil {
+		return err
+	}
+	if err := s.migrateLegacyChannelPluginConfigs(ctx, existingByID, pluginByName); err != nil {
+		return err
+	}
+	return s.seedDefaultChannelInstances(ctx, existingByID, pluginByName)
+}
+
+func (s *DBStore) loadExistingChannels(ctx context.Context) (map[string]Channel, []string, error) {
+	rows, err := s.q.ListChannels(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("seed: list channel instances: %w", err)
+	}
+	existingByID := make(map[string]Channel, len(rows))
+	missingTypeIDs := make([]string, 0, len(rows))
+	for _, row := range rows {
 		ch := channelFromDB(row)
 		existingByID[ch.ID] = ch
 		if row.Type == "" {
-			if err := s.UpsertChannel(ctx, ch); err != nil {
-				return fmt.Errorf("seed: backfill channel type %q: %w", ch.ID, err)
-			}
+			missingTypeIDs = append(missingTypeIDs, ch.ID)
 		}
 	}
+	return existingByID, missingTypeIDs, nil
+}
 
-	plugins, err := s.q.ListPluginsByKind(ctx, PluginKindChannel)
-	if err != nil {
-		return fmt.Errorf("seed: list channel plugins: %w", err)
+func (s *DBStore) backfillChannelTypes(ctx context.Context, channels map[string]Channel, ids []string) error {
+	for _, id := range ids {
+		ch := channels[id]
+		if err := s.UpsertChannel(ctx, ch); err != nil {
+			return fmt.Errorf("seed: backfill channel type %q: %w", ch.ID, err)
+		}
 	}
-	pluginByName := make(map[string]Plugin, len(plugins))
-	for _, row := range plugins {
+	return nil
+}
+
+func (s *DBStore) loadChannelPlugins(ctx context.Context) (map[string]Plugin, error) {
+	rows, err := s.q.ListPluginsByKind(ctx, PluginKindChannel)
+	if err != nil {
+		return nil, fmt.Errorf("seed: list channel plugins: %w", err)
+	}
+	plugins := make(map[string]Plugin, len(rows))
+	for _, row := range rows {
 		plugin := pluginFromDB(row)
-		pluginByName[plugin.Name] = plugin
+		plugins[plugin.Name] = plugin
+	}
+	return plugins, nil
+}
+
+func (s *DBStore) migrateLegacyChannelPluginConfigs(ctx context.Context, existingByID map[string]Channel, pluginByName map[string]Plugin) error {
+	for _, plugin := range pluginByName {
 		existing := existingByID[plugin.Name]
-		if err := s.normalizeChannelPluginState(ctx, plugin, existing); err != nil {
+		migrated, err := s.migrateLegacyChannelPluginConfig(ctx, plugin, existing)
+		if err != nil {
 			return err
 		}
-		if existing.ID == "" && len(plugin.Config) > 0 {
-			configJSON, err := json.Marshal(plugin.Config)
-			if err != nil {
-				return fmt.Errorf("seed: marshal normalized channel %q config: %w", plugin.Name, err)
-			}
-			existingByID[plugin.Name] = Channel{ID: plugin.Name, Type: plugin.Name, Enabled: plugin.Enabled, Config: string(configJSON)}
+		if migrated.ID != "" {
+			existingByID[migrated.ID] = migrated
 		}
 	}
+	return nil
+}
 
+func (s *DBStore) seedDefaultChannelInstances(ctx context.Context, existingByID map[string]Channel, pluginByName map[string]Plugin) error {
 	for _, name := range builtinChannelNames {
 		if _, ok := existingByID[name]; ok {
 			continue
@@ -636,32 +673,29 @@ func (s *DBStore) seedBuiltinPlugins(ctx context.Context, kind string, names []s
 	return nil
 }
 
-func (s *DBStore) normalizeChannelPluginState(ctx context.Context, plugin Plugin, existing Channel) error {
-	if plugin.Kind != PluginKindChannel || plugin.Name == "" {
-		return nil
+func (s *DBStore) migrateLegacyChannelPluginConfig(ctx context.Context, plugin Plugin, existing Channel) (Channel, error) {
+	if plugin.Kind != PluginKindChannel || plugin.Name == "" || len(plugin.Config) == 0 {
+		return Channel{}, nil
 	}
-	if len(plugin.Config) > 0 {
-		channelConfig := existing.Config
-		if channelConfig == "" || channelConfig == "{}" {
-			configJSON, err := json.Marshal(plugin.Config)
-			if err != nil {
-				return fmt.Errorf("seed: marshal channel %q config: %w", plugin.Name, err)
-			}
-			if err := s.UpsertChannel(ctx, Channel{
-				ID:      plugin.Name,
-				Type:    plugin.Name,
-				AgentID: existing.AgentID,
-				Enabled: existing.Enabled || (existing.ID == "" && plugin.Enabled),
-				Config:  string(configJSON),
-			}); err != nil {
-				return fmt.Errorf("seed: migrate channel plugin config %q: %w", plugin.Name, err)
-			}
+
+	migrated := existing
+	if migrated.ID == "" {
+		migrated = Channel{ID: plugin.Name, Type: plugin.Name, Enabled: plugin.Enabled}
+	}
+	if migrated.Config == "" || migrated.Config == "{}" {
+		configJSON, err := json.Marshal(plugin.Config)
+		if err != nil {
+			return Channel{}, fmt.Errorf("seed: marshal channel %q config: %w", plugin.Name, err)
 		}
-		if err := s.SetPluginConfig(ctx, plugin.ID, map[string]any{}); err != nil {
-			return fmt.Errorf("seed: clear channel plugin config %q: %w", plugin.Name, err)
+		migrated.Config = string(configJSON)
+		if err := s.UpsertChannel(ctx, migrated); err != nil {
+			return Channel{}, fmt.Errorf("seed: migrate channel plugin config %q: %w", plugin.Name, err)
 		}
 	}
-	return nil
+	if err := s.SetPluginConfig(ctx, plugin.ID, map[string]any{}); err != nil {
+		return Channel{}, fmt.Errorf("seed: clear channel plugin config %q: %w", plugin.Name, err)
+	}
+	return migrated, nil
 }
 
 // --- Helpers ---

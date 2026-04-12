@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 
@@ -26,6 +27,13 @@ type publicChannelView struct {
 	AgentID   string `json:"agent_id,omitempty"`
 	AgentName string `json:"agent_name,omitempty"`
 	Enabled   bool   `json:"enabled"`
+}
+
+type channelWriteRequest struct {
+	ID      string  `json:"id"`
+	Type    *string `json:"type"`
+	AgentID *string `json:"agent_id"`
+	Config  string  `json:"config"`
 }
 
 var channelLinkLabels = map[string]string{
@@ -53,38 +61,16 @@ func channelToView(ch config.Channel) channelView {
 }
 
 func (s *Server) listPublicChannels(w http.ResponseWriter, r *http.Request) {
-	plugins, err := s.store.ListPluginsByKind(r.Context(), config.PluginKindChannel)
+	enabledTypes, err := s.enabledChannelTypes(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-	enabledPlugins := make(map[string]bool, len(plugins))
-	for _, plugin := range plugins {
-		if plugin.Enabled {
-			enabledPlugins[plugin.Name] = true
-		}
 	}
 
-	agents, err := s.store.ListAgents(r.Context())
+	agentNames, err := s.accessibleAgentNames(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-	info := UserFromContext(r.Context())
-	if info != nil && !info.IsAdmin {
-		agents, err = s.filterAccessibleAgents(r.Context(), info, agents)
-		if err != nil {
-			s.log.Error("filter accessible agents for public channels", "user_id", info.UserID, "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to filter agents")
-			return
-		}
-	}
-	agentNames := make(map[string]string, len(agents))
-	for _, agent := range agents {
-		if !agent.Enabled {
-			continue
-		}
-		agentNames[agent.ID] = agent.Name
 	}
 
 	channels, err := s.store.ListChannels(r.Context())
@@ -92,18 +78,54 @@ func (s *Server) listPublicChannels(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	writeData(w, http.StatusOK, buildPublicChannelViews(channels, enabledTypes, agentNames))
+}
+
+func (s *Server) enabledChannelTypes(r *http.Request) (map[string]bool, error) {
+	plugins, err := s.store.ListPluginsByKind(r.Context(), config.PluginKindChannel)
+	if err != nil {
+		return nil, err
+	}
+	enabled := make(map[string]bool, len(plugins))
+	for _, plugin := range plugins {
+		if plugin.Enabled {
+			enabled[plugin.Name] = true
+		}
+	}
+	return enabled, nil
+}
+
+func (s *Server) accessibleAgentNames(r *http.Request) (map[string]string, error) {
+	agents, err := s.store.ListAgents(r.Context())
+	if err != nil {
+		return nil, err
+	}
+	info := UserFromContext(r.Context())
+	if info != nil && !info.IsAdmin {
+		agents, err = s.filterAccessibleAgents(r.Context(), info, agents)
+		if err != nil {
+			s.log.Error("filter accessible agents for public channels", "user_id", info.UserID, "error", err)
+			return nil, fmt.Errorf("failed to filter agents")
+		}
+	}
+	names := make(map[string]string, len(agents))
+	for _, agent := range agents {
+		if agent.Enabled {
+			names[agent.ID] = agent.Name
+		}
+	}
+	return names, nil
+}
+
+func buildPublicChannelViews(channels []config.Channel, enabledTypes map[string]bool, agentNames map[string]string) []publicChannelView {
 	views := make([]publicChannelView, 0, len(channels))
 	for _, ch := range channels {
-		channelType := ch.Type
-		if channelType == "" {
-			channelType = ch.ID
-		}
-		if !ch.Enabled || !enabledPlugins[channelType] {
+		channelType := effectiveChannelType(ch)
+		if !ch.Enabled || !enabledTypes[channelType] || ch.ID != channelType {
 			continue
 		}
-		if ch.ID != channelType {
-			continue
-		}
+
 		agentName := ""
 		if ch.AgentID != "" {
 			var ok bool
@@ -112,21 +134,32 @@ func (s *Server) listPublicChannels(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
-		label, ok := channelLinkLabels[channelType]
-		if !ok {
-			label = channelType
-		}
+
 		views = append(views, publicChannelView{
 			ID:        ch.ID,
 			Type:      channelType,
-			Label:     label,
+			Label:     channelLabel(channelType),
 			AgentID:   ch.AgentID,
 			AgentName: agentName,
 			Enabled:   true,
 		})
 	}
 	sortPublicChannels(views)
-	writeData(w, http.StatusOK, views)
+	return views
+}
+
+func effectiveChannelType(ch config.Channel) string {
+	if ch.Type != "" {
+		return ch.Type
+	}
+	return ch.ID
+}
+
+func channelLabel(channelType string) string {
+	if label, ok := channelLinkLabels[channelType]; ok {
+		return label
+	}
+	return channelType
 }
 
 func sortPublicChannels(channels []publicChannelView) {
@@ -173,15 +206,12 @@ func (s *Server) getChannel(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	var req struct {
-		Type    *string `json:"type"`
-		AgentID *string `json:"agent_id"`
-		Config  string  `json:"config"`
-	}
+	var req channelWriteRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
+	req.ID = id
 
 	existing, existingErr := s.store.GetChannel(r.Context(), id)
 	cfgMap, err := parseChannelConfig(req.Config)
@@ -190,29 +220,75 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	channelType := id
-	if req.Type != nil && *req.Type != "" {
-		channelType = *req.Type
-	} else if existingErr == nil && existing.Type != "" {
-		channelType = existing.Type
+	ch := s.channelFromWriteRequest(r, req, existing, existingErr == nil)
+	s.saveChannel(w, r, ch, cfgMap, http.StatusOK)
+}
+
+func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
+	var req channelWriteRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
 	}
-	agentID := ""
+	channelType := requestChannelType(req)
+	if req.ID == "" || channelType == "" {
+		writeError(w, http.StatusBadRequest, "id and type are required")
+		return
+	}
+
+	cfgMap, err := parseChannelConfig(req.Config)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid config JSON: "+err.Error())
+		return
+	}
+
+	ch := config.Channel{
+		ID:      req.ID,
+		Type:    channelType,
+		AgentID: requestAgentID(req),
+		Enabled: s.defaultChannelEnabled(r, channelType),
+	}
+	s.saveChannel(w, r, ch, cfgMap, http.StatusCreated)
+}
+
+func requestChannelType(req channelWriteRequest) string {
+	if req.Type != nil {
+		return *req.Type
+	}
+	return ""
+}
+
+func requestAgentID(req channelWriteRequest) string {
 	if req.AgentID != nil {
-		agentID = *req.AgentID
-	} else if existingErr == nil {
+		return *req.AgentID
+	}
+	return ""
+}
+
+func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteRequest, existing config.Channel, hasExisting bool) config.Channel {
+	channelType := req.ID
+	if value := requestChannelType(req); value != "" {
+		channelType = value
+	} else if hasExisting {
+		channelType = effectiveChannelType(existing)
+	}
+
+	agentID := requestAgentID(req)
+	if req.AgentID == nil && hasExisting {
 		agentID = existing.AgentID
 	}
+
 	enabled := s.defaultChannelEnabled(r, channelType)
-	if existingErr == nil {
+	if hasExisting {
 		enabled = existing.Enabled
 	}
-	ch := config.Channel{
-		ID:      id,
+
+	return config.Channel{
+		ID:      req.ID,
 		Type:    channelType,
 		AgentID: agentID,
 		Enabled: enabled,
 	}
-	s.saveChannel(w, r, ch, cfgMap, http.StatusOK)
 }
 
 func (s *Server) defaultChannelEnabled(r *http.Request, channelType string) bool {
@@ -272,30 +348,6 @@ func parseChannelConfig(raw string) (map[string]any, error) {
 		cfgMap = make(map[string]any)
 	}
 	return cfgMap, nil
-}
-
-func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID      string `json:"id"`
-		Type    string `json:"type"`
-		AgentID string `json:"agent_id"`
-		Config  string `json:"config"`
-	}
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
-		return
-	}
-	if req.ID == "" || req.Type == "" {
-		writeError(w, http.StatusBadRequest, "id and type are required")
-		return
-	}
-	cfgMap, err := parseChannelConfig(req.Config)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid config JSON: "+err.Error())
-		return
-	}
-	ch := config.Channel{ID: req.ID, Type: req.Type, AgentID: req.AgentID, Enabled: s.defaultChannelEnabled(r, req.Type)}
-	s.saveChannel(w, r, ch, cfgMap, http.StatusCreated)
 }
 
 func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {

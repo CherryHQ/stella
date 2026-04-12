@@ -1,12 +1,46 @@
 import { api } from '/static/js/api.js'
 import QRCode from 'https://esm.sh/qrcode@1.5.4'
 
-const channelTypes = [
-  { id: 'telegram', label: 'Telegram' },
-  { id: 'qq', label: 'QQ' },
-  { id: 'feishu', label: 'Feishu' },
-  { id: 'weixin', label: 'Weixin' },
-]
+const platformMeta = {
+  telegram: {
+    label: 'Telegram',
+    defaults: {
+      enable_notify: false,
+      token: '',
+      channel_id: '',
+      group_mode: '',
+    },
+  },
+  qq: {
+    label: 'QQ',
+    defaults: {
+      enable_notify: false,
+      app_id: '',
+      app_secret: '',
+      group_mode: '',
+    },
+  },
+  feishu: {
+    label: 'Feishu',
+    defaults: {
+      enable_notify: false,
+      app_id: '',
+      app_secret: '',
+      encrypt_key: '',
+      verification_token: '',
+      group_mode: '',
+    },
+  },
+  weixin: {
+    label: 'Weixin',
+    defaults: {
+      enable_notify: false,
+    },
+  },
+}
+
+const channelTypes = Object.entries(platformMeta).map(([id, meta]) => ({ id, label: meta.label }))
+const defaultChannelType = channelTypes[0]?.id || ''
 
 function parseConfig(raw) {
   try {
@@ -16,100 +50,50 @@ function parseConfig(raw) {
   }
 }
 
-function platformDefaults(type) {
-  switch (type) {
-    case 'telegram':
-      return {
-        enable_notify: false,
-        token: '',
-        channel_id: '',
-        group_mode: '',
-      }
-    case 'qq':
-      return {
-        enable_notify: false,
-        app_id: '',
-        app_secret: '',
-        group_mode: '',
-      }
-    case 'feishu':
-      return {
-        enable_notify: false,
-        app_id: '',
-        app_secret: '',
-        encrypt_key: '',
-        verification_token: '',
-        group_mode: '',
-      }
-    case 'weixin':
-      return {
-        enable_notify: false,
-      }
-    default:
-      return {}
+function platformConfigDefaults(type) {
+  return { ...(platformMeta[type]?.defaults || {}) }
+}
+
+function normalizeConfigValue(defaultValue, value) {
+  if (typeof defaultValue === 'boolean') {
+    return Boolean(value)
   }
+  return value || ''
 }
 
 function serializePlatformConfig(type, data) {
-  switch (type) {
-    case 'telegram':
-      return {
-        enable_notify: !!data.enable_notify,
-        token: data.token || '',
-        channel_id: data.channel_id || '',
-        group_mode: data.group_mode || '',
-      }
-    case 'qq':
-      return {
-        enable_notify: !!data.enable_notify,
-        app_id: data.app_id || '',
-        app_secret: data.app_secret || '',
-        group_mode: data.group_mode || '',
-      }
-    case 'feishu':
-      return {
-        enable_notify: !!data.enable_notify,
-        app_id: data.app_id || '',
-        app_secret: data.app_secret || '',
-        encrypt_key: data.encrypt_key || '',
-        verification_token: data.verification_token || '',
-        group_mode: data.group_mode || '',
-      }
-    case 'weixin':
-      return {
-        enable_notify: !!data.enable_notify,
-      }
-    default:
-      return {}
-  }
+  return Object.fromEntries(
+    Object.entries(platformConfigDefaults(type)).map(([key, defaultValue]) => [
+      key,
+      normalizeConfigValue(defaultValue, data[key]),
+    ]),
+  )
 }
 
 function hasConfig(type, data) {
-  const cfg = serializePlatformConfig(type, data)
-  return Object.values(cfg).some(value => {
+  return Object.values(serializePlatformConfig(type, data)).some(value => {
     if (typeof value === 'boolean') return value
-    return String(value || '').trim() !== ''
+    return String(value).trim() !== ''
   })
 }
 
-function newInstanceDraft(type = 'telegram', id = '') {
+function newInstanceDraft(type = defaultChannelType, id = '') {
   return {
     id,
     type,
-    ...platformDefaults(type),
+    ...platformConfigDefaults(type),
   }
 }
 
 function normalizeChannel(ch) {
   const type = ch.type || ch.id
-  const cfg = parseConfig(ch.config)
   return {
     ...ch,
     type,
     agent_id: ch.agent_id || '',
     _collapsed: true,
-    ...platformDefaults(type),
-    ...cfg,
+    ...platformConfigDefaults(type),
+    ...parseConfig(ch.config),
   }
 }
 
@@ -128,7 +112,6 @@ export function register(Alpine) {
     instances: [],
     loadingPlatforms: false,
     loadingInstances: false,
-    platformLabel: { telegram: 'Telegram', qq: 'QQ', feishu: 'Feishu', weixin: 'Weixin' },
 
     linkCode: '',
     linkPlatform: '',
@@ -150,6 +133,10 @@ export function register(Alpine) {
       return this.channelTypes.filter(type => this.enabledChannelTypeIDs.includes(type.id))
     },
 
+    get fallbackChannelType() {
+      return this.visibleChannelTypes[0]?.id || defaultChannelType
+    },
+
     async init() {
       await this.loadCurrentUser()
       if (this.isAdmin) {
@@ -158,10 +145,30 @@ export function register(Alpine) {
           this.loadPlatformsAndIdentities(),
           this.loadInstances(),
         ])
-        this.syncNewChannelType(this.newChannel.type)
+        this.resetNewChannel(this.newChannel.type, this.newChannel.id)
         return
       }
       await this.loadPlatformsAndIdentities()
+    },
+
+    resetNewChannel(type = this.fallbackChannelType, id = '') {
+      const nextType = this.enabledChannelTypeIDs.includes(type) ? type : this.fallbackChannelType
+      this.newChannel = newInstanceDraft(nextType, id)
+    },
+
+    resetLinkState() {
+      this.linkCode = ''
+      this.wxQrUrl = ''
+      this.wxQrStatus = ''
+      this.wxQrCode = ''
+    },
+
+    platformLabel(type) {
+      return platformMeta[type]?.label || type
+    },
+
+    channelConfig(ch) {
+      return JSON.stringify(serializePlatformConfig(ch.type, ch))
     },
 
     async loadCurrentUser() {
@@ -202,10 +209,10 @@ export function register(Alpine) {
         const enabled = plugins
           .filter(p => p.kind === 'channel' && p.enabled)
           .map(p => p.name || String(p.id || '').replace(/^channel\//, ''))
-        this.enabledChannelTypeIDs = enabled.length > 0 ? enabled : []
+        this.enabledChannelTypeIDs = enabled
       } catch (e) {
         console.error(e)
-        this.enabledChannelTypeIDs = this.channelTypes.map(type => type.id)
+        this.enabledChannelTypeIDs = channelTypes.map(type => type.id)
       }
     },
 
@@ -221,13 +228,6 @@ export function register(Alpine) {
       } finally {
         this.loadingInstances = false
       }
-    },
-
-    syncNewChannelType(type) {
-      const nextType = this.enabledChannelTypeIDs.includes(type)
-        ? type
-        : this.visibleChannelTypes[0]?.id || ''
-      this.newChannel = newInstanceDraft(nextType, this.newChannel.id || '')
     },
 
     identityFor(platform) {
@@ -263,9 +263,7 @@ export function register(Alpine) {
     async generateCode(platform) {
       this.generating = true
       this.linkPlatform = platform
-      this.linkCode = ''
-      this.wxQrUrl = ''
-      this.wxQrStatus = ''
+      this.resetLinkState()
       try {
         const result = await api('POST', '/api/auth/profile/link-code', { platform })
         this.linkCode = result.code
@@ -293,10 +291,7 @@ export function register(Alpine) {
     },
 
     async startWeixinQR() {
-      this.linkCode = ''
-      this.wxQrUrl = ''
-      this.wxQrStatus = ''
-      this.wxQrCode = ''
+      this.resetLinkState()
       this.wxQrPolling = true
       this.clearWeixinQRInterval()
       try {
@@ -348,7 +343,7 @@ export function register(Alpine) {
     toggleNewInstanceForm() {
       this.showNewInstanceForm = !this.showNewInstanceForm
       if (this.showNewInstanceForm) {
-        this.syncNewChannelType(this.newChannel.type)
+        this.resetNewChannel(this.newChannel.type, this.newChannel.id)
       }
     },
 
@@ -377,9 +372,9 @@ export function register(Alpine) {
           id,
           type: this.newChannel.type,
           agent_id: '',
-          config: JSON.stringify(serializePlatformConfig(this.newChannel.type, this.newChannel)),
+          config: this.channelConfig(this.newChannel),
         })
-        this.newChannel = newInstanceDraft(saved.type || this.visibleChannelTypes[0]?.id || '')
+        this.resetNewChannel(saved.type || this.fallbackChannelType)
         this.showNewInstanceForm = false
         await this.loadInstances()
         this.$store.toast.show(saved.id + ' created')
@@ -395,7 +390,7 @@ export function register(Alpine) {
         const saved = await api('PUT', '/api/channels/' + encodeURIComponent(ch.id), {
           type: ch.type,
           agent_id: ch.agent_id || '',
-          config: JSON.stringify(serializePlatformConfig(ch.type, ch)),
+          config: this.channelConfig(ch),
         })
         Object.assign(ch, normalizeChannel(saved))
         ch._collapsed = false
