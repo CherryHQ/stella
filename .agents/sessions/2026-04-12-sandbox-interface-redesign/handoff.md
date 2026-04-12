@@ -179,3 +179,60 @@
 - Execution-time mediation now flows through `sandbox.Host` for the boxsh-backed core tool path and plugin sandbox runtime.
 - Local/relaxed execution remains explicitly non-sandboxed at the plugin runtime layer and still uses delegate/native core tools until Phase 4 parity is complete.
 - Phase 4 should finish the host-based parity work for `bash/read/write/edit` and then remove the duplicate adapter path entirely.
+
+## Phase 4: Unify core tools and remove duplicate adapter path
+
+**Status:** complete
+
+**Tasks completed:**
+
+- 4.1: Added a Phase 4 parity matrix for `bash/read/write/edit`
+- 4.2: Unified `bash` on the host-backed implementation path
+- 4.3: Unified `read` on the host-backed implementation path
+- 4.4: Unified `write` on the host-backed implementation path
+- 4.5: Unified `edit` on the host-backed implementation path
+- 4.6: Consolidated normalization and output shaping into shared host-backed tool logic in `internal/sandbox/tools.go`
+- 4.7: Removed `internal/sandbox/boxshclient/tool_adapters.go`
+- 4.8: Removed duplicate adapter tests and replaced them with local/boxsh host-tool coverage
+
+**Files changed:**
+
+- `internal/sandbox/tools.go` — new shared host-backed core tool implementations and pagination/edit helpers
+- `internal/sandbox/tools_test.go` — local parity coverage for write/read/edit/bash behavior
+- `internal/sandbox/tools_boxsh_integration_test.go` — boxsh integration coverage for working-dir, shared-state, pagination, and edit preflight behavior
+- `internal/agent/runner/coretools_builder.go` — runner now always builds sandbox core tools from shared host-backed implementations when a session host exists
+- `internal/agent/runner/coretools_builder_test.go` — updated runner core-tool builder coverage for unified host-backed tools
+- `internal/sandbox/local_session.go` — aligned local host write/exec behavior with unified core-tool expectations without changing the abstract host read contract
+- `internal/sandbox/boxsh_session.go` — fixed boxsh read pagination offset calculation and delegated edits back to backend-native `client.Edit`
+- `internal/sandbox/boxshclient/coretools_helpers_test.go` — backend-level helpers for non-tool adapter integration tests
+- `internal/sandbox/boxshclient/network_policy_test.go` — migrated off deleted adapters onto backend/client assertions
+- `internal/sandbox/boxshclient/isolation_test.go` — migrated off deleted adapters onto backend/client assertions
+- `internal/sandbox/boxshclient/integration_cow_test.go` — migrated off deleted adapters onto backend/client assertions
+- `internal/sandbox/boxshclient/tool_adapters.go` — removed
+- `internal/sandbox/boxshclient/tool_adapters_test.go` — removed
+- `.agents/sessions/2026-04-12-sandbox-interface-redesign/core-tools-parity-matrix.md` — new Phase 4 parity matrix
+- `.agents/sessions/2026-04-12-sandbox-interface-redesign/tasks.md` — Phase 4 tasks marked complete
+
+### Fixes
+- Removed the duplicated boxsh adapter layer entirely and moved core-tool behavior into a single shared host-backed implementation.
+- Preserved managed-tool PATH prefixing for `bash` while keeping the implementation backend-agnostic at the runner/build layer.
+- Restored legacy `read` semantics: binary detection, line-based pagination hints, and correct continuation behavior for long first lines.
+- Restored legacy `write` semantics by ensuring parent directories are created before writes through the shared tool path.
+- Restored legacy `edit` semantics by enforcing missing/non-unique match failures in the shared tool path.
+- Prevented the boxsh large-file data-loss regression by delegating `boxshHost.EditFile` back to `client.Edit(...)` instead of read-modify-write on truncated content.
+- Fixed boxsh continuation offsets to advance by lines actually returned in the current page rather than total file line count.
+- Added boxsh integration coverage for multi-page `read` continuation and `edit` preflight across paginated content.
+- Replaced adapter-specific backend tests with equivalent backend/client/session assertions so adapter removal did not reduce isolation/network/COW coverage.
+
+**Validation:**
+
+- `mise run format`
+- `go test ./internal/sandbox ./internal/sandbox/boxshclient ./internal/agent/runner`
+- `go test ./...`
+
+**Decisions & context for Phase 5:**
+
+- Core tool execution is now unified on `sandbox.Host`; the old boxsh-only adapter path is gone.
+- Boxsh-specific behavior still exists only inside `internal/sandbox`, not in runner/build-time seams.
+- Noop sessions still use native/delegate tools because they intentionally have no sandbox session host.
+- Phase 5 should now focus on non-core execution surfaces: plugin paths, MCP/local helper mediation, bypass detection, exceptions register updates, and observability.

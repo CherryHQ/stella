@@ -35,14 +35,14 @@
 - [x] Add runner and lifecycle integration tests
 
 ## Phase 4: Unify core tools and remove duplicate adapter path
-- [ ] Create parity matrix for `bash/read/write/edit`
-- [ ] Refactor `bash` to host-based implementation
-- [ ] Refactor `read` to host-based implementation
-- [ ] Refactor `write` to host-based implementation
-- [ ] Refactor `edit` to host-based implementation
-- [ ] Consolidate normalization/output shaping into shared tool logic
-- [ ] Remove `internal/sandbox/boxshclient/tool_adapters.go`
-- [ ] Remove duplicate adapter tests after parity passes
+- [x] Create parity matrix for `bash/read/write/edit`
+- [x] Refactor `bash` to host-based implementation
+- [x] Refactor `read` to host-based implementation
+- [x] Refactor `write` to host-based implementation
+- [x] Refactor `edit` to host-based implementation
+- [x] Consolidate normalization/output shaping into shared tool logic
+- [x] Remove `internal/sandbox/boxshclient/tool_adapters.go`
+- [x] Remove duplicate adapter tests after parity passes
 
 ## Phase 5: Mediate non-core execution paths and reduce bypasses
 - [ ] Migrate plugin paths onto host-mediated file/network/process services
