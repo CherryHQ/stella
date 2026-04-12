@@ -117,6 +117,7 @@
 - Added backend-liveness coverage so `Done()` closes when the boxsh backend becomes unavailable, not only on explicit `Close()`.
 - Aligned boxsh host path semantics with the existing adapter model by accepting sandbox-absolute paths and read-only mounted paths through shared remap logic.
 - Preserved the runner's sandbox-root vs cwd split by introducing `Filesystem.WorkspaceRoot` with backwards-compatible defaulting, so Phase 3 can mount one root while keeping a distinct logical working directory.
+- Enforced Phase 2 boxsh cwd and read-only semantics by resolving relative paths from `WorkingDir` and fail-closing mutating operations against `ReadOnlyPaths`.
 
 **Decisions & context for next phase:**
 
