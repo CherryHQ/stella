@@ -32,6 +32,7 @@ var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) 
 		Log:           platform.Logger(),
 		NewChannel: func(cfg pkgchannel.FeishuConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
+				InstanceID:        cfg.InstanceID,
 				AppID:             cfg.AppID,
 				AppSecret:         cfg.AppSecret,
 				EncryptKey:        cfg.EncryptKey,

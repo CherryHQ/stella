@@ -25,9 +25,10 @@ func logger() *slog.Logger { return slog.With("component", "telegram") }
 
 // Config holds Telegram bot settings.
 type Config struct {
-	Token     string // bot token
-	ChannelID string // broadcast channel ID or @username
-	GroupMode string // "mention" | "always" | "disabled"
+	InstanceID string // configured channel instance ID
+	Token      string // bot token
+	ChannelID  string // broadcast channel ID or @username
+	GroupMode  string // "mention" | "always" | "disabled"
 }
 
 // Bot wraps a Telegram bot with agent pool integration.
@@ -100,7 +101,14 @@ func (b *Bot) Stop() {
 }
 
 // Name returns the channel name. Implements channel.Channel.
-func (b *Bot) Name() string { return channel.PlatformTelegram }
+func (b *Bot) Name() string {
+	if b.cfg.InstanceID != "" {
+		return b.cfg.InstanceID
+	}
+	return channel.PlatformTelegram
+}
+
+func (b *Bot) Platform() string { return channel.PlatformTelegram }
 
 // Notify sends a message to the specified chat. Implements channel.Channel.
 func (b *Bot) Notify(_ context.Context, n channel.Notification) error {
@@ -215,6 +223,7 @@ func (b *Bot) incomingMsg(c tele.Context, content []ai.ContentBlock) channel.Inc
 	}
 	return channel.IncomingMessage{
 		Platform:   channel.PlatformTelegram,
+		ChannelID:  b.Name(),
 		SenderID:   senderID,
 		SenderName: senderName,
 		ChatID:     fmt.Sprintf("%d", c.Chat().ID),

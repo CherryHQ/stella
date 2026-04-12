@@ -12,10 +12,11 @@ import (
 
 // Config holds WeChat iLink bot settings.
 type Config struct {
-	BotToken string `json:"bot_token"` // iLink bot_token
-	BaseURL  string `json:"base_url"`  // iLink base URL (default: https://ilinkai.weixin.qq.com)
-	BotID    string `json:"bot_id"`    // ilink_bot_id
-	UserID   string `json:"user_id"`   // ilink_user_id
+	InstanceID string `json:"-"`
+	BotToken   string `json:"bot_token"` // iLink bot_token
+	BaseURL    string `json:"base_url"`  // iLink base URL (default: https://ilinkai.weixin.qq.com)
+	BotID      string `json:"bot_id"`    // ilink_bot_id
+	UserID     string `json:"user_id"`   // ilink_user_id
 }
 
 // Bot wraps a WeChat iLink bot with agent pool integration.
@@ -51,7 +52,14 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 }
 
 // Name returns the channel name. Implements channel.Channel.
-func (b *Bot) Name() string { return channel.PlatformWeixin }
+func (b *Bot) Name() string {
+	if b.cfg.InstanceID != "" {
+		return b.cfg.InstanceID
+	}
+	return channel.PlatformWeixin
+}
+
+func (b *Bot) Platform() string { return channel.PlatformWeixin }
 
 // Stop gracefully shuts down the WeChat bot. Implements channel.Channel.
 func (b *Bot) Stop() {

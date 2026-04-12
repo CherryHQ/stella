@@ -45,12 +45,20 @@ func newBotManagedRuntime(deps botRuntimeDeps) pkgplugins.Runtime {
 		Notifier:             deps.Notifications,
 		Platform:             pkgchannel.PlatformTelegram,
 		DecodeConfig:         DecodeConfig,
+		ConfigureConfig:      configureConfig,
 		ValidateConfig:       validateConfig,
 		NotificationsEnabled: func(cfg pkgchannel.TelegramConfig) bool { return cfg.EnableNotify },
 		NewChannel:           deps.NewChannel,
 		Snapshot:             runtimeSnapshot,
 		Now:                  deps.Now,
 	})
+}
+
+func configureConfig(cfg pkgchannel.TelegramConfig, desired pkgplugins.PluginState) pkgchannel.TelegramConfig {
+	if cfg.InstanceID == "" {
+		cfg.InstanceID = desired.ID
+	}
+	return cfg
 }
 
 func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message string, cfg pkgchannel.TelegramConfig) pkgplugins.RuntimeStatus {

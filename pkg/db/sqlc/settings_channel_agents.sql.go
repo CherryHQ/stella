@@ -10,32 +10,57 @@ import (
 )
 
 const deleteChatAgent = `-- name: DeleteChatAgent :exec
-DELETE FROM settings_channel_agents WHERE platform = ? AND chat_id = ?
+DELETE FROM settings_channel_agents WHERE channel_id = ? AND platform = ? AND chat_id = ?
 `
 
 type DeleteChatAgentParams struct {
-	Platform string `json:"platform"`
-	ChatID   string `json:"chat_id"`
+	ChannelID string `json:"channel_id"`
+	Platform  string `json:"platform"`
+	ChatID    string `json:"chat_id"`
 }
 
 func (q *Queries) DeleteChatAgent(ctx context.Context, arg DeleteChatAgentParams) error {
-	_, err := q.db.ExecContext(ctx, deleteChatAgent, arg.Platform, arg.ChatID)
+	_, err := q.db.ExecContext(ctx, deleteChatAgent, arg.ChannelID, arg.Platform, arg.ChatID)
 	return err
 }
 
 const getChatAgent = `-- name: GetChatAgent :one
-SELECT platform, chat_id, agent_id, updated_at FROM settings_channel_agents WHERE platform = ? AND chat_id = ?
+SELECT channel_id, platform, chat_id, agent_id, updated_at FROM settings_channel_agents WHERE channel_id = ? AND platform = ? AND chat_id = ?
 `
 
 type GetChatAgentParams struct {
+	ChannelID string `json:"channel_id"`
+	Platform  string `json:"platform"`
+	ChatID    string `json:"chat_id"`
+}
+
+func (q *Queries) GetChatAgent(ctx context.Context, arg GetChatAgentParams) (SettingsChannelAgent, error) {
+	row := q.db.QueryRowContext(ctx, getChatAgent, arg.ChannelID, arg.Platform, arg.ChatID)
+	var i SettingsChannelAgent
+	err := row.Scan(
+		&i.ChannelID,
+		&i.Platform,
+		&i.ChatID,
+		&i.AgentID,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getLegacyChatAgent = `-- name: GetLegacyChatAgent :one
+SELECT channel_id, platform, chat_id, agent_id, updated_at FROM settings_channel_agents WHERE channel_id = '' AND platform = ? AND chat_id = ?
+`
+
+type GetLegacyChatAgentParams struct {
 	Platform string `json:"platform"`
 	ChatID   string `json:"chat_id"`
 }
 
-func (q *Queries) GetChatAgent(ctx context.Context, arg GetChatAgentParams) (SettingsChannelAgent, error) {
-	row := q.db.QueryRowContext(ctx, getChatAgent, arg.Platform, arg.ChatID)
+func (q *Queries) GetLegacyChatAgent(ctx context.Context, arg GetLegacyChatAgentParams) (SettingsChannelAgent, error) {
+	row := q.db.QueryRowContext(ctx, getLegacyChatAgent, arg.Platform, arg.ChatID)
 	var i SettingsChannelAgent
 	err := row.Scan(
+		&i.ChannelID,
 		&i.Platform,
 		&i.ChatID,
 		&i.AgentID,
@@ -45,7 +70,7 @@ func (q *Queries) GetChatAgent(ctx context.Context, arg GetChatAgentParams) (Set
 }
 
 const listChatAgents = `-- name: ListChatAgents :many
-SELECT platform, chat_id, agent_id, updated_at FROM settings_channel_agents ORDER BY platform, chat_id
+SELECT channel_id, platform, chat_id, agent_id, updated_at FROM settings_channel_agents ORDER BY channel_id, platform, chat_id
 `
 
 func (q *Queries) ListChatAgents(ctx context.Context) ([]SettingsChannelAgent, error) {
@@ -58,6 +83,7 @@ func (q *Queries) ListChatAgents(ctx context.Context) ([]SettingsChannelAgent, e
 	for rows.Next() {
 		var i SettingsChannelAgent
 		if err := rows.Scan(
+			&i.ChannelID,
 			&i.Platform,
 			&i.ChatID,
 			&i.AgentID,
@@ -77,20 +103,26 @@ func (q *Queries) ListChatAgents(ctx context.Context) ([]SettingsChannelAgent, e
 }
 
 const upsertChatAgent = `-- name: UpsertChatAgent :exec
-INSERT INTO settings_channel_agents (platform, chat_id, agent_id, updated_at)
-VALUES (?, ?, ?, datetime('now'))
-ON CONFLICT(platform, chat_id) DO UPDATE SET
+INSERT INTO settings_channel_agents (channel_id, platform, chat_id, agent_id, updated_at)
+VALUES (?, ?, ?, ?, datetime('now'))
+ON CONFLICT(channel_id, platform, chat_id) DO UPDATE SET
     agent_id = excluded.agent_id,
     updated_at = datetime('now')
 `
 
 type UpsertChatAgentParams struct {
-	Platform string `json:"platform"`
-	ChatID   string `json:"chat_id"`
-	AgentID  string `json:"agent_id"`
+	ChannelID string `json:"channel_id"`
+	Platform  string `json:"platform"`
+	ChatID    string `json:"chat_id"`
+	AgentID   string `json:"agent_id"`
 }
 
 func (q *Queries) UpsertChatAgent(ctx context.Context, arg UpsertChatAgentParams) error {
-	_, err := q.db.ExecContext(ctx, upsertChatAgent, arg.Platform, arg.ChatID, arg.AgentID)
+	_, err := q.db.ExecContext(ctx, upsertChatAgent,
+		arg.ChannelID,
+		arg.Platform,
+		arg.ChatID,
+		arg.AgentID,
+	)
 	return err
 }

@@ -61,17 +61,24 @@ func (m *mockStore) CreateAgent(_ context.Context, _ config.Agent) error      { 
 func (m *mockStore) UpdateAgent(_ context.Context, _ config.Agent) error      { return nil }
 func (m *mockStore) DeleteAgent(_ context.Context, _ string) error            { return nil }
 func (m *mockStore) ListChannels(_ context.Context) ([]config.Channel, error) { return nil, nil }
+func (m *mockStore) ListChannelsByType(context.Context, string) ([]config.Channel, error) {
+	return nil, nil
+}
+
 func (m *mockStore) GetChannel(_ context.Context, _ string) (config.Channel, error) {
 	return config.Channel{}, nil
 }
-func (m *mockStore) UpsertChannel(_ context.Context, _ config.Channel) error     { return nil }
-func (m *mockStore) GetChatAgent(_ context.Context, _, _ string) (string, error) { return "", nil }
-func (m *mockStore) SetChatAgent(_ context.Context, _, _, _ string) error        { return nil }
-func (m *mockStore) DeleteChatAgent(_ context.Context, _, _ string) error        { return nil }
-func (m *mockStore) GetSetting(_ context.Context, _ string) (string, error)      { return "", nil }
-func (m *mockStore) SetSetting(_ context.Context, _, _ string) error             { return nil }
-func (m *mockStore) SeedDefaults(_ context.Context) error                        { return nil }
-func (m *mockStore) ListPlugins(_ context.Context) ([]config.Plugin, error)      { return nil, nil }
+func (m *mockStore) UpsertChannel(_ context.Context, _ config.Channel) error { return nil }
+func (m *mockStore) DeleteChannel(_ context.Context, _ string) error         { return nil }
+func (m *mockStore) GetChatAgent(_ context.Context, _, _, _ string) (string, error) {
+	return "", nil
+}
+func (m *mockStore) SetChatAgent(_ context.Context, _, _, _, _ string) error { return nil }
+func (m *mockStore) DeleteChatAgent(_ context.Context, _, _, _ string) error { return nil }
+func (m *mockStore) GetSetting(_ context.Context, _ string) (string, error)  { return "", nil }
+func (m *mockStore) SetSetting(_ context.Context, _, _ string) error         { return nil }
+func (m *mockStore) SeedDefaults(_ context.Context) error                    { return nil }
+func (m *mockStore) ListPlugins(_ context.Context) ([]config.Plugin, error)  { return nil, nil }
 func (m *mockStore) ListPluginsByKind(_ context.Context, _ string) ([]config.Plugin, error) {
 	return nil, nil
 }

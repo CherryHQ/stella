@@ -4,207 +4,349 @@ import "github.com/vaayne/anna/internal/admin/ui"
 
 templ ChannelsPage() {
 	<div x-data="channelsPage()">
-		@ui.PageHeader("Messaging platforms", "Connect Anna to Telegram, QQ, Feishu, and Weixin.")
-		<div class="border-t border-base-300 divide-y divide-base-300">
-			<!-- Telegram -->
-			@channelBlock("Telegram", "telegram") {
-				<label class="flex items-center gap-3 cursor-pointer">
-					<input
-						type="checkbox"
-						:checked="channelData.telegram.enable_notify"
-						@change="channelData.telegram.enable_notify = $event.target.checked"
-						class="toggle toggle-primary toggle-sm"
-					/>
-					<span class="text-sm">Notifications</span>
-				</label>
+		@ui.PageHeader("Channels", "Link the platforms you use. The Plugins page controls which platforms appear here.")
+
+		<section class="border-t border-base-300 pt-8">
+			<div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
 				<div>
-					@ui.FormField("Bot Token") {
-						<input
-							type="password"
-							x-model="channelData.telegram.token"
-							placeholder="From @BotFather"
-							class="input input-bordered w-full text-sm font-mono"
-						/>
-					}
+					<h2 class="text-lg font-medium">Available platforms</h2>
+					<p class="text-sm text-secondary mt-1">
+						Only platforms enabled on the <a href="/plugins" class="link link-primary">Plugins</a> page appear here.
+					</p>
 				</div>
-				<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-					<div>
-						@ui.FormField("Channel ID") {
-							<input
-								type="text"
-								x-model="channelData.telegram.channel_id"
-								placeholder="Default channel"
-								class="input input-bordered w-full text-sm"
-							/>
-						}
-					</div>
-					<div>
-						@ui.FormField("Group Mode") {
-							<select x-model="channelData.telegram.group_mode" class="select select-bordered w-full text-sm">
-								<option value="">Default</option>
-								<option value="mention">Mention</option>
-								<option value="always">Always</option>
-								<option value="disabled">Disabled</option>
-							</select>
-						}
-					</div>
+				<span class="text-xs font-mono text-secondary" x-text="linkedIdentities.length + ' linked'"></span>
+			</div>
+
+			<template x-if="loadingPlatforms">
+				<div class="flex justify-center py-8">
+					<span class="loading loading-spinner loading-sm"></span>
 				</div>
-				<button @click="saveChannel('telegram')" class="btn btn-primary btn-sm">Save Telegram</button>
-			}
-			<!-- QQ -->
-			@channelBlock("QQ", "qq") {
-				<label class="flex items-center gap-3 cursor-pointer">
-					<input
-						type="checkbox"
-						:checked="channelData.qq.enable_notify"
-						@change="channelData.qq.enable_notify = $event.target.checked"
-						class="toggle toggle-primary toggle-sm"
-					/>
-					<span class="text-sm">Notifications</span>
-				</label>
-				<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-					<div>
-						@ui.FormField("App ID") {
-							<input
-								type="text"
-								x-model="channelData.qq.app_id"
-								placeholder="QQ Bot App ID"
-								class="input input-bordered w-full text-sm font-mono"
-							/>
-						}
+			</template>
+
+			<div x-show="!loadingPlatforms" x-cloak class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+				<template x-for="channel in publicChannels" :key="channel.id">
+					<div class="card bg-base-200 border border-base-300">
+						<div class="card-body gap-4">
+							<div class="flex items-start justify-between gap-3 flex-wrap">
+								<div>
+									<div class="flex items-center gap-2 flex-wrap">
+										<h3 class="font-medium text-base" x-text="channel.label"></h3>
+										<span class="badge badge-ghost badge-sm">platform</span>
+										<span
+											class="badge badge-sm"
+											:class="isLinked(channel.type) ? 'badge-success' : 'badge-ghost'"
+											x-text="isLinked(channel.type) ? 'linked' : 'not linked'"
+										></span>
+									</div>
+									<p class="text-sm text-secondary mt-2" x-text="platformDescription(channel)"></p>
+								</div>
+								<template x-if="channel.agent_id">
+									<span class="badge badge-primary badge-sm" x-text="'agent: ' + linkedAgentLabel(channel)"></span>
+								</template>
+							</div>
+
+							<div class="space-y-2 text-sm">
+								<template x-if="identityFor(channel.type)">
+									<div>
+										<p class="text-xs font-mono text-secondary uppercase tracking-wider mb-1">Linked identity</p>
+										<p class="font-mono text-sm" x-text="identityLabel(identityFor(channel.type))"></p>
+									</div>
+								</template>
+								<template x-if="!identityFor(channel.type)">
+									<div>
+										<p class="text-xs font-mono text-secondary uppercase tracking-wider mb-1">Status</p>
+										<p class="text-sm text-secondary">No account linked yet.</p>
+									</div>
+								</template>
+							</div>
+
+							<div class="card-actions justify-start">
+								<button
+									x-show="!isLinked(channel.type) && channel.type !== 'weixin'"
+									@click="generateCode(channel.type)"
+									:disabled="generating"
+									class="btn btn-primary btn-sm"
+								>
+									<span x-show="generating && linkPlatform === channel.type" class="loading loading-spinner loading-xs"></span>
+									<span x-text="'Link ' + channel.label"></span>
+								</button>
+								<button
+									x-show="!isLinked(channel.type) && channel.type === 'weixin'"
+									@click="startWeixinQR()"
+									:disabled="wxQrPolling"
+									class="btn btn-primary btn-sm"
+								>
+									<span x-show="wxQrPolling" class="loading loading-spinner loading-xs"></span>
+									Link Weixin
+								</button>
+								<button
+									x-show="isLinked(channel.type)"
+									@click="unlinkIdentity(identityFor(channel.type)?.id)"
+									class="btn btn-ghost btn-sm text-error"
+								>Unlink</button>
+							</div>
+						</div>
 					</div>
-					<div>
-						@ui.FormField("App Secret") {
-							<input
-								type="password"
-								x-model="channelData.qq.app_secret"
-								class="input input-bordered w-full text-sm font-mono"
-							/>
-						}
+				</template>
+
+				<template x-if="publicChannels.length === 0">
+					<div class="card bg-base-200 border border-dashed border-base-300 xl:col-span-2">
+						<div class="card-body text-sm text-secondary">
+							<p>No platform channels are available right now.</p>
+							<template x-if="isAdmin">
+								<p>Enable one or more channel plugins on the <a href="/plugins" class="link link-primary">Plugins</a> page.</p>
+							</template>
+						</div>
 					</div>
+				</template>
+			</div>
+
+			<template x-if="linkCode">
+				<div class="alert shadow-md mt-4">
 					<div>
-						@ui.FormField("Group Mode") {
-							<select x-model="channelData.qq.group_mode" class="select select-bordered w-full text-sm">
-								<option value="">Default (mention)</option>
-								<option value="mention">Mention</option>
-								<option value="always">Always</option>
-								<option value="disabled">Disabled</option>
-							</select>
-						}
-					</div>
-				</div>
-				<button @click="saveChannel('qq')" class="btn btn-primary btn-sm">Save QQ</button>
-			}
-			<!-- Feishu -->
-			@channelBlock("Feishu", "feishu") {
-				<label class="flex items-center gap-3 cursor-pointer">
-					<input
-						type="checkbox"
-						:checked="channelData.feishu.enable_notify"
-						@change="channelData.feishu.enable_notify = $event.target.checked"
-						class="toggle toggle-primary toggle-sm"
-					/>
-					<span class="text-sm">Notifications</span>
-				</label>
-				<p class="text-xs text-secondary">
-					Feishu is chat-only. Add a <code>lark-cli</code> skill yourself if you want Lark workspace automation.
-				</p>
-				<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-					<div>
-						@ui.FormField("App ID") {
-							<input
-								type="text"
-								x-model="channelData.feishu.app_id"
-								class="input input-bordered w-full text-sm font-mono"
-							/>
-						}
-					</div>
-					<div>
-						@ui.FormField("App Secret") {
-							<input
-								type="password"
-								x-model="channelData.feishu.app_secret"
-								class="input input-bordered w-full text-sm font-mono"
-							/>
-						}
-					</div>
-					<div>
-						@ui.FormField("Encrypt Key") {
-							<input
-								type="password"
-								x-model="channelData.feishu.encrypt_key"
-								placeholder="optional"
-								class="input input-bordered w-full text-sm font-mono"
-							/>
-						}
-					</div>
-					<div>
-						@ui.FormField("Verification Token") {
-							<input
-								type="password"
-								x-model="channelData.feishu.verification_token"
-								placeholder="optional"
-								class="input input-bordered w-full text-sm font-mono"
-							/>
-						}
-					</div>
-					<div>
-						@ui.FormField("Group Mode") {
-							<select x-model="channelData.feishu.group_mode" class="select select-bordered w-full text-sm">
-								<option value="">Default (mention)</option>
-								<option value="mention">Mention</option>
-								<option value="always">Always</option>
-								<option value="disabled">Disabled</option>
-							</select>
-						}
+						<p class="font-medium">Send this command to Anna on <span x-text="platformLabel[linkPlatform] || linkPlatform"></span>:</p>
+						<div class="flex items-center gap-2 mt-2 flex-wrap">
+							<code class="font-mono text-lg font-bold bg-base-200 text-base-content px-3 py-1 rounded select-all" x-text="'/link ' + linkCode"></code>
+							<button @click="copyLinkCode()" class="btn btn-ghost btn-xs">copy</button>
+						</div>
+						<p class="text-xs text-secondary mt-2">Expires in 5 minutes.</p>
 					</div>
 				</div>
-				<button @click="saveChannel('feishu')" class="btn btn-primary btn-sm">Save Feishu</button>
-			}
-			<!-- Weixin -->
-			@channelBlock("Weixin", "weixin") {
-				<label class="flex items-center gap-3 cursor-pointer">
-					<input
-						type="checkbox"
-						:checked="channelData.weixin.enable_notify"
-						@change="channelData.weixin.enable_notify = $event.target.checked"
-						class="toggle toggle-primary toggle-sm"
-					/>
-					<span class="text-sm">Notifications</span>
-				</label>
-				<p class="text-xs text-secondary">
-					To connect, go to <a href="/profile" class="link link-primary">Profile</a> and use "Link Weixin" to scan the QR code.
-				</p>
-				<button @click="saveChannel('weixin')" class="btn btn-primary btn-sm">Save Weixin</button>
-			}
+			</template>
+
+			<template x-if="wxQrUrl">
+				<div class="card bg-base-200 mt-4 border border-base-300">
+					<div class="card-body py-4 items-center">
+						<p class="text-sm font-medium mb-2">Scan with WeChat to link your account</p>
+						<img :src="wxQrUrl" alt="WeChat QR Code" class="w-48 h-48 border rounded"/>
+						<span
+							class="badge badge-sm mt-2"
+							:class="{
+								'badge-warning': wxQrStatus === 'waiting',
+								'badge-info': wxQrStatus === 'scaned',
+								'badge-success': wxQrStatus === 'confirmed',
+								'badge-error': wxQrStatus === 'expired',
+							}"
+							x-text="wxQrStatus"
+						></span>
+						<template x-if="wxQrStatus === 'expired'">
+							<button @click="startWeixinQR()" class="btn btn-outline btn-xs mt-1">Refresh</button>
+						</template>
+					</div>
+				</div>
+			</template>
+		</section>
+
+		<section x-show="isAdmin" x-cloak class="border-t border-base-300 pt-8 mt-8">
+			<div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
+				<div>
+					<h2 class="text-lg font-medium">Dedicated instances</h2>
+					<p class="text-sm text-secondary mt-1">
+						Create and configure reusable dedicated instances here. Link them to agents from the agent page after they are configured.
+					</p>
+				</div>
+				<div class="flex items-center gap-2 flex-wrap">
+					<span class="text-xs font-mono text-secondary" x-text="instances.length + ' instances'"></span>
+					<button @click="toggleNewInstanceForm()" class="btn btn-primary btn-sm" :disabled="visibleChannelTypes.length === 0">Add dedicated instance</button>
+				</div>
+			</div>
+
+			<div x-show="showNewInstanceForm" x-cloak class="card bg-base-200 border border-base-300 mb-4">
+				<div class="card-body space-y-4">
+					<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+						<div>
+							@ui.FormField("Instance ID") {
+								<input x-model="newChannel.id" type="text" placeholder="feishu-coder" class="input input-bordered w-full text-sm font-mono"/>
+							}
+						</div>
+						<div>
+							@ui.FormField("Platform") {
+								<select x-model="newChannel.type" @change="syncNewChannelType($event.target.value)" class="select select-bordered w-full text-sm">
+									<template x-for="type in visibleChannelTypes" :key="type.id">
+										<option :value="type.id" x-text="type.label"></option>
+									</template>
+								</select>
+							}
+						</div>
+					</div>
+
+					@dedicatedInstanceFields("newChannel")
+
+					<div class="card-actions justify-end">
+						<button @click="showNewInstanceForm = false" class="btn btn-ghost btn-sm">Cancel</button>
+						<button @click="createChannel()" :disabled="creatingInstance || !newChannel.id || !newChannel.type" class="btn btn-primary btn-sm">
+							<span x-show="creatingInstance" class="loading loading-spinner loading-xs"></span>
+							Create instance
+						</button>
+					</div>
+				</div>
+			</div>
+
+			<template x-if="loadingInstances">
+				<div class="flex justify-center py-8">
+					<span class="loading loading-spinner loading-sm"></span>
+				</div>
+			</template>
+
+			<div x-show="!loadingInstances" x-cloak class="space-y-4">
+				<template x-for="ch in instances" :key="ch.id">
+					<div class="card bg-base-200 border border-base-300">
+						<div class="card-body gap-4">
+							<div class="flex items-start justify-between gap-4 flex-wrap">
+								<div class="min-w-0">
+									<div class="flex items-center gap-2 flex-wrap">
+										<h3 class="font-medium text-base font-mono" x-text="ch.id"></h3>
+										<span class="badge badge-ghost badge-sm" x-text="platformLabel[ch.type] || ch.type"></span>
+										<span class="badge badge-sm" :class="instanceStatusClass(ch)" x-text="instanceStatus(ch)"></span>
+										<template x-if="ch.agent_id">
+											<span class="badge badge-outline badge-sm" x-text="'agent: ' + ch.agent_id"></span>
+										</template>
+									</div>
+									<p class="text-sm text-secondary mt-2">
+										Dedicated instance. Configure it here, then attach it from the agent page.
+									</p>
+								</div>
+								<div class="flex items-center gap-2">
+									<button @click="ch._collapsed = !ch._collapsed" class="btn btn-ghost btn-sm" x-text="ch._collapsed ? 'Configure' : 'Collapse'"></button>
+									<button @click="confirmDelete('Delete dedicated instance ' + ch.id + '?', () => doDeleteChannel(ch.id))" class="btn btn-ghost btn-sm text-error">Delete</button>
+								</div>
+							</div>
+
+							<div x-show="!ch._collapsed" x-cloak class="space-y-4">
+								@dedicatedInstanceFields("ch")
+								<div class="flex items-center justify-between gap-3 flex-wrap">
+									<p class="text-xs text-secondary">This page stores the instance config only. Agent selection belongs on the agent page.</p>
+									<button @click="saveInstance(ch)" class="btn btn-primary btn-sm">Save config</button>
+								</div>
+							</div>
+						</div>
+					</div>
+				</template>
+
+				<template x-if="instances.length === 0">
+					<div class="card bg-base-200 border border-dashed border-base-300">
+						<div class="card-body text-sm text-secondary">
+							<p>No dedicated instances yet.</p>
+							<p>Create one when you need a separate set of channel credentials for a specific workflow or agent.</p>
+						</div>
+					</div>
+				</template>
+			</div>
+		</section>
+
+		<div x-show="confirmMsg" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+			<div class="card bg-base-100 shadow-xl w-full max-w-sm" @click.away="confirmMsg = ''">
+				<div class="card-body">
+					<p class="text-sm" x-text="confirmMsg"></p>
+					<div class="card-actions justify-end mt-4">
+						<button @click="confirmMsg = ''" class="btn btn-ghost btn-sm">Cancel</button>
+						<button @click="confirmAction(); confirmMsg = ''" class="btn btn-error btn-sm">Delete</button>
+					</div>
+				</div>
+			</div>
 		</div>
 	</div>
 }
 
-// channelBlock renders a collapsible platform section with enable toggle.
-templ channelBlock(name string, platform string) {
-	<div class="py-8">
-		<div class="flex items-center justify-between mb-4">
-			<div class="flex items-center gap-3">
-				<span class="font-medium text-lg">{ name }</span>
-				<span
-					class="badge badge-sm"
-					:class={ "channelData." + platform + ".enabled ? 'badge-success' : 'badge-ghost'" }
-					x-text={ "channelData." + platform + ".enabled ? 'on' : 'off'" }
-				></span>
+templ dedicatedInstanceFields(model string) {
+	<div class="space-y-4">
+		<label class="flex items-center gap-3 cursor-pointer">
+			<input type="checkbox" x-model={ model + ".enable_notify" } class="toggle toggle-primary toggle-sm"/>
+			<span class="text-sm">Notifications</span>
+		</label>
+
+		<div x-show={ model + ".type === 'telegram'" } x-cloak class="space-y-4">
+			<div>
+				@ui.FormField("Bot Token") {
+					<input type="password" x-model={ model + ".token" } placeholder="From @BotFather" class="input input-bordered w-full text-sm font-mono"/>
+				}
 			</div>
-			<label class="flex items-center gap-3 cursor-pointer">
-				<input
-					type="checkbox"
-					:checked={ "channelData." + platform + ".enabled" }
-					@change={ "channelData." + platform + ".enabled = $event.target.checked; saveChannel('" + platform + "')" }
-					class="toggle toggle-primary toggle-sm"
-				/>
-				<span class="text-sm">Enable</span>
-			</label>
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+				<div>
+					@ui.FormField("Channel ID") {
+						<input type="text" x-model={ model + ".channel_id" } placeholder="Default channel" class="input input-bordered w-full text-sm"/>
+					}
+				</div>
+				<div>
+					@ui.FormField("Group Mode") {
+						<select x-model={ model + ".group_mode" } class="select select-bordered w-full text-sm">
+							<option value="">Default</option>
+							<option value="mention">Mention</option>
+							<option value="always">Always</option>
+							<option value="disabled">Disabled</option>
+						</select>
+					}
+				</div>
+			</div>
 		</div>
-		<div x-show={ "channelData." + platform + ".enabled" } x-transition x-cloak class="space-y-4 pl-0 md:pl-6">
-			{ children... }
+
+		<div x-show={ model + ".type === 'qq'" } x-cloak class="space-y-4">
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+				<div>
+					@ui.FormField("App ID") {
+						<input type="text" x-model={ model + ".app_id" } placeholder="QQ Bot App ID" class="input input-bordered w-full text-sm font-mono"/>
+					}
+				</div>
+				<div>
+					@ui.FormField("App Secret") {
+						<input type="password" x-model={ model + ".app_secret" } class="input input-bordered w-full text-sm font-mono"/>
+					}
+				</div>
+				<div>
+					@ui.FormField("Group Mode") {
+						<select x-model={ model + ".group_mode" } class="select select-bordered w-full text-sm">
+							<option value="">Default (mention)</option>
+							<option value="mention">Mention</option>
+							<option value="always">Always</option>
+							<option value="disabled">Disabled</option>
+						</select>
+					}
+				</div>
+			</div>
+		</div>
+
+		<div x-show={ model + ".type === 'feishu'" } x-cloak class="space-y-4">
+			<p class="text-xs text-secondary">
+				Feishu is chat-only. Add a <code>lark-cli</code> skill yourself if you want Lark workspace automation.
+			</p>
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+				<div>
+					@ui.FormField("App ID") {
+						<input type="text" x-model={ model + ".app_id" } class="input input-bordered w-full text-sm font-mono"/>
+					}
+				</div>
+				<div>
+					@ui.FormField("App Secret") {
+						<input type="password" x-model={ model + ".app_secret" } class="input input-bordered w-full text-sm font-mono"/>
+					}
+				</div>
+				<div>
+					@ui.FormField("Encrypt Key") {
+						<input type="password" x-model={ model + ".encrypt_key" } placeholder="optional" class="input input-bordered w-full text-sm font-mono"/>
+					}
+				</div>
+				<div>
+					@ui.FormField("Verification Token") {
+						<input type="password" x-model={ model + ".verification_token" } placeholder="optional" class="input input-bordered w-full text-sm font-mono"/>
+					}
+				</div>
+				<div>
+					@ui.FormField("Group Mode") {
+						<select x-model={ model + ".group_mode" } class="select select-bordered w-full text-sm">
+							<option value="">Default (mention)</option>
+							<option value="mention">Mention</option>
+							<option value="always">Always</option>
+							<option value="disabled">Disabled</option>
+						</select>
+					}
+				</div>
+			</div>
+		</div>
+
+		<div x-show={ model + ".type === 'weixin'" } x-cloak class="space-y-2">
+			<p class="text-xs text-secondary">
+				Weixin dedicated instances currently only expose notification settings here.
+			</p>
 		</div>
 	</div>
 }

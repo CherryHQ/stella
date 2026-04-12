@@ -2,11 +2,14 @@ package pluginhost
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/vaayne/anna/internal/config"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
@@ -14,6 +17,17 @@ type RuntimeHost struct {
 	host *Host
 	mu   sync.RWMutex
 	rt   map[string]*runtimeEntry
+}
+
+func configMapFromJSON(raw string) map[string]any {
+	if raw == "" {
+		return map[string]any{}
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(raw), &out); err != nil || out == nil {
+		return map[string]any{}
+	}
+	return out
 }
 
 type runtimeEntry struct {
@@ -29,10 +43,21 @@ func (h *RuntimeHost) Get(pluginID string, runtimeName string) (pkgplugins.Runti
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	entry, ok := h.rt[runtimeKey(pluginID, runtimeName)]
-	if !ok || entry.managed == nil {
-		return nil, false
+	if ok && entry.managed != nil {
+		return runtimeHandle{entry: entry}, true
 	}
-	return runtimeHandle{entry: entry}, true
+	if channelType, ok := strings.CutPrefix(pluginID, config.PluginKindChannel+"/"); ok {
+		entry, ok := h.rt[runtimeKey(channelType, runtimeName)]
+		if ok && entry.managed != nil {
+			return runtimeHandle{entry: entry}, true
+		}
+	}
+	for _, entry := range h.rt {
+		if entry.reg.PluginID == pluginID && entry.reg.Name == runtimeName && entry.managed != nil {
+			return runtimeHandle{entry: entry}, true
+		}
+	}
+	return nil, false
 }
 
 func (h *RuntimeHost) Lookup(pluginID string, runtimeName string) (pkgplugins.RuntimeHandle, bool) {
@@ -44,9 +69,45 @@ func (h *RuntimeHost) ApplyPlugin(ctx context.Context, pluginID string) error {
 	if err != nil {
 		return err
 	}
+	if channelType, ok := strings.CutPrefix(pluginID, config.PluginKindChannel+"/"); ok {
+		channels, err := h.host.store.ListChannelsByType(ctx, channelType)
+		if err == nil && len(channels) > 0 {
+			for _, channel := range channels {
+				if !desired.Enabled {
+					channel.Enabled = false
+				}
+				if err := h.ApplyChannel(ctx, channel); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
 	regs := h.registrations(pluginID)
 	for _, reg := range regs {
 		if err := h.applyOne(ctx, reg, desired); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *RuntimeHost) ApplyChannel(ctx context.Context, channel config.Channel) error {
+	if channel.Type == "" {
+		channel.Type = channel.ID
+	}
+	pluginID := config.PluginID(config.PluginKindChannel, channel.Type)
+	if desired, err := h.host.config.Get(ctx, pluginID); err == nil && !desired.Enabled {
+		channel.Enabled = false
+	}
+	regs := h.registrations(pluginID)
+	desired := pkgplugins.PluginState{
+		ID:      channel.ID,
+		Enabled: channel.Enabled,
+		Config:  configMapFromJSON(channel.Config),
+	}
+	for _, reg := range regs {
+		if err := h.applyOneWithKey(ctx, reg, channel.ID, desired); err != nil {
 			return err
 		}
 	}
@@ -67,7 +128,11 @@ func (h *RuntimeHost) registrations(pluginID string) []pkgplugins.RuntimeSpec {
 }
 
 func (h *RuntimeHost) applyOne(ctx context.Context, reg pkgplugins.RuntimeSpec, desired pkgplugins.PluginState) error {
-	key := runtimeKey(reg.PluginID, reg.Name)
+	return h.applyOneWithKey(ctx, reg, reg.PluginID, desired)
+}
+
+func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.RuntimeSpec, runtimeID string, desired pkgplugins.PluginState) error {
+	key := runtimeKey(runtimeID, reg.Name)
 	h.mu.Lock()
 	entry := h.rt[key]
 	if entry == nil {

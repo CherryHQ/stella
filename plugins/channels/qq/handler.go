@@ -26,7 +26,7 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 		}
 
 		replyFn := func(reply string) { b.replyC2C(b.ctx, authorID, msg.ID, reply) }
-		incoming := incomingMsg(authorID, "", content)
+		incoming := b.incomingMsg(authorID, "", content)
 
 		text := strings.TrimSpace(msg.Content)
 		if handled := b.handleLocalCommand(incoming, text, replyFn); handled {
@@ -56,7 +56,7 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 		}
 
 		replyFn := func(reply string) { b.replyGroup(b.ctx, groupID, msg.ID, reply) }
-		incoming := incomingMsg(authorID, groupID, content)
+		incoming := b.incomingMsg(authorID, groupID, content)
 
 		text := strings.TrimSpace(msg.Content)
 		if handled := b.handleLocalCommand(incoming, text, replyFn); handled {

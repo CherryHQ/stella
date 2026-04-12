@@ -452,12 +452,11 @@ func TestGetAdditionalPluginConfigSchemas(t *testing.T) {
 func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	env := setupAdmin(t)
 
-	if err := env.store.SetPluginConfig(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram), map[string]any{
-		"token":         "telegram-secret",
-		"group_mode":    "mention",
-		"enable_notify": true,
+	if err := env.store.SetPluginConfig(context.Background(), reflectplugin.PluginID, map[string]any{
+		"interval": "30m",
+		"batch":    3,
 	}); err != nil {
-		t.Fatalf("SetPluginConfig(telegram): %v", err)
+		t.Fatalf("SetPluginConfig(reflect): %v", err)
 	}
 
 	rr := doRequest(t, env, "GET", "/api/plugins", nil)
@@ -491,14 +490,14 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	}
 
 	telegram := byID[config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram)]
-	if telegram.DisplayName != "Telegram" || !telegram.Managed || !telegram.AdminVisible || !telegram.HasConfig || !telegram.HasStatus || !telegram.SupportsNotifications {
+	if telegram.DisplayName != "Telegram" || !telegram.Managed || !telegram.AdminVisible || telegram.HasConfig || !telegram.HasStatus || !telegram.SupportsNotifications {
 		t.Fatalf("unexpected telegram plugin payload: %#v", telegram)
 	}
 	if telegram.Description != "Telegram bot integration." {
 		t.Fatalf("telegram description = %q, want %q", telegram.Description, "Telegram bot integration.")
 	}
-	if telegram.Config["token"] != "***" {
-		t.Fatalf("expected redacted telegram token, got %#v", telegram.Config["token"])
+	if len(telegram.Config) != 0 {
+		t.Fatalf("expected channel plugin config to be hidden, got %#v", telegram.Config)
 	}
 
 	qq := byID[config.PluginID(config.PluginKindChannel, pkgchannel.PlatformQQ)]
@@ -515,32 +514,19 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	}
 }
 
-func TestGetPluginConfigReturnsRawConfig(t *testing.T) {
+func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
 	env := setupAdmin(t)
 
-	if err := env.store.SetPluginConfig(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram), map[string]any{
-		"token":         "telegram-secret",
-		"group_mode":    "mention",
-		"enable_notify": true,
-	}); err != nil {
-		t.Fatalf("SetPluginConfig(telegram): %v", err)
-	}
-
 	rr := doRequest(t, env, "GET", "/api/plugin-config/channel/telegram", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("GET status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
 
-	resp := parseResponse(t, rr)
-	var cfg map[string]any
-	if err := json.Unmarshal(resp.Data, &cfg); err != nil {
-		t.Fatalf("unmarshal config: %v", err)
-	}
-	if cfg["token"] != "telegram-secret" {
-		t.Fatalf("token = %#v, want %q", cfg["token"], "telegram-secret")
-	}
-	if cfg["group_mode"] != "mention" {
-		t.Fatalf("group_mode = %#v, want %q", cfg["group_mode"], "mention")
+	rr = doRequest(t, env, "PUT", "/api/plugin-config/channel/telegram", map[string]any{
+		"config": map[string]any{"token": "telegram-secret"},
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("PUT status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
 }
 
@@ -807,6 +793,160 @@ func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 	}
 	if payload.State != "stopped" {
 		t.Fatalf("weixin state after disable = %q, want stopped", payload.State)
+	}
+}
+
+func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
+	env := setupAdmin(t)
+
+	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+		ID:      pkgchannel.PlatformTelegram,
+		Type:    pkgchannel.PlatformTelegram,
+		Enabled: true,
+		Config:  `{}`,
+	}); err != nil {
+		t.Fatalf("UpsertChannel telegram: %v", err)
+	}
+	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+		ID:      pkgchannel.PlatformFeishu,
+		Type:    pkgchannel.PlatformFeishu,
+		Enabled: false,
+		Config:  `{}`,
+	}); err != nil {
+		t.Fatalf("UpsertChannel feishu: %v", err)
+	}
+	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+		ID:      "feishu-anna",
+		Type:    pkgchannel.PlatformFeishu,
+		AgentID: "anna",
+		Enabled: true,
+		Config:  `{}`,
+	}); err != nil {
+		t.Fatalf("UpsertChannel feishu-anna: %v", err)
+	}
+	if err := env.store.UpsertPlugin(context.Background(), config.Plugin{
+		ID:      config.PluginID(config.PluginKindChannel, pkgchannel.PlatformQQ),
+		Kind:    config.PluginKindChannel,
+		Name:    pkgchannel.PlatformQQ,
+		Enabled: false,
+		Config:  map[string]any{},
+	}); err != nil {
+		t.Fatalf("UpsertPlugin qq: %v", err)
+	}
+
+	rr := doRequest(t, env, "GET", "/api/channels/public", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	type publicChannelPayload struct {
+		ID        string `json:"id"`
+		Type      string `json:"type"`
+		Label     string `json:"label"`
+		AgentID   string `json:"agent_id"`
+		AgentName string `json:"agent_name"`
+		Enabled   bool   `json:"enabled"`
+	}
+	var channels []publicChannelPayload
+	if err := json.Unmarshal(resp.Data, &channels); err != nil {
+		t.Fatalf("unmarshal public channels: %v", err)
+	}
+	byID := make(map[string]publicChannelPayload, len(channels))
+	for _, channel := range channels {
+		if !channel.Enabled {
+			t.Fatalf("channel %q is disabled", channel.ID)
+		}
+		byID[channel.ID] = channel
+	}
+	if _, ok := byID[pkgchannel.PlatformTelegram]; !ok {
+		t.Fatalf("expected telegram public channel, got %#v", channels)
+	}
+	if _, ok := byID[pkgchannel.PlatformFeishu]; ok {
+		t.Fatalf("feishu disabled channel should not be public: %#v", channels)
+	}
+	if _, ok := byID[pkgchannel.PlatformQQ]; ok {
+		t.Fatalf("qq disabled plugin should not be public: %#v", channels)
+	}
+	if _, ok := byID["feishu-anna"]; ok {
+		t.Fatalf("dedicated instances should not appear in public channels: %#v", channels)
+	}
+}
+
+func TestUpdateChannelConfigPreservesEnabledState(t *testing.T) {
+	env := setupAdmin(t)
+
+	if err := env.store.UpsertChannel(context.Background(), config.Channel{
+		ID:      pkgchannel.PlatformTelegram,
+		Type:    pkgchannel.PlatformTelegram,
+		Enabled: false,
+		Config:  `{}`,
+	}); err != nil {
+		t.Fatalf("UpsertChannel telegram: %v", err)
+	}
+	if err := env.store.UpsertPlugin(context.Background(), config.Plugin{
+		ID:      config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram),
+		Kind:    config.PluginKindChannel,
+		Name:    pkgchannel.PlatformTelegram,
+		Enabled: true,
+		Config:  map[string]any{},
+	}); err != nil {
+		t.Fatalf("UpsertPlugin telegram: %v", err)
+	}
+
+	rr := doRequest(t, env, "PUT", "/api/channels/telegram", map[string]any{
+		"enabled": true,
+		"config":  `{"token":"tg-token","enable_notify":true}`,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	ch, err := env.store.GetChannel(context.Background(), pkgchannel.PlatformTelegram)
+	if err != nil {
+		t.Fatalf("GetChannel telegram: %v", err)
+	}
+	if ch.Enabled {
+		t.Fatal("channel config update should not enable channel")
+	}
+	plugin, err := env.store.GetPlugin(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram))
+	if err != nil {
+		t.Fatalf("GetPlugin telegram: %v", err)
+	}
+	if !plugin.Enabled {
+		t.Fatal("channel config update should not disable channel plugin")
+	}
+}
+
+func TestNonAdminCanOpenChannelsPageButNotChannelConfig(t *testing.T) {
+	env := setupAdmin(t)
+
+	hash, _ := auth.HashPassword("userpassword")
+	user, err := env.authStore.CreateUser(context.Background(), "regularuser", hash)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	sessionID := auth.NewSessionID()
+	_, err = env.authStore.CreateSession(context.Background(), auth.Session{
+		ID:        sessionID,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(auth.SessionDuration),
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/channels", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("channels page status = %d, want %d", rr.Code, http.StatusOK)
+	}
+
+	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/channels/public", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("public channels status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/api/channels", nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("channel config status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
 	}
 }
 

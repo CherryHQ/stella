@@ -39,7 +39,7 @@ Create agents via the admin panel or directly in the database.
 
 ## Channel configuration
 
-Channels are stored as plugin entries in the `settings_plugins` table (kind=channel). Configure via the admin panel.
+Channels are stored in `settings_channels`. Each row is a channel instance with an `id`, platform `type`, optional dedicated `agent_id`, enabled flag, and JSON config. The default instance IDs match their platform types (`telegram`, `qq`, `feishu`, `weixin`) for compatibility. Configure channels via the admin panel.
 
 **Telegram config fields:**
 - `token` -- Bot token

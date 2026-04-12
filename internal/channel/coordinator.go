@@ -58,7 +58,11 @@ func NewCoordinator(
 
 // resolve performs the full user -> agent -> pool -> session key resolution.
 func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessage) (*ResolvedChat, error) {
-	return Resolve(ctx, c.poolManager, c.store, c.authStore, c.engine, msg.Platform, msg.SenderID, msg.SenderName, msg.ChatID, msg.IsGroup)
+	channelID := msg.ChannelID
+	if channelID == "" {
+		channelID = msg.Platform
+	}
+	return ResolveWithChannel(ctx, c.poolManager, c.store, c.authStore, c.engine, msg.Platform, channelID, msg.SenderID, msg.SenderName, msg.ChatID, msg.IsGroup)
 }
 
 // HandleIncoming resolves the user once, tries command handling, and if the
@@ -125,7 +129,7 @@ func (c *Coordinator) ListAgents(ctx context.Context, msg pkgchannel.IncomingMes
 	}
 
 	ac := NewAgentCommander(c.store, c.authStore)
-	agents, err := ac.List(ctx)
+	agents, err := ac.ListForChat(ctx, rc.ChatCtx)
 	if err != nil {
 		return nil, "", err
 	}
