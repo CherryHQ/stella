@@ -113,6 +113,8 @@
 - Tightened `localFactory` so explicit relaxed mode is required for all local sessions, matching the Phase 1 fail-closed contract.
 - Changed boxsh `Host.StartProcess`, `Host.HTTPRequest`, and `Host.OpenHTTPStream` to fail closed until real transport mediation exists, instead of silently bypassing the sandbox.
 - Made `boxshHost.ResolvePath` remap absolute paths into the boxsh session root so filesystem operations target the overlay view rather than the host workspace.
+- Resolved boxsh host path-model drift by routing `ReadFile`, `WriteFile`, `CreateTemp`, and default `Exec` cwd through the same resolve/remap path logic.
+- Added backend-liveness coverage so `Done()` closes when the boxsh backend becomes unavailable, not only on explicit `Close()`.
 
 **Decisions & context for next phase:**
 
