@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -151,15 +152,13 @@ func (h *localHost) ReadFile(ctx context.Context, path string, offset, limit int
 		return ReadResult{}, err
 	}
 
-	// Apply offset
 	if offset > 0 {
 		if offset >= len(content) {
-			return ReadResult{Content: nil}, nil
+			return ReadResult{Content: nil, NextOffset: offset}, nil
 		}
 		content = content[offset:]
 	}
 
-	// Apply limit
 	truncated := false
 	if limit > 0 && len(content) > limit {
 		content = content[:limit]
@@ -186,6 +185,10 @@ func (h *localHost) WriteFile(ctx context.Context, path string, content []byte) 
 
 	// Advisory check
 	if err := h.checkPath(resolved); err != nil && !h.session.policy.Relaxed {
+		return WriteResult{}, err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
 		return WriteResult{}, err
 	}
 
@@ -358,11 +361,15 @@ func (h *localHost) Exec(ctx context.Context, command string, opts ExecOptions) 
 	}
 
 	// Execute command
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Dir = cwd
 	cmd.Env = env
 
-	output, err := cmd.CombinedOutput()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
 	exitCode := 0
 	if err != nil {
 		exitErr := &exec.ExitError{}
@@ -374,8 +381,8 @@ func (h *localHost) Exec(ctx context.Context, command string, opts ExecOptions) 
 	}
 
 	return ExecResult{
-		Stdout:   string(output),
-		Stderr:   "", // Combined output
+		Stdout:   stdout.String(),
+		Stderr:   stderr.String(),
 		ExitCode: exitCode,
 	}, nil
 }

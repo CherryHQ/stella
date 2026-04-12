@@ -191,15 +191,15 @@ func (h *boxshHost) ReadFile(ctx context.Context, path string, offset, limit int
 		return ReadResult{}, err
 	}
 
-	nextOffset := offset + len(result.Content)
-	if result.Truncated && limit > 0 {
-		nextOffset = offset + limit
+	lineCount := strings.Count(result.Content, "\n")
+	if result.Content != "" && !strings.HasSuffix(result.Content, "\n") {
+		lineCount++
 	}
 
 	return ReadResult{
 		Content:    []byte(result.Content),
 		Truncated:  result.Truncated,
-		NextOffset: nextOffset,
+		NextOffset: offset + max(lineCount, 1),
 	}, nil
 }
 
@@ -230,29 +230,25 @@ func (h *boxshHost) EditFile(ctx context.Context, path string, edits []Edit) (Ed
 	if err := h.ensureWritable(path); err != nil {
 		return EditResult{}, err
 	}
-	// Read current content
-	readResult, err := h.ReadFile(ctx, path, 0, 0)
+	client := h.session.client
+	if client == nil {
+		return EditResult{}, fmt.Errorf("boxsh host: session not available")
+	}
+
+	resolved, err := h.ResolvePath(path)
 	if err != nil {
 		return EditResult{}, err
 	}
 
-	content := string(readResult.Content)
-	applied := 0
-
+	specs := make([]boxshclient.EditSpec, 0, len(edits))
 	for _, edit := range edits {
-		if strings.Contains(content, edit.OldText) {
-			content = strings.Replace(content, edit.OldText, edit.NewText, 1)
-			applied++
-		}
+		specs = append(specs, boxshclient.EditSpec{OldText: edit.OldText, NewText: edit.NewText})
 	}
-
-	// Write back
-	_, err = h.WriteFile(ctx, path, []byte(content))
+	result, err := client.Edit(ctx, boxshclient.EditParams{FilePath: resolved, Edits: specs})
 	if err != nil {
 		return EditResult{}, err
 	}
-
-	return EditResult{AppliedEdits: applied}, nil
+	return EditResult{AppliedEdits: result.Replacements}, nil
 }
 
 func (h *boxshHost) Stat(ctx context.Context, path string) (StatResult, error) {

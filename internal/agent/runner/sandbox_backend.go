@@ -130,6 +130,9 @@ func createLocalSession(_ context.Context, cfg GoRunnerConfig) (*runnerSession, 
 		Network: sandbox.NetworkPolicy{
 			Mode: sandbox.NetworkAllowAll,
 		},
+		Process: sandbox.ProcessPolicy{
+			InheritEnv: true,
+		},
 	}
 
 	factory := sandbox.GlobalRegistry().Get("local")

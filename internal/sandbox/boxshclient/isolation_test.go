@@ -149,25 +149,24 @@ func TestIsolation_CrossWorkspaceAccessBlocked(t *testing.T) {
 		t.Fatalf("backend.Start: %v", err)
 	}
 
-	readTool := NewReadAdapter(backend)
-	writeTool := NewWriteAdapter(backend)
-	editTool := NewEditAdapter(backend)
-	bashTool := NewBashAdapter(backend, "")
-
-	if _, err := readTool.Execute(ctx, map[string]any{"file_path": filepath.Join(siblingRoot, "secret.txt")}); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
+	if _, err := testRead(ctx, backend, filepath.Join(siblingRoot, "secret.txt"), 1, 0); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
 		t.Fatalf("expected sibling workspace denial, got %v", err)
 	}
-	if _, err := writeTool.Execute(ctx, map[string]any{"file_path": filepath.Join(siblingRoot, "hack.txt"), "content": "nope"}); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
+	if _, err := testWrite(ctx, backend, filepath.Join(siblingRoot, "hack.txt"), "nope"); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
 		t.Fatalf("expected sibling workspace write denial, got %v", err)
 	}
-	if _, err := editTool.Execute(ctx, map[string]any{"file_path": filepath.Join(siblingRoot, "secret.txt"), "old_string": "a", "new_string": "b"}); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
+	if _, err := testEdit(ctx, backend, filepath.Join(siblingRoot, "secret.txt"), "a", "b"); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
 		t.Fatalf("expected sibling workspace edit denial, got %v", err)
 	}
-	if _, err := bashTool.Execute(ctx, map[string]any{"command": "cat " + filepath.Join(siblingRoot, "secret.txt")}); err == nil {
-		t.Fatal("expected bash denial for sibling workspace access")
+	result, err := testExec(ctx, backend, "cat "+filepath.Join(siblingRoot, "secret.txt"), 0)
+	if err != nil {
+		t.Fatalf("exec sibling cat: %v", err)
+	}
+	if result.ExitCode == 0 {
+		t.Fatalf("expected bash denial for sibling workspace access, got %#v", result)
 	}
 
-	if _, err := readTool.Execute(ctx, map[string]any{"file_path": filepath.Join(allowedRoot, "ok.txt")}); err != nil {
+	if _, err := testRead(ctx, backend, filepath.Join(allowedRoot, "ok.txt"), 1, 0); err != nil {
 		t.Fatalf("expected in-root access to succeed, got %v", err)
 	}
 }
@@ -202,11 +201,10 @@ func TestIsolation_ParentDirectoryTraversalBlocked(t *testing.T) {
 		t.Fatalf("backend.Start: %v", err)
 	}
 
-	readTool := NewReadAdapter(backend)
-	if _, err := readTool.Execute(ctx, map[string]any{"file_path": "../other-agent/secrets.txt"}); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
+	if _, err := testRead(ctx, backend, "../other-agent/secrets.txt", 1, 0); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
 		t.Fatalf("expected parent traversal denial, got %v", err)
 	}
-	if _, err := readTool.Execute(ctx, map[string]any{"file_path": filepath.Join(allowedRoot, "..", "..", "secret.txt")}); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
+	if _, err := testRead(ctx, backend, filepath.Join(allowedRoot, "..", "..", "secret.txt"), 1, 0); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
 		t.Fatalf("expected absolute traversal denial, got %v", err)
 	}
 }

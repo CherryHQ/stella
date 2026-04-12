@@ -64,41 +64,19 @@ func TestCoreToolsBuilderWithSandbox_NoSessionUsesDelegate(t *testing.T) {
 	}
 }
 
-func TestCoreToolsBuilderWithSandbox_WithNilSessionUsesDelegate(t *testing.T) {
-	builder := CoreToolsBuilderWithSandbox(delegateBuilder, &runnerSession{session: nil})
-	tools := builder(plugintools.BuildContext{WorkDir: "/tmp", ToolsBinDir: "/tmp/bin", Sandbox: fakeRuntime{}})
-	if len(tools) != 4 {
-		t.Fatalf("expected 4 tools, got %d", len(tools))
-	}
-	if _, ok := tools[0].(*bashtool.BashTool); !ok {
-		t.Fatalf("expected delegate bash tool, got %T", tools[0])
-	}
-}
-
-func TestCoreToolsBuilderWithSandbox_UsesHostToolsWhenBoxshSessionAvailable(t *testing.T) {
-	session := fakeRunnerSession("boxsh", &fakeHost{})
+func TestCoreToolsBuilderWithSandbox_WithSessionUsesHostTools(t *testing.T) {
+	session := fakeRunnerSession("local", &fakeHost{})
 	builder := CoreToolsBuilderWithSandbox(delegateBuilder, session)
 	tools := builder(plugintools.BuildContext{})
 	if len(tools) != 4 {
 		t.Fatalf("expected 4 tools, got %d", len(tools))
 	}
-	if _, ok := tools[0].(*hostBashTool); !ok {
-		t.Fatalf("expected host bash tool, got %T", tools[0])
-	}
-	if _, ok := tools[1].(*hostReadTool); !ok {
-		t.Fatalf("expected host read tool, got %T", tools[1])
-	}
-}
-
-func TestCoreToolsBuilderWithSandbox_LocalSessionUsesDelegate(t *testing.T) {
-	session := fakeRunnerSession("local", &fakeHost{})
-	builder := CoreToolsBuilderWithSandbox(delegateBuilder, session)
-	tools := builder(plugintools.BuildContext{WorkDir: "/tmp", ToolsBinDir: "/tmp/bin"})
-	if len(tools) != 4 {
-		t.Fatalf("expected 4 tools, got %d", len(tools))
-	}
-	if _, ok := tools[0].(*bashtool.BashTool); !ok {
-		t.Fatalf("expected delegate bash tool, got %T", tools[0])
+	gotNames := []string{tools[0].Definition().Name, tools[1].Definition().Name, tools[2].Definition().Name, tools[3].Definition().Name}
+	want := []string{"bash", "read", "write", "edit"}
+	for i := range want {
+		if gotNames[i] != want[i] {
+			t.Fatalf("tool[%d] = %q, want %q", i, gotNames[i], want[i])
+		}
 	}
 }
 

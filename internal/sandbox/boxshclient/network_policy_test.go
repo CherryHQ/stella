@@ -161,9 +161,12 @@ func TestNetworkPolicy_DisabledModeBlocksConnections(t *testing.T) {
 		t.Fatalf("backend.Start: %v", err)
 	}
 
-	_, err = NewBashAdapter(backend, "").Execute(ctx, map[string]any{"command": fmt.Sprintf("probe %s %d", host, port)})
-	if err == nil {
-		t.Fatal("expected disabled mode to block network access")
+	result, err := testExec(ctx, backend, fmt.Sprintf("probe %s %d", host, port), 0)
+	if err != nil {
+		t.Fatalf("exec probe: %v", err)
+	}
+	if result.ExitCode == 0 {
+		t.Fatalf("expected disabled mode to block network access, got %#v", result)
 	}
 	if hits.Load() != 0 {
 		t.Fatalf("expected zero network hits in disabled mode, got %d", hits.Load())
@@ -191,12 +194,12 @@ func TestNetworkPolicy_AllowAllModePermitsConnections(t *testing.T) {
 		t.Fatalf("backend.Start: %v", err)
 	}
 
-	result, err := NewBashAdapter(backend, "").Execute(ctx, map[string]any{"command": fmt.Sprintf("probe %s %d", host, port)})
+	result, err := testExec(ctx, backend, fmt.Sprintf("probe %s %d", host, port), 0)
 	if err != nil {
 		t.Fatalf("expected allow_all connection to succeed, got %v", err)
 	}
-	if !strings.Contains(result, "connected") {
-		t.Fatalf("expected connected result, got %q", result)
+	if !strings.Contains(result.Stdout, "connected") {
+		t.Fatalf("expected connected result, got %#v", result)
 	}
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for hits.Load() == 0 && time.Now().Before(deadline) {

@@ -186,57 +186,52 @@ func TestSharedCOWView_AllToolsSeeSameSession(t *testing.T) {
 		t.Fatalf("backend.Start: %v", err)
 	}
 
-	readTool := NewReadAdapter(backend)
-	writeTool := NewWriteAdapter(backend)
-	editTool := NewEditAdapter(backend)
-	bashTool := NewBashAdapter(backend, "")
-
-	result, err := readTool.Execute(ctx, map[string]any{"file_path": "/notes.txt"})
+	result, err := testRead(ctx, backend, "/notes.txt", 0, 0)
 	if err != nil {
 		t.Fatalf("initial read: %v", err)
 	}
-	if !strings.Contains(result, "old value") {
-		t.Fatalf("expected source content, got %q", result)
+	if !strings.Contains(result.Content, "old value") {
+		t.Fatalf("expected source content, got %q", result.Content)
 	}
 
-	if _, err := writeTool.Execute(ctx, map[string]any{"file_path": "/notes.txt", "content": "written value\n"}); err != nil {
+	if _, err := testWrite(ctx, backend, "/notes.txt", "written value\n"); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
-	result, err = readTool.Execute(ctx, map[string]any{"file_path": "/notes.txt"})
+	result, err = testRead(ctx, backend, "/notes.txt", 0, 0)
 	if err != nil {
 		t.Fatalf("read after write: %v", err)
 	}
-	if !strings.Contains(result, "written value") {
-		t.Fatalf("expected updated content visible to read, got %q", result)
+	if !strings.Contains(result.Content, "written value") {
+		t.Fatalf("expected updated content visible to read, got %q", result.Content)
 	}
 
-	bashResult, err := bashTool.Execute(ctx, map[string]any{"command": "cat /notes.txt"})
+	bashResult, err := testExec(ctx, backend, "cat /notes.txt", 0)
 	if err != nil {
 		t.Fatalf("bash cat: %v", err)
 	}
-	if !strings.Contains(bashResult, "written value") {
-		t.Fatalf("expected bash to see overlay content, got %q", bashResult)
+	if !strings.Contains(bashResult.Stdout, "written value") {
+		t.Fatalf("expected bash to see overlay content, got %#v", bashResult)
 	}
 
-	if _, err := editTool.Execute(ctx, map[string]any{"file_path": "/notes.txt", "old_string": "written", "new_string": "edited"}); err != nil {
+	if _, err := testEdit(ctx, backend, "/notes.txt", "written", "edited"); err != nil {
 		t.Fatalf("edit: %v", err)
 	}
 
-	result, err = readTool.Execute(ctx, map[string]any{"file_path": "/notes.txt"})
+	result, err = testRead(ctx, backend, "/notes.txt", 0, 0)
 	if err != nil {
 		t.Fatalf("read after edit: %v", err)
 	}
-	if !strings.Contains(result, "edited value") {
-		t.Fatalf("expected edited content visible to read, got %q", result)
+	if !strings.Contains(result.Content, "edited value") {
+		t.Fatalf("expected edited content visible to read, got %q", result.Content)
 	}
 
-	bashResult, err = bashTool.Execute(ctx, map[string]any{"command": "cat /notes.txt"})
+	bashResult, err = testExec(ctx, backend, "cat /notes.txt", 0)
 	if err != nil {
 		t.Fatalf("bash cat after edit: %v", err)
 	}
-	if !strings.Contains(bashResult, "edited value") {
-		t.Fatalf("expected bash to see edited overlay content, got %q", bashResult)
+	if !strings.Contains(bashResult.Stdout, "edited value") {
+		t.Fatalf("expected bash to see edited overlay content, got %#v", bashResult)
 	}
 
 	sourceData, err := os.ReadFile(filepath.Join(src, "notes.txt"))
