@@ -76,3 +76,43 @@
 - [x] Exceptions documented
 - [x] Rollout plan established
 - [ ] Ready to implement types in `internal/sandbox/`
+
+
+## Phase 2: Introduce top-level sandbox types in code
+
+**Status:** complete
+
+**Tasks completed:**
+
+- 2.1: Added `internal/sandbox/policy.go` with immutable policy types, validation helpers, and compatibility errors
+- 2.2: Added `internal/sandbox/session.go` with `Session`, `Host`, and first-cut request/result contracts
+- 2.3: Added `internal/sandbox/factory.go` with backend registry, fail-closed selection, and relaxed session helper
+- 2.4: Added explicit relaxed/local implementation in `internal/sandbox/local_session.go`
+- 2.5: Added boxsh-backed implementation in `internal/sandbox/boxsh_session.go` behind abstract interfaces
+- 2.6: Added contract tests for shared session/host behavior in `internal/sandbox/contract_test.go`
+- 2.7: Added policy compatibility tests for fail-closed behavior in `internal/sandbox/policy_compat_test.go`
+
+**Files changed:**
+
+- `internal/sandbox/policy.go` — new policy model and compatibility error types
+- `internal/sandbox/session.go` — new `Session` / `Host` interfaces and request/result contracts
+- `internal/sandbox/factory.go` — new factory registry and backend selection logic
+- `internal/sandbox/local_session.go` — explicit relaxed/local backend implementation
+- `internal/sandbox/boxsh_session.go` — boxsh-backed session/host adapter
+- `internal/sandbox/contract_test.go` — shared session/host contract tests
+- `internal/sandbox/policy_compat_test.go` — fail-closed and compatibility tests
+- `internal/sandbox/boxshclient/backend.go` — helper for managed boxsh path resolution
+- `internal/sandbox/boxshclient/session.go` — exported session/path helpers reused by Phase 2 abstractions
+- `.agents/sessions/2026-04-12-sandbox-interface-redesign/tasks.md` — Phase 2 tasks marked complete
+
+**Commits:**
+
+- `6900c40` — `✨ feat: add phase 2 sandbox session abstractions`
+
+**Decisions & context for next phase:**
+
+- Phase 2 compiles and passes `go test ./...`, `go test ./internal/sandbox ./internal/sandbox/boxshclient`, and `mise run format`
+- `local` is implemented as explicit relaxed mode; strict unsupported policies fail closed via `PolicyCompatibilityError`
+- `boxsh` is hidden behind `sandbox.Session` / `sandbox.Host`, but runner/build contexts still leak older boxsh-specific seams and must be refactored in Phase 3
+- `Host` now includes the filesystem/process/network primitives required by the Phase 1 contract, including `StartProcess` and streaming HTTP
+- The contract tests currently exercise `local` directly and only run `boxsh` when a managed binary is available in the environment
