@@ -302,6 +302,9 @@ func (h *boxshHost) ListDir(ctx context.Context, path string) ([]DirEntry, error
 }
 
 func (h *boxshHost) MkdirAll(ctx context.Context, path string, perm uint32) error {
+	if err := h.ensureWritable(path); err != nil {
+		return err
+	}
 	resolved, err := h.ResolvePath(path)
 	if err != nil {
 		return err
@@ -311,6 +314,9 @@ func (h *boxshHost) MkdirAll(ctx context.Context, path string, perm uint32) erro
 }
 
 func (h *boxshHost) Remove(ctx context.Context, path string, recursive bool) error {
+	if err := h.ensureWritable(path); err != nil {
+		return err
+	}
 	resolved, err := h.ResolvePath(path)
 	if err != nil {
 		return err
@@ -323,6 +329,12 @@ func (h *boxshHost) Remove(ctx context.Context, path string, recursive bool) err
 }
 
 func (h *boxshHost) Rename(ctx context.Context, oldPath, newPath string) error {
+	if err := h.ensureWritable(oldPath); err != nil {
+		return err
+	}
+	if err := h.ensureWritable(newPath); err != nil {
+		return err
+	}
 	resolvedOld, err := h.ResolvePath(oldPath)
 	if err != nil {
 		return err
@@ -342,6 +354,9 @@ func (h *boxshHost) CreateTemp(ctx context.Context, dir, pattern string) (TempFi
 	resolvedDir := dir
 	if resolvedDir == "" {
 		resolvedDir = policy.WorkingDir
+	}
+	if err := h.ensureWritable(resolvedDir); err != nil {
+		return nil, err
 	}
 	resolvedDir, err := h.ResolvePath(resolvedDir)
 	if err != nil {
@@ -445,7 +460,7 @@ func (h *boxshHost) ResolvePath(path string) (string, error) {
 		return "", err
 	}
 	if !filepath.IsAbs(path) {
-		return filepath.Join(root, path), nil
+		path = filepath.Join(h.session.policy.Filesystem.WorkingDir, path)
 	}
 
 	srcRoot := h.session.policy.WorkspaceRootOrDefault()
@@ -482,6 +497,19 @@ func isWithinRoot(root, path string) bool {
 		return false
 	}
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+func (h *boxshHost) ensureWritable(path string) error {
+	logicalPath := path
+	if !filepath.IsAbs(logicalPath) {
+		logicalPath = filepath.Join(h.session.policy.Filesystem.WorkingDir, logicalPath)
+	}
+	for _, ro := range h.session.policy.Filesystem.ReadOnlyPaths {
+		if isWithinRoot(ro, logicalPath) {
+			return fmt.Errorf("sandbox: path %q is read-only in boxsh session", path)
+		}
+	}
+	return nil
 }
 
 func sandboxRelativeAbsolute(path string) bool {
