@@ -69,6 +69,10 @@ func (s *Server) getPluginStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getPluginConfig(w http.ResponseWriter, r *http.Request) {
+	if pluginKind := r.PathValue("kind"); pluginKind == config.PluginKindChannel {
+		writeError(w, http.StatusBadRequest, "channel instance config lives on /channels, not plugin config")
+		return
+	}
 	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
 	state, err := s.pluginHost.Config().Get(r.Context(), id)
 	if err != nil {
@@ -127,6 +131,10 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updatePluginConfig(w http.ResponseWriter, r *http.Request) {
+	if pluginKind := r.PathValue("kind"); pluginKind == config.PluginKindChannel {
+		writeError(w, http.StatusBadRequest, "channel instance config lives on /channels, not plugin config")
+		return
+	}
 	id := pluginRouteID(r.PathValue("kind"), r.PathValue("name"))
 	var req struct {
 		Config map[string]any `json:"config"`

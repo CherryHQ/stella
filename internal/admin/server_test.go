@@ -452,12 +452,11 @@ func TestGetAdditionalPluginConfigSchemas(t *testing.T) {
 func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	env := setupAdmin(t)
 
-	if err := env.store.SetPluginConfig(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram), map[string]any{
-		"token":         "telegram-secret",
-		"group_mode":    "mention",
-		"enable_notify": true,
+	if err := env.store.SetPluginConfig(context.Background(), reflectplugin.PluginID, map[string]any{
+		"interval": "30m",
+		"batch":    3,
 	}); err != nil {
-		t.Fatalf("SetPluginConfig(telegram): %v", err)
+		t.Fatalf("SetPluginConfig(reflect): %v", err)
 	}
 
 	rr := doRequest(t, env, "GET", "/api/plugins", nil)
@@ -491,14 +490,14 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	}
 
 	telegram := byID[config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram)]
-	if telegram.DisplayName != "Telegram" || !telegram.Managed || !telegram.AdminVisible || !telegram.HasConfig || !telegram.HasStatus || !telegram.SupportsNotifications {
+	if telegram.DisplayName != "Telegram" || !telegram.Managed || !telegram.AdminVisible || telegram.HasConfig || !telegram.HasStatus || !telegram.SupportsNotifications {
 		t.Fatalf("unexpected telegram plugin payload: %#v", telegram)
 	}
 	if telegram.Description != "Telegram bot integration." {
 		t.Fatalf("telegram description = %q, want %q", telegram.Description, "Telegram bot integration.")
 	}
-	if telegram.Config["token"] != "***" {
-		t.Fatalf("expected redacted telegram token, got %#v", telegram.Config["token"])
+	if len(telegram.Config) != 0 {
+		t.Fatalf("expected channel plugin config to be hidden, got %#v", telegram.Config)
 	}
 
 	qq := byID[config.PluginID(config.PluginKindChannel, pkgchannel.PlatformQQ)]
@@ -515,32 +514,19 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	}
 }
 
-func TestGetPluginConfigReturnsRawConfig(t *testing.T) {
+func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
 	env := setupAdmin(t)
 
-	if err := env.store.SetPluginConfig(context.Background(), config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram), map[string]any{
-		"token":         "telegram-secret",
-		"group_mode":    "mention",
-		"enable_notify": true,
-	}); err != nil {
-		t.Fatalf("SetPluginConfig(telegram): %v", err)
-	}
-
 	rr := doRequest(t, env, "GET", "/api/plugin-config/channel/telegram", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("GET status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
 
-	resp := parseResponse(t, rr)
-	var cfg map[string]any
-	if err := json.Unmarshal(resp.Data, &cfg); err != nil {
-		t.Fatalf("unmarshal config: %v", err)
-	}
-	if cfg["token"] != "telegram-secret" {
-		t.Fatalf("token = %#v, want %q", cfg["token"], "telegram-secret")
-	}
-	if cfg["group_mode"] != "mention" {
-		t.Fatalf("group_mode = %#v, want %q", cfg["group_mode"], "mention")
+	rr = doRequest(t, env, "PUT", "/api/plugin-config/channel/telegram", map[string]any{
+		"config": map[string]any{"token": "telegram-secret"},
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("PUT status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
 }
 

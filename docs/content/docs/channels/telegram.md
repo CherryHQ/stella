@@ -8,7 +8,7 @@ anna includes a Telegram bot that runs via long polling -- no webhook or public 
 
 1. Create a bot via [@BotFather](https://t.me/BotFather) and note the bot token
 2. Run `anna --open` to launch the admin panel
-3. In the admin panel: add an AI provider, then configure the Telegram channel with your bot token
+3. In the admin panel: add an AI provider, then go to the Channels page and configure a Telegram channel instance with your bot token
 4. Start the daemon:
 
 ```bash

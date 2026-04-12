@@ -243,7 +243,7 @@ func (s *Server) saveChannel(w http.ResponseWriter, r *http.Request, ch config.C
 			Kind:    config.PluginKindChannel,
 			Name:    ch.Type,
 			Enabled: pluginEnabled,
-			Config:  cfgMap,
+			Config:  map[string]any{},
 		}); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return false
