@@ -15,13 +15,13 @@
 - [x] Produce rollout/deprecation notes
 
 ## Phase 2: Introduce top-level sandbox types in code
-- [ ] Add `internal/sandbox/policy.go`
-- [ ] Add `internal/sandbox/session.go`
-- [ ] Add `internal/sandbox/factory.go`
-- [ ] Add explicit relaxed/local implementation
-- [ ] Add boxsh-backed implementation behind abstract interfaces
-- [ ] Add contract tests for shared session/host behavior
-- [ ] Add policy compatibility tests for fail-closed behavior
+- [x] Add `internal/sandbox/policy.go`
+- [x] Add `internal/sandbox/session.go`
+- [x] Add `internal/sandbox/factory.go`
+- [x] Add explicit relaxed/local implementation
+- [x] Add boxsh-backed implementation behind abstract interfaces
+- [x] Add contract tests for shared session/host behavior
+- [x] Add policy compatibility tests for fail-closed behavior
 
 ## Phase 3: Refactor runner and execution-time contexts onto the abstraction
 - [ ] Replace runner boxsh-leaking seams with session-based factory usage

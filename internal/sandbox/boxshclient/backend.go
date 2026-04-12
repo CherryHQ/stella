@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/sandbox"
 )
 
 // SharedBackend provides a shared boxsh session for all core tools.
@@ -68,7 +67,7 @@ func NewSharedBackend(cfg BackendConfig) (*SharedBackend, error) {
 		if annaHome == "" {
 			annaHome = config.AnnaHome()
 		}
-		path, err := sandbox.ResolveManagedBoxshPath(annaHome)
+		path, err := ResolveManagedBoxshPath(annaHome)
 		if err != nil {
 			return nil, fmt.Errorf("boxshclient: %w", err)
 		}
@@ -91,10 +90,7 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 	}
 
 	// Determine sandbox root (SRC).
-	src := sandbox.SandboxRoot(sandbox.PreflightConfig{
-		Workspace:   cfg.Workspace,
-		UserDataDir: cfg.UserDataDir,
-	})
+	src := DeriveSandboxRoot(cfg.Workspace, cfg.UserDataDir)
 
 	// Create an ephemeral overlay root on the same filesystem as SRC.
 	// boxsh's current overlay implementation requires that to avoid cross-device
@@ -256,4 +252,23 @@ func remapCwdToSessionRoot(srcRoot, dstRoot, workDir string) string {
 		return dstRoot
 	}
 	return filepath.Join(dstRoot, rel)
+}
+
+// ResolveManagedBoxshPath returns the path to the managed boxsh binary in annaHome.
+func ResolveManagedBoxshPath(annaHome string) (string, error) {
+	binDir := filepath.Join(annaHome, "bin")
+	path := filepath.Join(binDir, "boxsh")
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("sandbox: stat managed boxsh binary: %w", err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("sandbox: managed boxsh path %q is a directory", path)
+	}
+	if info.Mode()&0o111 == 0 {
+		return "", fmt.Errorf("sandbox: managed boxsh binary %q is not executable", path)
+	}
+
+	return path, nil
 }

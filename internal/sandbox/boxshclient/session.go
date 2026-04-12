@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/sandbox"
 )
 
 // SessionManager handles the lifecycle of sandbox sessions including
@@ -159,10 +158,10 @@ func BuildSessionConfig(info *SessionInfo) SessionConfig {
 // - For user sessions (userDataDir != ""): use UserDataDir.
 // - For non-user/system sessions: use Workspace.
 func DeriveSandboxRoot(workspace, userDataDir string) string {
-	return sandbox.SandboxRoot(sandbox.PreflightConfig{
-		Workspace:   workspace,
-		UserDataDir: userDataDir,
-	})
+	if userDataDir != "" {
+		return userDataDir
+	}
+	return workspace
 }
 
 // ValidateSandboxPath checks that a path is within the allowed sandbox boundaries.
