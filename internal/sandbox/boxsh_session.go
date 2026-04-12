@@ -209,6 +209,10 @@ func (h *boxshHost) WriteFile(ctx context.Context, path string, content []byte) 
 		return WriteResult{}, fmt.Errorf("boxsh host: session not available")
 	}
 
+	if err := h.ensureWritable(path); err != nil {
+		return WriteResult{}, err
+	}
+
 	// Use boxsh client for file write
 	resolved, err := h.ResolvePath(path)
 	if err != nil {
@@ -223,6 +227,9 @@ func (h *boxshHost) WriteFile(ctx context.Context, path string, content []byte) 
 }
 
 func (h *boxshHost) EditFile(ctx context.Context, path string, edits []Edit) (EditResult, error) {
+	if err := h.ensureWritable(path); err != nil {
+		return EditResult{}, err
+	}
 	// Read current content
 	readResult, err := h.ReadFile(ctx, path, 0, 0)
 	if err != nil {
@@ -414,6 +421,10 @@ func (h *boxshHost) Exec(ctx context.Context, command string, opts ExecOptions) 
 		defer cancel()
 	}
 
+	if h.hasReadOnlyOverlap() {
+		return ExecResult{}, fmt.Errorf("sandbox: boxsh Host.Exec is fail-closed when ReadOnlyPaths overlap WorkspaceRoot in Phase 2")
+	}
+
 	// Use boxsh client for sandboxed execution
 	client := h.session.client
 	if client == nil {
@@ -510,6 +521,16 @@ func (h *boxshHost) ensureWritable(path string) error {
 		}
 	}
 	return nil
+}
+
+func (h *boxshHost) hasReadOnlyOverlap() bool {
+	workspaceRoot := h.session.policy.WorkspaceRootOrDefault()
+	for _, ro := range h.session.policy.Filesystem.ReadOnlyPaths {
+		if isWithinRoot(workspaceRoot, ro) || isWithinRoot(ro, workspaceRoot) {
+			return true
+		}
+	}
+	return false
 }
 
 func sandboxRelativeAbsolute(path string) bool {
