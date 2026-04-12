@@ -245,6 +245,8 @@ slog.Debug("sandbox.exec_started",
 
 ### Observer Interface
 
+The observer contract covers lifecycle, policy, exception, and execution events. Filesystem and HTTP metrics are emitted directly inside `Host` implementations using the metric names defined above; they do not require separate observer callbacks.
+
 ```go
 // Observer receives sandbox observability events
 type Observer interface {

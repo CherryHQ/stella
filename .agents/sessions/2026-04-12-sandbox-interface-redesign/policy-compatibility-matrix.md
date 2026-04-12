@@ -65,17 +65,19 @@ Cells = Support level + notes
 
 ```go
 func (f *boxshFactory) Supported(policy Policy) error {
-    // Whitelist mode not supported in boxsh 2.0.1
-    if policy.Network.Mode == NetworkWhitelist {
-        return fmt.Errorf("boxsh: whitelist mode requires boxsh >= 2.1")
+    // Whitelist mode not supported in boxsh 2.0.1 unless the caller
+    // explicitly accepts relaxed handling.
+    if policy.Network.Mode == NetworkWhitelist && !policy.Relaxed {
+        return fmt.Errorf("boxsh: whitelist mode requires boxsh >= 2.1 or Relaxed=true")
     }
     
-    // All other policies can be enforced
+    // All other policies can be enforced. In relaxed mode, whitelist is
+    // downgraded to allow_all and emitted as an observability warning.
     return nil
 }
 ```
 
-**Behavior**: Returns error for unsupported policies. Caller must either:
+**Behavior**: Returns error for unsupported policies unless the caller explicitly opts into relaxed mode. Caller must either:
 1. Use a different backend
 2. Explicitly relax the policy
 3. Upgrade boxsh

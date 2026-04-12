@@ -109,6 +109,10 @@ type Host interface {
     EditFile(ctx context.Context, path string, edits []Edit) (EditResult, error)
     Stat(ctx context.Context, path string) (StatResult, error)
     ListDir(ctx context.Context, path string) ([]DirEntry, error)
+    MkdirAll(ctx context.Context, path string, perm fs.FileMode) error
+    Remove(ctx context.Context, path string, recursive bool) error
+    Rename(ctx context.Context, oldPath, newPath string) error
+    CreateTemp(ctx context.Context, dir, pattern string) (TempFile, error)
     
     // Shell-oriented process execution for parity with the existing bash tool.
     Exec(ctx context.Context, command string, opts ExecOptions) (ExecResult, error)
@@ -160,6 +164,12 @@ type DirEntry struct {
     Name  string
     IsDir bool
     Size  int64
+}
+
+type TempFile interface {
+    Path() string
+    Write([]byte) (int, error)
+    Close() error
 }
 
 type ExecOptions struct {
@@ -369,4 +379,4 @@ Events/logs emitted by sandbox layer:
 | `sandbox.exec_started` | Debug | Command execution |
 | `sandbox.exec_finished` | Debug | Command completion |
 
-The canonical observer contract lives in `observability-requirements.md`. `design-spec.md` intentionally does not restate a second divergent interface; Phase 2 should implement the typed, context-aware observer defined there.
+The canonical observer contract lives in `observability-requirements.md`. `design-spec.md` intentionally does not restate a second divergent interface; Phase 2 should implement the typed, context-aware observer defined there. Filesystem and HTTP metrics are emitted directly by `Host` implementations using the shared metrics schema from that document; they are not separate observer callbacks.
