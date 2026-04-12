@@ -622,12 +622,12 @@ func TestPluginSeedDefaultsIdempotent(t *testing.T) {
 		t.Fatalf("first SeedDefaults: %v", err)
 	}
 
-	// User modifies a plugin.
+	// User modifies plugin/channel state.
 	if err := store.SetPluginEnabled(ctx, "tool/webfetch", false); err != nil {
 		t.Fatalf("SetPluginEnabled: %v", err)
 	}
-	if err := store.SetPluginConfig(ctx, "channel/telegram", map[string]any{"token": "abc"}); err != nil {
-		t.Fatalf("SetPluginConfig: %v", err)
+	if err := store.UpsertChannel(ctx, Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"abc"}`}); err != nil {
+		t.Fatalf("UpsertChannel: %v", err)
 	}
 
 	// Second seed should NOT overwrite user changes.
@@ -643,7 +643,6 @@ func TestPluginSeedDefaultsIdempotent(t *testing.T) {
 		t.Errorf("expected %d plugins after double seed, got %d", len(BuiltinPluginIDs()), len(plugins))
 	}
 
-	// Verify user changes preserved.
 	webfetchPlugin, err := store.GetPlugin(ctx, "tool/webfetch")
 	if err != nil {
 		t.Fatalf("GetPlugin: %v", err)
@@ -652,36 +651,81 @@ func TestPluginSeedDefaultsIdempotent(t *testing.T) {
 		t.Error("expected tool/webfetch to remain disabled after second seed")
 	}
 
+	tgChannel, err := store.GetChannel(ctx, "telegram")
+	if err != nil {
+		t.Fatalf("GetChannel: %v", err)
+	}
+	if tgChannel.Config != `{"token":"abc"}` {
+		t.Errorf("expected telegram channel config preserved, got %s", tgChannel.Config)
+	}
+
 	tgPlugin, err := store.GetPlugin(ctx, "channel/telegram")
 	if err != nil {
 		t.Fatalf("GetPlugin: %v", err)
 	}
-	if tgPlugin.Config["token"] != "abc" {
-		t.Errorf("expected telegram config preserved, got %+v", tgPlugin.Config)
+	if len(tgPlugin.Config) != 0 {
+		t.Errorf("expected telegram plugin config cleared, got %+v", tgPlugin.Config)
 	}
 }
 
-func TestPluginSeedMigratesChannels(t *testing.T) {
+func TestPluginSeedKeepsChannelConfigInSettingsChannels(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
-	// Create a channel before seeding plugins.
-	_ = store.UpsertChannel(ctx, Channel{ID: "telegram", Enabled: true, Config: `{"token":"tg-123"}`})
+	if err := store.UpsertChannel(ctx, Channel{ID: "telegram", Type: "telegram", Enabled: true, Config: `{"token":"tg-123"}`}); err != nil {
+		t.Fatalf("UpsertChannel: %v", err)
+	}
 
 	if err := store.SeedDefaults(ctx); err != nil {
 		t.Fatalf("SeedDefaults: %v", err)
 	}
 
-	// The channel data should have been migrated.
 	p, err := store.GetPlugin(ctx, "channel/telegram")
 	if err != nil {
 		t.Fatalf("GetPlugin: %v", err)
 	}
 	if !p.Enabled {
-		t.Error("migrated telegram plugin should be enabled")
+		t.Error("telegram plugin should be enabled")
 	}
-	if p.Config["token"] != "tg-123" {
-		t.Errorf("migrated config = %+v, want token=tg-123", p.Config)
+	if len(p.Config) != 0 {
+		t.Errorf("expected channel plugin config to stay empty, got %+v", p.Config)
+	}
+
+	ch, err := store.GetChannel(ctx, "telegram")
+	if err != nil {
+		t.Fatalf("GetChannel: %v", err)
+	}
+	if ch.Config != `{"token":"tg-123"}` {
+		t.Errorf("channel config = %s, want token persisted on settings_channels", ch.Config)
+	}
+}
+
+func TestPluginSeedNormalizesLegacyChannelPluginConfig(t *testing.T) {
+	store := setupDBStore(t)
+	ctx := context.Background()
+
+	if err := store.UpsertPlugin(ctx, Plugin{ID: "channel/telegram", Kind: PluginKindChannel, Name: "telegram", Enabled: true, Config: map[string]any{"token": "legacy-token"}}); err != nil {
+		t.Fatalf("UpsertPlugin: %v", err)
+	}
+
+	if err := store.SeedDefaults(ctx); err != nil {
+		t.Fatalf("SeedDefaults: %v", err)
+	}
+
+	plugin, err := store.GetPlugin(ctx, "channel/telegram")
+	if err != nil {
+		t.Fatalf("GetPlugin: %v", err)
+	}
+	if len(plugin.Config) != 0 {
+		t.Fatalf("expected plugin config cleared, got %+v", plugin.Config)
+	}
+
+	channel, err := store.GetChannel(ctx, "telegram")
+	if err != nil {
+		t.Fatalf("GetChannel: %v", err)
+	}
+	if channel.Config != `{"token":"legacy-token"}` {
+		t.Fatalf("channel config = %s, want migrated legacy token", channel.Config)
 	}
 }
 
