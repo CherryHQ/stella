@@ -62,7 +62,7 @@ func (f *boxshFactory) CreateSession(ctx context.Context, policy Policy) (Sessio
 	backendCfg := boxshclient.BackendConfig{
 		AnnaHome:     annaHome,
 		BinaryPath:   binaryPath,
-		Workspace:    policy.Filesystem.WorkingDir,
+		Workspace:    policy.WorkspaceRootOrDefault(),
 		WorkDir:      policy.Filesystem.WorkingDir,
 		ReadOnlyDirs: policy.Filesystem.ReadOnlyPaths,
 		Sandbox: config.SandboxConfig{Network: config.SandboxNetworkConfig{
@@ -448,7 +448,7 @@ func (h *boxshHost) ResolvePath(path string) (string, error) {
 		return filepath.Join(root, path), nil
 	}
 
-	srcRoot := h.session.policy.Filesystem.WorkingDir
+	srcRoot := h.session.policy.WorkspaceRootOrDefault()
 	if isWithinRoot(root, path) {
 		return path, nil
 	}

@@ -40,7 +40,11 @@ type Policy struct {
 
 // FilesystemPolicy defines filesystem constraints for a sandbox session.
 type FilesystemPolicy struct {
-	// WorkingDir is the base working directory.
+	// WorkspaceRoot is the host path mounted as the sandbox root. When empty,
+	// WorkingDir is used for backwards compatibility.
+	WorkspaceRoot string
+
+	// WorkingDir is the logical working directory inside the sandbox root.
 	WorkingDir string
 
 	// ReadOnlyPaths are paths mounted read-only into the sandbox.
@@ -102,6 +106,9 @@ func (p Policy) Validate() error {
 	if p.Filesystem.WorkingDir == "" {
 		return fmt.Errorf("sandbox: working directory is required")
 	}
+	if p.Filesystem.WorkspaceRoot == "" {
+		p.Filesystem.WorkspaceRoot = p.Filesystem.WorkingDir
+	}
 
 	return nil
 }
@@ -122,6 +129,14 @@ func (p Policy) NetworkModeOrDefault() NetworkMode {
 		return NetworkDisabled
 	}
 	return p.Network.Mode
+}
+
+// WorkspaceRootOrDefault returns the mounted sandbox root on the host.
+func (p Policy) WorkspaceRootOrDefault() string {
+	if p.Filesystem.WorkspaceRoot != "" {
+		return p.Filesystem.WorkspaceRoot
+	}
+	return p.Filesystem.WorkingDir
 }
 
 // PolicyCompatibilityError indicates a policy is not compatible with a backend.
