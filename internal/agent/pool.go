@@ -102,10 +102,14 @@ func (p *Pool) ResetRunners() error {
 	p.mu.Lock()
 	runners := make([]runner.Runner, 0, len(p.sessions))
 	for _, sess := range p.sessions {
-		if sess != nil && sess.Runner != nil {
+		if sess == nil {
+			continue
+		}
+		if sess.Runner != nil {
 			runners = append(runners, sess.Runner)
 			sess.Runner = nil
 		}
+		sess.Model = ""
 	}
 	p.mu.Unlock()
 

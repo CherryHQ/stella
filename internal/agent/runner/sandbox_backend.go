@@ -154,7 +154,7 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		Backend: config.SandboxBackendBoxsh,
 		Relaxed: false,
 		Filesystem: sandbox.FilesystemPolicy{
-			WorkspaceRoot: cfg.Workspace,
+			WorkspaceRoot: sandboxWorkspaceRoot(cfg),
 			WorkingDir:    cfg.WorkDir,
 			ReadOnlyPaths: readOnlyDirs,
 			AllowEscapes:  false,
@@ -183,6 +183,13 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		session: session,
 		policy:  policy,
 	}, nil
+}
+
+func sandboxWorkspaceRoot(cfg GoRunnerConfig) string {
+	if cfg.UserDataDir != "" {
+		return cfg.UserDataDir
+	}
+	return cfg.Workspace
 }
 
 var annaHomeEnvMu = struct{ ch chan struct{} }{ch: make(chan struct{}, 1)}

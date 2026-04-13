@@ -958,6 +958,48 @@ func TestSetDefaultModelAffectsNewSessions(t *testing.T) {
 	mu.Unlock()
 }
 
+func TestResetRunnersUsesUpdatedDefaultModelForExistingSession(t *testing.T) {
+	var models []string
+	var mu sync.Mutex
+	factory := func(_ context.Context, params runner.RunnerParams) (runner.Runner, error) {
+		mu.Lock()
+		models = append(models, params.Model)
+		mu.Unlock()
+		return newMockRunner([]runner.Event{{Text: "ok"}}), nil
+	}
+
+	pool := NewPool(factory, testMemoryProvider(t), WithDefaultModel("initial-model"))
+	defer func() { _ = pool.Close() }()
+
+	ctx := context.Background()
+	info, _ := pool.CreateSession("test")
+
+	stream := pool.Chat(ctx, info.ID, "hello")
+	for range stream {
+	}
+
+	pool.SetDefaultModel("updated-model")
+	if err := pool.ResetRunners(); err != nil {
+		t.Fatalf("ResetRunners: %v", err)
+	}
+
+	stream = pool.Chat(ctx, info.ID, "hello again")
+	for range stream {
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(models) != 2 {
+		t.Fatalf("created runner models = %v, want 2 runners", models)
+	}
+	if models[0] != "initial-model" {
+		t.Fatalf("first runner model = %q, want initial-model", models[0])
+	}
+	if models[1] != "updated-model" {
+		t.Fatalf("second runner model = %q, want updated-model", models[1])
+	}
+}
+
 func TestNeedsCompactionDisabled(t *testing.T) {
 	factory, _ := mockRunnerFactory(nil)
 	mem := testMemoryProvider(t)
