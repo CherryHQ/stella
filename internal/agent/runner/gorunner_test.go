@@ -15,9 +15,6 @@ import (
 	"github.com/vaayne/anna/internal/sandbox/boxshclient"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/tools"
-	plugintools "github.com/vaayne/anna/plugins/tools"
-	bashtool "github.com/vaayne/anna/plugins/tools/bash"
 )
 
 type stubProvider struct{}
@@ -38,10 +35,6 @@ func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Regist
 	reg := providers.NewRegistry()
 	reg.Register(&stubProvider{})
 	return reg, nil
-}
-
-func testCoreToolsBuilder(bc plugintools.BuildContext) []tools.Tool {
-	return []tools.Tool{bashtool.NewBashTool(bc.WorkDir, bc.ToolsBinDir)}
 }
 
 func testRunnerPaths(t *testing.T) (annaHome, workspace string) {
@@ -122,7 +115,6 @@ func TestNewGoRunnerSuccess(t *testing.T) {
 		API:       "anthropic",
 		Model:     "claude-sonnet-4-20250514",
 		APIKey:    "test-key",
-		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
 	}))
 	if err != nil {
@@ -152,7 +144,6 @@ func TestNewGoRunnerPreflightExtractsManagedTools(t *testing.T) {
 		APIKey:    "test-key",
 		AnnaHome:  annaHome,
 		Workspace: workspace,
-		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
@@ -180,7 +171,6 @@ func TestNewGoRunnerUsesBoxshCoreToolsAndCleansUp(t *testing.T) {
 		APIKey:    "test-key",
 		AnnaHome:  annaHome,
 		Workspace: workspace,
-		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
@@ -234,7 +224,6 @@ func TestGoRunnerAliveTracksDeadBoxshBackend(t *testing.T) {
 		APIKey:    "test-key",
 		AnnaHome:  annaHome,
 		Workspace: workspace,
-		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
@@ -285,7 +274,6 @@ func newTestGoRunner(t *testing.T, fp *goRunnerFakeProvider) *GoRunner {
 		API:       fp.api,
 		Model:     "test-model",
 		APIKey:    "test-key",
-		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
 	}))
 	if err != nil {
@@ -349,7 +337,6 @@ func TestChatUnknownProvider(t *testing.T) {
 		API:       "nonexistent",
 		Model:     "test-model",
 		APIKey:    "test-key",
-		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
 	}))
 	if err == nil {
@@ -461,7 +448,6 @@ func TestChatToolUseLoop(t *testing.T) {
 		Model:     "test-model",
 		APIKey:    "test-key",
 		WorkDir:   dir,
-		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
 	}))
 	if err != nil {
@@ -489,7 +475,6 @@ func TestAliveReflectsSandboxSessionState(t *testing.T) {
 		API:       "anthropic",
 		Model:     "test-model",
 		APIKey:    "test-key",
-		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
 	}))
 	if err != nil {

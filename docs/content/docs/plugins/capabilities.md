@@ -54,11 +54,9 @@ Use `ToolContext` when building:
 - `HomeDir`
 - `Workspace`
 - `ToolsBinDir`
-- `Sandbox`
 - `Host`
 
-For sandbox-mediated filesystem, process, and network access, prefer `Host`.
-`Sandbox` is a limited compatibility exec surface, not the primary integration point.
+For sandbox-mediated filesystem, process, and network access, use `Host`.
 
 ## ProviderSpec
 

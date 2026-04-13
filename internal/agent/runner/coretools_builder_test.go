@@ -5,13 +5,7 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/sandbox"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/pkg/tools"
 	plugintools "github.com/vaayne/anna/plugins/tools"
-	bashtool "github.com/vaayne/anna/plugins/tools/bash"
-	edittool "github.com/vaayne/anna/plugins/tools/edit"
-	readtool "github.com/vaayne/anna/plugins/tools/read"
-	writetool "github.com/vaayne/anna/plugins/tools/write"
 )
 
 func fakeRunnerSession(backend string, host sandbox.Host) *runnerSession {
@@ -37,34 +31,16 @@ func (f *fakeSession) Done() <-chan struct{} {
 	return ch
 }
 
-type fakeRuntime struct{}
-
-func (fakeRuntime) Enabled() bool { return false }
-func (fakeRuntime) Exec(context.Context, string, int) (pkgplugins.SandboxExecResult, error) {
-	return pkgplugins.SandboxExecResult{}, nil
-}
-
-func delegateBuilder(bc plugintools.BuildContext) []tools.Tool {
-	return []tools.Tool{
-		bashtool.NewBashTool(bc.WorkDir, bc.ToolsBinDir),
-		&readtool.ReadTool{},
-		&writetool.WriteTool{},
-		&edittool.EditTool{},
-	}
-}
-
-func TestCoreToolsBuilderWithSandbox_NoSessionFailsClosed(t *testing.T) {
-	builder := CoreToolsBuilderWithSandbox(delegateBuilder, nil)
-	tools := builder(plugintools.BuildContext{WorkDir: "/tmp", ToolsBinDir: "/tmp/bin", Sandbox: fakeRuntime{}})
+func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {
+	tools := buildSandboxCoreTools(nil, plugintools.BuildContext{WorkDir: "/tmp", ToolsBinDir: "/tmp/bin"})
 	if tools != nil {
 		t.Fatalf("expected no tools without sandbox session, got %v", tools)
 	}
 }
 
-func TestCoreToolsBuilderWithSandbox_WithSessionUsesHostTools(t *testing.T) {
+func TestBuildSandboxCoreTools_WithSessionUsesHostTools(t *testing.T) {
 	session := fakeRunnerSession("local", &fakeHost{})
-	builder := CoreToolsBuilderWithSandbox(delegateBuilder, session)
-	tools := builder(plugintools.BuildContext{})
+	tools := buildSandboxCoreTools(session, plugintools.BuildContext{})
 	if len(tools) != 4 {
 		t.Fatalf("expected 4 tools, got %d", len(tools))
 	}

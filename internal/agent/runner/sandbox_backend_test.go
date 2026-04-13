@@ -8,17 +8,6 @@ import (
 	"github.com/vaayne/anna/internal/sandbox"
 )
 
-// TestResolveSessionRejectsDisableSandbox tests the deprecated unsandboxed path.
-func TestResolveSessionRejectsDisableSandbox(t *testing.T) {
-	_, err := resolveSession(context.Background(), GoRunnerConfig{
-		DisableSandbox: true,
-		WorkDir:        t.TempDir(),
-	})
-	if err == nil {
-		t.Fatal("expected error when DisableSandbox is set")
-	}
-}
-
 // TestResolveSessionRejectsUnknownBackend tests error handling.
 func TestResolveSessionRejectsUnknownBackend(t *testing.T) {
 	_, err := resolveSession(context.Background(), GoRunnerConfig{

@@ -27,16 +27,12 @@ func TestBuildEnabledToolsBuildsAllOptionalToolsWithSandboxContext(t *testing.T)
 	host.RegisterPluginID("tool/a")
 	host.RegisterPluginID("tool/b")
 
-	var sandboxSeen int
 	var hostSeen int
 	fakeHost := &pluginHostTestHost{}
 	host.AddTool(pkgplugins.ToolSpec{
 		PluginID: "tool/a",
 		Name:     "a",
 		Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-			if ctx.Sandbox != nil {
-				sandboxSeen++
-			}
 			if ctx.Host != nil {
 				hostSeen++
 			}
@@ -47,9 +43,6 @@ func TestBuildEnabledToolsBuildsAllOptionalToolsWithSandboxContext(t *testing.T)
 		PluginID: "tool/b",
 		Name:     "b",
 		Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-			if ctx.Sandbox != nil {
-				sandboxSeen++
-			}
 			if ctx.Host != nil {
 				hostSeen++
 			}
@@ -57,15 +50,9 @@ func TestBuildEnabledToolsBuildsAllOptionalToolsWithSandboxContext(t *testing.T)
 		},
 	})
 
-	got := host.BuildEnabledTools(context.Background(), plugintools.BuildContext{
-		Sandbox: plugintools.SandboxRuntimeFromBackend(nil),
-		Host:    fakeHost,
-	})
+	got := host.BuildEnabledTools(context.Background(), plugintools.BuildContext{Host: fakeHost})
 	if len(got) != 2 {
 		t.Fatalf("BuildEnabledTools() len = %d, want 2", len(got))
-	}
-	if sandboxSeen != 2 {
-		t.Fatalf("sandbox seen = %d, want 2", sandboxSeen)
 	}
 	if hostSeen != 2 {
 		t.Fatalf("host seen = %d, want 2", hostSeen)

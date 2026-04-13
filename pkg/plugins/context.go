@@ -10,22 +10,6 @@ import (
 	"github.com/vaayne/anna/pkg/channel"
 )
 
-// SandboxExecResult is the normalized command execution result returned by a
-// sandbox runtime.
-type SandboxExecResult struct {
-	Stdout   string
-	Stderr   string
-	ExitCode int
-}
-
-// SandboxRuntime is a limited compatibility surface for sandbox-aware plugin
-// builders. Core local-workspace tooling should prefer ToolContext.Host for
-// mediated filesystem, process, and network access.
-type SandboxRuntime interface {
-	Enabled() bool
-	Exec(ctx context.Context, command string, timeoutSeconds int) (SandboxExecResult, error)
-}
-
 // ToolContext is the narrow build context for tool capabilities.
 type ToolContext struct {
 	Platform    Platform
@@ -36,8 +20,7 @@ type ToolContext struct {
 	HomeDir     string
 	Workspace   string
 	ToolsBinDir string
-	Sandbox     SandboxRuntime // compatibility exec surface; prefer Host for mediated access
-	Host        sandbox.Host   // sandbox-backed filesystem/process/network surface
+	Host        sandbox.Host // sandbox-backed filesystem/process/network surface
 }
 
 // ProviderContext is the narrow build context for provider capabilities.

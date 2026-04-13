@@ -27,10 +27,7 @@ import (
 
 const maxToolIterations = 40
 
-type (
-	ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
-	CoreToolsBuilder        func(plugintools.BuildContext) []tools.Tool
-)
+type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
 
 // GoRunnerConfig configures the Go runner.
 type GoRunnerConfig struct {
@@ -47,10 +44,8 @@ type GoRunnerConfig struct {
 	UserDataDir    string             // optional per-user data directory used by prompts, skills, and sandbox session setup
 	HookPlugins    []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle  *coreagent.ToolLifecycle
-	CoreTools      CoreToolsBuilder // legacy compatibility hook; runner core tools come from the sandbox backend
 	Providers      ProviderRegistryBuilder
 	Sandbox        config.SandboxConfig
-	DisableSandbox bool // deprecated test hook; backend-only runners reject unsandboxed execution
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.
@@ -210,12 +205,10 @@ func buildToolRegistry(cfg GoRunnerConfig, session *runnerSession) (*tools.Regis
 		HomeDir:     homeDir,
 		Workspace:   cfg.Workspace,
 		ToolsBinDir: toolsBinDir,
-		Sandbox:     session.Runtime(),
 		Host:        session.Host(),
 	}
 
-	coreToolsBuilder := CoreToolsBuilderWithSandbox(cfg.CoreTools, session)
-	coreTools := coreToolsBuilder(bc)
+	coreTools := buildSandboxCoreTools(session, bc)
 	if len(coreTools) == 0 {
 		return nil, fmt.Errorf("go runner: sandbox backend unavailable: core tools require an active sandbox host")
 	}

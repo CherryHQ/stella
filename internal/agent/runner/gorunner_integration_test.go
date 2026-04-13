@@ -10,9 +10,7 @@ import (
 	"github.com/vaayne/anna/internal/sandbox/boxshclient"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/tools"
 	anthropicprovider "github.com/vaayne/anna/plugins/providers/anthropic"
-	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
 // skipWithoutAnthropicKey skips the test when ANTHROPIC_API_KEY is not set.
@@ -43,7 +41,6 @@ func integrationConfig(t *testing.T) GoRunnerConfig {
 		BaseURL:   os.Getenv("ANTHROPIC_BASE_URL"),
 		AnnaHome:  annaHome,
 		Workspace: workspace,
-		CoreTools: integrationCoreToolsBuilder,
 		Providers: integrationProviderRegistryBuilder,
 	}
 }
@@ -59,8 +56,6 @@ func integrationProviderRegistryBuilder(api, apiKey, baseURL string) (*providers
 	}))
 	return reg, nil
 }
-
-func integrationCoreToolsBuilder(plugintools.BuildContext) []tools.Tool { return nil }
 
 func TestIntegrationSingleTurn(t *testing.T) {
 	cfg := integrationConfig(t)

@@ -11,8 +11,6 @@ import (
 	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/internal/sandbox"
 	"github.com/vaayne/anna/internal/sandbox/boxshclient"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
 // runnerSession wraps a sandbox.Session for runner use.
@@ -32,17 +30,6 @@ func (r *runnerSession) SessionDir() string {
 		return ""
 	}
 	return resolved
-}
-
-// Runtime returns the sandbox runtime for plugin compatibility.
-func (r *runnerSession) Runtime() pkgplugins.SandboxRuntime {
-	if r == nil || r.session == nil || r.session.Host() == nil {
-		return plugintools.SandboxRuntimeFromBackend(nil)
-	}
-	if r.policy.Backend != "boxsh" {
-		return plugintools.SandboxRuntimeFromBackend(nil)
-	}
-	return plugintools.SandboxRuntimeFromHost(r.session.Host())
 }
 
 func (r *runnerSession) Host() sandbox.Host {
@@ -226,10 +213,6 @@ func createSessionWithAnnaHome(ctx context.Context, factory sandbox.Factory, pol
 // resolveSession creates a runnerSession from configuration.
 // Replaces the old resolveSandboxBackend which leaked boxsh types.
 func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
-	if cfg.DisableSandbox {
-		return nil, fmt.Errorf("DisableSandbox is no longer supported; core tools require the sandbox backend")
-	}
-
 	name := cfg.Sandbox.BackendName()
 	if name == "auto" {
 		name = "boxsh"

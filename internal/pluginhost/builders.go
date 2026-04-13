@@ -41,43 +41,6 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContex
 			HomeDir:     bc.HomeDir,
 			Workspace:   bc.Workspace,
 			ToolsBinDir: bc.ToolsBinDir,
-			Sandbox:     bc.Sandbox,
-			Host:        bc.Host,
-		})
-		if err == nil && t != nil {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-func (h *Host) BuildCoreTools(bc plugintools.BuildContext) []tools.Tool {
-	h.mu.RLock()
-	regs := make([]pkgplugins.ToolSpec, 0, len(h.toolRegs))
-	for _, reg := range h.toolRegs {
-		regs = append(regs, reg)
-	}
-	h.mu.RUnlock()
-	sort.Slice(regs, func(i, j int) bool { return regs[i].Name < regs[j].Name })
-	var out []tools.Tool
-	for _, reg := range regs {
-		if !reg.Required || reg.Build == nil {
-			continue
-		}
-		t, err := reg.Build(pkgplugins.ToolContext{
-			Platform: h.platform(reg.PluginID),
-			State: pkgplugins.PluginState{
-				ID:      reg.PluginID,
-				Enabled: true,
-				Config:  h.defaultConfigFor(reg.PluginID),
-			},
-			WorkDir:     bc.WorkDir,
-			UserDataDir: bc.UserDataDir,
-			AnnaHome:    bc.AnnaHome,
-			HomeDir:     bc.HomeDir,
-			Workspace:   bc.Workspace,
-			ToolsBinDir: bc.ToolsBinDir,
-			Sandbox:     bc.Sandbox,
 			Host:        bc.Host,
 		})
 		if err == nil && t != nil {

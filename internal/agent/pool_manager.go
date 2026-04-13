@@ -38,7 +38,6 @@ type (
 	PromptSectionsBuilder   func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
 	BeforeRunBuilder        func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error)
 	ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
-	CoreToolsBuilder        = runner.CoreToolsBuilder
 )
 
 // PoolManagerOption configures a PoolManager.
@@ -118,12 +117,6 @@ func WithProviderRegistryBuilder(b ProviderRegistryBuilder) PoolManagerOption {
 	}
 }
 
-func WithCoreToolsBuilder(b CoreToolsBuilder) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.coreToolsBuilder = b
-	}
-}
-
 // PoolManager manages a map of agent ID to Pool. It reads enabled agents
 // from the config Store and creates one Pool per agent.
 type PoolManager struct {
@@ -142,7 +135,6 @@ type PoolManager struct {
 	promptSectionsBuilder   PromptSectionsBuilder
 	beforeRunBuilder        BeforeRunBuilder
 	toolLifecycle           *coreagent.ToolLifecycle
-	coreToolsBuilder        CoreToolsBuilder
 	providerRegistryBuilder ProviderRegistryBuilder
 	extraToolsFactory       ExtraToolsFactory
 	log                     *slog.Logger
@@ -426,7 +418,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 		extraTools = append(extraTools, pm.extraToolsFactory(snap)...)
 	}
 
-	return NewRunnerFactory(snap, extraTools, pm.coreToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle)
+	return NewRunnerFactory(snap, extraTools, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle)
 }
 
 // mergeTools creates a new slice containing core tools followed by plugin tools.

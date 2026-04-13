@@ -18,8 +18,6 @@ import (
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/tools"
-	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
 type commandTestProvider struct{}
@@ -38,8 +36,6 @@ func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Regist
 	reg.Register(commandTestProvider{})
 	return reg, nil
 }
-
-func testCoreToolsBuilder(plugintools.BuildContext) []tools.Tool { return nil }
 
 type commandTestStore struct{}
 
@@ -156,7 +152,7 @@ func TestNewRunnerFactoryGo(t *testing.T) {
 	}
 	snap.Workspace = t.TempDir()
 
-	factory, err := agent.NewRunnerFactory(snap, nil, testCoreToolsBuilder, testProviderRegistryBuilder, nil, nil, nil)
+	factory, err := agent.NewRunnerFactory(snap, nil, testProviderRegistryBuilder, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewRunnerFactory: %v", err)
 	}
@@ -176,7 +172,7 @@ func TestNewRunnerFactoryUnknown(t *testing.T) {
 		Runner: config.RunnerConfig{Type: "invalid"},
 	}
 
-	_, err := agent.NewRunnerFactory(snap, nil, testCoreToolsBuilder, testProviderRegistryBuilder, nil, nil, nil)
+	_, err := agent.NewRunnerFactory(snap, nil, testProviderRegistryBuilder, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown runner type")
 	}
@@ -226,7 +222,7 @@ func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
 	}
 	snap.Workspace = t.TempDir()
 
-	initialFactory, err := agent.NewRunnerFactory(snap, nil, testCoreToolsBuilder, testProviderRegistryBuilder, nil, nil, nil)
+	initialFactory, err := agent.NewRunnerFactory(snap, nil, testProviderRegistryBuilder, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewRunnerFactory: %v", err)
 	}
@@ -240,7 +236,6 @@ func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
 		commandTestStore{},
 		pool,
 		nil,
-		testCoreToolsBuilder,
 		testProviderRegistryBuilder,
 		func(context.Context) ([]pkgplugins.PromptToolInfo, error) {
 			promptToolsCalls++
