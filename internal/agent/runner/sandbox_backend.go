@@ -16,7 +16,6 @@ import (
 )
 
 // runnerSession wraps a sandbox.Session for runner use.
-// This replaces the old boxsh-leaking sandboxBackend abstraction.
 type runnerSession struct {
 	session     sandbox.Session
 	policy      sandbox.Policy
@@ -24,7 +23,6 @@ type runnerSession struct {
 }
 
 // SessionDir returns the session workspace directory.
-// Provided for backward compatibility during Phase 3 migration.
 func (r *runnerSession) SessionDir() string {
 	if r == nil || r.session == nil {
 		return ""

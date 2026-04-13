@@ -241,6 +241,14 @@ On Linux and macOS, runner startup fails closed when:
 
 This ensures that sandboxed execution is either fully functional or does not run at all, preventing silent security downgrades.
 
+### Explicit Exception Boundary
+
+Sandbox guarantees apply to local execution paths owned by Anna. Remote MCP transports are currently treated as a separate trust boundary:
+
+- local MCP stdio spawning is mediated through `sandbox.Host.StartProcess`
+- remote MCP HTTP/SSE/StreamableHTTP dialing is not currently mediated by `sandbox.Host`
+- that exception is explicit, observable, and tracked as `EX-009`
+
 ### Migration Notes
 
 - Windows behavior is unchanged; continues using direct-tool execution.

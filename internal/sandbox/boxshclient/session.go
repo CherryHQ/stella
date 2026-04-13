@@ -154,7 +154,6 @@ func BuildSessionConfig(info *SessionInfo) SessionConfig {
 }
 
 // DeriveSandboxRoot computes the sandbox root (SRC) from workspace and user data dir.
-// This follows the Phase 1/2 plan rules:
 // - For user sessions (userDataDir != ""): use UserDataDir.
 // - For non-user/system sessions: use Workspace.
 func DeriveSandboxRoot(workspace, userDataDir string) string {

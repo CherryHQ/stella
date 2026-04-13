@@ -52,10 +52,10 @@
 - [x] Add observability for relaxed mode, denials, unsupported backend, and exceptions
 
 ## Phase 6: Cleanup and verification
-- [ ] Remove obsolete boxsh-specific abstraction leaks
-- [ ] Remove speculative leftover layers from migration
-- [ ] Simplify tests around abstract contract and backends
-- [ ] Update sandbox architecture docs
-- [ ] Update backend addition rules docs
-- [ ] Update compatibility/fallback/relaxed mode docs
-- [ ] Update plugin/tool integration docs
+- [x] Remove obsolete boxsh-specific abstraction leaks
+- [x] Remove speculative leftover layers from migration
+- [x] Simplify tests around abstract contract and backends
+- [x] Update sandbox architecture docs
+- [x] Update backend addition rules docs
+- [x] Update compatibility/fallback/relaxed mode docs
+- [x] Update plugin/tool integration docs

@@ -1,144 +1,105 @@
-# Sandbox Backend Abstraction (RFC Draft)
+---
+title: Sandbox Backend Abstraction
+---
 
 ## Status
 
-- **State**: Draft
-- **Audience**: Runtime, plugin, and tooling maintainers
-- **Goal**: Make sandboxing backend-agnostic so Anna can replace `boxsh` with other sandbox providers without rewriting tool/plugin integration.
+Implemented. Anna's local execution boundary is owned by `internal/sandbox`.
 
-## Problem
+## Purpose
 
-Today, the runtime has a mixed model:
+The sandbox abstraction exists so runner code, plugin wiring, and tool execution do not depend on concrete backend types such as `boxsh`.
 
-- A generic plugin-facing sandbox interface exists (`SandboxRuntime` in `pkg/plugins`).
-- Core runner lifecycle and context wiring still carry `boxsh`-specific backend types and checks.
-- Optional plugin tool enforcement currently infers sandbox activation from the `boxsh` backend pointer.
+The top-level model is:
 
-This coupling makes future backend replacement expensive and error-prone.
+- `sandbox.Policy` — immutable backend-agnostic execution policy
+- `sandbox.Session` — per-run execution boundary and lifecycle owner
+- `sandbox.Host` — mediated filesystem / process / network surface exposed to execution paths
 
-## Non-Goals
+Backend identity stays inside `internal/sandbox`.
 
-- Replacing `boxsh` in this phase.
-- Changing Windows behavior to require a sandbox backend.
-- Defining provider-specific policy syntax for every future sandbox engine.
+## Current Architecture
 
-## Goals
+### Session ownership
 
-1. **Single abstraction boundary** for sandbox execution and capability checks.
-2. **Backend pluggability** (`boxsh` first, others later) with no plugin API churn.
-3. **Fail-closed semantics** on platforms where sandboxing is configured as required.
-4. **Consistent plugin ergonomics**: plugin authors use one host-provided sandbox surface.
+The runner creates a `sandbox.Session` for each run and keeps ownership of its lifecycle.
 
-## Proposed Architecture
+- `boxsh` is used on Linux and macOS when configured and supported
+- `local` is used only for explicit relaxed execution paths
+- unsupported policy/backend combinations fail closed by default
 
-### 1) Canonical sandbox contract
+### Execution-time mediation
 
-Promote the plugin-facing `SandboxRuntime` surface as the cross-layer contract:
+All local execution paths that must obey sandbox policy are expected to use `sandbox.Host`:
 
-- `Enabled() bool`
-- `Exec(ctx, command, timeoutSeconds) (SandboxExecResult, error)`
+- core tools: `bash`, `read`, `write`, `edit`
+- plugin/runtime-adjacent filesystem access for skills, agent presets, and prompt context
+- MCP stdio process spawning through `Host.StartProcess`
 
-Extend this surface incrementally (e.g. fs helpers, metadata, network capability introspection) only as needed by real plugins.
+Build-time plugin registration remains sandbox-agnostic. Execution-time contexts receive the host.
 
-### 2) Runner-internal backend interface
+### Relaxed local sessions
 
-Introduce a runner-internal backend lifecycle contract (conceptual shape):
+Some non-runner code paths still need local filesystem access without an already-injected host, such as prompt rendering or metadata discovery outside an active agent run.
 
-- `Start(ctx) error`
-- `Close() error`
-- `Alive() bool`
-- `Runtime() SandboxRuntime`
-- `Metadata() SandboxMetadata` (provider name, capability flags)
+Those paths must not bypass the abstraction directly. They create an explicit relaxed local sandbox session and use its `Host` instead.
 
-`boxsh` becomes one implementation of this interface.
+### Explicit exception boundary
 
-### 3) Backend factory and selection
+Remote MCP HTTP/SSE/StreamableHTTP transport is currently treated as a separate trust boundary.
 
-Create a backend factory that resolves the configured backend:
+- local stdio transport is sandbox-mediated
+- remote transport dialing is **not** currently mediated by `sandbox.Host`
+- this exception is tracked explicitly as `EX-009` and logged as `sandbox.exception_path`
 
-- `boxsh` (Linux/macOS default for now)
-- `none` (explicit disabled/no-sandbox mode)
-- future providers (containerized, VM-backed, remote executor, etc.)
+## Backend Addition Rules
 
-Platform checks happen in one place in the factory.
+A new sandbox backend should be mostly add-only:
 
-### 4) Remove boxsh-specific checks from tool registration
+1. implement the `sandbox.Factory`, `sandbox.Session`, and `sandbox.Host` contracts
+2. register the factory in `internal/sandbox`
+3. pass contract and policy-compatibility tests
+4. avoid leaking backend-specific types into runner, plugin host, or tool code
 
-Replace checks like:
+If a backend cannot honor a policy, it should fail closed with a policy compatibility error.
 
-- `runtime.GOOS != "windows" && bc.Backend != nil`
+## Compatibility Rules
 
-with generic checks:
+### What remains stable above `internal/sandbox`
 
-- `bc.Sandbox != nil && bc.Sandbox.Enabled()`
+Code above the sandbox boundary should depend on:
 
-This keeps behavior stable while removing backend coupling.
+- session lifecycle
+- host-mediated operations
+- generic plugin sandbox runtime behavior
 
-### 5) Core tool integration
+It should not depend on:
 
-Refactor `CoreToolsBuilderWithBoxsh` to a backend-neutral wrapper:
+- `boxshclient`
+- backend-specific process/session types
+- implicit direct `os` / `exec` / `net/http` fallback paths for sandboxed execution surfaces
 
-- `CoreToolsBuilderWithSandbox`
+### Fail-closed behavior
 
-Adapter logic should consume `SandboxRuntime`/backend capabilities instead of concrete `boxsh` types where possible.
+Anna prefers explicit denial over silent downgrade:
 
-### 6) Windows behavior
+- unsupported backends fail closed
+- unsupported policies fail closed
+- direct non-mediated plugin exec remains fail closed
+- boxsh transport operations not yet supported by the host surface remain fail closed
 
-Windows continues to run without `boxsh`.
+## Verification
 
-- Host supplies a disabled sandbox runtime (non-nil object).
-- Plugins can safely call `Enabled()` and get deterministic `false`.
-- Sandbox-requiring operations return explicit unavailability errors.
+The abstraction is covered by:
 
-## Migration Plan
+- session/host contract tests
+- policy compatibility tests
+- core tool parity tests
+- backend-specific boxsh integration tests
+- static bypass regression guards for migrated runtime paths
 
-### Phase 1 ✅
+## Related Docs
 
-- `SandboxRuntime` is threaded through tool contexts.
-- Disabled runtime is provided when sandbox backend is unavailable.
-
-### Phase 2 ✅
-
-- Backend factory and runner-internal backend interface are implemented.
-- Runner startup/shutdown uses backend abstraction.
-
-### Phase 3 ✅
-
-- `BuildContext.Backend` dependence was removed from plugin host checks.
-- Plugin tool build path uses generic sandbox runtime context.
-
-### Phase 4 ✅
-
-- Core tool builder is backend-neutral (`CoreToolsBuilderWithSandbox`).
-- `boxsh` adapters are isolated behind backend abstraction.
-
-### Phase 5 ✅ (initial)
-
-- Two backends (`boxsh`, `noop`) are selectable.
-- Contract tests for backend/runtime behavior are in place; parity can be extended as new backends are added.
-
-## Testing Strategy
-
-1. **Contract tests** for sandbox runtime behavior (enabled/disabled/exec error model).
-2. **Backend implementation tests** (`boxsh` adapter and future adapters).
-3. **Integration tests** for tool registration/execution under:
-   - sandbox enabled backend,
-   - sandbox disabled backend,
-   - Windows/no-boxsh path.
-4. **Fail-closed tests** when backend is required but unavailable.
-
-## Risks and Mitigations
-
-- **Risk**: API churn for plugin authors.
-  - **Mitigation**: Keep `SandboxRuntime` backward compatible; add methods conservatively.
-- **Risk**: Divergent behavior across backends.
-  - **Mitigation**: shared contract tests + capability metadata.
-- **Risk**: subtle security regressions during migration.
-  - **Mitigation**: fail-closed defaults and explicit capability checks.
-
-## Open Questions
-
-1. Should filesystem helper methods live on `SandboxRuntime` or a separate `SandboxFS` interface?
-2. Do we need network policy introspection APIs in plugin context?
-3. Should backend selection be per-agent, global, or both?
-4. What is the minimum capability set a backend must provide to be considered "sandbox-enabled"?
+- [Architecture](/docs/core/architecture)
+- `.agents/sessions/2026-04-12-sandbox-interface-redesign/design-spec.md`
+- `.agents/sessions/2026-04-12-sandbox-interface-redesign/exceptions-register.md`

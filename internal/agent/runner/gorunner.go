@@ -63,7 +63,7 @@ type GoRunner struct {
 	system        string
 	hookSet       *hooks.HookSet
 	toolLifecycle *coreagent.ToolLifecycle
-	session       *runnerSession // Phase 3: session-based sandbox (replaces backend)
+	session       *runnerSession // runner-owned sandbox session lifecycle
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -204,7 +204,6 @@ func buildToolRegistry(cfg GoRunnerConfig, session *runnerSession) (*tools.Regis
 		return nil, fmt.Errorf("go runner: core tools builder is required")
 	}
 
-	// Phase 3: BuildContext no longer contains Backend field.
 	// Host is injected at execution time, not build time.
 	bc := plugintools.BuildContext{
 		WorkDir:     cfg.WorkDir,
@@ -217,7 +216,6 @@ func buildToolRegistry(cfg GoRunnerConfig, session *runnerSession) (*tools.Regis
 		Host:        session.Host(),
 	}
 
-	// Use legacy builder during migration; Phase 4 will unify onto Host-based tools.
 	coreToolsBuilder := CoreToolsBuilderWithSandbox(cfg.CoreTools, session)
 	for _, t := range coreToolsBuilder(bc) {
 		toolReg.Register(t)

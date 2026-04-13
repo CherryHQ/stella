@@ -290,39 +290,55 @@
 
 ## Phase 6: Cleanup and verification
 
-**Status:** in progress
+**Status:** complete
 
-**Slices completed so far:**
+**Tasks completed:**
+
+- [x] Removed obsolete boxsh-specific abstraction leaks from runner code and deleted the old compatibility shim/tests.
+- [x] Removed speculative migration leftovers in skills discovery and prompt/context filesystem access.
+- [x] Simplified verification around migrated runtime paths by expanding the static bypass regression guard.
+- [x] Updated sandbox architecture docs to describe the current `Policy` / `Session` / `Host` model instead of the migration RFC state.
+- [x] Updated backend addition guidance to describe add-only backend rules under `internal/sandbox`.
+- [x] Updated compatibility/fallback/relaxed-mode docs to reflect explicit relaxed local sandbox sessions instead of raw filesystem fallbacks.
+- [x] Updated plugin/tool integration docs and comments so execution-time host injection and the explicit `EX-009` trust-boundary exception are documented consistently.
+
+**Phase 6 work completed:**
 
 - Removed the dead runner-side `sandboxBackend` compatibility shim and its legacy tests so `runnerSession` is now the only runner-owned sandbox seam.
 - Added explicit `sandbox.exception_path` observability for remote MCP SSE/HTTP/StreamableHTTP dialing, keeping `EX-009` explicit instead of silent.
 - Threaded explicit `HomeDir` through active agent-preset and skills discovery callers so runtime/prompt/CLI code no longer relies on implicit home-directory lookup in those paths.
-- Removed direct prompt-context filesystem fallback in `internal/agent/runner/prompt_host.go`; no-host prompt builds now create an explicit relaxed local sandbox session instead of silently bypassing `sandbox.Host`.
-- Added regression tests covering the explicit MCP exception log, explicit-home discovery for presets/skills, and AGENTS.md loading without an injected host.
+- Removed the deprecated skills discovery wrapper and variadic `NewTool(...)` compatibility constructor.
+- Removed direct prompt-context, skills, and agent-preset filesystem fallbacks; no-host callers now create explicit relaxed local sandbox sessions and continue through `sandbox.Host`.
+- Expanded the static bypass regression guard to cover the cleaned helper files and direct `os.ReadFile` / `os.ReadDir` / `os.Stat` regressions.
+- Rewrote the sandbox backend abstraction doc from an RFC/migration plan into current-state architecture guidance, and aligned `README.md` / architecture docs with the explicit remote MCP exception.
 
-**Files changed in Phase 6 so far:**
+**Files changed in Phase 6:**
 
-- `internal/agent/runner/{gorunner.go,sandbox_backend.go,sandbox_backend_test.go}`
-- `internal/sandbox/observe.go`
+- `internal/agent/runner/{gorunner.go,prompt.go,prompt_host.go,prompt_context_test.go,sandbox_backend.go,sandbox_backend_test.go}`
+- `internal/sandbox/{bypass_guard_test.go,boxsh_session.go,observe.go}`
+- `internal/sandbox/boxshclient/session.go`
 - `plugins/tools/mcp/{session.go,session_test.go}`
 - `pkg/plugins/context.go`
 - `plugins/tools/registry.go`
 - `internal/pluginhost/{builders.go,host.go}`
-- `plugins/tools/agent/{preset_loader.go,preset_loader_test.go}`
-- `plugins/tools/skills/{catalog.go,catalog_test.go,tool.go,plugin.go,prompt.go,prompt_test.go}`
+- `plugins/tools/agent/{hostfs.go,preset_loader.go,preset_loader_test.go}`
+- `plugins/tools/skills/{catalog.go,catalog_test.go,hostfs.go,tool.go,tool_test.go,plugin.go,prompt.go,prompt_test.go}`
+- `plugins/tools/sandbox_runtime.go`
 - `cmd/anna/skills.go`
 - `plugins/reflect/{conversation_review.go,expiry.go}`
 - `internal/agent/factory.go`
 - `internal/admin/sessions.go`
-- `.agents/sessions/2026-04-12-sandbox-interface-redesign/exceptions-register.md`
+- `docs/content/docs/core/{architecture.md,sandbox-backend-abstraction.md}`
+- `README.md`
+- `.agents/sessions/2026-04-12-sandbox-interface-redesign/{tasks.md,handoff.md,exceptions-register.md}`
 
-**Validation so far:**
+**Validation:**
 
 - `mise run format`
 - `mise run test`
 
-**Remaining highest-priority Phase 6 work:**
+**Final state:**
 
-- Decide whether `EX-009` becomes mediated or remains a formal separate trust boundary in code/docs.
-- Remove or narrow any remaining non-sandboxed filesystem helper paths outside `internal/sandbox`; `skills/hostfs.go`, `agent/hostfs.go`, and `prompt_host.go` now resolve no-host callers through explicit relaxed local sandbox sessions instead of direct `os.*` access.
-- Extend or generalize the static bypass guard beyond the currently migrated file set.
+- Local execution paths above `internal/sandbox` now use `sandbox.Host` directly or create an explicit relaxed local sandbox session instead of bypassing through raw `os.*` helpers.
+- Backend identity no longer leaks through runner/tool construction seams.
+- Remote MCP HTTP/SSE/StreamableHTTP remains an explicit, observable trust-boundary exception (`EX-009`) rather than a silent bypass.

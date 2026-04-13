@@ -427,7 +427,7 @@ func (h *boxshHost) Exec(ctx context.Context, command string, opts ExecOptions) 
 
 	if h.hasReadOnlyOverlap() {
 		logPolicyDenied(h.session.id, "boxsh", "exec", command, "read-only overlap prevents safe execution")
-		return ExecResult{}, fmt.Errorf("sandbox: boxsh Host.Exec is fail-closed when ReadOnlyPaths overlap WorkspaceRoot in Phase 2")
+		return ExecResult{}, fmt.Errorf("sandbox: boxsh Host.Exec is fail-closed when ReadOnlyPaths overlap WorkspaceRoot")
 	}
 
 	// Use boxsh client for sandboxed execution
@@ -460,17 +460,17 @@ func (h *boxshHost) Exec(ctx context.Context, command string, opts ExecOptions) 
 
 func (h *boxshHost) StartProcess(_ context.Context, req ProcessRequest) (ProcessHandle, error) {
 	logPolicyDenied(h.session.id, "boxsh", "start_process", req.Path, "transport mediation not yet implemented")
-	return nil, fmt.Errorf("sandbox: boxsh Host.StartProcess is not implemented in Phase 2; fail closed until transport mediation is wired")
+	return nil, fmt.Errorf("sandbox: boxsh Host.StartProcess is not implemented; fail closed until transport mediation is wired")
 }
 
 func (h *boxshHost) HTTPRequest(_ context.Context, opts HTTPOptions) (HTTPResult, error) {
 	logPolicyDenied(h.session.id, "boxsh", "http_request", opts.URL, "transport mediation not yet implemented")
-	return HTTPResult{}, fmt.Errorf("sandbox: boxsh Host.HTTPRequest is not implemented in Phase 2; fail closed until transport mediation is wired")
+	return HTTPResult{}, fmt.Errorf("sandbox: boxsh Host.HTTPRequest is not implemented; fail closed until transport mediation is wired")
 }
 
 func (h *boxshHost) OpenHTTPStream(_ context.Context, opts HTTPOptions) (HTTPStream, error) {
 	logPolicyDenied(h.session.id, "boxsh", "http_stream", opts.URL, "transport mediation not yet implemented")
-	return nil, fmt.Errorf("sandbox: boxsh Host.OpenHTTPStream is not implemented in Phase 2; fail closed until transport mediation is wired")
+	return nil, fmt.Errorf("sandbox: boxsh Host.OpenHTTPStream is not implemented; fail closed until transport mediation is wired")
 }
 
 func (h *boxshHost) ResolvePath(path string) (string, error) {
@@ -521,7 +521,7 @@ func isWithinRoot(root, path string) bool {
 func (h *boxshHost) ensureWritable(path string) error {
 	if h.hasReadOnlyOverlap() {
 		logPolicyDenied(h.session.id, "boxsh", "write", path, "read-only overlap prevents safe mutation")
-		return fmt.Errorf("sandbox: boxsh mutating host operations are fail-closed when ReadOnlyPaths overlap WorkspaceRoot in Phase 2")
+		return fmt.Errorf("sandbox: boxsh mutating host operations are fail-closed when ReadOnlyPaths overlap WorkspaceRoot")
 	}
 	logicalPath := path
 	if !filepath.IsAbs(logicalPath) {

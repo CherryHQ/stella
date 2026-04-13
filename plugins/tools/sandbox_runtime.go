@@ -54,7 +54,7 @@ func (r boxshSandboxRuntime) Exec(context.Context, string, int) (pkgplugins.Sand
 	if !r.backend.Alive() {
 		return pkgplugins.SandboxExecResult{}, fmt.Errorf("sandbox runtime: backend is not running")
 	}
-	return pkgplugins.SandboxExecResult{}, fmt.Errorf("sandbox runtime: direct plugin Exec is fail-closed in Phase 2; use the sandbox session/host path before enabling execution")
+	return pkgplugins.SandboxExecResult{}, fmt.Errorf("sandbox runtime: direct plugin Exec is fail-closed; use the sandbox session/host path before enabling execution")
 }
 
 func (r hostSandboxRuntime) Enabled() bool {
