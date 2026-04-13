@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/internal/sandbox/boxshclient"
 	"github.com/vaayne/anna/pkg/tools"
+	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
 
 // NewCoreTools returns the unified host-backed core tools.

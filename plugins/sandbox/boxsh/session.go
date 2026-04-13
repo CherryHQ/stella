@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/sandbox/boxshclient"
 	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
+	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
 
 type (

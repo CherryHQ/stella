@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/sandbox/boxshclient"
+	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
 
 func TestBoxshSessionDoneClosesWhenBackendDies(t *testing.T) {
