@@ -27,16 +27,17 @@ A key-value store for global settings. Each row has a `key` (text) and a `value`
 
 One row per agent.
 
-| Column          | Type    | Description                                     |
-| --------------- | ------- | ----------------------------------------------- |
-| `id`            | TEXT    | Agent slug (e.g. `anna`)                        |
-| `name`          | TEXT    | Display name                                    |
-| `model`         | TEXT    | Default model in `provider/model` format        |
-| `model_strong`  | TEXT    | Strong-tier model in `provider/model` format    |
-| `model_fast`    | TEXT    | Fast-tier model in `provider/model` format      |
-| `system_prompt` | TEXT    | Custom system prompt (bypasses default builder) |
-| `workspace`     | TEXT    | Absolute path to agent workspace directory      |
-| `enabled`       | INTEGER | 1 = active, 0 = disabled                        |
+| Column          | Type    | Description                                                      |
+| --------------- | ------- | ---------------------------------------------------------------- |
+| `id`            | TEXT    | Agent slug (e.g. `anna`)                                         |
+| `name`          | TEXT    | Display name                                                     |
+| `model`         | TEXT    | Default model in `provider/model` format                         |
+| `model_strong`  | TEXT    | Strong-tier model in `provider/model` format                     |
+| `model_fast`    | TEXT    | Fast-tier model in `provider/model` format                       |
+| `system_prompt` | TEXT    | Custom system prompt (bypasses default builder)                  |
+| `workspace`     | TEXT    | Absolute path to agent workspace directory                       |
+| `sandbox`       | TEXT    | JSON sandbox config for the agent (`network.mode`, `allowlist`) |
+| `enabled`       | INTEGER | 1 = active, 0 = disabled                                         |
 
 ### settings_channels
 
@@ -146,20 +147,28 @@ Each platform stores its own JSON structure in the `config` column of `settings_
 | `~/.anna/workspaces/{agent-id}/SYSTEM.md`    | Optional system prompt override             | Data     |
 | `~/.anna/workspaces/{agent-id}/HEARTBEAT.md` | Heartbeat instructions                      | Data     |
 | `~/.anna/cache/`                             | Model cache (safe to delete)                | Cache    |
+| `~/.anna/cache/sandbox/`                     | Sandbox session scratch/preflight state     | Cache    |
 
 - **anna.db** is the single source of truth for all configuration, memory, and scheduler data.
 - **workspaces/** contains per-agent data. Each agent gets its own directory keyed by agent ID.
 - **cache/** contains regenerable data. Run `anna models update` to rebuild.
+- **agent sandbox config** lives on each agent record (`settings_agents.sandbox`) and is editable from the agent form in the admin panel.
+  - `backend`: `auto` (default) or `boxsh`
+  - `network.mode`: `disabled` (default), `allow_all`, or `whitelist`
+  - `network.allowlist`: required only when mode is `whitelist`
+  - Linux and macOS validate the managed `boxsh` backend when selected. Runner startup fails closed when the sandbox backend is unavailable.
 
 ## Environment Variables
 
 The old `ANNA_*` prefix overrides for all config fields are removed. Only the following environment variables are recognized:
 
-| Variable            | Purpose                                         |
-| ------------------- | ----------------------------------------------- |
-| `ANNA_HOME`         | Override the home directory (default `~/.anna`) |
-| `ANTHROPIC_API_KEY` | Fallback API key for the Anthropic provider     |
-| `OPENAI_API_KEY`    | Fallback API key for the OpenAI provider        |
+| Variable              | Purpose                                          |
+| --------------------- | ------------------------------------------------ |
+| `ANNA_HOME`           | Override the home directory (default `~/.anna`)  |
+| `ANTHROPIC_API_KEY`   | Fallback API key for the Anthropic provider      |
+| `ANTHROPIC_BASE_URL`  | Fallback base URL for the Anthropic provider     |
+| `OPENAI_API_KEY`      | Fallback API key for the OpenAI provider         |
+| `OPENAI_BASE_URL`     | Fallback base URL for the OpenAI provider        |
 
 All other configuration must be set through the admin panel (`anna --open`) or directly in the database.
 

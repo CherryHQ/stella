@@ -8,7 +8,7 @@ The easiest way to configure anna is `anna --open`, which opens a web admin pane
 
 1. Run `anna --open` to open the admin panel
 2. Add a provider (e.g., "anthropic" with your API key)
-3. Create or edit an agent (set provider, model, system prompt)
+3. Create or edit an agent (set provider, model, system prompt, and sandbox network mode)
 4. Configure channels (Telegram token, etc.)
 5. Start: `anna chat` or `anna` (gateway daemon)
 
@@ -21,7 +21,7 @@ All config lives in normalized SQLite tables:
 | Table | Purpose |
 |-------|---------|
 | `settings` | Key-value JSON settings (runner, scheduler, heartbeat, plugins) |
-| `settings_agents` | Agent definitions (provider, model, system prompt, workspace) |
+| `settings_agents` | Agent definitions (provider/model, system prompt, workspace, per-agent sandbox config) |
 | `settings_plugins` | Unified plugin table (tools, channels, hooks, providers). Provider credentials stored in `config` JSON. |
 | `settings_users` | Auto-created platform users with default agent preference |
 | `settings_channel_agents` | Per-group agent assignment |
@@ -74,9 +74,20 @@ All paths are relative to `$ANNA_HOME` (`~/.anna` by default).
 |------|---------|
 | `anna.db` | SQLite database (all config + runtime data) |
 | `cache/models.json` | Cached model list (safe to delete) |
+| `cache/sandbox/` | Sandbox scratch/preflight state |
 | `workspaces/{agent_id}/` | Per-agent workspace |
 | `workspaces/{agent_id}/skills/` | Per-agent installed skills |
 | `workspaces/{agent_id}/anna.log` | Per-agent log |
+
+## Sandbox settings
+
+Sandbox settings are stored per agent in the `settings_agents.sandbox` JSON column and can be edited in the admin panel on each agent:
+
+- `backend` — `auto` (default) or `boxsh`
+- `network.mode` — `disabled` (default), `allow_all`, or `whitelist`
+- `network.allowlist` — required only when mode is `whitelist`; entries may be hostnames, IPs, or CIDRs
+
+Linux and macOS validate the managed `boxsh` backend, workspace/state-dir shape, and per-agent network policy, then run the core local-workspace tools (`bash`, `read`, `write`, `edit`) through a shared sandbox backend. Runner startup fails closed when the sandbox backend is unavailable.
 
 ## Environment variables
 

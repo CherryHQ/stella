@@ -1,4 +1,4 @@
 {
   "title": "Core Concepts",
-  "pages": ["architecture", "models", "memory-system", "session-compaction"]
+  "pages": ["architecture", "sandbox-backend-abstraction", "models", "memory-system", "session-compaction"]
 }

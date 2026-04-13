@@ -9,7 +9,7 @@ The **trace** plugin gives you visibility into what anna is doing under the hood
 It operates in two modes:
 
 - **Log mode** (always on) -- structured log lines via Go's `slog`, visible in stderr. Zero configuration needed.
-- **OpenTelemetry mode** (opt-in) -- exports distributed traces via OTLP gRPC to any compatible backend (Jaeger, Grafana Tempo, SigNoz, Datadog, etc.). Activate by setting one environment variable.
+- **OpenTelemetry mode** (opt-in) -- exports distributed traces via standard OTLP environment variables. Both OTLP/gRPC and OTLP/HTTP are supported, including authenticated backends. Activate by setting an OTLP endpoint.
 
 ## Configuration
 
@@ -41,15 +41,26 @@ level=INFO msg=post_memory_call hook=trace op=compact duration=200ms token_count
 
 ### OpenTelemetry Mode
 
-Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable. All standard OTel environment variables are supported:
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable. Anna delegates exporter configuration to the OpenTelemetry SDK, so standard OTel environment variables are supported:
 
 | Environment Variable | Default | Description |
 | --- | --- | --- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(empty -- OTel disabled)* | OTLP gRPC endpoint. Set this to enable OTel. |
-| `OTEL_SERVICE_NAME` | `anna` | Service name shown in your trace backend |
-| `OTEL_EXPORTER_OTLP_INSECURE` | `true` | Set to `false` to require TLS |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(empty -- OTel disabled)* | OTLP base endpoint. For OTLP/HTTP, use a full URL such as `https://collector.example.com/api/default`. For OTLP/gRPC, use a URL with scheme such as `https://collector.example.com:4317`. |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | SDK default | Export protocol. Common values: `grpc` or `http/protobuf`. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | *(empty)* | Comma-separated headers applied to all OTLP signals, for example `authorization=Bearer <token>`. |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | *(empty)* | Comma-separated headers applied to traces only. Overrides generic OTLP headers for traces. |
+| `OTEL_SERVICE_NAME` | `anna` | Service name shown in your trace backend. |
+| `OTEL_EXPORTER_OTLP_INSECURE` | SDK default | Set to `false` to require TLS. Use `false` for HTTPS or secure gRPC endpoints. |
 
 When OTel is enabled, both modes run simultaneously -- you get log lines and exported traces.
+
+### Common Pitfalls
+
+- **Always include a scheme in `OTEL_EXPORTER_OTLP_ENDPOINT`.** Use `https://collector.example.com:4317`, not `collector.example.com:4317`. Omitting the scheme can produce malformed export URLs such as `http:///v1/traces`.
+- **Use the correct protocol for your backend.** OTLP/HTTP usually needs `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`; OTLP/gRPC usually uses `OTEL_EXPORTER_OTLP_PROTOCOL=grpc`.
+- **For OTLP/HTTP, set the base path, not `/v1/traces`.** The exporter appends `/v1/traces` automatically.
+- **Do not set `OTEL_EXPORTER_OTLP_INSECURE=true` for TLS endpoints.** Secure collectors should use `OTEL_EXPORTER_OTLP_INSECURE=false`.
+- **Header values are comma-separated `key=value` pairs without shell quotes inside the value.** Example: `authorization=Basic abc123,organization=default`.
 
 ## Using with Jaeger
 
@@ -62,8 +73,10 @@ docker run -d --name jaeger \
   -p 4317:4317 \
   jaegertracing/jaeger:latest
 
-# Start anna with tracing
-OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317 anna serve
+# Start anna with tracing over OTLP/gRPC
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+anna serve
 ```
 
 Open `http://localhost:16686`, select the **anna** service, and click **Find Traces**. Each chat session appears as a trace with a waterfall view of LLM calls, tool executions, and memory operations.
@@ -73,20 +86,37 @@ Open `http://localhost:16686`, select the **anna** service, and click **Find Tra
 Any OTLP-compatible backend works. Examples:
 
 ```bash
-# Grafana Tempo
-OTEL_EXPORTER_OTLP_ENDPOINT=tempo.internal:4317 anna serve
+# Grafana Tempo over OTLP/gRPC
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo.internal:4317 \
+anna serve
 
-# SigNoz
-OTEL_EXPORTER_OTLP_ENDPOINT=signoz.internal:4317 anna serve
+# SigNoz over OTLP/gRPC
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://signoz.internal:4317 \
+anna serve
 
-# OTel Collector (routes to multiple backends)
-OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4317 anna serve
+# OTel Collector over OTLP/gRPC
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 \
+anna serve
 
-# Cloud (with TLS)
-OTEL_EXPORTER_OTLP_ENDPOINT=otlp.vendor.com:443 \
+# Cloud OTLP/gRPC with TLS and auth header
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.vendor.com:443 \
+OTEL_EXPORTER_OTLP_TRACES_HEADERS="authorization=Bearer <token>" \
+OTEL_EXPORTER_OTLP_INSECURE=false \
+anna serve
+
+# Cloud OTLP/HTTP with TLS and auth header
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.vendor.com/api/default \
+OTEL_EXPORTER_OTLP_TRACES_HEADERS="authorization=Basic <base64>,organization=default,stream-name=default" \
 OTEL_EXPORTER_OTLP_INSECURE=false \
 anna serve
 ```
+
+If your provider gives you an OTLP/HTTP endpoint such as `https://collector.example.com/api/default`, use that exact base URL and let the exporter append `/v1/traces`.
 
 ## What Gets Traced
 
