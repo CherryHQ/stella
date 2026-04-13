@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/vaayne/anna/internal/config"
 )
 
 // SessionManager handles the lifecycle of sandbox sessions including
@@ -26,7 +24,7 @@ type SessionOptions struct {
 	WorkDir string
 
 	// Sandbox contains the network policy configuration.
-	Sandbox config.SandboxConfig
+	Sandbox NetworkConfig
 }
 
 // SessionInfo holds the resolved session configuration.
@@ -54,7 +52,7 @@ type SessionInfo struct {
 // If baseDir is empty, uses AnnaHome/cache/sandbox/sessions.
 func NewSessionManager(baseDir string) (*SessionManager, error) {
 	if baseDir == "" {
-		annaHome := config.AnnaHome()
+		annaHome := DefaultAnnaHome()
 		baseDir = filepath.Join(annaHome, "cache", "sandbox", "sessions")
 	}
 
@@ -103,17 +101,14 @@ func (m *SessionManager) CreateSession(opts SessionOptions) (*SessionInfo, error
 	cwd := m.resolveCwd(src, opts.WorkDir)
 
 	// Determine network mode.
-	networkMode := opts.Sandbox.NetworkMode()
-	if networkMode == "" {
-		networkMode = config.SandboxNetworkDisabled
-	}
+	networkMode := opts.Sandbox.ModeOrDefault()
 
 	session := &SessionInfo{
 		Src:              src,
 		Dst:              dst,
 		Cwd:              cwd,
 		NetworkMode:      networkMode,
-		NetworkAllowlist: opts.Sandbox.Network.Allowlist,
+		NetworkAllowlist: opts.Sandbox.Allowlist,
 		IsUserSession:    opts.UserDataDir != "",
 	}
 

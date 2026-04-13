@@ -8,9 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/embedded"
 )
 
 func skipIfWindows(t *testing.T) {
@@ -21,7 +18,6 @@ func skipIfWindows(t *testing.T) {
 
 func writeStatefulMockBoxsh(t *testing.T, annaHome string) {
 	t.Helper()
-	_ = embedded.EnsureTools(annaHome)
 	binDir := filepath.Join(annaHome, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
@@ -174,7 +170,7 @@ func TestSharedCOWView_AllToolsSeeSameSession(t *testing.T) {
 		Workspace:   workspace,
 		UserDataDir: src,
 		WorkDir:     "/",
-		Sandbox:     config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: config.SandboxNetworkDisabled}},
+		Sandbox:     NetworkConfig{Mode: NetworkDisabled},
 	}
 
 	backend, err := NewSharedBackend(cfg)
@@ -256,7 +252,7 @@ func TestSharedCOWView_ClientAndSessionLifecycle(t *testing.T) {
 	cfg := BackendConfig{
 		AnnaHome:  annaHome,
 		Workspace: workspace,
-		Sandbox:   config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: config.SandboxNetworkDisabled}},
+		Sandbox:   NetworkConfig{Mode: NetworkDisabled},
 	}
 
 	backend, err := NewSharedBackend(cfg)
@@ -302,7 +298,7 @@ func TestSharedCOWView_MultipleBackendsUseDistinctUpperdirs(t *testing.T) {
 	cfg := BackendConfig{
 		AnnaHome:  annaHome,
 		Workspace: workspace,
-		Sandbox:   config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: config.SandboxNetworkDisabled}},
+		Sandbox:   NetworkConfig{Mode: NetworkDisabled},
 	}
 
 	backend1, err := NewSharedBackend(cfg)

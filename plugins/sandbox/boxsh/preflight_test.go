@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
-
-	"github.com/vaayne/anna/internal/config"
 )
 
 func TestRequiresBoxsh(t *testing.T) {
@@ -159,9 +157,7 @@ func TestPreflight(t *testing.T) {
 	cfg := PreflightConfig{
 		AnnaHome:  annaHome,
 		Workspace: workspace,
-		Sandbox: config.SandboxConfig{
-			Network: config.SandboxNetworkConfig{Mode: config.SandboxNetworkDisabled},
-		},
+		Network:   NetworkConfig{Mode: NetworkDisabled},
 	}
 	if err := Preflight(context.Background(), cfg); err != nil {
 		t.Fatalf("Preflight: %v", err)
@@ -175,9 +171,7 @@ func TestPreflightRejectsInvalidNetworkMode(t *testing.T) {
 	cfg := PreflightConfig{
 		AnnaHome:  t.TempDir(),
 		Workspace: t.TempDir(),
-		Sandbox: config.SandboxConfig{
-			Network: config.SandboxNetworkConfig{Mode: "invalid"},
-		},
+		Network:   NetworkConfig{Mode: "invalid"},
 	}
 	if err := Preflight(context.Background(), cfg); err == nil {
 		t.Fatal("expected invalid network mode error")

@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/internal/config"
 	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
 	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
@@ -106,7 +105,7 @@ func (f *boxshFactory) CreateSession(ctx context.Context, policy Policy) (Sessio
 		return nil, err
 	}
 
-	annaHome := config.AnnaHome()
+	annaHome := boxshclient.DefaultAnnaHome()
 	binaryPath, err := boxshclient.ResolveManagedBoxshPath(annaHome)
 	if err != nil {
 		return nil, fmt.Errorf("boxsh session: %w", err)
@@ -118,13 +117,13 @@ func (f *boxshFactory) CreateSession(ctx context.Context, policy Policy) (Sessio
 		Workspace:    policy.WorkspaceRootOrDefault(),
 		WorkDir:      policy.Filesystem.WorkingDir,
 		ReadOnlyDirs: policy.Filesystem.ReadOnlyPaths,
-		Sandbox: config.SandboxConfig{Network: config.SandboxNetworkConfig{
+		Sandbox: boxshclient.NetworkConfig{
 			Mode:      string(policy.NetworkModeOrDefault()),
 			Allowlist: policy.Network.Allowlist,
-		}},
+		},
 	}
 	if policy.RequiresWhitelist() && policy.Relaxed {
-		backendCfg.Sandbox.Network.Mode = config.SandboxNetworkAllowAll
+		backendCfg.Sandbox.Mode = boxshclient.NetworkAllowAll
 	}
 
 	backend, err := boxshclient.NewSharedBackend(backendCfg)
