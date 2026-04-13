@@ -1,4 +1,4 @@
-package sandbox_test
+package sandbox
 
 import (
 	"context"
@@ -7,9 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	. "github.com/vaayne/anna/internal/sandbox"
-
-	localbackend "github.com/vaayne/anna/internal/sandbox/local"
 	pkgtools "github.com/vaayne/anna/pkg/tools"
 )
 
@@ -156,7 +153,7 @@ func TestNewCoreToolsEditRequiresUniqueMatch(t *testing.T) {
 
 func mustCreateLocalSession(t *testing.T, policy Policy) Session {
 	t.Helper()
-	session, err := localbackend.NewFactory().CreateSession(context.Background(), policy)
+	session, err := (&localFactory{}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}

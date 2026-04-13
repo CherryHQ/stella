@@ -7,6 +7,14 @@ import (
 	"sync"
 )
 
+// defaultRegistry is the global default registry instance.
+var defaultRegistry = DefaultRegistry()
+
+// GlobalRegistry returns the global default registry.
+func GlobalRegistry() *Registry {
+	return defaultRegistry
+}
+
 // Factory creates sessions from policies.
 // Each backend implementation provides a Factory to validate and create sessions.
 type Factory interface {
@@ -44,6 +52,23 @@ func NewRegistry() *Registry {
 	return &Registry{
 		factories: make(map[string]Factory),
 		order:     make([]string, 0),
+	}
+}
+
+// DefaultRegistry returns a registry with all built-in factories registered.
+func DefaultRegistry() *Registry {
+	r := NewRegistry()
+	mustRegisterFactory(r, &boxshFactory{}, PlatformSupportsBoxsh())
+	mustRegisterFactory(r, &localFactory{}, true)
+	return r
+}
+
+func mustRegisterFactory(r *Registry, factory Factory, enabled bool) {
+	if !enabled {
+		return
+	}
+	if err := r.Register(factory); err != nil {
+		panic(err)
 	}
 }
 

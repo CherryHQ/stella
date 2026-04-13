@@ -1,4 +1,4 @@
-package sandbox_test
+package sandbox
 
 import (
 	"context"
@@ -9,28 +9,15 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/vaayne/anna/internal/sandbox"
-
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
-	boxshbackend "github.com/vaayne/anna/internal/sandbox/boxsh"
-	localbackend "github.com/vaayne/anna/internal/sandbox/local"
 )
-
-func testRegistryWithBackends() *Registry {
-	r := NewRegistry()
-	_ = r.Register(localbackend.NewFactory())
-	if PlatformSupportsBoxsh() {
-		_ = r.Register(boxshbackend.NewFactory())
-	}
-	return r
-}
 
 func TestNewCoreToolsBoxshUsesWorkingDirAndSharedState(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("boxsh integration tests require Linux/macOS")
 	}
-	factory := testRegistryWithBackends().Get("boxsh")
+	factory := GlobalRegistry().Get("boxsh")
 	if factory == nil {
 		t.Skip("boxsh factory not available")
 	}
@@ -122,7 +109,7 @@ func TestNewCoreToolsBoxshReadPaginationAndEditPreflightAcrossPages(t *testing.T
 	if runtime.GOOS == "windows" {
 		t.Skip("boxsh integration tests require Linux/macOS")
 	}
-	factory := testRegistryWithBackends().Get("boxsh")
+	factory := GlobalRegistry().Get("boxsh")
 	if factory == nil {
 		t.Skip("boxsh factory not available")
 	}

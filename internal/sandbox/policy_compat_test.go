@@ -1,4 +1,4 @@
-package sandbox_test
+package sandbox
 
 import (
 	"context"
@@ -6,12 +6,6 @@ import (
 	"runtime"
 	"sync"
 	"testing"
-
-	. "github.com/vaayne/anna/internal/sandbox"
-
-	boxshbackend "github.com/vaayne/anna/internal/sandbox/boxsh"
-	"github.com/vaayne/anna/internal/sandbox/defaults"
-	localbackend "github.com/vaayne/anna/internal/sandbox/local"
 )
 
 // PolicyCompatibilityTests verify fail-closed behavior for unsupported policy/backend combinations.
@@ -85,7 +79,7 @@ func TestRegistryFailClosed(t *testing.T) {
 
 	t.Run("UnknownBackendFailsClosed", func(t *testing.T) {
 		registry := NewRegistry()
-		_ = registry.Register(localbackend.NewFactory())
+		_ = registry.Register(&localFactory{})
 
 		policy := Policy{
 			Backend: "unknown_backend",
@@ -113,7 +107,7 @@ func TestRegistryFailClosed(t *testing.T) {
 	t.Run("UnsupportedPolicyFailsClosed", func(t *testing.T) {
 		registry := NewRegistry()
 		// Only register local factory
-		_ = registry.Register(localbackend.NewFactory())
+		_ = registry.Register(&localFactory{})
 
 		// Try to create session with strict whitelist (local doesn't support this)
 		policy := Policy{
@@ -146,7 +140,7 @@ func TestRegistryFailClosed(t *testing.T) {
 
 	t.Run("RelaxedModeAllowsPartialSupport", func(t *testing.T) {
 		registry := NewRegistry()
-		_ = registry.Register(localbackend.NewFactory())
+		_ = registry.Register(&localFactory{})
 
 		// Same policy but with Relaxed=true
 		policy := Policy{
@@ -203,7 +197,7 @@ func TestRegistryFailClosed(t *testing.T) {
 }
 
 func TestLocalFactorySupported(t *testing.T) {
-	factory := localbackend.NewFactory()
+	factory := &localFactory{}
 
 	t.Run("DisabledNetworkRequiresRelaxed", func(t *testing.T) {
 		policy := Policy{
@@ -319,7 +313,7 @@ func TestLocalFactorySupported(t *testing.T) {
 }
 
 func TestBoxshFactorySupported(t *testing.T) {
-	factory := boxshbackend.NewFactory()
+	factory := &boxshFactory{}
 
 	t.Run("AvailabilityBasedOnPlatform", func(t *testing.T) {
 		available := factory.Available()
@@ -492,7 +486,7 @@ func TestPolicyCompatibilityErrorMessage(t *testing.T) {
 func TestRegistryCreateRelaxedSession(t *testing.T) {
 	ctx := context.Background()
 	registry := NewRegistry()
-	_ = registry.Register(localbackend.NewFactory())
+	_ = registry.Register(&localFactory{})
 
 	base := Policy{
 		Filesystem: FilesystemPolicy{
@@ -518,7 +512,7 @@ func TestRegistryCreateRelaxedSession(t *testing.T) {
 }
 
 func TestDefaultRegistry(t *testing.T) {
-	registry := defaults.DefaultRegistry()
+	registry := DefaultRegistry()
 
 	// Should have local factory
 	local := registry.Get("local")
@@ -643,7 +637,7 @@ func TestRegistryAutoSelectSkipsUnsupportedBackendsInOrder(t *testing.T) {
 
 func TestRegistryConcurrency(t *testing.T) {
 	registry := NewRegistry()
-	factory := localbackend.NewFactory()
+	factory := &localFactory{}
 
 	// Test concurrent registration
 	t.Run("ConcurrentRegister", func(t *testing.T) {
