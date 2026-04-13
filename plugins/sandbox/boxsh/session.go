@@ -352,30 +352,11 @@ func (h *boxshHost) Stat(ctx context.Context, path string) (StatResult, error) {
 		return StatResult{}, err
 	}
 
-	command := "p=" + shellQuote(resolved) + `; if [ ! -e "$p" ]; then printf '0\t0\t0\t0\t0\n'; else isdir=0; if [ -d "$p" ]; then isdir=1; fi; size=$( (stat -c %s "$p" 2>/dev/null || stat -f %z "$p" 2>/dev/null || printf 0) | head -n1); mode=$( (stat -c %a "$p" 2>/dev/null || stat -f %Lp "$p" 2>/dev/null || printf 0) | head -n1); mtime=$( (stat -c %Y "$p" 2>/dev/null || stat -f %m "$p" 2>/dev/null || printf 0) | head -n1); printf '1\t%s\t%s\t%s\t%s\n' "$isdir" "$size" "$mode" "$mtime"; fi`
-	result, err := h.execSandbox(ctx, "stat", command)
+	result, err := h.execSandbox(ctx, "stat", boxshStatCommand(resolved))
 	if err != nil {
 		return StatResult{}, err
 	}
-	fields := strings.Split(strings.TrimSpace(result.Stdout), "\t")
-	if len(fields) < 5 {
-		return StatResult{}, fmt.Errorf("boxsh host: malformed stat response %q", result.Stdout)
-	}
-	exists := fields[0] == "1"
-	if !exists {
-		return StatResult{Exists: false}, nil
-	}
-	size, _ := strconv.ParseInt(fields[2], 10, 64)
-	mode, _ := strconv.ParseUint(fields[3], 8, 32)
-	mtime, _ := strconv.ParseInt(fields[4], 10, 64)
-
-	return StatResult{
-		Exists:  true,
-		IsDir:   fields[1] == "1",
-		Size:    size,
-		Mode:    uint32(mode),
-		ModTime: time.Unix(mtime, 0),
-	}, nil
+	return parseBoxshStat(result.Stdout)
 }
 
 func (h *boxshHost) ListDir(ctx context.Context, path string) ([]DirEntry, error) {
@@ -384,31 +365,11 @@ func (h *boxshHost) ListDir(ctx context.Context, path string) ([]DirEntry, error
 		return nil, err
 	}
 
-	command := "p=" + shellQuote(resolved) + `; if [ ! -d "$p" ]; then printf 'not a directory: %s\n' "$p" >&2; exit 1; fi; for x in "$p"/* "$p"/.[!.]* "$p"/..?*; do [ -e "$x" ] || continue; name=${x##*/}; isdir=0; if [ -d "$x" ]; then isdir=1; fi; size=$( (stat -c %s "$x" 2>/dev/null || stat -f %z "$x" 2>/dev/null || printf 0) | head -n1); printf '%s\t%s\t%s\n' "$name" "$isdir" "$size"; done`
-	execResult, err := h.execSandbox(ctx, "list", command)
+	execResult, err := h.execSandbox(ctx, "list", boxshListDirCommand(resolved))
 	if err != nil {
 		return nil, err
 	}
-
-	lines := strings.Split(strings.TrimSpace(execResult.Stdout), "\n")
-	result := make([]DirEntry, 0, len(lines))
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		fields := strings.Split(line, "\t")
-		if len(fields) < 3 {
-			return nil, fmt.Errorf("boxsh host: malformed list response %q", line)
-		}
-		size, _ := strconv.ParseInt(fields[2], 10, 64)
-		result = append(result, DirEntry{
-			Name:  fields[0],
-			IsDir: fields[1] == "1",
-			Size:  size,
-		})
-	}
-
-	return result, nil
+	return parseBoxshListDir(execResult.Stdout)
 }
 
 func (h *boxshHost) MkdirAll(ctx context.Context, path string, perm uint32) error {
@@ -603,7 +564,7 @@ func (h *boxshHost) ResolvePath(path string) (string, error) {
 			return path, nil
 		}
 	}
-	if sandboxRelativeAbsolute(path) {
+	if filepath.IsAbs(path) {
 		return filepath.Join(root, strings.TrimPrefix(path, string(filepath.Separator))), nil
 	}
 	if err := boxshclient.ValidateSandboxPath(root, path); err != nil {
@@ -649,10 +610,6 @@ func (h *boxshHost) hasReadOnlyOverlap() bool {
 		}
 	}
 	return false
-}
-
-func sandboxRelativeAbsolute(path string) bool {
-	return filepath.IsAbs(path)
 }
 
 func (h *boxshHost) WorkingDir() string {
@@ -751,6 +708,56 @@ func (h *boxshHost) execSandbox(ctx context.Context, op, command string) (*boxsh
 
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+func boxshStatCommand(path string) string {
+	return "p=" + shellQuote(path) + `; if [ ! -e "$p" ]; then printf '0\t0\t0\t0\t0\n'; else isdir=0; if [ -d "$p" ]; then isdir=1; fi; size=$( (stat -c %s "$p" 2>/dev/null || stat -f %z "$p" 2>/dev/null || printf 0) | head -n1); mode=$( (stat -c %a "$p" 2>/dev/null || stat -f %Lp "$p" 2>/dev/null || printf 0) | head -n1); mtime=$( (stat -c %Y "$p" 2>/dev/null || stat -f %m "$p" 2>/dev/null || printf 0) | head -n1); printf '1\t%s\t%s\t%s\t%s\n' "$isdir" "$size" "$mode" "$mtime"; fi`
+}
+
+func parseBoxshStat(stdout string) (StatResult, error) {
+	fields := strings.Split(strings.TrimSpace(stdout), "\t")
+	if len(fields) < 5 {
+		return StatResult{}, fmt.Errorf("boxsh host: malformed stat response %q", stdout)
+	}
+	if fields[0] != "1" {
+		return StatResult{Exists: false}, nil
+	}
+
+	size, _ := strconv.ParseInt(fields[2], 10, 64)
+	mode, _ := strconv.ParseUint(fields[3], 8, 32)
+	mtime, _ := strconv.ParseInt(fields[4], 10, 64)
+	return StatResult{
+		Exists:  true,
+		IsDir:   fields[1] == "1",
+		Size:    size,
+		Mode:    uint32(mode),
+		ModTime: time.Unix(mtime, 0),
+	}, nil
+}
+
+func boxshListDirCommand(path string) string {
+	return "p=" + shellQuote(path) + `; if [ ! -d "$p" ]; then printf 'not a directory: %s\n' "$p" >&2; exit 1; fi; for x in "$p"/* "$p"/.[!.]* "$p"/..?*; do [ -e "$x" ] || continue; name=${x##*/}; isdir=0; if [ -d "$x" ]; then isdir=1; fi; size=$( (stat -c %s "$x" 2>/dev/null || stat -f %z "$x" 2>/dev/null || printf 0) | head -n1); printf '%s\t%s\t%s\n' "$name" "$isdir" "$size"; done`
+}
+
+func parseBoxshListDir(stdout string) ([]DirEntry, error) {
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	result := make([]DirEntry, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) < 3 {
+			return nil, fmt.Errorf("boxsh host: malformed list response %q", line)
+		}
+		size, _ := strconv.ParseInt(fields[2], 10, 64)
+		result = append(result, DirEntry{
+			Name:  fields[0],
+			IsDir: fields[1] == "1",
+			Size:  size,
+		})
+	}
+	return result, nil
 }
 
 func mktempTemplate(pattern string) string {
