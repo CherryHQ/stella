@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -10,13 +12,12 @@ import (
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/embedded"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/tools"
-	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
 type commandTestProvider struct{}
@@ -35,8 +36,6 @@ func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Regist
 	reg.Register(commandTestProvider{})
 	return reg, nil
 }
-
-func testCoreToolsBuilder(plugintools.BuildContext) []tools.Tool { return nil }
 
 type commandTestStore struct{}
 
@@ -109,7 +108,42 @@ func (commandTestMemory) Stats(context.Context, memory.Session) (memory.SessionS
 }
 func (commandTestMemory) Close() error { return nil }
 
+func setupCommandTestAnnaHome(t *testing.T) string {
+	t.Helper()
+	annaHome := t.TempDir()
+	binDir := filepath.Join(annaHome, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	_ = embedded.EnsureTools(annaHome)
+	boxshPath := filepath.Join(binDir, "boxsh")
+	_ = os.Remove(boxshPath)
+	boxshStub := `#!/bin/bash
+if [[ "$1" == "--version" ]]; then
+	echo boxsh 2.0.1
+	exit 0
+fi
+
+while read -r line; do
+	id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
+	if [[ "$line" == *'"method":"initialize"'* ]]; then
+		echo "{\"jsonrpc\":\"2.0\",\"result\":{\"serverInfo\":{\"name\":\"boxsh\",\"version\":\"2.0.1\"},\"protocolVersion\":\"2024-11-05\"},\"id\":$id}"
+	elif [[ "$line" == *'"method":"tools/call"'* ]]; then
+		echo "{\"jsonrpc\":\"2.0\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"structuredContent\":{\"stdout\":\"ok\",\"stderr\":\"\",\"exit_code\":0}},\"id\":$id}"
+	fi
+done
+`
+	if err := os.WriteFile(boxshPath, []byte(boxshStub), 0o755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	t.Setenv("ANNA_HOME", annaHome)
+	config.ResetAnnaHome()
+	t.Cleanup(config.ResetAnnaHome)
+	return annaHome
+}
+
 func TestNewRunnerFactoryGo(t *testing.T) {
+	setupCommandTestAnnaHome(t)
 	snap := &config.Snapshot{
 		Provider: "anthropic",
 		Model:    "test-model",
@@ -118,7 +152,7 @@ func TestNewRunnerFactoryGo(t *testing.T) {
 	}
 	snap.Workspace = t.TempDir()
 
-	factory, err := agent.NewRunnerFactory(snap, nil, testCoreToolsBuilder, testProviderRegistryBuilder, nil, nil, nil)
+	factory, err := agent.NewRunnerFactory(snap, nil, testProviderRegistryBuilder, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewRunnerFactory: %v", err)
 	}
@@ -138,7 +172,7 @@ func TestNewRunnerFactoryUnknown(t *testing.T) {
 		Runner: config.RunnerConfig{Type: "invalid"},
 	}
 
-	_, err := agent.NewRunnerFactory(snap, nil, testCoreToolsBuilder, testProviderRegistryBuilder, nil, nil, nil)
+	_, err := agent.NewRunnerFactory(snap, nil, testProviderRegistryBuilder, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown runner type")
 	}
@@ -178,9 +212,7 @@ func TestRunGatewayNoServices(t *testing.T) {
 }
 
 func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
-	t.Setenv("ANNA_HOME", t.TempDir())
-	config.ResetAnnaHome()
-	t.Cleanup(config.ResetAnnaHome)
+	setupCommandTestAnnaHome(t)
 
 	snap := &config.Snapshot{
 		Provider: "anthropic",
@@ -190,7 +222,7 @@ func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
 	}
 	snap.Workspace = t.TempDir()
 
-	initialFactory, err := agent.NewRunnerFactory(snap, nil, testCoreToolsBuilder, testProviderRegistryBuilder, nil, nil, nil)
+	initialFactory, err := agent.NewRunnerFactory(snap, nil, testProviderRegistryBuilder, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewRunnerFactory: %v", err)
 	}
@@ -204,7 +236,6 @@ func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
 		commandTestStore{},
 		pool,
 		nil,
-		testCoreToolsBuilder,
 		testProviderRegistryBuilder,
 		func(context.Context) ([]pkgplugins.PromptToolInfo, error) {
 			promptToolsCalls++

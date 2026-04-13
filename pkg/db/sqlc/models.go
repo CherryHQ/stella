@@ -184,6 +184,7 @@ type SettingsAgent struct {
 	ModelFast    string `json:"model_fast"`
 	SystemPrompt string `json:"system_prompt"`
 	Workspace    string `json:"workspace"`
+	Sandbox      string `json:"sandbox"`
 	Scope        string `json:"scope"`
 	CreatorID    int64  `json:"creator_id"`
 	Enabled      int64  `json:"enabled"`

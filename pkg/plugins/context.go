@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/vaayne/anna/internal/sandbox"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/channel"
 )
@@ -16,8 +17,10 @@ type ToolContext struct {
 	WorkDir     string
 	UserDataDir string
 	AnnaHome    string
+	HomeDir     string
 	Workspace   string
 	ToolsBinDir string
+	Host        sandbox.Host // sandbox-backed filesystem/process/network surface
 }
 
 // ProviderContext is the narrow build context for provider capabilities.
@@ -74,6 +77,7 @@ type SystemPromptContext struct {
 	Platform    Platform
 	State       PluginState
 	AnnaHome    string
+	HomeDir     string
 	Workspace   string
 	Cwd         string
 	UserID      int64

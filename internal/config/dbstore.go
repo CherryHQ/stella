@@ -101,7 +101,11 @@ func (s *DBStore) ListAgents(ctx context.Context) ([]Agent, error) {
 	}
 	out := make([]Agent, len(rows))
 	for i, r := range rows {
-		out[i] = agentFromDB(r)
+		agent, err := agentFromDB(r)
+		if err != nil {
+			return nil, fmt.Errorf("list agents: %w", err)
+		}
+		out[i] = agent
 	}
 	return out, nil
 }
@@ -113,7 +117,11 @@ func (s *DBStore) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
 	}
 	out := make([]Agent, len(rows))
 	for i, r := range rows {
-		out[i] = agentFromDB(r)
+		agent, err := agentFromDB(r)
+		if err != nil {
+			return nil, fmt.Errorf("list enabled agents: %w", err)
+		}
+		out[i] = agent
 	}
 	return out, nil
 }
@@ -123,7 +131,11 @@ func (s *DBStore) GetAgent(ctx context.Context, id string) (Agent, error) {
 	if err != nil {
 		return Agent{}, fmt.Errorf("get agent %q: %w", id, err)
 	}
-	return agentFromDB(r), nil
+	agent, err := agentFromDB(r)
+	if err != nil {
+		return Agent{}, fmt.Errorf("get agent %q: %w", id, err)
+	}
+	return agent, nil
 }
 
 func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
@@ -135,7 +147,14 @@ func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
 	if scope == "" {
 		scope = AgentScopeSystem
 	}
-	_, err := s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
+	if err := a.Sandbox.Validate(); err != nil {
+		return fmt.Errorf("create agent %q: %w", a.ID, err)
+	}
+	sandboxJSON, err := marshalSandboxConfig(a.Sandbox)
+	if err != nil {
+		return fmt.Errorf("create agent %q: %w", a.ID, err)
+	}
+	_, err = s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
 		ID:           a.ID,
 		Name:         a.Name,
 		Model:        a.Model,
@@ -143,6 +162,7 @@ func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
 		ModelFast:    a.ModelFast,
 		SystemPrompt: a.SystemPrompt,
 		Workspace:    a.Workspace,
+		Sandbox:      sandboxJSON,
 		Scope:        scope,
 		CreatorID:    a.CreatorID,
 		Enabled:      enabled,
@@ -162,7 +182,14 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a Agent) error {
 	if scope == "" {
 		scope = AgentScopeSystem
 	}
-	err := s.q.UpdateAgent(ctx, sqlc.UpdateAgentParams{
+	if err := a.Sandbox.Validate(); err != nil {
+		return fmt.Errorf("update agent %q: %w", a.ID, err)
+	}
+	sandboxJSON, err := marshalSandboxConfig(a.Sandbox)
+	if err != nil {
+		return fmt.Errorf("update agent %q: %w", a.ID, err)
+	}
+	err = s.q.UpdateAgent(ctx, sqlc.UpdateAgentParams{
 		ID:           a.ID,
 		Name:         a.Name,
 		Model:        a.Model,
@@ -170,6 +197,7 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a Agent) error {
 		ModelFast:    a.ModelFast,
 		SystemPrompt: a.SystemPrompt,
 		Workspace:    a.Workspace,
+		Sandbox:      sandboxJSON,
 		Scope:        scope,
 		Enabled:      enabled,
 	})
@@ -431,6 +459,11 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 	defaultProvID, _ := ParseModelRef(ag.Model)
 	defaultCreds := providers[defaultProvID]
 
+	sandboxCfg, err := parseSandboxConfig(ag.Sandbox)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: parse agent sandbox config %q: %w", agentID, err)
+	}
+
 	snap := &Snapshot{
 		AgentID:      agentID,
 		Provider:     defaultProvID,
@@ -438,6 +471,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 		ModelStrong:  ag.ModelStrong,
 		ModelFast:    ag.ModelFast,
 		Workspace:    ag.Workspace,
+		Sandbox:      sandboxCfg,
 		APIKey:       defaultCreds.APIKey,
 		BaseURL:      defaultCreds.BaseURL,
 		SystemPrompt: ag.SystemPrompt,
@@ -490,12 +524,17 @@ func (s *DBStore) SeedDefaults(ctx context.Context) error {
 	}
 	if len(agents) == 0 {
 		workspace := filepath.Join(AnnaHome(), "workspaces", "anna")
-		_, err := s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
+		sandboxJSON, err := marshalSandboxConfig(SandboxConfig{})
+		if err != nil {
+			return fmt.Errorf("seed: marshal anna sandbox config: %w", err)
+		}
+		_, err = s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
 			ID:           "anna",
 			Name:         "Anna",
 			Model:        "anthropic/claude-sonnet-4-6",
 			SystemPrompt: defaultAnnaSoul,
 			Workspace:    workspace,
+			Sandbox:      sandboxJSON,
 			Scope:        AgentScopeSystem,
 			Enabled:      1,
 		})
@@ -699,6 +738,28 @@ func (s *DBStore) migrateLegacyChannelPluginConfig(ctx context.Context, plugin P
 }
 
 // --- Helpers ---
+
+func marshalSandboxConfig(cfg SandboxConfig) (string, error) {
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return "", fmt.Errorf("marshal sandbox config: %w", err)
+	}
+	return string(data), nil
+}
+
+func parseSandboxConfig(raw string) (SandboxConfig, error) {
+	var cfg SandboxConfig
+	if raw == "" {
+		return cfg, nil
+	}
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return SandboxConfig{}, fmt.Errorf("parse sandbox config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return SandboxConfig{}, err
+	}
+	return cfg, nil
+}
 
 func (s *DBStore) seedProviders(ctx context.Context) error {
 	providers, err := s.q.ListProviders(ctx)
@@ -920,10 +981,14 @@ func envFallback(dst *string, envKey string) {
 	}
 }
 
-func agentFromDB(r sqlc.SettingsAgent) Agent {
+func agentFromDB(r sqlc.SettingsAgent) (Agent, error) {
 	scope := r.Scope
 	if scope == "" {
 		scope = AgentScopeSystem
+	}
+	sandboxCfg, err := parseSandboxConfig(r.Sandbox)
+	if err != nil {
+		return Agent{}, fmt.Errorf("parse agent %q sandbox config: %w", r.ID, err)
 	}
 	return Agent{
 		ID:           r.ID,
@@ -933,10 +998,11 @@ func agentFromDB(r sqlc.SettingsAgent) Agent {
 		ModelFast:    r.ModelFast,
 		SystemPrompt: r.SystemPrompt,
 		Workspace:    r.Workspace,
+		Sandbox:      sandboxCfg,
 		Scope:        scope,
 		CreatorID:    r.CreatorID,
 		Enabled:      r.Enabled == 1,
-	}
+	}, nil
 }
 
 // collectProviderIDs extracts unique provider IDs from model refs.

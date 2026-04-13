@@ -27,6 +27,7 @@ type Snapshot struct {
 	ModelStrong  string
 	ModelFast    string
 	Workspace    string
+	Sandbox      SandboxConfig
 	APIKey       string
 	BaseURL      string
 	SystemPrompt string // agent's soul/personality from DB
