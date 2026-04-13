@@ -72,6 +72,7 @@ func TestManagerReconcileStartsServerAndDiscoversTools(t *testing.T) {
 	mgr.SetDial(func(context.Context, ServerConfig, sandbox.Host) (Session, error) {
 		return sess, nil
 	})
+	mgr.SetHost(&stdioHostStub{})
 
 	mgr.Reconcile(context.Background(), Config{Servers: []ServerConfig{{Name: "github", Enabled: true, Transport: TransportStdio, Command: "npx"}}}, true)
 
@@ -95,6 +96,7 @@ func TestManagerSuppressesAlwaysFailingServer(t *testing.T) {
 	mgr.SetDial(func(context.Context, ServerConfig, sandbox.Host) (Session, error) {
 		return nil, errors.New("boom")
 	})
+	mgr.SetHost(&stdioHostStub{})
 
 	mgr.Reconcile(context.Background(), Config{Servers: []ServerConfig{{Name: "broken", Enabled: true, Transport: TransportStdio, Command: "cmd"}}}, true)
 
@@ -116,6 +118,7 @@ func TestManagerExecNormalizesResponse(t *testing.T) {
 		StructuredContent: map[string]any{"value": "ok"},
 	}
 	mgr.SetDial(func(context.Context, ServerConfig, sandbox.Host) (Session, error) { return sess, nil })
+	mgr.SetHost(&stdioHostStub{})
 	mgr.Reconcile(context.Background(), Config{Servers: []ServerConfig{{Name: "demo", Enabled: true, Transport: TransportStdio, Command: "cmd"}}}, true)
 	waitFor(t, time.Second, func() bool { return len(mgr.ValidTools()) == 1 })
 	tool := mgr.ValidTools()[0]
@@ -139,6 +142,7 @@ func TestManagerHandlesNilWaitErrorAsCleanStop(t *testing.T) {
 	mgr := NewManager()
 	sess := newFakeSession(&officialmcp.Tool{Name: "hello", Description: "Hello"})
 	mgr.SetDial(func(context.Context, ServerConfig, sandbox.Host) (Session, error) { return sess, nil })
+	mgr.SetHost(&stdioHostStub{})
 	mgr.Reconcile(context.Background(), Config{Servers: []ServerConfig{{Name: "demo", Enabled: true, Transport: TransportStdio, Command: "cmd"}}}, true)
 	waitFor(t, time.Second, func() bool { return len(mgr.ValidTools()) == 1 })
 

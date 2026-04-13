@@ -55,7 +55,7 @@ func TestNewHTTPClientAppliesConfiguredHeaders(t *testing.T) {
 }
 
 func TestNewTransportStdioRequiresHost(t *testing.T) {
-	_, err := newTransport(ServerConfig{Name: "demo", Transport: TransportStdio, Command: "demo"}, nil)
+	_, err := newTransport(context.Background(), ServerConfig{Name: "demo", Transport: TransportStdio, Command: "demo"}, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -67,7 +67,7 @@ func TestNewTransportStdioRequiresHost(t *testing.T) {
 
 func TestNewTransportStdioUsesHostStartProcess(t *testing.T) {
 	host := &stdioHostStub{}
-	transport, err := newTransport(ServerConfig{Name: "demo", Transport: TransportStdio, Command: "demo", Args: []string{"--flag"}, Env: map[string]string{"A": "1"}, TimeoutSeconds: 9}, host)
+	transport, err := newTransport(context.Background(), ServerConfig{Name: "demo", Transport: TransportStdio, Command: "demo", Args: []string{"--flag"}, Env: map[string]string{"A": "1"}, TimeoutSeconds: 9}, host)
 	if err != nil {
 		t.Fatalf("newTransport: %v", err)
 	}
@@ -83,8 +83,8 @@ func TestNewTransportStdioUsesHostStartProcess(t *testing.T) {
 	if host.req.Env["A"] != "1" {
 		t.Fatalf("env = %#v", host.req.Env)
 	}
-	if host.req.Timeout.Seconds() != 9 {
-		t.Fatalf("timeout = %v", host.req.Timeout)
+	if host.req.Timeout != 0 {
+		t.Fatalf("timeout = %v, want no process lifetime limit", host.req.Timeout)
 	}
 }
 
@@ -95,7 +95,7 @@ func TestNewTransportRemoteLogsExplicitException(t *testing.T) {
 	slog.SetDefault(logger)
 	defer slog.SetDefault(previous)
 
-	transport, err := newTransport(ServerConfig{Name: "demo", Transport: TransportSSE, URL: "https://example.com/sse", TimeoutSeconds: 5}, nil)
+	transport, err := newTransport(context.Background(), ServerConfig{Name: "demo", Transport: TransportSSE, URL: "https://example.com/sse", TimeoutSeconds: 5}, nil)
 	if err != nil {
 		t.Fatalf("newTransport: %v", err)
 	}

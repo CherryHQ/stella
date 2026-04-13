@@ -21,6 +21,7 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
+	boxshsandbox "github.com/vaayne/anna/plugins/sandbox/boxsh"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
 )
@@ -40,7 +41,8 @@ type GoRunnerConfig struct {
 	AnnaHome       string // anna home directory (e.g. ~/.anna)
 	System         string // optional system prompt override (bypasses default prompt building)
 	PromptSections []pkgplugins.SystemPromptSection
-	ExtraTools     []tools.Tool       // additional tools to register
+	ExtraTools     []tools.Tool // additional tools to register
+	PluginTools    func(context.Context, plugintools.BuildContext) []tools.Tool
 	UserDataDir    string             // optional per-user data directory used by prompts, skills, and sandbox session setup
 	HookPlugins    []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle  *coreagent.ToolLifecycle
@@ -106,7 +108,7 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		})
 	}
 
-	toolReg, err := buildToolRegistry(cfg, session)
+	toolReg, err := buildToolRegistry(ctx, cfg, session)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
@@ -180,7 +182,7 @@ func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
 }
 
 // buildToolRegistry creates the tool registry with core and extra tools.
-func buildToolRegistry(cfg GoRunnerConfig, session *runnerSession) (*tools.Registry, error) {
+func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerSession) (*tools.Registry, error) {
 	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
 	annaHome := cfg.AnnaHome
 	if annaHome == "" {
@@ -219,6 +221,11 @@ func buildToolRegistry(cfg GoRunnerConfig, session *runnerSession) (*tools.Regis
 	// Extra tools (shared tools like memory, scheduler + plugin tools like webfetch).
 	for _, t := range cfg.ExtraTools {
 		toolReg.Register(t)
+	}
+	if cfg.PluginTools != nil {
+		for _, t := range cfg.PluginTools(ctx, bc) {
+			toolReg.Register(t)
+		}
 	}
 
 	return toolReg, nil
@@ -265,11 +272,17 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	if err := embedded.EnsureTools(annaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
-	if err := internalsandbox.Preflight(ctx, internalsandbox.PreflightConfig{
+	if cfg.Sandbox.BackendName() == config.SandboxBackendLocal {
+		return nil
+	}
+	if err := boxshsandbox.Preflight(ctx, boxshsandbox.PreflightConfig{
 		AnnaHome:    annaHome,
 		Workspace:   cfg.Workspace,
 		UserDataDir: cfg.UserDataDir,
-		Sandbox:     cfg.Sandbox,
+		Network: boxshsandbox.NetworkConfig{
+			Mode:      cfg.Sandbox.Network.Mode,
+			Allowlist: cfg.Sandbox.Network.Allowlist,
+		},
 	}); err != nil {
 		return fmt.Errorf("go runner: %w", err)
 	}

@@ -4,8 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/vaayne/anna/internal/config"
 )
 
 func TestNewSessionManager(t *testing.T) {
@@ -41,7 +39,7 @@ func TestNewSessionManagerDefaultBaseDir(t *testing.T) {
 		t.Fatalf("NewSessionManager with empty baseDir: %v", err)
 	}
 
-	expectedBase := filepath.Join(config.AnnaHome(), "cache", "sandbox", "sessions")
+	expectedBase := filepath.Join(DefaultAnnaHome(), "cache", "sandbox", "sessions")
 	if manager.baseDir != expectedBase {
 		t.Errorf("baseDir = %q, want %q", manager.baseDir, expectedBase)
 	}
@@ -60,10 +58,8 @@ func TestSessionManagerCreateSession(t *testing.T) {
 		Workspace:   workspace,
 		UserDataDir: userDataDir,
 		WorkDir:     "src",
-		Sandbox: config.SandboxConfig{
-			Network: config.SandboxNetworkConfig{
-				Mode: config.SandboxNetworkDisabled,
-			},
+		Sandbox: NetworkConfig{
+			Mode: NetworkDisabled,
 		},
 	}
 
@@ -88,8 +84,8 @@ func TestSessionManagerCreateSession(t *testing.T) {
 		t.Errorf("Cwd = %q, want %q", session.Cwd, expectedCwd)
 	}
 
-	if session.NetworkMode != config.SandboxNetworkDisabled {
-		t.Errorf("NetworkMode = %q, want %q", session.NetworkMode, config.SandboxNetworkDisabled)
+	if session.NetworkMode != NetworkDisabled {
+		t.Errorf("NetworkMode = %q, want %q", session.NetworkMode, NetworkDisabled)
 	}
 
 	if !session.IsUserSession {
@@ -114,7 +110,7 @@ func TestSessionManagerCreateSystemSession(t *testing.T) {
 		Workspace:   workspace,
 		UserDataDir: "", // No user data dir - system session
 		WorkDir:     "",
-		Sandbox:     config.SandboxConfig{},
+		Sandbox:     NetworkConfig{},
 	}
 
 	session, err := manager.CreateSession(opts)
@@ -225,7 +221,7 @@ func TestBuildSessionConfig(t *testing.T) {
 		Src:              "/src",
 		Dst:              "/dst",
 		Cwd:              "/cwd",
-		NetworkMode:      config.SandboxNetworkWhitelist,
+		NetworkMode:      NetworkWhitelist,
 		NetworkAllowlist: []string{"example.com"},
 	}
 

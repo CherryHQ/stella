@@ -3,7 +3,6 @@ package plugintools
 import "github.com/vaayne/anna/internal/sandbox"
 
 // BuildContext carries per-session configuration for tool construction.
-// Build-time contexts remain sandbox-agnostic; Host is injected at execution time.
 type BuildContext struct {
 	WorkDir     string       // working directory for tool execution
 	UserDataDir string       // optional per-user data directory used by prompts, skills, and sandbox setup

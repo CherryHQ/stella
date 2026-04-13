@@ -1,4 +1,4 @@
-package sandbox
+package local
 
 import (
 	"bytes"
@@ -14,11 +14,56 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
 )
+
+const NetworkDisabled = sandboxpkg.NetworkDisabled
+
+type (
+	Policy                   = sandboxpkg.Policy
+	Session                  = sandboxpkg.Session
+	Host                     = sandboxpkg.Host
+	ReadResult               = sandboxpkg.ReadResult
+	WriteResult              = sandboxpkg.WriteResult
+	Edit                     = sandboxpkg.Edit
+	EditResult               = sandboxpkg.EditResult
+	StatResult               = sandboxpkg.StatResult
+	DirEntry                 = sandboxpkg.DirEntry
+	TempFile                 = sandboxpkg.TempFile
+	ExecOptions              = sandboxpkg.ExecOptions
+	ExecResult               = sandboxpkg.ExecResult
+	ProcessRequest           = sandboxpkg.ProcessRequest
+	ProcessHandle            = sandboxpkg.ProcessHandle
+	HTTPOptions              = sandboxpkg.HTTPOptions
+	HTTPResult               = sandboxpkg.HTTPResult
+	HTTPStream               = sandboxpkg.HTTPStream
+	PolicyCompatibilityError = sandboxpkg.PolicyCompatibilityError
+)
+
+func nextSessionID() string { return sandboxpkg.NewSessionID() }
+
+func logSessionCreated(sessionID, backend string, policy Policy) {
+	sandboxpkg.LogSessionCreated(sessionID, backend, policy)
+}
+
+func logSessionClosed(sessionID, backend, reason string) {
+	sandboxpkg.LogSessionClosed(sessionID, backend, reason)
+}
+
+func logRelaxedMode(sessionID, backend, reason string, policy Policy, warnings ...string) {
+	sandboxpkg.LogRelaxedMode(sessionID, backend, reason, policy, warnings...)
+}
+
+func logPolicyDenied(sessionID, backend, operation, resource, reason string) {
+	sandboxpkg.LogPolicyDenied(sessionID, backend, operation, resource, reason)
+}
 
 // localFactory creates relaxed/unsandboxed sessions for explicit opt-in scenarios.
 // This factory is always available but provides advisory enforcement only.
 type localFactory struct{}
+
+func NewFactory() sandboxpkg.Factory { return &localFactory{} }
 
 func (f *localFactory) Name() string    { return "local" }
 func (f *localFactory) Available() bool { return true }

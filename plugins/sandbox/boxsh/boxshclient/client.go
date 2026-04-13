@@ -17,8 +17,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/vaayne/anna/internal/config"
 )
 
 // Client manages a boxsh --rpc subprocess and provides typed RPC methods.
@@ -185,11 +183,11 @@ func (c *Client) buildArgs() ([]string, error) {
 	}
 
 	switch c.sessionConfig.NetworkMode {
-	case "", config.SandboxNetworkDisabled:
+	case "", NetworkDisabled:
 		args = append(args, "--new-net-ns")
-	case config.SandboxNetworkAllowAll:
+	case NetworkAllowAll:
 		// no-op
-	case config.SandboxNetworkWhitelist:
+	case NetworkWhitelist:
 		return nil, fmt.Errorf("boxshclient: whitelist network mode is not supported by boxsh 2.0.1")
 	default:
 		return nil, fmt.Errorf("boxshclient: unsupported network mode %q", c.sessionConfig.NetworkMode)

@@ -5,10 +5,11 @@ import (
 	"sync/atomic"
 )
 
-var sandboxSessionSeq uint64
+var sessionSeq uint64
 
-func nextSessionID() string {
-	id := atomic.AddUint64(&sandboxSessionSeq, 1)
+// NewSessionID returns a unique session identifier for backend implementations.
+func NewSessionID() string {
+	id := atomic.AddUint64(&sessionSeq, 1)
 	return "sandbox-" + itoa(id)
 }
 
@@ -26,7 +27,7 @@ func itoa(v uint64) string {
 	return string(buf[i:])
 }
 
-func logSessionCreated(sessionID, backend string, policy Policy) {
+func LogSessionCreated(sessionID, backend string, policy Policy) {
 	slog.Info("sandbox.session_created",
 		"session_id", sessionID,
 		"backend", backend,
@@ -36,7 +37,7 @@ func logSessionCreated(sessionID, backend string, policy Policy) {
 	)
 }
 
-func logSessionClosed(sessionID, backend, reason string) {
+func LogSessionClosed(sessionID, backend, reason string) {
 	slog.Info("sandbox.session_closed",
 		"session_id", sessionID,
 		"backend", backend,
@@ -44,7 +45,7 @@ func logSessionClosed(sessionID, backend, reason string) {
 	)
 }
 
-func logRelaxedMode(sessionID, backend, reason string, policy Policy, warnings ...string) {
+func LogRelaxedMode(sessionID, backend, reason string, policy Policy, warnings ...string) {
 	slog.Warn("sandbox.relaxed_mode",
 		"session_id", sessionID,
 		"backend", backend,
@@ -55,7 +56,7 @@ func logRelaxedMode(sessionID, backend, reason string, policy Policy, warnings .
 	)
 }
 
-func logUnsupportedBackend(policy Policy, attempted []string, reason string) {
+func LogUnsupportedBackend(policy Policy, attempted []string, reason string) {
 	slog.Error("sandbox.unsupported_backend",
 		"backend", policy.Backend,
 		"relaxed", policy.Relaxed,
@@ -66,7 +67,7 @@ func logUnsupportedBackend(policy Policy, attempted []string, reason string) {
 	)
 }
 
-func logPolicyDenied(sessionID, backend, operation, resource, reason string) {
+func LogPolicyDenied(sessionID, backend, operation, resource, reason string) {
 	slog.Error("sandbox.policy_denied",
 		"session_id", sessionID,
 		"backend", backend,
@@ -76,7 +77,6 @@ func logPolicyDenied(sessionID, backend, operation, resource, reason string) {
 	)
 }
 
-// LogExceptionPath records an explicit execution-path exception outside host mediation.
 func LogExceptionPath(exceptionID, component, accessType, detail string) {
 	slog.Warn("sandbox.exception_path",
 		"exception_id", exceptionID,

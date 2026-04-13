@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/embedded"
-	"github.com/vaayne/anna/internal/sandbox/boxshclient"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
+	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
 
 type stubProvider struct{}
