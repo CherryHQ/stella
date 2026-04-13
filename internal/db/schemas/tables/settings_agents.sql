@@ -6,6 +6,7 @@ CREATE TABLE settings_agents (
     model_fast    TEXT NOT NULL DEFAULT '',
     system_prompt TEXT NOT NULL DEFAULT '',
     workspace     TEXT NOT NULL,
+    sandbox       TEXT NOT NULL DEFAULT '{}',
     scope         TEXT NOT NULL DEFAULT 'system',
     creator_id    INTEGER NOT NULL DEFAULT 0,
     enabled       INTEGER NOT NULL DEFAULT 1,

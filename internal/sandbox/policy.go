@@ -5,6 +5,7 @@ import sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
 type (
 	Policy                   = sandboxpkg.Policy
 	FilesystemPolicy         = sandboxpkg.FilesystemPolicy
+	NetworkMode              = sandboxpkg.NetworkMode
 	NetworkPolicy            = sandboxpkg.NetworkPolicy
 	ProcessPolicy            = sandboxpkg.ProcessPolicy
 	PolicyCompatibilityError = sandboxpkg.PolicyCompatibilityError

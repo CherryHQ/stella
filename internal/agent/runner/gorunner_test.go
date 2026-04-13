@@ -3,15 +3,18 @@ package runner
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/tools"
-	plugintools "github.com/vaayne/anna/plugins/tools"
-	bashtool "github.com/vaayne/anna/plugins/tools/bash"
+	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
 
 type stubProvider struct{}
@@ -34,8 +37,57 @@ func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Regist
 	return reg, nil
 }
 
-func testCoreToolsBuilder(bc plugintools.BuildContext) []tools.Tool {
-	return []tools.Tool{bashtool.NewBashTool(bc.WorkDir, bc.ToolsBinDir)}
+func testRunnerPaths(t *testing.T) (annaHome, workspace string) {
+	t.Helper()
+	if !boxshclient.PlatformSupportsBoxsh() {
+		t.Skip("sandbox backend requires boxsh support on this platform")
+	}
+	annaHome = t.TempDir()
+	workspace = t.TempDir()
+	_ = writeMockRPCBoxsh(t, annaHome, false)
+	return annaHome, workspace
+}
+
+func writeMockRPCBoxsh(t *testing.T, annaHome string, exitAfterHandshake bool) string {
+	t.Helper()
+	_ = embedded.EnsureTools(annaHome)
+	binDir := filepath.Join(annaHome, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	boxshPath := filepath.Join(binDir, "boxsh")
+	commandsLog := filepath.Join(annaHome, "boxsh-commands.log")
+	exitAfterInit := ""
+	if exitAfterHandshake {
+		exitAfterInit = "\n\t\t\tsleep 0.1\n\t\t\texit 0"
+	}
+	script := "#!/bin/bash\n" +
+		"logfile=\"" + commandsLog + "\"\n" +
+		"if [[ \"$1\" == \"--version\" ]]; then\n" +
+		"\techo boxsh 2.0.1\n" +
+		"\texit 0\n" +
+		"fi\n" +
+		"while read -r line; do\n" +
+		"\tid=$(echo \"$line\" | grep -o '\"id\":[0-9]*' | cut -d: -f2)\n" +
+		"\tif [[ \"$line\" == *'\"method\":\"initialize\"'* ]]; then\n" +
+		"\t\techo \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"result\\\":{\\\"serverInfo\\\":{\\\"name\\\":\\\"boxsh\\\",\\\"version\\\":\\\"2.0.1\\\"},\\\"protocolVersion\\\":\\\"2024-11-05\\\"},\\\"id\\\":$id}\"" + exitAfterInit + "\n" +
+		"\telif [[ \"$line\" == *'\"method\":\"tools/call\"'* ]]; then\n" +
+		"\t\techo \"$line\" >> \"$logfile\"\n" +
+		"\t\techo \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"result\\\":{\\\"content\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"ok\\\"}],\\\"structuredContent\\\":{\\\"stdout\\\":\\\"ok\\\",\\\"stderr\\\":\\\"\\\",\\\"exit_code\\\":0}},\\\"id\\\":$id}\"\n" +
+		"\tfi\n" +
+		"done\n"
+	if err := os.WriteFile(boxshPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	return commandsLog
+}
+
+func withTestRunnerPaths(t *testing.T, cfg GoRunnerConfig) GoRunnerConfig {
+	t.Helper()
+	annaHome, workspace := testRunnerPaths(t)
+	cfg.AnnaHome = annaHome
+	cfg.Workspace = workspace
+	return cfg
 }
 
 func TestNewGoRunnerRequiresConfig(t *testing.T) {
@@ -59,13 +111,12 @@ func TestNewGoRunnerRequiresConfig(t *testing.T) {
 }
 
 func TestNewGoRunnerSuccess(t *testing.T) {
-	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
 		API:       "anthropic",
 		Model:     "claude-sonnet-4-20250514",
 		APIKey:    "test-key",
-		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
-	})
+	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -74,6 +125,118 @@ func TestNewGoRunnerSuccess(t *testing.T) {
 	}
 	if err := r.Close(); err != nil {
 		t.Errorf("Close: %v", err)
+	}
+}
+
+func TestNewGoRunnerPreflightExtractsManagedTools(t *testing.T) {
+	if !boxshclient.PlatformSupportsBoxsh() {
+		t.Skip("sandbox backend requires boxsh support on this platform")
+	}
+	if !slices.Contains(embedded.ToolNames(), "boxsh") {
+		t.Skip("embedded boxsh binary not present; run mise run tools:download first")
+	}
+	annaHome := t.TempDir()
+	workspace := t.TempDir()
+
+	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		AnnaHome:  annaHome,
+		Workspace: workspace,
+		Providers: testProviderRegistryBuilder,
+	})
+	if err != nil {
+		t.Fatalf("NewGoRunner: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	if _, err := os.Stat(filepath.Join(annaHome, "bin", "boxsh")); err != nil {
+		t.Fatalf("stat extracted boxsh: %v", err)
+	}
+}
+
+func TestNewGoRunnerUsesBoxshCoreToolsAndCleansUp(t *testing.T) {
+	if boxshclient.PlatformSupportsBoxsh() == false {
+		t.Skip("boxsh integration only applies on linux/darwin")
+	}
+
+	annaHome := t.TempDir()
+	workspace := t.TempDir()
+	commandsLog := writeMockRPCBoxsh(t, annaHome, false)
+
+	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		AnnaHome:  annaHome,
+		Workspace: workspace,
+		Providers: testProviderRegistryBuilder,
+	})
+	if err != nil {
+		t.Fatalf("NewGoRunner: %v", err)
+	}
+
+	sessionDir := r.session.SessionDir()
+	if sessionDir == "" {
+		t.Fatal("expected boxsh session dir to be created")
+	}
+	if _, err := os.Stat(sessionDir); err != nil {
+		t.Fatalf("stat session dir: %v", err)
+	}
+
+	result, err := r.tools.Execute(context.Background(), "bash", map[string]any{"command": "echo hello"})
+	if err != nil {
+		t.Fatalf("execute bash: %v", err)
+	}
+	if !strings.Contains(result, "exit:0") {
+		t.Fatalf("expected normalized bash result, got %q", result)
+	}
+
+	logged, err := os.ReadFile(commandsLog)
+	if err != nil {
+		t.Fatalf("read commands log: %v", err)
+	}
+	if !strings.Contains(string(logged), `"method":"tools/call"`) {
+		t.Fatalf("expected tools/call RPC in log, got %s", string(logged))
+	}
+
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := os.Stat(sessionDir); !os.IsNotExist(err) {
+		t.Fatalf("expected session dir cleanup, stat err = %v", err)
+	}
+}
+
+func TestGoRunnerAliveTracksDeadBoxshBackend(t *testing.T) {
+	if boxshclient.PlatformSupportsBoxsh() == false {
+		t.Skip("boxsh integration only applies on linux/darwin")
+	}
+
+	annaHome := t.TempDir()
+	workspace := t.TempDir()
+	_ = writeMockRPCBoxsh(t, annaHome, true)
+
+	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		AnnaHome:  annaHome,
+		Workspace: workspace,
+		Providers: testProviderRegistryBuilder,
+	})
+	if err != nil {
+		t.Fatalf("NewGoRunner: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for r.Alive() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if r.Alive() {
+		t.Fatal("expected runner to report dead after boxsh exits")
 	}
 }
 
@@ -107,13 +270,12 @@ func (f *goRunnerFakeProvider) StreamSimple(goCtx context.Context, _ ai.Model, _
 // newTestGoRunner creates a GoRunner wired to a fake provider.
 func newTestGoRunner(t *testing.T, fp *goRunnerFakeProvider) *GoRunner {
 	t.Helper()
-	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
 		API:       fp.api,
 		Model:     "test-model",
 		APIKey:    "test-key",
-		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
-	})
+	}))
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
 	}
@@ -171,13 +333,12 @@ func TestChatStreamError(t *testing.T) {
 }
 
 func TestChatUnknownProvider(t *testing.T) {
-	_, err := NewGoRunner(context.Background(), GoRunnerConfig{
+	_, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
 		API:       "nonexistent",
 		Model:     "test-model",
 		APIKey:    "test-key",
-		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
-	})
+	}))
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
 	}
@@ -282,14 +443,13 @@ func TestChatToolUseLoop(t *testing.T) {
 		},
 	}
 
-	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
 		API:       fp.api,
 		Model:     "test-model",
 		APIKey:    "test-key",
 		WorkDir:   dir,
-		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
-	})
+	}))
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
 	}
@@ -310,14 +470,13 @@ func TestChatToolUseLoop(t *testing.T) {
 	}
 }
 
-func TestAliveAlwaysTrue(t *testing.T) {
-	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+func TestAliveReflectsSandboxSessionState(t *testing.T) {
+	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
 		API:       "anthropic",
 		Model:     "test-model",
 		APIKey:    "test-key",
-		CoreTools: testCoreToolsBuilder,
 		Providers: testProviderRegistryBuilder,
-	})
+	}))
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
 	}
@@ -328,8 +487,8 @@ func TestAliveAlwaysTrue(t *testing.T) {
 
 	_ = r.Close()
 
-	if !r.Alive() {
-		t.Error("Alive() should still be true after Close (no subprocess)")
+	if r.Alive() {
+		t.Error("Alive() should be false after Close")
 	}
 }
 

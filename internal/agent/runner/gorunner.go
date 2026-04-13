@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner/builtin"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
+	internalsandbox "github.com/vaayne/anna/internal/sandbox"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -19,16 +21,14 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
+	boxshsandbox "github.com/vaayne/anna/plugins/sandbox/boxsh"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
 )
 
 const maxToolIterations = 40
 
-type (
-	ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
-	CoreToolsBuilder        func(plugintools.BuildContext) []tools.Tool
-)
+type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
 
 // GoRunnerConfig configures the Go runner.
 type GoRunnerConfig struct {
@@ -42,11 +42,11 @@ type GoRunnerConfig struct {
 	System         string // optional system prompt override (bypasses default prompt building)
 	PromptSections []pkgplugins.SystemPromptSection
 	ExtraTools     []tools.Tool       // additional tools to register
-	UserDataDir    string             // per-user data directory for sandbox enforcement (empty = no sandbox)
+	UserDataDir    string             // optional per-user data directory used by prompts, skills, and sandbox session setup
 	HookPlugins    []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle  *coreagent.ToolLifecycle
-	CoreTools      CoreToolsBuilder
 	Providers      ProviderRegistryBuilder
+	Sandbox        config.SandboxConfig
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.
@@ -59,6 +59,7 @@ type GoRunner struct {
 	system        string
 	hookSet       *hooks.HookSet
 	toolLifecycle *coreagent.ToolLifecycle
+	session       *runnerSession // runner-owned sandbox session lifecycle
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -66,7 +67,7 @@ type GoRunner struct {
 }
 
 // NewGoRunner creates a Go runner with built-in providers.
-func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
+func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	if cfg.API == "" {
 		return nil, fmt.Errorf("go runner: api is required")
 	}
@@ -83,6 +84,18 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	}
 
 	system := cfg.System
+
+	model := ai.Model{API: cfg.API, Name: cfg.Model}
+
+	if err := prepareSandbox(ctx, cfg); err != nil {
+		return nil, err
+	}
+
+	session, err := resolveSession(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("go runner: %w", err)
+	}
+
 	if system == "" {
 		system = BuildSystemPromptFromDB(context.Background(), DBPromptParams{
 			AnnaHome:       cfg.AnnaHome,
@@ -90,15 +103,18 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 			Cwd:            cfg.WorkDir,
 			UserDataDir:    cfg.UserDataDir,
 			PromptSections: cfg.PromptSections,
+			Host:           session.Host(),
 		})
 	}
 
-	model := ai.Model{API: cfg.API, Name: cfg.Model}
-	toolReg, err := buildToolRegistry(cfg)
+	toolReg, err := buildToolRegistry(cfg, session)
 	if err != nil {
+		if session != nil {
+			_ = session.Close()
+		}
 		return nil, err
 	}
-	presets := buildAgentPresets(cfg)
+	presets := buildAgentPresets(cfg, session.Host())
 	hookSet := buildHookSet(cfg)
 
 	toolReg.Register(agenttool.NewAgentTool(agenttool.AgentConfig{
@@ -116,6 +132,9 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	streamOptions := ai.StreamOptions{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}
 	runner, err := newAgentRunner(reg, toolReg, model, streamOptions, system, hookSet, cfg.ToolLifecycle)
 	if err != nil {
+		if session != nil {
+			_ = session.Close()
+		}
 		return nil, fmt.Errorf("go runner: %w", err)
 	}
 
@@ -128,6 +147,7 @@ func NewGoRunner(_ context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		system:        system,
 		hookSet:       hookSet,
 		toolLifecycle: cfg.ToolLifecycle,
+		session:       session,
 		lastActivity:  time.Now(),
 		log:           slog.With("component", "go_runner"),
 	}, nil
@@ -161,27 +181,39 @@ func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
 }
 
 // buildToolRegistry creates the tool registry with core and extra tools.
-func buildToolRegistry(cfg GoRunnerConfig) (*tools.Registry, error) {
+func buildToolRegistry(cfg GoRunnerConfig, session *runnerSession) (*tools.Registry, error) {
 	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
-	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
+	annaHome := cfg.AnnaHome
+	if annaHome == "" {
+		annaHome = config.AnnaHome()
+	}
+	homeDir, _ := os.UserHomeDir()
+	if err := embedded.EnsureTools(annaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
-	toolsBinDir := embedded.BinDir(config.AnnaHome())
+	toolsBinDir := embedded.BinDir(annaHome)
 
 	toolReg := tools.NewRegistry()
 
-	// Core tools (read, bash, edit, write) via plugin registry.
-	if cfg.CoreTools == nil {
-		return nil, fmt.Errorf("go runner: core tools builder is required")
-	}
+	// Core tools (read, bash, edit, write) are always provided by the active
+	// sandbox session.
+
+	// Host is injected at execution time, not build time.
 	bc := plugintools.BuildContext{
 		WorkDir:     cfg.WorkDir,
 		UserDataDir: cfg.UserDataDir,
 		AnnaHome:    cfg.AnnaHome,
+		HomeDir:     homeDir,
 		Workspace:   cfg.Workspace,
 		ToolsBinDir: toolsBinDir,
+		Host:        session.Host(),
 	}
-	for _, t := range cfg.CoreTools(bc) {
+
+	coreTools := buildSandboxCoreTools(session, bc)
+	if len(coreTools) == 0 {
+		return nil, fmt.Errorf("go runner: sandbox backend unavailable: core tools require an active sandbox host")
+	}
+	for _, t := range coreTools {
 		toolReg.Register(t)
 	}
 
@@ -194,16 +226,61 @@ func buildToolRegistry(cfg GoRunnerConfig) (*tools.Registry, error) {
 }
 
 // buildAgentPresets extracts builtin skills and loads agent presets from filesystem.
-func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
-	builtinSkillsDir := filepath.Join(config.AnnaHome(), "cache", "builtin-skills")
+func collectSandboxReadOnlyDirs(toolsBinDir, pathEnv string) []string {
+	dirs := []string{toolsBinDir}
+	for _, dir := range filepath.SplitList(pathEnv) {
+		if dir == "" || !filepath.IsAbs(dir) {
+			continue
+		}
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
+}
+
+func buildAgentPresets(cfg GoRunnerConfig, host internalsandbox.Host) *agenttool.PresetRegistry {
+	annaHome := cfg.AnnaHome
+	if annaHome == "" {
+		annaHome = config.AnnaHome()
+	}
+	homeDir, _ := os.UserHomeDir()
+	builtinSkillsDir := filepath.Join(annaHome, "cache", "builtin-skills")
 	if err := builtin.Extract(builtinSkillsDir); err != nil {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
 	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
+		HomeDir:          homeDir,
 		Workspace:        cfg.Workspace,
 		Cwd:              cfg.WorkDir,
 		BuiltinSkillsDir: builtinSkillsDir,
+		Host:             host,
 	}))
+}
+
+func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
+	annaHome := cfg.AnnaHome
+	if annaHome == "" {
+		annaHome = config.AnnaHome()
+	}
+	if err := embedded.EnsureTools(annaHome); err != nil {
+		slog.Warn("failed to extract embedded tools", "error", err)
+	}
+	if cfg.Sandbox.BackendName() == config.SandboxBackendLocal {
+		return nil
+	}
+	if err := boxshsandbox.Preflight(ctx, boxshsandbox.PreflightConfig{
+		AnnaHome:    annaHome,
+		Workspace:   cfg.Workspace,
+		UserDataDir: cfg.UserDataDir,
+		Network: boxshsandbox.NetworkConfig{
+			Mode:      cfg.Sandbox.Network.Mode,
+			Allowlist: cfg.Sandbox.Network.Allowlist,
+		},
+	}); err != nil {
+		return fmt.Errorf("go runner: %w", err)
+	}
+	return nil
 }
 
 // buildHookSet creates the hook set from configured hook plugins.
@@ -262,8 +339,14 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 	return out
 }
 
-// Alive always returns true — the Go runner has no subprocess to die.
-func (r *GoRunner) Alive() bool { return true }
+// Alive reports whether the runner is healthy.
+// Delegates to the session's lifecycle state.
+func (r *GoRunner) Alive() bool {
+	if r.session == nil {
+		return false
+	}
+	return r.session.Alive()
+}
 
 // LastActivity returns the time of the last Chat call.
 func (r *GoRunner) LastActivity() time.Time {
@@ -275,10 +358,25 @@ func (r *GoRunner) LastActivity() time.Time {
 // SystemPrompt returns the runner's base system prompt before per-run overrides.
 func (r *GoRunner) SystemPrompt() string { return r.system }
 
-// Close shuts down any subprocess-backed tools owned by the runner.
+// Close shuts down any subprocess-backed tools and the sandbox session.
+// Guarantees cleanup of session resources regardless of state.
 func (r *GoRunner) Close() error {
+	var errs []error
+
 	if r.tools != nil {
-		_ = r.tools.Close()
+		if err := r.tools.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if r.session != nil {
+		if err := r.session.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return errs[0]
 	}
 	return nil
 }
