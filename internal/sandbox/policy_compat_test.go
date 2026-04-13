@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"sync"
 	"testing"
-	"time"
 )
 
 // PolicyCompatibilityTests verify fail-closed behavior for unsupported policy/backend combinations.
@@ -580,14 +580,17 @@ func TestRegistryConcurrency(t *testing.T) {
 		sessions := make([]Session, numSessions)
 		errors := make([]error, numSessions)
 
+		var wg sync.WaitGroup
+		wg.Add(numSessions)
 		for i := range numSessions {
 			go func(idx int) {
+				defer wg.Done()
 				sessions[idx], errors[idx] = registry.CreateSession(ctx, policy)
 			}(i)
 		}
 
 		// Wait for all to complete
-		time.Sleep(100 * time.Millisecond)
+		wg.Wait()
 
 		// Verify all succeeded
 		for i := range numSessions {

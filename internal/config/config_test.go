@@ -109,10 +109,6 @@ func TestSandboxConfigValidate(t *testing.T) {
 			cfg:  SandboxConfig{Network: SandboxNetworkConfig{Mode: SandboxNetworkAllowAll}},
 		},
 		{
-			name: "noop backend valid",
-			cfg:  SandboxConfig{Backend: "noop"},
-		},
-		{
 			name: "boxsh backend valid",
 			cfg:  SandboxConfig{Backend: "boxsh"},
 		},

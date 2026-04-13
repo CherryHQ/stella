@@ -66,9 +66,9 @@ func (c SandboxConfig) BackendName() string {
 // Validate returns an error when the sandbox configuration is invalid.
 func (c SandboxConfig) Validate() error {
 	switch c.BackendName() {
-	case "auto", "boxsh", "noop":
+	case "auto", "boxsh":
 	default:
-		return fmt.Errorf("sandbox.backend must be one of %q, %q, or %q", "auto", "boxsh", "noop")
+		return fmt.Errorf("sandbox.backend must be one of %q or %q", "auto", "boxsh")
 	}
 
 	switch mode := c.NetworkMode(); mode {

@@ -46,18 +46,12 @@ func testCoreToolsBuilder(bc plugintools.BuildContext) []tools.Tool {
 
 func testRunnerPaths(t *testing.T) (annaHome, workspace string) {
 	t.Helper()
+	if !boxshclient.PlatformSupportsBoxsh() {
+		t.Skip("sandbox backend requires boxsh support on this platform")
+	}
 	annaHome = t.TempDir()
 	workspace = t.TempDir()
-	binDir := filepath.Join(annaHome, "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	_ = embedded.EnsureTools(annaHome)
-	boxshPath := filepath.Join(binDir, "boxsh")
-	_ = os.Remove(boxshPath)
-	if err := os.WriteFile(boxshPath, []byte("#!/bin/sh\necho boxsh 2.0.1\n"), 0o755); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	_ = writeMockRPCBoxsh(t, annaHome, false)
 	return annaHome, workspace
 }
 
@@ -125,12 +119,11 @@ func TestNewGoRunnerRequiresConfig(t *testing.T) {
 
 func TestNewGoRunnerSuccess(t *testing.T) {
 	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
-		API:            "anthropic",
-		Model:          "claude-sonnet-4-20250514",
-		APIKey:         "test-key",
-		CoreTools:      testCoreToolsBuilder,
-		Providers:      testProviderRegistryBuilder,
-		DisableSandbox: true,
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		CoreTools: testCoreToolsBuilder,
+		Providers: testProviderRegistryBuilder,
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -144,6 +137,9 @@ func TestNewGoRunnerSuccess(t *testing.T) {
 }
 
 func TestNewGoRunnerPreflightExtractsManagedTools(t *testing.T) {
+	if !boxshclient.PlatformSupportsBoxsh() {
+		t.Skip("sandbox backend requires boxsh support on this platform")
+	}
 	if !slices.Contains(embedded.ToolNames(), "boxsh") {
 		t.Skip("embedded boxsh binary not present; run mise run tools:download first")
 	}
@@ -151,14 +147,13 @@ func TestNewGoRunnerPreflightExtractsManagedTools(t *testing.T) {
 	workspace := t.TempDir()
 
 	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:            "anthropic",
-		Model:          "claude-sonnet-4-20250514",
-		APIKey:         "test-key",
-		AnnaHome:       annaHome,
-		Workspace:      workspace,
-		CoreTools:      testCoreToolsBuilder,
-		Providers:      testProviderRegistryBuilder,
-		DisableSandbox: true,
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		AnnaHome:  annaHome,
+		Workspace: workspace,
+		CoreTools: testCoreToolsBuilder,
+		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
@@ -287,12 +282,11 @@ func (f *goRunnerFakeProvider) StreamSimple(goCtx context.Context, _ ai.Model, _
 func newTestGoRunner(t *testing.T, fp *goRunnerFakeProvider) *GoRunner {
 	t.Helper()
 	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
-		API:            fp.api,
-		Model:          "test-model",
-		APIKey:         "test-key",
-		CoreTools:      testCoreToolsBuilder,
-		Providers:      testProviderRegistryBuilder,
-		DisableSandbox: true,
+		API:       fp.api,
+		Model:     "test-model",
+		APIKey:    "test-key",
+		CoreTools: testCoreToolsBuilder,
+		Providers: testProviderRegistryBuilder,
 	}))
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
@@ -352,12 +346,11 @@ func TestChatStreamError(t *testing.T) {
 
 func TestChatUnknownProvider(t *testing.T) {
 	_, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
-		API:            "nonexistent",
-		Model:          "test-model",
-		APIKey:         "test-key",
-		CoreTools:      testCoreToolsBuilder,
-		Providers:      testProviderRegistryBuilder,
-		DisableSandbox: true,
+		API:       "nonexistent",
+		Model:     "test-model",
+		APIKey:    "test-key",
+		CoreTools: testCoreToolsBuilder,
+		Providers: testProviderRegistryBuilder,
 	}))
 	if err == nil {
 		t.Fatal("expected error for unknown provider")
@@ -464,13 +457,12 @@ func TestChatToolUseLoop(t *testing.T) {
 	}
 
 	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
-		API:            fp.api,
-		Model:          "test-model",
-		APIKey:         "test-key",
-		WorkDir:        dir,
-		CoreTools:      testCoreToolsBuilder,
-		Providers:      testProviderRegistryBuilder,
-		DisableSandbox: true,
+		API:       fp.api,
+		Model:     "test-model",
+		APIKey:    "test-key",
+		WorkDir:   dir,
+		CoreTools: testCoreToolsBuilder,
+		Providers: testProviderRegistryBuilder,
 	}))
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
@@ -492,14 +484,13 @@ func TestChatToolUseLoop(t *testing.T) {
 	}
 }
 
-func TestAliveAlwaysTrue(t *testing.T) {
+func TestAliveReflectsSandboxSessionState(t *testing.T) {
 	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
-		API:            "anthropic",
-		Model:          "test-model",
-		APIKey:         "test-key",
-		CoreTools:      testCoreToolsBuilder,
-		Providers:      testProviderRegistryBuilder,
-		DisableSandbox: true,
+		API:       "anthropic",
+		Model:     "test-model",
+		APIKey:    "test-key",
+		CoreTools: testCoreToolsBuilder,
+		Providers: testProviderRegistryBuilder,
 	}))
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
@@ -511,8 +502,8 @@ func TestAliveAlwaysTrue(t *testing.T) {
 
 	_ = r.Close()
 
-	if !r.Alive() {
-		t.Error("Alive() should still be true after Close (no subprocess)")
+	if r.Alive() {
+		t.Error("Alive() should be false after Close")
 	}
 }
 

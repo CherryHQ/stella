@@ -153,10 +153,10 @@ Each platform stores its own JSON structure in the `config` column of `settings_
 - **workspaces/** contains per-agent data. Each agent gets its own directory keyed by agent ID.
 - **cache/** contains regenerable data. Run `anna models update` to rebuild.
 - **agent sandbox config** lives on each agent record (`settings_agents.sandbox`) and is editable from the agent form in the admin panel.
-  - `backend`: `auto` (default), `boxsh`, or `noop`
+  - `backend`: `auto` (default) or `boxsh`
   - `network.mode`: `disabled` (default), `allow_all`, or `whitelist`
   - `network.allowlist`: required only when mode is `whitelist`
-  - Linux and macOS validate the managed `boxsh` backend when selected. Windows typically resolves `auto` to `noop`.
+  - Linux and macOS validate the managed `boxsh` backend when selected. Runner startup fails closed when the sandbox backend is unavailable.
 
 ## Environment Variables
 

@@ -44,13 +44,13 @@ type GoRunnerConfig struct {
 	System         string // optional system prompt override (bypasses default prompt building)
 	PromptSections []pkgplugins.SystemPromptSection
 	ExtraTools     []tools.Tool       // additional tools to register
-	UserDataDir    string             // per-user data directory for sandbox enforcement (empty = no sandbox)
+	UserDataDir    string             // optional per-user data directory used by prompts, skills, and sandbox session setup
 	HookPlugins    []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle  *coreagent.ToolLifecycle
-	CoreTools      CoreToolsBuilder
+	CoreTools      CoreToolsBuilder // legacy compatibility hook; runner core tools come from the sandbox backend
 	Providers      ProviderRegistryBuilder
 	Sandbox        config.SandboxConfig
-	DisableSandbox bool // for testing: disable boxsh sandbox even on Linux/macOS
+	DisableSandbox bool // deprecated test hook; backend-only runners reject unsandboxed execution
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.
@@ -199,10 +199,8 @@ func buildToolRegistry(cfg GoRunnerConfig, session *runnerSession) (*tools.Regis
 
 	toolReg := tools.NewRegistry()
 
-	// Core tools (read, bash, edit, write) via plugin registry.
-	if cfg.CoreTools == nil {
-		return nil, fmt.Errorf("go runner: core tools builder is required")
-	}
+	// Core tools (read, bash, edit, write) are always provided by the active
+	// sandbox session.
 
 	// Host is injected at execution time, not build time.
 	bc := plugintools.BuildContext{
@@ -217,7 +215,11 @@ func buildToolRegistry(cfg GoRunnerConfig, session *runnerSession) (*tools.Regis
 	}
 
 	coreToolsBuilder := CoreToolsBuilderWithSandbox(cfg.CoreTools, session)
-	for _, t := range coreToolsBuilder(bc) {
+	coreTools := coreToolsBuilder(bc)
+	if len(coreTools) == 0 {
+		return nil, fmt.Errorf("go runner: sandbox backend unavailable: core tools require an active sandbox host")
+	}
+	for _, t := range coreTools {
 		toolReg.Register(t)
 	}
 
@@ -269,9 +271,6 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	}
 	if err := embedded.EnsureTools(annaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
-	}
-	if cfg.DisableSandbox {
-		return nil
 	}
 	if err := internalsandbox.Preflight(ctx, internalsandbox.PreflightConfig{
 		AnnaHome:    annaHome,

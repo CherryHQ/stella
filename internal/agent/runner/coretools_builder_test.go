@@ -53,14 +53,11 @@ func delegateBuilder(bc plugintools.BuildContext) []tools.Tool {
 	}
 }
 
-func TestCoreToolsBuilderWithSandbox_NoSessionUsesDelegate(t *testing.T) {
+func TestCoreToolsBuilderWithSandbox_NoSessionFailsClosed(t *testing.T) {
 	builder := CoreToolsBuilderWithSandbox(delegateBuilder, nil)
 	tools := builder(plugintools.BuildContext{WorkDir: "/tmp", ToolsBinDir: "/tmp/bin", Sandbox: fakeRuntime{}})
-	if len(tools) != 4 {
-		t.Fatalf("expected 4 tools, got %d", len(tools))
-	}
-	if _, ok := tools[0].(*bashtool.BashTool); !ok {
-		t.Fatalf("expected delegate bash tool, got %T", tools[0])
+	if tools != nil {
+		t.Fatalf("expected no tools without sandbox session, got %v", tools)
 	}
 }
 

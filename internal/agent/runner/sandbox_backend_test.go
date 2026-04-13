@@ -8,54 +8,15 @@ import (
 	"github.com/vaayne/anna/internal/sandbox"
 )
 
-// TestResolveSessionNoopWhenDisabled tests that disabled sandbox creates noop session.
-func TestResolveSessionNoopWhenDisabled(t *testing.T) {
-	session, err := resolveSession(context.Background(), GoRunnerConfig{
+// TestResolveSessionRejectsDisableSandbox tests the deprecated unsandboxed path.
+func TestResolveSessionRejectsDisableSandbox(t *testing.T) {
+	_, err := resolveSession(context.Background(), GoRunnerConfig{
 		DisableSandbox: true,
 		WorkDir:        t.TempDir(),
 	})
-	if err != nil {
-		t.Fatalf("resolveSession() error = %v", err)
+	if err == nil {
+		t.Fatal("expected error when DisableSandbox is set")
 	}
-	if session == nil {
-		t.Fatal("resolveSession() returned nil session")
-	}
-	if !session.Alive() {
-		t.Fatal("noop session should be alive")
-	}
-	if session.Policy().Backend != "local" {
-		t.Fatalf("noop session should use local backend, got %q", session.Policy().Backend)
-	}
-	if !session.Policy().Relaxed {
-		t.Fatal("noop session should be relaxed")
-	}
-
-	// Clean up
-	if err := session.Close(); err != nil {
-		t.Errorf("Close: %v", err)
-	}
-}
-
-// TestResolveSessionCreatesLocalOnUnsupportedPlatform tests local fallback.
-func TestResolveSessionCreatesLocalOnUnsupportedPlatform(t *testing.T) {
-	session, err := resolveSession(context.Background(), GoRunnerConfig{
-		Sandbox: config.SandboxConfig{
-			Backend: "local",
-		},
-		WorkDir: t.TempDir(),
-	})
-	if err != nil {
-		t.Fatalf("resolveSession() error = %v", err)
-	}
-	if session == nil {
-		t.Fatal("resolveSession() returned nil session")
-	}
-	if session.Policy().Backend != "local" {
-		t.Fatalf("expected local backend, got %q", session.Policy().Backend)
-	}
-
-	// Clean up
-	_ = session.Close()
 }
 
 // TestResolveSessionRejectsUnknownBackend tests error handling.

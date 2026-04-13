@@ -160,7 +160,7 @@ Per-agent network policy can be configured through the admin panel:
 | `allow_all` | Unrestricted outbound access |
 | `whitelist` | Only specified hosts/CIDRs allowed |
 
-On Linux, the sandbox uses mount namespaces and overlayfs for strong isolation. On macOS, the guarantees are weaker due to platform limitations—sandboxing uses Seatbelt policies and APFS clonefile rather than true mount namespaces. Windows does not use sandboxing; agents run with the same permissions as the Anna process.
+On Linux, the sandbox uses mount namespaces and overlayfs for strong isolation. On macOS, the guarantees are weaker due to platform limitations—sandboxing uses Seatbelt policies and APFS clonefile rather than true mount namespaces. Runner startup fails closed when the sandbox backend is unavailable.
 
 Remote MCP servers are a separate trust boundary for now: local MCP stdio transport is sandbox-mediated, while remote MCP HTTP/SSE transport is not currently covered by the local sandbox boundary.
 

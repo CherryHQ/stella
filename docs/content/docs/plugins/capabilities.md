@@ -51,8 +51,14 @@ Use `ToolContext` when building:
 - `WorkDir`
 - `UserDataDir`
 - `AnnaHome`
+- `HomeDir`
 - `Workspace`
 - `ToolsBinDir`
+- `Sandbox`
+- `Host`
+
+For sandbox-mediated filesystem, process, and network access, prefer `Host`.
+`Sandbox` is a limited compatibility exec surface, not the primary integration point.
 
 ## ProviderSpec
 

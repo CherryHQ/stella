@@ -3,12 +3,11 @@ package runner
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/embedded"
+	"github.com/vaayne/anna/internal/sandbox/boxshclient"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
@@ -31,28 +30,21 @@ func integrationConfig(t *testing.T) GoRunnerConfig {
 	if model == "" {
 		model = "claude-sonnet-4-20250514"
 	}
+	if !boxshclient.PlatformSupportsBoxsh() {
+		t.Skip("sandbox backend requires boxsh support on this platform")
+	}
 	annaHome := t.TempDir()
 	workspace := t.TempDir()
-	binDir := filepath.Join(annaHome, "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	_ = embedded.EnsureTools(annaHome)
-	boxshPath := filepath.Join(binDir, "boxsh")
-	_ = os.Remove(boxshPath)
-	if err := os.WriteFile(boxshPath, []byte("#!/bin/sh\necho boxsh 2.0.1\n"), 0o755); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
+	_ = writeMockRPCBoxsh(t, annaHome, false)
 	return GoRunnerConfig{
-		API:            "anthropic",
-		Model:          model,
-		APIKey:         os.Getenv("ANTHROPIC_API_KEY"),
-		BaseURL:        os.Getenv("ANTHROPIC_BASE_URL"),
-		AnnaHome:       annaHome,
-		Workspace:      workspace,
-		CoreTools:      integrationCoreToolsBuilder,
-		Providers:      integrationProviderRegistryBuilder,
-		DisableSandbox: true,
+		API:       "anthropic",
+		Model:     model,
+		APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
+		BaseURL:   os.Getenv("ANTHROPIC_BASE_URL"),
+		AnnaHome:  annaHome,
+		Workspace: workspace,
+		CoreTools: integrationCoreToolsBuilder,
+		Providers: integrationProviderRegistryBuilder,
 	}
 }
 

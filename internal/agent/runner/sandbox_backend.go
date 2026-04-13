@@ -102,26 +102,8 @@ type sessionFactory func(context.Context, GoRunnerConfig) (*runnerSession, error
 
 // registry manages session factories by name.
 var sessionRegistry = map[string]sessionFactory{
-	"noop":  createNoopSession,
 	"local": createLocalSession,
 	"boxsh": createBoxshSession,
-}
-
-func createNoopSession(_ context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
-	policy := sandbox.Policy{
-		Backend: "local",
-		Relaxed: true,
-		Filesystem: sandbox.FilesystemPolicy{
-			WorkingDir:   cfg.WorkDir,
-			AllowEscapes: true,
-		},
-		Network: sandbox.NetworkPolicy{Mode: sandbox.NetworkAllowAll},
-	}
-
-	return &runnerSession{
-		policy:      policy,
-		alwaysAlive: true,
-	}, nil
 }
 
 func createLocalSession(_ context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
@@ -244,17 +226,13 @@ func createSessionWithAnnaHome(ctx context.Context, factory sandbox.Factory, pol
 // resolveSession creates a runnerSession from configuration.
 // Replaces the old resolveSandboxBackend which leaked boxsh types.
 func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
-	name := cfg.Sandbox.BackendName()
 	if cfg.DisableSandbox {
-		name = "noop"
+		return nil, fmt.Errorf("DisableSandbox is no longer supported; core tools require the sandbox backend")
 	}
 
+	name := cfg.Sandbox.BackendName()
 	if name == "auto" {
-		if boxshclient.PlatformSupportsBoxsh() {
-			name = "boxsh"
-		} else {
-			name = "noop"
-		}
+		name = "boxsh"
 	}
 
 	factory, ok := sessionRegistry[name]

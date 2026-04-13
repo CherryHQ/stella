@@ -132,13 +132,13 @@ type Tool interface {
 | `mcp` | Proxy configured MCP servers through one generic Anna MCP tool |
 | `webfetch` | Fetch web page contents |
 
-On Linux and macOS, the core local-workspace tools run through a managed `boxsh` sandbox backend. The `bash`, `read`, `write`, and `edit` tools execute through a shared long-lived `boxsh --rpc` subprocess that provides filesystem and process isolation. Windows retains the direct-tool backend without sandboxing.
+On supported platforms, the core local-workspace tools run through a managed `boxsh` sandbox backend. The `bash`, `read`, `write`, and `edit` tools execute through a shared long-lived `boxsh --rpc` subprocess that provides filesystem and process isolation. Runner startup fails closed when that backend is unavailable.
 
 ### Sandbox Architecture
 
 The sandbox system uses a copy-on-write (COW) overlay filesystem model:
 
-- **Source (SRC)**: The read-only lower layer. For user sessions, this is `UserDataDir`. For system sessions, this is the agent workspace root.
+- **Source (SRC)**: The read-only lower layer, rooted at the agent workspace selected for the sandbox session.
 - **Destination (DST)**: An ephemeral per-session upperdir where writes land. Created when the runner starts, cleaned up on close.
 - **Working Directory (CWD)**: Tool execution context, resolved within the sandbox root.
 
@@ -168,13 +168,13 @@ All four core tools share the same COW view through a single `boxsh` process per
 
 ### Platform Guarantees and Limitations
 
-| Feature | Linux | macOS | Windows |
-|---------|-------|-------|---------|
-| Process isolation | Full (user/mount namespace) | Policy-based (Seatbelt) | Not available |
-| Filesystem isolation | Mount namespace + overlayfs | clonefile(2) on APFS | Not available |
-| Network isolation | Full namespace support | Policy-based | Not available |
-| COW semantics | Complete isolation | Copy-on-write via APFS | Not available |
-| Required binary | `boxsh` (embedded) | `boxsh` (embedded) | N/A |
+| Feature | Linux | macOS |
+|---------|-------|-------|
+| Process isolation | Full (user/mount namespace) | Policy-based (Seatbelt) |
+| Filesystem isolation | Mount namespace + overlayfs | clonefile(2) on APFS |
+| Network isolation | Full namespace support | Policy-based |
+| COW semantics | Complete isolation | Copy-on-write via APFS |
+| Required binary | `boxsh` (embedded) | `boxsh` (embedded) |
 
 **Linux Guarantees:**
 - Full mount namespace isolation. The sandbox root is a distinct mount point.
@@ -197,9 +197,7 @@ All four core tools share the same COW view through a single `boxsh` process per
 - Network policy is more restrictive than Linux's namespace approach.
 - Behavior should be validated empirically rather than assumed equivalent to Linux.
 
-**Windows:**
-- Uses the existing direct-tool backend.
-- No process or filesystem sandboxing.
+Unsupported platforms fail closed at runner startup because the core local-workspace tools require an active sandbox backend.
 
 ### Network Policy Configuration
 
@@ -250,9 +248,9 @@ Sandbox guarantees apply to local execution paths owned by Anna. Remote MCP tran
 
 ### Migration Notes
 
-- Windows behavior is unchanged; continues using direct-tool execution.
-- Existing path-guard tests are supplemented with sandbox-specific tests, not replaced.
-- The `DisableSandbox` config option exists for testing and emergency bypass only.
+- Core local-workspace tools are backend-only; there is no unsandboxed direct-tool fallback.
+- Sandbox-specific tests replace the old direct-tool fallback coverage.
+- Runner construction fails closed when no active sandbox host is available.
 
 Plugin tools live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/features/plugin-system) for the full plugin architecture.
 

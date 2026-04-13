@@ -18,9 +18,9 @@ type SandboxExecResult struct {
 	ExitCode int
 }
 
-// SandboxRuntime is the host-provided sandbox execution surface exposed to
-// plugin tool builders. Implementations should execute commands inside the
-// active sandbox when available.
+// SandboxRuntime is a limited compatibility surface for sandbox-aware plugin
+// builders. Core local-workspace tooling should prefer ToolContext.Host for
+// mediated filesystem, process, and network access.
 type SandboxRuntime interface {
 	Enabled() bool
 	Exec(ctx context.Context, command string, timeoutSeconds int) (SandboxExecResult, error)
@@ -36,8 +36,8 @@ type ToolContext struct {
 	HomeDir     string
 	Workspace   string
 	ToolsBinDir string
-	Sandbox     SandboxRuntime
-	Host        sandbox.Host
+	Sandbox     SandboxRuntime // compatibility exec surface; prefer Host for mediated access
+	Host        sandbox.Host   // sandbox-backed filesystem/process/network surface
 }
 
 // ProviderContext is the narrow build context for provider capabilities.
