@@ -9,7 +9,6 @@ import (
 
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
-	"github.com/vaayne/anna/plugins/tools/sandbox"
 )
 
 func init() {
@@ -30,7 +29,7 @@ func init() {
 			Description: "Read file contents.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return sandbox.WrapWithSandbox(&ReadTool{}, ctx.UserDataDir, "file_path"), nil
+				return &ReadTool{}, nil
 			},
 		})
 	}))

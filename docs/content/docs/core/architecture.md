@@ -199,7 +199,6 @@ All four core tools share the same COW view through a single `boxsh` process per
 
 **Windows:**
 - Uses the existing direct-tool backend.
-- Path guards enforce `UserDataDir` boundaries.
 - No process or filesystem sandboxing.
 
 ### Network Policy Configuration
