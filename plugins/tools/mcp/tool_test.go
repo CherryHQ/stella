@@ -47,6 +47,7 @@ func TestToolExec(t *testing.T) {
 	sess := newFakeSession(&officialmcp.Tool{Name: "hello", Description: "Hello"})
 	sess.callResult = &officialmcp.CallToolResult{Content: []officialmcp.Content{&officialmcp.TextContent{Text: "hi"}}}
 	mgr.SetDial(func(context.Context, ServerConfig, sandbox.Host) (Session, error) { return sess, nil })
+	mgr.SetHost(&stdioHostStub{})
 	mgr.Reconcile(context.Background(), Config{Servers: []ServerConfig{{Name: "demo", Enabled: true, Transport: TransportStdio, Command: "cmd"}}}, true)
 	waitFor(t, time.Second, func() bool { return len(mgr.ValidTools()) == 1 })
 	proxy := New(mgr)

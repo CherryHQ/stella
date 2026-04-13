@@ -14,7 +14,7 @@ mkdir -p "$BINARIES_DIR"
 FD_VERSION="${FD_VERSION:-10.4.2}"
 RG_VERSION="${RG_VERSION:-15.1.0}"
 RTK_VERSION="${RTK_VERSION:-0.30.0}"
-BOXSH_VERSION="${BOXSH_VERSION:-2.0.1}"
+BOXSH_VERSION="${BOXSH_VERSION:-2.1.0}"
 
 GOOS="" GOARCH=""
 while [[ $# -gt 0 ]]; do
@@ -62,6 +62,6 @@ download() {
 download fd    "github:sharkdp/fd@${FD_VERSION}"
 download rg    "github:BurntSushi/ripgrep@${RG_VERSION}"
 download rtk   "github:rtk-ai/rtk@${RTK_VERSION}" true
-download boxsh "github:xicilion/boxsh@${BOXSH_VERSION}"
+download boxsh "github:xicilion/boxsh@${BOXSH_VERSION}" true
 
 echo "Done."

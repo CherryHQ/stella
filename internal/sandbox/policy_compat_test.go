@@ -6,6 +6,10 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+
+	boxshplugin "github.com/vaayne/anna/plugins/sandbox/boxsh"
+
+	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
 )
 
 // PolicyCompatibilityTests verify fail-closed behavior for unsupported policy/backend combinations.
@@ -79,7 +83,7 @@ func TestRegistryFailClosed(t *testing.T) {
 
 	t.Run("UnknownBackendFailsClosed", func(t *testing.T) {
 		registry := NewRegistry()
-		_ = registry.Register(&localFactory{})
+		_ = registry.Register(localplugin.NewFactory())
 
 		policy := Policy{
 			Backend: "unknown_backend",
@@ -107,7 +111,7 @@ func TestRegistryFailClosed(t *testing.T) {
 	t.Run("UnsupportedPolicyFailsClosed", func(t *testing.T) {
 		registry := NewRegistry()
 		// Only register local factory
-		_ = registry.Register(&localFactory{})
+		_ = registry.Register(localplugin.NewFactory())
 
 		// Try to create session with strict whitelist (local doesn't support this)
 		policy := Policy{
@@ -140,7 +144,7 @@ func TestRegistryFailClosed(t *testing.T) {
 
 	t.Run("RelaxedModeAllowsPartialSupport", func(t *testing.T) {
 		registry := NewRegistry()
-		_ = registry.Register(&localFactory{})
+		_ = registry.Register(localplugin.NewFactory())
 
 		// Same policy but with Relaxed=true
 		policy := Policy{
@@ -197,7 +201,7 @@ func TestRegistryFailClosed(t *testing.T) {
 }
 
 func TestLocalFactorySupported(t *testing.T) {
-	factory := &localFactory{}
+	factory := localplugin.NewFactory()
 
 	t.Run("DisabledNetworkRequiresRelaxed", func(t *testing.T) {
 		policy := Policy{
@@ -313,7 +317,7 @@ func TestLocalFactorySupported(t *testing.T) {
 }
 
 func TestBoxshFactorySupported(t *testing.T) {
-	factory := &boxshFactory{}
+	factory := boxshplugin.NewFactory()
 
 	t.Run("AvailabilityBasedOnPlatform", func(t *testing.T) {
 		available := factory.Available()
@@ -486,7 +490,7 @@ func TestPolicyCompatibilityErrorMessage(t *testing.T) {
 func TestRegistryCreateRelaxedSession(t *testing.T) {
 	ctx := context.Background()
 	registry := NewRegistry()
-	_ = registry.Register(&localFactory{})
+	_ = registry.Register(localplugin.NewFactory())
 
 	base := Policy{
 		Filesystem: FilesystemPolicy{
@@ -548,9 +552,96 @@ func containsCompatSubstring(s, substr string) bool {
 	return false
 }
 
+type orderedTestFactory struct {
+	name      string
+	available bool
+	supported bool
+	created   *string
+}
+
+func (f orderedTestFactory) Name() string { return f.name }
+func (f orderedTestFactory) Available() bool {
+	return f.available
+}
+
+func (f orderedTestFactory) Supported(policy Policy) error {
+	if f.supported {
+		return nil
+	}
+	return &PolicyCompatibilityError{Backend: f.name, Policy: policy, Reason: "unsupported", RelaxedWouldHelp: true}
+}
+
+func (f orderedTestFactory) CreateSession(_ context.Context, _ Policy) (Session, error) {
+	if f.created != nil {
+		*f.created = f.name
+	}
+	return NopSession(), nil
+}
+
+func TestRegistryPreservesRegistrationOrder(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.Register(orderedTestFactory{name: "first", available: true, supported: true}); err != nil {
+		t.Fatalf("Register first: %v", err)
+	}
+	if err := registry.Register(orderedTestFactory{name: "second", available: true, supported: true}); err != nil {
+		t.Fatalf("Register second: %v", err)
+	}
+
+	if got, want := registry.List(), []string{"first", "second"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("List() = %v, want %v", got, want)
+	}
+
+	registry.Unregister("first")
+	if got, want := registry.List(), []string{"second"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("List() after Unregister = %v, want %v", got, want)
+	}
+}
+
+func TestRegistryAutoSelectUsesRegistrationOrder(t *testing.T) {
+	registry := NewRegistry()
+	created := ""
+	if err := registry.Register(orderedTestFactory{name: "preferred", available: true, supported: true, created: &created}); err != nil {
+		t.Fatalf("Register preferred: %v", err)
+	}
+	if err := registry.Register(orderedTestFactory{name: "fallback", available: true, supported: true, created: &created}); err != nil {
+		t.Fatalf("Register fallback: %v", err)
+	}
+
+	session, err := registry.CreateSession(context.Background(), Policy{Relaxed: true, Filesystem: FilesystemPolicy{WorkingDir: t.TempDir()}})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	if created != "preferred" {
+		t.Fatalf("auto-selected backend = %q, want %q", created, "preferred")
+	}
+}
+
+func TestRegistryAutoSelectSkipsUnsupportedBackendsInOrder(t *testing.T) {
+	registry := NewRegistry()
+	created := ""
+	if err := registry.Register(orderedTestFactory{name: "unsupported", available: true, supported: false, created: &created}); err != nil {
+		t.Fatalf("Register unsupported: %v", err)
+	}
+	if err := registry.Register(orderedTestFactory{name: "supported", available: true, supported: true, created: &created}); err != nil {
+		t.Fatalf("Register supported: %v", err)
+	}
+
+	session, err := registry.CreateSession(context.Background(), Policy{Filesystem: FilesystemPolicy{WorkingDir: t.TempDir()}})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+
+	if created != "supported" {
+		t.Fatalf("auto-selected backend = %q, want %q", created, "supported")
+	}
+}
+
 func TestRegistryConcurrency(t *testing.T) {
 	registry := NewRegistry()
-	factory := &localFactory{}
+	factory := localplugin.NewFactory()
 
 	// Test concurrent registration
 	t.Run("ConcurrentRegister", func(t *testing.T) {

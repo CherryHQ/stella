@@ -20,6 +20,64 @@ func TestResolveSessionRejectsUnknownBackend(t *testing.T) {
 	}
 }
 
+func TestResolveSessionAutoFallsBackToLocalWhenBoxshUnsupported(t *testing.T) {
+	previous := platformSupportsBoxsh
+	platformSupportsBoxsh = func() bool { return false }
+	t.Cleanup(func() { platformSupportsBoxsh = previous })
+
+	rs, err := resolveSession(context.Background(), GoRunnerConfig{
+		Workspace: t.TempDir(),
+		WorkDir:   ".",
+		Sandbox: config.SandboxConfig{
+			Backend: config.SandboxBackendAuto,
+		},
+	})
+	if err != nil {
+		t.Fatalf("resolveSession: %v", err)
+	}
+	defer func() { _ = rs.Close() }()
+
+	if got := rs.Policy().Backend; got != config.SandboxBackendLocal {
+		t.Fatalf("Policy().Backend = %q, want %q", got, config.SandboxBackendLocal)
+	}
+}
+
+func TestResolveSessionExplicitBoxshRejectsUnsupportedPlatform(t *testing.T) {
+	previous := platformSupportsBoxsh
+	platformSupportsBoxsh = func() bool { return false }
+	t.Cleanup(func() { platformSupportsBoxsh = previous })
+
+	_, err := resolveSession(context.Background(), GoRunnerConfig{
+		Sandbox: config.SandboxConfig{
+			Backend: config.SandboxBackendBoxsh,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for explicit boxsh on unsupported platform")
+	}
+}
+
+func TestSandboxWorkspaceRootUsesUserDataDir(t *testing.T) {
+	cfg := GoRunnerConfig{
+		Workspace:   "/workspace/agent",
+		UserDataDir: "/workspace/agent/users/1/data",
+	}
+
+	if got := sandboxWorkspaceRoot(cfg); got != cfg.UserDataDir {
+		t.Fatalf("sandboxWorkspaceRoot() = %q, want %q", got, cfg.UserDataDir)
+	}
+}
+
+func TestSandboxWorkspaceRootFallsBackToWorkspace(t *testing.T) {
+	cfg := GoRunnerConfig{
+		Workspace: "/workspace/agent",
+	}
+
+	if got := sandboxWorkspaceRoot(cfg); got != cfg.Workspace {
+		t.Fatalf("sandboxWorkspaceRoot() = %q, want %q", got, cfg.Workspace)
+	}
+}
+
 // TestRunnerSessionLifecycle tests the runnerSession lifecycle.
 func TestRunnerSessionLifecycle(t *testing.T) {
 	// Create a local session for testing

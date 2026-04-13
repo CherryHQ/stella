@@ -1,4 +1,4 @@
-package sandbox
+package boxsh
 
 import (
 	"context"
@@ -10,18 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/embedded"
+	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
 
 const BoxshBinaryName = "boxsh"
-
-type PreflightConfig struct {
-	AnnaHome    string
-	Workspace   string
-	UserDataDir string
-	Sandbox     config.SandboxConfig
-}
 
 func RequiresBoxsh(goos string) bool {
 	switch goos {
@@ -40,23 +32,7 @@ func SandboxRoot(cfg PreflightConfig) string {
 }
 
 func ResolveManagedBoxshPath(annaHome string) (string, error) {
-	path := embedded.ToolPath(annaHome, BoxshBinaryName)
-	if path == "" {
-		return "", fmt.Errorf("sandbox: managed %s binary not found in %s", BoxshBinaryName, embedded.BinDir(annaHome))
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		return "", fmt.Errorf("sandbox: stat managed %s binary: %w", BoxshBinaryName, err)
-	}
-	if info.IsDir() {
-		return "", fmt.Errorf("sandbox: managed %s path %q is a directory", BoxshBinaryName, path)
-	}
-	if info.Mode()&0o111 == 0 {
-		return "", fmt.Errorf("sandbox: managed %s binary %q is not executable", BoxshBinaryName, path)
-	}
-
-	return path, nil
+	return boxshclient.ResolveManagedBoxshPath(annaHome)
 }
 
 func ValidateManagedBoxshBinary(ctx context.Context, annaHome string) (string, error) {
@@ -82,7 +58,7 @@ func Preflight(ctx context.Context, cfg PreflightConfig) error {
 	if !RequiresBoxsh(runtime.GOOS) {
 		return nil
 	}
-	if err := cfg.Sandbox.Validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return err
 	}
 
@@ -103,7 +79,7 @@ func Preflight(ctx context.Context, cfg PreflightConfig) error {
 
 	annaHome := cfg.AnnaHome
 	if annaHome == "" {
-		annaHome = config.AnnaHome()
+		annaHome = boxshclient.DefaultAnnaHome()
 	}
 	stateDir := filepath.Join(annaHome, "cache", "sandbox")
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {

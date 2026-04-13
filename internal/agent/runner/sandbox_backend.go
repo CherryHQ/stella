@@ -10,7 +10,7 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/internal/sandbox"
-	"github.com/vaayne/anna/internal/sandbox/boxshclient"
+	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
 
 // runnerSession wraps a sandbox.Session for runner use.
@@ -89,13 +89,15 @@ type sessionFactory func(context.Context, GoRunnerConfig) (*runnerSession, error
 
 // registry manages session factories by name.
 var sessionRegistry = map[string]sessionFactory{
-	"local": createLocalSession,
-	"boxsh": createBoxshSession,
+	config.SandboxBackendLocal: createLocalSession,
+	config.SandboxBackendBoxsh: createBoxshSession,
 }
+
+var platformSupportsBoxsh = boxshclient.PlatformSupportsBoxsh
 
 func createLocalSession(_ context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
 	policy := sandbox.Policy{
-		Backend: "local",
+		Backend: config.SandboxBackendLocal,
 		Relaxed: true,
 		Filesystem: sandbox.FilesystemPolicy{
 			WorkspaceRoot: cfg.Workspace,
@@ -110,7 +112,7 @@ func createLocalSession(_ context.Context, cfg GoRunnerConfig) (*runnerSession, 
 		},
 	}
 
-	factory := sandbox.GlobalRegistry().Get("local")
+	factory := sandbox.GlobalRegistry().Get(config.SandboxBackendLocal)
 	if factory == nil {
 		return nil, fmt.Errorf("local factory not available")
 	}
@@ -127,8 +129,8 @@ func createLocalSession(_ context.Context, cfg GoRunnerConfig) (*runnerSession, 
 }
 
 func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
-	if !boxshclient.PlatformSupportsBoxsh() {
-		return nil, fmt.Errorf("sandbox backend %q is not supported on %s", "boxsh", runtime.GOOS)
+	if !platformSupportsBoxsh() {
+		return nil, fmt.Errorf("sandbox backend %q is not supported on %s", config.SandboxBackendBoxsh, runtime.GOOS)
 	}
 
 	annaHome := cfg.AnnaHome
@@ -149,10 +151,10 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 	readOnlyDirs = append(readOnlyDirs, filepath.Join(annaHome, "cache", "builtin-skills"))
 
 	policy := sandbox.Policy{
-		Backend: "boxsh",
+		Backend: config.SandboxBackendBoxsh,
 		Relaxed: false,
 		Filesystem: sandbox.FilesystemPolicy{
-			WorkspaceRoot: cfg.Workspace,
+			WorkspaceRoot: sandboxWorkspaceRoot(cfg),
 			WorkingDir:    cfg.WorkDir,
 			ReadOnlyPaths: readOnlyDirs,
 			AllowEscapes:  false,
@@ -167,7 +169,7 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		},
 	}
 
-	factory := sandbox.GlobalRegistry().Get("boxsh")
+	factory := sandbox.GlobalRegistry().Get(config.SandboxBackendBoxsh)
 	if factory == nil {
 		return nil, fmt.Errorf("boxsh factory not available")
 	}
@@ -181,6 +183,13 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		session: session,
 		policy:  policy,
 	}, nil
+}
+
+func sandboxWorkspaceRoot(cfg GoRunnerConfig) string {
+	if cfg.UserDataDir != "" {
+		return cfg.UserDataDir
+	}
+	return cfg.Workspace
 }
 
 var annaHomeEnvMu = struct{ ch chan struct{} }{ch: make(chan struct{}, 1)}
@@ -213,14 +222,22 @@ func createSessionWithAnnaHome(ctx context.Context, factory sandbox.Factory, pol
 // resolveSession creates a runnerSession from configuration.
 // Replaces the old resolveSandboxBackend which leaked boxsh types.
 func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
-	name := cfg.Sandbox.BackendName()
-	if name == "auto" {
-		name = "boxsh"
-	}
+	name := resolveSessionBackendName(cfg.Sandbox)
 
 	factory, ok := sessionRegistry[name]
 	if !ok {
 		return nil, fmt.Errorf("unknown sandbox backend: %q", name)
 	}
 	return factory(ctx, cfg)
+}
+
+func resolveSessionBackendName(cfg config.SandboxConfig) string {
+	name := cfg.BackendName()
+	if name != config.SandboxBackendAuto {
+		return name
+	}
+	if platformSupportsBoxsh() {
+		return config.SandboxBackendBoxsh
+	}
+	return config.SandboxBackendLocal
 }

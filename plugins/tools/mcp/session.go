@@ -12,6 +12,7 @@ import (
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/vaayne/anna/internal/sandbox"
+	pkgsandbox "github.com/vaayne/anna/pkg/sandbox"
 )
 
 // Session is the subset of MCP client session behavior used by Anna's runtime.
@@ -26,26 +27,31 @@ type Session interface {
 type DialFunc func(ctx context.Context, server ServerConfig, host sandbox.Host) (Session, error)
 
 func defaultDial(ctx context.Context, server ServerConfig, host sandbox.Host) (Session, error) {
-	transport, err := newTransport(server, host)
+	transport, err := newTransport(ctx, server, host)
 	if err != nil {
 		return nil, err
 	}
+	connectCtx := ctx
+	var cancel context.CancelFunc
+	if server.TimeoutSeconds > 0 {
+		connectCtx, cancel = context.WithTimeout(ctx, time.Duration(server.TimeoutSeconds)*time.Second)
+		defer cancel()
+	}
 	client := officialmcp.NewClient(&officialmcp.Implementation{Name: "anna", Version: "dev"}, nil)
-	return client.Connect(ctx, transport, nil)
+	return client.Connect(connectCtx, transport, nil)
 }
 
-func newTransport(server ServerConfig, host sandbox.Host) (officialmcp.Transport, error) {
+func newTransport(ctx context.Context, server ServerConfig, host sandbox.Host) (officialmcp.Transport, error) {
 	httpClient := newHTTPClient(server.TimeoutSeconds, server.Headers)
 	switch server.Transport {
 	case TransportStdio:
 		if host == nil {
 			return nil, ErrSandboxHostRequired{Transport: server.Transport}
 		}
-		proc, err := host.StartProcess(context.Background(), sandbox.ProcessRequest{
-			Path:    server.Command,
-			Args:    append([]string(nil), server.Args...),
-			Env:     cloneHeaders(server.Env),
-			Timeout: time.Duration(server.TimeoutSeconds) * time.Second,
+		proc, err := host.StartProcess(ctx, sandbox.ProcessRequest{
+			Path: server.Command,
+			Args: append([]string(nil), server.Args...),
+			Env:  cloneHeaders(server.Env),
 		})
 		if err != nil {
 			return nil, err
@@ -57,11 +63,11 @@ func newTransport(server ServerConfig, host sandbox.Host) (officialmcp.Transport
 		}, nil
 	case TransportSSE:
 		// EX-009: remote MCP dialing remains an explicit trust-boundary exception.
-		sandbox.LogExceptionPath("EX-009", "plugins/tools/mcp", "network", "remote MCP "+server.Transport+" transport dials outside sandbox.Host mediation")
+		pkgsandbox.LogExceptionPath("EX-009", "plugins/tools/mcp", "network", "remote MCP "+server.Transport+" transport dials outside sandbox.Host mediation")
 		return &officialmcp.SSEClientTransport{Endpoint: server.URL, HTTPClient: httpClient}, nil
 	case TransportStreamableHTTP, TransportHTTP:
 		// EX-009: remote MCP dialing remains an explicit trust-boundary exception.
-		sandbox.LogExceptionPath("EX-009", "plugins/tools/mcp", "network", "remote MCP "+server.Transport+" transport dials outside sandbox.Host mediation")
+		pkgsandbox.LogExceptionPath("EX-009", "plugins/tools/mcp", "network", "remote MCP "+server.Transport+" transport dials outside sandbox.Host mediation")
 		return &officialmcp.StreamableClientTransport{Endpoint: server.URL, HTTPClient: httpClient}, nil
 	default:
 		return nil, ErrUnsupportedTransport{Transport: server.Transport}

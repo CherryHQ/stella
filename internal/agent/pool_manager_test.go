@@ -2,9 +2,11 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 // mockStore implements config.Store for testing PoolManager.
@@ -54,8 +56,13 @@ func (m *mockStore) CreateProvider(_ context.Context, _ config.Provider) error {
 func (m *mockStore) UpdateProvider(_ context.Context, _ config.Provider) error { return nil }
 func (m *mockStore) DeleteProvider(_ context.Context, _ string) error          { return nil }
 func (m *mockStore) ListAgents(_ context.Context) ([]config.Agent, error)      { return nil, nil }
-func (m *mockStore) GetAgent(_ context.Context, _ string) (config.Agent, error) {
-	return config.Agent{}, nil
+func (m *mockStore) GetAgent(_ context.Context, id string) (config.Agent, error) {
+	for _, a := range m.agents {
+		if a.ID == id {
+			return a, nil
+		}
+	}
+	return config.Agent{}, fmt.Errorf("agent %q not found", id)
 }
 func (m *mockStore) CreateAgent(_ context.Context, _ config.Agent) error      { return nil }
 func (m *mockStore) UpdateAgent(_ context.Context, _ config.Agent) error      { return nil }
@@ -201,6 +208,61 @@ func TestPoolManagerClose(t *testing.T) {
 	// After close, pools should be empty.
 	if p := pm.Get("anna"); p != nil {
 		t.Error("Get(anna) should be nil after Close")
+	}
+}
+
+type closeCountingMemory struct {
+	memory.Provider
+	closeCount int
+}
+
+func (m *closeCountingMemory) Close() error {
+	m.closeCount++
+	return m.Provider.Close()
+}
+
+func TestPoolManagerSyncAgentRemovalKeepsSharedMemoryOpen(t *testing.T) {
+	t.Setenv("ANNA_HOME", t.TempDir())
+	config.ResetAnnaHome()
+	t.Cleanup(config.ResetAnnaHome)
+
+	store := &mockStore{
+		agents: []config.Agent{
+			{ID: "anna", Name: "Anna", Model: "anthropic/test-model", Enabled: true},
+			{ID: "coder", Name: "Coder", Model: "anthropic/test-model", Enabled: true},
+		},
+		providers: map[string]config.Provider{
+			"anthropic": {ID: "anthropic", APIKey: "test-key"},
+		},
+	}
+
+	mem := &closeCountingMemory{Provider: testMemoryProvider(t)}
+	pm := NewPoolManager(store, mem)
+
+	ctx := context.Background()
+	if err := pm.StartAll(ctx); err != nil {
+		t.Fatalf("StartAll: %v", err)
+	}
+
+	store.agents[0].Enabled = false
+	if err := pm.SyncAgent(ctx, "anna"); err != nil {
+		t.Fatalf("SyncAgent: %v", err)
+	}
+	if mem.closeCount != 0 {
+		t.Fatalf("memory close count after removing one pool = %d, want 0", mem.closeCount)
+	}
+	if got := pm.Get("anna"); got != nil {
+		t.Fatal("Get(anna) should be nil after disabled agent sync")
+	}
+	if got := pm.Get("coder"); got == nil {
+		t.Fatal("Get(coder) should remain available")
+	}
+
+	if err := pm.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if mem.closeCount != 1 {
+		t.Fatalf("memory close count after manager close = %d, want 1", mem.closeCount)
 	}
 }
 

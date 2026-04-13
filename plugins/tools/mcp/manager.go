@@ -133,6 +133,9 @@ func (m *Manager) Reconcile(parent context.Context, cfg Config, enabled bool) {
 	}
 	for name, server := range wanted {
 		if _, ok := m.servers[name]; !ok {
+			if server.Transport == TransportStdio && m.host == nil {
+				continue
+			}
 			m.startServerLocked(m.runCtx, server)
 		}
 	}

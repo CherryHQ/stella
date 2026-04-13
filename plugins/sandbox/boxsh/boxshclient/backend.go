@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
-
-	"github.com/vaayne/anna/internal/config"
 )
 
 // SharedBackend provides a shared boxsh session for all core tools.
@@ -39,7 +37,7 @@ type BackendConfig struct {
 	UserDataDir string
 
 	// Sandbox contains the sandbox network configuration.
-	Sandbox config.SandboxConfig
+	Sandbox NetworkConfig
 
 	// WorkDir is the working directory for tool execution.
 	// This is resolved relative to the sandbox root.
@@ -65,7 +63,7 @@ func NewSharedBackend(cfg BackendConfig) (*SharedBackend, error) {
 	if binaryPath == "" {
 		annaHome := cfg.AnnaHome
 		if annaHome == "" {
-			annaHome = config.AnnaHome()
+			annaHome = DefaultAnnaHome()
 		}
 		path, err := ResolveManagedBoxshPath(annaHome)
 		if err != nil {
@@ -123,8 +121,8 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 		Dst:              sessionDir,
 		Cwd:              cwd,
 		ReadOnlyDirs:     cfg.ReadOnlyDirs,
-		NetworkMode:      cfg.Sandbox.NetworkMode(),
-		NetworkAllowlist: cfg.Sandbox.Network.Allowlist,
+		NetworkMode:      cfg.Sandbox.ModeOrDefault(),
+		NetworkAllowlist: cfg.Sandbox.Allowlist,
 	}
 
 	// Create and start the client.

@@ -17,6 +17,7 @@ import (
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
+	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
 // ExtraToolsFactory creates agent-specific extra tools given a snapshot.
@@ -25,8 +26,8 @@ import (
 type ExtraToolsFactory func(snap *config.Snapshot) []tools.Tool
 
 // PluginToolsBuilder creates tools from enabled plugin state.
-// Called at startup and on hot-reload when a plugin is toggled.
-type PluginToolsBuilder func(ctx context.Context) []tools.Tool
+// Called per runner so tool builders receive the active sandbox host.
+type PluginToolsBuilder func(ctx context.Context, build plugintools.BuildContext) []tools.Tool
 
 // PluginHooksBuilder creates hook plugins from enabled plugin state.
 // Called at startup and on hot-reload when a hook plugin is toggled.
@@ -127,7 +128,7 @@ type PoolManager struct {
 	idleTimeout             time.Duration
 	compaction              CompactionConfig
 	coreSharedTools         []tools.Tool       // always-on tools (scheduler, memory, etc.)
-	sharedExtraTools        []tools.Tool       // coreSharedTools + plugin tools
+	sharedExtraTools        []tools.Tool       // always-on shared tools
 	pluginToolsBuilder      PluginToolsBuilder // builds tools from plugin state
 	hookPlugins             []hooks.HookPlugin // current enabled hook plugins
 	pluginHooksBuilder      PluginHooksBuilder // builds hooks from plugin state
@@ -175,12 +176,6 @@ func (pm *PoolManager) HookPlugins() []hooks.HookPlugin {
 // StartAll reads enabled agents from the store, creates a Pool per agent
 // with per-agent runner factory, and starts reapers.
 func (pm *PoolManager) StartAll(ctx context.Context) error {
-	// Build initial shared tools: core + plugin tools.
-	if pm.pluginToolsBuilder != nil {
-		pluginTools := pm.pluginToolsBuilder(ctx)
-		pm.sharedExtraTools = mergeTools(pm.coreSharedTools, pluginTools)
-	}
-
 	// Build initial hook plugins.
 	if pm.pluginHooksBuilder != nil {
 		pm.hookPlugins = pm.pluginHooksBuilder(ctx)
@@ -257,21 +252,17 @@ func (pm *PoolManager) DefaultPool() *Pool {
 	return nil
 }
 
-// ReloadPluginTools rebuilds the shared tool set from current plugin state
-// and updates the runner factory for every pool. New sessions pick up the
-// change immediately; existing runners continue until their session rotates.
+// ReloadPluginTools updates the runner factory for every pool. Plugin tools are
+// built per runner so builders can receive the active sandbox host.
 func (pm *PoolManager) ReloadPluginTools(ctx context.Context) error {
 	if pm.pluginToolsBuilder == nil {
 		return nil
 	}
 
-	pluginTools := pm.pluginToolsBuilder(ctx)
-
-	pm.mu.Lock()
-	pm.sharedExtraTools = mergeTools(pm.coreSharedTools, pluginTools)
+	pm.mu.RLock()
 	pools := make(map[string]*Pool, len(pm.pools))
 	maps.Copy(pools, pm.pools)
-	pm.mu.Unlock()
+	pm.mu.RUnlock()
 
 	for agentID, pool := range pools {
 		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
@@ -279,7 +270,7 @@ func (pm *PoolManager) ReloadPluginTools(ctx context.Context) error {
 		}
 	}
 
-	pm.log.Info("plugin tools reloaded", "plugin_tool_count", len(pluginTools))
+	pm.log.Info("plugin tools reloaded")
 	return nil
 }
 
@@ -386,7 +377,7 @@ func (pm *PoolManager) removeAgentPool(agentID string) error {
 		return nil
 	}
 	pm.log.Info("removing agent pool", "agent_id", agentID)
-	return pool.Close()
+	return pool.closeSessions()
 }
 
 // loadAgentSnapshot loads the config snapshot for an agent and sets up its workspace.
@@ -403,7 +394,7 @@ func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*
 	return snap, workspace, nil
 }
 
-// buildFactory creates a runner factory with all shared, plugin, and per-agent tools.
+// buildFactory creates a runner factory with shared, plugin, and per-agent tools.
 // Hooks are not part of the factory — they are stored on the Pool and injected
 // via RunnerParams.HooksFn at runner-creation time.
 func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (runner.NewRunnerFunc, error) {
@@ -418,7 +409,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 		extraTools = append(extraTools, pm.extraToolsFactory(snap)...)
 	}
 
-	return NewRunnerFactory(snap, extraTools, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle)
+	return NewRunnerFactory(snap, extraTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle)
 }
 
 // mergeTools creates a new slice containing core tools followed by plugin tools.
@@ -441,11 +432,16 @@ func (pm *PoolManager) Close() error {
 	var lastErr error
 	for id, pool := range pools {
 		pm.log.Info("closing agent pool", "agent_id", id)
-		if err := pool.Close(); err != nil {
+		if err := pool.closeSessions(); err != nil {
 			pm.log.Error("failed to close pool", "agent_id", id, "error", err)
 			lastErr = err
 		}
 	}
 	pluginhooks.CloseHookPlugins(hookPlugins)
+	if pm.mem != nil {
+		if err := pm.mem.Close(); err != nil {
+			lastErr = err
+		}
+	}
 	return lastErr
 }
