@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	boxshplugin "github.com/vaayne/anna/plugins/sandbox/boxsh"
+
 	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
 )
 
@@ -29,11 +31,11 @@ func TestSessionContract(t *testing.T) {
 			if annaHome == "" {
 				t.Skip("ANNA_HOME not set, boxsh binary not available")
 			}
-			if _, err := ResolveManagedBoxshPath(annaHome); err != nil {
+			if _, err := boxshplugin.ResolveManagedBoxshPath(annaHome); err != nil {
 				t.Skipf("boxsh binary not available: %v", err)
 			}
 
-			testSessionContract(t, &boxshFactory{})
+			testSessionContract(t, boxshplugin.NewFactory())
 		})
 	}
 }

@@ -1,21 +1,74 @@
-package sandbox
+package boxsh
 
 import (
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/sandbox/boxshclient"
+	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
 )
+
+type (
+	Policy                   = sandboxpkg.Policy
+	FilesystemPolicy         = sandboxpkg.FilesystemPolicy
+	Session                  = sandboxpkg.Session
+	Host                     = sandboxpkg.Host
+	ReadResult               = sandboxpkg.ReadResult
+	WriteResult              = sandboxpkg.WriteResult
+	Edit                     = sandboxpkg.Edit
+	EditResult               = sandboxpkg.EditResult
+	StatResult               = sandboxpkg.StatResult
+	DirEntry                 = sandboxpkg.DirEntry
+	TempFile                 = sandboxpkg.TempFile
+	ExecOptions              = sandboxpkg.ExecOptions
+	ExecResult               = sandboxpkg.ExecResult
+	ProcessRequest           = sandboxpkg.ProcessRequest
+	ProcessHandle            = sandboxpkg.ProcessHandle
+	HTTPOptions              = sandboxpkg.HTTPOptions
+	HTTPResult               = sandboxpkg.HTTPResult
+	HTTPStream               = sandboxpkg.HTTPStream
+	PolicyCompatibilityError = sandboxpkg.PolicyCompatibilityError
+)
+
+func nextSessionID() string { return sandboxpkg.NewSessionID() }
+
+func logSessionCreated(sessionID, backend string, policy Policy) {
+	sandboxpkg.LogSessionCreated(sessionID, backend, policy)
+}
+
+func logSessionClosed(sessionID, backend, reason string) {
+	sandboxpkg.LogSessionClosed(sessionID, backend, reason)
+}
+
+func logRelaxedMode(sessionID, backend, reason string, policy Policy, warnings ...string) {
+	sandboxpkg.LogRelaxedMode(sessionID, backend, reason, policy, warnings...)
+}
+
+func logPolicyDenied(sessionID, backend, operation, resource, reason string) {
+	sandboxpkg.LogPolicyDenied(sessionID, backend, operation, resource, reason)
+}
+
+func PlatformRequiresBoxsh() bool {
+	switch runtime.GOOS {
+	case "linux", "darwin":
+		return true
+	default:
+		return false
+	}
+}
 
 // boxshFactory creates boxsh-backed sandbox sessions.
 // This factory is only available on platforms that support boxsh.
 type boxshFactory struct{}
+
+func NewFactory() sandboxpkg.Factory { return &boxshFactory{} }
 
 func (f *boxshFactory) Name() string { return "boxsh" }
 

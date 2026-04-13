@@ -4,6 +4,7 @@ import (
 	"runtime"
 
 	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
+	boxshplugin "github.com/vaayne/anna/plugins/sandbox/boxsh"
 	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
 )
 
@@ -24,7 +25,7 @@ func NewRegistry() *Registry {
 
 func DefaultRegistry() *Registry {
 	r := NewRegistry()
-	mustRegisterFactory(r, &boxshFactory{}, PlatformSupportsBoxsh())
+	mustRegisterFactory(r, boxshplugin.NewFactory(), PlatformSupportsBoxsh())
 	mustRegisterFactory(r, localplugin.NewFactory(), true)
 	return r
 }
