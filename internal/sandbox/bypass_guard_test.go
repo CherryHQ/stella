@@ -8,18 +8,30 @@ import (
 	"testing"
 )
 
-func TestPhase5MigratedPathsAvoidDirectBypasses(t *testing.T) {
+func TestMigratedSandboxPathsAvoidDirectBypasses(t *testing.T) {
 	t.Parallel()
 
-	forbidden := []string{"os/exec", "net/http", "exec.Command", "http.NewRequest", "http.Client{"}
+	forbidden := []string{
+		"os/exec",
+		"net/http",
+		"exec.Command",
+		"http.NewRequest",
+		"http.Client{",
+		"os.ReadFile",
+		"os.ReadDir",
+		"os.Stat",
+	}
 	files := []string{
 		"plugins/tools/skills/plugin.go",
 		"plugins/tools/skills/tool.go",
 		"plugins/tools/skills/catalog.go",
 		"plugins/tools/skills/manage.go",
 		"plugins/tools/skills/remove_lib.go",
+		"plugins/tools/skills/hostfs.go",
 		"plugins/tools/agent/preset_loader.go",
+		"plugins/tools/agent/hostfs.go",
 		"internal/agent/runner/prompt.go",
+		"internal/agent/runner/prompt_host.go",
 	}
 
 	_, currentFile, _, ok := runtime.Caller(0)
