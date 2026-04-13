@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vaayne/anna/internal/sandbox"
+
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestToolListAndGet(t *testing.T) {
 	mgr := NewManager()
-	mgr.Configure(Config{Servers: []ServerConfig{{Name: "github", Enabled: true, Transport: TransportStdio, Command: "cmd"}}}, true)
 	mgr.AddTool("github", "search_repos", "Search Repos", "Search repositories", map[string]any{"type": "object"}, map[string]any{"type": "object"}, map[string]any{"read_only_hint": true})
 	tool := New(mgr)
 
@@ -27,7 +28,8 @@ func TestToolListAndGet(t *testing.T) {
 		t.Fatalf("unexpected list: %#v", listed)
 	}
 
-	getJSON, err := tool.Execute(context.Background(), map[string]any{"action": "get", "id": listed[0]["id"]})
+	toolID, _ := listed[0]["id"].(string)
+	getJSON, err := tool.Execute(context.Background(), map[string]any{"action": "get", "id": toolID})
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -44,7 +46,7 @@ func TestToolExec(t *testing.T) {
 	mgr := NewManager()
 	sess := newFakeSession(&officialmcp.Tool{Name: "hello", Description: "Hello"})
 	sess.callResult = &officialmcp.CallToolResult{Content: []officialmcp.Content{&officialmcp.TextContent{Text: "hi"}}}
-	mgr.SetDial(func(context.Context, ServerConfig) (Session, error) { return sess, nil })
+	mgr.SetDial(func(context.Context, ServerConfig, sandbox.Host) (Session, error) { return sess, nil })
 	mgr.Reconcile(context.Background(), Config{Servers: []ServerConfig{{Name: "demo", Enabled: true, Transport: TransportStdio, Command: "cmd"}}}, true)
 	waitFor(t, time.Second, func() bool { return len(mgr.ValidTools()) == 1 })
 	proxy := New(mgr)

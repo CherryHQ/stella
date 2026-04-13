@@ -1,7 +1,6 @@
 package skills
 
 import (
-	"os"
 	"path/filepath"
 
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
@@ -29,8 +28,7 @@ func init() {
 			Description: "Manage local agent skills.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				cwd, _ := os.Getwd()
-				return NewTool(ctx.AnnaHome, ctx.Workspace, cwd, userSkillsDir(ctx.UserDataDir)), nil
+				return NewTool(ctx.AnnaHome, ctx.HomeDir, ctx.Workspace, ctx.WorkDir, userSkillsDir(ctx.UserDataDir), ctx.Host), nil
 			},
 		})
 		host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
