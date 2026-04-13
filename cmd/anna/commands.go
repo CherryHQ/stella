@@ -178,9 +178,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	pluginToolsBuilder := func(ctx context.Context) []tools.Tool {
 		return phost.BuildEnabledTools(ctx, plugintools.BuildContext{})
 	}
-	coreToolsBuilder := func(bc plugintools.BuildContext) []tools.Tool {
-		return phost.BuildCoreTools(bc)
-	}
 	providerRegistryBuilder := func(api, apiKey, baseURL string) (*providers.Registry, error) {
 		provider, err := store.GetProvider(ctx, api)
 		if err != nil {
@@ -267,7 +264,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithSharedExtraTools(sharedTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
-		agent.WithCoreToolsBuilder(coreToolsBuilder),
 		agent.WithProviderRegistryBuilder(providerRegistryBuilder),
 		agent.WithPromptToolsBuilder(promptToolsBuilder),
 		agent.WithPromptSectionsBuilder(promptSectionsBuilder),
@@ -355,7 +351,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 // Each switch creates a new immutable snapshot so the factory closure captures
 // no shared mutable state — eliminating races between concurrent Chat calls and
 // model switches. Hooks are stored on the Pool independently and are not affected.
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool, coreToolsBuilder runner.CoreToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle) func(string, string) error {
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle) func(string, string) error {
 	return func(provider, model string) error {
 		// Shallow-copy the base snapshot so we never mutate shared state.
 		snap := *base
@@ -370,7 +366,7 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.Providers = providers
 		}
 
-		factory, err := agent.NewRunnerFactory(&snap, extraTools, coreToolsBuilder, providerRegistryBuilder, promptToolsFn, promptSectionsFn, toolLifecycle)
+		factory, err := agent.NewRunnerFactory(&snap, extraTools, providerRegistryBuilder, promptToolsFn, promptSectionsFn, toolLifecycle)
 		if err != nil {
 			return err
 		}
@@ -392,9 +388,6 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 		s.store,
 		pool,
 		s.extraTools,
-		func(bc plugintools.BuildContext) []tools.Tool {
-			return s.pluginHost.BuildCoreTools(bc)
-		},
 		func(api, apiKey, baseURL string) (*providers.Registry, error) {
 			provider, err := s.store.GetProvider(s.ctx, api)
 			if err != nil {
