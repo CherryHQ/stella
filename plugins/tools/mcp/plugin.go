@@ -61,6 +61,7 @@ func init() {
 			if !ok {
 				return New(nil), nil
 			}
+			rt.Manager().SetHost(ctx.Host)
 			return New(rt.Manager()), nil
 		}})
 		host.AddAdmin(pkgplugins.AdminSpec{PluginID: PluginID, Status: func(ctx context.Context, build pkgplugins.AdminContext) (any, error) {

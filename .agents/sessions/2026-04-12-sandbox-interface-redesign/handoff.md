@@ -239,7 +239,7 @@
 
 ## Phase 5: Mediate non-core execution paths and reduce bypasses
 
-**Status:** in progress
+**Status:** complete
 
 **Tasks completed:**
 
@@ -247,7 +247,7 @@
 - [x] 5.3: Added a static guard test for migrated files to prevent direct `os/exec/net/http` bypass regressions
 - [x] 5.4: Updated the exceptions register to narrow EX-003 through EX-005 from active runtime bypasses to explicit nil-host fallbacks
 - [x] 5.5: Added sandbox observability logs for session lifecycle, relaxed mode, unsupported backend selection, and key fail-closed denials
-- [ ] 5.2: MCP stdio/SSE/HTTP transport mediation still needs host-backed runtime integration
+- [x] 5.2: Moved MCP stdio transport process spawning onto `sandbox.Host.StartProcess`; remote HTTP/SSE dialing remains an explicit exception
 
 **Files changed:**
 
@@ -265,8 +265,9 @@
 - `internal/sandbox/observe.go` — new structured sandbox observability helpers
 - `internal/sandbox/{factory.go,local_session.go,boxsh_session.go}` — hooked unsupported/relaxed/lifecycle/denial logs into runtime paths
 - `internal/sandbox/bypass_guard_test.go` — new static regression guard for migrated files
+- `plugins/tools/mcp/{session.go,manager.go,supervisor.go,plugin.go,session_test.go,tool_test.go}` — MCP stdio transport now uses host-mediated process spawning and runtime host injection
 - `.agents/sessions/2026-04-12-sandbox-interface-redesign/tasks.md` — Phase 5 task status updated
-- `.agents/sessions/2026-04-12-sandbox-interface-redesign/exceptions-register.md` — narrowed EX-003 through EX-005 after Phase 5 mediation work
+- `.agents/sessions/2026-04-12-sandbox-interface-redesign/exceptions-register.md` — narrowed EX-003 through EX-005 and added EX-009 for remaining remote MCP transport dialing
 
 ### Fixes
 - Stopped plugin tool builders from reading process cwd directly by threading the runner workdir and session host through the plugin build context.
@@ -283,6 +284,6 @@
 
 **Decisions & context for next phase slice:**
 
-- Skills, preset discovery, and prompt context are now host-first; remaining direct filesystem access in those areas is explicitly limited to nil-host fallback paths.
-- MCP runtime transport creation is still the largest uncovered Phase 5 surface because the managed runtime is not yet wired to an execution-time host.
-- The new bypass guard only covers the files migrated in this slice; Phase 5 completion should extend that guard or replace it with a broader lint rule once MCP transport work lands.
+- Skills, preset discovery, prompt context, and MCP stdio process spawning are now host-first; remaining direct access in those areas is explicitly limited to nil-host fallback paths or remote MCP transport dialing.
+- Remote MCP HTTP/SSE transport remains the main explicit exception because the managed runtime is still process-wide rather than session-scoped.
+- The new bypass guard only covers the files migrated in this slice; Phase 6 should extend that guard or replace it with a broader lint rule and decide whether remote MCP transport becomes mediated or remains a documented separate trust boundary.

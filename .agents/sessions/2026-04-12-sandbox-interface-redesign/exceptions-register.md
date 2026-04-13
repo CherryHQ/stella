@@ -138,6 +138,21 @@ Closure Plan: when/how this will be addressed
 
 ---
 
+### EX-009: MCP Remote HTTP/SSE Transport Dialing
+
+| Field | Value |
+|-------|-------|
+| **ID** | EX-009 |
+| **Path** | `plugins/tools/mcp/session.go` |
+| **Access Type** | Network |
+| **Operations** | `net/http` client creation and request transport for SSE / StreamableHTTP / HTTP |
+| **Owner** | `plugins/tools/mcp` |
+| **Reason** | Phase 5 moved MCP stdio process spawning onto `sandbox.Host.StartProcess`. Remote transports still dial directly because the managed MCP runtime is process-wide and not yet session-scoped to an execution-time host. |
+| **Risk Level** | Medium |
+| **Closure Plan** | **PHASE 6** - Introduce host-aware/network-mediated MCP runtime dialing or explicitly scope remote MCP transport as a separate non-sandboxed trust boundary in code and docs. |
+
+---
+
 ## Future Exceptions (Expected)
 
 The following will become exceptions once Phase 1 types are implemented:
@@ -165,6 +180,7 @@ These are infrastructure processes (the sandbox backend itself), not user tool e
 |------|--------|--------------|-------|
 | 2026-04-12 | Created | EX-001 through EX-008 | Initial exceptions register for Phase 1 |
 | 2026-04-13 | Updated | EX-003 through EX-005 | Narrowed from active runtime bypasses to host-first mediation with explicit nil-host fallbacks after Phase 5 work |
+| 2026-04-13 | Added | EX-009 | Recorded remaining direct MCP remote transport dialing after stdio moved onto `sandbox.Host.StartProcess` |
 
 ---
 

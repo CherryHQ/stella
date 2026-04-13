@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/vaayne/anna/internal/sandbox"
 )
 
 // Manager is the shared process-wide runtime for MCP state.
@@ -23,6 +24,7 @@ type Manager struct {
 	runCtx      context.Context
 	runCancel   context.CancelFunc
 	dial        DialFunc
+	host        sandbox.Host
 	supervisor  SupervisorConfig
 }
 
@@ -49,6 +51,32 @@ func (m *Manager) SetDial(dial DialFunc) {
 		return
 	}
 	m.dial = dial
+}
+
+func (m *Manager) SetHost(host sandbox.Host) {
+	m.mu.Lock()
+	m.host = host
+	if !m.enabled || m.runCtx == nil || host == nil {
+		m.mu.Unlock()
+		return
+	}
+	for name, rt := range m.servers {
+		if rt.cfg.Transport != TransportStdio {
+			continue
+		}
+		m.stopServerLocked(name)
+	}
+	for _, server := range m.config.EnabledServers() {
+		server = server.WithDefaults()
+		if server.Transport != TransportStdio {
+			continue
+		}
+		if _, ok := m.servers[server.Name]; ok {
+			continue
+		}
+		m.startServerLocked(m.runCtx, server)
+	}
+	m.mu.Unlock()
 }
 
 func (m *Manager) SetSupervisorConfig(cfg SupervisorConfig) {

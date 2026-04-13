@@ -46,7 +46,7 @@
 
 ## Phase 5: Mediate non-core execution paths and reduce bypasses
 - [x] Migrate plugin paths onto host-mediated file/network/process services
-- [ ] Migrate MCP/local helper paths onto host-mediated surfaces where required
+- [x] Migrate MCP/local helper paths onto host-mediated surfaces where required
 - [x] Add static checks / tests / lint rules for forbidden direct bypasses
 - [x] Update exceptions register with owner, reason, and closure plan
 - [x] Add observability for relaxed mode, denials, unsupported backend, and exceptions
