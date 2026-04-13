@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 
+	boxshplugin "github.com/vaayne/anna/plugins/sandbox/boxsh"
+
 	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
 )
 
@@ -315,7 +317,7 @@ func TestLocalFactorySupported(t *testing.T) {
 }
 
 func TestBoxshFactorySupported(t *testing.T) {
-	factory := &boxshFactory{}
+	factory := boxshplugin.NewFactory()
 
 	t.Run("AvailabilityBasedOnPlatform", func(t *testing.T) {
 		available := factory.Available()
