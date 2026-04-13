@@ -85,6 +85,77 @@ func TestHeartbeatFilePathAbsolute(t *testing.T) {
 	}
 }
 
+func TestSandboxConfigDefaults(t *testing.T) {
+	c := SandboxConfig{}
+	if got := c.BackendName(); got != "auto" {
+		t.Fatalf("BackendName() = %q, want %q", got, "auto")
+	}
+	if got := c.NetworkMode(); got != SandboxNetworkDisabled {
+		t.Fatalf("NetworkMode() = %q, want %q", got, SandboxNetworkDisabled)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate(): %v", err)
+	}
+}
+
+func TestSandboxConfigValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     SandboxConfig
+		wantErr bool
+	}{
+		{
+			name: "allow_all valid",
+			cfg:  SandboxConfig{Network: SandboxNetworkConfig{Mode: SandboxNetworkAllowAll}},
+		},
+		{
+			name: "boxsh backend valid",
+			cfg:  SandboxConfig{Backend: "boxsh"},
+		},
+		{
+			name: "whitelist valid host and cidr",
+			cfg:  SandboxConfig{Network: SandboxNetworkConfig{Mode: SandboxNetworkWhitelist, Allowlist: []string{"example.com", "anthropic.com", "internal.net", "registry.example", "10.0.0.0/24"}}},
+		},
+		{
+			name:    "invalid backend",
+			cfg:     SandboxConfig{Backend: "gvisor"},
+			wantErr: true,
+		},
+		{
+			name:    "invalid mode",
+			cfg:     SandboxConfig{Network: SandboxNetworkConfig{Mode: "bogus"}},
+			wantErr: true,
+		},
+		{
+			name:    "allowlist without whitelist mode",
+			cfg:     SandboxConfig{Network: SandboxNetworkConfig{Mode: SandboxNetworkDisabled, Allowlist: []string{"example.com"}}},
+			wantErr: true,
+		},
+		{
+			name:    "whitelist requires entries",
+			cfg:     SandboxConfig{Network: SandboxNetworkConfig{Mode: SandboxNetworkWhitelist}},
+			wantErr: true,
+		},
+		{
+			name:    "invalid whitelist entry",
+			cfg:     SandboxConfig{Network: SandboxNetworkConfig{Mode: SandboxNetworkWhitelist, Allowlist: []string{"bad host"}}},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Fatal("expected validation error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected validation error: %v", err)
+			}
+		})
+	}
+}
+
 func TestSnapshotResolveModelID(t *testing.T) {
 	tests := []struct {
 		name   string

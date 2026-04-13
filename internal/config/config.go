@@ -1,6 +1,8 @@
 package config
 
-import "path/filepath"
+import (
+	"path/filepath"
+)
 
 // RunnerConfig configures the agent runner.
 type RunnerConfig struct {
