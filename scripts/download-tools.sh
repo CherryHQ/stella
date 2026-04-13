@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-# Download fd, rg, rtk binaries, gzip-compressed into internal/embedded/binaries/.
+# Download fd, rg, rtk, and boxsh binaries, gzip-compressed into
+# internal/embedded/binaries/.
 #
 # Usage:
 #   ./scripts/download-tools.sh                                # current platform (dev)
@@ -13,6 +14,7 @@ mkdir -p "$BINARIES_DIR"
 FD_VERSION="${FD_VERSION:-10.4.2}"
 RG_VERSION="${RG_VERSION:-15.1.0}"
 RTK_VERSION="${RTK_VERSION:-0.30.0}"
+BOXSH_VERSION="${BOXSH_VERSION:-2.0.1}"
 
 GOOS="" GOARCH=""
 while [[ $# -gt 0 ]]; do
@@ -57,8 +59,9 @@ download() {
   echo "OK $name ($(du -h "$dest" | cut -f1 | xargs))"
 }
 
-download fd  "github:sharkdp/fd@${FD_VERSION}"
-download rg  "github:BurntSushi/ripgrep@${RG_VERSION}"
-download rtk "github:rtk-ai/rtk@${RTK_VERSION}" true
+download fd    "github:sharkdp/fd@${FD_VERSION}"
+download rg    "github:BurntSushi/ripgrep@${RG_VERSION}"
+download rtk   "github:rtk-ai/rtk@${RTK_VERSION}" true
+download boxsh "github:xicilion/boxsh@${BOXSH_VERSION}"
 
 echo "Done."
