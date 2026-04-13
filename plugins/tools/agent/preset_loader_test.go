@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -139,7 +140,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 		content := "---\nname: test-agent\ndescription: A test agent\nmodel: claude-haiku\nmax_turns: 3\ntimeout: 2m\n---\nYou are a test agent."
 		writeTestFile(t, path, []byte(content), 0o644)
 
-		p, ok := loadPresetFromFile(path, "project")
+		p, ok := loadPresetFromFile(context.Background(), nil, path, "project")
 		if !ok {
 			t.Fatal("expected ok")
 		}
@@ -173,7 +174,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 		content := "---\ndescription: Nameless agent\n---\nBody."
 		writeTestFile(t, path, []byte(content), 0o644)
 
-		p, ok := loadPresetFromFile(path, "common")
+		p, ok := loadPresetFromFile(context.Background(), nil, path, "common")
 		if !ok {
 			t.Fatal("expected ok")
 		}
@@ -189,7 +190,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 		content := "---\nname: bad\n---\nBody."
 		writeTestFile(t, path, []byte(content), 0o644)
 
-		_, ok := loadPresetFromFile(path, "project")
+		_, ok := loadPresetFromFile(context.Background(), nil, path, "project")
 		if ok {
 			t.Fatal("expected rejection for missing description")
 		}
@@ -202,7 +203,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 		content := "---\nname: bad\ndescription: Bad timeout\ntimeout: not-a-duration\n---\nBody."
 		writeTestFile(t, path, []byte(content), 0o644)
 
-		_, ok := loadPresetFromFile(path, "project")
+		_, ok := loadPresetFromFile(context.Background(), nil, path, "project")
 		if ok {
 			t.Fatal("expected rejection for invalid timeout")
 		}
@@ -210,7 +211,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 
 	t.Run("nonexistent file", func(t *testing.T) {
 		t.Parallel()
-		_, ok := loadPresetFromFile("/nonexistent/path.md", "project")
+		_, ok := loadPresetFromFile(context.Background(), nil, "/nonexistent/path.md", "project")
 		if ok {
 			t.Fatal("expected failure for nonexistent file")
 		}
@@ -235,7 +236,7 @@ func TestLoadPresetsFromDir(t *testing.T) {
 	// Create a subdirectory (should be ignored).
 	mkdirAll(t, filepath.Join(dir, "subdir"), 0o755)
 
-	presets := loadPresetsFromDir(dir, "test")
+	presets := loadPresetsFromDir(context.Background(), nil, dir, "test")
 	if len(presets) != 2 {
 		t.Fatalf("expected 2 presets, got %d", len(presets))
 	}
@@ -254,7 +255,7 @@ func TestLoadPresetsFromDir(t *testing.T) {
 
 func TestLoadPresetsFromDirNonexistent(t *testing.T) {
 	t.Parallel()
-	presets := loadPresetsFromDir("/nonexistent/dir", "test")
+	presets := loadPresetsFromDir(context.Background(), nil, "/nonexistent/dir", "test")
 	if len(presets) != 0 {
 		t.Errorf("expected 0 presets for nonexistent dir, got %d", len(presets))
 	}
@@ -280,7 +281,7 @@ func TestLoadAgentPresetsDeduplication(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir2, "agents", "unique.md"),
 		[]byte("---\nname: unique\ndescription: Only in workspace\n---\nUnique body."), 0o644)
 
-	presets := loadAgentPresets("", dir2, dir1, "")
+	presets := loadAgentPresets(context.Background(), nil, "", dir2, dir1, "")
 	if len(presets) != 2 {
 		t.Fatalf("expected 2 presets, got %d", len(presets))
 	}
@@ -349,7 +350,7 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 	writeTestFile(t, filepath.Join(builtin, "agents", "builtin-only.md"), preset("builtin-only", "From builtin"), 0o644)
 	writeTestFile(t, filepath.Join(builtin, "agents", "overlap.md"), preset("overlap", "Builtin loses"), 0o644)
 
-	presets := loadAgentPresets(home, workspace, cwd, builtin)
+	presets := loadAgentPresets(context.Background(), nil, home, workspace, cwd, builtin)
 
 	// Should have 5: project-only, agent-only, common-only, builtin-only, overlap (from project).
 	if len(presets) != 5 {
@@ -384,6 +385,27 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 	}
 }
 
+func TestLoadAgentPresetsUsesConfiguredHomeDir(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	builtin := t.TempDir()
+	mkdirAll(t, filepath.Join(home, ".agents", "agents"), 0o755)
+	writeTestFile(t, filepath.Join(home, ".agents", "agents", "common.md"),
+		[]byte("---\nname: common\ndescription: From configured home\n---\nBody."), 0o644)
+
+	presets := LoadAgentPresets(LoadAgentPresetsConfig{
+		HomeDir:          home,
+		BuiltinSkillsDir: builtin,
+	})
+	if len(presets) != 1 {
+		t.Fatalf("expected 1 preset, got %d", len(presets))
+	}
+	if presets[0].Source != "common" {
+		t.Fatalf("preset source = %q, want common", presets[0].Source)
+	}
+}
+
 func TestLoadAgentPresetsPathDedup(t *testing.T) {
 	t.Parallel()
 
@@ -406,7 +428,7 @@ func TestLoadAgentPresetsPathDedup(t *testing.T) {
 	// Create a symlink that resolves to the same absolute path.
 	// Both workspace and home point to the same agents/ dir.
 	// Pass same dir as both workspace and builtin — they both scan "agents/".
-	presets := loadAgentPresets("", dir, "", dir)
+	presets := loadAgentPresets(context.Background(), nil, "", dir, "", dir)
 	// workspace=dir → dir/agents/, builtin=dir → dir/agents/
 	// filepath.Abs dedup should make them load only once.
 	if len(presets) != 1 {
