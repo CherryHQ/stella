@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/sandbox/boxshclient"
+	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
 
 const BoxshBinaryName = "boxsh"
