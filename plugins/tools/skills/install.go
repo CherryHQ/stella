@@ -49,14 +49,14 @@ func (t *Tool) install(ctx context.Context, args map[string]any) (string, error)
 	return fmt.Sprintf("Skill %q installed to %s.", skillName, installed), nil
 }
 
-func (t *Tool) remove(args map[string]any) (string, error) {
+func (t *Tool) remove(ctx context.Context, args map[string]any) (string, error) {
 	name, _ := args["name"].(string)
 	if name == "" {
 		return "", fmt.Errorf("name is required for remove action")
 	}
 
 	skillDir := filepath.Join(t.skillsDir(), name)
-	if err := Remove(name, skillDir); err != nil {
+	if err := Remove(ctx, t.host, name, skillDir); err != nil {
 		return "", fmt.Errorf("%w (only skills in %s can be removed)", err, t.skillsDir())
 	}
 

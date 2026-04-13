@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 
 	"github.com/vaayne/anna/internal/config"
@@ -44,6 +45,13 @@ func (r *runnerSession) Runtime() pkgplugins.SandboxRuntime {
 		return plugintools.SandboxRuntimeFromBackend(nil)
 	}
 	return plugintools.SandboxRuntimeFromHost(r.session.Host())
+}
+
+func (r *runnerSession) Host() sandbox.Host {
+	if r == nil || r.session == nil {
+		return nil
+	}
+	return r.session.Host()
 }
 
 // Session returns the underlying sandbox session.
@@ -165,6 +173,13 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		embedded.BinDir(annaHome),
 		os.Getenv("PATH"),
 	)
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		readOnlyDirs = append(readOnlyDirs,
+			filepath.Join(home, ".agents", "skills"),
+			filepath.Join(home, ".agents", "agents"),
+		)
+	}
+	readOnlyDirs = append(readOnlyDirs, filepath.Join(annaHome, "cache", "builtin-skills"))
 
 	policy := sandbox.Policy{
 		Backend: "boxsh",

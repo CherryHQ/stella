@@ -89,15 +89,6 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	}
 
 	system := cfg.System
-	if system == "" {
-		system = BuildSystemPromptFromDB(context.Background(), DBPromptParams{
-			AnnaHome:       cfg.AnnaHome,
-			Workspace:      cfg.Workspace,
-			Cwd:            cfg.WorkDir,
-			UserDataDir:    cfg.UserDataDir,
-			PromptSections: cfg.PromptSections,
-		})
-	}
 
 	model := ai.Model{API: cfg.API, Name: cfg.Model}
 
@@ -110,6 +101,17 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		return nil, fmt.Errorf("go runner: %w", err)
 	}
 
+	if system == "" {
+		system = BuildSystemPromptFromDB(context.Background(), DBPromptParams{
+			AnnaHome:       cfg.AnnaHome,
+			Workspace:      cfg.Workspace,
+			Cwd:            cfg.WorkDir,
+			UserDataDir:    cfg.UserDataDir,
+			PromptSections: cfg.PromptSections,
+			Host:           session.Host(),
+		})
+	}
+
 	toolReg, err := buildToolRegistry(cfg, session)
 	if err != nil {
 		if session != nil {
@@ -117,7 +119,7 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		}
 		return nil, err
 	}
-	presets := buildAgentPresets(cfg)
+	presets := buildAgentPresets(cfg, session.Host())
 	hookSet := buildHookSet(cfg)
 
 	toolReg.Register(agenttool.NewAgentTool(agenttool.AgentConfig{
@@ -252,6 +254,7 @@ func buildToolRegistry(cfg GoRunnerConfig, session *runnerSession) (*tools.Regis
 		Workspace:   cfg.Workspace,
 		ToolsBinDir: toolsBinDir,
 		Sandbox:     session.Runtime(),
+		Host:        session.Host(),
 	}
 
 	// Use legacy builder during migration; Phase 4 will unify onto Host-based tools.
@@ -282,7 +285,7 @@ func collectSandboxReadOnlyDirs(toolsBinDir, pathEnv string) []string {
 	return dirs
 }
 
-func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
+func buildAgentPresets(cfg GoRunnerConfig, host internalsandbox.Host) *agenttool.PresetRegistry {
 	annaHome := cfg.AnnaHome
 	if annaHome == "" {
 		annaHome = config.AnnaHome()
@@ -295,6 +298,7 @@ func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 		Workspace:        cfg.Workspace,
 		Cwd:              cfg.WorkDir,
 		BuiltinSkillsDir: builtinSkillsDir,
+		Host:             host,
 	}))
 }
 

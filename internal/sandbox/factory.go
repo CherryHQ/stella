@@ -148,6 +148,7 @@ func (r *Registry) CreateSession(ctx context.Context, policy Policy) (Session, e
 	if policy.Backend != "" {
 		factory, exists := r.factories[policy.Backend]
 		if !exists {
+			logUnsupportedBackend(policy, []string{policy.Backend}, "backend not registered")
 			return nil, &PolicyCompatibilityError{
 				Backend:          policy.Backend,
 				Policy:           policy,
@@ -157,6 +158,7 @@ func (r *Registry) CreateSession(ctx context.Context, policy Policy) (Session, e
 		}
 
 		if !factory.Available() {
+			logUnsupportedBackend(policy, []string{policy.Backend}, "backend not available on this platform")
 			return nil, &PolicyCompatibilityError{
 				Backend:          policy.Backend,
 				Policy:           policy,
@@ -195,6 +197,7 @@ func (r *Registry) CreateSession(ctx context.Context, policy Policy) (Session, e
 	}
 
 	// No compatible backend found
+	logUnsupportedBackend(policy, []string{"boxsh", "local"}, "no registered backend can satisfy this policy")
 	return nil, &PolicyCompatibilityError{
 		Backend:          "any",
 		Policy:           policy,

@@ -1,6 +1,7 @@
 package plugintools
 
 import (
+	"github.com/vaayne/anna/internal/sandbox"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
@@ -13,5 +14,5 @@ type BuildContext struct {
 	Workspace   string                    // agent workspace dir
 	ToolsBinDir string                    // path to anna tools bin directory (prepended to PATH)
 	Sandbox     pkgplugins.SandboxRuntime // sandbox runtime abstraction for plugins
-	// Note: Backend field removed in Phase 3. Use sandbox.Host injected at execution time.
+	Host        sandbox.Host              // execution-time sandbox host for mediated filesystem/process/network access
 }

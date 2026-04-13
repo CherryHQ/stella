@@ -45,11 +45,11 @@
 - [x] Remove duplicate adapter tests after parity passes
 
 ## Phase 5: Mediate non-core execution paths and reduce bypasses
-- [ ] Migrate plugin paths onto host-mediated file/network/process services
+- [x] Migrate plugin paths onto host-mediated file/network/process services
 - [ ] Migrate MCP/local helper paths onto host-mediated surfaces where required
-- [ ] Add static checks / tests / lint rules for forbidden direct bypasses
-- [ ] Update exceptions register with owner, reason, and closure plan
-- [ ] Add observability for relaxed mode, denials, unsupported backend, and exceptions
+- [x] Add static checks / tests / lint rules for forbidden direct bypasses
+- [x] Update exceptions register with owner, reason, and closure plan
+- [x] Add observability for relaxed mode, denials, unsupported backend, and exceptions
 
 ## Phase 6: Cleanup and verification
 - [ ] Remove obsolete boxsh-specific abstraction leaks

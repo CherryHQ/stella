@@ -48,48 +48,48 @@ Closure Plan: when/how this will be addressed
 
 ---
 
-### EX-003: Agent Preset Loading
+### EX-003: Agent Preset Discovery Home Resolution Fallback
 
 | Field | Value |
 |-------|-------|
 | **ID** | EX-003 |
-| **Path** | `plugins/tools/agent/preset_loader.go:19-37` |
+| **Path** | `plugins/tools/agent/preset_loader.go`, `plugins/tools/agent/hostfs.go` |
 | **Access Type** | Filesystem |
-| **Operations** | `os.UserHomeDir`, `os.Stat`, `os.ReadDir`, `os.ReadFile` |
+| **Operations** | `os.UserHomeDir`, fallback `os.Stat` / `os.ReadDir` / `os.ReadFile` when no host is injected |
 | **Owner** | `plugins/tools/agent` |
-| **Reason** | Loads agent preset configurations from filesystem at build/startup time. These are configuration files, not user data. |
+| **Reason** | Phase 5 moved preset loading to host-first mediation during runner execution. Remaining direct access is limited to home-directory discovery and non-sandboxed/no-host callers. |
 | **Risk Level** | Low |
-| **Closure Plan** | **PHASE 5** - Move to `sandbox.Host` mediated access or load via `internal/sandbox` config loader once Host supports config file reading. |
+| **Closure Plan** | **PHASE 6** - Introduce a host-backed/common config path service for home discovery or make all preset consumers pass a host/context explicitly. |
 
 ---
 
-### EX-004: Skills Catalog Loading
+### EX-004: Skills Catalog Home Resolution Fallback
 
 | Field | Value |
 |-------|-------|
 | **ID** | EX-004 |
-| **Path** | `plugins/tools/skills/catalog.go:28-52` |
+| **Path** | `plugins/tools/skills/catalog.go`, `plugins/tools/skills/hostfs.go` |
 | **Access Type** | Filesystem |
-| **Operations** | `os.UserHomeDir`, `os.Stat`, `os.ReadDir`, `os.ReadFile` |
+| **Operations** | `os.UserHomeDir`, fallback `os.Stat` / `os.ReadDir` / `os.ReadFile` when no host is injected |
 | **Owner** | `plugins/tools/skills` |
-| **Reason** | Loads skill catalog metadata from user and workspace directories. Mixed config/data access. |
-| **Risk Level** | Medium |
-| **Closure Plan** | **PHASE 5** - Migrate to `sandbox.Host.ReadFile` for skill content loading. Catalog metadata may remain direct access if treated as config. |
+| **Reason** | Phase 5 moved list/load/create/patch/remove and prompt-visible skill discovery to host-first mediation. Remaining direct access is limited to home-directory discovery and non-sandboxed/no-host callers. |
+| **Risk Level** | Low |
+| **Closure Plan** | **PHASE 6** - Replace home discovery with an explicit config/path service and remove filesystem fallbacks once all runtime callers inject a host. |
 
 ---
 
-### EX-005: System Prompt Loading (Runner)
+### EX-005: Prompt Context File Fallback
 
 | Field | Value |
 |-------|-------|
 | **ID** | EX-005 |
-| **Path** | `internal/agent/runner/prompt.go:86-94` |
+| **Path** | `internal/agent/runner/prompt_host.go` |
 | **Access Type** | Filesystem |
-| **Operations** | `os.ReadFile`, `os.ReadDir`, `os.Stat` |
+| **Operations** | fallback `os.ReadFile`, `os.ReadDir`, `os.Stat` when no host is injected |
 | **Owner** | `internal/agent/runner` |
-| **Reason** | Loads system prompt sections and skill files for prompt building. Happens at build/construction time. |
+| **Reason** | Phase 5 moved AGENTS.md prompt-context loading to execution-time host mediation after session resolution. Remaining direct access only serves nil-host construction paths and tests. |
 | **Risk Level** | Low |
-| **Closure Plan** | **PHASE 5** - Determine if prompt building is build-time or execution-time. If execution-time, migrate to Host-mediated access. |
+| **Closure Plan** | **PHASE 6** - Remove nil-host fallback after all prompt construction paths run with an execution-time host. |
 
 ---
 
@@ -164,6 +164,7 @@ These are infrastructure processes (the sandbox backend itself), not user tool e
 | Date | Action | Exception ID | Notes |
 |------|--------|--------------|-------|
 | 2026-04-12 | Created | EX-001 through EX-008 | Initial exceptions register for Phase 1 |
+| 2026-04-13 | Updated | EX-003 through EX-005 | Narrowed from active runtime bypasses to host-first mediation with explicit nil-host fallbacks after Phase 5 work |
 
 ---
 

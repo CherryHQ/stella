@@ -83,17 +83,23 @@ func (f *boxshFactory) CreateSession(ctx context.Context, policy Policy) (Sessio
 	}
 
 	session := &boxshSession{
+		id:      nextSessionID(),
 		policy:  policy,
 		backend: backend,
 		client:  backend.Client(),
 		done:    make(chan struct{}),
 	}
+	if policy.RequiresWhitelist() && policy.Relaxed {
+		logRelaxedMode(session.id, f.Name(), "boxsh whitelist mode relaxed to allow_all", policy, "network whitelist treated as allow_all")
+	}
+	logSessionCreated(session.id, "boxsh", policy)
 	go session.watchBackend()
 	return session, nil
 }
 
 // boxshSession is a boxsh-backed sandbox session.
 type boxshSession struct {
+	id       string
 	policy   Policy
 	backend  *boxshclient.SharedBackend
 	client   *boxshclient.Client
@@ -144,6 +150,7 @@ func (s *boxshSession) watchBackend() {
 			return
 		}
 		if backend == nil || !backend.Alive() {
+			logSessionClosed(s.id, "boxsh", "liveness_lost")
 			s.closeDone()
 			return
 		}
@@ -167,6 +174,7 @@ func (s *boxshSession) Close() error {
 	}
 
 	s.closeDone()
+	logSessionClosed(s.id, "boxsh", "explicit_close")
 	return s.closeErr
 }
 
@@ -418,6 +426,7 @@ func (h *boxshHost) Exec(ctx context.Context, command string, opts ExecOptions) 
 	}
 
 	if h.hasReadOnlyOverlap() {
+		logPolicyDenied(h.session.id, "boxsh", "exec", command, "read-only overlap prevents safe execution")
 		return ExecResult{}, fmt.Errorf("sandbox: boxsh Host.Exec is fail-closed when ReadOnlyPaths overlap WorkspaceRoot in Phase 2")
 	}
 
@@ -449,15 +458,18 @@ func (h *boxshHost) Exec(ctx context.Context, command string, opts ExecOptions) 
 	return ExecResult{Stdout: result.Stdout, Stderr: result.Stderr, ExitCode: result.ExitCode}, nil
 }
 
-func (h *boxshHost) StartProcess(context.Context, ProcessRequest) (ProcessHandle, error) {
+func (h *boxshHost) StartProcess(_ context.Context, req ProcessRequest) (ProcessHandle, error) {
+	logPolicyDenied(h.session.id, "boxsh", "start_process", req.Path, "transport mediation not yet implemented")
 	return nil, fmt.Errorf("sandbox: boxsh Host.StartProcess is not implemented in Phase 2; fail closed until transport mediation is wired")
 }
 
-func (h *boxshHost) HTTPRequest(context.Context, HTTPOptions) (HTTPResult, error) {
+func (h *boxshHost) HTTPRequest(_ context.Context, opts HTTPOptions) (HTTPResult, error) {
+	logPolicyDenied(h.session.id, "boxsh", "http_request", opts.URL, "transport mediation not yet implemented")
 	return HTTPResult{}, fmt.Errorf("sandbox: boxsh Host.HTTPRequest is not implemented in Phase 2; fail closed until transport mediation is wired")
 }
 
-func (h *boxshHost) OpenHTTPStream(context.Context, HTTPOptions) (HTTPStream, error) {
+func (h *boxshHost) OpenHTTPStream(_ context.Context, opts HTTPOptions) (HTTPStream, error) {
+	logPolicyDenied(h.session.id, "boxsh", "http_stream", opts.URL, "transport mediation not yet implemented")
 	return nil, fmt.Errorf("sandbox: boxsh Host.OpenHTTPStream is not implemented in Phase 2; fail closed until transport mediation is wired")
 }
 
@@ -508,6 +520,7 @@ func isWithinRoot(root, path string) bool {
 
 func (h *boxshHost) ensureWritable(path string) error {
 	if h.hasReadOnlyOverlap() {
+		logPolicyDenied(h.session.id, "boxsh", "write", path, "read-only overlap prevents safe mutation")
 		return fmt.Errorf("sandbox: boxsh mutating host operations are fail-closed when ReadOnlyPaths overlap WorkspaceRoot in Phase 2")
 	}
 	logicalPath := path
@@ -516,6 +529,7 @@ func (h *boxshHost) ensureWritable(path string) error {
 	}
 	for _, ro := range h.session.policy.Filesystem.ReadOnlyPaths {
 		if isWithinRoot(ro, logicalPath) {
+			logPolicyDenied(h.session.id, "boxsh", "write", path, "path is read-only in boxsh session")
 			return fmt.Errorf("sandbox: path %q is read-only in boxsh session", path)
 		}
 	}

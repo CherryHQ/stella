@@ -236,3 +236,53 @@
 - Boxsh-specific behavior still exists only inside `internal/sandbox`, not in runner/build-time seams.
 - Noop sessions still use native/delegate tools because they intentionally have no sandbox session host.
 - Phase 5 should now focus on non-core execution surfaces: plugin paths, MCP/local helper mediation, bypass detection, exceptions register updates, and observability.
+
+## Phase 5: Mediate non-core execution paths and reduce bypasses
+
+**Status:** in progress
+
+**Tasks completed:**
+
+- [x] 5.1: Migrated non-core plugin/runtime-adjacent filesystem reads for skills, agent presets, and prompt context onto host-first mediation
+- [x] 5.3: Added a static guard test for migrated files to prevent direct `os/exec/net/http` bypass regressions
+- [x] 5.4: Updated the exceptions register to narrow EX-003 through EX-005 from active runtime bypasses to explicit nil-host fallbacks
+- [x] 5.5: Added sandbox observability logs for session lifecycle, relaxed mode, unsupported backend selection, and key fail-closed denials
+- [ ] 5.2: MCP stdio/SSE/HTTP transport mediation still needs host-backed runtime integration
+
+**Files changed:**
+
+- `pkg/plugins/context.go` — added execution-time `sandbox.Host` injection for tool builders
+- `plugins/tools/registry.go` — extended tool build context with the execution-time host
+- `internal/pluginhost/builders.go` — now passes the host into plugin tool builders
+- `internal/agent/runner/gorunner.go` — moved prompt construction after session resolution and passed the session host into tools/preset loading
+- `internal/agent/runner/sandbox_backend.go` — exposed runner session host and mounted common skill/agent readonly paths for boxsh sessions
+- `internal/agent/runner/prompt.go` — prompt context loading now prefers host-mediated file access
+- `internal/agent/runner/prompt_host.go` — new host-aware prompt file helpers with explicit nil-host fallback
+- `plugins/tools/skills/{plugin.go,tool.go,catalog.go,manage.go,remove_lib.go,install.go,hostfs.go}` — skills tool and catalog now use host-first mediation for read/list/write/remove paths
+- `plugins/tools/agent/{preset_loader.go,hostfs.go}` — agent preset discovery now uses host-first mediation
+- `cmd/anna/skills.go` — updated CLI callers to the new host-aware signatures
+- `plugins/reflect/{conversation_review.go,expiry.go}` — updated in-process skill callers to the new host-aware signatures
+- `internal/sandbox/observe.go` — new structured sandbox observability helpers
+- `internal/sandbox/{factory.go,local_session.go,boxsh_session.go}` — hooked unsupported/relaxed/lifecycle/denial logs into runtime paths
+- `internal/sandbox/bypass_guard_test.go` — new static regression guard for migrated files
+- `.agents/sessions/2026-04-12-sandbox-interface-redesign/tasks.md` — Phase 5 task status updated
+- `.agents/sessions/2026-04-12-sandbox-interface-redesign/exceptions-register.md` — narrowed EX-003 through EX-005 after Phase 5 mediation work
+
+### Fixes
+- Stopped plugin tool builders from reading process cwd directly by threading the runner workdir and session host through the plugin build context.
+- Moved AGENTS.md prompt-context loading to execution time so it can run under the same sandbox host as the rest of the tool surface.
+- Preserved non-sandboxed callers by centralizing explicit nil-host fallbacks in small helper files instead of leaving direct filesystem reads spread across runtime code.
+- Extended boxsh session readonly mounts to include common `.agents` skill/agent directories and builtin skill cache so host-mediated discovery still works under strict sessions.
+- Added a coarse but reviewable bypass guard that fails tests if the migrated files regress to direct `os/exec/net/http` use.
+- Added structured logs for the Phase 5 observability envelope without reintroducing backend leakage above `internal/sandbox`.
+
+**Validation:**
+
+- `mise run format`
+- `mise run test`
+
+**Decisions & context for next phase slice:**
+
+- Skills, preset discovery, and prompt context are now host-first; remaining direct filesystem access in those areas is explicitly limited to nil-host fallback paths.
+- MCP runtime transport creation is still the largest uncovered Phase 5 surface because the managed runtime is not yet wired to an execution-time host.
+- The new bypass guard only covers the files migrated in this slice; Phase 5 completion should extend that guard or replace it with a broader lint rule once MCP transport work lands.

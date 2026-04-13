@@ -41,12 +41,15 @@ func (f *localFactory) CreateSession(ctx context.Context, policy Policy) (Sessio
 		return nil, err
 	}
 
-	return newLocalSession(policy), nil
+	session := newLocalSession(policy)
+	logRelaxedMode(session.id, f.Name(), "local backend requires explicit relaxed mode", policy, "local backend enforcement is advisory")
+	return session, nil
 }
 
 // localSession is a relaxed/unsandboxed session implementation.
 // It provides the Host interface but enforces constraints only as advisory checks.
 type localSession struct {
+	id     string
 	policy Policy
 	host   *localHost
 	done   chan struct{}
@@ -56,10 +59,12 @@ type localSession struct {
 
 func newLocalSession(policy Policy) *localSession {
 	s := &localSession{
+		id:     nextSessionID(),
 		policy: policy,
 		done:   make(chan struct{}),
 	}
 	s.host = &localHost{session: s}
+	logSessionCreated(s.id, "local", policy)
 	return s
 }
 
@@ -86,6 +91,7 @@ func (s *localSession) Close() error {
 	close(s.done)
 
 	// Local session has no persistent resources to clean up
+	logSessionClosed(s.id, "local", "explicit_close")
 	return nil
 }
 
@@ -463,6 +469,7 @@ func (h *localHost) HTTPRequest(ctx context.Context, opts HTTPOptions) (HTTPResu
 
 	// Advisory network check in relaxed mode
 	if policy.Mode == NetworkDisabled && !h.session.policy.Relaxed {
+		logPolicyDenied(h.session.id, "local", "http_request", opts.URL, "network access denied by policy")
 		return HTTPResult{}, fmt.Errorf("sandbox: network access denied by policy")
 	}
 
@@ -519,6 +526,7 @@ func (h *localHost) OpenHTTPStream(ctx context.Context, opts HTTPOptions) (HTTPS
 
 	// Advisory network check in relaxed mode
 	if policy.Mode == NetworkDisabled && !h.session.policy.Relaxed {
+		logPolicyDenied(h.session.id, "local", "http_stream", opts.URL, "network access denied by policy")
 		return nil, fmt.Errorf("sandbox: network access denied by policy")
 	}
 

@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
-	"os"
 	"path/filepath"
 	"strings"
 	"text/template"
 
+	"github.com/vaayne/anna/internal/sandbox"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
@@ -66,6 +66,7 @@ type DBPromptParams struct {
 	UserDataDir    string // optional per-user data directory
 	PromptTools    []pkgplugins.PromptToolInfo
 	PromptSections []pkgplugins.SystemPromptSection
+	Host           sandbox.Host
 }
 
 // BuildSystemPromptFromDB composes the full system prompt by populating a
@@ -113,7 +114,7 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	data.PromptSections = append(data.PromptSections, p.PromptSections...)
 
 	// Project context.
-	data.ContextFiles = loadProjectContextFiles(p.Cwd)
+	data.ContextFiles = loadProjectContextFiles(p.Host, p.Cwd)
 
 	var buf bytes.Buffer
 	_ = systemTmpl.Execute(&buf, data)
@@ -123,7 +124,7 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 // loadProjectContextFiles walks from cwd up to the filesystem root,
 // collecting AGENTS.md files from each directory (case-insensitive).
 // Files are returned in root-to-leaf order (ancestors first).
-func loadProjectContextFiles(cwd string) []contextFile {
+func loadProjectContextFiles(host sandbox.Host, cwd string) []contextFile {
 	if cwd == "" {
 		return nil
 	}
@@ -137,11 +138,11 @@ func loadProjectContextFiles(cwd string) []contextFile {
 	seen := map[string]bool{}
 
 	for {
-		if path := resolveFile(absDir, "AGENTS.md"); path != "" {
+		if path := resolveFile(host, absDir, "AGENTS.md"); path != "" {
 			if !seen[path] {
 				seen[path] = true
-				if data, err := os.ReadFile(path); err == nil {
-					files = append(files, contextFile{Path: path, Content: string(data)})
+				if content, ok := readPromptFile(context.Background(), host, path); ok {
+					files = append(files, contextFile{Path: path, Content: content})
 				}
 			}
 		}
@@ -163,19 +164,19 @@ func loadProjectContextFiles(cwd string) []contextFile {
 
 // resolveFile finds a file in dir with case-insensitive matching.
 // Returns the full path if found, empty string otherwise.
-func resolveFile(dir, name string) string {
+func resolveFile(host sandbox.Host, dir, name string) string {
 	exact := filepath.Join(dir, name)
-	if _, err := os.Stat(exact); err == nil {
-		return exact
+	if path, ok := statPromptFile(context.Background(), host, exact); ok {
+		return path
 	}
-	entries, err := os.ReadDir(dir)
+	entries, err := readPromptDir(context.Background(), host, dir)
 	if err != nil {
 		return ""
 	}
 	target := strings.ToLower(name)
 	for _, e := range entries {
-		if strings.ToLower(e.Name()) == target {
-			return filepath.Join(dir, e.Name())
+		if strings.ToLower(e.Name) == target {
+			return filepath.Join(dir, e.Name)
 		}
 	}
 	return ""

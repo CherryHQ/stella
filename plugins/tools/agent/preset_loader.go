@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -8,24 +9,26 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vaayne/anna/internal/sandbox"
 	"gopkg.in/yaml.v3"
 )
 
 // LoadAgentPresetsConfig configures the agent preset discovery paths.
 type LoadAgentPresetsConfig struct {
-	Workspace        string // agent workspace dir (e.g. ~/.anna/workspaces/{agentID})
-	Cwd              string // working directory
-	BuiltinSkillsDir string // pre-extracted builtin skills directory (caller ensures extraction)
+	Workspace        string       // agent workspace dir (e.g. ~/.anna/workspaces/{agentID})
+	Cwd              string       // working directory
+	BuiltinSkillsDir string       // pre-extracted builtin skills directory (caller ensures extraction)
+	Host             sandbox.Host // optional sandbox host for mediated reads
 }
 
 // LoadAgentPresets discovers agent presets from multiple directories.
 // Priority order: cwd/.agents/agents/ > workspace/agents/ > ~/.agents/agents/ > builtin
 func LoadAgentPresets(cfg LoadAgentPresetsConfig) []AgentPreset {
 	home, _ := os.UserHomeDir()
-	return loadAgentPresets(home, cfg.Workspace, cfg.Cwd, cfg.BuiltinSkillsDir)
+	return loadAgentPresets(context.Background(), cfg.Host, home, cfg.Workspace, cfg.Cwd, cfg.BuiltinSkillsDir)
 }
 
-func loadAgentPresets(homeDir, workspace, cwd, builtinSkillsDir string) []AgentPreset {
+func loadAgentPresets(ctx context.Context, host sandbox.Host, homeDir, workspace, cwd, builtinSkillsDir string) []AgentPreset {
 	seen := map[string]bool{}
 	var presets []AgentPreset
 
@@ -44,7 +47,7 @@ func loadAgentPresets(homeDir, workspace, cwd, builtinSkillsDir string) []AgentP
 			return
 		}
 		dedupPaths[abs] = true
-		for _, p := range loadPresetsFromDir(dir, source) {
+		for _, p := range loadPresetsFromDir(ctx, host, dir, source) {
 			add(p)
 		}
 	}
@@ -73,28 +76,28 @@ func loadAgentPresets(homeDir, workspace, cwd, builtinSkillsDir string) []AgentP
 }
 
 // loadPresetsFromDir scans a directory for agent preset .md files.
-func loadPresetsFromDir(dir, source string) []AgentPreset {
-	info, err := os.Stat(dir)
-	if err != nil || !info.IsDir() {
+func loadPresetsFromDir(ctx context.Context, host sandbox.Host, dir, source string) []AgentPreset {
+	info, err := statHostPath(ctx, host, dir)
+	if err != nil || !info.Exists || !info.IsDir {
 		return nil
 	}
 
-	entries, err := os.ReadDir(dir)
+	entries, err := readHostDir(ctx, host, dir)
 	if err != nil {
 		return nil
 	}
 
 	var presets []AgentPreset
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+		if entry.IsDir || !strings.HasSuffix(entry.Name, ".md") {
 			continue
 		}
-		if strings.HasPrefix(entry.Name(), ".") {
+		if strings.HasPrefix(entry.Name, ".") {
 			continue
 		}
 
-		filePath := filepath.Join(dir, entry.Name())
-		if p, ok := loadPresetFromFile(filePath, source); ok {
+		filePath := filepath.Join(dir, entry.Name)
+		if p, ok := loadPresetFromFile(ctx, host, filePath, source); ok {
 			presets = append(presets, p)
 		}
 	}
@@ -103,8 +106,8 @@ func loadPresetsFromDir(dir, source string) []AgentPreset {
 }
 
 // loadPresetFromFile parses an agent preset from a markdown file with YAML frontmatter.
-func loadPresetFromFile(filePath, source string) (AgentPreset, bool) {
-	data, err := os.ReadFile(filePath)
+func loadPresetFromFile(ctx context.Context, host sandbox.Host, filePath, source string) (AgentPreset, bool) {
+	data, err := readHostFile(ctx, host, filePath)
 	if err != nil {
 		slog.Debug("failed to read agent preset file", "path", filePath, "error", err)
 		return AgentPreset{}, false
