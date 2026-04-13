@@ -122,6 +122,10 @@ func (p *Pool) ResetRunners() error {
 
 // Close shuts down all sessions and runners.
 func (p *Pool) Close() error {
+	return p.close(true)
+}
+
+func (p *Pool) close(closeMemory bool) error {
 	p.mu.Lock()
 	sessions := p.sessions
 	p.sessions = make(map[string]*Session)
@@ -137,9 +141,15 @@ func (p *Pool) Close() error {
 		}
 	}
 
-	if err := p.mem.Close(); err != nil {
-		lastErr = err
+	if closeMemory && p.mem != nil {
+		if err := p.mem.Close(); err != nil {
+			lastErr = err
+		}
 	}
 
 	return lastErr
+}
+
+func (p *Pool) closeSessions() error {
+	return p.close(false)
 }

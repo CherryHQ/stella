@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/sandbox/boxshclient"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
 	anthropicprovider "github.com/vaayne/anna/plugins/providers/anthropic"
+	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
 
 // skipWithoutAnthropicKey skips the test when ANTHROPIC_API_KEY is not set.

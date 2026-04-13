@@ -87,8 +87,8 @@ func TestHeartbeatFilePathAbsolute(t *testing.T) {
 
 func TestSandboxConfigDefaults(t *testing.T) {
 	c := SandboxConfig{}
-	if got := c.BackendName(); got != "auto" {
-		t.Fatalf("BackendName() = %q, want %q", got, "auto")
+	if got := c.BackendName(); got != SandboxBackendAuto {
+		t.Fatalf("BackendName() = %q, want %q", got, SandboxBackendAuto)
 	}
 	if got := c.NetworkMode(); got != SandboxNetworkDisabled {
 		t.Fatalf("NetworkMode() = %q, want %q", got, SandboxNetworkDisabled)
@@ -110,7 +110,11 @@ func TestSandboxConfigValidate(t *testing.T) {
 		},
 		{
 			name: "boxsh backend valid",
-			cfg:  SandboxConfig{Backend: "boxsh"},
+			cfg:  SandboxConfig{Backend: SandboxBackendBoxsh},
+		},
+		{
+			name: "local backend valid",
+			cfg:  SandboxConfig{Backend: SandboxBackendLocal},
 		},
 		{
 			name: "whitelist valid host and cidr",
