@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
+
 	pkgtools "github.com/vaayne/anna/pkg/tools"
 )
 
@@ -153,7 +155,7 @@ func TestNewCoreToolsEditRequiresUniqueMatch(t *testing.T) {
 
 func mustCreateLocalSession(t *testing.T, policy Policy) Session {
 	t.Helper()
-	session, err := (&localFactory{}).CreateSession(context.Background(), policy)
+	session, err := (localplugin.NewFactory()).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}

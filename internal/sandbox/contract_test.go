@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
 )
 
 // Contract tests for Session and Host interfaces.
@@ -16,7 +18,7 @@ import (
 func TestSessionContract(t *testing.T) {
 	// Test with local factory (always available)
 	t.Run("LocalFactory", func(t *testing.T) {
-		testSessionContract(t, &localFactory{})
+		testSessionContract(t, localplugin.NewFactory())
 	})
 
 	// Test with boxsh factory if available
@@ -162,7 +164,7 @@ func testSessionContract(t *testing.T, factory Factory) {
 func TestHostContract(t *testing.T) {
 	// Test with local factory (always available)
 	t.Run("LocalFactory", func(t *testing.T) {
-		testHostContract(t, &localFactory{})
+		testHostContract(t, localplugin.NewFactory())
 	})
 }
 
