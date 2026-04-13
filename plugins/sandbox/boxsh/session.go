@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -236,6 +237,37 @@ type boxshHost struct {
 }
 
 func (h *boxshHost) ReadFile(ctx context.Context, path string, offset, limit int) (ReadResult, error) {
+	content, err := h.ReadAllFile(ctx, path)
+	if err != nil {
+		return ReadResult{}, err
+	}
+
+	if offset > 0 {
+		if offset >= len(content) {
+			return ReadResult{Content: nil, NextOffset: offset}, nil
+		}
+		content = content[offset:]
+	}
+
+	truncated := false
+	if limit > 0 && len(content) > limit {
+		content = content[:limit]
+		truncated = true
+	}
+
+	nextOffset := offset + len(content)
+	if truncated {
+		nextOffset = offset + limit
+	}
+
+	return ReadResult{
+		Content:    content,
+		Truncated:  truncated,
+		NextOffset: nextOffset,
+	}, nil
+}
+
+func (h *boxshHost) readFileLines(ctx context.Context, path string, offset, limit int) (ReadResult, error) {
 	client := h.session.client
 	if client == nil {
 		return ReadResult{}, fmt.Errorf("boxsh host: session not available")
@@ -245,6 +277,9 @@ func (h *boxshHost) ReadFile(ctx context.Context, path string, offset, limit int
 	resolved, err := h.ResolvePath(path)
 	if err != nil {
 		return ReadResult{}, err
+	}
+	if offset <= 0 {
+		offset = 1
 	}
 	result, err := client.Read(ctx, boxshclient.ReadParams{FilePath: resolved, Offset: offset, Limit: limit})
 	if err != nil {
@@ -312,27 +347,34 @@ func (h *boxshHost) EditFile(ctx context.Context, path string, edits []Edit) (Ed
 }
 
 func (h *boxshHost) Stat(ctx context.Context, path string) (StatResult, error) {
-	// Use local filesystem stat since boxsh client may not have direct stat RPC
-	// In a full implementation, this would use boxsh RPC
 	resolved, err := h.ResolvePath(path)
 	if err != nil {
 		return StatResult{}, err
 	}
 
-	info, err := os.Stat(resolved)
+	command := "p=" + shellQuote(resolved) + `; if [ ! -e "$p" ]; then printf '0\t0\t0\t0\t0\n'; else isdir=0; if [ -d "$p" ]; then isdir=1; fi; size=$( (stat -c %s "$p" 2>/dev/null || stat -f %z "$p" 2>/dev/null || printf 0) | head -n1); mode=$( (stat -c %a "$p" 2>/dev/null || stat -f %Lp "$p" 2>/dev/null || printf 0) | head -n1); mtime=$( (stat -c %Y "$p" 2>/dev/null || stat -f %m "$p" 2>/dev/null || printf 0) | head -n1); printf '1\t%s\t%s\t%s\t%s\n' "$isdir" "$size" "$mode" "$mtime"; fi`
+	result, err := h.execSandbox(ctx, "stat", command)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return StatResult{Exists: false}, nil
-		}
 		return StatResult{}, err
 	}
+	fields := strings.Split(strings.TrimSpace(result.Stdout), "\t")
+	if len(fields) < 5 {
+		return StatResult{}, fmt.Errorf("boxsh host: malformed stat response %q", result.Stdout)
+	}
+	exists := fields[0] == "1"
+	if !exists {
+		return StatResult{Exists: false}, nil
+	}
+	size, _ := strconv.ParseInt(fields[2], 10, 64)
+	mode, _ := strconv.ParseUint(fields[3], 8, 32)
+	mtime, _ := strconv.ParseInt(fields[4], 10, 64)
 
 	return StatResult{
 		Exists:  true,
-		IsDir:   info.IsDir(),
-		Size:    info.Size(),
-		Mode:    uint32(info.Mode()),
-		ModTime: info.ModTime(),
+		IsDir:   fields[1] == "1",
+		Size:    size,
+		Mode:    uint32(mode),
+		ModTime: time.Unix(mtime, 0),
 	}, nil
 }
 
@@ -342,22 +384,27 @@ func (h *boxshHost) ListDir(ctx context.Context, path string) ([]DirEntry, error
 		return nil, err
 	}
 
-	entries, err := os.ReadDir(resolved)
+	command := "p=" + shellQuote(resolved) + `; if [ ! -d "$p" ]; then printf 'not a directory: %s\n' "$p" >&2; exit 1; fi; for x in "$p"/* "$p"/.[!.]* "$p"/..?*; do [ -e "$x" ] || continue; name=${x##*/}; isdir=0; if [ -d "$x" ]; then isdir=1; fi; size=$( (stat -c %s "$x" 2>/dev/null || stat -f %z "$x" 2>/dev/null || printf 0) | head -n1); printf '%s\t%s\t%s\n' "$name" "$isdir" "$size"; done`
+	execResult, err := h.execSandbox(ctx, "list", command)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make([]DirEntry, 0, len(entries))
-	for _, entry := range entries {
-		info, err := entry.Info()
-		if err != nil {
+	lines := strings.Split(strings.TrimSpace(execResult.Stdout), "\n")
+	result := make([]DirEntry, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
-
+		fields := strings.Split(line, "\t")
+		if len(fields) < 3 {
+			return nil, fmt.Errorf("boxsh host: malformed list response %q", line)
+		}
+		size, _ := strconv.ParseInt(fields[2], 10, 64)
 		result = append(result, DirEntry{
-			Name:  entry.Name(),
-			IsDir: entry.IsDir(),
-			Size:  info.Size(),
+			Name:  fields[0],
+			IsDir: fields[1] == "1",
+			Size:  size,
 		})
 	}
 
@@ -373,7 +420,9 @@ func (h *boxshHost) MkdirAll(ctx context.Context, path string, perm uint32) erro
 		return err
 	}
 
-	return os.MkdirAll(resolved, os.FileMode(perm))
+	_ = perm
+	_, err = h.execSandbox(ctx, "mkdir", "p="+shellQuote(resolved)+`; mkdir -p "$p"`)
+	return err
 }
 
 func (h *boxshHost) Remove(ctx context.Context, path string, recursive bool) error {
@@ -385,10 +434,14 @@ func (h *boxshHost) Remove(ctx context.Context, path string, recursive bool) err
 		return err
 	}
 
+	var command string
 	if recursive {
-		return os.RemoveAll(resolved)
+		command = "p=" + shellQuote(resolved) + `; rm -rf "$p"`
+	} else {
+		command = "p=" + shellQuote(resolved) + `; rm "$p"`
 	}
-	return os.Remove(resolved)
+	_, err = h.execSandbox(ctx, "remove", command)
+	return err
 }
 
 func (h *boxshHost) Rename(ctx context.Context, oldPath, newPath string) error {
@@ -408,7 +461,8 @@ func (h *boxshHost) Rename(ctx context.Context, oldPath, newPath string) error {
 		return err
 	}
 
-	return os.Rename(resolvedOld, resolvedNew)
+	_, err = h.execSandbox(ctx, "rename", "old="+shellQuote(resolvedOld)+"; new="+shellQuote(resolvedNew)+`; mv "$old" "$new"`)
+	return err
 }
 
 func (h *boxshHost) CreateTemp(ctx context.Context, dir, pattern string) (TempFile, error) {
@@ -426,17 +480,16 @@ func (h *boxshHost) CreateTemp(ctx context.Context, dir, pattern string) (TempFi
 		return nil, err
 	}
 
-	// Ensure the directory exists
-	if err := os.MkdirAll(resolvedDir, 0o755); err != nil {
-		return nil, err
-	}
-
-	f, err := os.CreateTemp(resolvedDir, pattern)
+	template := mktempTemplate(pattern)
+	result, err := h.execSandbox(ctx, "mktemp", "dir="+shellQuote(resolvedDir)+"; mkdir -p \"$dir\"; mktemp "+shellQuote(filepath.Join(resolvedDir, template)))
 	if err != nil {
 		return nil, err
 	}
-
-	return &boxshTempFile{file: f}, nil
+	path := strings.TrimSpace(result.Stdout)
+	if path == "" {
+		return nil, fmt.Errorf("boxsh host: mktemp returned empty path")
+	}
+	return &boxshTempFile{host: h, path: path}, nil
 }
 
 func (h *boxshHost) Exec(ctx context.Context, command string, opts ExecOptions) (ExecResult, error) {
@@ -497,9 +550,9 @@ func (h *boxshHost) Exec(ctx context.Context, command string, opts ExecOptions) 
 			}
 			return parts
 		}(), " ")
-		command = prefix + " cd '" + strings.ReplaceAll(cwd, "'", "'\"'\"'") + "' && " + command
+		command = prefix + " cd " + shellQuote(cwd) + " && " + command
 	} else {
-		command = "cd '" + strings.ReplaceAll(cwd, "'", "'\"'\"'") + "' && " + command
+		command = "cd " + shellQuote(cwd) + " && " + command
 	}
 
 	result, err := client.Exec(ctx, boxshclient.ExecParams{Command: command, Timeout: int(timeout.Seconds())})
@@ -599,14 +652,7 @@ func (h *boxshHost) hasReadOnlyOverlap() bool {
 }
 
 func sandboxRelativeAbsolute(path string) bool {
-	if !filepath.IsAbs(path) {
-		return false
-	}
-	trimmed := strings.Trim(path, string(filepath.Separator))
-	if trimmed == "" {
-		return true
-	}
-	return len(strings.Split(trimmed, string(filepath.Separator))) <= 2
+	return filepath.IsAbs(path)
 }
 
 func (h *boxshHost) WorkingDir() string {
@@ -614,14 +660,18 @@ func (h *boxshHost) WorkingDir() string {
 }
 
 func (h *boxshHost) ReadFileLines(ctx context.Context, path string, offset, limit int) (ReadResult, error) {
-	return h.ReadFile(ctx, path, offset, limit)
+	return h.readFileLines(ctx, path, offset, limit)
 }
 
 func (h *boxshHost) ReadAllFile(ctx context.Context, path string) ([]byte, error) {
+	return h.readAllFile(ctx, path)
+}
+
+func (h *boxshHost) readAllFile(ctx context.Context, path string) ([]byte, error) {
 	offset := 1
 	var out strings.Builder
 	for {
-		result, err := h.ReadFile(ctx, path, offset, 0)
+		result, err := h.readFileLines(ctx, path, offset, 0)
 		if err != nil {
 			return nil, err
 		}
@@ -644,18 +694,71 @@ func (h *boxshHost) ReadAllFile(ctx context.Context, path string) ([]byte, error
 
 // boxshTempFile implements TempFile for boxsh sessions.
 type boxshTempFile struct {
-	file *os.File
+	host    *boxshHost
+	path    string
+	content []byte
+	closed  bool
+	mu      sync.Mutex
 }
 
-func (f *boxshTempFile) Path() string { return f.file.Name() }
+func (f *boxshTempFile) Path() string { return f.path }
 func (f *boxshTempFile) Write(p []byte) (int, error) {
-	return f.file.Write(p)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.closed {
+		return 0, fmt.Errorf("boxsh temp file: file is closed")
+	}
+	f.content = append(f.content, p...)
+	if _, err := f.host.WriteFile(context.Background(), f.path, f.content); err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }
 
 func (f *boxshTempFile) Close() error {
-	path := f.file.Name()
-	if err := f.file.Close(); err != nil {
-		return err
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.closed {
+		return nil
 	}
-	return os.Remove(path)
+	f.closed = true
+	return f.host.Remove(context.Background(), f.path, false)
+}
+
+func (h *boxshHost) execSandbox(ctx context.Context, op, command string) (*boxshclient.ExecResult, error) {
+	client := h.session.client
+	if client == nil {
+		return nil, fmt.Errorf("boxsh host: session not available")
+	}
+	result, err := client.Exec(ctx, boxshclient.ExecParams{Command: command})
+	if err != nil {
+		return nil, fmt.Errorf("boxsh host %s: %w", op, err)
+	}
+	if result.ExitCode != 0 {
+		output := strings.TrimSpace(result.Stderr)
+		if output == "" {
+			output = strings.TrimSpace(result.Stdout)
+		}
+		if output == "" {
+			output = fmt.Sprintf("exit code %d", result.ExitCode)
+		}
+		return nil, fmt.Errorf("boxsh host %s: %s", op, output)
+	}
+	return result, nil
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+func mktempTemplate(pattern string) string {
+	if pattern == "" {
+		return "tmp.XXXXXX"
+	}
+	if strings.Contains(pattern, "*") {
+		return strings.Replace(pattern, "*", "XXXXXX", 1)
+	}
+	return pattern + ".XXXXXX"
 }
