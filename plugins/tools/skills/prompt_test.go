@@ -58,8 +58,10 @@ old body
 		t.Fatal(err)
 	}
 
+	homeDir := t.TempDir()
 	section, err := buildPromptSection(context.Background(), pkgplugins.SystemPromptContext{
 		AnnaHome:    annaHome,
+		HomeDir:     homeDir,
 		Workspace:   workspace,
 		Cwd:         cwd,
 		UserDataDir: userDataDir,
@@ -83,10 +85,9 @@ old body
 }
 
 func TestBuildPromptSectionOmitsEmptySkillList(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
 	section, err := buildPromptSection(context.Background(), pkgplugins.SystemPromptContext{
 		AnnaHome:  "",
+		HomeDir:   t.TempDir(),
 		Workspace: t.TempDir(),
 		Cwd:       t.TempDir(),
 	})

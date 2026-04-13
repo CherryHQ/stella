@@ -108,7 +108,7 @@ type providerModelItem struct {
 	Name    string               `json:"name,omitempty"`
 	Source  string               `json:"source"`
 	Enabled bool                 `json:"enabled"`
-	Config  config.ProviderModel `json:"config,omitempty"`
+	Config  config.ProviderModel `json:"config,omitzero"`
 }
 
 func (s *Server) listProviderModels(w http.ResponseWriter, r *http.Request) {

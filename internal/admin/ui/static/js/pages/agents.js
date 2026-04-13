@@ -37,6 +37,7 @@ export function register(Alpine) {
     form: {
       name: '', model: '', model_strong: '', model_fast: '',
       system_prompt: '', scope: 'system', enabled: true,
+      sandbox: { network: { mode: 'disabled', allowlist: [] } },
     },
 
     // User assignment modal state.
@@ -126,6 +127,7 @@ export function register(Alpine) {
         const requestedAgent = this.requestedAgentID()
         this.agents = agents.map(a => ({
           ...a,
+          sandbox: this.normalizeSandbox(a.sandbox),
           _highlight: a.id === requestedAgent,
           _showMemory: false,
           _soul: '',
@@ -159,23 +161,35 @@ export function register(Alpine) {
       this.form = {
         name: '', model: '', model_strong: '', model_fast: '',
         system_prompt: '', scope: 'system', enabled: true,
+        sandbox: { network: { mode: 'disabled', allowlist: [] } },
       }
       this.editingId = null
       this.showForm = false
     },
 
     editAgent(a) {
-      this.form = { ...a, scope: a.scope || 'system' }
+      this.form = {
+        ...a,
+        scope: a.scope || 'system',
+        sandbox: this.normalizeSandbox(a.sandbox),
+      }
       this.editingId = a.id
       this.showForm = true
     },
 
     async saveAgent() {
       try {
+        const payload = {
+          ...this.form,
+          sandbox: this.normalizeSandbox(this.form.sandbox),
+        }
+        if (payload.sandbox.network.mode !== 'whitelist') {
+          payload.sandbox.network.allowlist = []
+        }
         if (this.editingId) {
-          await api('PUT', '/api/agents/' + this.editingId, this.form)
+          await api('PUT', '/api/agents/' + this.editingId, payload)
         } else {
-          await api('POST', '/api/agents', this.form)
+          await api('POST', '/api/agents', payload)
         }
         this.resetForm()
         await this.loadAgents()
@@ -183,6 +197,40 @@ export function register(Alpine) {
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       }
+    },
+
+    normalizeSandbox(sandbox) {
+      const mode = sandbox?.network?.mode || 'disabled'
+      const allowlist = Array.isArray(sandbox?.network?.allowlist)
+        ? sandbox.network.allowlist
+        : typeof sandbox?.network?.allowlist === 'string'
+          ? sandbox.network.allowlist
+              .split(/\r?\n|,/)
+              .map(v => v.trim())
+              .filter(Boolean)
+          : []
+      return {
+        network: {
+          mode,
+          allowlist,
+        },
+      }
+    },
+
+    sandboxAllowlistText(sandbox = this.form.sandbox) {
+      return (sandbox?.network?.allowlist || []).join('\n')
+    },
+
+    updateSandboxAllowlist(value) {
+      this.form.sandbox = this.normalizeSandbox({
+        network: {
+          mode: this.form.sandbox?.network?.mode || 'disabled',
+          allowlist: value
+            .split(/\r?\n|,/)
+            .map(v => v.trim())
+            .filter(Boolean),
+        },
+      })
     },
 
     async doDeleteAgent(id) {

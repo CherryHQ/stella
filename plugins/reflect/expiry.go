@@ -1,6 +1,7 @@
 package reflect
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -43,7 +44,7 @@ func expireDraftsInDir(dir string, cutoff time.Time, log *slog.Logger) {
 		return
 	}
 
-	loaded := skillstool.LoadSkills("", "", "", dir)
+	loaded := skillstool.LoadSkills(context.Background(), skillstool.LoadSkillsConfig{UserSkillsDir: dir})
 	for _, s := range loaded {
 		if s.Status != skillstool.SkillStatusDraft {
 			continue
@@ -59,7 +60,7 @@ func expireDraftsInDir(dir string, cutoff time.Time, log *slog.Logger) {
 		}
 
 		if created.Before(cutoff) {
-			if err := skillstool.Deprecate(s.Name, dir); err != nil {
+			if err := skillstool.Deprecate(context.Background(), nil, s.Name, dir); err != nil {
 				log.Error("reflect: expire draft", "skill", s.Name, "error", err)
 				continue
 			}

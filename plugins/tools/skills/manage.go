@@ -1,27 +1,28 @@
 package skills
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/vaayne/anna/internal/sandbox"
 	"gopkg.in/yaml.v3"
 )
 
 // Create creates a new skill with the given name, description, and content body.
 // The skill is created with status=draft and created-at=now.
 // targetDir must be the writable skills directory (userSkillsDir or workspace/skills).
-func Create(name, description, content, targetDir string) error {
+func Create(ctx context.Context, host sandbox.Host, name, description, content, targetDir string) error {
 	if errs := validateCreateInput(name, description); len(errs) > 0 {
 		return fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
 
 	skillDir := filepath.Join(targetDir, name)
 	skillFile := filepath.Join(skillDir, "SKILL.md")
-	if _, err := os.Stat(skillFile); err == nil {
+	if info, err := statSkillPath(ctx, host, skillFile); err == nil && info.Exists {
 		return fmt.Errorf("skill %q already exists at %s", name, skillFile)
 	}
 
@@ -30,12 +31,12 @@ func Create(name, description, content, targetDir string) error {
 	skillWriteMu.Lock()
 	defer skillWriteMu.Unlock()
 
-	return atomicWriteFile(skillFile, []byte(data), 0o644)
+	return writeSkillFile(ctx, host, skillFile, []byte(data), 0o644)
 }
 
 // Patch updates frontmatter fields and/or the content body of an existing skill.
 // Supported update keys: "description", "status", "content" (body after frontmatter).
-func Patch(name string, updates map[string]string, targetDir string) error {
+func Patch(ctx context.Context, host sandbox.Host, name string, updates map[string]string, targetDir string) error {
 	if name == "" {
 		return fmt.Errorf("name is required")
 	}
@@ -47,7 +48,7 @@ func Patch(name string, updates map[string]string, targetDir string) error {
 	}
 
 	skillFile := filepath.Join(targetDir, name, "SKILL.md")
-	existing, err := os.ReadFile(skillFile)
+	existing, err := readSkillFile(ctx, host, skillFile)
 	if err != nil {
 		return fmt.Errorf("skill %q not found at %s: %w", name, skillFile, err)
 	}
@@ -75,12 +76,12 @@ func Patch(name string, updates map[string]string, targetDir string) error {
 	skillWriteMu.Lock()
 	defer skillWriteMu.Unlock()
 
-	return atomicWriteFile(skillFile, []byte(data), 0o644)
+	return writeSkillFile(ctx, host, skillFile, []byte(data), 0o644)
 }
 
 // Deprecate sets the status of an existing skill to "deprecated".
-func Deprecate(name, targetDir string) error {
-	return Patch(name, map[string]string{"status": SkillStatusDeprecated}, targetDir)
+func Deprecate(ctx context.Context, host sandbox.Host, name, targetDir string) error {
+	return Patch(ctx, host, name, map[string]string{"status": SkillStatusDeprecated}, targetDir)
 }
 
 func validateCreateInput(name, description string) []string {
