@@ -13,7 +13,9 @@ import (
 	"github.com/vaayne/anna/internal/embedded"
 )
 
-func TestNewCoreToolsBoxshUsesWorkingDirAndSharedState(t *testing.T) {
+func newBoxshToolTestSession(t *testing.T, ctx context.Context, files map[string]string) (Session, string) {
+	t.Helper()
+
 	if runtime.GOOS == "windows" {
 		t.Skip("boxsh integration tests require Linux/macOS")
 	}
@@ -22,32 +24,25 @@ func TestNewCoreToolsBoxshUsesWorkingDirAndSharedState(t *testing.T) {
 		t.Skip("boxsh factory not available")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	annaHome := t.TempDir()
 	workspace := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(workspace, "docs"), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(workspace, "docs", "notes.txt"), []byte("old value\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
+	for name, content := range files {
+		path := filepath.Join(workspace, "docs", name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
 	}
 	writeStatefulMockBoxshForSandboxTools(t, annaHome)
 
-	prevAnnaHome, hadAnnaHome := os.LookupEnv("ANNA_HOME")
-	if err := os.Setenv("ANNA_HOME", annaHome); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Cleanup(config.ResetAnnaHome)
+	t.Setenv("ANNA_HOME", annaHome)
 	config.ResetAnnaHome()
-	defer func() {
-		if hadAnnaHome {
-			_ = os.Setenv("ANNA_HOME", prevAnnaHome)
-		} else {
-			_ = os.Unsetenv("ANNA_HOME")
-		}
-		config.ResetAnnaHome()
-	}()
 
 	session, err := factory.CreateSession(ctx, Policy{
 		Backend: "boxsh",
@@ -60,8 +55,16 @@ func TestNewCoreToolsBoxshUsesWorkingDirAndSharedState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-	defer func() { _ = session.Close() }()
+	t.Cleanup(func() { _ = session.Close() })
 
+	return session, workspace
+}
+
+func TestNewCoreToolsBoxshUsesWorkingDirAndSharedState(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	session, workspace := newBoxshToolTestSession(t, ctx, map[string]string{"notes.txt": "old value\n"})
 	toolByName := mapToolsByName(NewCoreTools(session.Host(), ""))
 
 	readResult, err := toolByName["read"].Execute(ctx, map[string]any{"file_path": "notes.txt"})
@@ -106,51 +109,10 @@ func TestNewCoreToolsBoxshUsesWorkingDirAndSharedState(t *testing.T) {
 }
 
 func TestNewCoreToolsBoxshReadPaginationAndEditPreflightAcrossPages(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("boxsh integration tests require Linux/macOS")
-	}
-	factory := GlobalRegistry().Get("boxsh")
-	if factory == nil {
-		t.Skip("boxsh factory not available")
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	annaHome := t.TempDir()
-	workspace := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(workspace, "docs"), 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(workspace, "docs", "long.txt"), []byte("needle line1\nline2\nline3\nline4\nneedle line5\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	writeStatefulMockBoxshForSandboxTools(t, annaHome)
-
-	prevAnnaHome, hadAnnaHome := os.LookupEnv("ANNA_HOME")
-	if err := os.Setenv("ANNA_HOME", annaHome); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
-	config.ResetAnnaHome()
-	defer func() {
-		if hadAnnaHome {
-			_ = os.Setenv("ANNA_HOME", prevAnnaHome)
-		} else {
-			_ = os.Unsetenv("ANNA_HOME")
-		}
-		config.ResetAnnaHome()
-	}()
-
-	session, err := factory.CreateSession(ctx, Policy{
-		Backend:    "boxsh",
-		Filesystem: FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: "/docs"},
-		Process:    ProcessPolicy{InheritEnv: true},
-	})
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-	defer func() { _ = session.Close() }()
-
+	session, _ := newBoxshToolTestSession(t, ctx, map[string]string{"long.txt": "needle line1\nline2\nline3\nline4\nneedle line5\n"})
 	toolByName := mapToolsByName(NewCoreTools(session.Host(), ""))
 
 	readResult, err := toolByName["read"].Execute(ctx, map[string]any{"file_path": "long.txt"})
@@ -168,51 +130,10 @@ func TestNewCoreToolsBoxshReadPaginationAndEditPreflightAcrossPages(t *testing.T
 }
 
 func TestBoxshHostMediatesCOWFilesystemView(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("boxsh integration tests require Linux/macOS")
-	}
-	factory := GlobalRegistry().Get("boxsh")
-	if factory == nil {
-		t.Skip("boxsh factory not available")
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	annaHome := t.TempDir()
-	workspace := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(workspace, "docs"), 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(workspace, "docs", "source.txt"), []byte("abcdef\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	writeStatefulMockBoxshForSandboxTools(t, annaHome)
-
-	prevAnnaHome, hadAnnaHome := os.LookupEnv("ANNA_HOME")
-	if err := os.Setenv("ANNA_HOME", annaHome); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
-	config.ResetAnnaHome()
-	defer func() {
-		if hadAnnaHome {
-			_ = os.Setenv("ANNA_HOME", prevAnnaHome)
-		} else {
-			_ = os.Unsetenv("ANNA_HOME")
-		}
-		config.ResetAnnaHome()
-	}()
-
-	session, err := factory.CreateSession(ctx, Policy{
-		Backend:    "boxsh",
-		Filesystem: FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: "/docs"},
-		Process:    ProcessPolicy{InheritEnv: true},
-	})
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-	defer func() { _ = session.Close() }()
-
+	session, _ := newBoxshToolTestSession(t, ctx, map[string]string{"source.txt": "abcdef\n"})
 	host := session.Host()
 	readResult, err := host.ReadFile(ctx, "source.txt", 2, 3)
 	if err != nil {
