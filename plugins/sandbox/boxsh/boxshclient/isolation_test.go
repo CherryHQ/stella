@@ -8,9 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/embedded"
 )
 
 func skipIfWindowsIsolation(t *testing.T) {
@@ -21,7 +18,6 @@ func skipIfWindowsIsolation(t *testing.T) {
 
 func writeIsolationMockBoxsh(t *testing.T, annaHome string) {
 	t.Helper()
-	_ = embedded.EnsureTools(annaHome)
 	binDir := filepath.Join(annaHome, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
@@ -138,7 +134,7 @@ func TestIsolation_CrossWorkspaceAccessBlocked(t *testing.T) {
 		Workspace:   workspace,
 		UserDataDir: allowedRoot,
 		WorkDir:     "/",
-		Sandbox:     config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: config.SandboxNetworkDisabled}},
+		Sandbox:     NetworkConfig{Mode: NetworkDisabled},
 	}
 	backend, err := NewSharedBackend(cfg)
 	if err != nil {
@@ -190,7 +186,7 @@ func TestIsolation_ParentDirectoryTraversalBlocked(t *testing.T) {
 		Workspace:   workspace,
 		UserDataDir: allowedRoot,
 		WorkDir:     "/",
-		Sandbox:     config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: config.SandboxNetworkDisabled}},
+		Sandbox:     NetworkConfig{Mode: NetworkDisabled},
 	}
 	backend, err := NewSharedBackend(cfg)
 	if err != nil {
@@ -228,8 +224,8 @@ func TestIsolation_DifferentAgentsDifferentSessions(t *testing.T) {
 	}
 	writeIsolationMockBoxsh(t, annaHome)
 
-	cfg1 := BackendConfig{AnnaHome: annaHome, Workspace: workspace1, UserDataDir: userDataDir1, WorkDir: "/", Sandbox: config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: config.SandboxNetworkDisabled}}}
-	cfg2 := BackendConfig{AnnaHome: annaHome, Workspace: workspace2, UserDataDir: userDataDir2, WorkDir: "/", Sandbox: config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: config.SandboxNetworkDisabled}}}
+	cfg1 := BackendConfig{AnnaHome: annaHome, Workspace: workspace1, UserDataDir: userDataDir1, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkDisabled}}
+	cfg2 := BackendConfig{AnnaHome: annaHome, Workspace: workspace2, UserDataDir: userDataDir2, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkDisabled}}
 
 	backend1, err := NewSharedBackend(cfg1)
 	if err != nil {

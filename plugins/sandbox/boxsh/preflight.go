@@ -10,18 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
 
 const BoxshBinaryName = "boxsh"
-
-type PreflightConfig struct {
-	AnnaHome    string
-	Workspace   string
-	UserDataDir string
-	Sandbox     config.SandboxConfig
-}
 
 func RequiresBoxsh(goos string) bool {
 	switch goos {
@@ -66,7 +58,7 @@ func Preflight(ctx context.Context, cfg PreflightConfig) error {
 	if !RequiresBoxsh(runtime.GOOS) {
 		return nil
 	}
-	if err := cfg.Sandbox.Validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return err
 	}
 
@@ -87,7 +79,7 @@ func Preflight(ctx context.Context, cfg PreflightConfig) error {
 
 	annaHome := cfg.AnnaHome
 	if annaHome == "" {
-		annaHome = config.AnnaHome()
+		annaHome = boxshclient.DefaultAnnaHome()
 	}
 	stateDir := filepath.Join(annaHome, "cache", "sandbox")
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
