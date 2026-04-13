@@ -7,11 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vaayne/anna/internal/sandbox/boxshclient"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
-	"github.com/vaayne/anna/pkg/tools"
 	anthropicprovider "github.com/vaayne/anna/plugins/providers/anthropic"
-	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
 // skipWithoutAnthropicKey skips the test when ANTHROPIC_API_KEY is not set.
@@ -29,12 +28,19 @@ func integrationConfig(t *testing.T) GoRunnerConfig {
 	if model == "" {
 		model = "claude-sonnet-4-20250514"
 	}
+	if !boxshclient.PlatformSupportsBoxsh() {
+		t.Skip("sandbox backend requires boxsh support on this platform")
+	}
+	annaHome := t.TempDir()
+	workspace := t.TempDir()
+	_ = writeMockRPCBoxsh(t, annaHome, false)
 	return GoRunnerConfig{
 		API:       "anthropic",
 		Model:     model,
 		APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
 		BaseURL:   os.Getenv("ANTHROPIC_BASE_URL"),
-		CoreTools: integrationCoreToolsBuilder,
+		AnnaHome:  annaHome,
+		Workspace: workspace,
 		Providers: integrationProviderRegistryBuilder,
 	}
 }
@@ -50,8 +56,6 @@ func integrationProviderRegistryBuilder(api, apiKey, baseURL string) (*providers
 	}))
 	return reg, nil
 }
-
-func integrationCoreToolsBuilder(plugintools.BuildContext) []tools.Tool { return nil }
 
 func TestIntegrationSingleTurn(t *testing.T) {
 	cfg := integrationConfig(t)

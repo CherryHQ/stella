@@ -23,7 +23,7 @@ import (
 //
 // Hooks are not part of the factory — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
-func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsBuilder runner.CoreToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle) (runner.NewRunnerFunc, error) {
+func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle) (runner.NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
 		return func(ctx context.Context, params runner.RunnerParams) (runner.Runner, error) {
@@ -65,8 +65,10 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsB
 			}
 			var promptSections []pkgplugins.SystemPromptSection
 			if promptSectionsFn != nil {
+				homeDir, _ := os.UserHomeDir()
 				promptSections, _ = promptSectionsFn(ctx, pkgplugins.SystemPromptContext{
 					AnnaHome:    config.AnnaHome(),
+					HomeDir:     homeDir,
 					Workspace:   snap.Workspace,
 					Cwd:         cwd,
 					UserID:      params.UserID,
@@ -110,9 +112,9 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsB
 				ExtraTools:     extraTools,
 				WorkDir:        workDir,
 				UserDataDir:    userDataDir,
+				Sandbox:        snap.Sandbox,
 				HookPlugins:    hookPlugins,
 				ToolLifecycle:  toolLifecycle,
-				CoreTools:      coreToolsBuilder,
 				Providers:      providerRegistryBuilder,
 			})
 		}, nil

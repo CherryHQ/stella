@@ -337,6 +337,7 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 			Platform:    h.platform(reg.PluginID),
 			State:       state,
 			AnnaHome:    build.AnnaHome,
+			HomeDir:     build.HomeDir,
 			Workspace:   build.Workspace,
 			Cwd:         build.Cwd,
 			UserID:      build.UserID,

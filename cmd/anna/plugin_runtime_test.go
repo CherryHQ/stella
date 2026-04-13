@@ -14,7 +14,6 @@ import (
 	"github.com/vaayne/anna/plugins/tools/bash"
 	"github.com/vaayne/anna/plugins/tools/edit"
 	"github.com/vaayne/anna/plugins/tools/read"
-	"github.com/vaayne/anna/plugins/tools/sandbox"
 	"github.com/vaayne/anna/plugins/tools/webfetch"
 	"github.com/vaayne/anna/plugins/tools/write"
 )
@@ -145,29 +144,5 @@ func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 	}
 	if !strings.Contains(fetchResult, "Plugin Fetch") {
 		t.Fatalf("webfetch result = %q, want fetched content", fetchResult)
-	}
-}
-
-func TestDirectToolRegistrySandbox(t *testing.T) {
-	t.Setenv("ANNA_HOME", t.TempDir())
-
-	allowed := t.TempDir()
-	outside := t.TempDir()
-
-	reg := tools.NewRegistry()
-	reg.Register(sandbox.WrapWithSandbox(&read.ReadTool{}, allowed, "file_path"))
-	reg.Register(bash.NewBashTool(allowed, ""))
-	reg.Register(sandbox.WrapWithSandbox(&edit.EditTool{}, allowed, "file_path"))
-	reg.Register(sandbox.WrapWithSandbox(&write.WriteTool{}, allowed, "file_path"))
-	defer func() { _ = reg.Close() }()
-
-	_, err := reg.Execute(context.Background(), "read", map[string]any{
-		"file_path": filepath.Join(outside, "secret.txt"),
-	})
-	if err == nil {
-		t.Fatal("expected sandbox error")
-	}
-	if !strings.Contains(err.Error(), "sandbox") {
-		t.Fatalf("sandbox error = %v, want sandbox in error", err)
 	}
 }
