@@ -62,6 +62,6 @@ download() {
 download fd    "github:sharkdp/fd@${FD_VERSION}"
 download rg    "github:BurntSushi/ripgrep@${RG_VERSION}"
 download rtk   "github:rtk-ai/rtk@${RTK_VERSION}" true
-download boxsh "github:xicilion/boxsh@${BOXSH_VERSION}"
+download boxsh "github:xicilion/boxsh@${BOXSH_VERSION}" true
 
 echo "Done."
