@@ -14,7 +14,6 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
 	internalsandbox "github.com/vaayne/anna/internal/sandbox"
-	"github.com/vaayne/anna/internal/sandbox/boxshclient"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -158,46 +157,6 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	}, nil
 }
 
-// createAndStartBackend creates and starts the boxsh shared backend.
-func createAndStartBackend(ctx context.Context, cfg GoRunnerConfig) (*boxshclient.SharedBackend, error) {
-	annaHome := cfg.AnnaHome
-	if annaHome == "" {
-		annaHome = config.AnnaHome()
-	}
-
-	backendCfg := boxshclient.BackendConfig{
-		AnnaHome:    annaHome,
-		Workspace:   cfg.Workspace,
-		UserDataDir: cfg.UserDataDir,
-		Sandbox:     cfg.Sandbox,
-		WorkDir:     cfg.WorkDir,
-		ReadOnlyDirs: collectSandboxReadOnlyDirs(
-			embedded.BinDir(annaHome),
-			os.Getenv("PATH"),
-		),
-	}
-
-	backend, err := boxshclient.NewSharedBackend(backendCfg)
-	if err != nil {
-		return nil, fmt.Errorf("create boxsh backend: %w", err)
-	}
-
-	if err := backend.Start(ctx, backendCfg); err != nil {
-		return nil, fmt.Errorf("start boxsh backend: %w", err)
-	}
-
-	slog.Info("go runner using boxsh core tools",
-		"component", "go_runner",
-		"workspace", cfg.Workspace,
-		"user_data_dir", cfg.UserDataDir,
-		"work_dir", cfg.WorkDir,
-		"network_mode", cfg.Sandbox.NetworkMode(),
-		"readonly_dir_count", len(backendCfg.ReadOnlyDirs),
-	)
-
-	return backend, nil
-}
-
 func newAgentRunner(reg *providers.Registry, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle) (*coreagent.Runner, error) {
 	return coreagent.NewRunner(coreagent.RunnerConfig{
 		Providers:       reg,
@@ -226,7 +185,6 @@ func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
 }
 
 // buildToolRegistry creates the tool registry with core and extra tools.
-// Phase 3: Uses runnerSession instead of sandboxBackend, removes Backend leakage.
 func buildToolRegistry(cfg GoRunnerConfig, session *runnerSession) (*tools.Registry, error) {
 	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
 	annaHome := cfg.AnnaHome

@@ -75,3 +75,13 @@ func logPolicyDenied(sessionID, backend, operation, resource, reason string) {
 		"reason", reason,
 	)
 }
+
+// LogExceptionPath records an explicit execution-path exception outside host mediation.
+func LogExceptionPath(exceptionID, component, accessType, detail string) {
+	slog.Warn("sandbox.exception_path",
+		"exception_id", exceptionID,
+		"component", component,
+		"access_type", accessType,
+		"detail", detail,
+	)
+}

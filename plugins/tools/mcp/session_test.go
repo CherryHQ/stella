@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -84,6 +85,32 @@ func TestNewTransportStdioUsesHostStartProcess(t *testing.T) {
 	}
 	if host.req.Timeout.Seconds() != 9 {
 		t.Fatalf("timeout = %v", host.req.Timeout)
+	}
+}
+
+func TestNewTransportRemoteLogsExplicitException(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	previous := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(previous)
+
+	transport, err := newTransport(ServerConfig{Name: "demo", Transport: TransportSSE, URL: "https://example.com/sse", TimeoutSeconds: 5}, nil)
+	if err != nil {
+		t.Fatalf("newTransport: %v", err)
+	}
+	if _, ok := transport.(*officialmcp.SSEClientTransport); !ok {
+		t.Fatalf("transport = %T, want *mcp.SSEClientTransport", transport)
+	}
+	text := logs.String()
+	if !strings.Contains(text, "sandbox.exception_path") {
+		t.Fatalf("logs missing exception event: %q", text)
+	}
+	if !strings.Contains(text, "exception_id=EX-009") {
+		t.Fatalf("logs missing EX-009 marker: %q", text)
+	}
+	if !strings.Contains(text, "transport dials outside sandbox.Host mediation") {
+		t.Fatalf("logs missing trust-boundary detail: %q", text)
 	}
 }
 

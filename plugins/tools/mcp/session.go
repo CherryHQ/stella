@@ -56,8 +56,12 @@ func newTransport(server ServerConfig, host sandbox.Host) (officialmcp.Transport
 			Writer: &sandboxProcessWriter{WriteCloser: proc.Stdin(), closer: closer},
 		}, nil
 	case TransportSSE:
+		// EX-009: remote MCP dialing remains an explicit trust-boundary exception in Phase 6.
+		sandbox.LogExceptionPath("EX-009", "plugins/tools/mcp", "network", "remote MCP "+server.Transport+" transport dials outside sandbox.Host mediation")
 		return &officialmcp.SSEClientTransport{Endpoint: server.URL, HTTPClient: httpClient}, nil
 	case TransportStreamableHTTP, TransportHTTP:
+		// EX-009: remote MCP dialing remains an explicit trust-boundary exception in Phase 6.
+		sandbox.LogExceptionPath("EX-009", "plugins/tools/mcp", "network", "remote MCP "+server.Transport+" transport dials outside sandbox.Host mediation")
 		return &officialmcp.StreamableClientTransport{Endpoint: server.URL, HTTPClient: httpClient}, nil
 	default:
 		return nil, ErrUnsupportedTransport{Transport: server.Transport}
