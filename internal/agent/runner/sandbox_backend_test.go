@@ -57,6 +57,27 @@ func TestResolveSessionExplicitBoxshRejectsUnsupportedPlatform(t *testing.T) {
 	}
 }
 
+func TestSandboxWorkspaceRootUsesUserDataDir(t *testing.T) {
+	cfg := GoRunnerConfig{
+		Workspace:   "/workspace/agent",
+		UserDataDir: "/workspace/agent/users/1/data",
+	}
+
+	if got := sandboxWorkspaceRoot(cfg); got != cfg.UserDataDir {
+		t.Fatalf("sandboxWorkspaceRoot() = %q, want %q", got, cfg.UserDataDir)
+	}
+}
+
+func TestSandboxWorkspaceRootFallsBackToWorkspace(t *testing.T) {
+	cfg := GoRunnerConfig{
+		Workspace: "/workspace/agent",
+	}
+
+	if got := sandboxWorkspaceRoot(cfg); got != cfg.Workspace {
+		t.Fatalf("sandboxWorkspaceRoot() = %q, want %q", got, cfg.Workspace)
+	}
+}
+
 // TestRunnerSessionLifecycle tests the runnerSession lifecycle.
 func TestRunnerSessionLifecycle(t *testing.T) {
 	// Create a local session for testing
