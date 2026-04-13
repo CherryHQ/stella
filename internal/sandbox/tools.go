@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/pkg/tools"
-	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
 
 // NewCoreTools returns the unified host-backed core tools.
@@ -26,7 +25,7 @@ func NewCoreTools(host Host, toolsBinDir string) []tools.Tool {
 }
 
 func newBashTool(host Host, toolsBinDir string) tools.Tool {
-	return &hostBashTool{host: host, normalizer: boxshclient.NewNormalizer(), toolsBinDir: toolsBinDir}
+	return &hostBashTool{host: host, normalizer: newToolNormalizer(), toolsBinDir: toolsBinDir}
 }
 
 func newReadTool(host Host) tools.Tool  { return &hostReadTool{host: host} }
@@ -35,7 +34,7 @@ func newEditTool(host Host) tools.Tool  { return &hostEditTool{host: host} }
 
 type hostBashTool struct {
 	host        Host
-	normalizer  *boxshclient.Normalizer
+	normalizer  *toolNormalizer
 	toolsBinDir string
 }
 
@@ -71,11 +70,7 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 		return norm.Content, fmt.Errorf("bash: %w", err)
 	}
 
-	norm := t.normalizer.NormalizeExec(&boxshclient.ExecResult{
-		Stdout:   result.Stdout,
-		Stderr:   result.Stderr,
-		ExitCode: result.ExitCode,
-	}, time.Since(start))
+	norm := t.normalizer.NormalizeExec(ExecResult(result), time.Since(start))
 	if norm.IsError {
 		return norm.Content, fmt.Errorf("bash: exit code %d", result.ExitCode)
 	}
