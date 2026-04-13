@@ -21,6 +21,7 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
+	boxshsandbox "github.com/vaayne/anna/plugins/sandbox/boxsh"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
 )
@@ -265,11 +266,17 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	if err := embedded.EnsureTools(annaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
-	if err := internalsandbox.Preflight(ctx, internalsandbox.PreflightConfig{
+	if cfg.Sandbox.BackendName() == config.SandboxBackendLocal {
+		return nil
+	}
+	if err := boxshsandbox.Preflight(ctx, boxshsandbox.PreflightConfig{
 		AnnaHome:    annaHome,
 		Workspace:   cfg.Workspace,
 		UserDataDir: cfg.UserDataDir,
-		Sandbox:     cfg.Sandbox,
+		Network: boxshsandbox.NetworkConfig{
+			Mode:      cfg.Sandbox.Network.Mode,
+			Allowlist: cfg.Sandbox.Network.Allowlist,
+		},
 	}); err != nil {
 		return fmt.Errorf("go runner: %w", err)
 	}

@@ -10,6 +10,10 @@ import (
 )
 
 const (
+	SandboxBackendAuto  = "auto"
+	SandboxBackendBoxsh = "boxsh"
+	SandboxBackendLocal = "local"
+
 	SandboxNetworkDisabled  = "disabled"
 	SandboxNetworkAllowAll  = "allow_all"
 	SandboxNetworkWhitelist = "whitelist"
@@ -38,7 +42,7 @@ func (c SandboxConfig) NetworkMode() string {
 // BackendName returns sandbox backend with defaults applied.
 func (c SandboxConfig) BackendName() string {
 	if c.Backend == "" {
-		return "auto"
+		return SandboxBackendAuto
 	}
 	return c.Backend
 }
@@ -46,9 +50,9 @@ func (c SandboxConfig) BackendName() string {
 // Validate returns an error when the sandbox configuration is invalid.
 func (c SandboxConfig) Validate() error {
 	switch c.BackendName() {
-	case "auto", "boxsh":
+	case SandboxBackendAuto, SandboxBackendBoxsh, SandboxBackendLocal:
 	default:
-		return fmt.Errorf("sandbox.backend must be one of %q or %q", "auto", "boxsh")
+		return fmt.Errorf("sandbox.backend must be one of %q, %q, or %q", SandboxBackendAuto, SandboxBackendBoxsh, SandboxBackendLocal)
 	}
 
 	switch mode := c.NetworkMode(); mode {

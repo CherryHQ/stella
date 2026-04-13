@@ -386,7 +386,7 @@ func (pm *PoolManager) removeAgentPool(agentID string) error {
 		return nil
 	}
 	pm.log.Info("removing agent pool", "agent_id", agentID)
-	return pool.Close()
+	return pool.closeSessions()
 }
 
 // loadAgentSnapshot loads the config snapshot for an agent and sets up its workspace.
@@ -441,11 +441,16 @@ func (pm *PoolManager) Close() error {
 	var lastErr error
 	for id, pool := range pools {
 		pm.log.Info("closing agent pool", "agent_id", id)
-		if err := pool.Close(); err != nil {
+		if err := pool.closeSessions(); err != nil {
 			pm.log.Error("failed to close pool", "agent_id", id, "error", err)
 			lastErr = err
 		}
 	}
 	pluginhooks.CloseHookPlugins(hookPlugins)
+	if pm.mem != nil {
+		if err := pm.mem.Close(); err != nil {
+			lastErr = err
+		}
+	}
 	return lastErr
 }
