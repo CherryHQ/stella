@@ -1,4 +1,4 @@
-package sandbox
+package local
 
 import (
 	"bytes"

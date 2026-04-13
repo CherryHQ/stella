@@ -1,4 +1,4 @@
-package sandbox
+package boxsh
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/embedded"
+	"github.com/vaayne/anna/internal/sandbox/boxshclient"
 )
 
 const BoxshBinaryName = "boxsh"
@@ -40,23 +40,7 @@ func SandboxRoot(cfg PreflightConfig) string {
 }
 
 func ResolveManagedBoxshPath(annaHome string) (string, error) {
-	path := embedded.ToolPath(annaHome, BoxshBinaryName)
-	if path == "" {
-		return "", fmt.Errorf("sandbox: managed %s binary not found in %s", BoxshBinaryName, embedded.BinDir(annaHome))
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		return "", fmt.Errorf("sandbox: stat managed %s binary: %w", BoxshBinaryName, err)
-	}
-	if info.IsDir() {
-		return "", fmt.Errorf("sandbox: managed %s path %q is a directory", BoxshBinaryName, path)
-	}
-	if info.Mode()&0o111 == 0 {
-		return "", fmt.Errorf("sandbox: managed %s binary %q is not executable", BoxshBinaryName, path)
-	}
-
-	return path, nil
+	return boxshclient.ResolveManagedBoxshPath(annaHome)
 }
 
 func ValidateManagedBoxshBinary(ctx context.Context, annaHome string) (string, error) {

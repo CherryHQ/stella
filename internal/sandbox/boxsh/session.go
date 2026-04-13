@@ -1,4 +1,4 @@
-package sandbox
+package boxsh
 
 import (
 	"context"
@@ -559,6 +559,35 @@ func sandboxRelativeAbsolute(path string) bool {
 
 func (h *boxshHost) WorkingDir() string {
 	return h.session.policy.Filesystem.WorkingDir
+}
+
+func (h *boxshHost) ReadFileLines(ctx context.Context, path string, offset, limit int) (ReadResult, error) {
+	return h.ReadFile(ctx, path, offset, limit)
+}
+
+func (h *boxshHost) ReadAllFile(ctx context.Context, path string) ([]byte, error) {
+	offset := 1
+	var out strings.Builder
+	for {
+		result, err := h.ReadFile(ctx, path, offset, 0)
+		if err != nil {
+			return nil, err
+		}
+		out.Write(result.Content)
+		if !result.Truncated {
+			break
+		}
+		nextOffset := result.NextOffset
+		if nextOffset <= offset {
+			lines := strings.Count(string(result.Content), "\n")
+			if len(result.Content) > 0 && !strings.HasSuffix(string(result.Content), "\n") {
+				lines++
+			}
+			nextOffset = offset + max(lines, 1)
+		}
+		offset = nextOffset
+	}
+	return []byte(out.String()), nil
 }
 
 // boxshTempFile implements TempFile for boxsh sessions.

@@ -1,4 +1,4 @@
-package sandbox
+package sandbox_test
 
 import (
 	"context"
@@ -7,6 +7,11 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	. "github.com/vaayne/anna/internal/sandbox"
+
+	boxshbackend "github.com/vaayne/anna/internal/sandbox/boxsh"
+	localbackend "github.com/vaayne/anna/internal/sandbox/local"
 )
 
 // Contract tests for Session and Host interfaces.
@@ -16,7 +21,7 @@ import (
 func TestSessionContract(t *testing.T) {
 	// Test with local factory (always available)
 	t.Run("LocalFactory", func(t *testing.T) {
-		testSessionContract(t, &localFactory{})
+		testSessionContract(t, localbackend.NewFactory())
 	})
 
 	// Test with boxsh factory if available
@@ -27,11 +32,11 @@ func TestSessionContract(t *testing.T) {
 			if annaHome == "" {
 				t.Skip("ANNA_HOME not set, boxsh binary not available")
 			}
-			if _, err := ResolveManagedBoxshPath(annaHome); err != nil {
+			if _, err := boxshbackend.ResolveManagedBoxshPath(annaHome); err != nil {
 				t.Skipf("boxsh binary not available: %v", err)
 			}
 
-			testSessionContract(t, &boxshFactory{})
+			testSessionContract(t, boxshbackend.NewFactory())
 		})
 	}
 }
@@ -162,7 +167,7 @@ func testSessionContract(t *testing.T, factory Factory) {
 func TestHostContract(t *testing.T) {
 	// Test with local factory (always available)
 	t.Run("LocalFactory", func(t *testing.T) {
-		testHostContract(t, &localFactory{})
+		testHostContract(t, localbackend.NewFactory())
 	})
 }
 

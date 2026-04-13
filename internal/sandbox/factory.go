@@ -7,15 +7,6 @@ import (
 	"sync"
 )
 
-// defaultRegistry is the global default registry instance.
-var defaultRegistry = DefaultRegistry()
-
-// GlobalRegistry returns the global default registry.
-// This provides convenient access to the standard set of backends.
-func GlobalRegistry() *Registry {
-	return defaultRegistry
-}
-
 // Factory creates sessions from policies.
 // Each backend implementation provides a Factory to validate and create sessions.
 type Factory interface {
@@ -44,6 +35,7 @@ type Factory interface {
 // Registry manages available backend factories and creates sessions.
 type Registry struct {
 	factories map[string]Factory
+	order     []string
 	mu        sync.RWMutex
 }
 
@@ -51,23 +43,8 @@ type Registry struct {
 func NewRegistry() *Registry {
 	return &Registry{
 		factories: make(map[string]Factory),
+		order:     make([]string, 0),
 	}
-}
-
-// DefaultRegistry returns a registry with all built-in factories registered.
-// This includes "boxsh" (when available) and "local" (always available).
-func DefaultRegistry() *Registry {
-	r := NewRegistry()
-
-	// Register local factory (always available)
-	_ = r.Register(&localFactory{})
-
-	// Register boxsh factory if platform supports it
-	if PlatformSupportsBoxsh() {
-		_ = r.Register(&boxshFactory{})
-	}
-
-	return r
 }
 
 // Register adds a factory to the registry.
@@ -82,6 +59,7 @@ func (r *Registry) Register(factory Factory) error {
 	}
 
 	r.factories[name] = factory
+	r.order = append(r.order, name)
 	return nil
 }
 
@@ -90,6 +68,12 @@ func (r *Registry) Unregister(name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.factories, name)
+	for i, registered := range r.order {
+		if registered == name {
+			r.order = append(r.order[:i], r.order[i+1:]...)
+			break
+		}
+	}
 }
 
 // Get returns the factory with the given name, or nil if not found.
@@ -104,9 +88,11 @@ func (r *Registry) List() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	names := make([]string, 0, len(r.factories))
-	for name := range r.factories {
-		names = append(names, name)
+	names := make([]string, 0, len(r.order))
+	for _, name := range r.order {
+		if _, ok := r.factories[name]; ok {
+			names = append(names, name)
+		}
 	}
 	return names
 }
@@ -116,9 +102,10 @@ func (r *Registry) AvailableBackends() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	names := make([]string, 0, len(r.factories))
-	for name, factory := range r.factories {
-		if factory.Available() {
+	names := make([]string, 0, len(r.order))
+	for _, name := range r.order {
+		factory, ok := r.factories[name]
+		if ok && factory.Available() {
 			names = append(names, name)
 		}
 	}
@@ -175,19 +162,17 @@ func (r *Registry) CreateSession(ctx context.Context, policy Policy) (Session, e
 		return factory.CreateSession(ctx, policy)
 	}
 
-	// Case 2: Auto-select compatible backend
-	// Try boxsh first if available, then fall through to local
-	for _, name := range []string{"boxsh", "local"} {
+	// Case 2: Auto-select the first compatible backend in registration order.
+	attempted := make([]string, 0, len(r.order))
+	for _, name := range r.order {
 		factory, exists := r.factories[name]
 		if !exists || !factory.Available() {
 			continue
 		}
+		attempted = append(attempted, name)
 
-		// Check support
 		if err := factory.Supported(policy); err != nil {
-			// If this backend can't support the policy, try the next one
 			if IsPolicyCompatibilityError(err) && !policy.Relaxed {
-				// Continue to next backend
 				continue
 			}
 			return nil, err
@@ -197,7 +182,7 @@ func (r *Registry) CreateSession(ctx context.Context, policy Policy) (Session, e
 	}
 
 	// No compatible backend found
-	logUnsupportedBackend(policy, []string{"boxsh", "local"}, "no registered backend can satisfy this policy")
+	logUnsupportedBackend(policy, attempted, "no registered backend can satisfy this policy")
 	return nil, &PolicyCompatibilityError{
 		Backend:          "any",
 		Policy:           policy,
@@ -222,5 +207,10 @@ func PlatformSupportsBoxsh() bool {
 // PlatformRequiresBoxsh reports whether the current platform requires boxsh
 // for sandboxing (linux and darwin).
 func PlatformRequiresBoxsh() bool {
-	return RequiresBoxsh(runtime.GOOS)
+	switch runtime.GOOS {
+	case "linux", "darwin":
+		return true
+	default:
+		return false
+	}
 }

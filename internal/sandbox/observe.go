@@ -12,6 +12,11 @@ func nextSessionID() string {
 	return "sandbox-" + itoa(id)
 }
 
+// NewSessionID returns a unique session identifier for backend implementations.
+func NewSessionID() string {
+	return nextSessionID()
+}
+
 func itoa(v uint64) string {
 	if v == 0 {
 		return "0"
@@ -36,12 +41,22 @@ func logSessionCreated(sessionID, backend string, policy Policy) {
 	)
 }
 
+// LogSessionCreated records backend session creation.
+func LogSessionCreated(sessionID, backend string, policy Policy) {
+	logSessionCreated(sessionID, backend, policy)
+}
+
 func logSessionClosed(sessionID, backend, reason string) {
 	slog.Info("sandbox.session_closed",
 		"session_id", sessionID,
 		"backend", backend,
 		"reason", reason,
 	)
+}
+
+// LogSessionClosed records backend session closure.
+func LogSessionClosed(sessionID, backend, reason string) {
+	logSessionClosed(sessionID, backend, reason)
 }
 
 func logRelaxedMode(sessionID, backend, reason string, policy Policy, warnings ...string) {
@@ -53,6 +68,11 @@ func logRelaxedMode(sessionID, backend, reason string, policy Policy, warnings .
 		"network_mode", policy.NetworkModeOrDefault(),
 		"working_dir", policy.Filesystem.WorkingDir,
 	)
+}
+
+// LogRelaxedMode records when a backend runs in explicit relaxed mode.
+func LogRelaxedMode(sessionID, backend, reason string, policy Policy, warnings ...string) {
+	logRelaxedMode(sessionID, backend, reason, policy, warnings...)
 }
 
 func logUnsupportedBackend(policy Policy, attempted []string, reason string) {
@@ -74,6 +94,11 @@ func logPolicyDenied(sessionID, backend, operation, resource, reason string) {
 		"resource", resource,
 		"reason", reason,
 	)
+}
+
+// LogPolicyDenied records a backend policy denial.
+func LogPolicyDenied(sessionID, backend, operation, resource, reason string) {
+	logPolicyDenied(sessionID, backend, operation, resource, reason)
 }
 
 // LogExceptionPath records an explicit execution-path exception outside host mediation.
