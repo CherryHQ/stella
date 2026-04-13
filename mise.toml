@@ -7,7 +7,6 @@ go = "1.25"
 "github:sqlc-dev/sqlc" = "1.29.0"
 
 [env]
-ANNA_HOME = ".agents/anna"
 BINARY_NAME = "anna"
 LOG_LEVEL = "trace"
 
@@ -32,7 +31,7 @@ run = "templ generate && sqlc generate"
 # Run
 # ============================================================================
 
-[tasks.serve]
+[tasks.dev]
 description = "Start anna server (admin panel + channels)"
 depends = ["build"]
 run = 'ANNA_HOME="$HOME/.anna-dev" ./bin/$BINARY_NAME'
