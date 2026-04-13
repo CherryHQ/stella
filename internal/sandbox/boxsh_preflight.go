@@ -1,4 +1,4 @@
-package boxsh
+package sandbox
 
 import (
 	"context"
