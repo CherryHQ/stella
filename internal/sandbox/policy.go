@@ -3,7 +3,6 @@ package sandbox
 import sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
 
 type (
-	NetworkMode              = sandboxpkg.NetworkMode
 	Policy                   = sandboxpkg.Policy
 	FilesystemPolicy         = sandboxpkg.FilesystemPolicy
 	NetworkPolicy            = sandboxpkg.NetworkPolicy
