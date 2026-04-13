@@ -8,7 +8,6 @@ import (
 
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
-	"github.com/vaayne/anna/plugins/tools/sandbox"
 )
 
 func init() {
@@ -29,7 +28,7 @@ func init() {
 			Description: "Edit existing files.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return sandbox.WrapWithSandbox(&EditTool{}, ctx.UserDataDir, "file_path"), nil
+				return &EditTool{}, nil
 			},
 		})
 	}))

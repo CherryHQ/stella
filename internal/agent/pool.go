@@ -89,6 +89,37 @@ func (p *Pool) SetDefaultModel(model string) {
 	p.mu.Unlock()
 }
 
+// SetFastModel updates the fast model used for compaction and utility work.
+func (p *Pool) SetFastModel(model string) {
+	p.mu.Lock()
+	p.fastModel = model
+	p.mu.Unlock()
+}
+
+// ResetRunners closes all live session runners but keeps session metadata and history.
+// The next chat on each session will recreate a runner from the current factory.
+func (p *Pool) ResetRunners() error {
+	p.mu.Lock()
+	runners := make([]runner.Runner, 0, len(p.sessions))
+	for _, sess := range p.sessions {
+		if sess != nil && sess.Runner != nil {
+			runners = append(runners, sess.Runner)
+			sess.Runner = nil
+		}
+	}
+	p.mu.Unlock()
+
+	var lastErr error
+	for _, r := range runners {
+		if closer, ok := r.(io.Closer); ok {
+			if err := closer.Close(); err != nil {
+				lastErr = err
+			}
+		}
+	}
+	return lastErr
+}
+
 // Close shuts down all sessions and runners.
 func (p *Pool) Close() error {
 	p.mu.Lock()
