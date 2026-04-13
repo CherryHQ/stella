@@ -64,13 +64,9 @@ type Tool struct {
 	host          sandbox.Host
 }
 
-func NewTool(annaHome, workspace, cwd, userSkillsDir string, host sandbox.Host, homeDir ...string) *Tool {
-	var resolvedHome string
-	if len(homeDir) > 0 {
-		resolvedHome = homeDir[0]
-	}
+func NewTool(annaHome, homeDir, workspace, cwd, userSkillsDir string, host sandbox.Host) *Tool {
 	return &Tool{
-		homeDir:       resolvedHome,
+		homeDir:       homeDir,
 		annaHome:      annaHome,
 		workspace:     workspace,
 		cwd:           cwd,
@@ -184,7 +180,7 @@ type installedSkill struct {
 }
 
 func (t *Tool) list(ctx context.Context) (string, error) {
-	all := loadSkillsFromConfig(ctx, LoadSkillsConfig{
+	all := LoadSkills(ctx, LoadSkillsConfig{
 		Host:          t.host,
 		HomeDir:       t.homeDir,
 		AnnaHome:      t.annaHome,
@@ -218,7 +214,7 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("name is required for load action")
 	}
 
-	all := loadSkillsFromConfig(ctx, LoadSkillsConfig{
+	all := LoadSkills(ctx, LoadSkillsConfig{
 		Host:          t.host,
 		HomeDir:       t.homeDir,
 		AnnaHome:      t.annaHome,

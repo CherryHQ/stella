@@ -2,52 +2,36 @@ package runner
 
 import (
 	"context"
-	"os"
+	"errors"
 
 	"github.com/vaayne/anna/internal/sandbox"
 )
 
 func readPromptFile(ctx context.Context, host sandbox.Host, path string) (string, bool) {
-	if host != nil {
-		result, err := host.ReadFile(ctx, path, 0, 0)
-		if err == nil {
-			return string(result.Content), true
-		}
+	if host == nil {
+		return "", false
 	}
-	data, err := os.ReadFile(path)
+	result, err := host.ReadFile(ctx, path, 0, 0)
 	if err != nil {
 		return "", false
 	}
-	return string(data), true
+	return string(result.Content), true
 }
 
 func statPromptFile(ctx context.Context, host sandbox.Host, path string) (string, bool) {
-	if host != nil {
-		stat, err := host.Stat(ctx, path)
-		if err == nil && stat.Exists && !stat.IsDir {
-			return path, true
-		}
+	if host == nil {
+		return "", false
 	}
-	if info, err := os.Stat(path); err == nil && !info.IsDir() {
-		return path, true
+	stat, err := host.Stat(ctx, path)
+	if err != nil || !stat.Exists || stat.IsDir {
+		return "", false
 	}
-	return "", false
+	return path, true
 }
 
 func readPromptDir(ctx context.Context, host sandbox.Host, path string) ([]sandbox.DirEntry, error) {
-	if host != nil {
-		entries, err := host.ListDir(ctx, path)
-		if err == nil {
-			return entries, nil
-		}
+	if host == nil {
+		return nil, errors.New("prompt context requires sandbox host")
 	}
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]sandbox.DirEntry, 0, len(entries))
-	for _, entry := range entries {
-		result = append(result, sandbox.DirEntry{Name: entry.Name(), IsDir: entry.IsDir()})
-	}
-	return result, nil
+	return host.ListDir(ctx, path)
 }

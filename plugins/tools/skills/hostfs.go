@@ -2,7 +2,6 @@ package skills
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 
 	"github.com/vaayne/anna/internal/sandbox"
@@ -13,21 +12,42 @@ type skillPathInfo struct {
 	IsDir  bool
 }
 
-func statSkillPath(ctx context.Context, host sandbox.Host, path string) (skillPathInfo, error) {
+func resolveSkillHost(ctx context.Context, host sandbox.Host, path string) (sandbox.Host, func(), error) {
 	if host != nil {
-		stat, err := host.Stat(ctx, path)
-		if err == nil {
-			return skillPathInfo{Exists: stat.Exists, IsDir: stat.IsDir}, nil
-		}
+		return host, func() {}, nil
 	}
-	info, err := os.Stat(path)
+	workingDir := path
+	if workingDir == "" {
+		workingDir = "."
+	}
+	if ext := filepath.Ext(workingDir); ext != "" {
+		workingDir = filepath.Dir(workingDir)
+	}
+	session, err := sandbox.GlobalRegistry().CreateRelaxedSession(ctx, sandbox.Policy{
+		Backend: "local",
+		Filesystem: sandbox.FilesystemPolicy{
+			WorkingDir:   workingDir,
+			AllowEscapes: true,
+		},
+		Network: sandbox.NetworkPolicy{Mode: sandbox.NetworkAllowAll},
+	})
 	if err != nil {
-		if os.IsNotExist(err) {
-			return skillPathInfo{}, nil
-		}
+		return nil, func() {}, err
+	}
+	return session.Host(), func() { _ = session.Close() }, nil
+}
+
+func statSkillPath(ctx context.Context, host sandbox.Host, path string) (skillPathInfo, error) {
+	host, closeHost, err := resolveSkillHost(ctx, host, path)
+	if err != nil {
 		return skillPathInfo{}, err
 	}
-	return skillPathInfo{Exists: true, IsDir: info.IsDir()}, nil
+	defer closeHost()
+	stat, err := host.Stat(ctx, path)
+	if err != nil {
+		return skillPathInfo{}, err
+	}
+	return skillPathInfo{Exists: stat.Exists, IsDir: stat.IsDir}, nil
 }
 
 func entryIsRegular(ctx context.Context, host sandbox.Host, path string) bool {
@@ -36,40 +56,36 @@ func entryIsRegular(ctx context.Context, host sandbox.Host, path string) bool {
 }
 
 func readSkillDir(ctx context.Context, host sandbox.Host, path string) ([]sandbox.DirEntry, error) {
-	if host != nil {
-		entries, err := host.ListDir(ctx, path)
-		if err == nil {
-			return entries, nil
-		}
-	}
-	entries, err := os.ReadDir(path)
+	host, closeHost, err := resolveSkillHost(ctx, host, path)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]sandbox.DirEntry, 0, len(entries))
-	for _, entry := range entries {
-		result = append(result, sandbox.DirEntry{Name: entry.Name(), IsDir: entry.IsDir()})
-	}
-	return result, nil
+	defer closeHost()
+	return host.ListDir(ctx, path)
 }
 
 func readSkillFile(ctx context.Context, host sandbox.Host, path string) ([]byte, error) {
-	if host != nil {
-		result, err := host.ReadFile(ctx, path, 0, 0)
-		if err == nil {
-			return result.Content, nil
-		}
+	host, closeHost, err := resolveSkillHost(ctx, host, path)
+	if err != nil {
+		return nil, err
 	}
-	return os.ReadFile(path)
+	defer closeHost()
+	result, err := host.ReadFile(ctx, path, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	return result.Content, nil
 }
 
-func writeSkillFile(ctx context.Context, host sandbox.Host, path string, data []byte, perm os.FileMode) error {
-	if host == nil {
-		return atomicWriteFile(path, data, perm)
+func writeSkillFile(ctx context.Context, host sandbox.Host, path string, data []byte, _ uint32) error {
+	host, closeHost, err := resolveSkillHost(ctx, host, path)
+	if err != nil {
+		return err
 	}
+	defer closeHost()
 	if err := host.MkdirAll(ctx, filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	_, err := host.WriteFile(ctx, path, data)
+	_, err = host.WriteFile(ctx, path, data)
 	return err
 }

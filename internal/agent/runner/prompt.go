@@ -114,7 +114,9 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	data.PromptSections = append(data.PromptSections, p.PromptSections...)
 
 	// Project context.
-	data.ContextFiles = loadProjectContextFiles(p.Host, p.Cwd)
+	contextHost, closeContextHost := resolvePromptContextHost(ctx, p.Host, p.Cwd)
+	defer closeContextHost()
+	data.ContextFiles = loadProjectContextFiles(contextHost, p.Cwd)
 
 	var buf bytes.Buffer
 	_ = systemTmpl.Execute(&buf, data)
@@ -124,6 +126,25 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 // loadProjectContextFiles walks from cwd up to the filesystem root,
 // collecting AGENTS.md files from each directory (case-insensitive).
 // Files are returned in root-to-leaf order (ancestors first).
+func resolvePromptContextHost(ctx context.Context, host sandbox.Host, cwd string) (sandbox.Host, func()) {
+	if host != nil || cwd == "" {
+		return host, func() {}
+	}
+
+	session, err := sandbox.GlobalRegistry().CreateRelaxedSession(ctx, sandbox.Policy{
+		Backend: "local",
+		Filesystem: sandbox.FilesystemPolicy{
+			WorkingDir:   cwd,
+			AllowEscapes: true,
+		},
+		Network: sandbox.NetworkPolicy{Mode: sandbox.NetworkAllowAll},
+	})
+	if err != nil {
+		return nil, func() {}
+	}
+	return session.Host(), func() { _ = session.Close() }
+}
+
 func loadProjectContextFiles(host sandbox.Host, cwd string) []contextFile {
 	if cwd == "" {
 		return nil

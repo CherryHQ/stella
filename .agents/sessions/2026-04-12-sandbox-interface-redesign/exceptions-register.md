@@ -48,36 +48,6 @@ Closure Plan: when/how this will be addressed
 
 ---
 
-### EX-004: Skills Catalog Home Resolution Fallback
-
-| Field | Value |
-|-------|-------|
-| **ID** | EX-004 |
-| **Path** | `plugins/tools/skills/catalog.go`, `plugins/tools/skills/hostfs.go` |
-| **Access Type** | Filesystem |
-| **Operations** | Deprecated compatibility wrapper uses `os.UserHomeDir`; no-host callers still fall back to `os.Stat` / `os.ReadDir` / `os.ReadFile` |
-| **Owner** | `plugins/tools/skills` |
-| **Reason** | Phase 6 threaded explicit `HomeDir` through active skills runtime/prompt/CLI callers and moved them onto `LoadSkillsWithConfig(...)`. The remaining direct home lookup is isolated to the deprecated compatibility wrapper and legacy/no-host paths. |
-| **Risk Level** | Low |
-| **Closure Plan** | **PHASE 6** - Remove the deprecated wrapper and remaining no-host call sites once prompt/runtime construction is fully host/context-backed. |
-
----
-
-### EX-005: Prompt Context File Fallback
-
-| Field | Value |
-|-------|-------|
-| **ID** | EX-005 |
-| **Path** | `internal/agent/runner/prompt_host.go` |
-| **Access Type** | Filesystem |
-| **Operations** | fallback `os.ReadFile`, `os.ReadDir`, `os.Stat` when no host is injected |
-| **Owner** | `internal/agent/runner` |
-| **Reason** | Phase 5 moved AGENTS.md prompt-context loading to execution-time host mediation after session resolution. Remaining direct access only serves nil-host construction paths and tests. |
-| **Risk Level** | Low |
-| **Closure Plan** | **PHASE 6** - Remove nil-host fallback after all prompt construction paths run with an execution-time host. |
-
----
-
 ### EX-006: Workspace Creation (Factory)
 
 | Field | Value |
@@ -156,6 +126,8 @@ These are infrastructure processes (the sandbox backend itself), not user tool e
 | ID | Description | Closure Date | Resolution |
 |----|-------------|--------------|------------|
 | EX-003 | Agent Preset Discovery Home Resolution Fallback | 2026-04-13 | Removed `os.UserHomeDir` fallback from `LoadAgentPresets` and threaded explicit `HomeDir` from runner callers. |
+| EX-004 | Skills Catalog Home Resolution Fallback | 2026-04-13 | Removed deprecated skills discovery wrapper and direct filesystem fallback; no-host callers now use an explicit relaxed local sandbox session. |
+| EX-005 | Prompt Context File Fallback | 2026-04-13 | Removed direct filesystem fallback from `prompt_host.go`; prompt context now resolves through an injected host or an explicit relaxed local sandbox session. |
 
 ---
 
@@ -166,7 +138,8 @@ These are infrastructure processes (the sandbox backend itself), not user tool e
 | 2026-04-12 | Created | EX-001 through EX-008 | Initial exceptions register for Phase 1 |
 | 2026-04-13 | Updated | EX-003 through EX-005 | Narrowed from active runtime bypasses to host-first mediation with explicit nil-host fallbacks after Phase 5 work |
 | 2026-04-13 | Closed | EX-003 | Removed preset home-directory fallback by threading explicit `HomeDir` into active preset discovery callers |
-| 2026-04-13 | Updated | EX-004 | Narrowed to deprecated skills compatibility wrapper and remaining no-host fallback paths after explicit `HomeDir` threading |
+| 2026-04-13 | Closed | EX-004 | Removed deprecated skills discovery wrapper and direct filesystem fallback in favor of explicit config + relaxed local sandbox host resolution |
+| 2026-04-13 | Closed | EX-005 | Removed prompt direct filesystem fallback in favor of injected host or explicit relaxed local sandbox session |
 | 2026-04-13 | Added | EX-009 | Recorded remaining direct MCP remote transport dialing after stdio moved onto `sandbox.Host.StartProcess` |
 
 ---

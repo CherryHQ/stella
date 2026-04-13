@@ -297,7 +297,8 @@
 - Removed the dead runner-side `sandboxBackend` compatibility shim and its legacy tests so `runnerSession` is now the only runner-owned sandbox seam.
 - Added explicit `sandbox.exception_path` observability for remote MCP SSE/HTTP/StreamableHTTP dialing, keeping `EX-009` explicit instead of silent.
 - Threaded explicit `HomeDir` through active agent-preset and skills discovery callers so runtime/prompt/CLI code no longer relies on implicit home-directory lookup in those paths.
-- Added regression tests covering the explicit MCP exception log and explicit-home discovery for presets/skills.
+- Removed direct prompt-context filesystem fallback in `internal/agent/runner/prompt_host.go`; no-host prompt builds now create an explicit relaxed local sandbox session instead of silently bypassing `sandbox.Host`.
+- Added regression tests covering the explicit MCP exception log, explicit-home discovery for presets/skills, and AGENTS.md loading without an injected host.
 
 **Files changed in Phase 6 so far:**
 
@@ -323,5 +324,5 @@
 **Remaining highest-priority Phase 6 work:**
 
 - Decide whether `EX-009` becomes mediated or remains a formal separate trust boundary in code/docs.
-- Remove remaining nil-host prompt fallback paths in `internal/agent/runner/prompt_host.go` once all prompt construction paths can carry execution-time context/host.
+- Remove or narrow any remaining non-sandboxed filesystem helper paths outside `internal/sandbox`; `skills/hostfs.go`, `agent/hostfs.go`, and `prompt_host.go` now resolve no-host callers through explicit relaxed local sandbox sessions instead of direct `os.*` access.
 - Extend or generalize the static bypass guard beyond the currently migrated file set.

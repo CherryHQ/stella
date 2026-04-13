@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -57,30 +56,8 @@ const (
 var validNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 // LoadSkills discovers skills from project, user, workspace, and common directories.
-//
-// Deprecated: prefer LoadSkillsWithConfig with an explicit HomeDir.
-func LoadSkills(ctx context.Context, host sandbox.Host, annaHome, workspace, cwd string, userSkillsDir ...string) []Skill {
-	home, _ := os.UserHomeDir()
-	var usd string
-	if len(userSkillsDir) > 0 {
-		usd = userSkillsDir[0]
-	}
-	return loadSkillsFromConfig(ctx, LoadSkillsConfig{
-		Host:          host,
-		HomeDir:       home,
-		AnnaHome:      annaHome,
-		Workspace:     workspace,
-		Cwd:           cwd,
-		UserSkillsDir: usd,
-	})
-}
-
-func LoadSkillsWithConfig(ctx context.Context, cfg LoadSkillsConfig) []Skill {
+func LoadSkills(ctx context.Context, cfg LoadSkillsConfig) []Skill {
 	return loadSkills(ctx, cfg.Host, cfg.HomeDir, cfg.AnnaHome, cfg.Workspace, cfg.Cwd, cfg.UserSkillsDir)
-}
-
-func loadSkillsFromConfig(ctx context.Context, cfg LoadSkillsConfig) []Skill {
-	return LoadSkillsWithConfig(ctx, cfg)
 }
 
 func loadSkills(ctx context.Context, host sandbox.Host, homeDir, annaHome, workspace, cwd, userSkillsDir string) []Skill {

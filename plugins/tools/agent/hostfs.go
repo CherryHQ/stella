@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"os"
+	"path/filepath"
 
 	"github.com/vaayne/anna/internal/sandbox"
 )
@@ -12,47 +12,62 @@ type hostPathInfo struct {
 	IsDir  bool
 }
 
-func statHostPath(ctx context.Context, host sandbox.Host, path string) (hostPathInfo, error) {
+func resolvePresetHost(ctx context.Context, host sandbox.Host, path string) (sandbox.Host, func(), error) {
 	if host != nil {
-		stat, err := host.Stat(ctx, path)
-		if err == nil {
-			return hostPathInfo{Exists: stat.Exists, IsDir: stat.IsDir}, nil
-		}
+		return host, func() {}, nil
 	}
-	info, err := os.Stat(path)
+	workingDir := path
+	if workingDir == "" {
+		workingDir = "."
+	}
+	if ext := filepath.Ext(workingDir); ext != "" {
+		workingDir = filepath.Dir(workingDir)
+	}
+	session, err := sandbox.GlobalRegistry().CreateRelaxedSession(ctx, sandbox.Policy{
+		Backend: "local",
+		Filesystem: sandbox.FilesystemPolicy{
+			WorkingDir:   workingDir,
+			AllowEscapes: true,
+		},
+		Network: sandbox.NetworkPolicy{Mode: sandbox.NetworkAllowAll},
+	})
 	if err != nil {
-		if os.IsNotExist(err) {
-			return hostPathInfo{}, nil
-		}
+		return nil, func() {}, err
+	}
+	return session.Host(), func() { _ = session.Close() }, nil
+}
+
+func statHostPath(ctx context.Context, host sandbox.Host, path string) (hostPathInfo, error) {
+	host, closeHost, err := resolvePresetHost(ctx, host, path)
+	if err != nil {
 		return hostPathInfo{}, err
 	}
-	return hostPathInfo{Exists: true, IsDir: info.IsDir()}, nil
+	defer closeHost()
+	stat, err := host.Stat(ctx, path)
+	if err != nil {
+		return hostPathInfo{}, err
+	}
+	return hostPathInfo{Exists: stat.Exists, IsDir: stat.IsDir}, nil
 }
 
 func readHostDir(ctx context.Context, host sandbox.Host, path string) ([]sandbox.DirEntry, error) {
-	if host != nil {
-		entries, err := host.ListDir(ctx, path)
-		if err == nil {
-			return entries, nil
-		}
-	}
-	entries, err := os.ReadDir(path)
+	host, closeHost, err := resolvePresetHost(ctx, host, path)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]sandbox.DirEntry, 0, len(entries))
-	for _, entry := range entries {
-		result = append(result, sandbox.DirEntry{Name: entry.Name(), IsDir: entry.IsDir()})
-	}
-	return result, nil
+	defer closeHost()
+	return host.ListDir(ctx, path)
 }
 
 func readHostFile(ctx context.Context, host sandbox.Host, path string) ([]byte, error) {
-	if host != nil {
-		result, err := host.ReadFile(ctx, path, 0, 0)
-		if err == nil {
-			return result.Content, nil
-		}
+	host, closeHost, err := resolvePresetHost(ctx, host, path)
+	if err != nil {
+		return nil, err
 	}
-	return os.ReadFile(path)
+	defer closeHost()
+	result, err := host.ReadFile(ctx, path, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	return result.Content, nil
 }

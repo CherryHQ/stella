@@ -24,7 +24,7 @@ body
 		t.Fatal(err)
 	}
 
-	skills := LoadSkillsWithConfig(context.Background(), LoadSkillsConfig{
+	skills := LoadSkills(context.Background(), LoadSkillsConfig{
 		HomeDir: home,
 	})
 	if len(skills) != 1 {

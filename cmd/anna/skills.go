@@ -204,7 +204,7 @@ func loadInstalledSkills(ctx context.Context) ([]skillstool.Skill, error) {
 	}
 	cwd, _ := os.Getwd()
 	home, _ := os.UserHomeDir()
-	return skillstool.LoadSkillsWithConfig(ctx, skillstool.LoadSkillsConfig{
+	return skillstool.LoadSkills(ctx, skillstool.LoadSkillsConfig{
 		HomeDir:   home,
 		AnnaHome:  config.AnnaHome(),
 		Workspace: snap.Workspace,
