@@ -70,7 +70,7 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 		return norm.Content, fmt.Errorf("bash: %w", err)
 	}
 
-	norm := t.normalizer.NormalizeExec(ExecResult(result), time.Since(start))
+	norm := t.normalizer.NormalizeExec(result, time.Since(start))
 	if norm.IsError {
 		return norm.Content, fmt.Errorf("bash: exit code %d", result.ExitCode)
 	}
