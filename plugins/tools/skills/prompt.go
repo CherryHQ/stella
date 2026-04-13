@@ -8,14 +8,13 @@ import (
 )
 
 func buildPromptSection(_ context.Context, build pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
-	skills := VisibleSkills(LoadSkills(
-		context.Background(),
-		nil,
-		build.AnnaHome,
-		build.Workspace,
-		build.Cwd,
-		userSkillsDir(build.UserDataDir),
-	))
+	skills := VisibleSkills(loadSkillsFromConfig(context.Background(), LoadSkillsConfig{
+		HomeDir:       build.HomeDir,
+		AnnaHome:      build.AnnaHome,
+		Workspace:     build.Workspace,
+		Cwd:           build.Cwd,
+		UserSkillsDir: userSkillsDir(build.UserDataDir),
+	}))
 	if len(skills) == 0 {
 		return pkgplugins.SystemPromptSection{}, nil
 	}

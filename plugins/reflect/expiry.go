@@ -44,7 +44,7 @@ func expireDraftsInDir(dir string, cutoff time.Time, log *slog.Logger) {
 		return
 	}
 
-	loaded := skillstool.LoadSkills(context.Background(), nil, "", "", "", dir)
+	loaded := skillstool.LoadSkillsWithConfig(context.Background(), skillstool.LoadSkillsConfig{UserSkillsDir: dir})
 	for _, s := range loaded {
 		if s.Status != skillstool.SkillStatusDraft {
 			continue

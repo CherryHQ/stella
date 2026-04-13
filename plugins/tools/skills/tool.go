@@ -56,6 +56,7 @@ var skillsInputSchema = func() map[string]any {
 }()
 
 type Tool struct {
+	homeDir       string
 	annaHome      string
 	workspace     string
 	cwd           string
@@ -63,8 +64,13 @@ type Tool struct {
 	host          sandbox.Host
 }
 
-func NewTool(annaHome, workspace, cwd, userSkillsDir string, host sandbox.Host) *Tool {
+func NewTool(annaHome, workspace, cwd, userSkillsDir string, host sandbox.Host, homeDir ...string) *Tool {
+	var resolvedHome string
+	if len(homeDir) > 0 {
+		resolvedHome = homeDir[0]
+	}
 	return &Tool{
+		homeDir:       resolvedHome,
 		annaHome:      annaHome,
 		workspace:     workspace,
 		cwd:           cwd,
@@ -178,7 +184,14 @@ type installedSkill struct {
 }
 
 func (t *Tool) list(ctx context.Context) (string, error) {
-	all := LoadSkills(ctx, t.host, t.annaHome, t.workspace, t.cwd, t.userSkillsDir)
+	all := loadSkillsFromConfig(ctx, LoadSkillsConfig{
+		Host:          t.host,
+		HomeDir:       t.homeDir,
+		AnnaHome:      t.annaHome,
+		Workspace:     t.workspace,
+		Cwd:           t.cwd,
+		UserSkillsDir: t.userSkillsDir,
+	})
 	if len(all) == 0 {
 		return "No skills installed.", nil
 	}
@@ -205,7 +218,14 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 		return "", fmt.Errorf("name is required for load action")
 	}
 
-	all := LoadSkills(ctx, t.host, t.annaHome, t.workspace, t.cwd, t.userSkillsDir)
+	all := loadSkillsFromConfig(ctx, LoadSkillsConfig{
+		Host:          t.host,
+		HomeDir:       t.homeDir,
+		AnnaHome:      t.annaHome,
+		Workspace:     t.workspace,
+		Cwd:           t.cwd,
+		UserSkillsDir: t.userSkillsDir,
+	})
 	for _, s := range all {
 		if s.Name == name {
 			data, err := readSkillFile(ctx, t.host, s.FilePath)

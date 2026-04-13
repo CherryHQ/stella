@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 
 // LoadAgentPresetsConfig configures the agent preset discovery paths.
 type LoadAgentPresetsConfig struct {
+	HomeDir          string       // user home directory for common presets
 	Workspace        string       // agent workspace dir (e.g. ~/.anna/workspaces/{agentID})
 	Cwd              string       // working directory
 	BuiltinSkillsDir string       // pre-extracted builtin skills directory (caller ensures extraction)
@@ -24,8 +24,7 @@ type LoadAgentPresetsConfig struct {
 // LoadAgentPresets discovers agent presets from multiple directories.
 // Priority order: cwd/.agents/agents/ > workspace/agents/ > ~/.agents/agents/ > builtin
 func LoadAgentPresets(cfg LoadAgentPresetsConfig) []AgentPreset {
-	home, _ := os.UserHomeDir()
-	return loadAgentPresets(context.Background(), cfg.Host, home, cfg.Workspace, cfg.Cwd, cfg.BuiltinSkillsDir)
+	return loadAgentPresets(context.Background(), cfg.Host, cfg.HomeDir, cfg.Workspace, cfg.Cwd, cfg.BuiltinSkillsDir)
 }
 
 func loadAgentPresets(ctx context.Context, host sandbox.Host, homeDir, workspace, cwd, builtinSkillsDir string) []AgentPreset {

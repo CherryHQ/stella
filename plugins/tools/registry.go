@@ -11,6 +11,7 @@ type BuildContext struct {
 	WorkDir     string                    // working directory for tool execution
 	UserDataDir string                    // per-user sandbox directory (empty = no sandbox)
 	AnnaHome    string                    // anna home directory (e.g. ~/.anna)
+	HomeDir     string                    // user home directory for common config/skills lookup
 	Workspace   string                    // agent workspace dir
 	ToolsBinDir string                    // path to anna tools bin directory (prepended to PATH)
 	Sandbox     pkgplugins.SandboxRuntime // sandbox runtime abstraction for plugins

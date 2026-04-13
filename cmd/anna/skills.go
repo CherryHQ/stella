@@ -203,7 +203,13 @@ func loadInstalledSkills(ctx context.Context) ([]skillstool.Skill, error) {
 		return nil, err
 	}
 	cwd, _ := os.Getwd()
-	return skillstool.LoadSkills(ctx, nil, config.AnnaHome(), snap.Workspace, cwd), nil
+	home, _ := os.UserHomeDir()
+	return skillstool.LoadSkillsWithConfig(ctx, skillstool.LoadSkillsConfig{
+		HomeDir:   home,
+		AnnaHome:  config.AnnaHome(),
+		Workspace: snap.Workspace,
+		Cwd:       cwd,
+	}), nil
 }
 
 func skillsRemoveCommand() *ucli.Command {

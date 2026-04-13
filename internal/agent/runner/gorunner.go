@@ -191,6 +191,7 @@ func buildToolRegistry(cfg GoRunnerConfig, session *runnerSession) (*tools.Regis
 	if annaHome == "" {
 		annaHome = config.AnnaHome()
 	}
+	homeDir, _ := os.UserHomeDir()
 	if err := embedded.EnsureTools(annaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
@@ -209,6 +210,7 @@ func buildToolRegistry(cfg GoRunnerConfig, session *runnerSession) (*tools.Regis
 		WorkDir:     cfg.WorkDir,
 		UserDataDir: cfg.UserDataDir,
 		AnnaHome:    cfg.AnnaHome,
+		HomeDir:     homeDir,
 		Workspace:   cfg.Workspace,
 		ToolsBinDir: toolsBinDir,
 		Sandbox:     session.Runtime(),
@@ -248,11 +250,13 @@ func buildAgentPresets(cfg GoRunnerConfig, host internalsandbox.Host) *agenttool
 	if annaHome == "" {
 		annaHome = config.AnnaHome()
 	}
+	homeDir, _ := os.UserHomeDir()
 	builtinSkillsDir := filepath.Join(annaHome, "cache", "builtin-skills")
 	if err := builtin.Extract(builtinSkillsDir); err != nil {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
 	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
+		HomeDir:          homeDir,
 		Workspace:        cfg.Workspace,
 		Cwd:              cfg.WorkDir,
 		BuiltinSkillsDir: builtinSkillsDir,

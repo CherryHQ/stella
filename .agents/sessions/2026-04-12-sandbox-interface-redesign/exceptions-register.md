@@ -48,21 +48,6 @@ Closure Plan: when/how this will be addressed
 
 ---
 
-### EX-003: Agent Preset Discovery Home Resolution Fallback
-
-| Field | Value |
-|-------|-------|
-| **ID** | EX-003 |
-| **Path** | `plugins/tools/agent/preset_loader.go`, `plugins/tools/agent/hostfs.go` |
-| **Access Type** | Filesystem |
-| **Operations** | `os.UserHomeDir`, fallback `os.Stat` / `os.ReadDir` / `os.ReadFile` when no host is injected |
-| **Owner** | `plugins/tools/agent` |
-| **Reason** | Phase 5 moved preset loading to host-first mediation during runner execution. Remaining direct access is limited to home-directory discovery and non-sandboxed/no-host callers. |
-| **Risk Level** | Low |
-| **Closure Plan** | **PHASE 6** - Introduce a host-backed/common config path service for home discovery or make all preset consumers pass a host/context explicitly. |
-
----
-
 ### EX-004: Skills Catalog Home Resolution Fallback
 
 | Field | Value |
@@ -70,11 +55,11 @@ Closure Plan: when/how this will be addressed
 | **ID** | EX-004 |
 | **Path** | `plugins/tools/skills/catalog.go`, `plugins/tools/skills/hostfs.go` |
 | **Access Type** | Filesystem |
-| **Operations** | `os.UserHomeDir`, fallback `os.Stat` / `os.ReadDir` / `os.ReadFile` when no host is injected |
+| **Operations** | Deprecated compatibility wrapper uses `os.UserHomeDir`; no-host callers still fall back to `os.Stat` / `os.ReadDir` / `os.ReadFile` |
 | **Owner** | `plugins/tools/skills` |
-| **Reason** | Phase 5 moved list/load/create/patch/remove and prompt-visible skill discovery to host-first mediation. Remaining direct access is limited to home-directory discovery and non-sandboxed/no-host callers. |
+| **Reason** | Phase 6 threaded explicit `HomeDir` through active skills runtime/prompt/CLI callers and moved them onto `LoadSkillsWithConfig(...)`. The remaining direct home lookup is isolated to the deprecated compatibility wrapper and legacy/no-host paths. |
 | **Risk Level** | Low |
-| **Closure Plan** | **PHASE 6** - Replace home discovery with an explicit config/path service and remove filesystem fallbacks once all runtime callers inject a host. |
+| **Closure Plan** | **PHASE 6** - Remove the deprecated wrapper and remaining no-host call sites once prompt/runtime construction is fully host/context-backed. |
 
 ---
 
@@ -170,7 +155,7 @@ These are infrastructure processes (the sandbox backend itself), not user tool e
 
 | ID | Description | Closure Date | Resolution |
 |----|-------------|--------------|------------|
-| *None yet* | - | - | - |
+| EX-003 | Agent Preset Discovery Home Resolution Fallback | 2026-04-13 | Removed `os.UserHomeDir` fallback from `LoadAgentPresets` and threaded explicit `HomeDir` from runner callers. |
 
 ---
 
@@ -180,6 +165,8 @@ These are infrastructure processes (the sandbox backend itself), not user tool e
 |------|--------|--------------|-------|
 | 2026-04-12 | Created | EX-001 through EX-008 | Initial exceptions register for Phase 1 |
 | 2026-04-13 | Updated | EX-003 through EX-005 | Narrowed from active runtime bypasses to host-first mediation with explicit nil-host fallbacks after Phase 5 work |
+| 2026-04-13 | Closed | EX-003 | Removed preset home-directory fallback by threading explicit `HomeDir` into active preset discovery callers |
+| 2026-04-13 | Updated | EX-004 | Narrowed to deprecated skills compatibility wrapper and remaining no-host fallback paths after explicit `HomeDir` threading |
 | 2026-04-13 | Added | EX-009 | Recorded remaining direct MCP remote transport dialing after stdio moved onto `sandbox.Host.StartProcess` |
 
 ---

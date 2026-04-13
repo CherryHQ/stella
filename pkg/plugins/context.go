@@ -33,6 +33,7 @@ type ToolContext struct {
 	WorkDir     string
 	UserDataDir string
 	AnnaHome    string
+	HomeDir     string
 	Workspace   string
 	ToolsBinDir string
 	Sandbox     SandboxRuntime
@@ -93,6 +94,7 @@ type SystemPromptContext struct {
 	Platform    Platform
 	State       PluginState
 	AnnaHome    string
+	HomeDir     string
 	Workspace   string
 	Cwd         string
 	UserID      int64

@@ -385,6 +385,27 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 	}
 }
 
+func TestLoadAgentPresetsUsesConfiguredHomeDir(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	builtin := t.TempDir()
+	mkdirAll(t, filepath.Join(home, ".agents", "agents"), 0o755)
+	writeTestFile(t, filepath.Join(home, ".agents", "agents", "common.md"),
+		[]byte("---\nname: common\ndescription: From configured home\n---\nBody."), 0o644)
+
+	presets := LoadAgentPresets(LoadAgentPresetsConfig{
+		HomeDir:          home,
+		BuiltinSkillsDir: builtin,
+	})
+	if len(presets) != 1 {
+		t.Fatalf("expected 1 preset, got %d", len(presets))
+	}
+	if presets[0].Source != "common" {
+		t.Fatalf("preset source = %q, want common", presets[0].Source)
+	}
+}
+
 func TestLoadAgentPresetsPathDedup(t *testing.T) {
 	t.Parallel()
 

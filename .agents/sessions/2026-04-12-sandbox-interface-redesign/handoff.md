@@ -287,3 +287,41 @@
 - Skills, preset discovery, prompt context, and MCP stdio process spawning are now host-first; remaining direct access in those areas is explicitly limited to nil-host fallback paths or remote MCP transport dialing.
 - Remote MCP HTTP/SSE transport remains the main explicit exception because the managed runtime is still process-wide rather than session-scoped.
 - The new bypass guard only covers the files migrated in this slice; Phase 6 should extend that guard or replace it with a broader lint rule and decide whether remote MCP transport becomes mediated or remains a documented separate trust boundary.
+
+## Phase 6: Cleanup and verification
+
+**Status:** in progress
+
+**Slices completed so far:**
+
+- Removed the dead runner-side `sandboxBackend` compatibility shim and its legacy tests so `runnerSession` is now the only runner-owned sandbox seam.
+- Added explicit `sandbox.exception_path` observability for remote MCP SSE/HTTP/StreamableHTTP dialing, keeping `EX-009` explicit instead of silent.
+- Threaded explicit `HomeDir` through active agent-preset and skills discovery callers so runtime/prompt/CLI code no longer relies on implicit home-directory lookup in those paths.
+- Added regression tests covering the explicit MCP exception log and explicit-home discovery for presets/skills.
+
+**Files changed in Phase 6 so far:**
+
+- `internal/agent/runner/{gorunner.go,sandbox_backend.go,sandbox_backend_test.go}`
+- `internal/sandbox/observe.go`
+- `plugins/tools/mcp/{session.go,session_test.go}`
+- `pkg/plugins/context.go`
+- `plugins/tools/registry.go`
+- `internal/pluginhost/{builders.go,host.go}`
+- `plugins/tools/agent/{preset_loader.go,preset_loader_test.go}`
+- `plugins/tools/skills/{catalog.go,catalog_test.go,tool.go,plugin.go,prompt.go,prompt_test.go}`
+- `cmd/anna/skills.go`
+- `plugins/reflect/{conversation_review.go,expiry.go}`
+- `internal/agent/factory.go`
+- `internal/admin/sessions.go`
+- `.agents/sessions/2026-04-12-sandbox-interface-redesign/exceptions-register.md`
+
+**Validation so far:**
+
+- `mise run format`
+- `mise run test`
+
+**Remaining highest-priority Phase 6 work:**
+
+- Decide whether `EX-009` becomes mediated or remains a formal separate trust boundary in code/docs.
+- Remove remaining nil-host prompt fallback paths in `internal/agent/runner/prompt_host.go` once all prompt construction paths can carry execution-time context/host.
+- Extend or generalize the static bypass guard beyond the currently migrated file set.

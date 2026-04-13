@@ -65,8 +65,10 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, coreToolsB
 			}
 			var promptSections []pkgplugins.SystemPromptSection
 			if promptSectionsFn != nil {
+				homeDir, _ := os.UserHomeDir()
 				promptSections, _ = promptSectionsFn(ctx, pkgplugins.SystemPromptContext{
 					AnnaHome:    config.AnnaHome(),
+					HomeDir:     homeDir,
 					Workspace:   snap.Workspace,
 					Cwd:         cwd,
 					UserID:      params.UserID,

@@ -31,6 +31,16 @@ type Skill struct {
 	DisableModelInvocation bool
 }
 
+// LoadSkillsConfig controls skill discovery roots.
+type LoadSkillsConfig struct {
+	Host          sandbox.Host
+	HomeDir       string
+	AnnaHome      string
+	Workspace     string
+	Cwd           string
+	UserSkillsDir string
+}
+
 type skillFrontmatter struct {
 	Name                   string `yaml:"name"`
 	Description            string `yaml:"description"`
@@ -47,13 +57,30 @@ const (
 var validNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 // LoadSkills discovers skills from project, user, workspace, and common directories.
+//
+// Deprecated: prefer LoadSkillsWithConfig with an explicit HomeDir.
 func LoadSkills(ctx context.Context, host sandbox.Host, annaHome, workspace, cwd string, userSkillsDir ...string) []Skill {
 	home, _ := os.UserHomeDir()
 	var usd string
 	if len(userSkillsDir) > 0 {
 		usd = userSkillsDir[0]
 	}
-	return loadSkills(ctx, host, home, annaHome, workspace, cwd, usd)
+	return loadSkillsFromConfig(ctx, LoadSkillsConfig{
+		Host:          host,
+		HomeDir:       home,
+		AnnaHome:      annaHome,
+		Workspace:     workspace,
+		Cwd:           cwd,
+		UserSkillsDir: usd,
+	})
+}
+
+func LoadSkillsWithConfig(ctx context.Context, cfg LoadSkillsConfig) []Skill {
+	return loadSkills(ctx, cfg.Host, cfg.HomeDir, cfg.AnnaHome, cfg.Workspace, cfg.Cwd, cfg.UserSkillsDir)
+}
+
+func loadSkillsFromConfig(ctx context.Context, cfg LoadSkillsConfig) []Skill {
+	return LoadSkillsWithConfig(ctx, cfg)
 }
 
 func loadSkills(ctx context.Context, host sandbox.Host, homeDir, annaHome, workspace, cwd, userSkillsDir string) []Skill {
