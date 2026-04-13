@@ -82,6 +82,12 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 	return norm.Content, nil
 }
 
+type LineOrientedReaderHost interface {
+	Host
+	ReadFileLines(ctx context.Context, path string, offset, limit int) (ReadResult, error)
+	ReadAllFile(ctx context.Context, path string) ([]byte, error)
+}
+
 type hostReadTool struct{ host Host }
 
 func (t *hostReadTool) Definition() tools.Definition {
@@ -109,8 +115,8 @@ func (t *hostReadTool) Execute(ctx context.Context, args map[string]any) (string
 	offset := max(toolIntArg(args, "offset", 1), 1)
 	limit := toolIntArg(args, "limit", 0)
 
-	if boxsh, ok := t.host.(*boxshHost); ok {
-		return t.executeBoxsh(ctx, boxsh, path, offset, limit)
+	if reader, ok := t.host.(LineOrientedReaderHost); ok {
+		return t.executeLineReader(ctx, reader, path, offset, limit)
 	}
 
 	result, err := t.host.ReadFile(ctx, path, 0, 0)
@@ -232,8 +238,8 @@ func (t *hostEditTool) Execute(ctx context.Context, args map[string]any) (string
 	return fmt.Sprintf("Edited %s (%d replacements)", path, result.AppliedEdits), nil
 }
 
-func (t *hostReadTool) executeBoxsh(ctx context.Context, host *boxshHost, path string, offset, limit int) (string, error) {
-	result, err := host.ReadFile(ctx, path, offset, limit)
+func (t *hostReadTool) executeLineReader(ctx context.Context, host LineOrientedReaderHost, path string, offset, limit int) (string, error) {
+	result, err := host.ReadFileLines(ctx, path, offset, limit)
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", path, err)
 	}
@@ -261,35 +267,14 @@ func (t *hostReadTool) executeBoxsh(ctx context.Context, host *boxshHost, path s
 }
 
 func readAllForEdit(ctx context.Context, host Host, path string) ([]byte, error) {
-	if boxsh, ok := host.(*boxshHost); ok {
-		return readAllBoxsh(ctx, boxsh, path)
+	if reader, ok := host.(LineOrientedReaderHost); ok {
+		return reader.ReadAllFile(ctx, path)
 	}
 	result, err := host.ReadFile(ctx, path, 0, 0)
 	if err != nil {
 		return nil, err
 	}
 	return result.Content, nil
-}
-
-func readAllBoxsh(ctx context.Context, host *boxshHost, path string) ([]byte, error) {
-	offset := 1
-	var out strings.Builder
-	for {
-		result, err := host.ReadFile(ctx, path, offset, 0)
-		if err != nil {
-			return nil, err
-		}
-		out.Write(result.Content)
-		if !result.Truncated {
-			break
-		}
-		nextOffset := result.NextOffset
-		if nextOffset <= offset {
-			nextOffset = offset + max(lineCount(string(result.Content)), 1)
-		}
-		offset = nextOffset
-	}
-	return []byte(out.String()), nil
 }
 
 func paginateReadContent(content string, offset, limit int) (string, int) {
@@ -306,17 +291,6 @@ func paginateReadContent(content string, offset, limit int) (string, int) {
 		selected = selected[:limit]
 	}
 	return strings.Join(selected, ""), totalLines
-}
-
-func lineCount(content string) int {
-	if content == "" {
-		return 0
-	}
-	count := strings.Count(content, "\n")
-	if !strings.HasSuffix(content, "\n") {
-		count++
-	}
-	return count
 }
 
 func toolIntArg(args map[string]any, key string, defaultVal int) int {

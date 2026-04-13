@@ -1,4 +1,4 @@
-package sandbox
+package sandbox_test
 
 import (
 	"context"
@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	. "github.com/vaayne/anna/internal/sandbox"
+
+	localbackend "github.com/vaayne/anna/internal/sandbox/local"
 	pkgtools "github.com/vaayne/anna/pkg/tools"
 )
 
@@ -18,7 +21,7 @@ func TestNewCoreToolsLocalParity(t *testing.T) {
 		t.Fatalf("WriteFile tool: %v", err)
 	}
 
-	session := newLocalSession(Policy{
+	session := mustCreateLocalSession(t, Policy{
 		Backend: "local",
 		Relaxed: true,
 		Filesystem: FilesystemPolicy{
@@ -78,7 +81,7 @@ func TestNewCoreToolsLocalParity(t *testing.T) {
 
 func TestNewCoreToolsReadRejectsBinaryFiles(t *testing.T) {
 	workspace := t.TempDir()
-	session := newLocalSession(Policy{
+	session := mustCreateLocalSession(t, Policy{
 		Backend:    "local",
 		Relaxed:    true,
 		Filesystem: FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace},
@@ -99,7 +102,7 @@ func TestNewCoreToolsReadRejectsBinaryFiles(t *testing.T) {
 
 func TestNewCoreToolsReadLongFirstLineWithLimitKeepsContinuationAccurate(t *testing.T) {
 	workspace := t.TempDir()
-	session := newLocalSession(Policy{
+	session := mustCreateLocalSession(t, Policy{
 		Backend:    "local",
 		Relaxed:    true,
 		Filesystem: FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace},
@@ -128,7 +131,7 @@ func TestNewCoreToolsReadLongFirstLineWithLimitKeepsContinuationAccurate(t *test
 
 func TestNewCoreToolsEditRequiresUniqueMatch(t *testing.T) {
 	workspace := t.TempDir()
-	session := newLocalSession(Policy{
+	session := mustCreateLocalSession(t, Policy{
 		Backend:    "local",
 		Relaxed:    true,
 		Filesystem: FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace},
@@ -149,6 +152,15 @@ func TestNewCoreToolsEditRequiresUniqueMatch(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "must be unique") {
 		t.Fatalf("expected unique match error, got %v", err)
 	}
+}
+
+func mustCreateLocalSession(t *testing.T, policy Policy) Session {
+	t.Helper()
+	session, err := localbackend.NewFactory().CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	return session
 }
 
 func mapToolsByName(items []pkgtools.Tool) map[string]pkgtools.Tool {
