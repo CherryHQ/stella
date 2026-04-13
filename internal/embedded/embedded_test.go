@@ -3,7 +3,6 @@ package embedded
 import (
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 )
 
@@ -38,13 +37,15 @@ func TestExtractTools(t *testing.T) {
 }
 
 func TestEnsureToolsIdempotent(t *testing.T) {
-	ensureOnce = sync.Once{}
+	ensureMu.Lock()
+	ensureStates = make(map[string]*ensureState)
+	ensureMu.Unlock()
 	dest := t.TempDir()
 
 	if err := EnsureTools(dest); err != nil {
 		t.Fatal(err)
 	}
-	// Second call should be a no-op (sync.Once)
+	// Second call should be a no-op for the same destination.
 	if err := EnsureTools(dest); err != nil {
 		t.Fatal(err)
 	}

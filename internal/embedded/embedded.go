@@ -12,17 +12,34 @@ import (
 	"sync"
 )
 
-var ensureOnce sync.Once
+type ensureState struct {
+	once sync.Once
+	err  error
+}
+
+var (
+	ensureMu     sync.Mutex
+	ensureStates = make(map[string]*ensureState)
+)
 
 // EnsureTools extracts all embedded tool binaries to annaHome/bin/.
 // Gzip-compressed binaries in the embed FS are decompressed on extraction.
 // Already-extracted binaries are skipped. Safe for concurrent calls.
 func EnsureTools(annaHome string) error {
-	var err error
-	ensureOnce.Do(func() {
-		err = extractTools(BinDir(annaHome))
+	destDir := BinDir(annaHome)
+
+	ensureMu.Lock()
+	state := ensureStates[destDir]
+	if state == nil {
+		state = &ensureState{}
+		ensureStates[destDir] = state
+	}
+	ensureMu.Unlock()
+
+	state.once.Do(func() {
+		state.err = extractTools(destDir)
 	})
-	return err
+	return state.err
 }
 
 // BinDir returns the tool binaries directory path.
