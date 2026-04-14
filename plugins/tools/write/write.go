@@ -28,7 +28,7 @@ func init() {
 			Description: "Write complete file contents.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return NewWriteTool(ctx.WorkDir), nil
+				return NewWriteTool(ctx.Execution.WorkDir), nil
 			},
 		})
 	}))
