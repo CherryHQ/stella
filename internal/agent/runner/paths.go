@@ -42,8 +42,6 @@ func resolveRunnerPaths(cfg GoRunnerConfig) runnerPaths {
 	}
 }
 
-func (p runnerPaths) sandboxRoot() string { return p.UserRoot }
-func (p runnerPaths) processHome() string { return p.UserRoot }
 func (p runnerPaths) toolsBinDir() string { return embedded.BinDir(p.AnnaHome) }
 func (p runnerPaths) builtinSkillsDir() string {
 	return filepath.Join(p.AnnaHome, "cache", "builtin-skills")
@@ -52,7 +50,7 @@ func (p runnerPaths) builtinSkillsDir() string {
 // sandboxRoot returns the directory mounted as the sandbox root.
 // Runner execution is always user-scoped, so this is always UserRoot.
 func sandboxRoot(cfg GoRunnerConfig) string {
-	return resolveRunnerPaths(cfg).sandboxRoot()
+	return resolveRunnerPaths(cfg).UserRoot
 }
 
 // sandboxProcessEnv builds the baseline process environment injected into
@@ -60,8 +58,8 @@ func sandboxRoot(cfg GoRunnerConfig) string {
 // and propagates ANNA_HOME so CLIs don't accidentally target the host home.
 func sandboxProcessEnv(paths runnerPaths) map[string]string {
 	env := map[string]string{}
-	if home := paths.processHome(); home != "" {
-		env["HOME"] = home
+	if paths.UserRoot != "" {
+		env["HOME"] = paths.UserRoot
 	}
 	if paths.AnnaHome != "" {
 		env["ANNA_HOME"] = paths.AnnaHome

@@ -100,7 +100,7 @@ func createLocalSession(_ context.Context, cfg GoRunnerConfig) (*runnerSession, 
 		Backend: config.SandboxBackendLocal,
 		Relaxed: true,
 		Filesystem: sandbox.FilesystemPolicy{
-			WorkspaceRoot: paths.sandboxRoot(),
+			WorkspaceRoot: paths.UserRoot,
 			WorkingDir:    paths.WorkDir,
 			AllowEscapes:  false,
 		},
@@ -151,7 +151,7 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		Backend: config.SandboxBackendBoxsh,
 		Relaxed: false,
 		Filesystem: sandbox.FilesystemPolicy{
-			WorkspaceRoot: paths.sandboxRoot(),
+			WorkspaceRoot: paths.UserRoot,
 			WorkingDir:    paths.WorkDir,
 			ReadOnlyPaths: readOnlyDirs,
 			AllowEscapes:  false,
