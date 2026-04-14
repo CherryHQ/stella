@@ -223,6 +223,32 @@ func TestIdentityUniqueConstraint(t *testing.T) {
 	}
 }
 
+func TestUpdateIdentityExternalID(t *testing.T) {
+	t.Parallel()
+	store, _ := setupAuthStore(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateUser(ctx, "frank", "hash")
+	identity, err := store.CreateIdentity(ctx, auth.Identity{
+		UserID: user.ID, Platform: "feishu", ExternalID: "ou_legacy",
+	})
+	if err != nil {
+		t.Fatalf("CreateIdentity: %v", err)
+	}
+
+	if err := store.UpdateIdentityExternalID(ctx, identity.ID, "on_stable"); err != nil {
+		t.Fatalf("UpdateIdentityExternalID: %v", err)
+	}
+
+	got, err := store.GetIdentityByPlatform(ctx, "feishu", "on_stable")
+	if err != nil {
+		t.Fatalf("GetIdentityByPlatform: %v", err)
+	}
+	if got.ID != identity.ID {
+		t.Fatalf("updated identity id = %d, want %d", got.ID, identity.ID)
+	}
+}
+
 func TestPolicyCRUD(t *testing.T) {
 	t.Parallel()
 	store, _ := setupAuthStore(t)

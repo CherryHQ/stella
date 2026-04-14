@@ -31,11 +31,12 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 		return nil
 	}
 
-	var openID string
-	if data.UserId != nil && data.UserId.OpenId != nil {
-		openID = *data.UserId.OpenId
+	senderIDs := senderIDsFromUserID(data.UserId)
+	openID := ""
+	if data.UserId != nil {
+		openID = derefStr(data.UserId.OpenId)
 	}
-	if openID == "" {
+	if len(senderIDs) == 0 {
 		return nil
 	}
 
@@ -66,13 +67,13 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 
 	reactionText := fmt.Sprintf("[User reacted with %s on message %s]", emojiType, messageID)
 
-	msg := b.incomingMsg(openID, chatID, chatType, channel.TextContent(reactionText))
+	msg := b.incomingMsg(senderIDs, chatID, chatType, channel.TextContent(reactionText))
 	replyFn := func(reply string) {
 		replyCtx, cancel := b.apiContext()
 		defer cancel()
 		b.replyInThread(replyCtx, messageID, rootID, reply)
 	}
-	go b.handleIncoming(msg, "", "", openID, chatID, messageID, rootID, replyFn)
+	go b.handleIncoming(msg, "", "", msg.SenderID, chatID, messageID, rootID, replyFn)
 	return nil
 }
 
@@ -85,11 +86,16 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	msg := event.Event.Message
 	sender := event.Event.Sender
 
-	if sender == nil || sender.SenderId == nil || sender.SenderId.OpenId == nil {
+	if sender == nil || sender.SenderId == nil {
 		return nil
 	}
 
-	openID := *sender.SenderId.OpenId
+	senderIDs := senderIDsFromUserID(sender.SenderId)
+	if len(senderIDs) == 0 {
+		return nil
+	}
+
+	openID := derefStr(sender.SenderId.OpenId)
 
 	if botID, _ := b.botOpenID.Load().(string); botID != "" && openID == botID {
 		return nil
@@ -145,7 +151,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		}
 	}
 
-	incoming := b.incomingMsg(openID, chatID, chatType, content)
+	incoming := b.incomingMsg(senderIDs, chatID, chatType, content)
 
 	// Handle plugin-local commands first.
 	if text != "" {
@@ -165,7 +171,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	// Parse command for coordinator (shared commands + chat streaming).
 	cmd, args := channel.ParseSlashCommand(text)
-	go b.handleIncoming(incoming, cmd, args, openID, chatID, messageID, rootID, replyFn)
+	go b.handleIncoming(incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
 	return nil
 }
 
@@ -404,7 +410,7 @@ func parseTextContent(raw string) string {
 // handleMessage processes an incoming message by streaming the agent response.
 // handleIncoming delegates to the coordinator via HandleIncoming.
 // Shared commands are handled by the coordinator; otherwise a chat stream is returned.
-func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, openID, chatID, messageID, rootID string, replyFn func(string)) {
+func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, chatID, messageID, rootID string, replyFn func(string)) {
 	// Use an operation-scoped context so in-flight work survives bot restarts,
 	// while still supporting explicit user cancellation and bounded execution.
 	ctx, cancel := b.operationContext()
@@ -415,7 +421,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, openID, cha
 
 	resp, handled, stream, err := b.handler.HandleIncoming(ctx, msg, cmd, args)
 	if err != nil {
-		logger().Error("chat failed", "open_id", openID, "error", err)
+		logger().Error("chat failed", "sender_id", senderID, "error", err)
 		replyCtx, cancel := b.apiContext()
 		defer cancel()
 		b.replyInThread(replyCtx, messageID, rootID, fmt.Sprintf("Session error: %v", err))
@@ -426,7 +432,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, openID, cha
 		return
 	}
 
-	logger().Debug("message received", "open_id", openID, "session", stream.SessionID, "root_id", rootID)
+	logger().Debug("message received", "sender_id", senderID, "session", stream.SessionID, "root_id", rootID)
 
 	sentMsgID, response, images, elapsed, streamErr := b.streamResponseInThread(stream.Events, chatID, messageID, rootID)
 
@@ -452,7 +458,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, openID, cha
 		b.sendImageInThread(chatID, messageID, rootID, img)
 	}
 
-	logger().Debug("response sent", "open_id", openID, "response_len", len(response), "images", len(images))
+	logger().Debug("response sent", "sender_id", senderID, "response_len", len(response), "images", len(images))
 }
 
 // replyText sends a text reply to a message.

@@ -159,6 +159,16 @@ func (s *AuthStore) GetIdentityByPlatform(ctx context.Context, platform, externa
 	return identityFromDB(r), nil
 }
 
+func (s *AuthStore) UpdateIdentityExternalID(ctx context.Context, id int64, externalID string) error {
+	if err := s.q.UpdateAuthIdentityExternalID(ctx, sqlc.UpdateAuthIdentityExternalIDParams{
+		ExternalID: externalID,
+		ID:         id,
+	}); err != nil {
+		return fmt.Errorf("update identity %d external_id: %w", id, err)
+	}
+	return nil
+}
+
 func (s *AuthStore) ListIdentitiesByUser(ctx context.Context, userID int64) ([]auth.Identity, error) {
 	rows, err := s.q.ListAuthIdentitiesByUser(ctx, userID)
 	if err != nil {

@@ -124,3 +124,19 @@ func (q *Queries) ListAuthIdentitiesByUser(ctx context.Context, userID int64) ([
 	}
 	return items, nil
 }
+
+const updateAuthIdentityExternalID = `-- name: UpdateAuthIdentityExternalID :exec
+UPDATE auth_identities
+SET external_id = ?
+WHERE id = ?
+`
+
+type UpdateAuthIdentityExternalIDParams struct {
+	ExternalID string `json:"external_id"`
+	ID         int64  `json:"id"`
+}
+
+func (q *Queries) UpdateAuthIdentityExternalID(ctx context.Context, arg UpdateAuthIdentityExternalIDParams) error {
+	_, err := q.db.ExecContext(ctx, updateAuthIdentityExternalID, arg.ExternalID, arg.ID)
+	return err
+}

@@ -598,6 +598,18 @@ func TestIsBotMentionedNilMentionID(t *testing.T) {
 	}
 }
 
+func TestSenderIDsFromUserIDPrefersUnionID(t *testing.T) {
+	unionID := "on_union"
+	openID := "ou_open"
+	ids := senderIDsFromUserID(&larkim.UserId{UnionId: &unionID, OpenId: &openID})
+	if len(ids) != 2 {
+		t.Fatalf("len(ids) = %d, want 2", len(ids))
+	}
+	if ids[0] != unionID || ids[1] != openID {
+		t.Fatalf("ids = %#v, want [%q %q]", ids, unionID, openID)
+	}
+}
+
 // --- markSeen ---
 
 func TestMarkSeenFirstTime(t *testing.T) {

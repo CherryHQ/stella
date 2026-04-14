@@ -24,6 +24,7 @@ type AuthStore interface {
 	CreateIdentity(ctx context.Context, i Identity) (Identity, error)
 	GetIdentity(ctx context.Context, id int64) (Identity, error)
 	GetIdentityByPlatform(ctx context.Context, platform, externalID string) (Identity, error)
+	UpdateIdentityExternalID(ctx context.Context, id int64, externalID string) error
 	ListIdentitiesByUser(ctx context.Context, userID int64) ([]Identity, error)
 	DeleteIdentity(ctx context.Context, id int64) error
 
