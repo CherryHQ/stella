@@ -9,7 +9,7 @@ import (
 )
 
 func TestWriteTool_Definition(t *testing.T) {
-	tool := &WriteTool{}
+	tool := NewWriteTool("")
 	def := tool.Definition()
 	if def.Name != "write" {
 		t.Errorf("expected name 'write', got %q", def.Name)
@@ -20,10 +20,10 @@ func TestWriteTool_CreateNewFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hello.txt")
 
-	tool := &WriteTool{}
+	tool := NewWriteTool("")
 	result, err := tool.Execute(context.Background(), map[string]any{
-		"file_path": path,
-		"content":   "hello world",
+		"path":    path,
+		"content": "hello world",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -42,6 +42,27 @@ func TestWriteTool_CreateNewFile(t *testing.T) {
 	}
 }
 
+func TestWriteTool_ResolvesRelativePathFromWorkDir(t *testing.T) {
+	workDir := t.TempDir()
+	tool := NewWriteTool(workDir)
+
+	_, err := tool.Execute(context.Background(), map[string]any{
+		"path":    "nested/file.txt",
+		"content": "hello",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(workDir, "nested", "file.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("expected written content, got %q", string(data))
+	}
+}
+
 func TestWriteTool_OverwriteExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "file.txt")
@@ -50,10 +71,10 @@ func TestWriteTool_OverwriteExistingFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := &WriteTool{}
+	tool := NewWriteTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{
-		"file_path": path,
-		"content":   "new content",
+		"path":    path,
+		"content": "new content",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -72,10 +93,10 @@ func TestWriteTool_CreatesParentDirs(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "a", "b", "c", "file.txt")
 
-	tool := &WriteTool{}
+	tool := NewWriteTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{
-		"file_path": path,
-		"content":   "nested",
+		"path":    path,
+		"content": "nested",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -86,12 +107,34 @@ func TestWriteTool_CreatesParentDirs(t *testing.T) {
 	}
 }
 
-func TestWriteTool_MissingFilePath(t *testing.T) {
-	tool := &WriteTool{}
+func TestWriteTool_AcceptsLegacyFilePath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "legacy.txt")
+
+	tool := NewWriteTool("")
+	_, err := tool.Execute(context.Background(), map[string]any{
+		"file_path": path,
+		"content":   "legacy",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "legacy" {
+		t.Fatalf("expected legacy write content, got %q", string(data))
+	}
+}
+
+func TestWriteTool_MissingPath(t *testing.T) {
+	tool := NewWriteTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{
 		"content": "data",
 	})
 	if err == nil {
-		t.Error("expected error when file_path is missing")
+		t.Error("expected error when path is missing")
 	}
 }

@@ -9,7 +9,7 @@ import (
 )
 
 func TestReadTool_Definition(t *testing.T) {
-	tool := &ReadTool{}
+	tool := NewReadTool("")
 	def := tool.Definition()
 	if def.Name != "read" {
 		t.Errorf("expected name 'read', got %q", def.Name)
@@ -23,15 +23,37 @@ func TestReadTool_BasicRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := &ReadTool{}
+	tool := NewReadTool("")
 	result, err := tool.Execute(context.Background(), map[string]any{
-		"file_path": path,
+		"path": path,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(result, "line1") || !strings.Contains(result, "line3") {
 		t.Errorf("unexpected result: %q", result)
+	}
+}
+
+func TestReadTool_ResolvesRelativePathFromWorkDir(t *testing.T) {
+	workDir := t.TempDir()
+	path := filepath.Join(workDir, "nested", "file.txt")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewReadTool(workDir)
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"path": "nested/file.txt",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, "hello") {
+		t.Fatalf("unexpected result: %q", result)
 	}
 }
 
@@ -43,10 +65,10 @@ func TestReadTool_WithOffset(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := &ReadTool{}
+	tool := NewReadTool("")
 	result, err := tool.Execute(context.Background(), map[string]any{
-		"file_path": path,
-		"offset":    float64(2), // start at line 2
+		"path":   path,
+		"offset": float64(2),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -67,10 +89,10 @@ func TestReadTool_WithLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := &ReadTool{}
+	tool := NewReadTool("")
 	result, err := tool.Execute(context.Background(), map[string]any{
-		"file_path": path,
-		"limit":     float64(1),
+		"path":  path,
+		"limit": float64(1),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -83,18 +105,37 @@ func TestReadTool_WithLimit(t *testing.T) {
 	}
 }
 
-func TestReadTool_MissingFilePath(t *testing.T) {
-	tool := &ReadTool{}
+func TestReadTool_AcceptsLegacyFilePath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "file.txt")
+	if err := os.WriteFile(path, []byte("legacy\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewReadTool("")
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"file_path": path,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, "legacy") {
+		t.Fatalf("unexpected result: %q", result)
+	}
+}
+
+func TestReadTool_MissingPath(t *testing.T) {
+	tool := NewReadTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{})
 	if err == nil {
-		t.Error("expected error when file_path is missing")
+		t.Error("expected error when path is missing")
 	}
 }
 
 func TestReadTool_NonExistentFile(t *testing.T) {
-	tool := &ReadTool{}
+	tool := NewReadTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{
-		"file_path": "/nonexistent/path/file.txt",
+		"path": "/nonexistent/path/file.txt",
 	})
 	if err == nil {
 		t.Error("expected error for non-existent file")
@@ -104,14 +145,13 @@ func TestReadTool_NonExistentFile(t *testing.T) {
 func TestReadTool_BinaryFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "binary.bin")
-	// Write binary content (null bytes).
 	if err := os.WriteFile(path, []byte("binary\x00\x00\x00data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	tool := &ReadTool{}
+	tool := NewReadTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{
-		"file_path": path,
+		"path": path,
 	})
 	if err == nil {
 		t.Error("expected error for binary file")

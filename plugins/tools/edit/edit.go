@@ -28,14 +28,20 @@ func init() {
 			Description: "Edit existing files.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return &EditTool{}, nil
+				return NewEditTool(ctx.WorkDir), nil
 			},
 		})
 	}))
 }
 
 // EditTool makes surgical edits to files by exact string replacement.
-type EditTool struct{}
+type EditTool struct {
+	workDir string
+}
+
+func NewEditTool(workDir string) *EditTool {
+	return &EditTool{workDir: workDir}
+}
 
 func (t *EditTool) Definition() tools.Definition {
 	return tools.Definition{
@@ -44,54 +50,76 @@ func (t *EditTool) Definition() tools.Definition {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"file_path": map[string]any{
+				"path": map[string]any{
 					"type":        "string",
 					"description": "Path to the file to edit.",
+				},
+				"file_path": map[string]any{
+					"type":        "string",
+					"description": "Legacy alias for path.",
+				},
+				"oldText": map[string]any{
+					"type":        "string",
+					"description": "Preferred alias for old_string.",
 				},
 				"old_string": map[string]any{
 					"type":        "string",
 					"description": "The exact text to find and replace. Must match the file content exactly.",
+				},
+				"newText": map[string]any{
+					"type":        "string",
+					"description": "Preferred alias for new_string.",
 				},
 				"new_string": map[string]any{
 					"type":        "string",
 					"description": "The replacement text.",
 				},
 			},
-			"required": []string{"file_path", "old_string", "new_string"},
+			"anyOf": []map[string]any{
+				{"required": []string{"path", "oldText", "newText"}},
+				{"required": []string{"path", "old_string", "new_string"}},
+				{"required": []string{"file_path", "oldText", "newText"}},
+				{"required": []string{"file_path", "old_string", "new_string"}},
+			},
 		},
 	}
 }
 
 func (t *EditTool) Execute(_ context.Context, args map[string]any) (string, error) {
-	path, _ := args["file_path"].(string)
-	oldStr, _ := args["old_string"].(string)
-	newStr, _ := args["new_string"].(string)
+	requestedPath := tools.StringArg(args, "path", "file_path")
+	oldStr := tools.StringArg(args, "oldText", "old_string")
+	newStr := tools.StringArg(args, "newText", "new_string")
 
-	if path == "" {
-		return "", fmt.Errorf("edit: file_path is required")
+	if requestedPath == "" {
+		return "", fmt.Errorf("edit: path is required")
 	}
 	if oldStr == "" {
-		return "", fmt.Errorf("edit: old_string is required")
+		return "", fmt.Errorf("edit: oldText is required")
+	}
+
+	path, err := tools.ResolvePath(t.workDir, requestedPath)
+	if err != nil {
+		return "", fmt.Errorf("edit %s: %w", requestedPath, err)
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("edit: read %s: %w", path, err)
+		return "", fmt.Errorf("edit: read %s: %w", requestedPath, err)
 	}
 
 	content := string(data)
 	count := strings.Count(content, oldStr)
 	if count == 0 {
-		return "", fmt.Errorf("edit: old_string not found in %s", path)
+		return "", fmt.Errorf("edit: oldText not found in %s", requestedPath)
 	}
 	if count > 1 {
-		return "", fmt.Errorf("edit: old_string matches %d times in %s (must be unique)", count, path)
+		return "", fmt.Errorf("edit: oldText matches %d times in %s (must be unique)", count, requestedPath)
 	}
 
 	updated := strings.Replace(content, oldStr, newStr, 1)
 	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
-		return "", fmt.Errorf("edit: write %s: %w", path, err)
+		return "", fmt.Errorf("edit: write %s: %w", requestedPath, err)
 	}
 
-	return fmt.Sprintf("Edited %s", path), nil
+	return fmt.Sprintf("Edited %s", requestedPath), nil
 }

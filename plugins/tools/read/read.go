@@ -29,14 +29,20 @@ func init() {
 			Description: "Read file contents.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return &ReadTool{}, nil
+				return NewReadTool(ctx.WorkDir), nil
 			},
 		})
 	}))
 }
 
 // ReadTool reads file contents.
-type ReadTool struct{}
+type ReadTool struct {
+	workDir string
+}
+
+func NewReadTool(workDir string) *ReadTool {
+	return &ReadTool{workDir: workDir}
+}
 
 func (t *ReadTool) Definition() tools.Definition {
 	return tools.Definition{
@@ -45,9 +51,13 @@ func (t *ReadTool) Definition() tools.Definition {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"file_path": map[string]any{
+				"path": map[string]any{
 					"type":        "string",
 					"description": "Absolute or relative path to the file to read.",
+				},
+				"file_path": map[string]any{
+					"type":        "string",
+					"description": "Legacy alias for path.",
 				},
 				"offset": map[string]any{
 					"type":        "integer",
@@ -58,15 +68,23 @@ func (t *ReadTool) Definition() tools.Definition {
 					"description": "Maximum number of lines to read. Defaults to all lines.",
 				},
 			},
-			"required": []string{"file_path"},
+			"anyOf": []map[string]any{
+				{"required": []string{"path"}},
+				{"required": []string{"file_path"}},
+			},
 		},
 	}
 }
 
 func (t *ReadTool) Execute(_ context.Context, args map[string]any) (string, error) {
-	path, ok := args["file_path"].(string)
-	if !ok || path == "" {
-		return "", fmt.Errorf("read: file_path is required")
+	requestedPath := tools.StringArg(args, "path", "file_path")
+	if requestedPath == "" {
+		return "", fmt.Errorf("read: path is required")
+	}
+
+	path, err := tools.ResolvePath(t.workDir, requestedPath)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", requestedPath, err)
 	}
 
 	offset := intArg(args, "offset", 1)
@@ -77,7 +95,7 @@ func (t *ReadTool) Execute(_ context.Context, args map[string]any) (string, erro
 
 	f, err := os.Open(path)
 	if err != nil {
-		return "", fmt.Errorf("read %s: %w", path, err)
+		return "", fmt.Errorf("read %s: %w", requestedPath, err)
 	}
 	defer func() { _ = f.Close() }()
 
@@ -86,11 +104,11 @@ func (t *ReadTool) Execute(_ context.Context, args map[string]any) (string, erro
 		sample := make([]byte, 8*1024)
 		n, _ := f.Read(sample)
 		if n > 0 && tools.IsBinary(string(sample[:n])) {
-			return "", fmt.Errorf("read %s: binary file detected — use bash with xxd, file, or other tools to inspect binary content", path)
+			return "", fmt.Errorf("read %s: binary file detected — use bash with xxd, file, or other tools to inspect binary content", requestedPath)
 		}
 		// Reset to beginning for normal reading.
 		if _, err := f.Seek(0, 0); err != nil {
-			return "", fmt.Errorf("read %s: %w", path, err)
+			return "", fmt.Errorf("read %s: %w", requestedPath, err)
 		}
 	}
 
@@ -99,7 +117,7 @@ func (t *ReadTool) Execute(_ context.Context, args map[string]any) (string, erro
 		// Fall back to reading the whole file if scanner fails
 		// (e.g., lines longer than scanner buffer).
 		_ = f.Close()
-		return t.readFallback(path, offset, limit)
+		return t.readFallback(path, requestedPath, offset, limit)
 	}
 
 	// bufio.Scanner strips newlines; we added them back in scanLines.
@@ -143,10 +161,10 @@ func scanLines(f *os.File, offset, limit int) (lines []string, totalLines int, e
 }
 
 // readFallback reads the file using os.ReadFile when the scanner fails (e.g., lines > 1MB).
-func (t *ReadTool) readFallback(path string, offset, limit int) (string, error) {
+func (t *ReadTool) readFallback(path, displayPath string, offset, limit int) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("read %s: %w", path, err)
+		return "", fmt.Errorf("read %s: %w", displayPath, err)
 	}
 
 	allLines := tools.SplitLines(string(data))

@@ -28,14 +28,20 @@ func init() {
 			Description: "Write complete file contents.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return &WriteTool{}, nil
+				return NewWriteTool(ctx.WorkDir), nil
 			},
 		})
 	}))
 }
 
 // WriteTool creates new files or completely overwrites existing ones.
-type WriteTool struct{}
+type WriteTool struct {
+	workDir string
+}
+
+func NewWriteTool(workDir string) *WriteTool {
+	return &WriteTool{workDir: workDir}
+}
 
 func (t *WriteTool) Definition() tools.Definition {
 	return tools.Definition{
@@ -44,26 +50,39 @@ func (t *WriteTool) Definition() tools.Definition {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"file_path": map[string]any{
+				"path": map[string]any{
 					"type":        "string",
 					"description": "Path to the file to create or overwrite.",
+				},
+				"file_path": map[string]any{
+					"type":        "string",
+					"description": "Legacy alias for path.",
 				},
 				"content": map[string]any{
 					"type":        "string",
 					"description": "The full content to write to the file.",
 				},
 			},
-			"required": []string{"file_path", "content"},
+			"required": []string{"content"},
+			"anyOf": []map[string]any{
+				{"required": []string{"path"}},
+				{"required": []string{"file_path"}},
+			},
 		},
 	}
 }
 
 func (t *WriteTool) Execute(_ context.Context, args map[string]any) (string, error) {
-	path, _ := args["file_path"].(string)
+	requestedPath := tools.StringArg(args, "path", "file_path")
 	content, _ := args["content"].(string)
 
-	if path == "" {
-		return "", fmt.Errorf("write: file_path is required")
+	if requestedPath == "" {
+		return "", fmt.Errorf("write: path is required")
+	}
+
+	path, err := tools.ResolvePath(t.workDir, requestedPath)
+	if err != nil {
+		return "", fmt.Errorf("write %s: %w", requestedPath, err)
 	}
 
 	dir := filepath.Dir(path)
@@ -75,5 +94,5 @@ func (t *WriteTool) Execute(_ context.Context, args map[string]any) (string, err
 		return "", fmt.Errorf("write: %w", err)
 	}
 
-	return fmt.Sprintf("Wrote %s (%d bytes)", path, len(content)), nil
+	return fmt.Sprintf("Wrote %s (%d bytes)", requestedPath, len(content)), nil
 }

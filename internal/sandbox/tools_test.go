@@ -35,8 +35,8 @@ func TestNewCoreToolsLocalParity(t *testing.T) {
 	toolByName := mapToolsByName(NewCoreTools(session.Host(), binDir))
 
 	writeResult, err := toolByName["write"].Execute(context.Background(), map[string]any{
-		"file_path": "nested/notes.txt",
-		"content":   "line1\nline2\nline3\n",
+		"path":    "nested/notes.txt",
+		"content": "line1\nline2\nline3\n",
 	})
 	if err != nil {
 		t.Fatalf("write: %v", err)
@@ -46,9 +46,9 @@ func TestNewCoreToolsLocalParity(t *testing.T) {
 	}
 
 	readResult, err := toolByName["read"].Execute(context.Background(), map[string]any{
-		"file_path": "nested/notes.txt",
-		"offset":    2,
-		"limit":     1,
+		"path":   "nested/notes.txt",
+		"offset": 2,
+		"limit":  1,
 	})
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -58,9 +58,9 @@ func TestNewCoreToolsLocalParity(t *testing.T) {
 	}
 
 	editResult, err := toolByName["edit"].Execute(context.Background(), map[string]any{
-		"file_path":  "nested/notes.txt",
-		"old_string": "line2",
-		"new_string": "updated",
+		"path":    "nested/notes.txt",
+		"oldText": "line2",
+		"newText": "updated",
 	})
 	if err != nil {
 		t.Fatalf("edit: %v", err)
