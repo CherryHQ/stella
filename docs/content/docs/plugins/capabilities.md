@@ -51,6 +51,7 @@ Use `ToolContext` when building:
 - `WorkDir`
 - `UserDataDir`
 - `AnnaHome`
+- `HomeDir`
 - `Workspace`
 - `ToolsBinDir`
 - `Runtime`
