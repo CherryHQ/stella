@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-04-14
+
+### ✨ Features
+
+- **Channels**: Add multi-instance channel support with dedicated channel binding from agent settings and a simplified linking flow ([#93](https://github.com/vaayne/anna/pull/93))
+- **Sandbox**: Add the boxsh sandbox foundation and wire runner/config support through the sandbox backend ([#95](https://github.com/vaayne/anna/pull/95), [#97](https://github.com/vaayne/anna/pull/97))
+- **Tools**: Mediate sandbox-aware tools through hostfs for sandbox runtime execution ([#94](https://github.com/vaayne/anna/pull/94))
+- **Providers**: Improve provider editor, type selection, model schema, and local build speed
+
+### 🐛 Bug Fixes
+
+- **Notifications**: Route agent-bound notifications to dedicated channels
+- **Channels**: Use a stable Feishu sender identity across apps
+- **Tools**: Harden bash timeout handling and mediate boxsh filesystem operations correctly
+
+### ♻️ Refactoring
+
+- **Sandbox**: Promote the sandbox tool runtime redesign and expose runtime capabilities across the tool stack ([#98](https://github.com/vaayne/anna/pull/98))
+- **Channels**: Make channel instances the single source of truth and merge channel link/config UI
+- **Identity**: Add sender identity abstraction, flatten channel sender identity handling, and align core tool path arguments
+- **Tooling**: Harden tool output truncation
+
+### 📝 Documentation
+
+- Add sandbox backend rollout documentation and align sandbox docs with the runtime API ([#96](https://github.com/vaayne/anna/pull/96))
+- Add Lark CLI skill notes
+
+**Full Changelog**: [v0.9.1...v0.10.0](https://github.com/vaayne/anna/compare/v0.9.1...v0.10.0)
+
 ## [0.9.1] - 2026-04-10
 
 ### 🐛 Bug Fixes
