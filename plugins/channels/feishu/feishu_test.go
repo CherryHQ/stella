@@ -598,18 +598,15 @@ func TestIsBotMentionedNilMentionID(t *testing.T) {
 	}
 }
 
-func TestSenderIdentityFromUserIDPrefersUnionID(t *testing.T) {
+func TestSenderIDsFromUserIDPrefersUnionID(t *testing.T) {
 	unionID := "on_union"
 	openID := "ou_open"
-	sender := senderIdentityFromUserID(&larkim.UserId{UnionId: &unionID, OpenId: &openID})
-	if sender.ID != unionID {
-		t.Fatalf("sender.ID = %q, want %q", sender.ID, unionID)
+	ids := senderIDsFromUserID(&larkim.UserId{UnionId: &unionID, OpenId: &openID})
+	if len(ids) != 2 {
+		t.Fatalf("len(ids) = %d, want 2", len(ids))
 	}
-	if len(sender.IDs) != 2 {
-		t.Fatalf("len(sender.IDs) = %d, want 2", len(sender.IDs))
-	}
-	if sender.IDs[0] != unionID || sender.IDs[1] != openID {
-		t.Fatalf("sender.IDs = %#v, want [%q %q]", sender.IDs, unionID, openID)
+	if ids[0] != unionID || ids[1] != openID {
+		t.Fatalf("ids = %#v, want [%q %q]", ids, unionID, openID)
 	}
 }
 

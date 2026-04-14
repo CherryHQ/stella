@@ -224,7 +224,7 @@ func (b *Bot) incomingMsg(c tele.Context, content []ai.ContentBlock) channel.Inc
 	return channel.IncomingMessage{
 		Platform:   channel.PlatformTelegram,
 		ChannelID:  b.Name(),
-		Sender:     channel.NewSenderIdentity(senderID),
+		SenderID:   senderID,
 		SenderName: senderName,
 		ChatID:     fmt.Sprintf("%d", c.Chat().ID),
 		IsGroup:    isGroup(c),

@@ -77,11 +77,12 @@ type Handler interface {
 
 // IncomingMessage is the normalised input from any platform.
 type IncomingMessage struct {
-	Platform   string         // "telegram", "qq", etc.
-	ChannelID  string         // configured channel instance ID; defaults to Platform.
-	Sender     SenderIdentity // preferred sender ID plus ordered fallback IDs
-	SenderName string         // display name
-	ChatID     string         // group/channel ID (empty for DMs)
+	Platform   string   // "telegram", "qq", etc.
+	ChannelID  string   // configured channel instance ID; defaults to Platform.
+	SenderID   string   // preferred platform-specific user ID
+	SenderIDs  []string // ordered candidate sender IDs, most stable first
+	SenderName string   // display name
+	ChatID     string   // group/channel ID (empty for DMs)
 	IsGroup    bool
 	Content    []ai.ContentBlock
 }

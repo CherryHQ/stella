@@ -77,7 +77,7 @@ func (b *Bot) incomingMsg(msg WeixinMessage, content []ai.ContentBlock) channel.
 	return channel.IncomingMessage{
 		Platform:   channel.PlatformWeixin,
 		ChannelID:  b.Name(),
-		Sender:     channel.NewSenderIdentity(msg.FromUserID),
+		SenderID:   msg.FromUserID,
 		SenderName: "", // no display name available from iLink
 		ChatID:     msg.FromUserID,
 		IsGroup:    false, // DM only for v1
