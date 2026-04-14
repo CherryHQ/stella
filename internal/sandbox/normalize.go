@@ -1,6 +1,8 @@
 package sandbox
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -54,8 +56,14 @@ func (n *toolNormalizer) NormalizeExec(result ExecResult, elapsed time.Duration)
 }
 
 func (n *toolNormalizer) NormalizeError(err error, toolName string) toolNormalizeResult {
+	message := fmt.Sprintf("%s: %v", toolName, err)
+	if errors.Is(err, context.DeadlineExceeded) {
+		message = fmt.Sprintf("%s: command timed out", toolName)
+	} else if errors.Is(err, context.Canceled) {
+		message = fmt.Sprintf("%s: command aborted", toolName)
+	}
 	return toolNormalizeResult{
-		Content: fmt.Sprintf("%s: %v", toolName, err),
+		Content: message,
 		IsError: true,
 	}
 }

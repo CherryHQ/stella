@@ -153,6 +153,28 @@ func TestNewCoreToolsEditRequiresUniqueMatch(t *testing.T) {
 	}
 }
 
+func TestNewCoreToolsBashTimeout(t *testing.T) {
+	workspace := t.TempDir()
+	session := mustCreateLocalSession(t, Policy{
+		Backend:    "local",
+		Relaxed:    true,
+		Filesystem: FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace},
+	})
+	defer func() { _ = session.Close() }()
+
+	toolByName := mapToolsByName(NewCoreTools(session.Host(), ""))
+	result, err := toolByName["bash"].Execute(context.Background(), map[string]any{
+		"command": "sleep 2",
+		"timeout": 1,
+	})
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !strings.Contains(result, "timed out") {
+		t.Fatalf("expected timeout text, got %q", result)
+	}
+}
+
 func mustCreateLocalSession(t *testing.T, policy Policy) Session {
 	t.Helper()
 	session, err := (localplugin.NewFactory()).CreateSession(context.Background(), policy)
