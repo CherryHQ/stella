@@ -56,22 +56,18 @@ var skillsInputSchema = func() map[string]any {
 }()
 
 type Tool struct {
-	homeDir       string
 	annaHome      string
 	agentRoot     string
 	projectRoot   string
-	cwd           string
 	userSkillsDir string
 	runtime       pkgplugins.ToolRuntime
 }
 
-func NewTool(annaHome, homeDir, agentRoot, projectRoot, cwd, userSkillsDir string, runtime pkgplugins.ToolRuntime) *Tool {
+func NewTool(annaHome, agentRoot, projectRoot, userSkillsDir string, runtime pkgplugins.ToolRuntime) *Tool {
 	return &Tool{
-		homeDir:       homeDir,
 		annaHome:      annaHome,
 		agentRoot:     agentRoot,
 		projectRoot:   projectRoot,
-		cwd:           cwd,
 		userSkillsDir: userSkillsDir,
 		runtime:       runtime,
 	}

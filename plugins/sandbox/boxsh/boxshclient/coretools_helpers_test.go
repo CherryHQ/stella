@@ -7,7 +7,7 @@ import (
 )
 
 func testResolveBackendPath(ctx context.Context, backend *SharedBackend, path string) (string, error) {
-	root, err := backend.SandboxRoot(ctx)
+	root, err := backend.UserRoot(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -32,7 +32,7 @@ func testResolveBackendPath(ctx context.Context, backend *SharedBackend, path st
 	if trimmed == "" || len(strings.Split(trimmed, string(filepath.Separator))) <= 2 {
 		return filepath.Join(root, strings.TrimPrefix(path, string(filepath.Separator))), nil
 	}
-	if err := ValidateSandboxPath(root, path); err != nil {
+	if err := ValidatePathWithinRoot(root, path); err != nil {
 		return "", err
 	}
 	return path, nil

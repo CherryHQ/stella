@@ -60,17 +60,6 @@ func TestResolveSessionExplicitBoxshRejectsUnsupportedPlatform(t *testing.T) {
 	}
 }
 
-func TestSandboxRootUsesUserRoot(t *testing.T) {
-	cfg := GoRunnerConfig{
-		AgentRoot: "/workspace/agent",
-		UserRoot:  "/workspace/agent/users/1/data",
-	}
-
-	if got := sandboxRoot(cfg); got != cfg.UserRoot {
-		t.Fatalf("sandboxRoot() = %q, want %q", got, cfg.UserRoot)
-	}
-}
-
 func TestResolveRunnerPathsDefaultsWorkDirToUserRoot(t *testing.T) {
 	cfg := GoRunnerConfig{
 		AgentRoot: "/workspace/agent",
@@ -83,19 +72,29 @@ func TestResolveRunnerPathsDefaultsWorkDirToUserRoot(t *testing.T) {
 	}
 }
 
-func TestSandboxProcessEnvUsesSandboxRootAsHome(t *testing.T) {
+func TestResolveSandboxPathsJoinsRelativeWorkDirToUserRoot(t *testing.T) {
 	cfg := GoRunnerConfig{
-		AnnaHome:  "/anna",
-		AgentRoot: "/workspace/agent",
-		UserRoot:  "/workspace/agent/users/1/data",
+		AnnaHome: "/anna",
+		UserRoot: "/workspace/agent/users/1/data",
+		WorkDir:  "logs",
 	}
 
-	env := sandboxProcessEnv(resolveRunnerPaths(cfg))
-	if got := env["HOME"]; got != cfg.UserRoot {
-		t.Fatalf("HOME = %q, want %q", got, cfg.UserRoot)
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		t.Fatalf("resolveSandboxPaths: %v", err)
 	}
-	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
-		t.Fatalf("ANNA_HOME = %q, want %q", got, cfg.AnnaHome)
+	if want := "/workspace/agent/users/1/data/logs"; paths.WorkDir != want {
+		t.Fatalf("WorkDir = %q, want %q", paths.WorkDir, want)
+	}
+}
+
+func TestResolveSandboxPathsRejectsWorkDirOutsideUserRoot(t *testing.T) {
+	_, err := resolveSandboxPaths(GoRunnerConfig{
+		UserRoot: "/workspace/agent/users/1/data",
+		WorkDir:  "/workspace/agent",
+	})
+	if err == nil {
+		t.Fatal("expected error for workdir outside user root")
 	}
 }
 
@@ -106,9 +105,16 @@ func TestSandboxProcessEnvUsesUserRootAsHome(t *testing.T) {
 		UserRoot:  "/workspace/agent/users/1/data",
 	}
 
-	env := sandboxProcessEnv(resolveRunnerPaths(cfg))
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		t.Fatalf("resolveSandboxPaths: %v", err)
+	}
+	env := sandboxProcessEnv(paths)
 	if got := env["HOME"]; got != cfg.UserRoot {
 		t.Fatalf("HOME = %q, want %q", got, cfg.UserRoot)
+	}
+	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
+		t.Fatalf("ANNA_HOME = %q, want %q", got, cfg.AnnaHome)
 	}
 }
 

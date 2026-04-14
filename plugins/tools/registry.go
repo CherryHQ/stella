@@ -3,13 +3,14 @@ package plugintools
 import pkgplugins "github.com/vaayne/anna/pkg/plugins"
 
 // BuildContext carries per-session configuration for tool construction.
+// Execution uses UserRoot + WorkDir. AnnaHome, AgentRoot, and ProjectRoot are
+// discovery/config inputs and do not redefine the writable root.
 type BuildContext struct {
-	WorkDir     string // working directory for tool execution
-	ProjectRoot string // optional project root for local/project-attached runs
-	UserRoot    string // per-user writable root used by prompts, skills, and sandbox setup
-	AnnaHome    string // anna home directory (e.g. ~/.anna)
-	HomeDir     string // user home directory for common config/skills lookup
-	AgentRoot   string // agent root dir
+	WorkDir     string // runtime working directory for tool execution; always inside UserRoot
+	ProjectRoot string // optional project-scoped discovery root for local/project-attached runs
+	UserRoot    string // runtime writable root and sandbox HOME
+	AnnaHome    string // anna home directory for builtin assets and shared state
+	AgentRoot   string // agent-scoped discovery root, not the sandbox writable root
 	ToolsBinDir string // path to anna tools bin directory (prepended to PATH)
 	Runtime     pkgplugins.ToolRuntime
 }
