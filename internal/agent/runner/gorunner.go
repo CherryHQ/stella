@@ -493,17 +493,9 @@ func summarizeToolInput(toolName string, args map[string]any) string {
 			}
 			return cmd
 		}
-	case "read":
-		if fp, ok := args["file_path"].(string); ok {
-			return fp
-		}
-	case "write":
-		if fp, ok := args["file_path"].(string); ok {
-			return fp
-		}
-	case "edit":
-		if fp, ok := args["file_path"].(string); ok {
-			return fp
+	case "read", "write", "edit":
+		if path, ok := args["path"].(string); ok {
+			return path
 		}
 	}
 	return ""

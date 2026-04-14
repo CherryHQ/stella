@@ -32,7 +32,7 @@ func TestHook_OnPreToolCall_NonBash(t *testing.T) {
 	h := NewHook("")
 	hctx := &hooks.PreToolCallContext{
 		ToolName:  "read",
-		Arguments: map[string]any{"file_path": "/tmp/test"},
+		Arguments: map[string]any{"path": "/tmp/test"},
 	}
 	result, err := h.OnPreToolCall(context.Background(), hctx)
 	if err != nil {

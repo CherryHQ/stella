@@ -55,10 +55,6 @@ func (t *ReadTool) Definition() tools.Definition {
 					"type":        "string",
 					"description": "Absolute or relative path to the file to read.",
 				},
-				"file_path": map[string]any{
-					"type":        "string",
-					"description": "Legacy alias for path.",
-				},
 				"offset": map[string]any{
 					"type":        "integer",
 					"description": "Line number to start reading from (1-based). Defaults to 1.",
@@ -68,16 +64,13 @@ func (t *ReadTool) Definition() tools.Definition {
 					"description": "Maximum number of lines to read. Defaults to all lines.",
 				},
 			},
-			"anyOf": []map[string]any{
-				{"required": []string{"path"}},
-				{"required": []string{"file_path"}},
-			},
+			"required": []string{"path"},
 		},
 	}
 }
 
 func (t *ReadTool) Execute(_ context.Context, args map[string]any) (string, error) {
-	requestedPath := tools.StringArg(args, "path", "file_path")
+	requestedPath := tools.StringArg(args, "path")
 	if requestedPath == "" {
 		return "", fmt.Errorf("read: path is required")
 	}

@@ -138,8 +138,8 @@ func TestNormalizeRead(t *testing.T) {
 	if norm.Metadata["total_lines"] != 10 {
 		t.Errorf("Metadata total_lines = %v, want 10", norm.Metadata["total_lines"])
 	}
-	if norm.Metadata["file_path"] != "/path/to/file.txt" {
-		t.Errorf("Metadata file_path = %v, want /path/to/file.txt", norm.Metadata["file_path"])
+	if norm.Metadata["path"] != "/path/to/file.txt" {
+		t.Errorf("Metadata path = %v, want /path/to/file.txt", norm.Metadata["path"])
 	}
 }
 

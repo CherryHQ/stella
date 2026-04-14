@@ -54,10 +54,6 @@ func (t *EditTool) Definition() tools.Definition {
 					"type":        "string",
 					"description": "Path to the file to edit.",
 				},
-				"file_path": map[string]any{
-					"type":        "string",
-					"description": "Legacy alias for path.",
-				},
 				"oldText": map[string]any{
 					"type":        "string",
 					"description": "Preferred alias for old_string.",
@@ -78,15 +74,13 @@ func (t *EditTool) Definition() tools.Definition {
 			"anyOf": []map[string]any{
 				{"required": []string{"path", "oldText", "newText"}},
 				{"required": []string{"path", "old_string", "new_string"}},
-				{"required": []string{"file_path", "oldText", "newText"}},
-				{"required": []string{"file_path", "old_string", "new_string"}},
 			},
 		},
 	}
 }
 
 func (t *EditTool) Execute(_ context.Context, args map[string]any) (string, error) {
-	requestedPath := tools.StringArg(args, "path", "file_path")
+	requestedPath := tools.StringArg(args, "path")
 	oldStr := tools.StringArg(args, "oldText", "old_string")
 	newStr := tools.StringArg(args, "newText", "new_string")
 

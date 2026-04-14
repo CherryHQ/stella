@@ -67,7 +67,7 @@ func TestNewCoreToolsBoxshUsesWorkingDirAndSharedState(t *testing.T) {
 	session, workspace := newBoxshToolTestSession(t, ctx, map[string]string{"notes.txt": "old value\n"})
 	toolByName := mapToolsByName(NewCoreTools(session.Host(), ""))
 
-	readResult, err := toolByName["read"].Execute(ctx, map[string]any{"file_path": "notes.txt"})
+	readResult, err := toolByName["read"].Execute(ctx, map[string]any{"path": "notes.txt"})
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestNewCoreToolsBoxshUsesWorkingDirAndSharedState(t *testing.T) {
 		t.Fatalf("unexpected read result: %q", readResult)
 	}
 
-	if _, err := toolByName["write"].Execute(ctx, map[string]any{"file_path": "notes.txt", "content": "written value\n"}); err != nil {
+	if _, err := toolByName["write"].Execute(ctx, map[string]any{"path": "notes.txt", "content": "written value\n"}); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
@@ -87,11 +87,11 @@ func TestNewCoreToolsBoxshUsesWorkingDirAndSharedState(t *testing.T) {
 		t.Fatalf("unexpected bash result: %q", bashResult)
 	}
 
-	if _, err := toolByName["edit"].Execute(ctx, map[string]any{"file_path": "notes.txt", "old_string": "written", "new_string": "edited"}); err != nil {
+	if _, err := toolByName["edit"].Execute(ctx, map[string]any{"path": "notes.txt", "old_string": "written", "new_string": "edited"}); err != nil {
 		t.Fatalf("edit: %v", err)
 	}
 
-	readResult, err = toolByName["read"].Execute(ctx, map[string]any{"file_path": "notes.txt"})
+	readResult, err = toolByName["read"].Execute(ctx, map[string]any{"path": "notes.txt"})
 	if err != nil {
 		t.Fatalf("read after edit: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestNewCoreToolsBoxshReadPaginationAndEditPreflightAcrossPages(t *testing.T
 	session, _ := newBoxshToolTestSession(t, ctx, map[string]string{"long.txt": "needle line1\nline2\nline3\nline4\nneedle line5\n"})
 	toolByName := mapToolsByName(NewCoreTools(session.Host(), ""))
 
-	readResult, err := toolByName["read"].Execute(ctx, map[string]any{"file_path": "long.txt"})
+	readResult, err := toolByName["read"].Execute(ctx, map[string]any{"path": "long.txt"})
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestNewCoreToolsBoxshReadPaginationAndEditPreflightAcrossPages(t *testing.T
 		t.Fatalf("expected truncated boxsh read to continue at line 4, got %q", readResult)
 	}
 
-	_, err = toolByName["edit"].Execute(ctx, map[string]any{"file_path": "long.txt", "old_string": "needle", "new_string": "updated"})
+	_, err = toolByName["edit"].Execute(ctx, map[string]any{"path": "long.txt", "old_string": "needle", "new_string": "updated"})
 	if err == nil || !strings.Contains(err.Error(), "must be unique") {
 		t.Fatalf("expected edit preflight to detect duplicate match across pages, got %v", err)
 	}

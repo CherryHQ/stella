@@ -128,8 +128,8 @@ func summarizeArgs(tool string, args map[string]any) string {
 			return cmd
 		}
 	case "read", "write", "edit":
-		if fp, ok := args["file_path"].(string); ok {
-			return fp
+		if path, ok := args["path"].(string); ok {
+			return path
 		}
 	}
 	data, err := json.Marshal(args)
