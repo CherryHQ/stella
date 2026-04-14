@@ -62,7 +62,7 @@ type DBPromptParams struct {
 	AgentID        string          // agent ID for profile lookup
 	AnnaHome       string
 	AgentRoot      string
-	Cwd            string // optional working directory
+	ProjectRoot    string // optional project root for local/project-attached runs
 	UserRoot       string // per-user writable root
 	PromptTools    []pkgplugins.PromptToolInfo
 	PromptSections []pkgplugins.SystemPromptSection
@@ -114,9 +114,9 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	data.PromptSections = append(data.PromptSections, p.PromptSections...)
 
 	// Project context.
-	contextHost, closeContextHost := resolvePromptContextHost(ctx, p.Host, p.Cwd)
+	contextHost, closeContextHost := resolvePromptContextHost(ctx, p.Host, p.ProjectRoot)
 	defer closeContextHost()
-	data.ContextFiles = loadProjectContextFiles(contextHost, p.Cwd)
+	data.ContextFiles = loadProjectContextFiles(contextHost, p.ProjectRoot)
 
 	var buf bytes.Buffer
 	_ = systemTmpl.Execute(&buf, data)

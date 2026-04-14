@@ -38,10 +38,10 @@ func TestLoadSkillsPriorityLowToHigh(t *testing.T) {
 	writeSkill(projectDir, "project")
 
 	skills := LoadSkills(context.Background(), LoadSkillsConfig{
-		AnnaHome:  annaHome,
-		AgentRoot: agentRoot,
-		UserRoot:  userRoot,
-		Cwd:       cwd,
+		AnnaHome:    annaHome,
+		AgentRoot:   agentRoot,
+		UserRoot:    userRoot,
+		ProjectRoot: cwd,
 	})
 
 	var shared Skill

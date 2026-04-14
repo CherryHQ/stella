@@ -14,6 +14,7 @@ type ToolContext struct {
 	Platform    Platform
 	State       PluginState
 	WorkDir     string
+	ProjectRoot string
 	UserRoot    string
 	AnnaHome    string
 	HomeDir     string
@@ -73,15 +74,15 @@ type PromptInventoryContext struct {
 
 // SystemPromptContext is the shared build context for prompt contributions.
 type SystemPromptContext struct {
-	Platform  Platform
-	State     PluginState
-	AnnaHome  string
-	HomeDir   string
-	AgentRoot string
-	Cwd       string
-	UserID    int64
-	AgentID   string
-	UserRoot  string
+	Platform    Platform
+	State       PluginState
+	AnnaHome    string
+	HomeDir     string
+	AgentRoot   string
+	ProjectRoot string
+	UserID      int64
+	AgentID     string
+	UserRoot    string
 }
 
 // BeforeRunContext is the narrow per-run lifecycle context exposed to plugins.

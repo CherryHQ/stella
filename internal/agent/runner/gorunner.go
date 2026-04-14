@@ -112,7 +112,6 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		system = BuildSystemPromptFromDB(context.Background(), DBPromptParams{
 			AnnaHome:       paths.AnnaHome,
 			AgentRoot:      paths.AgentRoot,
-			Cwd:            paths.WorkDir,
 			UserRoot:       paths.UserRoot,
 			PromptSections: cfg.PromptSections,
 			Host:           session.Host(),
@@ -130,13 +129,23 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	hookSet := buildHookSet(cfg)
 
 	toolReg.Register(agenttool.NewAgentTool(agenttool.AgentConfig{
-		Providers:     reg,
-		Registry:      toolReg,
-		Model:         model,
-		APIKey:        cfg.APIKey,
-		BaseURL:       cfg.BaseURL,
-		System:        system,
-		Presets:       presets,
+		Providers: reg,
+		Registry:  toolReg,
+		Model:     model,
+		APIKey:    cfg.APIKey,
+		BaseURL:   cfg.BaseURL,
+		System:    system,
+		Presets:   presets,
+		PresetLoader: func(projectRoot string) *agenttool.PresetRegistry {
+			return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
+				AnnaHome:         paths.AnnaHome,
+				AgentRoot:        paths.AgentRoot,
+				UserRoot:         paths.UserRoot,
+				ProjectRoot:      projectRoot,
+				BuiltinSkillsDir: paths.builtinSkillsDir(),
+				Runtime:          cfg.ToolRuntime,
+			}))
+		},
 		Hooks:         hookSet,
 		ToolLifecycle: cfg.ToolLifecycle,
 	}))
@@ -208,6 +217,7 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 	// Runtime capabilities are injected from the active runner session.
 	bc := plugintools.BuildContext{
 		WorkDir:     paths.WorkDir,
+		ProjectRoot: "",
 		UserRoot:    paths.UserRoot,
 		AnnaHome:    paths.AnnaHome,
 		HomeDir:     paths.UserHome,
@@ -260,7 +270,7 @@ func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 		AnnaHome:         paths.AnnaHome,
 		AgentRoot:        paths.AgentRoot,
 		UserRoot:         paths.UserRoot,
-		Cwd:              paths.WorkDir,
+		ProjectRoot:      "",
 		BuiltinSkillsDir: paths.builtinSkillsDir(),
 		Runtime:          cfg.ToolRuntime,
 	}))

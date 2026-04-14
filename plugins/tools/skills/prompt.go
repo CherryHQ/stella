@@ -12,7 +12,7 @@ func buildPromptSection(_ context.Context, build pkgplugins.SystemPromptContext)
 		AnnaHome:      build.AnnaHome,
 		AgentRoot:     build.AgentRoot,
 		UserRoot:      build.UserRoot,
-		Cwd:           build.Cwd,
+		ProjectRoot:   build.ProjectRoot,
 		UserSkillsDir: userSkillsDir(build.UserRoot),
 	}))
 	if len(skills) == 0 {

@@ -36,7 +36,7 @@ type LoadSkillsConfig struct {
 	AnnaHome      string
 	AgentRoot     string
 	UserRoot      string
-	Cwd           string
+	ProjectRoot   string
 	UserSkillsDir string
 }
 
@@ -58,10 +58,10 @@ var validNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 // LoadSkills discovers skills in increasing priority order:
 // builtin -> ANNA_HOME -> agent root -> user root -> cwd.
 func LoadSkills(ctx context.Context, cfg LoadSkillsConfig) []Skill {
-	return loadSkills(ctx, cfg.Runtime, cfg.AnnaHome, cfg.AgentRoot, cfg.UserRoot, cfg.Cwd, cfg.UserSkillsDir)
+	return loadSkills(ctx, cfg.Runtime, cfg.AnnaHome, cfg.AgentRoot, cfg.UserRoot, cfg.ProjectRoot, cfg.UserSkillsDir)
 }
 
-func loadSkills(ctx context.Context, runtime pkgplugins.ToolRuntime, annaHome, agentRoot, userRoot, cwd, userSkillsDir string) []Skill {
+func loadSkills(ctx context.Context, runtime pkgplugins.ToolRuntime, annaHome, agentRoot, userRoot, projectRoot, userSkillsDir string) []Skill {
 	indexByName := map[string]int{}
 	var skills []Skill
 
@@ -104,8 +104,8 @@ func loadSkills(ctx context.Context, runtime pkgplugins.ToolRuntime, annaHome, a
 	if userSkillsDir != "" {
 		addDir(userSkillsDir, "user")
 	}
-	if cwd != "" {
-		addDir(filepath.Join(cwd, ".agents", "skills"), "project")
+	if projectRoot != "" {
+		addDir(filepath.Join(projectRoot, ".agents", "skills"), "project")
 	}
 
 	return skills

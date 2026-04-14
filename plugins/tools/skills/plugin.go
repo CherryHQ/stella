@@ -28,7 +28,7 @@ func init() {
 			Description: "Manage local agent skills.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return NewTool(ctx.AnnaHome, ctx.HomeDir, ctx.AgentRoot, ctx.WorkDir, userSkillsDir(ctx.UserRoot), ctx.Runtime), nil
+				return NewTool(ctx.AnnaHome, ctx.HomeDir, ctx.AgentRoot, ctx.ProjectRoot, ctx.WorkDir, userSkillsDir(ctx.UserRoot), ctx.Runtime), nil
 			},
 		})
 		host.AddSystemPrompt(pkgplugins.SystemPromptSpec{

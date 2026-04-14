@@ -42,7 +42,6 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 			if apiName == "" {
 				apiName = provID
 			}
-			cwd, _ := os.Getwd()
 
 			if params.UserID <= 0 {
 				return nil, fmt.Errorf("runner requires user scope")
@@ -67,13 +66,13 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 			if promptSectionsFn != nil {
 				homeDir, _ := os.UserHomeDir()
 				promptSections, _ = promptSectionsFn(ctx, pkgplugins.SystemPromptContext{
-					AnnaHome:  config.AnnaHome(),
-					HomeDir:   homeDir,
-					AgentRoot: snap.Workspace,
-					Cwd:       cwd,
-					UserID:    params.UserID,
-					AgentID:   params.AgentID,
-					UserRoot:  userRoot,
+					AnnaHome:    config.AnnaHome(),
+					HomeDir:     homeDir,
+					AgentRoot:   snap.Workspace,
+					ProjectRoot: "",
+					UserID:      params.UserID,
+					AgentID:     params.AgentID,
+					UserRoot:    userRoot,
 				})
 			}
 
@@ -85,7 +84,6 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 				AgentID:        params.AgentID,
 				AnnaHome:       config.AnnaHome(),
 				AgentRoot:      snap.Workspace,
-				Cwd:            cwd,
 				UserRoot:       userRoot,
 				PromptTools:    promptTools,
 				PromptSections: promptSections,

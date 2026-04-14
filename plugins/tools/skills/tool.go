@@ -59,16 +59,18 @@ type Tool struct {
 	homeDir       string
 	annaHome      string
 	agentRoot     string
+	projectRoot   string
 	cwd           string
 	userSkillsDir string
 	runtime       pkgplugins.ToolRuntime
 }
 
-func NewTool(annaHome, homeDir, agentRoot, cwd, userSkillsDir string, runtime pkgplugins.ToolRuntime) *Tool {
+func NewTool(annaHome, homeDir, agentRoot, projectRoot, cwd, userSkillsDir string, runtime pkgplugins.ToolRuntime) *Tool {
 	return &Tool{
 		homeDir:       homeDir,
 		annaHome:      annaHome,
 		agentRoot:     agentRoot,
+		projectRoot:   projectRoot,
 		cwd:           cwd,
 		userSkillsDir: userSkillsDir,
 		runtime:       runtime,
@@ -184,7 +186,7 @@ func (t *Tool) list(ctx context.Context) (string, error) {
 		Runtime:       t.runtime,
 		AnnaHome:      t.annaHome,
 		AgentRoot:     t.agentRoot,
-		Cwd:           t.cwd,
+		ProjectRoot:   projectRootFromContext(ctx, t.projectRoot),
 		UserSkillsDir: t.userSkillsDir,
 	})
 	if len(all) == 0 {
@@ -217,7 +219,7 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 		Runtime:       t.runtime,
 		AnnaHome:      t.annaHome,
 		AgentRoot:     t.agentRoot,
-		Cwd:           t.cwd,
+		ProjectRoot:   projectRootFromContext(ctx, t.projectRoot),
 		UserSkillsDir: t.userSkillsDir,
 	})
 	for _, s := range all {

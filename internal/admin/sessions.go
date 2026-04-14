@@ -196,7 +196,6 @@ func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) 
 	if info.AgentID != "" {
 		agentCfg, _ = s.store.GetAgent(r.Context(), info.AgentID)
 	}
-	cwd, _ := os.Getwd()
 	var userRoot string
 	if info.UserID > 0 && info.AgentID != "" {
 		if userDir, err := agent.SetupUserWorkspace(info.AgentID, config.AnnaHome(), info.UserID); err == nil {
@@ -205,13 +204,13 @@ func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) 
 	}
 	homeDir, _ := os.UserHomeDir()
 	promptSections, err := s.pluginHost.SystemPromptSections(r.Context(), pkgplugins.SystemPromptContext{
-		AnnaHome:  config.AnnaHome(),
-		HomeDir:   homeDir,
-		AgentRoot: agentCfg.Workspace,
-		Cwd:       cwd,
-		UserID:    info.UserID,
-		AgentID:   info.AgentID,
-		UserRoot:  userRoot,
+		AnnaHome:    config.AnnaHome(),
+		HomeDir:     homeDir,
+		AgentRoot:   agentCfg.Workspace,
+		ProjectRoot: "",
+		UserID:      info.UserID,
+		AgentID:     info.AgentID,
+		UserRoot:    userRoot,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -230,7 +229,6 @@ func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) 
 		AgentID:        info.AgentID,
 		AnnaHome:       config.AnnaHome(),
 		AgentRoot:      agentCfg.Workspace,
-		Cwd:            cwd,
 		UserRoot:       userRoot,
 		PromptTools:    promptTools,
 		PromptSections: promptSections,

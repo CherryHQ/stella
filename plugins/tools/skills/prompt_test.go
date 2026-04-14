@@ -60,11 +60,11 @@ old body
 
 	homeDir := t.TempDir()
 	section, err := buildPromptSection(context.Background(), pkgplugins.SystemPromptContext{
-		AnnaHome:  annaHome,
-		HomeDir:   homeDir,
-		AgentRoot: workspace,
-		Cwd:       cwd,
-		UserRoot:  userDataDir,
+		AnnaHome:    annaHome,
+		HomeDir:     homeDir,
+		AgentRoot:   workspace,
+		ProjectRoot: cwd,
+		UserRoot:    userDataDir,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -86,10 +86,10 @@ old body
 
 func TestBuildPromptSectionOmitsEmptySkillList(t *testing.T) {
 	section, err := buildPromptSection(context.Background(), pkgplugins.SystemPromptContext{
-		AnnaHome:  "",
-		HomeDir:   t.TempDir(),
-		AgentRoot: t.TempDir(),
-		Cwd:       t.TempDir(),
+		AnnaHome:    "",
+		HomeDir:     t.TempDir(),
+		AgentRoot:   t.TempDir(),
+		ProjectRoot: t.TempDir(),
 	})
 	if err != nil {
 		t.Fatal(err)
