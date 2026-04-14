@@ -257,8 +257,8 @@ func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
 	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
-		HomeDir:          paths.UserHome,
 		AgentRoot:        paths.AgentRoot,
+		UserRoot:         paths.UserRoot,
 		Cwd:              paths.WorkDir,
 		BuiltinSkillsDir: paths.builtinSkillsDir(),
 		Runtime:          cfg.ToolRuntime,

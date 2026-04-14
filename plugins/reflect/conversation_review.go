@@ -97,7 +97,7 @@ func (s *Service) newConversationReviewer(snap *pkgplugins.ReflectSnapshot, user
 
 func loadExistingSkillNames(workspace string, userID int64) []string {
 	allSkills := skillstool.LoadSkills(context.Background(), skillstool.LoadSkillsConfig{
-		Workspace:     workspace,
+		AgentRoot:     workspace,
 		UserSkillsDir: userSkillsDir(workspace, userID),
 	})
 	names := make([]string, 0, len(allSkills))

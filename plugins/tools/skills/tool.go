@@ -58,17 +58,17 @@ var skillsInputSchema = func() map[string]any {
 type Tool struct {
 	homeDir       string
 	annaHome      string
-	workspace     string
+	agentRoot     string
 	cwd           string
 	userSkillsDir string
 	runtime       pkgplugins.ToolRuntime
 }
 
-func NewTool(annaHome, homeDir, workspace, cwd, userSkillsDir string, runtime pkgplugins.ToolRuntime) *Tool {
+func NewTool(annaHome, homeDir, agentRoot, cwd, userSkillsDir string, runtime pkgplugins.ToolRuntime) *Tool {
 	return &Tool{
 		homeDir:       homeDir,
 		annaHome:      annaHome,
-		workspace:     workspace,
+		agentRoot:     agentRoot,
 		cwd:           cwd,
 		userSkillsDir: userSkillsDir,
 		runtime:       runtime,
@@ -79,7 +79,7 @@ func (t *Tool) skillsDir() string {
 	if t.userSkillsDir != "" {
 		return t.userSkillsDir
 	}
-	return filepath.Join(t.workspace, "skills")
+	return filepath.Join(t.agentRoot, "skills")
 }
 
 func pkgskillsToolDefinition() tools.Definition {
@@ -182,9 +182,8 @@ type installedSkill struct {
 func (t *Tool) list(ctx context.Context) (string, error) {
 	all := LoadSkills(ctx, LoadSkillsConfig{
 		Runtime:       t.runtime,
-		HomeDir:       t.homeDir,
 		AnnaHome:      t.annaHome,
-		Workspace:     t.workspace,
+		AgentRoot:     t.agentRoot,
 		Cwd:           t.cwd,
 		UserSkillsDir: t.userSkillsDir,
 	})
@@ -216,9 +215,8 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 
 	all := LoadSkills(ctx, LoadSkillsConfig{
 		Runtime:       t.runtime,
-		HomeDir:       t.homeDir,
 		AnnaHome:      t.annaHome,
-		Workspace:     t.workspace,
+		AgentRoot:     t.agentRoot,
 		Cwd:           t.cwd,
 		UserSkillsDir: t.userSkillsDir,
 	})
