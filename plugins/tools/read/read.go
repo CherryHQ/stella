@@ -29,7 +29,7 @@ func init() {
 			Description: "Read file contents.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return NewReadTool(ctx.Paths.WorkDir), nil
+				return NewReadTool(ctx.Paths.ProjectRoot), nil
 			},
 		})
 	}))
@@ -37,11 +37,11 @@ func init() {
 
 // ReadTool reads file contents.
 type ReadTool struct {
-	workDir string
+	projectRoot string
 }
 
-func NewReadTool(workDir string) *ReadTool {
-	return &ReadTool{workDir: workDir}
+func NewReadTool(projectRoot string) *ReadTool {
+	return &ReadTool{projectRoot: projectRoot}
 }
 
 func (t *ReadTool) Definition() tools.Definition {
@@ -75,7 +75,7 @@ func (t *ReadTool) Execute(_ context.Context, args map[string]any) (string, erro
 		return "", fmt.Errorf("read: path is required")
 	}
 
-	path, err := tools.ResolvePath(t.workDir, requestedPath)
+	path, err := tools.ResolveProjectPath(t.projectRoot, requestedPath)
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", requestedPath, err)
 	}

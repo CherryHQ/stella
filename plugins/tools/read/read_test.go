@@ -35,9 +35,9 @@ func TestReadTool_BasicRead(t *testing.T) {
 	}
 }
 
-func TestReadTool_ResolvesRelativePathFromWorkDir(t *testing.T) {
-	workDir := t.TempDir()
-	path := filepath.Join(workDir, "nested", "file.txt")
+func TestReadTool_ResolvesRelativePathFromProjectRoot(t *testing.T) {
+	projectRoot := t.TempDir()
+	path := filepath.Join(projectRoot, "nested", "file.txt")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestReadTool_ResolvesRelativePathFromWorkDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewReadTool(workDir)
+	tool := NewReadTool(projectRoot)
 	result, err := tool.Execute(context.Background(), map[string]any{
 		"path": "nested/file.txt",
 	})
@@ -110,6 +110,16 @@ func TestReadTool_MissingPath(t *testing.T) {
 	_, err := tool.Execute(context.Background(), map[string]any{})
 	if err == nil {
 		t.Error("expected error when path is missing")
+	}
+}
+
+func TestReadTool_RejectsRelativePathWithoutProjectRoot(t *testing.T) {
+	tool := NewReadTool("")
+	_, err := tool.Execute(context.Background(), map[string]any{
+		"path": "relative.txt",
+	})
+	if err == nil || !strings.Contains(err.Error(), "requires a project root") {
+		t.Fatalf("expected project root error, got %v", err)
 	}
 }
 

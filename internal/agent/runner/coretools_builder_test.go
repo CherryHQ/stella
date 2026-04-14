@@ -33,7 +33,7 @@ func (f *fakeSession) Done() <-chan struct{} {
 }
 
 func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {
-	tools := buildSandboxCoreTools(nil, plugintools.BuildContext{Paths: pkgplugins.ToolPaths{WorkDir: "/tmp", ToolsBinDir: "/tmp/bin"}})
+	tools := buildSandboxCoreTools(nil, plugintools.BuildContext{Paths: pkgplugins.ToolPaths{ToolsBinDir: "/tmp/bin"}})
 	if tools != nil {
 		t.Fatalf("expected no tools without sandbox session, got %v", tools)
 	}

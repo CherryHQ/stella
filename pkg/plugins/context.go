@@ -11,14 +11,14 @@ import (
 
 // ToolPaths is the tool-facing session path surface.
 // UserRoot is the writable execution root and process HOME.
-// WorkDir must stay within UserRoot. AnnaHome, AgentRoot, and ProjectRoot are discovery roots.
+// ProjectRoot is the tool-facing current-project directory; relative paths in project-aware tools
+// resolve against it. AnnaHome and AgentRoot are discovery roots.
 type ToolPaths struct {
 	UserRoot    string
-	WorkDir     string
 	ToolsBinDir string
 	AnnaHome    string
 	AgentRoot   string
-	ProjectRoot string
+	ProjectRoot string // tool-facing project root for relative path resolution
 }
 
 // ToolContext is the narrow build context for tool capabilities.

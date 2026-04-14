@@ -54,7 +54,6 @@ func TestBuildEnabledToolsBuildsAllOptionalToolsWithRuntimeContext(t *testing.T)
 
 	build := plugintools.BuildContext{
 		Paths: pkgplugins.ToolPaths{
-			WorkDir:     "/work",
 			UserRoot:    "/user",
 			ToolsBinDir: "/tools/bin",
 			AnnaHome:    "/anna",

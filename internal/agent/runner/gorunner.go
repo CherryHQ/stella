@@ -221,7 +221,6 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 	bc := plugintools.BuildContext{
 		Paths: pkgplugins.ToolPaths{
 			UserRoot:    paths.UserRoot,
-			WorkDir:     paths.WorkDir,
 			ToolsBinDir: paths.toolsBinDir(),
 			AnnaHome:    paths.AnnaHome,
 			AgentRoot:   paths.AgentRoot,

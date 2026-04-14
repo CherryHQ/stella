@@ -28,7 +28,7 @@ func init() {
 			Description: "Write complete file contents.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return NewWriteTool(ctx.Paths.WorkDir), nil
+				return NewWriteTool(ctx.Paths.ProjectRoot), nil
 			},
 		})
 	}))
@@ -36,11 +36,11 @@ func init() {
 
 // WriteTool creates new files or completely overwrites existing ones.
 type WriteTool struct {
-	workDir string
+	projectRoot string
 }
 
-func NewWriteTool(workDir string) *WriteTool {
-	return &WriteTool{workDir: workDir}
+func NewWriteTool(projectRoot string) *WriteTool {
+	return &WriteTool{projectRoot: projectRoot}
 }
 
 func (t *WriteTool) Definition() tools.Definition {
@@ -72,7 +72,7 @@ func (t *WriteTool) Execute(_ context.Context, args map[string]any) (string, err
 		return "", fmt.Errorf("write: path is required")
 	}
 
-	path, err := tools.ResolvePath(t.workDir, requestedPath)
+	path, err := tools.ResolveProjectPath(t.projectRoot, requestedPath)
 	if err != nil {
 		return "", fmt.Errorf("write %s: %w", requestedPath, err)
 	}

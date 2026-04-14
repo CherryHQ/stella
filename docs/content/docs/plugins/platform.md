@@ -179,12 +179,13 @@ Examples:
 - `Platform`
 - `Paths`
   - `UserRoot`
-  - `WorkDir`
   - `ToolsBinDir`
   - `AnnaHome`
   - `AgentRoot`
   - `ProjectRoot`
 - `Runtime`
+
+`ProjectRoot` is the current attached project, if any. Project-aware tools should resolve relative paths from `ProjectRoot` instead of depending on runner cwd details.
 
 `Runtime` is a capability interface for tool file and process operations. Plugin tools should use it rather than importing sandbox internals directly.
 
