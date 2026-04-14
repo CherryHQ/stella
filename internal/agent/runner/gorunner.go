@@ -212,7 +212,7 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 		AnnaHome:    paths.AnnaHome,
 		HomeDir:     paths.UserHome,
 		AgentRoot:   paths.AgentRoot,
-		ToolsBinDir: paths.ToolsBinDir,
+		ToolsBinDir: paths.toolsBinDir(),
 		Runtime:     cfg.ToolRuntime,
 	}
 
@@ -253,14 +253,14 @@ func collectSandboxReadOnlyDirs(toolsBinDir, pathEnv string) []string {
 
 func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 	paths := resolveRunnerPaths(cfg)
-	if err := builtin.Extract(paths.BuiltinSkillsDir); err != nil {
+	if err := builtin.Extract(paths.builtinSkillsDir()); err != nil {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
 	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
 		HomeDir:          paths.UserHome,
 		AgentRoot:        paths.AgentRoot,
 		Cwd:              paths.WorkDir,
-		BuiltinSkillsDir: paths.BuiltinSkillsDir,
+		BuiltinSkillsDir: paths.builtinSkillsDir(),
 		Runtime:          cfg.ToolRuntime,
 	}))
 }

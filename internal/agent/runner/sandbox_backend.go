@@ -100,7 +100,7 @@ func createLocalSession(_ context.Context, cfg GoRunnerConfig) (*runnerSession, 
 		Backend: config.SandboxBackendLocal,
 		Relaxed: true,
 		Filesystem: sandbox.FilesystemPolicy{
-			WorkspaceRoot: paths.SandboxRoot,
+			WorkspaceRoot: paths.sandboxRoot(),
 			WorkingDir:    paths.WorkDir,
 			AllowEscapes:  false,
 		},
@@ -136,7 +136,7 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 
 	paths := resolveRunnerPaths(cfg)
 	readOnlyDirs := collectSandboxReadOnlyDirs(
-		paths.ToolsBinDir,
+		paths.toolsBinDir(),
 		os.Getenv("PATH"),
 	)
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
@@ -145,13 +145,13 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 			filepath.Join(home, ".agents", "agents"),
 		)
 	}
-	readOnlyDirs = append(readOnlyDirs, paths.BuiltinSkillsDir)
+	readOnlyDirs = append(readOnlyDirs, paths.builtinSkillsDir())
 
 	policy := sandbox.Policy{
 		Backend: config.SandboxBackendBoxsh,
 		Relaxed: false,
 		Filesystem: sandbox.FilesystemPolicy{
-			WorkspaceRoot: paths.SandboxRoot,
+			WorkspaceRoot: paths.sandboxRoot(),
 			WorkingDir:    paths.WorkDir,
 			ReadOnlyPaths: readOnlyDirs,
 			AllowEscapes:  false,
