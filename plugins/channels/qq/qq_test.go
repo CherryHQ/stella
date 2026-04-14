@@ -477,7 +477,7 @@ func (m *mockHandler) HandleIncoming(ctx context.Context, msg channel.IncomingMe
 	case "/new":
 		return "Session reset.", true, nil, nil
 	case "/whoami":
-		return fmt.Sprintf("Your user ID: %s", msg.SenderID), true, nil, nil
+		return fmt.Sprintf("Your user ID: %s", msg.Sender.ID), true, nil, nil
 	}
 	return "", false, nil, nil
 }
@@ -773,8 +773,8 @@ func TestIncomingMsgC2C(t *testing.T) {
 	if msg.Platform != channel.PlatformQQ {
 		t.Errorf("Platform = %q, want %q", msg.Platform, channel.PlatformQQ)
 	}
-	if msg.SenderID != "user1" {
-		t.Errorf("SenderID = %q, want %q", msg.SenderID, "user1")
+	if msg.Sender.ID != "user1" {
+		t.Errorf("Sender.ID = %q, want %q", msg.Sender.ID, "user1")
 	}
 	if msg.ChatID != "qq:c2c:user1" {
 		t.Errorf("ChatID = %q, want %q", msg.ChatID, "qq:c2c:user1")

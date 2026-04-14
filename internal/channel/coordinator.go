@@ -62,7 +62,7 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 	if channelID == "" {
 		channelID = msg.Platform
 	}
-	return ResolveWithChannel(ctx, c.poolManager, c.store, c.authStore, c.engine, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.IsGroup)
+	return ResolveWithChannel(ctx, c.poolManager, c.store, c.authStore, c.engine, msg.Platform, channelID, msg.Sender.ID, msg.Sender.IDs, msg.SenderName, msg.ChatID, msg.IsGroup)
 }
 
 // HandleIncoming resolves the user once, tries command handling, and if the
@@ -75,7 +75,7 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 		if args != "" {
 			fullText = command + " " + args
 		}
-		if resp, ok := TryLinkCodeWithCandidates(ctx, c.authStore, c.linkCodes, fullText, msg.Platform, msg.SenderID, msg.SenderIDs, msg.SenderName); ok {
+		if resp, ok := TryLinkCodeWithCandidates(ctx, c.authStore, c.linkCodes, fullText, msg.Platform, msg.Sender.ID, msg.Sender.IDs, msg.SenderName); ok {
 			return resp, true, nil, nil
 		}
 	}
@@ -87,7 +87,7 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 
 	// Try shared commands.
 	if command != "" {
-		if resp, ok := HandleCommand(ctx, rc, command+" "+args, msg.SenderID); ok {
+		if resp, ok := HandleCommand(ctx, rc, command+" "+args, msg.Sender.ID); ok {
 			return resp, true, nil, nil
 		}
 	}

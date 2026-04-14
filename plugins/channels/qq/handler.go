@@ -220,7 +220,7 @@ func (b *Bot) handleLocalCommand(incoming channel.IncomingMessage, text string, 
 		reply(channel.WelcomeMessage)
 		return true
 	case "/whoami":
-		reply(fmt.Sprintf("Your sender ID: %s", incoming.SenderID))
+		reply(fmt.Sprintf("Your sender ID: %s", incoming.Sender.ID))
 		return true
 	}
 

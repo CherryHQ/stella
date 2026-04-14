@@ -54,7 +54,7 @@ func TestHandleAgentCommandSwitch(t *testing.T) {
 	var reply string
 
 	HandleAgentCommand(AgentCommandHandler{
-		Incoming: IncomingMessage{SenderID: "u1"},
+		Incoming: IncomingMessage{Sender: NewSenderIdentity("u1")},
 		Args:     "anna",
 		Reply:    func(s string) { reply = s },
 		ListAgents: func(context.Context, IncomingMessage) ([]AgentInfo, string, error) {
@@ -62,7 +62,7 @@ func TestHandleAgentCommandSwitch(t *testing.T) {
 			return nil, "", nil
 		},
 		SwitchAgent: func(_ context.Context, msg IncomingMessage, agentID string) error {
-			if msg.SenderID != "u1" {
+			if msg.Sender.ID != "u1" {
 				t.Fatalf("unexpected incoming message: %+v", msg)
 			}
 			switched = agentID

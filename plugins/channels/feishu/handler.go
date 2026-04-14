@@ -31,12 +31,12 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 		return nil
 	}
 
-	senderIDs := senderIDsFromUserID(data.UserId)
+	sender := senderIdentityFromUserID(data.UserId)
 	openID := ""
 	if data.UserId != nil {
 		openID = derefStr(data.UserId.OpenId)
 	}
-	if len(senderIDs) == 0 {
+	if sender.ID == "" {
 		return nil
 	}
 
@@ -67,13 +67,13 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 
 	reactionText := fmt.Sprintf("[User reacted with %s on message %s]", emojiType, messageID)
 
-	msg := b.incomingMsg(senderIDs, chatID, chatType, channel.TextContent(reactionText))
+	msg := b.incomingMsg(sender, chatID, chatType, channel.TextContent(reactionText))
 	replyFn := func(reply string) {
 		replyCtx, cancel := b.apiContext()
 		defer cancel()
 		b.replyInThread(replyCtx, messageID, rootID, reply)
 	}
-	go b.handleIncoming(msg, "", "", msg.SenderID, chatID, messageID, rootID, replyFn)
+	go b.handleIncoming(msg, "", "", msg.Sender.ID, chatID, messageID, rootID, replyFn)
 	return nil
 }
 
@@ -90,8 +90,8 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		return nil
 	}
 
-	senderIDs := senderIDsFromUserID(sender.SenderId)
-	if len(senderIDs) == 0 {
+	senderIdentity := senderIdentityFromUserID(sender.SenderId)
+	if senderIdentity.ID == "" {
 		return nil
 	}
 
@@ -151,7 +151,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		}
 	}
 
-	incoming := b.incomingMsg(senderIDs, chatID, chatType, content)
+	incoming := b.incomingMsg(senderIdentity, chatID, chatType, content)
 
 	// Handle plugin-local commands first.
 	if text != "" {
@@ -171,7 +171,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	// Parse command for coordinator (shared commands + chat streaming).
 	cmd, args := channel.ParseSlashCommand(text)
-	go b.handleIncoming(incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
+	go b.handleIncoming(incoming, cmd, args, incoming.Sender.ID, chatID, messageID, rootID, replyFn)
 	return nil
 }
 
