@@ -33,14 +33,9 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContex
 			continue
 		}
 		t, err := reg.Build(pkgplugins.ToolContext{
-			Platform:    h.platform(reg.PluginID),
-			WorkDir:     bc.WorkDir,
-			ProjectRoot: bc.ProjectRoot,
-			UserRoot:    bc.UserRoot,
-			AnnaHome:    bc.AnnaHome,
-			AgentRoot:   bc.AgentRoot,
-			ToolsBinDir: bc.ToolsBinDir,
-			Runtime:     bc.Runtime,
+			Platform: h.platform(reg.PluginID),
+			Paths:    bc.Paths,
+			Runtime:  bc.Runtime,
 		})
 		if err == nil && t != nil {
 			out = append(out, t)

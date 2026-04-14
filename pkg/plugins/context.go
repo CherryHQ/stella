@@ -9,23 +9,23 @@ import (
 	"github.com/vaayne/anna/pkg/channel"
 )
 
+// ToolPaths is the tool-facing session path surface.
+// UserRoot is the writable execution root and process HOME.
+// ProjectRoot is the tool-facing current-project directory; relative paths in project-aware tools
+// resolve against it. AnnaHome and AgentRoot are discovery roots.
+type ToolPaths struct {
+	UserRoot    string
+	ToolsBinDir string
+	AnnaHome    string
+	AgentRoot   string
+	ProjectRoot string // tool-facing project root for relative path resolution
+}
+
 // ToolContext is the narrow build context for tool capabilities.
-// Execution paths are UserRoot + WorkDir. Discovery/config paths are AnnaHome,
-// AgentRoot, and ProjectRoot.
 type ToolContext struct {
 	Platform Platform
-	// WorkDir is the runtime working directory for tool execution. It is inside UserRoot.
-	WorkDir string
-	// ProjectRoot is optional project-scoped discovery context for local/project-attached runs.
-	ProjectRoot string
-	// UserRoot is the runtime writable root and sandbox HOME for tool execution.
-	UserRoot string
-	// AnnaHome is the app/runtime home used for builtin assets and shared state.
-	AnnaHome string
-	// AgentRoot is the agent-scoped discovery root, not the sandbox writable root.
-	AgentRoot   string
-	ToolsBinDir string
-	Runtime     ToolRuntime
+	Paths    ToolPaths
+	Runtime  ToolRuntime
 }
 
 // ProviderContext is the narrow build context for provider capabilities.

@@ -32,7 +32,7 @@ func init() {
 			Description: "Execute bash commands.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return NewBashTool(ctx.WorkDir, ctx.ToolsBinDir), nil
+				return NewBashTool(ctx.Paths.ProjectRoot, ctx.Paths.ToolsBinDir), nil
 			},
 		})
 	}))
@@ -40,14 +40,15 @@ func init() {
 
 // BashTool executes bash commands.
 type BashTool struct {
-	workDir string
-	binDir  string
+	projectRoot string
+	binDir      string
 }
 
-// NewBashTool creates a BashTool with the given working directory and
+// NewBashTool creates a BashTool with the given project root and
 // optional tools bin directory (prepended to PATH).
-func NewBashTool(workDir, binDir string) *BashTool {
-	return &BashTool{workDir: workDir, binDir: binDir}
+// If projectRoot is empty, commands run with no explicit working directory.
+func NewBashTool(projectRoot, binDir string) *BashTool {
+	return &BashTool{projectRoot: projectRoot, binDir: binDir}
 }
 
 func (t *BashTool) Definition() tools.Definition {
@@ -89,8 +90,8 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (string, er
 	}
 
 	cmd := exec.CommandContext(execCtx, "bash", "-c", command)
-	if t.workDir != "" {
-		cmd.Dir = t.workDir
+	if t.projectRoot != "" {
+		cmd.Dir = t.projectRoot
 	}
 	cmd.Env = env
 

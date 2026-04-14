@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -42,9 +43,9 @@ func TestWriteTool_CreateNewFile(t *testing.T) {
 	}
 }
 
-func TestWriteTool_ResolvesRelativePathFromWorkDir(t *testing.T) {
-	workDir := t.TempDir()
-	tool := NewWriteTool(workDir)
+func TestWriteTool_ResolvesRelativePathFromProjectRoot(t *testing.T) {
+	projectRoot := t.TempDir()
+	tool := NewWriteTool(projectRoot)
 
 	_, err := tool.Execute(context.Background(), map[string]any{
 		"path":    "nested/file.txt",
@@ -54,12 +55,23 @@ func TestWriteTool_ResolvesRelativePathFromWorkDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(workDir, "nested", "file.txt"))
+	data, err := os.ReadFile(filepath.Join(projectRoot, "nested", "file.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(data) != "hello" {
 		t.Fatalf("expected written content, got %q", string(data))
+	}
+}
+
+func TestWriteTool_RejectsRelativePathWithoutProjectRoot(t *testing.T) {
+	tool := NewWriteTool("")
+	_, err := tool.Execute(context.Background(), map[string]any{
+		"path":    "nested/file.txt",
+		"content": "hello",
+	})
+	if err == nil || !strings.Contains(err.Error(), "requires a project root") {
+		t.Fatalf("expected project root error, got %v", err)
 	}
 }
 

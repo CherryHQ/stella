@@ -11,5 +11,5 @@ func buildSandboxCoreTools(session *runnerSession, bc plugintools.BuildContext) 
 	if session == nil || session.Session() == nil || session.Session().Host() == nil {
 		return nil
 	}
-	return sandbox.NewCoreTools(session.Session().Host(), bc.ToolsBinDir)
+	return sandbox.NewCoreTools(session.Session().Host(), bc.Paths.ToolsBinDir, bc.Paths.ProjectRoot)
 }

@@ -27,6 +27,7 @@ func TestBuildEnabledToolsBuildsAllOptionalToolsWithRuntimeContext(t *testing.T)
 	host.RegisterPluginID("tool/b")
 
 	var runtimeSeen int
+	var seenPaths []pkgplugins.ToolPaths
 	fakeRuntime := pkgplugins.NewLocalToolRuntime(t.TempDir())
 	host.AddTool(pkgplugins.ToolSpec{
 		PluginID: "tool/a",
@@ -35,6 +36,7 @@ func TestBuildEnabledToolsBuildsAllOptionalToolsWithRuntimeContext(t *testing.T)
 			if ctx.Runtime != nil {
 				runtimeSeen++
 			}
+			seenPaths = append(seenPaths, ctx.Paths)
 			return &testTool{name: "a"}, nil
 		},
 	})
@@ -45,15 +47,31 @@ func TestBuildEnabledToolsBuildsAllOptionalToolsWithRuntimeContext(t *testing.T)
 			if ctx.Runtime != nil {
 				runtimeSeen++
 			}
+			seenPaths = append(seenPaths, ctx.Paths)
 			return &testTool{name: "b"}, nil
 		},
 	})
 
-	got := host.BuildEnabledTools(context.Background(), plugintools.BuildContext{Runtime: fakeRuntime})
+	build := plugintools.BuildContext{
+		Paths: pkgplugins.ToolPaths{
+			UserRoot:    "/user",
+			ToolsBinDir: "/tools/bin",
+			AnnaHome:    "/anna",
+			AgentRoot:   "/agent",
+			ProjectRoot: "/project",
+		},
+		Runtime: fakeRuntime,
+	}
+	got := host.BuildEnabledTools(context.Background(), build)
 	if len(got) != 2 {
 		t.Fatalf("BuildEnabledTools() len = %d, want 2", len(got))
 	}
 	if runtimeSeen != 2 {
 		t.Fatalf("runtime seen = %d, want 2", runtimeSeen)
+	}
+	for i, paths := range seenPaths {
+		if paths != build.Paths {
+			t.Fatalf("paths[%d] = %+v, want %+v", i, paths, build.Paths)
+		}
 	}
 }
