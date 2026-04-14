@@ -10,14 +10,22 @@ import (
 )
 
 // ToolContext is the narrow build context for tool capabilities.
+// Execution paths are UserRoot + WorkDir. Discovery/config paths are AnnaHome,
+// AgentRoot, ProjectRoot, and the host HomeDir.
 type ToolContext struct {
-	Platform    Platform
-	State       PluginState
-	WorkDir     string
+	Platform Platform
+	State    PluginState
+	// WorkDir is the runtime working directory for tool execution. It is inside UserRoot.
+	WorkDir string
+	// ProjectRoot is optional project-scoped discovery context for local/project-attached runs.
 	ProjectRoot string
-	UserRoot    string
-	AnnaHome    string
-	HomeDir     string
+	// UserRoot is the runtime writable root and sandbox HOME for tool execution.
+	UserRoot string
+	// AnnaHome is the app/runtime home used for builtin assets and shared state.
+	AnnaHome string
+	// HomeDir is the host user's home directory for config/discovery, not sandbox HOME.
+	HomeDir string
+	// AgentRoot is the agent-scoped discovery root, not the sandbox writable root.
 	AgentRoot   string
 	ToolsBinDir string
 	Runtime     ToolRuntime
@@ -73,6 +81,7 @@ type PromptInventoryContext struct {
 }
 
 // SystemPromptContext is the shared build context for prompt contributions.
+// HomeDir is host-scoped discovery context; UserRoot is the runtime writable root.
 type SystemPromptContext struct {
 	Platform    Platform
 	State       PluginState
