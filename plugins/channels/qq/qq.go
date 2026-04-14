@@ -189,7 +189,7 @@ func incomingMsgForChannel(channelID, authorID, groupID string, content []ai.Con
 	return channel.IncomingMessage{
 		Platform:   channel.PlatformQQ,
 		ChannelID:  channelID,
-		Sender:     channel.NewSenderIdentity(authorID),
+		SenderID:   authorID,
 		SenderName: "",
 		ChatID:     chatID,
 		IsGroup:    isGroup,

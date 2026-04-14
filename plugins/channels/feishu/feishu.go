@@ -383,20 +383,42 @@ func stripMentions(text string, mentions []*larkim.MentionEvent) string {
 }
 
 // incomingMsg builds an IncomingMessage from the Feishu context.
-func (b *Bot) incomingMsg(sender channel.SenderIdentity, chatID string, chatType string, content []ai.ContentBlock) channel.IncomingMessage {
+func (b *Bot) incomingMsg(senderIDs []string, chatID string, chatType string, content []ai.ContentBlock) channel.IncomingMessage {
+	senderIDs = feishuSenderIDs(senderIDs...)
+	senderID := ""
+	if len(senderIDs) > 0 {
+		senderID = senderIDs[0]
+	}
 	return channel.IncomingMessage{
 		Platform:  channel.PlatformFeishu,
 		ChannelID: b.Name(),
-		Sender:    sender,
+		SenderID:  senderID,
+		SenderIDs: append([]string(nil), senderIDs...),
 		ChatID:    chatID,
 		IsGroup:   chatType == "group",
 		Content:   content,
 	}
 }
 
-func senderIdentityFromUserID(userID *larkim.UserId) channel.SenderIdentity {
-	if userID == nil {
-		return channel.SenderIdentity{}
+func feishuSenderIDs(ids ...string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
 	}
-	return channel.NewSenderIdentity(derefStr(userID.UnionId), derefStr(userID.OpenId))
+	return out
+}
+
+func senderIDsFromUserID(userID *larkim.UserId) []string {
+	if userID == nil {
+		return nil
+	}
+	return feishuSenderIDs(derefStr(userID.UnionId), derefStr(userID.OpenId))
 }
