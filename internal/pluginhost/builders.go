@@ -36,10 +36,11 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContex
 			Platform:    h.platform(reg.PluginID),
 			State:       state,
 			WorkDir:     bc.WorkDir,
-			UserDataDir: bc.UserDataDir,
+			ProjectRoot: bc.ProjectRoot,
+			UserRoot:    bc.UserRoot,
 			AnnaHome:    bc.AnnaHome,
 			HomeDir:     bc.HomeDir,
-			Workspace:   bc.Workspace,
+			AgentRoot:   bc.AgentRoot,
 			ToolsBinDir: bc.ToolsBinDir,
 			Runtime:     bc.Runtime,
 		})

@@ -14,10 +14,11 @@ type ToolContext struct {
 	Platform    Platform
 	State       PluginState
 	WorkDir     string
-	UserDataDir string
+	ProjectRoot string
+	UserRoot    string
 	AnnaHome    string
 	HomeDir     string
-	Workspace   string
+	AgentRoot   string
 	ToolsBinDir string
 	Runtime     ToolRuntime
 }
@@ -77,11 +78,11 @@ type SystemPromptContext struct {
 	State       PluginState
 	AnnaHome    string
 	HomeDir     string
-	Workspace   string
-	Cwd         string
+	AgentRoot   string
+	ProjectRoot string
 	UserID      int64
 	AgentID     string
-	UserDataDir string
+	UserRoot    string
 }
 
 // BeforeRunContext is the narrow per-run lifecycle context exposed to plugins.

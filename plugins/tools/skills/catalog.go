@@ -33,10 +33,10 @@ type Skill struct {
 // LoadSkillsConfig controls skill discovery roots.
 type LoadSkillsConfig struct {
 	Runtime       pkgplugins.ToolRuntime
-	HomeDir       string
 	AnnaHome      string
-	Workspace     string
-	Cwd           string
+	AgentRoot     string
+	UserRoot      string
+	ProjectRoot   string
 	UserSkillsDir string
 }
 
@@ -55,20 +55,22 @@ const (
 
 var validNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
-// LoadSkills discovers skills from project, user, workspace, and common directories.
+// LoadSkills discovers skills in increasing priority order:
+// builtin -> ANNA_HOME -> agent root -> user root -> cwd.
 func LoadSkills(ctx context.Context, cfg LoadSkillsConfig) []Skill {
-	return loadSkills(ctx, cfg.Runtime, cfg.HomeDir, cfg.AnnaHome, cfg.Workspace, cfg.Cwd, cfg.UserSkillsDir)
+	return loadSkills(ctx, cfg.Runtime, cfg.AnnaHome, cfg.AgentRoot, cfg.UserRoot, cfg.ProjectRoot, cfg.UserSkillsDir)
 }
 
-func loadSkills(ctx context.Context, runtime pkgplugins.ToolRuntime, homeDir, annaHome, workspace, cwd, userSkillsDir string) []Skill {
-	seen := map[string]bool{}
+func loadSkills(ctx context.Context, runtime pkgplugins.ToolRuntime, annaHome, agentRoot, userRoot, projectRoot, userSkillsDir string) []Skill {
+	indexByName := map[string]int{}
 	var skills []Skill
 
 	add := func(s Skill) {
-		if seen[s.Name] {
+		if idx, ok := indexByName[s.Name]; ok {
+			skills[idx] = s
 			return
 		}
-		seen[s.Name] = true
+		indexByName[s.Name] = len(skills)
 		skills = append(skills, s)
 	}
 
@@ -84,18 +86,6 @@ func loadSkills(ctx context.Context, runtime pkgplugins.ToolRuntime, homeDir, an
 		}
 	}
 
-	if cwd != "" {
-		addDir(filepath.Join(cwd, ".agents", "skills"), "project")
-	}
-	if userSkillsDir != "" {
-		addDir(userSkillsDir, "user")
-	}
-	if workspace != "" {
-		addDir(filepath.Join(workspace, "skills"), "agent")
-	}
-	if homeDir != "" {
-		addDir(filepath.Join(homeDir, ".agents", "skills"), "common")
-	}
 	if annaHome != "" {
 		builtinDir := filepath.Join(annaHome, "cache", "builtin-skills")
 		if err := builtin.Extract(builtinDir); err != nil {
@@ -103,6 +93,19 @@ func loadSkills(ctx context.Context, runtime pkgplugins.ToolRuntime, homeDir, an
 		} else {
 			addDir(builtinDir, "builtin")
 		}
+		addDir(filepath.Join(annaHome, "skills"), "anna")
+	}
+	if agentRoot != "" {
+		addDir(filepath.Join(agentRoot, "skills"), "agent")
+	}
+	if userSkillsDir == "" && userRoot != "" {
+		userSkillsDir = filepath.Join(filepath.Dir(userRoot), ".agents", "skills")
+	}
+	if userSkillsDir != "" {
+		addDir(userSkillsDir, "user")
+	}
+	if projectRoot != "" {
+		addDir(filepath.Join(projectRoot, ".agents", "skills"), "project")
 	}
 
 	return skills

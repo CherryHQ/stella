@@ -338,11 +338,11 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 			State:       state,
 			AnnaHome:    build.AnnaHome,
 			HomeDir:     build.HomeDir,
-			Workspace:   build.Workspace,
-			Cwd:         build.Cwd,
+			AgentRoot:   build.AgentRoot,
+			ProjectRoot: build.ProjectRoot,
 			UserID:      build.UserID,
 			AgentID:     build.AgentID,
-			UserDataDir: build.UserDataDir,
+			UserRoot:    build.UserRoot,
 		})
 		if err != nil {
 			return nil, err

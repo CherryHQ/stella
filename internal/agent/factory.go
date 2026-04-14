@@ -18,8 +18,8 @@ import (
 // NewRunnerFactory creates a runner.NewRunnerFunc for a given config snapshot.
 // The returned factory creates runners scoped to one agent's provider, model,
 // workspace, and system prompt. Memory provider, user ID, and agent ID are
-// injected per-session from RunnerParams. When UserID > 0, per-user workspace
-// directories are set up and per-user skills tools are created.
+// injected per-session from RunnerParams. Runner execution is always user-scoped,
+// so per-user workspace directories are created for every runner instance.
 //
 // Hooks are not part of the factory — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
@@ -42,16 +42,15 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 			if apiName == "" {
 				apiName = provID
 			}
-			cwd, _ := os.Getwd()
 
-			// Determine per-user paths when user ID is set.
-			var userDataDir string
-			if params.UserID > 0 {
-				userDir, err := SetupUserWorkspace(snap.AgentID, config.AnnaHome(), params.UserID)
-				if err == nil {
-					userDataDir = UserDataDir(userDir)
-				}
+			if params.UserID <= 0 {
+				return nil, fmt.Errorf("runner requires user scope")
 			}
+			userDir, err := SetupUserWorkspace(snap.AgentID, config.AnnaHome(), params.UserID)
+			if err != nil {
+				return nil, fmt.Errorf("setup user workspace: %w", err)
+			}
+			userRoot := UserRoot(userDir)
 
 			// Extract memory provider from params (typed as any to avoid circular imports).
 			var memProvider memory.Provider
@@ -69,11 +68,11 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 				promptSections, _ = promptSectionsFn(ctx, pkgplugins.SystemPromptContext{
 					AnnaHome:    config.AnnaHome(),
 					HomeDir:     homeDir,
-					Workspace:   snap.Workspace,
-					Cwd:         cwd,
+					AgentRoot:   snap.Workspace,
+					ProjectRoot: "",
 					UserID:      params.UserID,
 					AgentID:     params.AgentID,
-					UserDataDir: userDataDir,
+					UserRoot:    userRoot,
 				})
 			}
 
@@ -84,15 +83,14 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 				UserID:         params.UserID,
 				AgentID:        params.AgentID,
 				AnnaHome:       config.AnnaHome(),
-				Workspace:      snap.Workspace,
-				Cwd:            cwd,
-				UserDataDir:    userDataDir,
+				AgentRoot:      snap.Workspace,
+				UserRoot:       userRoot,
 				PromptTools:    promptTools,
 				PromptSections: promptSections,
 			})
 
-			// Use user data dir as working dir when available, otherwise use system cwd.
-			workDir := userDataDir
+			// Runner execution is always user-scoped, so tools start in the user root.
+			workDir := userRoot
 
 			// Resolve hooks from RunnerParams — injected by Pool, not the factory.
 			var hookPlugins []hooks.HookPlugin
@@ -104,7 +102,7 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 				API:            apiName,
 				Model:          modelID,
 				APIKey:         creds.APIKey,
-				Workspace:      snap.Workspace,
+				AgentRoot:      snap.Workspace,
 				AnnaHome:       config.AnnaHome(),
 				BaseURL:        creds.BaseURL,
 				System:         system,
@@ -112,7 +110,7 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 				ExtraTools:     extraTools,
 				PluginTools:    pluginToolsBuilder,
 				WorkDir:        workDir,
-				UserDataDir:    userDataDir,
+				UserRoot:       userRoot,
 				Sandbox:        snap.Sandbox,
 				HookPlugins:    hookPlugins,
 				ToolLifecycle:  toolLifecycle,

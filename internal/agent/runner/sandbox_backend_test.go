@@ -25,8 +25,11 @@ func TestResolveSessionAutoFallsBackToLocalWhenBoxshUnsupported(t *testing.T) {
 	platformSupportsBoxsh = func() bool { return false }
 	t.Cleanup(func() { platformSupportsBoxsh = previous })
 
+	workspace := t.TempDir()
+	userRoot := workspace + "/users/1/data"
 	rs, err := resolveSession(context.Background(), GoRunnerConfig{
-		Workspace: t.TempDir(),
+		AgentRoot: workspace,
+		UserRoot:  userRoot,
 		WorkDir:   ".",
 		Sandbox: config.SandboxConfig{
 			Backend: config.SandboxBackendAuto,
@@ -57,24 +60,55 @@ func TestResolveSessionExplicitBoxshRejectsUnsupportedPlatform(t *testing.T) {
 	}
 }
 
-func TestSandboxWorkspaceRootUsesUserDataDir(t *testing.T) {
+func TestSandboxRootUsesUserRoot(t *testing.T) {
 	cfg := GoRunnerConfig{
-		Workspace:   "/workspace/agent",
-		UserDataDir: "/workspace/agent/users/1/data",
+		AgentRoot: "/workspace/agent",
+		UserRoot:  "/workspace/agent/users/1/data",
 	}
 
-	if got := sandboxWorkspaceRoot(cfg); got != cfg.UserDataDir {
-		t.Fatalf("sandboxWorkspaceRoot() = %q, want %q", got, cfg.UserDataDir)
+	if got := sandboxRoot(cfg); got != cfg.UserRoot {
+		t.Fatalf("sandboxRoot() = %q, want %q", got, cfg.UserRoot)
 	}
 }
 
-func TestSandboxWorkspaceRootFallsBackToWorkspace(t *testing.T) {
+func TestResolveRunnerPathsDefaultsWorkDirToUserRoot(t *testing.T) {
 	cfg := GoRunnerConfig{
-		Workspace: "/workspace/agent",
+		AgentRoot: "/workspace/agent",
+		UserRoot:  "/workspace/agent/users/1/data",
 	}
 
-	if got := sandboxWorkspaceRoot(cfg); got != cfg.Workspace {
-		t.Fatalf("sandboxWorkspaceRoot() = %q, want %q", got, cfg.Workspace)
+	paths := resolveRunnerPaths(cfg)
+	if paths.WorkDir != cfg.UserRoot {
+		t.Fatalf("WorkDir = %q, want %q", paths.WorkDir, cfg.UserRoot)
+	}
+}
+
+func TestSandboxProcessEnvUsesSandboxRootAsHome(t *testing.T) {
+	cfg := GoRunnerConfig{
+		AnnaHome:  "/anna",
+		AgentRoot: "/workspace/agent",
+		UserRoot:  "/workspace/agent/users/1/data",
+	}
+
+	env := sandboxProcessEnv(resolveRunnerPaths(cfg))
+	if got := env["HOME"]; got != cfg.UserRoot {
+		t.Fatalf("HOME = %q, want %q", got, cfg.UserRoot)
+	}
+	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
+		t.Fatalf("ANNA_HOME = %q, want %q", got, cfg.AnnaHome)
+	}
+}
+
+func TestSandboxProcessEnvUsesUserRootAsHome(t *testing.T) {
+	cfg := GoRunnerConfig{
+		AnnaHome:  "/anna",
+		AgentRoot: "/workspace/agent",
+		UserRoot:  "/workspace/agent/users/1/data",
+	}
+
+	env := sandboxProcessEnv(resolveRunnerPaths(cfg))
+	if got := env["HOME"]; got != cfg.UserRoot {
+		t.Fatalf("HOME = %q, want %q", got, cfg.UserRoot)
 	}
 }
 

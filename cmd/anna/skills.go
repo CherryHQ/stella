@@ -203,12 +203,10 @@ func loadInstalledSkills(ctx context.Context) ([]skillstool.Skill, error) {
 		return nil, err
 	}
 	cwd, _ := os.Getwd()
-	home, _ := os.UserHomeDir()
 	return skillstool.LoadSkills(ctx, skillstool.LoadSkillsConfig{
-		HomeDir:   home,
-		AnnaHome:  config.AnnaHome(),
-		Workspace: snap.Workspace,
-		Cwd:       cwd,
+		AnnaHome:    config.AnnaHome(),
+		AgentRoot:   snap.Workspace,
+		ProjectRoot: cwd,
 	}), nil
 }
 
