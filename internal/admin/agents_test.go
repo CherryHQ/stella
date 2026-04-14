@@ -110,6 +110,36 @@ func TestAgentInvalidScope(t *testing.T) {
 	}
 }
 
+func TestAgentInvalidSandbox(t *testing.T) {
+	env := setupAdmin(t)
+
+	body := config.Agent{
+		Name:    "Bad Sandbox",
+		Model:   "anthropic/claude-sonnet-4-6",
+		Enabled: true,
+		Sandbox: config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: "bogus"}},
+	}
+	rr := doRequest(t, env, "POST", "/api/agents", body)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+}
+
+func TestAgentInvalidSandboxOnUpdate(t *testing.T) {
+	env := setupAdmin(t)
+
+	body := config.Agent{
+		Name:    "Anna",
+		Model:   "anthropic/claude-sonnet-4-6",
+		Enabled: true,
+		Sandbox: config.SandboxConfig{Network: config.SandboxNetworkConfig{Mode: "bogus"}},
+	}
+	rr := doRequest(t, env, "PUT", "/api/agents/anna", body)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+}
+
 func TestAgentUserAssignment(t *testing.T) {
 	env := setupAdmin(t)
 	ctx := context.Background()

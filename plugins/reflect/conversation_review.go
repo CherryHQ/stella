@@ -89,14 +89,17 @@ func (s *Service) newConversationReviewer(snap *pkgplugins.ReflectSnapshot, user
 	return newReviewer(reviewerConfig{
 		Providers:      reg,
 		Model:          model,
-		SkillsTool:     skillstool.NewTool("", snap.Workspace, "", userSkillsDir(snap.Workspace, userID)),
+		SkillsTool:     skillstool.NewTool("", "", snap.Workspace, "", userSkillsDir(snap.Workspace, userID), nil),
 		MemoryTool:     memory.BuildTool(s.memory, memory.WithActionsOnly("profile_get", "profile_update")),
 		ExistingSkills: loadExistingSkillNames(snap.Workspace, userID),
 	})
 }
 
 func loadExistingSkillNames(workspace string, userID int64) []string {
-	allSkills := skillstool.LoadSkills("", workspace, "", userSkillsDir(workspace, userID))
+	allSkills := skillstool.LoadSkills(context.Background(), skillstool.LoadSkillsConfig{
+		Workspace:     workspace,
+		UserSkillsDir: userSkillsDir(workspace, userID),
+	})
 	names := make([]string, 0, len(allSkills))
 	for _, sk := range allSkills {
 		names = append(names, sk.Name)

@@ -203,8 +203,10 @@ func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) 
 			userDataDir = agent.UserDataDir(userDir)
 		}
 	}
+	homeDir, _ := os.UserHomeDir()
 	promptSections, err := s.pluginHost.SystemPromptSections(r.Context(), pkgplugins.SystemPromptContext{
 		AnnaHome:    config.AnnaHome(),
+		HomeDir:     homeDir,
 		Workspace:   agentCfg.Workspace,
 		Cwd:         cwd,
 		UserID:      info.UserID,
