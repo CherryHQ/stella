@@ -37,19 +37,19 @@ func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Regist
 	return reg, nil
 }
 
-func testRunnerPaths(t *testing.T) (annaHome, workspace, userDataDir string) {
+func testRunnerPaths(t *testing.T) (annaHome, workspace, userRoot string) {
 	t.Helper()
 	if !boxshclient.PlatformSupportsBoxsh() {
 		t.Skip("sandbox backend requires boxsh support on this platform")
 	}
 	annaHome = t.TempDir()
 	workspace = t.TempDir()
-	userDataDir = filepath.Join(workspace, "users", "1", "data")
-	if err := os.MkdirAll(userDataDir, 0o755); err != nil {
+	userRoot = filepath.Join(workspace, "users", "1", "data")
+	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	_ = writeMockRPCBoxsh(t, annaHome, false)
-	return annaHome, workspace, userDataDir
+	return annaHome, workspace, userRoot
 }
 
 func writeMockRPCBoxsh(t *testing.T, annaHome string, exitAfterHandshake bool) string {
@@ -88,12 +88,12 @@ func writeMockRPCBoxsh(t *testing.T, annaHome string, exitAfterHandshake bool) s
 
 func withTestRunnerPaths(t *testing.T, cfg GoRunnerConfig) GoRunnerConfig {
 	t.Helper()
-	annaHome, workspace, userDataDir := testRunnerPaths(t)
+	annaHome, workspace, userRoot := testRunnerPaths(t)
 	cfg.AnnaHome = annaHome
-	cfg.Workspace = workspace
-	cfg.UserDataDir = userDataDir
+	cfg.AgentRoot = workspace
+	cfg.UserRoot = userRoot
 	if cfg.WorkDir == "" {
-		cfg.WorkDir = userDataDir
+		cfg.WorkDir = userRoot
 	}
 	return cfg
 }
@@ -106,8 +106,8 @@ func TestNewGoRunnerRequiresConfig(t *testing.T) {
 		{"missing api", GoRunnerConfig{Model: "m", APIKey: "k"}},
 		{"missing model", GoRunnerConfig{API: "anthropic", APIKey: "k"}},
 		{"missing api_key", GoRunnerConfig{API: "anthropic", Model: "m"}},
-		{"missing workspace", GoRunnerConfig{API: "anthropic", Model: "m", APIKey: "k", UserDataDir: "/tmp/user"}},
-		{"missing user_data_dir", GoRunnerConfig{API: "anthropic", Model: "m", APIKey: "k", Workspace: "/tmp/workspace"}},
+		{"missing workspace", GoRunnerConfig{API: "anthropic", Model: "m", APIKey: "k", UserRoot: "/tmp/user"}},
+		{"missing user_data_dir", GoRunnerConfig{API: "anthropic", Model: "m", APIKey: "k", AgentRoot: "/tmp/workspace"}},
 	}
 
 	for _, tt := range tests {
@@ -147,19 +147,19 @@ func TestNewGoRunnerPreflightExtractsManagedTools(t *testing.T) {
 	}
 	annaHome := t.TempDir()
 	workspace := t.TempDir()
-	userDataDir := filepath.Join(workspace, "users", "1", "data")
-	if err := os.MkdirAll(userDataDir, 0o755); err != nil {
+	userRoot := filepath.Join(workspace, "users", "1", "data")
+	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 
 	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:         "anthropic",
-		Model:       "claude-sonnet-4-20250514",
-		APIKey:      "test-key",
-		AnnaHome:    annaHome,
-		Workspace:   workspace,
-		UserDataDir: userDataDir,
-		Providers:   testProviderRegistryBuilder,
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		AnnaHome:  annaHome,
+		AgentRoot: workspace,
+		UserRoot:  userRoot,
+		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
@@ -178,20 +178,20 @@ func TestNewGoRunnerUsesBoxshCoreToolsAndCleansUp(t *testing.T) {
 
 	annaHome := t.TempDir()
 	workspace := t.TempDir()
-	userDataDir := filepath.Join(workspace, "users", "1", "data")
-	if err := os.MkdirAll(userDataDir, 0o755); err != nil {
+	userRoot := filepath.Join(workspace, "users", "1", "data")
+	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	commandsLog := writeMockRPCBoxsh(t, annaHome, false)
 
 	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:         "anthropic",
-		Model:       "claude-sonnet-4-20250514",
-		APIKey:      "test-key",
-		AnnaHome:    annaHome,
-		Workspace:   workspace,
-		UserDataDir: userDataDir,
-		Providers:   testProviderRegistryBuilder,
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		AnnaHome:  annaHome,
+		AgentRoot: workspace,
+		UserRoot:  userRoot,
+		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
@@ -236,20 +236,20 @@ func TestGoRunnerAliveTracksDeadBoxshBackend(t *testing.T) {
 
 	annaHome := t.TempDir()
 	workspace := t.TempDir()
-	userDataDir := filepath.Join(workspace, "users", "1", "data")
-	if err := os.MkdirAll(userDataDir, 0o755); err != nil {
+	userRoot := filepath.Join(workspace, "users", "1", "data")
+	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	_ = writeMockRPCBoxsh(t, annaHome, true)
 
 	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
-		API:         "anthropic",
-		Model:       "claude-sonnet-4-20250514",
-		APIKey:      "test-key",
-		AnnaHome:    annaHome,
-		Workspace:   workspace,
-		UserDataDir: userDataDir,
-		Providers:   testProviderRegistryBuilder,
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		AnnaHome:  annaHome,
+		AgentRoot: workspace,
+		UserRoot:  userRoot,
+		Providers: testProviderRegistryBuilder,
 	})
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)

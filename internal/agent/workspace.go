@@ -49,7 +49,7 @@ func UserSkillsDir(userWorkspace string) string {
 	return filepath.Join(userWorkspace, ".agents", "skills")
 }
 
-// UserDataDir returns the per-user data directory path within a user workspace.
-func UserDataDir(userWorkspace string) string {
+// UserRoot returns the per-user writable root path within a user workspace.
+func UserRoot(userWorkspace string) string {
 	return filepath.Join(userWorkspace, "data")
 }

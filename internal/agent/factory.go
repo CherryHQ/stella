@@ -51,7 +51,7 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 			if err != nil {
 				return nil, fmt.Errorf("setup user workspace: %w", err)
 			}
-			userDataDir := UserDataDir(userDir)
+			userRoot := UserRoot(userDir)
 
 			// Extract memory provider from params (typed as any to avoid circular imports).
 			var memProvider memory.Provider
@@ -67,13 +67,13 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 			if promptSectionsFn != nil {
 				homeDir, _ := os.UserHomeDir()
 				promptSections, _ = promptSectionsFn(ctx, pkgplugins.SystemPromptContext{
-					AnnaHome:    config.AnnaHome(),
-					HomeDir:     homeDir,
-					Workspace:   snap.Workspace,
-					Cwd:         cwd,
-					UserID:      params.UserID,
-					AgentID:     params.AgentID,
-					UserDataDir: userDataDir,
+					AnnaHome:  config.AnnaHome(),
+					HomeDir:   homeDir,
+					AgentRoot: snap.Workspace,
+					Cwd:       cwd,
+					UserID:    params.UserID,
+					AgentID:   params.AgentID,
+					UserRoot:  userRoot,
 				})
 			}
 
@@ -84,15 +84,15 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 				UserID:         params.UserID,
 				AgentID:        params.AgentID,
 				AnnaHome:       config.AnnaHome(),
-				Workspace:      snap.Workspace,
+				AgentRoot:      snap.Workspace,
 				Cwd:            cwd,
-				UserDataDir:    userDataDir,
+				UserRoot:       userRoot,
 				PromptTools:    promptTools,
 				PromptSections: promptSections,
 			})
 
 			// Runner execution is always user-scoped, so tools start in the user root.
-			workDir := userDataDir
+			workDir := userRoot
 
 			// Resolve hooks from RunnerParams — injected by Pool, not the factory.
 			var hookPlugins []hooks.HookPlugin
@@ -104,7 +104,7 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 				API:            apiName,
 				Model:          modelID,
 				APIKey:         creds.APIKey,
-				Workspace:      snap.Workspace,
+				AgentRoot:      snap.Workspace,
 				AnnaHome:       config.AnnaHome(),
 				BaseURL:        creds.BaseURL,
 				System:         system,
@@ -112,7 +112,7 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 				ExtraTools:     extraTools,
 				PluginTools:    pluginToolsBuilder,
 				WorkDir:        workDir,
-				UserDataDir:    userDataDir,
+				UserRoot:       userRoot,
 				Sandbox:        snap.Sandbox,
 				HookPlugins:    hookPlugins,
 				ToolLifecycle:  toolLifecycle,

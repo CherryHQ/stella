@@ -19,13 +19,13 @@ import (
 //
 // In practice:
 //   - UserHome is used for host-side discovery of shared skills/agents.
-//   - Workspace is the agent-level persistent directory.
-//   - UserDataDir is the user-scoped persistent directory and required for execution.
+//   - AgentRoot is the agent-level persistent directory.
+//   - UserRoot is the user-scoped persistent directory and required for execution.
 //   - SandboxRoot is always the user-scoped writable root.
 //   - ProcessHome is exported as HOME for CLI tools running in the sandbox.
 //
-// This keeps call sites from having to re-decide which of cfg.Workspace,
-// cfg.UserDataDir, cfg.WorkDir, cfg.AnnaHome, or os.UserHomeDir() should be
+// This keeps call sites from having to re-decide which of cfg.AgentRoot,
+// cfg.UserRoot, cfg.WorkDir, cfg.AnnaHome, or os.UserHomeDir() should be
 // used for each operation.
 type runnerPaths struct {
 	// AnnaHome is Anna's resolved home directory.
@@ -36,24 +36,24 @@ type runnerPaths struct {
 	// Used for host-side shared discovery like ~/.agents/{skills,agents}.
 	UserHome string
 
-	// Workspace is the agent's persistent workspace directory.
-	// Used for agent-scoped files such as workspace-local skills/agents.
-	Workspace string
+	// AgentRoot is the agent's persistent root directory.
+	// Used for agent-scoped files such as agent-local skills/agents.
+	AgentRoot string
 
 	// WorkDir is the requested working directory for tool execution.
-	// When empty, it defaults to UserDataDir.
+	// When empty, it defaults to UserRoot.
 	WorkDir string
 
-	// UserDataDir is the user-scoped persistent storage within an agent.
+	// UserRoot is the user-scoped persistent storage within an agent.
 	// Runner execution is always user-scoped, so this must be set.
-	UserDataDir string
+	UserRoot string
 
 	// SandboxRoot is the directory exposed as the sandbox's writable root.
-	// It always resolves to UserDataDir.
+	// It always resolves to UserRoot.
 	SandboxRoot string
 
 	// ProcessHome is the HOME env visible to executed CLIs.
-	// It always resolves to UserDataDir.
+	// It always resolves to UserRoot.
 	ProcessHome string
 
 	// ToolsBinDir is Anna's managed bin directory.
@@ -70,9 +70,9 @@ type runnerPaths struct {
 // Resolution rules:
 //   - AnnaHome: cfg.AnnaHome or config.AnnaHome()
 //   - UserHome: os.UserHomeDir()
-//   - SandboxRoot: cfg.UserDataDir
-//   - ProcessHome: cfg.UserDataDir
-//   - WorkDir: cfg.WorkDir if set, else cfg.UserDataDir
+//   - SandboxRoot: cfg.UserRoot
+//   - ProcessHome: cfg.UserRoot
+//   - WorkDir: cfg.WorkDir if set, else cfg.UserRoot
 func resolveRunnerPaths(cfg GoRunnerConfig) runnerPaths {
 	annaHome := cfg.AnnaHome
 	if annaHome == "" {
@@ -82,25 +82,25 @@ func resolveRunnerPaths(cfg GoRunnerConfig) runnerPaths {
 	userHome, _ := os.UserHomeDir()
 	workDir := cfg.WorkDir
 	if workDir == "" {
-		workDir = cfg.UserDataDir
+		workDir = cfg.UserRoot
 	}
 
 	return runnerPaths{
 		AnnaHome:         annaHome,
 		UserHome:         userHome,
-		Workspace:        cfg.Workspace,
+		AgentRoot:        cfg.AgentRoot,
 		WorkDir:          workDir,
-		UserDataDir:      cfg.UserDataDir,
-		SandboxRoot:      cfg.UserDataDir,
-		ProcessHome:      cfg.UserDataDir,
+		UserRoot:         cfg.UserRoot,
+		SandboxRoot:      cfg.UserRoot,
+		ProcessHome:      cfg.UserRoot,
 		ToolsBinDir:      embedded.BinDir(annaHome),
 		BuiltinSkillsDir: filepath.Join(annaHome, "cache", "builtin-skills"),
 	}
 }
 
-// sandboxWorkspaceRoot returns the directory mounted as the sandbox root.
-// Runner execution is always user-scoped, so this is always UserDataDir.
-func sandboxWorkspaceRoot(cfg GoRunnerConfig) string {
+// sandboxRoot returns the directory mounted as the sandbox root.
+// Runner execution is always user-scoped, so this is always UserRoot.
+func sandboxRoot(cfg GoRunnerConfig) string {
 	return resolveRunnerPaths(cfg).SandboxRoot
 }
 

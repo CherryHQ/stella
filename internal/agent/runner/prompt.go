@@ -61,9 +61,9 @@ type DBPromptParams struct {
 	UserID         int64           // auth user ID for profile lookup
 	AgentID        string          // agent ID for profile lookup
 	AnnaHome       string
-	Workspace      string
+	AgentRoot      string
 	Cwd            string // optional working directory
-	UserDataDir    string // optional per-user data directory
+	UserRoot       string // per-user writable root
 	PromptTools    []pkgplugins.PromptToolInfo
 	PromptSections []pkgplugins.SystemPromptSection
 	Host           sandbox.Host

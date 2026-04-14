@@ -35,15 +35,15 @@ type GoRunnerConfig struct {
 	Model          string // e.g. "claude-sonnet-4-20250514"
 	APIKey         string
 	BaseURL        string // optional provider base URL override
-	WorkDir        string // working directory for tool execution; defaults to UserDataDir when empty
-	Workspace      string // agent root directory
+	WorkDir        string // working directory for tool execution; defaults to UserRoot when empty
+	AgentRoot      string // agent root directory
 	AnnaHome       string // anna home directory (e.g. ~/.anna)
 	System         string // optional system prompt override (bypasses default prompt building)
 	PromptSections []pkgplugins.SystemPromptSection
 	ExtraTools     []tools.Tool // additional tools to register
 	PluginTools    func(context.Context, plugintools.BuildContext) []tools.Tool
 	ToolRuntime    pkgplugins.ToolRuntime
-	UserDataDir    string             // required per-user root used by prompts, skills, and sandbox execution
+	UserRoot       string             // required per-user root used by prompts, skills, and sandbox execution
 	HookPlugins    []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle  *coreagent.ToolLifecycle
 	Providers      ProviderRegistryBuilder
@@ -78,11 +78,11 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("go runner: api_key is required")
 	}
-	if cfg.Workspace == "" {
-		return nil, fmt.Errorf("go runner: workspace is required")
+	if cfg.AgentRoot == "" {
+		return nil, fmt.Errorf("go runner: agent_root is required")
 	}
-	if cfg.UserDataDir == "" {
-		return nil, fmt.Errorf("go runner: user_data_dir is required")
+	if cfg.UserRoot == "" {
+		return nil, fmt.Errorf("go runner: user_root is required")
 	}
 
 	paths := resolveRunnerPaths(cfg)
@@ -111,9 +111,9 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	if system == "" {
 		system = BuildSystemPromptFromDB(context.Background(), DBPromptParams{
 			AnnaHome:       paths.AnnaHome,
-			Workspace:      paths.Workspace,
+			AgentRoot:      paths.AgentRoot,
 			Cwd:            paths.WorkDir,
-			UserDataDir:    paths.UserDataDir,
+			UserRoot:       paths.UserRoot,
 			PromptSections: cfg.PromptSections,
 			Host:           session.Host(),
 		})
@@ -208,10 +208,10 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 	// Runtime capabilities are injected from the active runner session.
 	bc := plugintools.BuildContext{
 		WorkDir:     paths.WorkDir,
-		UserDataDir: paths.UserDataDir,
+		UserRoot:    paths.UserRoot,
 		AnnaHome:    paths.AnnaHome,
 		HomeDir:     paths.UserHome,
-		Workspace:   paths.Workspace,
+		AgentRoot:   paths.AgentRoot,
 		ToolsBinDir: paths.ToolsBinDir,
 		Runtime:     cfg.ToolRuntime,
 	}
@@ -258,7 +258,7 @@ func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 	}
 	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
 		HomeDir:          paths.UserHome,
-		Workspace:        paths.Workspace,
+		AgentRoot:        paths.AgentRoot,
 		Cwd:              paths.WorkDir,
 		BuiltinSkillsDir: paths.BuiltinSkillsDir,
 		Runtime:          cfg.ToolRuntime,
@@ -275,8 +275,8 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	}
 	if err := boxshsandbox.Preflight(ctx, boxshsandbox.PreflightConfig{
 		AnnaHome:    paths.AnnaHome,
-		Workspace:   paths.Workspace,
-		UserDataDir: paths.UserDataDir,
+		Workspace:   paths.AgentRoot,
+		UserDataDir: paths.UserRoot,
 		Network: boxshsandbox.NetworkConfig{
 			Mode:      cfg.Sandbox.Network.Mode,
 			Allowlist: cfg.Sandbox.Network.Allowlist,

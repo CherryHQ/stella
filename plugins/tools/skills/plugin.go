@@ -28,7 +28,7 @@ func init() {
 			Description: "Manage local agent skills.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return NewTool(ctx.AnnaHome, ctx.HomeDir, ctx.Workspace, ctx.WorkDir, userSkillsDir(ctx.UserDataDir), ctx.Runtime), nil
+				return NewTool(ctx.AnnaHome, ctx.HomeDir, ctx.AgentRoot, ctx.WorkDir, userSkillsDir(ctx.UserRoot), ctx.Runtime), nil
 			},
 		})
 		host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
@@ -40,11 +40,11 @@ func init() {
 	}))
 }
 
-func userSkillsDir(userDataDir string) string {
-	if userDataDir == "" {
+func userSkillsDir(userRoot string) string {
+	if userRoot == "" {
 		return ""
 	}
-	return filepath.Join(filepath.Dir(userDataDir), ".agents", "skills")
+	return filepath.Join(filepath.Dir(userRoot), ".agents", "skills")
 }
 
 func SkillsDefinition() tools.Definition {

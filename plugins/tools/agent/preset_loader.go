@@ -15,7 +15,7 @@ import (
 // LoadAgentPresetsConfig configures the agent preset discovery paths.
 type LoadAgentPresetsConfig struct {
 	HomeDir          string // user home directory for common presets
-	Workspace        string // agent workspace dir (e.g. ~/.anna/workspaces/{agentID})
+	AgentRoot        string // agent root dir (e.g. ~/.anna/workspaces/{agentID})
 	Cwd              string // working directory
 	BuiltinSkillsDir string // pre-extracted builtin skills directory (caller ensures extraction)
 	Runtime          pkgplugins.ToolRuntime
@@ -24,10 +24,10 @@ type LoadAgentPresetsConfig struct {
 // LoadAgentPresets discovers agent presets from multiple directories.
 // Priority order: cwd/.agents/agents/ > workspace/agents/ > ~/.agents/agents/ > builtin
 func LoadAgentPresets(cfg LoadAgentPresetsConfig) []AgentPreset {
-	return loadAgentPresets(context.Background(), cfg.Runtime, cfg.HomeDir, cfg.Workspace, cfg.Cwd, cfg.BuiltinSkillsDir)
+	return loadAgentPresets(context.Background(), cfg.Runtime, cfg.HomeDir, cfg.AgentRoot, cfg.Cwd, cfg.BuiltinSkillsDir)
 }
 
-func loadAgentPresets(ctx context.Context, runtime pkgplugins.ToolRuntime, homeDir, workspace, cwd, builtinSkillsDir string) []AgentPreset {
+func loadAgentPresets(ctx context.Context, runtime pkgplugins.ToolRuntime, homeDir, agentRoot, cwd, builtinSkillsDir string) []AgentPreset {
 	seen := map[string]bool{}
 	var presets []AgentPreset
 
@@ -56,9 +56,9 @@ func loadAgentPresets(ctx context.Context, runtime pkgplugins.ToolRuntime, homeD
 		addDir(filepath.Join(cwd, ".agents", "agents"), "project")
 	}
 
-	// 2. Agent-level workspace agents: workspace/agents/
-	if workspace != "" {
-		addDir(filepath.Join(workspace, "agents"), "agent")
+	// 2. Agent-level agents: agent_root/agents/
+	if agentRoot != "" {
+		addDir(filepath.Join(agentRoot, "agents"), "agent")
 	}
 
 	// 3. Common agents: ~/.agents/agents/

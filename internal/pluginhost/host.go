@@ -334,15 +334,15 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 			}
 		}
 		section, err := reg.Build(ctx, pkgplugins.SystemPromptContext{
-			Platform:    h.platform(reg.PluginID),
-			State:       state,
-			AnnaHome:    build.AnnaHome,
-			HomeDir:     build.HomeDir,
-			Workspace:   build.Workspace,
-			Cwd:         build.Cwd,
-			UserID:      build.UserID,
-			AgentID:     build.AgentID,
-			UserDataDir: build.UserDataDir,
+			Platform:  h.platform(reg.PluginID),
+			State:     state,
+			AnnaHome:  build.AnnaHome,
+			HomeDir:   build.HomeDir,
+			AgentRoot: build.AgentRoot,
+			Cwd:       build.Cwd,
+			UserID:    build.UserID,
+			AgentID:   build.AgentID,
+			UserRoot:  build.UserRoot,
 		})
 		if err != nil {
 			return nil, err
