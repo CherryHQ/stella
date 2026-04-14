@@ -72,6 +72,40 @@ func TestBashTool_MetadataFooter(t *testing.T) {
 	}
 }
 
+func TestBashTool_Timeout(t *testing.T) {
+	tool := NewBashTool("", "")
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"command": "sleep 2",
+		"timeout": 1,
+	})
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("expected timeout error, got %v", err)
+	}
+	if !strings.Contains(result, "[Command timed out after 1s]") {
+		t.Fatalf("expected timeout note, got %q", result)
+	}
+	if !strings.Contains(result, "[exit:124") {
+		t.Fatalf("expected timeout exit metadata, got %q", result)
+	}
+}
+
+func TestBashTool_TimeoutAllowsPartialOutput(t *testing.T) {
+	tool := NewBashTool("", "")
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"command": "echo before; sleep 2",
+		"timeout": 1,
+	})
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !strings.Contains(result, "before") {
+		t.Fatalf("expected partial output before timeout, got %q", result)
+	}
+}
+
 func TestFormatDuration(t *testing.T) {
 	tests := []struct {
 		d    time.Duration
@@ -108,5 +142,23 @@ func TestEnvWithToolsBin_WithDir(t *testing.T) {
 	}
 	if !pathFound {
 		t.Error("expected /custom/bin in PATH")
+	}
+}
+
+func TestBashIntArg(t *testing.T) {
+	tests := []struct {
+		args map[string]any
+		want int
+	}{
+		{args: map[string]any{"timeout": float64(3)}, want: 3},
+		{args: map[string]any{"timeout": 2}, want: 2},
+		{args: map[string]any{"timeout": int64(4)}, want: 4},
+		{args: map[string]any{"timeout": "bad"}, want: 7},
+		{args: map[string]any{}, want: 7},
+	}
+	for _, tc := range tests {
+		if got := bashIntArg(tc.args, "timeout", 7); got != tc.want {
+			t.Fatalf("bashIntArg(%v) = %d, want %d", tc.args, got, tc.want)
+		}
 	}
 }

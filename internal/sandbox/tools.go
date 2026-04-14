@@ -46,7 +46,7 @@ func (t *hostBashTool) Definition() tools.Definition {
 			"type": "object",
 			"properties": map[string]any{
 				"command": map[string]any{"type": "string", "description": "The bash command to execute."},
-				"timeout": map[string]any{"type": "integer", "description": "Timeout in seconds."},
+				"timeout": map[string]any{"type": "integer", "description": "Timeout in seconds (optional, no default timeout)."},
 			},
 			"required": []string{"command"},
 		},
@@ -60,14 +60,19 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 	}
 
 	start := time.Now()
+	timeoutSeconds := toolIntArg(args, "timeout", 0)
 	env := map[string]string{}
 	if t.toolsBinDir != "" {
 		env["PATH"] = t.toolsBinDir + string(os.PathListSeparator) + os.Getenv("PATH")
 	}
-	result, err := t.host.Exec(ctx, command, ExecOptions{Timeout: time.Duration(toolIntArg(args, "timeout", 0)) * time.Second, Env: env})
+	result, err := t.host.Exec(ctx, command, ExecOptions{Timeout: time.Duration(timeoutSeconds) * time.Second, Env: env})
 	if err != nil {
 		norm := t.normalizer.NormalizeError(err, "bash")
 		return norm.Content, fmt.Errorf("bash: %w", err)
+	}
+	if timeoutSeconds > 0 && result.ExitCode == -1 {
+		content := fmt.Sprintf("bash: command timed out after %d seconds\n[exit:124 | %s]", timeoutSeconds, formatToolDuration(time.Since(start)))
+		return content, fmt.Errorf("bash: command timed out after %d seconds", timeoutSeconds)
 	}
 
 	norm := t.normalizer.NormalizeExec(result, time.Since(start))
