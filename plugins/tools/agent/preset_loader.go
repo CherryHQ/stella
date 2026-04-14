@@ -14,6 +14,7 @@ import (
 
 // LoadAgentPresetsConfig configures the agent preset discovery paths.
 type LoadAgentPresetsConfig struct {
+	AnnaHome         string // anna home dir (e.g. ~/.anna)
 	AgentRoot        string // agent root dir (e.g. ~/.anna/workspaces/{agentID})
 	UserRoot         string // user root dir (e.g. ~/.anna/workspaces/{agentID}/users/{userID}/data)
 	Cwd              string // working directory
@@ -22,12 +23,12 @@ type LoadAgentPresetsConfig struct {
 }
 
 // LoadAgentPresets discovers agent presets in increasing priority order:
-// ANNA_HOME -> agent root -> user root -> cwd.
+// builtin -> ANNA_HOME -> agent root -> user root -> cwd.
 func LoadAgentPresets(cfg LoadAgentPresetsConfig) []AgentPreset {
-	return loadAgentPresets(context.Background(), cfg.Runtime, cfg.AgentRoot, cfg.UserRoot, cfg.Cwd, cfg.BuiltinSkillsDir)
+	return loadAgentPresets(context.Background(), cfg.Runtime, cfg.AnnaHome, cfg.AgentRoot, cfg.UserRoot, cfg.Cwd, cfg.BuiltinSkillsDir)
 }
 
-func loadAgentPresets(ctx context.Context, runtime pkgplugins.ToolRuntime, agentRoot, userRoot, cwd, builtinSkillsDir string) []AgentPreset {
+func loadAgentPresets(ctx context.Context, runtime pkgplugins.ToolRuntime, annaHome, agentRoot, userRoot, cwd, builtinSkillsDir string) []AgentPreset {
 	indexByName := map[string]int{}
 	var presets []AgentPreset
 
@@ -53,7 +54,10 @@ func loadAgentPresets(ctx context.Context, runtime pkgplugins.ToolRuntime, agent
 	}
 
 	if builtinSkillsDir != "" {
-		addDir(filepath.Join(builtinSkillsDir, "agents"), "anna")
+		addDir(filepath.Join(builtinSkillsDir, "agents"), "builtin")
+	}
+	if annaHome != "" {
+		addDir(filepath.Join(annaHome, "agents"), "anna")
 	}
 	if agentRoot != "" {
 		addDir(filepath.Join(agentRoot, "agents"), "agent")

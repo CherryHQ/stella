@@ -56,7 +56,7 @@ const (
 var validNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 // LoadSkills discovers skills in increasing priority order:
-// ANNA_HOME -> agent root -> user root -> cwd.
+// builtin -> ANNA_HOME -> agent root -> user root -> cwd.
 func LoadSkills(ctx context.Context, cfg LoadSkillsConfig) []Skill {
 	return loadSkills(ctx, cfg.Runtime, cfg.AnnaHome, cfg.AgentRoot, cfg.UserRoot, cfg.Cwd, cfg.UserSkillsDir)
 }
@@ -91,8 +91,9 @@ func loadSkills(ctx context.Context, runtime pkgplugins.ToolRuntime, annaHome, a
 		if err := builtin.Extract(builtinDir); err != nil {
 			slog.Warn("failed to extract builtin skills", "error", err)
 		} else {
-			addDir(builtinDir, "anna")
+			addDir(builtinDir, "builtin")
 		}
+		addDir(filepath.Join(annaHome, "skills"), "anna")
 	}
 	if agentRoot != "" {
 		addDir(filepath.Join(agentRoot, "skills"), "agent")
