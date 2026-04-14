@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +11,7 @@ import (
 func TestCreateSkill(t *testing.T) {
 	dir := t.TempDir()
 
-	err := Create("my-skill", "A great skill", "# Instructions\nDo the thing.", dir)
+	err := Create(context.Background(), nil, "my-skill", "A great skill", "# Instructions\nDo the thing.", dir)
 	if err != nil {
 		t.Fatalf("Create error: %v", err)
 	}
@@ -41,10 +42,10 @@ func TestCreateSkill(t *testing.T) {
 
 func TestCreateSkillAlreadyExists(t *testing.T) {
 	dir := t.TempDir()
-	if err := Create("my-skill", "First", "", dir); err != nil {
+	if err := Create(context.Background(), nil, "my-skill", "First", "", dir); err != nil {
 		t.Fatalf("first create: %v", err)
 	}
-	err := Create("my-skill", "Second", "", dir)
+	err := Create(context.Background(), nil, "my-skill", "Second", "", dir)
 	if err == nil {
 		t.Fatal("expected error for duplicate skill")
 	}
@@ -67,7 +68,7 @@ func TestCreateSkillValidation(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		err := Create(tt.name, tt.desc, "", dir)
+		err := Create(context.Background(), nil, tt.name, tt.desc, "", dir)
 		if err == nil {
 			t.Errorf("Create(%q, %q) expected error containing %q", tt.name, tt.desc, tt.err)
 			continue
@@ -80,10 +81,10 @@ func TestCreateSkillValidation(t *testing.T) {
 
 func TestPatchSkillDescription(t *testing.T) {
 	dir := t.TempDir()
-	if err := Create("patch-me", "Original description", "# Body", dir); err != nil {
+	if err := Create(context.Background(), nil, "patch-me", "Original description", "# Body", dir); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	err := Patch("patch-me", map[string]string{"description": "Updated description"}, dir)
+	err := Patch(context.Background(), nil, "patch-me", map[string]string{"description": "Updated description"}, dir)
 	if err != nil {
 		t.Fatalf("patch: %v", err)
 	}
@@ -102,10 +103,10 @@ func TestPatchSkillDescription(t *testing.T) {
 
 func TestPatchSkillStatus(t *testing.T) {
 	dir := t.TempDir()
-	if err := Create("status-skill", "A skill", "", dir); err != nil {
+	if err := Create(context.Background(), nil, "status-skill", "A skill", "", dir); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	err := Patch("status-skill", map[string]string{"status": "active"}, dir)
+	err := Patch(context.Background(), nil, "status-skill", map[string]string{"status": "active"}, dir)
 	if err != nil {
 		t.Fatalf("patch: %v", err)
 	}
@@ -120,10 +121,10 @@ func TestPatchSkillStatus(t *testing.T) {
 
 func TestPatchSkillContent(t *testing.T) {
 	dir := t.TempDir()
-	if err := Create("content-skill", "A skill", "# Old body", dir); err != nil {
+	if err := Create(context.Background(), nil, "content-skill", "A skill", "# Old body", dir); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	err := Patch("content-skill", map[string]string{"content": "# New body\nWith details."}, dir)
+	err := Patch(context.Background(), nil, "content-skill", map[string]string{"content": "# New body\nWith details."}, dir)
 	if err != nil {
 		t.Fatalf("patch: %v", err)
 	}
@@ -142,10 +143,10 @@ func TestPatchSkillContent(t *testing.T) {
 
 func TestPatchSkillEmptyDescription(t *testing.T) {
 	dir := t.TempDir()
-	if err := Create("desc-skill", "A skill", "", dir); err != nil {
+	if err := Create(context.Background(), nil, "desc-skill", "A skill", "", dir); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	err := Patch("desc-skill", map[string]string{"description": ""}, dir)
+	err := Patch(context.Background(), nil, "desc-skill", map[string]string{"description": ""}, dir)
 	if err == nil {
 		t.Fatal("expected error for empty description")
 	}
@@ -153,7 +154,7 @@ func TestPatchSkillEmptyDescription(t *testing.T) {
 
 func TestPatchSkillNotFound(t *testing.T) {
 	dir := t.TempDir()
-	err := Patch("nonexistent", map[string]string{"description": "x"}, dir)
+	err := Patch(context.Background(), nil, "nonexistent", map[string]string{"description": "x"}, dir)
 	if err == nil {
 		t.Fatal("expected error for nonexistent skill")
 	}
@@ -161,7 +162,7 @@ func TestPatchSkillNotFound(t *testing.T) {
 
 func TestPatchNoUpdates(t *testing.T) {
 	dir := t.TempDir()
-	err := Patch("any", map[string]string{}, dir)
+	err := Patch(context.Background(), nil, "any", map[string]string{}, dir)
 	if err == nil {
 		t.Fatal("expected error for empty updates")
 	}
@@ -169,7 +170,7 @@ func TestPatchNoUpdates(t *testing.T) {
 
 func TestPatchPathTraversal(t *testing.T) {
 	dir := t.TempDir()
-	err := Patch("../../evil", map[string]string{"description": "x"}, dir)
+	err := Patch(context.Background(), nil, "../../evil", map[string]string{"description": "x"}, dir)
 	if err == nil {
 		t.Fatal("expected error for path traversal name")
 	}
@@ -180,10 +181,10 @@ func TestPatchPathTraversal(t *testing.T) {
 
 func TestDeprecateSkill(t *testing.T) {
 	dir := t.TempDir()
-	if err := Create("dep-skill", "A skill", "", dir); err != nil {
+	if err := Create(context.Background(), nil, "dep-skill", "A skill", "", dir); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	err := Deprecate("dep-skill", dir)
+	err := Deprecate(context.Background(), nil, "dep-skill", dir)
 	if err != nil {
 		t.Fatalf("deprecate: %v", err)
 	}
@@ -198,7 +199,7 @@ func TestDeprecateSkill(t *testing.T) {
 
 func TestDeprecateSkillNotFound(t *testing.T) {
 	dir := t.TempDir()
-	err := Deprecate("nonexistent", dir)
+	err := Deprecate(context.Background(), nil, "nonexistent", dir)
 	if err == nil {
 		t.Fatal("expected error for nonexistent skill")
 	}

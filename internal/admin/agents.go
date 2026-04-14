@@ -46,6 +46,10 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	if err := a.Sandbox.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// Auto-generate ID from name.
 	a.ID = slugify(a.Name)
@@ -85,6 +89,11 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.CreateAgent(ctx, a); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if s.poolManager != nil {
+		if err := s.poolManager.SyncAgent(ctx, a.ID); err != nil {
+			s.log.Error("sync agent pool after create", "agent_id", a.ID, "error", err)
+		}
 	}
 
 	// Auto-assign the creator if scope is restricted and user is non-admin.
@@ -145,6 +154,10 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	if a.Name == "" {
 		a.Name = id
 	}
+	if err := a.Sandbox.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// Non-admin: keep scope as-is, don't allow changing it.
 	if info != nil && !info.IsAdmin {
@@ -162,6 +175,11 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.UpdateAgent(ctx, a); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if s.poolManager != nil {
+		if err := s.poolManager.SyncAgent(ctx, a.ID); err != nil {
+			s.log.Error("sync agent pool after update", "agent_id", a.ID, "error", err)
+		}
 	}
 	writeData(w, http.StatusOK, a)
 }
@@ -185,6 +203,11 @@ func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.DeleteAgent(ctx, id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if s.poolManager != nil {
+		if err := s.poolManager.SyncAgent(ctx, id); err != nil {
+			s.log.Error("sync agent pool after delete", "agent_id", id, "error", err)
+		}
 	}
 	writeData(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

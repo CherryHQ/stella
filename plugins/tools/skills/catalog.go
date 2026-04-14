@@ -1,13 +1,14 @@
 package skills
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/plugins/tools/skills/builtin"
 	"gopkg.in/yaml.v3"
 )
@@ -29,6 +30,16 @@ type Skill struct {
 	DisableModelInvocation bool
 }
 
+// LoadSkillsConfig controls skill discovery roots.
+type LoadSkillsConfig struct {
+	Runtime       pkgplugins.ToolRuntime
+	HomeDir       string
+	AnnaHome      string
+	Workspace     string
+	Cwd           string
+	UserSkillsDir string
+}
+
 type skillFrontmatter struct {
 	Name                   string `yaml:"name"`
 	Description            string `yaml:"description"`
@@ -45,16 +56,11 @@ const (
 var validNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 // LoadSkills discovers skills from project, user, workspace, and common directories.
-func LoadSkills(annaHome, workspace, cwd string, userSkillsDir ...string) []Skill {
-	home, _ := os.UserHomeDir()
-	var usd string
-	if len(userSkillsDir) > 0 {
-		usd = userSkillsDir[0]
-	}
-	return loadSkills(home, annaHome, workspace, cwd, usd)
+func LoadSkills(ctx context.Context, cfg LoadSkillsConfig) []Skill {
+	return loadSkills(ctx, cfg.Runtime, cfg.HomeDir, cfg.AnnaHome, cfg.Workspace, cfg.Cwd, cfg.UserSkillsDir)
 }
 
-func loadSkills(homeDir, annaHome, workspace, cwd, userSkillsDir string) []Skill {
+func loadSkills(ctx context.Context, runtime pkgplugins.ToolRuntime, homeDir, annaHome, workspace, cwd, userSkillsDir string) []Skill {
 	seen := map[string]bool{}
 	var skills []Skill
 
@@ -73,7 +79,7 @@ func loadSkills(homeDir, annaHome, workspace, cwd, userSkillsDir string) []Skill
 			return
 		}
 		dedupPaths[abs] = true
-		for _, s := range loadSkillsFromDir(dir, source) {
+		for _, s := range loadSkillsFromDir(ctx, runtime, dir, source) {
 			add(s)
 		}
 	}
@@ -102,33 +108,33 @@ func loadSkills(homeDir, annaHome, workspace, cwd, userSkillsDir string) []Skill
 	return skills
 }
 
-func loadSkillsFromDir(dir, source string) []Skill {
-	info, err := os.Stat(dir)
-	if err != nil || !info.IsDir() {
+func loadSkillsFromDir(ctx context.Context, runtime pkgplugins.ToolRuntime, dir, source string) []Skill {
+	info, err := statSkillPath(ctx, runtime, dir)
+	if err != nil || !info.Exists || !info.IsDir {
 		return nil
 	}
-	return scanDir(dir, source, true)
+	return scanDir(ctx, runtime, dir, source, true)
 }
 
-func scanDir(dir, source string, isRoot bool) []Skill {
-	entries, err := os.ReadDir(dir)
+func scanDir(ctx context.Context, runtime pkgplugins.ToolRuntime, dir, source string, isRoot bool) []Skill {
+	entries, err := readSkillDir(ctx, runtime, dir)
 	if err != nil {
 		return nil
 	}
 
 	var skills []Skill
 	for _, entry := range entries {
-		name := entry.Name()
+		name := entry.Name
 		if strings.HasPrefix(name, ".") || name == "node_modules" {
 			continue
 		}
 
 		fullPath := filepath.Join(dir, name)
-		if entry.IsDir() {
-			skills = append(skills, scanDir(fullPath, source, false)...)
+		if entry.IsDir {
+			skills = append(skills, scanDir(ctx, runtime, fullPath, source, false)...)
 			continue
 		}
-		if !entry.Type().IsRegular() {
+		if !entry.IsDir && !entryIsRegular(ctx, runtime, fullPath) {
 			continue
 		}
 
@@ -137,7 +143,7 @@ func scanDir(dir, source string, isRoot bool) []Skill {
 		if !isRootMd && !isSkillMd {
 			continue
 		}
-		if s, ok := loadSkillFromFile(fullPath, source); ok {
+		if s, ok := loadSkillFromFile(ctx, runtime, fullPath, source); ok {
 			skills = append(skills, s)
 		}
 	}
@@ -160,8 +166,8 @@ func NormalizeSkillStatus(status string) string {
 	}
 }
 
-func loadSkillFromFile(filePath, source string) (Skill, bool) {
-	data, err := os.ReadFile(filePath)
+func loadSkillFromFile(ctx context.Context, runtime pkgplugins.ToolRuntime, filePath, source string) (Skill, bool) {
+	data, err := readSkillFile(ctx, runtime, filePath)
 	if err != nil {
 		return Skill{}, false
 	}
