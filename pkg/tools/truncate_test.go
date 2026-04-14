@@ -3,6 +3,7 @@ package tools
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestSplitLines(t *testing.T) {
@@ -17,7 +18,6 @@ func TestSplitLines(t *testing.T) {
 	}
 	for _, tc := range tests {
 		got := SplitLines(tc.input)
-		// Handle empty slice vs nil
 		if len(got) == 0 && len(tc.want) == 0 {
 			continue
 		}
@@ -42,6 +42,9 @@ func TestTruncateHead_NoTruncation(t *testing.T) {
 	if result.OutputLines != 2 {
 		t.Errorf("expected 2 output lines, got %d", result.OutputLines)
 	}
+	if result.Truncated {
+		t.Fatal("expected untruncated result")
+	}
 }
 
 func TestTruncateTail_NoTruncation(t *testing.T) {
@@ -50,10 +53,12 @@ func TestTruncateTail_NoTruncation(t *testing.T) {
 	if result.Content != text {
 		t.Errorf("expected no truncation, got %q", result.Content)
 	}
+	if result.Truncated {
+		t.Fatal("expected untruncated result")
+	}
 }
 
 func TestTruncateHead_LargeInput(t *testing.T) {
-	// Build input larger than defaults (>2000 lines).
 	var sb strings.Builder
 	for range 2500 {
 		sb.WriteString("line\n")
@@ -66,6 +71,12 @@ func TestTruncateHead_LargeInput(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "[Output truncated") {
 		t.Error("expected truncation header")
+	}
+	if result.TruncatedBy != TruncatedByLines {
+		t.Fatalf("expected line truncation, got %q", result.TruncatedBy)
+	}
+	if result.TotalLines != 2500 {
+		t.Fatalf("expected 2500 total lines, got %d", result.TotalLines)
 	}
 }
 
@@ -80,8 +91,69 @@ func TestTruncateTail_LargeInput(t *testing.T) {
 	if result.OutputLines > defaultMaxLines {
 		t.Errorf("expected at most %d lines, got %d", defaultMaxLines, result.OutputLines)
 	}
-	if !strings.Contains(result.Content, "last") {
-		t.Error("expected 'last' in truncation header")
+	if !strings.Contains(result.Content, "showing last") {
+		t.Error("expected 'showing last' in truncation header")
+	}
+	if result.TruncatedBy != TruncatedByLines {
+		t.Fatalf("expected line truncation, got %q", result.TruncatedBy)
+	}
+}
+
+func TestTruncateHead_FirstLineExceedsByteLimit(t *testing.T) {
+	input := strings.Repeat("x", 10) + "\nrest\n"
+	result := truncateHead(input, 2000, 5)
+
+	if !result.Truncated {
+		t.Fatal("expected truncation")
+	}
+	if result.TruncatedBy != TruncatedByBytes {
+		t.Fatalf("expected byte truncation, got %q", result.TruncatedBy)
+	}
+	if !result.FirstLineExceedsLimit {
+		t.Fatal("expected firstLineExceedsLimit")
+	}
+	if result.OutputLines != 0 {
+		t.Fatalf("expected zero output lines, got %d", result.OutputLines)
+	}
+	if !strings.Contains(result.Content, "First line exceeds byte limit") {
+		t.Fatalf("expected explanatory content, got %q", result.Content)
+	}
+}
+
+func TestTruncateTail_LongSingleLineUsesUTF8SafePartial(t *testing.T) {
+	input := "prefix-" + strings.Repeat("界", 10)
+	result := truncateTail(input, 2000, 8)
+
+	if !result.Truncated {
+		t.Fatal("expected truncation")
+	}
+	if result.TruncatedBy != TruncatedByBytes {
+		t.Fatalf("expected byte truncation, got %q", result.TruncatedBy)
+	}
+	if !result.LastLinePartial {
+		t.Fatal("expected partial last line")
+	}
+	if result.OutputLines != 1 {
+		t.Fatalf("expected one output line, got %d", result.OutputLines)
+	}
+	if !utf8.ValidString(strings.TrimSuffix(strings.TrimSpace(strings.Split(result.Content, "\n")[3]), "\n")) {
+		t.Fatal("expected UTF-8 valid partial output")
+	}
+}
+
+func TestTruncateStillReturnsTruncatedContentWhenTempSaveFails(t *testing.T) {
+	input := strings.Repeat("line\n", 2500)
+	t.Setenv("TMPDIR", "/path/that/does/not/exist")
+
+	result := TruncateHead(input)
+	if !result.Truncated {
+		t.Fatal("expected truncation")
+	}
+	if strings.Contains(result.Content, input) {
+		t.Fatal("expected formatted truncated content, not full original output")
+	}
+	if !strings.Contains(result.Content, "could not be saved") {
+		t.Fatalf("expected fallback footer, got %q", result.Content)
 	}
 }
 
