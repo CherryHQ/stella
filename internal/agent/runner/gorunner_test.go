@@ -501,9 +501,9 @@ func TestSummarizeToolInput(t *testing.T) {
 	}{
 		{"bash short", "bash", map[string]any{"command": "ls -la"}, "ls -la"},
 		{"bash long", "bash", map[string]any{"command": "echo " + string(make([]byte, 100))}, ""},
-		{"read", "read", map[string]any{"file_path": "/tmp/test.go"}, "/tmp/test.go"},
-		{"write", "write", map[string]any{"file_path": "/tmp/out.txt"}, "/tmp/out.txt"},
-		{"edit", "edit", map[string]any{"file_path": "/tmp/edit.go"}, "/tmp/edit.go"},
+		{"read", "read", map[string]any{"path": "/tmp/test.go"}, "/tmp/test.go"},
+		{"write", "write", map[string]any{"path": "/tmp/out.txt"}, "/tmp/out.txt"},
+		{"edit", "edit", map[string]any{"path": "/tmp/edit.go"}, "/tmp/edit.go"},
 		{"unknown tool", "unknown", map[string]any{"foo": "bar"}, ""},
 		{"bash no command", "bash", map[string]any{}, ""},
 	}

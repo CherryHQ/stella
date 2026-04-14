@@ -105,25 +105,6 @@ func TestReadTool_WithLimit(t *testing.T) {
 	}
 }
 
-func TestReadTool_AcceptsLegacyFilePath(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "file.txt")
-	if err := os.WriteFile(path, []byte("legacy\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	tool := NewReadTool("")
-	result, err := tool.Execute(context.Background(), map[string]any{
-		"file_path": path,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(result, "legacy") {
-		t.Fatalf("unexpected result: %q", result)
-	}
-}
-
 func TestReadTool_MissingPath(t *testing.T) {
 	tool := NewReadTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{})

@@ -66,7 +66,7 @@ func TestSummarizeArgs_BashLong(t *testing.T) {
 }
 
 func TestSummarizeArgs_ReadTool(t *testing.T) {
-	got := summarizeArgs("read", map[string]any{"file_path": "/tmp/test.txt"})
+	got := summarizeArgs("read", map[string]any{"path": "/tmp/test.txt"})
 	if got != "/tmp/test.txt" {
 		t.Errorf("expected file path, got %q", got)
 	}

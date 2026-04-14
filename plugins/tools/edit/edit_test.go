@@ -109,32 +109,6 @@ func TestEditTool_AmbiguousMatch(t *testing.T) {
 	}
 }
 
-func TestEditTool_AcceptsLegacyFields(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "legacy.txt")
-	if err := os.WriteFile(path, []byte("hello world"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	tool := NewEditTool("")
-	_, err := tool.Execute(context.Background(), map[string]any{
-		"file_path":  path,
-		"old_string": "world",
-		"new_string": "legacy",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "hello legacy" {
-		t.Fatalf("expected legacy edited content, got %q", string(data))
-	}
-}
-
 func TestEditTool_MissingPath(t *testing.T) {
 	tool := NewEditTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{

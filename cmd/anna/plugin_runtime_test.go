@@ -57,7 +57,7 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 	reg.Register(&write.WriteTool{})
 	defer func() { _ = reg.Close() }()
 
-	readResult, err := reg.Execute(context.Background(), "read", map[string]any{"file_path": path})
+	readResult, err := reg.Execute(context.Background(), "read", map[string]any{"path": path})
 	if err != nil {
 		t.Fatalf("read execute: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 	}
 
 	editResult, err := reg.Execute(context.Background(), "edit", map[string]any{
-		"file_path":  path,
+		"path":       path,
 		"old_string": "world",
 		"new_string": "anna",
 	})
@@ -87,8 +87,8 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 
 	writePath := filepath.Join(dir, "write.txt")
 	writeResult, err := reg.Execute(context.Background(), "write", map[string]any{
-		"file_path": writePath,
-		"content":   "from plugin",
+		"path":    writePath,
+		"content": "from plugin",
 	})
 	if err != nil {
 		t.Fatalf("write execute: %v", err)

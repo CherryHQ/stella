@@ -93,7 +93,7 @@ func TestNewCoreToolsReadRejectsBinaryFiles(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	_, err := toolByName["read"].Execute(context.Background(), map[string]any{"file_path": path})
+	_, err := toolByName["read"].Execute(context.Background(), map[string]any{"path": path})
 	if err == nil || !strings.Contains(err.Error(), "binary file detected") {
 		t.Fatalf("expected binary file error, got %v", err)
 	}
@@ -116,9 +116,9 @@ func TestNewCoreToolsReadLongFirstLineWithLimitKeepsContinuationAccurate(t *test
 	}
 
 	result, err := toolByName["read"].Execute(context.Background(), map[string]any{
-		"file_path": path,
-		"offset":    1,
-		"limit":     3,
+		"path":   path,
+		"offset": 1,
+		"limit":  3,
 	})
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -144,7 +144,7 @@ func TestNewCoreToolsEditRequiresUniqueMatch(t *testing.T) {
 	}
 
 	_, err := toolByName["edit"].Execute(context.Background(), map[string]any{
-		"file_path":  path,
+		"path":       path,
 		"old_string": "same",
 		"new_string": "new",
 	})

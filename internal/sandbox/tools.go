@@ -97,21 +97,17 @@ func (t *hostReadTool) Definition() tools.Definition {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"path":      map[string]any{"type": "string", "description": "Absolute or relative path to the file to read."},
-				"file_path": map[string]any{"type": "string", "description": "Legacy alias for path."},
-				"offset":    map[string]any{"type": "integer", "description": "Line number to start reading from (1-based). Defaults to 1."},
-				"limit":     map[string]any{"type": "integer", "description": "Maximum number of lines to read. Defaults to all lines."},
+				"path":   map[string]any{"type": "string", "description": "Absolute or relative path to the file to read."},
+				"offset": map[string]any{"type": "integer", "description": "Line number to start reading from (1-based). Defaults to 1."},
+				"limit":  map[string]any{"type": "integer", "description": "Maximum number of lines to read. Defaults to all lines."},
 			},
-			"anyOf": []map[string]any{
-				{"required": []string{"path"}},
-				{"required": []string{"file_path"}},
-			},
+			"required": []string{"path"},
 		},
 	}
 }
 
 func (t *hostReadTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	path := tools.StringArg(args, "path", "file_path")
+	path := tools.StringArg(args, "path")
 	if path == "" {
 		return "", fmt.Errorf("read: path is required")
 	}
@@ -165,21 +161,16 @@ func (t *hostWriteTool) Definition() tools.Definition {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"path":      map[string]any{"type": "string", "description": "Path to the file to create or overwrite."},
-				"file_path": map[string]any{"type": "string", "description": "Legacy alias for path."},
-				"content":   map[string]any{"type": "string", "description": "The full content to write to the file."},
+				"path":    map[string]any{"type": "string", "description": "Path to the file to create or overwrite."},
+				"content": map[string]any{"type": "string", "description": "The full content to write to the file."},
 			},
-			"required": []string{"content"},
-			"anyOf": []map[string]any{
-				{"required": []string{"path"}},
-				{"required": []string{"file_path"}},
-			},
+			"required": []string{"path", "content"},
 		},
 	}
 }
 
 func (t *hostWriteTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	path := tools.StringArg(args, "path", "file_path")
+	path := tools.StringArg(args, "path")
 	content, _ := args["content"].(string)
 	if path == "" {
 		return "", fmt.Errorf("write: path is required")
@@ -206,7 +197,6 @@ func (t *hostEditTool) Definition() tools.Definition {
 			"type": "object",
 			"properties": map[string]any{
 				"path":       map[string]any{"type": "string", "description": "Path to the file to edit."},
-				"file_path":  map[string]any{"type": "string", "description": "Legacy alias for path."},
 				"oldText":    map[string]any{"type": "string", "description": "Preferred alias for old_string."},
 				"old_string": map[string]any{"type": "string", "description": "The exact text to find and replace. Must match the file content exactly."},
 				"newText":    map[string]any{"type": "string", "description": "Preferred alias for new_string."},
@@ -215,15 +205,13 @@ func (t *hostEditTool) Definition() tools.Definition {
 			"anyOf": []map[string]any{
 				{"required": []string{"path", "oldText", "newText"}},
 				{"required": []string{"path", "old_string", "new_string"}},
-				{"required": []string{"file_path", "oldText", "newText"}},
-				{"required": []string{"file_path", "old_string", "new_string"}},
 			},
 		},
 	}
 }
 
 func (t *hostEditTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	path := tools.StringArg(args, "path", "file_path")
+	path := tools.StringArg(args, "path")
 	oldStr := tools.StringArg(args, "oldText", "old_string")
 	newStr := tools.StringArg(args, "newText", "new_string")
 	if path == "" {

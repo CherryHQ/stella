@@ -107,7 +107,7 @@ func (n *Normalizer) NormalizeRead(result *ReadResult, filePath string, requeste
 	}
 
 	metadata := map[string]any{
-		"file_path":   filePath,
+		"path":        filePath,
 		"total_lines": result.TotalLines,
 		"shown_lines": outputLines,
 		"truncated":   result.Truncated,

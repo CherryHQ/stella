@@ -107,28 +107,6 @@ func TestWriteTool_CreatesParentDirs(t *testing.T) {
 	}
 }
 
-func TestWriteTool_AcceptsLegacyFilePath(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "legacy.txt")
-
-	tool := NewWriteTool("")
-	_, err := tool.Execute(context.Background(), map[string]any{
-		"file_path": path,
-		"content":   "legacy",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "legacy" {
-		t.Fatalf("expected legacy write content, got %q", string(data))
-	}
-}
-
 func TestWriteTool_MissingPath(t *testing.T) {
 	tool := NewWriteTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{

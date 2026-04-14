@@ -54,26 +54,18 @@ func (t *WriteTool) Definition() tools.Definition {
 					"type":        "string",
 					"description": "Path to the file to create or overwrite.",
 				},
-				"file_path": map[string]any{
-					"type":        "string",
-					"description": "Legacy alias for path.",
-				},
 				"content": map[string]any{
 					"type":        "string",
 					"description": "The full content to write to the file.",
 				},
 			},
-			"required": []string{"content"},
-			"anyOf": []map[string]any{
-				{"required": []string{"path"}},
-				{"required": []string{"file_path"}},
-			},
+			"required": []string{"path", "content"},
 		},
 	}
 }
 
 func (t *WriteTool) Execute(_ context.Context, args map[string]any) (string, error) {
-	requestedPath := tools.StringArg(args, "path", "file_path")
+	requestedPath := tools.StringArg(args, "path")
 	content, _ := args["content"].(string)
 
 	if requestedPath == "" {
