@@ -6,9 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/sandbox"
-
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 func TestToolListAndGet(t *testing.T) {
@@ -46,8 +45,8 @@ func TestToolExec(t *testing.T) {
 	mgr := NewManager()
 	sess := newFakeSession(&officialmcp.Tool{Name: "hello", Description: "Hello"})
 	sess.callResult = &officialmcp.CallToolResult{Content: []officialmcp.Content{&officialmcp.TextContent{Text: "hi"}}}
-	mgr.SetDial(func(context.Context, ServerConfig, sandbox.Host) (Session, error) { return sess, nil })
-	mgr.SetHost(&stdioHostStub{})
+	mgr.SetDial(func(context.Context, ServerConfig, pkgplugins.ToolRuntime) (Session, error) { return sess, nil })
+	mgr.SetRuntime(&stdioHostStub{})
 	mgr.Reconcile(context.Background(), Config{Servers: []ServerConfig{{Name: "demo", Enabled: true, Transport: TransportStdio, Command: "cmd"}}}, true)
 	waitFor(t, time.Second, func() bool { return len(mgr.ValidTools()) == 1 })
 	proxy := New(mgr)

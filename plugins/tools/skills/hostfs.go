@@ -4,7 +4,7 @@ import (
 	"context"
 	"path/filepath"
 
-	"github.com/vaayne/anna/internal/sandbox"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 type skillPathInfo struct {
@@ -12,9 +12,9 @@ type skillPathInfo struct {
 	IsDir  bool
 }
 
-func resolveSkillHost(ctx context.Context, host sandbox.Host, path string) (sandbox.Host, func(), error) {
-	if host != nil {
-		return host, func() {}, nil
+func resolveSkillRuntime(_ context.Context, runtime pkgplugins.ToolRuntime, path string) (pkgplugins.ToolRuntime, func(), error) {
+	if runtime != nil {
+		return runtime, func() {}, nil
 	}
 	workingDir := path
 	if workingDir == "" {
@@ -23,69 +23,58 @@ func resolveSkillHost(ctx context.Context, host sandbox.Host, path string) (sand
 	if ext := filepath.Ext(workingDir); ext != "" {
 		workingDir = filepath.Dir(workingDir)
 	}
-	session, err := sandbox.GlobalRegistry().CreateRelaxedSession(ctx, sandbox.Policy{
-		Backend: "local",
-		Filesystem: sandbox.FilesystemPolicy{
-			WorkingDir:   workingDir,
-			AllowEscapes: true,
-		},
-		Network: sandbox.NetworkPolicy{Mode: sandbox.NetworkAllowAll},
-	})
-	if err != nil {
-		return nil, func() {}, err
-	}
-	return session.Host(), func() { _ = session.Close() }, nil
+	return pkgplugins.NewLocalToolRuntime(workingDir), func() {}, nil
 }
 
-func statSkillPath(ctx context.Context, host sandbox.Host, path string) (skillPathInfo, error) {
-	host, closeHost, err := resolveSkillHost(ctx, host, path)
+func statSkillPath(ctx context.Context, runtime pkgplugins.ToolRuntime, path string) (skillPathInfo, error) {
+	runtime, closeRuntime, err := resolveSkillRuntime(ctx, runtime, path)
 	if err != nil {
 		return skillPathInfo{}, err
 	}
-	defer closeHost()
-	stat, err := host.Stat(ctx, path)
+	defer closeRuntime()
+	stat, err := runtime.Stat(ctx, path)
 	if err != nil {
 		return skillPathInfo{}, err
 	}
 	return skillPathInfo{Exists: stat.Exists, IsDir: stat.IsDir}, nil
 }
 
-func entryIsRegular(ctx context.Context, host sandbox.Host, path string) bool {
-	info, err := statSkillPath(ctx, host, path)
+func entryIsRegular(ctx context.Context, runtime pkgplugins.ToolRuntime, path string) bool {
+	info, err := statSkillPath(ctx, runtime, path)
 	return err == nil && info.Exists && !info.IsDir
 }
 
-func readSkillDir(ctx context.Context, host sandbox.Host, path string) ([]sandbox.DirEntry, error) {
-	host, closeHost, err := resolveSkillHost(ctx, host, path)
+func readSkillDir(ctx context.Context, runtime pkgplugins.ToolRuntime, path string) ([]pkgplugins.DirEntry, error) {
+	runtime, closeRuntime, err := resolveSkillRuntime(ctx, runtime, path)
 	if err != nil {
 		return nil, err
 	}
-	defer closeHost()
-	return host.ListDir(ctx, path)
+	defer closeRuntime()
+	return runtime.ListDir(ctx, path)
 }
 
-func readSkillFile(ctx context.Context, host sandbox.Host, path string) ([]byte, error) {
-	host, closeHost, err := resolveSkillHost(ctx, host, path)
+func readSkillFile(ctx context.Context, runtime pkgplugins.ToolRuntime, path string) ([]byte, error) {
+	runtime, closeRuntime, err := resolveSkillRuntime(ctx, runtime, path)
 	if err != nil {
 		return nil, err
 	}
-	defer closeHost()
-	result, err := host.ReadFile(ctx, path, 0, 0)
+	defer closeRuntime()
+	result, err := runtime.ReadFile(ctx, path, 0, 0)
 	if err != nil {
 		return nil, err
 	}
 	return result.Content, nil
 }
 
-func writeSkillFile(ctx context.Context, host sandbox.Host, path string, data []byte, _ uint32) error {
-	host, closeHost, err := resolveSkillHost(ctx, host, path)
+func writeSkillFile(ctx context.Context, runtime pkgplugins.ToolRuntime, path string, data []byte, _ uint32) error {
+	runtime, closeRuntime, err := resolveSkillRuntime(ctx, runtime, path)
 	if err != nil {
 		return err
 	}
-	defer closeHost()
-	if err := host.MkdirAll(ctx, filepath.Dir(path), 0o755); err != nil {
+	defer closeRuntime()
+	if err := runtime.MkdirAll(ctx, filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	_, err = host.WriteFile(ctx, path, data)
+	_, err = runtime.WriteFile(ctx, path, data)
 	return err
 }

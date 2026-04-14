@@ -56,7 +56,7 @@ func (t *Tool) remove(ctx context.Context, args map[string]any) (string, error) 
 	}
 
 	skillDir := filepath.Join(t.skillsDir(), name)
-	if err := Remove(ctx, t.host, name, skillDir); err != nil {
+	if err := Remove(ctx, t.runtime, name, skillDir); err != nil {
 		return "", fmt.Errorf("%w (only skills in %s can be removed)", err, t.skillsDir())
 	}
 
