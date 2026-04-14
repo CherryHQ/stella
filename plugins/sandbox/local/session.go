@@ -159,7 +159,7 @@ func (h *localHost) checkPath(path string) error {
 		return err
 	}
 
-	allowedDirs := []string{policy.WorkingDir}
+	allowedDirs := []string{h.session.policy.WorkspaceRootOrDefault()}
 	allowedDirs = append(allowedDirs, policy.ReadOnlyPaths...)
 	allowedDirs = append(allowedDirs, policy.ReadWritePaths...)
 
@@ -183,7 +183,7 @@ func (h *localHost) checkPath(path string) error {
 		}
 	}
 
-	// Path is outside allowed directories
+	// Path is outside the configured root and explicit exceptions.
 	return fmt.Errorf("sandbox: path %q is outside allowed directories", path)
 }
 
