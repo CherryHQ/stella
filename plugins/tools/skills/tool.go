@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
@@ -56,18 +56,22 @@ var skillsInputSchema = func() map[string]any {
 }()
 
 type Tool struct {
+	homeDir       string
 	annaHome      string
 	workspace     string
 	cwd           string
 	userSkillsDir string
+	runtime       pkgplugins.ToolRuntime
 }
 
-func NewTool(annaHome, workspace, cwd, userSkillsDir string) *Tool {
+func NewTool(annaHome, homeDir, workspace, cwd, userSkillsDir string, runtime pkgplugins.ToolRuntime) *Tool {
 	return &Tool{
+		homeDir:       homeDir,
 		annaHome:      annaHome,
 		workspace:     workspace,
 		cwd:           cwd,
 		userSkillsDir: userSkillsDir,
+		runtime:       runtime,
 	}
 }
 
@@ -94,40 +98,40 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	action, _ := args["action"].(string)
 	switch action {
 	case "load":
-		return t.load(args)
+		return t.load(ctx, args)
 	case "search":
 		return t.search(ctx, args)
 	case "install":
 		return t.install(ctx, args)
 	case "list":
-		return t.list()
+		return t.list(ctx)
 	case "remove":
-		return t.remove(args)
+		return t.remove(ctx, args)
 	case "create":
-		return t.create(args)
+		return t.create(ctx, args)
 	case "patch":
-		return t.patch(args)
+		return t.patch(ctx, args)
 	case "deprecate":
-		return t.deprecate(args)
+		return t.deprecate(ctx, args)
 	default:
 		return "", fmt.Errorf("unknown action %q, expected load/search/install/list/remove/create/patch/deprecate", action)
 	}
 }
 
-func (t *Tool) create(args map[string]any) (string, error) {
+func (t *Tool) create(ctx context.Context, args map[string]any) (string, error) {
 	name, _ := args["name"].(string)
 	description, _ := args["description"].(string)
 	content, _ := args["content"].(string)
 
 	targetDir := t.skillsDir()
-	if err := Create(name, description, content, targetDir); err != nil {
+	if err := Create(ctx, t.runtime, name, description, content, targetDir); err != nil {
 		return "", err
 	}
 
 	return fmt.Sprintf("Skill %q created as draft in %s.", name, filepath.Join(targetDir, name)), nil
 }
 
-func (t *Tool) patch(args map[string]any) (string, error) {
+func (t *Tool) patch(ctx context.Context, args map[string]any) (string, error) {
 	name, _ := args["name"].(string)
 	if name == "" {
 		return "", fmt.Errorf("name is required for patch action")
@@ -145,21 +149,21 @@ func (t *Tool) patch(args map[string]any) (string, error) {
 	}
 
 	targetDir := t.skillsDir()
-	if err := Patch(name, updates, targetDir); err != nil {
+	if err := Patch(ctx, t.runtime, name, updates, targetDir); err != nil {
 		return "", err
 	}
 
 	return fmt.Sprintf("Skill %q updated in %s.", name, filepath.Join(targetDir, name)), nil
 }
 
-func (t *Tool) deprecate(args map[string]any) (string, error) {
+func (t *Tool) deprecate(ctx context.Context, args map[string]any) (string, error) {
 	name, _ := args["name"].(string)
 	if name == "" {
 		return "", fmt.Errorf("name is required for deprecate action")
 	}
 
 	targetDir := t.skillsDir()
-	if err := Deprecate(name, targetDir); err != nil {
+	if err := Deprecate(ctx, t.runtime, name, targetDir); err != nil {
 		return "", err
 	}
 
@@ -175,8 +179,15 @@ type installedSkill struct {
 	Removable   bool   `json:"removable"`
 }
 
-func (t *Tool) list() (string, error) {
-	all := LoadSkills(t.annaHome, t.workspace, t.cwd, t.userSkillsDir)
+func (t *Tool) list(ctx context.Context) (string, error) {
+	all := LoadSkills(ctx, LoadSkillsConfig{
+		Runtime:       t.runtime,
+		HomeDir:       t.homeDir,
+		AnnaHome:      t.annaHome,
+		Workspace:     t.workspace,
+		Cwd:           t.cwd,
+		UserSkillsDir: t.userSkillsDir,
+	})
 	if len(all) == 0 {
 		return "No skills installed.", nil
 	}
@@ -197,16 +208,23 @@ func (t *Tool) list() (string, error) {
 	return string(out), nil
 }
 
-func (t *Tool) load(args map[string]any) (string, error) {
+func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	name, _ := args["name"].(string)
 	if name == "" {
 		return "", fmt.Errorf("name is required for load action")
 	}
 
-	all := LoadSkills(t.annaHome, t.workspace, t.cwd, t.userSkillsDir)
+	all := LoadSkills(ctx, LoadSkillsConfig{
+		Runtime:       t.runtime,
+		HomeDir:       t.homeDir,
+		AnnaHome:      t.annaHome,
+		Workspace:     t.workspace,
+		Cwd:           t.cwd,
+		UserSkillsDir: t.userSkillsDir,
+	})
 	for _, s := range all {
 		if s.Name == name {
-			data, err := os.ReadFile(s.FilePath)
+			data, err := readSkillFile(ctx, t.runtime, s.FilePath)
 			if err != nil {
 				return "", fmt.Errorf("load skill %q: %w", name, err)
 			}

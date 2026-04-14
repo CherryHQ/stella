@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/vaayne/anna/internal/sandbox"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/channel"
 )
@@ -20,7 +19,7 @@ type ToolContext struct {
 	HomeDir     string
 	Workspace   string
 	ToolsBinDir string
-	Host        sandbox.Host // sandbox-backed filesystem/process/network surface
+	Runtime     ToolRuntime
 }
 
 // ProviderContext is the narrow build context for provider capabilities.
