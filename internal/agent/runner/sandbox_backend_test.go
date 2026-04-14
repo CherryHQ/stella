@@ -83,6 +83,32 @@ func TestResolveRunnerPathsDefaultsWorkDirToUserRoot(t *testing.T) {
 	}
 }
 
+func TestResolveSandboxPathsJoinsRelativeWorkDirToUserRoot(t *testing.T) {
+	cfg := GoRunnerConfig{
+		AnnaHome: "/anna",
+		UserRoot: "/workspace/agent/users/1/data",
+		WorkDir:  "logs",
+	}
+
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		t.Fatalf("resolveSandboxPaths: %v", err)
+	}
+	if want := "/workspace/agent/users/1/data/logs"; paths.WorkDir != want {
+		t.Fatalf("WorkDir = %q, want %q", paths.WorkDir, want)
+	}
+}
+
+func TestResolveSandboxPathsRejectsWorkDirOutsideUserRoot(t *testing.T) {
+	_, err := resolveSandboxPaths(GoRunnerConfig{
+		UserRoot: "/workspace/agent/users/1/data",
+		WorkDir:  "/workspace/agent",
+	})
+	if err == nil {
+		t.Fatal("expected error for workdir outside user root")
+	}
+}
+
 func TestSandboxProcessEnvUsesSandboxRootAsHome(t *testing.T) {
 	cfg := GoRunnerConfig{
 		AnnaHome:  "/anna",
@@ -90,7 +116,11 @@ func TestSandboxProcessEnvUsesSandboxRootAsHome(t *testing.T) {
 		UserRoot:  "/workspace/agent/users/1/data",
 	}
 
-	env := sandboxProcessEnv(resolveRunnerPaths(cfg))
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		t.Fatalf("resolveSandboxPaths: %v", err)
+	}
+	env := sandboxProcessEnv(paths)
 	if got := env["HOME"]; got != cfg.UserRoot {
 		t.Fatalf("HOME = %q, want %q", got, cfg.UserRoot)
 	}
@@ -106,7 +136,11 @@ func TestSandboxProcessEnvUsesUserRootAsHome(t *testing.T) {
 		UserRoot:  "/workspace/agent/users/1/data",
 	}
 
-	env := sandboxProcessEnv(resolveRunnerPaths(cfg))
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		t.Fatalf("resolveSandboxPaths: %v", err)
+	}
+	env := sandboxProcessEnv(paths)
 	if got := env["HOME"]; got != cfg.UserRoot {
 		t.Fatalf("HOME = %q, want %q", got, cfg.UserRoot)
 	}

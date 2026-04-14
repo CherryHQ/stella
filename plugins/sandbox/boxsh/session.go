@@ -106,7 +106,10 @@ func (f *boxshFactory) CreateSession(ctx context.Context, policy Policy) (Sessio
 		return nil, err
 	}
 
-	annaHome := boxshclient.DefaultAnnaHome()
+	annaHome := policy.Process.Environment["ANNA_HOME"]
+	if annaHome == "" {
+		annaHome = boxshclient.DefaultAnnaHome()
+	}
 	binaryPath, err := boxshclient.ResolveManagedBoxshPath(annaHome)
 	if err != nil {
 		return nil, fmt.Errorf("boxsh session: %w", err)
@@ -115,7 +118,7 @@ func (f *boxshFactory) CreateSession(ctx context.Context, policy Policy) (Sessio
 	backendCfg := boxshclient.BackendConfig{
 		AnnaHome:     annaHome,
 		BinaryPath:   binaryPath,
-		Workspace:    policy.WorkspaceRootOrDefault(),
+		SandboxRoot:  policy.WorkspaceRootOrDefault(),
 		WorkDir:      policy.Filesystem.WorkingDir,
 		ReadOnlyDirs: policy.Filesystem.ReadOnlyPaths,
 		Sandbox: boxshclient.NetworkConfig{

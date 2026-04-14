@@ -21,13 +21,9 @@ func TestRequiresBoxsh(t *testing.T) {
 }
 
 func TestSandboxRoot(t *testing.T) {
-	cfg := PreflightConfig{Workspace: "/workspace", UserDataDir: "/workspace/users/1/data"}
-	if got := SandboxRoot(cfg); got != cfg.UserDataDir {
-		t.Fatalf("SandboxRoot() = %q, want %q", got, cfg.UserDataDir)
-	}
-	cfg.UserDataDir = ""
-	if got := SandboxRoot(cfg); got != cfg.Workspace {
-		t.Fatalf("SandboxRoot() = %q, want %q", got, cfg.Workspace)
+	cfg := PreflightConfig{UserRoot: "/workspace/users/1/data"}
+	if got := SandboxRoot(cfg); got != cfg.UserRoot {
+		t.Fatalf("SandboxRoot() = %q, want %q", got, cfg.UserRoot)
 	}
 }
 
@@ -144,7 +140,7 @@ func TestPreflight(t *testing.T) {
 		t.Skip("boxsh preflight only applies on linux/darwin")
 	}
 	annaHome := t.TempDir()
-	workspace := t.TempDir()
+	userRoot := t.TempDir()
 	binDir := filepath.Join(annaHome, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -155,9 +151,9 @@ func TestPreflight(t *testing.T) {
 	}
 
 	cfg := PreflightConfig{
-		AnnaHome:  annaHome,
-		Workspace: workspace,
-		Network:   NetworkConfig{Mode: NetworkDisabled},
+		AnnaHome: annaHome,
+		UserRoot: userRoot,
+		Network:  NetworkConfig{Mode: NetworkDisabled},
 	}
 	if err := Preflight(context.Background(), cfg); err != nil {
 		t.Fatalf("Preflight: %v", err)
@@ -169,9 +165,9 @@ func TestPreflightRejectsInvalidNetworkMode(t *testing.T) {
 		t.Skip("boxsh preflight only applies on linux/darwin")
 	}
 	cfg := PreflightConfig{
-		AnnaHome:  t.TempDir(),
-		Workspace: t.TempDir(),
-		Network:   NetworkConfig{Mode: "invalid"},
+		AnnaHome: t.TempDir(),
+		UserRoot: t.TempDir(),
+		Network:  NetworkConfig{Mode: "invalid"},
 	}
 	if err := Preflight(context.Background(), cfg); err == nil {
 		t.Fatal("expected invalid network mode error")

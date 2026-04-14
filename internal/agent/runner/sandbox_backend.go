@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 
 	"github.com/vaayne/anna/internal/config"
@@ -95,7 +94,10 @@ var sessionRegistry = map[string]sessionFactory{
 var platformSupportsBoxsh = boxshclient.PlatformSupportsBoxsh
 
 func createLocalSession(_ context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
-	paths := resolveRunnerPaths(cfg)
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("resolve sandbox paths: %w", err)
+	}
 	policy := sandbox.Policy{
 		Backend: config.SandboxBackendLocal,
 		Relaxed: true,
@@ -134,18 +136,16 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		return nil, fmt.Errorf("sandbox backend %q is not supported on %s", config.SandboxBackendBoxsh, runtime.GOOS)
 	}
 
-	paths := resolveRunnerPaths(cfg)
+	runnerPaths := resolveRunnerPaths(cfg)
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("resolve sandbox paths: %w", err)
+	}
 	readOnlyDirs := collectSandboxReadOnlyDirs(
-		paths.toolsBinDir(),
+		runnerPaths.toolsBinDir(),
 		os.Getenv("PATH"),
 	)
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		readOnlyDirs = append(readOnlyDirs,
-			filepath.Join(home, ".agents", "skills"),
-			filepath.Join(home, ".agents", "agents"),
-		)
-	}
-	readOnlyDirs = append(readOnlyDirs, paths.builtinSkillsDir())
+	readOnlyDirs = append(readOnlyDirs, runnerPaths.builtinSkillsDir())
 
 	policy := sandbox.Policy{
 		Backend: config.SandboxBackendBoxsh,
@@ -171,7 +171,7 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		return nil, fmt.Errorf("boxsh factory not available")
 	}
 
-	session, err := createSessionWithAnnaHome(ctx, factory, policy, paths.AnnaHome)
+	session, err := factory.CreateSession(ctx, policy)
 	if err != nil {
 		return nil, fmt.Errorf("create boxsh session: %w", err)
 	}
@@ -180,33 +180,6 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		session: session,
 		policy:  policy,
 	}, nil
-}
-
-var annaHomeEnvMu = struct{ ch chan struct{} }{ch: make(chan struct{}, 1)}
-
-func createSessionWithAnnaHome(ctx context.Context, factory sandbox.Factory, policy sandbox.Policy, annaHome string) (sandbox.Session, error) {
-	if annaHome == "" {
-		return factory.CreateSession(ctx, policy)
-	}
-
-	annaHomeEnvMu.ch <- struct{}{}
-	defer func() { <-annaHomeEnvMu.ch }()
-
-	previous, hadPrevious := os.LookupEnv("ANNA_HOME")
-	if err := os.Setenv("ANNA_HOME", annaHome); err != nil {
-		return nil, err
-	}
-	config.ResetAnnaHome()
-	defer func() {
-		if hadPrevious {
-			_ = os.Setenv("ANNA_HOME", previous)
-		} else {
-			_ = os.Unsetenv("ANNA_HOME")
-		}
-		config.ResetAnnaHome()
-	}()
-
-	return factory.CreateSession(ctx, policy)
 }
 
 // resolveSession creates a runnerSession from configuration.

@@ -84,6 +84,9 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	if cfg.UserRoot == "" {
 		return nil, fmt.Errorf("go runner: user_root is required")
 	}
+	if _, err := resolveSandboxPaths(cfg); err != nil {
+		return nil, fmt.Errorf("go runner: %w", err)
+	}
 
 	paths := resolveRunnerPaths(cfg)
 
@@ -215,12 +218,13 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 	// sandbox session.
 
 	// Runtime capabilities are injected from the active runner session.
+	homeDir, _ := os.UserHomeDir()
 	bc := plugintools.BuildContext{
 		WorkDir:     paths.WorkDir,
 		ProjectRoot: "",
 		UserRoot:    paths.UserRoot,
 		AnnaHome:    paths.AnnaHome,
-		HomeDir:     paths.UserHome,
+		HomeDir:     homeDir,
 		AgentRoot:   paths.AgentRoot,
 		ToolsBinDir: paths.toolsBinDir(),
 		Runtime:     cfg.ToolRuntime,
@@ -285,9 +289,8 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 		return nil
 	}
 	if err := boxshsandbox.Preflight(ctx, boxshsandbox.PreflightConfig{
-		AnnaHome:    paths.AnnaHome,
-		Workspace:   paths.AgentRoot,
-		UserDataDir: paths.UserRoot,
+		AnnaHome: paths.AnnaHome,
+		UserRoot: paths.UserRoot,
 		Network: boxshsandbox.NetworkConfig{
 			Mode:      cfg.Sandbox.Network.Mode,
 			Allowlist: cfg.Sandbox.Network.Allowlist,
