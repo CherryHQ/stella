@@ -65,7 +65,7 @@ func TestNewCoreToolsBoxshUsesWorkingDirAndSharedState(t *testing.T) {
 	defer cancel()
 
 	session, workspace := newBoxshToolTestSession(t, ctx, map[string]string{"notes.txt": "old value\n"})
-	toolByName := mapToolsByName(NewCoreTools(session.Host(), ""))
+	toolByName := mapToolsByName(NewCoreTools(session.Host(), "", "/docs"))
 
 	readResult, err := toolByName["read"].Execute(ctx, map[string]any{"path": "notes.txt"})
 	if err != nil {
@@ -113,7 +113,7 @@ func TestNewCoreToolsBoxshReadPaginationAndEditPreflightAcrossPages(t *testing.T
 	defer cancel()
 
 	session, _ := newBoxshToolTestSession(t, ctx, map[string]string{"long.txt": "needle line1\nline2\nline3\nline4\nneedle line5\n"})
-	toolByName := mapToolsByName(NewCoreTools(session.Host(), ""))
+	toolByName := mapToolsByName(NewCoreTools(session.Host(), "", "/docs"))
 
 	readResult, err := toolByName["read"].Execute(ctx, map[string]any{"path": "long.txt"})
 	if err != nil {

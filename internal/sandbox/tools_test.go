@@ -32,7 +32,7 @@ func TestNewCoreToolsLocalParity(t *testing.T) {
 	})
 	defer func() { _ = session.Close() }()
 
-	toolByName := mapToolsByName(NewCoreTools(session.Host(), binDir))
+	toolByName := mapToolsByName(NewCoreTools(session.Host(), binDir, workspace))
 
 	writeResult, err := toolByName["write"].Execute(context.Background(), map[string]any{
 		"path":    "nested/notes.txt",
@@ -78,6 +78,36 @@ func TestNewCoreToolsLocalParity(t *testing.T) {
 	}
 }
 
+func TestNewCoreToolsFallsBackToHostWorkingDirWithoutProjectRoot(t *testing.T) {
+	workspace := t.TempDir()
+	session := mustCreateLocalSession(t, Policy{
+		Backend:    "local",
+		Relaxed:    true,
+		Filesystem: FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace},
+		Process:    ProcessPolicy{InheritEnv: true},
+	})
+	defer func() { _ = session.Close() }()
+
+	toolByName := mapToolsByName(NewCoreTools(session.Host(), "", ""))
+	if _, err := toolByName["write"].Execute(context.Background(), map[string]any{"path": "fallback.txt", "content": "hello"}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	readResult, err := toolByName["read"].Execute(context.Background(), map[string]any{"path": "fallback.txt"})
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !strings.Contains(readResult, "hello") {
+		t.Fatalf("unexpected read result: %q", readResult)
+	}
+	bashResult, err := toolByName["bash"].Execute(context.Background(), map[string]any{"command": "pwd"})
+	if err != nil {
+		t.Fatalf("bash: %v", err)
+	}
+	if !strings.Contains(bashResult, workspace) {
+		t.Fatalf("expected bash to use host working dir, got %q", bashResult)
+	}
+}
+
 func TestNewCoreToolsReadRejectsBinaryFiles(t *testing.T) {
 	workspace := t.TempDir()
 	session := mustCreateLocalSession(t, Policy{
@@ -87,7 +117,7 @@ func TestNewCoreToolsReadRejectsBinaryFiles(t *testing.T) {
 	})
 	defer func() { _ = session.Close() }()
 
-	toolByName := mapToolsByName(NewCoreTools(session.Host(), ""))
+	toolByName := mapToolsByName(NewCoreTools(session.Host(), "", workspace))
 	path := filepath.Join(workspace, "blob.bin")
 	if err := os.WriteFile(path, []byte{0, 1, 2, 3}, 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -108,7 +138,7 @@ func TestNewCoreToolsReadLongFirstLineWithLimitKeepsContinuationAccurate(t *test
 	})
 	defer func() { _ = session.Close() }()
 
-	toolByName := mapToolsByName(NewCoreTools(session.Host(), ""))
+	toolByName := mapToolsByName(NewCoreTools(session.Host(), "", workspace))
 	path := filepath.Join(workspace, "long.txt")
 	longLine := strings.Repeat("a", 60*1024)
 	if err := os.WriteFile(path, []byte(longLine+"\nline2\nline3\n"), 0o644); err != nil {
@@ -137,7 +167,7 @@ func TestNewCoreToolsEditRequiresUniqueMatch(t *testing.T) {
 	})
 	defer func() { _ = session.Close() }()
 
-	toolByName := mapToolsByName(NewCoreTools(session.Host(), ""))
+	toolByName := mapToolsByName(NewCoreTools(session.Host(), "", workspace))
 	path := filepath.Join(workspace, "notes.txt")
 	if err := os.WriteFile(path, []byte("same\nsame\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -162,7 +192,7 @@ func TestNewCoreToolsBashTimeout(t *testing.T) {
 	})
 	defer func() { _ = session.Close() }()
 
-	toolByName := mapToolsByName(NewCoreTools(session.Host(), ""))
+	toolByName := mapToolsByName(NewCoreTools(session.Host(), "", workspace))
 	result, err := toolByName["bash"].Execute(context.Background(), map[string]any{
 		"command": "sleep 2",
 		"timeout": 1,

@@ -28,7 +28,7 @@ func init() {
 			Description: "Edit existing files.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return NewEditTool(ctx.WorkDir), nil
+				return NewEditTool(ctx.Paths.ProjectRoot), nil
 			},
 		})
 	}))
@@ -36,11 +36,11 @@ func init() {
 
 // EditTool makes surgical edits to files by exact string replacement.
 type EditTool struct {
-	workDir string
+	projectRoot string
 }
 
-func NewEditTool(workDir string) *EditTool {
-	return &EditTool{workDir: workDir}
+func NewEditTool(projectRoot string) *EditTool {
+	return &EditTool{projectRoot: projectRoot}
 }
 
 func (t *EditTool) Definition() tools.Definition {
@@ -91,7 +91,7 @@ func (t *EditTool) Execute(_ context.Context, args map[string]any) (string, erro
 		return "", fmt.Errorf("edit: oldText is required")
 	}
 
-	path, err := tools.ResolvePath(t.workDir, requestedPath)
+	path, err := tools.ResolveProjectPath(t.projectRoot, requestedPath)
 	if err != nil {
 		return "", fmt.Errorf("edit %s: %w", requestedPath, err)
 	}

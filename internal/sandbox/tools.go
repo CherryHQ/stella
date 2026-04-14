@@ -12,30 +12,46 @@ import (
 )
 
 // NewCoreTools returns the unified host-backed core tools.
-func NewCoreTools(host Host, toolsBinDir string) []tools.Tool {
+func NewCoreTools(host Host, toolsBinDir, projectRoot string) []tools.Tool {
 	if host == nil {
 		return nil
 	}
 	return []tools.Tool{
-		newBashTool(host, toolsBinDir),
-		newReadTool(host),
-		newWriteTool(host),
-		newEditTool(host),
+		newBashTool(host, toolsBinDir, projectRoot),
+		newReadTool(host, projectRoot),
+		newWriteTool(host, projectRoot),
+		newEditTool(host, projectRoot),
 	}
 }
 
-func newBashTool(host Host, toolsBinDir string) tools.Tool {
-	return &hostBashTool{host: host, normalizer: newToolNormalizer(), toolsBinDir: toolsBinDir}
+func newBashTool(host Host, toolsBinDir, projectRoot string) tools.Tool {
+	return &hostBashTool{host: host, normalizer: newToolNormalizer(), toolsBinDir: toolsBinDir, projectRoot: projectRoot}
 }
 
-func newReadTool(host Host) tools.Tool  { return &hostReadTool{host: host} }
-func newWriteTool(host Host) tools.Tool { return &hostWriteTool{host: host} }
-func newEditTool(host Host) tools.Tool  { return &hostEditTool{host: host} }
+func newReadTool(host Host, projectRoot string) tools.Tool {
+	return &hostReadTool{host: host, projectRoot: projectRoot}
+}
+
+func newWriteTool(host Host, projectRoot string) tools.Tool {
+	return &hostWriteTool{host: host, projectRoot: projectRoot}
+}
+
+func newEditTool(host Host, projectRoot string) tools.Tool {
+	return &hostEditTool{host: host, projectRoot: projectRoot}
+}
+
+func resolveToolPath(host Host, projectRoot, path string) (string, error) {
+	if projectRoot != "" {
+		return tools.ResolveProjectPath(projectRoot, path)
+	}
+	return host.ResolvePath(path)
+}
 
 type hostBashTool struct {
 	host        Host
 	normalizer  *toolNormalizer
 	toolsBinDir string
+	projectRoot string
 }
 
 func (t *hostBashTool) Definition() tools.Definition {
@@ -65,7 +81,11 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 	if t.toolsBinDir != "" {
 		env["PATH"] = t.toolsBinDir + string(os.PathListSeparator) + os.Getenv("PATH")
 	}
-	result, err := t.host.Exec(ctx, command, ExecOptions{Timeout: time.Duration(timeoutSeconds) * time.Second, Env: env})
+	execOpts := ExecOptions{Timeout: time.Duration(timeoutSeconds) * time.Second, Env: env}
+	if t.projectRoot != "" {
+		execOpts.Cwd = t.projectRoot
+	}
+	result, err := t.host.Exec(ctx, command, execOpts)
 	if err != nil {
 		norm := t.normalizer.NormalizeError(err, "bash")
 		return norm.Content, fmt.Errorf("bash: %w", err)
@@ -88,7 +108,10 @@ type LineOrientedReaderHost interface {
 	ReadAllFile(ctx context.Context, path string) ([]byte, error)
 }
 
-type hostReadTool struct{ host Host }
+type hostReadTool struct {
+	host        Host
+	projectRoot string
+}
 
 func (t *hostReadTool) Definition() tools.Definition {
 	return tools.Definition{
@@ -115,11 +138,16 @@ func (t *hostReadTool) Execute(ctx context.Context, args map[string]any) (string
 	offset := max(toolIntArg(args, "offset", 1), 1)
 	limit := toolIntArg(args, "limit", 0)
 
-	if reader, ok := t.host.(LineOrientedReaderHost); ok {
-		return t.executeLineReader(ctx, reader, path, offset, limit)
+	resolvedPath, err := resolveToolPath(t.host, t.projectRoot, path)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", path, err)
 	}
 
-	result, err := t.host.ReadFile(ctx, path, 0, 0)
+	if reader, ok := t.host.(LineOrientedReaderHost); ok {
+		return t.executeLineReader(ctx, reader, resolvedPath, offset, limit)
+	}
+
+	result, err := t.host.ReadFile(ctx, resolvedPath, 0, 0)
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", path, err)
 	}
@@ -152,7 +180,10 @@ func (t *hostReadTool) Execute(ctx context.Context, args map[string]any) (string
 	return tr.Content, nil
 }
 
-type hostWriteTool struct{ host Host }
+type hostWriteTool struct {
+	host        Host
+	projectRoot string
+}
 
 func (t *hostWriteTool) Definition() tools.Definition {
 	return tools.Definition{
@@ -176,18 +207,26 @@ func (t *hostWriteTool) Execute(ctx context.Context, args map[string]any) (strin
 		return "", fmt.Errorf("write: path is required")
 	}
 
-	if err := t.host.MkdirAll(ctx, filepath.Dir(path), 0o755); err != nil {
-		return "", fmt.Errorf("write: mkdir %s: %w", filepath.Dir(path), err)
+	resolvedPath, err := resolveToolPath(t.host, t.projectRoot, path)
+	if err != nil {
+		return "", fmt.Errorf("write %s: %w", path, err)
 	}
 
-	result, err := t.host.WriteFile(ctx, path, []byte(content))
+	if err := t.host.MkdirAll(ctx, filepath.Dir(resolvedPath), 0o755); err != nil {
+		return "", fmt.Errorf("write: mkdir %s: %w", filepath.Dir(resolvedPath), err)
+	}
+
+	result, err := t.host.WriteFile(ctx, resolvedPath, []byte(content))
 	if err != nil {
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}
 	return fmt.Sprintf("Wrote %s (%d bytes)", path, result.BytesWritten), nil
 }
 
-type hostEditTool struct{ host Host }
+type hostEditTool struct {
+	host        Host
+	projectRoot string
+}
 
 func (t *hostEditTool) Definition() tools.Definition {
 	return tools.Definition{
@@ -221,7 +260,12 @@ func (t *hostEditTool) Execute(ctx context.Context, args map[string]any) (string
 		return "", fmt.Errorf("edit: oldText is required")
 	}
 
-	content, err := readAllForEdit(ctx, t.host, path)
+	resolvedPath, err := resolveToolPath(t.host, t.projectRoot, path)
+	if err != nil {
+		return "", fmt.Errorf("edit %s: %w", path, err)
+	}
+
+	content, err := readAllForEdit(ctx, t.host, resolvedPath)
 	if err != nil {
 		return "", fmt.Errorf("edit: read %s: %w", path, err)
 	}
@@ -233,7 +277,7 @@ func (t *hostEditTool) Execute(ctx context.Context, args map[string]any) (string
 		return "", fmt.Errorf("edit: oldText matches %d times in %s (must be unique)", count, path)
 	}
 
-	result, err := t.host.EditFile(ctx, path, []Edit{{OldText: oldStr, NewText: newStr}})
+	result, err := t.host.EditFile(ctx, resolvedPath, []Edit{{OldText: oldStr, NewText: newStr}})
 	if err != nil {
 		return "", fmt.Errorf("edit %s: %w", path, err)
 	}

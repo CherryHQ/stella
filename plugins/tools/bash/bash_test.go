@@ -2,6 +2,8 @@ package bash
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +27,25 @@ func TestBashTool_SimpleCommand(t *testing.T) {
 	}
 	if !strings.Contains(result, "hello") {
 		t.Errorf("expected 'hello' in output, got %q", result)
+	}
+}
+
+func TestBashTool_UsesProjectRootAsWorkingDirectory(t *testing.T) {
+	projectRoot := t.TempDir()
+	marker := filepath.Join(projectRoot, "marker.txt")
+	if err := os.WriteFile(marker, []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewBashTool(projectRoot, "")
+	result, err := tool.Execute(context.Background(), map[string]any{
+		"command": "pwd && test -f marker.txt && echo found",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, projectRoot) || !strings.Contains(result, "found") {
+		t.Fatalf("expected command to run in project root, got %q", result)
 	}
 }
 

@@ -47,14 +47,15 @@ Important fields:
 Use `ToolContext` when building:
 
 - `Platform`
-- `State`
-- `WorkDir`
-- `UserDataDir`
-- `AnnaHome`
-- `HomeDir`
-- `Workspace`
-- `ToolsBinDir`
+- `Paths`
+  - `UserRoot`
+  - `ToolsBinDir`
+  - `AnnaHome`
+  - `AgentRoot`
+  - `ProjectRoot`
 - `Runtime`
+
+`ProjectRoot` is the current attached project, if any. Project-aware tools should resolve relative paths from `ProjectRoot` instead of depending on runner cwd details.
 
 `Runtime` is the tool-facing file and process capability surface. Use it instead of depending on sandbox internals; the runner decides whether those operations are local, sandboxed, or otherwise mediated.
 

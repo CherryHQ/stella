@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -44,9 +45,9 @@ func TestEditTool_BasicReplace(t *testing.T) {
 	}
 }
 
-func TestEditTool_ResolvesRelativePathFromWorkDir(t *testing.T) {
-	workDir := t.TempDir()
-	path := filepath.Join(workDir, "nested", "file.txt")
+func TestEditTool_ResolvesRelativePathFromProjectRoot(t *testing.T) {
+	projectRoot := t.TempDir()
+	path := filepath.Join(projectRoot, "nested", "file.txt")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +55,7 @@ func TestEditTool_ResolvesRelativePathFromWorkDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewEditTool(workDir)
+	tool := NewEditTool(projectRoot)
 	_, err := tool.Execute(context.Background(), map[string]any{
 		"path":       "nested/file.txt",
 		"old_string": "world",
@@ -70,6 +71,18 @@ func TestEditTool_ResolvesRelativePathFromWorkDir(t *testing.T) {
 	}
 	if string(data) != "hello Anna" {
 		t.Fatalf("expected edited content, got %q", string(data))
+	}
+}
+
+func TestEditTool_RejectsRelativePathWithoutProjectRoot(t *testing.T) {
+	tool := NewEditTool("")
+	_, err := tool.Execute(context.Background(), map[string]any{
+		"path":       "relative.txt",
+		"old_string": "x",
+		"new_string": "y",
+	})
+	if err == nil || err.Error() == "" || !strings.Contains(err.Error(), "requires a project root") {
+		t.Fatalf("expected project root error, got %v", err)
 	}
 }
 
