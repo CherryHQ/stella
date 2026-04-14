@@ -60,17 +60,6 @@ func TestResolveSessionExplicitBoxshRejectsUnsupportedPlatform(t *testing.T) {
 	}
 }
 
-func TestSandboxRootUsesUserRoot(t *testing.T) {
-	cfg := GoRunnerConfig{
-		AgentRoot: "/workspace/agent",
-		UserRoot:  "/workspace/agent/users/1/data",
-	}
-
-	if got := sandboxRoot(cfg); got != cfg.UserRoot {
-		t.Fatalf("sandboxRoot() = %q, want %q", got, cfg.UserRoot)
-	}
-}
-
 func TestResolveRunnerPathsDefaultsWorkDirToUserRoot(t *testing.T) {
 	cfg := GoRunnerConfig{
 		AgentRoot: "/workspace/agent",
@@ -109,7 +98,7 @@ func TestResolveSandboxPathsRejectsWorkDirOutsideUserRoot(t *testing.T) {
 	}
 }
 
-func TestSandboxProcessEnvUsesSandboxRootAsHome(t *testing.T) {
+func TestSandboxProcessEnvUsesUserRootAsHome(t *testing.T) {
 	cfg := GoRunnerConfig{
 		AnnaHome:  "/anna",
 		AgentRoot: "/workspace/agent",
@@ -126,23 +115,6 @@ func TestSandboxProcessEnvUsesSandboxRootAsHome(t *testing.T) {
 	}
 	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
 		t.Fatalf("ANNA_HOME = %q, want %q", got, cfg.AnnaHome)
-	}
-}
-
-func TestSandboxProcessEnvUsesUserRootAsHome(t *testing.T) {
-	cfg := GoRunnerConfig{
-		AnnaHome:  "/anna",
-		AgentRoot: "/workspace/agent",
-		UserRoot:  "/workspace/agent/users/1/data",
-	}
-
-	paths, err := resolveSandboxPaths(cfg)
-	if err != nil {
-		t.Fatalf("resolveSandboxPaths: %v", err)
-	}
-	env := sandboxProcessEnv(paths)
-	if got := env["HOME"]; got != cfg.UserRoot {
-		t.Fatalf("HOME = %q, want %q", got, cfg.UserRoot)
 	}
 }
 

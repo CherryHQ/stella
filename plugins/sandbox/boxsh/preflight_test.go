@@ -20,13 +20,6 @@ func TestRequiresBoxsh(t *testing.T) {
 	}
 }
 
-func TestSandboxRoot(t *testing.T) {
-	cfg := PreflightConfig{UserRoot: "/workspace/users/1/data"}
-	if got := SandboxRoot(cfg); got != cfg.UserRoot {
-		t.Fatalf("SandboxRoot() = %q, want %q", got, cfg.UserRoot)
-	}
-}
-
 func TestResolveManagedBoxshPath(t *testing.T) {
 	annaHome := t.TempDir()
 	binDir := filepath.Join(annaHome, "bin")

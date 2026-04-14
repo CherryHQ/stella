@@ -24,10 +24,6 @@ func RequiresBoxsh(goos string) bool {
 	}
 }
 
-func SandboxRoot(cfg PreflightConfig) string {
-	return cfg.UserRoot
-}
-
 func ResolveManagedBoxshPath(annaHome string) (string, error) {
 	return boxshclient.ResolveManagedBoxshPath(annaHome)
 }
@@ -59,7 +55,7 @@ func Preflight(ctx context.Context, cfg PreflightConfig) error {
 		return err
 	}
 
-	root := SandboxRoot(cfg)
+	root := cfg.UserRoot
 	if root == "" {
 		return fmt.Errorf("sandbox: user root is required")
 	}

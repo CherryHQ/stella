@@ -30,14 +30,14 @@ type BackendConfig struct {
 	// AnnaHome is the Anna home directory (used for binary resolution).
 	AnnaHome string
 
-	// SandboxRoot is the writable root mounted into the sandbox.
-	SandboxRoot string
+	// UserRoot is the writable root mounted into the sandbox.
+	UserRoot string
 
 	// Sandbox contains the sandbox network configuration.
 	Sandbox NetworkConfig
 
 	// WorkDir is the working directory for tool execution.
-	// This is resolved relative to the sandbox root.
+	// This is resolved relative to the user root.
 	WorkDir string
 
 	// SessionBaseDir is the base directory for ephemeral session directories.
@@ -84,8 +84,8 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 		return fmt.Errorf("boxshclient: backend already started")
 	}
 
-	// Determine sandbox root (SRC).
-	src := cfg.SandboxRoot
+	// Determine user root (SRC).
+	src := cfg.UserRoot
 
 	// Create an ephemeral overlay root on the same filesystem as SRC.
 	// boxsh's current overlay implementation requires that to avoid cross-device
@@ -210,8 +210,8 @@ func (b *SharedBackend) SessionDir() string {
 	return b.sessionDir
 }
 
-// SandboxRoot returns the source sandbox root (SRC).
-func (b *SharedBackend) SandboxRoot(ctx context.Context) (string, error) {
+// UserRoot returns the sandbox-visible user root for path resolution.
+func (b *SharedBackend) UserRoot(ctx context.Context) (string, error) {
 	b.mu.RLock()
 	client := b.client
 	b.mu.RUnlock()
@@ -220,10 +220,7 @@ func (b *SharedBackend) SandboxRoot(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("boxshclient: backend not started")
 	}
 
-	// The sandbox root is the SRC directory.
-	// We can determine this by stat-ing a known path or returning cached value.
-	// For now, we return the session configuration's Src field via reflection
-	// on the client configuration.
+	_ = ctx
 	return client.sessionConfig.Dst, nil
 }
 

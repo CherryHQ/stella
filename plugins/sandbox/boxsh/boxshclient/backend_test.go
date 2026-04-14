@@ -23,8 +23,8 @@ func TestNewSharedBackend(t *testing.T) {
 	}
 
 	cfg := BackendConfig{
-		BinaryPath:  boxshPath,
-		SandboxRoot: t.TempDir(),
+		BinaryPath: boxshPath,
+		UserRoot:   t.TempDir(),
 	}
 
 	backend, err := NewSharedBackend(cfg)
@@ -47,8 +47,8 @@ func TestNewSharedBackendRequiresPlatformSupport(t *testing.T) {
 	}
 
 	cfg := BackendConfig{
-		BinaryPath:  "/usr/local/bin/boxsh",
-		SandboxRoot: t.TempDir(),
+		BinaryPath: "/usr/local/bin/boxsh",
+		UserRoot:   t.TempDir(),
 	}
 
 	_, err := NewSharedBackend(cfg)
@@ -73,8 +73,8 @@ func TestSharedBackendNotAliveBeforeStart(t *testing.T) {
 	}
 
 	cfg := BackendConfig{
-		BinaryPath:  boxshPath,
-		SandboxRoot: t.TempDir(),
+		BinaryPath: boxshPath,
+		UserRoot:   t.TempDir(),
 	}
 
 	backend, err := NewSharedBackend(cfg)
@@ -103,8 +103,8 @@ func TestSharedBackendClientReturnsNilBeforeStart(t *testing.T) {
 	}
 
 	cfg := BackendConfig{
-		BinaryPath:  boxshPath,
-		SandboxRoot: t.TempDir(),
+		BinaryPath: boxshPath,
+		UserRoot:   t.TempDir(),
 	}
 
 	backend, err := NewSharedBackend(cfg)
@@ -133,8 +133,8 @@ func TestSharedBackendSessionDir(t *testing.T) {
 	}
 
 	cfg := BackendConfig{
-		BinaryPath:  boxshPath,
-		SandboxRoot: t.TempDir(),
+		BinaryPath: boxshPath,
+		UserRoot:   t.TempDir(),
 	}
 
 	backend, err := NewSharedBackend(cfg)
@@ -168,10 +168,10 @@ func TestIsSharedBackendError(t *testing.T) {
 	}
 }
 
-func TestBackendConfigSandboxRoot(t *testing.T) {
-	cfg := BackendConfig{SandboxRoot: "/users/1/data"}
-	if cfg.SandboxRoot != "/users/1/data" {
-		t.Fatalf("SandboxRoot = %q, want %q", cfg.SandboxRoot, "/users/1/data")
+func TestBackendConfigUserRoot(t *testing.T) {
+	cfg := BackendConfig{UserRoot: "/users/1/data"}
+	if cfg.UserRoot != "/users/1/data" {
+		t.Fatalf("UserRoot = %q, want %q", cfg.UserRoot, "/users/1/data")
 	}
 }
 

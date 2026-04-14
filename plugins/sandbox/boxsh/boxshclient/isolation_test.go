@@ -130,10 +130,10 @@ func TestIsolation_CrossWorkspaceAccessBlocked(t *testing.T) {
 	writeIsolationMockBoxsh(t, annaHome)
 
 	cfg := BackendConfig{
-		AnnaHome:    annaHome,
-		SandboxRoot: allowedRoot,
-		WorkDir:     "/",
-		Sandbox:     NetworkConfig{Mode: NetworkDisabled},
+		AnnaHome: annaHome,
+		UserRoot: allowedRoot,
+		WorkDir:  "/",
+		Sandbox:  NetworkConfig{Mode: NetworkDisabled},
 	}
 	backend, err := NewSharedBackend(cfg)
 	if err != nil {
@@ -144,13 +144,13 @@ func TestIsolation_CrossWorkspaceAccessBlocked(t *testing.T) {
 		t.Fatalf("backend.Start: %v", err)
 	}
 
-	if _, err := testRead(ctx, backend, filepath.Join(siblingRoot, "secret.txt"), 1, 0); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
+	if _, err := testRead(ctx, backend, filepath.Join(siblingRoot, "secret.txt"), 1, 0); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside user root")) {
 		t.Fatalf("expected sibling workspace denial, got %v", err)
 	}
-	if _, err := testWrite(ctx, backend, filepath.Join(siblingRoot, "hack.txt"), "nope"); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
+	if _, err := testWrite(ctx, backend, filepath.Join(siblingRoot, "hack.txt"), "nope"); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside user root")) {
 		t.Fatalf("expected sibling workspace write denial, got %v", err)
 	}
-	if _, err := testEdit(ctx, backend, filepath.Join(siblingRoot, "secret.txt"), "a", "b"); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
+	if _, err := testEdit(ctx, backend, filepath.Join(siblingRoot, "secret.txt"), "a", "b"); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside user root")) {
 		t.Fatalf("expected sibling workspace edit denial, got %v", err)
 	}
 	result, err := testExec(ctx, backend, "cat "+filepath.Join(siblingRoot, "secret.txt"), 0)
@@ -181,10 +181,10 @@ func TestIsolation_ParentDirectoryTraversalBlocked(t *testing.T) {
 	writeIsolationMockBoxsh(t, annaHome)
 
 	cfg := BackendConfig{
-		AnnaHome:    annaHome,
-		SandboxRoot: allowedRoot,
-		WorkDir:     "/",
-		Sandbox:     NetworkConfig{Mode: NetworkDisabled},
+		AnnaHome: annaHome,
+		UserRoot: allowedRoot,
+		WorkDir:  "/",
+		Sandbox:  NetworkConfig{Mode: NetworkDisabled},
 	}
 	backend, err := NewSharedBackend(cfg)
 	if err != nil {
@@ -195,10 +195,10 @@ func TestIsolation_ParentDirectoryTraversalBlocked(t *testing.T) {
 		t.Fatalf("backend.Start: %v", err)
 	}
 
-	if _, err := testRead(ctx, backend, "../other-agent/secrets.txt", 1, 0); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
+	if _, err := testRead(ctx, backend, "../other-agent/secrets.txt", 1, 0); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside user root")) {
 		t.Fatalf("expected parent traversal denial, got %v", err)
 	}
-	if _, err := testRead(ctx, backend, filepath.Join(allowedRoot, "..", "..", "secret.txt"), 1, 0); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside sandbox")) {
+	if _, err := testRead(ctx, backend, filepath.Join(allowedRoot, "..", "..", "secret.txt"), 1, 0); err == nil || (!strings.Contains(err.Error(), "access denied") && !strings.Contains(err.Error(), "outside user root")) {
 		t.Fatalf("expected absolute traversal denial, got %v", err)
 	}
 }
@@ -222,8 +222,8 @@ func TestIsolation_DifferentAgentsDifferentSessions(t *testing.T) {
 	}
 	writeIsolationMockBoxsh(t, annaHome)
 
-	cfg1 := BackendConfig{AnnaHome: annaHome, SandboxRoot: userDataDir1, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkDisabled}}
-	cfg2 := BackendConfig{AnnaHome: annaHome, SandboxRoot: userDataDir2, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkDisabled}}
+	cfg1 := BackendConfig{AnnaHome: annaHome, UserRoot: userDataDir1, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkDisabled}}
+	cfg2 := BackendConfig{AnnaHome: annaHome, UserRoot: userDataDir2, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkDisabled}}
 
 	backend1, err := NewSharedBackend(cfg1)
 	if err != nil {
@@ -251,25 +251,25 @@ func TestIsolation_DifferentAgentsDifferentSessions(t *testing.T) {
 	}
 }
 
-func TestIsolation_ValidateSandboxPath(t *testing.T) {
+func TestIsolation_ValidatePathWithinRoot(t *testing.T) {
 	tests := []struct {
-		name        string
-		sandboxRoot string
-		path        string
-		wantErr     bool
-		errContain  string
+		name       string
+		userRoot   string
+		path       string
+		wantErr    bool
+		errContain string
 	}{
-		{name: "path inside sandbox", sandboxRoot: "/workspace", path: "/workspace/file.txt"},
-		{name: "relative path resolved inside sandbox", sandboxRoot: "/workspace", path: "file.txt"},
-		{name: "path outside sandbox", sandboxRoot: "/workspace", path: "/etc/passwd", wantErr: true, errContain: "outside sandbox"},
-		{name: "parent traversal blocked", sandboxRoot: "/workspace", path: "../etc/passwd", wantErr: true, errContain: "outside sandbox"},
-		{name: "empty sandbox root rejected", sandboxRoot: "", path: "/workspace/file.txt", wantErr: true, errContain: "required"},
-		{name: "relative sandbox root rejected", sandboxRoot: "workspace", path: "/workspace/file.txt", wantErr: true, errContain: "must be absolute"},
+		{name: "path inside sandbox", userRoot: "/workspace", path: "/workspace/file.txt"},
+		{name: "relative path resolved inside sandbox", userRoot: "/workspace", path: "file.txt"},
+		{name: "path outside user root", userRoot: "/workspace", path: "/etc/passwd", wantErr: true, errContain: "outside user root"},
+		{name: "parent traversal blocked", userRoot: "/workspace", path: "../etc/passwd", wantErr: true, errContain: "outside user root"},
+		{name: "empty user root rejected", userRoot: "", path: "/workspace/file.txt", wantErr: true, errContain: "required"},
+		{name: "relative user root rejected", userRoot: "workspace", path: "/workspace/file.txt", wantErr: true, errContain: "must be absolute"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateSandboxPath(tt.sandboxRoot, tt.path)
+			err := ValidatePathWithinRoot(tt.userRoot, tt.path)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error but got nil")

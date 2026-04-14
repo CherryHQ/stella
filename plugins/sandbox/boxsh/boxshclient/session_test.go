@@ -51,10 +51,10 @@ func TestSessionManagerCreateSession(t *testing.T) {
 		t.Fatalf("NewSessionManager: %v", err)
 	}
 
-	sandboxRoot := t.TempDir()
+	userRoot := t.TempDir()
 	opts := SessionOptions{
-		SandboxRoot: sandboxRoot,
-		WorkDir:     "src",
+		UserRoot: userRoot,
+		WorkDir:  "src",
 		Sandbox: NetworkConfig{
 			Mode: NetworkDisabled,
 		},
@@ -64,13 +64,13 @@ func TestSessionManagerCreateSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-	if session.Src != sandboxRoot {
-		t.Errorf("Src = %q, want %q", session.Src, sandboxRoot)
+	if session.Src != userRoot {
+		t.Errorf("Src = %q, want %q", session.Src, userRoot)
 	}
 	if !hasPrefix(session.Dst, manager.baseDir) {
 		t.Errorf("Dst = %q, should be under %q", session.Dst, manager.baseDir)
 	}
-	if expectedCwd := filepath.Join(sandboxRoot, "src"); session.Cwd != expectedCwd {
+	if expectedCwd := filepath.Join(userRoot, "src"); session.Cwd != expectedCwd {
 		t.Errorf("Cwd = %q, want %q", session.Cwd, expectedCwd)
 	}
 	if session.NetworkMode != NetworkDisabled {
@@ -81,22 +81,22 @@ func TestSessionManagerCreateSession(t *testing.T) {
 	}
 }
 
-func TestSessionManagerCreateSessionDefaultsWorkDirToSandboxRoot(t *testing.T) {
+func TestSessionManagerCreateSessionDefaultsWorkDirToUserRoot(t *testing.T) {
 	manager, err := NewSessionManager(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewSessionManager: %v", err)
 	}
 
-	sandboxRoot := t.TempDir()
-	session, err := manager.CreateSession(SessionOptions{SandboxRoot: sandboxRoot})
+	userRoot := t.TempDir()
+	session, err := manager.CreateSession(SessionOptions{UserRoot: userRoot})
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-	if session.Src != sandboxRoot {
-		t.Errorf("Src = %q, want %q", session.Src, sandboxRoot)
+	if session.Src != userRoot {
+		t.Errorf("Src = %q, want %q", session.Src, userRoot)
 	}
-	if session.Cwd != sandboxRoot {
-		t.Errorf("Cwd = %q, want %q", session.Cwd, sandboxRoot)
+	if session.Cwd != userRoot {
+		t.Errorf("Cwd = %q, want %q", session.Cwd, userRoot)
 	}
 	if err := manager.CleanupSession(session); err != nil {
 		t.Errorf("CleanupSession: %v", err)
@@ -110,12 +110,12 @@ func TestSessionManagerCreateSessionRequiresWorkspace(t *testing.T) {
 	}
 
 	opts := SessionOptions{
-		SandboxRoot: "",
+		UserRoot: "",
 	}
 
 	_, err = manager.CreateSession(opts)
 	if err == nil {
-		t.Error("CreateSession should require sandbox root")
+		t.Error("CreateSession should require user root")
 	}
 }
 
@@ -126,12 +126,12 @@ func TestSessionManagerCreateSessionRequiresAbsoluteSrc(t *testing.T) {
 	}
 
 	opts := SessionOptions{
-		SandboxRoot: "relative/path",
+		UserRoot: "relative/path",
 	}
 
 	_, err = manager.CreateSession(opts)
 	if err == nil {
-		t.Error("CreateSession should require absolute sandbox root")
+		t.Error("CreateSession should require absolute user root")
 	}
 }
 
@@ -142,12 +142,12 @@ func TestSessionManagerCreateSessionRequiresExistingSrc(t *testing.T) {
 	}
 
 	opts := SessionOptions{
-		SandboxRoot: "/nonexistent/path/that/does/not/exist",
+		UserRoot: "/nonexistent/path/that/does/not/exist",
 	}
 
 	_, err = manager.CreateSession(opts)
 	if err == nil {
-		t.Error("CreateSession should require existing sandbox root")
+		t.Error("CreateSession should require existing user root")
 	}
 }
 
@@ -206,66 +206,66 @@ func TestBuildSessionConfig(t *testing.T) {
 	}
 }
 
-func TestValidateSandboxPath(t *testing.T) {
+func TestValidatePathWithinRoot(t *testing.T) {
 	tests := []struct {
-		name        string
-		sandboxRoot string
-		path        string
-		wantErr     bool
+		name     string
+		userRoot string
+		path     string
+		wantErr  bool
 	}{
 		{
-			name:        "path under root",
-			sandboxRoot: "/workspace",
-			path:        "/workspace/src/file.txt",
-			wantErr:     false,
+			name:     "path under root",
+			userRoot: "/workspace",
+			path:     "/workspace/src/file.txt",
+			wantErr:  false,
 		},
 		{
-			name:        "path at root",
-			sandboxRoot: "/workspace",
-			path:        "/workspace",
-			wantErr:     false,
+			name:     "path at root",
+			userRoot: "/workspace",
+			path:     "/workspace",
+			wantErr:  false,
 		},
 		{
-			name:        "path outside root",
-			sandboxRoot: "/workspace",
-			path:        "/outside/file.txt",
-			wantErr:     true,
+			name:     "path outside root",
+			userRoot: "/workspace",
+			path:     "/outside/file.txt",
+			wantErr:  true,
 		},
 		{
-			name:        "parent traversal",
-			sandboxRoot: "/workspace",
-			path:        "/workspace/../outside",
-			wantErr:     true,
+			name:     "parent traversal",
+			userRoot: "/workspace",
+			path:     "/workspace/../outside",
+			wantErr:  true,
 		},
 		{
-			name:        "relative path resolved under root",
-			sandboxRoot: "/workspace",
-			path:        "src/file.txt",
-			wantErr:     false,
+			name:     "relative path resolved under root",
+			userRoot: "/workspace",
+			path:     "src/file.txt",
+			wantErr:  false,
 		},
 		{
-			name:        "empty sandbox root",
-			sandboxRoot: "",
-			path:        "/workspace/file.txt",
-			wantErr:     true,
+			name:     "empty user root",
+			userRoot: "",
+			path:     "/workspace/file.txt",
+			wantErr:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateSandboxPath(tt.sandboxRoot, tt.path)
+			err := ValidatePathWithinRoot(tt.userRoot, tt.path)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateSandboxPath(%q, %q) error = %v, wantErr %v",
-					tt.sandboxRoot, tt.path, err, tt.wantErr)
+				t.Errorf("ValidatePathWithinRoot(%q, %q) error = %v, wantErr %v",
+					tt.userRoot, tt.path, err, tt.wantErr)
 			}
 		})
 	}
 }
 
-func TestValidateSandboxPathRequiresAbsoluteRoot(t *testing.T) {
-	err := ValidateSandboxPath("relative/path", "/workspace/file.txt")
+func TestValidatePathWithinRootRequiresAbsoluteRoot(t *testing.T) {
+	err := ValidatePathWithinRoot("relative/path", "/workspace/file.txt")
 	if err == nil {
-		t.Error("ValidateSandboxPath should require absolute sandbox root")
+		t.Error("ValidatePathWithinRoot should require absolute user root")
 	}
 }
 

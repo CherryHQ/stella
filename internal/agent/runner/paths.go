@@ -78,16 +78,6 @@ func (p runnerPaths) builtinSkillsDir() string {
 	return filepath.Join(p.AnnaHome, "cache", "builtin-skills")
 }
 
-// sandboxRoot returns the directory mounted as the sandbox root.
-// Runner execution is always user-scoped, so this is always UserRoot.
-func sandboxRoot(cfg GoRunnerConfig) string {
-	paths, err := resolveSandboxPaths(cfg)
-	if err != nil {
-		return ""
-	}
-	return paths.UserRoot
-}
-
 // sandboxProcessEnv builds the baseline process environment injected into
 // sandboxed commands. Today it pins HOME to the sandbox-visible writable area
 // and propagates ANNA_HOME so CLIs don't accidentally target the host home.

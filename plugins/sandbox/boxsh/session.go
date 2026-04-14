@@ -118,7 +118,7 @@ func (f *boxshFactory) CreateSession(ctx context.Context, policy Policy) (Sessio
 	backendCfg := boxshclient.BackendConfig{
 		AnnaHome:     annaHome,
 		BinaryPath:   binaryPath,
-		SandboxRoot:  policy.WorkspaceRootOrDefault(),
+		UserRoot:     policy.WorkspaceRootOrDefault(),
 		WorkDir:      policy.Filesystem.WorkingDir,
 		ReadOnlyDirs: policy.Filesystem.ReadOnlyPaths,
 		Sandbox: boxshclient.NetworkConfig{
@@ -543,7 +543,7 @@ func (h *boxshHost) OpenHTTPStream(_ context.Context, opts HTTPOptions) (HTTPStr
 }
 
 func (h *boxshHost) ResolvePath(path string) (string, error) {
-	root, err := h.session.backend.SandboxRoot(context.Background())
+	root, err := h.session.backend.UserRoot(context.Background())
 	if err != nil {
 		return "", err
 	}
@@ -570,7 +570,7 @@ func (h *boxshHost) ResolvePath(path string) (string, error) {
 	if filepath.IsAbs(path) {
 		return filepath.Join(root, strings.TrimPrefix(path, string(filepath.Separator))), nil
 	}
-	if err := boxshclient.ValidateSandboxPath(root, path); err != nil {
+	if err := boxshclient.ValidatePathWithinRoot(root, path); err != nil {
 		return "", err
 	}
 	return path, nil

@@ -521,20 +521,20 @@ func CleanupSessionDir(sessionDir string) error {
 }
 
 // ResolveSandboxCwd determines the working directory inside the sandbox.
-// If workDir is empty or not under the sandbox root, it defaults to the sandbox root.
-func ResolveSandboxCwd(sandboxRoot, workDir string) string {
+// If workDir is empty or not under the user root, it defaults to the user root.
+func ResolveSandboxCwd(userRoot, workDir string) string {
 	if workDir == "" {
-		return sandboxRoot
+		return userRoot
 	}
 
 	candidate := workDir
 	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(sandboxRoot, candidate)
+		candidate = filepath.Join(userRoot, candidate)
 	}
 	candidate = filepath.Clean(candidate)
 
-	if !isWithinRoot(sandboxRoot, candidate) {
-		return sandboxRoot
+	if !isWithinRoot(userRoot, candidate) {
+		return userRoot
 	}
 
 	return candidate
