@@ -179,6 +179,9 @@ Examples:
 - `Platform`
 - `State`
 - working directory paths
+- `Runtime`
+
+`Runtime` is a capability interface for tool file and process operations. Plugin tools should use it rather than importing sandbox internals directly.
 
 `RuntimeContext`:
 

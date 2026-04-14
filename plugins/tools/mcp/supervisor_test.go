@@ -8,6 +8,7 @@ import (
 	"time"
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 type fakeSession struct {
@@ -67,9 +68,10 @@ func TestManagerReconcileStartsServerAndDiscoversTools(t *testing.T) {
 	mgr := NewManager()
 	mgr.SetSupervisorConfig(SupervisorConfig{FailureThreshold: 3, BackoffBase: 10 * time.Millisecond, BackoffMax: 20 * time.Millisecond})
 	sess := newFakeSession(&officialmcp.Tool{Name: "search_repos", Description: "Search repositories", InputSchema: map[string]any{"type": "object"}})
-	mgr.SetDial(func(context.Context, ServerConfig) (Session, error) {
+	mgr.SetDial(func(context.Context, ServerConfig, pkgplugins.ToolRuntime) (Session, error) {
 		return sess, nil
 	})
+	mgr.SetRuntime(&stdioHostStub{})
 
 	mgr.Reconcile(context.Background(), Config{Servers: []ServerConfig{{Name: "github", Enabled: true, Transport: TransportStdio, Command: "npx"}}}, true)
 
@@ -90,9 +92,10 @@ func TestManagerReconcileStartsServerAndDiscoversTools(t *testing.T) {
 func TestManagerSuppressesAlwaysFailingServer(t *testing.T) {
 	mgr := NewManager()
 	mgr.SetSupervisorConfig(SupervisorConfig{FailureThreshold: 2, BackoffBase: 5 * time.Millisecond, BackoffMax: 10 * time.Millisecond})
-	mgr.SetDial(func(context.Context, ServerConfig) (Session, error) {
+	mgr.SetDial(func(context.Context, ServerConfig, pkgplugins.ToolRuntime) (Session, error) {
 		return nil, errors.New("boom")
 	})
+	mgr.SetRuntime(&stdioHostStub{})
 
 	mgr.Reconcile(context.Background(), Config{Servers: []ServerConfig{{Name: "broken", Enabled: true, Transport: TransportStdio, Command: "cmd"}}}, true)
 
@@ -113,7 +116,8 @@ func TestManagerExecNormalizesResponse(t *testing.T) {
 		Content:           []officialmcp.Content{&officialmcp.TextContent{Text: "hi"}},
 		StructuredContent: map[string]any{"value": "ok"},
 	}
-	mgr.SetDial(func(context.Context, ServerConfig) (Session, error) { return sess, nil })
+	mgr.SetDial(func(context.Context, ServerConfig, pkgplugins.ToolRuntime) (Session, error) { return sess, nil })
+	mgr.SetRuntime(&stdioHostStub{})
 	mgr.Reconcile(context.Background(), Config{Servers: []ServerConfig{{Name: "demo", Enabled: true, Transport: TransportStdio, Command: "cmd"}}}, true)
 	waitFor(t, time.Second, func() bool { return len(mgr.ValidTools()) == 1 })
 	tool := mgr.ValidTools()[0]
@@ -136,7 +140,8 @@ func TestManagerExecNormalizesResponse(t *testing.T) {
 func TestManagerHandlesNilWaitErrorAsCleanStop(t *testing.T) {
 	mgr := NewManager()
 	sess := newFakeSession(&officialmcp.Tool{Name: "hello", Description: "Hello"})
-	mgr.SetDial(func(context.Context, ServerConfig) (Session, error) { return sess, nil })
+	mgr.SetDial(func(context.Context, ServerConfig, pkgplugins.ToolRuntime) (Session, error) { return sess, nil })
+	mgr.SetRuntime(&stdioHostStub{})
 	mgr.Reconcile(context.Background(), Config{Servers: []ServerConfig{{Name: "demo", Enabled: true, Transport: TransportStdio, Command: "cmd"}}}, true)
 	waitFor(t, time.Second, func() bool { return len(mgr.ValidTools()) == 1 })
 
