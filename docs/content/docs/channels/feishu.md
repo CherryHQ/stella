@@ -41,7 +41,11 @@ A user-installed `lark-cli` skill can map the retired `feishu_calendar`, `feishu
 
 ## Multi-User Support
 
-Each Feishu user is resolved from platform identity automatically. Sessions are scoped per user and per agent, so different users keep separate memory and default-agent state.
+Each Feishu user is resolved from platform identity automatically. anna prefers Feishu `union_id` when the event payload includes it, and falls back to `open_id` for older links. That makes multi-instance Feishu setups work across multiple Feishu apps owned by the same developer account, because `union_id` is stable across those apps while `open_id` is app-scoped.
+
+Existing older Feishu links that were stored as `open_id` are upgraded opportunistically the next time the user messages from the linked bot after upgrading anna. If a user was linked only on an older bot and has not talked to it since upgrading, they can also re-run `/link` once from any Feishu app to refresh the link onto the stable identifier.
+
+Sessions are scoped per user and per agent, so different users keep separate memory and default-agent state.
 
 ## Streaming Responses
 

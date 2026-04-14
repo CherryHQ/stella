@@ -79,6 +79,59 @@ func TestResolveUserLinkedIdentity(t *testing.T) {
 	}
 }
 
+func TestResolveUserCandidatesFallsBackToLegacyFeishuOpenID(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+
+	hash, _ := auth.HashPassword("testpass1")
+	authUser, _ := ts.authStore.CreateUser(ctx, "feishu-user", hash)
+	identity, _ := ts.authStore.CreateIdentity(ctx, auth.Identity{
+		UserID:     authUser.ID,
+		Platform:   "feishu",
+		ExternalID: "ou_legacy",
+		Name:       "Feishu User",
+	})
+
+	resolved, match, err := ResolveUserCandidates(ctx, ts.authStore, "feishu", []string{"on_stable", "ou_legacy"})
+	if err != nil {
+		t.Fatalf("ResolveUserCandidates: %v", err)
+	}
+	if resolved.User.ID != authUser.ID {
+		t.Fatalf("User.ID = %d, want %d", resolved.User.ID, authUser.ID)
+	}
+	if match.Identity.ID != identity.ID || match.Matched != "ou_legacy" {
+		t.Fatalf("match = %+v, want legacy identity %+v", match, identity)
+	}
+}
+
+func TestMaybeCanonicalizeIdentityPromotesFeishuOpenIDToUnionID(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+
+	hash, _ := auth.HashPassword("testpass1")
+	authUser, _ := ts.authStore.CreateUser(ctx, "canon-user", hash)
+	identity, _ := ts.authStore.CreateIdentity(ctx, auth.Identity{
+		UserID:     authUser.ID,
+		Platform:   "feishu",
+		ExternalID: "ou_legacy",
+	})
+
+	if err := maybeCanonicalizeIdentity(ctx, ts.authStore, "feishu", "on_stable", identityMatch{Identity: identity, Matched: "ou_legacy"}); err != nil {
+		t.Fatalf("maybeCanonicalizeIdentity: %v", err)
+	}
+
+	got, err := ts.authStore.GetIdentityByPlatform(ctx, "feishu", "on_stable")
+	if err != nil {
+		t.Fatalf("GetIdentityByPlatform(new): %v", err)
+	}
+	if got.ID != identity.ID {
+		t.Fatalf("updated identity id = %d, want %d", got.ID, identity.ID)
+	}
+	if _, err := ts.authStore.GetIdentityByPlatform(ctx, "feishu", "ou_legacy"); err == nil {
+		t.Fatal("expected legacy feishu open_id identity to be replaced")
+	}
+}
+
 func TestResolveUserDeactivated(t *testing.T) {
 	ts := setupStores(t)
 	ctx := context.Background()
@@ -191,6 +244,32 @@ func TestTryLinkCodeSuccess(t *testing.T) {
 	}
 	if identity.UserID != authUser.ID {
 		t.Errorf("identity.UserID = %d, want %d", identity.UserID, authUser.ID)
+	}
+}
+
+func TestTryLinkCodeWithCandidatesPrefersStableFeishuID(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+	linkCodes := auth.NewLinkCodeStore()
+
+	hash, _ := auth.HashPassword("testpass1")
+	authUser, _ := ts.authStore.CreateUser(ctx, "feishu-link", hash)
+	code := linkCodes.Generate(authUser.ID, "feishu")
+
+	resp, ok := TryLinkCodeWithCandidates(ctx, ts.authStore, linkCodes, "/link "+code, "feishu", "on_stable", []string{"on_stable", "ou_legacy"}, "Feishu User")
+	if !ok {
+		t.Fatal("expected TryLinkCodeWithCandidates to handle the message")
+	}
+	if !strings.Contains(resp, "linked successfully") {
+		t.Fatalf("unexpected response: %s", resp)
+	}
+
+	identity, err := ts.authStore.GetIdentityByPlatform(ctx, "feishu", "on_stable")
+	if err != nil {
+		t.Fatalf("GetIdentityByPlatform: %v", err)
+	}
+	if identity.UserID != authUser.ID {
+		t.Fatalf("identity.UserID = %d, want %d", identity.UserID, authUser.ID)
 	}
 }
 

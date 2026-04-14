@@ -24,31 +24,109 @@ type ResolvedIdentity struct {
 	User auth.AuthUser
 }
 
+type identityMatch struct {
+	Identity auth.Identity
+	Matched  string
+}
+
 func ResolveUser(ctx context.Context, authStore auth.AuthStore, platform, externalID string) (ResolvedIdentity, error) {
-	log := slog.With("component", "identity", "platform", platform, "external_id", externalID)
+	resolved, _, err := ResolveUserCandidates(ctx, authStore, platform, []string{externalID})
+	return resolved, err
+}
 
-	identity, err := authStore.GetIdentityByPlatform(ctx, platform, externalID)
-	if err != nil {
-		if isNotFound(err) {
-			log.Debug("no linked identity found, user must link via link code")
-			return ResolvedIdentity{}, nil
+func ResolveUserCandidates(ctx context.Context, authStore auth.AuthStore, platform string, externalIDs []string) (ResolvedIdentity, identityMatch, error) {
+	candidates := orderedIDs(externalIDs...)
+	log := slog.With("component", "identity", "platform", platform, "external_ids", candidates)
+	if len(candidates) == 0 {
+		log.Debug("no sender ids available for identity resolution")
+		return ResolvedIdentity{}, identityMatch{}, nil
+	}
+
+	var lastNotFound error
+	for _, externalID := range candidates {
+		identity, err := authStore.GetIdentityByPlatform(ctx, platform, externalID)
+		if err != nil {
+			if isNotFound(err) {
+				lastNotFound = err
+				continue
+			}
+			return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("lookup identity: %w", err)
 		}
-		return ResolvedIdentity{}, fmt.Errorf("lookup identity: %w", err)
-	}
 
-	user, err := authStore.GetUser(ctx, identity.UserID)
-	if err != nil {
-		if isNotFound(err) {
-			log.Error("auth user not found for linked identity", "user_id", identity.UserID, "error", err)
-			return ResolvedIdentity{}, nil
+		user, err := authStore.GetUser(ctx, identity.UserID)
+		if err != nil {
+			if isNotFound(err) {
+				log.Error("auth user not found for linked identity", "user_id", identity.UserID, "external_id", externalID, "error", err)
+				return ResolvedIdentity{}, identityMatch{}, nil
+			}
+			return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("lookup auth user: %w", err)
 		}
-		return ResolvedIdentity{}, fmt.Errorf("lookup auth user: %w", err)
-	}
-	if !user.IsActive {
-		return ResolvedIdentity{}, fmt.Errorf("account is deactivated")
+		if !user.IsActive {
+			return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("account is deactivated")
+		}
+
+		return ResolvedIdentity{User: user}, identityMatch{Identity: identity, Matched: externalID}, nil
 	}
 
-	return ResolvedIdentity{User: user}, nil
+	if lastNotFound != nil {
+		log.Debug("no linked identity found, user must link via link code")
+	}
+	return ResolvedIdentity{}, identityMatch{}, nil
+}
+
+func orderedIDs(ids ...string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func maybeCanonicalizeIdentity(ctx context.Context, authStore auth.AuthStore, platform, preferredID string, match identityMatch) error {
+	if preferredID == "" || match.Identity.ID == 0 || match.Identity.ExternalID == preferredID {
+		return nil
+	}
+
+	log := slog.With(
+		"component", "identity",
+		"platform", platform,
+		"identity_id", match.Identity.ID,
+		"from_external_id", match.Identity.ExternalID,
+		"to_external_id", preferredID,
+		"user_id", match.Identity.UserID,
+	)
+
+	preferred, err := authStore.GetIdentityByPlatform(ctx, platform, preferredID)
+	if err == nil {
+		if preferred.UserID != match.Identity.UserID {
+			log.Warn("cannot canonicalize identity: preferred external_id is linked to another user", "conflict_user_id", preferred.UserID)
+			return nil
+		}
+		if preferred.ID != match.Identity.ID {
+			if err := authStore.DeleteIdentity(ctx, match.Identity.ID); err != nil {
+				return fmt.Errorf("delete duplicate identity after canonicalization: %w", err)
+			}
+			log.Info("deleted duplicate legacy identity after canonicalization", "kept_identity_id", preferred.ID)
+		}
+		return nil
+	}
+	if !isNotFound(err) {
+		return fmt.Errorf("lookup canonical identity: %w", err)
+	}
+
+	if err := authStore.UpdateIdentityExternalID(ctx, match.Identity.ID, preferredID); err != nil {
+		return fmt.Errorf("canonicalize identity: %w", err)
+	}
+	log.Info("canonicalized identity to preferred external_id")
+	return nil
 }
 
 func ResolveAgent(ctx context.Context, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, identity ResolvedIdentity, chat ChatContext) (string, error) {

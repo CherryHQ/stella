@@ -62,7 +62,7 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 	if channelID == "" {
 		channelID = msg.Platform
 	}
-	return ResolveWithChannel(ctx, c.poolManager, c.store, c.authStore, c.engine, msg.Platform, channelID, msg.SenderID, msg.SenderName, msg.ChatID, msg.IsGroup)
+	return ResolveWithChannel(ctx, c.poolManager, c.store, c.authStore, c.engine, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.IsGroup)
 }
 
 // HandleIncoming resolves the user once, tries command handling, and if the
@@ -75,7 +75,7 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 		if args != "" {
 			fullText = command + " " + args
 		}
-		if resp, ok := TryLinkCode(ctx, c.authStore, c.linkCodes, fullText, msg.Platform, msg.SenderID, msg.SenderName); ok {
+		if resp, ok := TryLinkCodeWithCandidates(ctx, c.authStore, c.linkCodes, fullText, msg.Platform, msg.SenderID, msg.SenderIDs, msg.SenderName); ok {
 			return resp, true, nil, nil
 		}
 	}

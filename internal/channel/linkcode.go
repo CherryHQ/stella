@@ -10,6 +10,10 @@ import (
 )
 
 func TryLinkCode(ctx context.Context, authStore auth.AuthStore, linkCodes *auth.LinkCodeStore, text, platform, senderID, senderName string) (string, bool) {
+	return TryLinkCodeWithCandidates(ctx, authStore, linkCodes, text, platform, senderID, nil, senderName)
+}
+
+func TryLinkCodeWithCandidates(ctx context.Context, authStore auth.AuthStore, linkCodes *auth.LinkCodeStore, text, platform, senderID string, senderIDs []string, senderName string) (string, bool) {
 	code := parseLinkCommand(text)
 	if code == "" {
 		return "", false
@@ -24,8 +28,24 @@ func TryLinkCode(ctx context.Context, authStore auth.AuthStore, linkCodes *auth.
 		return fmt.Sprintf("This link code was generated for %s, not %s. Generate a new code and select %s as the platform.", codePlatform, platform, platform), true
 	}
 
-	if existing, err := authStore.GetIdentityByPlatform(ctx, platform, senderID); err == nil {
-		return fmt.Sprintf("This %s account is already linked to user #%d. Ask an admin to unlink it first from the user management page.", platform, existing.UserID), true
+	candidates := orderedIDs(append([]string{senderID}, senderIDs...)...)
+	for _, candidate := range candidates {
+		existing, err := authStore.GetIdentityByPlatform(ctx, platform, candidate)
+		if err != nil {
+			if isNotFound(err) {
+				continue
+			}
+			slog.Error("link code: lookup identity failed", "platform", platform, "sender", candidate, "user_id", userID, "error", err)
+			return "Failed to link account. Please try again.", true
+		}
+		if existing.UserID != userID {
+			return fmt.Sprintf("This %s account is already linked to user #%d. Ask an admin to unlink it first from the user management page.", platform, existing.UserID), true
+		}
+		if err := maybeCanonicalizeIdentity(ctx, authStore, platform, senderID, identityMatch{Identity: existing, Matched: candidate}); err != nil {
+			slog.Error("link code: canonicalize identity failed", "platform", platform, "sender", candidate, "preferred_sender", senderID, "user_id", userID, "error", err)
+			return "Failed to link account. Please try again.", true
+		}
+		return "Account linked successfully! Your channel account is now connected to your system user.", true
 	}
 
 	_, err := authStore.CreateIdentity(ctx, auth.Identity{
