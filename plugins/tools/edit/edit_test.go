@@ -8,7 +8,7 @@ import (
 )
 
 func TestEditTool_Definition(t *testing.T) {
-	tool := &EditTool{}
+	tool := NewEditTool("")
 	def := tool.Definition()
 	if def.Name != "edit" {
 		t.Errorf("expected name 'edit', got %q", def.Name)
@@ -22,11 +22,11 @@ func TestEditTool_BasicReplace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := &EditTool{}
+	tool := NewEditTool("")
 	result, err := tool.Execute(context.Background(), map[string]any{
-		"file_path":  path,
-		"old_string": "world",
-		"new_string": "Go",
+		"path":    path,
+		"oldText": "world",
+		"newText": "Go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -44,6 +44,35 @@ func TestEditTool_BasicReplace(t *testing.T) {
 	}
 }
 
+func TestEditTool_ResolvesRelativePathFromWorkDir(t *testing.T) {
+	workDir := t.TempDir()
+	path := filepath.Join(workDir, "nested", "file.txt")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("hello world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewEditTool(workDir)
+	_, err := tool.Execute(context.Background(), map[string]any{
+		"path":       "nested/file.txt",
+		"old_string": "world",
+		"new_string": "Anna",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello Anna" {
+		t.Fatalf("expected edited content, got %q", string(data))
+	}
+}
+
 func TestEditTool_NotFound(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "file.txt")
@@ -51,14 +80,14 @@ func TestEditTool_NotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := &EditTool{}
+	tool := NewEditTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{
-		"file_path":  path,
-		"old_string": "nonexistent",
-		"new_string": "x",
+		"path":    path,
+		"oldText": "nonexistent",
+		"newText": "x",
 	})
 	if err == nil {
-		t.Error("expected error when old_string not found")
+		t.Error("expected error when oldText not found")
 	}
 }
 
@@ -69,51 +98,77 @@ func TestEditTool_AmbiguousMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := &EditTool{}
+	tool := NewEditTool("")
+	_, err := tool.Execute(context.Background(), map[string]any{
+		"path":    path,
+		"oldText": "foo",
+		"newText": "bar",
+	})
+	if err == nil {
+		t.Error("expected error for ambiguous (multi-match) oldText")
+	}
+}
+
+func TestEditTool_AcceptsLegacyFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "legacy.txt")
+	if err := os.WriteFile(path, []byte("hello world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewEditTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{
 		"file_path":  path,
-		"old_string": "foo",
-		"new_string": "bar",
+		"old_string": "world",
+		"new_string": "legacy",
 	})
-	if err == nil {
-		t.Error("expected error for ambiguous (multi-match) old_string")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello legacy" {
+		t.Fatalf("expected legacy edited content, got %q", string(data))
 	}
 }
 
-func TestEditTool_MissingFilePath(t *testing.T) {
-	tool := &EditTool{}
+func TestEditTool_MissingPath(t *testing.T) {
+	tool := NewEditTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{
-		"old_string": "x",
-		"new_string": "y",
+		"oldText": "x",
+		"newText": "y",
 	})
 	if err == nil {
-		t.Error("expected error when file_path is missing")
+		t.Error("expected error when path is missing")
 	}
 }
 
-func TestEditTool_MissingOldString(t *testing.T) {
+func TestEditTool_MissingOldText(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "file.txt")
 	if err := os.WriteFile(path, []byte("content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	tool := &EditTool{}
+	tool := NewEditTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{
-		"file_path":  path,
-		"new_string": "y",
+		"path":    path,
+		"newText": "y",
 	})
 	if err == nil {
-		t.Error("expected error when old_string is missing")
+		t.Error("expected error when oldText is missing")
 	}
 }
 
 func TestEditTool_FileNotExist(t *testing.T) {
-	tool := &EditTool{}
+	tool := NewEditTool("")
 	_, err := tool.Execute(context.Background(), map[string]any{
-		"file_path":  "/nonexistent/path/file.txt",
-		"old_string": "x",
-		"new_string": "y",
+		"path":    "/nonexistent/path/file.txt",
+		"oldText": "x",
+		"newText": "y",
 	})
 	if err == nil {
 		t.Error("expected error for non-existent file")
