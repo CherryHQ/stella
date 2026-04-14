@@ -143,6 +143,29 @@ anna skills remove skill-name
 
 Search, install, and manage skills from the CLI or mid-conversation. Each agent has its own skills directory at `~/.anna/workspaces/{agent-id}/skills/`.
 
+## Security and Sandboxing
+
+On Linux and macOS, Anna uses the `boxsh` sandbox by default for local agent code execution. The `bash`, `read`, `write`, and `edit` tools run through a copy-on-write overlay filesystem that isolates each session:
+
+- Each agent session gets its own ephemeral workspace
+- File modifications don't affect the underlying source workspace
+- Path traversal outside the sandbox is blocked
+- Network access is disabled by default
+
+Per-agent network policy can be configured through the admin panel:
+
+| Mode | Description |
+|------|-------------|
+| `disabled` | No outbound network (default) |
+| `allow_all` | Unrestricted outbound access |
+| `whitelist` | Only specified hosts/CIDRs allowed when the runtime supports it |
+
+On Linux, the sandbox uses mount namespaces and overlayfs for strong isolation. On macOS, the guarantees are weaker due to platform limitations—sandboxing uses Seatbelt policies and APFS clonefile rather than true mount namespaces. Runner startup fails closed when the sandbox backend is unavailable.
+
+Current `boxsh` client builds may reject `whitelist` mode at runtime; Anna fails closed instead of widening access. Remote MCP servers are a separate trust boundary for now: local MCP stdio transport is runtime-mediated, while remote MCP HTTP/SSE transport is not currently covered by the local sandbox boundary.
+
+See [Architecture](/docs/core/architecture) for detailed platform guarantees, limitations, and the explicit MCP transport exception.
+
 ## Quick start
 
 ### Install
