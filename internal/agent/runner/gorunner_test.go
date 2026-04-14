@@ -468,13 +468,14 @@ func TestChatToolUseLoop(t *testing.T) {
 		},
 	}
 
-	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
+	cfg := withTestRunnerPaths(t, GoRunnerConfig{
 		API:       fp.api,
 		Model:     "test-model",
 		APIKey:    "test-key",
-		WorkDir:   dir,
 		Providers: testProviderRegistryBuilder,
-	}))
+	})
+	cfg.WorkDir = filepath.Join(cfg.UserRoot, filepath.Base(dir))
+	r, err := NewGoRunner(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)
 	}

@@ -15,10 +15,9 @@ const (
 type NetworkConfig = boxshclient.NetworkConfig
 
 type PreflightConfig struct {
-	AnnaHome    string
-	Workspace   string
-	UserDataDir string
-	Network     NetworkConfig
+	AnnaHome string
+	UserRoot string
+	Network  NetworkConfig
 }
 
 func (c PreflightConfig) Validate() error {

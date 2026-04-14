@@ -67,12 +67,12 @@ func TestCreateSessionDirCreatesBaseDir(t *testing.T) {
 
 func TestResolveSandboxCwd(t *testing.T) {
 	tests := []struct {
-		name        string
-		sandboxRoot string
-		workDir     string
-		want        string
+		name     string
+		userRoot string
+		workDir  string
+		want     string
 	}{
-		{"empty workdir uses sandbox root", "/workspace", "", "/workspace"},
+		{"empty workdir uses user root", "/workspace", "", "/workspace"},
 		{"relative workdir resolved against root", "/workspace", "src/project", "/workspace/src/project"},
 		{"absolute workdir under root used as-is", "/workspace", "/workspace/src/project", "/workspace/src/project"},
 		{"hidden child under root stays valid", "/workspace", "/workspace/.hidden", "/workspace/.hidden"},
@@ -81,9 +81,9 @@ func TestResolveSandboxCwd(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ResolveSandboxCwd(tt.sandboxRoot, tt.workDir)
+			got := ResolveSandboxCwd(tt.userRoot, tt.workDir)
 			if got != tt.want {
-				t.Errorf("ResolveSandboxCwd(%q, %q) = %q, want %q", tt.sandboxRoot, tt.workDir, got, tt.want)
+				t.Errorf("ResolveSandboxCwd(%q, %q) = %q, want %q", tt.userRoot, tt.workDir, got, tt.want)
 			}
 		})
 	}

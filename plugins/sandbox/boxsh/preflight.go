@@ -24,13 +24,6 @@ func RequiresBoxsh(goos string) bool {
 	}
 }
 
-func SandboxRoot(cfg PreflightConfig) string {
-	if cfg.UserDataDir != "" {
-		return cfg.UserDataDir
-	}
-	return cfg.Workspace
-}
-
 func ResolveManagedBoxshPath(annaHome string) (string, error) {
 	return boxshclient.ResolveManagedBoxshPath(annaHome)
 }
@@ -62,19 +55,19 @@ func Preflight(ctx context.Context, cfg PreflightConfig) error {
 		return err
 	}
 
-	root := SandboxRoot(cfg)
+	root := cfg.UserRoot
 	if root == "" {
-		return fmt.Errorf("sandbox: workspace root is required")
+		return fmt.Errorf("sandbox: user root is required")
 	}
 	if !filepath.IsAbs(root) {
-		return fmt.Errorf("sandbox: workspace root must be absolute: %q", root)
+		return fmt.Errorf("sandbox: user root must be absolute: %q", root)
 	}
 	info, err := os.Stat(root)
 	if err != nil {
-		return fmt.Errorf("sandbox: stat workspace root %q: %w", root, err)
+		return fmt.Errorf("sandbox: stat user root %q: %w", root, err)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("sandbox: workspace root %q is not a directory", root)
+		return fmt.Errorf("sandbox: user root %q is not a directory", root)
 	}
 
 	annaHome := cfg.AnnaHome
