@@ -13,10 +13,28 @@ const (
 	defaultMaxBytes = 50 * 1024 // 50KB
 )
 
-// TruncationResult holds the truncated output and metadata.
+type TruncatedBy string
+
+const (
+	TruncatedByNone  TruncatedBy = ""
+	TruncatedByLines TruncatedBy = "lines"
+	TruncatedByBytes TruncatedBy = "bytes"
+)
+
+// TruncationResult holds truncated output plus metadata about what happened.
+// Content remains the user-facing string, including truncation headers/footers.
 type TruncationResult struct {
-	Content     string
-	OutputLines int
+	Content               string
+	Truncated             bool
+	TruncatedBy           TruncatedBy
+	TotalLines            int
+	TotalBytes            int
+	OutputLines           int
+	OutputBytes           int
+	LastLinePartial       bool
+	FirstLineExceedsLimit bool
+	MaxLines              int
+	MaxBytes              int
 }
 
 func maxLines() int {
@@ -49,74 +67,129 @@ func SplitLines(text string) []string {
 
 // TruncateHead keeps the first N lines / bytes (whichever limit is hit first).
 // Suitable for file reads and search results where the beginning matters most.
+// Never returns a partial line.
 func TruncateHead(output string) TruncationResult {
-	return truncate(output, "first", keepHead)
+	return truncateHead(output, maxLines(), maxBytes())
 }
 
 // TruncateTail keeps the last N lines / bytes (whichever limit is hit first).
 // Suitable for command output and logs where the end matters most.
+// When the last line alone exceeds the byte limit, it keeps a UTF-8-safe tail slice.
 func TruncateTail(output string) TruncationResult {
-	return truncate(output, "last", keepTail)
+	return truncateTail(output, maxLines(), maxBytes())
 }
 
-// keepFunc selects which lines to keep given the full set and limits.
-type keepFunc func(lines []string, lineLimit, byteLimit int) []string
-
-func truncate(output, direction string, keep keepFunc) TruncationResult {
-	lineLimit := maxLines()
-	byteLimit := maxBytes()
-	totalBytes := len(output)
-
+func truncateHead(output string, lineLimit, byteLimit int) TruncationResult {
 	lines := SplitLines(output)
-	totalLines := len(lines)
-
-	if totalLines <= lineLimit && totalBytes <= byteLimit {
-		return TruncationResult{Content: output, OutputLines: totalLines}
+	result := baseResult(output, lines, lineLimit, byteLimit)
+	if !needsTruncation(result) {
+		result.Content = output
+		result.OutputLines = result.TotalLines
+		result.OutputBytes = result.TotalBytes
+		return result
 	}
 
-	kept := keep(lines, lineLimit, byteLimit)
-	truncated := strings.Join(kept, "")
-
-	fullPath := saveTempFile(output)
-	if fullPath == "" {
-		return TruncationResult{Content: output, OutputLines: totalLines}
+	if len(lines) > 0 && len(lines[0]) > byteLimit {
+		result.Truncated = true
+		result.TruncatedBy = TruncatedByBytes
+		result.FirstLineExceedsLimit = true
+		return finalizeTruncation(result, "first", "")
 	}
 
-	content := formatTruncated(truncated, direction, totalLines, totalBytes, len(kept), fullPath)
-	return TruncationResult{Content: content, OutputLines: len(kept)}
-}
-
-func keepHead(lines []string, lineLimit, byteLimit int) []string {
-	var kept []string
+	kept := make([]string, 0, min(len(lines), lineLimit))
 	keptBytes := 0
-	for _, line := range lines {
-		if len(kept) >= lineLimit || keptBytes+len(line) > byteLimit {
+	truncatedBy := TruncatedByLines
+	for i, line := range lines {
+		if i >= lineLimit {
+			truncatedBy = TruncatedByLines
+			break
+		}
+		if keptBytes+len(line) > byteLimit {
+			truncatedBy = TruncatedByBytes
 			break
 		}
 		kept = append(kept, line)
 		keptBytes += len(line)
 	}
-	return kept
+
+	result.Truncated = true
+	result.TruncatedBy = truncatedBy
+	result.OutputLines = len(kept)
+	result.OutputBytes = keptBytes
+	return finalizeTruncation(result, "first", strings.Join(kept, ""))
 }
 
-func keepTail(lines []string, lineLimit, byteLimit int) []string {
-	var kept []string
+func truncateTail(output string, lineLimit, byteLimit int) TruncationResult {
+	lines := SplitLines(output)
+	result := baseResult(output, lines, lineLimit, byteLimit)
+	if !needsTruncation(result) {
+		result.Content = output
+		result.OutputLines = result.TotalLines
+		result.OutputBytes = result.TotalBytes
+		return result
+	}
+
+	kept := make([]string, 0, min(len(lines), lineLimit))
 	keptBytes := 0
+	truncatedBy := TruncatedByLines
 	for i := len(lines) - 1; i >= 0; i-- {
-		if len(kept) >= lineLimit || keptBytes+len(lines[i]) > byteLimit {
+		if len(kept) >= lineLimit {
+			truncatedBy = TruncatedByLines
 			break
 		}
-		kept = append(kept, lines[i])
-		keptBytes += len(lines[i])
+
+		line := lines[i]
+		if keptBytes+len(line) > byteLimit {
+			truncatedBy = TruncatedByBytes
+			if len(kept) == 0 && len(line) > byteLimit {
+				partial := truncateStringToBytesFromEnd(line, byteLimit)
+				if partial != "" {
+					kept = append(kept, partial)
+					keptBytes = len(partial)
+					result.LastLinePartial = true
+				}
+			}
+			break
+		}
+
+		kept = append(kept, line)
+		keptBytes += len(line)
 	}
-	// Reverse to restore original order.
-	for i, j := 0, len(kept)-1; i < j; i, j = i+1, j-1 {
-		kept[i], kept[j] = kept[j], kept[i]
+
+	reverseStrings(kept)
+	result.Truncated = true
+	result.TruncatedBy = truncatedBy
+	result.OutputLines = len(kept)
+	result.OutputBytes = keptBytes
+	return finalizeTruncation(result, "last", strings.Join(kept, ""))
+}
+
+func baseResult(output string, lines []string, lineLimit, byteLimit int) TruncationResult {
+	return TruncationResult{
+		Content:     output,
+		TotalLines:  len(lines),
+		TotalBytes:  len(output),
+		MaxLines:    lineLimit,
+		MaxBytes:    byteLimit,
+		TruncatedBy: TruncatedByNone,
 	}
-	return kept
+}
+
+func needsTruncation(result TruncationResult) bool {
+	return result.TotalLines > result.MaxLines || result.TotalBytes > result.MaxBytes
+}
+
+func finalizeTruncation(result TruncationResult, direction, truncated string) TruncationResult {
+	fullPath := saveTempFile(result.Content)
+	result.Content = formatTruncated(result, direction, truncated, fullPath)
+	return result
 }
 
 func saveTempFile(output string) string {
+	if output == "" {
+		return ""
+	}
+
 	tmpFile, err := os.CreateTemp("", "anna-tool-*.txt")
 	if err != nil {
 		return ""
@@ -129,13 +202,82 @@ func saveTempFile(output string) string {
 	return tmpFile.Name()
 }
 
-func formatTruncated(truncated, direction string, totalLines, totalBytes, shownLines int, fullPath string) string {
-	header := fmt.Sprintf("[Output truncated — showing %s %d of %d lines (%d bytes total)]", direction, shownLines, totalLines, totalBytes)
-	footer := fmt.Sprintf("[Full output saved to %s — use bash with grep/head/tail to navigate, or read tool with offset/limit to paginate]", fullPath)
-	if direction == "last" {
-		return header + "\n\n...\n" + truncated + "\n" + footer
+func formatTruncated(result TruncationResult, direction, truncated, fullPath string) string {
+	header := formatHeader(result, direction)
+	footer := formatFooter(fullPath)
+	body := truncated
+	if result.FirstLineExceedsLimit {
+		body = fmt.Sprintf("[First line exceeds byte limit of %s; use read with offset/limit or narrower selection]", formatSize(result.MaxBytes))
 	}
-	return header + "\n\n" + truncated + "\n...\n\n" + footer
+
+	if direction == "last" {
+		if body == "" {
+			return header + "\n\n...\n" + footer
+		}
+		return header + "\n\n...\n" + body + "\n" + footer
+	}
+	if body == "" {
+		return header + "\n\n...\n\n" + footer
+	}
+	return header + "\n\n" + body + "\n...\n\n" + footer
+}
+
+func formatHeader(result TruncationResult, direction string) string {
+	shown := fmt.Sprintf("showing %s %d of %d lines", direction, result.OutputLines, result.TotalLines)
+	limit := fmt.Sprintf("truncated by %s (limit: %s)", result.TruncatedBy, formatTruncationLimit(result))
+	if result.LastLinePartial {
+		limit += "; last line shown partially"
+	}
+	if result.FirstLineExceedsLimit {
+		limit += "; first line exceeds byte limit"
+	}
+	return fmt.Sprintf("[Output truncated — %s, %s, %s total]", shown, limit, formatSize(result.TotalBytes))
+}
+
+func formatFooter(fullPath string) string {
+	if fullPath == "" {
+		return "[Full output could not be saved to a temp file — use a narrower command or read with offset/limit to paginate]"
+	}
+	return fmt.Sprintf("[Full output saved to %s — use bash with grep/head/tail to navigate, or read tool with offset/limit to paginate]", fullPath)
+}
+
+func formatTruncationLimit(result TruncationResult) string {
+	if result.TruncatedBy == TruncatedByBytes {
+		return formatSize(result.MaxBytes)
+	}
+	return fmt.Sprintf("%d lines", result.MaxLines)
+}
+
+func formatSize(bytes int) string {
+	if bytes < 1024 {
+		return fmt.Sprintf("%dB", bytes)
+	}
+	if bytes < 1024*1024 {
+		return fmt.Sprintf("%.1fKB", float64(bytes)/1024)
+	}
+	return fmt.Sprintf("%.1fMB", float64(bytes)/(1024*1024))
+}
+
+func reverseStrings(values []string) {
+	for i, j := 0, len(values)-1; i < j; i, j = i+1, j-1 {
+		values[i], values[j] = values[j], values[i]
+	}
+}
+
+// truncateStringToBytesFromEnd returns the tail of str that fits within maxBytes,
+// adjusting to a valid UTF-8 rune boundary.
+func truncateStringToBytesFromEnd(str string, maxBytes int) string {
+	if len(str) <= maxBytes {
+		return str
+	}
+	start := len(str) - maxBytes
+	for start < len(str) && !utf8.RuneStart(str[start]) {
+		start++
+	}
+	if start >= len(str) {
+		return ""
+	}
+	return str[start:]
 }
 
 // IsBinary reports whether data appears to be binary (non-text) content.
