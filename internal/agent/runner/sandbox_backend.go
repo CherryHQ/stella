@@ -93,19 +93,24 @@ var sessionRegistry = map[string]sessionFactory{
 
 var platformSupportsBoxsh = boxshclient.PlatformSupportsBoxsh
 
+func runnerFilesystemPolicy(paths sandboxPaths, readOnlyPaths []string) sandbox.FilesystemPolicy {
+	return sandbox.FilesystemPolicy{
+		WorkspaceRoot: paths.UserRoot,
+		WorkingDir:    paths.WorkDir,
+		ReadOnlyPaths: readOnlyPaths,
+		AllowEscapes:  false,
+	}
+}
+
 func createLocalSession(_ context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
 	paths, err := resolveSandboxPaths(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("resolve sandbox paths: %w", err)
 	}
 	policy := sandbox.Policy{
-		Backend: config.SandboxBackendLocal,
-		Relaxed: true,
-		Filesystem: sandbox.FilesystemPolicy{
-			WorkspaceRoot: paths.UserRoot,
-			WorkingDir:    paths.WorkDir,
-			AllowEscapes:  false,
-		},
+		Backend:    config.SandboxBackendLocal,
+		Relaxed:    true,
+		Filesystem: runnerFilesystemPolicy(paths, nil),
 		Network: sandbox.NetworkPolicy{
 			Mode: sandbox.NetworkAllowAll,
 		},
@@ -148,14 +153,9 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 	readOnlyDirs = append(readOnlyDirs, runnerPaths.builtinSkillsDir())
 
 	policy := sandbox.Policy{
-		Backend: config.SandboxBackendBoxsh,
-		Relaxed: false,
-		Filesystem: sandbox.FilesystemPolicy{
-			WorkspaceRoot: paths.UserRoot,
-			WorkingDir:    paths.WorkDir,
-			ReadOnlyPaths: readOnlyDirs,
-			AllowEscapes:  false,
-		},
+		Backend:    config.SandboxBackendBoxsh,
+		Relaxed:    false,
+		Filesystem: runnerFilesystemPolicy(paths, readOnlyDirs),
 		Network: sandbox.NetworkPolicy{
 			Mode:      sandbox.NetworkMode(cfg.Sandbox.Network.Mode),
 			Allowlist: cfg.Sandbox.Network.Allowlist,
