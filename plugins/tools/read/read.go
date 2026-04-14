@@ -29,7 +29,7 @@ func init() {
 			Description: "Read file contents.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return NewReadTool(ctx.Execution.WorkDir), nil
+				return NewReadTool(ctx.Paths.WorkDir), nil
 			},
 		})
 	}))

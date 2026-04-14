@@ -27,8 +27,7 @@ func TestBuildEnabledToolsBuildsAllOptionalToolsWithRuntimeContext(t *testing.T)
 	host.RegisterPluginID("tool/b")
 
 	var runtimeSeen int
-	var executions []pkgplugins.ExecutionContext
-	var discoveries []pkgplugins.DiscoveryContext
+	var seenPaths []pkgplugins.ToolPaths
 	fakeRuntime := pkgplugins.NewLocalToolRuntime(t.TempDir())
 	host.AddTool(pkgplugins.ToolSpec{
 		PluginID: "tool/a",
@@ -37,8 +36,7 @@ func TestBuildEnabledToolsBuildsAllOptionalToolsWithRuntimeContext(t *testing.T)
 			if ctx.Runtime != nil {
 				runtimeSeen++
 			}
-			executions = append(executions, ctx.Execution)
-			discoveries = append(discoveries, ctx.Discovery)
+			seenPaths = append(seenPaths, ctx.Paths)
 			return &testTool{name: "a"}, nil
 		},
 	})
@@ -49,16 +47,21 @@ func TestBuildEnabledToolsBuildsAllOptionalToolsWithRuntimeContext(t *testing.T)
 			if ctx.Runtime != nil {
 				runtimeSeen++
 			}
-			executions = append(executions, ctx.Execution)
-			discoveries = append(discoveries, ctx.Discovery)
+			seenPaths = append(seenPaths, ctx.Paths)
 			return &testTool{name: "b"}, nil
 		},
 	})
 
 	build := plugintools.BuildContext{
-		Execution: plugintools.ExecutionContext{WorkDir: "/work", UserRoot: "/user", ToolsBinDir: "/tools/bin"},
-		Discovery: plugintools.DiscoveryContext{AnnaHome: "/anna", AgentRoot: "/agent", ProjectRoot: "/project", UserRoot: "/user"},
-		Runtime:   fakeRuntime,
+		Paths: pkgplugins.ToolPaths{
+			WorkDir:     "/work",
+			UserRoot:    "/user",
+			ToolsBinDir: "/tools/bin",
+			AnnaHome:    "/anna",
+			AgentRoot:   "/agent",
+			ProjectRoot: "/project",
+		},
+		Runtime: fakeRuntime,
 	}
 	got := host.BuildEnabledTools(context.Background(), build)
 	if len(got) != 2 {
@@ -67,14 +70,9 @@ func TestBuildEnabledToolsBuildsAllOptionalToolsWithRuntimeContext(t *testing.T)
 	if runtimeSeen != 2 {
 		t.Fatalf("runtime seen = %d, want 2", runtimeSeen)
 	}
-	for i, execution := range executions {
-		if execution.WorkDir != build.Execution.WorkDir || execution.UserRoot != build.Execution.UserRoot || execution.ToolsBinDir != build.Execution.ToolsBinDir {
-			t.Fatalf("execution[%d] = %+v, want %+v", i, execution, build.Execution)
-		}
-	}
-	for i, discovery := range discoveries {
-		if discovery.AnnaHome != build.Discovery.AnnaHome || discovery.AgentRoot != build.Discovery.AgentRoot || discovery.ProjectRoot != build.Discovery.ProjectRoot || discovery.UserRoot != build.Discovery.UserRoot {
-			t.Fatalf("discovery[%d] = %+v, want %+v", i, discovery, build.Discovery)
+	for i, paths := range seenPaths {
+		if paths != build.Paths {
+			t.Fatalf("paths[%d] = %+v, want %+v", i, paths, build.Paths)
 		}
 	}
 }

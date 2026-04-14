@@ -9,29 +9,23 @@ import (
 	"github.com/vaayne/anna/pkg/channel"
 )
 
-// ExecutionContext is the runtime execution scope exposed to tools.
-// WorkDir is always inside UserRoot, and ToolsBinDir is prepended to PATH when needed.
-type ExecutionContext struct {
-	WorkDir     string
+// ToolPaths is the tool-facing session path surface.
+// UserRoot is the writable execution root and process HOME.
+// WorkDir must stay within UserRoot. AnnaHome, AgentRoot, and ProjectRoot are discovery roots.
+type ToolPaths struct {
 	UserRoot    string
+	WorkDir     string
 	ToolsBinDir string
-}
-
-// DiscoveryContext is the filesystem discovery scope exposed to tools.
-// These paths control where tools look for assets/config, not where they execute.
-type DiscoveryContext struct {
 	AnnaHome    string
 	AgentRoot   string
 	ProjectRoot string
-	UserRoot    string
 }
 
 // ToolContext is the narrow build context for tool capabilities.
 type ToolContext struct {
-	Platform  Platform
-	Execution ExecutionContext
-	Discovery DiscoveryContext
-	Runtime   ToolRuntime
+	Platform Platform
+	Paths    ToolPaths
+	Runtime  ToolRuntime
 }
 
 // ProviderContext is the narrow build context for provider capabilities.

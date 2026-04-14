@@ -47,15 +47,13 @@ Important fields:
 Use `ToolContext` when building:
 
 - `Platform`
-- `Execution`
-  - `WorkDir`
+- `Paths`
   - `UserRoot`
+  - `WorkDir`
   - `ToolsBinDir`
-- `Discovery`
   - `AnnaHome`
   - `AgentRoot`
   - `ProjectRoot`
-  - `UserRoot`
 - `Runtime`
 
 `Runtime` is the tool-facing file and process capability surface. Use it instead of depending on sandbox internals; the runner decides whether those operations are local, sandboxed, or otherwise mediated.

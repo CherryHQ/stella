@@ -28,7 +28,7 @@ func init() {
 			Description: "Edit existing files.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return NewEditTool(ctx.Execution.WorkDir), nil
+				return NewEditTool(ctx.Paths.WorkDir), nil
 			},
 		})
 	}))

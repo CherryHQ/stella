@@ -177,15 +177,13 @@ Examples:
 `ToolContext`:
 
 - `Platform`
-- `Execution`
-  - `WorkDir`
+- `Paths`
   - `UserRoot`
+  - `WorkDir`
   - `ToolsBinDir`
-- `Discovery`
   - `AnnaHome`
   - `AgentRoot`
   - `ProjectRoot`
-  - `UserRoot`
 - `Runtime`
 
 `Runtime` is a capability interface for tool file and process operations. Plugin tools should use it rather than importing sandbox internals directly.

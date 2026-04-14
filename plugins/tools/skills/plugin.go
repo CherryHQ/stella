@@ -29,10 +29,10 @@ func init() {
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
 				return NewTool(
-					ctx.Discovery.AnnaHome,
-					ctx.Discovery.AgentRoot,
-					ctx.Discovery.ProjectRoot,
-					userSkillsDir(ctx.Discovery.UserRoot),
+					ctx.Paths.AnnaHome,
+					ctx.Paths.AgentRoot,
+					ctx.Paths.ProjectRoot,
+					userSkillsDir(ctx.Paths.UserRoot),
 					ctx.Runtime,
 				), nil
 			},

@@ -219,16 +219,13 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 
 	// Runtime capabilities are injected from the active runner session.
 	bc := plugintools.BuildContext{
-		Execution: plugintools.ExecutionContext{
-			WorkDir:     paths.WorkDir,
+		Paths: pkgplugins.ToolPaths{
 			UserRoot:    paths.UserRoot,
+			WorkDir:     paths.WorkDir,
 			ToolsBinDir: paths.toolsBinDir(),
-		},
-		Discovery: plugintools.DiscoveryContext{
 			AnnaHome:    paths.AnnaHome,
 			AgentRoot:   paths.AgentRoot,
 			ProjectRoot: "",
-			UserRoot:    paths.UserRoot,
 		},
 		Runtime: cfg.ToolRuntime,
 	}

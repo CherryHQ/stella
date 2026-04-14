@@ -32,7 +32,7 @@ func init() {
 			Description: "Execute bash commands.",
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
-				return NewBashTool(ctx.Execution.WorkDir, ctx.Execution.ToolsBinDir), nil
+				return NewBashTool(ctx.Paths.WorkDir, ctx.Paths.ToolsBinDir), nil
 			},
 		})
 	}))
