@@ -4,7 +4,7 @@ title: Sandbox Backend Abstraction
 
 ## Status
 
-Implemented. Anna's local execution boundary is owned by `internal/sandbox`.
+Implemented. Anna's local execution boundary is described by `pkg/sandbox` contracts, with runner-facing registry wiring in `internal/sandbox`.
 
 ## Purpose
 
@@ -12,11 +12,12 @@ The sandbox abstraction exists so runner code, plugin wiring, and tool execution
 
 The top-level model is:
 
-- `sandbox.Policy` — immutable backend-agnostic execution policy
-- `sandbox.Session` — per-run execution boundary and lifecycle owner
-- `sandbox.Host` — mediated filesystem / process / network surface exposed to execution paths
+- `pkg/sandbox.Policy` — immutable backend-agnostic execution policy
+- `pkg/sandbox.Session` — per-run execution boundary and lifecycle owner
+- `pkg/sandbox.Host` — mediated filesystem / process / network surface used inside the runner boundary
+- `pkg/plugins.ToolRuntime` — plugin-facing file and process capability surface derived from the active runner session
 
-Backend identity stays inside `internal/sandbox`.
+Backend identity stays inside the runner and sandbox packages. Plugin packages do not import `internal/sandbox`.
 
 ## Current Architecture
 
@@ -24,42 +25,46 @@ Backend identity stays inside `internal/sandbox`.
 
 The runner creates a `sandbox.Session` for each run and keeps ownership of its lifecycle.
 
-- `boxsh` is used on Linux and macOS when configured and supported
-- `local` is used only for explicit relaxed execution paths
+- `auto` selects `boxsh` on Linux and macOS when configured and supported
+- `auto` selects the relaxed `local` backend on unsupported platforms
+- explicit `boxsh` fails closed when the platform or policy cannot be supported
+- `local` is a relaxed backend with advisory enforcement, not an isolation backend
 - unsupported policy/backend combinations fail closed by default
 
 ### Execution-time mediation
 
-All local execution paths that must obey sandbox policy are expected to use `sandbox.Host`:
+All local execution paths that must obey sandbox policy are mediated through the active runner session:
 
-- core tools: `bash`, `read`, `write`, `edit`
-- plugin/runtime-adjacent filesystem access for skills, agent presets, and prompt context
-- MCP stdio process spawning through `Host.StartProcess`
+- core tools (`bash`, `read`, `write`, `edit`) use the runner-owned `sandbox.Host`
+- plugin tools receive `ToolContext.Runtime`, a `pkg/plugins.ToolRuntime` adapter over the active `sandbox.Host`
+- skills and agent preset loading use `ToolRuntime` when running inside an agent session
+- MCP stdio process spawning uses `ToolRuntime.StartProcess`
 
-Build-time plugin registration remains sandbox-agnostic. Execution-time contexts receive the host.
+Build-time plugin registration remains sandbox-agnostic. Execution-time tool contexts receive runtime capabilities, not sandbox internals.
 
 ### Relaxed local sessions
 
-Some non-runner code paths still need local filesystem access without an already-injected host, such as prompt rendering or metadata discovery outside an active agent run.
+Some non-runner code paths still need local filesystem access without an already-injected runtime, such as prompt rendering or metadata discovery outside an active agent run.
 
-Those paths must not bypass the abstraction directly. They create an explicit relaxed local sandbox session and use its `Host` instead.
+Prompt rendering creates an explicit relaxed local sandbox session when it has no runner host. Skills and agent preset discovery use `pkg/plugins.NewLocalToolRuntime(...)` when called outside an active runner. These are intentional non-runner paths, not fallbacks for sandboxed tool execution.
 
 ### Explicit exception boundary
 
 Remote MCP HTTP/SSE/StreamableHTTP transport is currently treated as a separate trust boundary.
 
-- local stdio transport is sandbox-mediated
-- remote transport dialing is **not** currently mediated by `sandbox.Host`
-- this exception is tracked explicitly as `EX-009` and logged as `sandbox.exception_path`
+- local stdio transport is runtime-mediated through the active runner session
+- remote transport dialing is **not** currently mediated by `ToolRuntime`
+- this exception is tracked explicitly as `EX-009` and logged as `runtime.exception_path`
 
 ## Backend Addition Rules
 
 A new sandbox backend should be mostly add-only:
 
-1. implement the `sandbox.Factory`, `sandbox.Session`, and `sandbox.Host` contracts
+1. implement the `pkg/sandbox.Factory`, `pkg/sandbox.Session`, and `pkg/sandbox.Host` contracts
 2. register the factory in `internal/sandbox`
 3. pass contract and policy-compatibility tests
-4. avoid leaking backend-specific types into runner, plugin host, or tool code
+4. add a runner adapter when plugins need a new `ToolRuntime` capability
+5. avoid leaking backend-specific types into runner, plugin host, or tool code
 
 If a backend cannot honor a policy, it should fail closed with a policy compatibility error.
 
@@ -71,12 +76,13 @@ Code above the sandbox boundary should depend on:
 
 - session lifecycle
 - host-mediated operations
-- generic plugin sandbox runtime behavior
+- generic plugin `ToolRuntime` behavior
 
 It should not depend on:
 
 - `boxshclient`
 - backend-specific process/session types
+- `internal/sandbox` from plugin packages
 - implicit direct `os` / `exec` / `net/http` fallback paths for sandboxed execution surfaces
 
 ### Fail-closed behavior
@@ -86,7 +92,8 @@ Anna prefers explicit denial over silent downgrade:
 - unsupported backends fail closed
 - unsupported policies fail closed
 - direct non-mediated plugin exec remains fail closed
-- boxsh transport operations not yet supported by the host surface remain fail closed
+- current `boxsh` builds may reject `whitelist` network mode; that fails closed instead of silently widening access
+- remote MCP HTTP/SSE/StreamableHTTP remains an explicit exception, not an implicit sandbox bypass
 
 ## Verification
 

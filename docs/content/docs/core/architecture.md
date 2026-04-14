@@ -179,17 +179,17 @@ All four core tools share the same COW view through a single `boxsh` process per
 **Linux Guarantees:**
 - Full mount namespace isolation. The sandbox root is a distinct mount point.
 - overlayfs or fuse-overlayfs fallback for COW semantics.
-- Network namespace support with `disabled`, `allow_all`, and `whitelist` modes.
+- Network namespace support for `disabled` and `allow_all` modes.
 - All path access is constrained to the sandbox root.
 
 **Linux Limitations:**
 - Some filesystem/kernel combinations require `fuse-overlayfs`.
-- Network whitelist depends on iptables/nftables availability.
+- `whitelist` is accepted in config but current `boxsh` client builds may reject it at runtime.
 
 **macOS Guarantees:**
 - Process-level sandboxing via Seatbelt (`sandbox_init`).
 - COW semantics on APFS via `clonefile(2)`.
-- Policy-based network restrictions (weaker than Linux namespace isolation).
+- Policy-based network restrictions (weaker than Linux namespace isolation) for supported modes.
 
 **macOS Limitations:**
 - No mount namespace equivalent. Filesystem isolation is policy-based, not absolute.
@@ -197,7 +197,7 @@ All four core tools share the same COW view through a single `boxsh` process per
 - Network policy is more restrictive than Linux's namespace approach.
 - Behavior should be validated empirically rather than assumed equivalent to Linux.
 
-Unsupported platforms fail closed at runner startup because the core local-workspace tools require an active sandbox backend.
+With `backend: auto`, unsupported platforms use the relaxed `local` backend. Explicit `boxsh` selection fails closed when the platform or policy cannot be supported.
 
 ### Network Policy Configuration
 
@@ -207,7 +207,7 @@ Per-agent sandbox network policy is configured via the admin API or database:
 |------|-------------|----------|
 | `disabled` | No outbound network access (default) | Maximum security for untrusted code |
 | `allow_all` | Unrestricted outbound access | Trusted agents requiring full network |
-| `whitelist` | Only specified hosts/CIDRs allowed | Restricted access to known endpoints |
+| `whitelist` | Only specified hosts/CIDRs allowed when the runtime supports it | Restricted access to known endpoints |
 
 Whitelist entries can be:
 - Hostnames: `api.example.com`, `github.com`
@@ -220,6 +220,7 @@ Configuration example:
 ```json
 {
   "sandbox": {
+    "backend": "auto",
     "network": {
       "mode": "whitelist",
       "allowlist": ["api.github.com", "pypi.org", "192.168.1.0/24"]
@@ -228,12 +229,15 @@ Configuration example:
 }
 ```
 
+Current `boxsh` client builds may reject `whitelist` mode at runtime. Anna validates and stores the config, then fails closed during runner startup if the selected backend cannot enforce it.
+
 ### Failure Behavior
 
 On Linux and macOS, runner startup fails closed when:
 - The managed `boxsh` binary is missing or invalid
 - The workspace/state-dir shape is incorrect
 - Network policy configuration is invalid
+- Network policy is valid but not supported by the selected backend
 - Filesystem prerequisites (overlayfs/COW capability) are unavailable
 
 This ensures that sandboxed execution is either fully functional or does not run at all, preventing silent security downgrades.
@@ -242,15 +246,16 @@ This ensures that sandboxed execution is either fully functional or does not run
 
 Sandbox guarantees apply to local execution paths owned by Anna. Remote MCP transports are currently treated as a separate trust boundary:
 
-- local MCP stdio spawning is mediated through `sandbox.Host.StartProcess`
-- remote MCP HTTP/SSE/StreamableHTTP dialing is not currently mediated by `sandbox.Host`
-- that exception is explicit, observable, and tracked as `EX-009`
+- local MCP stdio spawning uses `ToolRuntime.StartProcess`, adapted from the active `sandbox.Host`
+- remote MCP HTTP/SSE/StreamableHTTP dialing is not currently mediated by `ToolRuntime`
+- that exception is explicit, observable, and logged as `runtime.exception_path` with `exception_id=EX-009`
 
 ### Migration Notes
 
 - Core local-workspace tools are backend-only; there is no unsandboxed direct-tool fallback.
 - Sandbox-specific tests replace the old direct-tool fallback coverage.
-- Runner construction fails closed when no active sandbox host is available.
+- Runner construction fails closed when no active sandbox session is available for backend-owned core tools.
+- Plugin tools use `ToolContext.Runtime` instead of importing sandbox internals directly.
 
 Plugin tools live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/features/plugin-system) for the full plugin architecture.
 
