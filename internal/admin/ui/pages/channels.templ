@@ -9,24 +9,24 @@ templ ChannelsPage() {
 		<section class="border-t border-base-300 pt-8">
 			<div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
 				<div>
-					<h2 class="text-lg font-medium">Available platforms</h2>
+					<h2 class="text-lg font-medium">Platforms</h2>
 					<p class="text-sm text-secondary mt-1">
-						Only platforms enabled on the <a href="/plugins" class="link link-primary">Plugins</a> page appear here.
+						Link your own account here. Admins can also configure the platform default and any dedicated instances in the same card.
 					</p>
 				</div>
 				<span class="text-xs font-mono text-secondary" x-text="linkedIdentities.length + ' linked'"></span>
 			</div>
 
-			<template x-if="loadingPlatforms">
+			<template x-if="loadingPlatforms || (isAdmin && loadingInstances)">
 				<div class="flex justify-center py-8">
 					<span class="loading loading-spinner loading-sm"></span>
 				</div>
 			</template>
 
-			<div x-show="!loadingPlatforms" x-cloak class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+			<div x-show="!loadingPlatforms && (!isAdmin || !loadingInstances)" x-cloak class="grid grid-cols-1 xl:grid-cols-2 gap-4">
 				<template x-for="channel in publicChannels" :key="channel.id">
 					<div class="card bg-base-200 border border-base-300">
-						<div class="card-body gap-4">
+						<div class="card-body gap-6">
 							<div class="flex items-start justify-between gap-3 flex-wrap">
 								<div>
 									<div class="flex items-center gap-2 flex-wrap">
@@ -37,6 +37,9 @@ templ ChannelsPage() {
 											:class="isLinked(channel.type) ? 'badge-success' : 'badge-ghost'"
 											x-text="isLinked(channel.type) ? 'linked' : 'not linked'"
 										></span>
+										<template x-if="isAdmin && configForPlatform(channel.type)">
+											<span class="badge badge-sm" :class="instanceStatusClass(configForPlatform(channel.type))" x-text="instanceStatus(configForPlatform(channel.type))"></span>
+										</template>
 									</div>
 									<p class="text-sm text-secondary mt-2" x-text="platformDescription(channel)"></p>
 								</div>
@@ -46,17 +49,15 @@ templ ChannelsPage() {
 							</div>
 
 							<div class="space-y-2 text-sm">
+								<p class="text-xs font-mono text-secondary uppercase tracking-wider">My account</p>
 								<template x-if="identityFor(channel.type)">
 									<div>
-										<p class="text-xs font-mono text-secondary uppercase tracking-wider mb-1">Linked identity</p>
+										<p class="text-xs text-secondary mb-1">Linked identity</p>
 										<p class="font-mono text-sm" x-text="identityLabel(identityFor(channel.type))"></p>
 									</div>
 								</template>
 								<template x-if="!identityFor(channel.type)">
-									<div>
-										<p class="text-xs font-mono text-secondary uppercase tracking-wider mb-1">Status</p>
-										<p class="text-sm text-secondary">No account linked yet.</p>
-									</div>
+									<p class="text-sm text-secondary">No account linked yet.</p>
 								</template>
 							</div>
 
@@ -85,6 +86,103 @@ templ ChannelsPage() {
 									class="btn btn-ghost btn-sm text-error"
 								>Unlink</button>
 							</div>
+
+							<template x-if="isAdmin && configForPlatform(channel.type)">
+								<div class="border-t border-base-300 pt-5 space-y-4">
+									<div class="flex items-start justify-between gap-3 flex-wrap">
+										<div>
+											<p class="text-xs font-mono text-secondary uppercase tracking-wider">Default channel config</p>
+											<p class="text-sm text-secondary mt-1">Shared bot or app credentials for this platform's default channel.</p>
+										</div>
+										<div class="flex items-center gap-2 flex-wrap">
+											<template x-if="configForPlatform(channel.type)?.agent_id">
+												<span class="badge badge-outline badge-sm" x-text="'agent: ' + configForPlatform(channel.type).agent_id"></span>
+											</template>
+											<button @click="configForPlatform(channel.type)._collapsed = !configForPlatform(channel.type)._collapsed" class="btn btn-ghost btn-sm" x-text="configForPlatform(channel.type)._collapsed ? 'Configure' : 'Collapse'"></button>
+										</div>
+									</div>
+									<div x-show="!configForPlatform(channel.type)._collapsed" x-cloak class="space-y-4">
+										@dedicatedInstanceFields("configForPlatform(channel.type)")
+										<div class="flex items-center justify-between gap-3 flex-wrap">
+											<p class="text-xs text-secondary">This config controls the platform default. Agent selection belongs on the agent page.</p>
+											<button @click="saveInstance(configForPlatform(channel.type))" class="btn btn-primary btn-sm">Save default config</button>
+										</div>
+									</div>
+								</div>
+							</template>
+
+							<template x-if="isAdmin">
+								<div class="border-t border-base-300 pt-5 space-y-4">
+									<div class="flex items-start justify-between gap-3 flex-wrap">
+										<div>
+											<p class="text-xs font-mono text-secondary uppercase tracking-wider">Dedicated instances</p>
+											<p class="text-sm text-secondary mt-1">Reusable per-platform instances with separate credentials.</p>
+										</div>
+										<div class="flex items-center gap-2 flex-wrap">
+											<span class="text-xs font-mono text-secondary" x-text="dedicatedInstancesFor(channel.type).length + ' instances'"></span>
+											<button @click="toggleNewInstanceForm(channel.type)" class="btn btn-primary btn-xs">Add dedicated instance</button>
+										</div>
+									</div>
+
+									<div x-show="isAddingInstanceFor(channel.type)" x-cloak class="card bg-base-100 border border-base-300">
+										<div class="card-body space-y-4">
+											<div>
+												@ui.FormField("Instance ID") {
+													<input x-model="newChannel.id" type="text" placeholder="feishu-coder" class="input input-bordered w-full text-sm font-mono"/>
+												}
+											</div>
+											@dedicatedInstanceFields("newChannel")
+											<div class="card-actions justify-end">
+												<button @click="closeNewInstanceForm()" class="btn btn-ghost btn-sm">Cancel</button>
+												<button @click="createChannel()" :disabled="creatingInstance || !newChannel.id || !newChannel.type" class="btn btn-primary btn-sm">
+													<span x-show="creatingInstance" class="loading loading-spinner loading-xs"></span>
+													Create instance
+												</button>
+											</div>
+										</div>
+									</div>
+
+									<div class="space-y-3">
+										<template x-for="ch in dedicatedInstancesFor(channel.type)" :key="ch.id">
+											<div class="card bg-base-100 border border-base-300">
+												<div class="card-body gap-4">
+													<div class="flex items-start justify-between gap-4 flex-wrap">
+														<div class="min-w-0">
+															<div class="flex items-center gap-2 flex-wrap">
+																<h4 class="font-medium text-sm font-mono" x-text="ch.id"></h4>
+																<span class="badge badge-ghost badge-sm">dedicated</span>
+																<span class="badge badge-sm" :class="instanceStatusClass(ch)" x-text="instanceStatus(ch)"></span>
+																<template x-if="ch.agent_id">
+																	<span class="badge badge-outline badge-sm" x-text="'agent: ' + ch.agent_id"></span>
+																</template>
+															</div>
+															<p class="text-sm text-secondary mt-2">Dedicated instance. Configure it here, then attach it from the agent page.</p>
+														</div>
+														<div class="flex items-center gap-2">
+															<button @click="ch._collapsed = !ch._collapsed" class="btn btn-ghost btn-sm" x-text="ch._collapsed ? 'Configure' : 'Collapse'"></button>
+															<button @click="confirmDelete('Delete dedicated instance ' + ch.id + '?', () => doDeleteChannel(ch.id))" class="btn btn-ghost btn-sm text-error">Delete</button>
+														</div>
+													</div>
+													<div x-show="!ch._collapsed" x-cloak class="space-y-4">
+														@dedicatedInstanceFields("ch")
+														<div class="flex items-center justify-between gap-3 flex-wrap">
+															<p class="text-xs text-secondary">This page stores the instance config only. Agent selection belongs on the agent page.</p>
+															<button @click="saveInstance(ch)" class="btn btn-primary btn-sm">Save config</button>
+														</div>
+													</div>
+												</div>
+											</div>
+										</template>
+
+										<template x-if="!hasDedicatedInstancesFor(channel.type) && !isAddingInstanceFor(channel.type)">
+											<div class="rounded-lg border border-dashed border-base-300 px-4 py-5 text-sm text-secondary">
+												<p>No dedicated instances yet.</p>
+												<p class="mt-1">Create one when you need separate credentials for a specific workflow or agent.</p>
+											</div>
+										</template>
+									</div>
+								</div>
+							</template>
 						</div>
 					</div>
 				</template>
@@ -104,7 +202,7 @@ templ ChannelsPage() {
 			<template x-if="linkCode">
 				<div class="alert shadow-md mt-4">
 					<div>
-						<p class="font-medium">Send this command to Anna on <span x-text="platformLabel[linkPlatform] || linkPlatform"></span>:</p>
+						<p class="font-medium">Send this command to Anna on <span x-text="platformLabel(linkPlatform)"></span>:</p>
 						<div class="flex items-center gap-2 mt-2 flex-wrap">
 							<code class="font-mono text-lg font-bold bg-base-200 text-base-content px-3 py-1 rounded select-all" x-text="'/link ' + linkCode"></code>
 							<button @click="copyLinkCode()" class="btn btn-ghost btn-xs">copy</button>
@@ -135,103 +233,6 @@ templ ChannelsPage() {
 					</div>
 				</div>
 			</template>
-		</section>
-
-		<section x-show="isAdmin" x-cloak class="border-t border-base-300 pt-8 mt-8">
-			<div class="flex items-start justify-between gap-4 mb-6 flex-wrap">
-				<div>
-					<h2 class="text-lg font-medium">Dedicated instances</h2>
-					<p class="text-sm text-secondary mt-1">
-						Create and configure reusable dedicated instances here. Link them to agents from the agent page after they are configured.
-					</p>
-				</div>
-				<div class="flex items-center gap-2 flex-wrap">
-					<span class="text-xs font-mono text-secondary" x-text="instances.length + ' instances'"></span>
-					<button @click="toggleNewInstanceForm()" class="btn btn-primary btn-sm" :disabled="visibleChannelTypes.length === 0">Add dedicated instance</button>
-				</div>
-			</div>
-
-			<div x-show="showNewInstanceForm" x-cloak class="card bg-base-200 border border-base-300 mb-4">
-				<div class="card-body space-y-4">
-					<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-						<div>
-							@ui.FormField("Instance ID") {
-								<input x-model="newChannel.id" type="text" placeholder="feishu-coder" class="input input-bordered w-full text-sm font-mono"/>
-							}
-						</div>
-						<div>
-							@ui.FormField("Platform") {
-								<select x-model="newChannel.type" @change="syncNewChannelType($event.target.value)" class="select select-bordered w-full text-sm">
-									<template x-for="type in visibleChannelTypes" :key="type.id">
-										<option :value="type.id" x-text="type.label"></option>
-									</template>
-								</select>
-							}
-						</div>
-					</div>
-
-					@dedicatedInstanceFields("newChannel")
-
-					<div class="card-actions justify-end">
-						<button @click="showNewInstanceForm = false" class="btn btn-ghost btn-sm">Cancel</button>
-						<button @click="createChannel()" :disabled="creatingInstance || !newChannel.id || !newChannel.type" class="btn btn-primary btn-sm">
-							<span x-show="creatingInstance" class="loading loading-spinner loading-xs"></span>
-							Create instance
-						</button>
-					</div>
-				</div>
-			</div>
-
-			<template x-if="loadingInstances">
-				<div class="flex justify-center py-8">
-					<span class="loading loading-spinner loading-sm"></span>
-				</div>
-			</template>
-
-			<div x-show="!loadingInstances" x-cloak class="space-y-4">
-				<template x-for="ch in instances" :key="ch.id">
-					<div class="card bg-base-200 border border-base-300">
-						<div class="card-body gap-4">
-							<div class="flex items-start justify-between gap-4 flex-wrap">
-								<div class="min-w-0">
-									<div class="flex items-center gap-2 flex-wrap">
-										<h3 class="font-medium text-base font-mono" x-text="ch.id"></h3>
-										<span class="badge badge-ghost badge-sm" x-text="platformLabel[ch.type] || ch.type"></span>
-										<span class="badge badge-sm" :class="instanceStatusClass(ch)" x-text="instanceStatus(ch)"></span>
-										<template x-if="ch.agent_id">
-											<span class="badge badge-outline badge-sm" x-text="'agent: ' + ch.agent_id"></span>
-										</template>
-									</div>
-									<p class="text-sm text-secondary mt-2">
-										Dedicated instance. Configure it here, then attach it from the agent page.
-									</p>
-								</div>
-								<div class="flex items-center gap-2">
-									<button @click="ch._collapsed = !ch._collapsed" class="btn btn-ghost btn-sm" x-text="ch._collapsed ? 'Configure' : 'Collapse'"></button>
-									<button @click="confirmDelete('Delete dedicated instance ' + ch.id + '?', () => doDeleteChannel(ch.id))" class="btn btn-ghost btn-sm text-error">Delete</button>
-								</div>
-							</div>
-
-							<div x-show="!ch._collapsed" x-cloak class="space-y-4">
-								@dedicatedInstanceFields("ch")
-								<div class="flex items-center justify-between gap-3 flex-wrap">
-									<p class="text-xs text-secondary">This page stores the instance config only. Agent selection belongs on the agent page.</p>
-									<button @click="saveInstance(ch)" class="btn btn-primary btn-sm">Save config</button>
-								</div>
-							</div>
-						</div>
-					</div>
-				</template>
-
-				<template x-if="instances.length === 0">
-					<div class="card bg-base-200 border border-dashed border-base-300">
-						<div class="card-body text-sm text-secondary">
-							<p>No dedicated instances yet.</p>
-							<p>Create one when you need a separate set of channel credentials for a specific workflow or agent.</p>
-						</div>
-					</div>
-				</template>
-			</div>
 		</section>
 
 		<div x-show="confirmMsg" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">

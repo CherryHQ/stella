@@ -137,6 +137,22 @@ export function register(Alpine) {
       return this.visibleChannelTypes[0]?.id || defaultChannelType
     },
 
+    configForPlatform(type) {
+      return this.instances.find(ch => ch.type === type && ch.id === type) || null
+    },
+
+    dedicatedInstancesFor(type) {
+      return this.instances.filter(ch => ch.type === type && ch.id !== type)
+    },
+
+    hasDedicatedInstancesFor(type) {
+      return this.dedicatedInstancesFor(type).length > 0
+    },
+
+    isAddingInstanceFor(type) {
+      return this.showNewInstanceForm && this.newChannel.type === type
+    },
+
     async init() {
       await this.loadCurrentUser()
       if (this.isAdmin) {
@@ -154,6 +170,16 @@ export function register(Alpine) {
     resetNewChannel(type = this.fallbackChannelType, id = '') {
       const nextType = this.enabledChannelTypeIDs.includes(type) ? type : this.fallbackChannelType
       this.newChannel = newInstanceDraft(nextType, id)
+    },
+
+    openNewInstanceForm(type = this.fallbackChannelType) {
+      this.resetNewChannel(type)
+      this.showNewInstanceForm = true
+    },
+
+    closeNewInstanceForm() {
+      this.showNewInstanceForm = false
+      this.resetNewChannel(this.newChannel.type, '')
     },
 
     resetLinkState() {
@@ -222,7 +248,14 @@ export function register(Alpine) {
         const channels = await api('GET', '/api/channels') || []
         this.instances = channels
           .map(normalizeChannel)
-          .filter(ch => ch.id !== ch.type && this.enabledChannelTypeIDs.includes(ch.type) && ch.enabled)
+          .filter(ch => this.enabledChannelTypeIDs.includes(ch.type) && ch.enabled)
+          .sort((left, right) => {
+            const leftDefault = left.id === left.type
+            const rightDefault = right.id === right.type
+            if (leftDefault !== rightDefault) return leftDefault ? -1 : 1
+            if (left.type !== right.type) return left.type.localeCompare(right.type)
+            return left.id.localeCompare(right.id)
+          })
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       } finally {
@@ -340,11 +373,27 @@ export function register(Alpine) {
       }
     },
 
-    toggleNewInstanceForm() {
-      this.showNewInstanceForm = !this.showNewInstanceForm
-      if (this.showNewInstanceForm) {
-        this.resetNewChannel(this.newChannel.type, this.newChannel.id)
+    toggleNewInstanceForm(type = this.newChannel.type) {
+      if (this.showNewInstanceForm && this.newChannel.type === type) {
+        this.closeNewInstanceForm()
+        return
       }
+      this.openNewInstanceForm(type)
+    },
+
+    isDefaultPlatformInstance(ch) {
+      return Boolean(ch) && ch.id === ch.type
+    },
+
+    instanceKindLabel(ch) {
+      return this.isDefaultPlatformInstance(ch) ? 'platform default' : 'dedicated'
+    },
+
+    instanceDescription(ch) {
+      if (this.isDefaultPlatformInstance(ch)) {
+        return 'Default platform channel. Configure the shared bot/account credentials used for this platform.'
+      }
+      return 'Dedicated instance. Configure it here, then attach it from the agent page.'
     },
 
     instanceStatus(ch) {
@@ -401,6 +450,11 @@ export function register(Alpine) {
     },
 
     async doDeleteChannel(id) {
+      const ch = this.instances.find(channel => channel.id === id)
+      if (this.isDefaultPlatformInstance(ch)) {
+        this.$store.toast.show('Default platform channels cannot be deleted', 'error')
+        return
+      }
       try {
         await api('DELETE', '/api/channels/' + encodeURIComponent(id))
         await this.loadInstances()
@@ -408,6 +462,10 @@ export function register(Alpine) {
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       }
+    },
+
+    syncNewChannelType(type) {
+      this.resetNewChannel(type, this.newChannel.id)
     },
 
     confirmDelete(message, action) {

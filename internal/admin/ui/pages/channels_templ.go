@@ -39,7 +39,15 @@ func ChannelsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<section class=\"border-t border-base-300 pt-8\"><div class=\"flex items-start justify-between gap-4 mb-6 flex-wrap\"><div><h2 class=\"text-lg font-medium\">Available platforms</h2><p class=\"text-sm text-secondary mt-1\">Only platforms enabled on the <a href=\"/plugins\" class=\"link link-primary\">Plugins</a> page appear here.</p></div><span class=\"text-xs font-mono text-secondary\" x-text=\"linkedIdentities.length + ' linked'\"></span></div><template x-if=\"loadingPlatforms\"><div class=\"flex justify-center py-8\"><span class=\"loading loading-spinner loading-sm\"></span></div></template><div x-show=\"!loadingPlatforms\" x-cloak class=\"grid grid-cols-1 xl:grid-cols-2 gap-4\"><template x-for=\"channel in publicChannels\" :key=\"channel.id\"><div class=\"card bg-base-200 border border-base-300\"><div class=\"card-body gap-4\"><div class=\"flex items-start justify-between gap-3 flex-wrap\"><div><div class=\"flex items-center gap-2 flex-wrap\"><h3 class=\"font-medium text-base\" x-text=\"channel.label\"></h3><span class=\"badge badge-ghost badge-sm\">platform</span> <span class=\"badge badge-sm\" :class=\"isLinked(channel.type) ? 'badge-success' : 'badge-ghost'\" x-text=\"isLinked(channel.type) ? 'linked' : 'not linked'\"></span></div><p class=\"text-sm text-secondary mt-2\" x-text=\"platformDescription(channel)\"></p></div><template x-if=\"channel.agent_id\"><span class=\"badge badge-primary badge-sm\" x-text=\"'agent: ' + linkedAgentLabel(channel)\"></span></template></div><div class=\"space-y-2 text-sm\"><template x-if=\"identityFor(channel.type)\"><div><p class=\"text-xs font-mono text-secondary uppercase tracking-wider mb-1\">Linked identity</p><p class=\"font-mono text-sm\" x-text=\"identityLabel(identityFor(channel.type))\"></p></div></template><template x-if=\"!identityFor(channel.type)\"><div><p class=\"text-xs font-mono text-secondary uppercase tracking-wider mb-1\">Status</p><p class=\"text-sm text-secondary\">No account linked yet.</p></div></template></div><div class=\"card-actions justify-start\"><button x-show=\"!isLinked(channel.type) && channel.type !== 'weixin'\" @click=\"generateCode(channel.type)\" :disabled=\"generating\" class=\"btn btn-primary btn-sm\"><span x-show=\"generating && linkPlatform === channel.type\" class=\"loading loading-spinner loading-xs\"></span> <span x-text=\"'Link ' + channel.label\"></span></button> <button x-show=\"!isLinked(channel.type) && channel.type === 'weixin'\" @click=\"startWeixinQR()\" :disabled=\"wxQrPolling\" class=\"btn btn-primary btn-sm\"><span x-show=\"wxQrPolling\" class=\"loading loading-spinner loading-xs\"></span> Link Weixin</button> <button x-show=\"isLinked(channel.type)\" @click=\"unlinkIdentity(identityFor(channel.type)?.id)\" class=\"btn btn-ghost btn-sm text-error\">Unlink</button></div></div></div></template><template x-if=\"publicChannels.length === 0\"><div class=\"card bg-base-200 border border-dashed border-base-300 xl:col-span-2\"><div class=\"card-body text-sm text-secondary\"><p>No platform channels are available right now.</p><template x-if=\"isAdmin\"><p>Enable one or more channel plugins on the <a href=\"/plugins\" class=\"link link-primary\">Plugins</a> page.</p></template></div></div></template></div><template x-if=\"linkCode\"><div class=\"alert shadow-md mt-4\"><div><p class=\"font-medium\">Send this command to Anna on <span x-text=\"platformLabel[linkPlatform] || linkPlatform\"></span>:</p><div class=\"flex items-center gap-2 mt-2 flex-wrap\"><code class=\"font-mono text-lg font-bold bg-base-200 text-base-content px-3 py-1 rounded select-all\" x-text=\"'/link ' + linkCode\"></code> <button @click=\"copyLinkCode()\" class=\"btn btn-ghost btn-xs\">copy</button></div><p class=\"text-xs text-secondary mt-2\">Expires in 5 minutes.</p></div></div></template><template x-if=\"wxQrUrl\"><div class=\"card bg-base-200 mt-4 border border-base-300\"><div class=\"card-body py-4 items-center\"><p class=\"text-sm font-medium mb-2\">Scan with WeChat to link your account</p><img :src=\"wxQrUrl\" alt=\"WeChat QR Code\" class=\"w-48 h-48 border rounded\"> <span class=\"badge badge-sm mt-2\" :class=\"{\n\t\t\t\t\t\t\t\t'badge-warning': wxQrStatus === 'waiting',\n\t\t\t\t\t\t\t\t'badge-info': wxQrStatus === 'scaned',\n\t\t\t\t\t\t\t\t'badge-success': wxQrStatus === 'confirmed',\n\t\t\t\t\t\t\t\t'badge-error': wxQrStatus === 'expired',\n\t\t\t\t\t\t\t}\" x-text=\"wxQrStatus\"></span><template x-if=\"wxQrStatus === 'expired'\"><button @click=\"startWeixinQR()\" class=\"btn btn-outline btn-xs mt-1\">Refresh</button></template></div></div></template></section><section x-show=\"isAdmin\" x-cloak class=\"border-t border-base-300 pt-8 mt-8\"><div class=\"flex items-start justify-between gap-4 mb-6 flex-wrap\"><div><h2 class=\"text-lg font-medium\">Dedicated instances</h2><p class=\"text-sm text-secondary mt-1\">Create and configure reusable dedicated instances here. Link them to agents from the agent page after they are configured.</p></div><div class=\"flex items-center gap-2 flex-wrap\"><span class=\"text-xs font-mono text-secondary\" x-text=\"instances.length + ' instances'\"></span> <button @click=\"toggleNewInstanceForm()\" class=\"btn btn-primary btn-sm\" :disabled=\"visibleChannelTypes.length === 0\">Add dedicated instance</button></div></div><div x-show=\"showNewInstanceForm\" x-cloak class=\"card bg-base-200 border border-base-300 mb-4\"><div class=\"card-body space-y-4\"><div class=\"grid grid-cols-1 md:grid-cols-2 gap-4\"><div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<section class=\"border-t border-base-300 pt-8\"><div class=\"flex items-start justify-between gap-4 mb-6 flex-wrap\"><div><h2 class=\"text-lg font-medium\">Platforms</h2><p class=\"text-sm text-secondary mt-1\">Link your own account here. Admins can also configure the platform default and any dedicated instances in the same card.</p></div><span class=\"text-xs font-mono text-secondary\" x-text=\"linkedIdentities.length + ' linked'\"></span></div><template x-if=\"loadingPlatforms || (isAdmin && loadingInstances)\"><div class=\"flex justify-center py-8\"><span class=\"loading loading-spinner loading-sm\"></span></div></template><div x-show=\"!loadingPlatforms && (!isAdmin || !loadingInstances)\" x-cloak class=\"grid grid-cols-1 xl:grid-cols-2 gap-4\"><template x-for=\"channel in publicChannels\" :key=\"channel.id\"><div class=\"card bg-base-200 border border-base-300\"><div class=\"card-body gap-6\"><div class=\"flex items-start justify-between gap-3 flex-wrap\"><div><div class=\"flex items-center gap-2 flex-wrap\"><h3 class=\"font-medium text-base\" x-text=\"channel.label\"></h3><span class=\"badge badge-ghost badge-sm\">platform</span> <span class=\"badge badge-sm\" :class=\"isLinked(channel.type) ? 'badge-success' : 'badge-ghost'\" x-text=\"isLinked(channel.type) ? 'linked' : 'not linked'\"></span><template x-if=\"isAdmin && configForPlatform(channel.type)\"><span class=\"badge badge-sm\" :class=\"instanceStatusClass(configForPlatform(channel.type))\" x-text=\"instanceStatus(configForPlatform(channel.type))\"></span></template></div><p class=\"text-sm text-secondary mt-2\" x-text=\"platformDescription(channel)\"></p></div><template x-if=\"channel.agent_id\"><span class=\"badge badge-primary badge-sm\" x-text=\"'agent: ' + linkedAgentLabel(channel)\"></span></template></div><div class=\"space-y-2 text-sm\"><p class=\"text-xs font-mono text-secondary uppercase tracking-wider\">My account</p><template x-if=\"identityFor(channel.type)\"><div><p class=\"text-xs text-secondary mb-1\">Linked identity</p><p class=\"font-mono text-sm\" x-text=\"identityLabel(identityFor(channel.type))\"></p></div></template><template x-if=\"!identityFor(channel.type)\"><p class=\"text-sm text-secondary\">No account linked yet.</p></template></div><div class=\"card-actions justify-start\"><button x-show=\"!isLinked(channel.type) && channel.type !== 'weixin'\" @click=\"generateCode(channel.type)\" :disabled=\"generating\" class=\"btn btn-primary btn-sm\"><span x-show=\"generating && linkPlatform === channel.type\" class=\"loading loading-spinner loading-xs\"></span> <span x-text=\"'Link ' + channel.label\"></span></button> <button x-show=\"!isLinked(channel.type) && channel.type === 'weixin'\" @click=\"startWeixinQR()\" :disabled=\"wxQrPolling\" class=\"btn btn-primary btn-sm\"><span x-show=\"wxQrPolling\" class=\"loading loading-spinner loading-xs\"></span> Link Weixin</button> <button x-show=\"isLinked(channel.type)\" @click=\"unlinkIdentity(identityFor(channel.type)?.id)\" class=\"btn btn-ghost btn-sm text-error\">Unlink</button></div><template x-if=\"isAdmin && configForPlatform(channel.type)\"><div class=\"border-t border-base-300 pt-5 space-y-4\"><div class=\"flex items-start justify-between gap-3 flex-wrap\"><div><p class=\"text-xs font-mono text-secondary uppercase tracking-wider\">Default channel config</p><p class=\"text-sm text-secondary mt-1\">Shared bot or app credentials for this platform's default channel.</p></div><div class=\"flex items-center gap-2 flex-wrap\"><template x-if=\"configForPlatform(channel.type)?.agent_id\"><span class=\"badge badge-outline badge-sm\" x-text=\"'agent: ' + configForPlatform(channel.type).agent_id\"></span></template><button @click=\"configForPlatform(channel.type)._collapsed = !configForPlatform(channel.type)._collapsed\" class=\"btn btn-ghost btn-sm\" x-text=\"configForPlatform(channel.type)._collapsed ? 'Configure' : 'Collapse'\"></button></div></div><div x-show=\"!configForPlatform(channel.type)._collapsed\" x-cloak class=\"space-y-4\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = dedicatedInstanceFields("configForPlatform(channel.type)").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<div class=\"flex items-center justify-between gap-3 flex-wrap\"><p class=\"text-xs text-secondary\">This config controls the platform default. Agent selection belongs on the agent page.</p><button @click=\"saveInstance(configForPlatform(channel.type))\" class=\"btn btn-primary btn-sm\">Save default config</button></div></div></div></template><template x-if=\"isAdmin\"><div class=\"border-t border-base-300 pt-5 space-y-4\"><div class=\"flex items-start justify-between gap-3 flex-wrap\"><div><p class=\"text-xs font-mono text-secondary uppercase tracking-wider\">Dedicated instances</p><p class=\"text-sm text-secondary mt-1\">Reusable per-platform instances with separate credentials.</p></div><div class=\"flex items-center gap-2 flex-wrap\"><span class=\"text-xs font-mono text-secondary\" x-text=\"dedicatedInstancesFor(channel.type).length + ' instances'\"></span> <button @click=\"toggleNewInstanceForm(channel.type)\" class=\"btn btn-primary btn-xs\">Add dedicated instance</button></div></div><div x-show=\"isAddingInstanceFor(channel.type)\" x-cloak class=\"card bg-base-100 border border-base-300\"><div class=\"card-body space-y-4\"><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -55,7 +63,7 @@ func ChannelsPage() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<input x-model=\"newChannel.id\" type=\"text\" placeholder=\"feishu-coder\" class=\"input input-bordered w-full text-sm font-mono\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<input x-model=\"newChannel.id\" type=\"text\" placeholder=\"feishu-coder\" class=\"input input-bordered w-full text-sm font-mono\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -65,33 +73,7 @@ func ChannelsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div><div>")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Var3 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<select x-model=\"newChannel.type\" @change=\"syncNewChannelType($event.target.value)\" class=\"select select-bordered w-full text-sm\"><template x-for=\"type in visibleChannelTypes\" :key=\"type.id\"><option :value=\"type.id\" x-text=\"type.label\"></option></template></select>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			return nil
-		})
-		templ_7745c5c3_Err = ui.FormField("Platform").Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -99,7 +81,7 @@ func ChannelsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div class=\"card-actions justify-end\"><button @click=\"showNewInstanceForm = false\" class=\"btn btn-ghost btn-sm\">Cancel</button> <button @click=\"createChannel()\" :disabled=\"creatingInstance || !newChannel.id || !newChannel.type\" class=\"btn btn-primary btn-sm\"><span x-show=\"creatingInstance\" class=\"loading loading-spinner loading-xs\"></span> Create instance</button></div></div></div><template x-if=\"loadingInstances\"><div class=\"flex justify-center py-8\"><span class=\"loading loading-spinner loading-sm\"></span></div></template><div x-show=\"!loadingInstances\" x-cloak class=\"space-y-4\"><template x-for=\"ch in instances\" :key=\"ch.id\"><div class=\"card bg-base-200 border border-base-300\"><div class=\"card-body gap-4\"><div class=\"flex items-start justify-between gap-4 flex-wrap\"><div class=\"min-w-0\"><div class=\"flex items-center gap-2 flex-wrap\"><h3 class=\"font-medium text-base font-mono\" x-text=\"ch.id\"></h3><span class=\"badge badge-ghost badge-sm\" x-text=\"platformLabel[ch.type] || ch.type\"></span> <span class=\"badge badge-sm\" :class=\"instanceStatusClass(ch)\" x-text=\"instanceStatus(ch)\"></span><template x-if=\"ch.agent_id\"><span class=\"badge badge-outline badge-sm\" x-text=\"'agent: ' + ch.agent_id\"></span></template></div><p class=\"text-sm text-secondary mt-2\">Dedicated instance. Configure it here, then attach it from the agent page.</p></div><div class=\"flex items-center gap-2\"><button @click=\"ch._collapsed = !ch._collapsed\" class=\"btn btn-ghost btn-sm\" x-text=\"ch._collapsed ? 'Configure' : 'Collapse'\"></button> <button @click=\"confirmDelete('Delete dedicated instance ' + ch.id + '?', () => doDeleteChannel(ch.id))\" class=\"btn btn-ghost btn-sm text-error\">Delete</button></div></div><div x-show=\"!ch._collapsed\" x-cloak class=\"space-y-4\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<div class=\"card-actions justify-end\"><button @click=\"closeNewInstanceForm()\" class=\"btn btn-ghost btn-sm\">Cancel</button> <button @click=\"createChannel()\" :disabled=\"creatingInstance || !newChannel.id || !newChannel.type\" class=\"btn btn-primary btn-sm\"><span x-show=\"creatingInstance\" class=\"loading loading-spinner loading-xs\"></span> Create instance</button></div></div></div><div class=\"space-y-3\"><template x-for=\"ch in dedicatedInstancesFor(channel.type)\" :key=\"ch.id\"><div class=\"card bg-base-100 border border-base-300\"><div class=\"card-body gap-4\"><div class=\"flex items-start justify-between gap-4 flex-wrap\"><div class=\"min-w-0\"><div class=\"flex items-center gap-2 flex-wrap\"><h4 class=\"font-medium text-sm font-mono\" x-text=\"ch.id\"></h4><span class=\"badge badge-ghost badge-sm\">dedicated</span> <span class=\"badge badge-sm\" :class=\"instanceStatusClass(ch)\" x-text=\"instanceStatus(ch)\"></span><template x-if=\"ch.agent_id\"><span class=\"badge badge-outline badge-sm\" x-text=\"'agent: ' + ch.agent_id\"></span></template></div><p class=\"text-sm text-secondary mt-2\">Dedicated instance. Configure it here, then attach it from the agent page.</p></div><div class=\"flex items-center gap-2\"><button @click=\"ch._collapsed = !ch._collapsed\" class=\"btn btn-ghost btn-sm\" x-text=\"ch._collapsed ? 'Configure' : 'Collapse'\"></button> <button @click=\"confirmDelete('Delete dedicated instance ' + ch.id + '?', () => doDeleteChannel(ch.id))\" class=\"btn btn-ghost btn-sm text-error\">Delete</button></div></div><div x-show=\"!ch._collapsed\" x-cloak class=\"space-y-4\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -107,7 +89,7 @@ func ChannelsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<div class=\"flex items-center justify-between gap-3 flex-wrap\"><p class=\"text-xs text-secondary\">This page stores the instance config only. Agent selection belongs on the agent page.</p><button @click=\"saveInstance(ch)\" class=\"btn btn-primary btn-sm\">Save config</button></div></div></div></div></template><template x-if=\"instances.length === 0\"><div class=\"card bg-base-200 border border-dashed border-base-300\"><div class=\"card-body text-sm text-secondary\"><p>No dedicated instances yet.</p><p>Create one when you need a separate set of channel credentials for a specific workflow or agent.</p></div></div></template></div></section><div x-show=\"confirmMsg\" x-cloak class=\"fixed inset-0 z-50 flex items-center justify-center bg-black/40\"><div class=\"card bg-base-100 shadow-xl w-full max-w-sm\" @click.away=\"confirmMsg = ''\"><div class=\"card-body\"><p class=\"text-sm\" x-text=\"confirmMsg\"></p><div class=\"card-actions justify-end mt-4\"><button @click=\"confirmMsg = ''\" class=\"btn btn-ghost btn-sm\">Cancel</button> <button @click=\"confirmAction(); confirmMsg = ''\" class=\"btn btn-error btn-sm\">Delete</button></div></div></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div class=\"flex items-center justify-between gap-3 flex-wrap\"><p class=\"text-xs text-secondary\">This page stores the instance config only. Agent selection belongs on the agent page.</p><button @click=\"saveInstance(ch)\" class=\"btn btn-primary btn-sm\">Save config</button></div></div></div></div></template><template x-if=\"!hasDedicatedInstancesFor(channel.type) && !isAddingInstanceFor(channel.type)\"><div class=\"rounded-lg border border-dashed border-base-300 px-4 py-5 text-sm text-secondary\"><p>No dedicated instances yet.</p><p class=\"mt-1\">Create one when you need separate credentials for a specific workflow or agent.</p></div></template></div></div></template></div></div></template><template x-if=\"publicChannels.length === 0\"><div class=\"card bg-base-200 border border-dashed border-base-300 xl:col-span-2\"><div class=\"card-body text-sm text-secondary\"><p>No platform channels are available right now.</p><template x-if=\"isAdmin\"><p>Enable one or more channel plugins on the <a href=\"/plugins\" class=\"link link-primary\">Plugins</a> page.</p></template></div></div></template></div><template x-if=\"linkCode\"><div class=\"alert shadow-md mt-4\"><div><p class=\"font-medium\">Send this command to Anna on <span x-text=\"platformLabel(linkPlatform)\"></span>:</p><div class=\"flex items-center gap-2 mt-2 flex-wrap\"><code class=\"font-mono text-lg font-bold bg-base-200 text-base-content px-3 py-1 rounded select-all\" x-text=\"'/link ' + linkCode\"></code> <button @click=\"copyLinkCode()\" class=\"btn btn-ghost btn-xs\">copy</button></div><p class=\"text-xs text-secondary mt-2\">Expires in 5 minutes.</p></div></div></template><template x-if=\"wxQrUrl\"><div class=\"card bg-base-200 mt-4 border border-base-300\"><div class=\"card-body py-4 items-center\"><p class=\"text-sm font-medium mb-2\">Scan with WeChat to link your account</p><img :src=\"wxQrUrl\" alt=\"WeChat QR Code\" class=\"w-48 h-48 border rounded\"> <span class=\"badge badge-sm mt-2\" :class=\"{\n\t\t\t\t\t\t\t\t'badge-warning': wxQrStatus === 'waiting',\n\t\t\t\t\t\t\t\t'badge-info': wxQrStatus === 'scaned',\n\t\t\t\t\t\t\t\t'badge-success': wxQrStatus === 'confirmed',\n\t\t\t\t\t\t\t\t'badge-error': wxQrStatus === 'expired',\n\t\t\t\t\t\t\t}\" x-text=\"wxQrStatus\"></span><template x-if=\"wxQrStatus === 'expired'\"><button @click=\"startWeixinQR()\" class=\"btn btn-outline btn-xs mt-1\">Refresh</button></template></div></div></template></section><div x-show=\"confirmMsg\" x-cloak class=\"fixed inset-0 z-50 flex items-center justify-center bg-black/40\"><div class=\"card bg-base-100 shadow-xl w-full max-w-sm\" @click.away=\"confirmMsg = ''\"><div class=\"card-body\"><p class=\"text-sm\" x-text=\"confirmMsg\"></p><div class=\"card-actions justify-end mt-4\"><button @click=\"confirmMsg = ''\" class=\"btn btn-ghost btn-sm\">Cancel</button> <button @click=\"confirmAction(); confirmMsg = ''\" class=\"btn btn-error btn-sm\">Delete</button></div></div></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -131,42 +113,42 @@ func dedicatedInstanceFields(model string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var4 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var4 == nil {
-			templ_7745c5c3_Var4 = templ.NopComponent
+		templ_7745c5c3_Var3 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var3 == nil {
+			templ_7745c5c3_Var3 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<div class=\"space-y-4\"><label class=\"flex items-center gap-3 cursor-pointer\"><input type=\"checkbox\" x-model=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<div class=\"space-y-4\"><label class=\"flex items-center gap-3 cursor-pointer\"><input type=\"checkbox\" x-model=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var4 string
+		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".enable_notify")
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 255, Col: 60}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" class=\"toggle toggle-primary toggle-sm\"> <span class=\"text-sm\">Notifications</span></label><div x-show=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var5 string
-		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".enable_notify")
+		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".type === 'telegram'")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 254, Col: 60}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 259, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\" class=\"toggle toggle-primary toggle-sm\"> <span class=\"text-sm\">Notifications</span></label><div x-show=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\" x-cloak class=\"space-y-4\"><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var6 string
-		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".type === 'telegram'")
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 258, Col: 46}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\" x-cloak class=\"space-y-4\"><div>")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Var7 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var6 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -178,34 +160,34 @@ func dedicatedInstanceFields(model string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<input type=\"password\" x-model=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<input type=\"password\" x-model=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var8 string
-			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".token")
+			var templ_7745c5c3_Var7 string
+			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".token")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 261, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 262, Col: 54}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "\" placeholder=\"From @BotFather\" class=\"input input-bordered w-full text-sm font-mono\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "\" placeholder=\"From @BotFather\" class=\"input input-bordered w-full text-sm font-mono\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Bot Token").Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ui.FormField("Bot Token").Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</div><div class=\"grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4\"><div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</div><div class=\"grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4\"><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var9 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var8 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -217,34 +199,34 @@ func dedicatedInstanceFields(model string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<input type=\"text\" x-model=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<input type=\"text\" x-model=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var10 string
-			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".channel_id")
+			var templ_7745c5c3_Var9 string
+			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".channel_id")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 267, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 268, Col: 56}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "\" placeholder=\"Default channel\" class=\"input input-bordered w-full text-sm\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "\" placeholder=\"Default channel\" class=\"input input-bordered w-full text-sm\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Channel ID").Render(templ.WithChildren(ctx, templ_7745c5c3_Var9), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ui.FormField("Channel ID").Render(templ.WithChildren(ctx, templ_7745c5c3_Var8), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "</div><div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</div><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var11 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var10 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -256,47 +238,47 @@ func dedicatedInstanceFields(model string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<select x-model=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<select x-model=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var12 string
-			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".group_mode")
+			var templ_7745c5c3_Var11 string
+			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".group_mode")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 272, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 273, Col: 45}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "\" class=\"select select-bordered w-full text-sm\"><option value=\"\">Default</option> <option value=\"mention\">Mention</option> <option value=\"always\">Always</option> <option value=\"disabled\">Disabled</option></select>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "\" class=\"select select-bordered w-full text-sm\"><option value=\"\">Default</option> <option value=\"mention\">Mention</option> <option value=\"always\">Always</option> <option value=\"disabled\">Disabled</option></select>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Group Mode").Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ui.FormField("Group Mode").Render(templ.WithChildren(ctx, templ_7745c5c3_Var10), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "</div></div></div><div x-show=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</div></div></div><div x-show=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var13 string
-		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".type === 'qq'")
+		var templ_7745c5c3_Var12 string
+		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".type === 'qq'")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 283, Col: 40}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 284, Col: 40}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "\" x-cloak class=\"space-y-4\"><div class=\"grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4\"><div>")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var14 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "\" x-cloak class=\"space-y-4\"><div class=\"grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4\"><div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var13 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -308,34 +290,34 @@ func dedicatedInstanceFields(model string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<input type=\"text\" x-model=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<input type=\"text\" x-model=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var15 string
-			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".app_id")
+			var templ_7745c5c3_Var14 string
+			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".app_id")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 287, Col: 52}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 288, Col: 52}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "\" placeholder=\"QQ Bot App ID\" class=\"input input-bordered w-full text-sm font-mono\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "\" placeholder=\"QQ Bot App ID\" class=\"input input-bordered w-full text-sm font-mono\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("App ID").Render(templ.WithChildren(ctx, templ_7745c5c3_Var14), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ui.FormField("App ID").Render(templ.WithChildren(ctx, templ_7745c5c3_Var13), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</div><div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "</div><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var16 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var15 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -347,34 +329,34 @@ func dedicatedInstanceFields(model string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<input type=\"password\" x-model=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<input type=\"password\" x-model=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var17 string
-			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".app_secret")
+			var templ_7745c5c3_Var16 string
+			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".app_secret")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 292, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 293, Col: 60}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "\" class=\"input input-bordered w-full text-sm font-mono\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "\" class=\"input input-bordered w-full text-sm font-mono\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("App Secret").Render(templ.WithChildren(ctx, templ_7745c5c3_Var16), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ui.FormField("App Secret").Render(templ.WithChildren(ctx, templ_7745c5c3_Var15), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "</div><div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</div><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var18 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var17 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -386,47 +368,47 @@ func dedicatedInstanceFields(model string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<select x-model=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "<select x-model=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var19 string
-			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".group_mode")
+			var templ_7745c5c3_Var18 string
+			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".group_mode")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 297, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 298, Col: 45}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "\" class=\"select select-bordered w-full text-sm\"><option value=\"\">Default (mention)</option> <option value=\"mention\">Mention</option> <option value=\"always\">Always</option> <option value=\"disabled\">Disabled</option></select>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "\" class=\"select select-bordered w-full text-sm\"><option value=\"\">Default (mention)</option> <option value=\"mention\">Mention</option> <option value=\"always\">Always</option> <option value=\"disabled\">Disabled</option></select>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Group Mode").Render(templ.WithChildren(ctx, templ_7745c5c3_Var18), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ui.FormField("Group Mode").Render(templ.WithChildren(ctx, templ_7745c5c3_Var17), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</div></div></div><div x-show=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "</div></div></div><div x-show=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var20 string
-		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".type === 'feishu'")
+		var templ_7745c5c3_Var19 string
+		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".type === 'feishu'")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 308, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 309, Col: 44}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "\" x-cloak class=\"space-y-4\"><p class=\"text-xs text-secondary\">Feishu is chat-only. Add a <code>lark-cli</code> skill yourself if you want Lark workspace automation.</p><div class=\"grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4\"><div>")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var21 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "\" x-cloak class=\"space-y-4\"><p class=\"text-xs text-secondary\">Feishu is chat-only. Add a <code>lark-cli</code> skill yourself if you want Lark workspace automation.</p><div class=\"grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4\"><div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var20 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -438,34 +420,34 @@ func dedicatedInstanceFields(model string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "<input type=\"text\" x-model=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<input type=\"text\" x-model=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var22 string
-			templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".app_id")
+			var templ_7745c5c3_Var21 string
+			templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".app_id")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 315, Col: 52}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 316, Col: 52}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "\" class=\"input input-bordered w-full text-sm font-mono\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "\" class=\"input input-bordered w-full text-sm font-mono\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("App ID").Render(templ.WithChildren(ctx, templ_7745c5c3_Var21), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ui.FormField("App ID").Render(templ.WithChildren(ctx, templ_7745c5c3_Var20), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "</div><div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "</div><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var23 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var22 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -477,34 +459,34 @@ func dedicatedInstanceFields(model string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "<input type=\"password\" x-model=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "<input type=\"password\" x-model=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var24 string
-			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".app_secret")
+			var templ_7745c5c3_Var23 string
+			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".app_secret")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 320, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 321, Col: 60}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "\" class=\"input input-bordered w-full text-sm font-mono\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "\" class=\"input input-bordered w-full text-sm font-mono\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("App Secret").Render(templ.WithChildren(ctx, templ_7745c5c3_Var23), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ui.FormField("App Secret").Render(templ.WithChildren(ctx, templ_7745c5c3_Var22), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "</div><div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "</div><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var25 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var24 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -516,34 +498,34 @@ func dedicatedInstanceFields(model string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "<input type=\"password\" x-model=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<input type=\"password\" x-model=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var26 string
-			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".encrypt_key")
+			var templ_7745c5c3_Var25 string
+			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".encrypt_key")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 325, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 326, Col: 61}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "\" placeholder=\"optional\" class=\"input input-bordered w-full text-sm font-mono\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "\" placeholder=\"optional\" class=\"input input-bordered w-full text-sm font-mono\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Encrypt Key").Render(templ.WithChildren(ctx, templ_7745c5c3_Var25), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ui.FormField("Encrypt Key").Render(templ.WithChildren(ctx, templ_7745c5c3_Var24), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "</div><div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "</div><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var27 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var26 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -555,34 +537,34 @@ func dedicatedInstanceFields(model string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "<input type=\"password\" x-model=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "<input type=\"password\" x-model=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var28 string
-			templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".verification_token")
+			var templ_7745c5c3_Var27 string
+			templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".verification_token")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 330, Col: 68}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 331, Col: 68}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "\" placeholder=\"optional\" class=\"input input-bordered w-full text-sm font-mono\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "\" placeholder=\"optional\" class=\"input input-bordered w-full text-sm font-mono\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Verification Token").Render(templ.WithChildren(ctx, templ_7745c5c3_Var27), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ui.FormField("Verification Token").Render(templ.WithChildren(ctx, templ_7745c5c3_Var26), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "</div><div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "</div><div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var29 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var28 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -594,43 +576,43 @@ func dedicatedInstanceFields(model string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "<select x-model=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "<select x-model=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var30 string
-			templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".group_mode")
+			var templ_7745c5c3_Var29 string
+			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".group_mode")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 335, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 336, Col: 45}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "\" class=\"select select-bordered w-full text-sm\"><option value=\"\">Default (mention)</option> <option value=\"mention\">Mention</option> <option value=\"always\">Always</option> <option value=\"disabled\">Disabled</option></select>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "\" class=\"select select-bordered w-full text-sm\"><option value=\"\">Default (mention)</option> <option value=\"mention\">Mention</option> <option value=\"always\">Always</option> <option value=\"disabled\">Disabled</option></select>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Group Mode").Render(templ.WithChildren(ctx, templ_7745c5c3_Var29), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ui.FormField("Group Mode").Render(templ.WithChildren(ctx, templ_7745c5c3_Var28), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "</div></div></div><div x-show=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "</div></div></div><div x-show=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var31 string
-		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".type === 'weixin'")
+		var templ_7745c5c3_Var30 string
+		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(model + ".type === 'weixin'")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 346, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/channels.templ`, Line: 347, Col: 44}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "\" x-cloak class=\"space-y-2\"><p class=\"text-xs text-secondary\">Weixin dedicated instances currently only expose notification settings here.</p></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "\" x-cloak class=\"space-y-2\"><p class=\"text-xs text-secondary\">Weixin dedicated instances currently only expose notification settings here.</p></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
