@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/vaayne/anna/internal/sandbox"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
@@ -61,17 +61,17 @@ type Tool struct {
 	workspace     string
 	cwd           string
 	userSkillsDir string
-	host          sandbox.Host
+	runtime       pkgplugins.ToolRuntime
 }
 
-func NewTool(annaHome, homeDir, workspace, cwd, userSkillsDir string, host sandbox.Host) *Tool {
+func NewTool(annaHome, homeDir, workspace, cwd, userSkillsDir string, runtime pkgplugins.ToolRuntime) *Tool {
 	return &Tool{
 		homeDir:       homeDir,
 		annaHome:      annaHome,
 		workspace:     workspace,
 		cwd:           cwd,
 		userSkillsDir: userSkillsDir,
-		host:          host,
+		runtime:       runtime,
 	}
 }
 
@@ -124,7 +124,7 @@ func (t *Tool) create(ctx context.Context, args map[string]any) (string, error) 
 	content, _ := args["content"].(string)
 
 	targetDir := t.skillsDir()
-	if err := Create(ctx, t.host, name, description, content, targetDir); err != nil {
+	if err := Create(ctx, t.runtime, name, description, content, targetDir); err != nil {
 		return "", err
 	}
 
@@ -149,7 +149,7 @@ func (t *Tool) patch(ctx context.Context, args map[string]any) (string, error) {
 	}
 
 	targetDir := t.skillsDir()
-	if err := Patch(ctx, t.host, name, updates, targetDir); err != nil {
+	if err := Patch(ctx, t.runtime, name, updates, targetDir); err != nil {
 		return "", err
 	}
 
@@ -163,7 +163,7 @@ func (t *Tool) deprecate(ctx context.Context, args map[string]any) (string, erro
 	}
 
 	targetDir := t.skillsDir()
-	if err := Deprecate(ctx, t.host, name, targetDir); err != nil {
+	if err := Deprecate(ctx, t.runtime, name, targetDir); err != nil {
 		return "", err
 	}
 
@@ -181,7 +181,7 @@ type installedSkill struct {
 
 func (t *Tool) list(ctx context.Context) (string, error) {
 	all := LoadSkills(ctx, LoadSkillsConfig{
-		Host:          t.host,
+		Runtime:       t.runtime,
 		HomeDir:       t.homeDir,
 		AnnaHome:      t.annaHome,
 		Workspace:     t.workspace,
@@ -215,7 +215,7 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	}
 
 	all := LoadSkills(ctx, LoadSkillsConfig{
-		Host:          t.host,
+		Runtime:       t.runtime,
 		HomeDir:       t.homeDir,
 		AnnaHome:      t.annaHome,
 		Workspace:     t.workspace,
@@ -224,7 +224,7 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	})
 	for _, s := range all {
 		if s.Name == name {
-			data, err := readSkillFile(ctx, t.host, s.FilePath)
+			data, err := readSkillFile(ctx, t.runtime, s.FilePath)
 			if err != nil {
 				return "", fmt.Errorf("load skill %q: %w", name, err)
 			}

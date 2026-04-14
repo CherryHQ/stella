@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/vaayne/anna/internal/sandbox"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -59,9 +59,9 @@ func TestNewTransportStdioRequiresHost(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	var errSandboxHostRequired ErrSandboxHostRequired
-	if !errors.As(err, &errSandboxHostRequired) {
-		t.Fatalf("error = %T, want ErrSandboxHostRequired", err)
+	var errRuntimeRequired ErrRuntimeRequired
+	if !errors.As(err, &errRuntimeRequired) {
+		t.Fatalf("error = %T, want ErrRuntimeRequired", err)
 	}
 }
 
@@ -103,59 +103,42 @@ func TestNewTransportRemoteLogsExplicitException(t *testing.T) {
 		t.Fatalf("transport = %T, want *mcp.SSEClientTransport", transport)
 	}
 	text := logs.String()
-	if !strings.Contains(text, "sandbox.exception_path") {
+	if !strings.Contains(text, "runtime.exception_path") {
 		t.Fatalf("logs missing exception event: %q", text)
 	}
 	if !strings.Contains(text, "exception_id=EX-009") {
 		t.Fatalf("logs missing EX-009 marker: %q", text)
 	}
-	if !strings.Contains(text, "transport dials outside sandbox.Host mediation") {
+	if !strings.Contains(text, "transport dials outside runtime mediation") {
 		t.Fatalf("logs missing trust-boundary detail: %q", text)
 	}
 }
 
 type stdioHostStub struct {
-	req sandbox.ProcessRequest
+	req pkgplugins.ProcessRequest
 }
 
-func (h *stdioHostStub) ReadFile(context.Context, string, int, int) (sandbox.ReadResult, error) {
-	return sandbox.ReadResult{}, nil
+func (h *stdioHostStub) ReadFile(context.Context, string, int, int) (pkgplugins.ReadFileResult, error) {
+	return pkgplugins.ReadFileResult{}, nil
 }
 
-func (h *stdioHostStub) WriteFile(context.Context, string, []byte) (sandbox.WriteResult, error) {
-	return sandbox.WriteResult{}, nil
+func (h *stdioHostStub) WriteFile(context.Context, string, []byte) (pkgplugins.WriteFileResult, error) {
+	return pkgplugins.WriteFileResult{}, nil
 }
 
-func (h *stdioHostStub) EditFile(context.Context, string, []sandbox.Edit) (sandbox.EditResult, error) {
-	return sandbox.EditResult{}, nil
+func (h *stdioHostStub) Stat(context.Context, string) (pkgplugins.StatResult, error) {
+	return pkgplugins.StatResult{}, nil
 }
 
-func (h *stdioHostStub) Stat(context.Context, string) (sandbox.StatResult, error) {
-	return sandbox.StatResult{}, nil
-}
-func (h *stdioHostStub) ListDir(context.Context, string) ([]sandbox.DirEntry, error) { return nil, nil }
-func (h *stdioHostStub) MkdirAll(context.Context, string, uint32) error              { return nil }
-func (h *stdioHostStub) Remove(context.Context, string, bool) error                  { return nil }
-func (h *stdioHostStub) Rename(context.Context, string, string) error                { return nil }
-func (h *stdioHostStub) CreateTemp(context.Context, string, string) (sandbox.TempFile, error) {
+func (h *stdioHostStub) ListDir(context.Context, string) ([]pkgplugins.DirEntry, error) {
 	return nil, nil
 }
+func (h *stdioHostStub) MkdirAll(context.Context, string, uint32) error { return nil }
+func (h *stdioHostStub) Remove(context.Context, string, bool) error     { return nil }
 
-func (h *stdioHostStub) Exec(context.Context, string, sandbox.ExecOptions) (sandbox.ExecResult, error) {
-	return sandbox.ExecResult{}, nil
-}
-
-func (h *stdioHostStub) StartProcess(_ context.Context, req sandbox.ProcessRequest) (sandbox.ProcessHandle, error) {
+func (h *stdioHostStub) StartProcess(_ context.Context, req pkgplugins.ProcessRequest) (pkgplugins.ProcessHandle, error) {
 	h.req = req
 	return stdioProcessStub{}, nil
-}
-
-func (h *stdioHostStub) HTTPRequest(context.Context, sandbox.HTTPOptions) (sandbox.HTTPResult, error) {
-	return sandbox.HTTPResult{}, nil
-}
-
-func (h *stdioHostStub) OpenHTTPStream(context.Context, sandbox.HTTPOptions) (sandbox.HTTPStream, error) {
-	return nil, nil
 }
 func (h *stdioHostStub) ResolvePath(path string) (string, error) { return path, nil }
 func (h *stdioHostStub) WorkingDir() string                      { return "/" }
@@ -163,8 +146,8 @@ func (h *stdioHostStub) WorkingDir() string                      { return "/" }
 type stdioProcessStub struct{}
 
 func (stdioProcessStub) PID() int { return 1 }
-func (stdioProcessStub) Wait(context.Context) (sandbox.ExecResult, error) {
-	return sandbox.ExecResult{}, nil
+func (stdioProcessStub) Wait(context.Context) (pkgplugins.ExecResult, error) {
+	return pkgplugins.ExecResult{}, nil
 }
 func (stdioProcessStub) Stdin() io.WriteCloser { return nopWriteCloser{&bytes.Buffer{}} }
 func (stdioProcessStub) Stdout() io.ReadCloser { return io.NopCloser(strings.NewReader("")) }

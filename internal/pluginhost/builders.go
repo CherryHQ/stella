@@ -41,7 +41,7 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContex
 			HomeDir:     bc.HomeDir,
 			Workspace:   bc.Workspace,
 			ToolsBinDir: bc.ToolsBinDir,
-			Host:        bc.Host,
+			Runtime:     bc.Runtime,
 		})
 		if err == nil && t != nil {
 			out = append(out, t)

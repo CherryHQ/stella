@@ -8,26 +8,26 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/internal/sandbox"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"gopkg.in/yaml.v3"
 )
 
 // LoadAgentPresetsConfig configures the agent preset discovery paths.
 type LoadAgentPresetsConfig struct {
-	HomeDir          string       // user home directory for common presets
-	Workspace        string       // agent workspace dir (e.g. ~/.anna/workspaces/{agentID})
-	Cwd              string       // working directory
-	BuiltinSkillsDir string       // pre-extracted builtin skills directory (caller ensures extraction)
-	Host             sandbox.Host // optional sandbox host for mediated reads
+	HomeDir          string // user home directory for common presets
+	Workspace        string // agent workspace dir (e.g. ~/.anna/workspaces/{agentID})
+	Cwd              string // working directory
+	BuiltinSkillsDir string // pre-extracted builtin skills directory (caller ensures extraction)
+	Runtime          pkgplugins.ToolRuntime
 }
 
 // LoadAgentPresets discovers agent presets from multiple directories.
 // Priority order: cwd/.agents/agents/ > workspace/agents/ > ~/.agents/agents/ > builtin
 func LoadAgentPresets(cfg LoadAgentPresetsConfig) []AgentPreset {
-	return loadAgentPresets(context.Background(), cfg.Host, cfg.HomeDir, cfg.Workspace, cfg.Cwd, cfg.BuiltinSkillsDir)
+	return loadAgentPresets(context.Background(), cfg.Runtime, cfg.HomeDir, cfg.Workspace, cfg.Cwd, cfg.BuiltinSkillsDir)
 }
 
-func loadAgentPresets(ctx context.Context, host sandbox.Host, homeDir, workspace, cwd, builtinSkillsDir string) []AgentPreset {
+func loadAgentPresets(ctx context.Context, runtime pkgplugins.ToolRuntime, homeDir, workspace, cwd, builtinSkillsDir string) []AgentPreset {
 	seen := map[string]bool{}
 	var presets []AgentPreset
 
@@ -46,7 +46,7 @@ func loadAgentPresets(ctx context.Context, host sandbox.Host, homeDir, workspace
 			return
 		}
 		dedupPaths[abs] = true
-		for _, p := range loadPresetsFromDir(ctx, host, dir, source) {
+		for _, p := range loadPresetsFromDir(ctx, runtime, dir, source) {
 			add(p)
 		}
 	}
@@ -75,13 +75,13 @@ func loadAgentPresets(ctx context.Context, host sandbox.Host, homeDir, workspace
 }
 
 // loadPresetsFromDir scans a directory for agent preset .md files.
-func loadPresetsFromDir(ctx context.Context, host sandbox.Host, dir, source string) []AgentPreset {
-	info, err := statHostPath(ctx, host, dir)
+func loadPresetsFromDir(ctx context.Context, runtime pkgplugins.ToolRuntime, dir, source string) []AgentPreset {
+	info, err := statHostPath(ctx, runtime, dir)
 	if err != nil || !info.Exists || !info.IsDir {
 		return nil
 	}
 
-	entries, err := readHostDir(ctx, host, dir)
+	entries, err := readHostDir(ctx, runtime, dir)
 	if err != nil {
 		return nil
 	}
@@ -96,7 +96,7 @@ func loadPresetsFromDir(ctx context.Context, host sandbox.Host, dir, source stri
 		}
 
 		filePath := filepath.Join(dir, entry.Name)
-		if p, ok := loadPresetFromFile(ctx, host, filePath, source); ok {
+		if p, ok := loadPresetFromFile(ctx, runtime, filePath, source); ok {
 			presets = append(presets, p)
 		}
 	}
@@ -105,8 +105,8 @@ func loadPresetsFromDir(ctx context.Context, host sandbox.Host, dir, source stri
 }
 
 // loadPresetFromFile parses an agent preset from a markdown file with YAML frontmatter.
-func loadPresetFromFile(ctx context.Context, host sandbox.Host, filePath, source string) (AgentPreset, bool) {
-	data, err := readHostFile(ctx, host, filePath)
+func loadPresetFromFile(ctx context.Context, runtime pkgplugins.ToolRuntime, filePath, source string) (AgentPreset, bool) {
+	data, err := readHostFile(ctx, runtime, filePath)
 	if err != nil {
 		slog.Debug("failed to read agent preset file", "path", filePath, "error", err)
 		return AgentPreset{}, false

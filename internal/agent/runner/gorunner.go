@@ -13,7 +13,6 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner/builtin"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
-	internalsandbox "github.com/vaayne/anna/internal/sandbox"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -43,6 +42,7 @@ type GoRunnerConfig struct {
 	PromptSections []pkgplugins.SystemPromptSection
 	ExtraTools     []tools.Tool // additional tools to register
 	PluginTools    func(context.Context, plugintools.BuildContext) []tools.Tool
+	ToolRuntime    pkgplugins.ToolRuntime
 	UserDataDir    string             // optional per-user data directory used by prompts, skills, and sandbox session setup
 	HookPlugins    []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle  *coreagent.ToolLifecycle
@@ -96,6 +96,9 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("go runner: %w", err)
 	}
+	if cfg.ToolRuntime == nil {
+		cfg.ToolRuntime = toolRuntimeFromHost(session.Host())
+	}
 
 	if system == "" {
 		system = BuildSystemPromptFromDB(context.Background(), DBPromptParams{
@@ -115,7 +118,7 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		}
 		return nil, err
 	}
-	presets := buildAgentPresets(cfg, session.Host())
+	presets := buildAgentPresets(cfg)
 	hookSet := buildHookSet(cfg)
 
 	toolReg.Register(agenttool.NewAgentTool(agenttool.AgentConfig{
@@ -199,7 +202,7 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 	// Core tools (read, bash, edit, write) are always provided by the active
 	// sandbox session.
 
-	// Host is injected at execution time, not build time.
+	// Runtime capabilities are injected from the active runner session.
 	bc := plugintools.BuildContext{
 		WorkDir:     cfg.WorkDir,
 		UserDataDir: cfg.UserDataDir,
@@ -207,7 +210,7 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 		HomeDir:     homeDir,
 		Workspace:   cfg.Workspace,
 		ToolsBinDir: toolsBinDir,
-		Host:        session.Host(),
+		Runtime:     cfg.ToolRuntime,
 	}
 
 	coreTools := buildSandboxCoreTools(session, bc)
@@ -245,7 +248,7 @@ func collectSandboxReadOnlyDirs(toolsBinDir, pathEnv string) []string {
 	return dirs
 }
 
-func buildAgentPresets(cfg GoRunnerConfig, host internalsandbox.Host) *agenttool.PresetRegistry {
+func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 	annaHome := cfg.AnnaHome
 	if annaHome == "" {
 		annaHome = config.AnnaHome()
@@ -260,7 +263,7 @@ func buildAgentPresets(cfg GoRunnerConfig, host internalsandbox.Host) *agenttool
 		Workspace:        cfg.Workspace,
 		Cwd:              cfg.WorkDir,
 		BuiltinSkillsDir: builtinSkillsDir,
-		Host:             host,
+		Runtime:          cfg.ToolRuntime,
 	}))
 }
 

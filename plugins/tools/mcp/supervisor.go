@@ -69,9 +69,9 @@ func (m *Manager) runServer(ctx context.Context, cfg ServerConfig) {
 
 		m.mu.RLock()
 		dial := m.dial
-		host := m.host
+		runtime := m.runtime
 		m.mu.RUnlock()
-		session, err := dial(ctx, cfg, host)
+		session, err := dial(ctx, cfg, runtime)
 		if err != nil {
 			if !m.handleServerFailure(ctx, cfg, err) {
 				return
