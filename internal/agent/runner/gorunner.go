@@ -35,15 +35,15 @@ type GoRunnerConfig struct {
 	Model          string // e.g. "claude-sonnet-4-20250514"
 	APIKey         string
 	BaseURL        string // optional provider base URL override
-	WorkDir        string // working directory for tool execution
-	Workspace      string // workspace dir for skills/memory (e.g. ~/.anna/workspace)
+	WorkDir        string // working directory for tool execution; defaults to UserDataDir when empty
+	Workspace      string // agent root directory
 	AnnaHome       string // anna home directory (e.g. ~/.anna)
 	System         string // optional system prompt override (bypasses default prompt building)
 	PromptSections []pkgplugins.SystemPromptSection
 	ExtraTools     []tools.Tool // additional tools to register
 	PluginTools    func(context.Context, plugintools.BuildContext) []tools.Tool
 	ToolRuntime    pkgplugins.ToolRuntime
-	UserDataDir    string             // optional per-user data directory used by prompts, skills, and sandbox session setup
+	UserDataDir    string             // required per-user root used by prompts, skills, and sandbox execution
 	HookPlugins    []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle  *coreagent.ToolLifecycle
 	Providers      ProviderRegistryBuilder
@@ -78,6 +78,14 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("go runner: api_key is required")
 	}
+	if cfg.Workspace == "" {
+		return nil, fmt.Errorf("go runner: workspace is required")
+	}
+	if cfg.UserDataDir == "" {
+		return nil, fmt.Errorf("go runner: user_data_dir is required")
+	}
+
+	paths := resolveRunnerPaths(cfg)
 
 	reg, err := buildProviderRegistry(cfg)
 	if err != nil {
@@ -102,10 +110,10 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 
 	if system == "" {
 		system = BuildSystemPromptFromDB(context.Background(), DBPromptParams{
-			AnnaHome:       cfg.AnnaHome,
-			Workspace:      cfg.Workspace,
-			Cwd:            cfg.WorkDir,
-			UserDataDir:    cfg.UserDataDir,
+			AnnaHome:       paths.AnnaHome,
+			Workspace:      paths.Workspace,
+			Cwd:            paths.WorkDir,
+			UserDataDir:    paths.UserDataDir,
 			PromptSections: cfg.PromptSections,
 			Host:           session.Host(),
 		})
@@ -187,15 +195,10 @@ func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
 // buildToolRegistry creates the tool registry with core and extra tools.
 func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerSession) (*tools.Registry, error) {
 	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
-	annaHome := cfg.AnnaHome
-	if annaHome == "" {
-		annaHome = config.AnnaHome()
-	}
-	homeDir, _ := os.UserHomeDir()
-	if err := embedded.EnsureTools(annaHome); err != nil {
+	paths := resolveRunnerPaths(cfg)
+	if err := embedded.EnsureTools(paths.AnnaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
-	toolsBinDir := embedded.BinDir(annaHome)
 
 	toolReg := tools.NewRegistry()
 
@@ -204,12 +207,12 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 
 	// Runtime capabilities are injected from the active runner session.
 	bc := plugintools.BuildContext{
-		WorkDir:     cfg.WorkDir,
-		UserDataDir: cfg.UserDataDir,
-		AnnaHome:    cfg.AnnaHome,
-		HomeDir:     homeDir,
-		Workspace:   cfg.Workspace,
-		ToolsBinDir: toolsBinDir,
+		WorkDir:     paths.WorkDir,
+		UserDataDir: paths.UserDataDir,
+		AnnaHome:    paths.AnnaHome,
+		HomeDir:     paths.UserHome,
+		Workspace:   paths.Workspace,
+		ToolsBinDir: paths.ToolsBinDir,
 		Runtime:     cfg.ToolRuntime,
 	}
 
@@ -249,39 +252,31 @@ func collectSandboxReadOnlyDirs(toolsBinDir, pathEnv string) []string {
 }
 
 func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
-	annaHome := cfg.AnnaHome
-	if annaHome == "" {
-		annaHome = config.AnnaHome()
-	}
-	homeDir, _ := os.UserHomeDir()
-	builtinSkillsDir := filepath.Join(annaHome, "cache", "builtin-skills")
-	if err := builtin.Extract(builtinSkillsDir); err != nil {
+	paths := resolveRunnerPaths(cfg)
+	if err := builtin.Extract(paths.BuiltinSkillsDir); err != nil {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
 	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
-		HomeDir:          homeDir,
-		Workspace:        cfg.Workspace,
-		Cwd:              cfg.WorkDir,
-		BuiltinSkillsDir: builtinSkillsDir,
+		HomeDir:          paths.UserHome,
+		Workspace:        paths.Workspace,
+		Cwd:              paths.WorkDir,
+		BuiltinSkillsDir: paths.BuiltinSkillsDir,
 		Runtime:          cfg.ToolRuntime,
 	}))
 }
 
 func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
-	annaHome := cfg.AnnaHome
-	if annaHome == "" {
-		annaHome = config.AnnaHome()
-	}
-	if err := embedded.EnsureTools(annaHome); err != nil {
+	paths := resolveRunnerPaths(cfg)
+	if err := embedded.EnsureTools(paths.AnnaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
 	if cfg.Sandbox.BackendName() == config.SandboxBackendLocal {
 		return nil
 	}
 	if err := boxshsandbox.Preflight(ctx, boxshsandbox.PreflightConfig{
-		AnnaHome:    annaHome,
-		Workspace:   cfg.Workspace,
-		UserDataDir: cfg.UserDataDir,
+		AnnaHome:    paths.AnnaHome,
+		Workspace:   paths.Workspace,
+		UserDataDir: paths.UserDataDir,
 		Network: boxshsandbox.NetworkConfig{
 			Mode:      cfg.Sandbox.Network.Mode,
 			Allowlist: cfg.Sandbox.Network.Allowlist,

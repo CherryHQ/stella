@@ -25,9 +25,12 @@ func TestResolveSessionAutoFallsBackToLocalWhenBoxshUnsupported(t *testing.T) {
 	platformSupportsBoxsh = func() bool { return false }
 	t.Cleanup(func() { platformSupportsBoxsh = previous })
 
+	workspace := t.TempDir()
+	userDataDir := workspace + "/users/1/data"
 	rs, err := resolveSession(context.Background(), GoRunnerConfig{
-		Workspace: t.TempDir(),
-		WorkDir:   ".",
+		Workspace:   workspace,
+		UserDataDir: userDataDir,
+		WorkDir:     ".",
 		Sandbox: config.SandboxConfig{
 			Backend: config.SandboxBackendAuto,
 		},
@@ -68,13 +71,44 @@ func TestSandboxWorkspaceRootUsesUserDataDir(t *testing.T) {
 	}
 }
 
-func TestSandboxWorkspaceRootFallsBackToWorkspace(t *testing.T) {
+func TestResolveRunnerPathsDefaultsWorkDirToUserDataDir(t *testing.T) {
 	cfg := GoRunnerConfig{
-		Workspace: "/workspace/agent",
+		Workspace:   "/workspace/agent",
+		UserDataDir: "/workspace/agent/users/1/data",
 	}
 
-	if got := sandboxWorkspaceRoot(cfg); got != cfg.Workspace {
-		t.Fatalf("sandboxWorkspaceRoot() = %q, want %q", got, cfg.Workspace)
+	paths := resolveRunnerPaths(cfg)
+	if paths.WorkDir != cfg.UserDataDir {
+		t.Fatalf("WorkDir = %q, want %q", paths.WorkDir, cfg.UserDataDir)
+	}
+}
+
+func TestSandboxProcessEnvUsesSandboxRootAsHome(t *testing.T) {
+	cfg := GoRunnerConfig{
+		AnnaHome:    "/anna",
+		Workspace:   "/workspace/agent",
+		UserDataDir: "/workspace/agent/users/1/data",
+	}
+
+	env := sandboxProcessEnv(resolveRunnerPaths(cfg))
+	if got := env["HOME"]; got != cfg.UserDataDir {
+		t.Fatalf("HOME = %q, want %q", got, cfg.UserDataDir)
+	}
+	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
+		t.Fatalf("ANNA_HOME = %q, want %q", got, cfg.AnnaHome)
+	}
+}
+
+func TestSandboxProcessEnvUsesUserDataDirAsHome(t *testing.T) {
+	cfg := GoRunnerConfig{
+		AnnaHome:    "/anna",
+		Workspace:   "/workspace/agent",
+		UserDataDir: "/workspace/agent/users/1/data",
+	}
+
+	env := sandboxProcessEnv(resolveRunnerPaths(cfg))
+	if got := env["HOME"]; got != cfg.UserDataDir {
+		t.Fatalf("HOME = %q, want %q", got, cfg.UserDataDir)
 	}
 }
 

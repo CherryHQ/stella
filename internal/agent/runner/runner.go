@@ -48,7 +48,7 @@ type Runner interface {
 type RunnerParams struct {
 	Model   string                    // model ID (empty = use default)
 	Memory  any                       // memory.Provider — typed as any to avoid circular imports
-	UserID  int64                     // auth user ID (0 = no user isolation)
+	UserID  int64                     // auth user ID for user-scoped runner creation
 	AgentID string                    // agent ID for profile loading
 	HooksFn func() []hooks.HookPlugin // resolved at runner-creation time; nil = no hooks
 }
