@@ -145,6 +145,7 @@ done
 func TestNewRunnerFactoryGo(t *testing.T) {
 	setupCommandTestAnnaHome(t)
 	snap := &config.Snapshot{
+		AgentID:  "test-agent",
 		Provider: "anthropic",
 		Model:    "test-model",
 		APIKey:   "test-key",
@@ -157,7 +158,7 @@ func TestNewRunnerFactoryGo(t *testing.T) {
 		t.Fatalf("NewRunnerFactory: %v", err)
 	}
 
-	r, err := factory(context.Background(), runner.RunnerParams{})
+	r, err := factory(context.Background(), runner.RunnerParams{UserID: 1})
 	if err != nil {
 		t.Fatalf("factory: %v", err)
 	}
@@ -215,6 +216,7 @@ func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
 	setupCommandTestAnnaHome(t)
 
 	snap := &config.Snapshot{
+		AgentID:  "test-agent",
 		Provider: "anthropic",
 		Model:    "anthropic/old-model",
 		APIKey:   "test-key",
@@ -253,9 +255,14 @@ func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
 		t.Fatalf("switchFn: %v", err)
 	}
 
+	session, err := pool.CreateSession("cli", 1)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	for range pool.Chat(ctx, "session-switch", "hello") {
+	for range pool.Chat(ctx, session.ID, "hello") {
 	}
 
 	if promptToolsCalls == 0 {

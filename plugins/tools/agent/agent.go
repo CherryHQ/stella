@@ -17,6 +17,7 @@ import (
 	"github.com/vaayne/anna/pkg/memory"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
+	"github.com/vaayne/anna/plugins/tools/skills"
 )
 
 const (
@@ -40,7 +41,8 @@ type AgentConfig struct {
 	System        string
 	Emit          func(agent.LoopEvent) // optional event emitter for observability
 	Presets       *PresetRegistry       // loaded agent presets (nil = no presets)
-	Hooks         *hooks.HookSet        // inherited by subagents (nil = no hooks)
+	PresetLoader  func(string) *PresetRegistry
+	Hooks         *hooks.HookSet // inherited by subagents (nil = no hooks)
 	ToolLifecycle *agent.ToolLifecycle
 
 	// Configurable limits (zero = use defaults).
@@ -117,6 +119,10 @@ func AgentDefinition(presets *PresetRegistry) tools.Definition {
 							"model": map[string]any{
 								"type":        "string",
 								"description": "Optional model override (e.g. 'claude-haiku-4-5-20251001'). Defaults to parent model.",
+							},
+							"project_root": map[string]any{
+								"type":        "string",
+								"description": "Optional project root for project-local .agents discovery. Empty by default.",
 							},
 							"system": map[string]any{
 								"type":        "string",
@@ -208,6 +214,7 @@ type agentTaskConfig struct {
 	HasTools       bool     // true when "tools" key was present in args
 	MaxTurns       int
 	TimeoutSeconds int
+	ProjectRoot    string
 }
 
 // applyPreset merges preset defaults into the task config.
@@ -259,11 +266,18 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 		if t.cfg.Presets == nil {
 			return taskResult{Error: "no presets available"}
 		}
-		if p, ok := t.cfg.Presets.Lookup(tc.Preset); ok {
+		presets := t.cfg.Presets
+		if tc.ProjectRoot != "" && t.cfg.PresetLoader != nil {
+			presets = t.cfg.PresetLoader(tc.ProjectRoot)
+		}
+		if presets == nil {
+			return taskResult{Error: "no presets available"}
+		}
+		if p, ok := presets.Lookup(tc.Preset); ok {
 			tc.applyPreset(p)
 		} else {
 			return taskResult{Error: fmt.Sprintf("unknown preset: %q (available: %s)",
-				tc.Preset, strings.Join(t.cfg.Presets.Names(), ", "))}
+				tc.Preset, strings.Join(presets.Names(), ", "))}
 		}
 	}
 
@@ -273,6 +287,7 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 	}
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
+	ctx = skills.WithProjectRoot(ctx, tc.ProjectRoot)
 
 	// Build scoped tool set.
 	toolSet, toolDefs, err := t.buildScopedTools(tc.Tools, tc.HasTools)
@@ -455,6 +470,9 @@ func parseAgentTasks(args map[string]any) ([]agentTaskConfig, error) {
 		}
 		if model, ok := obj["model"].(string); ok {
 			tc.Model = model
+		}
+		if projectRoot, ok := obj["project_root"].(string); ok {
+			tc.ProjectRoot = strings.TrimSpace(projectRoot)
 		}
 		if system, ok := obj["system"].(string); ok {
 			tc.System = system

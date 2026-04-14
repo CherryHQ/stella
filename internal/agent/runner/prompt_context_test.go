@@ -25,7 +25,7 @@ func TestBuildSystemPromptLoadsProjectContextWithoutInjectedHost(t *testing.T) {
 
 	prompt := BuildSystemPromptFromDB(context.Background(), DBPromptParams{
 		SystemPrompt: "You are Anna.",
-		Cwd:          project,
+		ProjectRoot:  project,
 	})
 	if !strings.Contains(prompt, "root instructions") {
 		t.Fatalf("expected root AGENTS.md content in prompt: %s", prompt)

@@ -14,28 +14,30 @@ import (
 
 // LoadAgentPresetsConfig configures the agent preset discovery paths.
 type LoadAgentPresetsConfig struct {
-	HomeDir          string // user home directory for common presets
-	Workspace        string // agent workspace dir (e.g. ~/.anna/workspaces/{agentID})
-	Cwd              string // working directory
+	AnnaHome         string // anna home dir (e.g. ~/.anna)
+	AgentRoot        string // agent root dir (e.g. ~/.anna/workspaces/{agentID})
+	UserRoot         string // user root dir (e.g. ~/.anna/workspaces/{agentID}/users/{userID}/data)
+	ProjectRoot      string // optional project root for local/project-attached runs
 	BuiltinSkillsDir string // pre-extracted builtin skills directory (caller ensures extraction)
 	Runtime          pkgplugins.ToolRuntime
 }
 
-// LoadAgentPresets discovers agent presets from multiple directories.
-// Priority order: cwd/.agents/agents/ > workspace/agents/ > ~/.agents/agents/ > builtin
+// LoadAgentPresets discovers agent presets in increasing priority order:
+// builtin -> ANNA_HOME -> agent root -> user root -> cwd.
 func LoadAgentPresets(cfg LoadAgentPresetsConfig) []AgentPreset {
-	return loadAgentPresets(context.Background(), cfg.Runtime, cfg.HomeDir, cfg.Workspace, cfg.Cwd, cfg.BuiltinSkillsDir)
+	return loadAgentPresets(context.Background(), cfg.Runtime, cfg.AnnaHome, cfg.AgentRoot, cfg.UserRoot, cfg.ProjectRoot, cfg.BuiltinSkillsDir)
 }
 
-func loadAgentPresets(ctx context.Context, runtime pkgplugins.ToolRuntime, homeDir, workspace, cwd, builtinSkillsDir string) []AgentPreset {
-	seen := map[string]bool{}
+func loadAgentPresets(ctx context.Context, runtime pkgplugins.ToolRuntime, annaHome, agentRoot, userRoot, projectRoot, builtinSkillsDir string) []AgentPreset {
+	indexByName := map[string]int{}
 	var presets []AgentPreset
 
 	add := func(p AgentPreset) {
-		if seen[p.Name] {
+		if idx, ok := indexByName[p.Name]; ok {
+			presets[idx] = p
 			return
 		}
-		seen[p.Name] = true
+		indexByName[p.Name] = len(presets)
 		presets = append(presets, p)
 	}
 
@@ -51,24 +53,20 @@ func loadAgentPresets(ctx context.Context, runtime pkgplugins.ToolRuntime, homeD
 		}
 	}
 
-	// 1. Project-local agents: cwd/.agents/agents/ (highest priority)
-	if cwd != "" {
-		addDir(filepath.Join(cwd, ".agents", "agents"), "project")
-	}
-
-	// 2. Agent-level workspace agents: workspace/agents/
-	if workspace != "" {
-		addDir(filepath.Join(workspace, "agents"), "agent")
-	}
-
-	// 3. Common agents: ~/.agents/agents/
-	if homeDir != "" {
-		addDir(filepath.Join(homeDir, ".agents", "agents"), "common")
-	}
-
-	// 4. Builtin agents: pre-extracted by the runner (lowest priority).
 	if builtinSkillsDir != "" {
 		addDir(filepath.Join(builtinSkillsDir, "agents"), "builtin")
+	}
+	if annaHome != "" {
+		addDir(filepath.Join(annaHome, "agents"), "anna")
+	}
+	if agentRoot != "" {
+		addDir(filepath.Join(agentRoot, "agents"), "agent")
+	}
+	if userRoot != "" {
+		addDir(filepath.Join(filepath.Dir(userRoot), ".agents", "agents"), "user")
+	}
+	if projectRoot != "" {
+		addDir(filepath.Join(projectRoot, ".agents", "agents"), "project")
 	}
 
 	return presets

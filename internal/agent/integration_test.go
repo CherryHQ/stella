@@ -42,6 +42,11 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
+	userRoot := filepath.Join(workspace, "users", "1", "data")
+	if err := os.MkdirAll(userRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
 	factory := func(ctx context.Context, _ runner.RunnerParams) (runner.Runner, error) {
 		return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
 			API:       "anthropic",
@@ -49,7 +54,8 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 			APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
 			BaseURL:   os.Getenv("ANTHROPIC_BASE_URL"),
 			AnnaHome:  annaHome,
-			Workspace: workspace,
+			AgentRoot: workspace,
+			UserRoot:  userRoot,
 			Providers: integrationProviderRegistryBuilder,
 		})
 	}

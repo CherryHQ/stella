@@ -8,7 +8,6 @@ import (
 	"runtime"
 
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/internal/sandbox"
 	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
@@ -96,19 +95,21 @@ var sessionRegistry = map[string]sessionFactory{
 var platformSupportsBoxsh = boxshclient.PlatformSupportsBoxsh
 
 func createLocalSession(_ context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
+	paths := resolveRunnerPaths(cfg)
 	policy := sandbox.Policy{
 		Backend: config.SandboxBackendLocal,
 		Relaxed: true,
 		Filesystem: sandbox.FilesystemPolicy{
-			WorkspaceRoot: cfg.Workspace,
-			WorkingDir:    cfg.WorkDir,
+			WorkspaceRoot: paths.UserRoot,
+			WorkingDir:    paths.WorkDir,
 			AllowEscapes:  false,
 		},
 		Network: sandbox.NetworkPolicy{
 			Mode: sandbox.NetworkAllowAll,
 		},
 		Process: sandbox.ProcessPolicy{
-			InheritEnv: true,
+			Environment: sandboxProcessEnv(paths),
+			InheritEnv:  true,
 		},
 	}
 
@@ -133,13 +134,9 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		return nil, fmt.Errorf("sandbox backend %q is not supported on %s", config.SandboxBackendBoxsh, runtime.GOOS)
 	}
 
-	annaHome := cfg.AnnaHome
-	if annaHome == "" {
-		annaHome = config.AnnaHome()
-	}
-
+	paths := resolveRunnerPaths(cfg)
 	readOnlyDirs := collectSandboxReadOnlyDirs(
-		embedded.BinDir(annaHome),
+		paths.toolsBinDir(),
 		os.Getenv("PATH"),
 	)
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
@@ -148,14 +145,14 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 			filepath.Join(home, ".agents", "agents"),
 		)
 	}
-	readOnlyDirs = append(readOnlyDirs, filepath.Join(annaHome, "cache", "builtin-skills"))
+	readOnlyDirs = append(readOnlyDirs, paths.builtinSkillsDir())
 
 	policy := sandbox.Policy{
 		Backend: config.SandboxBackendBoxsh,
 		Relaxed: false,
 		Filesystem: sandbox.FilesystemPolicy{
-			WorkspaceRoot: sandboxWorkspaceRoot(cfg),
-			WorkingDir:    cfg.WorkDir,
+			WorkspaceRoot: paths.UserRoot,
+			WorkingDir:    paths.WorkDir,
 			ReadOnlyPaths: readOnlyDirs,
 			AllowEscapes:  false,
 		},
@@ -164,8 +161,8 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 			Allowlist: cfg.Sandbox.Network.Allowlist,
 		},
 		Process: sandbox.ProcessPolicy{
-			// Process policy uses defaults; config doesn't specify these yet.
-			InheritEnv: true,
+			Environment: sandboxProcessEnv(paths),
+			InheritEnv:  true,
 		},
 	}
 
@@ -174,7 +171,7 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		return nil, fmt.Errorf("boxsh factory not available")
 	}
 
-	session, err := createSessionWithAnnaHome(ctx, factory, policy, cfg.AnnaHome)
+	session, err := createSessionWithAnnaHome(ctx, factory, policy, paths.AnnaHome)
 	if err != nil {
 		return nil, fmt.Errorf("create boxsh session: %w", err)
 	}
@@ -183,13 +180,6 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		session: session,
 		policy:  policy,
 	}, nil
-}
-
-func sandboxWorkspaceRoot(cfg GoRunnerConfig) string {
-	if cfg.UserDataDir != "" {
-		return cfg.UserDataDir
-	}
-	return cfg.Workspace
 }
 
 var annaHomeEnvMu = struct{ ch chan struct{} }{ch: make(chan struct{}, 1)}
