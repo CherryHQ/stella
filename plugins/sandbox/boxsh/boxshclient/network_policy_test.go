@@ -147,7 +147,7 @@ func TestNetworkPolicy_DisabledModeBlocksConnections(t *testing.T) {
 	host, port, hits, cleanup := startTCPProbeServer(t)
 	defer cleanup()
 
-	cfg := BackendConfig{AnnaHome: annaHome, Workspace: workspace, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkDisabled}}
+	cfg := BackendConfig{AnnaHome: annaHome, SandboxRoot: workspace, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkDisabled}}
 	backend, err := NewSharedBackend(cfg)
 	if err != nil {
 		t.Fatalf("NewSharedBackend: %v", err)
@@ -180,7 +180,7 @@ func TestNetworkPolicy_AllowAllModePermitsConnections(t *testing.T) {
 	host, port, hits, cleanup := startTCPProbeServer(t)
 	defer cleanup()
 
-	cfg := BackendConfig{AnnaHome: annaHome, Workspace: workspace, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkAllowAll}}
+	cfg := BackendConfig{AnnaHome: annaHome, SandboxRoot: workspace, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkAllowAll}}
 	backend, err := NewSharedBackend(cfg)
 	if err != nil {
 		t.Fatalf("NewSharedBackend: %v", err)
@@ -217,7 +217,7 @@ func TestNetworkPolicy_WhitelistModeUnsupported(t *testing.T) {
 	host, _, _, cleanup := startTCPProbeServer(t)
 	defer cleanup()
 
-	cfg := BackendConfig{AnnaHome: annaHome, Workspace: workspace, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkWhitelist, Allowlist: []string{host}}}
+	cfg := BackendConfig{AnnaHome: annaHome, SandboxRoot: workspace, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkWhitelist, Allowlist: []string{host}}}
 	backend, err := NewSharedBackend(cfg)
 	if err != nil {
 		t.Fatalf("NewSharedBackend: %v", err)

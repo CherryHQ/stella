@@ -6,19 +6,16 @@ import (
 	"path/filepath"
 )
 
-// SessionManager handles the lifecycle of sandbox sessions including
-// workspace root selection, ephemeral directory creation, and cleanup.
+// SessionManager handles the lifecycle of sandbox sessions including sandbox
+// root selection, ephemeral directory creation, and cleanup.
 type SessionManager struct {
 	baseDir string // Base directory for ephemeral session directories
 }
 
 // SessionOptions configures a sandbox session.
 type SessionOptions struct {
-	// Workspace is the agent workspace directory.
-	Workspace string
-
-	// UserDataDir is the per-user data directory (used for user sessions).
-	UserDataDir string
+	// SandboxRoot is the writable root mounted into the sandbox.
+	SandboxRoot string
 
 	// WorkDir is the working directory for tool execution.
 	WorkDir string
@@ -43,9 +40,6 @@ type SessionInfo struct {
 
 	// NetworkAllowlist contains allowed hosts/CIDRs for whitelist mode.
 	NetworkAllowlist []string
-
-	// IsUserSession indicates if this is a user-scoped session (UserDataDir != "").
-	IsUserSession bool
 }
 
 // NewSessionManager creates a new session manager with the given base directory.
@@ -66,29 +60,22 @@ func NewSessionManager(baseDir string) (*SessionManager, error) {
 // CreateSession creates a new sandbox session with an ephemeral upperdir.
 // The caller is responsible for calling CleanupSession to remove the ephemeral directory.
 func (m *SessionManager) CreateSession(opts SessionOptions) (*SessionInfo, error) {
-	// Determine SRC based on session type.
-	// For user sessions (UserDataDir != ""): use UserDataDir.
-	// For non-user/system sessions: use Workspace.
-	src := opts.UserDataDir
+	src := opts.SandboxRoot
 	if src == "" {
-		src = opts.Workspace
-	}
-
-	if src == "" {
-		return nil, fmt.Errorf("session manager: workspace or user_data_dir is required")
+		return nil, fmt.Errorf("session manager: sandbox_root is required")
 	}
 
 	// Validate that src is an absolute path and exists.
 	if !filepath.IsAbs(src) {
-		return nil, fmt.Errorf("session manager: source path must be absolute: %q", src)
+		return nil, fmt.Errorf("session manager: sandbox root must be absolute: %q", src)
 	}
 
 	info, err := os.Stat(src)
 	if err != nil {
-		return nil, fmt.Errorf("session manager: stat source path %q: %w", src, err)
+		return nil, fmt.Errorf("session manager: stat sandbox root %q: %w", src, err)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("session manager: source path %q is not a directory", src)
+		return nil, fmt.Errorf("session manager: sandbox root %q is not a directory", src)
 	}
 
 	// Create ephemeral session directory.
@@ -109,7 +96,6 @@ func (m *SessionManager) CreateSession(opts SessionOptions) (*SessionInfo, error
 		Cwd:              cwd,
 		NetworkMode:      networkMode,
 		NetworkAllowlist: opts.Sandbox.Allowlist,
-		IsUserSession:    opts.UserDataDir != "",
 	}
 
 	return session, nil
@@ -146,16 +132,6 @@ func BuildSessionConfig(info *SessionInfo) SessionConfig {
 		NetworkMode:      info.NetworkMode,
 		NetworkAllowlist: info.NetworkAllowlist,
 	}
-}
-
-// DeriveSandboxRoot computes the sandbox root (SRC) from workspace and user data dir.
-// - For user sessions (userDataDir != ""): use UserDataDir.
-// - For non-user/system sessions: use Workspace.
-func DeriveSandboxRoot(workspace, userDataDir string) string {
-	if userDataDir != "" {
-		return userDataDir
-	}
-	return workspace
 }
 
 // ValidateSandboxPath checks that a path is within the allowed sandbox boundaries.

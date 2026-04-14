@@ -167,8 +167,7 @@ func TestSharedCOWView_AllToolsSeeSameSession(t *testing.T) {
 
 	cfg := BackendConfig{
 		AnnaHome:    annaHome,
-		Workspace:   workspace,
-		UserDataDir: src,
+		SandboxRoot: src,
 		WorkDir:     "/",
 		Sandbox:     NetworkConfig{Mode: NetworkDisabled},
 	}
@@ -250,9 +249,9 @@ func TestSharedCOWView_ClientAndSessionLifecycle(t *testing.T) {
 	writeStatefulMockBoxsh(t, annaHome)
 
 	cfg := BackendConfig{
-		AnnaHome:  annaHome,
-		Workspace: workspace,
-		Sandbox:   NetworkConfig{Mode: NetworkDisabled},
+		AnnaHome:    annaHome,
+		SandboxRoot: workspace,
+		Sandbox:     NetworkConfig{Mode: NetworkDisabled},
 	}
 
 	backend, err := NewSharedBackend(cfg)
@@ -296,9 +295,9 @@ func TestSharedCOWView_MultipleBackendsUseDistinctUpperdirs(t *testing.T) {
 	writeStatefulMockBoxsh(t, annaHome)
 
 	cfg := BackendConfig{
-		AnnaHome:  annaHome,
-		Workspace: workspace,
-		Sandbox:   NetworkConfig{Mode: NetworkDisabled},
+		AnnaHome:    annaHome,
+		SandboxRoot: workspace,
+		Sandbox:     NetworkConfig{Mode: NetworkDisabled},
 	}
 
 	backend1, err := NewSharedBackend(cfg)

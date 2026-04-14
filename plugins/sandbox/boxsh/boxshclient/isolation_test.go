@@ -131,8 +131,7 @@ func TestIsolation_CrossWorkspaceAccessBlocked(t *testing.T) {
 
 	cfg := BackendConfig{
 		AnnaHome:    annaHome,
-		Workspace:   workspace,
-		UserDataDir: allowedRoot,
+		SandboxRoot: allowedRoot,
 		WorkDir:     "/",
 		Sandbox:     NetworkConfig{Mode: NetworkDisabled},
 	}
@@ -183,8 +182,7 @@ func TestIsolation_ParentDirectoryTraversalBlocked(t *testing.T) {
 
 	cfg := BackendConfig{
 		AnnaHome:    annaHome,
-		Workspace:   workspace,
-		UserDataDir: allowedRoot,
+		SandboxRoot: allowedRoot,
 		WorkDir:     "/",
 		Sandbox:     NetworkConfig{Mode: NetworkDisabled},
 	}
@@ -224,8 +222,8 @@ func TestIsolation_DifferentAgentsDifferentSessions(t *testing.T) {
 	}
 	writeIsolationMockBoxsh(t, annaHome)
 
-	cfg1 := BackendConfig{AnnaHome: annaHome, Workspace: workspace1, UserDataDir: userDataDir1, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkDisabled}}
-	cfg2 := BackendConfig{AnnaHome: annaHome, Workspace: workspace2, UserDataDir: userDataDir2, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkDisabled}}
+	cfg1 := BackendConfig{AnnaHome: annaHome, SandboxRoot: userDataDir1, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkDisabled}}
+	cfg2 := BackendConfig{AnnaHome: annaHome, SandboxRoot: userDataDir2, WorkDir: "/", Sandbox: NetworkConfig{Mode: NetworkDisabled}}
 
 	backend1, err := NewSharedBackend(cfg1)
 	if err != nil {

@@ -23,8 +23,8 @@ func TestNewSharedBackend(t *testing.T) {
 	}
 
 	cfg := BackendConfig{
-		BinaryPath: boxshPath,
-		Workspace:  t.TempDir(),
+		BinaryPath:  boxshPath,
+		SandboxRoot: t.TempDir(),
 	}
 
 	backend, err := NewSharedBackend(cfg)
@@ -42,16 +42,13 @@ func TestNewSharedBackend(t *testing.T) {
 }
 
 func TestNewSharedBackendRequiresPlatformSupport(t *testing.T) {
-	// Save and restore GOOS for this test.
 	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
-		// Can't test failure on supported platforms without mocking,
-		// so we just verify success path works.
 		return
 	}
 
 	cfg := BackendConfig{
-		BinaryPath: "/usr/local/bin/boxsh",
-		Workspace:  t.TempDir(),
+		BinaryPath:  "/usr/local/bin/boxsh",
+		SandboxRoot: t.TempDir(),
 	}
 
 	_, err := NewSharedBackend(cfg)
@@ -76,8 +73,8 @@ func TestSharedBackendNotAliveBeforeStart(t *testing.T) {
 	}
 
 	cfg := BackendConfig{
-		BinaryPath: boxshPath,
-		Workspace:  t.TempDir(),
+		BinaryPath:  boxshPath,
+		SandboxRoot: t.TempDir(),
 	}
 
 	backend, err := NewSharedBackend(cfg)
@@ -106,8 +103,8 @@ func TestSharedBackendClientReturnsNilBeforeStart(t *testing.T) {
 	}
 
 	cfg := BackendConfig{
-		BinaryPath: boxshPath,
-		Workspace:  t.TempDir(),
+		BinaryPath:  boxshPath,
+		SandboxRoot: t.TempDir(),
 	}
 
 	backend, err := NewSharedBackend(cfg)
@@ -136,8 +133,8 @@ func TestSharedBackendSessionDir(t *testing.T) {
 	}
 
 	cfg := BackendConfig{
-		BinaryPath: boxshPath,
-		Workspace:  t.TempDir(),
+		BinaryPath:  boxshPath,
+		SandboxRoot: t.TempDir(),
 	}
 
 	backend, err := NewSharedBackend(cfg)
@@ -145,7 +142,6 @@ func TestSharedBackendSessionDir(t *testing.T) {
 		t.Fatalf("NewSharedBackend: %v", err)
 	}
 
-	// Before start, session dir should be empty.
 	if dir := backend.SessionDir(); dir != "" {
 		t.Errorf("SessionDir before Start = %q, want empty", dir)
 	}
@@ -157,21 +153,9 @@ func TestIsSharedBackendError(t *testing.T) {
 		err  error
 		want bool
 	}{
-		{
-			name: "nil error",
-			err:  nil,
-			want: false,
-		},
-		{
-			name: "boxshclient error",
-			err:  &mockError{"boxshclient: something went wrong"},
-			want: true,
-		},
-		{
-			name: "other error",
-			err:  &mockError{"something else went wrong"},
-			want: false,
-		},
+		{name: "nil error", err: nil, want: false},
+		{name: "boxshclient error", err: &mockError{"boxshclient: something went wrong"}, want: true},
+		{name: "other error", err: &mockError{"something else went wrong"}, want: false},
 	}
 
 	for _, tt := range tests {
@@ -185,39 +169,9 @@ func TestIsSharedBackendError(t *testing.T) {
 }
 
 func TestBackendConfigSandboxRoot(t *testing.T) {
-	tests := []struct {
-		name        string
-		workspace   string
-		userDataDir string
-		want        string
-	}{
-		{
-			name:        "user session uses UserDataDir",
-			workspace:   "/workspace",
-			userDataDir: "/users/1/data",
-			want:        "/users/1/data",
-		},
-		{
-			name:        "system session uses Workspace",
-			workspace:   "/workspace",
-			userDataDir: "",
-			want:        "/workspace",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := BackendConfig{
-				Workspace:   tt.workspace,
-				UserDataDir: tt.userDataDir,
-			}
-
-			// Verify expected behavior through SessionManager.
-			src := DeriveSandboxRoot(cfg.Workspace, cfg.UserDataDir)
-			if src != tt.want {
-				t.Errorf("SandboxRoot = %q, want %q", src, tt.want)
-			}
-		})
+	cfg := BackendConfig{SandboxRoot: "/users/1/data"}
+	if cfg.SandboxRoot != "/users/1/data" {
+		t.Fatalf("SandboxRoot = %q, want %q", cfg.SandboxRoot, "/users/1/data")
 	}
 }
 

@@ -30,11 +30,8 @@ type BackendConfig struct {
 	// AnnaHome is the Anna home directory (used for binary resolution).
 	AnnaHome string
 
-	// Workspace is the agent workspace directory.
-	Workspace string
-
-	// UserDataDir is the per-user data directory (for user sessions).
-	UserDataDir string
+	// SandboxRoot is the writable root mounted into the sandbox.
+	SandboxRoot string
 
 	// Sandbox contains the sandbox network configuration.
 	Sandbox NetworkConfig
@@ -88,7 +85,7 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 	}
 
 	// Determine sandbox root (SRC).
-	src := DeriveSandboxRoot(cfg.Workspace, cfg.UserDataDir)
+	src := cfg.SandboxRoot
 
 	// Create an ephemeral overlay root on the same filesystem as SRC.
 	// boxsh's current overlay implementation requires that to avoid cross-device
@@ -142,7 +139,6 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 		"cwd", cwd,
 		"readonly_dir_count", len(uniqueCleanAbsPaths(cfg.ReadOnlyDirs)),
 		"network_mode", sessionCfg.NetworkMode,
-		"user_data_dir", cfg.UserDataDir,
 	)
 	return nil
 }

@@ -51,12 +51,9 @@ func TestSessionManagerCreateSession(t *testing.T) {
 		t.Fatalf("NewSessionManager: %v", err)
 	}
 
-	workspace := t.TempDir()
-	userDataDir := t.TempDir()
-
+	sandboxRoot := t.TempDir()
 	opts := SessionOptions{
-		Workspace:   workspace,
-		UserDataDir: userDataDir,
+		SandboxRoot: sandboxRoot,
 		WorkDir:     "src",
 		Sandbox: NetworkConfig{
 			Mode: NetworkDisabled,
@@ -67,72 +64,40 @@ func TestSessionManagerCreateSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-
-	// User session should use UserDataDir as Src.
-	if session.Src != userDataDir {
-		t.Errorf("Src = %q, want %q", session.Src, userDataDir)
+	if session.Src != sandboxRoot {
+		t.Errorf("Src = %q, want %q", session.Src, sandboxRoot)
 	}
-
-	// Dst should be created under manager baseDir.
 	if !hasPrefix(session.Dst, manager.baseDir) {
 		t.Errorf("Dst = %q, should be under %q", session.Dst, manager.baseDir)
 	}
-
-	// Cwd should be resolved.
-	expectedCwd := filepath.Join(userDataDir, "src")
-	if session.Cwd != expectedCwd {
+	if expectedCwd := filepath.Join(sandboxRoot, "src"); session.Cwd != expectedCwd {
 		t.Errorf("Cwd = %q, want %q", session.Cwd, expectedCwd)
 	}
-
 	if session.NetworkMode != NetworkDisabled {
 		t.Errorf("NetworkMode = %q, want %q", session.NetworkMode, NetworkDisabled)
 	}
-
-	if !session.IsUserSession {
-		t.Error("IsUserSession should be true")
-	}
-
-	// Cleanup.
 	if err := manager.CleanupSession(session); err != nil {
 		t.Errorf("CleanupSession: %v", err)
 	}
 }
 
-func TestSessionManagerCreateSystemSession(t *testing.T) {
+func TestSessionManagerCreateSessionDefaultsWorkDirToSandboxRoot(t *testing.T) {
 	manager, err := NewSessionManager(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewSessionManager: %v", err)
 	}
 
-	workspace := t.TempDir()
-
-	opts := SessionOptions{
-		Workspace:   workspace,
-		UserDataDir: "", // No user data dir - system session
-		WorkDir:     "",
-		Sandbox:     NetworkConfig{},
-	}
-
-	session, err := manager.CreateSession(opts)
+	sandboxRoot := t.TempDir()
+	session, err := manager.CreateSession(SessionOptions{SandboxRoot: sandboxRoot})
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-
-	// System session should use Workspace as Src.
-	if session.Src != workspace {
-		t.Errorf("Src = %q, want %q", session.Src, workspace)
+	if session.Src != sandboxRoot {
+		t.Errorf("Src = %q, want %q", session.Src, sandboxRoot)
 	}
-
-	// Cwd should default to Src.
-	if session.Cwd != workspace {
-		t.Errorf("Cwd = %q, want %q", session.Cwd, workspace)
+	if session.Cwd != sandboxRoot {
+		t.Errorf("Cwd = %q, want %q", session.Cwd, sandboxRoot)
 	}
-
-	if session.IsUserSession {
-		t.Error("IsUserSession should be false for system session")
-	}
-
-	// Cleanup.
 	if err := manager.CleanupSession(session); err != nil {
 		t.Errorf("CleanupSession: %v", err)
 	}
@@ -145,13 +110,12 @@ func TestSessionManagerCreateSessionRequiresWorkspace(t *testing.T) {
 	}
 
 	opts := SessionOptions{
-		Workspace:   "",
-		UserDataDir: "",
+		SandboxRoot: "",
 	}
 
 	_, err = manager.CreateSession(opts)
 	if err == nil {
-		t.Error("CreateSession should require workspace or user_data_dir")
+		t.Error("CreateSession should require sandbox root")
 	}
 }
 
@@ -162,13 +126,12 @@ func TestSessionManagerCreateSessionRequiresAbsoluteSrc(t *testing.T) {
 	}
 
 	opts := SessionOptions{
-		Workspace:   "relative/path",
-		UserDataDir: "",
+		SandboxRoot: "relative/path",
 	}
 
 	_, err = manager.CreateSession(opts)
 	if err == nil {
-		t.Error("CreateSession should require absolute workspace path")
+		t.Error("CreateSession should require absolute sandbox root")
 	}
 }
 
@@ -179,13 +142,12 @@ func TestSessionManagerCreateSessionRequiresExistingSrc(t *testing.T) {
 	}
 
 	opts := SessionOptions{
-		Workspace:   "/nonexistent/path/that/does/not/exist",
-		UserDataDir: "",
+		SandboxRoot: "/nonexistent/path/that/does/not/exist",
 	}
 
 	_, err = manager.CreateSession(opts)
 	if err == nil {
-		t.Error("CreateSession should require existing workspace")
+		t.Error("CreateSession should require existing sandbox root")
 	}
 }
 
@@ -241,38 +203,6 @@ func TestBuildSessionConfig(t *testing.T) {
 	}
 	if len(cfg.NetworkAllowlist) != 1 || cfg.NetworkAllowlist[0] != "example.com" {
 		t.Errorf("NetworkAllowlist = %v, want [example.com]", cfg.NetworkAllowlist)
-	}
-}
-
-func TestDeriveSandboxRoot(t *testing.T) {
-	tests := []struct {
-		name        string
-		workspace   string
-		userDataDir string
-		want        string
-	}{
-		{
-			name:        "user session prioritizes UserDataDir",
-			workspace:   "/workspace",
-			userDataDir: "/users/1/data",
-			want:        "/users/1/data",
-		},
-		{
-			name:        "system session uses Workspace",
-			workspace:   "/workspace",
-			userDataDir: "",
-			want:        "/workspace",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := DeriveSandboxRoot(tt.workspace, tt.userDataDir)
-			if got != tt.want {
-				t.Errorf("DeriveSandboxRoot(%q, %q) = %q, want %q",
-					tt.workspace, tt.userDataDir, got, tt.want)
-			}
-		})
 	}
 }
 
