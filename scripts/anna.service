@@ -18,6 +18,14 @@ TimeoutStopSec=30
 # Data directory — all config lives in the database
 Environment=ANNA_HOME=/home/anna/.anna
 
+# Linux boxsh prerequisites live on the host, not in this unit:
+# - install `uidmap` (`newuidmap`/`newgidmap`)
+# - configure /etc/subuid and /etc/subgid for the service user
+# - allow unprivileged user namespaces
+# - on some Ubuntu hosts, set:
+#     kernel.apparmor_restrict_unprivileged_userns=0
+# See docs: /docs/getting-started/deployment#boxsh-sandbox-prerequisites-linux
+
 # Optional: expose admin panel for runtime config changes
 # ExecStart=ANNA_BIN --admin-port 8080
 

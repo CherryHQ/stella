@@ -87,7 +87,7 @@ Sandbox settings are stored per agent in the `settings_agents.sandbox` JSON colu
 - `network.mode` — `disabled` (default), `allow_all`, or `whitelist`
 - `network.allowlist` — required only when mode is `whitelist`; entries may be hostnames, IPs, or CIDRs
 
-Linux and macOS validate the managed `boxsh` backend, workspace/state-dir shape, and per-agent network policy, then run the core local-workspace tools (`bash`, `read`, `write`, `edit`) through a shared sandbox backend. Runner startup fails closed when the sandbox backend is unavailable or cannot enforce the configured network mode. `local` is a relaxed backend with advisory enforcement; use it only for explicit local/development scenarios. Current `boxsh` client builds may reject `whitelist` mode at runtime; use it only when the installed runtime supports whitelist enforcement.
+Linux and macOS validate the managed `boxsh` backend, workspace/state-dir shape, and per-agent network policy, then run the core local-workspace tools (`bash`, `read`, `write`, `edit`) through a shared sandbox backend. On Linux, `boxsh` also depends on unprivileged user namespaces, subordinate ID mapping (`newuidmap`/`newgidmap`, `/etc/subuid`, `/etc/subgid`), and on some Ubuntu hosts `kernel.apparmor_restrict_unprivileged_userns=0`. Runner startup fails closed when the sandbox backend is unavailable or cannot enforce the configured network mode. `local` is a relaxed backend with advisory enforcement; use it only for explicit local/development scenarios. Current `boxsh` client builds may reject `whitelist` mode at runtime; use it only when the installed runtime supports whitelist enforcement.
 
 ## Environment variables
 
