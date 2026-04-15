@@ -65,7 +65,7 @@ func WithBuiltinToolsFactory(f BuiltinToolsFactory) PoolManagerOption {
 	}
 }
 
-// WithBuiltinTools sets the always-on builtin tools shared across all agents.
+// WithBuiltinTools sets the always-on builtin tools available to all agents.
 func WithBuiltinTools(tools []tools.Tool) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.builtinTools = tools
@@ -407,12 +407,12 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle)
 }
 
-// mergeTools creates a new slice containing builtin tools followed by external
-// or agent-specific additions.
-func mergeTools(builtin, extra []tools.Tool) []tools.Tool {
-	merged := make([]tools.Tool, 0, len(builtin)+len(extra))
+// mergeTools creates a new slice containing builtin tools followed by more
+// builtin additions.
+func mergeTools(builtin, additions []tools.Tool) []tools.Tool {
+	merged := make([]tools.Tool, 0, len(builtin)+len(additions))
 	merged = append(merged, builtin...)
-	merged = append(merged, extra...)
+	merged = append(merged, additions...)
 	return merged
 }
 

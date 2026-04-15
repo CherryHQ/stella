@@ -166,7 +166,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return hooks.NewHookSet(poolMgr.HookPlugins())
 	})
 
-	// Unified memory tool (shared across all agents, adapts to provider capabilities).
+	// Unified memory tool (always available to every agent, adapts to provider capabilities).
 	builtinTools = append(builtinTools,
 		memory.BuildTool(memProvider),
 	)
