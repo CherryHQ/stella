@@ -205,7 +205,7 @@ func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
 	return reg, nil
 }
 
-// buildToolRegistry creates the tool registry with core and extra tools.
+// buildToolRegistry creates the tool registry with core, builtin, and external tools.
 func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerSession) (*tools.Registry, error) {
 	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
 	paths := resolveRunnerPaths(cfg)
@@ -238,7 +238,7 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 		toolReg.Register(t)
 	}
 
-	// Extra tools (shared tools like memory, scheduler + plugin tools like webfetch).
+	// Extra tools (always-on builtin tools like memory/scheduler plus external plugin tools like webfetch).
 	for _, t := range cfg.ExtraTools {
 		toolReg.Register(t)
 	}

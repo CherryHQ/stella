@@ -20,10 +20,10 @@ import (
 	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
-// ExtraToolsFactory creates agent-specific extra tools given a snapshot.
-// It allows callers to inject tools that depend on per-agent configuration
-// (e.g. scheduler, memory retrieval).
-type ExtraToolsFactory func(snap *config.Snapshot) []tools.Tool
+// BuiltinToolsFactory creates agent-specific builtin tools given a snapshot.
+// It allows callers to inject always-on tools that depend on per-agent
+// configuration (for example, notifications).
+type BuiltinToolsFactory func(snap *config.Snapshot) []tools.Tool
 
 // PluginToolsBuilder creates tools from enabled plugin state.
 // Called per runner so tool builders receive the active sandbox host.
@@ -58,18 +58,17 @@ func WithCompactionPM(cfg CompactionConfig) PoolManagerOption {
 	}
 }
 
-// WithExtraToolsFactory sets the function that creates per-agent extra tools.
-func WithExtraToolsFactory(f ExtraToolsFactory) PoolManagerOption {
+// WithBuiltinToolsFactory sets the function that creates per-agent builtin tools.
+func WithBuiltinToolsFactory(f BuiltinToolsFactory) PoolManagerOption {
 	return func(pm *PoolManager) {
-		pm.extraToolsFactory = f
+		pm.builtinToolsFactory = f
 	}
 }
 
-// WithSharedExtraTools sets tools shared across all agents (e.g. scheduler, memory).
-func WithSharedExtraTools(tools []tools.Tool) PoolManagerOption {
+// WithBuiltinTools sets the always-on builtin tools shared across all agents.
+func WithBuiltinTools(tools []tools.Tool) PoolManagerOption {
 	return func(pm *PoolManager) {
-		pm.coreSharedTools = tools
-		pm.sharedExtraTools = tools
+		pm.builtinTools = tools
 	}
 }
 
@@ -127,9 +126,8 @@ type PoolManager struct {
 	mu                      sync.RWMutex
 	idleTimeout             time.Duration
 	compaction              CompactionConfig
-	coreSharedTools         []tools.Tool       // always-on tools (scheduler, memory, etc.)
-	sharedExtraTools        []tools.Tool       // always-on shared tools
-	pluginToolsBuilder      PluginToolsBuilder // builds tools from plugin state
+	builtinTools            []tools.Tool       // always-on builtin tools (scheduler, memory, etc.)
+	pluginToolsBuilder      PluginToolsBuilder // builds external tools from enabled plugin state
 	hookPlugins             []hooks.HookPlugin // current enabled hook plugins
 	pluginHooksBuilder      PluginHooksBuilder // builds hooks from plugin state
 	promptToolsBuilder      PromptToolsBuilder // builds prompt inventory from plugin state
@@ -137,7 +135,7 @@ type PoolManager struct {
 	beforeRunBuilder        BeforeRunBuilder
 	toolLifecycle           *coreagent.ToolLifecycle
 	providerRegistryBuilder ProviderRegistryBuilder
-	extraToolsFactory       ExtraToolsFactory
+	builtinToolsFactory     BuiltinToolsFactory
 	log                     *slog.Logger
 }
 
@@ -394,29 +392,27 @@ func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*
 	return snap, workspace, nil
 }
 
-// buildFactory creates a runner factory with shared, plugin, and per-agent tools.
-// Hooks are not part of the factory — they are stored on the Pool and injected
-// via RunnerParams.HooksFn at runner-creation time.
+// buildFactory creates a runner factory with builtin tools and external plugin
+// tools. Hooks are not part of the factory — they are stored on the Pool and
+// injected via RunnerParams.HooksFn at runner-creation time.
 func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (runner.NewRunnerFunc, error) {
 	pm.mu.RLock()
-	shared := pm.sharedExtraTools
+	builtinTools := append([]tools.Tool{}, pm.builtinTools...)
 	pm.mu.RUnlock()
 
-	var extraTools []tools.Tool
-	extraTools = append(extraTools, shared...)
-
-	if pm.extraToolsFactory != nil {
-		extraTools = append(extraTools, pm.extraToolsFactory(snap)...)
+	if pm.builtinToolsFactory != nil {
+		builtinTools = mergeTools(builtinTools, pm.builtinToolsFactory(snap))
 	}
 
-	return NewRunnerFactory(snap, extraTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle)
+	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle)
 }
 
-// mergeTools creates a new slice containing core tools followed by plugin tools.
-func mergeTools(core, plugin []tools.Tool) []tools.Tool {
-	merged := make([]tools.Tool, 0, len(core)+len(plugin))
-	merged = append(merged, core...)
-	merged = append(merged, plugin...)
+// mergeTools creates a new slice containing builtin tools followed by external
+// or agent-specific additions.
+func mergeTools(builtin, extra []tools.Tool) []tools.Tool {
+	merged := make([]tools.Tool, 0, len(builtin)+len(extra))
+	merged = append(merged, builtin...)
+	merged = append(merged, extra...)
 	return merged
 }
 

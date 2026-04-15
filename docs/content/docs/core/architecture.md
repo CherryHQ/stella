@@ -321,4 +321,4 @@ Agent notify tool      --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
 Scheduler job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
 ```
 
-The dispatcher is created early in setup, but backends are registered later when gateway services start. The PoolManager is used to wire notification tool injection per-agent via the `ExtraToolsFactory`. See [notification-system.md](/docs/features/notification-system) for details.
+The dispatcher is created early in setup, but backends are registered later when gateway services start. The PoolManager wires per-agent notification tool injection through the `BuiltinToolsFactory`, keeping notifications in the always-on builtin tool set while external tools remain plugin-managed. See [notification-system.md](/docs/features/notification-system) for details.
