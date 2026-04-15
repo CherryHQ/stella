@@ -44,7 +44,7 @@ func testRunnerPaths(t *testing.T) (annaHome, workspace, userRoot string) {
 	}
 	annaHome = t.TempDir()
 	workspace = t.TempDir()
-	userRoot = filepath.Join(workspace, "users", "1", "data")
+	userRoot = filepath.Join(workspace, "users", "1")
 	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -92,9 +92,6 @@ func withTestRunnerPaths(t *testing.T, cfg GoRunnerConfig) GoRunnerConfig {
 	cfg.AnnaHome = annaHome
 	cfg.AgentRoot = workspace
 	cfg.UserRoot = userRoot
-	if cfg.WorkDir == "" {
-		cfg.WorkDir = userRoot
-	}
 	return cfg
 }
 
@@ -147,7 +144,7 @@ func TestNewGoRunnerPreflightExtractsManagedTools(t *testing.T) {
 	}
 	annaHome := t.TempDir()
 	workspace := t.TempDir()
-	userRoot := filepath.Join(workspace, "users", "1", "data")
+	userRoot := filepath.Join(workspace, "users", "1")
 	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -178,7 +175,7 @@ func TestNewGoRunnerUsesBoxshCoreToolsAndCleansUp(t *testing.T) {
 
 	annaHome := t.TempDir()
 	workspace := t.TempDir()
-	userRoot := filepath.Join(workspace, "users", "1", "data")
+	userRoot := filepath.Join(workspace, "users", "1")
 	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -236,7 +233,7 @@ func TestGoRunnerAliveTracksDeadBoxshBackend(t *testing.T) {
 
 	annaHome := t.TempDir()
 	workspace := t.TempDir()
-	userRoot := filepath.Join(workspace, "users", "1", "data")
+	userRoot := filepath.Join(workspace, "users", "1")
 	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -452,7 +449,6 @@ func (f *sequentialFakeProvider) StreamSimple(goCtx context.Context, _ ai.Model,
 }
 
 func TestChatToolUseLoop(t *testing.T) {
-	dir := t.TempDir()
 	fp := &sequentialFakeProvider{
 		api: "anthropic",
 		rounds: [][]ai.AssistantEvent{
@@ -474,7 +470,6 @@ func TestChatToolUseLoop(t *testing.T) {
 		APIKey:    "test-key",
 		Providers: testProviderRegistryBuilder,
 	})
-	cfg.WorkDir = filepath.Join(cfg.UserRoot, filepath.Base(dir))
 	r, err := NewGoRunner(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)

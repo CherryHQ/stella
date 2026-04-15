@@ -50,7 +50,7 @@ func userSkillsDir(userRoot string) string {
 	if userRoot == "" {
 		return ""
 	}
-	return filepath.Join(filepath.Dir(userRoot), ".agents", "skills")
+	return filepath.Join(userRoot, ".agents", "skills")
 }
 
 func SkillsDefinition() tools.Definition {

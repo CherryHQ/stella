@@ -50,6 +50,11 @@ func UserSkillsDir(userWorkspace string) string {
 }
 
 // UserRoot returns the per-user writable root path within a user workspace.
+//
+// User-owned runtime data, skills, and presets all live under this root:
+//   - users/{id}/data/
+//   - users/{id}/.agents/skills/
+//   - users/{id}/.agents/agents/
 func UserRoot(userWorkspace string) string {
-	return filepath.Join(userWorkspace, "data")
+	return userWorkspace
 }

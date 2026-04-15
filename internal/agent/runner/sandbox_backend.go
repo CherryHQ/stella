@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/sandbox"
@@ -147,10 +149,10 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		return nil, fmt.Errorf("resolve sandbox paths: %w", err)
 	}
 	readOnlyDirs := collectSandboxReadOnlyDirs(
+		sandboxReadableDirs(runnerPaths),
 		runnerPaths.toolsBinDir(),
 		os.Getenv("PATH"),
 	)
-	readOnlyDirs = append(readOnlyDirs, runnerPaths.builtinSkillsDir())
 
 	policy := sandbox.Policy{
 		Backend:    config.SandboxBackendBoxsh,
@@ -192,6 +194,38 @@ func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, er
 		return nil, fmt.Errorf("unknown sandbox backend: %q", name)
 	}
 	return factory(ctx, cfg)
+}
+
+func sandboxReadableDirs(paths runnerPaths) []string {
+	candidates := []string{
+		paths.builtinSkillsDir(),
+		paths.annaSkillsDir(),
+		paths.annaAgentsDir(),
+		paths.agentSkillsDir(),
+		paths.agentAgentsDir(),
+		paths.projectSkillsDir(),
+		paths.projectAgentsDir(),
+	}
+
+	readOnly := make([]string, 0, len(candidates))
+	for _, dir := range candidates {
+		if dir == "" || isWithinPathRoot(paths.UserRoot, dir) {
+			continue
+		}
+		readOnly = append(readOnly, dir)
+	}
+	return readOnly
+}
+
+func isWithinPathRoot(root, path string) bool {
+	if root == "" || path == "" {
+		return false
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func resolveSessionBackendName(cfg config.SandboxConfig) string {

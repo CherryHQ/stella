@@ -28,11 +28,11 @@ project body
 		t.Fatal(err)
 	}
 
-	userDataDir := filepath.Join(workspace, "users", "42", "data")
-	if err := os.MkdirAll(userDataDir, 0o755); err != nil {
+	userRoot := filepath.Join(workspace, "users", "42")
+	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	userSkillDir := filepath.Join(filepath.Dir(userDataDir), ".agents", "skills", "user-skill")
+	userSkillDir := filepath.Join(userRoot, ".agents", "skills", "user-skill")
 	if err := os.MkdirAll(userSkillDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ old body
 		HomeDir:     homeDir,
 		AgentRoot:   workspace,
 		ProjectRoot: cwd,
-		UserRoot:    userDataDir,
+		UserRoot:    userRoot,
 	})
 	if err != nil {
 		t.Fatal(err)

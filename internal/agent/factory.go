@@ -89,9 +89,6 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 				PromptSections: promptSections,
 			})
 
-			// Runner execution is always user-scoped, so tools start in the user root.
-			workDir := userRoot
-
 			// Resolve hooks from RunnerParams — injected by Pool, not the factory.
 			var hookPlugins []hooks.HookPlugin
 			if params.HooksFn != nil {
@@ -109,7 +106,6 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 				PromptSections: promptSections,
 				ExtraTools:     extraTools,
 				PluginTools:    pluginToolsBuilder,
-				WorkDir:        workDir,
 				UserRoot:       userRoot,
 				Sandbox:        snap.Sandbox,
 				HookPlugins:    hookPlugins,

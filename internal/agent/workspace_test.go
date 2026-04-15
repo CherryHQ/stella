@@ -156,7 +156,7 @@ func TestUserSkillsDir(t *testing.T) {
 
 func TestUserRoot(t *testing.T) {
 	got := UserRoot("/base/users/42")
-	want := filepath.Join("/base/users/42", "data")
+	want := "/base/users/42"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
