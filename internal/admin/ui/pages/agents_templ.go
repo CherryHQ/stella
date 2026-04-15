@@ -8,7 +8,10 @@ package pages
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "github.com/vaayne/anna/internal/admin/ui"
+import (
+	"github.com/vaayne/anna/internal/admin/ui"
+	"github.com/vaayne/anna/internal/config"
+)
 
 func AgentsPage() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -69,7 +72,7 @@ func AgentsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = modelComboField("Default", "model", "anthropic/claude-sonnet-4-6").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = modelComboField("Default", "model", config.DefaultModelRefForProviderType("anthropic")).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -234,7 +237,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 288, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 291, Col: 53}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
@@ -257,7 +260,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 295, Col: 27}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 298, Col: 27}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
@@ -270,7 +273,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field + " = $event.target.value; search = $event.target.value; open = cachedModels.length > 0")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 296, Col: 116}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 299, Col: 116}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -283,7 +286,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(placeholder)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 298, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 301, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
@@ -296,7 +299,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var12 string
 		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field + " = m; open = false")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 310, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 313, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 		if templ_7745c5c3_Err != nil {
@@ -309,7 +312,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var13 string
 		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field + " === m ? 'text-primary' : 'text-base-content/70'")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 313, Col: 82}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents.templ`, Line: 316, Col: 82}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
