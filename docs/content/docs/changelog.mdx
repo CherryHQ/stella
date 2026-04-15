@@ -11,6 +11,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-04-15
+
+### ✨ Features
+
+- **Channels**: Queue channel messages per session and add `/abort` support for in-flight session control ([#104](https://github.com/vaayne/anna/pull/104))
+- **Builtin Tools**: Make memory, scheduler, and skills available as builtin tools ([#105](https://github.com/vaayne/anna/pull/105))
+
+### ♻️ Refactoring
+
+- **Workflows**: Move GitHub Actions workflows to Node 24 actions
+- **Skills**: Make skill install scope explicit ([#103](https://github.com/vaayne/anna/pull/103))
+- **Sandbox**: Align sandbox user root with skill path layers ([#102](https://github.com/vaayne/anna/pull/102))
+
+### 🐛 Bug Fixes
+
+- **CI**: Avoid oversized coverage comment environment payloads
+
+### 📝 Documentation
+
+- **Sandbox**: Document Linux boxsh prerequisites
+
+**Full Changelog**: [v0.10.2...v0.11.0](https://github.com/vaayne/anna/compare/v0.10.2...v0.11.0)
+
 ## [0.10.2] - 2026-04-15
 
 ### 🐛 Bug Fixes
