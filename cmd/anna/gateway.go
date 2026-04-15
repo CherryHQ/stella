@@ -207,7 +207,7 @@ func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolM
 
 		pool := schedulerPool(job, poolMgr, defaultPool)
 		sessionID := job.SessionID()
-		msg := fmt.Sprintf("[Scheduled Task] %s\n\nInstruction: %s", job.Name, job.Message)
+		msg := schedulerJobMessage(job)
 
 		jobCtx := schedulerJobContext(ctx, pool, job)
 
@@ -267,6 +267,10 @@ func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Jo
 		ctx = memory.WithAgentID(ctx, pool.AgentID())
 	}
 	return ctx
+}
+
+func schedulerJobMessage(job scheduler.Job) string {
+	return fmt.Sprintf("[Scheduled Task] %s\n\nInstruction: %s\n\nDo not use the notify tool. Your final response will be delivered automatically.", job.Name, job.Message)
 }
 
 func launchBrowser(url string) {

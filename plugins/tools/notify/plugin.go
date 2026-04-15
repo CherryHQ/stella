@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/tools"
 )
@@ -57,7 +58,7 @@ var inputSchema = map[string]any{
 		},
 		"chat_id": map[string]any{
 			"type":        "string",
-			"description": "Target chat/channel within the backend. Omit to use the default.",
+			"description": "Target chat/channel within the backend. Usually omit this in user conversations so Anna can resolve the linked identity automatically.",
 		},
 		"silent": map[string]any{
 			"type":        "boolean",
@@ -70,7 +71,7 @@ var inputSchema = map[string]any{
 func (t *Tool) Definition() tools.Definition {
 	return tools.Definition{
 		Name:        "notify",
-		Description: "Send a notification message to the user. Supports multiple backends (Telegram, Slack, etc.). Omit 'channel' to broadcast to all configured backends. Use this for proactive messages, alerts, scheduler summaries, or long-running task results.",
+		Description: "Send a notification message to the user. In normal user conversations, omit 'chat_id' so Anna can route via the current user's linked identities automatically. Supports multiple backends (Telegram, Slack, etc.). Use this for proactive messages, alerts, scheduler summaries, or long-running task results.",
 		InputSchema: inputSchema,
 	}
 }
@@ -85,13 +86,24 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	chatID, _ := args["chat_id"].(string)
 	silent, _ := args["silent"].(bool)
 
-	err := t.service.Notify(ctx, pkgchannel.Notification{
+	notification := pkgchannel.Notification{
 		Channel: ch,
 		ChatID:  chatID,
 		AgentID: pkgchannel.NotificationAgentIDFromContext(ctx),
 		Text:    message,
 		Silent:  silent,
-	})
+	}
+
+	var err error
+	if ch == "" && chatID == "" {
+		if userID := memory.UserIDFromContext(ctx); userID != 0 {
+			err = t.service.NotifyUser(ctx, userID, notification)
+		} else {
+			err = t.service.Notify(ctx, notification)
+		}
+	} else {
+		err = t.service.Notify(ctx, notification)
+	}
 	if err != nil {
 		return "", fmt.Errorf("send notification: %w", err)
 	}

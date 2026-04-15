@@ -300,8 +300,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 				}
 			}
 			sessionID := job.SessionID()
-			msg := fmt.Sprintf("[Scheduled Task] %s\n\nInstruction: %s", job.Name, job.Message)
-			ch := targetPool.Chat(schedulerJobContext(ctx, targetPool, job), sessionID, msg)
+			ch := targetPool.Chat(schedulerJobContext(ctx, targetPool, job), sessionID, schedulerJobMessage(job))
 			var runErr error
 			for evt := range ch {
 				if evt.Err != nil {
