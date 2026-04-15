@@ -529,32 +529,6 @@ const defaultAnnaSoul = `You are Anna — a sharp, efficient personal AI assista
 // SeedDefaults populates the DB with sensible defaults on first bootstrap.
 // It is idempotent: if providers/agents already exist, it does nothing.
 func (s *DBStore) SeedDefaults(ctx context.Context) error {
-	// Seed default agent if none exist.
-	agents, err := s.q.ListAgents(ctx)
-	if err != nil {
-		return fmt.Errorf("seed: list agents: %w", err)
-	}
-	if len(agents) == 0 {
-		workspace := filepath.Join(AnnaHome(), "workspaces", "anna")
-		sandboxJSON, err := marshalSandboxConfig(SandboxConfig{})
-		if err != nil {
-			return fmt.Errorf("seed: marshal anna sandbox config: %w", err)
-		}
-		_, err = s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
-			ID:           "anna",
-			Name:         "Anna",
-			Model:        "anthropic/claude-sonnet-4-6",
-			SystemPrompt: defaultAnnaSoul,
-			Workspace:    workspace,
-			Sandbox:      sandboxJSON,
-			Scope:        AgentScopeSystem,
-			Enabled:      1,
-		})
-		if err != nil {
-			return fmt.Errorf("seed: create anna agent: %w", err)
-		}
-	}
-
 	// Seed plugins: migrate existing channels and seed all built-ins.
 	if err := s.seedPlugins(ctx); err != nil {
 		return err
@@ -564,6 +538,38 @@ func (s *DBStore) SeedDefaults(ctx context.Context) error {
 	}
 	if err := s.seedProviders(ctx); err != nil {
 		return err
+	}
+
+	// Seed default agent after providers so its model can derive from the
+	// configured provider instances instead of hardcoding a specific provider ID.
+	agents, err := s.q.ListAgents(ctx)
+	if err != nil {
+		return fmt.Errorf("seed: list agents: %w", err)
+	}
+	if len(agents) > 0 {
+		return nil
+	}
+	workspace := filepath.Join(AnnaHome(), "workspaces", "anna")
+	sandboxJSON, err := marshalSandboxConfig(SandboxConfig{})
+	if err != nil {
+		return fmt.Errorf("seed: marshal anna sandbox config: %w", err)
+	}
+	providers, err := s.ListProviders(ctx)
+	if err != nil {
+		return fmt.Errorf("seed: list providers: %w", err)
+	}
+	_, err = s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
+		ID:           "anna",
+		Name:         "Anna",
+		Model:        DefaultAgentModelRef(providers),
+		SystemPrompt: defaultAnnaSoul,
+		Workspace:    workspace,
+		Sandbox:      sandboxJSON,
+		Scope:        AgentScopeSystem,
+		Enabled:      1,
+	})
+	if err != nil {
+		return fmt.Errorf("seed: create anna agent: %w", err)
 	}
 
 	return nil

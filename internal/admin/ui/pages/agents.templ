@@ -1,6 +1,9 @@
 package pages
 
-import "github.com/vaayne/anna/internal/admin/ui"
+import (
+	"github.com/vaayne/anna/internal/admin/ui"
+	"github.com/vaayne/anna/internal/config"
+)
 
 templ AgentsPage() {
 	<div x-data="agentsPage()">
@@ -28,7 +31,7 @@ templ AgentsPage() {
 					Models <span class="normal-case tracking-normal text-base-content/50">— format: provider/model</span>
 				</p>
 				<div class="space-y-4 mb-4">
-					@modelComboField("Default", "model", "anthropic/claude-sonnet-4-6")
+					@modelComboField("Default", "model", config.DefaultModelRefForProviderType("anthropic"))
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
 						@modelComboField("Strong", "model_strong", "Falls back to default")
 						@modelComboField("Fast", "model_fast", "Falls back to default")

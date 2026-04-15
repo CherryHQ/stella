@@ -57,6 +57,26 @@ func TestSeedDefaults(t *testing.T) {
 	}
 }
 
+func TestSeedDefaultsUsesConfiguredProviderInstanceForAgentModel(t *testing.T) {
+	store := setupDBStore(t)
+	ctx := context.Background()
+
+	if err := store.CreateProvider(ctx, Provider{ID: "claude", Type: "anthropic", Name: "Claude"}); err != nil {
+		t.Fatalf("CreateProvider: %v", err)
+	}
+	if err := store.SeedDefaults(ctx); err != nil {
+		t.Fatalf("SeedDefaults: %v", err)
+	}
+
+	agent, err := store.GetAgent(ctx, "anna")
+	if err != nil {
+		t.Fatalf("GetAgent: %v", err)
+	}
+	if agent.Model != "claude/claude-sonnet-4-6" {
+		t.Fatalf("agent.Model = %q, want %q", agent.Model, "claude/claude-sonnet-4-6")
+	}
+}
+
 func TestSeedDefaultsIdempotent(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()

@@ -107,7 +107,7 @@ Note: The old YAML-based environment variables (`ANNA_PROVIDER`, `ANNA_MODEL`, `
 
 On first run, `SeedDefaults` creates:
 - All built-in provider plugins (anthropic, openai, openai-response) with env var fallback for API keys
-- An "anna" agent using the default Anthropic model `anthropic/claude-sonnet-4-6`
+- An "anna" agent using the preferred default provider/model for the configured provider instances (Anthropic defaults to `claude-sonnet-4-6`)
 - Default system prompt with anna's personality
 - All built-in tool, channel, and hook plugins
 
