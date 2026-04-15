@@ -62,7 +62,7 @@ type setupResult struct {
 	poolManager            *agent.PoolManager
 	pool                   *agent.Pool // default agent pool shared with CLI and channel entrypoints
 	schedulerSvc           *scheduler.Service
-	extraTools             []tools.Tool
+	builtinTools           []tools.Tool
 	notifier               *notify.Dispatcher
 	pluginToolsBuilder     agent.PluginToolsBuilder
 	promptToolsBuilder     func(context.Context) ([]pkgplugins.PromptToolInfo, error)
@@ -139,10 +139,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	schedulerSvc.SetUserJobsEnabled(snap.Scheduler.IsEnabled())
 	phost.SetSchedulerService(newSchedulerServiceAdapter(schedulerSvc, phost.Runtime()))
 
-	var sharedTools []tools.Tool
-	if snap.Scheduler.IsEnabled() {
-		sharedTools = append(sharedTools, scheduler.NewTool(schedulerSvc))
-	}
+	builtinTools := []tools.Tool{scheduler.NewTool(schedulerSvc)}
 
 	// Build memory provider through the plugin host so memory plugins use the same registration path.
 	memoryName := "lcm"
@@ -169,8 +166,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return hooks.NewHookSet(poolMgr.HookPlugins())
 	})
 
-	// Unified memory tool (shared across all agents, adapts to provider capabilities).
-	sharedTools = append(sharedTools,
+	// Unified memory tool (always available to every agent, adapts to provider capabilities).
+	builtinTools = append(builtinTools,
 		memory.BuildTool(memProvider),
 	)
 
@@ -195,9 +192,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
 
-	// Create PoolManager with shared tools, plugin builder, and hooks builder.
-	// WithSharedExtraTools sets the always-on core tools (scheduler, memory).
-	// WithPluginToolsBuilder provides the function for hot-reloadable plugin tools.
+	// Create PoolManager with builtin tools and external plugin tools.
+	// WithBuiltinTools sets the always-on builtin tools (scheduler, memory).
+	// WithPluginToolsBuilder provides the function for hot-reloadable external tools.
 	// WithPluginHooksBuilder provides the function for hot-reloadable hook plugins.
 	toolLifecycle := &coreagent.ToolLifecycle{
 		BeforeCall: func(ctx context.Context, call coreagent.ToolCallContext) (coreagent.ToolCallMutation, error) {
@@ -254,7 +251,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			MaxTokens: snap.Runner.Compaction.MaxTokens,
 			KeepTail:  snap.Runner.Compaction.KeepTail,
 		}.WithDefaults()),
-		agent.WithSharedExtraTools(sharedTools),
+		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
 		agent.WithProviderRegistryBuilder(providerRegistryBuilder),
@@ -330,7 +327,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		poolManager:            poolMgr,
 		pool:                   pool,
 		schedulerSvc:           schedulerSvc,
-		extraTools:             sharedTools,
+		builtinTools:           builtinTools,
 		notifier:               dispatcher,
 		pluginToolsBuilder:     pluginToolsBuilder,
 		promptToolsBuilder:     promptToolsBuilder,
@@ -345,7 +342,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 // Each switch creates a new immutable snapshot so the factory closure captures
 // no shared mutable state — eliminating races between concurrent Chat calls and
 // model switches. Hooks are stored on the Pool independently and are not affected.
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, extraTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle) func(string, string) error {
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle) func(string, string) error {
 	return func(provider, model string) error {
 		// Shallow-copy the base snapshot so we never mutate shared state.
 		snap := *base
@@ -360,7 +357,7 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.Providers = providers
 		}
 
-		factory, err := agent.NewRunnerFactory(&snap, extraTools, pluginToolsBuilder, providerRegistryBuilder, promptToolsFn, promptSectionsFn, toolLifecycle)
+		factory, err := agent.NewRunnerFactory(&snap, builtinTools, pluginToolsBuilder, providerRegistryBuilder, promptToolsFn, promptSectionsFn, toolLifecycle)
 		if err != nil {
 			return err
 		}
@@ -381,7 +378,7 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 		snap,
 		s.store,
 		pool,
-		s.extraTools,
+		s.builtinTools,
 		s.pluginToolsBuilder,
 		func(api, apiKey, baseURL string) (*providers.Registry, error) {
 			provider, err := s.store.GetProvider(s.ctx, api)

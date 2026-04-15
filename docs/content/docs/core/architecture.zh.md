@@ -190,4 +190,4 @@ Agent notify tool      --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
 Scheduler job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
 ```
 
-分发器在设置早期创建，但后端在网关服务启动时稍后注册。PoolManager 用于通过 `ExtraToolsFactory` 按代理注入通知工具。有关详细信息，请参阅 [notification-system.md](/docs/features/notification-system)。
+分发器在设置早期创建，但后端在网关服务启动时稍后注册。PoolManager 通过 `BuiltinToolsFactory` 按代理注入通知工具，把通知保留在始终启用的内建工具集合中，而外部工具继续由插件管理。有关详细信息，请参阅 [notification-system.md](/docs/features/notification-system)。
