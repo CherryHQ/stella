@@ -39,7 +39,11 @@ func (t *Tool) install(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("source is required for install action (e.g. owner/repo@skill-name)")
 	}
 
-	scope, targetDir, err := t.targetSkillsDir(ctx, scopeArg(args))
+	rawScope, err := scopeArg(args)
+	if err != nil {
+		return "", err
+	}
+	scope, targetDir, err := t.targetSkillsDir(ctx, rawScope)
 	if err != nil {
 		return "", err
 	}
@@ -59,7 +63,11 @@ func (t *Tool) remove(ctx context.Context, args map[string]any) (string, error) 
 		return "", fmt.Errorf("name is required for remove action")
 	}
 
-	scope, targetDir, err := t.targetSkillsDir(ctx, scopeArg(args))
+	rawScope, err := scopeArg(args)
+	if err != nil {
+		return "", err
+	}
+	scope, targetDir, err := t.targetSkillsDir(ctx, rawScope)
 	if err != nil {
 		return "", err
 	}

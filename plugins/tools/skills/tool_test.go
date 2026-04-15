@@ -268,6 +268,37 @@ description: Test
 	}
 }
 
+func TestInstallRejectsNonStringScope(t *testing.T) {
+	srcDir := t.TempDir()
+	skillDir := filepath.Join(srcDir, "test-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: test-skill
+description: Test
+---
+# Test
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	userRoot := filepath.Join(t.TempDir(), "users", "7")
+	userSkillsDir := filepath.Join(userRoot, ".agents", "skills")
+	if err := os.MkdirAll(userSkillsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewTool("/tmp/anna", t.TempDir(), t.TempDir(), userSkillsDir, nil)
+	_, err := tool.install(context.Background(), map[string]any{"source": srcDir, "scope": 1})
+	if err == nil {
+		t.Fatal("expected error when scope is not a string")
+	}
+	if !strings.Contains(err.Error(), "scope must be a string") {
+		t.Fatalf("expected scope type error, got %v", err)
+	}
+}
+
 func TestLoadSkill(t *testing.T) {
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, ".agents", "skills", "test-skill")

@@ -159,7 +159,11 @@ func (t *Tool) create(ctx context.Context, args map[string]any) (string, error) 
 	description, _ := args["description"].(string)
 	content, _ := args["content"].(string)
 
-	_, targetDir, err := t.targetSkillsDir(ctx, scopeArg(args))
+	scope, err := scopeArg(args)
+	if err != nil {
+		return "", err
+	}
+	_, targetDir, err := t.targetSkillsDir(ctx, scope)
 	if err != nil {
 		return "", err
 	}
@@ -187,7 +191,11 @@ func (t *Tool) patch(ctx context.Context, args map[string]any) (string, error) {
 		updates["content"] = v
 	}
 
-	_, targetDir, err := t.targetSkillsDir(ctx, scopeArg(args))
+	scope, err := scopeArg(args)
+	if err != nil {
+		return "", err
+	}
+	_, targetDir, err := t.targetSkillsDir(ctx, scope)
 	if err != nil {
 		return "", err
 	}
@@ -204,7 +212,11 @@ func (t *Tool) deprecate(ctx context.Context, args map[string]any) (string, erro
 		return "", fmt.Errorf("name is required for deprecate action")
 	}
 
-	_, targetDir, err := t.targetSkillsDir(ctx, scopeArg(args))
+	scope, err := scopeArg(args)
+	if err != nil {
+		return "", err
+	}
+	_, targetDir, err := t.targetSkillsDir(ctx, scope)
 	if err != nil {
 		return "", err
 	}
@@ -252,9 +264,19 @@ func (t *Tool) list(ctx context.Context) (string, error) {
 	return string(out), nil
 }
 
-func scopeArg(args map[string]any) string {
-	scope, _ := args["scope"].(string)
-	return scope
+func scopeArg(args map[string]any) (string, error) {
+	if args == nil {
+		return "", nil
+	}
+	v, ok := args["scope"]
+	if !ok || v == nil {
+		return "", nil
+	}
+	scope, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("scope must be a string")
+	}
+	return scope, nil
 }
 
 func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
