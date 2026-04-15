@@ -3,10 +3,14 @@ package runner
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/sandbox"
@@ -139,14 +143,28 @@ func createLocalSession(_ context.Context, cfg GoRunnerConfig) (*runnerSession, 
 }
 
 func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
+	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
+		trace.WithAttributes(
+			attribute.String("anna.sandbox.backend", config.SandboxBackendBoxsh),
+			attribute.String("anna.sandbox.agent_root", cfg.AgentRoot),
+			attribute.String("anna.sandbox.user_root", cfg.UserRoot),
+			attribute.String("anna.sandbox.project_root", cfg.ProjectRoot),
+		),
+	)
+	defer span.End()
+
 	if !platformSupportsBoxsh() {
-		return nil, fmt.Errorf("sandbox backend %q is not supported on %s", config.SandboxBackendBoxsh, runtime.GOOS)
+		err := fmt.Errorf("sandbox backend %q is not supported on %s", config.SandboxBackendBoxsh, runtime.GOOS)
+		recordSandboxError(span, err)
+		return nil, err
 	}
 
 	runnerPaths := resolveRunnerPaths(cfg)
 	paths, err := resolveSandboxPaths(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("resolve sandbox paths: %w", err)
+		err = fmt.Errorf("resolve sandbox paths: %w", err)
+		recordSandboxError(span, err)
+		return nil, err
 	}
 	readOnlyDirs := collectSandboxReadOnlyDirs(
 		sandboxReadableDirs(runnerPaths),
@@ -168,14 +186,37 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		},
 	}
 
+	span.SetAttributes(
+		attribute.String("anna.sandbox.resolved_user_root", paths.UserRoot),
+		attribute.String("anna.sandbox.work_dir", paths.WorkDir),
+		attribute.Int("anna.sandbox.readonly_dir_count", len(readOnlyDirs)),
+		attribute.String("anna.sandbox.network.mode", cfg.Sandbox.Network.Mode),
+	)
+	if len(cfg.Sandbox.Network.Allowlist) > 0 {
+		span.SetAttributes(attribute.StringSlice("anna.sandbox.network.allowlist", cfg.Sandbox.Network.Allowlist))
+	}
+
+	slog.Info("creating boxsh session",
+		"component", "runner_sandbox",
+		"user_root", paths.UserRoot,
+		"work_dir", paths.WorkDir,
+		"readonly_dirs", readOnlyDirs,
+		"network_mode", cfg.Sandbox.Network.Mode,
+		"network_allowlist", cfg.Sandbox.Network.Allowlist,
+	)
+
 	factory := sandbox.GlobalRegistry().Get(config.SandboxBackendBoxsh)
 	if factory == nil {
-		return nil, fmt.Errorf("boxsh factory not available")
+		err := fmt.Errorf("boxsh factory not available")
+		recordSandboxError(span, err)
+		return nil, err
 	}
 
 	session, err := factory.CreateSession(ctx, policy)
 	if err != nil {
-		return nil, fmt.Errorf("create boxsh session: %w", err)
+		err = fmt.Errorf("create boxsh session: %w", err)
+		recordSandboxError(span, err)
+		return nil, err
 	}
 
 	return &runnerSession{

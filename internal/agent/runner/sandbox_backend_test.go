@@ -2,6 +2,8 @@ package runner
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -135,6 +137,33 @@ func TestSandboxReadableDirsSkipsProjectPathsInsideUserRoot(t *testing.T) {
 	for _, dir := range got {
 		if strings.HasPrefix(dir, "/workspace/agent/users/1/data/repo/") {
 			t.Fatalf("project path %q should not be mounted read-only inside user root", dir)
+		}
+	}
+}
+
+func TestCollectSandboxReadOnlyDirsSkipsMissingExtraDirs(t *testing.T) {
+	root := t.TempDir()
+	extraDir := filepath.Join(root, "skills")
+	if err := os.MkdirAll(extraDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	toolsBinDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(toolsBinDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	pathDir := filepath.Join(root, "path-bin")
+	if err := os.MkdirAll(pathDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	got := collectSandboxReadOnlyDirs([]string{extraDir, filepath.Join(root, "missing")}, toolsBinDir, pathDir)
+	want := []string{extraDir, toolsBinDir, pathDir}
+	if len(got) != len(want) {
+		t.Fatalf("len(got) = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got[%d] = %q, want %q", i, got[i], want[i])
 		}
 	}
 }
