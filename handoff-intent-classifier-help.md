@@ -137,9 +137,28 @@ Implement a lightweight short-message intent classifier that can map natural-lan
   - proceed to Phase 3 final validation and broader regression checking
 
 ### Phase 3
-- Status: ready to start after Phase 1/2 approvals
+- Status: completed, re-reviewed, no further code changes needed
+- Validation performed:
+  - `mise run format` - rerun during Phase 3 review, 0 issues
+  - `mise run test` - rerun during Phase 3 review, repository-wide tests passed
+  - `mise run build` - rerun during Phase 3 review, anna binary built successfully in 4.69s
+  - `mise run db:validate` - rerun during Phase 3 review, passed
+- Review outcome:
+  - reran the recorded Phase 3 validation locally on 2026-04-15
+  - found no correctness, help-copy, or branch-readiness blockers
+  - no additional code changes are needed beyond recording this handoff outcome
+- Remaining follow-ups: commit this handoff update with the branch; otherwise none
 
 ## Final summary
-- Status: Phase 1 and Phase 2 are approved; the branch is clean enough to commit the Phase 2 unit
-- Validation: `mise run format`, `mise run test -- ./internal/channel/... ./cmd/anna/...`, and `mise run test -- ./pkg/channel/... ./internal/channel/... ./internal/chatcli/...` passed during the review cycle
-- Follow-ups: commit Phase 2, then run Phase 3 final validation and broader regression checks while keeping the known local-CLI `/abort` limitation explicit in help text
+- Status: Phase 1, Phase 2, and Phase 3 are complete; the code is ready to merge, and the only remaining repo-state mismatch is this handoff note being uncommitted
+- Validation performed:
+  - Phase 1 & 2 review cycle: targeted tests for `internal/channel/...`, `cmd/anna/...`, `pkg/channel/...`, `internal/chatcli/...` ✅
+  - Phase 3 review rerun: `mise run format`, `mise run test`, `mise run build`, `mise run db:validate` ✅
+- Implementation highlights:
+  - Intent classifier for short text-only messages (help/new/abort/compact) with safe fallback
+  - Coordinator integration before normal chat routing, preserving existing command handling
+  - Help UX improvements with English + Chinese natural-language examples
+  - CLI-specific help that accurately reflects local vs channel-only capabilities
+- Known limitations (documented in help):
+  - Live in-flight `/abort` is not available in local CLI; only channel backends have the coordinator queue path
+- Follow-ups: commit this handoff note; no further code changes
