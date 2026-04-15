@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/vaayne/anna/internal/config"
@@ -118,6 +119,22 @@ func TestSandboxReadableDirsIncludesSkillAndPresetRoots(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("got[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestSandboxReadableDirsSkipsProjectPathsInsideUserRoot(t *testing.T) {
+	paths := runnerPaths{
+		AnnaHome:    "/anna",
+		AgentRoot:   "/workspace/agent",
+		UserRoot:    "/workspace/agent/users/1",
+		ProjectRoot: "/workspace/agent/users/1/data/repo",
+	}
+
+	got := sandboxReadableDirs(paths)
+	for _, dir := range got {
+		if strings.HasPrefix(dir, "/workspace/agent/users/1/data/repo/") {
+			t.Fatalf("project path %q should not be mounted read-only inside user root", dir)
 		}
 	}
 }

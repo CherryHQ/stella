@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/sandbox"
@@ -195,7 +197,7 @@ func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, er
 }
 
 func sandboxReadableDirs(paths runnerPaths) []string {
-	return []string{
+	candidates := []string{
 		paths.builtinSkillsDir(),
 		paths.annaSkillsDir(),
 		paths.annaAgentsDir(),
@@ -204,6 +206,26 @@ func sandboxReadableDirs(paths runnerPaths) []string {
 		paths.projectSkillsDir(),
 		paths.projectAgentsDir(),
 	}
+
+	readOnly := make([]string, 0, len(candidates))
+	for _, dir := range candidates {
+		if dir == "" || isWithinPathRoot(paths.UserRoot, dir) {
+			continue
+		}
+		readOnly = append(readOnly, dir)
+	}
+	return readOnly
+}
+
+func isWithinPathRoot(root, path string) bool {
+	if root == "" || path == "" {
+		return false
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func resolveSessionBackendName(cfg config.SandboxConfig) string {
