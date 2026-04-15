@@ -58,13 +58,14 @@ func ToolPath(annaHome, name string) string {
 
 // ToolNames returns the names of all embedded tools for the current platform.
 func ToolNames() []string {
-	entries, err := fs.ReadDir(toolsFS, toolsDir)
+	entries, err := platformEntries()
 	if err != nil {
 		return nil
 	}
 	var names []string
 	for _, e := range entries {
-		if name, ok := strings.CutSuffix(e.Name(), ".gz"); ok {
+		name, ok := toolNameForEntry(e.Name())
+		if ok {
 			names = append(names, name)
 		}
 	}
@@ -82,17 +83,16 @@ func extractTools(destDir string) error {
 		return nil // already up to date
 	}
 
-	entries, err := fs.ReadDir(toolsFS, toolsDir)
+	entries, err := platformEntries()
 	if err != nil {
 		return fmt.Errorf("read embedded tools: %w", err)
 	}
 
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".gz") {
+		name, ok := toolNameForEntry(entry.Name())
+		if !ok {
 			continue
 		}
-
-		name := strings.TrimSuffix(entry.Name(), ".gz")
 		destPath := filepath.Join(destDir, name)
 
 		if err := extractGzip(toolsDir+"/"+entry.Name(), destPath); err != nil {
@@ -106,7 +106,7 @@ func extractTools(destDir string) error {
 // fingerprint returns a quick identifier based on embedded file names and sizes.
 // Changes when tool versions are bumped (different binary sizes).
 func fingerprint() string {
-	entries, err := fs.ReadDir(toolsFS, toolsDir)
+	entries, err := platformEntries()
 	if err != nil {
 		return ""
 	}
@@ -117,6 +117,30 @@ func fingerprint() string {
 		}
 	}
 	return b.String()
+}
+
+func platformEntries() ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(toolsFS, toolsDir)
+	if err != nil {
+		return nil, err
+	}
+	var filtered []fs.DirEntry
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if _, ok := toolNameForEntry(entry.Name()); ok {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered, nil
+}
+
+func toolNameForEntry(entry string) (string, bool) {
+	if !strings.HasSuffix(entry, ".gz") {
+		return "", false
+	}
+	return strings.TrimSuffix(entry, ".gz"), true
 }
 
 func extractGzip(srcPath, destPath string) error {
