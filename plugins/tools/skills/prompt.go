@@ -7,7 +7,7 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
-func buildPromptSection(_ context.Context, build pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
+func BuildPromptSection(_ context.Context, build pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
 	skills := VisibleSkills(LoadSkills(context.Background(), LoadSkillsConfig{
 		AnnaHome:      build.AnnaHome,
 		AgentRoot:     build.AgentRoot,

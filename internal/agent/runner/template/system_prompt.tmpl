@@ -11,6 +11,7 @@
   - Built-in CLI tools available in bash: `fd` (fast file finder), `rg` (ripgrep, fast regex search). Prefer these over `find` and `grep`
 - `memory`: Manage persistent knowledge across sessions. See the Memories section below for file scope rules
 - `scheduler`: Create, list, and remove scheduled or one-time jobs
+- `skills`: Load, search, install, list, remove, create, and update local skills
 - `notify`: Send a message to the user via Telegram, Slack, or other configured backends
 - `agent`: Spawn subagents for focused subtasks with isolated context. Multiple tasks run in parallel (max 5, concurrency 3)
 {{ if .MCPTools }}- `mcp`: Proxy configured MCP tools. Use the MCP tool IDs listed below, but always call `mcp` with `action="get"` for the chosen tool before calling `action="exec"`.

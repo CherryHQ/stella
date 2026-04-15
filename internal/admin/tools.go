@@ -20,7 +20,7 @@ type toolJSON struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"input_schema,omitempty"`
-	Category    string         `json:"category"` // "builtin", "shared", or "extra"
+	Category    string         `json:"category"` // "builtin" or "extra"
 }
 
 func defToJSON(def pkgtools.Definition, category string) toolJSON {
@@ -49,14 +49,14 @@ func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 	// Agent tool (always present).
 	tools = append(tools, defToJSON(agenttool.AgentDefinition(nil), "builtin"))
 
-	// Shared tools (scheduler, memory, skills).
-	for _, def := range s.sharedToolDefinitions() {
-		tools = append(tools, defToJSON(def, "shared"))
+	// Builtin tools (scheduler, memory, skills).
+	for _, def := range s.builtinToolDefinitions() {
+		tools = append(tools, defToJSON(def, "builtin"))
 	}
 
 	sort.Slice(tools, func(i, j int) bool {
 		if tools[i].Category != tools[j].Category {
-			order := map[string]int{"builtin": 0, "shared": 1, "extra": 2}
+			order := map[string]int{"builtin": 0, "extra": 1}
 			return order[tools[i].Category] < order[tools[j].Category]
 		}
 		return tools[i].Name < tools[j].Name
@@ -65,9 +65,9 @@ func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, tools)
 }
 
-// sharedToolDefinitions returns the canonical definitions from each tool
+// builtinToolDefinitions returns the canonical definitions from each tool
 // package. The memory tool definition is built dynamically from the provider.
-func (s *Server) sharedToolDefinitions() []pkgtools.Definition {
+func (s *Server) builtinToolDefinitions() []pkgtools.Definition {
 	defs := []pkgtools.Definition{
 		scheduler.SchedulerDefinition(),
 		skillstool.SkillsDefinition(),

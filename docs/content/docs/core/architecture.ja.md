@@ -190,4 +190,4 @@ Agent notify tool      --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
 Scheduler job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
 ```
 
-ディスパッチャーはセットアップの早い段階で作成されますが、バックエンドはゲートウェイサービスの開始時に後で登録されます。PoolManagerは、`ExtraToolsFactory`を介してエージェントごとの通知ツール注入をワイヤするために使用されます。詳細については、[notification-system.md](/docs/features/notification-system)を参照してください。
+ディスパッチャーはセットアップの早い段階で作成されますが、バックエンドはゲートウェイサービスの開始時に後で登録されます。PoolManagerは、`BuiltinToolsFactory`を介してエージェントごとの通知ツール注入をワイヤし、通知を常時有効なビルトインツール集合に保ちながら、外部ツールはプラグイン管理のままにします。詳細については、[notification-system.md](/docs/features/notification-system)を参照してください。

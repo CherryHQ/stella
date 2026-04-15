@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
@@ -13,6 +14,7 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
+	skillstool "github.com/vaayne/anna/plugins/tools/skills"
 )
 
 // NewRunnerFactory creates a runner.NewRunnerFunc for a given config snapshot.
@@ -23,7 +25,7 @@ import (
 //
 // Hooks are not part of the factory — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
-func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginToolsBuilder PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle) (runner.NewRunnerFunc, error) {
+func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginToolsBuilder PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle) (runner.NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
 		return func(ctx context.Context, params runner.RunnerParams) (runner.Runner, error) {
@@ -62,18 +64,22 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 			if promptToolsFn != nil {
 				promptTools, _ = promptToolsFn(ctx)
 			}
+			homeDir, _ := os.UserHomeDir()
+			promptBuild := pkgplugins.SystemPromptContext{
+				AnnaHome:    config.AnnaHome(),
+				HomeDir:     homeDir,
+				AgentRoot:   snap.Workspace,
+				ProjectRoot: "",
+				UserID:      params.UserID,
+				AgentID:     params.AgentID,
+				UserRoot:    userRoot,
+			}
 			var promptSections []pkgplugins.SystemPromptSection
 			if promptSectionsFn != nil {
-				homeDir, _ := os.UserHomeDir()
-				promptSections, _ = promptSectionsFn(ctx, pkgplugins.SystemPromptContext{
-					AnnaHome:    config.AnnaHome(),
-					HomeDir:     homeDir,
-					AgentRoot:   snap.Workspace,
-					ProjectRoot: "",
-					UserID:      params.UserID,
-					AgentID:     params.AgentID,
-					UserRoot:    userRoot,
-				})
+				promptSections, _ = promptSectionsFn(ctx, promptBuild)
+			}
+			if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+				promptSections = append(promptSections, skillsSection)
 			}
 
 			// Build the full system prompt per-session with profile from memory provider.
@@ -95,6 +101,15 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 				hookPlugins = params.HooksFn()
 			}
 
+			runnerTools := append([]tools.Tool{}, builtinTools...)
+			runnerTools = append(runnerTools, skillstool.NewTool(
+				config.AnnaHome(),
+				snap.Workspace,
+				"",
+				filepath.Join(userRoot, ".agents", "skills"),
+				nil,
+			))
+
 			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
 				API:            apiName,
 				Model:          modelID,
@@ -104,7 +119,7 @@ func NewRunnerFactory(snap *config.Snapshot, extraTools []tools.Tool, pluginTool
 				BaseURL:        creds.BaseURL,
 				System:         system,
 				PromptSections: promptSections,
-				ExtraTools:     extraTools,
+				ExtraTools:     runnerTools,
 				PluginTools:    pluginToolsBuilder,
 				UserRoot:       userRoot,
 				Sandbox:        snap.Sandbox,
