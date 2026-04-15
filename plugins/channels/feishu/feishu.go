@@ -373,17 +373,3 @@ func senderIDsFromUserID(userID *larkim.UserId) []string {
 	}
 	return feishuSenderIDs(derefStr(userID.UnionId), derefStr(userID.OpenId))
 }
-
-// cancelPatterns lists the text patterns that trigger abort.
-var cancelPatterns = []string{"cancel", "stop", "abort", "取消", "停止"}
-
-// isCancelText returns true if the text matches a cancel pattern.
-func isCancelText(text string) bool {
-	t := strings.TrimSpace(strings.ToLower(text))
-	for _, p := range cancelPatterns {
-		if t == p {
-			return true
-		}
-	}
-	return false
-}

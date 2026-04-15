@@ -1117,30 +1117,3 @@ func (m *mockHandler) ListModels() []channel.ModelOption {
 func (m *mockHandler) SwitchModel(_, _ string) error {
 	return m.switchErr
 }
-
-// --- isCancelText ---
-
-func TestIsCancelTextMatches(t *testing.T) {
-	tests := []struct {
-		text string
-		want bool
-	}{
-		{"cancel", true},
-		{"Cancel", true},
-		{"CANCEL", true},
-		{"stop", true},
-		{"abort", true},
-		{"取消", true},
-		{"停止", true},
-		{"  cancel  ", true},
-		{"hello", false},
-		{"cancel please", false},
-		{"", false},
-	}
-	for _, tc := range tests {
-		got := isCancelText(tc.text)
-		if got != tc.want {
-			t.Errorf("isCancelText(%q) = %v, want %v", tc.text, got, tc.want)
-		}
-	}
-}
