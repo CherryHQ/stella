@@ -85,6 +85,12 @@ func (q *sessionQueue) release(slot *sessionSlot) {
 	slot.refs--
 }
 
+func (s *sessionSlot) clearActiveCancel() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.activeCancel = nil
+}
+
 func (q *sessionQueue) tryDeleteIdle(slot *sessionSlot) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -200,9 +206,7 @@ func (s *sessionSlot) run() {
 			stream, err := req.fn(ctx)
 			if err != nil {
 				cancel()
-				s.mu.Lock()
-				s.activeCancel = nil
-				s.mu.Unlock()
+				s.clearActiveCancel()
 				req.resultC <- queueResult{err: err}
 				continue
 			}
@@ -215,10 +219,7 @@ func (s *sessionSlot) run() {
 
 			<-doneC
 			cancel()
-
-			s.mu.Lock()
-			s.activeCancel = nil
-			s.mu.Unlock()
+			s.clearActiveCancel()
 		case <-timer.C:
 			if s.parent.tryDeleteIdle(s) {
 				return

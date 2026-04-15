@@ -276,6 +276,23 @@ func TestSessionQueue_CallerContextCancelled(t *testing.T) {
 	close(unblock)
 }
 
+func waitForSessionRemoval(t *testing.T, q *sessionQueue, sessionKey string) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		q.mu.Lock()
+		_, ok := q.sessions[sessionKey]
+		q.mu.Unlock()
+		if !ok {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("session %q was not reclaimed after becoming idle", sessionKey)
+}
+
 func TestSessionQueue_ReclaimsIdleSlot(t *testing.T) {
 	q := newSessionQueueWithIdleTimeout(20 * time.Millisecond)
 
@@ -289,18 +306,7 @@ func TestSessionQueue_ReclaimsIdleSlot(t *testing.T) {
 	}
 	close(doneC)
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		q.mu.Lock()
-		_, ok := q.sessions["sess-idle"]
-		q.mu.Unlock()
-		if !ok {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	t.Fatal("session slot was not reclaimed after becoming idle")
+	waitForSessionRemoval(t, q, "sess-idle")
 }
 
 func TestSessionQueue_RecreatesSlotAfterIdleCleanup(t *testing.T) {
@@ -323,23 +329,7 @@ func TestSessionQueue_RecreatesSlotAfterIdleCleanup(t *testing.T) {
 		t.Fatalf("first enqueue: %v", err)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		q.mu.Lock()
-		_, ok := q.sessions["sess-recreate"]
-		q.mu.Unlock()
-		if !ok {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	q.mu.Lock()
-	_, ok := q.sessions["sess-recreate"]
-	q.mu.Unlock()
-	if ok {
-		t.Fatal("expected session slot to be reclaimed before recreation")
-	}
+	waitForSessionRemoval(t, q, "sess-recreate")
 
 	if err := runOnce("sess-recreate"); err != nil {
 		t.Fatalf("second enqueue: %v", err)
