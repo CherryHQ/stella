@@ -128,8 +128,8 @@ func TestRemoveSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewTool("/tmp/anna", filepath.Join(dir, ".agents"), dir, "", nil)
-	result, err := tool.remove(context.Background(), map[string]any{"name": "my-skill"})
+	tool := NewTool("/tmp/anna", filepath.Join(dir, ".agents"), dir, filepath.Join(dir, ".agents", "skills"), nil)
+	result, err := tool.remove(context.Background(), map[string]any{"name": "my-skill", "scope": "user"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestInstallMissingSource(t *testing.T) {
 	}
 }
 
-func TestInstallFromLocalDirViaTool(t *testing.T) {
+func TestInstallFromLocalDirViaToolDefaultsToUserScope(t *testing.T) {
 	srcDir := t.TempDir()
 	skillDir := filepath.Join(srcDir, "test-skill")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
@@ -173,23 +173,98 @@ description: Test
 	}
 
 	projectDir := t.TempDir()
-	workspace := filepath.Join(projectDir, ".agents")
-	if err := os.MkdirAll(filepath.Join(workspace, "skills"), 0o755); err != nil {
+	userRoot := filepath.Join(t.TempDir(), "users", "7")
+	userSkillsDir := filepath.Join(userRoot, ".agents", "skills")
+	if err := os.MkdirAll(userSkillsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	tool := NewTool("/tmp/anna", workspace, projectDir, "", nil)
+	tool := NewTool("/tmp/anna", filepath.Join(projectDir, ".agents"), projectDir, userSkillsDir, nil)
 	result, err := tool.install(context.Background(), map[string]any{"source": srcDir})
 	if err != nil {
 		t.Fatalf("install error: %v", err)
 	}
-	if result == "" {
-		t.Error("expected non-empty result")
+	if !strings.Contains(result, "scope=user") {
+		t.Fatalf("expected user scope in result, got %q", result)
 	}
 
-	installed := filepath.Join(workspace, "skills", "test-skill", "SKILL.md")
+	installed := filepath.Join(userSkillsDir, "test-skill", "SKILL.md")
 	if _, err := os.Stat(installed); err != nil {
-		t.Fatalf("installed SKILL.md not found: %v", err)
+		t.Fatalf("installed SKILL.md not found in user scope: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".agents", "skills", "test-skill")); !os.IsNotExist(err) {
+		t.Fatal("skill should not be installed into project scope by default")
+	}
+}
+
+func TestInstallFromLocalDirViaToolProjectScope(t *testing.T) {
+	srcDir := t.TempDir()
+	skillDir := filepath.Join(srcDir, "test-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: test-skill
+description: Test
+---
+# Test
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	projectDir := t.TempDir()
+	userRoot := filepath.Join(t.TempDir(), "users", "7")
+	userSkillsDir := filepath.Join(userRoot, ".agents", "skills")
+	if err := os.MkdirAll(userSkillsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewTool("/tmp/anna", filepath.Join(projectDir, ".agents"), projectDir, userSkillsDir, nil)
+	result, err := tool.install(context.Background(), map[string]any{"source": srcDir, "scope": "project"})
+	if err != nil {
+		t.Fatalf("install error: %v", err)
+	}
+	if !strings.Contains(result, "scope=project") {
+		t.Fatalf("expected project scope in result, got %q", result)
+	}
+
+	installed := filepath.Join(projectDir, ".agents", "skills", "test-skill", "SKILL.md")
+	if _, err := os.Stat(installed); err != nil {
+		t.Fatalf("installed SKILL.md not found in project scope: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(userSkillsDir, "test-skill")); !os.IsNotExist(err) {
+		t.Fatal("skill should not be installed into user scope when project scope is requested")
+	}
+}
+
+func TestInstallProjectScopeRequiresProjectRoot(t *testing.T) {
+	srcDir := t.TempDir()
+	skillDir := filepath.Join(srcDir, "test-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: test-skill
+description: Test
+---
+# Test
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	userRoot := filepath.Join(t.TempDir(), "users", "7")
+	userSkillsDir := filepath.Join(userRoot, ".agents", "skills")
+	if err := os.MkdirAll(userSkillsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewTool("/tmp/anna", t.TempDir(), "", userSkillsDir, nil)
+	_, err := tool.install(context.Background(), map[string]any{"source": srcDir, "scope": "project"})
+	if err == nil {
+		t.Fatal("expected error when project scope is requested without ProjectRoot")
+	}
+	if !strings.Contains(err.Error(), "ProjectRoot") {
+		t.Fatalf("expected ProjectRoot error, got %v", err)
 	}
 }
 
@@ -247,8 +322,8 @@ func TestRemoveSingleCharName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewTool("/tmp/anna", filepath.Join(dir, ".agents"), dir, "", nil)
-	_, err := tool.remove(context.Background(), map[string]any{"name": "x"})
+	tool := NewTool("/tmp/anna", filepath.Join(dir, ".agents"), dir, filepath.Join(dir, ".agents", "skills"), nil)
+	_, err := tool.remove(context.Background(), map[string]any{"name": "x", "scope": "user"})
 	if err != nil {
 		t.Fatalf("unexpected error removing single-char skill: %v", err)
 	}
@@ -347,29 +422,39 @@ description: User-specific skill
 	}
 }
 
-func TestAgentLevelToolBackwardCompat(t *testing.T) {
+func TestTargetSkillsDirDefaultsToUserScope(t *testing.T) {
 	base := t.TempDir()
 	agentWS := filepath.Join(base, "workspaces", "agent-1")
-	if err := os.MkdirAll(filepath.Join(agentWS, "skills"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	userSkillsDir := filepath.Join(agentWS, "users", "7", ".agents", "skills")
 
-	tool := NewTool("/tmp/anna", agentWS, "", "", nil)
-	got := tool.skillsDir()
-	want := filepath.Join(agentWS, "skills")
-	if got != want {
-		t.Errorf("skillsDir() = %q, want %q", got, want)
+	tool := NewTool("/tmp/anna", agentWS, filepath.Join(base, "project"), userSkillsDir, nil)
+	scope, got, err := tool.targetSkillsDir(context.Background(), "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if scope != skillScopeUser {
+		t.Fatalf("scope = %q, want %q", scope, skillScopeUser)
+	}
+	if got != userSkillsDir {
+		t.Errorf("targetSkillsDir() = %q, want %q", got, userSkillsDir)
 	}
 }
 
-func TestPerUserToolSkillsDir(t *testing.T) {
+func TestTargetSkillsDirProjectScope(t *testing.T) {
 	base := t.TempDir()
 	agentWS := filepath.Join(base, "workspaces", "agent-1")
+	projectRoot := filepath.Join(base, "project")
 
-	tool := NewTool("/tmp/anna", agentWS, "", filepath.Join(agentWS, "users", "7", ".agents", "skills"), nil)
-	got := tool.skillsDir()
-	want := filepath.Join(agentWS, "users", "7", ".agents", "skills")
+	tool := NewTool("/tmp/anna", agentWS, projectRoot, filepath.Join(agentWS, "users", "7", ".agents", "skills"), nil)
+	scope, got, err := tool.targetSkillsDir(context.Background(), "project")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if scope != skillScopeProject {
+		t.Fatalf("scope = %q, want %q", scope, skillScopeProject)
+	}
+	want := filepath.Join(projectRoot, ".agents", "skills")
 	if got != want {
-		t.Errorf("skillsDir() = %q, want %q", got, want)
+		t.Errorf("targetSkillsDir() = %q, want %q", got, want)
 	}
 }
