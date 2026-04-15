@@ -29,6 +29,7 @@ type Client struct {
 
 	mu          sync.Mutex
 	writeMu     sync.Mutex
+	stderrMu    sync.RWMutex
 	cmd         *exec.Cmd
 	stdin       io.WriteCloser
 	stdout      io.ReadCloser
@@ -179,7 +180,9 @@ func (c *Client) Start(ctx context.Context) error {
 	c.readerErr = nil
 	c.processDone = processDone
 	c.pending = make(map[uint64]chan responseWrapper)
+	c.stderrMu.Lock()
 	c.stderrBuf.Reset()
+	c.stderrMu.Unlock()
 	c.mu.Unlock()
 
 	go c.readLoop(stdout)
@@ -188,6 +191,7 @@ func (c *Client) Start(ctx context.Context) error {
 
 	if err := c.handshake(ctx); err != nil {
 		recordTraceError(span, err)
+		diagnostics := c.snapshotDiagnostics()
 		slog.Warn("boxsh client handshake failed",
 			"component", "boxsh_client",
 			"binary", c.binaryPath,
@@ -197,9 +201,9 @@ func (c *Client) Start(ctx context.Context) error {
 			"cwd", c.sessionConfig.Cwd,
 			"readonly_dirs", uniqueCleanAbsPaths(c.sessionConfig.ReadOnlyDirs),
 			"network_mode", c.sessionConfig.NetworkMode,
-			"wait_err", c.waitErr,
-			"reader_err", c.readerErr,
-			"stderr", c.Stderr(),
+			"wait_err", diagnostics.waitErr,
+			"reader_err", diagnostics.readerErr,
+			"stderr", diagnostics.stderr,
 			"error", err,
 		)
 		_ = c.Close()
@@ -378,6 +382,8 @@ func (c *Client) captureStderr(stderr io.Reader) {
 	if stderr == nil {
 		return
 	}
+	c.stderrMu.Lock()
+	defer c.stderrMu.Unlock()
 	_, _ = io.Copy(&c.stderrBuf, stderr)
 }
 
@@ -535,8 +541,28 @@ func (c *Client) terminalErrLocked() error {
 	return fmt.Errorf("boxshclient: process exited")
 }
 
+type diagnosticsSnapshot struct {
+	waitErr   error
+	readerErr error
+	stderr    string
+}
+
+func (c *Client) snapshotDiagnostics() diagnosticsSnapshot {
+	c.mu.Lock()
+	waitErr := c.waitErr
+	readerErr := c.readerErr
+	c.mu.Unlock()
+	return diagnosticsSnapshot{
+		waitErr:   waitErr,
+		readerErr: readerErr,
+		stderr:    c.Stderr(),
+	}
+}
+
 // Stderr returns buffered stderr output from the boxsh process.
 func (c *Client) Stderr() string {
+	c.stderrMu.RLock()
+	defer c.stderrMu.RUnlock()
 	return strings.TrimSpace(c.stderrBuf.String())
 }
 
