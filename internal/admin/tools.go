@@ -49,8 +49,8 @@ func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 	// Agent tool (always present).
 	tools = append(tools, defToJSON(agenttool.AgentDefinition(nil), "builtin"))
 
-	// Builtin shared tools (scheduler, memory, skills).
-	for _, def := range s.sharedToolDefinitions() {
+	// Builtin tools (scheduler, memory, skills).
+	for _, def := range s.builtinToolDefinitions() {
 		tools = append(tools, defToJSON(def, "builtin"))
 	}
 
@@ -65,9 +65,9 @@ func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, tools)
 }
 
-// sharedToolDefinitions returns the canonical definitions from each tool
+// builtinToolDefinitions returns the canonical definitions from each tool
 // package. The memory tool definition is built dynamically from the provider.
-func (s *Server) sharedToolDefinitions() []pkgtools.Definition {
+func (s *Server) builtinToolDefinitions() []pkgtools.Definition {
 	defs := []pkgtools.Definition{
 		scheduler.SchedulerDefinition(),
 		skillstool.SkillsDefinition(),

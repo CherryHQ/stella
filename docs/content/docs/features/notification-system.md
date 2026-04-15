@@ -119,8 +119,8 @@ The LLM can call it with:
 ```
 setup()
   +-- Create Dispatcher
-  +-- Create NotifyTool(dispatcher) -> extraTools
-  +-- Create runner factory with extraTools
+  +-- Create NotifyTool(dispatcher) -> builtinTools
+  +-- Create runner factory with builtinTools
   +-- Create PoolManager
 
 runGateway()

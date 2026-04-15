@@ -119,8 +119,8 @@ LLMは次のように呼び出すことができます。
 ```
 setup()
   +-- Create Dispatcher
-  +-- Create NotifyTool(dispatcher) -> extraTools
-  +-- Create runner factory with extraTools
+  +-- Create NotifyTool(dispatcher) -> builtinTools
+  +-- Create runner factory with builtinTools
   +-- Create PoolManager
 
 runGateway()
