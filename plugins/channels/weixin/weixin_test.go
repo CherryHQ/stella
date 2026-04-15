@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strconv"
 	"strings"
@@ -14,6 +17,24 @@ import (
 
 	"github.com/vaayne/anna/pkg/channel"
 )
+
+type captureHandler struct {
+	handleIncomingFn func(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error)
+}
+
+func (h captureHandler) HandleIncoming(ctx context.Context, msg channel.IncomingMessage, cmd, args string) (string, bool, *channel.ChatStream, error) {
+	if h.handleIncomingFn != nil {
+		return h.handleIncomingFn(ctx, msg, cmd, args)
+	}
+	return "", false, nil, nil
+}
+
+func (captureHandler) ListModels() []channel.ModelOption { return nil }
+func (captureHandler) SwitchModel(string, string) error  { return nil }
+func (captureHandler) ListAgents(context.Context, channel.IncomingMessage) ([]channel.AgentInfo, string, error) {
+	return nil, "", nil
+}
+func (captureHandler) SwitchAgent(context.Context, channel.IncomingMessage, string) error { return nil }
 
 func TestRandomWechatUIN(t *testing.T) {
 	t.Parallel()
@@ -44,6 +65,48 @@ func TestRandomWechatUIN(t *testing.T) {
 	// With 100 random uint32 values, collisions should be essentially impossible.
 	if len(seen) < 95 {
 		t.Errorf("too many collisions: only %d unique values out of 100", len(seen))
+	}
+}
+
+func TestHandleTextAbortDelegatesToCoordinator(t *testing.T) {
+	var gotCmd, gotArgs, gotReply string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ilink/bot/sendmessage" {
+			t.Fatalf("path = %q, want /ilink/bot/sendmessage", r.URL.Path)
+		}
+		var req SendMessageRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if len(req.Msg.ItemList) != 1 || req.Msg.ItemList[0].TextItem == nil {
+			t.Fatalf("unexpected reply payload: %+v", req.Msg.ItemList)
+		}
+		gotReply = req.Msg.ItemList[0].TextItem.Text
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ret":0}`))
+	}))
+	defer server.Close()
+
+	bot := &Bot{
+		handler: captureHandler{handleIncomingFn: func(_ context.Context, _ channel.IncomingMessage, cmd, args string) (string, bool, *channel.ChatStream, error) {
+			gotCmd, gotArgs = cmd, args
+			return "Aborted.", true, nil, nil
+		}},
+		client: NewClient(server.URL, "", "token"),
+		ctx:    context.Background(),
+	}
+	bot.contextTokens.Store("user-1", "ctx-token")
+
+	bot.handleText(WeixinMessage{FromUserID: "user-1"}, "/abort")
+
+	if gotCmd != "/abort" {
+		t.Fatalf("cmd = %q, want /abort", gotCmd)
+	}
+	if gotArgs != "" {
+		t.Fatalf("args = %q, want empty", gotArgs)
+	}
+	if gotReply != "Aborted." {
+		t.Fatalf("reply = %q, want %q", gotReply, "Aborted.")
 	}
 }
 

@@ -1091,14 +1091,40 @@ func TestOnReactionSelfReaction(t *testing.T) {
 	}
 }
 
+func TestHandleIncomingAbortDelegatesToCoordinator(t *testing.T) {
+	var gotCmd, gotArgs, reply string
+	bot := &Bot{handler: &mockHandler{handleIncomingFn: func(_ context.Context, _ channel.IncomingMessage, cmd, args string) (string, bool, *channel.ChatStream, error) {
+		gotCmd, gotArgs = cmd, args
+		return "Aborted.", true, nil, nil
+	}}}
+
+	bot.handleIncoming(channel.IncomingMessage{SenderID: "user-1"}, "/abort", "", "user-1", "chat-1", "msg-1", "", func(resp string) {
+		reply = resp
+	})
+
+	if gotCmd != "/abort" {
+		t.Fatalf("cmd = %q, want /abort", gotCmd)
+	}
+	if gotArgs != "" {
+		t.Fatalf("args = %q, want empty", gotArgs)
+	}
+	if reply != "Aborted." {
+		t.Fatalf("reply = %q, want %q", reply, "Aborted.")
+	}
+}
+
 // --- mockHandler for tests ---
 
 type mockHandler struct {
-	models    []channel.ModelOption
-	switchErr error
+	handleIncomingFn func(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error)
+	models           []channel.ModelOption
+	switchErr        error
 }
 
-func (m *mockHandler) HandleIncoming(_ context.Context, _ channel.IncomingMessage, _, _ string) (string, bool, *channel.ChatStream, error) {
+func (m *mockHandler) HandleIncoming(ctx context.Context, msg channel.IncomingMessage, cmd, args string) (string, bool, *channel.ChatStream, error) {
+	if m.handleIncomingFn != nil {
+		return m.handleIncomingFn(ctx, msg, cmd, args)
+	}
 	return "", false, nil, nil
 }
 

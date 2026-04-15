@@ -155,9 +155,9 @@ func downloadImage(ctx context.Context, rawURL string) ([]byte, string, error) {
 	return data, mimeType, nil
 }
 
-// handleIncoming delegates to the coordinator via HandleIncoming.
-// The coordinator handles shared commands (/start, /new, /compact, /whoami, /link);
-// if not a command, it streams a chat response.
+// handleIncoming delegates shared command handling, including /abort,
+// to the coordinator via HandleIncoming. If the message is not handled as a
+// command, the coordinator returns a chat stream for this channel to render.
 func (b *Bot) handleIncoming(authorID, groupID, msgID string, incoming channel.IncomingMessage, cmd, args string, scope messageScope) {
 	replyTarget := authorID
 	if groupID != "" {
