@@ -876,77 +876,6 @@ func TestThreadReplyTarget(t *testing.T) {
 	}
 }
 
-// --- streamKey ---
-
-func TestStreamKeyNoThread(t *testing.T) {
-	got := streamKey("oc_123", "")
-	if got != "oc_123" {
-		t.Errorf("streamKey = %q", got)
-	}
-}
-
-func TestStreamKeyWithThread(t *testing.T) {
-	got := streamKey("oc_123", "om_root1")
-	if got != "oc_123:thread:om_root1" {
-		t.Errorf("streamKey = %q", got)
-	}
-}
-
-// --- isCancelText ---
-
-func TestIsCancelTextMatches(t *testing.T) {
-	tests := []struct {
-		text string
-		want bool
-	}{
-		{"cancel", true},
-		{"Cancel", true},
-		{"CANCEL", true},
-		{"stop", true},
-		{"abort", true},
-		{"取消", true},
-		{"停止", true},
-		{"  cancel  ", true},
-		{"hello", false},
-		{"cancel please", false},
-		{"", false},
-	}
-	for _, tc := range tests {
-		got := isCancelText(tc.text)
-		if got != tc.want {
-			t.Errorf("isCancelText(%q) = %v, want %v", tc.text, got, tc.want)
-		}
-	}
-}
-
-// --- cancelStream ---
-
-func TestCancelStreamRegistered(t *testing.T) {
-	bot := &Bot{activeStreams: make(map[string]context.CancelFunc)}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	bot.registerStream("key1", cancel)
-
-	if !bot.cancelStream("key1") {
-		t.Error("expected cancel to succeed")
-	}
-	if ctx.Err() == nil {
-		t.Error("context should be cancelled")
-	}
-
-	// Second cancel should return false.
-	if bot.cancelStream("key1") {
-		t.Error("expected second cancel to return false")
-	}
-}
-
-func TestCancelStreamNotRegistered(t *testing.T) {
-	bot := &Bot{activeStreams: make(map[string]context.CancelFunc)}
-	if bot.cancelStream("nonexistent") {
-		t.Error("expected cancel to return false for unknown key")
-	}
-}
-
 // --- Phase 5b: CardKit 2.0 streaming ---
 
 func TestThinkingContent(t *testing.T) {
@@ -1162,14 +1091,40 @@ func TestOnReactionSelfReaction(t *testing.T) {
 	}
 }
 
+func TestHandleIncomingAbortDelegatesToCoordinator(t *testing.T) {
+	var gotCmd, gotArgs, reply string
+	bot := &Bot{handler: &mockHandler{handleIncomingFn: func(_ context.Context, _ channel.IncomingMessage, cmd, args string) (string, bool, *channel.ChatStream, error) {
+		gotCmd, gotArgs = cmd, args
+		return "Aborted.", true, nil, nil
+	}}}
+
+	bot.handleIncoming(channel.IncomingMessage{SenderID: "user-1"}, "/abort", "", "user-1", "chat-1", "msg-1", "", func(resp string) {
+		reply = resp
+	})
+
+	if gotCmd != "/abort" {
+		t.Fatalf("cmd = %q, want /abort", gotCmd)
+	}
+	if gotArgs != "" {
+		t.Fatalf("args = %q, want empty", gotArgs)
+	}
+	if reply != "Aborted." {
+		t.Fatalf("reply = %q, want %q", reply, "Aborted.")
+	}
+}
+
 // --- mockHandler for tests ---
 
 type mockHandler struct {
-	models    []channel.ModelOption
-	switchErr error
+	handleIncomingFn func(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error)
+	models           []channel.ModelOption
+	switchErr        error
 }
 
-func (m *mockHandler) HandleIncoming(_ context.Context, _ channel.IncomingMessage, _, _ string) (string, bool, *channel.ChatStream, error) {
+func (m *mockHandler) HandleIncoming(ctx context.Context, msg channel.IncomingMessage, cmd, args string) (string, bool, *channel.ChatStream, error) {
+	if m.handleIncomingFn != nil {
+		return m.handleIncomingFn(ctx, msg, cmd, args)
+	}
 	return "", false, nil, nil
 }
 

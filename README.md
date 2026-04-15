@@ -94,7 +94,7 @@ Five channels, all sharing the same memory:
 
 You can run multiple bot instances for the same platform. Leave a channel unbound to let users switch agents with `/agent`, or bind a channel instance to a dedicated agent so that bot always routes to that agent.
 
-Every channel supports `/new`, `/compact`, `/model`, `/agent`, `/whoami`, model switching, access control, and image input.
+Every channel supports `/new`, `/compact`, `/abort`, `/model`, `/agent`, `/whoami`, model switching, access control, and image input. Channel messages are processed one-at-a-time per session, so later messages wait for the current turn to finish or be aborted.
 
 Lark workspace automation is no longer built in as `feishu_*` tools. If you want those workflows, install a `lark-cli` skill yourself and use it with `lark-cli` for calendar, docs, tasks, sheets, drive, and other workspace actions.
 
