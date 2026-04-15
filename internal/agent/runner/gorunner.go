@@ -35,7 +35,6 @@ type GoRunnerConfig struct {
 	Model          string // e.g. "claude-sonnet-4-20250514"
 	APIKey         string
 	BaseURL        string // optional provider base URL override
-	WorkDir        string // working directory for tool execution; defaults to UserRoot when empty
 	AgentRoot      string // agent root directory
 	AnnaHome       string // anna home directory (e.g. ~/.anna)
 	ProjectRoot    string // optional project root for project-aware tools and prompt/context loading

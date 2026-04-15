@@ -92,9 +92,6 @@ func withTestRunnerPaths(t *testing.T, cfg GoRunnerConfig) GoRunnerConfig {
 	cfg.AnnaHome = annaHome
 	cfg.AgentRoot = workspace
 	cfg.UserRoot = userRoot
-	if cfg.WorkDir == "" {
-		cfg.WorkDir = userRoot
-	}
 	return cfg
 }
 
@@ -452,7 +449,6 @@ func (f *sequentialFakeProvider) StreamSimple(goCtx context.Context, _ ai.Model,
 }
 
 func TestChatToolUseLoop(t *testing.T) {
-	dir := t.TempDir()
 	fp := &sequentialFakeProvider{
 		api: "anthropic",
 		rounds: [][]ai.AssistantEvent{
@@ -474,7 +470,6 @@ func TestChatToolUseLoop(t *testing.T) {
 		APIKey:    "test-key",
 		Providers: testProviderRegistryBuilder,
 	})
-	cfg.WorkDir = filepath.Join(cfg.UserRoot, filepath.Base(dir))
 	r, err := NewGoRunner(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewGoRunner: %v", err)

@@ -30,7 +30,6 @@ func TestResolveSessionAutoFallsBackToLocalWhenBoxshUnsupported(t *testing.T) {
 	rs, err := resolveSession(context.Background(), GoRunnerConfig{
 		AgentRoot: workspace,
 		UserRoot:  userRoot,
-		WorkDir:   ".",
 		Sandbox: config.SandboxConfig{
 			Backend: config.SandboxBackendAuto,
 		},
@@ -67,34 +66,11 @@ func TestResolveRunnerPathsDefaultsWorkDirToUserRoot(t *testing.T) {
 	}
 
 	paths := resolveRunnerPaths(cfg)
-	if paths.WorkDir != cfg.UserRoot {
-		t.Fatalf("WorkDir = %q, want %q", paths.WorkDir, cfg.UserRoot)
+	if got := resolveSandboxWorkingDir(cfg, cfg.UserRoot); got != cfg.UserRoot {
+		t.Fatalf("resolveSandboxWorkingDir() = %q, want %q", got, cfg.UserRoot)
 	}
-}
-
-func TestResolveSandboxPathsJoinsRelativeWorkDirToUserRoot(t *testing.T) {
-	cfg := GoRunnerConfig{
-		AnnaHome: "/anna",
-		UserRoot: "/workspace/agent/users/1",
-		WorkDir:  "logs",
-	}
-
-	paths, err := resolveSandboxPaths(cfg)
-	if err != nil {
-		t.Fatalf("resolveSandboxPaths: %v", err)
-	}
-	if want := "/workspace/agent/users/1/logs"; paths.WorkDir != want {
-		t.Fatalf("WorkDir = %q, want %q", paths.WorkDir, want)
-	}
-}
-
-func TestResolveSandboxPathsRejectsWorkDirOutsideUserRoot(t *testing.T) {
-	_, err := resolveSandboxPaths(GoRunnerConfig{
-		UserRoot: "/workspace/agent/users/1",
-		WorkDir:  "/workspace/agent",
-	})
-	if err == nil {
-		t.Fatal("expected error for workdir outside user root")
+	if paths.UserRoot != cfg.UserRoot {
+		t.Fatalf("UserRoot = %q, want %q", paths.UserRoot, cfg.UserRoot)
 	}
 }
 

@@ -3,7 +3,6 @@ package runner
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
@@ -16,12 +15,11 @@ type runnerPaths struct {
 	AgentRoot   string
 	UserRoot    string
 	ProjectRoot string
-	WorkDir     string
 }
 
 // sandboxPaths is the minimal path set sandbox policy creation depends on.
-// Sandbox execution is defined entirely by the user-scoped writable root and a
-// working directory constrained to that root.
+// Sandbox execution is defined entirely by the user-scoped writable root and an
+// internal working directory derived from that root.
 type sandboxPaths struct {
 	AnnaHome string
 	UserRoot string
@@ -38,8 +36,11 @@ func resolveRunnerPaths(cfg GoRunnerConfig) runnerPaths {
 		AgentRoot:   cfg.AgentRoot,
 		UserRoot:    paths.UserRoot,
 		ProjectRoot: cfg.ProjectRoot,
-		WorkDir:     paths.WorkDir,
 	}
+}
+
+func resolveSandboxWorkingDir(cfg GoRunnerConfig, userRoot string) string {
+	return userRoot
 }
 
 func resolveSandboxPaths(cfg GoRunnerConfig) (sandboxPaths, error) {
@@ -55,18 +56,7 @@ func resolveSandboxPaths(cfg GoRunnerConfig) (sandboxPaths, error) {
 	if err != nil {
 		return sandboxPaths{}, fmt.Errorf("resolve user_root: %w", err)
 	}
-	workDir := cfg.WorkDir
-	if workDir == "" {
-		workDir = userRoot
-	}
-	if !filepath.IsAbs(workDir) {
-		workDir = filepath.Join(userRoot, workDir)
-	}
-	workDir = filepath.Clean(workDir)
-
-	if !isWithinPathRoot(userRoot, workDir) {
-		return sandboxPaths{}, fmt.Errorf("work_dir %q must stay within user_root %q", workDir, userRoot)
-	}
+	workDir := resolveSandboxWorkingDir(cfg, userRoot)
 
 	return sandboxPaths{
 		AnnaHome: annaHome,
@@ -122,12 +112,4 @@ func sandboxProcessEnv(paths sandboxPaths) map[string]string {
 		env["ANNA_HOME"] = paths.AnnaHome
 	}
 	return env
-}
-
-func isWithinPathRoot(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return false
-	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
