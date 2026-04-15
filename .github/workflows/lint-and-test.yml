@@ -63,11 +63,9 @@ jobs:
 
       - name: Generate coverage report
         if: github.event_name == 'pull_request'
-        id: coverage-report
         run: |
           TOTAL=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $NF}')
           {
-            echo 'REPORT<<EOF'
             echo "## 📊 Coverage Report"
             echo ""
             echo "**Total coverage: ${TOTAL}**"
@@ -80,15 +78,14 @@ jobs:
             echo '```'
             echo ""
             echo "</details>"
-            echo 'EOF'
-          } >> "$GITHUB_ENV"
+          } > coverage-report.md
 
       - name: Post coverage comment on PR
         if: github.event_name == 'pull_request'
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: coverage-report
-          message: ${{ env.REPORT }}
+          path: coverage-report.md
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
