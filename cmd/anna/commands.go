@@ -139,10 +139,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	schedulerSvc.SetUserJobsEnabled(snap.Scheduler.IsEnabled())
 	phost.SetSchedulerService(newSchedulerServiceAdapter(schedulerSvc, phost.Runtime()))
 
-	var sharedTools []tools.Tool
-	if snap.Scheduler.IsEnabled() {
-		sharedTools = append(sharedTools, scheduler.NewTool(schedulerSvc))
-	}
+	sharedTools := []tools.Tool{scheduler.NewTool(schedulerSvc)}
 
 	// Build memory provider through the plugin host so memory plugins use the same registration path.
 	memoryName := "lcm"
@@ -195,8 +192,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute
 
-	// Create PoolManager with shared tools, plugin builder, and hooks builder.
-	// WithSharedExtraTools sets the always-on core tools (scheduler, memory).
+	// Create PoolManager with built-in shared tools, plugin builder, and hooks builder.
+	// WithSharedExtraTools sets the always-on builtin tools (scheduler, memory).
 	// WithPluginToolsBuilder provides the function for hot-reloadable plugin tools.
 	// WithPluginHooksBuilder provides the function for hot-reloadable hook plugins.
 	toolLifecycle := &coreagent.ToolLifecycle{

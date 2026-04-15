@@ -41,7 +41,7 @@ func init() {
 			PluginID: PluginID,
 			Name:     "skills",
 			Required: true,
-			Build:    buildPromptSection,
+			Build:    BuildPromptSection,
 		})
 	}))
 }
