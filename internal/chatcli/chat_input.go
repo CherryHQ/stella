@@ -8,17 +8,23 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 )
 
-func cliHelpMessage() string {
-	return "Anna CLI commands\n\n" +
-		"/help — Show this help\n" +
-		"/new — Start a fresh local session\n" +
-		"/compact — Compress the current session history\n" +
-		"/model — Switch models\n" +
-		"/quit or /exit — Quit the CLI\n\n" +
-		"Notes\n" +
-		"- Natural-language shortcuts like \"new session\" or \"取消\" are handled in chat channels, not in the local CLI.\n" +
-		"- /agent and /whoami are more useful in Telegram, QQ, and Feishu where chats have remote identities.\n" +
-		"- To stop the CLI immediately, press Ctrl+C."
+const cliHelpMessage = `Anna CLI commands
+
+/help — Show this help
+/new — Start a fresh local session
+/compact — Compress the current session history
+/model — Switch models
+/quit or /exit — Quit the CLI
+
+Notes
+- Natural-language shortcuts like "new session" or "取消" are handled in chat channels, not in the local CLI.
+- /agent and /whoami are more useful in Telegram, QQ, and Feishu where chats have remote identities.
+- To stop the CLI immediately, press Ctrl+C.`
+
+func (m *chatModel) showSystemMessage(message string) {
+	m.history.WriteString(systemStyle.Render(message) + "\n\n")
+	m.viewport.SetContent(m.history.String())
+	m.viewport.GotoBottom()
 }
 
 func (m *chatModel) handleInput(input string) tea.Cmd {
@@ -26,14 +32,10 @@ func (m *chatModel) handleInput(input string) tea.Cmd {
 	case "/quit", "/exit":
 		return tea.Quit
 	case "/abort":
-		m.history.WriteString(systemStyle.Render("[/abort is not available in the local CLI — press Ctrl+C to stop the program]") + "\n\n")
-		m.viewport.SetContent(m.history.String())
-		m.viewport.GotoBottom()
+		m.showSystemMessage("[/abort is not available in the local CLI — press Ctrl+C to stop the program]")
 		return nil
 	case "/help":
-		m.history.WriteString(systemStyle.Render(cliHelpMessage()) + "\n\n")
-		m.viewport.SetContent(m.history.String())
-		m.viewport.GotoBottom()
+		m.showSystemMessage(cliHelpMessage)
 		return nil
 	case "/new":
 		info, err := m.pool.RotateSession(cliChannel)
@@ -60,14 +62,10 @@ func (m *chatModel) handleInput(input string) tea.Cmd {
 		}
 	case "/whoami":
 		userInfo := fmt.Sprintf("Channel: %s\n\nCLI runs locally — use /whoami in Telegram, QQ, or Feishu to get your user ID for notifications.", cliChannel)
-		m.history.WriteString(systemStyle.Render(userInfo) + "\n\n")
-		m.viewport.SetContent(m.history.String())
-		m.viewport.GotoBottom()
+		m.showSystemMessage(userInfo)
 		return nil
 	case "/agent":
-		m.history.WriteString(systemStyle.Render("Agent switching is available in Telegram, QQ, and Feishu channels.\nUse /agent in those channels to list or switch agents.") + "\n\n")
-		m.viewport.SetContent(m.history.String())
-		m.viewport.GotoBottom()
+		m.showSystemMessage("Agent switching is available in Telegram, QQ, and Feishu channels.\nUse /agent in those channels to list or switch agents.")
 		return nil
 	case "/model":
 		m.models = toModelOptions(m.listModels())
