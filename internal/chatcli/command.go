@@ -11,13 +11,14 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
-	{"/agent", "Switch agent"},
+	{"/agent", "Channel-only agent help"},
 	{"/compact", "Compact session history"},
+	{"/exit", "Quit"},
+	{"/help", "Show CLI help"},
 	{"/model", "Switch model"},
 	{"/new", "Start new session"},
-	{"/whoami", "Show your user ID"},
 	{"/quit", "Quit"},
-	{"/exit", "Quit"},
+	{"/whoami", "Show CLI identity info"},
 }
 
 func filterCommands(prefix string) []slashCommand {

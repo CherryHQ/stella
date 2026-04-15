@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
@@ -61,5 +62,24 @@ func TestHandleCommandModel(t *testing.T) {
 	_, ok := HandleCommand(context.Background(), rc, "/model gpt-4", "user1")
 	if ok {
 		t.Error("/model should NOT be handled (left to channels)")
+	}
+}
+
+func TestWelcomeMessageIncludesNaturalLanguagePhrases(t *testing.T) {
+	// Verify the WelcomeMessage explains natural-language shortcuts
+	if !strings.Contains(pkgchannel.WelcomeMessage, "new session") {
+		t.Error("WelcomeMessage should mention 'new session' as natural-language phrase")
+	}
+	if !strings.Contains(pkgchannel.WelcomeMessage, "新会话") {
+		t.Error("WelcomeMessage should mention Chinese examples like '新会话'")
+	}
+	if !strings.Contains(pkgchannel.WelcomeMessage, "取消") {
+		t.Error("WelcomeMessage should mention Chinese abort examples like '取消'")
+	}
+	if !strings.Contains(pkgchannel.WelcomeMessage, "When enabled") {
+		t.Error("WelcomeMessage should clarify that natural-language shortcuts are conditional")
+	}
+	if !strings.Contains(pkgchannel.WelcomeMessage, "If a short phrase is unclear") {
+		t.Error("WelcomeMessage should explain the fallback behavior for unclear phrases")
 	}
 }

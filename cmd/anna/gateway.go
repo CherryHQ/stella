@@ -18,10 +18,13 @@ import (
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
+	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/notify"
+	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/scheduler"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	"github.com/vaayne/anna/pkg/providers"
 	reflectplugin "github.com/vaayne/anna/plugins/reflect"
 	"golang.org/x/sync/errgroup"
 )
@@ -84,6 +87,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// even when the panel is disabled.
 	adminSrv := admin.New(s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
 
+	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
+
 	// Create the coordinator that implements MessageHandler for all channels.
 	coordinator := channel.NewCoordinator(
 		s.poolManager,
@@ -91,6 +96,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		listFn,
 		switchFn,
 		channel.WithCoordinatorAuth(as, engine, linkCodes),
+		channel.WithIntentClassifier(intentClassifier),
 	)
 	if s.channelRuntimeServices != nil {
 		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)
@@ -309,6 +315,27 @@ func browserCommand(url string) *exec.Cmd {
 		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
 	default:
 		return nil
+	}
+}
+
+func newIntentClassifier(store config.Store, ph *pluginhost.Host) *channel.LLMIntentClassifier {
+	if store == nil || ph == nil {
+		return nil
+	}
+	return channel.NewLLMIntentClassifier(
+		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
+			return store.Snapshot(ctx, agentID)
+		},
+		intentClassifierProviderGetterBuilder(ph),
+	)
+}
+
+func intentClassifierProviderGetterBuilder(ph *pluginhost.Host) channel.ProviderGetterBuilder {
+	return func(_ context.Context, providerType string, creds config.ProviderCreds) (providers.ProviderGetter, error) {
+		return ph.BuildProviderRegistry(providerType, map[string]any{
+			"api_key":  creds.APIKey,
+			"base_url": creds.BaseURL,
+		})
 	}
 }
 

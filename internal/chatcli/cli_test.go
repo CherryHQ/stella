@@ -185,3 +185,82 @@ func TestChatModelCtrlCQuits(t *testing.T) {
 		t.Fatalf("expected tea.QuitMsg, got %T", msg)
 	}
 }
+
+func TestChatModelAbort(t *testing.T) {
+	pool := newTestPool(nil)
+	defer func() { _ = pool.Close() }()
+
+	m := initModel(t, pool)
+
+	m.textarea.SetValue("/abort")
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := result.(chatModel)
+
+	if !strings.Contains(updated.history.String(), "abort") {
+		t.Errorf("expected abort message in history, got: %s", updated.history.String())
+	}
+}
+
+func TestChatModelHelp(t *testing.T) {
+	pool := newTestPool(nil)
+	defer func() { _ = pool.Close() }()
+
+	m := initModel(t, pool)
+
+	m.textarea.SetValue("/help")
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated := result.(chatModel)
+
+	history := updated.history.String()
+	if !strings.Contains(history, "Anna CLI commands") {
+		t.Errorf("expected CLI help heading, got: %s", history)
+	}
+	if !strings.Contains(history, "/new") {
+		t.Error("expected /new command in help output")
+	}
+	if !strings.Contains(history, "Natural-language shortcuts") {
+		t.Error("expected CLI help to explain channel-only natural-language shortcuts")
+	}
+	if !strings.Contains(history, "Ctrl+C") {
+		t.Error("expected CLI help to mention Ctrl+C")
+	}
+}
+
+func TestSlashCommandsIncludesHelpAndExcludesAbort(t *testing.T) {
+	cmds := make(map[string]slashCommand)
+	for _, cmd := range slashCommands {
+		cmds[cmd.name] = cmd
+	}
+
+	if _, ok := cmds["/abort"]; ok {
+		t.Error("/abort should not be advertised in CLI completions until it is a real CLI command")
+	}
+	if _, ok := cmds["/help"]; !ok {
+		t.Error("/help should be in slashCommands list")
+	}
+	if _, ok := cmds["/new"]; !ok {
+		t.Error("/new should be in slashCommands list")
+	}
+	if _, ok := cmds["/compact"]; !ok {
+		t.Error("/compact should be in slashCommands list")
+	}
+	if _, ok := cmds["/model"]; !ok {
+		t.Error("/model should be in slashCommands list")
+	}
+	if cmd, ok := cmds["/agent"]; !ok {
+		t.Error("/agent should be in slashCommands list")
+	} else if !strings.Contains(cmd.description, "Channel-only") {
+		t.Errorf("/agent description should explain CLI limitation, got %q", cmd.description)
+	}
+	if cmd, ok := cmds["/whoami"]; !ok {
+		t.Error("/whoami should be in slashCommands list")
+	} else if !strings.Contains(cmd.description, "CLI") {
+		t.Errorf("/whoami description should explain CLI limitation, got %q", cmd.description)
+	}
+	if _, ok := cmds["/quit"]; !ok {
+		t.Error("/quit should be in slashCommands list")
+	}
+	if _, ok := cmds["/exit"]; !ok {
+		t.Error("/exit should be in slashCommands list")
+	}
+}
