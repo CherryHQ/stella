@@ -91,7 +91,7 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 
 	// Try shared commands.
 	if command != "" {
-		// /abort is handled here so it can reach the queue before resolution.
+		// /abort is handled here directly so it can cancel the active message.
 		if command == "/abort" {
 			return c.handleAbort(rc), true, nil, nil
 		}
@@ -135,7 +135,11 @@ func (c *Coordinator) queuedChat(ctx context.Context, rc *ResolvedChat, content 
 		defer close(doneC)
 		defer close(out)
 		for evt := range stream.Events {
-			out <- evt
+			select {
+			case out <- evt:
+			case <-ctx.Done():
+				// Caller stopped reading, just drain the stream to not block the model
+			}
 		}
 	}()
 
@@ -156,7 +160,10 @@ func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content 
 	go func() {
 		defer close(out)
 		for evt := range events {
-			out <- convertEvent(evt)
+			select {
+			case out <- convertEvent(evt):
+			case <-ctx.Done():
+			}
 		}
 	}()
 

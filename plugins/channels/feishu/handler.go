@@ -142,6 +142,12 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	incoming := b.incomingMsg(senderIDs, chatID, chatType, content)
 
+	// Restore support for natural language cancellation commands native to Feishu.
+	if isCancelText(text) {
+		go b.handleIncoming(incoming, "/abort", "", incoming.SenderID, chatID, messageID, rootID, replyFn)
+		return nil
+	}
+
 	// Handle plugin-local commands first.
 	if text != "" {
 		cmd, args := channel.ParseSlashCommand(text)

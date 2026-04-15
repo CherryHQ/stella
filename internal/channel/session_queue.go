@@ -92,6 +92,20 @@ func (q *sessionQueue) Enqueue(
 	case res := <-resultC:
 		return res.stream, res.doneC, res.err
 	case <-ctx.Done():
+		// Wait for the queue worker in the background to send the result.
+		// If it produced a stream, we must clean it up to prevent a slot leak.
+		go func() {
+			res := <-resultC
+			if res.stream != nil {
+				go func() {
+					for range res.stream.Events {
+					}
+				}()
+				if res.doneC != nil {
+					close(res.doneC)
+				}
+			}
+		}()
 		return nil, nil, ctx.Err()
 	}
 }
@@ -133,13 +147,11 @@ func (s *sessionSlot) run() {
 
 		stream, err := req.fn(ctx)
 
-		// Clear active cancel now that execution has begun (stream is async).
-		s.mu.Lock()
-		s.activeCancel = nil
-		s.mu.Unlock()
-
 		if err != nil {
 			cancel()
+			s.mu.Lock()
+			s.activeCancel = nil
+			s.mu.Unlock()
 			req.resultC <- queueResult{err: err}
 			continue
 		}
@@ -152,5 +164,9 @@ func (s *sessionSlot) run() {
 
 		<-doneC
 		cancel()
+
+		s.mu.Lock()
+		s.activeCancel = nil
+		s.mu.Unlock()
 	}
 }
