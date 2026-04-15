@@ -33,7 +33,7 @@ func integrationConfig(t *testing.T) GoRunnerConfig {
 	}
 	annaHome := t.TempDir()
 	workspace := t.TempDir()
-	userRoot := workspace + "/users/1/data"
+	userRoot := workspace + "/users/1"
 	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}

@@ -56,7 +56,7 @@ const (
 var validNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 // LoadSkills discovers skills in increasing priority order:
-// builtin -> ANNA_HOME -> agent root -> user root -> cwd.
+// builtin -> ANNA_HOME -> agent root -> user root -> project root.
 func LoadSkills(ctx context.Context, cfg LoadSkillsConfig) []Skill {
 	return loadSkills(ctx, cfg.Runtime, cfg.AnnaHome, cfg.AgentRoot, cfg.UserRoot, cfg.ProjectRoot, cfg.UserSkillsDir)
 }
@@ -99,7 +99,7 @@ func loadSkills(ctx context.Context, runtime pkgplugins.ToolRuntime, annaHome, a
 		addDir(filepath.Join(agentRoot, "skills"), "agent")
 	}
 	if userSkillsDir == "" && userRoot != "" {
-		userSkillsDir = filepath.Join(filepath.Dir(userRoot), ".agents", "skills")
+		userSkillsDir = filepath.Join(userRoot, ".agents", "skills")
 	}
 	if userSkillsDir != "" {
 		addDir(userSkillsDir, "user")

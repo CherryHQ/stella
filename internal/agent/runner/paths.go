@@ -3,7 +3,6 @@ package runner
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
@@ -12,15 +11,15 @@ import (
 // runnerPaths keeps only the runner's primary inputs.
 // Everything else used by the runner is derived from these values.
 type runnerPaths struct {
-	AnnaHome  string
-	AgentRoot string
-	UserRoot  string
-	WorkDir   string
+	AnnaHome    string
+	AgentRoot   string
+	UserRoot    string
+	ProjectRoot string
 }
 
 // sandboxPaths is the minimal path set sandbox policy creation depends on.
-// Sandbox execution is defined entirely by the user-scoped writable root and a
-// working directory constrained to that root.
+// Sandbox execution is defined entirely by the user-scoped writable root and an
+// internal working directory derived from that root.
 type sandboxPaths struct {
 	AnnaHome string
 	UserRoot string
@@ -33,11 +32,15 @@ type sandboxPaths struct {
 func resolveRunnerPaths(cfg GoRunnerConfig) runnerPaths {
 	paths, _ := resolveSandboxPaths(cfg)
 	return runnerPaths{
-		AnnaHome:  paths.AnnaHome,
-		AgentRoot: cfg.AgentRoot,
-		UserRoot:  paths.UserRoot,
-		WorkDir:   paths.WorkDir,
+		AnnaHome:    paths.AnnaHome,
+		AgentRoot:   cfg.AgentRoot,
+		UserRoot:    paths.UserRoot,
+		ProjectRoot: cfg.ProjectRoot,
 	}
+}
+
+func resolveSandboxWorkingDir(cfg GoRunnerConfig, userRoot string) string {
+	return userRoot
 }
 
 func resolveSandboxPaths(cfg GoRunnerConfig) (sandboxPaths, error) {
@@ -53,18 +56,7 @@ func resolveSandboxPaths(cfg GoRunnerConfig) (sandboxPaths, error) {
 	if err != nil {
 		return sandboxPaths{}, fmt.Errorf("resolve user_root: %w", err)
 	}
-	workDir := cfg.WorkDir
-	if workDir == "" {
-		workDir = userRoot
-	}
-	if !filepath.IsAbs(workDir) {
-		workDir = filepath.Join(userRoot, workDir)
-	}
-	workDir = filepath.Clean(workDir)
-
-	if !isWithinPathRoot(userRoot, workDir) {
-		return sandboxPaths{}, fmt.Errorf("work_dir %q must stay within user_root %q", workDir, userRoot)
-	}
+	workDir := resolveSandboxWorkingDir(cfg, userRoot)
 
 	return sandboxPaths{
 		AnnaHome: annaHome,
@@ -76,6 +68,36 @@ func resolveSandboxPaths(cfg GoRunnerConfig) (sandboxPaths, error) {
 func (p runnerPaths) toolsBinDir() string { return embedded.BinDir(p.AnnaHome) }
 func (p runnerPaths) builtinSkillsDir() string {
 	return filepath.Join(p.AnnaHome, "cache", "builtin-skills")
+}
+
+func (p runnerPaths) annaSkillsDir() string {
+	return filepath.Join(p.AnnaHome, "skills")
+}
+
+func (p runnerPaths) annaAgentsDir() string {
+	return filepath.Join(p.AnnaHome, "agents")
+}
+
+func (p runnerPaths) agentSkillsDir() string {
+	return filepath.Join(p.AgentRoot, "skills")
+}
+
+func (p runnerPaths) agentAgentsDir() string {
+	return filepath.Join(p.AgentRoot, "agents")
+}
+
+func (p runnerPaths) projectSkillsDir() string {
+	if p.ProjectRoot == "" {
+		return ""
+	}
+	return filepath.Join(p.ProjectRoot, ".agents", "skills")
+}
+
+func (p runnerPaths) projectAgentsDir() string {
+	if p.ProjectRoot == "" {
+		return ""
+	}
+	return filepath.Join(p.ProjectRoot, ".agents", "agents")
 }
 
 // sandboxProcessEnv builds the baseline process environment injected into
@@ -90,12 +112,4 @@ func sandboxProcessEnv(paths sandboxPaths) map[string]string {
 		env["ANNA_HOME"] = paths.AnnaHome
 	}
 	return env
-}
-
-func isWithinPathRoot(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return false
-	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }

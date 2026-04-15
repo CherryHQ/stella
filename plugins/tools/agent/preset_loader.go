@@ -16,14 +16,14 @@ import (
 type LoadAgentPresetsConfig struct {
 	AnnaHome         string // anna home dir (e.g. ~/.anna)
 	AgentRoot        string // agent root dir (e.g. ~/.anna/workspaces/{agentID})
-	UserRoot         string // user root dir (e.g. ~/.anna/workspaces/{agentID}/users/{userID}/data)
+	UserRoot         string // user root dir (e.g. ~/.anna/workspaces/{agentID}/users/{userID})
 	ProjectRoot      string // optional project root for local/project-attached runs
 	BuiltinSkillsDir string // pre-extracted builtin skills directory (caller ensures extraction)
 	Runtime          pkgplugins.ToolRuntime
 }
 
 // LoadAgentPresets discovers agent presets in increasing priority order:
-// builtin -> ANNA_HOME -> agent root -> user root -> cwd.
+// builtin -> ANNA_HOME -> agent root -> user root -> project root.
 func LoadAgentPresets(cfg LoadAgentPresetsConfig) []AgentPreset {
 	return loadAgentPresets(context.Background(), cfg.Runtime, cfg.AnnaHome, cfg.AgentRoot, cfg.UserRoot, cfg.ProjectRoot, cfg.BuiltinSkillsDir)
 }
@@ -63,7 +63,7 @@ func loadAgentPresets(ctx context.Context, runtime pkgplugins.ToolRuntime, annaH
 		addDir(filepath.Join(agentRoot, "agents"), "agent")
 	}
 	if userRoot != "" {
-		addDir(filepath.Join(filepath.Dir(userRoot), ".agents", "agents"), "user")
+		addDir(filepath.Join(userRoot, ".agents", "agents"), "user")
 	}
 	if projectRoot != "" {
 		addDir(filepath.Join(projectRoot, ".agents", "agents"), "project")

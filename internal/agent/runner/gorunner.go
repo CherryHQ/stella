@@ -35,9 +35,9 @@ type GoRunnerConfig struct {
 	Model          string // e.g. "claude-sonnet-4-20250514"
 	APIKey         string
 	BaseURL        string // optional provider base URL override
-	WorkDir        string // working directory for tool execution; defaults to UserRoot when empty
 	AgentRoot      string // agent root directory
 	AnnaHome       string // anna home directory (e.g. ~/.anna)
+	ProjectRoot    string // optional project root for project-aware tools and prompt/context loading
 	System         string // optional system prompt override (bypasses default prompt building)
 	PromptSections []pkgplugins.SystemPromptSection
 	ExtraTools     []tools.Tool // additional tools to register
@@ -115,6 +115,7 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		system = BuildSystemPromptFromDB(context.Background(), DBPromptParams{
 			AnnaHome:       paths.AnnaHome,
 			AgentRoot:      paths.AgentRoot,
+			ProjectRoot:    paths.ProjectRoot,
 			UserRoot:       paths.UserRoot,
 			PromptSections: cfg.PromptSections,
 			Host:           session.Host(),
@@ -224,7 +225,7 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 			ToolsBinDir: paths.toolsBinDir(),
 			AnnaHome:    paths.AnnaHome,
 			AgentRoot:   paths.AgentRoot,
-			ProjectRoot: "",
+			ProjectRoot: paths.ProjectRoot,
 		},
 		Runtime: cfg.ToolRuntime,
 	}
@@ -251,8 +252,9 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 }
 
 // buildAgentPresets extracts builtin skills and loads agent presets from filesystem.
-func collectSandboxReadOnlyDirs(toolsBinDir, pathEnv string) []string {
-	dirs := []string{toolsBinDir}
+func collectSandboxReadOnlyDirs(extraDirs []string, toolsBinDir, pathEnv string) []string {
+	dirs := append([]string{}, extraDirs...)
+	dirs = append(dirs, toolsBinDir)
 	for _, dir := range filepath.SplitList(pathEnv) {
 		if dir == "" || !filepath.IsAbs(dir) {
 			continue
@@ -273,7 +275,7 @@ func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 		AnnaHome:         paths.AnnaHome,
 		AgentRoot:        paths.AgentRoot,
 		UserRoot:         paths.UserRoot,
-		ProjectRoot:      "",
+		ProjectRoot:      paths.ProjectRoot,
 		BuiltinSkillsDir: paths.builtinSkillsDir(),
 		Runtime:          cfg.ToolRuntime,
 	}))
