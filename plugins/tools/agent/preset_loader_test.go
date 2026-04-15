@@ -325,13 +325,13 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 
 	cwd := t.TempDir()
 	agentRoot := t.TempDir()
-	userRoot := filepath.Join(t.TempDir(), "users", "7", "data")
+	userRoot := filepath.Join(t.TempDir(), "users", "7")
 	annaHome := t.TempDir()
 	builtin := t.TempDir()
 
 	mkdirAll(t, filepath.Join(cwd, ".agents", "agents"), 0o755)
 	mkdirAll(t, filepath.Join(agentRoot, "agents"), 0o755)
-	mkdirAll(t, filepath.Join(filepath.Dir(userRoot), ".agents", "agents"), 0o755)
+	mkdirAll(t, filepath.Join(userRoot, ".agents", "agents"), 0o755)
 	mkdirAll(t, filepath.Join(annaHome, "agents"), 0o755)
 	mkdirAll(t, filepath.Join(builtin, "agents"), 0o755)
 
@@ -348,8 +348,8 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 	writeTestFile(t, filepath.Join(agentRoot, "agents", "agent-only.md"), preset("agent-only", "From agent root"), 0o644)
 	writeTestFile(t, filepath.Join(agentRoot, "agents", "overlap.md"), preset("overlap", "Agent loses"), 0o644)
 
-	writeTestFile(t, filepath.Join(filepath.Dir(userRoot), ".agents", "agents", "user-only.md"), preset("user-only", "From user root"), 0o644)
-	writeTestFile(t, filepath.Join(filepath.Dir(userRoot), ".agents", "agents", "overlap.md"), preset("overlap", "User loses"), 0o644)
+	writeTestFile(t, filepath.Join(userRoot, ".agents", "agents", "user-only.md"), preset("user-only", "From user root"), 0o644)
+	writeTestFile(t, filepath.Join(userRoot, ".agents", "agents", "overlap.md"), preset("overlap", "User loses"), 0o644)
 
 	writeTestFile(t, filepath.Join(cwd, ".agents", "agents", "project-only.md"), preset("project-only", "From project"), 0o644)
 	writeTestFile(t, filepath.Join(cwd, ".agents", "agents", "overlap.md"), preset("overlap", "Project wins"), 0o644)

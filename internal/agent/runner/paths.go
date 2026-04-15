@@ -12,10 +12,11 @@ import (
 // runnerPaths keeps only the runner's primary inputs.
 // Everything else used by the runner is derived from these values.
 type runnerPaths struct {
-	AnnaHome  string
-	AgentRoot string
-	UserRoot  string
-	WorkDir   string
+	AnnaHome    string
+	AgentRoot   string
+	UserRoot    string
+	ProjectRoot string
+	WorkDir     string
 }
 
 // sandboxPaths is the minimal path set sandbox policy creation depends on.
@@ -33,10 +34,11 @@ type sandboxPaths struct {
 func resolveRunnerPaths(cfg GoRunnerConfig) runnerPaths {
 	paths, _ := resolveSandboxPaths(cfg)
 	return runnerPaths{
-		AnnaHome:  paths.AnnaHome,
-		AgentRoot: cfg.AgentRoot,
-		UserRoot:  paths.UserRoot,
-		WorkDir:   paths.WorkDir,
+		AnnaHome:    paths.AnnaHome,
+		AgentRoot:   cfg.AgentRoot,
+		UserRoot:    paths.UserRoot,
+		ProjectRoot: cfg.ProjectRoot,
+		WorkDir:     paths.WorkDir,
 	}
 }
 
@@ -76,6 +78,36 @@ func resolveSandboxPaths(cfg GoRunnerConfig) (sandboxPaths, error) {
 func (p runnerPaths) toolsBinDir() string { return embedded.BinDir(p.AnnaHome) }
 func (p runnerPaths) builtinSkillsDir() string {
 	return filepath.Join(p.AnnaHome, "cache", "builtin-skills")
+}
+
+func (p runnerPaths) annaSkillsDir() string {
+	return filepath.Join(p.AnnaHome, "skills")
+}
+
+func (p runnerPaths) annaAgentsDir() string {
+	return filepath.Join(p.AnnaHome, "agents")
+}
+
+func (p runnerPaths) agentSkillsDir() string {
+	return filepath.Join(p.AgentRoot, "skills")
+}
+
+func (p runnerPaths) agentAgentsDir() string {
+	return filepath.Join(p.AgentRoot, "agents")
+}
+
+func (p runnerPaths) projectSkillsDir() string {
+	if p.ProjectRoot == "" {
+		return ""
+	}
+	return filepath.Join(p.ProjectRoot, ".agents", "skills")
+}
+
+func (p runnerPaths) projectAgentsDir() string {
+	if p.ProjectRoot == "" {
+		return ""
+	}
+	return filepath.Join(p.ProjectRoot, ".agents", "agents")
 }
 
 // sandboxProcessEnv builds the baseline process environment injected into

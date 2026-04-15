@@ -44,7 +44,7 @@ func testRunnerPaths(t *testing.T) (annaHome, workspace, userRoot string) {
 	}
 	annaHome = t.TempDir()
 	workspace = t.TempDir()
-	userRoot = filepath.Join(workspace, "users", "1", "data")
+	userRoot = filepath.Join(workspace, "users", "1")
 	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestNewGoRunnerPreflightExtractsManagedTools(t *testing.T) {
 	}
 	annaHome := t.TempDir()
 	workspace := t.TempDir()
-	userRoot := filepath.Join(workspace, "users", "1", "data")
+	userRoot := filepath.Join(workspace, "users", "1")
 	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestNewGoRunnerUsesBoxshCoreToolsAndCleansUp(t *testing.T) {
 
 	annaHome := t.TempDir()
 	workspace := t.TempDir()
-	userRoot := filepath.Join(workspace, "users", "1", "data")
+	userRoot := filepath.Join(workspace, "users", "1")
 	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestGoRunnerAliveTracksDeadBoxshBackend(t *testing.T) {
 
 	annaHome := t.TempDir()
 	workspace := t.TempDir()
-	userRoot := filepath.Join(workspace, "users", "1", "data")
+	userRoot := filepath.Join(workspace, "users", "1")
 	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}

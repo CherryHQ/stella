@@ -147,10 +147,10 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		return nil, fmt.Errorf("resolve sandbox paths: %w", err)
 	}
 	readOnlyDirs := collectSandboxReadOnlyDirs(
+		sandboxReadableDirs(runnerPaths),
 		runnerPaths.toolsBinDir(),
 		os.Getenv("PATH"),
 	)
-	readOnlyDirs = append(readOnlyDirs, runnerPaths.builtinSkillsDir())
 
 	policy := sandbox.Policy{
 		Backend:    config.SandboxBackendBoxsh,
@@ -192,6 +192,18 @@ func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, er
 		return nil, fmt.Errorf("unknown sandbox backend: %q", name)
 	}
 	return factory(ctx, cfg)
+}
+
+func sandboxReadableDirs(paths runnerPaths) []string {
+	return []string{
+		paths.builtinSkillsDir(),
+		paths.annaSkillsDir(),
+		paths.annaAgentsDir(),
+		paths.agentSkillsDir(),
+		paths.agentAgentsDir(),
+		paths.projectSkillsDir(),
+		paths.projectAgentsDir(),
+	}
 }
 
 func resolveSessionBackendName(cfg config.SandboxConfig) string {

@@ -26,7 +26,7 @@ func TestResolveSessionAutoFallsBackToLocalWhenBoxshUnsupported(t *testing.T) {
 	t.Cleanup(func() { platformSupportsBoxsh = previous })
 
 	workspace := t.TempDir()
-	userRoot := workspace + "/users/1/data"
+	userRoot := workspace + "/users/1"
 	rs, err := resolveSession(context.Background(), GoRunnerConfig{
 		AgentRoot: workspace,
 		UserRoot:  userRoot,
@@ -63,7 +63,7 @@ func TestResolveSessionExplicitBoxshRejectsUnsupportedPlatform(t *testing.T) {
 func TestResolveRunnerPathsDefaultsWorkDirToUserRoot(t *testing.T) {
 	cfg := GoRunnerConfig{
 		AgentRoot: "/workspace/agent",
-		UserRoot:  "/workspace/agent/users/1/data",
+		UserRoot:  "/workspace/agent/users/1",
 	}
 
 	paths := resolveRunnerPaths(cfg)
@@ -75,7 +75,7 @@ func TestResolveRunnerPathsDefaultsWorkDirToUserRoot(t *testing.T) {
 func TestResolveSandboxPathsJoinsRelativeWorkDirToUserRoot(t *testing.T) {
 	cfg := GoRunnerConfig{
 		AnnaHome: "/anna",
-		UserRoot: "/workspace/agent/users/1/data",
+		UserRoot: "/workspace/agent/users/1",
 		WorkDir:  "logs",
 	}
 
@@ -83,14 +83,14 @@ func TestResolveSandboxPathsJoinsRelativeWorkDirToUserRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveSandboxPaths: %v", err)
 	}
-	if want := "/workspace/agent/users/1/data/logs"; paths.WorkDir != want {
+	if want := "/workspace/agent/users/1/logs"; paths.WorkDir != want {
 		t.Fatalf("WorkDir = %q, want %q", paths.WorkDir, want)
 	}
 }
 
 func TestResolveSandboxPathsRejectsWorkDirOutsideUserRoot(t *testing.T) {
 	_, err := resolveSandboxPaths(GoRunnerConfig{
-		UserRoot: "/workspace/agent/users/1/data",
+		UserRoot: "/workspace/agent/users/1",
 		WorkDir:  "/workspace/agent",
 	})
 	if err == nil {
@@ -102,7 +102,7 @@ func TestSandboxProcessEnvUsesUserRootAsHome(t *testing.T) {
 	cfg := GoRunnerConfig{
 		AnnaHome:  "/anna",
 		AgentRoot: "/workspace/agent",
-		UserRoot:  "/workspace/agent/users/1/data",
+		UserRoot:  "/workspace/agent/users/1",
 	}
 
 	paths, err := resolveSandboxPaths(cfg)
@@ -115,6 +115,34 @@ func TestSandboxProcessEnvUsesUserRootAsHome(t *testing.T) {
 	}
 	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
 		t.Fatalf("ANNA_HOME = %q, want %q", got, cfg.AnnaHome)
+	}
+}
+
+func TestSandboxReadableDirsIncludesSkillAndPresetRoots(t *testing.T) {
+	paths := runnerPaths{
+		AnnaHome:    "/anna",
+		AgentRoot:   "/workspace/agent",
+		UserRoot:    "/workspace/agent/users/1",
+		ProjectRoot: "/project",
+	}
+
+	got := sandboxReadableDirs(paths)
+	want := []string{
+		"/anna/cache/builtin-skills",
+		"/anna/skills",
+		"/anna/agents",
+		"/workspace/agent/skills",
+		"/workspace/agent/agents",
+		"/project/.agents/skills",
+		"/project/.agents/agents",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len(got) = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }
 
