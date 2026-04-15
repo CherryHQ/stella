@@ -14,18 +14,19 @@ import (
 // channels without slash-command menus (like SMS or simple webhooks).
 const WelcomeMessage = `Hi! I'm Anna — your local AI assistant.
 
-You can chat normally, use slash commands, or use a few short natural-language controls.
-For the natural-language shortcuts, keep them short and command-like.
+You can chat normally or use slash commands.
+Some agents/channels also support a few short natural-language controls.
+For those shortcuts, keep them short and command-like.
 
 Session control
   /new       Start a fresh session
-             Also works with short phrases like: "new session", "start over", "新会话", "重新开始"
+             When enabled, short phrases like: "new session", "start over", "新会话", "重新开始"
   /compact   Compress conversation history
-             Also works with short phrases like: "compact", "summarize history", "压缩会话", "总结历史"
+             When enabled, short phrases like: "compact", "summarize history", "压缩会话", "总结历史"
   /abort     Cancel the in-progress reply
-             Also works with short phrases like: "abort", "cancel", "取消", "停止回复"
+             When enabled, short phrases like: "abort", "cancel", "取消", "停止回复"
   /help      Show this help message
-             Also works with short phrases like: "help", "what can you do", "帮助"
+             When enabled, short phrases like: "help", "what can you do", "帮助"
 
 Other commands
   /model     Switch between models

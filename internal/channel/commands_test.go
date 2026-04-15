@@ -76,6 +76,9 @@ func TestWelcomeMessageIncludesNaturalLanguagePhrases(t *testing.T) {
 	if !strings.Contains(pkgchannel.WelcomeMessage, "取消") {
 		t.Error("WelcomeMessage should mention Chinese abort examples like '取消'")
 	}
+	if !strings.Contains(pkgchannel.WelcomeMessage, "When enabled") {
+		t.Error("WelcomeMessage should clarify that natural-language shortcuts are conditional")
+	}
 	if !strings.Contains(pkgchannel.WelcomeMessage, "If a short phrase is unclear") {
 		t.Error("WelcomeMessage should explain the fallback behavior for unclear phrases")
 	}

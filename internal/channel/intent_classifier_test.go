@@ -22,6 +22,8 @@ func TestClassifyCandidateText(t *testing.T) {
 		{name: "short text", content: []ai.ContentBlock{ai.TextContent{Text: "cancel"}}, want: "cancel", ok: true},
 		{name: "trims whitespace", content: []ai.ContentBlock{ai.TextContent{Text: "  帮助  "}}, want: "帮助", ok: true},
 		{name: "multiple blocks", content: []ai.ContentBlock{ai.TextContent{Text: "cancel"}, ai.TextContent{Text: "now"}}, ok: false},
+		{name: "leading system prefix is ignored", content: []ai.ContentBlock{ai.TextContent{Text: "[System: Be concise]"}, ai.TextContent{Text: "取消"}}, want: "取消", ok: true},
+		{name: "multiple prefixes then user text", content: []ai.ContentBlock{ai.TextContent{Text: "[System: one]"}, ai.TextContent{Text: "[System: two]"}, ai.TextContent{Text: "新会话"}}, want: "新会话", ok: true},
 		{name: "image block", content: []ai.ContentBlock{ai.ImageContent{Data: "x", MimeType: "image/png"}}, ok: false},
 		{name: "newline rejected", content: []ai.ContentBlock{ai.TextContent{Text: "cancel\nplease"}}, ok: false},
 		{name: "too many words", content: []ai.ContentBlock{ai.TextContent{Text: "please can you start a brand new chat"}}, ok: false},
@@ -38,6 +40,18 @@ func TestClassifyCandidateText(t *testing.T) {
 				t.Fatalf("text = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestIsIntentSystemPrefix(t *testing.T) {
+	if !isIntentSystemPrefix(ai.TextContent{Text: "[System: Be concise]"}) {
+		t.Fatal("expected system prefix to be detected")
+	}
+	if isIntentSystemPrefix(ai.TextContent{Text: "[system: lowercase]"}) {
+		t.Fatal("did not expect lowercase prefix to match")
+	}
+	if isIntentSystemPrefix(ai.TextContent{Text: "cancel"}) {
+		t.Fatal("did not expect regular user text to match")
 	}
 }
 

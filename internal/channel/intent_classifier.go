@@ -146,10 +146,14 @@ func (c *LLMIntentClassifier) debug(msg string, args ...any) {
 }
 
 func classifyCandidateText(content []ai.ContentBlock) (string, bool) {
-	if len(content) != 1 {
+	candidate := content
+	for len(candidate) > 0 && isIntentSystemPrefix(candidate[0]) {
+		candidate = candidate[1:]
+	}
+	if len(candidate) != 1 {
 		return "", false
 	}
-	textBlock, ok := content[0].(ai.TextContent)
+	textBlock, ok := candidate[0].(ai.TextContent)
 	if !ok {
 		return "", false
 	}
@@ -164,6 +168,15 @@ func classifyCandidateText(content []ai.ContentBlock) (string, bool) {
 		return "", false
 	}
 	return text, true
+}
+
+func isIntentSystemPrefix(block ai.ContentBlock) bool {
+	textBlock, ok := block.(ai.TextContent)
+	if !ok {
+		return false
+	}
+	text := strings.TrimSpace(textBlock.Text)
+	return strings.HasPrefix(text, "[System:") && strings.HasSuffix(text, "]")
 }
 
 func classifierProviderType(snap *config.Snapshot, providerID string, creds config.ProviderCreds) string {
