@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"strings"
 
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
@@ -91,6 +92,7 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 
 	// Try shared commands.
 	if command != "" {
+		command = strings.ToLower(command)
 		// /abort is handled here directly so it can cancel the active message.
 		if command == "/abort" {
 			return c.handleAbort(rc), true, nil, nil

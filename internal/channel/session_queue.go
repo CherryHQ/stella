@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"sync"
+	"time"
 
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
@@ -16,15 +17,19 @@ import (
 // matches the actual memory/history boundary rather than a platform-specific
 // display concept.
 type sessionQueue struct {
-	mu       sync.Mutex
-	sessions map[string]*sessionSlot
+	mu          sync.Mutex
+	sessions    map[string]*sessionSlot
+	idleTimeout time.Duration
 }
 
 // sessionSlot holds per-session execution state.
 type sessionSlot struct {
+	parent       *sessionQueue
+	key          string
 	mu           sync.Mutex
 	queue        chan queuedRequest
 	activeCancel context.CancelFunc // cancel func for the currently-running request
+	refs         int
 }
 
 // queuedRequest carries the work unit that will be dispatched.
@@ -42,8 +47,13 @@ type queueResult struct {
 
 // newSessionQueue creates an empty queue.
 func newSessionQueue() *sessionQueue {
+	return newSessionQueueWithIdleTimeout(5 * time.Minute)
+}
+
+func newSessionQueueWithIdleTimeout(idleTimeout time.Duration) *sessionQueue {
 	return &sessionQueue{
-		sessions: make(map[string]*sessionSlot),
+		sessions:    make(map[string]*sessionSlot),
+		idleTimeout: idleTimeout,
 	}
 }
 
@@ -52,14 +62,46 @@ func (q *sessionQueue) getOrCreate(sessionKey string) *sessionSlot {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if s, ok := q.sessions[sessionKey]; ok {
+		s.refs++
 		return s
 	}
 	s := &sessionSlot{
-		queue: make(chan queuedRequest, 64),
+		parent: q,
+		key:    sessionKey,
+		queue:  make(chan queuedRequest, 64),
+		refs:   1,
 	}
 	q.sessions[sessionKey] = s
 	go s.run()
 	return s
+}
+
+func (q *sessionQueue) release(slot *sessionSlot) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if current, ok := q.sessions[slot.key]; !ok || current != slot || slot.refs == 0 {
+		return
+	}
+	slot.refs--
+}
+
+func (q *sessionQueue) tryDeleteIdle(slot *sessionSlot) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	current, ok := q.sessions[slot.key]
+	if !ok || current != slot || len(slot.queue) != 0 || slot.refs != 0 {
+		return false
+	}
+
+	slot.mu.Lock()
+	active := slot.activeCancel != nil
+	slot.mu.Unlock()
+	if active {
+		return false
+	}
+
+	delete(q.sessions, slot.key)
+	return true
 }
 
 // Enqueue adds work to the session's queue and waits for the chat function to
@@ -85,7 +127,9 @@ func (q *sessionQueue) Enqueue(
 	}
 	select {
 	case slot.queue <- req:
+		q.release(slot)
 	case <-ctx.Done():
+		q.release(slot)
 		return nil, nil, ctx.Err()
 	}
 	select {
@@ -131,42 +175,54 @@ func (q *sessionQueue) Abort(sessionKey string) bool {
 
 // run is the per-session goroutine that dispatches queued requests one at a time.
 func (s *sessionSlot) run() {
-	for req := range s.queue {
-		// Skip requests whose caller already gave up.
-		if req.ctx.Err() != nil {
-			req.resultC <- queueResult{err: req.ctx.Err()}
-			continue
-		}
+	for {
+		timer := time.NewTimer(s.parent.idleTimeout)
 
-		// Create a cancellable child context so /abort can stop this request.
-		ctx, cancel := context.WithCancel(req.ctx)
+		select {
+		case req := <-s.queue:
+			if !timer.Stop() {
+				<-timer.C
+			}
 
-		s.mu.Lock()
-		s.activeCancel = cancel
-		s.mu.Unlock()
+			// Skip requests whose caller already gave up.
+			if req.ctx.Err() != nil {
+				req.resultC <- queueResult{err: req.ctx.Err()}
+				continue
+			}
 
-		stream, err := req.fn(ctx)
+			// Create a cancellable child context so /abort can stop this request.
+			ctx, cancel := context.WithCancel(req.ctx)
 
-		if err != nil {
+			s.mu.Lock()
+			s.activeCancel = cancel
+			s.mu.Unlock()
+
+			stream, err := req.fn(ctx)
+			if err != nil {
+				cancel()
+				s.mu.Lock()
+				s.activeCancel = nil
+				s.mu.Unlock()
+				req.resultC <- queueResult{err: err}
+				continue
+			}
+
+			// doneC lets the caller signal when the stream has been fully consumed.
+			// The queue worker waits on it before dispatching the next request,
+			// ensuring history is written in order.
+			doneC := make(chan struct{})
+			req.resultC <- queueResult{stream: stream, doneC: doneC}
+
+			<-doneC
 			cancel()
+
 			s.mu.Lock()
 			s.activeCancel = nil
 			s.mu.Unlock()
-			req.resultC <- queueResult{err: err}
-			continue
+		case <-timer.C:
+			if s.parent.tryDeleteIdle(s) {
+				return
+			}
 		}
-
-		// doneC lets the caller signal when the stream has been fully consumed.
-		// The queue worker waits on it before dispatching the next request,
-		// ensuring history is written in order.
-		doneC := make(chan struct{})
-		req.resultC <- queueResult{stream: stream, doneC: doneC}
-
-		<-doneC
-		cancel()
-
-		s.mu.Lock()
-		s.activeCancel = nil
-		s.mu.Unlock()
 	}
 }

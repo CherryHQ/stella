@@ -275,3 +275,73 @@ func TestSessionQueue_CallerContextCancelled(t *testing.T) {
 
 	close(unblock)
 }
+
+func TestSessionQueue_ReclaimsIdleSlot(t *testing.T) {
+	q := newSessionQueueWithIdleTimeout(20 * time.Millisecond)
+
+	stream, doneC, err := q.Enqueue(context.Background(), "sess-idle", func(ctx context.Context) (*pkgchannel.ChatStream, error) {
+		return makeStream(pkgchannel.Event{Text: "done"}), nil
+	})
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	for range stream.Events {
+	}
+	close(doneC)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		q.mu.Lock()
+		_, ok := q.sessions["sess-idle"]
+		q.mu.Unlock()
+		if !ok {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatal("session slot was not reclaimed after becoming idle")
+}
+
+func TestSessionQueue_RecreatesSlotAfterIdleCleanup(t *testing.T) {
+	q := newSessionQueueWithIdleTimeout(20 * time.Millisecond)
+
+	runOnce := func(sessionKey string) error {
+		stream, doneC, err := q.Enqueue(context.Background(), sessionKey, func(ctx context.Context) (*pkgchannel.ChatStream, error) {
+			return makeStream(pkgchannel.Event{Text: "ok"}), nil
+		})
+		if err != nil {
+			return err
+		}
+		for range stream.Events {
+		}
+		close(doneC)
+		return nil
+	}
+
+	if err := runOnce("sess-recreate"); err != nil {
+		t.Fatalf("first enqueue: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		q.mu.Lock()
+		_, ok := q.sessions["sess-recreate"]
+		q.mu.Unlock()
+		if !ok {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	q.mu.Lock()
+	_, ok := q.sessions["sess-recreate"]
+	q.mu.Unlock()
+	if ok {
+		t.Fatal("expected session slot to be reclaimed before recreation")
+	}
+
+	if err := runOnce("sess-recreate"); err != nil {
+		t.Fatalf("second enqueue: %v", err)
+	}
+}
