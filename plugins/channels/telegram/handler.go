@@ -51,6 +51,18 @@ func (b *Bot) registerHandlers() {
 		return c.Send(msg, tele.ModeMarkdown)
 	}))
 
+	b.bot.Handle("/abort", b.guard(func(c tele.Context) error {
+		msg := b.incomingMsg(c, nil)
+		resp, handled, _, err := b.handler.HandleIncoming(b.ctx, msg, "/abort", "")
+		if err != nil {
+			return c.Send(fmt.Sprintf("Error: %v", err))
+		}
+		if handled {
+			return c.Send(resp)
+		}
+		return nil
+	}))
+
 	b.bot.Handle("/agent", b.guard(func(c tele.Context) error {
 		return b.handleAgent(c)
 	}))
