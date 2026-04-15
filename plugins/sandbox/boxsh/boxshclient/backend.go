@@ -125,6 +125,17 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 	// Create and start the client.
 	client := New(b.binaryPath, sessionCfg)
 	if err := client.Start(ctx); err != nil {
+		slog.Warn("boxsh backend failed to start client",
+			"component", "boxsh_backend",
+			"binary", b.binaryPath,
+			"src", src,
+			"dst", sessionDir,
+			"cwd", cwd,
+			"readonly_dirs", uniqueCleanAbsPaths(cfg.ReadOnlyDirs),
+			"network_mode", sessionCfg.NetworkMode,
+			"stderr", client.Stderr(),
+			"error", err,
+		)
 		_ = CleanupSessionDir(sessionDir)
 		b.sessionDir = ""
 		return fmt.Errorf("boxshclient: start client: %w", err)

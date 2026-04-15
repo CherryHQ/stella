@@ -253,8 +253,15 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 
 // buildAgentPresets extracts builtin skills and loads agent presets from filesystem.
 func collectSandboxReadOnlyDirs(extraDirs []string, toolsBinDir, pathEnv string) []string {
-	dirs := append([]string{}, extraDirs...)
-	dirs = append(dirs, toolsBinDir)
+	dirs := make([]string, 0, len(extraDirs)+1)
+	for _, dir := range append(append([]string{}, extraDirs...), toolsBinDir) {
+		if dir == "" || !filepath.IsAbs(dir) {
+			continue
+		}
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			dirs = append(dirs, dir)
+		}
+	}
 	for _, dir := range filepath.SplitList(pathEnv) {
 		if dir == "" || !filepath.IsAbs(dir) {
 			continue

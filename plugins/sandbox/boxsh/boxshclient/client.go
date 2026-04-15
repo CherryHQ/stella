@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -163,6 +164,20 @@ func (c *Client) Start(ctx context.Context) error {
 	go c.captureStderr(stderr)
 
 	if err := c.handshake(ctx); err != nil {
+		slog.Warn("boxsh client handshake failed",
+			"component", "boxsh_client",
+			"binary", c.binaryPath,
+			"args", args,
+			"src", c.sessionConfig.Src,
+			"dst", c.sessionConfig.Dst,
+			"cwd", c.sessionConfig.Cwd,
+			"readonly_dirs", uniqueCleanAbsPaths(c.sessionConfig.ReadOnlyDirs),
+			"network_mode", c.sessionConfig.NetworkMode,
+			"wait_err", c.waitErr,
+			"reader_err", c.readerErr,
+			"stderr", c.Stderr(),
+			"error", err,
+		)
 		_ = c.Close()
 		return fmt.Errorf("boxshclient: handshake: %w", err)
 	}

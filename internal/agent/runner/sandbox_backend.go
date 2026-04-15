@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -167,6 +168,15 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 			InheritEnv:  true,
 		},
 	}
+
+	slog.Info("creating boxsh session",
+		"component", "runner_sandbox",
+		"user_root", paths.UserRoot,
+		"work_dir", paths.WorkDir,
+		"readonly_dirs", readOnlyDirs,
+		"network_mode", cfg.Sandbox.Network.Mode,
+		"network_allowlist", cfg.Sandbox.Network.Allowlist,
+	)
 
 	factory := sandbox.GlobalRegistry().Get(config.SandboxBackendBoxsh)
 	if factory == nil {
