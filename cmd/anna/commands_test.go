@@ -13,6 +13,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
+	"github.com/vaayne/anna/internal/pluginhost"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/memory"
@@ -35,6 +36,34 @@ func testProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Regist
 	reg := providers.NewRegistry()
 	reg.Register(commandTestProvider{})
 	return reg, nil
+}
+
+func TestIntentClassifierProviderGetterBuilderUsesProvidedProviderType(t *testing.T) {
+	ph := pluginhost.New(commandTestStore{})
+	ph.AddProvider(pkgplugins.ProviderSpec{
+		PluginID: "provider/openai",
+		Name:     "openai",
+		Build: func(ctx pkgplugins.ProviderContext) (providers.ProviderAdapter, error) {
+			if got := ctx.State.Config["api_key"]; got != "k" {
+				t.Fatalf("api_key = %#v, want %q", got, "k")
+			}
+			if got := ctx.State.Config["base_url"]; got != "https://example.com" {
+				t.Fatalf("base_url = %#v, want %q", got, "https://example.com")
+			}
+			return commandTestProvider{}, nil
+		},
+	})
+
+	getter, err := intentClassifierProviderGetterBuilder(ph)(context.Background(), "openai", config.ProviderCreds{Type: "primary", APIKey: "k", BaseURL: "https://example.com"})
+	if err != nil {
+		t.Fatalf("intentClassifierProviderGetterBuilder: %v", err)
+	}
+	if getter == nil {
+		t.Fatal("expected provider getter")
+	}
+	if _, ok := getter.Get("anthropic"); !ok {
+		t.Fatal("expected built provider registry to contain the adapter")
+	}
 }
 
 type commandTestStore struct{}

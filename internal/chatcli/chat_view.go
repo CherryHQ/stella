@@ -122,7 +122,8 @@ func (m chatModel) View() string {
 	case m.completing:
 		helpText = helpStyle.Render("↑↓ · tab · enter · esc")
 	default:
-		helpText = helpAccentStyle.Render("/new") + helpStyle.Render(" · ") +
+		helpText = helpAccentStyle.Render("/help") + helpStyle.Render(" · ") +
+			helpAccentStyle.Render("/new") + helpStyle.Render(" · ") +
 			helpAccentStyle.Render("/model") + helpStyle.Render(" · ") +
 			helpAccentStyle.Render("/quit")
 	}

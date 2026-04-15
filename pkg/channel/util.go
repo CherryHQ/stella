@@ -10,15 +10,31 @@ import (
 )
 
 // WelcomeMessage is the shared welcome/help text for all channels.
-const WelcomeMessage = "Hi! I'm Anna -- your local AI assistant.\n\n" +
-	"Commands:\n" +
-	"/new -- Start a fresh session\n" +
-	"/compact -- Compress conversation history\n" +
-	"/abort -- Cancel the in-progress response\n" +
-	"/model -- Switch between models\n" +
-	"/agent -- List or switch agents\n" +
-	"/whoami -- Show your user ID\n\n" +
-	"Just send me a message to get started."
+// It explains both slash commands and natural-language shortcuts for
+// channels without slash-command menus (like SMS or simple webhooks).
+const WelcomeMessage = `Hi! I'm Anna — your local AI assistant.
+
+You can chat normally or use slash commands.
+Some agents/channels also support a few short natural-language controls.
+For those shortcuts, keep them short and command-like.
+
+Session control
+  /new       Start a fresh session
+             When enabled, short phrases like: "new session", "start over", "新会话", "重新开始"
+  /compact   Compress conversation history
+             When enabled, short phrases like: "compact", "summarize history", "压缩会话", "总结历史"
+  /abort     Cancel the in-progress reply
+             When enabled, short phrases like: "abort", "cancel", "取消", "停止回复"
+  /help      Show this help message
+             When enabled, short phrases like: "help", "what can you do", "帮助"
+
+Other commands
+  /model     Switch between models
+  /agent     List or switch agents
+  /whoami    Show your user ID
+
+If a short phrase is unclear, Anna treats it as a normal chat message.
+Just send a message to get started.`
 
 // SplitMessage splits text into chunks that fit within maxLen.
 // It tries to split at newline boundaries and avoids cutting multi-byte

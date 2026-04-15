@@ -1,0 +1,243 @@
+package channel
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/pkg/ai"
+	"github.com/vaayne/anna/pkg/providers"
+)
+
+type Intent string
+
+const (
+	IntentHelp    Intent = "help"
+	IntentNew     Intent = "new"
+	IntentAbort   Intent = "abort"
+	IntentCompact Intent = "compact"
+	IntentNone    Intent = "none"
+)
+
+const (
+	maxIntentRunes = 32
+	maxIntentWords = 6
+)
+
+const intentClassifierPrompt = `You classify very short user messages into chat control actions.
+Return JSON only in the form {"action":"help|new|abort|compact|none"}.
+
+Choose an action only when the user is clearly asking for chat control.
+If the message could reasonably be a normal chat request, return {"action":"none"}.
+
+Action meanings:
+- help: user wants help, available commands, or usage instructions
+- new: user wants a fresh/new session or to start over
+- abort: user wants to cancel/stop the in-progress response
+- compact: user wants to compact/compress/summarize conversation history
+- none: anything else
+
+Examples:
+"help" -> {"action":"help"}
+"what can you do" -> {"action":"help"}
+"new session" -> {"action":"new"}
+"start over" -> {"action":"new"}
+"cancel" -> {"action":"abort"}
+"abort" -> {"action":"abort"}
+"compact chat" -> {"action":"compact"}
+"summarize history" -> {"action":"compact"}
+"帮助" -> {"action":"help"}
+"新会话" -> {"action":"new"}
+"重新开始" -> {"action":"new"}
+"取消" -> {"action":"abort"}
+"停止回复" -> {"action":"abort"}
+"压缩会话" -> {"action":"compact"}
+"总结历史" -> {"action":"compact"}
+"请帮我重新开始设计数据库" -> {"action":"none"}
+"how do I cancel a job?" -> {"action":"none"}`
+
+type (
+	SnapshotLoader        func(context.Context, string) (*config.Snapshot, error)
+	ProviderGetterBuilder func(context.Context, string, config.ProviderCreds) (providers.ProviderGetter, error)
+	CompleteFunc          func(context.Context, ai.Model, ai.Context, ai.CompleteOptions, providers.ProviderGetter) (ai.AssistantMessage, error)
+)
+
+type IntentClassifier interface {
+	Classify(ctx context.Context, agentID string, content []ai.ContentBlock) Intent
+}
+
+type LLMIntentClassifier struct {
+	loadSnapshot SnapshotLoader
+	buildGetter  ProviderGetterBuilder
+	complete     CompleteFunc
+	timeout      time.Duration
+	log          *slog.Logger
+}
+
+func NewLLMIntentClassifier(loadSnapshot SnapshotLoader, buildGetter ProviderGetterBuilder) *LLMIntentClassifier {
+	return &LLMIntentClassifier{
+		loadSnapshot: loadSnapshot,
+		buildGetter:  buildGetter,
+		complete:     providers.Complete,
+		timeout:      1500 * time.Millisecond,
+		log:          slog.With("component", "intent_classifier"),
+	}
+}
+
+func (c *LLMIntentClassifier) Classify(ctx context.Context, agentID string, content []ai.ContentBlock) Intent {
+	text, ok := classifyCandidateText(content)
+	if !ok || agentID == "" || c == nil || c.loadSnapshot == nil || c.buildGetter == nil || c.complete == nil {
+		return IntentNone
+	}
+
+	snap, err := c.loadSnapshot(ctx, agentID)
+	if err != nil || snap == nil {
+		c.debug("load snapshot failed", "agent_id", agentID, "error", err)
+		return IntentNone
+	}
+	if strings.TrimSpace(snap.ModelFast) == "" {
+		c.debug("model_fast not configured; skipping intent classification", "agent_id", agentID)
+		return IntentNone
+	}
+
+	model := snap.ResolveModelTier(config.ModelTierFast)
+	if model.API == "" || model.ID == "" {
+		return IntentNone
+	}
+	creds := snap.ResolveProviderCreds(model.Provider)
+	providerType := classifierProviderType(snap, model.Provider, creds)
+	getter, err := c.buildGetter(ctx, providerType, creds)
+	if err != nil || getter == nil {
+		c.debug("build provider getter failed", "agent_id", agentID, "provider", model.Provider, "provider_type", providerType, "error", err)
+		return IntentNone
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	msg, err := c.complete(reqCtx, model, ai.Context{
+		System: intentClassifierPrompt,
+		Messages: []ai.Message{
+			ai.UserMessage{Content: text},
+		},
+	}, ai.CompleteOptions{StreamOptions: ai.StreamOptions{Timeout: c.timeout}}, getter)
+	if err != nil {
+		c.debug("intent classification failed", "agent_id", agentID, "error", err)
+		return IntentNone
+	}
+
+	intent, err := parseIntentResponse(ai.FlattenText(msg.Content))
+	if err != nil {
+		c.debug("intent response parse failed", "agent_id", agentID, "error", err)
+		return IntentNone
+	}
+	return intent
+}
+
+func (c *LLMIntentClassifier) debug(msg string, args ...any) {
+	if c != nil && c.log != nil {
+		c.log.Debug(msg, args...)
+	}
+}
+
+func classifyCandidateText(content []ai.ContentBlock) (string, bool) {
+	candidate := content
+	for len(candidate) > 0 && isIntentSystemPrefix(candidate[0]) {
+		candidate = candidate[1:]
+	}
+	if len(candidate) != 1 {
+		return "", false
+	}
+	textBlock, ok := candidate[0].(ai.TextContent)
+	if !ok {
+		return "", false
+	}
+	text := strings.TrimSpace(textBlock.Text)
+	if text == "" || strings.Contains(text, "\n") {
+		return "", false
+	}
+	if utf8.RuneCountInString(text) > maxIntentRunes {
+		return "", false
+	}
+	if len(strings.Fields(text)) > maxIntentWords {
+		return "", false
+	}
+	return text, true
+}
+
+func isIntentSystemPrefix(block ai.ContentBlock) bool {
+	textBlock, ok := block.(ai.TextContent)
+	if !ok {
+		return false
+	}
+	text := strings.TrimSpace(textBlock.Text)
+	return strings.HasPrefix(text, "[System:") && strings.HasSuffix(text, "]")
+}
+
+func classifierProviderType(snap *config.Snapshot, providerID string, creds config.ProviderCreds) string {
+	providerType := strings.TrimSpace(creds.Type)
+	if providerType == "" {
+		providerType = providerID
+	}
+	if snap != nil && providerID != "" && providerID != snap.Provider && providerType == snap.Provider {
+		return providerID
+	}
+	return providerType
+}
+
+func parseIntentResponse(raw string) (Intent, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return IntentNone, fmt.Errorf("empty classifier response")
+	}
+	if strings.HasPrefix(raw, "```") {
+		raw = strings.Trim(raw, "`")
+		raw = strings.TrimPrefix(raw, "json")
+		raw = strings.TrimSpace(raw)
+	}
+
+	var payload struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err == nil {
+		return normalizeIntent(payload.Action)
+	}
+	return normalizeIntent(raw)
+}
+
+func normalizeIntent(raw string) (Intent, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case string(IntentHelp):
+		return IntentHelp, nil
+	case string(IntentNew):
+		return IntentNew, nil
+	case string(IntentAbort):
+		return IntentAbort, nil
+	case string(IntentCompact):
+		return IntentCompact, nil
+	case string(IntentNone):
+		return IntentNone, nil
+	default:
+		return IntentNone, fmt.Errorf("unsupported intent %q", raw)
+	}
+}
+
+func IntentToCommand(intent Intent) string {
+	switch intent {
+	case IntentHelp:
+		return "/help"
+	case IntentNew:
+		return "/new"
+	case IntentAbort:
+		return "/abort"
+	case IntentCompact:
+		return "/compact"
+	default:
+		return ""
+	}
+}
