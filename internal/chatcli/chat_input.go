@@ -8,10 +8,33 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 )
 
+func cliHelpMessage() string {
+	return "Anna CLI commands\n\n" +
+		"/help — Show this help\n" +
+		"/new — Start a fresh local session\n" +
+		"/compact — Compress the current session history\n" +
+		"/model — Switch models\n" +
+		"/quit or /exit — Quit the CLI\n\n" +
+		"Notes\n" +
+		"- Natural-language shortcuts like \"new session\" or \"取消\" are handled in chat channels, not in the local CLI.\n" +
+		"- /agent and /whoami are more useful in Telegram, QQ, and Feishu where chats have remote identities.\n" +
+		"- To stop the CLI immediately, press Ctrl+C."
+}
+
 func (m *chatModel) handleInput(input string) tea.Cmd {
 	switch input {
 	case "/quit", "/exit":
 		return tea.Quit
+	case "/abort":
+		m.history.WriteString(systemStyle.Render("[/abort is not available in the local CLI — press Ctrl+C to stop the program]") + "\n\n")
+		m.viewport.SetContent(m.history.String())
+		m.viewport.GotoBottom()
+		return nil
+	case "/help":
+		m.history.WriteString(systemStyle.Render(cliHelpMessage()) + "\n\n")
+		m.viewport.SetContent(m.history.String())
+		m.viewport.GotoBottom()
+		return nil
 	case "/new":
 		info, err := m.pool.RotateSession(cliChannel)
 		if err != nil {

@@ -42,6 +42,7 @@ Implement a lightweight short-message intent classifier that can map natural-lan
 - Oracle planning completed.
 - Phase 1 provider-wiring fix and regressions are in place.
 - Final re-review completed: Phase 1 is clean enough to commit.
+- Final re-review completed: Phase 2 is now clean enough to commit after the CLI `/agent` and `/whoami` discovery copy fixes.
 
 ## Phase log
 
@@ -97,12 +98,48 @@ Implement a lightweight short-message intent classifier that can map natural-lan
   - proceed to Phase 2 help UX updates and keep the help copy aligned with the classifier action set
 
 ### Phase 2
-- Status: blocked on Phase 1
+- Status: implemented, re-reviewed, approved for commit
+- Changes:
+  - expanded `pkg/channel/util.go` (`WelcomeMessage`) into a more useful channel help guide with explicit slash commands, English + Chinese natural-language examples, and fallback-behavior guidance for unclear phrases
+  - corrected CLI discovery in `internal/chatcli/command.go` by advertising `/help` but not `/abort`, since live in-flight abort is not a real CLI capability yet
+  - replaced shared-channel help reuse in `internal/chatcli/chat_input.go` with a CLI-specific help message that explains local capabilities, channel-only natural-language shortcuts, and the `Ctrl+C` limitation clearly
+  - kept typed `/abort` support in CLI as an informational hint only, explicitly telling the user it is not available as a live cancel command in the local TUI
+  - updated the CLI help bar in `internal/chatcli/chat_view.go` to surface `/help`, `/new`, `/model`, `/quit`
+  - strengthened tests in `internal/channel/commands_test.go` to assert Chinese examples and unclear-phrase fallback guidance are present in channel help output
+  - updated CLI tests in `internal/chatcli/cli_test.go` to assert capability-aware CLI help output and that `/abort` is not advertised in CLI completions
+- Files touched:
+  - `pkg/channel/util.go`
+  - `internal/chatcli/command.go`
+  - `internal/chatcli/chat_input.go`
+  - `internal/chatcli/chat_view.go`
+  - `internal/channel/commands_test.go`
+  - `internal/chatcli/cli_test.go`
+- Tests run:
+  - `mise run format` ✅
+  - `mise run test -- ./pkg/channel/... ./internal/channel/... ./internal/chatcli/...` ✅
+  - reviewer re-run of `mise run test -- ./pkg/channel/... ./internal/channel/... ./internal/chatcli/...` ✅
+  - reran `mise run format` after CLI help/discovery corrections ✅
+  - reran `mise run test -- ./pkg/channel/... ./internal/channel/... ./internal/chatcli/...` after CLI help/discovery corrections ✅
+  - final re-review reran `mise run format` ✅
+  - final re-review reran `mise run test -- ./pkg/channel/... ./internal/channel/... ./internal/chatcli/...` ✅
+- Review outcome:
+  - initial review flagged misleading CLI `/abort` advertising, misleading shared help reuse in CLI, and weak behavior coverage
+  - follow-up fixes now confirmed resolved:
+    - `/abort` is no longer advertised in CLI completions/help chrome, and typed `/abort` clearly reports that live abort is unavailable locally
+    - CLI `/help` is capability-aware and no longer reuses the shared channel help text verbatim
+    - `/agent` and `/whoami` completion descriptions now explain their CLI limitations instead of over-promising remote-channel behavior
+    - CLI completion tests now assert those limitation-aware descriptions directly
+  - final reviewer verdict: no remaining Phase 2 blockers; clean enough to commit
+- Open issues:
+  - live in-flight abort still does not exist in the local CLI; only channel backends have the coordinator queue path needed for true `/abort`
+- Next-step context:
+  - commit the Phase 2 help/discovery unit
+  - proceed to Phase 3 final validation and broader regression checking
 
 ### Phase 3
-- Status: blocked on Phase 1/2
+- Status: ready to start after Phase 1/2 approvals
 
 ## Final summary
-- Status: Phase 1 approved; clean enough to commit
-- Validation: `mise run test -- ./internal/channel/... ./cmd/anna/...` passed during the final re-review
-- Follow-ups: commit Phase 1, then move to Phase 2 help UX updates while keeping help text and classifier behavior aligned
+- Status: Phase 1 and Phase 2 are approved; the branch is clean enough to commit the Phase 2 unit
+- Validation: `mise run format`, `mise run test -- ./internal/channel/... ./cmd/anna/...`, and `mise run test -- ./pkg/channel/... ./internal/channel/... ./internal/chatcli/...` passed during the review cycle
+- Follow-ups: commit Phase 2, then run Phase 3 final validation and broader regression checks while keeping the known local-CLI `/abort` limitation explicit in help text
