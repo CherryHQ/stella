@@ -24,6 +24,7 @@ import (
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/scheduler"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	"github.com/vaayne/anna/pkg/memory"
 	"github.com/vaayne/anna/pkg/providers"
 	reflectplugin "github.com/vaayne/anna/plugins/reflect"
 	"golang.org/x/sync/errgroup"
@@ -208,8 +209,10 @@ func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolM
 		sessionID := job.SessionID()
 		msg := fmt.Sprintf("[Scheduled Task] %s\n\nInstruction: %s", job.Name, job.Message)
 
+		jobCtx := schedulerJobContext(ctx, pool, job)
+
 		var result strings.Builder
-		for evt := range pool.Chat(ctx, sessionID, msg) {
+		for evt := range pool.Chat(jobCtx, sessionID, msg) {
 			if evt.Err != nil {
 				slog.Error("scheduler job error", "job_id", job.ID, "error", evt.Err)
 			}
@@ -254,6 +257,16 @@ func dispatchSchedulerNotification(ctx context.Context, dispatcher *notify.Dispa
 	}
 
 	return dispatcher.Notify(ctx, notification)
+}
+
+func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Job) context.Context {
+	if job.UserID != 0 {
+		ctx = memory.WithUserID(ctx, job.UserID)
+	}
+	if pool.AgentID() != "" {
+		ctx = memory.WithAgentID(ctx, pool.AgentID())
+	}
+	return ctx
 }
 
 func launchBrowser(url string) {

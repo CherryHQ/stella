@@ -55,6 +55,18 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 			sess.Info = SessionInfo{ID: sessionID, CreatedAt: time.Now(), LastActive: time.Now()}
 		}
 	}
+	if sess.Info.UserID == 0 {
+		if userID := memory.UserIDFromContext(ctx); userID != 0 {
+			sess.Info.UserID = userID
+		}
+	}
+	if sess.Info.AgentID == "" {
+		if agentID := memory.AgentIDFromContext(ctx); agentID != "" {
+			sess.Info.AgentID = agentID
+		} else if p.agentID != "" {
+			sess.Info.AgentID = p.agentID
+		}
+	}
 
 	// Snapshot all mutable pool fields while still holding the lock.
 	factory := p.factory
