@@ -443,10 +443,22 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 		return nil, fmt.Errorf("snapshot: list providers: %w", err)
 	}
 	providerByID := make(map[string]Provider, len(providerRows))
+	providerTypeCount := make(map[string]int, len(providerRows))
 	for _, row := range providerRows {
 		provider := providerFromDB(row)
 		applyProviderEnvFallback(&provider)
 		providerByID[provider.ID] = provider
+		if provider.Type != "" {
+			providerTypeCount[provider.Type]++
+		}
+	}
+	for _, provider := range providerByID {
+		if provider.Type == "" || providerTypeCount[provider.Type] != 1 {
+			continue
+		}
+		if _, exists := providerByID[provider.Type]; !exists {
+			providerByID[provider.Type] = provider
+		}
 	}
 
 	providers := make(map[string]ProviderCreds, len(provIDs))

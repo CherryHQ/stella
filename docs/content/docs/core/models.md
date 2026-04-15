@@ -6,6 +6,8 @@ title: Model Management
 
 Each agent in anna has three model fields, stored in the database (`settings_agents` table). The format for all model fields is `provider/model` (e.g. `anthropic/claude-sonnet-4-6`).
 
+`provider` is usually the provider instance ID. As a compatibility fallback, anna also accepts a provider type alias such as `anthropic` or `openai` when there is exactly one configured provider of that type.
+
 | Field          | Use Case                        |
 | -------------- | ------------------------------- |
 | `model`        | Default model for the agent     |
