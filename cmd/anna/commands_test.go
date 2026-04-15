@@ -182,6 +182,70 @@ func TestNewRunnerFactoryUnknown(t *testing.T) {
 	}
 }
 
+func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
+	setupCommandTestAnnaHome(t)
+	store, err := openStore()
+	if err != nil {
+		t.Fatalf("openStore: %v", err)
+	}
+	snap, err := defaultSnapshot(context.Background(), store)
+	if err != nil {
+		t.Fatalf("defaultSnapshot: %v", err)
+	}
+
+	dir, err := cliUserSkillsDir(snap)
+	if err != nil {
+		t.Fatalf("cliUserSkillsDir: %v", err)
+	}
+	want := filepath.Join(config.AnnaHome(), "workspaces", snap.AgentID, "users", "1", ".agents", "skills")
+	if dir != want {
+		t.Fatalf("cliUserSkillsDir() = %q, want %q", dir, want)
+	}
+}
+
+func TestLoadInstalledSkillsIncludesCLIUserSkills(t *testing.T) {
+	setupCommandTestAnnaHome(t)
+	store, err := openStore()
+	if err != nil {
+		t.Fatalf("openStore: %v", err)
+	}
+	snap, err := defaultSnapshot(context.Background(), store)
+	if err != nil {
+		t.Fatalf("defaultSnapshot: %v", err)
+	}
+	skillsDir, err := cliUserSkillsDir(snap)
+	if err != nil {
+		t.Fatalf("cliUserSkillsDir: %v", err)
+	}
+	skillDir := filepath.Join(skillsDir, "cli-test-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: cli-test-skill
+description: CLI test skill
+status: active
+---
+body
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	loaded, err := loadInstalledSkills(context.Background())
+	if err != nil {
+		t.Fatalf("loadInstalledSkills: %v", err)
+	}
+	for _, s := range loaded {
+		if s.Name == "cli-test-skill" {
+			if s.Source != "user" {
+				t.Fatalf("skill source = %q, want user", s.Source)
+			}
+			return
+		}
+	}
+	t.Fatal("expected cli-test-skill to be discovered from CLI user scope")
+}
+
 func TestRunHelp(t *testing.T) {
 	app := newApp()
 	err := app.Run([]string{"anna", "--help"})
