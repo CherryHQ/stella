@@ -40,7 +40,15 @@ func registerCommands(bot *tele.Bot) error {
 }
 
 func (b *Bot) registerHandlers() {
-	// Common commands: /start, /help, /new, /compact, /abort, /whoami — handled by shared HandleCommand.
+	// Register shared slash commands explicitly so Telegram's command list and
+	// handler table stay aligned. /whoami keeps a Telegram-specific override.
+	for _, cmd := range []string{"/start", "/help", "/new", "/compact", "/abort"} {
+		cmd := cmd
+		b.bot.Handle(cmd, b.guard(func(c tele.Context) error {
+			return b.handleSharedCommand(c, cmd)
+		}))
+	}
+
 	// Telegram-specific /whoami override (includes chat ID in markdown).
 	b.bot.Handle("/whoami", b.guard(func(c tele.Context) error {
 		if c.Sender() == nil {
@@ -49,18 +57,6 @@ func (b *Bot) registerHandlers() {
 		msg := fmt.Sprintf("Your user ID: `%d`\nThis chat ID: `%d`",
 			c.Sender().ID, c.Chat().ID)
 		return c.Send(msg, tele.ModeMarkdown)
-	}))
-
-	b.bot.Handle("/abort", b.guard(func(c tele.Context) error {
-		msg := b.incomingMsg(c, nil)
-		resp, handled, _, err := b.handler.HandleIncoming(b.ctx, msg, "/abort", "")
-		if err != nil {
-			return c.Send(fmt.Sprintf("Error: %v", err))
-		}
-		if handled {
-			return c.Send(resp)
-		}
-		return nil
 	}))
 
 	b.bot.Handle("/agent", b.guard(func(c tele.Context) error {
@@ -148,6 +144,19 @@ func (b *Bot) registerHandlers() {
 		logger().Warn("unmatched callback", "data", cb.Data, "unique", cb.Unique)
 		return c.Respond()
 	})
+}
+
+// handleSharedCommand forwards a shared slash command to the coordinator.
+func (b *Bot) handleSharedCommand(c tele.Context, cmd string) error {
+	msg := b.incomingMsg(c, nil)
+	resp, handled, _, err := b.handler.HandleIncoming(b.ctx, msg, cmd, "")
+	if err != nil {
+		return c.Send(fmt.Sprintf("Error: %v", err))
+	}
+	if handled {
+		return c.Send(resp)
+	}
+	return nil
 }
 
 // modelList returns models optionally filtered by query.
