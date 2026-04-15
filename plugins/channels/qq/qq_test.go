@@ -545,6 +545,19 @@ func TestHandleLocalCommandUnknown(t *testing.T) {
 	}
 }
 
+func TestHandleLocalCommandAbortDelegatesToCoordinator(t *testing.T) {
+	bot := &Bot{handler: &mockHandler{}}
+	incoming := incomingMsg("user123", "", nil)
+	called := false
+	handled := bot.handleLocalCommand(incoming, "/abort", func(s string) { called = true })
+	if handled {
+		t.Fatal("expected /abort to be delegated to coordinator")
+	}
+	if called {
+		t.Fatal("expected no local reply for /abort")
+	}
+}
+
 func TestHandleLocalCommandEmpty(t *testing.T) {
 	bot := &Bot{handler: &mockHandler{}}
 	incoming := incomingMsg("user123", "", nil)

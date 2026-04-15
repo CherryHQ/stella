@@ -94,6 +94,7 @@ Feishu supports the standard chat commands:
 | --- | --- |
 | `/new` | Start a fresh session |
 | `/compact` | Compact session history |
+| `/abort` | Cancel the in-progress response |
 | `/model` | List or switch models |
 | `/agent` | List or switch agents |
 | `/whoami` | Show your platform identity |

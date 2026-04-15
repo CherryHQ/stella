@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"strings"
 
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
@@ -14,6 +15,8 @@ import (
 // Coordinator implements pkgchannel.Handler. It owns all business logic
 // that channels previously called directly: user/agent resolution, session
 // management, command handling, account linking, and model/agent switching.
+// A per-session message queue ensures that only one chat turn runs at a time
+// per resolved Anna session; later messages are serialised in arrival order.
 type Coordinator struct {
 	poolManager *agent.PoolManager
 	store       config.Store
@@ -22,6 +25,7 @@ type Coordinator struct {
 	linkCodes   *auth.LinkCodeStore
 	listFn      func() []pkgchannel.ModelOption
 	switchFn    func(provider, model string) error
+	queue       *sessionQueue
 }
 
 // CoordinatorOption configures the Coordinator.
@@ -49,6 +53,7 @@ func NewCoordinator(
 		store:       store,
 		listFn:      listFn,
 		switchFn:    switchFn,
+		queue:       newSessionQueue(),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -87,17 +92,63 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 
 	// Try shared commands.
 	if command != "" {
+		command = strings.ToLower(command)
+		// /abort is handled here directly so it can cancel the active message.
+		if command == "/abort" {
+			return c.handleAbort(rc), true, nil, nil
+		}
 		if resp, ok := HandleCommand(ctx, rc, command+" "+args, msg.SenderID); ok {
 			return resp, true, nil, nil
 		}
 	}
 
-	// Not a command — stream a chat response.
-	stream, err := c.chatWithRC(ctx, rc, msg.Content)
+	// Not a command — enqueue a chat response for this session.
+	stream, err := c.queuedChat(ctx, rc, msg.Content)
 	if err != nil {
 		return "", false, nil, err
 	}
 	return "", false, stream, nil
+}
+
+// handleAbort cancels the currently-running request for the resolved session.
+func (c *Coordinator) handleAbort(rc *ResolvedChat) string {
+	if c.queue.Abort(rc.SessionKey) {
+		return "Aborted."
+	}
+	return "No active message to abort."
+}
+
+// queuedChat enqueues a chat request for the session and returns a ChatStream
+// whose Events channel is a wrapped forwarding channel. The caller must
+// fully drain (or abandon) Events before the queue will dispatch the next
+// request for the same session.
+func (c *Coordinator) queuedChat(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
+	stream, doneC, err := c.queue.Enqueue(ctx, rc.SessionKey, func(qctx context.Context) (*pkgchannel.ChatStream, error) {
+		return c.chatWithRC(qctx, rc, content)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Wrap the stream's Events in a forwarding channel that closes doneC once
+	// all events have been forwarded. This releases the queue slot.
+	out := make(chan pkgchannel.Event, 100)
+	go func() {
+		defer close(doneC)
+		defer close(out)
+		for evt := range stream.Events {
+			select {
+			case out <- evt:
+			case <-ctx.Done():
+				// Caller stopped reading, just drain the stream to not block the model
+			}
+		}
+	}()
+
+	return &pkgchannel.ChatStream{
+		Events:    out,
+		SessionID: stream.SessionID,
+	}, nil
 }
 
 // chatWithRC streams a chat response using a pre-resolved chat.
@@ -111,7 +162,10 @@ func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content 
 	go func() {
 		defer close(out)
 		for evt := range events {
-			out <- convertEvent(evt)
+			select {
+			case out <- convertEvent(evt):
+			case <-ctx.Done():
+			}
 		}
 	}()
 

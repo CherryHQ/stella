@@ -62,6 +62,7 @@ Send these commands as text messages to the bot:
 | `/start` or `/help` | Welcome and help              |
 | `/new`              | Start a fresh session         |
 | `/compact`          | Compress conversation history |
+| `/abort`            | Cancel the in-progress response |
 | `/model`            | List available models         |
 | `/model <number>`   | Switch to model by number     |
 | `/model <query>`    | Filter models by name         |

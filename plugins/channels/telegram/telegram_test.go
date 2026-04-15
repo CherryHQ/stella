@@ -121,11 +121,11 @@ func TestRenderMarkdownEmpty(t *testing.T) {
 
 func TestBotCommands(t *testing.T) {
 	commands := botCommands()
-	if len(commands) != 6 {
-		t.Fatalf("len(commands) = %d, want 6", len(commands))
+	if len(commands) != 7 {
+		t.Fatalf("len(commands) = %d, want 7", len(commands))
 	}
 
-	want := []string{"start", "new", "compact", "model", "agent", "whoami"}
+	want := []string{"start", "new", "compact", "abort", "model", "agent", "whoami"}
 	for i, cmd := range commands {
 		if cmd.Text != want[i] {
 			t.Errorf("commands[%d].Text = %q, want %q", i, cmd.Text, want[i])
@@ -591,7 +591,7 @@ func TestChatRefFormatsCorrectly(t *testing.T) {
 
 func TestWelcomeMessageContainsCommands(t *testing.T) {
 	msg := channel.WelcomeMessage
-	for _, cmd := range []string{"/new", "/compact", "/model", "/whoami"} {
+	for _, cmd := range []string{"/new", "/compact", "/abort", "/model", "/whoami"} {
 		if !strings.Contains(msg, cmd) {
 			t.Errorf("WelcomeMessage missing %q", cmd)
 		}
