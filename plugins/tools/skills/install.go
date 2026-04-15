@@ -30,7 +30,7 @@ func (t *Tool) search(ctx context.Context, args map[string]any) (string, error) 
 	}
 
 	out, _ := json.MarshalIndent(results, "", "  ")
-	return fmt.Sprintf("Found %d skills:\n%s\n\nInstall with: skills tool action=install source=\"owner/repo@skill-name\"", len(results), out), nil
+	return fmt.Sprintf("Found %d skills:\n%s\n\nInstall with: skills tool action=install source=\"owner/repo@skill-name\"\nOptional: add scope=\"project\" to install into ProjectRoot/.agents/skills.", len(results), out), nil
 }
 
 func (t *Tool) install(ctx context.Context, args map[string]any) (string, error) {
@@ -39,14 +39,22 @@ func (t *Tool) install(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("source is required for install action (e.g. owner/repo@skill-name)")
 	}
 
-	targetDir := t.skillsDir()
+	rawScope, err := scopeArg(args)
+	if err != nil {
+		return "", err
+	}
+	scope, targetDir, err := t.targetSkillsDir(ctx, rawScope)
+	if err != nil {
+		return "", err
+	}
+
 	skillName, err := Install(ctx, source, targetDir)
 	if err != nil {
 		return "", err
 	}
 
 	installed := filepath.Join(targetDir, skillName)
-	return fmt.Sprintf("Skill %q installed to %s.", skillName, installed), nil
+	return fmt.Sprintf("Skill %q installed to %s (scope=%s).", skillName, installed, scope), nil
 }
 
 func (t *Tool) remove(ctx context.Context, args map[string]any) (string, error) {
@@ -55,10 +63,19 @@ func (t *Tool) remove(ctx context.Context, args map[string]any) (string, error) 
 		return "", fmt.Errorf("name is required for remove action")
 	}
 
-	skillDir := filepath.Join(t.skillsDir(), name)
-	if err := Remove(ctx, t.runtime, name, skillDir); err != nil {
-		return "", fmt.Errorf("%w (only skills in %s can be removed)", err, t.skillsDir())
+	rawScope, err := scopeArg(args)
+	if err != nil {
+		return "", err
+	}
+	scope, targetDir, err := t.targetSkillsDir(ctx, rawScope)
+	if err != nil {
+		return "", err
 	}
 
-	return fmt.Sprintf("Skill %q removed from %s.", name, skillDir), nil
+	skillDir := filepath.Join(targetDir, name)
+	if err := Remove(ctx, t.runtime, name, skillDir); err != nil {
+		return "", fmt.Errorf("%w (only skills in %s scope at %s can be removed)", err, scope, targetDir)
+	}
+
+	return fmt.Sprintf("Skill %q removed from %s (scope=%s).", name, skillDir, scope), nil
 }

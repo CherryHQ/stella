@@ -17,7 +17,7 @@ func (t *testTool) Execute(context.Context, map[string]any) (string, error) {
 	return "ok", nil
 }
 
-func TestBuildEnabledToolsBuildsAllOptionalToolsWithRuntimeContext(t *testing.T) {
+func TestBuildEnabledToolsBuildsOptionalAndRequiredToolsWithRuntimeContext(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{
 		"tool/a": {ID: "tool/a", Enabled: true},
 		"tool/b": {ID: "tool/b", Enabled: true},
@@ -25,6 +25,7 @@ func TestBuildEnabledToolsBuildsAllOptionalToolsWithRuntimeContext(t *testing.T)
 	host := New(store)
 	host.RegisterPluginID("tool/a")
 	host.RegisterPluginID("tool/b")
+	host.RegisterPluginID("tool/c")
 
 	var runtimeSeen int
 	var seenPaths []pkgplugins.ToolPaths
@@ -43,12 +44,21 @@ func TestBuildEnabledToolsBuildsAllOptionalToolsWithRuntimeContext(t *testing.T)
 	host.AddTool(pkgplugins.ToolSpec{
 		PluginID: "tool/b",
 		Name:     "b",
+		Required: true,
 		Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
 			if ctx.Runtime != nil {
 				runtimeSeen++
 			}
 			seenPaths = append(seenPaths, ctx.Paths)
 			return &testTool{name: "b"}, nil
+		},
+	})
+	host.AddTool(pkgplugins.ToolSpec{
+		PluginID: "tool/c",
+		Name:     "c",
+		Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
+			t.Fatal("disabled optional tool should not be built")
+			return nil, nil
 		},
 	})
 
@@ -65,6 +75,9 @@ func TestBuildEnabledToolsBuildsAllOptionalToolsWithRuntimeContext(t *testing.T)
 	got := host.BuildEnabledTools(context.Background(), build)
 	if len(got) != 2 {
 		t.Fatalf("BuildEnabledTools() len = %d, want 2", len(got))
+	}
+	if got[0].Definition().Name != "a" || got[1].Definition().Name != "b" {
+		t.Fatalf("unexpected tools: %q, %q", got[0].Definition().Name, got[1].Definition().Name)
 	}
 	if runtimeSeen != 2 {
 		t.Fatalf("runtime seen = %d, want 2", runtimeSeen)

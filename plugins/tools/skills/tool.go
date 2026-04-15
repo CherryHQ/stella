@@ -18,7 +18,7 @@ var skillsInputSchema = func() map[string]any {
     "action": {
       "type": "string",
       "enum": ["load", "search", "install", "list", "remove", "create", "patch", "deprecate"],
-      "description": "Action to perform: 'load' reads a skill's content by name, 'search' finds skills from the ecosystem, 'install' adds a skill to the project, 'list' shows installed skills, 'remove' deletes an installed skill, 'create' creates a new skill (draft), 'patch' updates an existing skill's fields, 'deprecate' marks a skill as deprecated"
+      "description": "Action to perform: 'load' reads a skill's content by name, 'search' finds skills from the ecosystem, 'install' adds a skill, 'list' shows installed skills, 'remove' deletes an installed skill, 'create' creates a new skill (draft), 'patch' updates an existing skill's fields, 'deprecate' marks a skill as deprecated"
     },
     "query": {
       "type": "string",
@@ -31,6 +31,11 @@ var skillsInputSchema = func() map[string]any {
     "source": {
       "type": "string",
       "description": "Skill source to install. Supports: 'owner/repo@skill-name' (GitHub shorthand), 'owner/repo@skill-name#ref' (with branch/tag), GitHub/GitLab URLs, or local paths (required for install)"
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["user", "project"],
+      "description": "Writable scope for install/remove/create/patch/deprecate. Defaults to 'user' (UserRoot/.agents/skills). Set to 'project' to target ProjectRoot/.agents/skills."
     },
     "name": {
       "type": "string",
@@ -73,17 +78,50 @@ func NewTool(annaHome, agentRoot, projectRoot, userSkillsDir string, runtime pkg
 	}
 }
 
-func (t *Tool) skillsDir() string {
-	if t.userSkillsDir != "" {
-		return t.userSkillsDir
+const (
+	skillScopeUser    = "user"
+	skillScopeProject = "project"
+)
+
+func normalizeSkillScope(scope string) (string, error) {
+	scope = filepath.Clean(scope)
+	switch scope {
+	case "", ".", skillScopeUser:
+		return skillScopeUser, nil
+	case skillScopeProject:
+		return skillScopeProject, nil
+	default:
+		return "", fmt.Errorf("invalid scope %q, expected user or project", scope)
 	}
-	return filepath.Join(t.agentRoot, "skills")
+}
+
+func (t *Tool) targetSkillsDir(ctx context.Context, rawScope string) (string, string, error) {
+	scope, err := normalizeSkillScope(rawScope)
+	if err != nil {
+		return "", "", err
+	}
+
+	switch scope {
+	case skillScopeUser:
+		if t.userSkillsDir == "" {
+			return "", "", fmt.Errorf("user skill scope is unavailable")
+		}
+		return scope, t.userSkillsDir, nil
+	case skillScopeProject:
+		projectRoot := projectRootFromContext(ctx, t.projectRoot)
+		if projectRoot == "" {
+			return "", "", fmt.Errorf("project skill scope requested but ProjectRoot is unavailable")
+		}
+		return scope, filepath.Join(projectRoot, ".agents", "skills"), nil
+	default:
+		return "", "", fmt.Errorf("unsupported scope %q", scope)
+	}
 }
 
 func pkgskillsToolDefinition() tools.Definition {
 	return tools.Definition{
 		Name:        "skills",
-		Description: "Manage agent skills. Use 'load' to read a skill by name, 'search' to find skills from the ecosystem, 'install' to add a skill (e.g. owner/repo@skill-name), 'list' to see installed skills, 'remove' to delete one, 'create' to create a new skill (draft), 'patch' to update fields, 'deprecate' to mark as deprecated.",
+		Description: "Manage agent skills. Use 'load' to read a skill by name, 'search' to find skills from the ecosystem, 'install' to add a skill (defaults to scope=user; set scope=project for ProjectRoot), 'list' to see installed skills, 'remove' to delete one, 'create' to create a new skill (draft), 'patch' to update fields, 'deprecate' to mark as deprecated.",
 		InputSchema: skillsInputSchema,
 	}
 }
@@ -121,7 +159,14 @@ func (t *Tool) create(ctx context.Context, args map[string]any) (string, error) 
 	description, _ := args["description"].(string)
 	content, _ := args["content"].(string)
 
-	targetDir := t.skillsDir()
+	scope, err := scopeArg(args)
+	if err != nil {
+		return "", err
+	}
+	_, targetDir, err := t.targetSkillsDir(ctx, scope)
+	if err != nil {
+		return "", err
+	}
 	if err := Create(ctx, t.runtime, name, description, content, targetDir); err != nil {
 		return "", err
 	}
@@ -146,7 +191,14 @@ func (t *Tool) patch(ctx context.Context, args map[string]any) (string, error) {
 		updates["content"] = v
 	}
 
-	targetDir := t.skillsDir()
+	scope, err := scopeArg(args)
+	if err != nil {
+		return "", err
+	}
+	_, targetDir, err := t.targetSkillsDir(ctx, scope)
+	if err != nil {
+		return "", err
+	}
 	if err := Patch(ctx, t.runtime, name, updates, targetDir); err != nil {
 		return "", err
 	}
@@ -160,7 +212,14 @@ func (t *Tool) deprecate(ctx context.Context, args map[string]any) (string, erro
 		return "", fmt.Errorf("name is required for deprecate action")
 	}
 
-	targetDir := t.skillsDir()
+	scope, err := scopeArg(args)
+	if err != nil {
+		return "", err
+	}
+	_, targetDir, err := t.targetSkillsDir(ctx, scope)
+	if err != nil {
+		return "", err
+	}
 	if err := Deprecate(ctx, t.runtime, name, targetDir); err != nil {
 		return "", err
 	}
@@ -203,6 +262,21 @@ func (t *Tool) list(ctx context.Context) (string, error) {
 
 	out, _ := json.MarshalIndent(results, "", "  ")
 	return string(out), nil
+}
+
+func scopeArg(args map[string]any) (string, error) {
+	if args == nil {
+		return "", nil
+	}
+	v, ok := args["scope"]
+	if !ok || v == nil {
+		return "", nil
+	}
+	scope, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("scope must be a string")
+	}
+	return scope, nil
 }
 
 func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {

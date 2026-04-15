@@ -10,6 +10,7 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/config"
 	skillstool "github.com/vaayne/anna/plugins/tools/skills"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
@@ -74,6 +75,16 @@ func skillsSearchCommand() *ucli.Command {
 	}
 }
 
+const cliSkillsUserID int64 = 1
+
+func cliUserSkillsDir(snap *config.Snapshot) (string, error) {
+	userDir, err := agent.SetupUserWorkspace(snap.AgentID, config.AnnaHome(), cliSkillsUserID)
+	if err != nil {
+		return "", err
+	}
+	return agent.UserSkillsDir(userDir), nil
+}
+
 func skillsInstallCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "install",
@@ -94,9 +105,12 @@ func skillsInstallCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			targetDir := snap.SkillsPath()
+			targetDir, err := cliUserSkillsDir(snap)
+			if err != nil {
+				return err
+			}
 
-			fmt.Fprintf(os.Stderr, "Installing from %s...\n", source)
+			fmt.Fprintf(os.Stderr, "Installing from %s into user scope (user=%d)...\n", source, cliSkillsUserID)
 
 			name, err := skillstool.Install(c.Context, source, targetDir)
 			if err != nil {
@@ -202,11 +216,16 @@ func loadInstalledSkills(ctx context.Context) ([]skillstool.Skill, error) {
 	if err != nil {
 		return nil, err
 	}
+	userSkillsDir, err := cliUserSkillsDir(snap)
+	if err != nil {
+		return nil, err
+	}
 	cwd, _ := os.Getwd()
 	return skillstool.LoadSkills(ctx, skillstool.LoadSkillsConfig{
-		AnnaHome:    config.AnnaHome(),
-		AgentRoot:   snap.Workspace,
-		ProjectRoot: cwd,
+		AnnaHome:      config.AnnaHome(),
+		AgentRoot:     snap.Workspace,
+		ProjectRoot:   cwd,
+		UserSkillsDir: userSkillsDir,
 	}), nil
 }
 
@@ -230,7 +249,11 @@ func skillsRemoveCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			skillDir := filepath.Join(snap.SkillsPath(), name)
+			targetDir, err := cliUserSkillsDir(snap)
+			if err != nil {
+				return err
+			}
+			skillDir := filepath.Join(targetDir, name)
 
 			if err := skillstool.Remove(c.Context, nil, name, skillDir); err != nil {
 				return err
