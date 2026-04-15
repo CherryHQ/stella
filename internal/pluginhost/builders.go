@@ -25,12 +25,14 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc plugintools.BuildContex
 	sort.Slice(regs, func(i, j int) bool { return regs[i].Name < regs[j].Name })
 	var out []tools.Tool
 	for _, reg := range regs {
-		if reg.Required {
+		if reg.Build == nil {
 			continue
 		}
-		state, err := h.DesiredState(ctx, reg.PluginID)
-		if err != nil || !state.Enabled || reg.Build == nil {
-			continue
+		if !reg.Required {
+			state, err := h.DesiredState(ctx, reg.PluginID)
+			if err != nil || !state.Enabled {
+				continue
+			}
 		}
 		t, err := reg.Build(pkgplugins.ToolContext{
 			Platform: h.platform(reg.PluginID),
