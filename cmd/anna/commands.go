@@ -180,15 +180,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return phost.BuildEnabledTools(ctx, build)
 	}
 	providerRegistryBuilder := func(api, apiKey, baseURL string) (*providers.Registry, error) {
-		provider, err := store.GetProvider(ctx, api)
-		if err != nil {
-			return nil, err
-		}
-		providerType := provider.Type
-		if providerType == "" {
-			providerType = provider.ID
-		}
-		return phost.BuildProviderRegistry(providerType, map[string]any{
+		return phost.BuildProviderRegistry(api, map[string]any{
 			"api_key":  apiKey,
 			"base_url": baseURL,
 		})

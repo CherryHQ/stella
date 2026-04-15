@@ -461,6 +461,37 @@ func TestSnapshot(t *testing.T) {
 	}
 }
 
+func TestSnapshotResolvesUniqueProviderTypeAlias(t *testing.T) {
+	store := setupDBStore(t)
+	ctx := context.Background()
+
+	if err := store.CreateProvider(ctx, Provider{ID: "claude", Type: "anthropic", Name: "Claude", APIKey: "sk-claude"}); err != nil {
+		t.Fatalf("CreateProvider: %v", err)
+	}
+	if err := store.CreateAgent(ctx, Agent{ID: "anna", Name: "Anna", Model: "anthropic/claude-sonnet-4-6", Enabled: true}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	snap, err := store.Snapshot(ctx, "anna")
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if snap.APIKey != "sk-claude" {
+		t.Fatalf("APIKey = %q, want %q", snap.APIKey, "sk-claude")
+	}
+	creds := snap.ResolveProviderCreds("anthropic")
+	if creds.APIKey != "sk-claude" {
+		t.Fatalf("ResolveProviderCreds(anthropic).APIKey = %q, want %q", creds.APIKey, "sk-claude")
+	}
+	model := snap.ResolveModel()
+	if model.API != "anthropic" {
+		t.Fatalf("ResolveModel().API = %q, want %q", model.API, "anthropic")
+	}
+	if model.Provider != "anthropic" {
+		t.Fatalf("ResolveModel().Provider = %q, want %q", model.Provider, "anthropic")
+	}
+}
+
 func TestSnapshotDefaults(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
