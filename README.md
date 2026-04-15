@@ -160,7 +160,7 @@ Per-agent network policy can be configured through the admin panel:
 | `allow_all` | Unrestricted outbound access |
 | `whitelist` | Only specified hosts/CIDRs allowed when the runtime supports it |
 
-On Linux, the sandbox uses mount namespaces and overlayfs for strong isolation. On macOS, the guarantees are weaker due to platform limitations—sandboxing uses Seatbelt policies and APFS clonefile rather than true mount namespaces. Runner startup fails closed when the sandbox backend is unavailable.
+On Linux, the sandbox uses mount namespaces and overlayfs for strong isolation. It also depends on host support for unprivileged user namespaces and subordinate ID mapping (`newuidmap`/`newgidmap`, `/etc/subuid`, `/etc/subgid`). Some Ubuntu hosts additionally require `kernel.apparmor_restrict_unprivileged_userns=0` for `boxsh` to create a sandbox. On macOS, the guarantees are weaker due to platform limitations—sandboxing uses Seatbelt policies and APFS clonefile rather than true mount namespaces. Runner startup fails closed when the sandbox backend is unavailable.
 
 Current `boxsh` client builds may reject `whitelist` mode at runtime; Anna fails closed instead of widening access. Remote MCP servers are a separate trust boundary for now: local MCP stdio transport is runtime-mediated, while remote MCP HTTP/SSE transport is not currently covered by the local sandbox boundary.
 

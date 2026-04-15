@@ -86,6 +86,90 @@ sudo journalctl -u anna -f   # follow logs
 
 All configuration (channels, agents, scheduler jobs) is stored in `anna.db`. Use `anna --open` or the admin panel to manage it.
 
+### boxsh Sandbox Prerequisites (Linux)
+
+On Linux, Anna uses the managed `boxsh` sandbox by default for the local workspace tools (`bash`, `read`, `write`, `edit`). `boxsh` needs user namespaces and subordinate ID mapping support on the host.
+
+Install the user namespace helpers:
+
+```bash
+# Debian / Ubuntu
+sudo apt update
+sudo apt install uidmap
+
+# Verify helpers exist
+which newuidmap
+which newgidmap
+ls -l /usr/bin/newuidmap /usr/bin/newgidmap
+```
+
+Make sure the service user has subordinate UID/GID ranges:
+
+```bash
+grep '^anna:' /etc/subuid
+grep '^anna:' /etc/subgid
+```
+
+Expected shape:
+
+```text
+anna:100000:65536
+```
+
+If the entries are missing, add them:
+
+```bash
+sudo usermod --add-subuids 100000-165535 anna
+sudo usermod --add-subgids 100000-165535 anna
+```
+
+Verify the kernel allows unprivileged user namespaces:
+
+```bash
+sysctl kernel.unprivileged_userns_clone
+sysctl user.max_user_namespaces
+```
+
+Typical working values are:
+
+```text
+kernel.unprivileged_userns_clone = 1
+user.max_user_namespaces = 15000
+```
+
+Some Ubuntu hosts also block unprivileged user namespaces through AppArmor even when the kernel settings above are enabled. Check:
+
+```bash
+sysctl kernel.apparmor_restrict_unprivileged_userns
+```
+
+If `boxsh` fails with `sandbox_apply failed: write uid_map: Operation not permitted`, temporarily disable that restriction and retest:
+
+```bash
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+```
+
+To persist the Linux prerequisites across reboot:
+
+```bash
+sudo tee /etc/sysctl.d/99-anna-boxsh.conf >/dev/null <<'EOF'
+kernel.unprivileged_userns_clone=1
+user.max_user_namespaces=15000
+kernel.apparmor_restrict_unprivileged_userns=0
+EOF
+
+sudo sysctl --system
+```
+
+Smoke-test `boxsh` directly as the service user:
+
+```bash
+$ANNA_HOME/bin/boxsh --version
+$ANNA_HOME/bin/boxsh --rpc --sandbox
+```
+
+If the second command exits immediately with a `uid_map` error, the host is still blocking user namespace setup. If you need Anna working before the host is fixed, switch the agent sandbox backend to `local` as a temporary fallback.
+
 ### LaunchAgent (macOS)
 
 A ready-to-use plist is provided at [`scripts/com.vaayne.anna.plist`](https://github.com/vaayne/anna/blob/main/scripts/com.vaayne.anna.plist).

@@ -184,6 +184,8 @@ All four core tools share the same COW view through a single `boxsh` process per
 
 **Linux Limitations:**
 - Some filesystem/kernel combinations require `fuse-overlayfs`.
+- `boxsh` requires host support for unprivileged user namespaces and subordinate ID mapping (`newuidmap`/`newgidmap`, `/etc/subuid`, `/etc/subgid`).
+- Some Ubuntu hosts additionally block sandbox startup unless `kernel.apparmor_restrict_unprivileged_userns=0`.
 - `whitelist` is accepted in config but current `boxsh` client builds may reject it at runtime.
 
 **macOS Guarantees:**
@@ -239,6 +241,7 @@ On Linux and macOS, runner startup fails closed when:
 - Network policy configuration is invalid
 - Network policy is valid but not supported by the selected backend
 - Filesystem prerequisites (overlayfs/COW capability) are unavailable
+- Linux user namespace prerequisites are unavailable or blocked by host policy (for example missing `uidmap` helpers, missing subordinate IDs, or AppArmor restrictions)
 
 This ensures that sandboxed execution is either fully functional or does not run at all, preventing silent security downgrades.
 
