@@ -28,6 +28,7 @@ func botCommands() []tele.Command {
 		{Text: "start", Description: "Welcome & help"},
 		{Text: "new", Description: "Start a new session"},
 		{Text: "compact", Description: "Compact session history"},
+		{Text: "abort", Description: "Cancel the in-progress response"},
 		{Text: "model", Description: "List or switch models"},
 		{Text: "agent", Description: "List or switch agents"},
 		{Text: "whoami", Description: "Show your user ID"},
@@ -39,7 +40,7 @@ func registerCommands(bot *tele.Bot) error {
 }
 
 func (b *Bot) registerHandlers() {
-	// Common commands: /start, /help, /new, /compact, /whoami — handled by shared HandleCommand.
+	// Common commands: /start, /help, /new, /compact, /abort, /whoami — handled by shared HandleCommand.
 	// Telegram-specific /whoami override (includes chat ID in markdown).
 	b.bot.Handle("/whoami", b.guard(func(c tele.Context) error {
 		if c.Sender() == nil {
