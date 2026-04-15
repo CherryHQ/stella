@@ -11,9 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-04-15
+
 ### 🐛 Bug Fixes
 
 - **Release**: Make `mise run release:snapshot` host-only so local snapshot builds no longer fan out into the full cross-platform GoReleaser matrix
+- **Release**: Embed only target-specific helper tool archives so each release binary ships just its own platform tools and avoids parallel GoReleaser target races
+- **Models**: Resolve provider type aliases in agent model refs so `anthropic/...` style model names map to the configured provider instance without requiring a literal provider ID
+
+### ♻️ Refactoring
+
+- **Config**: Centralize default agent model selection and derive the seeded anna agent model from configured provider instances instead of hardcoding a provider ID
+
+**Full Changelog**: [v0.10.1...v0.10.2](https://github.com/vaayne/anna/compare/v0.10.1...v0.10.2)
 
 ## [0.10.1] - 2026-04-14
 
