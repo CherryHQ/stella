@@ -11,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
 	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
@@ -130,20 +133,33 @@ func (f *boxshFactory) CreateSession(ctx context.Context, policy Policy) (Sessio
 		backendCfg.Sandbox.Mode = boxshclient.NetworkAllowAll
 	}
 
+	sessionID := nextSessionID()
+	ctx, span := tracer.Start(ctx, "sandbox.boxsh.session",
+		trace.WithAttributes(sessionTraceAttrs(sessionID, policy, backendCfg)...),
+	)
+
 	backend, err := boxshclient.NewSharedBackend(backendCfg)
 	if err != nil {
+		recordError(span, err)
+		span.End()
 		return nil, fmt.Errorf("boxsh session: %w", err)
 	}
 	if err := backend.Start(ctx, backendCfg); err != nil {
+		recordError(span, err)
+		span.End()
 		return nil, fmt.Errorf("boxsh session: start backend: %w", err)
 	}
+	span.AddEvent("sandbox.boxsh.session.ready", trace.WithAttributes(
+		attribute.String("anna.sandbox.binary", binaryPath),
+	))
 
 	session := &boxshSession{
-		id:      nextSessionID(),
-		policy:  policy,
-		backend: backend,
-		client:  backend.Client(),
-		done:    make(chan struct{}),
+		id:        sessionID,
+		policy:    policy,
+		backend:   backend,
+		client:    backend.Client(),
+		done:      make(chan struct{}),
+		traceSpan: span,
 	}
 	if policy.RequiresWhitelist() && policy.Relaxed {
 		logRelaxedMode(session.id, f.Name(), "boxsh whitelist mode relaxed to allow_all", policy, "network whitelist treated as allow_all")
@@ -155,16 +171,18 @@ func (f *boxshFactory) CreateSession(ctx context.Context, policy Policy) (Sessio
 
 // boxshSession is a boxsh-backed sandbox session.
 type boxshSession struct {
-	id       string
-	policy   Policy
-	backend  *boxshclient.SharedBackend
-	client   *boxshclient.Client
-	host     *boxshHost
-	done     chan struct{}
-	doneOnce sync.Once
-	closed   bool
-	closeErr error
-	mu       sync.RWMutex
+	id        string
+	policy    Policy
+	backend   *boxshclient.SharedBackend
+	client    *boxshclient.Client
+	host      *boxshHost
+	done      chan struct{}
+	doneOnce  sync.Once
+	closed    bool
+	closeErr  error
+	traceSpan trace.Span
+	traceOnce sync.Once
+	mu        sync.RWMutex
 }
 
 func (s *boxshSession) Host() Host {
@@ -206,11 +224,26 @@ func (s *boxshSession) watchBackend() {
 			return
 		}
 		if backend == nil || !backend.Alive() {
+			err := fmt.Errorf("boxsh backend liveness lost")
+			s.endTrace("liveness_lost", err)
 			logSessionClosed(s.id, "boxsh", "liveness_lost")
 			s.closeDone()
 			return
 		}
 	}
+}
+
+func (s *boxshSession) endTrace(reason string, err error) {
+	s.traceOnce.Do(func() {
+		if s.traceSpan == nil {
+			return
+		}
+		s.traceSpan.AddEvent("sandbox.boxsh.session.closed", trace.WithAttributes(
+			attribute.String("anna.sandbox.close_reason", reason),
+		))
+		recordError(s.traceSpan, err)
+		s.traceSpan.End()
+	})
 }
 
 func (s *boxshSession) Close() error {
@@ -230,6 +263,7 @@ func (s *boxshSession) Close() error {
 	}
 
 	s.closeDone()
+	s.endTrace("explicit_close", s.closeErr)
 	logSessionClosed(s.id, "boxsh", "explicit_close")
 	return s.closeErr
 }
