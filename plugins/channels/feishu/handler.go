@@ -401,12 +401,14 @@ func parseTextContent(raw string) string {
 // otherwise a chat stream is returned.
 func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, chatID, messageID, rootID string, replyFn func(string)) {
 	// Use an operation-scoped context so in-flight work survives bot restarts
-	// with bounded execution time.
+	// with bounded execution time. Keep it alive for the full streamed turn;
+	// cancelling immediately after HandleIncoming returns would abort the agent
+	// stream and release the per-session queue too early.
 	ctx, cancel := b.operationContext()
-	defer cancel()
 
 	resp, handled, stream, err := b.handler.HandleIncoming(ctx, msg, cmd, args)
 	if err != nil {
+		cancel()
 		logger().Error("chat failed", "sender_id", senderID, "error", err)
 		replyCtx, cancel := b.apiContext()
 		defer cancel()
@@ -414,9 +416,11 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 		return
 	}
 	if handled {
+		defer cancel()
 		replyFn(resp)
 		return
 	}
+	defer cancel()
 
 	logger().Debug("message received", "sender_id", senderID, "session", stream.SessionID, "root_id", rootID)
 
