@@ -43,7 +43,6 @@ func (b *Bot) registerHandlers() {
 	// Register shared slash commands explicitly so Telegram's command list and
 	// handler table stay aligned. /whoami keeps a Telegram-specific override.
 	for _, cmd := range []string{"/start", "/help", "/new", "/compact", "/abort"} {
-		cmd := cmd
 		b.bot.Handle(cmd, b.guard(func(c tele.Context) error {
 			return b.handleSharedCommand(c, cmd)
 		}))

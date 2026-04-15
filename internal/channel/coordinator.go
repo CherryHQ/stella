@@ -18,14 +18,15 @@ import (
 // A per-session message queue ensures that only one chat turn runs at a time
 // per resolved Anna session; later messages are serialised in arrival order.
 type Coordinator struct {
-	poolManager *agent.PoolManager
-	store       config.Store
-	authStore   auth.AuthStore
-	engine      *auth.PolicyEngine
-	linkCodes   *auth.LinkCodeStore
-	listFn      func() []pkgchannel.ModelOption
-	switchFn    func(provider, model string) error
-	queue       *sessionQueue
+	poolManager      *agent.PoolManager
+	store            config.Store
+	authStore        auth.AuthStore
+	engine           *auth.PolicyEngine
+	linkCodes        *auth.LinkCodeStore
+	listFn           func() []pkgchannel.ModelOption
+	switchFn         func(provider, model string) error
+	queue            *sessionQueue
+	intentClassifier IntentClassifier
 }
 
 // CoordinatorOption configures the Coordinator.
@@ -61,6 +62,12 @@ func NewCoordinator(
 	return c
 }
 
+func WithIntentClassifier(classifier IntentClassifier) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.intentClassifier = classifier
+	}
+}
+
 // resolve performs the full user -> agent -> pool -> session key resolution.
 func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessage) (*ResolvedChat, error) {
 	channelID := msg.ChannelID
@@ -90,6 +97,10 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 		return "", false, nil, err
 	}
 
+	return c.handleResolvedIncoming(ctx, rc, msg, command, args)
+}
+
+func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
 	// Try shared commands.
 	if command != "" {
 		command = strings.ToLower(command)
@@ -102,7 +113,19 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 		}
 	}
 
-	// Not a command — enqueue a chat response for this session.
+	if c.intentClassifier != nil {
+		intent := c.intentClassifier.Classify(ctx, rc.AgentID, msg.Content)
+		switch intent {
+		case IntentAbort:
+			return c.handleAbort(rc), true, nil, nil
+		case IntentHelp, IntentNew, IntentCompact:
+			if resp, ok := HandleCommand(ctx, rc, IntentToCommand(intent), msg.SenderID); ok {
+				return resp, true, nil, nil
+			}
+		}
+	}
+
+	// Not a command or recognized intent — enqueue a chat response for this session.
 	stream, err := c.queuedChat(ctx, rc, msg.Content)
 	if err != nil {
 		return "", false, nil, err
