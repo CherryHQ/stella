@@ -14,6 +14,7 @@ const WelcomeMessage = "Hi! I'm Anna -- your local AI assistant.\n\n" +
 	"Commands:\n" +
 	"/new -- Start a fresh session\n" +
 	"/compact -- Compress conversation history\n" +
+	"/abort -- Cancel the in-progress response\n" +
 	"/model -- Switch between models\n" +
 	"/agent -- List or switch agents\n" +
 	"/whoami -- Show your user ID\n\n" +
