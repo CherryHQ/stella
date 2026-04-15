@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // SharedBackend provides a shared boxsh session for all core tools.
@@ -77,15 +79,27 @@ func NewSharedBackend(cfg BackendConfig) (*SharedBackend, error) {
 // Start initializes the shared backend by creating the session directory
 // and starting the boxsh RPC process.
 func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
+	ctx, span := tracer.Start(ctx, "sandbox.boxsh.backend_start")
+	defer span.End()
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if b.client != nil {
-		return fmt.Errorf("boxshclient: backend already started")
+		err := fmt.Errorf("boxshclient: backend already started")
+		recordTraceError(span, err)
+		return err
 	}
 
 	// Determine user root (SRC).
 	src := cfg.UserRoot
+	span.SetAttributes(
+		attribute.String("anna.sandbox.binary", b.binaryPath),
+		attribute.String("anna.sandbox.src", src),
+		attribute.String("anna.sandbox.work_dir", cfg.WorkDir),
+		attribute.Int("anna.sandbox.readonly_dir_count", len(uniqueCleanAbsPaths(cfg.ReadOnlyDirs))),
+		attribute.String("anna.sandbox.network.mode", cfg.Sandbox.ModeOrDefault()),
+	)
 
 	// Create an ephemeral overlay root on the same filesystem as SRC.
 	// boxsh's current overlay implementation requires that to avoid cross-device
@@ -97,13 +111,19 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 
 	sessionDir, err := CreateSessionDir(sessionBaseDir)
 	if err != nil {
-		return fmt.Errorf("boxshclient: create session dir: %w", err)
+		err = fmt.Errorf("boxshclient: create session dir: %w", err)
+		recordTraceError(span, err)
+		return err
 	}
 	if err := os.Remove(sessionDir); err != nil {
-		return fmt.Errorf("boxshclient: prepare session dir: %w", err)
+		err = fmt.Errorf("boxshclient: prepare session dir: %w", err)
+		recordTraceError(span, err)
+		return err
 	}
 	if err := os.Mkdir(sessionDir, 0o755); err != nil {
-		return fmt.Errorf("boxshclient: recreate session dir: %w", err)
+		err = fmt.Errorf("boxshclient: recreate session dir: %w", err)
+		recordTraceError(span, err)
+		return err
 	}
 	b.sessionDir = sessionDir
 	b.sessionSrc = src
@@ -111,6 +131,10 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 	// boxsh mounts the overlay at DST, so remap the requested workdir from SRC
 	// into the overlay root.
 	cwd := remapCwdToSessionRoot(src, sessionDir, cfg.WorkDir)
+	span.SetAttributes(
+		attribute.String("anna.sandbox.dst", sessionDir),
+		attribute.String("anna.sandbox.cwd", cwd),
+	)
 
 	// Build session configuration.
 	sessionCfg := SessionConfig{
@@ -125,6 +149,7 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 	// Create and start the client.
 	client := New(b.binaryPath, sessionCfg)
 	if err := client.Start(ctx); err != nil {
+		recordTraceError(span, err)
 		slog.Warn("boxsh backend failed to start client",
 			"component", "boxsh_backend",
 			"binary", b.binaryPath,
@@ -142,6 +167,7 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 	}
 
 	b.client = client
+	span.AddEvent("sandbox.boxsh.backend.started")
 	slog.Info("boxsh backend started",
 		"component", "boxsh_backend",
 		"binary", b.binaryPath,

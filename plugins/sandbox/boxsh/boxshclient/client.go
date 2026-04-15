@@ -18,6 +18,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Client manages a boxsh --rpc subprocess and provides typed RPC methods.
@@ -109,39 +112,59 @@ func New(binaryPath string, cfg SessionConfig) *Client {
 
 // Start launches the boxsh --rpc subprocess and initializes the session.
 func (c *Client) Start(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "sandbox.boxsh.client_start",
+		trace.WithAttributes(commonTraceAttrs(c.sessionConfig)...),
+	)
+	defer span.End()
+
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
-		return fmt.Errorf("boxshclient: client is closed")
+		err := fmt.Errorf("boxshclient: client is closed")
+		recordTraceError(span, err)
+		return err
 	}
 	if c.started {
 		c.mu.Unlock()
-		return fmt.Errorf("boxshclient: client already started")
+		err := fmt.Errorf("boxshclient: client already started")
+		recordTraceError(span, err)
+		return err
 	}
 	c.mu.Unlock()
 
 	args, err := c.buildArgs()
 	if err != nil {
+		recordTraceError(span, err)
 		return err
 	}
+	span.SetAttributes(attribute.Int("anna.sandbox.arg_count", len(args)))
 	cmd := exec.CommandContext(ctx, c.binaryPath, args...)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return fmt.Errorf("boxshclient: stdin pipe: %w", err)
+		err = fmt.Errorf("boxshclient: stdin pipe: %w", err)
+		recordTraceError(span, err)
+		return err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("boxshclient: stdout pipe: %w", err)
+		err = fmt.Errorf("boxshclient: stdout pipe: %w", err)
+		recordTraceError(span, err)
+		return err
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return fmt.Errorf("boxshclient: stderr pipe: %w", err)
+		err = fmt.Errorf("boxshclient: stderr pipe: %w", err)
+		recordTraceError(span, err)
+		return err
 	}
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("boxshclient: start: %w", err)
+		err = fmt.Errorf("boxshclient: start: %w", err)
+		recordTraceError(span, err)
+		return err
 	}
+	span.SetAttributes(attribute.Int("process.pid", cmd.Process.Pid))
 
 	processDone := make(chan struct{})
 
@@ -164,6 +187,7 @@ func (c *Client) Start(ctx context.Context) error {
 	go c.captureStderr(stderr)
 
 	if err := c.handshake(ctx); err != nil {
+		recordTraceError(span, err)
 		slog.Warn("boxsh client handshake failed",
 			"component", "boxsh_client",
 			"binary", c.binaryPath,
@@ -182,6 +206,7 @@ func (c *Client) Start(ctx context.Context) error {
 		return fmt.Errorf("boxshclient: handshake: %w", err)
 	}
 
+	span.AddEvent("sandbox.boxsh.client.ready")
 	return nil
 }
 
@@ -213,6 +238,11 @@ func (c *Client) buildArgs() ([]string, error) {
 
 // handshake verifies the session is ready using boxsh's initialize request.
 func (c *Client) handshake(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "sandbox.boxsh.handshake",
+		trace.WithAttributes(commonTraceAttrs(c.sessionConfig)...),
+	)
+	defer span.End()
+
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -231,11 +261,19 @@ func (c *Client) handshake(ctx context.Context) error {
 			"version": "dev",
 		},
 	}, &result); err != nil {
+		recordTraceError(span, err)
 		return err
 	}
 	if !strings.EqualFold(result.ServerInfo.Name, "boxsh") {
-		return fmt.Errorf("unexpected initialize response from %q", result.ServerInfo.Name)
+		err := fmt.Errorf("unexpected initialize response from %q", result.ServerInfo.Name)
+		recordTraceError(span, err)
+		return err
 	}
+	span.SetAttributes(
+		attribute.String("anna.sandbox.server.name", result.ServerInfo.Name),
+		attribute.String("anna.sandbox.server.version", result.ServerInfo.Version),
+		attribute.String("anna.sandbox.protocol_version", result.ProtocolVersion),
+	)
 	return nil
 }
 

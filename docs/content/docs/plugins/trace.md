@@ -151,6 +151,18 @@ Memory operations (append, assemble, compact, search, etc.) are captured as `mem
 - Token delta (for compaction)
 - Errors
 
+### Sandbox Lifecycle
+
+Sandbox startup is captured with `sandbox.*` spans so boxsh failures can be traced past the final broken-pipe symptom:
+
+- Session creation in the runner
+- Backend startup and overlay/session directory setup
+- Boxsh client process startup
+- JSON-RPC handshake
+- Session close or liveness loss reason
+
+These spans include Anna-specific attributes such as sandbox backend, source/destination roots, working directory, network mode, read-only bind count, and captured error type.
+
 ### Trace Structure
 
 Spans are organized into a hierarchy per chat session:
@@ -199,6 +211,27 @@ Memory spans use anna-specific attributes:
 | `anna.memory.token_count` | Token count |
 | `anna.memory.token_delta` | Tokens saved by compaction (negative = reduction) |
 | `anna.memory.message_count` | Message count |
+
+Sandbox lifecycle spans use these Anna-specific attributes:
+
+| Attribute | Description |
+| --- | --- |
+| `anna.sandbox.backend` | Sandbox backend name, currently `boxsh` |
+| `anna.sandbox.agent_root` | Agent workspace root from runner config |
+| `anna.sandbox.user_root` | Requested sandbox user root |
+| `anna.sandbox.resolved_user_root` | Resolved absolute user root used to build policy |
+| `anna.sandbox.project_root` | Project root when present |
+| `anna.sandbox.work_dir` | Requested or resolved working directory |
+| `anna.sandbox.src` | Boxsh copy-on-write source root |
+| `anna.sandbox.dst` | Overlay/session destination root |
+| `anna.sandbox.cwd` | Remapped working directory inside the session |
+| `anna.sandbox.network.mode` | Effective network mode |
+| `anna.sandbox.network.allowlist` | Network allowlist when configured |
+| `anna.sandbox.readonly_dir_count` | Number of read-only bind directories |
+| `anna.sandbox.close_reason` | Why the session span ended |
+| `anna.sandbox.server.name` | Handshake-reported sandbox server name |
+| `anna.sandbox.server.version` | Handshake-reported sandbox server version |
+| `anna.sandbox.protocol_version` | RPC protocol version returned by boxsh |
 
 ## Managing the Plugin
 
