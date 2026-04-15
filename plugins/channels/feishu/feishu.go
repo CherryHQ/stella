@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -62,9 +61,8 @@ type Bot struct {
 
 	mu            sync.RWMutex
 	chatModels    map[string]channel.ModelOption
-	seenMsgs      map[string]time.Time          // message ID -> first seen time
-	lastSeenSweep time.Time                     // last time seenMsgs was swept
-	activeStreams map[string]context.CancelFunc // streamKey -> cancel func
+	seenMsgs      map[string]time.Time // message ID -> first seen time
+	lastSeenSweep time.Time            // last time seenMsgs was swept
 
 	cfg    Config
 	ctx    context.Context
@@ -82,11 +80,10 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	}
 
 	b := &Bot{
-		handler:       handler,
-		chatModels:    make(map[string]channel.ModelOption),
-		seenMsgs:      make(map[string]time.Time),
-		activeStreams: make(map[string]context.CancelFunc),
-		cfg:           cfg,
+		handler:    handler,
+		chatModels: make(map[string]channel.ModelOption),
+		seenMsgs:   make(map[string]time.Time),
+		cfg:        cfg,
 	}
 
 	return b, nil
@@ -322,52 +319,6 @@ func (b *Bot) markSeen(messageID string) bool {
 	}
 	b.seenMsgs[messageID] = now
 	return false
-}
-
-// cancelPatterns lists the text patterns that trigger abort.
-var cancelPatterns = []string{"cancel", "stop", "abort", "取消", "停止"}
-
-// isCancelText returns true if the text matches a cancel pattern.
-func isCancelText(text string) bool {
-	t := strings.TrimSpace(strings.ToLower(text))
-	return slices.Contains(cancelPatterns, t)
-}
-
-// streamKey builds a key for the activeStreams map.
-// For threads, uses chatID:thread:rootID; otherwise just chatID.
-func streamKey(chatID, rootID string) string {
-	if rootID != "" {
-		return chatID + ":thread:" + rootID
-	}
-	return chatID
-}
-
-// registerStream registers a cancel function for an active stream.
-func (b *Bot) registerStream(key string, cancel context.CancelFunc) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.activeStreams[key] = cancel
-}
-
-// unregisterStream removes a stream from the active streams map.
-func (b *Bot) unregisterStream(key string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	delete(b.activeStreams, key)
-}
-
-// cancelStream cancels an active stream if one exists. Returns true if cancelled.
-func (b *Bot) cancelStream(key string) bool {
-	b.mu.Lock()
-	cancel, ok := b.activeStreams[key]
-	if ok {
-		delete(b.activeStreams, key)
-	}
-	b.mu.Unlock()
-	if ok {
-		cancel()
-	}
-	return ok
 }
 
 // stripMentions removes @mention placeholders from message text.

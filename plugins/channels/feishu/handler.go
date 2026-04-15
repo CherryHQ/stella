@@ -116,21 +116,10 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		return nil
 	}
 
-	// Extract text once for cancel detection and commands.
+	// Extract text once for commands.
 	text := parseTextContent(derefStr(msg.Content))
 	if chatType == "group" {
 		text = stripMentions(text, mentions)
-	}
-
-	// Check for abort/cancel before processing the message.
-	if isCancelText(text) {
-		key := streamKey(chatID, rootID)
-		if b.cancelStream(key) {
-			replyCtx, cancel := b.apiContext()
-			defer cancel()
-			b.replyInThread(replyCtx, messageID, rootID, "Cancelled.")
-		}
-		return nil
 	}
 
 	content := b.buildMessageContent(msg)
@@ -407,16 +396,13 @@ func parseTextContent(raw string) string {
 	return content.Text
 }
 
-// handleMessage processes an incoming message by streaming the agent response.
 // handleIncoming delegates to the coordinator via HandleIncoming.
-// Shared commands are handled by the coordinator; otherwise a chat stream is returned.
+// Shared commands are handled by the coordinator (including /abort);
+// otherwise a chat stream is returned.
 func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, chatID, messageID, rootID string, replyFn func(string)) {
-	// Use an operation-scoped context so in-flight work survives bot restarts,
-	// while still supporting explicit user cancellation and bounded execution.
+	// Use an operation-scoped context so in-flight work survives bot restarts
+	// with bounded execution time.
 	ctx, cancel := b.operationContext()
-	key := streamKey(chatID, rootID)
-	b.registerStream(key, cancel)
-	defer b.unregisterStream(key)
 	defer cancel()
 
 	resp, handled, stream, err := b.handler.HandleIncoming(ctx, msg, cmd, args)
