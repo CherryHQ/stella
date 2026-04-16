@@ -92,6 +92,8 @@ jobs:
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-${{ matrix.suffix }},mode=max
           build-args: |
             VERSION=${{ github.ref_name }}
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest

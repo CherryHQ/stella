@@ -62,3 +62,5 @@ jobs:
           cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0}/{1}:buildcache,mode=max', env.REGISTRY, env.IMAGE_NAME) || '' }}
           build-args: |
             VERSION=${{ github.sha }}
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
