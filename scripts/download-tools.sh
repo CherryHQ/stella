@@ -4,29 +4,37 @@ set -euo pipefail
 # Download fd, rg, mise, tap, rtk, and boxsh binaries, gzip-compressed into
 # internal/embedded/binaries/.
 #
-# Uses `gh release download` with explicit platform-specific glob patterns.
-# This avoids mise's cross-platform download bug where MISE_OS is ignored
-# when the target arch matches the host arch (e.g. darwin/amd64 from Linux/amd64).
+# Uses exact GitHub release asset URLs with curl instead of `gh release download`
+# or `mise install`, which avoids CLI/tooling dependencies and platform-detection
+# surprises in cross-platform release builds.
 #
 # Usage:
 #   ./scripts/download-tools.sh
 #   ./scripts/download-tools.sh --goos linux --goarch amd64
 #   ./scripts/download-tools.sh --goos linux --goarch amd64 --isolated
+#
+# NOTE:
+# fd v10.4.x no longer publishes a darwin/amd64 asset upstream, so darwin/amd64
+# intentionally falls back to v10.3.0 for fd only.
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 BINARIES_DIR="$ROOT_DIR/internal/embedded/binaries"
 mkdir -p "$BINARIES_DIR"
 
 FD_VERSION="${FD_VERSION:-10.4.2}"
+FD_DARWIN_AMD64_VERSION="${FD_DARWIN_AMD64_VERSION:-10.3.0}"
 RG_VERSION="${RG_VERSION:-15.1.0}"
 MISE_VERSION="${MISE_VERSION:-v2026.4.12}"
 TAP_VERSION="${TAP_VERSION:-0.4.4}"
 RTK_VERSION="${RTK_VERSION:-0.30.0}"
 BOXSH_VERSION="${BOXSH_VERSION:-2.1.0}"
 
+REPO_BASE_URL="https://github.com"
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+
 GOOS=""
 GOARCH=""
-ISOLATED=false  # kept for CLI compatibility; no longer used
+ISOLATED=false
 
 usage() {
   cat <<'EOF'
@@ -43,9 +51,9 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --goos)     GOOS="$2";    shift 2 ;;
-    --goarch)   GOARCH="$2";  shift 2 ;;
-    --isolated) ISOLATED=true; shift  ;;
+    --goos)     GOOS="$2"; shift 2 ;;
+    --goarch)   GOARCH="$2"; shift 2 ;;
+    --isolated) ISOLATED=true; shift ;;
     -h|--help)  usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -57,29 +65,41 @@ target_platform="${target_goos}-${target_goarch}"
 target_dir="$BINARIES_DIR/$target_platform"
 mkdir -p "$target_dir"
 
-# Canonical architecture names used in release triples
+case "$target_goos" in
+  darwin|linux|windows) ;;
+  *) echo "unsupported os: $target_goos" >&2; exit 1 ;;
+esac
+
 case "$target_goarch" in
-  amd64) TRIPLE_ARCH="x86_64" ;;
-  arm64) TRIPLE_ARCH="aarch64" ;;
+  amd64|arm64) ;;
   *) echo "unsupported arch: $target_goarch" >&2; exit 1 ;;
 esac
 
 tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/anna-tools.XXXXXX")"
 trap 'rm -rf "$tmp_root"' EXIT
 
-# Download a GitHub release asset, extract the named binary, and gzip it.
-#
-# $1 name        — binary name (also the output filename stem)
-# $2 repo        — owner/repo
-# $3 tag         — git tag
-# $4 pattern     — glob passed to `gh release download --pattern`
-# $5 optional    — "true" to skip gracefully on failure (default: false)
-# $6 raw_binary  — "true" when the downloaded file IS the binary (no archive)
+curl_download() {
+  local url="$1"
+  local out="$2"
+
+  if [[ -n "$GITHUB_TOKEN" ]]; then
+    curl -fsSL --retry 3 --retry-delay 1 --connect-timeout 20 \
+      -H "Authorization: Bearer $GITHUB_TOKEN" \
+      -o "$out" \
+      "$url"
+    return
+  fi
+
+  curl -fsSL --retry 3 --retry-delay 1 --connect-timeout 20 \
+    -o "$out" \
+    "$url"
+}
+
 download() {
   local name="$1"
   local repo="$2"
   local tag="$3"
-  local pattern="$4"
+  local asset="$4"
   local optional="${5:-false}"
   local raw_binary="${6:-false}"
   local dest="$target_dir/${name}.gz"
@@ -89,31 +109,19 @@ download() {
     return 0
   fi
 
-  echo "DOWNLOAD $name ($target_platform) [$repo $tag $pattern]"
+  local url="${REPO_BASE_URL}/${repo}/releases/download/${tag}/${asset}"
+  echo "DOWNLOAD $name ($target_platform) [$repo $tag $asset]"
 
   local tmp_dir="$tmp_root/$name"
   mkdir -p "$tmp_dir"
 
-  if ! gh release download "$tag" \
-       --repo "$repo" \
-       --pattern "$pattern" \
-       --dir "$tmp_dir" 2>/dev/null; then
+  local archive="$tmp_dir/$asset"
+  if ! curl_download "$url" "$archive"; then
     if [[ "$optional" == "true" ]]; then
-      echo "WARN: skipping optional $name (no asset: $pattern)"
+      echo "WARN: skipping optional $name (no asset: $asset)"
       return 0
     fi
-    echo "ERROR: gh release download failed: $repo $tag $pattern" >&2
-    return 1
-  fi
-
-  local archive
-  archive=$(find "$tmp_dir" -maxdepth 1 -type f | head -1)
-  if [[ -z "$archive" ]]; then
-    if [[ "$optional" == "true" ]]; then
-      echo "WARN: skipping optional $name (no file downloaded)"
-      return 0
-    fi
-    echo "ERROR: no file downloaded for $name" >&2
+    echo "ERROR: curl download failed: $url" >&2
     return 1
   fi
 
@@ -146,79 +154,103 @@ download() {
   echo "OK $name ($target_platform)"
 }
 
-# fd — sharkdp/fd
-# Asset: fd-v{VERSION}-{triple}.{ext}
-case "$target_goos" in
-  darwin)  fd_triple="${TRIPLE_ARCH}-apple-darwin";       fd_ext="tar.gz" ;;
-  linux)   fd_triple="${TRIPLE_ARCH}-unknown-linux-musl"; fd_ext="tar.gz" ;;
-  windows) fd_triple="${TRIPLE_ARCH}-pc-windows-msvc";    fd_ext="zip" ;;
-esac
-download fd "sharkdp/fd" "v${FD_VERSION}" "fd-v*-${fd_triple}.${fd_ext}"
-
-# rg — BurntSushi/ripgrep (binary inside archive is named "rg")
-# Asset: ripgrep-{VERSION}-{triple}.{ext}
-case "$target_goos" in
-  darwin)  rg_triple="${TRIPLE_ARCH}-apple-darwin";        rg_ext="tar.gz" ;;
-  linux)
-    case "$target_goarch" in
-      amd64) rg_triple="${TRIPLE_ARCH}-unknown-linux-musl" ;;
-      arm64) rg_triple="${TRIPLE_ARCH}-unknown-linux-gnu" ;;
-    esac
-    rg_ext="tar.gz"
-    ;;
-  windows) rg_triple="${TRIPLE_ARCH}-pc-windows-msvc";     rg_ext="zip" ;;
-esac
-download rg "BurntSushi/ripgrep" "${RG_VERSION}" "ripgrep-*-${rg_triple}.${rg_ext}"
-
-# mise — jdx/mise
-# Asset: mise-{VERSION}-{os}-{arch}[-musl].{ext}
-case "$target_goos" in
-  darwin)  mise_os="macos";   mise_musl="";      mise_ext="tar.gz" ;;
-  linux)   mise_os="linux";   mise_musl="-musl"; mise_ext="tar.gz" ;;
-  windows) mise_os="windows"; mise_musl="";      mise_ext="zip" ;;
-esac
-case "$target_goarch" in
-  amd64) mise_arch="x64" ;;
-  arm64) mise_arch="arm64" ;;
-esac
-download mise "jdx/mise" "${MISE_VERSION}" "mise-*-${mise_os}-${mise_arch}${mise_musl}.${mise_ext}"
-
-# tap — vaayne/tap
-# Asset: tap_{VERSION}_{goos}_{goarch}.{ext}
-case "$target_goos" in
-  windows) tap_ext="zip" ;;
-  *)       tap_ext="tar.gz" ;;
-esac
-download tap "vaayne/tap" "v${TAP_VERSION}" "tap_*_${target_goos}_${target_goarch}.${tap_ext}"
-
-# rtk — rtk-ai/rtk (optional; no version in asset filename)
-# Asset: rtk-{triple}.{ext}
-case "$target_goos" in
-  darwin)  rtk_triple="${TRIPLE_ARCH}-apple-darwin";       rtk_ext="tar.gz" ;;
-  linux)
-    case "$target_goarch" in
-      amd64) rtk_triple="${TRIPLE_ARCH}-unknown-linux-musl" ;;
-      arm64) rtk_triple="${TRIPLE_ARCH}-unknown-linux-gnu" ;;
-    esac
-    rtk_ext="tar.gz"
-    ;;
-  windows) rtk_triple="${TRIPLE_ARCH}-pc-windows-msvc";    rtk_ext="zip" ;;
-esac
-download rtk "rtk-ai/rtk" "v${RTK_VERSION}" "rtk-${rtk_triple}.${rtk_ext}" true
-
-# boxsh — xicilion/boxsh (optional; raw binary, no archive, no Windows)
-# Asset: boxsh-v{VERSION}-{os}-{arch}  (no file extension)
-if [[ "$target_goos" != "windows" ]]; then
-  case "$target_goos" in
-    darwin) boxsh_os="darwin" ;;
-    linux)  boxsh_os="linux" ;;
+fd_asset() {
+  case "$target_goos/$target_goarch" in
+    darwin/amd64)
+      printf 'v%s|fd-v%s-x86_64-apple-darwin.tar.gz\n' "$FD_DARWIN_AMD64_VERSION" "$FD_DARWIN_AMD64_VERSION"
+      ;;
+    darwin/arm64)
+      printf 'v%s|fd-v%s-aarch64-apple-darwin.tar.gz\n' "$FD_VERSION" "$FD_VERSION"
+      ;;
+    linux/amd64)
+      printf 'v%s|fd-v%s-x86_64-unknown-linux-musl.tar.gz\n' "$FD_VERSION" "$FD_VERSION"
+      ;;
+    linux/arm64)
+      printf 'v%s|fd-v%s-aarch64-unknown-linux-musl.tar.gz\n' "$FD_VERSION" "$FD_VERSION"
+      ;;
+    windows/amd64)
+      printf 'v%s|fd-v%s-x86_64-pc-windows-msvc.zip\n' "$FD_VERSION" "$FD_VERSION"
+      ;;
+    windows/arm64)
+      printf 'v%s|fd-v%s-aarch64-pc-windows-msvc.zip\n' "$FD_VERSION" "$FD_VERSION"
+      ;;
   esac
-  case "$target_goarch" in
-    amd64) boxsh_arch="x86_64" ;;
-    arm64) boxsh_arch="arm64" ;;
+}
+
+rg_asset() {
+  case "$target_goos/$target_goarch" in
+    darwin/amd64)  printf '15.1.0|ripgrep-15.1.0-x86_64-apple-darwin.tar.gz\n' ;;
+    darwin/arm64)  printf '15.1.0|ripgrep-15.1.0-aarch64-apple-darwin.tar.gz\n' ;;
+    linux/amd64)   printf '15.1.0|ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz\n' ;;
+    linux/arm64)   printf '15.1.0|ripgrep-15.1.0-aarch64-unknown-linux-gnu.tar.gz\n' ;;
+    windows/amd64) printf '15.1.0|ripgrep-15.1.0-x86_64-pc-windows-msvc.zip\n' ;;
+    windows/arm64) printf '15.1.0|ripgrep-15.1.0-aarch64-pc-windows-msvc.zip\n' ;;
   esac
-  download boxsh "xicilion/boxsh" "v${BOXSH_VERSION}" \
-    "boxsh-v*-${boxsh_os}-${boxsh_arch}" true true
+}
+
+mise_asset() {
+  case "$target_goos/$target_goarch" in
+    darwin/amd64)  printf '%s|mise-%s-macos-x64.tar.gz\n' "$MISE_VERSION" "$MISE_VERSION" ;;
+    darwin/arm64)  printf '%s|mise-%s-macos-arm64.tar.gz\n' "$MISE_VERSION" "$MISE_VERSION" ;;
+    linux/amd64)   printf '%s|mise-%s-linux-x64-musl.tar.gz\n' "$MISE_VERSION" "$MISE_VERSION" ;;
+    linux/arm64)   printf '%s|mise-%s-linux-arm64-musl.tar.gz\n' "$MISE_VERSION" "$MISE_VERSION" ;;
+    windows/amd64) printf '%s|mise-%s-windows-x64.zip\n' "$MISE_VERSION" "$MISE_VERSION" ;;
+    windows/arm64) printf '%s|mise-%s-windows-arm64.zip\n' "$MISE_VERSION" "$MISE_VERSION" ;;
+  esac
+}
+
+tap_asset() {
+  case "$target_goos/$target_goarch" in
+    darwin/amd64)  printf 'v%s|tap_%s_darwin_amd64.tar.gz\n' "$TAP_VERSION" "$TAP_VERSION" ;;
+    darwin/arm64)  printf 'v%s|tap_%s_darwin_arm64.tar.gz\n' "$TAP_VERSION" "$TAP_VERSION" ;;
+    linux/amd64)   printf 'v%s|tap_%s_linux_amd64.tar.gz\n' "$TAP_VERSION" "$TAP_VERSION" ;;
+    linux/arm64)   printf 'v%s|tap_%s_linux_arm64.tar.gz\n' "$TAP_VERSION" "$TAP_VERSION" ;;
+    windows/amd64) printf 'v%s|tap_%s_windows_amd64.zip\n' "$TAP_VERSION" "$TAP_VERSION" ;;
+    windows/arm64) printf 'v%s|tap_%s_windows_arm64.zip\n' "$TAP_VERSION" "$TAP_VERSION" ;;
+  esac
+}
+
+rtk_asset() {
+  case "$target_goos/$target_goarch" in
+    darwin/amd64)  printf 'v%s|rtk-x86_64-apple-darwin.tar.gz\n' "$RTK_VERSION" ;;
+    darwin/arm64)  printf 'v%s|rtk-aarch64-apple-darwin.tar.gz\n' "$RTK_VERSION" ;;
+    linux/amd64)   printf 'v%s|rtk-x86_64-unknown-linux-musl.tar.gz\n' "$RTK_VERSION" ;;
+    linux/arm64)   printf 'v%s|rtk-aarch64-unknown-linux-gnu.tar.gz\n' "$RTK_VERSION" ;;
+    windows/amd64) printf 'v%s|rtk-x86_64-pc-windows-msvc.zip\n' "$RTK_VERSION" ;;
+    windows/arm64) return 1 ;;
+  esac
+}
+
+boxsh_asset() {
+  case "$target_goos/$target_goarch" in
+    darwin/amd64) printf 'v%s|boxsh-v%s-darwin-x86_64\n' "$BOXSH_VERSION" "$BOXSH_VERSION" ;;
+    darwin/arm64) printf 'v%s|boxsh-v%s-darwin-arm64\n' "$BOXSH_VERSION" "$BOXSH_VERSION" ;;
+    linux/amd64)  printf 'v%s|boxsh-v%s-linux-x64\n' "$BOXSH_VERSION" "$BOXSH_VERSION" ;;
+    linux/arm64)  printf 'v%s|boxsh-v%s-linux-arm64\n' "$BOXSH_VERSION" "$BOXSH_VERSION" ;;
+    windows/*) return 1 ;;
+  esac
+}
+
+IFS='|' read -r fd_tag fd_file <<<"$(fd_asset)"
+download fd "sharkdp/fd" "$fd_tag" "$fd_file"
+
+IFS='|' read -r rg_tag rg_file <<<"$(rg_asset)"
+download rg "BurntSushi/ripgrep" "$rg_tag" "$rg_file"
+
+IFS='|' read -r mise_tag mise_file <<<"$(mise_asset)"
+download mise "jdx/mise" "$mise_tag" "$mise_file"
+
+IFS='|' read -r tap_tag tap_file <<<"$(tap_asset)"
+download tap "vaayne/tap" "$tap_tag" "$tap_file"
+
+if rtk_meta="$(rtk_asset)"; then
+  IFS='|' read -r rtk_tag rtk_file <<<"$rtk_meta"
+  download rtk "rtk-ai/rtk" "$rtk_tag" "$rtk_file" true
+fi
+
+if boxsh_meta="$(boxsh_asset)"; then
+  IFS='|' read -r boxsh_tag boxsh_file <<<"$boxsh_meta"
+  download boxsh "xicilion/boxsh" "$boxsh_tag" "$boxsh_file" true true
 fi
 
 echo "Done."
