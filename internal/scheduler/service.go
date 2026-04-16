@@ -14,6 +14,7 @@ import (
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 // errOneTimeJobPast is returned by scheduleJob when a one-time job's timestamp
@@ -213,6 +214,23 @@ func (s *Service) ScheduleEvery(ctx context.Context, every string, fn TaskFunc) 
 // AddJob creates, persists, and schedules a new job.
 // sessionMode controls session reuse: "reuse" (default) or "new".
 func (s *Service) AddJob(name, message string, sched Schedule, sessionMode string) (Job, error) {
+	return s.addJobWithOwner(name, message, sched, sessionMode, "", 0)
+}
+
+// AddJobForContext creates a user-owned job bound to the current execution context.
+// When the caller context carries agent/user scope, scheduled executions inherit it.
+func (s *Service) AddJobForContext(ctx context.Context, name, message string, sched Schedule, sessionMode string) (Job, error) {
+	return s.addJobWithOwner(
+		name,
+		message,
+		sched,
+		sessionMode,
+		memory.AgentIDFromContext(ctx),
+		memory.UserIDFromContext(ctx),
+	)
+}
+
+func (s *Service) addJobWithOwner(name, message string, sched Schedule, sessionMode, agentID string, userID int64) (Job, error) {
 	if name == "" {
 		return Job{}, fmt.Errorf("name is required")
 	}
@@ -239,6 +257,8 @@ func (s *Service) AddJob(name, message string, sched Schedule, sessionMode strin
 		Message:     message,
 		SessionMode: sessionMode,
 		Enabled:     true,
+		AgentID:     agentID,
+		UserID:      userID,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -261,7 +281,7 @@ func (s *Service) AddJob(name, message string, sched Schedule, sessionMode strin
 
 	s.jobs[job.ID] = job
 
-	s.log.Info("job added", "id", job.ID, "name", name)
+	s.log.Info("job added", "id", job.ID, "name", name, "agent_id", agentID, "user_id", userID)
 	return job, nil
 }
 
