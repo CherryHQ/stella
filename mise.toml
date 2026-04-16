@@ -75,7 +75,7 @@ run = "templ generate --watch --proxy=http://localhost:25678"
 
 [tasks."tools:download"]
 description = "Download fd, rg, mise, tap, rtk, and boxsh for current platform"
-run = "bash scripts/download-tools.sh"
+run = "bash --noprofile --norc ./scripts/download-tools.sh"
 
 # ============================================================================
 # Database
@@ -108,3 +108,12 @@ run = "goreleaser check"
 [tasks."release:snapshot"]
 description = "Create host-only snapshot build for testing"
 run = "goreleaser build --snapshot --single-target --clean"
+
+# ============================================================================
+# Docker
+# ============================================================================
+
+[tasks."docker:build"]
+description = "Build Docker image"
+depends = ["tools:download"]
+run = "docker build -t anna:latest ."

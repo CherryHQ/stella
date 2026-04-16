@@ -21,7 +21,7 @@ builds:
       - arm64
     hooks:
       pre:
-        - bash scripts/download-tools.sh --goos {{ .Os }} --goarch {{ .Arch }}
+        - bash scripts/download-tools.sh --goos {{ .Os }} --goarch {{ .Arch }} --isolated
 archives:
   - id: anna
     ids:
