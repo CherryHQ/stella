@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-04-16
+
+### ✨ Features
+
+- **Tooling**: Prepare embedded mise and tap tooling for sandbox runtimes ([#109](https://github.com/vaayne/anna/pull/109))
+- **Docker**: Add docker dev task for local development workflows
+
+### 🐛 Bug Fixes
+
+- **Sandbox**: Harden scheduler runtime stability ([#110](https://github.com/vaayne/anna/pull/110))
+- **Docker**: Keep docker binary outside mounted workspace
+- **Docker**: Align docker build with release flow
+- **Docker**: Use debian runtime for embedded sandbox tools
+- **Docker**: Expose docker dev admin panel
+- **Docker**: Enable boxsh in docker runtime
+- **Tools**: Route notify tool through user identities
+- **Scheduler**: Preserve scheduler job scope
+
+### ♻️ Refactoring
+
+- **Tooling**: Stabilize embedded tool downloads
+
+### 📦 Dependencies
+
+- Bump `vite-plus` from 0.1.12 to 0.1.18 in docs ([#108](https://github.com/vaayne/anna/pull/108))
+
+**Full Changelog**: [v0.11.1...v0.12.0](https://github.com/vaayne/anna/compare/v0.11.1...v0.12.0)
+
 ## [0.11.1] - 2026-04-15
 
 ### ✨ Features
