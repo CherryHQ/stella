@@ -4,12 +4,9 @@ set -euo pipefail
 # Download fd, rg, mise, tap, rtk, and boxsh binaries, gzip-compressed into
 # internal/embedded/binaries/.
 #
-# Default mode is tuned for local/dev use:
-# - reuse the normal mise cache/store
-# - avoid `mise install-into`, which has been fragile and process-heavy here
-#
-# Use --isolated for CI/release-style runs when you want an isolated mise
-# data/cache directory per tool.
+# Uses `gh release download` with explicit platform-specific glob patterns.
+# This avoids mise's cross-platform download bug where MISE_OS is ignored
+# when the target arch matches the host arch (e.g. darwin/amd64 from Linux/amd64).
 #
 # Usage:
 #   ./scripts/download-tools.sh
@@ -29,7 +26,7 @@ BOXSH_VERSION="${BOXSH_VERSION:-2.1.0}"
 
 GOOS=""
 GOARCH=""
-ISOLATED=false
+ISOLATED=false  # kept for CLI compatibility; no longer used
 
 usage() {
   cat <<'EOF'
@@ -39,34 +36,18 @@ Usage:
 Options:
   --goos <goos>      Target GOOS. Defaults to `go env GOOS`.
   --goarch <goarch>  Target GOARCH. Defaults to `go env GOARCH`.
-  --isolated         Use isolated mise data/cache per tool. Useful for CI/release.
+  --isolated         Ignored (kept for compatibility).
   -h, --help         Show this help.
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --goos)
-      GOOS="$2"
-      shift 2
-      ;;
-    --goarch)
-      GOARCH="$2"
-      shift 2
-      ;;
-    --isolated)
-      ISOLATED=true
-      shift
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "Unknown argument: $1" >&2
-      usage >&2
-      exit 1
-      ;;
+    --goos)     GOOS="$2";    shift 2 ;;
+    --goarch)   GOARCH="$2";  shift 2 ;;
+    --isolated) ISOLATED=true; shift  ;;
+    -h|--help)  usage; exit 0 ;;
+    *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
 
@@ -76,105 +57,86 @@ target_platform="${target_goos}-${target_goarch}"
 target_dir="$BINARIES_DIR/$target_platform"
 mkdir -p "$target_dir"
 
-os="$target_goos"
-[[ "$os" == "darwin" ]] && os="macos"
-
-arch="$target_goarch"
-[[ "$arch" == "amd64" ]] && arch="x86_64"
-[[ "$arch" == "arm64" ]] && arch="aarch64"
+# Canonical architecture names used in release triples
+case "$target_goarch" in
+  amd64) TRIPLE_ARCH="x86_64" ;;
+  arm64) TRIPLE_ARCH="aarch64" ;;
+  *) echo "unsupported arch: $target_goarch" >&2; exit 1 ;;
+esac
 
 tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/anna-tools.XXXXXX")"
-cleanup() {
-  rm -rf "$tmp_root"
-}
-trap cleanup EXIT
+trap 'rm -rf "$tmp_root"' EXIT
 
-maybe_trust_project() {
-  command mise trust "$ROOT_DIR" >/dev/null 2>&1 || true
-}
-
-run_mise() {
-  local tool_name="$1"
-  shift
-
-  if [[ "$ISOLATED" == "true" ]]; then
-    local mise_data="$tmp_root/mise-$tool_name"
-    mkdir -p "$mise_data/cache"
-    env \
-      MISE_OS="$os" \
-      MISE_ARCH="$arch" \
-      MISE_YES=1 \
-      MISE_DATA_DIR="$mise_data" \
-      MISE_CACHE_DIR="$mise_data/cache" \
-      mise "$@"
-    return
-  fi
-
-  env \
-    MISE_OS="$os" \
-    MISE_ARCH="$arch" \
-    MISE_YES=1 \
-    mise "$@"
-}
-
-find_binary() {
-  local dir="$1"
-  local name="$2"
-  local candidate
-
-  for candidate in \
-    "$dir/$name" \
-    "$dir/${name}.exe" \
-    "$dir/bin/$name" \
-    "$dir/bin/${name}.exe"
-  do
-    if [[ -f "$candidate" ]]; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done
-
-  find "$dir" -type f \( -name "$name" -o -name "${name}.exe" \) -print -quit
-}
-
+# Download a GitHub release asset, extract the named binary, and gzip it.
+#
+# $1 name        — binary name (also the output filename stem)
+# $2 repo        — owner/repo
+# $3 tag         — git tag
+# $4 pattern     — glob passed to `gh release download --pattern`
+# $5 optional    — "true" to skip gracefully on failure (default: false)
+# $6 raw_binary  — "true" when the downloaded file IS the binary (no archive)
 download() {
   local name="$1"
-  local spec="$2"
-  local optional="${3:-false}"
+  local repo="$2"
+  local tag="$3"
+  local pattern="$4"
+  local optional="${5:-false}"
+  local raw_binary="${6:-false}"
   local dest="$target_dir/${name}.gz"
 
   if [[ -f "$dest" ]]; then
     echo "EXISTS $name ($target_platform)"
-    return
+    return 0
   fi
 
-  echo "DOWNLOAD $name ($spec) MISE_OS=$os MISE_ARCH=$arch"
+  echo "DOWNLOAD $name ($target_platform) [$repo $tag $pattern]"
 
-  if ! run_mise "$name" install "$spec"; then
+  local tmp_dir="$tmp_root/$name"
+  mkdir -p "$tmp_dir"
+
+  if ! gh release download "$tag" \
+       --repo "$repo" \
+       --pattern "$pattern" \
+       --dir "$tmp_dir" 2>/dev/null; then
     if [[ "$optional" == "true" ]]; then
-      echo "WARN: skipping optional tool $name for $target_platform"
-      return
+      echo "WARN: skipping optional $name (no asset: $pattern)"
+      return 0
     fi
+    echo "ERROR: gh release download failed: $repo $tag $pattern" >&2
     return 1
   fi
 
-  local install_dir
-  if ! install_dir="$(run_mise "$name" where "$spec")"; then
+  local archive
+  archive=$(find "$tmp_dir" -maxdepth 1 -type f | head -1)
+  if [[ -z "$archive" ]]; then
     if [[ "$optional" == "true" ]]; then
-      echo "WARN: install path unavailable for optional tool $name"
-      return
+      echo "WARN: skipping optional $name (no file downloaded)"
+      return 0
     fi
+    echo "ERROR: no file downloaded for $name" >&2
     return 1
   fi
 
   local bin
-  bin="$(find_binary "$install_dir" "$name")"
+  if [[ "$raw_binary" == "true" ]]; then
+    bin="$archive"
+  else
+    local extract_dir="$tmp_dir/x"
+    mkdir -p "$extract_dir"
+    if [[ "$archive" == *.zip ]]; then
+      unzip -q "$archive" -d "$extract_dir"
+    else
+      tar -xzf "$archive" -C "$extract_dir"
+    fi
+    bin=$(find "$extract_dir" -type f \( -name "$name" -o -name "${name}.exe" \) -print -quit)
+  fi
+
   if [[ -z "$bin" ]]; then
     if [[ "$optional" == "true" ]]; then
-      echo "WARN: $name binary not found under $install_dir"
-      return
+      echo "WARN: $name binary not found in archive"
+      return 0
     fi
-    echo "ERROR: $name binary not found under $install_dir" >&2
+    echo "ERROR: $name binary not found in downloaded archive" >&2
     return 1
   fi
 
@@ -184,13 +146,79 @@ download() {
   echo "OK $name ($target_platform)"
 }
 
-maybe_trust_project
+# fd — sharkdp/fd
+# Asset: fd-v{VERSION}-{triple}.{ext}
+case "$target_goos" in
+  darwin)  fd_triple="${TRIPLE_ARCH}-apple-darwin";       fd_ext="tar.gz" ;;
+  linux)   fd_triple="${TRIPLE_ARCH}-unknown-linux-musl"; fd_ext="tar.gz" ;;
+  windows) fd_triple="${TRIPLE_ARCH}-pc-windows-msvc";    fd_ext="zip" ;;
+esac
+download fd "sharkdp/fd" "v${FD_VERSION}" "fd-v*-${fd_triple}.${fd_ext}"
 
-download fd    "github:sharkdp/fd@${FD_VERSION}"
-download rg    "github:BurntSushi/ripgrep@${RG_VERSION}"
-download mise  "github:jdx/mise@${MISE_VERSION}"
-download tap   "github:vaayne/tap@${TAP_VERSION}"
-download rtk   "github:rtk-ai/rtk@${RTK_VERSION}" true
-download boxsh "github:xicilion/boxsh@${BOXSH_VERSION}" true
+# rg — BurntSushi/ripgrep (binary inside archive is named "rg")
+# Asset: ripgrep-{VERSION}-{triple}.{ext}
+case "$target_goos" in
+  darwin)  rg_triple="${TRIPLE_ARCH}-apple-darwin";        rg_ext="tar.gz" ;;
+  linux)
+    case "$target_goarch" in
+      amd64) rg_triple="${TRIPLE_ARCH}-unknown-linux-musl" ;;
+      arm64) rg_triple="${TRIPLE_ARCH}-unknown-linux-gnu" ;;
+    esac
+    rg_ext="tar.gz"
+    ;;
+  windows) rg_triple="${TRIPLE_ARCH}-pc-windows-msvc";     rg_ext="zip" ;;
+esac
+download rg "BurntSushi/ripgrep" "${RG_VERSION}" "ripgrep-*-${rg_triple}.${rg_ext}"
+
+# mise — jdx/mise
+# Asset: mise-{VERSION}-{os}-{arch}[-musl].{ext}
+case "$target_goos" in
+  darwin)  mise_os="macos";   mise_musl="";      mise_ext="tar.gz" ;;
+  linux)   mise_os="linux";   mise_musl="-musl"; mise_ext="tar.gz" ;;
+  windows) mise_os="windows"; mise_musl="";      mise_ext="zip" ;;
+esac
+case "$target_goarch" in
+  amd64) mise_arch="x64" ;;
+  arm64) mise_arch="arm64" ;;
+esac
+download mise "jdx/mise" "${MISE_VERSION}" "mise-*-${mise_os}-${mise_arch}${mise_musl}.${mise_ext}"
+
+# tap — vaayne/tap
+# Asset: tap_{VERSION}_{goos}_{goarch}.{ext}
+case "$target_goos" in
+  windows) tap_ext="zip" ;;
+  *)       tap_ext="tar.gz" ;;
+esac
+download tap "vaayne/tap" "v${TAP_VERSION}" "tap_*_${target_goos}_${target_goarch}.${tap_ext}"
+
+# rtk — rtk-ai/rtk (optional; no version in asset filename)
+# Asset: rtk-{triple}.{ext}
+case "$target_goos" in
+  darwin)  rtk_triple="${TRIPLE_ARCH}-apple-darwin";       rtk_ext="tar.gz" ;;
+  linux)
+    case "$target_goarch" in
+      amd64) rtk_triple="${TRIPLE_ARCH}-unknown-linux-musl" ;;
+      arm64) rtk_triple="${TRIPLE_ARCH}-unknown-linux-gnu" ;;
+    esac
+    rtk_ext="tar.gz"
+    ;;
+  windows) rtk_triple="${TRIPLE_ARCH}-pc-windows-msvc";    rtk_ext="zip" ;;
+esac
+download rtk "rtk-ai/rtk" "v${RTK_VERSION}" "rtk-${rtk_triple}.${rtk_ext}" true
+
+# boxsh — xicilion/boxsh (optional; raw binary, no archive, no Windows)
+# Asset: boxsh-v{VERSION}-{os}-{arch}  (no file extension)
+if [[ "$target_goos" != "windows" ]]; then
+  case "$target_goos" in
+    darwin) boxsh_os="darwin" ;;
+    linux)  boxsh_os="linux" ;;
+  esac
+  case "$target_goarch" in
+    amd64) boxsh_arch="x86_64" ;;
+    arm64) boxsh_arch="arm64" ;;
+  esac
+  download boxsh "xicilion/boxsh" "v${BOXSH_VERSION}" \
+    "boxsh-v*-${boxsh_os}-${boxsh_arch}" true true
+fi
 
 echo "Done."
