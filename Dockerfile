@@ -42,12 +42,21 @@ RUN --mount=type=secret,id=github_token,required=false \
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -ldflags "-s -w -X main.version=${VERSION}" -o bin/anna ./cmd/anna/
 
-FROM gcr.io/distroless/static-debian13:nonroot AS app
+FROM debian:13-slim AS app
+
+RUN apt-get update \
+    && apt-get -y --no-install-recommends install \
+        ca-certificates libncurses6 libstdc++6 \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /home/nonroot /workspace \
+    && chown -R 65532:65532 /home/nonroot /workspace
+
 WORKDIR /workspace
+ENV HOME="/home/nonroot"
 ENV PATH="/usr/local/bin:/usr/bin:/bin"
 
 COPY --from=builder /go/src/app/bin/anna /usr/local/bin/anna
 
-USER nonroot:nonroot
+USER 65532:65532
 
 CMD ["anna", "gateway"]
