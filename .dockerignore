@@ -2,6 +2,7 @@ bin/
 .agents/
 .git/
 .github/
+internal/embedded/binaries/
 *.md
 cover.out
 docs/issues/
