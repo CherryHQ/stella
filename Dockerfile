@@ -44,9 +44,10 @@ RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 
 FROM gcr.io/distroless/static-debian13:nonroot AS app
 WORKDIR /workspace
+ENV PATH="/usr/local/bin:/usr/bin:/bin"
 
-COPY --from=builder /go/src/app/bin/anna .
+COPY --from=builder /go/src/app/bin/anna /usr/local/bin/anna
 
 USER nonroot:nonroot
 
-CMD ["./anna", "gateway"]
+CMD ["anna", "gateway"]
