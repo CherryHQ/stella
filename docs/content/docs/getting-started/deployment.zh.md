@@ -127,6 +127,7 @@ rm ~/Library/LaunchAgents/com.vaayne.anna.plist
 
 ```bash
 docker run -it --rm \
+  --security-opt seccomp=unconfined \
   -v ~/.anna:/home/nonroot/.anna \
   -p 8080:8080 \
   ghcr.io/vaayne/anna:latest \
@@ -138,12 +139,13 @@ docker run -it --rm \
 ```bash
 docker run -d \
   --name anna \
+  --security-opt seccomp=unconfined \
   -v ~/.anna:/home/nonroot/.anna \
   -e ANTHROPIC_API_KEY=sk-... \
   ghcr.io/vaayne/anna:latest
 ```
 
-容器以 `nonroot` 用户运行。挂载 `~/.anna` 以持久化数据库、技能和缓存。您可以设置 `ANNA_HOME` 来更改容器内的数据目录。
+容器以 `nonroot` 用户运行。挂载 `~/.anna` 以持久化数据库、技能和缓存。您可以设置 `ANNA_HOME` 来更改容器内的数据目录。如果要在 Docker 中使用默认的 boxsh 沙箱，请在运行时加上 `--security-opt seccomp=unconfined`，这样 boxsh 才能调用 `unshare(2)`。没有这个选项时，带沙箱的核心工具会因为 Docker 运行时限制而失败。
 
 ### Docker Compose
 
@@ -153,6 +155,8 @@ services:
   anna:
     image: ghcr.io/vaayne/anna:latest
     restart: unless-stopped
+    security_opt:
+      - seccomp=unconfined
     volumes:
       - ./anna-data:/home/nonroot/.anna
     environment:
