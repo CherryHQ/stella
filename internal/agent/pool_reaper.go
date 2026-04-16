@@ -44,6 +44,9 @@ func (p *Pool) reap() {
 
 		if !aliver.Alive() {
 			p.log.Warn("removing dead runner", "session_id", id)
+			if closer, isCloser := sess.Runner.(io.Closer); isCloser {
+				_ = closer.Close()
+			}
 			sess.Runner = nil
 			continue
 		}

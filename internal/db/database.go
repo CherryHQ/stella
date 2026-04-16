@@ -8,12 +8,17 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
 
+const (
+	sqliteBusyTimeout = 5 * time.Second
+)
+
 // OpenDB opens a SQLite database at the given path, configures it
-// (WAL mode, foreign keys) and runs migrations. The parent directory
+// (WAL mode, foreign keys, busy timeout) and runs migrations. The parent directory
 // is created if it doesn't exist.
 func OpenDB(dbPath string) (*sql.DB, error) {
 	dir := filepath.Dir(dbPath)
@@ -26,6 +31,7 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("db: open: %w", err)
 	}
 
+	configurePool(db)
 	if err := ConfigureDB(db); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -39,16 +45,38 @@ func OpenDB(dbPath string) (*sql.DB, error) {
 	return db, nil
 }
 
-// ConfigureDB enables WAL mode and foreign keys on an existing *sql.DB.
-// This is useful when multiple packages need to share the same connection.
+// ConfigureDB enables the SQLite connection policy Anna relies on.
+// Connection-level pragmas are safe here because OpenDB constrains each handle
+// to a single long-lived underlying connection.
 func ConfigureDB(db *sql.DB) error {
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		return fmt.Errorf("db: enable WAL: %w", err)
+	configurePool(db)
+	pragmas := []struct {
+		query string
+		name  string
+	}{
+		{query: "PRAGMA journal_mode=WAL", name: "enable WAL"},
+		{query: fmt.Sprintf("PRAGMA busy_timeout=%d", sqliteBusyTimeout.Milliseconds()), name: "set busy timeout"},
+		{query: "PRAGMA foreign_keys=ON", name: "enable foreign keys"},
 	}
-	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		return fmt.Errorf("db: enable foreign keys: %w", err)
+	for _, pragma := range pragmas {
+		if _, err := db.Exec(pragma.query); err != nil {
+			return fmt.Errorf("db: %s: %w", pragma.name, err)
+		}
 	}
 	return nil
+}
+
+func configurePool(db *sql.DB) {
+	if db == nil {
+		return
+	}
+	// SQLite only allows one writer at a time. Keeping one underlying
+	// connection per handle makes connection-scoped PRAGMAs deterministic and
+	// avoids self-contention inside a single *sql.DB pool.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
+	db.SetConnMaxIdleTime(0)
 }
 
 // migrate applies pending SQL migration files from the embedded migrations

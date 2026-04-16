@@ -450,6 +450,9 @@ func TestPoolReapDead(t *testing.T) {
 	if !runnerNil {
 		t.Error("dead runner should be nil'd after reap")
 	}
+	if !(*runners)[0].closed {
+		t.Error("dead runner should be closed during reap")
+	}
 }
 
 func TestPoolStartReaperCancels(t *testing.T) {
@@ -1347,6 +1350,33 @@ func TestPoolGetOrCreateRunnerRestoresFromMemEngine(t *testing.T) {
 	}
 	if sess.Info.Title != "Restored Session" {
 		t.Errorf("session Title = %q, want %q", sess.Info.Title, "Restored Session")
+	}
+}
+
+func TestPoolGetOrCreateRunnerSeedsScopeFromContext(t *testing.T) {
+	factory := func(_ context.Context, params runner.RunnerParams) (runner.Runner, error) {
+		if params.UserID != 42 {
+			return nil, fmt.Errorf("UserID = %d, want 42", params.UserID)
+		}
+		if params.AgentID != "agent-blue" {
+			return nil, fmt.Errorf("AgentID = %q, want %q", params.AgentID, "agent-blue")
+		}
+		return newMockRunner([]runner.Event{{Text: "ok"}}), nil
+	}
+	mem := testMemoryProvider(t)
+	pool := NewPool(factory, mem, WithAgentID("agent-blue"))
+	defer func() { _ = pool.Close() }()
+
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), 42), "agent-blue")
+	sess, _, err := pool.getOrCreateRunner(ctx, "scoped-sess", "")
+	if err != nil {
+		t.Fatalf("getOrCreateRunner: %v", err)
+	}
+	if sess.Info.UserID != 42 {
+		t.Fatalf("session UserID = %d, want 42", sess.Info.UserID)
+	}
+	if sess.Info.AgentID != "agent-blue" {
+		t.Fatalf("session AgentID = %q, want %q", sess.Info.AgentID, "agent-blue")
 	}
 }
 

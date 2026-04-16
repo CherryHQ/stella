@@ -25,7 +25,10 @@ import (
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
 )
 
-const maxToolIterations = 40
+// maxAgentLoopTurns caps one runner invocation's model/tool decision loop.
+// A single turn may include multiple tool calls; the limit is on loop rounds,
+// not individual tool executions.
+const maxAgentLoopTurns = 50
 
 type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
 
@@ -179,14 +182,20 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 }
 
 func newAgentRunner(reg *providers.Registry, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle) (*coreagent.Runner, error) {
+	toolSet := coreagent.ToolSetFromRegistry(toolReg)
+	toolDefs := toolReg.Definitions()
+	return newAgentRunnerWithTools(reg, model, streamOptions, system, hookSet, toolLifecycle, toolSet, toolDefs)
+}
+
+func newAgentRunnerWithTools(reg *providers.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
 	return coreagent.NewRunner(coreagent.RunnerConfig{
 		Providers:       reg,
 		Model:           model,
-		Tools:           coreagent.ToolSetFromRegistry(toolReg),
-		ToolDefinitions: toolReg.Definitions(),
+		Tools:           toolSet,
+		ToolDefinitions: toolDefs,
 	},
 		coreagent.WithStreamOptions(streamOptions),
-		coreagent.WithMaxTurns(maxToolIterations),
+		coreagent.WithMaxTurns(maxAgentLoopTurns),
 		coreagent.WithSystem(system),
 		coreagent.WithHooks(hookSet, hooks.HookMeta{}),
 		coreagent.WithToolLifecycle(toolLifecycle),
@@ -273,6 +282,27 @@ func collectSandboxReadOnlyDirs(extraDirs []string, toolsBinDir, pathEnv string)
 	return dirs
 }
 
+func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSet, []tools.Definition, error) {
+	if len(excluded) == 0 {
+		return coreagent.ToolSetFromRegistry(reg), reg.Definitions(), nil
+	}
+	blocked := make(map[string]struct{}, len(excluded))
+	for _, name := range excluded {
+		if name == "" {
+			continue
+		}
+		blocked[name] = struct{}{}
+	}
+	allowed := make([]string, 0, len(reg.Definitions()))
+	for _, def := range reg.Definitions() {
+		if _, skip := blocked[def.Name]; skip {
+			continue
+		}
+		allowed = append(allowed, def.Name)
+	}
+	return coreagent.ToolSetFromRegistryFiltered(reg, allowed)
+}
+
 func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 	paths := resolveRunnerPaths(cfg)
 	if err := builtin.Extract(paths.builtinSkillsDir()); err != nil {
@@ -329,8 +359,24 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 		defer close(out)
 
 		loopRunner := r.runner
-		if override, ok := SystemOverrideFromContext(ctx); ok && override != r.system {
-			tempRunner, err := newAgentRunner(r.reg, r.tools, r.model, r.streamOptions, override, r.hookSet, r.toolLifecycle)
+		effectiveSystem := r.system
+		if override, ok := SystemOverrideFromContext(ctx); ok && override != "" {
+			effectiveSystem = override
+		}
+		excludedTools := ExcludedToolsFromContext(ctx)
+		if effectiveSystem != r.system || len(excludedTools) > 0 {
+			toolSet := coreagent.ToolSetFromRegistry(r.tools)
+			toolDefs := r.tools.Definitions()
+			if len(excludedTools) > 0 {
+				filteredSet, filteredDefs, err := filterRunnerTools(r.tools, excludedTools)
+				if err != nil {
+					out <- Event{Err: fmt.Errorf("go runner: %w", err)}
+					return
+				}
+				toolSet = filteredSet
+				toolDefs = filteredDefs
+			}
+			tempRunner, err := newAgentRunnerWithTools(r.reg, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, toolSet, toolDefs)
 			if err != nil {
 				out <- Event{Err: fmt.Errorf("go runner: %w", err)}
 				return

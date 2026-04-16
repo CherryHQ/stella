@@ -11,6 +11,7 @@ import (
 	"time"
 
 	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 func testDB(t *testing.T) *sql.DB {
@@ -553,6 +554,33 @@ func TestSchedulerToolSessionMode(t *testing.T) {
 	}
 	if jobs[0].SessionMode != SessionNew {
 		t.Errorf("SessionMode = %q, want %q", jobs[0].SessionMode, SessionNew)
+	}
+}
+
+func TestSchedulerToolCapturesContextOwnership(t *testing.T) {
+	svc := testService(t)
+	ct := NewTool(svc)
+
+	ctx := memory.WithAgentID(memory.WithUserID(context.Background(), 42), "agent-blue")
+	_, err := ct.Execute(ctx, map[string]any{
+		"action":  "add",
+		"name":    "owned-job",
+		"message": "do work",
+		"every":   "1h",
+	})
+	if err != nil {
+		t.Fatalf("Execute add: %v", err)
+	}
+
+	jobs := svc.ListJobs()
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+	if jobs[0].UserID != 42 {
+		t.Fatalf("UserID = %d, want 42", jobs[0].UserID)
+	}
+	if jobs[0].AgentID != "agent-blue" {
+		t.Fatalf("AgentID = %q, want %q", jobs[0].AgentID, "agent-blue")
 	}
 }
 

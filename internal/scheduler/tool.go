@@ -78,11 +78,11 @@ func (t *SchedulerTool) Definition() tools.Definition {
 }
 
 // Execute runs the scheduler tool action.
-func (t *SchedulerTool) Execute(_ context.Context, args map[string]any) (string, error) {
+func (t *SchedulerTool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	action, _ := args["action"].(string)
 	switch action {
 	case "add":
-		return t.add(args)
+		return t.add(ctx, args)
 	case "list":
 		return t.list()
 	case "remove":
@@ -92,7 +92,7 @@ func (t *SchedulerTool) Execute(_ context.Context, args map[string]any) (string,
 	}
 }
 
-func (t *SchedulerTool) add(args map[string]any) (string, error) {
+func (t *SchedulerTool) add(ctx context.Context, args map[string]any) (string, error) {
 	name, _ := args["name"].(string)
 	message, _ := args["message"].(string)
 	cronExpr, _ := args["cron"].(string)
@@ -101,7 +101,7 @@ func (t *SchedulerTool) add(args map[string]any) (string, error) {
 	at, _ := args["at"].(string)
 	sessionMode, _ := args["session_mode"].(string)
 	sched := Schedule{Cron: cronExpr, Every: every, At: at}
-	job, err := t.service.AddJob(name, message, sched, sessionMode)
+	job, err := t.service.AddJobForContext(ctx, name, message, sched, sessionMode)
 	if err != nil {
 		return "", err
 	}

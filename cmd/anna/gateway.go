@@ -16,6 +16,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/admin"
 	"github.com/vaayne/anna/internal/agent"
+	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
@@ -24,6 +25,7 @@ import (
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/scheduler"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	"github.com/vaayne/anna/pkg/memory"
 	"github.com/vaayne/anna/pkg/providers"
 	reflectplugin "github.com/vaayne/anna/plugins/reflect"
 	"golang.org/x/sync/errgroup"
@@ -206,10 +208,12 @@ func wireSchedulerNotifier(schedulerSvc *scheduler.Service, poolMgr *agent.PoolM
 
 		pool := schedulerPool(job, poolMgr, defaultPool)
 		sessionID := job.SessionID()
-		msg := fmt.Sprintf("[Scheduled Task] %s\n\nInstruction: %s", job.Name, job.Message)
+		msg := schedulerJobMessage(job)
+
+		jobCtx := schedulerJobContext(ctx, pool, job)
 
 		var result strings.Builder
-		for evt := range pool.Chat(ctx, sessionID, msg) {
+		for evt := range pool.Chat(jobCtx, sessionID, msg) {
 			if evt.Err != nil {
 				slog.Error("scheduler job error", "job_id", job.ID, "error", evt.Err)
 			}
@@ -254,6 +258,23 @@ func dispatchSchedulerNotification(ctx context.Context, dispatcher *notify.Dispa
 	}
 
 	return dispatcher.Notify(ctx, notification)
+}
+
+func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Job) context.Context {
+	if job.UserID != 0 {
+		ctx = memory.WithUserID(ctx, job.UserID)
+	}
+	if pool.AgentID() != "" {
+		ctx = memory.WithAgentID(ctx, pool.AgentID())
+	}
+	// Scheduled executions already have an external delivery path and should not
+	// mutate scheduler control-plane state while they run.
+	ctx = runner.WithExcludedTools(ctx, "notify", "scheduler")
+	return ctx
+}
+
+func schedulerJobMessage(job scheduler.Job) string {
+	return fmt.Sprintf("[Scheduled Task] %s\n\nInstruction: %s\n\nDo not use the notify tool. Your final response will be delivered automatically.", job.Name, job.Message)
 }
 
 func launchBrowser(url string) {

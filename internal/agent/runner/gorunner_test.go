@@ -14,10 +14,21 @@ import (
 	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
+	"github.com/vaayne/anna/pkg/tools"
 	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
 
 type stubProvider struct{}
+
+type stubTool struct{ name string }
+
+func (s *stubTool) Definition() tools.Definition {
+	return tools.Definition{Name: s.name, Description: "stub tool"}
+}
+
+func (s *stubTool) Execute(context.Context, map[string]any) (string, error) {
+	return s.name, nil
+}
 
 func (s *stubProvider) API() string { return "anthropic" }
 func (s *stubProvider) Stream(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
@@ -93,6 +104,38 @@ func withTestRunnerPaths(t *testing.T, cfg GoRunnerConfig) GoRunnerConfig {
 	cfg.AgentRoot = workspace
 	cfg.UserRoot = userRoot
 	return cfg
+}
+
+func TestFilterRunnerTools(t *testing.T) {
+	reg := tools.NewRegistry()
+	reg.Register(&stubTool{name: "bash"})
+	reg.Register(&stubTool{name: "notify"})
+	reg.Register(&stubTool{name: "scheduler"})
+
+	set, defs, err := filterRunnerTools(reg, []string{"notify", "scheduler"})
+	if err != nil {
+		t.Fatalf("filterRunnerTools: %v", err)
+	}
+	if len(defs) != 1 || defs[0].Name != "bash" {
+		t.Fatalf("defs = %#v, want only bash", defs)
+	}
+	if _, ok := set["notify"]; ok {
+		t.Fatal("notify should be excluded")
+	}
+	if _, ok := set["scheduler"]; ok {
+		t.Fatal("scheduler should be excluded")
+	}
+	if _, ok := set["bash"]; !ok {
+		t.Fatal("bash should remain available")
+	}
+
+	result, err := set["bash"](context.Background(), ai.ToolCall{Name: "bash"})
+	if err != nil {
+		t.Fatalf("execute filtered bash tool: %v", err)
+	}
+	if result.Text != "bash" {
+		t.Fatalf("filtered bash result = %q, want bash", result.Text)
+	}
 }
 
 func TestNewGoRunnerRequiresConfig(t *testing.T) {
