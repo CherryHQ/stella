@@ -127,6 +127,7 @@ rm ~/Library/LaunchAgents/com.vaayne.anna.plist
 
 ```bash
 docker run -it --rm \
+  --security-opt seccomp=unconfined \
   -v ~/.anna:/home/nonroot/.anna \
   -p 8080:8080 \
   ghcr.io/vaayne/anna:latest \
@@ -138,12 +139,13 @@ docker run -it --rm \
 ```bash
 docker run -d \
   --name anna \
+  --security-opt seccomp=unconfined \
   -v ~/.anna:/home/nonroot/.anna \
   -e ANTHROPIC_API_KEY=sk-... \
   ghcr.io/vaayne/anna:latest
 ```
 
-コンテナは`nonroot`ユーザーとして実行されます。データベース、スキル、キャッシュを永続化するために`~/.anna`をマウントします。コンテナ内のデータディレクトリを変更するには`ANNA_HOME`を設定できます。
+コンテナは`nonroot`ユーザーとして実行されます。データベース、スキル、キャッシュを永続化するために`~/.anna`をマウントします。コンテナ内のデータディレクトリを変更するには`ANNA_HOME`を設定できます。Docker内でデフォルトのboxshベースのサンドボックスを使うには、boxshが`unshare(2)`を呼べるように`--security-opt seccomp=unconfined`を付けて起動してください。これがないと、サンドボックス付きコアツールはDockerランタイム制約で失敗します。
 
 ### Docker Compose
 
@@ -153,6 +155,8 @@ services:
   anna:
     image: ghcr.io/vaayne/anna:latest
     restart: unless-stopped
+    security_opt:
+      - seccomp=unconfined
     volumes:
       - ./anna-data:/home/nonroot/.anna
     environment:

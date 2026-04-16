@@ -211,6 +211,7 @@ First, run setup to configure anna:
 
 ```bash
 docker run -it --rm \
+  --security-opt seccomp=unconfined \
   -v ~/.anna:/home/nonroot/.anna \
   -p 8080:8080 \
   ghcr.io/vaayne/anna:latest \
@@ -222,12 +223,13 @@ Then start the daemon:
 ```bash
 docker run -d \
   --name anna \
+  --security-opt seccomp=unconfined \
   -v ~/.anna:/home/nonroot/.anna \
   -e ANTHROPIC_API_KEY=sk-... \
   ghcr.io/vaayne/anna:latest
 ```
 
-The container runs as `nonroot` user. Mount `~/.anna` to persist the database, skills, and cache. You can set `ANNA_HOME` to change the data directory inside the container.
+The container runs as `nonroot` user. Mount `~/.anna` to persist the database, skills, and cache. You can set `ANNA_HOME` to change the data directory inside the container. If you want the default boxsh-backed sandbox to work inside Docker, run the container with `--security-opt seccomp=unconfined` so boxsh can call `unshare(2)`. Without that option, sandboxed core tools fall back to a Docker runtime limitation rather than an anna bug.
 
 ### Docker Compose
 
@@ -237,6 +239,8 @@ services:
   anna:
     image: ghcr.io/vaayne/anna:latest
     restart: unless-stopped
+    security_opt:
+      - seccomp=unconfined
     volumes:
       - ./anna-data:/home/nonroot/.anna
     environment:
