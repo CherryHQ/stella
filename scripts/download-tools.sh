@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-# Download fd, rg, rtk, and boxsh binaries, gzip-compressed into
+# Download fd, rg, mise, tap, rtk, and boxsh binaries, gzip-compressed into
 # internal/embedded/binaries/.
 #
 # Usage:
@@ -13,6 +13,8 @@ mkdir -p "$BINARIES_DIR"
 
 FD_VERSION="${FD_VERSION:-10.4.2}"
 RG_VERSION="${RG_VERSION:-15.1.0}"
+MISE_VERSION="${MISE_VERSION:-v2026.4.12}"
+TAP_VERSION="${TAP_VERSION:-0.4.4}"
 RTK_VERSION="${RTK_VERSION:-0.30.0}"
 BOXSH_VERSION="${BOXSH_VERSION:-2.1.0}"
 
@@ -64,6 +66,8 @@ download() {
 
 download fd    "github:sharkdp/fd@${FD_VERSION}"
 download rg    "github:BurntSushi/ripgrep@${RG_VERSION}"
+download mise  "github:jdx/mise@${MISE_VERSION}"
+download tap   "github:vaayne/tap@${TAP_VERSION}"
 download rtk   "github:rtk-ai/rtk@${RTK_VERSION}" true
 download boxsh "github:xicilion/boxsh@${BOXSH_VERSION}" true
 

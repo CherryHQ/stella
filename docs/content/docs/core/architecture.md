@@ -132,7 +132,7 @@ type Tool interface {
 | `mcp` | Proxy configured MCP servers through one generic Anna MCP tool |
 | `webfetch` | Fetch web page contents |
 
-On supported platforms, the core local-workspace tools run through a managed `boxsh` sandbox backend. The `bash`, `read`, `write`, and `edit` tools execute through a shared long-lived `boxsh --rpc` subprocess that provides filesystem and process isolation. Runner startup fails closed when that backend is unavailable.
+On supported platforms, the core local-workspace tools run through a managed `boxsh` sandbox backend. The `bash`, `read`, `write`, and `edit` tools execute through a shared long-lived `boxsh --rpc` subprocess that provides filesystem and process isolation. The managed tool bundle also prepends helper CLIs like `fd`, `rg`, `mise`, and `tap` to the tool execution `PATH`. Runner startup fails closed when that backend is unavailable.
 
 ### Sandbox Architecture
 

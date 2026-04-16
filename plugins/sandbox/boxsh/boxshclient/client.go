@@ -382,9 +382,19 @@ func (c *Client) captureStderr(stderr io.Reader) {
 	if stderr == nil {
 		return
 	}
-	c.stderrMu.Lock()
-	defer c.stderrMu.Unlock()
-	_, _ = io.Copy(&c.stderrBuf, stderr)
+
+	buf := make([]byte, 4096)
+	for {
+		n, err := stderr.Read(buf)
+		if n > 0 {
+			c.stderrMu.Lock()
+			_, _ = c.stderrBuf.Write(buf[:n])
+			c.stderrMu.Unlock()
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 // readLoop continuously reads JSON-RPC responses from stdout.
