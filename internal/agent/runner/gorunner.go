@@ -25,7 +25,10 @@ import (
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
 )
 
-const maxToolIterations = 40
+// maxAgentLoopTurns caps one runner invocation's model/tool decision loop.
+// A single turn may include multiple tool calls; the limit is on loop rounds,
+// not individual tool executions.
+const maxAgentLoopTurns = 50
 
 type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
 
@@ -192,7 +195,7 @@ func newAgentRunnerWithTools(reg *providers.Registry, model ai.Model, streamOpti
 		ToolDefinitions: toolDefs,
 	},
 		coreagent.WithStreamOptions(streamOptions),
-		coreagent.WithMaxTurns(maxToolIterations),
+		coreagent.WithMaxTurns(maxAgentLoopTurns),
 		coreagent.WithSystem(system),
 		coreagent.WithHooks(hookSet, hooks.HookMeta{}),
 		coreagent.WithToolLifecycle(toolLifecycle),
