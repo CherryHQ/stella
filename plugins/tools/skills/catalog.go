@@ -88,11 +88,17 @@ func loadSkills(ctx context.Context, runtime pkgplugins.ToolRuntime, annaHome, a
 
 	if annaHome != "" {
 		builtinDir := filepath.Join(annaHome, "cache", "builtin-skills")
-		if err := builtin.Extract(builtinDir); err != nil {
-			slog.Warn("failed to extract builtin skills", "error", err)
-		} else {
-			addDir(builtinDir, "builtin")
+		// Skip extraction when running in sandbox (runtime != nil) - skills should
+		// already be extracted on the host before sandbox creation. Extraction
+		// uses direct OS calls which may write to sandbox overlay instead of host
+		// filesystem, causing skills to be "lost" when sandbox exits.
+		if runtime == nil {
+			if err := builtin.Extract(builtinDir); err != nil {
+				slog.Warn("failed to extract builtin skills", "error", err)
+			}
 		}
+		// Always try to load from builtin dir - it may be mounted read-only in sandbox
+		addDir(builtinDir, "builtin")
 		addDir(filepath.Join(annaHome, "skills"), "anna")
 	}
 	if agentRoot != "" {
@@ -107,6 +113,8 @@ func loadSkills(ctx context.Context, runtime pkgplugins.ToolRuntime, annaHome, a
 	if projectRoot != "" {
 		addDir(filepath.Join(projectRoot, ".agents", "skills"), "project")
 	}
+
+	slog.Warn("all skills", "skills", skills)
 
 	return skills
 }
