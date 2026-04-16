@@ -5,6 +5,7 @@ import "context"
 type (
 	systemOverrideKey struct{}
 	channelKey        struct{}
+	excludedToolsKey  struct{}
 )
 
 // WithSystemOverride returns a child context that carries a per-run system prompt override.
@@ -39,4 +40,38 @@ func ChannelFromContext(ctx context.Context) (string, bool) {
 	}
 	channel, ok := ctx.Value(channelKey{}).(string)
 	return channel, ok && channel != ""
+}
+
+// WithExcludedTools returns a child context that hides the named tools for a single run.
+func WithExcludedTools(ctx context.Context, names ...string) context.Context {
+	filtered := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		filtered = append(filtered, name)
+	}
+	if len(filtered) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, excludedToolsKey{}, filtered)
+}
+
+// ExcludedToolsFromContext returns the per-run excluded tool names when present.
+func ExcludedToolsFromContext(ctx context.Context) []string {
+	if ctx == nil {
+		return nil
+	}
+	names, _ := ctx.Value(excludedToolsKey{}).([]string)
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]string, len(names))
+	copy(out, names)
+	return out
 }

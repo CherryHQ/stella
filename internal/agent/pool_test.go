@@ -450,6 +450,9 @@ func TestPoolReapDead(t *testing.T) {
 	if !runnerNil {
 		t.Error("dead runner should be nil'd after reap")
 	}
+	if !(*runners)[0].closed {
+		t.Error("dead runner should be closed during reap")
+	}
 }
 
 func TestPoolStartReaperCancels(t *testing.T) {

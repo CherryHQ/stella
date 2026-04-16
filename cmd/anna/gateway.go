@@ -16,6 +16,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/admin"
 	"github.com/vaayne/anna/internal/agent"
+	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
@@ -266,6 +267,9 @@ func schedulerJobContext(ctx context.Context, pool *agent.Pool, job scheduler.Jo
 	if pool.AgentID() != "" {
 		ctx = memory.WithAgentID(ctx, pool.AgentID())
 	}
+	// Scheduled executions already have an external delivery path and should not
+	// mutate scheduler control-plane state while they run.
+	ctx = runner.WithExcludedTools(ctx, "notify", "scheduler")
 	return ctx
 }
 

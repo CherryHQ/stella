@@ -127,7 +127,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	// Create the shared scheduler service before runner construction so both
 	// plugin-owned jobs and the user-facing scheduler tool can use it.
-	schedulerSvc, err := scheduler.NewFromPath(dbPath)
+	// Reuse the process-wide DB handle so scheduler persistence and memory writes
+	// do not contend through separate SQLite pools.
+	schedulerSvc, err := scheduler.New(db)
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler service: %w", err)
 	}
