@@ -87,7 +87,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	if err := skillsbuiltin.ExtractSkills(filepath.Join(config.AnnaHome(), "skills")); err != nil {
 		return nil, fmt.Errorf("extract builtin skills: %w", err)
 	}
-	extractEnabledPluginSkills(parent, store, config.AnnaHome())
+	refreshPluginAssets(parent, store, config.AnnaHome())
 
 	// Seed defaults so there's always at least one agent.
 	if err := store.SeedDefaults(parent); err != nil {
@@ -424,20 +424,17 @@ func setupLogFile() error {
 	return nil
 }
 
-// extractEnabledPluginSkills refreshes embedded skills for all currently-enabled plugins.
-// Called at startup so skill content stays in sync with the binary version.
-func extractEnabledPluginSkills(ctx context.Context, store config.Store, annaHome string) {
+// refreshPluginAssets runs post-install hooks for all currently-enabled plugins
+// whose binary is already present. Called at startup to keep plugin assets in sync.
+func refreshPluginAssets(ctx context.Context, store config.Store, annaHome string) {
 	plugins, err := store.ListPlugins(ctx)
 	if err != nil {
-		slog.Warn("could not list plugins for skill extraction", "error", err)
+		slog.Warn("could not list plugins for asset refresh", "error", err)
 		return
 	}
 	for _, p := range plugins {
-		if !p.Enabled {
-			continue
-		}
-		if err := internaltools.EnsurePluginSkill(p.ID, annaHome); err != nil {
-			slog.Warn("failed to extract plugin skill", "plugin", p.ID, "error", err)
+		if p.Enabled {
+			internaltools.RunPluginPostInstall(p.ID, annaHome, nil)
 		}
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	ucli "github.com/urfave/cli/v2"
@@ -107,11 +106,8 @@ func setPluginEnabled(c *ucli.Context, enabled bool) error {
 		return fmt.Errorf("update plugin: %w", err)
 	}
 
-	// Install skill and download binary when a plugin is enabled.
+	// Auto-download tool binary (and run post-install hooks) when a plugin is enabled.
 	if enabled {
-		if err := tools.EnsurePluginSkill(id, config.AnnaHome()); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: install skill for %q: %v\n", id, err)
-		}
 		tools.EnsurePluginTool(ctx, id, config.AnnaHome(), nil)
 	}
 

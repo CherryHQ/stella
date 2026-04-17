@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -28,34 +27,20 @@ var pluginToolMap = map[string]string{
 	"tool/tap-web": "tap",
 }
 
-// pluginSkillFuncs maps plugin IDs to their skill extraction functions.
-// Plugins register themselves via RegisterPluginSkill in init().
-var pluginSkillFuncs = map[string]func(skillsDir string) error{}
+// pluginPostInstall maps plugin IDs to functions run after their binary is ready.
+// The function receives the binary path and annaHome so it can install additional assets.
+var pluginPostInstall = map[string]func(ctx context.Context, binPath, annaHome string, logger *slog.Logger){}
 
-// RegisterPluginSkill registers a skill extraction function for a plugin.
-// Called from plugin init() functions.
-func RegisterPluginSkill(pluginID string, fn func(skillsDir string) error) {
-	pluginSkillFuncs[pluginID] = fn
-}
-
-// EnsurePluginSkill extracts the embedded skill for a plugin into annaHome/skills/.
-// Synchronous — skill files are small and must be present before the next agent run.
-// Safe to call for any plugin ID — no-op if the plugin has no embedded skill.
-func EnsurePluginSkill(pluginID, annaHome string) error {
-	fn, ok := pluginSkillFuncs[pluginID]
-	if !ok {
-		return nil
-	}
-	skillsDir := filepath.Join(annaHome, "skills")
-	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
-		return fmt.Errorf("create skills dir: %w", err)
-	}
-	return fn(skillsDir)
+// RegisterPluginPostInstall registers a post-install hook for a plugin.
+// The hook runs after the plugin's binary is downloaded (or immediately at startup
+// if the binary is already present). Called from plugin init() functions.
+func RegisterPluginPostInstall(pluginID string, fn func(ctx context.Context, binPath, annaHome string, logger *slog.Logger)) {
+	pluginPostInstall[pluginID] = fn
 }
 
 // EnsurePluginTool downloads the tool binary required by a plugin (if any)
-// in the background. Safe to call for any plugin ID — it's a no-op if the
-// plugin doesn't require a downloadable tool.
+// in the background, then runs any registered post-install hook.
+// Safe to call for any plugin ID — it's a no-op if the plugin doesn't require a downloadable tool.
 func EnsurePluginTool(_ context.Context, pluginID, annaHome string, logger *slog.Logger) {
 	toolName, ok := pluginToolMap[pluginID]
 	if !ok {
@@ -69,11 +54,38 @@ func EnsurePluginTool(_ context.Context, pluginID, annaHome string, logger *slog
 		logger = slog.Default()
 	}
 	binDir := BinDir(annaHome)
+	postInstall := pluginPostInstall[pluginID]
 	go func() {
 		if err := Download(context.Background(), tool, binDir, Platform()); err != nil {
 			logger.Error("failed to download plugin tool", "plugin", pluginID, "tool", toolName, "error", err)
-		} else {
-			logger.Info("plugin tool downloaded", "plugin", pluginID, "tool", toolName)
+			return
+		}
+		logger.Info("plugin tool downloaded", "plugin", pluginID, "tool", toolName)
+		if postInstall != nil {
+			binPath := filepath.Join(binDir, toolName)
+			postInstall(context.Background(), binPath, annaHome, logger)
 		}
 	}()
+}
+
+// RunPluginPostInstall runs the post-install hook for a plugin if its binary is already
+// present. Used at startup to refresh plugin assets for previously-enabled plugins.
+// No-op if the plugin has no binary or its binary is not yet installed.
+func RunPluginPostInstall(pluginID, annaHome string, logger *slog.Logger) {
+	postInstall, ok := pluginPostInstall[pluginID]
+	if !ok {
+		return
+	}
+	toolName, ok := pluginToolMap[pluginID]
+	if !ok {
+		return
+	}
+	binPath := ToolPath(annaHome, toolName)
+	if binPath == "" {
+		return
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	go postInstall(context.Background(), binPath, annaHome, logger)
 }

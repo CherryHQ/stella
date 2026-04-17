@@ -1,6 +1,11 @@
 package tapweb
 
 import (
+	"context"
+	"log/slog"
+	"os/exec"
+	"path/filepath"
+
 	"github.com/vaayne/anna/internal/tools"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
@@ -8,7 +13,7 @@ import (
 const PluginID = "tool/tap-web"
 
 func init() {
-	tools.RegisterPluginSkill(PluginID, ExtractSkill)
+	tools.RegisterPluginPostInstall(PluginID, installSkill)
 
 	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
 		host.SetInfo(pkgplugins.PluginInfo{
@@ -20,4 +25,13 @@ func init() {
 			AdminVisible: true,
 		})
 	}))
+}
+
+func installSkill(ctx context.Context, binPath, annaHome string, logger *slog.Logger) {
+	skillPath := filepath.Join(annaHome, "skills", "tap-web")
+	if err := exec.CommandContext(ctx, binPath, "skill", "install", "--path", skillPath).Run(); err != nil {
+		logger.Error("failed to install tap-web skill", "error", err)
+	} else {
+		logger.Info("tap-web skill installed", "path", skillPath)
+	}
 }
