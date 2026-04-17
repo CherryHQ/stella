@@ -26,7 +26,7 @@ func TestLoadSkillsPriorityLowToHigh(t *testing.T) {
 	}
 
 	writeSkill := func(dir, desc string) {
-		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\ndescription: "+desc+"\nstatus: active\n---\nbody\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: "+filepath.Base(dir)+"\ndescription: "+desc+"\nstatus: active\n---\nbody\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

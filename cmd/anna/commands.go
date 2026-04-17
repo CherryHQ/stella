@@ -31,6 +31,7 @@ import (
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	mcpplugin "github.com/vaayne/anna/plugins/tools/mcp"
+	skillsbuiltin "github.com/vaayne/anna/plugins/tools/skills/builtin"
 )
 
 func newApp() *ucli.App {
@@ -80,6 +81,10 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	}
 
 	store := config.NewDBStore(db)
+
+	if err := skillsbuiltin.ExtractSkills(filepath.Join(config.AnnaHome(), "skills")); err != nil {
+		return nil, fmt.Errorf("extract builtin skills: %w", err)
+	}
 
 	// Seed defaults so there's always at least one agent.
 	if err := store.SeedDefaults(parent); err != nil {

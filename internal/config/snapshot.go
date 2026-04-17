@@ -115,9 +115,9 @@ func (s *Snapshot) ResolveProviderCreds(providerID string) ProviderCreds {
 	return ProviderCreds{Type: s.Provider, APIKey: s.APIKey, BaseURL: s.BaseURL}
 }
 
-// SkillsPath returns the skills directory inside the workspace.
+// SkillsPath returns the per-workspace agent-level skills directory.
 func (s *Snapshot) SkillsPath() string {
-	return filepath.Join(s.Workspace, "skills")
+	return filepath.Join(s.Workspace, ".agents", "skills")
 }
 
 // LogPath returns the log file path inside the workspace.

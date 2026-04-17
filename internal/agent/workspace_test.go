@@ -20,7 +20,7 @@ func TestSetupWorkspace(t *testing.T) {
 	}
 
 	// Verify the skills subdirectory was created.
-	skillsDir := filepath.Join(dir, "skills")
+	skillsDir := filepath.Join(dir, ".agents", "skills")
 	info, err := os.Stat(skillsDir)
 	if err != nil {
 		t.Fatalf("skills dir not created: %v", err)
