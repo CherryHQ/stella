@@ -188,6 +188,20 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 	return nil
 }
 
+// Sync copies changed files from the session overlay back to the source
+// workspace without closing the session.
+func (b *SharedBackend) Sync() error {
+	b.mu.RLock()
+	sessionDir := b.sessionDir
+	src := b.sessionSrc
+	b.mu.RUnlock()
+
+	if sessionDir == "" || src == "" {
+		return nil
+	}
+	return SyncSessionToSrc(sessionDir, src)
+}
+
 // Client returns the underlying boxsh client for direct RPC calls.
 // Returns nil if the backend is not started or already closed.
 func (b *SharedBackend) Client() *Client {
