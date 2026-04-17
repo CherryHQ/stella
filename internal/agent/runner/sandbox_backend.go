@@ -278,3 +278,13 @@ func resolveSessionBackendName(cfg config.SandboxConfig) string {
 	}
 	return config.SandboxBackendLocal
 }
+
+// cleanupOrphanedBoxshSessions removes leftover session dirs from crashed
+// processes: new sessions from AnnaHome/cache/sandbox/sessions, and legacy
+// sessions from the old incorrect location (parent of UserRoot).
+func cleanupOrphanedBoxshSessions(annaHome, userRoot string) {
+	boxshclient.CleanupOrphanedSessions(annaHome)
+	if userRoot != "" {
+		boxshclient.CleanupLegacySessionDirs(filepath.Dir(userRoot))
+	}
+}

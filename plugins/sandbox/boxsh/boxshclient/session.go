@@ -1,10 +1,45 @@
 package boxshclient
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
+
+// SessionMeta records the source workspace path for a sandbox session so
+// orphaned sessions can be synced back after a crash.
+type SessionMeta struct {
+	Src       string    `json:"src"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func sessionMetaPath(sessionDir string) string {
+	return sessionDir + ".meta.json"
+}
+
+// WriteSessionMeta writes a sidecar metadata file next to sessionDir.
+func WriteSessionMeta(sessionDir, src string) error {
+	data, err := json.Marshal(SessionMeta{Src: src, CreatedAt: time.Now().UTC()})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(sessionMetaPath(sessionDir), data, 0o600)
+}
+
+// ReadSessionMeta reads the sidecar metadata file next to sessionDir.
+func ReadSessionMeta(sessionDir string) (*SessionMeta, error) {
+	data, err := os.ReadFile(sessionMetaPath(sessionDir))
+	if err != nil {
+		return nil, err
+	}
+	var meta SessionMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, err
+	}
+	return &meta, nil
+}
 
 // SessionManager handles the lifecycle of sandbox sessions including sandbox
 // root selection, ephemeral directory creation, and cleanup.
