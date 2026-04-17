@@ -46,6 +46,7 @@ func newApp() *ucli.App {
 			modelsCommand(),
 			skillsCommand(),
 			pluginCommand(),
+			toolsCommand(),
 			versionCommand(),
 			upgradeCommand(),
 		},

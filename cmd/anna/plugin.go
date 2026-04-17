@@ -8,6 +8,7 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/tools"
 )
 
 func pluginCommand() *ucli.Command {
@@ -103,6 +104,11 @@ func setPluginEnabled(c *ucli.Context, enabled bool) error {
 	}
 	if err := store.SetPluginEnabled(ctx, id, enabled); err != nil {
 		return fmt.Errorf("update plugin: %w", err)
+	}
+
+	// Auto-download tool binary when a plugin is enabled.
+	if enabled {
+		tools.EnsurePluginTool(ctx, id, config.AnnaHome(), nil)
 	}
 
 	fmt.Printf("Plugin %q %s.\n", id, pluginEnabledState(enabled))

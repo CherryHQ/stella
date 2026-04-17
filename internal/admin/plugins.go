@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/tools"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
@@ -101,6 +102,10 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 	if err := s.pluginHost.SetEnabled(r.Context(), id, req.Enabled); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// Auto-download tool binary when a hook plugin is enabled.
+	if req.Enabled {
+		tools.EnsurePluginTool(r.Context(), id, config.AnnaHome(), s.log)
 	}
 	// Re-fetch the updated plugin to return current state.
 	p, err := s.store.GetPlugin(r.Context(), id)
