@@ -48,7 +48,8 @@ func (h *testHost) AddPromptInventory(reg pkgplugins.PromptInventorySpec) { h.pr
 func (*testHost) AddSystemPrompt(pkgplugins.SystemPromptSpec)             {}
 func (*testHost) AddBeforeRun(pkgplugins.BeforeRunSpec)                   {}
 func (*testHost) AddBeforeToolCall(pkgplugins.BeforeToolCallSpec)         {}
-func (*testHost) AddAfterToolResult(pkgplugins.AfterToolResultSpec)       {}
+func (*testHost) AddAfterToolResult(pkgplugins.AfterToolResultSpec) {}
+func (*testHost) AddBinary(pkgplugins.BinarySpec)                  {}
 
 type testPlatform struct{ lookup testRuntimeLookup }
 

@@ -41,6 +41,7 @@ type Host struct {
 	statusRegs       map[string]pkgplugins.AdminSpec
 	promptRegs       map[string]pkgplugins.PromptInventorySpec
 	systemPromptRegs map[string]pkgplugins.SystemPromptSpec
+	binaryRegs       map[string][]pkgplugins.BinarySpec
 }
 
 func New(store config.Store, opts ...Option) *Host {
@@ -62,6 +63,7 @@ func New(store config.Store, opts ...Option) *Host {
 		statusRegs:       map[string]pkgplugins.AdminSpec{},
 		promptRegs:       map[string]pkgplugins.PromptInventorySpec{},
 		systemPromptRegs: map[string]pkgplugins.SystemPromptSpec{},
+		binaryRegs:       map[string][]pkgplugins.BinarySpec{},
 	}
 	h.config = &configService{store: store}
 	h.runtimes = NewRuntimeHost(h)
@@ -196,7 +198,27 @@ func (h *Host) AddSystemPrompt(reg pkgplugins.SystemPromptSpec) {
 	registerUnique(h.systemPromptRegs, promptKey(reg.PluginID, reg.Name), reg, "system prompt")
 }
 
-func (h *Host) AddBinary(_ pkgplugins.BinarySpec) {}
+func (h *Host) AddBinary(spec pkgplugins.BinarySpec) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.binaryRegs[spec.PluginID] = append(h.binaryRegs[spec.PluginID], spec)
+}
+
+func (h *Host) BinarySpecs(pluginID string) []pkgplugins.BinarySpec {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return append([]pkgplugins.BinarySpec(nil), h.binaryRegs[pluginID]...)
+}
+
+func (h *Host) AllBinarySpecs() []pkgplugins.BinarySpec {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var out []pkgplugins.BinarySpec
+	for _, specs := range h.binaryRegs {
+		out = append(out, specs...)
+	}
+	return out
+}
 
 func registerUnique[T any](m map[string]T, key string, reg T, kind string) {
 	if key == "" {
