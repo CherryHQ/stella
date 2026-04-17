@@ -408,6 +408,12 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 		}); err != nil {
 			out <- Event{Err: err}
 		}
+
+		if r.session != nil {
+			if err := r.session.Sync(); err != nil {
+				slog.Warn("go runner: sync session after chat", "error", err)
+			}
+		}
 	}()
 
 	return out

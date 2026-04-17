@@ -80,6 +80,20 @@ func (r *runnerSession) Done() <-chan struct{} {
 	return r.session.Done()
 }
 
+// Sync copies changed files from the session overlay back to the source
+// workspace without closing the session. No-op for sessions that don't
+// support mid-session sync.
+func (r *runnerSession) Sync() error {
+	if r == nil || r.session == nil {
+		return nil
+	}
+	type syncer interface{ Sync() error }
+	if s, ok := r.session.(syncer); ok {
+		return s.Sync()
+	}
+	return nil
+}
+
 // Close shuts down the session.
 func (r *runnerSession) Close() error {
 	if r == nil || r.session == nil {

@@ -246,6 +246,15 @@ func (s *boxshSession) endTrace(reason string, err error) {
 	})
 }
 
+func (s *boxshSession) Sync() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.closed || s.backend == nil {
+		return nil
+	}
+	return s.backend.Sync()
+}
+
 func (s *boxshSession) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
