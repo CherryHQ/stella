@@ -321,7 +321,7 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	if err := embedded.EnsureTools(paths.AnnaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
-	if err := builtin.ExtractSkills(paths.annaSkillsDir()); err != nil {
+	if err := builtin.EnsureBuiltinSkills(paths.annaSkillsDir()); err != nil {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
 	if cfg.Sandbox.BackendName() == config.SandboxBackendLocal {

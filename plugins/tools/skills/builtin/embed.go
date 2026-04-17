@@ -6,10 +6,46 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 //go:embed anna agents
 var skillsFS embed.FS
+
+var (
+	builtinSkillsStateMu sync.Mutex
+	builtinSkillsState   = map[string]*ensureState{}
+)
+
+type ensureState struct {
+	once sync.Once
+	err  error
+}
+
+func getBuiltinSkillsState(skillsDir string) *ensureState {
+	skillsDir = filepath.Clean(skillsDir)
+	builtinSkillsStateMu.Lock()
+	defer builtinSkillsStateMu.Unlock()
+	state := builtinSkillsState[skillsDir]
+	if state == nil {
+		state = &ensureState{}
+		builtinSkillsState[skillsDir] = state
+	}
+	return state
+}
+
+// EnsureBuiltinSkills extracts builtin skills once per process for callers that
+// need a lazy, idempotent fallback outside normal app startup.
+func EnsureBuiltinSkills(skillsDir string) error {
+	if skillsDir == "" {
+		return nil
+	}
+	state := getBuiltinSkillsState(skillsDir)
+	state.once.Do(func() {
+		state.err = ExtractSkills(skillsDir)
+	})
+	return state.err
+}
 
 // ExtractSkills writes the builtin anna skill into skillsDir.
 // Only the anna/ subdirectory is replaced; other content in skillsDir is preserved.

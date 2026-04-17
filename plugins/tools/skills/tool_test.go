@@ -363,7 +363,7 @@ func TestRemoveSingleCharName(t *testing.T) {
 func TestPerUserSkillsInstallAndRemove(t *testing.T) {
 	base := t.TempDir()
 	agentWS := filepath.Join(base, "workspaces", "agent-1")
-	if err := os.MkdirAll(filepath.Join(agentWS, "skills"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(agentWS, ".agents", "skills"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -398,7 +398,7 @@ description: User skill
 	if _, err := os.Stat(filepath.Join(userSkillsDir, "my-skill", "SKILL.md")); err != nil {
 		t.Error("skill not installed in user dir")
 	}
-	if _, err := os.Stat(filepath.Join(agentWS, "skills", "my-skill")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(agentWS, ".agents", "skills", "my-skill")); !os.IsNotExist(err) {
 		t.Error("skill should NOT be in agent-level dir")
 	}
 

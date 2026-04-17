@@ -19,8 +19,8 @@ func expireDrafts(workspace string, maxAge time.Duration, log *slog.Logger) {
 
 	cutoff := time.Now().Add(-maxAge)
 
-	// Agent-level drafts: {workspace}/skills/
-	expireDraftsInDir(filepath.Join(workspace, "skills"), cutoff, log)
+	// Agent-level drafts: {workspace}/.agents/skills/
+	expireDraftsInDir(filepath.Join(workspace, ".agents", "skills"), cutoff, log)
 
 	// Per-user drafts: {workspace}/users/*/.agents/skills/
 	usersDir := filepath.Join(workspace, "users")
