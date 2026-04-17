@@ -79,7 +79,7 @@ func (p runnerPaths) annaAgentsDir() string {
 }
 
 func (p runnerPaths) agentSkillsDir() string {
-	return filepath.Join(p.AgentRoot, "skills")
+	return filepath.Join(p.AgentRoot, ".agents", "skills")
 }
 
 func (p runnerPaths) agentAgentsDir() string {

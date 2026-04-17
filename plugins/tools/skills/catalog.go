@@ -87,16 +87,15 @@ func loadSkills(ctx context.Context, runtime pkgplugins.ToolRuntime, annaHome, a
 	}
 
 	if annaHome != "" {
-		builtinDir := filepath.Join(annaHome, "cache", "builtin-skills")
-		if err := builtin.Extract(builtinDir); err != nil {
+		skillsDir := filepath.Join(annaHome, "skills")
+		if err := builtin.ExtractSkills(skillsDir); err != nil {
 			slog.Warn("failed to extract builtin skills", "error", err)
 		}
-		// Always try to load from builtin dir - it may be mounted read-only in sandbox
-		addDir(builtinDir, "anna")
-		addDir(filepath.Join(annaHome, "skills"), "anna")
+		// Always try to load from skills dir - it may be mounted read-only in sandbox
+		addDir(skillsDir, "anna")
 	}
 	if agentRoot != "" {
-		addDir(filepath.Join(agentRoot, "skills"), "agent")
+		addDir(filepath.Join(agentRoot, ".agents", "skills"), "agent")
 	}
 	if userSkillsDir == "" && userRoot != "" {
 		userSkillsDir = filepath.Join(userRoot, ".agents", "skills")

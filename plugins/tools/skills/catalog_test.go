@@ -15,12 +15,11 @@ func TestLoadSkillsPriorityLowToHigh(t *testing.T) {
 	userRoot := filepath.Join(t.TempDir(), "users", "7")
 	cwd := t.TempDir()
 
-	builtinDir := filepath.Join(annaHome, "cache", "builtin-skills", "shared")
 	annaDir := filepath.Join(annaHome, "skills", "shared")
-	agentDir := filepath.Join(agentRoot, "skills", "shared")
+	agentDir := filepath.Join(agentRoot, ".agents", "skills", "shared")
 	userDir := filepath.Join(userRoot, ".agents", "skills", "shared")
 	projectDir := filepath.Join(cwd, ".agents", "skills", "shared")
-	for _, dir := range []string{builtinDir, annaDir, agentDir, userDir, projectDir} {
+	for _, dir := range []string{annaDir, agentDir, userDir, projectDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -31,7 +30,6 @@ func TestLoadSkillsPriorityLowToHigh(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeSkill(builtinDir, "builtin")
 	writeSkill(annaDir, "anna")
 	writeSkill(agentDir, "agent")
 	writeSkill(userDir, "user")

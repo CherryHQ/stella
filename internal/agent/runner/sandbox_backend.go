@@ -239,7 +239,6 @@ func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, er
 
 func sandboxReadableDirs(paths runnerPaths) []string {
 	candidates := []string{
-		paths.builtinSkillsDir(),
 		paths.annaSkillsDir(),
 		paths.annaAgentsDir(),
 		paths.agentSkillsDir(),
