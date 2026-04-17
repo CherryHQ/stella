@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -293,12 +294,16 @@ func resolveSessionBackendName(cfg config.SandboxConfig) string {
 	return config.SandboxBackendLocal
 }
 
+var orphanCleanupOnce sync.Once
+
 // cleanupOrphanedBoxshSessions removes leftover session dirs from crashed
-// processes: new sessions from AnnaHome/cache/sandbox/sessions, and legacy
-// sessions from the old incorrect location (parent of UserRoot).
+// processes. Runs at most once per process to avoid interfering with
+// sessions owned by concurrently-running runners.
 func cleanupOrphanedBoxshSessions(annaHome, userRoot string) {
-	boxshclient.CleanupOrphanedSessions(annaHome)
-	if userRoot != "" {
-		boxshclient.CleanupLegacySessionDirs(filepath.Dir(userRoot))
-	}
+	orphanCleanupOnce.Do(func() {
+		boxshclient.CleanupOrphanedSessions(annaHome)
+		if userRoot != "" {
+			boxshclient.CleanupLegacySessionDirs(filepath.Dir(userRoot))
+		}
+	})
 }
