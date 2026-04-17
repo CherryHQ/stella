@@ -601,11 +601,12 @@ func CreateSessionDir(baseDir string) (string, error) {
 	return sessionDir, nil
 }
 
-// CleanupSessionDir removes the ephemeral session directory.
+// CleanupSessionDir removes the ephemeral session directory and its metadata sidecar.
 func CleanupSessionDir(sessionDir string) error {
 	if sessionDir == "" {
 		return nil
 	}
+	_ = os.Remove(sessionMetaPath(sessionDir))
 	return os.RemoveAll(sessionDir)
 }
 

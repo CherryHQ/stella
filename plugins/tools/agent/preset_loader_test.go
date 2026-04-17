@@ -281,7 +281,7 @@ func TestLoadAgentPresetsDeduplication(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir2, "agents", "unique.md"),
 		[]byte("---\nname: unique\ndescription: Only in workspace\n---\nUnique body."), 0o644)
 
-	presets := loadAgentPresets(context.Background(), nil, "", dir2, "", dir1, "")
+	presets := loadAgentPresets(context.Background(), nil, "", dir2, "", dir1)
 	if len(presets) != 2 {
 		t.Fatalf("expected 2 presets, got %d", len(presets))
 	}
@@ -327,20 +327,15 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 	agentRoot := t.TempDir()
 	userRoot := filepath.Join(t.TempDir(), "users", "7")
 	annaHome := t.TempDir()
-	builtin := t.TempDir()
 
 	mkdirAll(t, filepath.Join(cwd, ".agents", "agents"), 0o755)
 	mkdirAll(t, filepath.Join(agentRoot, "agents"), 0o755)
 	mkdirAll(t, filepath.Join(userRoot, ".agents", "agents"), 0o755)
 	mkdirAll(t, filepath.Join(annaHome, "agents"), 0o755)
-	mkdirAll(t, filepath.Join(builtin, "agents"), 0o755)
 
 	preset := func(name, desc string) []byte {
 		return []byte("---\nname: " + name + "\ndescription: " + desc + "\n---\nBody.")
 	}
-
-	writeTestFile(t, filepath.Join(builtin, "agents", "builtin-only.md"), preset("builtin-only", "From builtin"), 0o644)
-	writeTestFile(t, filepath.Join(builtin, "agents", "overlap.md"), preset("overlap", "Builtin loses"), 0o644)
 
 	writeTestFile(t, filepath.Join(annaHome, "agents", "anna-only.md"), preset("anna-only", "From anna"), 0o644)
 	writeTestFile(t, filepath.Join(annaHome, "agents", "overlap.md"), preset("overlap", "Anna loses"), 0o644)
@@ -354,17 +349,14 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 	writeTestFile(t, filepath.Join(cwd, ".agents", "agents", "project-only.md"), preset("project-only", "From project"), 0o644)
 	writeTestFile(t, filepath.Join(cwd, ".agents", "agents", "overlap.md"), preset("overlap", "Project wins"), 0o644)
 
-	presets := loadAgentPresets(context.Background(), nil, annaHome, agentRoot, userRoot, cwd, builtin)
-	if len(presets) != 6 {
-		t.Fatalf("expected 6 presets, got %d", len(presets))
+	presets := loadAgentPresets(context.Background(), nil, annaHome, agentRoot, userRoot, cwd)
+	if len(presets) != 5 {
+		t.Fatalf("expected 5 presets, got %d", len(presets))
 	}
 
 	byName := map[string]AgentPreset{}
 	for _, p := range presets {
 		byName[p.Name] = p
-	}
-	if byName["builtin-only"].Source != "builtin" {
-		t.Errorf("builtin-only Source = %q", byName["builtin-only"].Source)
 	}
 	if byName["anna-only"].Source != "anna" {
 		t.Errorf("anna-only Source = %q", byName["anna-only"].Source)
@@ -404,7 +396,8 @@ func TestLoadAgentPresetsPathDedup(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "agents", "test.md"),
 		[]byte("---\nname: test\ndescription: Test agent\n---\nBody."), 0o644)
 
-	presets := loadAgentPresets(context.Background(), nil, "", dir, "", "", dir)
+	// Pass the same dir as both annaHome and agentRoot; both scan agents/ so dedup fires.
+	presets := loadAgentPresets(context.Background(), nil, dir, dir, "", "")
 	if len(presets) != 1 {
 		t.Errorf("expected 1 preset (dedup), got %d", len(presets))
 	}

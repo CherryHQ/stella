@@ -75,7 +75,7 @@ All paths are relative to `$ANNA_HOME` (`~/.anna` by default).
 | `anna.db` | SQLite database (all config + runtime data) |
 | `cache/models.json` | Cached model list (safe to delete) |
 | `workspaces/{agent_id}/` | Per-agent workspace |
-| `workspaces/{agent_id}/skills/` | Per-agent installed skills |
+| `workspaces/{agent_id}/.agents/skills/` | Per-agent installed skills |
 | `workspaces/{agent_id}/anna.log` | Per-agent log |
 
 ## Environment variables

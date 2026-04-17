@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/runner/builtin"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
 	coreagent "github.com/vaayne/anna/pkg/agent"
@@ -23,6 +22,7 @@ import (
 	boxshsandbox "github.com/vaayne/anna/plugins/sandbox/boxsh"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
+	"github.com/vaayne/anna/plugins/tools/skills/builtin"
 )
 
 // maxAgentLoopTurns caps one runner invocation's model/tool decision loop.
@@ -145,12 +145,11 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		Presets:   presets,
 		PresetLoader: func(projectRoot string) *agenttool.PresetRegistry {
 			return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
-				AnnaHome:         paths.AnnaHome,
-				AgentRoot:        paths.AgentRoot,
-				UserRoot:         paths.UserRoot,
-				ProjectRoot:      projectRoot,
-				BuiltinSkillsDir: paths.builtinSkillsDir(),
-				Runtime:          cfg.ToolRuntime,
+				AnnaHome:    paths.AnnaHome,
+				AgentRoot:   paths.AgentRoot,
+				UserRoot:    paths.UserRoot,
+				ProjectRoot: projectRoot,
+				Runtime:     cfg.ToolRuntime,
 			}))
 		},
 		Hooks:         hookSet,
@@ -305,16 +304,15 @@ func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSe
 
 func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 	paths := resolveRunnerPaths(cfg)
-	if err := builtin.Extract(paths.builtinSkillsDir()); err != nil {
-		slog.Warn("failed to extract builtin skills", "error", err)
+	if err := builtin.ExtractAgents(paths.annaAgentsDir()); err != nil {
+		slog.Warn("failed to extract builtin agents", "error", err)
 	}
 	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
-		AnnaHome:         paths.AnnaHome,
-		AgentRoot:        paths.AgentRoot,
-		UserRoot:         paths.UserRoot,
-		ProjectRoot:      paths.ProjectRoot,
-		BuiltinSkillsDir: paths.builtinSkillsDir(),
-		Runtime:          cfg.ToolRuntime,
+		AnnaHome:    paths.AnnaHome,
+		AgentRoot:   paths.AgentRoot,
+		UserRoot:    paths.UserRoot,
+		ProjectRoot: paths.ProjectRoot,
+		Runtime:     cfg.ToolRuntime,
 	}))
 }
 
@@ -323,9 +321,13 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	if err := embedded.EnsureTools(paths.AnnaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
+	if err := builtin.EnsureBuiltinSkills(paths.annaSkillsDir()); err != nil {
+		slog.Warn("failed to extract builtin skills", "error", err)
+	}
 	if cfg.Sandbox.BackendName() == config.SandboxBackendLocal {
 		return nil
 	}
+	cleanupOrphanedBoxshSessions(paths.AnnaHome, paths.UserRoot)
 	if err := boxshsandbox.Preflight(ctx, boxshsandbox.PreflightConfig{
 		AnnaHome: paths.AnnaHome,
 		UserRoot: paths.UserRoot,
@@ -405,6 +407,12 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 			}
 		}); err != nil {
 			out <- Event{Err: err}
+		}
+
+		if r.session != nil {
+			if err := r.session.Sync(); err != nil {
+				slog.Warn("go runner: sync session after chat", "error", err)
+			}
 		}
 	}()
 

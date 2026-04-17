@@ -15,23 +15,21 @@ func TestLoadSkillsPriorityLowToHigh(t *testing.T) {
 	userRoot := filepath.Join(t.TempDir(), "users", "7")
 	cwd := t.TempDir()
 
-	builtinDir := filepath.Join(annaHome, "cache", "builtin-skills", "shared")
 	annaDir := filepath.Join(annaHome, "skills", "shared")
-	agentDir := filepath.Join(agentRoot, "skills", "shared")
+	agentDir := filepath.Join(agentRoot, ".agents", "skills", "shared")
 	userDir := filepath.Join(userRoot, ".agents", "skills", "shared")
 	projectDir := filepath.Join(cwd, ".agents", "skills", "shared")
-	for _, dir := range []string{builtinDir, annaDir, agentDir, userDir, projectDir} {
+	for _, dir := range []string{annaDir, agentDir, userDir, projectDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	writeSkill := func(dir, desc string) {
-		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\ndescription: "+desc+"\nstatus: active\n---\nbody\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: "+filepath.Base(dir)+"\ndescription: "+desc+"\nstatus: active\n---\nbody\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	writeSkill(builtinDir, "builtin")
 	writeSkill(annaDir, "anna")
 	writeSkill(agentDir, "agent")
 	writeSkill(userDir, "user")
