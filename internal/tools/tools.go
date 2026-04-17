@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -23,7 +24,33 @@ func ToolPath(annaHome, name string) string {
 
 // pluginToolMap maps plugin IDs to the tool name they require.
 var pluginToolMap = map[string]string{
-	"hook/rtk": "rtk",
+	"hook/rtk":     "rtk",
+	"tool/tap-web": "tap",
+}
+
+// pluginSkillFuncs maps plugin IDs to their skill extraction functions.
+// Plugins register themselves via RegisterPluginSkill in init().
+var pluginSkillFuncs = map[string]func(skillsDir string) error{}
+
+// RegisterPluginSkill registers a skill extraction function for a plugin.
+// Called from plugin init() functions.
+func RegisterPluginSkill(pluginID string, fn func(skillsDir string) error) {
+	pluginSkillFuncs[pluginID] = fn
+}
+
+// EnsurePluginSkill extracts the embedded skill for a plugin into annaHome/skills/.
+// Synchronous — skill files are small and must be present before the next agent run.
+// Safe to call for any plugin ID — no-op if the plugin has no embedded skill.
+func EnsurePluginSkill(pluginID, annaHome string) error {
+	fn, ok := pluginSkillFuncs[pluginID]
+	if !ok {
+		return nil
+	}
+	skillsDir := filepath.Join(annaHome, "skills")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		return fmt.Errorf("create skills dir: %w", err)
+	}
+	return fn(skillsDir)
 }
 
 // EnsurePluginTool downloads the tool binary required by a plugin (if any)

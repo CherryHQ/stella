@@ -21,6 +21,7 @@ import (
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/pluginstate"
 	"github.com/vaayne/anna/internal/scheduler"
+	internaltools "github.com/vaayne/anna/internal/tools"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -86,6 +87,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	if err := skillsbuiltin.ExtractSkills(filepath.Join(config.AnnaHome(), "skills")); err != nil {
 		return nil, fmt.Errorf("extract builtin skills: %w", err)
 	}
+	extractEnabledPluginSkills(parent, store, config.AnnaHome())
 
 	// Seed defaults so there's always at least one agent.
 	if err := store.SeedDefaults(parent); err != nil {
@@ -420,4 +422,22 @@ func setupLogFile() error {
 		Level: slog.LevelDebug,
 	})))
 	return nil
+}
+
+// extractEnabledPluginSkills refreshes embedded skills for all currently-enabled plugins.
+// Called at startup so skill content stays in sync with the binary version.
+func extractEnabledPluginSkills(ctx context.Context, store config.Store, annaHome string) {
+	plugins, err := store.ListPlugins(ctx)
+	if err != nil {
+		slog.Warn("could not list plugins for skill extraction", "error", err)
+		return
+	}
+	for _, p := range plugins {
+		if !p.Enabled {
+			continue
+		}
+		if err := internaltools.EnsurePluginSkill(p.ID, annaHome); err != nil {
+			slog.Warn("failed to extract plugin skill", "plugin", p.ID, "error", err)
+		}
+	}
 }

@@ -103,8 +103,11 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Auto-download tool binary when a hook plugin is enabled.
+	// Install skill and download binary when a plugin is enabled.
 	if req.Enabled {
+		if err := tools.EnsurePluginSkill(id, config.AnnaHome()); err != nil {
+			s.log.Warn("failed to install plugin skill", "plugin", id, "error", err)
+		}
 		tools.EnsurePluginTool(r.Context(), id, config.AnnaHome(), s.log)
 	}
 	// Re-fetch the updated plugin to return current state.
