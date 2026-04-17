@@ -42,7 +42,7 @@ Users (Telegram / QQ / Feishu / WeChat / Terminal)
 anna (single binary, your machine)
  |
  |- Agents (multiple, each with own model/provider/personality)
- |   |- Workspace (~/.anna/workspaces/{agent-id}/skills/)
+ |   |- Workspace (~/.anna/workspaces/{agent-id}/.agents/skills/)
  |   |- 3-layer system prompt (SYSTEM.md -> SOUL.md -> user memory)
  |   '- LCM Memory (DAG-based context compression)
  |
@@ -72,7 +72,7 @@ When the context window fills up, Anna isn't working with truncated history. She
 Anna supports running multiple agents simultaneously. Each agent has:
 
 - Its own model and provider configuration
-- An isolated workspace at `~/.anna/workspaces/{agent-id}/skills/`
+- An isolated workspace at `~/.anna/workspaces/{agent-id}/.agents/skills/`
 - A system prompt defined in the DB (`settings_agents.system_prompt`), overridable by placing a `SOUL.md` in the workspace
 - A 3-layer system prompt: basic system prompt (overridable by `SYSTEM.md`), then agent soul (overridable by `SOUL.md`), then per-user memory from the database
 
@@ -141,7 +141,7 @@ anna skills list
 anna skills remove skill-name
 ```
 
-Search, install, and manage skills from the CLI or mid-conversation. Each agent has its own skills directory at `~/.anna/workspaces/{agent-id}/skills/`.
+Search, install, and manage skills from the CLI or mid-conversation. Each agent has its own skills directory at `~/.anna/workspaces/{agent-id}/.agents/skills/`.
 
 ## Security and Sandboxing
 

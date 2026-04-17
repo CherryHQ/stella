@@ -20,6 +20,7 @@ func TestBuildPromptSectionIncludesVisibleSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(projectSkillDir, "SKILL.md"), []byte(`---
+name: project-skill
 description: Project skill
 status: active
 ---
@@ -37,6 +38,7 @@ project body
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(userSkillDir, "SKILL.md"), []byte(`---
+name: user-skill
 description: User skill
 status: draft
 ---
@@ -45,11 +47,12 @@ user body
 		t.Fatal(err)
 	}
 
-	deprecatedDir := filepath.Join(workspace, "skills", "old-skill")
+	deprecatedDir := filepath.Join(workspace, ".agents", "skills", "old-skill")
 	if err := os.MkdirAll(deprecatedDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(deprecatedDir, "SKILL.md"), []byte(`---
+name: old-skill
 description: Old skill
 status: deprecated
 ---

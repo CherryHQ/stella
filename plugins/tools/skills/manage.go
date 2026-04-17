@@ -6,15 +6,18 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"gopkg.in/yaml.v3"
 )
 
+var skillWriteMu sync.Mutex
+
 // Create creates a new skill with the given name, description, and content body.
 // The skill is created with status=draft and created-at=now.
-// targetDir must be the writable skills directory (userSkillsDir or workspace/skills).
+// targetDir must be the writable skills directory (userSkillsDir or .agents/skills).
 func Create(ctx context.Context, runtime pkgplugins.ToolRuntime, name, description, content, targetDir string) error {
 	if errs := validateCreateInput(name, description); len(errs) > 0 {
 		return fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
@@ -37,11 +40,8 @@ func Create(ctx context.Context, runtime pkgplugins.ToolRuntime, name, descripti
 // Patch updates frontmatter fields and/or the content body of an existing skill.
 // Supported update keys: "description", "status", "content" (body after frontmatter).
 func Patch(ctx context.Context, runtime pkgplugins.ToolRuntime, name string, updates map[string]string, targetDir string) error {
-	if name == "" {
-		return fmt.Errorf("name is required")
-	}
-	if !safeNameRe.MatchString(name) {
-		return fmt.Errorf("invalid skill name %q", name)
+	if err := skillNameValidationError(name, name); err != nil {
+		return err
 	}
 	if len(updates) == 0 {
 		return fmt.Errorf("no updates provided")
@@ -86,10 +86,8 @@ func Deprecate(ctx context.Context, runtime pkgplugins.ToolRuntime, name, target
 
 func validateCreateInput(name, description string) []string {
 	var errs []string
-	if name == "" {
-		errs = append(errs, "name is required")
-	} else if !safeNameRe.MatchString(name) {
-		errs = append(errs, fmt.Sprintf("invalid skill name %q: must match %s", name, safeNameRe.String()))
+	if err := skillNameValidationError(name, name); err != nil {
+		errs = append(errs, err.Error())
 	}
 	if strings.TrimSpace(description) == "" {
 		errs = append(errs, "description is required")

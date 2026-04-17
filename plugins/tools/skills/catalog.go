@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	"github.com/vaayne/anna/plugins/tools/skills/builtin"
 	"gopkg.in/yaml.v3"
 )
 
@@ -48,10 +47,7 @@ type skillFrontmatter struct {
 	DisableModelInvocation bool   `yaml:"disable-model-invocation"`
 }
 
-const (
-	maxNameLength        = 64
-	maxDescriptionLength = 1024
-)
+const maxNameLength = 64
 
 var validNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
@@ -87,16 +83,11 @@ func loadSkills(ctx context.Context, runtime pkgplugins.ToolRuntime, annaHome, a
 	}
 
 	if annaHome != "" {
-		builtinDir := filepath.Join(annaHome, "cache", "builtin-skills")
-		if err := builtin.Extract(builtinDir); err != nil {
-			slog.Warn("failed to extract builtin skills", "error", err)
-		}
-		// Always try to load from builtin dir - it may be mounted read-only in sandbox
-		addDir(builtinDir, "anna")
+		// Always load from built-in skills dir.
 		addDir(filepath.Join(annaHome, "skills"), "anna")
 	}
 	if agentRoot != "" {
-		addDir(filepath.Join(agentRoot, "skills"), "agent")
+		addDir(filepath.Join(agentRoot, ".agents", "skills"), "agent")
 	}
 	if userSkillsDir == "" && userRoot != "" {
 		userSkillsDir = filepath.Join(userRoot, ".agents", "skills")
@@ -137,15 +128,13 @@ func scanDir(ctx context.Context, runtime pkgplugins.ToolRuntime, dir, source st
 			skills = append(skills, scanDir(ctx, runtime, fullPath, source, false)...)
 			continue
 		}
-		if !entry.IsDir && !entryIsRegular(ctx, runtime, fullPath) {
+		if isRoot && name == "SKILL.md" {
+			continue
+		}
+		if name != "SKILL.md" || !entryIsRegular(ctx, runtime, fullPath) {
 			continue
 		}
 
-		isRootMd := isRoot && strings.HasSuffix(name, ".md")
-		isSkillMd := !isRoot && name == "SKILL.md"
-		if !isRootMd && !isSkillMd {
-			continue
-		}
 		if s, ok := loadSkillFromFile(ctx, runtime, fullPath, source); ok {
 			skills = append(skills, s)
 		}
@@ -184,10 +173,12 @@ func loadSkillFromFile(ctx context.Context, runtime pkgplugins.ToolRuntime, file
 	}
 
 	skillDir := filepath.Dir(filePath)
-	parentDirName := filepath.Base(skillDir)
-	name := fm.Name
+	name := strings.TrimSpace(fm.Name)
 	if name == "" {
-		name = parentDirName
+		return Skill{}, false
+	}
+	if errs := ValidateSkillName(name, filepath.Base(skillDir)); len(errs) > 0 {
+		return Skill{}, false
 	}
 
 	return Skill{
@@ -238,6 +229,10 @@ func VisibleSkills(skills []Skill) []Skill {
 // ValidateSkillName checks a skill name against the Agent Skills spec.
 func ValidateSkillName(name, parentDirName string) []string {
 	var errs []string
+	if strings.TrimSpace(name) == "" {
+		errs = append(errs, "name is required")
+		return errs
+	}
 	if name != parentDirName {
 		errs = append(errs, fmt.Sprintf("name %q does not match parent directory %q", name, parentDirName))
 	}
@@ -254,4 +249,15 @@ func ValidateSkillName(name, parentDirName string) []string {
 		errs = append(errs, "name must not contain consecutive hyphens")
 	}
 	return errs
+}
+
+func skillNameValidationError(name, parentDirName string) error {
+	errs := ValidateSkillName(name, parentDirName)
+	if len(errs) == 0 {
+		return nil
+	}
+	if len(errs) == 1 && errs[0] == "name is required" {
+		return fmt.Errorf("name is required")
+	}
+	return fmt.Errorf("invalid skill name %q: %s", name, strings.Join(errs, "; "))
 }

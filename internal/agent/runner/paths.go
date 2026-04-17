@@ -66,9 +66,6 @@ func resolveSandboxPaths(cfg GoRunnerConfig) (sandboxPaths, error) {
 }
 
 func (p runnerPaths) toolsBinDir() string { return embedded.BinDir(p.AnnaHome) }
-func (p runnerPaths) builtinSkillsDir() string {
-	return filepath.Join(p.AnnaHome, "cache", "builtin-skills")
-}
 
 func (p runnerPaths) annaSkillsDir() string {
 	return filepath.Join(p.AnnaHome, "skills")
@@ -79,7 +76,7 @@ func (p runnerPaths) annaAgentsDir() string {
 }
 
 func (p runnerPaths) agentSkillsDir() string {
-	return filepath.Join(p.AgentRoot, "skills")
+	return filepath.Join(p.AgentRoot, ".agents", "skills")
 }
 
 func (p runnerPaths) agentAgentsDir() string {

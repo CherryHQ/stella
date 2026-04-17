@@ -9,11 +9,8 @@ import (
 
 // Remove deletes an installed skill directory after validating the name.
 func Remove(ctx context.Context, runtime pkgplugins.ToolRuntime, name, skillDir string) error {
-	if name == "" {
-		return fmt.Errorf("skill name is required")
-	}
-	if !safeNameRe.MatchString(name) {
-		return fmt.Errorf("invalid skill name %q: must be lowercase alphanumeric with hyphens", name)
+	if err := skillNameValidationError(name, name); err != nil {
+		return err
 	}
 	info, err := statSkillPath(ctx, runtime, skillDir)
 	if err != nil {

@@ -325,3 +325,59 @@ func TestSharedCOWView_MultipleBackendsUseDistinctUpperdirs(t *testing.T) {
 		t.Fatal("expected distinct session dirs for separate backends")
 	}
 }
+
+func TestSharedCOWView_CloseWritesBackToSrc(t *testing.T) {
+	skipIfWindows(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	annaHome := t.TempDir()
+	workspace := t.TempDir()
+	src := filepath.Join(workspace, "users", "1", "data")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "notes.txt"), []byte("original"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	writeStatefulMockBoxsh(t, annaHome)
+
+	cfg := BackendConfig{
+		AnnaHome: annaHome,
+		UserRoot: src,
+		WorkDir:  "/",
+		Sandbox:  NetworkConfig{Mode: NetworkDisabled},
+	}
+	backend, err := NewSharedBackend(cfg)
+	if err != nil {
+		t.Fatalf("NewSharedBackend: %v", err)
+	}
+	if err := backend.Start(ctx, cfg); err != nil {
+		t.Fatalf("backend.Start: %v", err)
+	}
+
+	if _, err := testWrite(ctx, backend, "/notes.txt", "updated"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	sourceBeforeClose, err := os.ReadFile(filepath.Join(src, "notes.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile before close: %v", err)
+	}
+	if string(sourceBeforeClose) != "original" {
+		t.Fatalf("source should be isolated during session, got %q", string(sourceBeforeClose))
+	}
+
+	if err := backend.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	sourceAfterClose, err := os.ReadFile(filepath.Join(src, "notes.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile after close: %v", err)
+	}
+	if string(sourceAfterClose) != "updated" {
+		t.Fatalf("expected writeback on close, src = %q", string(sourceAfterClose))
+	}
+}

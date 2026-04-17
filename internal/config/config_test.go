@@ -256,7 +256,7 @@ func TestParseModelRef(t *testing.T) {
 
 func TestSnapshotPaths(t *testing.T) {
 	snap := Snapshot{Workspace: "/home/user/.anna/workspaces/anna"}
-	if snap.SkillsPath() != "/home/user/.anna/workspaces/anna/skills" {
+	if snap.SkillsPath() != "/home/user/.anna/workspaces/anna/.agents/skills" {
 		t.Errorf("SkillsPath() = %q", snap.SkillsPath())
 	}
 	if snap.LogPath() != "/home/user/.anna/workspaces/anna/anna.log" {

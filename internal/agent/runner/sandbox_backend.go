@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -78,6 +79,20 @@ func (r *runnerSession) Done() <-chan struct{} {
 		return ch
 	}
 	return r.session.Done()
+}
+
+// Sync copies changed files from the session overlay back to the source
+// workspace without closing the session. No-op for sessions that don't
+// support mid-session sync.
+func (r *runnerSession) Sync() error {
+	if r == nil || r.session == nil {
+		return nil
+	}
+	type syncer interface{ Sync() error }
+	if s, ok := r.session.(syncer); ok {
+		return s.Sync()
+	}
+	return nil
 }
 
 // Close shuts down the session.
@@ -239,7 +254,6 @@ func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, er
 
 func sandboxReadableDirs(paths runnerPaths) []string {
 	candidates := []string{
-		paths.builtinSkillsDir(),
 		paths.annaSkillsDir(),
 		paths.annaAgentsDir(),
 		paths.agentSkillsDir(),
@@ -278,4 +292,18 @@ func resolveSessionBackendName(cfg config.SandboxConfig) string {
 		return config.SandboxBackendBoxsh
 	}
 	return config.SandboxBackendLocal
+}
+
+var orphanCleanupOnce sync.Once
+
+// cleanupOrphanedBoxshSessions removes leftover session dirs from crashed
+// processes. Runs at most once per process to avoid interfering with
+// sessions owned by concurrently-running runners.
+func cleanupOrphanedBoxshSessions(annaHome, userRoot string) {
+	orphanCleanupOnce.Do(func() {
+		boxshclient.CleanupOrphanedSessions(annaHome)
+		if userRoot != "" {
+			boxshclient.CleanupLegacySessionDirs(filepath.Dir(userRoot))
+		}
+	})
 }

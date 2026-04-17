@@ -205,29 +205,6 @@ func TestDeprecateSkillNotFound(t *testing.T) {
 	}
 }
 
-func TestAtomicWriteFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "sub", "file.txt")
-	err := atomicWriteFile(path, []byte("hello world"), 0o644)
-	if err != nil {
-		t.Fatalf("AtomicWriteFile: %v", err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if string(data) != "hello world" {
-		t.Errorf("content = %q, want %q", string(data), "hello world")
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if info.Mode().Perm() != 0o644 {
-		t.Errorf("perm = %o, want 644", info.Mode().Perm())
-	}
-}
-
 func TestSplitFrontmatterAndBody(t *testing.T) {
 	content := "---\nname: test\ndescription: A test\n---\n# Body\nContent here.\n"
 	fm, body, err := splitFrontmatterAndBody(content)
