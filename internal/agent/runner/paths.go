@@ -66,9 +66,6 @@ func resolveSandboxPaths(cfg GoRunnerConfig) (sandboxPaths, error) {
 }
 
 func (p runnerPaths) toolsBinDir() string { return embedded.BinDir(p.AnnaHome) }
-func (p runnerPaths) builtinSkillsDir() string {
-	return filepath.Join(p.AnnaHome, "cache", "builtin-skills")
-}
 
 func (p runnerPaths) annaSkillsDir() string {
 	return filepath.Join(p.AnnaHome, "skills")
