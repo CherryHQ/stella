@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"text/tabwriter"
 
@@ -38,8 +39,11 @@ func toolsListCommand() *ucli.Command {
 }
 
 func toolsListAction() error {
+	specs, err := pluginhost.DefaultCatalogBinarySpecs()
+	if err != nil {
+		return fmt.Errorf("load tool catalog: %w", err)
+	}
 	binDir := tools.BinDir(config.AnnaHome())
-	specs := pluginhost.DefaultCatalogBinarySpecs()
 	statuses := tools.StatusFromSpecs(specs, binDir)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -62,14 +66,15 @@ func toolsInstallCommand() *ucli.Command {
 		Usage:     "Download and install tools (all if no args)",
 		ArgsUsage: "[name...]",
 		Action: func(c *ucli.Context) error {
-			binDir := tools.BinDir(config.AnnaHome())
-			platform := tools.Platform()
-			allSpecs := pluginhost.DefaultCatalogBinarySpecs()
+			allSpecs, err := pluginhost.DefaultCatalogBinarySpecs()
+			if err != nil {
+				return fmt.Errorf("load tool catalog: %w", err)
+			}
+			logger := slog.Default()
 
 			if c.NArg() == 0 {
-				for _, spec := range deduplicateByName(allSpecs) {
-					tool := specToToolForCLI(spec)
-					if err := tools.Download(c.Context, &tool, binDir, platform); err != nil {
+				for _, spec := range tools.DeduplicateByName(allSpecs, logger) {
+					if err := tools.InstallBinarySpec(c.Context, spec, config.AnnaHome(), logger); err != nil {
 						return fmt.Errorf("install %s: %w", spec.Name, err)
 					}
 					fmt.Printf("Installed %s\n", spec.Name)
@@ -83,8 +88,7 @@ func toolsInstallCommand() *ucli.Command {
 				if !ok {
 					return fmt.Errorf("unknown tool: %s", name)
 				}
-				tool := specToToolForCLI(spec)
-				if err := tools.Download(c.Context, &tool, binDir, platform); err != nil {
+				if err := tools.InstallBinarySpec(c.Context, spec, config.AnnaHome(), logger); err != nil {
 					return fmt.Errorf("install %s: %w", name, err)
 				}
 				fmt.Printf("Installed %s\n", name)
@@ -100,11 +104,13 @@ func toolsUpgradeCommand() *ucli.Command {
 		Usage:     "Upgrade tools to latest GitHub release (all if no args)",
 		ArgsUsage: "[name...]",
 		Action: func(c *ucli.Context) error {
-			binDir := tools.BinDir(config.AnnaHome())
-			platform := tools.Platform()
-			allSpecs := pluginhost.DefaultCatalogBinarySpecs()
+			allSpecs, err := pluginhost.DefaultCatalogBinarySpecs()
+			if err != nil {
+				return fmt.Errorf("load tool catalog: %w", err)
+			}
+			logger := slog.Default()
 
-			targets := deduplicateByName(allSpecs)
+			targets := tools.DeduplicateByName(allSpecs, logger)
 			if c.NArg() > 0 {
 				index := specsByName(allSpecs)
 				targets = nil
@@ -118,8 +124,7 @@ func toolsUpgradeCommand() *ucli.Command {
 			}
 
 			for _, spec := range targets {
-				tool := specToToolForCLI(spec)
-				if err := tools.DownloadLatest(c.Context, &tool, binDir, platform); err != nil {
+				if err := tools.UpgradeBinarySpec(c.Context, spec, config.AnnaHome(), logger); err != nil {
 					return fmt.Errorf("upgrade %s: %w", spec.Name, err)
 				}
 				fmt.Printf("Upgraded %s\n", spec.Name)
@@ -127,19 +132,6 @@ func toolsUpgradeCommand() *ucli.Command {
 			return nil
 		},
 	}
-}
-
-func deduplicateByName(specs []pkgplugins.BinarySpec) []pkgplugins.BinarySpec {
-	seen := map[string]struct{}{}
-	out := make([]pkgplugins.BinarySpec, 0, len(specs))
-	for _, s := range specs {
-		if _, ok := seen[s.Name]; ok {
-			continue
-		}
-		seen[s.Name] = struct{}{}
-		out = append(out, s)
-	}
-	return out
 }
 
 func specsByName(specs []pkgplugins.BinarySpec) map[string]pkgplugins.BinarySpec {
@@ -150,17 +142,4 @@ func specsByName(specs []pkgplugins.BinarySpec) map[string]pkgplugins.BinarySpec
 		}
 	}
 	return m
-}
-
-func specToToolForCLI(spec pkgplugins.BinarySpec) tools.Tool {
-	templates := make(map[string]tools.AssetTemplate, len(spec.AssetTemplates))
-	for k, v := range spec.AssetTemplates {
-		templates[k] = tools.AssetTemplate{File: v.File, RawBinary: v.RawBinary}
-	}
-	return tools.Tool{
-		Name:           spec.Name,
-		Repo:           spec.Repo,
-		Version:        spec.Version,
-		AssetTemplates: templates,
-	}
 }

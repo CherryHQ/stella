@@ -110,8 +110,12 @@ func setPluginEnabled(c *ucli.Context, enabled bool) error {
 
 	// Auto-download tool binaries (and run post-install hooks) when a plugin is enabled.
 	if enabled {
+		allSpecs, err := pluginhost.DefaultCatalogBinarySpecs()
+		if err != nil {
+			return fmt.Errorf("load tool catalog: %w", err)
+		}
 		var pluginSpecs []pkgplugins.BinarySpec
-		for _, s := range pluginhost.DefaultCatalogBinarySpecs() {
+		for _, s := range allSpecs {
 			if s.PluginID == id {
 				pluginSpecs = append(pluginSpecs, s)
 			}

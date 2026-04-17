@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/vaayne/anna/pkg/httpclient"
 )
@@ -21,6 +22,9 @@ import (
 const githubBaseURL = "https://github.com"
 
 var httpClient = httpclient.New()
+
+// manifestMu serializes manifest read-modify-write operations across concurrent downloads.
+var manifestMu sync.Mutex
 
 // ToolStatus reports the install state of a tool.
 type ToolStatus struct {
@@ -48,15 +52,21 @@ func DownloadLatest(ctx context.Context, tool *Tool, binDir, platform string) er
 }
 
 // DownloadVersion fetches and installs a specific version of a tool.
+// The manifest check and save are serialized via manifestMu so concurrent
+// goroutines cannot clobber each other's entries.
 func DownloadVersion(ctx context.Context, tool *Tool, version, binDir, platform string) error {
+	manifestMu.Lock()
 	manifest, err := LoadManifest(binDir)
 	if err != nil {
+		manifestMu.Unlock()
 		return err
 	}
 	if manifest.IsInstalled(tool.Name, version) {
+		manifestMu.Unlock()
 		slog.Info("tool already installed", "name", tool.Name, "version", version)
 		return nil
 	}
+	manifestMu.Unlock()
 
 	asset, ok := tool.ResolveAsset(platform, version)
 	if !ok {
@@ -101,11 +111,17 @@ func DownloadVersion(ctx context.Context, tool *Tool, version, binDir, platform 
 		return err
 	}
 
-	manifest.Tools[tool.Name] = InstalledTool{
-		Version:  version,
-		Platform: platform,
+	// Reload manifest under lock to capture any concurrent writes before saving.
+	manifestMu.Lock()
+	manifest, err = LoadManifest(binDir)
+	if err != nil {
+		manifestMu.Unlock()
+		return err
 	}
-	return manifest.Save(binDir)
+	manifest.Tools[tool.Name] = InstalledTool{Version: version, Platform: platform}
+	err = manifest.Save(binDir)
+	manifestMu.Unlock()
+	return err
 }
 
 func downloadToFile(ctx context.Context, url, dest string) error {
