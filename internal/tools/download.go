@@ -228,18 +228,19 @@ func writeReaderToFile(path string, reader io.Reader, mode os.FileMode) error {
 }
 
 func atomicInstall(srcPath, targetPath string) error {
-	tmpPath := targetPath + ".tmp"
-
 	in, err := os.Open(srcPath)
 	if err != nil {
 		return fmt.Errorf("open source binary: %w", err)
 	}
 
-	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	dir := filepath.Dir(targetPath)
+	base := filepath.Base(targetPath)
+	out, err := os.CreateTemp(dir, base+".tmp.*")
 	if err != nil {
 		_ = in.Close()
 		return fmt.Errorf("create temp file: %w", err)
 	}
+	tmpPath := out.Name()
 
 	_, copyErr := io.Copy(out, in)
 	_ = in.Close()

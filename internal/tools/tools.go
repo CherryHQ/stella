@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
@@ -16,9 +17,17 @@ func BinDir(annaHome string) string {
 	return filepath.Join(annaHome, "bin")
 }
 
+// binaryFileName returns the platform-appropriate binary file name (appends .exe on Windows).
+func binaryFileName(name string) string {
+	if runtime.GOOS == "windows" {
+		return name + ".exe"
+	}
+	return name
+}
+
 // ToolPath returns the full path to a named downloadable tool, or empty if not installed.
 func ToolPath(annaHome, name string) string {
-	p := filepath.Join(BinDir(annaHome), name)
+	p := filepath.Join(BinDir(annaHome), binaryFileName(name))
 	if _, err := os.Stat(p); err == nil {
 		return p
 	}
@@ -107,7 +116,7 @@ func EnsurePluginBinaries(ctx context.Context, specs []pkgplugins.BinarySpec, an
 			}
 			logger.Info("plugin binary downloaded", "plugin", spec.PluginID, "binary", spec.Name, "version", version)
 			if spec.PostInstall != nil {
-				spec.PostInstall(bg, filepath.Join(binDir, spec.Name), annaHome, logger)
+				spec.PostInstall(bg, filepath.Join(binDir, binaryFileName(spec.Name)), annaHome, logger)
 			}
 		}()
 	}
@@ -139,7 +148,7 @@ func InstallBinarySpec(ctx context.Context, spec pkgplugins.BinarySpec, annaHome
 		return err
 	}
 	if spec.PostInstall != nil {
-		spec.PostInstall(ctx, filepath.Join(binDir, spec.Name), annaHome, logger)
+		spec.PostInstall(ctx, filepath.Join(binDir, binaryFileName(spec.Name)), annaHome, logger)
 	}
 	return nil
 }
@@ -166,7 +175,7 @@ func UpgradeBinarySpec(ctx context.Context, spec pkgplugins.BinarySpec, annaHome
 		return err
 	}
 	if spec.PostInstall != nil {
-		spec.PostInstall(ctx, filepath.Join(binDir, spec.Name), annaHome, logger)
+		spec.PostInstall(ctx, filepath.Join(binDir, binaryFileName(spec.Name)), annaHome, logger)
 	}
 	return nil
 }
