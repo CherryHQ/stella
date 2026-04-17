@@ -3,6 +3,9 @@ cover.out
 coverage.out
 coverage.html
 dist/
+anna
+handoff.md
+plan.md
 
 # Embedded tool binaries (downloaded via scripts/download-tools.sh)
 internal/embedded/binaries/*/*.gz
