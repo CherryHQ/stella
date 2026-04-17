@@ -14,21 +14,20 @@ import (
 
 // LoadAgentPresetsConfig configures the agent preset discovery paths.
 type LoadAgentPresetsConfig struct {
-	AnnaHome         string // anna home dir (e.g. ~/.anna)
-	AgentRoot        string // agent root dir (e.g. ~/.anna/workspaces/{agentID})
-	UserRoot         string // user root dir (e.g. ~/.anna/workspaces/{agentID}/users/{userID})
-	ProjectRoot      string // optional project root for local/project-attached runs
-	BuiltinSkillsDir string // pre-extracted builtin skills directory (caller ensures extraction)
-	Runtime          pkgplugins.ToolRuntime
+	AnnaHome    string // anna home dir (e.g. ~/.anna)
+	AgentRoot   string // agent root dir (e.g. ~/.anna/workspaces/{agentID})
+	UserRoot    string // user root dir (e.g. ~/.anna/workspaces/{agentID}/users/{userID})
+	ProjectRoot string // optional project root for local/project-attached runs
+	Runtime     pkgplugins.ToolRuntime
 }
 
 // LoadAgentPresets discovers agent presets in increasing priority order:
-// builtin -> ANNA_HOME -> agent root -> user root -> project root.
+// ANNA_HOME -> agent root -> user root -> project root.
 func LoadAgentPresets(cfg LoadAgentPresetsConfig) []AgentPreset {
-	return loadAgentPresets(context.Background(), cfg.Runtime, cfg.AnnaHome, cfg.AgentRoot, cfg.UserRoot, cfg.ProjectRoot, cfg.BuiltinSkillsDir)
+	return loadAgentPresets(context.Background(), cfg.Runtime, cfg.AnnaHome, cfg.AgentRoot, cfg.UserRoot, cfg.ProjectRoot)
 }
 
-func loadAgentPresets(ctx context.Context, runtime pkgplugins.ToolRuntime, annaHome, agentRoot, userRoot, projectRoot, builtinSkillsDir string) []AgentPreset {
+func loadAgentPresets(ctx context.Context, runtime pkgplugins.ToolRuntime, annaHome, agentRoot, userRoot, projectRoot string) []AgentPreset {
 	indexByName := map[string]int{}
 	var presets []AgentPreset
 
@@ -53,9 +52,6 @@ func loadAgentPresets(ctx context.Context, runtime pkgplugins.ToolRuntime, annaH
 		}
 	}
 
-	if builtinSkillsDir != "" {
-		addDir(filepath.Join(builtinSkillsDir, "agents"), "builtin")
-	}
 	if annaHome != "" {
 		addDir(filepath.Join(annaHome, "agents"), "anna")
 	}
