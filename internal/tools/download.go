@@ -108,34 +108,6 @@ func DownloadVersion(ctx context.Context, tool *Tool, version, binDir, platform 
 	return manifest.Save(binDir)
 }
 
-// DownloadAll downloads every tool in the Registry.
-func DownloadAll(ctx context.Context, binDir, platform string) error {
-	for i := range Registry {
-		if err := Download(ctx, &Registry[i], binDir, platform); err != nil {
-			return fmt.Errorf("download %s: %w", Registry[i].Name, err)
-		}
-	}
-	return nil
-}
-
-// Status returns the install status of every registered tool.
-func Status(binDir, platform string) []ToolStatus {
-	manifest, _ := LoadManifest(binDir)
-	statuses := make([]ToolStatus, 0, len(Registry))
-	for _, tool := range Registry {
-		ts := ToolStatus{
-			Name:    tool.Name,
-			Version: tool.Version,
-		}
-		if inst, ok := manifest.Tools[tool.Name]; ok {
-			ts.Installed = true
-			ts.Current = inst.Version == tool.Version
-		}
-		statuses = append(statuses, ts)
-	}
-	return statuses
-}
-
 func downloadToFile(ctx context.Context, url, dest string) error {
 	resp, err := httpClient.R().
 		SetContext(ctx).

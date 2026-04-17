@@ -2,15 +2,10 @@ package tools
 
 import (
 	"context"
-	_ "embed"
-	"encoding/json"
 	"fmt"
 	"runtime"
 	"strings"
 )
-
-//go:embed registry.json
-var registryJSON []byte
 
 // Tool describes a downloadable CLI tool.
 type Tool struct {
@@ -62,25 +57,6 @@ func ensureVPrefix(v string) string {
 // Platform returns "GOOS-GOARCH" for the current runtime.
 func Platform() string {
 	return runtime.GOOS + "-" + runtime.GOARCH
-}
-
-// Registry is the declarative list of downloadable CLI tools, loaded from registry.json.
-var Registry []Tool
-
-func init() {
-	if err := json.Unmarshal(registryJSON, &Registry); err != nil {
-		panic("tools: invalid registry.json: " + err.Error())
-	}
-}
-
-// FindTool returns a pointer to the named tool in the Registry, or nil.
-func FindTool(name string) *Tool {
-	for i := range Registry {
-		if Registry[i].Name == name {
-			return &Registry[i]
-		}
-	}
-	return nil
 }
 
 // githubRelease is the GitHub API response for a release.
