@@ -88,29 +88,29 @@ func toolsInstallCommand() *ucli.Command {
 func toolsUpgradeCommand() *ucli.Command {
 	return &ucli.Command{
 		Name:      "upgrade",
-		Usage:     "Upgrade tools to latest configured versions (all if no args)",
+		Usage:     "Upgrade tools to latest GitHub release (all if no args)",
 		ArgsUsage: "[name...]",
 		Action: func(c *ucli.Context) error {
 			binDir := tools.BinDir(config.AnnaHome())
 			platform := tools.Platform()
 
-			if c.NArg() == 0 {
-				if err := tools.DownloadAll(c.Context, binDir, platform); err != nil {
-					return err
+			targets := tools.Registry
+			if c.NArg() > 0 {
+				targets = nil
+				for _, name := range c.Args().Slice() {
+					tool := tools.FindTool(name)
+					if tool == nil {
+						return fmt.Errorf("unknown tool: %s", name)
+					}
+					targets = append(targets, *tool)
 				}
-				fmt.Println("All tools upgraded.")
-				return nil
 			}
 
-			for _, name := range c.Args().Slice() {
-				tool := tools.FindTool(name)
-				if tool == nil {
-					return fmt.Errorf("unknown tool: %s", name)
-				}
-				if err := tools.Download(c.Context, tool, binDir, platform); err != nil {
+			for i := range targets {
+				if err := tools.DownloadLatest(c.Context, &targets[i], binDir, platform); err != nil {
 					return err
 				}
-				fmt.Printf("Upgraded %s to %s\n", tool.Name, tool.Version)
+				fmt.Printf("Upgraded %s\n", targets[i].Name)
 			}
 			return nil
 		},

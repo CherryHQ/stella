@@ -32,23 +32,39 @@ type ToolStatus struct {
 
 // Download fetches and installs a single tool to binDir for the given platform.
 // If the tool is already installed at the correct version, it is a no-op.
+// Uses the tool's default version from the registry.
 func Download(ctx context.Context, tool *Tool, binDir, platform string) error {
+	return DownloadVersion(ctx, tool, tool.Version, binDir, platform)
+}
+
+// DownloadLatest fetches the latest release from GitHub and installs it.
+func DownloadLatest(ctx context.Context, tool *Tool, binDir, platform string) error {
+	latest, err := FetchLatestVersion(ctx, tool)
+	if err != nil {
+		slog.Warn("failed to fetch latest version, using default", "tool", tool.Name, "error", err)
+		return DownloadVersion(ctx, tool, tool.Version, binDir, platform)
+	}
+	return DownloadVersion(ctx, tool, latest, binDir, platform)
+}
+
+// DownloadVersion fetches and installs a specific version of a tool.
+func DownloadVersion(ctx context.Context, tool *Tool, version, binDir, platform string) error {
 	manifest, err := LoadManifest(binDir)
 	if err != nil {
 		return err
 	}
-	if manifest.IsInstalled(tool.Name, tool.Version) {
-		slog.Info("tool already installed", "name", tool.Name, "version", tool.Version)
+	if manifest.IsInstalled(tool.Name, version) {
+		slog.Info("tool already installed", "name", tool.Name, "version", version)
 		return nil
 	}
 
-	asset, ok := tool.Assets[platform]
+	asset, ok := tool.ResolveAsset(platform, version)
 	if !ok {
 		return fmt.Errorf("no asset for %s on platform %s", tool.Name, platform)
 	}
 
 	url := fmt.Sprintf("%s/%s/releases/download/%s/%s", githubBaseURL, tool.Repo, asset.Tag, asset.File)
-	slog.Info("downloading tool", "name", tool.Name, "version", tool.Version, "url", url)
+	slog.Info("downloading tool", "name", tool.Name, "version", version, "url", url)
 
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return fmt.Errorf("create bin dir: %w", err)
@@ -86,7 +102,7 @@ func Download(ctx context.Context, tool *Tool, binDir, platform string) error {
 	}
 
 	manifest.Tools[tool.Name] = InstalledTool{
-		Version:  tool.Version,
+		Version:  version,
 		Platform: platform,
 	}
 	return manifest.Save(binDir)
