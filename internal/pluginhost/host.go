@@ -196,6 +196,8 @@ func (h *Host) AddSystemPrompt(reg pkgplugins.SystemPromptSpec) {
 	registerUnique(h.systemPromptRegs, promptKey(reg.PluginID, reg.Name), reg, "system prompt")
 }
 
+func (h *Host) AddBinary(_ pkgplugins.BinarySpec) {}
+
 func registerUnique[T any](m map[string]T, key string, reg T, kind string) {
 	if key == "" {
 		panic("pluginhost: empty " + kind + " key")
