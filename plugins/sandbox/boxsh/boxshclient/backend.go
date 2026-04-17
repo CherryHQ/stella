@@ -243,15 +243,18 @@ func (b *SharedBackend) Close() error {
 	}
 
 	// Sync changes back to the source workspace, then clean up the session dir.
+	// If sync fails, preserve the session dir — the orphan cleanup on next
+	// startup will retry using the metadata sidecar.
 	b.cleanupOnce.Do(func() {
 		if sessionDir == "" {
 			return
 		}
 		if src != "" {
 			if err := SyncSessionToSrc(sessionDir, src); err != nil {
-				slog.Warn("boxsh backend: sync session to src",
+				slog.Warn("boxsh backend: sync failed, preserving session dir for recovery",
 					"component", "boxsh_backend", "error", err, "dst", sessionDir, "src", src)
 				errs = append(errs, fmt.Errorf("sync session: %w", err))
+				return
 			}
 		}
 		if err := CleanupSessionDir(sessionDir); err != nil {
