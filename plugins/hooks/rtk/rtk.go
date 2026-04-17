@@ -33,6 +33,19 @@ func init() {
 				return NewHook(ctx.ToolsBinDir), nil
 			},
 		})
+		host.AddBinary(pkgplugins.BinarySpec{
+			PluginID: "hook/rtk",
+			Name:     "rtk",
+			Repo:     "rtk-ai/rtk",
+			Version:  "0.30.0",
+			AssetTemplates: map[string]pkgplugins.BinaryAsset{
+				"darwin-amd64":  {File: "rtk-x86_64-apple-darwin.tar.gz"},
+				"darwin-arm64":  {File: "rtk-aarch64-apple-darwin.tar.gz"},
+				"linux-amd64":   {File: "rtk-x86_64-unknown-linux-musl.tar.gz"},
+				"linux-arm64":   {File: "rtk-aarch64-unknown-linux-gnu.tar.gz"},
+				"windows-amd64": {File: "rtk-x86_64-pc-windows-msvc.zip"},
+			},
+		})
 	}))
 }
 
