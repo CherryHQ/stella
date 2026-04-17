@@ -327,6 +327,7 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	if cfg.Sandbox.BackendName() == config.SandboxBackendLocal {
 		return nil
 	}
+	cleanupOrphanedBoxshSessions(paths.AnnaHome, paths.UserRoot)
 	if err := boxshsandbox.Preflight(ctx, boxshsandbox.PreflightConfig{
 		AnnaHome: paths.AnnaHome,
 		UserRoot: paths.UserRoot,

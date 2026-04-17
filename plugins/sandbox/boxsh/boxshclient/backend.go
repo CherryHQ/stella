@@ -101,12 +101,15 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 		attribute.String("anna.sandbox.network.mode", cfg.Sandbox.ModeOrDefault()),
 	)
 
-	// Create an ephemeral overlay root on the same filesystem as SRC.
-	// boxsh's current overlay implementation requires that to avoid cross-device
-	// copy-on-write failures on macOS.
+	// Create an ephemeral overlay root. Use AnnaHome/cache/sandbox/sessions so
+	// session dirs are isolated from user workspace directories.
 	sessionBaseDir := cfg.SessionBaseDir
 	if sessionBaseDir == "" {
-		sessionBaseDir = filepath.Dir(src)
+		annaHome := cfg.AnnaHome
+		if annaHome == "" {
+			annaHome = DefaultAnnaHome()
+		}
+		sessionBaseDir = filepath.Join(annaHome, "cache", "sandbox", "sessions")
 	}
 
 	sessionDir, err := CreateSessionDir(sessionBaseDir)
@@ -127,6 +130,11 @@ func (b *SharedBackend) Start(ctx context.Context, cfg BackendConfig) error {
 	}
 	b.sessionDir = sessionDir
 	b.sessionSrc = src
+
+	if err := WriteSessionMeta(sessionDir, src); err != nil {
+		slog.Warn("boxsh backend: write session metadata",
+			"component", "boxsh_backend", "error", err, "session_dir", sessionDir)
+	}
 
 	// boxsh mounts the overlay at DST, so remap the requested workdir from SRC
 	// into the overlay root.
@@ -208,6 +216,7 @@ func (b *SharedBackend) Close() error {
 	b.client = nil
 	sessionDir := b.sessionDir
 	b.sessionDir = ""
+	src := b.sessionSrc
 	b.sessionSrc = ""
 	b.mu.Unlock()
 
@@ -219,12 +228,20 @@ func (b *SharedBackend) Close() error {
 		}
 	}
 
-	// Cleanup session directory once.
+	// Sync changes back to the source workspace, then clean up the session dir.
 	b.cleanupOnce.Do(func() {
-		if sessionDir != "" {
-			if err := CleanupSessionDir(sessionDir); err != nil {
-				errs = append(errs, err)
+		if sessionDir == "" {
+			return
+		}
+		if src != "" {
+			if err := SyncSessionToSrc(sessionDir, src); err != nil {
+				slog.Warn("boxsh backend: sync session to src",
+					"component", "boxsh_backend", "error", err, "dst", sessionDir, "src", src)
+				errs = append(errs, fmt.Errorf("sync session: %w", err))
 			}
+		}
+		if err := CleanupSessionDir(sessionDir); err != nil {
+			errs = append(errs, err)
 		}
 	})
 
