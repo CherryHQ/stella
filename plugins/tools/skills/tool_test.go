@@ -414,7 +414,7 @@ description: User skill
 func TestPerUserSkillsList(t *testing.T) {
 	base := t.TempDir()
 	agentWS := filepath.Join(base, "workspaces", "agent-1")
-	agentSkill := filepath.Join(agentWS, "skills", "agent-skill")
+	agentSkill := filepath.Join(agentWS, ".agents", "skills", "agent-skill")
 	if err := os.MkdirAll(agentSkill, 0o755); err != nil {
 		t.Fatal(err)
 	}

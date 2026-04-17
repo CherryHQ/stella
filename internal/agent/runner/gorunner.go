@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/runner/builtin"
+	"github.com/vaayne/anna/plugins/tools/skills/builtin"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
 	coreagent "github.com/vaayne/anna/pkg/agent"
@@ -322,6 +322,9 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	paths := resolveRunnerPaths(cfg)
 	if err := embedded.EnsureTools(paths.AnnaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
+	}
+	if err := builtin.ExtractSkills(paths.annaSkillsDir()); err != nil {
+		slog.Warn("failed to extract builtin skills", "error", err)
 	}
 	if cfg.Sandbox.BackendName() == config.SandboxBackendLocal {
 		return nil

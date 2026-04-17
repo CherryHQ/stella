@@ -107,10 +107,9 @@ func TestSandboxReadableDirsIncludesSkillAndPresetRoots(t *testing.T) {
 
 	got := sandboxReadableDirs(paths)
 	want := []string{
-		"/anna/cache/builtin-skills",
 		"/anna/skills",
 		"/anna/agents",
-		"/workspace/agent/skills",
+		"/workspace/agent/.agents/skills",
 		"/workspace/agent/agents",
 		"/project/.agents/skills",
 		"/project/.agents/agents",
