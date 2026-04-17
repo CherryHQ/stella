@@ -103,9 +103,9 @@ func (s *Server) togglePlugin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Auto-download tool binary (and run post-install hooks) when a plugin is enabled.
+	// Auto-download tool binaries (and run post-install hooks) when a plugin is enabled.
 	if req.Enabled {
-		tools.EnsurePluginTool(r.Context(), id, config.AnnaHome(), s.log)
+		tools.EnsurePluginBinaries(r.Context(), s.pluginHost.BinarySpecs(id), config.AnnaHome(), s.log)
 	}
 	// Re-fetch the updated plugin to return current state.
 	p, err := s.store.GetPlugin(r.Context(), id)
