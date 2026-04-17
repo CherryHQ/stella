@@ -2,26 +2,31 @@ package tools
 
 import (
 	"context"
+	_ "embed"
+	"encoding/json"
 	"fmt"
 	"runtime"
 	"strings"
 )
 
+//go:embed registry.json
+var registryJSON []byte
+
 // Tool describes a downloadable CLI tool.
 type Tool struct {
-	Name           string
-	DisplayName    string
-	Description    string
-	Version        string                   // default/fallback version
-	Repo           string                   // GitHub owner/repo
-	AssetTemplates map[string]AssetTemplate // key: "darwin-arm64", etc.
+	Name           string                   `json:"name"`
+	DisplayName    string                   `json:"display_name"`
+	Description    string                   `json:"description"`
+	Version        string                   `json:"version"`
+	Repo           string                   `json:"repo"`
+	AssetTemplates map[string]AssetTemplate `json:"asset_templates"`
 }
 
 // AssetTemplate describes a GitHub release asset pattern for a specific platform.
 // The File field may contain "{version}" which is replaced at resolve time.
 type AssetTemplate struct {
-	File      string // e.g. "mise-{tag}-macos-arm64.tar.gz"
-	RawBinary bool
+	File      string `json:"file"`
+	RawBinary bool   `json:"raw_binary,omitempty"`
 }
 
 // Asset is a resolved, ready-to-download asset.
@@ -59,52 +64,13 @@ func Platform() string {
 	return runtime.GOOS + "-" + runtime.GOARCH
 }
 
-// Registry is the declarative list of downloadable CLI tools.
-var Registry = []Tool{
-	{
-		Name:        "mise",
-		DisplayName: "mise",
-		Description: "Polyglot runtime manager",
-		Version:     "v2026.4.12",
-		Repo:        "jdx/mise",
-		AssetTemplates: map[string]AssetTemplate{
-			"darwin-amd64":  {File: "mise-{tag}-macos-x64.tar.gz"},
-			"darwin-arm64":  {File: "mise-{tag}-macos-arm64.tar.gz"},
-			"linux-amd64":   {File: "mise-{tag}-linux-x64-musl.tar.gz"},
-			"linux-arm64":   {File: "mise-{tag}-linux-arm64-musl.tar.gz"},
-			"windows-amd64": {File: "mise-{tag}-windows-x64.zip"},
-			"windows-arm64": {File: "mise-{tag}-windows-arm64.zip"},
-		},
-	},
-	{
-		Name:        "tap",
-		DisplayName: "tap",
-		Description: "Web content extraction tool",
-		Version:     "0.4.4",
-		Repo:        "vaayne/tap",
-		AssetTemplates: map[string]AssetTemplate{
-			"darwin-amd64":  {File: "tap_{version}_darwin_amd64.tar.gz"},
-			"darwin-arm64":  {File: "tap_{version}_darwin_arm64.tar.gz"},
-			"linux-amd64":   {File: "tap_{version}_linux_amd64.tar.gz"},
-			"linux-arm64":   {File: "tap_{version}_linux_arm64.tar.gz"},
-			"windows-amd64": {File: "tap_{version}_windows_amd64.zip"},
-			"windows-arm64": {File: "tap_{version}_windows_arm64.zip"},
-		},
-	},
-	{
-		Name:        "rtk",
-		DisplayName: "rtk",
-		Description: "AI agent runtime toolkit",
-		Version:     "0.30.0",
-		Repo:        "rtk-ai/rtk",
-		AssetTemplates: map[string]AssetTemplate{
-			"darwin-amd64":  {File: "rtk-x86_64-apple-darwin.tar.gz"},
-			"darwin-arm64":  {File: "rtk-aarch64-apple-darwin.tar.gz"},
-			"linux-amd64":   {File: "rtk-x86_64-unknown-linux-musl.tar.gz"},
-			"linux-arm64":   {File: "rtk-aarch64-unknown-linux-gnu.tar.gz"},
-			"windows-amd64": {File: "rtk-x86_64-pc-windows-msvc.zip"},
-		},
-	},
+// Registry is the declarative list of downloadable CLI tools, loaded from registry.json.
+var Registry []Tool
+
+func init() {
+	if err := json.Unmarshal(registryJSON, &Registry); err != nil {
+		panic("tools: invalid registry.json: " + err.Error())
+	}
 }
 
 // FindTool returns a pointer to the named tool in the Registry, or nil.
