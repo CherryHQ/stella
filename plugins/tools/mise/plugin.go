@@ -27,9 +27,22 @@ func init() {
 			Kind:         "tool",
 			Name:         "mise",
 			DisplayName:  "mise",
-			Description:  "Inject mise usage guidance into the system prompt.",
+			Description:  "Inject mise usage guidance into the system prompt and provide the mise binary.",
 			AdminVisible: true,
 			Capabilities: []string{pkgplugins.CapabilityPrompt},
+		})
+		host.AddBinary(pkgplugins.BinarySpec{
+			PluginID: PluginID,
+			Name:     "mise",
+			Repo:     "jdx/mise",
+			AssetTemplates: map[string]pkgplugins.BinaryAsset{
+				"darwin-amd64":  {File: "mise-{tag}-macos-x64.tar.gz"},
+				"darwin-arm64":  {File: "mise-{tag}-macos-arm64.tar.gz"},
+				"linux-amd64":   {File: "mise-{tag}-linux-x64.tar.gz"},
+				"linux-arm64":   {File: "mise-{tag}-linux-arm64.tar.gz"},
+				"windows-amd64": {File: "mise-{tag}-windows-x64.zip"},
+				"windows-arm64": {File: "mise-{tag}-windows-arm64.zip"},
+			},
 		})
 		host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
 			PluginID: PluginID,
