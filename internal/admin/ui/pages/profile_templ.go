@@ -39,7 +39,7 @@ func ProfilePage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<!-- Password Change --><div class=\"mb-10\"><h2 class=\"font-serif text-xl mb-4\">Change Password</h2><div class=\"card bg-base-200\"><div class=\"card-body\"><div class=\"grid grid-cols-1 md:grid-cols-3 gap-4\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<!-- My Skills --><div class=\"mb-10\"><h2 class=\"font-serif text-xl mb-4\">My Skills</h2><div class=\"card bg-base-200\"><div class=\"card-body\"><p class=\"text-sm text-secondary\">User-scope skills available in your conversations. Not shared with other users.</p><div class=\"mt-2 flex items-center gap-3\"><button @click=\"openMySkills()\" class=\"btn btn-primary btn-sm\">Manage skills</button> <span class=\"text-xs font-mono text-secondary\" x-text=\"mySkillsCount + ' installed'\"></span></div></div></div></div><!-- Password Change --><div class=\"mb-10\"><h2 class=\"font-serif text-xl mb-4\">Change Password</h2><div class=\"card bg-base-200\"><div class=\"card-body\"><div class=\"grid grid-cols-1 md:grid-cols-3 gap-4\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -109,7 +109,15 @@ func ProfilePage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div><div class=\"mt-4\"><button @click=\"changePassword()\" :disabled=\"changingPassword\" class=\"btn btn-primary btn-sm\"><span x-show=\"changingPassword\" class=\"loading loading-spinner loading-xs\"></span> Change Password</button></div></div></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div><div class=\"mt-4\"><button @click=\"changePassword()\" :disabled=\"changingPassword\" class=\"btn btn-primary btn-sm\"><span x-show=\"changingPassword\" class=\"loading loading-spinner loading-xs\"></span> Change Password</button></div></div></div></div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = ui.SkillsDrawer().Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

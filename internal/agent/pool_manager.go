@@ -117,6 +117,13 @@ func WithProviderRegistryBuilder(b ProviderRegistryBuilder) PoolManagerOption {
 	}
 }
 
+// WithSkillStore sets the skill store for runner factories.
+func WithSkillStore(s pkgplugins.SkillStore) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.skillStore = s
+	}
+}
+
 // PoolManager manages a map of agent ID to Pool. It reads enabled agents
 // from the config Store and creates one Pool per agent.
 type PoolManager struct {
@@ -136,6 +143,7 @@ type PoolManager struct {
 	toolLifecycle           *coreagent.ToolLifecycle
 	providerRegistryBuilder ProviderRegistryBuilder
 	builtinToolsFactory     BuiltinToolsFactory
+	skillStore              pkgplugins.SkillStore
 	log                     *slog.Logger
 }
 
@@ -404,7 +412,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 		builtinTools = mergeTools(builtinTools, pm.builtinToolsFactory(snap))
 	}
 
-	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle)
+	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle, pm.skillStore)
 }
 
 // mergeTools creates a new slice containing builtin tools followed by more

@@ -43,6 +43,10 @@ func (s *Server) pagePlugins(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, r, "plugins", "/static/js/pages/plugins.js", pages.PluginsPage())
 }
 
+func (s *Server) pageSkills(w http.ResponseWriter, r *http.Request) {
+	s.renderPage(w, r, "skills", "/static/js/pages/skills.js", pages.SkillsPage())
+}
+
 func (s *Server) pageProfile(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, r, "profile", "/static/js/pages/profile.js", pages.ProfilePage())
 }

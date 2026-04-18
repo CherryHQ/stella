@@ -1,4 +1,5 @@
 import { api } from '/static/js/api.js'
+import { skillsDrawerMixin } from '/static/js/components/skills_drawer.js'
 
 /**
  * Registers the agentsPage Alpine.data component.
@@ -25,6 +26,7 @@ function normalizeChannel(channel) {
 
 export function register(Alpine) {
   Alpine.data('agentsPage', () => ({
+    ...skillsDrawerMixin(),
     agents: [],
     channels: [],
     cachedModels: [],
@@ -310,6 +312,16 @@ export function register(Alpine) {
       await this.loadChannels()
       this.selectedChannelIDs = this.dedicatedChannelsForAgent(agent.id).map(channel => channel.id)
       this.showChannelModal = true
+    },
+
+    async manageAgentSkills(agent) {
+      await this.openSkillsDrawer({
+        title: 'Skills · ' + agent.name,
+        subtitle: 'Agent scope · ' + agent.id,
+        scope: 'agent',
+        agentID: agent.id,
+        canEdit: this.canEditAgent(agent),
+      })
     },
 
     async saveChannelBindings() {

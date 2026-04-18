@@ -5,6 +5,19 @@ import "github.com/vaayne/anna/internal/admin/ui"
 templ ProfilePage() {
 	<div x-data="profilePage()">
 		@ui.PageHeader("Profile", "Manage your account.")
+		<!-- My Skills -->
+		<div class="mb-10">
+			<h2 class="font-serif text-xl mb-4">My Skills</h2>
+			<div class="card bg-base-200">
+				<div class="card-body">
+					<p class="text-sm text-secondary">User-scope skills available in your conversations. Not shared with other users.</p>
+					<div class="mt-2 flex items-center gap-3">
+						<button @click="openMySkills()" class="btn btn-primary btn-sm">Manage skills</button>
+						<span class="text-xs font-mono text-secondary" x-text="mySkillsCount + ' installed'"></span>
+					</div>
+				</div>
+			</div>
+		</div>
 		<!-- Password Change -->
 		<div class="mb-10">
 			<h2 class="font-serif text-xl mb-4">Change Password</h2>
@@ -49,5 +62,6 @@ templ ProfilePage() {
 				</div>
 			</div>
 		</div>
+		@ui.SkillsDrawer()
 	</div>
 }

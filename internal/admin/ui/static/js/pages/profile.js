@@ -1,4 +1,5 @@
 import { api } from '/static/js/api.js'
+import { skillsDrawerMixin } from '/static/js/components/skills_drawer.js'
 
 /**
  * Registers the profilePage Alpine.data component.
@@ -7,13 +8,48 @@ import { api } from '/static/js/api.js'
  */
 export function register(Alpine) {
   Alpine.data('profilePage', () => ({
+    ...skillsDrawerMixin(),
     // Password change
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
     changingPassword: false,
 
-    async init() {},
+    // Skill count badge (loaded lazily).
+    mySkillsCount: 0,
+
+    async init() {
+      await this.loadMySkillsCount()
+    },
+
+    async loadMySkillsCount() {
+      try {
+        const items = (await api('GET', '/api/auth/profile/skills')) || []
+        this.mySkillsCount = items.length
+      } catch (_) {
+        this.mySkillsCount = 0
+      }
+    },
+
+    async openMySkills() {
+      await this.openSkillsDrawer({
+        title: 'My skills',
+        subtitle: 'User scope · yours only',
+        scope: 'user',
+        canEdit: true,
+      })
+    },
+
+    // Refresh count when drawer closes (skills may have changed).
+    closeSkillsDrawer() {
+      const wasOpen = this.skillsDrawer.open
+      if (this.skillsDrawer.dirty) {
+        if (!confirm('Discard unsaved changes?')) return
+      }
+      this.skillsDrawer.open = false
+      this.skillsDrawer.selected = null
+      if (wasOpen) this.loadMySkillsCount()
+    },
 
     async changePassword() {
       if (!this.currentPassword || !this.newPassword) {
