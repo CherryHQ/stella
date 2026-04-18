@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	ucli "github.com/urfave/cli/v2"
@@ -73,11 +74,16 @@ func toolsInstallCommand() *ucli.Command {
 			logger := slog.Default()
 
 			if c.NArg() == 0 {
+				var errs []string
 				for _, spec := range tools.DeduplicateByName(allSpecs, logger) {
 					if err := tools.InstallBinarySpec(c.Context, spec, config.AnnaHome(), logger); err != nil {
-						return fmt.Errorf("install %s: %w", spec.Name, err)
+						errs = append(errs, fmt.Sprintf("install %s: %v", spec.Name, err))
+						continue
 					}
 					fmt.Printf("Installed %s\n", spec.Name)
+				}
+				if len(errs) > 0 {
+					return fmt.Errorf("failed to install some tools:\n  %s", strings.Join(errs, "\n  "))
 				}
 				return nil
 			}
@@ -123,11 +129,19 @@ func toolsUpgradeCommand() *ucli.Command {
 				}
 			}
 
+			var errs []string
 			for _, spec := range targets {
 				if err := tools.UpgradeBinarySpec(c.Context, spec, config.AnnaHome(), logger); err != nil {
+					if c.NArg() == 0 {
+						errs = append(errs, fmt.Sprintf("upgrade %s: %v", spec.Name, err))
+						continue
+					}
 					return fmt.Errorf("upgrade %s: %w", spec.Name, err)
 				}
 				fmt.Printf("Upgraded %s\n", spec.Name)
+			}
+			if len(errs) > 0 {
+				return fmt.Errorf("failed to upgrade some tools:\n  %s", strings.Join(errs, "\n  "))
 			}
 			return nil
 		},
