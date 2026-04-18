@@ -63,3 +63,15 @@ SELECT * FROM skill_files WHERE skill_id = ? AND path = ?;
 
 -- name: ListSkillFiles :many
 SELECT * FROM skill_files WHERE skill_id = ? ORDER BY path;
+
+-- name: GetSystemSkillByName :one
+SELECT * FROM skills WHERE scope = 'system' AND name = ?;
+
+-- name: GetAgentSkillByName :one
+SELECT * FROM skills WHERE scope = 'agent' AND agent_id = ? AND name = ?;
+
+-- name: GetUserSkillByName :one
+SELECT * FROM skills WHERE scope = 'user' AND user_id = ? AND name = ?;
+
+-- name: GetProjectSkillByName :one
+SELECT * FROM skills WHERE scope = 'project' AND project = ? AND name = ?;

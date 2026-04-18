@@ -83,6 +83,64 @@ func (q *Queries) DeleteSkillFile(ctx context.Context, arg DeleteSkillFileParams
 	return err
 }
 
+const getAgentSkillByName = `-- name: GetAgentSkillByName :one
+SELECT id, scope, user_id, agent_id, project, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skills WHERE scope = 'agent' AND agent_id = ? AND name = ?
+`
+
+type GetAgentSkillByNameParams struct {
+	AgentID sql.NullString `json:"agent_id"`
+	Name    string         `json:"name"`
+}
+
+func (q *Queries) GetAgentSkillByName(ctx context.Context, arg GetAgentSkillByNameParams) (Skill, error) {
+	row := q.db.QueryRowContext(ctx, getAgentSkillByName, arg.AgentID, arg.Name)
+	var i Skill
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Project,
+		&i.Name,
+		&i.Description,
+		&i.Status,
+		&i.DisableModelInvocation,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getProjectSkillByName = `-- name: GetProjectSkillByName :one
+SELECT id, scope, user_id, agent_id, project, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skills WHERE scope = 'project' AND project = ? AND name = ?
+`
+
+type GetProjectSkillByNameParams struct {
+	Project sql.NullString `json:"project"`
+	Name    string         `json:"name"`
+}
+
+func (q *Queries) GetProjectSkillByName(ctx context.Context, arg GetProjectSkillByNameParams) (Skill, error) {
+	row := q.db.QueryRowContext(ctx, getProjectSkillByName, arg.Project, arg.Name)
+	var i Skill
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Project,
+		&i.Name,
+		&i.Description,
+		&i.Status,
+		&i.DisableModelInvocation,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getSkill = `-- name: GetSkill :one
 SELECT id, scope, user_id, agent_id, project, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skills WHERE id = ?
 `
@@ -120,6 +178,59 @@ func (q *Queries) GetSkillFile(ctx context.Context, arg GetSkillFileParams) (Ski
 	row := q.db.QueryRowContext(ctx, getSkillFile, arg.SkillID, arg.Path)
 	var i SkillFile
 	err := row.Scan(&i.SkillID, &i.Path, &i.Content)
+	return i, err
+}
+
+const getSystemSkillByName = `-- name: GetSystemSkillByName :one
+SELECT id, scope, user_id, agent_id, project, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skills WHERE scope = 'system' AND name = ?
+`
+
+func (q *Queries) GetSystemSkillByName(ctx context.Context, name string) (Skill, error) {
+	row := q.db.QueryRowContext(ctx, getSystemSkillByName, name)
+	var i Skill
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Project,
+		&i.Name,
+		&i.Description,
+		&i.Status,
+		&i.DisableModelInvocation,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserSkillByName = `-- name: GetUserSkillByName :one
+SELECT id, scope, user_id, agent_id, project, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skills WHERE scope = 'user' AND user_id = ? AND name = ?
+`
+
+type GetUserSkillByNameParams struct {
+	UserID sql.NullInt64 `json:"user_id"`
+	Name   string        `json:"name"`
+}
+
+func (q *Queries) GetUserSkillByName(ctx context.Context, arg GetUserSkillByNameParams) (Skill, error) {
+	row := q.db.QueryRowContext(ctx, getUserSkillByName, arg.UserID, arg.Name)
+	var i Skill
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Project,
+		&i.Name,
+		&i.Description,
+		&i.Status,
+		&i.DisableModelInvocation,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
 	return i, err
 }
 

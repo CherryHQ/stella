@@ -12,6 +12,10 @@ import (
 //go:embed anna agents
 var skillsFS embed.FS
 
+// BuiltinSkillFS returns the embedded filesystem containing builtin skills and agents.
+// Callers that need only skill directories should skip subtrees that lack a SKILL.md.
+func BuiltinSkillFS() fs.FS { return skillsFS }
+
 var (
 	builtinSkillsStateMu sync.Mutex
 	builtinSkillsState   = map[string]*ensureState{}
