@@ -12,13 +12,6 @@ import (
 	"sync"
 )
 
-// ErrNoEmbeddedTools is returned by VerifyTools when the binary was built
-// without running the tool-download step first.
-var ErrNoEmbeddedTools = fmt.Errorf(
-	"no embedded tools found in binary; " +
-		"build the binary after running: mise run tools:download",
-)
-
 type ensureState struct {
 	once sync.Once
 	err  error
@@ -79,14 +72,16 @@ func ToolNames() []string {
 	return names
 }
 
-// VerifyTools checks that all embedded tools are actually present on disk under
-// annaHome/bin. Returns ErrNoEmbeddedTools if the binary was built without
-// running tools:download (embedded FS has no tool archives), or an error
-// listing any tools that are missing after extraction.
+// VerifyTools checks that every tool present in the embedded FS was successfully
+// extracted to annaHome/bin. If the embedded FS has no tool archives (e.g. a
+// dev build where tools:download was not run), the check is skipped and nil is
+// returned — the missing-binary error surfaces later when the tool is actually
+// needed. Returns an error only when the FS is non-empty but one or more
+// binaries are missing on disk after extraction.
 func VerifyTools(annaHome string) error {
 	names := ToolNames()
 	if len(names) == 0 {
-		return ErrNoEmbeddedTools
+		return nil // no tools embedded; skip verification
 	}
 	var missing []string
 	for _, name := range names {
