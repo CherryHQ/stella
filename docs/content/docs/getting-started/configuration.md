@@ -153,12 +153,35 @@ Each platform stores its own JSON structure in the `config` column of `settings_
 - **workspaces/** contains per-agent data. Each agent gets its own directory keyed by agent ID.
 - **cache/** contains regenerable data. Run `anna models update` to rebuild.
 - **agent sandbox config** lives on each agent record (`settings_agents.sandbox`). The agent form edits network policy; backend can also be set in the stored JSON.
-  - `backend`: `auto` (default), `boxsh`, or `local`
+  - `backend`: `auto` (default), `boxsh`, `local`, or `docker`
   - `network.mode`: `disabled` (default), `allow_all`, or `whitelist`
   - `network.allowlist`: required only when mode is `whitelist`
   - Linux and macOS validate the managed `boxsh` backend when selected. Runner startup fails closed when the sandbox backend is unavailable or cannot enforce the configured network mode.
   - `local` is a relaxed backend with advisory enforcement; use it only for explicit local/development scenarios.
   - Current `boxsh` client builds may reject `whitelist` mode at runtime; use it only when your runtime supports whitelist enforcement.
+  - `docker` runs each session in a dedicated container started from `sandbox.docker.image` (default `alpine:3.20`). It is opt-in; `auto` does not select it. Requires the `docker` CLI on `PATH` and a reachable daemon. Useful on Windows (where `boxsh` is unavailable) and for workflows that need a specific Linux userspace.
+  - Docker backend config lives under `sandbox.docker`:
+    - `image`: Docker image reference. Default `alpine:3.20`.
+    - `user`: Optional `uid:gid` string passed to `docker --user`. Defaults to the anna process uid/gid on Linux/macOS; empty on Windows (Docker Desktop handles mapping). Override if you need `root` inside the container.
+    - `allow_pull`: If `true`, missing images are pulled during preflight. Defaults to `false` (fail fast on missing image).
+    - `extra_mounts`: Additional bind mounts as `host:container[:ro]` strings. Paths must be absolute.
+  - Docker backend does **not** currently implement `whitelist` network mode or HTTP mediation — it fails closed, the same as `boxsh`. Use `disabled` or `allow_all`.
+  - Docker bind-mounts the workspace root at `/workspace` and each read-only path at `/workspace-readonly/<index>`. Scripts that rely on absolute host paths will need to use the in-container path instead.
+
+Example JSON for a docker-backed agent's `sandbox` field:
+
+```json
+{
+  "backend": "docker",
+  "network": { "mode": "allow_all" },
+  "docker": {
+    "image": "alpine:3.20",
+    "user": "1000:1000",
+    "allow_pull": true,
+    "extra_mounts": ["/var/cache/build:/cache:ro"]
+  }
+}
+```
 
 ## Environment Variables
 

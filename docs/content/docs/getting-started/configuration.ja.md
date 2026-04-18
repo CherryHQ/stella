@@ -144,6 +144,36 @@ JSONオブジェクトとして`settings`テーブルの`runner`キーに保存�
 - **anna.db**は、すべての設定、メモリ、スケジューラデータの唯一の信頼できる情報源です。
 - **workspaces/**にはエージェントごとのデータが含まれます。各エージェントはエージェントIDをキーとする独自のディレクトリを取得します。
 - **cache/**には再生成可能なデータが含まれます。`anna models update`を実行して再構築します。
+- **エージェントサンドボックス設定**は各エージェントレコード（`settings_agents.sandbox`）に保存されます。管理パネルからネットワークポリシーを編集できます。backendも保存済みJSONで直接設定可能です。
+  - `backend`：`auto`（デフォルト）、`boxsh`、`local`、または `docker`
+  - `network.mode`：`disabled`（デフォルト）、`allow_all`、または `whitelist`
+  - `network.allowlist`：modeが `whitelist` の場合のみ必須
+  - LinuxおよびmacOSでは `boxsh` を選択した際に検証が行われます。サンドボックスバックエンドが利用できないか、設定されたネットワークモードを強制できない場合、ランナーの起動はフェイルクローズします。
+  - `local` はアドバイザリーな強制のみを行う緩やかなバックエンドです。明示的なローカル/開発シナリオにのみ使用してください。
+  - 現在の `boxsh` クライアントビルドは実行時に `whitelist` モードを拒否する場合があります。ランタイムがホワイトリスト強制をサポートしている場合のみ使用してください。
+  - `docker` は `sandbox.docker.image`（デフォルト `alpine:3.20`）から起動した専用コンテナで各セッションを実行します。オプトイン型であり、`auto` では自動選択されません。`PATH` に `docker` CLI があり、daemonに到達できる必要があります。Windows（`boxsh` が利用できない場合）や特定のLinuxユーザースペースを必要とするワークフローで有用です。
+  - Dockerバックエンドの設定は `sandbox.docker` の下に置きます：
+    - `image`：Dockerイメージ参照。デフォルトは `alpine:3.20`。
+    - `user`：`docker --user` に渡すオプションの `uid:gid` 文字列。Linux/macOSではannaプロセスのuid/gidをデフォルトとし、Windowsでは空（Docker Desktopがマッピングを処理）。コンテナ内で `root` が必要な場合はオーバーライドしてください。
+    - `allow_pull`：`true` の場合、プリフライト時に不足しているイメージを自動的にプルします。デフォルトは `false`（イメージが不足している場合はフェイルファスト）。
+    - `extra_mounts`：`host:container[:ro]` 形式の追加バインドマウント文字列。パスは絶対パスでなければなりません。
+  - Dockerバックエンドは現在 `whitelist` ネットワークモードやHTTPメディエーションを実装していません — `boxsh` と同様にフェイルクローズします。`disabled` または `allow_all` を使用してください。
+  - Dockerはワークスペースルートを `/workspace` にバインドマウントし、各読み取り専用パスを `/workspace-readonly/<index>` にマウントします。ホストの絶対パスに依存するスクリプトはコンテナ内パスを使用する必要があります。
+
+dockerバックエンドのエージェント `sandbox` フィールドのJSON例：
+
+```json
+{
+  "backend": "docker",
+  "network": { "mode": "allow_all" },
+  "docker": {
+    "image": "alpine:3.20",
+    "user": "1000:1000",
+    "allow_pull": true,
+    "extra_mounts": ["/var/cache/build:/cache:ro"]
+  }
+}
+```
 
 ## 環境変数
 

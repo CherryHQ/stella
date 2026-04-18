@@ -144,6 +144,36 @@ title: 配置
 - **anna.db** 是所有配置、记忆和调度器数据的唯一真实来源。
 - **workspaces/** 包含每个 agent 的数据。每个 agent 都有一个以 agent ID 为键的专属目录。
 - **cache/** 包含可重新生成的数据。运行 `anna models update` 来重建。
+- **agent 沙箱配置**存储在每个 agent 记录（`settings_agents.sandbox`）上。管理面板可编辑网络策略；也可以直接在存储的 JSON 中设置 backend。
+  - `backend`：`auto`（默认）、`boxsh`、`local` 或 `docker`
+  - `network.mode`：`disabled`（默认）、`allow_all` 或 `whitelist`
+  - `network.allowlist`：仅当 mode 为 `whitelist` 时必填
+  - Linux 和 macOS 会在选择 `boxsh` 时进行验证。若沙箱后端不可用或无法执行已配置的网络模式，runner 启动时会失败关闭。
+  - `local` 是一个宽松的后端，仅提供建议性约束；仅用于明确的本地/开发场景。
+  - 当前 `boxsh` 客户端构建可能在运行时拒绝 `whitelist` 模式；仅在运行时支持白名单执行时使用。
+  - `docker` 在从 `sandbox.docker.image`（默认 `alpine:3.20`）启动的专用容器中运行每个会话。该后端为手动选择；`auto` 不会自动选择它。需要 `PATH` 中有 `docker` CLI 且 daemon 可达。适用于 Windows（`boxsh` 不可用）以及需要特定 Linux 用户空间的工作流。
+  - Docker 后端配置位于 `sandbox.docker` 下：
+    - `image`：Docker 镜像引用，默认 `alpine:3.20`。
+    - `user`：可选的 `uid:gid` 字符串，传递给 `docker --user`。在 Linux/macOS 上默认使用 anna 进程的 uid/gid；Windows 上为空（由 Docker Desktop 处理映射）。如需在容器内使用 `root`，可覆盖此项。
+    - `allow_pull`：若为 `true`，缺失的镜像将在预检时自动拉取。默认为 `false`（镜像缺失时快速失败）。
+    - `extra_mounts`：额外的绑定挂载，格式为 `host:container[:ro]` 字符串，路径必须是绝对路径。
+  - Docker 后端目前**不**实现 `whitelist` 网络模式或 HTTP 中介 —— 它会像 `boxsh` 一样失败关闭。请使用 `disabled` 或 `allow_all`。
+  - Docker 将工作区根目录绑定挂载到 `/workspace`，将每个只读路径挂载到 `/workspace-readonly/<index>`。依赖绝对宿主路径的脚本需要改用容器内路径。
+
+docker 后端 agent `sandbox` 字段的 JSON 示例：
+
+```json
+{
+  "backend": "docker",
+  "network": { "mode": "allow_all" },
+  "docker": {
+    "image": "alpine:3.20",
+    "user": "1000:1000",
+    "allow_pull": true,
+    "extra_mounts": ["/var/cache/build:/cache:ro"]
+  }
+}
+```
 
 ## 环境变量
 

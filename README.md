@@ -145,7 +145,7 @@ Search, install, and manage skills from the CLI or mid-conversation. Each agent 
 
 ## Security and Sandboxing
 
-On Linux and macOS, Anna uses the `boxsh` sandbox by default for local agent code execution. The `bash`, `read`, `write`, and `edit` tools run through a copy-on-write overlay filesystem that isolates each session. The managed tool bundle also puts `fd`, `rg`, `mise`, and `tap` on the agent's `PATH`, so common helper CLIs are available even when the host machine doesn't have them installed:
+On Linux and macOS, Anna uses the `boxsh` sandbox by default for local agent code execution. A `docker` backend is also available on all platforms (including Windows) for workflows that need a specific Linux userspace or a custom toolchain. The `bash`, `read`, `write`, and `edit` tools run through a copy-on-write overlay filesystem that isolates each session. The managed tool bundle also puts `fd`, `rg`, `mise`, and `tap` on the agent's `PATH`, so common helper CLIs are available even when the host machine doesn't have them installed:
 
 - Each agent session gets its own ephemeral workspace
 - File modifications don't affect the underlying source workspace
