@@ -29,6 +29,7 @@ func init() {
 			Required:    true,
 			Build: func(ctx pkgplugins.ToolContext) (tools.Tool, error) {
 				return NewTool(
+					ctx.Platform.SkillStore(),
 					ctx.Paths.AnnaHome,
 					ctx.Paths.AgentRoot,
 					ctx.Paths.ProjectRoot,

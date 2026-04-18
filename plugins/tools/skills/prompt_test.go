@@ -2,72 +2,80 @@ package skills
 
 import (
 	"context"
-	"os"
-	"path/filepath"
+	"log/slog"
 	"strings"
 	"testing"
 
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
+// skillStorePlatform is a minimal Platform implementation for prompt tests.
+type skillStorePlatform struct {
+	store pkgplugins.SkillStore
+}
+
+func (p *skillStorePlatform) Logger() *slog.Logger                        { return slog.Default() }
+func (p *skillStorePlatform) ConfigStore() pkgplugins.ConfigStore         { return nil }
+func (p *skillStorePlatform) StateStore() pkgplugins.StateStore           { return nil }
+func (p *skillStorePlatform) Scheduler() pkgplugins.Scheduler             { return nil }
+func (p *skillStorePlatform) Notifier() pkgplugins.Notifier               { return nil }
+func (p *skillStorePlatform) Auth() pkgplugins.Auth                       { return nil }
+func (p *skillStorePlatform) RuntimeLookup() pkgplugins.RuntimeLookup     { return nil }
+func (p *skillStorePlatform) ChannelPlatform() pkgplugins.ChannelPlatform { return nil }
+func (p *skillStorePlatform) ReflectPlatform() pkgplugins.ReflectPlatform { return nil }
+func (p *skillStorePlatform) SkillStore() pkgplugins.SkillStore           { return p.store }
+
 func TestBuildPromptSectionIncludesVisibleSkills(t *testing.T) {
-	annaHome := t.TempDir()
-	workspace := t.TempDir()
-	cwd := t.TempDir()
+	store, userID, _, projectRoot := newTestSkillStore(t)
+	ctx := context.Background()
 
-	projectSkillDir := filepath.Join(cwd, ".agents", "skills", "project-skill")
-	if err := os.MkdirAll(projectSkillDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(projectSkillDir, "SKILL.md"), []byte(`---
-name: project-skill
-description: Project skill
-status: active
----
-project body
-`), 0o644); err != nil {
-		t.Fatal(err)
+	// Seed a project-scoped skill
+	_, err := store.Create(ctx, pkgplugins.Skill{
+		Scope:       "project",
+		Project:     projectRoot,
+		Name:        "project-skill",
+		Description: "Project skill",
+		Status:      "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "# Project Skill"})
+	if err != nil {
+		t.Fatalf("create project skill: %v", err)
 	}
 
-	userRoot := filepath.Join(workspace, "users", "42")
-	if err := os.MkdirAll(userRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	userSkillDir := filepath.Join(userRoot, ".agents", "skills", "user-skill")
-	if err := os.MkdirAll(userSkillDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(userSkillDir, "SKILL.md"), []byte(`---
-name: user-skill
-description: User skill
-status: draft
----
-user body
-`), 0o644); err != nil {
-		t.Fatal(err)
+	// Seed a user-scoped skill (draft — should still appear since ListSkillsVisible only filters deprecated)
+	_, err = store.Create(ctx, pkgplugins.Skill{
+		Scope:       "user",
+		UserID:      userID,
+		Name:        "user-skill",
+		Description: "User skill",
+		Status:      "draft",
+	}, map[string]string{pkgplugins.SkillMainFile: "# User Skill"})
+	if err != nil {
+		t.Fatalf("create user skill: %v", err)
 	}
 
-	deprecatedDir := filepath.Join(workspace, ".agents", "skills", "old-skill")
-	if err := os.MkdirAll(deprecatedDir, 0o755); err != nil {
-		t.Fatal(err)
+	// Seed a deprecated skill — should NOT appear (filtered by ListSkillsVisible).
+	// Note: we use Update to deprecate after creation since Create with deprecated
+	// would still succeed but List won't return it.
+	deprecatedID, err := store.Create(ctx, pkgplugins.Skill{
+		Scope:       "user",
+		UserID:      userID,
+		Name:        "old-skill",
+		Description: "Old skill",
+		Status:      "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "# Old Skill"})
+	if err != nil {
+		t.Fatalf("create old skill: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(deprecatedDir, "SKILL.md"), []byte(`---
-name: old-skill
-description: Old skill
-status: deprecated
----
-old body
-`), 0o644); err != nil {
-		t.Fatal(err)
+	deprecated := "deprecated"
+	if err := store.Update(ctx, deprecatedID, pkgplugins.SkillUpdatePatch{Status: &deprecated}); err != nil {
+		t.Fatalf("deprecate old skill: %v", err)
 	}
 
-	homeDir := t.TempDir()
-	section, err := BuildPromptSection(context.Background(), pkgplugins.SystemPromptContext{
-		AnnaHome:    annaHome,
-		HomeDir:     homeDir,
-		AgentRoot:   workspace,
-		ProjectRoot: cwd,
-		UserRoot:    userRoot,
+	platform := &skillStorePlatform{store: store}
+	section, err := BuildPromptSection(ctx, pkgplugins.SystemPromptContext{
+		Platform:    platform,
+		UserID:      userID,
+		ProjectRoot: projectRoot,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -88,16 +96,29 @@ old body
 }
 
 func TestBuildPromptSectionOmitsEmptySkillList(t *testing.T) {
+	store, userID, _, projectRoot := newTestSkillStore(t)
+	// Empty store — no skills.
+	platform := &skillStorePlatform{store: store}
 	section, err := BuildPromptSection(context.Background(), pkgplugins.SystemPromptContext{
-		AnnaHome:    "",
-		HomeDir:     t.TempDir(),
-		AgentRoot:   t.TempDir(),
-		ProjectRoot: t.TempDir(),
+		Platform:    platform,
+		UserID:      userID,
+		ProjectRoot: projectRoot,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if section.Title != "" || section.Content != "" {
 		t.Fatalf("expected empty section, got %#v", section)
+	}
+}
+
+func TestBuildPromptSectionNilPlatform(t *testing.T) {
+	// nil Platform should return empty section without panic.
+	section, err := BuildPromptSection(context.Background(), pkgplugins.SystemPromptContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if section.Title != "" || section.Content != "" {
+		t.Fatalf("expected empty section for nil platform, got %#v", section)
 	}
 }

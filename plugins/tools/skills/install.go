@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
+	"time"
 
+	"github.com/vaayne/anna/pkg/memory"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
 
@@ -39,43 +41,73 @@ func (t *Tool) install(ctx context.Context, args map[string]any) (string, error)
 		return "", fmt.Errorf("source is required for install action (e.g. owner/repo@skill-name)")
 	}
 
+	// Parse + validate scope before touching the store.
 	rawScope, err := scopeArg(args)
 	if err != nil {
 		return "", err
 	}
-	scope, targetDir, err := t.targetSkillsDir(ctx, rawScope)
+	scope, _, err := t.targetSkillsDir(ctx, rawScope)
 	if err != nil {
 		return "", err
 	}
 
-	skillName, err := Install(ctx, source, targetDir)
+	if t.store == nil {
+		return "", fmt.Errorf("skills store unavailable")
+	}
+
+	skillName, files, cleanup, err := FetchSkillFiles(ctx, source)
 	if err != nil {
 		return "", err
 	}
+	defer cleanup()
 
-	installed := filepath.Join(targetDir, skillName)
-	return fmt.Sprintf("Skill %q installed to %s (scope=%s).", skillName, installed, scope), nil
-}
+	mainContent, ok := files[pkgplugins.SkillMainFile]
+	if !ok {
+		return "", fmt.Errorf("fetched skill %q is missing SKILL.md", skillName)
+	}
 
-func (t *Tool) remove(ctx context.Context, args map[string]any) (string, error) {
-	name, _ := args["name"].(string)
+	fm, err := parseFrontmatter(mainContent)
+	if err != nil {
+		return "", fmt.Errorf("parse SKILL.md for %q: %w", skillName, err)
+	}
+
+	// Use name from frontmatter if available, fall back to dir name.
+	name := fm.Name
 	if name == "" {
-		return "", fmt.Errorf("name is required for remove action")
+		name = skillName
 	}
 
-	rawScope, err := scopeArg(args)
-	if err != nil {
-		return "", err
-	}
-	scope, targetDir, err := t.targetSkillsDir(ctx, rawScope)
-	if err != nil {
-		return "", err
+	createdAt := fm.CreatedAt
+	if createdAt == "" {
+		createdAt = time.Now().UTC().Format(time.RFC3339)
 	}
 
-	skillDir := filepath.Join(targetDir, name)
-	if err := Remove(ctx, t.runtime, name, skillDir); err != nil {
-		return "", fmt.Errorf("%w (only skills in %s scope at %s can be removed)", err, scope, targetDir)
+	metaJSON := fmt.Sprintf(`{"created-at":%q}`, createdAt)
+
+	vc := pkgplugins.SkillViewContext{
+		UserID:  memory.UserIDFromContext(ctx),
+		AgentID: memory.AgentIDFromContext(ctx),
+		Project: projectRootFromContext(ctx, t.projectRoot),
 	}
 
-	return fmt.Sprintf("Skill %q removed from %s (scope=%s).", name, skillDir, scope), nil
+	sk := pkgplugins.Skill{
+		Scope:                  scope,
+		Name:                   name,
+		Description:            fm.Description,
+		Status:                 NormalizeSkillStatus(fm.Status),
+		DisableModelInvocation: fm.DisableModelInvocation,
+		Metadata:               json.RawMessage(metaJSON),
+	}
+	switch scope {
+	case "user":
+		sk.UserID = vc.UserID
+	case "project":
+		sk.Project = vc.Project
+	}
+
+	if _, err := t.store.Create(ctx, sk, files); err != nil {
+		return "", fmt.Errorf("store skill %q: %w", name, err)
+	}
+
+	return fmt.Sprintf("Skill %q installed (scope=%s).", name, scope), nil
 }
