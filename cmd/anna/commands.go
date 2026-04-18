@@ -87,6 +87,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
 		return nil, fmt.Errorf("extract embedded tools: %w", err)
 	}
+	if err := embedded.VerifyTools(config.AnnaHome()); err != nil {
+		return nil, err
+	}
 
 	if err := skillsbuiltin.ExtractSkills(filepath.Join(config.AnnaHome(), "skills")); err != nil {
 		return nil, fmt.Errorf("extract builtin skills: %w", err)
