@@ -1,0 +1,431 @@
+package skills
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"path/filepath"
+	"testing"
+
+	"github.com/vaayne/anna/internal/config"
+	appdb "github.com/vaayne/anna/internal/db"
+)
+
+// newTestStore opens a fresh in-tmpdir SQLite DB and returns a Store.
+func newTestStore(t *testing.T) (*SQLiteStore, *sql.DB) {
+	t.Helper()
+	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return New(db), db
+}
+
+// seedFixtures inserts the auth_users and settings_agents rows needed by FK constraints.
+// Returns (userID, agentID).
+func seedFixtures(t *testing.T, db *sql.DB) (int64, string) {
+	t.Helper()
+	ctx := context.Background()
+
+	authStore := appdb.NewAuthStore(db)
+	u, err := authStore.CreateUser(ctx, "testuser", "hash")
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	agentID := "agent1"
+	cs := config.NewDBStore(db)
+	if err := cs.CreateAgent(ctx, config.Agent{
+		ID: agentID, Name: agentID, Model: "p/m", Workspace: "/tmp/" + agentID, Enabled: true,
+	}); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+
+	return u.ID, agentID
+}
+
+func TestCreateAndLoadFile(t *testing.T) {
+	store, db := newTestStore(t)
+	_, _ = db, db // suppress unused
+	userID, agentID := seedFixtures(t, db)
+	ctx := context.Background()
+
+	sk := Skill{
+		Scope:       "user",
+		UserID:      userID,
+		AgentID:     agentID,
+		Name:        "greet",
+		Description: "says hello",
+		Status:      "active",
+	}
+	files := map[string]string{
+		MainFile:            "# Greet\nSay hello.",
+		"references/api.md": "API docs here.",
+	}
+
+	id, err := store.Create(ctx, sk, files)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if id == "" {
+		t.Fatal("expected non-empty ID")
+	}
+
+	t.Run("load main file", func(t *testing.T) {
+		content, err := store.LoadFile(ctx, id, MainFile)
+		if err != nil {
+			t.Fatalf("LoadFile SKILL.md: %v", err)
+		}
+		if content != "# Greet\nSay hello." {
+			t.Errorf("content = %q", content)
+		}
+	})
+
+	t.Run("load reference file", func(t *testing.T) {
+		content, err := store.LoadFile(ctx, id, "references/api.md")
+		if err != nil {
+			t.Fatalf("LoadFile references/api.md: %v", err)
+		}
+		if content != "API docs here." {
+			t.Errorf("content = %q", content)
+		}
+	})
+
+	t.Run("load missing file returns error", func(t *testing.T) {
+		_, err := store.LoadFile(ctx, id, "nope.md")
+		if err == nil {
+			t.Fatal("expected error for missing file")
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			t.Errorf("error should wrap sql.ErrNoRows, got: %v", err)
+		}
+	})
+}
+
+func TestCreateMissingSkillMD(t *testing.T) {
+	store, db := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+	ctx := context.Background()
+
+	_, err := store.Create(ctx, Skill{
+		Scope: "user", UserID: userID, Name: "bad", Description: "missing main",
+	}, map[string]string{"only.md": "content"})
+
+	if err == nil {
+		t.Fatal("expected error when SKILL.md missing")
+	}
+
+	// Confirm no row was inserted.
+	var count int
+	if scanErr := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skills WHERE name='bad'").Scan(&count); scanErr != nil {
+		t.Fatalf("count: %v", scanErr)
+	}
+	if count != 0 {
+		t.Errorf("skills row count = %d, want 0", count)
+	}
+}
+
+func TestResolvePrecedence(t *testing.T) {
+	store, db := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	ctx := context.Background()
+
+	project := "/myproject"
+	mainFile := map[string]string{MainFile: "body"}
+
+	// Insert one skill at each scope, all named "foo".
+	sysID, err := store.Create(ctx, Skill{Scope: "system", Name: "foo", Description: "sys"}, mainFile)
+	if err != nil {
+		t.Fatalf("create system: %v", err)
+	}
+	agentSkID, err := store.Create(ctx, Skill{Scope: "agent", AgentID: agentID, Name: "foo", Description: "agent"}, mainFile)
+	if err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	userSkID, err := store.Create(ctx, Skill{Scope: "user", UserID: userID, Name: "foo", Description: "user"}, mainFile)
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	projSkID, err := store.Create(ctx, Skill{Scope: "project", Project: project, Name: "foo", Description: "proj"}, mainFile)
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+
+	vc := ViewContext{UserID: userID, AgentID: agentID, Project: project}
+
+	t.Run("project wins", func(t *testing.T) {
+		sk, err := store.Resolve(ctx, "foo", vc)
+		if err != nil || sk == nil {
+			t.Fatalf("Resolve: %v (sk=%v)", err, sk)
+		}
+		if sk.ID != projSkID {
+			t.Errorf("got %s (%s), want project %s", sk.ID, sk.Scope, projSkID)
+		}
+	})
+
+	t.Run("user wins after project deleted", func(t *testing.T) {
+		if err := store.Delete(ctx, projSkID); err != nil {
+			t.Fatalf("Delete project: %v", err)
+		}
+		sk, err := store.Resolve(ctx, "foo", vc)
+		if err != nil || sk == nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if sk.ID != userSkID {
+			t.Errorf("got %s (%s), want user %s", sk.ID, sk.Scope, userSkID)
+		}
+	})
+
+	t.Run("agent wins after user deleted", func(t *testing.T) {
+		if err := store.Delete(ctx, userSkID); err != nil {
+			t.Fatalf("Delete user: %v", err)
+		}
+		sk, err := store.Resolve(ctx, "foo", vc)
+		if err != nil || sk == nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if sk.ID != agentSkID {
+			t.Errorf("got %s (%s), want agent %s", sk.ID, sk.Scope, agentSkID)
+		}
+	})
+
+	t.Run("system wins after agent deleted", func(t *testing.T) {
+		if err := store.Delete(ctx, agentSkID); err != nil {
+			t.Fatalf("Delete agent: %v", err)
+		}
+		sk, err := store.Resolve(ctx, "foo", vc)
+		if err != nil || sk == nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if sk.ID != sysID {
+			t.Errorf("got %s (%s), want system %s", sk.ID, sk.Scope, sysID)
+		}
+	})
+}
+
+func TestVisibilityFiltering(t *testing.T) {
+	store, db := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	ctx := context.Background()
+
+	// Seed a second user and agent.
+	authStore := appdb.NewAuthStore(db)
+	u2, err := authStore.CreateUser(ctx, "user2", "hash2")
+	if err != nil {
+		t.Fatalf("create user2: %v", err)
+	}
+	cs := config.NewDBStore(db)
+	if err := cs.CreateAgent(ctx, config.Agent{
+		ID: "agent2", Name: "agent2", Model: "p/m", Workspace: "/tmp/agent2", Enabled: true,
+	}); err != nil {
+		t.Fatalf("create agent2: %v", err)
+	}
+
+	mainFile := map[string]string{MainFile: "body"}
+
+	t.Run("agent-scoped skill invisible to other agent", func(t *testing.T) {
+		_, err := store.Create(ctx, Skill{Scope: "agent", AgentID: agentID, Name: "private-agent-skill", Description: "d"}, mainFile)
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+
+		sk, err := store.Resolve(ctx, "private-agent-skill", ViewContext{AgentID: "agent2"})
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if sk != nil {
+			t.Errorf("expected nil, got skill %s", sk.ID)
+		}
+
+		// Visible to owner.
+		sk, err = store.Resolve(ctx, "private-agent-skill", ViewContext{AgentID: agentID})
+		if err != nil || sk == nil {
+			t.Fatalf("Resolve for owner: %v sk=%v", err, sk)
+		}
+	})
+
+	t.Run("user-scoped skill invisible to other user", func(t *testing.T) {
+		_, err := store.Create(ctx, Skill{Scope: "user", UserID: userID, Name: "private-user-skill", Description: "d"}, mainFile)
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+
+		sk, err := store.Resolve(ctx, "private-user-skill", ViewContext{UserID: u2.ID})
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if sk != nil {
+			t.Errorf("expected nil for user2, got skill %s", sk.ID)
+		}
+
+		// Visible to owner.
+		sk, err = store.Resolve(ctx, "private-user-skill", ViewContext{UserID: userID})
+		if err != nil || sk == nil {
+			t.Fatalf("Resolve for owner: %v sk=%v", err, sk)
+		}
+	})
+}
+
+func TestDeprecatedAndDisabled(t *testing.T) {
+	store, db := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+	ctx := context.Background()
+
+	mainFile := map[string]string{MainFile: "body"}
+
+	t.Run("deprecated excluded from List and Resolve", func(t *testing.T) {
+		id, err := store.Create(ctx, Skill{Scope: "user", UserID: userID, Name: "depr-skill", Description: "d"}, mainFile)
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		status := "deprecated"
+		if err := store.Update(ctx, id, UpdatePatch{Status: &status}); err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+
+		skills, err := store.List(ctx, ViewContext{UserID: userID})
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		for _, sk := range skills {
+			if sk.ID == id {
+				t.Error("deprecated skill should not appear in List")
+			}
+		}
+
+		sk, err := store.Resolve(ctx, "depr-skill", ViewContext{UserID: userID})
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if sk != nil {
+			t.Error("deprecated skill should not appear in Resolve")
+		}
+
+		// LoadFile still works for deprecated.
+		_, err = store.LoadFile(ctx, id, MainFile)
+		if err != nil {
+			t.Errorf("LoadFile on deprecated should still work: %v", err)
+		}
+	})
+
+	t.Run("disabled excluded from List and Resolve", func(t *testing.T) {
+		id, err := store.Create(ctx, Skill{Scope: "user", UserID: userID, Name: "disabled-skill", Description: "d"}, mainFile)
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		disabled := true
+		if err := store.Update(ctx, id, UpdatePatch{DisableModelInvocation: &disabled}); err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+
+		skills, err := store.List(ctx, ViewContext{UserID: userID})
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		for _, sk := range skills {
+			if sk.ID == id {
+				t.Error("disabled skill should not appear in List")
+			}
+		}
+
+		sk, err := store.Resolve(ctx, "disabled-skill", ViewContext{UserID: userID})
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if sk != nil {
+			t.Error("disabled skill should not appear in Resolve")
+		}
+
+		// LoadFile still works.
+		_, err = store.LoadFile(ctx, id, MainFile)
+		if err != nil {
+			t.Errorf("LoadFile on disabled should still work: %v", err)
+		}
+	})
+}
+
+func TestUpsertFileAndDeleteFile(t *testing.T) {
+	store, db := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+	ctx := context.Background()
+
+	id, err := store.Create(ctx, Skill{
+		Scope: "user", UserID: userID, Name: "multi-file", Description: "d",
+	}, map[string]string{
+		MainFile:            "original body",
+		"references/ref.md": "ref content",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	t.Run("upsert modifies file", func(t *testing.T) {
+		if err := store.UpsertFile(ctx, id, MainFile, "updated body"); err != nil {
+			t.Fatalf("UpsertFile: %v", err)
+		}
+		content, err := store.LoadFile(ctx, id, MainFile)
+		if err != nil {
+			t.Fatalf("LoadFile: %v", err)
+		}
+		if content != "updated body" {
+			t.Errorf("content = %q", content)
+		}
+	})
+
+	t.Run("delete reference file", func(t *testing.T) {
+		if err := store.DeleteFile(ctx, id, "references/ref.md"); err != nil {
+			t.Fatalf("DeleteFile: %v", err)
+		}
+		_, err := store.LoadFile(ctx, id, "references/ref.md")
+		if err == nil {
+			t.Fatal("expected error after DeleteFile")
+		}
+
+		// SKILL.md still present.
+		if _, err := store.LoadFile(ctx, id, MainFile); err != nil {
+			t.Errorf("SKILL.md should still exist: %v", err)
+		}
+	})
+}
+
+func TestDeleteCascadesSkillFiles(t *testing.T) {
+	store, db := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+	ctx := context.Background()
+
+	id, err := store.Create(ctx, Skill{
+		Scope: "user", UserID: userID, Name: "cascade-test", Description: "d",
+	}, map[string]string{
+		MainFile:   "body",
+		"extra.md": "extra",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := store.Delete(ctx, id); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	// Skill row gone.
+	var skillCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skills WHERE id=?", id).Scan(&skillCount); err != nil {
+		t.Fatalf("count skills: %v", err)
+	}
+	if skillCount != 0 {
+		t.Errorf("skills count = %d, want 0", skillCount)
+	}
+
+	// Skill files cascade-deleted.
+	var fileCount int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM skill_files WHERE skill_id=?", id).Scan(&fileCount); err != nil {
+		t.Fatalf("count skill_files: %v", err)
+	}
+	if fileCount != 0 {
+		t.Errorf("skill_files count = %d, want 0", fileCount)
+	}
+}
+
+// Compile-time assertion that SQLiteStore satisfies the Store interface.
+var _ Store = (*SQLiteStore)(nil)
