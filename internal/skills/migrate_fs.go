@@ -7,17 +7,16 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/vaayne/anna/pkg/db/sqlc"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	catalogskills "github.com/vaayne/anna/plugins/tools/skills"
 )
 
 // MigrateFSConfig controls how on-disk skills are discovered and mapped to DB rows.
 type MigrateFSConfig struct {
-	Runtime pkgplugins.ToolRuntime
 	// AnnaHome is intentionally unused: builtin (anna source) skills are handled
 	// exclusively by SyncBuiltin, not by filesystem migration.
 	AnnaHome      string
@@ -37,20 +36,23 @@ type MigrateFSResult struct {
 	Skipped  int // already-in-DB duplicates
 }
 
-// MigrateFilesystem reads on-disk skills using the existing catalog loader and
-// idempotently imports each into the DB.
+// migrateLoadedSkill holds the skill data discovered from the filesystem.
+type migrateLoadedSkill struct {
+	Name                   string
+	Description            string
+	Status                 string
+	CreatedAt              string
+	DisableModelInvocation bool
+	BaseDir                string
+	Source                 string // agent | user | project
+}
+
+// MigrateFilesystem reads on-disk skills and idempotently imports each into the DB.
 //
 // Skills with source="anna" (builtin) are skipped — use SyncBuiltin for those.
 // The function is safe to call multiple times; existing rows are counted as Skipped.
 func MigrateFilesystem(ctx context.Context, store *SQLiteStore, cfg MigrateFSConfig) (MigrateFSResult, error) {
-	loaded := catalogskills.LoadSkills(ctx, catalogskills.LoadSkillsConfig{
-		Runtime:       cfg.Runtime,
-		AnnaHome:      "", // intentionally empty: skip builtin source
-		AgentRoot:     cfg.AgentRoot,
-		UserRoot:      cfg.UserRoot,
-		ProjectRoot:   cfg.ProjectRoot,
-		UserSkillsDir: cfg.UserSkillsDir,
-	})
+	loaded := loadFSSkills(cfg)
 
 	var result MigrateFSResult
 
@@ -114,6 +116,109 @@ func MigrateFilesystem(ctx context.Context, store *SQLiteStore, cfg MigrateFSCon
 	}
 
 	return result, nil
+}
+
+// loadFSSkills discovers skills from the filesystem in increasing priority order:
+// agent -> user -> project. Builtin (anna source) is intentionally excluded here.
+func loadFSSkills(cfg MigrateFSConfig) []migrateLoadedSkill {
+	indexByName := map[string]int{}
+	var loaded []migrateLoadedSkill
+
+	add := func(s migrateLoadedSkill) {
+		if idx, ok := indexByName[s.Name]; ok {
+			loaded[idx] = s
+			return
+		}
+		indexByName[s.Name] = len(loaded)
+		loaded = append(loaded, s)
+	}
+
+	dedupPaths := map[string]bool{}
+	addDir := func(dir, source string) {
+		abs, _ := filepath.Abs(dir)
+		if dedupPaths[abs] {
+			return
+		}
+		dedupPaths[abs] = true
+		for _, s := range scanFSSkillDir(dir, source) {
+			add(s)
+		}
+	}
+
+	if cfg.AgentRoot != "" {
+		addDir(filepath.Join(cfg.AgentRoot, ".agents", "skills"), "agent")
+	}
+
+	userSkillsDir := cfg.UserSkillsDir
+	if userSkillsDir == "" && cfg.UserRoot != "" {
+		userSkillsDir = filepath.Join(cfg.UserRoot, ".agents", "skills")
+	}
+	if userSkillsDir != "" {
+		addDir(userSkillsDir, "user")
+	}
+
+	if cfg.ProjectRoot != "" {
+		addDir(filepath.Join(cfg.ProjectRoot, ".agents", "skills"), "project")
+	}
+
+	return loaded
+}
+
+// scanFSSkillDir lists top-level skill directories under dir and parses each SKILL.md.
+func scanFSSkillDir(dir, source string) []migrateLoadedSkill {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			slog.Warn("migrate_fs: cannot read skills dir", "dir", dir, "err", err)
+		}
+		return nil
+	}
+
+	var skills []migrateLoadedSkill
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") || name == "node_modules" || !entry.IsDir() {
+			continue
+		}
+
+		skillDir := filepath.Join(dir, name)
+		skillMD := filepath.Join(skillDir, "SKILL.md")
+
+		data, err := os.ReadFile(skillMD)
+		if err != nil {
+			continue // no SKILL.md in this dir
+		}
+
+		fm, err := parseBuiltinFrontmatter(string(data))
+		if err != nil {
+			slog.Warn("migrate_fs: cannot parse frontmatter", "path", skillMD, "err", err)
+			continue
+		}
+		if strings.TrimSpace(fm.Description) == "" {
+			continue
+		}
+		skillName := strings.TrimSpace(fm.Name)
+		if skillName == "" {
+			continue
+		}
+		// Validate name matches directory (mirrors the old loadSkillFromFile check).
+		if skillName != name {
+			slog.Warn("migrate_fs: skill name does not match directory, skipping",
+				"name", skillName, "dir", name)
+			continue
+		}
+
+		skills = append(skills, migrateLoadedSkill{
+			Name:                   skillName,
+			Description:            fm.Description,
+			Status:                 normalizeBuiltinStatus(fm.Status),
+			CreatedAt:              fm.CreatedAt,
+			DisableModelInvocation: fm.DisableModelInvocation,
+			BaseDir:                skillDir,
+			Source:                 source,
+		})
+	}
+	return skills
 }
 
 // sourceToScope maps catalog source labels to DB scope values.

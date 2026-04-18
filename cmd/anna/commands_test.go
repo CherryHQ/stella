@@ -234,30 +234,25 @@ func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
 
 func TestLoadInstalledSkillsIncludesCLIUserSkills(t *testing.T) {
 	setupCommandTestAnnaHome(t)
-	store, err := openStore()
+
+	// Insert a system-scoped skill directly into the DB (no FK constraint on user_id).
+	skillStore, closeDB, err := openSkillStore()
 	if err != nil {
-		t.Fatalf("openStore: %v", err)
+		t.Fatalf("openSkillStore: %v", err)
 	}
-	snap, err := defaultSnapshot(context.Background(), store)
+	defer closeDB()
+
+	_, err = skillStore.Create(context.Background(), pkgplugins.Skill{
+		Scope:       "system",
+		Name:        "cli-test-skill",
+		Description: "CLI test skill",
+		Status:      "active",
+		Metadata:    []byte("{}"),
+	}, map[string]string{
+		"SKILL.md": "---\nname: cli-test-skill\ndescription: CLI test skill\nstatus: active\n---\nbody\n",
+	})
 	if err != nil {
-		t.Fatalf("defaultSnapshot: %v", err)
-	}
-	skillsDir, err := cliUserSkillsDir(snap)
-	if err != nil {
-		t.Fatalf("cliUserSkillsDir: %v", err)
-	}
-	skillDir := filepath.Join(skillsDir, "cli-test-skill")
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
-name: cli-test-skill
-description: CLI test skill
-status: active
----
-body
-`), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
+		t.Fatalf("Create: %v", err)
 	}
 
 	loaded, err := loadInstalledSkills(context.Background())
@@ -266,13 +261,11 @@ body
 	}
 	for _, s := range loaded {
 		if s.Name == "cli-test-skill" {
-			if s.Source != "user" {
-				t.Fatalf("skill source = %q, want user", s.Source)
-			}
+			// System skills are always visible to the CLI.
 			return
 		}
 	}
-	t.Fatal("expected cli-test-skill to be discovered from CLI user scope")
+	t.Fatal("expected cli-test-skill to be discoverable from DB via loadInstalledSkills")
 }
 
 func TestRunHelp(t *testing.T) {

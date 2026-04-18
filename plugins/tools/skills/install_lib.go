@@ -2,87 +2,72 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 	_ "github.com/vaayne/mcphub/pkg/skills/providers"
 )
 
-// Install fetches a skill from source and installs it into targetDir.
-// This is a filesystem-based compatibility shim used by the CLI.
-// The tool layer uses FetchSkillFiles + store.Create instead.
-func Install(ctx context.Context, source, targetDir string) (string, error) {
-	return installSource(ctx, source, targetDir)
-}
-
-func installSource(ctx context.Context, source, targetDir string) (string, error) {
-	ref := ""
-	if !strings.HasPrefix(source, "http://") && !strings.HasPrefix(source, "https://") &&
-		!strings.HasPrefix(source, "/") && !strings.HasPrefix(source, ".") {
-		if idx := strings.LastIndex(source, "#"); idx != -1 {
-			ref = source[idx+1:]
-			source = source[:idx]
-		}
-	}
-
-	parsed, err := mcpskills.ParseSource(source)
+// InstallToStore fetches a skill from source and stores it in the given SkillStore.
+// scope must be one of "user", "project", or "agent".
+// For scope="user", userID is used; for scope="project", project is used.
+// Returns the installed skill name on success.
+func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, scope string, userID int64, project string) (string, error) {
+	skillName, files, cleanup, err := FetchSkillFiles(ctx, source)
 	if err != nil {
-		return "", fmt.Errorf("invalid source %q: %w", source, err)
+		return "", err
 	}
-	if ref != "" && parsed.Ref == "" {
-		parsed.Ref = ref
+	defer cleanup()
+
+	mainContent, ok := files[pkgplugins.SkillMainFile]
+	if !ok {
+		return "", fmt.Errorf("fetched skill %q is missing SKILL.md", skillName)
 	}
 
-	switch parsed.Type {
-	case mcpskills.SourceTypeGitHub, mcpskills.SourceTypeGitLab, mcpskills.SourceTypeGit:
-		return installFromGit(ctx, parsed, targetDir)
-	case mcpskills.SourceTypeLocal:
-		return installFromLocal(parsed, targetDir)
-	case mcpskills.SourceTypeDirectURL, mcpskills.SourceTypeWellKnown:
-		return "", fmt.Errorf("source type %q is not yet supported", parsed.Type)
-	default:
-		return "", fmt.Errorf("unknown source type %q", parsed.Type)
-	}
-}
-
-func installFromGit(ctx context.Context, parsed *mcpskills.ParsedSource, targetDir string) (string, error) {
-	src := mcpskills.GitSource{
-		URL:         parsed.URL,
-		Ref:         parsed.Ref,
-		Subpath:     parsed.Subpath,
-		SkillFilter: parsed.SkillFilter,
-	}
-
-	local, err := mcpskills.FetchGitSkill(ctx, src)
+	fm, err := parseFrontmatter(mainContent)
 	if err != nil {
-		return "", fmt.Errorf("fetch skill: %w", err)
+		return "", fmt.Errorf("parse SKILL.md for %q: %w", skillName, err)
 	}
 
-	dst := filepath.Join(targetDir, local.SkillName)
-	if err := mcpskills.InstallSkill(local.Path, dst); err != nil {
-		return "", fmt.Errorf("install skill: %w", err)
+	name := fm.Name
+	if name == "" {
+		name = skillName
 	}
 
-	return local.SkillName, nil
-}
-
-func installFromLocal(parsed *mcpskills.ParsedSource, targetDir string) (string, error) {
-	skillDir, err := mcpskills.FindSkillDir(parsed.LocalPath, "")
-	if err != nil {
-		return "", fmt.Errorf("find skill: %w", err)
+	createdAt := fm.CreatedAt
+	if createdAt == "" {
+		createdAt = time.Now().UTC().Format(time.RFC3339)
 	}
 
-	skillName := filepath.Base(skillDir)
-	dst := filepath.Join(targetDir, skillName)
-	if err := mcpskills.InstallSkill(skillDir, dst); err != nil {
-		return "", fmt.Errorf("install skill: %w", err)
+	metaJSON := fmt.Sprintf(`{"created-at":%q}`, createdAt)
+
+	sk := pkgplugins.Skill{
+		Scope:                  scope,
+		Name:                   name,
+		Description:            fm.Description,
+		Status:                 NormalizeSkillStatus(fm.Status),
+		DisableModelInvocation: fm.DisableModelInvocation,
+		Metadata:               json.RawMessage(metaJSON),
+	}
+	switch scope {
+	case "user":
+		sk.UserID = userID
+	case "project":
+		sk.Project = project
 	}
 
-	return skillName, nil
+	if _, err := store.Create(ctx, sk, files); err != nil {
+		return "", fmt.Errorf("store skill %q: %w", name, err)
+	}
+
+	return name, nil
 }
 
 // FetchSkillFiles resolves source, finds the skill directory, and returns the
