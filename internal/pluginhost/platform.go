@@ -3,6 +3,7 @@ package pluginhost
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/vaayne/anna/internal/skills"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
@@ -72,6 +73,17 @@ func (a skillStoreAdapter) DeleteFile(ctx context.Context, skillID, path string)
 
 func (a skillStoreAdapter) Delete(ctx context.Context, id string) error {
 	return a.s.Delete(ctx, id)
+}
+
+func (a skillStoreAdapter) ExpireDrafts(ctx context.Context, before time.Time) error {
+	return a.s.ExpireDrafts(ctx, before)
+}
+
+// NewSkillStoreAdapter wraps an internal/skills.Store as a pkgplugins.SkillStore.
+// Exported so that test code and CLI code can construct a typed adapter without
+// depending on the unexported adapter type.
+func NewSkillStoreAdapter(s skills.Store) pkgplugins.SkillStore {
+	return skillStoreAdapter{s: s}
 }
 
 func skillToPlugin(r skills.Skill) pkgplugins.Skill {

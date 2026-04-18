@@ -70,7 +70,7 @@ func (s *Service) runCycle(ctx context.Context) {
 	}
 
 	span.SetAttributes(attribute.Int("anna.reflect.sessions_reviewed", totalReviewed))
-	expireDrafts(s.workspace, defaultDraftMaxAge, s.log)
+	expireDrafts(s.skillStore, defaultDraftMaxAge, s.log)
 }
 
 func (s *Service) reviewAgent(ctx context.Context, snap *pkgplugins.ReflectSnapshot) (int, error) {

@@ -19,6 +19,7 @@ type RuntimeDeps struct {
 	Services      pkgplugins.ReflectPlatform
 	Notifications pkgplugins.Notifier
 	StateStore    pkgplugins.StateStore
+	SkillStore    pkgplugins.SkillStore
 	Scheduler     pkgplugins.Scheduler
 	Log           *slog.Logger
 	NewService    func(Config) serviceRunner
@@ -110,6 +111,7 @@ func (r *managedRuntime) Apply(ctx context.Context, desired pkgplugins.PluginSta
 		StateStore: r.deps.StateStore,
 		Memory:     r.deps.Services.Memory(),
 		Store:      r.deps.Services.Store(),
+		SkillStore: r.deps.SkillStore,
 		Notifier:   r.deps.Notifications,
 		Workspace:  r.deps.Services.Workspace(),
 		Interval:   cfg.Interval,
@@ -198,6 +200,7 @@ func (r *managedRuntime) RunScheduledJob(ctx context.Context, key string, payloa
 		StateStore: r.deps.StateStore,
 		Memory:     r.deps.Services.Memory(),
 		Store:      r.deps.Services.Store(),
+		SkillStore: r.deps.SkillStore,
 		Notifier:   r.deps.Notifications,
 		Workspace:  r.deps.Services.Workspace(),
 		Interval:   cfg.Interval,
