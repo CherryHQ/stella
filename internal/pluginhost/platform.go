@@ -38,6 +38,9 @@ func (a skillStoreAdapter) Resolve(ctx context.Context, name string, vc pkgplugi
 	if err != nil {
 		return nil, err
 	}
+	if r == nil {
+		return nil, nil
+	}
 	s := skillToPlugin(*r)
 	return &s, nil
 }
