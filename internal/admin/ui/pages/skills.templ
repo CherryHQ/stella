@@ -1,0 +1,200 @@
+package pages
+
+import "github.com/vaayne/anna/internal/admin/ui"
+
+templ SkillsPage() {
+	<div x-data="skillsPage()">
+		@ui.PageHeader("Skills", "Manage system, agent, user, and project skills.")
+		<div class="flex gap-6 min-h-0">
+			<!-- Left: skill list -->
+			<div class="w-72 shrink-0 flex flex-col gap-2">
+				<div class="flex items-center justify-between gap-2">
+					<span class="text-xs text-secondary" x-text="skills.length + ' skills'"></span>
+					<button @click="openNew()" class="btn btn-primary btn-xs">New skill</button>
+				</div>
+				<div class="border border-base-300 rounded-lg overflow-y-auto max-h-[calc(100vh-220px)]">
+					<template x-for="scope in ['system','agent','user','project']" :key="scope">
+						<template x-if="skillsByScope(scope).length > 0">
+							<div>
+								<div class="px-3 py-2 text-[11px] uppercase tracking-wide text-secondary bg-base-200/60 border-b border-base-300 font-medium" x-text="scope"></div>
+								<template x-for="sk in skillsByScope(scope)" :key="sk.id">
+									<div
+										class="flex items-start gap-2 px-3 py-2 cursor-pointer border-b border-base-200 last:border-0 hover:bg-base-200/50 transition-colors"
+										:class="selected?.id === sk.id ? 'bg-base-200' : ''"
+										@click="selectSkill(sk)"
+									>
+										<div class="min-w-0 flex-1">
+											<p class="text-sm font-medium truncate" x-text="sk.name"></p>
+											<div class="flex items-center gap-1 mt-0.5 flex-wrap">
+												<span
+													class="badge badge-sm"
+													:class="{
+														'badge-success': sk.status === 'active',
+														'badge-warning': sk.status === 'draft',
+														'badge-error':   sk.status === 'deprecated',
+														'badge-ghost':   !['active','draft','deprecated'].includes(sk.status)
+													}"
+													x-text="sk.status"
+												></span>
+											</div>
+										</div>
+									</div>
+								</template>
+							</div>
+						</template>
+					</template>
+					<template x-if="skills.length === 0 && !loading">
+						<div class="px-4 py-8 text-center text-base-content/50 text-sm">No skills yet</div>
+					</template>
+					<template x-if="loading">
+						<div class="px-4 py-8 text-center">
+							<span class="loading loading-spinner loading-sm"></span>
+						</div>
+					</template>
+				</div>
+			</div>
+			<!-- Right: detail / edit panel -->
+			<div class="flex-1 min-w-0">
+				<!-- New skill form -->
+				<template x-if="mode === 'new'">
+					<div class="border border-base-300 rounded-lg p-6 space-y-4">
+						<div class="flex items-center justify-between gap-3">
+							<p class="text-sm font-medium">New skill</p>
+							<button @click="cancelNew()" class="btn btn-ghost btn-xs">Cancel</button>
+						</div>
+						<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+							<div class="space-y-1">
+								<label class="text-xs font-medium text-secondary">Name</label>
+								<input x-model="form.name" type="text" placeholder="my-skill" class="input input-bordered input-sm w-full" />
+							</div>
+							<div class="space-y-1">
+								<label class="text-xs font-medium text-secondary">Scope</label>
+								<select x-model="form.scope" @change="form.user_id=0; form.agent_id=''; form.project=''" class="select select-bordered select-sm w-full">
+									<option value="system">system</option>
+									<option value="agent">agent</option>
+									<option value="user">user</option>
+									<option value="project">project</option>
+								</select>
+							</div>
+							<template x-if="form.scope === 'agent'">
+								<div class="space-y-1">
+									<label class="text-xs font-medium text-secondary">Agent ID</label>
+									<input x-model="form.agent_id" type="text" placeholder="anna" class="input input-bordered input-sm w-full" />
+								</div>
+							</template>
+							<template x-if="form.scope === 'user'">
+								<div class="space-y-1">
+									<label class="text-xs font-medium text-secondary">User ID</label>
+									<input x-model.number="form.user_id" type="number" placeholder="1" class="input input-bordered input-sm w-full" />
+								</div>
+							</template>
+							<template x-if="form.scope === 'project'">
+								<div class="space-y-1">
+									<label class="text-xs font-medium text-secondary">Project</label>
+									<input x-model="form.project" type="text" placeholder="my-project" class="input input-bordered input-sm w-full" />
+								</div>
+							</template>
+							<div class="space-y-1 sm:col-span-2">
+								<label class="text-xs font-medium text-secondary">Description</label>
+								<input x-model="form.description" type="text" placeholder="What does this skill do?" class="input input-bordered input-sm w-full" />
+							</div>
+							<div class="space-y-1">
+								<label class="text-xs font-medium text-secondary">Status</label>
+								<select x-model="form.status" class="select select-bordered select-sm w-full">
+									<option value="active">active</option>
+									<option value="draft">draft</option>
+									<option value="deprecated">deprecated</option>
+								</select>
+							</div>
+							<div class="space-y-1 flex items-end">
+								<label class="label cursor-pointer justify-start gap-3">
+									<input x-model="form.disable_model_invocation" type="checkbox" class="toggle toggle-primary toggle-sm" />
+									<span class="label-text text-sm">Disable model invocation</span>
+								</label>
+							</div>
+						</div>
+						<div class="space-y-1">
+							<label class="text-xs font-medium text-secondary">SKILL.md content</label>
+							<textarea x-model="form.skill_md" rows="12" class="textarea textarea-bordered w-full font-mono text-xs" placeholder="# My Skill&#10;&#10;Describe this skill..."></textarea>
+						</div>
+						<div class="flex justify-end gap-2">
+							<button @click="cancelNew()" class="btn btn-ghost btn-sm">Cancel</button>
+							<button @click="createSkill()" :disabled="saving" class="btn btn-primary btn-sm">
+								<span x-show="saving" class="loading loading-spinner loading-xs"></span>
+								Create
+							</button>
+						</div>
+					</div>
+				</template>
+				<!-- Detail/edit panel -->
+				<template x-if="mode === 'detail' && selected">
+					<div class="border border-base-300 rounded-lg p-6 space-y-4">
+						<div class="flex items-center justify-between gap-3 flex-wrap">
+							<div class="space-y-1">
+								<p class="text-base font-medium" x-text="selected.name"></p>
+								<div class="flex items-center gap-2 flex-wrap">
+									<span class="badge badge-ghost badge-sm" x-text="selected.scope"></span>
+									<span class="font-mono text-[11px] text-secondary" x-text="selected.id"></span>
+								</div>
+							</div>
+							<div class="flex items-center gap-2">
+								<button @click="confirmDelete()" class="btn btn-ghost btn-xs text-error">Delete</button>
+								<button @click="saveSkill()" :disabled="saving" class="btn btn-primary btn-xs">
+									<span x-show="saving" class="loading loading-spinner loading-xs"></span>
+									Save
+								</button>
+							</div>
+						</div>
+						<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+							<div class="space-y-1 sm:col-span-2">
+								<label class="text-xs font-medium text-secondary">Description</label>
+								<input x-model="draft.description" type="text" class="input input-bordered input-sm w-full" />
+							</div>
+							<div class="space-y-1">
+								<label class="text-xs font-medium text-secondary">Status</label>
+								<select x-model="draft.status" class="select select-bordered select-sm w-full">
+									<option value="active">active</option>
+									<option value="draft">draft</option>
+									<option value="deprecated">deprecated</option>
+								</select>
+							</div>
+							<div class="space-y-1 flex items-end">
+								<label class="label cursor-pointer justify-start gap-3">
+									<input x-model="draft.disable_model_invocation" type="checkbox" class="toggle toggle-primary toggle-sm" />
+									<span class="label-text text-sm">Disable model invocation</span>
+								</label>
+							</div>
+						</div>
+						<div class="space-y-1">
+							<label class="text-xs font-medium text-secondary">SKILL.md</label>
+							<template x-if="fileLoading">
+								<div class="rounded-lg border border-base-300 bg-base-100 px-4 py-6 text-sm text-secondary">Loading…</div>
+							</template>
+							<template x-if="!fileLoading">
+								<textarea x-model="draft.skill_md" rows="16" class="textarea textarea-bordered w-full font-mono text-xs"></textarea>
+							</template>
+						</div>
+						<template x-if="selected.files && selected.files.filter(f => f !== 'SKILL.md').length > 0">
+							<div class="space-y-1">
+								<label class="text-xs font-medium text-secondary">Other files (read-only)</label>
+								<div class="flex flex-wrap gap-1">
+									<template x-for="f in selected.files.filter(f => f !== 'SKILL.md')" :key="f">
+										<span class="badge badge-ghost badge-sm font-mono" x-text="f"></span>
+									</template>
+								</div>
+							</div>
+						</template>
+					</div>
+				</template>
+				<!-- Empty state -->
+				<template x-if="mode === 'empty'">
+					<div class="border border-dashed border-base-300 rounded-lg px-4 py-16 text-center space-y-2">
+						<p class="text-sm font-medium">Select a skill or create one</p>
+						<p class="text-xs text-secondary">Skills extend agent behavior with reusable instructions.</p>
+						<div><button @click="openNew()" class="btn btn-primary btn-xs">New skill</button></div>
+					</div>
+				</template>
+			</div>
+		</div>
+	</div>
+}

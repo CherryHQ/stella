@@ -45,12 +45,18 @@ type Store interface {
 	// List returns all visible skills for the given context (metadata only, no file content).
 	List(ctx context.Context, vc ViewContext) ([]Skill, error)
 
+	// ListAll returns every skill regardless of status or visibility (admin use only).
+	ListAll(ctx context.Context) ([]Skill, error)
+
 	// Resolve finds the highest-priority visible skill by name.
 	// Priority: project > user > agent > system.
 	Resolve(ctx context.Context, name string, vc ViewContext) (*Skill, error)
 
 	// LoadFile fetches a single file by path. Pass MainFile ("SKILL.md") for the body.
 	LoadFile(ctx context.Context, skillID, path string) (string, error)
+
+	// ListFiles returns all file paths for a skill (no content).
+	ListFiles(ctx context.Context, skillID string) ([]string, error)
 
 	// Create inserts the skill row and all its files (must include "SKILL.md").
 	Create(ctx context.Context, s Skill, files map[string]string) (string, error)

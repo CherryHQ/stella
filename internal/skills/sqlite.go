@@ -40,6 +40,32 @@ func (s *SQLiteStore) List(ctx context.Context, vc ViewContext) ([]Skill, error)
 	return out, nil
 }
 
+// ListAll returns every skill regardless of status, visibility, or scope filter.
+func (s *SQLiteStore) ListAll(ctx context.Context) ([]Skill, error) {
+	rows, err := s.q.ListAllSkills(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("skills: list all: %w", err)
+	}
+	out := make([]Skill, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, mapRow(r))
+	}
+	return out, nil
+}
+
+// ListFiles returns all file paths for a skill (no content).
+func (s *SQLiteStore) ListFiles(ctx context.Context, skillID string) ([]string, error) {
+	rows, err := s.q.ListSkillFiles(ctx, skillID)
+	if err != nil {
+		return nil, fmt.Errorf("skills: list files for %s: %w", skillID, err)
+	}
+	paths := make([]string, 0, len(rows))
+	for _, r := range rows {
+		paths = append(paths, r.Path)
+	}
+	return paths, nil
+}
+
 // Resolve finds the highest-priority visible skill by name.
 func (s *SQLiteStore) Resolve(ctx context.Context, name string, vc ViewContext) (*Skill, error) {
 	row, err := s.q.ResolveSkill(ctx, sqlc.ResolveSkillParams{

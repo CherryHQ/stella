@@ -246,6 +246,46 @@ func (q *Queries) GetUserSkillByName(ctx context.Context, arg GetUserSkillByName
 	return i, err
 }
 
+const listAllSkills = `-- name: ListAllSkills :many
+SELECT id, scope, user_id, agent_id, project, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skills ORDER BY scope, created_at
+`
+
+func (q *Queries) ListAllSkills(ctx context.Context) ([]Skill, error) {
+	rows, err := q.db.QueryContext(ctx, listAllSkills)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Skill{}
+	for rows.Next() {
+		var i Skill
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.UserID,
+			&i.AgentID,
+			&i.Project,
+			&i.Name,
+			&i.Description,
+			&i.Status,
+			&i.DisableModelInvocation,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSkillFiles = `-- name: ListSkillFiles :many
 SELECT skill_id, path, content FROM skill_files WHERE skill_id = ? ORDER BY path
 `

@@ -81,3 +81,6 @@ UPDATE skills
 SET status = 'deprecated', updated_at = datetime('now')
 WHERE status = 'draft'
   AND json_extract(metadata, '$."created-at"') < ?;
+
+-- name: ListAllSkills :many
+SELECT * FROM skills ORDER BY scope, created_at;

@@ -18,6 +18,7 @@ import (
 	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/pluginstate"
+	"github.com/vaayne/anna/internal/skills"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
@@ -85,6 +86,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
+	phost.SetSkillStore(skills.New(db))
 	if err := phost.ApplyPlugin(context.Background(), mcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(mcp): %v", err)
 	}
@@ -1133,5 +1135,203 @@ func TestNonAdminCannotAccessAdminRoutes(t *testing.T) {
 	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/agents", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+}
+
+// --- Skills tests ---
+
+func TestSkillsList_Admin(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "GET", "/api/skills", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var list []map[string]any
+	if err := json.Unmarshal(resp.Data, &list); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// Fresh DB has no skills; just verify we got a valid empty array.
+	if list == nil {
+		t.Fatal("expected non-nil list")
+	}
+}
+
+func TestSkillsList_NonAdmin(t *testing.T) {
+	env := setupAdmin(t)
+
+	hash, _ := auth.HashPassword("userpassword")
+	user, err := env.authStore.CreateUser(context.Background(), "regularuser2", hash)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	sessionID := auth.NewSessionID()
+	_, err = env.authStore.CreateSession(context.Background(), auth.Session{
+		ID:        sessionID,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(auth.SessionDuration),
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/skills", nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
+	}
+}
+
+func TestSkillsCreate(t *testing.T) {
+	env := setupAdmin(t)
+
+	body := map[string]any{
+		"name":        "test-skill",
+		"scope":       "system",
+		"description": "A test skill",
+		"status":      "active",
+		"files": map[string]string{
+			"SKILL.md": "# Test Skill\n\nDoes something useful.",
+		},
+	}
+	rr := doRequest(t, env, "POST", "/api/skills", body)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("POST status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var created map[string]string
+	if err := json.Unmarshal(resp.Data, &created); err != nil {
+		t.Fatalf("unmarshal create response: %v", err)
+	}
+	if created["id"] == "" {
+		t.Fatal("expected non-empty id in response")
+	}
+
+	// Verify it appears in list.
+	rr = doRequest(t, env, "GET", "/api/skills", nil)
+	resp = parseResponse(t, rr)
+	var list []map[string]any
+	_ = json.Unmarshal(resp.Data, &list)
+	found := false
+	for _, sk := range list {
+		if sk["name"] == "test-skill" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("created skill not found in list")
+	}
+}
+
+func TestSkillsUpdate(t *testing.T) {
+	env := setupAdmin(t)
+
+	// Create a skill first.
+	createBody := map[string]any{
+		"name":  "update-skill",
+		"scope": "system",
+		"files": map[string]string{"SKILL.md": "# Original"},
+	}
+	rr := doRequest(t, env, "POST", "/api/skills", createBody)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var created map[string]string
+	_ = json.Unmarshal(resp.Data, &created)
+	id := created["id"]
+
+	// Update description, status, and SKILL.md content.
+	newDesc := "Updated description"
+	newStatus := "deprecated"
+	updateBody := map[string]any{
+		"description": newDesc,
+		"status":      newStatus,
+		"files":       map[string]string{"SKILL.md": "# Updated content"},
+	}
+	rr = doRequest(t, env, "PUT", "/api/skills/"+id, updateBody)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	// Verify SKILL.md content changed.
+	rr = doRequest(t, env, "GET", "/api/skills/"+id+"/file?path=SKILL.md", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET file status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	var file map[string]string
+	_ = json.Unmarshal(resp.Data, &file)
+	if file["content"] != "# Updated content" {
+		t.Errorf("content = %q, want %q", file["content"], "# Updated content")
+	}
+}
+
+func TestSkillsDelete(t *testing.T) {
+	env := setupAdmin(t)
+
+	createBody := map[string]any{
+		"name":  "delete-skill",
+		"scope": "system",
+		"files": map[string]string{"SKILL.md": "# Delete me"},
+	}
+	rr := doRequest(t, env, "POST", "/api/skills", createBody)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var created map[string]string
+	_ = json.Unmarshal(resp.Data, &created)
+	id := created["id"]
+
+	rr = doRequest(t, env, "DELETE", "/api/skills/"+id, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("DELETE status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	// Should no longer be in list.
+	rr = doRequest(t, env, "GET", "/api/skills", nil)
+	resp = parseResponse(t, rr)
+	var list []map[string]any
+	_ = json.Unmarshal(resp.Data, &list)
+	for _, sk := range list {
+		if sk["id"] == id {
+			t.Errorf("deleted skill %q still appears in list", id)
+		}
+	}
+}
+
+func TestSkillsGetFile(t *testing.T) {
+	env := setupAdmin(t)
+
+	content := "# My skill\n\nDoes something."
+	createBody := map[string]any{
+		"name":  "file-skill",
+		"scope": "system",
+		"files": map[string]string{"SKILL.md": content},
+	}
+	rr := doRequest(t, env, "POST", "/api/skills", createBody)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var created map[string]string
+	_ = json.Unmarshal(resp.Data, &created)
+	id := created["id"]
+
+	rr = doRequest(t, env, "GET", "/api/skills/"+id+"/file?path=SKILL.md", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET file status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	var file map[string]string
+	if err := json.Unmarshal(resp.Data, &file); err != nil {
+		t.Fatalf("unmarshal file response: %v", err)
+	}
+	if file["content"] != content {
+		t.Errorf("content = %q, want %q", file["content"], content)
+	}
+	if file["path"] != "SKILL.md" {
+		t.Errorf("path = %q, want %q", file["path"], "SKILL.md")
 	}
 }
