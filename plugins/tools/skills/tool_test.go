@@ -515,6 +515,76 @@ func TestRemoveViaStore(t *testing.T) {
 	}
 }
 
+// TestRemoveRespectsScope asserts that when both a user- and agent-scoped skill
+// share the same name, remove honors args["scope"] instead of silently deleting
+// whichever Resolve returns first (user, by precedence).
+func TestRemoveRespectsScope(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+
+	if _, err := store.Create(ctx, pkgplugins.Skill{
+		Scope: "user", UserID: userID, Name: "dup", Description: "u", Status: "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "# u"}); err != nil {
+		t.Fatalf("create user skill: %v", err)
+	}
+	if _, err := store.Create(ctx, pkgplugins.Skill{
+		Scope: "agent", AgentID: agentID, Name: "dup", Description: "a", Status: "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "# a"}); err != nil {
+		t.Fatalf("create agent skill: %v", err)
+	}
+
+	tool := NewTool(store, "", "", "", "", nil)
+
+	// scope=agent must delete the agent row, leaving user alive.
+	if _, err := tool.remove(ctx, map[string]any{"name": "dup", "scope": "agent"}); err != nil {
+		t.Fatalf("remove agent scope: %v", err)
+	}
+
+	list, err := store.List(ctx, pkgplugins.SkillViewContext{UserID: userID, AgentID: agentID})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	var userLeft, agentLeft bool
+	for _, s := range list {
+		if s.Name != "dup" {
+			continue
+		}
+		switch s.Scope {
+		case "user":
+			userLeft = true
+		case "agent":
+			agentLeft = true
+		}
+	}
+	if !userLeft {
+		t.Error("expected user-scoped dup to remain")
+	}
+	if agentLeft {
+		t.Error("expected agent-scoped dup to be deleted")
+	}
+}
+
+// TestRemoveScopeNotFound returns a specific error when an explicit scope has no match.
+func TestRemoveScopeNotFound(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+
+	if _, err := store.Create(ctx, pkgplugins.Skill{
+		Scope: "user", UserID: userID, Name: "only-user", Description: "u", Status: "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "# u"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	tool := NewTool(store, "", "", "", "", nil)
+	_, err := tool.remove(ctx, map[string]any{"name": "only-user", "scope": "agent"})
+	if err == nil {
+		t.Fatal("expected error when scope has no match")
+	}
+	if !strings.Contains(err.Error(), "scope=agent") {
+		t.Errorf("expected scope in error message, got %q", err.Error())
+	}
+}
+
 func TestInstallFromLocalDirViaStore(t *testing.T) {
 	srcDir := t.TempDir()
 	skillDir := filepath.Join(srcDir, "store-skill")

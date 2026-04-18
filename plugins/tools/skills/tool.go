@@ -438,13 +438,44 @@ func (t *Tool) remove(ctx context.Context, args map[string]any) (string, error) 
 		return "", fmt.Errorf("skills store unavailable")
 	}
 
-	vc := t.viewContext(ctx)
-	s, err := t.store.Resolve(ctx, name, vc)
+	rawScope, err := scopeArg(args)
 	if err != nil {
-		return "", fmt.Errorf("resolve skill %q: %w", name, err)
+		return "", err
 	}
-	if s == nil {
-		return "", fmt.Errorf("skill %q not found", name)
+
+	var wantScope string
+	if rawScope != "" {
+		wantScope, err = normalizeSkillScope(rawScope)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	vc := t.viewContext(ctx)
+
+	var s *pkgplugins.Skill
+	if wantScope != "" {
+		list, err := t.store.List(ctx, vc)
+		if err != nil {
+			return "", fmt.Errorf("list skills: %w", err)
+		}
+		for i := range list {
+			if list[i].Name == name && list[i].Scope == wantScope {
+				s = &list[i]
+				break
+			}
+		}
+		if s == nil {
+			return "", fmt.Errorf("skill %q not found in scope=%s", name, wantScope)
+		}
+	} else {
+		s, err = t.store.Resolve(ctx, name, vc)
+		if err != nil {
+			return "", fmt.Errorf("resolve skill %q: %w", name, err)
+		}
+		if s == nil {
+			return "", fmt.Errorf("skill %q not found", name)
+		}
 	}
 
 	if s.Scope == "project" {

@@ -114,15 +114,17 @@ func MigrateFilesystem(ctx context.Context, store *SQLiteStore, cfg MigrateFSCon
 // agent -> user. Builtin (anna source) and project skills are intentionally excluded here.
 // Project skills are filesystem-only and do not get migrated to the DB.
 func loadFSSkills(cfg MigrateFSConfig) []migrateLoadedSkill {
-	indexByName := map[string]int{}
+	type key struct{ source, name string }
+	indexByKey := map[key]int{}
 	var loaded []migrateLoadedSkill
 
 	add := func(s migrateLoadedSkill) {
-		if idx, ok := indexByName[s.Name]; ok {
+		k := key{source: s.Source, name: s.Name}
+		if idx, ok := indexByKey[k]; ok {
 			loaded[idx] = s
 			return
 		}
-		indexByName[s.Name] = len(loaded)
+		indexByKey[k] = len(loaded)
 		loaded = append(loaded, s)
 	}
 

@@ -338,6 +338,7 @@ func skillsMigrateCommand() *ucli.Command {
 
 			cfg := internalskills.MigrateFSConfig{
 				AgentRoot:     snap.Workspace,
+				AgentID:       snap.AgentID,
 				UserSkillsDir: userSkillsDir,
 				UserID:        cliSkillsUserID,
 			}
