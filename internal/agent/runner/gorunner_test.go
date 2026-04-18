@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
@@ -104,6 +105,53 @@ func withTestRunnerPaths(t *testing.T, cfg GoRunnerConfig) GoRunnerConfig {
 	cfg.AgentRoot = workspace
 	cfg.UserRoot = userRoot
 	return cfg
+}
+
+func TestPrepareSandboxDockerMissingBinaryReturnsDockerError(t *testing.T) {
+	t.Setenv("PATH", "")
+	t.Setenv("DOCKER_BIN", "")
+
+	workspace := t.TempDir()
+	userRoot := filepath.Join(workspace, "users", "1")
+	if err := os.MkdirAll(userRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	cfg := GoRunnerConfig{
+		AnnaHome:  t.TempDir(),
+		AgentRoot: workspace,
+		UserRoot:  userRoot,
+		Sandbox: config.SandboxConfig{
+			Backend: config.SandboxBackendDocker,
+		},
+	}
+	err := prepareSandbox(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("expected error for docker backend with no docker binary")
+	}
+	if !strings.Contains(err.Error(), "docker") {
+		t.Fatalf("expected error to mention 'docker', got: %v", err)
+	}
+}
+
+func TestPrepareSandboxLocalReturnsNil(t *testing.T) {
+	workspace := t.TempDir()
+	userRoot := filepath.Join(workspace, "users", "1")
+	if err := os.MkdirAll(userRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	cfg := GoRunnerConfig{
+		AnnaHome:  t.TempDir(),
+		AgentRoot: workspace,
+		UserRoot:  userRoot,
+		Sandbox: config.SandboxConfig{
+			Backend: config.SandboxBackendLocal,
+		},
+	}
+	if err := prepareSandbox(context.Background(), cfg); err != nil {
+		t.Fatalf("expected nil for local backend, got: %v", err)
+	}
 }
 
 func TestFilterRunnerTools(t *testing.T) {

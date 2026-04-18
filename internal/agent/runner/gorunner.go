@@ -20,6 +20,7 @@ import (
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 	boxshsandbox "github.com/vaayne/anna/plugins/sandbox/boxsh"
+	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
 	"github.com/vaayne/anna/plugins/tools/skills/builtin"
@@ -324,21 +325,42 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	if err := builtin.EnsureBuiltinSkills(paths.annaSkillsDir()); err != nil {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
-	if cfg.Sandbox.BackendName() == config.SandboxBackendLocal {
+
+	switch cfg.Sandbox.BackendName() {
+	case config.SandboxBackendLocal:
 		return nil
+	case config.SandboxBackendDocker:
+		cleanupOrphanedDockerContainers(ctx, paths.AnnaHome)
+		if err := dockerplugin.Preflight(ctx, dockerplugin.PreflightConfig{
+			AnnaHome: paths.AnnaHome,
+			Docker: dockerplugin.Config{
+				Image:       cfg.Sandbox.Docker.Image,
+				User:        cfg.Sandbox.Docker.User,
+				AllowPull:   cfg.Sandbox.Docker.AllowPull,
+				ExtraMounts: cfg.Sandbox.Docker.ExtraMounts,
+			},
+		}); err != nil {
+			return fmt.Errorf("go runner: %w", err)
+		}
+		return nil
+	case config.SandboxBackendBoxsh, config.SandboxBackendAuto:
+		// auto resolves to boxsh on linux/darwin; on Windows auto resolves to
+		// local (handled by resolveSessionBackendName at session-create time).
+		cleanupOrphanedBoxshSessions(paths.AnnaHome, paths.UserRoot)
+		if err := boxshsandbox.Preflight(ctx, boxshsandbox.PreflightConfig{
+			AnnaHome: paths.AnnaHome,
+			UserRoot: paths.UserRoot,
+			Network: boxshsandbox.NetworkConfig{
+				Mode:      cfg.Sandbox.Network.Mode,
+				Allowlist: cfg.Sandbox.Network.Allowlist,
+			},
+		}); err != nil {
+			return fmt.Errorf("go runner: %w", err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("go runner: unknown sandbox backend %q", cfg.Sandbox.BackendName())
 	}
-	cleanupOrphanedBoxshSessions(paths.AnnaHome, paths.UserRoot)
-	if err := boxshsandbox.Preflight(ctx, boxshsandbox.PreflightConfig{
-		AnnaHome: paths.AnnaHome,
-		UserRoot: paths.UserRoot,
-		Network: boxshsandbox.NetworkConfig{
-			Mode:      cfg.Sandbox.Network.Mode,
-			Allowlist: cfg.Sandbox.Network.Allowlist,
-		},
-	}); err != nil {
-		return fmt.Errorf("go runner: %w", err)
-	}
-	return nil
 }
 
 // buildHookSet creates the hook set from configured hook plugins.

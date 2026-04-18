@@ -16,6 +16,8 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/sandbox"
 	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
+	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
+	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
 )
 
 // runnerSession wraps a sandbox.Session for runner use.
@@ -108,8 +110,9 @@ type sessionFactory func(context.Context, GoRunnerConfig) (*runnerSession, error
 
 // registry manages session factories by name.
 var sessionRegistry = map[string]sessionFactory{
-	config.SandboxBackendLocal: createLocalSession,
-	config.SandboxBackendBoxsh: createBoxshSession,
+	config.SandboxBackendLocal:  createLocalSession,
+	config.SandboxBackendBoxsh:  createBoxshSession,
+	config.SandboxBackendDocker: createDockerSession,
 }
 
 var platformSupportsBoxsh = boxshclient.PlatformSupportsBoxsh
@@ -238,6 +241,103 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		session: session,
 		policy:  policy,
 	}, nil
+}
+
+func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
+	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
+		trace.WithAttributes(
+			attribute.String("anna.sandbox.backend", config.SandboxBackendDocker),
+			attribute.String("anna.sandbox.agent_root", cfg.AgentRoot),
+			attribute.String("anna.sandbox.user_root", cfg.UserRoot),
+			attribute.String("anna.sandbox.project_root", cfg.ProjectRoot),
+		),
+	)
+	defer span.End()
+
+	runnerPaths := resolveRunnerPaths(cfg)
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		err = fmt.Errorf("resolve sandbox paths: %w", err)
+		recordSandboxError(span, err)
+		return nil, err
+	}
+	readOnlyDirs := collectSandboxReadOnlyDirs(
+		sandboxReadableDirs(runnerPaths),
+		runnerPaths.toolsBinDir(),
+		os.Getenv("PATH"),
+	)
+
+	policy := sandbox.Policy{
+		Backend:    config.SandboxBackendDocker,
+		Relaxed:    false,
+		Filesystem: runnerFilesystemPolicy(paths, readOnlyDirs),
+		Network: sandbox.NetworkPolicy{
+			Mode:      sandbox.NetworkMode(cfg.Sandbox.Network.Mode),
+			Allowlist: cfg.Sandbox.Network.Allowlist,
+		},
+		Process: sandbox.ProcessPolicy{
+			Environment: sandboxProcessEnv(paths),
+			InheritEnv:  true,
+		},
+	}
+
+	span.SetAttributes(
+		attribute.String("anna.sandbox.resolved_user_root", paths.UserRoot),
+		attribute.String("anna.sandbox.work_dir", paths.WorkDir),
+		attribute.Int("anna.sandbox.readonly_dir_count", len(readOnlyDirs)),
+		attribute.String("anna.sandbox.network.mode", cfg.Sandbox.Network.Mode),
+	)
+	if len(cfg.Sandbox.Network.Allowlist) > 0 {
+		span.SetAttributes(attribute.StringSlice("anna.sandbox.network.allowlist", cfg.Sandbox.Network.Allowlist))
+	}
+
+	slog.Info("creating docker session",
+		"component", "runner_sandbox",
+		"user_root", paths.UserRoot,
+		"work_dir", paths.WorkDir,
+		"readonly_dirs", readOnlyDirs,
+		"network_mode", cfg.Sandbox.Network.Mode,
+		"network_allowlist", cfg.Sandbox.Network.Allowlist,
+	)
+
+	dockerCfg := dockerplugin.Config{
+		Image:       cfg.Sandbox.Docker.Image,
+		User:        cfg.Sandbox.Docker.User,
+		AllowPull:   cfg.Sandbox.Docker.AllowPull,
+		ExtraMounts: cfg.Sandbox.Docker.ExtraMounts,
+	}
+
+	// Construct a per-runner factory with the resolved config. The global
+	// registry carries a zero-value Config for probe/contract-test use only.
+	factory := dockerplugin.NewFactory(dockerCfg)
+
+	session, err := factory.CreateSession(ctx, policy)
+	if err != nil {
+		err = fmt.Errorf("create docker session: %w", err)
+		recordSandboxError(span, err)
+		return nil, err
+	}
+
+	return &runnerSession{
+		session: session,
+		policy:  policy,
+	}, nil
+}
+
+var dockerOrphanCleanupOnce sync.Once
+
+// cleanupOrphanedDockerContainers removes stale anna containers from previous
+// crashed processes. Runs at most once per process.
+func cleanupOrphanedDockerContainers(ctx context.Context, annaHome string) {
+	dockerOrphanCleanupOnce.Do(func() {
+		client, err := dockerclient.New()
+		if err != nil {
+			slog.Warn("docker orphan cleanup skipped: docker binary not found",
+				"component", "runner_sandbox", "error", err)
+			return
+		}
+		dockerclient.CleanupOrphanedContainers(ctx, client, annaHome)
+	})
 }
 
 // resolveSession creates a runnerSession from configuration.

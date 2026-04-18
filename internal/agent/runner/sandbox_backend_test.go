@@ -226,6 +226,30 @@ func TestRunnerSessionLifecycle(t *testing.T) {
 	}
 }
 
+// TestResolveSessionDockerMissingBinaryReturnsError verifies that an explicit
+// docker backend routes to createDockerSession and fails with a docker-related
+// error when the docker binary is absent.
+func TestResolveSessionDockerMissingBinaryReturnsError(t *testing.T) {
+	t.Setenv("PATH", "")
+	t.Setenv("DOCKER_BIN", "")
+
+	workspace := t.TempDir()
+	userRoot := workspace + "/users/1"
+	_, err := resolveSession(context.Background(), GoRunnerConfig{
+		AgentRoot: workspace,
+		UserRoot:  userRoot,
+		Sandbox: config.SandboxConfig{
+			Backend: config.SandboxBackendDocker,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for docker backend with no docker binary")
+	}
+	if !strings.Contains(err.Error(), "docker") {
+		t.Fatalf("expected error to mention 'docker', got: %v", err)
+	}
+}
+
 // TestRunnerSessionNilHandling tests nil session safety.
 func TestRunnerSessionNilHandling(t *testing.T) {
 	var rs *runnerSession
