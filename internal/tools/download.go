@@ -51,20 +51,41 @@ func DownloadLatest(ctx context.Context, tool *Tool, binDir, platform string) er
 	return DownloadVersion(ctx, tool, latest, binDir, platform)
 }
 
+// binaryHealthy reports whether a binary at path is present and sane:
+// non-empty file that is executable (mode check skipped on Windows).
+func binaryHealthy(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() || info.Size() < 1024 {
+		return false
+	}
+	if runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
+		return false
+	}
+	return true
+}
+
 // DownloadVersion fetches and installs a specific version of a tool.
 // The manifest check and save are serialized via manifestMu so concurrent
 // goroutines cannot clobber each other's entries.
+// Even when the manifest reports the correct version, the binary on disk is
+// verified with binaryHealthy; a missing or corrupt file triggers a re-download.
 func DownloadVersion(ctx context.Context, tool *Tool, version, binDir, platform string) error {
+	targetPath := filepath.Join(binDir, binaryFileName(tool.Name))
+
 	manifestMu.Lock()
 	manifest, err := LoadManifest(binDir)
 	if err != nil {
 		manifestMu.Unlock()
 		return err
 	}
-	if manifest.IsInstalled(tool.Name, version) {
+	if manifest.IsInstalled(tool.Name, version) && binaryHealthy(targetPath) {
 		manifestMu.Unlock()
 		slog.Info("tool already installed", "name", tool.Name, "version", version)
 		return nil
+	}
+	if manifest.IsInstalled(tool.Name, version) {
+		slog.Warn("manifest says installed but binary missing or broken, redownloading",
+			"name", tool.Name, "path", targetPath)
 	}
 	manifestMu.Unlock()
 
@@ -91,10 +112,7 @@ func DownloadVersion(ctx context.Context, tool *Tool, version, binDir, platform 
 		return err
 	}
 
-	binaryName := tool.Name
-	if runtime.GOOS == "windows" {
-		binaryName += ".exe"
-	}
+	binaryName := binaryFileName(tool.Name)
 
 	var extractedPath string
 	if asset.RawBinary {
@@ -106,7 +124,6 @@ func DownloadVersion(ctx context.Context, tool *Tool, version, binDir, platform 
 		}
 	}
 
-	targetPath := filepath.Join(binDir, binaryName)
 	if err := atomicInstall(extractedPath, targetPath); err != nil {
 		return err
 	}
