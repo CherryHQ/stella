@@ -219,6 +219,15 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// ExpireDrafts deprecates all draft skills whose created-at metadata timestamp
+// is before the given cutoff.
+func (s *SQLiteStore) ExpireDrafts(ctx context.Context, before time.Time) error {
+	if err := s.q.DeprecateExpiredDrafts(ctx, before.UTC().Format(time.RFC3339)); err != nil {
+		return fmt.Errorf("skills: expire drafts: %w", err)
+	}
+	return nil
+}
+
 // mapRow converts a sqlc Skill to the domain Skill type.
 func mapRow(r sqlc.Skill) Skill {
 	createdAt, _ := time.Parse("2006-01-02 15:04:05", r.CreatedAt)

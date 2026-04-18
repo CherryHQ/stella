@@ -63,4 +63,8 @@ type Store interface {
 
 	DeleteFile(ctx context.Context, skillID, path string) error
 	Delete(ctx context.Context, id string) error
+
+	// ExpireDrafts deprecates all draft skills whose created-at timestamp is
+	// before the given cutoff.
+	ExpireDrafts(ctx context.Context, before time.Time) error
 }

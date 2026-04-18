@@ -83,6 +83,18 @@ func (q *Queries) DeleteSkillFile(ctx context.Context, arg DeleteSkillFileParams
 	return err
 }
 
+const deprecateExpiredDrafts = `-- name: DeprecateExpiredDrafts :exec
+UPDATE skills
+SET status = 'deprecated', updated_at = datetime('now')
+WHERE status = 'draft'
+  AND json_extract(metadata, '$."created-at"') < ?
+`
+
+func (q *Queries) DeprecateExpiredDrafts(ctx context.Context, metadata string) error {
+	_, err := q.db.ExecContext(ctx, deprecateExpiredDrafts, metadata)
+	return err
+}
+
 const getAgentSkillByName = `-- name: GetAgentSkillByName :one
 SELECT id, scope, user_id, agent_id, project, name, description, status, disable_model_invocation, metadata, created_at, updated_at FROM skills WHERE scope = 'agent' AND agent_id = ? AND name = ?
 `

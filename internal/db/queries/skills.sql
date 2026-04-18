@@ -75,3 +75,9 @@ SELECT * FROM skills WHERE scope = 'user' AND user_id = ? AND name = ?;
 
 -- name: GetProjectSkillByName :one
 SELECT * FROM skills WHERE scope = 'project' AND project = ? AND name = ?;
+
+-- name: DeprecateExpiredDrafts :exec
+UPDATE skills
+SET status = 'deprecated', updated_at = datetime('now')
+WHERE status = 'draft'
+  AND json_extract(metadata, '$."created-at"') < ?;
