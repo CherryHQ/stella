@@ -1335,3 +1335,86 @@ func TestSkillsGetFile(t *testing.T) {
 		t.Errorf("path = %q, want %q", file["path"], "SKILL.md")
 	}
 }
+
+// TestSkillsSearch_Admin verifies the search endpoint enforces auth and validates
+// the q parameter. A real search against skills.sh is NOT tested here — that
+// would require network access and is too fragile for unit tests. Integration /
+// manual QA should cover the happy path.
+func TestSkillsSearch_Admin(t *testing.T) {
+	env := setupAdmin(t)
+
+	// Missing q → 400.
+	rr := doRequest(t, env, "GET", "/api/skills/search", nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("missing q: status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+
+	// Unauthenticated → 401.
+	rr = doUnauthRequest(t, env.srv, "GET", "/api/skills/search?q=react", nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("unauth: status = %d, want %d (body: %s)", rr.Code, http.StatusUnauthorized, rr.Body.String())
+	}
+}
+
+// TestSkillsInstall_Validation checks the install endpoint rejects bad inputs.
+func TestSkillsInstall_Validation(t *testing.T) {
+	env := setupAdmin(t)
+
+	cases := []struct {
+		name string
+		body map[string]any
+	}{
+		{"missing source", map[string]any{"scope": "system"}},
+		{"empty source", map[string]any{"source": "", "scope": "system"}},
+		{"scope=user no user_id", map[string]any{"source": "owner/repo@skill", "scope": "user"}},
+		{"scope=agent no agent_id", map[string]any{"source": "owner/repo@skill", "scope": "agent"}},
+		{"unknown scope", map[string]any{"source": "owner/repo@skill", "scope": "project"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := doRequest(t, env, "POST", "/api/skills/install", tc.body)
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+		})
+	}
+}
+
+// TestSkillsInstall_Unauthorized checks that unauthenticated requests cannot use
+// the install endpoint (401) and authenticated non-admins get 403.
+func TestSkillsInstall_Unauthorized(t *testing.T) {
+	env := setupAdmin(t)
+
+	// No session → 401.
+	rr := doUnauthRequest(t, env.srv, "POST", "/api/skills/install", map[string]any{
+		"source": "owner/repo@skill",
+		"scope":  "system",
+	})
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated: status = %d, want %d (body: %s)", rr.Code, http.StatusUnauthorized, rr.Body.String())
+	}
+
+	// Authenticated non-admin → 403.
+	hash, _ := auth.HashPassword("userpassword")
+	user, err := env.authStore.CreateUser(context.Background(), "regularuser-install", hash)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	sessionID := auth.NewSessionID()
+	_, err = env.authStore.CreateSession(context.Background(), auth.Session{
+		ID:        sessionID,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(auth.SessionDuration),
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	rr = doRequestWithSession(t, env.srv, sessionID, "POST", "/api/skills/install", map[string]any{
+		"source": "owner/repo@skill",
+		"scope":  "system",
+	})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("non-admin: status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
+	}
+}

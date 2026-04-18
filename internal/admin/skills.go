@@ -1,11 +1,17 @@
 package admin
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
+	"strconv"
+	"time"
 
+	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/skills"
+	skillstool "github.com/vaayne/anna/plugins/tools/skills"
+	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
 
 // skillView is the JSON representation of a skill returned to the admin UI.
@@ -219,6 +225,89 @@ func (s *Server) deleteSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeData(w, http.StatusOK, map[string]string{"id": id})
+}
+
+// searchSkills handles GET /api/skills/search?q=<query>&limit=<n>.
+// It queries mcphub for skills matching the query. Errors from the upstream
+// search API are returned as 502 (bad gateway) since they are not our fault.
+func (s *Server) searchSkills(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		writeError(w, http.StatusBadRequest, "q is required")
+		return
+	}
+	limit := 10
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	results, err := mcpskills.Search(ctx, q, limit)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, results)
+}
+
+// installSkillRequest is the body for POST /api/skills/install.
+type installSkillRequest struct {
+	Source  string `json:"source"`
+	Scope   string `json:"scope"`
+	UserID  int64  `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+// installSkill handles POST /api/skills/install.
+// It delegates to skillstool.InstallToStore to fetch and store the skill.
+// "Actually install from a real GitHub repo" is integration-level and should be
+// tested manually — unit tests cover only validation and auth.
+func (s *Server) installSkill(w http.ResponseWriter, r *http.Request) {
+	store := s.skillStore()
+	if store == nil {
+		writeError(w, http.StatusServiceUnavailable, "skills store not available")
+		return
+	}
+	var req installSkillRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if req.Source == "" {
+		writeError(w, http.StatusBadRequest, "source is required")
+		return
+	}
+	switch req.Scope {
+	case "user":
+		if req.UserID == 0 {
+			writeError(w, http.StatusBadRequest, "user_id is required for scope=user")
+			return
+		}
+	case "agent":
+		if req.AgentID == "" {
+			writeError(w, http.StatusBadRequest, "agent_id is required for scope=agent")
+			return
+		}
+	case "system":
+		// no owner field required
+	default:
+		writeError(w, http.StatusBadRequest, "scope must be one of: system, agent, user")
+		return
+	}
+
+	name, err := skillstool.InstallToStore(r.Context(), pluginhost.NewSkillStoreAdapter(store), req.Source, req.Scope, req.UserID, req.AgentID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusCreated, map[string]string{"name": name})
 }
 
 func skillToView(sk skills.Skill, files []string) skillView {

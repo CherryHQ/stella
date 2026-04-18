@@ -162,9 +162,11 @@ func (s *Server) registerSkillRoutes() {
 		return s.adminOnlyMiddleware(handler)
 	}
 	s.mux.Handle("GET /api/skills", adminAPI(s.listSkills))
+	s.mux.Handle("GET /api/skills/search", adminAPI(s.searchSkills))
 	s.mux.Handle("GET /api/skills/{id}", adminAPI(s.getSkill))
 	s.mux.Handle("GET /api/skills/{id}/file", adminAPI(s.getSkillFile))
 	s.mux.Handle("POST /api/skills", adminAPI(s.createSkill))
+	s.mux.Handle("POST /api/skills/install", adminAPI(s.installSkill))
 	s.mux.Handle("PUT /api/skills/{id}", adminAPI(s.updateSkill))
 	s.mux.Handle("DELETE /api/skills/{id}", adminAPI(s.deleteSkill))
 }

@@ -12,23 +12,26 @@ export function register(Alpine) {
     saving: false,
     fileLoading: false,
     selected: null,
-    mode: 'empty', // 'empty' | 'detail' | 'new'
     draft: {
       description: '',
       status: 'active',
       disable_model_invocation: false,
       skill_md: '',
     },
-    form: {
-      name: '',
-      scope: 'system',
-      user_id: 0,
-      agent_id: '',
-      description: '',
-      status: 'active',
-      disable_model_invocation: false,
-      skill_md: '',
-    },
+
+    // Install modal state.
+    installModalOpen: false,
+    installStage: 'search', // 'search' | 'config'
+    searchQuery: '',
+    searchResults: [],
+    searching: false,
+    installSource: '',
+    installScope: 'system',
+    installUserID: 0,
+    installAgentID: '',
+    installing: false,
+    installAgents: [],
+    installUsers: [],
 
     async init() {
       await this.loadSkills()
@@ -50,7 +53,6 @@ export function register(Alpine) {
     },
 
     async selectSkill(sk) {
-      this.mode = 'detail'
       this.selected = sk
       this.draft = {
         description: sk.description || '',
@@ -66,61 +68,6 @@ export function register(Alpine) {
         this.draft.skill_md = ''
       } finally {
         this.fileLoading = false
-      }
-    },
-
-    openNew() {
-      this.mode = 'new'
-      this.selected = null
-      this.form = {
-        name: '',
-        scope: 'system',
-        user_id: 0,
-        agent_id: '',
-        description: '',
-        status: 'active',
-        disable_model_invocation: false,
-        skill_md: '',
-      }
-    },
-
-    cancelNew() {
-      this.mode = this.selected ? 'detail' : 'empty'
-    },
-
-    async createSkill() {
-      if (!this.form.name.trim()) {
-        this.$store.toast.show('Name is required', 'error')
-        return
-      }
-      this.saving = true
-      try {
-        const body = {
-          name: this.form.name.trim(),
-          scope: this.form.scope,
-          description: this.form.description,
-          status: this.form.status,
-          disable_model_invocation: this.form.disable_model_invocation,
-          files: { 'SKILL.md': this.form.skill_md },
-        }
-        if (this.form.scope === 'agent') {
-          body.agent_id = this.form.agent_id
-        } else if (this.form.scope === 'user') {
-          body.user_id = Number(this.form.user_id)
-        }
-        const res = await api('POST', '/api/skills', body)
-        this.$store.toast.show('Skill created')
-        await this.loadSkills()
-        const created = this.skills.find(s => s.id === res.id)
-        if (created) {
-          await this.selectSkill(created)
-        } else {
-          this.mode = 'empty'
-        }
-      } catch (e) {
-        this.$store.toast.show(e.message, 'error')
-      } finally {
-        this.saving = false
       }
     },
 
@@ -160,10 +107,78 @@ export function register(Alpine) {
         await api('DELETE', '/api/skills/' + this.selected.id)
         this.$store.toast.show('Skill deleted')
         this.selected = null
-        this.mode = 'empty'
         await this.loadSkills()
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    // --- Install modal ---
+
+    async openInstallModal() {
+      this.installModalOpen = true
+      this.installStage = 'search'
+      this.searchQuery = ''
+      this.searchResults = []
+      this.searching = false
+      this.installSource = ''
+      this.installScope = 'system'
+      this.installUserID = 0
+      this.installAgentID = ''
+      this.installing = false
+      // Fetch agents and users in parallel; silently ignore errors.
+      const [agents, users] = await Promise.allSettled([
+        api('GET', '/api/agents'),
+        api('GET', '/api/auth/users'),
+      ])
+      this.installAgents = agents.status === 'fulfilled' ? (agents.value || []) : []
+      this.installUsers = users.status === 'fulfilled' ? (users.value || []) : []
+    },
+
+    async doSearch() {
+      const q = this.searchQuery.trim()
+      if (!q) {
+        this.searchResults = []
+        return
+      }
+      this.searching = true
+      try {
+        const results = await api('GET', '/api/skills/search?q=' + encodeURIComponent(q) + '&limit=20')
+        this.searchResults = results || []
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+        this.searchResults = []
+      } finally {
+        this.searching = false
+      }
+    },
+
+    pickSkill(s) {
+      this.installSource = s.source + '@' + s.skillId
+      this.installStage = 'config'
+    },
+
+    async doInstall() {
+      if (this.installing) return
+      const body = {
+        source: this.installSource,
+        scope: this.installScope,
+      }
+      if (this.installScope === 'user') {
+        body.user_id = Number(this.installUserID)
+      } else if (this.installScope === 'agent') {
+        body.agent_id = this.installAgentID
+      }
+      this.installing = true
+      try {
+        const res = await api('POST', '/api/skills/install', body)
+        this.$store.toast.show('Installed: ' + (res?.name || 'skill'))
+        this.installModalOpen = false
+        await this.loadSkills()
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.installing = false
       }
     },
   }))
