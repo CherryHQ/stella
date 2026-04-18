@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -37,8 +38,8 @@ var skillsInputSchema = func() map[string]any {
     },
     "scope": {
       "type": "string",
-      "enum": ["user", "project"],
-      "description": "Writable scope for install/remove/create/patch/deprecate. Defaults to 'user' (UserRoot/.agents/skills). Set to 'project' to target ProjectRoot/.agents/skills."
+      "enum": ["user", "agent"],
+      "description": "Writable scope for install/remove/create/patch/deprecate. Defaults to 'user'. Set to 'agent' to target the current agent scope. Project skills are read-only (they live in {PROJECT_ROOT}/.agents/skills and come with the repo)."
     },
     "name": {
       "type": "string",
@@ -88,40 +89,57 @@ func NewTool(store pkgplugins.SkillStore, annaHome, agentRoot, projectRoot, user
 }
 
 const (
-	skillScopeUser    = "user"
-	skillScopeProject = "project"
+	skillScopeUser  = "user"
+	skillScopeAgent = "agent"
 )
+
+// errProjectScopeWriteRejected is the error returned when a write action is attempted on project scope.
+const errProjectScopeMsg = "scope=project is not supported for write operations — project skills live in {PROJECT_ROOT}/.agents/skills and come with the repo; edit the files directly in git"
 
 func normalizeSkillScope(scope string) (string, error) {
 	scope = filepath.Clean(scope)
 	switch scope {
 	case "", ".", skillScopeUser:
 		return skillScopeUser, nil
-	case skillScopeProject:
-		return skillScopeProject, nil
+	case skillScopeAgent:
+		return skillScopeAgent, nil
+	case "project":
+		return "", errors.New(errProjectScopeMsg)
 	default:
-		return "", fmt.Errorf("invalid scope %q, expected user or project", scope)
+		return "", fmt.Errorf("invalid scope %q, expected user or agent", scope)
 	}
 }
 
-func (t *Tool) targetSkillsDir(ctx context.Context, rawScope string) (string, string, error) {
+func (t *Tool) targetScope(ctx context.Context, rawScope string) (string, error) {
 	scope, err := normalizeSkillScope(rawScope)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-
 	switch scope {
 	case skillScopeUser:
 		if t.userSkillsDir == "" {
-			return "", "", fmt.Errorf("user skill scope is unavailable")
+			return "", fmt.Errorf("user skill scope is unavailable")
 		}
+		return scope, nil
+	case skillScopeAgent:
+		return scope, nil
+	default:
+		return "", fmt.Errorf("unsupported scope %q", scope)
+	}
+}
+
+// targetSkillsDir returns the scope and skill directory for a writable scope.
+// Kept for backward compatibility; most callers only need the scope now.
+func (t *Tool) targetSkillsDir(ctx context.Context, rawScope string) (string, string, error) {
+	scope, err := t.targetScope(ctx, rawScope)
+	if err != nil {
+		return "", "", err
+	}
+	switch scope {
+	case skillScopeUser:
 		return scope, t.userSkillsDir, nil
-	case skillScopeProject:
-		projectRoot := projectRootFromContext(ctx, t.projectRoot)
-		if projectRoot == "" {
-			return "", "", fmt.Errorf("project skill scope requested but ProjectRoot is unavailable")
-		}
-		return scope, filepath.Join(projectRoot, ".agents", "skills"), nil
+	case skillScopeAgent:
+		return scope, filepath.Join(t.agentRoot, ".agents", "skills"), nil
 	default:
 		return "", "", fmt.Errorf("unsupported scope %q", scope)
 	}
@@ -132,14 +150,13 @@ func (t *Tool) viewContext(ctx context.Context) pkgplugins.SkillViewContext {
 	return pkgplugins.SkillViewContext{
 		UserID:  memory.UserIDFromContext(ctx),
 		AgentID: memory.AgentIDFromContext(ctx),
-		Project: projectRootFromContext(ctx, t.projectRoot),
 	}
 }
 
 func pkgskillsToolDefinition() tools.Definition {
 	return tools.Definition{
 		Name:        "skills",
-		Description: "Manage agent skills. Use 'load' to read a skill by name, 'search' to find skills from the ecosystem, 'install' to add a skill (defaults to scope=user; set scope=project for ProjectRoot), 'list' to see installed skills, 'remove' to delete one, 'create' to create a new skill (draft), 'patch' to update fields, 'deprecate' to mark as deprecated.",
+		Description: "Manage agent skills. Use 'load' to read a skill by name (includes project skills from {PROJECT_ROOT}/.agents/skills), 'search' to find skills from the ecosystem, 'install' to add a skill (scope=user by default, or scope=agent), 'list' to see installed skills (includes project skills from the repo), 'remove' to delete one, 'create' to create a new skill (draft), 'patch' to update fields, 'deprecate' to mark as deprecated. Project skills come with the repo and are read-only — edit their files in git directly.",
 		InputSchema: skillsInputSchema,
 	}
 }
@@ -183,6 +200,21 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 		path = pkgplugins.SkillMainFile
 	}
 
+	// Check project skills (filesystem) first.
+	projectRoot := projectRootFromContext(ctx, t.projectRoot)
+	if projectRoot != "" {
+		_, dirs, err := ListProjectSkills(projectRoot)
+		if err == nil {
+			if skillDir, ok := dirs[name]; ok {
+				data, err := loadProjectSkillFile(skillDir, path)
+				if err != nil {
+					return "", fmt.Errorf("load project skill %q file %q: %w", name, path, err)
+				}
+				return fmt.Sprintf("<skill_content name=%q path=%q>\n%s\n</skill_content>", name, path, data), nil
+			}
+		}
+	}
+
 	if t.store == nil {
 		return "", fmt.Errorf("skills store unavailable")
 	}
@@ -217,23 +249,50 @@ func (t *Tool) list(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("skills store unavailable")
 	}
 	vc := t.viewContext(ctx)
-	all, err := t.store.List(ctx, vc)
+	dbSkills, err := t.store.List(ctx, vc)
 	if err != nil {
 		return "", fmt.Errorf("list skills: %w", err)
 	}
-	if len(all) == 0 {
-		return "No skills installed.", nil
+
+	// Collect project skills from filesystem (project > user > agent > system precedence in presentation).
+	projectRoot := projectRootFromContext(ctx, t.projectRoot)
+	projSkills, _, _ := ListProjectSkills(projectRoot)
+
+	// Deduplicate: project skills shadow same-named DB skills.
+	projNames := make(map[string]bool, len(projSkills))
+	for _, s := range projSkills {
+		projNames[s.Name] = true
 	}
 
-	results := make([]installedSkill, 0, len(all))
-	for _, s := range all {
+	results := make([]installedSkill, 0, len(projSkills)+len(dbSkills))
+
+	// Project skills first (highest precedence when presenting to agent).
+	for _, s := range projSkills {
+		results = append(results, installedSkill{
+			Name:        s.Name,
+			Description: s.Description,
+			Status:      s.Status,
+			Scope:       "project",
+			Removable:   false,
+		})
+	}
+
+	// DB skills, skipping names already covered by project skills.
+	for _, s := range dbSkills {
+		if projNames[s.Name] {
+			continue
+		}
 		results = append(results, installedSkill{
 			Name:        s.Name,
 			Description: s.Description,
 			Status:      s.Status,
 			Scope:       s.Scope,
-			Removable:   s.Scope == "user" || s.Scope == "project",
+			Removable:   s.Scope == "user" || s.Scope == "agent",
 		})
+	}
+
+	if len(results) == 0 {
+		return "No skills installed.", nil
 	}
 
 	out, _ := json.MarshalIndent(results, "", "  ")
@@ -254,7 +313,7 @@ func (t *Tool) create(ctx context.Context, args map[string]any) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	scope, _, err := t.targetSkillsDir(ctx, rawScope)
+	scope, err := t.targetScope(ctx, rawScope)
 	if err != nil {
 		return "", err
 	}
@@ -284,8 +343,8 @@ func (t *Tool) create(ctx context.Context, args map[string]any) (string, error) 
 	switch scope {
 	case "user":
 		sk.UserID = vc.UserID
-	case "project":
-		sk.Project = vc.Project
+	case "agent":
+		sk.AgentID = vc.AgentID
 	}
 
 	files := map[string]string{pkgplugins.SkillMainFile: mainContent}
@@ -388,8 +447,11 @@ func (t *Tool) remove(ctx context.Context, args map[string]any) (string, error) 
 		return "", fmt.Errorf("skill %q not found", name)
 	}
 
-	if s.Scope != "user" && s.Scope != "project" {
-		return "", fmt.Errorf("skill %q has scope %q; only user/project-scoped skills can be removed", name, s.Scope)
+	if s.Scope == "project" {
+		return "", fmt.Errorf("skill %q is a project skill — %s", name, errProjectScopeMsg)
+	}
+	if s.Scope != "user" && s.Scope != "agent" {
+		return "", fmt.Errorf("skill %q has scope %q; only user/agent-scoped skills can be removed", name, s.Scope)
 	}
 
 	if err := t.store.Delete(ctx, s.ID); err != nil {

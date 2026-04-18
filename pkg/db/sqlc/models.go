@@ -235,7 +235,6 @@ type Skill struct {
 	Scope                  string         `json:"scope"`
 	UserID                 sql.NullInt64  `json:"user_id"`
 	AgentID                sql.NullString `json:"agent_id"`
-	Project                sql.NullString `json:"project"`
 	Name                   string         `json:"name"`
 	Description            string         `json:"description"`
 	Status                 string         `json:"status"`

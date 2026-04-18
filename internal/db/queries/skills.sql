@@ -1,6 +1,6 @@
 -- name: CreateSkill :one
-INSERT INTO skills (id, scope, user_id, agent_id, project, name, description, status, disable_model_invocation, metadata)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO skills (id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetSkill :one
@@ -14,7 +14,6 @@ WHERE status != 'deprecated'
     scope = 'system'
     OR (scope = 'agent'   AND agent_id = ?)
     OR (scope = 'user'    AND user_id  = ?)
-    OR (scope = 'project' AND project  = ?)
   )
 ORDER BY created_at;
 
@@ -27,14 +26,12 @@ WHERE name = ?
     scope = 'system'
     OR (scope = 'agent'   AND agent_id = ?)
     OR (scope = 'user'    AND user_id  = ?)
-    OR (scope = 'project' AND project  = ?)
   )
 ORDER BY
   CASE scope
-    WHEN 'project' THEN 1
-    WHEN 'user'    THEN 2
-    WHEN 'agent'   THEN 3
-    WHEN 'system'  THEN 4
+    WHEN 'user'   THEN 1
+    WHEN 'agent'  THEN 2
+    WHEN 'system' THEN 3
   END ASC
 LIMIT 1;
 
@@ -72,9 +69,6 @@ SELECT * FROM skills WHERE scope = 'agent' AND agent_id = ? AND name = ?;
 
 -- name: GetUserSkillByName :one
 SELECT * FROM skills WHERE scope = 'user' AND user_id = ? AND name = ?;
-
--- name: GetProjectSkillByName :one
-SELECT * FROM skills WHERE scope = 'project' AND project = ? AND name = ?;
 
 -- name: DeprecateExpiredDrafts :exec
 UPDATE skills

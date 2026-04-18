@@ -14,7 +14,6 @@ type skillView struct {
 	Scope                  string   `json:"scope"`
 	UserID                 int64    `json:"user_id,omitempty"`
 	AgentID                string   `json:"agent_id,omitempty"`
-	Project                string   `json:"project,omitempty"`
 	Name                   string   `json:"name"`
 	Description            string   `json:"description"`
 	Status                 string   `json:"status"`
@@ -105,7 +104,6 @@ type createSkillRequest struct {
 	Scope                  string            `json:"scope"`
 	UserID                 int64             `json:"user_id"`
 	AgentID                string            `json:"agent_id"`
-	Project                string            `json:"project"`
 	Name                   string            `json:"name"`
 	Description            string            `json:"description"`
 	Status                 string            `json:"status"`
@@ -148,15 +146,10 @@ func (s *Server) createSkill(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "agent_id is required for scope=agent")
 			return
 		}
-	case "project":
-		if req.Project == "" {
-			writeError(w, http.StatusBadRequest, "project is required for scope=project")
-			return
-		}
 	case "system":
 		// no owner field required
 	default:
-		writeError(w, http.StatusBadRequest, "scope must be one of: system, agent, user, project")
+		writeError(w, http.StatusBadRequest, "scope must be one of: system, agent, user")
 		return
 	}
 
@@ -164,7 +157,6 @@ func (s *Server) createSkill(w http.ResponseWriter, r *http.Request) {
 		Scope:                  req.Scope,
 		UserID:                 req.UserID,
 		AgentID:                req.AgentID,
-		Project:                req.Project,
 		Name:                   req.Name,
 		Description:            req.Description,
 		Status:                 req.Status,
@@ -238,7 +230,6 @@ func skillToView(sk skills.Skill, files []string) skillView {
 		Scope:                  sk.Scope,
 		UserID:                 sk.UserID,
 		AgentID:                sk.AgentID,
-		Project:                sk.Project,
 		Name:                   sk.Name,
 		Description:            sk.Description,
 		Status:                 sk.Status,

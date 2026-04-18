@@ -19,13 +19,27 @@ func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContex
 	vc := pkgplugins.SkillViewContext{
 		UserID:  build.UserID,
 		AgentID: build.AgentID,
-		Project: build.ProjectRoot,
 	}
 
-	all, err := store.List(ctx, vc)
+	dbSkills, err := store.List(ctx, vc)
 	if err != nil {
 		return pkgplugins.SystemPromptSection{}, err
 	}
+
+	// Merge project skills from filesystem (project > user > agent > system precedence).
+	projSkills, _, _ := ListProjectSkills(build.ProjectRoot)
+	projNames := make(map[string]bool, len(projSkills))
+	for _, s := range projSkills {
+		projNames[s.Name] = true
+	}
+	all := make([]pkgplugins.Skill, 0, len(projSkills)+len(dbSkills))
+	all = append(all, projSkills...)
+	for _, s := range dbSkills {
+		if !projNames[s.Name] {
+			all = append(all, s)
+		}
+	}
+
 	if len(all) == 0 {
 		return pkgplugins.SystemPromptSection{}, nil
 	}

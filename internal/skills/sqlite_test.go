@@ -131,7 +131,6 @@ func TestResolvePrecedence(t *testing.T) {
 	userID, agentID := seedFixtures(t, db)
 	ctx := context.Background()
 
-	project := "/myproject"
 	mainFile := map[string]string{MainFile: "body"}
 
 	// Insert one skill at each scope, all named "foo".
@@ -147,30 +146,13 @@ func TestResolvePrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	projSkID, err := store.Create(ctx, Skill{Scope: "project", Project: project, Name: "foo", Description: "proj"}, mainFile)
-	if err != nil {
-		t.Fatalf("create project: %v", err)
-	}
 
-	vc := ViewContext{UserID: userID, AgentID: agentID, Project: project}
+	vc := ViewContext{UserID: userID, AgentID: agentID}
 
-	t.Run("project wins", func(t *testing.T) {
+	t.Run("user wins over agent and system", func(t *testing.T) {
 		sk, err := store.Resolve(ctx, "foo", vc)
 		if err != nil || sk == nil {
 			t.Fatalf("Resolve: %v (sk=%v)", err, sk)
-		}
-		if sk.ID != projSkID {
-			t.Errorf("got %s (%s), want project %s", sk.ID, sk.Scope, projSkID)
-		}
-	})
-
-	t.Run("user wins after project deleted", func(t *testing.T) {
-		if err := store.Delete(ctx, projSkID); err != nil {
-			t.Fatalf("Delete project: %v", err)
-		}
-		sk, err := store.Resolve(ctx, "foo", vc)
-		if err != nil || sk == nil {
-			t.Fatalf("Resolve: %v", err)
 		}
 		if sk.ID != userSkID {
 			t.Errorf("got %s (%s), want user %s", sk.ID, sk.Scope, userSkID)

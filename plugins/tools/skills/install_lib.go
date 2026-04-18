@@ -16,10 +16,10 @@ import (
 )
 
 // InstallToStore fetches a skill from source and stores it in the given SkillStore.
-// scope must be one of "user", "project", or "agent".
-// For scope="user", userID is used; for scope="project", project is used.
+// scope must be one of "user" or "agent".
+// For scope="user", userID is used; for scope="agent", agentID is used.
 // Returns the installed skill name on success.
-func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, scope string, userID int64, project string) (string, error) {
+func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, scope string, userID int64, agentID string) (string, error) {
 	skillName, files, cleanup, err := FetchSkillFiles(ctx, source)
 	if err != nil {
 		return "", err
@@ -59,8 +59,8 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 	switch scope {
 	case "user":
 		sk.UserID = userID
-	case "project":
-		sk.Project = project
+	case "agent":
+		sk.AgentID = agentID
 	}
 
 	if _, err := store.Create(ctx, sk, files); err != nil {

@@ -4,7 +4,7 @@ import "github.com/vaayne/anna/internal/admin/ui"
 
 templ SkillsPage() {
 	<div x-data="skillsPage()">
-		@ui.PageHeader("Skills", "Manage system, agent, user, and project skills.")
+		@ui.PageHeader("Skills", "Manage system, agent, and user skills.")
 		<div class="flex gap-6 min-h-0">
 			<!-- Left: skill list -->
 			<div class="w-72 shrink-0 flex flex-col gap-2">
@@ -13,7 +13,7 @@ templ SkillsPage() {
 					<button @click="openNew()" class="btn btn-primary btn-xs">New skill</button>
 				</div>
 				<div class="border border-base-300 rounded-lg overflow-y-auto max-h-[calc(100vh-220px)]">
-					<template x-for="scope in ['system','agent','user','project']" :key="scope">
+					<template x-for="scope in ['system','agent','user']" :key="scope">
 						<template x-if="skillsByScope(scope).length > 0">
 							<div>
 								<div class="px-3 py-2 text-[11px] uppercase tracking-wide text-secondary bg-base-200/60 border-b border-base-300 font-medium" x-text="scope"></div>
@@ -69,11 +69,10 @@ templ SkillsPage() {
 							</div>
 							<div class="space-y-1">
 								<label class="text-xs font-medium text-secondary">Scope</label>
-								<select x-model="form.scope" @change="form.user_id=0; form.agent_id=''; form.project=''" class="select select-bordered select-sm w-full">
+								<select x-model="form.scope" @change="form.user_id=0; form.agent_id=''" class="select select-bordered select-sm w-full">
 									<option value="system">system</option>
 									<option value="agent">agent</option>
 									<option value="user">user</option>
-									<option value="project">project</option>
 								</select>
 							</div>
 							<template x-if="form.scope === 'agent'">
@@ -86,12 +85,6 @@ templ SkillsPage() {
 								<div class="space-y-1">
 									<label class="text-xs font-medium text-secondary">User ID</label>
 									<input x-model.number="form.user_id" type="number" placeholder="1" class="input input-bordered input-sm w-full" />
-								</div>
-							</template>
-							<template x-if="form.scope === 'project'">
-								<div class="space-y-1">
-									<label class="text-xs font-medium text-secondary">Project</label>
-									<input x-model="form.project" type="text" placeholder="my-project" class="input input-bordered input-sm w-full" />
 								</div>
 							</template>
 							<div class="space-y-1 sm:col-span-2">

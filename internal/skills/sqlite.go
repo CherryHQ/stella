@@ -28,7 +28,6 @@ func (s *SQLiteStore) List(ctx context.Context, vc ViewContext) ([]Skill, error)
 	rows, err := s.q.ListSkillsVisible(ctx, sqlc.ListSkillsVisibleParams{
 		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
 		UserID:  sql.NullInt64{Int64: vc.UserID, Valid: vc.UserID != 0},
-		Project: sql.NullString{String: vc.Project, Valid: vc.Project != ""},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("skills: list: %w", err)
@@ -72,7 +71,6 @@ func (s *SQLiteStore) Resolve(ctx context.Context, name string, vc ViewContext) 
 		Name:    name,
 		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
 		UserID:  sql.NullInt64{Int64: vc.UserID, Valid: vc.UserID != 0},
-		Project: sql.NullString{String: vc.Project, Valid: vc.Project != ""},
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -139,8 +137,6 @@ func (s *SQLiteStore) Create(ctx context.Context, sk Skill, files map[string]str
 		params.UserID = sql.NullInt64{Int64: sk.UserID, Valid: true}
 	case "agent":
 		params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
-	case "project":
-		params.Project = sql.NullString{String: sk.Project, Valid: true}
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -269,7 +265,6 @@ func mapRow(r sqlc.Skill) Skill {
 		Scope:                  r.Scope,
 		UserID:                 r.UserID.Int64,
 		AgentID:                r.AgentID.String,
-		Project:                r.Project.String,
 		Name:                   r.Name,
 		Description:            r.Description,
 		Status:                 r.Status,

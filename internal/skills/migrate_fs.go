@@ -22,12 +22,10 @@ type MigrateFSConfig struct {
 	AnnaHome      string
 	AgentRoot     string
 	UserRoot      string
-	ProjectRoot   string
 	UserSkillsDir string
 	// Owner fields used when creating scoped rows.
 	UserID  int64
 	AgentID string
-	Project string // defaults to ProjectRoot if empty
 }
 
 // MigrateFSResult contains counts for a MigrateFilesystem run.
@@ -92,16 +90,10 @@ func MigrateFilesystem(ctx context.Context, store *SQLiteStore, cfg MigrateFSCon
 			return result, fmt.Errorf("migrate_fs: marshal metadata %q: %w", cs.Name, err)
 		}
 
-		project := cfg.Project
-		if project == "" && scope == "project" {
-			project = cfg.ProjectRoot
-		}
-
 		sk := Skill{
 			Scope:                  scope,
 			UserID:                 cfg.UserID,
 			AgentID:                cfg.AgentID,
-			Project:                project,
 			Name:                   cs.Name,
 			Description:            cs.Description,
 			Status:                 cs.Status,
@@ -119,7 +111,8 @@ func MigrateFilesystem(ctx context.Context, store *SQLiteStore, cfg MigrateFSCon
 }
 
 // loadFSSkills discovers skills from the filesystem in increasing priority order:
-// agent -> user -> project. Builtin (anna source) is intentionally excluded here.
+// agent -> user. Builtin (anna source) and project skills are intentionally excluded here.
+// Project skills are filesystem-only and do not get migrated to the DB.
 func loadFSSkills(cfg MigrateFSConfig) []migrateLoadedSkill {
 	indexByName := map[string]int{}
 	var loaded []migrateLoadedSkill
@@ -155,10 +148,6 @@ func loadFSSkills(cfg MigrateFSConfig) []migrateLoadedSkill {
 	}
 	if userSkillsDir != "" {
 		addDir(userSkillsDir, "user")
-	}
-
-	if cfg.ProjectRoot != "" {
-		addDir(filepath.Join(cfg.ProjectRoot, ".agents", "skills"), "project")
 	}
 
 	return loaded
@@ -228,8 +217,6 @@ func sourceToScope(source string) (string, error) {
 		return "agent", nil
 	case "user":
 		return "user", nil
-	case "project":
-		return "project", nil
 	default:
 		return "", fmt.Errorf("unknown source %q", source)
 	}
@@ -249,15 +236,6 @@ func skillExistsInDB(ctx context.Context, q *sqlc.Queries, scope, name string, c
 		_, err = q.GetUserSkillByName(ctx, sqlc.GetUserSkillByNameParams{
 			UserID: sql.NullInt64{Int64: cfg.UserID, Valid: cfg.UserID != 0},
 			Name:   name,
-		})
-	case "project":
-		project := cfg.Project
-		if project == "" {
-			project = cfg.ProjectRoot
-		}
-		_, err = q.GetProjectSkillByName(ctx, sqlc.GetProjectSkillByNameParams{
-			Project: sql.NullString{String: project, Valid: project != ""},
-			Name:    name,
 		})
 	default:
 		return false, fmt.Errorf("unsupported scope %q", scope)

@@ -1,9 +1,8 @@
 CREATE TABLE skills (
     id          TEXT PRIMARY KEY,
-    scope       TEXT NOT NULL CHECK (scope IN ('system','agent','user','project')),
+    scope       TEXT NOT NULL CHECK (scope IN ('system','agent','user')),
     user_id     INTEGER REFERENCES auth_users(id) ON DELETE CASCADE,
     agent_id    TEXT    REFERENCES settings_agents(id) ON DELETE CASCADE,
-    project     TEXT,
     name        TEXT NOT NULL,
     description TEXT NOT NULL,
     status      TEXT NOT NULL DEFAULT 'active'
@@ -14,15 +13,14 @@ CREATE TABLE skills (
     updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
 
     CHECK (
-        (scope='system'  AND user_id IS NULL     AND agent_id IS NULL     AND project IS NULL) OR
-        (scope='agent'   AND user_id IS NULL     AND agent_id IS NOT NULL AND project IS NULL) OR
-        (scope='user'    AND user_id IS NOT NULL AND agent_id IS NULL     AND project IS NULL) OR
-        (scope='project' AND user_id IS NULL     AND agent_id IS NULL     AND project IS NOT NULL)
+        (scope='system'  AND user_id IS NULL     AND agent_id IS NULL) OR
+        (scope='agent'   AND user_id IS NULL     AND agent_id IS NOT NULL) OR
+        (scope='user'    AND user_id IS NOT NULL AND agent_id IS NULL)
     )
 );
 
 CREATE UNIQUE INDEX idx_skills_owner_name
-    ON skills (name, scope, ifnull(user_id, 0), ifnull(agent_id, ''), ifnull(project, ''));
+    ON skills (name, scope, ifnull(user_id, 0), ifnull(agent_id, ''));
 
 CREATE INDEX idx_skills_visibility
-    ON skills (scope, user_id, agent_id, project);
+    ON skills (scope, user_id, agent_id);

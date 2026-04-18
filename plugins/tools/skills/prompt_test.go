@@ -3,6 +3,8 @@ package skills
 import (
 	"context"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -26,23 +28,23 @@ func (p *skillStorePlatform) ReflectPlatform() pkgplugins.ReflectPlatform { retu
 func (p *skillStorePlatform) SkillStore() pkgplugins.SkillStore           { return p.store }
 
 func TestBuildPromptSectionIncludesVisibleSkills(t *testing.T) {
-	store, userID, _, projectRoot := newTestSkillStore(t)
+	store, userID, _ := newTestSkillStore(t)
 	ctx := context.Background()
 
-	// Seed a project-scoped skill
-	_, err := store.Create(ctx, pkgplugins.Skill{
-		Scope:       "project",
-		Project:     projectRoot,
-		Name:        "project-skill",
-		Description: "Project skill",
-		Status:      "active",
-	}, map[string]string{pkgplugins.SkillMainFile: "# Project Skill"})
-	if err != nil {
-		t.Fatalf("create project skill: %v", err)
+	// Seed a project skill on disk (project skills are now FS-only).
+	projectRoot := t.TempDir()
+	projSkillDir := filepath.Join(projectRoot, ".agents", "skills", "project-skill")
+	if err := os.MkdirAll(projSkillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projSkillDir, "SKILL.md"),
+		[]byte("---\nname: project-skill\ndescription: Project skill\nstatus: active\n---\n# Project Skill\n"),
+		0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	// Seed a user-scoped skill (draft — should still appear since ListSkillsVisible only filters deprecated)
-	_, err = store.Create(ctx, pkgplugins.Skill{
+	_, err := store.Create(ctx, pkgplugins.Skill{
 		Scope:       "user",
 		UserID:      userID,
 		Name:        "user-skill",
@@ -54,8 +56,6 @@ func TestBuildPromptSectionIncludesVisibleSkills(t *testing.T) {
 	}
 
 	// Seed a deprecated skill — should NOT appear (filtered by ListSkillsVisible).
-	// Note: we use Update to deprecate after creation since Create with deprecated
-	// would still succeed but List won't return it.
 	deprecatedID, err := store.Create(ctx, pkgplugins.Skill{
 		Scope:       "user",
 		UserID:      userID,
@@ -96,13 +96,12 @@ func TestBuildPromptSectionIncludesVisibleSkills(t *testing.T) {
 }
 
 func TestBuildPromptSectionOmitsEmptySkillList(t *testing.T) {
-	store, userID, _, projectRoot := newTestSkillStore(t)
-	// Empty store — no skills.
+	store, userID, _ := newTestSkillStore(t)
+	// Empty store and no project skills.
 	platform := &skillStorePlatform{store: store}
 	section, err := BuildPromptSection(context.Background(), pkgplugins.SystemPromptContext{
-		Platform:    platform,
-		UserID:      userID,
-		ProjectRoot: projectRoot,
+		Platform: platform,
+		UserID:   userID,
 	})
 	if err != nil {
 		t.Fatal(err)

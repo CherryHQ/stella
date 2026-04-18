@@ -119,10 +119,9 @@ func skillsInstallCommand() *ucli.Command {
 			}
 			defer closeDB()
 
-			cwd, _ := os.Getwd()
 			fmt.Fprintf(os.Stderr, "Installing from %s into user scope (user=%d)...\n", source, cliSkillsUserID)
 
-			name, err := skillstool.InstallToStore(c.Context, skillStore, source, "user", cliSkillsUserID, cwd)
+			name, err := skillstool.InstallToStore(c.Context, skillStore, source, "user", cliSkillsUserID, "")
 			if err != nil {
 				return err
 			}
@@ -224,12 +223,32 @@ func loadInstalledSkills(ctx context.Context) ([]pkgplugins.Skill, error) {
 	}
 	defer closeDB()
 
-	cwd, _ := os.Getwd()
 	vc := pkgplugins.SkillViewContext{
-		UserID:  cliSkillsUserID,
-		Project: cwd,
+		UserID: cliSkillsUserID,
 	}
-	return skillStore.List(ctx, vc)
+	dbSkills, err := skillStore.List(ctx, vc)
+	if err != nil {
+		return nil, err
+	}
+
+	// Merge project skills from the current working directory.
+	cwd, _ := os.Getwd()
+	projSkills, _, _ := skillstool.ListProjectSkills(cwd)
+
+	// Deduplicate: project skills shadow same-named DB skills.
+	projNames := make(map[string]bool, len(projSkills))
+	for _, s := range projSkills {
+		projNames[s.Name] = true
+	}
+
+	all := make([]pkgplugins.Skill, 0, len(projSkills)+len(dbSkills))
+	all = append(all, projSkills...)
+	for _, s := range dbSkills {
+		if !projNames[s.Name] {
+			all = append(all, s)
+		}
+	}
+	return all, nil
 }
 
 func skillsRemoveCommand() *ucli.Command {
@@ -244,16 +263,23 @@ func skillsRemoveCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna skills remove <name>")
 			}
 
+			// Check if it's a project skill first — those are read-only.
+			cwd, _ := os.Getwd()
+			projSkills, _, _ := skillstool.ListProjectSkills(cwd)
+			for _, s := range projSkills {
+				if s.Name == name {
+					return fmt.Errorf("skill %q is a project skill — edit the files directly in git at %s/.agents/skills/%s", name, cwd, name)
+				}
+			}
+
 			skillStore, closeDB, err := openSkillStore()
 			if err != nil {
 				return err
 			}
 			defer closeDB()
 
-			cwd, _ := os.Getwd()
 			vc := pkgplugins.SkillViewContext{
-				UserID:  cliSkillsUserID,
-				Project: cwd,
+				UserID: cliSkillsUserID,
 			}
 
 			skill, err := skillStore.Resolve(c.Context, name, vc)
@@ -309,14 +335,11 @@ func skillsMigrateCommand() *ucli.Command {
 			if err != nil {
 				return err
 			}
-			cwd, _ := os.Getwd()
 
 			cfg := internalskills.MigrateFSConfig{
 				AgentRoot:     snap.Workspace,
 				UserSkillsDir: userSkillsDir,
-				ProjectRoot:   cwd,
 				UserID:        cliSkillsUserID,
-				Project:       cwd,
 			}
 			fsResult, err := internalskills.MigrateFilesystem(c.Context, sqliteStore, cfg)
 			if err != nil {

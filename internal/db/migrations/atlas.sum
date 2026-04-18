@@ -1,4 +1,4 @@
-h1:eY+njQYYXD6r5kox3nTsd9EH/YZFQmcpZIAfSS9Niys=
+h1:mlXN2WlESVwjsmsO/HP4STRLE/IGmoJnBXYmKJ9bKkM=
 20260317041843_rename_tables_with_prefixes.sql h1:Nfk81sAWddxDQvpo8pBhXJ5Sec5JcCF6tchqgt+777M=
 20260317065837_drop_agent_provider_id.sql h1:gb4CoI8GlT4P3QbksGw07M8SruOcR9pQI0Sj7/Q2rao=
 20260320104110_add-auth-tables.sql h1:6TjzFFeMMTJzy3/mGN4nrm4+SoYGhanOQY24nUbL3H4=
@@ -20,3 +20,4 @@ h1:eY+njQYYXD6r5kox3nTsd9EH/YZFQmcpZIAfSS9Niys=
 20260410175511_add_agent_sandbox.sql h1:++Bqc1m0z4b+fstJDlDwZfhbPCBf6cfWBzvjnFbSuH8=
 20260411074747_multi-channel-instances.sql h1:p7/DruartSDMUPo2Uh5+5czf3j0jexFgmZRvG2idNIQ=
 20260418112115_add-skills.sql h1:G8R0mblE2MMtqmG1hxgeXtAK+Hzq6DaEvwY87V803YM=
+20260418134505_drop_project_from_skills.sql h1:mfhyuicKSoDyKdmmyGU8cGCulS51yymyh5sxS+V8VfA=

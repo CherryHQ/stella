@@ -18,7 +18,6 @@ func (a skillStoreAdapter) List(ctx context.Context, vc pkgplugins.SkillViewCont
 	rows, err := a.s.List(ctx, skills.ViewContext{
 		UserID:  vc.UserID,
 		AgentID: vc.AgentID,
-		Project: vc.Project,
 	})
 	if err != nil {
 		return nil, err
@@ -34,7 +33,6 @@ func (a skillStoreAdapter) Resolve(ctx context.Context, name string, vc pkgplugi
 	r, err := a.s.Resolve(ctx, name, skills.ViewContext{
 		UserID:  vc.UserID,
 		AgentID: vc.AgentID,
-		Project: vc.Project,
 	})
 	if err != nil {
 		return nil, err
@@ -92,7 +90,6 @@ func skillToPlugin(r skills.Skill) pkgplugins.Skill {
 		Scope:                  r.Scope,
 		UserID:                 r.UserID,
 		AgentID:                r.AgentID,
-		Project:                r.Project,
 		Name:                   r.Name,
 		Description:            r.Description,
 		Status:                 r.Status,
@@ -109,7 +106,6 @@ func skillFromPlugin(s pkgplugins.Skill) skills.Skill {
 		Scope:                  s.Scope,
 		UserID:                 s.UserID,
 		AgentID:                s.AgentID,
-		Project:                s.Project,
 		Name:                   s.Name,
 		Description:            s.Description,
 		Status:                 s.Status,

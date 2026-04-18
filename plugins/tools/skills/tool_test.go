@@ -26,7 +26,7 @@ type testSkillStore struct {
 	q  *sqlc.Queries
 }
 
-func newTestSkillStore(t *testing.T) (*testSkillStore, int64, string, string) {
+func newTestSkillStore(t *testing.T) (*testSkillStore, int64, string) {
 	t.Helper()
 	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -48,15 +48,13 @@ func newTestSkillStore(t *testing.T) (*testSkillStore, int64, string, string) {
 		t.Fatalf("seed agent: %v", err)
 	}
 
-	projectRoot := t.TempDir()
-	return &testSkillStore{db: db, q: sqlc.New(db)}, u.ID, agentID, projectRoot
+	return &testSkillStore{db: db, q: sqlc.New(db)}, u.ID, agentID
 }
 
 func (s *testSkillStore) List(ctx context.Context, vc pkgplugins.SkillViewContext) ([]pkgplugins.Skill, error) {
 	rows, err := s.q.ListSkillsVisible(ctx, sqlc.ListSkillsVisibleParams{
 		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
 		UserID:  sql.NullInt64{Int64: vc.UserID, Valid: vc.UserID != 0},
-		Project: sql.NullString{String: vc.Project, Valid: vc.Project != ""},
 	})
 	if err != nil {
 		return nil, err
@@ -73,7 +71,6 @@ func (s *testSkillStore) Resolve(ctx context.Context, name string, vc pkgplugins
 		Name:    name,
 		AgentID: sql.NullString{String: vc.AgentID, Valid: vc.AgentID != ""},
 		UserID:  sql.NullInt64{Int64: vc.UserID, Valid: vc.UserID != 0},
-		Project: sql.NullString{String: vc.Project, Valid: vc.Project != ""},
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -122,8 +119,6 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 		params.UserID = sql.NullInt64{Int64: sk.UserID, Valid: true}
 	case "agent":
 		params.AgentID = sql.NullString{String: sk.AgentID, Valid: true}
-	case "project":
-		params.Project = sql.NullString{String: sk.Project, Valid: true}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -201,7 +196,6 @@ func tsMapRow(r sqlc.Skill) pkgplugins.Skill {
 		Scope:                  r.Scope,
 		UserID:                 r.UserID.Int64,
 		AgentID:                r.AgentID.String,
-		Project:                r.Project.String,
 		Name:                   r.Name,
 		Description:            r.Description,
 		Status:                 r.Status,
@@ -307,39 +301,39 @@ func TestTargetSkillsDirDefaultsToUserScope(t *testing.T) {
 	}
 }
 
-func TestTargetSkillsDirProjectScope(t *testing.T) {
+func TestTargetSkillsDirAgentScope(t *testing.T) {
 	base := t.TempDir()
 	agentWS := filepath.Join(base, "workspaces", "agent-1")
-	projectRoot := filepath.Join(base, "project")
+	userSkillsDir := filepath.Join(agentWS, "users", "7", ".agents", "skills")
 
-	tool := NewTool(nil, "/tmp/anna", agentWS, projectRoot, filepath.Join(agentWS, "users", "7", ".agents", "skills"), nil)
-	scope, got, err := tool.targetSkillsDir(context.Background(), "project")
+	tool := NewTool(nil, "/tmp/anna", agentWS, filepath.Join(base, "project"), userSkillsDir, nil)
+	scope, got, err := tool.targetSkillsDir(context.Background(), "agent")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if scope != skillScopeProject {
-		t.Fatalf("scope = %q, want %q", scope, skillScopeProject)
+	if scope != skillScopeAgent {
+		t.Fatalf("scope = %q, want %q", scope, skillScopeAgent)
 	}
-	want := filepath.Join(projectRoot, ".agents", "skills")
+	want := filepath.Join(agentWS, ".agents", "skills")
 	if got != want {
 		t.Errorf("targetSkillsDir() = %q, want %q", got, want)
 	}
 }
 
-func TestInstallProjectScopeRequiresProjectRoot(t *testing.T) {
-	store, _, _, _ := newTestSkillStore(t)
+func TestInstallProjectScopeIsRejected(t *testing.T) {
+	store, _, _ := newTestSkillStore(t)
 	userSkillsDir := t.TempDir()
 
-	tool := NewTool(store, "/tmp/anna", t.TempDir(), "", userSkillsDir, nil)
+	tool := NewTool(store, "/tmp/anna", t.TempDir(), t.TempDir(), userSkillsDir, nil)
 	_, err := tool.install(context.Background(), map[string]any{
 		"source": t.TempDir(),
 		"scope":  "project",
 	})
 	if err == nil {
-		t.Fatal("expected error when project scope is requested without ProjectRoot")
+		t.Fatal("expected error when project scope is requested")
 	}
-	if !strings.Contains(err.Error(), "ProjectRoot") {
-		t.Fatalf("expected ProjectRoot error, got %v", err)
+	if !strings.Contains(err.Error(), "scope=project is not supported") {
+		t.Fatalf("expected project scope rejection error, got %v", err)
 	}
 }
 
@@ -361,7 +355,7 @@ func TestInstallRejectsNonStringScope(t *testing.T) {
 // --- Store-backed tests ---
 
 func TestLoadViaStore(t *testing.T) {
-	store, userID, agentID, _ := newTestSkillStore(t)
+	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
 
 	_, err := store.Create(ctx, pkgplugins.Skill{
@@ -411,7 +405,7 @@ func TestLoadViaStore(t *testing.T) {
 }
 
 func TestLoadWithPath(t *testing.T) {
-	store, userID, agentID, _ := newTestSkillStore(t)
+	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
 
 	skillID, err := store.Create(ctx, pkgplugins.Skill{
@@ -445,7 +439,7 @@ func TestLoadWithPath(t *testing.T) {
 }
 
 func TestListViaStore(t *testing.T) {
-	store, userID, agentID, _ := newTestSkillStore(t)
+	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
 
 	_, err := store.Create(ctx, pkgplugins.Skill{
@@ -491,7 +485,7 @@ func TestListViaStore(t *testing.T) {
 }
 
 func TestRemoveViaStore(t *testing.T) {
-	store, userID, agentID, _ := newTestSkillStore(t)
+	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
 
 	_, err := store.Create(ctx, pkgplugins.Skill{
@@ -531,7 +525,7 @@ func TestInstallFromLocalDirViaStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, userID, agentID, _ := newTestSkillStore(t)
+	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
 
 	userSkillsDir := t.TempDir()
@@ -561,5 +555,156 @@ func TestInstallFromLocalDirViaStore(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected store-skill in store after install")
+	}
+}
+
+// makeProjectSkill writes a minimal SKILL.md into {root}/.agents/skills/{name}/.
+func makeProjectSkill(t *testing.T, root, name, description string) {
+	t.Helper()
+	skillDir := filepath.Join(root, ".agents", "skills", name)
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: " + name + "\ndescription: " + description + "\nstatus: active\n---\n# " + name + "\n"
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListMergesProjectSkills(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	projectRoot := t.TempDir()
+	ctx := ctxWithUser(userID, agentID)
+
+	// Create a DB user skill.
+	_, err := store.Create(ctx, pkgplugins.Skill{
+		Scope:       "user",
+		UserID:      userID,
+		Name:        "db-skill",
+		Description: "DB skill",
+		Status:      "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "# DB Skill"})
+	if err != nil {
+		t.Fatalf("create db skill: %v", err)
+	}
+
+	// Create project skills on disk.
+	makeProjectSkill(t, projectRoot, "proj-skill", "Project skill")
+	// Create a project skill with same name as a DB skill to test shadowing.
+	makeProjectSkill(t, projectRoot, "db-skill", "Project override of db-skill")
+
+	tool := NewTool(store, "", "", projectRoot, "", nil)
+	result, err := tool.list(WithProjectRoot(ctx, projectRoot))
+	if err != nil {
+		t.Fatalf("list error: %v", err)
+	}
+
+	var skills []installedSkill
+	if err := json.Unmarshal([]byte(result), &skills); err != nil {
+		t.Fatalf("parse result: %v", err)
+	}
+
+	// Verify db-skill appears with scope=project (project shadows DB).
+	dbSkillFound := false
+	projSkillFound := false
+	for _, s := range skills {
+		if s.Name == "db-skill" {
+			dbSkillFound = true
+			if s.Scope != "project" {
+				t.Errorf("db-skill: expected scope=project (shadowed by project), got %q", s.Scope)
+			}
+			if s.Removable {
+				t.Error("project skill should not be removable")
+			}
+		}
+		if s.Name == "proj-skill" {
+			projSkillFound = true
+			if s.Scope != "project" {
+				t.Errorf("proj-skill: expected scope=project, got %q", s.Scope)
+			}
+		}
+	}
+	if !dbSkillFound {
+		t.Error("expected db-skill in list")
+	}
+	if !projSkillFound {
+		t.Error("expected proj-skill in list")
+	}
+}
+
+func TestLoadPrefersProjectSkill(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	projectRoot := t.TempDir()
+	ctx := ctxWithUser(userID, agentID)
+
+	// Create a DB user skill named "shared".
+	_, err := store.Create(ctx, pkgplugins.Skill{
+		Scope:       "user",
+		UserID:      userID,
+		Name:        "shared",
+		Description: "DB version",
+		Status:      "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "# DB version"})
+	if err != nil {
+		t.Fatalf("create db skill: %v", err)
+	}
+
+	// Create a project skill with the same name.
+	makeProjectSkill(t, projectRoot, "shared", "Project version")
+
+	tool := NewTool(store, "", "", projectRoot, "", nil)
+	result, err := tool.load(WithProjectRoot(ctx, projectRoot), map[string]any{"name": "shared"})
+	if err != nil {
+		t.Fatalf("load error: %v", err)
+	}
+
+	if !strings.Contains(result, "Project version") {
+		t.Errorf("expected project version in result, got %q", result)
+	}
+}
+
+func TestInstallAgentScope(t *testing.T) {
+	srcDir := t.TempDir()
+	skillDir := filepath.Join(srcDir, "agent-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: agent-skill\ndescription: Agent scope test\nstatus: active\n---\n# Agent Skill\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+
+	userSkillsDir := t.TempDir()
+	tool := NewTool(store, "", t.TempDir(), "", userSkillsDir, nil)
+	result, err := tool.install(ctx, map[string]any{"source": srcDir, "scope": "agent"})
+	if err != nil {
+		t.Fatalf("install error: %v", err)
+	}
+	if !strings.Contains(result, "scope=agent") {
+		t.Fatalf("expected agent scope in result, got %q", result)
+	}
+
+	// Verify it's in the store with agent scope.
+	vc := pkgplugins.SkillViewContext{AgentID: agentID}
+	skills, err := store.List(ctx, vc)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	var found bool
+	for _, s := range skills {
+		if s.Name == "agent-skill" {
+			found = true
+			if s.Scope != "agent" {
+				t.Errorf("expected scope 'agent', got %q", s.Scope)
+			}
+			if s.AgentID != agentID {
+				t.Errorf("expected agent_id %q, got %q", agentID, s.AgentID)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected agent-skill in store after install")
 	}
 }

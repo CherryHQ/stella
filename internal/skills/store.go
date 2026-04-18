@@ -11,10 +11,9 @@ const MainFile = "SKILL.md"
 // Skill represents a skill row (metadata only, no file content).
 type Skill struct {
 	ID                     string
-	Scope                  string // system | agent | user | project
+	Scope                  string // system | agent | user
 	UserID                 int64
 	AgentID                string
-	Project                string
 	Name                   string
 	Description            string
 	Status                 string // draft | active | deprecated
@@ -29,7 +28,6 @@ type Skill struct {
 type ViewContext struct {
 	UserID  int64
 	AgentID string
-	Project string
 }
 
 // UpdatePatch carries optional updates for a skill's metadata fields.
@@ -49,7 +47,7 @@ type Store interface {
 	ListAll(ctx context.Context) ([]Skill, error)
 
 	// Resolve finds the highest-priority visible skill by name.
-	// Priority: project > user > agent > system.
+	// Priority: user > agent > system.
 	Resolve(ctx context.Context, name string, vc ViewContext) (*Skill, error)
 
 	// LoadFile fetches a single file by path. Pass MainFile ("SKILL.md") for the body.

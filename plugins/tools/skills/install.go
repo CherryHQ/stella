@@ -32,7 +32,7 @@ func (t *Tool) search(ctx context.Context, args map[string]any) (string, error) 
 	}
 
 	out, _ := json.MarshalIndent(results, "", "  ")
-	return fmt.Sprintf("Found %d skills:\n%s\n\nInstall with: skills tool action=install source=\"owner/repo@skill-name\"\nOptional: add scope=\"project\" to install into ProjectRoot/.agents/skills.", len(results), out), nil
+	return fmt.Sprintf("Found %d skills:\n%s\n\nInstall with: skills tool action=install source=\"owner/repo@skill-name\"\nOptional: add scope=\"agent\" to install into agent scope.", len(results), out), nil
 }
 
 func (t *Tool) install(ctx context.Context, args map[string]any) (string, error) {
@@ -46,7 +46,7 @@ func (t *Tool) install(ctx context.Context, args map[string]any) (string, error)
 	if err != nil {
 		return "", err
 	}
-	scope, _, err := t.targetSkillsDir(ctx, rawScope)
+	scope, err := t.targetScope(ctx, rawScope)
 	if err != nil {
 		return "", err
 	}
@@ -87,7 +87,6 @@ func (t *Tool) install(ctx context.Context, args map[string]any) (string, error)
 	vc := pkgplugins.SkillViewContext{
 		UserID:  memory.UserIDFromContext(ctx),
 		AgentID: memory.AgentIDFromContext(ctx),
-		Project: projectRootFromContext(ctx, t.projectRoot),
 	}
 
 	sk := pkgplugins.Skill{
@@ -101,8 +100,8 @@ func (t *Tool) install(ctx context.Context, args map[string]any) (string, error)
 	switch scope {
 	case "user":
 		sk.UserID = vc.UserID
-	case "project":
-		sk.Project = vc.Project
+	case "agent":
+		sk.AgentID = vc.AgentID
 	}
 
 	if _, err := t.store.Create(ctx, sk, files); err != nil {

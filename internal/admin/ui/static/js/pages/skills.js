@@ -24,7 +24,6 @@ export function register(Alpine) {
       scope: 'system',
       user_id: 0,
       agent_id: '',
-      project: '',
       description: '',
       status: 'active',
       disable_model_invocation: false,
@@ -78,7 +77,6 @@ export function register(Alpine) {
         scope: 'system',
         user_id: 0,
         agent_id: '',
-        project: '',
         description: '',
         status: 'active',
         disable_model_invocation: false,
@@ -109,8 +107,6 @@ export function register(Alpine) {
           body.agent_id = this.form.agent_id
         } else if (this.form.scope === 'user') {
           body.user_id = Number(this.form.user_id)
-        } else if (this.form.scope === 'project') {
-          body.project = this.form.project
         }
         const res = await api('POST', '/api/skills', body)
         this.$store.toast.show('Skill created')
