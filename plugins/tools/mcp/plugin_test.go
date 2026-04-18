@@ -62,6 +62,7 @@ func (testPlatform) Auth() pkgplugins.Auth                       { return nil }
 func (p testPlatform) RuntimeLookup() pkgplugins.RuntimeLookup   { return p.lookup }
 func (testPlatform) ChannelPlatform() pkgplugins.ChannelPlatform { return nil }
 func (testPlatform) ReflectPlatform() pkgplugins.ReflectPlatform { return nil }
+func (testPlatform) SkillStore() pkgplugins.SkillStore           { return nil }
 
 type testRuntimeLookup struct{ handle testRuntimeHandle }
 

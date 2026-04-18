@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/skills"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
@@ -238,6 +239,27 @@ func (s *ReflectPlatform) BuildProviders(api, apiKey, baseURL string) (*provider
 
 type reflectConfigStore struct {
 	store config.Store
+}
+
+// WithSkillStore injects the skill store available to plugins.
+func WithSkillStore(store skills.Store) Option {
+	return func(h *Host) {
+		h.skillStore = store
+	}
+}
+
+// SetSkillStore updates the skill store after host construction.
+func (h *Host) SetSkillStore(store skills.Store) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.skillStore = store
+}
+
+// SkillStore returns the injected skill store, if any.
+func (h *Host) SkillStore() skills.Store {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.skillStore
 }
 
 func (s reflectConfigStore) ListEnabledAgents(ctx context.Context) ([]pkgplugins.ReflectAgent, error) {

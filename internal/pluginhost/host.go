@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/skills"
 	"github.com/vaayne/anna/pkg/ai"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
@@ -25,6 +26,7 @@ type Host struct {
 	notifications    pkgplugins.Notifier
 	scheduler        SchedulerBackend
 	stateStore       StateStoreBackend
+	skillStore       skills.Store
 	authService      pkgplugins.Auth
 	channelRuntime   pkgplugins.ChannelPlatform
 	reflectRuntime   pkgplugins.ReflectPlatform

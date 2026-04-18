@@ -1,0 +1,68 @@
+package plugins
+
+import (
+	"context"
+	"encoding/json"
+	"time"
+)
+
+const SkillMainFile = "SKILL.md"
+
+// Skill represents a skill row (metadata only, no file content).
+type Skill struct {
+	ID                     string
+	Scope                  string // system | agent | user | project
+	UserID                 int64
+	AgentID                string
+	Project                string
+	Name                   string
+	Description            string
+	Status                 string // draft | active | deprecated
+	DisableModelInvocation bool
+	Metadata               json.RawMessage
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
+// SkillViewContext describes who is asking and from where.
+// Empty fields mean no such context (e.g. UserID=0 → only system skills visible).
+type SkillViewContext struct {
+	UserID  int64
+	AgentID string
+	Project string
+}
+
+// SkillUpdatePatch carries optional updates for a skill's metadata fields.
+type SkillUpdatePatch struct {
+	Description            *string
+	Status                 *string
+	DisableModelInvocation *bool
+	Metadata               json.RawMessage // optional; set to overwrite
+}
+
+// SkillStore is the persistence interface for skills, available to plugins via Platform.
+// It mirrors internal/skills.Store method-for-method; internal/skills re-exports these
+// types as aliases so both sides remain in sync.
+type SkillStore interface {
+	// List returns all visible skills for the given context (metadata only, no file content).
+	List(ctx context.Context, vc SkillViewContext) ([]Skill, error)
+
+	// Resolve finds the highest-priority visible skill by name.
+	// Priority: project > user > agent > system.
+	Resolve(ctx context.Context, name string, vc SkillViewContext) (*Skill, error)
+
+	// LoadFile fetches a single file by path. Pass SkillMainFile ("SKILL.md") for the body.
+	LoadFile(ctx context.Context, skillID, path string) (string, error)
+
+	// Create inserts the skill row and all its files (must include "SKILL.md").
+	Create(ctx context.Context, s Skill, files map[string]string) (string, error)
+
+	// Update patches metadata fields. Use UpsertFile to change file content.
+	Update(ctx context.Context, id string, patch SkillUpdatePatch) error
+
+	// UpsertFile creates or replaces a single file under a skill.
+	UpsertFile(ctx context.Context, skillID, path, content string) error
+
+	DeleteFile(ctx context.Context, skillID, path string) error
+	Delete(ctx context.Context, id string) error
+}

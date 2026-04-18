@@ -32,4 +32,5 @@ type Platform interface {
 	RuntimeLookup() RuntimeLookup
 	ChannelPlatform() ChannelPlatform
 	ReflectPlatform() ReflectPlatform
+	SkillStore() SkillStore
 }

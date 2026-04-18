@@ -21,6 +21,7 @@ import (
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/pluginstate"
 	"github.com/vaayne/anna/internal/scheduler"
+	skills "github.com/vaayne/anna/internal/skills"
 	internaltools "github.com/vaayne/anna/internal/tools"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
@@ -95,6 +96,11 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return nil, fmt.Errorf("extract builtin skills: %w", err)
 	}
 
+	skillStore := skills.New(db)
+	if err := skills.SyncBuiltin(parent, skillStore, skillsbuiltin.BuiltinSkillFS()); err != nil {
+		return nil, fmt.Errorf("sync builtin skills: %w", err)
+	}
+
 	// Seed defaults so there's always at least one agent.
 	if err := store.SeedDefaults(parent); err != nil {
 		return nil, fmt.Errorf("seed defaults: %w", err)
@@ -129,6 +135,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		pluginhost.WithAuthService(pluginhost.NewAuthService(authStore)),
 		pluginhost.WithNotificationService(dispatcher),
 		pluginhost.WithStateStore(stateStore),
+		pluginhost.WithSkillStore(skillStore),
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
 		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
 	)
