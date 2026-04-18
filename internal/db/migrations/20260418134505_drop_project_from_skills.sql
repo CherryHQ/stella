@@ -24,6 +24,8 @@ CREATE TABLE `new_skills` (
         (scope='user'    AND user_id IS NOT NULL AND agent_id IS NULL)
     )
 );
+-- Drop legacy project-scoped rows: project skills are now filesystem-only.
+DELETE FROM `skills` WHERE `scope` = 'project';
 -- Copy rows from old table "skills" to new temporary table "new_skills"
 INSERT INTO `new_skills` (`id`, `scope`, `user_id`, `agent_id`, `name`, `description`, `status`, `disable_model_invocation`, `metadata`, `created_at`, `updated_at`) SELECT `id`, `scope`, `user_id`, `agent_id`, `name`, `description`, `status`, `disable_model_invocation`, `metadata`, `created_at`, `updated_at` FROM `skills`;
 -- Drop "skills" table after copying rows
