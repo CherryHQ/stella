@@ -21,6 +21,7 @@ import (
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/pluginstate"
 	"github.com/vaayne/anna/internal/scheduler"
+	skills "github.com/vaayne/anna/internal/skills"
 	internaltools "github.com/vaayne/anna/internal/tools"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
@@ -71,6 +72,7 @@ type setupResult struct {
 	promptToolsBuilder     func(context.Context) ([]pkgplugins.PromptToolInfo, error)
 	promptSectionsBuilder  func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
 	toolLifecycle          *coreagent.ToolLifecycle
+	skillStore             pkgplugins.SkillStore
 	cliUserID              int64 // resolved CLI user for session creation
 }
 
@@ -93,6 +95,11 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	if err := skillsbuiltin.ExtractSkills(filepath.Join(config.AnnaHome(), "skills")); err != nil {
 		return nil, fmt.Errorf("extract builtin skills: %w", err)
+	}
+
+	skillStore := skills.New(db)
+	if err := skills.SyncBuiltin(parent, skillStore, skillsbuiltin.BuiltinSkillFS()); err != nil {
+		return nil, fmt.Errorf("sync builtin skills: %w", err)
 	}
 
 	// Seed defaults so there's always at least one agent.
@@ -129,6 +136,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		pluginhost.WithAuthService(pluginhost.NewAuthService(authStore)),
 		pluginhost.WithNotificationService(dispatcher),
 		pluginhost.WithStateStore(stateStore),
+		pluginhost.WithSkillStore(skillStore),
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
 		pluginhost.WithReflectRuntimeServices(reflectRuntimeServices),
 	)
@@ -278,6 +286,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			return phost.BeforeRun(ctx, build)
 		}),
 		agent.WithToolLifecyclePM(toolLifecycle),
+		agent.WithSkillStore(pluginhost.NewSkillStoreAdapter(skillStore)),
 	)
 
 	if err := poolMgr.StartAll(ctx); err != nil {
@@ -349,6 +358,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		promptToolsBuilder:     promptToolsBuilder,
 		promptSectionsBuilder:  promptSectionsBuilder,
 		toolLifecycle:          toolLifecycle,
+		skillStore:             pluginhost.NewSkillStoreAdapter(skillStore),
 		cliUserID:              cliUserID,
 	}, nil
 }
@@ -358,7 +368,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 // Each switch creates a new immutable snapshot so the factory closure captures
 // no shared mutable state — eliminating races between concurrent Chat calls and
 // model switches. Hooks are stored on the Pool independently and are not affected.
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle) func(string, string) error {
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore) func(string, string) error {
 	return func(provider, model string) error {
 		// Shallow-copy the base snapshot so we never mutate shared state.
 		snap := *base
@@ -373,7 +383,7 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.Providers = providers
 		}
 
-		factory, err := agent.NewRunnerFactory(&snap, builtinTools, pluginToolsBuilder, providerRegistryBuilder, promptToolsFn, promptSectionsFn, toolLifecycle)
+		factory, err := agent.NewRunnerFactory(&snap, builtinTools, pluginToolsBuilder, providerRegistryBuilder, promptToolsFn, promptSectionsFn, toolLifecycle, skillStore)
 		if err != nil {
 			return err
 		}
@@ -413,6 +423,7 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 		s.promptToolsBuilder,
 		s.promptSectionsBuilder,
 		s.toolLifecycle,
+		s.skillStore,
 	)
 }
 

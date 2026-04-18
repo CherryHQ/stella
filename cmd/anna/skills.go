@@ -5,14 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/config"
+	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/vaayne/anna/internal/pluginhost"
+	internalskills "github.com/vaayne/anna/internal/skills"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	skillstool "github.com/vaayne/anna/plugins/tools/skills"
+	skillsbuiltin "github.com/vaayne/anna/plugins/tools/skills/builtin"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
 
@@ -25,11 +29,23 @@ func skillsCommand() *ucli.Command {
 			skillsInstallCommand(),
 			skillsListCommand(),
 			skillsRemoveCommand(),
+			skillsMigrateCommand(),
 		},
 		Action: func(c *ucli.Context) error {
 			return skillsListAction(c.Context)
 		},
 	}
+}
+
+// openSkillStore opens the application DB and returns a SkillStore backed by it.
+// The caller is responsible for closing db when done.
+func openSkillStore() (pkgplugins.SkillStore, func(), error) {
+	db, err := appdb.OpenDB(config.DBPath())
+	if err != nil {
+		return nil, nil, fmt.Errorf("open database: %w", err)
+	}
+	store := pluginhost.NewSkillStoreAdapter(internalskills.New(db))
+	return store, func() { _ = db.Close() }, nil
 }
 
 func skillsSearchCommand() *ucli.Command {
@@ -97,27 +113,20 @@ func skillsInstallCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna skills install <owner/repo@skill-name>")
 			}
 
-			store, err := openStore()
+			skillStore, closeDB, err := openSkillStore()
 			if err != nil {
 				return err
 			}
-			snap, err := defaultSnapshot(c.Context, store)
-			if err != nil {
-				return err
-			}
-			targetDir, err := cliUserSkillsDir(snap)
-			if err != nil {
-				return err
-			}
+			defer closeDB()
 
 			fmt.Fprintf(os.Stderr, "Installing from %s into user scope (user=%d)...\n", source, cliSkillsUserID)
 
-			name, err := skillstool.Install(c.Context, source, targetDir)
+			name, err := skillstool.InstallToStore(c.Context, skillStore, source, "user", cliSkillsUserID, "")
 			if err != nil {
 				return err
 			}
 
-			fmt.Printf("Skill %q installed to %s\n", name, filepath.Join(targetDir, name))
+			fmt.Printf("Skill %q installed (scope=user, user_id=%d).\n", name, cliSkillsUserID)
 			return nil
 		},
 	}
@@ -152,21 +161,21 @@ func skillsListAction(ctx context.Context) error {
 		return nil
 	}
 
-	// Group by source
-	grouped := map[string][]skillstool.Skill{}
-	var sourceOrder []string
+	// Group by scope
+	grouped := map[string][]pkgplugins.Skill{}
+	var scopeOrder []string
 	seen := map[string]bool{}
 	for _, s := range loaded {
-		if !seen[s.Source] {
-			seen[s.Source] = true
-			sourceOrder = append(sourceOrder, s.Source)
+		if !seen[s.Scope] {
+			seen[s.Scope] = true
+			scopeOrder = append(scopeOrder, s.Scope)
 		}
-		grouped[s.Source] = append(grouped[s.Source], s)
+		grouped[s.Scope] = append(grouped[s.Scope], s)
 	}
 
-	for _, src := range sourceOrder {
-		fmt.Printf("%s:\n", src)
-		for _, s := range grouped[src] {
+	for _, scope := range scopeOrder {
+		fmt.Printf("%s:\n", scope)
+		for _, s := range grouped[scope] {
 			desc := s.Description
 			if len(desc) > 80 {
 				desc = desc[:77] + "..."
@@ -188,8 +197,8 @@ func skillsListJSON(ctx context.Context) error {
 	type entry struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
-		Source      string `json:"source"`
-		Path        string `json:"path"`
+		Scope       string `json:"scope"`
+		Status      string `json:"status"`
 	}
 
 	entries := make([]entry, len(loaded))
@@ -197,8 +206,8 @@ func skillsListJSON(ctx context.Context) error {
 		entries[i] = entry{
 			Name:        s.Name,
 			Description: s.Description,
-			Source:      s.Source,
-			Path:        s.FilePath,
+			Scope:       s.Scope,
+			Status:      s.Status,
 		}
 	}
 
@@ -207,26 +216,39 @@ func skillsListJSON(ctx context.Context) error {
 	return nil
 }
 
-func loadInstalledSkills(ctx context.Context) ([]skillstool.Skill, error) {
-	store, err := openStore()
+func loadInstalledSkills(ctx context.Context) ([]pkgplugins.Skill, error) {
+	skillStore, closeDB, err := openSkillStore()
 	if err != nil {
 		return nil, err
 	}
-	snap, err := defaultSnapshot(ctx, store)
+	defer closeDB()
+
+	vc := pkgplugins.SkillViewContext{
+		UserID: cliSkillsUserID,
+	}
+	dbSkills, err := skillStore.List(ctx, vc)
 	if err != nil {
 		return nil, err
 	}
-	userSkillsDir, err := cliUserSkillsDir(snap)
-	if err != nil {
-		return nil, err
-	}
+
+	// Merge project skills from the current working directory.
 	cwd, _ := os.Getwd()
-	return skillstool.LoadSkills(ctx, skillstool.LoadSkillsConfig{
-		AnnaHome:      config.AnnaHome(),
-		AgentRoot:     snap.Workspace,
-		ProjectRoot:   cwd,
-		UserSkillsDir: userSkillsDir,
-	}), nil
+	projSkills, _, _ := skillstool.ListProjectSkills(cwd)
+
+	// Deduplicate: project skills shadow same-named DB skills.
+	projNames := make(map[string]bool, len(projSkills))
+	for _, s := range projSkills {
+		projNames[s.Name] = true
+	}
+
+	all := make([]pkgplugins.Skill, 0, len(projSkills)+len(dbSkills))
+	all = append(all, projSkills...)
+	for _, s := range dbSkills {
+		if !projNames[s.Name] {
+			all = append(all, s)
+		}
+	}
+	return all, nil
 }
 
 func skillsRemoveCommand() *ucli.Command {
@@ -241,25 +263,92 @@ func skillsRemoveCommand() *ucli.Command {
 				return fmt.Errorf("usage: anna skills remove <name>")
 			}
 
-			store, err := openStore()
-			if err != nil {
-				return err
+			// Check if it's a project skill first — those are read-only.
+			cwd, _ := os.Getwd()
+			projSkills, _, _ := skillstool.ListProjectSkills(cwd)
+			for _, s := range projSkills {
+				if s.Name == name {
+					return fmt.Errorf("skill %q is a project skill — edit the files directly in git at %s/.agents/skills/%s", name, cwd, name)
+				}
 			}
-			snap, err := defaultSnapshot(c.Context, store)
-			if err != nil {
-				return err
-			}
-			targetDir, err := cliUserSkillsDir(snap)
-			if err != nil {
-				return err
-			}
-			skillDir := filepath.Join(targetDir, name)
 
-			if err := skillstool.Remove(c.Context, nil, name, skillDir); err != nil {
+			skillStore, closeDB, err := openSkillStore()
+			if err != nil {
 				return err
+			}
+			defer closeDB()
+
+			vc := pkgplugins.SkillViewContext{
+				UserID: cliSkillsUserID,
+			}
+
+			skill, err := skillStore.Resolve(c.Context, name, vc)
+			if err != nil {
+				return fmt.Errorf("resolve skill %q: %w", name, err)
+			}
+			if skill == nil {
+				return fmt.Errorf("skill %q not found", name)
+			}
+			if skill.Scope == "system" {
+				return fmt.Errorf("cannot remove system skill %q", name)
+			}
+
+			if err := skillStore.Delete(c.Context, skill.ID); err != nil {
+				return fmt.Errorf("remove skill %q: %w", name, err)
 			}
 
 			fmt.Printf("Skill %q removed.\n", name)
+			return nil
+		},
+	}
+}
+
+func skillsMigrateCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:  "migrate",
+		Usage: "Import on-disk skills into the database (run once after upgrading from filesystem-based skills)",
+		Action: func(c *ucli.Context) error {
+			// Open DB directly so we can call SyncBuiltin on the SQLiteStore.
+			db, err := appdb.OpenDB(config.DBPath())
+			if err != nil {
+				return fmt.Errorf("open database: %w", err)
+			}
+			defer func() { _ = db.Close() }()
+
+			sqliteStore := internalskills.New(db)
+
+			// 1. Sync builtins.
+			if err := internalskills.SyncBuiltin(c.Context, sqliteStore, skillsbuiltin.BuiltinSkillFS()); err != nil {
+				return fmt.Errorf("sync builtins: %w", err)
+			}
+
+			// 2. Migrate on-disk skills.
+			configStore, err := openStore()
+			if err != nil {
+				return err
+			}
+			snap, err := defaultSnapshot(c.Context, configStore)
+			if err != nil {
+				return err
+			}
+			userSkillsDir, err := cliUserSkillsDir(snap)
+			if err != nil {
+				return err
+			}
+
+			cfg := internalskills.MigrateFSConfig{
+				AgentRoot:     snap.Workspace,
+				AgentID:       snap.AgentID,
+				UserSkillsDir: userSkillsDir,
+				UserID:        cliSkillsUserID,
+			}
+			fsResult, err := internalskills.MigrateFilesystem(c.Context, sqliteStore, cfg)
+			if err != nil {
+				return fmt.Errorf("filesystem migration: %w", err)
+			}
+
+			fmt.Printf("Builtin sync: OK. Filesystem migration: imported=%d, skipped=%d.\n",
+				fsResult.Imported, fsResult.Skipped)
 			return nil
 		},
 	}

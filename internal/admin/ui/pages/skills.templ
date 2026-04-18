@@ -1,0 +1,237 @@
+package pages
+
+import "github.com/vaayne/anna/internal/admin/ui"
+
+templ SkillsPage() {
+	<div x-data="skillsPage()">
+		@ui.PageHeader("Skills", "Manage system, agent, and user skills.")
+		<div class="flex gap-6 min-h-0">
+			<!-- Left: skill list -->
+			<div class="w-72 shrink-0 flex flex-col gap-2">
+				<div class="flex items-center justify-between gap-2">
+					<span class="text-xs text-secondary" x-text="skills.length + ' skills'"></span>
+					<button @click="openInstallModal()" class="btn btn-primary btn-xs">Install skill</button>
+				</div>
+				<div class="border border-base-300 rounded-lg overflow-y-auto max-h-[calc(100vh-220px)]">
+					<template x-for="scope in ['system','agent','user']" :key="scope">
+						<template x-if="skillsByScope(scope).length > 0">
+							<div>
+								<div class="px-3 py-2 text-[11px] uppercase tracking-wide text-secondary bg-base-200/60 border-b border-base-300 font-medium" x-text="scope"></div>
+								<template x-for="sk in skillsByScope(scope)" :key="sk.id">
+									<div
+										class="flex items-start gap-2 px-3 py-2 cursor-pointer border-b border-base-200 last:border-0 hover:bg-base-200/50 transition-colors"
+										:class="selected?.id === sk.id ? 'bg-base-200' : ''"
+										@click="selectSkill(sk)"
+									>
+										<div class="min-w-0 flex-1">
+											<p class="text-sm font-medium truncate" x-text="sk.name"></p>
+											<div class="flex items-center gap-1 mt-0.5 flex-wrap">
+												<span
+													class="badge badge-sm"
+													:class="{
+														'badge-success': sk.status === 'active',
+														'badge-warning': sk.status === 'draft',
+														'badge-error':   sk.status === 'deprecated',
+														'badge-ghost':   !['active','draft','deprecated'].includes(sk.status)
+													}"
+													x-text="sk.status"
+												></span>
+											</div>
+										</div>
+									</div>
+								</template>
+							</div>
+						</template>
+					</template>
+					<template x-if="skills.length === 0 && !loading">
+						<div class="px-4 py-8 text-center text-base-content/50 text-sm">No skills yet</div>
+					</template>
+					<template x-if="loading">
+						<div class="px-4 py-8 text-center">
+							<span class="loading loading-spinner loading-sm"></span>
+						</div>
+					</template>
+				</div>
+			</div>
+			<!-- Right: detail / edit panel -->
+			<div class="flex-1 min-w-0">
+				<!-- Detail/edit panel -->
+				<template x-if="selected">
+					<div class="border border-base-300 rounded-lg p-6 space-y-4">
+						<div class="flex items-center justify-between gap-3 flex-wrap">
+							<div class="space-y-1">
+								<p class="text-base font-medium" x-text="selected.name"></p>
+								<div class="flex items-center gap-2 flex-wrap">
+									<span class="badge badge-ghost badge-sm" x-text="selected.scope"></span>
+									<span class="font-mono text-[11px] text-secondary" x-text="selected.id"></span>
+								</div>
+							</div>
+							<div class="flex items-center gap-2">
+								<button @click="confirmDelete()" class="btn btn-ghost btn-xs text-error">Delete</button>
+								<button @click="saveSkill()" :disabled="saving" class="btn btn-primary btn-xs">
+									<span x-show="saving" class="loading loading-spinner loading-xs"></span>
+									Save
+								</button>
+							</div>
+						</div>
+						<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+							<div class="space-y-1 sm:col-span-2">
+								<label class="text-xs font-medium text-secondary">Description</label>
+								<input x-model="draft.description" type="text" class="input input-bordered input-sm w-full" />
+							</div>
+							<div class="space-y-1">
+								<label class="text-xs font-medium text-secondary">Status</label>
+								<select x-model="draft.status" class="select select-bordered select-sm w-full">
+									<option value="active">active</option>
+									<option value="draft">draft</option>
+									<option value="deprecated">deprecated</option>
+								</select>
+							</div>
+							<div class="space-y-1 flex items-end">
+								<label class="label cursor-pointer justify-start gap-3">
+									<input x-model="draft.disable_model_invocation" type="checkbox" class="toggle toggle-primary toggle-sm" />
+									<span class="label-text text-sm">Disable model invocation</span>
+								</label>
+							</div>
+						</div>
+						<div class="space-y-1">
+							<label class="text-xs font-medium text-secondary">SKILL.md</label>
+							<template x-if="fileLoading">
+								<div class="rounded-lg border border-base-300 bg-base-100 px-4 py-6 text-sm text-secondary">Loading…</div>
+							</template>
+							<template x-if="!fileLoading">
+								<textarea x-model="draft.skill_md" rows="16" class="textarea textarea-bordered w-full font-mono text-xs"></textarea>
+							</template>
+						</div>
+						<template x-if="selected.files && selected.files.filter(f => f !== 'SKILL.md').length > 0">
+							<div class="space-y-1">
+								<label class="text-xs font-medium text-secondary">Other files (read-only)</label>
+								<div class="flex flex-wrap gap-1">
+									<template x-for="f in selected.files.filter(f => f !== 'SKILL.md')" :key="f">
+										<span class="badge badge-ghost badge-sm font-mono" x-text="f"></span>
+									</template>
+								</div>
+							</div>
+						</template>
+					</div>
+				</template>
+				<!-- Empty state -->
+				<template x-if="!selected">
+					<div class="border border-dashed border-base-300 rounded-lg px-4 py-16 text-center space-y-2">
+						<p class="text-sm font-medium">Select a skill or install one</p>
+						<p class="text-xs text-secondary">Skills extend agent behavior with reusable instructions.</p>
+						<div><button @click="openInstallModal()" class="btn btn-primary btn-xs">Install skill</button></div>
+					</div>
+				</template>
+			</div>
+		</div>
+		<!-- Install skill modal -->
+		<template x-if="installModalOpen">
+			<div class="modal modal-open">
+				<div class="modal-box w-11/12 max-w-2xl">
+					<!-- Stage 1: Search -->
+					<template x-if="installStage === 'search'">
+						<div class="space-y-4">
+							<div class="flex items-center justify-between">
+								<h3 class="font-bold text-lg">Install skill</h3>
+								<button @click="installModalOpen = false" class="btn btn-ghost btn-sm btn-circle">✕</button>
+							</div>
+							<div class="form-control">
+								<input
+									x-model="searchQuery"
+									@input.debounce.300ms="doSearch()"
+									type="text"
+									placeholder="e.g. react-typescript or slack-message"
+									class="input input-bordered w-full"
+									autofocus
+								/>
+							</div>
+							<!-- Loading -->
+							<template x-if="searching">
+								<div class="py-6 text-center">
+									<span class="loading loading-spinner loading-md"></span>
+								</div>
+							</template>
+							<!-- Results -->
+							<template x-if="!searching && searchResults.length > 0">
+								<div class="border border-base-300 rounded-lg overflow-y-auto max-h-72 divide-y divide-base-200">
+									<template x-for="s in searchResults" :key="s.id">
+										<div
+											class="px-4 py-3 cursor-pointer hover:bg-base-200/50 transition-colors"
+											@click="pickSkill(s)"
+										>
+											<div class="flex items-center justify-between gap-2">
+												<span class="font-mono text-sm font-medium" x-text="s.source + '@' + s.skillId"></span>
+												<span class="text-xs text-secondary shrink-0" x-text="s.installs + ' installs'"></span>
+											</div>
+											<p class="text-sm text-base-content/70 truncate mt-0.5" x-text="s.name"></p>
+										</div>
+									</template>
+								</div>
+							</template>
+							<!-- Empty state after search -->
+							<template x-if="!searching && searchResults.length === 0 && searchQuery">
+								<p class="text-sm text-secondary text-center py-4">No skills found.</p>
+							</template>
+						</div>
+					</template>
+					<!-- Stage 2: Install config -->
+					<template x-if="installStage === 'config'">
+						<div class="space-y-4">
+							<div class="flex items-center justify-between">
+								<h3 class="font-bold text-lg">Configure install</h3>
+								<button @click="installModalOpen = false" class="btn btn-ghost btn-sm btn-circle">✕</button>
+							</div>
+							<div class="space-y-1">
+								<label class="text-xs font-medium text-secondary">Source</label>
+								<div class="input input-bordered input-sm w-full flex items-center font-mono text-sm bg-base-200/50 text-base-content/70 cursor-default" x-text="installSource"></div>
+							</div>
+							<div class="space-y-1">
+								<label class="text-xs font-medium text-secondary">Scope</label>
+								<select x-model="installScope" @change="installUserID=0; installAgentID=''" class="select select-bordered select-sm w-full">
+									<option value="system">system</option>
+									<option value="agent">agent</option>
+									<option value="user">user</option>
+								</select>
+							</div>
+							<template x-if="installScope === 'user'">
+								<div class="space-y-1">
+									<label class="text-xs font-medium text-secondary">User</label>
+									<select x-model.number="installUserID" class="select select-bordered select-sm w-full">
+										<option value="0">— select user —</option>
+										<template x-for="u in installUsers" :key="u.id">
+											<option :value="u.id" x-text="u.username + ' (' + u.id + ')'"></option>
+										</template>
+									</select>
+								</div>
+							</template>
+							<template x-if="installScope === 'agent'">
+								<div class="space-y-1">
+									<label class="text-xs font-medium text-secondary">Agent</label>
+									<select x-model="installAgentID" class="select select-bordered select-sm w-full">
+										<option value="">— select agent —</option>
+										<template x-for="a in installAgents" :key="a.id">
+											<option :value="a.id" x-text="a.name + ' (' + a.id + ')'"></option>
+										</template>
+									</select>
+								</div>
+							</template>
+							<div class="modal-action mt-2">
+								<button @click="installStage = 'search'" class="btn btn-ghost btn-sm">Back</button>
+								<button
+									@click="doInstall()"
+									:disabled="installing"
+									class="btn btn-primary btn-sm"
+								>
+									<span x-show="installing" class="loading loading-spinner loading-xs"></span>
+									Install
+								</button>
+							</div>
+						</div>
+					</template>
+				</div>
+				<div class="modal-backdrop" @click="installModalOpen = false"></div>
+			</div>
+		</template>
+	</div>
+}

@@ -83,6 +83,7 @@ func runtimeDeps(platform pkgplugins.Platform) (RuntimeDeps, error) {
 		Services:      services,
 		Notifications: platform.Notifier(),
 		StateStore:    platform.StateStore(),
+		SkillStore:    platform.SkillStore(),
 		Scheduler:     platform.Scheduler(),
 		Log:           platform.Logger(),
 	}, nil

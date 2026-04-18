@@ -18,6 +18,7 @@ import (
 	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/pluginstate"
+	"github.com/vaayne/anna/internal/skills"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
@@ -85,6 +86,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
+	phost.SetSkillStore(skills.New(db))
 	if err := phost.ApplyPlugin(context.Background(), mcp.PluginID); err != nil {
 		t.Fatalf("ApplyPlugin(mcp): %v", err)
 	}
@@ -1133,5 +1135,286 @@ func TestNonAdminCannotAccessAdminRoutes(t *testing.T) {
 	rr = doRequestWithSession(t, env.srv, sessionID, "GET", "/agents", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+}
+
+// --- Skills tests ---
+
+func TestSkillsList_Admin(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "GET", "/api/skills", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var list []map[string]any
+	if err := json.Unmarshal(resp.Data, &list); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	// Fresh DB has no skills; just verify we got a valid empty array.
+	if list == nil {
+		t.Fatal("expected non-nil list")
+	}
+}
+
+func TestSkillsList_NonAdmin(t *testing.T) {
+	env := setupAdmin(t)
+
+	hash, _ := auth.HashPassword("userpassword")
+	user, err := env.authStore.CreateUser(context.Background(), "regularuser2", hash)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	sessionID := auth.NewSessionID()
+	_, err = env.authStore.CreateSession(context.Background(), auth.Session{
+		ID:        sessionID,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(auth.SessionDuration),
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	rr := doRequestWithSession(t, env.srv, sessionID, "GET", "/api/skills", nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
+	}
+}
+
+func TestSkillsCreate(t *testing.T) {
+	env := setupAdmin(t)
+
+	body := map[string]any{
+		"name":        "test-skill",
+		"scope":       "system",
+		"description": "A test skill",
+		"status":      "active",
+		"files": map[string]string{
+			"SKILL.md": "# Test Skill\n\nDoes something useful.",
+		},
+	}
+	rr := doRequest(t, env, "POST", "/api/skills", body)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("POST status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var created map[string]string
+	if err := json.Unmarshal(resp.Data, &created); err != nil {
+		t.Fatalf("unmarshal create response: %v", err)
+	}
+	if created["id"] == "" {
+		t.Fatal("expected non-empty id in response")
+	}
+
+	// Verify it appears in list.
+	rr = doRequest(t, env, "GET", "/api/skills", nil)
+	resp = parseResponse(t, rr)
+	var list []map[string]any
+	_ = json.Unmarshal(resp.Data, &list)
+	found := false
+	for _, sk := range list {
+		if sk["name"] == "test-skill" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("created skill not found in list")
+	}
+}
+
+func TestSkillsUpdate(t *testing.T) {
+	env := setupAdmin(t)
+
+	// Create a skill first.
+	createBody := map[string]any{
+		"name":  "update-skill",
+		"scope": "system",
+		"files": map[string]string{"SKILL.md": "# Original"},
+	}
+	rr := doRequest(t, env, "POST", "/api/skills", createBody)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var created map[string]string
+	_ = json.Unmarshal(resp.Data, &created)
+	id := created["id"]
+
+	// Update description, status, and SKILL.md content.
+	newDesc := "Updated description"
+	newStatus := "deprecated"
+	updateBody := map[string]any{
+		"description": newDesc,
+		"status":      newStatus,
+		"files":       map[string]string{"SKILL.md": "# Updated content"},
+	}
+	rr = doRequest(t, env, "PUT", "/api/skills/"+id, updateBody)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	// Verify SKILL.md content changed.
+	rr = doRequest(t, env, "GET", "/api/skills/"+id+"/file?path=SKILL.md", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET file status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	var file map[string]string
+	_ = json.Unmarshal(resp.Data, &file)
+	if file["content"] != "# Updated content" {
+		t.Errorf("content = %q, want %q", file["content"], "# Updated content")
+	}
+}
+
+func TestSkillsDelete(t *testing.T) {
+	env := setupAdmin(t)
+
+	createBody := map[string]any{
+		"name":  "delete-skill",
+		"scope": "system",
+		"files": map[string]string{"SKILL.md": "# Delete me"},
+	}
+	rr := doRequest(t, env, "POST", "/api/skills", createBody)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var created map[string]string
+	_ = json.Unmarshal(resp.Data, &created)
+	id := created["id"]
+
+	rr = doRequest(t, env, "DELETE", "/api/skills/"+id, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("DELETE status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	// Should no longer be in list.
+	rr = doRequest(t, env, "GET", "/api/skills", nil)
+	resp = parseResponse(t, rr)
+	var list []map[string]any
+	_ = json.Unmarshal(resp.Data, &list)
+	for _, sk := range list {
+		if sk["id"] == id {
+			t.Errorf("deleted skill %q still appears in list", id)
+		}
+	}
+}
+
+func TestSkillsGetFile(t *testing.T) {
+	env := setupAdmin(t)
+
+	content := "# My skill\n\nDoes something."
+	createBody := map[string]any{
+		"name":  "file-skill",
+		"scope": "system",
+		"files": map[string]string{"SKILL.md": content},
+	}
+	rr := doRequest(t, env, "POST", "/api/skills", createBody)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var created map[string]string
+	_ = json.Unmarshal(resp.Data, &created)
+	id := created["id"]
+
+	rr = doRequest(t, env, "GET", "/api/skills/"+id+"/file?path=SKILL.md", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET file status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	resp = parseResponse(t, rr)
+	var file map[string]string
+	if err := json.Unmarshal(resp.Data, &file); err != nil {
+		t.Fatalf("unmarshal file response: %v", err)
+	}
+	if file["content"] != content {
+		t.Errorf("content = %q, want %q", file["content"], content)
+	}
+	if file["path"] != "SKILL.md" {
+		t.Errorf("path = %q, want %q", file["path"], "SKILL.md")
+	}
+}
+
+// TestSkillsSearch_Admin verifies the search endpoint enforces auth and validates
+// the q parameter. A real search against skills.sh is NOT tested here — that
+// would require network access and is too fragile for unit tests. Integration /
+// manual QA should cover the happy path.
+func TestSkillsSearch_Admin(t *testing.T) {
+	env := setupAdmin(t)
+
+	// Missing q → 400.
+	rr := doRequest(t, env, "GET", "/api/skills/search", nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("missing q: status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+
+	// Unauthenticated → 401.
+	rr = doUnauthRequest(t, env.srv, "GET", "/api/skills/search?q=react", nil)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("unauth: status = %d, want %d (body: %s)", rr.Code, http.StatusUnauthorized, rr.Body.String())
+	}
+}
+
+// TestSkillsInstall_Validation checks the install endpoint rejects bad inputs.
+func TestSkillsInstall_Validation(t *testing.T) {
+	env := setupAdmin(t)
+
+	cases := []struct {
+		name string
+		body map[string]any
+	}{
+		{"missing source", map[string]any{"scope": "system"}},
+		{"empty source", map[string]any{"source": "", "scope": "system"}},
+		{"scope=user no user_id", map[string]any{"source": "owner/repo@skill", "scope": "user"}},
+		{"scope=agent no agent_id", map[string]any{"source": "owner/repo@skill", "scope": "agent"}},
+		{"unknown scope", map[string]any{"source": "owner/repo@skill", "scope": "project"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := doRequest(t, env, "POST", "/api/skills/install", tc.body)
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+		})
+	}
+}
+
+// TestSkillsInstall_Unauthorized checks that unauthenticated requests cannot use
+// the install endpoint (401) and authenticated non-admins get 403.
+func TestSkillsInstall_Unauthorized(t *testing.T) {
+	env := setupAdmin(t)
+
+	// No session → 401.
+	rr := doUnauthRequest(t, env.srv, "POST", "/api/skills/install", map[string]any{
+		"source": "owner/repo@skill",
+		"scope":  "system",
+	})
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated: status = %d, want %d (body: %s)", rr.Code, http.StatusUnauthorized, rr.Body.String())
+	}
+
+	// Authenticated non-admin → 403.
+	hash, _ := auth.HashPassword("userpassword")
+	user, err := env.authStore.CreateUser(context.Background(), "regularuser-install", hash)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	sessionID := auth.NewSessionID()
+	_, err = env.authStore.CreateSession(context.Background(), auth.Session{
+		ID:        sessionID,
+		UserID:    user.ID,
+		ExpiresAt: time.Now().Add(auth.SessionDuration),
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	rr = doRequestWithSession(t, env.srv, sessionID, "POST", "/api/skills/install", map[string]any{
+		"source": "owner/repo@skill",
+		"scope":  "system",
+	})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("non-admin: status = %d, want %d (body: %s)", rr.Code, http.StatusForbidden, rr.Body.String())
 	}
 }

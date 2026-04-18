@@ -150,7 +150,13 @@ templ UsersPage() {
 					</select>
 					<p class="text-xs text-secondary mt-1">Which channel receives scheduler and tool notifications.</p>
 				</div>
-				<!-- Agent Assignments Section -->
+				<!-- Skills Section -->
+					<div class="mb-4">
+						<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2">Skills</p>
+						<p class="text-xs text-secondary mb-2">User-scope skills for this account.</p>
+						<button @click="manageUserSkills()" class="btn btn-ghost btn-xs text-primary">Manage skills</button>
+					</div>
+					<!-- Agent Assignments Section -->
 					<div class="mb-4">
 						<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2">Agent Assignments</p>
 						<div class="space-y-2">
@@ -311,5 +317,6 @@ templ UsersPage() {
 				</div>
 			</div>
 		</div>
+		@ui.SkillsDrawer()
 	</div>
 }

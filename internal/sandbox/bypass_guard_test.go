@@ -26,8 +26,6 @@ func TestMigratedSandboxPathsAvoidDirectBypasses(t *testing.T) {
 		"plugins/tools/skills/tool.go",
 		"plugins/tools/skills/catalog.go",
 		"plugins/tools/skills/manage.go",
-		"plugins/tools/skills/remove_lib.go",
-		"plugins/tools/skills/hostfs.go",
 		"plugins/tools/agent/preset_loader.go",
 		"plugins/tools/agent/hostfs.go",
 		"internal/agent/runner/prompt.go",

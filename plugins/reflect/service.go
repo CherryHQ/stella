@@ -21,6 +21,7 @@ type Config struct {
 	StateStore pkgplugins.StateStore
 	Memory     memory.Provider
 	Store      pkgplugins.ReflectStore
+	SkillStore pkgplugins.SkillStore
 	Notifier   pkgplugins.Notifier
 	Workspace  string
 	Interval   time.Duration
@@ -37,30 +38,32 @@ type watermarker interface {
 
 // Service runs background conversation review.
 type Service struct {
-	memory    memory.Provider
-	store     pkgplugins.ReflectStore
-	notifier  pkgplugins.Notifier
-	wm        watermarker
-	workspace string
-	interval  time.Duration
-	batch     int
-	log       *slog.Logger
-	providers func(api, apiKey, baseURL string) (*providers.Registry, error)
+	memory     memory.Provider
+	store      pkgplugins.ReflectStore
+	skillStore pkgplugins.SkillStore
+	notifier   pkgplugins.Notifier
+	wm         watermarker
+	workspace  string
+	interval   time.Duration
+	batch      int
+	log        *slog.Logger
+	providers  func(api, apiKey, baseURL string) (*providers.Registry, error)
 }
 
 // New creates a new reflect service.
 func New(cfg Config) *Service {
 	cfg = normalizeConfig(cfg)
 	return &Service{
-		memory:    cfg.Memory,
-		store:     cfg.Store,
-		notifier:  cfg.Notifier,
-		wm:        newWatermarkStore(cfg.StateStore),
-		workspace: cfg.Workspace,
-		interval:  cfg.Interval,
-		batch:     cfg.Batch,
-		log:       cfg.Log,
-		providers: cfg.Providers,
+		memory:     cfg.Memory,
+		store:      cfg.Store,
+		skillStore: cfg.SkillStore,
+		notifier:   cfg.Notifier,
+		wm:         newWatermarkStore(cfg.StateStore),
+		workspace:  cfg.Workspace,
+		interval:   cfg.Interval,
+		batch:      cfg.Batch,
+		log:        cfg.Log,
+		providers:  cfg.Providers,
 	}
 }
 

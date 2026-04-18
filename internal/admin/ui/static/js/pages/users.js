@@ -1,4 +1,5 @@
 import { api } from '/static/js/api.js'
+import { skillsDrawerMixin } from '/static/js/components/skills_drawer.js'
 
 /**
  * Registers the usersPage Alpine.data component.
@@ -7,6 +8,7 @@ import { api } from '/static/js/api.js'
  */
 export function register(Alpine) {
   Alpine.data('usersPage', () => ({
+    ...skillsDrawerMixin(),
     tab: 'auth',
     currentUserId: 0,
 
@@ -158,6 +160,18 @@ export function register(Alpine) {
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       }
+    },
+
+    async manageUserSkills() {
+      if (!this.selectedUser) return
+      await this.openSkillsDrawer({
+        title: 'Skills · ' + this.selectedUser.username,
+        subtitle: 'User scope · #' + this.selectedUser.id,
+        scope: 'user',
+        userID: this.selectedUser.id,
+        useAdminAPI: true,
+        canEdit: true,
+      })
     },
 
     // --- Memory Tab ---
