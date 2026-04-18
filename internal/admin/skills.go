@@ -83,12 +83,18 @@ func (s *Server) getSkill(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getSkillFile(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	s.serveSkillFile(w, r, id)
+}
+
+// serveSkillFile is the shared body of GET .../skills/{id}/file?path=...
+// (reused by scoped handlers after their ownership checks).
+func (s *Server) serveSkillFile(w http.ResponseWriter, r *http.Request, id string) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
 	}
-	id := r.PathValue("id")
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		writeError(w, http.StatusBadRequest, "path query parameter is required")
@@ -104,6 +110,35 @@ func (s *Server) getSkillFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeData(w, http.StatusOK, map[string]string{"path": path, "content": content})
+}
+
+// deleteSkillFile removes a single file under a skill (admin-only route).
+func (s *Server) deleteSkillFile(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	s.doDeleteSkillFile(w, r, id)
+}
+
+// doDeleteSkillFile is the shared body of DELETE .../skills/{id}/file?path=...
+func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, id string) {
+	store := s.skillStore()
+	if store == nil {
+		writeError(w, http.StatusServiceUnavailable, "skills store not available")
+		return
+	}
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path query parameter is required")
+		return
+	}
+	if path == skills.MainFile {
+		writeError(w, http.StatusBadRequest, "cannot delete SKILL.md")
+		return
+	}
+	if err := store.DeleteFile(r.Context(), id, path); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeData(w, http.StatusOK, map[string]string{"path": path})
 }
 
 type createSkillRequest struct {
@@ -184,12 +219,17 @@ type updateSkillRequest struct {
 }
 
 func (s *Server) updateSkill(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	s.applySkillUpdate(w, r, id)
+}
+
+// applySkillUpdate is the shared body for PUT .../skills/{id}.
+func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id string) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
 	}
-	id := r.PathValue("id")
 	var req updateSkillRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -214,12 +254,17 @@ func (s *Server) updateSkill(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteSkill(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	s.doDeleteSkill(w, r, id)
+}
+
+// doDeleteSkill is the shared body for DELETE .../skills/{id}.
+func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
 	}
-	id := r.PathValue("id")
 	if err := store.Delete(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -139,6 +139,10 @@ templ AgentsPage() {
 									@click="manageUsers(a)"
 									class="btn btn-ghost btn-xs text-secondary hover:text-primary"
 								>users</button>
+								<button
+									@click="manageAgentSkills(a)"
+									class="btn btn-ghost btn-xs text-secondary hover:text-primary"
+								>skills</button>
 								<button @click="editAgent(a)" class="btn btn-ghost btn-xs text-secondary hover:text-primary">edit</button>
 								<button
 									@click="confirmDelete('Delete agent ' + a.id + '?', () => doDeleteAgent(a.id))"
@@ -288,6 +292,7 @@ templ AgentsPage() {
 				</div>
 			</div>
 		</div>
+		@ui.SkillsDrawer()
 	</div>
 }
 

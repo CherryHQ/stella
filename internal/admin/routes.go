@@ -42,6 +42,15 @@ func (s *Server) registerProfileRoutes() {
 	s.mux.HandleFunc("PUT /api/auth/profile/memories/{agentId}", s.setProfileMemory)
 	s.mux.HandleFunc("DELETE /api/auth/profile/memories/{agentId}", s.deleteProfileMemory)
 	s.mux.HandleFunc("PUT /api/auth/profile/soul/{agentId}", s.setProfileSoul)
+
+	// Self-service user skills.
+	s.mux.HandleFunc("GET /api/auth/profile/skills", s.listProfileSkills)
+	s.mux.HandleFunc("POST /api/auth/profile/skills/install", s.installProfileSkill)
+	s.mux.HandleFunc("GET /api/auth/profile/skills/{skillId}", s.getProfileSkill)
+	s.mux.HandleFunc("GET /api/auth/profile/skills/{skillId}/file", s.getProfileSkillFile)
+	s.mux.HandleFunc("PUT /api/auth/profile/skills/{skillId}", s.updateProfileSkill)
+	s.mux.HandleFunc("DELETE /api/auth/profile/skills/{skillId}", s.deleteProfileSkill)
+	s.mux.HandleFunc("DELETE /api/auth/profile/skills/{skillId}/file", s.deleteProfileSkillFile)
 }
 
 func (s *Server) registerPageRoutes() {
@@ -83,6 +92,15 @@ func (s *Server) registerAgentRoutes() {
 	s.mux.Handle("GET /api/agents/{id}/users", adminAPI(s.listAgentUsers))
 	s.mux.Handle("POST /api/agents/{id}/users", adminAPI(s.assignAgentUser))
 	s.mux.Handle("DELETE /api/agents/{id}/users/{userId}", adminAPI(s.removeAgentUser))
+
+	// Agent-scoped skills (creator or admin).
+	s.mux.HandleFunc("GET /api/agents/{id}/skills", s.listAgentSkills)
+	s.mux.HandleFunc("POST /api/agents/{id}/skills/install", s.installAgentSkill)
+	s.mux.HandleFunc("GET /api/agents/{id}/skills/{skillId}", s.getAgentSkill)
+	s.mux.HandleFunc("GET /api/agents/{id}/skills/{skillId}/file", s.getAgentSkillFile)
+	s.mux.HandleFunc("PUT /api/agents/{id}/skills/{skillId}", s.updateAgentSkill)
+	s.mux.HandleFunc("DELETE /api/agents/{id}/skills/{skillId}", s.deleteAgentSkill)
+	s.mux.HandleFunc("DELETE /api/agents/{id}/skills/{skillId}/file", s.deleteAgentSkillFile)
 }
 
 func (s *Server) registerChannelRoutes() {
@@ -169,4 +187,5 @@ func (s *Server) registerSkillRoutes() {
 	s.mux.Handle("POST /api/skills/install", adminAPI(s.installSkill))
 	s.mux.Handle("PUT /api/skills/{id}", adminAPI(s.updateSkill))
 	s.mux.Handle("DELETE /api/skills/{id}", adminAPI(s.deleteSkill))
+	s.mux.Handle("DELETE /api/skills/{id}/file", adminAPI(s.deleteSkillFile))
 }
