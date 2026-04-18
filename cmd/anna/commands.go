@@ -21,6 +21,7 @@ import (
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/pluginstate"
 	"github.com/vaayne/anna/internal/scheduler"
+	internaltools "github.com/vaayne/anna/internal/tools"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -46,6 +47,7 @@ func newApp() *ucli.App {
 			modelsCommand(),
 			skillsCommand(),
 			pluginCommand(),
+			toolsCommand(),
 			versionCommand(),
 			upgradeCommand(),
 		},
@@ -81,6 +83,13 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	}
 
 	store := config.NewDBStore(db)
+
+	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
+		return nil, fmt.Errorf("extract embedded tools: %w", err)
+	}
+	if err := embedded.VerifyTools(config.AnnaHome()); err != nil {
+		return nil, err
+	}
 
 	if err := skillsbuiltin.ExtractSkills(filepath.Join(config.AnnaHome(), "skills")); err != nil {
 		return nil, fmt.Errorf("extract builtin skills: %w", err)
@@ -126,6 +135,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		return nil, fmt.Errorf("load plugin catalog: %w", err)
 	}
+	ensureEnabledPluginBinaries(parent, phost, store, config.AnnaHome())
 	if err := phost.ApplyPlugin(ctx, mcpplugin.PluginID); err != nil {
 		return nil, fmt.Errorf("apply mcp runtime: %w", err)
 	}
@@ -419,4 +429,21 @@ func setupLogFile() error {
 		Level: slog.LevelDebug,
 	})))
 	return nil
+}
+
+// ensureEnabledPluginBinaries downloads missing or broken binaries for all
+// currently-enabled plugins and runs their PostInstall hooks. Called at startup
+// so plugins enabled by default (or enabled before the current session) have
+// their binaries ready without requiring a UI toggle.
+func ensureEnabledPluginBinaries(ctx context.Context, phost *pluginhost.Host, store config.Store, annaHome string) {
+	plugins, err := store.ListPlugins(ctx)
+	if err != nil {
+		slog.Warn("could not list plugins for binary ensure", "error", err)
+		return
+	}
+	for _, p := range plugins {
+		if p.Enabled {
+			internaltools.EnsurePluginBinaries(ctx, phost.BinarySpecs(p.ID), annaHome, nil)
+		}
+	}
 }

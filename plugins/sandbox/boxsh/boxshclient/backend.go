@@ -323,7 +323,10 @@ func ResolveManagedBoxshPath(annaHome string) (string, error) {
 
 	info, err := os.Stat(path)
 	if err != nil {
-		return "", fmt.Errorf("sandbox: stat managed boxsh binary: %w", err)
+		return "", fmt.Errorf(
+			"sandbox: boxsh binary not found at %s; "+
+				"rebuild after running: mise run tools:download (%w)",
+			path, err)
 	}
 	if info.IsDir() {
 		return "", fmt.Errorf("sandbox: managed boxsh path %q is a directory", path)

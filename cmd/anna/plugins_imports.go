@@ -19,8 +19,10 @@ import (
 	_ "github.com/vaayne/anna/plugins/tools/bash"
 	_ "github.com/vaayne/anna/plugins/tools/edit"
 	_ "github.com/vaayne/anna/plugins/tools/mcp"
+	_ "github.com/vaayne/anna/plugins/tools/mise"
 	_ "github.com/vaayne/anna/plugins/tools/notify"
 	_ "github.com/vaayne/anna/plugins/tools/read"
+	_ "github.com/vaayne/anna/plugins/tools/tap-web"
 	_ "github.com/vaayne/anna/plugins/tools/webfetch"
 	_ "github.com/vaayne/anna/plugins/tools/write"
 

@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 
 	"github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -148,4 +149,21 @@ type AfterToolResultSpec struct {
 	Order    int
 	Required bool
 	Run      func(ctx context.Context, build AfterToolResultContext) (AfterToolResult, error)
+}
+
+// BinaryAsset describes a GitHub release asset for one platform.
+type BinaryAsset struct {
+	File      string // may contain {version} and {tag} placeholders
+	RawBinary bool   // true if the asset IS the binary (no archive to extract)
+}
+
+// BinarySpec declares a downloadable binary a plugin requires.
+// A plugin may register multiple BinarySpecs, one per distinct binary.
+type BinarySpec struct {
+	PluginID       string
+	Name           string                 // binary name on disk, e.g. "tap"
+	Repo           string                 // "owner/repo" on GitHub
+	Version        string                 // pinned version string, or "" for latest
+	AssetTemplates map[string]BinaryAsset // platform key e.g. "darwin-arm64"
+	PostInstall    func(ctx context.Context, binPath, annaHome string, logger *slog.Logger)
 }

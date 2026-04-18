@@ -74,7 +74,7 @@ description = "Watch templ files and regenerate on change"
 run = "templ generate --watch --proxy=http://localhost:25678"
 
 [tasks."tools:download"]
-description = "Download fd, rg, mise, tap, rtk, and boxsh for current platform"
+description = "Download fd, rg, and boxsh for current platform"
 run = "bash --noprofile --norc ./scripts/download-tools.sh"
 
 # ============================================================================
