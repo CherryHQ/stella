@@ -9,9 +9,24 @@ import (
 	"time"
 
 	boxshplugin "github.com/vaayne/anna/plugins/sandbox/boxsh"
+	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
+	dockerclient "github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
 
 	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
 )
+
+// dockerAvailable probes whether the docker daemon is reachable.
+// It constructs a client (requires binary on PATH) and calls Version with a short timeout.
+func dockerAvailable(ctx context.Context) bool {
+	client, err := dockerclient.New()
+	if err != nil {
+		return false
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_, err = client.Version(probeCtx)
+	return err == nil
+}
 
 // Contract tests for Session and Host interfaces.
 // These tests verify that both local and boxsh backends satisfy the shared contract.
@@ -21,6 +36,15 @@ func TestSessionContract(t *testing.T) {
 	// Test with local factory (always available)
 	t.Run("LocalFactory", func(t *testing.T) {
 		testSessionContract(t, localplugin.NewFactory())
+	})
+
+	// Test with docker factory if daemon is reachable
+	t.Run("DockerFactory", func(t *testing.T) {
+		ctx := context.Background()
+		if !dockerAvailable(ctx) {
+			t.Skip("docker daemon not reachable; skipping DockerFactory contract test")
+		}
+		testSessionContract(t, dockerplugin.NewFactory(dockerplugin.Config{AllowPull: true}))
 	})
 
 	// Test with boxsh factory if available
@@ -167,6 +191,15 @@ func TestHostContract(t *testing.T) {
 	// Test with local factory (always available)
 	t.Run("LocalFactory", func(t *testing.T) {
 		testHostContract(t, localplugin.NewFactory())
+	})
+
+	// Test with docker factory if daemon is reachable
+	t.Run("DockerFactory", func(t *testing.T) {
+		ctx := context.Background()
+		if !dockerAvailable(ctx) {
+			t.Skip("docker daemon not reachable; skipping DockerFactory host contract test")
+		}
+		testHostContract(t, dockerplugin.NewFactory(dockerplugin.Config{AllowPull: true}))
 	})
 }
 
