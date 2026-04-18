@@ -20,6 +20,7 @@ func (h stubHost) AddSystemPrompt(SystemPromptSpec)       {}
 func (h stubHost) AddBeforeRun(BeforeRunSpec)             {}
 func (h stubHost) AddBeforeToolCall(BeforeToolCallSpec)   {}
 func (h stubHost) AddAfterToolResult(AfterToolResultSpec) {}
+func (h stubHost) AddBinary(BinarySpec)                   {}
 
 func TestPluginFuncRegister(t *testing.T) {
 	called := false

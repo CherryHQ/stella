@@ -72,6 +72,30 @@ func ToolNames() []string {
 	return names
 }
 
+// VerifyTools checks that every tool present in the embedded FS was successfully
+// extracted to annaHome/bin. If the embedded FS has no tool archives (e.g. a
+// dev build where tools:download was not run), the check is skipped and nil is
+// returned — the missing-binary error surfaces later when the tool is actually
+// needed. Returns an error only when the FS is non-empty but one or more
+// binaries are missing on disk after extraction.
+func VerifyTools(annaHome string) error {
+	names := ToolNames()
+	if len(names) == 0 {
+		return nil // no tools embedded; skip verification
+	}
+	var missing []string
+	for _, name := range names {
+		if ToolPath(annaHome, name) == "" {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("embedded tools missing in %s after extraction: %s",
+			BinDir(annaHome), strings.Join(missing, ", "))
+	}
+	return nil
+}
+
 func extractTools(destDir string) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return fmt.Errorf("create bin dir: %w", err)

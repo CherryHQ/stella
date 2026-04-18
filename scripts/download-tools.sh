@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Download fd, rg, mise, tap, rtk, and boxsh binaries, gzip-compressed into
+# Download fd, rg, and boxsh binaries, gzip-compressed into
 # internal/embedded/binaries/.
 #
 # Uses exact GitHub release asset URLs with curl instead of `gh release download`
@@ -24,9 +24,6 @@ mkdir -p "$BINARIES_DIR"
 FD_VERSION="${FD_VERSION:-10.4.2}"
 FD_DARWIN_AMD64_VERSION="${FD_DARWIN_AMD64_VERSION:-10.3.0}"
 RG_VERSION="${RG_VERSION:-15.1.0}"
-MISE_VERSION="${MISE_VERSION:-v2026.4.12}"
-TAP_VERSION="${TAP_VERSION:-0.4.4}"
-RTK_VERSION="${RTK_VERSION:-0.30.0}"
 BOXSH_VERSION="${BOXSH_VERSION:-2.1.0}"
 
 REPO_BASE_URL="https://github.com"
@@ -188,39 +185,6 @@ rg_asset() {
   esac
 }
 
-mise_asset() {
-  case "$target_goos/$target_goarch" in
-    darwin/amd64)  printf '%s|mise-%s-macos-x64.tar.gz\n' "$MISE_VERSION" "$MISE_VERSION" ;;
-    darwin/arm64)  printf '%s|mise-%s-macos-arm64.tar.gz\n' "$MISE_VERSION" "$MISE_VERSION" ;;
-    linux/amd64)   printf '%s|mise-%s-linux-x64-musl.tar.gz\n' "$MISE_VERSION" "$MISE_VERSION" ;;
-    linux/arm64)   printf '%s|mise-%s-linux-arm64-musl.tar.gz\n' "$MISE_VERSION" "$MISE_VERSION" ;;
-    windows/amd64) printf '%s|mise-%s-windows-x64.zip\n' "$MISE_VERSION" "$MISE_VERSION" ;;
-    windows/arm64) printf '%s|mise-%s-windows-arm64.zip\n' "$MISE_VERSION" "$MISE_VERSION" ;;
-  esac
-}
-
-tap_asset() {
-  case "$target_goos/$target_goarch" in
-    darwin/amd64)  printf 'v%s|tap_%s_darwin_amd64.tar.gz\n' "$TAP_VERSION" "$TAP_VERSION" ;;
-    darwin/arm64)  printf 'v%s|tap_%s_darwin_arm64.tar.gz\n' "$TAP_VERSION" "$TAP_VERSION" ;;
-    linux/amd64)   printf 'v%s|tap_%s_linux_amd64.tar.gz\n' "$TAP_VERSION" "$TAP_VERSION" ;;
-    linux/arm64)   printf 'v%s|tap_%s_linux_arm64.tar.gz\n' "$TAP_VERSION" "$TAP_VERSION" ;;
-    windows/amd64) printf 'v%s|tap_%s_windows_amd64.zip\n' "$TAP_VERSION" "$TAP_VERSION" ;;
-    windows/arm64) printf 'v%s|tap_%s_windows_arm64.zip\n' "$TAP_VERSION" "$TAP_VERSION" ;;
-  esac
-}
-
-rtk_asset() {
-  case "$target_goos/$target_goarch" in
-    darwin/amd64)  printf 'v%s|rtk-x86_64-apple-darwin.tar.gz\n' "$RTK_VERSION" ;;
-    darwin/arm64)  printf 'v%s|rtk-aarch64-apple-darwin.tar.gz\n' "$RTK_VERSION" ;;
-    linux/amd64)   printf 'v%s|rtk-x86_64-unknown-linux-musl.tar.gz\n' "$RTK_VERSION" ;;
-    linux/arm64)   printf 'v%s|rtk-aarch64-unknown-linux-gnu.tar.gz\n' "$RTK_VERSION" ;;
-    windows/amd64) printf 'v%s|rtk-x86_64-pc-windows-msvc.zip\n' "$RTK_VERSION" ;;
-    windows/arm64) return 1 ;;
-  esac
-}
-
 boxsh_asset() {
   case "$target_goos/$target_goarch" in
     darwin/amd64) printf 'v%s|boxsh-v%s-darwin-x86_64\n' "$BOXSH_VERSION" "$BOXSH_VERSION" ;;
@@ -236,17 +200,6 @@ download fd "sharkdp/fd" "$fd_tag" "$fd_file"
 
 IFS='|' read -r rg_tag rg_file <<<"$(rg_asset)"
 download rg "BurntSushi/ripgrep" "$rg_tag" "$rg_file"
-
-IFS='|' read -r mise_tag mise_file <<<"$(mise_asset)"
-download mise "jdx/mise" "$mise_tag" "$mise_file"
-
-IFS='|' read -r tap_tag tap_file <<<"$(tap_asset)"
-download tap "vaayne/tap" "$tap_tag" "$tap_file"
-
-if rtk_meta="$(rtk_asset)"; then
-  IFS='|' read -r rtk_tag rtk_file <<<"$rtk_meta"
-  download rtk "rtk-ai/rtk" "$rtk_tag" "$rtk_file" true
-fi
 
 if boxsh_meta="$(boxsh_asset)"; then
   IFS='|' read -r boxsh_tag boxsh_file <<<"$boxsh_meta"
