@@ -155,8 +155,9 @@ JSONオブジェクトとして`settings`テーブルの`runner`キーに保存�
   - Dockerバックエンドの設定は `sandbox.docker` の下に置きます：
     - `image`：Dockerイメージ参照。デフォルトは `alpine:3.20`。
     - `user`：`docker --user` に渡すオプションの `uid:gid` 文字列。Linux/macOSではannaプロセスのuid/gidをデフォルトとし、Windowsでは空（Docker Desktopがマッピングを処理）。コンテナ内で `root` が必要な場合はオーバーライドしてください。
-    - `allow_pull`：`true` の場合、プリフライト時に不足しているイメージを自動的にプルします。デフォルトは `false`（イメージが不足している場合はフェイルファスト）。
-    - `extra_mounts`：`host:container[:ro]` 形式の追加バインドマウント文字列。パスは絶対パスでなければなりません。
+    - `allow_pull`：`true` の場合、プリフライト時に不足しているイメージを自動的にプルします。デフォルトは `false`。`image` 未設定でデフォルトイメージを使う場合は常に自動プルが許可されるため、初回インストールで本オプションを切り替える必要はありません。
+    - `extra_mounts`：`host:container[:ro|:rw]` 形式の追加バインドマウント文字列。パスは絶対パスでなければなりません。オプションを省略した場合のデフォルトは `:rw` です。
+    - `container_path_prefix` / `host_path_prefix`：anna 自身がコンテナ内で動作し、ホスト上の Docker デーモンと通信する場合（Docker-outside-of-Docker）に揃えて設定します。anna から見て `container_path_prefix` 配下の絶対パスは、デーモンに bind-mount のソースとして渡す際に `host_path_prefix` 配下へ書き換えられます。これによりデーモンは anna 側のコンテナ内ではなくホストのファイルシステム上でパスを解決できます。anna をホストで直接動かす場合は両方を空にしてください。
   - Dockerバックエンドは現在 `whitelist` ネットワークモードやHTTPメディエーションを実装していません — `boxsh` と同様にフェイルクローズします。`disabled` または `allow_all` を使用してください。
   - Dockerはワークスペースルートを `/workspace` にバインドマウントし、各読み取り専用パスを `/workspace-readonly/<index>` にマウントします。ホストの絶対パスに依存するスクリプトはコンテナ内パスを使用する必要があります。
 

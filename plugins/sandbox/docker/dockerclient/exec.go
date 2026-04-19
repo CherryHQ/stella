@@ -94,6 +94,10 @@ func (c *Client) Exec(ctx context.Context, opts ExecOptions) (*ExecResult, error
 // that blocks until the exec finishes and returns its exit code.
 func (c *Client) StartExec(ctx context.Context, opts ExecOptions) (*ExecHandle, error) {
 	createOpts := buildExecCreateOptions(opts)
+	// StartExec always exposes a stdin handle (either opts.Stdin or handle.Stdin),
+	// so the daemon side must accept stdin even when opts.Stdin is nil — otherwise
+	// writes on handle.Stdin are silently dropped.
+	createOpts.AttachStdin = true
 
 	created, err := c.api.ExecCreate(ctx, opts.ContainerID, createOpts)
 	if err != nil {

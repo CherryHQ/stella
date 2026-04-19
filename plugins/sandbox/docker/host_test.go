@@ -64,7 +64,9 @@ func TestToContainerPath_DeepestMount(t *testing.T) {
 	}
 }
 
-// TestDockerHostResolvePath verifies relative paths are joined to WorkingDir.
+// TestDockerHostResolvePath verifies relative paths are joined to WorkingDir,
+// absolute paths inside the mount set are passed through, and absolute paths
+// outside any mount are rejected.
 func TestDockerHostResolvePath(t *testing.T) {
 	dir := t.TempDir()
 	policy := Policy{
@@ -76,7 +78,10 @@ func TestDockerHostResolvePath(t *testing.T) {
 	session := &dockerSession{
 		id:     "test-session",
 		policy: policy,
-		done:   make(chan struct{}),
+		mountTable: []dockerclient.Mount{
+			{HostPath: dir, ContainerPath: "/workspace"},
+		},
+		done: make(chan struct{}),
 	}
 	host := &dockerHost{session: session}
 
@@ -89,13 +94,20 @@ func TestDockerHostResolvePath(t *testing.T) {
 		t.Errorf("got %q, want %q", abs, want)
 	}
 
-	// Absolute path passes through unchanged.
-	abs2, err := host.ResolvePath("/absolute/path")
+	// Absolute path inside a mounted tree passes through unchanged.
+	insideMount := filepath.Join(dir, "sub/file.txt")
+	got, err := host.ResolvePath(insideMount)
 	if err != nil {
-		t.Fatalf("ResolvePath: %v", err)
+		t.Fatalf("ResolvePath inside mount: %v", err)
 	}
-	if abs2 != "/absolute/path" {
-		t.Errorf("got %q, want %q", abs2, "/absolute/path")
+	if got != insideMount {
+		t.Errorf("got %q, want %q", got, insideMount)
+	}
+
+	// Absolute path outside every mount must be rejected so filesystem
+	// policies (workspace-only, read-only trees) cannot be bypassed.
+	if _, err := host.ResolvePath("/absolute/path"); err == nil {
+		t.Error("ResolvePath: expected error for path outside mount set")
 	}
 }
 
@@ -146,7 +158,10 @@ func TestDockerHostReadFile(t *testing.T) {
 	session := &dockerSession{
 		id:     "test-session",
 		policy: policy,
-		done:   make(chan struct{}),
+		mountTable: []dockerclient.Mount{
+			{HostPath: dir, ContainerPath: "/workspace"},
+		},
+		done: make(chan struct{}),
 	}
 	host := &dockerHost{session: session}
 

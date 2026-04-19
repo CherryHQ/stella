@@ -31,8 +31,8 @@ func getSharedClient() (*dockerclient.Client, error) {
 }
 
 // Preflight checks daemon reachability and image availability.
-// If the image is missing and cfg.Docker.AllowPull is true, pulls it.
-// If missing and AllowPull is false, returns an error.
+// If the image is missing and cfg.Docker.AllowsImplicitPull() is true, pulls it.
+// If missing and pulling is not allowed, returns an error.
 func Preflight(ctx context.Context, cfg PreflightConfig) error {
 	return preflightWithClient(ctx, cfg, nil)
 }
@@ -63,7 +63,7 @@ func preflightWithClient(ctx context.Context, cfg PreflightConfig, client *docke
 		return nil
 	}
 
-	if !cfg.Docker.AllowPull {
+	if !cfg.Docker.AllowsImplicitPull() {
 		return fmt.Errorf("docker preflight: image %q not found locally and AllowPull is false; run `docker pull %s` or set AllowPull=true", image, image)
 	}
 

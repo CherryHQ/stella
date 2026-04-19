@@ -157,8 +157,12 @@ func TestSandboxConfigValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "docker extra_mounts rw option valid",
+			cfg:  SandboxConfig{Docker: SandboxDockerConfig{ExtraMounts: []string{"/tmp:/container:rw"}}},
+		},
+		{
 			name:    "docker extra_mounts bad option invalid",
-			cfg:     SandboxConfig{Docker: SandboxDockerConfig{ExtraMounts: []string{"/tmp:/container:rw"}}},
+			cfg:     SandboxConfig{Docker: SandboxDockerConfig{ExtraMounts: []string{"/tmp:/container:rx"}}},
 			wantErr: true,
 		},
 		{

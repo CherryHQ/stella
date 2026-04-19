@@ -86,11 +86,11 @@ func (c SandboxDockerConfig) Validate() error {
 			if !strings.HasPrefix(parts[0], "/") || !strings.HasPrefix(parts[1], "/") {
 				return fmt.Errorf("sandbox.docker.extra_mounts entry %q: host and container paths must be absolute", m)
 			}
-			if parts[2] != "ro" {
-				return fmt.Errorf("sandbox.docker.extra_mounts entry %q: optional third part must be %q", m, "ro")
+			if parts[2] != "ro" && parts[2] != "rw" {
+				return fmt.Errorf("sandbox.docker.extra_mounts entry %q: optional third part must be %q or %q", m, "ro", "rw")
 			}
 		default:
-			return fmt.Errorf("sandbox.docker.extra_mounts entry %q: must be host:container or host:container:ro", m)
+			return fmt.Errorf("sandbox.docker.extra_mounts entry %q: must be host:container, host:container:ro, or host:container:rw", m)
 		}
 	}
 	if (c.ContainerPathPrefix == "") != (c.HostPathPrefix == "") {

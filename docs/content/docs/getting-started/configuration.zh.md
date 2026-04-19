@@ -155,8 +155,9 @@ title: 配置
   - Docker 后端配置位于 `sandbox.docker` 下：
     - `image`：Docker 镜像引用，默认 `alpine:3.20`。
     - `user`：可选的 `uid:gid` 字符串，传递给 `docker --user`。在 Linux/macOS 上默认使用 anna 进程的 uid/gid；Windows 上为空（由 Docker Desktop 处理映射）。如需在容器内使用 `root`，可覆盖此项。
-    - `allow_pull`：若为 `true`，缺失的镜像将在预检时自动拉取。默认为 `false`（镜像缺失时快速失败）。
-    - `extra_mounts`：额外的绑定挂载，格式为 `host:container[:ro]` 字符串，路径必须是绝对路径。
+    - `allow_pull`：若为 `true`，缺失的镜像将在预检时自动拉取。默认为 `false`。未设置 `image` 使用默认镜像时始终允许自动拉取，以便全新安装无需手动开关此项。
+    - `extra_mounts`：额外的绑定挂载，格式为 `host:container[:ro|:rw]` 字符串，路径必须是绝对路径；省略时默认为 `:rw`。
+    - `container_path_prefix` / `host_path_prefix`：当 anna 自身运行在容器内、但对接宿主机上的 Docker 守护进程时（Docker-outside-of-Docker），请成对设置。anna 视角下位于 `container_path_prefix` 之下的绝对路径，在作为 bind-mount 源发送给守护进程前会被重写到 `host_path_prefix` 之下，从而让守护进程在宿主文件系统上解析挂载源，而不是误入 anna 所在的容器。anna 直接运行在宿主机上时两者应均留空。
   - Docker 后端目前**不**实现 `whitelist` 网络模式或 HTTP 中介 —— 它会像 `boxsh` 一样失败关闭。请使用 `disabled` 或 `allow_all`。
   - Docker 将工作区根目录绑定挂载到 `/workspace`，将每个只读路径挂载到 `/workspace-readonly/<index>`。依赖绝对宿主路径的脚本需要改用容器内路径。
 

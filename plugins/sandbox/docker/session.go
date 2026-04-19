@@ -188,6 +188,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Sessi
 			dockerclient.LabelSessionID: sessionID,
 			dockerclient.LabelAnnaHome:  annaHome,
 			dockerclient.LabelCreatedAt: time.Now().UTC().Format(time.RFC3339),
+			dockerclient.LabelOwnerPID:  strconv.Itoa(os.Getpid()),
 		},
 		Name: "anna-sandbox-" + sessionID,
 	}
@@ -447,12 +448,20 @@ func (h *dockerHost) WorkingDir() string {
 	return h.session.policy.Filesystem.WorkingDir
 }
 
+// ResolvePath turns a relative or absolute path into an absolute host path
+// covered by the session's mount set. Paths outside every mount are rejected
+// so absolute-path inputs cannot bypass the workspace / read-only policy
+// boundary on filesystem operations.
 func (h *dockerHost) ResolvePath(path string) (string, error) {
-	if filepath.IsAbs(path) {
-		return path, nil
+	resolved := path
+	if !filepath.IsAbs(resolved) {
+		workingDir := h.session.policy.Filesystem.WorkingDir
+		resolved = filepath.Join(workingDir, path)
 	}
-	workingDir := h.session.policy.Filesystem.WorkingDir
-	return filepath.Join(workingDir, path), nil
+	if _, err := toContainerPath(h.session.mountTable, resolved); err != nil {
+		return "", fmt.Errorf("docker host: path %q is outside the session mount set: %w", path, err)
+	}
+	return resolved, nil
 }
 
 func (h *dockerHost) ReadFile(_ context.Context, path string, offset, limit int) (ReadResult, error) {
@@ -616,7 +625,7 @@ func (h *dockerHost) Rename(_ context.Context, oldPath, newPath string) error {
 func (h *dockerHost) CreateTemp(_ context.Context, dir, pattern string) (TempFile, error) {
 	resolvedDir, err := h.ResolvePath(dir)
 	if err != nil {
-		resolvedDir = h.session.policy.Filesystem.WorkingDir
+		return nil, err
 	}
 
 	f, err := os.CreateTemp(resolvedDir, pattern)

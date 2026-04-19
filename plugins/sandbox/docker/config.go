@@ -72,6 +72,14 @@ func (c Config) ImageOrDefault() string {
 	return "alpine:3.20"
 }
 
+// AllowsImplicitPull reports whether Preflight may pull a missing image.
+// The default image (Image empty) is always allowed to pull so a fresh install
+// works out of the box; once a caller pins a custom image they opt into the
+// explicit AllowPull gate.
+func (c Config) AllowsImplicitPull() bool {
+	return c.AllowPull || c.Image == ""
+}
+
 // WorkspaceMountOrDefault returns the configured workspace mount path or "/workspace".
 func (c Config) WorkspaceMountOrDefault() string {
 	if c.WorkspaceMount != "" {
