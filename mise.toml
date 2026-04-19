@@ -117,6 +117,26 @@ run = "goreleaser build --snapshot --single-target --clean"
 description = "Build Docker image"
 run = "VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}; if [ -n \"${GITHUB_TOKEN:-}\" ]; then docker build --secret id=github_token,env=GITHUB_TOKEN --build-arg VERSION=$VERSION -t anna:latest .; else docker build --build-arg VERSION=$VERSION -t anna:latest .; fi"
 
+[tasks."sandbox:docker:build"]
+description = "Build anna-sandbox Docker image (used by the docker sandbox backend)"
+run = """
+  DIR=plugins/sandbox/docker
+  UID_ARG=$(id -u)
+  GID_ARG=$(id -g)
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    DOCKER_BUILDKIT=1 docker build \
+      --secret id=github_token,env=GITHUB_TOKEN \
+      --build-arg USER_UID=$UID_ARG \
+      --build-arg USER_GID=$GID_ARG \
+      -t anna-sandbox:latest "$DIR"
+  else
+    DOCKER_BUILDKIT=1 docker build \
+      --build-arg USER_UID=$UID_ARG \
+      --build-arg USER_GID=$GID_ARG \
+      -t anna-sandbox:latest "$DIR"
+  fi
+"""
+
 [tasks."docker:dev"]
 description = "Run local Docker image with ANNA_HOME in ~/.anna-dev"
 run = "docker image inspect anna:latest >/dev/null 2>&1 || { echo 'anna:latest not found; run mise run docker:build first' >&2; exit 1; }; mkdir -p \"$HOME/.anna-dev\" && docker rm -f anna-dev >/dev/null 2>&1 || true && docker run -d --name anna-dev --security-opt seccomp=unconfined -p 25678:25678 -v \"$HOME/.anna-dev:/workspace\" -e \"ANNA_HOME=/workspace\" -e \"HOST=0.0.0.0\" anna:latest && echo 'anna-dev started' && echo 'logs: docker logs -f anna-dev' && echo 'stop: docker stop anna-dev'"
