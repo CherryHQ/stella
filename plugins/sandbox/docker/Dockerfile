@@ -26,6 +26,22 @@ RUN apt-get update && \
     ln -s /usr/bin/fdfind /usr/local/bin/fd && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# tap is installed as a first-class binary in the image rather than via mise so
+# it stays on PATH after HOME is remapped to /workspace at runtime.
+ARG TAP_VERSION=0.4.4
+ARG TARGETARCH
+RUN set -eux; \
+    case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+      amd64) asset="tap_${TAP_VERSION}_linux_amd64.tar.gz" ;; \
+      arm64) asset="tap_${TAP_VERSION}_linux_arm64.tar.gz" ;; \
+      *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/tap.tgz "https://github.com/vaayne/tap/releases/download/v${TAP_VERSION}/${asset}"; \
+    tar -xzf /tmp/tap.tgz -C /usr/local/bin tap; \
+    chmod +x /usr/local/bin/tap; \
+    rm /tmp/tap.tgz; \
+    /usr/local/bin/tap --version
+
 ARG USER_UID=1000
 ARG USER_GID=1000
 
