@@ -75,27 +75,6 @@ func (p runnerPaths) annaAgentsDir() string {
 	return filepath.Join(p.AnnaHome, "agents")
 }
 
-func (p runnerPaths) agentSkillsDir() string {
-	return filepath.Join(p.AgentRoot, ".agents", "skills")
-}
-
-func (p runnerPaths) agentAgentsDir() string {
-	return filepath.Join(p.AgentRoot, "agents")
-}
-
-func (p runnerPaths) projectSkillsDir() string {
-	if p.ProjectRoot == "" {
-		return ""
-	}
-	return filepath.Join(p.ProjectRoot, ".agents", "skills")
-}
-
-func (p runnerPaths) projectAgentsDir() string {
-	if p.ProjectRoot == "" {
-		return ""
-	}
-	return filepath.Join(p.ProjectRoot, ".agents", "agents")
-}
 
 // sandboxProcessEnv builds the baseline process environment injected into
 // sandboxed commands. Today it pins HOME to the sandbox-visible writable area

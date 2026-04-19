@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -117,11 +116,10 @@ var sessionRegistry = map[string]sessionFactory{
 
 var platformSupportsBoxsh = boxshclient.PlatformSupportsBoxsh
 
-func runnerFilesystemPolicy(paths sandboxPaths, readOnlyPaths []string) sandbox.FilesystemPolicy {
+func runnerFilesystemPolicy(paths sandboxPaths) sandbox.FilesystemPolicy {
 	return sandbox.FilesystemPolicy{
 		WorkspaceRoot: paths.UserRoot,
 		WorkingDir:    paths.WorkDir,
-		ReadOnlyPaths: readOnlyPaths,
 		AllowEscapes:  false,
 	}
 }
@@ -134,7 +132,7 @@ func createLocalSession(_ context.Context, cfg GoRunnerConfig) (*runnerSession, 
 	policy := sandbox.Policy{
 		Backend:    config.SandboxBackendLocal,
 		Relaxed:    true,
-		Filesystem: runnerFilesystemPolicy(paths, nil),
+		Filesystem: runnerFilesystemPolicy(paths),
 		Network: sandbox.NetworkPolicy{
 			Mode: sandbox.NetworkAllowAll,
 		},
@@ -177,23 +175,16 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		return nil, err
 	}
 
-	runnerPaths := resolveRunnerPaths(cfg)
 	paths, err := resolveSandboxPaths(cfg)
 	if err != nil {
 		err = fmt.Errorf("resolve sandbox paths: %w", err)
 		recordSandboxError(span, err)
 		return nil, err
 	}
-	readOnlyDirs := collectSandboxReadOnlyDirs(
-		sandboxReadableDirs(runnerPaths),
-		runnerPaths.toolsBinDir(),
-		os.Getenv("PATH"),
-	)
-
 	policy := sandbox.Policy{
 		Backend:    config.SandboxBackendBoxsh,
 		Relaxed:    false,
-		Filesystem: runnerFilesystemPolicy(paths, readOnlyDirs),
+		Filesystem: runnerFilesystemPolicy(paths),
 		Network: sandbox.NetworkPolicy{
 			Mode:      sandbox.NetworkMode(cfg.Sandbox.Network.Mode),
 			Allowlist: cfg.Sandbox.Network.Allowlist,
@@ -207,7 +198,6 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 	span.SetAttributes(
 		attribute.String("anna.sandbox.resolved_user_root", paths.UserRoot),
 		attribute.String("anna.sandbox.work_dir", paths.WorkDir),
-		attribute.Int("anna.sandbox.readonly_dir_count", len(readOnlyDirs)),
 		attribute.String("anna.sandbox.network.mode", cfg.Sandbox.Network.Mode),
 	)
 	if len(cfg.Sandbox.Network.Allowlist) > 0 {
@@ -218,7 +208,6 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		"component", "runner_sandbox",
 		"user_root", paths.UserRoot,
 		"work_dir", paths.WorkDir,
-		"readonly_dirs", readOnlyDirs,
 		"network_mode", cfg.Sandbox.Network.Mode,
 		"network_allowlist", cfg.Sandbox.Network.Allowlist,
 	)
@@ -254,23 +243,16 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 	)
 	defer span.End()
 
-	runnerPaths := resolveRunnerPaths(cfg)
 	paths, err := resolveSandboxPaths(cfg)
 	if err != nil {
 		err = fmt.Errorf("resolve sandbox paths: %w", err)
 		recordSandboxError(span, err)
 		return nil, err
 	}
-	readOnlyDirs := collectSandboxReadOnlyDirs(
-		sandboxReadableDirs(runnerPaths),
-		runnerPaths.toolsBinDir(),
-		os.Getenv("PATH"),
-	)
-
 	policy := sandbox.Policy{
 		Backend:    config.SandboxBackendDocker,
 		Relaxed:    false,
-		Filesystem: runnerFilesystemPolicy(paths, readOnlyDirs),
+		Filesystem: runnerFilesystemPolicy(paths),
 		Network: sandbox.NetworkPolicy{
 			Mode:      sandbox.NetworkMode(cfg.Sandbox.Network.Mode),
 			Allowlist: cfg.Sandbox.Network.Allowlist,
@@ -284,7 +266,6 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 	span.SetAttributes(
 		attribute.String("anna.sandbox.resolved_user_root", paths.UserRoot),
 		attribute.String("anna.sandbox.work_dir", paths.WorkDir),
-		attribute.Int("anna.sandbox.readonly_dir_count", len(readOnlyDirs)),
 		attribute.String("anna.sandbox.network.mode", cfg.Sandbox.Network.Mode),
 	)
 	if len(cfg.Sandbox.Network.Allowlist) > 0 {
@@ -295,7 +276,6 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 		"component", "runner_sandbox",
 		"user_root", paths.UserRoot,
 		"work_dir", paths.WorkDir,
-		"readonly_dirs", readOnlyDirs,
 		"network_mode", cfg.Sandbox.Network.Mode,
 		"network_allowlist", cfg.Sandbox.Network.Allowlist,
 	)
@@ -352,36 +332,6 @@ func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, er
 	return factory(ctx, cfg)
 }
 
-func sandboxReadableDirs(paths runnerPaths) []string {
-	candidates := []string{
-		paths.annaSkillsDir(),
-		paths.annaAgentsDir(),
-		paths.agentSkillsDir(),
-		paths.agentAgentsDir(),
-		paths.projectSkillsDir(),
-		paths.projectAgentsDir(),
-	}
-
-	readOnly := make([]string, 0, len(candidates))
-	for _, dir := range candidates {
-		if dir == "" || isWithinPathRoot(paths.UserRoot, dir) {
-			continue
-		}
-		readOnly = append(readOnly, dir)
-	}
-	return readOnly
-}
-
-func isWithinPathRoot(root, path string) bool {
-	if root == "" || path == "" {
-		return false
-	}
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return false
-	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
-}
 
 func resolveSessionBackendName(cfg config.SandboxConfig) string {
 	name := cfg.BackendName()
