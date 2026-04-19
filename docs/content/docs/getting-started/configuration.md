@@ -165,7 +165,7 @@ Each platform stores its own JSON structure in the `config` column of `settings_
     - `user`: Optional `uid:gid` string passed to `docker --user`. Defaults to the anna process uid/gid on Linux/macOS; empty on Windows (Docker Desktop handles mapping). Override if you need `root` inside the container.
     - `allow_pull`: If `true`, missing images are pulled during preflight. Defaults to `false`. The default image is always pulled automatically when absent, so a fresh install works without toggling this.
     - `extra_mounts`: Additional bind mounts as `host:container[:ro|:rw]` strings. Paths must be absolute; `:rw` is the default when the option is omitted.
-    - `container_path_prefix` / `host_path_prefix`: Set together when anna itself runs inside a container talking to the daemon on the host (Docker-outside-of-Docker). Absolute paths anna sees under `container_path_prefix` are rewritten to live under `host_path_prefix` when used as bind-mount sources sent to the daemon, so the daemon resolves them on the host filesystem rather than inside anna's own container. Leave both empty when anna runs directly on the host.
+    - `container_path_prefix` / `host_path_prefix`: Advanced override for Docker-outside-of-Docker. When both are set, absolute paths anna sees under `container_path_prefix` are rewritten to live under `host_path_prefix` before being sent to the daemon as bind-mount sources. For the common case, prefer the `ANNA_HOME_HOST` environment variable instead — anna auto-derives these prefixes when it detects it is running inside a container. Use these fields only when you need per-agent overrides. Leave both empty on host installs.
   - Docker backend does **not** currently implement `whitelist` network mode or HTTP mediation — it fails closed, the same as `boxsh`. Use `disabled` or `allow_all`.
   - Docker bind-mounts the workspace root at `/workspace` and each read-only path at `/workspace-readonly/<index>`. Scripts that rely on absolute host paths will need to use the in-container path instead.
 
@@ -191,6 +191,7 @@ The old `ANNA_*` prefix overrides for all config fields are removed. Only the fo
 | Variable              | Purpose                                          |
 | --------------------- | ------------------------------------------------ |
 | `ANNA_HOME`           | Override the home directory (default `~/.anna`)  |
+| `ANNA_HOME_HOST`      | Host-side path of `ANNA_HOME` when anna runs inside a container and talks to a host docker daemon (Docker-outside-of-Docker). Required in that setup; ignored otherwise. |
 | `ANTHROPIC_API_KEY`   | Fallback API key for the Anthropic provider      |
 | `ANTHROPIC_BASE_URL`  | Fallback base URL for the Anthropic provider     |
 | `OPENAI_API_KEY`      | Fallback API key for the OpenAI provider         |

@@ -157,7 +157,7 @@ JSONオブジェクトとして`settings`テーブルの`runner`キーに保存�
     - `user`：`docker --user` に渡すオプションの `uid:gid` 文字列。Linux/macOSではannaプロセスのuid/gidをデフォルトとし、Windowsでは空（Docker Desktopがマッピングを処理）。コンテナ内で `root` が必要な場合はオーバーライドしてください。
     - `allow_pull`：`true` の場合、プリフライト時に不足しているイメージを自動的にプルします。デフォルトは `false`。`image` 未設定でデフォルトイメージを使う場合は常に自動プルが許可されるため、初回インストールで本オプションを切り替える必要はありません。
     - `extra_mounts`：`host:container[:ro|:rw]` 形式の追加バインドマウント文字列。パスは絶対パスでなければなりません。オプションを省略した場合のデフォルトは `:rw` です。
-    - `container_path_prefix` / `host_path_prefix`：anna 自身がコンテナ内で動作し、ホスト上の Docker デーモンと通信する場合（Docker-outside-of-Docker）に揃えて設定します。anna から見て `container_path_prefix` 配下の絶対パスは、デーモンに bind-mount のソースとして渡す際に `host_path_prefix` 配下へ書き換えられます。これによりデーモンは anna 側のコンテナ内ではなくホストのファイルシステム上でパスを解決できます。anna をホストで直接動かす場合は両方を空にしてください。
+    - `container_path_prefix` / `host_path_prefix`：Docker-outside-of-Docker 用の上級オーバーライド。両方が設定されている場合、anna から見て `container_path_prefix` 配下の絶対パスは、デーモンに bind-mount のソースとして渡す前に `host_path_prefix` 配下へ書き換えられます。一般的なケースでは代わりに `ANNA_HOME_HOST` 環境変数を利用してください。anna がコンテナ内での動作を検知するとこれらのプレフィックスは自動導出されます。これらのフィールドは agent ごとの個別上書きが必要な場合のみ設定してください。ホスト実行時は両方を空にしてください。
   - Dockerバックエンドは現在 `whitelist` ネットワークモードやHTTPメディエーションを実装していません — `boxsh` と同様にフェイルクローズします。`disabled` または `allow_all` を使用してください。
   - Dockerはワークスペースルートを `/workspace` にバインドマウントし、各読み取り専用パスを `/workspace-readonly/<index>` にマウントします。ホストの絶対パスに依存するスクリプトはコンテナ内パスを使用する必要があります。
 
@@ -183,6 +183,7 @@ dockerバックエンドのエージェント `sandbox` フィールドのJSON�
 | 変数                | 目的                                                      |
 | ------------------- | --------------------------------------------------------- |
 | `ANNA_HOME`         | ホームディレクトリをオーバーライド(デフォルトは`~/.anna`) |
+| `ANNA_HOME_HOST`    | anna がコンテナ内で動作し、ホスト側の docker デーモンと通信する場合（Docker-outside-of-Docker）における `ANNA_HOME` のホスト側パス。その構成では必須、それ以外では無視されます。 |
 | `ANTHROPIC_API_KEY` | AnthropicプロバイダーのフォールバックAPIキー              |
 | `OPENAI_API_KEY`    | OpenAIプロバイダーのフォールバックAPIキー                 |
 

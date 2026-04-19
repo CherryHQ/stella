@@ -157,7 +157,7 @@ title: 配置
     - `user`：可选的 `uid:gid` 字符串，传递给 `docker --user`。在 Linux/macOS 上默认使用 anna 进程的 uid/gid；Windows 上为空（由 Docker Desktop 处理映射）。如需在容器内使用 `root`，可覆盖此项。
     - `allow_pull`：若为 `true`，缺失的镜像将在预检时自动拉取。默认为 `false`。未设置 `image` 使用默认镜像时始终允许自动拉取，以便全新安装无需手动开关此项。
     - `extra_mounts`：额外的绑定挂载，格式为 `host:container[:ro|:rw]` 字符串，路径必须是绝对路径；省略时默认为 `:rw`。
-    - `container_path_prefix` / `host_path_prefix`：当 anna 自身运行在容器内、但对接宿主机上的 Docker 守护进程时（Docker-outside-of-Docker），请成对设置。anna 视角下位于 `container_path_prefix` 之下的绝对路径，在作为 bind-mount 源发送给守护进程前会被重写到 `host_path_prefix` 之下，从而让守护进程在宿主文件系统上解析挂载源，而不是误入 anna 所在的容器。anna 直接运行在宿主机上时两者应均留空。
+    - `container_path_prefix` / `host_path_prefix`：Docker-outside-of-Docker 的高级覆盖项。两者同时设置后，anna 视角下位于 `container_path_prefix` 之下的绝对路径，在作为 bind-mount 源发送给守护进程前会被重写到 `host_path_prefix` 之下。常见场景下请优先使用 `ANNA_HOME_HOST` 环境变量 —— 当 anna 检测到自己运行在容器中时会自动派生这两个前缀。仅在需要按 agent 覆盖时才设置这两个字段。在宿主机部署时两者均留空。
   - Docker 后端目前**不**实现 `whitelist` 网络模式或 HTTP 中介 —— 它会像 `boxsh` 一样失败关闭。请使用 `disabled` 或 `allow_all`。
   - Docker 将工作区根目录绑定挂载到 `/workspace`，将每个只读路径挂载到 `/workspace-readonly/<index>`。依赖绝对宿主路径的脚本需要改用容器内路径。
 
@@ -183,6 +183,7 @@ docker 后端 agent `sandbox` 字段的 JSON 示例：
 | 变量                | 用途                            |
 | ------------------- | ------------------------------- |
 | `ANNA_HOME`         | 覆盖主目录（默认为 `~/.anna`）  |
+| `ANNA_HOME_HOST`    | 当 anna 运行在容器中并通过宿主机 docker 守护进程工作时（Docker-outside-of-Docker），`ANNA_HOME` 对应的宿主机路径。仅在该部署下必须；其他情况忽略。 |
 | `ANTHROPIC_API_KEY` | Anthropic 提供商的备用 API 密钥 |
 | `OPENAI_API_KEY`    | OpenAI 提供商的备用 API 密钥    |
 

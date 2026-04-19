@@ -289,6 +289,12 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 		HostPathPrefix:      cfg.Sandbox.Docker.HostPathPrefix,
 	}
 
+	dockerCfg, err = applyDooDDefaults(dockerCfg, config.AnnaHome())
+	if err != nil {
+		recordSandboxError(span, err)
+		return nil, err
+	}
+
 	// Construct a per-runner factory with the resolved config. The global
 	// registry carries a zero-value Config for probe/contract-test use only.
 	factory := dockerplugin.NewFactory(dockerCfg)

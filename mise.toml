@@ -139,4 +139,20 @@ run = """
 
 [tasks."docker:dev"]
 description = "Run local Docker image with ANNA_HOME in ~/.anna-dev"
-run = "docker image inspect anna:latest >/dev/null 2>&1 || { echo 'anna:latest not found; run mise run docker:build first' >&2; exit 1; }; mkdir -p \"$HOME/.anna-dev\" && docker rm -f anna-dev >/dev/null 2>&1 || true && docker run -d --name anna-dev --security-opt seccomp=unconfined -p 25678:25678 -v \"$HOME/.anna-dev:/workspace\" -e \"ANNA_HOME=/workspace\" -e \"HOST=0.0.0.0\" anna:latest && echo 'anna-dev started' && echo 'logs: docker logs -f anna-dev' && echo 'stop: docker stop anna-dev'"
+run = """
+    docker image inspect anna:latest >/dev/null 2>&1 || { echo 'anna:latest not found; run mise run docker:build first' >&2; exit 1; }
+    mkdir -p \"$HOME/.anna-dev\"
+    docker rm -f anna-dev >/dev/null 2>&1 || true
+    docker run -d --name anna-dev -p 25678:25678 \
+        --user 0:0 \
+        --security-opt seccomp=unconfined \
+        -v "$HOME/.anna-dev:/workspace" \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        -e "ANNA_HOME=/workspace" \
+        -e "ANNA_HOME_HOST=$HOME/.anna-dev" \
+        -e "HOST=0.0.0.0" \
+        anna:latest
+    echo 'anna-dev started'
+    echo 'logs: docker logs -f anna-dev'
+    echo 'stop: docker stop anna-dev'
+"""
