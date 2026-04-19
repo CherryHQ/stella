@@ -698,3 +698,17 @@ func TestSummarizeToolResult(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveToolsBinDir(t *testing.T) {
+	paths := runnerPaths{AnnaHome: "/home/user/.anna"}
+
+	if got := resolveToolsBinDir(paths, config.SandboxBackendDocker); got != "" {
+		t.Errorf("docker backend: want empty ToolsBinDir, got %q", got)
+	}
+
+	for _, backend := range []string{config.SandboxBackendLocal, config.SandboxBackendBoxsh, config.SandboxBackendAuto} {
+		if got := resolveToolsBinDir(paths, backend); got == "" {
+			t.Errorf("backend %q: want non-empty ToolsBinDir, got empty", backend)
+		}
+	}
+}

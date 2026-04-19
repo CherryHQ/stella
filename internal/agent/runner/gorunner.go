@@ -225,11 +225,13 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 	// Core tools (read, bash, edit, write) are always provided by the active
 	// sandbox session.
 
+	toolsBinDir := resolveToolsBinDir(paths, session.Policy().Backend)
+
 	// Runtime capabilities are injected from the active runner session.
 	bc := plugintools.BuildContext{
 		Paths: pkgplugins.ToolPaths{
 			UserRoot:    paths.UserRoot,
-			ToolsBinDir: paths.toolsBinDir(),
+			ToolsBinDir: toolsBinDir,
 			AnnaHome:    paths.AnnaHome,
 			AgentRoot:   paths.AgentRoot,
 			ProjectRoot: paths.ProjectRoot,

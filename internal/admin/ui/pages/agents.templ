@@ -65,6 +65,7 @@ templ AgentsPage() {
 							<select x-model="form.sandbox.backend" class="select select-bordered w-full text-sm">
 								<option value="">auto — best available</option>
 								<option value="boxsh">boxsh — sandboxed execution</option>
+								<option value="docker">docker — container per session</option>
 								<option value="local">local — no sandbox (host execution)</option>
 							</select>
 						}
@@ -76,8 +77,18 @@ templ AgentsPage() {
 							</select>
 						}
 						<div class="text-xs text-base-content/60 leading-5 pt-8 sm:pt-0">
-							<p>Applies to boxsh-backed core tools: <span class="font-mono">bash</span>, <span class="font-mono">read</span>, <span class="font-mono">write</span>, and <span class="font-mono">edit</span>.</p>
+							<p>Applies to sandboxed core tools: <span class="font-mono">bash</span>, <span class="font-mono">read</span>, <span class="font-mono">write</span>, and <span class="font-mono">edit</span>.</p>
 							<p class="mt-2">Whitelist entries accept hostnames, IPs, or CIDRs, one per line.</p>
+						</div>
+						<div x-show="form.sandbox.backend === 'docker'" class="sm:col-span-2">
+							@ui.FormField("Docker Image") {
+								<input
+									type="text"
+									x-model="form.sandbox.docker.image"
+									placeholder="alpine:3.20"
+									class="input input-bordered w-full text-sm font-mono"
+								/>
+							}
 						</div>
 					</div>
 					<div class="mt-4" x-show="form.sandbox.network.mode === 'whitelist'">

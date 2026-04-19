@@ -67,6 +67,16 @@ func resolveSandboxPaths(cfg GoRunnerConfig) (sandboxPaths, error) {
 
 func (p runnerPaths) toolsBinDir() string { return embedded.BinDir(p.AnnaHome) }
 
+// resolveToolsBinDir returns the host bin dir for host-side backends (boxsh,
+// local) and empty for docker, where the container image has tools pre-installed
+// and host binaries are the wrong arch/OS.
+func resolveToolsBinDir(paths runnerPaths, backend string) string {
+	if backend == config.SandboxBackendDocker {
+		return ""
+	}
+	return paths.toolsBinDir()
+}
+
 func (p runnerPaths) annaSkillsDir() string {
 	return filepath.Join(p.AnnaHome, "skills")
 }

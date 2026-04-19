@@ -347,120 +347,111 @@ so we never have a half-wired registry.
 
 ## Tasks
 
-### Phase 1: Config
+### Phase 1: Config ✅
 
-<!-- Do this first so every later phase can reference SandboxBackendDocker
-     as a typed constant rather than a bare string. -->
-
-- [ ] Add `SandboxBackendDocker = "docker"` to `internal/config/sandbox.go`.
-- [ ] Add `SandboxDockerConfig{Image, User, AllowPull, ExtraMounts}` +
+- [x] Add `SandboxBackendDocker = "docker"` to `internal/config/sandbox.go`.
+- [x] Add `SandboxDockerConfig{Image, User, AllowPull, ExtraMounts}` +
       `Validate()`; embed as `Docker SandboxDockerConfig` on `SandboxConfig`.
       `Validate` must reject malformed `ExtraMounts` entries and reject
       absolute-outside-project paths when `AllowEscapes=false`.
-- [ ] Accept `docker` in `SandboxConfig.Validate()`; reject unknown
+- [x] Accept `docker` in `SandboxConfig.Validate()`; reject unknown
       `sandbox.docker.*` combinations.
-- [ ] Extend `internal/config/config_test.go` with docker cases.
+- [x] Extend `internal/config/config_test.go` with docker cases.
 
-### Phase 2: `dockerclient` low-level package
+### Phase 2: `dockerclient` low-level package ✅
 
-<!-- Pure subprocess + JSON layer, no pkg/sandbox types. Mirrors how
-     boxshclient is layered under the boxsh plugin. -->
-
-- [ ] `plugins/sandbox/docker/dockerclient/client.go` — `Client` struct;
+- [x] `plugins/sandbox/docker/dockerclient/client.go` — `Client` struct;
       `docker version` preflight; binary-path resolution (PATH lookup; error
       if missing).
-- [ ] `plugins/sandbox/docker/dockerclient/container.go` — `CreateContainer`,
+- [x] `plugins/sandbox/docker/dockerclient/container.go` — `CreateContainer`,
       `StartContainer`, `StopContainer`, `RemoveContainer`; tag created
       containers with `anna.sandbox.session_id` label.
-- [ ] `plugins/sandbox/docker/dockerclient/exec.go` — `Exec` (blocking,
+- [x] `plugins/sandbox/docker/dockerclient/exec.go` — `Exec` (blocking,
       returns stdout/stderr/exit) and `StartExec` (streaming, returns piped
       handles for `StartProcess`).
-- [ ] `plugins/sandbox/docker/dockerclient/labels.go` — label constants
+- [x] `plugins/sandbox/docker/dockerclient/labels.go` — label constants
       (`anna.sandbox.session_id`, `anna.sandbox.anna_home`).
-- [ ] `plugins/sandbox/docker/dockerclient/orphan.go` —
+- [x] `plugins/sandbox/docker/dockerclient/orphan.go` —
       `CleanupOrphanedContainers(annaHome)` lists and force-removes
       containers whose `anna.sandbox.anna_home` matches but whose session is
       dead.
-- [ ] Unit tests using a shim `docker` binary on `PATH` (shell script
+- [x] Unit tests using a shim `docker` binary on `PATH` (shell script
       echoing canned JSON). No real daemon required for unit coverage.
 
-### Phase 3: Plugin `Factory` / `Session` / `Host`
+### Phase 3: Plugin `Factory` / `Session` / `Host` ✅
 
-- [ ] `plugins/sandbox/docker/trace.go` — tracer + `recordError` helper (copy
+- [x] `plugins/sandbox/docker/trace.go` — tracer + `recordError` helper (copy
       boxsh pattern).
-- [ ] `plugins/sandbox/docker/config.go` — re-export `NetworkConfig` from
+- [x] `plugins/sandbox/docker/config.go` — re-export `NetworkConfig` from
       `pkg/sandbox` or define local wrapper + `Validate`.
-- [ ] `plugins/sandbox/docker/preflight.go` — `Preflight(cfg)` returning
+- [x] `plugins/sandbox/docker/preflight.go` — `Preflight(cfg)` returning
       `error` if daemon unreachable or image absent and `AllowPull=false`.
-- [ ] `plugins/sandbox/docker/session.go` — `dockerFactory` (`Name="docker"`,
+- [x] `plugins/sandbox/docker/session.go` — `dockerFactory` (`Name="docker"`,
       `Available()` checks daemon reachability, `Supported()` fails closed on
       `whitelist`), `dockerSession` (container lifecycle, `watchContainer`
       goroutine analogous to boxsh's `watchBackend`), `dockerHost`
       (mediated FS ops on host paths, `Exec` via `docker exec`, `StartProcess`
       via streaming exec, HTTP fails closed).
-- [ ] `dockerHost.ResolvePath` — translates logical `WorkingDir`-relative
+- [x] `dockerHost.ResolvePath` — translates logical `WorkingDir`-relative
       paths to host paths under `WorkspaceRoot` (same as `local`); translates
       in-container mount points back to host paths where relevant.
-- [ ] `dockerclient.toContainerPath(hostPath) (string, error)` — the single
+- [x] `dockerclient.toContainerPath(hostPath) (string, error)` — the single
       host→container path mapper used by `Exec` and `StartProcess`. Built
       from the session's mount table (`WorkspaceRoot → /workspace`,
       `ReadOnlyPaths[i] → /workspace-readonly/<i>`, plus any configured
       `ExtraMounts`). Returns a typed error if the host path isn't covered
       by any mount — callers fail closed rather than silently running with a
       bogus `--workdir`.
-- [ ] `dockerHost.Exec` / `dockerHost.StartProcess` — apply `toContainerPath`
+- [x] `dockerHost.Exec` / `dockerHost.StartProcess` — apply `toContainerPath`
       to `opts.Cwd` / `ProcessRequest.Cwd` before passing to
       `docker exec --workdir`, and translate any path-shaped values in
       `opts.Env` / `ProcessRequest.Env` that refer to workspace locations.
-- [ ] Unit tests for `dockerHost` path resolution and writability checks.
-- [ ] Unit tests for `dockerSession` lifecycle — skip if docker absent.
+- [x] Unit tests for `dockerHost` path resolution and writability checks.
+- [x] Unit tests for `dockerSession` lifecycle — skip if docker absent.
 
-### Phase 4: Registry + runner wiring
+### Phase 4: Registry + runner wiring ✅
 
-<!-- After Phase 3 the factory compiles; now wire it into the global registry
-     and the runner's backend selector so explicit `docker` works end-to-end. -->
-
-- [ ] `internal/sandbox/factory.go` — register `dockerplugin.NewFactory()` in
+- [x] `internal/sandbox/factory.go` — register `dockerplugin.NewFactory()` in
       `DefaultRegistry()`. Always registered (platform gating is done by
       `Available()`).
-- [ ] `internal/agent/runner/sandbox_backend.go` — add `createDockerSession`;
+- [x] `internal/agent/runner/sandbox_backend.go` — add `createDockerSession`;
       add to `sessionRegistry`; add `cleanupOrphanedDockerContainers`
       (`sync.Once`-guarded wrapper around `dockerclient.CleanupOrphanedContainers`).
       Do **not** change `resolveSessionBackendName` (docker stays opt-in, per D7).
-- [ ] `internal/agent/runner/gorunner.go` — refactor `prepareSandbox` into a
+- [x] `internal/agent/runner/gorunner.go` — refactor `prepareSandbox` into a
       `switch` on `cfg.Sandbox.BackendName()`: `local` → return; `docker` →
       `cleanupOrphanedDockerContainers` + `dockerpreflight.Preflight`;
       `boxsh` (and default) → existing boxsh path. _Required: without this
       change a docker-configured runner will misfire the boxsh preflight._
-- [ ] `internal/agent/runner/sandbox_backend_test.go` — add cases for
+- [x] `internal/agent/runner/sandbox_backend_test.go` — add cases for
       explicit `docker` selection and for error when daemon missing.
-- [ ] `internal/agent/runner/gorunner_test.go` — test that `prepareSandbox`
+- [x] `internal/agent/runner/gorunner_test.go` — test that `prepareSandbox`
       dispatches to the docker path (preflight is invoked, boxsh preflight
       is not) when backend is `docker`.
 
-### Phase 5: Contract & policy-compat tests
+### Phase 5: Contract & policy-compat tests ✅
 
-- [ ] `internal/sandbox/contract_test.go` — add `DockerFactory` subtest;
+- [x] `internal/sandbox/contract_test.go` — add `DockerFactory` subtest;
       skip with `t.Skip` when docker is unreachable (same pattern as the
       existing `BoxshFactory` skip).
-- [ ] `internal/sandbox/policy_compat_test.go` — cases for
+- [x] `internal/sandbox/policy_compat_test.go` — cases for
       `disabled`/`allow_all` pass, `whitelist` fails with
       `PolicyCompatibilityError{RelaxedWouldHelp: true}`, `whitelist +
       Relaxed=true` passes with a `logRelaxedMode` warning.
-- [ ] `mise run test` green locally. Reserve race for CI per repo CLAUDE.md.
+- [x] `mise run test` green locally. Reserve race for CI per repo CLAUDE.md.
 
-### Phase 6: Documentation
+### Phase 6: Documentation ✅
 
-- [ ] `docs/content/docs/core/sandbox-backend-abstraction.md` — add docker
+- [x] `docs/content/docs/core/sandbox-backend-abstraction.md` — add docker
       entry under "Current Architecture" and "Backend Addition Rules"
       example.
-- [ ] `docs/content/docs/getting-started/configuration.md` + `.zh.md` /
+- [x] `docs/content/docs/getting-started/configuration.md` + `.zh.md` /
       `.ja.md` — docker config example; UID-mapping note; default image note.
-- [ ] `docs/content/docs/getting-started/deployment.md` + `.zh.md` /
+- [x] `docs/content/docs/getting-started/deployment.md` + `.zh.md` /
       `.ja.md` — when to prefer docker over boxsh/local.
-- [ ] `docs/content/docs/changelog.mdx` — entry for docker backend.
-- [ ] `README.md` — 1-line mention of docker backend.
-- [ ] `internal/agent/runner/builtin/anna/` — sync if any preset lists
+- [x] `docs/content/docs/changelog.mdx` — entry for docker backend.
+- [x] `README.md` — 1-line mention of docker backend.
+- [x] `internal/agent/runner/builtin/anna/` — sync if any preset lists
       backends.
 
 ### Phase 7: Release prep
@@ -468,6 +459,8 @@ so we never have a half-wired registry.
 <!-- Only after code + tests + docs land. Matches release workflow at
      .agents/skills/release/SKILL.md. -->
 
+- [ ] Commit pending UI changes (`agents.templ`, `agents_templ.go`, `agents.js`).
+- [ ] Fix open bugs from code review (see `handoff.md` blockers section).
 - [ ] `mise run format` + `mise run test` green.
 - [ ] `mise run release:check`.
 - [ ] Draft commit: `✨ feat: add docker as sandbox backend`.

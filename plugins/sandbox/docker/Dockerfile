@@ -24,22 +24,22 @@ RUN apt-get update && \
 ARG USER_UID=1000
 ARG USER_GID=1000
 
-RUN groupadd --non-unique -g ${USER_GID} dev && \
-    useradd --non-unique -u ${USER_UID} -g ${USER_GID} -m -s /bin/bash dev && \
-    mkdir -p /home/dev/workspace && \
-    chown -R dev:dev /home/dev
+RUN groupadd --non-unique -g ${USER_GID} anna && \
+    useradd --non-unique -u ${USER_UID} -g ${USER_GID} -m -s /bin/bash anna && \
+    mkdir -p /home/anna/workspace && \
+    chown -R anna:anna /home/anna
 
-USER dev
-ENV HOME=/home/dev
-ENV BASH_ENV=/home/dev/.bash_env
-WORKDIR /home/dev/workspace
+USER anna
+ENV HOME=/home/anna
+ENV BASH_ENV=/home/anna/.bash_env
+WORKDIR /home/anna/workspace
 
 # Write shell env before copying config so mise activate is available on login.
-RUN printf 'eval "$(mise activate bash)"\nexport PATH="/home/dev/.local/bin:$PATH"\n' \
-    > /home/dev/.bash_env && \
-    cp /home/dev/.bash_env /home/dev/.bashrc
+RUN printf 'eval "$(mise activate bash)"\nexport PATH="/home/anna/.local/bin:$PATH"\n' \
+    > /home/anna/.bash_env && \
+    cp /home/anna/.bash_env /home/anna/.bashrc
 
-COPY --chown=dev:dev _mise.toml /home/dev/.config/mise/config.toml
+COPY --chown=anna:anna _mise.toml /home/anna/.config/mise/config.toml
 
 RUN --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
     mise install && \

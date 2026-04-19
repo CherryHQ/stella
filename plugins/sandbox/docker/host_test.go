@@ -99,6 +99,36 @@ func TestDockerHostResolvePath(t *testing.T) {
 	}
 }
 
+// TestTranslateEnvPaths verifies that absolute host paths are translated to
+// container paths and non-mounted paths are dropped.
+func TestTranslateEnvPaths(t *testing.T) {
+	mounts := []dockerclient.Mount{
+		{HostPath: "/host/workspace", ContainerPath: "/workspace"},
+	}
+
+	env := map[string]string{
+		"HOME":      "/host/workspace",   // mounted — should translate
+		"ANNA_HOME": "/host/.anna",       // not mounted — should be dropped
+		"TERM":      "xterm-256color",    // non-path — should pass through
+		"LANG":      "en_US.UTF-8",       // non-path — should pass through
+	}
+
+	got := translateEnvPaths(env, mounts)
+
+	if got["HOME"] != "/workspace" {
+		t.Errorf("HOME: got %q, want /workspace", got["HOME"])
+	}
+	if _, ok := got["ANNA_HOME"]; ok {
+		t.Errorf("ANNA_HOME should be dropped (not in any mount), got %q", got["ANNA_HOME"])
+	}
+	if got["TERM"] != "xterm-256color" {
+		t.Errorf("TERM: got %q, want xterm-256color", got["TERM"])
+	}
+	if got["LANG"] != "en_US.UTF-8" {
+		t.Errorf("LANG: got %q, want en_US.UTF-8", got["LANG"])
+	}
+}
+
 // TestDockerHostReadFile verifies that ReadFile reads from the host filesystem.
 func TestDockerHostReadFile(t *testing.T) {
 	dir := t.TempDir()

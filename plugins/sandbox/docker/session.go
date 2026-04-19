@@ -251,6 +251,28 @@ func mergeEnv(policyEnv, optsEnv map[string]string) map[string]string {
 	return out
 }
 
+// translateEnvPaths rewrites env vars whose values are absolute host paths.
+// Values that are mounted are translated to their in-container equivalents.
+// Values that are absolute but not mounted (e.g. ANNA_HOME) are dropped —
+// the path doesn't exist in the container and would mislead tools that read it.
+// Non-path values (TERM, LANG, …) pass through unchanged.
+func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount) map[string]string {
+	out := make(map[string]string, len(env))
+	for k, v := range env {
+		if !filepath.IsAbs(v) {
+			out[k] = v
+			continue
+		}
+		container, err := toContainerPath(mountTable, v)
+		if err != nil {
+			// Absolute host path not in any mount — drop rather than pass a stale path.
+			continue
+		}
+		out[k] = container
+	}
+	return out
+}
+
 // dockerSession is a docker-backed sandbox session backed by a single container.
 type dockerSession struct {
 	id          string
@@ -599,7 +621,7 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts ExecOptions)
 		return ExecResult{}, fmt.Errorf("docker host exec: cwd not in any mount: %w", err)
 	}
 
-	env := mergeEnv(h.session.policy.Process.Environment, opts.Env)
+	env := translateEnvPaths(mergeEnv(h.session.policy.Process.Environment, opts.Env), h.session.mountTable)
 
 	timeout := opts.Timeout
 	if timeout == 0 {
@@ -644,7 +666,7 @@ func (h *dockerHost) StartProcess(ctx context.Context, req ProcessRequest) (Proc
 		return nil, fmt.Errorf("docker host start_process: cwd not in any mount: %w", err)
 	}
 
-	env := mergeEnv(h.session.policy.Process.Environment, req.Env)
+	env := translateEnvPaths(mergeEnv(h.session.policy.Process.Environment, req.Env), h.session.mountTable)
 
 	timeout := req.Timeout
 	if timeout == 0 {

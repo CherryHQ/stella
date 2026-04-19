@@ -10,6 +10,9 @@ import (
 // Config holds docker-backend-specific configuration for a factory.
 type Config struct {
 	// Image is the container image to use. Defaults to "alpine:3.20" if empty.
+	// For a richer environment with pre-installed tools (rg, fd, git, …), build
+	// the bundled Dockerfile and set image to "anna-sandbox":
+	//   docker build -t anna-sandbox plugins/sandbox/docker/
 	Image string
 
 	// User is the "uid:gid" to run container processes as.
