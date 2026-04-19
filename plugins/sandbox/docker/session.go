@@ -6,7 +6,6 @@ import (
 	"io"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -72,22 +71,30 @@ func NewFactory(cfg Config) sandboxpkg.Factory { return &dockerFactory{cfg: cfg}
 
 func (f *dockerFactory) Name() string { return "docker" }
 
-// Available returns true if the docker binary is on PATH.
-// This is a cheap check that does not contact the daemon.
+// Available reports whether a docker daemon is reachable. The CLI is not a
+// runtime dependency — the moby SDK talks to the socket directly — so this
+// builds a client and pings ServerVersion with a short timeout.
 func (f *dockerFactory) Available() bool {
-	_, err := exec.LookPath("docker")
+	c, err := dockerclient.New()
+	if err != nil {
+		return false
+	}
+	defer func() { _ = c.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = c.Version(ctx)
 	return err == nil
 }
 
 // Supported returns a PolicyCompatibilityError when:
-//   - The docker binary is not on PATH.
+//   - The docker daemon is unreachable.
 //   - Network mode is whitelist (not supported in phase 1).
 func (f *dockerFactory) Supported(policy Policy) error {
 	if !f.Available() {
 		return &PolicyCompatibilityError{
 			Backend:          f.Name(),
 			Policy:           policy,
-			Reason:           "docker binary not found on PATH",
+			Reason:           "docker daemon not reachable (check DOCKER_HOST and that the daemon is running)",
 			RelaxedWouldHelp: false,
 		}
 	}

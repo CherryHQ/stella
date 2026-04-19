@@ -314,7 +314,7 @@ func cleanupOrphanedDockerContainers(ctx context.Context, annaHome string) {
 	dockerOrphanCleanupOnce.Do(func() {
 		client, err := dockerclient.New()
 		if err != nil {
-			slog.Warn("docker orphan cleanup skipped: docker binary not found",
+			slog.Warn("docker orphan cleanup skipped: cannot construct docker client",
 				"component", "runner_sandbox", "error", err)
 			return
 		}

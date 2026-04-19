@@ -3,7 +3,6 @@ package sandbox
 import (
 	"context"
 	"errors"
-	"os/exec"
 	"runtime"
 	"sync"
 	"testing"
@@ -391,18 +390,9 @@ func TestBoxshFactorySupported(t *testing.T) {
 func TestDockerFactorySupported(t *testing.T) {
 	factory := dockerplugin.NewFactory(dockerplugin.Config{})
 
-	t.Run("AvailabilityMatchesBinaryPresence", func(t *testing.T) {
-		_, lookErr := exec.LookPath("docker")
-		binaryPresent := lookErr == nil
-
-		if got := factory.Available(); got != binaryPresent {
-			t.Errorf("Available() = %v, but docker binary present = %v", got, binaryPresent)
-		}
-	})
-
 	t.Run("WhitelistNotSupported", func(t *testing.T) {
 		if !factory.Available() {
-			t.Skip("docker binary not on PATH; skipping")
+			t.Skip("docker daemon not reachable; skipping")
 		}
 
 		policy := Policy{
@@ -434,7 +424,7 @@ func TestDockerFactorySupported(t *testing.T) {
 
 	t.Run("WhitelistWithRelaxedAllowed", func(t *testing.T) {
 		if !factory.Available() {
-			t.Skip("docker binary not on PATH; skipping")
+			t.Skip("docker daemon not reachable; skipping")
 		}
 
 		policy := Policy{
@@ -455,7 +445,7 @@ func TestDockerFactorySupported(t *testing.T) {
 
 	t.Run("DisabledNetworkSupported", func(t *testing.T) {
 		if !factory.Available() {
-			t.Skip("docker binary not on PATH; skipping")
+			t.Skip("docker daemon not reachable; skipping")
 		}
 
 		policy := Policy{
@@ -475,7 +465,7 @@ func TestDockerFactorySupported(t *testing.T) {
 
 	t.Run("AllowAllNetworkSupported", func(t *testing.T) {
 		if !factory.Available() {
-			t.Skip("docker binary not on PATH; skipping")
+			t.Skip("docker daemon not reachable; skipping")
 		}
 
 		policy := Policy{
