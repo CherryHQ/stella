@@ -137,7 +137,7 @@ func createLocalSession(_ context.Context, cfg GoRunnerConfig) (*runnerSession, 
 			Mode: sandbox.NetworkAllowAll,
 		},
 		Process: sandbox.ProcessPolicy{
-			Environment: sandboxProcessEnv(paths),
+			Environment: sandboxProcessEnv(paths, config.SandboxBackendLocal),
 			InheritEnv:  true,
 		},
 	}
@@ -190,7 +190,7 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 			Allowlist: cfg.Sandbox.Network.Allowlist,
 		},
 		Process: sandbox.ProcessPolicy{
-			Environment: sandboxProcessEnv(paths),
+			Environment: sandboxProcessEnv(paths, config.SandboxBackendBoxsh),
 			InheritEnv:  true,
 		},
 	}
@@ -258,7 +258,7 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 			Allowlist: cfg.Sandbox.Network.Allowlist,
 		},
 		Process: sandbox.ProcessPolicy{
-			Environment: sandboxProcessEnv(paths),
+			Environment: sandboxProcessEnv(paths, config.SandboxBackendDocker),
 			InheritEnv:  true,
 		},
 	}

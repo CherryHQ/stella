@@ -10,5 +10,6 @@ LIBUNWIND_PRINT_DWARF = "0"
 UV_PYTHON = "/usr/bin/python3"
 
 [tools]
+"github:vaayne/tap" = "latest"
 "github:rtk-ai/rtk" = "latest"
 "github:xicilion/boxsh" = "latest"

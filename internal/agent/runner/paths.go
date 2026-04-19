@@ -86,11 +86,16 @@ func (p runnerPaths) annaAgentsDir() string {
 }
 
 // sandboxProcessEnv builds the baseline process environment injected into
-// sandboxed commands. Today it pins HOME to the sandbox-visible writable area
-// and propagates ANNA_HOME so CLIs don't accidentally target the host home.
-func sandboxProcessEnv(paths sandboxPaths) map[string]string {
+// sandboxed commands. For host-filesystem backends (boxsh, local) it pins HOME
+// to the sandbox-visible writable area so CLIs don't accidentally read/write
+// the host user's ~/.ssh, ~/.gitconfig, ~/.cache, etc. For docker the
+// container already provides its own rootfs and image-baked HOME, so we leave
+// HOME alone and let the image's user home stand — that's what lets tools
+// installed in the image (mise tree, shell rc files, shims) remain reachable
+// at runtime regardless of the workspace bind-mount path.
+func sandboxProcessEnv(paths sandboxPaths, backend string) map[string]string {
 	env := map[string]string{}
-	if paths.UserRoot != "" {
+	if paths.UserRoot != "" && backend != config.SandboxBackendDocker {
 		env["HOME"] = paths.UserRoot
 	}
 	if paths.AnnaHome != "" {

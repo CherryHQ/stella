@@ -86,9 +86,35 @@ func TestSandboxProcessEnvUsesUserRootAsHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveSandboxPaths: %v", err)
 	}
-	env := sandboxProcessEnv(paths)
-	if got := env["HOME"]; got != cfg.UserRoot {
-		t.Fatalf("HOME = %q, want %q", got, cfg.UserRoot)
+	for _, backend := range []string{config.SandboxBackendBoxsh, config.SandboxBackendLocal} {
+		env := sandboxProcessEnv(paths, backend)
+		if got := env["HOME"]; got != cfg.UserRoot {
+			t.Fatalf("backend %q: HOME = %q, want %q", backend, got, cfg.UserRoot)
+		}
+		if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
+			t.Fatalf("backend %q: ANNA_HOME = %q, want %q", backend, got, cfg.AnnaHome)
+		}
+	}
+}
+
+// Docker containers have their own rootfs and image-baked HOME. Pinning HOME
+// to UserRoot would remap into the workspace bind-mount at runtime and break
+// anything that expects its image-installed $HOME/.* (mise, shell rc files,
+// per-user shims).
+func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
+	cfg := GoRunnerConfig{
+		AnnaHome:  "/anna",
+		AgentRoot: "/workspace/agent",
+		UserRoot:  "/workspace/agent/users/1",
+	}
+
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		t.Fatalf("resolveSandboxPaths: %v", err)
+	}
+	env := sandboxProcessEnv(paths, config.SandboxBackendDocker)
+	if _, ok := env["HOME"]; ok {
+		t.Fatalf("HOME should not be set for docker backend; got %q", env["HOME"])
 	}
 	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
 		t.Fatalf("ANNA_HOME = %q, want %q", got, cfg.AnnaHome)
