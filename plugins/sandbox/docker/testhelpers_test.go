@@ -1,70 +1,62 @@
 package docker
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
+	"context"
+
+	mobyclient "github.com/moby/moby/client"
 )
 
-// shimCase defines the behavior for a single subcommand match in the shim.
-type shimCase struct {
-	match    string
-	exitCode int
-	stdout   string
-	stderr   string
+// noopAPI is a dockerclient.API implementation whose methods all return zero
+// values. Tests embed it in a fake struct and override only the calls they
+// care about.
+type noopAPI struct{}
+
+func (noopAPI) ServerVersion(context.Context, mobyclient.ServerVersionOptions) (mobyclient.ServerVersionResult, error) {
+	return mobyclient.ServerVersionResult{}, nil
 }
 
-// writeShim writes a shell script to tmpdir/docker that dispatches based on argv.
-// Returns the absolute path to the shim binary.
-func writeShim(t *testing.T, tmpdir string, cases []shimCase) string {
-	t.Helper()
-
-	var sb strings.Builder
-	sb.WriteString("#!/bin/sh\n")
-
-	logPath := filepath.Join(tmpdir, "docker.log")
-	fmt.Fprintf(&sb, "echo \"$@\" >> %q\n", logPath)
-
-	for i, sc := range cases {
-		if sc.stdout != "" {
-			outFile := filepath.Join(tmpdir, fmt.Sprintf("case%d.stdout", i))
-			_ = os.WriteFile(outFile, []byte(sc.stdout), 0o644)
-		}
-		if sc.stderr != "" {
-			errFile := filepath.Join(tmpdir, fmt.Sprintf("case%d.stderr", i))
-			_ = os.WriteFile(errFile, []byte(sc.stderr), 0o644)
-		}
-
-		fmt.Fprintf(&sb, "if echo \" $@ \" | grep -qF %q; then\n", " "+sc.match+" ")
-		if sc.stdout != "" {
-			outFile := filepath.Join(tmpdir, fmt.Sprintf("case%d.stdout", i))
-			fmt.Fprintf(&sb, "  cat %q\n", outFile)
-		}
-		if sc.stderr != "" {
-			errFile := filepath.Join(tmpdir, fmt.Sprintf("case%d.stderr", i))
-			fmt.Fprintf(&sb, "  cat %q >&2\n", errFile)
-		}
-		fmt.Fprintf(&sb, "  exit %d\n", sc.exitCode)
-		fmt.Fprintf(&sb, "fi\n")
-	}
-
-	sb.WriteString("exit 0\n")
-
-	shimPath := filepath.Join(tmpdir, "docker")
-	if err := os.WriteFile(shimPath, []byte(sb.String()), 0o755); err != nil {
-		t.Fatalf("writeShim: %v", err)
-	}
-	return shimPath
+func (noopAPI) ImageInspect(context.Context, string, ...mobyclient.ImageInspectOption) (mobyclient.ImageInspectResult, error) {
+	return mobyclient.ImageInspectResult{}, nil
 }
 
-// readLog returns the content of docker.log in tmpdir.
-func readLog(t *testing.T, tmpdir string) string {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(tmpdir, "docker.log"))
-	if err != nil {
-		return ""
-	}
-	return string(data)
+func (noopAPI) ImagePull(context.Context, string, mobyclient.ImagePullOptions) (mobyclient.ImagePullResponse, error) {
+	return nil, nil
 }
+
+func (noopAPI) ContainerCreate(context.Context, mobyclient.ContainerCreateOptions) (mobyclient.ContainerCreateResult, error) {
+	return mobyclient.ContainerCreateResult{}, nil
+}
+
+func (noopAPI) ContainerStart(context.Context, string, mobyclient.ContainerStartOptions) (mobyclient.ContainerStartResult, error) {
+	return mobyclient.ContainerStartResult{}, nil
+}
+
+func (noopAPI) ContainerStop(context.Context, string, mobyclient.ContainerStopOptions) (mobyclient.ContainerStopResult, error) {
+	return mobyclient.ContainerStopResult{}, nil
+}
+
+func (noopAPI) ContainerRemove(context.Context, string, mobyclient.ContainerRemoveOptions) (mobyclient.ContainerRemoveResult, error) {
+	return mobyclient.ContainerRemoveResult{}, nil
+}
+
+func (noopAPI) ContainerInspect(context.Context, string, mobyclient.ContainerInspectOptions) (mobyclient.ContainerInspectResult, error) {
+	return mobyclient.ContainerInspectResult{}, nil
+}
+
+func (noopAPI) ContainerList(context.Context, mobyclient.ContainerListOptions) (mobyclient.ContainerListResult, error) {
+	return mobyclient.ContainerListResult{}, nil
+}
+
+func (noopAPI) ExecCreate(context.Context, string, mobyclient.ExecCreateOptions) (mobyclient.ExecCreateResult, error) {
+	return mobyclient.ExecCreateResult{}, nil
+}
+
+func (noopAPI) ExecAttach(context.Context, string, mobyclient.ExecAttachOptions) (mobyclient.ExecAttachResult, error) {
+	return mobyclient.ExecAttachResult{}, nil
+}
+
+func (noopAPI) ExecInspect(context.Context, string, mobyclient.ExecInspectOptions) (mobyclient.ExecInspectResult, error) {
+	return mobyclient.ExecInspectResult{}, nil
+}
+
+func (noopAPI) Close() error { return nil }

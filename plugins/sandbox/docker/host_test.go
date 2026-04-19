@@ -107,10 +107,10 @@ func TestTranslateEnvPaths(t *testing.T) {
 	}
 
 	env := map[string]string{
-		"HOME":      "/host/workspace",   // mounted — should translate
-		"ANNA_HOME": "/host/.anna",       // not mounted — should be dropped
-		"TERM":      "xterm-256color",    // non-path — should pass through
-		"LANG":      "en_US.UTF-8",       // non-path — should pass through
+		"HOME":      "/host/workspace", // mounted — should translate
+		"ANNA_HOME": "/host/.anna",     // not mounted — should be dropped
+		"TERM":      "xterm-256color",  // non-path — should pass through
+		"LANG":      "en_US.UTF-8",     // non-path — should pass through
 	}
 
 	got := translateEnvPaths(env, mounts)

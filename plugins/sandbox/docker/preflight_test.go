@@ -2,44 +2,79 @@ package docker
 
 import (
 	"context"
+	"errors"
+	"io"
+	"iter"
 	"strings"
 	"testing"
 
+	"github.com/containerd/errdefs"
+	jsonstream "github.com/moby/moby/api/types/jsonstream"
+	mobyclient "github.com/moby/moby/client"
 	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
 )
 
-// TestPreflightImageExists verifies that Preflight succeeds when the image is already local.
-func TestPreflightImageExists(t *testing.T) {
-	tmpdir := t.TempDir()
-	shimPath := writeShim(t, tmpdir, []shimCase{
-		{match: "version", exitCode: 0, stdout: `{"Client":{"Version":"24.0.0"},"Server":{"ApiVersion":"1.43"}}`},
-		{match: "image inspect", exitCode: 0, stdout: "[]"},
-	})
+// fakePreflightAPI is a minimal dockerclient.API stub that satisfies the
+// interface while letting each test override the handful of methods Preflight
+// actually calls.
+type fakePreflightAPI struct {
+	noopAPI
 
-	client := dockerclient.NewWithPath(shimPath)
-	cfg := PreflightConfig{
-		Docker: Config{Image: "alpine:3.20"},
+	versionFn func() (mobyclient.ServerVersionResult, error)
+	inspectFn func(image string) (mobyclient.ImageInspectResult, error)
+	pullFn    func(image string) (mobyclient.ImagePullResponse, error)
+}
+
+func (f *fakePreflightAPI) ServerVersion(context.Context, mobyclient.ServerVersionOptions) (mobyclient.ServerVersionResult, error) {
+	if f.versionFn == nil {
+		return mobyclient.ServerVersionResult{APIVersion: "1.43"}, nil
 	}
+	return f.versionFn()
+}
 
+func (f *fakePreflightAPI) ImageInspect(_ context.Context, image string, _ ...mobyclient.ImageInspectOption) (mobyclient.ImageInspectResult, error) {
+	if f.inspectFn == nil {
+		return mobyclient.ImageInspectResult{}, errdefs.ErrNotFound
+	}
+	return f.inspectFn(image)
+}
+
+func (f *fakePreflightAPI) ImagePull(_ context.Context, image string, _ mobyclient.ImagePullOptions) (mobyclient.ImagePullResponse, error) {
+	if f.pullFn == nil {
+		return noopPullResponse{}, nil
+	}
+	return f.pullFn(image)
+}
+
+// noopPullResponse satisfies mobyclient.ImagePullResponse with an empty body.
+type noopPullResponse struct{}
+
+func (noopPullResponse) Read(p []byte) (int, error) { return 0, io.EOF }
+func (noopPullResponse) Close() error               { return nil }
+func (noopPullResponse) Wait(context.Context) error { return nil }
+func (noopPullResponse) JSONMessages(context.Context) iter.Seq2[jsonstream.Message, error] {
+	return func(yield func(jsonstream.Message, error) bool) {}
+}
+
+func TestPreflightImageExists(t *testing.T) {
+	api := &fakePreflightAPI{
+		inspectFn: func(string) (mobyclient.ImageInspectResult, error) {
+			return mobyclient.ImageInspectResult{}, nil
+		},
+	}
+	client := dockerclient.NewWithAPI(api)
+
+	cfg := PreflightConfig{Docker: Config{Image: "alpine:3.20"}}
 	if err := preflightWithClient(context.Background(), cfg, client); err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 }
 
-// TestPreflightImageMissingNoPull verifies error when image is missing and AllowPull=false.
 func TestPreflightImageMissingNoPull(t *testing.T) {
-	tmpdir := t.TempDir()
-	shimPath := writeShim(t, tmpdir, []shimCase{
-		{match: "version", exitCode: 0, stdout: `{"Client":{"Version":"24.0.0"},"Server":{"ApiVersion":"1.43"}}`},
-		// image inspect exits 1 (not found)
-		{match: "image inspect", exitCode: 1, stderr: "Error: No such image: alpine:3.20"},
-	})
+	api := &fakePreflightAPI{} // default inspect returns NotFound
+	client := dockerclient.NewWithAPI(api)
 
-	client := dockerclient.NewWithPath(shimPath)
-	cfg := PreflightConfig{
-		Docker: Config{Image: "alpine:3.20", AllowPull: false},
-	}
-
+	cfg := PreflightConfig{Docker: Config{Image: "alpine:3.20", AllowPull: false}}
 	err := preflightWithClient(context.Background(), cfg, client)
 	if err == nil {
 		t.Fatal("expected error when image missing and AllowPull=false")
@@ -49,44 +84,34 @@ func TestPreflightImageMissingNoPull(t *testing.T) {
 	}
 }
 
-// TestPreflightImageMissingWithPull verifies that Preflight pulls when AllowPull=true.
 func TestPreflightImageMissingWithPull(t *testing.T) {
-	tmpdir := t.TempDir()
-	shimPath := writeShim(t, tmpdir, []shimCase{
-		{match: "version", exitCode: 0, stdout: `{"Client":{"Version":"24.0.0"},"Server":{"ApiVersion":"1.43"}}`},
-		// image inspect exits 1 on first call
-		{match: "image inspect", exitCode: 1, stderr: "Error: No such image: myimage:latest"},
-		// pull succeeds
-		{match: "pull", exitCode: 0},
-	})
-
-	client := dockerclient.NewWithPath(shimPath)
-	cfg := PreflightConfig{
-		Docker: Config{Image: "myimage:latest", AllowPull: true},
+	pulled := false
+	api := &fakePreflightAPI{
+		pullFn: func(string) (mobyclient.ImagePullResponse, error) {
+			pulled = true
+			return noopPullResponse{}, nil
+		},
 	}
+	client := dockerclient.NewWithAPI(api)
 
+	cfg := PreflightConfig{Docker: Config{Image: "myimage:latest", AllowPull: true}}
 	if err := preflightWithClient(context.Background(), cfg, client); err != nil {
 		t.Fatalf("expected no error with AllowPull=true, got: %v", err)
 	}
-
-	log := readLog(t, tmpdir)
-	if !strings.Contains(log, "pull") {
-		t.Errorf("expected docker pull to be invoked, log: %s", log)
+	if !pulled {
+		t.Error("expected ImagePull to be invoked")
 	}
 }
 
-// TestPreflightDaemonUnreachable verifies error when daemon is not reachable.
 func TestPreflightDaemonUnreachable(t *testing.T) {
-	tmpdir := t.TempDir()
-	shimPath := writeShim(t, tmpdir, []shimCase{
-		{match: "version", exitCode: 1, stderr: "Cannot connect to Docker daemon"},
-	})
-
-	client := dockerclient.NewWithPath(shimPath)
-	cfg := PreflightConfig{
-		Docker: Config{Image: "alpine:3.20"},
+	api := &fakePreflightAPI{
+		versionFn: func() (mobyclient.ServerVersionResult, error) {
+			return mobyclient.ServerVersionResult{}, errors.New("cannot connect to daemon")
+		},
 	}
+	client := dockerclient.NewWithAPI(api)
 
+	cfg := PreflightConfig{Docker: Config{Image: "alpine:3.20"}}
 	err := preflightWithClient(context.Background(), cfg, client)
 	if err == nil {
 		t.Fatal("expected error when daemon unreachable")

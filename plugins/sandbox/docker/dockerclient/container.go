@@ -1,11 +1,14 @@
 package dockerclient
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
-	"strings"
+	"sort"
+
+	"github.com/containerd/errdefs"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+	mobyclient "github.com/moby/moby/client"
 )
 
 // NetworkMode controls the container's network access.
@@ -16,7 +19,9 @@ const (
 	NetworkAllowAll NetworkMode = "allow_all"
 )
 
-// Mount represents a bind-mount from host to container.
+// Mount represents a bind-mount from host to container. Source is interpreted
+// by the daemon, so when anna runs inside a container it must already be
+// translated to a daemon-visible path before reaching this struct.
 type Mount struct {
 	HostPath      string
 	ContainerPath string
@@ -27,7 +32,7 @@ type Mount struct {
 type CreateOptions struct {
 	Image          string
 	User           string      // "uid:gid"; empty omits --user
-	WorkspaceHost  string      // absolute host path
+	WorkspaceHost  string      // absolute host path (daemon-side)
 	WorkspaceMount string      // absolute in-container path (e.g. "/workspace")
 	ReadOnlyMounts []Mount     // host -> container, read-only
 	ExtraMounts    []Mount     // parsed from config.ExtraMounts
@@ -37,145 +42,147 @@ type CreateOptions struct {
 	Name           string            // optional; caller builds "anna-sandbox-<session-id>"
 }
 
-// CreateAndStart runs `docker create` + `docker start` with the entrypoint
-// `/bin/sh -c 'tail -f /dev/null'` so the container stays up until Stop.
-// Returns the container ID.
+// CreateAndStart creates a container with an always-up sentinel entrypoint
+// (`sh -c 'tail -f /dev/null'`), starts it, and returns the container ID.
 func (c *Client) CreateAndStart(ctx context.Context, opts CreateOptions) (string, error) {
-	args := c.buildCreateArgs(opts)
+	createOpts := buildContainerCreateOptions(opts)
 
-	var stdout, stderr bytes.Buffer
-	createCmd := exec.CommandContext(ctx, c.binaryPath, args...)
-	createCmd.Stdout = &stdout
-	createCmd.Stderr = &stderr
-
-	if err := createCmd.Run(); err != nil {
-		return "", fmt.Errorf("docker create: %w: %s", err, stderr.String())
+	created, err := c.api.ContainerCreate(ctx, createOpts)
+	if err != nil {
+		return "", fmt.Errorf("dockerclient: container create: %w", err)
 	}
 
-	containerID := strings.TrimSpace(stdout.String())
-
-	var startStderr bytes.Buffer
-	startCmd := exec.CommandContext(ctx, c.binaryPath, "start", containerID)
-	startCmd.Stderr = &startStderr
-
-	if err := startCmd.Run(); err != nil {
-		return "", fmt.Errorf("docker start %s: %w: %s", containerID, err, startStderr.String())
+	if _, err := c.api.ContainerStart(ctx, created.ID, mobyclient.ContainerStartOptions{}); err != nil {
+		return created.ID, fmt.Errorf("dockerclient: container start %s: %w", created.ID, err)
 	}
 
-	return containerID, nil
+	return created.ID, nil
 }
 
-// buildCreateArgs constructs the argv for `docker create`.
-func (c *Client) buildCreateArgs(opts CreateOptions) []string {
-	args := []string{"create"}
-
-	if opts.Name != "" {
-		args = append(args, "--name", opts.Name)
-	}
-
-	// Labels
-	for k, v := range opts.Labels {
-		args = append(args, "--label", fmt.Sprintf("%s=%s", k, v))
-	}
-
-	// Workspace bind mount
-	if opts.WorkspaceHost != "" && opts.WorkspaceMount != "" {
-		args = append(args, "--mount",
-			fmt.Sprintf("type=bind,src=%s,dst=%s", opts.WorkspaceHost, opts.WorkspaceMount))
-	}
-
-	// Read-only mounts
-	for _, m := range opts.ReadOnlyMounts {
-		spec := fmt.Sprintf("type=bind,src=%s,dst=%s,readonly", m.HostPath, m.ContainerPath)
-		args = append(args, "--mount", spec)
-	}
-
-	// Extra mounts
-	for _, m := range opts.ExtraMounts {
-		spec := fmt.Sprintf("type=bind,src=%s,dst=%s", m.HostPath, m.ContainerPath)
-		if m.ReadOnly {
-			spec += ",readonly"
-		}
-		args = append(args, "--mount", spec)
-	}
-
-	// Network
-	switch opts.NetworkMode {
-	case NetworkDisabled:
-		args = append(args, "--network", "none")
-	case NetworkAllowAll:
-		// omit --network; use default bridge
-	}
-
-	// User
-	if opts.User != "" {
-		args = append(args, "--user", opts.User)
-	}
-
-	// Workdir
-	if opts.WorkspaceMount != "" {
-		args = append(args, "--workdir", opts.WorkspaceMount)
-	}
-
-	// Env
-	for k, v := range opts.Env {
-		args = append(args, "--env", fmt.Sprintf("%s=%s", k, v))
-	}
-
-	// Entrypoint + image + command
-	args = append(args, "--entrypoint", "/bin/sh")
-	args = append(args, opts.Image)
-	args = append(args, "-c", "tail -f /dev/null")
-
-	return args
-}
-
-// Stop sends SIGTERM via `docker stop --time 2 <id>` then removes.
-// Swallows "No such container" as a non-error so Close is idempotent.
+// Stop sends SIGTERM with a 2-second grace period, then removes the container.
+// Missing-container errors are swallowed so Close is idempotent.
 func (c *Client) Stop(ctx context.Context, containerID string) error {
-	var stopStderr bytes.Buffer
-	stopCmd := exec.CommandContext(ctx, c.binaryPath, "stop", "--time", "2", containerID)
-	stopCmd.Stderr = &stopStderr
-
-	if err := stopCmd.Run(); err != nil {
-		msg := stopStderr.String()
-		if !strings.Contains(msg, "No such container") {
-			return fmt.Errorf("docker stop %s: %w: %s", containerID, err, msg)
-		}
-		// container already gone; skip rm
-		return nil
+	timeout := 2
+	_, err := c.api.ContainerStop(ctx, containerID, mobyclient.ContainerStopOptions{Timeout: &timeout})
+	if err != nil && !errdefs.IsNotFound(err) {
+		return fmt.Errorf("dockerclient: container stop %s: %w", containerID, err)
 	}
 
-	var rmStderr bytes.Buffer
-	rmCmd := exec.CommandContext(ctx, c.binaryPath, "rm", containerID)
-	rmCmd.Stderr = &rmStderr
-
-	if err := rmCmd.Run(); err != nil {
-		msg := rmStderr.String()
-		if !strings.Contains(msg, "No such container") {
-			return fmt.Errorf("docker rm %s: %w: %s", containerID, err, msg)
+	if _, err := c.api.ContainerRemove(ctx, containerID, mobyclient.ContainerRemoveOptions{}); err != nil {
+		if errdefs.IsNotFound(err) {
+			return nil
 		}
+		return fmt.Errorf("dockerclient: container remove %s: %w", containerID, err)
 	}
-
 	return nil
 }
 
-// ContainerAlive returns whether the container is running, via
-// `docker inspect --format {{.State.Running}} <id>`.
+// ContainerAlive reports whether the container is running. Returns (false, nil)
+// when the container no longer exists.
 func (c *Client) ContainerAlive(ctx context.Context, containerID string) (bool, error) {
-	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, c.binaryPath,
-		"inspect", "--format", "{{.State.Running}}", containerID)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		msg := stderr.String()
-		if strings.Contains(msg, "No such container") {
+	res, err := c.api.ContainerInspect(ctx, containerID, mobyclient.ContainerInspectOptions{})
+	if err != nil {
+		if errdefs.IsNotFound(err) {
 			return false, nil
 		}
-		return false, fmt.Errorf("docker inspect %s: %w: %s", containerID, err, msg)
+		return false, fmt.Errorf("dockerclient: container inspect %s: %w", containerID, err)
 	}
+	if res.Container.State == nil {
+		return false, nil
+	}
+	return res.Container.State.Running, nil
+}
 
-	return strings.TrimSpace(stdout.String()) == "true", nil
+// buildContainerCreateOptions translates CreateOptions into the SDK request.
+// Pure function so tests can assert the wiring without a daemon.
+func buildContainerCreateOptions(opts CreateOptions) mobyclient.ContainerCreateOptions {
+	return mobyclient.ContainerCreateOptions{
+		Name:       opts.Name,
+		Config:     buildContainerConfig(opts),
+		HostConfig: buildHostConfig(opts),
+	}
+}
+
+func buildContainerConfig(opts CreateOptions) *container.Config {
+	cfg := &container.Config{
+		Image:      opts.Image,
+		User:       opts.User,
+		Labels:     opts.Labels,
+		Entrypoint: []string{"/bin/sh"},
+		Cmd:        []string{"-c", "tail -f /dev/null"},
+	}
+	if opts.WorkspaceMount != "" {
+		cfg.WorkingDir = opts.WorkspaceMount
+	}
+	cfg.Env = envSlice(opts.Env)
+	return cfg
+}
+
+func buildHostConfig(opts CreateOptions) *container.HostConfig {
+	hc := &container.HostConfig{
+		NetworkMode: mapNetworkMode(opts.NetworkMode),
+		Mounts:      buildMounts(opts),
+	}
+	return hc
+}
+
+func mapNetworkMode(m NetworkMode) container.NetworkMode {
+	switch m {
+	case NetworkDisabled:
+		return container.NetworkMode("none")
+	default:
+		return container.NetworkMode("")
+	}
+}
+
+func buildMounts(opts CreateOptions) []mount.Mount {
+	n := len(opts.ReadOnlyMounts) + len(opts.ExtraMounts)
+	if opts.WorkspaceHost != "" && opts.WorkspaceMount != "" {
+		n++
+	}
+	mounts := make([]mount.Mount, 0, n)
+
+	if opts.WorkspaceHost != "" && opts.WorkspaceMount != "" {
+		mounts = append(mounts, mount.Mount{
+			Type:   mount.TypeBind,
+			Source: opts.WorkspaceHost,
+			Target: opts.WorkspaceMount,
+		})
+	}
+	for _, m := range opts.ReadOnlyMounts {
+		mounts = append(mounts, mount.Mount{
+			Type:     mount.TypeBind,
+			Source:   m.HostPath,
+			Target:   m.ContainerPath,
+			ReadOnly: true,
+		})
+	}
+	for _, m := range opts.ExtraMounts {
+		mounts = append(mounts, mount.Mount{
+			Type:     mount.TypeBind,
+			Source:   m.HostPath,
+			Target:   m.ContainerPath,
+			ReadOnly: m.ReadOnly,
+		})
+	}
+	return mounts
+}
+
+// envSlice returns env in deterministic KEY=VALUE form sorted by key.
+// The daemon accepts any order, but deterministic output simplifies testing
+// and telemetry.
+func envSlice(env map[string]string) []string {
+	if len(env) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, fmt.Sprintf("%s=%s", k, env[k]))
+	}
+	return out
 }

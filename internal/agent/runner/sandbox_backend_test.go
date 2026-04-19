@@ -95,7 +95,6 @@ func TestSandboxProcessEnvUsesUserRootAsHome(t *testing.T) {
 	}
 }
 
-
 // TestRunnerSessionLifecycle tests the runnerSession lifecycle.
 func TestRunnerSessionLifecycle(t *testing.T) {
 	// Create a local session for testing
@@ -155,12 +154,13 @@ func TestRunnerSessionLifecycle(t *testing.T) {
 	}
 }
 
-// TestResolveSessionDockerMissingBinaryReturnsError verifies that an explicit
-// docker backend routes to createDockerSession and fails with a docker-related
-// error when the docker binary is absent.
-func TestResolveSessionDockerMissingBinaryReturnsError(t *testing.T) {
-	t.Setenv("PATH", "")
-	t.Setenv("DOCKER_BIN", "")
+// TestResolveSessionDockerUnreachableDaemonReturnsError verifies that an
+// explicit docker backend routes to createDockerSession and fails with a
+// docker-related error when the daemon is unreachable.
+func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "unix:///nonexistent/anna-test-docker.sock")
+	t.Setenv("DOCKER_TLS_VERIFY", "")
+	t.Setenv("DOCKER_CERT_PATH", "")
 
 	workspace := t.TempDir()
 	userRoot := workspace + "/users/1"
@@ -172,7 +172,7 @@ func TestResolveSessionDockerMissingBinaryReturnsError(t *testing.T) {
 		},
 	})
 	if err == nil {
-		t.Fatal("expected error for docker backend with no docker binary")
+		t.Fatal("expected error for docker backend with unreachable daemon")
 	}
 	if !strings.Contains(err.Error(), "docker") {
 		t.Fatalf("expected error to mention 'docker', got: %v", err)

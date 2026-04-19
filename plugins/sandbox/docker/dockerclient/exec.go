@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
-	"sort"
+	"time"
+
+	"github.com/moby/moby/api/pkg/stdcopy"
+	mobyclient "github.com/moby/moby/client"
 )
 
 // ExecOptions configures a docker exec call.
@@ -36,38 +38,49 @@ type ExecHandle struct {
 	Stderr io.ReadCloser
 	// Wait blocks until the exec finishes and returns the exit code.
 	Wait func() (int, error)
-	// Kill terminates the underlying process.
+	// Kill terminates the underlying exec attach.
 	Kill func() error
 }
 
-// Exec runs a blocking `docker exec`. Collects stdout/stderr into memory.
-// If ctx is canceled, exec.CommandContext kills the local process.
+// Exec runs a blocking exec, collecting stdout/stderr into memory.
 func (c *Client) Exec(ctx context.Context, opts ExecOptions) (*ExecResult, error) {
-	args := buildExecArgs(opts)
-	cmd := exec.CommandContext(ctx, c.binaryPath, args...)
+	createOpts := buildExecCreateOptions(opts)
+
+	created, err := c.api.ExecCreate(ctx, opts.ContainerID, createOpts)
+	if err != nil {
+		return nil, fmt.Errorf("dockerclient: exec create: %w", err)
+	}
+
+	attach, err := c.api.ExecAttach(ctx, created.ID, mobyclient.ExecAttachOptions{TTY: opts.Tty})
+	if err != nil {
+		return nil, fmt.Errorf("dockerclient: exec attach: %w", err)
+	}
+	defer attach.Close()
 
 	if opts.Stdin != nil {
-		cmd.Stdin = opts.Stdin
+		go func() {
+			_, _ = io.Copy(attach.Conn, opts.Stdin)
+			_ = attach.CloseWrite()
+		}()
 	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
+	copyErr := demuxStreams(&stdoutBuf, &stderrBuf, attach, opts.Tty)
 
-	err := cmd.Run()
+	if ctx.Err() != nil {
+		return &ExecResult{
+			ExitCode: -1,
+			Stdout:   stdoutBuf.Bytes(),
+			Stderr:   stderrBuf.Bytes(),
+		}, fmt.Errorf("dockerclient: exec: %w", ctx.Err())
+	}
+	if copyErr != nil {
+		return nil, fmt.Errorf("dockerclient: exec read: %w", copyErr)
+	}
 
-	exitCode := 0
+	exitCode, err := waitExecExit(ctx, c.api, created.ID)
 	if err != nil {
-		if ctx.Err() != nil {
-			return &ExecResult{ExitCode: -1, Stdout: stdoutBuf.Bytes(), Stderr: stderrBuf.Bytes()},
-				fmt.Errorf("docker exec: %w", ctx.Err())
-		}
-		exitErr := &exec.ExitError{}
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		} else {
-			return nil, fmt.Errorf("docker exec: %w: %s", err, stderrBuf.String())
-		}
+		return nil, err
 	}
 
 	return &ExecResult{
@@ -78,93 +91,125 @@ func (c *Client) Exec(ctx context.Context, opts ExecOptions) (*ExecResult, error
 }
 
 // StartExec is the streaming variant: returns stdout/stderr pipes and a Wait()
-// that blocks until the exec finishes and returns exit code.
+// that blocks until the exec finishes and returns its exit code.
 func (c *Client) StartExec(ctx context.Context, opts ExecOptions) (*ExecHandle, error) {
-	args := buildExecArgs(opts)
-	cmd := exec.CommandContext(ctx, c.binaryPath, args...)
+	createOpts := buildExecCreateOptions(opts)
+
+	created, err := c.api.ExecCreate(ctx, opts.ContainerID, createOpts)
+	if err != nil {
+		return nil, fmt.Errorf("dockerclient: exec create: %w", err)
+	}
+
+	attach, err := c.api.ExecAttach(ctx, created.ID, mobyclient.ExecAttachOptions{TTY: opts.Tty})
+	if err != nil {
+		return nil, fmt.Errorf("dockerclient: exec attach: %w", err)
+	}
 
 	handle := &ExecHandle{}
 
 	if opts.Stdin != nil {
-		cmd.Stdin = opts.Stdin
-		// handle.Stdin stays nil — caller already owns the reader
+		go func() {
+			_, _ = io.Copy(attach.Conn, opts.Stdin)
+			_ = attach.CloseWrite()
+		}()
 	} else {
-		wp, err := cmd.StdinPipe()
-		if err != nil {
-			return nil, fmt.Errorf("docker exec: stdin pipe: %w", err)
+		handle.Stdin = &writeCloserAdapter{
+			w:     attach.Conn,
+			close: attach.CloseWrite,
 		}
-		handle.Stdin = wp
 	}
 
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("docker exec: stdout pipe: %w", err)
-	}
-	handle.Stdout = stdoutPipe
+	stdoutR, stdoutW := io.Pipe()
+	stderrR, stderrW := io.Pipe()
+	handle.Stdout = stdoutR
+	handle.Stderr = stderrR
 
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, fmt.Errorf("docker exec: stderr pipe: %w", err)
-	}
-	handle.Stderr = stderrPipe
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("docker exec: start: %w", err)
-	}
+	demuxDone := make(chan error, 1)
+	go func() {
+		err := demuxStreams(stdoutW, stderrW, attach, opts.Tty)
+		_ = stdoutW.Close()
+		_ = stderrW.Close()
+		demuxDone <- err
+	}()
 
 	handle.Wait = func() (int, error) {
-		err := cmd.Wait()
-		if err == nil {
-			return 0, nil
+		if err := <-demuxDone; err != nil {
+			return -1, fmt.Errorf("dockerclient: exec read: %w", err)
 		}
-		exitErr := &exec.ExitError{}
-		if errors.As(err, &exitErr) {
-			return exitErr.ExitCode(), nil
-		}
-		return -1, fmt.Errorf("docker exec: wait: %w", err)
+		return waitExecExit(ctx, c.api, created.ID)
 	}
 
 	handle.Kill = func() error {
-		if cmd.Process != nil {
-			return cmd.Process.Kill()
-		}
+		attach.Close()
+		_ = stdoutW.Close()
+		_ = stderrW.Close()
 		return nil
 	}
 
 	return handle, nil
 }
 
-// buildExecArgs constructs the argv for `docker exec`.
-func buildExecArgs(opts ExecOptions) []string {
-	args := []string{"exec"}
+// writeCloserAdapter turns an io.Writer + Close hook into an io.WriteCloser.
+type writeCloserAdapter struct {
+	w     io.Writer
+	close func() error
+}
 
-	if opts.Stdin != nil {
-		args = append(args, "-i")
+func (a *writeCloserAdapter) Write(p []byte) (int, error) { return a.w.Write(p) }
+func (a *writeCloserAdapter) Close() error {
+	if a.close == nil {
+		return nil
 	}
-	if opts.Tty {
-		args = append(args, "-t")
-	}
+	return a.close()
+}
 
-	if opts.Cwd != "" {
-		args = append(args, "--workdir", opts.Cwd)
+// demuxStreams reads from the hijacked response and splits stdout/stderr.
+// When TTY is true, the stream is not multiplexed; everything goes to stdout.
+func demuxStreams(stdout, stderr io.Writer, attach mobyclient.ExecAttachResult, tty bool) error {
+	if tty {
+		if _, err := io.Copy(stdout, attach.Reader); err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		return nil
 	}
-
-	if opts.User != "" {
-		args = append(args, "--user", opts.User)
+	if _, err := stdcopy.StdCopy(stdout, stderr, attach.Reader); err != nil && !errors.Is(err, io.EOF) {
+		return err
 	}
+	return nil
+}
 
-	// Sort env keys for determinism.
-	envKeys := make([]string, 0, len(opts.Env))
-	for k := range opts.Env {
-		envKeys = append(envKeys, k)
+// waitExecExit polls ExecInspect until the exec has finished and returns its
+// exit code. Polls every 50ms; caller's ctx bounds total wait time.
+func waitExecExit(ctx context.Context, api API, execID string) (int, error) {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		res, err := api.ExecInspect(ctx, execID, mobyclient.ExecInspectOptions{})
+		if err != nil {
+			return -1, fmt.Errorf("dockerclient: exec inspect %s: %w", execID, err)
+		}
+		if !res.Running {
+			return res.ExitCode, nil
+		}
+		select {
+		case <-ctx.Done():
+			return -1, fmt.Errorf("dockerclient: exec wait: %w", ctx.Err())
+		case <-ticker.C:
+		}
 	}
-	sort.Strings(envKeys)
-	for _, k := range envKeys {
-		args = append(args, "--env", fmt.Sprintf("%s=%s", k, opts.Env[k]))
+}
+
+// buildExecCreateOptions translates ExecOptions into the SDK request.
+// Pure function so tests can assert the wiring without a daemon.
+func buildExecCreateOptions(opts ExecOptions) mobyclient.ExecCreateOptions {
+	return mobyclient.ExecCreateOptions{
+		User:         opts.User,
+		TTY:          opts.Tty,
+		AttachStdin:  opts.Stdin != nil,
+		AttachStdout: true,
+		AttachStderr: true,
+		Env:          envSlice(opts.Env),
+		WorkingDir:   opts.Cwd,
+		Cmd:          opts.Command,
 	}
-
-	args = append(args, opts.ContainerID)
-	args = append(args, opts.Command...)
-
-	return args
 }

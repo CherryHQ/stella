@@ -85,7 +85,6 @@ func (p runnerPaths) annaAgentsDir() string {
 	return filepath.Join(p.AnnaHome, "agents")
 }
 
-
 // sandboxProcessEnv builds the baseline process environment injected into
 // sandboxed commands. Today it pins HOME to the sandbox-visible writable area
 // and propagates ANNA_HOME so CLIs don't accidentally target the host home.

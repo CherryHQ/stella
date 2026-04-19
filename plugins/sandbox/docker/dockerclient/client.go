@@ -2,108 +2,130 @@ package dockerclient
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"os/exec"
+
+	"github.com/containerd/errdefs"
+	mobyclient "github.com/moby/moby/client"
 )
 
-// Client wraps the docker binary path.
-type Client struct {
-	binaryPath string // resolved once at construction
+// API is the subset of moby/moby/client.APIClient this package uses.
+// Kept narrow so tests can substitute a fake without pulling the full SDK
+// surface.
+type API interface {
+	ServerVersion(ctx context.Context, opts mobyclient.ServerVersionOptions) (mobyclient.ServerVersionResult, error)
+	ImageInspect(ctx context.Context, image string, opts ...mobyclient.ImageInspectOption) (mobyclient.ImageInspectResult, error)
+	ImagePull(ctx context.Context, ref string, opts mobyclient.ImagePullOptions) (mobyclient.ImagePullResponse, error)
+
+	ContainerCreate(ctx context.Context, opts mobyclient.ContainerCreateOptions) (mobyclient.ContainerCreateResult, error)
+	ContainerStart(ctx context.Context, container string, opts mobyclient.ContainerStartOptions) (mobyclient.ContainerStartResult, error)
+	ContainerStop(ctx context.Context, container string, opts mobyclient.ContainerStopOptions) (mobyclient.ContainerStopResult, error)
+	ContainerRemove(ctx context.Context, container string, opts mobyclient.ContainerRemoveOptions) (mobyclient.ContainerRemoveResult, error)
+	ContainerInspect(ctx context.Context, container string, opts mobyclient.ContainerInspectOptions) (mobyclient.ContainerInspectResult, error)
+	ContainerList(ctx context.Context, opts mobyclient.ContainerListOptions) (mobyclient.ContainerListResult, error)
+
+	ExecCreate(ctx context.Context, container string, opts mobyclient.ExecCreateOptions) (mobyclient.ExecCreateResult, error)
+	ExecAttach(ctx context.Context, execID string, opts mobyclient.ExecAttachOptions) (mobyclient.ExecAttachResult, error)
+	ExecInspect(ctx context.Context, execID string, opts mobyclient.ExecInspectOptions) (mobyclient.ExecInspectResult, error)
+
+	Close() error
 }
 
-// VersionInfo holds the minimal version data we care about.
+// Client wraps a moby SDK client. Constructed from environment (DOCKER_HOST,
+// DOCKER_API_VERSION, DOCKER_CERT_PATH, DOCKER_TLS_VERIFY); see the moby client
+// docs for the full list.
+type Client struct {
+	api API
+}
+
+// VersionInfo holds the minimal version data we care about. The shape is kept
+// stable across the CLI→SDK migration so callers don't churn.
 type VersionInfo struct {
 	Server struct {
-		APIVersion string `json:"ApiVersion"`
-	} `json:"Server"`
+		APIVersion string
+	}
 	Client struct {
-		Version string `json:"Version"`
-	} `json:"Client"`
+		Version string
+	}
 }
 
-// New resolves the docker binary on PATH. Checks DOCKER_BIN env first for
-// testability. Returns an error if not found.
+// New returns a Client configured from the process environment. API-version
+// negotiation is enabled by default in the moby SDK.
 func New() (*Client, error) {
-	if v := os.Getenv("DOCKER_BIN"); v != "" {
-		return &Client{binaryPath: v}, nil
-	}
-	path, err := exec.LookPath("docker")
+	api, err := mobyclient.New(mobyclient.FromEnv)
 	if err != nil {
-		return nil, fmt.Errorf("dockerclient: docker binary not found on PATH: %w", err)
+		return nil, fmt.Errorf("dockerclient: new moby client: %w", err)
 	}
-	return &Client{binaryPath: path}, nil
+	return &Client{api: api}, nil
 }
 
-// NewWithPath constructs a Client with an explicit binary path.
-// Used by tests with shims.
-func NewWithPath(path string) *Client {
-	return &Client{binaryPath: path}
+// NewWithAPI constructs a Client with an injected API implementation. The
+// moby SDK's *client.Client already satisfies API; callers typically use New()
+// instead. Exported for tests and advanced callers that want to override the
+// SDK client (e.g. to inject a TLS-wrapped instance).
+func NewWithAPI(api API) *Client {
+	return &Client{api: api}
 }
 
-// Version runs `docker version --format {{json .}}` and returns the parsed VersionInfo.
-// Used by preflight to confirm daemon reachability.
+// Close releases any resources held by the client (HTTP connections, etc.).
+func (c *Client) Close() error {
+	if c.api == nil {
+		return nil
+	}
+	return c.api.Close()
+}
+
+// Version queries the daemon for server + client version info. Used by
+// preflight to confirm daemon reachability.
 func (c *Client) Version(ctx context.Context) (*VersionInfo, error) {
-	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, c.binaryPath, "version", "--format", "{{json .}}")
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("docker version: %w: %s", err, stderr.String())
+	res, err := c.api.ServerVersion(ctx, mobyclient.ServerVersionOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("dockerclient: server version: %w", err)
 	}
-
-	var info VersionInfo
-	if err := json.Unmarshal(stdout.Bytes(), &info); err != nil {
-		return nil, fmt.Errorf("docker version: parse: %w", err)
-	}
-	return &info, nil
+	info := &VersionInfo{}
+	info.Server.APIVersion = res.APIVersion
+	info.Client.Version = mobyclient.MaxAPIVersion
+	return info, nil
 }
 
 // ImageExists reports whether the image exists locally.
-// Implemented as `docker image inspect <image>` — exit 0 = true, exit 1 = false,
-// any other error surfaces.
+// Returns false (no error) when the daemon reports not-found; any other error
+// surfaces.
 func (c *Client) ImageExists(ctx context.Context, image string) (bool, error) {
-	var stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, c.binaryPath, "image", "inspect", image)
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
+	_, err := c.api.ImageInspect(ctx, image)
 	if err == nil {
 		return true, nil
 	}
-	if cmd.ProcessState != nil && cmd.ProcessState.ExitCode() == 1 {
+	if errdefs.IsNotFound(err) {
 		return false, nil
 	}
-	return false, fmt.Errorf("docker image inspect %s: %w: %s", image, err, stderr.String())
+	return false, fmt.Errorf("dockerclient: image inspect %s: %w", image, err)
 }
 
-// PullImage runs `docker pull <image>`, piping stderr through slog.Info line-by-line.
+// PullImage pulls an image, draining the JSON progress stream into slog.Info.
 func (c *Client) PullImage(ctx context.Context, image string) error {
-	var stdout bytes.Buffer
-	cmd := exec.CommandContext(ctx, c.binaryPath, "pull", image)
-	cmd.Stdout = &stdout
-
-	stderrPipe, err := cmd.StderrPipe()
+	resp, err := c.api.ImagePull(ctx, image, mobyclient.ImagePullOptions{})
 	if err != nil {
-		return fmt.Errorf("docker pull %s: stderr pipe: %w", image, err)
+		return fmt.Errorf("dockerclient: image pull %s: %w", image, err)
 	}
+	defer func() {
+		if cerr := resp.Close(); cerr != nil {
+			slog.Warn("dockerclient: image pull response close", "image", image, "error", cerr)
+		}
+	}()
 
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("docker pull %s: start: %w", image, err)
-	}
-
-	scanner := bufio.NewScanner(stderrPipe)
+	scanner := bufio.NewScanner(resp)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		slog.Info("docker pull", "image", image, "output", scanner.Text())
 	}
-
-	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("docker pull %s: %w", image, err)
+	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) {
+		return fmt.Errorf("dockerclient: image pull %s: drain: %w", image, err)
+	}
+	if err := resp.Wait(ctx); err != nil {
+		return fmt.Errorf("dockerclient: image pull %s: wait: %w", image, err)
 	}
 	return nil
 }
