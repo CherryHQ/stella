@@ -56,6 +56,19 @@ func (noopPullResponse) JSONMessages(context.Context) iter.Seq2[jsonstream.Messa
 	return func(yield func(jsonstream.Message, error) bool) {}
 }
 
+func TestPreflightImageMissingRequired(t *testing.T) {
+	api := &fakePreflightAPI{}
+	client := dockerclient.NewWithAPI(api)
+
+	err := preflightWithClient(context.Background(), PreflightConfig{}, client)
+	if err == nil {
+		t.Fatal("expected error when Image is empty")
+	}
+	if !strings.Contains(err.Error(), "Image is required") {
+		t.Errorf("expected error about missing Image, got: %v", err)
+	}
+}
+
 func TestPreflightImageExists(t *testing.T) {
 	api := &fakePreflightAPI{
 		inspectFn: func(string) (mobyclient.ImageInspectResult, error) {
@@ -70,21 +83,7 @@ func TestPreflightImageExists(t *testing.T) {
 	}
 }
 
-func TestPreflightImageMissingNoPull(t *testing.T) {
-	api := &fakePreflightAPI{} // default inspect returns NotFound
-	client := dockerclient.NewWithAPI(api)
-
-	cfg := PreflightConfig{Docker: Config{Image: "alpine:3.20", AllowPull: false}}
-	err := preflightWithClient(context.Background(), cfg, client)
-	if err == nil {
-		t.Fatal("expected error when image missing and AllowPull=false")
-	}
-	if !strings.Contains(err.Error(), "AllowPull") {
-		t.Errorf("expected error mentioning AllowPull, got: %v", err)
-	}
-}
-
-func TestPreflightImageMissingWithPull(t *testing.T) {
+func TestPreflightImageMissingPulls(t *testing.T) {
 	pulled := false
 	api := &fakePreflightAPI{
 		pullFn: func(string) (mobyclient.ImagePullResponse, error) {
@@ -94,33 +93,12 @@ func TestPreflightImageMissingWithPull(t *testing.T) {
 	}
 	client := dockerclient.NewWithAPI(api)
 
-	cfg := PreflightConfig{Docker: Config{Image: "myimage:latest", AllowPull: true}}
+	cfg := PreflightConfig{Docker: Config{Image: "myimage:latest"}}
 	if err := preflightWithClient(context.Background(), cfg, client); err != nil {
-		t.Fatalf("expected no error with AllowPull=true, got: %v", err)
+		t.Fatalf("expected no error, got: %v", err)
 	}
 	if !pulled {
-		t.Error("expected ImagePull to be invoked")
-	}
-}
-
-func TestPreflightDefaultImageAutoPulls(t *testing.T) {
-	pulled := false
-	api := &fakePreflightAPI{
-		pullFn: func(string) (mobyclient.ImagePullResponse, error) {
-			pulled = true
-			return noopPullResponse{}, nil
-		},
-	}
-	client := dockerclient.NewWithAPI(api)
-
-	// Image unset + AllowPull unset: default image should still auto-pull so a
-	// fresh install works without forcing callers to toggle AllowPull.
-	cfg := PreflightConfig{Docker: Config{}}
-	if err := preflightWithClient(context.Background(), cfg, client); err != nil {
-		t.Fatalf("expected no error for default image, got: %v", err)
-	}
-	if !pulled {
-		t.Error("expected default image to be pulled even with AllowPull=false")
+		t.Error("expected ImagePull to be invoked when image is missing")
 	}
 }
 

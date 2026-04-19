@@ -1,9 +1,9 @@
 bin/
 cover.out
 coverage.out
+coverage-*.*
 coverage.html
 dist/
-anna
 handoff.md
 plan.md
 

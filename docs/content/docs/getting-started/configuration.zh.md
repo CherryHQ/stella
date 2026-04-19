@@ -151,28 +151,17 @@ title: 配置
   - Linux 和 macOS 会在选择 `boxsh` 时进行验证。若沙箱后端不可用或无法执行已配置的网络模式，runner 启动时会失败关闭。
   - `local` 是一个宽松的后端，仅提供建议性约束；仅用于明确的本地/开发场景。
   - 当前 `boxsh` 客户端构建可能在运行时拒绝 `whitelist` 模式；仅在运行时支持白名单执行时使用。
-  - `docker` 在从 `sandbox.docker.image`（默认 `alpine:3.20`）启动的专用容器中运行每个会话。该后端为手动选择；`auto` 不会自动选择它。需要 `PATH` 中有 `docker` CLI 且 daemon 可达。适用于 Windows（`boxsh` 不可用）以及需要特定 Linux 用户空间的工作流。
-  - Docker 后端配置位于 `sandbox.docker` 下：
-    - `image`：Docker 镜像引用，默认 `alpine:3.20`。
-    - `user`：可选的 `uid:gid` 字符串，传递给 `docker --user`。在 Linux/macOS 上默认使用 anna 进程的 uid/gid；Windows 上为空（由 Docker Desktop 处理映射）。如需在容器内使用 `root`，可覆盖此项。
-    - `allow_pull`：若为 `true`，缺失的镜像将在预检时自动拉取。默认为 `false`。未设置 `image` 使用默认镜像时始终允许自动拉取，以便全新安装无需手动开关此项。
-    - `extra_mounts`：额外的绑定挂载，格式为 `host:container[:ro|:rw]` 字符串，路径必须是绝对路径；省略时默认为 `:rw`。
-    - `container_path_prefix` / `host_path_prefix`：Docker-outside-of-Docker 的高级覆盖项。两者同时设置后，anna 视角下位于 `container_path_prefix` 之下的绝对路径，在作为 bind-mount 源发送给守护进程前会被重写到 `host_path_prefix` 之下。常见场景下请优先使用 `ANNA_HOME_HOST` 环境变量 —— 当 anna 检测到自己运行在容器中时会自动派生这两个前缀。仅在需要按 agent 覆盖时才设置这两个字段。在宿主机部署时两者均留空。
+  - `docker` 在由内置 `plugins/sandbox/docker/Dockerfile` 构建的专用容器中运行每个会话。镜像与 anna 二进制的版本锁定：开发构建使用本地 `anna-sandbox:dev` 标签（由 `mise run sandbox:docker:build` 生成），tagged 发布从 GHCR 拉取 `ghcr.io/vaayne/anna-sandbox:<version>`。该后端为手动选择；`auto` 不会自动选择它。需要可达的 docker daemon。适用于 Windows（`boxsh` 不可用）以及需要特定 Linux 用户空间的工作流。
+  - docker 后端没有 agent 级别的可调参数。镜像、容器内用户（`anna`，UID 1000）以及绑定挂载布局均由同梱镜像固定。当 anna 自身运行在容器中并与宿主机 docker 守护进程通信（Docker-outside-of-Docker）时，只需设置 `ANNA_HOME_HOST` 环境变量 —— anna 会自动推导出路径转换。
   - Docker 后端目前**不**实现 `whitelist` 网络模式或 HTTP 中介 —— 它会像 `boxsh` 一样失败关闭。请使用 `disabled` 或 `allow_all`。
-  - Docker 将工作区根目录绑定挂载到 `/workspace`，将每个只读路径挂载到 `/workspace-readonly/<index>`。依赖绝对宿主路径的脚本需要改用容器内路径。
+  - Docker 将工作区根目录绑定挂载到 `/home/anna/workspace`，将每个只读路径挂载到 `/home/anna/readonly/<index>`。依赖绝对宿主路径的脚本需要改用容器内路径。
 
 docker 后端 agent `sandbox` 字段的 JSON 示例：
 
 ```json
 {
   "backend": "docker",
-  "network": { "mode": "allow_all" },
-  "docker": {
-    "image": "alpine:3.20",
-    "user": "1000:1000",
-    "allow_pull": true,
-    "extra_mounts": ["/var/cache/build:/cache:ro"]
-  }
+  "network": { "mode": "allow_all" }
 }
 ```
 

@@ -111,27 +111,33 @@ func TestDockerHostResolvePath(t *testing.T) {
 	}
 }
 
-// TestTranslateEnvPaths verifies that absolute host paths are translated to
-// container paths and non-mounted paths are dropped.
+// TestTranslateEnvPaths verifies that mounted absolute paths translate to
+// their container paths, non-mounted absolute paths drop, host-only keys
+// (PATH, HOME) drop wholesale so the image's baked values stand, and
+// non-path values pass through.
 func TestTranslateEnvPaths(t *testing.T) {
 	mounts := []dockerclient.Mount{
 		{HostPath: "/host/workspace", ContainerPath: "/workspace"},
 	}
 
 	env := map[string]string{
-		"HOME":      "/host/workspace", // mounted — should translate
-		"ANNA_HOME": "/host/.anna",     // not mounted — should be dropped
-		"TERM":      "xterm-256color",  // non-path — should pass through
-		"LANG":      "en_US.UTF-8",     // non-path — should pass through
+		"PATH":        "/host/tools/bin:/usr/bin", // host-only — should drop
+		"HOME":        "/host/workspace",          // host-only — should drop even if mounted
+		"ANNA_HOME":   "/host/.anna",              // absolute, not mounted — should drop
+		"WORKING_DIR": "/host/workspace",          // mounted — should translate
+		"TERM":        "xterm-256color",           // non-path — pass through
+		"LANG":        "en_US.UTF-8",              // non-path — pass through
 	}
 
 	got := translateEnvPaths(env, mounts)
 
-	if got["HOME"] != "/workspace" {
-		t.Errorf("HOME: got %q, want /workspace", got["HOME"])
+	for _, k := range []string{"PATH", "HOME", "ANNA_HOME"} {
+		if v, ok := got[k]; ok {
+			t.Errorf("%s should be dropped, got %q", k, v)
+		}
 	}
-	if _, ok := got["ANNA_HOME"]; ok {
-		t.Errorf("ANNA_HOME should be dropped (not in any mount), got %q", got["ANNA_HOME"])
+	if got["WORKING_DIR"] != "/workspace" {
+		t.Errorf("WORKING_DIR: got %q, want /workspace", got["WORKING_DIR"])
 	}
 	if got["TERM"] != "xterm-256color" {
 		t.Errorf("TERM: got %q, want xterm-256color", got["TERM"])

@@ -151,28 +151,17 @@ JSONオブジェクトとして`settings`テーブルの`runner`キーに保存�
   - LinuxおよびmacOSでは `boxsh` を選択した際に検証が行われます。サンドボックスバックエンドが利用できないか、設定されたネットワークモードを強制できない場合、ランナーの起動はフェイルクローズします。
   - `local` はアドバイザリーな強制のみを行う緩やかなバックエンドです。明示的なローカル/開発シナリオにのみ使用してください。
   - 現在の `boxsh` クライアントビルドは実行時に `whitelist` モードを拒否する場合があります。ランタイムがホワイトリスト強制をサポートしている場合のみ使用してください。
-  - `docker` は `sandbox.docker.image`（デフォルト `alpine:3.20`）から起動した専用コンテナで各セッションを実行します。オプトイン型であり、`auto` では自動選択されません。`PATH` に `docker` CLI があり、daemonに到達できる必要があります。Windows（`boxsh` が利用できない場合）や特定のLinuxユーザースペースを必要とするワークフローで有用です。
-  - Dockerバックエンドの設定は `sandbox.docker` の下に置きます：
-    - `image`：Dockerイメージ参照。デフォルトは `alpine:3.20`。
-    - `user`：`docker --user` に渡すオプションの `uid:gid` 文字列。Linux/macOSではannaプロセスのuid/gidをデフォルトとし、Windowsでは空（Docker Desktopがマッピングを処理）。コンテナ内で `root` が必要な場合はオーバーライドしてください。
-    - `allow_pull`：`true` の場合、プリフライト時に不足しているイメージを自動的にプルします。デフォルトは `false`。`image` 未設定でデフォルトイメージを使う場合は常に自動プルが許可されるため、初回インストールで本オプションを切り替える必要はありません。
-    - `extra_mounts`：`host:container[:ro|:rw]` 形式の追加バインドマウント文字列。パスは絶対パスでなければなりません。オプションを省略した場合のデフォルトは `:rw` です。
-    - `container_path_prefix` / `host_path_prefix`：Docker-outside-of-Docker 用の上級オーバーライド。両方が設定されている場合、anna から見て `container_path_prefix` 配下の絶対パスは、デーモンに bind-mount のソースとして渡す前に `host_path_prefix` 配下へ書き換えられます。一般的なケースでは代わりに `ANNA_HOME_HOST` 環境変数を利用してください。anna がコンテナ内での動作を検知するとこれらのプレフィックスは自動導出されます。これらのフィールドは agent ごとの個別上書きが必要な場合のみ設定してください。ホスト実行時は両方を空にしてください。
+  - `docker` は同梱の `plugins/sandbox/docker/Dockerfile` からビルドされた専用コンテナで各セッションを実行します。イメージは anna バイナリのバージョンに固定されます：開発ビルドはローカルの `anna-sandbox:dev` タグ（`mise run sandbox:docker:build` で生成）を使用し、タグ付きリリースは GHCR の `ghcr.io/vaayne/anna-sandbox:<version>` を取得します。オプトイン型であり、`auto` では自動選択されません。到達可能な docker daemon が必要です。Windows（`boxsh` が利用できない場合）や特定のLinuxユーザースペースを必要とするワークフローで有用です。
+  - docker バックエンドには agent ごとの調整項目はありません。イメージ、コンテナ内ユーザー（`anna`、UID 1000）、バインドマウントのレイアウトはすべて同梱イメージで固定されています。anna 自身がコンテナ内で動作しホスト側の docker デーモンと通信する場合（Docker-outside-of-Docker）は `ANNA_HOME_HOST` 環境変数を設定してください — anna が自動的にパス変換を導出します。
   - Dockerバックエンドは現在 `whitelist` ネットワークモードやHTTPメディエーションを実装していません — `boxsh` と同様にフェイルクローズします。`disabled` または `allow_all` を使用してください。
-  - Dockerはワークスペースルートを `/workspace` にバインドマウントし、各読み取り専用パスを `/workspace-readonly/<index>` にマウントします。ホストの絶対パスに依存するスクリプトはコンテナ内パスを使用する必要があります。
+  - Dockerはワークスペースルートを `/home/anna/workspace` にバインドマウントし、各読み取り専用パスを `/home/anna/readonly/<index>` にマウントします。ホストの絶対パスに依存するスクリプトはコンテナ内パスを使用する必要があります。
 
 dockerバックエンドのエージェント `sandbox` フィールドのJSON例：
 
 ```json
 {
   "backend": "docker",
-  "network": { "mode": "allow_all" },
-  "docker": {
-    "image": "alpine:3.20",
-    "user": "1000:1000",
-    "allow_pull": true,
-    "extra_mounts": ["/var/cache/build:/cache:ro"]
-  }
+  "network": { "mode": "allow_all" }
 }
 ```
 

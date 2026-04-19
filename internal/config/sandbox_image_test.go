@@ -1,0 +1,60 @@
+package config
+
+import (
+	"testing"
+
+	"github.com/vaayne/anna/internal/version"
+)
+
+func TestSandboxDockerImage(t *testing.T) {
+	cases := []struct {
+		name    string
+		version string
+		want    string
+	}{
+		{name: "empty", version: "", want: "anna-sandbox:dev"},
+		{name: "literal dev", version: "dev", want: "anna-sandbox:dev"},
+		{name: "dirty describe", version: "v0.1.0-5-gabcdef-dirty", want: "anna-sandbox:dev"},
+		{name: "describe with commits", version: "v0.1.0-5-gabcdef", want: "anna-sandbox:dev"},
+		{name: "release with v prefix", version: "v0.1.0", want: "ghcr.io/vaayne/anna-sandbox:0.1.0"},
+		{name: "release without v prefix", version: "0.1.0", want: "ghcr.io/vaayne/anna-sandbox:0.1.0"},
+		{name: "release semver patch", version: "v1.2.3", want: "ghcr.io/vaayne/anna-sandbox:1.2.3"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			original := version.Version
+			t.Cleanup(func() { version.Version = original })
+			version.Version = tc.version
+
+			if got := SandboxDockerImage(); got != tc.want {
+				t.Errorf("SandboxDockerImage() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSandboxDockerImageIsDev(t *testing.T) {
+	cases := []struct {
+		version string
+		want    bool
+	}{
+		{version: "", want: true},
+		{version: "dev", want: true},
+		{version: "v0.1.0-5-gabcdef-dirty", want: true},
+		{version: "v0.1.0", want: false},
+		{version: "0.1.0", want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.version, func(t *testing.T) {
+			original := version.Version
+			t.Cleanup(func() { version.Version = original })
+			version.Version = tc.version
+
+			if got := SandboxDockerImageIsDev(); got != tc.want {
+				t.Errorf("SandboxDockerImageIsDev() for %q = %v, want %v", tc.version, got, tc.want)
+			}
+		})
+	}
+}

@@ -28,7 +28,13 @@ func dockerAvailable(ctx context.Context) bool {
 	return err == nil
 }
 
-// dockerPreflightForTest pulls the default sandbox image when it is not already
+// dockerContractImage is the image the docker contract tests use. Alpine is
+// sufficient because the contract tests exercise the generic Session/Host
+// interface, not anna-sandbox-specific features, and alpine always pulls from
+// the public registry.
+const dockerContractImage = "alpine:3.20"
+
+// dockerPreflightForTest pulls the contract-test image when it is not already
 // present locally. CI hosts have a docker daemon but no pre-pulled image, so
 // the contract tests (which call CreateSession directly, bypassing the public
 // Preflight entry point) would otherwise fail with "No such image".
@@ -38,7 +44,7 @@ func dockerAvailable(ctx context.Context) bool {
 // availability. Daemon-reachability failures are already handled upstream.
 func dockerPreflightForTest(t *testing.T, ctx context.Context) {
 	t.Helper()
-	cfg := dockerplugin.PreflightConfig{Docker: dockerplugin.Config{AllowPull: true}}
+	cfg := dockerplugin.PreflightConfig{Docker: dockerplugin.Config{Image: dockerContractImage}}
 	preflightCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	if err := dockerplugin.Preflight(preflightCtx, cfg); err != nil {
@@ -63,7 +69,7 @@ func TestSessionContract(t *testing.T) {
 			t.Skip("docker daemon not reachable; skipping DockerFactory contract test")
 		}
 		dockerPreflightForTest(t, ctx)
-		testSessionContract(t, dockerplugin.NewFactory(dockerplugin.Config{AllowPull: true}))
+		testSessionContract(t, dockerplugin.NewFactory(dockerplugin.Config{Image: dockerContractImage}))
 	})
 
 	// Test with boxsh factory if available
@@ -219,7 +225,7 @@ func TestHostContract(t *testing.T) {
 			t.Skip("docker daemon not reachable; skipping DockerFactory host contract test")
 		}
 		dockerPreflightForTest(t, ctx)
-		testHostContract(t, dockerplugin.NewFactory(dockerplugin.Config{AllowPull: true}))
+		testHostContract(t, dockerplugin.NewFactory(dockerplugin.Config{Image: dockerContractImage}))
 	})
 }
 

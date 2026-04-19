@@ -243,17 +243,32 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 	if len(coreTools) == 0 {
 		return nil, fmt.Errorf("go runner: sandbox backend unavailable: core tools require an active sandbox host")
 	}
+
+	// Sandbox core tools (bash/read/write/edit) route through the active
+	// session and must win over any plugin tool of the same name. Plugin
+	// versions run in the anna process, which would bypass the sandbox.
+	coreNames := make(map[string]struct{}, len(coreTools))
 	for _, t := range coreTools {
+		coreNames[t.Definition().Name] = struct{}{}
 		toolReg.Register(t)
 	}
 
-	// Extra tools (always-on builtin tools like memory/scheduler plus external plugin tools like webfetch).
-	for _, t := range cfg.ExtraTools {
+	registerNonCore := func(t tools.Tool) {
+		name := t.Definition().Name
+		if _, taken := coreNames[name]; taken {
+			slog.Debug("skipping non-sandbox tool that collides with sandbox core",
+				"component", "go_runner", "tool", name)
+			return
+		}
 		toolReg.Register(t)
+	}
+
+	for _, t := range cfg.ExtraTools {
+		registerNonCore(t)
 	}
 	if cfg.PluginTools != nil {
 		for _, t := range cfg.PluginTools(ctx, bc) {
-			toolReg.Register(t)
+			registerNonCore(t)
 		}
 	}
 
@@ -308,18 +323,18 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	case config.SandboxBackendLocal:
 		return nil
 	case config.SandboxBackendDocker:
-		cleanupOrphanedDockerContainers(ctx, paths.AnnaHome)
+		dockerCfg, err := resolveDockerConfig()
+		if err != nil {
+			return fmt.Errorf("go runner: %w", err)
+		}
+		cleanupOrphanedDockerContainers(ctx, dockerCfg.TranslateToDaemonPath(paths.AnnaHome))
 		if err := dockerplugin.Preflight(ctx, dockerplugin.PreflightConfig{
 			AnnaHome: paths.AnnaHome,
-			Docker: dockerplugin.Config{
-				Image:               cfg.Sandbox.Docker.Image,
-				User:                cfg.Sandbox.Docker.User,
-				AllowPull:           cfg.Sandbox.Docker.AllowPull,
-				ExtraMounts:         cfg.Sandbox.Docker.ExtraMounts,
-				ContainerPathPrefix: cfg.Sandbox.Docker.ContainerPathPrefix,
-				HostPathPrefix:      cfg.Sandbox.Docker.HostPathPrefix,
-			},
+			Docker:   dockerCfg,
 		}); err != nil {
+			if config.SandboxDockerImageIsDev() {
+				return fmt.Errorf("go runner: %w (run `mise run sandbox:docker:build` to build the local %q image)", err, config.SandboxDockerImage())
+			}
 			return fmt.Errorf("go runner: %w", err)
 		}
 		return nil

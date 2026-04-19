@@ -159,28 +159,17 @@ Each platform stores its own JSON structure in the `config` column of `settings_
   - Linux and macOS validate the managed `boxsh` backend when selected. Runner startup fails closed when the sandbox backend is unavailable or cannot enforce the configured network mode.
   - `local` is a relaxed backend with advisory enforcement; use it only for explicit local/development scenarios.
   - Current `boxsh` client builds may reject `whitelist` mode at runtime; use it only when your runtime supports whitelist enforcement.
-  - `docker` runs each session in a dedicated container started from `sandbox.docker.image` (default `alpine:3.20`). It is opt-in; `auto` does not select it. Requires the `docker` CLI on `PATH` and a reachable daemon. Useful on Windows (where `boxsh` is unavailable) and for workflows that need a specific Linux userspace.
-  - Docker backend config lives under `sandbox.docker`:
-    - `image`: Docker image reference. Default `alpine:3.20`.
-    - `user`: Optional `uid:gid` string passed to `docker --user`. Defaults to the anna process uid/gid on Linux/macOS; empty on Windows (Docker Desktop handles mapping). Override if you need `root` inside the container.
-    - `allow_pull`: If `true`, missing images are pulled during preflight. Defaults to `false`. The default image is always pulled automatically when absent, so a fresh install works without toggling this.
-    - `extra_mounts`: Additional bind mounts as `host:container[:ro|:rw]` strings. Paths must be absolute; `:rw` is the default when the option is omitted.
-    - `container_path_prefix` / `host_path_prefix`: Advanced override for Docker-outside-of-Docker. When both are set, absolute paths anna sees under `container_path_prefix` are rewritten to live under `host_path_prefix` before being sent to the daemon as bind-mount sources. For the common case, prefer the `ANNA_HOME_HOST` environment variable instead — anna auto-derives these prefixes when it detects it is running inside a container. Use these fields only when you need per-agent overrides. Leave both empty on host installs.
+  - `docker` runs each session in a dedicated container built from the bundled `plugins/sandbox/docker/Dockerfile`. The image is version-locked to the anna binary: dev builds use a local `anna-sandbox:dev` tag (produced by `mise run sandbox:docker:build`), and tagged releases pull `ghcr.io/vaayne/anna-sandbox:<version>` from GHCR. It is opt-in; `auto` does not select it. Requires a reachable docker daemon. Useful on Windows (where `boxsh` is unavailable) and for workflows that need a specific Linux userspace.
+  - The docker backend takes no per-agent knobs. The image, the in-container user (`anna`, UID 1000), and bind-mount layout are all fixed by the shipped image. When anna itself runs inside a container and talks to a host docker daemon (Docker-outside-of-Docker), set the `ANNA_HOME_HOST` environment variable — anna auto-derives the path translation from it.
   - Docker backend does **not** currently implement `whitelist` network mode or HTTP mediation — it fails closed, the same as `boxsh`. Use `disabled` or `allow_all`.
-  - Docker bind-mounts the workspace root at `/workspace` and each read-only path at `/workspace-readonly/<index>`. Scripts that rely on absolute host paths will need to use the in-container path instead.
+  - Docker bind-mounts the workspace root at `/home/anna/workspace` and each read-only path at `/home/anna/readonly/<index>`. Scripts that rely on absolute host paths will need to use the in-container path instead.
 
 Example JSON for a docker-backed agent's `sandbox` field:
 
 ```json
 {
   "backend": "docker",
-  "network": { "mode": "allow_all" },
-  "docker": {
-    "image": "alpine:3.20",
-    "user": "1000:1000",
-    "allow_pull": true,
-    "extra_mounts": ["/var/cache/build:/cache:ro"]
-  }
+  "network": { "mode": "allow_all" }
 }
 ```
 

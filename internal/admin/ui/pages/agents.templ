@@ -80,16 +80,6 @@ templ AgentsPage() {
 							<p>Applies to sandboxed core tools: <span class="font-mono">bash</span>, <span class="font-mono">read</span>, <span class="font-mono">write</span>, and <span class="font-mono">edit</span>.</p>
 							<p class="mt-2">Whitelist entries accept hostnames, IPs, or CIDRs, one per line.</p>
 						</div>
-						<div x-show="form.sandbox.backend === 'docker'" class="sm:col-span-2">
-							@ui.FormField("Docker Image") {
-								<input
-									type="text"
-									x-model="form.sandbox.docker.image"
-									placeholder="alpine:3.20"
-									class="input input-bordered w-full text-sm font-mono"
-								/>
-							}
-						</div>
 					</div>
 					<div class="mt-4" x-show="form.sandbox.network.mode === 'whitelist'">
 						@ui.FormField("Network Allowlist") {

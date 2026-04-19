@@ -280,16 +280,7 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 		"network_allowlist", cfg.Sandbox.Network.Allowlist,
 	)
 
-	dockerCfg := dockerplugin.Config{
-		Image:               cfg.Sandbox.Docker.Image,
-		User:                cfg.Sandbox.Docker.User,
-		AllowPull:           cfg.Sandbox.Docker.AllowPull,
-		ExtraMounts:         cfg.Sandbox.Docker.ExtraMounts,
-		ContainerPathPrefix: cfg.Sandbox.Docker.ContainerPathPrefix,
-		HostPathPrefix:      cfg.Sandbox.Docker.HostPathPrefix,
-	}
-
-	dockerCfg, err = applyDooDDefaults(dockerCfg, config.AnnaHome())
+	dockerCfg, err := resolveDockerConfig()
 	if err != nil {
 		recordSandboxError(span, err)
 		return nil, err
@@ -314,8 +305,21 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 
 var dockerOrphanCleanupOnce sync.Once
 
+// resolveDockerConfig builds the docker plugin Config used by the runner,
+// including any DooD path-translation prefixes derived from ANNA_HOME_HOST.
+// Shared by session creation, preflight, and orphan cleanup so all three scope
+// to the same daemon-view paths.
+func resolveDockerConfig() (dockerplugin.Config, error) {
+	return applyDooDDefaults(
+		dockerplugin.Config{Image: config.SandboxDockerImage()},
+		config.AnnaHome(),
+	)
+}
+
 // cleanupOrphanedDockerContainers removes stale anna containers from previous
-// crashed processes. Runs at most once per process.
+// crashed processes. Runs at most once per process. The annaHome argument must
+// already be translated to the daemon-view path so it matches the label set at
+// container creation time.
 func cleanupOrphanedDockerContainers(ctx context.Context, annaHome string) {
 	dockerOrphanCleanupOnce.Do(func() {
 		client, err := dockerclient.New()

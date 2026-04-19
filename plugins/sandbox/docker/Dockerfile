@@ -1,13 +1,11 @@
 # Anna sandbox image
 #
-# Build:
+# Build locally (dev):
 #   mise run sandbox:docker:build
 #
-# Use in config:
-#   sandbox:
-#     backend: docker
-#     docker:
-#       image: anna-sandbox
+# The image tag is version-locked to the anna binary:
+#   - dev builds      → anna-sandbox:dev            (built locally)
+#   - tagged releases → ghcr.io/vaayne/anna-sandbox:<version>
 
 FROM debian:13-slim
 
@@ -31,18 +29,13 @@ ARG USER_GID=1000
 
 RUN groupadd --non-unique -g ${USER_GID} anna && \
     useradd --non-unique -u ${USER_UID} -g ${USER_GID} -m -s /bin/bash anna && \
-    mkdir -p /home/anna/workspace && \
+    mkdir -p /home/anna/workspace /home/anna/readonly && \
     chown -R anna:anna /home/anna
 
 USER anna
 ENV HOME=/home/anna
-ENV BASH_ENV=/home/anna/.bash_env
+ENV PATH=/home/anna/.local/bin:/home/anna/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 WORKDIR /home/anna/workspace
-
-# Write shell env before copying config so mise activate is available on login.
-RUN printf 'eval "$(mise activate bash)"\nexport PATH="/home/anna/.local/bin:$PATH"\n' \
-    > /home/anna/.bash_env && \
-    cp /home/anna/.bash_env /home/anna/.bashrc
 
 COPY --chown=anna:anna _mise.toml /home/anna/.config/mise/config.toml
 

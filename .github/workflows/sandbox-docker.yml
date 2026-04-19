@@ -3,6 +3,7 @@ name: Build and Push Sandbox Docker Image
 on:
   push:
     branches: [main]
+    tags: ['v*']
     paths:
       - 'plugins/sandbox/docker/**'
       - '.github/workflows/sandbox-docker.yml'
@@ -19,7 +20,7 @@ permissions:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}-sandbox
+  IMAGE_NAME: vaayne/anna-sandbox
 
 jobs:
   build:
@@ -52,8 +53,12 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=main
+            type=raw,value=dev,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
             type=sha,format=long
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6

@@ -7,7 +7,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +17,14 @@ import (
 
 	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
 	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
+)
+
+// workspaceMount and readonlyMountRoot match the paths pre-created in the
+// bundled Dockerfile (plugins/sandbox/docker/Dockerfile) under the anna
+// user's HOME so mise activate, $PATH, and $HOME all line up.
+const (
+	workspaceMount    = "/home/anna/workspace"
+	readonlyMountRoot = "/home/anna/readonly"
 )
 
 // Type aliases for the pkg/sandbox contract — keeps import noise minimal in callers.
@@ -117,6 +124,10 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Sessi
 		return nil, err
 	}
 
+	if f.cfg.Image == "" {
+		return nil, fmt.Errorf("docker session: Image is required")
+	}
+
 	sessionID := nextSessionID()
 
 	workspaceHost, err := filepath.Abs(policy.WorkspaceRootOrDefault())
@@ -124,18 +135,9 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Sessi
 		return nil, fmt.Errorf("docker session: abs workspace root: %w", err)
 	}
 
-	image := f.cfg.ImageOrDefault()
-	workspaceMount := f.cfg.WorkspaceMountOrDefault()
-
 	ctx, span := tracer.Start(ctx, "sandbox.docker.session",
-		trace.WithAttributes(sessionTraceAttrs(sessionID, policy, image, workspaceHost)...),
+		trace.WithAttributes(sessionTraceAttrs(sessionID, policy, f.cfg.Image, workspaceHost)...),
 	)
-
-	// Determine user mapping.
-	user := f.cfg.User
-	if user == "" && runtime.GOOS != "windows" {
-		user = fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
-	}
 
 	// Build read-only mounts from policy. HostPath is kept as anna-view here so
 	// the internal mount table can translate cwd/env paths with toContainerPath;
@@ -150,17 +152,9 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Sessi
 		}
 		roMounts = append(roMounts, dockerclient.Mount{
 			HostPath:      absP,
-			ContainerPath: "/workspace-readonly/" + strconv.Itoa(i),
+			ContainerPath: readonlyMountRoot + "/" + strconv.Itoa(i),
 			ReadOnly:      true,
 		})
-	}
-
-	// Parse extra mounts from config.
-	extraMounts, err := parseExtraMounts(f.cfg.ExtraMounts)
-	if err != nil {
-		recordError(span, err)
-		span.End()
-		return nil, fmt.Errorf("docker session: extra mounts: %w", err)
 	}
 
 	// Map network mode.
@@ -174,7 +168,11 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Sessi
 		return nil, fmt.Errorf("docker session: client: %w", err)
 	}
 
-	annaHome := policy.Process.Environment["ANNA_HOME"]
+	// Label with the daemon-view ANNA_HOME so orphan cleanup scopes to this
+	// host installation. Under DooD two anna instances may share an in-container
+	// ANNA_HOME path while living in different host directories; labeling with
+	// the daemon-view path keeps their container sets disjoint.
+	annaHome := f.cfg.TranslateToDaemonPath(policy.Process.Environment["ANNA_HOME"])
 
 	// Translate anna-view paths to daemon-view paths for bind-mount sources.
 	// Only the CreateOptions struct receives translated paths; the internal
@@ -183,12 +181,10 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Sessi
 	daemonRoMounts := translateMountsForDaemon(f.cfg, roMounts)
 
 	opts := dockerclient.CreateOptions{
-		Image:          image,
-		User:           user,
+		Image:          f.cfg.Image,
 		WorkspaceHost:  f.cfg.TranslateToDaemonPath(workspaceHost),
 		WorkspaceMount: workspaceMount,
 		ReadOnlyMounts: daemonRoMounts,
-		ExtraMounts:    extraMounts,
 		NetworkMode:    networkMode,
 		Env:            mergeEnv(policy.Process.Environment, nil),
 		Labels: map[string]string{
@@ -211,8 +207,8 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Sessi
 		attribute.String("anna.sandbox.container_id", containerID),
 	))
 
-	// Build mount table: workspace + read-only mounts + extra mounts.
-	mountTable := buildMountTable(workspaceHost, workspaceMount, roMounts, extraMounts)
+	// Build mount table: workspace + read-only mounts.
+	mountTable := buildMountTable(workspaceHost, workspaceMount, roMounts)
 
 	session := &dockerSession{
 		id:          sessionID,
@@ -260,15 +256,14 @@ func mapNetworkMode(policy Policy) dockerclient.NetworkMode {
 }
 
 // buildMountTable returns all bind mounts that toContainerPath should consult.
-func buildMountTable(workspaceHost, workspaceMount string, roMounts, extraMounts []dockerclient.Mount) []dockerclient.Mount {
-	table := make([]dockerclient.Mount, 0, 1+len(roMounts)+len(extraMounts))
+func buildMountTable(workspaceHost, workspaceMount string, roMounts []dockerclient.Mount) []dockerclient.Mount {
+	table := make([]dockerclient.Mount, 0, 1+len(roMounts))
 	table = append(table, dockerclient.Mount{
 		HostPath:      workspaceHost,
 		ContainerPath: workspaceMount,
 		ReadOnly:      false,
 	})
 	table = append(table, roMounts...)
-	table = append(table, extraMounts...)
 	return table
 }
 
@@ -281,14 +276,32 @@ func mergeEnv(policyEnv, optsEnv map[string]string) map[string]string {
 	return out
 }
 
+// hostOnlyEnvKeys are variables that callers build from the anna process view
+// and would mislead or break tools inside the container. They are dropped
+// before exec so the image's baked values (ENV PATH, HOME, …) take effect.
+//   - PATH: callers prepend anna-managed tool dirs (fd/rg/mise/tap shims) that
+//     live on the anna host filesystem. Those paths don't exist in the
+//     container, and passing them overrides the image's ENV PATH that points
+//     at /home/anna/.local/share/mise/shims et al.
+//   - HOME: the container's image-baked HOME (/home/anna) is the right value.
+//     The anna host HOME would point at a dir that isn't mounted.
+var hostOnlyEnvKeys = map[string]struct{}{
+	"PATH": {},
+	"HOME": {},
+}
+
 // translateEnvPaths rewrites env vars whose values are absolute host paths.
 // Values that are mounted are translated to their in-container equivalents.
 // Values that are absolute but not mounted (e.g. ANNA_HOME) are dropped —
 // the path doesn't exist in the container and would mislead tools that read it.
+// Keys in hostOnlyEnvKeys are dropped wholesale.
 // Non-path values (TERM, LANG, …) pass through unchanged.
 func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount) map[string]string {
 	out := make(map[string]string, len(env))
 	for k, v := range env {
+		if _, drop := hostOnlyEnvKeys[k]; drop {
+			continue
+		}
 		if !filepath.IsAbs(v) {
 			out[k] = v
 			continue

@@ -17,7 +17,7 @@ LOG_LEVEL = "trace"
 [tasks.build]
 description = "Build anna binary"
 depends = ["generate"]
-run = "mkdir -p bin && VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)} && go build -ldflags=\"-X main.version=$VERSION\" -o bin/$BINARY_NAME ./cmd/anna"
+run = "mkdir -p bin && VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)} && go build -ldflags=\"-X github.com/vaayne/anna/internal/version.Version=$VERSION\" -o bin/$BINARY_NAME ./cmd/anna"
 
 [tasks.clean]
 description = "Remove build artifacts"
@@ -118,7 +118,7 @@ description = "Build Docker image"
 run = "VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}; if [ -n \"${GITHUB_TOKEN:-}\" ]; then docker build --secret id=github_token,env=GITHUB_TOKEN --build-arg VERSION=$VERSION -t anna:latest .; else docker build --build-arg VERSION=$VERSION -t anna:latest .; fi"
 
 [tasks."sandbox:docker:build"]
-description = "Build anna-sandbox Docker image (used by the docker sandbox backend)"
+description = "Build local anna-sandbox:dev image (used by the docker sandbox backend in dev builds)"
 run = """
   DIR=plugins/sandbox/docker
   UID_ARG=$(id -u)
@@ -128,12 +128,12 @@ run = """
       --secret id=github_token,env=GITHUB_TOKEN \
       --build-arg USER_UID=$UID_ARG \
       --build-arg USER_GID=$GID_ARG \
-      -t anna-sandbox:latest "$DIR"
+      -t anna-sandbox:dev "$DIR"
   else
     DOCKER_BUILDKIT=1 docker build \
       --build-arg USER_UID=$UID_ARG \
       --build-arg USER_GID=$GID_ARG \
-      -t anna-sandbox:latest "$DIR"
+      -t anna-sandbox:dev "$DIR"
   fi
 """
 
@@ -155,4 +155,5 @@ run = """
     echo 'anna-dev started'
     echo 'logs: docker logs -f anna-dev'
     echo 'stop: docker stop anna-dev'
+    docker logs -f anna-dev
 """

@@ -43,7 +43,7 @@ RUN templ generate
 RUN sqlc generate
 
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -ldflags "-s -w -X main.version=${VERSION}" -o bin/anna ./cmd/anna/
+    go build -ldflags "-s -w -X github.com/vaayne/anna/internal/version.Version=${VERSION}" -o bin/anna ./cmd/anna/
 
 FROM debian:13-slim AS app
 

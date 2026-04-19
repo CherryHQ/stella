@@ -215,7 +215,6 @@ export function register(Alpine) {
       return {
         backend,
         network: { mode, allowlist },
-        docker: { image: sandbox?.docker?.image || '' },
       }
     },
 

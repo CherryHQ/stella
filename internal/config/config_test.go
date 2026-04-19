@@ -125,52 +125,6 @@ func TestSandboxConfigValidate(t *testing.T) {
 			cfg:  SandboxConfig{Backend: SandboxBackendDocker},
 		},
 		{
-			name: "docker backend with full config valid",
-			cfg: SandboxConfig{
-				Backend: SandboxBackendDocker,
-				Docker: SandboxDockerConfig{
-					Image:       "alpine:3.20",
-					User:        "1000:1000",
-					AllowPull:   true,
-					ExtraMounts: []string{"/tmp:/host-tmp:ro"},
-				},
-			},
-		},
-		{
-			name:    "docker image with whitespace invalid",
-			cfg:     SandboxConfig{Docker: SandboxDockerConfig{Image: "al pine"}},
-			wantErr: true,
-		},
-		{
-			name:    "docker user non-numeric invalid",
-			cfg:     SandboxConfig{Docker: SandboxDockerConfig{User: "root"}},
-			wantErr: true,
-		},
-		{
-			name:    "docker user with letters invalid",
-			cfg:     SandboxConfig{Docker: SandboxDockerConfig{User: "1000:abc"}},
-			wantErr: true,
-		},
-		{
-			name:    "docker extra_mounts relative path invalid",
-			cfg:     SandboxConfig{Docker: SandboxDockerConfig{ExtraMounts: []string{"tmp:/container"}}},
-			wantErr: true,
-		},
-		{
-			name: "docker extra_mounts rw option valid",
-			cfg:  SandboxConfig{Docker: SandboxDockerConfig{ExtraMounts: []string{"/tmp:/container:rw"}}},
-		},
-		{
-			name:    "docker extra_mounts bad option invalid",
-			cfg:     SandboxConfig{Docker: SandboxDockerConfig{ExtraMounts: []string{"/tmp:/container:rx"}}},
-			wantErr: true,
-		},
-		{
-			name:    "docker extra_mounts too many parts invalid",
-			cfg:     SandboxConfig{Docker: SandboxDockerConfig{ExtraMounts: []string{"/tmp:/container:ro:extra"}}},
-			wantErr: true,
-		},
-		{
 			name:    "invalid backend",
 			cfg:     SandboxConfig{Backend: "gvisor"},
 			wantErr: true,

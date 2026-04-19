@@ -31,11 +31,9 @@ type Mount struct {
 // CreateOptions configures a new sandbox container.
 type CreateOptions struct {
 	Image          string
-	User           string      // "uid:gid"; empty omits --user
 	WorkspaceHost  string      // absolute host path (daemon-side)
-	WorkspaceMount string      // absolute in-container path (e.g. "/workspace")
+	WorkspaceMount string      // absolute in-container path (e.g. "/home/anna/workspace")
 	ReadOnlyMounts []Mount     // host -> container, read-only
-	ExtraMounts    []Mount     // parsed from config.ExtraMounts
 	NetworkMode    NetworkMode // disabled | allow_all
 	Env            map[string]string
 	Labels         map[string]string // must include LabelSessionID + LabelAnnaHome + LabelCreatedAt
@@ -106,7 +104,6 @@ func buildContainerCreateOptions(opts CreateOptions) mobyclient.ContainerCreateO
 func buildContainerConfig(opts CreateOptions) *container.Config {
 	cfg := &container.Config{
 		Image:      opts.Image,
-		User:       opts.User,
 		Labels:     opts.Labels,
 		Entrypoint: []string{"/bin/sh"},
 		Cmd:        []string{"-c", "tail -f /dev/null"},
@@ -136,7 +133,7 @@ func mapNetworkMode(m NetworkMode) container.NetworkMode {
 }
 
 func buildMounts(opts CreateOptions) []mount.Mount {
-	n := len(opts.ReadOnlyMounts) + len(opts.ExtraMounts)
+	n := len(opts.ReadOnlyMounts)
 	if opts.WorkspaceHost != "" && opts.WorkspaceMount != "" {
 		n++
 	}
@@ -155,14 +152,6 @@ func buildMounts(opts CreateOptions) []mount.Mount {
 			Source:   m.HostPath,
 			Target:   m.ContainerPath,
 			ReadOnly: true,
-		})
-	}
-	for _, m := range opts.ExtraMounts {
-		mounts = append(mounts, mount.Mount{
-			Type:     mount.TypeBind,
-			Source:   m.HostPath,
-			Target:   m.ContainerPath,
-			ReadOnly: m.ReadOnly,
 		})
 	}
 	return mounts

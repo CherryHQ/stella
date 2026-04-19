@@ -30,15 +30,20 @@ func getSharedClient() (*dockerclient.Client, error) {
 	return sharedClient, sharedClientErr
 }
 
-// Preflight checks daemon reachability and image availability.
-// If the image is missing and cfg.Docker.AllowsImplicitPull() is true, pulls it.
-// If missing and pulling is not allowed, returns an error.
+// Preflight checks daemon reachability and image availability. A missing image
+// is pulled automatically; the caller is expected to have built or published
+// the image ahead of time for dev builds (the pull will fail with a registry
+// error in that case).
 func Preflight(ctx context.Context, cfg PreflightConfig) error {
 	return preflightWithClient(ctx, cfg, nil)
 }
 
 // preflightWithClient is the testable variant that accepts an optional client override.
 func preflightWithClient(ctx context.Context, cfg PreflightConfig, client *dockerclient.Client) error {
+	if cfg.Docker.Image == "" {
+		return fmt.Errorf("docker preflight: Image is required")
+	}
+
 	var err error
 	if client == nil {
 		client, err = getSharedClient()
@@ -47,28 +52,21 @@ func preflightWithClient(ctx context.Context, cfg PreflightConfig, client *docke
 		}
 	}
 
-	// Check daemon reachability.
 	if _, err := client.Version(ctx); err != nil {
 		return fmt.Errorf("docker preflight: daemon not reachable: %w", err)
 	}
 
-	image := cfg.Docker.ImageOrDefault()
-
-	exists, err := client.ImageExists(ctx, image)
+	exists, err := client.ImageExists(ctx, cfg.Docker.Image)
 	if err != nil {
-		return fmt.Errorf("docker preflight: check image %q: %w", image, err)
+		return fmt.Errorf("docker preflight: check image %q: %w", cfg.Docker.Image, err)
 	}
 
 	if exists {
 		return nil
 	}
 
-	if !cfg.Docker.AllowsImplicitPull() {
-		return fmt.Errorf("docker preflight: image %q not found locally and AllowPull is false; run `docker pull %s` or set AllowPull=true", image, image)
-	}
-
-	if err := client.PullImage(ctx, image); err != nil {
-		return fmt.Errorf("docker preflight: pull image %q: %w", image, err)
+	if err := client.PullImage(ctx, cfg.Docker.Image); err != nil {
+		return fmt.Errorf("docker preflight: pull image %q: %w", cfg.Docker.Image, err)
 	}
 
 	return nil
