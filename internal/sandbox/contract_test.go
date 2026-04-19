@@ -28,6 +28,24 @@ func dockerAvailable(ctx context.Context) bool {
 	return err == nil
 }
 
+// dockerPreflightForTest pulls the default sandbox image when it is not already
+// present locally. CI hosts have a docker daemon but no pre-pulled image, so
+// the contract tests (which call CreateSession directly, bypassing the public
+// Preflight entry point) would otherwise fail with "No such image".
+//
+// A pull failure (no network, rate limit, …) is reported via t.Skip rather
+// than t.Fatal: the test's concern is contract conformance, not registry
+// availability. Daemon-reachability failures are already handled upstream.
+func dockerPreflightForTest(t *testing.T, ctx context.Context) {
+	t.Helper()
+	cfg := dockerplugin.PreflightConfig{Docker: dockerplugin.Config{AllowPull: true}}
+	preflightCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	if err := dockerplugin.Preflight(preflightCtx, cfg); err != nil {
+		t.Skipf("docker preflight failed (image unavailable): %v", err)
+	}
+}
+
 // Contract tests for Session and Host interfaces.
 // These tests verify that both local and boxsh backends satisfy the shared contract.
 
@@ -44,6 +62,7 @@ func TestSessionContract(t *testing.T) {
 		if !dockerAvailable(ctx) {
 			t.Skip("docker daemon not reachable; skipping DockerFactory contract test")
 		}
+		dockerPreflightForTest(t, ctx)
 		testSessionContract(t, dockerplugin.NewFactory(dockerplugin.Config{AllowPull: true}))
 	})
 
@@ -199,6 +218,7 @@ func TestHostContract(t *testing.T) {
 		if !dockerAvailable(ctx) {
 			t.Skip("docker daemon not reachable; skipping DockerFactory host contract test")
 		}
+		dockerPreflightForTest(t, ctx)
 		testHostContract(t, dockerplugin.NewFactory(dockerplugin.Config{AllowPull: true}))
 	})
 }
