@@ -281,10 +281,12 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 	)
 
 	dockerCfg := dockerplugin.Config{
-		Image:       cfg.Sandbox.Docker.Image,
-		User:        cfg.Sandbox.Docker.User,
-		AllowPull:   cfg.Sandbox.Docker.AllowPull,
-		ExtraMounts: cfg.Sandbox.Docker.ExtraMounts,
+		Image:               cfg.Sandbox.Docker.Image,
+		User:                cfg.Sandbox.Docker.User,
+		AllowPull:           cfg.Sandbox.Docker.AllowPull,
+		ExtraMounts:         cfg.Sandbox.Docker.ExtraMounts,
+		ContainerPathPrefix: cfg.Sandbox.Docker.ContainerPathPrefix,
+		HostPathPrefix:      cfg.Sandbox.Docker.HostPathPrefix,
 	}
 
 	// Construct a per-runner factory with the resolved config. The global
@@ -331,7 +333,6 @@ func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, er
 	}
 	return factory(ctx, cfg)
 }
-
 
 func resolveSessionBackendName(cfg config.SandboxConfig) string {
 	name := cfg.BackendName()

@@ -25,11 +25,43 @@ type Config struct {
 	AllowPull bool
 
 	// ExtraMounts is a list of additional bind-mounts in "host:container[:ro]" syntax.
+	// Both paths are interpreted host-side — no prefix translation is applied.
 	ExtraMounts []string
 
 	// WorkspaceMount is the in-container path where WorkspaceRoot is bind-mounted.
 	// Defaults to "/workspace" if empty.
 	WorkspaceMount string
+
+	// ContainerPathPrefix / HostPathPrefix enable path alignment when anna runs
+	// inside a container and talks to the daemon on the host (DooD). Anna's own
+	// filesystem view differs from the daemon's: a path anna sees at
+	// ContainerPathPrefix actually lives at HostPathPrefix on the machine where
+	// the daemon resolves bind-mount sources. When both fields are set, any
+	// absolute path anna produces for the daemon (workspace root, read-only
+	// paths) is rewritten by stripping ContainerPathPrefix and prepending
+	// HostPathPrefix. Leave both empty when not running in DooD.
+	ContainerPathPrefix string
+	HostPathPrefix      string
+}
+
+// TranslateToDaemonPath rewrites an anna-view absolute path into the path the
+// daemon will use as a bind-mount source. When prefix translation is not
+// configured, the input is returned unchanged.
+func (c Config) TranslateToDaemonPath(path string) string {
+	if c.ContainerPathPrefix == "" || c.HostPathPrefix == "" {
+		return path
+	}
+	if path == c.ContainerPathPrefix {
+		return c.HostPathPrefix
+	}
+	prefix := c.ContainerPathPrefix
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+	if after, ok := strings.CutPrefix(path, prefix); ok {
+		return c.HostPathPrefix + "/" + after
+	}
+	return path
 }
 
 // ImageOrDefault returns the configured image or the default "alpine:3.20".

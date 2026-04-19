@@ -33,6 +33,14 @@ type SandboxDockerConfig struct {
 	User        string   `json:"user"`         // "uid:gid" string. Empty = default uid/gid from os/user.
 	AllowPull   bool     `json:"allow_pull"`   // whether preflight may run `docker pull`. Default false.
 	ExtraMounts []string `json:"extra_mounts"` // extra bind mounts. Each entry: "host:container[:ro]".
+
+	// ContainerPathPrefix / HostPathPrefix enable path alignment when anna runs
+	// inside a container and talks to the daemon running on the host (DooD).
+	// Paths anna sees under ContainerPathPrefix are rewritten to live under
+	// HostPathPrefix when used as bind-mount sources sent to the daemon.
+	// Both must be absolute; either both are set or both are empty.
+	ContainerPathPrefix string `json:"container_path_prefix"`
+	HostPathPrefix      string `json:"host_path_prefix"`
 }
 
 // SandboxNetworkConfig configures sandbox network access.
@@ -83,6 +91,17 @@ func (c SandboxDockerConfig) Validate() error {
 			}
 		default:
 			return fmt.Errorf("sandbox.docker.extra_mounts entry %q: must be host:container or host:container:ro", m)
+		}
+	}
+	if (c.ContainerPathPrefix == "") != (c.HostPathPrefix == "") {
+		return fmt.Errorf("sandbox.docker.container_path_prefix and sandbox.docker.host_path_prefix must be set together or both left empty")
+	}
+	if c.ContainerPathPrefix != "" {
+		if !strings.HasPrefix(c.ContainerPathPrefix, "/") {
+			return fmt.Errorf("sandbox.docker.container_path_prefix must be absolute (got %q)", c.ContainerPathPrefix)
+		}
+		if !strings.HasPrefix(c.HostPathPrefix, "/") {
+			return fmt.Errorf("sandbox.docker.host_path_prefix must be absolute (got %q)", c.HostPathPrefix)
 		}
 	}
 	return nil

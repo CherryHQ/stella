@@ -130,7 +130,9 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Sessi
 		user = fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
 	}
 
-	// Build read-only mounts from policy.
+	// Build read-only mounts from policy. HostPath is kept as anna-view here so
+	// the internal mount table can translate cwd/env paths with toContainerPath;
+	// the daemon-side bind source is computed separately below.
 	roMounts := make([]dockerclient.Mount, 0, len(policy.Filesystem.ReadOnlyPaths))
 	for i, p := range policy.Filesystem.ReadOnlyPaths {
 		absP, err := filepath.Abs(p)
@@ -167,12 +169,18 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Sessi
 
 	annaHome := policy.Process.Environment["ANNA_HOME"]
 
+	// Translate anna-view paths to daemon-view paths for bind-mount sources.
+	// Only the CreateOptions struct receives translated paths; the internal
+	// mountTable keeps anna-view paths so toContainerPath continues to map
+	// cwd/env correctly.
+	daemonRoMounts := translateMountsForDaemon(f.cfg, roMounts)
+
 	opts := dockerclient.CreateOptions{
 		Image:          image,
 		User:           user,
-		WorkspaceHost:  workspaceHost,
+		WorkspaceHost:  f.cfg.TranslateToDaemonPath(workspaceHost),
 		WorkspaceMount: workspaceMount,
-		ReadOnlyMounts: roMounts,
+		ReadOnlyMounts: daemonRoMounts,
 		ExtraMounts:    extraMounts,
 		NetworkMode:    networkMode,
 		Env:            mergeEnv(policy.Process.Environment, nil),
@@ -216,6 +224,20 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Sessi
 	go session.watchContainer()
 
 	return session, nil
+}
+
+// translateMountsForDaemon rewrites Mount.HostPath values via the prefix
+// mapping configured on cfg. The input slice is not mutated.
+func translateMountsForDaemon(cfg Config, mounts []dockerclient.Mount) []dockerclient.Mount {
+	if cfg.ContainerPathPrefix == "" || cfg.HostPathPrefix == "" {
+		return mounts
+	}
+	out := make([]dockerclient.Mount, len(mounts))
+	for i, m := range mounts {
+		m.HostPath = cfg.TranslateToDaemonPath(m.HostPath)
+		out[i] = m
+	}
+	return out
 }
 
 // mapNetworkMode translates sandbox policy network mode to the dockerclient type.

@@ -260,7 +260,6 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 	return toolReg, nil
 }
 
-
 func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSet, []tools.Definition, error) {
 	if len(excluded) == 0 {
 		return coreagent.ToolSetFromRegistry(reg), reg.Definitions(), nil
@@ -313,10 +312,12 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 		if err := dockerplugin.Preflight(ctx, dockerplugin.PreflightConfig{
 			AnnaHome: paths.AnnaHome,
 			Docker: dockerplugin.Config{
-				Image:       cfg.Sandbox.Docker.Image,
-				User:        cfg.Sandbox.Docker.User,
-				AllowPull:   cfg.Sandbox.Docker.AllowPull,
-				ExtraMounts: cfg.Sandbox.Docker.ExtraMounts,
+				Image:               cfg.Sandbox.Docker.Image,
+				User:                cfg.Sandbox.Docker.User,
+				AllowPull:           cfg.Sandbox.Docker.AllowPull,
+				ExtraMounts:         cfg.Sandbox.Docker.ExtraMounts,
+				ContainerPathPrefix: cfg.Sandbox.Docker.ContainerPathPrefix,
+				HostPathPrefix:      cfg.Sandbox.Docker.HostPathPrefix,
 			},
 		}); err != nil {
 			return fmt.Errorf("go runner: %w", err)
