@@ -11,6 +11,7 @@ import (
 	"github.com/vaayne/anna/internal/sandbox"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	builtinres "github.com/vaayne/anna/plugins/tools/builtin"
 )
 
 //go:embed template/system_prompt.tmpl
@@ -19,14 +20,22 @@ var systemTemplate string
 //go:embed template/system.md
 var defaultSystemPrompt string
 
-//go:embed template/soul.md
-var defaultAgentSoul string
-
 // DefaultSystemPrompt returns the default system prompt text.
 func DefaultSystemPrompt() string { return strings.TrimSpace(defaultSystemPrompt) }
 
-// DefaultAgentSoul returns the default agent soul text.
-func DefaultAgentSoul() string { return strings.TrimSpace(defaultAgentSoul) }
+// DefaultAgentSoul returns the "default" soul from the builtin registry,
+// used as the fallback persona when an agent has no override in memory.
+func DefaultAgentSoul() string {
+	reg, err := builtinres.Default()
+	if err != nil {
+		return ""
+	}
+	res, ok := reg.Get(builtinres.KindSoul, "default")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(res.Content)
+}
 
 var systemTmpl = template.Must(template.New("system").Funcs(template.FuncMap{
 	"escapeXML": escapeXML,
@@ -87,7 +96,7 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 
 	data := promptData{
 		SystemPrompt: sysPrompt,
-		AgentSoul:    strings.TrimSpace(defaultAgentSoul),
+		AgentSoul:    DefaultAgentSoul(),
 	}
 
 	// Memory: agent soul + user profile (always rendered, populated when available).

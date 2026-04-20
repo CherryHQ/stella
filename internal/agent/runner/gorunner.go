@@ -21,7 +21,7 @@ import (
 	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
-	"github.com/vaayne/anna/plugins/tools/skills/builtin"
+	builtinres "github.com/vaayne/anna/plugins/tools/builtin"
 )
 
 // maxAgentLoopTurns caps one runner invocation's model/tool decision loop.
@@ -299,7 +299,7 @@ func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSe
 
 func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 	paths := resolveRunnerPaths(cfg)
-	if err := builtin.ExtractAgents(paths.annaAgentsDir()); err != nil {
+	if err := builtinres.ExtractSubAgents(paths.annaAgentsDir()); err != nil {
 		slog.Warn("failed to extract builtin agents", "error", err)
 	}
 	return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
@@ -316,7 +316,7 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	if err := embedded.EnsureTools(paths.AnnaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
-	if err := builtin.EnsureBuiltinSkills(paths.annaSkillsDir()); err != nil {
+	if err := builtinres.EnsureBuiltinSkills(paths.annaSkillsDir()); err != nil {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
 

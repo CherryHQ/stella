@@ -33,7 +33,6 @@ import (
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	builtinres "github.com/vaayne/anna/plugins/tools/builtin"
 	mcpplugin "github.com/vaayne/anna/plugins/tools/mcp"
-	skillsbuiltin "github.com/vaayne/anna/plugins/tools/skills/builtin"
 )
 
 func newApp() *ucli.App {
@@ -92,7 +91,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return nil, err
 	}
 
-	if err := skillsbuiltin.ExtractSkills(filepath.Join(config.AnnaHome(), "skills")); err != nil {
+	if err := builtinres.ExtractSkills(filepath.Join(config.AnnaHome(), "skills")); err != nil {
 		return nil, fmt.Errorf("extract builtin skills: %w", err)
 	}
 
