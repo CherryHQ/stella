@@ -63,19 +63,6 @@ const { provider } = defineI18nUI(i18n, {
       chooseTheme: '主题',
       editOnGithub: '在 GitHub 上编辑',
     },
-    ja: {
-      displayName: '日本語',
-      search: '検索',
-      searchNoResult: '結果が見つかりません',
-      toc: '目次',
-      tocNoHeadings: '見出しなし',
-      lastUpdate: '最終更新日',
-      chooseLanguage: '言語を選択',
-      nextPage: '次のページ',
-      previousPage: '前のページ',
-      chooseTheme: 'テーマ',
-      editOnGithub: 'GitHub で編集',
-    },
   },
 });
 

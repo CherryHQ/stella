@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -44,7 +43,6 @@ func newApp() *ucli.App {
 		Flags:   serverFlags(),
 		Action:  serverAction,
 		Commands: []*ucli.Command{
-			chatCommand(),
 			modelsCommand(),
 			skillsCommand(),
 			pluginCommand(),
@@ -425,21 +423,6 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 		s.toolLifecycle,
 		s.skillStore,
 	)
-}
-
-func setupLogFile() error {
-	logPath := filepath.Join(config.AnnaHome(), "anna.log")
-	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	})))
-	return nil
 }
 
 // ensureEnabledPluginBinaries downloads missing or broken binaries for all

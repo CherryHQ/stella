@@ -50,12 +50,6 @@ anna --port 8080
 anna --host 0.0.0.0 --port 8080
 ```
 
-Or use the interactive CLI:
-
-```bash
-anna chat
-```
-
 ### Version And Self-Upgrade
 
 ```bash

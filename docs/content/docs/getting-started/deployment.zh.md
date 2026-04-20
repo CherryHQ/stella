@@ -50,12 +50,6 @@ anna --port 8080
 anna --host 0.0.0.0 --port 8080
 ```
 
-或使用交互式 CLI：
-
-```bash
-anna chat
-```
-
 ### 版本和自动升级
 
 ```bash

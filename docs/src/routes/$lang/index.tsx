@@ -8,7 +8,8 @@ export const Route = createFileRoute('/$lang/')({ component: Home });
 const terminalLines = [
   { prompt: true, text: 'anna --open' },
   { prompt: false, text: 'Admin panel running at http://localhost:8787' },
-  { prompt: true, text: 'anna chat' },
+  { prompt: true, text: 'anna' },
+  { prompt: false, text: 'Daemon started (bots + scheduler)' },
   { prompt: false, text: 'you: "summarize yesterday\'s conversation"' },
   { prompt: false, text: 'anna: Yesterday you discussed migrating the' },
   { prompt: false, text: '      auth service to JWT tokens. Key decisions:' },

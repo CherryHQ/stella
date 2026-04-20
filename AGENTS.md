@@ -46,6 +46,7 @@ When behavior, APIs, config, commands, or architecture change:
 - Keep `README.md` concise; put detailed content in `docs/content/docs/`.
 - Add new docs to the appropriate folder `meta.json` when needed.
 - Keep `internal/agent/runner/builtin/anna/` in sync with user-facing changes.
+- Docs are maintained in English (`*.md`, `*.mdx`) and Chinese (`*.zh.md`, `*.zh.mdx`) only. Always update both when adding or changing doc content. No other locales.
 
 ## Releases
 
