@@ -9,7 +9,6 @@ const server = createFromSource(source, {
   localeMap: {
     en: 'english',
     zh: cjkTokenizer,
-    ja: cjkTokenizer,
   },
 });
 

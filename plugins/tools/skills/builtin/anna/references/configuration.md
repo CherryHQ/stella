@@ -10,9 +10,9 @@ The easiest way to configure anna is `anna --open`, which opens a web admin pane
 2. Add a provider (e.g., "anthropic" with your API key)
 3. Create or edit an agent (set provider, model, system prompt)
 4. Configure channels (Telegram token, etc.)
-5. Start: `anna chat` or `anna` (gateway daemon)
+5. Start: `anna` (gateway daemon)
 
-Or just: `export ANTHROPIC_API_KEY="sk-..."` and run `anna chat`. Default bootstrapping will create an "anthropic" provider and "anna" agent automatically.
+Or just: `export ANTHROPIC_API_KEY="sk-..."` and run `anna`. Default bootstrapping will create an "anthropic" provider and "anna" agent automatically.
 
 ## Database tables
 

@@ -140,9 +140,9 @@ When a scheduled job fires:
 2. The full response text is collected
 3. The text is broadcast via `dispatcher.Notify()` to all channels
 
-### CLI Mode
+### No Channels Mode
 
-In CLI mode (`anna chat`), no notification channels are registered, so the `notify` tool is not exposed to the agent. This avoids a broken tool path.
+When no notification channels are registered, the `notify` tool is not exposed to the agent. This avoids a broken tool path.
 
 ## Configuration
 

@@ -78,7 +78,7 @@ Anna supports running multiple agents simultaneously. Each agent has:
 
 Users are auto-created from platform identity. Each user gets per-agent memory stored in the `ctx_agent_memory` table, which is injected into the system prompt and updated via the `user_memory_update` action on the `memory` tool. Anna remembers different things about different people, per agent.
 
-In Telegram, use `/agent` to switch between agents. In DMs, your default agent is remembered. In groups, the agent is set per-group. On the CLI, use `anna chat --agent <name>`.
+In Telegram, use `/agent` to switch between agents. In DMs, your default agent is remembered. In groups, the agent is set per-group. On the CLI, use `anna --agent <name>`.
 
 ## Channels
 
@@ -187,22 +187,17 @@ This opens a web admin panel in your browser where you can configure everything:
 ### Use
 
 ```bash
-anna chat                   # Terminal chat (default agent)
-anna chat --agent helper    # Terminal chat with a specific agent
 anna                         # Start daemon (bots + scheduler)
 anna --port 8080             # Start daemon with admin panel
 anna --host 0.0.0.0 --port 8080  # Bind admin panel to all interfaces
 ```
 
-`anna chat` gives you a terminal conversation. `anna` (bare command) starts all your configured channels and the scheduler. Add `--port` to expose the admin panel alongside the daemon for runtime configuration. `HOST` and `PORT` environment variables are also supported.
+`anna` (bare command) starts all your configured channels and the scheduler. Add `--port` to expose the admin panel alongside the daemon for runtime configuration. `HOST` and `PORT` environment variables are also supported.
 
 ## CLI reference
 
 ```bash
 anna --open                        # Open web admin panel to configure anna
-anna chat                          # Interactive terminal chat
-anna chat --agent <name>           # Chat with a specific agent
-anna chat --stream                 # Pipe stdin, stream to stdout
 anna                               # Start daemon (bots + scheduler)
 anna --port <port>                 # Start daemon with admin panel
 anna --host <host> --port <port>   # Bind admin panel to a specific host/interface
