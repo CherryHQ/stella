@@ -46,6 +46,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	a.Sandbox.Backend = "" // backend is global; only network is per-agent
 	if err := a.Sandbox.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -154,6 +155,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	if a.Name == "" {
 		a.Name = id
 	}
+	a.Sandbox.Backend = "" // backend is global; only network is per-agent
 	if err := a.Sandbox.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

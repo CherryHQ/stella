@@ -144,6 +144,26 @@ JSONオブジェクトとして`settings`テーブルの`runner`キーに保存�
 - **anna.db**は、すべての設定、メモリ、スケジューラデータの唯一の信頼できる情報源です。
 - **workspaces/**にはエージェントごとのデータが含まれます。各エージェントはエージェントIDをキーとする独自のディレクトリを取得します。
 - **cache/**には再生成可能なデータが含まれます。`anna models update`を実行して再構築します。
+- **エージェントサンドボックス設定**は各エージェントレコード（`settings_agents.sandbox`）に保存されます。管理パネルからネットワークポリシーを編集できます。backendも保存済みJSONで直接設定可能です。
+  - `backend`：`auto`（デフォルト）、`boxsh`、`local`、または `docker`
+  - `network.mode`：`disabled`（デフォルト）、`allow_all`、または `whitelist`
+  - `network.allowlist`：modeが `whitelist` の場合のみ必須
+  - LinuxおよびmacOSでは `boxsh` を選択した際に検証が行われます。サンドボックスバックエンドが利用できないか、設定されたネットワークモードを強制できない場合、ランナーの起動はフェイルクローズします。
+  - `local` はアドバイザリーな強制のみを行う緩やかなバックエンドです。明示的なローカル/開発シナリオにのみ使用してください。
+  - 現在の `boxsh` クライアントビルドは実行時に `whitelist` モードを拒否する場合があります。ランタイムがホワイトリスト強制をサポートしている場合のみ使用してください。
+  - `docker` は同梱の `plugins/sandbox/docker/Dockerfile` からビルドされた専用コンテナで各セッションを実行します。イメージは anna バイナリのバージョンに固定されます：開発ビルドはローカルの `anna-sandbox:dev` タグ（`mise run sandbox:docker:build` で生成）を使用し、タグ付きリリースは GHCR の `ghcr.io/vaayne/anna-sandbox:<version>` を取得します。オプトイン型であり、`auto` では自動選択されません。到達可能な docker daemon が必要です。Windows（`boxsh` が利用できない場合）や特定のLinuxユーザースペースを必要とするワークフローで有用です。
+  - docker バックエンドには agent ごとの調整項目はありません。イメージ、コンテナ内ユーザー（`anna`、UID 1000）、バインドマウントのレイアウトはすべて同梱イメージで固定されています。anna 自身がコンテナ内で動作しホスト側の docker デーモンと通信する場合（Docker-outside-of-Docker）は `ANNA_HOME_HOST` 環境変数を設定してください — anna が自動的にパス変換を導出します。
+  - Dockerバックエンドは現在 `whitelist` ネットワークモードやHTTPメディエーションを実装していません — `boxsh` と同様にフェイルクローズします。`disabled` または `allow_all` を使用してください。
+  - Dockerはワークスペースルートを `/home/anna/workspace` にバインドマウントし、各読み取り専用パスを `/home/anna/readonly/<index>` にマウントします。ホストの絶対パスに依存するスクリプトはコンテナ内パスを使用する必要があります。
+
+dockerバックエンドのエージェント `sandbox` フィールドのJSON例：
+
+```json
+{
+  "backend": "docker",
+  "network": { "mode": "allow_all" }
+}
+```
 
 ## 環境変数
 
@@ -152,6 +172,7 @@ JSONオブジェクトとして`settings`テーブルの`runner`キーに保存�
 | 変数                | 目的                                                      |
 | ------------------- | --------------------------------------------------------- |
 | `ANNA_HOME`         | ホームディレクトリをオーバーライド(デフォルトは`~/.anna`) |
+| `ANNA_HOME_HOST`    | anna がコンテナ内で動作し、ホスト側の docker デーモンと通信する場合（Docker-outside-of-Docker）における `ANNA_HOME` のホスト側パス。その構成では必須、それ以外では無視されます。 |
 | `ANTHROPIC_API_KEY` | AnthropicプロバイダーのフォールバックAPIキー              |
 | `OPENAI_API_KEY`    | OpenAIプロバイダーのフォールバックAPIキー                 |
 

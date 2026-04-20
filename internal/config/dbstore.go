@@ -147,6 +147,7 @@ func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
 	if scope == "" {
 		scope = AgentScopeSystem
 	}
+	a.Sandbox.Backend = "" // backend is global; only network is per-agent
 	if err := a.Sandbox.Validate(); err != nil {
 		return fmt.Errorf("create agent %q: %w", a.ID, err)
 	}
@@ -182,6 +183,7 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a Agent) error {
 	if scope == "" {
 		scope = AgentScopeSystem
 	}
+	a.Sandbox.Backend = "" // backend is global; only network is per-agent
 	if err := a.Sandbox.Validate(); err != nil {
 		return fmt.Errorf("update agent %q: %w", a.ID, err)
 	}
@@ -599,6 +601,14 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 			return 0 // simple is opt-in; lcm is the default
 		}
 		return 1
+	}); err != nil {
+		return err
+	}
+	if err := s.seedBuiltinPlugins(ctx, PluginKindSandbox, builtinSandboxNames, func(name string) int64 {
+		if name == SandboxBackendAuto {
+			return 1 // auto is the default active backend
+		}
+		return 0
 	}); err != nil {
 		return err
 	}

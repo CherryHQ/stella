@@ -264,6 +264,24 @@ docker build -t anna .
 docker buildx build --platform linux/amd64,linux/arm64 -t anna .
 ```
 
+## Docker as a Sandbox Backend
+
+Running anna inside a Docker container (described above) is separate from using Docker as a sandbox backend for agent tool execution. The two can be combined (Docker-in-Docker or a mounted socket), but each is independently useful.
+
+### When to prefer the `docker` sandbox backend
+
+- **Windows**: `boxsh` is Linux/macOS only. The `docker` backend gives Windows users a real isolation boundary via Docker Desktop.
+- **Custom toolchain**: You need a specific Python/Node/Go version or a clean Linux userspace that differs from the host.
+- **Side-effect isolation**: You want reproducible filesystem state and do not want host-level side effects from agent scripts.
+
+### Tradeoffs
+
+- **Startup latency**: ~200ms for a warm container start; ~1–3s on first pull.
+- **Bind-mount performance**: On Docker Desktop for macOS/Windows, bind-mount filesystem operations are 5–20× slower than native disk. Avoid the `docker` backend for heavy read/write workloads on those platforms.
+- **No copy-on-write isolation**: Unlike `boxsh` (which uses overlayfs), the docker backend does not provide overlay-based COW. A runaway script can modify or damage the mounted workspace.
+
+See the [Configuration guide](/docs/getting-started/configuration) for `sandbox.docker` config keys and an example JSON payload.
+
 ## Volumes & Data
 
 All data lives under the anna home directory (`~/.anna` by default, configurable via `ANNA_HOME`).

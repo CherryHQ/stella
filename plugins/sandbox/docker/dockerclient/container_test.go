@@ -1,0 +1,145 @@
+package dockerclient
+
+import (
+	"testing"
+
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
+)
+
+func TestEnvSlice(t *testing.T) {
+	t.Run("nil input", func(t *testing.T) {
+		if got := envSlice(nil); got != nil {
+			t.Fatalf("expected nil, got %v", got)
+		}
+	})
+	t.Run("empty map", func(t *testing.T) {
+		if got := envSlice(map[string]string{}); got != nil {
+			t.Fatalf("expected nil, got %v", got)
+		}
+	})
+	t.Run("single entry", func(t *testing.T) {
+		got := envSlice(map[string]string{"FOO": "bar"})
+		if len(got) != 1 || got[0] != "FOO=bar" {
+			t.Fatalf("unexpected: %v", got)
+		}
+	})
+	t.Run("sorted output", func(t *testing.T) {
+		got := envSlice(map[string]string{"Z": "last", "A": "first", "M": "mid"})
+		want := []string{"A=first", "M=mid", "Z=last"}
+		for i, v := range want {
+			if got[i] != v {
+				t.Fatalf("index %d: got %q want %q", i, got[i], v)
+			}
+		}
+	})
+}
+
+func TestMapNetworkMode(t *testing.T) {
+	cases := []struct {
+		in   NetworkMode
+		want container.NetworkMode
+	}{
+		{NetworkDisabled, container.NetworkMode("none")},
+		{NetworkAllowAll, container.NetworkMode("")},
+		{"unknown", container.NetworkMode("")},
+	}
+	for _, c := range cases {
+		got := mapNetworkMode(c.in)
+		if got != c.want {
+			t.Fatalf("mapNetworkMode(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestBuildMounts(t *testing.T) {
+	t.Run("no workspace no extras", func(t *testing.T) {
+		mounts := buildMounts(CreateOptions{})
+		if len(mounts) != 0 {
+			t.Fatalf("expected 0 mounts, got %d", len(mounts))
+		}
+	})
+	t.Run("workspace only", func(t *testing.T) {
+		opts := CreateOptions{WorkspaceHost: "/host/ws", WorkspaceMount: "/container/ws"}
+		mounts := buildMounts(opts)
+		if len(mounts) != 1 {
+			t.Fatalf("expected 1 mount, got %d", len(mounts))
+		}
+		m := mounts[0]
+		if m.Type != mount.TypeBind || m.Source != "/host/ws" || m.Target != "/container/ws" || m.ReadOnly {
+			t.Fatalf("unexpected mount: %+v", m)
+		}
+	})
+	t.Run("readonly mounts included", func(t *testing.T) {
+		opts := CreateOptions{
+			ReadOnlyMounts: []Mount{
+				{HostPath: "/host/ro", ContainerPath: "/container/ro", ReadOnly: true},
+			},
+		}
+		mounts := buildMounts(opts)
+		if len(mounts) != 1 {
+			t.Fatalf("expected 1 mount, got %d", len(mounts))
+		}
+		if !mounts[0].ReadOnly {
+			t.Fatal("expected ReadOnly=true")
+		}
+	})
+	t.Run("workspace plus readonly", func(t *testing.T) {
+		opts := CreateOptions{
+			WorkspaceHost:  "/host/ws",
+			WorkspaceMount: "/container/ws",
+			ReadOnlyMounts: []Mount{
+				{HostPath: "/host/ro", ContainerPath: "/container/ro", ReadOnly: true},
+			},
+		}
+		mounts := buildMounts(opts)
+		if len(mounts) != 2 {
+			t.Fatalf("expected 2 mounts, got %d", len(mounts))
+		}
+	})
+}
+
+func TestBuildContainerConfig(t *testing.T) {
+	opts := CreateOptions{
+		Image:          "test-image:latest",
+		WorkspaceMount: "/workspace",
+		Env:            map[string]string{"KEY": "val"},
+		Labels:         map[string]string{LabelSessionID: "abc"},
+	}
+	cfg := buildContainerConfig(opts)
+	if cfg.Image != "test-image:latest" {
+		t.Fatalf("unexpected image: %s", cfg.Image)
+	}
+	if cfg.WorkingDir != "/workspace" {
+		t.Fatalf("unexpected workdir: %s", cfg.WorkingDir)
+	}
+	if len(cfg.Env) != 1 || cfg.Env[0] != "KEY=val" {
+		t.Fatalf("unexpected env: %v", cfg.Env)
+	}
+	if cfg.Labels[LabelSessionID] != "abc" {
+		t.Fatal("label not set")
+	}
+	if len(cfg.Entrypoint) == 0 {
+		t.Fatal("entrypoint not set")
+	}
+}
+
+func TestBuildContainerCreateOptions(t *testing.T) {
+	opts := CreateOptions{
+		Name:           "test-container",
+		Image:          "img",
+		NetworkMode:    NetworkDisabled,
+		WorkspaceHost:  "/h",
+		WorkspaceMount: "/c",
+	}
+	co := buildContainerCreateOptions(opts)
+	if co.Name != "test-container" {
+		t.Fatalf("unexpected name: %s", co.Name)
+	}
+	if co.Config == nil || co.HostConfig == nil {
+		t.Fatal("Config or HostConfig is nil")
+	}
+	if co.HostConfig.NetworkMode != container.NetworkMode("none") {
+		t.Fatalf("unexpected network mode: %s", co.HostConfig.NetworkMode)
+	}
+}

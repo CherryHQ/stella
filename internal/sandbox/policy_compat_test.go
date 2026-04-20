@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	boxshplugin "github.com/vaayne/anna/plugins/sandbox/boxsh"
+	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
 
 	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
 )
@@ -386,6 +387,103 @@ func TestBoxshFactorySupported(t *testing.T) {
 	})
 }
 
+func TestDockerFactorySupported(t *testing.T) {
+	factory := dockerplugin.NewFactory(dockerplugin.Config{})
+
+	t.Run("WhitelistNotSupported", func(t *testing.T) {
+		if !factory.Available() {
+			t.Skip("docker daemon not reachable; skipping")
+		}
+
+		policy := Policy{
+			Relaxed: false,
+			Filesystem: FilesystemPolicy{
+				WorkingDir: t.TempDir(),
+			},
+			Network: NetworkPolicy{
+				Mode:      NetworkWhitelist,
+				Allowlist: []string{"example.com"},
+			},
+		}
+
+		err := factory.Supported(policy)
+		if err == nil {
+			t.Error("Supported() = nil, want error for whitelist on docker")
+		}
+
+		compatErr := &PolicyCompatibilityError{}
+		ok := errors.As(err, &compatErr)
+		if !ok {
+			t.Fatalf("error should be PolicyCompatibilityError, got %T", err)
+		}
+
+		if !compatErr.RelaxedWouldHelp {
+			t.Error("RelaxedWouldHelp should be true")
+		}
+	})
+
+	t.Run("WhitelistWithRelaxedAllowed", func(t *testing.T) {
+		if !factory.Available() {
+			t.Skip("docker daemon not reachable; skipping")
+		}
+
+		policy := Policy{
+			Relaxed: true,
+			Filesystem: FilesystemPolicy{
+				WorkingDir: t.TempDir(),
+			},
+			Network: NetworkPolicy{
+				Mode:      NetworkWhitelist,
+				Allowlist: []string{"example.com"},
+			},
+		}
+
+		if err := factory.Supported(policy); err != nil {
+			t.Errorf("Supported() = %v, want nil for whitelist with Relaxed=true", err)
+		}
+	})
+
+	t.Run("DisabledNetworkSupported", func(t *testing.T) {
+		if !factory.Available() {
+			t.Skip("docker daemon not reachable; skipping")
+		}
+
+		policy := Policy{
+			Relaxed: false,
+			Filesystem: FilesystemPolicy{
+				WorkingDir: t.TempDir(),
+			},
+			Network: NetworkPolicy{
+				Mode: NetworkDisabled,
+			},
+		}
+
+		if err := factory.Supported(policy); err != nil {
+			t.Errorf("Supported() = %v, want nil for disabled network", err)
+		}
+	})
+
+	t.Run("AllowAllNetworkSupported", func(t *testing.T) {
+		if !factory.Available() {
+			t.Skip("docker daemon not reachable; skipping")
+		}
+
+		policy := Policy{
+			Relaxed: false,
+			Filesystem: FilesystemPolicy{
+				WorkingDir: t.TempDir(),
+			},
+			Network: NetworkPolicy{
+				Mode: NetworkAllowAll,
+			},
+		}
+
+		if err := factory.Supported(policy); err != nil {
+			t.Errorf("Supported() = %v, want nil for allow-all network", err)
+		}
+	})
+}
+
 func TestIsPolicyCompatibilityError(t *testing.T) {
 	t.Run("WithPolicyCompatibilityError", func(t *testing.T) {
 		err := &PolicyCompatibilityError{
@@ -530,6 +628,12 @@ func TestDefaultRegistry(t *testing.T) {
 		if boxsh == nil {
 			t.Error("DefaultRegistry should include boxsh factory on supported platforms")
 		}
+	}
+
+	// Docker is always registered (regardless of daemon availability)
+	docker := registry.Get("docker")
+	if docker == nil {
+		t.Error("DefaultRegistry should include docker factory")
 	}
 
 	// List should return available backends
