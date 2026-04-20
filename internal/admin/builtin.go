@@ -3,7 +3,7 @@ package admin
 import (
 	"net/http"
 
-	builtinres "github.com/vaayne/anna/plugins/tools/builtin"
+	builtinres "github.com/vaayne/anna/internal/resources"
 )
 
 // builtinResourceSummary is the list-row shape. Content is omitted to keep

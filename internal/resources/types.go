@@ -1,4 +1,4 @@
-package builtin
+package resources
 
 // Kind identifies a builtin resource category.
 type Kind string

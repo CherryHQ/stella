@@ -1,6 +1,6 @@
 //go:build linux && amd64
 
-package embedded
+package binaries
 
 import "embed"
 

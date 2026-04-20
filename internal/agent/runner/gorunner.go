@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/embedded"
+	builtinres "github.com/vaayne/anna/internal/resources"
+	"github.com/vaayne/anna/internal/resources/binaries"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -21,7 +22,6 @@ import (
 	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
-	builtinres "github.com/vaayne/anna/plugins/tools/builtin"
 )
 
 // maxAgentLoopTurns caps one runner invocation's model/tool decision loop.
@@ -217,7 +217,7 @@ func buildProviderRegistry(cfg GoRunnerConfig) (*providers.Registry, error) {
 func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerSession) (*tools.Registry, error) {
 	// Extract embedded tool binaries (idempotent, safe for concurrent calls).
 	paths := resolveRunnerPaths(cfg)
-	if err := embedded.EnsureTools(paths.AnnaHome); err != nil {
+	if err := binaries.EnsureTools(paths.AnnaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
 
@@ -313,7 +313,7 @@ func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 
 func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	paths := resolveRunnerPaths(cfg)
-	if err := embedded.EnsureTools(paths.AnnaHome); err != nil {
+	if err := binaries.EnsureTools(paths.AnnaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
 	if err := builtinres.EnsureBuiltinSkills(paths.annaSkillsDir()); err != nil {

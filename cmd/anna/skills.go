@@ -13,9 +13,9 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/pluginhost"
+	builtinres "github.com/vaayne/anna/internal/resources"
 	internalskills "github.com/vaayne/anna/internal/skills"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	builtinres "github.com/vaayne/anna/plugins/tools/builtin"
 	skillstool "github.com/vaayne/anna/plugins/tools/skills"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )

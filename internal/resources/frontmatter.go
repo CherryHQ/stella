@@ -1,4 +1,4 @@
-package builtin
+package resources
 
 import (
 	"crypto/sha256"

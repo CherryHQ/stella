@@ -8,10 +8,10 @@ import (
 	"strings"
 	"text/template"
 
+	builtinres "github.com/vaayne/anna/internal/resources"
 	"github.com/vaayne/anna/internal/sandbox"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-	builtinres "github.com/vaayne/anna/plugins/tools/builtin"
 )
 
 //go:embed template/system_prompt.tmpl

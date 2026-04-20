@@ -15,10 +15,11 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/pluginstate"
+	builtinres "github.com/vaayne/anna/internal/resources"
+	"github.com/vaayne/anna/internal/resources/binaries"
 	"github.com/vaayne/anna/internal/scheduler"
 	skills "github.com/vaayne/anna/internal/skills"
 	internaltools "github.com/vaayne/anna/internal/tools"
@@ -31,7 +32,6 @@ import (
 	"github.com/vaayne/anna/pkg/tools"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
 	plugintools "github.com/vaayne/anna/plugins/tools"
-	builtinres "github.com/vaayne/anna/plugins/tools/builtin"
 	mcpplugin "github.com/vaayne/anna/plugins/tools/mcp"
 )
 
@@ -84,10 +84,10 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	store := config.NewDBStore(db)
 
-	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
+	if err := binaries.EnsureTools(config.AnnaHome()); err != nil {
 		return nil, fmt.Errorf("extract embedded tools: %w", err)
 	}
-	if err := embedded.VerifyTools(config.AnnaHome()); err != nil {
+	if err := binaries.VerifyTools(config.AnnaHome()); err != nil {
 		return nil, err
 	}
 
@@ -214,7 +214,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Plugin hooks builder: auto-discovers registered hook plugins and returns
 	// enabled ones. Called at startup and on hot-reload.
 	pluginHooksBuilder := func(ctx context.Context) []hooks.HookPlugin {
-		return phost.BuildEnabledHooks(ctx, pluginhooks.BuildContext{ToolsBinDir: embedded.BinDir(config.AnnaHome())})
+		return phost.BuildEnabledHooks(ctx, pluginhooks.BuildContext{ToolsBinDir: binaries.BinDir(config.AnnaHome())})
 	}
 
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute

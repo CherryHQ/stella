@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/vaayne/anna/internal/config"
-	builtinres "github.com/vaayne/anna/plugins/tools/builtin"
+	builtinres "github.com/vaayne/anna/internal/resources"
 )
 
 // createAgentRequest wraps config.Agent to accept an optional template_id

@@ -1,4 +1,4 @@
-package embedded
+package binaries
 
 import (
 	"bytes"
