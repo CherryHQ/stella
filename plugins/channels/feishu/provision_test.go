@@ -42,12 +42,25 @@ func TestMaybeAutoProvisionDisabled(t *testing.T) {
 	}
 }
 
-func TestMaybeAutoProvisionEmptyTenantKey(t *testing.T) {
+func TestMaybeAutoProvisionNoTenantKeyKnown(t *testing.T) {
+	// Neither cfg.TenantKey nor learnedTenantKey is set — should skip silently.
 	p := &mockProvisioner{}
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: ""}, p)
 	b.maybeAutoProvision(context.Background(), "ou_open1", "on_union1", "t1")
 	if len(p.calls) != 0 {
 		t.Errorf("expected 0 calls, got %d", len(p.calls))
+	}
+}
+
+func TestMaybeAutoProvisionLearnedTenantKey(t *testing.T) {
+	// learnedTenantKey set (simulates startup fetch) — wrong-tenant event skips.
+	p := &mockProvisioner{}
+	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: ""}, p)
+	b.learnedTenantKey = "t1"
+	// Wrong tenant in event: should skip.
+	b.maybeAutoProvision(context.Background(), "ou_open1", "on_union1", "wrong")
+	if len(p.calls) != 0 {
+		t.Errorf("wrong tenant with learned key: expected 0 calls, got %d", len(p.calls))
 	}
 }
 

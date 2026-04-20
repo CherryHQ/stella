@@ -69,6 +69,9 @@ type Bot struct {
 	provisionedMu sync.Mutex
 	provisioned   map[string]time.Time // union_id -> last provision time (1h TTL)
 
+	learnedTenantKeyMu sync.RWMutex
+	learnedTenantKey   string // tenant_key auto-detected at startup via tenant API
+
 	cfg    Config
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -107,6 +110,12 @@ func (b *Bot) Start(ctx context.Context) error {
 
 	if err := b.fetchBotOpenID(b.ctx); err != nil {
 		logger().Warn("failed to fetch bot open_id, self-message filtering disabled", "error", err)
+	}
+
+	if b.cfg.AutoProvision && b.cfg.TenantKey == "" {
+		if err := b.fetchBotTenantKey(b.ctx); err != nil {
+			logger().Warn("auto-provision: failed to detect tenant_key at startup, configure it explicitly", "error", err)
+		}
 	}
 
 	eventHandler := dispatcher.NewEventDispatcher(b.cfg.VerificationToken, b.cfg.EncryptKey).

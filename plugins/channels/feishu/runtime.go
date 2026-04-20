@@ -139,11 +139,11 @@ func configSchema() map[string]any {
 			},
 			"tenant_key": map[string]any{
 				"type":        "string",
-				"description": "Feishu tenant key (enterprise ID). Required when auto_provision is true. Find it in Feishu Admin Console → Enterprise Information.",
+				"description": "Feishu tenant key (enterprise ID). Optional — auto-detected at startup via the Feishu tenant API. Set explicitly to override.",
 			},
 			"auto_provision": map[string]any{
 				"type":        "boolean",
-				"description": "Automatically create Anna accounts for users of the configured tenant. Requires tenant_key.",
+				"description": "Automatically create Anna accounts for members of the bot's Feishu tenant.",
 				"default":     false,
 			},
 		},
@@ -154,9 +154,6 @@ func configSchema() map[string]any {
 func validateConfig(cfg pkgchannel.FeishuConfig) string {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return "feishu: missing app_id or app_secret"
-	}
-	if cfg.AutoProvision && cfg.TenantKey == "" {
-		return "feishu: tenant_key is required when auto_provision is true"
 	}
 	return ""
 }

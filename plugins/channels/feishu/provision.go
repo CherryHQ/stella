@@ -2,6 +2,7 @@ package feishu
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -10,6 +11,39 @@ import (
 )
 
 const provisionCacheTTL = time.Hour
+
+// effectiveTenantKey returns the configured tenant key, or the one auto-detected
+// at startup from the Feishu tenant API.
+func (b *Bot) effectiveTenantKey() string {
+	if b.cfg.TenantKey != "" {
+		return b.cfg.TenantKey
+	}
+	b.learnedTenantKeyMu.RLock()
+	defer b.learnedTenantKeyMu.RUnlock()
+	return b.learnedTenantKey
+}
+
+// fetchBotTenantKey queries the Feishu tenant API at startup to auto-detect the
+// bot's home tenant key. Called only when auto_provision=true and tenant_key is
+// not explicitly configured.
+func (b *Bot) fetchBotTenantKey(ctx context.Context) error {
+	if b.client == nil {
+		return fmt.Errorf("client not initialised")
+	}
+	resp, err := b.client.Tenant.Tenant.Query(ctx)
+	if err != nil {
+		return fmt.Errorf("tenant query: %w", err)
+	}
+	if !resp.Success() || resp.Data == nil || resp.Data.Tenant == nil || resp.Data.Tenant.TenantKey == nil {
+		return fmt.Errorf("tenant query: unexpected response (code=%d)", resp.Code)
+	}
+	key := *resp.Data.Tenant.TenantKey
+	b.learnedTenantKeyMu.Lock()
+	b.learnedTenantKey = key
+	b.learnedTenantKeyMu.Unlock()
+	logger().Info("auto-provision: detected tenant_key from Feishu API", "tenant_key", key)
+	return nil
+}
 
 // TenantProfile holds the information fetched from the Feishu contact API.
 type TenantProfile struct {
@@ -68,12 +102,16 @@ func (b *Bot) fetchTenantProfile(ctx context.Context, openID string) *TenantProf
 //
 // Cache key is union_id so users messaging from multiple devices share one entry.
 func (b *Bot) maybeAutoProvision(ctx context.Context, openID, unionID, tenantKey string) {
-	if !b.cfg.AutoProvision || b.cfg.TenantKey == "" {
+	if !b.cfg.AutoProvision {
+		return
+	}
+	effective := b.effectiveTenantKey()
+	if effective == "" {
 		return
 	}
 
 	// Explicit tenant check when the event carries a tenant_key.
-	if tenantKey != "" && tenantKey != b.cfg.TenantKey {
+	if tenantKey != "" && tenantKey != effective {
 		logger().Debug("auto-provision: skipping external tenant user", "tenant_key", tenantKey)
 		return
 	}

@@ -231,10 +231,11 @@ func waitClosed(t *testing.T, ch <-chan struct{}, label string) {
 	}
 }
 
-func TestValidateConfigAutoProvisionRequiresTenantKey(t *testing.T) {
+func TestValidateConfigAutoProvisionNoTenantKey(t *testing.T) {
+	// tenant_key is optional; auto-detected at startup via the Feishu tenant API.
 	cfg := pkgchannel.FeishuConfig{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: ""}
-	if got := validateConfig(cfg); got == "" {
-		t.Error("expected validation error for auto_provision without tenant_key")
+	if got := validateConfig(cfg); got != "" {
+		t.Errorf("unexpected validation error: %q", got)
 	}
 }
 

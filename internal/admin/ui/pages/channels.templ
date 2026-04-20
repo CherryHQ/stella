@@ -343,7 +343,7 @@ templ dedicatedInstanceFields(model string) {
 				</div>
 				<div>
 					@ui.FormField("Tenant Key") {
-						<input type="text" x-model={ model + ".tenant_key" } placeholder="optional, for auto-provisioning" class="input input-bordered w-full text-sm font-mono"/>
+						<input type="text" x-model={ model + ".tenant_key" } placeholder="optional, auto-detected at startup" class="input input-bordered w-full text-sm font-mono"/>
 					}
 				</div>
 			</div>
