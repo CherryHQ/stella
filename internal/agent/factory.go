@@ -66,13 +66,14 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 			}
 			homeDir, _ := os.UserHomeDir()
 			promptBuild := pkgplugins.SystemPromptContext{
-				AnnaHome:    config.AnnaHome(),
-				HomeDir:     homeDir,
-				AgentRoot:   snap.Workspace,
-				ProjectRoot: "",
-				UserID:      params.UserID,
-				AgentID:     params.AgentID,
-				UserRoot:    userRoot,
+				AnnaHome:             config.AnnaHome(),
+				HomeDir:              homeDir,
+				AgentRoot:            snap.Workspace,
+				ProjectRoot:          "",
+				UserID:               params.UserID,
+				AgentID:              params.AgentID,
+				UserRoot:             userRoot,
+				EnabledBuiltinSkills: snap.EnabledBuiltinSkills,
 			}
 			var promptSections []pkgplugins.SystemPromptSection
 			if promptSectionsFn != nil {
