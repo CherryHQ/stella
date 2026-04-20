@@ -111,6 +111,89 @@ func TestDockerHostResolvePath(t *testing.T) {
 	}
 }
 
+// TestDockerHostResolvePath_RejectsSymlinks verifies that any symlink in
+// the resolved path is rejected, closing the escape where an agent
+// creates a symlink in the workspace (via the sandbox-routed bash tool)
+// and then reads/writes/edits through it from the anna-process side.
+func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
+	workspace := t.TempDir()
+	outside := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret"), 0o644); err != nil {
+		t.Fatalf("seed outside file: %v", err)
+	}
+
+	policy := Policy{
+		Filesystem: FilesystemPolicy{
+			WorkspaceRoot: workspace,
+			WorkingDir:    workspace,
+		},
+	}
+	session := &dockerSession{
+		id:     "test-session",
+		policy: policy,
+		mountTable: []dockerclient.Mount{
+			{HostPath: workspace, ContainerPath: "/workspace"},
+		},
+		done: make(chan struct{}),
+	}
+	host := &dockerHost{session: session}
+
+	// Baseline: a regular file in the workspace resolves normally.
+	regular := filepath.Join(workspace, "regular.txt")
+	if err := os.WriteFile(regular, []byte("ok"), 0o644); err != nil {
+		t.Fatalf("seed regular: %v", err)
+	}
+	if _, err := host.ResolvePath("regular.txt"); err != nil {
+		t.Fatalf("regular file: %v", err)
+	}
+
+	// Baseline: a non-existent leaf in a clean directory resolves — writes
+	// of new files must still work.
+	if _, err := host.ResolvePath("newfile.txt"); err != nil {
+		t.Fatalf("non-existent leaf in clean dir: %v", err)
+	}
+
+	// Leaf is a symlink pointing outside the mount → reject.
+	linkOut := filepath.Join(workspace, "leak")
+	if err := os.Symlink(filepath.Join(outside, "secret.txt"), linkOut); err != nil {
+		t.Fatalf("seed outward symlink: %v", err)
+	}
+	if _, err := host.ResolvePath("leak"); err == nil {
+		t.Error("expected rejection for leaf symlink pointing outside mount")
+	}
+
+	// Leaf is a symlink pointing inside the mount → still rejected, by
+	// policy. Legit code does not create symlinks in a session workspace;
+	// the strict rule keeps the escape surface zero.
+	if err := os.Symlink(regular, filepath.Join(workspace, "inside-link")); err != nil {
+		t.Fatalf("seed inward symlink: %v", err)
+	}
+	if _, err := host.ResolvePath("inside-link"); err == nil {
+		t.Error("expected rejection for any leaf symlink, even inside mount")
+	}
+
+	// Ancestor directory is a symlink → reject writes through it. This
+	// catches the "ln -s /outside dirlink && write dirlink/new.txt" case.
+	dirlink := filepath.Join(workspace, "dirlink")
+	if err := os.Symlink(outside, dirlink); err != nil {
+		t.Fatalf("seed ancestor symlink: %v", err)
+	}
+	if _, err := host.ResolvePath("dirlink/new.txt"); err == nil {
+		t.Error("expected rejection for write through symlinked ancestor")
+	}
+
+	// After removing the symlinks, the same names work as regular files.
+	for _, name := range []string{"leak", "inside-link", "dirlink"} {
+		if err := os.Remove(filepath.Join(workspace, name)); err != nil {
+			t.Fatalf("cleanup %s: %v", name, err)
+		}
+	}
+	if _, err := host.ResolvePath("leak"); err != nil {
+		t.Fatalf("non-existent leaf after cleanup: %v", err)
+	}
+}
+
 // TestTranslateEnvPaths verifies that mounted absolute paths translate to
 // their container paths, non-mounted absolute paths drop, host-only keys
 // (PATH, HOME) drop wholesale so the image's baked values stand, and

@@ -471,7 +471,10 @@ func (h *dockerHost) WorkingDir() string {
 // ResolvePath turns a relative or absolute path into an absolute host path
 // covered by the session's mount set. Paths outside every mount are rejected
 // so absolute-path inputs cannot bypass the workspace / read-only policy
-// boundary on filesystem operations.
+// boundary on filesystem operations. Symlinks anywhere in the path are
+// rejected — nothing in the codebase creates symlinks in a session
+// workspace, so any are agent-planted and following them would let an
+// agent escape the mount via a file that passes the string-based check.
 func (h *dockerHost) ResolvePath(path string) (string, error) {
 	resolved := path
 	if !filepath.IsAbs(resolved) {
@@ -481,7 +484,65 @@ func (h *dockerHost) ResolvePath(path string) (string, error) {
 	if _, err := toContainerPath(h.session.mountTable, resolved); err != nil {
 		return "", fmt.Errorf("docker host: path %q is outside the session mount set: %w", path, err)
 	}
+	if err := rejectSymlinkTraversal(h.session.mountTable, resolved); err != nil {
+		return "", fmt.Errorf("docker host: %w", err)
+	}
 	return resolved, nil
+}
+
+// rejectSymlinkTraversal errors if any component of `path` at or below its
+// matching mount root is a symlink. Ancestors above the mount root are
+// host infrastructure (e.g. macOS `/tmp → /private/tmp`) and not
+// agent-controllable, so they are not checked. Components at or below the
+// mount root are agent-writable and any symlink there is either
+// agent-planted or unexpected — both are rejected.
+func rejectSymlinkTraversal(mounts []dockerclient.Mount, path string) error {
+	root := deepestMountRoot(mounts, path)
+	if root == "" {
+		return fmt.Errorf("path %q has no matching mount", path)
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return fmt.Errorf("rel %q from %q: %w", path, root, err)
+	}
+	if rel == "." {
+		return nil
+	}
+	current := root
+	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return fmt.Errorf("lstat %q: %w", current, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("path %q traverses symlink at %q", path, current)
+		}
+	}
+	return nil
+}
+
+// deepestMountRoot returns the longest-prefix mount HostPath that contains
+// `path`, or "" if no mount covers it. Mirrors the selection rule in
+// toContainerPath so both agree on which mount owns a given path.
+func deepestMountRoot(mounts []dockerclient.Mount, path string) string {
+	best := ""
+	for _, m := range mounts {
+		rel, err := filepath.Rel(m.HostPath, path)
+		if err != nil {
+			continue
+		}
+		if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if len(m.HostPath) > len(best) {
+			best = m.HostPath
+		}
+	}
+	return best
 }
 
 func (h *dockerHost) ReadFile(_ context.Context, path string, offset, limit int) (ReadResult, error) {
