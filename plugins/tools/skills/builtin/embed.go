@@ -1,20 +1,28 @@
+// Package builtin is the legacy skill-only shim for the unified builtin registry.
+// All content moved to github.com/vaayne/anna/plugins/tools/builtin; this file
+// keeps the pre-migration API working while callers migrate.
 package builtin
 
 import (
-	"embed"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
+
+	newbuiltin "github.com/vaayne/anna/plugins/tools/builtin"
 )
 
-//go:embed anna agents
-var skillsFS embed.FS
-
-// BuiltinSkillFS returns the embedded filesystem containing builtin skills and agents.
-// Callers that need only skill directories should skip subtrees that lack a SKILL.md.
-func BuiltinSkillFS() fs.FS { return skillsFS }
+// BuiltinSkillFS returns the embedded filesystem containing builtin skills.
+// Top-level entries are skill directories (each with a SKILL.md) — the shape
+// SyncBuiltin expects.
+func BuiltinSkillFS() fs.FS {
+	sub, ok := newbuiltin.SubFS(newbuiltin.KindSkill)
+	if !ok {
+		return nil
+	}
+	return sub
+}
 
 var (
 	builtinSkillsStateMu sync.Mutex
@@ -51,47 +59,79 @@ func EnsureBuiltinSkills(skillsDir string) error {
 	return state.err
 }
 
-// ExtractSkills writes the builtin anna skill into skillsDir.
-// Only the anna/ subdirectory is replaced; other content in skillsDir is preserved.
-// Result: skillsDir/anna/SKILL.md, skillsDir/anna/references/*.md
+// ExtractSkills writes every builtin skill directory into skillsDir.
+// Each skill's subdirectory is replaced atomically; other content in skillsDir is preserved.
 func ExtractSkills(skillsDir string) error {
-	if err := os.RemoveAll(filepath.Join(skillsDir, "anna")); err != nil {
-		return fmt.Errorf("clean builtin anna skill: %w", err)
+	skillsFS := BuiltinSkillFS()
+	if skillsFS == nil {
+		return nil
 	}
-	return fs.WalkDir(skillsFS, "anna", func(path string, d fs.DirEntry, err error) error {
+	entries, err := fs.ReadDir(skillsFS, ".")
+	if err != nil {
+		return fmt.Errorf("read builtin skills: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if err := os.RemoveAll(filepath.Join(skillsDir, name)); err != nil {
+			return fmt.Errorf("clean builtin skill %q: %w", name, err)
+		}
+		if err := copySubtree(skillsFS, name, filepath.Join(skillsDir, name)); err != nil {
+			return fmt.Errorf("extract builtin skill %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// ExtractAgents writes builtin sub-agent preset files into agentsDir.
+// Individual files are overwritten; other content in agentsDir is preserved.
+func ExtractAgents(agentsDir string) error {
+	sub, ok := newbuiltin.SubFS(newbuiltin.KindSubAgent)
+	if !ok {
+		return nil
+	}
+	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+		return fmt.Errorf("create agents dir: %w", err)
+	}
+	entries, err := fs.ReadDir(sub, ".")
+	if err != nil {
+		return fmt.Errorf("read builtin subagents: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, err := fs.ReadFile(sub, entry.Name())
+		if err != nil {
+			return fmt.Errorf("read %s: %w", entry.Name(), err)
+		}
+		if err := os.WriteFile(filepath.Join(agentsDir, entry.Name()), data, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
+
+// copySubtree copies every file under root within srcFS to dst on disk.
+func copySubtree(srcFS fs.FS, root, dst string) error {
+	return fs.WalkDir(srcFS, root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		target := filepath.Join(skillsDir, path) // preserves anna/ prefix
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
 		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}
-		data, err := skillsFS.ReadFile(path)
+		data, err := fs.ReadFile(srcFS, path)
 		if err != nil {
 			return err
 		}
 		return os.WriteFile(target, data, 0o644)
-	})
-}
-
-// ExtractAgents writes builtin agent preset files directly into agentsDir.
-// Individual files are overwritten; other content in agentsDir is preserved.
-// Result: agentsDir/coder.md, agentsDir/researcher.md, etc.
-func ExtractAgents(agentsDir string) error {
-	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
-		return fmt.Errorf("create agents dir: %w", err)
-	}
-	return fs.WalkDir(skillsFS, "agents", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil // agentsDir is already flat
-		}
-		data, err := skillsFS.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(filepath.Join(agentsDir, filepath.Base(path)), data, 0o644)
 	})
 }
