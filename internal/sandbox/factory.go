@@ -5,6 +5,7 @@ import (
 
 	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
 	boxshplugin "github.com/vaayne/anna/plugins/sandbox/boxsh"
+	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
 	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
 )
 
@@ -26,6 +27,7 @@ func NewRegistry() *Registry {
 func DefaultRegistry() *Registry {
 	r := NewRegistry()
 	mustRegisterFactory(r, boxshplugin.NewFactory(), PlatformSupportsBoxsh())
+	mustRegisterFactory(r, dockerplugin.NewFactory(dockerplugin.Config{}), true)
 	mustRegisterFactory(r, localplugin.NewFactory(), true)
 	return r
 }

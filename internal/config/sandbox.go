@@ -10,16 +10,19 @@ import (
 )
 
 const (
-	SandboxBackendAuto  = "auto"
-	SandboxBackendBoxsh = "boxsh"
-	SandboxBackendLocal = "local"
+	SandboxBackendAuto   = "auto"
+	SandboxBackendBoxsh  = "boxsh"
+	SandboxBackendDocker = "docker"
+	SandboxBackendLocal  = "local"
 
 	SandboxNetworkDisabled  = "disabled"
 	SandboxNetworkAllowAll  = "allow_all"
 	SandboxNetworkWhitelist = "whitelist"
 )
 
-// SandboxConfig configures the sandbox backend.
+// SandboxConfig configures the sandbox backend. The docker backend takes no
+// per-agent knobs — the container image, user, mounts, and DooD translation
+// are all fixed by the shipped sandbox image and auto-derived from env.
 type SandboxConfig struct {
 	Backend string               `json:"backend"`
 	Network SandboxNetworkConfig `json:"network"`
@@ -50,9 +53,9 @@ func (c SandboxConfig) BackendName() string {
 // Validate returns an error when the sandbox configuration is invalid.
 func (c SandboxConfig) Validate() error {
 	switch c.BackendName() {
-	case SandboxBackendAuto, SandboxBackendBoxsh, SandboxBackendLocal:
+	case SandboxBackendAuto, SandboxBackendBoxsh, SandboxBackendDocker, SandboxBackendLocal:
 	default:
-		return fmt.Errorf("sandbox.backend must be one of %q, %q, or %q", SandboxBackendAuto, SandboxBackendBoxsh, SandboxBackendLocal)
+		return fmt.Errorf("sandbox.backend must be one of %q, %q, %q, or %q", SandboxBackendAuto, SandboxBackendBoxsh, SandboxBackendDocker, SandboxBackendLocal)
 	}
 
 	switch mode := c.NetworkMode(); mode {

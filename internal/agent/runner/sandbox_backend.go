@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -16,6 +15,8 @@ import (
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/sandbox"
 	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
+	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
+	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
 )
 
 // runnerSession wraps a sandbox.Session for runner use.
@@ -108,17 +109,17 @@ type sessionFactory func(context.Context, GoRunnerConfig) (*runnerSession, error
 
 // registry manages session factories by name.
 var sessionRegistry = map[string]sessionFactory{
-	config.SandboxBackendLocal: createLocalSession,
-	config.SandboxBackendBoxsh: createBoxshSession,
+	config.SandboxBackendLocal:  createLocalSession,
+	config.SandboxBackendBoxsh:  createBoxshSession,
+	config.SandboxBackendDocker: createDockerSession,
 }
 
 var platformSupportsBoxsh = boxshclient.PlatformSupportsBoxsh
 
-func runnerFilesystemPolicy(paths sandboxPaths, readOnlyPaths []string) sandbox.FilesystemPolicy {
+func runnerFilesystemPolicy(paths sandboxPaths) sandbox.FilesystemPolicy {
 	return sandbox.FilesystemPolicy{
 		WorkspaceRoot: paths.UserRoot,
 		WorkingDir:    paths.WorkDir,
-		ReadOnlyPaths: readOnlyPaths,
 		AllowEscapes:  false,
 	}
 }
@@ -131,12 +132,12 @@ func createLocalSession(_ context.Context, cfg GoRunnerConfig) (*runnerSession, 
 	policy := sandbox.Policy{
 		Backend:    config.SandboxBackendLocal,
 		Relaxed:    true,
-		Filesystem: runnerFilesystemPolicy(paths, nil),
+		Filesystem: runnerFilesystemPolicy(paths),
 		Network: sandbox.NetworkPolicy{
 			Mode: sandbox.NetworkAllowAll,
 		},
 		Process: sandbox.ProcessPolicy{
-			Environment: sandboxProcessEnv(paths),
+			Environment: sandboxProcessEnv(paths, config.SandboxBackendLocal),
 			InheritEnv:  true,
 		},
 	}
@@ -174,29 +175,22 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		return nil, err
 	}
 
-	runnerPaths := resolveRunnerPaths(cfg)
 	paths, err := resolveSandboxPaths(cfg)
 	if err != nil {
 		err = fmt.Errorf("resolve sandbox paths: %w", err)
 		recordSandboxError(span, err)
 		return nil, err
 	}
-	readOnlyDirs := collectSandboxReadOnlyDirs(
-		sandboxReadableDirs(runnerPaths),
-		runnerPaths.toolsBinDir(),
-		os.Getenv("PATH"),
-	)
-
 	policy := sandbox.Policy{
 		Backend:    config.SandboxBackendBoxsh,
 		Relaxed:    false,
-		Filesystem: runnerFilesystemPolicy(paths, readOnlyDirs),
+		Filesystem: runnerFilesystemPolicy(paths),
 		Network: sandbox.NetworkPolicy{
 			Mode:      sandbox.NetworkMode(cfg.Sandbox.Network.Mode),
 			Allowlist: cfg.Sandbox.Network.Allowlist,
 		},
 		Process: sandbox.ProcessPolicy{
-			Environment: sandboxProcessEnv(paths),
+			Environment: sandboxProcessEnv(paths, config.SandboxBackendBoxsh),
 			InheritEnv:  true,
 		},
 	}
@@ -204,7 +198,6 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 	span.SetAttributes(
 		attribute.String("anna.sandbox.resolved_user_root", paths.UserRoot),
 		attribute.String("anna.sandbox.work_dir", paths.WorkDir),
-		attribute.Int("anna.sandbox.readonly_dir_count", len(readOnlyDirs)),
 		attribute.String("anna.sandbox.network.mode", cfg.Sandbox.Network.Mode),
 	)
 	if len(cfg.Sandbox.Network.Allowlist) > 0 {
@@ -215,7 +208,6 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		"component", "runner_sandbox",
 		"user_root", paths.UserRoot,
 		"work_dir", paths.WorkDir,
-		"readonly_dirs", readOnlyDirs,
 		"network_mode", cfg.Sandbox.Network.Mode,
 		"network_allowlist", cfg.Sandbox.Network.Allowlist,
 	)
@@ -240,10 +232,110 @@ func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 	}, nil
 }
 
+func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
+	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
+		trace.WithAttributes(
+			attribute.String("anna.sandbox.backend", config.SandboxBackendDocker),
+			attribute.String("anna.sandbox.agent_root", cfg.AgentRoot),
+			attribute.String("anna.sandbox.user_root", cfg.UserRoot),
+			attribute.String("anna.sandbox.project_root", cfg.ProjectRoot),
+		),
+	)
+	defer span.End()
+
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		err = fmt.Errorf("resolve sandbox paths: %w", err)
+		recordSandboxError(span, err)
+		return nil, err
+	}
+	policy := sandbox.Policy{
+		Backend:    config.SandboxBackendDocker,
+		Relaxed:    false,
+		Filesystem: runnerFilesystemPolicy(paths),
+		Network: sandbox.NetworkPolicy{
+			Mode:      sandbox.NetworkMode(cfg.Sandbox.Network.Mode),
+			Allowlist: cfg.Sandbox.Network.Allowlist,
+		},
+		Process: sandbox.ProcessPolicy{
+			Environment: sandboxProcessEnv(paths, config.SandboxBackendDocker),
+			InheritEnv:  true,
+		},
+	}
+
+	span.SetAttributes(
+		attribute.String("anna.sandbox.resolved_user_root", paths.UserRoot),
+		attribute.String("anna.sandbox.work_dir", paths.WorkDir),
+		attribute.String("anna.sandbox.network.mode", cfg.Sandbox.Network.Mode),
+	)
+	if len(cfg.Sandbox.Network.Allowlist) > 0 {
+		span.SetAttributes(attribute.StringSlice("anna.sandbox.network.allowlist", cfg.Sandbox.Network.Allowlist))
+	}
+
+	slog.Info("creating docker session",
+		"component", "runner_sandbox",
+		"user_root", paths.UserRoot,
+		"work_dir", paths.WorkDir,
+		"network_mode", cfg.Sandbox.Network.Mode,
+		"network_allowlist", cfg.Sandbox.Network.Allowlist,
+	)
+
+	dockerCfg, err := resolveDockerConfig()
+	if err != nil {
+		recordSandboxError(span, err)
+		return nil, err
+	}
+
+	// Construct a per-runner factory with the resolved config. The global
+	// registry carries a zero-value Config for probe/contract-test use only.
+	factory := dockerplugin.NewFactory(dockerCfg)
+
+	session, err := factory.CreateSession(ctx, policy)
+	if err != nil {
+		err = fmt.Errorf("create docker session: %w", err)
+		recordSandboxError(span, err)
+		return nil, err
+	}
+
+	return &runnerSession{
+		session: session,
+		policy:  policy,
+	}, nil
+}
+
+var dockerOrphanCleanupOnce sync.Once
+
+// resolveDockerConfig builds the docker plugin Config used by the runner,
+// including any DooD path-translation prefixes derived from ANNA_HOME_HOST.
+// Shared by session creation, preflight, and orphan cleanup so all three scope
+// to the same daemon-view paths.
+func resolveDockerConfig() (dockerplugin.Config, error) {
+	return applyDooDDefaults(
+		dockerplugin.Config{Image: config.SandboxDockerImage()},
+		config.AnnaHome(),
+	)
+}
+
+// cleanupOrphanedDockerContainers removes stale anna containers from previous
+// crashed processes. Runs at most once per process. The annaHome argument must
+// already be translated to the daemon-view path so it matches the label set at
+// container creation time.
+func cleanupOrphanedDockerContainers(ctx context.Context, annaHome string) {
+	dockerOrphanCleanupOnce.Do(func() {
+		client, err := dockerclient.New()
+		if err != nil {
+			slog.Warn("docker orphan cleanup skipped: cannot construct docker client",
+				"component", "runner_sandbox", "error", err)
+			return
+		}
+		dockerclient.CleanupOrphanedContainers(ctx, client, annaHome)
+	})
+}
+
 // resolveSession creates a runnerSession from configuration.
 // Replaces the old resolveSandboxBackend which leaked boxsh types.
 func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
-	name := resolveSessionBackendName(cfg.Sandbox)
+	name := resolveSessionBackendName(ctx, cfg)
 
 	factory, ok := sessionRegistry[name]
 	if !ok {
@@ -252,46 +344,20 @@ func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, er
 	return factory(ctx, cfg)
 }
 
-func sandboxReadableDirs(paths runnerPaths) []string {
-	candidates := []string{
-		paths.annaSkillsDir(),
-		paths.annaAgentsDir(),
-		paths.agentSkillsDir(),
-		paths.agentAgentsDir(),
-		paths.projectSkillsDir(),
-		paths.projectAgentsDir(),
+func resolveSessionBackendName(ctx context.Context, cfg GoRunnerConfig) string {
+	var name string
+	if cfg.SandboxBackendFn != nil {
+		name = cfg.SandboxBackendFn(ctx)
+	} else {
+		name = cfg.Sandbox.BackendName()
 	}
-
-	readOnly := make([]string, 0, len(candidates))
-	for _, dir := range candidates {
-		if dir == "" || isWithinPathRoot(paths.UserRoot, dir) {
-			continue
+	if name == "" || name == config.SandboxBackendAuto {
+		if platformSupportsBoxsh() {
+			return config.SandboxBackendBoxsh
 		}
-		readOnly = append(readOnly, dir)
+		return config.SandboxBackendLocal
 	}
-	return readOnly
-}
-
-func isWithinPathRoot(root, path string) bool {
-	if root == "" || path == "" {
-		return false
-	}
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return false
-	}
-	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
-}
-
-func resolveSessionBackendName(cfg config.SandboxConfig) string {
-	name := cfg.BackendName()
-	if name != config.SandboxBackendAuto {
-		return name
-	}
-	if platformSupportsBoxsh() {
-		return config.SandboxBackendBoxsh
-	}
-	return config.SandboxBackendLocal
+	return name
 }
 
 var orphanCleanupOnce sync.Once

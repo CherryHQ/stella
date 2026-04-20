@@ -7,6 +7,7 @@ const (
 	PluginKindHook     = "hook"
 	PluginKindProvider = "provider"
 	PluginKindMemory   = "memory"
+	PluginKindSandbox  = "sandbox"
 )
 
 // Plugin represents a unified plugin entry stored in settings_plugins.
@@ -38,13 +39,16 @@ var builtinProviderNames = []string{"anthropic", "openai", "openai-response"}
 // builtinMemoryNames lists the built-in memory plugins.
 var builtinMemoryNames = []string{"lcm", "simple"}
 
+// builtinSandboxNames lists the built-in sandbox backend plugins.
+var builtinSandboxNames = []string{SandboxBackendAuto, SandboxBackendBoxsh, SandboxBackendDocker, SandboxBackendLocal}
+
 // builtinStandalonePlugins lists plugins that don't follow the kind/name pattern.
 var builtinStandalonePlugins = []string{"reflect"}
 
 // BuiltinPluginIDs returns all built-in plugin IDs in deterministic order.
 // Provider instances are stored separately in settings_providers.
 func BuiltinPluginIDs() []string {
-	ids := make([]string, 0, len(builtinToolNames)+len(builtinChannelNames)+len(builtinHookNames)+len(builtinMemoryNames)+len(builtinStandalonePlugins))
+	ids := make([]string, 0, len(builtinToolNames)+len(builtinChannelNames)+len(builtinHookNames)+len(builtinMemoryNames)+len(builtinSandboxNames)+len(builtinStandalonePlugins))
 	for _, n := range builtinToolNames {
 		ids = append(ids, PluginID(PluginKindTool, n))
 	}
@@ -57,6 +61,20 @@ func BuiltinPluginIDs() []string {
 	for _, n := range builtinMemoryNames {
 		ids = append(ids, PluginID(PluginKindMemory, n))
 	}
+	for _, n := range builtinSandboxNames {
+		ids = append(ids, PluginID(PluginKindSandbox, n))
+	}
 	ids = append(ids, builtinStandalonePlugins...)
 	return ids
+}
+
+// ActiveSandboxBackend returns the name of the enabled sandbox backend plugin,
+// or SandboxBackendAuto if none is explicitly enabled.
+func ActiveSandboxBackend(plugins []Plugin) string {
+	for _, p := range plugins {
+		if p.Kind == PluginKindSandbox && p.Enabled {
+			return p.Name
+		}
+	}
+	return SandboxBackendAuto
 }

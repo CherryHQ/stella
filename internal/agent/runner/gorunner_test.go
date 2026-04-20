@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
@@ -104,6 +105,57 @@ func withTestRunnerPaths(t *testing.T, cfg GoRunnerConfig) GoRunnerConfig {
 	cfg.AgentRoot = workspace
 	cfg.UserRoot = userRoot
 	return cfg
+}
+
+func TestPrepareSandboxDockerUnreachableDaemonReturnsDockerError(t *testing.T) {
+	// Point the SDK at a unix socket path that cannot exist, so client.Ping
+	// via Version() fails during Preflight regardless of the host's real
+	// docker state.
+	t.Setenv("DOCKER_HOST", "unix:///nonexistent/anna-test-docker.sock")
+	t.Setenv("DOCKER_TLS_VERIFY", "")
+	t.Setenv("DOCKER_CERT_PATH", "")
+
+	workspace := t.TempDir()
+	userRoot := filepath.Join(workspace, "users", "1")
+	if err := os.MkdirAll(userRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	cfg := GoRunnerConfig{
+		AnnaHome:  t.TempDir(),
+		AgentRoot: workspace,
+		UserRoot:  userRoot,
+		Sandbox: config.SandboxConfig{
+			Backend: config.SandboxBackendDocker,
+		},
+	}
+	err := prepareSandbox(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("expected error for docker backend with unreachable daemon")
+	}
+	if !strings.Contains(err.Error(), "docker") {
+		t.Fatalf("expected error to mention 'docker', got: %v", err)
+	}
+}
+
+func TestPrepareSandboxLocalReturnsNil(t *testing.T) {
+	workspace := t.TempDir()
+	userRoot := filepath.Join(workspace, "users", "1")
+	if err := os.MkdirAll(userRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	cfg := GoRunnerConfig{
+		AnnaHome:  t.TempDir(),
+		AgentRoot: workspace,
+		UserRoot:  userRoot,
+		Sandbox: config.SandboxConfig{
+			Backend: config.SandboxBackendLocal,
+		},
+	}
+	if err := prepareSandbox(context.Background(), cfg); err != nil {
+		t.Fatalf("expected nil for local backend, got: %v", err)
+	}
 }
 
 func TestFilterRunnerTools(t *testing.T) {
@@ -648,5 +700,19 @@ func TestSummarizeToolResult(t *testing.T) {
 				t.Errorf("summarizeToolResult() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestResolveToolsBinDir(t *testing.T) {
+	paths := runnerPaths{AnnaHome: "/home/user/.anna"}
+
+	if got := resolveToolsBinDir(paths, config.SandboxBackendDocker); got != "" {
+		t.Errorf("docker backend: want empty ToolsBinDir, got %q", got)
+	}
+
+	for _, backend := range []string{config.SandboxBackendLocal, config.SandboxBackendBoxsh, config.SandboxBackendAuto} {
+		if got := resolveToolsBinDir(paths, backend); got == "" {
+			t.Errorf("backend %q: want non-empty ToolsBinDir, got empty", backend)
+		}
 	}
 }

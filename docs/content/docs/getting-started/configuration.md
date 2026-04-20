@@ -153,12 +153,25 @@ Each platform stores its own JSON structure in the `config` column of `settings_
 - **workspaces/** contains per-agent data. Each agent gets its own directory keyed by agent ID.
 - **cache/** contains regenerable data. Run `anna models update` to rebuild.
 - **agent sandbox config** lives on each agent record (`settings_agents.sandbox`). The agent form edits network policy; backend can also be set in the stored JSON.
-  - `backend`: `auto` (default), `boxsh`, or `local`
+  - `backend`: `auto` (default), `boxsh`, `local`, or `docker`
   - `network.mode`: `disabled` (default), `allow_all`, or `whitelist`
   - `network.allowlist`: required only when mode is `whitelist`
   - Linux and macOS validate the managed `boxsh` backend when selected. Runner startup fails closed when the sandbox backend is unavailable or cannot enforce the configured network mode.
   - `local` is a relaxed backend with advisory enforcement; use it only for explicit local/development scenarios.
   - Current `boxsh` client builds may reject `whitelist` mode at runtime; use it only when your runtime supports whitelist enforcement.
+  - `docker` runs each session in a dedicated container built from the bundled `plugins/sandbox/docker/Dockerfile`. The image is version-locked to the anna binary: dev builds use a local `anna-sandbox:dev` tag (produced by `mise run sandbox:docker:build`), and tagged releases pull `ghcr.io/vaayne/anna-sandbox:<version>` from GHCR. It is opt-in; `auto` does not select it. Requires a reachable docker daemon. Useful on Windows (where `boxsh` is unavailable) and for workflows that need a specific Linux userspace.
+  - The docker backend takes no per-agent knobs. The image, the in-container user (`anna`, UID 1000), and bind-mount layout are all fixed by the shipped image. When anna itself runs inside a container and talks to a host docker daemon (Docker-outside-of-Docker), set the `ANNA_HOME_HOST` environment variable — anna auto-derives the path translation from it.
+  - Docker backend does **not** currently implement `whitelist` network mode or HTTP mediation — it fails closed, the same as `boxsh`. Use `disabled` or `allow_all`.
+  - Docker bind-mounts the workspace root at `/home/anna/workspace` and each read-only path at `/home/anna/readonly/<index>`. Scripts that rely on absolute host paths will need to use the in-container path instead.
+
+Example JSON for a docker-backed agent's `sandbox` field:
+
+```json
+{
+  "backend": "docker",
+  "network": { "mode": "allow_all" }
+}
+```
 
 ## Environment Variables
 
@@ -167,6 +180,7 @@ The old `ANNA_*` prefix overrides for all config fields are removed. Only the fo
 | Variable              | Purpose                                          |
 | --------------------- | ------------------------------------------------ |
 | `ANNA_HOME`           | Override the home directory (default `~/.anna`)  |
+| `ANNA_HOME_HOST`      | Host-side path of `ANNA_HOME` when anna runs inside a container and talks to a host docker daemon (Docker-outside-of-Docker). Required in that setup; ignored otherwise. |
 | `ANTHROPIC_API_KEY`   | Fallback API key for the Anthropic provider      |
 | `ANTHROPIC_BASE_URL`  | Fallback base URL for the Anthropic provider     |
 | `OPENAI_API_KEY`      | Fallback API key for the OpenAI provider         |

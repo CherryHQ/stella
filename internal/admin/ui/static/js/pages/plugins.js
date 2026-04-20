@@ -38,8 +38,12 @@ export function register(Alpine) {
       return this.plugins.filter(p => p.kind === 'memory')
     },
 
+    get sandboxPlugins() {
+      return this.plugins.filter(p => p.kind === 'sandbox')
+    },
+
     get standalonePlugins() {
-      return this.plugins.filter(p => !['tool', 'channel', 'hook', 'memory', 'provider'].includes(p.kind))
+      return this.plugins.filter(p => !['tool', 'channel', 'hook', 'memory', 'provider', 'sandbox'].includes(p.kind))
     },
 
     get mcpPlugin() {
@@ -134,6 +138,23 @@ export function register(Alpine) {
         await api('PATCH', '/api/plugins/' + encodeURIComponent(id), { enabled })
         await this.loadPlugins()
         this.$store.toast.show(id + (enabled ? ' enabled' : ' disabled'))
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    async toggleSandboxPlugin(id, enabled) {
+      try {
+        if (enabled) {
+          // Disable all other sandbox backends first (mutual exclusion).
+          const others = this.sandboxPlugins.filter(p => p.id !== id && p.enabled)
+          for (const other of others) {
+            await api('PATCH', '/api/plugins/' + encodeURIComponent(other.id), { enabled: false })
+          }
+        }
+        await api('PATCH', '/api/plugins/' + encodeURIComponent(id), { enabled })
+        await this.loadPlugins()
+        this.$store.toast.show(enabled ? id + ' set as active sandbox' : id + ' disabled')
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       }

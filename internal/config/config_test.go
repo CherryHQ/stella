@@ -121,6 +121,10 @@ func TestSandboxConfigValidate(t *testing.T) {
 			cfg:  SandboxConfig{Network: SandboxNetworkConfig{Mode: SandboxNetworkWhitelist, Allowlist: []string{"example.com", "anthropic.com", "internal.net", "registry.example", "10.0.0.0/24"}}},
 		},
 		{
+			name: "docker backend valid",
+			cfg:  SandboxConfig{Backend: SandboxBackendDocker},
+		},
+		{
 			name:    "invalid backend",
 			cfg:     SandboxConfig{Backend: "gvisor"},
 			wantErr: true,

@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +18,7 @@ import (
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
 	boxshsandbox "github.com/vaayne/anna/plugins/sandbox/boxsh"
+	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
 	"github.com/vaayne/anna/plugins/tools/skills/builtin"
@@ -34,23 +33,24 @@ type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Regis
 
 // GoRunnerConfig configures the Go runner.
 type GoRunnerConfig struct {
-	API            string // provider key: "anthropic", "openai"
-	Model          string // e.g. "claude-sonnet-4-20250514"
-	APIKey         string
-	BaseURL        string // optional provider base URL override
-	AgentRoot      string // agent root directory
-	AnnaHome       string // anna home directory (e.g. ~/.anna)
-	ProjectRoot    string // optional project root for project-aware tools and prompt/context loading
-	System         string // optional system prompt override (bypasses default prompt building)
-	PromptSections []pkgplugins.SystemPromptSection
-	ExtraTools     []tools.Tool // additional tools to register
-	PluginTools    func(context.Context, plugintools.BuildContext) []tools.Tool
-	ToolRuntime    pkgplugins.ToolRuntime
-	UserRoot       string             // required per-user root used by prompts, skills, and sandbox execution
-	HookPlugins    []hooks.HookPlugin // hook plugins for the engine loop
-	ToolLifecycle  *coreagent.ToolLifecycle
-	Providers      ProviderRegistryBuilder
-	Sandbox        config.SandboxConfig
+	API              string // provider key: "anthropic", "openai"
+	Model            string // e.g. "claude-sonnet-4-20250514"
+	APIKey           string
+	BaseURL          string // optional provider base URL override
+	AgentRoot        string // agent root directory
+	AnnaHome         string // anna home directory (e.g. ~/.anna)
+	ProjectRoot      string // optional project root for project-aware tools and prompt/context loading
+	System           string // optional system prompt override (bypasses default prompt building)
+	PromptSections   []pkgplugins.SystemPromptSection
+	ExtraTools       []tools.Tool // additional tools to register
+	PluginTools      func(context.Context, plugintools.BuildContext) []tools.Tool
+	ToolRuntime      pkgplugins.ToolRuntime
+	UserRoot         string             // required per-user root used by prompts, skills, and sandbox execution
+	HookPlugins      []hooks.HookPlugin // hook plugins for the engine loop
+	ToolLifecycle    *coreagent.ToolLifecycle
+	Providers        ProviderRegistryBuilder
+	Sandbox          config.SandboxConfig
+	SandboxBackendFn func(ctx context.Context) string // resolves active backend at session time; overrides Sandbox.Backend
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.
@@ -226,11 +226,13 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 	// Core tools (read, bash, edit, write) are always provided by the active
 	// sandbox session.
 
+	toolsBinDir := resolveToolsBinDir(paths, session.Policy().Backend)
+
 	// Runtime capabilities are injected from the active runner session.
 	bc := plugintools.BuildContext{
 		Paths: pkgplugins.ToolPaths{
 			UserRoot:    paths.UserRoot,
-			ToolsBinDir: paths.toolsBinDir(),
+			ToolsBinDir: toolsBinDir,
 			AnnaHome:    paths.AnnaHome,
 			AgentRoot:   paths.AgentRoot,
 			ProjectRoot: paths.ProjectRoot,
@@ -242,43 +244,36 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 	if len(coreTools) == 0 {
 		return nil, fmt.Errorf("go runner: sandbox backend unavailable: core tools require an active sandbox host")
 	}
+
+	// Sandbox core tools (bash/read/write/edit) route through the active
+	// session and must win over any plugin tool of the same name. Plugin
+	// versions run in the anna process, which would bypass the sandbox.
+	coreNames := make(map[string]struct{}, len(coreTools))
 	for _, t := range coreTools {
+		coreNames[t.Definition().Name] = struct{}{}
 		toolReg.Register(t)
 	}
 
-	// Extra tools (always-on builtin tools like memory/scheduler plus external plugin tools like webfetch).
-	for _, t := range cfg.ExtraTools {
+	registerNonCore := func(t tools.Tool) {
+		name := t.Definition().Name
+		if _, taken := coreNames[name]; taken {
+			slog.Debug("skipping non-sandbox tool that collides with sandbox core",
+				"component", "go_runner", "tool", name)
+			return
+		}
 		toolReg.Register(t)
+	}
+
+	for _, t := range cfg.ExtraTools {
+		registerNonCore(t)
 	}
 	if cfg.PluginTools != nil {
 		for _, t := range cfg.PluginTools(ctx, bc) {
-			toolReg.Register(t)
+			registerNonCore(t)
 		}
 	}
 
 	return toolReg, nil
-}
-
-// buildAgentPresets extracts builtin skills and loads agent presets from filesystem.
-func collectSandboxReadOnlyDirs(extraDirs []string, toolsBinDir, pathEnv string) []string {
-	dirs := make([]string, 0, len(extraDirs)+1)
-	for _, dir := range append(append([]string{}, extraDirs...), toolsBinDir) {
-		if dir == "" || !filepath.IsAbs(dir) {
-			continue
-		}
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			dirs = append(dirs, dir)
-		}
-	}
-	for _, dir := range filepath.SplitList(pathEnv) {
-		if dir == "" || !filepath.IsAbs(dir) {
-			continue
-		}
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			dirs = append(dirs, dir)
-		}
-	}
-	return dirs
 }
 
 func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSet, []tools.Definition, error) {
@@ -324,21 +319,44 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	if err := builtin.EnsureBuiltinSkills(paths.annaSkillsDir()); err != nil {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
-	if cfg.Sandbox.BackendName() == config.SandboxBackendLocal {
+
+	switch cfg.Sandbox.BackendName() {
+	case config.SandboxBackendLocal:
 		return nil
+	case config.SandboxBackendDocker:
+		dockerCfg, err := resolveDockerConfig()
+		if err != nil {
+			return fmt.Errorf("go runner: %w", err)
+		}
+		cleanupOrphanedDockerContainers(ctx, dockerCfg.TranslateToDaemonPath(paths.AnnaHome))
+		if err := dockerplugin.Preflight(ctx, dockerplugin.PreflightConfig{
+			AnnaHome: paths.AnnaHome,
+			Docker:   dockerCfg,
+		}); err != nil {
+			if config.SandboxDockerImageIsDev() {
+				return fmt.Errorf("go runner: %w (run `mise run sandbox:docker:build` to build the local %q image)", err, config.SandboxDockerImage())
+			}
+			return fmt.Errorf("go runner: %w", err)
+		}
+		return nil
+	case config.SandboxBackendBoxsh, config.SandboxBackendAuto:
+		// auto resolves to boxsh on linux/darwin; on Windows auto resolves to
+		// local (handled by resolveSessionBackendName at session-create time).
+		cleanupOrphanedBoxshSessions(paths.AnnaHome, paths.UserRoot)
+		if err := boxshsandbox.Preflight(ctx, boxshsandbox.PreflightConfig{
+			AnnaHome: paths.AnnaHome,
+			UserRoot: paths.UserRoot,
+			Network: boxshsandbox.NetworkConfig{
+				Mode:      cfg.Sandbox.Network.Mode,
+				Allowlist: cfg.Sandbox.Network.Allowlist,
+			},
+		}); err != nil {
+			return fmt.Errorf("go runner: %w", err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("go runner: unknown sandbox backend %q", cfg.Sandbox.BackendName())
 	}
-	cleanupOrphanedBoxshSessions(paths.AnnaHome, paths.UserRoot)
-	if err := boxshsandbox.Preflight(ctx, boxshsandbox.PreflightConfig{
-		AnnaHome: paths.AnnaHome,
-		UserRoot: paths.UserRoot,
-		Network: boxshsandbox.NetworkConfig{
-			Mode:      cfg.Sandbox.Network.Mode,
-			Allowlist: cfg.Sandbox.Network.Allowlist,
-		},
-	}); err != nil {
-		return fmt.Errorf("go runner: %w", err)
-	}
-	return nil
 }
 
 // buildHookSet creates the hook set from configured hook plugins.

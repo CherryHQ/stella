@@ -2,8 +2,6 @@ package runner
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -88,82 +86,38 @@ func TestSandboxProcessEnvUsesUserRootAsHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveSandboxPaths: %v", err)
 	}
-	env := sandboxProcessEnv(paths)
-	if got := env["HOME"]; got != cfg.UserRoot {
-		t.Fatalf("HOME = %q, want %q", got, cfg.UserRoot)
+	for _, backend := range []string{config.SandboxBackendBoxsh, config.SandboxBackendLocal} {
+		env := sandboxProcessEnv(paths, backend)
+		if got := env["HOME"]; got != cfg.UserRoot {
+			t.Fatalf("backend %q: HOME = %q, want %q", backend, got, cfg.UserRoot)
+		}
+		if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
+			t.Fatalf("backend %q: ANNA_HOME = %q, want %q", backend, got, cfg.AnnaHome)
+		}
+	}
+}
+
+// Docker containers have their own rootfs and image-baked HOME. Pinning HOME
+// to UserRoot would remap into the workspace bind-mount at runtime and break
+// anything that expects its image-installed $HOME/.* (mise, shell rc files,
+// per-user shims).
+func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
+	cfg := GoRunnerConfig{
+		AnnaHome:  "/anna",
+		AgentRoot: "/workspace/agent",
+		UserRoot:  "/workspace/agent/users/1",
+	}
+
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		t.Fatalf("resolveSandboxPaths: %v", err)
+	}
+	env := sandboxProcessEnv(paths, config.SandboxBackendDocker)
+	if _, ok := env["HOME"]; ok {
+		t.Fatalf("HOME should not be set for docker backend; got %q", env["HOME"])
 	}
 	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
 		t.Fatalf("ANNA_HOME = %q, want %q", got, cfg.AnnaHome)
-	}
-}
-
-func TestSandboxReadableDirsIncludesSkillAndPresetRoots(t *testing.T) {
-	paths := runnerPaths{
-		AnnaHome:    "/anna",
-		AgentRoot:   "/workspace/agent",
-		UserRoot:    "/workspace/agent/users/1",
-		ProjectRoot: "/project",
-	}
-
-	got := sandboxReadableDirs(paths)
-	want := []string{
-		"/anna/skills",
-		"/anna/agents",
-		"/workspace/agent/.agents/skills",
-		"/workspace/agent/agents",
-		"/project/.agents/skills",
-		"/project/.agents/agents",
-	}
-	if len(got) != len(want) {
-		t.Fatalf("len(got) = %d, want %d (%v)", len(got), len(want), got)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got[%d] = %q, want %q", i, got[i], want[i])
-		}
-	}
-}
-
-func TestSandboxReadableDirsSkipsProjectPathsInsideUserRoot(t *testing.T) {
-	paths := runnerPaths{
-		AnnaHome:    "/anna",
-		AgentRoot:   "/workspace/agent",
-		UserRoot:    "/workspace/agent/users/1",
-		ProjectRoot: "/workspace/agent/users/1/data/repo",
-	}
-
-	got := sandboxReadableDirs(paths)
-	for _, dir := range got {
-		if strings.HasPrefix(dir, "/workspace/agent/users/1/data/repo/") {
-			t.Fatalf("project path %q should not be mounted read-only inside user root", dir)
-		}
-	}
-}
-
-func TestCollectSandboxReadOnlyDirsSkipsMissingExtraDirs(t *testing.T) {
-	root := t.TempDir()
-	extraDir := filepath.Join(root, "skills")
-	if err := os.MkdirAll(extraDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	toolsBinDir := filepath.Join(root, "bin")
-	if err := os.MkdirAll(toolsBinDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	pathDir := filepath.Join(root, "path-bin")
-	if err := os.MkdirAll(pathDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-
-	got := collectSandboxReadOnlyDirs([]string{extraDir, filepath.Join(root, "missing")}, toolsBinDir, pathDir)
-	want := []string{extraDir, toolsBinDir, pathDir}
-	if len(got) != len(want) {
-		t.Fatalf("len(got) = %d, want %d (%v)", len(got), len(want), got)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got[%d] = %q, want %q", i, got[i], want[i])
-		}
 	}
 }
 
@@ -223,6 +177,31 @@ func TestRunnerSessionLifecycle(t *testing.T) {
 		// Expected
 	default:
 		t.Error("Done() should be closed after Close()")
+	}
+}
+
+// TestResolveSessionDockerUnreachableDaemonReturnsError verifies that an
+// explicit docker backend routes to createDockerSession and fails with a
+// docker-related error when the daemon is unreachable.
+func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "unix:///nonexistent/anna-test-docker.sock")
+	t.Setenv("DOCKER_TLS_VERIFY", "")
+	t.Setenv("DOCKER_CERT_PATH", "")
+
+	workspace := t.TempDir()
+	userRoot := workspace + "/users/1"
+	_, err := resolveSession(context.Background(), GoRunnerConfig{
+		AgentRoot: workspace,
+		UserRoot:  userRoot,
+		Sandbox: config.SandboxConfig{
+			Backend: config.SandboxBackendDocker,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for docker backend with unreachable daemon")
+	}
+	if !strings.Contains(err.Error(), "docker") {
+		t.Fatalf("expected error to mention 'docker', got: %v", err)
 	}
 }
 

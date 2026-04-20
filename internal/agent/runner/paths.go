@@ -67,6 +67,16 @@ func resolveSandboxPaths(cfg GoRunnerConfig) (sandboxPaths, error) {
 
 func (p runnerPaths) toolsBinDir() string { return embedded.BinDir(p.AnnaHome) }
 
+// resolveToolsBinDir returns the host bin dir for host-side backends (boxsh,
+// local) and empty for docker, where the container image has tools pre-installed
+// and host binaries are the wrong arch/OS.
+func resolveToolsBinDir(paths runnerPaths, backend string) string {
+	if backend == config.SandboxBackendDocker {
+		return ""
+	}
+	return paths.toolsBinDir()
+}
+
 func (p runnerPaths) annaSkillsDir() string {
 	return filepath.Join(p.AnnaHome, "skills")
 }
@@ -75,34 +85,17 @@ func (p runnerPaths) annaAgentsDir() string {
 	return filepath.Join(p.AnnaHome, "agents")
 }
 
-func (p runnerPaths) agentSkillsDir() string {
-	return filepath.Join(p.AgentRoot, ".agents", "skills")
-}
-
-func (p runnerPaths) agentAgentsDir() string {
-	return filepath.Join(p.AgentRoot, "agents")
-}
-
-func (p runnerPaths) projectSkillsDir() string {
-	if p.ProjectRoot == "" {
-		return ""
-	}
-	return filepath.Join(p.ProjectRoot, ".agents", "skills")
-}
-
-func (p runnerPaths) projectAgentsDir() string {
-	if p.ProjectRoot == "" {
-		return ""
-	}
-	return filepath.Join(p.ProjectRoot, ".agents", "agents")
-}
-
 // sandboxProcessEnv builds the baseline process environment injected into
-// sandboxed commands. Today it pins HOME to the sandbox-visible writable area
-// and propagates ANNA_HOME so CLIs don't accidentally target the host home.
-func sandboxProcessEnv(paths sandboxPaths) map[string]string {
+// sandboxed commands. For host-filesystem backends (boxsh, local) it pins HOME
+// to the sandbox-visible writable area so CLIs don't accidentally read/write
+// the host user's ~/.ssh, ~/.gitconfig, ~/.cache, etc. For docker the
+// container already provides its own rootfs and image-baked HOME, so we leave
+// HOME alone and let the image's user home stand — that's what lets tools
+// installed in the image (mise tree, shell rc files, shims) remain reachable
+// at runtime regardless of the workspace bind-mount path.
+func sandboxProcessEnv(paths sandboxPaths, backend string) map[string]string {
 	env := map[string]string{}
-	if paths.UserRoot != "" {
+	if paths.UserRoot != "" && backend != config.SandboxBackendDocker {
 		env["HOME"] = paths.UserRoot
 	}
 	if paths.AnnaHome != "" {

@@ -9,9 +9,48 @@ import (
 	"time"
 
 	boxshplugin "github.com/vaayne/anna/plugins/sandbox/boxsh"
+	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
+	dockerclient "github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
 
 	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
 )
+
+// dockerAvailable probes whether the docker daemon is reachable.
+// It constructs a client (requires binary on PATH) and calls Version with a short timeout.
+func dockerAvailable(ctx context.Context) bool {
+	client, err := dockerclient.New()
+	if err != nil {
+		return false
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_, err = client.Version(probeCtx)
+	return err == nil
+}
+
+// dockerContractImage is the image the docker contract tests use. Alpine is
+// sufficient because the contract tests exercise the generic Session/Host
+// interface, not anna-sandbox-specific features, and alpine always pulls from
+// the public registry.
+const dockerContractImage = "alpine:3.20"
+
+// dockerPreflightForTest pulls the contract-test image when it is not already
+// present locally. CI hosts have a docker daemon but no pre-pulled image, so
+// the contract tests (which call CreateSession directly, bypassing the public
+// Preflight entry point) would otherwise fail with "No such image".
+//
+// A pull failure (no network, rate limit, …) is reported via t.Skip rather
+// than t.Fatal: the test's concern is contract conformance, not registry
+// availability. Daemon-reachability failures are already handled upstream.
+func dockerPreflightForTest(t *testing.T, ctx context.Context) {
+	t.Helper()
+	cfg := dockerplugin.PreflightConfig{Docker: dockerplugin.Config{Image: dockerContractImage}}
+	preflightCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	if err := dockerplugin.Preflight(preflightCtx, cfg); err != nil {
+		t.Skipf("docker preflight failed (image unavailable): %v", err)
+	}
+}
 
 // Contract tests for Session and Host interfaces.
 // These tests verify that both local and boxsh backends satisfy the shared contract.
@@ -21,6 +60,16 @@ func TestSessionContract(t *testing.T) {
 	// Test with local factory (always available)
 	t.Run("LocalFactory", func(t *testing.T) {
 		testSessionContract(t, localplugin.NewFactory())
+	})
+
+	// Test with docker factory if daemon is reachable
+	t.Run("DockerFactory", func(t *testing.T) {
+		ctx := context.Background()
+		if !dockerAvailable(ctx) {
+			t.Skip("docker daemon not reachable; skipping DockerFactory contract test")
+		}
+		dockerPreflightForTest(t, ctx)
+		testSessionContract(t, dockerplugin.NewFactory(dockerplugin.Config{Image: dockerContractImage}))
 	})
 
 	// Test with boxsh factory if available
@@ -167,6 +216,16 @@ func TestHostContract(t *testing.T) {
 	// Test with local factory (always available)
 	t.Run("LocalFactory", func(t *testing.T) {
 		testHostContract(t, localplugin.NewFactory())
+	})
+
+	// Test with docker factory if daemon is reachable
+	t.Run("DockerFactory", func(t *testing.T) {
+		ctx := context.Background()
+		if !dockerAvailable(ctx) {
+			t.Skip("docker daemon not reachable; skipping DockerFactory host contract test")
+		}
+		dockerPreflightForTest(t, ctx)
+		testHostContract(t, dockerplugin.NewFactory(dockerplugin.Config{Image: dockerContractImage}))
 	})
 }
 

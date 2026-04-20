@@ -180,6 +180,24 @@ docker build -t anna .
 docker buildx build --platform linux/amd64,linux/arm64 -t anna .
 ```
 
+## 使用 Docker 作为沙盒后端
+
+将 anna 运行在 Docker 容器中（见上文）与使用 Docker 作为 agent 工具执行的沙箱后端是两件独立的事。两者可以结合使用（Docker-in-Docker 或挂载 socket），但各自独立也有价值。
+
+### 何时优先选择 `docker` 沙箱后端
+
+- **Windows**：`boxsh` 仅支持 Linux/macOS。`docker` 后端通过 Docker Desktop 为 Windows 用户提供真正的隔离边界。
+- **自定义工具链**：需要与宿主机不同的特定 Python/Node/Go 版本，或需要干净的 Linux 用户空间。
+- **副作用隔离**：需要可复现的文件系统状态，不希望 agent 脚本产生宿主机级别的副作用。
+
+### 权衡取舍
+
+- **启动延迟**：容器热启动约 200ms；首次拉取镜像约 1–3s。
+- **绑定挂载性能**：在 macOS/Windows 的 Docker Desktop 上，绑定挂载文件系统操作比原生磁盘慢 5–20 倍。在这些平台上，有大量读写操作的工作流应避免使用 `docker` 后端。
+- **无写时复制隔离**：与 `boxsh`（使用 overlayfs）不同，docker 后端不提供基于 overlay 的 COW。失控脚本可能修改或损坏已挂载的工作区。
+
+有关 `sandbox.docker` 配置键和 JSON 示例，请参阅[配置指南](/docs/getting-started/configuration)。
+
 ## 卷和数据
 
 所有数据都存储在 anna 主目录下（默认为 `~/.anna`，可通过 `ANNA_HOME` 配置）。

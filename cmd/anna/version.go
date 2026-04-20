@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	ucli "github.com/urfave/cli/v2"
+	"github.com/vaayne/anna/internal/version"
 	"github.com/vaayne/anna/pkg/httpclient"
 )
 
@@ -24,7 +25,6 @@ const (
 )
 
 var (
-	version             = "dev"
 	upgradeHTTPClient   = httpclient.New()
 	upgradeAPIBaseURL   = "https://api.github.com"
 	upgradeUserAgent    = "anna-upgrade"
@@ -98,7 +98,7 @@ func upgradeCommand() *ucli.Command {
 }
 
 func displayVersion() string {
-	normalized := normalizeVersion(version)
+	normalized := normalizeVersion(version.Version)
 	if normalized == "" {
 		return "dev"
 	}
