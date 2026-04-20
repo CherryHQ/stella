@@ -79,13 +79,16 @@ func deriveUsername(ctx context.Context, store AuthStore, emailHint, externalID 
 		base = "feishu-" + id
 	}
 
-	for i := 0; i < maxUsernameAttempts; i++ {
+	for i := range maxUsernameAttempts {
 		candidate := base
 		if i > 0 {
 			candidate = fmt.Sprintf("%s-%d", base, i+1)
 		}
-		if _, err := store.GetUserByUsername(ctx, candidate); err != nil {
-			return candidate, nil
+		// GetUserByUsername returns an error when the user is not found, meaning
+		// the candidate username is available.
+		_, notFound := store.GetUserByUsername(ctx, candidate)
+		if notFound != nil {
+			return candidate, nil //nolint:nilerr
 		}
 	}
 

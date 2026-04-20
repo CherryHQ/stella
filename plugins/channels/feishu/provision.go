@@ -25,7 +25,7 @@ func (b *Bot) fetchTenantProfile(ctx context.Context, openID string) *TenantProf
 	if b.client == nil {
 		return nil
 	}
-	resp, err := b.client.Contact.V3.User.Get(ctx,
+	resp, err := b.client.Contact.User.Get(ctx,
 		larkcontact.NewGetUserReqBuilder().
 			UserId(openID).
 			UserIdType(larkcontact.UserIdTypeGetUserOpenId).
@@ -58,15 +58,23 @@ func (b *Bot) fetchTenantProfile(ctx context.Context, openID string) *TenantProf
 // maybeAutoProvision provisions an Anna user for the sender if auto-provisioning
 // is enabled and the sender belongs to the configured tenant.
 //
+// tenantKey is the sender's tenant key from the event (empty string if unavailable,
+// e.g. in reaction events). When non-empty it is checked against cfg.TenantKey
+// before any API call; when empty the contact API failure acts as an implicit filter.
+//
 // It is called after dedup+group-eligibility checks in onMessage/onReaction.
 // On any error it logs and returns silently — provisioning failure must never
-// block the normal message flow. The provision is attempted again on the next
-// message if the cache misses (e.g. after restart or TTL expiry).
+// block the normal message flow.
 //
-// Cache key is union_id (set only after a successful profile fetch) so that
-// users messaging from multiple devices share a single cache entry.
-func (b *Bot) maybeAutoProvision(ctx context.Context, openID, unionID string) {
+// Cache key is union_id so users messaging from multiple devices share one entry.
+func (b *Bot) maybeAutoProvision(ctx context.Context, openID, unionID, tenantKey string) {
 	if !b.cfg.AutoProvision || b.cfg.TenantKey == "" {
+		return
+	}
+
+	// Explicit tenant check when the event carries a tenant_key.
+	if tenantKey != "" && tenantKey != b.cfg.TenantKey {
+		logger().Debug("auto-provision: skipping external tenant user", "tenant_key", tenantKey)
 		return
 	}
 
@@ -88,11 +96,10 @@ func (b *Bot) maybeAutoProvision(ctx context.Context, openID, unionID string) {
 	}
 	b.provisionedMu.Unlock()
 
-	// Fetch profile from contact API for email hint and to get union_id if
-	// it was not available in the event (older SDK versions).
+	// Fetch profile from contact API for email hint and authoritative union_id.
+	// This also acts as an implicit tenant filter: the API rejects external users.
 	profile := b.fetchTenantProfile(ctx, openID)
 	if profile == nil {
-		// Can't verify tenant membership without profile; skip silently.
 		return
 	}
 
@@ -124,4 +131,3 @@ func (b *Bot) maybeAutoProvision(ctx context.Context, openID, unionID string) {
 	b.provisioned[cacheKey] = time.Now()
 	b.provisionedMu.Unlock()
 }
-

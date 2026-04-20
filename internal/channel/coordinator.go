@@ -287,5 +287,7 @@ func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.Provisio
 }
 
 // compile-time checks.
-var _ pkgchannel.Handler = (*Coordinator)(nil)
-var _ pkgchannel.Provisioner = (*Coordinator)(nil)
+var (
+	_ pkgchannel.Handler     = (*Coordinator)(nil)
+	_ pkgchannel.Provisioner = (*Coordinator)(nil)
+)
