@@ -11,9 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-04-20
+
 ### ✨ Features
 
-- **Sandbox**: Add `docker` as a third sandbox backend alongside `boxsh` and `local` ([plan-docker-sandbox.md](https://github.com/vaayne/anna/blob/main/plan-docker-sandbox.md))
+- **Sandbox**: Add `docker` as a third sandbox backend alongside `boxsh` and `local` ([#115](https://github.com/vaayne/anna/pull/115))
+- **Skills**: Move skills storage from filesystem to SQLite for reliability ([#114](https://github.com/vaayne/anna/pull/114))
+- **Tooling**: On-demand CLI tool downloads — tools fetched only when needed ([#111](https://github.com/vaayne/anna/pull/111))
+- **Sandbox**: Sync sandbox session files back to source after each chat turn ([#112](https://github.com/vaayne/anna/pull/112))
+- **Admin UI**: Add sandbox backend selector to admin panel
+
+### 🐛 Bug Fixes
+
+- **Sandbox**: Persist sandbox session changes and clean up orphaned session dirs ([#112](https://github.com/vaayne/anna/pull/112))
+- **Tools**: Use exact release asset URLs for embedded tools
+- **Tools**: Use `gh release download` for cross-platform tool fetching
+
+### ♻️ Refactoring
+
+- **TUI**: Remove chatcli TUI and Japanese docs
+- **Skills**: Tighten skills loading and path resolution
+- **Skills**: Remove builtin-skills cache tier for agent presets
+- **Skills**: Unify builtin skills path and use `.agents/skills` for agent root
+
+### 📦 Dependencies
+
+- Bump `github.com/go-git/go-git/v5` from 5.17.1 to 5.18.0 ([#113](https://github.com/vaayne/anna/pull/113))
+
+**Full Changelog**: [v0.12.0...v0.13.0](https://github.com/vaayne/anna/compare/v0.12.0...v0.13.0)
 
 ## [0.12.0] - 2026-04-16
 
