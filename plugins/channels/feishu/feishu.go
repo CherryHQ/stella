@@ -66,6 +66,9 @@ type Bot struct {
 	seenMsgs      map[string]time.Time // message ID -> first seen time
 	lastSeenSweep time.Time            // last time seenMsgs was swept
 
+	provisionedMu sync.Mutex
+	provisioned   map[string]time.Time // union_id -> last provision time (1h TTL)
+
 	cfg    Config
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -82,10 +85,11 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	}
 
 	b := &Bot{
-		handler:    handler,
-		chatModels: make(map[string]channel.ModelOption),
-		seenMsgs:   make(map[string]time.Time),
-		cfg:        cfg,
+		handler:     handler,
+		chatModels:  make(map[string]channel.ModelOption),
+		seenMsgs:    make(map[string]time.Time),
+		provisioned: make(map[string]time.Time),
+		cfg:         cfg,
 	}
 
 	return b, nil
