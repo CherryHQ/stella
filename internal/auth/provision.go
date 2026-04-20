@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -84,11 +86,12 @@ func deriveUsername(ctx context.Context, store AuthStore, emailHint, externalID 
 		if i > 0 {
 			candidate = fmt.Sprintf("%s-%d", base, i+1)
 		}
-		// GetUserByUsername returns an error when the user is not found, meaning
-		// the candidate username is available.
-		_, notFound := store.GetUserByUsername(ctx, candidate)
-		if notFound != nil {
-			return candidate, nil //nolint:nilerr
+		_, err := store.GetUserByUsername(ctx, candidate)
+		if errors.Is(err, sql.ErrNoRows) {
+			return candidate, nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("provision: probe username %q: %w", candidate, err)
 		}
 	}
 

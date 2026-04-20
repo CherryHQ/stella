@@ -109,6 +109,13 @@ func (b *Bot) maybeAutoProvision(ctx context.Context, openID, unionID, tenantKey
 		unionID = profile.UnionID
 	}
 
+	// Refuse to provision with an empty external ID: every user missing union_id
+	// would be stored as (feishu, "") and resolve to the same Anna account.
+	if unionID == "" {
+		logger().Warn("auto-provision: skipping user with empty union_id", "open_id", openID)
+		return
+	}
+
 	// Re-check cache with the authoritative union_id.
 	b.provisionedMu.Lock()
 	if t, ok := b.provisioned[cacheKey]; ok && time.Since(t) < provisionCacheTTL {
