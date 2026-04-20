@@ -335,7 +335,7 @@ func cleanupOrphanedDockerContainers(ctx context.Context, annaHome string) {
 // resolveSession creates a runnerSession from configuration.
 // Replaces the old resolveSandboxBackend which leaked boxsh types.
 func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
-	name := resolveSessionBackendName(cfg.Sandbox)
+	name := resolveSessionBackendName(ctx, cfg)
 
 	factory, ok := sessionRegistry[name]
 	if !ok {
@@ -344,15 +344,20 @@ func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, er
 	return factory(ctx, cfg)
 }
 
-func resolveSessionBackendName(cfg config.SandboxConfig) string {
-	name := cfg.BackendName()
-	if name != config.SandboxBackendAuto {
-		return name
+func resolveSessionBackendName(ctx context.Context, cfg GoRunnerConfig) string {
+	var name string
+	if cfg.SandboxBackendFn != nil {
+		name = cfg.SandboxBackendFn(ctx)
+	} else {
+		name = cfg.Sandbox.BackendName()
 	}
-	if platformSupportsBoxsh() {
-		return config.SandboxBackendBoxsh
+	if name == "" || name == config.SandboxBackendAuto {
+		if platformSupportsBoxsh() {
+			return config.SandboxBackendBoxsh
+		}
+		return config.SandboxBackendLocal
 	}
-	return config.SandboxBackendLocal
+	return name
 }
 
 var orphanCleanupOnce sync.Once

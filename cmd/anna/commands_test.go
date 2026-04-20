@@ -182,7 +182,7 @@ func TestNewRunnerFactoryGo(t *testing.T) {
 	}
 	snap.Workspace = t.TempDir()
 
-	factory, err := agent.NewRunnerFactory(snap, nil, nil, testProviderRegistryBuilder, nil, nil, nil, nil)
+	factory, err := agent.NewRunnerFactory(snap, nil, nil, testProviderRegistryBuilder, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewRunnerFactory: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestNewRunnerFactoryUnknown(t *testing.T) {
 		Runner: config.RunnerConfig{Type: "invalid"},
 	}
 
-	_, err := agent.NewRunnerFactory(snap, nil, nil, testProviderRegistryBuilder, nil, nil, nil, nil)
+	_, err := agent.NewRunnerFactory(snap, nil, nil, testProviderRegistryBuilder, nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for unknown runner type")
 	}
@@ -310,7 +310,7 @@ func TestModelSwitcherPreservesPromptBuilders(t *testing.T) {
 	}
 	snap.Workspace = t.TempDir()
 
-	initialFactory, err := agent.NewRunnerFactory(snap, nil, nil, testProviderRegistryBuilder, nil, nil, nil, nil)
+	initialFactory, err := agent.NewRunnerFactory(snap, nil, nil, testProviderRegistryBuilder, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewRunnerFactory: %v", err)
 	}

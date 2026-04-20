@@ -478,6 +478,41 @@ templ PluginsPage() {
 					</template>
 				</div>
 			</div>
+			<!-- Sandbox -->
+			<div>
+				<h3 class="text-base font-medium mb-3">Sandbox</h3>
+				<p class="text-xs text-base-content/50 mb-3">Select which sandbox backend agents use. Only one can be active at a time.</p>
+				<div class="border border-base-300 rounded-lg divide-y divide-base-300">
+					<template x-for="p in sandboxPlugins" :key="p.id">
+						<div class="flex items-start justify-between gap-4 px-4 py-3">
+							<div class="min-w-0 flex-1 space-y-2">
+								<div class="flex items-center gap-2 flex-wrap">
+									<span class="font-medium text-sm" x-text="pluginLabel(p)"></span>
+									<span class="font-mono text-[11px] text-secondary" x-text="p.id"></span>
+									<span class="badge badge-secondary badge-sm">sandbox</span>
+									<template x-if="p.enabled">
+										<span class="badge badge-success badge-sm">active</span>
+									</template>
+								</div>
+								<template x-if="pluginDescription(p)">
+									<p class="text-xs text-secondary leading-relaxed" x-text="pluginDescription(p)"></p>
+								</template>
+							</div>
+							<div class="pt-1">
+								<input
+									type="checkbox"
+									:checked="p.enabled"
+									@change="toggleSandboxPlugin(p.id, $event.target.checked)"
+									class="toggle toggle-primary toggle-sm"
+								/>
+							</div>
+						</div>
+					</template>
+					<template x-if="sandboxPlugins.length === 0">
+						<div class="px-4 py-8 text-center text-base-content/50 text-sm">No sandbox plugins</div>
+					</template>
+				</div>
+			</div>
 			<!-- Standalone -->
 			<div x-show="standalonePlugins.length > 0">
 				<h3 class="text-base font-medium mb-3">Standalone</h3>

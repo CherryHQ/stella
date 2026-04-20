@@ -19,6 +19,12 @@ The top-level model is:
 
 Backend identity stays inside the runner and sandbox packages. Plugin packages do not import `internal/sandbox`.
 
+## Configuration
+
+The active sandbox backend is a global admin setting configured on the **Plugins** page (`/plugins`). Only one backend can be active at a time. Enabling a backend disables the others.
+
+Per-agent configuration is limited to network policy (mode and allowlist). Each agent independently controls whether its sandbox allows outbound network access and which hosts are reachable.
+
 ## Current Architecture
 
 ### Session ownership
@@ -31,6 +37,10 @@ The runner creates a `sandbox.Session` for each run and keeps ownership of its l
 - `local` is a relaxed backend with advisory enforcement, not an isolation backend
 - `docker` is an opt-in Docker-backed backend; it is never auto-selected and honors policies strictly, with the docker daemon contacted at session-create time
 - unsupported policy/backend combinations fail closed by default
+
+### Backend resolution
+
+The active backend is resolved at snapshot time: `config.ActiveSandboxBackend(plugins)` finds the enabled `sandbox/*` plugin and injects its name into the runner config. Per-agent sandbox config carries only the network policy; the backend field is ignored on agents and always sourced from the global plugin state.
 
 ### Execution-time mediation
 

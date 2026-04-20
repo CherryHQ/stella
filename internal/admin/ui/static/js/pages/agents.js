@@ -39,7 +39,7 @@ export function register(Alpine) {
     form: {
       name: '', model: '', model_strong: '', model_fast: '',
       system_prompt: '', scope: 'system', enabled: true,
-      sandbox: { backend: '', network: { mode: 'disabled', allowlist: [] } },
+      sandbox: { network: { mode: 'disabled', allowlist: [] } },
     },
 
     // User assignment modal state.
@@ -163,7 +163,7 @@ export function register(Alpine) {
       this.form = {
         name: '', model: '', model_strong: '', model_fast: '',
         system_prompt: '', scope: 'system', enabled: true,
-        sandbox: { backend: '', network: { mode: 'disabled', allowlist: [] } },
+        sandbox: { network: { mode: 'disabled', allowlist: [] } },
       }
       this.editingId = null
       this.showForm = false
@@ -202,7 +202,6 @@ export function register(Alpine) {
     },
 
     normalizeSandbox(sandbox) {
-      const backend = sandbox?.backend || ''
       const mode = sandbox?.network?.mode || 'disabled'
       const allowlist = Array.isArray(sandbox?.network?.allowlist)
         ? sandbox.network.allowlist
@@ -213,7 +212,6 @@ export function register(Alpine) {
               .filter(Boolean)
           : []
       return {
-        backend,
         network: { mode, allowlist },
       }
     },

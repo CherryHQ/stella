@@ -33,23 +33,24 @@ type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Regis
 
 // GoRunnerConfig configures the Go runner.
 type GoRunnerConfig struct {
-	API            string // provider key: "anthropic", "openai"
-	Model          string // e.g. "claude-sonnet-4-20250514"
-	APIKey         string
-	BaseURL        string // optional provider base URL override
-	AgentRoot      string // agent root directory
-	AnnaHome       string // anna home directory (e.g. ~/.anna)
-	ProjectRoot    string // optional project root for project-aware tools and prompt/context loading
-	System         string // optional system prompt override (bypasses default prompt building)
-	PromptSections []pkgplugins.SystemPromptSection
-	ExtraTools     []tools.Tool // additional tools to register
-	PluginTools    func(context.Context, plugintools.BuildContext) []tools.Tool
-	ToolRuntime    pkgplugins.ToolRuntime
-	UserRoot       string             // required per-user root used by prompts, skills, and sandbox execution
-	HookPlugins    []hooks.HookPlugin // hook plugins for the engine loop
-	ToolLifecycle  *coreagent.ToolLifecycle
-	Providers      ProviderRegistryBuilder
-	Sandbox        config.SandboxConfig
+	API              string // provider key: "anthropic", "openai"
+	Model            string // e.g. "claude-sonnet-4-20250514"
+	APIKey           string
+	BaseURL          string // optional provider base URL override
+	AgentRoot        string // agent root directory
+	AnnaHome         string // anna home directory (e.g. ~/.anna)
+	ProjectRoot      string // optional project root for project-aware tools and prompt/context loading
+	System           string // optional system prompt override (bypasses default prompt building)
+	PromptSections   []pkgplugins.SystemPromptSection
+	ExtraTools       []tools.Tool // additional tools to register
+	PluginTools      func(context.Context, plugintools.BuildContext) []tools.Tool
+	ToolRuntime      pkgplugins.ToolRuntime
+	UserRoot         string             // required per-user root used by prompts, skills, and sandbox execution
+	HookPlugins      []hooks.HookPlugin // hook plugins for the engine loop
+	ToolLifecycle    *coreagent.ToolLifecycle
+	Providers        ProviderRegistryBuilder
+	Sandbox          config.SandboxConfig
+	SandboxBackendFn func(ctx context.Context) string // resolves active backend at session time; overrides Sandbox.Backend
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.

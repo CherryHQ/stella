@@ -412,7 +412,11 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 		builtinTools = mergeTools(builtinTools, pm.builtinToolsFactory(snap))
 	}
 
-	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle, pm.skillStore)
+	sandboxBackendFn := func(ctx context.Context) string {
+		plugins, _ := pm.store.ListPlugins(ctx)
+		return config.ActiveSandboxBackend(plugins)
+	}
+	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle, pm.skillStore, sandboxBackendFn)
 }
 
 // mergeTools creates a new slice containing builtin tools followed by more

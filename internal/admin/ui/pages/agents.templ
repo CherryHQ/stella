@@ -57,18 +57,11 @@ templ AgentsPage() {
 						></textarea>
 					}
 				</div>
-				<!-- Sandbox -->
+				<!-- Sandbox network policy -->
 				<div class="mb-6 border border-base-300 rounded-box p-4 bg-base-200/40">
-					<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-3">Sandbox</p>
+					<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-3">Network Policy</p>
+					<p class="text-xs text-base-content/60 mb-3">The sandbox backend is configured globally on the <a href="/plugins" class="link link-primary">Plugins</a> page.</p>
 					<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start mb-4">
-						@ui.FormField("Backend") {
-							<select x-model="form.sandbox.backend" class="select select-bordered w-full text-sm">
-								<option value="">auto — best available</option>
-								<option value="boxsh">boxsh — sandboxed execution</option>
-								<option value="docker">docker — container per session</option>
-								<option value="local">local — no sandbox (host execution)</option>
-							</select>
-						}
 						@ui.FormField("Network Mode") {
 							<select x-model="form.sandbox.network.mode" class="select select-bordered w-full text-sm">
 								<option value="disabled">disabled — block outbound network</option>
