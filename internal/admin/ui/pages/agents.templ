@@ -13,13 +13,39 @@ templ AgentsPage() {
 			<div class="flex items-center justify-between mb-8">
 				<span class="text-xs font-mono text-secondary" x-text="agents.length + ' agents'"></span>
 				<button
-					@click="showForm = !showForm; if(!showForm) resetForm()"
+					@click="showForm ? cancelForm() : startCreate()"
 					class="btn btn-ghost btn-sm text-primary font-medium"
 					x-text="showForm ? 'Cancel' : '+ Add agent'"
 				></button>
 			</div>
+			<!-- Template picker step -->
+			<div x-show="showForm && formStep === 'pick-template'" x-transition x-cloak class="mb-8 pb-8 border-b border-base-300">
+				<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-4">Start from a template</p>
+				<p class="text-xs text-base-content/60 mb-4">Templates pre-fill soul, skills, and model. You can edit everything before saving.</p>
+				<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+					<template x-for="tmpl in builtinTemplates" :key="tmpl.id">
+						<button
+							@click="pickTemplate(tmpl)"
+							type="button"
+							class="text-left border border-base-300 hover:border-primary rounded-box p-4 transition-colors"
+						>
+							<p class="font-medium text-sm" x-text="tmpl.name"></p>
+							<p class="text-xs text-secondary font-mono mt-1" x-text="tmpl.id"></p>
+							<p class="text-xs text-base-content/70 mt-2" x-text="tmpl.description"></p>
+						</button>
+					</template>
+					<button
+						@click="pickBlank()"
+						type="button"
+						class="text-left border border-dashed border-base-300 hover:border-primary rounded-box p-4 transition-colors"
+					>
+						<p class="font-medium text-sm">Blank</p>
+						<p class="text-xs text-base-content/70 mt-2">Configure everything yourself.</p>
+					</button>
+				</div>
+			</div>
 			<!-- Agent form -->
-			<div x-show="showForm" x-transition x-cloak class="mb-8 pb-8 border-b border-base-300">
+			<div x-show="showForm && formStep === 'editing'" x-transition x-cloak class="mb-8 pb-8 border-b border-base-300">
 				<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-4" x-text="editingId ? 'EDIT AGENT' : 'NEW AGENT'"></p>
 				<div class="mb-4">
 					@ui.FormField("Name") {
@@ -46,6 +72,20 @@ templ AgentsPage() {
 						</select>
 					}
 				</div>
+				<!-- Soul picker: overwrites system_prompt with selected soul content -->
+				<div class="mb-4" x-show="!editingId && builtinSouls.length > 0">
+					@ui.FormField("Soul preset") {
+						<select
+							@change="applySoul($event.target.value); $event.target.value = ''"
+							class="select select-bordered w-full text-sm"
+						>
+							<option value="">— pick a soul to fill System Prompt —</option>
+							<template x-for="soul in builtinSouls" :key="soul.id">
+								<option :value="soul.id" x-text="soul.name + ' — ' + (soul.description || '')"></option>
+							</template>
+						</select>
+					}
+				</div>
 				<!-- System prompt (readonly for non-editors) -->
 				<div class="mb-4">
 					@ui.FormField("System Prompt") {
@@ -55,6 +95,25 @@ templ AgentsPage() {
 							class="textarea textarea-bordered w-full text-sm font-mono resize-y"
 							:disabled="editingId && !canEditAgent({creator_id: form.creator_id})"
 						></textarea>
+					}
+				</div>
+				<!-- Enabled builtin skills (chip selector) -->
+				<div class="mb-4" x-show="builtinSkills.length > 0">
+					@ui.FormField("Enabled builtin skills") {
+						<p class="text-xs text-base-content/60 mb-2">Anna's self-knowledge is always enabled. Toggle extras the agent should see in its prompt catalog.</p>
+						<div class="flex flex-wrap gap-2">
+							<template x-for="sk in builtinSkills" :key="sk.id">
+								<button
+									@click="toggleBuiltinSkill(sk.name)"
+									type="button"
+									class="badge badge-sm cursor-pointer"
+									:class="isBuiltinSkillEnabled(sk.name) ? 'badge-primary' : 'badge-ghost'"
+									:title="sk.description"
+								>
+									<span x-text="sk.name"></span>
+								</button>
+							</template>
+						</div>
 					}
 				</div>
 				<!-- Sandbox network policy -->

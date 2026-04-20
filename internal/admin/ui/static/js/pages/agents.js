@@ -36,11 +36,21 @@ export function register(Alpine) {
 
     showForm: false,
     editingId: null,
+    // formStep is 'pick-template' for a fresh create flow (shows builtin
+    // templates + a Blank option) or 'editing' for the normal form.
+    formStep: 'editing',
     form: {
       name: '', model: '', model_strong: '', model_fast: '',
       system_prompt: '', scope: 'system', enabled: true,
+      enabled_builtin_skills: [],
+      template_id: '',
       sandbox: { network: { mode: 'disabled', allowlist: [] } },
     },
+
+    // Builtin catalog — fetched once on init.
+    builtinTemplates: [],
+    builtinSouls: [],
+    builtinSkills: [],
 
     // User assignment modal state.
     showUserModal: false,
@@ -62,11 +72,104 @@ export function register(Alpine) {
         this.loadAgents(),
         this.loadCachedModels(),
         this.loadCurrentUser(),
+        this.loadBuiltinCatalog(),
       ])
       if (this.isAdmin) {
         await this.loadChannels()
       }
       this.focusAgentFromURL()
+    },
+
+    async loadBuiltinCatalog() {
+      const fetchKind = async (kind) => {
+        try {
+          return (await api('GET', '/api/builtin/' + kind)) || []
+        } catch (_) {
+          return []
+        }
+      }
+      const [templates, souls, skills] = await Promise.all([
+        fetchKind('template'),
+        fetchKind('soul'),
+        fetchKind('skill'),
+      ])
+      this.builtinTemplates = templates
+      this.builtinSouls = souls
+      this.builtinSkills = skills
+    },
+
+    // startCreate opens the form in template-picker mode. If no templates are
+    // available the picker is skipped and we go straight to the blank form.
+    startCreate() {
+      this.resetForm()
+      this.showForm = true
+      this.formStep = this.builtinTemplates.length > 0 ? 'pick-template' : 'editing'
+    },
+
+    // cancelForm closes the form and resets state.
+    cancelForm() {
+      this.resetForm()
+    },
+
+    // pickBlank proceeds to the editing form without loading a template.
+    pickBlank() {
+      this.formStep = 'editing'
+    },
+
+    // pickTemplate loads a template's soul content and pre-fills the form.
+    async pickTemplate(tmpl) {
+      try {
+        // Fetch full template for metadata (soul_id, skills, model).
+        const full = await api('GET', '/api/builtin/template/' + tmpl.id)
+        const meta = full.metadata || {}
+        const soulID = meta.soul_id || ''
+        let soulContent = ''
+        if (soulID) {
+          try {
+            const soul = await api('GET', '/api/builtin/soul/' + soulID)
+            soulContent = soul.content || ''
+          } catch (_) {
+            // If the soul is missing, fall back to empty; user can edit.
+          }
+        }
+        const tmplSkills = Array.isArray(meta.skills) ? meta.skills : []
+        this.form = {
+          ...this.form,
+          name: this.form.name || tmpl.name || '',
+          model: meta.model || this.form.model || '',
+          system_prompt: soulContent,
+          enabled_builtin_skills: tmplSkills,
+          template_id: tmpl.id,
+        }
+        this.formStep = 'editing'
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    toggleBuiltinSkill(name) {
+      const list = this.form.enabled_builtin_skills || []
+      const idx = list.indexOf(name)
+      if (idx >= 0) {
+        this.form.enabled_builtin_skills = list.filter((_, i) => i !== idx)
+      } else {
+        this.form.enabled_builtin_skills = [...list, name]
+      }
+    },
+
+    isBuiltinSkillEnabled(name) {
+      return (this.form.enabled_builtin_skills || []).includes(name)
+    },
+
+    applySoul(soulID) {
+      if (!soulID) return
+      const soul = this.builtinSouls.find(s => s.id === soulID)
+      if (soul && soul.id) {
+        // Full content is only on the detail endpoint; fetch it.
+        api('GET', '/api/builtin/soul/' + soul.id)
+          .then(full => { this.form.system_prompt = full.content || '' })
+          .catch(e => this.$store.toast.show(e.message, 'error'))
+      }
     },
 
     async loadCurrentUser() {
@@ -163,20 +266,26 @@ export function register(Alpine) {
       this.form = {
         name: '', model: '', model_strong: '', model_fast: '',
         system_prompt: '', scope: 'system', enabled: true,
+        enabled_builtin_skills: [],
+        template_id: '',
         sandbox: { network: { mode: 'disabled', allowlist: [] } },
       }
       this.editingId = null
       this.showForm = false
+      this.formStep = 'editing'
     },
 
     editAgent(a) {
       this.form = {
         ...a,
         scope: a.scope || 'system',
+        enabled_builtin_skills: Array.isArray(a.enabled_builtin_skills) ? a.enabled_builtin_skills : [],
+        template_id: '',
         sandbox: this.normalizeSandbox(a.sandbox),
       }
       this.editingId = a.id
       this.showForm = true
+      this.formStep = 'editing'
     },
 
     async saveAgent() {
