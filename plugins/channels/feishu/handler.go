@@ -69,9 +69,11 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 	// events; the contact API failure acts as the implicit tenant filter.
 	if data.UserId != nil {
 		unionID := derefStr(data.UserId.UnionId)
-		provCtx, provCancel := b.apiContext()
-		b.maybeAutoProvision(provCtx, openID, unionID, "")
-		provCancel()
+		go func() {
+			provCtx, provCancel := b.apiContext()
+			defer provCancel()
+			b.maybeAutoProvision(provCtx, openID, unionID, "")
+		}()
 	}
 
 	reactionText := fmt.Sprintf("[User reacted with %s on message %s]", emojiType, messageID)
@@ -137,9 +139,11 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	if cmd0, _ := channel.ParseSlashCommand(text); cmd0 != "/link" {
 		unionID := derefStr(sender.SenderId.UnionId)
 		tenantKey := derefStr(sender.TenantKey)
-		provCtx, provCancel := b.apiContext()
-		b.maybeAutoProvision(provCtx, openID, unionID, tenantKey)
-		provCancel()
+		go func() {
+			provCtx, provCancel := b.apiContext()
+			defer provCancel()
+			b.maybeAutoProvision(provCtx, openID, unionID, tenantKey)
+		}()
 	}
 
 	content := b.buildMessageContent(msg)

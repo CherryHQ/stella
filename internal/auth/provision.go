@@ -35,6 +35,9 @@ func ProvisionIdentityUser(ctx context.Context, store AuthStore, req ProvisionRe
 		}
 		return user, nil
 	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return AuthUser{}, fmt.Errorf("provision: check identity: %w", err)
+	}
 
 	username, err := deriveUsername(ctx, store, req.EmailHint, req.ExternalID)
 	if err != nil {
