@@ -60,11 +60,9 @@ export function register(Alpine) {
     assignedUsers: [],
     addUserId: '',
 
-    // Dedicated channel binding modal state.
-    showChannelModal: false,
+    // Channel binding state (used inline in the edit form).
     channelModalAgent: '',
     selectedChannelIDs: [],
-    savingChannels: false,
 
     confirmMsg: '',
     confirmAction: () => {},
@@ -272,7 +270,7 @@ export function register(Alpine) {
       this.formStep = 'editing'
     },
 
-    editAgent(a) {
+    async editAgent(a) {
       this.form = {
         ...a,
         scope: a.scope || 'system',
@@ -282,6 +280,10 @@ export function register(Alpine) {
       }
       this.selectedSoulID = ''
       this.editingId = a.id
+      // Load channels and pre-select the ones already bound to this agent.
+      await this.loadChannels()
+      this.selectedChannelIDs = this.dedicatedChannelsForAgent(a.id).map(c => c.id)
+      this.channelModalAgent = a.id
       this.showForm = true
       this.formStep = 'editing'
     },
@@ -297,8 +299,10 @@ export function register(Alpine) {
         }
         if (this.editingId) {
           await api('PUT', '/api/agents/' + this.editingId, payload)
+          await this._saveChannelBindings(this.editingId)
         } else {
-          await api('POST', '/api/agents', payload)
+          const created = await api('POST', '/api/agents', payload)
+          await this._saveChannelBindings(created.id)
         }
         this.resetForm()
         await this.loadAgents()
@@ -306,6 +310,23 @@ export function register(Alpine) {
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       }
+    },
+
+    async _saveChannelBindings(agentID) {
+      if (!this.isAdmin) return
+      const selected = new Set(this.selectedChannelIDs)
+      const current = this.availableDedicatedChannels(agentID)
+      for (const channel of current) {
+        const wantsAgent = selected.has(channel.id)
+        const nextAgentID = wantsAgent ? agentID : ''
+        if ((channel.agent_id || '') === nextAgentID) continue
+        await api('PUT', '/api/channels/' + encodeURIComponent(channel.id), {
+          type: channel.type,
+          agent_id: nextAgentID,
+          config: JSON.stringify(channel._config || {}),
+        })
+      }
+      await this.loadChannels()
     },
 
     normalizeSandbox(sandbox) {
@@ -409,14 +430,10 @@ export function register(Alpine) {
       return this.channels.filter(channel => channel.id !== channel.type && channel.enabled && (!channel.agent_id || channel.agent_id === agentId))
     },
 
-    async manageChannels(agent) {
-      this.channelModalAgent = agent.id
-      await this.loadChannels()
-      this.selectedChannelIDs = this.dedicatedChannelsForAgent(agent.id).map(channel => channel.id)
-      this.showChannelModal = true
-    },
-
-    async manageAgentSkills(agent) {
+    async openAgentSkillsDrawer() {
+      if (!this.editingId) return
+      const agent = this.agents.find(a => a.id === this.editingId)
+      if (!agent) return
       await this.openSkillsDrawer({
         title: 'Skills · ' + agent.name,
         subtitle: 'Agent scope · ' + agent.id,
@@ -424,34 +441,6 @@ export function register(Alpine) {
         agentID: agent.id,
         canEdit: this.canEditAgent(agent),
       })
-    },
-
-    async saveChannelBindings() {
-      this.savingChannels = true
-      try {
-        const selected = new Set(this.selectedChannelIDs)
-        const current = this.availableDedicatedChannels(this.channelModalAgent)
-        for (const channel of current) {
-          const wantsAgent = selected.has(channel.id)
-          const nextAgentID = wantsAgent ? this.channelModalAgent : ''
-          if ((channel.agent_id || '') === nextAgentID) {
-            continue
-          }
-          await api('PUT', '/api/channels/' + encodeURIComponent(channel.id), {
-            type: channel.type,
-            agent_id: nextAgentID,
-            config: JSON.stringify(channel._config || {}),
-          })
-        }
-        await this.loadChannels()
-        await this.loadAgents()
-        this.showChannelModal = false
-        this.$store.toast.show('Dedicated channels updated')
-      } catch (e) {
-        this.$store.toast.show(e.message, 'error')
-      } finally {
-        this.savingChannels = false
-      }
     },
 
     // --- Per-user personalisation (soul + profile for each agent) ---

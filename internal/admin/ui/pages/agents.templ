@@ -159,6 +159,35 @@ templ AgentsPage() {
 						<p class="mt-2 text-xs text-warning">Current boxsh builds may reject whitelist mode at runtime even though the config is stored here. Use it only when your runtime supports whitelist enforcement.</p>
 					</div>
 				</div>
+				<!-- Dedicated channels (admin, edit only) -->
+				<div class="mb-4" x-show="isAdmin && editingId">
+					@ui.FormField("Dedicated channels") {
+						<p class="text-xs text-base-content/60 mb-2">Bind dedicated channel instances to this agent.</p>
+						<div class="space-y-2">
+							<template x-for="channel in availableDedicatedChannels(editingId)" :key="channel.id">
+								<label class="flex items-center justify-between gap-3 rounded-lg border border-base-300 px-3 py-2 cursor-pointer">
+									<div class="min-w-0">
+										<p class="text-sm font-mono" x-text="channel.id"></p>
+										<p class="text-xs text-secondary" x-text="channel.type"></p>
+									</div>
+									<input type="checkbox" :value="channel.id" x-model="selectedChannelIDs" class="checkbox checkbox-sm checkbox-primary"/>
+								</label>
+							</template>
+							<div x-show="availableDedicatedChannels(editingId).length === 0" class="text-xs text-base-content/50">No dedicated channel instances available.</div>
+						</div>
+					}
+				</div>
+				<!-- Custom skills (edit only) -->
+				<div class="mb-4" x-show="editingId">
+					@ui.FormField("Custom skills") {
+						<p class="text-xs text-base-content/60 mb-2">Agent-scoped custom skills loaded into every session.</p>
+						<button
+							@click="openAgentSkillsDrawer()"
+							type="button"
+							class="btn btn-ghost btn-sm text-primary"
+						>Manage skills →</button>
+					}
+				</div>
 				<!-- Enabled toggle + save -->
 				<div class="flex items-center justify-between">
 					<label class="flex items-center gap-3 cursor-pointer">
@@ -195,19 +224,10 @@ templ AgentsPage() {
 							</div>
 							<div class="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity" x-show="canEditAgent(a)">
 								<button
-									x-show="isAdmin"
-									@click="manageChannels(a)"
-									class="btn btn-ghost btn-xs text-secondary hover:text-primary"
-								>channels</button>
-								<button
 									x-show="isAdmin && a.scope === 'restricted'"
 									@click="manageUsers(a)"
 									class="btn btn-ghost btn-xs text-secondary hover:text-primary"
 								>users</button>
-								<button
-									@click="manageAgentSkills(a)"
-									class="btn btn-ghost btn-xs text-secondary hover:text-primary"
-								>skills</button>
 								<button @click="editAgent(a)" class="btn btn-ghost btn-xs text-secondary hover:text-primary">edit</button>
 								<button
 									@click="confirmDelete('Delete agent ' + a.id + '?', () => doDeleteAgent(a.id))"
@@ -281,34 +301,6 @@ templ AgentsPage() {
 						</div>
 					</div>
 				</template>
-			</div>
-		</div>
-		<!-- Dedicated channel binding modal -->
-		<div x-show="showChannelModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-			<div class="card bg-base-100 shadow-xl w-full max-w-md" @click.away="showChannelModal = false">
-				<div class="card-body">
-					<h3 class="font-semibold text-sm" x-text="'Dedicated channels for ' + channelModalAgent"></h3>
-					<p class="text-xs text-secondary">Bind dedicated channel instances to this agent. Unbound instances stay available for other agents.</p>
-					<div class="mt-4 space-y-2 max-h-72 overflow-y-auto">
-						<template x-for="channel in availableDedicatedChannels(channelModalAgent)" :key="channel.id">
-							<label class="flex items-center justify-between gap-3 rounded-lg border border-base-300 px-3 py-2 cursor-pointer">
-								<div class="min-w-0">
-									<p class="text-sm font-mono" x-text="channel.id"></p>
-									<p class="text-xs text-secondary" x-text="channel.type"></p>
-								</div>
-								<input type="checkbox" :value="channel.id" x-model="selectedChannelIDs" class="checkbox checkbox-sm checkbox-primary" />
-							</label>
-						</template>
-						<div x-show="availableDedicatedChannels(channelModalAgent).length === 0" class="text-sm text-base-content/50">No dedicated channel instances available.</div>
-					</div>
-					<div class="card-actions justify-end mt-4">
-						<button @click="showChannelModal = false" class="btn btn-ghost btn-sm">Cancel</button>
-						<button @click="saveChannelBindings()" :disabled="savingChannels" class="btn btn-primary btn-sm">
-							<span x-show="savingChannels" class="loading loading-spinner loading-xs"></span>
-							Save
-						</button>
-					</div>
-				</div>
 			</div>
 		</div>
 		<!-- User assignment modal -->
