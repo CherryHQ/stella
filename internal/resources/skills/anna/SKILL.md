@@ -50,7 +50,6 @@ Read the relevant reference file for detailed guidance:
 | Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults |
 | Models | [references/models.md](references/models.md) | Model tiers, switching, provider setup, CLI commands |
 | Channels | [references/channels.md](references/channels.md) | Telegram/QQ/Feishu/WeChat bot setup, groups, access control |
-| Builtin resources | [references/builtin-resources.md](references/builtin-resources.md) | Templates, souls, sub-agents, skills, per-agent enabled skills |
 | Update | [references/update.md](references/update.md) | How to update anna to the latest version |
 
 ## In-chat commands
