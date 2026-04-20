@@ -15,8 +15,8 @@ import (
 	"github.com/vaayne/anna/internal/pluginhost"
 	internalskills "github.com/vaayne/anna/internal/skills"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	builtinres "github.com/vaayne/anna/plugins/tools/builtin"
 	skillstool "github.com/vaayne/anna/plugins/tools/skills"
-	skillsbuiltin "github.com/vaayne/anna/plugins/tools/skills/builtin"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
 
@@ -318,7 +318,11 @@ func skillsMigrateCommand() *ucli.Command {
 			sqliteStore := internalskills.New(db)
 
 			// 1. Sync builtins.
-			if err := internalskills.SyncBuiltin(c.Context, sqliteStore, skillsbuiltin.BuiltinSkillFS()); err != nil {
+			builtinSkillsFS, ok := builtinres.SubFS(builtinres.KindSkill)
+			if !ok {
+				return fmt.Errorf("builtin skills FS unavailable")
+			}
+			if err := internalskills.SyncBuiltin(c.Context, sqliteStore, builtinSkillsFS); err != nil {
 				return fmt.Errorf("sync builtins: %w", err)
 			}
 

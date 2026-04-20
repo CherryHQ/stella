@@ -31,6 +31,7 @@ import (
 	"github.com/vaayne/anna/pkg/tools"
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
 	plugintools "github.com/vaayne/anna/plugins/tools"
+	builtinres "github.com/vaayne/anna/plugins/tools/builtin"
 	mcpplugin "github.com/vaayne/anna/plugins/tools/mcp"
 	skillsbuiltin "github.com/vaayne/anna/plugins/tools/skills/builtin"
 )
@@ -96,7 +97,11 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	}
 
 	skillStore := skills.New(db)
-	if err := skills.SyncBuiltin(parent, skillStore, skillsbuiltin.BuiltinSkillFS()); err != nil {
+	builtinSkillsFS, ok := builtinres.SubFS(builtinres.KindSkill)
+	if !ok {
+		return nil, fmt.Errorf("builtin skills FS unavailable")
+	}
+	if err := skills.SyncBuiltin(parent, skillStore, builtinSkillsFS); err != nil {
 		return nil, fmt.Errorf("sync builtin skills: %w", err)
 	}
 
