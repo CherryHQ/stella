@@ -130,3 +130,18 @@ type AgentInfo struct {
 	ID   string
 	Name string
 }
+
+// ProvisionRequest carries the information needed to auto-provision a channel user.
+type ProvisionRequest struct {
+	Platform   string
+	ExternalID string
+	Name       string
+	EmailHint  string
+}
+
+// Provisioner is an optional capability that a Handler may implement.
+// Channel plugins assert for this interface when they want to auto-provision
+// users on first contact, without adding the method to every channel's Handler.
+type Provisioner interface {
+	ProvisionUser(ctx context.Context, req ProvisionRequest) error
+}

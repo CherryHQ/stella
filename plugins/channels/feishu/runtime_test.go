@@ -230,3 +230,25 @@ func waitClosed(t *testing.T, ch <-chan struct{}, label string) {
 		t.Fatalf("timeout waiting for %s", label)
 	}
 }
+
+func TestValidateConfigAutoProvisionNoTenantKey(t *testing.T) {
+	// tenant_key is optional; auto-detected at startup via the Feishu tenant API.
+	cfg := pkgchannel.FeishuConfig{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: ""}
+	if got := validateConfig(cfg); got != "" {
+		t.Errorf("unexpected validation error: %q", got)
+	}
+}
+
+func TestValidateConfigAutoProvisionWithTenantKey(t *testing.T) {
+	cfg := pkgchannel.FeishuConfig{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "tenant123"}
+	if got := validateConfig(cfg); got != "" {
+		t.Errorf("unexpected validation error: %q", got)
+	}
+}
+
+func TestValidateConfigNoAutoProvision(t *testing.T) {
+	cfg := pkgchannel.FeishuConfig{AppID: "a", AppSecret: "s"}
+	if got := validateConfig(cfg); got != "" {
+		t.Errorf("unexpected validation error: %q", got)
+	}
+}

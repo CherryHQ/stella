@@ -49,6 +49,8 @@ type Config struct {
 	VerificationToken string                 `json:"verification_token"`
 	GroupMode         string                 `json:"group_mode"` // "mention" | "always" | "disabled"
 	Groups            map[string]GroupConfig `json:"groups"`     // per-group overrides keyed by chat_id
+	TenantKey         string                 `json:"tenant_key"`
+	AutoProvision     bool                   `json:"auto_provision"`
 }
 
 // Bot wraps a Feishu bot with agent pool integration.
@@ -63,6 +65,12 @@ type Bot struct {
 	chatModels    map[string]channel.ModelOption
 	seenMsgs      map[string]time.Time // message ID -> first seen time
 	lastSeenSweep time.Time            // last time seenMsgs was swept
+
+	provisionedMu sync.Mutex
+	provisioned   map[string]time.Time // union_id -> last provision time (1h TTL)
+
+	learnedTenantKeyMu sync.RWMutex
+	learnedTenantKey   string // tenant_key auto-detected at startup via tenant API
 
 	cfg    Config
 	ctx    context.Context
@@ -80,10 +88,11 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	}
 
 	b := &Bot{
-		handler:    handler,
-		chatModels: make(map[string]channel.ModelOption),
-		seenMsgs:   make(map[string]time.Time),
-		cfg:        cfg,
+		handler:     handler,
+		chatModels:  make(map[string]channel.ModelOption),
+		seenMsgs:    make(map[string]time.Time),
+		provisioned: make(map[string]time.Time),
+		cfg:         cfg,
 	}
 
 	return b, nil
@@ -101,6 +110,12 @@ func (b *Bot) Start(ctx context.Context) error {
 
 	if err := b.fetchBotOpenID(b.ctx); err != nil {
 		logger().Warn("failed to fetch bot open_id, self-message filtering disabled", "error", err)
+	}
+
+	if b.cfg.AutoProvision && b.cfg.TenantKey == "" {
+		if err := b.fetchBotTenantKey(b.ctx); err != nil {
+			logger().Warn("auto-provision: failed to detect tenant_key at startup, configure it explicitly", "error", err)
+		}
 	}
 
 	eventHandler := dispatcher.NewEventDispatcher(b.cfg.VerificationToken, b.cfg.EncryptKey).

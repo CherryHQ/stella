@@ -37,6 +37,45 @@ lark-cli auth status
 
 用户自行安装的 `lark-cli` skill 可以覆盖原来的 `feishu_calendar`、`feishu_task`、`feishu_im`、`feishu_doc`、`feishu_wiki`、`feishu_sheets`、`feishu_drive`、`feishu_bitable`、`feishu_user` 和 `feishu_search` 等工作流。
 
+## 自动注册用户
+
+开启后，anna 会在飞书租户的员工第一次给机器人发消息时，自动为其创建 Anna 账号，无需手动注册或执行 `/link`。
+
+### 工作原理
+
+1. 用户发送消息。
+2. Anna 对比事件中的 `tenant_key` 与配置的 `tenant_key`。若不匹配（外部访客），消息正常流转，但用户会收到"无权访问"的回复。
+3. 若匹配，anna 调用飞书联系人 API（`contact.v3.user.get`）获取用户的 `union_id`、显示名称和邮箱。
+4. 以邮箱本地部分作为用户名创建 Anna 账号（例如 `alice@corp.com` → `alice`），无邮箱时回退到 `feishu-<union_id[:8]>`。用户名冲突时加 `-2`、`-3` 等后缀。
+5. 自动创建的用户没有密码，可以立即与机器人对话，但在管理员设置密码前无法登录管理面板。
+6. 自动注册的用户角色为 `user`，默认使用系统默认 agent。
+
+### 所需应用权限
+
+在飞书开放平台的 **权限管理** 中添加以下权限：
+
+- `contact:user.base:readonly`
+- `contact:user.id:readonly`
+
+### 如何获取 tenant_key
+
+登录飞书管理后台，进入 **企业信息**，找到 **企业标识（Tenant Key）**。
+
+### 配置示例
+
+```json
+{
+  "app_id": "FEISHU_APP_ID",
+  "app_secret": "FEISHU_APP_SECRET",
+  "tenant_key": "YOUR_TENANT_KEY",
+  "auto_provision": true
+}
+```
+
+> **注意：** 共享群中的外部访客每次发消息都会收到"无权访问"的回复——因为他们的 tenant_key 与配置不符，这是预期行为。
+
+> **注意：** 若系统中尚无管理员账号，自动注册会被拒绝，直到第一个管理员通过管理面板完成注册。这样可以防止全新部署陷入无管理员的困境。
+
 ## 多用户支持
 
 每个 Feishu 用户都会通过平台身份自动解析。会话按用户和 agent 隔离，因此不同用户拥有各自独立的记忆和默认 agent 状态。
@@ -102,6 +141,8 @@ Feishu 支持标准聊天命令：
   "verification_token": "",
   "group_mode": "mention",
   "enable_notify": false,
+  "tenant_key": "",
+  "auto_provision": false,
   "groups": {
     "oc_example": {
       "group_mode": "always",
@@ -119,4 +160,6 @@ Feishu 支持标准聊天命令：
 | `verification_token` | 可选的事件校验 token |
 | `group_mode` | 默认群聊行为：`mention`、`always` 或 `disabled` |
 | `enable_notify` | 允许调度器和 `notify` 输出发送到 Feishu |
+| `tenant_key` | 企业 Tenant Key，`auto_provision` 为 `true` 时必填 |
+| `auto_provision` | 自动为配置租户的员工创建 Anna 账号 |
 | `groups` | 按 Feishu `chat_id` 配置的群级覆盖项 |
