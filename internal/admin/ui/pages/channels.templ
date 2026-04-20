@@ -341,6 +341,17 @@ templ dedicatedInstanceFields(model string) {
 						</select>
 					}
 				</div>
+				<div>
+					@ui.FormField("Tenant Key") {
+						<input type="text" x-model={ model + ".tenant_key" } placeholder="optional, for auto-provisioning" class="input input-bordered w-full text-sm font-mono"/>
+					}
+				</div>
+			</div>
+			<div class="form-control">
+				<label class="label cursor-pointer gap-3 justify-start">
+					<input type="checkbox" x-model={ model + ".auto_provision" } class="toggle toggle-primary toggle-sm"/>
+					<span class="label-text text-sm">Auto-provision accounts for tenant members</span>
+				</label>
 			</div>
 		</div>
 
