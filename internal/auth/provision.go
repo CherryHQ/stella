@@ -39,7 +39,7 @@ func ProvisionIdentityUser(ctx context.Context, store AuthStore, req ProvisionRe
 		return AuthUser{}, fmt.Errorf("provision: check identity: %w", err)
 	}
 
-	username, err := deriveUsername(ctx, store, req.EmailHint, req.ExternalID)
+	username, err := deriveUsername(ctx, store, req.EmailHint, req.ExternalID, req.Platform)
 	if err != nil {
 		return AuthUser{}, err
 	}
@@ -74,14 +74,14 @@ func ProvisionIdentityUser(ctx context.Context, store AuthStore, req ProvisionRe
 // deriveUsername produces a unique username from an email hint or external ID.
 // It tries the base name, then base-2, base-3, … up to maxUsernameAttempts.
 // Returns an error if all candidates are taken.
-func deriveUsername(ctx context.Context, store AuthStore, emailHint, externalID string) (string, error) {
+func deriveUsername(ctx context.Context, store AuthStore, emailHint, externalID, platform string) (string, error) {
 	base := localPart(emailHint)
 	if base == "" {
 		id := externalID
 		if len(id) > 8 {
 			id = id[:8]
 		}
-		base = "feishu-" + id
+		base = platform + "-" + id
 	}
 
 	for i := range maxUsernameAttempts {

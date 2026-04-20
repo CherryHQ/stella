@@ -3,7 +3,6 @@ package feishu
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	larkcontact "github.com/larksuite/oapi-sdk-go/v3/service/contact/v3"
@@ -11,6 +10,13 @@ import (
 )
 
 const provisionCacheTTL = time.Hour
+
+func (b *Bot) isCachedProvision(key string) bool {
+	b.provisionedMu.Lock()
+	defer b.provisionedMu.Unlock()
+	t, ok := b.provisioned[key]
+	return ok && time.Since(t) < provisionCacheTTL
+}
 
 // effectiveTenantKey returns the configured tenant key, or the one auto-detected
 // at startup from the Feishu tenant API.
@@ -127,12 +133,9 @@ func (b *Bot) maybeAutoProvision(ctx context.Context, openID, unionID, tenantKey
 		cacheKey = openID
 	}
 
-	b.provisionedMu.Lock()
-	if t, ok := b.provisioned[cacheKey]; ok && time.Since(t) < provisionCacheTTL {
-		b.provisionedMu.Unlock()
+	if b.isCachedProvision(cacheKey) {
 		return
 	}
-	b.provisionedMu.Unlock()
 
 	// Fetch profile from contact API for email hint and authoritative union_id.
 	// This also acts as an implicit tenant filter: the API rejects external users.
@@ -155,12 +158,9 @@ func (b *Bot) maybeAutoProvision(ctx context.Context, openID, unionID, tenantKey
 	}
 
 	// Re-check cache with the authoritative union_id.
-	b.provisionedMu.Lock()
-	if t, ok := b.provisioned[cacheKey]; ok && time.Since(t) < provisionCacheTTL {
-		b.provisionedMu.Unlock()
+	if b.isCachedProvision(cacheKey) {
 		return
 	}
-	b.provisionedMu.Unlock()
 
 	if err := provisioner.ProvisionUser(ctx, pkgchannel.ProvisionRequest{
 		Platform:   pkgchannel.PlatformFeishu,
@@ -168,7 +168,7 @@ func (b *Bot) maybeAutoProvision(ctx context.Context, openID, unionID, tenantKey
 		Name:       profile.Name,
 		EmailHint:  profile.Email,
 	}); err != nil {
-		slog.Debug("auto-provision failed", "open_id", openID, "error", err)
+		logger().Debug("auto-provision failed", "open_id", openID, "error", err)
 		return
 	}
 

@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/vaayne/anna/internal/agent"
@@ -272,7 +273,7 @@ func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.Provisio
 	}
 	count, err := c.authStore.CountUsers(ctx)
 	if err != nil {
-		return errors.New("provision: could not count users")
+		return fmt.Errorf("provision: count users: %w", err)
 	}
 	if count == 0 {
 		return errors.New("provision: no admin exists yet; register the first admin before enabling auto-provisioning")
