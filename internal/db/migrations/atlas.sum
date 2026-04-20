@@ -1,4 +1,4 @@
-h1:hkmnjzCKty9v5pxlymvms/UzMjGZC0Ztpj9LeK8dQfk=
+h1:m8QDWfl9FhjTOOo4lCTPSzaTqNodUZqFKd9I4XuZxSY=
 20260317041843_rename_tables_with_prefixes.sql h1:Nfk81sAWddxDQvpo8pBhXJ5Sec5JcCF6tchqgt+777M=
 20260317065837_drop_agent_provider_id.sql h1:gb4CoI8GlT4P3QbksGw07M8SruOcR9pQI0Sj7/Q2rao=
 20260320104110_add-auth-tables.sql h1:6TjzFFeMMTJzy3/mGN4nrm4+SoYGhanOQY24nUbL3H4=
@@ -22,3 +22,4 @@ h1:hkmnjzCKty9v5pxlymvms/UzMjGZC0Ztpj9LeK8dQfk=
 20260418112115_add-skills.sql h1:G8R0mblE2MMtqmG1hxgeXtAK+Hzq6DaEvwY87V803YM=
 20260418134505_drop_project_from_skills.sql h1:H1FQixo8Uaq+Z3UyIR0HpkttpMFAv4n+JyePjcyssGs=
 20260420101609_enabled-builtin-skills.sql h1:NucC9yw7OSaDn+x2+Q9gFeOpP+H45zT0IjfnFlS+C9o=
+20260420153840_add_agent_soul.sql h1:eCkP6fN4MWp7Z36IxVEhI0C/7Vta9dkjIouPvKqBMAg=

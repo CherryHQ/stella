@@ -183,6 +183,7 @@ type SettingsAgent struct {
 	ModelStrong          string `json:"model_strong"`
 	ModelFast            string `json:"model_fast"`
 	SystemPrompt         string `json:"system_prompt"`
+	Soul                 string `json:"soul"`
 	Workspace            string `json:"workspace"`
 	Sandbox              string `json:"sandbox"`
 	EnabledBuiltinSkills string `json:"enabled_builtin_skills"`

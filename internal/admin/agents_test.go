@@ -30,10 +30,9 @@ func createTestAgent(t *testing.T, env *testEnv, a config.Agent) string {
 func TestCreateAgentFromTemplate(t *testing.T) {
 	env := setupAdmin(t)
 
-	// Template "coder" references soul "coder" and skills code-review/implementation/task-planning.
 	body := map[string]any{
 		"name":        "Template-built",
-		"template_id": "coder",
+		"template_id": "anna",
 	}
 	rr := doRequest(t, env, "POST", "/api/agents", body)
 	if rr.Code != http.StatusCreated {
@@ -45,7 +44,7 @@ func TestCreateAgentFromTemplate(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if a.SystemPrompt == "" {
-		t.Errorf("expected SystemPrompt copied from soul, got empty")
+		t.Errorf("expected SystemPrompt populated from template body, got empty")
 	}
 	if len(a.EnabledBuiltinSkills) == 0 {
 		t.Errorf("expected EnabledBuiltinSkills populated from template, got empty")
@@ -57,7 +56,7 @@ func TestCreateAgentUserOverridesTemplate(t *testing.T) {
 
 	body := map[string]any{
 		"name":                   "Override-me",
-		"template_id":            "coder",
+		"template_id":            "anna",
 		"system_prompt":          "CUSTOM PROMPT",
 		"enabled_builtin_skills": []string{"research"},
 	}

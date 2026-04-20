@@ -21,7 +21,7 @@ templ AgentsPage() {
 			<!-- Template picker step -->
 			<div x-show="showForm && formStep === 'pick-template'" x-transition x-cloak class="mb-8 pb-8 border-b border-base-300">
 				<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-4">Start from a template</p>
-				<p class="text-xs text-base-content/60 mb-4">Templates pre-fill soul, skills, and model. You can edit everything before saving.</p>
+				<p class="text-xs text-base-content/60 mb-4">Templates pre-fill the system prompt, skills, and model. You can edit everything before saving.</p>
 				<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
 					<template x-for="tmpl in builtinTemplates" :key="tmpl.id">
 						<button
@@ -72,18 +72,30 @@ templ AgentsPage() {
 						</select>
 					}
 				</div>
-				<!-- Soul picker: overwrites system_prompt with selected soul content -->
+				<!-- Soul preset (create only) -->
 				<div class="mb-4" x-show="!editingId && builtinSouls.length > 0">
 					@ui.FormField("Soul preset") {
 						<select
-							@change="applySoul($event.target.value); $event.target.value = ''"
+							x-model="selectedSoulID"
+							@change="applySoul(selectedSoulID)"
 							class="select select-bordered w-full text-sm"
 						>
-							<option value="">— pick a soul to fill System Prompt —</option>
+							<option value="">— pick a soul preset —</option>
 							<template x-for="soul in builtinSouls" :key="soul.id">
 								<option :value="soul.id" x-text="soul.name + ' — ' + (soul.description || '')"></option>
 							</template>
 						</select>
+					}
+				</div>
+				<!-- Soul (editable, shown for create; per-user soul editing is in the agent row) -->
+				<div class="mb-4" x-show="!editingId">
+					@ui.FormField("Soul") {
+						<textarea
+							x-model="form.soul"
+							rows="3"
+							placeholder="Default personality for all users. Users can override their own soul in the agent panel."
+							class="textarea textarea-bordered w-full text-sm font-mono resize-y"
+						></textarea>
 					}
 				</div>
 				<!-- System prompt (readonly for non-editors) -->

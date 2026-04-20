@@ -34,7 +34,7 @@ func TestListBuiltinTemplates(t *testing.T) {
 func TestGetBuiltinTemplate(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "GET", "/api/builtin/template/coder", nil)
+	rr := doRequest(t, env, "GET", "/api/builtin/template/anna", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("get: %d (%s)", rr.Code, rr.Body.String())
 	}
@@ -43,8 +43,8 @@ func TestGetBuiltinTemplate(t *testing.T) {
 	if err := json.Unmarshal(resp.Data, &full); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if full["id"] != "coder" {
-		t.Errorf("id = %v, want coder", full["id"])
+	if full["id"] != "anna" {
+		t.Errorf("id = %v, want anna", full["id"])
 	}
 	if full["content"] == "" {
 		t.Errorf("content should be populated")

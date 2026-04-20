@@ -41,11 +41,13 @@ export function register(Alpine) {
     formStep: 'editing',
     form: {
       name: '', model: '', model_strong: '', model_fast: '',
-      system_prompt: '', scope: 'system', enabled: true,
+      system_prompt: '', soul: '', scope: 'system', enabled: true,
       enabled_builtin_skills: [],
       template_id: '',
       sandbox: { network: { mode: 'disabled', allowlist: [] } },
     },
+
+    selectedSoulID: '',
 
     // Builtin catalog — fetched once on init.
     builtinTemplates: [],
@@ -116,10 +118,9 @@ export function register(Alpine) {
       this.formStep = 'editing'
     },
 
-    // pickTemplate loads a template's soul content and pre-fills the form.
+    // pickTemplate pre-fills the form from a builtin template.
     async pickTemplate(tmpl) {
       try {
-        // Fetch full template for metadata (soul_id, skills, model).
         const full = await api('GET', '/api/builtin/template/' + tmpl.id)
         const meta = full.metadata || {}
         const soulID = meta.soul_id || ''
@@ -128,16 +129,15 @@ export function register(Alpine) {
           try {
             const soul = await api('GET', '/api/builtin/soul/' + soulID)
             soulContent = soul.content || ''
-          } catch (_) {
-            // If the soul is missing, fall back to empty; user can edit.
-          }
+          } catch (_) {}
         }
         const tmplSkills = Array.isArray(meta.skills) ? meta.skills : []
         this.form = {
           ...this.form,
           name: this.form.name || tmpl.name || '',
           model: meta.model || this.form.model || '',
-          system_prompt: soulContent,
+          system_prompt: full.content || '',
+          soul: soulContent,
           enabled_builtin_skills: tmplSkills,
           template_id: tmpl.id,
         }
@@ -145,6 +145,13 @@ export function register(Alpine) {
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       }
+    },
+
+    applySoul(soulID) {
+      if (!soulID) return
+      api('GET', '/api/builtin/soul/' + soulID)
+        .then(full => { this.form.soul = full.content || '' })
+        .catch(e => { this.selectedSoulID = ''; this.$store.toast.show(e.message, 'error') })
     },
 
     toggleBuiltinSkill(name) {
@@ -159,17 +166,6 @@ export function register(Alpine) {
 
     isBuiltinSkillEnabled(name) {
       return (this.form.enabled_builtin_skills || []).includes(name)
-    },
-
-    applySoul(soulID) {
-      if (!soulID) return
-      const soul = this.builtinSouls.find(s => s.id === soulID)
-      if (soul && soul.id) {
-        // Full content is only on the detail endpoint; fetch it.
-        api('GET', '/api/builtin/soul/' + soul.id)
-          .then(full => { this.form.system_prompt = full.content || '' })
-          .catch(e => this.$store.toast.show(e.message, 'error'))
-      }
     },
 
     async loadCurrentUser() {
@@ -265,11 +261,12 @@ export function register(Alpine) {
     resetForm() {
       this.form = {
         name: '', model: '', model_strong: '', model_fast: '',
-        system_prompt: '', scope: 'system', enabled: true,
+        system_prompt: '', soul: '', scope: 'system', enabled: true,
         enabled_builtin_skills: [],
         template_id: '',
         sandbox: { network: { mode: 'disabled', allowlist: [] } },
       }
+      this.selectedSoulID = ''
       this.editingId = null
       this.showForm = false
       this.formStep = 'editing'

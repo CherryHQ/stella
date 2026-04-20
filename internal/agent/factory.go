@@ -86,6 +86,7 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 			// Build the full system prompt per-session with profile from memory provider.
 			system := runner.BuildSystemPromptFromDB(ctx, runner.DBPromptParams{
 				SystemPrompt:   snap.SystemPrompt,
+				AgentSoul:      snap.Soul,
 				Memory:         memProvider,
 				UserID:         params.UserID,
 				AgentID:        params.AgentID,

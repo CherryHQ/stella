@@ -47,6 +47,7 @@ type Agent struct {
 	ModelStrong          string        `json:"model_strong"`
 	ModelFast            string        `json:"model_fast"`
 	SystemPrompt         string        `json:"system_prompt"`
+	Soul                 string        `json:"soul"`
 	Workspace            string        `json:"workspace"`
 	Sandbox              SandboxConfig `json:"sandbox"`
 	EnabledBuiltinSkills []string      `json:"enabled_builtin_skills"`

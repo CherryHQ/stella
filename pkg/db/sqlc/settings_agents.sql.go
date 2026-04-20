@@ -10,9 +10,9 @@ import (
 )
 
 const createAgent = `-- name: CreateAgent :one
-INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, name, model, model_strong, model_fast, system_prompt, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at
+INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at
 `
 
 type CreateAgentParams struct {
@@ -22,6 +22,7 @@ type CreateAgentParams struct {
 	ModelStrong          string `json:"model_strong"`
 	ModelFast            string `json:"model_fast"`
 	SystemPrompt         string `json:"system_prompt"`
+	Soul                 string `json:"soul"`
 	Workspace            string `json:"workspace"`
 	Sandbox              string `json:"sandbox"`
 	EnabledBuiltinSkills string `json:"enabled_builtin_skills"`
@@ -38,6 +39,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Setti
 		arg.ModelStrong,
 		arg.ModelFast,
 		arg.SystemPrompt,
+		arg.Soul,
 		arg.Workspace,
 		arg.Sandbox,
 		arg.EnabledBuiltinSkills,
@@ -53,6 +55,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Setti
 		&i.ModelStrong,
 		&i.ModelFast,
 		&i.SystemPrompt,
+		&i.Soul,
 		&i.Workspace,
 		&i.Sandbox,
 		&i.EnabledBuiltinSkills,
@@ -75,7 +78,7 @@ func (q *Queries) DeleteAgent(ctx context.Context, id string) error {
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, name, model, model_strong, model_fast, system_prompt, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM settings_agents WHERE id = ?
+SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM settings_agents WHERE id = ?
 `
 
 func (q *Queries) GetAgent(ctx context.Context, id string) (SettingsAgent, error) {
@@ -88,6 +91,7 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (SettingsAgent, error
 		&i.ModelStrong,
 		&i.ModelFast,
 		&i.SystemPrompt,
+		&i.Soul,
 		&i.Workspace,
 		&i.Sandbox,
 		&i.EnabledBuiltinSkills,
@@ -101,7 +105,7 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (SettingsAgent, error
 }
 
 const listAgents = `-- name: ListAgents :many
-SELECT id, name, model, model_strong, model_fast, system_prompt, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM settings_agents ORDER BY name
+SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM settings_agents ORDER BY name
 `
 
 func (q *Queries) ListAgents(ctx context.Context) ([]SettingsAgent, error) {
@@ -120,6 +124,7 @@ func (q *Queries) ListAgents(ctx context.Context) ([]SettingsAgent, error) {
 			&i.ModelStrong,
 			&i.ModelFast,
 			&i.SystemPrompt,
+			&i.Soul,
 			&i.Workspace,
 			&i.Sandbox,
 			&i.EnabledBuiltinSkills,
@@ -143,7 +148,7 @@ func (q *Queries) ListAgents(ctx context.Context) ([]SettingsAgent, error) {
 }
 
 const listEnabledAgents = `-- name: ListEnabledAgents :many
-SELECT id, name, model, model_strong, model_fast, system_prompt, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM settings_agents WHERE enabled = 1 ORDER BY name
+SELECT id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM settings_agents WHERE enabled = 1 ORDER BY name
 `
 
 func (q *Queries) ListEnabledAgents(ctx context.Context) ([]SettingsAgent, error) {
@@ -162,6 +167,7 @@ func (q *Queries) ListEnabledAgents(ctx context.Context) ([]SettingsAgent, error
 			&i.ModelStrong,
 			&i.ModelFast,
 			&i.SystemPrompt,
+			&i.Soul,
 			&i.Workspace,
 			&i.Sandbox,
 			&i.EnabledBuiltinSkills,
@@ -191,6 +197,7 @@ UPDATE settings_agents SET
     model_strong = ?,
     model_fast = ?,
     system_prompt = ?,
+    soul = ?,
     workspace = ?,
     sandbox = ?,
     enabled_builtin_skills = ?,
@@ -206,6 +213,7 @@ type UpdateAgentParams struct {
 	ModelStrong          string `json:"model_strong"`
 	ModelFast            string `json:"model_fast"`
 	SystemPrompt         string `json:"system_prompt"`
+	Soul                 string `json:"soul"`
 	Workspace            string `json:"workspace"`
 	Sandbox              string `json:"sandbox"`
 	EnabledBuiltinSkills string `json:"enabled_builtin_skills"`
@@ -221,6 +229,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error 
 		arg.ModelStrong,
 		arg.ModelFast,
 		arg.SystemPrompt,
+		arg.Soul,
 		arg.Workspace,
 		arg.Sandbox,
 		arg.EnabledBuiltinSkills,

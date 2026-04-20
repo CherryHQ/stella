@@ -30,7 +30,8 @@ type Snapshot struct {
 	Sandbox      SandboxConfig
 	APIKey       string
 	BaseURL      string
-	SystemPrompt string // agent's soul/personality from DB
+	SystemPrompt string // agent's base system prompt from DB
+	Soul         string // agent's default soul from DB (fallback for all users)
 
 	// EnabledBuiltinSkills is the per-agent list of builtin skill names that
 	// appear in the prompt catalog. The always-on "anna" skill is visible to

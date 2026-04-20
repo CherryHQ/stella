@@ -42,10 +42,13 @@ func applyTemplate(a *config.Agent, templateID string) error {
 		}
 	}
 	if a.SystemPrompt == "" {
+		a.SystemPrompt = tmpl.Content
+	}
+	if a.Soul == "" {
 		soulID, _ := tmpl.Metadata["soul_id"].(string)
 		if soulID != "" {
 			if soul, ok := reg.Get(builtinres.KindSoul, soulID); ok {
-				a.SystemPrompt = soul.Content
+				a.Soul = soul.Content
 			}
 		}
 	}

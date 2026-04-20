@@ -5,6 +5,7 @@ import (
 	"context"
 	_ "embed"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/template"
 
@@ -23,18 +24,19 @@ var defaultSystemPrompt string
 // DefaultSystemPrompt returns the default system prompt text.
 func DefaultSystemPrompt() string { return strings.TrimSpace(defaultSystemPrompt) }
 
-// DefaultAgentSoul returns the "default" soul from the builtin registry,
-// used as the fallback persona when an agent has no override in memory.
+// DefaultAgentSoul returns the first soul tagged "default" from the builtin
+// registry, used as the fallback persona when an agent has no override in memory.
 func DefaultAgentSoul() string {
 	reg, err := builtinres.Default()
 	if err != nil {
 		return ""
 	}
-	res, ok := reg.Get(builtinres.KindSoul, "default")
-	if !ok {
-		return ""
+	for _, res := range reg.List(builtinres.KindSoul) {
+		if slices.Contains(res.Tags, "default") {
+			return strings.TrimSpace(res.Content)
+		}
 	}
-	return strings.TrimSpace(res.Content)
+	return ""
 }
 
 var systemTmpl = template.Must(template.New("system").Funcs(template.FuncMap{
@@ -65,7 +67,8 @@ type promptToolEntry struct {
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
 type DBPromptParams struct {
-	SystemPrompt   string          // agent's full system prompt from DB (the base layer)
+	SystemPrompt   string          // agent's base system prompt from DB
+	AgentSoul      string          // agent's default soul from DB (fallback for all users)
 	Memory         memory.Provider // active provider for profile loading (may be nil)
 	UserID         int64           // auth user ID for profile lookup
 	AgentID        string          // agent ID for profile lookup
@@ -94,12 +97,17 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 		sysPrompt = strings.TrimSpace(defaultSystemPrompt)
 	}
 
+	// Soul priority: per-user override > agent default > global builtin default.
+	agentSoul := strings.TrimSpace(p.AgentSoul)
+	if agentSoul == "" {
+		agentSoul = DefaultAgentSoul()
+	}
 	data := promptData{
 		SystemPrompt: sysPrompt,
-		AgentSoul:    DefaultAgentSoul(),
+		AgentSoul:    agentSoul,
 	}
 
-	// Memory: agent soul + user profile (always rendered, populated when available).
+	// Memory: per-user soul overrides the agent default when set.
 	if ps, ok := p.Memory.(memory.ProfileStore); ok && p.UserID > 0 && p.AgentID != "" {
 		if s, err := ps.GetAgentSoul(ctx, p.UserID, p.AgentID); err == nil {
 			if soul := strings.TrimRight(s, "\n"); soul != "" {

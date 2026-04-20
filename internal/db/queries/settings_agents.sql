@@ -1,6 +1,6 @@
 -- name: CreateAgent :one
-INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgent :one
@@ -19,6 +19,7 @@ UPDATE settings_agents SET
     model_strong = ?,
     model_fast = ?,
     system_prompt = ?,
+    soul = ?,
     workspace = ?,
     sandbox = ?,
     enabled_builtin_skills = ?,
