@@ -39,6 +39,8 @@ var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) 
 				VerificationToken: cfg.VerificationToken,
 				GroupMode:         cfg.GroupMode,
 				Groups:            groupsToPluginConfig(cfg.Groups),
+				TenantKey:         cfg.TenantKey,
+				AutoProvision:     cfg.AutoProvision,
 			}, handler)
 		},
 	}), nil

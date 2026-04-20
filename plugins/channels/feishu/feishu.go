@@ -49,6 +49,8 @@ type Config struct {
 	VerificationToken string                 `json:"verification_token"`
 	GroupMode         string                 `json:"group_mode"` // "mention" | "always" | "disabled"
 	Groups            map[string]GroupConfig `json:"groups"`     // per-group overrides keyed by chat_id
+	TenantKey         string                 `json:"tenant_key"`
+	AutoProvision     bool                   `json:"auto_provision"`
 }
 
 // Bot wraps a Feishu bot with agent pool integration.

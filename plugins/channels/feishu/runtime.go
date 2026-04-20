@@ -29,6 +29,8 @@ func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.Runtime {
 				VerificationToken: cfg.VerificationToken,
 				GroupMode:         cfg.GroupMode,
 				Groups:            groupsToPluginConfig(cfg.Groups),
+				TenantKey:         cfg.TenantKey,
+				AutoProvision:     cfg.AutoProvision,
 			}, handler)
 		}
 	}
@@ -135,6 +137,15 @@ func configSchema() map[string]any {
 				"description": "Whether scheduler and system notifications are delivered to Feishu.",
 				"default":     false,
 			},
+			"tenant_key": map[string]any{
+				"type":        "string",
+				"description": "Feishu tenant key (enterprise ID). Required when auto_provision is true. Find it in Feishu Admin Console → Enterprise Information.",
+			},
+			"auto_provision": map[string]any{
+				"type":        "boolean",
+				"description": "Automatically create Anna accounts for users of the configured tenant. Requires tenant_key.",
+				"default":     false,
+			},
 		},
 		"required": []any{"app_id", "app_secret"},
 	}
@@ -143,6 +154,9 @@ func configSchema() map[string]any {
 func validateConfig(cfg pkgchannel.FeishuConfig) string {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return "feishu: missing app_id or app_secret"
+	}
+	if cfg.AutoProvision && cfg.TenantKey == "" {
+		return "feishu: tenant_key is required when auto_provision is true"
 	}
 	return ""
 }
