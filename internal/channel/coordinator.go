@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/vaayne/anna/internal/agent"
@@ -261,5 +262,30 @@ func convertEvent(evt runner.Event) pkgchannel.Event {
 	return out
 }
 
-// compile-time check.
+// ProvisionUser creates or returns an existing user+identity for the given
+// channel sender. Returns an error if auth is not configured or the user
+// count is zero (no admin exists yet — provisioning is refused until the
+// first admin registers to avoid stranding a deployment with zero admins).
+func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.ProvisionRequest) error {
+	if c.authStore == nil {
+		return errors.New("provision: auth not configured")
+	}
+	count, err := c.authStore.CountUsers(ctx)
+	if err != nil {
+		return errors.New("provision: could not count users")
+	}
+	if count == 0 {
+		return errors.New("provision: no admin exists yet; register the first admin before enabling auto-provisioning")
+	}
+	_, err = auth.ProvisionIdentityUser(ctx, c.authStore, auth.ProvisionRequest{
+		Platform:   req.Platform,
+		ExternalID: req.ExternalID,
+		Name:       req.Name,
+		EmailHint:  req.EmailHint,
+	})
+	return err
+}
+
+// compile-time checks.
 var _ pkgchannel.Handler = (*Coordinator)(nil)
+var _ pkgchannel.Provisioner = (*Coordinator)(nil)
