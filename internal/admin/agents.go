@@ -5,7 +5,74 @@ import (
 	"net/http"
 
 	"github.com/vaayne/anna/internal/config"
+	builtinres "github.com/vaayne/anna/plugins/tools/builtin"
 )
+
+// createAgentRequest wraps config.Agent to accept an optional template_id
+// hint. When set, fields on the template pre-populate empty fields on the
+// submitted agent; values the user already supplied always win.
+type createAgentRequest struct {
+	config.Agent
+	TemplateID string `json:"template_id"`
+}
+
+// applyTemplate merges a builtin template (and its referenced soul) into a
+// fresh agent. Non-empty fields on the agent take precedence so the caller
+// can override template defaults from the UI.
+func applyTemplate(a *config.Agent, templateID string) error {
+	if templateID == "" {
+		return nil
+	}
+	reg, err := builtinres.Default()
+	if err != nil {
+		return fmt.Errorf("load builtin registry: %w", err)
+	}
+	tmpl, ok := reg.Get(builtinres.KindTemplate, templateID)
+	if !ok {
+		return fmt.Errorf("template %q not found", templateID)
+	}
+	if a.Model == "" {
+		if model, ok := tmpl.Metadata["model"].(string); ok {
+			a.Model = model
+		}
+	}
+	if len(a.EnabledBuiltinSkills) == 0 {
+		if skills := stringsFromMetadata(tmpl.Metadata, "skills"); len(skills) > 0 {
+			a.EnabledBuiltinSkills = skills
+		}
+	}
+	if a.SystemPrompt == "" {
+		soulID, _ := tmpl.Metadata["soul_id"].(string)
+		if soulID != "" {
+			if soul, ok := reg.Get(builtinres.KindSoul, soulID); ok {
+				a.SystemPrompt = soul.Content
+			}
+		}
+	}
+	return nil
+}
+
+// stringsFromMetadata returns a []string for a metadata key that may arrive
+// as []any (YAML default) or []string.
+func stringsFromMetadata(meta map[string]any, key string) []string {
+	raw, ok := meta[key]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return append([]string(nil), v...)
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
 
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -37,13 +104,18 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	info := UserFromContext(ctx)
 
-	var a config.Agent
-	if err := decodeJSON(r, &a); err != nil {
+	var req createAgentRequest
+	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
+	a := req.Agent
 	if a.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if err := applyTemplate(&a, req.TemplateID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	a.Sandbox.Backend = "" // backend is global; only network is per-agent
