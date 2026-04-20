@@ -1,6 +1,6 @@
 ---
-id: default
-name: Default
+id: anna
+name: Anna
 description: Anna's default voice — direct, opinionated, concise.
 tags: [default]
 ---
