@@ -72,8 +72,8 @@ templ AgentsPage() {
 						</select>
 					}
 				</div>
-				<!-- Soul preset (create only) -->
-				<div class="mb-4" x-show="!editingId && builtinSouls.length > 0">
+				<!-- Soul preset -->
+				<div class="mb-4" x-show="builtinSouls.length > 0">
 					@ui.FormField("Soul preset") {
 						<select
 							x-model="selectedSoulID"
@@ -87,13 +87,13 @@ templ AgentsPage() {
 						</select>
 					}
 				</div>
-				<!-- Soul (editable, shown for create; per-user soul editing is in the agent row) -->
-				<div class="mb-4" x-show="!editingId">
+				<!-- Soul (per-agent default; users can override their own in the agent panel) -->
+				<div class="mb-4">
 					@ui.FormField("Soul") {
 						<textarea
 							x-model="form.soul"
 							rows="3"
-							placeholder="Default personality for all users. Users can override their own soul in the agent panel."
+							placeholder="Default personality for all users of this agent. Users can override their own soul in the agent panel."
 							class="textarea textarea-bordered w-full text-sm font-mono resize-y"
 						></textarea>
 					}

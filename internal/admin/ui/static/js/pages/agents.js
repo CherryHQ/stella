@@ -280,6 +280,7 @@ export function register(Alpine) {
         template_id: '',
         sandbox: this.normalizeSandbox(a.sandbox),
       }
+      this.selectedSoulID = ''
       this.editingId = a.id
       this.showForm = true
       this.formStep = 'editing'

@@ -114,7 +114,7 @@ func AgentsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div><!-- Soul preset (create only) --><div class=\"mb-4\" x-show=\"!editingId && builtinSouls.length > 0\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div><!-- Soul preset --><div class=\"mb-4\" x-show=\"builtinSouls.length > 0\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -140,7 +140,7 @@ func AgentsPage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div><!-- Soul (editable, shown for create; per-user soul editing is in the agent row) --><div class=\"mb-4\" x-show=\"!editingId\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div><!-- Soul (per-agent default; users can override their own in the agent panel) --><div class=\"mb-4\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -156,7 +156,7 @@ func AgentsPage() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<textarea x-model=\"form.soul\" rows=\"3\" placeholder=\"Default personality for all users. Users can override their own soul in the agent panel.\" class=\"textarea textarea-bordered w-full text-sm font-mono resize-y\"></textarea>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<textarea x-model=\"form.soul\" rows=\"3\" placeholder=\"Default personality for all users of this agent. Users can override their own soul in the agent panel.\" class=\"textarea textarea-bordered w-full text-sm font-mono resize-y\"></textarea>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
