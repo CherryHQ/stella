@@ -1,5 +1,4 @@
 import { api } from '/static/js/api.js'
-import { skillsDrawerMixin } from '/static/js/components/skills_drawer.js'
 
 /**
  * Registers the agentsPage Alpine.data component.
@@ -26,7 +25,6 @@ function normalizeChannel(channel) {
 
 export function register(Alpine) {
   Alpine.data('agentsPage', () => ({
-    ...skillsDrawerMixin(),
     agents: [],
     channels: [],
     cachedModels: [],
@@ -66,6 +64,17 @@ export function register(Alpine) {
 
     confirmMsg: '',
     confirmAction: () => {},
+
+    // Inline agent skills state.
+    agentSkills: [],
+    agentSkillsLoading: false,
+    skillInstallModalOpen: false,
+    skillInstallStage: 'search', // 'search' | 'config'
+    skillSearchQuery: '',
+    skillSearchResults: [],
+    skillSearching: false,
+    skillInstallSource: '',
+    skillInstalling: false,
 
     async init() {
       await Promise.all([
@@ -268,6 +277,12 @@ export function register(Alpine) {
       this.editingId = null
       this.showForm = false
       this.formStep = 'editing'
+      this.agentSkills = []
+      this.skillInstallModalOpen = false
+      this.skillInstallStage = 'search'
+      this.skillSearchQuery = ''
+      this.skillSearchResults = []
+      this.skillInstallSource = ''
     },
 
     async editAgent(a) {
@@ -284,6 +299,8 @@ export function register(Alpine) {
       await this.loadChannels()
       this.selectedChannelIDs = this.dedicatedChannelsForAgent(a.id).map(c => c.id)
       this.channelModalAgent = a.id
+      // Load agent skills inline.
+      await this.loadAgentSkills(a.id)
       this.showForm = true
       this.formStep = 'editing'
     },
@@ -430,17 +447,73 @@ export function register(Alpine) {
       return this.channels.filter(channel => channel.id !== channel.type && channel.enabled && (!channel.agent_id || channel.agent_id === agentId))
     },
 
-    async openAgentSkillsDrawer() {
+    async loadAgentSkills(agentId) {
+      if (!agentId) return
+      this.agentSkillsLoading = true
+      try {
+        this.agentSkills = (await api('GET', '/api/agents/' + agentId + '/skills')) || []
+      } catch (_) {
+        this.agentSkills = []
+      } finally {
+        this.agentSkillsLoading = false
+      }
+    },
+
+    async deleteAgentSkill(skillId) {
       if (!this.editingId) return
-      const agent = this.agents.find(a => a.id === this.editingId)
-      if (!agent) return
-      await this.openSkillsDrawer({
-        title: 'Skills · ' + agent.name,
-        subtitle: 'Agent scope · ' + agent.id,
-        scope: 'agent',
-        agentID: agent.id,
-        canEdit: this.canEditAgent(agent),
-      })
+      try {
+        await api('DELETE', '/api/agents/' + this.editingId + '/skills/' + skillId)
+        await this.loadAgentSkills(this.editingId)
+        this.$store.toast.show('Skill removed')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    openSkillInstallModal() {
+      this.skillInstallModalOpen = true
+      this.skillInstallStage = 'search'
+      this.skillSearchQuery = ''
+      this.skillSearchResults = []
+      this.skillSearching = false
+      this.skillInstallSource = ''
+      this.skillInstalling = false
+    },
+
+    async doSkillSearch() {
+      const q = this.skillSearchQuery.trim()
+      if (!q) { this.skillSearchResults = []; return }
+      this.skillSearching = true
+      try {
+        this.skillSearchResults = (await api('GET', '/api/skills/search?q=' + encodeURIComponent(q) + '&limit=20')) || []
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+        this.skillSearchResults = []
+      } finally {
+        this.skillSearching = false
+      }
+    },
+
+    pickSkillResult(s) {
+      this.skillInstallSource = s.source + '@' + s.skillId
+      this.skillInstallStage = 'config'
+    },
+
+    async doSkillInstall() {
+      if (this.skillInstalling || !this.editingId) return
+      this.skillInstalling = true
+      try {
+        const res = await api('POST', '/api/agents/' + this.editingId + '/skills/install', {
+          source: this.skillInstallSource,
+        })
+        this.$store.toast.show('Installed: ' + (res?.name || 'skill'))
+        this.skillInstallModalOpen = false
+        await this.loadAgentSkills(this.editingId)
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.skillInstalling = false
+      }
     },
 
     // --- Per-user personalisation (soul + profile for each agent) ---

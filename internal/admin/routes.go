@@ -62,7 +62,6 @@ func (s *Server) registerPageRoutes() {
 	s.mux.HandleFunc("GET /sessions", s.pageSessions)
 	s.mux.HandleFunc("GET /scheduler", s.pageScheduler)
 	s.mux.Handle("GET /plugins", s.adminOnlyMiddleware(http.HandlerFunc(s.pagePlugins)))
-	s.mux.Handle("GET /skills", s.adminOnlyMiddleware(http.HandlerFunc(s.pageSkills)))
 	s.mux.HandleFunc("GET /profile", s.pageProfile)
 }
 
