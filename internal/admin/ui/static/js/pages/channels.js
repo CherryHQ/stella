@@ -29,6 +29,8 @@ const platformMeta = {
       encrypt_key: '',
       verification_token: '',
       group_mode: '',
+      tenant_key: '',
+      auto_provision: false,
     },
   },
   weixin: {

@@ -39,6 +39,45 @@ lark-cli auth status
 
 A user-installed `lark-cli` skill can map the retired `feishu_calendar`, `feishu_task`, `feishu_im`, `feishu_doc`, `feishu_wiki`, `feishu_sheets`, `feishu_drive`, `feishu_bitable`, `feishu_user`, and `feishu_search` workflows to `lark-cli` services.
 
+## Auto-Provisioning
+
+When enabled, anna automatically creates an Anna account for any employee of your configured Feishu tenant the first time they message the bot. No manual registration or `/link` step is needed.
+
+### How it works
+
+1. A user messages the bot.
+2. Anna checks the event's `tenant_key` against `cfg.tenant_key`. If they do not match (external guest), the message proceeds normally and the user receives an access-denied response.
+3. If they match, anna calls the Feishu Contact API (`contact.v3.user.get`) to retrieve the user's `union_id`, display name, and email.
+4. A new Anna user is created with the email local-part as username (`alice` from `alice@corp.com`), falling back to `feishu-<union_id[:8]>` if no email is available. Username collisions get a `-2`, `-3`, … suffix.
+5. The provisioned user has no password — they can chat with the bot immediately but cannot log into the admin UI until an admin sets a password for them.
+6. Provisioned users are assigned the `user` role and the system default agent.
+
+### Required app scopes
+
+Add these scopes to your Feishu app under **Permissions & Scopes**:
+
+- `contact:user.base:readonly`
+- `contact:user.id:readonly`
+
+### Finding your tenant key
+
+In the Feishu Admin Console, go to **Enterprise Information** (企业信息). The tenant key is labeled **企业标识** or **Tenant Key**.
+
+### Configuration
+
+```json
+{
+  "app_id": "FEISHU_APP_ID",
+  "app_secret": "FEISHU_APP_SECRET",
+  "tenant_key": "YOUR_TENANT_KEY",
+  "auto_provision": true
+}
+```
+
+> **Warning:** External guests in shared groups will receive an access-denied response per message — their tenant key differs from your configured one. This is by design.
+
+> **Note:** If no admin user exists yet, auto-provisioning is refused until the first admin registers via the admin UI. This prevents stranding a fresh deployment with zero admins.
+
 ## Multi-User Support
 
 Each Feishu user is resolved from platform identity automatically. anna prefers Feishu `union_id` when the event payload includes it, and falls back to `open_id` for older links. That makes multi-instance Feishu setups work across multiple Feishu apps owned by the same developer account, because `union_id` is stable across those apps while `open_id` is app-scoped.
@@ -109,6 +148,8 @@ Feishu supports the standard chat commands:
   "verification_token": "",
   "group_mode": "mention",
   "enable_notify": false,
+  "tenant_key": "",
+  "auto_provision": false,
   "groups": {
     "oc_example": {
       "group_mode": "always",
@@ -126,4 +167,6 @@ Feishu supports the standard chat commands:
 | `verification_token` | Optional event verification token |
 | `group_mode` | Default group behavior: `mention`, `always`, or `disabled` |
 | `enable_notify` | Allow scheduler and notify output to target Feishu |
+| `tenant_key` | Your enterprise tenant key. Required when `auto_provision` is `true` |
+| `auto_provision` | Automatically create Anna accounts for users of the configured tenant |
 | `groups` | Optional per-chat overrides keyed by Feishu `chat_id` |

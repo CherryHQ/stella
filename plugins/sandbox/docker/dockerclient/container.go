@@ -3,6 +3,7 @@ package dockerclient
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	"github.com/containerd/errdefs"
@@ -42,7 +43,19 @@ type CreateOptions struct {
 
 // CreateAndStart creates a container with an always-up sentinel entrypoint
 // (`sh -c 'tail -f /dev/null'`), starts it, and returns the container ID.
+// If the image is not present locally it is pulled automatically.
 func (c *Client) CreateAndStart(ctx context.Context, opts CreateOptions) (string, error) {
+	exists, err := c.ImageExists(ctx, opts.Image)
+	if err != nil {
+		return "", fmt.Errorf("dockerclient: image check %s: %w", opts.Image, err)
+	}
+	if !exists {
+		slog.Info("dockerclient: image not found locally, pulling", "image", opts.Image)
+		if err := c.PullImage(ctx, opts.Image); err != nil {
+			return "", err
+		}
+	}
+
 	createOpts := buildContainerCreateOptions(opts)
 
 	created, err := c.api.ContainerCreate(ctx, createOpts)

@@ -29,6 +29,8 @@ func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.Runtime {
 				VerificationToken: cfg.VerificationToken,
 				GroupMode:         cfg.GroupMode,
 				Groups:            groupsToPluginConfig(cfg.Groups),
+				TenantKey:         cfg.TenantKey,
+				AutoProvision:     cfg.AutoProvision,
 			}, handler)
 		}
 	}
@@ -133,6 +135,15 @@ func configSchema() map[string]any {
 			"enable_notify": map[string]any{
 				"type":        "boolean",
 				"description": "Whether scheduler and system notifications are delivered to Feishu.",
+				"default":     false,
+			},
+			"tenant_key": map[string]any{
+				"type":        "string",
+				"description": "Feishu tenant key (enterprise ID). Optional — auto-detected at startup via the Feishu tenant API. Set explicitly to override.",
+			},
+			"auto_provision": map[string]any{
+				"type":        "boolean",
+				"description": "Automatically create Anna accounts for members of the bot's Feishu tenant.",
 				"default":     false,
 			},
 		},

@@ -36,6 +36,8 @@ type FeishuConfig struct {
 	GroupMode         string                 `json:"group_mode"`
 	Groups            map[string]FeishuGroup `json:"groups"`
 	EnableNotify      bool                   `json:"enable_notify"`
+	TenantKey         string                 `json:"tenant_key"`
+	AutoProvision     bool                   `json:"auto_provision"`
 }
 
 // WeixinConfig is the persisted Weixin channel plugin configuration.
