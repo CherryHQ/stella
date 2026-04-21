@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -63,25 +64,26 @@ func loadKind(r *Registry, kind Kind, subFS fs.FS) error {
 		return fmt.Errorf("read %s: %w", kind.subdir(), err)
 	}
 
-	for _, entry := range entries {
-		if kind == KindSkill {
-			if !entry.IsDir() {
-				continue
-			}
-			id := entry.Name()
-			mainPath := id + "/SKILL.md"
-			raw, err := fs.ReadFile(subFS, mainPath)
+	if kind == KindSkill {
+		roots, err := listSkillRoots(subFS)
+		if err != nil {
+			return fmt.Errorf("discover skills: %w", err)
+		}
+		for _, root := range roots {
+			raw, err := fs.ReadFile(subFS, path.Join(root.Path, "SKILL.md"))
 			if err != nil {
-				// Skip dirs without SKILL.md (e.g. reference-only subdirs).
-				continue
+				return fmt.Errorf("read %s/SKILL.md: %w", root.Path, err)
 			}
-			res, err := parseResource(kind, id, string(raw))
+			res, err := parseResource(kind, root.Leaf, string(raw))
 			if err != nil {
-				return fmt.Errorf("skill %s: %w", id, err)
+				return fmt.Errorf("skill %s: %w", root.Path, err)
 			}
 			r.byKind[kind][res.ID] = res
-			continue
 		}
+		return nil
+	}
+
+	for _, entry := range entries {
 
 		if entry.IsDir() {
 			continue

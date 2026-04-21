@@ -156,4 +156,31 @@ func TestSyncBuiltin(t *testing.T) {
 			t.Errorf("expected skill 'foo', got %q", skills[0].Name)
 		}
 	})
+
+	t.Run("nested skill roots sync by leaf name and relative files", func(t *testing.T) {
+		store, _ := newTestStore(t)
+		fakeFS := fstest.MapFS{
+			"system/lark/SKILL.md":        {Data: []byte("---\nname: lark\ndescription: nested\nstatus: active\n---\n\n# Lark\n")},
+			"system/lark/references/a.md": {Data: []byte("nested ref")},
+		}
+
+		if err := SyncBuiltin(ctx, store, fakeFS); err != nil {
+			t.Fatalf("SyncBuiltin: %v", err)
+		}
+
+		sk, err := store.Resolve(ctx, "lark", ViewContext{})
+		if err != nil || sk == nil {
+			t.Fatalf("Resolve: %v (sk=%v)", err, sk)
+		}
+		if sk.Description != "nested" {
+			t.Fatalf("description = %q, want nested", sk.Description)
+		}
+		ref, err := store.LoadFile(ctx, sk.ID, "references/a.md")
+		if err != nil {
+			t.Fatalf("LoadFile references/a.md: %v", err)
+		}
+		if ref != "nested ref" {
+			t.Fatalf("references/a.md = %q, want nested ref", ref)
+		}
+	})
 }

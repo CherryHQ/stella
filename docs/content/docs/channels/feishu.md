@@ -25,7 +25,7 @@ You can create multiple Feishu channel instances in the admin panel. Each instan
 
 The old built-in `feishu_*` tools and `/auth` flow were removed.
 
-For calendar, tasks, docs, wiki, sheets, drive, contacts, and other workspace operations, install a `lark-cli` skill if you want one, and use it with the external [`lark-cli`](https://github.com/larksuite/cli) tool.
+anna now ships a generated builtin `lark` system skill, and release builds embed `lark-cli` automatically. For calendar, tasks, docs, wiki, sheets, drive, contacts, and other workspace operations, enable the builtin `lark` skill and use it with [`lark-cli`](https://github.com/larksuite/cli).
 
 Typical setup:
 
@@ -37,7 +37,7 @@ lark-cli auth login --recommend
 lark-cli auth status
 ```
 
-A user-installed `lark-cli` skill can map the retired `feishu_calendar`, `feishu_task`, `feishu_im`, `feishu_doc`, `feishu_wiki`, `feishu_sheets`, `feishu_drive`, `feishu_bitable`, `feishu_user`, and `feishu_search` workflows to `lark-cli` services.
+The builtin `lark` skill maps the retired `feishu_calendar`, `feishu_task`, `feishu_im`, `feishu_doc`, `feishu_wiki`, `feishu_sheets`, `feishu_drive`, `feishu_bitable`, `feishu_user`, and `feishu_search` workflows to `lark-cli` services.
 
 ## Auto-Provisioning
 

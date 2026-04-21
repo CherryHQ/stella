@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 )
 
 func TestExtractSkills(t *testing.T) {
@@ -12,8 +13,8 @@ func TestExtractSkills(t *testing.T) {
 	if err := ExtractSkills(dir); err != nil {
 		t.Fatalf("ExtractSkills: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "anna", "SKILL.md")); err != nil {
-		t.Fatalf("anna/SKILL.md missing: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "system", "anna", "SKILL.md")); err != nil {
+		t.Fatalf("system/anna/SKILL.md missing: %v", err)
 	}
 }
 
@@ -43,7 +44,7 @@ func TestEnsureBuiltinSkills_Idempotent(t *testing.T) {
 		t.Fatalf("first call: %v", err)
 	}
 	// Mutate the extracted file to verify Ensure doesn't re-extract.
-	target := filepath.Join(dir, "anna", "SKILL.md")
+	target := filepath.Join(dir, "system", "anna", "SKILL.md")
 	if err := os.WriteFile(target, []byte("sentinel"), 0o644); err != nil {
 		t.Fatalf("overwrite: %v", err)
 	}
@@ -59,9 +60,27 @@ func TestEnsureBuiltinSkills_Idempotent(t *testing.T) {
 	}
 }
 
+func TestExtractSkillsNestedRoots(t *testing.T) {
+	fakeFS := fstest.MapFS{
+		"system/lark/SKILL.md":        {Data: []byte("---\nname: lark\n---\n")},
+		"system/lark/references/a.md": {Data: []byte("a")},
+		"tap-web/SKILL.md":            {Data: []byte("---\nname: tap-web\n---\n")},
+	}
+	dir := t.TempDir()
+	if err := extractSkillsFS(fakeFS, dir); err != nil {
+		t.Fatalf("extractSkillsFS: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "system", "lark", "SKILL.md")); err != nil {
+		t.Fatalf("system/lark/SKILL.md missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "tap-web", "SKILL.md")); err != nil {
+		t.Fatalf("tap-web/SKILL.md missing: %v", err)
+	}
+}
+
 func TestExtractSkillsReplacesStaleEntries(t *testing.T) {
 	dir := t.TempDir()
-	stale := filepath.Join(dir, "anna", "stale.md")
+	stale := filepath.Join(dir, "system", "anna", "stale.md")
 	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -81,7 +100,7 @@ func TestSubFSContainsAnna(t *testing.T) {
 	if !ok {
 		t.Fatal("skill SubFS not available")
 	}
-	if _, err := fs.Stat(sub, "anna"); err != nil {
-		t.Fatalf("anna dir not found: %v", err)
+	if _, err := fs.Stat(sub, "system/anna"); err != nil {
+		t.Fatalf("system/anna dir not found: %v", err)
 	}
 }

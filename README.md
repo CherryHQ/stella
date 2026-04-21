@@ -96,7 +96,7 @@ You can run multiple bot instances for the same platform. Leave a channel unboun
 
 Every channel supports `/new`, `/compact`, `/abort`, `/model`, `/agent`, `/whoami`, model switching, access control, and image input. Channel messages are processed one-at-a-time per session, so later messages wait for the current turn to finish or be aborted.
 
-Lark workspace automation is no longer built in as `feishu_*` tools. If you want those workflows, install a `lark-cli` skill yourself and use it with `lark-cli` for calendar, docs, tasks, sheets, drive, and other workspace actions.
+Lark workspace automation is no longer built in as `feishu_*` tools. Instead, anna now ships generated builtin `lark` / `tap-web` system skills and embeds `lark-cli` at build time. Use the builtin `lark` skill with `lark-cli` for calendar, docs, tasks, sheets, drive, and other workspace actions.
 
 ## Scheduler
 
@@ -231,14 +231,15 @@ anna upgrade               # Self-update to latest release
 ## Development
 
 ```bash
-mise run build             # Build binary -> bin/anna
+mise run build             # Build binary -> bin/anna (runs pre-build deps sync)
+mise run deps:sync         # Sync embedded third-party tools + generated system skills
 mise run test              # Run tests
 mise run format            # golangci-lint run --fix
 mise run release:check     # Validate GoReleaser config
 mise run release:snapshot  # Build a host-only snapshot artifact
 ```
 
-Or: `go build -o anna . && go test -race ./...`
+If you bypass `mise`, run `go run ./cmd/builddeps sync --skills --tools` before `go build` so embedded binaries and generated system skills are up to date.
 
 ## License
 

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"path"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -90,36 +91,38 @@ func normalizeBuiltinStatus(status string) string {
 // builtinFS are not deleted here. Phase 4+ should add an explicit tombstone pass once the
 // full lifecycle is understood.
 func SyncBuiltin(ctx context.Context, store *SQLiteStore, builtinFS fs.FS) error {
-	top, err := fs.ReadDir(builtinFS, ".")
+	var skillRoots []string
+	err := fs.WalkDir(builtinFS, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() || p == "." {
+			return nil
+		}
+		if _, err := fs.Stat(builtinFS, path.Join(p, MainFile)); err == nil {
+			skillRoots = append(skillRoots, p)
+			return fs.SkipDir
+		}
+		return nil
+	})
 	if err != nil {
 		return fmt.Errorf("sync_builtin: read root: %w", err)
 	}
 
-	for _, entry := range top {
-		if !entry.IsDir() {
-			continue
-		}
-		skillName := entry.Name()
-
-		// Only process directories that contain a SKILL.md at their top level.
-		skillMDPath := skillName + "/" + MainFile
-		if _, err := fs.Stat(builtinFS, skillMDPath); err != nil {
-			slog.DebugContext(ctx, "sync_builtin: skipping dir without SKILL.md", "dir", skillName)
-			continue
-		}
-
-		if err := syncBuiltinSkill(ctx, store, builtinFS, skillName); err != nil {
-			slog.ErrorContext(ctx, "sync_builtin: failed to sync skill", "name", skillName, "err", err)
-			return fmt.Errorf("sync_builtin: skill %q: %w", skillName, err)
+	for _, skillRoot := range skillRoots {
+		if err := syncBuiltinSkill(ctx, store, builtinFS, skillRoot); err != nil {
+			slog.ErrorContext(ctx, "sync_builtin: failed to sync skill", "path", skillRoot, "err", err)
+			return fmt.Errorf("sync_builtin: skill %q: %w", skillRoot, err)
 		}
 	}
 	return nil
 }
 
 // syncBuiltinSkill upserts a single builtin skill directory into the DB.
-func syncBuiltinSkill(ctx context.Context, store *SQLiteStore, builtinFS fs.FS, skillName string) error {
+func syncBuiltinSkill(ctx context.Context, store *SQLiteStore, builtinFS fs.FS, skillRoot string) error {
+	skillName := path.Base(skillRoot)
 	// 1. Read and parse SKILL.md.
-	skillMDPath := skillName + "/" + MainFile
+	skillMDPath := path.Join(skillRoot, MainFile)
 	mainRaw, err := fs.ReadFile(builtinFS, skillMDPath)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", skillMDPath, err)
@@ -141,7 +144,7 @@ func syncBuiltinSkill(ctx context.Context, store *SQLiteStore, builtinFS fs.FS, 
 
 	// 2. Collect all files under the skill directory, keyed by path relative to skillName/.
 	files := map[string]string{}
-	if err := fs.WalkDir(builtinFS, skillName, func(path string, d fs.DirEntry, err error) error {
+	if err := fs.WalkDir(builtinFS, skillRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -152,12 +155,12 @@ func syncBuiltinSkill(ctx context.Context, store *SQLiteStore, builtinFS fs.FS, 
 		if err != nil {
 			return err
 		}
-		// Strip the "skillName/" prefix so paths are relative to the skill root.
-		relPath := strings.TrimPrefix(path, skillName+"/")
+		// Strip the skill root prefix so paths are relative to the skill root.
+		relPath := strings.TrimPrefix(path, skillRoot+"/")
 		files[relPath] = string(raw)
 		return nil
 	}); err != nil {
-		return fmt.Errorf("walk %s: %w", skillName, err)
+		return fmt.Errorf("walk %s: %w", skillRoot, err)
 	}
 
 	// 3. Build metadata JSON.
