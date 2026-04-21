@@ -12,6 +12,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/vault"
 	"github.com/vaayne/anna/pkg/ai"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
@@ -28,6 +29,7 @@ type Coordinator struct {
 	engine           *auth.PolicyEngine
 	linkCodes        *auth.LinkCodeStore
 	vaultRecipient   *age.X25519Recipient
+	vaultSvc         *vault.Service
 	listFn           func() []pkgchannel.ModelOption
 	switchFn         func(provider, model string) error
 	queue            *sessionQueue
@@ -75,6 +77,13 @@ func NewCoordinator(
 	return c
 }
 
+// WithVaultService configures the coordinator with vault secret management.
+func WithVaultService(svc *vault.Service) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.vaultSvc = svc
+	}
+}
+
 func WithIntentClassifier(classifier IntentClassifier) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.intentClassifier = classifier
@@ -120,6 +129,9 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 		// /abort is handled here directly so it can cancel the active message.
 		if command == "/abort" {
 			return c.handleAbort(rc), true, nil, nil
+		}
+		if command == "/config" {
+			return handleConfig(ctx, c.vaultSvc, rc.User.ID, args), true, nil, nil
 		}
 		if resp, ok := HandleCommand(ctx, rc, command+" "+args, msg.SenderID); ok {
 			return resp, true, nil, nil

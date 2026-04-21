@@ -105,6 +105,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			adminSrv.SetVaultRecipient(vaultSvc.MasterRecipient())
 			s.poolManager.SetVaultEnvLoader(gctx, vaultSvc)
 			coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultSvc.MasterRecipient()))
+			coordOpts = append(coordOpts, channel.WithVaultService(vaultSvc))
 			n, err := vault.BackfillUserKeys(gctx, sqlc.New(s.db), vaultSvc.MasterRecipient())
 			if err != nil {
 				slog.Warn("vault: backfill user keys failed", "error", err)
