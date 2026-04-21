@@ -46,6 +46,8 @@ type AuthUser struct {
 	IsActive         int64          `json:"is_active"`
 	DefaultAgentID   sql.NullString `json:"default_agent_id"`
 	NotifyIdentityID sql.NullInt64  `json:"notify_identity_id"`
+	AgePublicKey     string         `json:"age_public_key"`
+	AgePrivateKey    string         `json:"age_private_key"`
 	CreatedAt        string         `json:"created_at"`
 	UpdatedAt        string         `json:"updated_at"`
 }
@@ -250,4 +252,13 @@ type SkillFile struct {
 	SkillID string `json:"skill_id"`
 	Path    string `json:"path"`
 	Content string `json:"content"`
+}
+
+type VaultEntry struct {
+	ID         int64  `json:"id"`
+	UserID     int64  `json:"user_id"`
+	Name       string `json:"name"`
+	Ciphertext string `json:"ciphertext"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
 }

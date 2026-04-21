@@ -21,3 +21,4 @@
 -- atlas:import tables/plugin_state_entries.sql
 -- atlas:import tables/skills.sql
 -- atlas:import tables/skill_files.sql
+-- atlas:import tables/vault_entries.sql
