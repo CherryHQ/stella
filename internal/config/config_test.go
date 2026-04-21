@@ -109,7 +109,8 @@ func TestSandboxConfigValidate(t *testing.T) {
 			cfg:  SandboxConfig{Network: SandboxNetworkConfig{Mode: SandboxNetworkAllowAll}},
 		},
 		{
-			name: "boxsh backend valid",
+			// "boxsh" is retired but remaps to "" (auto) via BackendName(), so Validate() accepts it.
+			name: "boxsh backend remapped to auto",
 			cfg:  SandboxConfig{Backend: SandboxBackendBoxsh},
 		},
 		{

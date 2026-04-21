@@ -55,7 +55,7 @@ func TestBuildSandboxCoreTools_WithSessionUsesHostTools(t *testing.T) {
 }
 
 func TestBuildSandboxCoreTools_NoHostReturnsNil(t *testing.T) {
-	session := fakeRunnerSession("boxsh", nil)
+	session := fakeRunnerSession("docker", nil)
 	got := buildSandboxCoreTools(session, plugintools.BuildContext{})
 	if got != nil {
 		t.Fatalf("expected nil core tools without host, got %v", got)

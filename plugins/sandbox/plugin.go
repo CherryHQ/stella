@@ -13,16 +13,6 @@ func init() {
 	}
 	backends := []meta{
 		{
-			name:        config.SandboxBackendAuto,
-			displayName: "Auto",
-			description: "Selects the best available sandbox backend automatically (boxsh on Linux/macOS, docker elsewhere).",
-		},
-		{
-			name:        config.SandboxBackendBoxsh,
-			displayName: "Boxsh",
-			description: "Sandboxed execution via boxsh. Supported on Linux and macOS.",
-		},
-		{
 			name:        config.SandboxBackendDocker,
 			displayName: "Docker",
 			description: "Container-per-session isolation via Docker. Requires a running Docker daemon.",

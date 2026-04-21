@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ⚠️ Breaking Changes
+
+- **Sandbox**: Retire `boxsh` backend — Docker is now the only sandbox backend. Install and start Docker Desktop (macOS/Windows) or the Docker daemon (Linux) before upgrading. Users with `sandbox.backend = "boxsh"` in their config will have it automatically remapped with a one-time log warning.
+
+### ✨ Improvements
+
+- **stdio MCP**: `StartProcess` (stdio MCP servers) now works on every run. Previously silently broken on `boxsh` sessions; docker's container model gives every session a proper process namespace where stdio MCP servers start reliably.
+
 ## [0.14.0] - 2026-04-21
 
 ### ✨ Features

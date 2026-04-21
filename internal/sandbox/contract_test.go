@@ -2,13 +2,11 @@ package sandbox
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
 
-	boxshplugin "github.com/vaayne/anna/plugins/sandbox/boxsh"
 	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
 	dockerclient "github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
 )
@@ -51,11 +49,10 @@ func dockerPreflightForTest(t *testing.T, ctx context.Context) {
 }
 
 // Contract tests for Session and Host interfaces.
-// These tests verify that boxsh and docker backends satisfy the shared contract.
+// These tests verify that the docker backend satisfies the shared contract.
 
-// TestSessionContract runs the full session contract against a factory.
+// TestSessionContract runs the full session contract against the docker factory.
 func TestSessionContract(t *testing.T) {
-	// Test with docker factory if daemon is reachable
 	t.Run("DockerFactory", func(t *testing.T) {
 		ctx := context.Background()
 		if !dockerAvailable(ctx) {
@@ -64,22 +61,6 @@ func TestSessionContract(t *testing.T) {
 		dockerPreflightForTest(t, ctx)
 		testSessionContract(t, dockerplugin.NewFactory(dockerplugin.Config{Image: dockerContractImage}))
 	})
-
-	// Test with boxsh factory if available
-	if PlatformRequiresBoxsh() {
-		t.Run("BoxshFactory", func(t *testing.T) {
-			// Skip if boxsh binary not available
-			annaHome := os.Getenv("ANNA_HOME")
-			if annaHome == "" {
-				t.Skip("ANNA_HOME not set, boxsh binary not available")
-			}
-			if _, err := boxshplugin.ResolveManagedBoxshPath(annaHome); err != nil {
-				t.Skipf("boxsh binary not available: %v", err)
-			}
-
-			testSessionContract(t, boxshplugin.NewFactory())
-		})
-	}
 }
 
 func testSessionContract(t *testing.T, factory Factory) {

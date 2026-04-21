@@ -20,45 +20,6 @@ func TestResolveSessionRejectsUnknownBackend(t *testing.T) {
 	}
 }
 
-func TestResolveSessionAutoFallsBackToDockerWhenBoxshUnsupported(t *testing.T) {
-	previous := platformSupportsBoxsh
-	platformSupportsBoxsh = func() bool { return false }
-	t.Cleanup(func() { platformSupportsBoxsh = previous })
-
-	workspace := t.TempDir()
-	userRoot := workspace + "/users/1"
-	_, err := resolveSession(context.Background(), GoRunnerConfig{
-		AgentRoot: workspace,
-		UserRoot:  userRoot,
-		Sandbox: config.SandboxConfig{
-			Backend: config.SandboxBackendAuto,
-		},
-	})
-	// When boxsh is unsupported and no explicit backend was configured, auto
-	// fails closed with a clear error rather than silently falling back to docker.
-	if err == nil {
-		t.Fatal("expected error when boxsh is unsupported and backend is auto")
-	}
-	if !strings.Contains(err.Error(), "docker backend required on this platform") {
-		t.Fatalf("expected 'docker backend required on this platform', got: %v", err)
-	}
-}
-
-func TestResolveSessionExplicitBoxshRejectsUnsupportedPlatform(t *testing.T) {
-	previous := platformSupportsBoxsh
-	platformSupportsBoxsh = func() bool { return false }
-	t.Cleanup(func() { platformSupportsBoxsh = previous })
-
-	_, err := resolveSession(context.Background(), GoRunnerConfig{
-		Sandbox: config.SandboxConfig{
-			Backend: config.SandboxBackendBoxsh,
-		},
-	})
-	if err == nil {
-		t.Fatal("expected error for explicit boxsh on unsupported platform")
-	}
-}
-
 func TestResolveRunnerPathsDefaultsWorkDirToUserRoot(t *testing.T) {
 	cfg := GoRunnerConfig{
 		AgentRoot: "/workspace/agent",
@@ -74,30 +35,6 @@ func TestResolveRunnerPathsDefaultsWorkDirToUserRoot(t *testing.T) {
 	}
 }
 
-func TestSandboxProcessEnvUsesUserRootAsHome(t *testing.T) {
-	cfg := GoRunnerConfig{
-		AnnaHome:  "/anna",
-		AgentRoot: "/workspace/agent",
-		UserRoot:  "/workspace/agent/users/1",
-	}
-
-	paths, err := resolveSandboxPaths(cfg)
-	if err != nil {
-		t.Fatalf("resolveSandboxPaths: %v", err)
-	}
-	env := sandboxProcessEnv(paths, config.SandboxBackendBoxsh)
-	if got := env["HOME"]; got != cfg.UserRoot {
-		t.Fatalf("HOME = %q, want %q", got, cfg.UserRoot)
-	}
-	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
-		t.Fatalf("ANNA_HOME = %q, want %q", got, cfg.AnnaHome)
-	}
-}
-
-// Docker containers have their own rootfs and image-baked HOME. Pinning HOME
-// to UserRoot would remap into the workspace bind-mount at runtime and break
-// anything that expects its image-installed $HOME/.* (mise, shell rc files,
-// per-user shims).
 func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
 	cfg := GoRunnerConfig{
 		AnnaHome:  "/anna",
@@ -109,7 +46,7 @@ func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveSandboxPaths: %v", err)
 	}
-	env := sandboxProcessEnv(paths, config.SandboxBackendDocker)
+	env := sandboxProcessEnv(paths)
 	if _, ok := env["HOME"]; ok {
 		t.Fatalf("HOME should not be set for docker backend; got %q", env["HOME"])
 	}

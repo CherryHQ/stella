@@ -40,7 +40,7 @@ var builtinProviderNames = []string{"anthropic", "openai", "openai-response"}
 var builtinMemoryNames = []string{"lcm", "simple"}
 
 // builtinSandboxNames lists the built-in sandbox backend plugins.
-var builtinSandboxNames = []string{SandboxBackendAuto, SandboxBackendBoxsh, SandboxBackendDocker}
+var builtinSandboxNames = []string{SandboxBackendDocker}
 
 // builtinStandalonePlugins lists plugins that don't follow the kind/name pattern.
 var builtinStandalonePlugins = []string{"reflect"}

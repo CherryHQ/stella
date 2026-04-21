@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
-	"runtime"
 	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -14,7 +12,6 @@ import (
 
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/sandbox"
-	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
 	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
 )
@@ -109,11 +106,8 @@ type sessionFactory func(context.Context, GoRunnerConfig) (*runnerSession, error
 
 // registry manages session factories by name.
 var sessionRegistry = map[string]sessionFactory{
-	config.SandboxBackendBoxsh:  createBoxshSession,
 	config.SandboxBackendDocker: createDockerSession,
 }
-
-var platformSupportsBoxsh = boxshclient.PlatformSupportsBoxsh
 
 func runnerFilesystemPolicy(paths sandboxPaths) sandbox.FilesystemPolicy {
 	return sandbox.FilesystemPolicy{
@@ -121,79 +115,6 @@ func runnerFilesystemPolicy(paths sandboxPaths) sandbox.FilesystemPolicy {
 		WorkingDir:    paths.WorkDir,
 		AllowEscapes:  false,
 	}
-}
-
-func createBoxshSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
-	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
-		trace.WithAttributes(
-			attribute.String("anna.sandbox.backend", config.SandboxBackendBoxsh),
-			attribute.String("anna.sandbox.agent_root", cfg.AgentRoot),
-			attribute.String("anna.sandbox.user_root", cfg.UserRoot),
-			attribute.String("anna.sandbox.project_root", cfg.ProjectRoot),
-		),
-	)
-	defer span.End()
-
-	if !platformSupportsBoxsh() {
-		err := fmt.Errorf("sandbox backend %q is not supported on %s", config.SandboxBackendBoxsh, runtime.GOOS)
-		recordSandboxError(span, err)
-		return nil, err
-	}
-
-	paths, err := resolveSandboxPaths(cfg)
-	if err != nil {
-		err = fmt.Errorf("resolve sandbox paths: %w", err)
-		recordSandboxError(span, err)
-		return nil, err
-	}
-	policy := sandbox.Policy{
-		Backend:    config.SandboxBackendBoxsh,
-		Filesystem: runnerFilesystemPolicy(paths),
-		Network: sandbox.NetworkPolicy{
-			Mode:      sandbox.NetworkMode(cfg.Sandbox.Network.Mode),
-			Allowlist: cfg.Sandbox.Network.Allowlist,
-		},
-		Process: sandbox.ProcessPolicy{
-			Environment: sandboxProcessEnv(paths, config.SandboxBackendBoxsh),
-			InheritEnv:  true,
-		},
-	}
-
-	span.SetAttributes(
-		attribute.String("anna.sandbox.resolved_user_root", paths.UserRoot),
-		attribute.String("anna.sandbox.work_dir", paths.WorkDir),
-		attribute.String("anna.sandbox.network.mode", cfg.Sandbox.Network.Mode),
-	)
-	if len(cfg.Sandbox.Network.Allowlist) > 0 {
-		span.SetAttributes(attribute.StringSlice("anna.sandbox.network.allowlist", cfg.Sandbox.Network.Allowlist))
-	}
-
-	slog.Info("creating boxsh session",
-		"component", "runner_sandbox",
-		"user_root", paths.UserRoot,
-		"work_dir", paths.WorkDir,
-		"network_mode", cfg.Sandbox.Network.Mode,
-		"network_allowlist", cfg.Sandbox.Network.Allowlist,
-	)
-
-	factory := sandbox.GlobalRegistry().Get(config.SandboxBackendBoxsh)
-	if factory == nil {
-		err := fmt.Errorf("boxsh factory not available")
-		recordSandboxError(span, err)
-		return nil, err
-	}
-
-	session, err := factory.CreateSession(ctx, policy)
-	if err != nil {
-		err = fmt.Errorf("create boxsh session: %w", err)
-		recordSandboxError(span, err)
-		return nil, err
-	}
-
-	return &runnerSession{
-		session: session,
-		policy:  policy,
-	}, nil
 }
 
 func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
@@ -221,7 +142,7 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 			Allowlist: cfg.Sandbox.Network.Allowlist,
 		},
 		Process: sandbox.ProcessPolicy{
-			Environment: sandboxProcessEnv(paths, config.SandboxBackendDocker),
+			Environment: sandboxProcessEnv(paths),
 			InheritEnv:  true,
 		},
 	}
@@ -296,12 +217,8 @@ func cleanupOrphanedDockerContainers(ctx context.Context, annaHome string) {
 }
 
 // resolveSession creates a runnerSession from configuration.
-// Replaces the old resolveSandboxBackend which leaked boxsh types.
 func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
-	name, err := resolveSessionBackendName(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
+	name := resolveSessionBackendName(ctx, cfg)
 
 	factory, ok := sessionRegistry[name]
 	if !ok {
@@ -310,34 +227,13 @@ func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, er
 	return factory(ctx, cfg)
 }
 
-func resolveSessionBackendName(ctx context.Context, cfg GoRunnerConfig) (string, error) {
-	var name string
+// resolveSessionBackendName always returns SandboxBackendDocker.
+// Docker is the only supported sandbox backend.
+func resolveSessionBackendName(ctx context.Context, cfg GoRunnerConfig) string {
 	if cfg.SandboxBackendFn != nil {
-		name = cfg.SandboxBackendFn(ctx)
-	} else {
-		name = cfg.Sandbox.BackendName()
-	}
-	if name == "" || name == config.SandboxBackendAuto {
-		if platformSupportsBoxsh() {
-			return config.SandboxBackendBoxsh, nil
+		if name := cfg.SandboxBackendFn(ctx); name != "" {
+			return name
 		}
-		// boxsh is not available on this platform; docker must be explicitly
-		// configured. Fail closed rather than silently downgrading to docker.
-		return "", fmt.Errorf("docker backend required on this platform")
 	}
-	return name, nil
-}
-
-var orphanCleanupOnce sync.Once
-
-// cleanupOrphanedBoxshSessions removes leftover session dirs from crashed
-// processes. Runs at most once per process to avoid interfering with
-// sessions owned by concurrently-running runners.
-func cleanupOrphanedBoxshSessions(annaHome, userRoot string) {
-	orphanCleanupOnce.Do(func() {
-		boxshclient.CleanupOrphanedSessions(annaHome)
-		if userRoot != "" {
-			boxshclient.CleanupLegacySessionDirs(filepath.Dir(userRoot))
-		}
-	})
+	return config.SandboxBackendDocker
 }

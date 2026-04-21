@@ -3,11 +3,9 @@ package sandbox
 import (
 	"context"
 	"errors"
-	"runtime"
 	"sync"
 	"testing"
 
-	boxshplugin "github.com/vaayne/anna/plugins/sandbox/boxsh"
 	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
 )
 
@@ -132,70 +130,6 @@ func TestRegistryFailClosed(t *testing.T) {
 
 		if compatErr.Backend != "any" {
 			t.Errorf("Backend = %q, want %q", compatErr.Backend, "any")
-		}
-	})
-}
-
-func TestBoxshFactorySupported(t *testing.T) {
-	factory := boxshplugin.NewFactory()
-
-	t.Run("AvailabilityBasedOnPlatform", func(t *testing.T) {
-		available := factory.Available()
-
-		if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
-			if !available {
-				t.Error("boxsh should be available on linux/darwin")
-			}
-		} else {
-			if available {
-				t.Error("boxsh should not be available on non-linux/darwin")
-			}
-		}
-	})
-
-	t.Run("WhitelistNotSupported", func(t *testing.T) {
-		if !factory.Available() {
-			t.Skip("boxsh not available on this platform")
-		}
-
-		policy := Policy{
-			Filesystem: FilesystemPolicy{
-				WorkingDir: t.TempDir(),
-			},
-			Network: NetworkPolicy{
-				Mode:      NetworkWhitelist,
-				Allowlist: []string{"example.com"},
-			},
-		}
-
-		err := factory.Supported(policy)
-		if err == nil {
-			t.Error("Supported() = nil, want error for whitelist on boxsh")
-		}
-
-		compatErr := &PolicyCompatibilityError{}
-		ok := errors.As(err, &compatErr)
-		if !ok {
-			t.Fatalf("error should be PolicyCompatibilityError, got %T", err)
-		}
-	})
-
-	t.Run("DisabledNetworkSupported", func(t *testing.T) {
-		if !factory.Available() {
-			t.Skip("boxsh not available on this platform")
-		}
-
-		policy := Policy{
-			Filesystem: FilesystemPolicy{
-				WorkingDir: t.TempDir(),
-			},
-			Network: NetworkPolicy{
-				Mode: NetworkDisabled,
-			},
-		}
-
-		if err := factory.Supported(policy); err != nil {
-			t.Errorf("Supported() = %v, want nil for disabled network", err)
 		}
 	})
 }
@@ -350,18 +284,14 @@ func TestPolicyCompatibilityErrorMessage(t *testing.T) {
 func TestDefaultRegistry(t *testing.T) {
 	registry := DefaultRegistry()
 
-	// local factory is no longer registered
+	// local and boxsh factories are no longer registered
 	local := registry.Get("local")
 	if local != nil {
 		t.Error("DefaultRegistry should not include local factory")
 	}
-
-	// Should have boxsh on supported platforms
-	if PlatformRequiresBoxsh() {
-		boxsh := registry.Get("boxsh")
-		if boxsh == nil {
-			t.Error("DefaultRegistry should include boxsh factory on supported platforms")
-		}
+	boxsh := registry.Get("boxsh")
+	if boxsh != nil {
+		t.Error("DefaultRegistry should not include boxsh factory")
 	}
 
 	// Docker is always registered (regardless of daemon availability)

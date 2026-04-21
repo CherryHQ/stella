@@ -48,13 +48,25 @@ func (c SandboxConfig) NetworkMode() string {
 // once per process to avoid log spam for long-running servers.
 var localRemapOnce sync.Once
 
+// boxshRemapOnce ensures the "boxsh" backend remap warning is emitted at most
+// once per process to avoid log spam for long-running servers.
+var boxshRemapOnce sync.Once
+
 // BackendName returns sandbox backend with defaults applied.
-// If Backend is "local" (retired), it is silently remapped to "" (auto-select)
+// If Backend is "local" (retired), it is remapped to "auto"
+// with a one-time log warning.
+// If Backend is "boxsh" (retired), it is remapped to "auto"
 // with a one-time log warning.
 func (c SandboxConfig) BackendName() string {
 	if c.Backend == SandboxBackendLocal {
 		localRemapOnce.Do(func() {
 			slog.Warn("sandbox: backend \"local\" has been retired; remapping to \"auto\"")
+		})
+		return SandboxBackendAuto
+	}
+	if c.Backend == SandboxBackendBoxsh {
+		boxshRemapOnce.Do(func() {
+			slog.Warn("sandbox: backend \"boxsh\" has been retired; docker is the only sandbox backend; remapping to \"auto\"")
 		})
 		return SandboxBackendAuto
 	}
@@ -67,10 +79,10 @@ func (c SandboxConfig) BackendName() string {
 // Validate returns an error when the sandbox configuration is invalid.
 func (c SandboxConfig) Validate() error {
 	switch c.BackendName() {
-	case SandboxBackendAuto, SandboxBackendBoxsh, SandboxBackendDocker:
-		// "local" remaps to "auto" in BackendName(), so it is accepted here.
+	case SandboxBackendAuto, SandboxBackendDocker:
+		// "local" and "boxsh" both remap to "auto" in BackendName(), so they are accepted here.
 	default:
-		return fmt.Errorf("sandbox.backend must be one of %q, %q, or %q", SandboxBackendAuto, SandboxBackendBoxsh, SandboxBackendDocker)
+		return fmt.Errorf("sandbox.backend must be one of %q or %q", SandboxBackendAuto, SandboxBackendDocker)
 	}
 
 	switch mode := c.NetworkMode(); mode {
