@@ -90,10 +90,6 @@ run = '''
   go run ./cmd/builddeps sync --tools $args
 '''
 
-[tasks."tools:download"]
-description = "Download embedded third-party tools for the current platform"
-run = "go run ./cmd/builddeps sync --tools"
-
 # ============================================================================
 # Database
 # ============================================================================

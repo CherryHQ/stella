@@ -27,13 +27,14 @@ RUN go mod download
 RUN GOBIN=/usr/local/bin go install github.com/a-h/templ/cmd/templ@v0.3.1001
 RUN GOBIN=/usr/local/bin go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.29.0
 
-# download tools first
+# Sync embedded third-party tools for the target platform before copying the full source tree.
 ARG TARGETOS TARGETARCH
 ARG VERSION=dev
-COPY ./scripts/download-tools.sh ./scripts/download-tools.sh
+COPY cmd/builddeps ./cmd/builddeps
+COPY internal/builddeps ./internal/builddeps
 RUN --mount=type=secret,id=github_token,required=false \
     export GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" \
-    && bash --noprofile --norc ./scripts/download-tools.sh --goos ${TARGETOS} --goarch ${TARGETARCH}
+    && go run ./cmd/builddeps sync --tools --goos ${TARGETOS} --goarch ${TARGETARCH}
 
 # Copy source code.
 COPY . .

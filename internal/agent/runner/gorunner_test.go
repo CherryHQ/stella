@@ -148,6 +148,150 @@ func TestNewGoRunnerRequiresConfig(t *testing.T) {
 	}
 }
 
+func TestNewGoRunnerSuccess(t *testing.T) {
+	r, err := NewGoRunner(context.Background(), withTestRunnerPaths(t, GoRunnerConfig{
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		Providers: testProviderRegistryBuilder,
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !r.Alive() {
+		t.Error("new runner should be alive")
+	}
+	if err := r.Close(); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+}
+
+func TestNewGoRunnerPreflightExtractsManagedTools(t *testing.T) {
+	if !boxshclient.PlatformSupportsBoxsh() {
+		t.Skip("sandbox backend requires boxsh support on this platform")
+	}
+	if !slices.Contains(binaries.ToolNames(), "boxsh") {
+		t.Skip("embedded boxsh binary not present; run mise run deps:sync:tools first")
+	}
+	annaHome := t.TempDir()
+	workspace := t.TempDir()
+	userRoot := filepath.Join(workspace, "users", "1")
+	if err := os.MkdirAll(userRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		AnnaHome:  annaHome,
+		AgentRoot: workspace,
+		UserRoot:  userRoot,
+		Providers: testProviderRegistryBuilder,
+	})
+	if err != nil {
+		t.Fatalf("NewGoRunner: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	if _, err := os.Stat(filepath.Join(annaHome, "bin", "boxsh")); err != nil {
+		t.Fatalf("stat extracted boxsh: %v", err)
+	}
+}
+
+func TestNewGoRunnerUsesBoxshCoreToolsAndCleansUp(t *testing.T) {
+	if boxshclient.PlatformSupportsBoxsh() == false {
+		t.Skip("boxsh integration only applies on linux/darwin")
+	}
+
+	annaHome := t.TempDir()
+	workspace := t.TempDir()
+	userRoot := filepath.Join(workspace, "users", "1")
+	if err := os.MkdirAll(userRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	commandsLog := writeMockRPCBoxsh(t, annaHome, false)
+
+	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		AnnaHome:  annaHome,
+		AgentRoot: workspace,
+		UserRoot:  userRoot,
+		Providers: testProviderRegistryBuilder,
+	})
+	if err != nil {
+		t.Fatalf("NewGoRunner: %v", err)
+	}
+
+	sessionDir := r.session.SessionDir()
+	if sessionDir == "" {
+		t.Fatal("expected boxsh session dir to be created")
+	}
+	if _, err := os.Stat(sessionDir); err != nil {
+		t.Fatalf("stat session dir: %v", err)
+	}
+
+	result, err := r.tools.Execute(context.Background(), "bash", map[string]any{"command": "echo hello"})
+	if err != nil {
+		t.Fatalf("execute bash: %v", err)
+	}
+	if !strings.Contains(result, "exit:0") {
+		t.Fatalf("expected normalized bash result, got %q", result)
+	}
+
+	logged, err := os.ReadFile(commandsLog)
+	if err != nil {
+		t.Fatalf("read commands log: %v", err)
+	}
+	if !strings.Contains(string(logged), `"method":"tools/call"`) {
+		t.Fatalf("expected tools/call RPC in log, got %s", string(logged))
+	}
+
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := os.Stat(sessionDir); !os.IsNotExist(err) {
+		t.Fatalf("expected session dir cleanup, stat err = %v", err)
+	}
+}
+
+func TestGoRunnerAliveTracksDeadBoxshBackend(t *testing.T) {
+	if boxshclient.PlatformSupportsBoxsh() == false {
+		t.Skip("boxsh integration only applies on linux/darwin")
+	}
+
+	annaHome := t.TempDir()
+	workspace := t.TempDir()
+	userRoot := filepath.Join(workspace, "users", "1")
+	if err := os.MkdirAll(userRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	_ = writeMockRPCBoxsh(t, annaHome, true)
+
+	r, err := NewGoRunner(context.Background(), GoRunnerConfig{
+		API:       "anthropic",
+		Model:     "claude-sonnet-4-20250514",
+		APIKey:    "test-key",
+		AnnaHome:  annaHome,
+		AgentRoot: workspace,
+		UserRoot:  userRoot,
+		Providers: testProviderRegistryBuilder,
+	})
+	if err != nil {
+		t.Fatalf("NewGoRunner: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for r.Alive() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if r.Alive() {
+		t.Fatal("expected runner to report dead after boxsh exits")
+	}
+}
 // goRunnerFakeProvider implements stream.Provider for testing Chat() without real API calls.
 type goRunnerFakeProvider struct {
 	api    string
