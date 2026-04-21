@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"filippo.io/age"
+
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
@@ -16,19 +18,20 @@ import (
 
 // Server provides HTTP handlers for the admin API and templ-rendered pages.
 type Server struct {
-	store       config.Store
-	authStore   auth.AuthStore
-	engine      *auth.PolicyEngine
-	rateLimiter *auth.RateLimiter
-	linkCodes   *auth.LinkCodeStore
-	mem         memory.Provider
-	poolManager *agent.PoolManager
-	pluginHost  *pluginhost.Host
-	db          *sql.DB
-	q           *sqlc.Queries
-	mux         *http.ServeMux
-	log         *slog.Logger
-	corsOriginV string // cached CORS origin
+	store          config.Store
+	authStore      auth.AuthStore
+	engine         *auth.PolicyEngine
+	rateLimiter    *auth.RateLimiter
+	linkCodes      *auth.LinkCodeStore
+	mem            memory.Provider
+	poolManager    *agent.PoolManager
+	pluginHost     *pluginhost.Host
+	db             *sql.DB
+	q              *sqlc.Queries
+	mux            *http.ServeMux
+	log            *slog.Logger
+	corsOriginV    string               // cached CORS origin
+	vaultRecipient *age.X25519Recipient // optional; if set, age keys are generated for new users
 }
 
 // New creates an admin server with all API routes mounted.
@@ -69,4 +72,11 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 // LinkCodes returns the link code store for use by channel handlers.
 func (s *Server) LinkCodes() *auth.LinkCodeStore {
 	return s.linkCodes
+}
+
+// SetVaultRecipient sets the master age recipient so that new users created via
+// web registration receive an age keypair. Call before serving requests.
+// If not set (nil), vault key generation is skipped for new users.
+func (s *Server) SetVaultRecipient(r *age.X25519Recipient) {
+	s.vaultRecipient = r
 }
