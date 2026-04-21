@@ -3,7 +3,6 @@ version: 2
 before:
   hooks:
     - go mod download
-    - mise run deps:sync:skills
 
 builds:
   - id: anna
@@ -22,7 +21,7 @@ builds:
       - arm64
     hooks:
       pre:
-        - GOOS={{ .Os }} GOARCH={{ .Arch }} mise run deps:sync:tools
+        - go run ./cmd/builddeps sync --skills --tools --goos {{ .Os }} --goarch {{ .Arch }}
 archives:
   - id: anna
     ids:
