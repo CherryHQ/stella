@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/oauthcli"
 	builtinres "github.com/vaayne/anna/internal/resources"
 	"github.com/vaayne/anna/internal/resources/binaries"
 	coreagent "github.com/vaayne/anna/pkg/agent"
@@ -58,6 +59,9 @@ type GoRunnerConfig struct {
 	SandboxBackendFn func(ctx context.Context) string // resolves active backend at session time; overrides Sandbox.Backend
 	UserID           int64                            // auth user ID; used for vault secret injection
 	VaultEnvLoader   VaultEnvLoader                   // optional; if set, vault secrets are injected into sandbox env
+	TokenManager     *oauthcli.TokenManager           // optional; if set, runtime OAuth tokens are injected into sandbox env
+	LarkAppID        string                           // optional Lark app_id from plugin config
+	LarkBrand        string                           // optional Lark brand: "lark" or "feishu"
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.

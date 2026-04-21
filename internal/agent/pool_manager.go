@@ -10,6 +10,7 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/oauthcli"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
@@ -131,6 +132,13 @@ func WithVaultEnvLoader(v runner.VaultEnvLoader) PoolManagerOption {
 	}
 }
 
+// WithTokenManager sets the OAuth token manager for runtime token injection.
+func WithTokenManager(tm *oauthcli.TokenManager) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.tokenManager = tm
+	}
+}
+
 // PoolManager manages a map of agent ID to Pool. It reads enabled agents
 // from the config Store and creates one Pool per agent.
 type PoolManager struct {
@@ -152,6 +160,7 @@ type PoolManager struct {
 	builtinToolsFactory     BuiltinToolsFactory
 	skillStore              pkgplugins.SkillStore
 	vaultEnvLoader          runner.VaultEnvLoader
+	tokenManager            *oauthcli.TokenManager
 	log                     *slog.Logger
 }
 
@@ -172,9 +181,14 @@ func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManager
 
 // SetVaultEnvLoader sets the vault env loader and rebuilds all pool factories
 // so existing pools pick up the loader. Must be called after StartAll.
+// If vs also satisfies oauthcli.VaultStore, a TokenManager is constructed and
+// wired into the pool manager so runners can inject runtime OAuth tokens.
 func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v runner.VaultEnvLoader) {
 	pm.mu.Lock()
 	pm.vaultEnvLoader = v
+	if vs, ok := v.(oauthcli.VaultStore); ok {
+		pm.tokenManager = oauthcli.NewTokenManager(vs)
+	}
 	pools := make(map[string]*Pool, len(pm.pools))
 	maps.Copy(pools, pm.pools)
 	pm.mu.Unlock()
@@ -440,7 +454,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 		plugins, _ := pm.store.ListPlugins(ctx)
 		return config.ActiveSandboxBackend(plugins)
 	}
-	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle, pm.skillStore, sandboxBackendFn, pm.vaultEnvLoader)
+	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle, pm.skillStore, sandboxBackendFn, pm.vaultEnvLoader, pm.tokenManager)
 }
 
 // mergeTools creates a new slice containing builtin tools followed by more

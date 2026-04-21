@@ -8,6 +8,7 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/oauthcli"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
@@ -25,7 +26,7 @@ import (
 //
 // Hooks are not part of the factory — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
-func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginToolsBuilder PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore, sandboxBackendFn func(ctx context.Context) string, vaultEnvLoader runner.VaultEnvLoader) (runner.NewRunnerFunc, error) {
+func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginToolsBuilder PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore, sandboxBackendFn func(ctx context.Context) string, vaultEnvLoader runner.VaultEnvLoader, tokenManager *oauthcli.TokenManager) (runner.NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
 		return func(ctx context.Context, params runner.RunnerParams) (runner.Runner, error) {
@@ -131,6 +132,7 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				Providers:        providerRegistryBuilder,
 				UserID:           params.UserID,
 				VaultEnvLoader:   vaultEnvLoader,
+				TokenManager:     tokenManager,
 			})
 		}, nil
 	default:
