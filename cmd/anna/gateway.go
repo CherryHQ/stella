@@ -101,6 +101,12 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		} else {
 			adminSrv.SetVaultService(vaultSvc)
 			adminSrv.SetVaultRecipient(vaultSvc.MasterRecipient())
+			n, err := vault.BackfillUserKeys(gctx, sqlc.New(s.db), vaultSvc.MasterRecipient())
+			if err != nil {
+				slog.Warn("vault: backfill user keys failed", "error", err)
+			} else if n > 0 {
+				slog.Info("vault: backfilled age keys for users", "count", n)
+			}
 		}
 	}
 

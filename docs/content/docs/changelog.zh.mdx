@@ -11,6 +11,10 @@ icon: History
 
 ## [Unreleased]
 
+### ✨ 功能
+
+- **密钥库**：新增基于 age 信封加密的用户私密存储，密钥在沙盒会话中自动注入为环境变量
+
 ### ⚠️ 破坏性变更
 
 - **沙盒**：移除 `boxsh` 后端 — Docker 现在是唯一的沙盒后端。升级前请安装并启动 Docker Desktop（macOS/Windows）或 Docker 守护进程（Linux）。配置文件中设置 `sandbox.backend = "boxsh"` 的用户，系统将自动将其重新映射并输出一次性日志警告。
