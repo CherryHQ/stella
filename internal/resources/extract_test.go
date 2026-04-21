@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 )
 
 func TestExtractSkills(t *testing.T) {
@@ -56,6 +57,24 @@ func TestEnsureBuiltinSkills_Idempotent(t *testing.T) {
 	}
 	if string(data) != "sentinel" {
 		t.Fatalf("EnsureBuiltinSkills should be idempotent (once-per-dir), got content re-extracted")
+	}
+}
+
+func TestExtractSkillsNestedRoots(t *testing.T) {
+	fakeFS := fstest.MapFS{
+		"system/lark/SKILL.md":        {Data: []byte("---\nname: lark\n---\n")},
+		"system/lark/references/a.md": {Data: []byte("a")},
+		"tap-web/SKILL.md":            {Data: []byte("---\nname: tap-web\n---\n")},
+	}
+	dir := t.TempDir()
+	if err := extractSkillsFS(fakeFS, dir); err != nil {
+		t.Fatalf("extractSkillsFS: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "system", "lark", "SKILL.md")); err != nil {
+		t.Fatalf("system/lark/SKILL.md missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "tap-web", "SKILL.md")); err != nil {
+		t.Fatalf("tap-web/SKILL.md missing: %v", err)
 	}
 }
 
