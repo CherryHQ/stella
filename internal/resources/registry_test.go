@@ -22,6 +22,12 @@ func TestDefaultLoadsBuiltinResources(t *testing.T) {
 		t.Error("skill hash is empty")
 	}
 
+	if _, ok := r.Get(KindSkill, "lark"); !ok {
+		t.Error("expected builtin skill 'lark'")
+	}
+	if _, ok := r.Get(KindSkill, "tap-web"); !ok {
+		t.Error("expected builtin skill 'tap-web'")
+	}
 	if _, ok := r.Get(KindSoul, "anna"); !ok {
 		t.Error("expected builtin soul 'anna'")
 	}

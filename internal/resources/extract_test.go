@@ -16,6 +16,12 @@ func TestExtractSkills(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "anna", "SKILL.md")); err != nil {
 		t.Fatalf("anna/SKILL.md missing: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(dir, "system", "lark", "SKILL.md")); err != nil {
+		t.Fatalf("system/lark/SKILL.md missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "system", "tap-web", "SKILL.md")); err != nil {
+		t.Fatalf("system/tap-web/SKILL.md missing: %v", err)
+	}
 }
 
 func TestExtractSubAgents(t *testing.T) {
