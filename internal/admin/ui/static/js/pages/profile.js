@@ -26,9 +26,18 @@ export function register(Alpine) {
     newSecretName: '',
     newSecretValue: '',
 
+    // OAuth CLI
+    oauthStatus: { github: 'checking', lark: 'checking' },
+    oauthFlow: { github: null, lark: null },
+    oauthFlowActive: { github: false, lark: false },
+
     async init() {
       await this.loadMySkillsCount()
       await this.loadVaultEntries()
+      await Promise.all([
+        this.checkOAuthConnected('github'),
+        this.checkOAuthConnected('lark'),
+      ])
     },
 
     formatTime,
@@ -106,6 +115,69 @@ export function register(Alpine) {
       this.skillsDrawer.selected = null
       if (wasOpen) this.loadMySkillsCount()
     },
+
+    // --- OAuth CLI helpers ---
+
+    async checkOAuthConnected(provider) {
+      this.oauthStatus[provider] = 'checking'
+      try {
+        const data = await api('GET', `/api/auth/profile/oauth/${provider}/connected`)
+        this.oauthStatus[provider] = data && data.connected ? 'connected' : 'disconnected'
+      } catch (_) {
+        this.oauthStatus[provider] = 'disconnected'
+      }
+    },
+
+    async connectOAuth(provider) {
+      this.oauthFlowActive[provider] = true
+      this.oauthFlow[provider] = null
+      try {
+        const flow = await api('POST', `/api/auth/profile/oauth/${provider}/start`)
+        this.oauthFlow[provider] = flow
+        // Poll until terminal state.
+        await this._pollUntilDone(provider, flow.flow_id)
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.oauthFlowActive[provider] = false
+        this.oauthFlow[provider] = null
+        await this.checkOAuthConnected(provider)
+      }
+    },
+
+    async _pollUntilDone(provider, flowID) {
+      const interval = provider === 'github' ? 5000 : 3000
+      while (true) {
+        await new Promise(r => setTimeout(r, interval))
+        let status
+        try {
+          status = await api('GET', `/api/auth/profile/oauth/${provider}/status/${flowID}`)
+        } catch (_) {
+          break
+        }
+        if (!status || status.state !== 'pending') {
+          if (status && status.state === 'authorized') {
+            this.$store.toast.show(`${provider} connected successfully`)
+          } else if (status) {
+            this.$store.toast.show(`${provider} authorization ${status.state}`, 'error')
+          }
+          break
+        }
+      }
+    },
+
+    async disconnectOAuth(provider) {
+      if (!confirm(`Disconnect ${provider} credentials?`)) return
+      try {
+        await api('DELETE', `/api/auth/profile/oauth/${provider}`)
+        this.$store.toast.show(`${provider} disconnected`)
+        await this.checkOAuthConnected(provider)
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    // --- End OAuth CLI helpers ---
 
     async changePassword() {
       if (!this.currentPassword || !this.newPassword) {
