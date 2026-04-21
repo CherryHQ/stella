@@ -52,7 +52,8 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []strin
 	sandboxExecPath, lookErr := exec.LookPath("sandbox-exec")
 	if lookErr != nil {
 		return "", nil, "", fmt.Errorf(
-			"local sandbox: sandbox-exec unavailable on this macOS version; " +
+			"local sandbox: sandbox-exec is not available on this macOS version " +
+				"(deprecated since macOS 10.15, may have been removed); " +
 				"use the docker backend for isolation",
 		)
 	}

@@ -122,7 +122,8 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []strin
 		return "", nil, "", fmt.Errorf(
 			"local sandbox: neither bwrap nor unshare is available; " +
 				"network isolation cannot be enforced — " +
-				"install bubblewrap or use the docker backend",
+				"install bubblewrap (apt/dnf/pacman install bubblewrap) " +
+				"or use the docker backend",
 		)
 	}
 	return name, args, sandboxCwd, nil

@@ -4,7 +4,7 @@ title: Sandbox Backend Abstraction
 
 ## Status
 
-Implemented. Docker is the only sandbox backend. Anna's local execution boundary is described by `pkg/sandbox` contracts, with runner-facing registry wiring in `internal/sandbox`.
+Implemented. Docker is the recommended sandbox backend. A local backend is also available for Docker-free environments with OS-level hardening. Anna's execution boundary is described by `pkg/sandbox` contracts, with runner-facing registry wiring in `internal/sandbox`.
 
 ## Purpose
 
@@ -35,15 +35,57 @@ Backend identity stays inside the runner and sandbox packages. Plugin packages d
 
 File I/O (`read`, `write`, `edit`) is runner-owned: the runner calls `ResolvePath` to obtain the host path and then uses `os.ReadFile` / `os.WriteFile` / `os.MkdirAll` directly. `Session` carries no file read/write methods.
 
-## Docker Requirement
+## Backends
 
-Docker is the only sandbox backend. The Docker daemon must be running and reachable. Anna contacts the Docker daemon at session-create time and fails closed if it is unavailable:
+### Docker (recommended)
+
+Docker provides full container-level process, filesystem, and network isolation. The Docker daemon must be running and reachable. Anna contacts it at session-create time and fails closed if it is unavailable:
 
 - missing or unreachable Docker daemon → session creation fails, runner does not start
 - unsupported policy → `PolicyCompatibilityError`, runner does not start
 - no silent downgrade path exists
 
-All platforms (Linux, macOS, Windows) use the same Docker-backed session. There is no `auto`, `boxsh`, or `Relaxed` mode.
+All platforms (Linux, macOS, Windows) support the Docker backend. There is no `auto`, `boxsh`, or `Relaxed` mode.
+
+### Local (Docker-free)
+
+The local backend runs commands directly on the host OS. It is intended for environments where Docker is unavailable (CI without Docker, embedded deployments, developer machines that prefer not to run a daemon).
+
+**This backend does not provide container-level isolation.** It applies OS-level hardening layers instead:
+
+| Layer | Platform | Mechanism |
+|---|---|---|
+| Process group kill + rlimits | All Unix | `SIGKILL` on process group; `RLIMIT_FSIZE`, `RLIMIT_NOFILE`, `RLIMIT_CPU` via `prlimit(2)` |
+| Filesystem + network isolation | Linux (bwrap available) | `bwrap` — workspace bind-mounted to `/workspace`; rest of FS read-only; optional `--unshare-net` |
+| Network isolation only | Linux (no bwrap) | `unshare --net` — new network namespace, no outbound connectivity |
+| Filesystem + network policy | macOS | `sandbox-exec` Seatbelt profile — write restricted to workspace; network per policy |
+
+The local backend uses a **fail-closed** strategy: if a required isolation tool is missing, session creation fails with an actionable error message rather than running unconfined.
+
+#### Installing dependencies
+
+**Linux — bubblewrap (recommended):**
+```bash
+# Debian / Ubuntu
+apt install bubblewrap
+
+# Fedora / RHEL
+dnf install bubblewrap
+
+# Arch
+pacman -S bubblewrap
+```
+
+`unshare` (network-only fallback) is part of `util-linux` and is present on virtually all Linux systems.
+
+**macOS — sandbox-exec:**
+Built into macOS. No installation required. Note: `sandbox-exec` has been informally deprecated since macOS 10.15 (Catalina). It remains functional but may be removed in a future macOS release.
+
+**Windows:** Not supported. Use the Docker backend.
+
+#### Path presentation
+
+On Linux with `bwrap`, the agent always sees its workspace at `/workspace` regardless of the real host path. This mirrors Docker's bind-mount behaviour. On macOS and Linux without `bwrap`, the agent sees the real host path.
 
 ## Configuration
 

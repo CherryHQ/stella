@@ -4,7 +4,7 @@ title: 沙箱后端抽象
 
 ## 状态
 
-已实现。Docker 是唯一的沙箱后端。Anna 的本地执行边界由 `pkg/sandbox` 契约描述，runner 侧注册配置位于 `internal/sandbox`。
+已实现。Docker 是推荐的沙箱后端。本地后端也可用于无 Docker 环境，并应用了操作系统级加固措施。Anna 的执行边界由 `pkg/sandbox` 契约描述，runner 侧注册配置位于 `internal/sandbox`。
 
 ## 目的
 
@@ -35,15 +35,57 @@ title: 沙箱后端抽象
 
 文件 I/O（`read`、`write`、`edit`）由 runner 拥有：runner 调用 `ResolvePath` 获取宿主机路径，然后直接使用 `os.ReadFile`/`os.WriteFile`/`os.MkdirAll`。`Session` 不包含文件读写方法。
 
-## Docker 要求
+## 后端
 
-Docker 是唯一的沙箱后端。Docker 守护进程必须正在运行且可访问。Anna 在会话创建时连接 Docker 守护进程，如果不可用则拒绝失败：
+### Docker（推荐）
+
+Docker 提供完整的容器级进程、文件系统和网络隔离。Docker 守护进程必须正在运行且可访问。Anna 在会话创建时连接 Docker 守护进程，如果不可用则拒绝失败：
 
 - Docker 守护进程缺失或无法访问 → 会话创建失败，runner 不启动
 - 不支持的策略 → `PolicyCompatibilityError`，runner 不启动
 - 不存在静默降级路径
 
-所有平台（Linux、macOS、Windows）使用相同的 Docker 支持会话。不存在 `auto`、`boxsh` 或 `Relaxed` 模式。
+所有平台（Linux、macOS、Windows）均支持 Docker 后端。不存在 `auto`、`boxsh` 或 `Relaxed` 模式。
+
+### 本地后端（无 Docker）
+
+本地后端直接在宿主机 OS 上运行命令。适用于 Docker 不可用的环境（无 Docker 的 CI、嵌入式部署、不希望运行守护进程的开发机器）。
+
+**此后端不提供容器级隔离。** 它应用操作系统级加固层作为替代：
+
+| 层级 | 平台 | 机制 |
+|---|---|---|
+| 进程组终止 + 资源限制 | 所有 Unix | 对进程组发送 `SIGKILL`；通过 `prlimit(2)` 设置 `RLIMIT_FSIZE`、`RLIMIT_NOFILE`、`RLIMIT_CPU` |
+| 文件系统 + 网络隔离 | Linux（bwrap 可用） | `bwrap` — 工作区绑定挂载到 `/workspace`；其余文件系统只读；可选 `--unshare-net` |
+| 仅网络隔离 | Linux（无 bwrap） | `unshare --net` — 新建网络命名空间，无出站连接 |
+| 文件系统 + 网络策略 | macOS | `sandbox-exec` Seatbelt 配置文件 — 写入限制在工作区；网络按策略控制 |
+
+本地后端采用**拒绝失败**策略：如果所需的隔离工具缺失，会话创建失败并返回包含操作建议的错误信息，而非在无隔离状态下运行。
+
+#### 安装依赖
+
+**Linux — bubblewrap（推荐）：**
+```bash
+# Debian / Ubuntu
+apt install bubblewrap
+
+# Fedora / RHEL
+dnf install bubblewrap
+
+# Arch
+pacman -S bubblewrap
+```
+
+`unshare`（仅网络隔离的备用方案）是 `util-linux` 的一部分，在几乎所有 Linux 系统上均已存在。
+
+**macOS — sandbox-exec：**
+macOS 内置，无需安装。注意：`sandbox-exec` 自 macOS 10.15（Catalina）起已被非正式弃用，仍可使用，但可能在未来的 macOS 版本中被移除。
+
+**Windows：** 不支持，请使用 Docker 后端。
+
+#### 路径呈现
+
+在 Linux 上使用 `bwrap` 时，无论真实宿主机路径如何，代理始终将工作区看作 `/workspace`，与 Docker 绑定挂载行为一致。在 macOS 和不使用 `bwrap` 的 Linux 上，代理看到的是真实宿主机路径。
 
 ## 配置
 
