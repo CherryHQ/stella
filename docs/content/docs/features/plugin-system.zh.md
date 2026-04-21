@@ -19,18 +19,18 @@ Anna 采用编译内置的插件模型。所有插件都直接编译到 anna 二
 
 Anna 内置了 9 个插件：
 
-| 类型     | 名称            | 描述                                   |
-| -------- | --------------- | -------------------------------------- |
-| tool     | mcp             | 连接已配置的 MCP 服务器并代理 MCP 工具 |
-| tool     | webfetch        | 获取网页                               |
-| channel  | telegram        | Telegram 机器人                        |
-| channel  | qq              | QQ 机器人                              |
-| channel  | feishu          | 飞书机器人                             |
-| channel  | weixin          | 微信机器人（通过 iLink）               |
-| hook     | rtk             | 请求追踪和费用日志                     |
-| provider | anthropic       | Anthropic Messages API（Claude 模型）  |
-| provider | openai          | OpenAI Chat Completions API（GPT 模型）|
-| provider | openai-response | OpenAI Responses API（兼容服务）       |
+| 类型     | 名称            | 描述                                    |
+| -------- | --------------- | --------------------------------------- |
+| tool     | mcp             | 连接已配置的 MCP 服务器并代理 MCP 工具  |
+| tool     | webfetch        | 获取网页                                |
+| channel  | telegram        | Telegram 机器人                         |
+| channel  | qq              | QQ 机器人                               |
+| channel  | feishu          | 飞书机器人                              |
+| channel  | weixin          | 微信机器人（通过 iLink）                |
+| hook     | rtk             | 请求追踪和费用日志                      |
+| provider | anthropic       | Anthropic Messages API（Claude 模型）   |
+| provider | openai          | OpenAI Chat Completions API（GPT 模型） |
+| provider | openai-response | OpenAI Responses API（兼容服务）        |
 
 ## 插件架构
 
@@ -95,13 +95,13 @@ func init() {
 
 插件状态存储在数据库的 `settings_plugins` 表中。每个插件包含：
 
-| 字段      | 类型       | 描述                                           |
-| --------- | ---------- | ---------------------------------------------- |
-| `id`      | string     | 插件 ID（`类型/名称`，如 `tool/webfetch`）     |
-| `kind`    | string     | `tool`、`channel`、`hook` 或 `provider`        |
-| `name`    | string     | 插件名称                                       |
-| `enabled` | bool       | 插件是否启用                                   |
-| `config`  | JSON map   | 插件特定配置（令牌、密钥等）                   |
+| 字段      | 类型     | 描述                                       |
+| --------- | -------- | ------------------------------------------ |
+| `id`      | string   | 插件 ID（`类型/名称`，如 `tool/webfetch`） |
+| `kind`    | string   | `tool`、`channel`、`hook` 或 `provider`    |
+| `name`    | string   | 插件名称                                   |
+| `enabled` | bool     | 插件是否启用                               |
+| `config`  | JSON map | 插件特定配置（令牌、密钥等）               |
 
 ## CLI 命令
 

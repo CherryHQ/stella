@@ -145,9 +145,9 @@ Search, install, and manage skills from the CLI or mid-conversation. Each agent 
 
 ## Security and Sandboxing
 
-On Linux and macOS, Anna uses the `boxsh` sandbox by default for local agent code execution. A `docker` backend is also available on all platforms (including Windows) for workflows that need a specific Linux userspace or a custom toolchain. The `bash`, `read`, `write`, and `edit` tools run through a copy-on-write overlay filesystem that isolates each session. The managed tool bundle also puts `fd`, `rg`, `mise`, and `tap` on the agent's `PATH`, so common helper CLIs are available even when the host machine doesn't have them installed:
+Anna uses Docker for local agent code execution on all platforms (Linux, macOS, Windows). Docker is required; Anna fails closed when the Docker daemon is unavailable. The `bash`, `read`, `write`, and `edit` tools run inside a Docker container that isolates each session:
 
-- Each agent session gets its own ephemeral workspace
+- Each agent session gets its own ephemeral container
 - File modifications don't affect the underlying source workspace
 - Path traversal outside the sandbox is blocked
 - Network access is disabled by default
@@ -158,13 +158,10 @@ Per-agent network policy can be configured through the admin panel:
 |------|-------------|
 | `disabled` | No outbound network (default) |
 | `allow_all` | Unrestricted outbound access |
-| `whitelist` | Only specified hosts/CIDRs allowed when the runtime supports it |
 
-On Linux, the sandbox uses mount namespaces and overlayfs for strong isolation. It also depends on host support for unprivileged user namespaces and subordinate ID mapping (`newuidmap`/`newgidmap`, `/etc/subuid`, `/etc/subgid`). Some Ubuntu hosts additionally require `kernel.apparmor_restrict_unprivileged_userns=0` for `boxsh` to create a sandbox. On macOS, the guarantees are weaker due to platform limitations—sandboxing uses Seatbelt policies and APFS clonefile rather than true mount namespaces. Runner startup fails closed when the sandbox backend is unavailable.
+Runner startup fails closed when Docker is unavailable. Remote MCP servers are a separate trust boundary: local MCP stdio transport is runtime-mediated via `Session.StartProcess`, while remote MCP HTTP/SSE transport is not currently covered by the local sandbox boundary.
 
-Current `boxsh` client builds may reject `whitelist` mode at runtime; Anna fails closed instead of widening access. Remote MCP servers are a separate trust boundary for now: local MCP stdio transport is runtime-mediated, while remote MCP HTTP/SSE transport is not currently covered by the local sandbox boundary.
-
-See [Architecture](/docs/core/architecture) for detailed platform guarantees, limitations, and the explicit MCP transport exception.
+See [Architecture](/docs/core/architecture) for the session interface, execution-time mediation details, and the explicit MCP transport exception.
 
 ## Quick start
 

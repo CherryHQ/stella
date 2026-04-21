@@ -15,8 +15,7 @@ function OAuthCallback() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontFamily:
-          '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         background: '#fafafa',
         padding: '2rem',
       }}
@@ -46,8 +45,7 @@ function InfoView() {
         Feishu OAuth Was Removed
       </h1>
       <p style={{ color: '#666', margin: '0 0 1.5rem', lineHeight: 1.5 }}>
-        Anna no longer uses the old Feishu bot OAuth callback flow for workspace
-        tools.
+        Anna no longer uses the old Feishu bot OAuth callback flow for workspace tools.
       </p>
       <div
         style={{
@@ -72,8 +70,8 @@ function InfoView() {
           lineHeight: 1.5,
         }}
       >
-        Add a <code>lark-cli</code> skill yourself if you want Lark workspace
-        actions, and keep Feishu configured only as a chat channel.
+        Add a <code>lark-cli</code> skill yourself if you want Lark workspace actions, and keep
+        Feishu configured only as a chat channel.
       </p>
     </>
   );

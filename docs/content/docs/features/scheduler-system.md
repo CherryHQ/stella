@@ -123,12 +123,12 @@ Scheduler is only active in server mode (`anna`) when:
 
 The admin panel exposes a full CRUD API for scheduler jobs:
 
-| Method   | Endpoint                   | Description             |
-| -------- | -------------------------- | ----------------------- |
+| Method   | Endpoint                   | Description                                      |
+| -------- | -------------------------- | ------------------------------------------------ |
 | `GET`    | `/api/scheduler/jobs`      | List scheduled jobs and plugin-owned status rows |
-| `POST`   | `/api/scheduler/jobs`      | Create a new user/system job                      |
-| `PUT`    | `/api/scheduler/jobs/{id}` | Update an existing user/system job                |
-| `DELETE` | `/api/scheduler/jobs/{id}` | Delete a user/system job                          |
+| `POST`   | `/api/scheduler/jobs`      | Create a new user/system job                     |
+| `PUT`    | `/api/scheduler/jobs/{id}` | Update an existing user/system job               |
+| `DELETE` | `/api/scheduler/jobs/{id}` | Delete a user/system job                         |
 
 Plugin-owned jobs are visible in the admin scheduler page as read-only rows showing the owning plugin, runtime, key, payload, and last run/error status.
 

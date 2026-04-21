@@ -14,42 +14,42 @@ Configuration is spread across several tables in the SQLite database.
 
 A key-value store for global settings. Each row has a `key` (text) and a `value` (JSON text). Known keys:
 
-| Key            | Description                                                   |
-| -------------- | ------------------------------------------------------------- |
-| `runner`       | Runner type, system prompt, idle timeout, compaction settings |
-| `compaction`   | Compaction thresholds (max_tokens, keep_tail)                 |
-| `heartbeat`    | Heartbeat polling toggle and interval                         |
-| `plugins`      | JSON array of plugin definitions                              |
-| `runtime_plugins` | JSON object of subprocess tool/channel bindings            |
-| `models_cache` | Cached model list from providers                              |
+| Key               | Description                                                   |
+| ----------------- | ------------------------------------------------------------- |
+| `runner`          | Runner type, system prompt, idle timeout, compaction settings |
+| `compaction`      | Compaction thresholds (max_tokens, keep_tail)                 |
+| `heartbeat`       | Heartbeat polling toggle and interval                         |
+| `plugins`         | JSON array of plugin definitions                              |
+| `runtime_plugins` | JSON object of subprocess tool/channel bindings               |
+| `models_cache`    | Cached model list from providers                              |
 
 ### settings_agents
 
 One row per agent.
 
-| Column          | Type    | Description                                                      |
-| --------------- | ------- | ---------------------------------------------------------------- |
-| `id`            | TEXT    | Agent slug (e.g. `anna`)                                         |
-| `name`          | TEXT    | Display name                                                     |
-| `model`         | TEXT    | Default model in `provider/model` format                         |
-| `model_strong`  | TEXT    | Strong-tier model in `provider/model` format                     |
-| `model_fast`    | TEXT    | Fast-tier model in `provider/model` format                       |
-| `system_prompt` | TEXT    | Custom system prompt (bypasses default builder)                  |
-| `workspace`     | TEXT    | Absolute path to agent workspace directory                       |
+| Column          | Type    | Description                                                                        |
+| --------------- | ------- | ---------------------------------------------------------------------------------- |
+| `id`            | TEXT    | Agent slug (e.g. `anna`)                                                           |
+| `name`          | TEXT    | Display name                                                                       |
+| `model`         | TEXT    | Default model in `provider/model` format                                           |
+| `model_strong`  | TEXT    | Strong-tier model in `provider/model` format                                       |
+| `model_fast`    | TEXT    | Fast-tier model in `provider/model` format                                         |
+| `system_prompt` | TEXT    | Custom system prompt (bypasses default builder)                                    |
+| `workspace`     | TEXT    | Absolute path to agent workspace directory                                         |
 | `sandbox`       | TEXT    | JSON sandbox config for the agent (`backend`, `network.mode`, `network.allowlist`) |
-| `enabled`       | INTEGER | 1 = active, 0 = disabled                                         |
+| `enabled`       | INTEGER | 1 = active, 0 = disabled                                                           |
 
 ### settings_channels
 
 One row per channel instance. Multiple rows can share the same platform `type`, such as multiple Feishu bot instances.
 
-| Column    | Type    | Description                                           |
-| --------- | ------- | ----------------------------------------------------- |
-| `id`      | TEXT    | Channel instance identifier, such as `telegram` or `feishu-coder` |
-| `type`    | TEXT    | Platform type: `telegram`, `qq`, `feishu`, or `weixin` |
-| `agent_id` | TEXT   | Optional dedicated agent for this channel instance |
-| `enabled` | INTEGER | 1 = active, 0 = disabled                              |
-| `config`  | TEXT    | JSON blob with platform-specific settings (see below) |
+| Column     | Type    | Description                                                       |
+| ---------- | ------- | ----------------------------------------------------------------- |
+| `id`       | TEXT    | Channel instance identifier, such as `telegram` or `feishu-coder` |
+| `type`     | TEXT    | Platform type: `telegram`, `qq`, `feishu`, or `weixin`            |
+| `agent_id` | TEXT    | Optional dedicated agent for this channel instance                |
+| `enabled`  | INTEGER | 1 = active, 0 = disabled                                          |
+| `config`   | TEXT    | JSON blob with platform-specific settings (see below)             |
 
 ### settings_users
 
@@ -67,12 +67,12 @@ Maps external platform users to agents.
 
 Routes a specific group chat to a specific agent.
 
-| Column     | Type | Description                      |
-| ---------- | ---- | -------------------------------- |
-| `channel_id` | TEXT | Channel instance identifier |
-| `platform` | TEXT | Platform identifier              |
-| `chat_id`  | TEXT | Group or chat ID on the platform |
-| `agent_id` | TEXT | FK to `settings_agents.id`       |
+| Column       | Type | Description                      |
+| ------------ | ---- | -------------------------------- |
+| `channel_id` | TEXT | Channel instance identifier      |
+| `platform`   | TEXT | Platform identifier              |
+| `chat_id`    | TEXT | Group or chat ID on the platform |
+| `agent_id`   | TEXT | FK to `settings_agents.id`       |
 
 Composite primary key: `(channel_id, chat_id)`.
 
@@ -177,14 +177,14 @@ Example JSON for a docker-backed agent's `sandbox` field:
 
 The old `ANNA_*` prefix overrides for all config fields are removed. Only the following environment variables are recognized:
 
-| Variable              | Purpose                                          |
-| --------------------- | ------------------------------------------------ |
-| `ANNA_HOME`           | Override the home directory (default `~/.anna`)  |
-| `ANNA_HOME_HOST`      | Host-side path of `ANNA_HOME` when anna runs inside a container and talks to a host docker daemon (Docker-outside-of-Docker). Required in that setup; ignored otherwise. |
-| `ANTHROPIC_API_KEY`   | Fallback API key for the Anthropic provider      |
-| `ANTHROPIC_BASE_URL`  | Fallback base URL for the Anthropic provider     |
-| `OPENAI_API_KEY`      | Fallback API key for the OpenAI provider         |
-| `OPENAI_BASE_URL`     | Fallback base URL for the OpenAI provider        |
+| Variable             | Purpose                                                                                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ANNA_HOME`          | Override the home directory (default `~/.anna`)                                                                                                                          |
+| `ANNA_HOME_HOST`     | Host-side path of `ANNA_HOME` when anna runs inside a container and talks to a host docker daemon (Docker-outside-of-Docker). Required in that setup; ignored otherwise. |
+| `ANTHROPIC_API_KEY`  | Fallback API key for the Anthropic provider                                                                                                                              |
+| `ANTHROPIC_BASE_URL` | Fallback base URL for the Anthropic provider                                                                                                                             |
+| `OPENAI_API_KEY`     | Fallback API key for the OpenAI provider                                                                                                                                 |
+| `OPENAI_BASE_URL`    | Fallback base URL for the OpenAI provider                                                                                                                                |
 
 All other configuration must be set through the admin panel (`anna --open`) or directly in the database.
 

@@ -98,18 +98,18 @@ Tool activity from the runner is summarized inline during streaming.
 
 ## Supported Message Types
 
-| Type | Behavior |
-| --- | --- |
-| Text | Sent to the LLM as text |
-| Image | Downloaded and passed as multimodal input |
-| Post | Raw rich-text JSON is forwarded |
-| Audio | Sent as descriptive text with duration |
-| Video | Sent as descriptive text with duration |
-| File | Sent as descriptive text with file metadata |
-| Sticker | Sent as descriptive text |
-| Location | Sent as descriptive text with coordinates when present |
-| Shared chat/user | Sent as descriptive text |
-| Forwarded messages | Sent as a summary marker |
+| Type               | Behavior                                               |
+| ------------------ | ------------------------------------------------------ |
+| Text               | Sent to the LLM as text                                |
+| Image              | Downloaded and passed as multimodal input              |
+| Post               | Raw rich-text JSON is forwarded                        |
+| Audio              | Sent as descriptive text with duration                 |
+| Video              | Sent as descriptive text with duration                 |
+| File               | Sent as descriptive text with file metadata            |
+| Sticker            | Sent as descriptive text                               |
+| Location           | Sent as descriptive text with coordinates when present |
+| Shared chat/user   | Sent as descriptive text                               |
+| Forwarded messages | Sent as a summary marker                               |
 
 ## Native Threading
 
@@ -129,14 +129,14 @@ You can also set per-group overrides with the `groups` map in channel config.
 
 Feishu supports the standard chat commands:
 
-| Command | Description |
-| --- | --- |
-| `/new` | Start a fresh session |
-| `/compact` | Compact session history |
-| `/abort` | Cancel the in-progress response |
-| `/model` | List or switch models |
-| `/agent` | List or switch agents |
-| `/whoami` | Show your platform identity |
+| Command    | Description                     |
+| ---------- | ------------------------------- |
+| `/new`     | Start a fresh session           |
+| `/compact` | Compact session history         |
+| `/abort`   | Cancel the in-progress response |
+| `/model`   | List or switch models           |
+| `/agent`   | List or switch agents           |
+| `/whoami`  | Show your platform identity     |
 
 ## Config Reference
 
@@ -159,14 +159,14 @@ Feishu supports the standard chat commands:
 }
 ```
 
-| Field | Description |
-| --- | --- |
-| `app_id` | Feishu app ID |
-| `app_secret` | Feishu app secret |
-| `encrypt_key` | Optional event encryption key |
-| `verification_token` | Optional event verification token |
-| `group_mode` | Default group behavior: `mention`, `always`, or `disabled` |
-| `enable_notify` | Allow scheduler and notify output to target Feishu |
-| `tenant_key` | Your enterprise tenant key. Required when `auto_provision` is `true` |
-| `auto_provision` | Automatically create Anna accounts for users of the configured tenant |
-| `groups` | Optional per-chat overrides keyed by Feishu `chat_id` |
+| Field                | Description                                                           |
+| -------------------- | --------------------------------------------------------------------- |
+| `app_id`             | Feishu app ID                                                         |
+| `app_secret`         | Feishu app secret                                                     |
+| `encrypt_key`        | Optional event encryption key                                         |
+| `verification_token` | Optional event verification token                                     |
+| `group_mode`         | Default group behavior: `mention`, `always`, or `disabled`            |
+| `enable_notify`      | Allow scheduler and notify output to target Feishu                    |
+| `tenant_key`         | Your enterprise tenant key. Required when `auto_provision` is `true`  |
+| `auto_provision`     | Automatically create Anna accounts for users of the configured tenant |
+| `groups`             | Optional per-chat overrides keyed by Feishu `chat_id`                 |

@@ -51,14 +51,14 @@ That gives Anna:
 
 Anna ships built-in plugins across several areas:
 
-| Kind      | Examples |
-| --- | --- |
-| tool | `mcp`, `webfetch`, `notify` |
-| channel | `telegram`, `qq`, `feishu`, `weixin` |
-| hook | `trace`, `rtk` |
+| Kind     | Examples                                 |
+| -------- | ---------------------------------------- |
+| tool     | `mcp`, `webfetch`, `notify`              |
+| channel  | `telegram`, `qq`, `feishu`, `weixin`     |
+| hook     | `trace`, `rtk`                           |
 | provider | `anthropic`, `openai`, `openai-response` |
-| memory | `lcm`, `simple` |
-| runtime | `reflect` |
+| memory   | `lcm`, `simple`                          |
+| runtime  | `reflect`                                |
 
 ## Read The Plugin Docs
 
