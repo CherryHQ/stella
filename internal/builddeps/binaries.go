@@ -30,6 +30,7 @@ type embeddedBinary struct {
 	Name           string
 	Repo           string
 	Version        string
+	Tag            string
 	Optional       bool
 	AssetTemplates map[string]embeddedBinaryAsset
 }
@@ -39,7 +40,10 @@ func (b embeddedBinary) resolveAsset(platform string) (embeddedBinaryAsset, stri
 	if !ok {
 		return embeddedBinaryAsset{}, "", false
 	}
-	tag := ensureVPrefix(b.Version)
+	tag := b.Tag
+	if tag == "" {
+		tag = ensureVPrefix(b.Version)
+	}
 	asset.File = strings.ReplaceAll(asset.File, "{version}", b.Version)
 	asset.File = strings.ReplaceAll(asset.File, "{tag}", tag)
 	if asset.BinaryName == "" {
@@ -67,6 +71,7 @@ func embeddedBinaries() []embeddedBinary {
 			Name:    "rg",
 			Repo:    "BurntSushi/ripgrep",
 			Version: rgVersion,
+			Tag:     rgVersion,
 			AssetTemplates: map[string]embeddedBinaryAsset{
 				"darwin-amd64":  {File: "ripgrep-{version}-x86_64-apple-darwin.tar.gz"},
 				"darwin-arm64":  {File: "ripgrep-{version}-aarch64-apple-darwin.tar.gz"},
