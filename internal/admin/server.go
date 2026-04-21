@@ -12,6 +12,7 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/pluginhost"
+	"github.com/vaayne/anna/internal/vault"
 	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
 )
@@ -32,6 +33,7 @@ type Server struct {
 	log            *slog.Logger
 	corsOriginV    string               // cached CORS origin
 	vaultRecipient *age.X25519Recipient // optional; if set, age keys are generated for new users
+	vaultSvc       *vault.Service       // optional; if nil, vault endpoints return 503
 }
 
 // New creates an admin server with all API routes mounted.
@@ -79,4 +81,11 @@ func (s *Server) LinkCodes() *auth.LinkCodeStore {
 // If not set (nil), vault key generation is skipped for new users.
 func (s *Server) SetVaultRecipient(r *age.X25519Recipient) {
 	s.vaultRecipient = r
+}
+
+// SetVaultService wires the vault service into the admin server.
+// Call before serving requests. If not set (nil), vault API endpoints
+// return 503 Service Unavailable.
+func (s *Server) SetVaultService(svc *vault.Service) {
+	s.vaultSvc = svc
 }

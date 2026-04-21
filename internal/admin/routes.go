@@ -44,6 +44,11 @@ func (s *Server) registerProfileRoutes() {
 	s.mux.HandleFunc("DELETE /api/auth/profile/memories/{agentId}", s.deleteProfileMemory)
 	s.mux.HandleFunc("PUT /api/auth/profile/soul/{agentId}", s.setProfileSoul)
 
+	// Vault (per-user encrypted secrets).
+	s.mux.HandleFunc("GET /api/auth/profile/vault", s.listVaultEntries)
+	s.mux.HandleFunc("PUT /api/auth/profile/vault/{name}", s.setVaultEntry)
+	s.mux.HandleFunc("DELETE /api/auth/profile/vault/{name}", s.deleteVaultEntry)
+
 	// Self-service user skills.
 	s.mux.HandleFunc("GET /api/auth/profile/skills", s.listProfileSkills)
 	s.mux.HandleFunc("POST /api/auth/profile/skills/install", s.installProfileSkill)

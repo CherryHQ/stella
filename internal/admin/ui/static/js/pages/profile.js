@@ -1,4 +1,5 @@
 import { api } from '/static/js/api.js'
+import { formatTime } from '/static/js/utils.js'
 import { skillsDrawerMixin } from '/static/js/components/skills_drawer.js'
 
 /**
@@ -18,8 +19,63 @@ export function register(Alpine) {
     // Skill count badge (loaded lazily).
     mySkillsCount: 0,
 
+    // Vault
+    vaultEntries: [],
+    vaultLoading: false,
+    vaultSaving: false,
+    newSecretName: '',
+    newSecretValue: '',
+
     async init() {
       await this.loadMySkillsCount()
+      await this.loadVaultEntries()
+    },
+
+    formatTime,
+
+    async loadVaultEntries() {
+      this.vaultLoading = true
+      try {
+        this.vaultEntries = (await api('GET', '/api/auth/profile/vault')) || []
+      } catch (_) {
+        this.vaultEntries = []
+      } finally {
+        this.vaultLoading = false
+      }
+    },
+
+    async addVaultEntry() {
+      if (!this.newSecretName) {
+        this.$store.toast.show('Secret name is required', 'error')
+        return
+      }
+      if (!this.newSecretValue) {
+        this.$store.toast.show('Secret value is required', 'error')
+        return
+      }
+      this.vaultSaving = true
+      try {
+        await api('PUT', `/api/auth/profile/vault/${encodeURIComponent(this.newSecretName)}`, { value: this.newSecretValue })
+        this.$store.toast.show('Secret saved')
+        this.newSecretName = ''
+        this.newSecretValue = ''
+        await this.loadVaultEntries()
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.vaultSaving = false
+      }
+    },
+
+    async deleteVaultEntry(name) {
+      if (!confirm(`Delete secret "${name}"?`)) return
+      try {
+        await api('DELETE', `/api/auth/profile/vault/${encodeURIComponent(name)}`)
+        this.$store.toast.show('Secret deleted')
+        await this.loadVaultEntries()
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
     },
 
     async loadMySkillsCount() {
