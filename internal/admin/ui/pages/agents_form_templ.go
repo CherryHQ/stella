@@ -31,7 +31,7 @@ func agentFormPanel() templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"border border-base-300 rounded-box overflow-hidden\"><div class=\"border-b border-base-300 px-4 py-3 flex items-center justify-between bg-base-200/30\"><span class=\"font-medium text-sm\" x-text=\"editingId ? 'Edit: ' + form.name : 'New agent'\"></span> <button @click=\"cancelForm()\" class=\"btn btn-ghost btn-xs text-secondary\">Cancel</button></div><div class=\"border-b border-base-300 px-2 flex overflow-x-auto bg-base-200/20\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"border border-base-300 rounded-box overflow-hidden\"><div class=\"border-b border-base-300 px-4 py-3 bg-base-200/30\"><span class=\"font-medium text-sm\" x-text=\"editingId ? 'Edit: ' + form.name : 'New agent'\"></span></div><div class=\"border-b border-base-300 px-2 flex overflow-x-auto bg-base-200/20\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -51,7 +51,7 @@ func agentFormPanel() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<button x-show=\"isAdmin\" @click=\"activeTab = 'users'; loadAssignedUsers(editingId)\" class=\"px-3 py-2.5 text-xs font-mono border-b-2 transition-colors whitespace-nowrap\" :class=\"activeTab === 'users' ? 'border-primary text-primary font-semibold' : 'border-transparent text-secondary hover:text-base-content'\">Users</button></div><div class=\"p-4 space-y-4\"><div x-show=\"activeTab === 'config'\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<button x-show=\"isAdmin\" @click=\"activeTab = 'users'; loadAssignedUsers(editingId)\" class=\"px-3 py-2.5 text-xs font-mono border-b-2 transition-colors whitespace-nowrap\" :class=\"activeTab === 'users' ? 'border-primary text-primary font-semibold' : 'border-transparent text-secondary hover:text-base-content'\">Users</button> <button x-show=\"editingId\" @click=\"activeTab = 'personal'\" class=\"px-3 py-2.5 text-xs font-mono border-b-2 transition-colors whitespace-nowrap\" :class=\"activeTab === 'personal' ? 'border-primary text-primary font-semibold' : 'border-transparent text-secondary hover:text-base-content'\">Personal</button></div><div class=\"p-4 space-y-4\"><div x-show=\"activeTab === 'config'\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -91,7 +91,15 @@ func agentFormPanel() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div></div><div class=\"border-t border-base-300 px-4 py-3 flex items-center justify-between bg-base-200/20\"><label class=\"flex items-center gap-3 cursor-pointer\"><input type=\"checkbox\" x-model=\"form.enabled\" class=\"toggle toggle-primary toggle-sm\"> <span class=\"text-sm\">Enabled</span></label> <button @click=\"saveAgent()\" class=\"btn btn-primary btn-sm\" x-text=\"editingId ? 'Update' : 'Create'\"></button></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div><div x-show=\"activeTab === 'personal'\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = agentPersonalTab().Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div></div><div class=\"border-t border-base-300 px-4 py-3 flex items-center justify-end gap-2 bg-base-200/20\"><button @click=\"cancelForm()\" class=\"btn btn-ghost btn-sm\">Cancel</button> <button @click=\"saveAgent()\" class=\"btn btn-primary btn-sm\" x-text=\"editingId ? 'Update' : 'Create'\"></button></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -120,46 +128,46 @@ func agentFormTab(id string, label string) templ.Component {
 			templ_7745c5c3_Var2 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<button @click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<button @click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs("activeTab = '" + id + "'")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 52, Col: 37}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 57, Col: 37}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" class=\"px-3 py-2.5 text-xs font-mono border-b-2 transition-colors whitespace-nowrap\" :class=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\" class=\"px-3 py-2.5 text-xs font-mono border-b-2 transition-colors whitespace-nowrap\" :class=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs("activeTab === '" + id + "' ? 'border-primary text-primary font-semibold' : 'border-transparent text-secondary hover:text-base-content'")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 54, Col: 147}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 59, Col: 147}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 55, Col: 9}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 60, Col: 9}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</button>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</button>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -188,7 +196,7 @@ func agentConfigTab() templ.Component {
 			templ_7745c5c3_Var6 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<div class=\"space-y-4\"><div><label class=\"label\"><span class=\"label-text font-mono text-sm\">Name</span></label> <input x-model=\"form.name\" placeholder=\"My Agent\" class=\"input input-bordered w-full text-sm\"></div><div><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-3\">Models <span class=\"normal-case tracking-normal text-base-content/50\">— provider/model</span></p><div class=\"space-y-3\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<div class=\"space-y-4\"><div><label class=\"label\"><span class=\"label-text font-mono text-sm\">Name</span></label> <input x-model=\"form.name\" placeholder=\"My Agent\" class=\"input input-bordered w-full text-sm\"></div><div><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-3\">Models <span class=\"normal-case tracking-normal text-base-content/50\">— provider/model</span></p><div class=\"space-y-3\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -196,7 +204,7 @@ func agentConfigTab() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<div class=\"grid grid-cols-1 sm:grid-cols-2 gap-3\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<div class=\"grid grid-cols-1 sm:grid-cols-2 gap-3\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -208,7 +216,7 @@ func agentConfigTab() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</div></div></div><div x-show=\"isAdmin\"><label class=\"label\"><span class=\"label-text font-mono text-sm\">Scope</span></label> <select x-model=\"form.scope\" class=\"select select-bordered w-full text-sm\"><option value=\"system\">system — all users can access</option> <option value=\"restricted\">restricted — only assigned users</option></select></div><div x-show=\"isAdmin && editingId\"><label class=\"label\"><span class=\"label-text font-mono text-sm\">Dedicated channels</span></label><p class=\"text-xs text-base-content/60 mb-2\">Bind dedicated channel instances to this agent.</p><div class=\"space-y-1\"><template x-for=\"ch in availableDedicatedChannels(editingId)\" :key=\"ch.id\"><label class=\"flex items-center justify-between gap-3 rounded-lg border border-base-300 px-3 py-2 cursor-pointer\"><div class=\"min-w-0\"><p class=\"text-sm font-mono\" x-text=\"ch.id\"></p><p class=\"text-xs text-secondary\" x-text=\"ch.type\"></p></div><input type=\"checkbox\" :value=\"ch.id\" x-model=\"selectedChannelIDs\" class=\"checkbox checkbox-sm checkbox-primary\"></label></template><div x-show=\"availableDedicatedChannels(editingId).length === 0\" class=\"text-xs text-base-content/50\">No dedicated channels available.</div></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</div></div></div><div x-show=\"isAdmin\"><label class=\"label\"><span class=\"label-text font-mono text-sm\">Scope</span></label> <select x-model=\"form.scope\" class=\"select select-bordered w-full text-sm\"><option value=\"system\">system — all users can access</option> <option value=\"restricted\">restricted — only assigned users</option></select></div><div x-show=\"isAdmin && editingId\"><label class=\"label\"><span class=\"label-text font-mono text-sm\">Dedicated channels</span></label><p class=\"text-xs text-base-content/60 mb-2\">Bind dedicated channel instances to this agent.</p><div class=\"space-y-1\"><template x-for=\"ch in availableDedicatedChannels(editingId)\" :key=\"ch.id\"><label class=\"flex items-center justify-between gap-3 rounded-lg border border-base-300 px-3 py-2 cursor-pointer\"><div class=\"min-w-0\"><p class=\"text-sm font-mono\" x-text=\"ch.id\"></p><p class=\"text-xs text-secondary\" x-text=\"ch.type\"></p></div><input type=\"checkbox\" :value=\"ch.id\" x-model=\"selectedChannelIDs\" class=\"checkbox checkbox-sm checkbox-primary\"></label></template><div x-show=\"availableDedicatedChannels(editingId).length === 0\" class=\"text-xs text-base-content/50\">No dedicated channels available.</div></div></div><div class=\"pt-2 border-t border-base-300\"><label class=\"flex items-center gap-3 cursor-pointer\"><input type=\"checkbox\" x-model=\"form.enabled\" class=\"toggle toggle-primary toggle-sm\"> <span class=\"text-sm\">Enabled</span></label></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -237,7 +245,7 @@ func agentPromptTab() templ.Component {
 			templ_7745c5c3_Var7 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<div class=\"space-y-4\"><div x-show=\"builtinSouls.length > 0\"><label class=\"label\"><span class=\"label-text font-mono text-sm\">Soul preset</span></label><div class=\"flex flex-wrap gap-2\"><template x-for=\"soul in builtinSouls\" :key=\"soul.id\"><button @click=\"selectedSoulID = soul.id; applySoul(soul.id)\" type=\"button\" class=\"badge badge-sm cursor-pointer transition-colors\" :class=\"selectedSoulID === soul.id ? 'badge-primary' : 'badge-ghost'\" :title=\"soul.description\" x-text=\"soul.name\"></button></template></div></div><div><label class=\"label\"><span class=\"label-text font-mono text-sm\">Soul</span></label><p class=\"text-xs text-base-content/60 mb-1\">Default personality for all users. Each user can override their own.</p><textarea x-model=\"form.soul\" rows=\"3\" placeholder=\"Personality and behavior tone...\" class=\"textarea textarea-bordered w-full text-sm font-mono resize-y\"></textarea></div><div><label class=\"label\"><span class=\"label-text font-mono text-sm\">System Prompt</span></label> <textarea x-model=\"form.system_prompt\" rows=\"10\" class=\"textarea textarea-bordered w-full text-sm font-mono resize-y\" :disabled=\"editingId && !canEditAgent({creator_id: form.creator_id})\"></textarea></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<div class=\"space-y-4\"><div x-show=\"builtinSouls.length > 0\"><label class=\"label\"><span class=\"label-text font-mono text-sm\">Soul preset</span></label><div class=\"flex flex-wrap gap-2\"><template x-for=\"soul in builtinSouls\" :key=\"soul.id\"><button @click=\"selectedSoulID = soul.id; applySoul(soul.id)\" type=\"button\" class=\"badge badge-sm cursor-pointer transition-colors\" :class=\"selectedSoulID === soul.id ? 'badge-primary' : 'badge-ghost'\" :title=\"soul.description\" x-text=\"soul.name\"></button></template></div></div><div><label class=\"label\"><span class=\"label-text font-mono text-sm\">Soul</span></label><p class=\"text-xs text-base-content/60 mb-1\">Default personality for all users. Each user can override their own.</p><textarea x-model=\"form.soul\" rows=\"3\" placeholder=\"Personality and behavior tone...\" class=\"textarea textarea-bordered w-full text-sm font-mono resize-y\"></textarea></div><div><label class=\"label\"><span class=\"label-text font-mono text-sm\">System Prompt</span></label> <textarea x-model=\"form.system_prompt\" rows=\"10\" class=\"textarea textarea-bordered w-full text-sm font-mono resize-y\" :disabled=\"editingId && !canEditAgent({creator_id: form.creator_id})\"></textarea></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -266,7 +274,7 @@ func agentSkillsTab() templ.Component {
 			templ_7745c5c3_Var8 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<div class=\"space-y-6\"><div x-show=\"builtinSkills.length > 0\"><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2\">Builtin skills</p><p class=\"text-xs text-base-content/60 mb-2\">Anna's self-knowledge is always on. Toggle extras for this agent.</p><div class=\"flex flex-wrap gap-2\"><template x-for=\"sk in builtinSkills\" :key=\"sk.id\"><button @click=\"toggleBuiltinSkill(sk.name)\" type=\"button\" class=\"badge badge-sm cursor-pointer transition-colors\" :class=\"isBuiltinSkillEnabled(sk.name) ? 'badge-primary' : 'badge-ghost'\" :title=\"sk.description\" x-text=\"sk.name\"></button></template></div></div><div><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2\">Custom skills</p><div x-show=\"!editingId\" class=\"text-xs text-base-content/50 italic py-1\">Save the agent first to manage custom skills.</div><div x-show=\"editingId\"><template x-if=\"agentSkillsLoading\"><div class=\"py-4 flex justify-center\"><span class=\"loading loading-spinner loading-sm\"></span></div></template><template x-if=\"!agentSkillsLoading\"><div><div class=\"space-y-1 mb-3\"><template x-for=\"sk in agentSkills\" :key=\"sk.id\"><div class=\"flex items-center justify-between rounded border border-base-300 px-3 py-2\"><div class=\"flex items-center gap-2 min-w-0\"><span class=\"text-sm font-mono truncate\" x-text=\"sk.name\"></span> <span class=\"badge badge-xs\" :class=\"{\n\t\t\t\t\t\t\t\t\t\t\t\t'badge-success': sk.status === 'active',\n\t\t\t\t\t\t\t\t\t\t\t\t'badge-warning': sk.status === 'draft',\n\t\t\t\t\t\t\t\t\t\t\t\t'badge-error':   sk.status === 'deprecated',\n\t\t\t\t\t\t\t\t\t\t\t\t'badge-ghost':   !['active','draft','deprecated'].includes(sk.status)\n\t\t\t\t\t\t\t\t\t\t\t}\" x-text=\"sk.status\"></span></div><button @click=\"deleteAgentSkill(sk.id)\" class=\"btn btn-ghost btn-xs text-error shrink-0\">remove</button></div></template><div x-show=\"agentSkills.length === 0\" class=\"text-xs text-base-content/50 px-1\">No custom skills installed.</div></div><button @click=\"openSkillInstallModal()\" type=\"button\" class=\"btn btn-ghost btn-sm text-primary\">+ Install skill</button></div></template></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<div class=\"space-y-6\"><div x-show=\"builtinSkills.length > 0\"><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2\">Builtin skills</p><p class=\"text-xs text-base-content/60 mb-2\">Anna's self-knowledge is always on. Toggle extras for this agent.</p><div class=\"flex flex-wrap gap-2\"><template x-for=\"sk in builtinSkills\" :key=\"sk.id\"><button @click=\"toggleBuiltinSkill(sk.name)\" type=\"button\" class=\"badge badge-sm cursor-pointer transition-colors\" :class=\"isBuiltinSkillEnabled(sk.name) ? 'badge-primary' : 'badge-ghost'\" :title=\"sk.description\" x-text=\"sk.name\"></button></template></div></div><div><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2\">Custom skills</p><div x-show=\"!editingId\" class=\"text-xs text-base-content/50 italic py-1\">Save the agent first to manage custom skills.</div><div x-show=\"editingId\"><template x-if=\"agentSkillsLoading\"><div class=\"py-4 flex justify-center\"><span class=\"loading loading-spinner loading-sm\"></span></div></template><template x-if=\"!agentSkillsLoading\"><div><div class=\"space-y-1 mb-3\"><template x-for=\"sk in agentSkills\" :key=\"sk.id\"><div class=\"flex items-center justify-between rounded border border-base-300 px-3 py-2\"><div class=\"flex items-center gap-2 min-w-0\"><span class=\"text-sm font-mono truncate\" x-text=\"sk.name\"></span> <span class=\"badge badge-xs\" :class=\"{\n\t\t\t\t\t\t\t\t\t\t\t\t'badge-success': sk.status === 'active',\n\t\t\t\t\t\t\t\t\t\t\t\t'badge-warning': sk.status === 'draft',\n\t\t\t\t\t\t\t\t\t\t\t\t'badge-error':   sk.status === 'deprecated',\n\t\t\t\t\t\t\t\t\t\t\t\t'badge-ghost':   !['active','draft','deprecated'].includes(sk.status)\n\t\t\t\t\t\t\t\t\t\t\t}\" x-text=\"sk.status\"></span></div><button @click=\"deleteAgentSkill(sk.id)\" class=\"btn btn-ghost btn-xs text-error shrink-0\">remove</button></div></template><div x-show=\"agentSkills.length === 0\" class=\"text-xs text-base-content/50 px-1\">No custom skills installed.</div></div><button @click=\"openSkillInstallModal()\" type=\"button\" class=\"btn btn-ghost btn-sm text-primary\">+ Install skill</button></div></template></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -295,7 +303,7 @@ func agentAdvancedTab() templ.Component {
 			templ_7745c5c3_Var9 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<div class=\"border border-base-300 rounded-box p-4 bg-base-200/40 space-y-4\"><div><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-1\">Network Policy</p><p class=\"text-xs text-base-content/60\">Sandbox backend is configured on the <a href=\"/plugins\" class=\"link link-primary\">Plugins</a> page.</p></div><div><label class=\"label\"><span class=\"label-text font-mono text-sm\">Network Mode</span></label> <select x-model=\"form.sandbox.network.mode\" class=\"select select-bordered w-full text-sm\"><option value=\"disabled\">disabled — block outbound network</option> <option value=\"allow_all\">allow_all — allow outbound network</option> <option value=\"whitelist\">whitelist — only listed hosts/CIDRs</option></select></div><div x-show=\"form.sandbox.network.mode === 'whitelist'\"><label class=\"label\"><span class=\"label-text font-mono text-sm\">Allowlist</span></label> <textarea :disabled=\"form.sandbox.network.mode !== 'whitelist'\" :placeholder=\"'api.github.com&#10;pypi.org&#10;10.0.0.0/8'\" :value=\"sandboxAllowlistText()\" @input=\"updateSandboxAllowlist($event.target.value)\" rows=\"4\" class=\"textarea textarea-bordered w-full text-sm font-mono resize-y\"></textarea><p class=\"mt-1 text-xs text-warning\">Runtime whitelist support depends on your sandbox backend version.</p></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<div class=\"border border-base-300 rounded-box p-4 bg-base-200/40 space-y-4\"><div><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-1\">Network Policy</p><p class=\"text-xs text-base-content/60\">Sandbox backend is configured on the <a href=\"/plugins\" class=\"link link-primary\">Plugins</a> page.</p></div><div><label class=\"label\"><span class=\"label-text font-mono text-sm\">Network Mode</span></label> <select x-model=\"form.sandbox.network.mode\" class=\"select select-bordered w-full text-sm\"><option value=\"disabled\">disabled — block outbound network</option> <option value=\"allow_all\">allow_all — allow outbound network</option> <option value=\"whitelist\">whitelist — only listed hosts/CIDRs</option></select></div><div x-show=\"form.sandbox.network.mode === 'whitelist'\"><label class=\"label\"><span class=\"label-text font-mono text-sm\">Allowlist</span></label> <textarea :disabled=\"form.sandbox.network.mode !== 'whitelist'\" :placeholder=\"'api.github.com&#10;pypi.org&#10;10.0.0.0/8'\" :value=\"sandboxAllowlistText()\" @input=\"updateSandboxAllowlist($event.target.value)\" rows=\"4\" class=\"textarea textarea-bordered w-full text-sm font-mono resize-y\"></textarea><p class=\"mt-1 text-xs text-warning\">Runtime whitelist support depends on your sandbox backend version.</p></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -324,7 +332,7 @@ func agentUsersTab() templ.Component {
 			templ_7745c5c3_Var10 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<div class=\"space-y-4\"><p class=\"text-xs text-base-content/60\">Manage user access for restricted-scope agents.</p><div class=\"divide-y divide-base-300\"><template x-for=\"u in assignedUsers\" :key=\"u.id\"><div class=\"flex items-center justify-between py-2\"><span class=\"text-sm font-mono\" x-text=\"u.username\"></span> <button @click=\"removeUser(u.id)\" class=\"btn btn-ghost btn-xs text-error\">remove</button></div></template><div x-show=\"assignedUsers.length === 0\" class=\"text-xs text-base-content/50 py-2\">No users assigned.</div></div><div class=\"flex gap-2\"><select x-model=\"addUserId\" class=\"select select-bordered select-sm flex-1\"><option value=\"\">Select user...</option><template x-for=\"u in availableUsers\" :key=\"u.id\"><option :value=\"u.id\" x-text=\"u.username\"></option></template></select> <button @click=\"addUser()\" class=\"btn btn-primary btn-sm\" :disabled=\"!addUserId\">Add</button></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<div class=\"space-y-4\"><p class=\"text-xs text-base-content/60\">Manage user access for restricted-scope agents.</p><div class=\"divide-y divide-base-300\"><template x-for=\"u in assignedUsers\" :key=\"u.id\"><div class=\"flex items-center justify-between py-2\"><span class=\"text-sm font-mono\" x-text=\"u.username\"></span> <button @click=\"removeUser(u.id)\" class=\"btn btn-ghost btn-xs text-error\">remove</button></div></template><div x-show=\"assignedUsers.length === 0\" class=\"text-xs text-base-content/50 py-2\">No users assigned.</div></div><div class=\"flex gap-2\"><select x-model=\"addUserId\" class=\"select select-bordered select-sm flex-1\"><option value=\"\">Select user...</option><template x-for=\"u in availableUsers\" :key=\"u.id\"><option :value=\"u.id\" x-text=\"u.username\"></option></template></select> <button @click=\"addUser()\" class=\"btn btn-primary btn-sm\" :disabled=\"!addUserId\">Add</button></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -332,7 +340,7 @@ func agentUsersTab() templ.Component {
 	})
 }
 
-func personalisationPanel() templ.Component {
+func agentPersonalTab() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -353,7 +361,7 @@ func personalisationPanel() templ.Component {
 			templ_7745c5c3_Var11 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<div><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-4\">My Personalisation</p><div x-show=\"!personalisation.loaded\" class=\"flex justify-center py-4\"><span class=\"loading loading-spinner loading-sm\"></span></div><div x-show=\"personalisation.loaded\" class=\"space-y-6\"><div><label class=\"label\"><span class=\"label-text font-mono text-sm\">Agent Soul (my override)</span></label><p class=\"text-xs text-base-content/60 mb-1\">Your personal soul override for this agent. Replaces the agent default for your sessions only.</p><textarea x-model=\"personalisation.soulDraft\" rows=\"3\" placeholder=\"Customise this agent's personality for yourself...\" class=\"textarea textarea-bordered w-full text-xs font-mono resize-y\"></textarea> <button @click=\"savePersonalisationSoul()\" :disabled=\"personalisation.soulDraft === personalisation.soul\" class=\"btn btn-ghost btn-xs text-primary disabled:opacity-30 mt-1\">Save soul</button></div><div><label class=\"label\"><span class=\"label-text font-mono text-sm\">User Profile</span></label><p class=\"text-xs text-base-content/60 mb-1\">What this agent knows about you across conversations.</p><textarea x-model=\"personalisation.profileDraft\" rows=\"3\" placeholder=\"Add context about yourself for this agent...\" class=\"textarea textarea-bordered w-full text-xs font-mono resize-y\"></textarea> <button @click=\"savePersonalisationProfile()\" :disabled=\"personalisation.profileDraft === personalisation.profile\" class=\"btn btn-ghost btn-xs text-primary disabled:opacity-30 mt-1\">Save profile</button></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<div class=\"space-y-6\"><div x-show=\"!personalisation.loaded\" class=\"flex justify-center py-4\"><span class=\"loading loading-spinner loading-sm\"></span></div><div x-show=\"personalisation.loaded\" class=\"space-y-6\"><div><label class=\"label\"><span class=\"label-text font-mono text-sm\">Soul override</span></label><p class=\"text-xs text-base-content/60 mb-1\">Your personal soul for this agent. Replaces the agent default for your sessions only.</p><textarea x-model=\"personalisation.soulDraft\" rows=\"3\" placeholder=\"Customise this agent's personality for yourself...\" class=\"textarea textarea-bordered w-full text-sm font-mono resize-y\"></textarea> <button @click=\"savePersonalisationSoul()\" :disabled=\"personalisation.soulDraft === personalisation.soul\" class=\"btn btn-ghost btn-xs text-primary disabled:opacity-30 mt-1\">Save</button></div><div><label class=\"label\"><span class=\"label-text font-mono text-sm\">User profile</span></label><p class=\"text-xs text-base-content/60 mb-1\">What this agent knows about you across conversations.</p><textarea x-model=\"personalisation.profileDraft\" rows=\"3\" placeholder=\"Add context about yourself for this agent...\" class=\"textarea textarea-bordered w-full text-sm font-mono resize-y\"></textarea> <button @click=\"savePersonalisationProfile()\" :disabled=\"personalisation.profileDraft === personalisation.profile\" class=\"btn btn-ghost btn-xs text-primary disabled:opacity-30 mt-1\">Save</button></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -382,95 +390,95 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 			templ_7745c5c3_Var12 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<div x-data=\"{ open: false, search: '' }\" class=\"relative\"><label class=\"label\"><span class=\"label-text font-mono text-sm\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<div x-data=\"{ open: false, search: '' }\" class=\"relative\"><label class=\"label\"><span class=\"label-text font-mono text-sm\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var13 string
 		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 289, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 299, Col: 53}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</span> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "</span> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if field != "model" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<span class=\"label-text-alt text-base-content/40\">(optional)</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<span class=\"label-text-alt text-base-content/40\">(optional)</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "</label> <input type=\"text\" :value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</label> <input type=\"text\" :value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var14 string
 		templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 296, Col: 27}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 306, Col: 27}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "\" @input=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "\" @input=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var15 string
 		templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field + " = $event.target.value; search = $event.target.value; open = cachedModels.length > 0")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 297, Col: 116}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 307, Col: 116}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "\" @focus=\"search = ''; open = cachedModels.length > 0\" placeholder=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "\" @focus=\"search = ''; open = cachedModels.length > 0\" placeholder=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(placeholder)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 299, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 309, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "\" class=\"input input-bordered w-full text-sm font-mono\"><div x-show=\"open && filteredModels(search).length > 0\" @click.away=\"open = false\" x-transition.opacity x-cloak class=\"absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-base-100 border border-base-300 rounded-box shadow-lg py-1\"><template x-for=\"m in filteredModels(search)\" :key=\"m\"><button @click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "\" class=\"input input-bordered w-full text-sm font-mono\"><div x-show=\"open && filteredModels(search).length > 0\" @click.away=\"open = false\" x-transition.opacity x-cloak class=\"absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-base-100 border border-base-300 rounded-box shadow-lg py-1\"><template x-for=\"m in filteredModels(search)\" :key=\"m\"><button @click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field + " = m; open = false")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 311, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 321, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "\" type=\"button\" class=\"w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-base-200 cursor-pointer\" :class=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "\" type=\"button\" class=\"w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-base-200 cursor-pointer\" :class=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field + " === m ? 'text-primary' : 'text-base-content/70'")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 314, Col: 82}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 324, Col: 82}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "\" x-text=\"m\"></button></template></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "\" x-text=\"m\"></button></template></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

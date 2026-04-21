@@ -4,9 +4,8 @@ import "github.com/vaayne/anna/internal/config"
 
 templ agentFormPanel() {
 	<div class="border border-base-300 rounded-box overflow-hidden">
-		<div class="border-b border-base-300 px-4 py-3 flex items-center justify-between bg-base-200/30">
+		<div class="border-b border-base-300 px-4 py-3 bg-base-200/30">
 			<span class="font-medium text-sm" x-text="editingId ? 'Edit: ' + form.name : 'New agent'"></span>
-			<button @click="cancelForm()" class="btn btn-ghost btn-xs text-secondary">Cancel</button>
 		</div>
 		<div class="border-b border-base-300 px-2 flex overflow-x-auto bg-base-200/20">
 			@agentFormTab("config", "Config")
@@ -19,6 +18,12 @@ templ agentFormPanel() {
 				class="px-3 py-2.5 text-xs font-mono border-b-2 transition-colors whitespace-nowrap"
 				:class="activeTab === 'users' ? 'border-primary text-primary font-semibold' : 'border-transparent text-secondary hover:text-base-content'"
 			>Users</button>
+			<button
+				x-show="editingId"
+				@click="activeTab = 'personal'"
+				class="px-3 py-2.5 text-xs font-mono border-b-2 transition-colors whitespace-nowrap"
+				:class="activeTab === 'personal' ? 'border-primary text-primary font-semibold' : 'border-transparent text-secondary hover:text-base-content'"
+			>Personal</button>
 		</div>
 		<div class="p-4 space-y-4">
 			<div x-show="activeTab === 'config'">
@@ -36,12 +41,12 @@ templ agentFormPanel() {
 			<div x-show="activeTab === 'users'">
 				@agentUsersTab()
 			</div>
+			<div x-show="activeTab === 'personal'">
+				@agentPersonalTab()
+			</div>
 		</div>
-		<div class="border-t border-base-300 px-4 py-3 flex items-center justify-between bg-base-200/20">
-			<label class="flex items-center gap-3 cursor-pointer">
-				<input type="checkbox" x-model="form.enabled" class="toggle toggle-primary toggle-sm"/>
-				<span class="text-sm">Enabled</span>
-			</label>
+		<div class="border-t border-base-300 px-4 py-3 flex items-center justify-end gap-2 bg-base-200/20">
+			<button @click="cancelForm()" class="btn btn-ghost btn-sm">Cancel</button>
 			<button @click="saveAgent()" class="btn btn-primary btn-sm" x-text="editingId ? 'Update' : 'Create'"></button>
 		</div>
 	</div>
@@ -95,6 +100,12 @@ templ agentConfigTab() {
 				</template>
 				<div x-show="availableDedicatedChannels(editingId).length === 0" class="text-xs text-base-content/50">No dedicated channels available.</div>
 			</div>
+		</div>
+		<div class="pt-2 border-t border-base-300">
+			<label class="flex items-center gap-3 cursor-pointer">
+				<input type="checkbox" x-model="form.enabled" class="toggle toggle-primary toggle-sm"/>
+				<span class="text-sm">Enabled</span>
+			</label>
 		</div>
 	</div>
 }
@@ -242,42 +253,41 @@ templ agentUsersTab() {
 	</div>
 }
 
-templ personalisationPanel() {
-	<div>
-		<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-4">My Personalisation</p>
+templ agentPersonalTab() {
+	<div class="space-y-6">
 		<div x-show="!personalisation.loaded" class="flex justify-center py-4">
 			<span class="loading loading-spinner loading-sm"></span>
 		</div>
 		<div x-show="personalisation.loaded" class="space-y-6">
 			<div>
-				<label class="label"><span class="label-text font-mono text-sm">Agent Soul (my override)</span></label>
-				<p class="text-xs text-base-content/60 mb-1">Your personal soul override for this agent. Replaces the agent default for your sessions only.</p>
+				<label class="label"><span class="label-text font-mono text-sm">Soul override</span></label>
+				<p class="text-xs text-base-content/60 mb-1">Your personal soul for this agent. Replaces the agent default for your sessions only.</p>
 				<textarea
 					x-model="personalisation.soulDraft"
 					rows="3"
 					placeholder="Customise this agent's personality for yourself..."
-					class="textarea textarea-bordered w-full text-xs font-mono resize-y"
+					class="textarea textarea-bordered w-full text-sm font-mono resize-y"
 				></textarea>
 				<button
 					@click="savePersonalisationSoul()"
 					:disabled="personalisation.soulDraft === personalisation.soul"
 					class="btn btn-ghost btn-xs text-primary disabled:opacity-30 mt-1"
-				>Save soul</button>
+				>Save</button>
 			</div>
 			<div>
-				<label class="label"><span class="label-text font-mono text-sm">User Profile</span></label>
+				<label class="label"><span class="label-text font-mono text-sm">User profile</span></label>
 				<p class="text-xs text-base-content/60 mb-1">What this agent knows about you across conversations.</p>
 				<textarea
 					x-model="personalisation.profileDraft"
 					rows="3"
 					placeholder="Add context about yourself for this agent..."
-					class="textarea textarea-bordered w-full text-xs font-mono resize-y"
+					class="textarea textarea-bordered w-full text-sm font-mono resize-y"
 				></textarea>
 				<button
 					@click="savePersonalisationProfile()"
 					:disabled="personalisation.profileDraft === personalisation.profile"
 					class="btn btn-ghost btn-xs text-primary disabled:opacity-30 mt-1"
-				>Save profile</button>
+				>Save</button>
 			</div>
 		</div>
 	</div>
