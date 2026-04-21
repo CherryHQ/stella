@@ -50,10 +50,6 @@ func logSessionClosed(sessionID, backend, reason string) {
 	sandboxpkg.LogSessionClosed(sessionID, backend, reason)
 }
 
-func logRelaxedMode(sessionID, backend, reason string, policy Policy, warnings ...string) {
-	sandboxpkg.LogRelaxedMode(sessionID, backend, reason, policy, warnings...)
-}
-
 func logPolicyDenied(sessionID, backend, operation, resource, reason string) {
 	sandboxpkg.LogPolicyDenied(sessionID, backend, operation, resource, reason)
 }
@@ -82,21 +78,19 @@ func (f *boxshFactory) Available() bool {
 func (f *boxshFactory) Supported(policy Policy) error {
 	if !f.Available() {
 		return &PolicyCompatibilityError{
-			Backend:          f.Name(),
-			Policy:           policy,
-			Reason:           "boxsh is not available on this platform",
-			RelaxedWouldHelp: false,
+			Backend: f.Name(),
+			Policy:  policy,
+			Reason:  "boxsh is not available on this platform",
 		}
 	}
 
 	// Check network whitelist support
 	// boxsh 2.0.1 doesn't support whitelist mode
-	if policy.RequiresWhitelist() && !policy.Relaxed {
+	if policy.RequiresWhitelist() {
 		return &PolicyCompatibilityError{
-			Backend:          f.Name(),
-			Policy:           policy,
-			Reason:           "boxsh does not support network whitelist mode",
-			RelaxedWouldHelp: true,
+			Backend: f.Name(),
+			Policy:  policy,
+			Reason:  "boxsh does not support network whitelist mode",
 		}
 	}
 
@@ -129,10 +123,6 @@ func (f *boxshFactory) CreateSession(ctx context.Context, policy Policy) (Sessio
 			Allowlist: policy.Network.Allowlist,
 		},
 	}
-	if policy.RequiresWhitelist() && policy.Relaxed {
-		backendCfg.Sandbox.Mode = boxshclient.NetworkAllowAll
-	}
-
 	sessionID := nextSessionID()
 	ctx, span := tracer.Start(ctx, "sandbox.boxsh.session",
 		trace.WithAttributes(sessionTraceAttrs(sessionID, policy, backendCfg)...),
@@ -160,9 +150,6 @@ func (f *boxshFactory) CreateSession(ctx context.Context, policy Policy) (Sessio
 		client:    backend.Client(),
 		done:      make(chan struct{}),
 		traceSpan: span,
-	}
-	if policy.RequiresWhitelist() && policy.Relaxed {
-		logRelaxedMode(session.id, f.Name(), "boxsh whitelist mode relaxed to allow_all", policy, "network whitelist treated as allow_all")
 	}
 	logSessionCreated(session.id, "boxsh", policy)
 	go session.watchBackend()

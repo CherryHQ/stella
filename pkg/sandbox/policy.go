@@ -24,10 +24,6 @@ type Policy struct {
 	// Backend selects a specific backend when non-empty. Empty means auto-select.
 	Backend string
 
-	// Relaxed explicitly allows reduced enforcement on partially compatible backends.
-	// It is never implied by fallback and must be explicitly set.
-	Relaxed bool
-
 	// Filesystem policy
 	Filesystem FilesystemPolicy
 
@@ -109,11 +105,6 @@ func (p Policy) Validate() error {
 	return nil
 }
 
-// IsRelaxed returns true if this policy explicitly opts into relaxed enforcement.
-func (p Policy) IsRelaxed() bool {
-	return p.Relaxed
-}
-
 // RequiresWhitelist returns true if the policy requires whitelist network mode.
 func (p Policy) RequiresWhitelist() bool {
 	return p.Network.Mode == NetworkWhitelist
@@ -137,16 +128,12 @@ func (p Policy) WorkspaceRootOrDefault() string {
 
 // PolicyCompatibilityError indicates a policy is not compatible with a backend.
 type PolicyCompatibilityError struct {
-	Backend          string
-	Policy           Policy
-	Reason           string
-	RelaxedWouldHelp bool
+	Backend string
+	Policy  Policy
+	Reason  string
 }
 
 func (e *PolicyCompatibilityError) Error() string {
-	if e.RelaxedWouldHelp {
-		return fmt.Sprintf("sandbox: backend %q cannot satisfy policy: %s (set Relaxed=true to allow partial enforcement)", e.Backend, e.Reason)
-	}
 	return fmt.Sprintf("sandbox: backend %q cannot satisfy policy: %s", e.Backend, e.Reason)
 }
 

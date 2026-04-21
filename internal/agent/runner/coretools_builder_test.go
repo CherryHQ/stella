@@ -12,7 +12,7 @@ import (
 func fakeRunnerSession(backend string, host sandbox.Host) *runnerSession {
 	return &runnerSession{
 		session: &fakeSession{host: host, alive: true},
-		policy:  sandbox.Policy{Backend: backend, Relaxed: true},
+		policy:  sandbox.Policy{Backend: backend},
 	}
 }
 

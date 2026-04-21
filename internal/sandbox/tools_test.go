@@ -4,13 +4,37 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
-	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
+	boxshplugin "github.com/vaayne/anna/plugins/sandbox/boxsh"
+	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 
 	pkgtools "github.com/vaayne/anna/pkg/tools"
 )
+
+// mustCreateBoxshSession creates a boxsh session for testing, skipping if boxsh
+// is not available on the current platform or the managed binary is missing.
+func mustCreateBoxshSession(t *testing.T, policy Policy) Session {
+	t.Helper()
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("boxsh not available on this platform")
+	}
+	annaHome := os.Getenv("ANNA_HOME")
+	if annaHome == "" {
+		t.Skip("ANNA_HOME not set; boxsh binary not available")
+	}
+	if _, err := boxshclient.ResolveManagedBoxshPath(annaHome); err != nil {
+		t.Skipf("boxsh binary not available: %v", err)
+	}
+	factory := boxshplugin.NewFactory()
+	session, err := factory.CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	return session
+}
 
 func TestNewCoreToolsLocalParity(t *testing.T) {
 	workspace := t.TempDir()
@@ -20,9 +44,8 @@ func TestNewCoreToolsLocalParity(t *testing.T) {
 		t.Fatalf("WriteFile tool: %v", err)
 	}
 
-	session := mustCreateLocalSession(t, Policy{
-		Backend: "local",
-		Relaxed: true,
+	session := mustCreateBoxshSession(t, Policy{
+		Backend: "boxsh",
 		Filesystem: FilesystemPolicy{
 			WorkspaceRoot: workspace,
 			WorkingDir:    workspace,
@@ -80,9 +103,8 @@ func TestNewCoreToolsLocalParity(t *testing.T) {
 
 func TestNewCoreToolsFallsBackToHostWorkingDirWithoutProjectRoot(t *testing.T) {
 	workspace := t.TempDir()
-	session := mustCreateLocalSession(t, Policy{
-		Backend:    "local",
-		Relaxed:    true,
+	session := mustCreateBoxshSession(t, Policy{
+		Backend:    "boxsh",
 		Filesystem: FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace},
 		Process:    ProcessPolicy{InheritEnv: true},
 	})
@@ -110,9 +132,8 @@ func TestNewCoreToolsFallsBackToHostWorkingDirWithoutProjectRoot(t *testing.T) {
 
 func TestNewCoreToolsReadRejectsBinaryFiles(t *testing.T) {
 	workspace := t.TempDir()
-	session := mustCreateLocalSession(t, Policy{
-		Backend:    "local",
-		Relaxed:    true,
+	session := mustCreateBoxshSession(t, Policy{
+		Backend:    "boxsh",
 		Filesystem: FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace},
 	})
 	defer func() { _ = session.Close() }()
@@ -131,9 +152,8 @@ func TestNewCoreToolsReadRejectsBinaryFiles(t *testing.T) {
 
 func TestNewCoreToolsReadLongFirstLineWithLimitKeepsContinuationAccurate(t *testing.T) {
 	workspace := t.TempDir()
-	session := mustCreateLocalSession(t, Policy{
-		Backend:    "local",
-		Relaxed:    true,
+	session := mustCreateBoxshSession(t, Policy{
+		Backend:    "boxsh",
 		Filesystem: FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace},
 	})
 	defer func() { _ = session.Close() }()
@@ -160,9 +180,8 @@ func TestNewCoreToolsReadLongFirstLineWithLimitKeepsContinuationAccurate(t *test
 
 func TestNewCoreToolsEditRequiresUniqueMatch(t *testing.T) {
 	workspace := t.TempDir()
-	session := mustCreateLocalSession(t, Policy{
-		Backend:    "local",
-		Relaxed:    true,
+	session := mustCreateBoxshSession(t, Policy{
+		Backend:    "boxsh",
 		Filesystem: FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace},
 	})
 	defer func() { _ = session.Close() }()
@@ -185,9 +204,8 @@ func TestNewCoreToolsEditRequiresUniqueMatch(t *testing.T) {
 
 func TestNewCoreToolsBashTimeout(t *testing.T) {
 	workspace := t.TempDir()
-	session := mustCreateLocalSession(t, Policy{
-		Backend:    "local",
-		Relaxed:    true,
+	session := mustCreateBoxshSession(t, Policy{
+		Backend:    "boxsh",
 		Filesystem: FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace},
 	})
 	defer func() { _ = session.Close() }()
@@ -203,15 +221,6 @@ func TestNewCoreToolsBashTimeout(t *testing.T) {
 	if !strings.Contains(result, "timed out") {
 		t.Fatalf("expected timeout text, got %q", result)
 	}
-}
-
-func mustCreateLocalSession(t *testing.T, policy Policy) Session {
-	t.Helper()
-	session, err := (localplugin.NewFactory()).CreateSession(context.Background(), policy)
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-	return session
 }
 
 func mapToolsByName(items []pkgtools.Tool) map[string]pkgtools.Tool {

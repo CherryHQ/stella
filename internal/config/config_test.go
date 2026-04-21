@@ -113,7 +113,8 @@ func TestSandboxConfigValidate(t *testing.T) {
 			cfg:  SandboxConfig{Backend: SandboxBackendBoxsh},
 		},
 		{
-			name: "local backend valid",
+			// "local" is retired but remaps to "auto" via BackendName(), so Validate() accepts it.
+			name: "local backend remapped to auto",
 			cfg:  SandboxConfig{Backend: SandboxBackendLocal},
 		},
 		{

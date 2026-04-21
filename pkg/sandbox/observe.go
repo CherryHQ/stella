@@ -31,7 +31,6 @@ func LogSessionCreated(sessionID, backend string, policy Policy) {
 	slog.Info("sandbox.session_created",
 		"session_id", sessionID,
 		"backend", backend,
-		"relaxed", policy.Relaxed,
 		"network_mode", policy.NetworkModeOrDefault(),
 		"working_dir", policy.Filesystem.WorkingDir,
 	)
@@ -45,21 +44,9 @@ func LogSessionClosed(sessionID, backend, reason string) {
 	)
 }
 
-func LogRelaxedMode(sessionID, backend, reason string, policy Policy, warnings ...string) {
-	slog.Warn("sandbox.relaxed_mode",
-		"session_id", sessionID,
-		"backend", backend,
-		"reason", reason,
-		"warnings", warnings,
-		"network_mode", policy.NetworkModeOrDefault(),
-		"working_dir", policy.Filesystem.WorkingDir,
-	)
-}
-
 func LogUnsupportedBackend(policy Policy, attempted []string, reason string) {
 	slog.Error("sandbox.unsupported_backend",
 		"backend", policy.Backend,
-		"relaxed", policy.Relaxed,
 		"attempted_backends", attempted,
 		"reason", reason,
 		"network_mode", policy.NetworkModeOrDefault(),

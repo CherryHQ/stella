@@ -145,11 +145,11 @@ title: 配置
 - **workspaces/** 包含每个 agent 的数据。每个 agent 都有一个以 agent ID 为键的专属目录。
 - **cache/** 包含可重新生成的数据。运行 `anna models update` 来重建。
 - **agent 沙箱配置**存储在每个 agent 记录（`settings_agents.sandbox`）上。管理面板可编辑网络策略；也可以直接在存储的 JSON 中设置 backend。
-  - `backend`：`auto`（默认）、`boxsh`、`local` 或 `docker`
+  - `backend`：`auto`（默认）、`boxsh` 或 `docker`
   - `network.mode`：`disabled`（默认）、`allow_all` 或 `whitelist`
   - `network.allowlist`：仅当 mode 为 `whitelist` 时必填
   - Linux 和 macOS 会在选择 `boxsh` 时进行验证。若沙箱后端不可用或无法执行已配置的网络模式，runner 启动时会失败关闭。
-  - `local` 是一个宽松的后端，仅提供建议性约束；仅用于明确的本地/开发场景。
+  - `auto` 在 Linux/macOS 上选择 `boxsh`；在其他平台上失败关闭 —— 需显式配置 `docker`。
   - 当前 `boxsh` 客户端构建可能在运行时拒绝 `whitelist` 模式；仅在运行时支持白名单执行时使用。
   - `docker` 在由内置 `plugins/sandbox/docker/Dockerfile` 构建的专用容器中运行每个会话。镜像与 anna 二进制的版本锁定：开发构建使用本地 `anna-sandbox:dev` 标签（由 `mise run sandbox:docker:build` 生成），tagged 发布从 GHCR 拉取 `ghcr.io/vaayne/anna-sandbox:<version>`。该后端为手动选择；`auto` 不会自动选择它。需要可达的 docker daemon。适用于 Windows（`boxsh` 不可用）以及需要特定 Linux 用户空间的工作流。
   - docker 后端没有 agent 级别的可调参数。镜像、容器内用户（`anna`，UID 1000）以及绑定挂载布局均由同梱镜像固定。当 anna 自身运行在容器中并与宿主机 docker 守护进程通信（Docker-outside-of-Docker）时，只需设置 `ANNA_HOME_HOST` 环境变量 —— anna 会自动推导出路径转换。

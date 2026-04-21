@@ -11,8 +11,6 @@ import (
 	boxshplugin "github.com/vaayne/anna/plugins/sandbox/boxsh"
 	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
 	dockerclient "github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
-
-	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
 )
 
 // dockerAvailable probes whether the docker daemon is reachable.
@@ -53,15 +51,10 @@ func dockerPreflightForTest(t *testing.T, ctx context.Context) {
 }
 
 // Contract tests for Session and Host interfaces.
-// These tests verify that both local and boxsh backends satisfy the shared contract.
+// These tests verify that boxsh and docker backends satisfy the shared contract.
 
 // TestSessionContract runs the full session contract against a factory.
 func TestSessionContract(t *testing.T) {
-	// Test with local factory (always available)
-	t.Run("LocalFactory", func(t *testing.T) {
-		testSessionContract(t, localplugin.NewFactory())
-	})
-
 	// Test with docker factory if daemon is reachable
 	t.Run("DockerFactory", func(t *testing.T) {
 		ctx := context.Background()
@@ -95,7 +88,6 @@ func testSessionContract(t *testing.T, factory Factory) {
 
 	policy := Policy{
 		Backend: factory.Name(),
-		Relaxed: true, // Use relaxed mode for contract tests
 		Filesystem: FilesystemPolicy{
 			WorkingDir:   tempDir,
 			AllowEscapes: false,
@@ -213,11 +205,6 @@ func testSessionContract(t *testing.T, factory Factory) {
 
 // TestHostContract runs the full host contract tests.
 func TestHostContract(t *testing.T) {
-	// Test with local factory (always available)
-	t.Run("LocalFactory", func(t *testing.T) {
-		testHostContract(t, localplugin.NewFactory())
-	})
-
 	// Test with docker factory if daemon is reachable
 	t.Run("DockerFactory", func(t *testing.T) {
 		ctx := context.Background()
@@ -235,7 +222,6 @@ func testHostContract(t *testing.T, factory Factory) {
 
 	policy := Policy{
 		Backend: factory.Name(),
-		Relaxed: true,
 		Filesystem: FilesystemPolicy{
 			WorkingDir:   tempDir,
 			AllowEscapes: true,

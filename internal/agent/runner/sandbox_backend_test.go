@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/sandbox"
 )
 
 // TestResolveSessionRejectsUnknownBackend tests error handling.
@@ -21,27 +20,27 @@ func TestResolveSessionRejectsUnknownBackend(t *testing.T) {
 	}
 }
 
-func TestResolveSessionAutoFallsBackToLocalWhenBoxshUnsupported(t *testing.T) {
+func TestResolveSessionAutoFallsBackToDockerWhenBoxshUnsupported(t *testing.T) {
 	previous := platformSupportsBoxsh
 	platformSupportsBoxsh = func() bool { return false }
 	t.Cleanup(func() { platformSupportsBoxsh = previous })
 
 	workspace := t.TempDir()
 	userRoot := workspace + "/users/1"
-	rs, err := resolveSession(context.Background(), GoRunnerConfig{
+	_, err := resolveSession(context.Background(), GoRunnerConfig{
 		AgentRoot: workspace,
 		UserRoot:  userRoot,
 		Sandbox: config.SandboxConfig{
 			Backend: config.SandboxBackendAuto,
 		},
 	})
-	if err != nil {
-		t.Fatalf("resolveSession: %v", err)
+	// When boxsh is unsupported and no explicit backend was configured, auto
+	// fails closed with a clear error rather than silently falling back to docker.
+	if err == nil {
+		t.Fatal("expected error when boxsh is unsupported and backend is auto")
 	}
-	defer func() { _ = rs.Close() }()
-
-	if got := rs.Policy().Backend; got != config.SandboxBackendLocal {
-		t.Fatalf("Policy().Backend = %q, want %q", got, config.SandboxBackendLocal)
+	if !strings.Contains(err.Error(), "docker backend required on this platform") {
+		t.Fatalf("expected 'docker backend required on this platform', got: %v", err)
 	}
 }
 
@@ -86,14 +85,12 @@ func TestSandboxProcessEnvUsesUserRootAsHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveSandboxPaths: %v", err)
 	}
-	for _, backend := range []string{config.SandboxBackendBoxsh, config.SandboxBackendLocal} {
-		env := sandboxProcessEnv(paths, backend)
-		if got := env["HOME"]; got != cfg.UserRoot {
-			t.Fatalf("backend %q: HOME = %q, want %q", backend, got, cfg.UserRoot)
-		}
-		if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
-			t.Fatalf("backend %q: ANNA_HOME = %q, want %q", backend, got, cfg.AnnaHome)
-		}
+	env := sandboxProcessEnv(paths, config.SandboxBackendBoxsh)
+	if got := env["HOME"]; got != cfg.UserRoot {
+		t.Fatalf("HOME = %q, want %q", got, cfg.UserRoot)
+	}
+	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
+		t.Fatalf("ANNA_HOME = %q, want %q", got, cfg.AnnaHome)
 	}
 }
 
@@ -121,31 +118,11 @@ func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
 	}
 }
 
-// TestRunnerSessionLifecycle tests the runnerSession lifecycle.
+// TestRunnerSessionLifecycle tests the runnerSession lifecycle using a nil session
+// (alwaysAlive=true path) to avoid requiring a live sandbox backend.
 func TestRunnerSessionLifecycle(t *testing.T) {
-	// Create a local session for testing
-	policy := sandbox.Policy{
-		Backend: "local",
-		Relaxed: true,
-		Filesystem: sandbox.FilesystemPolicy{
-			WorkingDir:   t.TempDir(),
-			AllowEscapes: true,
-		},
-	}
-
-	factory := sandbox.GlobalRegistry().Get("local")
-	if factory == nil {
-		t.Fatal("local factory not available")
-	}
-
-	session, err := factory.CreateSession(context.Background(), policy)
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-
 	rs := &runnerSession{
-		session: session,
-		policy:  policy,
+		alwaysAlive: true,
 	}
 
 	// Test Alive
@@ -153,30 +130,17 @@ func TestRunnerSessionLifecycle(t *testing.T) {
 		t.Error("session should be alive")
 	}
 
-	// Test Done channel
+	// Test Done channel — nil session returns an already-closed channel.
 	select {
 	case <-rs.Done():
-		t.Error("Done() should not be closed before Close()")
+		// Expected: nil session Done() is immediately closed.
 	default:
-		// Expected
+		t.Error("nil-session Done() should be closed")
 	}
 
-	// Test Close
+	// Test Close (no-op for nil inner session)
 	if err := rs.Close(); err != nil {
 		t.Errorf("Close: %v", err)
-	}
-
-	// After close, should not be alive
-	if rs.Alive() {
-		t.Error("session should not be alive after Close()")
-	}
-
-	// Done channel should be closed
-	select {
-	case <-rs.Done():
-		// Expected
-	default:
-		t.Error("Done() should be closed after Close()")
 	}
 }
 

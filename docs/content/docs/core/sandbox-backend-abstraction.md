@@ -32,9 +32,8 @@ Per-agent configuration is limited to network policy (mode and allowlist). Each 
 The runner creates a `sandbox.Session` for each run and keeps ownership of its lifecycle.
 
 - `auto` selects `boxsh` on Linux and macOS when configured and supported
-- `auto` selects the relaxed `local` backend on unsupported platforms
+- `auto` fails closed on unsupported platforms — `docker` must be explicitly configured
 - explicit `boxsh` fails closed when the platform or policy cannot be supported
-- `local` is a relaxed backend with advisory enforcement, not an isolation backend
 - `docker` is an opt-in Docker-backed backend; it is never auto-selected and honors policies strictly, with the docker daemon contacted at session-create time
 - unsupported policy/backend combinations fail closed by default
 
@@ -53,11 +52,11 @@ All local execution paths that must obey sandbox policy are mediated through the
 
 Build-time plugin registration remains sandbox-agnostic. Execution-time tool contexts receive runtime capabilities, not sandbox internals.
 
-### Relaxed local sessions
+### Non-runner filesystem access
 
-Some non-runner code paths still need local filesystem access without an already-injected runtime, such as prompt rendering or metadata discovery outside an active agent run.
+Some code paths need local filesystem access without an already-injected runtime, such as prompt rendering or metadata discovery outside an active agent run.
 
-Prompt rendering creates an explicit relaxed local sandbox session when it has no runner host. Skills and agent preset discovery use `pkg/plugins.NewLocalToolRuntime(...)` when called outside an active runner. These are intentional non-runner paths, not fallbacks for sandboxed tool execution.
+Prompt rendering falls back to direct `os.*` calls when it has no runner host. Skills and agent preset discovery use `pkg/plugins.NewLocalToolRuntime(...)` when called outside an active runner. These are intentional non-runner paths, not fallbacks for sandboxed tool execution.
 
 ### Explicit exception boundary
 
@@ -79,7 +78,7 @@ A new sandbox backend should be mostly add-only:
 
 If a backend cannot honor a policy, it should fail closed with a policy compatibility error.
 
-The docker backend in `plugins/sandbox/docker/` is the most recent example of an add-only backend — it demonstrates how to integrate via `pkg/sandbox.Factory` without touching existing boxsh/local paths.
+The docker backend in `plugins/sandbox/docker/` is the most recent example of an add-only backend — it demonstrates how to integrate via `pkg/sandbox.Factory` without touching existing boxsh paths.
 
 ## Compatibility Rules
 
@@ -106,7 +105,7 @@ Anna prefers explicit denial over silent downgrade:
 - unsupported policies fail closed
 - direct non-mediated plugin exec remains fail closed
 - current `boxsh` builds may reject `whitelist` network mode; that fails closed instead of silently widening access
-- docker backend rejects `whitelist` network mode in phase 1 (same posture as boxsh); set `Relaxed=true` to opt into degraded enforcement
+- docker backend rejects `whitelist` network mode (same posture as boxsh); fail closed rather than silently widening access
 - remote MCP HTTP/SSE/StreamableHTTP remains an explicit exception, not an implicit sandbox bypass
 
 ## Verification

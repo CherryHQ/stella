@@ -57,15 +57,6 @@ func TestPolicyValidate(t *testing.T) {
 	})
 }
 
-func TestPolicyIsRelaxed(t *testing.T) {
-	if (Policy{}).IsRelaxed() {
-		t.Fatal("default policy should not be relaxed")
-	}
-	if !(Policy{Relaxed: true}).IsRelaxed() {
-		t.Fatal("relaxed policy should return true")
-	}
-}
-
 func TestPolicyRequiresWhitelist(t *testing.T) {
 	if (Policy{}).RequiresWhitelist() {
 		t.Fatal("default should not require whitelist")
@@ -106,9 +97,9 @@ func TestPolicyCompatibilityError(t *testing.T) {
 		t.Fatal("error should mention reason")
 	}
 
-	e2 := &PolicyCompatibilityError{Backend: "docker", Reason: "no daemon", RelaxedWouldHelp: true}
-	if !strings.Contains(e2.Error(), "Relaxed=true") {
-		t.Fatal("error should mention Relaxed=true when RelaxedWouldHelp is set")
+	e2 := &PolicyCompatibilityError{Backend: "docker", Reason: "no daemon"}
+	if !strings.Contains(e2.Error(), "docker") {
+		t.Fatal("error should mention backend name")
 	}
 }
 

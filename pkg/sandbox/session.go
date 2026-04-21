@@ -126,7 +126,6 @@ type HTTPStream interface {
 func NopSession() Session {
 	return &nopSession{
 		policy: Policy{
-			Relaxed: true,
 			Filesystem: FilesystemPolicy{
 				AllowEscapes: true,
 			},

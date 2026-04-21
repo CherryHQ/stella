@@ -21,7 +21,6 @@ func sessionTraceAttrs(sessionID string, policy Policy, cfg boxshclient.BackendC
 		attribute.String("anna.sandbox.work_dir", cfg.WorkDir),
 		attribute.String("anna.sandbox.network.mode", cfg.Sandbox.ModeOrDefault()),
 		attribute.Int("anna.sandbox.readonly_dir_count", len(cfg.ReadOnlyDirs)),
-		attribute.Bool("anna.sandbox.relaxed", policy.Relaxed),
 	}
 }
 

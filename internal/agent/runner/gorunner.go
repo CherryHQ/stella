@@ -321,8 +321,6 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	}
 
 	switch cfg.Sandbox.BackendName() {
-	case config.SandboxBackendLocal:
-		return nil
 	case config.SandboxBackendDocker:
 		dockerCfg, err := resolveDockerConfig()
 		if err != nil {

@@ -199,7 +199,7 @@ All four core tools share the same COW view through a single `boxsh` process per
 - Network policy is more restrictive than Linux's namespace approach.
 - Behavior should be validated empirically rather than assumed equivalent to Linux.
 
-With `backend: auto`, unsupported platforms use the relaxed `local` backend. Explicit `boxsh` selection fails closed when the platform or policy cannot be supported.
+With `backend: auto`, unsupported platforms (where `boxsh` is not available) fail closed — docker must be explicitly configured. Explicit `boxsh` selection also fails closed when the platform or policy cannot be supported.
 
 ### Network Policy Configuration
 

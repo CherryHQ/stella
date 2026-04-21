@@ -2,10 +2,12 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"net/netip"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -42,8 +44,20 @@ func (c SandboxConfig) NetworkMode() string {
 	return c.Network.Mode
 }
 
+// localRemapOnce ensures the "local" backend remap warning is emitted at most
+// once per process to avoid log spam for long-running servers.
+var localRemapOnce sync.Once
+
 // BackendName returns sandbox backend with defaults applied.
+// If Backend is "local" (retired), it is silently remapped to "" (auto-select)
+// with a one-time log warning.
 func (c SandboxConfig) BackendName() string {
+	if c.Backend == SandboxBackendLocal {
+		localRemapOnce.Do(func() {
+			slog.Warn("sandbox: backend \"local\" has been retired; remapping to \"auto\"")
+		})
+		return SandboxBackendAuto
+	}
 	if c.Backend == "" {
 		return SandboxBackendAuto
 	}
@@ -53,9 +67,10 @@ func (c SandboxConfig) BackendName() string {
 // Validate returns an error when the sandbox configuration is invalid.
 func (c SandboxConfig) Validate() error {
 	switch c.BackendName() {
-	case SandboxBackendAuto, SandboxBackendBoxsh, SandboxBackendDocker, SandboxBackendLocal:
+	case SandboxBackendAuto, SandboxBackendBoxsh, SandboxBackendDocker:
+		// "local" remaps to "auto" in BackendName(), so it is accepted here.
 	default:
-		return fmt.Errorf("sandbox.backend must be one of %q, %q, %q, or %q", SandboxBackendAuto, SandboxBackendBoxsh, SandboxBackendDocker, SandboxBackendLocal)
+		return fmt.Errorf("sandbox.backend must be one of %q, %q, or %q", SandboxBackendAuto, SandboxBackendBoxsh, SandboxBackendDocker)
 	}
 
 	switch mode := c.NetworkMode(); mode {

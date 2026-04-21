@@ -140,26 +140,12 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	return buf.String()
 }
 
-// loadProjectContextFiles walks from cwd up to the filesystem root,
-// collecting AGENTS.md files from each directory (case-insensitive).
-// Files are returned in root-to-leaf order (ancestors first).
-func resolvePromptContextHost(ctx context.Context, host sandbox.Host, cwd string) (sandbox.Host, func()) {
-	if host != nil || cwd == "" {
-		return host, func() {}
-	}
-
-	session, err := sandbox.GlobalRegistry().CreateRelaxedSession(ctx, sandbox.Policy{
-		Backend: "local",
-		Filesystem: sandbox.FilesystemPolicy{
-			WorkingDir:   cwd,
-			AllowEscapes: true,
-		},
-		Network: sandbox.NetworkPolicy{Mode: sandbox.NetworkAllowAll},
-	})
-	if err != nil {
-		return nil, func() {}
-	}
-	return session.Host(), func() { _ = session.Close() }
+// resolvePromptContextHost returns the host to use for reading prompt context
+// files. When a session host is already available it is used directly. When no
+// host is present (prompt rendering outside of a runner session) the function
+// returns nil and prompt_host.go falls back to plain os.* calls.
+func resolvePromptContextHost(_ context.Context, host sandbox.Host, _ string) (sandbox.Host, func()) {
+	return host, func() {}
 }
 
 func loadProjectContextFiles(host sandbox.Host, cwd string) []contextFile {

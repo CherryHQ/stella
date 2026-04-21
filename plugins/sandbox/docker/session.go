@@ -60,10 +60,6 @@ func logSessionClosed(sessionID, backend, reason string) {
 	sandboxpkg.LogSessionClosed(sessionID, backend, reason)
 }
 
-func logRelaxedMode(sessionID, backend, reason string, policy Policy, warnings ...string) {
-	sandboxpkg.LogRelaxedMode(sessionID, backend, reason, policy, warnings...)
-}
-
 func logPolicyDenied(sessionID, backend, operation, resource, reason string) {
 	sandboxpkg.LogPolicyDenied(sessionID, backend, operation, resource, reason)
 }
@@ -99,19 +95,17 @@ func (f *dockerFactory) Available() bool {
 func (f *dockerFactory) Supported(policy Policy) error {
 	if !f.Available() {
 		return &PolicyCompatibilityError{
-			Backend:          f.Name(),
-			Policy:           policy,
-			Reason:           "docker daemon not reachable (check DOCKER_HOST and that the daemon is running)",
-			RelaxedWouldHelp: false,
+			Backend: f.Name(),
+			Policy:  policy,
+			Reason:  "docker daemon not reachable (check DOCKER_HOST and that the daemon is running)",
 		}
 	}
 
-	if policy.RequiresWhitelist() && !policy.Relaxed {
+	if policy.RequiresWhitelist() {
 		return &PolicyCompatibilityError{
-			Backend:          f.Name(),
-			Policy:           policy,
-			Reason:           "docker backend does not support whitelist mode in phase 1",
-			RelaxedWouldHelp: true,
+			Backend: f.Name(),
+			Policy:  policy,
+			Reason:  "docker backend does not support whitelist mode",
 		}
 	}
 
@@ -221,9 +215,6 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Sessi
 	}
 	session.host = &dockerHost{session: session}
 
-	if policy.RequiresWhitelist() && policy.Relaxed {
-		logRelaxedMode(sessionID, "docker", "docker whitelist mode relaxed to allow_all", policy, "network whitelist treated as allow_all in phase 1")
-	}
 	logSessionCreated(sessionID, "docker", policy)
 	go session.watchContainer()
 

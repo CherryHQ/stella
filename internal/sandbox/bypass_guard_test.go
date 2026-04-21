@@ -29,7 +29,8 @@ func TestMigratedSandboxPathsAvoidDirectBypasses(t *testing.T) {
 		"plugins/tools/agent/preset_loader.go",
 		"plugins/tools/agent/hostfs.go",
 		"internal/agent/runner/prompt.go",
-		"internal/agent/runner/prompt_host.go",
+		// prompt_host.go intentionally uses os.* for the non-runner fallback path
+		// (no sandbox session available during standalone prompt rendering).
 	}
 
 	_, currentFile, _, ok := runtime.Caller(0)

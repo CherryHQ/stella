@@ -19,7 +19,6 @@ func sessionTraceAttrs(sessionID string, policy Policy, image, workspaceHost str
 		attribute.String("anna.sandbox.workspace_host", workspaceHost),
 		attribute.String("anna.sandbox.network.mode", string(policy.NetworkModeOrDefault())),
 		attribute.Int("anna.sandbox.readonly_dir_count", len(policy.Filesystem.ReadOnlyPaths)),
-		attribute.Bool("anna.sandbox.relaxed", policy.Relaxed),
 	}
 }
 
