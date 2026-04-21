@@ -30,8 +30,10 @@ func TestWrapCommand_linux_bwrapOrUnshare(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	bwrapAvail := exec.LookPath("bwrap") == nil
-	unshareAvail := exec.LookPath("unshare") == nil
+	_, bwrapErr := exec.LookPath("bwrap")
+	bwrapAvail := bwrapErr == nil
+	_, unshareErr := exec.LookPath("unshare")
+	unshareAvail := unshareErr == nil
 
 	if bwrapAvail {
 		if !strings.HasSuffix(path, "bwrap") {
@@ -88,7 +90,7 @@ func TestWrapCommand_linux_allowAllNoWrap(t *testing.T) {
 // available, the args include --dir /workspace, --bind <realRoot> /workspace,
 // and --chdir <sandboxCwd>.
 func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
-	if exec.LookPath("bwrap") != nil {
+	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Skip("bwrap not available")
 	}
 
