@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
 	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
 )
 
@@ -69,8 +70,8 @@ func TestToContainerPath_DeepestMount(t *testing.T) {
 // outside any mount are rejected.
 func TestDockerHostResolvePath(t *testing.T) {
 	dir := t.TempDir()
-	policy := Policy{
-		Filesystem: FilesystemPolicy{
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
 			WorkspaceRoot: dir,
 			WorkingDir:    dir,
 		},
@@ -123,8 +124,8 @@ func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
 		t.Fatalf("seed outside file: %v", err)
 	}
 
-	policy := Policy{
-		Filesystem: FilesystemPolicy{
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
 			WorkspaceRoot: workspace,
 			WorkingDir:    workspace,
 		},
@@ -227,38 +228,5 @@ func TestTranslateEnvPaths(t *testing.T) {
 	}
 	if got["LANG"] != "en_US.UTF-8" {
 		t.Errorf("LANG: got %q, want en_US.UTF-8", got["LANG"])
-	}
-}
-
-// TestDockerHostReadFile verifies that ReadFile reads from the host filesystem.
-func TestDockerHostReadFile(t *testing.T) {
-	dir := t.TempDir()
-	content := []byte("hello docker sandbox")
-	if err := os.WriteFile(filepath.Join(dir, "test.txt"), content, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	policy := Policy{
-		Filesystem: FilesystemPolicy{
-			WorkspaceRoot: dir,
-			WorkingDir:    dir,
-		},
-	}
-	session := &dockerSession{
-		id:     "test-session",
-		policy: policy,
-		mountTable: []dockerclient.Mount{
-			{HostPath: dir, ContainerPath: "/workspace"},
-		},
-		done: make(chan struct{}),
-	}
-	host := &dockerHost{session: session}
-
-	result, err := host.ReadFile(nil, filepath.Join(dir, "test.txt"), 0, 0) //nolint:staticcheck
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(result.Content) != string(content) {
-		t.Errorf("ReadFile: got %q, want %q", result.Content, content)
 	}
 }

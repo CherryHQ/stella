@@ -95,6 +95,8 @@ func (r *Registry) AvailableBackends() []string {
 }
 
 // CreateSession creates a session using a compatible backend.
+// The registry iterates registered factories in registration order and uses
+// the first one that is available and supports the policy.
 func (r *Registry) CreateSession(ctx context.Context, policy Policy) (Session, error) {
 	if err := policy.Validate(); err != nil {
 		return nil, fmt.Errorf("sandbox: invalid policy: %w", err)
@@ -102,22 +104,6 @@ func (r *Registry) CreateSession(ctx context.Context, policy Policy) (Session, e
 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
-	if policy.Backend != "" {
-		factory, exists := r.factories[policy.Backend]
-		if !exists {
-			LogUnsupportedBackend(policy, []string{policy.Backend}, "backend not registered")
-			return nil, &PolicyCompatibilityError{Backend: policy.Backend, Policy: policy, Reason: "backend not registered"}
-		}
-		if !factory.Available() {
-			LogUnsupportedBackend(policy, []string{policy.Backend}, "backend not available on this platform")
-			return nil, &PolicyCompatibilityError{Backend: policy.Backend, Policy: policy, Reason: "backend not available on this platform"}
-		}
-		if err := factory.Supported(policy); err != nil {
-			return nil, err
-		}
-		return factory.CreateSession(ctx, policy)
-	}
 
 	attempted := make([]string, 0, len(r.order))
 	for _, name := range r.order {
@@ -127,7 +113,7 @@ func (r *Registry) CreateSession(ctx context.Context, policy Policy) (Session, e
 		}
 		attempted = append(attempted, name)
 		if err := factory.Supported(policy); err != nil {
-			if IsPolicyCompatibilityError(err) && !policy.Relaxed {
+			if IsPolicyCompatibilityError(err) {
 				continue
 			}
 			return nil, err
@@ -137,15 +123,8 @@ func (r *Registry) CreateSession(ctx context.Context, policy Policy) (Session, e
 
 	LogUnsupportedBackend(policy, attempted, "no registered backend can satisfy this policy")
 	return nil, &PolicyCompatibilityError{
-		Backend:          "any",
-		Policy:           policy,
-		Reason:           "no registered backend can satisfy this policy",
-		RelaxedWouldHelp: true,
+		Backend: "any",
+		Policy:  policy,
+		Reason:  "no registered backend can satisfy this policy",
 	}
-}
-
-// CreateRelaxedSession creates a session with relaxed policy.
-func (r *Registry) CreateRelaxedSession(ctx context.Context, base Policy) (Session, error) {
-	base.Relaxed = true
-	return r.CreateSession(ctx, base)
 }

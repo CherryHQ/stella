@@ -17,11 +17,11 @@ It operates in two modes:
 
 Log mode is always active when the plugin is enabled. Control verbosity with `LOG_LEVEL`:
 
-| Level | What You See |
-| --- | --- |
+| Level            | What You See                                                                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------------- |
 | `INFO` (default) | Every LLM call (model, tokens, duration, TTFT), tool call (name, duration, error), and memory operation |
-| `DEBUG` | Same as INFO plus internal engine events |
-| `TRACE` | Same as DEBUG plus full memory operation details (message content, search results, profile text) |
+| `DEBUG`          | Same as INFO plus internal engine events                                                                |
+| `TRACE`          | Same as DEBUG plus full memory operation details (message content, search results, profile text)        |
 
 ```bash
 # Default -- LLM/tool/memory events at INFO
@@ -43,14 +43,14 @@ level=INFO msg=post_memory_call hook=trace op=compact duration=200ms token_count
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable. Anna delegates exporter configuration to the OpenTelemetry SDK, so standard OTel environment variables are supported:
 
-| Environment Variable | Default | Description |
-| --- | --- | --- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(empty -- OTel disabled)* | OTLP base endpoint. For OTLP/HTTP, use a full URL such as `https://collector.example.com/api/default`. For OTLP/gRPC, use a URL with scheme such as `https://collector.example.com:4317`. |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | SDK default | Export protocol. Common values: `grpc` or `http/protobuf`. |
-| `OTEL_EXPORTER_OTLP_HEADERS` | *(empty)* | Comma-separated headers applied to all OTLP signals, for example `authorization=Bearer <token>`. |
-| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | *(empty)* | Comma-separated headers applied to traces only. Overrides generic OTLP headers for traces. |
-| `OTEL_SERVICE_NAME` | `anna` | Service name shown in your trace backend. |
-| `OTEL_EXPORTER_OTLP_INSECURE` | SDK default | Set to `false` to require TLS. Use `false` for HTTPS or secure gRPC endpoints. |
+| Environment Variable                | Default                    | Description                                                                                                                                                                               |
+| ----------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`       | _(empty -- OTel disabled)_ | OTLP base endpoint. For OTLP/HTTP, use a full URL such as `https://collector.example.com/api/default`. For OTLP/gRPC, use a URL with scheme such as `https://collector.example.com:4317`. |
+| `OTEL_EXPORTER_OTLP_PROTOCOL`       | SDK default                | Export protocol. Common values: `grpc` or `http/protobuf`.                                                                                                                                |
+| `OTEL_EXPORTER_OTLP_HEADERS`        | _(empty)_                  | Comma-separated headers applied to all OTLP signals, for example `authorization=Bearer <token>`.                                                                                          |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | _(empty)_                  | Comma-separated headers applied to traces only. Overrides generic OTLP headers for traces.                                                                                                |
+| `OTEL_SERVICE_NAME`                 | `anna`                     | Service name shown in your trace backend.                                                                                                                                                 |
+| `OTEL_EXPORTER_OTLP_INSECURE`       | SDK default                | Set to `false` to require TLS. Use `false` for HTTPS or secure gRPC endpoints.                                                                                                            |
 
 When OTel is enabled, both modes run simultaneously -- you get log lines and exported traces.
 
@@ -185,53 +185,53 @@ A new **turn** starts each time anna calls the LLM. The **chat** root span cover
 
 LLM and tool spans follow [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/):
 
-| Attribute | Spans | Description |
-| --- | --- | --- |
-| `gen_ai.operation.name` | all | `chat` or `execute_tool` |
-| `gen_ai.provider.name` | chat | Provider identifier |
-| `gen_ai.request.model` | chat | Requested model |
-| `gen_ai.response.model` | chat | Actual model used |
-| `gen_ai.response.finish_reasons` | chat | Why generation stopped |
-| `gen_ai.conversation.id` | all | Session ID |
-| `gen_ai.usage.input_tokens` | chat | Input tokens |
-| `gen_ai.usage.output_tokens` | chat | Output tokens |
-| `gen_ai.usage.cache_read.input_tokens` | chat | Cached input tokens |
-| `gen_ai.usage.cache_creation.input_tokens` | chat | Tokens written to cache |
-| `gen_ai.server.time_to_first_token` | chat | TTFT in seconds |
-| `gen_ai.tool.name` | execute_tool | Tool name |
-| `gen_ai.tool.call.id` | execute_tool | Tool call ID |
-| `error.type` | all | Error type on failure |
+| Attribute                                  | Spans        | Description              |
+| ------------------------------------------ | ------------ | ------------------------ |
+| `gen_ai.operation.name`                    | all          | `chat` or `execute_tool` |
+| `gen_ai.provider.name`                     | chat         | Provider identifier      |
+| `gen_ai.request.model`                     | chat         | Requested model          |
+| `gen_ai.response.model`                    | chat         | Actual model used        |
+| `gen_ai.response.finish_reasons`           | chat         | Why generation stopped   |
+| `gen_ai.conversation.id`                   | all          | Session ID               |
+| `gen_ai.usage.input_tokens`                | chat         | Input tokens             |
+| `gen_ai.usage.output_tokens`               | chat         | Output tokens            |
+| `gen_ai.usage.cache_read.input_tokens`     | chat         | Cached input tokens      |
+| `gen_ai.usage.cache_creation.input_tokens` | chat         | Tokens written to cache  |
+| `gen_ai.server.time_to_first_token`        | chat         | TTFT in seconds          |
+| `gen_ai.tool.name`                         | execute_tool | Tool name                |
+| `gen_ai.tool.call.id`                      | execute_tool | Tool call ID             |
+| `error.type`                               | all          | Error type on failure    |
 
 Memory spans use anna-specific attributes:
 
-| Attribute | Description |
-| --- | --- |
-| `anna.memory.op` | Operation (bootstrap, append, assemble, compact, search, describe, expand, etc.) |
-| `anna.memory.session_id` | Memory session ID |
-| `anna.memory.token_count` | Token count |
-| `anna.memory.token_delta` | Tokens saved by compaction (negative = reduction) |
-| `anna.memory.message_count` | Message count |
+| Attribute                   | Description                                                                      |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| `anna.memory.op`            | Operation (bootstrap, append, assemble, compact, search, describe, expand, etc.) |
+| `anna.memory.session_id`    | Memory session ID                                                                |
+| `anna.memory.token_count`   | Token count                                                                      |
+| `anna.memory.token_delta`   | Tokens saved by compaction (negative = reduction)                                |
+| `anna.memory.message_count` | Message count                                                                    |
 
 Sandbox lifecycle spans use these Anna-specific attributes:
 
-| Attribute | Description |
-| --- | --- |
-| `anna.sandbox.backend` | Sandbox backend name, currently `boxsh` |
-| `anna.sandbox.agent_root` | Agent workspace root from runner config |
-| `anna.sandbox.user_root` | Requested sandbox user root |
+| Attribute                         | Description                                      |
+| --------------------------------- | ------------------------------------------------ |
+| `anna.sandbox.backend`            | Sandbox backend name, currently `boxsh`          |
+| `anna.sandbox.agent_root`         | Agent workspace root from runner config          |
+| `anna.sandbox.user_root`          | Requested sandbox user root                      |
 | `anna.sandbox.resolved_user_root` | Resolved absolute user root used to build policy |
-| `anna.sandbox.project_root` | Project root when present |
-| `anna.sandbox.work_dir` | Requested or resolved working directory |
-| `anna.sandbox.src` | Boxsh copy-on-write source root |
-| `anna.sandbox.dst` | Overlay/session destination root |
-| `anna.sandbox.cwd` | Remapped working directory inside the session |
-| `anna.sandbox.network.mode` | Effective network mode |
-| `anna.sandbox.network.allowlist` | Network allowlist when configured |
-| `anna.sandbox.readonly_dir_count` | Number of read-only bind directories |
-| `anna.sandbox.close_reason` | Why the session span ended |
-| `anna.sandbox.server.name` | Handshake-reported sandbox server name |
-| `anna.sandbox.server.version` | Handshake-reported sandbox server version |
-| `anna.sandbox.protocol_version` | RPC protocol version returned by boxsh |
+| `anna.sandbox.project_root`       | Project root when present                        |
+| `anna.sandbox.work_dir`           | Requested or resolved working directory          |
+| `anna.sandbox.src`                | Boxsh copy-on-write source root                  |
+| `anna.sandbox.dst`                | Overlay/session destination root                 |
+| `anna.sandbox.cwd`                | Remapped working directory inside the session    |
+| `anna.sandbox.network.mode`       | Effective network mode                           |
+| `anna.sandbox.network.allowlist`  | Network allowlist when configured                |
+| `anna.sandbox.readonly_dir_count` | Number of read-only bind directories             |
+| `anna.sandbox.close_reason`       | Why the session span ended                       |
+| `anna.sandbox.server.name`        | Handshake-reported sandbox server name           |
+| `anna.sandbox.server.version`     | Handshake-reported sandbox server version        |
+| `anna.sandbox.protocol_version`   | RPC protocol version returned by boxsh           |
 
 ## Managing the Plugin
 

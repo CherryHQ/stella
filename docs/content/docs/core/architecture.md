@@ -127,22 +127,22 @@ type Tool interface {
 
 ### Plugin Tools (toggleable via admin)
 
-| Tool       | Description            |
-| ---------- | ---------------------- |
-| `mcp` | Proxy configured MCP servers through one generic Anna MCP tool |
-| `webfetch` | Fetch web page contents |
+| Tool       | Description                                                    |
+| ---------- | -------------------------------------------------------------- |
+| `mcp`      | Proxy configured MCP servers through one generic Anna MCP tool |
+| `webfetch` | Fetch web page contents                                        |
 
-On supported platforms, the core local-workspace tools run through a managed `boxsh` sandbox backend. The `bash`, `read`, `write`, and `edit` tools execute through a shared long-lived `boxsh --rpc` subprocess that provides filesystem and process isolation. The managed tool bundle also prepends helper CLIs like `fd`, `rg`, `mise`, and `tap` to the tool execution `PATH`. Runner startup fails closed when that backend is unavailable.
+The core local-workspace tools run through a Docker sandbox backend. The `bash` tool executes via `Session.Exec`; the `read`, `write`, and `edit` tools use `Session.ResolvePath` to obtain the host path and then call `os.*` directly. Runner startup fails closed when Docker is unavailable.
 
 ### Sandbox Architecture
 
-The sandbox system uses a copy-on-write (COW) overlay filesystem model:
+The sandbox system uses Docker for process and filesystem isolation:
 
-- **Source (SRC)**: The read-only lower layer, rooted at the agent workspace selected for the sandbox session.
-- **Destination (DST)**: An ephemeral per-session upperdir where writes land. Created when the runner starts, cleaned up on close.
-- **Working Directory (CWD)**: Tool execution context, resolved within the sandbox root.
+- **Session**: A per-run Docker container created when the runner starts, torn down on close.
+- **Workspace root**: The agent workspace directory mounted into the container.
+- **Working Directory**: Logical working directory inside the container, resolved via `Session.WorkingDir`.
 
-All four core tools share the same COW view through a single `boxsh` process per runner:
+All core tools share the same container session per runner:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -150,98 +150,38 @@ All four core tools share the same COW view through a single `boxsh` process per
 │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐           │
 │  │  bash   │ │  read   │ │  write  │ │  edit   │           │
 │  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘           │
-│       └─────────────┬─────────────┘                         │
-│                     ▼                                       │
-│            ┌──────────────┐                               │
-│            │ SharedBackend │                              │
-│            │  (boxsh RPC)  │                              │
-│            └──────┬───────┘                               │
-└───────────────────┼─────────────────────────────────────────┘
-                    │
-         ┌──────────┴──────────┐
-         ▼                     ▼
-    ┌─────────┐           ┌─────────┐
-    │   SRC   │ (ro)      │   DST   │ (rw, ephemeral)
-    │ (lower) │           │ (upper) │
-    └─────────┘           └─────────┘
+│       │           └───────────┘                             │
+│       │ Exec              ResolvePath + os.*                │
+│       ▼                                                     │
+│  ┌──────────────────┐                                       │
+│  │  sandbox.Session │                                       │
+│  │  (Docker)        │                                       │
+│  └──────────────────┘                                       │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Platform Guarantees and Limitations
+### Platform Requirements
 
-| Feature | Linux | macOS |
-|---------|-------|-------|
-| Process isolation | Full (user/mount namespace) | Policy-based (Seatbelt) |
-| Filesystem isolation | Mount namespace + overlayfs | clonefile(2) on APFS |
-| Network isolation | Full namespace support | Policy-based |
-| COW semantics | Complete isolation | Copy-on-write via APFS |
-| Required binary | `boxsh` (embedded) | `boxsh` (embedded) |
-
-**Linux Guarantees:**
-- Full mount namespace isolation. The sandbox root is a distinct mount point.
-- overlayfs or fuse-overlayfs fallback for COW semantics.
-- Network namespace support for `disabled` and `allow_all` modes.
-- All path access is constrained to the sandbox root.
-
-**Linux Limitations:**
-- Some filesystem/kernel combinations require `fuse-overlayfs`.
-- `boxsh` requires host support for unprivileged user namespaces and subordinate ID mapping (`newuidmap`/`newgidmap`, `/etc/subuid`, `/etc/subgid`).
-- Some Ubuntu hosts additionally block sandbox startup unless `kernel.apparmor_restrict_unprivileged_userns=0`.
-- `whitelist` is accepted in config but current `boxsh` client builds may reject it at runtime.
-
-**macOS Guarantees:**
-- Process-level sandboxing via Seatbelt (`sandbox_init`).
-- COW semantics on APFS via `clonefile(2)`.
-- Policy-based network restrictions (weaker than Linux namespace isolation) for supported modes.
-
-**macOS Limitations:**
-- No mount namespace equivalent. Filesystem isolation is policy-based, not absolute.
-- Weaker guarantees around `/tmp` and host visibility.
-- Network policy is more restrictive than Linux's namespace approach.
-- Behavior should be validated empirically rather than assumed equivalent to Linux.
-
-With `backend: auto`, unsupported platforms use the relaxed `local` backend. Explicit `boxsh` selection fails closed when the platform or policy cannot be supported.
+Docker is the only backend and is required on all platforms (Linux, macOS, Windows). The Docker daemon must be running and reachable. Anna contacts the Docker daemon at session-create time and fails closed if it is unavailable. There is no `auto`, `boxsh`, or `Relaxed` mode.
 
 ### Network Policy Configuration
 
 Per-agent sandbox network policy is configured via the admin API or database:
 
-| Mode | Description | Use Case |
-|------|-------------|----------|
-| `disabled` | No outbound network access (default) | Maximum security for untrusted code |
-| `allow_all` | Unrestricted outbound access | Trusted agents requiring full network |
-| `whitelist` | Only specified hosts/CIDRs allowed when the runtime supports it | Restricted access to known endpoints |
+| Mode        | Description                          | Use Case                              |
+| ----------- | ------------------------------------ | ------------------------------------- |
+| `disabled`  | No outbound network access (default) | Maximum security for untrusted code   |
+| `allow_all` | Unrestricted outbound access         | Trusted agents requiring full network |
 
-Whitelist entries can be:
-- Hostnames: `api.example.com`, `github.com`
-- IPv4 addresses: `192.168.1.1`
-- IPv4 CIDRs: `192.168.0.0/24`, `10.0.0.0/8`
-- IPv6 addresses: `::1`, `2001:db8::1`
-- IPv6 CIDRs: `2001:db8::/32`
-
-Configuration example:
-```json
-{
-  "sandbox": {
-    "backend": "auto",
-    "network": {
-      "mode": "whitelist",
-      "allowlist": ["api.github.com", "pypi.org", "192.168.1.0/24"]
-    }
-  }
-}
-```
-
-Current `boxsh` client builds may reject `whitelist` mode at runtime. Anna validates and stores the config, then fails closed during runner startup if the selected backend cannot enforce it.
+Anna validates the network mode at session-create time and fails closed if the Docker backend cannot enforce it.
 
 ### Failure Behavior
 
-On Linux and macOS, runner startup fails closed when:
-- The managed `boxsh` binary is missing or invalid
-- The workspace/state-dir shape is incorrect
+Runner startup fails closed when:
+
+- Docker daemon is unavailable or unreachable
 - Network policy configuration is invalid
-- Network policy is valid but not supported by the selected backend
-- Filesystem prerequisites (overlayfs/COW capability) are unavailable
-- Linux user namespace prerequisites are unavailable or blocked by host policy (for example missing `uidmap` helpers, missing subordinate IDs, or AppArmor restrictions)
+- Network policy is valid but not supported by the Docker backend
 
 This ensures that sandboxed execution is either fully functional or does not run at all, preventing silent security downgrades.
 
@@ -249,16 +189,9 @@ This ensures that sandboxed execution is either fully functional or does not run
 
 Sandbox guarantees apply to local execution paths owned by Anna. Remote MCP transports are currently treated as a separate trust boundary:
 
-- local MCP stdio spawning uses `ToolRuntime.StartProcess`, adapted from the active `sandbox.Host`
+- local MCP stdio spawning uses `Session.StartProcess`, mediated through the active runner session
 - remote MCP HTTP/SSE/StreamableHTTP dialing is not currently mediated by `ToolRuntime`
 - that exception is explicit, observable, and logged as `runtime.exception_path` with `exception_id=EX-009`
-
-### Migration Notes
-
-- Core local-workspace tools are backend-only; there is no unsandboxed direct-tool fallback.
-- Sandbox-specific tests replace the old direct-tool fallback coverage.
-- Runner construction fails closed when no active sandbox session is available for backend-owned core tools.
-- Plugin tools use `ToolContext.Runtime` instead of importing sandbox internals directly.
 
 Plugin tools live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/features/plugin-system) for the full plugin architecture.
 
@@ -275,12 +208,12 @@ The `agent` tool enables the agent to spawn child agent loops with isolated cont
 
 ### Builtin Shared Tools
 
-| Tool        | Condition                         | Description                                                   |
-| ----------- | --------------------------------- | ------------------------------------------------------------- |
+| Tool        | Condition                         | Description                                                         |
+| ----------- | --------------------------------- | ------------------------------------------------------------------- |
 | `memory`    | Always                            | Auto-generated memory tool (actions adapt to provider capabilities) |
-| `skills`    | Always                            | Skill management (search/install/list/remove from skills.sh)  |
-| `scheduler` | Always                            | Schedule tasks (add/list/remove jobs)                         |
-| `notify`    | Gateway mode + channel configured | Send notifications via dispatcher                             |
+| `skills`    | Always                            | Skill management (search/install/list/remove from skills.sh)        |
+| `scheduler` | Always                            | Schedule tasks (add/list/remove jobs)                               |
+| `notify`    | Gateway mode + channel configured | Send notifications via dispatcher                                   |
 
 The memory tool is auto-generated by `memory.BuildTool(provider)`, which inspects the provider's capabilities and produces a tool with matching actions. With the LCM provider: `status`, `search`, `describe`, `expand`, `profile_get`, `profile_update`. With the Simple provider: `status`, `profile_get`, `profile_update`. Per-user notes are managed via `profile_get`/`profile_update` and injected into the system prompt at session start.
 

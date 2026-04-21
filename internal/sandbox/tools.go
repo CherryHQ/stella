@@ -102,12 +102,6 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 	return norm.Content, nil
 }
 
-type LineOrientedReaderHost interface {
-	Host
-	ReadFileLines(ctx context.Context, path string, offset, limit int) (ReadResult, error)
-	ReadAllFile(ctx context.Context, path string) ([]byte, error)
-}
-
 type hostReadTool struct {
 	host        Host
 	projectRoot string
@@ -129,7 +123,7 @@ func (t *hostReadTool) Definition() tools.Definition {
 	}
 }
 
-func (t *hostReadTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+func (t *hostReadTool) Execute(_ context.Context, args map[string]any) (string, error) {
 	path := tools.StringArg(args, "path")
 	if path == "" {
 		return "", fmt.Errorf("read: path is required")
@@ -143,17 +137,14 @@ func (t *hostReadTool) Execute(ctx context.Context, args map[string]any) (string
 		return "", fmt.Errorf("read %s: %w", path, err)
 	}
 
-	if reader, ok := t.host.(LineOrientedReaderHost); ok {
-		return t.executeLineReader(ctx, reader, resolvedPath, offset, limit)
-	}
-
-	result, err := t.host.ReadFile(ctx, resolvedPath, 0, 0)
+	content, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", path, err)
 	}
 
+	// Binary detection on first page only.
 	if offset <= 1 {
-		sample := result.Content
+		sample := content
 		if len(sample) > 8*1024 {
 			sample = sample[:8*1024]
 		}
@@ -162,12 +153,12 @@ func (t *hostReadTool) Execute(ctx context.Context, args map[string]any) (string
 		}
 	}
 
-	content, totalLines := paginateReadContent(string(result.Content), offset, limit)
+	paged, totalLines := paginateReadContent(string(content), offset, limit)
 	if totalLines == 0 {
 		return "", nil
 	}
 
-	tr := tools.TruncateHead(content)
+	tr := tools.TruncateHead(paged)
 	linesConsumed := max(tr.OutputLines, 1)
 	selectedLines := totalLines - (offset - 1)
 	if limit > 0 {
@@ -200,7 +191,7 @@ func (t *hostWriteTool) Definition() tools.Definition {
 	}
 }
 
-func (t *hostWriteTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+func (t *hostWriteTool) Execute(_ context.Context, args map[string]any) (string, error) {
 	path := tools.StringArg(args, "path")
 	content, _ := args["content"].(string)
 	if path == "" {
@@ -212,15 +203,14 @@ func (t *hostWriteTool) Execute(ctx context.Context, args map[string]any) (strin
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}
 
-	if err := t.host.MkdirAll(ctx, filepath.Dir(resolvedPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(resolvedPath), 0o755); err != nil {
 		return "", fmt.Errorf("write: mkdir %s: %w", filepath.Dir(resolvedPath), err)
 	}
 
-	result, err := t.host.WriteFile(ctx, resolvedPath, []byte(content))
-	if err != nil {
+	if err := os.WriteFile(resolvedPath, []byte(content), 0o644); err != nil {
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}
-	return fmt.Sprintf("Wrote %s (%d bytes)", path, result.BytesWritten), nil
+	return fmt.Sprintf("Wrote %s (%d bytes)", path, len(content)), nil
 }
 
 type hostEditTool struct {
@@ -249,7 +239,7 @@ func (t *hostEditTool) Definition() tools.Definition {
 	}
 }
 
-func (t *hostEditTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+func (t *hostEditTool) Execute(_ context.Context, args map[string]any) (string, error) {
 	path := tools.StringArg(args, "path")
 	oldStr := tools.StringArg(args, "oldText", "old_string")
 	newStr := tools.StringArg(args, "newText", "new_string")
@@ -265,11 +255,12 @@ func (t *hostEditTool) Execute(ctx context.Context, args map[string]any) (string
 		return "", fmt.Errorf("edit %s: %w", path, err)
 	}
 
-	content, err := readAllForEdit(ctx, t.host, resolvedPath)
+	raw, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		return "", fmt.Errorf("edit: read %s: %w", path, err)
 	}
-	count := strings.Count(string(content), oldStr)
+	fileContent := string(raw)
+	count := strings.Count(fileContent, oldStr)
 	if count == 0 {
 		return "", fmt.Errorf("edit: oldText not found in %s", path)
 	}
@@ -277,53 +268,11 @@ func (t *hostEditTool) Execute(ctx context.Context, args map[string]any) (string
 		return "", fmt.Errorf("edit: oldText matches %d times in %s (must be unique)", count, path)
 	}
 
-	result, err := t.host.EditFile(ctx, resolvedPath, []Edit{{OldText: oldStr, NewText: newStr}})
-	if err != nil {
+	updated := strings.Replace(fileContent, oldStr, newStr, 1)
+	if err := os.WriteFile(resolvedPath, []byte(updated), 0o644); err != nil {
 		return "", fmt.Errorf("edit %s: %w", path, err)
 	}
-	if result.AppliedEdits == 1 {
-		return fmt.Sprintf("Edited %s", path), nil
-	}
-	return fmt.Sprintf("Edited %s (%d replacements)", path, result.AppliedEdits), nil
-}
-
-func (t *hostReadTool) executeLineReader(ctx context.Context, host LineOrientedReaderHost, path string, offset, limit int) (string, error) {
-	result, err := host.ReadFileLines(ctx, path, offset, limit)
-	if err != nil {
-		return "", fmt.Errorf("read %s: %w", path, err)
-	}
-	if offset <= 1 {
-		sample := result.Content
-		if len(sample) > 8*1024 {
-			sample = sample[:8*1024]
-		}
-		if len(sample) > 0 && tools.IsBinary(string(sample)) {
-			return "", fmt.Errorf("read %s: binary file detected — use bash with xxd, file, or other tools to inspect binary content", path)
-		}
-	}
-	if len(result.Content) == 0 {
-		return "", nil
-	}
-	tr := tools.TruncateHead(string(result.Content))
-	if result.Truncated {
-		nextOffset := result.NextOffset
-		if nextOffset <= offset {
-			nextOffset = offset + max(tr.OutputLines, 1)
-		}
-		tr.Content += fmt.Sprintf("\n[Use offset=%d to continue reading]", nextOffset)
-	}
-	return tr.Content, nil
-}
-
-func readAllForEdit(ctx context.Context, host Host, path string) ([]byte, error) {
-	if reader, ok := host.(LineOrientedReaderHost); ok {
-		return reader.ReadAllFile(ctx, path)
-	}
-	result, err := host.ReadFile(ctx, path, 0, 0)
-	if err != nil {
-		return nil, err
-	}
-	return result.Content, nil
+	return fmt.Sprintf("Edited %s", path), nil
 }
 
 func paginateReadContent(content string, offset, limit int) (string, int) {

@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/sandbox"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -115,28 +115,23 @@ func TestNewTransportRemoteLogsExplicitException(t *testing.T) {
 }
 
 type stdioHostStub struct {
-	req pkgplugins.ProcessRequest
+	req sandbox.ProcessRequest
 }
 
-func (h *stdioHostStub) ReadFile(context.Context, string, int, int) (pkgplugins.ReadFileResult, error) {
-	return pkgplugins.ReadFileResult{}, nil
+// sandbox.Session lifecycle methods.
+func (h *stdioHostStub) Policy() sandbox.Policy { return sandbox.Policy{} }
+func (h *stdioHostStub) Close() error           { return nil }
+func (h *stdioHostStub) Alive() bool            { return true }
+func (h *stdioHostStub) Done() <-chan struct{} {
+	ch := make(chan struct{})
+	return ch
 }
 
-func (h *stdioHostStub) WriteFile(context.Context, string, []byte) (pkgplugins.WriteFileResult, error) {
-	return pkgplugins.WriteFileResult{}, nil
+func (h *stdioHostStub) Exec(_ context.Context, _ string, _ sandbox.ExecOptions) (sandbox.ExecResult, error) {
+	return sandbox.ExecResult{}, nil
 }
 
-func (h *stdioHostStub) Stat(context.Context, string) (pkgplugins.StatResult, error) {
-	return pkgplugins.StatResult{}, nil
-}
-
-func (h *stdioHostStub) ListDir(context.Context, string) ([]pkgplugins.DirEntry, error) {
-	return nil, nil
-}
-func (h *stdioHostStub) MkdirAll(context.Context, string, uint32) error { return nil }
-func (h *stdioHostStub) Remove(context.Context, string, bool) error     { return nil }
-
-func (h *stdioHostStub) StartProcess(_ context.Context, req pkgplugins.ProcessRequest) (pkgplugins.ProcessHandle, error) {
+func (h *stdioHostStub) StartProcess(_ context.Context, req sandbox.ProcessRequest) (sandbox.ProcessHandle, error) {
 	h.req = req
 	return stdioProcessStub{}, nil
 }
@@ -146,8 +141,8 @@ func (h *stdioHostStub) WorkingDir() string                      { return "/" }
 type stdioProcessStub struct{}
 
 func (stdioProcessStub) PID() int { return 1 }
-func (stdioProcessStub) Wait(context.Context) (pkgplugins.ExecResult, error) {
-	return pkgplugins.ExecResult{}, nil
+func (stdioProcessStub) Wait(context.Context) (sandbox.ExecResult, error) {
+	return sandbox.ExecResult{}, nil
 }
 func (stdioProcessStub) Stdin() io.WriteCloser { return nopWriteCloser{&bytes.Buffer{}} }
 func (stdioProcessStub) Stdout() io.ReadCloser { return io.NopCloser(strings.NewReader("")) }

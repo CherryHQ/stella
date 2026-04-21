@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -87,9 +88,6 @@ func TestHeartbeatFilePathAbsolute(t *testing.T) {
 
 func TestSandboxConfigDefaults(t *testing.T) {
 	c := SandboxConfig{}
-	if got := c.BackendName(); got != SandboxBackendAuto {
-		t.Fatalf("BackendName() = %q, want %q", got, SandboxBackendAuto)
-	}
 	if got := c.NetworkMode(); got != SandboxNetworkDisabled {
 		t.Fatalf("NetworkMode() = %q, want %q", got, SandboxNetworkDisabled)
 	}
@@ -105,29 +103,12 @@ func TestSandboxConfigValidate(t *testing.T) {
 		wantErr bool
 	}{
 		{
+			name: "empty config valid (defaults to disabled)",
+			cfg:  SandboxConfig{},
+		},
+		{
 			name: "allow_all valid",
 			cfg:  SandboxConfig{Network: SandboxNetworkConfig{Mode: SandboxNetworkAllowAll}},
-		},
-		{
-			name: "boxsh backend valid",
-			cfg:  SandboxConfig{Backend: SandboxBackendBoxsh},
-		},
-		{
-			name: "local backend valid",
-			cfg:  SandboxConfig{Backend: SandboxBackendLocal},
-		},
-		{
-			name: "whitelist valid host and cidr",
-			cfg:  SandboxConfig{Network: SandboxNetworkConfig{Mode: SandboxNetworkWhitelist, Allowlist: []string{"example.com", "anthropic.com", "internal.net", "registry.example", "10.0.0.0/24"}}},
-		},
-		{
-			name: "docker backend valid",
-			cfg:  SandboxConfig{Backend: SandboxBackendDocker},
-		},
-		{
-			name:    "invalid backend",
-			cfg:     SandboxConfig{Backend: "gvisor"},
-			wantErr: true,
 		},
 		{
 			name:    "invalid mode",
@@ -135,18 +116,8 @@ func TestSandboxConfigValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "allowlist without whitelist mode",
+			name:    "allowlist without allow_all mode is invalid",
 			cfg:     SandboxConfig{Network: SandboxNetworkConfig{Mode: SandboxNetworkDisabled, Allowlist: []string{"example.com"}}},
-			wantErr: true,
-		},
-		{
-			name:    "whitelist requires entries",
-			cfg:     SandboxConfig{Network: SandboxNetworkConfig{Mode: SandboxNetworkWhitelist}},
-			wantErr: true,
-		},
-		{
-			name:    "invalid whitelist entry",
-			cfg:     SandboxConfig{Network: SandboxNetworkConfig{Mode: SandboxNetworkWhitelist, Allowlist: []string{"bad host"}}},
 			wantErr: true,
 		},
 	}
@@ -161,6 +132,18 @@ func TestSandboxConfigValidate(t *testing.T) {
 				t.Fatalf("unexpected validation error: %v", err)
 			}
 		})
+	}
+}
+
+func TestSandboxConfigBackendIgnored(t *testing.T) {
+	// Legacy "backend" key in JSON must be silently ignored.
+	data := []byte(`{"backend":"docker","network":{"mode":"allow_all"}}`)
+	var cfg SandboxConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("UnmarshalJSON: %v", err)
+	}
+	if cfg.NetworkMode() != SandboxNetworkAllowAll {
+		t.Fatalf("NetworkMode() = %q, want %q", cfg.NetworkMode(), SandboxNetworkAllowAll)
 	}
 }
 

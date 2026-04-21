@@ -6,10 +6,10 @@ import (
 	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
-// buildSandboxCoreTools creates core tools using the active sandbox host.
+// buildSandboxCoreTools creates core tools using the active sandbox session.
 func buildSandboxCoreTools(session *runnerSession, bc plugintools.BuildContext) []tools.Tool {
-	if session == nil || session.Session() == nil || session.Session().Host() == nil {
+	if session == nil || session.Session() == nil {
 		return nil
 	}
-	return sandbox.NewCoreTools(session.Session().Host(), bc.Paths.ToolsBinDir, bc.Paths.ProjectRoot)
+	return sandbox.NewCoreTools(session.Session(), bc.Paths.ToolsBinDir, bc.Paths.ProjectRoot)
 }

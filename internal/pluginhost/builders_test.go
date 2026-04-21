@@ -6,6 +6,7 @@ import (
 
 	"github.com/vaayne/anna/internal/config"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/sandbox"
 	"github.com/vaayne/anna/pkg/tools"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 )
@@ -29,7 +30,7 @@ func TestBuildEnabledToolsBuildsOptionalAndRequiredToolsWithRuntimeContext(t *te
 
 	var runtimeSeen int
 	var seenPaths []pkgplugins.ToolPaths
-	fakeRuntime := pkgplugins.NewLocalToolRuntime(t.TempDir())
+	fakeRuntime := sandbox.NopSession()
 	host.AddTool(pkgplugins.ToolSpec{
 		PluginID: "tool/a",
 		Name:     "a",

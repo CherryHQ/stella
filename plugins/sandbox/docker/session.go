@@ -19,53 +19,19 @@ import (
 	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
 )
 
-// workspaceMount and readonlyMountRoot match the paths pre-created in the
-// bundled Dockerfile (plugins/sandbox/docker/Dockerfile) under the anna
-// user's HOME so mise activate, $PATH, and $HOME all line up.
-const (
-	workspaceMount    = "/home/anna/workspace"
-	readonlyMountRoot = "/home/anna/readonly"
-)
-
-// Type aliases for the pkg/sandbox contract — keeps import noise minimal in callers.
-type (
-	Policy                   = sandboxpkg.Policy
-	FilesystemPolicy         = sandboxpkg.FilesystemPolicy
-	Session                  = sandboxpkg.Session
-	Host                     = sandboxpkg.Host
-	ReadResult               = sandboxpkg.ReadResult
-	WriteResult              = sandboxpkg.WriteResult
-	Edit                     = sandboxpkg.Edit
-	EditResult               = sandboxpkg.EditResult
-	StatResult               = sandboxpkg.StatResult
-	DirEntry                 = sandboxpkg.DirEntry
-	TempFile                 = sandboxpkg.TempFile
-	ExecOptions              = sandboxpkg.ExecOptions
-	ExecResult               = sandboxpkg.ExecResult
-	ProcessRequest           = sandboxpkg.ProcessRequest
-	ProcessHandle            = sandboxpkg.ProcessHandle
-	HTTPOptions              = sandboxpkg.HTTPOptions
-	HTTPResult               = sandboxpkg.HTTPResult
-	HTTPStream               = sandboxpkg.HTTPStream
-	PolicyCompatibilityError = sandboxpkg.PolicyCompatibilityError
-)
+// workspaceMount matches the path pre-created in the bundled Dockerfile
+// (plugins/sandbox/docker/Dockerfile) under the anna user's HOME so mise
+// activate, $PATH, and $HOME all line up.
+const workspaceMount = "/home/anna/workspace"
 
 func nextSessionID() string { return sandboxpkg.NewSessionID() }
 
-func logSessionCreated(sessionID, backend string, policy Policy) {
+func logSessionCreated(sessionID, backend string, policy sandboxpkg.Policy) {
 	sandboxpkg.LogSessionCreated(sessionID, backend, policy)
 }
 
 func logSessionClosed(sessionID, backend, reason string) {
 	sandboxpkg.LogSessionClosed(sessionID, backend, reason)
-}
-
-func logRelaxedMode(sessionID, backend, reason string, policy Policy, warnings ...string) {
-	sandboxpkg.LogRelaxedMode(sessionID, backend, reason, policy, warnings...)
-}
-
-func logPolicyDenied(sessionID, backend, operation, resource, reason string) {
-	sandboxpkg.LogPolicyDenied(sessionID, backend, operation, resource, reason)
 }
 
 // dockerFactory creates docker-backed sandbox sessions.
@@ -93,25 +59,13 @@ func (f *dockerFactory) Available() bool {
 	return err == nil
 }
 
-// Supported returns a PolicyCompatibilityError when:
-//   - The docker daemon is unreachable.
-//   - Network mode is whitelist (not supported in phase 1).
-func (f *dockerFactory) Supported(policy Policy) error {
+// Supported returns a PolicyCompatibilityError when the docker daemon is unreachable.
+func (f *dockerFactory) Supported(policy sandboxpkg.Policy) error {
 	if !f.Available() {
-		return &PolicyCompatibilityError{
-			Backend:          f.Name(),
-			Policy:           policy,
-			Reason:           "docker daemon not reachable (check DOCKER_HOST and that the daemon is running)",
-			RelaxedWouldHelp: false,
-		}
-	}
-
-	if policy.RequiresWhitelist() && !policy.Relaxed {
-		return &PolicyCompatibilityError{
-			Backend:          f.Name(),
-			Policy:           policy,
-			Reason:           "docker backend does not support whitelist mode in phase 1",
-			RelaxedWouldHelp: true,
+		return &sandboxpkg.PolicyCompatibilityError{
+			Backend: f.Name(),
+			Policy:  policy,
+			Reason:  "docker daemon not reachable (check DOCKER_HOST and that the daemon is running)",
 		}
 	}
 
@@ -119,7 +73,7 @@ func (f *dockerFactory) Supported(policy Policy) error {
 }
 
 // CreateSession starts a new container and returns a dockerSession.
-func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Session, error) {
+func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
 	if err := f.Supported(policy); err != nil {
 		return nil, err
 	}
@@ -139,24 +93,6 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Sessi
 		trace.WithAttributes(sessionTraceAttrs(sessionID, policy, f.cfg.Image, workspaceHost)...),
 	)
 
-	// Build read-only mounts from policy. HostPath is kept as anna-view here so
-	// the internal mount table can translate cwd/env paths with toContainerPath;
-	// the daemon-side bind source is computed separately below.
-	roMounts := make([]dockerclient.Mount, 0, len(policy.Filesystem.ReadOnlyPaths))
-	for i, p := range policy.Filesystem.ReadOnlyPaths {
-		absP, err := filepath.Abs(p)
-		if err != nil {
-			recordError(span, err)
-			span.End()
-			return nil, fmt.Errorf("docker session: abs read-only path %q: %w", p, err)
-		}
-		roMounts = append(roMounts, dockerclient.Mount{
-			HostPath:      absP,
-			ContainerPath: readonlyMountRoot + "/" + strconv.Itoa(i),
-			ReadOnly:      true,
-		})
-	}
-
 	// Map network mode.
 	networkMode := mapNetworkMode(policy)
 
@@ -172,21 +108,14 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Sessi
 	// host installation. Under DooD two anna instances may share an in-container
 	// ANNA_HOME path while living in different host directories; labeling with
 	// the daemon-view path keeps their container sets disjoint.
-	annaHome := f.cfg.TranslateToDaemonPath(policy.Process.Environment["ANNA_HOME"])
-
-	// Translate anna-view paths to daemon-view paths for bind-mount sources.
-	// Only the CreateOptions struct receives translated paths; the internal
-	// mountTable keeps anna-view paths so toContainerPath continues to map
-	// cwd/env correctly.
-	daemonRoMounts := translateMountsForDaemon(f.cfg, roMounts)
+	annaHome := f.cfg.TranslateToDaemonPath(policy.Env["ANNA_HOME"])
 
 	opts := dockerclient.CreateOptions{
 		Image:          f.cfg.Image,
 		WorkspaceHost:  f.cfg.TranslateToDaemonPath(workspaceHost),
 		WorkspaceMount: workspaceMount,
-		ReadOnlyMounts: daemonRoMounts,
 		NetworkMode:    networkMode,
-		Env:            mergeEnv(policy.Process.Environment, nil),
+		Env:            mergeEnv(policy.Env, nil),
 		Labels: map[string]string{
 			dockerclient.LabelSessionID: sessionID,
 			dockerclient.LabelAnnaHome:  annaHome,
@@ -207,8 +136,8 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Sessi
 		attribute.String("anna.sandbox.container_id", containerID),
 	))
 
-	// Build mount table: workspace + read-only mounts.
-	mountTable := buildMountTable(workspaceHost, workspaceMount, roMounts)
+	// Build mount table: workspace mount only.
+	mountTable := buildMountTable(workspaceHost, workspaceMount)
 
 	session := &dockerSession{
 		id:          sessionID,
@@ -221,32 +150,14 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy Policy) (Sessi
 	}
 	session.host = &dockerHost{session: session}
 
-	if policy.RequiresWhitelist() && policy.Relaxed {
-		logRelaxedMode(sessionID, "docker", "docker whitelist mode relaxed to allow_all", policy, "network whitelist treated as allow_all in phase 1")
-	}
 	logSessionCreated(sessionID, "docker", policy)
 	go session.watchContainer()
 
 	return session, nil
 }
 
-// translateMountsForDaemon rewrites Mount.HostPath values via the prefix
-// mapping configured on cfg. The input slice is not mutated.
-func translateMountsForDaemon(cfg Config, mounts []dockerclient.Mount) []dockerclient.Mount {
-	if cfg.ContainerPathPrefix == "" || cfg.HostPathPrefix == "" {
-		return mounts
-	}
-	out := make([]dockerclient.Mount, len(mounts))
-	for i, m := range mounts {
-		m.HostPath = cfg.TranslateToDaemonPath(m.HostPath)
-		out[i] = m
-	}
-	return out
-}
-
 // mapNetworkMode translates sandbox policy network mode to the dockerclient type.
-// Whitelist is already rejected by Supported() before reaching here.
-func mapNetworkMode(policy Policy) dockerclient.NetworkMode {
+func mapNetworkMode(policy sandboxpkg.Policy) dockerclient.NetworkMode {
 	switch policy.NetworkModeOrDefault() {
 	case sandboxpkg.NetworkDisabled:
 		return dockerclient.NetworkDisabled
@@ -255,16 +166,16 @@ func mapNetworkMode(policy Policy) dockerclient.NetworkMode {
 	}
 }
 
-// buildMountTable returns all bind mounts that toContainerPath should consult.
-func buildMountTable(workspaceHost, workspaceMount string, roMounts []dockerclient.Mount) []dockerclient.Mount {
-	table := make([]dockerclient.Mount, 0, 1+len(roMounts))
-	table = append(table, dockerclient.Mount{
-		HostPath:      workspaceHost,
-		ContainerPath: workspaceMount,
-		ReadOnly:      false,
-	})
-	table = append(table, roMounts...)
-	return table
+// buildMountTable returns the bind mount set that toContainerPath should consult.
+// Only the workspace mount is registered; read-only mounts were removed in Phase 7.
+func buildMountTable(workspaceHost, workspaceMount string) []dockerclient.Mount {
+	return []dockerclient.Mount{
+		{
+			HostPath:      workspaceHost,
+			ContainerPath: workspaceMount,
+			ReadOnly:      false,
+		},
+	}
 }
 
 // mergeEnv merges policy environment and per-call overrides into a map.
@@ -319,7 +230,7 @@ func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount) m
 // dockerSession is a docker-backed sandbox session backed by a single container.
 type dockerSession struct {
 	id          string
-	policy      Policy
+	policy      sandboxpkg.Policy
 	client      *dockerclient.Client
 	containerID string
 	mountTable  []dockerclient.Mount
@@ -333,8 +244,17 @@ type dockerSession struct {
 	mu          sync.RWMutex
 }
 
-func (s *dockerSession) Host() Host     { return s.host }
-func (s *dockerSession) Policy() Policy { return s.policy }
+func (s *dockerSession) Policy() sandboxpkg.Policy { return s.policy }
+
+func (s *dockerSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
+	return s.host.Exec(ctx, command, opts)
+}
+
+func (s *dockerSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
+	return s.host.StartProcess(ctx, req)
+}
+func (s *dockerSession) ResolvePath(path string) (string, error) { return s.host.ResolvePath(path) }
+func (s *dockerSession) WorkingDir() string                      { return s.host.WorkingDir() }
 
 func (s *dockerSession) Alive() bool {
 	s.mu.RLock()
@@ -457,7 +377,8 @@ func toContainerPath(mounts []dockerclient.Mount, hostPath string) (string, erro
 
 // ─────────────────────────── dockerHost ──────────────────────────────
 
-// dockerHost implements Host.  Filesystem ops operate on host paths
+// dockerHost implements the process/path surface of Host.
+// File I/O is done directly via os.* on resolved host paths
 // (bind-mount makes host paths the source of truth).
 // Exec and StartProcess translate host cwd → container cwd via toContainerPath.
 type dockerHost struct {
@@ -545,179 +466,7 @@ func deepestMountRoot(mounts []dockerclient.Mount, path string) string {
 	return best
 }
 
-func (h *dockerHost) ReadFile(_ context.Context, path string, offset, limit int) (ReadResult, error) {
-	resolved, err := h.ResolvePath(path)
-	if err != nil {
-		return ReadResult{}, err
-	}
-
-	content, err := os.ReadFile(resolved)
-	if err != nil {
-		return ReadResult{}, err
-	}
-
-	if offset > 0 {
-		if offset >= len(content) {
-			return ReadResult{Content: nil, NextOffset: offset}, nil
-		}
-		content = content[offset:]
-	}
-
-	truncated := false
-	if limit > 0 && len(content) > limit {
-		content = content[:limit]
-		truncated = true
-	}
-
-	nextOffset := offset + len(content)
-	if truncated {
-		nextOffset = offset + limit
-	}
-
-	return ReadResult{
-		Content:    content,
-		Truncated:  truncated,
-		NextOffset: nextOffset,
-	}, nil
-}
-
-func (h *dockerHost) WriteFile(_ context.Context, path string, content []byte) (WriteResult, error) {
-	resolved, err := h.ResolvePath(path)
-	if err != nil {
-		return WriteResult{}, err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
-		return WriteResult{}, err
-	}
-
-	if err := os.WriteFile(resolved, content, 0o644); err != nil {
-		return WriteResult{}, err
-	}
-
-	return WriteResult{BytesWritten: len(content)}, nil
-}
-
-func (h *dockerHost) EditFile(ctx context.Context, path string, edits []Edit) (EditResult, error) {
-	readResult, err := h.ReadFile(ctx, path, 0, 0)
-	if err != nil {
-		return EditResult{}, err
-	}
-
-	content := string(readResult.Content)
-	applied := 0
-
-	for _, edit := range edits {
-		if strings.Contains(content, edit.OldText) {
-			content = strings.Replace(content, edit.OldText, edit.NewText, 1)
-			applied++
-		}
-	}
-
-	_, err = h.WriteFile(ctx, path, []byte(content))
-	if err != nil {
-		return EditResult{}, err
-	}
-
-	return EditResult{AppliedEdits: applied}, nil
-}
-
-func (h *dockerHost) Stat(_ context.Context, path string) (StatResult, error) {
-	resolved, err := h.ResolvePath(path)
-	if err != nil {
-		return StatResult{}, err
-	}
-
-	info, err := os.Stat(resolved)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return StatResult{Exists: false}, nil
-		}
-		return StatResult{}, err
-	}
-
-	return StatResult{
-		Exists:  true,
-		IsDir:   info.IsDir(),
-		Size:    info.Size(),
-		Mode:    uint32(info.Mode()),
-		ModTime: info.ModTime(),
-	}, nil
-}
-
-func (h *dockerHost) ListDir(_ context.Context, path string) ([]DirEntry, error) {
-	resolved, err := h.ResolvePath(path)
-	if err != nil {
-		return nil, err
-	}
-
-	entries, err := os.ReadDir(resolved)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]DirEntry, 0, len(entries))
-	for _, entry := range entries {
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-		result = append(result, DirEntry{
-			Name:  entry.Name(),
-			IsDir: entry.IsDir(),
-			Size:  info.Size(),
-		})
-	}
-
-	return result, nil
-}
-
-func (h *dockerHost) MkdirAll(_ context.Context, path string, perm uint32) error {
-	resolved, err := h.ResolvePath(path)
-	if err != nil {
-		return err
-	}
-	return os.MkdirAll(resolved, os.FileMode(perm))
-}
-
-func (h *dockerHost) Remove(_ context.Context, path string, recursive bool) error {
-	resolved, err := h.ResolvePath(path)
-	if err != nil {
-		return err
-	}
-	if recursive {
-		return os.RemoveAll(resolved)
-	}
-	return os.Remove(resolved)
-}
-
-func (h *dockerHost) Rename(_ context.Context, oldPath, newPath string) error {
-	resolvedOld, err := h.ResolvePath(oldPath)
-	if err != nil {
-		return err
-	}
-	resolvedNew, err := h.ResolvePath(newPath)
-	if err != nil {
-		return err
-	}
-	return os.Rename(resolvedOld, resolvedNew)
-}
-
-func (h *dockerHost) CreateTemp(_ context.Context, dir, pattern string) (TempFile, error) {
-	resolvedDir, err := h.ResolvePath(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	f, err := os.CreateTemp(resolvedDir, pattern)
-	if err != nil {
-		return nil, err
-	}
-
-	return &dockerTempFile{file: f}, nil
-}
-
-func (h *dockerHost) Exec(ctx context.Context, command string, opts ExecOptions) (ExecResult, error) {
+func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
 	cwd := opts.Cwd
 	if cwd == "" {
 		cwd = h.session.policy.Filesystem.WorkingDir
@@ -725,19 +474,19 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts ExecOptions)
 
 	hostCwd, err := h.ResolvePath(cwd)
 	if err != nil {
-		return ExecResult{}, fmt.Errorf("docker host exec: resolve cwd: %w", err)
+		return sandboxpkg.ExecResult{}, fmt.Errorf("docker host exec: resolve cwd: %w", err)
 	}
 
 	containerCwd, err := toContainerPath(h.session.mountTable, hostCwd)
 	if err != nil {
-		return ExecResult{}, fmt.Errorf("docker host exec: cwd not in any mount: %w", err)
+		return sandboxpkg.ExecResult{}, fmt.Errorf("docker host exec: cwd not in any mount: %w", err)
 	}
 
-	env := translateEnvPaths(mergeEnv(h.session.policy.Process.Environment, opts.Env), h.session.mountTable)
+	env := translateEnvPaths(mergeEnv(h.session.policy.Env, opts.Env), h.session.mountTable)
 
 	timeout := opts.Timeout
 	if timeout == 0 {
-		timeout = h.session.policy.Process.Timeout
+		timeout = h.session.policy.Timeout
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -752,17 +501,17 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts ExecOptions)
 		Env:         env,
 	})
 	if err != nil {
-		return ExecResult{}, fmt.Errorf("docker host exec: %w", err)
+		return sandboxpkg.ExecResult{}, fmt.Errorf("docker host exec: %w", err)
 	}
 
-	return ExecResult{
+	return sandboxpkg.ExecResult{
 		Stdout:   string(result.Stdout),
 		Stderr:   string(result.Stderr),
 		ExitCode: result.ExitCode,
 	}, nil
 }
 
-func (h *dockerHost) StartProcess(ctx context.Context, req ProcessRequest) (ProcessHandle, error) {
+func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
 	cwd := req.Cwd
 	if cwd == "" {
 		cwd = h.session.policy.Filesystem.WorkingDir
@@ -778,11 +527,11 @@ func (h *dockerHost) StartProcess(ctx context.Context, req ProcessRequest) (Proc
 		return nil, fmt.Errorf("docker host start_process: cwd not in any mount: %w", err)
 	}
 
-	env := translateEnvPaths(mergeEnv(h.session.policy.Process.Environment, req.Env), h.session.mountTable)
+	env := translateEnvPaths(mergeEnv(h.session.policy.Env, req.Env), h.session.mountTable)
 
 	timeout := req.Timeout
 	if timeout == 0 {
-		timeout = h.session.policy.Process.Timeout
+		timeout = h.session.policy.Timeout
 	}
 
 	var (
@@ -816,37 +565,6 @@ func (h *dockerHost) StartProcess(ctx context.Context, req ProcessRequest) (Proc
 	}, nil
 }
 
-// HTTPRequest fails closed — transport mediation is not implemented in phase 1.
-func (h *dockerHost) HTTPRequest(_ context.Context, opts HTTPOptions) (HTTPResult, error) {
-	logPolicyDenied(h.session.id, "docker", "http_request", opts.URL, "transport mediation not yet implemented")
-	return HTTPResult{}, fmt.Errorf("sandbox: docker Host.HTTPRequest is not implemented; fail closed until transport mediation is wired")
-}
-
-// OpenHTTPStream fails closed — transport mediation is not implemented in phase 1.
-func (h *dockerHost) OpenHTTPStream(_ context.Context, opts HTTPOptions) (HTTPStream, error) {
-	logPolicyDenied(h.session.id, "docker", "http_stream", opts.URL, "transport mediation not yet implemented")
-	return nil, fmt.Errorf("sandbox: docker Host.OpenHTTPStream is not implemented; fail closed until transport mediation is wired")
-}
-
-// ─────────────────────────── dockerTempFile ──────────────────────────
-
-type dockerTempFile struct {
-	file *os.File
-}
-
-func (f *dockerTempFile) Path() string { return f.file.Name() }
-func (f *dockerTempFile) Write(p []byte) (int, error) {
-	return f.file.Write(p)
-}
-
-func (f *dockerTempFile) Close() error {
-	path := f.file.Name()
-	if err := f.file.Close(); err != nil {
-		return err
-	}
-	return os.Remove(path)
-}
-
 // ─────────────────────────── dockerProcessHandle ──────────────────────────
 
 // dockerProcessHandle wraps an ExecHandle from dockerclient and implements ProcessHandle.
@@ -864,7 +582,7 @@ func (p *dockerProcessHandle) Stdin() io.WriteCloser { return p.handle.Stdin }
 func (p *dockerProcessHandle) Stdout() io.ReadCloser { return p.handle.Stdout }
 func (p *dockerProcessHandle) Stderr() io.ReadCloser { return p.handle.Stderr }
 
-func (p *dockerProcessHandle) Wait(ctx context.Context) (ExecResult, error) {
+func (p *dockerProcessHandle) Wait(ctx context.Context) (sandboxpkg.ExecResult, error) {
 	done := make(chan struct {
 		code int
 		err  error
@@ -880,9 +598,9 @@ func (p *dockerProcessHandle) Wait(ctx context.Context) (ExecResult, error) {
 	select {
 	case <-ctx.Done():
 		_ = p.Close()
-		return ExecResult{}, ctx.Err()
+		return sandboxpkg.ExecResult{}, ctx.Err()
 	case r := <-done:
-		return ExecResult{ExitCode: r.code}, r.err
+		return sandboxpkg.ExecResult{ExitCode: r.code}, r.err
 	}
 }
 

@@ -6,9 +6,9 @@ title: Memory System
 
 The memory system is **plugin-based**. A `memory.Provider` interface in `pkg/memory/` defines the contract, and concrete implementations live in `plugins/memory/`. Two built-in plugins ship with anna:
 
-| Plugin   | Package                    | Default | Description                                                                 |
-| -------- | -------------------------- | ------- | --------------------------------------------------------------------------- |
-| **LCM**  | `plugins/memory/lcm/`     | Yes     | Lossless Context Management — DAG of summaries, compaction, search, explore |
+| Plugin     | Package                  | Default | Description                                                                 |
+| ---------- | ------------------------ | ------- | --------------------------------------------------------------------------- |
+| **LCM**    | `plugins/memory/lcm/`    | Yes     | Lossless Context Management — DAG of summaries, compaction, search, explore |
 | **Simple** | `plugins/memory/simple/` | No      | Sliding-window — keeps last N messages within token budget, no summaries    |
 
 ### Switching Plugins
@@ -26,25 +26,25 @@ Only one memory plugin should be enabled at a time. Both use the same underlying
 
 The core `Provider` interface (`pkg/memory/provider.go`) has 5 methods:
 
-| Method                                       | Description                                                |
-| -------------------------------------------- | ---------------------------------------------------------- |
-| `Bootstrap(ctx, session)`                    | Ensures a conversation record exists for the session       |
-| `Append(ctx, session, msgs)`                 | Persists messages and appends context items                |
-| `Assemble(ctx, session, budget, freshTail)`  | Builds context within token budget, returns `[]ai.Message` |
-| `Stats(ctx, session)`                        | Returns session statistics (token count, message count)    |
-| `Close()`                                    | Releases resources                                         |
+| Method                                      | Description                                                |
+| ------------------------------------------- | ---------------------------------------------------------- |
+| `Bootstrap(ctx, session)`                   | Ensures a conversation record exists for the session       |
+| `Append(ctx, session, msgs)`                | Persists messages and appends context items                |
+| `Assemble(ctx, session, budget, freshTail)` | Builds context within token budget, returns `[]ai.Message` |
+| `Stats(ctx, session)`                       | Returns session statistics (token count, message count)    |
+| `Close()`                                   | Releases resources                                         |
 
 ### Optional Capabilities
 
 Providers can implement additional interfaces detected via type assertion:
 
-| Interface        | Methods                                          | Description                                    |
-| ---------------- | ------------------------------------------------ | ---------------------------------------------- |
-| `Compactor`      | `NeedsCompaction`, `Compact`                     | Context window compaction                      |
-| `Searcher`       | `Search`                                         | Full-text search across messages and summaries |
-| `Explorer`       | `Describe`, `Expand`                             | Inspect and drill into summaries               |
-| `ProfileStore`   | `GetProfile`, `SetProfile`                       | Per-user-per-agent persistent notes            |
-| `SessionManager` | `SaveInfo`, `LoadInfo`, `ListInfo`, `LoadHistory` | Session metadata and history management        |
+| Interface        | Methods                                                | Description                                    |
+| ---------------- | ------------------------------------------------------ | ---------------------------------------------- |
+| `Compactor`      | `NeedsCompaction`, `Compact`                           | Context window compaction                      |
+| `Searcher`       | `Search`                                               | Full-text search across messages and summaries |
+| `Explorer`       | `Describe`, `Expand`                                   | Inspect and drill into summaries               |
+| `ProfileStore`   | `GetProfile`, `SetProfile`                             | Per-user-per-agent persistent notes            |
+| `SessionManager` | `SaveInfo`, `LoadInfo`, `ListInfo`, `LoadHistory`      | Session metadata and history management        |
 | `ReviewSource`   | `ListUnreviewed`, `BuildReviewContext`, `MarkReviewed` | Self-improvement review data                   |
 
 The LCM plugin implements all 7 interfaces. The Simple plugin implements `Provider`, `ProfileStore`, and `SessionManager`.
@@ -53,14 +53,14 @@ The LCM plugin implements all 7 interfaces. The Simple plugin implements `Provid
 
 `memory.BuildTool(provider)` inspects the provider's capabilities and generates a `tools.Tool` with matching actions:
 
-| Action           | Requires     | Description                                     |
-| ---------------- | ------------ | ----------------------------------------------- |
-| `status`         | (always)     | Show session stats (tokens, messages)           |
-| `search`         | `Searcher`   | Search messages and summaries by pattern        |
-| `describe`       | `Explorer`   | Inspect a summary's metadata and lineage        |
-| `expand`         | `Explorer`   | Drill into compacted summaries                  |
-| `profile_get`    | `ProfileStore` | Read persistent per-user notes                |
-| `profile_update` | `ProfileStore` | Update persistent per-user notes              |
+| Action           | Requires       | Description                              |
+| ---------------- | -------------- | ---------------------------------------- |
+| `status`         | (always)       | Show session stats (tokens, messages)    |
+| `search`         | `Searcher`     | Search messages and summaries by pattern |
+| `describe`       | `Explorer`     | Inspect a summary's metadata and lineage |
+| `expand`         | `Explorer`     | Drill into compacted summaries           |
+| `profile_get`    | `ProfileStore` | Read persistent per-user notes           |
+| `profile_update` | `ProfileStore` | Update persistent per-user notes         |
 
 The tool's JSON schema, description, and dispatch all adapt dynamically. A provider with fewer capabilities produces a tool with fewer actions.
 
@@ -148,15 +148,15 @@ This is suitable for short-lived conversations or resource-constrained environme
 
 **Schema:**
 
-| Table                     | Purpose                                                                |
-| ------------------------- | ---------------------------------------------------------------------- |
-| `ctx_conversations`       | One per session (`session_id` -> `id` mapping), includes agent/user ID |
-| `ctx_messages`            | Raw messages with `role`, `content`, `token_count`, sequential `seq`   |
-| `ctx_summaries`           | Summary DAG nodes: `kind`, `depth`, `content`, token stats, time range |
-| `ctx_items`               | Ordered context window: points to message or summary                   |
-| `ctx_summary_messages`    | Links leaf summaries to source messages                                |
-| `ctx_summary_parents`     | Links condensed summaries to parent summaries (DAG edges)              |
-| `ctx_agent_memory`        | Per-user-per-agent persistent notes (used by ProfileStore)             |
+| Table                  | Purpose                                                                |
+| ---------------------- | ---------------------------------------------------------------------- |
+| `ctx_conversations`    | One per session (`session_id` -> `id` mapping), includes agent/user ID |
+| `ctx_messages`         | Raw messages with `role`, `content`, `token_count`, sequential `seq`   |
+| `ctx_summaries`        | Summary DAG nodes: `kind`, `depth`, `content`, token stats, time range |
+| `ctx_items`            | Ordered context window: points to message or summary                   |
+| `ctx_summary_messages` | Links leaf summaries to source messages                                |
+| `ctx_summary_parents`  | Links condensed summaries to parent summaries (DAG edges)              |
+| `ctx_agent_memory`     | Per-user-per-agent persistent notes (used by ProfileStore)             |
 
 ## Configuration Defaults
 
@@ -172,11 +172,11 @@ This is suitable for short-lived conversations or resource-constrained environme
 
 ### 3-Layer System Prompt
 
-| Layer           | Default source                  | File override                  | Description                                                   |
-| --------------- | ------------------------------- | ------------------------------ | ------------------------------------------------------------- |
-| **Basic**       | Built-in system instructions    | `SYSTEM.md` in agent workspace | Core behavioral instructions for the LLM                      |
-| **Agent soul**  | `settings_agents.system_prompt` | `SOUL.md` in agent workspace   | Agent identity, personality, and tone                         |
-| **User memory** | `ctx_agent_memory.content`      | (none — always from DB)        | Per-user-per-agent notes, injected via ProfileStore           |
+| Layer           | Default source                  | File override                  | Description                                         |
+| --------------- | ------------------------------- | ------------------------------ | --------------------------------------------------- |
+| **Basic**       | Built-in system instructions    | `SYSTEM.md` in agent workspace | Core behavioral instructions for the LLM            |
+| **Agent soul**  | `settings_agents.system_prompt` | `SOUL.md` in agent workspace   | Agent identity, personality, and tone               |
+| **User memory** | `ctx_agent_memory.content`      | (none — always from DB)        | Per-user-per-agent notes, injected via ProfileStore |
 
 ### User Memory
 

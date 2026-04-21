@@ -13,16 +13,6 @@ func init() {
 	}
 	backends := []meta{
 		{
-			name:        config.SandboxBackendAuto,
-			displayName: "Auto",
-			description: "Selects the best available sandbox backend automatically (boxsh on supported platforms, local elsewhere).",
-		},
-		{
-			name:        config.SandboxBackendBoxsh,
-			displayName: "Boxsh",
-			description: "Sandboxed execution via boxsh. Supported on Linux and macOS.",
-		},
-		{
 			name:        config.SandboxBackendDocker,
 			displayName: "Docker",
 			description: "Container-per-session isolation via Docker. Requires a running Docker daemon.",
@@ -30,7 +20,7 @@ func init() {
 		{
 			name:        config.SandboxBackendLocal,
 			displayName: "Local",
-			description: "No sandbox — runs directly on the host. Advisory enforcement only.",
+			description: "Runs commands directly on the host OS with no container isolation.",
 		},
 	}
 	for _, b := range backends {

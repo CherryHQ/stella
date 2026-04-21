@@ -10,7 +10,6 @@ import (
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
 	anthropicprovider "github.com/vaayne/anna/plugins/providers/anthropic"
-	"github.com/vaayne/anna/plugins/sandbox/boxsh/boxshclient"
 )
 
 // skipWithoutAnthropicKey skips the test when ANTHROPIC_API_KEY is not set.
@@ -28,16 +27,12 @@ func integrationConfig(t *testing.T) GoRunnerConfig {
 	if model == "" {
 		model = "claude-sonnet-4-20250514"
 	}
-	if !boxshclient.PlatformSupportsBoxsh() {
-		t.Skip("sandbox backend requires boxsh support on this platform")
-	}
 	annaHome := t.TempDir()
 	workspace := t.TempDir()
 	userRoot := workspace + "/users/1"
 	if err := os.MkdirAll(userRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	_ = writeMockRPCBoxsh(t, annaHome, false)
 	return GoRunnerConfig{
 		API:       "anthropic",
 		Model:     model,

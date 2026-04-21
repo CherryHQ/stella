@@ -1,0 +1,29 @@
+---
+title: 更新日志
+description: anna 的所有重要变更记录。
+icon: History
+---
+
+本文件记录本项目的所有重要变更。
+
+格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
+版本遵循 [语义化版本规范](https://semver.org/spec/v2.0.0.html)。
+
+## [Unreleased]
+
+### ⚠️ 破坏性变更
+
+- **沙盒**：移除 `boxsh` 后端 — Docker 现在是唯一的沙盒后端。升级前请安装并启动 Docker Desktop（macOS/Windows）或 Docker 守护进程（Linux）。配置文件中设置 `sandbox.backend = "boxsh"` 的用户，系统将自动将其重新映射并输出一次性日志警告。
+
+### ✨ 改进
+
+- **stdio MCP**：`StartProcess`（stdio MCP 服务器）现在在每次运行时均可正常工作。此前在 `boxsh` 会话中静默失败；Docker 的容器模型为每个会话提供了独立的进程命名空间，stdio MCP 服务器可稳定启动。
+
+## [0.14.0] - 2026-04-21
+
+### ✨ 功能
+
+- **资源**：新增内置资源目录和 Agent 模板 ([#117](https://github.com/vaayne/anna/pull/117))
+- **飞书**：新增飞书自动配置 ([#116](https://github.com/vaayne/anna/pull/116))
+
+**完整更新日志**：[v0.13.0...v0.14.0](https://github.com/vaayne/anna/compare/v0.13.0...v0.14.0)

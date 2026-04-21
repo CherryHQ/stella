@@ -3,14 +3,10 @@ package sandbox
 import (
 	"context"
 	"errors"
-	"runtime"
 	"sync"
 	"testing"
 
-	boxshplugin "github.com/vaayne/anna/plugins/sandbox/boxsh"
 	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
-
-	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
 )
 
 // PolicyCompatibilityTests verify fail-closed behavior for unsupported policy/backend combinations.
@@ -18,7 +14,6 @@ import (
 func TestPolicyValidation(t *testing.T) {
 	t.Run("ValidPolicy", func(t *testing.T) {
 		policy := Policy{
-			Backend: "local",
 			Filesystem: FilesystemPolicy{
 				WorkingDir: t.TempDir(),
 			},
@@ -34,7 +29,6 @@ func TestPolicyValidation(t *testing.T) {
 
 	t.Run("MissingWorkingDir", func(t *testing.T) {
 		policy := Policy{
-			Backend: "local",
 			Network: NetworkPolicy{
 				Mode: NetworkDisabled,
 			},
@@ -47,7 +41,6 @@ func TestPolicyValidation(t *testing.T) {
 
 	t.Run("InvalidNetworkMode", func(t *testing.T) {
 		policy := Policy{
-			Backend: "local",
 			Filesystem: FilesystemPolicy{
 				WorkingDir: t.TempDir(),
 			},
@@ -60,34 +53,15 @@ func TestPolicyValidation(t *testing.T) {
 			t.Error("Validate() = nil, want error for invalid network mode")
 		}
 	})
-
-	t.Run("EmptyWhitelist", func(t *testing.T) {
-		policy := Policy{
-			Backend: "local",
-			Filesystem: FilesystemPolicy{
-				WorkingDir: t.TempDir(),
-			},
-			Network: NetworkPolicy{
-				Mode:      NetworkWhitelist,
-				Allowlist: []string{},
-			},
-		}
-
-		if err := policy.Validate(); err == nil {
-			t.Error("Validate() = nil, want error for empty whitelist")
-		}
-	})
 }
 
 func TestRegistryFailClosed(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("UnknownBackendFailsClosed", func(t *testing.T) {
+	t.Run("EmptyRegistryFailsClosed", func(t *testing.T) {
 		registry := NewRegistry()
-		_ = registry.Register(localplugin.NewFactory())
 
 		policy := Policy{
-			Backend: "unknown_backend",
 			Filesystem: FilesystemPolicy{
 				WorkingDir: t.TempDir(),
 			},
@@ -95,7 +69,7 @@ func TestRegistryFailClosed(t *testing.T) {
 
 		_, err := registry.CreateSession(ctx, policy)
 		if err == nil {
-			t.Fatal("CreateSession with unknown backend should fail closed")
+			t.Fatal("CreateSession with empty registry should fail closed")
 		}
 
 		compatErr := &PolicyCompatibilityError{}
@@ -104,70 +78,8 @@ func TestRegistryFailClosed(t *testing.T) {
 			t.Fatalf("error should be PolicyCompatibilityError, got %T: %v", err, err)
 		}
 
-		if compatErr.Backend != "unknown_backend" {
-			t.Errorf("Backend = %q, want %q", compatErr.Backend, "unknown_backend")
-		}
-	})
-
-	t.Run("UnsupportedPolicyFailsClosed", func(t *testing.T) {
-		registry := NewRegistry()
-		// Only register local factory
-		_ = registry.Register(localplugin.NewFactory())
-
-		// Try to create session with strict whitelist (local doesn't support this)
-		policy := Policy{
-			Backend: "local",
-			Relaxed: false, // Strict mode
-			Filesystem: FilesystemPolicy{
-				WorkingDir: t.TempDir(),
-			},
-			Network: NetworkPolicy{
-				Mode:      NetworkWhitelist,
-				Allowlist: []string{"example.com"},
-			},
-		}
-
-		_, err := registry.CreateSession(ctx, policy)
-		if err == nil {
-			t.Fatal("CreateSession with unsupported policy should fail closed")
-		}
-
-		compatErr := &PolicyCompatibilityError{}
-		ok := errors.As(err, &compatErr)
-		if !ok {
-			t.Fatalf("error should be PolicyCompatibilityError, got %T: %v", err, err)
-		}
-
-		if !compatErr.RelaxedWouldHelp {
-			t.Error("RelaxedWouldHelp should be true for this case")
-		}
-	})
-
-	t.Run("RelaxedModeAllowsPartialSupport", func(t *testing.T) {
-		registry := NewRegistry()
-		_ = registry.Register(localplugin.NewFactory())
-
-		// Same policy but with Relaxed=true
-		policy := Policy{
-			Backend: "local",
-			Relaxed: true, // Explicit opt-in
-			Filesystem: FilesystemPolicy{
-				WorkingDir: t.TempDir(),
-			},
-			Network: NetworkPolicy{
-				Mode:      NetworkWhitelist,
-				Allowlist: []string{"example.com"},
-			},
-		}
-
-		session, err := registry.CreateSession(ctx, policy)
-		if err != nil {
-			t.Fatalf("CreateSession with Relaxed=true should succeed: %v", err)
-		}
-		defer func() { _ = session.Close() }()
-
-		if session == nil {
-			t.Error("session should not be nil")
+		if compatErr.Backend != "any" {
+			t.Errorf("Backend = %q, want %q", compatErr.Backend, "any")
 		}
 	})
 
@@ -201,255 +113,15 @@ func TestRegistryFailClosed(t *testing.T) {
 	})
 }
 
-func TestLocalFactorySupported(t *testing.T) {
-	factory := localplugin.NewFactory()
-
-	t.Run("DisabledNetworkRequiresRelaxed", func(t *testing.T) {
-		policy := Policy{
-			Relaxed: false,
-			Filesystem: FilesystemPolicy{
-				WorkingDir: t.TempDir(),
-			},
-			Network: NetworkPolicy{
-				Mode: NetworkDisabled,
-			},
-		}
-
-		if err := factory.Supported(policy); err == nil {
-			t.Error("Supported() = nil, want error for network disabled without relaxed")
-		}
-	})
-
-	t.Run("AllowAllWithStrictFilesystemRequiresRelaxed", func(t *testing.T) {
-		policy := Policy{
-			Relaxed: false,
-			Filesystem: FilesystemPolicy{
-				WorkingDir:   t.TempDir(),
-				AllowEscapes: false,
-			},
-			Network: NetworkPolicy{
-				Mode: NetworkAllowAll,
-			},
-		}
-
-		if err := factory.Supported(policy); err == nil {
-			t.Error("Supported() = nil, want error for strict filesystem without relaxed")
-		}
-	})
-
-	t.Run("WhitelistRequiresRelaxed", func(t *testing.T) {
-		policy := Policy{
-			Relaxed: false,
-			Filesystem: FilesystemPolicy{
-				WorkingDir: t.TempDir(),
-			},
-			Network: NetworkPolicy{
-				Mode:      NetworkWhitelist,
-				Allowlist: []string{"example.com"},
-			},
-		}
-
-		err := factory.Supported(policy)
-		if err == nil {
-			t.Error("Supported() = nil, want error for whitelist without relaxed")
-		}
-
-		compatErr := &PolicyCompatibilityError{}
-		ok := errors.As(err, &compatErr)
-		if !ok {
-			t.Fatalf("error should be PolicyCompatibilityError, got %T", err)
-		}
-
-		if !compatErr.RelaxedWouldHelp {
-			t.Error("RelaxedWouldHelp should be true")
-		}
-	})
-
-	t.Run("AllowAllWithEscapesStillRequiresRelaxed", func(t *testing.T) {
-		policy := Policy{
-			Relaxed: false,
-			Filesystem: FilesystemPolicy{
-				WorkingDir:   t.TempDir(),
-				AllowEscapes: true,
-			},
-			Network: NetworkPolicy{
-				Mode: NetworkAllowAll,
-			},
-		}
-
-		if err := factory.Supported(policy); err == nil {
-			t.Error("Supported() = nil, want error for local backend without relaxed even when escapes are allowed")
-		}
-	})
-
-	t.Run("AllowAllWithRelaxedAllowed", func(t *testing.T) {
-		policy := Policy{
-			Relaxed: true,
-			Filesystem: FilesystemPolicy{
-				WorkingDir:   t.TempDir(),
-				AllowEscapes: false,
-			},
-			Network: NetworkPolicy{
-				Mode: NetworkAllowAll,
-			},
-		}
-
-		if err := factory.Supported(policy); err != nil {
-			t.Errorf("Supported() = %v, want nil", err)
-		}
-	})
-
-	t.Run("WhitelistWithRelaxedAllowed", func(t *testing.T) {
-		policy := Policy{
-			Relaxed: true,
-			Filesystem: FilesystemPolicy{
-				WorkingDir: t.TempDir(),
-			},
-			Network: NetworkPolicy{
-				Mode:      NetworkWhitelist,
-				Allowlist: []string{"example.com"},
-			},
-		}
-
-		if err := factory.Supported(policy); err != nil {
-			t.Errorf("Supported() = %v, want nil for whitelist with relaxed", err)
-		}
-	})
-}
-
-func TestBoxshFactorySupported(t *testing.T) {
-	factory := boxshplugin.NewFactory()
-
-	t.Run("AvailabilityBasedOnPlatform", func(t *testing.T) {
-		available := factory.Available()
-
-		if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
-			if !available {
-				t.Error("boxsh should be available on linux/darwin")
-			}
-		} else {
-			if available {
-				t.Error("boxsh should not be available on non-linux/darwin")
-			}
-		}
-	})
-
-	t.Run("WhitelistNotSupported", func(t *testing.T) {
-		if !factory.Available() {
-			t.Skip("boxsh not available on this platform")
-		}
-
-		policy := Policy{
-			Relaxed: false,
-			Filesystem: FilesystemPolicy{
-				WorkingDir: t.TempDir(),
-			},
-			Network: NetworkPolicy{
-				Mode:      NetworkWhitelist,
-				Allowlist: []string{"example.com"},
-			},
-		}
-
-		err := factory.Supported(policy)
-		if err == nil {
-			t.Error("Supported() = nil, want error for whitelist on boxsh")
-		}
-
-		compatErr := &PolicyCompatibilityError{}
-		ok := errors.As(err, &compatErr)
-		if !ok {
-			t.Fatalf("error should be PolicyCompatibilityError, got %T", err)
-		}
-
-		if !compatErr.RelaxedWouldHelp {
-			t.Error("RelaxedWouldHelp should be true")
-		}
-	})
-
-	t.Run("DisabledNetworkSupported", func(t *testing.T) {
-		if !factory.Available() {
-			t.Skip("boxsh not available on this platform")
-		}
-
-		policy := Policy{
-			Relaxed: false,
-			Filesystem: FilesystemPolicy{
-				WorkingDir: t.TempDir(),
-			},
-			Network: NetworkPolicy{
-				Mode: NetworkDisabled,
-			},
-		}
-
-		if err := factory.Supported(policy); err != nil {
-			t.Errorf("Supported() = %v, want nil for disabled network", err)
-		}
-	})
-}
-
 func TestDockerFactorySupported(t *testing.T) {
 	factory := dockerplugin.NewFactory(dockerplugin.Config{})
 
-	t.Run("WhitelistNotSupported", func(t *testing.T) {
-		if !factory.Available() {
-			t.Skip("docker daemon not reachable; skipping")
-		}
-
-		policy := Policy{
-			Relaxed: false,
-			Filesystem: FilesystemPolicy{
-				WorkingDir: t.TempDir(),
-			},
-			Network: NetworkPolicy{
-				Mode:      NetworkWhitelist,
-				Allowlist: []string{"example.com"},
-			},
-		}
-
-		err := factory.Supported(policy)
-		if err == nil {
-			t.Error("Supported() = nil, want error for whitelist on docker")
-		}
-
-		compatErr := &PolicyCompatibilityError{}
-		ok := errors.As(err, &compatErr)
-		if !ok {
-			t.Fatalf("error should be PolicyCompatibilityError, got %T", err)
-		}
-
-		if !compatErr.RelaxedWouldHelp {
-			t.Error("RelaxedWouldHelp should be true")
-		}
-	})
-
-	t.Run("WhitelistWithRelaxedAllowed", func(t *testing.T) {
-		if !factory.Available() {
-			t.Skip("docker daemon not reachable; skipping")
-		}
-
-		policy := Policy{
-			Relaxed: true,
-			Filesystem: FilesystemPolicy{
-				WorkingDir: t.TempDir(),
-			},
-			Network: NetworkPolicy{
-				Mode:      NetworkWhitelist,
-				Allowlist: []string{"example.com"},
-			},
-		}
-
-		if err := factory.Supported(policy); err != nil {
-			t.Errorf("Supported() = %v, want nil for whitelist with Relaxed=true", err)
-		}
-	})
-
 	t.Run("DisabledNetworkSupported", func(t *testing.T) {
 		if !factory.Available() {
 			t.Skip("docker daemon not reachable; skipping")
 		}
 
 		policy := Policy{
-			Relaxed: false,
 			Filesystem: FilesystemPolicy{
 				WorkingDir: t.TempDir(),
 			},
@@ -469,7 +141,6 @@ func TestDockerFactorySupported(t *testing.T) {
 		}
 
 		policy := Policy{
-			Relaxed: false,
 			Filesystem: FilesystemPolicy{
 				WorkingDir: t.TempDir(),
 			},
@@ -512,34 +183,6 @@ func TestIsPolicyCompatibilityError(t *testing.T) {
 }
 
 func TestPolicyAccessors(t *testing.T) {
-	t.Run("IsRelaxed", func(t *testing.T) {
-		relaxed := Policy{Relaxed: true}
-		if !relaxed.IsRelaxed() {
-			t.Error("IsRelaxed() should return true")
-		}
-
-		strict := Policy{Relaxed: false}
-		if strict.IsRelaxed() {
-			t.Error("IsRelaxed() should return false")
-		}
-	})
-
-	t.Run("RequiresWhitelist", func(t *testing.T) {
-		whitelist := Policy{
-			Network: NetworkPolicy{Mode: NetworkWhitelist},
-		}
-		if !whitelist.RequiresWhitelist() {
-			t.Error("RequiresWhitelist() should return true for whitelist mode")
-		}
-
-		disabled := Policy{
-			Network: NetworkPolicy{Mode: NetworkDisabled},
-		}
-		if disabled.RequiresWhitelist() {
-			t.Error("RequiresWhitelist() should return false for disabled mode")
-		}
-	})
-
 	t.Run("NetworkModeOrDefault", func(t *testing.T) {
 		empty := Policy{
 			Network: NetworkPolicy{Mode: ""},
@@ -558,88 +201,39 @@ func TestPolicyAccessors(t *testing.T) {
 }
 
 func TestPolicyCompatibilityErrorMessage(t *testing.T) {
-	t.Run("WithRelaxedWouldHelp", func(t *testing.T) {
+	t.Run("ErrorFormat", func(t *testing.T) {
 		err := &PolicyCompatibilityError{
-			Backend:          "test",
-			Reason:           "whitelist not supported",
-			RelaxedWouldHelp: true,
+			Backend: "test",
+			Reason:  "daemon not reachable",
 		}
 
 		msg := err.Error()
-		if !containsCompat(msg, "Relaxed=true") {
-			t.Errorf("Error message should mention Relaxed=true, got: %s", msg)
+		if !containsCompat(msg, "test") {
+			t.Errorf("Error message should mention backend, got: %s", msg)
+		}
+		if !containsCompat(msg, "daemon not reachable") {
+			t.Errorf("Error message should mention reason, got: %s", msg)
 		}
 	})
-
-	t.Run("WithoutRelaxedWouldHelp", func(t *testing.T) {
-		err := &PolicyCompatibilityError{
-			Backend:          "test",
-			Reason:           "not available",
-			RelaxedWouldHelp: false,
-		}
-
-		msg := err.Error()
-		if containsCompat(msg, "Relaxed") {
-			t.Errorf("Error message should not mention Relaxed, got: %s", msg)
-		}
-	})
-}
-
-func TestRegistryCreateRelaxedSession(t *testing.T) {
-	ctx := context.Background()
-	registry := NewRegistry()
-	_ = registry.Register(localplugin.NewFactory())
-
-	base := Policy{
-		Filesystem: FilesystemPolicy{
-			WorkingDir: t.TempDir(),
-		},
-		Network: NetworkPolicy{
-			Mode:      NetworkWhitelist,
-			Allowlist: []string{"example.com"},
-		},
-	}
-
-	// Should succeed with relaxed helper
-	session, err := registry.CreateRelaxedSession(ctx, base)
-	if err != nil {
-		t.Fatalf("CreateRelaxedSession: %v", err)
-	}
-	defer func() { _ = session.Close() }()
-
-	// Verify the session has relaxed policy
-	if !session.Policy().IsRelaxed() {
-		t.Error("session policy should have Relaxed=true")
-	}
 }
 
 func TestDefaultRegistry(t *testing.T) {
 	registry := DefaultRegistry()
 
-	// Should have local factory
+	// local and boxsh factories are no longer registered
 	local := registry.Get("local")
-	if local == nil {
-		t.Error("DefaultRegistry should include local factory")
+	if local != nil {
+		t.Error("DefaultRegistry should not include local factory")
 	}
-
-	// Should have boxsh on supported platforms
-	if PlatformRequiresBoxsh() {
-		boxsh := registry.Get("boxsh")
-		if boxsh == nil {
-			t.Error("DefaultRegistry should include boxsh factory on supported platforms")
-		}
+	boxsh := registry.Get("boxsh")
+	if boxsh != nil {
+		t.Error("DefaultRegistry should not include boxsh factory")
 	}
 
 	// Docker is always registered (regardless of daemon availability)
 	docker := registry.Get("docker")
 	if docker == nil {
 		t.Error("DefaultRegistry should include docker factory")
-	}
-
-	// List should return available backends
-	available := registry.AvailableBackends()
-	if len(available) == 0 {
-		t.Error("AvailableBackends should not be empty")
 	}
 }
 
@@ -672,7 +266,7 @@ func (f orderedTestFactory) Supported(policy Policy) error {
 	if f.supported {
 		return nil
 	}
-	return &PolicyCompatibilityError{Backend: f.name, Policy: policy, Reason: "unsupported", RelaxedWouldHelp: true}
+	return &PolicyCompatibilityError{Backend: f.name, Policy: policy, Reason: "unsupported"}
 }
 
 func (f orderedTestFactory) CreateSession(_ context.Context, _ Policy) (Session, error) {
@@ -711,7 +305,7 @@ func TestRegistryAutoSelectUsesRegistrationOrder(t *testing.T) {
 		t.Fatalf("Register fallback: %v", err)
 	}
 
-	session, err := registry.CreateSession(context.Background(), Policy{Relaxed: true, Filesystem: FilesystemPolicy{WorkingDir: t.TempDir()}})
+	session, err := registry.CreateSession(context.Background(), Policy{Filesystem: FilesystemPolicy{WorkingDir: t.TempDir()}})
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -745,7 +339,7 @@ func TestRegistryAutoSelectSkipsUnsupportedBackendsInOrder(t *testing.T) {
 
 func TestRegistryConcurrency(t *testing.T) {
 	registry := NewRegistry()
-	factory := localplugin.NewFactory()
+	factory := orderedTestFactory{name: "mock", available: true, supported: true}
 
 	// Test concurrent registration
 	t.Run("ConcurrentRegister", func(t *testing.T) {
@@ -763,8 +357,6 @@ func TestRegistryConcurrency(t *testing.T) {
 	t.Run("ConcurrentCreateSession", func(t *testing.T) {
 		ctx := context.Background()
 		policy := Policy{
-			Backend: "local",
-			Relaxed: true,
 			Filesystem: FilesystemPolicy{
 				WorkingDir: t.TempDir(),
 			},
@@ -773,14 +365,14 @@ func TestRegistryConcurrency(t *testing.T) {
 		// Create multiple sessions concurrently
 		const numSessions = 10
 		sessions := make([]Session, numSessions)
-		errors := make([]error, numSessions)
+		errs := make([]error, numSessions)
 
 		var wg sync.WaitGroup
 		wg.Add(numSessions)
 		for i := range numSessions {
 			go func(idx int) {
 				defer wg.Done()
-				sessions[idx], errors[idx] = registry.CreateSession(ctx, policy)
+				sessions[idx], errs[idx] = registry.CreateSession(ctx, policy)
 			}(i)
 		}
 
@@ -789,8 +381,8 @@ func TestRegistryConcurrency(t *testing.T) {
 
 		// Verify all succeeded
 		for i := range numSessions {
-			if errors[i] != nil {
-				t.Errorf("CreateSession %d: %v", i, errors[i])
+			if errs[i] != nil {
+				t.Errorf("CreateSession %d: %v", i, errs[i])
 			}
 			if sessions[i] != nil {
 				_ = sessions[i].Close()

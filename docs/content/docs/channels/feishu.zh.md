@@ -92,18 +92,18 @@ lark-cli auth status
 
 ## 支持的消息类型
 
-| 类型 | 行为 |
-| --- | --- |
-| 文本 | 作为普通文本发送给 LLM |
-| 图片 | 下载后作为多模态输入发送 |
-| 富文本 Post | 原始 JSON 直接传给 LLM |
-| 音频 | 转成带时长的描述文本 |
-| 视频 | 转成带时长的描述文本 |
-| 文件 | 转成带文件信息的描述文本 |
-| 表情贴纸 | 转成描述文本 |
-| 位置 | 尽量附带坐标信息的描述文本 |
-| 分享的群聊/用户 | 转成描述文本 |
-| 合并转发 | 转成摘要标记 |
+| 类型            | 行为                       |
+| --------------- | -------------------------- |
+| 文本            | 作为普通文本发送给 LLM     |
+| 图片            | 下载后作为多模态输入发送   |
+| 富文本 Post     | 原始 JSON 直接传给 LLM     |
+| 音频            | 转成带时长的描述文本       |
+| 视频            | 转成带时长的描述文本       |
+| 文件            | 转成带文件信息的描述文本   |
+| 表情贴纸        | 转成描述文本               |
+| 位置            | 尽量附带坐标信息的描述文本 |
+| 分享的群聊/用户 | 转成描述文本               |
+| 合并转发        | 转成摘要标记               |
 
 ## 原生线程
 
@@ -123,13 +123,13 @@ lark-cli auth status
 
 Feishu 支持标准聊天命令：
 
-| 命令 | 说明 |
-| --- | --- |
-| `/new` | 开启新会话 |
+| 命令       | 说明             |
+| ---------- | ---------------- |
+| `/new`     | 开启新会话       |
 | `/compact` | 压缩当前会话历史 |
-| `/model` | 列出或切换模型 |
-| `/agent` | 列出或切换 agent |
-| `/whoami` | 显示你的平台身份 |
+| `/model`   | 列出或切换模型   |
+| `/agent`   | 列出或切换 agent |
+| `/whoami`  | 显示你的平台身份 |
 
 ## 配置参考
 
@@ -152,14 +152,14 @@ Feishu 支持标准聊天命令：
 }
 ```
 
-| 字段 | 说明 |
-| --- | --- |
-| `app_id` | 飞书应用 App ID |
-| `app_secret` | 飞书应用 App Secret |
-| `encrypt_key` | 可选的事件加密密钥 |
-| `verification_token` | 可选的事件校验 token |
-| `group_mode` | 默认群聊行为：`mention`、`always` 或 `disabled` |
-| `enable_notify` | 允许调度器和 `notify` 输出发送到 Feishu |
-| `tenant_key` | 企业 Tenant Key，`auto_provision` 为 `true` 时必填 |
-| `auto_provision` | 自动为配置租户的员工创建 Anna 账号 |
-| `groups` | 按 Feishu `chat_id` 配置的群级覆盖项 |
+| 字段                 | 说明                                               |
+| -------------------- | -------------------------------------------------- |
+| `app_id`             | 飞书应用 App ID                                    |
+| `app_secret`         | 飞书应用 App Secret                                |
+| `encrypt_key`        | 可选的事件加密密钥                                 |
+| `verification_token` | 可选的事件校验 token                               |
+| `group_mode`         | 默认群聊行为：`mention`、`always` 或 `disabled`    |
+| `enable_notify`      | 允许调度器和 `notify` 输出发送到 Feishu            |
+| `tenant_key`         | 企业 Tenant Key，`auto_provision` 为 `true` 时必填 |
+| `auto_provision`     | 自动为配置租户的员工创建 Anna 账号                 |
+| `groups`             | 按 Feishu `chat_id` 配置的群级覆盖项               |

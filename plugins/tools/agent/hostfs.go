@@ -2,9 +2,7 @@ package agent
 
 import (
 	"context"
-	"path/filepath"
-
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"os"
 )
 
 type hostPathInfo struct {
@@ -12,36 +10,42 @@ type hostPathInfo struct {
 	IsDir  bool
 }
 
-func resolvePresetRuntime(runtime pkgplugins.ToolRuntime, path string) pkgplugins.ToolRuntime {
-	if runtime != nil {
-		return runtime
-	}
-	workingDir := path
-	if workingDir == "" {
-		workingDir = "."
-	}
-	if ext := filepath.Ext(workingDir); ext != "" {
-		workingDir = filepath.Dir(workingDir)
-	}
-	return pkgplugins.NewLocalToolRuntime(workingDir)
-}
-
-func statHostPath(ctx context.Context, runtime pkgplugins.ToolRuntime, path string) (hostPathInfo, error) {
-	stat, err := resolvePresetRuntime(runtime, path).Stat(ctx, path)
+// statHostPath stats a filesystem path using os.Stat.
+func statHostPath(_ context.Context, path string) (hostPathInfo, error) {
+	info, err := os.Stat(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return hostPathInfo{Exists: false}, nil
+		}
 		return hostPathInfo{}, err
 	}
-	return hostPathInfo{Exists: stat.Exists, IsDir: stat.IsDir}, nil
+	return hostPathInfo{Exists: true, IsDir: info.IsDir()}, nil
 }
 
-func readHostDir(ctx context.Context, runtime pkgplugins.ToolRuntime, path string) ([]pkgplugins.DirEntry, error) {
-	return resolvePresetRuntime(runtime, path).ListDir(ctx, path)
+type dirEntry struct {
+	Name  string
+	IsDir bool
+	Size  int64
 }
 
-func readHostFile(ctx context.Context, runtime pkgplugins.ToolRuntime, path string) ([]byte, error) {
-	result, err := resolvePresetRuntime(runtime, path).ReadFile(ctx, path, 0, 0)
+// readHostDir reads directory entries using os.ReadDir.
+func readHostDir(_ context.Context, path string) ([]dirEntry, error) {
+	entries, err := os.ReadDir(path)
 	if err != nil {
 		return nil, err
 	}
-	return result.Content, nil
+	out := make([]dirEntry, 0, len(entries))
+	for _, e := range entries {
+		item := dirEntry{Name: e.Name(), IsDir: e.IsDir()}
+		if info, err := e.Info(); err == nil {
+			item.Size = info.Size()
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+// readHostFile reads a file using os.ReadFile.
+func readHostFile(_ context.Context, path string) ([]byte, error) {
+	return os.ReadFile(path)
 }

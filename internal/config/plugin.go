@@ -40,7 +40,9 @@ var builtinProviderNames = []string{"anthropic", "openai", "openai-response"}
 var builtinMemoryNames = []string{"lcm", "simple"}
 
 // builtinSandboxNames lists the built-in sandbox backend plugins.
-var builtinSandboxNames = []string{SandboxBackendAuto, SandboxBackendBoxsh, SandboxBackendDocker, SandboxBackendLocal}
+// boxsh and local are listed for UI visibility even though their backend code
+// has been removed; enabling them will fail at runtime with a clear error.
+var builtinSandboxNames = []string{SandboxBackendDocker, SandboxBackendBoxsh, SandboxBackendLocal}
 
 // builtinStandalonePlugins lists plugins that don't follow the kind/name pattern.
 var builtinStandalonePlugins = []string{"reflect"}
@@ -69,12 +71,12 @@ func BuiltinPluginIDs() []string {
 }
 
 // ActiveSandboxBackend returns the name of the enabled sandbox backend plugin,
-// or SandboxBackendAuto if none is explicitly enabled.
+// or SandboxBackendDocker if none is explicitly enabled.
 func ActiveSandboxBackend(plugins []Plugin) string {
 	for _, p := range plugins {
 		if p.Kind == PluginKindSandbox && p.Enabled {
 			return p.Name
 		}
 	}
-	return SandboxBackendAuto
+	return SandboxBackendDocker
 }

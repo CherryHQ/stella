@@ -18,7 +18,6 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
-	boxshsandbox "github.com/vaayne/anna/plugins/sandbox/boxsh"
 	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	agenttool "github.com/vaayne/anna/plugins/tools/agent"
@@ -44,7 +43,6 @@ type GoRunnerConfig struct {
 	PromptSections   []pkgplugins.SystemPromptSection
 	ExtraTools       []tools.Tool // additional tools to register
 	PluginTools      func(context.Context, plugintools.BuildContext) []tools.Tool
-	ToolRuntime      pkgplugins.ToolRuntime
 	UserRoot         string             // required per-user root used by prompts, skills, and sandbox execution
 	HookPlugins      []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle    *coreagent.ToolLifecycle
@@ -110,10 +108,6 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("go runner: %w", err)
 	}
-	if cfg.ToolRuntime == nil {
-		cfg.ToolRuntime = toolRuntimeFromHost(session.Host())
-	}
-
 	if system == "" {
 		system = BuildSystemPromptFromDB(context.Background(), DBPromptParams{
 			AnnaHome:       paths.AnnaHome,
@@ -121,7 +115,7 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 			ProjectRoot:    paths.ProjectRoot,
 			UserRoot:       paths.UserRoot,
 			PromptSections: cfg.PromptSections,
-			Host:           session.Host(),
+			Host:           session.Session(),
 		})
 	}
 
@@ -149,7 +143,6 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 				AgentRoot:   paths.AgentRoot,
 				UserRoot:    paths.UserRoot,
 				ProjectRoot: projectRoot,
-				Runtime:     cfg.ToolRuntime,
 			}))
 		},
 		Hooks:         hookSet,
@@ -226,7 +219,7 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 	// Core tools (read, bash, edit, write) are always provided by the active
 	// sandbox session.
 
-	toolsBinDir := resolveToolsBinDir(paths, session.Policy().Backend)
+	toolsBinDir := resolveToolsBinDir(paths, config.SandboxBackendDocker)
 
 	// Runtime capabilities are injected from the active runner session.
 	bc := plugintools.BuildContext{
@@ -237,7 +230,7 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 			AgentRoot:   paths.AgentRoot,
 			ProjectRoot: paths.ProjectRoot,
 		},
-		Runtime: cfg.ToolRuntime,
+		Runtime: session.Session(),
 	}
 
 	coreTools := buildSandboxCoreTools(session, bc)
@@ -307,7 +300,6 @@ func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 		AgentRoot:   paths.AgentRoot,
 		UserRoot:    paths.UserRoot,
 		ProjectRoot: paths.ProjectRoot,
-		Runtime:     cfg.ToolRuntime,
 	}))
 }
 
@@ -320,43 +312,21 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
 
-	switch cfg.Sandbox.BackendName() {
-	case config.SandboxBackendLocal:
-		return nil
-	case config.SandboxBackendDocker:
-		dockerCfg, err := resolveDockerConfig()
-		if err != nil {
-			return fmt.Errorf("go runner: %w", err)
-		}
-		cleanupOrphanedDockerContainers(ctx, dockerCfg.TranslateToDaemonPath(paths.AnnaHome))
-		if err := dockerplugin.Preflight(ctx, dockerplugin.PreflightConfig{
-			AnnaHome: paths.AnnaHome,
-			Docker:   dockerCfg,
-		}); err != nil {
-			if config.SandboxDockerImageIsDev() {
-				return fmt.Errorf("go runner: %w (run `mise run sandbox:docker:build` to build the local %q image)", err, config.SandboxDockerImage())
-			}
-			return fmt.Errorf("go runner: %w", err)
-		}
-		return nil
-	case config.SandboxBackendBoxsh, config.SandboxBackendAuto:
-		// auto resolves to boxsh on linux/darwin; on Windows auto resolves to
-		// local (handled by resolveSessionBackendName at session-create time).
-		cleanupOrphanedBoxshSessions(paths.AnnaHome, paths.UserRoot)
-		if err := boxshsandbox.Preflight(ctx, boxshsandbox.PreflightConfig{
-			AnnaHome: paths.AnnaHome,
-			UserRoot: paths.UserRoot,
-			Network: boxshsandbox.NetworkConfig{
-				Mode:      cfg.Sandbox.Network.Mode,
-				Allowlist: cfg.Sandbox.Network.Allowlist,
-			},
-		}); err != nil {
-			return fmt.Errorf("go runner: %w", err)
-		}
-		return nil
-	default:
-		return fmt.Errorf("go runner: unknown sandbox backend %q", cfg.Sandbox.BackendName())
+	dockerCfg, err := resolveDockerConfig()
+	if err != nil {
+		return fmt.Errorf("go runner: %w", err)
 	}
+	cleanupOrphanedDockerContainers(ctx, dockerCfg.TranslateToDaemonPath(paths.AnnaHome))
+	if err := dockerplugin.Preflight(ctx, dockerplugin.PreflightConfig{
+		AnnaHome: paths.AnnaHome,
+		Docker:   dockerCfg,
+	}); err != nil {
+		if config.SandboxDockerImageIsDev() {
+			return fmt.Errorf("go runner: %w (run `mise run sandbox:docker:build` to build the local %q image)", err, config.SandboxDockerImage())
+		}
+		return fmt.Errorf("go runner: docker not available; install and start Docker Desktop or the docker daemon: %w", err)
+	}
+	return nil
 }
 
 // buildHookSet creates the hook set from configured hook plugins.
