@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 )
 
 // Download downloads url to destPath using the provided client.
@@ -25,16 +26,24 @@ func Download(ctx context.Context, client *http.Client, url, destPath string) er
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download %s: status %d", url, resp.StatusCode)
 	}
-	out, err := os.Create(destPath)
-	if err != nil {
-		return fmt.Errorf("create %s: %w", destPath, err)
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		return fmt.Errorf("create parent dir for %s: %w", destPath, err)
 	}
-	if _, err := io.Copy(out, resp.Body); err != nil {
-		_ = out.Close()
+	tmp, err := os.CreateTemp(filepath.Dir(destPath), ".download-*")
+	if err != nil {
+		return fmt.Errorf("create temp file for %s: %w", destPath, err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if _, err := io.Copy(tmp, resp.Body); err != nil {
+		_ = tmp.Close()
 		return fmt.Errorf("write %s: %w", destPath, err)
 	}
-	if err := out.Close(); err != nil {
+	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close %s: %w", destPath, err)
+	}
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		return fmt.Errorf("rename %s: %w", destPath, err)
 	}
 	return nil
 }

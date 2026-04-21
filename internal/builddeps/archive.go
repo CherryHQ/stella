@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,6 +36,9 @@ func ExtractTarGz(archivePath, destDir string) error {
 		}
 		target, err := secureJoin(destDir, hdr.Name)
 		if err != nil {
+			return err
+		}
+		if err := ensureNoSymlinkPath(destDir, target); err != nil {
 			return err
 		}
 		switch hdr.Typeflag {
@@ -71,6 +75,9 @@ func ExtractZip(archivePath, destDir string) error {
 	for _, file := range zr.File {
 		target, err := secureJoin(destDir, file.Name)
 		if err != nil {
+			return err
+		}
+		if err := ensureNoSymlinkPath(destDir, target); err != nil {
 			return err
 		}
 		if file.FileInfo().IsDir() {
@@ -116,4 +123,40 @@ func secureJoin(root, name string) (string, error) {
 		return "", fmt.Errorf("archive path escapes destination: %s", name)
 	}
 	return filepath.Join(root, clean), nil
+}
+
+func ensureNoSymlinkPath(root, target string) error {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("resolve root path: %w", err)
+	}
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return fmt.Errorf("resolve target path: %w", err)
+	}
+	rel, err := filepath.Rel(rootAbs, targetAbs)
+	if err != nil {
+		return fmt.Errorf("rel path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("target escapes destination: %s", target)
+	}
+	current := rootAbs
+	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("lstat %s: %w", current, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symlink path not allowed during extraction: %s", current)
+		}
+	}
+	return nil
 }
