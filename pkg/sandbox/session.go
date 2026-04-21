@@ -70,9 +70,6 @@ type DirEntry struct {
 func NopSession() Session {
 	return &nopSession{
 		policy: Policy{
-			Filesystem: FilesystemPolicy{
-				AllowEscapes: true,
-			},
 			Network: NetworkPolicy{
 				Mode: NetworkAllowAll,
 			},

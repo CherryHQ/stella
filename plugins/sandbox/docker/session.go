@@ -19,13 +19,10 @@ import (
 	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
 )
 
-// workspaceMount and readonlyMountRoot match the paths pre-created in the
-// bundled Dockerfile (plugins/sandbox/docker/Dockerfile) under the anna
-// user's HOME so mise activate, $PATH, and $HOME all line up.
-const (
-	workspaceMount    = "/home/anna/workspace"
-	readonlyMountRoot = "/home/anna/readonly"
-)
+// workspaceMount matches the path pre-created in the bundled Dockerfile
+// (plugins/sandbox/docker/Dockerfile) under the anna user's HOME so mise
+// activate, $PATH, and $HOME all line up.
+const workspaceMount = "/home/anna/workspace"
 
 func nextSessionID() string { return sandboxpkg.NewSessionID() }
 
@@ -62,23 +59,13 @@ func (f *dockerFactory) Available() bool {
 	return err == nil
 }
 
-// Supported returns a PolicyCompatibilityError when:
-//   - The docker daemon is unreachable.
-//   - Network mode is whitelist (not supported in phase 1).
+// Supported returns a PolicyCompatibilityError when the docker daemon is unreachable.
 func (f *dockerFactory) Supported(policy sandboxpkg.Policy) error {
 	if !f.Available() {
 		return &sandboxpkg.PolicyCompatibilityError{
 			Backend: f.Name(),
 			Policy:  policy,
 			Reason:  "docker daemon not reachable (check DOCKER_HOST and that the daemon is running)",
-		}
-	}
-
-	if policy.RequiresWhitelist() {
-		return &sandboxpkg.PolicyCompatibilityError{
-			Backend: f.Name(),
-			Policy:  policy,
-			Reason:  "docker backend does not support whitelist mode",
 		}
 	}
 
@@ -106,24 +93,6 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		trace.WithAttributes(sessionTraceAttrs(sessionID, policy, f.cfg.Image, workspaceHost)...),
 	)
 
-	// Build read-only mounts from policy. HostPath is kept as anna-view here so
-	// the internal mount table can translate cwd/env paths with toContainerPath;
-	// the daemon-side bind source is computed separately below.
-	roMounts := make([]dockerclient.Mount, 0, len(policy.Filesystem.ReadOnlyPaths))
-	for i, p := range policy.Filesystem.ReadOnlyPaths {
-		absP, err := filepath.Abs(p)
-		if err != nil {
-			recordError(span, err)
-			span.End()
-			return nil, fmt.Errorf("docker session: abs read-only path %q: %w", p, err)
-		}
-		roMounts = append(roMounts, dockerclient.Mount{
-			HostPath:      absP,
-			ContainerPath: readonlyMountRoot + "/" + strconv.Itoa(i),
-			ReadOnly:      true,
-		})
-	}
-
 	// Map network mode.
 	networkMode := mapNetworkMode(policy)
 
@@ -139,21 +108,14 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	// host installation. Under DooD two anna instances may share an in-container
 	// ANNA_HOME path while living in different host directories; labeling with
 	// the daemon-view path keeps their container sets disjoint.
-	annaHome := f.cfg.TranslateToDaemonPath(policy.Process.Environment["ANNA_HOME"])
-
-	// Translate anna-view paths to daemon-view paths for bind-mount sources.
-	// Only the CreateOptions struct receives translated paths; the internal
-	// mountTable keeps anna-view paths so toContainerPath continues to map
-	// cwd/env correctly.
-	daemonRoMounts := translateMountsForDaemon(f.cfg, roMounts)
+	annaHome := f.cfg.TranslateToDaemonPath(policy.Env["ANNA_HOME"])
 
 	opts := dockerclient.CreateOptions{
 		Image:          f.cfg.Image,
 		WorkspaceHost:  f.cfg.TranslateToDaemonPath(workspaceHost),
 		WorkspaceMount: workspaceMount,
-		ReadOnlyMounts: daemonRoMounts,
 		NetworkMode:    networkMode,
-		Env:            mergeEnv(policy.Process.Environment, nil),
+		Env:            mergeEnv(policy.Env, nil),
 		Labels: map[string]string{
 			dockerclient.LabelSessionID: sessionID,
 			dockerclient.LabelAnnaHome:  annaHome,
@@ -174,8 +136,8 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		attribute.String("anna.sandbox.container_id", containerID),
 	))
 
-	// Build mount table: workspace + read-only mounts.
-	mountTable := buildMountTable(workspaceHost, workspaceMount, roMounts)
+	// Build mount table: workspace mount only.
+	mountTable := buildMountTable(workspaceHost, workspaceMount)
 
 	session := &dockerSession{
 		id:          sessionID,
@@ -194,22 +156,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	return session, nil
 }
 
-// translateMountsForDaemon rewrites Mount.HostPath values via the prefix
-// mapping configured on cfg. The input slice is not mutated.
-func translateMountsForDaemon(cfg Config, mounts []dockerclient.Mount) []dockerclient.Mount {
-	if cfg.ContainerPathPrefix == "" || cfg.HostPathPrefix == "" {
-		return mounts
-	}
-	out := make([]dockerclient.Mount, len(mounts))
-	for i, m := range mounts {
-		m.HostPath = cfg.TranslateToDaemonPath(m.HostPath)
-		out[i] = m
-	}
-	return out
-}
-
 // mapNetworkMode translates sandbox policy network mode to the dockerclient type.
-// Whitelist is already rejected by Supported() before reaching here.
 func mapNetworkMode(policy sandboxpkg.Policy) dockerclient.NetworkMode {
 	switch policy.NetworkModeOrDefault() {
 	case sandboxpkg.NetworkDisabled:
@@ -219,16 +166,16 @@ func mapNetworkMode(policy sandboxpkg.Policy) dockerclient.NetworkMode {
 	}
 }
 
-// buildMountTable returns all bind mounts that toContainerPath should consult.
-func buildMountTable(workspaceHost, workspaceMount string, roMounts []dockerclient.Mount) []dockerclient.Mount {
-	table := make([]dockerclient.Mount, 0, 1+len(roMounts))
-	table = append(table, dockerclient.Mount{
-		HostPath:      workspaceHost,
-		ContainerPath: workspaceMount,
-		ReadOnly:      false,
-	})
-	table = append(table, roMounts...)
-	return table
+// buildMountTable returns the bind mount set that toContainerPath should consult.
+// Only the workspace mount is registered; read-only mounts were removed in Phase 7.
+func buildMountTable(workspaceHost, workspaceMount string) []dockerclient.Mount {
+	return []dockerclient.Mount{
+		{
+			HostPath:      workspaceHost,
+			ContainerPath: workspaceMount,
+			ReadOnly:      false,
+		},
+	}
 }
 
 // mergeEnv merges policy environment and per-call overrides into a map.
@@ -535,11 +482,11 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 		return sandboxpkg.ExecResult{}, fmt.Errorf("docker host exec: cwd not in any mount: %w", err)
 	}
 
-	env := translateEnvPaths(mergeEnv(h.session.policy.Process.Environment, opts.Env), h.session.mountTable)
+	env := translateEnvPaths(mergeEnv(h.session.policy.Env, opts.Env), h.session.mountTable)
 
 	timeout := opts.Timeout
 	if timeout == 0 {
-		timeout = h.session.policy.Process.Timeout
+		timeout = h.session.policy.Timeout
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -580,11 +527,11 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 		return nil, fmt.Errorf("docker host start_process: cwd not in any mount: %w", err)
 	}
 
-	env := translateEnvPaths(mergeEnv(h.session.policy.Process.Environment, req.Env), h.session.mountTable)
+	env := translateEnvPaths(mergeEnv(h.session.policy.Env, req.Env), h.session.mountTable)
 
 	timeout := req.Timeout
 	if timeout == 0 {
-		timeout = h.session.policy.Process.Timeout
+		timeout = h.session.policy.Timeout
 	}
 
 	var (

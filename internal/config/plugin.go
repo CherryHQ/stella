@@ -69,12 +69,12 @@ func BuiltinPluginIDs() []string {
 }
 
 // ActiveSandboxBackend returns the name of the enabled sandbox backend plugin,
-// or SandboxBackendAuto if none is explicitly enabled.
+// or SandboxBackendDocker if none is explicitly enabled.
 func ActiveSandboxBackend(plugins []Plugin) string {
 	for _, p := range plugins {
 		if p.Kind == PluginKindSandbox && p.Enabled {
 			return p.Name
 		}
 	}
-	return SandboxBackendAuto
+	return SandboxBackendDocker
 }

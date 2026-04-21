@@ -67,17 +67,13 @@ func testSessionContract(t *testing.T, factory Factory) {
 	tempDir := t.TempDir()
 
 	policy := Policy{
-		Backend: factory.Name(),
 		Filesystem: FilesystemPolicy{
-			WorkingDir:   tempDir,
-			AllowEscapes: false,
+			WorkingDir: tempDir,
 		},
 		Network: NetworkPolicy{
 			Mode: NetworkDisabled,
 		},
-		Process: ProcessPolicy{
-			Timeout: 10 * time.Second,
-		},
+		Timeout: 10 * time.Second,
 	}
 
 	t.Run("CreateAndClose", func(t *testing.T) {
@@ -89,11 +85,6 @@ func testSessionContract(t *testing.T, factory Factory) {
 		// Session should be alive initially
 		if !session.Alive() {
 			t.Error("session should be alive after creation")
-		}
-
-		// Policy should match
-		if got := session.Policy(); got.Backend != policy.Backend {
-			t.Errorf("Policy().Backend = %q, want %q", got.Backend, policy.Backend)
 		}
 
 		// Session should be non-nil and functional.
@@ -182,18 +173,14 @@ func testSessionContract(t *testing.T, factory Factory) {
 
 	t.Run("Exec", func(t *testing.T) {
 		session, err := factory.CreateSession(ctx, Policy{
-			Backend: factory.Name(),
 			Filesystem: FilesystemPolicy{
-				WorkingDir:   tempDir,
-				AllowEscapes: true,
+				WorkingDir: tempDir,
 			},
 			Network: NetworkPolicy{
 				Mode:    NetworkAllowAll,
 				Timeout: 10 * time.Second,
 			},
-			Process: ProcessPolicy{
-				Timeout: 10 * time.Second,
-			},
+			Timeout: 10 * time.Second,
 		})
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)

@@ -113,7 +113,6 @@ func runnerFilesystemPolicy(paths sandboxPaths) sandbox.FilesystemPolicy {
 	return sandbox.FilesystemPolicy{
 		WorkspaceRoot: paths.UserRoot,
 		WorkingDir:    paths.WorkDir,
-		AllowEscapes:  false,
 	}
 }
 
@@ -135,16 +134,12 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 		return nil, err
 	}
 	policy := sandbox.Policy{
-		Backend:    config.SandboxBackendDocker,
 		Filesystem: runnerFilesystemPolicy(paths),
 		Network: sandbox.NetworkPolicy{
-			Mode:      sandbox.NetworkMode(cfg.Sandbox.Network.Mode),
-			Allowlist: cfg.Sandbox.Network.Allowlist,
+			Mode: sandbox.NetworkMode(cfg.Sandbox.Network.Mode),
 		},
-		Process: sandbox.ProcessPolicy{
-			Environment: sandboxProcessEnv(paths),
-			InheritEnv:  true,
-		},
+		Env:        sandboxProcessEnv(paths),
+		InheritEnv: true,
 	}
 
 	span.SetAttributes(
@@ -152,16 +147,12 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 		attribute.String("anna.sandbox.work_dir", paths.WorkDir),
 		attribute.String("anna.sandbox.network.mode", cfg.Sandbox.Network.Mode),
 	)
-	if len(cfg.Sandbox.Network.Allowlist) > 0 {
-		span.SetAttributes(attribute.StringSlice("anna.sandbox.network.allowlist", cfg.Sandbox.Network.Allowlist))
-	}
 
 	slog.Info("creating docker session",
 		"component", "runner_sandbox",
 		"user_root", paths.UserRoot,
 		"work_dir", paths.WorkDir,
 		"network_mode", cfg.Sandbox.Network.Mode,
-		"network_allowlist", cfg.Sandbox.Network.Allowlist,
 	)
 
 	dockerCfg, err := resolveDockerConfig()
@@ -217,23 +208,19 @@ func cleanupOrphanedDockerContainers(ctx context.Context, annaHome string) {
 }
 
 // resolveSession creates a runnerSession from configuration.
+// Docker is the only supported sandbox backend; SandboxBackendFn is consulted
+// only for plugin-registry overrides (which also resolve to docker).
 func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
-	name := resolveSessionBackendName(ctx, cfg)
+	name := config.SandboxBackendDocker
+	if cfg.SandboxBackendFn != nil {
+		if override := cfg.SandboxBackendFn(ctx); override != "" {
+			name = override
+		}
+	}
 
 	factory, ok := sessionRegistry[name]
 	if !ok {
 		return nil, fmt.Errorf("unknown sandbox backend: %q", name)
 	}
 	return factory(ctx, cfg)
-}
-
-// resolveSessionBackendName always returns SandboxBackendDocker.
-// Docker is the only supported sandbox backend.
-func resolveSessionBackendName(ctx context.Context, cfg GoRunnerConfig) string {
-	if cfg.SandboxBackendFn != nil {
-		if name := cfg.SandboxBackendFn(ctx); name != "" {
-			return name
-		}
-	}
-	return config.SandboxBackendDocker
 }

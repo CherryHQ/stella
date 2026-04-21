@@ -46,7 +46,6 @@ func LogSessionClosed(sessionID, backend, reason string) {
 
 func LogUnsupportedBackend(policy Policy, attempted []string, reason string) {
 	slog.Error("sandbox.unsupported_backend",
-		"backend", policy.Backend,
 		"attempted_backends", attempted,
 		"reason", reason,
 		"network_mode", policy.NetworkModeOrDefault(),

@@ -121,7 +121,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a.Sandbox.Backend = "" // backend is global; only network is per-agent
+	// backend is global; only network is per-agent (no Backend field to clear)
 	if err := a.Sandbox.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -230,7 +230,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	if a.Name == "" {
 		a.Name = id
 	}
-	a.Sandbox.Backend = "" // backend is global; only network is per-agent
+	// backend is global; only network is per-agent (no Backend field to clear)
 	if err := a.Sandbox.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

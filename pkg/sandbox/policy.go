@@ -14,24 +14,25 @@ const (
 	NetworkDisabled NetworkMode = "disabled"
 	// NetworkAllowAll allows unrestricted network access.
 	NetworkAllowAll NetworkMode = "allow_all"
-	// NetworkWhitelist allows only specified hosts/CIDRs.
-	NetworkWhitelist NetworkMode = "whitelist"
 )
 
 // Policy is an immutable, backend-agnostic session policy describing requested limits
-// for filesystem, network, process, and future resource constraints.
+// for filesystem, network, and process constraints.
 type Policy struct {
-	// Backend selects a specific backend when non-empty. Empty means auto-select.
-	Backend string
-
 	// Filesystem policy
 	Filesystem FilesystemPolicy
 
 	// Network policy
 	Network NetworkPolicy
 
-	// Process policy
-	Process ProcessPolicy
+	// Env holds environment variables injected into sandboxed processes.
+	Env map[string]string
+
+	// InheritEnv includes system environment variables when true.
+	InheritEnv bool
+
+	// Timeout for process execution. Zero means no timeout.
+	Timeout time.Duration
 }
 
 // FilesystemPolicy defines filesystem constraints for a sandbox session.
@@ -42,57 +43,24 @@ type FilesystemPolicy struct {
 
 	// WorkingDir is the logical working directory inside the sandbox root.
 	WorkingDir string
-
-	// ReadOnlyPaths are paths mounted read-only into the sandbox.
-	ReadOnlyPaths []string
-
-	// ReadWritePaths are paths allowed for read-write access.
-	// If empty, WorkingDir is used.
-	ReadWritePaths []string
-
-	// AllowEscapes permits paths outside WorkingDir when true.
-	// This is an explicit relaxation that should be used with care.
-	AllowEscapes bool
 }
 
 // NetworkPolicy defines network constraints for a sandbox session.
 type NetworkPolicy struct {
-	// Mode is the network access mode.
+	// Mode is the network access mode: disabled | allow_all.
 	Mode NetworkMode
-
-	// Allowlist contains CIDRs/hosts allowed in whitelist mode.
-	Allowlist []string
 
 	// Timeout for network operations. Zero means no timeout.
 	Timeout time.Duration
-}
-
-// ProcessPolicy defines process constraints for a sandbox session.
-type ProcessPolicy struct {
-	// MaxConcurrent limits concurrent processes. Zero means unlimited.
-	MaxConcurrent int
-
-	// Timeout for process execution. Zero means no timeout.
-	Timeout time.Duration
-
-	// Environment variables to set for processes.
-	Environment map[string]string
-
-	// InheritEnv includes system environment variables when true.
-	InheritEnv bool
 }
 
 // Validate returns an error if the policy contains invalid configurations.
 // This validates policy structure, not backend compatibility.
 func (p Policy) Validate() error {
 	switch p.Network.Mode {
-	case NetworkDisabled, NetworkAllowAll, NetworkWhitelist, "":
+	case NetworkDisabled, NetworkAllowAll, "":
 	default:
 		return fmt.Errorf("sandbox: invalid network mode %q", p.Network.Mode)
-	}
-
-	if p.Network.Mode == NetworkWhitelist && len(p.Network.Allowlist) == 0 {
-		return fmt.Errorf("sandbox: whitelist mode requires non-empty allowlist")
 	}
 
 	if p.Filesystem.WorkingDir == "" {
@@ -103,11 +71,6 @@ func (p Policy) Validate() error {
 	}
 
 	return nil
-}
-
-// RequiresWhitelist returns true if the policy requires whitelist network mode.
-func (p Policy) RequiresWhitelist() bool {
-	return p.Network.Mode == NetworkWhitelist
 }
 
 // NetworkModeOrDefault returns the network mode with default applied.

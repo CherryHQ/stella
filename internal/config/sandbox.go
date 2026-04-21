@@ -1,33 +1,49 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
-	"net/netip"
-	"regexp"
-	"strings"
 	"sync"
-	"unicode"
 )
 
 const (
-	SandboxBackendAuto   = "auto"
-	SandboxBackendBoxsh  = "boxsh"
 	SandboxBackendDocker = "docker"
-	SandboxBackendLocal  = "local"
 
-	SandboxNetworkDisabled  = "disabled"
-	SandboxNetworkAllowAll  = "allow_all"
-	SandboxNetworkWhitelist = "whitelist"
+	SandboxNetworkDisabled = "disabled"
+	SandboxNetworkAllowAll = "allow_all"
 )
+
+// sandboxBackendIgnoreOnce ensures the deprecated backend key warning is emitted
+// at most once per process to avoid log spam for long-running servers.
+var sandboxBackendIgnoreOnce sync.Once
 
 // SandboxConfig configures the sandbox backend. The docker backend takes no
 // per-agent knobs — the container image, user, mounts, and DooD translation
 // are all fixed by the shipped sandbox image and auto-derived from env.
 type SandboxConfig struct {
-	Backend string               `json:"backend"`
 	Network SandboxNetworkConfig `json:"network"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler so that legacy "backend" keys in
+// stored or user-supplied config are silently ignored with a one-time log
+// warning instead of producing an unknown-field error.
+func (c *SandboxConfig) UnmarshalJSON(data []byte) error {
+	// Probe for the deprecated "backend" key.
+	var probe struct {
+		Backend *string              `json:"backend"`
+		Network SandboxNetworkConfig `json:"network"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return err
+	}
+	if probe.Backend != nil {
+		sandboxBackendIgnoreOnce.Do(func() {
+			slog.Warn("sandbox: config key \"backend\" is deprecated and ignored; docker is the only supported backend")
+		})
+	}
+	c.Network = probe.Network
+	return nil
 }
 
 // SandboxNetworkConfig configures sandbox network access.
@@ -44,88 +60,15 @@ func (c SandboxConfig) NetworkMode() string {
 	return c.Network.Mode
 }
 
-// localRemapOnce ensures the "local" backend remap warning is emitted at most
-// once per process to avoid log spam for long-running servers.
-var localRemapOnce sync.Once
-
-// boxshRemapOnce ensures the "boxsh" backend remap warning is emitted at most
-// once per process to avoid log spam for long-running servers.
-var boxshRemapOnce sync.Once
-
-// BackendName returns sandbox backend with defaults applied.
-// If Backend is "local" (retired), it is remapped to "auto"
-// with a one-time log warning.
-// If Backend is "boxsh" (retired), it is remapped to "auto"
-// with a one-time log warning.
-func (c SandboxConfig) BackendName() string {
-	if c.Backend == SandboxBackendLocal {
-		localRemapOnce.Do(func() {
-			slog.Warn("sandbox: backend \"local\" has been retired; remapping to \"auto\"")
-		})
-		return SandboxBackendAuto
-	}
-	if c.Backend == SandboxBackendBoxsh {
-		boxshRemapOnce.Do(func() {
-			slog.Warn("sandbox: backend \"boxsh\" has been retired; docker is the only sandbox backend; remapping to \"auto\"")
-		})
-		return SandboxBackendAuto
-	}
-	if c.Backend == "" {
-		return SandboxBackendAuto
-	}
-	return c.Backend
-}
-
 // Validate returns an error when the sandbox configuration is invalid.
 func (c SandboxConfig) Validate() error {
-	switch c.BackendName() {
-	case SandboxBackendAuto, SandboxBackendDocker:
-		// "local" and "boxsh" both remap to "auto" in BackendName(), so they are accepted here.
-	default:
-		return fmt.Errorf("sandbox.backend must be one of %q or %q", SandboxBackendAuto, SandboxBackendDocker)
-	}
-
 	switch mode := c.NetworkMode(); mode {
 	case SandboxNetworkDisabled, SandboxNetworkAllowAll:
 		if len(c.Network.Allowlist) > 0 {
 			return fmt.Errorf("sandbox.network.allowlist requires whitelist mode")
 		}
 		return nil
-	case SandboxNetworkWhitelist:
-		if len(c.Network.Allowlist) == 0 {
-			return fmt.Errorf("sandbox.network.allowlist is required when mode is whitelist")
-		}
-		for _, entry := range c.Network.Allowlist {
-			if err := validateSandboxAllowlistEntry(entry); err != nil {
-				return err
-			}
-		}
-		return nil
 	default:
-		return fmt.Errorf("sandbox.network.mode must be one of %q, %q, or %q", SandboxNetworkDisabled, SandboxNetworkAllowAll, SandboxNetworkWhitelist)
+		return fmt.Errorf("sandbox.network.mode must be one of %q or %q", SandboxNetworkDisabled, SandboxNetworkAllowAll)
 	}
 }
-
-func validateSandboxAllowlistEntry(entry string) error {
-	entry = strings.TrimSpace(entry)
-	if entry == "" {
-		return fmt.Errorf("sandbox.network.allowlist entries must not be empty")
-	}
-	if _, err := netip.ParsePrefix(entry); err == nil {
-		return nil
-	}
-	if net.ParseIP(entry) != nil {
-		return nil
-	}
-	if strings.IndexFunc(entry, func(r rune) bool {
-		return unicode.IsSpace(r) || r == '/' || r == ':' || r == '\\'
-	}) >= 0 {
-		return fmt.Errorf("sandbox.network.allowlist entry %q must be an IP, CIDR, or hostname", entry)
-	}
-	if !hostnamePattern.MatchString(entry) {
-		return fmt.Errorf("sandbox.network.allowlist entry %q must be an IP, CIDR, or hostname", entry)
-	}
-	return nil
-}
-
-var hostnamePattern = regexp.MustCompile(`^[a-zA-Z0-9.-]+$`)

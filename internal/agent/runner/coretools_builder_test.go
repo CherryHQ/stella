@@ -9,10 +9,10 @@ import (
 	plugintools "github.com/vaayne/anna/plugins/tools"
 )
 
-func fakeRunnerSession(backend string, sess sandbox.Session) *runnerSession {
+func fakeRunnerSession(_ string, sess sandbox.Session) *runnerSession {
 	return &runnerSession{
 		session: sess,
-		policy:  sandbox.Policy{Backend: backend},
+		policy:  sandbox.Policy{},
 	}
 }
 

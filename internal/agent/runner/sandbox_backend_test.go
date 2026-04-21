@@ -8,15 +8,14 @@ import (
 	"github.com/vaayne/anna/internal/config"
 )
 
-// TestResolveSessionRejectsUnknownBackend tests error handling.
-func TestResolveSessionRejectsUnknownBackend(t *testing.T) {
+// TestResolveSessionRequiresUserRoot tests that resolveSession fails without a UserRoot.
+func TestResolveSessionRequiresUserRoot(t *testing.T) {
 	_, err := resolveSession(context.Background(), GoRunnerConfig{
-		Sandbox: config.SandboxConfig{
-			Backend: "unknown",
-		},
+		AgentRoot: "/workspace/agent",
+		// UserRoot intentionally omitted
 	})
 	if err == nil {
-		t.Fatal("expected error for unknown backend")
+		t.Fatal("expected error when UserRoot is missing")
 	}
 }
 
@@ -81,9 +80,9 @@ func TestRunnerSessionLifecycle(t *testing.T) {
 	}
 }
 
-// TestResolveSessionDockerUnreachableDaemonReturnsError verifies that an
-// explicit docker backend routes to createDockerSession and fails with a
-// docker-related error when the daemon is unreachable.
+// TestResolveSessionDockerUnreachableDaemonReturnsError verifies that resolveSession
+// routes to createDockerSession and fails with a docker-related error when the daemon
+// is unreachable.
 func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 	t.Setenv("DOCKER_HOST", "unix:///nonexistent/anna-test-docker.sock")
 	t.Setenv("DOCKER_TLS_VERIFY", "")
@@ -94,9 +93,7 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 	_, err := resolveSession(context.Background(), GoRunnerConfig{
 		AgentRoot: workspace,
 		UserRoot:  userRoot,
-		Sandbox: config.SandboxConfig{
-			Backend: config.SandboxBackendDocker,
-		},
+		Sandbox:   config.SandboxConfig{},
 	})
 	if err == nil {
 		t.Fatal("expected error for docker backend with unreachable daemon")

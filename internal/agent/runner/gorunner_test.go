@@ -83,9 +83,7 @@ func TestPrepareSandboxDockerUnreachableDaemonReturnsDockerError(t *testing.T) {
 		AnnaHome:  t.TempDir(),
 		AgentRoot: workspace,
 		UserRoot:  userRoot,
-		Sandbox: config.SandboxConfig{
-			Backend: config.SandboxBackendDocker,
-		},
+		Sandbox:   config.SandboxConfig{},
 	}
 	err := prepareSandbox(context.Background(), cfg)
 	if err == nil {

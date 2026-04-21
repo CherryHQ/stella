@@ -14,7 +14,6 @@ import (
 func TestPolicyValidation(t *testing.T) {
 	t.Run("ValidPolicy", func(t *testing.T) {
 		policy := Policy{
-			Backend: "docker",
 			Filesystem: FilesystemPolicy{
 				WorkingDir: t.TempDir(),
 			},
@@ -30,7 +29,6 @@ func TestPolicyValidation(t *testing.T) {
 
 	t.Run("MissingWorkingDir", func(t *testing.T) {
 		policy := Policy{
-			Backend: "docker",
 			Network: NetworkPolicy{
 				Mode: NetworkDisabled,
 			},
@@ -43,7 +41,6 @@ func TestPolicyValidation(t *testing.T) {
 
 	t.Run("InvalidNetworkMode", func(t *testing.T) {
 		policy := Policy{
-			Backend: "docker",
 			Filesystem: FilesystemPolicy{
 				WorkingDir: t.TempDir(),
 			},
@@ -56,33 +53,15 @@ func TestPolicyValidation(t *testing.T) {
 			t.Error("Validate() = nil, want error for invalid network mode")
 		}
 	})
-
-	t.Run("EmptyWhitelist", func(t *testing.T) {
-		policy := Policy{
-			Backend: "docker",
-			Filesystem: FilesystemPolicy{
-				WorkingDir: t.TempDir(),
-			},
-			Network: NetworkPolicy{
-				Mode:      NetworkWhitelist,
-				Allowlist: []string{},
-			},
-		}
-
-		if err := policy.Validate(); err == nil {
-			t.Error("Validate() = nil, want error for empty whitelist")
-		}
-	})
 }
 
 func TestRegistryFailClosed(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("UnknownBackendFailsClosed", func(t *testing.T) {
+	t.Run("EmptyRegistryFailsClosed", func(t *testing.T) {
 		registry := NewRegistry()
 
 		policy := Policy{
-			Backend: "unknown_backend",
 			Filesystem: FilesystemPolicy{
 				WorkingDir: t.TempDir(),
 			},
@@ -90,7 +69,7 @@ func TestRegistryFailClosed(t *testing.T) {
 
 		_, err := registry.CreateSession(ctx, policy)
 		if err == nil {
-			t.Fatal("CreateSession with unknown backend should fail closed")
+			t.Fatal("CreateSession with empty registry should fail closed")
 		}
 
 		compatErr := &PolicyCompatibilityError{}
@@ -99,8 +78,8 @@ func TestRegistryFailClosed(t *testing.T) {
 			t.Fatalf("error should be PolicyCompatibilityError, got %T: %v", err, err)
 		}
 
-		if compatErr.Backend != "unknown_backend" {
-			t.Errorf("Backend = %q, want %q", compatErr.Backend, "unknown_backend")
+		if compatErr.Backend != "any" {
+			t.Errorf("Backend = %q, want %q", compatErr.Backend, "any")
 		}
 	})
 
@@ -136,33 +115,6 @@ func TestRegistryFailClosed(t *testing.T) {
 
 func TestDockerFactorySupported(t *testing.T) {
 	factory := dockerplugin.NewFactory(dockerplugin.Config{})
-
-	t.Run("WhitelistNotSupported", func(t *testing.T) {
-		if !factory.Available() {
-			t.Skip("docker daemon not reachable; skipping")
-		}
-
-		policy := Policy{
-			Filesystem: FilesystemPolicy{
-				WorkingDir: t.TempDir(),
-			},
-			Network: NetworkPolicy{
-				Mode:      NetworkWhitelist,
-				Allowlist: []string{"example.com"},
-			},
-		}
-
-		err := factory.Supported(policy)
-		if err == nil {
-			t.Error("Supported() = nil, want error for whitelist on docker")
-		}
-
-		compatErr := &PolicyCompatibilityError{}
-		ok := errors.As(err, &compatErr)
-		if !ok {
-			t.Fatalf("error should be PolicyCompatibilityError, got %T", err)
-		}
-	})
 
 	t.Run("DisabledNetworkSupported", func(t *testing.T) {
 		if !factory.Available() {
@@ -231,22 +183,6 @@ func TestIsPolicyCompatibilityError(t *testing.T) {
 }
 
 func TestPolicyAccessors(t *testing.T) {
-	t.Run("RequiresWhitelist", func(t *testing.T) {
-		whitelist := Policy{
-			Network: NetworkPolicy{Mode: NetworkWhitelist},
-		}
-		if !whitelist.RequiresWhitelist() {
-			t.Error("RequiresWhitelist() should return true for whitelist mode")
-		}
-
-		disabled := Policy{
-			Network: NetworkPolicy{Mode: NetworkDisabled},
-		}
-		if disabled.RequiresWhitelist() {
-			t.Error("RequiresWhitelist() should return false for disabled mode")
-		}
-	})
-
 	t.Run("NetworkModeOrDefault", func(t *testing.T) {
 		empty := Policy{
 			Network: NetworkPolicy{Mode: ""},
@@ -268,14 +204,14 @@ func TestPolicyCompatibilityErrorMessage(t *testing.T) {
 	t.Run("ErrorFormat", func(t *testing.T) {
 		err := &PolicyCompatibilityError{
 			Backend: "test",
-			Reason:  "whitelist not supported",
+			Reason:  "daemon not reachable",
 		}
 
 		msg := err.Error()
 		if !containsCompat(msg, "test") {
 			t.Errorf("Error message should mention backend, got: %s", msg)
 		}
-		if !containsCompat(msg, "whitelist not supported") {
+		if !containsCompat(msg, "daemon not reachable") {
 			t.Errorf("Error message should mention reason, got: %s", msg)
 		}
 	})
