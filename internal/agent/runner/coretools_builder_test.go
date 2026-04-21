@@ -98,12 +98,5 @@ func (f *fakeHost) StartProcess(ctx context.Context, req sandbox.ProcessRequest)
 	return nil, nil
 }
 
-func (f *fakeHost) HTTPRequest(ctx context.Context, opts sandbox.HTTPOptions) (sandbox.HTTPResult, error) {
-	return sandbox.HTTPResult{}, nil
-}
-
-func (f *fakeHost) OpenHTTPStream(ctx context.Context, opts sandbox.HTTPOptions) (sandbox.HTTPStream, error) {
-	return nil, nil
-}
 func (f *fakeHost) ResolvePath(path string) (string, error) { return path, nil }
 func (f *fakeHost) WorkingDir() string                      { return "/tmp" }

@@ -28,8 +28,6 @@ type Host interface {
 	CreateTemp(ctx context.Context, dir, pattern string) (TempFile, error)
 	Exec(ctx context.Context, command string, opts ExecOptions) (ExecResult, error)
 	StartProcess(ctx context.Context, req ProcessRequest) (ProcessHandle, error)
-	HTTPRequest(ctx context.Context, opts HTTPOptions) (HTTPResult, error)
-	OpenHTTPStream(ctx context.Context, opts HTTPOptions) (HTTPStream, error)
 	ResolvePath(path string) (string, error)
 	WorkingDir() string
 }
@@ -99,26 +97,6 @@ type ProcessHandle interface {
 	Stdin() io.WriteCloser
 	Stdout() io.ReadCloser
 	Stderr() io.ReadCloser
-	Close() error
-}
-
-type HTTPOptions struct {
-	Method  string
-	URL     string
-	Header  map[string]string
-	Body    []byte
-	Timeout time.Duration
-}
-
-type HTTPResult struct {
-	StatusCode int
-	Header     map[string][]string
-	Body       []byte
-}
-
-type HTTPStream interface {
-	Header() map[string][]string
-	Reader() io.ReadCloser
 	Close() error
 }
 

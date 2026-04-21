@@ -37,10 +37,6 @@ func logSessionClosed(sessionID, backend, reason string) {
 	sandboxpkg.LogSessionClosed(sessionID, backend, reason)
 }
 
-func logPolicyDenied(sessionID, backend, operation, resource, reason string) {
-	sandboxpkg.LogPolicyDenied(sessionID, backend, operation, resource, reason)
-}
-
 // dockerFactory creates docker-backed sandbox sessions.
 type dockerFactory struct {
 	cfg Config
@@ -782,18 +778,6 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 		handle: handle,
 		cancel: cancel,
 	}, nil
-}
-
-// HTTPRequest fails closed — transport mediation is not implemented in phase 1.
-func (h *dockerHost) HTTPRequest(_ context.Context, opts sandboxpkg.HTTPOptions) (sandboxpkg.HTTPResult, error) {
-	logPolicyDenied(h.session.id, "docker", "http_request", opts.URL, "transport mediation not yet implemented")
-	return sandboxpkg.HTTPResult{}, fmt.Errorf("sandbox: docker Host.HTTPRequest is not implemented; fail closed until transport mediation is wired")
-}
-
-// OpenHTTPStream fails closed — transport mediation is not implemented in phase 1.
-func (h *dockerHost) OpenHTTPStream(_ context.Context, opts sandboxpkg.HTTPOptions) (sandboxpkg.HTTPStream, error) {
-	logPolicyDenied(h.session.id, "docker", "http_stream", opts.URL, "transport mediation not yet implemented")
-	return nil, fmt.Errorf("sandbox: docker Host.OpenHTTPStream is not implemented; fail closed until transport mediation is wired")
 }
 
 // ─────────────────────────── dockerTempFile ──────────────────────────

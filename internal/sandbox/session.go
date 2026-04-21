@@ -16,9 +16,6 @@ type (
 	ExecResult     = sandboxpkg.ExecResult
 	ProcessRequest = sandboxpkg.ProcessRequest
 	ProcessHandle  = sandboxpkg.ProcessHandle
-	HTTPOptions    = sandboxpkg.HTTPOptions
-	HTTPResult     = sandboxpkg.HTTPResult
-	HTTPStream     = sandboxpkg.HTTPStream
 )
 
 func NopSession() Session {
