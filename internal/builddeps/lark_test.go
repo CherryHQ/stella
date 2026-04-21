@@ -16,6 +16,8 @@ func TestUpdateLarkMarkdownReferences(t *testing.T) {
 		"Use ./references/local.md",
 		"See [auth](references/local.md)",
 		"Code `references/local.md`",
+		// ref already scoped to this skill (skillName/ prefix) — must not double-prefix
+		"Use ./references/lark-doc/sub.md",
 	}, "\n")
 	got := updateLarkMarkdownReferences(input, "lark-doc")
 	checks := []string{
@@ -24,6 +26,7 @@ func TestUpdateLarkMarkdownReferences(t *testing.T) {
 		"./lark-doc/local.md",
 		"](./lark-doc/local.md)",
 		"`./lark-doc/local.md`",
+		"./references/lark-doc/sub.md",
 	}
 	for _, check := range checks {
 		if !strings.Contains(got, check) {

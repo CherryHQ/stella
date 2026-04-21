@@ -115,6 +115,11 @@ type toolSyncer struct {
 	specs   []embeddedBinary
 }
 
+// SyncEmbeddedTools downloads and stores the embedded third-party binaries for
+// the target platform. Downloads are integrity-checked only by HTTPS + GitHub's
+// own release infrastructure; no additional SHA256 manifest is verified. This
+// is acceptable for a dev-time build tool but should be revisited if this path
+// ever runs with write access to a production artifact store.
 func SyncEmbeddedTools(ctx context.Context, cfg Config) error {
 	s := toolSyncer{
 		client:  http.DefaultClient,

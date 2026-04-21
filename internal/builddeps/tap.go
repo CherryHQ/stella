@@ -32,6 +32,8 @@ func tapHostBinary() embeddedBinary {
 
 func syncTapWebSkill(ctx context.Context, cfg Config) error {
 	s := toolSyncer{client: http.DefaultClient, baseURL: "https://github.com"}
+	// tap must execute on the build host to generate the skill, so we always
+	// fetch the host-platform binary regardless of cfg's cross-compilation target.
 	platform := runtime.GOOS + "-" + runtime.GOARCH
 	binPath, cleanup, err := s.fetchBinary(ctx, tapHostBinary(), platform)
 	if err != nil {

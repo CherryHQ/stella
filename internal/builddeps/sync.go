@@ -17,7 +17,9 @@ type Syncer struct {
 	SyncTools  ToolSyncFunc
 }
 
-// Run validates cfg, fills defaults, and executes the selected sync phases.
+// Run normalizes cfg (filling in runtime GOOS/GOARCH/WorkDir defaults),
+// validates it, and executes the selected sync phases. Sync funcs receive
+// the already-normalized Config.
 func (s Syncer) Run(ctx context.Context, cfg Config) error {
 	cfg = cfg.Normalized()
 	if err := cfg.Validate(); err != nil {

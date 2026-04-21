@@ -39,7 +39,7 @@ func (c Config) Normalized() Config {
 // Validate checks that the sync request is internally consistent.
 func (c Config) Validate() error {
 	if !c.SyncSkills && !c.SyncTools {
-		return fmt.Errorf("select at least one sync mode: --skills and/or --tools")
+		return fmt.Errorf("at least one sync mode must be selected (skills or tools)")
 	}
 	if c.SyncTools {
 		switch c.GOOS {

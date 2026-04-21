@@ -3,6 +3,7 @@ package builddeps
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -124,6 +125,7 @@ func migrateLarkSkill(skillDir, refsDir string) (larkSkillDoc, error) {
 	raw, err := os.ReadFile(skillPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			slog.Warn("skipping skill dir without SKILL.md", "dir", skillDir)
 			return larkSkillDoc{}, nil
 		}
 		return larkSkillDoc{}, fmt.Errorf("read SKILL.md: %w", err)
