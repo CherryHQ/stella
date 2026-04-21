@@ -1,6 +1,9 @@
 package builddeps
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // SkillSyncFunc performs host-side skill synchronization.
 type SkillSyncFunc func(context.Context, Config) error
@@ -20,12 +23,18 @@ func (s Syncer) Run(ctx context.Context, cfg Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
-	if cfg.SyncSkills && s.SyncSkills != nil {
+	if cfg.SyncSkills {
+		if s.SyncSkills == nil {
+			return fmt.Errorf("skill sync not implemented")
+		}
 		if err := s.SyncSkills(ctx, cfg); err != nil {
 			return err
 		}
 	}
-	if cfg.SyncTools && s.SyncTools != nil {
+	if cfg.SyncTools {
+		if s.SyncTools == nil {
+			return fmt.Errorf("tool sync not implemented")
+		}
 		if err := s.SyncTools(ctx, cfg); err != nil {
 			return err
 		}

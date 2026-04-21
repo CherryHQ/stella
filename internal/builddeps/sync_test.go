@@ -50,3 +50,10 @@ func TestSyncerRunCallsOnlySelectedModes(t *testing.T) {
 		t.Fatal("did not expect tool sync to run")
 	}
 }
+
+func TestSyncerRunFailsClosedForMissingHandler(t *testing.T) {
+	err := (Syncer{}).Run(context.Background(), Config{SyncTools: true})
+	if err == nil || err.Error() != "tool sync not implemented" {
+		t.Fatalf("Run() error = %v, want tool sync not implemented", err)
+	}
+}

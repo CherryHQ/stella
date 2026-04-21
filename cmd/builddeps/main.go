@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -21,6 +20,7 @@ func newApp(syncer builddeps.Syncer) *ucli.App {
 	return &ucli.App{
 		Name:  "builddeps",
 		Usage: "Prepare third-party tools and system skills before building anna",
+		Flags: syncFlags(),
 		Commands: []*ucli.Command{
 			syncCommand(syncer),
 		},
@@ -59,5 +59,5 @@ func syncAction(c *ucli.Context, syncer builddeps.Syncer) error {
 		GOARCH:     c.String("goarch"),
 		LarkRef:    c.String("lark-ref"),
 	}
-	return syncer.Run(context.Background(), cfg)
+	return syncer.Run(c.Context, cfg)
 }
