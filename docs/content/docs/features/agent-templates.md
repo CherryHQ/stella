@@ -1,0 +1,91 @@
+---
+title: Agent Templates & Builtin Resources
+---
+
+## Overview
+
+Anna ships with a curated catalog of **builtin resources** so a fresh install is useful on day one without hand-editing every prompt. The catalog lives in `plugins/tools/builtin/` and is embedded into the binary at build time.
+
+Four resource kinds are shipped:
+
+| Kind | Purpose | Where it runs |
+|------|---------|---------------|
+| **Skill** | Reusable knowledge/playbook the agent can load on demand | DB-synced into `skills(scope='system')` on startup |
+| **Soul** | Persona/tone fragment layered into the agent's system prompt | Copied into an agent at creation time |
+| **Sub-agent** | Tool-restricted worker preset for delegation via the `agent` tool | Extracted to `$ANNA_HOME/agents/` on startup |
+| **Template** | Full agent bootstrap (model + system prompt + soul + enabled skills) | Read once at agent creation; no persistent link |
+
+## Templates
+
+A template is a complete starting point for a new agent. When you click **Add agent** in the admin UI you see a grid of templates plus a "Start from blank" card. Picking a template pre-fills:
+
+- **Model** — provider/model pair the template recommends
+- **System prompt** — copied from the template's referenced soul
+- **Enabled builtin skills** — shown as chips on the form; togglable before save
+
+User-supplied fields always win. You can edit every field on the form before saving, and after save the agent has no persistent link back to the template — upgrading a template does not touch existing agents.
+
+### Templates that ship today
+
+- `default` — balanced assistant persona
+- `coder` — implementation-focused; enables `code-review` and `implementation` skills
+- `researcher` — investigation workflows; enables `research` and `task-planning`
+- `writer` — longform drafting; enables `docs-writing`
+
+## Souls
+
+Souls are reusable persona fragments. They don't have their own DB row — when you pick one, its content is copied into the new agent's `system_prompt`. After that, the agent owns the text and can diverge freely.
+
+Shipped souls: `default`, `coder`, `researcher`, `direct`, `teacher`.
+
+The `default` soul replaced the previously hardcoded `template/soul.md` — `runner.DefaultAgentSoul()` now resolves it from the registry at runtime.
+
+## Sub-agents
+
+Sub-agent presets describe tool-restricted workers for the `agent` delegation tool (research, review, writing, coding). The runner extracts them into `$ANNA_HOME/agents/` on startup so project-local overrides (`.agents/agents/`) can shadow them with the same filename.
+
+Shipped sub-agents: `coder`, `researcher`, `reviewer`, `writer`.
+
+## Skills and per-agent enablement
+
+Every skill marked `scope='system'` is universal by design, which means naive growth of the builtin catalog would drop every skill into every agent's prompt — fast prompt bloat.
+
+The fix: `settings_agents.enabled_builtin_skills` (JSON array of skill names). An agent's skill catalog in the prompt is:
+
+```
+{always-on builtins: anna}
+ ∪ {enabled_builtin_skills}
+ ∪ {agent-scope DB skills}
+ ∪ {user-scope DB skills}
+```
+
+`anna` (the self-knowledge skill) is always on. Every other builtin skill must be opted in — either via the template you picked (which sets the list for you) or by toggling chips on the agent form.
+
+Shipped skills: `anna`, `code-review`, `docs-writing`, `implementation`, `research`, `task-planning`.
+
+## Adding a new builtin resource
+
+The catalog is additive — dropping a new file in the right subdir makes it show up everywhere:
+
+```
+plugins/tools/builtin/
+├── skills/<id>/SKILL.md        # skill (directory with SKILL.md + refs)
+├── souls/<id>.md               # soul
+├── subagents/<id>.md           # sub-agent preset
+└── templates/<id>.md           # template
+```
+
+Each file needs YAML frontmatter with at least `id`, `name`, `description`. Templates reference a soul by `soul_id` and skills by a `skills: [names]` array in frontmatter.
+
+On the next build, the admin UI picks up the new resource automatically via the `GET /api/builtin/{kind}` and `GET /api/builtin/{kind}/{id}` endpoints.
+
+## API
+
+Read-only catalog endpoints:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/builtin/{kind}` | List summaries (no content) for `template`, `soul`, `subagent`, `skill` |
+| `GET /api/builtin/{kind}/{id}` | Full resource including body content |
+
+`kind` must be one of `template`, `soul`, `subagent`, `skill`; unknown kinds or IDs return `404`.

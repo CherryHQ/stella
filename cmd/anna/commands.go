@@ -15,10 +15,11 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
-	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/pluginstate"
+	builtinres "github.com/vaayne/anna/internal/resources"
+	"github.com/vaayne/anna/internal/resources/binaries"
 	"github.com/vaayne/anna/internal/scheduler"
 	skills "github.com/vaayne/anna/internal/skills"
 	internaltools "github.com/vaayne/anna/internal/tools"
@@ -32,7 +33,6 @@ import (
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	mcpplugin "github.com/vaayne/anna/plugins/tools/mcp"
-	skillsbuiltin "github.com/vaayne/anna/plugins/tools/skills/builtin"
 )
 
 func newApp() *ucli.App {
@@ -84,19 +84,23 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	store := config.NewDBStore(db)
 
-	if err := embedded.EnsureTools(config.AnnaHome()); err != nil {
+	if err := binaries.EnsureTools(config.AnnaHome()); err != nil {
 		return nil, fmt.Errorf("extract embedded tools: %w", err)
 	}
-	if err := embedded.VerifyTools(config.AnnaHome()); err != nil {
+	if err := binaries.VerifyTools(config.AnnaHome()); err != nil {
 		return nil, err
 	}
 
-	if err := skillsbuiltin.ExtractSkills(filepath.Join(config.AnnaHome(), "skills")); err != nil {
+	if err := builtinres.ExtractSkills(filepath.Join(config.AnnaHome(), "skills")); err != nil {
 		return nil, fmt.Errorf("extract builtin skills: %w", err)
 	}
 
 	skillStore := skills.New(db)
-	if err := skills.SyncBuiltin(parent, skillStore, skillsbuiltin.BuiltinSkillFS()); err != nil {
+	builtinSkillsFS, ok := builtinres.SubFS(builtinres.KindSkill)
+	if !ok {
+		return nil, fmt.Errorf("builtin skills FS unavailable")
+	}
+	if err := skills.SyncBuiltin(parent, skillStore, builtinSkillsFS); err != nil {
 		return nil, fmt.Errorf("sync builtin skills: %w", err)
 	}
 
@@ -210,7 +214,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// Plugin hooks builder: auto-discovers registered hook plugins and returns
 	// enabled ones. Called at startup and on hot-reload.
 	pluginHooksBuilder := func(ctx context.Context) []hooks.HookPlugin {
-		return phost.BuildEnabledHooks(ctx, pluginhooks.BuildContext{ToolsBinDir: embedded.BinDir(config.AnnaHome())})
+		return phost.BuildEnabledHooks(ctx, pluginhooks.BuildContext{ToolsBinDir: binaries.BinDir(config.AnnaHome())})
 	}
 
 	idleTimeout := time.Duration(snap.Runner.IdleTimeout) * time.Minute

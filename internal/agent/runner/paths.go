@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/embedded"
+	"github.com/vaayne/anna/internal/resources/binaries"
 )
 
 // runnerPaths keeps only the runner's primary inputs.
@@ -65,7 +65,7 @@ func resolveSandboxPaths(cfg GoRunnerConfig) (sandboxPaths, error) {
 	}, nil
 }
 
-func (p runnerPaths) toolsBinDir() string { return embedded.BinDir(p.AnnaHome) }
+func (p runnerPaths) toolsBinDir() string { return binaries.BinDir(p.AnnaHome) }
 
 // resolveToolsBinDir returns the host bin dir for host-side backends (boxsh,
 // local) and empty for docker, where the container image has tools pre-installed

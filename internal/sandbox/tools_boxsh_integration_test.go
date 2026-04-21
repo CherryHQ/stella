@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/embedded"
+	"github.com/vaayne/anna/internal/resources/binaries"
 )
 
 func newBoxshToolTestSession(t *testing.T, ctx context.Context, files map[string]string) (Session, string) {
@@ -198,7 +198,7 @@ func dirEntriesContain(entries []DirEntry, name string) bool {
 
 func writeStatefulMockBoxshForSandboxTools(t *testing.T, annaHome string) {
 	t.Helper()
-	_ = embedded.EnsureTools(annaHome)
+	_ = binaries.EnsureTools(annaHome)
 	binDir := filepath.Join(annaHome, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)

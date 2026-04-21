@@ -89,6 +89,11 @@ type SystemPromptContext struct {
 	UserID      int64
 	AgentID     string
 	UserRoot    string
+
+	// EnabledBuiltinSkills is the per-agent allowlist of builtin (system-scope)
+	// skills that should appear in the prompt catalog. The always-on "anna"
+	// skill is visible to every agent regardless of this list.
+	EnabledBuiltinSkills []string
 }
 
 // BeforeRunContext is the narrow per-run lifecycle context exposed to plugins.

@@ -204,13 +204,14 @@ func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) 
 	}
 	homeDir, _ := os.UserHomeDir()
 	promptSections, err := s.pluginHost.SystemPromptSections(r.Context(), pkgplugins.SystemPromptContext{
-		AnnaHome:    config.AnnaHome(),
-		HomeDir:     homeDir,
-		AgentRoot:   agentCfg.Workspace,
-		ProjectRoot: "",
-		UserID:      info.UserID,
-		AgentID:     info.AgentID,
-		UserRoot:    userRoot,
+		AnnaHome:             config.AnnaHome(),
+		HomeDir:              homeDir,
+		AgentRoot:            agentCfg.Workspace,
+		ProjectRoot:          "",
+		UserID:               info.UserID,
+		AgentID:              info.AgentID,
+		UserRoot:             userRoot,
+		EnabledBuiltinSkills: agentCfg.EnabledBuiltinSkills,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

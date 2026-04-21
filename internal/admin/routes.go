@@ -18,6 +18,7 @@ func (s *Server) registerRoutes() {
 	s.registerToolRoutes()
 	s.registerSchedulerRoutes()
 	s.registerSkillRoutes()
+	s.registerBuiltinRoutes()
 }
 
 func (s *Server) registerStaticRoutes() {
@@ -61,7 +62,6 @@ func (s *Server) registerPageRoutes() {
 	s.mux.HandleFunc("GET /sessions", s.pageSessions)
 	s.mux.HandleFunc("GET /scheduler", s.pageScheduler)
 	s.mux.Handle("GET /plugins", s.adminOnlyMiddleware(http.HandlerFunc(s.pagePlugins)))
-	s.mux.Handle("GET /skills", s.adminOnlyMiddleware(http.HandlerFunc(s.pageSkills)))
 	s.mux.HandleFunc("GET /profile", s.pageProfile)
 }
 
@@ -188,4 +188,9 @@ func (s *Server) registerSkillRoutes() {
 	s.mux.Handle("PUT /api/skills/{id}", adminAPI(s.updateSkill))
 	s.mux.Handle("DELETE /api/skills/{id}", adminAPI(s.deleteSkill))
 	s.mux.Handle("DELETE /api/skills/{id}/file", adminAPI(s.deleteSkillFile))
+}
+
+func (s *Server) registerBuiltinRoutes() {
+	s.mux.HandleFunc("GET /api/builtin/{kind}", s.listBuiltinResources)
+	s.mux.HandleFunc("GET /api/builtin/{kind}/{id}", s.getBuiltinResource)
 }

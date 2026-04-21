@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/embedded"
+	"github.com/vaayne/anna/internal/resources/binaries"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
@@ -66,7 +66,7 @@ func testRunnerPaths(t *testing.T) (annaHome, workspace, userRoot string) {
 
 func writeMockRPCBoxsh(t *testing.T, annaHome string, exitAfterHandshake bool) string {
 	t.Helper()
-	_ = embedded.EnsureTools(annaHome)
+	_ = binaries.EnsureTools(annaHome)
 	binDir := filepath.Join(annaHome, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
@@ -234,7 +234,7 @@ func TestNewGoRunnerPreflightExtractsManagedTools(t *testing.T) {
 	if !boxshclient.PlatformSupportsBoxsh() {
 		t.Skip("sandbox backend requires boxsh support on this platform")
 	}
-	if !slices.Contains(embedded.ToolNames(), "boxsh") {
+	if !slices.Contains(binaries.ToolNames(), "boxsh") {
 		t.Skip("embedded boxsh binary not present; run mise run tools:download first")
 	}
 	annaHome := t.TempDir()
