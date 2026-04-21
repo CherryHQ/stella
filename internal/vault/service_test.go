@@ -150,6 +150,105 @@ func TestLoadEnv(t *testing.T) {
 	}
 }
 
+func TestNewServiceInvalidKey(t *testing.T) {
+	t.Parallel()
+	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "invalid_key_test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	_, err = vault.NewService(sqlc.New(db), "not-a-valid-age-key")
+	if err == nil {
+		t.Fatal("NewService with invalid key should fail")
+	}
+}
+
+func TestSetNoAgeKeys(t *testing.T) {
+	t.Parallel()
+	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "no_keys_test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	q := sqlc.New(db)
+	ctx := context.Background()
+
+	masterID, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatalf("GenerateX25519Identity: %v", err)
+	}
+
+	svc, err := vault.NewService(q, masterID.String())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// Create a user without age keys.
+	user, err := q.CreateAuthUser(ctx, sqlc.CreateAuthUserParams{
+		Username:     "nokeys",
+		PasswordHash: "hash",
+	})
+	if err != nil {
+		t.Fatalf("CreateAuthUser: %v", err)
+	}
+
+	// Set should fail because user has no age public key.
+	if err := svc.Set(ctx, user.ID, "MY_KEY", "value"); err == nil {
+		t.Fatal("Set should fail for user without age keys")
+	}
+}
+
+func TestLoadEnvEmpty(t *testing.T) {
+	t.Parallel()
+	svc, _, userID := testService(t)
+	ctx := context.Background()
+
+	env, err := svc.LoadEnv(ctx, userID)
+	if err != nil {
+		t.Fatalf("LoadEnv: %v", err)
+	}
+	if len(env) != 0 {
+		t.Fatalf("LoadEnv: got %d entries, want 0", len(env))
+	}
+}
+
+func TestLoadEnvNoAgeKeys(t *testing.T) {
+	t.Parallel()
+	db, err := appdb.OpenDB(filepath.Join(t.TempDir(), "loadenv_nokeys_test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	q := sqlc.New(db)
+	ctx := context.Background()
+
+	masterID, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatalf("GenerateX25519Identity: %v", err)
+	}
+
+	svc, err := vault.NewService(q, masterID.String())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	user, err := q.CreateAuthUser(ctx, sqlc.CreateAuthUserParams{
+		Username:     "nokeys",
+		PasswordHash: "hash",
+	})
+	if err != nil {
+		t.Fatalf("CreateAuthUser: %v", err)
+	}
+
+	// LoadEnv should fail because user has no age private key.
+	if _, err := svc.LoadEnv(ctx, user.ID); err == nil {
+		t.Fatal("LoadEnv should fail for user without age keys")
+	}
+}
+
 func TestDeleteEntry(t *testing.T) {
 	t.Parallel()
 	svc, _, userID := testService(t)

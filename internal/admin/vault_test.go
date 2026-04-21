@@ -119,3 +119,80 @@ func TestVaultSetValidationError(t *testing.T) {
 		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
 	}
 }
+
+func TestVaultNotConfiguredPUT(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "PUT", "/api/auth/profile/vault/MY_KEY", map[string]string{"value": "v"})
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestVaultNotConfiguredDELETE(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "DELETE", "/api/auth/profile/vault/MY_KEY", nil)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestVaultSetEmptyValue(t *testing.T) {
+	env, _ := setupVaultEnv(t)
+
+	rr := doRequest(t, env, "PUT", "/api/auth/profile/vault/MY_KEY", map[string]string{"value": ""})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+}
+
+func TestVaultSetEmptyName(t *testing.T) {
+	env, _ := setupVaultEnv(t)
+
+	rr := doRequest(t, env, "PUT", "/api/auth/profile/vault/", map[string]string{"value": "v"})
+	// Empty name in path — either 400 or 404 depending on router
+	if rr.Code == http.StatusNoContent {
+		t.Fatal("expected error for empty name, got 204")
+	}
+}
+
+func TestVaultSetInvalidJSON(t *testing.T) {
+	env, _ := setupVaultEnv(t)
+
+	rr := doRequestWithSession(t, env.srv, env.sessionID, "PUT", "/api/auth/profile/vault/MY_KEY", nil)
+	// No body → JSON decode error or empty value
+	if rr.Code == http.StatusNoContent {
+		t.Fatal("expected error for nil body, got 204")
+	}
+}
+
+func TestVaultUpdateExisting(t *testing.T) {
+	env, _ := setupVaultEnv(t)
+
+	// Set initial value.
+	rr := doRequest(t, env, "PUT", "/api/auth/profile/vault/MY_SECRET", map[string]string{"value": "v1"})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("set status = %d, want %d", rr.Code, http.StatusNoContent)
+	}
+
+	// Update with new value.
+	rr = doRequest(t, env, "PUT", "/api/auth/profile/vault/MY_SECRET", map[string]string{"value": "v2"})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("update status = %d, want %d", rr.Code, http.StatusNoContent)
+	}
+
+	// List — still one entry.
+	rr = doRequest(t, env, "GET", "/api/auth/profile/vault", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list status = %d", rr.Code)
+	}
+	resp := parseResponse(t, rr)
+	var entries []map[string]string
+	if err := json.Unmarshal(resp.Data, &entries); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry after update, got %d", len(entries))
+	}
+}
