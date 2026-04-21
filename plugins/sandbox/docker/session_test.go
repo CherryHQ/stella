@@ -34,15 +34,15 @@ func TestFactoryAvailable_DaemonUnreachable(t *testing.T) {
 
 func TestFactorySupported_WhitelistRejected(t *testing.T) {
 	f := NewFactory(Config{})
-	policy := Policy{
-		Filesystem: FilesystemPolicy{WorkingDir: t.TempDir()},
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: t.TempDir()},
 		Network:    sandboxNetworkWhitelist(),
 	}
 	err := f.Supported(policy)
 	if err == nil {
 		t.Fatal("expected error for whitelist mode, got nil")
 	}
-	pce := &PolicyCompatibilityError{}
+	pce := &sandboxpkg.PolicyCompatibilityError{}
 	ok := errors.As(err, &pce)
 	if !ok {
 		t.Fatalf("expected *PolicyCompatibilityError, got %T", err)
@@ -52,14 +52,14 @@ func TestFactorySupported_WhitelistRejected(t *testing.T) {
 func TestFactorySupported_DaemonUnreachable(t *testing.T) {
 	pointToUnreachableDaemon(t)
 	f := NewFactory(Config{})
-	policy := Policy{
-		Filesystem: FilesystemPolicy{WorkingDir: t.TempDir()},
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: t.TempDir()},
 	}
 	err := f.Supported(policy)
 	if err == nil {
 		t.Fatal("expected error when daemon is unreachable")
 	}
-	pce := &PolicyCompatibilityError{}
+	pce := &sandboxpkg.PolicyCompatibilityError{}
 	ok := errors.As(err, &pce)
 	if !ok {
 		t.Fatalf("expected *PolicyCompatibilityError, got %T", err)

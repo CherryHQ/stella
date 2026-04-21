@@ -7,11 +7,13 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
 )
 
 var tracer = otel.Tracer("anna/sandbox/docker")
 
-func sessionTraceAttrs(sessionID string, policy Policy, image, workspaceHost string) []attribute.KeyValue {
+func sessionTraceAttrs(sessionID string, policy sandboxpkg.Policy, image, workspaceHost string) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String("anna.sandbox.backend", "docker"),
 		attribute.String("anna.sandbox.session.id", sessionID),

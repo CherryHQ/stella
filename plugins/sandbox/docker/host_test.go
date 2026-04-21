@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
 	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
 )
 
@@ -69,8 +70,8 @@ func TestToContainerPath_DeepestMount(t *testing.T) {
 // outside any mount are rejected.
 func TestDockerHostResolvePath(t *testing.T) {
 	dir := t.TempDir()
-	policy := Policy{
-		Filesystem: FilesystemPolicy{
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
 			WorkspaceRoot: dir,
 			WorkingDir:    dir,
 		},
@@ -123,8 +124,8 @@ func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
 		t.Fatalf("seed outside file: %v", err)
 	}
 
-	policy := Policy{
-		Filesystem: FilesystemPolicy{
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
 			WorkspaceRoot: workspace,
 			WorkingDir:    workspace,
 		},
@@ -238,8 +239,8 @@ func TestDockerHostReadFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	policy := Policy{
-		Filesystem: FilesystemPolicy{
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
 			WorkspaceRoot: dir,
 			WorkingDir:    dir,
 		},

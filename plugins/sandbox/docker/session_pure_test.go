@@ -68,7 +68,7 @@ func TestMapNetworkMode(t *testing.T) {
 		{sandboxpkg.NetworkAllowAll, dockerclient.NetworkAllowAll},
 	}
 	for _, c := range cases {
-		policy := Policy{Network: sandboxpkg.NetworkPolicy{Mode: c.mode}}
+		policy := sandboxpkg.Policy{Network: sandboxpkg.NetworkPolicy{Mode: c.mode}}
 		got := mapNetworkMode(policy)
 		if got != c.want {
 			t.Fatalf("mode %v: got %v, want %v", c.mode, got, c.want)
