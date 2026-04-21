@@ -9,7 +9,10 @@ import (
 )
 
 func main() {
-	app := newApp(builddeps.Syncer{SyncTools: builddeps.SyncEmbeddedTools})
+	app := newApp(builddeps.Syncer{
+		SyncSkills: builddeps.SyncSystemSkills,
+		SyncTools:  builddeps.SyncEmbeddedTools,
+	})
 	if err := app.Run(os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
