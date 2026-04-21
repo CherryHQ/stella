@@ -74,7 +74,7 @@ func ToolNames() []string {
 
 // VerifyTools checks that every tool present in the embedded FS was successfully
 // extracted to annaHome/bin. If the embedded FS has no tool archives (e.g. a
-// dev build where tools:download was not run), the check is skipped and nil is
+// dev build where pre-build dependency sync was not run), the check is skipped and nil is
 // returned — the missing-binary error surfaces later when the tool is actually
 // needed. Returns an error only when the FS is non-empty but one or more
 // binaries are missing on disk after extraction.

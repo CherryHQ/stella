@@ -23,7 +23,7 @@ anna
 
 旧的内置 `feishu_*` 工具和 `/auth` 流程已经移除。
 
-如果你要操作日历、任务、文档、知识库、表格、云盘、联系人等工作区数据，请按需自行安装 `lark-cli` skill，并配合外部 [`lark-cli`](https://github.com/larksuite/cli) 工具。
+anna 现在会内置生成好的 `lark` system skill，发布构建也会自动嵌入 `lark-cli`。如果你要操作日历、任务、文档、知识库、表格、云盘、联系人等工作区数据，直接启用内置 `lark` skill，并配合 [`lark-cli`](https://github.com/larksuite/cli) 使用即可。
 
 常见初始化流程：
 
@@ -35,7 +35,7 @@ lark-cli auth login --recommend
 lark-cli auth status
 ```
 
-用户自行安装的 `lark-cli` skill 可以覆盖原来的 `feishu_calendar`、`feishu_task`、`feishu_im`、`feishu_doc`、`feishu_wiki`、`feishu_sheets`、`feishu_drive`、`feishu_bitable`、`feishu_user` 和 `feishu_search` 等工作流。
+内置 `lark` skill 可以覆盖原来的 `feishu_calendar`、`feishu_task`、`feishu_im`、`feishu_doc`、`feishu_wiki`、`feishu_sheets`、`feishu_drive`、`feishu_bitable`、`feishu_user` 和 `feishu_search` 等工作流。
 
 ## 自动注册用户
 

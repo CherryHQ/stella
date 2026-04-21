@@ -7,7 +7,13 @@ dist/
 handoff.md
 plan.md
 
-# Embedded tool binaries (downloaded via scripts/download-tools.sh)
+# Embedded tool binaries (downloaded via builddeps sync)
 internal/resources/binaries/binaries/*/*.gz
+
+# Generated system skills (synced via cmd/builddeps)
+internal/resources/skills/system/*
+!internal/resources/skills/system/anna/
+!internal/resources/skills/system/anna/**
+
 cmd/anna/.agents/
 internal/agent/runner/.agents/

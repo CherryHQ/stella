@@ -37,30 +37,31 @@ func EnsureBuiltinSkills(skillsDir string) error {
 }
 
 // ExtractSkills writes every builtin skill directory into skillsDir.
-// Each skill's subdirectory is replaced atomically; other entries in skillsDir
-// are preserved.
+// Each detected skill root (including nested paths like system/foo) is replaced
+// atomically; other entries in skillsDir are preserved.
 func ExtractSkills(skillsDir string) error {
 	sub, ok := SubFS(KindSkill)
 	if !ok {
 		return nil
 	}
-	entries, err := fs.ReadDir(sub, ".")
+	return extractSkillsFS(sub, skillsDir)
+}
+
+func extractSkillsFS(sub fs.FS, skillsDir string) error {
+	roots, err := listSkillRoots(sub)
 	if err != nil {
 		return fmt.Errorf("read builtin skills: %w", err)
 	}
 	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
 		return fmt.Errorf("create skills dir: %w", err)
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
+	for _, root := range roots {
+		target := filepath.Join(skillsDir, filepath.FromSlash(root.Path))
+		if err := os.RemoveAll(target); err != nil {
+			return fmt.Errorf("clean builtin skill %q: %w", root.Path, err)
 		}
-		name := entry.Name()
-		if err := os.RemoveAll(filepath.Join(skillsDir, name)); err != nil {
-			return fmt.Errorf("clean builtin skill %q: %w", name, err)
-		}
-		if err := copySubtree(sub, name, filepath.Join(skillsDir, name)); err != nil {
-			return fmt.Errorf("extract builtin skill %q: %w", name, err)
+		if err := copySubtree(sub, root.Path, target); err != nil {
+			return fmt.Errorf("extract builtin skill %q: %w", root.Path, err)
 		}
 	}
 	return nil
