@@ -1,5 +1,7 @@
-// WARNING: no container isolation — commands run directly on the host OS.
-// Use the docker backend when process isolation is required.
+// WARNING: commands run directly on the host OS with OS-level hardening only.
+// Hardening layers applied: process-group isolation, rlimits (Linux),
+// Seatbelt sandbox-exec profile (macOS), bwrap/unshare network isolation (Linux).
+// Use the docker backend when full container isolation is required.
 package local
 
 import (
@@ -89,11 +91,9 @@ func (s *localSession) Close() error {
 	}
 	s.closed = true
 
-	// Kill any tracked processes.
+	// Kill any tracked process groups.
 	for _, cmd := range s.procs {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
+		killProcessGroup(cmd)
 	}
 	s.procs = nil
 
@@ -147,21 +147,35 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	execPath, execArgs, err := wrapCommand(s.policy, "sh", []string{"-c", command})
+	if err != nil {
+		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: wrap: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, execPath, execArgs...)
 	cmd.Dir = cwd
 	cmd.Env = buildEnv(s.policy, opts.Env)
+	setSysProcAttr(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	if startErr := cmd.Start(); startErr != nil {
+		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: start: %w", startErr)
+	}
+	if rlErr := applyRlimits(cmd); rlErr != nil {
+		killProcessGroup(cmd)
+		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: rlimits: %w", rlErr)
+	}
+
 	exitCode := 0
-	if runErr := cmd.Run(); runErr != nil {
+	if waitErr := cmd.Wait(); waitErr != nil {
 		exitErr := &exec.ExitError{}
-		if errors.As(runErr, &exitErr) {
+		if errors.As(waitErr, &exitErr) {
 			exitCode = exitErr.ExitCode()
 		} else {
-			return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: %w", runErr)
+			return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: %w", waitErr)
 		}
 	}
 
@@ -196,9 +210,17 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 
 	args := make([]string, 0, len(req.Args))
 	args = append(args, req.Args...)
-	cmd := exec.CommandContext(execCtx, req.Path, args...)
+
+	execPath, execArgs, err := wrapCommand(s.policy, req.Path, args)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("local start_process: wrap: %w", err)
+	}
+
+	cmd := exec.CommandContext(execCtx, execPath, execArgs...)
 	cmd.Dir = cwd
 	cmd.Env = buildEnv(s.policy, req.Env)
+	setSysProcAttr(cmd)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -219,6 +241,11 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return nil, fmt.Errorf("local start_process: start: %w", err)
+	}
+	if rlErr := applyRlimits(cmd); rlErr != nil {
+		killProcessGroup(cmd)
+		cancel()
+		return nil, fmt.Errorf("local start_process: rlimits: %w", rlErr)
 	}
 
 	s.mu.Lock()
@@ -323,9 +350,6 @@ func (p *localProcess) Close() error {
 	}
 	p.closed = true
 	p.cancel()
-
-	if p.cmd.Process != nil {
-		_ = p.cmd.Process.Kill()
-	}
+	killProcessGroup(p.cmd)
 	return nil
 }
