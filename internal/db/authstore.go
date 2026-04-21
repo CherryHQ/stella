@@ -115,6 +115,17 @@ func (s *AuthStore) CountUsers(ctx context.Context) (int64, error) {
 	return s.q.CountAuthUsers(ctx)
 }
 
+func (s *AuthStore) UpdateUserAgeKeys(ctx context.Context, userID int64, publicKey, privateKey string) error {
+	if err := s.q.UpdateUserAgeKeys(ctx, sqlc.UpdateUserAgeKeysParams{
+		AgePublicKey:  publicKey,
+		AgePrivateKey: privateKey,
+		ID:            userID,
+	}); err != nil {
+		return fmt.Errorf("update age keys for user %d: %w", userID, err)
+	}
+	return nil
+}
+
 func (s *AuthStore) UpdateUserRole(ctx context.Context, userID int64, role string) error {
 	if err := s.q.UpdateAuthUserRole(ctx, sqlc.UpdateAuthUserRoleParams{
 		Role: role,

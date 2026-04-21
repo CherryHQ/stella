@@ -30,6 +30,13 @@ const maxAgentLoopTurns = 50
 
 type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
 
+// VaultEnvLoader loads decrypted vault entries for a user as a name→value map.
+// It is a subset of vault.Service and is defined here to avoid a circular
+// import between the runner and vault packages.
+type VaultEnvLoader interface {
+	LoadEnv(ctx context.Context, userID int64) (map[string]string, error)
+}
+
 // GoRunnerConfig configures the Go runner.
 type GoRunnerConfig struct {
 	API              string // provider key: "anthropic", "openai"
@@ -49,6 +56,8 @@ type GoRunnerConfig struct {
 	Providers        ProviderRegistryBuilder
 	Sandbox          config.SandboxConfig
 	SandboxBackendFn func(ctx context.Context) string // resolves active backend at session time; overrides Sandbox.Backend
+	UserID           int64                            // auth user ID; used for vault secret injection
+	VaultEnvLoader   VaultEnvLoader                   // optional; if set, vault secrets are injected into sandbox env
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.

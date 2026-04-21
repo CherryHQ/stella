@@ -3,6 +3,7 @@ package admin_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -33,6 +34,7 @@ import (
 
 type testEnv struct {
 	srv        *admin.Server
+	db         *sql.DB
 	store      config.Store
 	pluginHost *pluginhost.Host
 	authStore  auth.AuthStore
@@ -126,6 +128,7 @@ func setupAdmin(t *testing.T) *testEnv {
 
 	return &testEnv{
 		srv:        srv,
+		db:         db,
 		store:      store,
 		pluginHost: phost,
 		authStore:  as,

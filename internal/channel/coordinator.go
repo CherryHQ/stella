@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"strings"
 
+	"filippo.io/age"
+
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/vault"
 	"github.com/vaayne/anna/pkg/ai"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
@@ -25,6 +28,8 @@ type Coordinator struct {
 	authStore        auth.AuthStore
 	engine           *auth.PolicyEngine
 	linkCodes        *auth.LinkCodeStore
+	vaultRecipient   *age.X25519Recipient
+	vaultSvc         *vault.Service
 	listFn           func() []pkgchannel.ModelOption
 	switchFn         func(provider, model string) error
 	queue            *sessionQueue
@@ -40,6 +45,14 @@ func WithCoordinatorAuth(authStore auth.AuthStore, engine *auth.PolicyEngine, li
 		c.authStore = authStore
 		c.engine = engine
 		c.linkCodes = linkCodes
+	}
+}
+
+// WithVaultRecipient sets the master age recipient so channel-provisioned users
+// get age keys immediately instead of waiting for the startup backfill.
+func WithVaultRecipient(r *age.X25519Recipient) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.vaultRecipient = r
 	}
 }
 
@@ -62,6 +75,13 @@ func NewCoordinator(
 		opt(c)
 	}
 	return c
+}
+
+// WithVaultService configures the coordinator with vault secret management.
+func WithVaultService(svc *vault.Service) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.vaultSvc = svc
+	}
 }
 
 func WithIntentClassifier(classifier IntentClassifier) CoordinatorOption {
@@ -109,6 +129,9 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 		// /abort is handled here directly so it can cancel the active message.
 		if command == "/abort" {
 			return c.handleAbort(rc), true, nil, nil
+		}
+		if command == "/config" {
+			return handleConfig(ctx, c.vaultSvc, rc.User.ID, args), true, nil, nil
 		}
 		if resp, ok := HandleCommand(ctx, rc, command+" "+args, msg.SenderID); ok {
 			return resp, true, nil, nil
@@ -279,10 +302,11 @@ func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.Provisio
 		return errors.New("provision: no admin exists yet; register the first admin before enabling auto-provisioning")
 	}
 	_, err = auth.ProvisionIdentityUser(ctx, c.authStore, auth.ProvisionRequest{
-		Platform:   req.Platform,
-		ExternalID: req.ExternalID,
-		Name:       req.Name,
-		EmailHint:  req.EmailHint,
+		Platform:       req.Platform,
+		ExternalID:     req.ExternalID,
+		Name:           req.Name,
+		EmailHint:      req.EmailHint,
+		VaultRecipient: c.vaultRecipient,
 	})
 	return err
 }

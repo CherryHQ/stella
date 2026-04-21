@@ -24,7 +24,7 @@ func (q *Queries) CountAuthUsers(ctx context.Context) (int64, error) {
 const createAuthUser = `-- name: CreateAuthUser :one
 INSERT INTO auth_users (username, password_hash)
 VALUES (?, ?)
-RETURNING id, username, password_hash, role, is_active, default_agent_id, notify_identity_id, created_at, updated_at
+RETURNING id, username, password_hash, role, is_active, default_agent_id, notify_identity_id, age_public_key, age_private_key, created_at, updated_at
 `
 
 type CreateAuthUserParams struct {
@@ -43,6 +43,8 @@ func (q *Queries) CreateAuthUser(ctx context.Context, arg CreateAuthUserParams) 
 		&i.IsActive,
 		&i.DefaultAgentID,
 		&i.NotifyIdentityID,
+		&i.AgePublicKey,
+		&i.AgePrivateKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -59,7 +61,7 @@ func (q *Queries) DeleteAuthUser(ctx context.Context, id int64) error {
 }
 
 const getAuthUser = `-- name: GetAuthUser :one
-SELECT id, username, password_hash, role, is_active, default_agent_id, notify_identity_id, created_at, updated_at FROM auth_users WHERE id = ?
+SELECT id, username, password_hash, role, is_active, default_agent_id, notify_identity_id, age_public_key, age_private_key, created_at, updated_at FROM auth_users WHERE id = ?
 `
 
 func (q *Queries) GetAuthUser(ctx context.Context, id int64) (AuthUser, error) {
@@ -73,6 +75,8 @@ func (q *Queries) GetAuthUser(ctx context.Context, id int64) (AuthUser, error) {
 		&i.IsActive,
 		&i.DefaultAgentID,
 		&i.NotifyIdentityID,
+		&i.AgePublicKey,
+		&i.AgePrivateKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -80,7 +84,7 @@ func (q *Queries) GetAuthUser(ctx context.Context, id int64) (AuthUser, error) {
 }
 
 const getAuthUserByUsername = `-- name: GetAuthUserByUsername :one
-SELECT id, username, password_hash, role, is_active, default_agent_id, notify_identity_id, created_at, updated_at FROM auth_users WHERE username = ?
+SELECT id, username, password_hash, role, is_active, default_agent_id, notify_identity_id, age_public_key, age_private_key, created_at, updated_at FROM auth_users WHERE username = ?
 `
 
 func (q *Queries) GetAuthUserByUsername(ctx context.Context, username string) (AuthUser, error) {
@@ -94,6 +98,8 @@ func (q *Queries) GetAuthUserByUsername(ctx context.Context, username string) (A
 		&i.IsActive,
 		&i.DefaultAgentID,
 		&i.NotifyIdentityID,
+		&i.AgePublicKey,
+		&i.AgePrivateKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -101,7 +107,7 @@ func (q *Queries) GetAuthUserByUsername(ctx context.Context, username string) (A
 }
 
 const listAuthUsers = `-- name: ListAuthUsers :many
-SELECT id, username, password_hash, role, is_active, default_agent_id, notify_identity_id, created_at, updated_at FROM auth_users ORDER BY username
+SELECT id, username, password_hash, role, is_active, default_agent_id, notify_identity_id, age_public_key, age_private_key, created_at, updated_at FROM auth_users ORDER BY username
 `
 
 func (q *Queries) ListAuthUsers(ctx context.Context) ([]AuthUser, error) {
@@ -121,6 +127,8 @@ func (q *Queries) ListAuthUsers(ctx context.Context) ([]AuthUser, error) {
 			&i.IsActive,
 			&i.DefaultAgentID,
 			&i.NotifyIdentityID,
+			&i.AgePublicKey,
+			&i.AgePrivateKey,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -211,5 +219,24 @@ type UpdateAuthUserRoleParams struct {
 
 func (q *Queries) UpdateAuthUserRole(ctx context.Context, arg UpdateAuthUserRoleParams) error {
 	_, err := q.db.ExecContext(ctx, updateAuthUserRole, arg.Role, arg.ID)
+	return err
+}
+
+const updateUserAgeKeys = `-- name: UpdateUserAgeKeys :exec
+UPDATE auth_users SET
+    age_public_key = ?,
+    age_private_key = ?,
+    updated_at = datetime('now')
+WHERE id = ?
+`
+
+type UpdateUserAgeKeysParams struct {
+	AgePublicKey  string `json:"age_public_key"`
+	AgePrivateKey string `json:"age_private_key"`
+	ID            int64  `json:"id"`
+}
+
+func (q *Queries) UpdateUserAgeKeys(ctx context.Context, arg UpdateUserAgeKeysParams) error {
+	_, err := q.db.ExecContext(ctx, updateUserAgeKeys, arg.AgePublicKey, arg.AgePrivateKey, arg.ID)
 	return err
 }

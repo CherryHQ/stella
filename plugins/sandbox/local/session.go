@@ -14,11 +14,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
 	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
 )
+
+// sandboxEnvDenyList is the set of host environment variable names that must
+// never be copied into a sandbox environment, even when InheritEnv is true.
+// These variables hold host-level secrets that sandboxed processes must not
+// access.
+var sandboxEnvDenyList = []string{"ANNA_VAULT_KEY"}
 
 // Factory creates local sandbox sessions that run directly on the host OS.
 type Factory struct{}
@@ -371,6 +378,9 @@ func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 	if policy.InheritEnv {
 		for _, kv := range os.Environ() {
 			if before, after, ok := strings.Cut(kv, "="); ok {
+				if slices.Contains(sandboxEnvDenyList, before) {
+					continue
+				}
 				merged[before] = after
 			}
 		}

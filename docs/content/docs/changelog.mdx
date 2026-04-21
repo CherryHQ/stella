@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ✨ Features
+
+- **Vault**: Add per-user encrypted secret storage with age envelope encryption; secrets injected as env vars into sandbox sessions
+
 ### ⚠️ Breaking Changes
 
 - **Sandbox**: Retire `boxsh` backend — Docker is now the only sandbox backend. Install and start Docker Desktop (macOS/Windows) or the Docker daemon (Linux) before upgrading. Users with `sandbox.backend = "boxsh"` in their config will have it automatically remapped with a one-time log warning.

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/auth"
+	"github.com/vaayne/anna/internal/vault"
 )
 
 // registerHandler handles POST /api/auth/register.
@@ -79,6 +80,16 @@ func (s *Server) registerHandler(w http.ResponseWriter, r *http.Request) {
 	// First user gets admin role.
 	if isFirstUser {
 		_ = s.authStore.UpdateUserRole(ctx, user.ID, auth.RoleAdmin)
+	}
+
+	// Generate vault keys if the master recipient is configured.
+	if s.vaultRecipient != nil {
+		pubKey, encPrivKey, err := vault.GenerateUserKeys(s.vaultRecipient)
+		if err != nil {
+			s.log.Warn("generate age keys failed", "user_id", user.ID, "error", err)
+		} else if err := s.authStore.UpdateUserAgeKeys(ctx, user.ID, pubKey, encPrivKey); err != nil {
+			s.log.Warn("store age keys failed", "user_id", user.ID, "error", err)
+		}
 	}
 
 	// Create session.
