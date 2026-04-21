@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
@@ -145,6 +146,44 @@ func TestResolvePath_remapped(t *testing.T) {
 	}
 	if got != f {
 		t.Errorf("ResolvePath(/workspace/main.go) = %q, want %q", got, f)
+	}
+}
+
+// TestBuildEnv_denyListFiltersVaultKey verifies that ANNA_VAULT_KEY is never
+// copied from the host environment into the sandbox env, even when InheritEnv
+// is true, while other env vars (e.g. PATH) remain present.
+func TestBuildEnv_denyListFiltersVaultKey(t *testing.T) {
+	t.Setenv("ANNA_VAULT_KEY", "age-secret-key-1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot: t.TempDir(),
+			WorkingDir:    t.TempDir(),
+		},
+		InheritEnv: true,
+	}
+
+	env := buildEnv(policy, nil)
+
+	// ANNA_VAULT_KEY must not appear in the sandbox env.
+	for _, kv := range env {
+		key, _, _ := strings.Cut(kv, "=")
+		if key == "ANNA_VAULT_KEY" {
+			t.Fatalf("ANNA_VAULT_KEY must not be present in sandbox env, but got: %q", kv)
+		}
+	}
+
+	// At least one other var (PATH) should be present since InheritEnv is true.
+	found := false
+	for _, kv := range env {
+		key, _, _ := strings.Cut(kv, "=")
+		if key == "PATH" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected PATH to be present in sandbox env when InheritEnv is true")
 	}
 }
 

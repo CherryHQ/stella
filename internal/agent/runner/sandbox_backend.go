@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"sync"
 
@@ -118,6 +119,30 @@ func runnerFilesystemPolicy(paths sandboxPaths) sandbox.FilesystemPolicy {
 	}
 }
 
+// buildSandboxEnv constructs the Policy.Env map for a sandbox session.
+// Vault secrets (if any) are used as the base so that runner-set variables
+// (e.g. ANNA_HOME) always take precedence over user-defined secrets.
+func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths) map[string]string {
+	env := make(map[string]string)
+
+	if cfg.VaultEnvLoader != nil {
+		vaultEnv, err := cfg.VaultEnvLoader.LoadEnv(ctx, cfg.UserID)
+		if err != nil {
+			slog.Warn("vault env injection skipped",
+				"component", "runner_sandbox",
+				"user_id", cfg.UserID,
+				"error", err,
+			)
+		} else {
+			maps.Copy(env, vaultEnv)
+		}
+	}
+
+	// Runner-set vars overlay vault entries so they always take precedence.
+	maps.Copy(env, sandboxProcessEnv(paths))
+	return env
+}
+
 func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
 	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
 		trace.WithAttributes(
@@ -140,7 +165,7 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 		Network: sandbox.NetworkPolicy{
 			Mode: sandbox.NetworkMode(cfg.Sandbox.Network.Mode),
 		},
-		Env:        sandboxProcessEnv(paths),
+		Env:        buildSandboxEnv(ctx, cfg, paths),
 		InheritEnv: true,
 	}
 
@@ -192,7 +217,7 @@ func createLocalSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		Network: sandbox.NetworkPolicy{
 			Mode: sandbox.NetworkMode(cfg.Sandbox.Network.Mode),
 		},
-		Env:        sandboxProcessEnv(paths),
+		Env:        buildSandboxEnv(ctx, cfg, paths),
 		InheritEnv: true,
 	}
 

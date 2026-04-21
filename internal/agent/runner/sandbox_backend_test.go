@@ -8,6 +8,16 @@ import (
 	"github.com/vaayne/anna/internal/config"
 )
 
+// stubVaultLoader is a test-only VaultEnvLoader that returns a fixed map.
+type stubVaultLoader struct {
+	env map[string]string
+	err error
+}
+
+func (s *stubVaultLoader) LoadEnv(_ context.Context, _ int64) (map[string]string, error) {
+	return s.env, s.err
+}
+
 // TestResolveSessionRequiresUserRoot tests that resolveSession fails without a UserRoot.
 func TestResolveSessionRequiresUserRoot(t *testing.T) {
 	_, err := resolveSession(context.Background(), GoRunnerConfig{
@@ -124,5 +134,61 @@ func TestRunnerSessionNilHandling(t *testing.T) {
 	// Close should not panic
 	if err := rs.Close(); err != nil {
 		t.Errorf("Close on nil: %v", err)
+	}
+}
+
+// TestBuildSandboxEnv_vaultSecretsInjected verifies that vault secrets appear
+// in the sandbox env and that runner-set vars (ANNA_HOME) take precedence over
+// any same-named vault entry.
+func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
+	cfg := GoRunnerConfig{
+		AnnaHome:  "/anna",
+		AgentRoot: "/workspace/agent",
+		UserRoot:  "/workspace/users/1",
+		UserID:    42,
+		VaultEnvLoader: &stubVaultLoader{
+			env: map[string]string{
+				"MY_SECRET":  "s3cr3t",
+				"ANNA_HOME":  "should-be-overridden", // runner var must win
+			},
+		},
+	}
+
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		t.Fatalf("resolveSandboxPaths: %v", err)
+	}
+
+	env := buildSandboxEnv(context.Background(), cfg, paths)
+
+	// Vault secret must be present.
+	if got := env["MY_SECRET"]; got != "s3cr3t" {
+		t.Errorf("MY_SECRET = %q, want %q", got, "s3cr3t")
+	}
+
+	// Runner var (ANNA_HOME) must override any same-named vault entry.
+	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
+		t.Errorf("ANNA_HOME = %q, want %q (runner var must take precedence)", got, cfg.AnnaHome)
+	}
+}
+
+// TestBuildSandboxEnv_noVaultLoader verifies that buildSandboxEnv behaves
+// correctly (returns runner env vars) when no vault loader is configured.
+func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
+	cfg := GoRunnerConfig{
+		AnnaHome:  "/anna",
+		AgentRoot: "/workspace/agent",
+		UserRoot:  "/workspace/users/1",
+	}
+
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		t.Fatalf("resolveSandboxPaths: %v", err)
+	}
+
+	env := buildSandboxEnv(context.Background(), cfg, paths)
+
+	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
+		t.Errorf("ANNA_HOME = %q, want %q", got, cfg.AnnaHome)
 	}
 }
