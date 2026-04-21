@@ -38,10 +38,13 @@ func (f *Factory) Supported(_ sandboxpkg.Policy) error { return nil }
 // CreateSession creates a new localSession.
 func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
 	sessionID := sandboxpkg.NewSessionID()
+	sandboxRoot, realRoot := resolveSandboxRoot(policy)
 	s := &localSession{
-		id:     sessionID,
-		policy: policy,
-		done:   make(chan struct{}),
+		id:          sessionID,
+		policy:      policy,
+		realRoot:    realRoot,
+		sandboxRoot: sandboxRoot,
+		done:        make(chan struct{}),
 	}
 	sandboxpkg.LogSessionCreated(sessionID, "local", policy)
 	return s, nil
@@ -52,26 +55,37 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 // localSession implements sandboxpkg.Session by running commands directly on
 // the host OS with no container isolation.
 type localSession struct {
-	id       string
-	policy   sandboxpkg.Policy
-	done     chan struct{}
-	doneOnce sync.Once
-	mu       sync.RWMutex
-	closed   bool
-	procs    []*localProcess
+	id          string
+	policy      sandboxpkg.Policy
+	realRoot    string // actual host path (e.g. /home/anna/.anna-dev/...)
+	sandboxRoot string // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
+	done        chan struct{}
+	doneOnce    sync.Once
+	mu          sync.RWMutex
+	closed      bool
+	procs       []*localProcess
 }
 
 func (s *localSession) Policy() sandboxpkg.Policy { return s.policy }
 
 func (s *localSession) WorkspaceRoot() string {
-	return s.policy.WorkspaceRootOrDefault()
+	return s.sandboxRoot
 }
 
 func (s *localSession) WorkingDir() string {
-	if s.policy.Filesystem.WorkingDir != "" {
-		return s.policy.Filesystem.WorkingDir
+	wd := s.policy.Filesystem.WorkingDir
+	if wd == "" {
+		return s.sandboxRoot
 	}
-	return s.WorkspaceRoot()
+	// Translate real-root paths into sandbox-space paths.
+	cleanReal := filepath.Clean(s.realRoot)
+	if wd == cleanReal || strings.HasPrefix(wd, cleanReal+string(filepath.Separator)) {
+		rel, err := filepath.Rel(cleanReal, wd)
+		if err == nil {
+			return filepath.Join(s.sandboxRoot, rel)
+		}
+	}
+	return wd
 }
 
 func (s *localSession) Alive() bool {
@@ -117,32 +131,49 @@ func (s *localSession) deregisterProcess(p *localProcess) {
 	}
 }
 
-// ResolvePath resolves a path and rejects anything outside WorkspaceRoot.
+// ResolvePath resolves an agent-space path to a real host path, rejecting
+// anything that resolves outside the workspace root.
+// The agent may pass sandbox-space paths (e.g. /workspace/foo.go); this
+// translates them to real host paths before any OS operations.
 // Uses filepath.EvalSymlinks so symlink traversals cannot escape the workspace.
 func (s *localSession) ResolvePath(agentPath string) (string, error) {
-	root := s.WorkspaceRoot()
-
+	// 1. Make absolute in sandbox space.
 	abs := agentPath
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(s.WorkingDir(), agentPath)
 	}
+	// 2. Translate sandbox → real host path.
+	real := s.toRealPath(abs)
 
-	// EvalSymlinks requires the path to exist; fall back to Clean for
+	// 3. EvalSymlinks requires the path to exist; fall back to Clean for
 	// non-existent paths so that tools creating new files still work.
-	resolved, err := filepath.EvalSymlinks(abs)
+	resolved, err := filepath.EvalSymlinks(real)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return "", fmt.Errorf("local: resolve path %q: %w", agentPath, err)
 		}
-		resolved = filepath.Clean(abs)
+		resolved = filepath.Clean(real)
 	}
 
-	// Ensure the resolved root prefix is absolute and cleaned.
-	cleanRoot := filepath.Clean(root)
+	// 4. Ensure the resolved path stays within the real workspace root.
+	cleanRoot := filepath.Clean(s.realRoot)
 	if resolved != cleanRoot && !strings.HasPrefix(resolved, cleanRoot+string(filepath.Separator)) {
-		return "", fmt.Errorf("local: path %q resolves to %q which is outside workspace root %q", agentPath, resolved, root)
+		return "", fmt.Errorf("local: path %q resolves to %q which is outside workspace root %q", agentPath, resolved, s.realRoot)
 	}
 	return resolved, nil
+}
+
+// toRealPath translates a sandbox-space absolute path to the real host path.
+// When sandboxRoot == realRoot (no remapping), it is a no-op.
+func (s *localSession) toRealPath(sandboxPath string) string {
+	if s.sandboxRoot == s.realRoot {
+		return sandboxPath
+	}
+	rel, err := filepath.Rel(s.sandboxRoot, sandboxPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return sandboxPath
+	}
+	return filepath.Join(s.realRoot, rel)
 }
 
 // Exec runs a shell command via sh -c on the host.
@@ -155,9 +186,9 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local: session is closed")
 	}
 
-	cwd := opts.Cwd
-	if cwd == "" {
-		cwd = s.WorkingDir()
+	sandboxCwd := opts.Cwd
+	if sandboxCwd == "" {
+		sandboxCwd = s.WorkingDir()
 	}
 
 	timeout := opts.Timeout
@@ -170,7 +201,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		defer cancel()
 	}
 
-	execPath, execArgs, err := wrapCommand(s.policy, "sh", []string{"-c", command})
+	execPath, execArgs, hostCwd, err := wrapCommand(s.policy, sandboxCwd, "sh", []string{"-c", command})
 	if err != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: wrap: %w", err)
 	}
@@ -178,7 +209,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	// Finding 2: do NOT use exec.CommandContext — it only kills the leader PID,
 	// leaving process-group children alive. We manage cancellation manually.
 	cmd := exec.Command(execPath, execArgs...)
-	cmd.Dir = cwd
+	cmd.Dir = hostCwd
 	cmd.Env = buildEnv(s.policy, opts.Env)
 	setSysProcAttr(cmd)
 
@@ -226,9 +257,9 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 
 // StartProcess starts a long-running process on the host and returns a handle.
 func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
-	cwd := req.Cwd
-	if cwd == "" {
-		cwd = s.WorkingDir()
+	sandboxCwd := req.Cwd
+	if sandboxCwd == "" {
+		sandboxCwd = s.WorkingDir()
 	}
 
 	timeout := req.Timeout
@@ -249,7 +280,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 	args := make([]string, 0, len(req.Args))
 	args = append(args, req.Args...)
 
-	execPath, execArgs, err := wrapCommand(s.policy, req.Path, args)
+	execPath, execArgs, hostCwd, err := wrapCommand(s.policy, sandboxCwd, req.Path, args)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("local start_process: wrap: %w", err)
@@ -257,7 +288,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 
 	// Finding 2: do NOT use exec.CommandContext — kill the process group instead.
 	cmd := exec.Command(execPath, execArgs...)
-	cmd.Dir = cwd
+	cmd.Dir = hostCwd
 	cmd.Env = buildEnv(s.policy, req.Env)
 	setSysProcAttr(cmd)
 

@@ -19,7 +19,7 @@ func TestWrapCommand_darwin_containsWorkspaceRoot(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, err := wrapCommand(policy, "sh", []string{"-c", "echo hi"})
+	_, args, _, err := wrapCommand(policy, root, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		// sandbox-exec may not be present on all macOS versions; skip in that case.
 		if strings.Contains(err.Error(), "sandbox-exec unavailable") {
@@ -49,7 +49,7 @@ func TestWrapCommand_darwin_networkAllow(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, err := wrapCommand(policy, "sh", []string{"-c", "echo hi"})
+	_, args, _, err := wrapCommand(policy, root, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		if strings.Contains(err.Error(), "sandbox-exec unavailable") {
 			t.Skip("sandbox-exec not available on this system")
@@ -77,7 +77,7 @@ func TestWrapCommand_darwin_networkDeny(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled},
 	}
 
-	_, args, err := wrapCommand(policy, "sh", []string{"-c", "echo hi"})
+	_, args, _, err := wrapCommand(policy, root, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		if strings.Contains(err.Error(), "sandbox-exec unavailable") {
 			t.Skip("sandbox-exec not available on this system")

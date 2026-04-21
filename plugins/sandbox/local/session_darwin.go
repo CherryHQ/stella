@@ -36,12 +36,22 @@ const seatbeltProfile = `(version 1)
 NETWORK_RULE
 `
 
+// resolveSandboxRoot returns the sandbox-space root and the real host root.
+// On macOS there is no path remapping, so both are always identical.
+func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
+	real := policy.WorkspaceRootOrDefault()
+	return real, real
+}
+
 // wrapCommand wraps name+args with sandbox-exec using a Seatbelt profile on
 // macOS. If sandbox-exec is not available, an actionable error is returned.
-func wrapCommand(policy sandboxpkg.Policy, name string, args []string) (string, []string, error) {
-	sandboxExecPath, err := exec.LookPath("sandbox-exec")
-	if err != nil {
-		return "", nil, fmt.Errorf(
+//
+//   - sandboxCwd: the working directory in sandbox space (equals real path on macOS).
+//   - hostCwd returned: sandboxCwd (no remapping on macOS).
+func wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []string) (execPath string, execArgs []string, hostCwd string, err error) {
+	sandboxExecPath, lookErr := exec.LookPath("sandbox-exec")
+	if lookErr != nil {
+		return "", nil, "", fmt.Errorf(
 			"local sandbox: sandbox-exec unavailable on this macOS version; " +
 				"use the docker backend for isolation",
 		)
@@ -66,5 +76,5 @@ func wrapCommand(policy sandboxpkg.Policy, name string, args []string) (string, 
 
 	sandboxArgs := []string{"-p", profile, name}
 	sandboxArgs = append(sandboxArgs, args...)
-	return sandboxExecPath, sandboxArgs, nil
+	return sandboxExecPath, sandboxArgs, sandboxCwd, nil
 }

@@ -65,48 +65,65 @@ func applyRlimits(cmd *exec.Cmd) error {
 	return nil
 }
 
-// wrapCommand wraps name+args with bwrap (preferred) or unshare for network
-// isolation on Linux. If neither tool is available and network isolation is
-// required, an error is returned.
-func wrapCommand(policy sandboxpkg.Policy, name string, args []string) (string, []string, error) {
-	workspaceRoot := policy.WorkspaceRootOrDefault()
+// resolveSandboxRoot returns the sandbox-space root and the real host root.
+// On Linux, if bwrap is available, the agent always sees /workspace; otherwise
+// both roots are identical.
+func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
+	real := policy.WorkspaceRootOrDefault()
+	if _, err := exec.LookPath("bwrap"); err == nil {
+		return "/workspace", real
+	}
+	return real, real
+}
+
+// wrapCommand wraps name+args with bwrap (preferred) or unshare for network/fs
+// isolation on Linux.
+//
+//   - sandboxCwd: the working directory in sandbox space (e.g. /workspace/sub).
+//   - hostCwd returned: what to set as cmd.Dir on the host (irrelevant for bwrap
+//     since bwrap uses --chdir internally, but returned for consistency).
+//
+// If neither bwrap nor unshare is available and network isolation is required,
+// an error is returned.
+func wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []string) (execPath string, execArgs []string, hostCwd string, err error) {
+	realRoot := policy.WorkspaceRootOrDefault()
 	networkMode := policy.NetworkModeOrDefault()
 
-	// Finding 6: when network is allow_all, no isolation is needed — run unwrapped.
-	if networkMode == sandboxpkg.NetworkAllowAll {
-		return name, args, nil
-	}
-
-	// Network isolation required — try bubblewrap first.
-	bwrapPath, err := exec.LookPath("bwrap")
-	if err == nil {
+	// Always try bwrap first: it gives us both /workspace path remapping and
+	// optional network isolation.
+	bwrapPath, bwrapErr := exec.LookPath("bwrap")
+	if bwrapErr == nil {
 		bwrapArgs := []string{
 			"--ro-bind", "/", "/",
-			"--bind", workspaceRoot, workspaceRoot,
+			"--dir", "/workspace",
+			"--bind", realRoot, "/workspace",
 			"--dev", "/dev",
 			"--tmpfs", "/tmp",
 			"--proc", "/proc",
-			"--unshare-net",
+			"--chdir", sandboxCwd,
 		}
-		bwrapArgs = append(bwrapArgs, "--")
-		bwrapArgs = append(bwrapArgs, name)
+		if networkMode != sandboxpkg.NetworkAllowAll {
+			bwrapArgs = append(bwrapArgs, "--unshare-net")
+		}
+		bwrapArgs = append(bwrapArgs, "--", name)
 		bwrapArgs = append(bwrapArgs, args...)
-		return bwrapPath, bwrapArgs, nil
+		// hostCwd is irrelevant for bwrap (--chdir handles it inside the sandbox).
+		return bwrapPath, bwrapArgs, realRoot, nil
 	}
 
-	// Fall back to unshare for network-only isolation.
-	unsharePath, err := exec.LookPath("unshare")
-	if err == nil {
-		unshareArgs := []string{"--net", "--"}
-		unshareArgs = append(unshareArgs, name)
-		unshareArgs = append(unshareArgs, args...)
-		return unsharePath, unshareArgs, nil
+	// No bwrap — fall through with real paths. sandboxRoot == realRoot here.
+	if networkMode != sandboxpkg.NetworkAllowAll {
+		unsharePath, unshareErr := exec.LookPath("unshare")
+		if unshareErr == nil {
+			unshareArgs := []string{"--net", "--", name}
+			unshareArgs = append(unshareArgs, args...)
+			return unsharePath, unshareArgs, sandboxCwd, nil
+		}
+		return "", nil, "", fmt.Errorf(
+			"local sandbox: neither bwrap nor unshare is available; " +
+				"network isolation cannot be enforced — " +
+				"install bubblewrap or use the docker backend",
+		)
 	}
-
-	// Neither tool found — network isolation cannot be enforced.
-	return "", nil, fmt.Errorf(
-		"local sandbox: neither bwrap nor unshare is available; " +
-			"network isolation cannot be enforced — " +
-			"install bubblewrap or use the docker backend",
-	)
+	return name, args, sandboxCwd, nil
 }

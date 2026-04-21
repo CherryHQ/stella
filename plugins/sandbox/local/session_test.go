@@ -12,6 +12,7 @@ import (
 // newTestSession returns a localSession with a temporary workspace root.
 // The root is resolved through EvalSymlinks so that macOS /var → /private/var
 // symlinks do not cause false path-escape rejections.
+// sandboxRoot and realRoot are both set to root (no remapping in tests).
 func newTestSession(t *testing.T) (*localSession, string) {
 	t.Helper()
 	rawRoot := t.TempDir()
@@ -28,9 +29,11 @@ func newTestSession(t *testing.T) (*localSession, string) {
 		InheritEnv: true,
 	}
 	s := &localSession{
-		id:     "test",
-		policy: policy,
-		done:   make(chan struct{}),
+		id:          "test",
+		policy:      policy,
+		realRoot:    root,
+		sandboxRoot: root,
+		done:        make(chan struct{}),
 	}
 	return s, root
 }
@@ -66,6 +69,82 @@ func TestResolvePath_acceptsInsideRoot(t *testing.T) {
 	// The resolved path should equal f (root is already EvalSymlinks-resolved).
 	if got != f {
 		t.Errorf("expected %q, got %q", f, got)
+	}
+}
+
+// TestToRealPath verifies the sandbox→real path translation.
+func TestToRealPath(t *testing.T) {
+	s := &localSession{
+		sandboxRoot: "/workspace",
+		realRoot:    "/home/anna/.anna-dev/workspaces/1",
+	}
+
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"/workspace/foo.go", "/home/anna/.anna-dev/workspaces/1/foo.go"},
+		{"/workspace/sub/dir/file.go", "/home/anna/.anna-dev/workspaces/1/sub/dir/file.go"},
+		// Exact root
+		{"/workspace", "/home/anna/.anna-dev/workspaces/1"},
+		// Outside sandboxRoot — returned unchanged
+		{"/etc/passwd", "/etc/passwd"},
+	}
+	for _, tc := range tests {
+		got := s.toRealPath(tc.in)
+		if got != tc.want {
+			t.Errorf("toRealPath(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestToRealPath_noRemap verifies that toRealPath is a no-op when sandboxRoot == realRoot.
+func TestToRealPath_noRemap(t *testing.T) {
+	root := "/tmp/ws"
+	s := &localSession{sandboxRoot: root, realRoot: root}
+	input := "/tmp/ws/foo.go"
+	got := s.toRealPath(input)
+	if got != input {
+		t.Errorf("toRealPath(%q) = %q, want unchanged %q", input, got, input)
+	}
+}
+
+// TestResolvePath_remapped verifies that ResolvePath translates a sandbox-space
+// path to the real host path when sandboxRoot != realRoot.
+func TestResolvePath_remapped(t *testing.T) {
+	rawRoot := t.TempDir()
+	root, err := filepath.EvalSymlinks(rawRoot)
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+
+	// Create a file in the real root.
+	f := filepath.Join(root, "main.go")
+	if err := os.WriteFile(f, []byte("package main"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot: root,
+			WorkingDir:    root,
+		},
+	}
+	s := &localSession{
+		id:          "test",
+		policy:      policy,
+		realRoot:    root,
+		sandboxRoot: "/workspace",
+		done:        make(chan struct{}),
+	}
+
+	// Agent passes sandbox-space path.
+	got, err := s.ResolvePath("/workspace/main.go")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != f {
+		t.Errorf("ResolvePath(/workspace/main.go) = %q, want %q", got, f)
 	}
 }
 
