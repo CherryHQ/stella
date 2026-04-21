@@ -50,6 +50,7 @@ FROM debian:13-slim AS app
 RUN apt-get update \
     && apt-get -y --no-install-recommends install \
         ca-certificates libncurses6 libstdc++6 \
+        bubblewrap util-linux \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /home/nonroot /workspace \
     && chown -R 65532:65532 /home/nonroot /workspace
