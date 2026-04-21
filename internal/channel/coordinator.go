@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"filippo.io/age"
+
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
@@ -25,6 +27,7 @@ type Coordinator struct {
 	authStore        auth.AuthStore
 	engine           *auth.PolicyEngine
 	linkCodes        *auth.LinkCodeStore
+	vaultRecipient   *age.X25519Recipient
 	listFn           func() []pkgchannel.ModelOption
 	switchFn         func(provider, model string) error
 	queue            *sessionQueue
@@ -40,6 +43,14 @@ func WithCoordinatorAuth(authStore auth.AuthStore, engine *auth.PolicyEngine, li
 		c.authStore = authStore
 		c.engine = engine
 		c.linkCodes = linkCodes
+	}
+}
+
+// WithVaultRecipient sets the master age recipient so channel-provisioned users
+// get age keys immediately instead of waiting for the startup backfill.
+func WithVaultRecipient(r *age.X25519Recipient) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.vaultRecipient = r
 	}
 }
 
@@ -279,10 +290,11 @@ func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.Provisio
 		return errors.New("provision: no admin exists yet; register the first admin before enabling auto-provisioning")
 	}
 	_, err = auth.ProvisionIdentityUser(ctx, c.authStore, auth.ProvisionRequest{
-		Platform:   req.Platform,
-		ExternalID: req.ExternalID,
-		Name:       req.Name,
-		EmailHint:  req.EmailHint,
+		Platform:       req.Platform,
+		ExternalID:     req.ExternalID,
+		Name:           req.Name,
+		EmailHint:      req.EmailHint,
+		VaultRecipient: c.vaultRecipient,
 	})
 	return err
 }

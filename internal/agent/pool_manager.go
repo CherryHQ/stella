@@ -170,11 +170,20 @@ func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManager
 	return pm
 }
 
-// SetVaultEnvLoader sets the vault env loader after construction.
-func (pm *PoolManager) SetVaultEnvLoader(v runner.VaultEnvLoader) {
+// SetVaultEnvLoader sets the vault env loader and rebuilds all pool factories
+// so existing pools pick up the loader. Must be called after StartAll.
+func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v runner.VaultEnvLoader) {
 	pm.mu.Lock()
-	defer pm.mu.Unlock()
 	pm.vaultEnvLoader = v
+	pools := make(map[string]*Pool, len(pm.pools))
+	maps.Copy(pools, pm.pools)
+	pm.mu.Unlock()
+
+	for agentID, pool := range pools {
+		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
+			pm.log.Error("failed to rebuild factory after vault loader set", "agent_id", agentID, "error", err)
+		}
+	}
 }
 
 // Get returns the Pool for the given agent ID, or nil if not found.

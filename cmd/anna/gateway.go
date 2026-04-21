@@ -94,6 +94,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	adminSrv := admin.New(s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
 
 	// Wire vault service if ANNA_VAULT_KEY is set.
+	var coordOpts []channel.CoordinatorOption
+	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, engine, linkCodes))
 	if vaultKey := os.Getenv("ANNA_VAULT_KEY"); vaultKey != "" {
 		vaultSvc, err := vault.NewService(sqlc.New(s.db), vaultKey)
 		if err != nil {
@@ -101,7 +103,8 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		} else {
 			adminSrv.SetVaultService(vaultSvc)
 			adminSrv.SetVaultRecipient(vaultSvc.MasterRecipient())
-			s.poolManager.SetVaultEnvLoader(vaultSvc)
+			s.poolManager.SetVaultEnvLoader(gctx, vaultSvc)
+			coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultSvc.MasterRecipient()))
 			n, err := vault.BackfillUserKeys(gctx, sqlc.New(s.db), vaultSvc.MasterRecipient())
 			if err != nil {
 				slog.Warn("vault: backfill user keys failed", "error", err)
@@ -112,6 +115,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	}
 
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
+	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
 
 	// Create the coordinator that implements MessageHandler for all channels.
 	coordinator := channel.NewCoordinator(
@@ -119,8 +123,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.store,
 		listFn,
 		switchFn,
-		channel.WithCoordinatorAuth(as, engine, linkCodes),
-		channel.WithIntentClassifier(intentClassifier),
+		coordOpts...,
 	)
 	if s.channelRuntimeServices != nil {
 		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)
