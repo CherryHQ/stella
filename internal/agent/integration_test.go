@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent/runner"
-	"github.com/vaayne/anna/internal/resources/binaries"
 	"github.com/vaayne/anna/pkg/providers"
 	anthropicprovider "github.com/vaayne/anna/plugins/providers/anthropic"
 )
@@ -31,16 +30,6 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 
 	annaHome := t.TempDir()
 	workspace := t.TempDir()
-	binDir := filepath.Join(annaHome, "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	_ = binaries.EnsureTools(annaHome)
-	boxshPath := filepath.Join(binDir, "boxsh")
-	_ = os.Remove(boxshPath)
-	if err := os.WriteFile(boxshPath, []byte("#!/bin/sh\necho boxsh 2.0.1\n"), 0o755); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
 
 	userRoot := filepath.Join(workspace, "users", "1", "data")
 	if err := os.MkdirAll(userRoot, 0o755); err != nil {

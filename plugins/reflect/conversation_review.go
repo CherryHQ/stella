@@ -89,7 +89,7 @@ func (s *Service) newConversationReviewer(snap *pkgplugins.ReflectSnapshot, user
 	return newReviewer(reviewerConfig{
 		Providers:      reg,
 		Model:          model,
-		SkillsTool:     skillstool.NewTool(s.skillStore, "", snap.Workspace, "", userSkillsDir(snap.Workspace, userID), nil),
+		SkillsTool:     skillstool.NewTool(s.skillStore, "", snap.Workspace, "", userSkillsDir(snap.Workspace, userID)),
 		MemoryTool:     memory.BuildTool(s.memory, memory.WithActionsOnly("profile_get", "profile_update")),
 		ExistingSkills: loadExistingSkillNames(context.Background(), s.skillStore, userID),
 	})

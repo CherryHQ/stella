@@ -22,6 +22,15 @@ func TestPolicyValidate(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
+	t.Run("allow_all network mode ok", func(t *testing.T) {
+		p := Policy{
+			Filesystem: FilesystemPolicy{WorkingDir: "/tmp/ws"},
+			Network:    NetworkPolicy{Mode: NetworkAllowAll},
+		}
+		if err := p.Validate(); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 	t.Run("invalid network mode", func(t *testing.T) {
 		p := Policy{
 			Filesystem: FilesystemPolicy{WorkingDir: "/tmp/ws"},
@@ -31,49 +40,12 @@ func TestPolicyValidate(t *testing.T) {
 			t.Fatal("expected error for invalid network mode")
 		}
 	})
-	t.Run("whitelist requires allowlist", func(t *testing.T) {
-		p := Policy{
-			Filesystem: FilesystemPolicy{WorkingDir: "/tmp/ws"},
-			Network:    NetworkPolicy{Mode: NetworkWhitelist},
-		}
-		if err := p.Validate(); err == nil {
-			t.Fatal("expected error: whitelist with empty allowlist")
-		}
-	})
-	t.Run("whitelist with allowlist ok", func(t *testing.T) {
-		p := Policy{
-			Filesystem: FilesystemPolicy{WorkingDir: "/tmp/ws"},
-			Network:    NetworkPolicy{Mode: NetworkWhitelist, Allowlist: []string{"example.com"}},
-		}
-		if err := p.Validate(); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
 	t.Run("missing working dir", func(t *testing.T) {
 		p := Policy{}
 		if err := p.Validate(); err == nil {
 			t.Fatal("expected error: missing WorkingDir")
 		}
 	})
-}
-
-func TestPolicyIsRelaxed(t *testing.T) {
-	if (Policy{}).IsRelaxed() {
-		t.Fatal("default policy should not be relaxed")
-	}
-	if !(Policy{Relaxed: true}).IsRelaxed() {
-		t.Fatal("relaxed policy should return true")
-	}
-}
-
-func TestPolicyRequiresWhitelist(t *testing.T) {
-	if (Policy{}).RequiresWhitelist() {
-		t.Fatal("default should not require whitelist")
-	}
-	p := Policy{Network: NetworkPolicy{Mode: NetworkWhitelist}}
-	if !p.RequiresWhitelist() {
-		t.Fatal("whitelist mode should require whitelist")
-	}
 }
 
 func TestNetworkModeOrDefault(t *testing.T) {
@@ -98,17 +70,17 @@ func TestWorkspaceRootOrDefault(t *testing.T) {
 }
 
 func TestPolicyCompatibilityError(t *testing.T) {
-	e := &PolicyCompatibilityError{Backend: "docker", Reason: "whitelist unsupported"}
+	e := &PolicyCompatibilityError{Backend: "docker", Reason: "unsupported"}
 	if !strings.Contains(e.Error(), "docker") {
 		t.Fatal("error should mention backend")
 	}
-	if !strings.Contains(e.Error(), "whitelist unsupported") {
+	if !strings.Contains(e.Error(), "unsupported") {
 		t.Fatal("error should mention reason")
 	}
 
-	e2 := &PolicyCompatibilityError{Backend: "docker", Reason: "no daemon", RelaxedWouldHelp: true}
-	if !strings.Contains(e2.Error(), "Relaxed=true") {
-		t.Fatal("error should mention Relaxed=true when RelaxedWouldHelp is set")
+	e2 := &PolicyCompatibilityError{Backend: "docker", Reason: "no daemon"}
+	if !strings.Contains(e2.Error(), "docker") {
+		t.Fatal("error should mention backend name")
 	}
 }
 

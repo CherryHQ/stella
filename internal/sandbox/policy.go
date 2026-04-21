@@ -7,14 +7,12 @@ type (
 	FilesystemPolicy         = sandboxpkg.FilesystemPolicy
 	NetworkMode              = sandboxpkg.NetworkMode
 	NetworkPolicy            = sandboxpkg.NetworkPolicy
-	ProcessPolicy            = sandboxpkg.ProcessPolicy
 	PolicyCompatibilityError = sandboxpkg.PolicyCompatibilityError
 )
 
 const (
-	NetworkDisabled  = sandboxpkg.NetworkDisabled
-	NetworkAllowAll  = sandboxpkg.NetworkAllowAll
-	NetworkWhitelist = sandboxpkg.NetworkWhitelist
+	NetworkDisabled = sandboxpkg.NetworkDisabled
+	NetworkAllowAll = sandboxpkg.NetworkAllowAll
 )
 
 func IsPolicyCompatibilityError(err error) bool {

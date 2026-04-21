@@ -7,6 +7,7 @@ import (
 
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/channel"
+	"github.com/vaayne/anna/pkg/sandbox"
 )
 
 // ToolPaths is the tool-facing session path surface.
@@ -25,7 +26,7 @@ type ToolPaths struct {
 type ToolContext struct {
 	Platform Platform
 	Paths    ToolPaths
-	Runtime  ToolRuntime
+	Runtime  sandbox.Session
 }
 
 // ProviderContext is the narrow build context for provider capabilities.

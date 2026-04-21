@@ -74,17 +74,15 @@ type Tool struct {
 	agentRoot     string
 	projectRoot   string
 	userSkillsDir string
-	runtime       pkgplugins.ToolRuntime
 }
 
-func NewTool(store pkgplugins.SkillStore, annaHome, agentRoot, projectRoot, userSkillsDir string, runtime pkgplugins.ToolRuntime) *Tool {
+func NewTool(store pkgplugins.SkillStore, annaHome, agentRoot, projectRoot, userSkillsDir string) *Tool {
 	return &Tool{
 		store:         store,
 		annaHome:      annaHome,
 		agentRoot:     agentRoot,
 		projectRoot:   projectRoot,
 		userSkillsDir: userSkillsDir,
-		runtime:       runtime,
 	}
 }
 

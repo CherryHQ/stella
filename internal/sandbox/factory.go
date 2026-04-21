@@ -1,12 +1,8 @@
 package sandbox
 
 import (
-	"runtime"
-
 	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
-	boxshplugin "github.com/vaayne/anna/plugins/sandbox/boxsh"
 	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
-	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
 )
 
 type (
@@ -26,9 +22,7 @@ func NewRegistry() *Registry {
 
 func DefaultRegistry() *Registry {
 	r := NewRegistry()
-	mustRegisterFactory(r, boxshplugin.NewFactory(), PlatformSupportsBoxsh())
 	mustRegisterFactory(r, dockerplugin.NewFactory(dockerplugin.Config{}), true)
-	mustRegisterFactory(r, localplugin.NewFactory(), true)
 	return r
 }
 
@@ -38,18 +32,5 @@ func mustRegisterFactory(r *Registry, factory Factory, enabled bool) {
 	}
 	if err := r.Register(factory); err != nil {
 		panic(err)
-	}
-}
-
-func PlatformSupportsBoxsh() bool {
-	return PlatformRequiresBoxsh()
-}
-
-func PlatformRequiresBoxsh() bool {
-	switch runtime.GOOS {
-	case "linux", "darwin":
-		return true
-	default:
-		return false
 	}
 }

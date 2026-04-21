@@ -140,7 +140,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 		content := "---\nname: test-agent\ndescription: A test agent\nmodel: claude-haiku\nmax_turns: 3\ntimeout: 2m\n---\nYou are a test agent."
 		writeTestFile(t, path, []byte(content), 0o644)
 
-		p, ok := loadPresetFromFile(context.Background(), nil, path, "project")
+		p, ok := loadPresetFromFile(context.Background(), path, "project")
 		if !ok {
 			t.Fatal("expected ok")
 		}
@@ -174,7 +174,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 		content := "---\ndescription: Nameless agent\n---\nBody."
 		writeTestFile(t, path, []byte(content), 0o644)
 
-		p, ok := loadPresetFromFile(context.Background(), nil, path, "common")
+		p, ok := loadPresetFromFile(context.Background(), path, "common")
 		if !ok {
 			t.Fatal("expected ok")
 		}
@@ -190,7 +190,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 		content := "---\nname: bad\n---\nBody."
 		writeTestFile(t, path, []byte(content), 0o644)
 
-		_, ok := loadPresetFromFile(context.Background(), nil, path, "project")
+		_, ok := loadPresetFromFile(context.Background(), path, "project")
 		if ok {
 			t.Fatal("expected rejection for missing description")
 		}
@@ -203,7 +203,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 		content := "---\nname: bad\ndescription: Bad timeout\ntimeout: not-a-duration\n---\nBody."
 		writeTestFile(t, path, []byte(content), 0o644)
 
-		_, ok := loadPresetFromFile(context.Background(), nil, path, "project")
+		_, ok := loadPresetFromFile(context.Background(), path, "project")
 		if ok {
 			t.Fatal("expected rejection for invalid timeout")
 		}
@@ -211,7 +211,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 
 	t.Run("nonexistent file", func(t *testing.T) {
 		t.Parallel()
-		_, ok := loadPresetFromFile(context.Background(), nil, "/nonexistent/path.md", "project")
+		_, ok := loadPresetFromFile(context.Background(), "/nonexistent/path.md", "project")
 		if ok {
 			t.Fatal("expected failure for nonexistent file")
 		}
@@ -236,7 +236,7 @@ func TestLoadPresetsFromDir(t *testing.T) {
 	// Create a subdirectory (should be ignored).
 	mkdirAll(t, filepath.Join(dir, "subdir"), 0o755)
 
-	presets := loadPresetsFromDir(context.Background(), nil, dir, "test")
+	presets := loadPresetsFromDir(context.Background(), dir, "test")
 	if len(presets) != 2 {
 		t.Fatalf("expected 2 presets, got %d", len(presets))
 	}
@@ -255,7 +255,7 @@ func TestLoadPresetsFromDir(t *testing.T) {
 
 func TestLoadPresetsFromDirNonexistent(t *testing.T) {
 	t.Parallel()
-	presets := loadPresetsFromDir(context.Background(), nil, "/nonexistent/dir", "test")
+	presets := loadPresetsFromDir(context.Background(), "/nonexistent/dir", "test")
 	if len(presets) != 0 {
 		t.Errorf("expected 0 presets for nonexistent dir, got %d", len(presets))
 	}
@@ -281,7 +281,7 @@ func TestLoadAgentPresetsDeduplication(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir2, "agents", "unique.md"),
 		[]byte("---\nname: unique\ndescription: Only in workspace\n---\nUnique body."), 0o644)
 
-	presets := loadAgentPresets(context.Background(), nil, "", dir2, "", dir1)
+	presets := loadAgentPresets(context.Background(), "", dir2, "", dir1)
 	if len(presets) != 2 {
 		t.Fatalf("expected 2 presets, got %d", len(presets))
 	}
@@ -349,7 +349,7 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 	writeTestFile(t, filepath.Join(cwd, ".agents", "agents", "project-only.md"), preset("project-only", "From project"), 0o644)
 	writeTestFile(t, filepath.Join(cwd, ".agents", "agents", "overlap.md"), preset("overlap", "Project wins"), 0o644)
 
-	presets := loadAgentPresets(context.Background(), nil, annaHome, agentRoot, userRoot, cwd)
+	presets := loadAgentPresets(context.Background(), annaHome, agentRoot, userRoot, cwd)
 	if len(presets) != 5 {
 		t.Fatalf("expected 5 presets, got %d", len(presets))
 	}
@@ -397,7 +397,7 @@ func TestLoadAgentPresetsPathDedup(t *testing.T) {
 		[]byte("---\nname: test\ndescription: Test agent\n---\nBody."), 0o644)
 
 	// Pass the same dir as both annaHome and agentRoot; both scan agents/ so dedup fires.
-	presets := loadAgentPresets(context.Background(), nil, dir, dir, "", "")
+	presets := loadAgentPresets(context.Background(), dir, dir, "", "")
 	if len(presets) != 1 {
 		t.Errorf("expected 1 preset (dedup), got %d", len(presets))
 	}

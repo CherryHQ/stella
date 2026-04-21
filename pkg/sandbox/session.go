@@ -6,72 +6,28 @@ import (
 	"time"
 )
 
-// Session is a sandbox-managed execution boundary.
+// Session is the plugin-facing sandbox surface: lifecycle + mediated host access.
+// It combines what was previously the Session lifecycle interface and the Host
+// file/process interface into a single type so plugins receive one coherent value.
 type Session interface {
-	Host() Host
+	// Lifecycle
 	Policy() Policy
 	Close() error
 	Alive() bool
 	Done() <-chan struct{}
-}
 
-// Host provides mediated access to host resources within a sandbox session.
-type Host interface {
-	ReadFile(ctx context.Context, path string, offset, limit int) (ReadResult, error)
-	WriteFile(ctx context.Context, path string, content []byte) (WriteResult, error)
-	EditFile(ctx context.Context, path string, edits []Edit) (EditResult, error)
-	Stat(ctx context.Context, path string) (StatResult, error)
-	ListDir(ctx context.Context, path string) ([]DirEntry, error)
-	MkdirAll(ctx context.Context, path string, perm uint32) error
-	Remove(ctx context.Context, path string, recursive bool) error
-	Rename(ctx context.Context, oldPath, newPath string) error
-	CreateTemp(ctx context.Context, dir, pattern string) (TempFile, error)
+	// Host process surface
 	Exec(ctx context.Context, command string, opts ExecOptions) (ExecResult, error)
 	StartProcess(ctx context.Context, req ProcessRequest) (ProcessHandle, error)
-	HTTPRequest(ctx context.Context, opts HTTPOptions) (HTTPResult, error)
-	OpenHTTPStream(ctx context.Context, opts HTTPOptions) (HTTPStream, error)
+
+	// Path resolution — use os.* with the resolved path for file I/O.
 	ResolvePath(path string) (string, error)
 	WorkingDir() string
 }
 
-type ReadResult struct {
-	Content    []byte
-	Truncated  bool
-	NextOffset int
-}
-
-type WriteResult struct {
-	BytesWritten int
-}
-
-type Edit struct {
-	OldText string
-	NewText string
-}
-
-type EditResult struct {
-	AppliedEdits int
-}
-
-type StatResult struct {
-	Exists  bool
-	IsDir   bool
-	Size    int64
-	Mode    uint32
-	ModTime time.Time
-}
-
-type DirEntry struct {
-	Name  string
-	IsDir bool
-	Size  int64
-}
-
-type TempFile interface {
-	Path() string
-	Write([]byte) (int, error)
-	Close() error
-}
+// Host is an alias for Session kept for internal use by the runner and core tools.
+// New code should use Session directly.
+type Host = Session
 
 type ExecOptions struct {
 	Cwd     string
@@ -102,34 +58,18 @@ type ProcessHandle interface {
 	Close() error
 }
 
-type HTTPOptions struct {
-	Method  string
-	URL     string
-	Header  map[string]string
-	Body    []byte
-	Timeout time.Duration
-}
-
-type HTTPResult struct {
-	StatusCode int
-	Header     map[string][]string
-	Body       []byte
-}
-
-type HTTPStream interface {
-	Header() map[string][]string
-	Reader() io.ReadCloser
-	Close() error
+// DirEntry is retained for use by prompt_host.go which reads directories via os.ReadDir
+// and needs a uniform entry type shared with sandbox callers.
+type DirEntry struct {
+	Name  string
+	IsDir bool
+	Size  int64
 }
 
 // NopSession returns a no-op session for testing.
 func NopSession() Session {
 	return &nopSession{
 		policy: Policy{
-			Relaxed: true,
-			Filesystem: FilesystemPolicy{
-				AllowEscapes: true,
-			},
 			Network: NetworkPolicy{
 				Mode: NetworkAllowAll,
 			},
@@ -144,7 +84,6 @@ type nopSession struct {
 	closed bool
 }
 
-func (s *nopSession) Host() Host            { return nil }
 func (s *nopSession) Policy() Policy        { return s.policy }
 func (s *nopSession) Alive() bool           { return !s.closed }
 func (s *nopSession) Done() <-chan struct{} { return s.done }
@@ -153,3 +92,13 @@ func (s *nopSession) Close() error {
 	close(s.done)
 	return nil
 }
+
+func (s *nopSession) Exec(_ context.Context, _ string, _ ExecOptions) (ExecResult, error) {
+	return ExecResult{}, nil
+}
+
+func (s *nopSession) StartProcess(_ context.Context, _ ProcessRequest) (ProcessHandle, error) {
+	return nil, nil
+}
+func (s *nopSession) ResolvePath(path string) (string, error) { return path, nil }
+func (s *nopSession) WorkingDir() string                      { return "" }

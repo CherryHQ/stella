@@ -6,57 +6,16 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/sandbox"
 )
 
-// TestResolveSessionRejectsUnknownBackend tests error handling.
-func TestResolveSessionRejectsUnknownBackend(t *testing.T) {
+// TestResolveSessionRequiresUserRoot tests that resolveSession fails without a UserRoot.
+func TestResolveSessionRequiresUserRoot(t *testing.T) {
 	_, err := resolveSession(context.Background(), GoRunnerConfig{
-		Sandbox: config.SandboxConfig{
-			Backend: "unknown",
-		},
+		AgentRoot: "/workspace/agent",
+		// UserRoot intentionally omitted
 	})
 	if err == nil {
-		t.Fatal("expected error for unknown backend")
-	}
-}
-
-func TestResolveSessionAutoFallsBackToLocalWhenBoxshUnsupported(t *testing.T) {
-	previous := platformSupportsBoxsh
-	platformSupportsBoxsh = func() bool { return false }
-	t.Cleanup(func() { platformSupportsBoxsh = previous })
-
-	workspace := t.TempDir()
-	userRoot := workspace + "/users/1"
-	rs, err := resolveSession(context.Background(), GoRunnerConfig{
-		AgentRoot: workspace,
-		UserRoot:  userRoot,
-		Sandbox: config.SandboxConfig{
-			Backend: config.SandboxBackendAuto,
-		},
-	})
-	if err != nil {
-		t.Fatalf("resolveSession: %v", err)
-	}
-	defer func() { _ = rs.Close() }()
-
-	if got := rs.Policy().Backend; got != config.SandboxBackendLocal {
-		t.Fatalf("Policy().Backend = %q, want %q", got, config.SandboxBackendLocal)
-	}
-}
-
-func TestResolveSessionExplicitBoxshRejectsUnsupportedPlatform(t *testing.T) {
-	previous := platformSupportsBoxsh
-	platformSupportsBoxsh = func() bool { return false }
-	t.Cleanup(func() { platformSupportsBoxsh = previous })
-
-	_, err := resolveSession(context.Background(), GoRunnerConfig{
-		Sandbox: config.SandboxConfig{
-			Backend: config.SandboxBackendBoxsh,
-		},
-	})
-	if err == nil {
-		t.Fatal("expected error for explicit boxsh on unsupported platform")
+		t.Fatal("expected error when UserRoot is missing")
 	}
 }
 
@@ -75,32 +34,6 @@ func TestResolveRunnerPathsDefaultsWorkDirToUserRoot(t *testing.T) {
 	}
 }
 
-func TestSandboxProcessEnvUsesUserRootAsHome(t *testing.T) {
-	cfg := GoRunnerConfig{
-		AnnaHome:  "/anna",
-		AgentRoot: "/workspace/agent",
-		UserRoot:  "/workspace/agent/users/1",
-	}
-
-	paths, err := resolveSandboxPaths(cfg)
-	if err != nil {
-		t.Fatalf("resolveSandboxPaths: %v", err)
-	}
-	for _, backend := range []string{config.SandboxBackendBoxsh, config.SandboxBackendLocal} {
-		env := sandboxProcessEnv(paths, backend)
-		if got := env["HOME"]; got != cfg.UserRoot {
-			t.Fatalf("backend %q: HOME = %q, want %q", backend, got, cfg.UserRoot)
-		}
-		if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
-			t.Fatalf("backend %q: ANNA_HOME = %q, want %q", backend, got, cfg.AnnaHome)
-		}
-	}
-}
-
-// Docker containers have their own rootfs and image-baked HOME. Pinning HOME
-// to UserRoot would remap into the workspace bind-mount at runtime and break
-// anything that expects its image-installed $HOME/.* (mise, shell rc files,
-// per-user shims).
 func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
 	cfg := GoRunnerConfig{
 		AnnaHome:  "/anna",
@@ -112,7 +45,7 @@ func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveSandboxPaths: %v", err)
 	}
-	env := sandboxProcessEnv(paths, config.SandboxBackendDocker)
+	env := sandboxProcessEnv(paths)
 	if _, ok := env["HOME"]; ok {
 		t.Fatalf("HOME should not be set for docker backend; got %q", env["HOME"])
 	}
@@ -121,31 +54,11 @@ func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
 	}
 }
 
-// TestRunnerSessionLifecycle tests the runnerSession lifecycle.
+// TestRunnerSessionLifecycle tests the runnerSession lifecycle using a nil session
+// (alwaysAlive=true path) to avoid requiring a live sandbox backend.
 func TestRunnerSessionLifecycle(t *testing.T) {
-	// Create a local session for testing
-	policy := sandbox.Policy{
-		Backend: "local",
-		Relaxed: true,
-		Filesystem: sandbox.FilesystemPolicy{
-			WorkingDir:   t.TempDir(),
-			AllowEscapes: true,
-		},
-	}
-
-	factory := sandbox.GlobalRegistry().Get("local")
-	if factory == nil {
-		t.Fatal("local factory not available")
-	}
-
-	session, err := factory.CreateSession(context.Background(), policy)
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-
 	rs := &runnerSession{
-		session: session,
-		policy:  policy,
+		alwaysAlive: true,
 	}
 
 	// Test Alive
@@ -153,36 +66,23 @@ func TestRunnerSessionLifecycle(t *testing.T) {
 		t.Error("session should be alive")
 	}
 
-	// Test Done channel
+	// Test Done channel — nil session returns an already-closed channel.
 	select {
 	case <-rs.Done():
-		t.Error("Done() should not be closed before Close()")
+		// Expected: nil session Done() is immediately closed.
 	default:
-		// Expected
+		t.Error("nil-session Done() should be closed")
 	}
 
-	// Test Close
+	// Test Close (no-op for nil inner session)
 	if err := rs.Close(); err != nil {
 		t.Errorf("Close: %v", err)
 	}
-
-	// After close, should not be alive
-	if rs.Alive() {
-		t.Error("session should not be alive after Close()")
-	}
-
-	// Done channel should be closed
-	select {
-	case <-rs.Done():
-		// Expected
-	default:
-		t.Error("Done() should be closed after Close()")
-	}
 }
 
-// TestResolveSessionDockerUnreachableDaemonReturnsError verifies that an
-// explicit docker backend routes to createDockerSession and fails with a
-// docker-related error when the daemon is unreachable.
+// TestResolveSessionDockerUnreachableDaemonReturnsError verifies that resolveSession
+// routes to createDockerSession and fails with a docker-related error when the daemon
+// is unreachable.
 func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 	t.Setenv("DOCKER_HOST", "unix:///nonexistent/anna-test-docker.sock")
 	t.Setenv("DOCKER_TLS_VERIFY", "")
@@ -193,9 +93,7 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 	_, err := resolveSession(context.Background(), GoRunnerConfig{
 		AgentRoot: workspace,
 		UserRoot:  userRoot,
-		Sandbox: config.SandboxConfig{
-			Backend: config.SandboxBackendDocker,
-		},
+		Sandbox:   config.SandboxConfig{},
 	})
 	if err == nil {
 		t.Fatal("expected error for docker backend with unreachable daemon")

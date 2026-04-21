@@ -32,66 +32,19 @@ func TestFactoryAvailable_DaemonUnreachable(t *testing.T) {
 	}
 }
 
-func TestFactorySupported_WhitelistRejected(t *testing.T) {
-	f := NewFactory(Config{})
-	policy := Policy{
-		Filesystem: FilesystemPolicy{WorkingDir: t.TempDir()},
-		Network:    sandboxNetworkWhitelist(),
-		Relaxed:    false,
-	}
-	err := f.Supported(policy)
-	if err == nil {
-		t.Fatal("expected error for whitelist mode, got nil")
-	}
-	pce := &PolicyCompatibilityError{}
-	ok := errors.As(err, &pce)
-	if !ok {
-		t.Fatalf("expected *PolicyCompatibilityError, got %T", err)
-	}
-	if !pce.RelaxedWouldHelp {
-		t.Fatal("expected RelaxedWouldHelp=true for whitelist rejection")
-	}
-}
-
-func TestFactorySupported_WhitelistRelaxedAllowed(t *testing.T) {
-	f := NewFactory(Config{})
-	if !f.Available() {
-		t.Skip("docker daemon not reachable; skipping")
-	}
-	policy := Policy{
-		Filesystem: FilesystemPolicy{WorkingDir: t.TempDir()},
-		Network:    sandboxNetworkWhitelist(),
-		Relaxed:    true,
-	}
-	if err := f.Supported(policy); err != nil {
-		t.Fatalf("expected no error for whitelist+relaxed, got %v", err)
-	}
-}
-
 func TestFactorySupported_DaemonUnreachable(t *testing.T) {
 	pointToUnreachableDaemon(t)
 	f := NewFactory(Config{})
-	policy := Policy{
-		Filesystem: FilesystemPolicy{WorkingDir: t.TempDir()},
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: t.TempDir()},
 	}
 	err := f.Supported(policy)
 	if err == nil {
 		t.Fatal("expected error when daemon is unreachable")
 	}
-	pce := &PolicyCompatibilityError{}
+	pce := &sandboxpkg.PolicyCompatibilityError{}
 	ok := errors.As(err, &pce)
 	if !ok {
 		t.Fatalf("expected *PolicyCompatibilityError, got %T", err)
-	}
-	if pce.RelaxedWouldHelp {
-		t.Fatal("expected RelaxedWouldHelp=false when daemon unreachable")
-	}
-}
-
-// sandboxNetworkWhitelist returns a NetworkPolicy with whitelist mode.
-func sandboxNetworkWhitelist() sandboxpkg.NetworkPolicy {
-	return sandboxpkg.NetworkPolicy{
-		Mode:      sandboxpkg.NetworkWhitelist,
-		Allowlist: []string{"example.com"},
 	}
 }

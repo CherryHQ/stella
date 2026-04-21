@@ -43,7 +43,6 @@ func TestLogFunctions(t *testing.T) {
 	// These should not panic
 	LogSessionCreated("s1", "docker", p)
 	LogSessionClosed("s1", "docker", "normal")
-	LogRelaxedMode("s1", "docker", "whitelist", p, "warning1")
 	LogUnsupportedBackend(p, []string{"docker"}, "no daemon")
 	LogPolicyDenied("s1", "docker", "read", "/etc/passwd", "outside workspace")
 	LogExceptionPath("e1", "runner", "read", "extra detail")

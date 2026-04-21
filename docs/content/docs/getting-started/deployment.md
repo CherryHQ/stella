@@ -162,7 +162,7 @@ $ANNA_HOME/bin/boxsh --version
 $ANNA_HOME/bin/boxsh --rpc --sandbox
 ```
 
-If the second command exits immediately with a `uid_map` error, the host is still blocking user namespace setup. If you need Anna working before the host is fixed, switch the agent sandbox backend to `local` as a temporary fallback.
+If the second command exits immediately with a `uid_map` error, the host is still blocking user namespace setup. If you need Anna working before the host is fixed, configure the agent sandbox backend to `docker` as a temporary fallback (requires a reachable docker daemon).
 
 ### LaunchAgent (macOS)
 

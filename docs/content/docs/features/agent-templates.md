@@ -8,12 +8,12 @@ Anna ships with a curated catalog of **builtin resources** so a fresh install is
 
 Four resource kinds are shipped:
 
-| Kind | Purpose | Where it runs |
-|------|---------|---------------|
-| **Skill** | Reusable knowledge/playbook the agent can load on demand | DB-synced into `skills(scope='system')` on startup |
-| **Soul** | Persona/tone fragment layered into the agent's system prompt | Copied into an agent at creation time |
-| **Sub-agent** | Tool-restricted worker preset for delegation via the `agent` tool | Extracted to `$ANNA_HOME/agents/` on startup |
-| **Template** | Full agent bootstrap (model + system prompt + soul + enabled skills) | Read once at agent creation; no persistent link |
+| Kind          | Purpose                                                              | Where it runs                                      |
+| ------------- | -------------------------------------------------------------------- | -------------------------------------------------- |
+| **Skill**     | Reusable knowledge/playbook the agent can load on demand             | DB-synced into `skills(scope='system')` on startup |
+| **Soul**      | Persona/tone fragment layered into the agent's system prompt         | Copied into an agent at creation time              |
+| **Sub-agent** | Tool-restricted worker preset for delegation via the `agent` tool    | Extracted to `$ANNA_HOME/agents/` on startup       |
+| **Template**  | Full agent bootstrap (model + system prompt + soul + enabled skills) | Read once at agent creation; no persistent link    |
 
 ## Templates
 
@@ -83,9 +83,9 @@ On the next build, the admin UI picks up the new resource automatically via the 
 
 Read-only catalog endpoints:
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /api/builtin/{kind}` | List summaries (no content) for `template`, `soul`, `subagent`, `skill` |
-| `GET /api/builtin/{kind}/{id}` | Full resource including body content |
+| Endpoint                       | Description                                                             |
+| ------------------------------ | ----------------------------------------------------------------------- |
+| `GET /api/builtin/{kind}`      | List summaries (no content) for `template`, `soul`, `subagent`, `skill` |
+| `GET /api/builtin/{kind}/{id}` | Full resource including body content                                    |
 
 `kind` must be one of `template`, `soul`, `subagent`, `skill`; unknown kinds or IDs return `404`.

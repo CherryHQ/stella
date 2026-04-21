@@ -55,17 +55,17 @@ Restrict which WeChat users can interact with the bot by adding their iLink user
 
 Send these commands as text messages to the bot:
 
-| Command             | Description                   |
-| ------------------- | ----------------------------- |
-| `/start` or `/help` | Welcome and help              |
-| `/new`              | Start a fresh session         |
-| `/compact`          | Compress conversation history |
+| Command             | Description                     |
+| ------------------- | ------------------------------- |
+| `/start` or `/help` | Welcome and help                |
+| `/new`              | Start a fresh session           |
+| `/compact`          | Compress conversation history   |
 | `/abort`            | Cancel the in-progress response |
-| `/model`            | List available models         |
-| `/model <p/m>`      | Switch to model by name       |
-| `/model <query>`    | Filter models by name         |
-| `/agent`            | List or switch agents         |
-| `/whoami`           | Show your user ID for config  |
+| `/model`            | List available models           |
+| `/model <p/m>`      | Switch to model by name         |
+| `/model <query>`    | Filter models by name           |
+| `/agent`            | List or switch agents           |
+| `/whoami`           | Show your user ID for config    |
 
 ## Notifications
 
@@ -77,11 +77,11 @@ The WeChat channel supports notifications (scheduler results, notify tool). Set 
 
 All settings below are managed through the admin panel (`anna --open`).
 
-| Field         | Description                                          | Default    |
-| ------------- | ---------------------------------------------------- | ---------- |
-| `bot_token`   | iLink bot token (obtained via QR login)              | (required) |
-| `base_url`    | iLink API base URL                                   | (auto)     |
-| `bot_id`      | iLink bot ID (obtained via QR login)                 | (auto)     |
-| `user_id`     | iLink user ID (obtained via QR login)                | (auto)     |
-| `notify_chat` | Default user ID for notifications                    | `""`       |
-| `allowed_ids` | User IDs allowed to interact (empty = all)           | `[]`       |
+| Field         | Description                                | Default    |
+| ------------- | ------------------------------------------ | ---------- |
+| `bot_token`   | iLink bot token (obtained via QR login)    | (required) |
+| `base_url`    | iLink API base URL                         | (auto)     |
+| `bot_id`      | iLink bot ID (obtained via QR login)       | (auto)     |
+| `user_id`     | iLink user ID (obtained via QR login)      | (auto)     |
+| `notify_chat` | Default user ID for notifications          | `""`       |
+| `allowed_ids` | User IDs allowed to interact (empty = all) | `[]`       |

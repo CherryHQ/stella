@@ -415,7 +415,7 @@ func TestSnapshot(t *testing.T) {
 		SystemPrompt: "You are Anna.",
 		Workspace:    "/tmp/anna",
 		Sandbox: SandboxConfig{
-			Network: SandboxNetworkConfig{Mode: SandboxNetworkWhitelist, Allowlist: []string{"example.com"}},
+			Network: SandboxNetworkConfig{Mode: SandboxNetworkAllowAll},
 		},
 		Enabled: true,
 	})
@@ -458,11 +458,8 @@ func TestSnapshot(t *testing.T) {
 	if snap.Runner.IdleTimeout != 30 {
 		t.Errorf("Runner.IdleTimeout = %d", snap.Runner.IdleTimeout)
 	}
-	if snap.Sandbox.NetworkMode() != SandboxNetworkWhitelist {
+	if snap.Sandbox.NetworkMode() != SandboxNetworkAllowAll {
 		t.Errorf("Sandbox.NetworkMode() = %q", snap.Sandbox.NetworkMode())
-	}
-	if len(snap.Sandbox.Network.Allowlist) != 1 || snap.Sandbox.Network.Allowlist[0] != "example.com" {
-		t.Errorf("Sandbox.Network.Allowlist = %#v", snap.Sandbox.Network.Allowlist)
 	}
 	// built-in + 1 custom plugin.
 	if len(snap.Plugins) != len(BuiltinPluginIDs())+1 {

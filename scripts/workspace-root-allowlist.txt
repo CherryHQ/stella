@@ -1,0 +1,13 @@
+# workspace-root-allowlist.txt
+#
+# Entries that are exempt from the WorkspaceRoot() ban enforced by
+# scripts/check-workspace-root.sh.
+#
+# Format: either a bare file path (all occurrences in that file are allowed)
+# or a file:line pair (only that specific line is allowed).
+# Paths are relative to the repository root.
+# Blank lines and lines starting with '#' are ignored.
+#
+# Add entries here when a legitimate WorkspaceRoot() call is required
+# (e.g., session-setup code that reads the policy before calling ResolvePath,
+# or test fakes that must implement the full interface).

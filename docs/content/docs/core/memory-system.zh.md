@@ -93,7 +93,7 @@ mise run generate
 | `ctx_message_parts`       | 结构化消息部分（`text`、`reasoning`、`tool`）供将来使用                                                    |
 | `ctx_agent_memory`        | 每用户每代理笔记。主键是 `(user_id, agent_id)`。内容在会话开始时注入到系统提示中。                         |
 | `settings_agents`         | 代理配置，包括 `system_prompt`（代理灵魂）、模型选择和工作区路径                                           |
-| `settings_plugins`        | 统一插件表（工具、通道、钩子、提供商）。提供商凭证存储在 `config` JSON 中。                                 |
+| `settings_plugins`        | 统一插件表（工具、通道、钩子、提供商）。提供商凭证存储在 `config` JSON 中。                                |
 | `settings_channels`       | 通道（Telegram、QQ、Feishu、微信）配置                                                                     |
 | `settings_users`          | `ctx_agent_memory` 和 `ctx_conversations` 引用的用户记录                                                   |
 | `settings_channel_agents` | 将通道映射到代理以进行多代理路由                                                                           |

@@ -1,37 +1,64 @@
 package runner
 
 import (
-	"context"
-	"errors"
+	"os"
+	"path/filepath"
 
 	"github.com/vaayne/anna/internal/sandbox"
 )
 
-func readPromptFile(ctx context.Context, host sandbox.Host, path string) (string, bool) {
-	if host == nil {
-		return "", false
-	}
-	result, err := host.ReadFile(ctx, path, 0, 0)
+func readPromptFile(host sandbox.Host, path string) (string, bool) {
+	resolved := resolvePromptPath(host, path)
+	content, err := os.ReadFile(resolved)
 	if err != nil {
 		return "", false
 	}
-	return string(result.Content), true
+	return string(content), true
 }
 
-func statPromptFile(ctx context.Context, host sandbox.Host, path string) (string, bool) {
-	if host == nil {
-		return "", false
-	}
-	stat, err := host.Stat(ctx, path)
-	if err != nil || !stat.Exists || stat.IsDir {
+func statPromptFile(host sandbox.Host, path string) (string, bool) {
+	resolved := resolvePromptPath(host, path)
+	info, err := os.Stat(resolved)
+	if err != nil || info.IsDir() {
 		return "", false
 	}
 	return path, true
 }
 
-func readPromptDir(ctx context.Context, host sandbox.Host, path string) ([]sandbox.DirEntry, error) {
-	if host == nil {
-		return nil, errors.New("prompt context requires sandbox host")
+func readPromptDir(host sandbox.Host, path string) ([]sandbox.DirEntry, error) {
+	resolved := resolvePromptPath(host, path)
+	entries, err := os.ReadDir(resolved)
+	if err != nil {
+		return nil, err
 	}
-	return host.ListDir(ctx, path)
+	result := make([]sandbox.DirEntry, 0, len(entries))
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		result = append(result, sandbox.DirEntry{
+			Name:  e.Name(),
+			IsDir: e.IsDir(),
+			Size:  info.Size(),
+		})
+	}
+	return result, nil
+}
+
+// resolvePromptPath resolves a path through the session (if present) or falls
+// back to the raw path. Relative paths without a session are joined against the
+// working directory.
+func resolvePromptPath(host sandbox.Host, path string) string {
+	if host != nil {
+		resolved, err := host.ResolvePath(path)
+		if err == nil {
+			return resolved
+		}
+	}
+	if filepath.IsAbs(path) {
+		return path
+	}
+	wd, _ := os.Getwd()
+	return filepath.Join(wd, path)
 }
