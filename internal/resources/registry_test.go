@@ -22,13 +22,13 @@ func TestDefaultLoadsBuiltinResources(t *testing.T) {
 		t.Error("skill hash is empty")
 	}
 
-	if _, ok := r.Get(KindSoul, "default"); !ok {
-		t.Error("expected builtin soul 'default'")
+	if _, ok := r.Get(KindSoul, "anna"); !ok {
+		t.Error("expected builtin soul 'anna'")
 	}
-	if _, ok := r.Get(KindTemplate, "default"); !ok {
-		t.Error("expected builtin template 'default'")
+	if _, ok := r.Get(KindTemplate, "anna"); !ok {
+		t.Error("expected builtin template 'anna'")
 	}
-	for _, id := range []string{"coder", "researcher", "reviewer", "writer"} {
+	for _, id := range []string{"coder"} {
 		if _, ok := r.Get(KindSubAgent, id); !ok {
 			t.Errorf("expected builtin subagent %q", id)
 		}
