@@ -34,7 +34,6 @@ func init() {
 					ctx.Paths.AgentRoot,
 					ctx.Paths.ProjectRoot,
 					userSkillsDir(ctx.Paths.UserRoot),
-					ctx.Runtime,
 				), nil
 			},
 		})

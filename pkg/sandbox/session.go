@@ -6,17 +6,17 @@ import (
 	"time"
 )
 
-// Session is a sandbox-managed execution boundary.
+// Session is the plugin-facing sandbox surface: lifecycle + mediated host access.
+// It combines what was previously the Session lifecycle interface and the Host
+// file/process interface into a single type so plugins receive one coherent value.
 type Session interface {
-	Host() Host
+	// Lifecycle
 	Policy() Policy
 	Close() error
 	Alive() bool
 	Done() <-chan struct{}
-}
 
-// Host provides mediated access to host resources within a sandbox session.
-type Host interface {
+	// Host file-system and process surface (previously Host interface)
 	ReadFile(ctx context.Context, path string, offset, limit int) (ReadResult, error)
 	WriteFile(ctx context.Context, path string, content []byte) (WriteResult, error)
 	EditFile(ctx context.Context, path string, edits []Edit) (EditResult, error)
@@ -31,6 +31,10 @@ type Host interface {
 	ResolvePath(path string) (string, error)
 	WorkingDir() string
 }
+
+// Host is an alias for Session kept for internal use by the runner and core tools.
+// New code should use Session directly.
+type Host = Session
 
 type ReadResult struct {
 	Content    []byte
@@ -121,7 +125,6 @@ type nopSession struct {
 	closed bool
 }
 
-func (s *nopSession) Host() Host            { return nil }
 func (s *nopSession) Policy() Policy        { return s.policy }
 func (s *nopSession) Alive() bool           { return !s.closed }
 func (s *nopSession) Done() <-chan struct{} { return s.done }
@@ -130,3 +133,37 @@ func (s *nopSession) Close() error {
 	close(s.done)
 	return nil
 }
+
+// Host file/process no-ops — nopSession is used in tests that don't exercise these paths.
+func (s *nopSession) ReadFile(_ context.Context, _ string, _, _ int) (ReadResult, error) {
+	return ReadResult{}, nil
+}
+
+func (s *nopSession) WriteFile(_ context.Context, _ string, _ []byte) (WriteResult, error) {
+	return WriteResult{}, nil
+}
+
+func (s *nopSession) EditFile(_ context.Context, _ string, _ []Edit) (EditResult, error) {
+	return EditResult{}, nil
+}
+
+func (s *nopSession) Stat(_ context.Context, _ string) (StatResult, error) {
+	return StatResult{}, nil
+}
+func (s *nopSession) ListDir(_ context.Context, _ string) ([]DirEntry, error) { return nil, nil }
+func (s *nopSession) MkdirAll(_ context.Context, _ string, _ uint32) error    { return nil }
+func (s *nopSession) Remove(_ context.Context, _ string, _ bool) error        { return nil }
+func (s *nopSession) Rename(_ context.Context, _, _ string) error             { return nil }
+func (s *nopSession) CreateTemp(_ context.Context, _, _ string) (TempFile, error) {
+	return nil, nil
+}
+
+func (s *nopSession) Exec(_ context.Context, _ string, _ ExecOptions) (ExecResult, error) {
+	return ExecResult{}, nil
+}
+
+func (s *nopSession) StartProcess(_ context.Context, _ ProcessRequest) (ProcessHandle, error) {
+	return nil, nil
+}
+func (s *nopSession) ResolvePath(path string) (string, error) { return path, nil }
+func (s *nopSession) WorkingDir() string                      { return "" }

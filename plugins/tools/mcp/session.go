@@ -12,7 +12,7 @@ import (
 	"time"
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/sandbox"
 )
 
 // Session is the subset of MCP client session behavior used by Anna's runtime.
@@ -24,9 +24,9 @@ type Session interface {
 }
 
 // DialFunc establishes one MCP client session for the provided server config.
-type DialFunc func(ctx context.Context, server ServerConfig, runtime pkgplugins.ToolRuntime) (Session, error)
+type DialFunc func(ctx context.Context, server ServerConfig, runtime sandbox.Session) (Session, error)
 
-func defaultDial(ctx context.Context, server ServerConfig, runtime pkgplugins.ToolRuntime) (Session, error) {
+func defaultDial(ctx context.Context, server ServerConfig, runtime sandbox.Session) (Session, error) {
 	transport, err := newTransport(ctx, server, runtime)
 	if err != nil {
 		return nil, err
@@ -41,14 +41,14 @@ func defaultDial(ctx context.Context, server ServerConfig, runtime pkgplugins.To
 	return client.Connect(connectCtx, transport, nil)
 }
 
-func newTransport(ctx context.Context, server ServerConfig, runtime pkgplugins.ToolRuntime) (officialmcp.Transport, error) {
+func newTransport(ctx context.Context, server ServerConfig, runtime sandbox.Session) (officialmcp.Transport, error) {
 	httpClient := newHTTPClient(server.TimeoutSeconds, server.Headers)
 	switch server.Transport {
 	case TransportStdio:
 		if runtime == nil {
 			return nil, ErrRuntimeRequired{Transport: server.Transport}
 		}
-		proc, err := runtime.StartProcess(ctx, pkgplugins.ProcessRequest{
+		proc, err := runtime.StartProcess(ctx, sandbox.ProcessRequest{
 			Path: server.Command,
 			Args: append([]string(nil), server.Args...),
 			Env:  cloneHeaders(server.Env),
@@ -151,7 +151,7 @@ func (e ErrRuntimeRequired) Error() string {
 }
 
 type sandboxProcessCloser struct {
-	process pkgplugins.ProcessHandle
+	process sandbox.ProcessHandle
 	once    sync.Once
 	err     error
 }

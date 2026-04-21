@@ -43,7 +43,6 @@ type GoRunnerConfig struct {
 	PromptSections   []pkgplugins.SystemPromptSection
 	ExtraTools       []tools.Tool // additional tools to register
 	PluginTools      func(context.Context, plugintools.BuildContext) []tools.Tool
-	ToolRuntime      pkgplugins.ToolRuntime
 	UserRoot         string             // required per-user root used by prompts, skills, and sandbox execution
 	HookPlugins      []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle    *coreagent.ToolLifecycle
@@ -109,10 +108,6 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("go runner: %w", err)
 	}
-	if cfg.ToolRuntime == nil {
-		cfg.ToolRuntime = toolRuntimeFromHost(session.Host())
-	}
-
 	if system == "" {
 		system = BuildSystemPromptFromDB(context.Background(), DBPromptParams{
 			AnnaHome:       paths.AnnaHome,
@@ -120,7 +115,7 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 			ProjectRoot:    paths.ProjectRoot,
 			UserRoot:       paths.UserRoot,
 			PromptSections: cfg.PromptSections,
-			Host:           session.Host(),
+			Host:           session.Session(),
 		})
 	}
 
@@ -148,7 +143,6 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 				AgentRoot:   paths.AgentRoot,
 				UserRoot:    paths.UserRoot,
 				ProjectRoot: projectRoot,
-				Runtime:     cfg.ToolRuntime,
 			}))
 		},
 		Hooks:         hookSet,
@@ -236,7 +230,7 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 			AgentRoot:   paths.AgentRoot,
 			ProjectRoot: paths.ProjectRoot,
 		},
-		Runtime: cfg.ToolRuntime,
+		Runtime: session.Session(),
 	}
 
 	coreTools := buildSandboxCoreTools(session, bc)
@@ -306,7 +300,6 @@ func buildAgentPresets(cfg GoRunnerConfig) *agenttool.PresetRegistry {
 		AgentRoot:   paths.AgentRoot,
 		UserRoot:    paths.UserRoot,
 		ProjectRoot: paths.ProjectRoot,
-		Runtime:     cfg.ToolRuntime,
 	}))
 }
 

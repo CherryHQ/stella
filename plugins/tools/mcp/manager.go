@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	officialmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
+	"github.com/vaayne/anna/pkg/sandbox"
 )
 
 // Manager is the shared process-wide runtime for MCP state.
@@ -24,7 +24,7 @@ type Manager struct {
 	runCtx      context.Context
 	runCancel   context.CancelFunc
 	dial        DialFunc
-	runtime     pkgplugins.ToolRuntime
+	runtime     sandbox.Session
 	supervisor  SupervisorConfig
 }
 
@@ -53,7 +53,7 @@ func (m *Manager) SetDial(dial DialFunc) {
 	m.dial = dial
 }
 
-func (m *Manager) SetRuntime(runtime pkgplugins.ToolRuntime) {
+func (m *Manager) SetRuntime(runtime sandbox.Session) {
 	m.mu.Lock()
 	m.runtime = runtime
 	if !m.enabled || m.runCtx == nil || runtime == nil {

@@ -97,9 +97,9 @@ func testSessionContract(t *testing.T, factory Factory) {
 			t.Errorf("Policy().Backend = %q, want %q", got.Backend, policy.Backend)
 		}
 
-		// Host should be non-nil
-		if session.Host() == nil {
-			t.Error("Host() should return non-nil")
+		// Session should be non-nil and functional (file ops available directly).
+		if session == nil {
+			t.Error("session should be non-nil")
 		}
 
 		// Close should succeed
@@ -164,7 +164,7 @@ func testSessionContract(t *testing.T, factory Factory) {
 		}
 		defer func() { _ = session.Close() }()
 
-		host := session.Host()
+		host := session
 
 		// WorkingDir should match policy
 		if got := host.WorkingDir(); got != policy.Filesystem.WorkingDir {
@@ -223,7 +223,7 @@ func testHostContract(t *testing.T, factory Factory) {
 		}
 		defer func() { _ = session.Close() }()
 
-		host := session.Host()
+		host := session
 
 		// WriteFile
 		content := []byte("hello, world")
@@ -288,7 +288,7 @@ func testHostContract(t *testing.T, factory Factory) {
 		}
 		defer func() { _ = session.Close() }()
 
-		host := session.Host()
+		host := session
 
 		// MkdirAll
 		if err := host.MkdirAll(ctx, "subdir/nested", 0o755); err != nil {
@@ -351,7 +351,7 @@ func testHostContract(t *testing.T, factory Factory) {
 		}
 		defer func() { _ = session.Close() }()
 
-		host := session.Host()
+		host := session
 
 		// Create initial file
 		initial := "hello, world\nfoo bar\n"
@@ -392,7 +392,7 @@ func testHostContract(t *testing.T, factory Factory) {
 		}
 		defer func() { _ = session.Close() }()
 
-		host := session.Host()
+		host := session
 
 		_, err = host.WriteFile(ctx, "oldname.txt", []byte("content"))
 		if err != nil {
@@ -426,7 +426,7 @@ func testHostContract(t *testing.T, factory Factory) {
 		}
 		defer func() { _ = session.Close() }()
 
-		host := session.Host()
+		host := session
 
 		tempFile, err := host.CreateTemp(ctx, "", "test-*.txt")
 		if err != nil {
@@ -466,7 +466,7 @@ func testHostContract(t *testing.T, factory Factory) {
 		}
 		defer func() { _ = session.Close() }()
 
-		host := session.Host()
+		host := session
 
 		// Simple echo command
 		execResult, err := host.Exec(ctx, "echo hello", ExecOptions{})

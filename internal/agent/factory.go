@@ -110,7 +110,6 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				snap.Workspace,
 				"",
 				filepath.Join(userRoot, ".agents", "skills"),
-				nil,
 			))
 
 			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{

@@ -28,7 +28,7 @@ func (r *runnerSession) SessionDir() string {
 	if r == nil || r.session == nil {
 		return ""
 	}
-	resolved, err := r.session.Host().ResolvePath(string(os.PathSeparator))
+	resolved, err := r.session.ResolvePath(string(os.PathSeparator))
 	if err != nil {
 		return ""
 	}
@@ -39,7 +39,7 @@ func (r *runnerSession) Host() sandbox.Host {
 	if r == nil || r.session == nil {
 		return nil
 	}
-	return r.session.Host()
+	return r.session
 }
 
 // Session returns the underlying sandbox session.

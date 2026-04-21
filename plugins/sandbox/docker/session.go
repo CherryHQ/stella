@@ -297,8 +297,54 @@ type dockerSession struct {
 	mu          sync.RWMutex
 }
 
-func (s *dockerSession) Host() sandboxpkg.Host     { return s.host }
 func (s *dockerSession) Policy() sandboxpkg.Policy { return s.policy }
+
+// Host file/process ops — delegate to the internal dockerHost.
+func (s *dockerSession) ReadFile(ctx context.Context, path string, offset, limit int) (sandboxpkg.ReadResult, error) {
+	return s.host.ReadFile(ctx, path, offset, limit)
+}
+
+func (s *dockerSession) WriteFile(ctx context.Context, path string, content []byte) (sandboxpkg.WriteResult, error) {
+	return s.host.WriteFile(ctx, path, content)
+}
+
+func (s *dockerSession) EditFile(ctx context.Context, path string, edits []sandboxpkg.Edit) (sandboxpkg.EditResult, error) {
+	return s.host.EditFile(ctx, path, edits)
+}
+
+func (s *dockerSession) Stat(ctx context.Context, path string) (sandboxpkg.StatResult, error) {
+	return s.host.Stat(ctx, path)
+}
+
+func (s *dockerSession) ListDir(ctx context.Context, path string) ([]sandboxpkg.DirEntry, error) {
+	return s.host.ListDir(ctx, path)
+}
+
+func (s *dockerSession) MkdirAll(ctx context.Context, path string, perm uint32) error {
+	return s.host.MkdirAll(ctx, path, perm)
+}
+
+func (s *dockerSession) Remove(ctx context.Context, path string, recursive bool) error {
+	return s.host.Remove(ctx, path, recursive)
+}
+
+func (s *dockerSession) Rename(ctx context.Context, oldPath, newPath string) error {
+	return s.host.Rename(ctx, oldPath, newPath)
+}
+
+func (s *dockerSession) CreateTemp(ctx context.Context, dir, pattern string) (sandboxpkg.TempFile, error) {
+	return s.host.CreateTemp(ctx, dir, pattern)
+}
+
+func (s *dockerSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
+	return s.host.Exec(ctx, command, opts)
+}
+
+func (s *dockerSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
+	return s.host.StartProcess(ctx, req)
+}
+func (s *dockerSession) ResolvePath(path string) (string, error) { return s.host.ResolvePath(path) }
+func (s *dockerSession) WorkingDir() string                      { return s.host.WorkingDir() }
 
 func (s *dockerSession) Alive() bool {
 	s.mu.RLock()
