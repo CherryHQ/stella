@@ -30,12 +30,19 @@ type Snapshot struct {
 	Sandbox      SandboxConfig
 	APIKey       string
 	BaseURL      string
-	SystemPrompt string // agent's soul/personality from DB
-	Runner       RunnerConfig
-	Compaction   CompactionConfig
-	Heartbeat    HeartbeatConfig
-	Scheduler    SchedulerConfig
-	Plugins      []Plugin
+	SystemPrompt string // agent's base system prompt from DB
+	Soul         string // agent's default soul from DB (fallback for all users)
+
+	// EnabledBuiltinSkills is the per-agent list of builtin skill names that
+	// appear in the prompt catalog. The always-on "anna" skill is visible to
+	// every agent regardless of this list.
+	EnabledBuiltinSkills []string
+
+	Runner     RunnerConfig
+	Compaction CompactionConfig
+	Heartbeat  HeartbeatConfig
+	Scheduler  SchedulerConfig
+	Plugins    []Plugin
 
 	// Providers maps provider ID to credentials, enabling per-tier provider
 	// resolution when model_strong or model_fast use a different provider.

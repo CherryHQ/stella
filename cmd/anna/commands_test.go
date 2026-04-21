@@ -12,8 +12,8 @@ import (
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/embedded"
 	"github.com/vaayne/anna/internal/pluginhost"
+	"github.com/vaayne/anna/internal/resources/binaries"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/memory"
@@ -144,7 +144,7 @@ func setupCommandTestAnnaHome(t *testing.T) string {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	_ = embedded.EnsureTools(annaHome)
+	_ = binaries.EnsureTools(annaHome)
 	boxshPath := filepath.Join(binDir, "boxsh")
 	_ = os.Remove(boxshPath)
 	boxshStub := `#!/bin/bash

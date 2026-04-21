@@ -177,19 +177,21 @@ type Setting struct {
 }
 
 type SettingsAgent struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Model        string `json:"model"`
-	ModelStrong  string `json:"model_strong"`
-	ModelFast    string `json:"model_fast"`
-	SystemPrompt string `json:"system_prompt"`
-	Workspace    string `json:"workspace"`
-	Sandbox      string `json:"sandbox"`
-	Scope        string `json:"scope"`
-	CreatorID    int64  `json:"creator_id"`
-	Enabled      int64  `json:"enabled"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Model                string `json:"model"`
+	ModelStrong          string `json:"model_strong"`
+	ModelFast            string `json:"model_fast"`
+	SystemPrompt         string `json:"system_prompt"`
+	Soul                 string `json:"soul"`
+	Workspace            string `json:"workspace"`
+	Sandbox              string `json:"sandbox"`
+	EnabledBuiltinSkills string `json:"enabled_builtin_skills"`
+	Scope                string `json:"scope"`
+	CreatorID            int64  `json:"creator_id"`
+	Enabled              int64  `json:"enabled"`
+	CreatedAt            string `json:"created_at"`
+	UpdatedAt            string `json:"updated_at"`
 }
 
 type SettingsChannel struct {

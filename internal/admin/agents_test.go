@@ -27,6 +27,56 @@ func createTestAgent(t *testing.T, env *testEnv, a config.Agent) string {
 	return created.ID
 }
 
+func TestCreateAgentFromTemplate(t *testing.T) {
+	env := setupAdmin(t)
+
+	body := map[string]any{
+		"name":        "Template-built",
+		"template_id": "anna",
+	}
+	rr := doRequest(t, env, "POST", "/api/agents", body)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d (%s)", rr.Code, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var a config.Agent
+	if err := json.Unmarshal(resp.Data, &a); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if a.SystemPrompt == "" {
+		t.Errorf("expected SystemPrompt populated from template body, got empty")
+	}
+	if len(a.EnabledBuiltinSkills) == 0 {
+		t.Errorf("expected EnabledBuiltinSkills populated from template, got empty")
+	}
+}
+
+func TestCreateAgentUserOverridesTemplate(t *testing.T) {
+	env := setupAdmin(t)
+
+	body := map[string]any{
+		"name":                   "Override-me",
+		"template_id":            "anna",
+		"system_prompt":          "CUSTOM PROMPT",
+		"enabled_builtin_skills": []string{"research"},
+	}
+	rr := doRequest(t, env, "POST", "/api/agents", body)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d (%s)", rr.Code, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var a config.Agent
+	if err := json.Unmarshal(resp.Data, &a); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if a.SystemPrompt != "CUSTOM PROMPT" {
+		t.Errorf("SystemPrompt overridden = %q, want CUSTOM PROMPT", a.SystemPrompt)
+	}
+	if len(a.EnabledBuiltinSkills) != 1 || a.EnabledBuiltinSkills[0] != "research" {
+		t.Errorf("EnabledBuiltinSkills = %v, want [research]", a.EnabledBuiltinSkills)
+	}
+}
+
 func TestAgentScopeInCreateAndGet(t *testing.T) {
 	env := setupAdmin(t)
 

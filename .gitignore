@@ -8,6 +8,6 @@ handoff.md
 plan.md
 
 # Embedded tool binaries (downloaded via scripts/download-tools.sh)
-internal/embedded/binaries/*/*.gz
+internal/resources/binaries/binaries/*/*.gz
 cmd/anna/.agents/
 internal/agent/runner/.agents/
