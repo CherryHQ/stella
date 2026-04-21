@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"os/signal"
 	"runtime"
@@ -14,7 +15,6 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
-	"os"
 
 	"github.com/vaayne/anna/internal/admin"
 	"github.com/vaayne/anna/internal/agent"
@@ -101,6 +101,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		} else {
 			adminSrv.SetVaultService(vaultSvc)
 			adminSrv.SetVaultRecipient(vaultSvc.MasterRecipient())
+			s.poolManager.SetVaultEnvLoader(vaultSvc)
 			n, err := vault.BackfillUserKeys(gctx, sqlc.New(s.db), vaultSvc.MasterRecipient())
 			if err != nil {
 				slog.Warn("vault: backfill user keys failed", "error", err)

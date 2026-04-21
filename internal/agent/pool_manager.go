@@ -124,6 +124,13 @@ func WithSkillStore(s pkgplugins.SkillStore) PoolManagerOption {
 	}
 }
 
+// WithVaultEnvLoader sets the vault env loader for sandbox secret injection.
+func WithVaultEnvLoader(v runner.VaultEnvLoader) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.vaultEnvLoader = v
+	}
+}
+
 // PoolManager manages a map of agent ID to Pool. It reads enabled agents
 // from the config Store and creates one Pool per agent.
 type PoolManager struct {
@@ -144,6 +151,7 @@ type PoolManager struct {
 	providerRegistryBuilder ProviderRegistryBuilder
 	builtinToolsFactory     BuiltinToolsFactory
 	skillStore              pkgplugins.SkillStore
+	vaultEnvLoader          runner.VaultEnvLoader
 	log                     *slog.Logger
 }
 
@@ -160,6 +168,13 @@ func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManager
 		opt(pm)
 	}
 	return pm
+}
+
+// SetVaultEnvLoader sets the vault env loader after construction.
+func (pm *PoolManager) SetVaultEnvLoader(v runner.VaultEnvLoader) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.vaultEnvLoader = v
 }
 
 // Get returns the Pool for the given agent ID, or nil if not found.
@@ -416,7 +431,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 		plugins, _ := pm.store.ListPlugins(ctx)
 		return config.ActiveSandboxBackend(plugins)
 	}
-	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle, pm.skillStore, sandboxBackendFn)
+	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle, pm.skillStore, sandboxBackendFn, pm.vaultEnvLoader)
 }
 
 // mergeTools creates a new slice containing builtin tools followed by more

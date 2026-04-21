@@ -71,7 +71,8 @@ type setupResult struct {
 	promptSectionsBuilder  func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
 	toolLifecycle          *coreagent.ToolLifecycle
 	skillStore             pkgplugins.SkillStore
-	cliUserID              int64 // resolved CLI user for session creation
+	vaultEnvLoader         runner.VaultEnvLoader // optional; set when ANNA_VAULT_KEY is configured
+	cliUserID              int64                 // resolved CLI user for session creation
 }
 
 func setup(parent context.Context, gateway bool) (*setupResult, error) {
@@ -385,7 +386,7 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.Providers = providers
 		}
 
-		factory, err := agent.NewRunnerFactory(&snap, builtinTools, pluginToolsBuilder, providerRegistryBuilder, promptToolsFn, promptSectionsFn, toolLifecycle, skillStore, nil)
+		factory, err := agent.NewRunnerFactory(&snap, builtinTools, pluginToolsBuilder, providerRegistryBuilder, promptToolsFn, promptSectionsFn, toolLifecycle, skillStore, nil, nil)
 		if err != nil {
 			return err
 		}
