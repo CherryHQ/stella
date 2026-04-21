@@ -122,53 +122,63 @@ func SyncEmbeddedTools(ctx context.Context, cfg Config) error {
 func (s toolSyncer) sync(ctx context.Context, cfg Config) error {
 	platformDir := filepath.Join(cfg.WorkDir, "internal", "resources", "binaries", "binaries", cfg.Platform())
 	for _, spec := range s.specs {
-		asset, tag, ok := spec.resolveAsset(cfg.Platform())
-		if !ok {
-			if spec.Optional {
+		binaryPath, cleanup, err := s.fetchBinary(ctx, spec, cfg.Platform())
+		if err != nil {
+			if spec.Optional && strings.Contains(err.Error(), "no asset for") {
 				continue
 			}
-			return fmt.Errorf("no asset for %s on platform %s", spec.Name, cfg.Platform())
-		}
-		url := fmt.Sprintf("%s/%s/releases/download/%s/%s", s.baseURL, spec.Repo, tag, asset.File)
-		if err := s.syncOne(ctx, platformDir, spec.Name, asset, url); err != nil {
 			return fmt.Errorf("sync %s: %w", spec.Name, err)
+		}
+		targetPath := filepath.Join(platformDir, spec.Name+".gz")
+		gzipErr := gzipFile(binaryPath, targetPath)
+		cleanup()
+		if gzipErr != nil {
+			return fmt.Errorf("sync %s: %w", spec.Name, gzipErr)
 		}
 	}
 	return nil
 }
 
-func (s toolSyncer) syncOne(ctx context.Context, platformDir, name string, asset embeddedBinaryAsset, url string) error {
+func (s toolSyncer) fetchBinary(ctx context.Context, spec embeddedBinary, platform string) (string, func(), error) {
+	asset, tag, ok := spec.resolveAsset(platform)
+	if !ok {
+		return "", func() {}, fmt.Errorf("no asset for %s on platform %s", spec.Name, platform)
+	}
+	url := fmt.Sprintf("%s/%s/releases/download/%s/%s", s.baseURL, spec.Repo, tag, asset.File)
+	return s.fetchAssetBinary(ctx, asset, url)
+}
+
+func (s toolSyncer) fetchAssetBinary(ctx context.Context, asset embeddedBinaryAsset, url string) (string, func(), error) {
 	tmpDir, err := os.MkdirTemp("", "anna-builddeps-*")
 	if err != nil {
-		return fmt.Errorf("create temp dir: %w", err)
+		return "", func() {}, fmt.Errorf("create temp dir: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(tmpDir) }()
+	cleanup := func() { _ = os.RemoveAll(tmpDir) }
 
 	archivePath := filepath.Join(tmpDir, filepath.Base(asset.File))
 	if err := Download(ctx, s.client, url, archivePath); err != nil {
-		return err
+		cleanup()
+		return "", func() {}, err
+	}
+	if asset.RawBinary {
+		return archivePath, cleanup, nil
 	}
 
-	binaryPath := archivePath
-	if !asset.RawBinary {
-		extractDir := filepath.Join(tmpDir, "extract")
-		if err := os.MkdirAll(extractDir, 0o755); err != nil {
-			return fmt.Errorf("create extract dir: %w", err)
-		}
-		if err := extractArchive(archivePath, extractDir); err != nil {
-			return err
-		}
-		binaryPath, err = findExtractedBinary(extractDir, asset.BinaryName)
-		if err != nil {
-			return err
-		}
+	extractDir := filepath.Join(tmpDir, "extract")
+	if err := os.MkdirAll(extractDir, 0o755); err != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("create extract dir: %w", err)
 	}
-
-	targetPath := filepath.Join(platformDir, name+".gz")
-	if err := gzipFile(binaryPath, targetPath); err != nil {
-		return err
+	if err := extractArchive(archivePath, extractDir); err != nil {
+		cleanup()
+		return "", func() {}, err
 	}
-	return nil
+	binaryPath, err := findExtractedBinary(extractDir, asset.BinaryName)
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	return binaryPath, cleanup, nil
 }
 
 func extractArchive(archivePath, destDir string) error {

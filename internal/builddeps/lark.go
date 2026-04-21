@@ -32,6 +32,9 @@ func SyncSystemSkills(ctx context.Context, cfg Config) error {
 	if err := syncLarkSkill(ctx, cfg); err != nil {
 		return err
 	}
+	if err := syncTapWebSkill(ctx, cfg); err != nil {
+		return err
+	}
 	return nil
 }
 
