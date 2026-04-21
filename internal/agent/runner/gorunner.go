@@ -56,8 +56,8 @@ type GoRunnerConfig struct {
 	Providers        ProviderRegistryBuilder
 	Sandbox          config.SandboxConfig
 	SandboxBackendFn func(ctx context.Context) string // resolves active backend at session time; overrides Sandbox.Backend
-	UserID           int64          // auth user ID; used for vault secret injection
-	VaultEnvLoader   VaultEnvLoader // optional; if set, vault secrets are injected into sandbox env
+	UserID           int64                            // auth user ID; used for vault secret injection
+	VaultEnvLoader   VaultEnvLoader                   // optional; if set, vault secrets are injected into sandbox env
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.

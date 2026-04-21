@@ -148,8 +148,8 @@ func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 		UserID:    42,
 		VaultEnvLoader: &stubVaultLoader{
 			env: map[string]string{
-				"MY_SECRET":  "s3cr3t",
-				"ANNA_HOME":  "should-be-overridden", // runner var must win
+				"MY_SECRET": "s3cr3t",
+				"ANNA_HOME": "should-be-overridden", // runner var must win
 			},
 		},
 	}
