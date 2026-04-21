@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	app := newApp(builddeps.Syncer{})
+	app := newApp(builddeps.Syncer{SyncTools: builddeps.SyncEmbeddedTools})
 	if err := app.Run(os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -47,6 +47,7 @@ func syncFlags() []ucli.Flag {
 		&ucli.StringFlag{Name: "goarch", Usage: "target GOARCH for embedded binaries"},
 		&ucli.StringFlag{Name: "lark-ref", Usage: "git ref to check out from larksuite/cli"},
 		&ucli.StringFlag{Name: "workdir", Usage: "repo root containing internal/resources", Value: "."},
+		&ucli.BoolFlag{Name: "isolated", Usage: "ignored compatibility flag", Hidden: true},
 	}
 }
 
