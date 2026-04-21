@@ -17,11 +17,13 @@ const (
 	fdDarwinAMD64Version = "10.3.0"
 	rgVersion            = "15.1.0"
 	boxshVersion         = "2.1.0"
+	ghCLIVersion         = "2.89.0"
 	larkCLIVersion       = "1.0.15"
 )
 
 type embeddedBinaryAsset struct {
 	File       string
+	Tag        string
 	RawBinary  bool
 	BinaryName string
 }
@@ -40,7 +42,10 @@ func (b embeddedBinary) resolveAsset(platform string) (embeddedBinaryAsset, stri
 	if !ok {
 		return embeddedBinaryAsset{}, "", false
 	}
-	tag := b.Tag
+	tag := asset.Tag
+	if tag == "" {
+		tag = b.Tag
+	}
 	if tag == "" {
 		tag = ensureVPrefix(b.Version)
 	}
@@ -59,7 +64,7 @@ func embeddedBinaries() []embeddedBinary {
 			Repo:    "sharkdp/fd",
 			Version: fdVersion,
 			AssetTemplates: map[string]embeddedBinaryAsset{
-				"darwin-amd64":  {File: "fd-v" + fdDarwinAMD64Version + "-x86_64-apple-darwin.tar.gz"},
+				"darwin-amd64":  {File: "fd-v" + fdDarwinAMD64Version + "-x86_64-apple-darwin.tar.gz", Tag: "v" + fdDarwinAMD64Version},
 				"darwin-arm64":  {File: "fd-v{version}-aarch64-apple-darwin.tar.gz"},
 				"linux-amd64":   {File: "fd-v{version}-x86_64-unknown-linux-musl.tar.gz"},
 				"linux-arm64":   {File: "fd-v{version}-aarch64-unknown-linux-musl.tar.gz"},
@@ -91,6 +96,19 @@ func embeddedBinaries() []embeddedBinary {
 				"darwin-arm64": {File: "boxsh-v{version}-darwin-arm64", RawBinary: true},
 				"linux-amd64":  {File: "boxsh-v{version}-linux-x64", RawBinary: true},
 				"linux-arm64":  {File: "boxsh-v{version}-linux-arm64", RawBinary: true},
+			},
+		},
+		{
+			Name:    "gh",
+			Repo:    "cli/cli",
+			Version: ghCLIVersion,
+			AssetTemplates: map[string]embeddedBinaryAsset{
+				"darwin-amd64":  {File: "gh_{version}_macOS_amd64.zip"},
+				"darwin-arm64":  {File: "gh_{version}_macOS_arm64.zip"},
+				"linux-amd64":   {File: "gh_{version}_linux_amd64.tar.gz"},
+				"linux-arm64":   {File: "gh_{version}_linux_arm64.tar.gz"},
+				"windows-amd64": {File: "gh_{version}_windows_amd64.zip", BinaryName: "gh.exe"},
+				"windows-arm64": {File: "gh_{version}_windows_arm64.zip", BinaryName: "gh.exe"},
 			},
 		},
 		{
