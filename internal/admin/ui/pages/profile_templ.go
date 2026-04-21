@@ -39,7 +39,7 @@ func ProfilePage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<!-- My Skills --><div class=\"mb-10\"><h2 class=\"font-serif text-xl mb-4\">My Skills</h2><div class=\"card bg-base-200\"><div class=\"card-body\"><p class=\"text-sm text-secondary\">User-scope skills available in your conversations. Not shared with other users.</p><div class=\"mt-2 flex items-center gap-3\"><button @click=\"openMySkills()\" class=\"btn btn-primary btn-sm\">Manage skills</button> <span class=\"text-xs font-mono text-secondary\" x-text=\"mySkillsCount + ' installed'\"></span></div></div></div></div><!-- Password Change --><div class=\"mb-10\"><h2 class=\"font-serif text-xl mb-4\">Change Password</h2><div class=\"card bg-base-200\"><div class=\"card-body\"><div class=\"grid grid-cols-1 md:grid-cols-3 gap-4\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<!-- My Skills --><div class=\"mb-10\"><h2 class=\"font-serif text-xl mb-4\">My Skills</h2><div class=\"card bg-base-200\"><div class=\"card-body\"><p class=\"text-sm text-secondary\">User-scope skills available in your conversations. Not shared with other users.</p><div class=\"mt-2 flex items-center gap-3\"><button @click=\"openMySkills()\" class=\"btn btn-primary btn-sm\">Manage skills</button> <span class=\"text-xs font-mono text-secondary\" x-text=\"mySkillsCount + ' installed'\"></span></div></div></div></div><!-- Vault --><div class=\"mb-10\"><h2 class=\"font-serif text-xl mb-4\">Secret Vault</h2><div class=\"card bg-base-200\"><div class=\"card-body\"><p class=\"text-sm text-secondary\">Encrypted secrets injected as environment variables in sandbox sessions.</p><!-- Entry list --><div class=\"mt-4\" x-show=\"vaultEntries.length > 0\"><table class=\"table table-sm w-full\"><thead><tr><th class=\"font-mono text-xs\">Name</th><th class=\"font-mono text-xs\">Created</th><th class=\"font-mono text-xs\">Updated</th><th></th></tr></thead> <tbody><template x-for=\"entry in vaultEntries\" :key=\"entry.name\"><tr><td class=\"font-mono text-sm\" x-text=\"entry.name\"></td><td class=\"text-xs text-secondary\" x-text=\"formatTime(entry.created_at)\"></td><td class=\"text-xs text-secondary\" x-text=\"formatTime(entry.updated_at)\"></td><td class=\"text-right\"><button @click=\"deleteVaultEntry(entry.name)\" class=\"btn btn-ghost btn-xs btn-error\">Delete</button></td></tr></template></tbody></table></div><div x-show=\"vaultEntries.length === 0 && !vaultLoading\" class=\"mt-4\"><p class=\"text-sm text-secondary\">No secrets stored yet.</p></div><!-- Add secret form --><div class=\"mt-4 border-t border-base-300 pt-4\"><h3 class=\"text-sm font-medium mb-3\">Add Secret</h3><div class=\"grid grid-cols-1 md:grid-cols-2 gap-4\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -55,13 +55,13 @@ func ProfilePage() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<input type=\"password\" x-model=\"currentPassword\" class=\"input input-bordered w-full text-sm\" placeholder=\"current password\" autocomplete=\"current-password\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<input type=\"text\" x-model=\"newSecretName\" class=\"input input-bordered w-full text-sm font-mono\" placeholder=\"e.g. MY_API_KEY\" autocomplete=\"off\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Current Password").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ui.FormField("Name").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -77,13 +77,17 @@ func ProfilePage() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<input type=\"password\" x-model=\"newPassword\" class=\"input input-bordered w-full text-sm\" placeholder=\"min 8 characters\" minlength=\"8\" autocomplete=\"new-password\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<input type=\"password\" x-model=\"newSecretValue\" class=\"input input-bordered w-full text-sm\" placeholder=\"secret value\" autocomplete=\"new-password\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("New Password").Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ui.FormField("Value").Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div><div class=\"mt-4\"><button @click=\"addVaultEntry()\" :disabled=\"vaultSaving\" class=\"btn btn-primary btn-sm\"><span x-show=\"vaultSaving\" class=\"loading loading-spinner loading-xs\"></span> Save Secret</button></div></div></div></div></div><!-- Password Change --><div class=\"mb-10\"><h2 class=\"font-serif text-xl mb-4\">Change Password</h2><div class=\"card bg-base-200\"><div class=\"card-body\"><div class=\"grid grid-cols-1 md:grid-cols-3 gap-4\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -99,17 +103,61 @@ func ProfilePage() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<input type=\"password\" x-model=\"confirmPassword\" class=\"input input-bordered w-full text-sm\" placeholder=\"confirm new password\" autocomplete=\"new-password\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<input type=\"password\" x-model=\"currentPassword\" class=\"input input-bordered w-full text-sm\" placeholder=\"current password\" autocomplete=\"current-password\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = ui.FormField("Confirm New Password").Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = ui.FormField("Current Password").Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div><div class=\"mt-4\"><button @click=\"changePassword()\" :disabled=\"changingPassword\" class=\"btn btn-primary btn-sm\"><span x-show=\"changingPassword\" class=\"loading loading-spinner loading-xs\"></span> Change Password</button></div></div></div></div>")
+		templ_7745c5c3_Var5 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<input type=\"password\" x-model=\"newPassword\" class=\"input input-bordered w-full text-sm\" placeholder=\"min 8 characters\" minlength=\"8\" autocomplete=\"new-password\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = ui.FormField("New Password").Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var6 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<input type=\"password\" x-model=\"confirmPassword\" class=\"input input-bordered w-full text-sm\" placeholder=\"confirm new password\" autocomplete=\"new-password\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = ui.FormField("Confirm New Password").Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div><div class=\"mt-4\"><button @click=\"changePassword()\" :disabled=\"changingPassword\" class=\"btn btn-primary btn-sm\"><span x-show=\"changingPassword\" class=\"loading loading-spinner loading-xs\"></span> Change Password</button></div></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -117,7 +165,7 @@ func ProfilePage() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

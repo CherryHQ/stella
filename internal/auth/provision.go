@@ -5,17 +5,23 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
+
+	"filippo.io/age"
+
+	"github.com/vaayne/anna/internal/vault"
 )
 
 const maxUsernameAttempts = 20
 
 // ProvisionRequest carries the information needed to provision a new user.
 type ProvisionRequest struct {
-	Platform   string
-	ExternalID string
-	Name       string
-	EmailHint  string
+	Platform       string
+	ExternalID     string
+	Name           string
+	EmailHint      string
+	VaultRecipient *age.X25519Recipient // optional; if set, age keys are generated for the new user
 }
 
 // ProvisionIdentityUser creates a new user + identity pair atomically.
@@ -48,6 +54,8 @@ func ProvisionIdentityUser(ctx context.Context, store AuthStore, req ProvisionRe
 	if err != nil {
 		return AuthUser{}, fmt.Errorf("provision: create user: %w", err)
 	}
+
+	generateAndStoreAgeKeys(ctx, store, user.ID, req.VaultRecipient)
 
 	_, identErr := store.CreateIdentity(ctx, Identity{
 		UserID:     user.ID,
@@ -99,6 +107,23 @@ func deriveUsername(ctx context.Context, store AuthStore, emailHint, externalID,
 	}
 
 	return "", fmt.Errorf("provision: no unique username after %d attempts for base %q", maxUsernameAttempts, base)
+}
+
+// generateAndStoreAgeKeys generates an age keypair for the user and persists it.
+// If recipient is nil, the call is a no-op — vault is not configured.
+// Errors are logged but not propagated so that user creation always succeeds.
+func generateAndStoreAgeKeys(ctx context.Context, store AuthStore, userID int64, recipient *age.X25519Recipient) {
+	if recipient == nil {
+		return
+	}
+	pubKey, encPrivKey, err := vault.GenerateUserKeys(recipient)
+	if err != nil {
+		slog.Warn("auth: generate age keys failed", "user_id", userID, "error", err)
+		return
+	}
+	if err := store.UpdateUserAgeKeys(ctx, userID, pubKey, encPrivKey); err != nil {
+		slog.Warn("auth: store age keys failed", "user_id", userID, "error", err)
+	}
 }
 
 // localPart returns the portion of an email address before the @ sign.

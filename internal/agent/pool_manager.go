@@ -124,6 +124,13 @@ func WithSkillStore(s pkgplugins.SkillStore) PoolManagerOption {
 	}
 }
 
+// WithVaultEnvLoader sets the vault env loader for sandbox secret injection.
+func WithVaultEnvLoader(v runner.VaultEnvLoader) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.vaultEnvLoader = v
+	}
+}
+
 // PoolManager manages a map of agent ID to Pool. It reads enabled agents
 // from the config Store and creates one Pool per agent.
 type PoolManager struct {
@@ -144,6 +151,7 @@ type PoolManager struct {
 	providerRegistryBuilder ProviderRegistryBuilder
 	builtinToolsFactory     BuiltinToolsFactory
 	skillStore              pkgplugins.SkillStore
+	vaultEnvLoader          runner.VaultEnvLoader
 	log                     *slog.Logger
 }
 
@@ -160,6 +168,22 @@ func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManager
 		opt(pm)
 	}
 	return pm
+}
+
+// SetVaultEnvLoader sets the vault env loader and rebuilds all pool factories
+// so existing pools pick up the loader. Must be called after StartAll.
+func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v runner.VaultEnvLoader) {
+	pm.mu.Lock()
+	pm.vaultEnvLoader = v
+	pools := make(map[string]*Pool, len(pm.pools))
+	maps.Copy(pools, pm.pools)
+	pm.mu.Unlock()
+
+	for agentID, pool := range pools {
+		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
+			pm.log.Error("failed to rebuild factory after vault loader set", "agent_id", agentID, "error", err)
+		}
+	}
 }
 
 // Get returns the Pool for the given agent ID, or nil if not found.
@@ -416,7 +440,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 		plugins, _ := pm.store.ListPlugins(ctx)
 		return config.ActiveSandboxBackend(plugins)
 	}
-	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle, pm.skillStore, sandboxBackendFn)
+	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle, pm.skillStore, sandboxBackendFn, pm.vaultEnvLoader)
 }
 
 // mergeTools creates a new slice containing builtin tools followed by more

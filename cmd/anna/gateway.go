@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"os/signal"
 	"runtime"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
+
 	"github.com/vaayne/anna/internal/admin"
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/agent/runner"
@@ -24,7 +26,9 @@ import (
 	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/scheduler"
+	"github.com/vaayne/anna/internal/vault"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
 	"github.com/vaayne/anna/pkg/providers"
 	reflectplugin "github.com/vaayne/anna/plugins/reflect"
@@ -89,7 +93,30 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// even when the panel is disabled.
 	adminSrv := admin.New(s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
 
+	// Wire vault service if ANNA_VAULT_KEY is set.
+	var coordOpts []channel.CoordinatorOption
+	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, engine, linkCodes))
+	if vaultKey := os.Getenv("ANNA_VAULT_KEY"); vaultKey != "" {
+		vaultSvc, err := vault.NewService(sqlc.New(s.db), vaultKey)
+		if err != nil {
+			slog.Warn("vault service init failed; vault endpoints will return 503", "error", err)
+		} else {
+			adminSrv.SetVaultService(vaultSvc)
+			adminSrv.SetVaultRecipient(vaultSvc.MasterRecipient())
+			s.poolManager.SetVaultEnvLoader(gctx, vaultSvc)
+			coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultSvc.MasterRecipient()))
+			coordOpts = append(coordOpts, channel.WithVaultService(vaultSvc))
+			n, err := vault.BackfillUserKeys(gctx, sqlc.New(s.db), vaultSvc.MasterRecipient())
+			if err != nil {
+				slog.Warn("vault: backfill user keys failed", "error", err)
+			} else if n > 0 {
+				slog.Info("vault: backfilled age keys for users", "count", n)
+			}
+		}
+	}
+
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
+	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
 
 	// Create the coordinator that implements MessageHandler for all channels.
 	coordinator := channel.NewCoordinator(
@@ -97,8 +124,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		s.store,
 		listFn,
 		switchFn,
-		channel.WithCoordinatorAuth(as, engine, linkCodes),
-		channel.WithIntentClassifier(intentClassifier),
+		coordOpts...,
 	)
 	if s.channelRuntimeServices != nil {
 		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)

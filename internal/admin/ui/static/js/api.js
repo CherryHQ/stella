@@ -16,6 +16,9 @@ export async function api(method, path, body = null) {
     opts.body = JSON.stringify(body)
   }
   const res = await fetch(path, opts)
+  if (res.status === 204 || res.headers.get('content-length') === '0') {
+    return null
+  }
   const json = await res.json()
   if (json.error) {
     throw new Error(json.error)

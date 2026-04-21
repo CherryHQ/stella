@@ -38,6 +38,13 @@ UPDATE auth_users SET
     updated_at = datetime('now')
 WHERE id = ?;
 
+-- name: UpdateUserAgeKeys :exec
+UPDATE auth_users SET
+    age_public_key = ?,
+    age_private_key = ?,
+    updated_at = datetime('now')
+WHERE id = ?;
+
 -- name: DeleteAuthUser :exec
 DELETE FROM auth_users WHERE id = ?;
 
