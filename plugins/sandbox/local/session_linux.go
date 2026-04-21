@@ -22,8 +22,9 @@ func setSysProcAttr(cmd *exec.Cmd) {
 
 // killProcessGroup sends SIGKILL to the process group of the given command.
 // A negative PID targets the entire process group.
+// No-ops when the process has already been reaped (ProcessState != nil).
 func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process != nil {
+	if cmd.Process != nil && cmd.ProcessState == nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 }
@@ -71,7 +72,12 @@ func wrapCommand(policy sandboxpkg.Policy, name string, args []string) (string, 
 	workspaceRoot := policy.WorkspaceRootOrDefault()
 	networkMode := policy.NetworkModeOrDefault()
 
-	// Try bubblewrap first.
+	// Finding 6: when network is allow_all, no isolation is needed — run unwrapped.
+	if networkMode == sandboxpkg.NetworkAllowAll {
+		return name, args, nil
+	}
+
+	// Network isolation required — try bubblewrap first.
 	bwrapPath, err := exec.LookPath("bwrap")
 	if err == nil {
 		bwrapArgs := []string{
@@ -80,9 +86,7 @@ func wrapCommand(policy sandboxpkg.Policy, name string, args []string) (string, 
 			"--dev", "/dev",
 			"--tmpfs", "/tmp",
 			"--proc", "/proc",
-		}
-		if networkMode != sandboxpkg.NetworkAllowAll {
-			bwrapArgs = append(bwrapArgs, "--unshare-net")
+			"--unshare-net",
 		}
 		bwrapArgs = append(bwrapArgs, "--")
 		bwrapArgs = append(bwrapArgs, name)
@@ -93,25 +97,16 @@ func wrapCommand(policy sandboxpkg.Policy, name string, args []string) (string, 
 	// Fall back to unshare for network-only isolation.
 	unsharePath, err := exec.LookPath("unshare")
 	if err == nil {
-		if networkMode != sandboxpkg.NetworkAllowAll {
-			unshareArgs := []string{"--net", "--"}
-			unshareArgs = append(unshareArgs, name)
-			unshareArgs = append(unshareArgs, args...)
-			return unsharePath, unshareArgs, nil
-		}
-		// Network is allow_all — no wrapping needed.
-		return name, args, nil
+		unshareArgs := []string{"--net", "--"}
+		unshareArgs = append(unshareArgs, name)
+		unshareArgs = append(unshareArgs, args...)
+		return unsharePath, unshareArgs, nil
 	}
 
-	// Neither tool found.
-	if networkMode != sandboxpkg.NetworkAllowAll {
-		return "", nil, fmt.Errorf(
-			"local sandbox: neither bwrap nor unshare is available; " +
-				"network isolation cannot be enforced — " +
-				"install bubblewrap or use the docker backend",
-		)
-	}
-
-	// No isolation needed and no tools available — run unwrapped.
-	return name, args, nil
+	// Neither tool found — network isolation cannot be enforced.
+	return "", nil, fmt.Errorf(
+		"local sandbox: neither bwrap nor unshare is available; " +
+			"network isolation cannot be enforced — " +
+			"install bubblewrap or use the docker backend",
+	)
 }

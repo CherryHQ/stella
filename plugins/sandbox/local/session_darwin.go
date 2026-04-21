@@ -14,16 +14,24 @@ import (
 // WORKSPACE_ROOT is replaced with the actual workspace path.
 // NETWORK_RULE is replaced with the appropriate network allow/deny rule.
 //
-// File reads are allowed broadly (entire filesystem) because sandboxed processes
-// need to read system binaries, frameworks, and libraries. Write access is
-// restricted to the workspace root and /tmp only.
+// Seatbelt evaluates rules in order; the last matching rule wins.
+// Strategy: allow file-read* for all paths, then deny specific credential paths
+// after the broad allow so the deny takes precedence. The workspace root read
+// allow comes last to re-permit workspace reads even if the workspace is under
+// a denied prefix (e.g. /Users). Write access is limited to workspace and /tmp.
 const seatbeltProfile = `(version 1)
 (deny default)
 (allow process-exec)
 (allow process-fork)
-(allow file-read*)
+(allow file-read* (subpath "/"))
+(deny file-read* (subpath "/Users"))
+(deny file-read* (subpath "/home"))
+(allow file-read* (subpath "WORKSPACE_ROOT"))
 (allow file-write* (subpath "WORKSPACE_ROOT"))
 (allow file-write* (subpath "/tmp"))
+(allow file-write* (subpath "/private/tmp"))
+(deny file-write* (subpath "/Users"))
+(deny file-write* (subpath "/home"))
 (allow sysctl-read)
 NETWORK_RULE
 `

@@ -17,8 +17,9 @@ func setSysProcAttr(cmd *exec.Cmd) {
 
 // killProcessGroup sends SIGKILL to the process group of the given command.
 // A negative PID targets the entire process group.
+// No-ops when the process has already been reaped (ProcessState != nil).
 func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process != nil {
+	if cmd.Process != nil && cmd.ProcessState == nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 }
