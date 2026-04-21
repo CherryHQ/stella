@@ -165,7 +165,7 @@ func loadProjectContextFiles(host sandbox.Host, cwd string) []contextFile {
 		if path := resolveFile(host, absDir, "AGENTS.md"); path != "" {
 			if !seen[path] {
 				seen[path] = true
-				if content, ok := readPromptFile(context.Background(), host, path); ok {
+				if content, ok := readPromptFile(host, path); ok {
 					files = append(files, contextFile{Path: path, Content: content})
 				}
 			}
@@ -190,10 +190,10 @@ func loadProjectContextFiles(host sandbox.Host, cwd string) []contextFile {
 // Returns the full path if found, empty string otherwise.
 func resolveFile(host sandbox.Host, dir, name string) string {
 	exact := filepath.Join(dir, name)
-	if path, ok := statPromptFile(context.Background(), host, exact); ok {
+	if path, ok := statPromptFile(host, exact); ok {
 		return path
 	}
-	entries, err := readPromptDir(context.Background(), host, dir)
+	entries, err := readPromptDir(host, dir)
 	if err != nil {
 		return ""
 	}

@@ -299,43 +299,6 @@ type dockerSession struct {
 
 func (s *dockerSession) Policy() sandboxpkg.Policy { return s.policy }
 
-// Host file/process ops — delegate to the internal dockerHost.
-func (s *dockerSession) ReadFile(ctx context.Context, path string, offset, limit int) (sandboxpkg.ReadResult, error) {
-	return s.host.ReadFile(ctx, path, offset, limit)
-}
-
-func (s *dockerSession) WriteFile(ctx context.Context, path string, content []byte) (sandboxpkg.WriteResult, error) {
-	return s.host.WriteFile(ctx, path, content)
-}
-
-func (s *dockerSession) EditFile(ctx context.Context, path string, edits []sandboxpkg.Edit) (sandboxpkg.EditResult, error) {
-	return s.host.EditFile(ctx, path, edits)
-}
-
-func (s *dockerSession) Stat(ctx context.Context, path string) (sandboxpkg.StatResult, error) {
-	return s.host.Stat(ctx, path)
-}
-
-func (s *dockerSession) ListDir(ctx context.Context, path string) ([]sandboxpkg.DirEntry, error) {
-	return s.host.ListDir(ctx, path)
-}
-
-func (s *dockerSession) MkdirAll(ctx context.Context, path string, perm uint32) error {
-	return s.host.MkdirAll(ctx, path, perm)
-}
-
-func (s *dockerSession) Remove(ctx context.Context, path string, recursive bool) error {
-	return s.host.Remove(ctx, path, recursive)
-}
-
-func (s *dockerSession) Rename(ctx context.Context, oldPath, newPath string) error {
-	return s.host.Rename(ctx, oldPath, newPath)
-}
-
-func (s *dockerSession) CreateTemp(ctx context.Context, dir, pattern string) (sandboxpkg.TempFile, error) {
-	return s.host.CreateTemp(ctx, dir, pattern)
-}
-
 func (s *dockerSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
 	return s.host.Exec(ctx, command, opts)
 }
@@ -467,7 +430,8 @@ func toContainerPath(mounts []dockerclient.Mount, hostPath string) (string, erro
 
 // ─────────────────────────── dockerHost ──────────────────────────────
 
-// dockerHost implements Host.  Filesystem ops operate on host paths
+// dockerHost implements the process/path surface of Host.
+// File I/O is done directly via os.* on resolved host paths
 // (bind-mount makes host paths the source of truth).
 // Exec and StartProcess translate host cwd → container cwd via toContainerPath.
 type dockerHost struct {
@@ -553,178 +517,6 @@ func deepestMountRoot(mounts []dockerclient.Mount, path string) string {
 		}
 	}
 	return best
-}
-
-func (h *dockerHost) ReadFile(_ context.Context, path string, offset, limit int) (sandboxpkg.ReadResult, error) {
-	resolved, err := h.ResolvePath(path)
-	if err != nil {
-		return sandboxpkg.ReadResult{}, err
-	}
-
-	content, err := os.ReadFile(resolved)
-	if err != nil {
-		return sandboxpkg.ReadResult{}, err
-	}
-
-	if offset > 0 {
-		if offset >= len(content) {
-			return sandboxpkg.ReadResult{Content: nil, NextOffset: offset}, nil
-		}
-		content = content[offset:]
-	}
-
-	truncated := false
-	if limit > 0 && len(content) > limit {
-		content = content[:limit]
-		truncated = true
-	}
-
-	nextOffset := offset + len(content)
-	if truncated {
-		nextOffset = offset + limit
-	}
-
-	return sandboxpkg.ReadResult{
-		Content:    content,
-		Truncated:  truncated,
-		NextOffset: nextOffset,
-	}, nil
-}
-
-func (h *dockerHost) WriteFile(_ context.Context, path string, content []byte) (sandboxpkg.WriteResult, error) {
-	resolved, err := h.ResolvePath(path)
-	if err != nil {
-		return sandboxpkg.WriteResult{}, err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
-		return sandboxpkg.WriteResult{}, err
-	}
-
-	if err := os.WriteFile(resolved, content, 0o644); err != nil {
-		return sandboxpkg.WriteResult{}, err
-	}
-
-	return sandboxpkg.WriteResult{BytesWritten: len(content)}, nil
-}
-
-func (h *dockerHost) EditFile(ctx context.Context, path string, edits []sandboxpkg.Edit) (sandboxpkg.EditResult, error) {
-	readResult, err := h.ReadFile(ctx, path, 0, 0)
-	if err != nil {
-		return sandboxpkg.EditResult{}, err
-	}
-
-	content := string(readResult.Content)
-	applied := 0
-
-	for _, edit := range edits {
-		if strings.Contains(content, edit.OldText) {
-			content = strings.Replace(content, edit.OldText, edit.NewText, 1)
-			applied++
-		}
-	}
-
-	_, err = h.WriteFile(ctx, path, []byte(content))
-	if err != nil {
-		return sandboxpkg.EditResult{}, err
-	}
-
-	return sandboxpkg.EditResult{AppliedEdits: applied}, nil
-}
-
-func (h *dockerHost) Stat(_ context.Context, path string) (sandboxpkg.StatResult, error) {
-	resolved, err := h.ResolvePath(path)
-	if err != nil {
-		return sandboxpkg.StatResult{}, err
-	}
-
-	info, err := os.Stat(resolved)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return sandboxpkg.StatResult{Exists: false}, nil
-		}
-		return sandboxpkg.StatResult{}, err
-	}
-
-	return sandboxpkg.StatResult{
-		Exists:  true,
-		IsDir:   info.IsDir(),
-		Size:    info.Size(),
-		Mode:    uint32(info.Mode()),
-		ModTime: info.ModTime(),
-	}, nil
-}
-
-func (h *dockerHost) ListDir(_ context.Context, path string) ([]sandboxpkg.DirEntry, error) {
-	resolved, err := h.ResolvePath(path)
-	if err != nil {
-		return nil, err
-	}
-
-	entries, err := os.ReadDir(resolved)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make([]sandboxpkg.DirEntry, 0, len(entries))
-	for _, entry := range entries {
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-		result = append(result, sandboxpkg.DirEntry{
-			Name:  entry.Name(),
-			IsDir: entry.IsDir(),
-			Size:  info.Size(),
-		})
-	}
-
-	return result, nil
-}
-
-func (h *dockerHost) MkdirAll(_ context.Context, path string, perm uint32) error {
-	resolved, err := h.ResolvePath(path)
-	if err != nil {
-		return err
-	}
-	return os.MkdirAll(resolved, os.FileMode(perm))
-}
-
-func (h *dockerHost) Remove(_ context.Context, path string, recursive bool) error {
-	resolved, err := h.ResolvePath(path)
-	if err != nil {
-		return err
-	}
-	if recursive {
-		return os.RemoveAll(resolved)
-	}
-	return os.Remove(resolved)
-}
-
-func (h *dockerHost) Rename(_ context.Context, oldPath, newPath string) error {
-	resolvedOld, err := h.ResolvePath(oldPath)
-	if err != nil {
-		return err
-	}
-	resolvedNew, err := h.ResolvePath(newPath)
-	if err != nil {
-		return err
-	}
-	return os.Rename(resolvedOld, resolvedNew)
-}
-
-func (h *dockerHost) CreateTemp(_ context.Context, dir, pattern string) (sandboxpkg.TempFile, error) {
-	resolvedDir, err := h.ResolvePath(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	f, err := os.CreateTemp(resolvedDir, pattern)
-	if err != nil {
-		return nil, err
-	}
-
-	return &dockerTempFile{file: f}, nil
 }
 
 func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
@@ -824,25 +616,6 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 		handle: handle,
 		cancel: cancel,
 	}, nil
-}
-
-// ─────────────────────────── dockerTempFile ──────────────────────────
-
-type dockerTempFile struct {
-	file *os.File
-}
-
-func (f *dockerTempFile) Path() string { return f.file.Name() }
-func (f *dockerTempFile) Write(p []byte) (int, error) {
-	return f.file.Write(p)
-}
-
-func (f *dockerTempFile) Close() error {
-	path := f.file.Name()
-	if err := f.file.Close(); err != nil {
-		return err
-	}
-	return os.Remove(path)
 }
 
 // ─────────────────────────── dockerProcessHandle ──────────────────────────

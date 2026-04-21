@@ -127,34 +127,7 @@ func (h *stdioHostStub) Done() <-chan struct{} {
 	return ch
 }
 
-// sandbox.Session host file/process methods.
-func (h *stdioHostStub) ReadFile(context.Context, string, int, int) (sandbox.ReadResult, error) {
-	return sandbox.ReadResult{}, nil
-}
-
-func (h *stdioHostStub) WriteFile(context.Context, string, []byte) (sandbox.WriteResult, error) {
-	return sandbox.WriteResult{}, nil
-}
-
-func (h *stdioHostStub) EditFile(context.Context, string, []sandbox.Edit) (sandbox.EditResult, error) {
-	return sandbox.EditResult{}, nil
-}
-
-func (h *stdioHostStub) Stat(context.Context, string) (sandbox.StatResult, error) {
-	return sandbox.StatResult{}, nil
-}
-
-func (h *stdioHostStub) ListDir(context.Context, string) ([]sandbox.DirEntry, error) {
-	return nil, nil
-}
-func (h *stdioHostStub) MkdirAll(context.Context, string, uint32) error { return nil }
-func (h *stdioHostStub) Remove(context.Context, string, bool) error     { return nil }
-func (h *stdioHostStub) Rename(context.Context, string, string) error   { return nil }
-func (h *stdioHostStub) CreateTemp(context.Context, string, string) (sandbox.TempFile, error) {
-	return nil, nil
-}
-
-func (h *stdioHostStub) Exec(context.Context, string, sandbox.ExecOptions) (sandbox.ExecResult, error) {
+func (h *stdioHostStub) Exec(_ context.Context, _ string, _ sandbox.ExecOptions) (sandbox.ExecResult, error) {
 	return sandbox.ExecResult{}, nil
 }
 

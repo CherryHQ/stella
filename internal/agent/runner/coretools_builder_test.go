@@ -30,33 +30,6 @@ func (f *fakeSession) Done() <-chan struct{} {
 	return ch
 }
 
-// Host file/process ops.
-func (f *fakeSession) ReadFile(_ context.Context, _ string, _, _ int) (sandbox.ReadResult, error) {
-	return sandbox.ReadResult{Content: []byte("hello")}, nil
-}
-
-func (f *fakeSession) WriteFile(_ context.Context, _ string, content []byte) (sandbox.WriteResult, error) {
-	return sandbox.WriteResult{BytesWritten: len(content)}, nil
-}
-
-func (f *fakeSession) EditFile(_ context.Context, _ string, edits []sandbox.Edit) (sandbox.EditResult, error) {
-	return sandbox.EditResult{AppliedEdits: len(edits)}, nil
-}
-
-func (f *fakeSession) Stat(_ context.Context, _ string) (sandbox.StatResult, error) {
-	return sandbox.StatResult{}, nil
-}
-
-func (f *fakeSession) ListDir(_ context.Context, _ string) ([]sandbox.DirEntry, error) {
-	return nil, nil
-}
-func (f *fakeSession) MkdirAll(_ context.Context, _ string, _ uint32) error { return nil }
-func (f *fakeSession) Remove(_ context.Context, _ string, _ bool) error     { return nil }
-func (f *fakeSession) Rename(_ context.Context, _, _ string) error          { return nil }
-func (f *fakeSession) CreateTemp(_ context.Context, _, _ string) (sandbox.TempFile, error) {
-	return nil, nil
-}
-
 func (f *fakeSession) Exec(_ context.Context, _ string, _ sandbox.ExecOptions) (sandbox.ExecResult, error) {
 	return sandbox.ExecResult{Stdout: "ok", ExitCode: 0}, nil
 }

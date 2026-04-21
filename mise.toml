@@ -47,7 +47,7 @@ run = 'ANNA_HOME="$HOME/.anna-dev" ./bin/$BINARY_NAME chat'
 
 [tasks.test]
 description = "Run all tests"
-run = "go test ./..."
+run = "bash scripts/check-workspace-root.sh && go test ./..."
 
 [tasks."test:coverage"]
 description = "Run tests with coverage report"

@@ -3,7 +3,6 @@ package sandbox
 import (
 	"context"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -48,7 +47,7 @@ func dockerPreflightForTest(t *testing.T, ctx context.Context) {
 	}
 }
 
-// Contract tests for Session and Host interfaces.
+// Contract tests for Session interface.
 // These tests verify that the docker backend satisfies the shared contract.
 
 // TestSessionContract runs the full session contract against the docker factory.
@@ -97,7 +96,7 @@ func testSessionContract(t *testing.T, factory Factory) {
 			t.Errorf("Policy().Backend = %q, want %q", got.Backend, policy.Backend)
 		}
 
-		// Session should be non-nil and functional (file ops available directly).
+		// Session should be non-nil and functional.
 		if session == nil {
 			t.Error("session should be non-nil")
 		}
@@ -164,15 +163,13 @@ func testSessionContract(t *testing.T, factory Factory) {
 		}
 		defer func() { _ = session.Close() }()
 
-		host := session
-
 		// WorkingDir should match policy
-		if got := host.WorkingDir(); got != policy.Filesystem.WorkingDir {
+		if got := session.WorkingDir(); got != policy.Filesystem.WorkingDir {
 			t.Errorf("WorkingDir() = %q, want %q", got, policy.Filesystem.WorkingDir)
 		}
 
 		// ResolvePath should work
-		resolved, err := host.ResolvePath("test.txt")
+		resolved, err := session.ResolvePath("test.txt")
 		if err != nil {
 			t.Errorf("ResolvePath: %v", err)
 		}
@@ -182,294 +179,29 @@ func testSessionContract(t *testing.T, factory Factory) {
 			t.Errorf("ResolvePath(%q) = %q, want %q", "test.txt", resolved, expected)
 		}
 	})
-}
-
-// TestHostContract runs the full host contract tests.
-func TestHostContract(t *testing.T) {
-	// Test with docker factory if daemon is reachable
-	t.Run("DockerFactory", func(t *testing.T) {
-		ctx := context.Background()
-		if !dockerAvailable(ctx) {
-			t.Skip("docker daemon not reachable; skipping DockerFactory host contract test")
-		}
-		dockerPreflightForTest(t, ctx)
-		testHostContract(t, dockerplugin.NewFactory(dockerplugin.Config{Image: dockerContractImage}))
-	})
-}
-
-func testHostContract(t *testing.T, factory Factory) {
-	ctx := context.Background()
-	tempDir := t.TempDir()
-
-	policy := Policy{
-		Backend: factory.Name(),
-		Filesystem: FilesystemPolicy{
-			WorkingDir:   tempDir,
-			AllowEscapes: true,
-		},
-		Network: NetworkPolicy{
-			Mode:    NetworkAllowAll,
-			Timeout: 10 * time.Second,
-		},
-		Process: ProcessPolicy{
-			Timeout: 10 * time.Second,
-		},
-	}
-
-	t.Run("FileOperations", func(t *testing.T) {
-		session, err := factory.CreateSession(ctx, policy)
-		if err != nil {
-			t.Fatalf("CreateSession: %v", err)
-		}
-		defer func() { _ = session.Close() }()
-
-		host := session
-
-		// WriteFile
-		content := []byte("hello, world")
-		writeResult, err := host.WriteFile(ctx, "test.txt", content)
-		if err != nil {
-			t.Fatalf("WriteFile: %v", err)
-		}
-		if writeResult.BytesWritten != len(content) {
-			t.Errorf("BytesWritten = %d, want %d", writeResult.BytesWritten, len(content))
-		}
-
-		// ReadFile
-		readResult, err := host.ReadFile(ctx, "test.txt", 0, 0)
-		if err != nil {
-			t.Fatalf("ReadFile: %v", err)
-		}
-		if string(readResult.Content) != string(content) {
-			t.Errorf("Content = %q, want %q", readResult.Content, content)
-		}
-
-		// ReadFile with offset and limit
-		readResult, err = host.ReadFile(ctx, "test.txt", 7, 5)
-		if err != nil {
-			t.Fatalf("ReadFile with offset/limit: %v", err)
-		}
-		if string(readResult.Content) != "world" {
-			t.Errorf("Content with offset 7 = %q, want %q", readResult.Content, "world")
-		}
-		if readResult.NextOffset != 12 {
-			t.Errorf("NextOffset = %d, want 12", readResult.NextOffset)
-		}
-
-		// Stat
-		stat, err := host.Stat(ctx, "test.txt")
-		if err != nil {
-			t.Fatalf("Stat: %v", err)
-		}
-		if !stat.Exists {
-			t.Error("Stat says file does not exist")
-		}
-		if stat.IsDir {
-			t.Error("Stat says file is a directory")
-		}
-		if stat.Size != int64(len(content)) {
-			t.Errorf("Size = %d, want %d", stat.Size, len(content))
-		}
-
-		// Non-existent file
-		stat, err = host.Stat(ctx, "nonexistent.txt")
-		if err != nil {
-			t.Fatalf("Stat nonexistent: %v", err)
-		}
-		if stat.Exists {
-			t.Error("Stat says nonexistent file exists")
-		}
-	})
-
-	t.Run("DirectoryOperations", func(t *testing.T) {
-		session, err := factory.CreateSession(ctx, policy)
-		if err != nil {
-			t.Fatalf("CreateSession: %v", err)
-		}
-		defer func() { _ = session.Close() }()
-
-		host := session
-
-		// MkdirAll
-		if err := host.MkdirAll(ctx, "subdir/nested", 0o755); err != nil {
-			t.Fatalf("MkdirAll: %v", err)
-		}
-
-		// Verify directory exists
-		stat, err := host.Stat(ctx, "subdir/nested")
-		if err != nil {
-			t.Fatalf("Stat: %v", err)
-		}
-		if !stat.Exists {
-			t.Error("directory does not exist after MkdirAll")
-		}
-		if !stat.IsDir {
-			t.Error("created path is not a directory")
-		}
-
-		// Write file in nested directory
-		_, err = host.WriteFile(ctx, "subdir/nested/file.txt", []byte("nested content"))
-		if err != nil {
-			t.Fatalf("WriteFile in nested dir: %v", err)
-		}
-
-		// ListDir
-		entries, err := host.ListDir(ctx, "subdir")
-		if err != nil {
-			t.Fatalf("ListDir: %v", err)
-		}
-		if len(entries) != 1 {
-			t.Errorf("ListDir returned %d entries, want 1", len(entries))
-		}
-		if len(entries) > 0 && entries[0].Name != "nested" {
-			t.Errorf("entry name = %q, want %q", entries[0].Name, "nested")
-		}
-
-		// Remove
-		if err := host.Remove(ctx, "subdir/nested/file.txt", false); err != nil {
-			t.Errorf("Remove file: %v", err)
-		}
-
-		// Remove recursive
-		if err := host.Remove(ctx, "subdir", true); err != nil {
-			t.Errorf("Remove recursive: %v", err)
-		}
-
-		stat, err = host.Stat(ctx, "subdir")
-		if err != nil {
-			t.Fatalf("Stat after remove: %v", err)
-		}
-		if stat.Exists {
-			t.Error("directory still exists after recursive remove")
-		}
-	})
-
-	t.Run("EditFile", func(t *testing.T) {
-		session, err := factory.CreateSession(ctx, policy)
-		if err != nil {
-			t.Fatalf("CreateSession: %v", err)
-		}
-		defer func() { _ = session.Close() }()
-
-		host := session
-
-		// Create initial file
-		initial := "hello, world\nfoo bar\n"
-		_, err = host.WriteFile(ctx, "edit_test.txt", []byte(initial))
-		if err != nil {
-			t.Fatalf("WriteFile: %v", err)
-		}
-
-		// Edit file
-		edits := []Edit{
-			{OldText: "world", NewText: "universe"},
-			{OldText: "foo", NewText: "baz"},
-		}
-		editResult, err := host.EditFile(ctx, "edit_test.txt", edits)
-		if err != nil {
-			t.Fatalf("EditFile: %v", err)
-		}
-		if editResult.AppliedEdits != 2 {
-			t.Errorf("AppliedEdits = %d, want 2", editResult.AppliedEdits)
-		}
-
-		// Verify content
-		readResult, err := host.ReadFile(ctx, "edit_test.txt", 0, 0)
-		if err != nil {
-			t.Fatalf("ReadFile after edit: %v", err)
-		}
-
-		expected := "hello, universe\nbaz bar\n"
-		if string(readResult.Content) != expected {
-			t.Errorf("content after edit = %q, want %q", readResult.Content, expected)
-		}
-	})
-
-	t.Run("Rename", func(t *testing.T) {
-		session, err := factory.CreateSession(ctx, policy)
-		if err != nil {
-			t.Fatalf("CreateSession: %v", err)
-		}
-		defer func() { _ = session.Close() }()
-
-		host := session
-
-		_, err = host.WriteFile(ctx, "oldname.txt", []byte("content"))
-		if err != nil {
-			t.Fatalf("WriteFile: %v", err)
-		}
-
-		if err := host.Rename(ctx, "oldname.txt", "newname.txt"); err != nil {
-			t.Fatalf("Rename: %v", err)
-		}
-
-		// Verify old name doesn't exist
-		stat, _ := host.Stat(ctx, "oldname.txt")
-		if stat.Exists {
-			t.Error("oldname.txt still exists after rename")
-		}
-
-		// Verify new name exists
-		stat, err = host.Stat(ctx, "newname.txt")
-		if err != nil {
-			t.Fatalf("Stat newname: %v", err)
-		}
-		if !stat.Exists {
-			t.Error("newname.txt does not exist after rename")
-		}
-	})
-
-	t.Run("CreateTemp", func(t *testing.T) {
-		session, err := factory.CreateSession(ctx, policy)
-		if err != nil {
-			t.Fatalf("CreateSession: %v", err)
-		}
-		defer func() { _ = session.Close() }()
-
-		host := session
-
-		tempFile, err := host.CreateTemp(ctx, "", "test-*.txt")
-		if err != nil {
-			t.Fatalf("CreateTemp: %v", err)
-		}
-
-		// Temp file should exist
-		stat, err := host.Stat(ctx, tempFile.Path())
-		if err != nil {
-			t.Fatalf("Stat temp file: %v", err)
-		}
-		if !stat.Exists {
-			t.Error("temp file does not exist")
-		}
-
-		// Write to temp file
-		_, err = tempFile.Write([]byte("temp content"))
-		if err != nil {
-			t.Errorf("Write temp file: %v", err)
-		}
-
-		// Close temp file
-		if err := tempFile.Close(); err != nil {
-			t.Errorf("Close temp file: %v", err)
-		}
-	})
 
 	t.Run("Exec", func(t *testing.T) {
-		// Skip on Windows
-		if runtime.GOOS == "windows" {
-			t.Skip("Exec test skipped on Windows")
-		}
-
-		session, err := factory.CreateSession(ctx, policy)
+		session, err := factory.CreateSession(ctx, Policy{
+			Backend: factory.Name(),
+			Filesystem: FilesystemPolicy{
+				WorkingDir:   tempDir,
+				AllowEscapes: true,
+			},
+			Network: NetworkPolicy{
+				Mode:    NetworkAllowAll,
+				Timeout: 10 * time.Second,
+			},
+			Process: ProcessPolicy{
+				Timeout: 10 * time.Second,
+			},
+		})
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
 		defer func() { _ = session.Close() }()
 
-		host := session
-
 		// Simple echo command
-		execResult, err := host.Exec(ctx, "echo hello", ExecOptions{})
+		execResult, err := session.Exec(ctx, "echo hello", ExecOptions{})
 		if err != nil {
 			t.Fatalf("Exec: %v", err)
 		}
@@ -478,14 +210,10 @@ func testHostContract(t *testing.T, factory Factory) {
 			t.Errorf("ExitCode = %d, want 0", execResult.ExitCode)
 		}
 
-		if !contains(execResult.Stdout, "hello") {
+		if !containsSubstring(execResult.Stdout, "hello") {
 			t.Errorf("Stdout = %q, should contain %q", execResult.Stdout, "hello")
 		}
 	})
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
 }
 
 func containsSubstring(s, substr string) bool {
