@@ -10,8 +10,6 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 const tapVersion = "0.4.4"
@@ -113,18 +111,8 @@ func normalizeSemver(v string) string {
 }
 
 func parseTapSkillFrontmatter(content string) (map[string]any, bool) {
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	content = strings.ReplaceAll(content, "\r", "\n")
-	if !strings.HasPrefix(content, "---\n") {
-		return nil, false
-	}
-	rest := strings.TrimPrefix(content, "---\n")
-	block, _, ok := strings.Cut(rest, "\n---\n")
-	if !ok {
-		return nil, false
-	}
-	var meta map[string]any
-	if err := yaml.Unmarshal([]byte(block), &meta); err != nil {
+	meta := make(map[string]any)
+	if !unmarshalYAMLFrontmatter(content, &meta) {
 		return nil, false
 	}
 	return meta, true

@@ -125,9 +125,10 @@ func SyncEmbeddedTools(ctx context.Context, cfg Config) error {
 }
 
 func (s toolSyncer) sync(ctx context.Context, cfg Config) error {
-	platformDir := filepath.Join(cfg.WorkDir, "internal", "resources", "binaries", "binaries", cfg.Platform())
+	platform := cfg.Platform()
+	platformDir := filepath.Join(cfg.WorkDir, "internal", "resources", "binaries", "binaries", platform)
 	for _, spec := range s.specs {
-		binaryPath, cleanup, err := s.fetchBinary(ctx, spec, cfg.Platform())
+		binaryPath, cleanup, err := s.fetchBinary(ctx, spec, platform)
 		if err != nil {
 			if spec.Optional && strings.Contains(err.Error(), "no asset for") {
 				continue
@@ -149,7 +150,10 @@ func (s toolSyncer) fetchBinary(ctx context.Context, spec embeddedBinary, platfo
 	if !ok {
 		return "", func() {}, fmt.Errorf("no asset for %s on platform %s", spec.Name, platform)
 	}
-	url := fmt.Sprintf("%s/%s/releases/download/%s/%s", s.baseURL, spec.Repo, tag, asset.File)
+	url := GitHubReleaseAssetURL(spec.Repo, tag, asset.File)
+	if s.baseURL != "https://github.com" {
+		url = fmt.Sprintf("%s/%s/releases/download/%s/%s", s.baseURL, spec.Repo, tag, asset.File)
+	}
 	return s.fetchAssetBinary(ctx, asset, url)
 }
 

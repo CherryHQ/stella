@@ -11,15 +11,13 @@ import (
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	"gopkg.in/yaml.v3"
 )
 
 const larkCLIRepo = "https://github.com/larksuite/cli"
 
 type larkSkillMeta struct {
-	Name        string         `yaml:"name"`
-	Description string         `yaml:"description"`
-	Metadata    map[string]any `yaml:"metadata"`
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
 }
 
 type larkSkillDoc struct {
@@ -130,8 +128,9 @@ func migrateLarkSkill(skillDir, refsDir string) (larkSkillDoc, error) {
 		}
 		return larkSkillDoc{}, fmt.Errorf("read SKILL.md: %w", err)
 	}
-	meta, _ := parseLarkFrontmatter(string(raw))
-	updated := updateLarkMarkdownReferences(string(raw), skillName)
+	content := string(raw)
+	meta, _ := parseLarkFrontmatter(content)
+	updated := updateLarkMarkdownReferences(content, skillName)
 	if err := AtomicWriteFile(filepath.Join(refsDir, skillName+".md"), []byte(updated), 0o644); err != nil {
 		return larkSkillDoc{}, fmt.Errorf("write migrated skill markdown: %w", err)
 	}
@@ -154,18 +153,8 @@ func migrateLarkSkill(skillDir, refsDir string) (larkSkillDoc, error) {
 }
 
 func parseLarkFrontmatter(content string) (larkSkillMeta, bool) {
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	content = strings.ReplaceAll(content, "\r", "\n")
-	if !strings.HasPrefix(content, "---\n") {
-		return larkSkillMeta{}, false
-	}
-	rest := strings.TrimPrefix(content, "---\n")
-	block, _, ok := strings.Cut(rest, "\n---\n")
-	if !ok {
-		return larkSkillMeta{}, false
-	}
 	var meta larkSkillMeta
-	if err := yaml.Unmarshal([]byte(block), &meta); err != nil {
+	if !unmarshalYAMLFrontmatter(content, &meta) {
 		return larkSkillMeta{}, false
 	}
 	return meta, true
