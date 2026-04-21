@@ -15,6 +15,52 @@ import (
 	"testing"
 )
 
+func TestEmbeddedBinariesIncludeGitHubCLI(t *testing.T) {
+	specs := embeddedBinaries()
+	var found *embeddedBinary
+	for i := range specs {
+		if specs[i].Name == "gh" {
+			found = &specs[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("gh spec not found")
+	}
+	if found.Version != ghCLIVersion {
+		t.Fatalf("version = %q, want %q", found.Version, ghCLIVersion)
+	}
+	for _, platform := range []string{"darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64", "windows-amd64", "windows-arm64"} {
+		if _, _, ok := found.resolveAsset(platform); !ok {
+			t.Fatalf("missing gh asset for %s", platform)
+		}
+	}
+}
+
+func TestEmbeddedBinariesFDDarwinAMD64UsesLegacyTag(t *testing.T) {
+	specs := embeddedBinaries()
+	var found *embeddedBinary
+	for i := range specs {
+		if specs[i].Name == "fd" {
+			found = &specs[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("fd spec not found")
+	}
+	asset, tag, ok := found.resolveAsset("darwin-amd64")
+	if !ok {
+		t.Fatal("missing fd darwin-amd64 asset")
+	}
+	if tag != "v"+fdDarwinAMD64Version {
+		t.Fatalf("tag = %q, want %q", tag, "v"+fdDarwinAMD64Version)
+	}
+	if asset.File != "fd-v10.3.0-x86_64-apple-darwin.tar.gz" {
+		t.Fatalf("file = %q", asset.File)
+	}
+}
+
 func TestEmbeddedBinariesIncludeLarkCLI(t *testing.T) {
 	specs := embeddedBinaries()
 	var found *embeddedBinary
