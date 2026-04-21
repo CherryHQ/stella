@@ -5,6 +5,7 @@ package local
 import (
 	"fmt"
 	"os/exec"
+	"sync"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -70,10 +71,36 @@ func applyRlimits(cmd *exec.Cmd) error {
 // both roots are identical.
 func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
 	real := policy.WorkspaceRootOrDefault()
-	if _, err := exec.LookPath("bwrap"); err == nil {
+	if bwrapFunctional() {
 		return "/workspace", real
 	}
 	return real, real
+}
+
+var (
+	bwrapOnce      sync.Once
+	bwrapPath      string
+	bwrapAvailable bool
+)
+
+// bwrapFunctional returns true only when bwrap is on PATH AND can actually
+// create a user namespace. The result is cached after the first call.
+// Inside Docker containers without --privileged, bwrap is often installed
+// but namespace creation is blocked by the seccomp profile, causing
+// "Operation not permitted" at runtime.
+func bwrapFunctional() bool {
+	bwrapOnce.Do(func() {
+		p, err := exec.LookPath("bwrap")
+		if err != nil {
+			return
+		}
+		// Probe with a minimal sandbox that just runs true(1).
+		if exec.Command(p, "--dev-bind", "/", "/", "--", "true").Run() == nil {
+			bwrapPath = p
+			bwrapAvailable = true
+		}
+	})
+	return bwrapAvailable
 }
 
 // wrapCommand wraps name+args with bwrap (preferred) or unshare for network/fs
@@ -90,9 +117,10 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []strin
 	networkMode := policy.NetworkModeOrDefault()
 
 	// Always try bwrap first: it gives us both /workspace path remapping and
-	// optional network isolation.
-	bwrapPath, bwrapErr := exec.LookPath("bwrap")
-	if bwrapErr == nil {
+	// optional network isolation. bwrapFunctional() probes actual namespace
+	// creation so we don't attempt bwrap inside Docker containers where it is
+	// installed but blocked by the seccomp profile.
+	if bwrapFunctional() {
 		bwrapArgs := []string{
 			"--ro-bind", "/", "/",
 			"--dir", "/workspace",
