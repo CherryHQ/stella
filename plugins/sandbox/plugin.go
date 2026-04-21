@@ -17,6 +17,11 @@ func init() {
 			displayName: "Docker",
 			description: "Container-per-session isolation via Docker. Requires a running Docker daemon.",
 		},
+		{
+			name:        config.SandboxBackendLocal,
+			displayName: "Local",
+			description: "Runs commands directly on the host OS with no container isolation.",
+		},
 	}
 	for _, b := range backends {
 		id := config.PluginID(config.PluginKindSandbox, b.name)

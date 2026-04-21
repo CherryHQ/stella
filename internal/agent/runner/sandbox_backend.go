@@ -14,6 +14,7 @@ import (
 	"github.com/vaayne/anna/internal/sandbox"
 	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
 	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
+	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
 )
 
 // runnerSession wraps a sandbox.Session for runner use.
@@ -107,6 +108,7 @@ type sessionFactory func(context.Context, GoRunnerConfig) (*runnerSession, error
 // registry manages session factories by name.
 var sessionRegistry = map[string]sessionFactory{
 	config.SandboxBackendDocker: createDockerSession,
+	config.SandboxBackendLocal:  createLocalSession,
 }
 
 func runnerFilesystemPolicy(paths sandboxPaths) sandbox.FilesystemPolicy {
@@ -170,6 +172,40 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 		err = fmt.Errorf("create docker session: %w", err)
 		recordSandboxError(span, err)
 		return nil, err
+	}
+
+	return &runnerSession{
+		session: session,
+		policy:  policy,
+	}, nil
+}
+
+// createLocalSession creates a local (no container isolation) session.
+// WARNING: commands run directly on the host OS with no container isolation.
+func createLocalSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("resolve sandbox paths: %w", err)
+	}
+	policy := sandbox.Policy{
+		Filesystem: runnerFilesystemPolicy(paths),
+		Network: sandbox.NetworkPolicy{
+			Mode: sandbox.NetworkMode(cfg.Sandbox.Network.Mode),
+		},
+		Env:        sandboxProcessEnv(paths),
+		InheritEnv: true,
+	}
+
+	slog.Info("creating local session",
+		"component", "runner_sandbox",
+		"user_root", paths.UserRoot,
+		"work_dir", paths.WorkDir,
+		"network_mode", cfg.Sandbox.Network.Mode,
+	)
+
+	session, err := localplugin.NewFactory().CreateSession(ctx, policy)
+	if err != nil {
+		return nil, fmt.Errorf("create local session: %w", err)
 	}
 
 	return &runnerSession{
