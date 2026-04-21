@@ -227,6 +227,43 @@ func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount) m
 	return out
 }
 
+// containerDefaultPATH is the image-baked PATH from the Dockerfile ENV directive.
+// It is used as the base when building a container exec PATH that prepends the
+// wrapper dir. Keep in sync with the ENV PATH line in plugins/sandbox/docker/Dockerfile.
+const containerDefaultPATH = "/home/anna/.local/bin:/home/anna/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+// injectWrapperPath prepends the wrapper dir (ANNA_WRAPPER_DIR) to the
+// container exec PATH so that CLI wrappers provisioned in that directory
+// shadow the real binaries and intercept calls for auth injection.
+//
+// ANNA_WRAPPER_DIR is translated by translateEnvPaths from a host path to its
+// container-side equivalent before this function is called. If the variable is
+// absent or empty (translation failed because the dir is not inside a mount),
+// the env is returned unchanged.
+func injectWrapperPath(env map[string]string) map[string]string {
+	wrapperDir, ok := env["ANNA_WRAPPER_DIR"]
+	if !ok || wrapperDir == "" {
+		return env
+	}
+	base := env["PATH"]
+	if base == "" {
+		base = containerDefaultPATH
+	}
+	env["PATH"] = wrapperDir + ":" + base
+	return env
+}
+
+// injectDockerBinPaths overrides ANNA_GH_BIN and ANNA_LARK_BIN with their
+// absolute container-side paths. The runner sets these to host paths via
+// binaries.ToolPath; those paths do not exist inside the container.
+// Overriding them here ensures the wrapper scripts exec the real binaries
+// rather than looping back through the wrappers on PATH.
+func injectDockerBinPaths(env map[string]string) map[string]string {
+	env["ANNA_GH_BIN"] = "/usr/bin/gh"
+	env["ANNA_LARK_BIN"] = "/usr/local/bin/lark-cli"
+	return env
+}
+
 // dockerSession is a docker-backed sandbox session backed by a single container.
 type dockerSession struct {
 	id          string
@@ -482,7 +519,7 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 		return sandboxpkg.ExecResult{}, fmt.Errorf("docker host exec: cwd not in any mount: %w", err)
 	}
 
-	env := translateEnvPaths(mergeEnv(h.session.policy.Env, opts.Env), h.session.mountTable)
+	env := injectDockerBinPaths(injectWrapperPath(translateEnvPaths(mergeEnv(h.session.policy.Env, opts.Env), h.session.mountTable)))
 
 	timeout := opts.Timeout
 	if timeout == 0 {
@@ -527,7 +564,7 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 		return nil, fmt.Errorf("docker host start_process: cwd not in any mount: %w", err)
 	}
 
-	env := translateEnvPaths(mergeEnv(h.session.policy.Env, req.Env), h.session.mountTable)
+	env := injectDockerBinPaths(injectWrapperPath(translateEnvPaths(mergeEnv(h.session.policy.Env, req.Env), h.session.mountTable)))
 
 	timeout := req.Timeout
 	if timeout == 0 {

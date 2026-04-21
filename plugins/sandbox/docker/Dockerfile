@@ -24,6 +24,33 @@ RUN apt-get update && \
     ln -s /usr/bin/fdfind /usr/local/bin/fd && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# GitHub CLI (gh) — version pinned to match internal/builddeps/binaries.go ghCLIVersion
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y gh=2.89.0 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# lark-cli — version pinned to match internal/builddeps/binaries.go larkCLIVersion
+# Released as a tarball from github.com/larksuite/cli at /usr/local/bin/lark-cli
+# (injectDockerBinPaths in plugins/sandbox/docker/session.go relies on this path)
+ARG LARK_CLI_VERSION=1.0.15
+RUN set -eux; \
+    ARCH="$(dpkg --print-architecture)"; \
+    case "$ARCH" in \
+        amd64) LARK_ARCH="linux-amd64" ;; \
+        arm64) LARK_ARCH="linux-arm64" ;; \
+        *) echo "unsupported architecture: $ARCH" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL \
+        "https://github.com/larksuite/cli/releases/download/v${LARK_CLI_VERSION}/lark-cli-${LARK_CLI_VERSION}-${LARK_ARCH}.tar.gz" \
+        -o /tmp/lark-cli.tar.gz && \
+    tar -xzf /tmp/lark-cli.tar.gz -C /tmp && \
+    find /tmp -name "lark-cli" -type f -exec install -m 755 {} /usr/local/bin/lark-cli \; && \
+    rm -f /tmp/lark-cli.tar.gz
+
 ARG USER_UID=1000
 ARG USER_GID=1000
 
