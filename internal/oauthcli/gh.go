@@ -1,24 +1,17 @@
 package oauthcli
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/github"
 )
 
-const (
-	ghDeviceCodeURL  = "https://github.com/login/device/code"
-	ghAccessTokenURL = "https://github.com/login/oauth/access_token"
-	ghScope          = "repo,read:org"
-)
+const ghScope = "repo,read:org"
 
 // GitHubConfig holds the OAuth app credentials for device flow.
 type GitHubConfig struct {
@@ -26,11 +19,12 @@ type GitHubConfig struct {
 	ClientSecret string
 }
 
-// ghFlowSecret holds provider-specific secrets for an in-flight GitHub flow.
+// ghFlowSecret holds in-flight state for a GitHub device flow.
 type ghFlowSecret struct {
-	deviceCode string
-	interval   int // seconds between polls, as returned by GitHub
-	bundle     *GHOAuthBundle
+	cancel context.CancelFunc
+	token  *oauth2.Token
+	err    error
+	done   chan struct{}
 }
 
 // GitHubBroker manages GitHub device-flow sessions.
@@ -50,87 +44,71 @@ func NewGitHubBroker(cfg GitHubConfig, store *FlowStore) *GitHubBroker {
 	}
 }
 
-// ghDeviceCodeResponse is the JSON body from POST /login/device/code.
-type ghDeviceCodeResponse struct {
-	DeviceCode      string `json:"device_code"`
-	UserCode        string `json:"user_code"`
-	VerificationURI string `json:"verification_uri"`
-	ExpiresIn       int    `json:"expires_in"`
-	Interval        int    `json:"interval"`
-}
-
-// ghAccessTokenResponse is the JSON body from POST /login/oauth/access_token.
-type ghAccessTokenResponse struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	Scope       string `json:"scope"`
-	Error       string `json:"error"`
-	// Fine-grained tokens may carry expiry.
-	ExpiresIn    int    `json:"expires_in,omitempty"`
-	RefreshToken string `json:"refresh_token,omitempty"`
+func (b *GitHubBroker) oauthConfig() *oauth2.Config {
+	return &oauth2.Config{
+		ClientID:     b.cfg.ClientID,
+		ClientSecret: b.cfg.ClientSecret,
+		Scopes:       []string{ghScope},
+		Endpoint:     github.Endpoint,
+	}
 }
 
 // StartDeviceFlow requests a device code from GitHub, stores pending state,
 // and returns the FlowStatus the caller should display to the user.
+// A background goroutine polls GitHub until the user authorizes or the flow expires.
 func (b *GitHubBroker) StartDeviceFlow(ctx context.Context, userID int64) (FlowStatus, error) {
-	body := url.Values{}
-	body.Set("client_id", b.cfg.ClientID)
-	body.Set("scope", ghScope)
+	cfg := b.oauthConfig()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ghDeviceCodeURL,
-		strings.NewReader(body.Encode()))
+	da, err := cfg.DeviceAuth(ctx, oauth2.AccessTypeOnline)
 	if err != nil {
-		return FlowStatus{}, fmt.Errorf("oauthcli/gh: build device code request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return FlowStatus{}, fmt.Errorf("oauthcli/gh: device code request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return FlowStatus{}, fmt.Errorf("oauthcli/gh: device code: unexpected status %d", resp.StatusCode)
-	}
-
-	var dc ghDeviceCodeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&dc); err != nil {
-		return FlowStatus{}, fmt.Errorf("oauthcli/gh: decode device code response: %w", err)
-	}
-
-	if dc.Interval <= 0 {
-		dc.Interval = 5 // GitHub default
+		return FlowStatus{}, fmt.Errorf("oauthcli/gh: device auth: %w", err)
 	}
 
 	flowID := uuid.NewString()
-	expiresAt := time.Now().Add(time.Duration(dc.ExpiresIn) * time.Second)
+	expiresAt := da.Expiry
 
 	status := FlowStatus{
 		Provider:        ProviderGitHub,
 		FlowID:          flowID,
-		VerificationURI: dc.VerificationURI,
-		UserCode:        dc.UserCode,
+		VerificationURI: da.VerificationURIComplete,
+		UserCode:        da.UserCode,
 		ExpiresAt:       expiresAt,
 		State:           FlowStatePending,
+	}
+	if status.VerificationURI == "" {
+		status.VerificationURI = da.VerificationURI
 	}
 
 	b.store.Create(status)
 
-	b.mu.Lock()
-	b.secret[flowID] = &ghFlowSecret{
-		deviceCode: dc.DeviceCode,
-		interval:   dc.Interval,
+	bgCtx, cancel := context.WithDeadline(context.Background(), expiresAt)
+	sec := &ghFlowSecret{
+		cancel: cancel,
+		done:   make(chan struct{}),
 	}
+	b.mu.Lock()
+	b.secret[flowID] = sec
 	b.mu.Unlock()
+
+	go func() {
+		defer close(sec.done)
+		tok, err := cfg.DeviceAccessToken(bgCtx, da)
+		b.mu.Lock()
+		sec.token = tok
+		sec.err = err
+		b.mu.Unlock()
+		if err == nil {
+			b.store.Update(flowID, FlowStateAuthorized, nil)
+		} else {
+			b.store.Update(flowID, FlowStateFailed, nil)
+		}
+	}()
 
 	return status, nil
 }
 
 // Poll checks whether the user has completed authorization for flowID.
-// It updates the store state and returns the current FlowStatus.
-// Callers must call Complete after Poll returns State == FlowStateAuthorized.
+// It reads from the store — the background goroutine updates it when done.
 func (b *GitHubBroker) Poll(ctx context.Context, flowID string) (FlowStatus, error) {
 	status, ok := b.store.Get(flowID)
 	if !ok {
@@ -148,87 +126,7 @@ func (b *GitHubBroker) Poll(ctx context.Context, flowID string) (FlowStatus, err
 		return status, nil
 	}
 
-	b.mu.Lock()
-	sec, ok := b.secret[flowID]
-	b.mu.Unlock()
-	if !ok {
-		return FlowStatus{}, fmt.Errorf("oauthcli/gh: missing secrets for flow %q", flowID)
-	}
-
-	reqBody := url.Values{}
-	reqBody.Set("client_id", b.cfg.ClientID)
-	reqBody.Set("device_code", sec.deviceCode)
-	reqBody.Set("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ghAccessTokenURL,
-		strings.NewReader(reqBody.Encode()))
-	if err != nil {
-		return FlowStatus{}, fmt.Errorf("oauthcli/gh: build poll request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return FlowStatus{}, fmt.Errorf("oauthcli/gh: poll request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	var at ghAccessTokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&at); err != nil {
-		return FlowStatus{}, fmt.Errorf("oauthcli/gh: decode poll response: %w", err)
-	}
-
-	switch at.Error {
-	case "":
-		// Success — stash the token bundle, mark authorized.
-		bundle := &GHOAuthBundle{
-			Version:      1,
-			AccessToken:  at.AccessToken,
-			TokenType:    at.TokenType,
-			Scope:        at.Scope,
-			RefreshToken: at.RefreshToken,
-		}
-		if at.ExpiresIn > 0 {
-			t := time.Now().Add(time.Duration(at.ExpiresIn) * time.Second)
-			bundle.ExpiresAt = &t
-		}
-		b.mu.Lock()
-		sec.bundle = bundle
-		b.mu.Unlock()
-		b.store.Update(flowID, FlowStateAuthorized, nil)
-		status.State = FlowStateAuthorized
-		return status, nil
-
-	case "authorization_pending":
-		// Still waiting — no change.
-		return status, nil
-
-	case "slow_down":
-		// GitHub wants us to back off; bump the stored interval and keep waiting.
-		b.mu.Lock()
-		sec.interval += 5
-		b.mu.Unlock()
-		return status, nil
-
-	case "expired_token":
-		b.store.Update(flowID, FlowStateExpired, nil)
-		b.cleanSecret(flowID)
-		status.State = FlowStateExpired
-		return status, nil
-
-	case "access_denied":
-		b.store.Update(flowID, FlowStateFailed, nil)
-		b.cleanSecret(flowID)
-		status.State = FlowStateFailed
-		return status, fmt.Errorf("oauthcli/gh: access denied by user")
-
-	default:
-		b.store.Update(flowID, FlowStateFailed, nil)
-		b.cleanSecret(flowID)
-		status.State = FlowStateFailed
-		return status, fmt.Errorf("oauthcli/gh: unexpected error %q from GitHub", at.Error)
-	}
+	return status, nil
 }
 
 // Complete persists the token bundle to vault. Must be called only after Poll
@@ -240,11 +138,32 @@ func (b *GitHubBroker) Complete(ctx context.Context, vs VaultStore, userID int64
 	if !ok {
 		return fmt.Errorf("oauthcli/gh: no authorized token for flow %q", flowID)
 	}
-	if sec.bundle == nil {
+
+	// Wait for the background goroutine to finish if it hasn't yet.
+	<-sec.done
+
+	b.mu.Lock()
+	tok := sec.token
+	err := sec.err
+	b.mu.Unlock()
+
+	if err != nil {
+		return fmt.Errorf("oauthcli/gh: flow %q failed: %w", flowID, err)
+	}
+	if tok == nil {
 		return fmt.Errorf("oauthcli/gh: flow %q is not yet authorized", flowID)
 	}
 
-	if err := SaveGHBundle(ctx, vs, userID, *sec.bundle); err != nil {
+	bundle := GHOAuthBundle{
+		Version:     1,
+		AccessToken: tok.AccessToken,
+		TokenType:   tok.TokenType,
+	}
+	if !tok.Expiry.IsZero() {
+		bundle.ExpiresAt = &tok.Expiry
+	}
+
+	if err := SaveGHBundle(ctx, vs, userID, bundle); err != nil {
 		return err
 	}
 
@@ -253,44 +172,11 @@ func (b *GitHubBroker) Complete(ctx context.Context, vs VaultStore, userID int64
 	return nil
 }
 
-// PollInterval returns the current recommended seconds-between-polls for a
-// flow. Returns 5 (GitHub default) if the flow is unknown.
-func (b *GitHubBroker) PollInterval(flowID string) int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if sec, ok := b.secret[flowID]; ok {
-		return sec.interval
-	}
-	return 5
-}
-
 func (b *GitHubBroker) cleanSecret(flowID string) {
 	b.mu.Lock()
-	delete(b.secret, flowID)
+	if sec, ok := b.secret[flowID]; ok {
+		sec.cancel()
+		delete(b.secret, flowID)
+	}
 	b.mu.Unlock()
-}
-
-// postJSON is a small helper to POST a JSON body and decode the response.
-func postJSON(ctx context.Context, url string, reqBody any, headers map[string]string, out any) error {
-	data, err := json.Marshal(reqBody)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json; charset=utf-8")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("do request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
-	return json.NewDecoder(resp.Body).Decode(out)
 }

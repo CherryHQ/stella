@@ -3,11 +3,11 @@ package oauthcli
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/oauth2"
 )
 
 const (
@@ -15,6 +15,7 @@ const (
 	larkBaseLark   = "https://open.larksuite.com"
 
 	larkRedirectURI = "https://anna.app/oauth/lark/callback" // placeholder; caller sets up the real redirect
+	larkScope       = "contact:user.base:readonly"
 )
 
 // LarkConfig holds the OAuth app credentials for Lark/Feishu device-style flow.
@@ -71,16 +72,26 @@ func (b *LarkBroker) baseURL() string {
 	return larkBaseLark
 }
 
+func (b *LarkBroker) oauthConfig() *oauth2.Config {
+	base := b.baseURL()
+	return &oauth2.Config{
+		ClientID:    b.cfg.AppID,
+		RedirectURL: b.redirectURI,
+		Scopes:      []string{larkScope},
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  base + "/open-apis/authen/v1/authorize",
+			TokenURL: base + "/open-apis/authen/v1/oidc/access_token",
+		},
+	}
+}
+
 // StartDeviceFlow generates a state token, constructs the authorization URL,
 // and stores a pending FlowStatus. The user must navigate to VerificationURI.
 func (b *LarkBroker) StartDeviceFlow(ctx context.Context, userID int64) (FlowStatus, error) {
 	flowID := uuid.NewString()
-	expiresAt := time.Now().Add(10 * time.Minute) // Lark code flows typically timeout within minutes
+	expiresAt := time.Now().Add(10 * time.Minute)
 
-	authURL, err := b.buildAuthURL(flowID)
-	if err != nil {
-		return FlowStatus{}, fmt.Errorf("oauthcli/lark: build auth url: %w", err)
-	}
+	authURL := b.oauthConfig().AuthCodeURL(flowID)
 
 	status := FlowStatus{
 		Provider:        ProviderLark,
@@ -117,7 +128,6 @@ func (b *LarkBroker) Poll(ctx context.Context, flowID string) (FlowStatus, error
 		return status, nil
 	}
 
-	// Check if Complete was called and stashed a bundle.
 	b.mu.Lock()
 	sec, ok := b.secret[flowID]
 	b.mu.Unlock()
@@ -156,7 +166,6 @@ func (b *LarkBroker) Complete(ctx context.Context, vs VaultStore, userID int64, 
 		return err
 	}
 
-	// Update store so polling callers see the completion immediately.
 	b.store.Update(flowID, FlowStateAuthorized, nil)
 	b.mu.Lock()
 	if sec, ok := b.secret[flowID]; ok {
@@ -178,6 +187,8 @@ type larkAppTokenResponse struct {
 }
 
 // fetchAppAccessToken obtains a short-lived Lark app access token.
+// Lark requires a separate app credential exchange before user token operations —
+// the standard oauth2 flow does not support this pattern.
 func (b *LarkBroker) fetchAppAccessToken(ctx context.Context) (string, error) {
 	endpoint := b.baseURL() + "/open-apis/auth/v3/app_access_token/internal"
 	reqBody := map[string]string{
@@ -208,6 +219,8 @@ type larkUserTokenResponse struct {
 }
 
 // exchangeCode exchanges an authorization code for a user access token.
+// Uses custom HTTP because Lark requires Authorization: Bearer <app_access_token>,
+// which the standard oauth2.Config.Exchange() does not support.
 func (b *LarkBroker) exchangeCode(ctx context.Context, appToken string, code string) (*LarkOAuthBundle, error) {
 	endpoint := b.baseURL() + "/open-apis/authen/v1/oidc/access_token"
 	reqBody := map[string]string{
@@ -233,21 +246,6 @@ func (b *LarkBroker) exchangeCode(ctx context.Context, appToken string, code str
 		RefreshExpiresAt: now.Add(time.Duration(resp.Data.RefreshExpiresIn) * time.Second),
 	}
 	return bundle, nil
-}
-
-func (b *LarkBroker) buildAuthURL(state string) (string, error) {
-	base := b.baseURL() + "/open-apis/authen/v1/authorize"
-	params := url.Values{}
-	params.Set("app_id", b.cfg.AppID)
-	params.Set("redirect_uri", b.redirectURI)
-	params.Set("state", state)
-	params.Set("scope", "contact:user.base:readonly")
-	u, err := url.Parse(base)
-	if err != nil {
-		return "", err
-	}
-	u.RawQuery = params.Encode()
-	return u.String(), nil
 }
 
 func (b *LarkBroker) cleanSecret(flowID string) {
