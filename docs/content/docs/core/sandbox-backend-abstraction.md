@@ -4,11 +4,11 @@ title: Sandbox Backend Abstraction
 
 ## Status
 
-Implemented. Docker is the recommended sandbox backend. A local backend is also available for Docker-free environments with OS-level hardening. Anna's execution boundary is described by `pkg/sandbox` contracts, with runner-facing registry wiring in `internal/sandbox`.
+Implemented. Docker is the recommended sandbox backend. A local backend is also available for Docker-free environments; Linux keeps OS-level hardening, while macOS currently runs local commands directly on the host without additional sandboxing. Anna's execution boundary is described by `pkg/sandbox` contracts, with runner-facing registry wiring in `internal/sandbox`.
 
 ## Purpose
 
-The sandbox abstraction exists so runner code, plugin wiring, and tool execution do not depend on concrete backend types. All sandboxed execution runs through a Docker container. Docker is required; Anna fails closed when the Docker daemon is unavailable at session-create time.
+The sandbox abstraction exists so runner code, plugin wiring, and tool execution do not depend on concrete backend types. Execution always runs through the active backend selected by the runner. Docker provides the strongest isolation; the local backend is a host-execution fallback for environments where Docker is unavailable or undesirable.
 
 The top-level model is:
 
@@ -58,9 +58,9 @@ The local backend runs commands directly on the host OS. It is intended for envi
 | Process group kill + rlimits | All Unix | `SIGKILL` on process group; `RLIMIT_FSIZE`, `RLIMIT_NOFILE`, `RLIMIT_CPU` via `prlimit(2)` |
 | Filesystem + network isolation | Linux (bwrap available) | `bwrap` — workspace bind-mounted to `/workspace`; rest of FS read-only; optional `--unshare-net` |
 | Network isolation only | Linux (no bwrap) | `unshare --net` — new network namespace, no outbound connectivity |
-| Filesystem + network policy | macOS | `sandbox-exec` Seatbelt profile — write restricted to workspace; network per policy |
+| No additional local isolation | macOS | Commands run directly on the host OS; filesystem and network policy are not enforced |
 
-The local backend uses a **fail-closed** strategy: if a required isolation tool is missing, session creation fails with an actionable error message rather than running unconfined.
+The local backend uses a **fail-closed** strategy on Linux: if a required isolation tool is missing, session creation fails with an actionable error message rather than running unconfined. On macOS, no extra sandboxing tool is currently applied.
 
 #### Installing dependencies
 
@@ -78,8 +78,8 @@ pacman -S bubblewrap
 
 `unshare` (network-only fallback) is part of `util-linux` and is present on virtually all Linux systems.
 
-**macOS — sandbox-exec:**
-Built into macOS. No installation required. Note: `sandbox-exec` has been informally deprecated since macOS 10.15 (Catalina). It remains functional but may be removed in a future macOS release.
+**macOS:**
+No additional dependency is required. The current local backend runs commands directly on the host OS without applying a macOS-specific sandbox.
 
 **Windows:** Not supported. Use the Docker backend.
 
@@ -91,14 +91,14 @@ On Linux with `bwrap`, the agent always sees its workspace at `/workspace` regar
 
 Per-agent sandbox configuration is limited to network policy (mode and allowlist). Each agent independently controls whether its sandbox allows outbound network access and which hosts are reachable.
 
-Network modes supported by the Docker backend:
+Network modes supported by Docker and by the Linux local backend:
 
 | Mode        | Description                          |
 | ----------- | ------------------------------------ |
 | `disabled`  | No outbound network access (default) |
 | `allow_all` | Unrestricted outbound access         |
 
-The `whitelist` mode is removed. Anna validates the configured mode at session-create time and fails closed if the backend cannot enforce it.
+The `whitelist` mode is removed. Docker and the Linux local backend validate the configured mode at session-create time and fail closed if the backend cannot enforce it. The macOS local backend currently ignores network policy and runs with host network access.
 
 ## Current Architecture
 
@@ -108,7 +108,7 @@ The runner creates a `sandbox.Session` for each run and keeps ownership of its l
 
 ### Backend resolution
 
-The Docker backend self-registers in `internal/sandbox` via `init()`. `pkg/sandbox.Registry.CreateSession` iterates registered factories in registration order and uses the first available factory that supports the policy. With only one factory registered, this always selects Docker or fails.
+The runner resolves the active backend from plugin state and dispatches to a backend-specific factory. Built-in factories currently support `docker` and `local`.
 
 ### Execution-time mediation
 
@@ -122,7 +122,7 @@ All local execution paths that must obey sandbox policy are mediated through the
 
 ### stdio-MCP benefit
 
-`Session.StartProcess` is fully supported by the Docker backend on every run. This means MCP stdio transports work uniformly across all platforms without requiring platform-specific subprocess handling.
+`Session.StartProcess` is supported by both built-in backends. Docker gives stdio MCP servers a dedicated container process namespace; the local backend starts them directly on the host OS.
 
 ### Non-runner filesystem access
 

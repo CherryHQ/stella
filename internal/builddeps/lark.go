@@ -224,7 +224,7 @@ func adaptLarkSharedForAnna(content string) string {
 ` + "`lark-cli`" + ` 走的是 **wrapper + 环境变量注入** 模式，不是上游文档默认假设的“先 ` + "`config init`" + `，再 ` + "`auth login`" + `”本地配置模式。
 
 - 直接运行 ` + "`lark-cli ...`" + ` 即可。Anna 会把会话级 wrapper（通常位于 ` + "`.anna/bin/lark-cli`" + `）放到 ` + "`PATH`" + ` 前面，再转发到真实二进制（通常是 ` + "`$ANNA_HOME/bin/lark-cli`" + `，也可能是宿主机 ` + "`PATH`" + ` 上的 ` + "`lark-cli`" + `）。
-- Anna 会在会话启动时注入 ` + "`LARK_ACCESS_TOKEN`" + `、` + "`LARK_APP_ID`" + `、` + "`LARK_BRAND`" + `。因此 **在 Anna 会话里默认不要先执行 ` + "`lark-cli config init`" + ` 或 ` + "`lark-cli auth login`" + `**。
+- Anna 会在会话启动时注入 ` + "`LARKSUITE_CLI_USER_ACCESS_TOKEN`" + `、` + "`LARKSUITE_CLI_APP_ID`" + `、` + "`LARKSUITE_CLI_BRAND`" + `。因此 **在 Anna 会话里默认不要先执行 ` + "`lark-cli config init`" + ` 或 ` + "`lark-cli auth login`" + `**。
 - 把后续文档里所有“先 ` + "`auth login --domain`" + ` / ` + "`auth login --scope`" + `”的要求，映射为：**确认 Anna Profile → OAuth CLI Credentials 已连接 Lark，所需 scope 已在 Lark 应用侧开通，然后开启一个新的 Anna 会话重试**。
 - 如果用户只是想在自己机器上单独配置一个**脱离 Anna** 的 ` + "`lark-cli`" + `，那才回退到上游原生的 ` + "`config init`" + ` / ` + "`auth login`" + ` 流程。
 
@@ -285,8 +285,9 @@ name: lark
 description: |
   Lark/Feishu CLI skills for Anna sessions. Covers workspace operations — calendar,
   docs, tasks, mail, and messenger — via the lark-cli tool. In Anna, lark-cli runs
-  under a wrapper + env-var auth model: LARK_ACCESS_TOKEN, LARK_APP_ID, and
-  LARK_BRAND are injected at session start; no manual config init or auth login is
+  under a wrapper + env-var auth model: LARKSUITE_CLI_USER_ACCESS_TOKEN,
+  LARKSUITE_CLI_APP_ID, and LARKSUITE_CLI_BRAND are injected at session start;
+  no manual config init or auth login is
   needed. Always read lark-shared first for identity selection (--as user vs --as
   bot), scope / permission-denied handling, token refresh, and the Anna-specific
   rules that override upstream documentation.
@@ -301,7 +302,7 @@ metadata:
 
 This skill aggregates Lark/Feishu CLI modules synced from ` + "`larksuite/cli`" + ` and adapted for Anna sessions.
 
-**Anna auth model** — ` + "`lark-cli`" + ` runs via a session wrapper that injects ` + "`LARK_ACCESS_TOKEN`" + `, ` + "`LARK_APP_ID`" + `, and ` + "`LARK_BRAND`" + ` at startup. Do not run ` + "`lark-cli config init`" + ` or ` + "`lark-cli auth login`" + ` unless the user explicitly wants a standalone local setup outside Anna.
+**Anna auth model** — ` + "`lark-cli`" + ` runs via a session wrapper that injects ` + "`LARKSUITE_CLI_USER_ACCESS_TOKEN`" + `, ` + "`LARKSUITE_CLI_APP_ID`" + `, and ` + "`LARKSUITE_CLI_BRAND`" + ` at startup. Do not run ` + "`lark-cli config init`" + ` or ` + "`lark-cli auth login`" + ` unless the user explicitly wants a standalone local setup outside Anna.
 
 **Identity** — default to ` + "`--as user`" + ` for personal resources (calendar, docs, tasks, mail). ` + "`--as bot`" + ` requires manual app configuration outside Anna and cannot see user-private resources.
 

@@ -1,6 +1,7 @@
-// WARNING: commands run directly on the host OS with OS-level hardening only.
-// Hardening layers applied: process-group isolation, rlimits (Linux),
-// Seatbelt sandbox-exec profile (macOS), bwrap/unshare network isolation (Linux).
+// WARNING: commands run directly on the host OS with limited hardening only.
+// Hardening layers applied: process-group isolation on Unix, rlimits on Linux,
+// bwrap/unshare network isolation on Linux. macOS local execution currently runs
+// without additional OS sandboxing.
 // Use the docker backend when full container isolation is required.
 package local
 

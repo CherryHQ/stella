@@ -26,7 +26,7 @@ CLI OAuth 功能允许 Agent 在沙盒会话中直接使用 `gh`（GitHub CLI）
 
 ## 使用 CLI 工具
 
-连接成功后，Agent 在沙盒会话中可以直接运行 `gh` 和 `lark-cli` 命令，无需任何额外配置。Anna 会将包装脚本目录添加到 `PATH` 的最前面，使每次调用都自动获得正确的认证凭据。
+连接成功后，Agent 在沙盒会话中可以直接运行 `gh` 和 `lark-cli` 命令，无需任何额外配置。Anna 会将包装脚本目录添加到 `PATH` 的最前面，使每次调用都自动获得正确的认证凭据。对于 `lark-cli`，Anna 会注入 `LARKSUITE_CLI_USER_ACCESS_TOKEN`、`LARKSUITE_CLI_APP_ID` 和 `LARKSUITE_CLI_BRAND`，因此不需要在每个会话里再执行 `config init`。
 
 示例（由 Agent 在 bash 工具调用中执行）：
 

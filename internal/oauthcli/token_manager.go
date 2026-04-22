@@ -44,6 +44,9 @@ func (m *TokenManager) GetGHToken(ctx context.Context, userID int64) (string, er
 // It loads the Lark bundle, refreshes the access token if expired, and returns
 // a map ready for env injection. Returns an error if the bundle is absent or
 // the refresh token has expired, so callers can skip injection without failing.
+//
+// Current lark-cli releases read the LARKSUITE_CLI_* variables for configless
+// runtime auth.
 func (m *TokenManager) GetLarkRuntimeEnv(ctx context.Context, userID int64) (map[string]string, error) {
 	bundle, err := LoadLarkBundle(ctx, m.vs, userID)
 	if err != nil {
@@ -76,9 +79,9 @@ func (m *TokenManager) GetLarkRuntimeEnv(ctx context.Context, userID int64) (map
 	}
 
 	return map[string]string{
-		"LARK_ACCESS_TOKEN": bundle.AccessToken,
-		"LARK_APP_ID":       bundle.AppID,
-		"LARK_BRAND":        bundle.Brand,
+		"LARKSUITE_CLI_USER_ACCESS_TOKEN": bundle.AccessToken,
+		"LARKSUITE_CLI_APP_ID":            bundle.AppID,
+		"LARKSUITE_CLI_BRAND":             bundle.Brand,
 	}, nil
 }
 
