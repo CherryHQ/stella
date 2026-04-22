@@ -2,10 +2,13 @@ package runner
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vaayne/anna/internal/config"
+	oauth "github.com/vaayne/anna/internal/credentials/oauth"
 )
 
 // stubVaultLoader is a test-only VaultEnvLoader that returns a fixed map.
@@ -16,6 +19,40 @@ type stubVaultLoader struct {
 
 func (s *stubVaultLoader) LoadEnv(_ context.Context, _ int64) (map[string]string, error) {
 	return s.env, s.err
+}
+
+type stubOAuthVaultStore struct {
+	data map[string]string
+}
+
+func newStubOAuthVaultStore() *stubOAuthVaultStore {
+	return &stubOAuthVaultStore{data: make(map[string]string)}
+}
+
+func (s *stubOAuthVaultStore) key(userID int64, name string) string {
+	return fmt.Sprintf("%d:%s", userID, name)
+}
+
+func (s *stubOAuthVaultStore) Set(_ context.Context, userID int64, name string, plaintext string) error {
+	s.data[s.key(userID, name)] = plaintext
+	return nil
+}
+
+func (s *stubOAuthVaultStore) Delete(_ context.Context, userID int64, name string) error {
+	delete(s.data, s.key(userID, name))
+	return nil
+}
+
+func (s *stubOAuthVaultStore) LoadEnv(_ context.Context, userID int64) (map[string]string, error) {
+	out := make(map[string]string)
+	prefix := fmt.Sprintf("%d:", userID)
+	for k, v := range s.data {
+		if len(k) <= len(prefix) || k[:len(prefix)] != prefix {
+			continue
+		}
+		out[k[len(prefix):]] = v
+	}
+	return out, nil
 }
 
 // TestResolveSessionRequiresUserRoot tests that resolveSession fails without a UserRoot.
@@ -228,5 +265,72 @@ func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 	// Unrelated vault entries must still pass through.
 	if got := env["OTHER_SECRET"]; got != "should-pass-through" {
 		t.Errorf("OTHER_SECRET = %q, want %q", got, "should-pass-through")
+	}
+}
+
+func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
+	ctx := context.Background()
+	store := newStubOAuthVaultStore()
+	userID := int64(7)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	if err := oauth.SaveGHBundle(ctx, store, userID, oauth.GHOAuthBundle{
+		Version:     1,
+		AccessToken: "ghp_runtime_token",
+		TokenType:   "bearer",
+	}); err != nil {
+		t.Fatalf("SaveGHBundle: %v", err)
+	}
+	if err := oauth.SaveLarkBundle(ctx, store, userID, oauth.LarkOAuthBundle{
+		Version:          1,
+		AppID:            "lark_app_id",
+		AppSecret:        "lark_app_secret",
+		Brand:            "feishu",
+		AccessToken:      "lark_access_token",
+		RefreshToken:     "lark_refresh_token",
+		AccessExpiresAt:  now.Add(2 * time.Hour),
+		RefreshExpiresAt: now.Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("SaveLarkBundle: %v", err)
+	}
+	if err := store.Set(ctx, userID, "OTHER_SECRET", "still-present"); err != nil {
+		t.Fatalf("Set OTHER_SECRET: %v", err)
+	}
+
+	cfg := GoRunnerConfig{
+		AnnaHome:       "/anna",
+		AgentRoot:      "/workspace/agent",
+		UserRoot:       "/workspace/users/1",
+		UserID:         userID,
+		VaultEnvLoader: store,
+		TokenManager:   oauth.NewTokenManager(store),
+	}
+
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		t.Fatalf("resolveSandboxPaths: %v", err)
+	}
+
+	env := buildSandboxEnv(ctx, cfg, paths)
+	if _, ok := env[oauth.VaultKeyGitHub]; ok {
+		t.Fatalf("%s must not appear in sandbox env", oauth.VaultKeyGitHub)
+	}
+	if _, ok := env[oauth.VaultKeyLark]; ok {
+		t.Fatalf("%s must not appear in sandbox env", oauth.VaultKeyLark)
+	}
+	if got := env["GH_TOKEN"]; got != "ghp_runtime_token" {
+		t.Fatalf("GH_TOKEN = %q, want %q", got, "ghp_runtime_token")
+	}
+	if got := env["LARKSUITE_CLI_USER_ACCESS_TOKEN"]; got != "lark_access_token" {
+		t.Fatalf("LARKSUITE_CLI_USER_ACCESS_TOKEN = %q, want %q", got, "lark_access_token")
+	}
+	if got := env["LARKSUITE_CLI_APP_ID"]; got != "lark_app_id" {
+		t.Fatalf("LARKSUITE_CLI_APP_ID = %q, want %q", got, "lark_app_id")
+	}
+	if got := env["LARKSUITE_CLI_BRAND"]; got != "feishu" {
+		t.Fatalf("LARKSUITE_CLI_BRAND = %q, want %q", got, "feishu")
+	}
+	if got := env["OTHER_SECRET"]; got != "still-present" {
+		t.Fatalf("OTHER_SECRET = %q, want %q", got, "still-present")
 	}
 }

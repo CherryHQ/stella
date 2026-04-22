@@ -10,7 +10,7 @@ import (
 
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/oauthcli"
+	oauth "github.com/vaayne/anna/internal/credentials/oauth"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
@@ -133,7 +133,7 @@ func WithVaultEnvLoader(v runner.VaultEnvLoader) PoolManagerOption {
 }
 
 // WithTokenManager sets the OAuth token manager for runtime token injection.
-func WithTokenManager(tm *oauthcli.TokenManager) PoolManagerOption {
+func WithTokenManager(tm *oauth.TokenManager) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.tokenManager = tm
 	}
@@ -160,7 +160,7 @@ type PoolManager struct {
 	builtinToolsFactory     BuiltinToolsFactory
 	skillStore              pkgplugins.SkillStore
 	vaultEnvLoader          runner.VaultEnvLoader
-	tokenManager            *oauthcli.TokenManager
+	tokenManager            *oauth.TokenManager
 	log                     *slog.Logger
 }
 
@@ -181,13 +181,13 @@ func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManager
 
 // SetVaultEnvLoader sets the vault env loader and rebuilds all pool factories
 // so existing pools pick up the loader. Must be called after StartAll.
-// If vs also satisfies oauthcli.VaultStore, a TokenManager is constructed and
+// If vs also satisfies oauth.VaultStore, a TokenManager is constructed and
 // wired into the pool manager so runners can inject runtime OAuth tokens.
 func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v runner.VaultEnvLoader) {
 	pm.mu.Lock()
 	pm.vaultEnvLoader = v
-	if vs, ok := v.(oauthcli.VaultStore); ok {
-		pm.tokenManager = oauthcli.NewTokenManager(vs)
+	if vs, ok := v.(oauth.VaultStore); ok {
+		pm.tokenManager = oauth.NewTokenManager(vs)
 	}
 	pools := make(map[string]*Pool, len(pm.pools))
 	maps.Copy(pools, pm.pools)

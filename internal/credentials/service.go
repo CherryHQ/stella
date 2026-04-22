@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/vaayne/anna/internal/oauthcli"
+	oauth "github.com/vaayne/anna/internal/credentials/oauth"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/vault"
 )
@@ -25,16 +25,16 @@ const (
 type Service struct {
 	vaultSvc    *vault.Service
 	pluginCfg   pluginhost.ConfigBackend
-	flowStore   *oauthcli.FlowStore
+	flowStore   *oauth.FlowStore
 	invalidator RunnerInvalidator // optional; nil = no invalidation
 	corsOrigin  string
 	log         *slog.Logger
 
 	mu                    sync.Mutex
-	ghBroker              *oauthcli.GitHubBroker
+	ghBroker              *oauth.GitHubBroker
 	ghBrokerClientID      string
 	ghBrokerRedirectURI   string
-	larkBroker            *oauthcli.LarkBroker
+	larkBroker            *oauth.LarkBroker
 	larkBrokerAppID       string
 	larkBrokerRedirectURI string
 }
@@ -44,7 +44,7 @@ type Service struct {
 func NewService(
 	vaultSvc *vault.Service,
 	pluginCfg pluginhost.ConfigBackend,
-	flowStore *oauthcli.FlowStore,
+	flowStore *oauth.FlowStore,
 	corsOrigin string,
 ) *Service {
 	return &Service{
@@ -76,7 +76,7 @@ func (s *Service) InvalidateUser(userID int64) error {
 
 // --- broker helpers (migrated from admin.Server) ---
 
-func (s *Service) getGitHubBroker(ctx context.Context) (*oauthcli.GitHubBroker, error) {
+func (s *Service) getGitHubBroker(ctx context.Context) (*oauth.GitHubBroker, error) {
 	state, err := s.pluginCfg.Get(ctx, pluginIDGitHub)
 	if err != nil {
 		return nil, fmt.Errorf("github plugin config unavailable: %w", err)
@@ -97,7 +97,7 @@ func (s *Service) getGitHubBroker(ctx context.Context) (*oauthcli.GitHubBroker, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ghBroker == nil || s.ghBrokerClientID != clientID || s.ghBrokerRedirectURI != redirectURI {
-		s.ghBroker = oauthcli.NewGitHubBroker(oauthcli.GitHubConfig{
+		s.ghBroker = oauth.NewGitHubBroker(oauth.GitHubConfig{
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
 		}, s.flowStore).WithRedirectURI(redirectURI)
@@ -107,7 +107,7 @@ func (s *Service) getGitHubBroker(ctx context.Context) (*oauthcli.GitHubBroker, 
 	return s.ghBroker, nil
 }
 
-func (s *Service) getLarkBroker(ctx context.Context) (*oauthcli.LarkBroker, error) {
+func (s *Service) getLarkBroker(ctx context.Context) (*oauth.LarkBroker, error) {
 	state, err := s.pluginCfg.Get(ctx, pluginIDLark)
 	if err != nil {
 		return nil, fmt.Errorf("lark plugin config unavailable: %w", err)
@@ -132,7 +132,7 @@ func (s *Service) getLarkBroker(ctx context.Context) (*oauthcli.LarkBroker, erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.larkBroker == nil || s.larkBrokerAppID != appID || s.larkBrokerRedirectURI != redirectURI {
-		s.larkBroker = oauthcli.NewLarkBroker(oauthcli.LarkConfig{
+		s.larkBroker = oauth.NewLarkBroker(oauth.LarkConfig{
 			AppID:     appID,
 			AppSecret: appSecret,
 			Brand:     brand,
@@ -203,7 +203,7 @@ func (s *Service) getProviderStatus(ctx context.Context, userID int64, provider 
 			return ps
 		}
 		ps.Available = true
-		bundle, err := oauthcli.LoadGHBundle(ctx, s.vaultSvc, userID)
+		bundle, err := oauth.LoadGHBundle(ctx, s.vaultSvc, userID)
 		if err != nil {
 			s.log.Warn("load gh bundle", "user_id", userID, "error", err)
 			return ps
@@ -219,7 +219,7 @@ func (s *Service) getProviderStatus(ctx context.Context, userID int64, provider 
 			return ps
 		}
 		ps.Available = true
-		bundle, err := oauthcli.LoadLarkBundle(ctx, s.vaultSvc, userID)
+		bundle, err := oauth.LoadLarkBundle(ctx, s.vaultSvc, userID)
 		if err != nil {
 			s.log.Warn("load lark bundle", "user_id", userID, "error", err)
 			return ps
@@ -298,7 +298,7 @@ func (s *Service) PollFlow(ctx context.Context, userID int64, provider, flowID s
 			return FlowStatus{}, false, err
 		}
 		completed := false
-		if status.State == oauthcli.FlowStateAuthorized {
+		if status.State == oauth.FlowStateAuthorized {
 			if cerr := broker.Complete(ctx, s.vaultSvc, userID, flowID); cerr != nil {
 				return FlowStatus{}, false, fmt.Errorf("complete github flow: %w", cerr)
 			}
@@ -316,7 +316,7 @@ func (s *Service) PollFlow(ctx context.Context, userID int64, provider, flowID s
 		if err != nil {
 			return FlowStatus{}, false, err
 		}
-		if status.State == oauthcli.FlowStateAuthorized {
+		if status.State == oauth.FlowStateAuthorized {
 			s.flowStore.Delete(flowID)
 			_ = s.InvalidateUser(userID)
 			return toFlowStatus(status), true, nil
@@ -351,13 +351,13 @@ func (s *Service) Disconnect(ctx context.Context, userID int64, provider string)
 	var key string
 	switch provider {
 	case "github":
-		key = oauthcli.VaultKeyGitHub
+		key = oauth.VaultKeyGitHub
 	case "lark":
-		key = oauthcli.VaultKeyLark
+		key = oauth.VaultKeyLark
 	default:
 		return fmt.Errorf("unsupported provider: %s", provider)
 	}
-	if err := oauthcli.DeleteBundle(ctx, s.vaultSvc, userID, key); err != nil {
+	if err := oauth.DeleteBundle(ctx, s.vaultSvc, userID, key); err != nil {
 		return err
 	}
 	_ = s.InvalidateUser(userID)
@@ -365,11 +365,11 @@ func (s *Service) Disconnect(ctx context.Context, userID int64, provider string)
 }
 
 // GetFlowForCallback returns the stored flow (for callback handlers that need userID).
-func (s *Service) GetFlowForCallback(flowID string) (oauthcli.FlowStatus, bool) {
+func (s *Service) GetFlowForCallback(flowID string) (oauth.FlowStatus, bool) {
 	return s.flowStore.Get(flowID)
 }
 
-func toFlowStatus(fs oauthcli.FlowStatus) FlowStatus {
+func toFlowStatus(fs oauth.FlowStatus) FlowStatus {
 	return FlowStatus{
 		Provider:        string(fs.Provider),
 		FlowID:          fs.FlowID,

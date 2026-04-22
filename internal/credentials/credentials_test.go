@@ -9,7 +9,7 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 
 	"github.com/vaayne/anna/internal/credentials"
-	"github.com/vaayne/anna/internal/oauthcli"
+	oauth "github.com/vaayne/anna/internal/credentials/oauth"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/pkg/memory"
 )
@@ -56,7 +56,7 @@ var _ pluginhost.ConfigBackend = (*stubPluginCfg)(nil)
 
 func newService(t *testing.T, cfg pluginhost.ConfigBackend) *credentials.Service {
 	t.Helper()
-	flowStore := oauthcli.NewFlowStore()
+	flowStore := oauth.NewFlowStore()
 	return credentials.NewService(nil, cfg, flowStore, "http://localhost:8080")
 }
 

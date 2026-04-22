@@ -14,7 +14,7 @@ import (
 
 	"github.com/vaayne/anna/internal/cliwrap"
 	"github.com/vaayne/anna/internal/config"
-	"github.com/vaayne/anna/internal/oauthcli"
+	oauth "github.com/vaayne/anna/internal/credentials/oauth"
 	"github.com/vaayne/anna/internal/resources/binaries"
 	"github.com/vaayne/anna/internal/sandbox"
 	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
@@ -145,8 +145,8 @@ func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths
 	// OAuth bundle keys are host-side only: they hold raw JSON credentials and
 	// must not reach the sandbox process. The runner injects derived runtime
 	// tokens below instead.
-	delete(env, oauthcli.VaultKeyGitHub)
-	delete(env, oauthcli.VaultKeyLark)
+	delete(env, oauth.VaultKeyGitHub)
+	delete(env, oauth.VaultKeyLark)
 
 	// Inject runtime OAuth tokens when a TokenManager is available.
 	if cfg.TokenManager != nil {
