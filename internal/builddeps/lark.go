@@ -225,7 +225,7 @@ func adaptLarkSharedForAnna(content string) string {
 
 - 直接运行 ` + "`lark-cli ...`" + ` 即可。Anna 会把会话级 wrapper（通常位于 ` + "`.anna/bin/lark-cli`" + `）放到 ` + "`PATH`" + ` 前面，再转发到真实二进制（通常是 ` + "`$ANNA_HOME/bin/lark-cli`" + `，也可能是宿主机 ` + "`PATH`" + ` 上的 ` + "`lark-cli`" + `）。
 - Anna 会在会话启动时注入 ` + "`LARKSUITE_CLI_USER_ACCESS_TOKEN`" + `、` + "`LARKSUITE_CLI_APP_ID`" + `、` + "`LARKSUITE_CLI_BRAND`" + `。因此 **在 Anna 会话里默认不要先执行 ` + "`lark-cli config init`" + ` 或 ` + "`lark-cli auth login`" + `**。
-- 把后续文档里所有“先 ` + "`auth login --domain`" + ` / ` + "`auth login --scope`" + `”的要求，映射为：**确认 Anna Profile → OAuth CLI Credentials 已连接 Lark，所需 scope 已在 Lark 应用侧开通，然后开启一个新的 Anna 会话重试**。
+- 把后续文档里所有“先 ` + "`auth login --domain`" + ` / ` + "`auth login --scope`" + `”的要求，映射为：**用 credentials 工具确认 Lark 已连接（credentials status 指令），所需 scope 已在 Lark 应用侧开通，然后开启一个新的 Anna 会话重试**。
 - 如果用户只是想在自己机器上单独配置一个**脱离 Anna** 的 ` + "`lark-cli`" + `，那才回退到上游原生的 ` + "`config init`" + ` / ` + "`auth login`" + ` 流程。
 
 ## Anna 中的身份选择
@@ -245,7 +245,7 @@ func adaptLarkSharedForAnna(content string) string {
 
 ### 未连接、过期或认证失败
 
-- 如果 ` + "`lark-cli`" + ` 提示未登录、缺少 access token、401/expired，先让用户到 **Profile → OAuth CLI Credentials** 连接或重新连接 Lark。
+- 如果 ` + "`lark-cli`" + ` 提示未登录、缺少 access token、401/expired，先用 credentials 工具检查 Lark 连接状态（credentials status / credentials oauth_start 指令）并引导用户重新连接 Lark。
 - Lark user access token 约 2 小时过期；Anna 只在**会话启动时**刷新。已连接但中途过期时，直接开启一个新的 Anna 会话。
 - 重新开启会话后仍失败，说明 refresh token 也可能失效或授权被撤销；此时应让用户断开并重新连接 Lark，而不是在会话里继续尝试 ` + "`auth login`" + `。
 
@@ -306,7 +306,7 @@ This skill aggregates Lark/Feishu CLI modules synced from ` + "`larksuite/cli`" 
 
 **Identity** — default to ` + "`--as user`" + ` for personal resources (calendar, docs, tasks, mail). ` + "`--as bot`" + ` requires manual app configuration outside Anna and cannot see user-private resources.
 
-**Token expiry** — user access tokens expire after ~2 hours. If mid-session auth fails, open a new Anna session. If that also fails, reconnect Lark under Profile → OAuth CLI Credentials.
+**Token expiry** — user access tokens expire after ~2 hours. If mid-session auth fails, open a new Anna session. If that also fails, use the credentials tool (credentials status, then credentials oauth_start for lark) to reconnect.
 
 ## Modules
 
