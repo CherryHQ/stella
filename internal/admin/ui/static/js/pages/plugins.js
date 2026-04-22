@@ -7,6 +7,7 @@ import { api } from '/static/js/api.js'
  */
 export function register(Alpine) {
   Alpine.data('pluginsPage', () => ({
+    tab: 'tools',
     plugins: [],
     pluginSchemas: {},
     pluginConfigOpen: {},
