@@ -8,7 +8,6 @@ import (
 	"golang.org/x/oauth2"
 )
 
-
 // tokenExpirySafetyMargin is subtracted from expiry times to avoid using
 // tokens that are about to expire during a long-running operation.
 const tokenExpirySafetyMargin = 2 * time.Minute
