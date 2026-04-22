@@ -131,7 +131,7 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 			return c.handleAbort(rc), true, nil, nil
 		}
 		if command == "/config" {
-			return handleConfig(ctx, c.vaultSvc, rc.User.ID, args), true, nil, nil
+			return c.handleConfigCommand(ctx, rc, args)
 		}
 		if resp, ok := HandleCommand(ctx, rc, command+" "+args, msg.SenderID); ok {
 			return resp, true, nil, nil
@@ -152,6 +152,35 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 
 	// Not a command or recognized intent — enqueue a chat response for this session.
 	stream, err := c.queuedChat(ctx, rc, msg.Content)
+	if err != nil {
+		return "", false, nil, err
+	}
+	return "", false, stream, nil
+}
+
+// handleConfigCommand handles /config KEY VALUE: writes to vault, invalidates
+// per-user runners, and resumes the conversation with a sanitized synthetic turn
+// so the model can continue the blocked task without seeing the secret value.
+// On error, returns a plain text error response.
+func (c *Coordinator) handleConfigCommand(ctx context.Context, rc *ResolvedChat, args string) (string, bool, *pkgchannel.ChatStream, error) {
+	resp, ok := handleConfig(ctx, c.vaultSvc, rc.User.ID, args)
+	if !ok {
+		return resp, true, nil, nil
+	}
+
+	// Extract key for synthetic message (handleConfig already validated len >= 2).
+	key := strings.ToUpper(strings.Fields(args)[0])
+
+	// Invalidate all live runners for this user so fresh env is used next turn.
+	if err := c.poolManager.InvalidateUser(rc.User.ID); err != nil {
+		_ = err
+	}
+
+	// Replace the raw /config turn with a sanitized synthetic continuation.
+	synthetic := []ai.ContentBlock{
+		ai.TextContent{Text: "Credential " + key + " was stored successfully; continue with the user's prior task."},
+	}
+	stream, err := c.queuedChat(ctx, rc, synthetic)
 	if err != nil {
 		return "", false, nil, err
 	}

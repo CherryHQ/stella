@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/vaayne/anna/internal/credentials"
 	"github.com/vaayne/anna/internal/scheduler"
 	"github.com/vaayne/anna/pkg/memory"
 	pkgtools "github.com/vaayne/anna/pkg/tools"
@@ -71,6 +72,7 @@ func (s *Server) builtinToolDefinitions() []pkgtools.Definition {
 	defs := []pkgtools.Definition{
 		scheduler.SchedulerDefinition(),
 		skillstool.SkillsDefinition(),
+		credentials.CredentialsDefinition(),
 	}
 	if s.mem != nil {
 		defs = append(defs, memory.BuildTool(s.mem).Definition())

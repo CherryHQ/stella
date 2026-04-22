@@ -31,7 +31,6 @@ Session control
 Other commands
   /model     Switch between models
   /agent     List or switch agents
-  /config    Manage secrets (list/add/remove)
   /whoami    Show your user ID
 
 If a short phrase is unclear, Anna treats it as a normal chat message.

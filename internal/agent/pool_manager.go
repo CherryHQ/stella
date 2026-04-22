@@ -466,6 +466,41 @@ func mergeTools(builtin, additions []tools.Tool) []tools.Tool {
 	return merged
 }
 
+// AddBuiltinTool appends a tool to the shared builtin list and rebuilds all
+// pool factories so subsequent runners see the new tool.
+func (pm *PoolManager) AddBuiltinTool(ctx context.Context, tool tools.Tool) error {
+	pm.mu.Lock()
+	pm.builtinTools = append(pm.builtinTools, tool)
+	pools := make(map[string]*Pool, len(pm.pools))
+	maps.Copy(pools, pm.pools)
+	pm.mu.Unlock()
+
+	for agentID, pool := range pools {
+		if err := pm.rebuildPoolFactory(ctx, agentID, pool); err != nil {
+			pm.log.Error("failed to rebuild factory after adding builtin tool", "agent_id", agentID, "error", err)
+		}
+	}
+	return nil
+}
+
+// InvalidateUser closes all live runners for userID across all pools.
+// Satisfies the credentials.RunnerInvalidator interface.
+func (pm *PoolManager) InvalidateUser(userID int64) error {
+	pm.mu.RLock()
+	pools := make(map[string]*Pool, len(pm.pools))
+	maps.Copy(pools, pm.pools)
+	pm.mu.RUnlock()
+
+	var lastErr error
+	for _, pool := range pools {
+		if err := pool.ResetRunnersForUser(userID); err != nil {
+			pm.log.Error("reset runners for user", "user_id", userID, "error", err)
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
 // Close shuts down all pools and hook plugins.
 func (pm *PoolManager) Close() error {
 	pm.mu.Lock()
