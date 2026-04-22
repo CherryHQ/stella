@@ -21,7 +21,7 @@ Anna 自带一套**内置资源目录**，让全新安装即开即用，无需�
 
 - **模型** — 模板推荐的 provider/model 组合
 - **系统提示** — 复制自模板引用的 soul
-- **已启用的内置技能** — 以芯片形式显示在表单上，保存前可自由切换
+- **内置技能元数据** — 为兼容旧模板而保留，但 `scope='system'` 的内置技能现已自动对所有 agent 可用
 
 用户手动输入始终优先。所有字段在保存前都可以编辑；保存之后 agent 与模板没有任何持久关联 — 更新模板不会影响已有 agent。
 
@@ -46,22 +46,22 @@ Sub-agent 预设定义了 `agent` 委派工具使用的受限工作者（调研�
 
 附带的 sub-agent：`coder`、`researcher`、`reviewer`、`writer`。
 
-## Skill 与按 agent 开关
+## Skill
 
-每个 `scope='system'` 的技能天生对所有 agent 可见，因此朴素地增长内置技能目录会把所有技能同时塞进每个 agent 的提示 — 提示体积会迅速膨胀。
+所有同步到数据库且 `scope='system'` 的技能，都会自动对所有 agent 可用。
 
-解决方式：`settings_agents.enabled_builtin_skills`（JSON 字符串数组）。agent 看到的技能目录为：
+agent 在提示里看到的技能目录为：
 
 ```
-{常驻内置：anna}
- ∪ {enabled_builtin_skills 中列出的}
+{全部 system 范围内置技能}
  ∪ {agent 范围的数据库技能}
  ∪ {user 范围的数据库技能}
+ ∪ {来自 .agents/skills 的 project 技能}
 ```
 
-`anna`（自我知识技能）永远启用。其他内置技能必须显式开启 — 通过你选择的模板（模板会替你设好）或手动切换表单上的芯片。
+历史遗留的 `settings_agents.enabled_builtin_skills` 字段仍会保留，以兼容旧模板和旧 agent 行，但它已不再参与提示可见性的过滤。
 
-附带的技能：`anna`、`code-review`、`docs-writing`、`implementation`、`research`、`task-planning`。
+附带的 system skill 位于 `internal/resources/skills/system/`，启动时会同步到 `skills(scope='system')`。启动同步是权威来源：如果某个嵌入式 system skill 已从目录中移除，那么下一次同步时也会从数据库中删除。
 
 ## 新增一个内置资源
 

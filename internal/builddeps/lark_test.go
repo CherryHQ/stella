@@ -37,7 +37,13 @@ func TestUpdateLarkMarkdownReferences(t *testing.T) {
 
 func TestGenerateLarkSkill(t *testing.T) {
 	src := t.TempDir()
-	writeSkillFixture(t, filepath.Join(src, "lark-shared"), "lark-shared", "Shared setup", "Auth in ./references/auth.md")
+	writeSkillFixture(t, filepath.Join(src, "lark-shared"), "lark-shared", "Shared setup", strings.Join([]string{
+		"## 配置初始化",
+		"run lark-cli config init --new",
+		"",
+		"## 更新检查",
+		"npm update -g @larksuite/cli",
+	}, "\n"))
 	writeSkillFixture(t, filepath.Join(src, "lark-doc"), "lark-doc", "Docs module", "See ../lark-shared/SKILL.md")
 	dest := filepath.Join(t.TempDir(), "lark")
 	if err := GenerateLarkSkill(src, dest, "test-ref"); err != nil {
@@ -54,12 +60,26 @@ func TestGenerateLarkSkill(t *testing.T) {
 	if !strings.Contains(mainStr, "references/lark-shared.md") || !strings.Contains(mainStr, "references/lark-doc.md") {
 		t.Fatalf("aggregate skill missing reference links:\n%s", mainStr)
 	}
+	if !strings.Contains(mainStr, annaLarkSharedDescription) {
+		t.Fatalf("aggregate skill missing Anna-specific lark-shared description:\n%s", mainStr)
+	}
 	child, err := os.ReadFile(filepath.Join(dest, "references", "lark-doc.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(child), "./lark-shared.md") {
 		t.Fatalf("expected rewritten child markdown, got:\n%s", string(child))
+	}
+	shared, err := os.ReadFile(filepath.Join(dest, "references", "lark-shared.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sharedStr := string(shared)
+	if !strings.Contains(sharedStr, "Anna 会话中的运行方式") || !strings.Contains(sharedStr, "Profile → OAuth CLI Credentials") {
+		t.Fatalf("expected Anna-specific shared skill guidance, got:\n%s", sharedStr)
+	}
+	if strings.Contains(sharedStr, "run lark-cli config init --new") {
+		t.Fatalf("expected upstream config-init section to be replaced, got:\n%s", sharedStr)
 	}
 	ref, err := os.ReadFile(filepath.Join(dest, "references", "lark-shared", "auth.md"))
 	if err != nil {

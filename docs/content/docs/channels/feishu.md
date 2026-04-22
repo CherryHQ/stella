@@ -30,8 +30,7 @@ anna now ships a generated builtin `lark` system skill, and release builds embed
 Typical setup:
 
 ```bash
-command -v lark-cli
-npm install -g @larksuite/cli
+command -v lark-cli || npm install -g @larksuite/cli
 lark-cli config init --new
 lark-cli auth login --recommend
 lark-cli auth status

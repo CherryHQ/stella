@@ -109,11 +109,36 @@ func SyncBuiltin(ctx context.Context, store *SQLiteStore, builtinFS fs.FS) error
 		return fmt.Errorf("sync_builtin: read root: %w", err)
 	}
 
+	desired := make(map[string]struct{}, len(skillRoots))
 	for _, skillRoot := range skillRoots {
+		desired[path.Base(skillRoot)] = struct{}{}
 		if err := syncBuiltinSkill(ctx, store, builtinFS, skillRoot); err != nil {
 			slog.ErrorContext(ctx, "sync_builtin: failed to sync skill", "path", skillRoot, "err", err)
 			return fmt.Errorf("sync_builtin: skill %q: %w", skillRoot, err)
 		}
+	}
+	if err := deleteRemovedSystemSkills(ctx, store, desired); err != nil {
+		return fmt.Errorf("sync_builtin: delete removed system skills: %w", err)
+	}
+	return nil
+}
+
+func deleteRemovedSystemSkills(ctx context.Context, store *SQLiteStore, desired map[string]struct{}) error {
+	rows, err := store.q.ListAllSkills(ctx)
+	if err != nil {
+		return fmt.Errorf("list all skills: %w", err)
+	}
+	for _, row := range rows {
+		if row.Scope != "system" {
+			continue
+		}
+		if _, ok := desired[row.Name]; ok {
+			continue
+		}
+		if err := store.Delete(ctx, row.ID); err != nil {
+			return fmt.Errorf("delete skill %q (%s): %w", row.Name, row.ID, err)
+		}
+		slog.InfoContext(ctx, "sync_builtin: deleted removed system skill", "name", row.Name, "id", row.ID)
 	}
 	return nil
 }

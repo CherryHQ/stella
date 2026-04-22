@@ -122,12 +122,10 @@ func TestBuildPromptSectionNilPlatform(t *testing.T) {
 	}
 }
 
-func TestBuildPromptSectionFiltersSystemScopeByAllowlist(t *testing.T) {
+func TestBuildPromptSectionAlwaysIncludesSystemSkills(t *testing.T) {
 	store, userID, _ := newTestSkillStore(t)
 	ctx := context.Background()
 
-	// Seed three system-scope skills: "anna" (always-on), "code-review" (allowlisted),
-	// and "research" (should be hidden when not in allowlist).
 	for _, name := range []string{"anna", "code-review", "research"} {
 		if _, err := store.Create(ctx, pkgplugins.Skill{
 			Scope:       "system",
@@ -138,7 +136,6 @@ func TestBuildPromptSectionFiltersSystemScopeByAllowlist(t *testing.T) {
 			t.Fatalf("create %s: %v", name, err)
 		}
 	}
-	// Seed one user skill so the user lane still passes through.
 	if _, err := store.Create(ctx, pkgplugins.Skill{
 		Scope:       "user",
 		UserID:      userID,
@@ -158,45 +155,9 @@ func TestBuildPromptSectionFiltersSystemScopeByAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(section.Content, "<name>anna</name>") {
-		t.Fatalf("anna should always appear: %s", section.Content)
-	}
-	if !strings.Contains(section.Content, "<name>code-review</name>") {
-		t.Fatalf("code-review should appear (allowlisted): %s", section.Content)
-	}
-	if strings.Contains(section.Content, "<name>research</name>") {
-		t.Fatalf("research should be hidden (not in allowlist): %s", section.Content)
-	}
-	if !strings.Contains(section.Content, "<name>user-skill</name>") {
-		t.Fatalf("user skill should pass through the filter: %s", section.Content)
-	}
-}
-
-func TestBuildPromptSectionBlankAllowlistShowsOnlyAnna(t *testing.T) {
-	store, userID, _ := newTestSkillStore(t)
-	ctx := context.Background()
-	for _, name := range []string{"anna", "code-review"} {
-		if _, err := store.Create(ctx, pkgplugins.Skill{
-			Scope:       "system",
-			Name:        name,
-			Description: name + " skill",
-			Status:      "active",
-		}, map[string]string{pkgplugins.SkillMainFile: "# " + name}); err != nil {
-			t.Fatalf("create %s: %v", name, err)
+	for _, name := range []string{"anna", "code-review", "research", "user-skill"} {
+		if !strings.Contains(section.Content, "<name>"+name+"</name>") {
+			t.Fatalf("expected %s in prompt content: %s", name, section.Content)
 		}
-	}
-	platform := &skillStorePlatform{store: store}
-	section, err := BuildPromptSection(ctx, pkgplugins.SystemPromptContext{
-		Platform: platform,
-		UserID:   userID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(section.Content, "<name>anna</name>") {
-		t.Fatalf("anna should appear with empty allowlist: %s", section.Content)
-	}
-	if strings.Contains(section.Content, "<name>code-review</name>") {
-		t.Fatalf("code-review should not appear with empty allowlist: %s", section.Content)
 	}
 }

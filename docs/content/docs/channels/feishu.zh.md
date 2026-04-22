@@ -28,8 +28,7 @@ anna 现在会内置生成好的 `lark` system skill，发布构建也会自动�
 常见初始化流程：
 
 ```bash
-command -v lark-cli
-npm install -g @larksuite/cli
+command -v lark-cli || npm install -g @larksuite/cli
 lark-cli config init --new
 lark-cli auth login --recommend
 lark-cli auth status

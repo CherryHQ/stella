@@ -1,6 +1,7 @@
 package builddeps
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"text/template"
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -26,6 +28,8 @@ type larkSkillDoc struct {
 	Description string
 	File        string
 }
+
+const annaLarkSharedDescription = "飞书/Lark CLI 共享基础（Anna 适配版）：说明 Anna 会话中的 wrapper + 环境变量认证模型、`--as user` / `--as bot` 选择、scope / Permission denied 处理，以及何时才需要回退到上游 `config init` / `auth login` 流程。"
 
 func SyncSystemSkills(ctx context.Context, cfg Config) error {
 	if err := syncLarkSkill(ctx, cfg); err != nil {
@@ -133,6 +137,10 @@ func migrateLarkSkill(skillDir, refsDir string) (larkSkillDoc, error) {
 	content := string(raw)
 	meta, _ := parseLarkFrontmatter(content)
 	updated := updateLarkMarkdownReferences(content, skillName)
+	if skillName == "lark-shared" {
+		meta.Description = annaLarkSharedDescription
+		updated = adaptLarkSharedForAnna(updated)
+	}
 	if err := AtomicWriteFile(filepath.Join(refsDir, skillName+".md"), []byte(updated), 0o644); err != nil {
 		return larkSkillDoc{}, fmt.Errorf("write migrated skill markdown: %w", err)
 	}
@@ -209,34 +217,119 @@ func updateLarkMarkdownReferences(content, skillName string) string {
 	return content
 }
 
-func renderLarkAggregate(docs []larkSkillDoc, sourceRef string) string {
-	var b strings.Builder
-	b.WriteString("---\n")
-	b.WriteString("name: lark\n")
-	b.WriteString("description: Aggregated Lark CLI skills synced from larksuite/cli.\n")
-	b.WriteString("tags: [lark, feishu, workspace]\n")
-	b.WriteString("metadata:\n")
-	b.WriteString("  source_repo: larksuite/cli\n")
-	b.WriteString("  source_ref: \"")
-	b.WriteString(sourceRef)
-	b.WriteString("\"\n")
-	b.WriteString("  generated: true\n")
-	b.WriteString("---\n\n")
-	b.WriteString("# Lark\n\n")
-	b.WriteString("This builtin skill aggregates upstream Lark CLI skills from `larksuite/cli`. Read `lark-shared` first for auth, permissions, and shared command rules.\n\n")
-	b.WriteString("## Skills\n\n")
-	b.WriteString("| Skill | Description | File |\n")
-	b.WriteString("| --- | --- | --- |\n")
-	for _, doc := range docs {
-		desc := strings.ReplaceAll(doc.Description, "|", "\\|")
-		if desc == "" {
-			desc = "-"
-		}
-		fmt.Fprintf(&b, "| %s | %s | [references/%s](./references/%s) |\n", doc.Name, desc, doc.File, doc.File)
+func adaptLarkSharedForAnna(content string) string {
+	const annaIntro = `## Anna 会话中的运行方式（优先遵循本节）
+
+在 Anna 的沙盒会话里，
+` + "`lark-cli`" + ` 走的是 **wrapper + 环境变量注入** 模式，不是上游文档默认假设的“先 ` + "`config init`" + `，再 ` + "`auth login`" + `”本地配置模式。
+
+- 直接运行 ` + "`lark-cli ...`" + ` 即可。Anna 会把会话级 wrapper（通常位于 ` + "`.anna/bin/lark-cli`" + `）放到 ` + "`PATH`" + ` 前面，再转发到真实二进制（通常是 ` + "`$ANNA_HOME/bin/lark-cli`" + `，也可能是宿主机 ` + "`PATH`" + ` 上的 ` + "`lark-cli`" + `）。
+- Anna 会在会话启动时注入 ` + "`LARK_ACCESS_TOKEN`" + `、` + "`LARK_APP_ID`" + `、` + "`LARK_BRAND`" + `。因此 **在 Anna 会话里默认不要先执行 ` + "`lark-cli config init`" + ` 或 ` + "`lark-cli auth login`" + `**。
+- 把后续文档里所有“先 ` + "`auth login --domain`" + ` / ` + "`auth login --scope`" + `”的要求，映射为：**确认 Anna Profile → OAuth CLI Credentials 已连接 Lark，所需 scope 已在 Lark 应用侧开通，然后开启一个新的 Anna 会话重试**。
+- 如果用户只是想在自己机器上单独配置一个**脱离 Anna** 的 ` + "`lark-cli`" + `，那才回退到上游原生的 ` + "`config init`" + ` / ` + "`auth login`" + ` 流程。
+
+## Anna 中的身份选择
+
+| 身份 | 在 Anna 中如何获得 | 适用场景 |
+|------|------------------|---------|
+| user 用户身份 | Anna 注入运行时用户令牌；优先使用 ` + "`--as user`" + `（或命令默认身份） | 访问用户自己的日历、云文档、任务、邮箱等个人资源 |
+| bot 应用身份 | 需要用户在 Anna 之外显式准备 app 配置 / tenant token；Anna 当前**不自动注入** bot 所需的 app secret 或 config 文件 | 仅在用户明确说明已完成这套手动配置时使用 |
+
+### 身份选择原则
+
+- **默认优先 user**：大多数日历、云空间、文档、任务、邮箱等工作区请求，本质上都是“代表当前用户操作自己的资源”。
+- **不要擅自假设 bot 可用**：如果文档或任务要求 ` + "`--as bot`" + `、` + "`tenant_access_token`" + `、appSecret 或本地 config 文件，而当前会话只有 Anna 注入的 user 运行时环境，就应先停下来说明这是**Anna 当前未自动接线**的手动配置路径。
+- **Bot 看不到用户私有资源**：即便用户自己在 Anna 外部完成了 bot 配置，` + "`--as bot`" + ` 也仍然看不到用户的私有日历、个人云文档、邮箱等资源。
+
+## Anna 中的认证与提权处理
+
+### 未连接、过期或认证失败
+
+- 如果 ` + "`lark-cli`" + ` 提示未登录、缺少 access token、401/expired，先让用户到 **Profile → OAuth CLI Credentials** 连接或重新连接 Lark。
+- Lark user access token 约 2 小时过期；Anna 只在**会话启动时**刷新。已连接但中途过期时，直接开启一个新的 Anna 会话。
+- 重新开启会话后仍失败，说明 refresh token 也可能失效或授权被撤销；此时应让用户断开并重新连接 Lark，而不是在会话里继续尝试 ` + "`auth login`" + `。
+
+### 权限不足 / scope 不足
+
+- 先查看错误里的 ` + "`permission_violations`" + `、` + "`console_url`" + `、` + "`hint`" + `。
+- 如果缺的是**应用 scope**，把 ` + "`console_url`" + ` 提供给用户或管理员，让他们去 Lark 开发者后台开通对应权限。
+- 应用 scope 开通后，在 Anna 会话里**不要**继续执行 ` + "`lark-cli auth login --scope ...`" + `；应让用户按需重新连接 Lark，并开启一个新的 Anna 会话后再重试。
+- 只有当用户明确要求“配置一套独立于 Anna 的本地 ` + "`lark-cli`" + ` 环境”时，才执行上游文档里的 ` + "`config init`" + ` / ` + "`auth login`" + ` 指令。`
+
+	content = rewriteLarkDescription(content, annaLarkSharedDescription)
+	start := strings.Index(content, "## 配置初始化")
+	end := strings.Index(content, "## 更新检查")
+	if start >= 0 && end > start {
+		return content[:start] + annaIntro + "\n\n" + content[end:]
 	}
-	b.WriteString("\n## Usage\n\n")
-	b.WriteString("1. Start with [references/lark-shared.md](./references/lark-shared.md).\n")
-	b.WriteString("2. Pick the module that matches the workspace capability you need.\n")
-	b.WriteString("3. Read the referenced command docs before executing any Lark CLI command.\n")
-	return b.String()
+	if idx := strings.Index(content, "# lark-cli 共享规则"); idx >= 0 {
+		idx += len("# lark-cli 共享规则")
+		return content[:idx] + "\n\n" + annaIntro + content[idx:]
+	}
+	return content + "\n\n" + annaIntro + "\n"
+}
+
+func rewriteLarkDescription(content, description string) string {
+	return regexp.MustCompile(`(?m)^description:\s*".*"$`).ReplaceAllString(content, `description: "`+description+`"`)
+}
+
+var larkAggregateTemplate = template.Must(template.New("lark-aggregate").Funcs(template.FuncMap{
+	"escPipe": func(s string) string {
+		if s == "" {
+			return "-"
+		}
+		return strings.ReplaceAll(s, "|", "\\|")
+	},
+}).Parse(`---
+name: lark
+description: |
+  Lark/Feishu CLI skills for Anna sessions. Covers workspace operations — calendar,
+  docs, tasks, mail, and messenger — via the lark-cli tool. In Anna, lark-cli runs
+  under a wrapper + env-var auth model: LARK_ACCESS_TOKEN, LARK_APP_ID, and
+  LARK_BRAND are injected at session start; no manual config init or auth login is
+  needed. Always read lark-shared first for identity selection (--as user vs --as
+  bot), scope / permission-denied handling, token refresh, and the Anna-specific
+  rules that override upstream documentation.
+tags: [lark, feishu, workspace]
+metadata:
+  source_repo: larksuite/cli
+  source_ref: "{{.SourceRef}}"
+  generated: true
+---
+
+# Lark
+
+This skill aggregates Lark/Feishu CLI modules synced from ` + "`larksuite/cli`" + ` and adapted for Anna sessions.
+
+**Anna auth model** — ` + "`lark-cli`" + ` runs via a session wrapper that injects ` + "`LARK_ACCESS_TOKEN`" + `, ` + "`LARK_APP_ID`" + `, and ` + "`LARK_BRAND`" + ` at startup. Do not run ` + "`lark-cli config init`" + ` or ` + "`lark-cli auth login`" + ` unless the user explicitly wants a standalone local setup outside Anna.
+
+**Identity** — default to ` + "`--as user`" + ` for personal resources (calendar, docs, tasks, mail). ` + "`--as bot`" + ` requires manual app configuration outside Anna and cannot see user-private resources.
+
+**Token expiry** — user access tokens expire after ~2 hours. If mid-session auth fails, open a new Anna session. If that also fails, reconnect Lark under Profile → OAuth CLI Credentials.
+
+## Modules
+
+| Module | Description | Reference |
+| --- | --- | --- |
+{{- range .Docs}}
+| {{.Name}} | {{escPipe .Description}} | [references/{{.File}}](./references/{{.File}}) |
+{{- end}}
+
+## Usage
+
+1. Read [references/lark-shared.md](./references/lark-shared.md) first — it defines auth rules, identity selection, and scope handling that apply to every module.
+2. Identify the module matching the capability you need (calendar, docs, tasks, mail, messenger, etc.).
+3. Read the module's reference file before executing any command — it lists available subcommands, required flags, and known permission constraints.
+4. If a command returns a permission or scope error, consult the ` + "`permission_violations`" + ` and ` + "`console_url`" + ` fields in the error before retrying.
+`))
+
+func renderLarkAggregate(docs []larkSkillDoc, sourceRef string) string {
+	var buf bytes.Buffer
+	if err := larkAggregateTemplate.Execute(&buf, struct {
+		Docs      []larkSkillDoc
+		SourceRef string
+	}{Docs: docs, SourceRef: sourceRef}); err != nil {
+		panic(fmt.Sprintf("renderLarkAggregate: %v", err))
+	}
+	return buf.String()
 }
