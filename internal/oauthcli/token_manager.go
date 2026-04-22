@@ -3,11 +3,11 @@ package oauthcli
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
 	"golang.org/x/oauth2"
 )
+
 
 // tokenExpirySafetyMargin is subtracted from expiry times to avoid using
 // tokens that are about to expire during a long-running operation.
@@ -83,23 +83,15 @@ func (m *TokenManager) GetLarkRuntimeEnv(ctx context.Context, userID int64) (map
 	}, nil
 }
 
-// refreshLarkToken fetches a new app access token, then uses the oauth2
-// library's TokenSource to refresh the user access token via Lark's OIDC
-// refresh endpoint. larkTokenTransport adapts Lark's non-standard request
-// and response format for the library.
+// refreshLarkToken uses the oauth2 library's TokenSource to refresh the user
+// access token against Lark's v2 token endpoint (standard OAuth2 form-encoded,
+// no app access token pre-fetch required).
 func (m *TokenManager) refreshLarkToken(ctx context.Context, bundle *LarkOAuthBundle) (*LarkOAuthBundle, error) {
-	base := larkBaseURL(bundle.Brand)
-
-	appToken, err := fetchLarkAppToken(ctx, base, bundle.AppID, bundle.AppSecret)
-	if err != nil {
-		return nil, fmt.Errorf("fetch app access token: %w", err)
-	}
-
 	cfg := &oauth2.Config{
-		ClientID: bundle.AppID,
+		ClientID:     bundle.AppID,
+		ClientSecret: bundle.AppSecret,
 		Endpoint: oauth2.Endpoint{
-			// Lark uses a distinct endpoint for token refresh.
-			TokenURL:  base + "/open-apis/authen/v1/oidc/refresh_access_token",
+			TokenURL:  larkBaseURL(bundle.Brand) + "/open-apis/authen/v2/oauth/token",
 			AuthStyle: oauth2.AuthStyleInParams,
 		},
 	}
@@ -108,18 +100,13 @@ func (m *TokenManager) refreshLarkToken(ctx context.Context, bundle *LarkOAuthBu
 		RefreshToken: bundle.RefreshToken,
 		Expiry:       bundle.AccessExpiresAt, // expired → triggers refresh
 	}
-	refreshCtx := context.WithValue(ctx, oauth2.HTTPClient, &http.Client{
-		Transport: &larkTokenTransport{appToken: appToken},
-	})
-	tok, err := cfg.TokenSource(refreshCtx, existing).Token()
+	tok, err := cfg.TokenSource(ctx, existing).Token()
 	if err != nil {
 		return nil, fmt.Errorf("refresh token: %w", err)
 	}
 
 	refreshed := larkBundleFromToken(tok, bundle.AppID, bundle.AppSecret, bundle.Brand)
-	// larkBundleFromToken sets Version to 1; preserve the existing version.
 	refreshed.Version = bundle.Version
-	// Only update RefreshExpiresAt if the server returned a new value.
 	if refreshed.RefreshExpiresAt.IsZero() {
 		refreshed.RefreshExpiresAt = bundle.RefreshExpiresAt
 	}
