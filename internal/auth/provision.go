@@ -5,23 +5,22 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
-
-	"filippo.io/age"
-
-	"github.com/vaayne/anna/internal/vault"
 )
 
 const maxUsernameAttempts = 20
 
 // ProvisionRequest carries the information needed to provision a new user.
 type ProvisionRequest struct {
-	Platform       string
-	ExternalID     string
-	Name           string
-	EmailHint      string
-	VaultRecipient *age.X25519Recipient // optional; if set, age keys are generated for the new user
+	Platform   string
+	ExternalID string
+	Name       string
+	EmailHint  string
+
+	// OnUserCreated is invoked after CreateUser succeeds and before the identity
+	// is created. Callers can use it to provision optional user-scoped resources
+	// such as vault keys without adding auth->resource-package dependencies.
+	OnUserCreated func(ctx context.Context, userID int64) error
 }
 
 // ProvisionIdentityUser creates a new user + identity pair atomically.
@@ -55,7 +54,14 @@ func ProvisionIdentityUser(ctx context.Context, store AuthStore, req ProvisionRe
 		return AuthUser{}, fmt.Errorf("provision: create user: %w", err)
 	}
 
-	generateAndStoreAgeKeys(ctx, store, user.ID, req.VaultRecipient)
+	if req.OnUserCreated != nil {
+		if err := req.OnUserCreated(ctx, user.ID); err != nil {
+			if derr := store.DeleteUser(ctx, user.ID); derr != nil {
+				return AuthUser{}, fmt.Errorf("provision: on user created: %w (cleanup user: %w)", err, derr)
+			}
+			return AuthUser{}, fmt.Errorf("provision: on user created: %w", err)
+		}
+	}
 
 	_, identErr := store.CreateIdentity(ctx, Identity{
 		UserID:     user.ID,
@@ -107,23 +113,6 @@ func deriveUsername(ctx context.Context, store AuthStore, emailHint, externalID,
 	}
 
 	return "", fmt.Errorf("provision: no unique username after %d attempts for base %q", maxUsernameAttempts, base)
-}
-
-// generateAndStoreAgeKeys generates an age keypair for the user and persists it.
-// If recipient is nil, the call is a no-op — vault is not configured.
-// Errors are logged but not propagated so that user creation always succeeds.
-func generateAndStoreAgeKeys(ctx context.Context, store AuthStore, userID int64, recipient *age.X25519Recipient) {
-	if recipient == nil {
-		return
-	}
-	pubKey, encPrivKey, err := vault.GenerateUserKeys(recipient)
-	if err != nil {
-		slog.Warn("auth: generate age keys failed", "user_id", userID, "error", err)
-		return
-	}
-	if err := store.UpdateUserAgeKeys(ctx, userID, pubKey, encPrivKey); err != nil {
-		slog.Warn("auth: store age keys failed", "user_id", userID, "error", err)
-	}
 }
 
 // localPart returns the portion of an email address before the @ sign.
