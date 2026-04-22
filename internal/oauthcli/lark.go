@@ -1,8 +1,13 @@
 package oauthcli
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,24 +51,126 @@ func (b *LarkBroker) WithRedirectURI(uri string) *LarkBroker {
 	return &LarkBroker{cfg: b.cfg, store: b.store, redirectURI: uri}
 }
 
-func (b *LarkBroker) baseURL() string {
-	if b.cfg.Brand == "feishu" {
+func larkBaseURL(brand string) string {
+	if brand == "feishu" {
 		return larkBaseFeishu
 	}
 	return larkBaseLark
 }
 
 func (b *LarkBroker) oauthConfig() *oauth2.Config {
-	base := b.baseURL()
+	base := larkBaseURL(b.cfg.Brand)
 	return &oauth2.Config{
 		ClientID:    b.cfg.AppID,
 		RedirectURL: b.redirectURI,
 		Scopes:      []string{larkScope},
 		Endpoint: oauth2.Endpoint{
-			AuthURL:  base + "/open-apis/authen/v1/authorize",
-			TokenURL: base + "/open-apis/authen/v1/oidc/access_token",
+			AuthURL:   base + "/open-apis/authen/v1/authorize",
+			TokenURL:  base + "/open-apis/authen/v1/oidc/access_token",
+			AuthStyle: oauth2.AuthStyleInParams,
 		},
 	}
+}
+
+// larkTokenTransport adapts Lark's non-standard OIDC token endpoints for use
+// with golang.org/x/oauth2. It:
+//   - converts the library's form-encoded request body to JSON (Lark expects JSON),
+//   - injects the app access token as Authorization: Bearer,
+//   - unwraps Lark's {"code":0,"data":{…}} envelope to flat OAuth2 JSON so the
+//     library can parse the response normally.
+//
+// refresh_expires_in is preserved as an extra field so callers can read it via
+// tok.Extra("refresh_expires_in").
+type larkTokenTransport struct {
+	appToken string
+}
+
+func (t *larkTokenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.Header.Set("Authorization", "Bearer "+t.appToken)
+
+	// oauth2 sends form-encoded; Lark's OIDC endpoints expect JSON.
+	if req.Body != nil && req.Header.Get("Content-Type") == "application/x-www-form-urlencoded" {
+		raw, err := io.ReadAll(req.Body)
+		req.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		vals, _ := url.ParseQuery(string(raw))
+		m := make(map[string]string, len(vals))
+		for k, vs := range vals {
+			if len(vs) > 0 {
+				m[k] = vs[0]
+			}
+		}
+		jsonBody, _ := json.Marshal(m)
+		req.Body = io.NopCloser(bytes.NewReader(jsonBody))
+		req.ContentLength = int64(len(jsonBody))
+		req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	}
+
+	resp, err := http.DefaultTransport.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	var larkResp struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			AccessToken      string `json:"access_token"`
+			RefreshToken     string `json:"refresh_token"`
+			ExpiresIn        int    `json:"expires_in"`
+			RefreshExpiresIn int    `json:"refresh_expires_in"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &larkResp); err != nil {
+		// Not a Lark envelope — pass through as-is.
+		resp.Body = io.NopCloser(bytes.NewReader(body))
+		return resp, nil
+	}
+	if larkResp.Code != 0 {
+		errBody := fmt.Appendf(nil, `{"error":"lark_%d","error_description":%q}`, larkResp.Code, larkResp.Msg)
+		resp.StatusCode = http.StatusBadRequest
+		resp.Body = io.NopCloser(bytes.NewReader(errBody))
+		resp.ContentLength = int64(len(errBody))
+		return resp, nil
+	}
+
+	// Rewrite to flat OAuth2 JSON; include refresh_expires_in as an extra field
+	// so callers can read it via tok.Extra("refresh_expires_in").
+	flat := struct {
+		AccessToken      string `json:"access_token"`
+		RefreshToken     string `json:"refresh_token"`
+		ExpiresIn        int    `json:"expires_in"`
+		TokenType        string `json:"token_type"`
+		RefreshExpiresIn int    `json:"refresh_expires_in"`
+	}{
+		AccessToken:      larkResp.Data.AccessToken,
+		RefreshToken:     larkResp.Data.RefreshToken,
+		ExpiresIn:        larkResp.Data.ExpiresIn,
+		TokenType:        "Bearer",
+		RefreshExpiresIn: larkResp.Data.RefreshExpiresIn,
+	}
+	flatBody, _ := json.Marshal(flat)
+	resp.StatusCode = http.StatusOK
+	resp.Body = io.NopCloser(bytes.NewReader(flatBody))
+	resp.ContentLength = int64(len(flatBody))
+	return resp, nil
+}
+
+// larkOAuthContext returns ctx with an HTTP client that routes Lark token
+// requests through larkTokenTransport.
+func larkOAuthContext(ctx context.Context, appToken string) context.Context {
+	return context.WithValue(ctx, oauth2.HTTPClient, &http.Client{
+		Transport: &larkTokenTransport{appToken: appToken},
+	})
 }
 
 // StartDeviceFlow generates a state token, constructs the authorization URL,
@@ -106,21 +213,18 @@ func (b *LarkBroker) Complete(ctx context.Context, vs VaultStore, userID int64, 
 		return fmt.Errorf("oauthcli/lark: unknown flow %q", flowID)
 	}
 
-	appToken, err := b.fetchAppAccessToken(ctx)
+	appToken, err := fetchLarkAppToken(ctx, larkBaseURL(b.cfg.Brand), b.cfg.AppID, b.cfg.AppSecret)
 	if err != nil {
 		return fmt.Errorf("oauthcli/lark: fetch app access token: %w", err)
 	}
 
-	bundle, err := b.exchangeCode(ctx, appToken, code)
+	tok, err := b.oauthConfig().Exchange(larkOAuthContext(ctx, appToken), code)
 	if err != nil {
 		return fmt.Errorf("oauthcli/lark: exchange code: %w", err)
 	}
-	bundle.AppID = b.cfg.AppID
-	bundle.AppSecret = b.cfg.AppSecret
-	bundle.Brand = b.cfg.Brand
-	bundle.Version = 1
 
-	if err := SaveLarkBundle(ctx, vs, userID, *bundle); err != nil {
+	bundle := larkBundleFromToken(tok, b.cfg.AppID, b.cfg.AppSecret, b.cfg.Brand)
+	if err := SaveLarkBundle(ctx, vs, userID, bundle); err != nil {
 		return err
 	}
 
@@ -137,17 +241,13 @@ type larkAppTokenResponse struct {
 	Expire         int    `json:"expire"`
 }
 
-// fetchAppAccessToken obtains a short-lived Lark app access token.
-// Lark requires a separate app credential exchange before user token operations —
-// the standard oauth2 flow does not support this pattern.
-func (b *LarkBroker) fetchAppAccessToken(ctx context.Context) (string, error) {
-	endpoint := b.baseURL() + "/open-apis/auth/v3/app_access_token/internal"
-	reqBody := map[string]string{
-		"app_id":     b.cfg.AppID,
-		"app_secret": b.cfg.AppSecret,
-	}
+// fetchLarkAppToken obtains a short-lived Lark app access token.
+// Lark requires a separate server-to-server credential exchange before any
+// user token operation — this step has no equivalent in standard OAuth2.
+func fetchLarkAppToken(ctx context.Context, base, appID, appSecret string) (string, error) {
+	endpoint := base + "/open-apis/auth/v3/app_access_token/internal"
 	var resp larkAppTokenResponse
-	if err := postJSON(ctx, endpoint, reqBody, nil, &resp); err != nil {
+	if err := postJSON(ctx, endpoint, map[string]string{"app_id": appID, "app_secret": appSecret}, nil, &resp); err != nil {
 		return "", fmt.Errorf("app_access_token request: %w", err)
 	}
 	if resp.Code != 0 {
@@ -156,44 +256,21 @@ func (b *LarkBroker) fetchAppAccessToken(ctx context.Context) (string, error) {
 	return resp.AppAccessToken, nil
 }
 
-// larkUserTokenResponse is the JSON body from the OIDC access_token endpoint.
-type larkUserTokenResponse struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
-	Data struct {
-		AccessToken      string `json:"access_token"`
-		RefreshToken     string `json:"refresh_token"`
-		ExpiresIn        int    `json:"expires_in"`
-		RefreshExpiresIn int    `json:"refresh_expires_in"`
-		TokenType        string `json:"token_type"`
-	} `json:"data"`
-}
-
-// exchangeCode exchanges an authorization code for a user access token.
-// Uses custom HTTP because Lark requires Authorization: Bearer <app_access_token>,
-// which the standard oauth2.Config.Exchange() does not support.
-func (b *LarkBroker) exchangeCode(ctx context.Context, appToken string, code string) (*LarkOAuthBundle, error) {
-	endpoint := b.baseURL() + "/open-apis/authen/v1/oidc/access_token"
-	reqBody := map[string]string{
-		"grant_type": "authorization_code",
-		"code":       code,
+// larkBundleFromToken builds a LarkOAuthBundle from an oauth2.Token returned
+// by Exchange or TokenSource. The non-standard refresh_expires_in field is
+// read from the token's extra claims.
+func larkBundleFromToken(tok *oauth2.Token, appID, appSecret, brand string) LarkOAuthBundle {
+	bundle := LarkOAuthBundle{
+		Version:         1,
+		AppID:           appID,
+		AppSecret:       appSecret,
+		Brand:           brand,
+		AccessToken:     tok.AccessToken,
+		RefreshToken:    tok.RefreshToken,
+		AccessExpiresAt: tok.Expiry,
 	}
-	headers := map[string]string{
-		"Authorization": "Bearer " + appToken,
+	if ri, ok := tok.Extra("refresh_expires_in").(float64); ok && ri > 0 {
+		bundle.RefreshExpiresAt = time.Now().Add(time.Duration(ri) * time.Second)
 	}
-	var resp larkUserTokenResponse
-	if err := postJSON(ctx, endpoint, reqBody, headers, &resp); err != nil {
-		return nil, fmt.Errorf("token exchange request: %w", err)
-	}
-	if resp.Code != 0 {
-		return nil, fmt.Errorf("token exchange error %d: %s", resp.Code, resp.Msg)
-	}
-
-	now := time.Now()
-	return &LarkOAuthBundle{
-		AccessToken:      resp.Data.AccessToken,
-		RefreshToken:     resp.Data.RefreshToken,
-		AccessExpiresAt:  now.Add(time.Duration(resp.Data.ExpiresIn) * time.Second),
-		RefreshExpiresAt: now.Add(time.Duration(resp.Data.RefreshExpiresIn) * time.Second),
-	}, nil
+	return bundle
 }
