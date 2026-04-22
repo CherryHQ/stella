@@ -21,6 +21,15 @@ any user can connect:
 
 ## Connecting
 
+### Via the credentials tool (channel sessions)
+
+Inside any Anna channel session, ask the agent to connect a provider. It will call the
+`credentials` tool, which starts a device flow and returns a verification URL and user
+code. Open the URL in a browser, enter the code, and authorize. The agent polls for
+completion automatically and resumes your task once connected.
+
+### Via the admin panel (web UI)
+
 1. Open the Anna admin panel and navigate to your **Profile** page.
 2. Find the **OAuth CLI Credentials** section.
 3. Click **Connect** next to the provider you want to link.
@@ -28,7 +37,8 @@ any user can connect:
 5. Open the URL in a browser, enter the code, and authorize.
 6. Anna polls for completion. Once authorized, the token bundle is saved to your vault.
 
-You can disconnect at any time by clicking **Disconnect** next to the provider.
+You can disconnect at any time by clicking **Disconnect** next to the provider, or by
+asking the agent to run `credentials disconnect` for the relevant provider.
 
 ## Using the CLIs
 
@@ -59,7 +69,8 @@ refreshed token automatically.
 
 Pending device flows (started but not yet authorized) are held in memory. An Anna
 process restart discards them. If Anna restarts while you are completing authorization
-in a browser, you will need to start the flow again from the profile page.
+in a browser, you will need to start the flow again (via the `credentials` tool or the
+profile page).
 
 ## Security model
 

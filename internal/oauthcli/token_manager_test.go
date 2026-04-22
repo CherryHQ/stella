@@ -143,7 +143,7 @@ func TestGetLarkRuntimeEnv_RefreshTokenExpired(t *testing.T) {
 		Brand:            "lark",
 		AccessToken:      "access-token",
 		RefreshToken:     "refresh-token",
-		AccessExpiresAt:  now.Add(-1 * time.Hour),  // Expired
+		AccessExpiresAt:  now.Add(-1 * time.Hour), // Expired
 		RefreshExpiresAt: now.Add(-1 * time.Hour), // Also expired
 	}
 	if err := SaveLarkBundle(ctx, vs, userID, bundle); err != nil {

@@ -124,6 +124,34 @@ func (p *Pool) ResetRunners() error {
 	return lastErr
 }
 
+// ResetRunnersForUser closes live runners belonging to a specific user.
+// Other sessions are not affected. The next chat for that user recreates a runner.
+func (p *Pool) ResetRunnersForUser(userID int64) error {
+	p.mu.Lock()
+	var runners []runner.Runner
+	for _, sess := range p.sessions {
+		if sess == nil || sess.Info.UserID != userID {
+			continue
+		}
+		if sess.Runner != nil {
+			runners = append(runners, sess.Runner)
+			sess.Runner = nil
+		}
+		sess.Model = ""
+	}
+	p.mu.Unlock()
+
+	var lastErr error
+	for _, r := range runners {
+		if closer, ok := r.(io.Closer); ok {
+			if err := closer.Close(); err != nil {
+				lastErr = err
+			}
+		}
+	}
+	return lastErr
+}
+
 // Close shuts down all sessions and runners.
 func (p *Pool) Close() error {
 	return p.close(true)
