@@ -37,7 +37,7 @@ On startup anna automatically generates an age keypair for every user that does 
 
 ### From the admin panel
 
-Open the admin panel and navigate to your profile page. The **Vault** section lets you:
+Open the admin panel and navigate to your Credentials page. The **Vault** section lets you:
 
 - **Add** a secret by entering a name and value, then clicking Save.
 - **Delete** a secret by clicking the trash icon next to its name.

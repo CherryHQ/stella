@@ -44,7 +44,15 @@ func (s *Server) pagePlugins(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) pageProfile(w http.ResponseWriter, r *http.Request) {
-	s.renderPage(w, r, "profile", "/static/js/pages/profile.js", pages.ProfilePage())
+	http.Redirect(w, r, "/account", http.StatusFound)
+}
+
+func (s *Server) pageAccount(w http.ResponseWriter, r *http.Request) {
+	s.renderPage(w, r, "account", "/static/js/pages/account.js", pages.AccountPage())
+}
+
+func (s *Server) pageCredentials(w http.ResponseWriter, r *http.Request) {
+	s.renderPage(w, r, "credentials", "/static/js/pages/credentials.js", pages.CredentialsPage())
 }
 
 // renderPage sets the HTML content type and renders the layout with the

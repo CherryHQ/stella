@@ -245,9 +245,9 @@ func adaptLarkSharedForAnna(content string) string {
 
 ### 未连接、过期或认证失败
 
-- 如果 ` + "`lark-cli`" + ` 提示未登录、缺少 access token、401/expired，先用 ` + "`oauth`" + ` 工具检查 Lark 连接状态（oauth status 指令）；如需重新连接，执行 oauth connect（provider=lark），或引导用户前往 Profile → OAuth CLI Credentials 重新授权。
+- 如果 ` + "`lark-cli`" + ` 提示未登录、缺少 access token、401/expired，先用 ` + "`oauth`" + ` 工具检查 Lark 连接状态（oauth status 指令）；如需重新连接，执行 oauth connect（provider=lark），或引导用户前往 Credentials → OAuth CLI Credentials 重新授权。
 - Lark user access token 约 2 小时过期；Anna 只在**会话启动时**刷新。已连接但中途过期时，直接开启一个新的 Anna 会话。
-- 重新开启会话后仍失败，说明 refresh token 也可能失效或授权被撤销；此时应让用户从 Profile → OAuth CLI Credentials 断开并重新连接 Lark，而不是在会话里继续尝试 ` + "`auth login`" + `。
+- 重新开启会话后仍失败，说明 refresh token 也可能失效或授权被撤销；此时应让用户从 Credentials → OAuth CLI Credentials 断开并重新连接 Lark，而不是在会话里继续尝试 ` + "`auth login`" + `。
 
 ### 权限不足 / scope 不足
 
@@ -306,7 +306,7 @@ This skill aggregates Lark/Feishu CLI modules synced from ` + "`larksuite/cli`" 
 
 **Identity** — default to ` + "`--as user`" + ` for personal resources (calendar, docs, tasks, mail). ` + "`--as bot`" + ` requires manual app configuration outside Anna and cannot see user-private resources.
 
-**Token expiry** — user access tokens expire after ~2 hours. If mid-session auth fails, open a new Anna session. If that also fails, use the ` + "`oauth`" + ` tool (oauth status, then oauth connect with provider=lark) or go to Profile → OAuth CLI Credentials to reconnect.
+**Token expiry** — user access tokens expire after ~2 hours. If mid-session auth fails, open a new Anna session. If that also fails, use the ` + "`oauth`" + ` tool (oauth status, then oauth connect with provider=lark) or go to Credentials → OAuth CLI Credentials to reconnect.
 
 ## Modules
 
