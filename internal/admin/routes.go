@@ -72,6 +72,7 @@ func (s *Server) registerPageRoutes() {
 	s.mux.HandleFunc("GET /channels", s.pageChannels)
 	s.mux.Handle("GET /users", s.adminOnlyMiddleware(http.HandlerFunc(s.pageUsers)))
 	s.mux.HandleFunc("GET /sessions", s.pageSessions)
+	s.mux.HandleFunc("GET /sessions/{sessionID}", s.pageSessions)
 	s.mux.HandleFunc("GET /scheduler", s.pageScheduler)
 	s.mux.Handle("GET /plugins", s.adminOnlyMiddleware(http.HandlerFunc(s.pagePlugins)))
 	s.mux.HandleFunc("GET /profile", s.pageProfile)
