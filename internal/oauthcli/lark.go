@@ -14,8 +14,12 @@ const (
 	larkBaseLark   = "https://open.larksuite.com"
 
 	larkRedirectURI = "https://anna.app/oauth/lark/callback" // placeholder; caller sets up the real redirect
-	larkScope       = "contact:user.base:readonly"
 )
+
+// larkScopes are the OAuth scopes requested at login.
+// offline_access is required for the server to issue a refresh token.
+// contact:user.base:readonly provides basic identity info for the session.
+var larkScopes = []string{"offline_access", "contact:user.base:readonly"}
 
 // LarkConfig holds the OAuth app credentials for Lark/Feishu device-style flow.
 type LarkConfig struct {
@@ -62,7 +66,7 @@ func (b *LarkBroker) oauthConfig() *oauth2.Config {
 		ClientID:     b.cfg.AppID,
 		ClientSecret: b.cfg.AppSecret,
 		RedirectURL:  b.redirectURI,
-		Scopes:       []string{larkScope},
+		Scopes:       larkScopes,
 		Endpoint: oauth2.Endpoint{
 			AuthURL:   base + "/open-apis/authen/v1/authorize",
 			TokenURL:  base + "/open-apis/authen/v2/oauth/token",
