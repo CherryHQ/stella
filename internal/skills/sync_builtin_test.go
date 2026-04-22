@@ -183,4 +183,43 @@ func TestSyncBuiltin(t *testing.T) {
 			t.Fatalf("references/a.md = %q, want nested ref", ref)
 		}
 	})
+
+	t.Run("removed system skills are deleted on full sync", func(t *testing.T) {
+		store, db := newTestStore(t)
+		userID, _ := seedFixtures(t, db)
+		initialFS := fstest.MapFS{
+			"system/foo/SKILL.md": {Data: []byte(testSkillMD("foo skill"))},
+			"system/bar/SKILL.md": {Data: []byte("---\nname: bar\ndescription: bar skill\nstatus: active\n---\n\n# Bar\n")},
+		}
+		if err := SyncBuiltin(ctx, store, initialFS); err != nil {
+			t.Fatalf("initial SyncBuiltin: %v", err)
+		}
+
+		if _, err := store.Create(ctx, Skill{
+			Scope:       "user",
+			UserID:      userID,
+			Name:        "user-kept",
+			Description: "user skill",
+			Status:      "active",
+		}, map[string]string{MainFile: "# User"}); err != nil {
+			t.Fatalf("create user skill: %v", err)
+		}
+
+		reducedFS := fstest.MapFS{
+			"system/foo/SKILL.md": {Data: []byte(testSkillMD("foo skill"))},
+		}
+		if err := SyncBuiltin(ctx, store, reducedFS); err != nil {
+			t.Fatalf("second SyncBuiltin: %v", err)
+		}
+
+		if sk, err := store.Resolve(ctx, "bar", ViewContext{}); err != nil || sk != nil {
+			t.Fatalf("expected removed system skill bar to be deleted, got sk=%v err=%v", sk, err)
+		}
+		if sk, err := store.Resolve(ctx, "foo", ViewContext{}); err != nil || sk == nil {
+			t.Fatalf("expected foo to remain, got sk=%v err=%v", sk, err)
+		}
+		if sk, err := store.Resolve(ctx, "user-kept", ViewContext{UserID: userID}); err != nil || sk == nil {
+			t.Fatalf("expected non-system skill to remain, got sk=%v err=%v", sk, err)
+		}
+	})
 }

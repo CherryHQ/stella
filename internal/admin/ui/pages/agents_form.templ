@@ -148,14 +148,13 @@ templ agentSkillsTab() {
 	<div class="space-y-6">
 		<div x-show="builtinSkills.length > 0">
 			<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2">Builtin skills</p>
-			<p class="text-xs text-base-content/60 mb-2">Anna's self-knowledge is always on. Toggle extras for this agent.</p>
+			<p class="text-xs text-base-content/60 mb-2">System-scope builtin skills are always available to every agent.</p>
 			<div class="flex flex-wrap gap-2">
 				<template x-for="sk in builtinSkills" :key="sk.id">
 					<button
-						@click="toggleBuiltinSkill(sk.name)"
+						@click="openSystemSkill(sk.name)"
 						type="button"
-						class="badge badge-sm cursor-pointer transition-colors"
-						:class="isBuiltinSkillEnabled(sk.name) ? 'badge-primary' : 'badge-ghost'"
+						class="badge badge-sm badge-ghost cursor-pointer transition-colors hover:bg-base-200"
 						:title="sk.description"
 						x-text="sk.name"
 					></button>
@@ -173,8 +172,8 @@ templ agentSkillsTab() {
 					<div>
 						<div class="space-y-1 mb-3">
 							<template x-for="sk in agentSkills" :key="sk.id">
-								<div class="flex items-center justify-between rounded border border-base-300 px-3 py-2">
-									<div class="flex items-center gap-2 min-w-0">
+								<div class="flex items-center justify-between rounded border border-base-300 px-3 py-2 hover:bg-base-200/50 transition-colors">
+									<button @click="openAgentSkill(sk)" type="button" class="flex items-center gap-2 min-w-0 flex-1 text-left">
 										<span class="text-sm font-mono truncate" x-text="sk.name"></span>
 										<span
 											class="badge badge-xs"
@@ -186,7 +185,7 @@ templ agentSkillsTab() {
 											}"
 											x-text="sk.status"
 										></span>
-									</div>
+									</button>
 									<button @click="deleteAgentSkill(sk.id)" class="btn btn-ghost btn-xs text-error shrink-0">remove</button>
 								</div>
 							</template>

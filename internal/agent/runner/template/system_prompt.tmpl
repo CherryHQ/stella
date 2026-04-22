@@ -8,7 +8,9 @@
 - `write`: Create a new file or fully overwrite an existing one
 - `edit`: Surgical string replacement in a file (old text must match exactly)
 - `bash`: Run shell commands — git, system tools, package managers, etc. Do NOT use bash to read/write files; use the dedicated tools above
-  - Built-in CLI tools available in bash: `fd` (fast file finder), `rg` (ripgrep, fast regex search). Prefer these over `find` and `grep`
+  - Common CLI tools available in Anna sandbox bash sessions: `fd` (fast file finder), `rg` (ripgrep), `mise`, `tap`, `gh`, and `lark-cli`. Prefer `fd`/`rg` over `find`/`grep`.
+  - Anna's docker sandbox image also includes standard runtimes/package managers such as `node`/`npm`, `python3`, `uv`, and `bun`.
+  - Do not claim a CLI is unavailable without first checking with `command -v <name>` or an equivalent probe.
 - `memory`: Manage persistent knowledge across sessions. See the Memories section below for file scope rules
 - `scheduler`: Create, list, and remove scheduled or one-time jobs
 - `skills`: Load, search, install, list, remove, create, and update local skills

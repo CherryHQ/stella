@@ -152,31 +152,31 @@ templ SkillsDrawer() {
 								</label>
 							</div>
 						</div>
-						<!-- File tabs -->
-						<div class="px-6 pt-3 pb-2 flex items-center gap-1 flex-wrap border-b border-base-300 shrink-0">
-							<template x-for="f in (skillsDrawer.selected.files || ['SKILL.md'])" :key="f">
-								<div class="flex items-center">
-									<button
-										@click="selectDrawerFile(f)"
-										class="btn btn-xs rounded-r-none"
-										:class="skillsDrawer.activeFile === f ? 'btn-primary' : 'btn-ghost'"
-										x-text="f"
-									></button>
-									<button
-										x-show="skillsDrawer.canEdit && f !== 'SKILL.md' && skillsDrawer.activeFile === f"
-										@click.stop="deleteDrawerFile(f)"
-										class="btn btn-xs btn-ghost rounded-l-none px-1 text-error"
-										title="Delete file"
-									>✕</button>
-								</div>
-							</template>
-							<template x-if="!skillsDrawer.addingFile">
+						<!-- File selector -->
+						<div class="px-6 pt-3 pb-2 border-b border-base-300 shrink-0 space-y-2">
+							<div class="flex items-center gap-2">
+								<select
+									x-model="skillsDrawer.activeFile"
+									@change="selectDrawerFile(skillsDrawer.activeFile)"
+									class="select select-bordered select-sm font-mono text-xs w-auto max-w-sm py-0 leading-normal"
+								>
+									<template x-for="f in (skillsDrawer.selected.files || ['SKILL.md'])" :key="f">
+										<option :value="f" x-text="f"></option>
+									</template>
+								</select>
+								<div class="flex-1"></div>
 								<button
-									x-show="skillsDrawer.canEdit"
+									x-show="skillsDrawer.canEdit && skillsDrawer.activeFile !== 'SKILL.md'"
+									@click="deleteDrawerFile(skillsDrawer.activeFile)"
+									class="btn btn-ghost btn-xs text-error shrink-0"
+									title="Delete file"
+								>✕</button>
+								<button
+									x-show="skillsDrawer.canEdit && !skillsDrawer.addingFile"
 									@click="confirmAddDrawerFile()"
-									class="btn btn-xs btn-ghost text-secondary"
-								>+ Add file</button>
-							</template>
+									class="btn btn-ghost btn-xs text-secondary shrink-0"
+								>+ Add</button>
+							</div>
 							<template x-if="skillsDrawer.addingFile">
 								<div class="flex items-center gap-1">
 									<input
@@ -184,7 +184,7 @@ templ SkillsDrawer() {
 										@keydown.enter.prevent="commitAddDrawerFile()"
 										@keydown.escape="skillsDrawer.addingFile = false"
 										placeholder="reference.md"
-										class="input input-bordered input-xs w-40 font-mono"
+										class="input input-bordered input-xs flex-1 font-mono"
 										autofocus
 									/>
 									<button @click="commitAddDrawerFile()" class="btn btn-xs btn-primary">Add</button>

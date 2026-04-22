@@ -21,7 +21,7 @@ A template is a complete starting point for a new agent. When you click **Add ag
 
 - **Model** — provider/model pair the template recommends
 - **System prompt** — copied from the template's referenced soul
-- **Enabled builtin skills** — shown as chips on the form; togglable before save
+- **Builtin skill metadata** — retained for compatibility with older templates, but system-scope builtin skills are now always available to every agent
 
 User-supplied fields always win. You can edit every field on the form before saving, and after save the agent has no persistent link back to the template — upgrading a template does not touch existing agents.
 
@@ -46,22 +46,22 @@ Sub-agent presets describe tool-restricted workers for the `agent` delegation to
 
 Shipped sub-agents: `coder`, `researcher`, `reviewer`, `writer`.
 
-## Skills and per-agent enablement
+## Skills
 
-Every skill marked `scope='system'` is universal by design, which means naive growth of the builtin catalog would drop every skill into every agent's prompt — fast prompt bloat.
+Every skill synced into the database with `scope='system'` is available to every agent automatically.
 
-The fix: `settings_agents.enabled_builtin_skills` (JSON array of skill names). An agent's skill catalog in the prompt is:
+An agent's skill catalog in the prompt is:
 
 ```
-{always-on builtins: anna}
- ∪ {enabled_builtin_skills}
+{all system-scope builtin skills}
  ∪ {agent-scope DB skills}
  ∪ {user-scope DB skills}
+ ∪ {project skills from .agents/skills}
 ```
 
-`anna` (the self-knowledge skill) is always on. Every other builtin skill must be opted in — either via the template you picked (which sets the list for you) or by toggling chips on the agent form.
+The legacy `settings_agents.enabled_builtin_skills` field is still stored for backward compatibility with older templates and agent rows, but it no longer filters prompt visibility.
 
-Shipped skills: `anna`, `code-review`, `docs-writing`, `implementation`, `research`, `task-planning`.
+Shipped system skills live under `internal/resources/skills/system/` and are synced into `skills(scope='system')` on startup. Startup sync is authoritative: skills removed from the embedded system catalog are deleted from the database on the next sync.
 
 ## Adding a new builtin resource
 

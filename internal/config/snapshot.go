@@ -33,9 +33,10 @@ type Snapshot struct {
 	SystemPrompt string // agent's base system prompt from DB
 	Soul         string // agent's default soul from DB (fallback for all users)
 
-	// EnabledBuiltinSkills is the per-agent list of builtin skill names that
-	// appear in the prompt catalog. The always-on "anna" skill is visible to
-	// every agent regardless of this list.
+	// EnabledBuiltinSkills is retained for backward compatibility with older
+	// templates and agent rows. System-scope builtin skills are now always
+	// visible to every agent, so this list no longer affects prompt catalog
+	// visibility.
 	EnabledBuiltinSkills []string
 
 	Runner     RunnerConfig
