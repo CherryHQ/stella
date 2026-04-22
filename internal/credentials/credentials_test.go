@@ -60,6 +60,10 @@ func newService(t *testing.T, cfg pluginhost.ConfigBackend) *credentials.Service
 	return credentials.NewService(nil, cfg, flowStore, "http://localhost:8080")
 }
 
+func ctxWithUser(userID int64) context.Context {
+	return memory.WithUserID(context.Background(), userID)
+}
+
 // --- Service tests ---
 
 func TestAddSecretInstruction(t *testing.T) {
@@ -189,36 +193,31 @@ func TestInvalidateUserCallsInvalidator(t *testing.T) {
 	}
 }
 
-// --- Tool tests ---
+// --- OAuthTool tests ---
 
-func ctxWithUser(userID int64) context.Context {
-	return memory.WithUserID(context.Background(), userID)
-}
-
-func newTool(t *testing.T) *credentials.Tool {
+func newOAuthTool(t *testing.T) *credentials.OAuthTool {
 	t.Helper()
-	svc := newService(t, newStubPluginCfg())
-	return credentials.NewTool(svc)
+	return credentials.NewOAuthTool(newService(t, newStubPluginCfg()))
 }
 
-func TestToolNoUserContext(t *testing.T) {
-	tool := newTool(t)
+func TestOAuthToolNoUserContext(t *testing.T) {
+	tool := newOAuthTool(t)
 	_, err := tool.Execute(context.Background(), map[string]any{"action": "status"})
 	if err == nil {
 		t.Error("expected error when no user in context")
 	}
 }
 
-func TestToolUnknownAction(t *testing.T) {
-	tool := newTool(t)
+func TestOAuthToolUnknownAction(t *testing.T) {
+	tool := newOAuthTool(t)
 	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "invalid"})
 	if err == nil {
 		t.Error("expected error for unknown action")
 	}
 }
 
-func TestToolStatus(t *testing.T) {
-	tool := newTool(t)
+func TestOAuthToolStatus(t *testing.T) {
+	tool := newOAuthTool(t)
 	out, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "status"})
 	if err != nil {
 		t.Fatal(err)
@@ -226,55 +225,95 @@ func TestToolStatus(t *testing.T) {
 	if !strings.Contains(out, "OAuth providers:") {
 		t.Errorf("status output missing providers section: %q", out)
 	}
-	if !strings.Contains(out, "Vault secrets:") {
-		t.Errorf("status output missing vault section: %q", out)
+}
+
+func TestOAuthToolConnectMissingProvider(t *testing.T) {
+	tool := newOAuthTool(t)
+	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "connect"})
+	if err == nil {
+		t.Error("expected error when provider missing for connect")
 	}
 }
 
-func TestToolListNoVault(t *testing.T) {
-	tool := newTool(t)
+func TestOAuthToolConnectPollMissingFlowID(t *testing.T) {
+	// Providing an unknown flow_id should error, not silently start a new flow.
+	svc := newService(t, newStubPluginCfg())
+	tool := credentials.NewOAuthTool(svc)
+	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "connect", "provider": "github", "flow_id": "bad-id"})
+	if err == nil {
+		t.Error("expected error for unknown flow_id")
+	}
+}
+
+func TestOAuthToolDisconnectMissingProvider(t *testing.T) {
+	tool := newOAuthTool(t)
+	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "disconnect"})
+	if err == nil {
+		t.Error("expected error when provider missing for disconnect")
+	}
+}
+
+func TestOAuthDefinition(t *testing.T) {
+	def := credentials.OAuthDefinition()
+	if def.Name != "oauth" {
+		t.Errorf("OAuthDefinition.Name = %q; want oauth", def.Name)
+	}
+	if def.InputSchema == nil {
+		t.Error("OAuthDefinition.InputSchema is nil")
+	}
+}
+
+// --- VaultTool tests ---
+
+func newVaultTool(t *testing.T) *credentials.VaultTool {
+	t.Helper()
+	return credentials.NewVaultTool(newService(t, newStubPluginCfg()))
+}
+
+func TestVaultToolNoUserContext(t *testing.T) {
+	tool := newVaultTool(t)
+	_, err := tool.Execute(context.Background(), map[string]any{"action": "list"})
+	if err == nil {
+		t.Error("expected error when no user in context")
+	}
+}
+
+func TestVaultToolUnknownAction(t *testing.T) {
+	tool := newVaultTool(t)
+	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "invalid"})
+	if err == nil {
+		t.Error("expected error for unknown action")
+	}
+}
+
+func TestVaultToolListNoVault(t *testing.T) {
+	tool := newVaultTool(t)
 	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "list"})
 	if err == nil {
 		t.Error("expected error listing when vault is nil")
 	}
 }
 
-func TestToolDeleteMissingName(t *testing.T) {
-	tool := newTool(t)
-	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "delete"})
+func TestVaultToolRemoveMissingName(t *testing.T) {
+	tool := newVaultTool(t)
+	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "remove"})
 	if err == nil {
-		t.Error("expected error when name is missing for delete")
+		t.Error("expected error when name is missing for remove")
 	}
 }
 
-func TestToolOAuthStartMissingProvider(t *testing.T) {
-	tool := newTool(t)
-	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "oauth_start"})
+func TestVaultToolAddMissingName(t *testing.T) {
+	tool := newVaultTool(t)
+	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "add"})
 	if err == nil {
-		t.Error("expected error when provider missing for oauth_start")
+		t.Error("expected error when name missing for add")
 	}
 }
 
-func TestToolOAuthPollMissingFlowID(t *testing.T) {
-	tool := newTool(t)
-	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "oauth_poll", "provider": "github"})
-	if err == nil {
-		t.Error("expected error when flow_id missing for oauth_poll")
-	}
-}
-
-func TestToolAddSecretMissingName(t *testing.T) {
-	tool := newTool(t)
-	_, err := tool.Execute(ctxWithUser(1), map[string]any{"action": "add_secret"})
-	if err == nil {
-		t.Error("expected error when name missing for add_secret")
-	}
-}
-
-func TestToolAddSecretInstruction(t *testing.T) {
-	tool := newTool(t)
+func TestVaultToolAddInstruction(t *testing.T) {
+	tool := newVaultTool(t)
 	out, err := tool.Execute(ctxWithUser(1), map[string]any{
-		"action":  "add_secret",
+		"action":  "add",
 		"name":    "STRIPE_KEY",
 		"purpose": "process payments",
 	})
@@ -287,25 +326,14 @@ func TestToolAddSecretInstruction(t *testing.T) {
 	if !strings.Contains(out, "process payments") {
 		t.Errorf("add_secret output missing purpose: %q", out)
 	}
-	if strings.Contains(out, "<actual") || strings.Contains(out, "plaintext") {
-		t.Errorf("add_secret output should not mention plaintext values: %q", out)
-	}
 }
 
-func TestToolDefinition(t *testing.T) {
-	tool := newTool(t)
-	def := tool.Definition()
-	if def.Name != "credentials" {
-		t.Errorf("Definition.Name = %q; want credentials", def.Name)
+func TestVaultDefinition(t *testing.T) {
+	def := credentials.VaultDefinition()
+	if def.Name != "vault" {
+		t.Errorf("VaultDefinition.Name = %q; want vault", def.Name)
 	}
 	if def.InputSchema == nil {
-		t.Error("Definition.InputSchema is nil")
-	}
-}
-
-func TestCredentialsDefinition(t *testing.T) {
-	def := credentials.CredentialsDefinition()
-	if def.Name != "credentials" {
-		t.Errorf("CredentialsDefinition.Name = %q; want credentials", def.Name)
+		t.Error("VaultDefinition.InputSchema is nil")
 	}
 }

@@ -72,7 +72,8 @@ func (s *Server) builtinToolDefinitions() []pkgtools.Definition {
 	defs := []pkgtools.Definition{
 		scheduler.SchedulerDefinition(),
 		skillstool.SkillsDefinition(),
-		credentials.CredentialsDefinition(),
+		credentials.OAuthDefinition(),
+		credentials.VaultDefinition(),
 	}
 	if s.mem != nil {
 		defs = append(defs, memory.BuildTool(s.mem).Definition())

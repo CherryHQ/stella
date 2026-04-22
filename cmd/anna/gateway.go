@@ -32,6 +32,7 @@ import (
 	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
 	"github.com/vaayne/anna/pkg/providers"
+	"github.com/vaayne/anna/pkg/tools"
 	reflectplugin "github.com/vaayne/anna/plugins/reflect"
 	"golang.org/x/sync/errgroup"
 )
@@ -98,8 +99,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// all pools so every agent can use the credentials tool.
 	credSvc := adminSrv.CredentialsService()
 	credSvc.SetInvalidator(s.poolManager)
-	if err := s.poolManager.AddBuiltinTool(gctx, credentials.NewTool(credSvc)); err != nil {
-		slog.Warn("failed to add credentials tool to pool manager", "error", err)
+	for _, tool := range []tools.Tool{credentials.NewOAuthTool(credSvc), credentials.NewVaultTool(credSvc)} {
+		if err := s.poolManager.AddBuiltinTool(gctx, tool); err != nil {
+			slog.Warn("failed to add builtin tool to pool manager", "tool", tool.Definition().Name, "error", err)
+		}
 	}
 
 	// Wire vault service if ANNA_VAULT_KEY is set.

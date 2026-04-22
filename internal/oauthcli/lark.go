@@ -158,7 +158,6 @@ func (b *LarkBroker) Complete(ctx context.Context, vs VaultStore, userID int64, 
 	}
 
 	b.store.Update(flowID, FlowStateAuthorized, nil)
-	b.store.Delete(flowID)
 	return nil
 }
 

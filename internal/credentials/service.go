@@ -316,6 +316,11 @@ func (s *Service) PollFlow(ctx context.Context, userID int64, provider, flowID s
 		if err != nil {
 			return FlowStatus{}, false, err
 		}
+		if status.State == oauthcli.FlowStateAuthorized {
+			s.flowStore.Delete(flowID)
+			_ = s.InvalidateUser(userID)
+			return toFlowStatus(status), true, nil
+		}
 		return toFlowStatus(status), false, nil
 
 	default:
@@ -335,7 +340,6 @@ func (s *Service) CompleteLarkFlow(ctx context.Context, userID int64, flowID, co
 	if err := broker.Complete(ctx, s.vaultSvc, userID, flowID, code); err != nil {
 		return fmt.Errorf("complete lark flow: %w", err)
 	}
-	_ = s.InvalidateUser(userID)
 	return nil
 }
 
