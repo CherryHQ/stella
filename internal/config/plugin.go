@@ -41,9 +41,7 @@ var builtinProviderNames = []string{"anthropic", "openai", "openai-response"}
 var builtinMemoryNames = []string{"lcm", "simple"}
 
 // builtinSandboxNames lists the built-in sandbox backend plugins.
-// boxsh and local are listed for UI visibility even though their backend code
-// has been removed; enabling them will fail at runtime with a clear error.
-var builtinSandboxNames = []string{SandboxBackendDocker, SandboxBackendBoxsh, SandboxBackendLocal}
+var builtinSandboxNames = []string{SandboxBackendDocker, SandboxBackendLocal}
 
 // builtinAuthNames lists the built-in OAuth provider plugins.
 var builtinAuthNames = []string{"github", "lark"}

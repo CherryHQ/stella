@@ -24,7 +24,7 @@ export function register(Alpine) {
     mcpRowID: 0,
 
     get toolPlugins() {
-      return this.plugins.filter(p => p.kind === 'tool')
+      return this.plugins.filter(p => p.kind === 'tool' && p.id !== 'tool/mcp')
     },
 
     get channelPlugins() {
@@ -40,10 +40,11 @@ export function register(Alpine) {
     },
 
     get sandboxPlugins() {
-      return this.plugins.filter(p => p.kind === 'sandbox')
+      const validBackends = new Set(['sandbox/docker', 'sandbox/local'])
+      return this.plugins.filter(p => p.kind === 'sandbox' && validBackends.has(p.id))
     },
 
-    get standalonePlugins() {
+    get otherPlugins() {
       return this.plugins.filter(p => !['tool', 'channel', 'hook', 'memory', 'provider', 'sandbox'].includes(p.kind))
     },
 
@@ -682,6 +683,40 @@ export function register(Alpine) {
 
     pluginDescription(plugin) {
       return plugin.description || ''
+    },
+
+    sandboxMeta(plugin) {
+      const meta = {
+        'sandbox/docker': {
+          recommended: true,
+          isDefault: false,
+          features: [
+            'Full container-level process, filesystem, and network isolation',
+            'Works on Linux, macOS, and Windows',
+            'Per-agent network policy enforcement',
+            'Dedicated container process namespace for MCP servers',
+          ],
+          limitations: [
+            'Requires a running Docker daemon',
+          ],
+        },
+        'sandbox/local': {
+          recommended: false,
+          isDefault: true,
+          features: [
+            'No Docker daemon required',
+            'Linux: process group kill, rlimits, bwrap filesystem/network isolation',
+            'Suitable for CI without Docker or embedded deployments',
+          ],
+          limitations: [
+            'No container-level isolation',
+            'macOS: no filesystem or network policy enforcement',
+            'Windows: not supported',
+            'Linux without bwrap: network-only isolation via unshare',
+          ],
+        },
+      }
+      return meta[plugin.id] || { recommended: false, isDefault: false, features: [], limitations: [] }
     },
 
     pluginMetaBadges(plugin) {

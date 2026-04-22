@@ -55,14 +55,14 @@ templ PluginsPage() {
 				Sandbox
 				<span class="text-xs text-secondary ml-1" x-text="'(' + sandboxPlugins.length + ')'"></span>
 			</button>
-			<template x-if="standalonePlugins.length > 0">
+			<template x-if="otherPlugins.length > 0">
 				<button
 					@click="tab = 'standalone'"
 					class="pb-2 text-sm font-medium transition-colors border-b-2 whitespace-nowrap"
 					:class="tab === 'standalone' ? 'border-primary text-primary' : 'border-transparent text-secondary hover:text-base-content'"
 				>
-					Standalone
-					<span class="text-xs text-secondary ml-1" x-text="'(' + standalonePlugins.length + ')'"></span>
+					Others
+					<span class="text-xs text-secondary ml-1" x-text="'(' + otherPlugins.length + ')'"></span>
 				</button>
 			</template>
 		</div>
@@ -445,25 +445,63 @@ templ PluginsPage() {
 			<p class="text-xs text-secondary mb-4">Select which sandbox backend agents use. Only one can be active at a time.</p>
 			<div class="border border-base-300 rounded-lg divide-y divide-base-300">
 				<template x-for="p in sandboxPlugins" :key="p.id">
-					<div class="flex items-center justify-between gap-4 px-4 py-3">
-						<div class="min-w-0 flex-1">
-							<div class="flex items-center gap-2">
-								<span class="font-medium text-sm" x-text="pluginLabel(p)"></span>
-								<span class="font-mono text-[11px] text-secondary" x-text="p.id"></span>
-								<template x-if="p.enabled">
-									<span class="badge badge-success badge-xs">active</span>
+					<div class="px-4 py-4" :class="p.enabled ? 'bg-base-200/50' : ''">
+						<div class="flex items-center justify-between gap-4">
+							<div class="min-w-0 flex-1">
+								<div class="flex items-center gap-2">
+									<span class="font-medium text-sm" x-text="pluginLabel(p)"></span>
+									<template x-if="p.enabled">
+										<span class="badge badge-success badge-xs">active</span>
+									</template>
+									<template x-if="sandboxMeta(p).recommended">
+										<span class="badge badge-primary badge-xs">recommended</span>
+									</template>
+									<template x-if="sandboxMeta(p).isDefault">
+										<span class="badge badge-neutral badge-xs">default</span>
+									</template>
+								</div>
+								<template x-if="pluginDescription(p)">
+									<p class="text-xs text-secondary mt-1 leading-relaxed" x-text="pluginDescription(p)"></p>
 								</template>
 							</div>
-							<template x-if="pluginDescription(p)">
-								<p class="text-xs text-secondary mt-1 leading-relaxed" x-text="pluginDescription(p)"></p>
-							</template>
+							<input
+								type="checkbox"
+								:checked="p.enabled"
+								@change="toggleSandboxPlugin(p.id, $event.target.checked)"
+								class="toggle toggle-primary toggle-sm"
+							/>
 						</div>
-						<input
-							type="checkbox"
-							:checked="p.enabled"
-							@change="toggleSandboxPlugin(p.id, $event.target.checked)"
-							class="toggle toggle-primary toggle-sm"
-						/>
+						<!-- Features & Limitations -->
+						<template x-if="sandboxMeta(p).features.length > 0 || sandboxMeta(p).limitations.length > 0">
+							<div class="mt-3 flex flex-col gap-2 sm:flex-row sm:gap-6">
+								<template x-if="sandboxMeta(p).features.length > 0">
+									<div class="flex-1">
+										<p class="text-[11px] font-medium text-success mb-1">Features</p>
+										<ul class="text-[11px] text-secondary space-y-0.5">
+											<template x-for="f in sandboxMeta(p).features" :key="f">
+												<li class="flex items-start gap-1">
+													<span class="text-success shrink-0">✓</span>
+													<span x-text="f"></span>
+												</li>
+											</template>
+										</ul>
+									</div>
+								</template>
+								<template x-if="sandboxMeta(p).limitations.length > 0">
+									<div class="flex-1">
+										<p class="text-[11px] font-medium text-warning mb-1">Limitations</p>
+										<ul class="text-[11px] text-secondary space-y-0.5">
+											<template x-for="l in sandboxMeta(p).limitations" :key="l">
+												<li class="flex items-start gap-1">
+													<span class="text-warning shrink-0">⚠</span>
+													<span x-text="l"></span>
+												</li>
+											</template>
+										</ul>
+									</div>
+								</template>
+							</div>
+						</template>
 					</div>
 				</template>
 				<template x-if="sandboxPlugins.length === 0">
@@ -475,7 +513,7 @@ templ PluginsPage() {
 		<div x-show="tab === 'standalone'" x-cloak>
 			<p class="text-xs text-secondary mb-4">Background services that run independently. Toggling takes effect immediately.</p>
 			<div class="border border-base-300 rounded-lg divide-y divide-base-300">
-				<template x-for="p in standalonePlugins" :key="p.id">
+				<template x-for="p in otherPlugins" :key="p.id">
 					<div>
 						<div class="flex items-center justify-between gap-4 px-4 py-3">
 							<div class="min-w-0 flex-1">
@@ -555,7 +593,7 @@ templ PluginsPage() {
 						</template>
 					</div>
 				</template>
-				<template x-if="standalonePlugins.length === 0">
+				<template x-if="otherPlugins.length === 0">
 					<div class="px-4 py-8 text-center text-secondary text-sm">No standalone plugins registered.</div>
 				</template>
 			</div>
