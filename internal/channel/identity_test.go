@@ -8,9 +8,13 @@ import (
 	"strings"
 	"testing"
 
+	"filippo.io/age"
+
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
+	pkgchannel "github.com/vaayne/anna/pkg/channel"
+	"github.com/vaayne/anna/pkg/db/sqlc"
 )
 
 type testStores struct {
@@ -314,5 +318,110 @@ func TestTryLinkCodeExpiredOrInvalid(t *testing.T) {
 	}
 	if !strings.Contains(resp, "invalid or has expired") {
 		t.Fatalf("response = %q", resp)
+	}
+}
+
+func TestCoordinatorProvisionUserAuthNotConfigured(t *testing.T) {
+	coord := &Coordinator{}
+	err := coord.ProvisionUser(context.Background(), pkgchannel.ProvisionRequest{})
+	if err == nil {
+		t.Fatal("expected error when auth is not configured")
+	}
+	if !strings.Contains(err.Error(), "auth not configured") {
+		t.Fatalf("error = %v, want auth-not-configured message", err)
+	}
+}
+
+func TestCoordinatorProvisionUserRequiresExistingAdmin(t *testing.T) {
+	ts := setupStores(t)
+	coord := &Coordinator{authStore: ts.authStore}
+
+	err := coord.ProvisionUser(context.Background(), pkgchannel.ProvisionRequest{
+		Platform:   "telegram",
+		ExternalID: "u-no-admin",
+		Name:       "No Admin",
+		EmailHint:  "noadmin@example.com",
+	})
+	if err == nil {
+		t.Fatal("expected error when no admin exists")
+	}
+	if !strings.Contains(err.Error(), "no admin exists yet") {
+		t.Fatalf("error = %v, want no-admin message", err)
+	}
+}
+
+func TestCoordinatorProvisionUserCreatesVaultKeys(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+
+	hash, _ := auth.HashPassword("pw123456")
+	adminUser, err := ts.authStore.CreateUser(ctx, "admin", hash)
+	if err != nil {
+		t.Fatalf("CreateUser(admin): %v", err)
+	}
+	if err := ts.authStore.UpdateUserRole(ctx, adminUser.ID, auth.RoleAdmin); err != nil {
+		t.Fatalf("UpdateUserRole(admin): %v", err)
+	}
+
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatalf("GenerateX25519Identity: %v", err)
+	}
+
+	coord := &Coordinator{
+		authStore:      ts.authStore,
+		vaultRecipient: identity.Recipient(),
+	}
+
+	err = coord.ProvisionUser(ctx, pkgchannel.ProvisionRequest{
+		Platform:   "telegram",
+		ExternalID: "u-vault",
+		Name:       "Vault User",
+		EmailHint:  "vault@example.com",
+	})
+	if err != nil {
+		t.Fatalf("ProvisionUser: %v", err)
+	}
+
+	ident, err := ts.authStore.GetIdentityByPlatform(ctx, "telegram", "u-vault")
+	if err != nil {
+		t.Fatalf("GetIdentityByPlatform: %v", err)
+	}
+	user, err := sqlc.New(ts.db).GetAuthUser(ctx, ident.UserID)
+	if err != nil {
+		t.Fatalf("GetAuthUser: %v", err)
+	}
+	if user.AgePublicKey == "" {
+		t.Fatal("expected AgePublicKey to be provisioned")
+	}
+	if user.AgePrivateKey == "" {
+		t.Fatal("expected AgePrivateKey to be provisioned")
+	}
+}
+
+func TestProvisionUserVaultKeysNoRecipientIsNoOp(t *testing.T) {
+	ts := setupStores(t)
+	if err := provisionUserVaultKeys(context.Background(), ts.authStore, nil, 123); err != nil {
+		t.Fatalf("provisionUserVaultKeys(nil recipient): %v", err)
+	}
+}
+
+func TestProvisionUserVaultKeysReturnsStoreError(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+	hash, _ := auth.HashPassword("pw123456")
+	user, err := ts.authStore.CreateUser(ctx, "temp", hash)
+	if err != nil {
+		t.Fatalf("CreateUser(temp): %v", err)
+	}
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatalf("GenerateX25519Identity: %v", err)
+	}
+	if err := ts.db.Close(); err != nil {
+		t.Fatalf("Close DB: %v", err)
+	}
+	if err := provisionUserVaultKeys(ctx, ts.authStore, identity.Recipient(), user.ID); err == nil {
+		t.Fatal("expected store error after closing DB")
 	}
 }

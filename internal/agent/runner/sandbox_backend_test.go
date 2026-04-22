@@ -334,3 +334,43 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 		t.Fatalf("OTHER_SECRET = %q, want %q", got, "still-present")
 	}
 }
+
+func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
+	ctx := context.Background()
+	store := newStubOAuthVaultStore()
+	userID := int64(9)
+	if err := store.Set(ctx, userID, oauth.VaultKeyGitHub, `{"version":1,"access_token":""}`); err != nil {
+		t.Fatalf("Set GH_OAUTH: %v", err)
+	}
+	if err := store.Set(ctx, userID, oauth.VaultKeyLark, `{"version":1,"app_id":"app","app_secret":"secret","brand":"lark","access_token":"token","refresh_token":"refresh","access_expires_at":"2000-01-01T00:00:00Z","refresh_expires_at":"2000-01-01T00:00:00Z"}`); err != nil {
+		t.Fatalf("Set LARK_CLI_OAUTH: %v", err)
+	}
+
+	cfg := GoRunnerConfig{
+		AnnaHome:       "/anna",
+		AgentRoot:      "/workspace/agent",
+		UserRoot:       "/workspace/users/1",
+		UserID:         userID,
+		VaultEnvLoader: store,
+		TokenManager:   oauth.NewTokenManager(store),
+	}
+
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		t.Fatalf("resolveSandboxPaths: %v", err)
+	}
+
+	env := buildSandboxEnv(ctx, cfg, paths)
+	if _, ok := env["GH_TOKEN"]; ok {
+		t.Fatal("GH_TOKEN should be skipped when token manager returns an error")
+	}
+	if _, ok := env["LARKSUITE_CLI_USER_ACCESS_TOKEN"]; ok {
+		t.Fatal("Lark runtime env should be skipped when token manager returns an error")
+	}
+	if _, ok := env[oauth.VaultKeyGitHub]; ok {
+		t.Fatal("GH_OAUTH must still be stripped when token injection fails")
+	}
+	if _, ok := env[oauth.VaultKeyLark]; ok {
+		t.Fatal("LARK_CLI_OAUTH must still be stripped when token injection fails")
+	}
+}
