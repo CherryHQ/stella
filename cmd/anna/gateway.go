@@ -22,6 +22,7 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/channel"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/credentials"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/pluginhost"
@@ -31,6 +32,7 @@ import (
 	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
 	"github.com/vaayne/anna/pkg/providers"
+	"github.com/vaayne/anna/pkg/tools"
 	reflectplugin "github.com/vaayne/anna/plugins/reflect"
 	"golang.org/x/sync/errgroup"
 )
@@ -92,6 +94,16 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// Admin server is always created so channel stop functions can be registered
 	// even when the panel is disabled.
 	adminSrv := admin.New(s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
+
+	// Wire the shared credentials service: inject invalidator and add the tool to
+	// all pools so every agent can use the credentials tool.
+	credSvc := adminSrv.CredentialsService()
+	credSvc.SetInvalidator(s.poolManager)
+	for _, tool := range []tools.Tool{credentials.NewOAuthTool(credSvc), credentials.NewVaultTool(credSvc)} {
+		if err := s.poolManager.AddBuiltinTool(gctx, tool); err != nil {
+			slog.Warn("failed to add builtin tool to pool manager", "tool", tool.Definition().Name, "error", err)
+		}
+	}
 
 	// Wire vault service if ANNA_VAULT_KEY is set.
 	var coordOpts []channel.CoordinatorOption

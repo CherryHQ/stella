@@ -59,7 +59,10 @@ func testVaultService(t *testing.T) (*vault.Service, int64) {
 }
 
 func TestHandleConfigNilVault(t *testing.T) {
-	resp := handleConfig(context.Background(), nil, 1, "list")
+	resp, ok := handleConfig(context.Background(), nil, 1, "MY_KEY value")
+	if ok {
+		t.Error("expected ok=false for nil vault")
+	}
 	if !strings.Contains(resp, "not configured") {
 		t.Errorf("expected not configured message, got %q", resp)
 	}
@@ -75,140 +78,79 @@ func TestHandleConfigNotLoggedIn(t *testing.T) {
 	masterID, _ := age.GenerateX25519Identity()
 	svc, _ := vault.NewService(sqlc.New(db), masterID.String())
 
-	resp := handleConfig(context.Background(), svc, 0, "list")
+	resp, ok := handleConfig(context.Background(), svc, 0, "MY_KEY value")
+	if ok {
+		t.Error("expected ok=false for userID=0")
+	}
 	if !strings.Contains(resp, "logged in") {
 		t.Errorf("expected logged in message, got %q", resp)
 	}
 }
 
-func TestHandleConfigListEmpty(t *testing.T) {
+func TestHandleConfigSet(t *testing.T) {
 	svc, userID := testVaultService(t)
-	resp := handleConfig(context.Background(), svc, userID, "list")
-	if !strings.Contains(resp, "No secrets") {
-		t.Errorf("expected empty list message, got %q", resp)
+	resp, ok := handleConfig(context.Background(), svc, userID, "MY_KEY secret_value")
+	if !ok {
+		t.Errorf("expected ok=true, got message %q", resp)
 	}
-}
-
-func TestHandleConfigListDefault(t *testing.T) {
-	svc, userID := testVaultService(t)
-	resp := handleConfig(context.Background(), svc, userID, "")
-	if !strings.Contains(resp, "No secrets") {
-		t.Errorf("expected empty list for default subcommand, got %q", resp)
-	}
-}
-
-func TestHandleConfigAddAndList(t *testing.T) {
-	svc, userID := testVaultService(t)
-	ctx := context.Background()
-
-	resp := handleConfig(ctx, svc, userID, "add MY_KEY secret_value")
-	if !strings.Contains(resp, "saved") {
-		t.Fatalf("expected saved message, got %q", resp)
-	}
-
-	resp = handleConfig(ctx, svc, userID, "list")
-	if !strings.Contains(resp, "MY_KEY") {
-		t.Errorf("expected MY_KEY in list, got %q", resp)
-	}
-}
-
-func TestHandleConfigAddMissingArgs(t *testing.T) {
-	svc, userID := testVaultService(t)
-	resp := handleConfig(context.Background(), svc, userID, "add MY_KEY")
-	if !strings.Contains(resp, "Usage") {
-		t.Errorf("expected usage message, got %q", resp)
-	}
-}
-
-func TestHandleConfigRemove(t *testing.T) {
-	svc, userID := testVaultService(t)
-	ctx := context.Background()
-
-	handleConfig(ctx, svc, userID, "add MY_KEY value")
-	resp := handleConfig(ctx, svc, userID, "remove MY_KEY")
-	if !strings.Contains(resp, "removed") {
-		t.Fatalf("expected removed message, got %q", resp)
-	}
-
-	resp = handleConfig(ctx, svc, userID, "list")
-	if strings.Contains(resp, "MY_KEY") {
-		t.Errorf("expected MY_KEY gone, got %q", resp)
-	}
-}
-
-func TestHandleConfigRemoveMissingArgs(t *testing.T) {
-	svc, userID := testVaultService(t)
-	resp := handleConfig(context.Background(), svc, userID, "remove")
-	if !strings.Contains(resp, "Usage") {
-		t.Errorf("expected usage message, got %q", resp)
-	}
-}
-
-func TestHandleConfigUnknownSubcommand(t *testing.T) {
-	svc, userID := testVaultService(t)
-	resp := handleConfig(context.Background(), svc, userID, "unknown")
-	if !strings.Contains(resp, "Usage") {
-		t.Errorf("expected usage message, got %q", resp)
-	}
-}
-
-func TestHandleConfigSetAlias(t *testing.T) {
-	svc, userID := testVaultService(t)
-	resp := handleConfig(context.Background(), svc, userID, "set MY_KEY val")
 	if !strings.Contains(resp, "saved") {
 		t.Errorf("expected saved message, got %q", resp)
 	}
 }
 
-func TestHandleConfigDeleteAlias(t *testing.T) {
+func TestHandleConfigMissingValue(t *testing.T) {
 	svc, userID := testVaultService(t)
-	ctx := context.Background()
-	handleConfig(ctx, svc, userID, "add MY_KEY val")
-	resp := handleConfig(ctx, svc, userID, "delete MY_KEY")
-	if !strings.Contains(resp, "removed") {
-		t.Errorf("expected removed message, got %q", resp)
+	resp, ok := handleConfig(context.Background(), svc, userID, "MY_KEY")
+	if ok {
+		t.Error("expected ok=false for missing value")
+	}
+	if !strings.Contains(resp, "Usage") {
+		t.Errorf("expected usage message, got %q", resp)
 	}
 }
 
-func TestHandleConfigAddInvalidKey(t *testing.T) {
+func TestHandleConfigNoArgs(t *testing.T) {
 	svc, userID := testVaultService(t)
-	resp := handleConfig(context.Background(), svc, userID, "add ANNA_SECRET value")
+	resp, ok := handleConfig(context.Background(), svc, userID, "")
+	if ok {
+		t.Error("expected ok=false for empty args")
+	}
+	if !strings.Contains(resp, "Usage") {
+		t.Errorf("expected usage message for empty args, got %q", resp)
+	}
+}
+
+func TestHandleConfigInvalidKey(t *testing.T) {
+	svc, userID := testVaultService(t)
+	resp, ok := handleConfig(context.Background(), svc, userID, "ANNA_SECRET value")
+	if ok {
+		t.Error("expected ok=false for reserved key")
+	}
 	if !strings.Contains(resp, "Error") {
 		t.Errorf("expected error for reserved key, got %q", resp)
 	}
 }
 
-func TestHandleConfigDeleteCancelledCtx(t *testing.T) {
+func TestHandleConfigValueWithSpaces(t *testing.T) {
 	svc, userID := testVaultService(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	resp := handleConfig(ctx, svc, userID, "remove MY_KEY")
-	if !strings.Contains(resp, "Error") {
-		t.Errorf("expected error for cancelled context, got %q", resp)
+	resp, ok := handleConfig(context.Background(), svc, userID, "MY_KEY hello world foo")
+	if !ok {
+		t.Errorf("expected ok=true, got message %q", resp)
 	}
-}
-
-func TestHandleConfigListCancelledCtx(t *testing.T) {
-	svc, userID := testVaultService(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	resp := handleConfig(ctx, svc, userID, "list")
-	if !strings.Contains(resp, "Error") {
-		t.Errorf("expected error for cancelled context, got %q", resp)
-	}
-}
-
-func TestHandleConfigAddValueWithSpaces(t *testing.T) {
-	svc, userID := testVaultService(t)
-	ctx := context.Background()
-
-	resp := handleConfig(ctx, svc, userID, "add MY_KEY hello world foo")
 	if !strings.Contains(resp, "saved") {
-		t.Fatalf("expected saved message, got %q", resp)
+		t.Errorf("expected saved message for value with spaces, got %q", resp)
 	}
+}
 
-	resp = handleConfig(ctx, svc, userID, "list")
-	if !strings.Contains(resp, "MY_KEY") {
-		t.Errorf("expected MY_KEY in list, got %q", resp)
+func TestHandleConfigCancelledCtx(t *testing.T) {
+	svc, userID := testVaultService(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	resp, ok := handleConfig(ctx, svc, userID, "MY_KEY value")
+	if ok {
+		t.Error("expected ok=false for cancelled context")
+	}
+	if !strings.Contains(resp, "Error") {
+		t.Errorf("expected error for cancelled context, got %q", resp)
 	}
 }

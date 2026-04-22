@@ -35,6 +35,8 @@ On startup anna automatically generates an age keypair for every user that does 
 
 ## Using the vault
 
+### From the admin panel
+
 Open the admin panel and navigate to your profile page. The **Vault** section lets you:
 
 - **Add** a secret by entering a name and value, then clicking Save.
@@ -42,6 +44,20 @@ Open the admin panel and navigate to your profile page. The **Vault** section le
 - **List** your secrets (names only — values are never shown in the UI).
 
 Secret values are write-only from the UI. Once saved, the plaintext is not retrievable through the admin panel.
+
+### From a channel session
+
+The agent can request a secret by calling `credentials add_secret`, which returns an
+explicit instruction. You then send the command directly in the channel:
+
+```
+/config SECRET_NAME <value>
+```
+
+Anna writes the value to your vault without exposing it to the model or conversation
+history. After the write succeeds, the agent resumes your task automatically with a
+sanitized continuation turn. The `credentials` tool also supports listing and deleting
+vault entries (`credentials list`, `credentials delete`).
 
 ## Secret injection
 
