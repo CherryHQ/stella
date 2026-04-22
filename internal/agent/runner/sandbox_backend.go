@@ -160,7 +160,7 @@ func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths
 			)
 		}
 
-		if larkEnv, err := cfg.TokenManager.GetLarkRuntimeEnv(ctx, cfg.UserID, cfg.LarkAppID, cfg.LarkBrand); err == nil {
+		if larkEnv, err := cfg.TokenManager.GetLarkRuntimeEnv(ctx, cfg.UserID); err == nil {
 			maps.Copy(env, larkEnv)
 		} else {
 			slog.Debug("lark env injection skipped",

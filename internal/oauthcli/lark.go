@@ -3,7 +3,6 @@ package oauthcli
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,11 +24,6 @@ type LarkConfig struct {
 	Brand     string // "lark" or "feishu"
 }
 
-// larkFlowSecret holds provider-specific state for an in-flight Lark flow.
-type larkFlowSecret struct {
-	bundle *LarkOAuthBundle
-}
-
 // LarkBroker manages Lark/Feishu OAuth sessions via the authorization-code
 // flow adapted for device-like use: StartDeviceFlow returns a URL the user
 // visits; Poll checks completion; Complete exchanges the code and saves the
@@ -38,31 +32,18 @@ type LarkBroker struct {
 	cfg         LarkConfig
 	store       *FlowStore
 	redirectURI string
-	mu          sync.Mutex
-	secret      map[string]*larkFlowSecret
 }
 
 // NewLarkBroker constructs a LarkBroker. redirectURI is the OAuth callback URL
 // that your HTTP handler will receive and then call Complete on.
 func NewLarkBroker(cfg LarkConfig, store *FlowStore) *LarkBroker {
-	return &LarkBroker{
-		cfg:         cfg,
-		store:       store,
-		redirectURI: larkRedirectURI,
-		secret:      make(map[string]*larkFlowSecret),
-	}
+	return &LarkBroker{cfg: cfg, store: store, redirectURI: larkRedirectURI}
 }
 
 // WithRedirectURI returns a new broker with the same configuration but the
-// given redirect URI. The new broker has its own independent mutex and secret
-// map, so it is safe to use concurrently with the original.
+// given redirect URI.
 func (b *LarkBroker) WithRedirectURI(uri string) *LarkBroker {
-	return &LarkBroker{
-		cfg:         b.cfg,
-		store:       b.store,
-		redirectURI: uri,
-		secret:      make(map[string]*larkFlowSecret),
-	}
+	return &LarkBroker{cfg: b.cfg, store: b.store, redirectURI: uri}
 }
 
 func (b *LarkBroker) baseURL() string {
@@ -89,23 +70,14 @@ func (b *LarkBroker) oauthConfig() *oauth2.Config {
 // and stores a pending FlowStatus. The user must navigate to VerificationURI.
 func (b *LarkBroker) StartDeviceFlow(ctx context.Context, userID int64) (FlowStatus, error) {
 	flowID := uuid.NewString()
-	expiresAt := time.Now().Add(10 * time.Minute)
-
-	authURL := b.oauthConfig().AuthCodeURL(flowID)
-
 	status := FlowStatus{
 		Provider:        ProviderLark,
 		FlowID:          flowID,
-		VerificationURI: authURL,
-		ExpiresAt:       expiresAt,
+		VerificationURI: b.oauthConfig().AuthCodeURL(flowID),
+		ExpiresAt:       time.Now().Add(10 * time.Minute),
 		State:           FlowStatePending,
 	}
-
 	b.store.Create(status)
-	b.mu.Lock()
-	b.secret[flowID] = &larkFlowSecret{}
-	b.mu.Unlock()
-
 	return status, nil
 }
 
@@ -116,26 +88,13 @@ func (b *LarkBroker) Poll(ctx context.Context, flowID string) (FlowStatus, error
 	if !ok {
 		return FlowStatus{}, fmt.Errorf("oauthcli/lark: unknown flow %q", flowID)
 	}
-
 	if status.State != FlowStatePending {
 		return status, nil
 	}
-
 	if time.Now().After(status.ExpiresAt) {
 		b.store.Update(flowID, FlowStateExpired, nil)
-		b.cleanSecret(flowID)
 		status.State = FlowStateExpired
-		return status, nil
 	}
-
-	b.mu.Lock()
-	sec, ok := b.secret[flowID]
-	b.mu.Unlock()
-	if ok && sec.bundle != nil {
-		status.State = FlowStateAuthorized
-		return status, nil
-	}
-
 	return status, nil
 }
 
@@ -143,8 +102,7 @@ func (b *LarkBroker) Poll(ctx context.Context, flowID string) (FlowStatus, error
 // vault, and marks the flow as authorized. The code comes from your OAuth
 // callback handler's query parameter.
 func (b *LarkBroker) Complete(ctx context.Context, vs VaultStore, userID int64, flowID string, code string) error {
-	_, ok := b.store.Get(flowID)
-	if !ok {
+	if _, ok := b.store.Get(flowID); !ok {
 		return fmt.Errorf("oauthcli/lark: unknown flow %q", flowID)
 	}
 
@@ -167,14 +125,7 @@ func (b *LarkBroker) Complete(ctx context.Context, vs VaultStore, userID int64, 
 	}
 
 	b.store.Update(flowID, FlowStateAuthorized, nil)
-	b.mu.Lock()
-	if sec, ok := b.secret[flowID]; ok {
-		sec.bundle = bundle
-	}
-	b.mu.Unlock()
-
 	b.store.Delete(flowID)
-	b.cleanSecret(flowID)
 	return nil
 }
 
@@ -239,17 +190,10 @@ func (b *LarkBroker) exchangeCode(ctx context.Context, appToken string, code str
 	}
 
 	now := time.Now()
-	bundle := &LarkOAuthBundle{
+	return &LarkOAuthBundle{
 		AccessToken:      resp.Data.AccessToken,
 		RefreshToken:     resp.Data.RefreshToken,
 		AccessExpiresAt:  now.Add(time.Duration(resp.Data.ExpiresIn) * time.Second),
 		RefreshExpiresAt: now.Add(time.Duration(resp.Data.RefreshExpiresIn) * time.Second),
-	}
-	return bundle, nil
-}
-
-func (b *LarkBroker) cleanSecret(flowID string) {
-	b.mu.Lock()
-	delete(b.secret, flowID)
-	b.mu.Unlock()
+	}, nil
 }

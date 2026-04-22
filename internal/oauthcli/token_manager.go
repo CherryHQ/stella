@@ -39,13 +39,10 @@ func (m *TokenManager) GetGHToken(ctx context.Context, userID int64) (string, er
 }
 
 // GetLarkRuntimeEnv returns the environment variables needed for lark-cli.
-// It loads the Lark bundle, refreshes the access token if expired (using the
-// bundle's stored AppSecret), and returns a map ready for env injection.
-//
-// If the bundle is absent or fully expired (refresh token expired), it returns
-// a descriptive error so the runner can skip Lark env injection without failing
-// the entire session.
-func (m *TokenManager) GetLarkRuntimeEnv(ctx context.Context, userID int64, appID, brand string) (map[string]string, error) {
+// It loads the Lark bundle, refreshes the access token if expired, and returns
+// a map ready for env injection. Returns an error if the bundle is absent or
+// the refresh token has expired, so callers can skip injection without failing.
+func (m *TokenManager) GetLarkRuntimeEnv(ctx context.Context, userID int64) (map[string]string, error) {
 	bundle, err := LoadLarkBundle(ctx, m.vs, userID)
 	if err != nil {
 		return nil, fmt.Errorf("oauthcli: get lark env: %w", err)
