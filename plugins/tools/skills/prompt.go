@@ -2,6 +2,7 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
@@ -25,6 +26,7 @@ func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContex
 	if err != nil {
 		return pkgplugins.SystemPromptSection{}, err
 	}
+	dbSkills = filterVisibleSkills(dbSkills, build)
 
 	// System-scope skills are always available to every agent. Agent/user/project
 	// skills keep their existing visibility rules.
@@ -78,4 +80,51 @@ func escapeXML(s string) string {
 	s = strings.ReplaceAll(s, `"`, "&quot;")
 	s = strings.ReplaceAll(s, "'", "&apos;")
 	return s
+}
+
+func filterVisibleSkills(skills []pkgplugins.Skill, build pkgplugins.SystemPromptContext) []pkgplugins.Skill {
+	if len(skills) == 0 {
+		return nil
+	}
+	registered := make(map[string]struct{}, len(build.RegisteredPluginIDs))
+	for _, id := range build.RegisteredPluginIDs {
+		registered[id] = struct{}{}
+	}
+	enabled := make(map[string]struct{}, len(build.EnabledPluginIDs))
+	for _, id := range build.EnabledPluginIDs {
+		enabled[id] = struct{}{}
+	}
+
+	out := make([]pkgplugins.Skill, 0, len(skills))
+	for _, skill := range skills {
+		if skill.Scope != "system" {
+			out = append(out, skill)
+			continue
+		}
+		owner := ownerPlugin(skill.Metadata)
+		if owner == "" || skill.Name == "anna" {
+			out = append(out, skill)
+			continue
+		}
+		if _, ok := registered[owner]; !ok {
+			out = append(out, skill)
+			continue
+		}
+		if _, ok := enabled[owner]; ok {
+			out = append(out, skill)
+		}
+	}
+	return out
+}
+
+func ownerPlugin(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return ""
+	}
+	owner, _ := meta["owner_plugin"].(string)
+	return owner
 }

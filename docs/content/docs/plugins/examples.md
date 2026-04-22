@@ -225,6 +225,70 @@ host.AddPromptInventory(pkgplugins.PromptInventorySpec{
 
 This is useful when the plugin exposes dynamic capability inventory that the model should know about.
 
+## Example 6: CLI-Backed Tool Plugin
+
+This pattern is for plugins that own a CLI integration rather than an Anna
+JSON tool:
+
+```go
+host.SetInfo(pkgplugins.PluginInfo{
+    ID:          PluginID,
+    Kind:        "tool",
+    Name:        "gh",
+    DisplayName: "GitHub CLI",
+    Description: "GitHub CLI integration with OAuth-backed auth.",
+    HasConfig:   true,
+    Capabilities: []string{
+        pkgplugins.CapabilityBinary,
+        pkgplugins.CapabilityConfig,
+        pkgplugins.CapabilityPrompt,
+    },
+})
+
+host.AddAdmin(pkgplugins.AdminSpec{
+    PluginID:      PluginID,
+    DefaultConfig: defaultConfig,
+    Schema:        configSchema(),
+    Validate:      validateConfig,
+    Redact:        redactConfig,
+})
+
+host.AddBinary(pkgplugins.BinarySpec{
+    PluginID: PluginID,
+    Name:     "gh",
+    Repo:     "cli/cli",
+    Version:  "2.89.0",
+    Embed:    true,
+})
+
+host.AddWrapper(pkgplugins.WrapperSpec{
+    PluginID:     PluginID,
+    Name:         "gh",
+    TargetEnvVar: "ANNA_GH_BIN",
+})
+
+host.AddSessionEnv(pkgplugins.SessionEnvSpec{
+    PluginID: PluginID,
+    EnvVar:   "GH_TOKEN",
+    Source:   pkgplugins.SessionEnvSourceGitHubToken,
+})
+
+host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
+    PluginID: PluginID,
+    Name:     "gh",
+    Build: func(context.Context, pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
+        return pkgplugins.SystemPromptSection{
+            Title:   "GitHub CLI",
+            Content: "Use `gh` through Anna's wrapper and OAuth-backed session auth.",
+        }, nil
+    },
+})
+```
+
+Use this shape when the plugin owns a CLI binary, wrapper, injected env vars,
+bundled skills, or prompt guidance, but does not need to expose a model-callable
+`ToolSpec`.
+
 ## Picking The Right Example
 
 Start with:

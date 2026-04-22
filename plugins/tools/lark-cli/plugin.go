@@ -1,13 +1,15 @@
-package lark
+package larkcli
 
 import (
+	"context"
 	"fmt"
 	"maps"
 
+	"github.com/vaayne/anna/internal/builddeps"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
-const PluginID = "auth/lark"
+const PluginID = "tool/lark-cli"
 
 type Config struct {
 	AppID       string `json:"app_id"`
@@ -15,6 +17,12 @@ type Config struct {
 	Brand       string `json:"brand"`
 	RedirectURL string `json:"redirect_url"`
 }
+
+const promptContent = `Use ` + "`lark-cli`" + ` through Anna's wrapper and injected runtime auth.
+
+- Prefer the builtin ` + "`lark`" + ` skill before ad hoc command discovery; it aggregates the adapted CLI modules Anna ships.
+- Anna injects ` + "`LARKSUITE_CLI_USER_ACCESS_TOKEN`" + `, ` + "`LARKSUITE_CLI_APP_ID`" + `, and ` + "`LARKSUITE_CLI_BRAND`" + ` per session. Do not run ` + "`lark-cli auth login`" + ` or ` + "`lark-cli config init`" + ` unless the user explicitly wants a standalone local setup outside Anna.
+- If auth or scope checks fail, use Anna's OAuth tooling, then restart the session so fresh runtime env is injected.`
 
 func defaultConfig() map[string]any {
 	return map[string]any{
@@ -115,24 +123,17 @@ func redactConfig(raw map[string]any) map[string]any {
 	return out
 }
 
-func isConfigured(raw map[string]any) bool {
-	cfg, err := decodeConfig(raw)
-	return err == nil && cfg.AppID != "" && cfg.AppSecret != "" && cfg.Brand != ""
-}
-
 func init() {
 	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
 		host.SetInfo(pkgplugins.PluginInfo{
 			ID:           PluginID,
-			Kind:         "auth",
-			Name:         "lark",
-			DisplayName:  "Lark / Feishu",
-			Description:  "Lark/Feishu OAuth app credentials for device-flow authentication.",
+			Kind:         "tool",
+			Name:         "lark-cli",
+			DisplayName:  "Lark CLI",
+			Description:  "Lark CLI integration with OAuth-backed auth, bundled skills, session wrapper, and prompt guidance.",
 			AdminVisible: true,
 			HasConfig:    true,
-			Capabilities: []string{
-				pkgplugins.CapabilityConfig,
-			},
+			Capabilities: []string{pkgplugins.CapabilityBinary, pkgplugins.CapabilityConfig, pkgplugins.CapabilityPrompt},
 		})
 		host.AddAdmin(pkgplugins.AdminSpec{
 			PluginID:      PluginID,
@@ -141,10 +142,59 @@ func init() {
 			Validate:      validateConfig,
 			Redact:        redactConfig,
 		})
+		host.AddBinary(pkgplugins.BinarySpec{
+			PluginID: PluginID,
+			Name:     "lark-cli",
+			Repo:     "larksuite/cli",
+			Version:  "1.0.15",
+			Embed:    true,
+			AssetTemplates: map[string]pkgplugins.BinaryAsset{
+				"darwin-amd64":  {File: "lark-cli-{version}-darwin-amd64.tar.gz"},
+				"darwin-arm64":  {File: "lark-cli-{version}-darwin-arm64.tar.gz"},
+				"linux-amd64":   {File: "lark-cli-{version}-linux-amd64.tar.gz"},
+				"linux-arm64":   {File: "lark-cli-{version}-linux-arm64.tar.gz"},
+				"windows-amd64": {File: "lark-cli-{version}-windows-amd64.zip"},
+				"windows-arm64": {File: "lark-cli-{version}-windows-arm64.zip"},
+			},
+		})
+		host.AddWrapper(pkgplugins.WrapperSpec{
+			PluginID:     PluginID,
+			Name:         "lark-cli",
+			TargetEnvVar: "ANNA_LARK_BIN",
+			Fallback:     "lark-cli",
+		})
+		host.AddSessionEnv(pkgplugins.SessionEnvSpec{
+			PluginID:   PluginID,
+			EnvVar:     "ANNA_LARK_BIN",
+			Source:     pkgplugins.SessionEnvSourceBinaryPath,
+			BinaryName: "lark-cli",
+		})
+		host.AddSessionEnv(pkgplugins.SessionEnvSpec{
+			PluginID: PluginID,
+			EnvVar:   "LARKSUITE_CLI_USER_ACCESS_TOKEN",
+			Source:   pkgplugins.SessionEnvSourceLarkAccessToken,
+		})
+		host.AddSessionEnv(pkgplugins.SessionEnvSpec{
+			PluginID: PluginID,
+			EnvVar:   "LARKSUITE_CLI_APP_ID",
+			Source:   pkgplugins.SessionEnvSourceLarkAppID,
+		})
+		host.AddSessionEnv(pkgplugins.SessionEnvSpec{
+			PluginID: PluginID,
+			EnvVar:   "LARKSUITE_CLI_BRAND",
+			Source:   pkgplugins.SessionEnvSourceLarkBrand,
+		})
+		host.AddBundledSkill(pkgplugins.BundledSkillSpec{
+			PluginID: PluginID,
+			Name:     "lark",
+			Sync:     builddeps.SyncLarkBundledSkill,
+		})
+		host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
+			PluginID: PluginID,
+			Name:     "lark-cli",
+			Build: func(_ context.Context, _ pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
+				return pkgplugins.SystemPromptSection{Title: "Lark CLI", Content: promptContent}, nil
+			},
+		})
 	}))
-}
-
-// Configured reports whether the plugin has all required credentials set.
-func Configured(raw map[string]any) bool {
-	return isConfigured(raw)
 }

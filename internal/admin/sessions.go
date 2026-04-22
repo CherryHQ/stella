@@ -203,6 +203,11 @@ func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	homeDir, _ := os.UserHomeDir()
+	pluginView, err := s.pluginHost.SessionPluginView(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	promptSections, err := s.pluginHost.SystemPromptSections(r.Context(), pkgplugins.SystemPromptContext{
 		AnnaHome:             config.AnnaHome(),
 		HomeDir:              homeDir,
@@ -211,6 +216,8 @@ func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) 
 		UserID:               info.UserID,
 		AgentID:              info.AgentID,
 		UserRoot:             userRoot,
+		RegisteredPluginIDs:  pluginView.RegisteredPluginIDs,
+		EnabledPluginIDs:     pluginView.EnabledPluginIDs,
 		EnabledBuiltinSkills: agentCfg.EnabledBuiltinSkills,
 	})
 	if err != nil {

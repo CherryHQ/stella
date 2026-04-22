@@ -36,10 +36,11 @@ type PluginHooksBuilder func(ctx context.Context) []hooks.HookPlugin
 
 // PromptToolsBuilder returns structured prompt inventory for the active plugin host.
 type (
-	PromptToolsBuilder      func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error)
-	PromptSectionsBuilder   func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
-	BeforeRunBuilder        func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error)
-	ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
+	PromptToolsBuilder       func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error)
+	PromptSectionsBuilder    func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
+	SessionPluginViewBuilder func(ctx context.Context) (pkgplugins.SessionPluginView, error)
+	BeforeRunBuilder         func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error)
+	ProviderRegistryBuilder  func(api, apiKey, baseURL string) (*providers.Registry, error)
 )
 
 // PoolManagerOption configures a PoolManager.
@@ -100,6 +101,12 @@ func WithPromptSectionsBuilder(b PromptSectionsBuilder) PoolManagerOption {
 	}
 }
 
+func WithSessionPluginViewBuilder(b SessionPluginViewBuilder) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.sessionPluginViewBuilder = b
+	}
+}
+
 func WithBeforeRunBuilderPM(b BeforeRunBuilder) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.beforeRunBuilder = b
@@ -142,26 +149,27 @@ func WithTokenManager(tm *oauth.TokenManager) PoolManagerOption {
 // PoolManager manages a map of agent ID to Pool. It reads enabled agents
 // from the config Store and creates one Pool per agent.
 type PoolManager struct {
-	pools                   map[string]*Pool
-	store                   config.Store
-	mem                     memory.Provider
-	mu                      sync.RWMutex
-	idleTimeout             time.Duration
-	compaction              CompactionConfig
-	builtinTools            []tools.Tool       // always-on builtin tools (scheduler, memory, etc.)
-	pluginToolsBuilder      PluginToolsBuilder // builds external tools from enabled plugin state
-	hookPlugins             []hooks.HookPlugin // current enabled hook plugins
-	pluginHooksBuilder      PluginHooksBuilder // builds hooks from plugin state
-	promptToolsBuilder      PromptToolsBuilder // builds prompt inventory from plugin state
-	promptSectionsBuilder   PromptSectionsBuilder
-	beforeRunBuilder        BeforeRunBuilder
-	toolLifecycle           *coreagent.ToolLifecycle
-	providerRegistryBuilder ProviderRegistryBuilder
-	builtinToolsFactory     BuiltinToolsFactory
-	skillStore              pkgplugins.SkillStore
-	vaultEnvLoader          runner.VaultEnvLoader
-	tokenManager            *oauth.TokenManager
-	log                     *slog.Logger
+	pools                    map[string]*Pool
+	store                    config.Store
+	mem                      memory.Provider
+	mu                       sync.RWMutex
+	idleTimeout              time.Duration
+	compaction               CompactionConfig
+	builtinTools             []tools.Tool       // always-on builtin tools (scheduler, memory, etc.)
+	pluginToolsBuilder       PluginToolsBuilder // builds external tools from enabled plugin state
+	hookPlugins              []hooks.HookPlugin // current enabled hook plugins
+	pluginHooksBuilder       PluginHooksBuilder // builds hooks from plugin state
+	promptToolsBuilder       PromptToolsBuilder // builds prompt inventory from plugin state
+	promptSectionsBuilder    PromptSectionsBuilder
+	sessionPluginViewBuilder SessionPluginViewBuilder
+	beforeRunBuilder         BeforeRunBuilder
+	toolLifecycle            *coreagent.ToolLifecycle
+	providerRegistryBuilder  ProviderRegistryBuilder
+	builtinToolsFactory      BuiltinToolsFactory
+	skillStore               pkgplugins.SkillStore
+	vaultEnvLoader           runner.VaultEnvLoader
+	tokenManager             *oauth.TokenManager
+	log                      *slog.Logger
 }
 
 // NewPoolManager creates a new PoolManager.
@@ -454,7 +462,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (r
 		plugins, _ := pm.store.ListPlugins(ctx)
 		return config.ActiveSandboxBackend(plugins)
 	}
-	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.toolLifecycle, pm.skillStore, sandboxBackendFn, pm.vaultEnvLoader, pm.tokenManager)
+	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.sessionPluginViewBuilder, pm.toolLifecycle, pm.skillStore, sandboxBackendFn, pm.vaultEnvLoader, pm.tokenManager)
 }
 
 // mergeTools creates a new slice containing builtin tools followed by more

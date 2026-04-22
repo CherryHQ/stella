@@ -1,10 +1,6 @@
 package main
 
 import (
-	// Plugin auth.
-	_ "github.com/vaayne/anna/plugins/auth/github"
-	_ "github.com/vaayne/anna/plugins/auth/lark"
-
 	// Plugin channels.
 	_ "github.com/vaayne/anna/plugins/channels/feishu"
 	_ "github.com/vaayne/anna/plugins/channels/qq"
@@ -22,6 +18,8 @@ import (
 	// Plugin tools.
 	_ "github.com/vaayne/anna/plugins/tools/bash"
 	_ "github.com/vaayne/anna/plugins/tools/edit"
+	_ "github.com/vaayne/anna/plugins/tools/gh"
+	_ "github.com/vaayne/anna/plugins/tools/lark-cli"
 	_ "github.com/vaayne/anna/plugins/tools/mcp"
 	_ "github.com/vaayne/anna/plugins/tools/mise"
 	_ "github.com/vaayne/anna/plugins/tools/notify"

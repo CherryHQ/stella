@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 func TestEnsureWrappers_CreatesBinDir(t *testing.T) {
@@ -15,7 +17,7 @@ func TestEnsureWrappers_CreatesBinDir(t *testing.T) {
 		t.Fatal("expected dir to not exist before EnsureWrappers")
 	}
 
-	if err := EnsureWrappers(dir); err != nil {
+	if err := EnsureWrappers(dir, []pkgplugins.WrapperSpec{{Name: "gh", TargetEnvVar: "ANNA_GH_BIN"}}); err != nil {
 		t.Fatalf("EnsureWrappers: %v", err)
 	}
 
@@ -31,7 +33,7 @@ func TestEnsureWrappers_CreatesBinDir(t *testing.T) {
 func TestEnsureWrappers_WritesGhScript(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := EnsureWrappers(dir); err != nil {
+	if err := EnsureWrappers(dir, []pkgplugins.WrapperSpec{{Name: "gh", TargetEnvVar: "ANNA_GH_BIN"}}); err != nil {
 		t.Fatalf("EnsureWrappers: %v", err)
 	}
 
@@ -48,7 +50,7 @@ func TestEnsureWrappers_WritesGhScript(t *testing.T) {
 func TestEnsureWrappers_WritesLarkCliScript(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := EnsureWrappers(dir); err != nil {
+	if err := EnsureWrappers(dir, []pkgplugins.WrapperSpec{{Name: "lark-cli", TargetEnvVar: "ANNA_LARK_BIN"}}); err != nil {
 		t.Fatalf("EnsureWrappers: %v", err)
 	}
 
@@ -65,7 +67,10 @@ func TestEnsureWrappers_WritesLarkCliScript(t *testing.T) {
 func TestEnsureWrappers_ScriptsAreExecutable(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := EnsureWrappers(dir); err != nil {
+	if err := EnsureWrappers(dir, []pkgplugins.WrapperSpec{
+		{Name: "gh", TargetEnvVar: "ANNA_GH_BIN"},
+		{Name: "lark-cli", TargetEnvVar: "ANNA_LARK_BIN"},
+	}); err != nil {
 		t.Fatalf("EnsureWrappers: %v", err)
 	}
 
@@ -83,10 +88,14 @@ func TestEnsureWrappers_ScriptsAreExecutable(t *testing.T) {
 func TestEnsureWrappers_Idempotent(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := EnsureWrappers(dir); err != nil {
+	specs := []pkgplugins.WrapperSpec{
+		{Name: "gh", TargetEnvVar: "ANNA_GH_BIN"},
+		{Name: "lark-cli", TargetEnvVar: "ANNA_LARK_BIN"},
+	}
+	if err := EnsureWrappers(dir, specs); err != nil {
 		t.Fatalf("EnsureWrappers (first call): %v", err)
 	}
-	if err := EnsureWrappers(dir); err != nil {
+	if err := EnsureWrappers(dir, specs); err != nil {
 		t.Fatalf("EnsureWrappers (second call): %v", err)
 	}
 
@@ -99,5 +108,18 @@ func TestEnsureWrappers_Idempotent(t *testing.T) {
 		if !strings.HasPrefix(string(data), "#!/bin/sh") {
 			t.Errorf("%s wrapper corrupt after second call", name)
 		}
+	}
+}
+
+func TestEnsureWrappers_RemovesStaleScripts(t *testing.T) {
+	dir := t.TempDir()
+	if err := EnsureWrappers(dir, []pkgplugins.WrapperSpec{{Name: "gh", TargetEnvVar: "ANNA_GH_BIN"}}); err != nil {
+		t.Fatalf("EnsureWrappers (first call): %v", err)
+	}
+	if err := EnsureWrappers(dir, []pkgplugins.WrapperSpec{{Name: "lark-cli", TargetEnvVar: "ANNA_LARK_BIN"}}); err != nil {
+		t.Fatalf("EnsureWrappers (second call): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "gh")); !os.IsNotExist(err) {
+		t.Fatalf("gh wrapper still present, stat err = %v", err)
 	}
 }

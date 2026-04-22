@@ -14,6 +14,8 @@ import (
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/vaayne/anna/internal/pluginhost"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 const larkCLIRepo = "https://github.com/larksuite/cli"
@@ -31,12 +33,32 @@ type larkSkillDoc struct {
 
 const annaLarkSharedDescription = "飞书/Lark CLI 共享基础（Anna 适配版）：说明 Anna 会话中的 wrapper + 环境变量认证模型、`--as user` / `--as bot` 选择、scope / Permission denied 处理，以及何时才需要回退到上游 `config init` / `auth login` 流程。"
 
+func SyncLarkBundledSkill(ctx context.Context, build pkgplugins.BundledSkillSyncContext) error {
+	return syncLarkSkill(ctx, Config{
+		WorkDir: build.WorkDir,
+		GOOS:    build.GOOS,
+		GOARCH:  build.GOARCH,
+		LarkRef: build.Params["lark_ref"],
+	})
+}
+
 func SyncSystemSkills(ctx context.Context, cfg Config) error {
-	if err := syncLarkSkill(ctx, cfg); err != nil {
-		return err
+	specs, err := pluginhost.DefaultCatalogBundledSkillSpecs()
+	if err != nil {
+		return fmt.Errorf("load bundled skill catalog: %w", err)
 	}
-	if err := syncTapWebSkill(ctx, cfg); err != nil {
-		return err
+	build := pkgplugins.BundledSkillSyncContext{
+		WorkDir: cfg.WorkDir,
+		GOOS:    cfg.GOOS,
+		GOARCH:  cfg.GOARCH,
+		Params: map[string]string{
+			"lark_ref": cfg.LarkRef,
+		},
+	}
+	for _, spec := range specs {
+		if err := spec.Sync(ctx, build); err != nil {
+			return fmt.Errorf("sync bundled skill %q (%s): %w", spec.Name, spec.PluginID, err)
+		}
 	}
 	return nil
 }
@@ -119,6 +141,9 @@ func GenerateLarkSkill(sourceSkillsDir, destDir, sourceRef string) error {
 	main := renderLarkAggregate(docs, sourceRef)
 	if err := AtomicWriteFile(filepath.Join(destDir, "SKILL.md"), []byte(main), 0o644); err != nil {
 		return fmt.Errorf("write aggregate skill: %w", err)
+	}
+	if err := setSkillOwnerPlugin(filepath.Join(destDir, "SKILL.md"), "tool/lark-cli"); err != nil {
+		return err
 	}
 	return nil
 }

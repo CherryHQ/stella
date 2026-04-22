@@ -9,11 +9,14 @@ import (
 	oauth "github.com/vaayne/anna/internal/credentials/oauth"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/vault"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 const (
-	pluginIDGitHub = "auth/github"
-	pluginIDLark   = "auth/lark"
+	pluginIDGitHub       = "tool/gh"
+	pluginIDGitHubLegacy = "auth/github"
+	pluginIDLark         = "tool/lark-cli"
+	pluginIDLarkLegacy   = "auth/lark"
 
 	larkCallbackPath = "/api/auth/profile/oauth/lark/callback"
 	ghCallbackPath   = "/api/auth/profile/oauth/github/callback"
@@ -77,17 +80,21 @@ func (s *Service) InvalidateUser(userID int64) error {
 // --- broker helpers (migrated from admin.Server) ---
 
 func (s *Service) getGitHubBroker(ctx context.Context) (*oauth.GitHubBroker, error) {
-	state, err := s.pluginCfg.Get(ctx, pluginIDGitHub)
+	state, sourceID, err := s.oauthPluginState(ctx, pluginIDGitHub, pluginIDGitHubLegacy, func(cfg map[string]any) bool {
+		clientID, _ := cfg["client_id"].(string)
+		clientSecret, _ := cfg["client_secret"].(string)
+		return clientID != "" && clientSecret != ""
+	})
 	if err != nil {
 		return nil, fmt.Errorf("github plugin config unavailable: %w", err)
 	}
 	if !state.Enabled {
-		return nil, fmt.Errorf("github plugin is not enabled")
+		return nil, fmt.Errorf("%s plugin is not enabled", sourceID)
 	}
 	clientID, _ := state.Config["client_id"].(string)
 	clientSecret, _ := state.Config["client_secret"].(string)
 	if clientID == "" || clientSecret == "" {
-		return nil, fmt.Errorf("github OAuth app is not configured (set client_id and client_secret in auth/github plugin)")
+		return nil, fmt.Errorf("github OAuth app is not configured (set client_id and client_secret in tool/gh plugin)")
 	}
 	redirectURI, _ := state.Config["redirect_url"].(string)
 	if redirectURI == "" {
@@ -108,18 +115,22 @@ func (s *Service) getGitHubBroker(ctx context.Context) (*oauth.GitHubBroker, err
 }
 
 func (s *Service) getLarkBroker(ctx context.Context) (*oauth.LarkBroker, error) {
-	state, err := s.pluginCfg.Get(ctx, pluginIDLark)
+	state, sourceID, err := s.oauthPluginState(ctx, pluginIDLark, pluginIDLarkLegacy, func(cfg map[string]any) bool {
+		appID, _ := cfg["app_id"].(string)
+		appSecret, _ := cfg["app_secret"].(string)
+		return appID != "" && appSecret != ""
+	})
 	if err != nil {
 		return nil, fmt.Errorf("lark plugin config unavailable: %w", err)
 	}
 	if !state.Enabled {
-		return nil, fmt.Errorf("lark plugin is not enabled")
+		return nil, fmt.Errorf("%s plugin is not enabled", sourceID)
 	}
 	appID, _ := state.Config["app_id"].(string)
 	appSecret, _ := state.Config["app_secret"].(string)
 	brand, _ := state.Config["brand"].(string)
 	if appID == "" || appSecret == "" {
-		return nil, fmt.Errorf("lark OAuth app is not configured (set app_id and app_secret in auth/lark plugin)")
+		return nil, fmt.Errorf("lark OAuth app is not configured (set app_id and app_secret in tool/lark-cli plugin)")
 	}
 	if brand == "" {
 		brand = "lark"
@@ -141,6 +152,21 @@ func (s *Service) getLarkBroker(ctx context.Context) (*oauth.LarkBroker, error) 
 		s.larkBrokerRedirectURI = redirectURI
 	}
 	return s.larkBroker, nil
+}
+
+func (s *Service) oauthPluginState(ctx context.Context, primaryID, legacyID string, configured func(map[string]any) bool) (pkgplugins.PluginState, string, error) {
+	state, err := s.pluginCfg.Get(ctx, primaryID)
+	if err == nil && (configured == nil || configured(state.Config) || !state.Enabled) {
+		return state, primaryID, nil
+	}
+	legacy, legacyErr := s.pluginCfg.Get(ctx, legacyID)
+	if legacyErr == nil {
+		return legacy, legacyID, nil
+	}
+	if err == nil {
+		return state, primaryID, nil
+	}
+	return pkgplugins.PluginState{}, primaryID, err
 }
 
 // --- vault operations ---

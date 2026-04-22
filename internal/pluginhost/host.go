@@ -44,6 +44,9 @@ type Host struct {
 	promptRegs       map[string]pkgplugins.PromptInventorySpec
 	systemPromptRegs map[string]pkgplugins.SystemPromptSpec
 	binaryRegs       map[string][]pkgplugins.BinarySpec
+	wrapperRegs      map[string][]pkgplugins.WrapperSpec
+	sessionEnvRegs   map[string][]pkgplugins.SessionEnvSpec
+	bundledSkillRegs map[string][]pkgplugins.BundledSkillSpec
 }
 
 func New(store config.Store, opts ...Option) *Host {
@@ -66,6 +69,9 @@ func New(store config.Store, opts ...Option) *Host {
 		promptRegs:       map[string]pkgplugins.PromptInventorySpec{},
 		systemPromptRegs: map[string]pkgplugins.SystemPromptSpec{},
 		binaryRegs:       map[string][]pkgplugins.BinarySpec{},
+		wrapperRegs:      map[string][]pkgplugins.WrapperSpec{},
+		sessionEnvRegs:   map[string][]pkgplugins.SessionEnvSpec{},
+		bundledSkillRegs: map[string][]pkgplugins.BundledSkillSpec{},
 	}
 	h.config = &configService{store: store}
 	h.runtimes = NewRuntimeHost(h)
@@ -206,6 +212,24 @@ func (h *Host) AddBinary(spec pkgplugins.BinarySpec) {
 	h.binaryRegs[spec.PluginID] = append(h.binaryRegs[spec.PluginID], spec)
 }
 
+func (h *Host) AddWrapper(spec pkgplugins.WrapperSpec) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.wrapperRegs[spec.PluginID] = append(h.wrapperRegs[spec.PluginID], spec)
+}
+
+func (h *Host) AddSessionEnv(spec pkgplugins.SessionEnvSpec) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.sessionEnvRegs[spec.PluginID] = append(h.sessionEnvRegs[spec.PluginID], spec)
+}
+
+func (h *Host) AddBundledSkill(spec pkgplugins.BundledSkillSpec) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.bundledSkillRegs[spec.PluginID] = append(h.bundledSkillRegs[spec.PluginID], spec)
+}
+
 func (h *Host) BinarySpecs(pluginID string) []pkgplugins.BinarySpec {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -217,6 +241,54 @@ func (h *Host) AllBinarySpecs() []pkgplugins.BinarySpec {
 	defer h.mu.RUnlock()
 	var out []pkgplugins.BinarySpec
 	for _, specs := range h.binaryRegs {
+		out = append(out, specs...)
+	}
+	return out
+}
+
+func (h *Host) WrapperSpecs(pluginID string) []pkgplugins.WrapperSpec {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return append([]pkgplugins.WrapperSpec(nil), h.wrapperRegs[pluginID]...)
+}
+
+func (h *Host) AllWrapperSpecs() []pkgplugins.WrapperSpec {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var out []pkgplugins.WrapperSpec
+	for _, specs := range h.wrapperRegs {
+		out = append(out, specs...)
+	}
+	return out
+}
+
+func (h *Host) SessionEnvSpecs(pluginID string) []pkgplugins.SessionEnvSpec {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return append([]pkgplugins.SessionEnvSpec(nil), h.sessionEnvRegs[pluginID]...)
+}
+
+func (h *Host) AllSessionEnvSpecs() []pkgplugins.SessionEnvSpec {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var out []pkgplugins.SessionEnvSpec
+	for _, specs := range h.sessionEnvRegs {
+		out = append(out, specs...)
+	}
+	return out
+}
+
+func (h *Host) BundledSkillSpecs(pluginID string) []pkgplugins.BundledSkillSpec {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return append([]pkgplugins.BundledSkillSpec(nil), h.bundledSkillRegs[pluginID]...)
+}
+
+func (h *Host) AllBundledSkillSpecs() []pkgplugins.BundledSkillSpec {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	var out []pkgplugins.BundledSkillSpec
+	for _, specs := range h.bundledSkillRegs {
 		out = append(out, specs...)
 	}
 	return out
@@ -360,15 +432,18 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 			}
 		}
 		section, err := reg.Build(ctx, pkgplugins.SystemPromptContext{
-			Platform:    h.platform(reg.PluginID),
-			State:       state,
-			AnnaHome:    build.AnnaHome,
-			HomeDir:     build.HomeDir,
-			AgentRoot:   build.AgentRoot,
-			ProjectRoot: build.ProjectRoot,
-			UserID:      build.UserID,
-			AgentID:     build.AgentID,
-			UserRoot:    build.UserRoot,
+			Platform:             h.platform(reg.PluginID),
+			State:                state,
+			AnnaHome:             build.AnnaHome,
+			HomeDir:              build.HomeDir,
+			AgentRoot:            build.AgentRoot,
+			ProjectRoot:          build.ProjectRoot,
+			UserID:               build.UserID,
+			AgentID:              build.AgentID,
+			UserRoot:             build.UserRoot,
+			RegisteredPluginIDs:  append([]string(nil), build.RegisteredPluginIDs...),
+			EnabledPluginIDs:     append([]string(nil), build.EnabledPluginIDs...),
+			EnabledBuiltinSkills: append([]string(nil), build.EnabledBuiltinSkills...),
 		})
 		if err != nil {
 			return nil, err

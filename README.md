@@ -96,7 +96,7 @@ You can run multiple bot instances for the same platform. Leave a channel unboun
 
 Every channel supports `/new`, `/compact`, `/abort`, `/model`, `/agent`, `/whoami`, model switching, access control, and image input. Channel messages are processed one-at-a-time per session, so later messages wait for the current turn to finish or be aborted.
 
-Lark workspace automation is no longer built in as `feishu_*` tools. Instead, anna now ships generated builtin `lark` / `tap-web` system skills and embeds `lark-cli` at build time. Use the builtin `lark` skill with `lark-cli` for calendar, docs, tasks, sheets, drive, and other workspace actions.
+Lark workspace automation is no longer built in as `feishu_*` tools. Instead, anna now models `mise`, `tap-web`, `gh`, and `lark-cli` as plugin-managed CLI integrations. `tap-web` and `lark` ship as generated builtin system skills, while `gh` and `lark-cli` also own their OAuth config, session wrappers, and injected runtime env. Use the builtin `lark` skill with `lark-cli` for calendar, docs, tasks, sheets, drive, and other workspace actions.
 
 ## Scheduler
 

@@ -54,24 +54,25 @@ func newApp() *ucli.App {
 }
 
 type setupResult struct {
-	ctx                    context.Context
-	db                     *sql.DB
-	mem                    memory.Provider
-	snap                   *config.Snapshot
-	store                  config.Store
-	pluginHost             *pluginhost.Host
-	channelRuntimeServices *pluginhost.ChannelPlatform
-	poolManager            *agent.PoolManager
-	pool                   *agent.Pool // default agent pool shared with CLI and channel entrypoints
-	schedulerSvc           *scheduler.Service
-	builtinTools           []tools.Tool
-	notifier               *notify.Dispatcher
-	pluginToolsBuilder     agent.PluginToolsBuilder
-	promptToolsBuilder     func(context.Context) ([]pkgplugins.PromptToolInfo, error)
-	promptSectionsBuilder  func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
-	toolLifecycle          *coreagent.ToolLifecycle
-	skillStore             pkgplugins.SkillStore
-	cliUserID              int64 // resolved CLI user for session creation
+	ctx                      context.Context
+	db                       *sql.DB
+	mem                      memory.Provider
+	snap                     *config.Snapshot
+	store                    config.Store
+	pluginHost               *pluginhost.Host
+	channelRuntimeServices   *pluginhost.ChannelPlatform
+	poolManager              *agent.PoolManager
+	pool                     *agent.Pool // default agent pool shared with CLI and channel entrypoints
+	schedulerSvc             *scheduler.Service
+	builtinTools             []tools.Tool
+	notifier                 *notify.Dispatcher
+	pluginToolsBuilder       agent.PluginToolsBuilder
+	promptToolsBuilder       func(context.Context) ([]pkgplugins.PromptToolInfo, error)
+	promptSectionsBuilder    func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
+	sessionPluginViewBuilder agent.SessionPluginViewBuilder
+	toolLifecycle            *coreagent.ToolLifecycle
+	skillStore               pkgplugins.SkillStore
+	cliUserID                int64 // resolved CLI user for session creation
 }
 
 func setup(parent context.Context, gateway bool) (*setupResult, error) {
@@ -271,6 +272,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	promptSectionsBuilder := func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
 		return phost.SystemPromptSections(ctx, build)
 	}
+	sessionPluginViewBuilder := func(ctx context.Context) (pkgplugins.SessionPluginView, error) {
+		return phost.SessionPluginView(ctx)
+	}
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithIdleTimeoutPM(idleTimeout),
@@ -284,6 +288,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		agent.WithProviderRegistryBuilder(providerRegistryBuilder),
 		agent.WithPromptToolsBuilder(promptToolsBuilder),
 		agent.WithPromptSectionsBuilder(promptSectionsBuilder),
+		agent.WithSessionPluginViewBuilder(sessionPluginViewBuilder),
 		agent.WithBeforeRunBuilderPM(func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
 			return phost.BeforeRun(ctx, build)
 		}),
@@ -344,24 +349,25 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	var cliUserID int64
 
 	return &setupResult{
-		ctx:                    ctx,
-		db:                     db,
-		mem:                    memProvider,
-		snap:                   snap,
-		store:                  store,
-		pluginHost:             phost,
-		channelRuntimeServices: channelRuntimeServices,
-		poolManager:            poolMgr,
-		pool:                   pool,
-		schedulerSvc:           schedulerSvc,
-		builtinTools:           builtinTools,
-		notifier:               dispatcher,
-		pluginToolsBuilder:     pluginToolsBuilder,
-		promptToolsBuilder:     promptToolsBuilder,
-		promptSectionsBuilder:  promptSectionsBuilder,
-		toolLifecycle:          toolLifecycle,
-		skillStore:             pluginhost.NewSkillStoreAdapter(skillStore),
-		cliUserID:              cliUserID,
+		ctx:                      ctx,
+		db:                       db,
+		mem:                      memProvider,
+		snap:                     snap,
+		store:                    store,
+		pluginHost:               phost,
+		channelRuntimeServices:   channelRuntimeServices,
+		poolManager:              poolMgr,
+		pool:                     pool,
+		schedulerSvc:             schedulerSvc,
+		builtinTools:             builtinTools,
+		notifier:                 dispatcher,
+		pluginToolsBuilder:       pluginToolsBuilder,
+		promptToolsBuilder:       promptToolsBuilder,
+		promptSectionsBuilder:    promptSectionsBuilder,
+		sessionPluginViewBuilder: sessionPluginViewBuilder,
+		toolLifecycle:            toolLifecycle,
+		skillStore:               pluginhost.NewSkillStoreAdapter(skillStore),
+		cliUserID:                cliUserID,
 	}, nil
 }
 
@@ -370,7 +376,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 // Each switch creates a new immutable snapshot so the factory closure captures
 // no shared mutable state — eliminating races between concurrent Chat calls and
 // model switches. Hooks are stored on the Pool independently and are not affected.
-func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore) func(string, string) error {
+func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, builtinTools []tools.Tool, pluginToolsBuilder agent.PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), sessionPluginViewFn agent.SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore) func(string, string) error {
 	return func(provider, model string) error {
 		// Shallow-copy the base snapshot so we never mutate shared state.
 		snap := *base
@@ -385,7 +391,7 @@ func modelSwitcher(base *config.Snapshot, store config.Store, pool *agent.Pool, 
 			snap.Providers = providers
 		}
 
-		factory, err := agent.NewRunnerFactory(&snap, builtinTools, pluginToolsBuilder, providerRegistryBuilder, promptToolsFn, promptSectionsFn, toolLifecycle, skillStore, nil, nil, nil)
+		factory, err := agent.NewRunnerFactory(&snap, builtinTools, pluginToolsBuilder, providerRegistryBuilder, promptToolsFn, promptSectionsFn, sessionPluginViewFn, toolLifecycle, skillStore, nil, nil, nil)
 		if err != nil {
 			return err
 		}
@@ -424,6 +430,7 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 		},
 		s.promptToolsBuilder,
 		s.promptSectionsBuilder,
+		s.sessionPluginViewBuilder,
 		s.toolLifecycle,
 		s.skillStore,
 	)

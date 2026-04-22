@@ -30,6 +30,58 @@ func (h *Host) ListRegisteredPlugins() []pkgplugins.PluginInfo {
 func (h *Host) ValidateRegistrations() error {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+	wrapperOwners := map[string]string{}
+	envOwners := map[string]string{}
+	skillOwners := map[string]string{}
+	for pluginID, specs := range h.wrapperRegs {
+		for _, spec := range specs {
+			if spec.Name == "" {
+				return fmt.Errorf("pluginhost: wrapper registration for %q missing name", pluginID)
+			}
+			if spec.TargetEnvVar == "" {
+				return fmt.Errorf("pluginhost: wrapper %q for %q missing target env var", spec.Name, pluginID)
+			}
+			if prev, ok := wrapperOwners[spec.Name]; ok && prev != pluginID {
+				return fmt.Errorf("pluginhost: wrapper %q registered by both %q and %q", spec.Name, prev, pluginID)
+			}
+			wrapperOwners[spec.Name] = pluginID
+		}
+	}
+	for pluginID, specs := range h.sessionEnvRegs {
+		for _, spec := range specs {
+			if spec.EnvVar == "" {
+				return fmt.Errorf("pluginhost: session env registration for %q missing env var", pluginID)
+			}
+			switch spec.Source {
+			case pkgplugins.SessionEnvSourceStatic:
+			case pkgplugins.SessionEnvSourceBinaryPath:
+				if spec.BinaryName == "" {
+					return fmt.Errorf("pluginhost: session env %q for %q missing binary name", spec.EnvVar, pluginID)
+				}
+			case pkgplugins.SessionEnvSourceGitHubToken, pkgplugins.SessionEnvSourceLarkAccessToken, pkgplugins.SessionEnvSourceLarkAppID, pkgplugins.SessionEnvSourceLarkBrand:
+			default:
+				return fmt.Errorf("pluginhost: session env %q for %q has unknown source %q", spec.EnvVar, pluginID, spec.Source)
+			}
+			if prev, ok := envOwners[spec.EnvVar]; ok && prev != pluginID {
+				return fmt.Errorf("pluginhost: session env %q registered by both %q and %q", spec.EnvVar, prev, pluginID)
+			}
+			envOwners[spec.EnvVar] = pluginID
+		}
+	}
+	for pluginID, specs := range h.bundledSkillRegs {
+		for _, spec := range specs {
+			if spec.Name == "" {
+				return fmt.Errorf("pluginhost: bundled skill registration for %q missing name", pluginID)
+			}
+			if spec.Sync == nil {
+				return fmt.Errorf("pluginhost: bundled skill %q for %q missing sync function", spec.Name, pluginID)
+			}
+			if prev, ok := skillOwners[spec.Name]; ok && prev != pluginID {
+				return fmt.Errorf("pluginhost: bundled skill %q registered by both %q and %q", spec.Name, prev, pluginID)
+			}
+			skillOwners[spec.Name] = pluginID
+		}
+	}
 	for _, meta := range h.metadataRegs {
 		if meta.Managed && !hasRuntimeLocked(h.runtimeRegs, meta.ID) {
 			return fmt.Errorf("pluginhost: metadata for %q declares managed runtime but no runtime is registered", meta.ID)

@@ -26,7 +26,7 @@ import (
 //
 // Hooks are not part of the factory — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
-func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginToolsBuilder PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore, sandboxBackendFn func(ctx context.Context) string, vaultEnvLoader runner.VaultEnvLoader, tokenManager *oauth.TokenManager) (runner.NewRunnerFunc, error) {
+func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginToolsBuilder PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), sessionPluginViewFn SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore, sandboxBackendFn func(ctx context.Context) string, vaultEnvLoader runner.VaultEnvLoader, tokenManager *oauth.TokenManager) (runner.NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
 		return func(ctx context.Context, params runner.RunnerParams) (runner.Runner, error) {
@@ -66,6 +66,10 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				promptTools, _ = promptToolsFn(ctx)
 			}
 			homeDir, _ := os.UserHomeDir()
+			pluginView := pkgplugins.SessionPluginView{}
+			if sessionPluginViewFn != nil {
+				pluginView, _ = sessionPluginViewFn(ctx)
+			}
 			promptBuild := pkgplugins.SystemPromptContext{
 				AnnaHome:             config.AnnaHome(),
 				HomeDir:              homeDir,
@@ -74,6 +78,8 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				UserID:               params.UserID,
 				AgentID:              params.AgentID,
 				UserRoot:             userRoot,
+				RegisteredPluginIDs:  append([]string(nil), pluginView.RegisteredPluginIDs...),
+				EnabledPluginIDs:     append([]string(nil), pluginView.EnabledPluginIDs...),
 				EnabledBuiltinSkills: snap.EnabledBuiltinSkills,
 			}
 			var promptSections []pkgplugins.SystemPromptSection
@@ -124,6 +130,8 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				PromptSections:   promptSections,
 				ExtraTools:       runnerTools,
 				PluginTools:      pluginToolsBuilder,
+				WrapperSpecs:     append([]pkgplugins.WrapperSpec(nil), pluginView.WrapperSpecs...),
+				SessionEnvSpecs:  append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),
 				UserRoot:         userRoot,
 				Sandbox:          snap.Sandbox,
 				SandboxBackendFn: sandboxBackendFn,

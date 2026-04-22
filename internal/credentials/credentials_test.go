@@ -114,7 +114,7 @@ func TestGetProviderStatusesPluginNotFound(t *testing.T) {
 
 func TestGetProviderStatusesDisabledPlugin(t *testing.T) {
 	cfg := newStubPluginCfg()
-	cfg.state["auth/github"] = pkgplugins.PluginState{
+	cfg.state["tool/gh"] = pkgplugins.PluginState{
 		Enabled: false,
 		Config:  map[string]any{"client_id": "cid", "client_secret": "csecret"},
 	}

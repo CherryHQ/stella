@@ -632,8 +632,7 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
-
-	if err := s.seedBuiltinPlugins(ctx, PluginKindAuth, builtinAuthNames, nil); err != nil {
+	if err := s.migrateLegacyAuthPlugins(ctx); err != nil {
 		return err
 	}
 
@@ -648,6 +647,45 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 		return fmt.Errorf("seed: plugin reflect: %w", err)
 	}
 
+	return nil
+}
+
+func (s *DBStore) migrateLegacyAuthPlugins(ctx context.Context) error {
+	type migration struct {
+		legacyID string
+		newID    string
+		newName  string
+	}
+	migrations := []migration{
+		{legacyID: PluginID(PluginKindAuth, "github"), newID: PluginID(PluginKindTool, "gh"), newName: "gh"},
+		{legacyID: PluginID(PluginKindAuth, "lark"), newID: PluginID(PluginKindTool, "lark-cli"), newName: "lark-cli"},
+	}
+	for _, m := range migrations {
+		legacyRow, err := s.q.GetPlugin(ctx, m.legacyID)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("seed: load legacy plugin %q: %w", m.legacyID, err)
+		}
+		target, err := s.GetPlugin(ctx, m.newID)
+		if err != nil {
+			target = Plugin{ID: m.newID, Kind: PluginKindTool, Name: m.newName, Enabled: true, Config: map[string]any{}}
+		}
+		legacy := pluginFromDB(legacyRow)
+		if len(target.Config) == 0 && len(legacy.Config) > 0 {
+			target.Config = legacy.Config
+		}
+		if !target.Enabled && legacy.Enabled {
+			target.Enabled = true
+		}
+		if err := s.UpsertPlugin(ctx, target); err != nil {
+			return fmt.Errorf("seed: upsert migrated plugin %q: %w", m.newID, err)
+		}
+		if err := s.DeletePlugin(ctx, m.legacyID); err != nil {
+			return fmt.Errorf("seed: delete legacy plugin %q: %w", m.legacyID, err)
+		}
+	}
 	return nil
 }
 

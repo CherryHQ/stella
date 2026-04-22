@@ -3,6 +3,7 @@ package pluginhost
 import (
 	"context"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/vaayne/anna/internal/config"
@@ -296,6 +297,76 @@ func TestValidateRegistrationsAcceptsToolLifecycleOnly(t *testing.T) {
 
 	if err := host.ValidateRegistrations(); err != nil {
 		t.Fatalf("ValidateRegistrations: %v", err)
+	}
+}
+
+func TestValidateRegistrationsAcceptsCLIBackedPromptOnlyTool(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{}}
+	host := New(store)
+	host.RegisterPluginID("tool/mise")
+	host.SetInfo(pkgplugins.PluginInfo{
+		ID:           "tool/mise",
+		Kind:         "tool",
+		Name:         "mise",
+		DisplayName:  "mise",
+		Capabilities: []string{pkgplugins.CapabilityBinary, pkgplugins.CapabilityPrompt},
+	})
+	host.AddBinary(pkgplugins.BinarySpec{
+		PluginID: "tool/mise",
+		Name:     "mise",
+		Repo:     "jdx/mise",
+		AssetTemplates: map[string]pkgplugins.BinaryAsset{
+			"darwin-arm64": {File: "mise-{tag}-macos-arm64.tar.gz"},
+		},
+	})
+	host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
+		PluginID: "tool/mise",
+		Name:     "mise",
+		Build: func(context.Context, pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
+			return pkgplugins.SystemPromptSection{Title: "mise", Content: "content"}, nil
+		},
+	})
+
+	if err := host.ValidateRegistrations(); err != nil {
+		t.Fatalf("ValidateRegistrations: %v", err)
+	}
+}
+
+func TestValidateRegistrationsRejectsDuplicateWrappersSessionEnvAndBundledSkills(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{}}
+	host := New(store)
+	host.RegisterPluginID("tool/gh")
+	host.RegisterPluginID("tool/lark-cli")
+	host.AddWrapper(pkgplugins.WrapperSpec{PluginID: "tool/gh", Name: "gh", TargetEnvVar: "ANNA_GH_BIN"})
+	host.AddWrapper(pkgplugins.WrapperSpec{PluginID: "tool/lark-cli", Name: "gh", TargetEnvVar: "ANNA_OTHER_GH_BIN"})
+	if err := host.ValidateRegistrations(); err == nil || !strings.Contains(err.Error(), `wrapper "gh"`) {
+		t.Fatalf("ValidateRegistrations error = %v, want duplicate wrapper", err)
+	}
+
+	host = New(store)
+	host.RegisterPluginID("tool/gh")
+	host.RegisterPluginID("tool/lark-cli")
+	host.AddSessionEnv(pkgplugins.SessionEnvSpec{PluginID: "tool/gh", EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSourceGitHubToken})
+	host.AddSessionEnv(pkgplugins.SessionEnvSpec{PluginID: "tool/lark-cli", EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSourceStatic, Value: "x"})
+	if err := host.ValidateRegistrations(); err == nil || !strings.Contains(err.Error(), `session env "GH_TOKEN"`) {
+		t.Fatalf("ValidateRegistrations error = %v, want duplicate env", err)
+	}
+
+	host = New(store)
+	host.RegisterPluginID("tool/tap-web")
+	host.RegisterPluginID("tool/lark-cli")
+	host.AddBundledSkill(pkgplugins.BundledSkillSpec{
+		PluginID: "tool/tap-web",
+		Name:     "shared-skill",
+		Sync:     func(context.Context, pkgplugins.BundledSkillSyncContext) error { return nil },
+	})
+	host.AddBundledSkill(pkgplugins.BundledSkillSpec{
+		PluginID: "tool/lark-cli",
+		Name:     "shared-skill",
+		Sync:     func(context.Context, pkgplugins.BundledSkillSyncContext) error { return nil },
+	})
+	if err := host.ValidateRegistrations(); err == nil || !strings.Contains(err.Error(), `bundled skill "shared-skill"`) {
+		t.Fatalf("ValidateRegistrations error = %v, want duplicate bundled skill", err)
 	}
 }
 
