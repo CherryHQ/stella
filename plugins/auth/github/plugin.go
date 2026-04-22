@@ -12,12 +12,14 @@ const PluginID = "auth/github"
 type Config struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
+	RedirectURL  string `json:"redirect_url"`
 }
 
 func defaultConfig() map[string]any {
 	return map[string]any{
 		"client_id":     "",
 		"client_secret": "",
+		"redirect_url":  "",
 	}
 }
 
@@ -32,6 +34,10 @@ func configSchema() map[string]any {
 			"client_secret": map[string]any{
 				"type":        "string",
 				"description": "GitHub OAuth app client secret.",
+			},
+			"redirect_url": map[string]any{
+				"type":        "string",
+				"description": "OAuth redirect URI registered in the GitHub app. Leave empty to use the server default: {your-server}/api/auth/profile/oauth/github/callback.",
 			},
 		},
 		"required": []any{"client_id", "client_secret"},
@@ -53,6 +59,13 @@ func decodeConfig(raw map[string]any) (Config, error) {
 			return Config{}, fmt.Errorf("client_secret: must be a string")
 		}
 		cfg.ClientSecret = s
+	}
+	if v, ok := raw["redirect_url"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return Config{}, fmt.Errorf("redirect_url: must be a string")
+		}
+		cfg.RedirectURL = s
 	}
 	return cfg, nil
 }

@@ -31,10 +31,11 @@ type ghFlowSecret struct {
 
 // GitHubBroker manages GitHub device-flow sessions.
 type GitHubBroker struct {
-	cfg    GitHubConfig
-	store  *FlowStore
-	mu     sync.Mutex
-	secret map[string]*ghFlowSecret // flowID → secrets
+	cfg         GitHubConfig
+	store       *FlowStore
+	redirectURI string
+	mu          sync.Mutex
+	secret      map[string]*ghFlowSecret // flowID → secrets
 }
 
 // NewGitHubBroker constructs a GitHubBroker.
@@ -46,10 +47,16 @@ func NewGitHubBroker(cfg GitHubConfig, store *FlowStore) *GitHubBroker {
 	}
 }
 
+// WithRedirectURI returns a new broker with the given redirect URI.
+func (b *GitHubBroker) WithRedirectURI(uri string) *GitHubBroker {
+	return &GitHubBroker{cfg: b.cfg, store: b.store, redirectURI: uri, secret: b.secret}
+}
+
 func (b *GitHubBroker) oauthConfig() *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     b.cfg.ClientID,
 		ClientSecret: b.cfg.ClientSecret,
+		RedirectURL:  b.redirectURI,
 		Scopes:       ghScopes,
 		Endpoint:     github.Endpoint,
 	}
@@ -72,6 +79,7 @@ func (b *GitHubBroker) StartDeviceFlow(ctx context.Context, userID int64) (FlowS
 	status := FlowStatus{
 		Provider:        ProviderGitHub,
 		FlowID:          flowID,
+		UserID:          userID,
 		VerificationURI: da.VerificationURIComplete,
 		UserCode:        da.UserCode,
 		ExpiresAt:       expiresAt,

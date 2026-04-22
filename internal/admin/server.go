@@ -38,12 +38,14 @@ type Server struct {
 	vaultSvc       *vault.Service       // optional; if nil, vault endpoints return 503
 
 	// OAuth CLI device-flow state.
-	flowStore        *oauthcli.FlowStore
-	oauthMu          sync.Mutex
-	ghBroker         *oauthcli.GitHubBroker // lazily initialised; guarded by oauthMu
-	ghBrokerClientID string                 // tracks which client_id ghBroker was built with
-	larkBroker       *oauthcli.LarkBroker   // lazily initialised; guarded by oauthMu
-	larkBrokerAppID  string                 // tracks which app_id larkBroker was built with
+	flowStore             *oauthcli.FlowStore
+	oauthMu               sync.Mutex
+	ghBroker              *oauthcli.GitHubBroker // lazily initialised; guarded by oauthMu
+	ghBrokerClientID      string                 // tracks which client_id ghBroker was built with
+	ghBrokerRedirectURI   string                 // tracks which redirect_url ghBroker was built with
+	larkBroker            *oauthcli.LarkBroker   // lazily initialised; guarded by oauthMu
+	larkBrokerAppID       string                 // tracks which app_id larkBroker was built with
+	larkBrokerRedirectURI string                 // tracks which redirect_url larkBroker was built with
 }
 
 // New creates an admin server with all API routes mounted.

@@ -112,6 +112,7 @@ func (b *LarkBroker) StartDeviceFlow(ctx context.Context, userID int64) (FlowSta
 	status := FlowStatus{
 		Provider:        ProviderLark,
 		FlowID:          flowID,
+		UserID:          userID,
 		VerificationURI: b.oauthConfig().AuthCodeURL(flowID),
 		ExpiresAt:       time.Now().Add(10 * time.Minute),
 		State:           FlowStatePending,

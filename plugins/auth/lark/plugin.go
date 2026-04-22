@@ -10,16 +10,18 @@ import (
 const PluginID = "auth/lark"
 
 type Config struct {
-	AppID     string `json:"app_id"`
-	AppSecret string `json:"app_secret"`
-	Brand     string `json:"brand"`
+	AppID       string `json:"app_id"`
+	AppSecret   string `json:"app_secret"`
+	Brand       string `json:"brand"`
+	RedirectURL string `json:"redirect_url"`
 }
 
 func defaultConfig() map[string]any {
 	return map[string]any{
-		"app_id":     "",
-		"app_secret": "",
-		"brand":      "lark",
+		"app_id":       "",
+		"app_secret":   "",
+		"brand":        "lark",
+		"redirect_url": "",
 	}
 }
 
@@ -40,6 +42,10 @@ func configSchema() map[string]any {
 				"enum":        []any{"lark", "feishu"},
 				"description": "Platform brand: \"lark\" (international) or \"feishu\" (China).",
 				"default":     "lark",
+			},
+			"redirect_url": map[string]any{
+				"type":        "string",
+				"description": "OAuth redirect URI registered in the Lark app. Leave empty to use the server default: {your-server}/api/auth/profile/oauth/lark/callback.",
 			},
 		},
 		"required": []any{"app_id", "app_secret", "brand"},
@@ -68,6 +74,13 @@ func decodeConfig(raw map[string]any) (Config, error) {
 			return Config{}, fmt.Errorf("brand: must be a string")
 		}
 		cfg.Brand = s
+	}
+	if v, ok := raw["redirect_url"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return Config{}, fmt.Errorf("redirect_url: must be a string")
+		}
+		cfg.RedirectURL = s
 	}
 	return cfg, nil
 }

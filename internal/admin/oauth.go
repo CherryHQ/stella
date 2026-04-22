@@ -17,6 +17,9 @@ const (
 // It must match the redirect_uri configured in the Lark app.
 const larkCallbackPath = "/api/auth/profile/oauth/lark/callback"
 
+// ghCallbackPath is the path GitHub redirects back to after user authorization.
+const ghCallbackPath = "/api/auth/profile/oauth/github/callback"
+
 // getGitHubBroker returns the cached GitHubBroker, lazily constructing it from
 // the current plugin config. Returns an error if the plugin is not configured.
 func (s *Server) getGitHubBroker(ctx context.Context) (*oauthcli.GitHubBroker, error) {
@@ -29,15 +32,20 @@ func (s *Server) getGitHubBroker(ctx context.Context) (*oauthcli.GitHubBroker, e
 	if clientID == "" || clientSecret == "" {
 		return nil, fmt.Errorf("github OAuth app is not configured (set client_id and client_secret in auth/github plugin)")
 	}
+	redirectURI, _ := state.Config["redirect_url"].(string)
+	if redirectURI == "" {
+		redirectURI = s.corsOriginV + ghCallbackPath
+	}
 
 	s.oauthMu.Lock()
 	defer s.oauthMu.Unlock()
-	if s.ghBroker == nil || s.ghBrokerClientID != clientID {
+	if s.ghBroker == nil || s.ghBrokerClientID != clientID || s.ghBrokerRedirectURI != redirectURI {
 		s.ghBroker = oauthcli.NewGitHubBroker(oauthcli.GitHubConfig{
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
-		}, s.flowStore)
+		}, s.flowStore).WithRedirectURI(redirectURI)
 		s.ghBrokerClientID = clientID
+		s.ghBrokerRedirectURI = redirectURI
 	}
 	return s.ghBroker, nil
 }
@@ -59,16 +67,21 @@ func (s *Server) getLarkBroker(ctx context.Context) (*oauthcli.LarkBroker, error
 		brand = "lark"
 	}
 
+	redirectURI, _ := state.Config["redirect_url"].(string)
+	if redirectURI == "" {
+		redirectURI = s.corsOriginV + larkCallbackPath
+	}
+
 	s.oauthMu.Lock()
 	defer s.oauthMu.Unlock()
-	if s.larkBroker == nil || s.larkBrokerAppID != appID {
-		redirectURI := s.corsOriginV + larkCallbackPath
+	if s.larkBroker == nil || s.larkBrokerAppID != appID || s.larkBrokerRedirectURI != redirectURI {
 		s.larkBroker = oauthcli.NewLarkBroker(oauthcli.LarkConfig{
 			AppID:     appID,
 			AppSecret: appSecret,
 			Brand:     brand,
 		}, s.flowStore).WithRedirectURI(redirectURI)
 		s.larkBrokerAppID = appID
+		s.larkBrokerRedirectURI = redirectURI
 	}
 	return s.larkBroker, nil
 }
@@ -294,14 +307,11 @@ func (s *Server) disconnectOAuth(w http.ResponseWriter, r *http.Request) {
 // larkOAuthCallback handles GET /api/auth/profile/oauth/lark/callback.
 // Lark redirects the browser here after the user authorizes the app.
 // Query params: code=<auth_code>&state=<flow_id>
+// This handler is exempt from authMiddleware; userID is resolved from the
+// flow store via the state param so no session cookie is required.
 func (s *Server) larkOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	if s.vaultSvc == nil {
 		http.Error(w, "vault not configured", http.StatusServiceUnavailable)
-		return
-	}
-	info := UserFromContext(r.Context())
-	if info == nil {
-		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
 
@@ -312,6 +322,12 @@ func (s *Server) larkOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	flow, ok := s.flowStore.Get(flowID)
+	if !ok {
+		http.Error(w, "unknown or expired flow", http.StatusBadRequest)
+		return
+	}
+
 	ctx := r.Context()
 	broker, err := s.getLarkBroker(ctx)
 	if err != nil {
@@ -319,8 +335,8 @@ func (s *Server) larkOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := broker.Complete(ctx, s.vaultSvc, info.UserID, flowID, code); err != nil {
-		s.log.Error("lark oauth complete", "user_id", info.UserID, "flow_id", flowID, "error", err)
+	if err := broker.Complete(ctx, s.vaultSvc, flow.UserID, flowID, code); err != nil {
+		s.log.Error("lark oauth complete", "user_id", flow.UserID, "flow_id", flowID, "error", err)
 		http.Error(w, "failed to complete Lark authorization: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
