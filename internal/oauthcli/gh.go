@@ -11,7 +11,9 @@ import (
 	"golang.org/x/oauth2/github"
 )
 
-const ghScope = "repo,read:org"
+// ghScopes mirrors the scopes requested by the gh CLI for human-level access:
+// repo (full repo r/w including push), workflow (Actions files), gist, user, read:org.
+var ghScopes = []string{"repo", "workflow", "gist", "user", "read:org"}
 
 // GitHubConfig holds the OAuth app credentials for device flow.
 type GitHubConfig struct {
@@ -48,7 +50,7 @@ func (b *GitHubBroker) oauthConfig() *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     b.cfg.ClientID,
 		ClientSecret: b.cfg.ClientSecret,
-		Scopes:       []string{ghScope},
+		Scopes:       ghScopes,
 		Endpoint:     github.Endpoint,
 	}
 }
