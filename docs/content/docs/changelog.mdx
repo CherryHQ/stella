@@ -11,9 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-04-22
+
 ### ✨ Features
 
-- **Vault**: Add per-user encrypted secret storage with age envelope encryption; secrets injected as env vars into sandbox sessions
+- **Vault**: Add per-user encrypted secret storage with age envelope encryption; secrets injected as env vars into sandbox sessions ([#120](https://github.com/vaayne/anna/pull/120))
+- **Credentials**: Unified credentials tool with shared backend service ([#122](https://github.com/vaayne/anna/pull/122))
+- **OAuth**: Device-flow OAuth for gh and lark-cli ([#121](https://github.com/vaayne/anna/pull/121))
+- **Tools**: Embed the GitHub CLI (`gh`) in prebuilt sandbox tool bundles
+- **Admin**: Redesign plugins page with tabbed navigation and split account/credentials UI
 
 ### ⚠️ Breaking Changes
 
@@ -21,8 +27,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ✨ Improvements
 
-- **Tools**: Embed the GitHub CLI (`gh`) in prebuilt sandbox tool bundles
 - **stdio MCP**: `StartProcess` (stdio MCP servers) now works on every run. Previously silently broken on `boxsh` sessions; docker's container model gives every session a proper process namespace where stdio MCP servers start reliably.
+
+### ♻️ Refactoring
+
+- **Sandbox**: Simplify to docker-only backend ([#118](https://github.com/vaayne/anna/pull/118))
+- **Build**: Sync embedded deps and system skills before build ([#119](https://github.com/vaayne/anna/pull/119))
+- **Auth**: Decouple auth provisioning from vault and merge oauthcli into credentials
+
+### ✅ Testing
+
+- Harden refactor coverage
+
+**Full Changelog**: [v0.14.0...v0.15.0](https://github.com/vaayne/anna/compare/v0.14.0...v0.15.0)
 
 ## [0.14.0] - 2026-04-21
 

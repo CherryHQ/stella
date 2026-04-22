@@ -11,9 +11,15 @@ icon: History
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-04-22
+
 ### ✨ 功能
 
-- **密钥库**：新增基于 age 信封加密的用户私密存储，密钥在沙盒会话中自动注入为环境变量
+- **密钥库**：新增基于 age 信封加密的用户私密存储，密钥在沙盒会话中自动注入为环境变量 ([#120](https://github.com/vaayne/anna/pull/120))
+- **凭据**：统一凭据工具与共享后端服务 ([#122](https://github.com/vaayne/anna/pull/122))
+- **OAuth**：为 gh 和 lark-cli 新增设备流 OAuth 认证 ([#121](https://github.com/vaayne/anna/pull/121))
+- **工具**：将 GitHub CLI（`gh`）加入预构建沙盒工具包
+- **管理界面**：重新设计插件页面，新增标签页导航，拆分账户与凭据 UI
 
 ### ⚠️ 破坏性变更
 
@@ -21,8 +27,19 @@ icon: History
 
 ### ✨ 改进
 
-- **工具**：将 GitHub CLI（`gh`）加入预构建沙盒工具包
 - **stdio MCP**：`StartProcess`（stdio MCP 服务器）现在在每次运行时均可正常工作。此前在 `boxsh` 会话中静默失败；Docker 的容器模型为每个会话提供了独立的进程命名空间，stdio MCP 服务器可稳定启动。
+
+### ♻️ 重构
+
+- **沙盒**：简化为仅 Docker 后端 ([#118](https://github.com/vaayne/anna/pull/118))
+- **构建**：构建前同步嵌入依赖和系统技能 ([#119](https://github.com/vaayne/anna/pull/119))
+- **认证**：将认证配置与密钥库解耦，合并 oauthcli 到凭据模块
+
+### ✅ 测试
+
+- 加强重构覆盖率
+
+**完整更新日志**：[v0.14.0...v0.15.0](https://github.com/vaayne/anna/compare/v0.14.0...v0.15.0)
 
 ## [0.14.0] - 2026-04-21
 
