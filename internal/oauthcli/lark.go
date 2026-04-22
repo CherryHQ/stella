@@ -16,10 +16,40 @@ const (
 	larkRedirectURI = "https://anna.app/oauth/lark/callback" // placeholder; caller sets up the real redirect
 )
 
-// larkScopes are the OAuth scopes requested at login.
-// offline_access is required for the server to issue a refresh token.
-// contact:user.base:readonly provides basic identity info for the session.
-var larkScopes = []string{"offline_access", "contact:user.base:readonly"}
+// larkScopes covers common Feishu/Lark daily-use scenarios: IM read/send,
+// calendar, all document types (docs, docx, wiki, sheets, slides), tasks,
+// and file access. offline_access is required for refresh tokens.
+var larkScopes = []string{
+	"offline_access",
+	// Identity
+	"contact:user.base:readonly",
+	// IM — read and send messages as user, read chats
+	"im:message",
+	"im:chat:readonly",
+	// Calendar — read events and free/busy
+	"calendar:calendar:readonly",
+	// Drive — download files and read metadata
+	"drive:file:download",
+	"drive:drive.metadata:readonly",
+	// Docs (legacy doc format) — read content, comments, export
+	"docs:document.content:read",
+	"docs:document.comment:read",
+	"docs:document.comment:create",
+	"docs:document:export",
+	// Docx (new document format) — full read/write
+	"docx:document",
+	// Wiki — full read/write
+	"wiki:wiki",
+	// Sheets — full read/write
+	"sheets:spreadsheet",
+	// Slides — read and update presentations
+	"slides:presentation:read",
+	"slides:presentation:update",
+	// Tasks — full read/write with comments
+	"task:task",
+	"task:comment:read",
+	"task:comment:write",
+}
 
 // LarkConfig holds the OAuth app credentials for Lark/Feishu device-style flow.
 type LarkConfig struct {
