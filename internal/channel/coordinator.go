@@ -331,13 +331,29 @@ func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.Provisio
 		return errors.New("provision: no admin exists yet; register the first admin before enabling auto-provisioning")
 	}
 	_, err = auth.ProvisionIdentityUser(ctx, c.authStore, auth.ProvisionRequest{
-		Platform:       req.Platform,
-		ExternalID:     req.ExternalID,
-		Name:           req.Name,
-		EmailHint:      req.EmailHint,
-		VaultRecipient: c.vaultRecipient,
+		Platform:   req.Platform,
+		ExternalID: req.ExternalID,
+		Name:       req.Name,
+		EmailHint:  req.EmailHint,
+		OnUserCreated: func(ctx context.Context, userID int64) error {
+			return provisionUserVaultKeys(ctx, c.authStore, c.vaultRecipient, userID)
+		},
 	})
 	return err
+}
+
+func provisionUserVaultKeys(ctx context.Context, store auth.AuthStore, recipient *age.X25519Recipient, userID int64) error {
+	if recipient == nil {
+		return nil
+	}
+	pubKey, encPrivKey, err := vault.GenerateUserKeys(recipient)
+	if err != nil {
+		return fmt.Errorf("generate age keys: %w", err)
+	}
+	if err := store.UpdateUserAgeKeys(ctx, userID, pubKey, encPrivKey); err != nil {
+		return fmt.Errorf("store age keys: %w", err)
+	}
+	return nil
 }
 
 // compile-time checks.

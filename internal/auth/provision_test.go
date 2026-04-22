@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -161,5 +162,60 @@ func TestProvisionIdentityUserShortExternalID(t *testing.T) {
 	}
 	if user.Username != "feishu-short" {
 		t.Errorf("username = %q, want %q", user.Username, "feishu-short")
+	}
+}
+
+func TestProvisionIdentityUserCallsOnUserCreated(t *testing.T) {
+	store := setupProvisionStore(t)
+	ctx := context.Background()
+
+	var calledUserID int64
+	req := auth.ProvisionRequest{
+		Platform:   "feishu",
+		ExternalID: "on_callback",
+		Name:       "Frank",
+		EmailHint:  "frank@example.com",
+		OnUserCreated: func(_ context.Context, userID int64) error {
+			calledUserID = userID
+			return nil
+		},
+	}
+
+	user, err := auth.ProvisionIdentityUser(ctx, store, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calledUserID != user.ID {
+		t.Fatalf("OnUserCreated called with user_id=%d, want %d", calledUserID, user.ID)
+	}
+}
+
+func TestProvisionIdentityUserOnUserCreatedFailureRollsBackUser(t *testing.T) {
+	store := setupProvisionStore(t)
+	ctx := context.Background()
+
+	req := auth.ProvisionRequest{
+		Platform:   "feishu",
+		ExternalID: "on_callback_fail",
+		Name:       "Grace",
+		EmailHint:  "grace@example.com",
+		OnUserCreated: func(_ context.Context, _ int64) error {
+			return errors.New("boom")
+		},
+	}
+
+	_, err := auth.ProvisionIdentityUser(ctx, store, req)
+	if err == nil {
+		t.Fatal("expected error from OnUserCreated")
+	}
+	if !strings.Contains(err.Error(), "on user created: boom") {
+		t.Fatalf("error = %v, want on user created failure", err)
+	}
+
+	if _, err := store.GetIdentityByPlatform(ctx, req.Platform, req.ExternalID); err == nil {
+		t.Fatal("expected no identity after rollback")
+	}
+	if _, err := store.GetUserByUsername(ctx, "grace"); err == nil {
+		t.Fatal("expected created user to be rolled back")
 	}
 }
