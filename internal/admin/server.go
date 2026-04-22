@@ -12,7 +12,7 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/credentials"
-	"github.com/vaayne/anna/internal/oauthcli"
+	oauth "github.com/vaayne/anna/internal/credentials/oauth"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/vault"
 	"github.com/vaayne/anna/pkg/db/sqlc"
@@ -53,7 +53,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 		corsOrigin = val
 	}
 
-	flowStore := oauthcli.NewFlowStore()
+	flowStore := oauth.NewFlowStore()
 	credSvc := credentials.NewService(nil, pluginHost.Config(), flowStore, corsOrigin)
 
 	s := &Server{
