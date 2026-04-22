@@ -18,6 +18,86 @@ templ ProfilePage() {
 				</div>
 			</div>
 		</div>
+		<!-- OAuth CLI -->
+		<div class="mb-10">
+			<h2 class="font-serif text-xl mb-4">OAuth CLI Credentials</h2>
+			<div class="card bg-base-200">
+				<div class="card-body">
+					<p class="text-sm text-secondary">Connect your GitHub or Lark/Feishu account so anna can act on your behalf in CLI tools and runners.</p>
+					<div class="mt-4 flex flex-col gap-4">
+						<!-- GitHub -->
+						<div class="flex items-center justify-between gap-4 border border-base-300 rounded-lg p-4">
+							<div class="flex items-center gap-3">
+								<span class="font-medium text-sm">GitHub</span>
+								<template x-if="oauthStatus.github === 'connected'">
+									<span class="badge badge-success badge-sm">Connected</span>
+								</template>
+								<template x-if="oauthStatus.github === 'disconnected'">
+									<span class="badge badge-ghost badge-sm">Not connected</span>
+								</template>
+								<template x-if="oauthStatus.github === 'checking'">
+									<span class="loading loading-spinner loading-xs"></span>
+								</template>
+							</div>
+							<div>
+								<template x-if="oauthStatus.github !== 'connected'">
+									<button @click="connectOAuth('github')" :disabled="oauthFlowActive.github" class="btn btn-primary btn-sm">
+										<span x-show="oauthFlowActive.github" class="loading loading-spinner loading-xs"></span>
+										Connect
+									</button>
+								</template>
+								<template x-if="oauthStatus.github === 'connected'">
+									<button @click="disconnectOAuth('github')" class="btn btn-error btn-sm btn-outline">Disconnect</button>
+								</template>
+							</div>
+						</div>
+						<!-- GitHub device flow prompt -->
+						<template x-if="oauthFlow.github">
+							<div class="alert alert-info text-sm flex flex-col items-start gap-1 p-4">
+								<p>Open the link below and enter the code to authorize anna:</p>
+								<a :href="oauthFlow.github.verification_uri" target="_blank" class="link font-mono text-xs break-all" x-text="oauthFlow.github.verification_uri"></a>
+								<p>Code: <span class="font-mono font-bold" x-text="oauthFlow.github.user_code"></span></p>
+								<p class="text-xs text-secondary">Waiting for authorization…</p>
+							</div>
+						</template>
+						<!-- Lark / Feishu -->
+						<div class="flex items-center justify-between gap-4 border border-base-300 rounded-lg p-4">
+							<div class="flex items-center gap-3">
+								<span class="font-medium text-sm">Lark / Feishu</span>
+								<template x-if="oauthStatus.lark === 'connected'">
+									<span class="badge badge-success badge-sm">Connected</span>
+								</template>
+								<template x-if="oauthStatus.lark === 'disconnected'">
+									<span class="badge badge-ghost badge-sm">Not connected</span>
+								</template>
+								<template x-if="oauthStatus.lark === 'checking'">
+									<span class="loading loading-spinner loading-xs"></span>
+								</template>
+							</div>
+							<div>
+								<template x-if="oauthStatus.lark !== 'connected'">
+									<button @click="connectOAuth('lark')" :disabled="oauthFlowActive.lark" class="btn btn-primary btn-sm">
+										<span x-show="oauthFlowActive.lark" class="loading loading-spinner loading-xs"></span>
+										Connect
+									</button>
+								</template>
+								<template x-if="oauthStatus.lark === 'connected'">
+									<button @click="disconnectOAuth('lark')" class="btn btn-error btn-sm btn-outline">Disconnect</button>
+								</template>
+							</div>
+						</div>
+						<!-- Lark authorization link prompt -->
+						<template x-if="oauthFlow.lark">
+							<div class="alert alert-info text-sm flex flex-col items-start gap-1 p-4">
+								<p>Click the link below to authorize anna with Lark/Feishu:</p>
+								<a :href="oauthFlow.lark.verification_uri" target="_blank" class="link font-mono text-xs break-all" x-text="oauthFlow.lark.verification_uri"></a>
+								<p class="text-xs text-secondary">Waiting for authorization…</p>
+							</div>
+						</template>
+					</div>
+				</div>
+			</div>
+		</div>
 		<!-- Vault -->
 		<div class="mb-10">
 			<h2 class="font-serif text-xl mb-4">Secret Vault</h2>

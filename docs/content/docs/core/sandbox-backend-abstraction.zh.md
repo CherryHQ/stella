@@ -4,11 +4,11 @@ title: 沙箱后端抽象
 
 ## 状态
 
-已实现。Docker 是推荐的沙箱后端。本地后端也可用于无 Docker 环境，并应用了操作系统级加固措施。Anna 的执行边界由 `pkg/sandbox` 契约描述，runner 侧注册配置位于 `internal/sandbox`。
+已实现。Docker 是推荐的沙箱后端。本地后端也可用于无 Docker 环境；Linux 保留操作系统级加固，而 macOS 当前会直接在宿主机上运行本地命令，不再附加额外沙箱。Anna 的执行边界由 `pkg/sandbox` 契约描述，runner 侧注册配置位于 `internal/sandbox`。
 
 ## 目的
 
-沙箱抽象的目的是使 runner 代码、插件配置和工具执行不依赖于具体的后端类型。所有沙箱化执行都在 Docker 容器中运行。Docker 是必要条件；当 Docker 守护进程在会话创建时不可用时，Anna 会拒绝失败（fail closed）。
+沙箱抽象的目的是使 runner 代码、插件配置和工具执行不依赖于具体的后端类型。执行总是通过 runner 选中的活动后端进行。Docker 提供最强隔离；本地后端则是在 Docker 不可用或不想使用时的宿主机执行回退方案。
 
 顶层模型：
 
@@ -58,9 +58,9 @@ Docker 提供完整的容器级进程、文件系统和网络隔离。Docker 守
 | 进程组终止 + 资源限制 | 所有 Unix | 对进程组发送 `SIGKILL`；通过 `prlimit(2)` 设置 `RLIMIT_FSIZE`、`RLIMIT_NOFILE`、`RLIMIT_CPU` |
 | 文件系统 + 网络隔离 | Linux（bwrap 可用） | `bwrap` — 工作区绑定挂载到 `/workspace`；其余文件系统只读；可选 `--unshare-net` |
 | 仅网络隔离 | Linux（无 bwrap） | `unshare --net` — 新建网络命名空间，无出站连接 |
-| 文件系统 + 网络策略 | macOS | `sandbox-exec` Seatbelt 配置文件 — 写入限制在工作区；网络按策略控制 |
+| 无额外本地隔离 | macOS | 命令直接在宿主机 OS 上运行；不强制执行文件系统和网络策略 |
 
-本地后端采用**拒绝失败**策略：如果所需的隔离工具缺失，会话创建失败并返回包含操作建议的错误信息，而非在无隔离状态下运行。
+本地后端在 Linux 上采用**拒绝失败**策略：如果所需的隔离工具缺失，会话创建失败并返回包含操作建议的错误信息，而非在无隔离状态下运行。macOS 当前不再附加额外沙箱工具。
 
 #### 安装依赖
 
@@ -78,8 +78,8 @@ pacman -S bubblewrap
 
 `unshare`（仅网络隔离的备用方案）是 `util-linux` 的一部分，在几乎所有 Linux 系统上均已存在。
 
-**macOS — sandbox-exec：**
-macOS 内置，无需安装。注意：`sandbox-exec` 自 macOS 10.15（Catalina）起已被非正式弃用，仍可使用，但可能在未来的 macOS 版本中被移除。
+**macOS：**
+无需额外依赖。当前本地后端直接在宿主机 OS 上运行命令，不应用特定于 macOS 的沙箱。
 
 **Windows：** 不支持，请使用 Docker 后端。
 
@@ -91,14 +91,14 @@ macOS 内置，无需安装。注意：`sandbox-exec` 自 macOS 10.15（Catalina
 
 每个代理的沙箱配置仅限于网络策略（模式和允许列表）。每个代理独立控制其沙箱是否允许出站网络访问以及哪些主机可达。
 
-Docker 后端支持的网络模式：
+Docker 后端以及 Linux 本地后端支持的网络模式：
 
 | 模式        | 描述                         |
 | ----------- | ---------------------------- |
 | `disabled`  | 禁止所有出站网络访问（默认） |
 | `allow_all` | 不受限制的出站访问           |
 
-`whitelist` 模式已移除。Anna 在会话创建时验证已配置的模式，如果后端无法强制执行则拒绝失败。
+`whitelist` 模式已移除。Docker 和 Linux 本地后端会在会话创建时验证已配置的模式，如果后端无法强制执行则拒绝失败。macOS 本地后端当前会忽略网络策略并使用宿主机网络访问。
 
 ## 当前架构
 
@@ -108,7 +108,7 @@ runner 为每次运行创建一个 `sandbox.Session` 并持有其生命周期所
 
 ### 后端解析
 
-Docker 后端通过 `init()` 在 `internal/sandbox` 中自注册。`pkg/sandbox.Registry.CreateSession` 按注册顺序迭代已注册的工厂，使用第一个可用且支持该策略的工厂。由于只注册了一个工厂，这总是选择 Docker 或失败。
+runner 会根据插件状态解析当前活动后端，并分派到对应的后端工厂。内置工厂当前支持 `docker` 和 `local`。
 
 ### 执行时中介
 
@@ -122,7 +122,7 @@ Docker 后端通过 `init()` 在 `internal/sandbox` 中自注册。`pkg/sandbox.
 
 ### stdio-MCP 优势
 
-Docker 后端在每次运行时完全支持 `Session.StartProcess`。这意味着 MCP stdio 传输在所有平台上均可统一工作，无需特定于平台的子进程处理。
+两个内置后端都支持 `Session.StartProcess`。Docker 为 stdio MCP 服务器提供独立的容器进程命名空间；本地后端则直接在宿主机上启动这些进程。
 
 ### 非 runner 文件系统访问
 

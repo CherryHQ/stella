@@ -1,6 +1,10 @@
 package main
 
 import (
+	// Plugin auth.
+	_ "github.com/vaayne/anna/plugins/auth/github"
+	_ "github.com/vaayne/anna/plugins/auth/lark"
+
 	// Plugin channels.
 	_ "github.com/vaayne/anna/plugins/channels/feishu"
 	_ "github.com/vaayne/anna/plugins/channels/qq"

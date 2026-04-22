@@ -63,3 +63,80 @@ func TestMapNetworkMode(t *testing.T) {
 		}
 	}
 }
+
+func TestInjectWrapperPath_PrependedWhenSet(t *testing.T) {
+	env := map[string]string{
+		"ANNA_WRAPPER_DIR": "/home/anna/workspace/.anna/bin",
+		"PATH":             "/usr/bin:/bin",
+	}
+	got := injectWrapperPath(env)
+	want := "/home/anna/workspace/.anna/bin:/usr/bin:/bin"
+	if got["PATH"] != want {
+		t.Errorf("PATH = %q, want %q", got["PATH"], want)
+	}
+}
+
+func TestInjectWrapperPath_UsesDefaultPathWhenPATHAbsent(t *testing.T) {
+	env := map[string]string{
+		"ANNA_WRAPPER_DIR": "/home/anna/workspace/.anna/bin",
+	}
+	got := injectWrapperPath(env)
+	if got["PATH"] == "" {
+		t.Fatal("PATH should not be empty when ANNA_WRAPPER_DIR is set")
+	}
+	if got["PATH"][:len("/home/anna/workspace/.anna/bin:")] != "/home/anna/workspace/.anna/bin:" {
+		t.Errorf("PATH does not start with wrapper dir: %q", got["PATH"])
+	}
+	// Should include the container default PATH.
+	if len(got["PATH"]) <= len("/home/anna/workspace/.anna/bin:") {
+		t.Error("PATH should include containerDefaultPATH after wrapper dir")
+	}
+}
+
+func TestInjectWrapperPath_NoOpWhenAbsent(t *testing.T) {
+	env := map[string]string{
+		"PATH": "/usr/bin:/bin",
+	}
+	got := injectWrapperPath(env)
+	if got["PATH"] != "/usr/bin:/bin" {
+		t.Errorf("PATH changed when ANNA_WRAPPER_DIR absent: %q", got["PATH"])
+	}
+}
+
+func TestInjectWrapperPath_NoOpWhenEmpty(t *testing.T) {
+	env := map[string]string{
+		"ANNA_WRAPPER_DIR": "",
+		"PATH":             "/usr/bin:/bin",
+	}
+	got := injectWrapperPath(env)
+	if got["PATH"] != "/usr/bin:/bin" {
+		t.Errorf("PATH changed when ANNA_WRAPPER_DIR is empty: %q", got["PATH"])
+	}
+}
+
+func TestInjectDockerBinPaths_SetsFixedPaths(t *testing.T) {
+	env := map[string]string{}
+	got := injectDockerBinPaths(env)
+
+	if got["ANNA_GH_BIN"] != "/usr/bin/gh" {
+		t.Errorf("ANNA_GH_BIN = %q, want %q", got["ANNA_GH_BIN"], "/usr/bin/gh")
+	}
+	if got["ANNA_LARK_BIN"] != "/usr/local/bin/lark-cli" {
+		t.Errorf("ANNA_LARK_BIN = %q, want %q", got["ANNA_LARK_BIN"], "/usr/local/bin/lark-cli")
+	}
+}
+
+func TestInjectDockerBinPaths_OverridesHostPaths(t *testing.T) {
+	env := map[string]string{
+		"ANNA_GH_BIN":   "/host/anna/bin/gh",
+		"ANNA_LARK_BIN": "/host/anna/bin/lark-cli",
+	}
+	got := injectDockerBinPaths(env)
+
+	if got["ANNA_GH_BIN"] != "/usr/bin/gh" {
+		t.Errorf("ANNA_GH_BIN = %q, want container path %q", got["ANNA_GH_BIN"], "/usr/bin/gh")
+	}
+	if got["ANNA_LARK_BIN"] != "/usr/local/bin/lark-cli" {
+		t.Errorf("ANNA_LARK_BIN = %q, want container path %q", got["ANNA_LARK_BIN"], "/usr/local/bin/lark-cli")
+	}
+}

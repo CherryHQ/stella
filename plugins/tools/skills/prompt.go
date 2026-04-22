@@ -7,11 +7,6 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
-// alwaysOnBuiltinSkill is the one builtin skill visible to every agent
-// regardless of the per-agent enabled_builtin_skills list. It carries anna's
-// self-knowledge.
-const alwaysOnBuiltinSkill = "anna"
-
 func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
 	if build.Platform == nil {
 		return pkgplugins.SystemPromptSection{}, nil
@@ -31,21 +26,8 @@ func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContex
 		return pkgplugins.SystemPromptSection{}, err
 	}
 
-	// Filter system-scope builtin skills to the per-agent allowlist (plus the
-	// always-on "anna" self-knowledge skill). Agent/user/project skills pass
-	// through — they are already owned, not part of the shared catalog.
-	allowedBuiltin := make(map[string]bool, len(build.EnabledBuiltinSkills)+1)
-	allowedBuiltin[alwaysOnBuiltinSkill] = true
-	for _, name := range build.EnabledBuiltinSkills {
-		allowedBuiltin[name] = true
-	}
-	filtered := make([]pkgplugins.Skill, 0, len(dbSkills))
-	for _, s := range dbSkills {
-		if s.Scope == "system" && !allowedBuiltin[s.Name] {
-			continue
-		}
-		filtered = append(filtered, s)
-	}
+	// System-scope skills are always available to every agent. Agent/user/project
+	// skills keep their existing visibility rules.
 
 	// Merge project skills from filesystem (project > user > agent > system precedence).
 	projSkills, _, _ := ListProjectSkills(build.ProjectRoot)
@@ -53,9 +35,9 @@ func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContex
 	for _, s := range projSkills {
 		projNames[s.Name] = true
 	}
-	all := make([]pkgplugins.Skill, 0, len(projSkills)+len(filtered))
+	all := make([]pkgplugins.Skill, 0, len(projSkills)+len(dbSkills))
 	all = append(all, projSkills...)
-	for _, s := range filtered {
+	for _, s := range dbSkills {
 		if !projNames[s.Name] {
 			all = append(all, s)
 		}

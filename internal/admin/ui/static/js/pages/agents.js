@@ -1,4 +1,5 @@
 import { api } from '/static/js/api.js'
+import { skillsDrawerMixin } from '/static/js/components/skills_drawer.js'
 
 function parseChannelConfig(raw) {
   try { return JSON.parse(raw || '{}') } catch { return {} }
@@ -16,6 +17,7 @@ function normalizeChannel(ch) {
 
 export function register(Alpine) {
   Alpine.data('agentsPage', () => ({
+    ...skillsDrawerMixin(),
     agents: [],
     channels: [],
     cachedModels: [],
@@ -143,18 +145,18 @@ export function register(Alpine) {
         .catch(e => { this.selectedSoulID = ''; this.$store.toast.show(e.message, 'error') })
     },
 
-    // --- Builtin skill toggles ---
+    // --- Builtin skill details ---
 
-    toggleBuiltinSkill(name) {
-      const list = this.form.enabled_builtin_skills || []
-      const idx = list.indexOf(name)
-      this.form.enabled_builtin_skills = idx >= 0
-        ? list.filter((_, i) => i !== idx)
-        : [...list, name]
-    },
-
-    isBuiltinSkillEnabled(name) {
-      return (this.form.enabled_builtin_skills || []).includes(name)
+    async openSystemSkill(name) {
+      await this.openSkillsDrawer({
+        title: 'System skills',
+        subtitle: 'Read only · available to every agent',
+        scope: 'system',
+        useAdminAPI: true,
+        canEdit: false,
+      })
+      const skill = this.skillsDrawer.skills.find(sk => sk.name === name)
+      if (skill) await this.selectDrawerSkill(skill)
     },
 
     // --- Auth / users ---
@@ -393,6 +395,18 @@ export function register(Alpine) {
     },
 
     // --- Custom skills ---
+
+    async openAgentSkill(sk) {
+      await this.openSkillsDrawer({
+        title: 'Agent skills',
+        subtitle: 'Skills installed for this agent',
+        scope: 'agent',
+        agentID: this.editingId,
+        canEdit: this.canEditAgent(this.agents.find(a => a.id === this.editingId)),
+      })
+      const skill = this.skillsDrawer.skills.find(s => s.id === sk.id)
+      if (skill) await this.selectDrawerSkill(skill)
+    },
 
     async loadAgentSkills(agentId) {
       if (!agentId) return

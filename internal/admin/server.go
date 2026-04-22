@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"filippo.io/age"
 
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/oauthcli"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/vault"
 	"github.com/vaayne/anna/pkg/db/sqlc"
@@ -34,6 +36,16 @@ type Server struct {
 	corsOriginV    string               // cached CORS origin
 	vaultRecipient *age.X25519Recipient // optional; if set, age keys are generated for new users
 	vaultSvc       *vault.Service       // optional; if nil, vault endpoints return 503
+
+	// OAuth CLI device-flow state.
+	flowStore             *oauthcli.FlowStore
+	oauthMu               sync.Mutex
+	ghBroker              *oauthcli.GitHubBroker // lazily initialised; guarded by oauthMu
+	ghBrokerClientID      string                 // tracks which client_id ghBroker was built with
+	ghBrokerRedirectURI   string                 // tracks which redirect_url ghBroker was built with
+	larkBroker            *oauthcli.LarkBroker   // lazily initialised; guarded by oauthMu
+	larkBrokerAppID       string                 // tracks which app_id larkBroker was built with
+	larkBrokerRedirectURI string                 // tracks which redirect_url larkBroker was built with
 }
 
 // New creates an admin server with all API routes mounted.
@@ -64,6 +76,7 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 		mux:         http.NewServeMux(),
 		log:         slog.With("component", "admin"),
 		corsOriginV: corsOrigin,
+		flowStore:   oauthcli.NewFlowStore(),
 	}
 
 	s.registerRoutes()

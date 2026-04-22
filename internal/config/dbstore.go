@@ -633,6 +633,10 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 		return err
 	}
 
+	if err := s.seedBuiltinPlugins(ctx, PluginKindAuth, builtinAuthNames, nil); err != nil {
+		return err
+	}
+
 	// Seed the reflect plugin (conversation review).
 	if err := s.q.SeedPlugin(ctx, sqlc.SeedPluginParams{
 		ID:      "reflect",

@@ -192,3 +192,41 @@ func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
 		t.Errorf("ANNA_HOME = %q, want %q", got, cfg.AnnaHome)
 	}
 }
+
+// TestBuildSandboxEnv_OAuthBundleKeysStripped verifies that vault entries for
+// the OAuth bundle keys (GH_OAUTH and LARK_CLI_OAUTH) are not forwarded into
+// the sandbox environment, even when present in the vault.
+func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
+	cfg := GoRunnerConfig{
+		AnnaHome:  "/anna",
+		AgentRoot: "/workspace/agent",
+		UserRoot:  "/workspace/users/1",
+		UserID:    1,
+		VaultEnvLoader: &stubVaultLoader{
+			env: map[string]string{
+				"GH_OAUTH":       `{"version":1,"access_token":"ghp_secret"}`,
+				"LARK_CLI_OAUTH": `{"version":1,"access_token":"u-lark-secret"}`,
+				"OTHER_SECRET":   "should-pass-through",
+			},
+		},
+	}
+
+	paths, err := resolveSandboxPaths(cfg)
+	if err != nil {
+		t.Fatalf("resolveSandboxPaths: %v", err)
+	}
+
+	env := buildSandboxEnv(context.Background(), cfg, paths)
+
+	if _, ok := env["GH_OAUTH"]; ok {
+		t.Error("GH_OAUTH must not appear in sandbox env")
+	}
+	if _, ok := env["LARK_CLI_OAUTH"]; ok {
+		t.Error("LARK_CLI_OAUTH must not appear in sandbox env")
+	}
+
+	// Unrelated vault entries must still pass through.
+	if got := env["OTHER_SECRET"]; got != "should-pass-through" {
+		t.Errorf("OTHER_SECRET = %q, want %q", got, "should-pass-through")
+	}
+}

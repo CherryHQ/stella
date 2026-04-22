@@ -20,10 +20,20 @@ export function register(Alpine) {
 
     async init() {
       await Promise.all([this.loadSessions(), this.loadTools()])
+      const sessionID = this._sessionIDFromURL()
+      if (sessionID) {
+        await this.openSession(sessionID, false)
+      }
     },
 
     formatTime(ts) {
       return formatTime(ts)
+    },
+
+    _sessionIDFromURL() {
+      const parts = window.location.pathname.split('/')
+      // pathname: /sessions/<id> → parts: ['', 'sessions', '<id>']
+      return parts.length >= 3 && parts[1] === 'sessions' ? decodeURIComponent(parts[2]) : ''
     },
 
     async loadSessions() {
@@ -34,7 +44,7 @@ export function register(Alpine) {
       }
     },
 
-    async openSession(sessionID) {
+    async openSession(sessionID, pushState = true) {
       this.sessionMessagesLoading = true
       this.sessionMessages = []
       this.sessionSystemPrompt = ''
@@ -47,6 +57,9 @@ export function register(Alpine) {
         ])
         this.sessionMessages = msgs || []
         if (pr && pr.system_prompt) this.sessionSystemPrompt = pr.system_prompt
+        if (pushState) {
+          history.pushState({ sessionID }, '', '/sessions/' + enc)
+        }
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       } finally {
@@ -71,6 +84,7 @@ export function register(Alpine) {
       this.sessionSystemPrompt = ''
       this.showTools = false
       this.showSystemPrompt = false
+      history.pushState(null, '', '/sessions')
     },
   }))
 }
