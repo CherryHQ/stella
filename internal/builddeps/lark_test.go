@@ -75,7 +75,7 @@ func TestGenerateLarkSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 	sharedStr := string(shared)
-	if !strings.Contains(sharedStr, "Anna 会话中的运行方式") || !strings.Contains(sharedStr, "Profile → OAuth CLI Credentials") {
+	if !strings.Contains(sharedStr, "Anna 会话中的运行方式") || !strings.Contains(sharedStr, "Credentials → OAuth CLI Credentials") {
 		t.Fatalf("expected Anna-specific shared skill guidance, got:\n%s", sharedStr)
 	}
 	if strings.Contains(sharedStr, "run lark-cli config init --new") {

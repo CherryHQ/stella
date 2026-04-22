@@ -211,6 +211,30 @@ func TestProfilePageRoute(t *testing.T) {
 	env := setupAdmin(t)
 
 	rr := doRequest(t, env, "GET", "/profile", nil)
+	if rr.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusFound)
+	}
+	if loc := rr.Header().Get("Location"); loc != "/account" {
+		t.Errorf("Location = %q, want %q", loc, "/account")
+	}
+}
+
+func TestAccountPageRoute(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "GET", "/account", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if ct := rr.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want %q", ct, "text/html; charset=utf-8")
+	}
+}
+
+func TestCredentialsPageRoute(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "GET", "/credentials", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}

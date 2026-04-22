@@ -148,5 +148,5 @@ func (s *Server) larkOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, "/profile", http.StatusFound)
+	http.Redirect(w, r, "/credentials", http.StatusFound)
 }

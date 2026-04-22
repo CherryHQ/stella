@@ -30,7 +30,7 @@ completion automatically and resumes your task once connected.
 
 ### Via the admin panel (web UI)
 
-1. Open the Anna admin panel and navigate to your **Profile** page.
+1. Open the Anna admin panel and navigate to your **Credentials** page.
 2. Find the **OAuth CLI Credentials** section.
 3. Click **Connect** next to the provider you want to link.
 4. Anna starts a device flow and displays a verification URL and user code.
@@ -70,7 +70,7 @@ refreshed token automatically.
 Pending device flows (started but not yet authorized) are held in memory. An Anna
 process restart discards them. If Anna restarts while you are completing authorization
 in a browser, you will need to start the flow again (via the `credentials` tool or the
-profile page).
+Credentials page).
 
 ## Security model
 
