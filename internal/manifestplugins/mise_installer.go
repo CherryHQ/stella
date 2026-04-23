@@ -61,18 +61,24 @@ func bootstrapMise(ctx context.Context, annaHome string) error {
 }
 
 // generateMiseTOML returns a mise.toml snippet for a single github backend tool.
+// When b.Version is empty the version field is omitted; mise resolves the version
+// itself (typically the latest GitHub release). Specify an explicit version for
+// tools whose repos use non-standard release channels (e.g. "nightly").
 func generateMiseTOML(b ManifestBinary) string {
-	ver := b.Version
-	if ver == "" {
-		ver = "latest"
-	}
-	// Simple case: no extra options → single-line form
+	// Simple single-line form: "github:owner/repo" = "version"
 	if b.BinPath == "" && b.Exe == "" {
+		ver := b.Version
+		if ver == "" {
+			ver = "latest"
+		}
 		return fmt.Sprintf("[tools]\n\"github:%s\" = %q\n", b.Repo, ver)
 	}
+	// Table form for extra options.
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "[tools.\"github:%s\"]\n", b.Repo)
-	fmt.Fprintf(&sb, "version = %q\n", ver)
+	if b.Version != "" {
+		fmt.Fprintf(&sb, "version = %q\n", b.Version)
+	}
 	if b.BinPath != "" {
 		fmt.Fprintf(&sb, "bin_path = %q\n", b.BinPath)
 	}
