@@ -13,37 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
-
-func TestEmbeddedBinariesIncludeGitHubCLI(t *testing.T) {
-	found, err := embeddedBinaryFromPluginSpec(pkgplugins.BinarySpec{
-		PluginID: "tool/gh",
-		Name:     "gh",
-		Repo:     "cli/cli",
-		Version:  "2.89.0",
-		AssetTemplates: map[string]pkgplugins.BinaryAsset{
-			"darwin-amd64":  {File: "gh_{version}_macOS_amd64.zip"},
-			"darwin-arm64":  {File: "gh_{version}_macOS_arm64.zip"},
-			"linux-amd64":   {File: "gh_{version}_linux_amd64.tar.gz"},
-			"linux-arm64":   {File: "gh_{version}_linux_arm64.tar.gz"},
-			"windows-amd64": {File: "gh_{version}_windows_amd64.zip"},
-			"windows-arm64": {File: "gh_{version}_windows_arm64.zip"},
-		},
-	})
-	if err != nil {
-		t.Fatalf("embeddedBinaryFromPluginSpec: %v", err)
-	}
-	if found.Version != "2.89.0" {
-		t.Fatalf("version = %q, want %q", found.Version, "2.89.0")
-	}
-	for _, platform := range []string{"darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64", "windows-amd64", "windows-arm64"} {
-		if _, _, ok := found.resolveAsset(platform); !ok {
-			t.Fatalf("missing gh asset for %s", platform)
-		}
-	}
-}
 
 func TestEmbeddedBinariesFDDarwinAMD64UsesLegacyTag(t *testing.T) {
 	specs := embeddedBinaries()
@@ -66,34 +36,6 @@ func TestEmbeddedBinariesFDDarwinAMD64UsesLegacyTag(t *testing.T) {
 	}
 	if asset.File != "fd-v10.3.0-x86_64-apple-darwin.tar.gz" {
 		t.Fatalf("file = %q", asset.File)
-	}
-}
-
-func TestEmbeddedBinariesIncludeLarkCLI(t *testing.T) {
-	found, err := embeddedBinaryFromPluginSpec(pkgplugins.BinarySpec{
-		PluginID: "tool/lark-cli",
-		Name:     "lark-cli",
-		Repo:     "larksuite/cli",
-		Version:  "1.0.15",
-		AssetTemplates: map[string]pkgplugins.BinaryAsset{
-			"darwin-amd64":  {File: "lark-cli-{version}-darwin-amd64.tar.gz"},
-			"darwin-arm64":  {File: "lark-cli-{version}-darwin-arm64.tar.gz"},
-			"linux-amd64":   {File: "lark-cli-{version}-linux-amd64.tar.gz"},
-			"linux-arm64":   {File: "lark-cli-{version}-linux-arm64.tar.gz"},
-			"windows-amd64": {File: "lark-cli-{version}-windows-amd64.zip"},
-			"windows-arm64": {File: "lark-cli-{version}-windows-arm64.zip"},
-		},
-	})
-	if err != nil {
-		t.Fatalf("embeddedBinaryFromPluginSpec: %v", err)
-	}
-	if found.Version != "1.0.15" {
-		t.Fatalf("version = %q, want %q", found.Version, "1.0.15")
-	}
-	for _, platform := range []string{"darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64", "windows-amd64", "windows-arm64"} {
-		if _, _, ok := found.resolveAsset(platform); !ok {
-			t.Fatalf("missing lark-cli asset for %s", platform)
-		}
 	}
 }
 

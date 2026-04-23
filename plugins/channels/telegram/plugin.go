@@ -25,7 +25,6 @@ var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) 
 	if handler == nil {
 		return nil, fmt.Errorf("telegram: missing channel handler")
 	}
-	_ = platform.Logger()
 	return NewManagedRuntime(RuntimeDeps{
 		Parent:        parent,
 		Handler:       handler,

@@ -207,10 +207,6 @@ func (h *Host) derivedTraits(pluginID string) (hasConfig bool, hasStatus bool, s
 			add(pkgplugins.CapabilityLifecycle)
 		}
 	}
-	if len(h.binaryRegs[pluginID]) > 0 {
-		add(pkgplugins.CapabilityBinary)
-	}
-
 	capabilities = make([]string, 0, len(capSet))
 	for capability := range capSet {
 		capabilities = append(capabilities, capability)

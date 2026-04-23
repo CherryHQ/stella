@@ -10,9 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/vaayne/anna/internal/pluginhost"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 const (
@@ -127,42 +124,7 @@ func SyncEmbeddedTools(ctx context.Context, cfg Config) error {
 }
 
 func embeddedBinaryCatalog() ([]embeddedBinary, error) {
-	specs := embeddedBinaries()
-	pluginSpecs, err := pluginhost.DefaultCatalogBinarySpecs()
-	if err != nil {
-		return nil, fmt.Errorf("load plugin binary catalog: %w", err)
-	}
-	for _, spec := range pluginSpecs {
-		if !spec.Embed {
-			continue
-		}
-		embedded, err := embeddedBinaryFromPluginSpec(spec)
-		if err != nil {
-			return nil, err
-		}
-		specs = append(specs, embedded)
-	}
-	return specs, nil
-}
-
-func embeddedBinaryFromPluginSpec(spec pkgplugins.BinarySpec) (embeddedBinary, error) {
-	if spec.Version == "" {
-		return embeddedBinary{}, fmt.Errorf("plugin binary %q (%s) must pin a version when embed=true", spec.Name, spec.PluginID)
-	}
-	templates := make(map[string]embeddedBinaryAsset, len(spec.AssetTemplates))
-	for platform, asset := range spec.AssetTemplates {
-		templates[platform] = embeddedBinaryAsset{
-			File:       asset.File,
-			RawBinary:  asset.RawBinary,
-			BinaryName: spec.Name,
-		}
-	}
-	return embeddedBinary{
-		Name:           spec.Name,
-		Repo:           spec.Repo,
-		Version:        spec.Version,
-		AssetTemplates: templates,
-	}, nil
+	return embeddedBinaries(), nil
 }
 
 func (s toolSyncer) sync(ctx context.Context, cfg Config) error {

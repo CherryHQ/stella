@@ -15,6 +15,7 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/vaayne/anna/internal/manifestplugins"
 	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/pluginstate"
@@ -22,7 +23,6 @@ import (
 	"github.com/vaayne/anna/internal/resources/binaries"
 	"github.com/vaayne/anna/internal/scheduler"
 	skills "github.com/vaayne/anna/internal/skills"
-	internaltools "github.com/vaayne/anna/internal/tools"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -46,7 +46,6 @@ func newApp() *ucli.App {
 			modelsCommand(),
 			skillsCommand(),
 			pluginCommand(),
-			toolsCommand(),
 			versionCommand(),
 			upgradeCommand(),
 		},
@@ -146,7 +145,25 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		return nil, fmt.Errorf("load plugin catalog: %w", err)
 	}
-	ensureEnabledPluginBinaries(parent, phost, store, config.AnnaHome())
+
+	// Load and reconcile manifest tool plugins.
+	{
+		builtinManifest, err := manifestplugins.LoadBuiltin()
+		if err != nil {
+			slog.Warn("manifest plugin: failed to load builtin manifest", "error", err)
+		} else {
+			userManifestPath := filepath.Join(config.AnnaHome(), "plugins.yaml")
+			userManifest, err := manifestplugins.LoadUser(userManifestPath)
+			if err != nil {
+				slog.Warn("manifest plugin: failed to load user manifest", "path", userManifestPath, "error", err)
+				userManifest = &manifestplugins.Manifest{}
+			}
+			merged := manifestplugins.Merge(builtinManifest, userManifest)
+			manifestplugins.Reconcile(parent, merged, config.AnnaHome())
+			phost.RegisterManifestPlugins(merged)
+		}
+	}
+
 	if err := phost.ApplyPlugin(ctx, mcpplugin.PluginID); err != nil {
 		return nil, fmt.Errorf("apply mcp runtime: %w", err)
 	}
@@ -436,19 +453,3 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 	)
 }
 
-// ensureEnabledPluginBinaries downloads missing or broken binaries for all
-// currently-enabled plugins and runs their PostInstall hooks. Called at startup
-// so plugins enabled by default (or enabled before the current session) have
-// their binaries ready without requiring a UI toggle.
-func ensureEnabledPluginBinaries(ctx context.Context, phost *pluginhost.Host, store config.Store, annaHome string) {
-	plugins, err := store.ListPlugins(ctx)
-	if err != nil {
-		slog.Warn("could not list plugins for binary ensure", "error", err)
-		return
-	}
-	for _, p := range plugins {
-		if p.Enabled {
-			internaltools.EnsurePluginBinaries(ctx, phost.BinarySpecs(p.ID), annaHome, nil)
-		}
-	}
-}

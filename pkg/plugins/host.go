@@ -18,7 +18,6 @@ type Host interface {
 	AddBeforeRun(BeforeRunSpec)
 	AddBeforeToolCall(BeforeToolCallSpec)
 	AddAfterToolResult(AfterToolResultSpec)
-	AddBinary(BinarySpec)
 	AddSessionEnv(SessionEnvSpec)
 	AddBundledSkill(BundledSkillSpec)
 }
