@@ -23,7 +23,6 @@ import (
 	"github.com/vaayne/anna/internal/resources/binaries"
 	"github.com/vaayne/anna/internal/scheduler"
 	skills "github.com/vaayne/anna/internal/skills"
-	internaltools "github.com/vaayne/anna/internal/tools"
 	coreagent "github.com/vaayne/anna/pkg/agent"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -47,7 +46,6 @@ func newApp() *ucli.App {
 			modelsCommand(),
 			skillsCommand(),
 			pluginCommand(),
-			toolsCommand(),
 			versionCommand(),
 			upgradeCommand(),
 		},
@@ -166,7 +164,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		}
 	}
 
-	ensureEnabledPluginBinaries(parent, phost, store, config.AnnaHome())
 	if err := phost.ApplyPlugin(ctx, mcpplugin.PluginID); err != nil {
 		return nil, fmt.Errorf("apply mcp runtime: %w", err)
 	}
@@ -456,19 +453,3 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 	)
 }
 
-// ensureEnabledPluginBinaries downloads missing or broken binaries for all
-// currently-enabled plugins and runs their PostInstall hooks. Called at startup
-// so plugins enabled by default (or enabled before the current session) have
-// their binaries ready without requiring a UI toggle.
-func ensureEnabledPluginBinaries(ctx context.Context, phost *pluginhost.Host, store config.Store, annaHome string) {
-	plugins, err := store.ListPlugins(ctx)
-	if err != nil {
-		slog.Warn("could not list plugins for binary ensure", "error", err)
-		return
-	}
-	for _, p := range plugins {
-		if p.Enabled {
-			internaltools.EnsurePluginBinaries(ctx, phost.BinarySpecs(p.ID), annaHome, nil)
-		}
-	}
-}
