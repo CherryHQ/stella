@@ -1,6 +1,14 @@
 package manifestplugins
 
-import "time"
+import (
+	"path/filepath"
+	"time"
+)
+
+// StatePath returns the path for the manifest state file.
+func StatePath(annaHome string) string {
+	return filepath.Join(annaHome, "plugin-manifest-state.json")
+}
 
 type ManifestState struct {
 	UpdatedAt time.Time                     `json:"updated_at"`
