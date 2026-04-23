@@ -110,7 +110,7 @@ func init() {
 			Description:  "GitHub CLI integration with OAuth-backed auth, session env, and prompt guidance.",
 			AdminVisible: true,
 			HasConfig:    true,
-			Capabilities: []string{pkgplugins.CapabilityBinary, pkgplugins.CapabilityConfig, pkgplugins.CapabilityPrompt},
+			Capabilities: []string{pkgplugins.CapabilityConfig, pkgplugins.CapabilityPrompt},
 		})
 		host.AddAdmin(pkgplugins.AdminSpec{
 			PluginID:      PluginID,
@@ -118,21 +118,6 @@ func init() {
 			Schema:        configSchema(),
 			Validate:      validateConfig,
 			Redact:        redactConfig,
-		})
-		host.AddBinary(pkgplugins.BinarySpec{
-			PluginID: PluginID,
-			Name:     "gh",
-			Repo:     "cli/cli",
-			Version:  "2.89.0",
-			Embed:    true,
-			AssetTemplates: map[string]pkgplugins.BinaryAsset{
-				"darwin-amd64":  {File: "gh_{version}_macOS_amd64.zip"},
-				"darwin-arm64":  {File: "gh_{version}_macOS_arm64.zip"},
-				"linux-amd64":   {File: "gh_{version}_linux_amd64.tar.gz"},
-				"linux-arm64":   {File: "gh_{version}_linux_arm64.tar.gz"},
-				"windows-amd64": {File: "gh_{version}_windows_amd64.zip"},
-				"windows-arm64": {File: "gh_{version}_windows_arm64.zip"},
-			},
 		})
 		host.AddSessionEnv(pkgplugins.SessionEnvSpec{
 			PluginID: PluginID,
