@@ -1,0 +1,66 @@
+plugins:
+  - id: tool/mise
+    kind: tool
+    name: mise
+    display_name: mise
+    description: "Inject mise usage guidance into the system prompt and provide the mise binary."
+    enabled: true
+    binaries:
+      - name: mise
+        repo: jdx/mise
+
+  - id: tool/tap-web
+    kind: tool
+    name: tap-web
+    display_name: Tap Web
+    description: "Web browsing skill powered by the tap CLI — fetch pages, run browser automation, and capture network traffic."
+    enabled: true
+    binaries:
+      - name: tap
+        repo: vaayne/tap
+        version: "0.4.4"
+      - name: lightpanda
+        repo: lightpanda-io/browser
+        version: "nightly"
+
+  - id: tool/gh
+    kind: tool
+    name: gh
+    display_name: GitHub CLI
+    description: "GitHub CLI integration with OAuth-backed auth, session env, and prompt guidance."
+    enabled: true
+    binaries:
+      - name: gh
+        repo: cli/cli
+        bin_path: "bin"
+    session_env:
+      - env_var: GH_TOKEN
+        source: github_token
+
+  - id: tool/lark-cli
+    kind: tool
+    name: lark-cli
+    display_name: Lark CLI
+    description: "Lark CLI integration with OAuth-backed auth, bundled skills, session env, and prompt guidance."
+    enabled: true
+    binaries:
+      - name: lark-cli
+        repo: larksuite/cli
+    session_env:
+      - env_var: LARKSUITE_CLI_USER_ACCESS_TOKEN
+        source: lark_access_token
+      - env_var: LARKSUITE_CLI_APP_ID
+        source: lark_app_id
+      - env_var: LARKSUITE_CLI_BRAND
+        source: lark_brand
+
+  - id: hook/rtk
+    kind: hook
+    name: rtk
+    display_name: RTK
+    description: "Rewrite bash commands through the rtk binary."
+    enabled: true
+    binaries:
+      - name: rtk
+        repo: rtk-ai/rtk
+        version: "0.30.0"

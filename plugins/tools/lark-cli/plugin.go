@@ -133,7 +133,7 @@ func init() {
 			Description:  "Lark CLI integration with OAuth-backed auth, bundled skills, session env, and prompt guidance.",
 			AdminVisible: true,
 			HasConfig:    true,
-			Capabilities: []string{pkgplugins.CapabilityBinary, pkgplugins.CapabilityConfig, pkgplugins.CapabilityPrompt},
+			Capabilities: []string{pkgplugins.CapabilityConfig, pkgplugins.CapabilityPrompt},
 		})
 		host.AddAdmin(pkgplugins.AdminSpec{
 			PluginID:      PluginID,
@@ -141,21 +141,6 @@ func init() {
 			Schema:        configSchema(),
 			Validate:      validateConfig,
 			Redact:        redactConfig,
-		})
-		host.AddBinary(pkgplugins.BinarySpec{
-			PluginID: PluginID,
-			Name:     "lark-cli",
-			Repo:     "larksuite/cli",
-			Version:  "1.0.15",
-			Embed:    true,
-			AssetTemplates: map[string]pkgplugins.BinaryAsset{
-				"darwin-amd64":  {File: "lark-cli-{version}-darwin-amd64.tar.gz"},
-				"darwin-arm64":  {File: "lark-cli-{version}-darwin-arm64.tar.gz"},
-				"linux-amd64":   {File: "lark-cli-{version}-linux-amd64.tar.gz"},
-				"linux-arm64":   {File: "lark-cli-{version}-linux-arm64.tar.gz"},
-				"windows-amd64": {File: "lark-cli-{version}-windows-amd64.zip"},
-				"windows-arm64": {File: "lark-cli-{version}-windows-arm64.zip"},
-			},
 		})
 		host.AddSessionEnv(pkgplugins.SessionEnvSpec{
 			PluginID: PluginID,

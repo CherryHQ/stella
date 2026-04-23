@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/manifestplugins"
 	"github.com/vaayne/anna/internal/skills"
 	"github.com/vaayne/anna/pkg/ai"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
@@ -16,60 +17,60 @@ import (
 type Option func(*Host)
 
 type Host struct {
-	store            config.Store
-	log              *slog.Logger
-	config           *configService
-	runtimes         *RuntimeHost
-	mu               sync.RWMutex
-	pluginIDs        map[string]struct{}
-	metadataRegs     map[string]pkgplugins.PluginInfo
-	notifications    pkgplugins.Notifier
-	scheduler        SchedulerBackend
-	stateStore       StateStoreBackend
-	skillStore       skills.Store
-	authService      pkgplugins.Auth
-	channelRuntime   pkgplugins.ChannelPlatform
-	reflectRuntime   pkgplugins.ReflectPlatform
-	toolRegs         map[string]pkgplugins.ToolSpec
-	providerRegs     map[string]pkgplugins.ProviderSpec
-	hookRegs         map[string]pkgplugins.HookSpec
-	beforeRunRegs    map[string]pkgplugins.BeforeRunSpec
-	beforeToolRegs   map[string]pkgplugins.BeforeToolCallSpec
-	afterToolRegs    map[string]pkgplugins.AfterToolResultSpec
-	channelRegs      map[string]pkgplugins.ChannelSpec
-	memoryRegs       map[string]pkgplugins.MemorySpec
-	runtimeRegs      map[string]pkgplugins.RuntimeSpec
-	configRegs       map[string]pkgplugins.AdminSpec
-	statusRegs       map[string]pkgplugins.AdminSpec
-	promptRegs       map[string]pkgplugins.PromptInventorySpec
-	systemPromptRegs map[string]pkgplugins.SystemPromptSpec
-	binaryRegs       map[string][]pkgplugins.BinarySpec
-	sessionEnvRegs   map[string][]pkgplugins.SessionEnvSpec
-	bundledSkillRegs map[string][]pkgplugins.BundledSkillSpec
+	store              config.Store
+	log                *slog.Logger
+	config             *configService
+	runtimes           *RuntimeHost
+	mu                 sync.RWMutex
+	pluginIDs          map[string]struct{}
+	manifestEnabledIDs map[string]struct{}
+	metadataRegs       map[string]pkgplugins.PluginInfo
+	notifications      pkgplugins.Notifier
+	scheduler          SchedulerBackend
+	stateStore         StateStoreBackend
+	skillStore         skills.Store
+	authService        pkgplugins.Auth
+	channelRuntime     pkgplugins.ChannelPlatform
+	reflectRuntime     pkgplugins.ReflectPlatform
+	toolRegs           map[string]pkgplugins.ToolSpec
+	providerRegs       map[string]pkgplugins.ProviderSpec
+	hookRegs           map[string]pkgplugins.HookSpec
+	beforeRunRegs      map[string]pkgplugins.BeforeRunSpec
+	beforeToolRegs     map[string]pkgplugins.BeforeToolCallSpec
+	afterToolRegs      map[string]pkgplugins.AfterToolResultSpec
+	channelRegs        map[string]pkgplugins.ChannelSpec
+	memoryRegs         map[string]pkgplugins.MemorySpec
+	runtimeRegs        map[string]pkgplugins.RuntimeSpec
+	configRegs         map[string]pkgplugins.AdminSpec
+	statusRegs         map[string]pkgplugins.AdminSpec
+	promptRegs         map[string]pkgplugins.PromptInventorySpec
+	systemPromptRegs   map[string]pkgplugins.SystemPromptSpec
+	sessionEnvRegs     map[string][]pkgplugins.SessionEnvSpec
+	bundledSkillRegs   map[string][]pkgplugins.BundledSkillSpec
 }
 
 func New(store config.Store, opts ...Option) *Host {
 	h := &Host{
-		store:            store,
-		log:              slog.With("component", "plugin_host"),
-		pluginIDs:        map[string]struct{}{},
-		metadataRegs:     map[string]pkgplugins.PluginInfo{},
-		toolRegs:         map[string]pkgplugins.ToolSpec{},
-		providerRegs:     map[string]pkgplugins.ProviderSpec{},
-		hookRegs:         map[string]pkgplugins.HookSpec{},
-		beforeRunRegs:    map[string]pkgplugins.BeforeRunSpec{},
-		beforeToolRegs:   map[string]pkgplugins.BeforeToolCallSpec{},
-		afterToolRegs:    map[string]pkgplugins.AfterToolResultSpec{},
-		channelRegs:      map[string]pkgplugins.ChannelSpec{},
-		memoryRegs:       map[string]pkgplugins.MemorySpec{},
-		runtimeRegs:      map[string]pkgplugins.RuntimeSpec{},
-		configRegs:       map[string]pkgplugins.AdminSpec{},
-		statusRegs:       map[string]pkgplugins.AdminSpec{},
-		promptRegs:       map[string]pkgplugins.PromptInventorySpec{},
-		systemPromptRegs: map[string]pkgplugins.SystemPromptSpec{},
-		binaryRegs:       map[string][]pkgplugins.BinarySpec{},
-		sessionEnvRegs:   map[string][]pkgplugins.SessionEnvSpec{},
-		bundledSkillRegs: map[string][]pkgplugins.BundledSkillSpec{},
+		store:              store,
+		log:                slog.With("component", "plugin_host"),
+		pluginIDs:          map[string]struct{}{},
+		manifestEnabledIDs: map[string]struct{}{},
+		metadataRegs:       map[string]pkgplugins.PluginInfo{},
+		toolRegs:           map[string]pkgplugins.ToolSpec{},
+		providerRegs:       map[string]pkgplugins.ProviderSpec{},
+		hookRegs:           map[string]pkgplugins.HookSpec{},
+		beforeRunRegs:      map[string]pkgplugins.BeforeRunSpec{},
+		beforeToolRegs:     map[string]pkgplugins.BeforeToolCallSpec{},
+		afterToolRegs:      map[string]pkgplugins.AfterToolResultSpec{},
+		channelRegs:        map[string]pkgplugins.ChannelSpec{},
+		memoryRegs:         map[string]pkgplugins.MemorySpec{},
+		runtimeRegs:        map[string]pkgplugins.RuntimeSpec{},
+		configRegs:         map[string]pkgplugins.AdminSpec{},
+		statusRegs:         map[string]pkgplugins.AdminSpec{},
+		promptRegs:         map[string]pkgplugins.PromptInventorySpec{},
+		systemPromptRegs:   map[string]pkgplugins.SystemPromptSpec{},
+		sessionEnvRegs:     map[string][]pkgplugins.SessionEnvSpec{},
+		bundledSkillRegs:   map[string][]pkgplugins.BundledSkillSpec{},
 	}
 	h.config = &configService{store: store}
 	h.runtimes = NewRuntimeHost(h)
@@ -114,6 +115,64 @@ func (h *Host) LoadCatalog(catalog *pkgplugins.Catalog) error {
 }
 
 func (h *Host) LoadDefaultCatalog() error { return h.LoadCatalog(defaultCatalog()) }
+
+// RegisterManifestPlugins registers plugins declared in a manifest. For each
+// enabled plugin:
+//   - New plugins (not already Go-registered) are fully registered with ID, info,
+//     and session envs.
+//   - Existing plugins (already Go-registered) only get added to manifestEnabledIDs;
+//     session envs are skipped to avoid double-injection since Go code handles them.
+func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
+	if m == nil {
+		return
+	}
+
+	// Collect which IDs are already registered without holding the lock across
+	// the public method calls (RegisterPluginID / SetInfo / AddSessionEnv each
+	// acquire the lock themselves).
+	type toRegister struct {
+		plugin    manifestplugins.ManifestPlugin
+		alreadyGo bool
+	}
+	var entries []toRegister
+
+	h.mu.Lock()
+	for _, p := range m.Plugins {
+		if !p.Enabled {
+			continue
+		}
+		_, alreadyGo := h.pluginIDs[p.ID]
+		h.manifestEnabledIDs[p.ID] = struct{}{}
+		entries = append(entries, toRegister{plugin: p, alreadyGo: alreadyGo})
+	}
+	h.mu.Unlock()
+
+	for _, e := range entries {
+		p := e.plugin
+		if e.alreadyGo {
+			// Go plugin already registered ID, info, and session envs — skip.
+			continue
+		}
+
+		h.RegisterPluginID(p.ID)
+		h.SetInfo(pkgplugins.PluginInfo{
+			ID:          p.ID,
+			Kind:        p.Kind,
+			Name:        p.Name,
+			DisplayName: p.DisplayName,
+			Description: p.Description,
+		})
+		for _, se := range p.SessionEnvs {
+			h.AddSessionEnv(pkgplugins.SessionEnvSpec{
+				PluginID: p.ID,
+				EnvVar:   se.EnvVar,
+				Source:   pkgplugins.SessionEnvSource(se.Source),
+				Value:    se.Value,
+				Required: se.Required,
+			})
+		}
+	}
+}
 
 func (h *Host) SetInfo(info pkgplugins.PluginInfo) {
 	info = normalizeMetadata(info)
@@ -204,12 +263,6 @@ func (h *Host) AddSystemPrompt(reg pkgplugins.SystemPromptSpec) {
 	registerUnique(h.systemPromptRegs, promptKey(reg.PluginID, reg.Name), reg, "system prompt")
 }
 
-func (h *Host) AddBinary(spec pkgplugins.BinarySpec) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.binaryRegs[spec.PluginID] = append(h.binaryRegs[spec.PluginID], spec)
-}
-
 func (h *Host) AddSessionEnv(spec pkgplugins.SessionEnvSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -220,22 +273,6 @@ func (h *Host) AddBundledSkill(spec pkgplugins.BundledSkillSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.bundledSkillRegs[spec.PluginID] = append(h.bundledSkillRegs[spec.PluginID], spec)
-}
-
-func (h *Host) BinarySpecs(pluginID string) []pkgplugins.BinarySpec {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return append([]pkgplugins.BinarySpec(nil), h.binaryRegs[pluginID]...)
-}
-
-func (h *Host) AllBinarySpecs() []pkgplugins.BinarySpec {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	var out []pkgplugins.BinarySpec
-	for _, specs := range h.binaryRegs {
-		out = append(out, specs...)
-	}
-	return out
 }
 
 func (h *Host) SessionEnvSpecs(pluginID string) []pkgplugins.SessionEnvSpec {

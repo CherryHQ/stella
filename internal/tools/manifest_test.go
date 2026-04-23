@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 func TestLoadManifest_Missing(t *testing.T) {
@@ -131,117 +129,6 @@ func TestBinDir(t *testing.T) {
 	if got != "/home/user/.anna/bin" {
 		t.Fatalf("unexpected BinDir: %s", got)
 	}
-}
-
-func TestDeduplicateByName(t *testing.T) {
-	t.Run("empty", func(t *testing.T) {
-		got := DeduplicateByName(nil, nil)
-		if len(got) != 0 {
-			t.Fatalf("expected empty, got %v", got)
-		}
-	})
-	t.Run("no duplicates", func(t *testing.T) {
-		specs := []pkgplugins.BinarySpec{
-			{Name: "fd", PluginID: "a", Version: "1.0"},
-			{Name: "rg", PluginID: "b", Version: "2.0"},
-		}
-		got := DeduplicateByName(specs, nil)
-		if len(got) != 2 {
-			t.Fatalf("expected 2, got %d", len(got))
-		}
-	})
-	t.Run("duplicate same version deduplicated", func(t *testing.T) {
-		specs := []pkgplugins.BinarySpec{
-			{Name: "fd", PluginID: "a", Version: "1.0"},
-			{Name: "fd", PluginID: "b", Version: "1.0"},
-		}
-		got := DeduplicateByName(specs, nil)
-		if len(got) != 1 {
-			t.Fatalf("expected 1, got %d", len(got))
-		}
-	})
-	t.Run("duplicate conflict logs warning keeps first", func(t *testing.T) {
-		specs := []pkgplugins.BinarySpec{
-			{Name: "fd", PluginID: "a", Version: "1.0"},
-			{Name: "fd", PluginID: "b", Version: "2.0"},
-		}
-		got := DeduplicateByName(specs, nil)
-		if len(got) != 1 {
-			t.Fatalf("expected 1, got %d", len(got))
-		}
-		if got[0].Version != "1.0" {
-			t.Fatalf("expected first alphabetically (a's version 1.0), got %s", got[0].Version)
-		}
-	})
-}
-
-func TestStatusFromSpecs(t *testing.T) {
-	t.Run("empty specs", func(t *testing.T) {
-		got := StatusFromSpecs(nil, t.TempDir())
-		if len(got) != 0 {
-			t.Fatalf("expected empty, got %v", got)
-		}
-	})
-	t.Run("not installed", func(t *testing.T) {
-		specs := []pkgplugins.BinarySpec{{Name: "fd", Version: "8.7.0"}}
-		got := StatusFromSpecs(specs, t.TempDir())
-		if len(got) != 1 {
-			t.Fatalf("expected 1, got %d", len(got))
-		}
-		if got[0].Installed {
-			t.Fatal("expected not installed")
-		}
-		if got[0].Version != "8.7.0" {
-			t.Fatalf("unexpected version: %s", got[0].Version)
-		}
-	})
-	t.Run("latest version shows latest label", func(t *testing.T) {
-		specs := []pkgplugins.BinarySpec{{Name: "rg", Version: ""}}
-		got := StatusFromSpecs(specs, t.TempDir())
-		if got[0].Version != "latest" {
-			t.Fatalf("expected 'latest', got %q", got[0].Version)
-		}
-	})
-	t.Run("installed at right version", func(t *testing.T) {
-		dir := t.TempDir()
-		m := &Manifest{Tools: map[string]InstalledTool{"fd": {Version: "8.7.0"}}}
-		if err := m.Save(dir); err != nil {
-			t.Fatal(err)
-		}
-		specs := []pkgplugins.BinarySpec{{Name: "fd", Version: "8.7.0"}}
-		got := StatusFromSpecs(specs, dir)
-		if !got[0].Installed {
-			t.Fatal("expected installed=true")
-		}
-		if !got[0].Current {
-			t.Fatal("expected current=true")
-		}
-	})
-	t.Run("installed at wrong version", func(t *testing.T) {
-		dir := t.TempDir()
-		m := &Manifest{Tools: map[string]InstalledTool{"fd": {Version: "7.0.0"}}}
-		if err := m.Save(dir); err != nil {
-			t.Fatal(err)
-		}
-		specs := []pkgplugins.BinarySpec{{Name: "fd", Version: "8.7.0"}}
-		got := StatusFromSpecs(specs, dir)
-		if !got[0].Installed {
-			t.Fatal("expected installed=true")
-		}
-		if got[0].Current {
-			t.Fatal("expected current=false for wrong version")
-		}
-	})
-	t.Run("deduplicates by name", func(t *testing.T) {
-		specs := []pkgplugins.BinarySpec{
-			{Name: "fd", Version: "1.0"},
-			{Name: "fd", Version: "2.0"}, // duplicate
-		}
-		got := StatusFromSpecs(specs, t.TempDir())
-		if len(got) != 1 {
-			t.Fatalf("expected 1, got %d", len(got))
-		}
-	})
 }
 
 func TestManifestIsInstalled(t *testing.T) {

@@ -65,6 +65,14 @@ templ PluginsPage() {
 					<span class="text-xs text-secondary ml-1" x-text="'(' + otherPlugins.length + ')'"></span>
 				</button>
 			</template>
+			<button
+				@click="tab = 'manifest'"
+				class="pb-2 text-sm font-medium transition-colors border-b-2 whitespace-nowrap"
+				:class="tab === 'manifest' ? 'border-primary text-primary' : 'border-transparent text-secondary hover:text-base-content'"
+			>
+				Manifest Tools
+				<span class="text-xs text-secondary ml-1" x-text="'(' + manifestPlugins.length + ')'"></span>
+			</button>
 		</div>
 		<!-- Tools Tab -->
 		<div x-show="tab === 'tools'" x-cloak>
@@ -506,6 +514,61 @@ templ PluginsPage() {
 				</template>
 				<template x-if="sandboxPlugins.length === 0">
 					<div class="px-4 py-8 text-center text-secondary text-sm">No sandbox plugins registered.</div>
+				</template>
+			</div>
+		</div>
+		<!-- Manifest Tools Tab -->
+		<div x-show="tab === 'manifest'" x-cloak>
+			<div class="flex items-center justify-between mb-4">
+				<p class="text-xs text-secondary">File-driven tool plugins from <code class="font-mono">$ANNA_HOME/plugins.yaml</code>. Enable/disable and sync without restart.</p>
+				<button @click="syncManifest()" :disabled="manifestSyncing" class="btn btn-primary btn-sm">
+					<span x-show="manifestSyncing" class="loading loading-spinner loading-xs"></span>
+					Sync now
+				</button>
+			</div>
+			<template x-if="manifestSyncResult">
+				<div class="mb-4 rounded-lg border border-base-300 bg-base-100 p-3">
+					<p class="text-xs font-medium text-secondary mb-2">Last sync result</p>
+					<div class="space-y-1">
+						<template x-for="(result, pluginID) in manifestSyncResult.Plugins" :key="pluginID">
+							<div class="flex items-center gap-2 text-xs">
+								<span class="font-mono" x-text="pluginID"></span>
+								<template x-if="result.Err">
+									<span class="badge badge-error badge-xs" x-text="result.Err"></span>
+								</template>
+								<template x-if="!result.Err">
+									<span class="badge badge-success badge-xs">ok</span>
+								</template>
+							</div>
+						</template>
+					</div>
+				</div>
+			</template>
+			<div class="border border-base-300 rounded-lg divide-y divide-base-300">
+				<template x-for="p in manifestPlugins" :key="p.id">
+					<div class="flex items-center justify-between gap-4 px-4 py-3">
+						<div class="min-w-0 flex-1">
+							<div class="flex items-center gap-2">
+								<span class="font-medium text-sm" x-text="p.display_name || p.name || p.id"></span>
+								<span class="font-mono text-[11px] text-secondary" x-text="p.id"></span>
+								<template x-if="p.enabled">
+									<span class="badge badge-success badge-xs">on</span>
+								</template>
+							</div>
+							<template x-if="p.description">
+								<p class="text-xs text-secondary mt-1" x-text="p.description"></p>
+							</template>
+						</div>
+						<input
+							type="checkbox"
+							:checked="p.enabled"
+							@change="toggleManifestPlugin(p.id, $event.target.checked)"
+							class="toggle toggle-primary toggle-sm"
+						/>
+					</div>
+				</template>
+				<template x-if="manifestPlugins.length === 0">
+					<div class="px-4 py-8 text-center text-secondary text-sm">No manifest plugins configured.</div>
 				</template>
 			</div>
 		</div>

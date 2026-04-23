@@ -119,11 +119,7 @@ func (h *Host) ValidateRegistrations() error {
 				if !hasMemoryLocked(h.memoryRegs, meta.ID) {
 					return fmt.Errorf("pluginhost: metadata for %q declares memory capability but no memory is registered", meta.ID)
 				}
-			case pkgplugins.CapabilityBinary:
-				if len(h.binaryRegs[meta.ID]) == 0 {
-					return fmt.Errorf("pluginhost: metadata for %q declares binary capability but no binary is registered", meta.ID)
-				}
-			}
+}
 		}
 	}
 	return nil

@@ -197,7 +197,10 @@ func TestBuildSandboxEnv_vaultSecretsInjected(t *testing.T) {
 		t.Fatalf("resolveSandboxPaths: %v", err)
 	}
 
-	env := buildSandboxEnv(context.Background(), cfg, paths)
+	env, err := buildSandboxEnv(context.Background(), cfg, paths)
+	if err != nil {
+		t.Fatalf("buildSandboxEnv: %v", err)
+	}
 
 	// Vault secret must be present.
 	if got := env["MY_SECRET"]; got != "s3cr3t" {
@@ -224,7 +227,10 @@ func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
 		t.Fatalf("resolveSandboxPaths: %v", err)
 	}
 
-	env := buildSandboxEnv(context.Background(), cfg, paths)
+	env, err := buildSandboxEnv(context.Background(), cfg, paths)
+	if err != nil {
+		t.Fatalf("buildSandboxEnv: %v", err)
+	}
 
 	if got := env["ANNA_HOME"]; got != cfg.AnnaHome {
 		t.Errorf("ANNA_HOME = %q, want %q", got, cfg.AnnaHome)
@@ -254,7 +260,10 @@ func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 		t.Fatalf("resolveSandboxPaths: %v", err)
 	}
 
-	env := buildSandboxEnv(context.Background(), cfg, paths)
+	env, err := buildSandboxEnv(context.Background(), cfg, paths)
+	if err != nil {
+		t.Fatalf("buildSandboxEnv: %v", err)
+	}
 
 	if _, ok := env["GH_OAUTH"]; ok {
 		t.Error("GH_OAUTH must not appear in sandbox env")
@@ -318,7 +327,10 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 		t.Fatalf("resolveSandboxPaths: %v", err)
 	}
 
-	env := buildSandboxEnv(ctx, cfg, paths)
+	env, err := buildSandboxEnv(ctx, cfg, paths)
+	if err != nil {
+		t.Fatalf("buildSandboxEnv: %v", err)
+	}
 	if _, ok := env[oauth.VaultKeyGitHub]; ok {
 		t.Fatalf("%s must not appear in sandbox env", oauth.VaultKeyGitHub)
 	}
@@ -371,7 +383,10 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 		t.Fatalf("resolveSandboxPaths: %v", err)
 	}
 
-	env := buildSandboxEnv(ctx, cfg, paths)
+	env, err := buildSandboxEnv(ctx, cfg, paths)
+	if err != nil {
+		t.Fatalf("buildSandboxEnv: %v", err)
+	}
 	if _, ok := env["GH_TOKEN"]; ok {
 		t.Fatal("GH_TOKEN should be skipped when token manager returns an error")
 	}

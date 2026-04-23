@@ -309,15 +309,7 @@ func TestValidateRegistrationsAcceptsCLIBackedPromptOnlyTool(t *testing.T) {
 		Kind:         "tool",
 		Name:         "mise",
 		DisplayName:  "mise",
-		Capabilities: []string{pkgplugins.CapabilityBinary, pkgplugins.CapabilityPrompt},
-	})
-	host.AddBinary(pkgplugins.BinarySpec{
-		PluginID: "tool/mise",
-		Name:     "mise",
-		Repo:     "jdx/mise",
-		AssetTemplates: map[string]pkgplugins.BinaryAsset{
-			"darwin-arm64": {File: "mise-{tag}-macos-arm64.tar.gz"},
-		},
+		Capabilities: []string{pkgplugins.CapabilityPrompt},
 	})
 	host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
 		PluginID: "tool/mise",

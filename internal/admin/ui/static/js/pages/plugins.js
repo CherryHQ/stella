@@ -16,6 +16,11 @@ export function register(Alpine) {
     pluginConfigLoaded: {},
     pluginConfigRaw: {},
     pluginConfigDrafts: {},
+    // Manifest plugins state
+    manifestPlugins: [],
+    manifestSyncing: false,
+    manifestSyncResult: null,
+
     mcpServers: [],
     mcpStatuses: [],
     mcpSaving: false,
@@ -86,6 +91,7 @@ export function register(Alpine) {
 
     async init() {
       await this.loadPlugins()
+      await this.loadManifestPlugins()
     },
 
     async loadPlugins() {
@@ -717,6 +723,39 @@ export function register(Alpine) {
         },
       }
       return meta[plugin.id] || { recommended: false, isDefault: false, features: [], limitations: [] }
+    },
+
+    async loadManifestPlugins() {
+      try {
+        this.manifestPlugins = (await api('GET', '/api/manifest-plugins') || [])
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    async toggleManifestPlugin(id, enabled) {
+      try {
+        const plugin = this.manifestPlugins.find(p => p.id === id)
+        if (!plugin) return
+        plugin.enabled = enabled
+        await api('PUT', '/api/manifest-plugins', { plugins: this.manifestPlugins })
+        await this.loadManifestPlugins()
+        this.$store.toast.show(id + (enabled ? ' enabled' : ' disabled'))
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    async syncManifest() {
+      try {
+        this.manifestSyncing = true
+        this.manifestSyncResult = await api('POST', '/api/manifest-plugins/sync')
+        this.$store.toast.show('Manifest sync complete')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      } finally {
+        this.manifestSyncing = false
+      }
     },
 
     pluginMetaBadges(plugin) {
