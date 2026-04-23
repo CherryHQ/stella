@@ -21,6 +21,8 @@ func (h stubHost) AddBeforeRun(BeforeRunSpec)             {}
 func (h stubHost) AddBeforeToolCall(BeforeToolCallSpec)   {}
 func (h stubHost) AddAfterToolResult(AfterToolResultSpec) {}
 func (h stubHost) AddBinary(BinarySpec)                   {}
+func (h stubHost) AddSessionEnv(SessionEnvSpec)           {}
+func (h stubHost) AddBundledSkill(BundledSkillSpec)       {}
 
 func TestPluginFuncRegister(t *testing.T) {
 	called := false

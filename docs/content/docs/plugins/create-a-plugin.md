@@ -162,6 +162,15 @@ Managed runtime plugin:
 - `AddRuntime`
 - `AddAdmin` for status
 
+CLI-backed tool plugin:
+
+- `SetInfo`
+- `AddBinary`
+- optional `AddAdmin` for OAuth or other config
+- optional `AddSessionEnv` when the runner must inject session auth
+- optional `AddBundledSkill` when the plugin ships a builtin system skill
+- optional `AddSystemPrompt` for usage guidance
+
 Managed channel plugin:
 
 - usually use `RegisterManagedChannelPlugin(...)`
@@ -240,6 +249,8 @@ Good examples already exist in:
 - `plugins/channels/telegram/plugin_test.go`
 - `plugins/reflect/plugin_runtime_test.go`
 - `plugins/tools/mcp/plugin_test.go`
+- `plugins/tools/gh/plugin.go`
+- `plugins/tools/lark-cli/plugin.go`
 
 ## Common Mistakes
 

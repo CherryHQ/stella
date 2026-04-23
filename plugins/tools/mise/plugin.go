@@ -29,7 +29,7 @@ func init() {
 			DisplayName:  "mise",
 			Description:  "Inject mise usage guidance into the system prompt and provide the mise binary.",
 			AdminVisible: true,
-			Capabilities: []string{pkgplugins.CapabilityPrompt},
+			Capabilities: []string{pkgplugins.CapabilityBinary, pkgplugins.CapabilityPrompt},
 		})
 		host.AddBinary(pkgplugins.BinarySpec{
 			PluginID: PluginID,

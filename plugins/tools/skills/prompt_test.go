@@ -2,6 +2,7 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -159,5 +160,49 @@ func TestBuildPromptSectionAlwaysIncludesSystemSkills(t *testing.T) {
 		if !strings.Contains(section.Content, "<name>"+name+"</name>") {
 			t.Fatalf("expected %s in prompt content: %s", name, section.Content)
 		}
+	}
+}
+
+func TestBuildPromptSectionFiltersPluginOwnedSystemSkillsByPluginState(t *testing.T) {
+	store, _, _ := newTestSkillStore(t)
+	ctx := context.Background()
+
+	meta, err := json.Marshal(map[string]any{"owner_plugin": "tool/lark-cli"})
+	if err != nil {
+		t.Fatalf("Marshal metadata: %v", err)
+	}
+	if _, err := store.Create(ctx, pkgplugins.Skill{
+		Scope:       "system",
+		Name:        "lark",
+		Description: "Lark skill",
+		Status:      "active",
+		Metadata:    meta,
+	}, map[string]string{pkgplugins.SkillMainFile: "# Lark"}); err != nil {
+		t.Fatalf("create lark system skill: %v", err)
+	}
+
+	platform := &skillStorePlatform{store: store}
+	section, err := BuildPromptSection(ctx, pkgplugins.SystemPromptContext{
+		Platform:            platform,
+		RegisteredPluginIDs: []string{"tool/lark-cli"},
+		EnabledPluginIDs:    nil,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(section.Content, "<name>lark</name>") {
+		t.Fatalf("expected disabled plugin-owned skill to be hidden: %s", section.Content)
+	}
+
+	section, err = BuildPromptSection(ctx, pkgplugins.SystemPromptContext{
+		Platform:            platform,
+		RegisteredPluginIDs: []string{"tool/lark-cli"},
+		EnabledPluginIDs:    []string{"tool/lark-cli"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(section.Content, "<name>lark</name>") {
+		t.Fatalf("expected enabled plugin-owned skill to be visible: %s", section.Content)
 	}
 }

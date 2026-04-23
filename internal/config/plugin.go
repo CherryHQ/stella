@@ -26,7 +26,7 @@ func PluginID(kind, name string) string { return kind + "/" + name }
 
 // builtinToolNames lists the built-in tool plugins.
 // Core tools (read, bash, edit, write) are always-on and no longer managed as plugins.
-var builtinToolNames = []string{"mcp", "mise", "tap-web", "webfetch"}
+var builtinToolNames = []string{"gh", "lark-cli", "mcp", "mise", "tap-web", "webfetch"}
 
 // builtinChannelNames lists the 4 built-in channel plugins.
 var builtinChannelNames = []string{"telegram", "qq", "feishu", "weixin"}
@@ -43,16 +43,13 @@ var builtinMemoryNames = []string{"lcm", "simple"}
 // builtinSandboxNames lists the built-in sandbox backend plugins.
 var builtinSandboxNames = []string{SandboxBackendDocker, SandboxBackendLocal}
 
-// builtinAuthNames lists the built-in OAuth provider plugins.
-var builtinAuthNames = []string{"github", "lark"}
-
 // builtinStandalonePlugins lists plugins that don't follow the kind/name pattern.
 var builtinStandalonePlugins = []string{"reflect"}
 
 // BuiltinPluginIDs returns all built-in plugin IDs in deterministic order.
 // Provider instances are stored separately in settings_providers.
 func BuiltinPluginIDs() []string {
-	ids := make([]string, 0, len(builtinToolNames)+len(builtinChannelNames)+len(builtinHookNames)+len(builtinMemoryNames)+len(builtinSandboxNames)+len(builtinAuthNames)+len(builtinStandalonePlugins))
+	ids := make([]string, 0, len(builtinToolNames)+len(builtinChannelNames)+len(builtinHookNames)+len(builtinMemoryNames)+len(builtinSandboxNames)+len(builtinStandalonePlugins))
 	for _, n := range builtinToolNames {
 		ids = append(ids, PluginID(PluginKindTool, n))
 	}
@@ -67,9 +64,6 @@ func BuiltinPluginIDs() []string {
 	}
 	for _, n := range builtinSandboxNames {
 		ids = append(ids, PluginID(PluginKindSandbox, n))
-	}
-	for _, n := range builtinAuthNames {
-		ids = append(ids, PluginID(PluginKindAuth, n))
 	}
 	ids = append(ids, builtinStandalonePlugins...)
 	return ids

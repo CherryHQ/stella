@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"path"
 	"strings"
 
@@ -19,11 +20,12 @@ import (
 // Duplicated from plugins/tools/skills/catalog.go intentionally (Phase 6 will decide
 // whether to centralise; for now this avoids breaking catalog.go's unexported API).
 type builtinFrontmatter struct {
-	Name                   string `yaml:"name"`
-	Description            string `yaml:"description"`
-	Status                 string `yaml:"status"`
-	CreatedAt              string `yaml:"created-at"`
-	DisableModelInvocation bool   `yaml:"disable-model-invocation"`
+	Name                   string         `yaml:"name"`
+	Description            string         `yaml:"description"`
+	Status                 string         `yaml:"status"`
+	CreatedAt              string         `yaml:"created-at"`
+	DisableModelInvocation bool           `yaml:"disable-model-invocation"`
+	Metadata               map[string]any `yaml:"metadata"`
 }
 
 // parseBuiltinFrontmatter extracts YAML frontmatter from a SKILL.md string.
@@ -53,9 +55,13 @@ func parseBuiltinFrontmatter(content string) (builtinFrontmatter, error) {
 // frontmatterToMetaJSON marshals a subset of frontmatter fields into a JSON blob
 // suitable for Skill.Metadata storage.
 func frontmatterToMetaJSON(fm builtinFrontmatter) (json.RawMessage, error) {
-	m := map[string]any{
-		"created-at":               fm.CreatedAt,
-		"disable-model-invocation": fm.DisableModelInvocation,
+	m := map[string]any{}
+	maps.Copy(m, fm.Metadata)
+	if fm.CreatedAt != "" {
+		m["created-at"] = fm.CreatedAt
+	}
+	if fm.DisableModelInvocation {
+		m["disable-model-invocation"] = fm.DisableModelInvocation
 	}
 	b, err := json.Marshal(m)
 	if err != nil {

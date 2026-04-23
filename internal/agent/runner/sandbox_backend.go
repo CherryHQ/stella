@@ -6,17 +6,16 @@ import (
 	"log/slog"
 	"maps"
 	"os"
-	"path/filepath"
 	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/vaayne/anna/internal/cliwrap"
 	"github.com/vaayne/anna/internal/config"
 	oauth "github.com/vaayne/anna/internal/credentials/oauth"
-	"github.com/vaayne/anna/internal/resources/binaries"
 	"github.com/vaayne/anna/internal/sandbox"
+	internaltools "github.com/vaayne/anna/internal/tools"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
 	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
 	localplugin "github.com/vaayne/anna/plugins/sandbox/local"
@@ -147,41 +146,89 @@ func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths
 	// tokens below instead.
 	delete(env, oauth.VaultKeyGitHub)
 	delete(env, oauth.VaultKeyLark)
-
-	// Inject runtime OAuth tokens when a TokenManager is available.
-	if cfg.TokenManager != nil {
-		if token, err := cfg.TokenManager.GetGHToken(ctx, cfg.UserID); err == nil && token != "" {
-			env["GH_TOKEN"] = token
-		} else if err != nil {
-			slog.Debug("gh token injection skipped",
-				"component", "runner_sandbox",
-				"user_id", cfg.UserID,
-				"error", err,
-			)
-		}
-
-		if larkEnv, err := cfg.TokenManager.GetLarkRuntimeEnv(ctx, cfg.UserID); err == nil {
-			maps.Copy(env, larkEnv)
-		} else {
-			slog.Debug("lark env injection skipped",
-				"component", "runner_sandbox",
-				"user_id", cfg.UserID,
-				"error", err,
-			)
-		}
-	}
-
-	// Set real binary paths so wrapper scripts can locate them.
-	if ghPath := binaries.ToolPath(paths.AnnaHome, "gh"); ghPath != "" {
-		env["ANNA_GH_BIN"] = ghPath
-	}
-	if larkPath := binaries.ToolPath(paths.AnnaHome, "lark-cli"); larkPath != "" {
-		env["ANNA_LARK_BIN"] = larkPath
-	}
+	injectSessionEnv(ctx, cfg, env)
 
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, sandboxProcessEnv(paths))
 	return env
+}
+
+func injectSessionEnv(ctx context.Context, cfg GoRunnerConfig, env map[string]string) {
+	var (
+		ghTokenLoaded bool
+		ghToken       string
+		larkLoaded    bool
+		larkEnv       map[string]string
+	)
+	for _, spec := range cfg.SessionEnvSpecs {
+		switch spec.Source {
+		case pkgplugins.SessionEnvSourceStatic:
+			env[spec.EnvVar] = spec.Value
+		case pkgplugins.SessionEnvSourceGitHubToken:
+			if cfg.TokenManager == nil {
+				continue
+			}
+			if !ghTokenLoaded {
+				ghTokenLoaded = true
+				token, err := cfg.TokenManager.GetGHToken(ctx, cfg.UserID)
+				if err != nil {
+					slog.Debug("session env injection skipped",
+						"component", "runner_sandbox",
+						"user_id", cfg.UserID,
+						"env_var", spec.EnvVar,
+						"source", spec.Source,
+						"error", err,
+					)
+				}
+				ghToken = token
+			}
+			if ghToken != "" {
+				env[spec.EnvVar] = ghToken
+			}
+		case pkgplugins.SessionEnvSourceLarkAccessToken, pkgplugins.SessionEnvSourceLarkAppID, pkgplugins.SessionEnvSourceLarkBrand:
+			if cfg.TokenManager == nil {
+				continue
+			}
+			if !larkLoaded {
+				larkLoaded = true
+				var err error
+				larkEnv, err = cfg.TokenManager.GetLarkRuntimeEnv(ctx, cfg.UserID)
+				if err != nil {
+					slog.Debug("session env injection skipped",
+						"component", "runner_sandbox",
+						"user_id", cfg.UserID,
+						"env_var", spec.EnvVar,
+						"source", spec.Source,
+						"error", err,
+					)
+				}
+			}
+			switch spec.Source {
+			case pkgplugins.SessionEnvSourceLarkAccessToken:
+				if value := larkEnv["LARKSUITE_CLI_USER_ACCESS_TOKEN"]; value != "" {
+					env[spec.EnvVar] = value
+				}
+			case pkgplugins.SessionEnvSourceLarkAppID:
+				if value := larkEnv["LARKSUITE_CLI_APP_ID"]; value != "" {
+					env[spec.EnvVar] = value
+				}
+			case pkgplugins.SessionEnvSourceLarkBrand:
+				if value := larkEnv["LARKSUITE_CLI_BRAND"]; value != "" {
+					env[spec.EnvVar] = value
+				}
+			}
+		}
+	}
+}
+
+func prependPathEntry(entry, existing string) string {
+	if entry == "" {
+		return existing
+	}
+	if existing == "" {
+		return entry
+	}
+	return entry + string(os.PathListSeparator) + existing
 }
 
 func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
@@ -202,15 +249,6 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 		return nil, err
 	}
 	env := buildSandboxEnv(ctx, cfg, paths)
-
-	// Provision CLI wrappers under the user wrapper dir; expose the dir path via
-	// ANNA_WRAPPER_DIR so Phase 5 can add it to PATH inside the container.
-	wrapperDir := filepath.Join(paths.UserRoot, ".anna", "bin")
-	if err := cliwrap.EnsureWrappers(wrapperDir); err != nil {
-		slog.Warn("cliwrap provision failed", "component", "runner_sandbox", "error", err)
-	} else {
-		env["ANNA_WRAPPER_DIR"] = wrapperDir
-	}
 
 	policy := sandbox.Policy{
 		Filesystem: runnerFilesystemPolicy(paths),
@@ -265,18 +303,11 @@ func createLocalSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		return nil, fmt.Errorf("resolve sandbox paths: %w", err)
 	}
 	env := buildSandboxEnv(ctx, cfg, paths)
-
-	// Provision CLI wrappers and prepend wrapper dir to PATH for local sessions.
-	wrapperDir := filepath.Join(paths.UserRoot, ".anna", "bin")
-	if err := cliwrap.EnsureWrappers(wrapperDir); err != nil {
-		slog.Warn("cliwrap provision failed", "component", "runner_sandbox", "error", err)
-	} else {
-		existing := env["PATH"]
-		if existing == "" {
-			existing = os.Getenv("PATH")
-		}
-		env["PATH"] = wrapperDir + string(os.PathListSeparator) + existing
+	existing := env["PATH"]
+	if existing == "" {
+		existing = os.Getenv("PATH")
 	}
+	env["PATH"] = prependPathEntry(internaltools.BinDir(paths.AnnaHome), existing)
 
 	policy := sandbox.Policy{
 		Filesystem: runnerFilesystemPolicy(paths),

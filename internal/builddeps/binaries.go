@@ -10,6 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/vaayne/anna/internal/pluginhost"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 const (
@@ -17,8 +20,6 @@ const (
 	fdDarwinAMD64Version = "10.3.0"
 	rgVersion            = "15.1.0"
 	boxshVersion         = "2.1.0"
-	ghCLIVersion         = "2.89.0"
-	larkCLIVersion       = "1.0.15"
 )
 
 type embeddedBinaryAsset struct {
@@ -98,32 +99,6 @@ func embeddedBinaries() []embeddedBinary {
 				"linux-arm64":  {File: "boxsh-v{version}-linux-arm64", RawBinary: true},
 			},
 		},
-		{
-			Name:    "gh",
-			Repo:    "cli/cli",
-			Version: ghCLIVersion,
-			AssetTemplates: map[string]embeddedBinaryAsset{
-				"darwin-amd64":  {File: "gh_{version}_macOS_amd64.zip"},
-				"darwin-arm64":  {File: "gh_{version}_macOS_arm64.zip"},
-				"linux-amd64":   {File: "gh_{version}_linux_amd64.tar.gz"},
-				"linux-arm64":   {File: "gh_{version}_linux_arm64.tar.gz"},
-				"windows-amd64": {File: "gh_{version}_windows_amd64.zip", BinaryName: "gh.exe"},
-				"windows-arm64": {File: "gh_{version}_windows_arm64.zip", BinaryName: "gh.exe"},
-			},
-		},
-		{
-			Name:    "lark-cli",
-			Repo:    "larksuite/cli",
-			Version: larkCLIVersion,
-			AssetTemplates: map[string]embeddedBinaryAsset{
-				"darwin-amd64":  {File: "lark-cli-{version}-darwin-amd64.tar.gz"},
-				"darwin-arm64":  {File: "lark-cli-{version}-darwin-arm64.tar.gz"},
-				"linux-amd64":   {File: "lark-cli-{version}-linux-amd64.tar.gz"},
-				"linux-arm64":   {File: "lark-cli-{version}-linux-arm64.tar.gz"},
-				"windows-amd64": {File: "lark-cli-{version}-windows-amd64.zip", BinaryName: "lark-cli.exe"},
-				"windows-arm64": {File: "lark-cli-{version}-windows-arm64.zip", BinaryName: "lark-cli.exe"},
-			},
-		},
 	}
 }
 
@@ -139,12 +114,55 @@ type toolSyncer struct {
 // is acceptable for a dev-time build tool but should be revisited if this path
 // ever runs with write access to a production artifact store.
 func SyncEmbeddedTools(ctx context.Context, cfg Config) error {
+	specs, err := embeddedBinaryCatalog()
+	if err != nil {
+		return err
+	}
 	s := toolSyncer{
 		client:  http.DefaultClient,
 		baseURL: "https://github.com",
-		specs:   embeddedBinaries(),
+		specs:   specs,
 	}
 	return s.sync(ctx, cfg)
+}
+
+func embeddedBinaryCatalog() ([]embeddedBinary, error) {
+	specs := embeddedBinaries()
+	pluginSpecs, err := pluginhost.DefaultCatalogBinarySpecs()
+	if err != nil {
+		return nil, fmt.Errorf("load plugin binary catalog: %w", err)
+	}
+	for _, spec := range pluginSpecs {
+		if !spec.Embed {
+			continue
+		}
+		embedded, err := embeddedBinaryFromPluginSpec(spec)
+		if err != nil {
+			return nil, err
+		}
+		specs = append(specs, embedded)
+	}
+	return specs, nil
+}
+
+func embeddedBinaryFromPluginSpec(spec pkgplugins.BinarySpec) (embeddedBinary, error) {
+	if spec.Version == "" {
+		return embeddedBinary{}, fmt.Errorf("plugin binary %q (%s) must pin a version when embed=true", spec.Name, spec.PluginID)
+	}
+	templates := make(map[string]embeddedBinaryAsset, len(spec.AssetTemplates))
+	for platform, asset := range spec.AssetTemplates {
+		templates[platform] = embeddedBinaryAsset{
+			File:       asset.File,
+			RawBinary:  asset.RawBinary,
+			BinaryName: spec.Name,
+		}
+	}
+	return embeddedBinary{
+		Name:           spec.Name,
+		Repo:           spec.Repo,
+		Version:        spec.Version,
+		AssetTemplates: templates,
+	}, nil
 }
 
 func (s toolSyncer) sync(ctx context.Context, cfg Config) error {

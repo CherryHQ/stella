@@ -202,12 +202,15 @@ func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
 func TestTranslateEnvPaths(t *testing.T) {
 	mounts := []dockerclient.Mount{
 		{HostPath: "/host/workspace", ContainerPath: "/workspace"},
+		{HostPath: "/host/.anna", ContainerPath: "/home/anna/.anna", ReadOnly: true},
+		{HostPath: "/host/.anna/bin", ContainerPath: "/home/anna/.anna/bin", ReadOnly: true},
+		{HostPath: "/host/.anna/skills", ContainerPath: "/home/anna/.anna/skills", ReadOnly: true},
 	}
 
 	env := map[string]string{
 		"PATH":        "/host/tools/bin:/usr/bin", // host-only — should drop
 		"HOME":        "/host/workspace",          // host-only — should drop even if mounted
-		"ANNA_HOME":   "/host/.anna",              // absolute, not mounted — should drop
+		"ANNA_HOME":   "/host/.anna",              // mounted — should translate
 		"WORKING_DIR": "/host/workspace",          // mounted — should translate
 		"TERM":        "xterm-256color",           // non-path — pass through
 		"LANG":        "en_US.UTF-8",              // non-path — pass through
@@ -215,10 +218,13 @@ func TestTranslateEnvPaths(t *testing.T) {
 
 	got := translateEnvPaths(env, mounts)
 
-	for _, k := range []string{"PATH", "HOME", "ANNA_HOME"} {
+	for _, k := range []string{"PATH", "HOME"} {
 		if v, ok := got[k]; ok {
 			t.Errorf("%s should be dropped, got %q", k, v)
 		}
+	}
+	if got["ANNA_HOME"] != "/home/anna/.anna" {
+		t.Errorf("ANNA_HOME: got %q, want /home/anna/.anna", got["ANNA_HOME"])
 	}
 	if got["WORKING_DIR"] != "/workspace" {
 		t.Errorf("WORKING_DIR: got %q, want /workspace", got["WORKING_DIR"])

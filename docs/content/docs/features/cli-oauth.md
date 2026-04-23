@@ -43,11 +43,11 @@ asking the agent to run `credentials disconnect` for the relevant provider.
 ## Using the CLIs
 
 After connecting, raw `gh` and `lark-cli` commands work inside agent sandbox sessions
-without any additional configuration. Anna prepends a wrapper directory to `PATH` so
-that every `gh` or `lark-cli` invocation automatically receives the correct credentials.
-For `lark-cli`, Anna injects `LARKSUITE_CLI_USER_ACCESS_TOKEN`,
-`LARKSUITE_CLI_APP_ID`, and `LARKSUITE_CLI_BRAND`, so no per-session `config init`
-is required.
+without any additional configuration. Anna injects the required auth env for each
+session and prepends `$ANNA_HOME/bin` to `PATH`, so `gh` and `lark-cli` resolve
+straight to Anna-managed binaries. For `lark-cli`, Anna injects
+`LARKSUITE_CLI_USER_ACCESS_TOKEN`, `LARKSUITE_CLI_APP_ID`, and
+`LARKSUITE_CLI_BRAND`, so no per-session `config init` is required.
 
 Example (issued by the agent inside a bash tool call):
 

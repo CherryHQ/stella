@@ -802,6 +802,64 @@ func TestPluginSeedNormalizesLegacyChannelPluginConfig(t *testing.T) {
 	}
 }
 
+func TestSeedDefaultsMigratesLegacyAuthPluginsToToolOwners(t *testing.T) {
+	store := setupDBStore(t)
+	ctx := context.Background()
+
+	if err := store.UpsertPlugin(ctx, Plugin{
+		ID:      "auth/github",
+		Kind:    PluginKindAuth,
+		Name:    "github",
+		Enabled: true,
+		Config: map[string]any{
+			"client_id":     "gh-client",
+			"client_secret": "gh-secret",
+		},
+	}); err != nil {
+		t.Fatalf("UpsertPlugin auth/github: %v", err)
+	}
+	if err := store.UpsertPlugin(ctx, Plugin{
+		ID:      "auth/lark",
+		Kind:    PluginKindAuth,
+		Name:    "lark",
+		Enabled: true,
+		Config: map[string]any{
+			"app_id":     "lark-app",
+			"app_secret": "lark-secret",
+			"brand":      "feishu",
+		},
+	}); err != nil {
+		t.Fatalf("UpsertPlugin auth/lark: %v", err)
+	}
+
+	if err := store.SeedDefaults(ctx); err != nil {
+		t.Fatalf("SeedDefaults: %v", err)
+	}
+
+	gh, err := store.GetPlugin(ctx, "tool/gh")
+	if err != nil {
+		t.Fatalf("GetPlugin tool/gh: %v", err)
+	}
+	if gh.Config["client_id"] != "gh-client" || gh.Config["client_secret"] != "gh-secret" {
+		t.Fatalf("tool/gh config = %+v", gh.Config)
+	}
+
+	lark, err := store.GetPlugin(ctx, "tool/lark-cli")
+	if err != nil {
+		t.Fatalf("GetPlugin tool/lark-cli: %v", err)
+	}
+	if lark.Config["app_id"] != "lark-app" || lark.Config["app_secret"] != "lark-secret" || lark.Config["brand"] != "feishu" {
+		t.Fatalf("tool/lark-cli config = %+v", lark.Config)
+	}
+
+	if _, err := store.GetPlugin(ctx, "auth/github"); err == nil {
+		t.Fatal("expected auth/github to be removed after migration")
+	}
+	if _, err := store.GetPlugin(ctx, "auth/lark"); err == nil {
+		t.Fatal("expected auth/lark to be removed after migration")
+	}
+}
+
 func TestGetChannelNotFound(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()

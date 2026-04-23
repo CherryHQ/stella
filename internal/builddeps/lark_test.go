@@ -54,7 +54,7 @@ func TestGenerateLarkSkill(t *testing.T) {
 		t.Fatal(err)
 	}
 	mainStr := string(main)
-	if !strings.Contains(mainStr, "name: lark") || !strings.Contains(mainStr, "source_ref: \"test-ref\"") {
+	if !strings.Contains(mainStr, "name: lark") || !strings.Contains(mainStr, "source_ref: test-ref") || !strings.Contains(mainStr, "owner_plugin: tool/lark-cli") {
 		t.Fatalf("aggregate skill missing expected frontmatter:\n%s", mainStr)
 	}
 	if !strings.Contains(mainStr, "references/lark-shared.md") || !strings.Contains(mainStr, "references/lark-doc.md") {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/vaayne/anna/internal/config"
 	oauth "github.com/vaayne/anna/internal/credentials/oauth"
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 // stubVaultLoader is a test-only VaultEnvLoader that returns a fixed map.
@@ -304,6 +305,12 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 		UserID:         userID,
 		VaultEnvLoader: store,
 		TokenManager:   oauth.NewTokenManager(store),
+		SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
+			{EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSourceGitHubToken},
+			{EnvVar: "LARKSUITE_CLI_USER_ACCESS_TOKEN", Source: pkgplugins.SessionEnvSourceLarkAccessToken},
+			{EnvVar: "LARKSUITE_CLI_APP_ID", Source: pkgplugins.SessionEnvSourceLarkAppID},
+			{EnvVar: "LARKSUITE_CLI_BRAND", Source: pkgplugins.SessionEnvSourceLarkBrand},
+		},
 	}
 
 	paths, err := resolveSandboxPaths(cfg)
@@ -353,6 +360,10 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 		UserID:         userID,
 		VaultEnvLoader: store,
 		TokenManager:   oauth.NewTokenManager(store),
+		SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
+			{EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSourceGitHubToken},
+			{EnvVar: "LARKSUITE_CLI_USER_ACCESS_TOKEN", Source: pkgplugins.SessionEnvSourceLarkAccessToken},
+		},
 	}
 
 	paths, err := resolveSandboxPaths(cfg)
