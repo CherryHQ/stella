@@ -3,18 +3,61 @@ package manifestplugins
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
-var knownSources = map[string]struct{}{
-	"static":            {},
-	"github_token":      {},
-	"lark_access_token": {},
-	"lark_app_id":       {},
-	"lark_brand":        {},
+var knownStaticSources = map[string]struct{}{
+	"static": {},
+}
+
+func isValidSource(src string, providerIDs map[string]struct{}) bool {
+	if _, ok := knownStaticSources[src]; ok {
+		return true
+	}
+	if strings.HasPrefix(src, "oauth.") {
+		// source is "oauth.<field>"; no further validation needed here
+		return true
+	}
+	return false
 }
 
 func Validate(m *Manifest) error {
 	var errs []error
+
+	providerIDs := make(map[string]struct{}, len(m.OAuthProviders))
+	for i, op := range m.OAuthProviders {
+		if op.ID == "" {
+			errs = append(errs, fmt.Errorf("oauth_provider[%d]: id is required", i))
+		} else {
+			if _, dup := providerIDs[op.ID]; dup {
+				errs = append(errs, fmt.Errorf("oauth_provider[%d]: duplicate id %q", i, op.ID))
+			}
+			providerIDs[op.ID] = struct{}{}
+		}
+		if op.VaultKey == "" {
+			errs = append(errs, fmt.Errorf("oauth_provider %q: vault_key is required", op.ID))
+		}
+		if len(op.Flows) == 0 {
+			errs = append(errs, fmt.Errorf("oauth_provider %q: at least one flow is required", op.ID))
+		}
+		for j, f := range op.Flows {
+			if f.Type == "" {
+				errs = append(errs, fmt.Errorf("oauth_provider %q flow[%d]: type is required", op.ID, j))
+			} else if f.Type != "authorization_code" && f.Type != "device_code" {
+				errs = append(errs, fmt.Errorf("oauth_provider %q flow[%d]: unknown type %q", op.ID, j, f.Type))
+			}
+			if f.TokenURL == "" {
+				errs = append(errs, fmt.Errorf("oauth_provider %q flow[%d]: token_url is required", op.ID, j))
+			}
+			if f.Type == "authorization_code" && f.AuthURL == "" {
+				errs = append(errs, fmt.Errorf("oauth_provider %q flow[%d]: auth_url is required for authorization_code", op.ID, j))
+			}
+			if f.Type == "device_code" && f.DeviceAuthURL == "" {
+				errs = append(errs, fmt.Errorf("oauth_provider %q flow[%d]: device_auth_url is required for device_code", op.ID, j))
+			}
+		}
+	}
+
 	for i, p := range m.Plugins {
 		if p.ID == "" {
 			errs = append(errs, fmt.Errorf("plugin[%d]: id is required", i))
@@ -44,8 +87,13 @@ func Validate(m *Manifest) error {
 			}
 			if se.Source == "" {
 				errs = append(errs, fmt.Errorf("plugin %q session_env[%d]: source is required", p.ID, j))
-			} else if _, ok := knownSources[se.Source]; !ok {
+			} else if !isValidSource(se.Source, providerIDs) {
 				errs = append(errs, fmt.Errorf("plugin %q session_env[%d]: unknown source %q", p.ID, j, se.Source))
+			}
+		}
+		if p.OAuthProvider != "" {
+			if _, ok := providerIDs[p.OAuthProvider]; !ok {
+				errs = append(errs, fmt.Errorf("plugin %q: unknown oauth_provider %q", p.ID, p.OAuthProvider))
 			}
 		}
 	}

@@ -1,3 +1,76 @@
+oauth_providers:
+  - id: github
+    scopes:
+      - repo
+      - workflow
+      - gist
+      - user
+      - read:org
+    vault_key: GH_OAUTH
+    flows:
+      - type: authorization_code
+        auth_url: https://github.com/login/oauth/authorize
+        token_url: https://github.com/login/oauth/access_token
+      - type: device_code
+        device_auth_url: https://github.com/login/device/code
+        token_url: https://github.com/login/oauth/access_token
+
+  - id: lark
+    scopes:
+      - offline_access
+      - contact:user.base:readonly
+      - im:message
+      - im:chat:readonly
+      - calendar:calendar:readonly
+      - drive:file:download
+      - drive:drive.metadata:readonly
+      - docs:document.content:read
+      - docs:document.comment:read
+      - docs:document.comment:create
+      - docs:document:export
+      - docx:document
+      - wiki:wiki
+      - sheets:spreadsheet
+      - slides:presentation:read
+      - slides:presentation:update
+      - task:task
+      - task:comment:read
+      - task:comment:write
+    vault_key: LARK_CLI_OAUTH
+    flows:
+      - type: authorization_code
+        auth_url: https://open.larksuite.com/open-apis/authen/v1/authorize
+        token_url: https://open.larksuite.com/open-apis/authen/v2/oauth/token
+        auth_style: in_params
+
+  - id: feishu
+    scopes:
+      - offline_access
+      - contact:user.base:readonly
+      - im:message
+      - im:chat:readonly
+      - calendar:calendar:readonly
+      - drive:file:download
+      - drive:drive.metadata:readonly
+      - docs:document.content:read
+      - docs:document.comment:read
+      - docs:document.comment:create
+      - docs:document:export
+      - docx:document
+      - wiki:wiki
+      - sheets:spreadsheet
+      - slides:presentation:read
+      - slides:presentation:update
+      - task:task
+      - task:comment:read
+      - task:comment:write
+    vault_key: FEISHU_CLI_OAUTH
+    flows:
+      - type: authorization_code
+        auth_url: https://open.feishu.cn/open-apis/authen/v1/authorize
+        token_url: https://open.feishu.cn/open-apis/authen/v2/oauth/token
+        auth_style: in_params
+
 plugins:
   - id: tool/mise
     kind: tool
@@ -33,9 +106,10 @@ plugins:
       - name: gh
         repo: cli/cli
         bin_path: "bin"
+    oauth_provider: github
     session_env:
       - env_var: GH_TOKEN
-        source: github_token
+        source: oauth.access_token
 
   - id: tool/lark-cli
     kind: tool
@@ -46,13 +120,15 @@ plugins:
     binaries:
       - name: lark-cli
         repo: larksuite/cli
+    oauth_provider: lark
     session_env:
       - env_var: LARKSUITE_CLI_USER_ACCESS_TOKEN
-        source: lark_access_token
+        source: oauth.access_token
       - env_var: LARKSUITE_CLI_APP_ID
-        source: lark_app_id
+        source: oauth.client_id
       - env_var: LARKSUITE_CLI_BRAND
-        source: lark_brand
+        source: static
+        value: lark
 
   - id: hook/rtk
     kind: hook
