@@ -2,7 +2,6 @@ package tools
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 )
@@ -29,19 +28,4 @@ func ToolPath(annaHome, name string) string {
 	return ""
 }
 
-// ResolveBinary returns the path to a named binary, checking the anna bin
-// directory first, then $PATH. Returns empty string if not found anywhere.
-// Use this instead of rolling per-plugin path resolution.
-func ResolveBinary(binDir, name string) string {
-	if binDir != "" {
-		p := filepath.Join(binDir, binaryFileName(name))
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	if p, err := exec.LookPath(name); err == nil {
-		return p
-	}
-	return ""
-}
 

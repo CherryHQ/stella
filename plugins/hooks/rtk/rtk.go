@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/vaayne/anna/internal/tools"
 	"github.com/vaayne/anna/pkg/hooks"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
@@ -66,7 +65,7 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 
 // wrapWithRTK uses "rtk rewrite" to determine how to wrap the command.
 func (h *Hook) wrapWithRTK(command string) string {
-	rtk := tools.ResolveBinary(h.toolsBinDir, "rtk")
+	rtk := pkgplugins.ResolveBinary(h.toolsBinDir, "rtk")
 	if rtk == "" {
 		return command
 	}
