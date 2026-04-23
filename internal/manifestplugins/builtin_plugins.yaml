@@ -1,0 +1,81 @@
+plugins:
+  - id: tool/mise
+    kind: tool
+    name: mise
+    display_name: mise
+    description: "Inject mise usage guidance into the system prompt and provide the mise binary."
+    enabled: true
+    binaries:
+      - name: mise
+        repo: jdx/mise
+        asset_templates:
+          darwin-amd64: { file: "mise-{tag}-macos-x64.tar.gz" }
+          darwin-arm64: { file: "mise-{tag}-macos-arm64.tar.gz" }
+          linux-amd64: { file: "mise-{tag}-linux-x64.tar.gz" }
+          linux-arm64: { file: "mise-{tag}-linux-arm64.tar.gz" }
+          windows-amd64: { file: "mise-{tag}-windows-x64.zip" }
+          windows-arm64: { file: "mise-{tag}-windows-arm64.zip" }
+
+  - id: tool/tap-web
+    kind: tool
+    name: tap-web
+    display_name: Tap Web
+    description: "Web browsing skill powered by the tap CLI — fetch pages, run browser automation, and capture network traffic."
+    enabled: true
+    binaries:
+      - name: tap
+        repo: vaayne/tap
+        version: "0.4.4"
+        asset_templates:
+          darwin-amd64: { file: "tap_{version}_darwin_amd64.tar.gz" }
+          darwin-arm64: { file: "tap_{version}_darwin_arm64.tar.gz" }
+          linux-amd64: { file: "tap_{version}_linux_amd64.tar.gz" }
+          linux-arm64: { file: "tap_{version}_linux_arm64.tar.gz" }
+          windows-amd64: { file: "tap_{version}_windows_amd64.zip" }
+          windows-arm64: { file: "tap_{version}_windows_arm64.zip" }
+
+  - id: tool/gh
+    kind: tool
+    name: gh
+    display_name: GitHub CLI
+    description: "GitHub CLI integration with OAuth-backed auth, session env, and prompt guidance."
+    enabled: true
+    binaries:
+      - name: gh
+        repo: cli/cli
+        version: "2.89.0"
+        asset_templates:
+          darwin-amd64: { file: "gh_{version}_macOS_amd64.zip" }
+          darwin-arm64: { file: "gh_{version}_macOS_arm64.zip" }
+          linux-amd64: { file: "gh_{version}_linux_amd64.tar.gz" }
+          linux-arm64: { file: "gh_{version}_linux_arm64.tar.gz" }
+          windows-amd64: { file: "gh_{version}_windows_amd64.zip" }
+          windows-arm64: { file: "gh_{version}_windows_arm64.zip" }
+    session_env:
+      - env_var: GH_TOKEN
+        source: github_token
+
+  - id: tool/lark-cli
+    kind: tool
+    name: lark-cli
+    display_name: Lark CLI
+    description: "Lark CLI integration with OAuth-backed auth, bundled skills, session env, and prompt guidance."
+    enabled: true
+    binaries:
+      - name: lark-cli
+        repo: larksuite/cli
+        version: "1.0.15"
+        asset_templates:
+          darwin-amd64: { file: "lark-cli-{version}-darwin-amd64.tar.gz" }
+          darwin-arm64: { file: "lark-cli-{version}-darwin-arm64.tar.gz" }
+          linux-amd64: { file: "lark-cli-{version}-linux-amd64.tar.gz" }
+          linux-arm64: { file: "lark-cli-{version}-linux-arm64.tar.gz" }
+          windows-amd64: { file: "lark-cli-{version}-windows-amd64.zip" }
+          windows-arm64: { file: "lark-cli-{version}-windows-arm64.zip" }
+    session_env:
+      - env_var: LARKSUITE_CLI_USER_ACCESS_TOKEN
+        source: lark_access_token
+      - env_var: LARKSUITE_CLI_APP_ID
+        source: lark_app_id
+      - env_var: LARKSUITE_CLI_BRAND
+        source: lark_brand

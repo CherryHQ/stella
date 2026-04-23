@@ -1,0 +1,61 @@
+package manifestplugins
+
+import (
+	"testing"
+)
+
+func TestValidate_NoID(t *testing.T) {
+	m := &Manifest{Plugins: []ManifestPlugin{
+		{Binaries: []ManifestBinary{{Name: "x", Repo: "a/b", AssetTemplates: map[string]ManifestAsset{"linux-amd64": {File: "x.tar.gz"}}}}},
+	}}
+	if err := Validate(m); err == nil {
+		t.Error("expected error for plugin with no ID")
+	}
+}
+
+func TestValidate_NoCapabilities(t *testing.T) {
+	m := &Manifest{Plugins: []ManifestPlugin{
+		{ID: "tool/empty"},
+	}}
+	if err := Validate(m); err == nil {
+		t.Error("expected error for plugin with no binaries/skills/session_env")
+	}
+}
+
+func TestValidate_BinaryNoRepo(t *testing.T) {
+	m := &Manifest{Plugins: []ManifestPlugin{
+		{
+			ID: "tool/x",
+			Binaries: []ManifestBinary{
+				{Name: "x", AssetTemplates: map[string]ManifestAsset{"linux-amd64": {File: "x.tar.gz"}}},
+			},
+		},
+	}}
+	if err := Validate(m); err == nil {
+		t.Error("expected error for binary with no repo")
+	}
+}
+
+func TestValidate_SessionEnvInvalidSource(t *testing.T) {
+	m := &Manifest{Plugins: []ManifestPlugin{
+		{
+			ID: "tool/x",
+			SessionEnvs: []ManifestSessionEnv{
+				{EnvVar: "MY_TOKEN", Source: "invalid_source"},
+			},
+		},
+	}}
+	if err := Validate(m); err == nil {
+		t.Error("expected error for session_env with invalid source")
+	}
+}
+
+func TestValidate_ValidManifest(t *testing.T) {
+	m, err := LoadBuiltin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(m); err != nil {
+		t.Errorf("expected no error for builtin manifest, got: %v", err)
+	}
+}
