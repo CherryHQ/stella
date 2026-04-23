@@ -29,9 +29,6 @@ func Validate(m *Manifest) error {
 			if b.Repo == "" {
 				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: repo is required", p.ID, j))
 			}
-			if len(b.AssetTemplates) == 0 {
-				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: at least one asset_template is required", p.ID, j))
-			}
 		}
 		for j, s := range p.Skills {
 			if s.Repo == "" {

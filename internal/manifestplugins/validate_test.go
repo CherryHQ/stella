@@ -6,7 +6,7 @@ import (
 
 func TestValidate_NoID(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
-		{Binaries: []ManifestBinary{{Name: "x", Repo: "a/b", AssetTemplates: map[string]ManifestAsset{"linux-amd64": {File: "x.tar.gz"}}}}},
+		{Binaries: []ManifestBinary{{Name: "x", Repo: "a/b"}}},
 	}}
 	if err := Validate(m); err == nil {
 		t.Error("expected error for plugin with no ID")
@@ -25,10 +25,8 @@ func TestValidate_NoCapabilities(t *testing.T) {
 func TestValidate_BinaryNoRepo(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
 		{
-			ID: "tool/x",
-			Binaries: []ManifestBinary{
-				{Name: "x", AssetTemplates: map[string]ManifestAsset{"linux-amd64": {File: "x.tar.gz"}}},
-			},
+			ID:       "tool/x",
+			Binaries: []ManifestBinary{{Name: "x"}},
 		},
 	}}
 	if err := Validate(m); err == nil {

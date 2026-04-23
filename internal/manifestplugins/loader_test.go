@@ -51,9 +51,7 @@ func TestMerge_UserAddsNewPlugin(t *testing.T) {
 			Name:    "custom",
 			Enabled: &tr,
 			Binaries: []ManifestBinary{
-				{Name: "custom", Repo: "owner/custom", AssetTemplates: map[string]ManifestAsset{
-					"linux-amd64": {File: "custom.tar.gz"},
-				}},
+				{Name: "custom", Repo: "owner/custom"},
 			},
 		},
 	}}

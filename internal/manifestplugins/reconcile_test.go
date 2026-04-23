@@ -22,9 +22,8 @@ func makeMinimalManifest(pluginID string, enabled bool, binaryName, version stri
 						Name:    binaryName,
 						Repo:    "owner/repo",
 						Version: version,
-						// No AssetTemplates — DownloadVersion will fail if reached,
+						// No Platforms — mise install will fail if reached,
 						// but cache-hit and disabled tests never reach that path.
-						AssetTemplates: map[string]ManifestAsset{},
 					},
 				},
 			},
@@ -139,10 +138,9 @@ func TestReconcile_EnabledCount(t *testing.T) {
 				Enabled: true,
 				Binaries: []ManifestBinary{
 					{
-						Name:           "tool-a",
-						Repo:           "owner/tool-a",
-						Version:        "0.1.0",
-						AssetTemplates: map[string]ManifestAsset{},
+						Name:    "tool-a",
+						Repo:    "owner/tool-a",
+						Version: "0.1.0",
 					},
 				},
 			},
@@ -151,10 +149,9 @@ func TestReconcile_EnabledCount(t *testing.T) {
 				Enabled: false,
 				Binaries: []ManifestBinary{
 					{
-						Name:           "tool-b",
-						Repo:           "owner/tool-b",
-						Version:        "1.0.0",
-						AssetTemplates: map[string]ManifestAsset{},
+						Name:    "tool-b",
+						Repo:    "owner/tool-b",
+						Version: "1.0.0",
 					},
 				},
 			},
@@ -163,10 +160,9 @@ func TestReconcile_EnabledCount(t *testing.T) {
 				Enabled: false,
 				Binaries: []ManifestBinary{
 					{
-						Name:           "tool-c",
-						Repo:           "owner/tool-c",
-						Version:        "3.0.0",
-						AssetTemplates: map[string]ManifestAsset{},
+						Name:    "tool-c",
+						Repo:    "owner/tool-c",
+						Version: "3.0.0",
 					},
 				},
 			},

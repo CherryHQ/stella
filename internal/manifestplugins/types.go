@@ -13,15 +13,12 @@ type ManifestPlugin struct {
 }
 
 type ManifestBinary struct {
-	Name           string                   `yaml:"name"`
-	Repo           string                   `yaml:"repo"`
-	Version        string                   `yaml:"version,omitempty"`
-	AssetTemplates map[string]ManifestAsset `yaml:"asset_templates"`
-}
-
-type ManifestAsset struct {
-	File      string `yaml:"file"`
-	RawBinary bool   `yaml:"raw_binary,omitempty"`
+	Name      string            `yaml:"name"`
+	Repo      string            `yaml:"repo"`
+	Version   string            `yaml:"version,omitempty"`
+	Platforms map[string]string `yaml:"platforms,omitempty"` // mise platform key → asset_pattern glob
+	BinPath   string            `yaml:"bin_path,omitempty"`
+	Bin       string            `yaml:"bin,omitempty"`
 }
 
 type ManifestSkill struct {

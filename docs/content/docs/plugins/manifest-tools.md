@@ -37,15 +37,11 @@ plugins:
       - name: my-cli
         repo: owner/my-cli
         version: "1.2.3"          # omit for latest
-        asset_templates:
-          darwin-amd64:
-            file: "my-cli_{version}_darwin_amd64.tar.gz"
-          darwin-arm64:
-            file: "my-cli_{version}_darwin_arm64.tar.gz"
-          linux-amd64:
-            file: "my-cli_{version}_linux_amd64.tar.gz"
-          linux-arm64:
-            file: "my-cli_{version}_linux_arm64.tar.gz"
+        platforms:
+          macos-arm64: "my-cli_*_darwin_arm64.tar.gz"
+          macos-x64:   "my-cli_*_darwin_amd64.tar.gz"
+          linux-arm64: "my-cli_*_linux_arm64.tar.gz"
+          linux-x64:   "my-cli_*_linux_amd64.tar.gz"
     session_env:
       - env_var: MY_TOKEN
         source: static
@@ -73,9 +69,13 @@ plugins:
 | `name` | Yes | Binary filename (without extension) |
 | `repo` | Yes | GitHub repository in `owner/repo` format |
 | `version` | No | Pinned version tag. Omit for latest. |
-| `asset_templates` | Yes | Map from `os-arch` to asset filename template |
+| `platforms` | No | Map from mise platform key to asset glob pattern. Omit for auto-detection. |
+| `bin_path` | No | Subdirectory inside the archive that contains the binary (e.g. `"bin"`). |
+| `bin` | No | Override the binary name inside the archive when it differs from `name`. |
 
-In `asset_templates`, `{tag}` expands to the full release tag and `{version}` expands to the version without a leading `v`.
+Mise platform keys use the form `macos-arm64`, `macos-x64`, `linux-arm64`, `linux-x64`. Values are glob patterns matched against GitHub release asset filenames (e.g. `"tool_*_darwin_arm64.tar.gz"`).
+
+When `platforms` is omitted mise auto-detects the correct asset based on filename conventions.
 
 ## Session env fields
 
@@ -122,11 +122,11 @@ plugins:
       - name: tap
         repo: vaayne/tap
         version: "0.5.0"
-        asset_templates:
-          darwin-amd64: { file: "tap_{version}_darwin_amd64.tar.gz" }
-          darwin-arm64: { file: "tap_{version}_darwin_arm64.tar.gz" }
-          linux-amd64:  { file: "tap_{version}_linux_amd64.tar.gz" }
-          linux-arm64:  { file: "tap_{version}_linux_arm64.tar.gz" }
+        platforms:
+          macos-arm64: "tap_*_darwin_arm64.tar.gz"
+          macos-x64:   "tap_*_darwin_amd64.tar.gz"
+          linux-arm64: "tap_*_linux_arm64.tar.gz"
+          linux-x64:   "tap_*_linux_amd64.tar.gz"
 ```
 
 ## Admin UI

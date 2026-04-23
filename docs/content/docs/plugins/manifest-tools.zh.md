@@ -37,15 +37,11 @@ plugins:
       - name: my-cli
         repo: owner/my-cli
         version: "1.2.3"          # 省略则使用最新版
-        asset_templates:
-          darwin-amd64:
-            file: "my-cli_{version}_darwin_amd64.tar.gz"
-          darwin-arm64:
-            file: "my-cli_{version}_darwin_arm64.tar.gz"
-          linux-amd64:
-            file: "my-cli_{version}_linux_amd64.tar.gz"
-          linux-arm64:
-            file: "my-cli_{version}_linux_arm64.tar.gz"
+        platforms:
+          macos-arm64: "my-cli_*_darwin_arm64.tar.gz"
+          macos-x64:   "my-cli_*_darwin_amd64.tar.gz"
+          linux-arm64: "my-cli_*_linux_arm64.tar.gz"
+          linux-x64:   "my-cli_*_linux_amd64.tar.gz"
     session_env:
       - env_var: MY_TOKEN
         source: static
@@ -73,9 +69,13 @@ plugins:
 | `name` | 是 | 二进制文件名（不含扩展名） |
 | `repo` | 是 | GitHub 仓库，格式为 `owner/repo` |
 | `version` | 否 | 固定版本标签，省略则使用最新版 |
-| `asset_templates` | 是 | 从 `os-arch` 到资源文件名模板的映射 |
+| `platforms` | 否 | mise 平台键到资源文件名 glob 模式的映射，省略则自动检测 |
+| `bin_path` | 否 | 归档文件内包含二进制文件的子目录（如 `"bin"`） |
+| `bin` | 否 | 当归档内的二进制文件名与 `name` 不同时进行覆盖 |
 
-在 `asset_templates` 中，`{tag}` 展开为完整的发布标签，`{version}` 展开为不含前缀 `v` 的版本号。
+mise 平台键格式为 `macos-arm64`、`macos-x64`、`linux-arm64`、`linux-x64`。值为匹配 GitHub 发布资产文件名的 glob 模式（如 `"tool_*_darwin_arm64.tar.gz"`）。
+
+省略 `platforms` 时，mise 会根据文件名约定自动检测正确的资产。
 
 ## 会话环境变量字段
 
@@ -122,11 +122,11 @@ plugins:
       - name: tap
         repo: vaayne/tap
         version: "0.5.0"
-        asset_templates:
-          darwin-amd64: { file: "tap_{version}_darwin_amd64.tar.gz" }
-          darwin-arm64: { file: "tap_{version}_darwin_arm64.tar.gz" }
-          linux-amd64:  { file: "tap_{version}_linux_amd64.tar.gz" }
-          linux-arm64:  { file: "tap_{version}_linux_arm64.tar.gz" }
+        platforms:
+          macos-arm64: "tap_*_darwin_arm64.tar.gz"
+          macos-x64:   "tap_*_darwin_amd64.tar.gz"
+          linux-arm64: "tap_*_linux_arm64.tar.gz"
+          linux-x64:   "tap_*_linux_amd64.tar.gz"
 ```
 
 ## 管理界面

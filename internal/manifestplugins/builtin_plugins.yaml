@@ -8,13 +8,8 @@ plugins:
     binaries:
       - name: mise
         repo: jdx/mise
-        asset_templates:
-          darwin-amd64: { file: "mise-{tag}-macos-x64.tar.gz" }
-          darwin-arm64: { file: "mise-{tag}-macos-arm64.tar.gz" }
-          linux-amd64: { file: "mise-{tag}-linux-x64.tar.gz" }
-          linux-arm64: { file: "mise-{tag}-linux-arm64.tar.gz" }
-          windows-amd64: { file: "mise-{tag}-windows-x64.zip" }
-          windows-arm64: { file: "mise-{tag}-windows-arm64.zip" }
+        # mise is bootstrapped via direct download in reconcile; this entry keeps it
+        # tracked in the manifest for UI visibility and state tracking.
 
   - id: tool/tap-web
     kind: tool
@@ -25,21 +20,16 @@ plugins:
     binaries:
       - name: tap
         repo: vaayne/tap
-        asset_templates:
-          darwin-amd64: { file: "tap_{version}_darwin_amd64.tar.gz" }
-          darwin-arm64: { file: "tap_{version}_darwin_arm64.tar.gz" }
-          linux-amd64: { file: "tap_{version}_linux_amd64.tar.gz" }
-          linux-arm64: { file: "tap_{version}_linux_arm64.tar.gz" }
-          windows-amd64: { file: "tap_{version}_windows_amd64.zip" }
-          windows-arm64: { file: "tap_{version}_windows_arm64.zip" }
+        version: "0.4.4"
+        platforms:
+          macos-arm64: "tap_*_darwin_arm64.tar.gz"
+          macos-x64: "tap_*_darwin_amd64.tar.gz"
+          linux-arm64: "tap_*_linux_arm64.tar.gz"
+          linux-x64: "tap_*_linux_amd64.tar.gz"
       - name: lightpanda
         repo: lightpanda-io/browser
         version: "nightly"
-        asset_templates:
-          darwin-amd64: { file: "lightpanda-x86_64-macos", raw_binary: true }
-          darwin-arm64: { file: "lightpanda-aarch64-macos", raw_binary: true }
-          linux-amd64: { file: "lightpanda-x86_64-linux", raw_binary: true }
-          linux-arm64: { file: "lightpanda-aarch64-linux", raw_binary: true }
+        # mise auto-detects the raw binary and strips OS/arch suffix
 
   - id: tool/gh
     kind: tool
@@ -50,13 +40,7 @@ plugins:
     binaries:
       - name: gh
         repo: cli/cli
-        asset_templates:
-          darwin-amd64: { file: "gh_{version}_macOS_amd64.zip" }
-          darwin-arm64: { file: "gh_{version}_macOS_arm64.zip" }
-          linux-amd64: { file: "gh_{version}_linux_amd64.tar.gz" }
-          linux-arm64: { file: "gh_{version}_linux_arm64.tar.gz" }
-          windows-amd64: { file: "gh_{version}_windows_amd64.zip" }
-          windows-arm64: { file: "gh_{version}_windows_arm64.zip" }
+        bin_path: "bin"
     session_env:
       - env_var: GH_TOKEN
         source: github_token
@@ -70,13 +54,11 @@ plugins:
     binaries:
       - name: lark-cli
         repo: larksuite/cli
-        asset_templates:
-          darwin-amd64: { file: "lark-cli-{version}-darwin-amd64.tar.gz" }
-          darwin-arm64: { file: "lark-cli-{version}-darwin-arm64.tar.gz" }
-          linux-amd64: { file: "lark-cli-{version}-linux-amd64.tar.gz" }
-          linux-arm64: { file: "lark-cli-{version}-linux-arm64.tar.gz" }
-          windows-amd64: { file: "lark-cli-{version}-windows-amd64.zip" }
-          windows-arm64: { file: "lark-cli-{version}-windows-arm64.zip" }
+        platforms:
+          macos-arm64: "lark-cli-*-darwin-arm64.tar.gz"
+          macos-x64: "lark-cli-*-darwin-amd64.tar.gz"
+          linux-arm64: "lark-cli-*-linux-arm64.tar.gz"
+          linux-x64: "lark-cli-*-linux-amd64.tar.gz"
     session_env:
       - env_var: LARKSUITE_CLI_USER_ACCESS_TOKEN
         source: lark_access_token

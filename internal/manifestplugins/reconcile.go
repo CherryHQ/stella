@@ -8,8 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"time"
-
-	"github.com/vaayne/anna/internal/tools"
 )
 
 // ReconcileResult summarizes one reconcile run.
@@ -68,25 +66,12 @@ func SaveState(path string, s *ManifestState) error {
 	return os.Rename(tmp, path)
 }
 
-// manifestBinaryToTool converts a ManifestBinary to a tools.Tool.
-func manifestBinaryToTool(b ManifestBinary) tools.Tool {
-	templates := make(map[string]tools.AssetTemplate, len(b.AssetTemplates))
-	for platform, asset := range b.AssetTemplates {
-		templates[platform] = tools.AssetTemplate{
-			File:      asset.File,
-			RawBinary: asset.RawBinary,
-		}
-	}
-	return tools.Tool{
-		Name:           b.Name,
-		Repo:           b.Repo,
-		Version:        b.Version,
-		AssetTemplates: templates,
-	}
-}
-
-// isCacheHit returns true if the state already records the binary at the resolved version.
+// isCacheHit returns true if the state already records the binary at the given version.
+// Returns false for empty version (latest) so mise always verifies the install.
 func isCacheHit(state *ManifestState, pluginID, binaryName, version string) bool {
+	if version == "" {
+		return false
+	}
 	ps, ok := state.Plugins[pluginID]
 	if !ok {
 		return false
@@ -97,6 +82,20 @@ func isCacheHit(state *ManifestState, pluginID, binaryName, version string) bool
 		}
 	}
 	return false
+}
+
+// upsertBinaryState updates or appends a binary install record in state.
+func upsertBinaryState(state *ManifestState, pluginID string, install BinaryInstallState) {
+	ps := state.Plugins[pluginID]
+	for i, b := range ps.Binaries {
+		if b.Name == install.Name {
+			ps.Binaries[i] = install
+			state.Plugins[pluginID] = ps
+			return
+		}
+	}
+	ps.Binaries = append(ps.Binaries, install)
+	state.Plugins[pluginID] = ps
 }
 
 // Reconcile processes all enabled plugins in the manifest, downloading any binaries
@@ -123,9 +122,10 @@ func Reconcile(ctx context.Context, m *Manifest, annaHome string) ReconcileResul
 		Plugins:      make(map[string]PluginReconcileResult),
 	}
 
-	// Track newly installed binaries: map[pluginID][]BinaryInstallState
-	type successKey struct{ pluginID, binaryName string }
-	successInstalls := make(map[successKey]BinaryInstallState)
+	// Ensure mise is available before processing any plugin binaries.
+	if bootstrapErr := bootstrapMise(ctx, annaHome); bootstrapErr != nil {
+		slog.Error("manifest plugin reconcile: mise bootstrap failed", "error", bootstrapErr)
+	}
 
 	errorCount := 0
 
@@ -137,58 +137,35 @@ func Reconcile(ctx context.Context, m *Manifest, annaHome string) ReconcileResul
 		pr := PluginReconcileResult{PluginID: plugin.ID}
 
 		for _, binary := range plugin.Binaries {
-			tool := manifestBinaryToTool(binary)
-
-			// Resolve version
-			version := binary.Version
-			if version == "" {
-				v, fetchErr := tools.FetchLatestVersion(ctx, &tool)
-				if fetchErr != nil {
-					slog.Error("manifest binary install failed",
-						"plugin", plugin.ID,
-						"binary", binary.Name,
-						"error", fetchErr)
-					pr.Binaries = append(pr.Binaries, BinaryReconcileResult{
-						Name: binary.Name,
-						Err:  fetchErr,
-					})
-					errorCount++
-					continue
-				}
-				version = v
-			}
-
-			// Cache hit check
-			if isCacheHit(state, plugin.ID, binary.Name, version) {
+			// Cache hit check (skipped for latest/empty version)
+			if isCacheHit(state, plugin.ID, binary.Name, binary.Version) {
 				slog.Info("manifest binary cache hit",
 					"plugin", plugin.ID,
 					"binary", binary.Name,
-					"version", version)
+					"version", binary.Version)
 				pr.Binaries = append(pr.Binaries, BinaryReconcileResult{
 					Name:     binary.Name,
-					Version:  version,
+					Version:  binary.Version,
 					CacheHit: true,
 				})
 				continue
 			}
 
-			// Download
-			slog.Info("manifest binary downloading",
+			slog.Info("manifest binary installing",
 				"plugin", plugin.ID,
 				"binary", binary.Name,
-				"version", version)
+				"version", binary.Version)
 
-			binDir := tools.BinDir(annaHome)
-			downloadErr := tools.DownloadVersion(ctx, &tool, version, binDir, tools.Platform())
-			if downloadErr != nil {
+			installedVersion, installErr := installBinaryWithMise(ctx, binary, annaHome)
+			if installErr != nil {
 				slog.Error("manifest binary install failed",
 					"plugin", plugin.ID,
 					"binary", binary.Name,
-					"error", downloadErr)
+					"error", installErr)
 				pr.Binaries = append(pr.Binaries, BinaryReconcileResult{
 					Name:    binary.Name,
-					Version: version,
-					Err:     downloadErr,
+					Version: binary.Version,
+					Err:     installErr,
 				})
 				errorCount++
 				continue
@@ -197,40 +174,22 @@ func Reconcile(ctx context.Context, m *Manifest, annaHome string) ReconcileResul
 			slog.Info("manifest binary installed",
 				"plugin", plugin.ID,
 				"binary", binary.Name,
-				"version", version)
+				"version", installedVersion)
 
 			pr.Binaries = append(pr.Binaries, BinaryReconcileResult{
 				Name:    binary.Name,
-				Version: version,
+				Version: installedVersion,
 			})
 
-			successInstalls[successKey{plugin.ID, binary.Name}] = BinaryInstallState{
+			upsertBinaryState(state, plugin.ID, BinaryInstallState{
 				Name:        binary.Name,
 				Repo:        binary.Repo,
-				Version:     version,
+				Version:     installedVersion,
 				InstalledAt: time.Now(),
-			}
+			})
 		}
 
 		result.Plugins[plugin.ID] = pr
-	}
-
-	// Merge successful installs into state (preserve existing entries for untouched binaries).
-	for key, installState := range successInstalls {
-		ps := state.Plugins[key.pluginID]
-		// Rebuild the binaries slice: replace matching entry or append.
-		found := false
-		for i, b := range ps.Binaries {
-			if b.Name == key.binaryName {
-				ps.Binaries[i] = installState
-				found = true
-				break
-			}
-		}
-		if !found {
-			ps.Binaries = append(ps.Binaries, installState)
-		}
-		state.Plugins[key.pluginID] = ps
 	}
 
 	state.UpdatedAt = time.Now()
