@@ -36,12 +36,7 @@ plugins:
     binaries:
       - name: my-cli
         repo: owner/my-cli
-        version: "1.2.3"          # omit for latest
-        platforms:
-          macos-arm64: "my-cli_*_darwin_arm64.tar.gz"
-          macos-x64:   "my-cli_*_darwin_amd64.tar.gz"
-          linux-arm64: "my-cli_*_linux_arm64.tar.gz"
-          linux-x64:   "my-cli_*_linux_amd64.tar.gz"
+        version: "1.2.3"   # omit for latest
     session_env:
       - env_var: MY_TOKEN
         source: static
@@ -69,13 +64,10 @@ plugins:
 | `name` | Yes | Binary filename (without extension) |
 | `repo` | Yes | GitHub repository in `owner/repo` format |
 | `version` | No | Pinned version tag. Omit for latest. |
-| `platforms` | No | Map from mise platform key to asset glob pattern. Omit for auto-detection. |
 | `bin_path` | No | Subdirectory inside the archive that contains the binary (e.g. `"bin"`). |
-| `bin` | No | Override the binary name inside the archive when it differs from `name`. |
+| `exe` | No | Binary name inside the archive when it differs from `name`. |
 
-Mise platform keys use the form `macos-arm64`, `macos-x64`, `linux-arm64`, `linux-x64`. Values are glob patterns matched against GitHub release asset filenames (e.g. `"tool_*_darwin_arm64.tar.gz"`).
-
-When `platforms` is omitted mise auto-detects the correct asset based on filename conventions.
+Mise auto-detects the correct release asset based on OS and architecture keywords in the filename. `bin_path` and `exe` are only needed when the archive layout or binary name is non-standard.
 
 ## Session env fields
 
@@ -122,11 +114,6 @@ plugins:
       - name: tap
         repo: vaayne/tap
         version: "0.5.0"
-        platforms:
-          macos-arm64: "tap_*_darwin_arm64.tar.gz"
-          macos-x64:   "tap_*_darwin_amd64.tar.gz"
-          linux-arm64: "tap_*_linux_arm64.tar.gz"
-          linux-x64:   "tap_*_linux_amd64.tar.gz"
 ```
 
 ## Admin UI

@@ -13,12 +13,11 @@ type ManifestPlugin struct {
 }
 
 type ManifestBinary struct {
-	Name      string            `yaml:"name"`
-	Repo      string            `yaml:"repo"`
-	Version   string            `yaml:"version,omitempty"`
-	Platforms map[string]string `yaml:"platforms,omitempty"` // mise platform key → asset_pattern glob
-	BinPath   string            `yaml:"bin_path,omitempty"`
-	Bin       string            `yaml:"bin,omitempty"`
+	Name    string `yaml:"name"`
+	Repo    string `yaml:"repo"`
+	Version string `yaml:"version,omitempty"`
+	BinPath string `yaml:"bin_path,omitempty"` // subdir within archive containing the binary
+	Exe     string `yaml:"exe,omitempty"`      // binary name inside archive when it differs from Name
 }
 
 type ManifestSkill struct {

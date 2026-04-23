@@ -8,8 +8,6 @@ plugins:
     binaries:
       - name: mise
         repo: jdx/mise
-        # mise is bootstrapped via direct download in reconcile; this entry keeps it
-        # tracked in the manifest for UI visibility and state tracking.
 
   - id: tool/tap-web
     kind: tool
@@ -21,15 +19,9 @@ plugins:
       - name: tap
         repo: vaayne/tap
         version: "0.4.4"
-        platforms:
-          macos-arm64: "tap_*_darwin_arm64.tar.gz"
-          macos-x64: "tap_*_darwin_amd64.tar.gz"
-          linux-arm64: "tap_*_linux_arm64.tar.gz"
-          linux-x64: "tap_*_linux_amd64.tar.gz"
       - name: lightpanda
         repo: lightpanda-io/browser
         version: "nightly"
-        # mise auto-detects the raw binary and strips OS/arch suffix
 
   - id: tool/gh
     kind: tool
@@ -54,11 +46,6 @@ plugins:
     binaries:
       - name: lark-cli
         repo: larksuite/cli
-        platforms:
-          macos-arm64: "lark-cli-*-darwin-arm64.tar.gz"
-          macos-x64: "lark-cli-*-darwin-amd64.tar.gz"
-          linux-arm64: "lark-cli-*-linux-arm64.tar.gz"
-          linux-x64: "lark-cli-*-linux-amd64.tar.gz"
     session_env:
       - env_var: LARKSUITE_CLI_USER_ACCESS_TOKEN
         source: lark_access_token

@@ -62,22 +62,22 @@ func bootstrapMise(ctx context.Context, annaHome string) error {
 
 // generateMiseTOML returns a mise.toml snippet for a single github backend tool.
 func generateMiseTOML(b ManifestBinary) string {
-	var sb strings.Builder
 	ver := b.Version
 	if ver == "" {
 		ver = "latest"
 	}
+	// Simple case: no extra options → single-line form
+	if b.BinPath == "" && b.Exe == "" {
+		return fmt.Sprintf("[tools]\n\"github:%s\" = %q\n", b.Repo, ver)
+	}
+	var sb strings.Builder
 	fmt.Fprintf(&sb, "[tools.\"github:%s\"]\n", b.Repo)
 	fmt.Fprintf(&sb, "version = %q\n", ver)
 	if b.BinPath != "" {
 		fmt.Fprintf(&sb, "bin_path = %q\n", b.BinPath)
 	}
-	if b.Bin != "" {
-		fmt.Fprintf(&sb, "bin = %q\n", b.Bin)
-	}
-	for platform, pattern := range b.Platforms {
-		fmt.Fprintf(&sb, "\n[tools.\"github:%s\".platforms.%s]\n", b.Repo, platform)
-		fmt.Fprintf(&sb, "asset_pattern = %q\n", pattern)
+	if b.Exe != "" {
+		fmt.Fprintf(&sb, "exe = %q\n", b.Exe)
 	}
 	return sb.String()
 }
@@ -139,21 +139,29 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 	// Get the installed version from the directory name
 	version := filepath.Base(installDir)
 
-	// Find and copy the binary
-	binaryName := b.Name
-	if runtime.GOOS == "windows" {
-		binaryName += ".exe"
+	// Find the binary: use exe name when set, fall back to name.
+	lookupName := b.Name
+	if b.Exe != "" {
+		lookupName = b.Exe
 	}
-	srcPath, err := findInstalledBinary(installDir, binaryName)
+	if runtime.GOOS == "windows" {
+		lookupName += ".exe"
+	}
+	srcPath, err := findInstalledBinary(installDir, lookupName)
 	if err != nil {
-		return "", fmt.Errorf("find binary %s in %s: %w", binaryName, installDir, err)
+		return "", fmt.Errorf("find binary %s in %s: %w", lookupName, installDir, err)
 	}
 
+	// Always install as b.Name in $ANNA_HOME/bin/ regardless of exe alias.
+	dstName := b.Name
+	if runtime.GOOS == "windows" {
+		dstName += ".exe"
+	}
 	binDir := filepath.Join(annaHome, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return "", fmt.Errorf("create bin dir: %w", err)
 	}
-	dstPath := filepath.Join(binDir, binaryName)
+	dstPath := filepath.Join(binDir, dstName)
 	if err := atomicCopy(srcPath, dstPath, 0o755); err != nil {
 		return "", err
 	}
