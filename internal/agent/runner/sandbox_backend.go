@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"strings"
 	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -156,77 +157,75 @@ func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths
 }
 
 func injectSessionEnv(ctx context.Context, cfg GoRunnerConfig, env map[string]string) error {
-	var (
-		ghTokenLoaded bool
-		ghToken       string
-		larkLoaded    bool
-		larkEnv       map[string]string
-	)
+	// oauthBundles caches loaded bundles per provider to avoid redundant vault hits.
+	oauthBundles := make(map[string]*oauth.OAuthBundle)
 	for _, spec := range cfg.SessionEnvSpecs {
-		switch spec.Source {
-		case pkgplugins.SessionEnvSourceStatic:
+		src := string(spec.Source)
+		if spec.Source == pkgplugins.SessionEnvSourceStatic {
 			env[spec.EnvVar] = spec.Value
-		case pkgplugins.SessionEnvSourceGitHubToken:
-			if cfg.TokenManager == nil {
-				if spec.Required {
-					return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
-				}
-				continue
-			}
-			if !ghTokenLoaded {
-				ghTokenLoaded = true
-				token, err := cfg.TokenManager.GetGHToken(ctx, cfg.UserID)
-				if err != nil {
-					slog.Debug("session env injection skipped",
-						"component", "runner_sandbox",
-						"user_id", cfg.UserID,
-						"env_var", spec.EnvVar,
-						"source", spec.Source,
-						"error", err,
-					)
-				}
-				ghToken = token
-			}
-			if ghToken != "" {
-				env[spec.EnvVar] = ghToken
-			} else if spec.Required {
+			continue
+		}
+		if !strings.HasPrefix(src, "oauth.") {
+			if spec.Required {
 				return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
 			}
-		case pkgplugins.SessionEnvSourceLarkAccessToken, pkgplugins.SessionEnvSourceLarkAppID, pkgplugins.SessionEnvSourceLarkBrand:
-			if cfg.TokenManager == nil {
-				if spec.Required {
-					return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
-				}
-				continue
-			}
-			if !larkLoaded {
-				larkLoaded = true
-				var err error
-				larkEnv, err = cfg.TokenManager.GetLarkRuntimeEnv(ctx, cfg.UserID)
-				if err != nil {
-					slog.Debug("session env injection skipped",
-						"component", "runner_sandbox",
-						"user_id", cfg.UserID,
-						"env_var", spec.EnvVar,
-						"source", spec.Source,
-						"error", err,
-					)
-				}
-			}
-			var value string
-			switch spec.Source {
-			case pkgplugins.SessionEnvSourceLarkAccessToken:
-				value = larkEnv["LARKSUITE_CLI_USER_ACCESS_TOKEN"]
-			case pkgplugins.SessionEnvSourceLarkAppID:
-				value = larkEnv["LARKSUITE_CLI_APP_ID"]
-			case pkgplugins.SessionEnvSourceLarkBrand:
-				value = larkEnv["LARKSUITE_CLI_BRAND"]
-			}
-			if value != "" {
-				env[spec.EnvVar] = value
-			} else if spec.Required {
+			continue
+		}
+		if cfg.TokenManager == nil {
+			if spec.Required {
 				return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
 			}
+			continue
+		}
+		providerID := spec.OAuthProviderID
+		if providerID == "" {
+			if spec.Required {
+				return fmt.Errorf("required session env %q has oauth source but no OAuthProviderID", spec.EnvVar)
+			}
+			continue
+		}
+		bundle, ok := oauthBundles[providerID]
+		if !ok {
+			var err error
+			bundle, err = cfg.TokenManager.GetOAuthToken(ctx, providerID, cfg.UserID)
+			if err != nil {
+				slog.Debug("session env injection skipped",
+					"component", "runner_sandbox",
+					"user_id", cfg.UserID,
+					"env_var", spec.EnvVar,
+					"source", spec.Source,
+					"error", err,
+				)
+			}
+			oauthBundles[providerID] = bundle
+		}
+		if bundle == nil {
+			if spec.Required {
+				return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
+			}
+			continue
+		}
+		field := strings.TrimPrefix(src, "oauth.")
+		var value string
+		switch field {
+		case "access_token":
+			value = bundle.AccessToken
+		case "client_id":
+			value = bundle.ClientID
+		case "brand":
+			value = bundle.Brand
+		case "refresh_token":
+			value = bundle.RefreshToken
+		default:
+			if spec.Required {
+				return fmt.Errorf("required session env %q (source %q) for plugin %q: unknown oauth field %q", spec.EnvVar, spec.Source, spec.PluginID, field)
+			}
+			continue
+		}
+		if value != "" {
+			env[spec.EnvVar] = value
+		} else if spec.Required {
+			return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
 		}
 	}
 	return nil

@@ -142,21 +142,6 @@ func init() {
 			Validate:      validateConfig,
 			Redact:        redactConfig,
 		})
-		host.AddSessionEnv(pkgplugins.SessionEnvSpec{
-			PluginID: PluginID,
-			EnvVar:   "LARKSUITE_CLI_USER_ACCESS_TOKEN",
-			Source:   pkgplugins.SessionEnvSourceLarkAccessToken,
-		})
-		host.AddSessionEnv(pkgplugins.SessionEnvSpec{
-			PluginID: PluginID,
-			EnvVar:   "LARKSUITE_CLI_APP_ID",
-			Source:   pkgplugins.SessionEnvSourceLarkAppID,
-		})
-		host.AddSessionEnv(pkgplugins.SessionEnvSpec{
-			PluginID: PluginID,
-			EnvVar:   "LARKSUITE_CLI_BRAND",
-			Source:   pkgplugins.SessionEnvSourceLarkBrand,
-		})
 		host.AddBundledSkill(pkgplugins.BundledSkillSpec{
 			PluginID: PluginID,
 			Name:     "lark",

@@ -120,8 +120,9 @@ func (h *Host) LoadDefaultCatalog() error { return h.LoadCatalog(defaultCatalog(
 // enabled plugin:
 //   - New plugins (not already Go-registered) are fully registered with ID, info,
 //     and session envs.
-//   - Existing plugins (already Go-registered) only get added to manifestEnabledIDs;
-//     session envs are skipped to avoid double-injection since Go code handles them.
+//   - Existing plugins (already Go-registered) get manifest session envs registered
+//     so the manifest is the single source of truth for env injection. Go code
+//     should no longer call AddSessionEnv for manifest-declared env vars.
 func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 	if m == nil {
 		return
@@ -149,26 +150,27 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 
 	for _, e := range entries {
 		p := e.plugin
-		if e.alreadyGo {
-			// Go plugin already registered ID, info, and session envs — skip.
-			continue
+		if !e.alreadyGo {
+			h.RegisterPluginID(p.ID)
+			h.SetInfo(pkgplugins.PluginInfo{
+				ID:          p.ID,
+				Kind:        p.Kind,
+				Name:        p.Name,
+				DisplayName: p.DisplayName,
+				Description: p.Description,
+			})
 		}
 
-		h.RegisterPluginID(p.ID)
-		h.SetInfo(pkgplugins.PluginInfo{
-			ID:          p.ID,
-			Kind:        p.Kind,
-			Name:        p.Name,
-			DisplayName: p.DisplayName,
-			Description: p.Description,
-		})
+		// Register manifest session_envs for all enabled plugins, including
+		// Go-registered ones. The manifest is the source of truth.
 		for _, se := range p.SessionEnvs {
 			h.AddSessionEnv(pkgplugins.SessionEnvSpec{
-				PluginID: p.ID,
-				EnvVar:   se.EnvVar,
-				Source:   pkgplugins.SessionEnvSource(se.Source),
-				Value:    se.Value,
-				Required: se.Required,
+				PluginID:        p.ID,
+				EnvVar:          se.EnvVar,
+				Source:          pkgplugins.SessionEnvSource(se.Source),
+				Value:           se.Value,
+				Required:        se.Required,
+				OAuthProviderID: p.OAuthProvider,
 			})
 		}
 	}

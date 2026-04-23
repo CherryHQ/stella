@@ -27,6 +27,22 @@ func toFlowStatusJSON(fs credentials.FlowStatus) flowStatusJSON {
 	}
 }
 
+// listOAuthProviders handles GET /api/auth/profile/oauth/providers.
+func (s *Server) listOAuthProviders(w http.ResponseWriter, r *http.Request) {
+	if s.vaultSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "vault not configured")
+		return
+	}
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	providers := s.credSvc.GetProviderStatuses(r.Context(), info.UserID)
+	writeData(w, http.StatusOK, providers)
+}
+
 // startOAuthFlow handles POST /api/auth/profile/oauth/{provider}/start.
 func (s *Server) startOAuthFlow(w http.ResponseWriter, r *http.Request) {
 	if s.vaultSvc == nil {
@@ -122,13 +138,14 @@ func (s *Server) disconnectOAuth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// larkOAuthCallback handles GET /api/auth/profile/oauth/lark/callback.
-func (s *Server) larkOAuthCallback(w http.ResponseWriter, r *http.Request) {
+// oauthCallback handles GET /api/auth/profile/oauth/{provider}/callback.
+func (s *Server) oauthCallback(w http.ResponseWriter, r *http.Request) {
 	if s.vaultSvc == nil {
 		http.Error(w, "vault not configured", http.StatusServiceUnavailable)
 		return
 	}
 
+	provider := r.PathValue("provider")
 	code := r.URL.Query().Get("code")
 	flowID := r.URL.Query().Get("state")
 	if code == "" || flowID == "" {
@@ -142,9 +159,9 @@ func (s *Server) larkOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.credSvc.CompleteLarkFlow(r.Context(), flow.UserID, flowID, code); err != nil {
-		s.log.Error("lark oauth complete", "user_id", flow.UserID, "flow_id", flowID, "error", err)
-		http.Error(w, "failed to complete Lark authorization: "+err.Error(), http.StatusInternalServerError)
+	if err := s.credSvc.CompleteAuthCodeFlow(r.Context(), provider, flowID, code); err != nil {
+		s.log.Error("oauth callback complete", "provider", provider, "user_id", flow.UserID, "flow_id", flowID, "error", err)
+		http.Error(w, "failed to complete authorization: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 

@@ -4,42 +4,27 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync"
+	"time"
+
+	"golang.org/x/oauth2"
 
 	oauth "github.com/vaayne/anna/internal/credentials/oauth"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/vault"
-	pkgplugins "github.com/vaayne/anna/pkg/plugins"
-)
-
-const (
-	pluginIDGitHub       = "tool/gh"
-	pluginIDGitHubLegacy = "auth/github"
-	pluginIDLark         = "tool/lark-cli"
-	pluginIDLarkLegacy   = "auth/lark"
-
-	larkCallbackPath = "/api/auth/profile/oauth/lark/callback"
-	ghCallbackPath   = "/api/auth/profile/oauth/github/callback"
 )
 
 // Service is the shared host-side credential manager. It owns vault secret
 // operations and OAuth orchestration. Admin HTTP handlers and the built-in
 // credentials tool both delegate to this service.
 type Service struct {
-	vaultSvc    *vault.Service
-	pluginCfg   pluginhost.ConfigBackend
-	flowStore   *oauth.FlowStore
-	invalidator RunnerInvalidator // optional; nil = no invalidation
-	corsOrigin  string
-	log         *slog.Logger
-
-	mu                    sync.Mutex
-	ghBroker              *oauth.GitHubBroker
-	ghBrokerClientID      string
-	ghBrokerRedirectURI   string
-	larkBroker            *oauth.LarkBroker
-	larkBrokerAppID       string
-	larkBrokerRedirectURI string
+	vaultSvc          *vault.Service
+	pluginCfg         pluginhost.ConfigBackend
+	flowStore         *oauth.FlowStore
+	registry          *oauth.ProviderRegistry
+	invalidator       RunnerInvalidator // optional; nil = no invalidation
+	corsOrigin        string
+	log               *slog.Logger
+	providerPluginIDs map[string]string // provider ID → plugin ID
 }
 
 // NewService creates a credentials service. vaultSvc may be nil if the vault
@@ -57,6 +42,17 @@ func NewService(
 		corsOrigin: corsOrigin,
 		log:        slog.With("component", "credentials"),
 	}
+}
+
+// SetRegistry wires the OAuth provider registry used for generic provider operations.
+func (s *Service) SetRegistry(r *oauth.ProviderRegistry) {
+	s.registry = r
+}
+
+// SetProviderPluginIDs maps each provider ID to the plugin ID that supplies its
+// OAuth credentials. Populated from manifest oauth_provider fields at startup.
+func (s *Service) SetProviderPluginIDs(m map[string]string) {
+	s.providerPluginIDs = m
 }
 
 // SetVaultService sets or replaces the vault service at runtime (e.g. after startup).
@@ -77,96 +73,134 @@ func (s *Service) InvalidateUser(userID int64) error {
 	return s.invalidator.InvalidateUser(userID)
 }
 
-// --- broker helpers (migrated from admin.Server) ---
+// getBroker constructs a flow broker for providerID on demand from the registry
+// config and current plugin credentials. The flowType selects which flow entry to
+// use when a provider declares multiple flows.
+func (s *Service) getBroker(ctx context.Context, providerID string, flowType string) (oauth.FlowBroker, error) {
+	if s.registry == nil {
+		return nil, fmt.Errorf("provider registry not set")
+	}
+	providerCfg, ok := s.registry.Get(providerID)
+	if !ok {
+		return nil, fmt.Errorf("unknown provider: %s", providerID)
+	}
 
-func (s *Service) getGitHubBroker(ctx context.Context) (*oauth.GitHubBroker, error) {
-	state, sourceID, err := s.oauthPluginState(ctx, pluginIDGitHub, pluginIDGitHubLegacy, func(cfg map[string]any) bool {
-		clientID, _ := cfg["client_id"].(string)
-		clientSecret, _ := cfg["client_secret"].(string)
-		return clientID != "" && clientSecret != ""
-	})
+	pluginID, ok := s.providerPluginIDs[providerID]
+	if !ok {
+		return nil, fmt.Errorf("no plugin configured for provider: %s", providerID)
+	}
+
+	state, err := s.pluginCfg.Get(ctx, pluginID)
 	if err != nil {
-		return nil, fmt.Errorf("github plugin config unavailable: %w", err)
+		return nil, fmt.Errorf("plugin config unavailable for %s: %w", pluginID, err)
 	}
 	if !state.Enabled {
-		return nil, fmt.Errorf("%s plugin is not enabled", sourceID)
+		return nil, fmt.Errorf("%s plugin is not enabled", pluginID)
 	}
+
 	clientID, _ := state.Config["client_id"].(string)
 	clientSecret, _ := state.Config["client_secret"].(string)
 	if clientID == "" || clientSecret == "" {
-		return nil, fmt.Errorf("github OAuth app is not configured (set client_id and client_secret in tool/gh plugin)")
-	}
-	redirectURI, _ := state.Config["redirect_url"].(string)
-	if redirectURI == "" {
-		redirectURI = s.corsOrigin + ghCallbackPath
+		return nil, fmt.Errorf("%s OAuth app is not configured (set client_id and client_secret in %s plugin)", providerID, pluginID)
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.ghBroker == nil || s.ghBrokerClientID != clientID || s.ghBrokerRedirectURI != redirectURI {
-		s.ghBroker = oauth.NewGitHubBroker(oauth.GitHubConfig{
+	redirectURI, _ := state.Config["redirect_url"].(string)
+	if redirectURI == "" {
+		redirectURI = s.corsOrigin + "/api/auth/profile/oauth/" + providerID + "/callback"
+	}
+
+	var flow oauth.ProviderFlowConfig
+	for _, f := range providerCfg.Flows {
+		if f.Type == flowType {
+			flow = f
+			break
+		}
+	}
+	if flow.Type == "" {
+		// Fall back to the first flow of the requested type, or any flow.
+		for _, f := range providerCfg.Flows {
+			if flow.Type == "" {
+				flow = f
+			}
+			if f.Type == flowType {
+				flow = f
+				break
+			}
+		}
+	}
+	if flow.Type == "" {
+		return nil, fmt.Errorf("provider %s has no flows configured", providerID)
+	}
+
+	endpoint := oauth2.Endpoint{
+		TokenURL: flow.TokenURL,
+	}
+	if flow.AuthStyle == oauth2.AuthStyleInParams {
+		endpoint.AuthStyle = oauth2.AuthStyleInParams
+	}
+
+	switch flow.Type {
+	case "authorization_code":
+		endpoint.AuthURL = flow.AuthURL
+		cfg := &oauth2.Config{
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
-		}, s.flowStore).WithRedirectURI(redirectURI)
-		s.ghBrokerClientID = clientID
-		s.ghBrokerRedirectURI = redirectURI
+			RedirectURL:  redirectURI,
+			Scopes:       providerCfg.Scopes,
+			Endpoint:     endpoint,
+		}
+		return oauth.NewAuthCodeBroker(cfg, s.flowStore), nil
+	case "device_code":
+		endpoint.DeviceAuthURL = flow.DeviceAuthURL
+		cfg := &oauth2.Config{
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+			RedirectURL:  redirectURI,
+			Scopes:       providerCfg.Scopes,
+			Endpoint:     endpoint,
+		}
+		return oauth.NewDeviceCodeBroker(cfg, s.flowStore), nil
+	default:
+		return nil, fmt.Errorf("provider %s: unknown flow type %q", providerID, flow.Type)
 	}
-	return s.ghBroker, nil
 }
 
-func (s *Service) getLarkBroker(ctx context.Context) (*oauth.LarkBroker, error) {
-	state, sourceID, err := s.oauthPluginState(ctx, pluginIDLark, pluginIDLarkLegacy, func(cfg map[string]any) bool {
-		appID, _ := cfg["app_id"].(string)
-		appSecret, _ := cfg["app_secret"].(string)
-		return appID != "" && appSecret != ""
-	})
-	if err != nil {
-		return nil, fmt.Errorf("lark plugin config unavailable: %w", err)
-	}
-	if !state.Enabled {
-		return nil, fmt.Errorf("%s plugin is not enabled", sourceID)
-	}
-	appID, _ := state.Config["app_id"].(string)
-	appSecret, _ := state.Config["app_secret"].(string)
-	brand, _ := state.Config["brand"].(string)
-	if appID == "" || appSecret == "" {
-		return nil, fmt.Errorf("lark OAuth app is not configured (set app_id and app_secret in tool/lark-cli plugin)")
-	}
-	if brand == "" {
-		brand = "lark"
-	}
-	redirectURI, _ := state.Config["redirect_url"].(string)
-	if redirectURI == "" {
-		redirectURI = s.corsOrigin + larkCallbackPath
+// saveToken converts an oauth2.Token into an OAuthBundle and persists it under
+// the provider's registered vault key.
+func (s *Service) saveToken(ctx context.Context, providerID string, userID int64, tok *oauth2.Token) error {
+	providerCfg, ok := s.registry.Get(providerID)
+	if !ok {
+		return fmt.Errorf("unknown provider: %s", providerID)
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.larkBroker == nil || s.larkBrokerAppID != appID || s.larkBrokerRedirectURI != redirectURI {
-		s.larkBroker = oauth.NewLarkBroker(oauth.LarkConfig{
-			AppID:     appID,
-			AppSecret: appSecret,
-			Brand:     brand,
-		}, s.flowStore).WithRedirectURI(redirectURI)
-		s.larkBrokerAppID = appID
-		s.larkBrokerRedirectURI = redirectURI
+	pluginID, ok := s.providerPluginIDs[providerID]
+	if !ok {
+		return fmt.Errorf("no plugin configured for provider: %s", providerID)
 	}
-	return s.larkBroker, nil
-}
 
-func (s *Service) oauthPluginState(ctx context.Context, primaryID, legacyID string, configured func(map[string]any) bool) (pkgplugins.PluginState, string, error) {
-	state, err := s.pluginCfg.Get(ctx, primaryID)
-	if err == nil && (configured == nil || configured(state.Config) || !state.Enabled) {
-		return state, primaryID, nil
+	state, _ := s.pluginCfg.Get(ctx, pluginID)
+	clientID, _ := state.Config["client_id"].(string)
+	clientSecret, _ := state.Config["client_secret"].(string)
+
+	bundle := oauth.OAuthBundle{
+		Version:         1,
+		ClientID:        clientID,
+		ClientSecret:    clientSecret,
+		AccessToken:     tok.AccessToken,
+		RefreshToken:    tok.RefreshToken,
+		AccessExpiresAt: tok.Expiry,
 	}
-	legacy, legacyErr := s.pluginCfg.Get(ctx, legacyID)
-	if legacyErr == nil {
-		return legacy, legacyID, nil
+	if ri, ok := tok.Extra("refresh_token_expires_in").(float64); ok && ri > 0 {
+		bundle.RefreshExpiresAt = time.Now().Add(time.Duration(ri) * time.Second)
 	}
-	if err == nil {
-		return state, primaryID, nil
+	switch providerID {
+	case "lark":
+		bundle.Brand = "lark"
+	case "feishu":
+		bundle.Brand = "feishu"
 	}
-	return pkgplugins.PluginState{}, primaryID, err
+
+	return oauth.SaveOAuthBundle(ctx, s.vaultSvc, userID, providerCfg.VaultKey, bundle)
 }
 
 // --- vault operations ---
@@ -207,11 +241,14 @@ func (s *Service) AddSecretInstruction(name, purpose string) AddSecretInstructio
 
 // --- OAuth provider status ---
 
-// GetProviderStatuses returns status for all known OAuth providers.
+// GetProviderStatuses returns status for all registered OAuth providers.
 func (s *Service) GetProviderStatuses(ctx context.Context, userID int64) []ProviderStatus {
-	providers := []string{"github", "lark"}
-	out := make([]ProviderStatus, 0, len(providers))
-	for _, p := range providers {
+	if s.registry == nil {
+		return nil
+	}
+	ids := s.registry.IDs()
+	out := make([]ProviderStatus, 0, len(ids))
+	for _, p := range ids {
 		ps := s.getProviderStatus(ctx, userID, p)
 		out = append(out, ps)
 	}
@@ -221,42 +258,35 @@ func (s *Service) GetProviderStatuses(ctx context.Context, userID int64) []Provi
 func (s *Service) getProviderStatus(ctx context.Context, userID int64, provider string) ProviderStatus {
 	ps := ProviderStatus{Provider: provider}
 
-	switch provider {
-	case "github":
-		_, err := s.getGitHubBroker(ctx)
-		if err != nil {
-			ps.Unavailable = err.Error()
-			return ps
-		}
-		ps.Available = true
-		bundle, err := oauth.LoadGHBundle(ctx, s.vaultSvc, userID)
-		if err != nil {
-			s.log.Warn("load gh bundle", "user_id", userID, "error", err)
-			return ps
-		}
-		if bundle != nil {
-			ps.Connected = true
-		}
+	if s.registry == nil {
+		ps.Unavailable = "provider registry not set"
+		return ps
+	}
+	providerCfg, ok := s.registry.Get(provider)
+	if !ok {
+		ps.Unavailable = fmt.Sprintf("unknown provider: %s", provider)
+		return ps
+	}
 
-	case "lark":
-		_, err := s.getLarkBroker(ctx)
-		if err != nil {
-			ps.Unavailable = err.Error()
-			return ps
+	_, err := s.getBroker(ctx, provider, "")
+	if err != nil {
+		ps.Unavailable = err.Error()
+		return ps
+	}
+	ps.Available = true
+
+	bundle, err := oauth.LoadOAuthBundle(ctx, s.vaultSvc, userID, providerCfg.VaultKey)
+	if err != nil {
+		s.log.Warn("load oauth bundle", "provider", provider, "user_id", userID, "error", err)
+		return ps
+	}
+	if bundle != nil {
+		ps.Connected = true
+		if bundle.ClientID != "" {
+			ps.Username = bundle.ClientID
 		}
-		ps.Available = true
-		bundle, err := oauth.LoadLarkBundle(ctx, s.vaultSvc, userID)
-		if err != nil {
-			s.log.Warn("load lark bundle", "user_id", userID, "error", err)
-			return ps
-		}
-		if bundle != nil {
-			ps.Connected = true
-			label := bundle.AppID
-			if bundle.Brand != "" {
-				label = bundle.Brand + ":" + bundle.AppID
-			}
-			ps.Username = label
+		if bundle.Brand != "" {
+			ps.Username = bundle.Brand + ":" + bundle.ClientID
 		}
 	}
 	return ps
@@ -264,41 +294,40 @@ func (s *Service) getProviderStatus(ctx context.Context, userID int64, provider 
 
 // --- OAuth flow operations ---
 
-// StartFlow starts a device-flow for the given provider and user.
+// StartFlow starts an OAuth flow for the given provider and user.
+// It prefers device_code flows when available; otherwise falls back to authorization_code.
 func (s *Service) StartFlow(ctx context.Context, userID int64, provider string) (FlowStatus, error) {
 	if s.vaultSvc == nil {
 		return FlowStatus{}, fmt.Errorf("vault not configured")
 	}
-	switch provider {
-	case "github":
-		broker, err := s.getGitHubBroker(ctx)
-		if err != nil {
-			return FlowStatus{}, err
-		}
-		status, err := broker.StartDeviceFlow(ctx, userID)
-		if err != nil {
-			return FlowStatus{}, fmt.Errorf("start github device flow: %w", err)
-		}
-		return toFlowStatus(status), nil
 
-	case "lark":
-		broker, err := s.getLarkBroker(ctx)
-		if err != nil {
-			return FlowStatus{}, err
+	flowType := "authorization_code"
+	if s.registry != nil {
+		if cfg, ok := s.registry.Get(provider); ok {
+			for _, f := range cfg.Flows {
+				if f.Type == "device_code" {
+					flowType = "device_code"
+					break
+				}
+			}
 		}
-		status, err := broker.StartDeviceFlow(ctx, userID)
-		if err != nil {
-			return FlowStatus{}, fmt.Errorf("start lark device flow: %w", err)
-		}
-		return toFlowStatus(status), nil
-
-	default:
-		return FlowStatus{}, fmt.Errorf("unsupported provider: %s", provider)
 	}
+
+	broker, err := s.getBroker(ctx, provider, flowType)
+	if err != nil {
+		return FlowStatus{}, err
+	}
+
+	status, err := broker.StartFlow(ctx, oauth.Provider(provider), userID)
+	if err != nil {
+		return FlowStatus{}, fmt.Errorf("start %s %s flow: %w", provider, flowType, err)
+	}
+	return toFlowStatus(status), nil
 }
 
-// PollFlow polls an in-flight device flow. For GitHub it also completes the flow
-// when authorized. Returns the updated status and whether the flow completed.
+// PollFlow polls an in-flight OAuth flow. For device-code flows it completes and
+// saves the token when authorized. For auth-code flows it returns completed=true
+// once the callback has finalized the flow.
 func (s *Service) PollFlow(ctx context.Context, userID int64, provider, flowID string) (FlowStatus, bool, error) {
 	if s.vaultSvc == nil {
 		return FlowStatus{}, false, fmt.Errorf("vault not configured")
@@ -313,58 +342,63 @@ func (s *Service) PollFlow(ctx context.Context, userID int64, provider, flowID s
 		return FlowStatus{}, false, fmt.Errorf("flow does not belong to this user")
 	}
 
-	switch provider {
-	case "github":
-		broker, err := s.getGitHubBroker(ctx)
-		if err != nil {
-			return FlowStatus{}, false, err
-		}
-		status, err := broker.Poll(ctx, flowID)
-		if err != nil {
-			return FlowStatus{}, false, err
-		}
-		completed := false
-		if status.State == oauth.FlowStateAuthorized {
-			if cerr := broker.Complete(ctx, s.vaultSvc, userID, flowID); cerr != nil {
-				return FlowStatus{}, false, fmt.Errorf("complete github flow: %w", cerr)
-			}
-			completed = true
-			_ = s.InvalidateUser(userID)
-		}
-		return toFlowStatus(status), completed, nil
-
-	case "lark":
-		broker, err := s.getLarkBroker(ctx)
-		if err != nil {
-			return FlowStatus{}, false, err
-		}
-		status, err := broker.Poll(ctx, flowID)
-		if err != nil {
-			return FlowStatus{}, false, err
-		}
-		if status.State == oauth.FlowStateAuthorized {
-			s.flowStore.Delete(flowID)
-			_ = s.InvalidateUser(userID)
-			return toFlowStatus(status), true, nil
-		}
-		return toFlowStatus(status), false, nil
-
-	default:
-		return FlowStatus{}, false, fmt.Errorf("unsupported provider: %s", provider)
+	broker, err := s.getBroker(ctx, provider, "")
+	if err != nil {
+		return FlowStatus{}, false, err
 	}
+
+	status, err := broker.Poll(ctx, flowID)
+	if err != nil {
+		return FlowStatus{}, false, err
+	}
+
+	if status.State == oauth.FlowStateAuthorized {
+		// Device-code flows hold the token internally; complete and save here.
+		if dc, ok := broker.(*oauth.DeviceCodeBroker); ok {
+			tok, err := dc.Complete(ctx, flowID)
+			if err != nil {
+				return FlowStatus{}, false, fmt.Errorf("complete %s flow: %w", provider, err)
+			}
+			if err := s.saveToken(ctx, provider, userID, tok); err != nil {
+				return FlowStatus{}, false, fmt.Errorf("save %s token: %w", provider, err)
+			}
+		}
+		s.flowStore.Delete(flowID)
+		_ = s.InvalidateUser(userID)
+		return toFlowStatus(status), true, nil
+	}
+
+	return toFlowStatus(status), false, nil
 }
 
-// CompleteLarkFlow finalizes a Lark OAuth callback flow.
-func (s *Service) CompleteLarkFlow(ctx context.Context, userID int64, flowID, code string) error {
+// CompleteAuthCodeFlow finalizes an authorization-code OAuth callback flow.
+func (s *Service) CompleteAuthCodeFlow(ctx context.Context, provider, flowID, code string) error {
 	if s.vaultSvc == nil {
 		return fmt.Errorf("vault not configured")
 	}
-	broker, err := s.getLarkBroker(ctx)
+
+	flow, ok := s.flowStore.Get(flowID)
+	if !ok {
+		return fmt.Errorf("unknown or expired flow")
+	}
+
+	broker, err := s.getBroker(ctx, provider, "authorization_code")
 	if err != nil {
 		return err
 	}
-	if err := broker.Complete(ctx, s.vaultSvc, userID, flowID, code); err != nil {
-		return fmt.Errorf("complete lark flow: %w", err)
+
+	ac, ok := broker.(*oauth.AuthCodeBroker)
+	if !ok {
+		return fmt.Errorf("provider %s does not support authorization_code flow", provider)
+	}
+
+	tok, err := ac.Complete(ctx, flowID, code)
+	if err != nil {
+		return fmt.Errorf("complete %s flow: %w", provider, err)
+	}
+
+	if err := s.saveToken(ctx, provider, flow.UserID, tok); err != nil {
+		return fmt.Errorf("save %s token: %w", provider, err)
 	}
 	return nil
 }
@@ -374,16 +408,14 @@ func (s *Service) Disconnect(ctx context.Context, userID int64, provider string)
 	if s.vaultSvc == nil {
 		return fmt.Errorf("vault not configured")
 	}
-	var key string
-	switch provider {
-	case "github":
-		key = oauth.VaultKeyGitHub
-	case "lark":
-		key = oauth.VaultKeyLark
-	default:
-		return fmt.Errorf("unsupported provider: %s", provider)
+	if s.registry == nil {
+		return fmt.Errorf("provider registry not set")
 	}
-	if err := oauth.DeleteBundle(ctx, s.vaultSvc, userID, key); err != nil {
+	providerCfg, ok := s.registry.Get(provider)
+	if !ok {
+		return fmt.Errorf("unknown provider: %s", provider)
+	}
+	if err := oauth.DeleteBundle(ctx, s.vaultSvc, userID, providerCfg.VaultKey); err != nil {
 		return err
 	}
 	_ = s.InvalidateUser(userID)

@@ -169,6 +169,7 @@ type PoolManager struct {
 	skillStore               pkgplugins.SkillStore
 	vaultEnvLoader           runner.VaultEnvLoader
 	tokenManager             *oauth.TokenManager
+	oauthRegistry            *oauth.ProviderRegistry
 	log                      *slog.Logger
 }
 
@@ -187,6 +188,18 @@ func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManager
 	return pm
 }
 
+// SetOAuthRegistry wires the provider registry into the pool manager. When a
+// vault env loader is later set, the constructed TokenManager also receives the
+// registry so runners can resolve oauth.* session env sources.
+func (pm *PoolManager) SetOAuthRegistry(r *oauth.ProviderRegistry) {
+	pm.mu.Lock()
+	pm.oauthRegistry = r
+	if pm.tokenManager != nil {
+		pm.tokenManager.SetRegistry(r)
+	}
+	pm.mu.Unlock()
+}
+
 // SetVaultEnvLoader sets the vault env loader and rebuilds all pool factories
 // so existing pools pick up the loader. Must be called after StartAll.
 // If vs also satisfies oauth.VaultStore, a TokenManager is constructed and
@@ -196,6 +209,9 @@ func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v runner.VaultEnvL
 	pm.vaultEnvLoader = v
 	if vs, ok := v.(oauth.VaultStore); ok {
 		pm.tokenManager = oauth.NewTokenManager(vs)
+		if pm.oauthRegistry != nil {
+			pm.tokenManager.SetRegistry(pm.oauthRegistry)
+		}
 	}
 	pools := make(map[string]*Pool, len(pm.pools))
 	maps.Copy(pools, pm.pools)

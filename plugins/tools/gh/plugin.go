@@ -119,11 +119,6 @@ func init() {
 			Validate:      validateConfig,
 			Redact:        redactConfig,
 		})
-		host.AddSessionEnv(pkgplugins.SessionEnvSpec{
-			PluginID: PluginID,
-			EnvVar:   "GH_TOKEN",
-			Source:   pkgplugins.SessionEnvSourceGitHubToken,
-		})
 		host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
 			PluginID: PluginID,
 			Name:     "gh",

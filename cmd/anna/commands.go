@@ -14,6 +14,7 @@ import (
 	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
+	oauth "github.com/vaayne/anna/internal/credentials/oauth"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/internal/manifestplugins"
 	"github.com/vaayne/anna/internal/notify"
@@ -33,6 +34,7 @@ import (
 	pluginhooks "github.com/vaayne/anna/plugins/hooks"
 	plugintools "github.com/vaayne/anna/plugins/tools"
 	mcpplugin "github.com/vaayne/anna/plugins/tools/mcp"
+	"golang.org/x/oauth2"
 )
 
 func newApp() *ucli.App {
@@ -72,6 +74,8 @@ type setupResult struct {
 	toolLifecycle            *coreagent.ToolLifecycle
 	skillStore               pkgplugins.SkillStore
 	cliUserID                int64 // resolved CLI user for session creation
+	oauthRegistry            *oauth.ProviderRegistry
+	providerPluginIDs        map[string]string // provider ID → plugin ID
 }
 
 func setup(parent context.Context, gateway bool) (*setupResult, error) {
@@ -103,6 +107,12 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	if err := skills.SyncBuiltin(parent, skillStore, builtinSkillsFS); err != nil {
 		return nil, fmt.Errorf("sync builtin skills: %w", err)
 	}
+
+	// OAuth provider registry and mapping populated from manifest below.
+	var (
+		oauthRegistry     *oauth.ProviderRegistry
+		providerPluginIDs map[string]string
+	)
 
 	// Seed defaults so there's always at least one agent.
 	if err := store.SeedDefaults(parent); err != nil {
@@ -161,6 +171,42 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 			merged := manifestplugins.Merge(builtinManifest, userManifest)
 			manifestplugins.Reconcile(parent, merged, config.AnnaHome())
 			phost.RegisterManifestPlugins(merged)
+
+			// Build OAuth provider registry from manifest.
+			oauthRegistry = oauth.NewProviderRegistry()
+			for _, op := range merged.OAuthProviders {
+				flows := make([]oauth.ProviderFlowConfig, 0, len(op.Flows))
+				for _, f := range op.Flows {
+					var authStyle oauth2.AuthStyle
+					switch f.AuthStyle {
+					case "in_params":
+						authStyle = oauth2.AuthStyleInParams
+					default:
+						authStyle = oauth2.AuthStyleAutoDetect
+					}
+					flows = append(flows, oauth.ProviderFlowConfig{
+						Type:          f.Type,
+						AuthURL:       f.AuthURL,
+						DeviceAuthURL: f.DeviceAuthURL,
+						TokenURL:      f.TokenURL,
+						AuthStyle:     authStyle,
+					})
+				}
+				oauthRegistry.Register(oauth.ProviderConfig{
+					ID:       op.ID,
+					Scopes:   op.Scopes,
+					VaultKey: op.VaultKey,
+					Flows:    flows,
+				})
+			}
+
+			// Build provider → plugin ID mapping from manifest.
+			providerPluginIDs = make(map[string]string)
+			for _, p := range merged.Plugins {
+				if p.OAuthProvider != "" {
+					providerPluginIDs[p.OAuthProvider] = p.ID
+				}
+			}
 		}
 	}
 
@@ -385,6 +431,8 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		toolLifecycle:            toolLifecycle,
 		skillStore:               pluginhost.NewSkillStoreAdapter(skillStore),
 		cliUserID:                cliUserID,
+		oauthRegistry:            oauthRegistry,
+		providerPluginIDs:        providerPluginIDs,
 	}, nil
 }
 
@@ -452,4 +500,3 @@ func (s *setupResult) modelSwitchFunc(snap *config.Snapshot, pool *agent.Pool) f
 		s.skillStore,
 	)
 }
-

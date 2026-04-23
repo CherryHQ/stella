@@ -49,16 +49,33 @@ export function credentialsSettingsMixin() {
     vaultSaving: false,
     newSecretName: '',
     newSecretValue: '',
-    oauthStatus: { github: 'checking', lark: 'checking' },
-    oauthFlow: { github: null, lark: null },
-    oauthFlowActive: { github: false, lark: false },
+    oauthProviders: [],
+    oauthStatus: {},
+    oauthFlow: {},
+    oauthFlowActive: {},
 
     async init() {
       await this.loadVaultEntries()
-      await Promise.all([
-        this.checkOAuthConnected('github'),
-        this.checkOAuthConnected('lark'),
-      ])
+      await this.loadOAuthProviders()
+      await Promise.all(
+        this.oauthProviders.map(p => this.checkOAuthConnected(p.provider))
+      )
+    },
+
+    async loadOAuthProviders() {
+      try {
+        const providers = await api('GET', '/api/auth/profile/oauth/providers')
+        this.oauthProviders = providers || []
+        for (const p of this.oauthProviders) {
+          if (!this.oauthStatus[p.provider]) {
+            this.oauthStatus[p.provider] = 'checking'
+            this.oauthFlow[p.provider] = null
+            this.oauthFlowActive[p.provider] = false
+          }
+        }
+      } catch (_) {
+        this.oauthProviders = []
+      }
     },
 
     async loadVaultEntries() {
@@ -133,7 +150,7 @@ export function credentialsSettingsMixin() {
     },
 
     async _pollUntilDone(provider, flowID) {
-      const interval = provider === 'github' ? 5000 : 3000
+      const interval = 3000
       while (true) {
         await new Promise(r => setTimeout(r, interval))
         let status
