@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/pelletier/go-toml/v2"
 	"github.com/vaayne/anna/internal/tools"
 )
 
@@ -60,32 +61,44 @@ func bootstrapMise(ctx context.Context, annaHome string) error {
 	return tools.DownloadVersion(ctx, &miseTool, version, binDir, tools.Platform())
 }
 
-// generateMiseTOML returns a mise.toml snippet for a single github backend tool.
-// When b.Version is empty the version field is omitted; mise resolves the version
-// itself (typically the latest GitHub release). Specify an explicit version for
-// tools whose repos use non-standard release channels (e.g. "nightly").
-func generateMiseTOML(b ManifestBinary) string {
-	// Simple single-line form: "github:owner/repo" = "version"
+// generateMiseTOML returns a valid mise.toml for a single github backend tool.
+// When b.Version is empty, "latest" is used for the simple form (TOML requires a
+// value); the table form omits the version field so mise resolves it.
+// Specify an explicit version for repos that don't publish a "latest" release
+// (e.g. version: "nightly").
+func generateMiseTOML(b ManifestBinary) (string, error) {
+	toolKey := "github:" + b.Repo
+
+	var toolValue any
 	if b.BinPath == "" && b.Exe == "" {
+		// Simple form: "github:owner/repo" = "version"
 		ver := b.Version
 		if ver == "" {
 			ver = "latest"
 		}
-		return fmt.Sprintf("[tools]\n\"github:%s\" = %q\n", b.Repo, ver)
+		toolValue = ver
+	} else {
+		// Table form: extra options as a map.
+		m := map[string]any{}
+		if b.Version != "" {
+			m["version"] = b.Version
+		}
+		if b.BinPath != "" {
+			m["bin_path"] = b.BinPath
+		}
+		if b.Exe != "" {
+			m["exe"] = b.Exe
+		}
+		toolValue = m
 	}
-	// Table form for extra options.
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "[tools.\"github:%s\"]\n", b.Repo)
-	if b.Version != "" {
-		fmt.Fprintf(&sb, "version = %q\n", b.Version)
+
+	data, err := toml.Marshal(map[string]any{
+		"tools": map[string]any{toolKey: toolValue},
+	})
+	if err != nil {
+		return "", fmt.Errorf("marshal mise.toml: %w", err)
 	}
-	if b.BinPath != "" {
-		fmt.Fprintf(&sb, "bin_path = %q\n", b.BinPath)
-	}
-	if b.Exe != "" {
-		fmt.Fprintf(&sb, "exe = %q\n", b.Exe)
-	}
-	return sb.String()
+	return string(data), nil
 }
 
 // installBinaryWithMise installs a single binary via mise's github backend and
@@ -102,8 +115,12 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
+	tomlContent, err := generateMiseTOML(b)
+	if err != nil {
+		return "", err
+	}
 	tomlPath := filepath.Join(tmpDir, "mise.toml")
-	if err := os.WriteFile(tomlPath, []byte(generateMiseTOML(b)), 0o644); err != nil {
+	if err := os.WriteFile(tomlPath, []byte(tomlContent), 0o644); err != nil {
 		return "", fmt.Errorf("write mise.toml: %w", err)
 	}
 
