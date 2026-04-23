@@ -53,3 +53,14 @@ plugins:
         source: lark_app_id
       - env_var: LARKSUITE_CLI_BRAND
         source: lark_brand
+
+  - id: hook/rtk
+    kind: hook
+    name: rtk
+    display_name: RTK
+    description: "Rewrite bash commands through the rtk binary."
+    enabled: true
+    binaries:
+      - name: rtk
+        repo: rtk-ai/rtk
+        version: "0.30.0"
