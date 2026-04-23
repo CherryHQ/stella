@@ -15,9 +15,22 @@ func (h *Host) SessionPluginView(ctx context.Context) (pkgplugins.SessionPluginV
 	view := pkgplugins.SessionPluginView{
 		RegisteredPluginIDs: make([]string, 0, len(metas)),
 	}
+	registeredSet := make(map[string]struct{}, len(metas))
 	for _, meta := range metas {
 		view.RegisteredPluginIDs = append(view.RegisteredPluginIDs, meta.ID)
+		registeredSet[meta.ID] = struct{}{}
 	}
+
+	// Add manifest-only plugins to RegisteredPluginIDs (they are not in metadataRegs).
+	h.mu.RLock()
+	for id := range h.manifestEnabledIDs {
+		if _, exists := registeredSet[id]; !exists {
+			view.RegisteredPluginIDs = append(view.RegisteredPluginIDs, id)
+			registeredSet[id] = struct{}{}
+		}
+	}
+	h.mu.RUnlock()
+
 	sort.Strings(view.RegisteredPluginIDs)
 	if h.store == nil {
 		return view, nil
@@ -35,6 +48,17 @@ func (h *Host) SessionPluginView(ctx context.Context) (pkgplugins.SessionPluginV
 		enabledSet[plugin.ID] = struct{}{}
 		view.EnabledPluginIDs = append(view.EnabledPluginIDs, plugin.ID)
 	}
+
+	// Add manifest-enabled plugins to the enabled set.
+	h.mu.RLock()
+	for id := range h.manifestEnabledIDs {
+		if _, exists := enabledSet[id]; !exists {
+			enabledSet[id] = struct{}{}
+			view.EnabledPluginIDs = append(view.EnabledPluginIDs, id)
+		}
+	}
+	h.mu.RUnlock()
+
 	sort.Strings(view.EnabledPluginIDs)
 
 	for _, spec := range h.AllSessionEnvSpecs() {

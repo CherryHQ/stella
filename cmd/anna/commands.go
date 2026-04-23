@@ -15,6 +15,7 @@ import (
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	appdb "github.com/vaayne/anna/internal/db"
+	"github.com/vaayne/anna/internal/manifestplugins"
 	"github.com/vaayne/anna/internal/notify"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/pluginstate"
@@ -146,6 +147,25 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		return nil, fmt.Errorf("load plugin catalog: %w", err)
 	}
+
+	// Load and reconcile manifest tool plugins.
+	{
+		builtinManifest, err := manifestplugins.LoadBuiltin()
+		if err != nil {
+			slog.Warn("manifest plugin: failed to load builtin manifest", "error", err)
+		} else {
+			userManifestPath := filepath.Join(config.AnnaHome(), "plugins.yaml")
+			userManifest, err := manifestplugins.LoadUser(userManifestPath)
+			if err != nil {
+				slog.Warn("manifest plugin: failed to load user manifest", "path", userManifestPath, "error", err)
+				userManifest = &manifestplugins.Manifest{}
+			}
+			merged := manifestplugins.Merge(builtinManifest, userManifest)
+			manifestplugins.Reconcile(parent, merged, config.AnnaHome())
+			phost.RegisterManifestPlugins(merged)
+		}
+	}
+
 	ensureEnabledPluginBinaries(parent, phost, store, config.AnnaHome())
 	if err := phost.ApplyPlugin(ctx, mcpplugin.PluginID); err != nil {
 		return nil, fmt.Errorf("apply mcp runtime: %w", err)

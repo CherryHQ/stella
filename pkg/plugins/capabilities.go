@@ -190,6 +190,7 @@ type SessionEnvSpec struct {
 	EnvVar   string
 	Source   SessionEnvSource
 	Value    string // used only when Source == SessionEnvSourceStatic
+	Required bool   // if true, session creation fails when this env cannot be resolved
 }
 
 // BundledSkillSyncContext is the build-time context for syncing a bundled skill

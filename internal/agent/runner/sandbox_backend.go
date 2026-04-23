@@ -125,7 +125,7 @@ func runnerFilesystemPolicy(paths sandboxPaths) sandbox.FilesystemPolicy {
 // buildSandboxEnv constructs the Policy.Env map for a sandbox session.
 // Vault secrets (if any) are used as the base so that runner-set variables
 // (e.g. ANNA_HOME) always take precedence over user-defined secrets.
-func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths) map[string]string {
+func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths) (map[string]string, error) {
 	env := make(map[string]string)
 
 	if cfg.VaultEnvLoader != nil {
@@ -146,14 +146,16 @@ func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths
 	// tokens below instead.
 	delete(env, oauth.VaultKeyGitHub)
 	delete(env, oauth.VaultKeyLark)
-	injectSessionEnv(ctx, cfg, env)
+	if err := injectSessionEnv(ctx, cfg, env); err != nil {
+		return nil, err
+	}
 
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, sandboxProcessEnv(paths))
-	return env
+	return env, nil
 }
 
-func injectSessionEnv(ctx context.Context, cfg GoRunnerConfig, env map[string]string) {
+func injectSessionEnv(ctx context.Context, cfg GoRunnerConfig, env map[string]string) error {
 	var (
 		ghTokenLoaded bool
 		ghToken       string
@@ -166,6 +168,9 @@ func injectSessionEnv(ctx context.Context, cfg GoRunnerConfig, env map[string]st
 			env[spec.EnvVar] = spec.Value
 		case pkgplugins.SessionEnvSourceGitHubToken:
 			if cfg.TokenManager == nil {
+				if spec.Required {
+					return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
+				}
 				continue
 			}
 			if !ghTokenLoaded {
@@ -184,9 +189,14 @@ func injectSessionEnv(ctx context.Context, cfg GoRunnerConfig, env map[string]st
 			}
 			if ghToken != "" {
 				env[spec.EnvVar] = ghToken
+			} else if spec.Required {
+				return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
 			}
 		case pkgplugins.SessionEnvSourceLarkAccessToken, pkgplugins.SessionEnvSourceLarkAppID, pkgplugins.SessionEnvSourceLarkBrand:
 			if cfg.TokenManager == nil {
+				if spec.Required {
+					return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
+				}
 				continue
 			}
 			if !larkLoaded {
@@ -203,22 +213,23 @@ func injectSessionEnv(ctx context.Context, cfg GoRunnerConfig, env map[string]st
 					)
 				}
 			}
+			var value string
 			switch spec.Source {
 			case pkgplugins.SessionEnvSourceLarkAccessToken:
-				if value := larkEnv["LARKSUITE_CLI_USER_ACCESS_TOKEN"]; value != "" {
-					env[spec.EnvVar] = value
-				}
+				value = larkEnv["LARKSUITE_CLI_USER_ACCESS_TOKEN"]
 			case pkgplugins.SessionEnvSourceLarkAppID:
-				if value := larkEnv["LARKSUITE_CLI_APP_ID"]; value != "" {
-					env[spec.EnvVar] = value
-				}
+				value = larkEnv["LARKSUITE_CLI_APP_ID"]
 			case pkgplugins.SessionEnvSourceLarkBrand:
-				if value := larkEnv["LARKSUITE_CLI_BRAND"]; value != "" {
-					env[spec.EnvVar] = value
-				}
+				value = larkEnv["LARKSUITE_CLI_BRAND"]
+			}
+			if value != "" {
+				env[spec.EnvVar] = value
+			} else if spec.Required {
+				return fmt.Errorf("required session env %q (source %q) for plugin %q could not be resolved", spec.EnvVar, spec.Source, spec.PluginID)
 			}
 		}
 	}
+	return nil
 }
 
 func prependPathEntry(entry, existing string) string {
@@ -248,7 +259,11 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 		recordSandboxError(span, err)
 		return nil, err
 	}
-	env := buildSandboxEnv(ctx, cfg, paths)
+	env, err := buildSandboxEnv(ctx, cfg, paths)
+	if err != nil {
+		recordSandboxError(span, err)
+		return nil, err
+	}
 
 	policy := sandbox.Policy{
 		Filesystem: runnerFilesystemPolicy(paths),
@@ -302,7 +317,10 @@ func createLocalSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 	if err != nil {
 		return nil, fmt.Errorf("resolve sandbox paths: %w", err)
 	}
-	env := buildSandboxEnv(ctx, cfg, paths)
+	env, err := buildSandboxEnv(ctx, cfg, paths)
+	if err != nil {
+		return nil, err
+	}
 	existing := env["PATH"]
 	if existing == "" {
 		existing = os.Getenv("PATH")
