@@ -3,12 +3,10 @@ package rtk
 import (
 	"context"
 	"maps"
-	"os"
 	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 
+	"github.com/vaayne/anna/internal/tools"
 	"github.com/vaayne/anna/pkg/hooks"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
@@ -66,29 +64,9 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 	return hooks.PreToolCallResult{Arguments: args}, nil
 }
 
-// resolveRTKPath resolves the rtk binary path, checking the given bin
-// directory first, then $PATH. Called on each hook invocation so a binary
-// installed after process start (e.g. by mise) is found immediately.
-func resolveRTKPath(binDir string) string {
-	if binDir != "" {
-		binaryName := "rtk"
-		if runtime.GOOS == "windows" {
-			binaryName = "rtk.exe"
-		}
-		p := filepath.Join(binDir, binaryName)
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	if p, err := exec.LookPath("rtk"); err == nil {
-		return p
-	}
-	return ""
-}
-
 // wrapWithRTK uses "rtk rewrite" to determine how to wrap the command.
 func (h *Hook) wrapWithRTK(command string) string {
-	rtk := resolveRTKPath(h.toolsBinDir)
+	rtk := tools.ResolveBinary(h.toolsBinDir, "rtk")
 	if rtk == "" {
 		return command
 	}
