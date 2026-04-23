@@ -7,7 +7,7 @@ description: File-driven CLI tool integrations loaded from $ANNA_HOME/plugins.ya
 
 Manifest tool plugins are a lightweight alternative to full Go-compiled plugins for simple CLI tool integrations. Instead of writing a Go package, you declare the tool in a YAML file and Anna reconciles the binary download at startup.
 
-Anna ships with a built-in manifest that declares the default CLI tool integrations (`mise`, `tap-web`, `gh`, `lark-cli`). You can override or extend these in `$ANNA_HOME/plugins.yaml`.
+Anna ships with a built-in manifest that declares the default manifest-managed CLI tool integrations (`tap-web`, `gh`, `lark-cli`, `rtk`). You can override or extend these in `$ANNA_HOME/plugins.yaml`.
 
 ## How It Works
 
@@ -100,7 +100,7 @@ To disable a built-in plugin, add an entry with `enabled: false`:
 
 ```yaml
 plugins:
-  - id: tool/mise
+  - id: tool/tap-web
     enabled: false
 ```
 

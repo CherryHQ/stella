@@ -108,7 +108,7 @@ CLI integration that affects bash sessions and prompt guidance.
 
 Examples now include:
 
-- `tool/mise`: binary + prompt guidance
+- `tool/mise`: embedded binary + prompt guidance
 - `tool/tap-web`: binary + bundled skill + prompt guidance
 - `tool/gh`: binary + OAuth config + session env + prompt guidance
 - `tool/lark-cli`: binary + OAuth config + session env + bundled skill + prompt guidance

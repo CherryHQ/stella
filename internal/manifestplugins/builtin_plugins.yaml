@@ -72,16 +72,6 @@ oauth_providers:
         auth_style: in_params
 
 plugins:
-  - id: tool/mise
-    kind: tool
-    name: mise
-    display_name: mise
-    description: "Inject mise usage guidance into the system prompt and provide the mise binary."
-    enabled: true
-    binaries:
-      - name: mise
-        repo: jdx/mise
-
   - id: tool/tap-web
     kind: tool
     name: tap-web

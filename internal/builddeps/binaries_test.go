@@ -15,6 +15,22 @@ import (
 	"testing"
 )
 
+func TestEmbeddedBinariesOnlyIncludeManagedEmbeddedTools(t *testing.T) {
+	specs := embeddedBinaries()
+	names := make(map[string]struct{}, len(specs))
+	for _, spec := range specs {
+		names[spec.Name] = struct{}{}
+	}
+	for _, want := range []string{"fd", "rg", "mise"} {
+		if _, ok := names[want]; !ok {
+			t.Fatalf("embedded tool %q not found", want)
+		}
+	}
+	if _, ok := names["boxsh"]; ok {
+		t.Fatal("boxsh should no longer be embedded")
+	}
+}
+
 func TestEmbeddedBinariesFDDarwinAMD64UsesLegacyTag(t *testing.T) {
 	specs := embeddedBinaries()
 	var found *embeddedBinary

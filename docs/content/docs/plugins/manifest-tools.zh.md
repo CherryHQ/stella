@@ -7,7 +7,7 @@ description: 从 $ANNA_HOME/plugins.yaml 加载的文件驱动 CLI 工具集成�
 
 清单工具插件是一种轻量替代方案，无需编写 Go 包，只需在 YAML 文件中声明工具，Anna 会在启动时自动协调二进制文件的下载。
 
-Anna 内置了一个默认清单，声明了标准 CLI 工具集成（`mise`、`tap-web`、`gh`、`lark-cli`）。你可以在 `$ANNA_HOME/plugins.yaml` 中覆盖或扩展这些配置。
+Anna 内置了一个默认清单，声明了默认由清单管理的 CLI 工具集成（`tap-web`、`gh`、`lark-cli`、`rtk`）。你可以在 `$ANNA_HOME/plugins.yaml` 中覆盖或扩展这些配置。
 
 ## 工作原理
 
@@ -100,7 +100,7 @@ Anna 在 `$ANNA_HOME/plugin-manifest-state.json` 中跟踪已安装的二进制�
 
 ```yaml
 plugins:
-  - id: tool/mise
+  - id: tool/tap-web
     enabled: false
 ```
 

@@ -83,31 +83,31 @@ func TestMerge_UserOmitsEnabled_InheritsBuiltin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Confirm builtin has tool/mise enabled.
-	var builtinMiseEnabled *bool
+	// Confirm builtin has tool/tap-web enabled.
+	var builtinTapEnabled *bool
 	for _, p := range builtinRaw.Plugins {
-		if p.ID == "tool/mise" {
-			builtinMiseEnabled = p.Enabled
+		if p.ID == "tool/tap-web" {
+			builtinTapEnabled = p.Enabled
 			break
 		}
 	}
-	if builtinMiseEnabled == nil || !*builtinMiseEnabled {
-		t.Fatal("prerequisite: tool/mise must be enabled in builtin")
+	if builtinTapEnabled == nil || !*builtinTapEnabled {
+		t.Fatal("prerequisite: tool/tap-web must be enabled in builtin")
 	}
 
-	// User overrides tool/mise but omits Enabled (nil pointer).
+	// User overrides tool/tap-web but omits Enabled (nil pointer).
 	userRaw := rawManifest{Plugins: []rawManifestPlugin{
-		{ID: "tool/mise", Name: "mise-override"},
+		{ID: "tool/tap-web", Name: "tap-web-override"},
 	}}
 
 	merged := MergeRaw(builtinRaw, userRaw)
 	for _, p := range merged.Plugins {
-		if p.ID == "tool/mise" {
+		if p.ID == "tool/tap-web" {
 			if !p.Enabled {
-				t.Error("expected tool/mise to inherit enabled:true from builtin when user omits enabled")
+				t.Error("expected tool/tap-web to inherit enabled:true from builtin when user omits enabled")
 			}
 			return
 		}
 	}
-	t.Error("tool/mise not found in merged result")
+	t.Error("tool/tap-web not found in merged result")
 }
