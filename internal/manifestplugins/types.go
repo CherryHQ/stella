@@ -1,15 +1,16 @@
 package manifestplugins
 
 type ManifestPlugin struct {
-	ID          string               `yaml:"id"`
-	Kind        string               `yaml:"kind"`
-	Name        string               `yaml:"name"`
-	DisplayName string               `yaml:"display_name"`
-	Description string               `yaml:"description"`
-	Enabled     bool                 `yaml:"enabled"`
-	Binaries    []ManifestBinary     `yaml:"binaries,omitempty"`
-	Skills      []ManifestSkill      `yaml:"skills,omitempty"`
-	SessionEnvs []ManifestSessionEnv `yaml:"session_env,omitempty"`
+	ID            string               `yaml:"id"`
+	Kind          string               `yaml:"kind"`
+	Name          string               `yaml:"name"`
+	DisplayName   string               `yaml:"display_name"`
+	Description   string               `yaml:"description"`
+	Enabled       bool                 `yaml:"enabled"`
+	Binaries      []ManifestBinary     `yaml:"binaries,omitempty"`
+	Skills        []ManifestSkill      `yaml:"skills,omitempty"`
+	SessionEnvs   []ManifestSessionEnv `yaml:"session_env,omitempty"`
+	OAuthProvider string               `yaml:"oauth_provider,omitempty"`
 }
 
 type ManifestBinary struct {
@@ -32,22 +33,55 @@ type ManifestSessionEnv struct {
 	Required bool   `yaml:"required,omitempty"`
 }
 
+type ManifestOAuthFlow struct {
+	Type          string `yaml:"type"`
+	AuthURL       string `yaml:"auth_url,omitempty"`
+	DeviceAuthURL string `yaml:"device_auth_url,omitempty"`
+	TokenURL      string `yaml:"token_url"`
+	AuthStyle     string `yaml:"auth_style,omitempty"`
+}
+
+type ManifestOAuthProvider struct {
+	ID       string              `yaml:"id"`
+	Scopes   []string            `yaml:"scopes"`
+	VaultKey string              `yaml:"vault_key"`
+	Flows    []ManifestOAuthFlow `yaml:"flows"`
+}
+
 type Manifest struct {
-	Plugins []ManifestPlugin `yaml:"plugins"`
+	OAuthProviders []ManifestOAuthProvider `yaml:"oauth_providers,omitempty"`
+	Plugins        []ManifestPlugin        `yaml:"plugins"`
 }
 
 type rawManifestPlugin struct {
-	ID          string               `yaml:"id"`
-	Kind        string               `yaml:"kind"`
-	Name        string               `yaml:"name"`
-	DisplayName string               `yaml:"display_name"`
-	Description string               `yaml:"description"`
-	Enabled     *bool                `yaml:"enabled"`
-	Binaries    []ManifestBinary     `yaml:"binaries,omitempty"`
-	Skills      []ManifestSkill      `yaml:"skills,omitempty"`
-	SessionEnvs []ManifestSessionEnv `yaml:"session_env,omitempty"`
+	ID            string               `yaml:"id"`
+	Kind          string               `yaml:"kind"`
+	Name          string               `yaml:"name"`
+	DisplayName   string               `yaml:"display_name"`
+	Description   string               `yaml:"description"`
+	Enabled       *bool                `yaml:"enabled"`
+	Binaries      []ManifestBinary     `yaml:"binaries,omitempty"`
+	Skills        []ManifestSkill      `yaml:"skills,omitempty"`
+	SessionEnvs   []ManifestSessionEnv `yaml:"session_env,omitempty"`
+	OAuthProvider string               `yaml:"oauth_provider,omitempty"`
+}
+
+type rawManifestOAuthFlow struct {
+	Type          string `yaml:"type"`
+	AuthURL       string `yaml:"auth_url,omitempty"`
+	DeviceAuthURL string `yaml:"device_auth_url,omitempty"`
+	TokenURL      string `yaml:"token_url"`
+	AuthStyle     string `yaml:"auth_style,omitempty"`
+}
+
+type rawManifestOAuthProvider struct {
+	ID       string                 `yaml:"id"`
+	Scopes   []string               `yaml:"scopes"`
+	VaultKey string                 `yaml:"vault_key"`
+	Flows    []rawManifestOAuthFlow `yaml:"flows"`
 }
 
 type rawManifest struct {
-	Plugins []rawManifestPlugin `yaml:"plugins"`
+	OAuthProviders []rawManifestOAuthProvider `yaml:"oauth_providers,omitempty"`
+	Plugins        []rawManifestPlugin        `yaml:"plugins"`
 }
