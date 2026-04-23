@@ -180,28 +180,6 @@ func UpgradeBinarySpec(ctx context.Context, spec pkgplugins.BinarySpec, annaHome
 	return nil
 }
 
-// RunPostInstalls runs PostInstall hooks for specs whose binary is already present.
-// Used at startup to refresh plugin assets without re-downloading.
-func RunPostInstalls(_ context.Context, specs []pkgplugins.BinarySpec, annaHome string, logger *slog.Logger) {
-	if len(specs) == 0 {
-		return
-	}
-	if logger == nil {
-		logger = slog.Default()
-	}
-	for _, spec := range specs {
-		if spec.PostInstall == nil {
-			continue
-		}
-
-		binPath := ToolPath(annaHome, spec.Name)
-		if binPath == "" {
-			continue
-		}
-		go spec.PostInstall(context.Background(), binPath, annaHome, logger)
-	}
-}
-
 // StatusFromSpecs returns install status for each unique binary name in specs.
 func StatusFromSpecs(specs []pkgplugins.BinarySpec, binDir string) []ToolStatus {
 	manifest, _ := LoadManifest(binDir)

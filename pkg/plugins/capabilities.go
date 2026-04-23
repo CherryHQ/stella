@@ -164,7 +164,6 @@ type BinarySpec struct {
 	Name           string                 // binary name on disk, e.g. "tap"
 	Repo           string                 // "owner/repo" on GitHub
 	Version        string                 // pinned version string, or "" for latest
-	Embed          bool                   // include this binary in builddeps embedded tool sync
 	AssetTemplates map[string]BinaryAsset // platform key e.g. "darwin-arm64"
 	// PostInstall is a local install hook for the downloaded binary. Durable
 	// bundled assets should use BundledSkillSpec instead of PostInstall.
