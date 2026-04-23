@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 
 	"github.com/vaayne/anna/pkg/hooks"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
@@ -67,32 +66,24 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 	return hooks.PreToolCallResult{Arguments: args}, nil
 }
 
-var (
-	rtkPathOnce sync.Once
-	rtkPathVal  string
-)
-
-// resolveRTKPath lazily resolves the rtk binary path, checking the given
-// bin directory first, then $PATH.
+// resolveRTKPath resolves the rtk binary path, checking the given bin
+// directory first, then $PATH. Called on each hook invocation so a binary
+// installed after process start (e.g. by mise) is found immediately.
 func resolveRTKPath(binDir string) string {
-	rtkPathOnce.Do(func() {
-		if binDir != "" {
-			// Try platform-specific binary name first (includes .exe on Windows)
-			binaryName := "rtk"
-			if runtime.GOOS == "windows" {
-				binaryName = "rtk.exe"
-			}
-			p := filepath.Join(binDir, binaryName)
-			if _, err := os.Stat(p); err == nil {
-				rtkPathVal = p
-				return
-			}
+	if binDir != "" {
+		binaryName := "rtk"
+		if runtime.GOOS == "windows" {
+			binaryName = "rtk.exe"
 		}
-		if p, err := exec.LookPath("rtk"); err == nil {
-			rtkPathVal = p
+		p := filepath.Join(binDir, binaryName)
+		if _, err := os.Stat(p); err == nil {
+			return p
 		}
-	})
-	return rtkPathVal
+	}
+	if p, err := exec.LookPath("rtk"); err == nil {
+		return p
+	}
+	return ""
 }
 
 // wrapWithRTK uses "rtk rewrite" to determine how to wrap the command.
