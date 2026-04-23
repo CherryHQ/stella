@@ -101,6 +101,22 @@ Examples:
 - `channel/telegram` owns config, status, channel registration, and runtime lifecycle
 - `reflect` owns config, status, and a managed runtime
 
+## CLI-Backed Tool Plugins
+
+Some `tool/*` plugins do not expose an Anna JSON tool at all. Instead, they own
+CLI integration that affects bash sessions and prompt guidance.
+
+Examples now include:
+
+- `tool/mise`: binary + prompt guidance
+- `tool/tap-web`: binary + bundled skill + prompt guidance
+- `tool/gh`: binary + OAuth config + session env + prompt guidance
+- `tool/lark-cli`: binary + OAuth config + session env + bundled skill + prompt guidance
+
+The important boundary is ownership, not whether the plugin exposes `ToolSpec`.
+If a feature owns a CLI binary, injected env vars, bundled skill, or prompt
+guidance, that state should live in the same plugin package.
+
 ## Host Ownership Model
 
 The process-wide plugin host lives in `internal/pluginhost/`.

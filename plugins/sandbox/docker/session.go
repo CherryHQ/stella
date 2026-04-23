@@ -24,6 +24,10 @@ import (
 // activate, $PATH, and $HOME all line up.
 const workspaceMount = "/home/anna/workspace"
 
+// annaHomeMount is the in-container root used for the host ANNA_HOME assets
+// that sandbox sessions need. Only selected subdirectories are bind-mounted.
+const annaHomeMount = "/home/anna/.anna"
+
 func nextSessionID() string { return sandboxpkg.NewSessionID() }
 
 func logSessionCreated(sessionID, backend string, policy sandboxpkg.Policy) {
@@ -125,6 +129,21 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		Name: "anna-sandbox-" + sessionID,
 	}
 
+	if annaHome != "" {
+		opts.ReadOnlyMounts = []dockerclient.Mount{
+			{
+				HostPath:      filepath.Join(annaHome, "bin"),
+				ContainerPath: filepath.Join(annaHomeMount, "bin"),
+				ReadOnly:      true,
+			},
+			{
+				HostPath:      filepath.Join(annaHome, "skills"),
+				ContainerPath: filepath.Join(annaHomeMount, "skills"),
+				ReadOnly:      true,
+			},
+		}
+	}
+
 	containerID, err := client.CreateAndStart(ctx, opts)
 	if err != nil {
 		recordError(span, err)
@@ -136,8 +155,8 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		attribute.String("anna.sandbox.container_id", containerID),
 	))
 
-	// Build mount table: workspace mount only.
-	mountTable := buildMountTable(workspaceHost, workspaceMount)
+	// Build mount table for the workspace plus mounted ANNA_HOME/bin and /skills.
+	mountTable := buildMountTable(workspaceHost, workspaceMount, policy.Env["ANNA_HOME"], annaHomeMount)
 
 	session := &dockerSession{
 		id:          sessionID,
@@ -167,15 +186,34 @@ func mapNetworkMode(policy sandboxpkg.Policy) dockerclient.NetworkMode {
 }
 
 // buildMountTable returns the bind mount set that toContainerPath should consult.
-// Only the workspace mount is registered; read-only mounts were removed in Phase 7.
-func buildMountTable(workspaceHost, workspaceMount string) []dockerclient.Mount {
-	return []dockerclient.Mount{
+func buildMountTable(workspaceHost, workspaceMount, annaHomeHost, annaHomeContainer string) []dockerclient.Mount {
+	mounts := []dockerclient.Mount{
 		{
 			HostPath:      workspaceHost,
 			ContainerPath: workspaceMount,
 			ReadOnly:      false,
 		},
 	}
+	if annaHomeHost != "" && annaHomeContainer != "" {
+		mounts = append(mounts,
+			dockerclient.Mount{
+				HostPath:      annaHomeHost,
+				ContainerPath: annaHomeContainer,
+				ReadOnly:      true,
+			},
+			dockerclient.Mount{
+				HostPath:      filepath.Join(annaHomeHost, "bin"),
+				ContainerPath: filepath.Join(annaHomeContainer, "bin"),
+				ReadOnly:      true,
+			},
+			dockerclient.Mount{
+				HostPath:      filepath.Join(annaHomeHost, "skills"),
+				ContainerPath: filepath.Join(annaHomeContainer, "skills"),
+				ReadOnly:      true,
+			},
+		)
+	}
+	return mounts
 }
 
 // mergeEnv merges policy environment and per-call overrides into a map.
@@ -203,8 +241,8 @@ var hostOnlyEnvKeys = map[string]struct{}{
 
 // translateEnvPaths rewrites env vars whose values are absolute host paths.
 // Values that are mounted are translated to their in-container equivalents.
-// Values that are absolute but not mounted (e.g. ANNA_HOME) are dropped —
-// the path doesn't exist in the container and would mislead tools that read it.
+// Values that are absolute but not mounted are dropped — the path doesn't
+// exist in the container and would mislead tools that read it.
 // Keys in hostOnlyEnvKeys are dropped wholesale.
 // Non-path values (TERM, LANG, …) pass through unchanged.
 func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount) map[string]string {
@@ -228,39 +266,22 @@ func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount) m
 }
 
 // containerDefaultPATH is the image-baked PATH from the Dockerfile ENV directive.
-// It is used as the base when building a container exec PATH that prepends the
-// wrapper dir. Keep in sync with the ENV PATH line in plugins/sandbox/docker/Dockerfile.
+// It is used as the base when building a container exec PATH that prepends
+// $ANNA_HOME/bin. Keep in sync with the ENV PATH line in plugins/sandbox/docker/Dockerfile.
 const containerDefaultPATH = "/home/anna/.local/bin:/home/anna/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
-// injectWrapperPath prepends the wrapper dir (ANNA_WRAPPER_DIR) to the
-// container exec PATH so that CLI wrappers provisioned in that directory
-// shadow the real binaries and intercept calls for auth injection.
-//
-// ANNA_WRAPPER_DIR is translated by translateEnvPaths from a host path to its
-// container-side equivalent before this function is called. If the variable is
-// absent or empty (translation failed because the dir is not inside a mount),
-// the env is returned unchanged.
-func injectWrapperPath(env map[string]string) map[string]string {
-	wrapperDir, ok := env["ANNA_WRAPPER_DIR"]
-	if !ok || wrapperDir == "" {
+// injectAnnaHomeBinPath prepends $ANNA_HOME/bin to the container exec PATH so
+// embedded and plugin-managed CLIs resolve directly without a wrapper layer.
+func injectAnnaHomeBinPath(env map[string]string) map[string]string {
+	annaHome, ok := env["ANNA_HOME"]
+	if !ok || annaHome == "" {
 		return env
 	}
 	base := env["PATH"]
 	if base == "" {
 		base = containerDefaultPATH
 	}
-	env["PATH"] = wrapperDir + ":" + base
-	return env
-}
-
-// injectDockerBinPaths overrides ANNA_GH_BIN and ANNA_LARK_BIN with their
-// absolute container-side paths. The runner sets these to host paths via
-// binaries.ToolPath; those paths do not exist inside the container.
-// Overriding them here ensures the wrapper scripts exec the real binaries
-// rather than looping back through the wrappers on PATH.
-func injectDockerBinPaths(env map[string]string) map[string]string {
-	env["ANNA_GH_BIN"] = "/usr/bin/gh"
-	env["ANNA_LARK_BIN"] = "/usr/local/bin/lark-cli"
+	env["PATH"] = filepath.Join(annaHome, "bin") + ":" + base
 	return env
 }
 
@@ -519,7 +540,7 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 		return sandboxpkg.ExecResult{}, fmt.Errorf("docker host exec: cwd not in any mount: %w", err)
 	}
 
-	env := injectDockerBinPaths(injectWrapperPath(translateEnvPaths(mergeEnv(h.session.policy.Env, opts.Env), h.session.mountTable)))
+	env := injectAnnaHomeBinPath(translateEnvPaths(mergeEnv(h.session.policy.Env, opts.Env), h.session.mountTable))
 
 	timeout := opts.Timeout
 	if timeout == 0 {
@@ -564,7 +585,7 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 		return nil, fmt.Errorf("docker host start_process: cwd not in any mount: %w", err)
 	}
 
-	env := injectDockerBinPaths(injectWrapperPath(translateEnvPaths(mergeEnv(h.session.policy.Env, req.Env), h.session.mountTable)))
+	env := injectAnnaHomeBinPath(translateEnvPaths(mergeEnv(h.session.policy.Env, req.Env), h.session.mountTable))
 
 	timeout := req.Timeout
 	if timeout == 0 {

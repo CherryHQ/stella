@@ -6,6 +6,11 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/builddeps"
+
+	_ "github.com/vaayne/anna/plugins/tools/gh"
+	_ "github.com/vaayne/anna/plugins/tools/lark-cli"
+	_ "github.com/vaayne/anna/plugins/tools/mise"
+	_ "github.com/vaayne/anna/plugins/tools/tap-web"
 )
 
 func main() {

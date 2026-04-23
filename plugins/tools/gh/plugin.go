@@ -1,19 +1,26 @@
-package github
+package gh
 
 import (
+	"context"
 	"fmt"
 	"maps"
 
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
-const PluginID = "auth/github"
+const PluginID = "tool/gh"
 
 type Config struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 	RedirectURL  string `json:"redirect_url"`
 }
+
+const promptContent = `Use the GitHub CLI directly from Anna's managed PATH.
+
+- Authentication comes from Anna's GitHub OAuth connection. Prefer ` + "`gh`" + ` over raw API calls when it already supports the task.
+- Common commands: ` + "`gh auth status`" + `, ` + "`gh repo view`" + `, ` + "`gh pr view`" + `, ` + "`gh pr checkout`" + `, ` + "`gh run list`" + `, ` + "`gh run view --log`" + `.
+- If auth fails mid-session, reconnect GitHub via Anna's OAuth flow and start a new session.`
 
 func defaultConfig() map[string]any {
 	return map[string]any{
@@ -93,24 +100,17 @@ func redactConfig(raw map[string]any) map[string]any {
 	return out
 }
 
-func isConfigured(raw map[string]any) bool {
-	cfg, err := decodeConfig(raw)
-	return err == nil && cfg.ClientID != "" && cfg.ClientSecret != ""
-}
-
 func init() {
 	pkgplugins.Register(PluginID, pkgplugins.PluginFunc(func(host pkgplugins.Host) {
 		host.SetInfo(pkgplugins.PluginInfo{
 			ID:           PluginID,
-			Kind:         "auth",
-			Name:         "github",
-			DisplayName:  "GitHub",
-			Description:  "GitHub OAuth app credentials for device-flow authentication.",
+			Kind:         "tool",
+			Name:         "gh",
+			DisplayName:  "GitHub CLI",
+			Description:  "GitHub CLI integration with OAuth-backed auth, session env, and prompt guidance.",
 			AdminVisible: true,
 			HasConfig:    true,
-			Capabilities: []string{
-				pkgplugins.CapabilityConfig,
-			},
+			Capabilities: []string{pkgplugins.CapabilityBinary, pkgplugins.CapabilityConfig, pkgplugins.CapabilityPrompt},
 		})
 		host.AddAdmin(pkgplugins.AdminSpec{
 			PluginID:      PluginID,
@@ -119,10 +119,32 @@ func init() {
 			Validate:      validateConfig,
 			Redact:        redactConfig,
 		})
+		host.AddBinary(pkgplugins.BinarySpec{
+			PluginID: PluginID,
+			Name:     "gh",
+			Repo:     "cli/cli",
+			Version:  "2.89.0",
+			Embed:    true,
+			AssetTemplates: map[string]pkgplugins.BinaryAsset{
+				"darwin-amd64":  {File: "gh_{version}_macOS_amd64.zip"},
+				"darwin-arm64":  {File: "gh_{version}_macOS_arm64.zip"},
+				"linux-amd64":   {File: "gh_{version}_linux_amd64.tar.gz"},
+				"linux-arm64":   {File: "gh_{version}_linux_arm64.tar.gz"},
+				"windows-amd64": {File: "gh_{version}_windows_amd64.zip"},
+				"windows-arm64": {File: "gh_{version}_windows_arm64.zip"},
+			},
+		})
+		host.AddSessionEnv(pkgplugins.SessionEnvSpec{
+			PluginID: PluginID,
+			EnvVar:   "GH_TOKEN",
+			Source:   pkgplugins.SessionEnvSourceGitHubToken,
+		})
+		host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
+			PluginID: PluginID,
+			Name:     "gh",
+			Build: func(_ context.Context, _ pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
+				return pkgplugins.SystemPromptSection{Title: "GitHub CLI", Content: promptContent}, nil
+			},
+		})
 	}))
-}
-
-// Configured reports whether the plugin has all required credentials set.
-func Configured(raw map[string]any) bool {
-	return isConfigured(raw)
 }

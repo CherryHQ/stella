@@ -51,6 +51,7 @@ type GoRunnerConfig struct {
 	PromptSections   []pkgplugins.SystemPromptSection
 	ExtraTools       []tools.Tool // additional tools to register
 	PluginTools      func(context.Context, plugintools.BuildContext) []tools.Tool
+	SessionEnvSpecs  []pkgplugins.SessionEnvSpec
 	UserRoot         string             // required per-user root used by prompts, skills, and sandbox execution
 	HookPlugins      []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle    *coreagent.ToolLifecycle
@@ -60,8 +61,6 @@ type GoRunnerConfig struct {
 	UserID           int64                            // auth user ID; used for vault secret injection
 	VaultEnvLoader   VaultEnvLoader                   // optional; if set, vault secrets are injected into sandbox env
 	TokenManager     *oauth.TokenManager              // optional; if set, runtime OAuth tokens are injected into sandbox env
-	LarkAppID        string                           // optional Lark app_id from plugin config
-	LarkBrand        string                           // optional Lark brand: "lark" or "feishu"
 }
 
 // GoRunner implements Runner by calling LLM providers directly via agent.Runner.

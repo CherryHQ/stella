@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+
+	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 const tapVersion = "0.4.4"
@@ -28,6 +30,14 @@ func tapHostBinary() embeddedBinary {
 			"windows-arm64": {File: "tap_{version}_windows_arm64.zip", BinaryName: "tap.exe"},
 		},
 	}
+}
+
+func SyncTapWebBundledSkill(ctx context.Context, build pkgplugins.BundledSkillSyncContext) error {
+	return syncTapWebSkill(ctx, Config{
+		WorkDir: build.WorkDir,
+		GOOS:    build.GOOS,
+		GOARCH:  build.GOARCH,
+	})
 }
 
 func syncTapWebSkill(ctx context.Context, cfg Config) error {
@@ -69,6 +79,9 @@ func syncTapWebSkillFromBinary(ctx context.Context, binPath, destDir string) err
 	}
 	if normalizeSemver(skillVersion) != normalizeSemver(version) {
 		return fmt.Errorf("tap-web skill version %q does not match tap binary version %q", skillVersion, version)
+	}
+	if err := setSkillOwnerPlugin(filepath.Join(destDir, "SKILL.md"), "tool/tap-web"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -118,4 +131,19 @@ func parseTapSkillFrontmatter(content string) (map[string]any, bool) {
 		return nil, false
 	}
 	return meta, true
+}
+
+func setSkillOwnerPlugin(skillPath, ownerPlugin string) error {
+	raw, err := os.ReadFile(skillPath)
+	if err != nil {
+		return fmt.Errorf("read skill frontmatter: %w", err)
+	}
+	updated, err := setFrontmatterMetadata(string(raw), "owner_plugin", ownerPlugin)
+	if err != nil {
+		return fmt.Errorf("set skill owner metadata: %w", err)
+	}
+	if err := AtomicWriteFile(skillPath, []byte(updated), 0o644); err != nil {
+		return fmt.Errorf("write skill frontmatter: %w", err)
+	}
+	return nil
 }

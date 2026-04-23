@@ -90,11 +90,23 @@ type SystemPromptContext struct {
 	UserID      int64
 	AgentID     string
 	UserRoot    string
+	// RegisteredPluginIDs and EnabledPluginIDs describe plugin visibility for
+	// prompt builders that need plugin-state-aware output such as skill catalogs.
+	RegisteredPluginIDs []string
+	EnabledPluginIDs    []string
 
 	// EnabledBuiltinSkills is the per-agent allowlist of builtin (system-scope)
 	// skills that should appear in the prompt catalog. The always-on "anna"
 	// skill is visible to every agent regardless of this list.
 	EnabledBuiltinSkills []string
+}
+
+// SessionPluginView is the runner-facing view of enabled plugin-owned session
+// setup plus the plugin visibility state prompt builders may need.
+type SessionPluginView struct {
+	RegisteredPluginIDs []string
+	EnabledPluginIDs    []string
+	SessionEnvSpecs     []SessionEnvSpec
 }
 
 // BeforeRunContext is the narrow per-run lifecycle context exposed to plugins.

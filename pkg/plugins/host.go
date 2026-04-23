@@ -19,6 +19,8 @@ type Host interface {
 	AddBeforeToolCall(BeforeToolCallSpec)
 	AddAfterToolResult(AfterToolResultSpec)
 	AddBinary(BinarySpec)
+	AddSessionEnv(SessionEnvSpec)
+	AddBundledSkill(BundledSkillSpec)
 }
 
 // Platform is the plugin-scoped service surface available during build/runtime work.

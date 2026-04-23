@@ -50,6 +50,8 @@ func (*testHost) AddBeforeRun(pkgplugins.BeforeRunSpec)                   {}
 func (*testHost) AddBeforeToolCall(pkgplugins.BeforeToolCallSpec)         {}
 func (*testHost) AddAfterToolResult(pkgplugins.AfterToolResultSpec)       {}
 func (*testHost) AddBinary(pkgplugins.BinarySpec)                         {}
+func (*testHost) AddSessionEnv(pkgplugins.SessionEnvSpec)                 {}
+func (*testHost) AddBundledSkill(pkgplugins.BundledSkillSpec)             {}
 
 type testPlatform struct{ lookup testRuntimeLookup }
 

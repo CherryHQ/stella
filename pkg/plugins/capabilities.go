@@ -164,6 +164,47 @@ type BinarySpec struct {
 	Name           string                 // binary name on disk, e.g. "tap"
 	Repo           string                 // "owner/repo" on GitHub
 	Version        string                 // pinned version string, or "" for latest
+	Embed          bool                   // include this binary in builddeps embedded tool sync
 	AssetTemplates map[string]BinaryAsset // platform key e.g. "darwin-arm64"
-	PostInstall    func(ctx context.Context, binPath, annaHome string, logger *slog.Logger)
+	// PostInstall is a local install hook for the downloaded binary. Durable
+	// bundled assets should use BundledSkillSpec instead of PostInstall.
+	PostInstall func(ctx context.Context, binPath, annaHome string, logger *slog.Logger)
+}
+
+// SessionEnvSource identifies how a session env var is produced.
+type SessionEnvSource string
+
+const (
+	SessionEnvSourceStatic          SessionEnvSource = "static"
+	SessionEnvSourceGitHubToken     SessionEnvSource = "github_token"
+	SessionEnvSourceLarkAccessToken SessionEnvSource = "lark_access_token"
+	SessionEnvSourceLarkAppID       SessionEnvSource = "lark_app_id"
+	SessionEnvSourceLarkBrand       SessionEnvSource = "lark_brand"
+)
+
+// SessionEnvSpec declares one env var contributed to sandbox sessions.
+// Sources are metadata-driven so plugins can declare what they need without
+// depending on runner-owned services such as TokenManager.
+type SessionEnvSpec struct {
+	PluginID string
+	EnvVar   string
+	Source   SessionEnvSource
+	Value    string // used only when Source == SessionEnvSourceStatic
+}
+
+// BundledSkillSyncContext is the build-time context for syncing a bundled skill
+// into internal/resources.
+type BundledSkillSyncContext struct {
+	WorkDir string
+	GOOS    string
+	GOARCH  string
+	Params  map[string]string
+}
+
+// BundledSkillSpec declares a builtin system skill owned by a plugin and the
+// build-time sync function that generates or updates it.
+type BundledSkillSpec struct {
+	PluginID string
+	Name     string
+	Sync     func(ctx context.Context, build BundledSkillSyncContext) error
 }
