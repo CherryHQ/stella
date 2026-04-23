@@ -106,7 +106,6 @@ type SystemPromptContext struct {
 type SessionPluginView struct {
 	RegisteredPluginIDs []string
 	EnabledPluginIDs    []string
-	WrapperSpecs        []WrapperSpec
 	SessionEnvSpecs     []SessionEnvSpec
 }
 

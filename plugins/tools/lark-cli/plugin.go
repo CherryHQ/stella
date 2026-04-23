@@ -18,7 +18,7 @@ type Config struct {
 	RedirectURL string `json:"redirect_url"`
 }
 
-const promptContent = `Use ` + "`lark-cli`" + ` through Anna's wrapper and injected runtime auth.
+const promptContent = `Use ` + "`lark-cli`" + ` directly from Anna's managed PATH and injected runtime auth.
 
 - Prefer the builtin ` + "`lark`" + ` skill before ad hoc command discovery; it aggregates the adapted CLI modules Anna ships.
 - Anna injects ` + "`LARKSUITE_CLI_USER_ACCESS_TOKEN`" + `, ` + "`LARKSUITE_CLI_APP_ID`" + `, and ` + "`LARKSUITE_CLI_BRAND`" + ` per session. Do not run ` + "`lark-cli auth login`" + ` or ` + "`lark-cli config init`" + ` unless the user explicitly wants a standalone local setup outside Anna.
@@ -130,7 +130,7 @@ func init() {
 			Kind:         "tool",
 			Name:         "lark-cli",
 			DisplayName:  "Lark CLI",
-			Description:  "Lark CLI integration with OAuth-backed auth, bundled skills, session wrapper, and prompt guidance.",
+			Description:  "Lark CLI integration with OAuth-backed auth, bundled skills, session env, and prompt guidance.",
 			AdminVisible: true,
 			HasConfig:    true,
 			Capabilities: []string{pkgplugins.CapabilityBinary, pkgplugins.CapabilityConfig, pkgplugins.CapabilityPrompt},
@@ -156,18 +156,6 @@ func init() {
 				"windows-amd64": {File: "lark-cli-{version}-windows-amd64.zip"},
 				"windows-arm64": {File: "lark-cli-{version}-windows-arm64.zip"},
 			},
-		})
-		host.AddWrapper(pkgplugins.WrapperSpec{
-			PluginID:     PluginID,
-			Name:         "lark-cli",
-			TargetEnvVar: "ANNA_LARK_BIN",
-			Fallback:     "lark-cli",
-		})
-		host.AddSessionEnv(pkgplugins.SessionEnvSpec{
-			PluginID:   PluginID,
-			EnvVar:     "ANNA_LARK_BIN",
-			Source:     pkgplugins.SessionEnvSourceBinaryPath,
-			BinaryName: "lark-cli",
 		})
 		host.AddSessionEnv(pkgplugins.SessionEnvSpec{
 			PluginID: PluginID,

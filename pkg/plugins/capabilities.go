@@ -171,20 +171,11 @@ type BinarySpec struct {
 	PostInstall func(ctx context.Context, binPath, annaHome string, logger *slog.Logger)
 }
 
-// WrapperSpec declares a session-local CLI wrapper script placed on PATH.
-type WrapperSpec struct {
-	PluginID     string
-	Name         string // wrapper command name placed in the wrapper dir
-	TargetEnvVar string // env var containing the real binary path
-	Fallback     string // optional fallback executable name when TargetEnvVar is unset
-}
-
 // SessionEnvSource identifies how a session env var is produced.
 type SessionEnvSource string
 
 const (
 	SessionEnvSourceStatic          SessionEnvSource = "static"
-	SessionEnvSourceBinaryPath      SessionEnvSource = "binary_path"
 	SessionEnvSourceGitHubToken     SessionEnvSource = "github_token"
 	SessionEnvSourceLarkAccessToken SessionEnvSource = "lark_access_token"
 	SessionEnvSourceLarkAppID       SessionEnvSource = "lark_app_id"
@@ -195,11 +186,10 @@ const (
 // Sources are metadata-driven so plugins can declare what they need without
 // depending on runner-owned services such as TokenManager.
 type SessionEnvSpec struct {
-	PluginID   string
-	EnvVar     string
-	Source     SessionEnvSource
-	Value      string // used only when Source == SessionEnvSourceStatic
-	BinaryName string // used only when Source == SessionEnvSourceBinaryPath
+	PluginID string
+	EnvVar   string
+	Source   SessionEnvSource
+	Value    string // used only when Source == SessionEnvSourceStatic
 }
 
 // BundledSkillSyncContext is the build-time context for syncing a bundled skill

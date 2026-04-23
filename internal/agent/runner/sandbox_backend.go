@@ -6,13 +6,11 @@ import (
 	"log/slog"
 	"maps"
 	"os"
-	"path/filepath"
 	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/vaayne/anna/internal/cliwrap"
 	"github.com/vaayne/anna/internal/config"
 	oauth "github.com/vaayne/anna/internal/credentials/oauth"
 	"github.com/vaayne/anna/internal/sandbox"
@@ -148,14 +146,14 @@ func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths
 	// tokens below instead.
 	delete(env, oauth.VaultKeyGitHub)
 	delete(env, oauth.VaultKeyLark)
-	injectSessionEnv(ctx, cfg, paths, env)
+	injectSessionEnv(ctx, cfg, env)
 
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, sandboxProcessEnv(paths))
 	return env
 }
 
-func injectSessionEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths, env map[string]string) {
+func injectSessionEnv(ctx context.Context, cfg GoRunnerConfig, env map[string]string) {
 	var (
 		ghTokenLoaded bool
 		ghToken       string
@@ -166,10 +164,6 @@ func injectSessionEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPath
 		switch spec.Source {
 		case pkgplugins.SessionEnvSourceStatic:
 			env[spec.EnvVar] = spec.Value
-		case pkgplugins.SessionEnvSourceBinaryPath:
-			if binPath := internaltools.ToolPath(paths.AnnaHome, spec.BinaryName); binPath != "" {
-				env[spec.EnvVar] = binPath
-			}
 		case pkgplugins.SessionEnvSourceGitHubToken:
 			if cfg.TokenManager == nil {
 				continue
@@ -227,6 +221,16 @@ func injectSessionEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPath
 	}
 }
 
+func prependPathEntry(entry, existing string) string {
+	if entry == "" {
+		return existing
+	}
+	if existing == "" {
+		return entry
+	}
+	return entry + string(os.PathListSeparator) + existing
+}
+
 func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
 	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
 		trace.WithAttributes(
@@ -245,15 +249,6 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 		return nil, err
 	}
 	env := buildSandboxEnv(ctx, cfg, paths)
-
-	// Provision CLI wrappers under the user wrapper dir; expose the dir path via
-	// ANNA_WRAPPER_DIR so Phase 5 can add it to PATH inside the container.
-	wrapperDir := filepath.Join(paths.UserRoot, ".anna", "bin")
-	if err := cliwrap.EnsureWrappers(wrapperDir, cfg.WrapperSpecs); err != nil {
-		slog.Warn("cliwrap provision failed", "component", "runner_sandbox", "error", err)
-	} else if len(cfg.WrapperSpecs) > 0 {
-		env["ANNA_WRAPPER_DIR"] = wrapperDir
-	}
 
 	policy := sandbox.Policy{
 		Filesystem: runnerFilesystemPolicy(paths),
@@ -308,18 +303,11 @@ func createLocalSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 		return nil, fmt.Errorf("resolve sandbox paths: %w", err)
 	}
 	env := buildSandboxEnv(ctx, cfg, paths)
-
-	// Provision CLI wrappers and prepend wrapper dir to PATH for local sessions.
-	wrapperDir := filepath.Join(paths.UserRoot, ".anna", "bin")
-	if err := cliwrap.EnsureWrappers(wrapperDir, cfg.WrapperSpecs); err != nil {
-		slog.Warn("cliwrap provision failed", "component", "runner_sandbox", "error", err)
-	} else if len(cfg.WrapperSpecs) > 0 {
-		existing := env["PATH"]
-		if existing == "" {
-			existing = os.Getenv("PATH")
-		}
-		env["PATH"] = wrapperDir + string(os.PathListSeparator) + existing
+	existing := env["PATH"]
+	if existing == "" {
+		existing = os.Getenv("PATH")
 	}
+	env["PATH"] = prependPathEntry(internaltools.BinDir(paths.AnnaHome), existing)
 
 	policy := sandbox.Policy{
 		Filesystem: runnerFilesystemPolicy(paths),

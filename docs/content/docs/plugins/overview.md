@@ -110,12 +110,12 @@ Examples now include:
 
 - `tool/mise`: binary + prompt guidance
 - `tool/tap-web`: binary + bundled skill + prompt guidance
-- `tool/gh`: binary + OAuth config + wrapper + session env + prompt guidance
-- `tool/lark-cli`: binary + OAuth config + wrapper + session env + bundled skill + prompt guidance
+- `tool/gh`: binary + OAuth config + session env + prompt guidance
+- `tool/lark-cli`: binary + OAuth config + session env + bundled skill + prompt guidance
 
 The important boundary is ownership, not whether the plugin exposes `ToolSpec`.
-If a feature owns a CLI binary, session wrapper, injected env vars, bundled
-skill, or prompt guidance, that state should live in the same plugin package.
+If a feature owns a CLI binary, injected env vars, bundled skill, or prompt
+guidance, that state should live in the same plugin package.
 
 ## Host Ownership Model
 

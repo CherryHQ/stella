@@ -332,18 +332,9 @@ func TestValidateRegistrationsAcceptsCLIBackedPromptOnlyTool(t *testing.T) {
 	}
 }
 
-func TestValidateRegistrationsRejectsDuplicateWrappersSessionEnvAndBundledSkills(t *testing.T) {
+func TestValidateRegistrationsRejectsDuplicateSessionEnvAndBundledSkills(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
-	host.RegisterPluginID("tool/gh")
-	host.RegisterPluginID("tool/lark-cli")
-	host.AddWrapper(pkgplugins.WrapperSpec{PluginID: "tool/gh", Name: "gh", TargetEnvVar: "ANNA_GH_BIN"})
-	host.AddWrapper(pkgplugins.WrapperSpec{PluginID: "tool/lark-cli", Name: "gh", TargetEnvVar: "ANNA_OTHER_GH_BIN"})
-	if err := host.ValidateRegistrations(); err == nil || !strings.Contains(err.Error(), `wrapper "gh"`) {
-		t.Fatalf("ValidateRegistrations error = %v, want duplicate wrapper", err)
-	}
-
-	host = New(store)
 	host.RegisterPluginID("tool/gh")
 	host.RegisterPluginID("tool/lark-cli")
 	host.AddSessionEnv(pkgplugins.SessionEnvSpec{PluginID: "tool/gh", EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSourceGitHubToken})

@@ -30,23 +30,8 @@ func (h *Host) ListRegisteredPlugins() []pkgplugins.PluginInfo {
 func (h *Host) ValidateRegistrations() error {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	wrapperOwners := map[string]string{}
 	envOwners := map[string]string{}
 	skillOwners := map[string]string{}
-	for pluginID, specs := range h.wrapperRegs {
-		for _, spec := range specs {
-			if spec.Name == "" {
-				return fmt.Errorf("pluginhost: wrapper registration for %q missing name", pluginID)
-			}
-			if spec.TargetEnvVar == "" {
-				return fmt.Errorf("pluginhost: wrapper %q for %q missing target env var", spec.Name, pluginID)
-			}
-			if prev, ok := wrapperOwners[spec.Name]; ok && prev != pluginID {
-				return fmt.Errorf("pluginhost: wrapper %q registered by both %q and %q", spec.Name, prev, pluginID)
-			}
-			wrapperOwners[spec.Name] = pluginID
-		}
-	}
 	for pluginID, specs := range h.sessionEnvRegs {
 		for _, spec := range specs {
 			if spec.EnvVar == "" {
@@ -54,10 +39,6 @@ func (h *Host) ValidateRegistrations() error {
 			}
 			switch spec.Source {
 			case pkgplugins.SessionEnvSourceStatic:
-			case pkgplugins.SessionEnvSourceBinaryPath:
-				if spec.BinaryName == "" {
-					return fmt.Errorf("pluginhost: session env %q for %q missing binary name", spec.EnvVar, pluginID)
-				}
 			case pkgplugins.SessionEnvSourceGitHubToken, pkgplugins.SessionEnvSourceLarkAccessToken, pkgplugins.SessionEnvSourceLarkAppID, pkgplugins.SessionEnvSourceLarkBrand:
 			default:
 				return fmt.Errorf("pluginhost: session env %q for %q has unknown source %q", spec.EnvVar, pluginID, spec.Source)

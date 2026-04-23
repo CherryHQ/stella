@@ -7,7 +7,7 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
-// SessionPluginView returns the enabled plugin-owned wrapper/env setup used by
+// SessionPluginView returns the enabled plugin-owned session env setup used by
 // runner sessions plus the registered/enabled plugin IDs prompt builders may
 // need for visibility-aware output.
 func (h *Host) SessionPluginView(ctx context.Context) (pkgplugins.SessionPluginView, error) {
@@ -36,18 +36,6 @@ func (h *Host) SessionPluginView(ctx context.Context) (pkgplugins.SessionPluginV
 		view.EnabledPluginIDs = append(view.EnabledPluginIDs, plugin.ID)
 	}
 	sort.Strings(view.EnabledPluginIDs)
-
-	for _, spec := range h.AllWrapperSpecs() {
-		if _, ok := enabledSet[spec.PluginID]; ok {
-			view.WrapperSpecs = append(view.WrapperSpecs, spec)
-		}
-	}
-	sort.Slice(view.WrapperSpecs, func(i, j int) bool {
-		if view.WrapperSpecs[i].Name != view.WrapperSpecs[j].Name {
-			return view.WrapperSpecs[i].Name < view.WrapperSpecs[j].Name
-		}
-		return view.WrapperSpecs[i].PluginID < view.WrapperSpecs[j].PluginID
-	})
 
 	for _, spec := range h.AllSessionEnvSpecs() {
 		if _, ok := enabledSet[spec.PluginID]; ok {

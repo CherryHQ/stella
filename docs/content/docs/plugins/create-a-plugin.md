@@ -167,8 +167,7 @@ CLI-backed tool plugin:
 - `SetInfo`
 - `AddBinary`
 - optional `AddAdmin` for OAuth or other config
-- optional `AddWrapper` when the CLI needs a stable shim on `PATH`
-- optional `AddSessionEnv` when the runner must inject tokens or binary paths
+- optional `AddSessionEnv` when the runner must inject session auth
 - optional `AddBundledSkill` when the plugin ships a builtin system skill
 - optional `AddSystemPrompt` for usage guidance
 

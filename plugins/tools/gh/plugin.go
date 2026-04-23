@@ -16,7 +16,7 @@ type Config struct {
 	RedirectURL  string `json:"redirect_url"`
 }
 
-const promptContent = `Use the GitHub CLI through the plugin-managed ` + "`gh`" + ` wrapper.
+const promptContent = `Use the GitHub CLI directly from Anna's managed PATH.
 
 - Authentication comes from Anna's GitHub OAuth connection. Prefer ` + "`gh`" + ` over raw API calls when it already supports the task.
 - Common commands: ` + "`gh auth status`" + `, ` + "`gh repo view`" + `, ` + "`gh pr view`" + `, ` + "`gh pr checkout`" + `, ` + "`gh run list`" + `, ` + "`gh run view --log`" + `.
@@ -107,7 +107,7 @@ func init() {
 			Kind:         "tool",
 			Name:         "gh",
 			DisplayName:  "GitHub CLI",
-			Description:  "GitHub CLI integration with OAuth-backed auth, session wrapper, and prompt guidance.",
+			Description:  "GitHub CLI integration with OAuth-backed auth, session env, and prompt guidance.",
 			AdminVisible: true,
 			HasConfig:    true,
 			Capabilities: []string{pkgplugins.CapabilityBinary, pkgplugins.CapabilityConfig, pkgplugins.CapabilityPrompt},
@@ -133,18 +133,6 @@ func init() {
 				"windows-amd64": {File: "gh_{version}_windows_amd64.zip"},
 				"windows-arm64": {File: "gh_{version}_windows_arm64.zip"},
 			},
-		})
-		host.AddWrapper(pkgplugins.WrapperSpec{
-			PluginID:     PluginID,
-			Name:         "gh",
-			TargetEnvVar: "ANNA_GH_BIN",
-			Fallback:     "gh",
-		})
-		host.AddSessionEnv(pkgplugins.SessionEnvSpec{
-			PluginID:   PluginID,
-			EnvVar:     "ANNA_GH_BIN",
-			Source:     pkgplugins.SessionEnvSourceBinaryPath,
-			BinaryName: "gh",
 		})
 		host.AddSessionEnv(pkgplugins.SessionEnvSpec{
 			PluginID: PluginID,

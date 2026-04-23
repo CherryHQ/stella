@@ -31,7 +31,7 @@ type larkSkillDoc struct {
 	File        string
 }
 
-const annaLarkSharedDescription = "飞书/Lark CLI 共享基础（Anna 适配版）：说明 Anna 会话中的 wrapper + 环境变量认证模型、`--as user` / `--as bot` 选择、scope / Permission denied 处理，以及何时才需要回退到上游 `config init` / `auth login` 流程。"
+const annaLarkSharedDescription = "飞书/Lark CLI 共享基础（Anna 适配版）：说明 Anna 会话中的 `$ANNA_HOME/bin` + 环境变量认证模型、`--as user` / `--as bot` 选择、scope / Permission denied 处理，以及何时才需要回退到上游 `config init` / `auth login` 流程。"
 
 func SyncLarkBundledSkill(ctx context.Context, build pkgplugins.BundledSkillSyncContext) error {
 	return syncLarkSkill(ctx, Config{
@@ -246,9 +246,9 @@ func adaptLarkSharedForAnna(content string) string {
 	const annaIntro = `## Anna 会话中的运行方式（优先遵循本节）
 
 在 Anna 的沙盒会话里，
-` + "`lark-cli`" + ` 走的是 **wrapper + 环境变量注入** 模式，不是上游文档默认假设的“先 ` + "`config init`" + `，再 ` + "`auth login`" + `”本地配置模式。
+` + "`lark-cli`" + ` 走的是 **` + "`$ANNA_HOME/bin`" + ` + 环境变量注入** 模式，不是上游文档默认假设的“先 ` + "`config init`" + `，再 ` + "`auth login`" + `”本地配置模式。
 
-- 直接运行 ` + "`lark-cli ...`" + ` 即可。Anna 会把会话级 wrapper（通常位于 ` + "`.anna/bin/lark-cli`" + `）放到 ` + "`PATH`" + ` 前面，再转发到真实二进制（通常是 ` + "`$ANNA_HOME/bin/lark-cli`" + `，也可能是宿主机 ` + "`PATH`" + ` 上的 ` + "`lark-cli`" + `）。
+- 直接运行 ` + "`lark-cli ...`" + ` 即可。Anna 会把 ` + "`$ANNA_HOME/bin`" + ` 放到会话 ` + "`PATH`" + ` 前面，让 ` + "`lark-cli`" + ` 直接解析到 Anna 管理的二进制。
 - Anna 会在会话启动时注入 ` + "`LARKSUITE_CLI_USER_ACCESS_TOKEN`" + `、` + "`LARKSUITE_CLI_APP_ID`" + `、` + "`LARKSUITE_CLI_BRAND`" + `。因此 **在 Anna 会话里默认不要先执行 ` + "`lark-cli config init`" + ` 或 ` + "`lark-cli auth login`" + `**。
 - 把后续文档里所有“先 ` + "`auth login --domain`" + ` / ` + "`auth login --scope`" + `”的要求，映射为：**用 ` + "`oauth`" + ` 工具确认 Lark 已连接（oauth status 指令），所需 scope 已在 Lark 应用侧开通，然后开启一个新的 Anna 会话重试**。
 - 如果用户只是想在自己机器上单独配置一个**脱离 Anna** 的 ` + "`lark-cli`" + `，那才回退到上游原生的 ` + "`config init`" + ` / ` + "`auth login`" + ` 流程。
@@ -310,7 +310,7 @@ name: lark
 description: |
   Lark/Feishu CLI skills for Anna sessions. Covers workspace operations — calendar,
   docs, tasks, mail, and messenger — via the lark-cli tool. In Anna, lark-cli runs
-  under a wrapper + env-var auth model: LARKSUITE_CLI_USER_ACCESS_TOKEN,
+  under an env-var auth model with binaries resolved from $ANNA_HOME/bin: LARKSUITE_CLI_USER_ACCESS_TOKEN,
   LARKSUITE_CLI_APP_ID, and LARKSUITE_CLI_BRAND are injected at session start;
   no manual config init or auth login is
   needed. Always read lark-shared first for identity selection (--as user vs --as
@@ -327,7 +327,7 @@ metadata:
 
 This skill aggregates Lark/Feishu CLI modules synced from ` + "`larksuite/cli`" + ` and adapted for Anna sessions.
 
-**Anna auth model** — ` + "`lark-cli`" + ` runs via a session wrapper that injects ` + "`LARKSUITE_CLI_USER_ACCESS_TOKEN`" + `, ` + "`LARKSUITE_CLI_APP_ID`" + `, and ` + "`LARKSUITE_CLI_BRAND`" + ` at startup. Do not run ` + "`lark-cli config init`" + ` or ` + "`lark-cli auth login`" + ` unless the user explicitly wants a standalone local setup outside Anna.
+**Anna auth model** — ` + "`lark-cli`" + ` runs directly from Anna-managed ` + "`$ANNA_HOME/bin`" + ` with ` + "`LARKSUITE_CLI_USER_ACCESS_TOKEN`" + `, ` + "`LARKSUITE_CLI_APP_ID`" + `, and ` + "`LARKSUITE_CLI_BRAND`" + ` injected at startup. Do not run ` + "`lark-cli config init`" + ` or ` + "`lark-cli auth login`" + ` unless the user explicitly wants a standalone local setup outside Anna.
 
 **Identity** — default to ` + "`--as user`" + ` for personal resources (calendar, docs, tasks, mail). ` + "`--as bot`" + ` requires manual app configuration outside Anna and cannot see user-private resources.
 

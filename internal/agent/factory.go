@@ -130,7 +130,6 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				PromptSections:   promptSections,
 				ExtraTools:       runnerTools,
 				PluginTools:      pluginToolsBuilder,
-				WrapperSpecs:     append([]pkgplugins.WrapperSpec(nil), pluginView.WrapperSpecs...),
 				SessionEnvSpecs:  append([]pkgplugins.SessionEnvSpec(nil), pluginView.SessionEnvSpecs...),
 				UserRoot:         userRoot,
 				Sandbox:          snap.Sandbox,

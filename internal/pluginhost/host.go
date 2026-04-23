@@ -44,7 +44,6 @@ type Host struct {
 	promptRegs       map[string]pkgplugins.PromptInventorySpec
 	systemPromptRegs map[string]pkgplugins.SystemPromptSpec
 	binaryRegs       map[string][]pkgplugins.BinarySpec
-	wrapperRegs      map[string][]pkgplugins.WrapperSpec
 	sessionEnvRegs   map[string][]pkgplugins.SessionEnvSpec
 	bundledSkillRegs map[string][]pkgplugins.BundledSkillSpec
 }
@@ -69,7 +68,6 @@ func New(store config.Store, opts ...Option) *Host {
 		promptRegs:       map[string]pkgplugins.PromptInventorySpec{},
 		systemPromptRegs: map[string]pkgplugins.SystemPromptSpec{},
 		binaryRegs:       map[string][]pkgplugins.BinarySpec{},
-		wrapperRegs:      map[string][]pkgplugins.WrapperSpec{},
 		sessionEnvRegs:   map[string][]pkgplugins.SessionEnvSpec{},
 		bundledSkillRegs: map[string][]pkgplugins.BundledSkillSpec{},
 	}
@@ -212,12 +210,6 @@ func (h *Host) AddBinary(spec pkgplugins.BinarySpec) {
 	h.binaryRegs[spec.PluginID] = append(h.binaryRegs[spec.PluginID], spec)
 }
 
-func (h *Host) AddWrapper(spec pkgplugins.WrapperSpec) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.wrapperRegs[spec.PluginID] = append(h.wrapperRegs[spec.PluginID], spec)
-}
-
 func (h *Host) AddSessionEnv(spec pkgplugins.SessionEnvSpec) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -241,22 +233,6 @@ func (h *Host) AllBinarySpecs() []pkgplugins.BinarySpec {
 	defer h.mu.RUnlock()
 	var out []pkgplugins.BinarySpec
 	for _, specs := range h.binaryRegs {
-		out = append(out, specs...)
-	}
-	return out
-}
-
-func (h *Host) WrapperSpecs(pluginID string) []pkgplugins.WrapperSpec {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return append([]pkgplugins.WrapperSpec(nil), h.wrapperRegs[pluginID]...)
-}
-
-func (h *Host) AllWrapperSpecs() []pkgplugins.WrapperSpec {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	var out []pkgplugins.WrapperSpec
-	for _, specs := range h.wrapperRegs {
 		out = append(out, specs...)
 	}
 	return out

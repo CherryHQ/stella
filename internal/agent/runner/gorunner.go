@@ -51,7 +51,6 @@ type GoRunnerConfig struct {
 	PromptSections   []pkgplugins.SystemPromptSection
 	ExtraTools       []tools.Tool // additional tools to register
 	PluginTools      func(context.Context, plugintools.BuildContext) []tools.Tool
-	WrapperSpecs     []pkgplugins.WrapperSpec
 	SessionEnvSpecs  []pkgplugins.SessionEnvSpec
 	UserRoot         string             // required per-user root used by prompts, skills, and sandbox execution
 	HookPlugins      []hooks.HookPlugin // hook plugins for the engine loop

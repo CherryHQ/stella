@@ -261,12 +261,6 @@ host.AddBinary(pkgplugins.BinarySpec{
     Embed:    true,
 })
 
-host.AddWrapper(pkgplugins.WrapperSpec{
-    PluginID:     PluginID,
-    Name:         "gh",
-    TargetEnvVar: "ANNA_GH_BIN",
-})
-
 host.AddSessionEnv(pkgplugins.SessionEnvSpec{
     PluginID: PluginID,
     EnvVar:   "GH_TOKEN",
@@ -279,13 +273,13 @@ host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
     Build: func(context.Context, pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
         return pkgplugins.SystemPromptSection{
             Title:   "GitHub CLI",
-            Content: "Use `gh` through Anna's wrapper and OAuth-backed session auth.",
+            Content: "Use `gh` from Anna's managed PATH with OAuth-backed session auth.",
         }, nil
     },
 })
 ```
 
-Use this shape when the plugin owns a CLI binary, wrapper, injected env vars,
+Use this shape when the plugin owns a CLI binary, injected env vars,
 bundled skills, or prompt guidance, but does not need to expose a model-callable
 `ToolSpec`.
 
