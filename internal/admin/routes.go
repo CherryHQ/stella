@@ -19,6 +19,7 @@ func (s *Server) registerRoutes() {
 	s.registerSchedulerRoutes()
 	s.registerSkillRoutes()
 	s.registerBuiltinRoutes()
+	s.registerManifestPluginRoutes()
 }
 
 func (s *Server) registerStaticRoutes() {
@@ -208,4 +209,13 @@ func (s *Server) registerSkillRoutes() {
 func (s *Server) registerBuiltinRoutes() {
 	s.mux.HandleFunc("GET /api/builtin/{kind}", s.listBuiltinResources)
 	s.mux.HandleFunc("GET /api/builtin/{kind}/{id}", s.getBuiltinResource)
+}
+
+func (s *Server) registerManifestPluginRoutes() {
+	adminAPI := func(handler http.HandlerFunc) http.Handler {
+		return s.adminOnlyMiddleware(handler)
+	}
+	s.mux.Handle("GET /api/manifest-plugins", adminAPI(s.listManifestPlugins))
+	s.mux.Handle("PUT /api/manifest-plugins", adminAPI(s.saveManifestPlugins))
+	s.mux.Handle("POST /api/manifest-plugins/sync", adminAPI(s.syncManifestPlugins))
 }
