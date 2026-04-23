@@ -27,5 +27,3 @@ func ToolPath(annaHome, name string) string {
 	}
 	return ""
 }
-
-

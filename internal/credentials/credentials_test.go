@@ -97,7 +97,18 @@ func TestDeleteVaultEntryNilVault(t *testing.T) {
 }
 
 func TestGetProviderStatusesPluginNotFound(t *testing.T) {
-	svc := newService(t, newStubPluginCfg())
+	cfg := newStubPluginCfg()
+	svc := newService(t, cfg)
+
+	registry := oauth.NewProviderRegistry()
+	registry.Register(oauth.ProviderConfig{ID: "github", VaultKey: oauth.VaultKeyGitHub})
+	registry.Register(oauth.ProviderConfig{ID: "lark", VaultKey: oauth.VaultKeyLark})
+	svc.SetRegistry(registry)
+	svc.SetProviderPluginIDs(map[string]string{
+		"github": "tool/gh",
+		"lark":   "tool/lark-cli",
+	})
+
 	statuses := svc.GetProviderStatuses(context.Background(), 1)
 	if len(statuses) == 0 {
 		t.Error("expected at least one provider status")
@@ -119,6 +130,12 @@ func TestGetProviderStatusesDisabledPlugin(t *testing.T) {
 		Config:  map[string]any{"client_id": "cid", "client_secret": "csecret"},
 	}
 	svc := newService(t, cfg)
+
+	registry := oauth.NewProviderRegistry()
+	registry.Register(oauth.ProviderConfig{ID: "github", VaultKey: oauth.VaultKeyGitHub})
+	svc.SetRegistry(registry)
+	svc.SetProviderPluginIDs(map[string]string{"github": "tool/gh"})
+
 	statuses := svc.GetProviderStatuses(context.Background(), 1)
 	for _, ps := range statuses {
 		if ps.Provider == "github" && ps.Available {

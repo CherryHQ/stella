@@ -329,7 +329,7 @@ func TestValidateRegistrationsRejectsDuplicateSessionEnvAndBundledSkills(t *test
 	host := New(store)
 	host.RegisterPluginID("tool/gh")
 	host.RegisterPluginID("tool/lark-cli")
-	host.AddSessionEnv(pkgplugins.SessionEnvSpec{PluginID: "tool/gh", EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSourceGitHubToken})
+	host.AddSessionEnv(pkgplugins.SessionEnvSpec{PluginID: "tool/gh", EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token")})
 	host.AddSessionEnv(pkgplugins.SessionEnvSpec{PluginID: "tool/lark-cli", EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSourceStatic, Value: "x"})
 	if err := host.ValidateRegistrations(); err == nil || !strings.Contains(err.Error(), `session env "GH_TOKEN"`) {
 		t.Fatalf("ValidateRegistrations error = %v, want duplicate env", err)
