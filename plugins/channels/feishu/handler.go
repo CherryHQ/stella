@@ -67,13 +67,12 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 
 	// Auto-provision the reacting user. TenantKey is not available in reaction
 	// events; the contact API failure acts as the implicit tenant filter.
+	// Run synchronously so the user exists before HandleIncoming does the identity lookup.
 	if data.UserId != nil {
 		unionID := derefStr(data.UserId.UnionId)
-		go func() {
-			provCtx, provCancel := b.apiContext()
-			defer provCancel()
-			b.maybeAutoProvision(provCtx, openID, unionID, "")
-		}()
+		provCtx, provCancel := b.apiContext()
+		b.maybeAutoProvision(provCtx, openID, unionID, "")
+		provCancel()
 	}
 
 	reactionText := fmt.Sprintf("[User reacted with %s on message %s]", emojiType, messageID)
@@ -136,14 +135,13 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	// Auto-provision the sender if enabled. Done after dedup+group checks so
 	// duplicate events and bots in disabled groups never trigger provisioning.
 	// Skip for /link so the existing manual-link flow stays authoritative.
+	// Run synchronously so the user exists before HandleIncoming does the identity lookup.
 	if cmd0, _ := channel.ParseSlashCommand(text); cmd0 != "/link" {
 		unionID := derefStr(sender.SenderId.UnionId)
 		tenantKey := derefStr(sender.TenantKey)
-		go func() {
-			provCtx, provCancel := b.apiContext()
-			defer provCancel()
-			b.maybeAutoProvision(provCtx, openID, unionID, tenantKey)
-		}()
+		provCtx, provCancel := b.apiContext()
+		b.maybeAutoProvision(provCtx, openID, unionID, tenantKey)
+		provCancel()
 	}
 
 	content := b.buildMessageContent(msg)
