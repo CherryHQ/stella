@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"path/filepath"
+	"sync"
 	"time"
 
 	ucli "github.com/urfave/cli/v2"
@@ -76,6 +77,7 @@ type setupResult struct {
 	cliUserID                int64 // resolved CLI user for session creation
 	oauthRegistry            *oauth.ProviderRegistry
 	providerPluginIDs        map[string]string // provider ID → plugin ID
+	backgroundTasks          *sync.WaitGroup
 }
 
 func setup(parent context.Context, gateway bool) (*setupResult, error) {
@@ -108,10 +110,13 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		return nil, fmt.Errorf("sync builtin skills: %w", err)
 	}
 
+	backgroundTasks := &sync.WaitGroup{}
+
 	// OAuth provider registry and mapping populated from manifest below.
 	var (
-		oauthRegistry     *oauth.ProviderRegistry
-		providerPluginIDs map[string]string
+		oauthRegistry       *oauth.ProviderRegistry
+		providerPluginIDs   map[string]string
+		manifestToReconcile *manifestplugins.Manifest
 	)
 
 	// Seed defaults so there's always at least one agent.
@@ -169,7 +174,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 				userManifest = &manifestplugins.Manifest{}
 			}
 			merged := manifestplugins.Merge(builtinManifest, userManifest)
-			manifestplugins.Reconcile(parent, merged, config.AnnaHome())
+			manifestToReconcile = merged
 			phost.RegisterManifestPlugins(merged)
 
 			// Build OAuth provider registry from manifest.
@@ -414,6 +419,10 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// CLI sessions don't use auth — userID stays 0.
 	var cliUserID int64
 
+	if manifestToReconcile != nil {
+		reconcileManifestPluginsInBackground(ctx, backgroundTasks, manifestToReconcile, config.AnnaHome())
+	}
+
 	return &setupResult{
 		ctx:                      ctx,
 		db:                       db,
@@ -436,7 +445,28 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		cliUserID:                cliUserID,
 		oauthRegistry:            oauthRegistry,
 		providerPluginIDs:        providerPluginIDs,
+		backgroundTasks:          backgroundTasks,
 	}, nil
+}
+
+func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGroup, m *manifestplugins.Manifest, annaHome string) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("manifest plugin reconcile panic", "panic", r)
+			}
+		}()
+		slog.Info("manifest plugin reconcile queued in background")
+		manifestplugins.Reconcile(ctx, m, annaHome)
+	}()
+}
+
+func (s *setupResult) waitBackgroundTasks() {
+	if s != nil && s.backgroundTasks != nil {
+		s.backgroundTasks.Wait()
+	}
 }
 
 // modelSwitcher returns a function that switches the pool's runner factory

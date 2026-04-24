@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
@@ -35,6 +36,79 @@ func findMiseBin(annaHome string) (string, error) {
 func bootstrapMise(_ context.Context, annaHome string) error {
 	_, err := findMiseBin(annaHome)
 	return err
+}
+
+var misePassthroughEnv = []string{
+	"PATH",
+	"SystemRoot",
+	"WINDIR",
+	"ComSpec",
+	"PATHEXT",
+	"TMPDIR",
+	"TMP",
+	"TEMP",
+	"LANG",
+	"LC_ALL",
+	"SSL_CERT_FILE",
+	"SSL_CERT_DIR",
+	"HTTP_PROXY",
+	"HTTPS_PROXY",
+	"ALL_PROXY",
+	"NO_PROXY",
+	"http_proxy",
+	"https_proxy",
+	"all_proxy",
+	"no_proxy",
+	"GITHUB_TOKEN",
+	"GH_TOKEN",
+}
+
+func isolatedMiseEnv(annaHome string) ([]string, error) {
+	dataDir := miseToolsDir(annaHome)
+	paths := map[string]string{
+		"MISE_DATA_DIR":   dataDir,
+		"MISE_CONFIG_DIR": filepath.Join(dataDir, "config"),
+		"MISE_CACHE_DIR":  filepath.Join(dataDir, "cache"),
+		"MISE_STATE_DIR":  filepath.Join(dataDir, "state"),
+		"MISE_SHIMS_DIR":  filepath.Join(dataDir, "shims"),
+		"HOME":            filepath.Join(dataDir, "home"),
+		"XDG_CONFIG_HOME": filepath.Join(dataDir, "xdg", "config"),
+		"XDG_CACHE_HOME":  filepath.Join(dataDir, "xdg", "cache"),
+		"XDG_STATE_HOME":  filepath.Join(dataDir, "xdg", "state"),
+	}
+	if runtime.GOOS == "windows" {
+		paths["USERPROFILE"] = paths["HOME"]
+	}
+
+	for _, dir := range paths {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("create isolated mise dir %s: %w", dir, err)
+		}
+	}
+
+	env := make(map[string]string, len(misePassthroughEnv)+len(paths)+2)
+	for _, key := range misePassthroughEnv {
+		if value, ok := os.LookupEnv(key); ok {
+			env[key] = value
+		}
+	}
+	for key, value := range paths {
+		env[key] = value
+	}
+	env["MISE_YES"] = "1"
+	env["MISE_NO_ANALYTICS"] = "1"
+
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, key+"="+env[key])
+	}
+	return out, nil
 }
 
 func runtimeBinaryName(name string) string {
@@ -107,16 +181,14 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 		return "", fmt.Errorf("write mise.toml: %w", err)
 	}
 
-	dataDir := miseToolsDir(annaHome)
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		return "", fmt.Errorf("create mise data dir: %w", err)
+	env, err := isolatedMiseEnv(annaHome)
+	if err != nil {
+		return "", err
 	}
-
-	env := append(os.Environ(), "MISE_DATA_DIR="+dataDir, "MISE_YES=1")
 
 	// Trust the temp config so mise doesn't refuse to read it.
 	var stderr bytes.Buffer
-	trustCmd := exec.CommandContext(ctx, miseBin, "trust", tmpDir)
+	trustCmd := managedCommandContext(ctx, miseBin, "trust", tmpDir)
 	trustCmd.Dir = tmpDir
 	trustCmd.Env = env
 	trustCmd.Stderr = &stderr
@@ -124,9 +196,11 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 		return "", fmt.Errorf("mise trust: %w\nstderr: %s", err, stderr.String())
 	}
 
-	// Run mise install
+	// Run mise install for only the manifest tool. Avoid installing any global or
+	// inherited mise config that may be visible to the Anna process.
+	toolKey := fmt.Sprintf("github:%s", b.Repo)
 	stderr.Reset()
-	installCmd := exec.CommandContext(ctx, miseBin, "install")
+	installCmd := managedCommandContext(ctx, miseBin, "install", toolKey)
 	installCmd.Dir = tmpDir
 	installCmd.Env = env
 	installCmd.Stderr = &stderr
@@ -135,10 +209,9 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 	}
 
 	// Resolve the install directory
-	toolKey := fmt.Sprintf("github:%s", b.Repo)
 	var stdout bytes.Buffer
 	stderr.Reset()
-	whereCmd := exec.CommandContext(ctx, miseBin, "where", toolKey)
+	whereCmd := managedCommandContext(ctx, miseBin, "where", toolKey)
 	whereCmd.Dir = tmpDir
 	whereCmd.Env = env
 	whereCmd.Stdout = &stdout
