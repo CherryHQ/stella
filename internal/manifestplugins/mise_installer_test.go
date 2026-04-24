@@ -9,6 +9,26 @@ import (
 	"testing"
 )
 
+func TestGenerateMiseTOMLTableFormDefaultsVersion(t *testing.T) {
+	got, err := generateMiseTOML(ManifestBinary{
+		Name:    "gh",
+		Repo:    "cli/cli",
+		BinPath: "bin",
+	})
+	if err != nil {
+		t.Fatalf("generateMiseTOML: %v", err)
+	}
+	for _, want := range []string{
+		"[tools.'github:cli/cli']",
+		`version = 'latest'`,
+		`bin_path = 'bin'`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("mise.toml missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestInstallBinaryWithMiseIsolatesHostEnvAndTargetsTool(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake mise script uses POSIX shell")

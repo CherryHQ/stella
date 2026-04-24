@@ -66,7 +66,7 @@ plugins:
 |-------|----------|-------------|
 | `name` | Yes | Binary filename (without extension) |
 | `repo` | Yes | GitHub repository in `owner/repo` format |
-| `version` | No | Version tag to install (e.g. `"1.2.3"`, `"nightly"`). Null by default — mise resolves it. For repos that don't publish a `latest` release, you must set this explicitly. |
+| `version` | No | Version tag to install (e.g. `"1.2.3"`, `"nightly"`). Defaults to `latest`. For repos that don't publish a `latest` release, you must set this explicitly. |
 | `bin_path` | No | Subdirectory inside the archive that contains the binary (e.g. `"bin"`). |
 | `exe` | No | Binary name inside the archive when it differs from `name`. |
 
