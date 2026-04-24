@@ -139,13 +139,13 @@ func (s *Server) feishuLoginAvailabilityHandler(w http.ResponseWriter, r *http.R
 // LoginFlowState holds one-time security-sensitive state for Feishu login.
 // This state is consumed (deleted) on first read to prevent replay attacks.
 type LoginFlowState struct {
-	FlowID      string    // High-entropy random ID (state parameter in OAuth)
-	Provider    string    // "feishu" (future-proofing for other providers)
-	ChannelID   string    // The selected Feishu instance ID
-	RedirectURL string    // Where to redirect after login (must be local/relative)
+	FlowID      string // High-entropy random ID (state parameter in OAuth)
+	Provider    string // "feishu" (future-proofing for other providers)
+	ChannelID   string // The selected Feishu instance ID
+	RedirectURL string // Where to redirect after login (must be local/relative)
 	CreatedAt   time.Time
 	ExpiresAt   time.Time
-	Used        bool      // Set to true when consumed (defense in depth)
+	Used        bool // Set to true when consumed (defense in depth)
 }
 
 // LoginFlowStore manages in-flight login OAuth flows with consume-on-read semantics.
@@ -488,11 +488,7 @@ func (s *Server) provisionFeishuUserAndLogin(w http.ResponseWriter, r *http.Requ
 		Name:       feishuUser.Name,
 		EmailHint:  feishuUser.Email,
 		OnUserCreated: func(ctx context.Context, userID int64) error {
-			// Generate vault keys if vault is configured
-			if s.vaultRecipient != nil {
-				// Note: vault key generation would go here if needed
-				// For now, skip as ProvisionIdentityUser handles this via authStore
-			}
+			// Vault key generation placeholder - authStore handles this
 			return nil
 		},
 	})
@@ -575,8 +571,8 @@ func ResolveUserCandidates(ctx context.Context, authStore auth.AuthStore, platfo
 		user, err := authStore.GetUser(ctx, identity.UserID)
 		if err != nil {
 			if isIdentityNotFound(err) {
-				// Identity exists but user doesn't - data inconsistency
-				return ResolvedIdentity{}, identityMatch{}, nil
+				// Identity exists but user doesn't - data inconsistency, treat as not resolved
+				return ResolvedIdentity{}, identityMatch{}, nil //nolint:nilerr // intentional: missing user = not resolved
 			}
 			return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("lookup user: %w", err)
 		}
@@ -585,8 +581,8 @@ func ResolveUserCandidates(ctx context.Context, authStore auth.AuthStore, platfo
 	}
 
 	if lastNotFound != nil {
-		// No matching identity found
-		return ResolvedIdentity{}, identityMatch{}, nil
+		// No matching identity found - this is a normal "not resolved" case, not an error
+		return ResolvedIdentity{}, identityMatch{}, nil //nolint:nilerr // intentional: not found = not resolved
 	}
 
 	return ResolvedIdentity{}, identityMatch{}, nil
@@ -657,10 +653,10 @@ func canonicalizeFeishuIdentity(ctx context.Context, authStore auth.AuthStore, u
 
 // feishuUserInfo holds the essential user information from Feishu OAuth.
 type feishuUserInfo struct {
-	UnionID string
-	OpenID  string
-	Name    string
-	Email   string
+	UnionID   string
+	OpenID    string
+	Name      string
+	Email     string
 	TenantKey string
 }
 

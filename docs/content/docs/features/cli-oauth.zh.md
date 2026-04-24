@@ -6,6 +6,8 @@ title: CLI OAuth 认证
 
 CLI OAuth 功能允许 Agent 在沙盒会话中直接使用 `gh`（GitHub CLI）和 `lark-cli`，无需手动认证。Anna 在宿主机上完成 OAuth 设备流程，将版本化的令牌包存储到个人密钥库中，并在每次沙盒会话启动时自动注入最新的运行时令牌。
 
+> **注意：** CLI OAuth 与**飞书网页登录**是两套独立的机制。网页登录用于认证你进入 Anna 管理后台，但不会授予 `lark-cli` 工作区访问权限。要在 Agent 会话中使用 `lark-cli`，你需要按照下面的说明单独连接 CLI 凭证。
+
 ## 前提条件
 
 GitHub 开箱即用。Anna 使用 GitHub CLI 的公开 OAuth 设备流程应用，用户无需管理员配置插件即可连接 GitHub 账号。

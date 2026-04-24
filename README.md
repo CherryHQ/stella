@@ -181,6 +181,8 @@ anna --open
 
 This opens a web admin panel in your browser where you can configure everything: providers, API keys, agents, channels (Telegram, QQ, Feishu, WeChat), users, scheduled jobs, and settings. All configuration is stored in `~/.anna/anna.db`. There are no YAML config files.
 
+The admin panel supports local username/password login. For organizations using Feishu, you can also enable **Sign in with Feishu** so employees can authenticate with their work accounts. See the [Feishu Bot documentation](docs/content/docs/channels/feishu.md) for setup instructions.
+
 ### Use
 
 ```bash

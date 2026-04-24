@@ -9,6 +9,11 @@ sandbox sessions without manual authentication. Anna handles the OAuth device fl
 the host, stores a versioned token bundle in your personal vault, and injects a fresh
 runtime token into each sandbox environment automatically.
 
+> **Note:** CLI OAuth is separate from **Feishu Web Login**. Web login authenticates
+> you to the Anna admin UI using your Feishu account, but does not grant workspace
+> access for `lark-cli`. To use `lark-cli` inside agent sessions, you must connect
+> CLI credentials separately as described below.
+
 ## Prerequisites
 
 GitHub works out of the box. Anna uses the public GitHub CLI OAuth device-flow app,

@@ -21,6 +21,63 @@ anna
 
 You can create multiple Feishu channel instances in the admin panel. Each instance can use its own Feishu app credentials and can optionally be bound to a dedicated agent.
 
+## Sign in with Feishu (Web Login)
+
+In addition to chat auto-provisioning, you can enable **Sign in with Feishu** for the admin web UI. This allows employees to log into anna using their Feishu work account instead of a local password.
+
+### How it works
+
+1. A user clicks "Sign in with Feishu" on the `/login` page.
+2. Anna redirects to Feishu OAuth with minimal scopes (authentication only, no CLI access).
+3. After authorization, Feishu redirects back to anna with a temporary code.
+4. Anna exchanges the code for user info (`union_id`, name, email, tenant_key).
+5. Anna looks up an existing user linked to that Feishu identity:
+   - If found and active: sign them in and redirect to the admin UI.
+   - If not found and auto-provision is enabled: create a new user and sign them in.
+   - If not found and auto-provision is disabled: show an error asking the user to contact an admin.
+
+### Prerequisites
+
+- Exactly one Feishu channel instance must have `enable_login: true` in its configuration.
+- The instance must have valid `app_id` and `app_secret`.
+- For auto-provisioning on login, `tenant_key` must be explicitly configured (auto-detection at startup is not enough for security reasons).
+- The first admin must be created via local registration before Feishu login works (bootstrap safety).
+
+### Configuration
+
+1. Choose which Feishu channel instance should handle web login.
+2. Enable the login flag in that instance's config:
+
+```json
+{
+  "app_id": "FEISHU_APP_ID",
+  "app_secret": "FEISHU_APP_SECRET",
+  "tenant_key": "YOUR_TENANT_KEY",
+  "auto_provision": true,
+  "enable_login": true
+}
+```
+
+> **Warning:** Only one Feishu instance can have `enable_login: true` at a time. If multiple instances have it enabled, Feishu login will be disabled until you configure exactly one.
+
+### Security notes
+
+- Feishu web login requests **minimal scopes** (authentication only). It does not request `offline_access` or workspace scopes like `calendar`, `docs`, or `drive`.
+- Feishu web login does **not** store long-lived credentials in your vault. It only creates a web session. To use `lark-cli` inside agent sessions, you still need to connect CLI credentials separately from the Credentials page.
+- User identity is resolved by `union_id` (preferred) or `open_id` (legacy fallback). Email is **not** used to link accounts — if a local user has the same email but no Feishu identity, they will not be automatically linked.
+- Tenant key is validated if configured. Users from external Feishu tenants cannot sign in or be auto-provisioned.
+- The bootstrap safety rule prevents creating the first admin via Feishu login. You must register a local admin first.
+
+### Difference from chat auto-provision
+
+| Feature | Chat Auto-Provision | Web Login |
+|---------|---------------------|-----------|
+| Trigger | User messages bot | User clicks "Sign in with Feishu" |
+| Tenant detection | Auto-detect at startup | Must be explicitly configured |
+| Creates user | Yes, if enabled | Yes, if enabled and tenant matches |
+| Creates web session | No | Yes |
+| Stores CLI credentials | No | No |
+
 ## Lark Workspace Automation
 
 The old built-in `feishu_*` tools and `/auth` flow were removed.
@@ -176,6 +233,7 @@ Feishu supports the standard chat commands:
 | `enable_notify`      | Allow scheduler and notify output to target Feishu                    |
 | `tenant_key`         | Your enterprise tenant key. Optional: anna can auto-detect it at startup, but setting it explicitly is recommended |
 | `auto_provision`     | Automatically create Anna accounts for users handled by this Feishu channel instance |
+| `enable_login`       | Enable this instance for **Sign in with Feishu** web login. Only one instance can be enabled at a time. |
 | `groups`             | Optional per-chat overrides keyed by Feishu `chat_id`                 |
 
 ## Troubleshooting Auto-Provisioning
