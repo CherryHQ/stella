@@ -384,10 +384,10 @@ func cleanupOrphanedDockerContainers(ctx context.Context, annaHome string) {
 }
 
 // resolveSession creates a runnerSession from configuration.
-// Docker is the only supported sandbox backend; SandboxBackendFn is consulted
-// only for plugin-registry overrides (which also resolve to docker).
+// The active backend is determined by SandboxBackendFn (global Plugins page
+// selection), defaulting to local when no backend is explicitly enabled.
 func resolveSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
-	name := config.SandboxBackendDocker
+	name := config.SandboxBackendLocal
 	if cfg.SandboxBackendFn != nil {
 		if override := cfg.SandboxBackendFn(ctx); override != "" {
 			name = override

@@ -139,9 +139,10 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 	workspace := t.TempDir()
 	userRoot := workspace + "/users/1"
 	_, err := resolveSession(context.Background(), GoRunnerConfig{
-		AgentRoot: workspace,
-		UserRoot:  userRoot,
-		Sandbox:   config.SandboxConfig{},
+		AgentRoot:        workspace,
+		UserRoot:         userRoot,
+		Sandbox:          config.SandboxConfig{},
+		SandboxBackendFn: func(_ context.Context) string { return config.SandboxBackendDocker },
 	})
 	if err == nil {
 		t.Fatal("expected error for docker backend with unreachable daemon")
