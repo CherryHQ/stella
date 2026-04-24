@@ -3,8 +3,10 @@ package admin
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -161,13 +163,22 @@ func NewLoginFlowStore() *LoginFlowStore {
 	return &LoginFlowStore{flows: make(map[string]LoginFlowState)}
 }
 
+var errLoginFlowStoreFull = errors.New("login flow store is full")
+
+const maxLoginFlowEntries = 4096
+
 // Create stores a new login flow state and returns the flow ID.
-func (s *LoginFlowStore) Create(provider, channelID, redirectURL string, ttl time.Duration) string {
+func (s *LoginFlowStore) Create(provider, channelID, redirectURL string, ttl time.Duration) (string, error) {
 	flowID := generateFlowID()
 	now := time.Now()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	s.sweepExpiredLocked(now)
+	if len(s.flows) >= maxLoginFlowEntries {
+		return "", errLoginFlowStoreFull
+	}
 
 	s.flows[flowID] = LoginFlowState{
 		FlowID:      flowID,
@@ -179,7 +190,15 @@ func (s *LoginFlowStore) Create(provider, channelID, redirectURL string, ttl tim
 		Used:        false,
 	}
 
-	return flowID
+	return flowID, nil
+}
+
+func (s *LoginFlowStore) sweepExpiredLocked(now time.Time) {
+	for flowID, state := range s.flows {
+		if now.After(state.ExpiresAt) {
+			delete(s.flows, flowID)
+		}
+	}
 }
 
 // Consume retrieves a flow state by ID and deletes it from the store.
@@ -188,6 +207,9 @@ func (s *LoginFlowStore) Create(provider, channelID, redirectURL string, ttl tim
 func (s *LoginFlowStore) Consume(flowID string) (LoginFlowState, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	now := time.Now()
+	s.sweepExpiredLocked(now)
 
 	state, ok := s.flows[flowID]
 	if !ok {
@@ -203,7 +225,7 @@ func (s *LoginFlowStore) Consume(flowID string) (LoginFlowState, bool) {
 	}
 
 	// Reject if expired
-	if time.Now().After(state.ExpiresAt) {
+	if now.After(state.ExpiresAt) {
 		return LoginFlowState{}, false
 	}
 
@@ -263,6 +285,14 @@ func (s *Server) feishuLoginStartHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	ip := clientIP(r)
+	if err := s.rateLimiter.CheckIP(ip); err != nil {
+		writeError(w, http.StatusTooManyRequests, err.Error())
+		return
+	}
+	// This endpoint is public and allocates state, so count every start request.
+	s.rateLimiter.RecordIPAttempt(ip)
+
 	// Get and validate the login-enabled Feishu instance
 	availability, loginCfg := s.findLoginEnabledFeishuInstance(r.Context())
 	if !availability.Available {
@@ -300,11 +330,16 @@ func (s *Server) feishuLoginStartHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Create one-time state
-	flowID := s.loginFlowStore.Create("feishu", loginCfg.InstanceID, body.RedirectURL, feishuLoginFlowTTL)
+	flowID, err := s.loginFlowStore.Create("feishu", loginCfg.InstanceID, body.RedirectURL, feishuLoginFlowTTL)
+	if err != nil {
+		writeError(w, http.StatusTooManyRequests, "too many pending Feishu login attempts; try again later")
+		return
+	}
 
 	// Build Feishu OAuth authorization URL
 	// Note: Feishu uses app_id (not client_id) and requires state
-	authURL := buildFeishuAuthURL(loginCfg.AppID, flowID)
+	redirectURI := feishuLoginCallbackURL(s.corsOriginV)
+	authURL := buildFeishuAuthURL(loginCfg.AppID, flowID, redirectURI)
 
 	writeData(w, http.StatusOK, map[string]string{
 		"auth_url": authURL,
@@ -313,19 +348,22 @@ func (s *Server) feishuLoginStartHandler(w http.ResponseWriter, r *http.Request)
 }
 
 // buildFeishuAuthURL constructs the Feishu OAuth authorization URL.
-// The redirect_uri is fixed to /api/auth/login/feishu/callback on the same host.
-func buildFeishuAuthURL(appID, state string) string {
+func buildFeishuAuthURL(appID, state, redirectURI string) string {
 	// Feishu OAuth endpoint
 	baseURL := "https://open.feishu.cn/open-apis/authen/v1/authorize"
 
 	params := url.Values{}
 	params.Set("app_id", appID)
-	params.Set("redirect_uri", "/api/auth/login/feishu/callback")
+	params.Set("redirect_uri", redirectURI)
 	params.Set("state", state)
 	// Request minimal scope for login (user info only, not offline_access)
 	params.Set("scope", "")
 
 	return baseURL + "?" + params.Encode()
+}
+
+func feishuLoginCallbackURL(publicOrigin string) string {
+	return strings.TrimRight(publicOrigin, "/") + "/api/auth/login/feishu/callback"
 }
 
 // feishuLoginCallbackHandler handles GET /api/auth/login/feishu/callback.
@@ -394,14 +432,13 @@ func (s *Server) feishuLoginCallbackHandler(w http.ResponseWriter, r *http.Reque
 
 	// === Phase 3: Resolve existing user by Feishu identity ===
 	// Try union_id first (preferred), then fall back to open_id for legacy support.
-	externalIDs := []string{feishuUser.UnionID}
-	if feishuUser.OpenID != "" {
-		externalIDs = append(externalIDs, feishuUser.OpenID)
-	}
-
-	resolved, match, err := resolveFeishuUser(ctx, s.authStore, externalIDs)
+	resolved, match, err := resolveFeishuUser(ctx, s.authStore, feishuUser.UnionID, feishuUser.OpenID)
 	if err != nil {
 		s.log.Error("feishu login: identity resolution failed", "error", err, "union_id", feishuUser.UnionID)
+		if errors.Is(err, errFeishuIdentityConflict) {
+			writeError(w, http.StatusConflict, "Feishu identity conflict. Please ask an admin to resolve linked accounts.")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to resolve user identity")
 		return
 	}
@@ -413,10 +450,16 @@ func (s *Server) feishuLoginCallbackHandler(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		// Canonicalize identity: migrate from open_id to union_id if needed
+		// Canonicalize identity: migrate from open_id to union_id if needed.
+		// Conflicts are security-sensitive and must fail closed before session creation.
 		if err := canonicalizeFeishuIdentity(ctx, s.authStore, feishuUser.UnionID, match); err != nil {
-			s.log.Warn("feishu login: identity canonicalization failed", "error", err, "user_id", resolved.User.ID)
-			// Continue anyway - this is not fatal
+			s.log.Error("feishu login: identity canonicalization failed", "error", err, "user_id", resolved.User.ID)
+			if errors.Is(err, errFeishuIdentityConflict) {
+				writeError(w, http.StatusConflict, "Feishu identity conflict. Please ask an admin to resolve linked accounts.")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to update Feishu identity")
+			return
 		}
 
 		// Create session and set cookie
@@ -488,8 +531,7 @@ func (s *Server) provisionFeishuUserAndLogin(w http.ResponseWriter, r *http.Requ
 		Name:       feishuUser.Name,
 		EmailHint:  feishuUser.Email,
 		OnUserCreated: func(ctx context.Context, userID int64) error {
-			// Vault key generation placeholder - authStore handles this
-			return nil
+			return s.provisionUserVaultKeys(ctx, userID)
 		},
 	})
 	if err != nil {
@@ -518,10 +560,60 @@ func (s *Server) provisionFeishuUserAndLogin(w http.ResponseWriter, r *http.Requ
 	return nil
 }
 
+var errFeishuIdentityConflict = errors.New("feishu identity conflict")
+
 // resolveFeishuUser attempts to resolve a user by Feishu identity.
-// It tries union_id first, then falls back to open_id for legacy support.
-func resolveFeishuUser(ctx context.Context, authStore auth.AuthStore, externalIDs []string) (ResolvedIdentity, identityMatch, error) {
-	return ResolveUserCandidates(ctx, authStore, "feishu", externalIDs)
+// It checks union_id and open_id independently so conflicting links fail closed.
+func resolveFeishuUser(ctx context.Context, authStore auth.AuthStore, unionID, openID string) (ResolvedIdentity, identityMatch, error) {
+	unionIdentity, unionFound, err := lookupIdentity(ctx, authStore, "feishu", unionID)
+	if err != nil {
+		return ResolvedIdentity{}, identityMatch{}, err
+	}
+	openIdentity, openFound, err := lookupIdentity(ctx, authStore, "feishu", openID)
+	if err != nil {
+		return ResolvedIdentity{}, identityMatch{}, err
+	}
+
+	if unionFound && openFound && unionIdentity.UserID != openIdentity.UserID {
+		return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("%w: union_id linked to user %d, open_id linked to user %d", errFeishuIdentityConflict, unionIdentity.UserID, openIdentity.UserID)
+	}
+
+	var match identityMatch
+	switch {
+	case unionFound && openFound && unionIdentity.UserID == openIdentity.UserID && unionIdentity.ID != openIdentity.ID:
+		// Return the legacy match so canonicalization can delete the duplicate open_id row.
+		match = identityMatch{Identity: openIdentity, Matched: openID}
+	case unionFound:
+		match = identityMatch{Identity: unionIdentity, Matched: unionID}
+	case openFound:
+		match = identityMatch{Identity: openIdentity, Matched: openID}
+	default:
+		return ResolvedIdentity{}, identityMatch{}, nil
+	}
+
+	user, err := authStore.GetUser(ctx, match.Identity.UserID)
+	if err != nil {
+		if isIdentityNotFound(err) {
+			return ResolvedIdentity{}, identityMatch{}, nil //nolint:nilerr // intentional: missing user = not resolved
+		}
+		return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("lookup user: %w", err)
+	}
+
+	return ResolvedIdentity{User: user}, match, nil
+}
+
+func lookupIdentity(ctx context.Context, authStore auth.AuthStore, platform, externalID string) (auth.Identity, bool, error) {
+	if externalID == "" {
+		return auth.Identity{}, false, nil
+	}
+	identity, err := authStore.GetIdentityByPlatform(ctx, platform, externalID)
+	if err != nil {
+		if isIdentityNotFound(err) {
+			return auth.Identity{}, false, nil
+		}
+		return auth.Identity{}, false, fmt.Errorf("lookup identity: %w", err)
+	}
+	return identity, true, nil
 }
 
 // ResolvedIdentity wraps an auth.AuthUser for identity resolution results.
@@ -535,83 +627,9 @@ type identityMatch struct {
 	Matched  string
 }
 
-// ResolveUserCandidates is a wrapper around channel.ResolveUserCandidates.
-// We import the internal/channel package pattern but adapt for admin use.
-func ResolveUserCandidates(ctx context.Context, authStore auth.AuthStore, platform string, externalIDs []string) (ResolvedIdentity, identityMatch, error) {
-	// Remove empty IDs and deduplicate
-	candidates := make([]string, 0, len(externalIDs))
-	seen := make(map[string]struct{})
-	for _, id := range externalIDs {
-		if id == "" {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		candidates = append(candidates, id)
-	}
-
-	if len(candidates) == 0 {
-		return ResolvedIdentity{}, identityMatch{}, nil
-	}
-
-	var lastNotFound error
-	for _, externalID := range candidates {
-		identity, err := authStore.GetIdentityByPlatform(ctx, platform, externalID)
-		if err != nil {
-			// Check if it's a "not found" error
-			if isIdentityNotFound(err) {
-				lastNotFound = err
-				continue
-			}
-			return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("lookup identity: %w", err)
-		}
-
-		user, err := authStore.GetUser(ctx, identity.UserID)
-		if err != nil {
-			if isIdentityNotFound(err) {
-				// Identity exists but user doesn't - data inconsistency, treat as not resolved
-				return ResolvedIdentity{}, identityMatch{}, nil //nolint:nilerr // intentional: missing user = not resolved
-			}
-			return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("lookup user: %w", err)
-		}
-
-		return ResolvedIdentity{User: user}, identityMatch{Identity: identity, Matched: externalID}, nil
-	}
-
-	if lastNotFound != nil {
-		// No matching identity found - this is a normal "not resolved" case, not an error
-		return ResolvedIdentity{}, identityMatch{}, nil //nolint:nilerr // intentional: not found = not resolved
-	}
-
-	return ResolvedIdentity{}, identityMatch{}, nil
-}
-
 // isIdentityNotFound checks if an error indicates that an identity was not found.
 func isIdentityNotFound(err error) bool {
-	if err == nil {
-		return false
-	}
-	// Check for common "not found" error patterns
-	errStr := err.Error()
-	return contains(errStr, "not found") || contains(errStr, "no rows") || contains(errStr, "no such")
-}
-
-// contains checks if a string contains a substring (case-insensitive).
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(s[:len(substr)] == substr) ||
-		(len(s) > len(substr) && (s[len(s)-len(substr):] == substr || findSubstring(s, substr))))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return errors.Is(err, sql.ErrNoRows)
 }
 
 // canonicalizeFeishuIdentity migrates a legacy open_id identity to union_id.
@@ -627,8 +645,8 @@ func canonicalizeFeishuIdentity(ctx context.Context, authStore auth.AuthStore, u
 		// union_id identity exists
 		if existing.UserID != match.Identity.UserID {
 			// Conflict: union_id belongs to a different user
-			return fmt.Errorf("identity conflict: union_id %s is linked to user %d, but open_id is linked to user %d",
-				unionID, existing.UserID, match.Identity.UserID)
+			return fmt.Errorf("%w: union_id %s is linked to user %d, but open_id is linked to user %d",
+				errFeishuIdentityConflict, unionID, existing.UserID, match.Identity.UserID)
 		}
 		if existing.ID != match.Identity.ID {
 			// Same user, duplicate identity - delete the legacy one

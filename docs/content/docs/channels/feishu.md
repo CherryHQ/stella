@@ -40,6 +40,7 @@ In addition to chat auto-provisioning, you can enable **Sign in with Feishu** fo
 
 - Exactly one Feishu channel instance must have `enable_login: true` in its configuration.
 - The instance must have valid `app_id` and `app_secret`.
+- `admin.cors_origin` must be set to the public Admin UI origin used in the Feishu app callback URL, for example `https://anna.example.com`.
 - For auto-provisioning on login, `tenant_key` must be explicitly configured (auto-detection at startup is not enough for security reasons).
 - The first admin must be created via local registration before Feishu login works (bootstrap safety).
 

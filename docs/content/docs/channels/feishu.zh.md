@@ -38,6 +38,7 @@ anna
 
 - 必须有且仅有一个 Feishu 频道实例的配置中设置了 `enable_login: true`。
 - 该实例必须配置了有效的 `app_id` 和 `app_secret`。
+- `admin.cors_origin` 必须设置为飞书应用回调地址使用的公开 Admin UI 源地址，例如 `https://anna.example.com`。
 - 如需在登录时自动注册新用户，必须显式配置 `tenant_key`（仅依赖启动时的自动探测不够安全）。
 - 第一个管理员必须通过本地注册创建后，飞书登录才能使用（引导安全保护）。
 

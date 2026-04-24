@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -83,13 +84,8 @@ func (s *Server) registerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate vault keys if the master recipient is configured.
-	if s.vaultRecipient != nil {
-		pubKey, encPrivKey, err := vault.GenerateUserKeys(s.vaultRecipient)
-		if err != nil {
-			s.log.Warn("generate age keys failed", "user_id", user.ID, "error", err)
-		} else if err := s.authStore.UpdateUserAgeKeys(ctx, user.ID, pubKey, encPrivKey); err != nil {
-			s.log.Warn("store age keys failed", "user_id", user.ID, "error", err)
-		}
+	if err := s.provisionUserVaultKeys(ctx, user.ID); err != nil {
+		s.log.Warn("provision vault keys failed", "user_id", user.ID, "error", err)
 	}
 
 	// Create session.
@@ -211,6 +207,17 @@ func (s *Server) meHandler(w http.ResponseWriter, r *http.Request) {
 		"role":     info.Role,
 		"is_admin": info.IsAdmin,
 	})
+}
+
+func (s *Server) provisionUserVaultKeys(ctx context.Context, userID int64) error {
+	if s.vaultRecipient == nil {
+		return nil
+	}
+	pubKey, encPrivKey, err := vault.GenerateUserKeys(s.vaultRecipient)
+	if err != nil {
+		return err
+	}
+	return s.authStore.UpdateUserAgeKeys(ctx, userID, pubKey, encPrivKey)
 }
 
 // isLocalhost returns true if the request host is localhost or 127.0.0.1.
