@@ -54,7 +54,12 @@ func AtomicReplaceDir(src, dest string) error {
 			return fmt.Errorf("remove old backup dir: %w", err)
 		}
 		if err := renameOrCopyDir(dest, backup); err != nil {
-			return fmt.Errorf("backup existing dir: %w", err)
+			// Another concurrent process may have already moved dest away.
+			if os.IsNotExist(err) {
+				backup = ""
+			} else {
+				return fmt.Errorf("backup existing dir: %w", err)
+			}
 		}
 	}
 
