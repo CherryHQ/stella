@@ -137,6 +137,12 @@ func Reconcile(ctx context.Context, m *Manifest, annaHome string) ReconcileResul
 		pr := PluginReconcileResult{PluginID: plugin.ID}
 
 		for _, binary := range plugin.Binaries {
+			if ctx.Err() != nil {
+				slog.Info("manifest plugin reconcile aborted", "reason", ctx.Err())
+				result.Plugins[plugin.ID] = pr
+				goto done
+			}
+
 			// Cache hit check (skipped for latest/empty version)
 			if isCacheHit(state, plugin.ID, binary.Name, binary.Version) {
 				slog.Info("manifest binary cache hit",
@@ -192,6 +198,7 @@ func Reconcile(ctx context.Context, m *Manifest, annaHome string) ReconcileResul
 		result.Plugins[plugin.ID] = pr
 	}
 
+done:
 	state.UpdatedAt = time.Now()
 	if saveErr := SaveState(statePath, state); saveErr != nil {
 		slog.Error("manifest plugin reconcile: failed to save state", "error", saveErr)
