@@ -11,6 +11,27 @@ icon: History
 
 ## [Unreleased]
 
+## [0.16.3] - 2026-04-24
+
+### 🐛 Bug 修复
+
+- **会话**：`NewSessionID` 改用随机 ID，防止 Docker 容器名称冲突
+- **OAuth**：通过 `FlowStore` 持久化 device-code token，而非 broker 实例
+- **OAuth**：将 OAuth registry 接入 `PoolManager` 以注入会话环境变量
+- **运行时**：上下文取消时提前终止 reconcile
+- **运行时**：移除 managed command `Cancel` 中对 `ProcessState` 的竞态读取
+- **插件**：添加 `@rsbuild/core` 以满足 `start-plugin-core` 的静态导入要求
+
+### ♻️ 重构
+
+- 应用 `golangci-lint` 的代码检查建议
+
+### 🔧 CI
+
+- 升级 GitHub Actions runner
+
+**完整变更日志**：[v0.16.2...v0.16.3](https://github.com/vaayne/anna/compare/v0.16.2...v0.16.3)
+
 ## [0.16.2] - 2026-04-24
 
 ### 🐛 Bug 修复
