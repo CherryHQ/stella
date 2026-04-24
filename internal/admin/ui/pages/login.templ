@@ -13,6 +13,33 @@ templ LoginPage() {
 				<div x-show="error" x-cloak class="alert alert-error text-sm mb-4">
 					<span x-text="error"></span>
 				</div>
+				<!-- Feishu Login Button -->
+				<div x-show="feishuAvailable" x-cloak class="mb-4">
+					<button
+						@click="loginWithFeishu()"
+						:disabled="feishuLoading"
+						class="btn btn-outline w-full flex items-center justify-center gap-2"
+					>
+						<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+							<rect width="24" height="24" rx="4" fill="#3370FF"/>
+							<path d="M12 6L8 10H11V14H13V10H16L12 6Z" fill="white"/>
+							<path d="M7 12L5 14H19L17 12H15V16H9V12H7Z" fill="white"/>
+						</svg>
+						<span x-text="feishuLoading ? 'Connecting...' : 'Sign in with Feishu'" class="text-sm"></span>
+					</button>
+					<p class="text-xs text-secondary text-center mt-2">
+						Sign in with your Feishu work account
+					</p>
+				</div>
+				<!-- Feishu unavailable info -->
+				<div x-show="feishuUnavailableReason" x-cloak class="alert alert-info text-sm mb-4">
+					<div class="flex flex-col">
+						<span class="font-medium">Feishu login unavailable</span>
+						<span x-text="feishuUnavailableReason" class="text-xs opacity-80"></span>
+					</div>
+				</div>
+				<!-- Divider when Feishu is available -->
+				<div x-show="feishuAvailable" x-cloak class="divider text-xs text-secondary">or</div>
 				<!-- Login form -->
 				<form x-show="!isRegister" @submit.prevent="login()" x-cloak>
 					<div class="form-control w-full mb-3">

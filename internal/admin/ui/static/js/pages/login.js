@@ -11,12 +11,67 @@ export function register(Alpine) {
     confirmPassword: '',
     error: '',
     loading: false,
+    // Feishu login state
+    feishuAvailable: false,
+    feishuLoading: false,
+    feishuUnavailableReason: '',
+
+    init() {
+      this.checkFeishuAvailability()
+    },
 
     toggleMode() {
       this.isRegister = !this.isRegister
       this.error = ''
       this.password = ''
       this.confirmPassword = ''
+    },
+
+    async checkFeishuAvailability() {
+      try {
+        const res = await fetch('/api/auth/login/feishu/availability')
+        const data = await res.json()
+        this.feishuAvailable = data.available
+        if (!data.available && data.reason) {
+          const reasonMap = {
+            'no_login_instance': 'Feishu login is not configured.',
+            'multiple_login_instances': 'Multiple Feishu instances configured. Please configure exactly one.',
+            'missing_credentials': 'Feishu login credentials are incomplete.',
+            'store_error': 'Unable to check Feishu login status.',
+          }
+          this.feishuUnavailableReason = reasonMap[data.reason] || 'Feishu login is currently unavailable.'
+        }
+      } catch (e) {
+        // Silently fail - Feishu login is optional
+        this.feishuAvailable = false
+      }
+    },
+
+    async loginWithFeishu() {
+      this.error = ''
+      this.feishuLoading = true
+      try {
+        const redirectUrl = new URLSearchParams(window.location.search).get('redirect') || '/'
+        const res = await fetch('/api/auth/login/feishu/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ redirect_url: redirectUrl }),
+        })
+        const data = await res.json()
+        if (data.error) {
+          this.error = data.error
+          return
+        }
+        if (data.auth_url) {
+          window.location.href = data.auth_url
+        } else {
+          this.error = 'Failed to start Feishu login'
+        }
+      } catch (e) {
+        this.error = e.message || 'Failed to start Feishu login'
+      } finally {
+        this.feishuLoading = false
+      }
     },
 
     async login() {
