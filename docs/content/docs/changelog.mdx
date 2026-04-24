@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-04-24
+
+### ✨ Features
+
+- **Plugins**: Add runtime manifest tool plugins — file-driven path for CLI tool integrations via `$ANNA_HOME/plugins.yaml` with two-layer merge, binary provisioning, version-based caching, and admin UI ([#124](https://github.com/vaayne/anna/pull/124))
+- **OAuth**: Add generic OAuth registry/broker framework integrated into runtime, admin, and plugin host paths; add manifest validation for OAuth providers ([#125](https://github.com/vaayne/anna/pull/125))
+- **Plugins**: Unify `gh`, `lark-cli`, `tap-web`, and `mise` under a first-class CLI-backed tool plugin pattern with plugin-owned binary, wrapper, session env, bundled-skill, and prompt registrations ([#123](https://github.com/vaayne/anna/pull/123))
+
+### ♻️ Refactoring
+
+- **Plugins**: Consolidate and simplify embedded tool and bundle management internals; remove legacy OAuth bundles and unused vault/token management code ([#125](https://github.com/vaayne/anna/pull/125))
+- **Auth**: Migrate legacy auth rows into `tool/gh` and `tool/lark-cli` plugins; remove old auth plugin packages ([#123](https://github.com/vaayne/anna/pull/123))
+
+**Full Changelog**: [v0.15.0...v0.16.0](https://github.com/vaayne/anna/compare/v0.15.0...v0.16.0)
+
 ## [0.15.0] - 2026-04-22
 
 ### ✨ Features
