@@ -437,10 +437,89 @@ func (s *Server) feishuLoginCallbackHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// === Phase 4 & 5: No existing user - will be handled in provisioning ===
-	// For now, return an error indicating the user needs to be provisioned
-	// This will be replaced with auto-provisioning in Phase 5
-	writeError(w, http.StatusNotFound, "No linked Feishu account found. Please ask an admin to link your account or enable auto-provisioning.")
+	// === Phase 5: No existing user - attempt auto-provisioning ===
+	if err := s.provisionFeishuUserAndLogin(w, r, loginCfg, feishuUser, flowState); err != nil {
+		s.log.Error("feishu login: auto-provisioning failed", "error", err, "union_id", feishuUser.UnionID)
+		// Error is already written to response by provisionFeishuUserAndLogin
+		return
+	}
+}
+
+// provisionFeishuUserAndLogin attempts to auto-provision a new user from Feishu info
+// and create a session. Returns error if provisioning is disabled or fails.
+func (s *Server) provisionFeishuUserAndLogin(w http.ResponseWriter, r *http.Request, cfg *LoginEnabledFeishuConfig, feishuUser *feishuUserInfo, flowState LoginFlowState) error {
+	ctx := r.Context()
+
+	// 1. Check if auto-provision is enabled for this channel
+	if !cfg.AutoProvision {
+		writeError(w, http.StatusNotFound, "No linked Feishu account found. Please ask an admin to link your account or enable auto-provisioning.")
+		return fmt.Errorf("auto-provision disabled")
+	}
+
+	// 2. Require explicit tenant_key before allowing web-login provisioning
+	// (chat auto-provision can auto-detect, but web login requires explicit config)
+	if cfg.TenantKey == "" {
+		writeError(w, http.StatusServiceUnavailable, "Feishu auto-provisioning is not configured. Please ask an admin to configure the tenant key.")
+		return fmt.Errorf("tenant_key not configured")
+	}
+
+	// 3. Verify tenant key matches (double-check - already validated earlier)
+	if feishuUser.TenantKey != cfg.TenantKey {
+		writeError(w, http.StatusForbidden, "User does not belong to the configured Feishu tenant")
+		return fmt.Errorf("tenant mismatch")
+	}
+
+	// 4. Bootstrap safety: never create the first admin via Feishu login
+	userCount, err := s.authStore.CountUsers(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to check user count")
+		return fmt.Errorf("count users: %w", err)
+	}
+	if userCount == 0 {
+		writeError(w, http.StatusServiceUnavailable, "Cannot create the first user via Feishu login. Please register a local admin account first.")
+		return fmt.Errorf("bootstrap refusal: no users exist")
+	}
+
+	// 5. Provision the new user using auth.ProvisionIdentityUser
+	// Email is used only for username hint, NOT for linking
+	user, err := auth.ProvisionIdentityUser(ctx, s.authStore, auth.ProvisionRequest{
+		Platform:   "feishu",
+		ExternalID: feishuUser.UnionID,
+		Name:       feishuUser.Name,
+		EmailHint:  feishuUser.Email,
+		OnUserCreated: func(ctx context.Context, userID int64) error {
+			// Generate vault keys if vault is configured
+			if s.vaultRecipient != nil {
+				// Note: vault key generation would go here if needed
+				// For now, skip as ProvisionIdentityUser handles this via authStore
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to provision user")
+		return fmt.Errorf("provision user: %w", err)
+	}
+
+	// 6. Create session and set cookie
+	if err := s.createSessionAndSetCookie(w, r, user.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create session")
+		return fmt.Errorf("create session: %w", err)
+	}
+
+	s.log.Info("feishu login: auto-provisioned new user",
+		"user_id", user.ID,
+		"username", user.Username,
+		"union_id", feishuUser.UnionID,
+		"tenant_key", feishuUser.TenantKey)
+
+	// 7. Redirect to the original destination or default to home
+	redirectURL := flowState.RedirectURL
+	if redirectURL == "" {
+		redirectURL = "/"
+	}
+	http.Redirect(w, r, redirectURL, http.StatusFound)
+	return nil
 }
 
 // resolveFeishuUser attempts to resolve a user by Feishu identity.
