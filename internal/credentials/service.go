@@ -13,6 +13,15 @@ import (
 	"github.com/vaayne/anna/internal/vault"
 )
 
+const (
+	githubProviderID = "github"
+
+	// ghOAuthClientID is GitHub CLI's public OAuth app client ID. GitHub's
+	// device flow only requires the client ID, so Anna can offer gh OAuth
+	// without any admin-side plugin configuration.
+	ghOAuthClientID = "178c6fc778ccc68e1d6a"
+)
+
 // Service is the shared host-side credential manager. It owns vault secret
 // operations and OAuth orchestration. Admin HTTP handlers and the built-in
 // credentials tool both delegate to this service.
@@ -85,28 +94,9 @@ func (s *Service) getBroker(ctx context.Context, providerID string, flowType str
 		return nil, fmt.Errorf("unknown provider: %s", providerID)
 	}
 
-	pluginID, ok := s.providerPluginIDs[providerID]
-	if !ok {
-		return nil, fmt.Errorf("no plugin configured for provider: %s", providerID)
-	}
-
-	state, err := s.pluginCfg.Get(ctx, pluginID)
+	clientID, clientSecret, redirectURI, err := s.providerCredentials(ctx, providerID)
 	if err != nil {
-		return nil, fmt.Errorf("plugin config unavailable for %s: %w", pluginID, err)
-	}
-	if !state.Enabled {
-		return nil, fmt.Errorf("%s plugin is not enabled", pluginID)
-	}
-
-	clientID, _ := state.Config["client_id"].(string)
-	clientSecret, _ := state.Config["client_secret"].(string)
-	if clientID == "" || clientSecret == "" {
-		return nil, fmt.Errorf("%s OAuth app is not configured (set client_id and client_secret in %s plugin)", providerID, pluginID)
-	}
-
-	redirectURI, _ := state.Config["redirect_url"].(string)
-	if redirectURI == "" {
-		redirectURI = s.corsOrigin + "/api/auth/profile/oauth/" + providerID + "/callback"
+		return nil, err
 	}
 
 	var flow oauth.ProviderFlowConfig
@@ -165,6 +155,43 @@ func (s *Service) getBroker(ctx context.Context, providerID string, flowType str
 	}
 }
 
+func (s *Service) providerCredentials(ctx context.Context, providerID string) (clientID, clientSecret, redirectURI string, err error) {
+	if providerID == githubProviderID {
+		return ghOAuthClientID, "", s.corsOrigin + "/api/auth/profile/oauth/" + providerID + "/callback", nil
+	}
+
+	pluginID, ok := s.providerPluginIDs[providerID]
+	if !ok {
+		return "", "", "", fmt.Errorf("no plugin configured for provider: %s", providerID)
+	}
+
+	state, err := s.pluginCfg.Get(ctx, pluginID)
+	if err != nil {
+		return "", "", "", fmt.Errorf("plugin config unavailable for %s: %w", pluginID, err)
+	}
+	if !state.Enabled {
+		return "", "", "", fmt.Errorf("%s plugin is not enabled", pluginID)
+	}
+
+	clientID, _ = state.Config["client_id"].(string)
+	if clientID == "" {
+		clientID, _ = state.Config["app_id"].(string)
+	}
+	clientSecret, _ = state.Config["client_secret"].(string)
+	if clientSecret == "" {
+		clientSecret, _ = state.Config["app_secret"].(string)
+	}
+	if clientID == "" || clientSecret == "" {
+		return "", "", "", fmt.Errorf("%s OAuth app is not configured (set client_id/client_secret or app_id/app_secret in %s plugin)", providerID, pluginID)
+	}
+
+	redirectURI, _ = state.Config["redirect_url"].(string)
+	if redirectURI == "" {
+		redirectURI = s.corsOrigin + "/api/auth/profile/oauth/" + providerID + "/callback"
+	}
+	return clientID, clientSecret, redirectURI, nil
+}
+
 // saveToken converts an oauth2.Token into an OAuthBundle and persists it under
 // the provider's registered vault key.
 func (s *Service) saveToken(ctx context.Context, providerID string, userID int64, tok *oauth2.Token) error {
@@ -173,14 +200,10 @@ func (s *Service) saveToken(ctx context.Context, providerID string, userID int64
 		return fmt.Errorf("unknown provider: %s", providerID)
 	}
 
-	pluginID, ok := s.providerPluginIDs[providerID]
-	if !ok {
-		return fmt.Errorf("no plugin configured for provider: %s", providerID)
+	clientID, clientSecret, _, err := s.providerCredentials(ctx, providerID)
+	if err != nil {
+		return err
 	}
-
-	state, _ := s.pluginCfg.Get(ctx, pluginID)
-	clientID, _ := state.Config["client_id"].(string)
-	clientSecret, _ := state.Config["client_secret"].(string)
 
 	bundle := oauth.OAuthBundle{
 		Version:         1,
@@ -274,6 +297,10 @@ func (s *Service) getProviderStatus(ctx context.Context, userID int64, provider 
 		return ps
 	}
 	ps.Available = true
+
+	if s.vaultSvc == nil {
+		return ps
+	}
 
 	bundle, err := oauth.LoadOAuthBundle(ctx, s.vaultSvc, userID, providerCfg.VaultKey)
 	if err != nil {

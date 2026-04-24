@@ -88,7 +88,7 @@ mise 会根据发布资产文件名中的操作系统和架构关键词自动检
 | `lark_app_id` | 注入 Lark 应用 ID |
 | `lark_brand` | 注入 Lark 品牌标识符 |
 
-OAuth 来源（`github_token`、`lark_*`）需要在管理面板中配置相应凭证。
+`github_token` 使用 Anna 内置的 GitHub CLI 设备流程应用，无需管理员配置插件。`lark_*` 来源仍需要先在管理面板中配置 Lark CLI 插件凭据。
 
 ## 状态与缓存
 

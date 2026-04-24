@@ -90,7 +90,7 @@ plugins:
     kind: tool
     name: gh
     display_name: GitHub CLI
-    description: "GitHub CLI integration with OAuth-backed auth, session env, and prompt guidance."
+    description: "GitHub CLI integration with OAuth-backed session auth."
     enabled: true
     binaries:
       - name: gh

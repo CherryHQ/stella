@@ -88,7 +88,7 @@ Mise auto-detects the correct release asset based on OS and architecture keyword
 | `lark_app_id` | Injects the Lark app ID |
 | `lark_brand` | Injects the Lark brand identifier |
 
-OAuth-backed sources (`github_token`, `lark_*`) require the corresponding credentials to be configured in the admin panel.
+`github_token` uses Anna's built-in GitHub CLI device-flow app and needs no admin-side plugin configuration. `lark_*` sources require the Lark CLI plugin credentials to be configured in the admin panel.
 
 ## State and caching
 

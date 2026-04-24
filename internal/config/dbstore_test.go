@@ -802,7 +802,7 @@ func TestPluginSeedNormalizesLegacyChannelPluginConfig(t *testing.T) {
 	}
 }
 
-func TestSeedDefaultsMigratesLegacyAuthPluginsToToolOwners(t *testing.T) {
+func TestSeedDefaultsMigratesLegacyLarkAuthAndPurgesLegacyGitHubAuth(t *testing.T) {
 	store := setupDBStore(t)
 	ctx := context.Background()
 
@@ -840,8 +840,8 @@ func TestSeedDefaultsMigratesLegacyAuthPluginsToToolOwners(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetPlugin tool/gh: %v", err)
 	}
-	if gh.Config["client_id"] != "gh-client" || gh.Config["client_secret"] != "gh-secret" {
-		t.Fatalf("tool/gh config = %+v", gh.Config)
+	if len(gh.Config) != 0 {
+		t.Fatalf("tool/gh config = %+v, want cleared config", gh.Config)
 	}
 
 	lark, err := store.GetPlugin(ctx, "tool/lark-cli")

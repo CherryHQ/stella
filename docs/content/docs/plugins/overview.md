@@ -110,7 +110,7 @@ Examples now include:
 
 - `tool/mise`: embedded binary + prompt guidance
 - `tool/tap-web`: binary + bundled skill + prompt guidance
-- `tool/gh`: binary + OAuth config + session env + prompt guidance
+- `tool/gh`: manifest binary + out-of-box OAuth session env
 - `tool/lark-cli`: binary + OAuth config + session env + bundled skill + prompt guidance
 
 The important boundary is ownership, not whether the plugin exposes `ToolSpec`.

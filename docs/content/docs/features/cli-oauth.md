@@ -11,13 +11,11 @@ runtime token into each sandbox environment automatically.
 
 ## Prerequisites
 
-An admin must configure the relevant auth plugin with application credentials before
-any user can connect:
+GitHub works out of the box. Anna uses the public GitHub CLI OAuth device-flow app,
+so users can connect their GitHub account without any admin-side plugin settings.
 
-- **GitHub**: The admin must set a GitHub OAuth app's client ID and secret in the
-  GitHub auth plugin settings.
-- **Lark / Feishu**: The admin must set a Lark app ID, app secret, and brand
-  (`lark` or `feishu`) in the Lark auth plugin settings.
+Lark / Feishu still requires an admin to configure a Lark app ID, app secret, and
+brand (`lark` or `feishu`) in the Lark CLI plugin settings before users can connect.
 
 ## Connecting
 
@@ -77,6 +75,6 @@ Credentials page).
 OAuth token bundles (`GH_OAUTH`, `LARK_CLI_OAUTH`) are stored encrypted at rest in
 your vault using the same age-based encryption as other vault entries. They are
 treated as host-only data: the raw JSON bundles are never forwarded into the sandbox
-process environment. Only the derived runtime token (e.g., `GH_TOKEN` for GitHub) is
-injected, so sandbox processes never have access to refresh credentials or OAuth app
-secrets.
+process environment. Only the derived runtime token (for example, `GH_TOKEN` for
+GitHub) is injected, so sandbox processes never receive refresh credentials or OAuth
+app secrets.

@@ -8,10 +8,9 @@ CLI OAuth 功能允许 Agent 在沙盒会话中直接使用 `gh`（GitHub CLI）
 
 ## 前提条件
 
-用户连接前，管理员须在对应的认证插件中配置好应用凭据：
+GitHub 开箱即用。Anna 使用 GitHub CLI 的公开 OAuth 设备流程应用，用户无需管理员配置插件即可连接 GitHub 账号。
 
-- **GitHub**：管理员需在 GitHub 认证插件设置中填入 OAuth 应用的 Client ID 和 Client Secret。
-- **Lark / 飞书**：管理员需在 Lark 认证插件设置中填入 App ID、App Secret 以及品牌标识（`lark` 或 `feishu`）。
+Lark / 飞书仍需要管理员先在 Lark CLI 插件设置中配置 App ID、App Secret 和品牌标识（`lark` 或 `feishu`），用户随后才能连接。
 
 ## 连接步骤
 
@@ -53,4 +52,4 @@ Lark 用户访问令牌有效期约为 **2 小时**。Anna 仅在会话启动时
 
 ## 安全模型
 
-OAuth 令牌包（`GH_OAUTH`、`LARK_CLI_OAUTH`）使用与其他密钥库条目相同的 age 加密方式加密存储。它们仅在宿主机上使用：原始 JSON 包不会传入沙盒进程的环境变量。沙盒进程只能获取派生的运行时令牌（例如 GitHub 的 `GH_TOKEN`），无法访问刷新凭据或 OAuth 应用密钥。
+OAuth 令牌包（`GH_OAUTH`、`LARK_CLI_OAUTH`）使用与其他密钥库条目相同的 age 加密方式加密存储。它们仅在宿主机上使用：原始 JSON 包不会传入沙盒进程的环境变量。沙盒进程只能获取派生的运行时令牌（例如 GitHub 的 `GH_TOKEN`），不会拿到刷新凭据或 OAuth 应用密钥。
