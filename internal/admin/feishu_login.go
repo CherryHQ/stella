@@ -379,21 +379,201 @@ func (s *Server) feishuLoginCallbackHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// TODO: Phase 3 - Resolve existing user by identity
-	// TODO: Phase 4 - Canonicalize identity (migrate open_id to union_id)
-	// TODO: Phase 5 - Provision new user if needed (with tenant/bootstrap checks)
-	// TODO: Phase 5 - Create session and set cookie
+	// Tenant key matching: if the channel has a configured tenant_key,
+	// the user's tenant_key must match it.
+	if loginCfg.TenantKey != "" && feishuUser.TenantKey != loginCfg.TenantKey {
+		s.log.Warn("feishu login: tenant key mismatch",
+			"expected_tenant", loginCfg.TenantKey,
+			"actual_tenant", feishuUser.TenantKey,
+			"union_id", feishuUser.UnionID)
+		writeError(w, http.StatusForbidden, "User does not belong to the configured Feishu tenant")
+		return
+	}
 
-	// For now, just return the user info (Phase 2 skeleton)
-	writeData(w, http.StatusOK, map[string]any{
-		"message":     "Feishu login callback received (Phase 2 - implementation pending)",
-		"union_id":    feishuUser.UnionID,
-		"open_id":     feishuUser.OpenID,
-		"name":        feishuUser.Name,
-		"email":       feishuUser.Email,
-		"tenant_key":  feishuUser.TenantKey,
-		"redirect_to": flowState.RedirectURL,
-	})
+	ctx := r.Context()
+
+	// === Phase 3: Resolve existing user by Feishu identity ===
+	// Try union_id first (preferred), then fall back to open_id for legacy support.
+	externalIDs := []string{feishuUser.UnionID}
+	if feishuUser.OpenID != "" {
+		externalIDs = append(externalIDs, feishuUser.OpenID)
+	}
+
+	resolved, match, err := resolveFeishuUser(ctx, s.authStore, externalIDs)
+	if err != nil {
+		s.log.Error("feishu login: identity resolution failed", "error", err, "union_id", feishuUser.UnionID)
+		writeError(w, http.StatusInternalServerError, "failed to resolve user identity")
+		return
+	}
+
+	if resolved.User.ID != 0 {
+		// === Existing linked user found ===
+		if !resolved.User.IsActive {
+			writeError(w, http.StatusForbidden, "account is deactivated")
+			return
+		}
+
+		// Canonicalize identity: migrate from open_id to union_id if needed
+		if err := canonicalizeFeishuIdentity(ctx, s.authStore, feishuUser.UnionID, match); err != nil {
+			s.log.Warn("feishu login: identity canonicalization failed", "error", err, "user_id", resolved.User.ID)
+			// Continue anyway - this is not fatal
+		}
+
+		// Create session and set cookie
+		if err := s.createSessionAndSetCookie(w, r, resolved.User.ID); err != nil {
+			s.log.Error("feishu login: failed to create session", "error", err, "user_id", resolved.User.ID)
+			writeError(w, http.StatusInternalServerError, "failed to create session")
+			return
+		}
+
+		s.log.Info("feishu login: existing user signed in", "user_id", resolved.User.ID, "union_id", feishuUser.UnionID)
+
+		// Redirect to the original destination or default to home
+		redirectURL := flowState.RedirectURL
+		if redirectURL == "" {
+			redirectURL = "/"
+		}
+		http.Redirect(w, r, redirectURL, http.StatusFound)
+		return
+	}
+
+	// === Phase 4 & 5: No existing user - will be handled in provisioning ===
+	// For now, return an error indicating the user needs to be provisioned
+	// This will be replaced with auto-provisioning in Phase 5
+	writeError(w, http.StatusNotFound, "No linked Feishu account found. Please ask an admin to link your account or enable auto-provisioning.")
+}
+
+// resolveFeishuUser attempts to resolve a user by Feishu identity.
+// It tries union_id first, then falls back to open_id for legacy support.
+func resolveFeishuUser(ctx context.Context, authStore auth.AuthStore, externalIDs []string) (ResolvedIdentity, identityMatch, error) {
+	return ResolveUserCandidates(ctx, authStore, "feishu", externalIDs)
+}
+
+// ResolvedIdentity wraps an auth.AuthUser for identity resolution results.
+type ResolvedIdentity struct {
+	User auth.AuthUser
+}
+
+// identityMatch tracks which external ID matched during resolution.
+type identityMatch struct {
+	Identity auth.Identity
+	Matched  string
+}
+
+// ResolveUserCandidates is a wrapper around channel.ResolveUserCandidates.
+// We import the internal/channel package pattern but adapt for admin use.
+func ResolveUserCandidates(ctx context.Context, authStore auth.AuthStore, platform string, externalIDs []string) (ResolvedIdentity, identityMatch, error) {
+	// Remove empty IDs and deduplicate
+	candidates := make([]string, 0, len(externalIDs))
+	seen := make(map[string]struct{})
+	for _, id := range externalIDs {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		candidates = append(candidates, id)
+	}
+
+	if len(candidates) == 0 {
+		return ResolvedIdentity{}, identityMatch{}, nil
+	}
+
+	var lastNotFound error
+	for _, externalID := range candidates {
+		identity, err := authStore.GetIdentityByPlatform(ctx, platform, externalID)
+		if err != nil {
+			// Check if it's a "not found" error
+			if isIdentityNotFound(err) {
+				lastNotFound = err
+				continue
+			}
+			return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("lookup identity: %w", err)
+		}
+
+		user, err := authStore.GetUser(ctx, identity.UserID)
+		if err != nil {
+			if isIdentityNotFound(err) {
+				// Identity exists but user doesn't - data inconsistency
+				return ResolvedIdentity{}, identityMatch{}, nil
+			}
+			return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("lookup user: %w", err)
+		}
+
+		return ResolvedIdentity{User: user}, identityMatch{Identity: identity, Matched: externalID}, nil
+	}
+
+	if lastNotFound != nil {
+		// No matching identity found
+		return ResolvedIdentity{}, identityMatch{}, nil
+	}
+
+	return ResolvedIdentity{}, identityMatch{}, nil
+}
+
+// isIdentityNotFound checks if an error indicates that an identity was not found.
+func isIdentityNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Check for common "not found" error patterns
+	errStr := err.Error()
+	return contains(errStr, "not found") || contains(errStr, "no rows") || contains(errStr, "no such")
+}
+
+// contains checks if a string contains a substring (case-insensitive).
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(s[:len(substr)] == substr) ||
+		(len(s) > len(substr) && (s[len(s)-len(substr):] == substr || findSubstring(s, substr))))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+// canonicalizeFeishuIdentity migrates a legacy open_id identity to union_id.
+func canonicalizeFeishuIdentity(ctx context.Context, authStore auth.AuthStore, unionID string, match identityMatch) error {
+	if unionID == "" || match.Identity.ID == 0 || match.Identity.ExternalID == unionID {
+		// Already canonical, or no match to canonicalize
+		return nil
+	}
+
+	// Check if union_id identity already exists for this user
+	existing, err := authStore.GetIdentityByPlatform(ctx, "feishu", unionID)
+	if err == nil {
+		// union_id identity exists
+		if existing.UserID != match.Identity.UserID {
+			// Conflict: union_id belongs to a different user
+			return fmt.Errorf("identity conflict: union_id %s is linked to user %d, but open_id is linked to user %d",
+				unionID, existing.UserID, match.Identity.UserID)
+		}
+		if existing.ID != match.Identity.ID {
+			// Same user, duplicate identity - delete the legacy one
+			if err := authStore.DeleteIdentity(ctx, match.Identity.ID); err != nil {
+				return fmt.Errorf("delete duplicate identity: %w", err)
+			}
+		}
+		return nil
+	}
+
+	if !isIdentityNotFound(err) {
+		return fmt.Errorf("lookup canonical identity: %w", err)
+	}
+
+	// union_id doesn't exist - update the legacy identity to use union_id
+	if err := authStore.UpdateIdentityExternalID(ctx, match.Identity.ID, unionID); err != nil {
+		return fmt.Errorf("update identity external_id: %w", err)
+	}
+
+	return nil
 }
 
 // feishuUserInfo holds the essential user information from Feishu OAuth.
