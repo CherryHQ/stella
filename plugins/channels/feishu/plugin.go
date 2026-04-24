@@ -41,6 +41,7 @@ var newRuntime = func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) 
 				Groups:            groupsToPluginConfig(cfg.Groups),
 				TenantKey:         cfg.TenantKey,
 				AutoProvision:     cfg.AutoProvision,
+				EnableLogin:       cfg.EnableLogin,
 			}, handler)
 		},
 	}), nil

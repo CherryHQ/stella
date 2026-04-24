@@ -51,6 +51,7 @@ type Config struct {
 	Groups            map[string]GroupConfig `json:"groups"`     // per-group overrides keyed by chat_id
 	TenantKey         string                 `json:"tenant_key"`
 	AutoProvision     bool                   `json:"auto_provision"`
+	EnableLogin       bool                   `json:"enable_login"`
 }
 
 // Bot wraps a Feishu bot with agent pool integration.

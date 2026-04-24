@@ -33,6 +33,9 @@ func (s *Server) registerAuthRoutes() {
 	s.mux.HandleFunc("POST /api/auth/login", s.loginHandler)
 	s.mux.HandleFunc("POST /api/auth/logout", s.logoutHandler)
 	s.mux.HandleFunc("GET /api/auth/me", s.meHandler)
+
+	// Feishu web login (unauthenticated endpoints)
+	s.mux.HandleFunc("GET /api/auth/login/feishu/availability", s.feishuLoginAvailabilityHandler)
 }
 
 func (s *Server) registerProfileRoutes() {

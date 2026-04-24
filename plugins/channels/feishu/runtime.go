@@ -31,6 +31,7 @@ func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.Runtime {
 				Groups:            groupsToPluginConfig(cfg.Groups),
 				TenantKey:         cfg.TenantKey,
 				AutoProvision:     cfg.AutoProvision,
+				EnableLogin:       cfg.EnableLogin,
 			}, handler)
 		}
 	}
@@ -144,6 +145,11 @@ func configSchema() map[string]any {
 			"auto_provision": map[string]any{
 				"type":        "boolean",
 				"description": "Automatically create Anna accounts for members of the bot's Feishu tenant.",
+				"default":     false,
+			},
+			"enable_login": map[string]any{
+				"type":        "boolean",
+				"description": "Enable this Feishu channel instance for web login. Only one instance can be enabled at a time.",
 				"default":     false,
 			},
 		},

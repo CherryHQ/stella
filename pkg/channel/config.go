@@ -38,6 +38,7 @@ type FeishuConfig struct {
 	EnableNotify      bool                   `json:"enable_notify"`
 	TenantKey         string                 `json:"tenant_key"`
 	AutoProvision     bool                   `json:"auto_provision"`
+	EnableLogin       bool                   `json:"enable_login"`
 }
 
 // WeixinConfig is the persisted Weixin channel plugin configuration.
