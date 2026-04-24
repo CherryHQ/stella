@@ -3,7 +3,6 @@ package oauth
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,27 +20,14 @@ type FlowBroker interface {
 // It spawns a background goroutine that polls the token endpoint until the user
 // authorizes the device.
 type DeviceCodeBroker struct {
-	cfg    *oauth2.Config
-	store  *FlowStore
-	mu     sync.Mutex
-	secret map[string]*deviceFlowSecret // flowID → in-flight state
-}
-
-type deviceFlowSecret struct {
-	cancel context.CancelFunc
-	token  *oauth2.Token
-	err    error
-	done   chan struct{}
+	cfg   *oauth2.Config
+	store *FlowStore
 }
 
 // NewDeviceCodeBroker creates a DeviceCodeBroker backed by store.
 // cfg.Endpoint must have DeviceAuthEndpoint set.
 func NewDeviceCodeBroker(cfg *oauth2.Config, store *FlowStore) *DeviceCodeBroker {
-	return &DeviceCodeBroker{
-		cfg:    cfg,
-		store:  store,
-		secret: make(map[string]*deviceFlowSecret),
-	}
+	return &DeviceCodeBroker{cfg: cfg, store: store}
 }
 
 // StartFlow requests a device code, stores pending state, and returns the
@@ -64,6 +50,7 @@ func (b *DeviceCodeBroker) StartFlow(ctx context.Context, provider Provider, use
 		UserCode:        da.UserCode,
 		ExpiresAt:       expiresAt,
 		State:           FlowStatePending,
+		FlowType:        "device_code",
 	}
 	if status.VerificationURI == "" {
 		status.VerificationURI = da.VerificationURI
@@ -72,23 +59,11 @@ func (b *DeviceCodeBroker) StartFlow(ctx context.Context, provider Provider, use
 	b.store.Create(status)
 
 	bgCtx, cancel := context.WithDeadline(context.Background(), expiresAt)
-	sec := &deviceFlowSecret{
-		cancel: cancel,
-		done:   make(chan struct{}),
-	}
-	b.mu.Lock()
-	b.secret[flowID] = sec
-	b.mu.Unlock()
-
 	go func() {
-		defer close(sec.done)
+		defer cancel()
 		tok, err := b.cfg.DeviceAccessToken(bgCtx, da)
-		b.mu.Lock()
-		sec.token = tok
-		sec.err = err
-		b.mu.Unlock()
 		if err == nil {
-			b.store.Update(flowID, FlowStateAuthorized, nil)
+			b.store.Update(flowID, FlowStateAuthorized, func(fs *FlowStatus) { fs.Token = tok })
 		} else {
 			b.store.Update(flowID, FlowStateFailed, nil)
 		}
@@ -110,50 +85,11 @@ func (b *DeviceCodeBroker) Poll(ctx context.Context, flowID string) (FlowStatus,
 
 	if time.Now().After(status.ExpiresAt) {
 		b.store.Update(flowID, FlowStateExpired, nil)
-		b.cleanSecret(flowID)
 		status.State = FlowStateExpired
 		return status, nil
 	}
 
 	return status, nil
-}
-
-// Complete returns the token once the background goroutine finishes.
-// Must be called only after Poll returns FlowStateAuthorized.
-func (b *DeviceCodeBroker) Complete(ctx context.Context, flowID string) (*oauth2.Token, error) {
-	b.mu.Lock()
-	sec, ok := b.secret[flowID]
-	b.mu.Unlock()
-	if !ok {
-		return nil, fmt.Errorf("oauth: no authorized token for flow %q", flowID)
-	}
-
-	<-sec.done
-
-	b.mu.Lock()
-	tok := sec.token
-	err := sec.err
-	b.mu.Unlock()
-
-	if err != nil {
-		return nil, fmt.Errorf("oauth: flow %q failed: %w", flowID, err)
-	}
-	if tok == nil {
-		return nil, fmt.Errorf("oauth: flow %q is not yet authorized", flowID)
-	}
-
-	b.store.Delete(flowID)
-	b.cleanSecret(flowID)
-	return tok, nil
-}
-
-func (b *DeviceCodeBroker) cleanSecret(flowID string) {
-	b.mu.Lock()
-	if sec, ok := b.secret[flowID]; ok {
-		sec.cancel()
-		delete(b.secret, flowID)
-	}
-	b.mu.Unlock()
 }
 
 // AuthCodeBroker implements the OAuth2 authorization-code flow.
@@ -180,6 +116,7 @@ func (b *AuthCodeBroker) StartFlow(ctx context.Context, provider Provider, userI
 		VerificationURI: b.cfg.AuthCodeURL(flowID),
 		ExpiresAt:       time.Now().Add(10 * time.Minute),
 		State:           FlowStatePending,
+		FlowType:        "authorization_code",
 	}
 	b.store.Create(status)
 	return status, nil

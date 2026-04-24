@@ -8,9 +8,6 @@ oauth_providers:
       - read:org
     vault_key: GH_OAUTH
     flows:
-      - type: authorization_code
-        auth_url: https://github.com/login/oauth/authorize
-        token_url: https://github.com/login/oauth/access_token
       - type: device_code
         device_auth_url: https://github.com/login/device/code
         token_url: https://github.com/login/oauth/access_token
