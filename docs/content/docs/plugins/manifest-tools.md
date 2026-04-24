@@ -5,9 +5,9 @@ description: File-driven CLI tool integrations loaded from $ANNA_HOME/plugins.ya
 
 ## Overview
 
-Manifest tool plugins are a lightweight alternative to full Go-compiled plugins for simple CLI tool integrations. Instead of writing a Go package, you declare the tool in a YAML file and Anna reconciles the binary download at startup.
+Manifest tool plugins are a lightweight alternative to full Go-compiled plugins for simple CLI tool integrations. Instead of writing a Go package, you declare the tool in a YAML file or add it from the Plugins admin UI, and Anna reconciles the binary download automatically.
 
-Anna ships with a built-in manifest that declares the default CLI tool integrations (`mise`, `tap-web`, `gh`, `lark-cli`). You can override or extend these in `$ANNA_HOME/plugins.yaml`.
+Anna ships with a built-in manifest that declares the default manifest-managed CLI integrations (`tap-web`, `gh`, `lark-cli`, `rtk`). They appear in their semantic tabs, such as **Tools** or **Hooks**, with a `manifest` badge. You can override or extend them in `$ANNA_HOME/plugins.yaml` or from the admin UI.
 
 ## How It Works
 
@@ -56,6 +56,9 @@ plugins:
 | `enabled` | No | Whether the plugin is active. Defaults to false. Built-in plugins default to true. |
 | `binaries` | No | CLI binaries to download and place in `$ANNA_HOME/bin` |
 | `session_env` | No | Environment variables to inject into sandbox sessions |
+| `oauth_provider` | No | Static OAuth provider ID used by `oauth.*` session env sources, such as `github` |
+| `oauth_provider_config_field` | No | Plugin config field that dynamically selects the OAuth provider, such as `brand` |
+| `oauth_provider_choices` | Conditional | Allowed provider IDs when `oauth_provider_config_field` is set |
 
 ## Binary fields
 
@@ -83,12 +86,11 @@ Mise auto-detects the correct release asset based on OS and architecture keyword
 | Source | Description |
 |--------|-------------|
 | `static` | Uses the literal `value` from the manifest |
-| `github_token` | Injects the user's GitHub OAuth token |
-| `lark_access_token` | Injects the Lark user access token |
-| `lark_app_id` | Injects the Lark app ID |
-| `lark_brand` | Injects the Lark brand identifier |
+| `oauth.access_token` | Injects the connected provider's OAuth access token |
+| `oauth.client_id` | Injects the connected provider bundle's client/app ID |
+| `oauth.brand` | Injects the connected provider bundle's brand, when present |
 
-OAuth-backed sources (`github_token`, `lark_*`) require the corresponding credentials to be configured in the admin panel.
+`oauth.*` sources resolve through the plugin's `oauth_provider`. GitHub uses Anna's built-in GitHub CLI device-flow app and needs no admin-side plugin configuration. Feishu/Lark sources require the Lark CLI plugin credentials to be configured in the admin panel.
 
 ## State and caching
 
@@ -100,7 +102,7 @@ To disable a built-in plugin, add an entry with `enabled: false`:
 
 ```yaml
 plugins:
-  - id: tool/mise
+  - id: tool/tap-web
     enabled: false
 ```
 
@@ -116,15 +118,41 @@ plugins:
         version: "0.5.0"
 ```
 
+Built-in plugin overrides are full-entry replacements. If you override a built-in
+plugin to change one field, include the rest of the fields you still need.
+
+### Switching `lark-cli` between Feishu and Lark
+
+The built-in `tool/lark-cli` manifest does not hard-code Feishu or Lark twice.
+Instead, it resolves the OAuth provider from the plugin's `brand` config field and
+injects the brand from the saved OAuth bundle:
+
+```yaml
+oauth_provider_config_field: brand
+oauth_provider_choices: [lark, feishu]
+session_env:
+  - env_var: LARKSUITE_CLI_BRAND
+    source: oauth.brand
+```
+
+Set `brand` in the Lark CLI plugin settings:
+
+- `feishu` uses Feishu OAuth and injects `LARKSUITE_CLI_BRAND=feishu`.
+- `lark` uses international Lark OAuth and injects `LARKSUITE_CLI_BRAND=lark`.
+
+Do not override the manifest just to switch between Feishu and Lark. A manifest
+override is only needed when changing the binary or env declarations themselves.
+
 ## Admin UI
 
-The Plugins page in the admin panel shows a **Manifest Tools** tab. From there you can:
+Manifest-backed plugins are shown once, in the tab that matches their kind:
 
-- Toggle plugins on and off
-- Trigger an immediate sync to download or update binaries
-- View per-plugin sync results
+- `tool/gh`, `tool/lark-cli`, and `tool/tap-web` appear in **Tools**.
+- `hook/rtk` appears in **Hooks**.
 
-Toggling in the UI writes the override to `$ANNA_HOME/plugins.yaml`. The embedded built-in manifest is never modified.
+Rows with manifest backing show a `manifest` badge and an **Edit definition** action for the YAML-backed plugin definition. Binaries and session environment variables are edited as form rows. If the same plugin also exposes runtime config, such as Lark CLI credentials and `brand`, the row also shows **Configure**.
+
+The **Tools** tab includes **Add Tool** for creating a new manifest-backed CLI from a GitHub release binary. Saving writes `$ANNA_HOME/plugins.yaml`, registers the plugin, and syncs binaries automatically without a restart. The embedded built-in manifest is never modified.
 
 ## Limitations in v1
 

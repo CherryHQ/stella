@@ -40,28 +40,6 @@ func loadBundle[T any](ctx context.Context, vs VaultStore, userID int64, key str
 	return &bundle, nil
 }
 
-// SaveGHBundle serializes bundle to JSON and stores it under VaultKeyGitHub.
-func SaveGHBundle(ctx context.Context, vs VaultStore, userID int64, bundle GHOAuthBundle) error {
-	return saveBundle(ctx, vs, userID, VaultKeyGitHub, bundle)
-}
-
-// LoadGHBundle retrieves and deserializes the GitHub token bundle for userID.
-// Returns nil, nil if no entry exists yet.
-func LoadGHBundle(ctx context.Context, vs VaultStore, userID int64) (*GHOAuthBundle, error) {
-	return loadBundle[GHOAuthBundle](ctx, vs, userID, VaultKeyGitHub)
-}
-
-// SaveLarkBundle serializes bundle to JSON and stores it under VaultKeyLark.
-func SaveLarkBundle(ctx context.Context, vs VaultStore, userID int64, bundle LarkOAuthBundle) error {
-	return saveBundle(ctx, vs, userID, VaultKeyLark, bundle)
-}
-
-// LoadLarkBundle retrieves and deserializes the Lark token bundle for userID.
-// Returns nil, nil if no entry exists yet.
-func LoadLarkBundle(ctx context.Context, vs VaultStore, userID int64) (*LarkOAuthBundle, error) {
-	return loadBundle[LarkOAuthBundle](ctx, vs, userID, VaultKeyLark)
-}
-
 // DeleteBundle removes the vault entry identified by key for userID.
 func DeleteBundle(ctx context.Context, vs VaultStore, userID int64, key string) error {
 	if err := vs.Delete(ctx, userID, key); err != nil {

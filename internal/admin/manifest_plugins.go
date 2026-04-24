@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/manifestplugins"
@@ -43,12 +44,19 @@ func (s *Server) saveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	m := manifestplugins.Manifest{Plugins: req.Plugins}
-	if err := manifestplugins.Validate(&m); err != nil {
+	builtin, err := manifestplugins.LoadBuiltin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	userPlugins := userManifestOverrides(builtin.Plugins, req.Plugins)
+	userManifest := manifestplugins.Manifest{Plugins: userPlugins}
+	merged := manifestplugins.Merge(builtin, &userManifest)
+	if err := manifestplugins.Validate(merged); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	mf := manifestFile{Plugins: m.Plugins}
+	mf := manifestFile{Plugins: userPlugins}
 	data, err := yaml.Marshal(&mf)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -59,7 +67,17 @@ func (s *Server) saveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeData(w, http.StatusOK, m.Plugins)
+	s.pluginHost.RegisterManifestPlugins(merged)
+	if s.poolManager != nil {
+		if err := s.poolManager.ReloadPluginTools(r.Context()); err != nil {
+			s.log.Error("failed to reload manifest plugin tools", "error", err)
+		}
+		if err := s.poolManager.ReloadPluginHooks(r.Context()); err != nil {
+			s.log.Error("failed to reload manifest plugin hooks", "error", err)
+		}
+	}
+	_ = manifestplugins.Reconcile(r.Context(), merged, config.AnnaHome())
+	writeData(w, http.StatusOK, merged.Plugins)
 }
 
 func (s *Server) syncManifestPlugins(w http.ResponseWriter, r *http.Request) {
@@ -70,4 +88,21 @@ func (s *Server) syncManifestPlugins(w http.ResponseWriter, r *http.Request) {
 	}
 	result := manifestplugins.Reconcile(r.Context(), merged, config.AnnaHome())
 	writeData(w, http.StatusOK, result)
+}
+
+func userManifestOverrides(builtinPlugins []manifestplugins.ManifestPlugin, requestedPlugins []manifestplugins.ManifestPlugin) []manifestplugins.ManifestPlugin {
+	builtinByID := make(map[string]manifestplugins.ManifestPlugin, len(builtinPlugins))
+	for _, plugin := range builtinPlugins {
+		builtinByID[plugin.ID] = plugin
+	}
+
+	out := make([]manifestplugins.ManifestPlugin, 0, len(requestedPlugins))
+	for _, plugin := range requestedPlugins {
+		builtin, ok := builtinByID[plugin.ID]
+		if ok && reflect.DeepEqual(plugin, builtin) {
+			continue
+		}
+		out = append(out, plugin)
+	}
+	return out
 }

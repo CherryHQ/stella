@@ -225,63 +225,31 @@ host.AddPromptInventory(pkgplugins.PromptInventorySpec{
 
 This is useful when the plugin exposes dynamic capability inventory that the model should know about.
 
-## Example 6: CLI-Backed Tool Plugin
+## Example 6: Manifest-Only CLI Tool
 
-This pattern is for plugins that own a CLI integration rather than an Anna
-JSON tool:
+Use a manifest entry when the integration only needs a managed binary and session
+environment injection. For example, GitHub CLI is manifest-only: there is no Go
+`plugins/tools/gh` package, no admin config, and no system-prompt contribution.
 
-```go
-host.SetInfo(pkgplugins.PluginInfo{
-    ID:          PluginID,
-    Kind:        "tool",
-    Name:        "gh",
-    DisplayName: "GitHub CLI",
-    Description: "GitHub CLI integration with OAuth-backed auth.",
-    HasConfig:   true,
-    Capabilities: []string{
-        pkgplugins.CapabilityBinary,
-        pkgplugins.CapabilityConfig,
-        pkgplugins.CapabilityPrompt,
-    },
-})
-
-host.AddAdmin(pkgplugins.AdminSpec{
-    PluginID:      PluginID,
-    DefaultConfig: defaultConfig,
-    Schema:        configSchema(),
-    Validate:      validateConfig,
-    Redact:        redactConfig,
-})
-
-host.AddBinary(pkgplugins.BinarySpec{
-    PluginID: PluginID,
-    Name:     "gh",
-    Repo:     "cli/cli",
-    Version:  "2.89.0",
-    Embed:    true,
-})
-
-host.AddSessionEnv(pkgplugins.SessionEnvSpec{
-    PluginID: PluginID,
-    EnvVar:   "GH_TOKEN",
-    Source:   pkgplugins.SessionEnvSourceGitHubToken,
-})
-
-host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
-    PluginID: PluginID,
-    Name:     "gh",
-    Build: func(context.Context, pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
-        return pkgplugins.SystemPromptSection{
-            Title:   "GitHub CLI",
-            Content: "Use `gh` from Anna's managed PATH with OAuth-backed session auth.",
-        }, nil
-    },
-})
+```yaml
+plugins:
+  - id: tool/gh
+    kind: tool
+    name: gh
+    display_name: GitHub CLI
+    description: GitHub CLI integration with OAuth-backed session auth.
+    enabled: true
+    binaries:
+      - name: gh
+        repo: cli/cli
+        bin_path: bin
+    session_env:
+      - env_var: GH_TOKEN
+        source: github_token
 ```
 
-Use this shape when the plugin owns a CLI binary, injected env vars,
-bundled skills, or prompt guidance, but does not need to expose a model-callable
-`ToolSpec`.
+Use a Go plugin only when the integration needs Go-owned behavior such as config
+validation, runtime management, bundled skill syncing, or prompt/lifecycle hooks.
 
 ## Picking The Right Example
 

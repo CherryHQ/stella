@@ -42,97 +42,36 @@ func (m *mockVaultStore) LoadEnv(_ context.Context, userID int64) (map[string]st
 	return out, nil
 }
 
-func TestSaveLoadGHBundle_RoundTrip(t *testing.T) {
+func TestSaveLoadOAuthBundle_RoundTrip(t *testing.T) {
 	vs := newMockVaultStore()
 	ctx := context.Background()
 	userID := int64(1)
 
-	expiry := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
-	bundle := GHOAuthBundle{
-		Version:     1,
-		AccessToken: "ghp_test_token",
-		TokenType:   "bearer",
-		Scope:       "repo,read:org",
-		ExpiresAt:   &expiry,
-	}
-
-	if err := SaveGHBundle(ctx, vs, userID, bundle); err != nil {
-		t.Fatalf("SaveGHBundle: %v", err)
-	}
-
-	got, err := LoadGHBundle(ctx, vs, userID)
-	if err != nil {
-		t.Fatalf("LoadGHBundle: %v", err)
-	}
-	if got == nil {
-		t.Fatal("LoadGHBundle: expected non-nil bundle")
-	}
-	if got.AccessToken != bundle.AccessToken {
-		t.Errorf("AccessToken = %q, want %q", got.AccessToken, bundle.AccessToken)
-	}
-	if got.TokenType != bundle.TokenType {
-		t.Errorf("TokenType = %q, want %q", got.TokenType, bundle.TokenType)
-	}
-	if got.Scope != bundle.Scope {
-		t.Errorf("Scope = %q, want %q", got.Scope, bundle.Scope)
-	}
-	if got.Version != bundle.Version {
-		t.Errorf("Version = %d, want %d", got.Version, bundle.Version)
-	}
-	if got.ExpiresAt == nil || !got.ExpiresAt.Equal(*bundle.ExpiresAt) {
-		t.Errorf("ExpiresAt = %v, want %v", got.ExpiresAt, bundle.ExpiresAt)
-	}
-}
-
-func TestLoadGHBundle_AbsentKeyReturnsNil(t *testing.T) {
-	vs := newMockVaultStore()
-	ctx := context.Background()
-
-	got, err := LoadGHBundle(ctx, vs, 42)
-	if err != nil {
-		t.Fatalf("LoadGHBundle: unexpected error: %v", err)
-	}
-	if got != nil {
-		t.Errorf("LoadGHBundle: expected nil for absent key, got %+v", got)
-	}
-}
-
-func TestSaveLoadLarkBundle_RoundTrip(t *testing.T) {
-	vs := newMockVaultStore()
-	ctx := context.Background()
-	userID := int64(2)
-
 	now := time.Now().UTC().Truncate(time.Second)
-	bundle := LarkOAuthBundle{
+	bundle := OAuthBundle{
 		Version:          1,
-		AppID:            "cli_test_app_id",
-		AppSecret:        "cli_test_app_secret",
-		Brand:            "lark",
-		AccessToken:      "u-test-access-token",
-		RefreshToken:     "u-test-refresh-token",
+		ClientID:         "test_client_id",
+		ClientSecret:     "test_client_secret",
+		AccessToken:      "test_access_token",
+		RefreshToken:     "test_refresh_token",
 		AccessExpiresAt:  now.Add(2 * time.Hour),
 		RefreshExpiresAt: now.Add(30 * 24 * time.Hour),
+		Brand:            "lark",
 	}
 
-	if err := SaveLarkBundle(ctx, vs, userID, bundle); err != nil {
-		t.Fatalf("SaveLarkBundle: %v", err)
+	if err := SaveOAuthBundle(ctx, vs, userID, VaultKeyGitHub, bundle); err != nil {
+		t.Fatalf("SaveOAuthBundle: %v", err)
 	}
 
-	got, err := LoadLarkBundle(ctx, vs, userID)
+	got, err := LoadOAuthBundle(ctx, vs, userID, VaultKeyGitHub)
 	if err != nil {
-		t.Fatalf("LoadLarkBundle: %v", err)
+		t.Fatalf("LoadOAuthBundle: %v", err)
 	}
 	if got == nil {
-		t.Fatal("LoadLarkBundle: expected non-nil bundle")
+		t.Fatal("LoadOAuthBundle: expected non-nil bundle")
 	}
-	if got.AppID != bundle.AppID {
-		t.Errorf("AppID = %q, want %q", got.AppID, bundle.AppID)
-	}
-	if got.AppSecret != bundle.AppSecret {
-		t.Errorf("AppSecret = %q, want %q", got.AppSecret, bundle.AppSecret)
-	}
-	if got.Brand != bundle.Brand {
-		t.Errorf("Brand = %q, want %q", got.Brand, bundle.Brand)
+	if got.ClientID != bundle.ClientID {
+		t.Errorf("ClientID = %q, want %q", got.ClientID, bundle.ClientID)
 	}
 	if got.AccessToken != bundle.AccessToken {
 		t.Errorf("AccessToken = %q, want %q", got.AccessToken, bundle.AccessToken)
@@ -143,18 +82,21 @@ func TestSaveLoadLarkBundle_RoundTrip(t *testing.T) {
 	if !got.AccessExpiresAt.Equal(bundle.AccessExpiresAt) {
 		t.Errorf("AccessExpiresAt = %v, want %v", got.AccessExpiresAt, bundle.AccessExpiresAt)
 	}
+	if got.Version != bundle.Version {
+		t.Errorf("Version = %d, want %d", got.Version, bundle.Version)
+	}
 }
 
-func TestLoadLarkBundle_AbsentKeyReturnsNil(t *testing.T) {
+func TestLoadOAuthBundle_AbsentKeyReturnsNil(t *testing.T) {
 	vs := newMockVaultStore()
 	ctx := context.Background()
 
-	got, err := LoadLarkBundle(ctx, vs, 99)
+	got, err := LoadOAuthBundle(ctx, vs, 42, VaultKeyGitHub)
 	if err != nil {
-		t.Fatalf("LoadLarkBundle: unexpected error: %v", err)
+		t.Fatalf("LoadOAuthBundle: unexpected error: %v", err)
 	}
 	if got != nil {
-		t.Errorf("LoadLarkBundle: expected nil for absent key, got %+v", got)
+		t.Errorf("LoadOAuthBundle: expected nil for absent key, got %+v", got)
 	}
 }
 
@@ -163,20 +105,20 @@ func TestDeleteBundle(t *testing.T) {
 	ctx := context.Background()
 	userID := int64(3)
 
-	bundle := GHOAuthBundle{Version: 1, AccessToken: "ghp_todelete"}
-	if err := SaveGHBundle(ctx, vs, userID, bundle); err != nil {
-		t.Fatalf("SaveGHBundle: %v", err)
+	bundle := OAuthBundle{Version: 1, AccessToken: "ghp_todelete"}
+	if err := SaveOAuthBundle(ctx, vs, userID, VaultKeyGitHub, bundle); err != nil {
+		t.Fatalf("SaveOAuthBundle: %v", err)
 	}
 
 	if err := DeleteBundle(ctx, vs, userID, VaultKeyGitHub); err != nil {
 		t.Fatalf("DeleteBundle: %v", err)
 	}
 
-	got, err := LoadGHBundle(ctx, vs, userID)
+	got, err := LoadOAuthBundle(ctx, vs, userID, VaultKeyGitHub)
 	if err != nil {
-		t.Fatalf("LoadGHBundle after delete: %v", err)
+		t.Fatalf("LoadOAuthBundle after delete: %v", err)
 	}
 	if got != nil {
-		t.Errorf("LoadGHBundle after delete: expected nil, got %+v", got)
+		t.Errorf("LoadOAuthBundle after delete: expected nil, got %+v", got)
 	}
 }

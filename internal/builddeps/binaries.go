@@ -16,7 +16,7 @@ const (
 	fdVersion            = "10.4.2"
 	fdDarwinAMD64Version = "10.3.0"
 	rgVersion            = "15.1.0"
-	boxshVersion         = "2.1.0"
+	miseVersion          = "2025.10.16"
 )
 
 type embeddedBinaryAsset struct {
@@ -85,15 +85,16 @@ func embeddedBinaries() []embeddedBinary {
 			},
 		},
 		{
-			Name:     "boxsh",
-			Repo:     "xicilion/boxsh",
-			Version:  boxshVersion,
-			Optional: true,
+			Name:    "mise",
+			Repo:    "jdx/mise",
+			Version: miseVersion,
 			AssetTemplates: map[string]embeddedBinaryAsset{
-				"darwin-amd64": {File: "boxsh-v{version}-darwin-x86_64", RawBinary: true},
-				"darwin-arm64": {File: "boxsh-v{version}-darwin-arm64", RawBinary: true},
-				"linux-amd64":  {File: "boxsh-v{version}-linux-x64", RawBinary: true},
-				"linux-arm64":  {File: "boxsh-v{version}-linux-arm64", RawBinary: true},
+				"darwin-amd64":  {File: "mise-{tag}-macos-x64.tar.gz"},
+				"darwin-arm64":  {File: "mise-{tag}-macos-arm64.tar.gz"},
+				"linux-amd64":   {File: "mise-{tag}-linux-x64.tar.gz"},
+				"linux-arm64":   {File: "mise-{tag}-linux-arm64.tar.gz"},
+				"windows-amd64": {File: "mise-{tag}-windows-x64.zip", BinaryName: "mise.exe"},
+				"windows-arm64": {File: "mise-{tag}-windows-arm64.zip", BinaryName: "mise.exe"},
 			},
 		},
 	}
@@ -153,10 +154,7 @@ func (s toolSyncer) fetchBinary(ctx context.Context, spec embeddedBinary, platfo
 	if !ok {
 		return "", func() {}, fmt.Errorf("no asset for %s on platform %s", spec.Name, platform)
 	}
-	url := GitHubReleaseAssetURL(spec.Repo, tag, asset.File)
-	if s.baseURL != "https://github.com" {
-		url = fmt.Sprintf("%s/%s/releases/download/%s/%s", s.baseURL, spec.Repo, tag, asset.File)
-	}
+	url := GitHubReleaseAssetURL(s.baseURL, spec.Repo, tag, asset.File)
 	return s.fetchAssetBinary(ctx, asset, url)
 }
 

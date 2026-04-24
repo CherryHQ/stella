@@ -51,11 +51,12 @@ func (s *Server) registerProfileRoutes() {
 	s.mux.HandleFunc("DELETE /api/auth/profile/vault/{name}", s.deleteVaultEntry)
 
 	// OAuth CLI device-flow (connect/disconnect GitHub and Lark credentials).
+	s.mux.HandleFunc("GET /api/auth/profile/oauth/providers", s.listOAuthProviders)
 	s.mux.HandleFunc("POST /api/auth/profile/oauth/{provider}/start", s.startOAuthFlow)
 	s.mux.HandleFunc("GET /api/auth/profile/oauth/{provider}/status/{flowID}", s.pollOAuthFlow)
 	s.mux.HandleFunc("GET /api/auth/profile/oauth/{provider}/connected", s.getOAuthConnected)
 	s.mux.HandleFunc("DELETE /api/auth/profile/oauth/{provider}", s.disconnectOAuth)
-	s.mux.HandleFunc("GET /api/auth/profile/oauth/lark/callback", s.larkOAuthCallback)
+	s.mux.HandleFunc("GET /api/auth/profile/oauth/{provider}/callback", s.oauthCallback)
 
 	// Self-service user skills.
 	s.mux.HandleFunc("GET /api/auth/profile/skills", s.listProfileSkills)

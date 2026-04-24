@@ -64,6 +64,18 @@ func ctxWithUser(userID int64) context.Context {
 	return memory.WithUserID(context.Background(), userID)
 }
 
+func testProviderConfig(id, vaultKey string) oauth.ProviderConfig {
+	return oauth.ProviderConfig{
+		ID:       id,
+		VaultKey: vaultKey,
+		Flows: []oauth.ProviderFlowConfig{{
+			Type:          "device_code",
+			DeviceAuthURL: "https://example.com/device",
+			TokenURL:      "https://example.com/token",
+		}},
+	}
+}
+
 // --- Service tests ---
 
 func TestAddSecretInstruction(t *testing.T) {
@@ -97,32 +109,53 @@ func TestDeleteVaultEntryNilVault(t *testing.T) {
 }
 
 func TestGetProviderStatusesPluginNotFound(t *testing.T) {
-	svc := newService(t, newStubPluginCfg())
+	cfg := newStubPluginCfg()
+	svc := newService(t, cfg)
+
+	registry := oauth.NewProviderRegistry()
+	registry.Register(testProviderConfig("github", oauth.VaultKeyGitHub))
+	registry.Register(testProviderConfig("lark", oauth.VaultKeyLark))
+	svc.SetRegistry(registry)
+	svc.SetProviderPluginIDs(map[string]string{"lark": "tool/lark-cli"})
+
 	statuses := svc.GetProviderStatuses(context.Background(), 1)
 	if len(statuses) == 0 {
 		t.Error("expected at least one provider status")
 	}
 	for _, ps := range statuses {
-		if ps.Available {
-			t.Errorf("provider %s should be unavailable when plugin not configured", ps.Provider)
-		}
-		if ps.Unavailable == "" {
-			t.Errorf("provider %s missing unavailable reason", ps.Provider)
+		switch ps.Provider {
+		case "github":
+			if !ps.Available {
+				t.Errorf("github should be available without admin plugin config: %+v", ps)
+			}
+		case "lark":
+			if ps.Available {
+				t.Errorf("lark should be unavailable when plugin not configured: %+v", ps)
+			}
+			if ps.Unavailable == "" {
+				t.Error("lark missing unavailable reason")
+			}
 		}
 	}
 }
 
 func TestGetProviderStatusesDisabledPlugin(t *testing.T) {
 	cfg := newStubPluginCfg()
-	cfg.state["tool/gh"] = pkgplugins.PluginState{
+	cfg.state["tool/lark-cli"] = pkgplugins.PluginState{
 		Enabled: false,
-		Config:  map[string]any{"client_id": "cid", "client_secret": "csecret"},
+		Config:  map[string]any{"app_id": "cid", "app_secret": "csecret"},
 	}
 	svc := newService(t, cfg)
+
+	registry := oauth.NewProviderRegistry()
+	registry.Register(testProviderConfig("lark", oauth.VaultKeyLark))
+	svc.SetRegistry(registry)
+	svc.SetProviderPluginIDs(map[string]string{"lark": "tool/lark-cli"})
+
 	statuses := svc.GetProviderStatuses(context.Background(), 1)
 	for _, ps := range statuses {
-		if ps.Provider == "github" && ps.Available {
-			t.Error("github should be unavailable when plugin is disabled")
+		if ps.Provider == "lark" && ps.Available {
+			t.Error("lark should be unavailable when plugin is disabled")
 		}
 	}
 }

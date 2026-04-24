@@ -99,6 +99,10 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// all pools so every agent can use the credentials tool.
 	credSvc := adminSrv.CredentialsService()
 	credSvc.SetInvalidator(s.poolManager)
+	if s.oauthRegistry != nil {
+		credSvc.SetRegistry(s.oauthRegistry)
+		credSvc.SetProviderPluginIDs(s.providerPluginIDs)
+	}
 	for _, tool := range []tools.Tool{credentials.NewOAuthTool(credSvc), credentials.NewVaultTool(credSvc)} {
 		if err := s.poolManager.AddBuiltinTool(gctx, tool); err != nil {
 			slog.Warn("failed to add builtin tool to pool manager", "tool", tool.Definition().Name, "error", err)

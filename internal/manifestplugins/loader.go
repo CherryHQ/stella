@@ -43,11 +43,30 @@ func parseRawYAML(data []byte) (rawManifest, error) {
 }
 
 func rawToManifest(rm rawManifest) *Manifest {
-	m := &Manifest{Plugins: make([]ManifestPlugin, 0, len(rm.Plugins))}
+	m := &Manifest{
+		OAuthProviders: make([]ManifestOAuthProvider, 0, len(rm.OAuthProviders)),
+		Plugins:        make([]ManifestPlugin, 0, len(rm.Plugins)),
+	}
+	for _, ro := range rm.OAuthProviders {
+		m.OAuthProviders = append(m.OAuthProviders, resolveOAuthProvider(ro))
+	}
 	for _, rp := range rm.Plugins {
 		m.Plugins = append(m.Plugins, resolvePlugin(rp, nil))
 	}
 	return m
+}
+
+func resolveOAuthProvider(ro rawManifestOAuthProvider) ManifestOAuthProvider {
+	flows := make([]ManifestOAuthFlow, 0, len(ro.Flows))
+	for _, rf := range ro.Flows {
+		flows = append(flows, ManifestOAuthFlow(rf))
+	}
+	return ManifestOAuthProvider{
+		ID:       ro.ID,
+		Scopes:   ro.Scopes,
+		VaultKey: ro.VaultKey,
+		Flows:    flows,
+	}
 }
 
 func resolvePlugin(rp rawManifestPlugin, fallbackEnabled *bool) ManifestPlugin {
@@ -58,15 +77,18 @@ func resolvePlugin(rp rawManifestPlugin, fallbackEnabled *bool) ManifestPlugin {
 		enabled = *fallbackEnabled
 	}
 	return ManifestPlugin{
-		ID:          rp.ID,
-		Kind:        rp.Kind,
-		Name:        rp.Name,
-		DisplayName: rp.DisplayName,
-		Description: rp.Description,
-		Enabled:     enabled,
-		Binaries:    rp.Binaries,
-		Skills:      rp.Skills,
-		SessionEnvs: rp.SessionEnvs,
+		ID:                       rp.ID,
+		Kind:                     rp.Kind,
+		Name:                     rp.Name,
+		DisplayName:              rp.DisplayName,
+		Description:              rp.Description,
+		Enabled:                  enabled,
+		Binaries:                 rp.Binaries,
+		Skills:                   rp.Skills,
+		SessionEnvs:              rp.SessionEnvs,
+		OAuthProvider:            rp.OAuthProvider,
+		OAuthProviderConfigField: rp.OAuthProviderConfigField,
+		OAuthProviderChoices:     append([]string(nil), rp.OAuthProviderChoices...),
 	}
 }
 
@@ -78,7 +100,15 @@ func MergeRaw(builtin, user rawManifest) *Manifest {
 	}
 
 	seenIDs := make(map[string]struct{}, len(builtin.Plugins)+len(user.Plugins))
-	out := &Manifest{Plugins: make([]ManifestPlugin, 0, len(builtin.Plugins)+len(user.Plugins))}
+	out := &Manifest{
+		OAuthProviders: make([]ManifestOAuthProvider, 0, len(builtin.OAuthProviders)),
+		Plugins:        make([]ManifestPlugin, 0, len(builtin.Plugins)+len(user.Plugins)),
+	}
+
+	// OAuth providers are not user-overridable; always take builtin.
+	for _, ro := range builtin.OAuthProviders {
+		out.OAuthProviders = append(out.OAuthProviders, resolveOAuthProvider(ro))
+	}
 
 	for _, bp := range builtin.Plugins {
 		seenIDs[bp.ID] = struct{}{}
@@ -110,19 +140,37 @@ func Merge(builtin, user *Manifest) *Manifest {
 }
 
 func manifestToRaw(m *Manifest) rawManifest {
-	rm := rawManifest{Plugins: make([]rawManifestPlugin, 0, len(m.Plugins))}
+	rm := rawManifest{
+		OAuthProviders: make([]rawManifestOAuthProvider, 0, len(m.OAuthProviders)),
+		Plugins:        make([]rawManifestPlugin, 0, len(m.Plugins)),
+	}
+	for _, o := range m.OAuthProviders {
+		flows := make([]rawManifestOAuthFlow, 0, len(o.Flows))
+		for _, f := range o.Flows {
+			flows = append(flows, rawManifestOAuthFlow(f))
+		}
+		rm.OAuthProviders = append(rm.OAuthProviders, rawManifestOAuthProvider{
+			ID:       o.ID,
+			Scopes:   o.Scopes,
+			VaultKey: o.VaultKey,
+			Flows:    flows,
+		})
+	}
 	for _, p := range m.Plugins {
 		enabled := p.Enabled
 		rm.Plugins = append(rm.Plugins, rawManifestPlugin{
-			ID:          p.ID,
-			Kind:        p.Kind,
-			Name:        p.Name,
-			DisplayName: p.DisplayName,
-			Description: p.Description,
-			Enabled:     &enabled,
-			Binaries:    p.Binaries,
-			Skills:      p.Skills,
-			SessionEnvs: p.SessionEnvs,
+			ID:                       p.ID,
+			Kind:                     p.Kind,
+			Name:                     p.Name,
+			DisplayName:              p.DisplayName,
+			Description:              p.Description,
+			Enabled:                  &enabled,
+			Binaries:                 p.Binaries,
+			Skills:                   p.Skills,
+			SessionEnvs:              p.SessionEnvs,
+			OAuthProvider:            p.OAuthProvider,
+			OAuthProviderConfigField: p.OAuthProviderConfigField,
+			OAuthProviderChoices:     append([]string(nil), p.OAuthProviderChoices...),
 		})
 	}
 	return rm

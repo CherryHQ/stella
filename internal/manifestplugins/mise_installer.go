@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
-	"github.com/vaayne/anna/internal/tools"
 )
 
 // miseToolsDir returns the MISE_DATA_DIR path for isolated mise installs.
@@ -20,10 +19,10 @@ func miseToolsDir(annaHome string) string {
 	return filepath.Join(annaHome, ".mise-tools")
 }
 
-// findMiseBin returns the path to the mise binary. It prefers $ANNA_HOME/bin/mise,
-// then falls back to mise on PATH.
+// findMiseBin returns the path to the mise binary. It prefers the Anna-managed
+// binary in $ANNA_HOME/bin, then falls back to mise on PATH.
 func findMiseBin(annaHome string) (string, error) {
-	local := filepath.Join(annaHome, "bin", "mise")
+	local := filepath.Join(annaHome, "bin", runtimeBinaryName("mise"))
 	if _, err := os.Stat(local); err == nil {
 		return local, nil
 	}
@@ -33,32 +32,16 @@ func findMiseBin(annaHome string) (string, error) {
 	return "", fmt.Errorf("mise not found at %s or on PATH", local)
 }
 
-// bootstrapMise ensures mise is available at $ANNA_HOME/bin/mise, downloading it
-// from GitHub if necessary. This is the only place direct (non-mise) download is used.
-func bootstrapMise(ctx context.Context, annaHome string) error {
-	if _, err := findMiseBin(annaHome); err == nil {
-		return nil // already available
-	}
+func bootstrapMise(_ context.Context, annaHome string) error {
+	_, err := findMiseBin(annaHome)
+	return err
+}
 
-	miseTool := tools.Tool{
-		Name: "mise",
-		Repo: "jdx/mise",
-		AssetTemplates: map[string]tools.AssetTemplate{
-			"darwin-arm64": {File: "mise-{tag}-macos-arm64.tar.gz"},
-			"darwin-amd64": {File: "mise-{tag}-macos-x64.tar.gz"},
-			"linux-amd64":  {File: "mise-{tag}-linux-x64.tar.gz"},
-			"linux-arm64":  {File: "mise-{tag}-linux-arm64.tar.gz"},
-		},
+func runtimeBinaryName(name string) string {
+	if runtime.GOOS == "windows" {
+		return name + ".exe"
 	}
-	version, err := tools.FetchLatestVersion(ctx, &miseTool)
-	if err != nil {
-		return fmt.Errorf("fetch latest mise version: %w", err)
-	}
-	binDir := filepath.Join(annaHome, "bin")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		return fmt.Errorf("create bin dir: %w", err)
-	}
-	return tools.DownloadVersion(ctx, &miseTool, version, binDir, tools.Platform())
+	return name
 }
 
 // generateMiseTOML returns a valid mise.toml for a single github backend tool.

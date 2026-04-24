@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/vaayne/anna/pkg/memory"
 	"github.com/vaayne/anna/pkg/tools"
 )
 
-var oauthInputSchema = func() map[string]any {
+var oauthInputSchemaBase = func() map[string]any {
 	var m map[string]any
 	_ = json.Unmarshal([]byte(`{
   "type": "object",
@@ -22,7 +23,7 @@ var oauthInputSchema = func() map[string]any {
     },
     "provider": {
       "type": "string",
-      "enum": ["github", "lark"],
+      "enum": [],
       "description": "OAuth provider name (required for connect and disconnect)"
     },
     "flow_id": {
@@ -49,14 +50,41 @@ func NewOAuthTool(svc *Service) *OAuthTool {
 func OAuthDefinition() tools.Definition {
 	return tools.Definition{
 		Name:        "oauth",
-		Description: "Manage OAuth provider connections. Check which providers (github, lark) are available and connected, start an OAuth flow for the user to authenticate, poll flow progress, or disconnect a provider.",
-		InputSchema: oauthInputSchema,
+		Description: "Manage OAuth provider connections. Check which providers are available and connected, start an OAuth flow for the user to authenticate, poll flow progress, or disconnect a provider.",
+		InputSchema: cloneMap(oauthInputSchemaBase),
 	}
 }
 
-// Definition implements tools.Tool.
+// Definition implements tools.Tool. The provider enum is built dynamically from
+// the registry so newly-declared manifest providers are immediately reachable.
 func (t *OAuthTool) Definition() tools.Definition {
-	return OAuthDefinition()
+	schema := cloneMap(oauthInputSchemaBase)
+	providers := []string{}
+	if t.svc != nil && t.svc.registry != nil {
+		providers = t.svc.registry.IDs()
+	}
+	if props, ok := schema["properties"].(map[string]any); ok {
+		if prov, ok := props["provider"].(map[string]any); ok {
+			if len(providers) > 0 {
+				prov["enum"] = providers
+			}
+		}
+	}
+	desc := "Manage OAuth provider connections. Check which providers are available and connected, start an OAuth flow for the user to authenticate, poll flow progress, or disconnect a provider."
+	if len(providers) > 0 {
+		desc = fmt.Sprintf("Manage OAuth provider connections (%s). Check which providers are available and connected, start an OAuth flow for the user to authenticate, poll flow progress, or disconnect a provider.", strings.Join(providers, ", "))
+	}
+	return tools.Definition{
+		Name:        "oauth",
+		Description: desc,
+		InputSchema: schema,
+	}
+}
+
+func cloneMap(m map[string]any) map[string]any {
+	out := make(map[string]any, len(m))
+	maps.Copy(out, m)
+	return out
 }
 
 // Execute implements tools.Tool.

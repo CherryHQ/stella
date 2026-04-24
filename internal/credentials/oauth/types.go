@@ -31,35 +31,23 @@ type FlowStatus struct {
 	State           FlowState
 }
 
-// GHOAuthBundle is the versioned vault payload for GitHub.
-// GitHub personal access tokens from device flow don't expire by default,
-// but we carry optional refresh fields for future fine-grained tokens.
-type GHOAuthBundle struct {
-	Version      int        `json:"version"`
-	AccessToken  string     `json:"access_token"`
-	TokenType    string     `json:"token_type"`
-	Scope        string     `json:"scope"`
-	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
-	RefreshToken string     `json:"refresh_token,omitempty"`
-}
-
-// LarkOAuthBundle is the versioned vault payload for Lark/Feishu.
-// AppSecret is stored here (already encrypted at rest in vault) so the
-// TokenManager can refresh tokens without needing the app credentials
-// passed in at call time.
-type LarkOAuthBundle struct {
+// OAuthBundle is the generic versioned vault payload for all YAML-driven
+// OAuth providers. It replaces provider-specific bundles so TokenManager and
+// brokers can work uniformly.
+type OAuthBundle struct {
 	Version          int       `json:"version"`
-	AppID            string    `json:"app_id"`
-	AppSecret        string    `json:"app_secret"`
-	Brand            string    `json:"brand"` // "lark" or "feishu"
+	ClientID         string    `json:"client_id"`
+	ClientSecret     string    `json:"client_secret"`
 	AccessToken      string    `json:"access_token"`
-	RefreshToken     string    `json:"refresh_token"`
+	RefreshToken     string    `json:"refresh_token,omitempty"`
 	AccessExpiresAt  time.Time `json:"access_expires_at"`
-	RefreshExpiresAt time.Time `json:"refresh_expires_at"`
+	RefreshExpiresAt time.Time `json:"refresh_expires_at,omitempty"`
+	Brand            string    `json:"brand,omitempty"` // e.g. "lark" or "feishu"
 }
 
-// Vault key names for the two supported providers.
+// Vault key names for the supported providers.
 const (
 	VaultKeyGitHub = "GH_OAUTH"
 	VaultKeyLark   = "LARK_CLI_OAUTH"
+	VaultKeyFeishu = "FEISHU_CLI_OAUTH"
 )
