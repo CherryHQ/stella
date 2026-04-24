@@ -16,10 +16,10 @@ At startup, Anna:
 1. Loads the embedded built-in manifest (`builtin_plugins.yaml`)
 2. Loads your user manifest (`$ANNA_HOME/plugins.yaml`) if it exists
 3. Merges them: user entries override built-in entries per plugin ID
-4. Reconciles enabled plugins: downloads missing binaries into `$ANNA_HOME/bin`
-5. Registers enabled manifest plugins into the plugin host
+4. Registers enabled manifest plugins into the plugin host
+5. Starts binary reconciliation in the background: downloads missing binaries into `$ANNA_HOME/bin`
 
-The binary is then available on `PATH` inside agent sandbox sessions.
+Startup is not blocked by binary downloads. A newly added or updated manifest binary becomes available on `PATH` inside agent sandbox sessions after the background sync completes.
 
 ## The manifest file format
 
@@ -94,7 +94,7 @@ Mise auto-detects the correct release asset based on OS and architecture keyword
 
 ## State and caching
 
-Anna tracks installed binary versions in `$ANNA_HOME/plugin-manifest-state.json`. On subsequent startups, binaries at the correct version are skipped. Change the `version` field in `plugins.yaml` to trigger a re-download.
+Anna tracks installed binary versions in `$ANNA_HOME/plugin-manifest-state.json`. On subsequent startups, binaries at the correct version are skipped. Change the `version` field in `plugins.yaml` to trigger a re-download. Startup reconciliation runs in the background and is cancelled on shutdown; Anna also terminates any child processes spawned by the installer.
 
 ## Overriding built-in plugins
 

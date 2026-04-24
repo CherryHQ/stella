@@ -64,13 +64,17 @@ func serverFlags() []ucli.Flag {
 
 func serverAction(c *ucli.Context) error {
 	ctx, cancel := signal.NotifyContext(c.Context, syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
 
 	s, err := setup(ctx, true)
 	if err != nil {
+		cancel()
 		return err
 	}
-	defer func() { _ = s.poolManager.Close() }()
+	defer func() {
+		cancel()
+		s.waitBackgroundTasks()
+		_ = s.poolManager.Close()
+	}()
 	return runServer(s.ctx, s, s.modelListFunc(s.snap), s.modelSwitchFunc(s.snap, s.pool), c.String("host"), c.Int("port"), c.Bool("open"))
 }
 
