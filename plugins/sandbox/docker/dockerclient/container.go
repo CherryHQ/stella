@@ -20,13 +20,23 @@ const (
 	NetworkAllowAll NetworkMode = "allow_all"
 )
 
-// Mount represents a bind-mount from host to container. Source is interpreted
-// by the daemon, so when anna runs inside a container it must already be
-// translated to a daemon-visible path before reaching this struct.
+// MountType identifies how Docker should mount Source into the container.
+type MountType string
+
+const (
+	MountTypeBind   MountType = "bind"
+	MountTypeVolume MountType = "volume"
+)
+
+// Mount represents a mount from a daemon-visible source to a container path.
+// Bind mount sources are interpreted by the daemon, so when anna runs inside a
+// container they must already be translated to daemon-visible paths before
+// reaching this struct. Volume mount sources are Docker volume names.
 type Mount struct {
 	HostPath      string
 	ContainerPath string
 	ReadOnly      bool
+	Type          MountType
 }
 
 // CreateOptions configures a new sandbox container.
@@ -37,6 +47,7 @@ type CreateOptions struct {
 	ReadOnlyMounts []Mount     // host -> container, read-only
 	NetworkMode    NetworkMode // disabled | allow_all
 	Env            map[string]string
+	User           string            // optional container user override
 	Labels         map[string]string // must include LabelSessionID + LabelAnnaHome + LabelCreatedAt
 	Name           string            // optional; caller builds "anna-sandbox-<session-id>"
 }
@@ -117,6 +128,7 @@ func buildContainerCreateOptions(opts CreateOptions) mobyclient.ContainerCreateO
 func buildContainerConfig(opts CreateOptions) *container.Config {
 	cfg := &container.Config{
 		Image:      opts.Image,
+		User:       opts.User,
 		Labels:     opts.Labels,
 		Entrypoint: []string{"/bin/sh"},
 		Cmd:        []string{"-c", "tail -f /dev/null"},
@@ -161,13 +173,22 @@ func buildMounts(opts CreateOptions) []mount.Mount {
 	}
 	for _, m := range opts.ReadOnlyMounts {
 		mounts = append(mounts, mount.Mount{
-			Type:     mount.TypeBind,
+			Type:     dockerMountType(m.Type),
 			Source:   m.HostPath,
 			Target:   m.ContainerPath,
-			ReadOnly: true,
+			ReadOnly: m.ReadOnly,
 		})
 	}
 	return mounts
+}
+
+func dockerMountType(t MountType) mount.Type {
+	switch t {
+	case MountTypeVolume:
+		return mount.TypeVolume
+	default:
+		return mount.TypeBind
+	}
 }
 
 // envSlice returns env in deterministic KEY=VALUE form sorted by key.
