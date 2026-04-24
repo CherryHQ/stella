@@ -1,30 +1,19 @@
 package sandbox
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"log/slog"
-	"sync/atomic"
 )
 
-var sessionSeq uint64
-
-// NewSessionID returns a unique session identifier for backend implementations.
+// NewSessionID returns a cryptographically random session identifier.
+// Using random IDs avoids Docker container name collisions across test runs.
 func NewSessionID() string {
-	id := atomic.AddUint64(&sessionSeq, 1)
-	return "sandbox-" + itoa(id)
-}
-
-func itoa(v uint64) string {
-	if v == 0 {
-		return "0"
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("sandbox: NewSessionID: " + err.Error())
 	}
-	var buf [20]byte
-	i := len(buf)
-	for v > 0 {
-		i--
-		buf[i] = byte('0' + v%10)
-		v /= 10
-	}
-	return string(buf[i:])
+	return "sandbox-" + hex.EncodeToString(b[:])
 }
 
 func LogSessionCreated(sessionID, backend string, policy Policy) {
