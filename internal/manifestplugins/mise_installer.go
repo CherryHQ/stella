@@ -119,10 +119,10 @@ func runtimeBinaryName(name string) string {
 }
 
 // generateMiseTOML returns a valid mise.toml for a single github backend tool.
-// When b.Version is empty, "latest" is used for the simple form (TOML requires a
-// value); the table form omits the version field so mise resolves it.
-// Specify an explicit version for repos that don't publish a "latest" release
-// (e.g. version: "nightly").
+// When b.Version is empty, "latest" is used because mise requires github
+// backend tools to have a version value in both simple and table forms. Specify
+// an explicit version for repos that don't publish a "latest" release (e.g.
+// version: "nightly").
 func generateMiseTOML(b ManifestBinary) (string, error) {
 	toolKey := "github:" + b.Repo
 
@@ -136,10 +136,11 @@ func generateMiseTOML(b ManifestBinary) (string, error) {
 		toolValue = ver
 	} else {
 		// Table form: extra options as a map.
-		m := map[string]any{}
-		if b.Version != "" {
-			m["version"] = b.Version
+		ver := b.Version
+		if ver == "" {
+			ver = "latest"
 		}
+		m := map[string]any{"version": ver}
 		if b.BinPath != "" {
 			m["bin_path"] = b.BinPath
 		}
