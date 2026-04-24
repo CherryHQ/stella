@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-04-24
+
+### 🐛 Bug Fixes
+
+- **Plugins**: Fix manifest binary install failing when mise refuses to read untrusted temp config files — now runs `mise trust` on the temp dir before `mise install`
+
+### 🔒 Security
+
+- Resolve 9 GitHub Dependabot security alerts in docs dependencies
+
+**Full Changelog**: [v0.16.0...v0.16.1](https://github.com/vaayne/anna/compare/v0.16.0...v0.16.1)
+
 ## [0.16.0] - 2026-04-24
 
 ### ✨ Features
