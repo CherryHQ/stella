@@ -106,6 +106,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	if s.oauthRegistry != nil {
 		credSvc.SetRegistry(s.oauthRegistry)
 		credSvc.SetProviderPluginIDs(s.providerPluginIDs)
+		s.poolManager.SetOAuthRegistry(s.oauthRegistry)
 	}
 	for _, tool := range []tools.Tool{credentials.NewOAuthTool(credSvc), credentials.NewVaultTool(credSvc)} {
 		if err := s.poolManager.AddBuiltinTool(gctx, tool); err != nil {
