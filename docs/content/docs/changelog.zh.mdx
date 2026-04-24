@@ -11,6 +11,42 @@ icon: History
 
 ## [Unreleased]
 
+## [0.16.2] - 2026-04-24
+
+### 🐛 Bug 修复
+
+- **插件**：修复默认 mise 表版本未正确设置的问题
+- **插件**：隔离 manifest 二进制安装器，防止插件间相互干扰
+
+**完整变更日志**：[v0.16.1...v0.16.2](https://github.com/vaayne/anna/compare/v0.16.1...v0.16.2)
+
+## [0.16.1] - 2026-04-24
+
+### 🐛 Bug 修复
+
+- **插件**：修复 manifest 二进制安装在 mise 拒绝读取不受信任的临时配置文件时失败的问题 — 现在在临时目录上先执行 `mise trust`，再运行 `mise install`
+
+### 🔒 安全
+
+- 解决文档依赖中 9 个 GitHub Dependabot 安全告警
+
+**完整变更日志**：[v0.16.0...v0.16.1](https://github.com/vaayne/anna/compare/v0.16.0...v0.16.1)
+
+## [0.16.0] - 2026-04-24
+
+### ✨ 功能
+
+- **插件**：新增运行时 manifest 工具插件 — 通过 `$ANNA_HOME/plugins.yaml` 支持文件驱动的 CLI 工具集成，含双层合并、二进制供应、基于版本的缓存和管理 UI ([#124](https://github.com/vaayne/anna/pull/124))
+- **OAuth**：新增通用 OAuth 注册表/代理框架，集成至运行时、管理端和插件宿主路径；新增 OAuth 提供商的 manifest 校验 ([#125](https://github.com/vaayne/anna/pull/125))
+- **插件**：将 `gh`、`lark-cli`、`tap-web` 和 `mise` 统一为一级 CLI 支持工具插件模式，含插件自有二进制、包装器、会话环境、捆绑技能及提示注册 ([#123](https://github.com/vaayne/anna/pull/123))
+
+### ♻️ 重构
+
+- **插件**：整合并简化嵌入式工具和包管理内部逻辑；移除旧版 OAuth 包和未使用的 vault/token 管理代码 ([#125](https://github.com/vaayne/anna/pull/125))
+- **认证**：将旧版认证行迁移至 `tool/gh` 和 `tool/lark-cli` 插件；移除旧认证插件包 ([#123](https://github.com/vaayne/anna/pull/123))
+
+**完整变更日志**：[v0.15.0...v0.16.0](https://github.com/vaayne/anna/compare/v0.15.0...v0.16.0)
+
 ## [0.15.0] - 2026-04-22
 
 ### ✨ 功能
