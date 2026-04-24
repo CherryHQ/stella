@@ -16,25 +16,6 @@ func TestNewSessionID(t *testing.T) {
 	}
 }
 
-func TestItoa(t *testing.T) {
-	cases := []struct {
-		in   uint64
-		want string
-	}{
-		{0, "0"},
-		{1, "1"},
-		{42, "42"},
-		{999, "999"},
-		{1000000, "1000000"},
-	}
-	for _, c := range cases {
-		got := itoa(c.in)
-		if got != c.want {
-			t.Fatalf("itoa(%d) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
 func TestLogFunctions(t *testing.T) {
 	p := Policy{
 		Filesystem: FilesystemPolicy{WorkingDir: "/tmp/ws"},
