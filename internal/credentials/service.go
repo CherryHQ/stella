@@ -336,37 +336,54 @@ func (s *Service) getProviderStatus(ctx context.Context, userID int64, provider 
 
 // --- OAuth flow operations ---
 
-// StartFlow starts an OAuth flow for the given provider and user.
-// It prefers device_code flows when available; otherwise falls back to authorization_code.
-func (s *Service) StartFlow(ctx context.Context, userID int64, provider string) (FlowStatus, error) {
-	return s.StartFlowWithOrigin(ctx, userID, provider, "")
-}
-
-func (s *Service) StartFlowWithOrigin(ctx context.Context, userID int64, provider string, origin string) (FlowStatus, error) {
-	if s.vaultSvc == nil {
-		return FlowStatus{}, fmt.Errorf("vault not configured")
-	}
-
-	flowType := "authorization_code"
+// preferredFlowType returns "device_code" if the provider has a device_code
+// flow registered, otherwise "authorization_code". Used by the agent tool to
+// prefer flows that do not require a browser redirect.
+func (s *Service) preferredFlowType(provider string) string {
 	if s.registry != nil {
 		if cfg, ok := s.registry.Get(provider); ok {
 			for _, f := range cfg.Flows {
 				if f.Type == "device_code" {
-					flowType = "device_code"
-					break
+					return "device_code"
 				}
 			}
 		}
 	}
+	return "authorization_code"
+}
 
-	broker, err := s.getBrokerWithOrigin(ctx, provider, flowType, origin)
+// StartFlow starts an OAuth flow for the given provider and user.
+// It prefers device_code flows when available, making it suitable for agent/CLI use.
+func (s *Service) StartFlow(ctx context.Context, userID int64, provider string) (FlowStatus, error) {
+	if s.vaultSvc == nil {
+		return FlowStatus{}, fmt.Errorf("vault not configured")
+	}
+	flowType := s.preferredFlowType(provider)
+	broker, err := s.getBroker(ctx, provider, flowType)
 	if err != nil {
 		return FlowStatus{}, err
 	}
-
 	status, err := broker.StartFlow(ctx, oauth.Provider(provider), userID)
 	if err != nil {
 		return FlowStatus{}, fmt.Errorf("start %s %s flow: %w", provider, flowType, err)
+	}
+	return toFlowStatus(status), nil
+}
+
+// StartFlowWithOrigin starts an authorization_code OAuth flow for use by the
+// admin UI. The callback URL is built from origin so the browser redirect lands
+// on the correct host.
+func (s *Service) StartFlowWithOrigin(ctx context.Context, userID int64, provider string, origin string) (FlowStatus, error) {
+	if s.vaultSvc == nil {
+		return FlowStatus{}, fmt.Errorf("vault not configured")
+	}
+	broker, err := s.getBrokerWithOrigin(ctx, provider, "authorization_code", origin)
+	if err != nil {
+		return FlowStatus{}, err
+	}
+	status, err := broker.StartFlow(ctx, oauth.Provider(provider), userID)
+	if err != nil {
+		return FlowStatus{}, fmt.Errorf("start %s authorization_code flow: %w", provider, err)
 	}
 	return toFlowStatus(status), nil
 }
@@ -388,7 +405,7 @@ func (s *Service) PollFlow(ctx context.Context, userID int64, provider, flowID s
 		return FlowStatus{}, false, fmt.Errorf("flow does not belong to this user")
 	}
 
-	broker, err := s.getBroker(ctx, provider, "")
+	broker, err := s.getBroker(ctx, provider, flow.FlowType)
 	if err != nil {
 		return FlowStatus{}, false, err
 	}
@@ -399,13 +416,11 @@ func (s *Service) PollFlow(ctx context.Context, userID int64, provider, flowID s
 	}
 
 	if status.State == oauth.FlowStateAuthorized {
-		// Device-code flows hold the token internally; complete and save here.
-		if dc, ok := broker.(*oauth.DeviceCodeBroker); ok {
-			tok, err := dc.Complete(ctx, flowID)
-			if err != nil {
-				return FlowStatus{}, false, fmt.Errorf("complete %s flow: %w", provider, err)
+		if status.FlowType == "device_code" {
+			if status.Token == nil {
+				return FlowStatus{}, false, fmt.Errorf("device flow %s authorized but token missing", provider)
 			}
-			if err := s.saveToken(ctx, provider, userID, tok); err != nil {
+			if err := s.saveToken(ctx, provider, userID, status.Token); err != nil {
 				return FlowStatus{}, false, fmt.Errorf("save %s token: %w", provider, err)
 			}
 		}

@@ -1,6 +1,10 @@
 package oauth
 
-import "time"
+import (
+	"time"
+
+	"golang.org/x/oauth2"
+)
 
 // Provider identifies an OAuth provider.
 type Provider string
@@ -29,6 +33,8 @@ type FlowStatus struct {
 	UserCode        string
 	ExpiresAt       time.Time
 	State           FlowState
+	FlowType        string        // "device_code" or "authorization_code"
+	Token           *oauth2.Token // set by DeviceCodeBroker when authorized
 }
 
 // OAuthBundle is the generic versioned vault payload for all YAML-driven
