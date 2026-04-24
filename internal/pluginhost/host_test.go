@@ -324,6 +324,43 @@ func TestValidateRegistrationsAcceptsCLIBackedPromptOnlyTool(t *testing.T) {
 	}
 }
 
+func TestResolveSessionEnvProviderFromPluginConfig(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{
+		"tool/lark-cli": {ID: "tool/lark-cli", Enabled: true, Config: map[string]any{"brand": "lark"}},
+	}}
+	host := New(store)
+	spec := host.resolveSessionEnvProvider(context.Background(), pkgplugins.SessionEnvSpec{
+		PluginID:                 "tool/lark-cli",
+		EnvVar:                   "LARKSUITE_CLI_USER_ACCESS_TOKEN",
+		Source:                   pkgplugins.SessionEnvSource("oauth.access_token"),
+		OAuthProviderConfigField: "brand",
+	})
+	if spec.OAuthProviderID != "lark" {
+		t.Fatalf("OAuthProviderID = %q, want lark", spec.OAuthProviderID)
+	}
+}
+
+func TestResolveSessionEnvProviderUsesPluginDefaults(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{
+		"tool/lark-cli": {ID: "tool/lark-cli", Enabled: true, Config: map[string]any{}},
+	}}
+	host := New(store)
+	host.RegisterPluginID("tool/lark-cli")
+	host.AddAdmin(pkgplugins.AdminSpec{
+		PluginID:      "tool/lark-cli",
+		DefaultConfig: func() map[string]any { return map[string]any{"brand": "feishu"} },
+	})
+	spec := host.resolveSessionEnvProvider(context.Background(), pkgplugins.SessionEnvSpec{
+		PluginID:                 "tool/lark-cli",
+		EnvVar:                   "LARKSUITE_CLI_USER_ACCESS_TOKEN",
+		Source:                   pkgplugins.SessionEnvSource("oauth.access_token"),
+		OAuthProviderConfigField: "brand",
+	})
+	if spec.OAuthProviderID != "feishu" {
+		t.Fatalf("OAuthProviderID = %q, want feishu", spec.OAuthProviderID)
+	}
+}
+
 func TestValidateRegistrationsRejectsDuplicateSessionEnvAndBundledSkills(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)

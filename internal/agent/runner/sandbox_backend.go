@@ -147,6 +147,7 @@ func buildSandboxEnv(ctx context.Context, cfg GoRunnerConfig, paths sandboxPaths
 	// tokens below instead.
 	delete(env, oauth.VaultKeyGitHub)
 	delete(env, oauth.VaultKeyLark)
+	delete(env, oauth.VaultKeyFeishu)
 	if err := injectSessionEnv(ctx, cfg, env); err != nil {
 		return nil, err
 	}

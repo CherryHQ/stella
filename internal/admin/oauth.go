@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/vaayne/anna/internal/credentials"
 )
@@ -56,7 +57,7 @@ func (s *Server) startOAuthFlow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	provider := r.PathValue("provider")
-	status, err := s.credSvc.StartFlow(r.Context(), info.UserID, provider)
+	status, err := s.credSvc.StartFlowWithOrigin(r.Context(), info.UserID, provider, requestOrigin(r))
 	if err != nil {
 		s.log.Error("start oauth flow", "provider", provider, "user_id", info.UserID, "error", err)
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -159,11 +160,34 @@ func (s *Server) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.credSvc.CompleteAuthCodeFlow(r.Context(), provider, flowID, code); err != nil {
+	if err := s.credSvc.CompleteAuthCodeFlowWithOrigin(r.Context(), provider, flowID, code, requestOrigin(r)); err != nil {
 		s.log.Error("oauth callback complete", "provider", provider, "user_id", flow.UserID, "flow_id", flowID, "error", err)
 		http.Error(w, "failed to complete authorization: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	http.Redirect(w, r, "/credentials", http.StatusFound)
+}
+
+func requestOrigin(r *http.Request) string {
+	if origin := strings.TrimRight(r.Header.Get("Origin"), "/"); origin != "" {
+		return origin
+	}
+
+	scheme := r.Header.Get("X-Forwarded-Proto")
+	if scheme == "" {
+		if r.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	host := r.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
+	}
+	if host == "" {
+		return ""
+	}
+	return scheme + "://" + host
 }

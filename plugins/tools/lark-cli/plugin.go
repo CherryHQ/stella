@@ -28,7 +28,7 @@ func defaultConfig() map[string]any {
 	return map[string]any{
 		"app_id":       "",
 		"app_secret":   "",
-		"brand":        "lark",
+		"brand":        "feishu",
 		"redirect_url": "",
 	}
 }
@@ -39,21 +39,21 @@ func configSchema() map[string]any {
 		"properties": map[string]any{
 			"app_id": map[string]any{
 				"type":        "string",
-				"description": "Lark/Feishu OAuth app ID.",
+				"description": "Feishu/Lark OAuth app ID.",
 			},
 			"app_secret": map[string]any{
 				"type":        "string",
-				"description": "Lark/Feishu OAuth app secret.",
+				"description": "Feishu/Lark OAuth app secret.",
 			},
 			"brand": map[string]any{
 				"type":        "string",
 				"enum":        []any{"lark", "feishu"},
-				"description": "Platform brand: \"lark\" (international) or \"feishu\" (China).",
-				"default":     "lark",
+				"description": "Platform brand: \"feishu\" (China, default manifest provider) or \"lark\" (international).",
+				"default":     "feishu",
 			},
 			"redirect_url": map[string]any{
 				"type":        "string",
-				"description": "OAuth redirect URI registered in the Lark app. Leave empty to use the server default: {your-server}/api/auth/profile/oauth/lark/callback.",
+				"description": "OAuth redirect URI registered in the Feishu/Lark app. Leave empty to derive it from the current Admin UI origin and selected brand, for example http://localhost:25678/api/auth/profile/oauth/feishu/callback.",
 			},
 		},
 		"required": []any{"app_id", "app_secret", "brand"},

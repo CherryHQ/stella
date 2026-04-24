@@ -49,4 +49,5 @@ type OAuthBundle struct {
 const (
 	VaultKeyGitHub = "GH_OAUTH"
 	VaultKeyLark   = "LARK_CLI_OAUTH"
+	VaultKeyFeishu = "FEISHU_CLI_OAUTH"
 )

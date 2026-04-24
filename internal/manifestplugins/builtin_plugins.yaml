@@ -110,15 +110,15 @@ plugins:
     binaries:
       - name: lark-cli
         repo: larksuite/cli
-    oauth_provider: lark
+    oauth_provider_config_field: brand
+    oauth_provider_choices: [lark, feishu]
     session_env:
       - env_var: LARKSUITE_CLI_USER_ACCESS_TOKEN
         source: oauth.access_token
       - env_var: LARKSUITE_CLI_APP_ID
         source: oauth.client_id
       - env_var: LARKSUITE_CLI_BRAND
-        source: static
-        value: lark
+        source: oauth.brand
 
   - id: hook/rtk
     kind: hook

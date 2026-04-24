@@ -24,6 +24,7 @@ type Host struct {
 	mu                 sync.RWMutex
 	pluginIDs          map[string]struct{}
 	manifestEnabledIDs map[string]struct{}
+	manifestOwnedIDs   map[string]struct{}
 	metadataRegs       map[string]pkgplugins.PluginInfo
 	notifications      pkgplugins.Notifier
 	scheduler          SchedulerBackend
@@ -55,6 +56,7 @@ func New(store config.Store, opts ...Option) *Host {
 		log:                slog.With("component", "plugin_host"),
 		pluginIDs:          map[string]struct{}{},
 		manifestEnabledIDs: map[string]struct{}{},
+		manifestOwnedIDs:   map[string]struct{}{},
 		metadataRegs:       map[string]pkgplugins.PluginInfo{},
 		toolRegs:           map[string]pkgplugins.ToolSpec{},
 		providerRegs:       map[string]pkgplugins.ProviderSpec{},
@@ -130,7 +132,8 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 
 	// Collect which IDs are already registered without holding the lock across
 	// the public method calls (RegisterPluginID / SetInfo / AddSessionEnv each
-	// acquire the lock themselves).
+	// acquire the lock themselves). Also clear prior manifest registrations so
+	// admin UI manifest edits can be applied without accumulating stale env specs.
 	type toRegister struct {
 		plugin    manifestplugins.ManifestPlugin
 		alreadyGo bool
@@ -138,12 +141,26 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 	var entries []toRegister
 
 	h.mu.Lock()
+	for id := range h.manifestEnabledIDs {
+		delete(h.sessionEnvRegs, id)
+	}
+	for id := range h.manifestOwnedIDs {
+		delete(h.pluginIDs, id)
+		delete(h.metadataRegs, id)
+		delete(h.sessionEnvRegs, id)
+	}
+	h.manifestEnabledIDs = map[string]struct{}{}
+	h.manifestOwnedIDs = map[string]struct{}{}
+
 	for _, p := range m.Plugins {
 		if !p.Enabled {
 			continue
 		}
 		_, alreadyGo := h.pluginIDs[p.ID]
 		h.manifestEnabledIDs[p.ID] = struct{}{}
+		if !alreadyGo {
+			h.manifestOwnedIDs[p.ID] = struct{}{}
+		}
 		entries = append(entries, toRegister{plugin: p, alreadyGo: alreadyGo})
 	}
 	h.mu.Unlock()
@@ -151,13 +168,22 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 	for _, e := range entries {
 		p := e.plugin
 		if !e.alreadyGo {
+			name := p.Name
+			if name == "" {
+				name = p.ID
+			}
+			displayName := p.DisplayName
+			if displayName == "" {
+				displayName = name
+			}
 			h.RegisterPluginID(p.ID)
 			h.SetInfo(pkgplugins.PluginInfo{
-				ID:          p.ID,
-				Kind:        p.Kind,
-				Name:        p.Name,
-				DisplayName: p.DisplayName,
-				Description: p.Description,
+				ID:           p.ID,
+				Kind:         p.Kind,
+				Name:         name,
+				DisplayName:  displayName,
+				Description:  p.Description,
+				AdminVisible: true,
 			})
 		}
 
@@ -165,12 +191,13 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 		// Go-registered ones. The manifest is the source of truth.
 		for _, se := range p.SessionEnvs {
 			h.AddSessionEnv(pkgplugins.SessionEnvSpec{
-				PluginID:        p.ID,
-				EnvVar:          se.EnvVar,
-				Source:          pkgplugins.SessionEnvSource(se.Source),
-				Value:           se.Value,
-				Required:        se.Required,
-				OAuthProviderID: p.OAuthProvider,
+				PluginID:                 p.ID,
+				EnvVar:                   se.EnvVar,
+				Source:                   pkgplugins.SessionEnvSource(se.Source),
+				Value:                    se.Value,
+				Required:                 se.Required,
+				OAuthProviderID:          p.OAuthProvider,
+				OAuthProviderConfigField: p.OAuthProviderConfigField,
 			})
 		}
 	}

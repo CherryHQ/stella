@@ -77,16 +77,18 @@ func resolvePlugin(rp rawManifestPlugin, fallbackEnabled *bool) ManifestPlugin {
 		enabled = *fallbackEnabled
 	}
 	return ManifestPlugin{
-		ID:            rp.ID,
-		Kind:          rp.Kind,
-		Name:          rp.Name,
-		DisplayName:   rp.DisplayName,
-		Description:   rp.Description,
-		Enabled:       enabled,
-		Binaries:      rp.Binaries,
-		Skills:        rp.Skills,
-		SessionEnvs:   rp.SessionEnvs,
-		OAuthProvider: rp.OAuthProvider,
+		ID:                       rp.ID,
+		Kind:                     rp.Kind,
+		Name:                     rp.Name,
+		DisplayName:              rp.DisplayName,
+		Description:              rp.Description,
+		Enabled:                  enabled,
+		Binaries:                 rp.Binaries,
+		Skills:                   rp.Skills,
+		SessionEnvs:              rp.SessionEnvs,
+		OAuthProvider:            rp.OAuthProvider,
+		OAuthProviderConfigField: rp.OAuthProviderConfigField,
+		OAuthProviderChoices:     append([]string(nil), rp.OAuthProviderChoices...),
 	}
 }
 
@@ -157,16 +159,18 @@ func manifestToRaw(m *Manifest) rawManifest {
 	for _, p := range m.Plugins {
 		enabled := p.Enabled
 		rm.Plugins = append(rm.Plugins, rawManifestPlugin{
-			ID:            p.ID,
-			Kind:          p.Kind,
-			Name:          p.Name,
-			DisplayName:   p.DisplayName,
-			Description:   p.Description,
-			Enabled:       &enabled,
-			Binaries:      p.Binaries,
-			Skills:        p.Skills,
-			SessionEnvs:   p.SessionEnvs,
-			OAuthProvider: p.OAuthProvider,
+			ID:                       p.ID,
+			Kind:                     p.Kind,
+			Name:                     p.Name,
+			DisplayName:              p.DisplayName,
+			Description:              p.Description,
+			Enabled:                  &enabled,
+			Binaries:                 p.Binaries,
+			Skills:                   p.Skills,
+			SessionEnvs:              p.SessionEnvs,
+			OAuthProvider:            p.OAuthProvider,
+			OAuthProviderConfigField: p.OAuthProviderConfigField,
+			OAuthProviderChoices:     append([]string(nil), p.OAuthProviderChoices...),
 		})
 	}
 	return rm

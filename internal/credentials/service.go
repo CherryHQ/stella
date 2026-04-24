@@ -86,6 +86,10 @@ func (s *Service) InvalidateUser(userID int64) error {
 // config and current plugin credentials. The flowType selects which flow entry to
 // use when a provider declares multiple flows.
 func (s *Service) getBroker(ctx context.Context, providerID string, flowType string) (oauth.FlowBroker, error) {
+	return s.getBrokerWithOrigin(ctx, providerID, flowType, "")
+}
+
+func (s *Service) getBrokerWithOrigin(ctx context.Context, providerID string, flowType string, origin string) (oauth.FlowBroker, error) {
 	if s.registry == nil {
 		return nil, fmt.Errorf("provider registry not set")
 	}
@@ -94,7 +98,7 @@ func (s *Service) getBroker(ctx context.Context, providerID string, flowType str
 		return nil, fmt.Errorf("unknown provider: %s", providerID)
 	}
 
-	clientID, clientSecret, redirectURI, err := s.providerCredentials(ctx, providerID)
+	clientID, clientSecret, redirectURI, err := s.providerCredentialsWithOrigin(ctx, providerID, origin)
 	if err != nil {
 		return nil, err
 	}
@@ -156,8 +160,16 @@ func (s *Service) getBroker(ctx context.Context, providerID string, flowType str
 }
 
 func (s *Service) providerCredentials(ctx context.Context, providerID string) (clientID, clientSecret, redirectURI string, err error) {
+	return s.providerCredentialsWithOrigin(ctx, providerID, "")
+}
+
+func (s *Service) providerCredentialsWithOrigin(ctx context.Context, providerID string, origin string) (clientID, clientSecret, redirectURI string, err error) {
+	baseOrigin := s.corsOrigin
+	if origin != "" {
+		baseOrigin = origin
+	}
 	if providerID == githubProviderID {
-		return ghOAuthClientID, "", s.corsOrigin + "/api/auth/profile/oauth/" + providerID + "/callback", nil
+		return ghOAuthClientID, "", baseOrigin + "/api/auth/profile/oauth/" + providerID + "/callback", nil
 	}
 
 	pluginID, ok := s.providerPluginIDs[providerID]
@@ -171,6 +183,9 @@ func (s *Service) providerCredentials(ctx context.Context, providerID string) (c
 	}
 	if !state.Enabled {
 		return "", "", "", fmt.Errorf("%s plugin is not enabled", pluginID)
+	}
+	if brand, _ := state.Config["brand"].(string); brand != "" && (providerID == "lark" || providerID == "feishu") && brand != providerID {
+		return "", "", "", fmt.Errorf("%s plugin brand is %q; connect provider %q instead", pluginID, brand, brand)
 	}
 
 	clientID, _ = state.Config["client_id"].(string)
@@ -187,7 +202,7 @@ func (s *Service) providerCredentials(ctx context.Context, providerID string) (c
 
 	redirectURI, _ = state.Config["redirect_url"].(string)
 	if redirectURI == "" {
-		redirectURI = s.corsOrigin + "/api/auth/profile/oauth/" + providerID + "/callback"
+		redirectURI = baseOrigin + "/api/auth/profile/oauth/" + providerID + "/callback"
 	}
 	return clientID, clientSecret, redirectURI, nil
 }
@@ -324,6 +339,10 @@ func (s *Service) getProviderStatus(ctx context.Context, userID int64, provider 
 // StartFlow starts an OAuth flow for the given provider and user.
 // It prefers device_code flows when available; otherwise falls back to authorization_code.
 func (s *Service) StartFlow(ctx context.Context, userID int64, provider string) (FlowStatus, error) {
+	return s.StartFlowWithOrigin(ctx, userID, provider, "")
+}
+
+func (s *Service) StartFlowWithOrigin(ctx context.Context, userID int64, provider string, origin string) (FlowStatus, error) {
 	if s.vaultSvc == nil {
 		return FlowStatus{}, fmt.Errorf("vault not configured")
 	}
@@ -340,7 +359,7 @@ func (s *Service) StartFlow(ctx context.Context, userID int64, provider string) 
 		}
 	}
 
-	broker, err := s.getBroker(ctx, provider, flowType)
+	broker, err := s.getBrokerWithOrigin(ctx, provider, flowType, origin)
 	if err != nil {
 		return FlowStatus{}, err
 	}
@@ -400,6 +419,10 @@ func (s *Service) PollFlow(ctx context.Context, userID int64, provider, flowID s
 
 // CompleteAuthCodeFlow finalizes an authorization-code OAuth callback flow.
 func (s *Service) CompleteAuthCodeFlow(ctx context.Context, provider, flowID, code string) error {
+	return s.CompleteAuthCodeFlowWithOrigin(ctx, provider, flowID, code, "")
+}
+
+func (s *Service) CompleteAuthCodeFlowWithOrigin(ctx context.Context, provider, flowID, code string, origin string) error {
 	if s.vaultSvc == nil {
 		return fmt.Errorf("vault not configured")
 	}
@@ -409,7 +432,7 @@ func (s *Service) CompleteAuthCodeFlow(ctx context.Context, provider, flowID, co
 		return fmt.Errorf("unknown or expired flow")
 	}
 
-	broker, err := s.getBroker(ctx, provider, "authorization_code")
+	broker, err := s.getBrokerWithOrigin(ctx, provider, "authorization_code", origin)
 	if err != nil {
 		return err
 	}

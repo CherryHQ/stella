@@ -238,8 +238,8 @@ func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
 }
 
 // TestBuildSandboxEnv_OAuthBundleKeysStripped verifies that vault entries for
-// the OAuth bundle keys (GH_OAUTH and LARK_CLI_OAUTH) are not forwarded into
-// the sandbox environment, even when present in the vault.
+// OAuth bundle keys are not forwarded into the sandbox environment, even when
+// present in the vault.
 func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 	cfg := GoRunnerConfig{
 		AnnaHome:  "/anna",
@@ -248,9 +248,10 @@ func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 		UserID:    1,
 		VaultEnvLoader: &stubVaultLoader{
 			env: map[string]string{
-				"GH_OAUTH":       `{"version":1,"access_token":"ghp_secret"}`,
-				"LARK_CLI_OAUTH": `{"version":1,"access_token":"u-lark-secret"}`,
-				"OTHER_SECRET":   "should-pass-through",
+				"GH_OAUTH":         `{"version":1,"access_token":"ghp_secret"}`,
+				"LARK_CLI_OAUTH":   `{"version":1,"access_token":"u-lark-secret"}`,
+				"FEISHU_CLI_OAUTH": `{"version":1,"access_token":"u-feishu-secret"}`,
+				"OTHER_SECRET":     "should-pass-through",
 			},
 		},
 	}
@@ -270,6 +271,9 @@ func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 	}
 	if _, ok := env["LARK_CLI_OAUTH"]; ok {
 		t.Error("LARK_CLI_OAUTH must not appear in sandbox env")
+	}
+	if _, ok := env["FEISHU_CLI_OAUTH"]; ok {
+		t.Error("FEISHU_CLI_OAUTH must not appear in sandbox env")
 	}
 
 	// Unrelated vault entries must still pass through.

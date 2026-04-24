@@ -14,8 +14,12 @@ runtime token into each sandbox environment automatically.
 GitHub works out of the box. Anna uses the public GitHub CLI OAuth device-flow app,
 so users can connect their GitHub account without any admin-side plugin settings.
 
-Lark / Feishu still requires an admin to configure a Lark app ID, app secret, and
-brand (`lark` or `feishu`) in the Lark CLI plugin settings before users can connect.
+Feishu / Lark still requires an admin to configure an app ID, app secret, and
+brand in the Lark CLI plugin settings before users can connect. The brand selects
+both the OAuth provider and the injected `LARKSUITE_CLI_BRAND` value. The default
+brand is `feishu`; choose `lark` for international Lark. Leave `redirect_url`
+empty unless you need an override: Anna derives it from the current Admin UI origin,
+such as `http://localhost:25678/api/auth/profile/oauth/feishu/callback`.
 
 ## Connecting
 
@@ -38,6 +42,28 @@ completion automatically and resumes your task once connected.
 You can disconnect at any time by clicking **Disconnect** next to the provider, or by
 asking the agent to run `credentials disconnect` for the relevant provider.
 
+## Choosing Feishu or Lark for `lark-cli`
+
+`lark-cli` uses the `brand` field in the Lark CLI plugin config as the single
+selector:
+
+- `brand: feishu` uses the Feishu OAuth endpoints and injects `LARKSUITE_CLI_BRAND=feishu`.
+- `brand: lark` uses the international Lark OAuth endpoints and injects `LARKSUITE_CLI_BRAND=lark`.
+
+You do not need to duplicate that choice in `$ANNA_HOME/plugins.yaml`. The built-in
+manifest resolves `oauth_provider` from the plugin config field:
+
+```yaml
+oauth_provider_config_field: brand
+oauth_provider_choices: [lark, feishu]
+session_env:
+  - env_var: LARKSUITE_CLI_BRAND
+    source: oauth.brand
+```
+
+Only override `tool/lark-cli` in `$ANNA_HOME/plugins.yaml` if you need to change the
+binary or session environment declarations themselves.
+
 ## Using the CLIs
 
 After connecting, raw `gh` and `lark-cli` commands work inside agent sandbox sessions
@@ -56,12 +82,12 @@ lark-cli message send --chat-id <id> --text "Hello"
 
 ## Known limitations
 
-### Lark token expiry
+### Feishu/Lark token expiry
 
-Lark user access tokens expire after approximately **2 hours**. Anna refreshes them
-at session start only. If an agent session outlives the token, `lark-cli` calls will
-fail with an authentication error. Starting a new Anna session will pick up a freshly
-refreshed token automatically.
+Feishu and Lark user access tokens expire after approximately **2 hours**. Anna
+refreshes them at session start only. If an agent session outlives the token,
+`lark-cli` calls will fail with an authentication error. Starting a new Anna session
+will pick up a freshly refreshed token automatically.
 
 ### Restart loses in-flight device flows
 
@@ -72,9 +98,9 @@ Credentials page).
 
 ## Security model
 
-OAuth token bundles (`GH_OAUTH`, `LARK_CLI_OAUTH`) are stored encrypted at rest in
-your vault using the same age-based encryption as other vault entries. They are
-treated as host-only data: the raw JSON bundles are never forwarded into the sandbox
-process environment. Only the derived runtime token (for example, `GH_TOKEN` for
-GitHub) is injected, so sandbox processes never receive refresh credentials or OAuth
-app secrets.
+OAuth token bundles (`GH_OAUTH`, `FEISHU_CLI_OAUTH`, and `LARK_CLI_OAUTH` when the
+`lark-cli` brand is `lark`) are stored encrypted at rest in your vault
+using the same age-based encryption as other vault entries. They are treated as
+host-only data: the raw JSON bundles are never forwarded into the sandbox process
+environment. Only the derived runtime token (for example, `GH_TOKEN` for GitHub) is
+injected, so sandbox processes never receive refresh credentials or OAuth app secrets.

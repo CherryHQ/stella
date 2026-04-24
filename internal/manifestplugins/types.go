@@ -1,69 +1,73 @@
 package manifestplugins
 
 type ManifestPlugin struct {
-	ID            string               `yaml:"id"`
-	Kind          string               `yaml:"kind"`
-	Name          string               `yaml:"name"`
-	DisplayName   string               `yaml:"display_name"`
-	Description   string               `yaml:"description"`
-	Enabled       bool                 `yaml:"enabled"`
-	Binaries      []ManifestBinary     `yaml:"binaries,omitempty"`
-	Skills        []ManifestSkill      `yaml:"skills,omitempty"`
-	SessionEnvs   []ManifestSessionEnv `yaml:"session_env,omitempty"`
-	OAuthProvider string               `yaml:"oauth_provider,omitempty"`
+	ID                       string               `json:"id" yaml:"id"`
+	Kind                     string               `json:"kind" yaml:"kind"`
+	Name                     string               `json:"name" yaml:"name"`
+	DisplayName              string               `json:"display_name" yaml:"display_name"`
+	Description              string               `json:"description" yaml:"description"`
+	Enabled                  bool                 `json:"enabled" yaml:"enabled"`
+	Binaries                 []ManifestBinary     `json:"binaries,omitempty" yaml:"binaries,omitempty"`
+	Skills                   []ManifestSkill      `json:"skills,omitempty" yaml:"skills,omitempty"`
+	SessionEnvs              []ManifestSessionEnv `json:"session_env,omitempty" yaml:"session_env,omitempty"`
+	OAuthProvider            string               `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"`
+	OAuthProviderConfigField string               `json:"oauth_provider_config_field,omitempty" yaml:"oauth_provider_config_field,omitempty"`
+	OAuthProviderChoices     []string             `json:"oauth_provider_choices,omitempty" yaml:"oauth_provider_choices,omitempty"`
 }
 
 type ManifestBinary struct {
-	Name    string `yaml:"name"`
-	Repo    string `yaml:"repo"`
-	Version string `yaml:"version,omitempty"`
-	BinPath string `yaml:"bin_path,omitempty"` // subdir within archive containing the binary
-	Exe     string `yaml:"exe,omitempty"`      // binary name inside archive when it differs from Name
+	Name    string `json:"name" yaml:"name"`
+	Repo    string `json:"repo" yaml:"repo"`
+	Version string `json:"version,omitempty" yaml:"version,omitempty"`
+	BinPath string `json:"bin_path,omitempty" yaml:"bin_path,omitempty"` // subdir within archive containing the binary
+	Exe     string `json:"exe,omitempty" yaml:"exe,omitempty"`           // binary name inside archive when it differs from Name
 }
 
 type ManifestSkill struct {
-	Repo string `yaml:"repo"`
-	Name string `yaml:"name"`
+	Repo string `json:"repo" yaml:"repo"`
+	Name string `json:"name" yaml:"name"`
 }
 
 type ManifestSessionEnv struct {
-	EnvVar   string `yaml:"env_var"`
-	Source   string `yaml:"source"`
-	Value    string `yaml:"value,omitempty"`
-	Required bool   `yaml:"required,omitempty"`
+	EnvVar   string `json:"env_var" yaml:"env_var"`
+	Source   string `json:"source" yaml:"source"`
+	Value    string `json:"value,omitempty" yaml:"value,omitempty"`
+	Required bool   `json:"required,omitempty" yaml:"required,omitempty"`
 }
 
 type ManifestOAuthFlow struct {
-	Type          string `yaml:"type"`
-	AuthURL       string `yaml:"auth_url,omitempty"`
-	DeviceAuthURL string `yaml:"device_auth_url,omitempty"`
-	TokenURL      string `yaml:"token_url"`
-	AuthStyle     string `yaml:"auth_style,omitempty"`
+	Type          string `json:"type" yaml:"type"`
+	AuthURL       string `json:"auth_url,omitempty" yaml:"auth_url,omitempty"`
+	DeviceAuthURL string `json:"device_auth_url,omitempty" yaml:"device_auth_url,omitempty"`
+	TokenURL      string `json:"token_url" yaml:"token_url"`
+	AuthStyle     string `json:"auth_style,omitempty" yaml:"auth_style,omitempty"`
 }
 
 type ManifestOAuthProvider struct {
-	ID       string              `yaml:"id"`
-	Scopes   []string            `yaml:"scopes"`
-	VaultKey string              `yaml:"vault_key"`
-	Flows    []ManifestOAuthFlow `yaml:"flows"`
+	ID       string              `json:"id" yaml:"id"`
+	Scopes   []string            `json:"scopes" yaml:"scopes"`
+	VaultKey string              `json:"vault_key" yaml:"vault_key"`
+	Flows    []ManifestOAuthFlow `json:"flows" yaml:"flows"`
 }
 
 type Manifest struct {
-	OAuthProviders []ManifestOAuthProvider `yaml:"oauth_providers,omitempty"`
-	Plugins        []ManifestPlugin        `yaml:"plugins"`
+	OAuthProviders []ManifestOAuthProvider `json:"oauth_providers,omitempty" yaml:"oauth_providers,omitempty"`
+	Plugins        []ManifestPlugin        `json:"plugins" yaml:"plugins"`
 }
 
 type rawManifestPlugin struct {
-	ID            string               `yaml:"id"`
-	Kind          string               `yaml:"kind"`
-	Name          string               `yaml:"name"`
-	DisplayName   string               `yaml:"display_name"`
-	Description   string               `yaml:"description"`
-	Enabled       *bool                `yaml:"enabled"`
-	Binaries      []ManifestBinary     `yaml:"binaries,omitempty"`
-	Skills        []ManifestSkill      `yaml:"skills,omitempty"`
-	SessionEnvs   []ManifestSessionEnv `yaml:"session_env,omitempty"`
-	OAuthProvider string               `yaml:"oauth_provider,omitempty"`
+	ID                       string               `yaml:"id"`
+	Kind                     string               `yaml:"kind"`
+	Name                     string               `yaml:"name"`
+	DisplayName              string               `yaml:"display_name"`
+	Description              string               `yaml:"description"`
+	Enabled                  *bool                `yaml:"enabled"`
+	Binaries                 []ManifestBinary     `yaml:"binaries,omitempty"`
+	Skills                   []ManifestSkill      `yaml:"skills,omitempty"`
+	SessionEnvs              []ManifestSessionEnv `yaml:"session_env,omitempty"`
+	OAuthProvider            string               `yaml:"oauth_provider,omitempty"`
+	OAuthProviderConfigField string               `yaml:"oauth_provider_config_field,omitempty"`
+	OAuthProviderChoices     []string             `yaml:"oauth_provider_choices,omitempty"`
 }
 
 type rawManifestOAuthFlow struct {

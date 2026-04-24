@@ -20,6 +20,21 @@ export function register(Alpine) {
     manifestPlugins: [],
     manifestSyncing: false,
     manifestSyncResult: null,
+    manifestInstallOpen: {},
+    manifestInstallDrafts: {},
+    manifestRowID: 0,
+    showAddManifestTool: false,
+    newManifestTool: {
+      id: 'tool/',
+      name: '',
+      display_name: '',
+      description: '',
+      binary_name: '',
+      repo: '',
+      version: '',
+      bin_path: '',
+      exe: '',
+    },
 
     mcpServers: [],
     mcpStatuses: [],
@@ -29,15 +44,15 @@ export function register(Alpine) {
     mcpRowID: 0,
 
     get toolPlugins() {
-      return this.plugins.filter(p => p.kind === 'tool' && p.id !== 'tool/mcp')
+      return this.semanticPlugins('tool').filter(p => p.id !== 'tool/mcp')
     },
 
     get channelPlugins() {
-      return this.plugins.filter(p => p.kind === 'channel')
+      return this.semanticPlugins('channel')
     },
 
     get hookPlugins() {
-      return this.plugins.filter(p => p.kind === 'hook')
+      return this.semanticPlugins('hook')
     },
 
     get memoryPlugins() {
@@ -50,7 +65,19 @@ export function register(Alpine) {
     },
 
     get otherPlugins() {
-      return this.plugins.filter(p => !['tool', 'channel', 'hook', 'memory', 'provider', 'sandbox'].includes(p.kind))
+      const known = new Set(['tool', 'channel', 'hook', 'memory', 'provider', 'sandbox'])
+      const byID = new Map()
+      for (const plugin of this.plugins) {
+        if (!known.has(plugin.kind)) {
+          byID.set(plugin.id, this.withManifestMeta(plugin))
+        }
+      }
+      for (const manifest of this.manifestPlugins) {
+        if (!known.has(manifest.kind) && !byID.has(manifest.id)) {
+          byID.set(manifest.id, this.manifestOnlyPlugin(manifest))
+        }
+      }
+      return this.sortPlugins(Array.from(byID.values()))
     },
 
     get mcpPlugin() {
@@ -92,6 +119,7 @@ export function register(Alpine) {
     async init() {
       await this.loadPlugins()
       await this.loadManifestPlugins()
+      await this.syncManifest({ silent: true })
     },
 
     async loadPlugins() {
@@ -130,6 +158,58 @@ export function register(Alpine) {
         return undefined
       }
       return JSON.parse(JSON.stringify(value))
+    },
+
+    manifestByID(id) {
+      return this.manifestPlugins.find(plugin => plugin.id === id) || null
+    },
+
+    withManifestMeta(plugin) {
+      const manifest = this.manifestByID(plugin.id)
+      return {
+        ...plugin,
+        _manifest: !!manifest,
+        _manifestPlugin: manifest,
+      }
+    },
+
+    manifestOnlyPlugin(manifest) {
+      return {
+        id: manifest.id,
+        kind: manifest.kind,
+        name: manifest.name,
+        display_name: manifest.display_name,
+        description: manifest.description,
+        enabled: manifest.enabled,
+        config: {},
+        capabilities: [],
+        has_config: false,
+        has_status: false,
+        _manifest: true,
+        _manifestPlugin: manifest,
+      }
+    },
+
+    sortPlugins(plugins) {
+      return plugins.sort((a, b) =>
+        (this.pluginLabel(a) || '').localeCompare(this.pluginLabel(b) || '') ||
+        String(a.id || '').localeCompare(String(b.id || '')),
+      )
+    },
+
+    semanticPlugins(kind) {
+      const byID = new Map()
+      for (const plugin of this.plugins) {
+        if (plugin.kind === kind) {
+          byID.set(plugin.id, this.withManifestMeta(plugin))
+        }
+      }
+      for (const manifest of this.manifestPlugins) {
+        if (manifest.kind === kind && !byID.has(manifest.id)) {
+          byID.set(manifest.id, this.manifestOnlyPlugin(manifest))
+        }
+      }
+      return this.sortPlugins(Array.from(byID.values()))
     },
 
     async loadMcpStatus() {
@@ -409,7 +489,7 @@ export function register(Alpine) {
     },
 
     hasGenericConfigEditor(plugin) {
-      return plugin.id !== 'tool/mcp' && plugin.has_config && this.pluginSchemaFields(plugin).length > 0
+      return !!plugin && plugin.id !== 'tool/mcp' && plugin.has_config && this.pluginSchemaFields(plugin).length > 0
     },
 
     isPluginConfigOpen(plugin) {
@@ -691,6 +771,18 @@ export function register(Alpine) {
       return plugin.description || ''
     },
 
+    manifestInstallSummary(plugin) {
+      const manifest = plugin._manifestPlugin
+      if (!manifest) {
+        return ''
+      }
+      const binaries = (manifest.binaries || []).map(binary => binary.name).filter(Boolean)
+      if (binaries.length === 0) {
+        return 'No binaries declared'
+      }
+      return 'Binaries: ' + binaries.join(', ')
+    },
+
     sandboxMeta(plugin) {
       const meta = {
         'sandbox/docker': {
@@ -733,26 +825,287 @@ export function register(Alpine) {
       }
     },
 
+    registeredPluginFor(id) {
+      return this.plugins.find(plugin => plugin.id === id) || null
+    },
+
+    async saveManifestPlugins() {
+      await api('PUT', '/api/manifest-plugins', { plugins: this.manifestPlugins })
+      await this.loadManifestPlugins()
+      await this.loadPlugins()
+      await this.syncManifest({ silent: true })
+    },
+
+    async toggleSemanticPlugin(plugin, enabled) {
+      if (plugin._manifest) {
+        await this.toggleManifestPlugin(plugin.id, enabled)
+        return
+      }
+      await this.togglePlugin(plugin.id, enabled)
+    },
+
     async toggleManifestPlugin(id, enabled) {
       try {
         const plugin = this.manifestPlugins.find(p => p.id === id)
         if (!plugin) return
         plugin.enabled = enabled
-        await api('PUT', '/api/manifest-plugins', { plugins: this.manifestPlugins })
-        await this.loadManifestPlugins()
+        await this.saveManifestPlugins()
         this.$store.toast.show(id + (enabled ? ' enabled' : ' disabled'))
       } catch (e) {
         this.$store.toast.show(e.message, 'error')
       }
     },
 
-    async syncManifest() {
+    isManifestInstallOpen(plugin) {
+      return !!this.manifestInstallOpen[plugin.id]
+    },
+
+    toggleManifestInstallEditor(plugin) {
+      const next = !this.isManifestInstallOpen(plugin)
+      this.manifestInstallOpen[plugin.id] = next
+      if (next && !this.manifestInstallDrafts[plugin.id]) {
+        this.resetManifestInstallDraft(plugin)
+      }
+    },
+
+    nextManifestRowID() {
+      this.manifestRowID += 1
+      return this.manifestRowID
+    },
+
+    normalizeManifestBinaries(binaries) {
+      return (binaries || []).map(binary => ({
+        id: this.nextManifestRowID(),
+        name: binary.name || '',
+        repo: binary.repo || '',
+        version: binary.version || '',
+        bin_path: binary.bin_path || '',
+        exe: binary.exe || '',
+      }))
+    },
+
+    normalizeManifestSessionEnv(sessionEnv) {
+      return (sessionEnv || []).map(env => ({
+        id: this.nextManifestRowID(),
+        env_var: env.env_var || '',
+        source: env.source || 'static',
+        value: env.value || '',
+        required: !!env.required,
+      }))
+    },
+
+    resetManifestInstallDraft(plugin) {
+      const manifest = plugin._manifestPlugin || this.manifestByID(plugin.id) || {}
+      this.manifestInstallDrafts[plugin.id] = {
+        id: manifest.id || plugin.id || '',
+        kind: manifest.kind || plugin.kind || 'tool',
+        name: manifest.name || plugin.name || '',
+        display_name: manifest.display_name || plugin.display_name || '',
+        description: manifest.description || plugin.description || '',
+        enabled: manifest.enabled !== false,
+        binaries: this.normalizeManifestBinaries(manifest.binaries || []),
+        session_env: this.normalizeManifestSessionEnv(manifest.session_env || []),
+        oauth_provider: manifest.oauth_provider || '',
+        oauth_provider_config_field: manifest.oauth_provider_config_field || '',
+        oauth_provider_choices: (manifest.oauth_provider_choices || []).join(', '),
+      }
+    },
+
+    addManifestBinary(plugin) {
+      this.manifestInstallDrafts[plugin.id].binaries.push({
+        id: this.nextManifestRowID(),
+        name: '',
+        repo: '',
+        version: '',
+        bin_path: '',
+        exe: '',
+      })
+    },
+
+    removeManifestBinary(plugin, index) {
+      this.manifestInstallDrafts[plugin.id].binaries.splice(index, 1)
+    },
+
+    addManifestSessionEnv(plugin) {
+      this.manifestInstallDrafts[plugin.id].session_env.push({
+        id: this.nextManifestRowID(),
+        env_var: '',
+        source: 'static',
+        value: '',
+        required: false,
+      })
+    },
+
+    removeManifestSessionEnv(plugin, index) {
+      this.manifestInstallDrafts[plugin.id].session_env.splice(index, 1)
+    },
+
+    buildManifestBinaries(rows) {
+      return (rows || [])
+        .map(row => {
+          const binary = {
+            name: String(row.name || '').trim(),
+            repo: String(row.repo || '').trim(),
+          }
+          if (row.version) binary.version = String(row.version).trim()
+          if (row.bin_path) binary.bin_path = String(row.bin_path).trim()
+          if (row.exe) binary.exe = String(row.exe).trim()
+          return binary
+        })
+        .filter(binary => binary.name || binary.repo)
+    },
+
+    buildManifestSessionEnv(rows) {
+      return (rows || [])
+        .map(row => {
+          const env = {
+            env_var: String(row.env_var || '').trim(),
+            source: String(row.source || '').trim(),
+          }
+          if (row.value) env.value = String(row.value)
+          if (row.required) env.required = true
+          return env
+        })
+        .filter(env => env.env_var || env.source)
+    },
+
+    buildManifestPluginFromDraft(plugin) {
+      const draft = this.manifestInstallDrafts[plugin.id]
+      if (!draft) {
+        throw new Error('manifest draft missing')
+      }
+      const binaries = this.buildManifestBinaries(draft.binaries)
+      const sessionEnv = this.buildManifestSessionEnv(draft.session_env)
+      const next = {
+        id: (draft.id || '').trim(),
+        kind: (draft.kind || '').trim(),
+        name: (draft.name || '').trim(),
+        display_name: (draft.display_name || '').trim(),
+        description: (draft.description || '').trim(),
+        enabled: !!draft.enabled,
+        binaries,
+        session_env: sessionEnv,
+      }
+      if (draft.oauth_provider) {
+        next.oauth_provider = draft.oauth_provider.trim()
+      }
+      if (draft.oauth_provider_config_field) {
+        next.oauth_provider_config_field = draft.oauth_provider_config_field.trim()
+      }
+      const choices = String(draft.oauth_provider_choices || '')
+        .split(',')
+        .map(value => value.trim())
+        .filter(Boolean)
+      if (choices.length > 0) {
+        next.oauth_provider_choices = choices
+      }
+      return next
+    },
+
+    async saveManifestInstall(plugin) {
+      try {
+        const next = this.buildManifestPluginFromDraft(plugin)
+        const index = this.manifestPlugins.findIndex(p => p.id === plugin.id)
+        if (index >= 0) {
+          this.manifestPlugins.splice(index, 1, next)
+        } else {
+          this.manifestPlugins.push(next)
+        }
+        if (next.id !== plugin.id) {
+          delete this.manifestInstallOpen[plugin.id]
+          delete this.manifestInstallDrafts[plugin.id]
+        }
+        await this.saveManifestPlugins()
+        this.$store.toast.show(next.id + ' install saved')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    resetNewManifestTool() {
+      this.newManifestTool = {
+        id: 'tool/',
+        name: '',
+        display_name: '',
+        description: '',
+        binary_name: '',
+        repo: '',
+        version: '',
+        bin_path: '',
+        exe: '',
+      }
+    },
+
+    fillNewManifestToolDefaults() {
+      const binary = (this.newManifestTool.binary_name || '').trim()
+      if (!binary) return
+      if (!this.newManifestTool.name) {
+        this.newManifestTool.name = binary
+      }
+      if (this.newManifestTool.id === 'tool/' || !this.newManifestTool.id) {
+        this.newManifestTool.id = 'tool/' + binary
+      }
+      if (!this.newManifestTool.display_name) {
+        this.newManifestTool.display_name = binary
+      }
+    },
+
+    async createManifestTool() {
+      try {
+        this.fillNewManifestToolDefaults()
+        const draft = this.newManifestTool
+        const id = (draft.id || '').trim()
+        const name = (draft.name || '').trim()
+        const binaryName = (draft.binary_name || '').trim()
+        const repo = (draft.repo || '').trim()
+        if (!id || !id.startsWith('tool/')) {
+          throw new Error('Plugin ID must start with tool/')
+        }
+        if (!name) {
+          throw new Error('Name is required')
+        }
+        if (!binaryName) {
+          throw new Error('Binary name is required')
+        }
+        if (!repo) {
+          throw new Error('GitHub repo is required')
+        }
+        if (this.manifestPlugins.some(plugin => plugin.id === id)) {
+          throw new Error(id + ' already exists')
+        }
+        const binary = { name: binaryName, repo }
+        if (draft.version) binary.version = draft.version.trim()
+        if (draft.bin_path) binary.bin_path = draft.bin_path.trim()
+        if (draft.exe) binary.exe = draft.exe.trim()
+        this.manifestPlugins.push({
+          id,
+          kind: 'tool',
+          name,
+          display_name: (draft.display_name || '').trim() || name,
+          description: (draft.description || '').trim(),
+          enabled: true,
+          binaries: [binary],
+        })
+        await this.saveManifestPlugins()
+        this.showAddManifestTool = false
+        this.resetNewManifestTool()
+        this.$store.toast.show(id + ' added')
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    async syncManifest(options = {}) {
       try {
         this.manifestSyncing = true
         this.manifestSyncResult = await api('POST', '/api/manifest-plugins/sync')
-        this.$store.toast.show('Manifest sync complete')
+        if (!options.silent) {
+          this.$store.toast.show('Manifest sync complete')
+        }
       } catch (e) {
-        this.$store.toast.show(e.message, 'error')
+        if (!options.silent) {
+          this.$store.toast.show(e.message, 'error')
+        }
       } finally {
         this.manifestSyncing = false
       }
@@ -760,6 +1113,9 @@ export function register(Alpine) {
 
     pluginMetaBadges(plugin) {
       const badges = []
+      if (plugin._manifest) {
+        badges.push({ key: 'manifest', label: 'manifest', className: 'badge-primary' })
+      }
       if (plugin.managed) {
         badges.push({ key: 'managed', label: 'managed', className: 'badge-primary' })
       }

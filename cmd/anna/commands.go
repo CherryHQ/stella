@@ -206,6 +206,9 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 				if p.OAuthProvider != "" {
 					providerPluginIDs[p.OAuthProvider] = p.ID
 				}
+				for _, providerID := range p.OAuthProviderChoices {
+					providerPluginIDs[providerID] = p.ID
+				}
 			}
 		}
 	}
