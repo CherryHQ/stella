@@ -14,7 +14,7 @@ func managedCommandContext(ctx context.Context, name string, args ...string) *ex
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
-		if cmd.Process == nil || cmd.ProcessState != nil {
+		if cmd.Process == nil {
 			return os.ErrProcessDone
 		}
 		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)

@@ -209,38 +209,40 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 		return "", fmt.Errorf("mise install: %w\nstderr: %s", err, stderr.String())
 	}
 
-	// Resolve the install directory
-	var stdout bytes.Buffer
-	stderr.Reset()
-	whereCmd := managedCommandContext(ctx, miseBin, "where", toolKey)
-	whereCmd.Dir = tmpDir
-	whereCmd.Env = env
-	whereCmd.Stdout = &stdout
-	whereCmd.Stderr = &stderr
-	if err := whereCmd.Run(); err != nil {
-		return "", fmt.Errorf("mise where %s: %w\nstderr: %s", toolKey, err, stderr.String())
-	}
-
-	installDir := strings.TrimSpace(stdout.String())
-	if installDir == "" {
-		return "", fmt.Errorf("mise where %s returned empty path", toolKey)
-	}
-
-	// Get the installed version from the directory name
-	version := filepath.Base(installDir)
-
-	// Find the binary: use exe name when set, fall back to name.
+	// Use the exe name when set, otherwise fall back to the tool name.
 	lookupName := b.Name
 	if b.Exe != "" {
 		lookupName = b.Exe
 	}
-	if runtime.GOOS == "windows" {
-		lookupName += ".exe"
+
+	// Resolve the binary path via mise which — it handles any archive layout.
+	var stdout bytes.Buffer
+	stderr.Reset()
+	whichCmd := managedCommandContext(ctx, miseBin, "which", lookupName)
+	whichCmd.Dir = tmpDir
+	whichCmd.Env = env
+	whichCmd.Stdout = &stdout
+	whichCmd.Stderr = &stderr
+	if err := whichCmd.Run(); err != nil {
+		return "", fmt.Errorf("mise which %s: %w\nstderr: %s", lookupName, err, stderr.String())
 	}
-	srcPath, err := findInstalledBinary(installDir, lookupName)
-	if err != nil {
-		return "", fmt.Errorf("find binary %s in %s: %w", lookupName, installDir, err)
+	srcPath := strings.TrimSpace(stdout.String())
+	if srcPath == "" {
+		return "", fmt.Errorf("mise which %s returned empty path", lookupName)
 	}
+
+	// Resolve the installed version via mise which --version.
+	stdout.Reset()
+	stderr.Reset()
+	verCmd := managedCommandContext(ctx, miseBin, "which", lookupName, "--version")
+	verCmd.Dir = tmpDir
+	verCmd.Env = env
+	verCmd.Stdout = &stdout
+	verCmd.Stderr = &stderr
+	if err := verCmd.Run(); err != nil {
+		return "", fmt.Errorf("mise which --version %s: %w\nstderr: %s", lookupName, err, stderr.String())
+	}
+	version := strings.TrimSpace(stdout.String())
 
 	// Always install as b.Name in $ANNA_HOME/bin/ regardless of exe alias.
 	dstName := b.Name
@@ -258,19 +260,6 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 	return version, nil
 }
 
-// findInstalledBinary searches common locations within a mise install directory.
-func findInstalledBinary(installDir, name string) (string, error) {
-	candidates := []string{
-		filepath.Join(installDir, "bin", name),
-		filepath.Join(installDir, name),
-	}
-	for _, c := range candidates {
-		if _, err := os.Stat(c); err == nil {
-			return c, nil
-		}
-	}
-	return "", fmt.Errorf("binary %q not found in %s (checked bin/ and root)", name, installDir)
-}
 
 // atomicCopy copies src to dst using a temp file + rename.
 func atomicCopy(src, dst string, mode os.FileMode) error {
