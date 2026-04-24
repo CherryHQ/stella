@@ -625,8 +625,8 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 		return err
 	}
 	if err := s.seedBuiltinPlugins(ctx, PluginKindSandbox, builtinSandboxNames, func(name string) int64 {
-		if name == SandboxBackendDocker {
-			return 1 // docker is the default active backend
+		if name == SandboxBackendLocal {
+			return 1 // local is the default active backend
 		}
 		return 0
 	}); err != nil {
