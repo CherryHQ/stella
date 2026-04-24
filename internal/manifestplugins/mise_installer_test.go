@@ -69,12 +69,14 @@ case "$1" in
     chmod +x "$MISE_DATA_DIR/installs/github-owner-repo/1.2.3/bin/mytool"
     exit 0
     ;;
-  where)
-    if [ "$2" != "github:owner/repo" ]; then
-      echo "unexpected where target: $*" >&2
-      exit 8
+  which)
+    # which <name> --version
+    if [ "${3:-}" = "--version" ]; then
+      printf '1.2.3\n'
+      exit 0
     fi
-    printf '%s\n' "$MISE_DATA_DIR/installs/github-owner-repo/1.2.3"
+    # which <name>
+    printf '%s\n' "$MISE_DATA_DIR/installs/github-owner-repo/1.2.3/bin/$2"
     exit 0
     ;;
   *)
@@ -116,8 +118,8 @@ esac
 	if !strings.Contains(log, "args:install github:owner/repo") {
 		t.Fatalf("mise install was not targeted to the manifest tool; log:\n%s", log)
 	}
-	if !strings.Contains(log, "args:where github:owner/repo") {
-		t.Fatalf("mise where was not targeted to the manifest tool; log:\n%s", log)
+	if !strings.Contains(log, "args:which mytool") {
+		t.Fatalf("mise which was not called for the binary; log:\n%s", log)
 	}
 	if strings.Contains(log, "/danger") {
 		t.Fatalf("host mise env leaked into installer; log:\n%s", log)
