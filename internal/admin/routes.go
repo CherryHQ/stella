@@ -36,6 +36,8 @@ func (s *Server) registerAuthRoutes() {
 
 	// Feishu web login (unauthenticated endpoints)
 	s.mux.HandleFunc("GET /api/auth/login/feishu/availability", s.feishuLoginAvailabilityHandler)
+	s.mux.HandleFunc("POST /api/auth/login/feishu/start", s.feishuLoginStartHandler)
+	s.mux.HandleFunc("GET /api/auth/login/feishu/callback", s.feishuLoginCallbackHandler)
 }
 
 func (s *Server) registerProfileRoutes() {

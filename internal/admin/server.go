@@ -37,6 +37,7 @@ type Server struct {
 	vaultRecipient *age.X25519Recipient // optional; if set, age keys are generated for new users
 	vaultSvc       *vault.Service       // optional; if nil, vault endpoints return 503
 	credSvc        *credentials.Service // shared credentials service
+	loginFlowStore *LoginFlowStore      // one-time state for Feishu web login
 }
 
 // New creates an admin server with all API routes mounted.
@@ -57,20 +58,21 @@ func New(store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine
 	credSvc := credentials.NewService(nil, pluginHost.Config(), flowStore, corsOrigin)
 
 	s := &Server{
-		store:       store,
-		authStore:   authStore,
-		engine:      engine,
-		rateLimiter: auth.NewRateLimiter(),
-		linkCodes:   linkCodes,
-		mem:         mem,
-		poolManager: poolManager,
-		db:          db,
-		pluginHost:  pluginHost,
-		q:           sqlc.New(db),
-		mux:         http.NewServeMux(),
-		log:         slog.With("component", "admin"),
-		corsOriginV: corsOrigin,
-		credSvc:     credSvc,
+		store:          store,
+		authStore:      authStore,
+		engine:         engine,
+		rateLimiter:    auth.NewRateLimiter(),
+		linkCodes:      linkCodes,
+		mem:            mem,
+		poolManager:    poolManager,
+		db:             db,
+		pluginHost:     pluginHost,
+		q:              sqlc.New(db),
+		mux:            http.NewServeMux(),
+		log:            slog.With("component", "admin"),
+		corsOriginV:    corsOrigin,
+		credSvc:        credSvc,
+		loginFlowStore: NewLoginFlowStore(),
 	}
 
 	s.registerRoutes()
