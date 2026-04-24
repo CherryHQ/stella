@@ -112,10 +112,20 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 		return "", fmt.Errorf("create mise data dir: %w", err)
 	}
 
-	env := append(os.Environ(), "MISE_DATA_DIR="+dataDir)
+	env := append(os.Environ(), "MISE_DATA_DIR="+dataDir, "MISE_YES=1")
+
+	// Trust the temp config so mise doesn't refuse to read it.
+	var stderr bytes.Buffer
+	trustCmd := exec.CommandContext(ctx, miseBin, "trust", tmpDir)
+	trustCmd.Dir = tmpDir
+	trustCmd.Env = env
+	trustCmd.Stderr = &stderr
+	if err := trustCmd.Run(); err != nil {
+		return "", fmt.Errorf("mise trust: %w\nstderr: %s", err, stderr.String())
+	}
 
 	// Run mise install
-	var stderr bytes.Buffer
+	stderr.Reset()
 	installCmd := exec.CommandContext(ctx, miseBin, "install")
 	installCmd.Dir = tmpDir
 	installCmd.Env = env
