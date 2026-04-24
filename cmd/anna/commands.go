@@ -450,9 +450,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 }
 
 func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGroup, m *manifestplugins.Manifest, annaHome string) {
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("manifest plugin reconcile panic", "panic", r)
@@ -460,7 +458,7 @@ func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGrou
 		}()
 		slog.Info("manifest plugin reconcile queued in background")
 		manifestplugins.Reconcile(ctx, m, annaHome)
-	}()
+	})
 }
 
 func (s *setupResult) waitBackgroundTasks() {
