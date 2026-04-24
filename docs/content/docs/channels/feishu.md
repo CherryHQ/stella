@@ -40,16 +40,22 @@ The builtin `lark` skill maps the retired `feishu_calendar`, `feishu_task`, `fei
 
 ## Auto-Provisioning
 
-When enabled, anna automatically creates an Anna account for any employee of your configured Feishu tenant the first time they message the bot. No manual registration or `/link` step is needed.
+When enabled for a Feishu channel instance, anna automatically creates an Anna account for an employee the first time they message that bot. No manual registration or `/link` step is needed.
 
 ### How it works
 
 1. A user messages the bot.
-2. Anna checks the event's `tenant_key` against `cfg.tenant_key`. If they do not match (external guest), the message proceeds normally and the user receives an access-denied response.
-3. If they match, anna calls the Feishu Contact API (`contact.v3.user.get`) to retrieve the user's `union_id`, display name, and email.
-4. A new Anna user is created with the email local-part as username (`alice` from `alice@corp.com`), falling back to `feishu-<union_id[:8]>` if no email is available. Username collisions get a `-2`, `-3`, … suffix.
-5. The provisioned user has no password — they can chat with the bot immediately but cannot log into the admin UI until an admin sets a password for them.
-6. Provisioned users are assigned the `user` role and the system default agent.
+2. Auto-provision runs only for messages that the bot actually handles. In groups, the default `group_mode` is `mention`, so the user must `@` the bot unless you change that channel or group override to `always`.
+3. Anna determines the bot tenant key:
+   - if `tenant_key` is configured, that value is used
+   - otherwise anna tries to auto-detect it at startup via the Feishu tenant API
+4. If the message event includes a `tenant_key` and it does not match the bot tenant, anna skips auto-provision for that sender.
+5. Anna calls the Feishu Contact API (`contact.v3.user.get`) to retrieve the user's `union_id`, display name, and email.
+6. A new Anna user is created with the email local-part as username (`alice` from `alice@corp.com`), falling back to `feishu-<union_id[:8]>` if no email is available. Username collisions get a `-2`, `-3`, … suffix.
+7. The provisioned user has no password — they can chat with the bot immediately but cannot log into the admin UI until an admin sets a password for them.
+8. Provisioned users are assigned the `user` role and the system default agent.
+
+Auto-provisioning is best-effort. If tenant detection or the Contact API lookup fails, the message still goes through the normal channel flow, but no Anna user is created.
 
 ### Required app scopes
 
@@ -62,6 +68,8 @@ Add these scopes to your Feishu app under **Permissions & Scopes**:
 
 In the Feishu Admin Console, go to **Enterprise Information** (企业信息). The tenant key is labeled **企业标识** or **Tenant Key**.
 
+`tenant_key` is optional in the current implementation because anna can auto-detect it at startup. Still, setting it explicitly is recommended because it removes one failure mode and makes auto-provisioning more predictable.
+
 ### Configuration
 
 ```json
@@ -73,7 +81,7 @@ In the Feishu Admin Console, go to **Enterprise Information** (企业信息). Th
 }
 ```
 
-> **Warning:** External guests in shared groups will receive an access-denied response per message — their tenant key differs from your configured one. This is by design.
+> **Warning:** External guests in shared groups are not auto-provisioned. If their tenant key differs from the bot tenant, anna skips account creation for them. This is by design.
 
 > **Note:** If no admin user exists yet, auto-provisioning is refused until the first admin registers via the admin UI. This prevents stranding a fresh deployment with zero admins.
 
@@ -166,6 +174,34 @@ Feishu supports the standard chat commands:
 | `verification_token` | Optional event verification token                                     |
 | `group_mode`         | Default group behavior: `mention`, `always`, or `disabled`            |
 | `enable_notify`      | Allow scheduler and notify output to target Feishu                    |
-| `tenant_key`         | Your enterprise tenant key. Required when `auto_provision` is `true`  |
-| `auto_provision`     | Automatically create Anna accounts for users of the configured tenant |
+| `tenant_key`         | Your enterprise tenant key. Optional: anna can auto-detect it at startup, but setting it explicitly is recommended |
+| `auto_provision`     | Automatically create Anna accounts for users handled by this Feishu channel instance |
 | `groups`             | Optional per-chat overrides keyed by Feishu `chat_id`                 |
+
+## Troubleshooting Auto-Provisioning
+
+If new Feishu users are not being created, check these first:
+
+1. **You enabled it on the correct Feishu instance.** Auto-provision is configured per channel instance, not globally.
+2. **The bot is actually handling the message.** In groups, `group_mode: mention` requires an `@` mention.
+3. **`tenant_key` is set or startup auto-detection succeeded.** If tenant detection fails and no explicit `tenant_key` is configured, auto-provision is skipped.
+4. **The Feishu app has these scopes:**
+   - `contact:user.base:readonly`
+   - `contact:user.id:readonly`
+5. **At least one Anna admin already exists.** Fresh deployments refuse auto-provision until the first admin account is created.
+6. **The sender is an internal tenant member.** External guests are intentionally not auto-provisioned.
+7. **You restarted anna after config changes.**
+
+A practical, reliable setup is:
+
+```json
+{
+  "app_id": "FEISHU_APP_ID",
+  "app_secret": "FEISHU_APP_SECRET",
+  "tenant_key": "YOUR_TENANT_KEY",
+  "auto_provision": true,
+  "group_mode": "always"
+}
+```
+
+Use `group_mode: "always"` only if you want provisioning and replies to happen for every group message. Otherwise keep `mention` and make sure users `@` the bot on first contact.

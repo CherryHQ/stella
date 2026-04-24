@@ -38,16 +38,22 @@ lark-cli auth status
 
 ## 自动注册用户
 
-开启后，anna 会在飞书租户的员工第一次给机器人发消息时，自动为其创建 Anna 账号，无需手动注册或执行 `/link`。
+为某个 Feishu 频道实例开启后，anna 会在该机器人的租户员工第一次发消息时，自动为其创建 Anna 账号，无需手动注册或执行 `/link`。
 
 ### 工作原理
 
 1. 用户发送消息。
-2. Anna 对比事件中的 `tenant_key` 与配置的 `tenant_key`。若不匹配（外部访客），消息正常流转，但用户会收到"无权访问"的回复。
-3. 若匹配，anna 调用飞书联系人 API（`contact.v3.user.get`）获取用户的 `union_id`、显示名称和邮箱。
-4. 以邮箱本地部分作为用户名创建 Anna 账号（例如 `alice@corp.com` → `alice`），无邮箱时回退到 `feishu-<union_id[:8]>`。用户名冲突时加 `-2`、`-3` 等后缀。
-5. 自动创建的用户没有密码，可以立即与机器人对话，但在管理员设置密码前无法登录管理面板。
-6. 自动注册的用户角色为 `user`，默认使用系统默认 agent。
+2. 自动注册只会在机器人实际处理这条消息时触发。在群聊里，默认 `group_mode` 是 `mention`，所以用户必须先 `@` 机器人；除非你把频道或群组覆盖配置改成 `always`。
+3. Anna 确定机器人的租户键：
+   - 如果显式配置了 `tenant_key`，就使用该值。
+   - 否则 anna 会在启动时通过 Feishu tenant API 自动探测。
+4. 如果消息事件里带有 `tenant_key`，且它与机器人租户不一致，anna 会跳过该发送者的自动注册。
+5. Anna 调用飞书联系人 API（`contact.v3.user.get`）获取用户的 `union_id`、显示名称和邮箱。
+6. 以邮箱本地部分作为用户名创建 Anna 账号（例如 `alice@corp.com` → `alice`），无邮箱时回退到 `feishu-<union_id[:8]>`。用户名冲突时加 `-2`、`-3` 等后缀。
+7. 自动创建的用户没有密码，可以立即与机器人对话，但在管理员设置密码前无法登录管理面板。
+8. 自动注册的用户角色为 `user`，默认使用系统默认 agent。
+
+自动注册是 best-effort 的：如果租户探测失败，或联系人 API 查询失败，消息仍然会按正常通道流程继续处理，但不会创建 Anna 用户。
 
 ### 所需应用权限
 
@@ -60,6 +66,8 @@ lark-cli auth status
 
 登录飞书管理后台，进入 **企业信息**，找到 **企业标识（Tenant Key）**。
 
+当前实现里 `tenant_key` 不是必填项，因为 anna 可以在启动时自动探测；但仍然建议显式填写，这样可以减少一种失败路径，让自动注册行为更稳定、更可预期。
+
 ### 配置示例
 
 ```json
@@ -71,7 +79,7 @@ lark-cli auth status
 }
 ```
 
-> **注意：** 共享群中的外部访客每次发消息都会收到"无权访问"的回复——因为他们的 tenant_key 与配置不符，这是预期行为。
+> **注意：** 共享群中的外部访客不会被自动注册。如果他们的 tenant_key 与机器人租户不一致，anna 会跳过账号创建。这是预期行为。
 
 > **注意：** 若系统中尚无管理员账号，自动注册会被拒绝，直到第一个管理员通过管理面板完成注册。这样可以防止全新部署陷入无管理员的困境。
 
@@ -159,6 +167,34 @@ Feishu 支持标准聊天命令：
 | `verification_token` | 可选的事件校验 token                               |
 | `group_mode`         | 默认群聊行为：`mention`、`always` 或 `disabled`    |
 | `enable_notify`      | 允许调度器和 `notify` 输出发送到 Feishu            |
-| `tenant_key`         | 企业 Tenant Key，`auto_provision` 为 `true` 时必填 |
-| `auto_provision`     | 自动为配置租户的员工创建 Anna 账号                 |
+| `tenant_key`         | 企业 Tenant Key。可选：anna 可在启动时自动探测，但仍建议显式配置 |
+| `auto_provision`     | 自动为这个 Feishu 频道实例实际处理到的用户创建 Anna 账号        |
 | `groups`             | 按 Feishu `chat_id` 配置的群级覆盖项               |
+
+## 自动注册排障
+
+如果新的 Feishu 用户没有被创建，先检查这些项目：
+
+1. **是否在正确的 Feishu 实例上启用了该功能。** 自动注册是按频道实例配置的，不是全局开关。
+2. **机器人是否真的处理到了这条消息。** 在群聊里，`group_mode: mention` 需要先 `@` 机器人。
+3. **`tenant_key` 是否已配置，或启动时自动探测是否成功。** 如果租户探测失败且没有显式配置 `tenant_key`，自动注册会被跳过。
+4. **Feishu 应用是否具备以下权限：**
+   - `contact:user.base:readonly`
+   - `contact:user.id:readonly`
+5. **Anna 中是否已经至少存在一个管理员。** 全新部署在第一个管理员创建前会拒绝自动注册。
+6. **发送者是否是内部租户成员。** 外部访客本来就不会被自动注册。
+7. **修改配置后是否重启了 anna。**
+
+一个更稳妥的配置示例是：
+
+```json
+{
+  "app_id": "FEISHU_APP_ID",
+  "app_secret": "FEISHU_APP_SECRET",
+  "tenant_key": "YOUR_TENANT_KEY",
+  "auto_provision": true,
+  "group_mode": "always"
+}
+```
+
+只有在你希望群里每条消息都触发自动注册和回复时，才使用 `group_mode: "always"`。否则保持 `mention`，并确保用户第一次联系时先 `@` 机器人。
