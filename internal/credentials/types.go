@@ -4,11 +4,11 @@ import "time"
 
 // ProviderStatus describes the availability of an OAuth provider.
 type ProviderStatus struct {
-	Provider    string
-	Available   bool
-	Connected   bool
-	Username    string // label for the connected account
-	Unavailable string // reason when Available is false
+	Provider    string `json:"provider"`
+	Available   bool   `json:"available"`
+	Connected   bool   `json:"connected"`
+	Username    string `json:"username,omitempty"`    // label for the connected account
+	Unavailable string `json:"unavailable,omitempty"` // reason when Available is false
 }
 
 // FlowStatus is the model-visible view of an in-flight OAuth flow.

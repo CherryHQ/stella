@@ -14,6 +14,34 @@ func TestLoadBuiltin(t *testing.T) {
 	}
 }
 
+func TestLoadBuiltinLarkCLISelectsOAuthProviderFromBrand(t *testing.T) {
+	m, err := LoadBuiltin()
+	if err != nil {
+		t.Fatalf("LoadBuiltin() error: %v", err)
+	}
+	for _, p := range m.Plugins {
+		if p.ID != "tool/lark-cli" {
+			continue
+		}
+		if p.OAuthProvider != "" {
+			t.Fatalf("OAuthProvider = %q, want dynamic provider from config", p.OAuthProvider)
+		}
+		if p.OAuthProviderConfigField != "brand" {
+			t.Fatalf("OAuthProviderConfigField = %q, want brand", p.OAuthProviderConfigField)
+		}
+		if len(p.OAuthProviderChoices) != 2 || p.OAuthProviderChoices[0] != "lark" || p.OAuthProviderChoices[1] != "feishu" {
+			t.Fatalf("OAuthProviderChoices = %#v, want [lark feishu]", p.OAuthProviderChoices)
+		}
+		for _, se := range p.SessionEnvs {
+			if se.EnvVar == "LARKSUITE_CLI_BRAND" && se.Source != "oauth.brand" {
+				t.Fatalf("LARKSUITE_CLI_BRAND source = %q, want oauth.brand", se.Source)
+			}
+		}
+		return
+	}
+	t.Fatal("tool/lark-cli not found")
+}
+
 func TestMerge_UserDisablesBuiltin(t *testing.T) {
 	builtinRaw, err := parseRawYAML(builtinYAML)
 	if err != nil {
@@ -83,31 +111,31 @@ func TestMerge_UserOmitsEnabled_InheritsBuiltin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Confirm builtin has tool/mise enabled.
-	var builtinMiseEnabled *bool
+	// Confirm builtin has tool/tap-web enabled.
+	var builtinTapEnabled *bool
 	for _, p := range builtinRaw.Plugins {
-		if p.ID == "tool/mise" {
-			builtinMiseEnabled = p.Enabled
+		if p.ID == "tool/tap-web" {
+			builtinTapEnabled = p.Enabled
 			break
 		}
 	}
-	if builtinMiseEnabled == nil || !*builtinMiseEnabled {
-		t.Fatal("prerequisite: tool/mise must be enabled in builtin")
+	if builtinTapEnabled == nil || !*builtinTapEnabled {
+		t.Fatal("prerequisite: tool/tap-web must be enabled in builtin")
 	}
 
-	// User overrides tool/mise but omits Enabled (nil pointer).
+	// User overrides tool/tap-web but omits Enabled (nil pointer).
 	userRaw := rawManifest{Plugins: []rawManifestPlugin{
-		{ID: "tool/mise", Name: "mise-override"},
+		{ID: "tool/tap-web", Name: "tap-web-override"},
 	}}
 
 	merged := MergeRaw(builtinRaw, userRaw)
 	for _, p := range merged.Plugins {
-		if p.ID == "tool/mise" {
+		if p.ID == "tool/tap-web" {
 			if !p.Enabled {
-				t.Error("expected tool/mise to inherit enabled:true from builtin when user omits enabled")
+				t.Error("expected tool/tap-web to inherit enabled:true from builtin when user omits enabled")
 			}
 			return
 		}
 	}
-	t.Error("tool/mise not found in merged result")
+	t.Error("tool/tap-web not found in merged result")
 }

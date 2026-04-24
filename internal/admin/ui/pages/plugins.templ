@@ -65,38 +65,102 @@ templ PluginsPage() {
 					<span class="text-xs text-secondary ml-1" x-text="'(' + otherPlugins.length + ')'"></span>
 				</button>
 			</template>
-			<button
-				@click="tab = 'manifest'"
-				class="pb-2 text-sm font-medium transition-colors border-b-2 whitespace-nowrap"
-				:class="tab === 'manifest' ? 'border-primary text-primary' : 'border-transparent text-secondary hover:text-base-content'"
-			>
-				Manifest Tools
-				<span class="text-xs text-secondary ml-1" x-text="'(' + manifestPlugins.length + ')'"></span>
-			</button>
 		</div>
 		<!-- Tools Tab -->
 		<div x-show="tab === 'tools'" x-cloak>
+			<div class="flex items-center justify-between gap-3 mb-4">
+				<p class="text-xs text-secondary">CLI tools and tool plugins. Manifest-backed tools are installed and synced automatically.</p>
+				<button @click="showAddManifestTool = !showAddManifestTool" class="btn btn-primary btn-sm" x-text="showAddManifestTool ? 'Cancel' : 'Add Tool'"></button>
+			</div>
+			<div x-show="showAddManifestTool" x-cloak class="rounded-xl border border-base-300 bg-base-100 p-4 mb-4 space-y-4">
+				<div class="flex items-center justify-between gap-3">
+					<div>
+						<p class="text-sm font-medium">Add Tool</p>
+						<p class="text-xs text-secondary mt-1">Declare a GitHub release binary. Anna writes it to <code class="font-mono">$ANNA_HOME/plugins.yaml</code> and syncs automatically.</p>
+					</div>
+					<button @click="resetNewManifestTool()" class="btn btn-ghost btn-xs">Reset</button>
+				</div>
+				<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+					<div class="space-y-1">
+						<label class="text-xs font-medium text-secondary">Binary name</label>
+						<input x-model="newManifestTool.binary_name" @blur="fillNewManifestToolDefaults()" type="text" placeholder="my-cli" class="input input-bordered input-sm w-full font-mono" />
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs font-medium text-secondary">GitHub repo</label>
+						<input x-model="newManifestTool.repo" type="text" placeholder="owner/repo" class="input input-bordered input-sm w-full font-mono" />
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs font-medium text-secondary">Plugin ID</label>
+						<input x-model="newManifestTool.id" type="text" placeholder="tool/my-cli" class="input input-bordered input-sm w-full font-mono" />
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs font-medium text-secondary">Name</label>
+						<input x-model="newManifestTool.name" type="text" placeholder="my-cli" class="input input-bordered input-sm w-full font-mono" />
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs font-medium text-secondary">Display name</label>
+						<input x-model="newManifestTool.display_name" type="text" placeholder="My CLI" class="input input-bordered input-sm w-full" />
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs font-medium text-secondary">Version</label>
+						<input x-model="newManifestTool.version" type="text" placeholder="latest or v1.2.3" class="input input-bordered input-sm w-full font-mono" />
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs font-medium text-secondary">Bin path</label>
+						<input x-model="newManifestTool.bin_path" type="text" placeholder="bin" class="input input-bordered input-sm w-full font-mono" />
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs font-medium text-secondary">Exe override</label>
+						<input x-model="newManifestTool.exe" type="text" placeholder="archive binary name" class="input input-bordered input-sm w-full font-mono" />
+					</div>
+					<div class="space-y-1 md:col-span-2 xl:col-span-4">
+						<label class="text-xs font-medium text-secondary">Description</label>
+						<input x-model="newManifestTool.description" type="text" placeholder="What this CLI does" class="input input-bordered input-sm w-full" />
+					</div>
+				</div>
+				<div class="flex justify-end">
+					<button @click="createManifestTool()" class="btn btn-primary btn-sm">Save and sync</button>
+				</div>
+			</div>
 			<div class="border border-base-300 rounded-lg divide-y divide-base-300">
 				<template x-for="p in toolPlugins" :key="p.id">
-					<div class="flex items-center justify-between gap-4 px-4 py-3">
-						<div class="min-w-0 flex-1">
-							<div class="flex items-center gap-2">
-								<span class="font-medium text-sm" x-text="pluginLabel(p)"></span>
-								<span class="font-mono text-[11px] text-secondary" x-text="p.id"></span>
-								<template x-if="p.enabled">
-									<span class="badge badge-success badge-xs">on</span>
+					<div>
+						<div class="flex items-center justify-between gap-4 px-4 py-3">
+							<div class="min-w-0 flex-1">
+								<div class="flex items-center gap-2 flex-wrap">
+									<span class="font-medium text-sm" x-text="pluginLabel(p)"></span>
+									<span class="font-mono text-[11px] text-secondary" x-text="p.id"></span>
+									<template x-if="p.enabled">
+										<span class="badge badge-success badge-xs">on</span>
+									</template>
+									<template x-for="badge in pluginMetaBadges(p)" :key="badge.key">
+										<span class="badge badge-xs" :class="badge.className" x-text="badge.label"></span>
+									</template>
+								</div>
+								<template x-if="pluginDescription(p)">
+									<p class="text-xs text-secondary mt-1 leading-relaxed" x-text="pluginDescription(p)"></p>
+								</template>
+								<template x-if="p._manifest">
+									<p class="text-[11px] text-secondary mt-1 font-mono" x-text="manifestInstallSummary(p)"></p>
 								</template>
 							</div>
-							<template x-if="pluginDescription(p)">
-								<p class="text-xs text-secondary mt-1 leading-relaxed" x-text="pluginDescription(p)"></p>
-							</template>
+							<div class="flex items-center gap-2">
+								<template x-if="hasGenericConfigEditor(p)">
+									<button @click="togglePluginConfigEditor(p)" class="btn btn-ghost btn-xs" x-text="isPluginConfigOpen(p) ? 'Hide config' : 'Configure'"></button>
+								</template>
+								<template x-if="p._manifest">
+									<button @click="toggleManifestInstallEditor(p)" class="btn btn-ghost btn-xs" x-text="isManifestInstallOpen(p) ? 'Hide definition' : 'Edit definition'"></button>
+								</template>
+								<input
+									type="checkbox"
+									:checked="p.enabled"
+									@change="toggleSemanticPlugin(p, $event.target.checked)"
+									class="toggle toggle-primary toggle-sm"
+								/>
+							</div>
 						</div>
-						<input
-							type="checkbox"
-							:checked="p.enabled"
-							@change="togglePlugin(p.id, $event.target.checked)"
-							class="toggle toggle-primary toggle-sm"
-						/>
+						@genericPluginConfigEditor("p")
+						@manifestInstallEditor("p")
 					</div>
 				</template>
 				<template x-if="toolPlugins.length === 0">
@@ -391,25 +455,43 @@ templ PluginsPage() {
 		<div x-show="tab === 'hooks'" x-cloak>
 			<div class="border border-base-300 rounded-lg divide-y divide-base-300">
 				<template x-for="p in hookPlugins" :key="p.id">
-					<div class="flex items-center justify-between gap-4 px-4 py-3">
-						<div class="min-w-0 flex-1">
-							<div class="flex items-center gap-2">
-								<span class="font-medium text-sm" x-text="pluginLabel(p)"></span>
-								<span class="font-mono text-[11px] text-secondary" x-text="p.id"></span>
-								<template x-if="p.enabled">
-									<span class="badge badge-success badge-xs">on</span>
+					<div>
+						<div class="flex items-center justify-between gap-4 px-4 py-3">
+							<div class="min-w-0 flex-1">
+								<div class="flex items-center gap-2 flex-wrap">
+									<span class="font-medium text-sm" x-text="pluginLabel(p)"></span>
+									<span class="font-mono text-[11px] text-secondary" x-text="p.id"></span>
+									<template x-if="p.enabled">
+										<span class="badge badge-success badge-xs">on</span>
+									</template>
+									<template x-for="badge in pluginMetaBadges(p)" :key="badge.key">
+										<span class="badge badge-xs" :class="badge.className" x-text="badge.label"></span>
+									</template>
+								</div>
+								<template x-if="pluginDescription(p)">
+									<p class="text-xs text-secondary mt-1 leading-relaxed" x-text="pluginDescription(p)"></p>
+								</template>
+								<template x-if="p._manifest">
+									<p class="text-[11px] text-secondary mt-1 font-mono" x-text="manifestInstallSummary(p)"></p>
 								</template>
 							</div>
-							<template x-if="pluginDescription(p)">
-								<p class="text-xs text-secondary mt-1 leading-relaxed" x-text="pluginDescription(p)"></p>
-							</template>
+							<div class="flex items-center gap-2">
+								<template x-if="hasGenericConfigEditor(p)">
+									<button @click="togglePluginConfigEditor(p)" class="btn btn-ghost btn-xs" x-text="isPluginConfigOpen(p) ? 'Hide config' : 'Configure'"></button>
+								</template>
+								<template x-if="p._manifest">
+									<button @click="toggleManifestInstallEditor(p)" class="btn btn-ghost btn-xs" x-text="isManifestInstallOpen(p) ? 'Hide definition' : 'Edit definition'"></button>
+								</template>
+								<input
+									type="checkbox"
+									:checked="p.enabled"
+									@change="toggleSemanticPlugin(p, $event.target.checked)"
+									class="toggle toggle-primary toggle-sm"
+								/>
+							</div>
 						</div>
-						<input
-							type="checkbox"
-							:checked="p.enabled"
-							@change="togglePlugin(p.id, $event.target.checked)"
-							class="toggle toggle-primary toggle-sm"
-						/>
+						@genericPluginConfigEditor("p")
+						@manifestInstallEditor("p")
 					</div>
 				</template>
 				<template x-if="hookPlugins.length === 0">
@@ -517,61 +599,6 @@ templ PluginsPage() {
 				</template>
 			</div>
 		</div>
-		<!-- Manifest Tools Tab -->
-		<div x-show="tab === 'manifest'" x-cloak>
-			<div class="flex items-center justify-between mb-4">
-				<p class="text-xs text-secondary">File-driven tool plugins from <code class="font-mono">$ANNA_HOME/plugins.yaml</code>. Enable/disable and sync without restart.</p>
-				<button @click="syncManifest()" :disabled="manifestSyncing" class="btn btn-primary btn-sm">
-					<span x-show="manifestSyncing" class="loading loading-spinner loading-xs"></span>
-					Sync now
-				</button>
-			</div>
-			<template x-if="manifestSyncResult">
-				<div class="mb-4 rounded-lg border border-base-300 bg-base-100 p-3">
-					<p class="text-xs font-medium text-secondary mb-2">Last sync result</p>
-					<div class="space-y-1">
-						<template x-for="(result, pluginID) in manifestSyncResult.Plugins" :key="pluginID">
-							<div class="flex items-center gap-2 text-xs">
-								<span class="font-mono" x-text="pluginID"></span>
-								<template x-if="result.Err">
-									<span class="badge badge-error badge-xs" x-text="result.Err"></span>
-								</template>
-								<template x-if="!result.Err">
-									<span class="badge badge-success badge-xs">ok</span>
-								</template>
-							</div>
-						</template>
-					</div>
-				</div>
-			</template>
-			<div class="border border-base-300 rounded-lg divide-y divide-base-300">
-				<template x-for="p in manifestPlugins" :key="p.id">
-					<div class="flex items-center justify-between gap-4 px-4 py-3">
-						<div class="min-w-0 flex-1">
-							<div class="flex items-center gap-2">
-								<span class="font-medium text-sm" x-text="p.display_name || p.name || p.id"></span>
-								<span class="font-mono text-[11px] text-secondary" x-text="p.id"></span>
-								<template x-if="p.enabled">
-									<span class="badge badge-success badge-xs">on</span>
-								</template>
-							</div>
-							<template x-if="p.description">
-								<p class="text-xs text-secondary mt-1" x-text="p.description"></p>
-							</template>
-						</div>
-						<input
-							type="checkbox"
-							:checked="p.enabled"
-							@change="toggleManifestPlugin(p.id, $event.target.checked)"
-							class="toggle toggle-primary toggle-sm"
-						/>
-					</div>
-				</template>
-				<template x-if="manifestPlugins.length === 0">
-					<div class="px-4 py-8 text-center text-secondary text-sm">No manifest plugins configured.</div>
-				</template>
-			</div>
-		</div>
 		<!-- Standalone Tab -->
 		<div x-show="tab === 'standalone'" x-cloak>
 			<p class="text-xs text-secondary mb-4">Background services that run independently. Toggling takes effect immediately.</p>
@@ -662,4 +689,156 @@ templ PluginsPage() {
 			</div>
 		</div>
 	</div>
+}
+
+templ genericPluginConfigEditor(model string) {
+	<template x-if={ "hasGenericConfigEditor(" + model + ") && isPluginConfigOpen(" + model + ")" }>
+		<div class="px-4 pb-4 border-t border-base-300 bg-base-100/50">
+			<div class="pt-4 space-y-4">
+				<div class="flex items-center justify-between gap-3 flex-wrap">
+					<p class="text-sm font-medium">Configuration</p>
+					<div class="flex items-center gap-2">
+						<template x-if={ "pluginConfigIsLoading(" + model + ")" }>
+							<span class="loading loading-spinner loading-xs"></span>
+						</template>
+						<button @click={ "resetPluginConfigDraft(" + model + ")" } :disabled={ "pluginConfigIsLoading(" + model + ") || pluginConfigIsSaving(" + model + ")" } class="btn btn-ghost btn-xs">Reset</button>
+						<button @click={ "savePluginConfig(" + model + ")" } :disabled={ "pluginConfigIsLoading(" + model + ") || pluginConfigIsSaving(" + model + ")" } class="btn btn-primary btn-xs">Save</button>
+					</div>
+				</div>
+				<template x-if={ "pluginConfigIsLoading(" + model + ")" }>
+					<div class="rounded-lg border border-base-300 bg-base-100 px-4 py-6 text-sm text-secondary">Loading…</div>
+				</template>
+				<template x-if={ "!pluginConfigIsLoading(" + model + ")" }>
+					<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+						<template x-for={ "field in pluginSchemaFields(" + model + ")" } :key="field.name">
+							<div class="space-y-1" :class="pluginFieldIsComplex(field) ? 'lg:col-span-2' : ''">
+								<label class="text-xs font-medium text-secondary" :for={ "pluginFieldID(" + model + ", field)" } x-text="field.name"></label>
+								<template x-if="pluginFieldHasEnum(field)">
+									<select :id={ "pluginFieldID(" + model + ", field)" } x-model={ "pluginConfigDrafts[" + model + ".id][field.name]" } class="select select-bordered select-sm w-full">
+										<template x-for="option in field.schema.enum" :key="String(option)">
+											<option :value="option" x-text="pluginFieldOptionLabel(option)"></option>
+										</template>
+									</select>
+								</template>
+								<template x-if="!pluginFieldHasEnum(field) && pluginFieldType(field.schema) === 'boolean'">
+									<label class="label cursor-pointer justify-start gap-3 rounded-lg border border-base-300 px-3 py-2">
+										<input :id={ "pluginFieldID(" + model + ", field)" } x-model={ "pluginConfigDrafts[" + model + ".id][field.name]" } type="checkbox" class="toggle toggle-primary toggle-sm" />
+										<span class="label-text text-sm" x-text="field.name"></span>
+									</label>
+								</template>
+								<template x-if="!pluginFieldHasEnum(field) && pluginFieldType(field.schema) !== 'boolean' && !pluginFieldIsComplex(field)">
+									<input :id={ "pluginFieldID(" + model + ", field)" } x-model={ "pluginConfigDrafts[" + model + ".id][field.name]" } :type="pluginFieldInputType(field)" :placeholder="pluginFieldPlaceholder(field)" class="input input-bordered input-sm w-full" :class="pluginFieldInputType(field) === 'password' ? 'font-mono' : ''" />
+								</template>
+								<template x-if="pluginFieldIsComplex(field)">
+									<textarea :id={ "pluginFieldID(" + model + ", field)" } x-model={ "pluginConfigDrafts[" + model + ".id][field.name]" } :rows="pluginFieldRows(field)" class="textarea textarea-bordered w-full font-mono text-xs" :placeholder="pluginFieldPlaceholder(field)"></textarea>
+								</template>
+								<template x-if="pluginFieldDescription(field)">
+									<p class="text-[11px] leading-relaxed text-secondary" x-text="pluginFieldDescription(field)"></p>
+								</template>
+							</div>
+						</template>
+					</div>
+				</template>
+			</div>
+		</div>
+	</template>
+}
+
+templ manifestInstallEditor(model string) {
+	<template x-if={ model + "._manifest && isManifestInstallOpen(" + model + ")" }>
+		<div class="px-4 pb-4 border-t border-base-300 bg-base-100/50">
+			<div class="pt-4 space-y-4">
+				<div class="flex items-center justify-between gap-3 flex-wrap">
+					<div>
+						<p class="text-sm font-medium">Tool definition</p>
+						<p class="text-xs text-secondary mt-1">Saved to <code class="font-mono">$ANNA_HOME/plugins.yaml</code>; binaries sync after save.</p>
+					</div>
+					<div class="flex items-center gap-2">
+						<button @click={ "resetManifestInstallDraft(" + model + ")" } class="btn btn-ghost btn-xs">Reset</button>
+						<button @click={ "saveManifestInstall(" + model + ")" } class="btn btn-primary btn-xs">Save definition</button>
+					</div>
+				</div>
+				<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+					<div class="space-y-1">
+						<label class="text-xs font-medium text-secondary">ID</label>
+						<input x-model={ "manifestInstallDrafts[" + model + ".id].id" } class="input input-bordered input-sm w-full font-mono" />
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs font-medium text-secondary">Kind</label>
+						<input x-model={ "manifestInstallDrafts[" + model + ".id].kind" } class="input input-bordered input-sm w-full font-mono" />
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs font-medium text-secondary">Name</label>
+						<input x-model={ "manifestInstallDrafts[" + model + ".id].name" } class="input input-bordered input-sm w-full font-mono" />
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs font-medium text-secondary">Display name</label>
+						<input x-model={ "manifestInstallDrafts[" + model + ".id].display_name" } class="input input-bordered input-sm w-full" />
+					</div>
+					<div class="space-y-1 md:col-span-2 xl:col-span-4">
+						<label class="text-xs font-medium text-secondary">Description</label>
+						<input x-model={ "manifestInstallDrafts[" + model + ".id].description" } class="input input-bordered input-sm w-full" />
+					</div>
+					<div class="space-y-1 md:col-span-2 xl:col-span-4">
+						<div class="flex items-center justify-between gap-2">
+							<label class="text-xs font-medium text-secondary">Binaries</label>
+							<button @click={ "addManifestBinary(" + model + ")" } class="btn btn-ghost btn-xs">Add binary</button>
+						</div>
+						<div class="space-y-2">
+							<template x-for={ "(binary, index) in manifestInstallDrafts[" + model + ".id].binaries" } :key="binary.id">
+								<div class="grid grid-cols-1 md:grid-cols-[1fr_1.4fr_0.8fr_0.8fr_0.8fr_auto] gap-2 rounded-lg border border-base-300 p-2">
+									<input x-model="binary.name" placeholder="binary name" class="input input-bordered input-sm w-full font-mono" />
+									<input x-model="binary.repo" placeholder="owner/repo" class="input input-bordered input-sm w-full font-mono" />
+									<input x-model="binary.version" placeholder="version" class="input input-bordered input-sm w-full font-mono" />
+									<input x-model="binary.bin_path" placeholder="bin path" class="input input-bordered input-sm w-full font-mono" />
+									<input x-model="binary.exe" placeholder="exe" class="input input-bordered input-sm w-full font-mono" />
+									<button @click={ "removeManifestBinary(" + model + ", index)" } class="btn btn-ghost btn-xs text-error">Remove</button>
+								</div>
+							</template>
+							<template x-if={ "manifestInstallDrafts[" + model + ".id].binaries.length === 0" }>
+								<div class="rounded-lg border border-dashed border-base-300 px-3 py-3 text-xs text-secondary">No binaries declared.</div>
+							</template>
+						</div>
+					</div>
+					<div class="space-y-1 md:col-span-2 xl:col-span-4">
+						<div class="flex items-center justify-between gap-2">
+							<label class="text-xs font-medium text-secondary">Session environment</label>
+							<button @click={ "addManifestSessionEnv(" + model + ")" } class="btn btn-ghost btn-xs">Add env</button>
+						</div>
+						<div class="space-y-2">
+							<template x-for={ "(env, index) in manifestInstallDrafts[" + model + ".id].session_env" } :key="env.id">
+								<div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto_auto] gap-2 rounded-lg border border-base-300 p-2 items-center">
+									<input x-model="env.env_var" placeholder="ENV_VAR" class="input input-bordered input-sm w-full font-mono" />
+									<select x-model="env.source" class="select select-bordered select-sm w-full font-mono">
+										<option value="static">static</option>
+										<option value="oauth.access_token">oauth.access_token</option>
+										<option value="oauth.client_id">oauth.client_id</option>
+										<option value="oauth.brand">oauth.brand</option>
+									</select>
+									<input x-model="env.value" placeholder="value (static only)" class="input input-bordered input-sm w-full font-mono" />
+									<label class="label cursor-pointer gap-2 py-0"><input x-model="env.required" type="checkbox" class="checkbox checkbox-xs" /><span class="label-text text-xs">required</span></label>
+									<button @click={ "removeManifestSessionEnv(" + model + ", index)" } class="btn btn-ghost btn-xs text-error">Remove</button>
+								</div>
+							</template>
+							<template x-if={ "manifestInstallDrafts[" + model + ".id].session_env.length === 0" }>
+								<div class="rounded-lg border border-dashed border-base-300 px-3 py-3 text-xs text-secondary">No session environment variables declared.</div>
+							</template>
+						</div>
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs font-medium text-secondary">OAuth provider</label>
+						<input x-model={ "manifestInstallDrafts[" + model + ".id].oauth_provider" } placeholder="github" class="input input-bordered input-sm w-full font-mono" />
+					</div>
+					<div class="space-y-1">
+						<label class="text-xs font-medium text-secondary">Provider config field</label>
+						<input x-model={ "manifestInstallDrafts[" + model + ".id].oauth_provider_config_field" } placeholder="brand" class="input input-bordered input-sm w-full font-mono" />
+					</div>
+					<div class="space-y-1 md:col-span-2">
+						<label class="text-xs font-medium text-secondary">Provider choices</label>
+						<input x-model={ "manifestInstallDrafts[" + model + ".id].oauth_provider_choices" } placeholder="feishu, lark" class="input input-bordered input-sm w-full font-mono" />
+					</div>
+				</div>
+			</div>
+		</div>
+	</template>
 }

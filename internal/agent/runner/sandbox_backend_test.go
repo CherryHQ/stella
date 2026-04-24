@@ -238,8 +238,8 @@ func TestBuildSandboxEnv_noVaultLoader(t *testing.T) {
 }
 
 // TestBuildSandboxEnv_OAuthBundleKeysStripped verifies that vault entries for
-// the OAuth bundle keys (GH_OAUTH and LARK_CLI_OAUTH) are not forwarded into
-// the sandbox environment, even when present in the vault.
+// OAuth bundle keys are not forwarded into the sandbox environment, even when
+// present in the vault.
 func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 	cfg := GoRunnerConfig{
 		AnnaHome:  "/anna",
@@ -248,9 +248,10 @@ func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 		UserID:    1,
 		VaultEnvLoader: &stubVaultLoader{
 			env: map[string]string{
-				"GH_OAUTH":       `{"version":1,"access_token":"ghp_secret"}`,
-				"LARK_CLI_OAUTH": `{"version":1,"access_token":"u-lark-secret"}`,
-				"OTHER_SECRET":   "should-pass-through",
+				"GH_OAUTH":         `{"version":1,"access_token":"ghp_secret"}`,
+				"LARK_CLI_OAUTH":   `{"version":1,"access_token":"u-lark-secret"}`,
+				"FEISHU_CLI_OAUTH": `{"version":1,"access_token":"u-feishu-secret"}`,
+				"OTHER_SECRET":     "should-pass-through",
 			},
 		},
 	}
@@ -271,6 +272,9 @@ func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 	if _, ok := env["LARK_CLI_OAUTH"]; ok {
 		t.Error("LARK_CLI_OAUTH must not appear in sandbox env")
 	}
+	if _, ok := env["FEISHU_CLI_OAUTH"]; ok {
+		t.Error("FEISHU_CLI_OAUTH must not appear in sandbox env")
+	}
 
 	// Unrelated vault entries must still pass through.
 	if got := env["OTHER_SECRET"]; got != "should-pass-through" {
@@ -284,24 +288,29 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 	userID := int64(7)
 	now := time.Now().UTC().Truncate(time.Second)
 
-	if err := oauth.SaveGHBundle(ctx, store, userID, oauth.GHOAuthBundle{
+	registry := oauth.NewProviderRegistry()
+	registry.Register(oauth.ProviderConfig{ID: "github", VaultKey: oauth.VaultKeyGitHub})
+	registry.Register(oauth.ProviderConfig{ID: "lark", VaultKey: oauth.VaultKeyLark})
+	tm := oauth.NewTokenManager(store)
+	tm.SetRegistry(registry)
+
+	if err := oauth.SaveOAuthBundle(ctx, store, userID, oauth.VaultKeyGitHub, oauth.OAuthBundle{
 		Version:     1,
 		AccessToken: "ghp_runtime_token",
-		TokenType:   "bearer",
 	}); err != nil {
-		t.Fatalf("SaveGHBundle: %v", err)
+		t.Fatalf("SaveOAuthBundle: %v", err)
 	}
-	if err := oauth.SaveLarkBundle(ctx, store, userID, oauth.LarkOAuthBundle{
+	if err := oauth.SaveOAuthBundle(ctx, store, userID, oauth.VaultKeyLark, oauth.OAuthBundle{
 		Version:          1,
-		AppID:            "lark_app_id",
-		AppSecret:        "lark_app_secret",
+		ClientID:         "lark_app_id",
+		ClientSecret:     "lark_app_secret",
 		Brand:            "feishu",
 		AccessToken:      "lark_access_token",
 		RefreshToken:     "lark_refresh_token",
 		AccessExpiresAt:  now.Add(2 * time.Hour),
 		RefreshExpiresAt: now.Add(24 * time.Hour),
 	}); err != nil {
-		t.Fatalf("SaveLarkBundle: %v", err)
+		t.Fatalf("SaveOAuthBundle: %v", err)
 	}
 	if err := store.Set(ctx, userID, "OTHER_SECRET", "still-present"); err != nil {
 		t.Fatalf("Set OTHER_SECRET: %v", err)
@@ -313,12 +322,12 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 		UserRoot:       "/workspace/users/1",
 		UserID:         userID,
 		VaultEnvLoader: store,
-		TokenManager:   oauth.NewTokenManager(store),
+		TokenManager:   tm,
 		SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
-			{EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSourceGitHubToken},
-			{EnvVar: "LARKSUITE_CLI_USER_ACCESS_TOKEN", Source: pkgplugins.SessionEnvSourceLarkAccessToken},
-			{EnvVar: "LARKSUITE_CLI_APP_ID", Source: pkgplugins.SessionEnvSourceLarkAppID},
-			{EnvVar: "LARKSUITE_CLI_BRAND", Source: pkgplugins.SessionEnvSourceLarkBrand},
+			{EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "github"},
+			{EnvVar: "LARKSUITE_CLI_USER_ACCESS_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "lark"},
+			{EnvVar: "LARKSUITE_CLI_APP_ID", Source: pkgplugins.SessionEnvSource("oauth.client_id"), OAuthProviderID: "lark"},
+			{EnvVar: "LARKSUITE_CLI_BRAND", Source: pkgplugins.SessionEnvSource("oauth.brand"), OAuthProviderID: "lark"},
 		},
 	}
 
@@ -358,10 +367,17 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 	ctx := context.Background()
 	store := newStubOAuthVaultStore()
 	userID := int64(9)
-	if err := store.Set(ctx, userID, oauth.VaultKeyGitHub, `{"version":1,"access_token":""}`); err != nil {
+
+	registry := oauth.NewProviderRegistry()
+	registry.Register(oauth.ProviderConfig{ID: "github", VaultKey: oauth.VaultKeyGitHub})
+	registry.Register(oauth.ProviderConfig{ID: "lark", VaultKey: oauth.VaultKeyLark})
+	tm := oauth.NewTokenManager(store)
+	tm.SetRegistry(registry)
+
+	if err := store.Set(ctx, userID, oauth.VaultKeyGitHub, `{"version":1,"client_id":"","client_secret":"","access_token":""}`); err != nil {
 		t.Fatalf("Set GH_OAUTH: %v", err)
 	}
-	if err := store.Set(ctx, userID, oauth.VaultKeyLark, `{"version":1,"app_id":"app","app_secret":"secret","brand":"lark","access_token":"token","refresh_token":"refresh","access_expires_at":"2000-01-01T00:00:00Z","refresh_expires_at":"2000-01-01T00:00:00Z"}`); err != nil {
+	if err := store.Set(ctx, userID, oauth.VaultKeyLark, `{"version":1,"client_id":"app","client_secret":"secret","brand":"lark","access_token":"token","refresh_token":"refresh","access_expires_at":"2000-01-01T00:00:00Z","refresh_expires_at":"2000-01-01T00:00:00Z"}`); err != nil {
 		t.Fatalf("Set LARK_CLI_OAUTH: %v", err)
 	}
 
@@ -371,10 +387,10 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 		UserRoot:       "/workspace/users/1",
 		UserID:         userID,
 		VaultEnvLoader: store,
-		TokenManager:   oauth.NewTokenManager(store),
+		TokenManager:   tm,
 		SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
-			{EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSourceGitHubToken},
-			{EnvVar: "LARKSUITE_CLI_USER_ACCESS_TOKEN", Source: pkgplugins.SessionEnvSourceLarkAccessToken},
+			{EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "github"},
+			{EnvVar: "LARKSUITE_CLI_USER_ACCESS_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "lark"},
 		},
 	}
 
@@ -388,10 +404,11 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 		t.Fatalf("buildSandboxEnv: %v", err)
 	}
 	if _, ok := env["GH_TOKEN"]; ok {
-		t.Fatal("GH_TOKEN should be skipped when token manager returns an error")
+		t.Fatal("GH_TOKEN should be skipped when access token is empty")
 	}
-	if _, ok := env["LARKSUITE_CLI_USER_ACCESS_TOKEN"]; ok {
-		t.Fatal("Lark runtime env should be skipped when token manager returns an error")
+	// Lark token is loaded by GetOAuthToken regardless of expiry (no refresh check).
+	if got := env["LARKSUITE_CLI_USER_ACCESS_TOKEN"]; got != "token" {
+		t.Fatalf("LARKSUITE_CLI_USER_ACCESS_TOKEN = %q, want %q", got, "token")
 	}
 	if _, ok := env[oauth.VaultKeyGitHub]; ok {
 		t.Fatal("GH_OAUTH must still be stripped when token injection fails")

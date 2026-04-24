@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestNewTokenManager(t *testing.T) {
@@ -18,143 +17,85 @@ func TestNewTokenManager(t *testing.T) {
 	}
 }
 
-func TestGetGHToken_Success(t *testing.T) {
+func TestGetOAuthToken_Success(t *testing.T) {
 	vs := newMockVaultStore()
 	ctx := context.Background()
 	userID := int64(1)
 
-	bundle := GHOAuthBundle{
+	registry := NewProviderRegistry()
+	registry.Register(ProviderConfig{ID: "github", VaultKey: VaultKeyGitHub})
+	tm := NewTokenManager(vs)
+	tm.SetRegistry(registry)
+
+	bundle := OAuthBundle{
 		Version:     1,
 		AccessToken: "ghp_test_token_12345",
-		TokenType:   "bearer",
 	}
-	if err := SaveGHBundle(ctx, vs, userID, bundle); err != nil {
-		t.Fatalf("SaveGHBundle: %v", err)
+	if err := SaveOAuthBundle(ctx, vs, userID, VaultKeyGitHub, bundle); err != nil {
+		t.Fatalf("SaveOAuthBundle: %v", err)
 	}
 
-	token, err := NewTokenManager(vs).GetGHToken(ctx, userID)
+	got, err := tm.GetOAuthToken(ctx, "github", userID)
 	if err != nil {
-		t.Fatalf("GetGHToken: %v", err)
+		t.Fatalf("GetOAuthToken: %v", err)
 	}
-	if token != bundle.AccessToken {
-		t.Errorf("GetGHToken = %q, want %q", token, bundle.AccessToken)
+	if got.AccessToken != bundle.AccessToken {
+		t.Errorf("GetOAuthToken AccessToken = %q, want %q", got.AccessToken, bundle.AccessToken)
 	}
 }
 
-func TestGetGHToken_NoBundle(t *testing.T) {
+func TestGetOAuthToken_NoBundle(t *testing.T) {
 	vs := newMockVaultStore()
 	ctx := context.Background()
 	userID := int64(42)
 
-	_, err := NewTokenManager(vs).GetGHToken(ctx, userID)
+	registry := NewProviderRegistry()
+	registry.Register(ProviderConfig{ID: "github", VaultKey: VaultKeyGitHub})
+	tm := NewTokenManager(vs)
+	tm.SetRegistry(registry)
+
+	_, err := tm.GetOAuthToken(ctx, "github", userID)
 	if err == nil {
-		t.Fatal("GetGHToken expected error for missing bundle")
+		t.Fatal("GetOAuthToken expected error for missing bundle")
 	}
-	if !strings.Contains(err.Error(), "has not connected GitHub") {
-		t.Errorf("error = %q, expected to contain 'has not connected GitHub'", err.Error())
+	if !strings.Contains(err.Error(), "has not connected") {
+		t.Errorf("error = %q, expected to contain 'has not connected'", err.Error())
 	}
 }
 
-func TestGetGHToken_EmptyToken(t *testing.T) {
+func TestGetOAuthToken_EmptyToken(t *testing.T) {
 	vs := newMockVaultStore()
 	ctx := context.Background()
 	userID := int64(1)
 
-	bundle := GHOAuthBundle{
+	registry := NewProviderRegistry()
+	registry.Register(ProviderConfig{ID: "github", VaultKey: VaultKeyGitHub})
+	tm := NewTokenManager(vs)
+	tm.SetRegistry(registry)
+
+	bundle := OAuthBundle{
 		Version:     1,
 		AccessToken: "",
-		TokenType:   "bearer",
 	}
-	if err := SaveGHBundle(ctx, vs, userID, bundle); err != nil {
-		t.Fatalf("SaveGHBundle: %v", err)
+	if err := SaveOAuthBundle(ctx, vs, userID, VaultKeyGitHub, bundle); err != nil {
+		t.Fatalf("SaveOAuthBundle: %v", err)
 	}
 
-	_, err := NewTokenManager(vs).GetGHToken(ctx, userID)
+	_, err := tm.GetOAuthToken(ctx, "github", userID)
 	if err == nil {
-		t.Fatal("GetGHToken expected error for empty token")
+		t.Fatal("GetOAuthToken expected error for empty token")
 	}
 	if !strings.Contains(err.Error(), "empty access token") {
 		t.Errorf("error = %q, expected to contain 'empty access token'", err.Error())
 	}
 }
 
-func TestGetLarkRuntimeEnv_ExportsCurrentEnvNames(t *testing.T) {
+func TestGetOAuthToken_NoRegistry(t *testing.T) {
 	vs := newMockVaultStore()
 	ctx := context.Background()
-	userID := int64(7)
-	now := time.Now().UTC().Truncate(time.Second)
 
-	bundle := LarkOAuthBundle{
-		Version:          1,
-		AppID:            "cli_test_app_id",
-		AppSecret:        "cli_test_app_secret",
-		Brand:            "feishu",
-		AccessToken:      "u-test-access-token",
-		RefreshToken:     "u-test-refresh-token",
-		AccessExpiresAt:  now.Add(2 * time.Hour),
-		RefreshExpiresAt: now.Add(30 * 24 * time.Hour),
-	}
-	if err := SaveLarkBundle(ctx, vs, userID, bundle); err != nil {
-		t.Fatalf("SaveLarkBundle: %v", err)
-	}
-
-	env, err := NewTokenManager(vs).GetLarkRuntimeEnv(ctx, userID)
-	if err != nil {
-		t.Fatalf("GetLarkRuntimeEnv: %v", err)
-	}
-
-	checks := map[string]string{
-		"LARKSUITE_CLI_USER_ACCESS_TOKEN": bundle.AccessToken,
-		"LARKSUITE_CLI_APP_ID":            bundle.AppID,
-		"LARKSUITE_CLI_BRAND":             bundle.Brand,
-	}
-	for key, want := range checks {
-		if got := env[key]; got != want {
-			t.Errorf("%s = %q, want %q", key, got, want)
-		}
-	}
-}
-
-func TestGetLarkRuntimeEnv_NoBundle(t *testing.T) {
-	vs := newMockVaultStore()
-	ctx := context.Background()
-	userID := int64(99)
-
-	_, err := NewTokenManager(vs).GetLarkRuntimeEnv(ctx, userID)
+	_, err := NewTokenManager(vs).GetOAuthToken(ctx, "github", 1)
 	if err == nil {
-		t.Fatal("GetLarkRuntimeEnv expected error for missing bundle")
-	}
-	if !strings.Contains(err.Error(), "has not connected Lark/Feishu") {
-		t.Errorf("error = %q, expected to contain 'has not connected Lark/Feishu'", err.Error())
-	}
-}
-
-func TestGetLarkRuntimeEnv_RefreshTokenExpired(t *testing.T) {
-	vs := newMockVaultStore()
-	ctx := context.Background()
-	userID := int64(3)
-	now := time.Now().UTC().Truncate(time.Second)
-
-	// Refresh token already expired
-	bundle := LarkOAuthBundle{
-		Version:          1,
-		AppID:            "test_app_id",
-		AppSecret:        "test_app_secret",
-		Brand:            "lark",
-		AccessToken:      "access-token",
-		RefreshToken:     "refresh-token",
-		AccessExpiresAt:  now.Add(-1 * time.Hour), // Expired
-		RefreshExpiresAt: now.Add(-1 * time.Hour), // Also expired
-	}
-	if err := SaveLarkBundle(ctx, vs, userID, bundle); err != nil {
-		t.Fatalf("SaveLarkBundle: %v", err)
-	}
-
-	_, err := NewTokenManager(vs).GetLarkRuntimeEnv(ctx, userID)
-	if err == nil {
-		t.Fatal("GetLarkRuntimeEnv expected error for expired refresh token")
-	}
-	if !strings.Contains(err.Error(), "refresh token expired") {
-		t.Errorf("error = %q, expected to contain 'refresh token expired'", err.Error())
+		t.Fatal("GetOAuthToken expected error when registry not set")
 	}
 }

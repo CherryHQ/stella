@@ -37,9 +37,9 @@ func (h *Host) ValidateRegistrations() error {
 			if spec.EnvVar == "" {
 				return fmt.Errorf("pluginhost: session env registration for %q missing env var", pluginID)
 			}
-			switch spec.Source {
-			case pkgplugins.SessionEnvSourceStatic:
-			case pkgplugins.SessionEnvSourceGitHubToken, pkgplugins.SessionEnvSourceLarkAccessToken, pkgplugins.SessionEnvSourceLarkAppID, pkgplugins.SessionEnvSourceLarkBrand:
+			switch {
+			case spec.Source == pkgplugins.SessionEnvSourceStatic:
+			case strings.HasPrefix(string(spec.Source), "oauth."):
 			default:
 				return fmt.Errorf("pluginhost: session env %q for %q has unknown source %q", spec.EnvVar, pluginID, spec.Source)
 			}
@@ -119,7 +119,7 @@ func (h *Host) ValidateRegistrations() error {
 				if !hasMemoryLocked(h.memoryRegs, meta.ID) {
 					return fmt.Errorf("pluginhost: metadata for %q declares memory capability but no memory is registered", meta.ID)
 				}
-}
+			}
 		}
 	}
 	return nil

@@ -651,13 +651,16 @@ func (s *DBStore) seedPlugins(ctx context.Context) error {
 }
 
 func (s *DBStore) migrateLegacyAuthPlugins(ctx context.Context) error {
+	if err := s.purgeGitHubAuthPluginConfig(ctx); err != nil {
+		return err
+	}
+
 	type migration struct {
 		legacyID string
 		newID    string
 		newName  string
 	}
 	migrations := []migration{
-		{legacyID: PluginID(PluginKindAuth, "github"), newID: PluginID(PluginKindTool, "gh"), newName: "gh"},
 		{legacyID: PluginID(PluginKindAuth, "lark"), newID: PluginID(PluginKindTool, "lark-cli"), newName: "lark-cli"},
 	}
 	for _, m := range migrations {
@@ -685,6 +688,30 @@ func (s *DBStore) migrateLegacyAuthPlugins(ctx context.Context) error {
 		if err := s.DeletePlugin(ctx, m.legacyID); err != nil {
 			return fmt.Errorf("seed: delete legacy plugin %q: %w", m.legacyID, err)
 		}
+	}
+	return nil
+}
+
+func (s *DBStore) purgeGitHubAuthPluginConfig(ctx context.Context) error {
+	toolID := PluginID(PluginKindTool, "gh")
+	plugin, err := s.GetPlugin(ctx, toolID)
+	if err == nil && len(plugin.Config) > 0 {
+		plugin.Config = map[string]any{}
+		if err := s.UpsertPlugin(ctx, plugin); err != nil {
+			return fmt.Errorf("seed: clear github tool plugin config: %w", err)
+		}
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("seed: load github tool plugin: %w", err)
+	}
+
+	legacyID := PluginID(PluginKindAuth, "github")
+	if _, err := s.q.GetPlugin(ctx, legacyID); errors.Is(err, sql.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("seed: load legacy plugin %q: %w", legacyID, err)
+	}
+	if err := s.DeletePlugin(ctx, legacyID); err != nil {
+		return fmt.Errorf("seed: delete legacy plugin %q: %w", legacyID, err)
 	}
 	return nil
 }

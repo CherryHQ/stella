@@ -249,7 +249,6 @@ Good examples already exist in:
 - `plugins/channels/telegram/plugin_test.go`
 - `plugins/reflect/plugin_runtime_test.go`
 - `plugins/tools/mcp/plugin_test.go`
-- `plugins/tools/gh/plugin.go`
 - `plugins/tools/lark-cli/plugin.go`
 
 ## Common Mistakes

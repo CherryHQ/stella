@@ -154,22 +154,20 @@ type AfterToolResultSpec struct {
 type SessionEnvSource string
 
 const (
-	SessionEnvSourceStatic          SessionEnvSource = "static"
-	SessionEnvSourceGitHubToken     SessionEnvSource = "github_token"
-	SessionEnvSourceLarkAccessToken SessionEnvSource = "lark_access_token"
-	SessionEnvSourceLarkAppID       SessionEnvSource = "lark_app_id"
-	SessionEnvSourceLarkBrand       SessionEnvSource = "lark_brand"
+	SessionEnvSourceStatic SessionEnvSource = "static"
 )
 
 // SessionEnvSpec declares one env var contributed to sandbox sessions.
 // Sources are metadata-driven so plugins can declare what they need without
 // depending on runner-owned services such as TokenManager.
 type SessionEnvSpec struct {
-	PluginID string
-	EnvVar   string
-	Source   SessionEnvSource
-	Value    string // used only when Source == SessionEnvSourceStatic
-	Required bool   // if true, session creation fails when this env cannot be resolved
+	PluginID                 string
+	EnvVar                   string
+	Source                   SessionEnvSource
+	Value                    string // used only when Source == SessionEnvSourceStatic
+	Required                 bool   // if true, session creation fails when this env cannot be resolved
+	OAuthProviderID          string // set when source is oauth.*; identifies which provider bundle to load
+	OAuthProviderConfigField string // optional plugin config field used to resolve OAuthProviderID dynamically
 }
 
 // BundledSkillSyncContext is the build-time context for syncing a bundled skill

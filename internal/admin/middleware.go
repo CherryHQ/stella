@@ -47,7 +47,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			path == "/api/auth/login" ||
 			path == "/api/auth/register" ||
 			path == "/api/auth/logout" ||
-			path == "/api/auth/profile/oauth/lark/callback" {
+			strings.HasPrefix(path, "/api/auth/profile/oauth/") && strings.HasSuffix(path, "/callback") {
 			next.ServeHTTP(w, r)
 			return
 		}
