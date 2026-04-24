@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.3] - 2026-04-24
+
+### 🐛 Bug Fixes
+
+- **Session**: Use random IDs in `NewSessionID` to prevent Docker container name collisions
+- **OAuth**: Persist device-code token via `FlowStore`, not broker instance
+- **OAuth**: Wire OAuth registry into `PoolManager` for session env injection
+- **Runtime**: Abort reconcile early when context is canceled
+- **Runtime**: Remove racy `ProcessState` read in managed command `Cancel`
+- **Plugins**: Add `@rsbuild/core` to satisfy static import in `start-plugin-core`
+
+### ♻️ Refactoring
+
+- Apply linter suggestions from `golangci-lint`
+
+### 🔧 CI
+
+- Upgrade GitHub Actions runner
+
+**Full Changelog**: [v0.16.2...v0.16.3](https://github.com/vaayne/anna/compare/v0.16.2...v0.16.3)
+
 ## [0.16.2] - 2026-04-24
 
 ### 🐛 Bug Fixes
