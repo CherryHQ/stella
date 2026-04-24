@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -92,9 +93,7 @@ func isolatedMiseEnv(annaHome string) ([]string, error) {
 			env[key] = value
 		}
 	}
-	for key, value := range paths {
-		env[key] = value
-	}
+	maps.Copy(env, paths)
 	env["MISE_YES"] = "1"
 	env["MISE_NO_ANALYTICS"] = "1"
 
@@ -259,7 +258,6 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 	}
 	return version, nil
 }
-
 
 // atomicCopy copies src to dst using a temp file + rename.
 func atomicCopy(src, dst string, mode os.FileMode) error {
