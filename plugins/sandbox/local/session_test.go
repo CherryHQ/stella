@@ -149,6 +149,36 @@ func TestResolvePath_remapped(t *testing.T) {
 	}
 }
 
+func TestResolvePath_rejectsSymlinkParentForMissingPath(t *testing.T) {
+	s, root := newTestSession(t)
+	outside := t.TempDir()
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	_, err := s.ResolvePath(filepath.Join(link, "new.txt"))
+	if err == nil {
+		t.Fatal("expected symlink parent to be rejected")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink error, got: %v", err)
+	}
+}
+
+func TestResolveCwd_rejectsOutsideRoot(t *testing.T) {
+	s, root := newTestSession(t)
+	outside := filepath.Join(root, "..")
+
+	_, _, err := s.resolveCwd(outside)
+	if err == nil {
+		t.Fatal("expected cwd outside workspace to be rejected")
+	}
+	if !strings.Contains(err.Error(), "outside workspace root") {
+		t.Fatalf("expected outside-root error, got: %v", err)
+	}
+}
+
 // TestBuildEnv_denyListFiltersVaultKey verifies that ANNA_VAULT_KEY is never
 // copied from the host environment into the sandbox env, even when InheritEnv
 // is true, while other env vars (e.g. PATH) remain present.

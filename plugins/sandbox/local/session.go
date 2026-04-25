@@ -1,6 +1,6 @@
 // WARNING: commands run directly on the host OS with limited hardening only.
 // Hardening layers applied: process-group isolation on Unix, rlimits on Linux,
-// bwrap/unshare network isolation on Linux. macOS local execution currently runs
+// bwrap filesystem/network isolation on Linux. macOS local execution currently runs
 // without additional OS sandboxing.
 // Use the docker backend when full container isolation is required.
 package local
@@ -146,32 +146,94 @@ func (s *localSession) deregisterProcess(p *localProcess) {
 // anything that resolves outside the workspace root.
 // The agent may pass sandbox-space paths (e.g. /workspace/foo.go); this
 // translates them to real host paths before any OS operations.
-// Uses filepath.EvalSymlinks so symlink traversals cannot escape the workspace.
 func (s *localSession) ResolvePath(agentPath string) (string, error) {
-	// 1. Make absolute in sandbox space.
+	resolved, _, err := s.resolvePath(agentPath)
+	return resolved, err
+}
+
+// resolveCwd validates a requested working directory, then returns both its
+// real host path and sandbox-space path. Linux bwrap needs the sandbox-space
+// path for --chdir; direct local execution uses the real path.
+func (s *localSession) resolveCwd(cwd string) (sandboxCwd, realCwd string, err error) {
+	if cwd == "" {
+		cwd = s.WorkingDir()
+	}
+	realCwd, sandboxCwd, err = s.resolvePath(cwd)
+	if err != nil {
+		return "", "", err
+	}
+	return sandboxCwd, realCwd, nil
+}
+
+// resolvePath translates an agent-space path to a real path and a normalized
+// sandbox-space path. Existing symlink components under the workspace are
+// rejected, including symlinked parents of non-existent creation targets.
+func (s *localSession) resolvePath(agentPath string) (realPath, sandboxPath string, err error) {
 	abs := agentPath
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(s.WorkingDir(), agentPath)
 	}
-	// 2. Translate sandbox → real host path.
-	real := s.toRealPath(abs)
+	sandboxPath = filepath.Clean(abs)
+	real := filepath.Clean(s.toRealPath(sandboxPath))
 
-	// 3. EvalSymlinks requires the path to exist; fall back to Clean for
-	// non-existent paths so that tools creating new files still work.
 	resolved, err := filepath.EvalSymlinks(real)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return "", fmt.Errorf("local: resolve path %q: %w", agentPath, err)
+			return "", "", fmt.Errorf("local: resolve path %q: %w", agentPath, err)
 		}
-		resolved = filepath.Clean(real)
+		resolved = real
+	}
+	resolved = filepath.Clean(resolved)
+
+	cleanRoot := filepath.Clean(s.realRoot)
+	if !pathWithinRoot(cleanRoot, resolved) {
+		return "", "", fmt.Errorf("local: path %q resolves to %q which is outside workspace root %q", agentPath, resolved, s.realRoot)
+	}
+	if err := rejectLocalSymlinkTraversal(cleanRoot, real); err != nil {
+		return "", "", fmt.Errorf("local: %w", err)
 	}
 
-	// 4. Ensure the resolved path stays within the real workspace root.
-	cleanRoot := filepath.Clean(s.realRoot)
-	if resolved != cleanRoot && !strings.HasPrefix(resolved, cleanRoot+string(filepath.Separator)) {
-		return "", fmt.Errorf("local: path %q resolves to %q which is outside workspace root %q", agentPath, resolved, s.realRoot)
+	return resolved, s.toSandboxPath(resolved), nil
+}
+
+// pathWithinRoot reports whether path is the root itself or is contained under it.
+func pathWithinRoot(root, path string) bool {
+	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
+}
+
+// rejectLocalSymlinkTraversal rejects any symlink component at or below the
+// workspace root. For non-existent targets, checking stops at the first missing
+// component so creating new files still works unless an existing parent is a
+// symlink.
+func rejectLocalSymlinkTraversal(root, path string) error {
+	if !pathWithinRoot(root, path) {
+		return fmt.Errorf("path %q is outside workspace root %q", path, root)
 	}
-	return resolved, nil
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return fmt.Errorf("rel %q from %q: %w", path, root, err)
+	}
+	if rel == "." {
+		return nil
+	}
+	current := root
+	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return fmt.Errorf("lstat %q: %w", current, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("path %q traverses symlink at %q", path, current)
+		}
+	}
+	return nil
 }
 
 // toRealPath translates a sandbox-space absolute path to the real host path.
@@ -180,11 +242,26 @@ func (s *localSession) toRealPath(sandboxPath string) string {
 	if s.sandboxRoot == s.realRoot {
 		return sandboxPath
 	}
-	rel, err := filepath.Rel(s.sandboxRoot, sandboxPath)
-	if err != nil || strings.HasPrefix(rel, "..") {
+	rel, err := filepath.Rel(s.sandboxRoot, filepath.Clean(sandboxPath))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return sandboxPath
 	}
 	return filepath.Join(s.realRoot, rel)
+}
+
+// toSandboxPath translates a real host path back into sandbox space.
+func (s *localSession) toSandboxPath(realPath string) string {
+	if s.sandboxRoot == s.realRoot {
+		return realPath
+	}
+	rel, err := filepath.Rel(s.realRoot, filepath.Clean(realPath))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return realPath
+	}
+	if rel == "." {
+		return s.sandboxRoot
+	}
+	return filepath.Join(s.sandboxRoot, rel)
 }
 
 // Exec runs a shell command via sh -c on the host.
@@ -210,6 +287,11 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
+	}
+
+	sandboxCwd, _, err := s.resolveCwd(sandboxCwd)
+	if err != nil {
+		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: resolve cwd: %w", err)
 	}
 
 	execPath, execArgs, hostCwd, err := wrapCommand(s.policy, sandboxCwd, "sh", []string{"-c", command})
@@ -290,6 +372,12 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 
 	args := make([]string, 0, len(req.Args))
 	args = append(args, req.Args...)
+
+	sandboxCwd, _, err := s.resolveCwd(sandboxCwd)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("local start_process: resolve cwd: %w", err)
+	}
 
 	execPath, execArgs, hostCwd, err := wrapCommand(s.policy, sandboxCwd, req.Path, args)
 	if err != nil {

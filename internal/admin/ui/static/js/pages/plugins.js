@@ -810,7 +810,7 @@ export function register(Alpine) {
             'No container-level isolation',
             'macOS: no filesystem or network policy enforcement',
             'Windows: not supported',
-            'Linux without bwrap: network-only isolation via unshare',
+            'Linux: bwrap is required; sessions fail closed if unavailable',
           ],
         },
       }

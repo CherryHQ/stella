@@ -56,10 +56,10 @@ Docker 提供完整的容器级进程、文件系统和网络隔离。Docker 守
 | 层级 | 平台 | 机制 |
 |---|---|---|
 | 进程组终止 + 资源限制 | 所有 Unix | 对进程组发送 `SIGKILL`；通过 `prlimit(2)` 设置 `RLIMIT_FSIZE`、`RLIMIT_NOFILE`、`RLIMIT_CPU` |
-| 文件系统 + 网络隔离 | Linux | `bwrap`（必需）— 工作区绑定挂载到 `/workspace`；其余文件系统只读；网络模式为 `disabled` 时附加 `--unshare-net` |
+| 文件系统 + 网络隔离 | Linux | `bwrap`（必需）— 最小可用 Linux 根环境，`/workspace` 读写，`/tmp`/`/var/tmp`/`/dev/shm` 为可写 tmpfs，选定的运行时/工具目录和 DNS 解析配置只读挂载；网络模式为 `disabled` 时附加 `--unshare-net` |
 | 无额外本地隔离 | macOS | 命令直接在宿主机 OS 上运行；不强制执行文件系统和网络策略 |
 
-本地后端在 Linux 上采用**拒绝失败**策略：`bwrap`（bubblewrap）为必需项。若 bwrap 不存在或不可用（例如在未启用 `--privileged` 的 Docker 容器内），会话创建失败并返回包含操作建议的错误信息。不存在回退到仅 `unshare` 或无隔离执行的降级路径。macOS 当前不再附加额外沙箱工具。
+本地后端在 Linux 上采用**拒绝失败**策略：`bwrap`（bubblewrap）为必需项。若 bwrap 不存在或不可用（例如在未启用 `--privileged` 的 Docker 容器内），会话创建失败并返回包含操作建议的错误信息。不存在回退到仅 `unshare` 或无隔离执行的降级路径。本地沙箱进程不会继承完整宿主机环境；Anna 只注入 runner 管理的会话变量以及少量语言环境/终端/代理允许列表。macOS 当前不再附加额外沙箱工具。
 
 #### 安装依赖
 
