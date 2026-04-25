@@ -129,6 +129,67 @@ type Tool interface {
 | `mcp`      | 通过一个通用 Anna MCP 工具代理已配置的 MCP 服务器 |
 | `webfetch` | 获取网页内容                                      |
 
+核心本地工作区工具通过 Docker 沙箱后端运行。`bash` 工具通过 `Session.Exec` 执行；`read`、`write` 和 `edit` 工具使用 `Session.ResolvePath` 获取主机路径，然后直接调用 `os.*`。Runner 启动时如果 Docker 不可用则失败关闭。
+
+### 沙盒架构
+
+沙盒系统使用 Docker 进行进程和文件系统隔离：
+
+- **Session**：Runner 启动时创建的每次运行 Docker 容器，关闭时销毁。
+- **Workspace root**：挂载到容器中的代理工作区目录。
+- **Working Directory**：容器内的逻辑工作目录，通过 `Session.WorkingDir` 解析。
+
+所有核心工具在每个 Runner 中共享同一个容器会话：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Go Runner                               │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐           │
+│  │  bash   │ │  read   │ │  write  │ │  edit   │           │
+│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘           │
+│       │           └───────────┘                             │
+│       │ Exec              ResolvePath + os.*                │
+│       ▼                                                     │
+│  ┌──────────────────┐                                       │
+│  │  sandbox.Session │                                       │
+│  │  (Docker)        │                                       │
+│  └──────────────────┘                                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 平台要求
+
+Docker 是唯一的后端，在所有平台（Linux、macOS、Windows）上都是必需的。Docker 守护进程必须正在运行并可访问。Anna 在会话创建时联系 Docker 守护进程，如果不可用则失败关闭。没有 `auto`、`boxsh` 或 `Relaxed` 模式。
+
+### 网络策略配置
+
+每个代理的沙盒网络策略通过 admin API 或数据库配置：
+
+| 模式          | 描述                                 | 使用场景                                    |
+| ------------- | ------------------------------------ | ------------------------------------------- |
+| `disabled`    | 无出站网络访问（默认）               | 不可信代码的最大安全性                      |
+| `allow_all`   | 无限制的出站访问                     | 需要完整网络的可信代理                      |
+
+Anna 在会话创建时验证网络模式，如果 Docker 后端无法强制执行则失败关闭。
+
+### 失败行为
+
+Runner 启动在以下情况下失败关闭：
+
+- Docker 守护进程不可用或无法访问
+- 网络策略配置无效
+- 网络策略有效但 Docker 后端不支持
+
+这确保沙盒执行要么完全正常运行，要么根本不运行，防止安全降级。
+
+### 显式例外边界
+
+沙盒保证适用于 Anna 拥有的本地执行路径。远程 MCP 传输目前被视为独立的信任边界：
+
+- 本地 MCP stdio 生成使用 `Session.StartProcess`，通过活跃的 Runner 会话进行调解
+- 远程 MCP HTTP/SSE/StreamableHTTP 拨号目前不由 `ToolRuntime` 调解
+- 该例外是显式的、可观察的，并记录为 `runtime.exception_path`，`exception_id=EX-009`
+
 插件工具位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/features/plugin-system)。
 
 ### Agent 工具
@@ -142,16 +203,16 @@ type Tool interface {
 - 支持从带有 YAML 前置数据的 markdown 文件加载预设
 - 每任务选项：`preset`、`context`、`model`（覆盖）、`system`（附加指令）、`tools`（白名单）、`max_turns`（默认 10）、`timeout_seconds`（默认 120）
 
-### 额外工具（有条件注入）
+### 内置共享工具
 
-| 工具        | 条件                      | 描述                                                    |
-| ----------- | ------------------------- | ------------------------------------------------------- |
-| `memory`    | 始终                      | 统一内存工具（grep/describe/expand/user_memory_update） |
-| `skills`    | 始终                      | 技能管理（从 skills.sh 搜索/安装/列出/移除）            |
-| `scheduler` | `scheduler.enabled: true` | 安排任务（添加/列出/移除作业）                          |
-| `notify`    | 网关模式 + 通道已配置     | 通过分发器发送通知                                      |
+| 工具        | 条件                         | 描述                                                         |
+| ----------- | ---------------------------- | ------------------------------------------------------------ |
+| `memory`    | 始终                         | 自动生成的内存工具（操作根据提供商能力自适应）               |
+| `skills`    | 始终                         | 技能管理（从 skills.sh 搜索/安装/列出/移除）                 |
+| `scheduler` | 始终                         | 安排任务（添加/列出/移除作业）                               |
+| `notify`    | 网关模式 + 通道已配置        | 通过分发器发送通知                                           |
 
-`memory` 工具中的 `user_memory_update` 操作是一个只写操作，它替换数据库中整个每用户每代理的内存内容。这些笔记始终加载到系统提示中（在"用户记忆"部分），因此代理在会话之间具有关于用户偏好和重要细节的持久上下文。这用基于数据库的 `UserMemoryStore` 取代了之前基于文件的 SOUL.md/USER.md 方法。
+内存工具由 `memory.BuildTool(provider)` 自动生成，它会检查提供商的能力并生成匹配的工具操作。使用 LCM 提供商时：`status`、`search`、`describe`、`expand`、`profile_get`、`profile_update`。使用 Simple 提供商时：`status`、`profile_get`、`profile_update`。每用户笔记通过 `profile_get`/`profile_update` 管理，并在会话开始时注入系统提示。
 
 ## 会话生命周期
 
@@ -177,7 +238,7 @@ type Channel interface {
 }
 ```
 
-共享命令逻辑（`/new`、`/compact`、`/model`、`/agent`、`/whoami`）位于 `channel.HandleCommand` 中，每个通道委托给它以处理核心逻辑。`/model` 和 `/agent` 按通道处理，因为它们需要特定于平台的 UI（Telegram 使用内联键盘，QQ、Feishu 和微信使用文本列表，CLI 使用 TUI 选择器）。
+共享命令逻辑（`/new`、`/compact`、`/abort`、`/whoami`）位于通道协调层，每个通道委托给它以处理核心逻辑。`/model` 和 `/agent` 保持按通道处理，因为它们需要特定于平台的 UI（Telegram 使用内联键盘，QQ、Feishu 和微信使用文本列表，CLI 使用 TUI 选择器）。聊天轮次按解析的 Anna 会话进行序列化，因此重叠的通道消息不会竞争相同的会话历史；`/abort` 取消该会话当前正在运行的轮次。
 
 ## Admin API
 

@@ -11,6 +11,48 @@ icon: History
 
 ## [Unreleased]
 
+## [0.16.6] - 2026-04-26
+
+### ✨ 功能
+
+- **OAuth**: 扩展飞书/云雀预授权范围，以匹配 lark-cli 域名覆盖（审批、多维表格、日历、通讯录、文档、云盘、消息、邮箱、表格、幻灯片、任务、知识库 — 共 138 个范围）
+- **OAuth**: 在渠道聊天中新增飞书/云雀 device-code 流支持
+
+**完整变更日志**：[v0.16.5...v0.16.6](https://github.com/vaayne/anna/compare/v0.16.5...v0.16.6)
+
+## [0.16.5] - 2026-04-25
+
+### 🐛 Bug 修复
+
+- **沙盒**: 要求 Linux 本地沙盒安装 bubblewrap，移除降级方案 ([#129](https://github.com/vaayne/anna/pull/129))
+- **沙盒**: 要求 Linux 本地沙盒安装 bubblewrap，移除 unshare/unconfined 降级方案
+- **沙盒**: 选择本地沙盒后端时跳过 Docker 预检查
+- **沙盒**: 从 bwrap 参数中移除冗余的 `--dir /workspace`
+- **沙盒**: 修复 bwrap 绑定顺序 — 在 `--ro-bind / /` 之前先绑定 `/workspace`
+- **沙盒**: 强化本地沙盒根目录安全
+- **OAuth**: 修复 token 刷新和会话环境注入 ([#128](https://github.com/vaayne/anna/pull/128))
+
+### ✅ 测试
+
+- 当用户命名空间被禁用时跳过依赖 bubblewrap 的测试
+- 将测试覆盖率从 51.6% 提升至约 53%
+- 在 CI 中安装 bubblewrap 并修复 `omitzero` JSON 标签
+
+### 📝 文档
+
+- 澄清飞书自动配置设置说明
+
+**完整变更日志**：[v0.16.4...v0.16.5](https://github.com/vaayne/anna/compare/v0.16.4...v0.16.5)
+
+## [0.16.4] - 2026-04-24
+
+### 🐛 Bug 修复
+
+- **沙盒**: 默认后端从 Docker 改为本地；插件页面选择现在可正确生效
+- **飞书**: 在身份查找前同步运行自动配置
+
+**完整变更日志**：[v0.16.3...v0.16.4](https://github.com/vaayne/anna/compare/v0.16.3...v0.16.4)
+
 ## [0.16.3] - 2026-04-24
 
 ### 🐛 Bug 修复

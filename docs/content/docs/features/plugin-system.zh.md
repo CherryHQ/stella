@@ -4,115 +4,68 @@ title: 插件系统
 
 ## 概述
 
-Anna 采用编译内置的插件模型。所有插件都直接编译到 anna 二进制文件中——没有子进程协议、没有独立进程、也不支持第三方插件安装。插件是 `plugins/` 下通过 `init()` 自注册并实现标准接口的 Go 包。
+Anna 采用编译内置的插件系统。插件内置于 `anna` 二进制文件中，并在启动时通过 Go 包的 `init()` 函数完成注册。
 
-四种插件类型：
+最终公开的 API 设计有意保持精简：
 
-- **工具插件**提供 LLM 代理可以调用的工具（如 `mcp`、`webfetch`）。
-- **通道插件**提供消息平台集成（如 `telegram`、`qq`、`feishu`、`weixin`）。
-- **钩子插件**拦截引擎生命周期事件（如工具调用前后、LLM 调用前后）。
-- **供应商插件**提供 LLM API 适配器（如 `anthropic`、`openai`、`openai-response`）。
+- `Host` 是注册入口
+- `Platform` 是能力回调内部使用的限定服务接口
+- 一个插件可以在单一插件 ID 下拥有多个能力
 
-注意：核心工具（`read`、`bash`、`edit`、`write`）始终启用，不属于插件。
+这让一个功能可以在一个地方管理自身的元数据、配置、状态、运行时生命周期和工具暴露，而无需将宿主内部细节泄露到插件代码中。
 
-## 内置插件
+## 插件可以拥有什么
 
-Anna 内置了 9 个插件：
+内置插件可以注册以下能力：
 
-| 类型     | 名称            | 描述                                    |
-| -------- | --------------- | --------------------------------------- |
-| tool     | mcp             | 连接已配置的 MCP 服务器并代理 MCP 工具  |
-| tool     | webfetch        | 获取网页                                |
-| channel  | telegram        | Telegram 机器人                         |
-| channel  | qq              | QQ 机器人                               |
-| channel  | feishu          | 飞书机器人                              |
-| channel  | weixin          | 微信机器人（通过 iLink）                |
-| hook     | rtk             | 请求追踪和费用日志                      |
-| provider | anthropic       | Anthropic Messages API（Claude 模型）   |
-| provider | openai          | OpenAI Chat Completions API（GPT 模型） |
-| provider | openai-response | OpenAI Responses API（兼容服务）        |
+- 工具（tools）
+- 供应商（providers）
+- 通道（channels）
+- 钩子（hooks）
+- 记忆提供者（memory providers）
+- 托管运行时（managed runtimes）
+- 配置和状态（config and status）
+- 提示词库（prompt inventory）
+- 系统提示词片段（system prompt sections）
+- 生命周期钩子（lifecycle hooks）
 
-## 插件架构
+当前代码库中的示例：
 
-所有插件类型遵循相同模式：
+- `tool/notify` 是一个简单的工具插件
+- `tool/mcp` 拥有配置、运行时、状态、工具暴露和提示词库
+- `channel/telegram` 拥有配置、状态、通道注册和运行时生命周期
+- `reflect` 拥有配置、状态和一个托管运行时
 
-1. 每个插件是 `plugins/{kind}/{name}/` 下的 Go 包
-2. 包的 `init()` 函数调用对应类型注册表的 `Register()` 方法
-3. `plugins/all.go` 中的空白导入在启动时触发注册
-4. 注册表的 `BuildEnabled()`（供应商使用 `BuildAll()`）在运行时实例化活跃插件
+## 为什么这个设计很重要
 
-```
-plugins/
-├── all.go                          # 空白导入触发 init() 注册
-├── tools/
-│   ├── registry.go                 # 工具插件注册表
-│   ├── mcp/                        # 工具：MCP 代理与服务器管理
-│   └── webfetch/                   # 工具：网页获取
-├── channels/
-│   ├── telegram/                   # 通道：Telegram 机器人
-│   ├── qq/                         # 通道：QQ 机器人
-│   ├── feishu/                     # 通道：飞书机器人
-│   └── weixin/                     # 通道：微信机器人
-├── hooks/
-│   ├── registry.go                 # 钩子插件注册表
-│   └── rtk/                        # 钩子：请求追踪
-└── providers/
-    ├── registry.go                 # 供应商插件注册表
-    ├── anthropic/                  # 供应商：Anthropic API
-    ├── openai/                     # 供应商：OpenAI Chat Completions
-    └── openai-response/            # 供应商：OpenAI Responses API
-```
+宿主现在拥有一个公开的统一心智模型，而不是多个重叠的注册 API。
 
-### 添加新插件
+这给 Anna 带来：
 
-要添加新插件，在相应的 `plugins/{kind}/` 目录下创建一个包含 `init()` 函数的包，在其中向对应类型的注册表注册。然后在 `plugins/all.go` 中添加空白导入。无需其他连接代码。
+- 插件级别的宿主服务访问权限
+- 更清晰的所有权边界
+- 更易于测试
+- 更一致的管理和运行时编排
 
-示例——添加新的供应商：
+## 内置插件领域
 
-```go
-// plugins/providers/gemini/client.go
-package gemini
+Anna 在多个领域提供内置插件：
 
-import (
-    pluginproviders "github.com/vaayne/anna/plugins/providers"
-    "github.com/vaayne/anna/internal/ai"
-)
+| 类型     | 示例                                     |
+| -------- | ---------------------------------------- |
+| tool     | `mcp`、`webfetch`、`notify`              |
+| channel  | `telegram`、`qq`、`feishu`、`weixin`     |
+| hook     | `trace`、`rtk`                           |
+| provider | `anthropic`、`openai`、`openai-response` |
+| memory   | `lcm`、`simple`                          |
+| runtime  | `reflect`                                |
 
-func init() {
-    pluginproviders.Register("gemini", pluginproviders.Registration{
-        Meta: pluginproviders.ProviderMeta{
-            Name:       "Google Gemini",
-            DefaultURL: "https://generativelanguage.googleapis.com",
-        },
-        Factory: func(cfg pluginproviders.ProviderConfig) (providers.ProviderAdapter, error) {
-            return New(Config{APIKey: cfg.APIKey, BaseURL: cfg.BaseURL}), nil
-        },
-    })
-}
-```
+## 阅读插件文档
 
-## 存储
+功能概述有意保持简短。要了解实际的插件 API 和开发模型，请使用专门的插件文档：
 
-插件状态存储在数据库的 `settings_plugins` 表中。每个插件包含：
-
-| 字段      | 类型     | 描述                                       |
-| --------- | -------- | ------------------------------------------ |
-| `id`      | string   | 插件 ID（`类型/名称`，如 `tool/webfetch`） |
-| `kind`    | string   | `tool`、`channel`、`hook` 或 `provider`    |
-| `name`    | string   | 插件名称                                   |
-| `enabled` | bool     | 插件是否启用                               |
-| `config`  | JSON map | 插件特定配置（令牌、密钥等）               |
-
-## CLI 命令
-
-```bash
-anna plugin list               # 列出所有插件及状态
-anna plugin enable <id>        # 启用插件
-anna plugin disable <id>       # 禁用插件
-anna plugin config <id>        # 查看插件配置
-anna plugin config <id> k=v    # 设置插件配置键值对
-```
-
-## 管理面板
-
-通道插件、供应商插件以及内置的 `tool/mcp` 插件都通过管理面板（`anna --open`）配置。管理面板写入 `settings_plugins` 表，并提供管理令牌、密钥和插件特定设置的界面。MCP 插件把服务器定义以 JSON 形式保存在 `settings_plugins.config` 中，同时在插件页面提供多服务器/多传输方式的表单编辑器、按传输方式显示的字段、结构化的 args/env/headers 编辑，以及已发现/被抑制服务器的实时状态徽标。
+- [插件概述](/docs/plugins/overview)
+- [创建插件](/docs/plugins/create-a-plugin)
+- [能力](/docs/plugins/capabilities)
+- [平台 API](/docs/plugins/platform)
+- [示例](/docs/plugins/examples)
