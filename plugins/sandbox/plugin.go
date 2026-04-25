@@ -20,7 +20,7 @@ func init() {
 		{
 			name:        config.SandboxBackendLocal,
 			displayName: "Local",
-			description: "Runs commands directly on the host OS with no container isolation.",
+			description: "Default Docker-free sandbox; uses bwrap for filesystem and network isolation on Linux.",
 		},
 	}
 	for _, b := range backends {

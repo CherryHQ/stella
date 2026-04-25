@@ -4,7 +4,9 @@ package local
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"syscall"
 
@@ -111,6 +113,80 @@ func bwrapFunctional() bool {
 	return bwrapAvailable
 }
 
+func appendLinuxRuntimeMounts(args []string) []string {
+	// Keep the local sandbox root small: runtime/tooling directories are mounted
+	// read-only, while user-writable state is limited to /workspace and /tmp.
+	for _, path := range []string{
+		"/usr",
+		"/bin",
+		"/sbin",
+		"/lib",
+		"/lib64",
+		"/lib32",
+		"/etc",
+		"/nix",
+		"/run/current-system/sw",
+		"/run/systemd/resolve",
+		"/run/resolvconf",
+		"/run/NetworkManager",
+	} {
+		args = appendRoBindIfExists(args, path, path)
+	}
+	args = appendResolvedFileMount(args, "/etc/resolv.conf")
+	return args
+}
+
+func appendAnnaHomeMounts(args []string, annaHome string) []string {
+	if annaHome == "" {
+		return args
+	}
+	for _, name := range []string{"bin", "skills"} {
+		hostPath := filepath.Join(annaHome, name)
+		args = appendRoBindIfExists(args, hostPath, hostPath)
+	}
+	return args
+}
+
+func appendResolvedFileMount(args []string, path string) []string {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil || resolved == path {
+		return args
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || info.IsDir() {
+		return args
+	}
+	return appendRoBindIfExists(args, resolved, resolved)
+}
+
+func appendRoBindIfExists(args []string, hostPath, sandboxPath string) []string {
+	info, err := os.Stat(hostPath)
+	if err != nil {
+		return args
+	}
+	args = appendDirParents(args, sandboxPath)
+	if info.IsDir() {
+		args = append(args, "--dir", filepath.Clean(sandboxPath))
+	}
+	return append(args, "--ro-bind", hostPath, sandboxPath)
+}
+
+func appendDirParents(args []string, path string) []string {
+	parent := filepath.Clean(filepath.Dir(path))
+	if parent == "." || parent == string(filepath.Separator) {
+		return args
+	}
+	var dirs []string
+	for parent != "." && parent != string(filepath.Separator) {
+		dirs = append(dirs, parent)
+		parent = filepath.Dir(parent)
+	}
+	for i := len(dirs) - 1; i >= 0; i-- {
+		args = append(args, "--dir", dirs[i])
+	}
+	return args
+}
+
 // wrapCommand wraps name+args with bwrap for filesystem and optional network
 // isolation on Linux. bwrap is mandatory — returns an error if not functional.
 //
@@ -129,13 +205,22 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []strin
 	networkMode := policy.NetworkModeOrDefault()
 
 	bwrapArgs := []string{
-		"--bind", realRoot, "/workspace",
-		"--ro-bind", "/", "/",
+		"--tmpfs", "/",
 		"--dev", "/dev",
+		"--tmpfs", "/dev/shm",
 		"--tmpfs", "/tmp",
+		"--dir", "/var",
+		"--tmpfs", "/var/tmp",
 		"--proc", "/proc",
-		"--chdir", sandboxCwd,
+		"--dir", "/run",
 	}
+	bwrapArgs = appendLinuxRuntimeMounts(bwrapArgs)
+	bwrapArgs = appendAnnaHomeMounts(bwrapArgs, policy.Env["ANNA_HOME"])
+	bwrapArgs = append(bwrapArgs,
+		"--dir", "/workspace",
+		"--bind", realRoot, "/workspace",
+		"--chdir", sandboxCwd,
+	)
 	if networkMode != sandboxpkg.NetworkAllowAll {
 		bwrapArgs = append(bwrapArgs, "--unshare-net")
 	}

@@ -1,7 +1,10 @@
 package local
 
 import (
+	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -84,6 +87,75 @@ func TestWrapCommand_linux_allowAllNoWrap(t *testing.T) {
 // TestWrapCommand_linux_bwrapWorkspaceRemap verifies that when bwrap is
 // available, the args include --dir /workspace, --bind <realRoot> /workspace,
 // and --chdir <sandboxCwd>.
+func TestLocalExec_linux_workspaceWritableOutsideHidden(t *testing.T) {
+	if _, err := exec.LookPath("bwrap"); err != nil {
+		t.Skip("bwrap not installed")
+	}
+	if !bwrapFunctional() {
+		t.Skip("bwrap not functional (namespace creation blocked)")
+	}
+
+	rawRoot := t.TempDir()
+	root, err := filepath.EvalSymlinks(rawRoot)
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(outsideFile, []byte("secret"), 0o600); err != nil {
+		t.Fatalf("WriteFile outside: %v", err)
+	}
+
+	s := &localSession{
+		id:          "test",
+		policy: sandboxpkg.Policy{
+			Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root},
+			Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled},
+			Env: map[string]string{
+				"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+				"HOME": "/workspace",
+			},
+		},
+		realRoot:    root,
+		sandboxRoot: "/workspace",
+		done:        make(chan struct{}),
+	}
+
+	cmd := "echo ok > /workspace/out.txt && test ! -e " + shellQuote(outsideFile) + " && cat /workspace/out.txt"
+	result, err := s.Exec(context.Background(), cmd, sandboxpkg.ExecOptions{})
+	if err != nil {
+		t.Fatalf("Exec: %v (stderr=%q)", err, result.Stderr)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", result.ExitCode, result.Stdout, result.Stderr)
+	}
+	if result.Stdout != "ok\n" {
+		t.Fatalf("stdout=%q, want ok", result.Stdout)
+	}
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+func TestAppendResolvedFileMount_mountsSymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.conf")
+	link := filepath.Join(dir, "resolv.conf")
+	if err := os.WriteFile(target, []byte("nameserver 127.0.0.1\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	args := appendResolvedFileMount(nil, link)
+	joined := strings.Join(args, "\x00")
+	if !strings.Contains(joined, "--ro-bind\x00"+target+"\x00"+target) {
+		t.Fatalf("expected resolved target bind for %q, got %v", target, args)
+	}
+}
+
 func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Skip("bwrap not installed")
@@ -110,6 +182,14 @@ func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 		t.Errorf("expected bwrap, got %q", execPath)
 	}
 
+	flagIndex := func(flag string) int {
+		for i, a := range args {
+			if a == flag {
+				return i
+			}
+		}
+		return -1
+	}
 	hasFlag := func(flag, val string) bool {
 		for i, a := range args {
 			if a == flag && i+1 < len(args) && args[i+1] == val {
@@ -118,13 +198,16 @@ func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 		}
 		return false
 	}
-	hasSingle := func(flag string) bool {
-		for _, a := range args {
-			if a == flag {
+	hasFlagPair := func(flag, first, second string) bool {
+		for i, a := range args {
+			if a == flag && i+2 < len(args) && args[i+1] == first && args[i+2] == second {
 				return true
 			}
 		}
 		return false
+	}
+	hasSingle := func(flag string) bool {
+		return flagIndex(flag) >= 0
 	}
 
 	if !hasSingle("--dir") {
@@ -133,8 +216,22 @@ func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 	if !hasFlag("--dir", "/workspace") {
 		t.Errorf("expected --dir /workspace in bwrap args, got %v", args)
 	}
-	if !hasFlag("--bind", root) {
-		t.Errorf("expected --bind %s in bwrap args, got %v", root, args)
+	if !hasFlag("--tmpfs", "/dev/shm") {
+		t.Errorf("expected --tmpfs /dev/shm for common Linux IPC/tmp users, got %v", args)
+	}
+	if !hasFlag("--tmpfs", "/var/tmp") {
+		t.Errorf("expected --tmpfs /var/tmp for common Linux temp users, got %v", args)
+	}
+	if !hasFlagPair("--bind", root, "/workspace") {
+		t.Errorf("expected --bind %s /workspace in bwrap args, got %v", root, args)
+	}
+	if hasFlagPair("--ro-bind", "/", "/") {
+		t.Errorf("local bwrap must not expose the whole host root read-only, got %v", args)
+	}
+	roBindIndex := flagIndex("--ro-bind")
+	bindIndex := flagIndex("--bind")
+	if roBindIndex < 0 || bindIndex < 0 || roBindIndex > bindIndex {
+		t.Errorf("expected read-only runtime mounts before writable --bind %s /workspace, got %v", root, args)
 	}
 	if !hasFlag("--chdir", sandboxCwd) {
 		t.Errorf("expected --chdir %s in bwrap args, got %v", sandboxCwd, args)

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -242,6 +243,80 @@ func prependPathEntry(entry, existing string) string {
 	return entry + string(os.PathListSeparator) + existing
 }
 
+func localSandboxHome(workDir string) string {
+	if runtime.GOOS == "linux" {
+		return "/workspace"
+	}
+	return workDir
+}
+
+func localSandboxPath(annaHome string) string {
+	annaBin := internaltools.BinDir(annaHome)
+	if runtime.GOOS != "linux" {
+		return prependPathEntry(annaBin, os.Getenv("PATH"))
+	}
+
+	entries := []string{annaBin}
+	for entry := range strings.SplitSeq(os.Getenv("PATH"), string(os.PathListSeparator)) {
+		if localSandboxPathAllowed(entry, annaBin) {
+			entries = append(entries, entry)
+		}
+	}
+	entries = append(entries,
+		"/run/current-system/sw/bin",
+		"/usr/local/sbin",
+		"/usr/local/bin",
+		"/usr/sbin",
+		"/usr/bin",
+		"/sbin",
+		"/bin",
+	)
+	return strings.Join(dedupePathEntries(entries), string(os.PathListSeparator))
+}
+
+func localSandboxPathAllowed(entry, annaBin string) bool {
+	if entry == "" {
+		return false
+	}
+	if annaBin != "" && entry == annaBin {
+		return true
+	}
+	for _, root := range []string{"/usr", "/bin", "/sbin", "/nix", "/run/current-system/sw"} {
+		if entry == root || strings.HasPrefix(entry, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func dedupePathEntries(entries []string) []string {
+	seen := make(map[string]struct{}, len(entries))
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry == "" {
+			continue
+		}
+		if _, ok := seen[entry]; ok {
+			continue
+		}
+		seen[entry] = struct{}{}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func copyLocalHostEnv(env map[string]string) {
+	for _, key := range []string{
+		"TERM", "COLORTERM", "LANG", "LC_ALL", "LC_CTYPE", "TZ",
+		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+		"http_proxy", "https_proxy", "all_proxy", "no_proxy",
+	} {
+		if value := os.Getenv(key); value != "" {
+			env[key] = value
+		}
+	}
+}
+
 func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession, error) {
 	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
 		trace.WithAttributes(
@@ -321,11 +396,11 @@ func createLocalSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 	if err != nil {
 		return nil, err
 	}
-	existing := env["PATH"]
-	if existing == "" {
-		existing = os.Getenv("PATH")
+	env["PATH"] = localSandboxPath(paths.AnnaHome)
+	if paths.WorkDir != "" {
+		env["HOME"] = localSandboxHome(paths.WorkDir)
 	}
-	env["PATH"] = prependPathEntry(internaltools.BinDir(paths.AnnaHome), existing)
+	copyLocalHostEnv(env)
 
 	policy := sandbox.Policy{
 		Filesystem: runnerFilesystemPolicy(paths),
@@ -333,7 +408,7 @@ func createLocalSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSession
 			Mode: sandbox.NetworkMode(cfg.Sandbox.Network.Mode),
 		},
 		Env:        env,
-		InheritEnv: true,
+		InheritEnv: false,
 	}
 
 	slog.Info("creating local session",

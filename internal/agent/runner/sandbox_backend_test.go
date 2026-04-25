@@ -102,6 +102,47 @@ func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
 	}
 }
 
+func TestCopyLocalHostEnvAllowlist(t *testing.T) {
+	t.Setenv("ANNA_TEST_SECRET", "must-not-leak")
+	t.Setenv("LANG", "C.UTF-8")
+	t.Setenv("HTTPS_PROXY", "http://proxy.example:8080")
+
+	env := map[string]string{}
+	copyLocalHostEnv(env)
+
+	if _, ok := env["ANNA_TEST_SECRET"]; ok {
+		t.Fatal("local sandbox env copied non-allowlisted host variable")
+	}
+	if got := env["LANG"]; got != "C.UTF-8" {
+		t.Fatalf("LANG = %q, want allowlisted host value", got)
+	}
+	if got := env["HTTPS_PROXY"]; got != "http://proxy.example:8080" {
+		t.Fatalf("HTTPS_PROXY = %q, want allowlisted proxy value", got)
+	}
+}
+
+func TestLocalSandboxPathAllowed(t *testing.T) {
+	annaBin := "/home/me/.anna/bin"
+	for _, entry := range []string{
+		annaBin,
+		"/usr/bin",
+		"/usr/local/bin",
+		"/bin",
+		"/sbin",
+		"/nix/store/abc/bin",
+		"/run/current-system/sw/bin",
+	} {
+		if !localSandboxPathAllowed(entry, annaBin) {
+			t.Fatalf("expected %q to be allowed", entry)
+		}
+	}
+	for _, entry := range []string{"", "/home/me/bin", "/tmp/bin", "/binary"} {
+		if localSandboxPathAllowed(entry, annaBin) {
+			t.Fatalf("expected %q to be rejected", entry)
+		}
+	}
+}
+
 // TestRunnerSessionLifecycle tests the runnerSession lifecycle using a nil session
 // (alwaysAlive=true path) to avoid requiring a live sandbox backend.
 func TestRunnerSessionLifecycle(t *testing.T) {
