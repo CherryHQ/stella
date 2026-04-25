@@ -40,12 +40,15 @@ func (f *Factory) Name() string { return "local" }
 // Available always returns true — the local backend has no external dependencies.
 func (f *Factory) Available() bool { return true }
 
-// Supported always returns nil — the local backend can satisfy any policy.
-func (f *Factory) Supported(_ sandboxpkg.Policy) error { return nil }
+// Supported returns an error if platform sandbox requirements are not met.
+func (f *Factory) Supported(_ sandboxpkg.Policy) error { return checkSandboxRequirements() }
 
 // CreateSession creates a new localSession.
 func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
 	sessionID := sandboxpkg.NewSessionID()
+	if err := checkSandboxRequirements(); err != nil {
+		return nil, err
+	}
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
 	s := &localSession{
 		id:          sessionID,

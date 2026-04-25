@@ -56,15 +56,14 @@ Docker 提供完整的容器级进程、文件系统和网络隔离。Docker 守
 | 层级 | 平台 | 机制 |
 |---|---|---|
 | 进程组终止 + 资源限制 | 所有 Unix | 对进程组发送 `SIGKILL`；通过 `prlimit(2)` 设置 `RLIMIT_FSIZE`、`RLIMIT_NOFILE`、`RLIMIT_CPU` |
-| 文件系统 + 网络隔离 | Linux（bwrap 可用） | `bwrap` — 工作区绑定挂载到 `/workspace`；其余文件系统只读；可选 `--unshare-net` |
-| 仅网络隔离 | Linux（无 bwrap） | `unshare --net` — 新建网络命名空间，无出站连接 |
+| 文件系统 + 网络隔离 | Linux | `bwrap`（必需）— 工作区绑定挂载到 `/workspace`；其余文件系统只读；网络模式为 `disabled` 时附加 `--unshare-net` |
 | 无额外本地隔离 | macOS | 命令直接在宿主机 OS 上运行；不强制执行文件系统和网络策略 |
 
-本地后端在 Linux 上采用**拒绝失败**策略：如果所需的隔离工具缺失，会话创建失败并返回包含操作建议的错误信息，而非在无隔离状态下运行。macOS 当前不再附加额外沙箱工具。
+本地后端在 Linux 上采用**拒绝失败**策略：`bwrap`（bubblewrap）为必需项。若 bwrap 不存在或不可用（例如在未启用 `--privileged` 的 Docker 容器内），会话创建失败并返回包含操作建议的错误信息。不存在回退到仅 `unshare` 或无隔离执行的降级路径。macOS 当前不再附加额外沙箱工具。
 
 #### 安装依赖
 
-**Linux — bubblewrap（推荐）：**
+**Linux — bubblewrap（必需）：**
 ```bash
 # Debian / Ubuntu
 apt install bubblewrap
@@ -76,7 +75,7 @@ dnf install bubblewrap
 pacman -S bubblewrap
 ```
 
-`unshare`（仅网络隔离的备用方案）是 `util-linux` 的一部分，在几乎所有 Linux 系统上均已存在。
+bwrap 必须实际可用，仅安装不够。在未启用 `--privileged` 的 Docker 容器内，内核 seccomp 配置文件通常会阻止命名空间创建，即使 bwrap 已安装也无法使用——此类环境请改用 Docker 后端。
 
 **macOS：**
 无需额外依赖。当前本地后端直接在宿主机 OS 上运行命令，不应用特定于 macOS 的沙箱。
@@ -85,7 +84,7 @@ pacman -S bubblewrap
 
 #### 路径呈现
 
-在 Linux 上使用 `bwrap` 时，无论真实宿主机路径如何，代理始终将工作区看作 `/workspace`，与 Docker 绑定挂载行为一致。在 macOS 和不使用 `bwrap` 的 Linux 上，代理看到的是真实宿主机路径。
+在 Linux 上，无论真实宿主机路径如何，代理始终将工作区看作 `/workspace`（bwrap 负责绑定挂载），与 Docker 绑定挂载行为一致。在 macOS 上，代理看到的是真实宿主机路径。
 
 ## 配置
 

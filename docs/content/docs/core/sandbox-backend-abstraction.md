@@ -56,15 +56,14 @@ The local backend runs commands directly on the host OS. It is intended for envi
 | Layer | Platform | Mechanism |
 |---|---|---|
 | Process group kill + rlimits | All Unix | `SIGKILL` on process group; `RLIMIT_FSIZE`, `RLIMIT_NOFILE`, `RLIMIT_CPU` via `prlimit(2)` |
-| Filesystem + network isolation | Linux (bwrap available) | `bwrap` — workspace bind-mounted to `/workspace`; rest of FS read-only; optional `--unshare-net` |
-| Network isolation only | Linux (no bwrap) | `unshare --net` — new network namespace, no outbound connectivity |
+| Filesystem + network isolation | Linux | `bwrap` (required) — workspace bind-mounted to `/workspace`; rest of FS read-only; `--unshare-net` when network mode is `disabled` |
 | No additional local isolation | macOS | Commands run directly on the host OS; filesystem and network policy are not enforced |
 
-The local backend uses a **fail-closed** strategy on Linux: if a required isolation tool is missing, session creation fails with an actionable error message rather than running unconfined. On macOS, no extra sandboxing tool is currently applied.
+The local backend uses a **fail-closed** strategy on Linux: `bwrap` (bubblewrap) is mandatory. Session creation fails with an actionable error if bwrap is absent or non-functional (e.g. inside Docker without `--privileged`). There is no fallback to `unshare`-only or unconfined execution. On macOS, no extra sandboxing tool is currently applied.
 
 #### Installing dependencies
 
-**Linux — bubblewrap (recommended):**
+**Linux — bubblewrap (required):**
 ```bash
 # Debian / Ubuntu
 apt install bubblewrap
@@ -76,7 +75,7 @@ dnf install bubblewrap
 pacman -S bubblewrap
 ```
 
-`unshare` (network-only fallback) is part of `util-linux` and is present on virtually all Linux systems.
+bwrap must be functional, not just installed. Inside Docker containers without `--privileged`, the kernel seccomp profile typically blocks namespace creation even when bwrap is present — use the Docker backend in that environment instead.
 
 **macOS:**
 No additional dependency is required. The current local backend runs commands directly on the host OS without applying a macOS-specific sandbox.
@@ -85,7 +84,7 @@ No additional dependency is required. The current local backend runs commands di
 
 #### Path presentation
 
-On Linux with `bwrap`, the agent always sees its workspace at `/workspace` regardless of the real host path. This mirrors Docker's bind-mount behaviour. On macOS and Linux without `bwrap`, the agent sees the real host path.
+On Linux the agent always sees its workspace at `/workspace` regardless of the real host path (bwrap bind-mounts it). This mirrors Docker's bind-mount behaviour. On macOS the agent sees the real host path.
 
 ## Configuration
 
