@@ -465,6 +465,11 @@ func (s *Service) CompleteAuthCodeFlowWithOrigin(ctx context.Context, provider, 
 	if err := s.saveToken(ctx, provider, flow.UserID, tok); err != nil {
 		return fmt.Errorf("save %s token: %w", provider, err)
 	}
+	// Invalidate live runners so the next session picks up the new token.
+	// OAuth tokens are baked into the sandbox env at session-creation time and
+	// cannot be injected into a running process; closing the runner forces a
+	// clean restart with fresh credentials on the next chat turn.
+	_ = s.InvalidateUser(flow.UserID)
 	return nil
 }
 
