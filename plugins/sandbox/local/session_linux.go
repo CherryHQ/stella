@@ -129,8 +129,8 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []strin
 	networkMode := policy.NetworkModeOrDefault()
 
 	bwrapArgs := []string{
-		"--ro-bind", "/", "/",
 		"--bind", realRoot, "/workspace",
+		"--ro-bind", "/", "/",
 		"--dev", "/dev",
 		"--tmpfs", "/tmp",
 		"--proc", "/proc",
