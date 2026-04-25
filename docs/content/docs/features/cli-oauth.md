@@ -85,9 +85,9 @@ lark-cli message send --chat-id <id> --text "Hello"
 ### Feishu/Lark token expiry
 
 Feishu and Lark user access tokens expire after approximately **2 hours**. Anna
-refreshes them at session start only. If an agent session outlives the token,
-`lark-cli` calls will fail with an authentication error. Starting a new Anna session
-will pick up a freshly refreshed token automatically.
+proactively refreshes them when a token is within 10 minutes of expiry. If a token
+expires mid-session, re-authenticate using the `oauth` tool or the Credentials page;
+Anna will automatically restart the sandbox with the new token on the next message.
 
 ### Restart loses in-flight device flows
 
