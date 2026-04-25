@@ -18,6 +18,7 @@ func TestFactory_basics(t *testing.T) {
 	if !f.(*Factory).Available() {
 		t.Error("expected Available to return true")
 	}
+	skipIfBwrapNotFunctional(t)
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: t.TempDir()},
 	}
@@ -27,6 +28,7 @@ func TestFactory_basics(t *testing.T) {
 }
 
 func TestFactory_createSession(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
 	root := t.TempDir()
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
@@ -314,6 +316,7 @@ func TestBuildEnv_denyListFiltersVaultKey(t *testing.T) {
 // TestExec_nonzeroExitCode verifies that Exec returns a non-zero ExitCode for
 // failing commands and does not surface it as a Go error.
 func TestExec_nonzeroExitCode(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
 	s, _ := newTestSession(t)
 	result, err := s.Exec(context.Background(), "exit 42", sandboxpkg.ExecOptions{})
 	if err != nil {
@@ -327,6 +330,7 @@ func TestExec_nonzeroExitCode(t *testing.T) {
 // TestExec_success verifies that a successful command returns exit code 0 and
 // captures stdout correctly.
 func TestExec_success(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
 	s, _ := newTestSession(t)
 	result, err := s.Exec(context.Background(), "echo hello", sandboxpkg.ExecOptions{})
 	if err != nil {
