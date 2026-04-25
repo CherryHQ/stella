@@ -324,19 +324,28 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 		slog.Warn("failed to extract builtin skills", "error", err)
 	}
 
-	dockerCfg, err := resolveDockerConfig()
-	if err != nil {
-		return fmt.Errorf("go runner: %w", err)
-	}
-	cleanupOrphanedDockerContainers(ctx, dockerCfg.TranslateToDaemonPath(paths.AnnaHome))
-	if err := dockerplugin.Preflight(ctx, dockerplugin.PreflightConfig{
-		AnnaHome: paths.AnnaHome,
-		Docker:   dockerCfg,
-	}); err != nil {
-		if config.SandboxDockerImageIsDev() {
-			return fmt.Errorf("go runner: %w (run `mise run sandbox:docker:build` to build the local %q image)", err, config.SandboxDockerImage())
+	backend := config.SandboxBackendLocal
+	if cfg.SandboxBackendFn != nil {
+		if name := cfg.SandboxBackendFn(ctx); name != "" {
+			backend = name
 		}
-		return fmt.Errorf("go runner: docker not available; install and start Docker Desktop or the docker daemon: %w", err)
+	}
+
+	if backend == config.SandboxBackendDocker {
+		dockerCfg, err := resolveDockerConfig()
+		if err != nil {
+			return fmt.Errorf("go runner: %w", err)
+		}
+		cleanupOrphanedDockerContainers(ctx, dockerCfg.TranslateToDaemonPath(paths.AnnaHome))
+		if err := dockerplugin.Preflight(ctx, dockerplugin.PreflightConfig{
+			AnnaHome: paths.AnnaHome,
+			Docker:   dockerCfg,
+		}); err != nil {
+			if config.SandboxDockerImageIsDev() {
+				return fmt.Errorf("go runner: %w (run `mise run sandbox:docker:build` to build the local %q image)", err, config.SandboxDockerImage())
+			}
+			return fmt.Errorf("go runner: docker not available; install and start Docker Desktop or the docker daemon: %w", err)
+		}
 	}
 	return nil
 }
