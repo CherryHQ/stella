@@ -35,6 +35,10 @@ oauth_providers:
       - task:comment:write
     vault_key: LARK_CLI_OAUTH
     flows:
+      - type: device_code
+        device_auth_url: https://accounts.larksuite.com/oauth/v1/device_authorization
+        token_url: https://open.larksuite.com/open-apis/authen/v2/oauth/token
+        auth_style: in_params
       - type: authorization_code
         auth_url: https://open.larksuite.com/open-apis/authen/v1/authorize
         token_url: https://open.larksuite.com/open-apis/authen/v2/oauth/token
@@ -63,6 +67,10 @@ oauth_providers:
       - task:comment:write
     vault_key: FEISHU_CLI_OAUTH
     flows:
+      - type: device_code
+        device_auth_url: https://accounts.feishu.cn/oauth/v1/device_authorization
+        token_url: https://open.feishu.cn/open-apis/authen/v2/oauth/token
+        auth_style: in_params
       - type: authorization_code
         auth_url: https://open.feishu.cn/open-apis/authen/v1/authorize
         token_url: https://open.feishu.cn/open-apis/authen/v2/oauth/token

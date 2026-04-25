@@ -34,7 +34,14 @@ func NewDeviceCodeBroker(cfg *oauth2.Config, store *FlowStore) *DeviceCodeBroker
 // FlowStatus the caller should display. A background goroutine polls the
 // token endpoint until the user authorizes or the flow expires.
 func (b *DeviceCodeBroker) StartFlow(ctx context.Context, provider Provider, userID int64) (FlowStatus, error) {
-	da, err := b.cfg.DeviceAuth(ctx, oauth2.AccessTypeOnline)
+	// RFC 8628 public-client device auth omits client_secret, but some providers
+	// (e.g. Feishu/Lark) require it. Inject it when present so the device auth
+	// request is accepted without changing the token exchange path.
+	var extraOpts []oauth2.AuthCodeOption
+	if b.cfg.ClientSecret != "" {
+		extraOpts = append(extraOpts, oauth2.SetAuthURLParam("client_secret", b.cfg.ClientSecret))
+	}
+	da, err := b.cfg.DeviceAuth(ctx, extraOpts...)
 	if err != nil {
 		return FlowStatus{}, fmt.Errorf("oauth: device auth: %w", err)
 	}
