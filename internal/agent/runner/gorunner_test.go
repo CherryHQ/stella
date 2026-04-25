@@ -80,10 +80,11 @@ func TestPrepareSandboxDockerUnreachableDaemonReturnsDockerError(t *testing.T) {
 	}
 
 	cfg := GoRunnerConfig{
-		AnnaHome:  t.TempDir(),
-		AgentRoot: workspace,
-		UserRoot:  userRoot,
-		Sandbox:   config.SandboxConfig{},
+		AnnaHome:         t.TempDir(),
+		AgentRoot:        workspace,
+		UserRoot:         userRoot,
+		Sandbox:          config.SandboxConfig{},
+		SandboxBackendFn: func(_ context.Context) string { return config.SandboxBackendDocker },
 	}
 	err := prepareSandbox(context.Background(), cfg)
 	if err == nil {
