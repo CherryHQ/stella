@@ -80,6 +80,90 @@ sudo journalctl -u anna -f   # 跟踪日志
 
 所有配置（频道、agents、调度器任务）都存储在 `anna.db` 中。使用 `anna --open` 来访问管理面板管理配置。
 
+### boxsh 沙盒前置条件（Linux）
+
+在 Linux 上，Anna 默认使用托管的 `boxsh` 沙盒来运行本地工作区工具（`bash`、`read`、`write`、`edit`）。`boxsh` 需要宿主机支持用户命名空间和从属 ID 映射。
+
+安装用户命名空间辅助工具：
+
+```bash
+# Debian / Ubuntu
+sudo apt update
+sudo apt install uidmap
+
+# 验证辅助工具是否存在
+which newuidmap
+which newgidmap
+ls -l /usr/bin/newuidmap /usr/bin/newgidmap
+```
+
+确保服务用户具有从属 UID/GID 范围：
+
+```bash
+grep '^anna:' /etc/subuid
+grep '^anna:' /etc/subgid
+```
+
+预期格式：
+
+```text
+anna:100000:65536
+```
+
+如果缺少这些条目，请添加它们：
+
+```bash
+sudo usermod --add-subuids 100000-165535 anna
+sudo usermod --add-subgids 100000-165535 anna
+```
+
+验证内核是否允许非特权用户命名空间：
+
+```bash
+sysctl kernel.unprivileged_userns_clone
+sysctl user.max_user_namespaces
+```
+
+典型的工作值：
+
+```text
+kernel.unprivileged_userns_clone = 1
+user.max_user_namespaces = 15000
+```
+
+某些 Ubuntu 主机即使启用了上述内核设置，仍可能通过 AppArmor 阻止非特权用户命名空间。请检查：
+
+```bash
+sysctl kernel.apparmor_restrict_unprivileged_userns
+```
+
+如果 `boxsh` 失败并显示 `sandbox_apply failed: write uid_map: Operation not permitted`，请临时禁用该限制并重新测试：
+
+```bash
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+```
+
+要使 Linux 前置条件在重启后持久生效：
+
+```bash
+sudo tee /etc/sysctl.d/99-anna-boxsh.conf >/dev/null <<'EOF'
+kernel.unprivileged_userns_clone=1
+user.max_user_namespaces=15000
+kernel.apparmor_restrict_unprivileged_userns=0
+EOF
+
+sudo sysctl --system
+```
+
+以服务用户身份直接对 `boxsh` 进行冒烟测试：
+
+```bash
+$ANNA_HOME/bin/boxsh --version
+$ANNA_HOME/bin/boxsh --rpc --sandbox
+```
+
+如果第二个命令立即以 `uid_map` 错误退出，说明宿主机仍在阻止用户命名空间设置。如果您需要在修复宿主机之前让 Anna 工作，请将 agent 沙盒后端配置为 `docker` 作为临时回退（需要可访问的 docker 守护进程）。
+
 ### LaunchAgent（macOS）
 
 项目提供了现成的 plist 文件：[`scripts/com.vaayne.anna.plist`](https://github.com/vaayne/anna/blob/main/scripts/com.vaayne.anna.plist)。

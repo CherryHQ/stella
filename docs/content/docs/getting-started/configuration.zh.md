@@ -14,38 +14,42 @@ title: 配置
 
 全局设置的键值存储。每行包含一个 `key`（文本）和一个 `value`（JSON 文本）。已知的键：
 
-| 键             | 描述                                      |
-| -------------- | ----------------------------------------- |
-| `runner`       | Runner 类型、系统提示、空闲超时、压缩设置 |
-| `compaction`   | 压缩阈值（max_tokens、keep_tail）         |
-| `heartbeat`    | 心跳轮询开关和间隔                        |
-| `plugins`      | 插件定义的 JSON 数组                      |
-| `models_cache` | 从提供商缓存的模型列表                    |
+| 键                | 描述                                      |
+| ----------------- | ----------------------------------------- |
+| `runner`          | Runner 类型、系统提示、空闲超时、压缩设置 |
+| `compaction`      | 压缩阈值（max_tokens、keep_tail）         |
+| `heartbeat`       | 心跳轮询开关和间隔                        |
+| `plugins`         | 插件定义的 JSON 数组                      |
+| `runtime_plugins` | 子进程工具/通道绑定的 JSON 对象           |
+| `models_cache`    | 从提供商缓存的模型列表                    |
 
 ### settings_agents
 
 每个 agent 一行。
 
-| 列              | 类型    | 描述                                  |
-| --------------- | ------- | ------------------------------------- |
-| `id`            | TEXT    | Agent 标识（例如 `anna`）             |
-| `name`          | TEXT    | 显示名称                              |
-| `model`         | TEXT    | 默认模型，格式为 `provider/model`     |
-| `model_strong`  | TEXT    | 强力层级模型，格式为 `provider/model` |
-| `model_fast`    | TEXT    | 快速层级模型，格式为 `provider/model` |
-| `system_prompt` | TEXT    | 自定义系统提示（绕过默认构建器）      |
-| `workspace`     | TEXT    | Agent 工作空间目录的绝对路径          |
-| `enabled`       | INTEGER | 1 = 启用，0 = 禁用                    |
+| 列              | 类型    | 描述                                                                        |
+| --------------- | ------- | --------------------------------------------------------------------------- |
+| `id`            | TEXT    | Agent 标识（例如 `anna`）                                                   |
+| `name`          | TEXT    | 显示名称                                                                    |
+| `model`         | TEXT    | 默认模型，格式为 `provider/model`                                           |
+| `model_strong`  | TEXT    | 强力层级模型，格式为 `provider/model`                                       |
+| `model_fast`    | TEXT    | 快速层级模型，格式为 `provider/model`                                       |
+| `system_prompt` | TEXT    | 自定义系统提示（绕过默认构建器）                                            |
+| `workspace`     | TEXT    | Agent 工作空间目录的绝对路径                                              |
+| `sandbox`       | TEXT    | Agent 的 JSON 沙箱配置（`backend`、`network.mode`、`network.allowlist`）   |
+| `enabled`       | INTEGER | 1 = 启用，0 = 禁用                                                          |
 
 ### settings_channels
 
-每个消息平台一行。
+每个通道实例一行。多行可以共享相同的平台 `type`，例如多个飞书机器人实例。
 
-| 列        | 类型    | 描述                                               |
-| --------- | ------- | -------------------------------------------------- |
-| `id`      | TEXT    | 平台标识符：`telegram`、`qq`、`feishu` 或 `weixin` |
-| `enabled` | INTEGER | 1 = 启用，0 = 禁用                                 |
-| `config`  | TEXT    | 包含平台特定设置的 JSON 数据（见下文）             |
+| 列         | 类型    | 描述                                                       |
+| ---------- | ------- | ---------------------------------------------------------- |
+| `id`       | TEXT    | 通道实例标识符，例如 `telegram` 或 `feishu-coder`         |
+| `type`     | TEXT    | 平台类型：`telegram`、`qq`、`feishu` 或 `weixin`          |
+| `agent_id` | TEXT    | 此通道实例的可选专属 agent                                 |
+| `enabled`  | INTEGER | 1 = 启用，0 = 禁用                                         |
+| `config`   | TEXT    | 包含平台特定设置的 JSON 数据（见下文）                     |
 
 ### settings_users
 
@@ -63,13 +67,14 @@ title: 配置
 
 将特定群聊路由到特定 agent。
 
-| 列         | 类型 | 描述                        |
-| ---------- | ---- | --------------------------- |
-| `platform` | TEXT | 平台标识符                  |
-| `chat_id`  | TEXT | 平台上的群组或聊天 ID       |
-| `agent_id` | TEXT | 外键到 `settings_agents.id` |
+| 列         | 类型 | 描述                           |
+| ---------- | ---- | ------------------------------ |
+| `channel_id` | TEXT | 通道实例标识符                 |
+| `platform`   | TEXT | 平台标识符                     |
+| `chat_id`    | TEXT | 平台上的群组或聊天 ID          |
+| `agent_id`   | TEXT | 外键到 `settings_agents.id`    |
 
-组合主键：`(platform, chat_id)`。
+组合主键：`(channel_id, chat_id)`。
 
 ## Runner 设置
 
@@ -131,15 +136,18 @@ title: 配置
 
 ## 目录结构
 
-| 路径                                         | 用途                                | 类别 |
-| -------------------------------------------- | ----------------------------------- | ---- |
-| `~/.anna/anna.db`                            | SQLite 数据库（配置、记忆、调度器） | 数据 |
-| `~/.anna/workspaces/{agent-id}/skills/`      | 每个 agent 安装的技能               | 数据 |
-| `~/.anna/workspaces/{agent-id}/anna.log`     | 每个 agent 的日志文件               | 数据 |
-| `~/.anna/workspaces/{agent-id}/SOUL.md`      | 可选的灵魂/身份覆盖                 | 数据 |
-| `~/.anna/workspaces/{agent-id}/SYSTEM.md`    | 可选的系统提示覆盖                  | 数据 |
-| `~/.anna/workspaces/{agent-id}/HEARTBEAT.md` | 心跳指令                            | 数据 |
-| `~/.anna/cache/`                             | 模型缓存（可安全删除）              | 缓存 |
+| 路径                                         | 用途                                       | 类别 |
+| -------------------------------------------- | ------------------------------------------ | ---- |
+| `~/.anna/anna.db`                            | SQLite 数据库（配置、记忆、调度器）        | 数据 |
+| `~/.anna/plugins/bundled/`                   | 捆绑的运行时插件清单                       | 数据 |
+| `~/.anna/plugins/installed/`                  | 用户安装的运行时插件                       | 数据 |
+| `~/.anna/workspaces/{agent-id}/skills/`      | 每个 agent 安装的技能                      | 数据 |
+| `~/.anna/workspaces/{agent-id}/anna.log`     | 每个 agent 的日志文件                      | 数据 |
+| `~/.anna/workspaces/{agent-id}/SOUL.md`      | 可选的灵魂/身份覆盖                        | 数据 |
+| `~/.anna/workspaces/{agent-id}/SYSTEM.md`    | 可选的系统提示覆盖                         | 数据 |
+| `~/.anna/workspaces/{agent-id}/HEARTBEAT.md` | 心跳指令                                   | 数据 |
+| `~/.anna/cache/`                             | 模型缓存（可安全删除）                     | 缓存 |
+| `~/.anna/cache/sandbox/`                     | 沙箱会话暂存/预检状态                      | 缓存 |
 
 - **anna.db** 是所有配置、记忆和调度器数据的唯一真实来源。
 - **workspaces/** 包含每个 agent 的数据。每个 agent 都有一个以 agent ID 为键的专属目录。
@@ -169,12 +177,14 @@ docker 后端 agent `sandbox` 字段的 JSON 示例：
 
 旧的 `ANNA_*` 前缀覆盖所有配置字段的方式已被移除。现在只识别以下环境变量：
 
-| 变量                | 用途                                                                                                                                               |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ANNA_HOME`         | 覆盖主目录（默认为 `~/.anna`）                                                                                                                     |
-| `ANNA_HOME_HOST`    | 当 anna 运行在容器中并通过宿主机 docker 守护进程工作时（Docker-outside-of-Docker），`ANNA_HOME` 对应的宿主机路径。仅在该部署下必须；其他情况忽略。 |
-| `ANTHROPIC_API_KEY` | Anthropic 提供商的备用 API 密钥                                                                                                                    |
-| `OPENAI_API_KEY`    | OpenAI 提供商的备用 API 密钥                                                                                                                       |
+| 变量                 | 用途                                                                                                                                               |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ANNA_HOME`          | 覆盖主目录（默认为 `~/.anna`）                                                                                                                     |
+| `ANNA_HOME_HOST`     | 当 anna 运行在容器中并通过宿主机 docker 守护进程工作时（Docker-outside-of-Docker），`ANNA_HOME` 对应的宿主机路径。仅在该部署下必须；其他情况忽略。 |
+| `ANTHROPIC_API_KEY`  | Anthropic 提供商的备用 API 密钥                                                                                                                    |
+| `ANTHROPIC_BASE_URL` | Anthropic 提供商的备用基础 URL                                                                                                                     |
+| `OPENAI_API_KEY`     | OpenAI 提供商的备用 API 密钥                                                                                                                       |
+| `OPENAI_BASE_URL`    | OpenAI 提供商的备用基础 URL                                                                                                                        |
 
 所有其他配置必须通过管理面板（`anna --open`）或直接在数据库中设置。
 
@@ -202,3 +212,22 @@ docker 后端 agent `sandbox` 字段的 JSON 示例：
   { "path": "/abs/path/notify.js", "config": { "webhook_url": "https://example.com" } }
 ]
 ```
+
+## 运行时插件绑定
+
+子进程插件绑定单独存储在 `runtime_plugins` 键下：
+
+```json
+{
+  "tools": {
+    "read": "tool/read",
+    "bash": "tool/bash"
+  },
+  "channels": {
+    "telegram": "channel/telegram",
+    "qq": "channel/qq"
+  }
+}
+```
+
+这些绑定控制哪个运行时插件 ID 处理每个内置工具或通道槽。如果某个槽没有显式覆盖，anna 将回退到该槽的捆绑第一方插件。使用 `anna plugin runtime list` 检查有效绑定，使用 `anna plugin runtime bind ...` 更改它们。
