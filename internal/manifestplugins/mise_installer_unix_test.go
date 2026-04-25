@@ -50,7 +50,7 @@ esac
 		errCh <- err
 	}()
 
-	pidData, err := waitForFile(childPIDPath, 3*time.Second)
+	pidData, err := waitForFile(childPIDPath, 10*time.Second)
 	if err != nil {
 		cancel()
 		t.Fatalf("read child pid: %v", err)

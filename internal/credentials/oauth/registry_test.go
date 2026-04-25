@@ -11,6 +11,35 @@ import (
 	"golang.org/x/oauth2"
 )
 
+func TestProviderRegistry_GetAndVaultKeyAndIDs(t *testing.T) {
+	reg := NewProviderRegistry()
+	reg.Register(ProviderConfig{ID: "github", VaultKey: "GH_OAUTH"})
+	reg.Register(ProviderConfig{ID: "lark", VaultKey: "LARK_OAUTH"})
+
+	cfg, ok := reg.Get("github")
+	if !ok || cfg.ID != "github" {
+		t.Fatalf("Get(github): got %v, ok=%v", cfg, ok)
+	}
+	_, ok = reg.Get("missing")
+	if ok {
+		t.Fatal("Get(missing) should return false")
+	}
+
+	vk, ok := reg.VaultKey("lark")
+	if !ok || vk != "LARK_OAUTH" {
+		t.Fatalf("VaultKey(lark) = %q, ok=%v, want LARK_OAUTH/true", vk, ok)
+	}
+	_, ok = reg.VaultKey("missing")
+	if ok {
+		t.Fatal("VaultKey(missing) should return false")
+	}
+
+	ids := reg.IDs()
+	if len(ids) != 2 || ids[0] != "github" || ids[1] != "lark" {
+		t.Fatalf("IDs() = %v, want [github lark]", ids)
+	}
+}
+
 func TestNeedsRefresh(t *testing.T) {
 	now := time.Now()
 
