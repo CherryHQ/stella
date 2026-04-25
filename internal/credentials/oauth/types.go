@@ -47,7 +47,7 @@ type OAuthBundle struct {
 	AccessToken      string    `json:"access_token"`
 	RefreshToken     string    `json:"refresh_token,omitempty"`
 	AccessExpiresAt  time.Time `json:"access_expires_at"`
-	RefreshExpiresAt time.Time `json:"refresh_expires_at,omitempty"`
+	RefreshExpiresAt time.Time `json:"refresh_expires_at,omitzero"`
 	Brand            string    `json:"brand,omitempty"` // e.g. "lark" or "feishu"
 }
 
