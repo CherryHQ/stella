@@ -169,7 +169,13 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		cmd, args := channel.ParseSlashCommand(text)
 		switch cmd {
 		case "/auth":
-			replyFn("The /auth command was removed. Feishu workspace OAuth is no longer supported. If you need Lark workspace access, install a lark-cli skill and run `lark-cli auth login --recommend`.")
+			provider := "feishu"
+			if args != "" {
+				provider = strings.TrimSpace(args)
+			}
+			authContent := channel.TextContent(fmt.Sprintf("Please connect my %s OAuth credentials using the oauth tool with action=connect and provider=%s. Show me the verification URL so I can authorize in my browser.", provider, provider))
+			authMsg := b.incomingMsg(senderIDs, chatID, chatType, authContent)
+			go b.handleIncoming(authMsg, "", "", authMsg.SenderID, chatID, messageID, rootID, replyFn)
 			return nil
 		case "/model":
 			b.handleModelCommand(args, replyFn)
