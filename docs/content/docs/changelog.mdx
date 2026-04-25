@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.5] - 2026-04-25
+
+### 🐛 Bug Fixes
+
+- **Sandbox**: Require bubblewrap on Linux local sandbox, remove fallbacks ([#129](https://github.com/vaayne/anna/pull/129))
+- **Sandbox**: Require bubblewrap on Linux local sandbox, remove unshare/unconfined fallbacks
+- **Sandbox**: Skip Docker preflight checks when local sandbox backend is selected
+- **Sandbox**: Remove redundant `--dir /workspace` from bwrap args
+- **Sandbox**: Fix bwrap bind ordering — bind `/workspace` before `--ro-bind / /`
+- **Sandbox**: Harden local sandbox root directory security
+- **OAuth**: Fix token refresh and session environment injection ([#128](https://github.com/vaayne/anna/pull/128))
+
+### ✅ Testing
+
+- Skip bubblewrap-dependent tests when user namespaces are blocked
+- Improve test coverage from 51.6% to ~53%
+- Install bubblewrap in CI and fix `omitzero` JSON tag
+
+### 📝 Documentation
+
+- Clarify Feishu auto-provision setup instructions
+
+**Full Changelog**: [v0.16.4...v0.16.5](https://github.com/vaayne/anna/compare/v0.16.4...v0.16.5)
+
 ## [0.16.4] - 2026-04-24
 
 ### 🐛 Bug Fixes
