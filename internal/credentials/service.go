@@ -370,20 +370,22 @@ func (s *Service) StartFlow(ctx context.Context, userID int64, provider string) 
 	return toFlowStatus(status), nil
 }
 
-// StartFlowWithOrigin starts an authorization_code OAuth flow for use by the
-// admin UI. The callback URL is built from origin so the browser redirect lands
-// on the correct host.
+// StartFlowWithOrigin starts an OAuth flow for use by the admin UI.
+// It uses the provider's preferred flow type (device_code when available,
+// otherwise authorization_code). The callback URL is built from origin so
+// browser redirects land on the correct host.
 func (s *Service) StartFlowWithOrigin(ctx context.Context, userID int64, provider string, origin string) (FlowStatus, error) {
 	if s.vaultSvc == nil {
 		return FlowStatus{}, fmt.Errorf("vault not configured")
 	}
-	broker, err := s.getBrokerWithOrigin(ctx, provider, "authorization_code", origin)
+	flowType := s.preferredFlowType(provider)
+	broker, err := s.getBrokerWithOrigin(ctx, provider, flowType, origin)
 	if err != nil {
 		return FlowStatus{}, err
 	}
 	status, err := broker.StartFlow(ctx, oauth.Provider(provider), userID)
 	if err != nil {
-		return FlowStatus{}, fmt.Errorf("start %s authorization_code flow: %w", provider, err)
+		return FlowStatus{}, fmt.Errorf("start %s %s flow: %w", provider, flowType, err)
 	}
 	return toFlowStatus(status), nil
 }
@@ -465,6 +467,11 @@ func (s *Service) CompleteAuthCodeFlowWithOrigin(ctx context.Context, provider, 
 	if err := s.saveToken(ctx, provider, flow.UserID, tok); err != nil {
 		return fmt.Errorf("save %s token: %w", provider, err)
 	}
+	// Invalidate live runners so the next session picks up the new token.
+	// OAuth tokens are baked into the sandbox env at session-creation time and
+	// cannot be injected into a running process; closing the runner forces a
+	// clean restart with fresh credentials on the next chat turn.
+	_ = s.InvalidateUser(flow.UserID)
 	return nil
 }
 

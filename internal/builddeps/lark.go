@@ -331,7 +331,7 @@ This skill aggregates Lark/Feishu CLI modules synced from ` + "`larksuite/cli`" 
 
 **Identity** — default to ` + "`--as user`" + ` for personal resources (calendar, docs, tasks, mail). ` + "`--as bot`" + ` requires manual app configuration outside Anna and cannot see user-private resources.
 
-**Token expiry** — user access tokens expire after ~2 hours. If mid-session auth fails, open a new Anna session. If that also fails, use the ` + "`oauth`" + ` tool (oauth status, then oauth connect with provider=lark) or go to Credentials → OAuth CLI Credentials to reconnect.
+**Token expiry** — user access tokens expire after ~2 hours. Anna proactively refreshes them within 10 minutes of expiry. If a token expires mid-session, use the ` + "`oauth`" + ` tool (oauth status, then oauth connect with provider=lark) or go to Credentials → OAuth CLI Credentials to reconnect; Anna restarts the sandbox automatically on the next message.
 
 ## Modules
 
