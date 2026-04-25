@@ -16,6 +16,10 @@ func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string)
 	return real, real
 }
 
+// checkSandboxRequirements is a no-op on macOS — no additional isolation tools
+// are required; commands run directly on the host OS.
+func checkSandboxRequirements() error { return nil }
+
 // wrapCommand is a no-op on macOS.
 //
 // The local backend now runs commands directly on the host OS without applying

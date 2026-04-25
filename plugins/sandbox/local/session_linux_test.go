@@ -8,9 +8,10 @@ import (
 	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
 )
 
-// TestWrapCommand_linux_bwrapOrUnshare verifies that wrapCommand on Linux
-// uses bwrap or unshare for network isolation when those tools are available.
-func TestWrapCommand_linux_bwrapOrUnshare(t *testing.T) {
+// TestWrapCommand_linux_networkDisabled verifies that wrapCommand on Linux
+// uses bwrap with --unshare-net when network is disabled, or returns an error
+// when bwrap is not functional (no fallback to unshare).
+func TestWrapCommand_linux_networkDisabled(t *testing.T) {
 	root := "/tmp/test-workspace"
 	sandboxCwd := "/workspace"
 	policy := sandboxpkg.Policy{
@@ -22,47 +23,42 @@ func TestWrapCommand_linux_bwrapOrUnshare(t *testing.T) {
 	}
 
 	path, args, _, err := wrapCommand(policy, sandboxCwd, "sh", []string{"-c", "echo hi"})
-	if err != nil {
-		// Neither tool is available — this is an expected failure mode.
-		if strings.Contains(err.Error(), "neither bwrap nor unshare") {
-			t.Skipf("neither bwrap nor unshare available: %v", err)
+
+	if !bwrapFunctional() {
+		if err == nil {
+			t.Fatal("expected error when bwrap is not functional, got nil")
 		}
-		t.Fatalf("unexpected error: %v", err)
+		if !strings.Contains(err.Error(), "bwrap") {
+			t.Errorf("error should mention bwrap, got: %v", err)
+		}
+		return
 	}
 
-	_, bwrapErr := exec.LookPath("bwrap")
-	bwrapAvail := bwrapErr == nil
-	_, unshareErr := exec.LookPath("unshare")
-	unshareAvail := unshareErr == nil
-
-	if bwrapAvail {
-		if !strings.HasSuffix(path, "bwrap") {
-			t.Errorf("expected bwrap executable, got %q", path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.HasSuffix(path, "bwrap") {
+		t.Errorf("expected bwrap executable, got %q", path)
+	}
+	found := false
+	for _, a := range args {
+		if a == "--unshare-net" {
+			found = true
+			break
 		}
-		found := false
-		for _, a := range args {
-			if a == "--unshare-net" {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("expected --unshare-net in bwrap args, got %v", args)
-		}
-	} else if unshareAvail {
-		if !strings.HasSuffix(path, "unshare") {
-			t.Errorf("expected unshare executable, got %q", path)
-		}
-		if len(args) == 0 || args[0] != "--net" {
-			t.Errorf("expected --net as first arg to unshare, got %v", args)
-		}
+	}
+	if !found {
+		t.Errorf("expected --unshare-net in bwrap args, got %v", args)
 	}
 }
 
 // TestWrapCommand_linux_allowAllNoWrap verifies that when network is allow_all,
-// the command runs with bwrap (for /workspace remapping) but without
-// --unshare-net, or fully unwrapped when bwrap is absent.
+// bwrap is used without --unshare-net.
 func TestWrapCommand_linux_allowAllNoWrap(t *testing.T) {
+	if !bwrapFunctional() {
+		t.Skip("bwrap not functional")
+	}
+
 	root := "/tmp/test-workspace"
 	sandboxCwd := "/workspace"
 	policy := sandboxpkg.Policy{
@@ -78,7 +74,6 @@ func TestWrapCommand_linux_allowAllNoWrap(t *testing.T) {
 		t.Fatalf("unexpected error for allow_all network: %v", err)
 	}
 
-	// Whether bwrap is used or not, --unshare-net must NOT appear.
 	for _, a := range args {
 		if a == "--unshare-net" {
 			t.Errorf("--unshare-net should not appear for allow_all network, got args %v", args)
@@ -91,7 +86,10 @@ func TestWrapCommand_linux_allowAllNoWrap(t *testing.T) {
 // and --chdir <sandboxCwd>.
 func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
-		t.Skip("bwrap not available")
+		t.Skip("bwrap not installed")
+	}
+	if !bwrapFunctional() {
+		t.Skip("bwrap not functional (namespace creation blocked)")
 	}
 
 	root := "/tmp/test-workspace"

@@ -66,15 +66,23 @@ func applyRlimits(cmd *exec.Cmd) error {
 	return nil
 }
 
-// resolveSandboxRoot returns the sandbox-space root and the real host root.
-// On Linux, if bwrap is available, the agent always sees /workspace; otherwise
-// both roots are identical.
-func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	real := policy.WorkspaceRootOrDefault()
-	if bwrapFunctional() {
-		return "/workspace", real
+// checkSandboxRequirements verifies that bwrap is available and functional.
+// Returns an error with install instructions if not.
+func checkSandboxRequirements() error {
+	if !bwrapFunctional() {
+		return fmt.Errorf(
+			"local sandbox: bwrap (bubblewrap) is required on Linux but is not available or not functional; " +
+				"install it (apt install bubblewrap / dnf install bubblewrap / pacman -S bubblewrap) " +
+				"or use the docker backend",
+		)
 	}
-	return real, real
+	return nil
+}
+
+// resolveSandboxRoot returns the sandbox-space root and the real host root.
+// On Linux bwrap is required, so the agent always sees /workspace.
+func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
+	return "/workspace", policy.WorkspaceRootOrDefault()
 }
 
 var (
@@ -103,56 +111,36 @@ func bwrapFunctional() bool {
 	return bwrapAvailable
 }
 
-// wrapCommand wraps name+args with bwrap (preferred) or unshare for network/fs
-// isolation on Linux.
+// wrapCommand wraps name+args with bwrap for filesystem and optional network
+// isolation on Linux. bwrap is mandatory — returns an error if not functional.
 //
-//   - sandboxCwd: the working directory in sandbox space (e.g. /workspace/sub).
-//   - hostCwd returned: what to set as cmd.Dir on the host (irrelevant for bwrap
-//     since bwrap uses --chdir internally, but returned for consistency).
-//
-// If neither bwrap nor unshare is available and network isolation is required,
-// an error is returned.
+//   - sandboxCwd: working directory in sandbox space (e.g. /workspace/sub).
+//   - hostCwd returned: real host path (bwrap uses --chdir internally).
 func wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []string) (execPath string, execArgs []string, hostCwd string, err error) {
-	realRoot := policy.WorkspaceRootOrDefault()
-	networkMode := policy.NetworkModeOrDefault()
-
-	// Always try bwrap first: it gives us both /workspace path remapping and
-	// optional network isolation. bwrapFunctional() probes actual namespace
-	// creation so we don't attempt bwrap inside Docker containers where it is
-	// installed but blocked by the seccomp profile.
-	if bwrapFunctional() {
-		bwrapArgs := []string{
-			"--ro-bind", "/", "/",
-			"--dir", "/workspace",
-			"--bind", realRoot, "/workspace",
-			"--dev", "/dev",
-			"--tmpfs", "/tmp",
-			"--proc", "/proc",
-			"--chdir", sandboxCwd,
-		}
-		if networkMode != sandboxpkg.NetworkAllowAll {
-			bwrapArgs = append(bwrapArgs, "--unshare-net")
-		}
-		bwrapArgs = append(bwrapArgs, "--", name)
-		bwrapArgs = append(bwrapArgs, args...)
-		// hostCwd is irrelevant for bwrap (--chdir handles it inside the sandbox).
-		return bwrapPath, bwrapArgs, realRoot, nil
-	}
-
-	// No bwrap — fall through with real paths. sandboxRoot == realRoot here.
-	if networkMode != sandboxpkg.NetworkAllowAll {
-		unsharePath, unshareErr := exec.LookPath("unshare")
-		if unshareErr == nil {
-			unshareArgs := []string{"--net", "--", name}
-			unshareArgs = append(unshareArgs, args...)
-			return unsharePath, unshareArgs, sandboxCwd, nil
-		}
+	if !bwrapFunctional() {
 		return "", nil, "", fmt.Errorf(
-			"local sandbox: neither bwrap nor unshare is available; " +
-				"network isolation cannot be enforced — " +
-				"install bubblewrap (apt/dnf/pacman install bubblewrap) " +
+			"local sandbox: bwrap (bubblewrap) is required on Linux but is not available or not functional; " +
+				"install it (apt install bubblewrap / dnf install bubblewrap / pacman -S bubblewrap) " +
 				"or use the docker backend",
 		)
 	}
-	return name, args, sandboxCwd, nil
+
+	realRoot := policy.WorkspaceRootOrDefault()
+	networkMode := policy.NetworkModeOrDefault()
+
+	bwrapArgs := []string{
+		"--ro-bind", "/", "/",
+		"--dir", "/workspace",
+		"--bind", realRoot, "/workspace",
+		"--dev", "/dev",
+		"--tmpfs", "/tmp",
+		"--proc", "/proc",
+		"--chdir", sandboxCwd,
+	}
+	if networkMode != sandboxpkg.NetworkAllowAll {
+		bwrapArgs = append(bwrapArgs, "--unshare-net")
+	}
+	bwrapArgs = append(bwrapArgs, "--", name)
+	bwrapArgs = append(bwrapArgs, args...)
+	return bwrapPath, bwrapArgs, realRoot, nil
 }
