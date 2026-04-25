@@ -48,6 +48,9 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install bubblewrap
+        run: sudo apt-get install -y bubblewrap
+
       - name: Run tests with race detection and coverage
         run: mise run test:coverage:race
 
