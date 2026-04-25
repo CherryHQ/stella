@@ -130,7 +130,6 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []strin
 
 	bwrapArgs := []string{
 		"--ro-bind", "/", "/",
-		"--dir", "/workspace",
 		"--bind", realRoot, "/workspace",
 		"--dev", "/dev",
 		"--tmpfs", "/tmp",
