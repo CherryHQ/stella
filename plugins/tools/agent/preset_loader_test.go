@@ -378,6 +378,23 @@ func TestLoadAgentPresetsAllFourTiers(t *testing.T) {
 	}
 }
 
+func TestLoadAgentPresets_publicWrapper(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	agentsDir := filepath.Join(dir, "agents")
+	mkdirAll(t, agentsDir, 0o755)
+	writeTestFile(t, filepath.Join(agentsDir, "helper.md"),
+		[]byte("---\nname: helper\ndescription: A helper agent\n---\nHelp the user."), 0o644)
+
+	presets := LoadAgentPresets(LoadAgentPresetsConfig{AnnaHome: dir})
+	if len(presets) != 1 {
+		t.Fatalf("expected 1 preset, got %d", len(presets))
+	}
+	if presets[0].Name != "helper" {
+		t.Errorf("Name = %q, want helper", presets[0].Name)
+	}
+}
+
 func TestLoadAgentPresetsPathDedup(t *testing.T) {
 	t.Parallel()
 

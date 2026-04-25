@@ -8,6 +8,32 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
+func TestConfigMapFromJSON(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want map[string]any
+	}{
+		{"empty string", "", map[string]any{}},
+		{"valid json", `{"key":"val"}`, map[string]any{"key": "val"}},
+		{"invalid json", `not json`, map[string]any{}},
+		{"null json", `null`, map[string]any{}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := configMapFromJSON(tc.in)
+			if len(got) != len(tc.want) {
+				t.Fatalf("configMapFromJSON(%q): got %v, want %v", tc.in, got, tc.want)
+			}
+			for k, wv := range tc.want {
+				if gv, ok := got[k]; !ok || gv != wv {
+					t.Fatalf("configMapFromJSON(%q)[%q] = %v, want %v", tc.in, k, gv, wv)
+				}
+			}
+		})
+	}
+}
+
 func TestRuntimeLookup(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{"tool/mcp": {ID: "tool/mcp", Enabled: true}}}
 	host := New(store)

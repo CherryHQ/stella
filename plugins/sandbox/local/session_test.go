@@ -10,6 +10,100 @@ import (
 	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
 )
 
+func TestFactory_basics(t *testing.T) {
+	f := NewFactory()
+	if f.(*Factory).Name() != "local" {
+		t.Error("expected name 'local'")
+	}
+	if !f.(*Factory).Available() {
+		t.Error("expected Available to return true")
+	}
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: t.TempDir()},
+	}
+	if err := f.(*Factory).Supported(policy); err != nil {
+		t.Errorf("Supported: unexpected error: %v", err)
+	}
+}
+
+func TestFactory_createSession(t *testing.T) {
+	root := t.TempDir()
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot: root,
+			WorkingDir:    root,
+		},
+		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+		InheritEnv: true,
+	}
+	f := NewFactory()
+	sess, err := f.(*Factory).CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	defer sess.(*localSession).Close() //nolint:errcheck
+
+	if sess.(*localSession).WorkspaceRoot() == "" {
+		t.Error("expected non-empty WorkspaceRoot")
+	}
+	if !sess.(*localSession).Alive() {
+		t.Error("expected Alive=true before close")
+	}
+}
+
+func TestLocalSession_closeAndAlive(t *testing.T) {
+	s, _ := newTestSession(t)
+	if !s.Alive() {
+		t.Fatal("expected Alive=true initially")
+	}
+	_ = s.Close()
+	if s.Alive() {
+		t.Error("expected Alive=false after close")
+	}
+	// second close must be a no-op
+	if err := s.Close(); err != nil {
+		t.Errorf("second Close returned error: %v", err)
+	}
+}
+
+func TestLocalSession_doneChanClosed(t *testing.T) {
+	s, _ := newTestSession(t)
+	done := s.Done()
+	_ = s.Close()
+	select {
+	case <-done:
+	default:
+		t.Error("done channel should be closed after Close()")
+	}
+}
+
+func TestLocalSession_workspaceAndWorkingDir(t *testing.T) {
+	root := t.TempDir()
+	resolved, _ := filepath.EvalSymlinks(root)
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot: resolved,
+			WorkingDir:    resolved,
+		},
+	}
+	s := &localSession{
+		id:          "test",
+		policy:      policy,
+		realRoot:    resolved,
+		sandboxRoot: resolved,
+		done:        make(chan struct{}),
+	}
+	if s.WorkspaceRoot() != resolved {
+		t.Errorf("WorkspaceRoot = %q, want %q", s.WorkspaceRoot(), resolved)
+	}
+	if s.WorkingDir() != resolved {
+		t.Errorf("WorkingDir = %q, want %q", s.WorkingDir(), resolved)
+	}
+	if s.Policy().Filesystem.WorkspaceRoot != resolved {
+		t.Error("Policy not preserved")
+	}
+}
+
 // newTestSession returns a localSession with a temporary workspace root.
 // The root is resolved through EvalSymlinks so that macOS /var → /private/var
 // symlinks do not cause false path-escape rejections.
