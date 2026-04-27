@@ -324,7 +324,6 @@ plugins:
     binaries:
       - name: tap
         tool: github:vaayne/tap
-        version: "0.4.4"
       - name: lightpanda
         tool: github:lightpanda-io/browser
         version: "nightly"
@@ -338,7 +337,6 @@ plugins:
     binaries:
       - name: gh
         tool: github:cli/cli
-        bin_path: "bin"
     oauth_provider: github
     session_env:
       - env_var: GH_TOKEN
@@ -372,4 +370,15 @@ plugins:
     binaries:
       - name: rtk
         tool: github:rtk-ai/rtk
-        version: "0.30.0"
+
+  - id: tool/kreuzberg
+    kind: tool
+    name: kreuzberg
+    display_name: Kreuzberg
+    description: "Extract text, metadata, images, and structured information from PDFs, Office documents, images, and 97+ formats."
+    enabled: true
+    binaries:
+      - name: kreuzberg
+        tool: github:kreuzberg-dev/kreuzberg
+        asset_pattern: "kreuzberg-cli-*.tar.gz"
+        strip_components: 1
