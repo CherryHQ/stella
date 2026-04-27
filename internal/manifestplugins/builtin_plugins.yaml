@@ -380,4 +380,5 @@ plugins:
     binaries:
       - name: kreuzberg
         tool: github:kreuzberg-dev/kreuzberg
+        version: 4.9.5
         asset_pattern: "kreuzberg-cli-*.tar.gz"
