@@ -124,28 +124,51 @@ func runtimeBinaryName(name string) string {
 // version: "nightly").
 func generateMiseTOML(b ManifestBinary) (string, error) {
 	toolKey := "github:" + b.Repo
+	ver := b.Version
+	if ver == "" {
+		ver = "latest"
+	}
+
+	m := map[string]any{"version": ver}
+	if b.AssetPattern != "" {
+		m["asset_pattern"] = b.AssetPattern
+	}
+	if b.VersionPrefix != "" {
+		m["version_prefix"] = b.VersionPrefix
+	}
+	if b.StripComponents > 0 {
+		m["strip_components"] = b.StripComponents
+	}
+	if b.BinPath != "" {
+		m["bin_path"] = b.BinPath
+	}
+	if b.Bin != "" {
+		m["bin"] = b.Bin
+	}
+	if b.RenameExe != "" {
+		m["rename_exe"] = b.RenameExe
+	}
+	if b.NoApp {
+		m["no_app"] = true
+	}
+	if b.FilterBins != "" {
+		m["filter_bins"] = b.FilterBins
+	}
+	if b.Checksum != "" {
+		m["checksum"] = b.Checksum
+	}
+	if b.Prerelease {
+		m["prerelease"] = true
+	}
+	if b.APIURL != "" {
+		m["api_url"] = b.APIURL
+	}
 
 	var toolValue any
-	if b.BinPath == "" && b.Exe == "" {
+	if len(m) == 1 {
 		// Simple form: "github:owner/repo" = "version"
-		ver := b.Version
-		if ver == "" {
-			ver = "latest"
-		}
 		toolValue = ver
 	} else {
-		// Table form: extra options as a map.
-		ver := b.Version
-		if ver == "" {
-			ver = "latest"
-		}
-		m := map[string]any{"version": ver}
-		if b.BinPath != "" {
-			m["bin_path"] = b.BinPath
-		}
-		if b.Exe != "" {
-			m["exe"] = b.Exe
-		}
 		toolValue = m
 	}
 
@@ -208,10 +231,14 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 		return "", fmt.Errorf("mise install: %w\nstderr: %s", err, stderr.String())
 	}
 
-	// Use the exe name when set, otherwise fall back to the tool name.
+	// Determine which binary name to pass to mise which.
+	// rename_exe takes precedence (archive extraction rename), then bin (single
+	// binary rename), then the tool name.
 	lookupName := b.Name
-	if b.Exe != "" {
-		lookupName = b.Exe
+	if b.RenameExe != "" {
+		lookupName = b.RenameExe
+	} else if b.Bin != "" {
+		lookupName = b.Bin
 	}
 
 	// Resolve the binary path via mise which — it handles any archive layout.

@@ -72,6 +72,12 @@ func Validate(m *Manifest) error {
 			if b.Repo == "" {
 				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: repo is required", p.ID, j))
 			}
+			if b.StripComponents < 0 {
+				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: strip_components must be non-negative", p.ID, j))
+			}
+			if b.Checksum != "" && !strings.Contains(b.Checksum, ":") {
+				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: checksum must be in algo:hex format (e.g. sha256:...)", p.ID, j))
+			}
 		}
 		for j, s := range p.Skills {
 			if s.Repo == "" {

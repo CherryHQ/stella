@@ -29,11 +29,20 @@ const (
 // ToolBinary describes a user-configured CLI that must be installed in a Linux
 // container context before docker sandbox sessions can execute it.
 type ToolBinary struct {
-	Name    string
-	Repo    string
-	Version string
-	BinPath string
-	Exe     string
+	Name            string
+	Repo            string
+	Version         string
+	AssetPattern    string
+	VersionPrefix   string
+	StripComponents int
+	BinPath         string
+	Bin             string
+	RenameExe       string
+	NoApp           bool
+	FilterBins      string
+	Checksum        string
+	Prerelease      bool
+	APIURL          string
 }
 
 type userToolCache struct {
@@ -155,16 +164,13 @@ func userToolCacheHash(image string, binaries []ToolBinary) string {
 	buf.WriteString(image)
 	buf.WriteByte('\n')
 	for _, b := range binaries {
-		buf.WriteString(b.Name)
-		buf.WriteByte('\t')
-		buf.WriteString(b.Repo)
-		buf.WriteByte('\t')
-		buf.WriteString(b.Version)
-		buf.WriteByte('\t')
-		buf.WriteString(b.BinPath)
-		buf.WriteByte('\t')
-		buf.WriteString(b.Exe)
-		buf.WriteByte('\n')
+		fmt.Fprintf(&buf, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\t%v\t%s\t%s\t%v\t%s\n",
+			b.Name, b.Repo, b.Version,
+			b.AssetPattern, b.VersionPrefix, b.StripComponents,
+			b.BinPath, b.Bin, b.RenameExe,
+			b.NoApp, b.FilterBins, b.Checksum,
+			b.Prerelease, b.APIURL,
+		)
 	}
 	sum := sha256.Sum256(buf.Bytes())
 	return hex.EncodeToString(sum[:])
@@ -174,25 +180,49 @@ func userToolsMiseTOML(binaries []ToolBinary) (string, error) {
 	tools := make(map[string]any, len(binaries))
 	for _, b := range binaries {
 		key := "github:" + b.Repo
-		if b.BinPath == "" && b.Exe == "" {
-			version := b.Version
-			if version == "" {
-				version = "latest"
-			}
-			tools[key] = version
-			continue
+		ver := b.Version
+		if ver == "" {
+			ver = "latest"
 		}
-		entry := map[string]any{}
-		if b.Version != "" {
-			entry["version"] = b.Version
+		m := map[string]any{"version": ver}
+		if b.AssetPattern != "" {
+			m["asset_pattern"] = b.AssetPattern
+		}
+		if b.VersionPrefix != "" {
+			m["version_prefix"] = b.VersionPrefix
+		}
+		if b.StripComponents > 0 {
+			m["strip_components"] = b.StripComponents
 		}
 		if b.BinPath != "" {
-			entry["bin_path"] = b.BinPath
+			m["bin_path"] = b.BinPath
 		}
-		if b.Exe != "" {
-			entry["exe"] = b.Exe
+		if b.Bin != "" {
+			m["bin"] = b.Bin
 		}
-		tools[key] = entry
+		if b.RenameExe != "" {
+			m["rename_exe"] = b.RenameExe
+		}
+		if b.NoApp {
+			m["no_app"] = true
+		}
+		if b.FilterBins != "" {
+			m["filter_bins"] = b.FilterBins
+		}
+		if b.Checksum != "" {
+			m["checksum"] = b.Checksum
+		}
+		if b.Prerelease {
+			m["prerelease"] = true
+		}
+		if b.APIURL != "" {
+			m["api_url"] = b.APIURL
+		}
+		if len(m) == 1 {
+			tools[key] = ver
+		} else {
+			tools[key] = m
+		}
 	}
 	data, err := toml.Marshal(map[string]any{"tools": tools})
 	if err != nil {
@@ -227,8 +257,10 @@ func userToolInstallScript(hash string, binaries []ToolBinary) string {
 	script.WriteString("MISE_DATA_DIR=\"$ROOT/mise-data\" MISE_TRUSTED_CONFIG_PATHS=\"$ROOT\" mise install\n")
 	for _, b := range binaries {
 		lookup := b.Name
-		if b.Exe != "" {
-			lookup = b.Exe
+		if b.RenameExe != "" {
+			lookup = b.RenameExe
+		} else if b.Bin != "" {
+			lookup = b.Bin
 		}
 		script.WriteString("install_dir=$(MISE_DATA_DIR=\"$ROOT/mise-data\" MISE_TRUSTED_CONFIG_PATHS=\"$ROOT\" mise where " + shellQuote("github:"+b.Repo) + ")\n")
 		script.WriteString("src=\"\"\n")

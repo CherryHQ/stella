@@ -84,13 +84,22 @@ plugins:
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `name` | Yes | Binary filename (without extension) |
+| `name` | Yes | Binary filename placed in `$ANNA_HOME/bin` (without extension) |
 | `repo` | Yes | GitHub repository in `owner/repo` format |
 | `version` | No | Version tag to install (e.g. `"1.2.3"`, `"nightly"`). Defaults to `latest`. For repos that don't publish a `latest` release, you must set this explicitly. |
+| `asset_pattern` | No | Glob pattern to match the release asset name (e.g. `"gh_*_linux_x64.tar.gz"`). Use when auto-detection picks the wrong asset. |
+| `version_prefix` | No | Custom prefix on release tags (e.g. `"release-"`). Mise strips the prefix when resolving versions. |
+| `strip_components` | No | Number of leading directory components to strip when extracting the archive. Mise auto-detects this for common layouts. |
 | `bin_path` | No | Subdirectory inside the archive that contains the binary (e.g. `"bin"`). |
-| `exe` | No | Binary name inside the archive when it differs from `name`. |
+| `bin` | No | Rename the downloaded file when the release asset is a single binary (not an archive). |
+| `rename_exe` | No | Rename the executable after extraction from an archive. |
+| `no_app` | No | Skip macOS `.app` bundle assets during auto-detection; prefer standalone CLI binaries instead. |
+| `filter_bins` | No | Comma-separated list of binaries to expose on PATH when the archive contains multiple executables (e.g. `"pandoc"`). |
+| `checksum` | No | Verify the downloaded asset with a checksum in `algo:hex` format (e.g. `"sha256:abc123..."`). |
+| `prerelease` | No | Set to `true` to include pre-release versions when resolving `latest`. |
+| `api_url` | No | GitHub API base URL for GitHub Enterprise instances (e.g. `"https://github.example.com/api/v3"`). |
 
-Mise auto-detects the correct release asset based on OS and architecture keywords in the filename. `bin_path` and `exe` are only needed when the archive layout or binary name is non-standard.
+Mise auto-detects the correct release asset based on OS and architecture keywords in the filename. Most fields are only needed when the default detection does not produce the right result.
 
 ## Session env fields
 

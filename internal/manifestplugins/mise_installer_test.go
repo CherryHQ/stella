@@ -9,6 +9,21 @@ import (
 	"testing"
 )
 
+func TestGenerateMiseTOMLSimpleForm(t *testing.T) {
+	got, err := generateMiseTOML(ManifestBinary{
+		Name:    "mytool",
+		Repo:    "owner/repo",
+		Version: "1.0.0",
+	})
+	if err != nil {
+		t.Fatalf("generateMiseTOML: %v", err)
+	}
+	want := `'github:owner/repo' = '1.0.0'`
+	if !strings.Contains(got, want) {
+		t.Fatalf("expected simple form %q in:\n%s", want, got)
+	}
+}
+
 func TestGenerateMiseTOMLTableFormDefaultsVersion(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:    "gh",
@@ -22,6 +37,86 @@ func TestGenerateMiseTOMLTableFormDefaultsVersion(t *testing.T) {
 		"[tools.'github:cli/cli']",
 		`version = 'latest'`,
 		`bin_path = 'bin'`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("mise.toml missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestGenerateMiseTOMLAssetPatternAloneTriggersTableForm(t *testing.T) {
+	got, err := generateMiseTOML(ManifestBinary{
+		Name:         "gh",
+		Repo:         "cli/cli",
+		Version:      "2.40.1",
+		AssetPattern: "gh_*_linux_x64.tar.gz",
+	})
+	if err != nil {
+		t.Fatalf("generateMiseTOML: %v", err)
+	}
+	for _, want := range []string{
+		"[tools.'github:cli/cli']",
+		`version = '2.40.1'`,
+		`asset_pattern = 'gh_*_linux_x64.tar.gz'`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("mise.toml missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestGenerateMiseTOMLAdvancedOptions(t *testing.T) {
+	got, err := generateMiseTOML(ManifestBinary{
+		Name:            "pandoc",
+		Repo:            "jgm/pandoc",
+		Version:         "3.1.0",
+		AssetPattern:    "pandoc-*-linux-amd64.tar.gz",
+		VersionPrefix:   "release-",
+		StripComponents: 1,
+		BinPath:         "bin",
+		RenameExe:       "pandoc",
+		NoApp:           true,
+		FilterBins:      "pandoc",
+		Checksum:        "sha256:abc123",
+		Prerelease:      true,
+		APIURL:          "https://github.example.com/api/v3",
+	})
+	if err != nil {
+		t.Fatalf("generateMiseTOML: %v", err)
+	}
+	for _, want := range []string{
+		"[tools.'github:jgm/pandoc']",
+		`version = '3.1.0'`,
+		`asset_pattern = 'pandoc-*-linux-amd64.tar.gz'`,
+		`version_prefix = 'release-'`,
+		`strip_components = 1`,
+		`bin_path = 'bin'`,
+		`rename_exe = 'pandoc'`,
+		`no_app = true`,
+		`filter_bins = 'pandoc'`,
+		`checksum = 'sha256:abc123'`,
+		`prerelease = true`,
+		`api_url = 'https://github.example.com/api/v3'`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("mise.toml missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestGenerateMiseTOMLBinField(t *testing.T) {
+	got, err := generateMiseTOML(ManifestBinary{
+		Name:    "docker-compose",
+		Repo:    "docker/compose",
+		Version: "2.29.1",
+		Bin:     "docker-compose",
+	})
+	if err != nil {
+		t.Fatalf("generateMiseTOML: %v", err)
+	}
+	for _, want := range []string{
+		"[tools.'github:docker/compose']",
+		`bin = 'docker-compose'`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("mise.toml missing %q:\n%s", want, got)

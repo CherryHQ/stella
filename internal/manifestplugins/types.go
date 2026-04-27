@@ -16,11 +16,20 @@ type ManifestPlugin struct {
 }
 
 type ManifestBinary struct {
-	Name    string `json:"name" yaml:"name"`
-	Repo    string `json:"repo" yaml:"repo"`
-	Version string `json:"version,omitempty" yaml:"version,omitempty"`
-	BinPath string `json:"bin_path,omitempty" yaml:"bin_path,omitempty"` // subdir within archive containing the binary
-	Exe     string `json:"exe,omitempty" yaml:"exe,omitempty"`           // binary name inside archive when it differs from Name
+	Name            string `json:"name" yaml:"name"`
+	Repo            string `json:"repo" yaml:"repo"`
+	Version         string `json:"version,omitempty" yaml:"version,omitempty"`
+	AssetPattern    string `json:"asset_pattern,omitempty" yaml:"asset_pattern,omitempty"`
+	VersionPrefix   string `json:"version_prefix,omitempty" yaml:"version_prefix,omitempty"`
+	StripComponents int    `json:"strip_components,omitempty" yaml:"strip_components,omitempty"`
+	BinPath         string `json:"bin_path,omitempty" yaml:"bin_path,omitempty"`
+	Bin             string `json:"bin,omitempty" yaml:"bin,omitempty"`
+	RenameExe       string `json:"rename_exe,omitempty" yaml:"rename_exe,omitempty"`
+	NoApp           bool   `json:"no_app,omitempty" yaml:"no_app,omitempty"`
+	FilterBins      string `json:"filter_bins,omitempty" yaml:"filter_bins,omitempty"`
+	Checksum        string `json:"checksum,omitempty" yaml:"checksum,omitempty"`
+	Prerelease      bool   `json:"prerelease,omitempty" yaml:"prerelease,omitempty"`
+	APIURL          string `json:"api_url,omitempty" yaml:"api_url,omitempty"`
 }
 
 type ManifestSkill struct {
