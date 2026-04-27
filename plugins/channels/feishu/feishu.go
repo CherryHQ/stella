@@ -203,11 +203,7 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	// Strip channel prefix if present.
 	chatID = strings.TrimPrefix(chatID, "feishu:")
 
-	// Detect receiver type from ID prefix.
-	receiveIDType := larkim.ReceiveIdTypeChatId
-	if strings.HasPrefix(chatID, "ou_") {
-		receiveIDType = larkim.ReceiveIdTypeOpenId
-	}
+	receiveIDType := receiveIDTypeForChatID(chatID)
 
 	content := textContent(n.Text)
 	resp, err := b.client.Im.Message.Create(ctx,
@@ -226,6 +222,19 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 		return fmt.Errorf("feishu: notify: code=%d msg=%s", resp.Code, resp.Msg)
 	}
 	return nil
+}
+
+// receiveIDTypeForChatID returns the Feishu ReceiveIdType for the given ID.
+// ou_ → open_id, on_ → union_id (stored by auto-provision), oc_ and others → chat_id.
+func receiveIDTypeForChatID(chatID string) string {
+	switch {
+	case strings.HasPrefix(chatID, "ou_"):
+		return larkim.ReceiveIdTypeOpenId
+	case strings.HasPrefix(chatID, "on_"):
+		return larkim.ReceiveIdTypeUnionId
+	default:
+		return larkim.ReceiveIdTypeChatId
+	}
 }
 
 // textContent builds the JSON content string for a Feishu text message.
