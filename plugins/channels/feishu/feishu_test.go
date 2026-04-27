@@ -679,7 +679,7 @@ func TestReceiveIDTypeForChatID(t *testing.T) {
 		{"ou_abc", larkim.ReceiveIdTypeOpenId},
 		{"on_abc", larkim.ReceiveIdTypeUnionId},
 		{"oc_abc", larkim.ReceiveIdTypeChatId},
-		{"other",  larkim.ReceiveIdTypeChatId},
+		{"other", larkim.ReceiveIdTypeChatId},
 	}
 	for _, tc := range cases {
 		got := receiveIDTypeForChatID(tc.chatID)
