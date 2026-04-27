@@ -115,6 +115,31 @@ func (c *Client) ContainerAlive(ctx context.Context, containerID string) (bool, 
 	return res.Container.State.Running, nil
 }
 
+// ContainerState holds the container running state and last exit code.
+type ContainerState struct {
+	Running  bool
+	ExitCode int
+}
+
+// InspectContainerState returns the running state and exit code of a container
+// referenced by ID or name. Returns (nil, nil) when the container does not exist.
+func (c *Client) InspectContainerState(ctx context.Context, containerRef string) (*ContainerState, error) {
+	res, err := c.api.ContainerInspect(ctx, containerRef, mobyclient.ContainerInspectOptions{})
+	if err != nil {
+		if errdefs.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("dockerclient: container inspect %s: %w", containerRef, err)
+	}
+	if res.Container.State == nil {
+		return &ContainerState{}, nil
+	}
+	return &ContainerState{
+		Running:  res.Container.State.Running,
+		ExitCode: res.Container.State.ExitCode,
+	}, nil
+}
+
 // buildContainerCreateOptions translates CreateOptions into the SDK request.
 // Pure function so tests can assert the wiring without a daemon.
 func buildContainerCreateOptions(opts CreateOptions) mobyclient.ContainerCreateOptions {

@@ -8,10 +8,17 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
+	"github.com/containerd/errdefs"
 	mobyclient "github.com/moby/moby/client"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/vaayne/anna/plugins/sandbox/docker/dockerclient"
+)
+
+const (
+	toolCacheHelperWaitTimeout  = 5 * time.Minute
+	toolCacheHelperPollInterval = 2 * time.Second
 )
 
 const (
@@ -41,6 +48,7 @@ func ensureUserToolCache(ctx context.Context, client *dockerclient.Client, cfg C
 
 	hash := userToolCacheHash(cfg.Image, cfg.UserToolBinaries)
 	volumeName := "anna-tools-" + hash[:16]
+	installerName := "anna-tool-cache-" + hash[:16]
 	cache := &userToolCache{VolumeName: volumeName, BinPath: containerUserToolsBin}
 
 	if _, err := client.VolumeCreate(ctx, mobyclient.VolumeCreateOptions{
@@ -73,9 +81,14 @@ func ensureUserToolCache(ctx context.Context, client *dockerclient.Client, cfg C
 			"anna.tool_cache_helper": "true",
 			"anna.tool_cache":        volumeName,
 		},
-		Name: "anna-tool-cache-" + hash[:12] + "-" + nextSessionID(),
+		Name: installerName,
 	})
 	if err != nil {
+		if errdefs.IsConflict(err) {
+			// Another app instance is already running the installer for this
+			// tool set. Wait for it to finish instead of racing.
+			return waitForToolCache(ctx, client, installerName, cache)
+		}
 		return nil, fmt.Errorf("docker user tool cache: start helper: %w", err)
 	}
 	defer func() {
@@ -98,6 +111,42 @@ func ensureUserToolCache(ctx context.Context, client *dockerclient.Client, cfg C
 	}
 
 	return cache, nil
+}
+
+// waitForToolCache waits for a concurrently running installer container to
+// finish and returns the cache if it succeeded. Used when another app instance
+// already holds the installer container name (the distributed mutex).
+func waitForToolCache(ctx context.Context, client *dockerclient.Client, installerName string, cache *userToolCache) (*userToolCache, error) {
+	deadline := time.Now().Add(toolCacheHelperWaitTimeout)
+	for {
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("docker user tool cache: timed out waiting for installer %s", installerName)
+		}
+
+		state, err := client.InspectContainerState(ctx, installerName)
+		if err != nil {
+			return nil, fmt.Errorf("docker user tool cache: inspect installer: %w", err)
+		}
+		if state == nil {
+			// Installer finished and was already cleaned up — volume is ready.
+			return cache, nil
+		}
+		if !state.Running {
+			if stopErr := client.Stop(context.Background(), installerName); stopErr != nil {
+				slog.Warn("docker user tool cache: cleanup stopped installer", "name", installerName, "error", stopErr)
+			}
+			if state.ExitCode != 0 {
+				return nil, fmt.Errorf("docker user tool cache: installer %s exited with %d", installerName, state.ExitCode)
+			}
+			return cache, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(toolCacheHelperPollInterval):
+		}
+	}
 }
 
 func userToolCacheHash(image string, binaries []ToolBinary) string {
