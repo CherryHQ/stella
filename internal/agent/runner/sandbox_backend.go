@@ -479,10 +479,8 @@ func resolveDockerUserToolBinaries(annaHome string) ([]dockerplugin.ToolBinary, 
 		for _, binary := range plugin.Binaries {
 			out = append(out, dockerplugin.ToolBinary{
 				Name:            binary.Name,
-				Backend:         binary.Backend,
-				Repo:            binary.Repo,
+				Tool:            binary.Tool,
 				URL:             binary.URL,
-				Package:         binary.Package,
 				Version:         binary.Version,
 				StripComponents: binary.StripComponents,
 				BinPath:         binary.BinPath,

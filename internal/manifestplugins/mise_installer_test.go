@@ -12,8 +12,7 @@ import (
 func TestGenerateMiseTOMLSimpleForm(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:    "mytool",
-		Backend: "github",
-		Repo:    "owner/repo",
+		Tool:    "github:owner/repo",
 		Version: "1.0.0",
 	})
 	if err != nil {
@@ -28,8 +27,7 @@ func TestGenerateMiseTOMLSimpleForm(t *testing.T) {
 func TestGenerateMiseTOMLTableFormDefaultsVersion(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:    "gh",
-		Backend: "github",
-		Repo:    "cli/cli",
+		Tool:    "github:cli/cli",
 		BinPath: "bin",
 	})
 	if err != nil {
@@ -49,8 +47,7 @@ func TestGenerateMiseTOMLTableFormDefaultsVersion(t *testing.T) {
 func TestGenerateMiseTOMLAssetPatternAloneTriggersTableForm(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:         "gh",
-		Backend:      "github",
-		Repo:         "cli/cli",
+		Tool:         "github:cli/cli",
 		Version:      "2.40.1",
 		AssetPattern: "gh_*_linux_x64.tar.gz",
 	})
@@ -71,8 +68,7 @@ func TestGenerateMiseTOMLAssetPatternAloneTriggersTableForm(t *testing.T) {
 func TestGenerateMiseTOMLAdvancedOptions(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:            "pandoc",
-		Backend:         "github",
-		Repo:            "jgm/pandoc",
+		Tool:            "github:jgm/pandoc",
 		Version:         "3.1.0",
 		AssetPattern:    "pandoc-*-linux-amd64.tar.gz",
 		VersionPrefix:   "release-",
@@ -111,8 +107,7 @@ func TestGenerateMiseTOMLAdvancedOptions(t *testing.T) {
 func TestGenerateMiseTOMLBinField(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:    "docker-compose",
-		Backend: "github",
-		Repo:    "docker/compose",
+		Tool:    "github:docker/compose",
 		Version: "2.29.1",
 		Bin:     "docker-compose",
 	})
@@ -132,7 +127,7 @@ func TestGenerateMiseTOMLBinField(t *testing.T) {
 func TestGenerateMiseTOMLHTTPBackend(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:    "sentinel",
-		Backend: "http",
+		Tool:    "http:sentinel",
 		URL:     "https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_linux_amd64.zip",
 		Version: "0.26.3",
 	})
@@ -153,7 +148,7 @@ func TestGenerateMiseTOMLHTTPBackend(t *testing.T) {
 func TestGenerateMiseTOMLHTTPWithFormat(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:    "mytool",
-		Backend: "http",
+		Tool:    "http:mytool",
 		URL:     "https://example.com/mytool-{{version}}-linux-amd64.tar.gz",
 		Version: "1.2.0",
 		Format:  "tar.gz",
@@ -174,8 +169,7 @@ func TestGenerateMiseTOMLHTTPWithFormat(t *testing.T) {
 func TestGenerateMiseTOMLPipxSimple(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:    "mypy",
-		Backend: "pipx",
-		Package: "mypy",
+		Tool:    "pipx:mypy",
 		Version: "1.8.0",
 	})
 	if err != nil {
@@ -189,10 +183,9 @@ func TestGenerateMiseTOMLPipxSimple(t *testing.T) {
 
 func TestGenerateMiseTOMLPipxWithExtras(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
-		Name:    "pylint",
-		Backend: "pipx",
-		Package: "pylint",
-		Extras:  "spelling",
+		Name:   "pylint",
+		Tool:   "pipx:pylint",
+		Extras: "spelling",
 	})
 	if err != nil {
 		t.Fatalf("generateMiseTOML: %v", err)
@@ -210,8 +203,7 @@ func TestGenerateMiseTOMLPipxWithExtras(t *testing.T) {
 func TestGenerateMiseTOMLNPM(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:    "serve",
-		Backend: "npm",
-		Package: "serve",
+		Tool:    "npm:serve",
 		Version: "14.2.0",
 	})
 	if err != nil {
@@ -298,8 +290,7 @@ esac
 
 	version, err := installBinaryWithMise(context.Background(), ManifestBinary{
 		Name:    "mytool",
-		Backend: "github",
-		Repo:    "owner/repo",
+		Tool:    "github:owner/repo",
 		Version: "1.2.3",
 	}, annaHome)
 	if err != nil {

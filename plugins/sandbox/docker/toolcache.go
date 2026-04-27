@@ -31,10 +31,8 @@ const (
 // Fields mirror manifestplugins.ManifestBinary 1:1; keep them in sync.
 type ToolBinary struct {
 	Name    string
-	Backend string
-	Repo    string
-	URL     string
-	Package string
+	Tool    string // mise tool key: github:owner/repo, pipx:pkg, npm:pkg, http:name
+	URL     string // required for http backend
 	Version string
 
 	// Shared asset options (github + http)
@@ -68,22 +66,14 @@ type ToolBinary struct {
 }
 
 func (b ToolBinary) resolvedBackend() string {
-	return b.Backend
+	if idx := strings.IndexByte(b.Tool, ':'); idx >= 0 {
+		return b.Tool[:idx]
+	}
+	return ""
 }
 
 func (b ToolBinary) miseToolKey() string {
-	switch b.resolvedBackend() {
-	case "github":
-		return "github:" + b.Repo
-	case "http":
-		return "http:" + b.Name
-	case "pipx":
-		return "pipx:" + b.Package
-	case "npm":
-		return "npm:" + b.Package
-	default:
-		return ""
-	}
+	return b.Tool
 }
 
 type userToolCache struct {
@@ -206,8 +196,8 @@ func userToolCacheHash(image string, binaries []ToolBinary) string {
 	buf.WriteByte('\n')
 	for _, b := range binaries {
 		// Include all identity and option fields so any change busts the cache.
-		fmt.Fprintf(&buf, "%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\n",
-			b.Name, b.Backend, b.Repo, b.URL, b.Package, b.Version,
+		fmt.Fprintf(&buf, "%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\n",
+			b.Name, b.Tool, b.URL, b.Version,
 			b.Checksum, b.StripComponents, b.BinPath, b.Bin, b.RenameExe,
 			b.AssetPattern, b.VersionPrefix, b.FilterBins, b.NoApp, b.APIURL,
 			b.Size, b.Format, b.VersionListURL, b.VersionRegex, b.VersionJSONPath, b.VersionExpr,
@@ -371,7 +361,7 @@ func userToolInstallScript(hash string, binaries []ToolBinary) string {
 		script.WriteString("src=\"\"\n")
 		script.WriteString("if [ -f \"$install_dir/bin/" + shellQuoteForDoubleQuotedPath(lookup) + "\" ]; then src=\"$install_dir/bin/" + shellQuoteForDoubleQuotedPath(lookup) + "\"; fi\n")
 		script.WriteString("if [ -z \"$src\" ] && [ -f \"$install_dir/" + shellQuoteForDoubleQuotedPath(lookup) + "\" ]; then src=\"$install_dir/" + shellQuoteForDoubleQuotedPath(lookup) + "\"; fi\n")
-		script.WriteString("if [ -z \"$src\" ]; then echo " + shellQuote("binary "+lookup+" not found for github:"+b.Repo) + " >&2; exit 1; fi\n")
+		script.WriteString("if [ -z \"$src\" ]; then echo " + shellQuote("binary "+lookup+" not found for "+b.Tool) + " >&2; exit 1; fi\n")
 		script.WriteString("cp \"$src\" \"$ROOT/bin/" + shellQuoteForDoubleQuotedPath(b.Name) + "\"\n")
 		script.WriteString("chmod 0755 \"$ROOT/bin/" + shellQuoteForDoubleQuotedPath(b.Name) + "\"\n")
 	}

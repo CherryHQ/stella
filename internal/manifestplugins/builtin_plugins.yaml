@@ -323,12 +323,10 @@ plugins:
     enabled: true
     binaries:
       - name: tap
-        backend: github
-        repo: vaayne/tap
+        tool: github:vaayne/tap
         version: "0.4.4"
       - name: lightpanda
-        backend: github
-        repo: lightpanda-io/browser
+        tool: github:lightpanda-io/browser
         version: "nightly"
 
   - id: tool/gh
@@ -339,8 +337,7 @@ plugins:
     enabled: true
     binaries:
       - name: gh
-        backend: github
-        repo: cli/cli
+        tool: github:cli/cli
         bin_path: "bin"
     oauth_provider: github
     session_env:
@@ -355,8 +352,7 @@ plugins:
     enabled: true
     binaries:
       - name: lark-cli
-        backend: github
-        repo: larksuite/cli
+        tool: github:larksuite/cli
     oauth_provider_config_field: brand
     oauth_provider_choices: [lark, feishu]
     session_env:
@@ -375,6 +371,5 @@ plugins:
     enabled: true
     binaries:
       - name: rtk
-        backend: github
-        repo: rtk-ai/rtk
+        tool: github:rtk-ai/rtk
         version: "0.30.0"

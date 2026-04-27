@@ -55,8 +55,7 @@ plugins:
     enabled: true
     binaries:
       - name: my-cli
-        backend: github
-        repo: owner/my-cli
+        tool: github:owner/my-cli
         version: "1.2.3"   # 省略则使用最新版
     session_env:
       - env_var: MY_TOKEN
@@ -83,14 +82,14 @@ plugins:
 
 ## 二进制字段
 
-每个二进制必须设置且仅设置一个身份字段——`repo`、`url` 或 `package`，该字段同时决定所使用的后端。需要时可使用 `backend` 显式指定。
+每个二进制需要 `name` 和 `tool` 字段。`tool` 字段使用 mise 的工具键格式：`backend:identifier`。
 
 ### 公共字段
 
 | 字段 | 必填 | 描述 |
 |------|------|------|
 | `name` | 是 | 放置到 `$ANNA_HOME/bin` 的二进制文件名（不含扩展名） |
-| `backend` | 条件必填 | 后端类型：`github`（设置 `repo` 时默认）、`http`（设置 `url` 时默认）、`pipx`、`npm`。`pipx` 和 `npm` 必须显式指定。 |
+| `tool` | 是 | mise 工具键，格式为 `backend:identifier`（如 `github:cli/cli`） |
 | `version` | 否 | 要安装的版本，默认为 `latest`。 |
 | `strip_components` | 否 | 解压归档时去除的前导目录层数，大多数布局可自动检测。 |
 | `bin_path` | 否 | 归档内包含二进制的子目录（如 `"bin"`）。 |
@@ -98,22 +97,18 @@ plugins:
 | `rename_exe` | 否 | 从归档提取后重命名可执行文件。 |
 | `checksum` | 否 | 以 `algo:hex` 格式验证资产校验和（如 `"sha256:abc123..."`）。 |
 
-### GitHub 后端（`backend: github`）
-
-身份字段：`repo`（如 `cli/cli`）。
+### GitHub 后端（`github:owner/repo`）
 
 ```yaml
 binaries:
   - name: gh
-    backend: github
-    repo: cli/cli
+    tool: github:cli/cli
     version: "2.40.1"
     bin_path: bin
 ```
 
 | 字段 | 描述 |
 |------|------|
-| `repo` | GitHub 仓库，格式为 `owner/repo` |
 | `asset_pattern` | 选择发布资产的 glob 模式（如 `"gh_*_linux_x64.tar.gz"`）。 |
 | `version_prefix` | 标签自定义前缀（如 `"release-"`）。 |
 | `no_app` | 跳过 macOS `.app` 包，优先使用独立二进制。 |
@@ -121,20 +116,21 @@ binaries:
 | `prerelease` | 解析 `latest` 时包含预发布版本。 |
 | `api_url` | GitHub Enterprise 的 API 基础 URL（如 `"https://github.example.com/api/v3"`）。 |
 
-### HTTP 后端（`backend: http`）
+### HTTP 后端（`http:name`）
 
-身份字段：`url`。二进制的 `name` 同时用作 mise 工具键。
+`http:` 后的标识符是 mise 内部使用的工具名称。
 
 ```yaml
 binaries:
   - name: sentinel
+    tool: http:sentinel
     url: "https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_{{os()}}_{{arch()}}.zip"
     version: "0.26.3"
 ```
 
 | 字段 | 描述 |
 |------|------|
-| `url` | 下载 URL，支持 `{{version}}`、`{{os()}}`、`{{arch()}}` 模板。 |
+| `url` | 下载 URL，http 后端必填，支持 `{{version}}`、`{{os()}}`、`{{arch()}}` 模板。 |
 | `size` | 用于验证的预期文件大小（字节）。 |
 | `format` | 归档格式覆盖（如 `"tar.xz"`）。 |
 | `version_list_url` | 获取可用版本列表的 URL。 |
@@ -142,41 +138,32 @@ binaries:
 | `version_json_path` | 从 JSON 中提取版本的 jq 风格路径（如 `".[].tag_name"`）。 |
 | `version_expr` | 提取版本的 expr-lang 表达式。 |
 
-### Pipx 后端（`backend: pipx`）
+### Pipx 后端（`pipx:package`）
 
-身份字段：`package`（PyPI 包名、`org/repo` GitHub 格式，或 `git+https://...`）。
+标识符是 PyPI 包名、`org/repo` GitHub 格式，或 `git+https://...`。
 
 ```yaml
 binaries:
   - name: mypy
-    backend: pipx
-    package: mypy
+    tool: pipx:mypy
     version: "1.8.0"
 ```
 
 | 字段 | 描述 |
 |------|------|
-| `package` | 要安装的包（PyPI 名称、org/repo 或 git URL）。 |
 | `extras` | 随包安装的 pip extras。 |
 | `pipx_args` | 传递给 pipx 的额外参数。 |
 | `uvx` | 使用 `uvx`（uv 的工具运行器）代替 pipx。 |
 | `uvx_args` | uvx 的额外参数。 |
 
-### NPM 后端（`backend: npm`）
-
-身份字段：`package`。
+### NPM 后端（`npm:package`）
 
 ```yaml
 binaries:
   - name: serve
-    backend: npm
-    package: serve
+    tool: npm:serve
     version: "14.2.0"
 ```
-
-| 字段 | 描述 |
-|------|------|
-| `package` | 要安装的 NPM 包名。 |
 
 平台特定资产模式（`platforms:` 映射）在清单中不受支持。
 
@@ -222,8 +209,7 @@ plugins:
     enabled: true
     binaries:
       - name: tap
-        backend: github
-        repo: vaayne/tap
+        tool: github:vaayne/tap
         version: "0.5.0"
 ```
 

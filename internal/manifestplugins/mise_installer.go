@@ -117,25 +117,17 @@ func runtimeBinaryName(name string) string {
 	return name
 }
 
-// resolvedBackend returns the backend name. Backend must be set explicitly.
+// resolvedBackend returns the backend prefix from the Tool key (e.g. "github").
 func (b ManifestBinary) resolvedBackend() string {
-	return b.Backend
+	if idx := strings.IndexByte(b.Tool, ':'); idx >= 0 {
+		return b.Tool[:idx]
+	}
+	return ""
 }
 
 // miseToolKey returns the mise tool key used in mise.toml and CLI commands.
 func (b ManifestBinary) miseToolKey() string {
-	switch b.resolvedBackend() {
-	case "github":
-		return "github:" + b.Repo
-	case "http":
-		return "http:" + b.Name
-	case "pipx":
-		return "pipx:" + b.Package
-	case "npm":
-		return "npm:" + b.Package
-	default:
-		return ""
-	}
+	return b.Tool
 }
 
 // sharedOptions populates the options shared across github and http backends.

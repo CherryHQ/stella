@@ -16,22 +16,17 @@ type ManifestPlugin struct {
 }
 
 type ManifestBinary struct {
-	// Identity — exactly one of Repo (github), URL (http), or Package (pipx/npm)
-	// must be set. Backend defaults to "github" when Repo is set, "http" when
-	// URL is set; all other backends require Backend to be explicit.
-	Name    string `json:"name" yaml:"name"`
-	Backend string `json:"backend,omitempty" yaml:"backend,omitempty"`
+	// Name is the binary name written to $ANNA_HOME/bin/.
+	Name string `json:"name" yaml:"name"`
 
-	// GitHub backend: owner/repo (e.g. "cli/cli")
-	Repo string `json:"repo,omitempty" yaml:"repo,omitempty"`
+	// Tool is the mise tool key in "backend:identifier" format, e.g.:
+	//   github:cli/cli   pipx:mypy   npm:serve   http:sentinel
+	Tool string `json:"tool" yaml:"tool"`
 
-	// HTTP backend: download URL, may use {{version}}, {{os()}}, {{arch()}}
+	// URL is required for the http backend (the download URL template).
 	URL string `json:"url,omitempty" yaml:"url,omitempty"`
 
-	// Pipx/NPM backend: package name (e.g. "mypy", "serve", or "org/repo" for pipx)
-	Package string `json:"package,omitempty" yaml:"package,omitempty"`
-
-	// Common to all backends
+	// Version to install; defaults to "latest" when omitted.
 	Version string `json:"version,omitempty" yaml:"version,omitempty"`
 
 	// Shared asset options (github + http)

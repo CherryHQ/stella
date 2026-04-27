@@ -55,8 +55,7 @@ plugins:
     enabled: true
     binaries:
       - name: my-cli
-        backend: github
-        repo: owner/my-cli
+        tool: github:owner/my-cli
         version: "1.2.3"   # omit for latest
     session_env:
       - env_var: MY_TOKEN
@@ -83,14 +82,14 @@ plugins:
 
 ## Binary fields
 
-Each binary must set exactly one identity field — `repo`, `url`, or `package` — which also determines the backend. Use `backend` to be explicit when needed.
+Each binary requires a `name` and a `tool` field. The `tool` field uses mise's tool key format: `backend:identifier`.
 
 ### Common fields
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `name` | Yes | Binary filename placed in `$ANNA_HOME/bin` (without extension) |
-| `backend` | Conditional | Backend to use: `github` (default when `repo` is set), `http` (default when `url` is set), `pipx`, `npm`. Required for `pipx` and `npm`. |
+| `tool` | Yes | Mise tool key in `backend:identifier` format (e.g. `github:cli/cli`) |
 | `version` | No | Version to install. Defaults to `latest` for all backends. |
 | `strip_components` | No | Leading directory levels to strip when extracting an archive. Auto-detected for most layouts. |
 | `bin_path` | No | Subdirectory inside the archive containing the binary (e.g. `"bin"`). |
@@ -98,22 +97,18 @@ Each binary must set exactly one identity field — `repo`, `url`, or `package` 
 | `rename_exe` | No | Rename the executable after extraction from an archive. |
 | `checksum` | No | Verify the asset with a checksum in `algo:hex` format (e.g. `"sha256:abc123..."`). |
 
-### GitHub backend (`backend: github`)
-
-Identity field: `repo` (e.g. `cli/cli`).
+### GitHub backend (`github:owner/repo`)
 
 ```yaml
 binaries:
   - name: gh
-    backend: github
-    repo: cli/cli
+    tool: github:cli/cli
     version: "2.40.1"
     bin_path: bin
 ```
 
 | Field | Description |
 |-------|-------------|
-| `repo` | GitHub repository in `owner/repo` format |
 | `asset_pattern` | Glob pattern to select the release asset (e.g. `"gh_*_linux_x64.tar.gz"`). |
 | `version_prefix` | Custom tag prefix (e.g. `"release-"`). |
 | `no_app` | Skip macOS `.app` bundles; prefer standalone binaries. |
@@ -121,20 +116,21 @@ binaries:
 | `prerelease` | Include pre-release versions when resolving `latest`. |
 | `api_url` | GitHub API base URL for GitHub Enterprise (e.g. `"https://github.example.com/api/v3"`). |
 
-### HTTP backend (`backend: http`)
+### HTTP backend (`http:name`)
 
-Identity field: `url`. The binary `name` is also used as the mise tool key.
+The identifier after `http:` is the tool name used internally by mise.
 
 ```yaml
 binaries:
   - name: sentinel
+    tool: http:sentinel
     url: "https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_{{os()}}_{{arch()}}.zip"
     version: "0.26.3"
 ```
 
 | Field | Description |
 |-------|-------------|
-| `url` | Download URL. Supports `{{version}}`, `{{os()}}`, `{{arch()}}` templates. |
+| `url` | Download URL. Required for http backend. Supports `{{version}}`, `{{os()}}`, `{{arch()}}` templates. |
 | `size` | Expected file size in bytes for verification. |
 | `format` | Archive format override (e.g. `"tar.xz"`). |
 | `version_list_url` | URL to fetch available versions from. |
@@ -142,41 +138,32 @@ binaries:
 | `version_json_path` | jq-style path to extract versions from JSON (e.g. `".[].tag_name"`). |
 | `version_expr` | expr-lang expression to extract versions. |
 
-### Pipx backend (`backend: pipx`)
+### Pipx backend (`pipx:package`)
 
-Identity field: `package` (PyPI package, `org/repo` for GitHub, or `git+https://...`).
+The identifier is the PyPI package name, `org/repo` for a GitHub source, or a `git+https://...` URL.
 
 ```yaml
 binaries:
   - name: mypy
-    backend: pipx
-    package: mypy
+    tool: pipx:mypy
     version: "1.8.0"
 ```
 
 | Field | Description |
 |-------|-------------|
-| `package` | Package to install (PyPI name, org/repo, or git URL). |
 | `extras` | Pip extras to install alongside the package. |
 | `pipx_args` | Extra arguments to pass to pipx. |
 | `uvx` | Use `uvx` (uv's tool runner) instead of pipx. |
 | `uvx_args` | Extra arguments for uvx. |
 
-### NPM backend (`backend: npm`)
-
-Identity field: `package`.
+### NPM backend (`npm:package`)
 
 ```yaml
 binaries:
   - name: serve
-    backend: npm
-    package: serve
+    tool: npm:serve
     version: "14.2.0"
 ```
-
-| Field | Description |
-|-------|-------------|
-| `package` | NPM package name to install. |
 
 Platform-specific asset patterns (`platforms:` map) are not supported in the manifest.
 
@@ -222,8 +209,7 @@ plugins:
     enabled: true
     binaries:
       - name: tap
-        backend: github
-        repo: vaayne/tap
+        tool: github:vaayne/tap
         version: "0.5.0"
 ```
 

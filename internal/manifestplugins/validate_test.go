@@ -6,7 +6,7 @@ import (
 
 func TestValidate_NoID(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
-		{Binaries: []ManifestBinary{{Name: "x", Backend: "github", Repo: "a/b"}}},
+		{Binaries: []ManifestBinary{{Name: "x", Tool: "github:a/b"}}},
 	}}
 	if err := Validate(m); err == nil {
 		t.Error("expected error for plugin with no ID")
@@ -22,7 +22,7 @@ func TestValidate_NoCapabilities(t *testing.T) {
 	}
 }
 
-func TestValidate_BinaryNoBackend(t *testing.T) {
+func TestValidate_BinaryNoTool(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
 		{
 			ID:       "tool/x",
@@ -30,19 +30,19 @@ func TestValidate_BinaryNoBackend(t *testing.T) {
 		},
 	}}
 	if err := Validate(m); err == nil {
-		t.Error("expected error for binary with no backend")
+		t.Error("expected error for binary with no tool")
 	}
 }
 
-func TestValidate_BinaryGithubNoRepo(t *testing.T) {
+func TestValidate_BinaryGithubNoSlash(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
 		{
 			ID:       "tool/x",
-			Binaries: []ManifestBinary{{Name: "x", Backend: "github"}},
+			Binaries: []ManifestBinary{{Name: "x", Tool: "github:repo"}},
 		},
 	}}
 	if err := Validate(m); err == nil {
-		t.Error("expected error for github binary with no repo")
+		t.Error("expected error for github tool without owner/repo format")
 	}
 }
 

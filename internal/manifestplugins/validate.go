@@ -69,39 +69,30 @@ func Validate(m *Manifest) error {
 			if b.Name == "" {
 				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: name is required", p.ID, j))
 			}
-			switch b.Backend {
-			case "github":
-				if b.Repo == "" {
-					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: repo is required for github backend", p.ID, j))
+			if b.Tool == "" {
+				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: tool is required (e.g. github:owner/repo)", p.ID, j))
+			} else {
+				idx := strings.IndexByte(b.Tool, ':')
+				if idx < 0 {
+					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: tool must be in backend:identifier format (e.g. github:owner/repo)", p.ID, j))
+				} else {
+					backend := b.Tool[:idx]
+					identifier := b.Tool[idx+1:]
+					switch backend {
+					case "github":
+						if !strings.Contains(identifier, "/") {
+							errs = append(errs, fmt.Errorf("plugin %q binary[%d]: github tool identifier must be owner/repo (got %q)", p.ID, j, identifier))
+						}
+					case "http":
+						if b.URL == "" {
+							errs = append(errs, fmt.Errorf("plugin %q binary[%d]: url is required for http backend", p.ID, j))
+						}
+					case "pipx", "npm":
+						// identifier is the package name; no format constraint
+					default:
+						errs = append(errs, fmt.Errorf("plugin %q binary[%d]: unknown backend %q; must be one of: github, http, pipx, npm", p.ID, j, backend))
+					}
 				}
-				if b.URL != "" {
-					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: url is not valid for github backend", p.ID, j))
-				}
-				if b.Package != "" {
-					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: package is not valid for github backend", p.ID, j))
-				}
-			case "http":
-				if b.URL == "" {
-					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: url is required for http backend", p.ID, j))
-				}
-				if b.Repo != "" {
-					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: repo is not valid for http backend", p.ID, j))
-				}
-				if b.Package != "" {
-					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: package is not valid for http backend", p.ID, j))
-				}
-			case "pipx", "npm":
-				if b.Package == "" {
-					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: package is required for %s backend", p.ID, j, b.Backend))
-				}
-				if b.Repo != "" {
-					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: repo is not valid for %s backend", p.ID, j, b.Backend))
-				}
-				if b.URL != "" {
-					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: url is not valid for %s backend", p.ID, j, b.Backend))
-				}
-			default:
-				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: backend is required and must be one of: github, http, pipx, npm", p.ID, j))
 			}
 			if b.StripComponents < 0 {
 				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: strip_components must be non-negative", p.ID, j))
