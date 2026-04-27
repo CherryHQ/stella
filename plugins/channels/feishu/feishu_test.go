@@ -667,6 +667,28 @@ func TestNotifyNoChatID(t *testing.T) {
 	}
 }
 
+// TestReceiveIDTypeForChatID verifies that on_ (union_id), ou_ (open_id), and
+// oc_ (chat_id) prefixes are mapped to the correct Feishu receive_id_type.
+// This is critical because auto-provision stores union_id as ExternalID, so
+// NotifyUser passes on_ IDs as ChatID — using the wrong type silently fails.
+func TestReceiveIDTypeForChatID(t *testing.T) {
+	cases := []struct {
+		chatID string
+		want   string
+	}{
+		{"ou_abc", larkim.ReceiveIdTypeOpenId},
+		{"on_abc", larkim.ReceiveIdTypeUnionId},
+		{"oc_abc", larkim.ReceiveIdTypeChatId},
+		{"other",  larkim.ReceiveIdTypeChatId},
+	}
+	for _, tc := range cases {
+		got := receiveIDTypeForChatID(tc.chatID)
+		if got != tc.want {
+			t.Errorf("receiveIDTypeForChatID(%q) = %q, want %q", tc.chatID, got, tc.want)
+		}
+	}
+}
+
 // --- buildMessageContent: new message types ---
 
 func TestParseAudioContentWithDuration(t *testing.T) {
