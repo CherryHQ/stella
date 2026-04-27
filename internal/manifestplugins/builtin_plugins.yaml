@@ -381,4 +381,3 @@ plugins:
       - name: kreuzberg
         tool: github:kreuzberg-dev/kreuzberg
         asset_pattern: "kreuzberg-cli-*.tar.gz"
-        strip_components: 1

@@ -96,6 +96,7 @@ func isolatedMiseEnv(annaHome string) ([]string, error) {
 	maps.Copy(env, paths)
 	env["MISE_YES"] = "1"
 	env["MISE_NO_ANALYTICS"] = "1"
+	env["MISE_EXPERIMENTAL"] = "1"
 
 	keys := make([]string, 0, len(env))
 	for key := range env {
