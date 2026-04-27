@@ -96,20 +96,35 @@ func VerifyTools(annaHome string) error {
 	return nil
 }
 
+func allToolsExtracted(destDir string, entries []fs.DirEntry) bool {
+	for _, e := range entries {
+		name, ok := toolNameForEntry(e.Name())
+		if !ok {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(destDir, name)); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
 func extractTools(destDir string) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return fmt.Errorf("create bin dir: %w", err)
 	}
 
-	fp := fingerprint()
-	fpFile := filepath.Join(destDir, ".embedded-version")
-	if old, err := os.ReadFile(fpFile); err == nil && string(old) == fp {
-		return nil // already up to date
-	}
-
 	entries, err := platformEntries()
 	if err != nil {
 		return fmt.Errorf("read embedded tools: %w", err)
+	}
+
+	fp := fingerprint()
+	fpFile := filepath.Join(destDir, ".embedded-version")
+	if old, err := os.ReadFile(fpFile); err == nil && string(old) == fp {
+		if allToolsExtracted(destDir, entries) {
+			return nil // already up to date
+		}
 	}
 
 	for _, entry := range entries {
