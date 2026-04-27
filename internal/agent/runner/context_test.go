@@ -26,7 +26,7 @@ func TestWithSystemOverride(t *testing.T) {
 	}
 
 	// nil context
-	_, ok = SystemOverrideFromContext(nil)
+	_, ok = SystemOverrideFromContext(context.Background())
 	if ok {
 		t.Error("expected false for nil context")
 	}
@@ -46,7 +46,7 @@ func TestWithChannel(t *testing.T) {
 		t.Errorf("ChannelFromContext = %q, %v", ch, ok)
 	}
 
-	_, ok = ChannelFromContext(nil)
+	_, ok = ChannelFromContext(context.Background())
 	if ok {
 		t.Error("expected false for nil context")
 	}
@@ -70,7 +70,7 @@ func TestWithExcludedTools(t *testing.T) {
 	}
 
 	// nil context
-	if got := ExcludedToolsFromContext(nil); len(got) != 0 {
+	if got := ExcludedToolsFromContext(context.Background()); len(got) != 0 {
 		t.Errorf("expected nil for nil context, got %v", got)
 	}
 
