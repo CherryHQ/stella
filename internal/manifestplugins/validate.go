@@ -69,8 +69,40 @@ func Validate(m *Manifest) error {
 			if b.Name == "" {
 				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: name is required", p.ID, j))
 			}
-			if b.Repo == "" {
-				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: repo is required", p.ID, j))
+			backend := b.resolvedBackend()
+			switch backend {
+			case "github":
+				if b.Repo == "" {
+					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: repo is required for github backend", p.ID, j))
+				}
+				if b.URL != "" {
+					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: url is not valid for github backend", p.ID, j))
+				}
+				if b.Package != "" {
+					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: package is not valid for github backend", p.ID, j))
+				}
+			case "http":
+				if b.URL == "" {
+					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: url is required for http backend", p.ID, j))
+				}
+				if b.Repo != "" {
+					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: repo is not valid for http backend", p.ID, j))
+				}
+				if b.Package != "" {
+					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: package is not valid for http backend", p.ID, j))
+				}
+			case "pipx", "npm":
+				if b.Package == "" {
+					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: package is required for %s backend", p.ID, j, backend))
+				}
+				if b.Repo != "" {
+					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: repo is not valid for %s backend", p.ID, j, backend))
+				}
+				if b.URL != "" {
+					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: url is not valid for %s backend", p.ID, j, backend))
+				}
+			default:
+				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: cannot determine backend — set backend explicitly or provide repo/url/package", p.ID, j))
 			}
 			if b.StripComponents < 0 {
 				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: strip_components must be non-negative", p.ID, j))

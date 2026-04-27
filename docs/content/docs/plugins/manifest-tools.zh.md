@@ -82,24 +82,101 @@ plugins:
 
 ## 二进制字段
 
+每个二进制必须设置且仅设置一个身份字段——`repo`、`url` 或 `package`，该字段同时决定所使用的后端。需要时可使用 `backend` 显式指定。
+
+### 公共字段
+
 | 字段 | 必填 | 描述 |
 |------|------|------|
 | `name` | 是 | 放置到 `$ANNA_HOME/bin` 的二进制文件名（不含扩展名） |
-| `repo` | 是 | GitHub 仓库，格式为 `owner/repo` |
-| `version` | 否 | 要安装的版本标签（如 `"1.2.3"`、`"nightly"`）。默认为 `latest`。对于没有 `latest` 发布版本的仓库，必须显式指定。 |
-| `asset_pattern` | 否 | 匹配发布资产文件名的 glob 模式（如 `"gh_*_linux_x64.tar.gz"`）。当自动检测选择了错误的资产时使用。 |
-| `version_prefix` | 否 | 发布标签上的自定义前缀（如 `"release-"`）。mise 在解析版本时会剥离该前缀。 |
-| `strip_components` | 否 | 解压归档时要去除的前导目录层数。mise 会对常见布局自动检测此值。 |
-| `bin_path` | 否 | 归档文件内包含二进制文件的子目录（如 `"bin"`）。 |
-| `bin` | 否 | 当发布资产是单个二进制文件（非归档）时，对下载文件进行重命名。 |
-| `rename_exe` | 否 | 从归档提取后对可执行文件进行重命名。 |
-| `no_app` | 否 | 在自动检测时跳过 macOS `.app` 包资产，优先选择独立的 CLI 二进制。 |
-| `filter_bins` | 否 | 当归档包含多个可执行文件时，逗号分隔的 PATH 可见二进制列表（如 `"pandoc"`）。 |
-| `checksum` | 否 | 以 `algo:hex` 格式验证下载资产的校验和（如 `"sha256:abc123..."`）。 |
-| `prerelease` | 否 | 设为 `true` 时，在解析 `latest` 时包含预发布版本。 |
-| `api_url` | 否 | GitHub Enterprise 实例的 API 基础 URL（如 `"https://github.example.com/api/v3"`）。 |
+| `backend` | 条件必填 | 后端类型：`github`（设置 `repo` 时默认）、`http`（设置 `url` 时默认）、`pipx`、`npm`。`pipx` 和 `npm` 必须显式指定。 |
+| `version` | 否 | 要安装的版本，默认为 `latest`。 |
+| `strip_components` | 否 | 解压归档时去除的前导目录层数，大多数布局可自动检测。 |
+| `bin_path` | 否 | 归档内包含二进制的子目录（如 `"bin"`）。 |
+| `bin` | 否 | 当资产为单个二进制（非归档）时重命名下载文件。 |
+| `rename_exe` | 否 | 从归档提取后重命名可执行文件。 |
+| `checksum` | 否 | 以 `algo:hex` 格式验证资产校验和（如 `"sha256:abc123..."`）。 |
 
-mise 会根据发布资产文件名中的操作系统和架构关键词自动检测正确的资产。大多数字段仅在默认检测结果不符合预期时才需要设置。
+### GitHub 后端（`backend: github`）
+
+身份字段：`repo`（如 `cli/cli`）。
+
+```yaml
+binaries:
+  - name: gh
+    repo: cli/cli
+    version: "2.40.1"
+    bin_path: bin
+```
+
+| 字段 | 描述 |
+|------|------|
+| `repo` | GitHub 仓库，格式为 `owner/repo` |
+| `asset_pattern` | 选择发布资产的 glob 模式（如 `"gh_*_linux_x64.tar.gz"`）。 |
+| `version_prefix` | 标签自定义前缀（如 `"release-"`）。 |
+| `no_app` | 跳过 macOS `.app` 包，优先使用独立二进制。 |
+| `filter_bins` | 当归档含多个可执行文件时，逗号分隔的 PATH 可见二进制列表。 |
+| `prerelease` | 解析 `latest` 时包含预发布版本。 |
+| `api_url` | GitHub Enterprise 的 API 基础 URL（如 `"https://github.example.com/api/v3"`）。 |
+
+### HTTP 后端（`backend: http`）
+
+身份字段：`url`。二进制的 `name` 同时用作 mise 工具键。
+
+```yaml
+binaries:
+  - name: sentinel
+    url: "https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_{{os()}}_{{arch()}}.zip"
+    version: "0.26.3"
+```
+
+| 字段 | 描述 |
+|------|------|
+| `url` | 下载 URL，支持 `{{version}}`、`{{os()}}`、`{{arch()}}` 模板。 |
+| `size` | 用于验证的预期文件大小（字节）。 |
+| `format` | 归档格式覆盖（如 `"tar.xz"`）。 |
+| `version_list_url` | 获取可用版本列表的 URL。 |
+| `version_regex` | 从版本列表中提取版本号的正则表达式。 |
+| `version_json_path` | 从 JSON 中提取版本的 jq 风格路径（如 `".[].tag_name"`）。 |
+| `version_expr` | 提取版本的 expr-lang 表达式。 |
+
+### Pipx 后端（`backend: pipx`）
+
+身份字段：`package`（PyPI 包名、`org/repo` GitHub 格式，或 `git+https://...`）。
+
+```yaml
+binaries:
+  - name: mypy
+    backend: pipx
+    package: mypy
+    version: "1.8.0"
+```
+
+| 字段 | 描述 |
+|------|------|
+| `package` | 要安装的包（PyPI 名称、org/repo 或 git URL）。 |
+| `extras` | 随包安装的 pip extras。 |
+| `pipx_args` | 传递给 pipx 的额外参数。 |
+| `uvx` | 使用 `uvx`（uv 的工具运行器）代替 pipx。 |
+| `uvx_args` | uvx 的额外参数。 |
+
+### NPM 后端（`backend: npm`）
+
+身份字段：`package`。
+
+```yaml
+binaries:
+  - name: serve
+    backend: npm
+    package: serve
+    version: "14.2.0"
+```
+
+| 字段 | 描述 |
+|------|------|
+| `package` | 要安装的 NPM 包名。 |
+
+平台特定资产模式（`platforms:` 映射）在清单中不受支持。
 
 ## 会话环境变量字段
 
@@ -182,5 +259,6 @@ session_env:
 ## v1 的限制
 
 - 清单不支持系统提示词和技能注册。需要这些功能的插件仍使用 Go 注册。
-- 不支持自定义安装脚本，二进制文件必须作为 GitHub 发布资产提供。
-- 仅支持 GitHub 发布资产作为二进制来源。
+- 不支持自定义安装脚本。
+- 不支持平台特定资产模式（`platforms:` 映射），请改用 `asset_pattern`。
+- 支持的二进制来源：GitHub 发布（`github`）、直接 HTTP 下载（`http`）、pipx（`pipx`）、npm（`npm`）。

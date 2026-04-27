@@ -16,20 +16,52 @@ type ManifestPlugin struct {
 }
 
 type ManifestBinary struct {
-	Name            string `json:"name" yaml:"name"`
-	Repo            string `json:"repo" yaml:"repo"`
-	Version         string `json:"version,omitempty" yaml:"version,omitempty"`
-	AssetPattern    string `json:"asset_pattern,omitempty" yaml:"asset_pattern,omitempty"`
-	VersionPrefix   string `json:"version_prefix,omitempty" yaml:"version_prefix,omitempty"`
+	// Identity — exactly one of Repo (github), URL (http), or Package (pipx/npm)
+	// must be set. Backend defaults to "github" when Repo is set, "http" when
+	// URL is set; all other backends require Backend to be explicit.
+	Name    string `json:"name" yaml:"name"`
+	Backend string `json:"backend,omitempty" yaml:"backend,omitempty"`
+
+	// GitHub backend: owner/repo (e.g. "cli/cli")
+	Repo string `json:"repo,omitempty" yaml:"repo,omitempty"`
+
+	// HTTP backend: download URL, may use {{version}}, {{os()}}, {{arch()}}
+	URL string `json:"url,omitempty" yaml:"url,omitempty"`
+
+	// Pipx/NPM backend: package name (e.g. "mypy", "serve", or "org/repo" for pipx)
+	Package string `json:"package,omitempty" yaml:"package,omitempty"`
+
+	// Common to all backends
+	Version string `json:"version,omitempty" yaml:"version,omitempty"`
+
+	// Shared asset options (github + http)
 	StripComponents int    `json:"strip_components,omitempty" yaml:"strip_components,omitempty"`
 	BinPath         string `json:"bin_path,omitempty" yaml:"bin_path,omitempty"`
 	Bin             string `json:"bin,omitempty" yaml:"bin,omitempty"`
 	RenameExe       string `json:"rename_exe,omitempty" yaml:"rename_exe,omitempty"`
-	NoApp           bool   `json:"no_app,omitempty" yaml:"no_app,omitempty"`
-	FilterBins      string `json:"filter_bins,omitempty" yaml:"filter_bins,omitempty"`
 	Checksum        string `json:"checksum,omitempty" yaml:"checksum,omitempty"`
-	Prerelease      bool   `json:"prerelease,omitempty" yaml:"prerelease,omitempty"`
-	APIURL          string `json:"api_url,omitempty" yaml:"api_url,omitempty"`
+
+	// GitHub-only options
+	AssetPattern  string `json:"asset_pattern,omitempty" yaml:"asset_pattern,omitempty"`
+	VersionPrefix string `json:"version_prefix,omitempty" yaml:"version_prefix,omitempty"`
+	NoApp         bool   `json:"no_app,omitempty" yaml:"no_app,omitempty"`
+	FilterBins    string `json:"filter_bins,omitempty" yaml:"filter_bins,omitempty"`
+	Prerelease    bool   `json:"prerelease,omitempty" yaml:"prerelease,omitempty"`
+	APIURL        string `json:"api_url,omitempty" yaml:"api_url,omitempty"`
+
+	// HTTP-only options
+	Size            string `json:"size,omitempty" yaml:"size,omitempty"`
+	Format          string `json:"format,omitempty" yaml:"format,omitempty"`
+	VersionListURL  string `json:"version_list_url,omitempty" yaml:"version_list_url,omitempty"`
+	VersionRegex    string `json:"version_regex,omitempty" yaml:"version_regex,omitempty"`
+	VersionJSONPath string `json:"version_json_path,omitempty" yaml:"version_json_path,omitempty"`
+	VersionExpr     string `json:"version_expr,omitempty" yaml:"version_expr,omitempty"`
+
+	// Pipx-only options
+	Extras   string `json:"extras,omitempty" yaml:"extras,omitempty"`
+	PipxArgs string `json:"pipx_args,omitempty" yaml:"pipx_args,omitempty"`
+	UVX      bool   `json:"uvx,omitempty" yaml:"uvx,omitempty"`
+	UVXArgs  string `json:"uvx_args,omitempty" yaml:"uvx_args,omitempty"`
 }
 
 type ManifestSkill struct {

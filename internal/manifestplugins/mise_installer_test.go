@@ -124,6 +124,106 @@ func TestGenerateMiseTOMLBinField(t *testing.T) {
 	}
 }
 
+func TestGenerateMiseTOMLHTTPBackend(t *testing.T) {
+	got, err := generateMiseTOML(ManifestBinary{
+		Name:    "sentinel",
+		Backend: "http",
+		URL:     "https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_linux_amd64.zip",
+		Version: "0.26.3",
+	})
+	if err != nil {
+		t.Fatalf("generateMiseTOML: %v", err)
+	}
+	for _, want := range []string{
+		"[tools.'http:sentinel']",
+		`version = '0.26.3'`,
+		`url = 'https://releases.hashicorp.com`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("mise.toml missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestGenerateMiseTOMLHTTPInferredFromURL(t *testing.T) {
+	got, err := generateMiseTOML(ManifestBinary{
+		Name:    "mytool",
+		URL:     "https://example.com/mytool-{{version}}-linux-amd64.tar.gz",
+		Version: "1.2.0",
+		Format:  "tar.gz",
+	})
+	if err != nil {
+		t.Fatalf("generateMiseTOML: %v", err)
+	}
+	for _, want := range []string{
+		"[tools.'http:mytool']",
+		`format = 'tar.gz'`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("mise.toml missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestGenerateMiseTOMLPipxSimple(t *testing.T) {
+	got, err := generateMiseTOML(ManifestBinary{
+		Name:    "mypy",
+		Backend: "pipx",
+		Package: "mypy",
+		Version: "1.8.0",
+	})
+	if err != nil {
+		t.Fatalf("generateMiseTOML: %v", err)
+	}
+	want := `'pipx:mypy' = '1.8.0'`
+	if !strings.Contains(got, want) {
+		t.Fatalf("expected simple form %q in:\n%s", want, got)
+	}
+}
+
+func TestGenerateMiseTOMLPipxWithExtras(t *testing.T) {
+	got, err := generateMiseTOML(ManifestBinary{
+		Name:    "pylint",
+		Backend: "pipx",
+		Package: "pylint",
+		Extras:  "spelling",
+	})
+	if err != nil {
+		t.Fatalf("generateMiseTOML: %v", err)
+	}
+	for _, want := range []string{
+		"[tools.'pipx:pylint']",
+		`extras = 'spelling'`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("mise.toml missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestGenerateMiseTOMLNPM(t *testing.T) {
+	got, err := generateMiseTOML(ManifestBinary{
+		Name:    "serve",
+		Backend: "npm",
+		Package: "serve",
+		Version: "14.2.0",
+	})
+	if err != nil {
+		t.Fatalf("generateMiseTOML: %v", err)
+	}
+	want := `'npm:serve' = '14.2.0'`
+	if !strings.Contains(got, want) {
+		t.Fatalf("expected simple form %q in:\n%s", want, got)
+	}
+}
+
+func TestGenerateMiseTOMLUnknownBackendErrors(t *testing.T) {
+	_, err := generateMiseTOML(ManifestBinary{Name: "x"})
+	if err == nil {
+		t.Fatal("expected error for binary with no identity fields")
+	}
+}
+
 func TestInstallBinaryWithMiseIsolatesHostEnvAndTargetsTool(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake mise script uses POSIX shell")

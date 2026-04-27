@@ -117,25 +117,39 @@ func runtimeBinaryName(name string) string {
 	return name
 }
 
-// generateMiseTOML returns a valid mise.toml for a single github backend tool.
-// When b.Version is empty, "latest" is used because mise requires github
-// backend tools to have a version value in both simple and table forms. Specify
-// an explicit version for repos that don't publish a "latest" release (e.g.
-// version: "nightly").
-func generateMiseTOML(b ManifestBinary) (string, error) {
-	toolKey := "github:" + b.Repo
-	ver := b.Version
-	if ver == "" {
-		ver = "latest"
+// resolvedBackend returns the canonical backend name for b, inferring it from
+// identity fields when Backend is not set explicitly.
+func (b ManifestBinary) resolvedBackend() string {
+	if b.Backend != "" {
+		return b.Backend
 	}
+	if b.Repo != "" {
+		return "github"
+	}
+	if b.URL != "" {
+		return "http"
+	}
+	return ""
+}
 
-	m := map[string]any{"version": ver}
-	if b.AssetPattern != "" {
-		m["asset_pattern"] = b.AssetPattern
+// miseToolKey returns the mise tool key used in mise.toml and CLI commands.
+func (b ManifestBinary) miseToolKey() string {
+	switch b.resolvedBackend() {
+	case "github":
+		return "github:" + b.Repo
+	case "http":
+		return "http:" + b.Name
+	case "pipx":
+		return "pipx:" + b.Package
+	case "npm":
+		return "npm:" + b.Package
+	default:
+		return ""
 	}
-	if b.VersionPrefix != "" {
-		m["version_prefix"] = b.VersionPrefix
-	}
+}
+
+// sharedOptions populates the options shared across github and http backends.
+func sharedOptions(b ManifestBinary, m map[string]any) {
 	if b.StripComponents > 0 {
 		m["strip_components"] = b.StripComponents
 	}
@@ -148,28 +162,103 @@ func generateMiseTOML(b ManifestBinary) (string, error) {
 	if b.RenameExe != "" {
 		m["rename_exe"] = b.RenameExe
 	}
-	if b.NoApp {
-		m["no_app"] = true
-	}
-	if b.FilterBins != "" {
-		m["filter_bins"] = b.FilterBins
-	}
 	if b.Checksum != "" {
 		m["checksum"] = b.Checksum
 	}
-	if b.Prerelease {
-		m["prerelease"] = true
+}
+
+// generateMiseTOML returns a valid mise.toml for the binary's backend.
+// When Version is empty, "latest" is used for github/pipx/npm. For the http
+// backend with a templated URL, an explicit version is required.
+func generateMiseTOML(b ManifestBinary) (string, error) {
+	toolKey := b.miseToolKey()
+	if toolKey == "" {
+		return "", fmt.Errorf("cannot determine mise tool key: set backend or repo/url/package")
 	}
-	if b.APIURL != "" {
-		m["api_url"] = b.APIURL
+
+	ver := b.Version
+	if ver == "" {
+		ver = "latest"
 	}
 
 	var toolValue any
-	if len(m) == 1 {
-		// Simple form: "github:owner/repo" = "version"
-		toolValue = ver
-	} else {
+	switch b.resolvedBackend() {
+	case "github":
+		m := map[string]any{"version": ver}
+		if b.AssetPattern != "" {
+			m["asset_pattern"] = b.AssetPattern
+		}
+		if b.VersionPrefix != "" {
+			m["version_prefix"] = b.VersionPrefix
+		}
+		if b.NoApp {
+			m["no_app"] = true
+		}
+		if b.FilterBins != "" {
+			m["filter_bins"] = b.FilterBins
+		}
+		if b.Prerelease {
+			m["prerelease"] = true
+		}
+		if b.APIURL != "" {
+			m["api_url"] = b.APIURL
+		}
+		sharedOptions(b, m)
+		if len(m) == 1 {
+			toolValue = ver
+		} else {
+			toolValue = m
+		}
+
+	case "http":
+		m := map[string]any{"version": ver, "url": b.URL}
+		if b.Size != "" {
+			m["size"] = b.Size
+		}
+		if b.Format != "" {
+			m["format"] = b.Format
+		}
+		if b.VersionListURL != "" {
+			m["version_list_url"] = b.VersionListURL
+		}
+		if b.VersionRegex != "" {
+			m["version_regex"] = b.VersionRegex
+		}
+		if b.VersionJSONPath != "" {
+			m["version_json_path"] = b.VersionJSONPath
+		}
+		if b.VersionExpr != "" {
+			m["version_expr"] = b.VersionExpr
+		}
+		sharedOptions(b, m)
 		toolValue = m
+
+	case "pipx":
+		m := map[string]any{"version": ver}
+		if b.Extras != "" {
+			m["extras"] = b.Extras
+		}
+		if b.PipxArgs != "" {
+			m["pipx_args"] = b.PipxArgs
+		}
+		if b.UVX {
+			m["uvx"] = true
+		}
+		if b.UVXArgs != "" {
+			m["uvx_args"] = b.UVXArgs
+		}
+		if len(m) == 1 {
+			toolValue = ver
+		} else {
+			toolValue = m
+		}
+
+	case "npm":
+		// npm has no per-tool options beyond version
+		toolValue = ver
+
+	default:
+		return "", fmt.Errorf("unsupported backend %q", b.resolvedBackend())
 	}
 
 	data, err := toml.Marshal(map[string]any{
@@ -221,7 +310,7 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 
 	// Run mise install for only the manifest tool. Avoid installing any global or
 	// inherited mise config that may be visible to the Anna process.
-	toolKey := fmt.Sprintf("github:%s", b.Repo)
+	toolKey := b.miseToolKey()
 	stderr.Reset()
 	installCmd := managedCommandContext(ctx, miseBin, "install", toolKey)
 	installCmd.Dir = tmpDir

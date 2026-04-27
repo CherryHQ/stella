@@ -82,24 +82,101 @@ plugins:
 
 ## Binary fields
 
+Each binary must set exactly one identity field — `repo`, `url`, or `package` — which also determines the backend. Use `backend` to be explicit when needed.
+
+### Common fields
+
 | Field | Required | Description |
 |-------|----------|-------------|
 | `name` | Yes | Binary filename placed in `$ANNA_HOME/bin` (without extension) |
-| `repo` | Yes | GitHub repository in `owner/repo` format |
-| `version` | No | Version tag to install (e.g. `"1.2.3"`, `"nightly"`). Defaults to `latest`. For repos that don't publish a `latest` release, you must set this explicitly. |
-| `asset_pattern` | No | Glob pattern to match the release asset name (e.g. `"gh_*_linux_x64.tar.gz"`). Use when auto-detection picks the wrong asset. |
-| `version_prefix` | No | Custom prefix on release tags (e.g. `"release-"`). Mise strips the prefix when resolving versions. |
-| `strip_components` | No | Number of leading directory components to strip when extracting the archive. Mise auto-detects this for common layouts. |
-| `bin_path` | No | Subdirectory inside the archive that contains the binary (e.g. `"bin"`). |
-| `bin` | No | Rename the downloaded file when the release asset is a single binary (not an archive). |
+| `backend` | Conditional | Backend to use: `github` (default when `repo` is set), `http` (default when `url` is set), `pipx`, `npm`. Required for `pipx` and `npm`. |
+| `version` | No | Version to install. Defaults to `latest` for all backends. |
+| `strip_components` | No | Leading directory levels to strip when extracting an archive. Auto-detected for most layouts. |
+| `bin_path` | No | Subdirectory inside the archive containing the binary (e.g. `"bin"`). |
+| `bin` | No | Rename the downloaded file when the asset is a single binary (non-archive). |
 | `rename_exe` | No | Rename the executable after extraction from an archive. |
-| `no_app` | No | Skip macOS `.app` bundle assets during auto-detection; prefer standalone CLI binaries instead. |
-| `filter_bins` | No | Comma-separated list of binaries to expose on PATH when the archive contains multiple executables (e.g. `"pandoc"`). |
-| `checksum` | No | Verify the downloaded asset with a checksum in `algo:hex` format (e.g. `"sha256:abc123..."`). |
-| `prerelease` | No | Set to `true` to include pre-release versions when resolving `latest`. |
-| `api_url` | No | GitHub API base URL for GitHub Enterprise instances (e.g. `"https://github.example.com/api/v3"`). |
+| `checksum` | No | Verify the asset with a checksum in `algo:hex` format (e.g. `"sha256:abc123..."`). |
 
-Mise auto-detects the correct release asset based on OS and architecture keywords in the filename. Most fields are only needed when the default detection does not produce the right result.
+### GitHub backend (`backend: github`)
+
+Identity field: `repo` (e.g. `cli/cli`).
+
+```yaml
+binaries:
+  - name: gh
+    repo: cli/cli
+    version: "2.40.1"
+    bin_path: bin
+```
+
+| Field | Description |
+|-------|-------------|
+| `repo` | GitHub repository in `owner/repo` format |
+| `asset_pattern` | Glob pattern to select the release asset (e.g. `"gh_*_linux_x64.tar.gz"`). |
+| `version_prefix` | Custom tag prefix (e.g. `"release-"`). |
+| `no_app` | Skip macOS `.app` bundles; prefer standalone binaries. |
+| `filter_bins` | Comma-separated list of binaries to expose when the archive contains multiple executables. |
+| `prerelease` | Include pre-release versions when resolving `latest`. |
+| `api_url` | GitHub API base URL for GitHub Enterprise (e.g. `"https://github.example.com/api/v3"`). |
+
+### HTTP backend (`backend: http`)
+
+Identity field: `url`. The binary `name` is also used as the mise tool key.
+
+```yaml
+binaries:
+  - name: sentinel
+    url: "https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_{{os()}}_{{arch()}}.zip"
+    version: "0.26.3"
+```
+
+| Field | Description |
+|-------|-------------|
+| `url` | Download URL. Supports `{{version}}`, `{{os()}}`, `{{arch()}}` templates. |
+| `size` | Expected file size in bytes for verification. |
+| `format` | Archive format override (e.g. `"tar.xz"`). |
+| `version_list_url` | URL to fetch available versions from. |
+| `version_regex` | Regex to extract versions from the version list. |
+| `version_json_path` | jq-style path to extract versions from JSON (e.g. `".[].tag_name"`). |
+| `version_expr` | expr-lang expression to extract versions. |
+
+### Pipx backend (`backend: pipx`)
+
+Identity field: `package` (PyPI package, `org/repo` for GitHub, or `git+https://...`).
+
+```yaml
+binaries:
+  - name: mypy
+    backend: pipx
+    package: mypy
+    version: "1.8.0"
+```
+
+| Field | Description |
+|-------|-------------|
+| `package` | Package to install (PyPI name, org/repo, or git URL). |
+| `extras` | Pip extras to install alongside the package. |
+| `pipx_args` | Extra arguments to pass to pipx. |
+| `uvx` | Use `uvx` (uv's tool runner) instead of pipx. |
+| `uvx_args` | Extra arguments for uvx. |
+
+### NPM backend (`backend: npm`)
+
+Identity field: `package`.
+
+```yaml
+binaries:
+  - name: serve
+    backend: npm
+    package: serve
+    version: "14.2.0"
+```
+
+| Field | Description |
+|-------|-------------|
+| `package` | NPM package name to install. |
+
+Platform-specific asset patterns (`platforms:` map) are not supported in the manifest.
 
 ## Session env fields
 
@@ -186,5 +263,6 @@ The **Tools** tab includes **Add Tool** for creating a new manifest-backed CLI f
 ## Limitations in v1
 
 - System prompts and skill registration are not supported in the manifest. Plugins that need these capabilities still use Go registration.
-- Custom install scripts are not supported. Binaries must be available as GitHub release assets.
-- Only GitHub release assets are supported as a binary source.
+- Custom install scripts are not supported.
+- Platform-specific asset patterns (`platforms:` map) are not supported. Use `asset_pattern` instead.
+- Supported binary sources: GitHub releases (`github`), direct HTTP download (`http`), pipx (`pipx`), npm (`npm`).
