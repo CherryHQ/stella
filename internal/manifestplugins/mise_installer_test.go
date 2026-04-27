@@ -12,6 +12,7 @@ import (
 func TestGenerateMiseTOMLSimpleForm(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:    "mytool",
+		Backend: "github",
 		Repo:    "owner/repo",
 		Version: "1.0.0",
 	})
@@ -27,6 +28,7 @@ func TestGenerateMiseTOMLSimpleForm(t *testing.T) {
 func TestGenerateMiseTOMLTableFormDefaultsVersion(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:    "gh",
+		Backend: "github",
 		Repo:    "cli/cli",
 		BinPath: "bin",
 	})
@@ -47,6 +49,7 @@ func TestGenerateMiseTOMLTableFormDefaultsVersion(t *testing.T) {
 func TestGenerateMiseTOMLAssetPatternAloneTriggersTableForm(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:         "gh",
+		Backend:      "github",
 		Repo:         "cli/cli",
 		Version:      "2.40.1",
 		AssetPattern: "gh_*_linux_x64.tar.gz",
@@ -68,6 +71,7 @@ func TestGenerateMiseTOMLAssetPatternAloneTriggersTableForm(t *testing.T) {
 func TestGenerateMiseTOMLAdvancedOptions(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:            "pandoc",
+		Backend:         "github",
 		Repo:            "jgm/pandoc",
 		Version:         "3.1.0",
 		AssetPattern:    "pandoc-*-linux-amd64.tar.gz",
@@ -107,6 +111,7 @@ func TestGenerateMiseTOMLAdvancedOptions(t *testing.T) {
 func TestGenerateMiseTOMLBinField(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:    "docker-compose",
+		Backend: "github",
 		Repo:    "docker/compose",
 		Version: "2.29.1",
 		Bin:     "docker-compose",
@@ -145,9 +150,10 @@ func TestGenerateMiseTOMLHTTPBackend(t *testing.T) {
 	}
 }
 
-func TestGenerateMiseTOMLHTTPInferredFromURL(t *testing.T) {
+func TestGenerateMiseTOMLHTTPWithFormat(t *testing.T) {
 	got, err := generateMiseTOML(ManifestBinary{
 		Name:    "mytool",
+		Backend: "http",
 		URL:     "https://example.com/mytool-{{version}}-linux-amd64.tar.gz",
 		Version: "1.2.0",
 		Format:  "tar.gz",
@@ -292,6 +298,7 @@ esac
 
 	version, err := installBinaryWithMise(context.Background(), ManifestBinary{
 		Name:    "mytool",
+		Backend: "github",
 		Repo:    "owner/repo",
 		Version: "1.2.3",
 	}, annaHome)

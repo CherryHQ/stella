@@ -68,16 +68,7 @@ type ToolBinary struct {
 }
 
 func (b ToolBinary) resolvedBackend() string {
-	if b.Backend != "" {
-		return b.Backend
-	}
-	if b.Repo != "" {
-		return "github"
-	}
-	if b.URL != "" {
-		return "http"
-	}
-	return ""
+	return b.Backend
 }
 
 func (b ToolBinary) miseToolKey() string {

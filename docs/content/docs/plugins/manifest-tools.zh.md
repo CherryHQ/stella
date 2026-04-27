@@ -55,6 +55,7 @@ plugins:
     enabled: true
     binaries:
       - name: my-cli
+        backend: github
         repo: owner/my-cli
         version: "1.2.3"   # 省略则使用最新版
     session_env:
@@ -104,6 +105,7 @@ plugins:
 ```yaml
 binaries:
   - name: gh
+    backend: github
     repo: cli/cli
     version: "2.40.1"
     bin_path: bin
@@ -220,6 +222,7 @@ plugins:
     enabled: true
     binaries:
       - name: tap
+        backend: github
         repo: vaayne/tap
         version: "0.5.0"
 ```

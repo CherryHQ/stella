@@ -20,10 +20,9 @@ func makeMinimalManifest(pluginID string, enabled bool, binaryName, version stri
 				Binaries: []ManifestBinary{
 					{
 						Name:    binaryName,
+						Backend: "github",
 						Repo:    "owner/repo",
 						Version: version,
-						// No Platforms — mise install will fail if reached,
-						// but cache-hit and disabled tests never reach that path.
 					},
 				},
 			},
@@ -139,6 +138,7 @@ func TestReconcile_EnabledCount(t *testing.T) {
 				Binaries: []ManifestBinary{
 					{
 						Name:    "tool-a",
+					Backend: "github",
 						Repo:    "owner/tool-a",
 						Version: "0.1.0",
 					},
@@ -150,6 +150,7 @@ func TestReconcile_EnabledCount(t *testing.T) {
 				Binaries: []ManifestBinary{
 					{
 						Name:    "tool-b",
+					Backend: "github",
 						Repo:    "owner/tool-b",
 						Version: "1.0.0",
 					},
@@ -161,6 +162,7 @@ func TestReconcile_EnabledCount(t *testing.T) {
 				Binaries: []ManifestBinary{
 					{
 						Name:    "tool-c",
+					Backend: "github",
 						Repo:    "owner/tool-c",
 						Version: "3.0.0",
 					},

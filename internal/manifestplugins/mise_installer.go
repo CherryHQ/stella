@@ -117,19 +117,9 @@ func runtimeBinaryName(name string) string {
 	return name
 }
 
-// resolvedBackend returns the canonical backend name for b, inferring it from
-// identity fields when Backend is not set explicitly.
+// resolvedBackend returns the backend name. Backend must be set explicitly.
 func (b ManifestBinary) resolvedBackend() string {
-	if b.Backend != "" {
-		return b.Backend
-	}
-	if b.Repo != "" {
-		return "github"
-	}
-	if b.URL != "" {
-		return "http"
-	}
-	return ""
+	return b.Backend
 }
 
 // miseToolKey returns the mise tool key used in mise.toml and CLI commands.

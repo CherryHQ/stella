@@ -69,8 +69,7 @@ func Validate(m *Manifest) error {
 			if b.Name == "" {
 				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: name is required", p.ID, j))
 			}
-			backend := b.resolvedBackend()
-			switch backend {
+			switch b.Backend {
 			case "github":
 				if b.Repo == "" {
 					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: repo is required for github backend", p.ID, j))
@@ -93,16 +92,16 @@ func Validate(m *Manifest) error {
 				}
 			case "pipx", "npm":
 				if b.Package == "" {
-					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: package is required for %s backend", p.ID, j, backend))
+					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: package is required for %s backend", p.ID, j, b.Backend))
 				}
 				if b.Repo != "" {
-					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: repo is not valid for %s backend", p.ID, j, backend))
+					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: repo is not valid for %s backend", p.ID, j, b.Backend))
 				}
 				if b.URL != "" {
-					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: url is not valid for %s backend", p.ID, j, backend))
+					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: url is not valid for %s backend", p.ID, j, b.Backend))
 				}
 			default:
-				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: cannot determine backend — set backend explicitly or provide repo/url/package", p.ID, j))
+				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: backend is required and must be one of: github, http, pipx, npm", p.ID, j))
 			}
 			if b.StripComponents < 0 {
 				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: strip_components must be non-negative", p.ID, j))
