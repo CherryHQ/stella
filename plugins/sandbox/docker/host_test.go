@@ -203,7 +203,6 @@ func TestTranslateEnvPaths(t *testing.T) {
 	mounts := []dockerclient.Mount{
 		{HostPath: "/host/workspace", ContainerPath: "/workspace"},
 		{HostPath: "/host/.anna", ContainerPath: "/home/anna/.anna", ReadOnly: true},
-		{HostPath: "/host/.anna/bin", ContainerPath: "/home/anna/.anna/bin", ReadOnly: true},
 		{HostPath: "/host/.anna/skills", ContainerPath: "/home/anna/.anna/skills", ReadOnly: true},
 	}
 

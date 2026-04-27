@@ -19,7 +19,27 @@ At startup, Anna:
 4. Registers enabled manifest plugins into the plugin host
 5. Starts binary reconciliation in the background: downloads missing binaries into `$ANNA_HOME/bin`
 
-Startup is not blocked by binary downloads. A newly added or updated manifest binary becomes available on `PATH` inside agent sandbox sessions after the background sync completes.
+Startup is not blocked by binary downloads. A newly added or updated manifest binary becomes available on `PATH` inside agent sandbox sessions after the background sync completes. For local sandbox sessions the binary is available from `$ANNA_HOME/bin`. Docker sandbox sessions need separate handling because host binaries may target the host OS/architecture rather than Linux.
+
+## Docker sandbox CLI availability
+
+Do not treat host `$ANNA_HOME/bin` as the source of Docker sandbox executables. On macOS and Windows, manifest sync can install host-platform binaries, which cannot run in a Linux container. Binding that directory into Docker also blurs the boundary between host-side tool management and the container runtime.
+
+For Docker:
+
+- Built-in CLI plugins that must work out of the box are pre-installed in the versioned sandbox image. The sandbox image tag is tied to the Anna release, so one release image can contain the built-in tool set for that Anna version. Keep the Docker image tool list in `plugins/sandbox/docker/_mise.toml` aligned with built-in CLI plugin declarations in `internal/manifestplugins/builtin_plugins.yaml`.
+- `$ANNA_HOME/plugins.yaml` remains the source of plugin metadata, enablement, session environment, OAuth injection, and local-sandbox binary installation.
+- User-configured CLI binaries need a container-native provisioning path. They should be installed for Linux inside the Docker environment, not copied from the host's `$ANNA_HOME/bin`.
+
+A safe Docker loading design for user-configured CLIs is:
+
+1. Build a container tool manifest from enabled user manifest plugins' `binaries` entries, excluding built-in tools already present in the release image.
+2. Use a short-lived helper container based on the same sandbox image to run `mise install` in a Linux context.
+3. Store the resulting tools in a Docker-managed tool cache or volume keyed by the sandbox image tag plus user manifest hash.
+4. Mount that cache into sandbox sessions at a container-only path and prepend it to the in-container `PATH`.
+5. Rebuild or refresh the cache when the enabled user plugin set or binary versions change.
+
+This keeps the release sandbox image stable while still allowing user-added CLIs. The installed user binaries are Linux container binaries, and the host `$ANNA_HOME/bin` is not part of Docker executable resolution.
 
 ## The manifest file format
 

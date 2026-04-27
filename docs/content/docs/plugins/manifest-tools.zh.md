@@ -19,7 +19,27 @@ Anna 内置了一个默认清单，声明了默认由清单管理的 CLI 集成�
 4. 将已启用的清单插件注册到插件主机
 5. 在后台启动二进制协调：将缺失的二进制文件下载到 `$ANNA_HOME/bin`
 
-启动不会被二进制下载阻塞。新增或更新的清单二进制会在后台同步完成后，出现在 Agent 沙箱会话的 `PATH` 中。
+启动不会被二进制下载阻塞。新增或更新的清单二进制会在后台同步完成后，出现在 Agent 沙箱会话的 `PATH` 中。对于本地沙箱会话，二进制文件通过 `$ANNA_HOME/bin` 提供。Docker 沙箱会话需要单独处理，因为宿主机二进制可能面向宿主机 OS/架构，而不是 Linux。
+
+## Docker 沙箱中的 CLI 可用性
+
+不要把宿主机 `$ANNA_HOME/bin` 当作 Docker 沙箱可执行文件的来源。在 macOS 和 Windows 上，清单同步可能安装宿主机平台的二进制文件，它们无法在 Linux 容器中运行。把该目录绑定挂载进 Docker 也会模糊宿主机工具管理和容器运行时之间的边界。
+
+对于 Docker：
+
+- 必须开箱即用的内置 CLI 插件会预装到带版本的沙箱镜像中。沙箱镜像标签与 Anna release 绑定，因此一个 release 镜像可以包含该 Anna 版本对应的内置工具集合。保持 Docker 镜像工具列表 `plugins/sandbox/docker/_mise.toml` 与内置 CLI 插件声明 `internal/manifestplugins/builtin_plugins.yaml` 对齐。
+- `$ANNA_HOME/plugins.yaml` 仍然是插件元数据、启用状态、会话环境变量、OAuth 注入以及本地沙箱二进制安装的来源。
+- 用户配置的 CLI 二进制需要一条容器原生的加载路径。它们应在 Docker 环境内按 Linux 目标安装，而不是从宿主机 `$ANNA_HOME/bin` 复制。
+
+一种用于用户配置 CLI 的安全 Docker 加载设计是：
+
+1. 从已启用的用户清单插件 `binaries` 条目生成容器工具清单，排除 release 镜像中已经存在的内置工具。
+2. 基于同一个沙箱镜像启动短生命周期 helper 容器，在 Linux 上下文中运行 `mise install`。
+3. 将安装结果保存到由 Docker 管理的工具缓存或 volume，并用沙箱镜像标签加用户清单哈希作为缓存键。
+4. 将该缓存挂载到沙箱会话中的容器专用路径，并前置到容器内 `PATH`。
+5. 当已启用的用户插件集合或二进制版本变化时，重建或刷新缓存。
+
+这样可以保持 release 沙箱镜像稳定，同时仍支持用户新增 CLI。安装得到的用户二进制是 Linux 容器二进制，宿主机 `$ANNA_HOME/bin` 不参与 Docker 可执行文件解析。
 
 ## 清单文件格式
 

@@ -26,6 +26,8 @@ type API interface {
 	ContainerInspect(ctx context.Context, container string, opts mobyclient.ContainerInspectOptions) (mobyclient.ContainerInspectResult, error)
 	ContainerList(ctx context.Context, opts mobyclient.ContainerListOptions) (mobyclient.ContainerListResult, error)
 
+	VolumeCreate(ctx context.Context, opts mobyclient.VolumeCreateOptions) (mobyclient.VolumeCreateResult, error)
+
 	ExecCreate(ctx context.Context, container string, opts mobyclient.ExecCreateOptions) (mobyclient.ExecCreateResult, error)
 	ExecAttach(ctx context.Context, execID string, opts mobyclient.ExecAttachOptions) (mobyclient.ExecAttachResult, error)
 	ExecInspect(ctx context.Context, execID string, opts mobyclient.ExecInspectOptions) (mobyclient.ExecInspectResult, error)
@@ -105,6 +107,14 @@ func (c *Client) ImageExists(ctx context.Context, image string) (bool, error) {
 }
 
 // PullImage pulls an image, draining the JSON progress stream into slog.Info.
+func (c *Client) VolumeCreate(ctx context.Context, opts mobyclient.VolumeCreateOptions) (mobyclient.VolumeCreateResult, error) {
+	res, err := c.api.VolumeCreate(ctx, opts)
+	if err != nil {
+		return mobyclient.VolumeCreateResult{}, fmt.Errorf("dockerclient: volume create %s: %w", opts.Name, err)
+	}
+	return res, nil
+}
+
 func (c *Client) PullImage(ctx context.Context, image string) error {
 	resp, err := c.api.ImagePull(ctx, image, mobyclient.ImagePullOptions{})
 	if err != nil {

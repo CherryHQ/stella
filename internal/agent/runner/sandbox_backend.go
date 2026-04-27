@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/vaayne/anna/internal/config"
 	oauth "github.com/vaayne/anna/internal/credentials/oauth"
+	"github.com/vaayne/anna/internal/manifestplugins"
 	"github.com/vaayne/anna/internal/sandbox"
 	internaltools "github.com/vaayne/anna/internal/tools"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
@@ -367,6 +370,13 @@ func createDockerSession(ctx context.Context, cfg GoRunnerConfig) (*runnerSessio
 		recordSandboxError(span, err)
 		return nil, err
 	}
+	userTools, err := resolveDockerUserToolBinaries(paths.AnnaHome)
+	if err != nil {
+		err = fmt.Errorf("resolve docker user tools: %w", err)
+		recordSandboxError(span, err)
+		return nil, err
+	}
+	dockerCfg.UserToolBinaries = userTools
 
 	// Construct a per-runner factory with the resolved config. The global
 	// registry carries a zero-value Config for probe/contract-test use only.
@@ -440,6 +450,43 @@ func resolveDockerConfig() (dockerplugin.Config, error) {
 		dockerplugin.Config{Image: config.SandboxDockerImage()},
 		config.AnnaHome(),
 	)
+}
+
+func resolveDockerUserToolBinaries(annaHome string) ([]dockerplugin.ToolBinary, error) {
+	builtin, err := manifestplugins.LoadBuiltin()
+	if err != nil {
+		return nil, err
+	}
+	user, err := manifestplugins.LoadUser(filepath.Join(annaHome, "plugins.yaml"))
+	if err != nil {
+		return nil, err
+	}
+	merged := manifestplugins.Merge(builtin, user)
+
+	builtinByID := make(map[string]manifestplugins.ManifestPlugin, len(builtin.Plugins))
+	for _, plugin := range builtin.Plugins {
+		builtinByID[plugin.ID] = plugin
+	}
+
+	var out []dockerplugin.ToolBinary
+	for _, plugin := range merged.Plugins {
+		if !plugin.Enabled || len(plugin.Binaries) == 0 {
+			continue
+		}
+		if builtinPlugin, ok := builtinByID[plugin.ID]; ok && reflect.DeepEqual(plugin.Binaries, builtinPlugin.Binaries) {
+			continue
+		}
+		for _, binary := range plugin.Binaries {
+			out = append(out, dockerplugin.ToolBinary{
+				Name:    binary.Name,
+				Repo:    binary.Repo,
+				Version: binary.Version,
+				BinPath: binary.BinPath,
+				Exe:     binary.Exe,
+			})
+		}
+	}
+	return out, nil
 }
 
 // cleanupOrphanedDockerContainers removes stale anna containers from previous
