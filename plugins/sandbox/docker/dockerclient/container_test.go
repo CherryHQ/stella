@@ -84,6 +84,21 @@ func TestBuildMounts(t *testing.T) {
 			t.Fatal("expected ReadOnly=true")
 		}
 	})
+
+	t.Run("volume mounts included", func(t *testing.T) {
+		opts := CreateOptions{
+			ReadOnlyMounts: []Mount{
+				{HostPath: "anna-tools-abc", ContainerPath: "/tools", ReadOnly: true, Type: MountTypeVolume},
+			},
+		}
+		mounts := buildMounts(opts)
+		if len(mounts) != 1 {
+			t.Fatalf("expected 1 mount, got %d", len(mounts))
+		}
+		if mounts[0].Type != mount.TypeVolume || mounts[0].Source != "anna-tools-abc" || mounts[0].Target != "/tools" || !mounts[0].ReadOnly {
+			t.Fatalf("unexpected volume mount: %+v", mounts[0])
+		}
+	})
 	t.Run("workspace plus readonly", func(t *testing.T) {
 		opts := CreateOptions{
 			WorkspaceHost:  "/host/ws",

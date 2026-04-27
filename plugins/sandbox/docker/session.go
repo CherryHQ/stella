@@ -132,16 +132,28 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	if annaHome != "" {
 		opts.ReadOnlyMounts = []dockerclient.Mount{
 			{
-				HostPath:      filepath.Join(annaHome, "bin"),
-				ContainerPath: filepath.Join(annaHomeMount, "bin"),
-				ReadOnly:      true,
-			},
-			{
 				HostPath:      filepath.Join(annaHome, "skills"),
 				ContainerPath: filepath.Join(annaHomeMount, "skills"),
 				ReadOnly:      true,
 			},
 		}
+	}
+
+	var toolBinPaths []string
+	toolCache, err := ensureUserToolCache(ctx, client, f.cfg)
+	if err != nil {
+		recordError(span, err)
+		span.End()
+		return nil, err
+	}
+	if toolCache != nil {
+		opts.ReadOnlyMounts = append(opts.ReadOnlyMounts, dockerclient.Mount{
+			HostPath:      toolCache.VolumeName,
+			ContainerPath: containerUserToolsRoot,
+			ReadOnly:      true,
+			Type:          dockerclient.MountTypeVolume,
+		})
+		toolBinPaths = append(toolBinPaths, toolCache.BinPath)
 	}
 
 	containerID, err := client.CreateAndStart(ctx, opts)
@@ -155,17 +167,18 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		attribute.String("anna.sandbox.container_id", containerID),
 	))
 
-	// Build mount table for the workspace plus mounted ANNA_HOME/bin and /skills.
+	// Build mount table for the workspace plus mounted ANNA_HOME assets.
 	mountTable := buildMountTable(workspaceHost, workspaceMount, policy.Env["ANNA_HOME"], annaHomeMount)
 
 	session := &dockerSession{
-		id:          sessionID,
-		policy:      policy,
-		client:      client,
-		containerID: containerID,
-		mountTable:  mountTable,
-		done:        make(chan struct{}),
-		traceSpan:   span,
+		id:           sessionID,
+		policy:       policy,
+		client:       client,
+		containerID:  containerID,
+		mountTable:   mountTable,
+		toolBinPaths: toolBinPaths,
+		done:         make(chan struct{}),
+		traceSpan:    span,
 	}
 	session.host = &dockerHost{session: session}
 
@@ -199,11 +212,6 @@ func buildMountTable(workspaceHost, workspaceMount, annaHomeHost, annaHomeContai
 			dockerclient.Mount{
 				HostPath:      annaHomeHost,
 				ContainerPath: annaHomeContainer,
-				ReadOnly:      true,
-			},
-			dockerclient.Mount{
-				HostPath:      filepath.Join(annaHomeHost, "bin"),
-				ContainerPath: filepath.Join(annaHomeContainer, "bin"),
 				ReadOnly:      true,
 			},
 			dockerclient.Mount{
@@ -267,39 +275,44 @@ func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount) m
 
 // containerDefaultPATH is the image-baked PATH from the Dockerfile ENV directive.
 // It is used as the base when building a container exec PATH that prepends
-// $ANNA_HOME/bin. Keep in sync with the ENV PATH line in plugins/sandbox/docker/Dockerfile.
+// container-native user tool cache paths. Keep in sync with the ENV PATH line
+// in plugins/sandbox/docker/Dockerfile.
 const containerDefaultPATH = "/home/anna/.local/bin:/home/anna/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
-// injectAnnaHomeBinPath prepends $ANNA_HOME/bin to the container exec PATH so
-// embedded and plugin-managed CLIs resolve directly without a wrapper layer.
-func injectAnnaHomeBinPath(env map[string]string) map[string]string {
-	annaHome, ok := env["ANNA_HOME"]
-	if !ok || annaHome == "" {
+// injectToolPaths prepends container-native user tool directories to PATH.
+// Built-in tools come from the image-baked PATH; host $ANNA_HOME/bin is never
+// used for docker executable resolution because it may contain host-platform
+// binaries.
+func injectToolPaths(env map[string]string, toolBinPaths []string) map[string]string {
+	if len(toolBinPaths) == 0 {
 		return env
 	}
 	base := env["PATH"]
 	if base == "" {
 		base = containerDefaultPATH
 	}
-	env["PATH"] = filepath.Join(annaHome, "bin") + ":" + base
+	entries := append([]string(nil), toolBinPaths...)
+	entries = append(entries, base)
+	env["PATH"] = strings.Join(entries, ":")
 	return env
 }
 
 // dockerSession is a docker-backed sandbox session backed by a single container.
 type dockerSession struct {
-	id          string
-	policy      sandboxpkg.Policy
-	client      *dockerclient.Client
-	containerID string
-	mountTable  []dockerclient.Mount
-	host        *dockerHost
-	done        chan struct{}
-	doneOnce    sync.Once
-	closed      bool
-	closeErr    error
-	traceSpan   trace.Span
-	traceOnce   sync.Once
-	mu          sync.RWMutex
+	id           string
+	policy       sandboxpkg.Policy
+	client       *dockerclient.Client
+	containerID  string
+	mountTable   []dockerclient.Mount
+	toolBinPaths []string
+	host         *dockerHost
+	done         chan struct{}
+	doneOnce     sync.Once
+	closed       bool
+	closeErr     error
+	traceSpan    trace.Span
+	traceOnce    sync.Once
+	mu           sync.RWMutex
 }
 
 func (s *dockerSession) Policy() sandboxpkg.Policy { return s.policy }
@@ -540,7 +553,7 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 		return sandboxpkg.ExecResult{}, fmt.Errorf("docker host exec: cwd not in any mount: %w", err)
 	}
 
-	env := injectAnnaHomeBinPath(translateEnvPaths(mergeEnv(h.session.policy.Env, opts.Env), h.session.mountTable))
+	env := injectToolPaths(translateEnvPaths(mergeEnv(h.session.policy.Env, opts.Env), h.session.mountTable), h.session.toolBinPaths)
 
 	timeout := opts.Timeout
 	if timeout == 0 {
@@ -585,7 +598,7 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 		return nil, fmt.Errorf("docker host start_process: cwd not in any mount: %w", err)
 	}
 
-	env := injectAnnaHomeBinPath(translateEnvPaths(mergeEnv(h.session.policy.Env, req.Env), h.session.mountTable))
+	env := injectToolPaths(translateEnvPaths(mergeEnv(h.session.policy.Env, req.Env), h.session.mountTable), h.session.toolBinPaths)
 
 	timeout := req.Timeout
 	if timeout == 0 {

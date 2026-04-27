@@ -17,6 +17,12 @@ type Config struct {
 	// outside that path should leave them empty.
 	ContainerPathPrefix string
 	HostPathPrefix      string
+
+	// UserToolBinaries are manifest-declared, user-configured CLIs that are not
+	// baked into the versioned sandbox image. They are installed in a Linux
+	// helper container and exposed to sessions through a Docker-managed tool
+	// cache, never through host $ANNA_HOME/bin.
+	UserToolBinaries []ToolBinary
 }
 
 // TranslateToDaemonPath rewrites an anna-view absolute path into the path the
