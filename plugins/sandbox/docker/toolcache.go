@@ -28,12 +28,52 @@ const (
 
 // ToolBinary describes a user-configured CLI that must be installed in a Linux
 // container context before docker sandbox sessions can execute it.
+// Fields mirror manifestplugins.ManifestBinary 1:1; keep them in sync.
 type ToolBinary struct {
 	Name    string
-	Repo    string
+	Tool    string // mise tool key: github:owner/repo, pipx:pkg, npm:pkg, http:name
+	URL     string // required for http backend
 	Version string
-	BinPath string
-	Exe     string
+
+	// Shared asset options (github + http)
+	StripComponents int
+	BinPath         string
+	Bin             string
+	RenameExe       string
+	Checksum        string
+
+	// GitHub-only
+	AssetPattern  string
+	VersionPrefix string
+	NoApp         bool
+	FilterBins    string
+	Prerelease    bool
+	APIURL        string
+
+	// HTTP-only
+	Size            string
+	Format          string
+	VersionListURL  string
+	VersionRegex    string
+	VersionJSONPath string
+	VersionExpr     string
+
+	// Pipx-only
+	Extras   string
+	PipxArgs string
+	UVX      bool
+	UVXArgs  string
+}
+
+func (b ToolBinary) resolvedBackend() string {
+	if idx := strings.IndexByte(b.Tool, ':'); idx >= 0 {
+		return b.Tool[:idx]
+	}
+	return ""
+}
+
+func (b ToolBinary) miseToolKey() string {
+	return b.Tool
 }
 
 type userToolCache struct {
@@ -155,44 +195,129 @@ func userToolCacheHash(image string, binaries []ToolBinary) string {
 	buf.WriteString(image)
 	buf.WriteByte('\n')
 	for _, b := range binaries {
-		buf.WriteString(b.Name)
-		buf.WriteByte('\t')
-		buf.WriteString(b.Repo)
-		buf.WriteByte('\t')
-		buf.WriteString(b.Version)
-		buf.WriteByte('\t')
-		buf.WriteString(b.BinPath)
-		buf.WriteByte('\t')
-		buf.WriteString(b.Exe)
-		buf.WriteByte('\n')
+		// Include all identity and option fields so any change busts the cache.
+		fmt.Fprintf(&buf, "%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\t%v\n",
+			b.Name, b.Tool, b.URL, b.Version,
+			b.Checksum, b.StripComponents, b.BinPath, b.Bin, b.RenameExe,
+			b.AssetPattern, b.VersionPrefix, b.FilterBins, b.NoApp, b.APIURL,
+			b.Size, b.Format, b.VersionListURL, b.VersionRegex, b.VersionJSONPath, b.VersionExpr,
+			b.UVX, b.Extras, b.PipxArgs, b.UVXArgs,
+		)
 	}
 	sum := sha256.Sum256(buf.Bytes())
 	return hex.EncodeToString(sum[:])
 }
 
+func toolBinarySharedOptions(b ToolBinary, m map[string]any) {
+	if b.StripComponents > 0 {
+		m["strip_components"] = b.StripComponents
+	}
+	if b.BinPath != "" {
+		m["bin_path"] = b.BinPath
+	}
+	if b.Bin != "" {
+		m["bin"] = b.Bin
+	}
+	if b.RenameExe != "" {
+		m["rename_exe"] = b.RenameExe
+	}
+	if b.Checksum != "" {
+		m["checksum"] = b.Checksum
+	}
+}
+
 func userToolsMiseTOML(binaries []ToolBinary) (string, error) {
 	tools := make(map[string]any, len(binaries))
 	for _, b := range binaries {
-		key := "github:" + b.Repo
-		if b.BinPath == "" && b.Exe == "" {
-			version := b.Version
-			if version == "" {
-				version = "latest"
+		key := b.miseToolKey()
+		if key == "" {
+			return "", fmt.Errorf("binary %q: cannot determine mise tool key", b.Name)
+		}
+		ver := b.Version
+		if ver == "" {
+			ver = "latest"
+		}
+
+		var toolValue any
+		switch b.resolvedBackend() {
+		case "github":
+			m := map[string]any{"version": ver}
+			if b.AssetPattern != "" {
+				m["asset_pattern"] = b.AssetPattern
 			}
-			tools[key] = version
-			continue
+			if b.VersionPrefix != "" {
+				m["version_prefix"] = b.VersionPrefix
+			}
+			if b.NoApp {
+				m["no_app"] = true
+			}
+			if b.FilterBins != "" {
+				m["filter_bins"] = b.FilterBins
+			}
+			if b.Prerelease {
+				m["prerelease"] = true
+			}
+			if b.APIURL != "" {
+				m["api_url"] = b.APIURL
+			}
+			toolBinarySharedOptions(b, m)
+			if len(m) == 1 {
+				toolValue = ver
+			} else {
+				toolValue = m
+			}
+
+		case "http":
+			m := map[string]any{"version": ver, "url": b.URL}
+			if b.Size != "" {
+				m["size"] = b.Size
+			}
+			if b.Format != "" {
+				m["format"] = b.Format
+			}
+			if b.VersionListURL != "" {
+				m["version_list_url"] = b.VersionListURL
+			}
+			if b.VersionRegex != "" {
+				m["version_regex"] = b.VersionRegex
+			}
+			if b.VersionJSONPath != "" {
+				m["version_json_path"] = b.VersionJSONPath
+			}
+			if b.VersionExpr != "" {
+				m["version_expr"] = b.VersionExpr
+			}
+			toolBinarySharedOptions(b, m)
+			toolValue = m
+
+		case "pipx":
+			m := map[string]any{"version": ver}
+			if b.Extras != "" {
+				m["extras"] = b.Extras
+			}
+			if b.PipxArgs != "" {
+				m["pipx_args"] = b.PipxArgs
+			}
+			if b.UVX {
+				m["uvx"] = true
+			}
+			if b.UVXArgs != "" {
+				m["uvx_args"] = b.UVXArgs
+			}
+			if len(m) == 1 {
+				toolValue = ver
+			} else {
+				toolValue = m
+			}
+
+		case "npm":
+			toolValue = ver
+
+		default:
+			return "", fmt.Errorf("binary %q: unsupported backend %q", b.Name, b.resolvedBackend())
 		}
-		entry := map[string]any{}
-		if b.Version != "" {
-			entry["version"] = b.Version
-		}
-		if b.BinPath != "" {
-			entry["bin_path"] = b.BinPath
-		}
-		if b.Exe != "" {
-			entry["exe"] = b.Exe
-		}
-		tools[key] = entry
+
+		tools[key] = toolValue
 	}
 	data, err := toml.Marshal(map[string]any{"tools": tools})
 	if err != nil {
@@ -227,14 +352,16 @@ func userToolInstallScript(hash string, binaries []ToolBinary) string {
 	script.WriteString("MISE_DATA_DIR=\"$ROOT/mise-data\" MISE_TRUSTED_CONFIG_PATHS=\"$ROOT\" mise install\n")
 	for _, b := range binaries {
 		lookup := b.Name
-		if b.Exe != "" {
-			lookup = b.Exe
+		if b.RenameExe != "" {
+			lookup = b.RenameExe
+		} else if b.Bin != "" {
+			lookup = b.Bin
 		}
-		script.WriteString("install_dir=$(MISE_DATA_DIR=\"$ROOT/mise-data\" MISE_TRUSTED_CONFIG_PATHS=\"$ROOT\" mise where " + shellQuote("github:"+b.Repo) + ")\n")
+		script.WriteString("install_dir=$(MISE_DATA_DIR=\"$ROOT/mise-data\" MISE_TRUSTED_CONFIG_PATHS=\"$ROOT\" mise where " + shellQuote(b.miseToolKey()) + ")\n")
 		script.WriteString("src=\"\"\n")
 		script.WriteString("if [ -f \"$install_dir/bin/" + shellQuoteForDoubleQuotedPath(lookup) + "\" ]; then src=\"$install_dir/bin/" + shellQuoteForDoubleQuotedPath(lookup) + "\"; fi\n")
 		script.WriteString("if [ -z \"$src\" ] && [ -f \"$install_dir/" + shellQuoteForDoubleQuotedPath(lookup) + "\" ]; then src=\"$install_dir/" + shellQuoteForDoubleQuotedPath(lookup) + "\"; fi\n")
-		script.WriteString("if [ -z \"$src\" ]; then echo " + shellQuote("binary "+lookup+" not found for github:"+b.Repo) + " >&2; exit 1; fi\n")
+		script.WriteString("if [ -z \"$src\" ]; then echo " + shellQuote("binary "+lookup+" not found for "+b.Tool) + " >&2; exit 1; fi\n")
 		script.WriteString("cp \"$src\" \"$ROOT/bin/" + shellQuoteForDoubleQuotedPath(b.Name) + "\"\n")
 		script.WriteString("chmod 0755 \"$ROOT/bin/" + shellQuoteForDoubleQuotedPath(b.Name) + "\"\n")
 	}

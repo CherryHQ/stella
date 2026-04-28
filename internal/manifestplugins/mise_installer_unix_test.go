@@ -46,7 +46,7 @@ esac
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := installBinaryWithMise(ctx, ManifestBinary{Name: "mytool", Repo: "owner/repo"}, annaHome)
+		_, err := installBinaryWithMise(ctx, ManifestBinary{Name: "mytool", Tool: "github:owner/repo"}, annaHome)
 		errCh <- err
 	}()
 

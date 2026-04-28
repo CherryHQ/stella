@@ -22,7 +22,7 @@ type PluginInstallState struct {
 
 type BinaryInstallState struct {
 	Name        string    `json:"name"`
-	Repo        string    `json:"repo"`
+	Tool        string    `json:"tool"`
 	Version     string    `json:"version"`
 	InstalledAt time.Time `json:"installed_at"`
 }

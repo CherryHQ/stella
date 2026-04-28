@@ -69,8 +69,36 @@ func Validate(m *Manifest) error {
 			if b.Name == "" {
 				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: name is required", p.ID, j))
 			}
-			if b.Repo == "" {
-				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: repo is required", p.ID, j))
+			if b.Tool == "" {
+				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: tool is required (e.g. github:owner/repo)", p.ID, j))
+			} else {
+				idx := strings.IndexByte(b.Tool, ':')
+				if idx < 0 {
+					errs = append(errs, fmt.Errorf("plugin %q binary[%d]: tool must be in backend:identifier format (e.g. github:owner/repo)", p.ID, j))
+				} else {
+					backend := b.Tool[:idx]
+					identifier := b.Tool[idx+1:]
+					switch backend {
+					case "github":
+						if !strings.Contains(identifier, "/") {
+							errs = append(errs, fmt.Errorf("plugin %q binary[%d]: github tool identifier must be owner/repo (got %q)", p.ID, j, identifier))
+						}
+					case "http":
+						if b.URL == "" {
+							errs = append(errs, fmt.Errorf("plugin %q binary[%d]: url is required for http backend", p.ID, j))
+						}
+					case "pipx", "npm":
+						// identifier is the package name; no format constraint
+					default:
+						errs = append(errs, fmt.Errorf("plugin %q binary[%d]: unknown backend %q; must be one of: github, http, pipx, npm", p.ID, j, backend))
+					}
+				}
+			}
+			if b.StripComponents < 0 {
+				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: strip_components must be non-negative", p.ID, j))
+			}
+			if b.Checksum != "" && !strings.Contains(b.Checksum, ":") {
+				errs = append(errs, fmt.Errorf("plugin %q binary[%d]: checksum must be in algo:hex format (e.g. sha256:...)", p.ID, j))
 			}
 		}
 		for j, s := range p.Skills {

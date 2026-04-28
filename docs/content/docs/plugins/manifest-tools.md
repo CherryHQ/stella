@@ -55,7 +55,7 @@ plugins:
     enabled: true
     binaries:
       - name: my-cli
-        repo: owner/my-cli
+        tool: github:owner/my-cli
         version: "1.2.3"   # omit for latest
     session_env:
       - env_var: MY_TOKEN
@@ -82,15 +82,90 @@ plugins:
 
 ## Binary fields
 
+Each binary requires a `name` and a `tool` field. The `tool` field uses mise's tool key format: `backend:identifier`.
+
+### Common fields
+
 | Field | Required | Description |
 |-------|----------|-------------|
-| `name` | Yes | Binary filename (without extension) |
-| `repo` | Yes | GitHub repository in `owner/repo` format |
-| `version` | No | Version tag to install (e.g. `"1.2.3"`, `"nightly"`). Defaults to `latest`. For repos that don't publish a `latest` release, you must set this explicitly. |
-| `bin_path` | No | Subdirectory inside the archive that contains the binary (e.g. `"bin"`). |
-| `exe` | No | Binary name inside the archive when it differs from `name`. |
+| `name` | Yes | Binary filename placed in `$ANNA_HOME/bin` (without extension) |
+| `tool` | Yes | Mise tool key in `backend:identifier` format (e.g. `github:cli/cli`) |
+| `version` | No | Version to install. Defaults to `latest` for all backends. |
+| `strip_components` | No | Leading directory levels to strip when extracting an archive. Auto-detected for most layouts. |
+| `bin_path` | No | Subdirectory inside the archive containing the binary (e.g. `"bin"`). |
+| `bin` | No | Rename the downloaded file when the asset is a single binary (non-archive). |
+| `rename_exe` | No | Rename the executable after extraction from an archive. |
+| `checksum` | No | Verify the asset with a checksum in `algo:hex` format (e.g. `"sha256:abc123..."`). |
 
-Mise auto-detects the correct release asset based on OS and architecture keywords in the filename. `bin_path` and `exe` are only needed when the archive layout or binary name is non-standard.
+### GitHub backend (`github:owner/repo`)
+
+```yaml
+binaries:
+  - name: gh
+    tool: github:cli/cli
+    version: "2.40.1"
+    bin_path: bin
+```
+
+| Field | Description |
+|-------|-------------|
+| `asset_pattern` | Glob pattern to select the release asset (e.g. `"gh_*_linux_x64.tar.gz"`). |
+| `version_prefix` | Custom tag prefix (e.g. `"release-"`). |
+| `no_app` | Skip macOS `.app` bundles; prefer standalone binaries. |
+| `filter_bins` | Comma-separated list of binaries to expose when the archive contains multiple executables. |
+| `prerelease` | Include pre-release versions when resolving `latest`. |
+| `api_url` | GitHub API base URL for GitHub Enterprise (e.g. `"https://github.example.com/api/v3"`). |
+
+### HTTP backend (`http:name`)
+
+The identifier after `http:` is the tool name used internally by mise.
+
+```yaml
+binaries:
+  - name: sentinel
+    tool: http:sentinel
+    url: "https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_{{os()}}_{{arch()}}.zip"
+    version: "0.26.3"
+```
+
+| Field | Description |
+|-------|-------------|
+| `url` | Download URL. Required for http backend. Supports `{{version}}`, `{{os()}}`, `{{arch()}}` templates. |
+| `size` | Expected file size in bytes for verification. |
+| `format` | Archive format override (e.g. `"tar.xz"`). |
+| `version_list_url` | URL to fetch available versions from. |
+| `version_regex` | Regex to extract versions from the version list. |
+| `version_json_path` | jq-style path to extract versions from JSON (e.g. `".[].tag_name"`). |
+| `version_expr` | expr-lang expression to extract versions. |
+
+### Pipx backend (`pipx:package`)
+
+The identifier is the PyPI package name, `org/repo` for a GitHub source, or a `git+https://...` URL.
+
+```yaml
+binaries:
+  - name: mypy
+    tool: pipx:mypy
+    version: "1.8.0"
+```
+
+| Field | Description |
+|-------|-------------|
+| `extras` | Pip extras to install alongside the package. |
+| `pipx_args` | Extra arguments to pass to pipx. |
+| `uvx` | Use `uvx` (uv's tool runner) instead of pipx. |
+| `uvx_args` | Extra arguments for uvx. |
+
+### NPM backend (`npm:package`)
+
+```yaml
+binaries:
+  - name: serve
+    tool: npm:serve
+    version: "14.2.0"
+```
+
+Platform-specific asset patterns (`platforms:` map) are not supported in the manifest.
 
 ## Session env fields
 
@@ -134,7 +209,7 @@ plugins:
     enabled: true
     binaries:
       - name: tap
-        repo: vaayne/tap
+        tool: github:vaayne/tap
         version: "0.5.0"
 ```
 
@@ -177,5 +252,6 @@ The **Tools** tab includes **Add Tool** for creating a new manifest-backed CLI f
 ## Limitations in v1
 
 - System prompts and skill registration are not supported in the manifest. Plugins that need these capabilities still use Go registration.
-- Custom install scripts are not supported. Binaries must be available as GitHub release assets.
-- Only GitHub release assets are supported as a binary source.
+- Custom install scripts are not supported.
+- Platform-specific asset patterns (`platforms:` map) are not supported. Use `asset_pattern` instead.
+- Supported binary sources: GitHub releases (`github`), direct HTTP download (`http`), pipx (`pipx`), npm (`npm`).

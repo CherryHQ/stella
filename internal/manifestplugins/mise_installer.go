@@ -96,6 +96,7 @@ func isolatedMiseEnv(annaHome string) ([]string, error) {
 	maps.Copy(env, paths)
 	env["MISE_YES"] = "1"
 	env["MISE_NO_ANALYTICS"] = "1"
+	env["MISE_EXPERIMENTAL"] = "1"
 
 	keys := make([]string, 0, len(env))
 	for key := range env {
@@ -117,36 +118,130 @@ func runtimeBinaryName(name string) string {
 	return name
 }
 
-// generateMiseTOML returns a valid mise.toml for a single github backend tool.
-// When b.Version is empty, "latest" is used because mise requires github
-// backend tools to have a version value in both simple and table forms. Specify
-// an explicit version for repos that don't publish a "latest" release (e.g.
-// version: "nightly").
+// resolvedBackend returns the backend prefix from the Tool key (e.g. "github").
+func (b ManifestBinary) resolvedBackend() string {
+	if idx := strings.IndexByte(b.Tool, ':'); idx >= 0 {
+		return b.Tool[:idx]
+	}
+	return ""
+}
+
+// miseToolKey returns the mise tool key used in mise.toml and CLI commands.
+func (b ManifestBinary) miseToolKey() string {
+	return b.Tool
+}
+
+// sharedOptions populates the options shared across github and http backends.
+func sharedOptions(b ManifestBinary, m map[string]any) {
+	if b.StripComponents > 0 {
+		m["strip_components"] = b.StripComponents
+	}
+	if b.BinPath != "" {
+		m["bin_path"] = b.BinPath
+	}
+	if b.Bin != "" {
+		m["bin"] = b.Bin
+	}
+	if b.RenameExe != "" {
+		m["rename_exe"] = b.RenameExe
+	}
+	if b.Checksum != "" {
+		m["checksum"] = b.Checksum
+	}
+}
+
+// generateMiseTOML returns a valid mise.toml for the binary's backend.
+// When Version is empty, "latest" is used for github/pipx/npm. For the http
+// backend with a templated URL, an explicit version is required.
 func generateMiseTOML(b ManifestBinary) (string, error) {
-	toolKey := "github:" + b.Repo
+	toolKey := b.miseToolKey()
+	if toolKey == "" {
+		return "", fmt.Errorf("cannot determine mise tool key: set backend or repo/url/package")
+	}
+
+	ver := b.Version
+	if ver == "" {
+		ver = "latest"
+	}
 
 	var toolValue any
-	if b.BinPath == "" && b.Exe == "" {
-		// Simple form: "github:owner/repo" = "version"
-		ver := b.Version
-		if ver == "" {
-			ver = "latest"
-		}
-		toolValue = ver
-	} else {
-		// Table form: extra options as a map.
-		ver := b.Version
-		if ver == "" {
-			ver = "latest"
-		}
+	switch b.resolvedBackend() {
+	case "github":
 		m := map[string]any{"version": ver}
-		if b.BinPath != "" {
-			m["bin_path"] = b.BinPath
+		if b.AssetPattern != "" {
+			m["asset_pattern"] = b.AssetPattern
 		}
-		if b.Exe != "" {
-			m["exe"] = b.Exe
+		if b.VersionPrefix != "" {
+			m["version_prefix"] = b.VersionPrefix
 		}
+		if b.NoApp {
+			m["no_app"] = true
+		}
+		if b.FilterBins != "" {
+			m["filter_bins"] = b.FilterBins
+		}
+		if b.Prerelease {
+			m["prerelease"] = true
+		}
+		if b.APIURL != "" {
+			m["api_url"] = b.APIURL
+		}
+		sharedOptions(b, m)
+		if len(m) == 1 {
+			toolValue = ver
+		} else {
+			toolValue = m
+		}
+
+	case "http":
+		m := map[string]any{"version": ver, "url": b.URL}
+		if b.Size != "" {
+			m["size"] = b.Size
+		}
+		if b.Format != "" {
+			m["format"] = b.Format
+		}
+		if b.VersionListURL != "" {
+			m["version_list_url"] = b.VersionListURL
+		}
+		if b.VersionRegex != "" {
+			m["version_regex"] = b.VersionRegex
+		}
+		if b.VersionJSONPath != "" {
+			m["version_json_path"] = b.VersionJSONPath
+		}
+		if b.VersionExpr != "" {
+			m["version_expr"] = b.VersionExpr
+		}
+		sharedOptions(b, m)
 		toolValue = m
+
+	case "pipx":
+		m := map[string]any{"version": ver}
+		if b.Extras != "" {
+			m["extras"] = b.Extras
+		}
+		if b.PipxArgs != "" {
+			m["pipx_args"] = b.PipxArgs
+		}
+		if b.UVX {
+			m["uvx"] = true
+		}
+		if b.UVXArgs != "" {
+			m["uvx_args"] = b.UVXArgs
+		}
+		if len(m) == 1 {
+			toolValue = ver
+		} else {
+			toolValue = m
+		}
+
+	case "npm":
+		// npm has no per-tool options beyond version
+		toolValue = ver
+
+	default:
+		return "", fmt.Errorf("unsupported backend %q", b.resolvedBackend())
 	}
 
 	data, err := toml.Marshal(map[string]any{
@@ -198,7 +293,7 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 
 	// Run mise install for only the manifest tool. Avoid installing any global or
 	// inherited mise config that may be visible to the Anna process.
-	toolKey := fmt.Sprintf("github:%s", b.Repo)
+	toolKey := b.miseToolKey()
 	stderr.Reset()
 	installCmd := managedCommandContext(ctx, miseBin, "install", toolKey)
 	installCmd.Dir = tmpDir
@@ -208,10 +303,14 @@ func installBinaryWithMise(ctx context.Context, b ManifestBinary, annaHome strin
 		return "", fmt.Errorf("mise install: %w\nstderr: %s", err, stderr.String())
 	}
 
-	// Use the exe name when set, otherwise fall back to the tool name.
+	// Determine which binary name to pass to mise which.
+	// rename_exe takes precedence (archive extraction rename), then bin (single
+	// binary rename), then the tool name.
 	lookupName := b.Name
-	if b.Exe != "" {
-		lookupName = b.Exe
+	if b.RenameExe != "" {
+		lookupName = b.RenameExe
+	} else if b.Bin != "" {
+		lookupName = b.Bin
 	}
 
 	// Resolve the binary path via mise which — it handles any archive layout.

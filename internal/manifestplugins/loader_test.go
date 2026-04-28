@@ -79,7 +79,7 @@ func TestMerge_UserAddsNewPlugin(t *testing.T) {
 			Name:    "custom",
 			Enabled: &tr,
 			Binaries: []ManifestBinary{
-				{Name: "custom", Repo: "owner/custom"},
+				{Name: "custom", Tool: "github:owner/custom"},
 			},
 		},
 	}}
