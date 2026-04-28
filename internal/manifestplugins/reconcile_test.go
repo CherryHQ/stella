@@ -20,10 +20,8 @@ func makeMinimalManifest(pluginID string, enabled bool, binaryName, version stri
 				Binaries: []ManifestBinary{
 					{
 						Name:    binaryName,
-						Repo:    "owner/repo",
+						Tool:    "github:owner/repo",
 						Version: version,
-						// No Platforms — mise install will fail if reached,
-						// but cache-hit and disabled tests never reach that path.
 					},
 				},
 			},
@@ -42,7 +40,7 @@ func seedState(t *testing.T, annaHome, pluginID, binaryName, version string) {
 				Binaries: []BinaryInstallState{
 					{
 						Name:        binaryName,
-						Repo:        "owner/repo",
+						Tool:        "github:owner/repo",
 						Version:     version,
 						InstalledAt: time.Now(),
 					},
@@ -139,7 +137,7 @@ func TestReconcile_EnabledCount(t *testing.T) {
 				Binaries: []ManifestBinary{
 					{
 						Name:    "tool-a",
-						Repo:    "owner/tool-a",
+						Tool:    "github:owner/tool-a",
 						Version: "0.1.0",
 					},
 				},
@@ -150,7 +148,7 @@ func TestReconcile_EnabledCount(t *testing.T) {
 				Binaries: []ManifestBinary{
 					{
 						Name:    "tool-b",
-						Repo:    "owner/tool-b",
+						Tool:    "github:owner/tool-b",
 						Version: "1.0.0",
 					},
 				},
@@ -161,7 +159,7 @@ func TestReconcile_EnabledCount(t *testing.T) {
 				Binaries: []ManifestBinary{
 					{
 						Name:    "tool-c",
-						Repo:    "owner/tool-c",
+						Tool:    "github:owner/tool-c",
 						Version: "3.0.0",
 					},
 				},
@@ -213,7 +211,7 @@ func TestSaveAndLoadState(t *testing.T) {
 		Plugins: map[string]PluginInstallState{
 			"my-plugin": {
 				Binaries: []BinaryInstallState{
-					{Name: "my-tool", Repo: "owner/my-tool", Version: "1.0.0", InstalledAt: now},
+					{Name: "my-tool", Tool: "github:owner/my-tool", Version: "1.0.0", InstalledAt: now},
 				},
 			},
 		},

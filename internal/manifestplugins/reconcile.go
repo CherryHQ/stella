@@ -189,7 +189,7 @@ func Reconcile(ctx context.Context, m *Manifest, annaHome string) ReconcileResul
 
 			upsertBinaryState(state, plugin.ID, BinaryInstallState{
 				Name:        binary.Name,
-				Repo:        binary.Repo,
+				Tool:        binary.Tool,
 				Version:     installedVersion,
 				InstalledAt: time.Now(),
 			})

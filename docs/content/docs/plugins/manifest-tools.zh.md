@@ -55,7 +55,7 @@ plugins:
     enabled: true
     binaries:
       - name: my-cli
-        repo: owner/my-cli
+        tool: github:owner/my-cli
         version: "1.2.3"   # 省略则使用最新版
     session_env:
       - env_var: MY_TOKEN
@@ -82,15 +82,90 @@ plugins:
 
 ## 二进制字段
 
+每个二进制需要 `name` 和 `tool` 字段。`tool` 字段使用 mise 的工具键格式：`backend:identifier`。
+
+### 公共字段
+
 | 字段 | 必填 | 描述 |
 |------|------|------|
-| `name` | 是 | 二进制文件名（不含扩展名） |
-| `repo` | 是 | GitHub 仓库，格式为 `owner/repo` |
-| `version` | 否 | 要安装的版本标签（如 `"1.2.3"`、`"nightly"`）。默认为 `latest`。对于没有 `latest` 发布版本的仓库，必须显式指定。 |
-| `bin_path` | 否 | 归档文件内包含二进制文件的子目录（如 `"bin"`） |
-| `exe` | 否 | 当归档内的二进制文件名与 `name` 不同时进行覆盖 |
+| `name` | 是 | 放置到 `$ANNA_HOME/bin` 的二进制文件名（不含扩展名） |
+| `tool` | 是 | mise 工具键，格式为 `backend:identifier`（如 `github:cli/cli`） |
+| `version` | 否 | 要安装的版本，默认为 `latest`。 |
+| `strip_components` | 否 | 解压归档时去除的前导目录层数，大多数布局可自动检测。 |
+| `bin_path` | 否 | 归档内包含二进制的子目录（如 `"bin"`）。 |
+| `bin` | 否 | 当资产为单个二进制（非归档）时重命名下载文件。 |
+| `rename_exe` | 否 | 从归档提取后重命名可执行文件。 |
+| `checksum` | 否 | 以 `algo:hex` 格式验证资产校验和（如 `"sha256:abc123..."`）。 |
 
-mise 会根据发布资产文件名中的操作系统和架构关键词自动检测正确的资产。只有当归档布局或二进制文件名不符合常规时，才需要 `bin_path` 和 `exe`。
+### GitHub 后端（`github:owner/repo`）
+
+```yaml
+binaries:
+  - name: gh
+    tool: github:cli/cli
+    version: "2.40.1"
+    bin_path: bin
+```
+
+| 字段 | 描述 |
+|------|------|
+| `asset_pattern` | 选择发布资产的 glob 模式（如 `"gh_*_linux_x64.tar.gz"`）。 |
+| `version_prefix` | 标签自定义前缀（如 `"release-"`）。 |
+| `no_app` | 跳过 macOS `.app` 包，优先使用独立二进制。 |
+| `filter_bins` | 当归档含多个可执行文件时，逗号分隔的 PATH 可见二进制列表。 |
+| `prerelease` | 解析 `latest` 时包含预发布版本。 |
+| `api_url` | GitHub Enterprise 的 API 基础 URL（如 `"https://github.example.com/api/v3"`）。 |
+
+### HTTP 后端（`http:name`）
+
+`http:` 后的标识符是 mise 内部使用的工具名称。
+
+```yaml
+binaries:
+  - name: sentinel
+    tool: http:sentinel
+    url: "https://releases.hashicorp.com/sentinel/{{version}}/sentinel_{{version}}_{{os()}}_{{arch()}}.zip"
+    version: "0.26.3"
+```
+
+| 字段 | 描述 |
+|------|------|
+| `url` | 下载 URL，http 后端必填，支持 `{{version}}`、`{{os()}}`、`{{arch()}}` 模板。 |
+| `size` | 用于验证的预期文件大小（字节）。 |
+| `format` | 归档格式覆盖（如 `"tar.xz"`）。 |
+| `version_list_url` | 获取可用版本列表的 URL。 |
+| `version_regex` | 从版本列表中提取版本号的正则表达式。 |
+| `version_json_path` | 从 JSON 中提取版本的 jq 风格路径（如 `".[].tag_name"`）。 |
+| `version_expr` | 提取版本的 expr-lang 表达式。 |
+
+### Pipx 后端（`pipx:package`）
+
+标识符是 PyPI 包名、`org/repo` GitHub 格式，或 `git+https://...`。
+
+```yaml
+binaries:
+  - name: mypy
+    tool: pipx:mypy
+    version: "1.8.0"
+```
+
+| 字段 | 描述 |
+|------|------|
+| `extras` | 随包安装的 pip extras。 |
+| `pipx_args` | 传递给 pipx 的额外参数。 |
+| `uvx` | 使用 `uvx`（uv 的工具运行器）代替 pipx。 |
+| `uvx_args` | uvx 的额外参数。 |
+
+### NPM 后端（`npm:package`）
+
+```yaml
+binaries:
+  - name: serve
+    tool: npm:serve
+    version: "14.2.0"
+```
+
+平台特定资产模式（`platforms:` 映射）在清单中不受支持。
 
 ## 会话环境变量字段
 
@@ -134,7 +209,7 @@ plugins:
     enabled: true
     binaries:
       - name: tap
-        repo: vaayne/tap
+        tool: github:vaayne/tap
         version: "0.5.0"
 ```
 
@@ -173,5 +248,6 @@ session_env:
 ## v1 的限制
 
 - 清单不支持系统提示词和技能注册。需要这些功能的插件仍使用 Go 注册。
-- 不支持自定义安装脚本，二进制文件必须作为 GitHub 发布资产提供。
-- 仅支持 GitHub 发布资产作为二进制来源。
+- 不支持自定义安装脚本。
+- 不支持平台特定资产模式（`platforms:` 映射），请改用 `asset_pattern`。
+- 支持的二进制来源：GitHub 发布（`github`）、直接 HTTP 下载（`http`）、pipx（`pipx`）、npm（`npm`）。

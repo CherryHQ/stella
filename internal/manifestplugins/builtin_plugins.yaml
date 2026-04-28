@@ -323,10 +323,9 @@ plugins:
     enabled: true
     binaries:
       - name: tap
-        repo: vaayne/tap
-        version: "0.4.4"
+        tool: github:vaayne/tap
       - name: lightpanda
-        repo: lightpanda-io/browser
+        tool: github:lightpanda-io/browser
         version: "nightly"
 
   - id: tool/gh
@@ -337,8 +336,7 @@ plugins:
     enabled: true
     binaries:
       - name: gh
-        repo: cli/cli
-        bin_path: "bin"
+        tool: github:cli/cli
     oauth_provider: github
     session_env:
       - env_var: GH_TOKEN
@@ -352,7 +350,7 @@ plugins:
     enabled: true
     binaries:
       - name: lark-cli
-        repo: larksuite/cli
+        tool: github:larksuite/cli
     oauth_provider_config_field: brand
     oauth_provider_choices: [lark, feishu]
     session_env:
@@ -371,5 +369,16 @@ plugins:
     enabled: true
     binaries:
       - name: rtk
-        repo: rtk-ai/rtk
-        version: "0.30.0"
+        tool: github:rtk-ai/rtk
+
+  - id: tool/kreuzberg
+    kind: tool
+    name: kreuzberg
+    display_name: Kreuzberg
+    description: "Extract text, metadata, images, and structured information from PDFs, Office documents, images, and 97+ formats."
+    enabled: true
+    binaries:
+      - name: kreuzberg
+        tool: github:kreuzberg-dev/kreuzberg
+        version: 4.9.5
+        asset_pattern: "kreuzberg-cli-*.tar.gz"
