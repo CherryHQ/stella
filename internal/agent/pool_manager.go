@@ -37,6 +37,7 @@ type PluginHooksBuilder func(ctx context.Context) []hooks.HookPlugin
 type (
 	PromptToolsBuilder       func(ctx context.Context) ([]pkgplugins.PromptToolInfo, error)
 	PromptSectionsBuilder    func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
+	PluginPromptsBuilder     func() []pkgplugins.SystemPromptSection
 	SessionPluginViewBuilder func(ctx context.Context) (pkgplugins.SessionPluginView, error)
 	BeforeRunBuilder         func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error)
 	ProviderRegistryBuilder  func(api, apiKey, baseURL string) (*providers.Registry, error)
@@ -100,6 +101,12 @@ func WithPromptSectionsBuilder(b PromptSectionsBuilder) PoolManagerOption {
 	}
 }
 
+func WithPluginPromptsBuilder(b PluginPromptsBuilder) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.pluginPromptsBuilder = b
+	}
+}
+
 func WithSessionPluginViewBuilder(b SessionPluginViewBuilder) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.sessionPluginViewBuilder = b
@@ -160,6 +167,7 @@ type PoolManager struct {
 	pluginHooksBuilder       PluginHooksBuilder // builds hooks from plugin state
 	promptToolsBuilder       PromptToolsBuilder // builds prompt inventory from plugin state
 	promptSectionsBuilder    PromptSectionsBuilder
+	pluginPromptsBuilder     PluginPromptsBuilder
 	sessionPluginViewBuilder SessionPluginViewBuilder
 	beforeRunBuilder         BeforeRunBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
@@ -477,7 +485,7 @@ func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (N
 		plugins, _ := pm.store.ListPlugins(ctx)
 		return config.ActiveSandboxBackend(plugins)
 	}
-	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.sessionPluginViewBuilder, pm.toolLifecycle, pm.skillStore, sandboxBackendFn, pm.vaultEnvLoader, pm.tokenManager)
+	return NewRunnerFactory(snap, builtinTools, pm.pluginToolsBuilder, pm.providerRegistryBuilder, pm.promptToolsBuilder, pm.promptSectionsBuilder, pm.pluginPromptsBuilder, pm.sessionPluginViewBuilder, pm.toolLifecycle, pm.skillStore, sandboxBackendFn, pm.vaultEnvLoader, pm.tokenManager)
 }
 
 // mergeTools creates a new slice containing builtin tools followed by more

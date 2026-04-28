@@ -1,28 +1,17 @@
 package larkcli
 
 import (
-	"context"
 	"fmt"
 	"maps"
 
-	"github.com/vaayne/anna/internal/builddeps"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
 const PluginID = "tool/lark-cli"
 
-type Config struct {
-	AppID       string `json:"app_id"`
-	AppSecret   string `json:"app_secret"`
-	Brand       string `json:"brand"`
-	RedirectURL string `json:"redirect_url"`
-}
-
-const promptContent = `Use ` + "`lark-cli`" + ` directly from Anna's managed PATH and injected runtime auth.
-
-- Prefer the builtin ` + "`lark`" + ` skill before ad hoc command discovery; it aggregates the adapted CLI modules Anna ships.
-- Anna injects ` + "`LARKSUITE_CLI_USER_ACCESS_TOKEN`" + `, ` + "`LARKSUITE_CLI_APP_ID`" + `, and ` + "`LARKSUITE_CLI_BRAND`" + ` per session. Do not run ` + "`lark-cli auth login`" + ` or ` + "`lark-cli config init`" + ` unless the user explicitly wants a standalone local setup outside Anna.
-- If auth or scope checks fail, use Anna's OAuth tooling, then restart the session so fresh runtime env is injected.`
+// Bridge: app_id / app_secret / brand credentials will move to ManifestOAuthProvider config
+// once the provider-credential schema is implemented. Until then the Go stub owns the
+// AdminSpec so the admin UI can render the config form and redact secrets correctly.
 
 func defaultConfig() map[string]any {
 	return map[string]any{
@@ -48,63 +37,29 @@ func configSchema() map[string]any {
 			"brand": map[string]any{
 				"type":        "string",
 				"enum":        []any{"lark", "feishu"},
-				"description": "Platform brand: \"feishu\" (China, default manifest provider) or \"lark\" (international).",
+				"description": `Platform brand: "feishu" (China, default) or "lark" (international).`,
 				"default":     "feishu",
 			},
 			"redirect_url": map[string]any{
 				"type":        "string",
-				"description": "OAuth redirect URI registered in the Feishu/Lark app. Leave empty to derive it from the current Admin UI origin and selected brand, for example http://localhost:25678/api/auth/profile/oauth/feishu/callback.",
+				"description": "OAuth redirect URI registered in the Feishu/Lark app. Leave empty to derive from Admin UI origin.",
 			},
 		},
 		"required": []any{"app_id", "app_secret", "brand"},
 	}
 }
 
-func decodeConfig(raw map[string]any) (Config, error) {
-	var cfg Config
-	if v, ok := raw["app_id"]; ok {
-		s, ok := v.(string)
-		if !ok {
-			return Config{}, fmt.Errorf("app_id: must be a string")
-		}
-		cfg.AppID = s
-	}
-	if v, ok := raw["app_secret"]; ok {
-		s, ok := v.(string)
-		if !ok {
-			return Config{}, fmt.Errorf("app_secret: must be a string")
-		}
-		cfg.AppSecret = s
-	}
-	if v, ok := raw["brand"]; ok {
-		s, ok := v.(string)
-		if !ok {
-			return Config{}, fmt.Errorf("brand: must be a string")
-		}
-		cfg.Brand = s
-	}
-	if v, ok := raw["redirect_url"]; ok {
-		s, ok := v.(string)
-		if !ok {
-			return Config{}, fmt.Errorf("redirect_url: must be a string")
-		}
-		cfg.RedirectURL = s
-	}
-	return cfg, nil
-}
-
 func validateConfig(raw map[string]any) error {
-	cfg, err := decodeConfig(raw)
-	if err != nil {
-		return err
-	}
-	if cfg.AppID == "" {
+	appID, _ := raw["app_id"].(string)
+	appSecret, _ := raw["app_secret"].(string)
+	brand, _ := raw["brand"].(string)
+	if appID == "" {
 		return fmt.Errorf("app_id: required")
 	}
-	if cfg.AppSecret == "" {
+	if appSecret == "" {
 		return fmt.Errorf("app_secret: required")
 	}
-	switch cfg.Brand {
+	switch brand {
 	case "lark", "feishu":
 	case "":
 		return fmt.Errorf("brand: required")
@@ -133,7 +88,7 @@ func init() {
 			Description:  "Lark CLI integration with OAuth-backed auth, bundled skills, session env, and prompt guidance.",
 			AdminVisible: true,
 			HasConfig:    true,
-			Capabilities: []string{pkgplugins.CapabilityConfig, pkgplugins.CapabilityPrompt},
+			Capabilities: []string{pkgplugins.CapabilityConfig},
 		})
 		host.AddAdmin(pkgplugins.AdminSpec{
 			PluginID:      PluginID,
@@ -141,18 +96,6 @@ func init() {
 			Schema:        configSchema(),
 			Validate:      validateConfig,
 			Redact:        redactConfig,
-		})
-		host.AddBundledSkill(pkgplugins.BundledSkillSpec{
-			PluginID: PluginID,
-			Name:     "lark",
-			Sync:     builddeps.SyncLarkBundledSkill,
-		})
-		host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
-			PluginID: PluginID,
-			Name:     "lark-cli",
-			Build: func(_ context.Context, _ pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
-				return pkgplugins.SystemPromptSection{Title: "Lark CLI", Content: promptContent}, nil
-			},
 		})
 	}))
 }

@@ -7,6 +7,7 @@ type ManifestPlugin struct {
 	DisplayName              string               `json:"display_name" yaml:"display_name"`
 	Description              string               `json:"description" yaml:"description"`
 	Enabled                  bool                 `json:"enabled" yaml:"enabled"`
+	Prompt                   string               `json:"prompt,omitempty" yaml:"prompt,omitempty"`
 	Binaries                 []ManifestBinary     `json:"binaries,omitempty" yaml:"binaries,omitempty"`
 	Skills                   []ManifestSkill      `json:"skills,omitempty" yaml:"skills,omitempty"`
 	SessionEnvs              []ManifestSessionEnv `json:"session_env,omitempty" yaml:"session_env,omitempty"`
@@ -98,6 +99,7 @@ type rawManifestPlugin struct {
 	DisplayName              string               `yaml:"display_name"`
 	Description              string               `yaml:"description"`
 	Enabled                  *bool                `yaml:"enabled"`
+	Prompt                   string               `yaml:"prompt,omitempty"`
 	Binaries                 []ManifestBinary     `yaml:"binaries,omitempty"`
 	Skills                   []ManifestSkill      `yaml:"skills,omitempty"`
 	SessionEnvs              []ManifestSessionEnv `yaml:"session_env,omitempty"`

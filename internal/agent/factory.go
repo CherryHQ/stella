@@ -25,7 +25,7 @@ import (
 //
 // Hooks are not part of the factory — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
-func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginToolsBuilder PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), sessionPluginViewFn SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore, sandboxBackendFn func(ctx context.Context) string, vaultEnvLoader VaultEnvLoader, tokenManager *oauth.TokenManager) (NewRunnerFunc, error) {
+func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginToolsBuilder PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), pluginPromptsFn func() []pkgplugins.SystemPromptSection, sessionPluginViewFn SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore, sandboxBackendFn func(ctx context.Context) string, vaultEnvLoader VaultEnvLoader, tokenManager *oauth.TokenManager) (NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
 		return func(ctx context.Context, params RunnerParams) (Runner, error) {
@@ -89,6 +89,11 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				promptSections = append(promptSections, skillsSection)
 			}
 
+			var pluginPrompts []pkgplugins.SystemPromptSection
+			if pluginPromptsFn != nil {
+				pluginPrompts = pluginPromptsFn()
+			}
+
 			// Build the full system prompt per-session with profile from memory provider.
 			system := BuildSystemPromptFromDB(ctx, DBPromptParams{
 				SystemPrompt:   snap.SystemPrompt,
@@ -100,6 +105,7 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				AgentRoot:      snap.Workspace,
 				UserRoot:       userRoot,
 				PromptTools:    promptTools,
+				PluginPrompts:  pluginPrompts,
 				PromptSections: promptSections,
 			})
 
@@ -126,6 +132,7 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				AnnaHome:         config.AnnaHome(),
 				BaseURL:          creds.BaseURL,
 				System:           system,
+				PluginPrompts:    pluginPrompts,
 				PromptSections:   promptSections,
 				ExtraTools:       runnerTools,
 				PluginTools:      pluginToolsBuilder,
