@@ -357,6 +357,7 @@ plugins:
     display_name: Lark CLI
     description: "Lark CLI integration with OAuth-backed auth, bundled skills, session env, and prompt guidance."
     enabled: true
+    prompt: "Use lark-cli to interact with Lark and Feishu."
     binaries:
       - name: lark-cli
         tool: github:larksuite/cli
