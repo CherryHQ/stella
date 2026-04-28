@@ -15,6 +15,174 @@ import (
 	mcpplugin "github.com/vaayne/anna/plugins/tools/mcp"
 )
 
+func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
+	authInfo := UserFromContext(r.Context())
+	if authInfo == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var body struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := decodeJSON(r, &body); err != nil && err.Error() != "EOF" {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var pool *agent.Pool
+	if body.AgentID != "" {
+		pool = s.poolManager.Get(body.AgentID)
+	} else {
+		pool = s.poolManager.DefaultPool()
+	}
+	if pool == nil {
+		writeError(w, http.StatusBadRequest, "no pool available for the given agent_id")
+		return
+	}
+
+	info, err := pool.CreateSession("admin", authInfo.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeData(w, http.StatusCreated, toSessionResponse(info))
+}
+
+func (s *Server) sendSessionMessage(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("sessionID")
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return
+	}
+
+	authInfo := UserFromContext(r.Context())
+	if authInfo == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Content == "" {
+		writeError(w, http.StatusBadRequest, "content is required")
+		return
+	}
+
+	sm, ok := s.mem.(memory.SessionManager)
+	if !ok {
+		writeError(w, http.StatusNotFound, "memory provider does not support sessions")
+		return
+	}
+
+	si, err := sm.LoadInfo(r.Context(), sessionID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	// Ownership is strict: only the session owner may send messages.
+	if authInfo.UserID != si.UserID {
+		writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
+
+	var pool *agent.Pool
+	if si.AgentID != "" {
+		pool = s.poolManager.Get(si.AgentID)
+	} else {
+		pool = s.poolManager.DefaultPool()
+	}
+	if pool == nil {
+		writeError(w, http.StatusBadRequest, "no pool available for this session")
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	writeSSEEvent := func(event, data string) {
+		_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+		flusher.Flush()
+	}
+
+	// runningToolID maps tool name to the generated ID for the running invocation.
+	runningToolID := make(map[string]string)
+
+	ch := pool.Chat(r.Context(), sessionID, body.Content)
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case evt, open := <-ch:
+			if !open {
+				return
+			}
+			if evt.Err != nil {
+				data, _ := json.Marshal(map[string]string{"error": evt.Err.Error()})
+				writeSSEEvent("error", string(data))
+				return
+			}
+			if evt.Store != nil {
+				continue
+			}
+			if evt.ToolUse != nil {
+				tu := evt.ToolUse
+				switch tu.Status {
+				case "running":
+					id := fmt.Sprintf("%s-%d", tu.Tool, time.Now().UnixNano())
+					runningToolID[tu.Tool] = id
+					payload := map[string]any{
+						"type": "tool_call",
+						"id":   id,
+						"name": tu.Tool,
+						"arguments": map[string]string{
+							"input": tu.Input,
+						},
+						"status": "running",
+					}
+					data, _ := json.Marshal(payload)
+					writeSSEEvent("tool_use", string(data))
+				case "done", "error":
+					id := runningToolID[tu.Tool]
+					if id == "" {
+						id = fmt.Sprintf("%s-%d", tu.Tool, time.Now().UnixNano())
+					}
+					delete(runningToolID, tu.Tool)
+					payload := map[string]any{
+						"type":         "tool_result",
+						"tool_call_id": id,
+						"content":      tu.Detail,
+						"is_error":     tu.Status == "error",
+					}
+					data, _ := json.Marshal(payload)
+					writeSSEEvent("tool_use", string(data))
+				}
+				continue
+			}
+			if evt.Text != "" {
+				data, _ := json.Marshal(map[string]string{"text": evt.Text})
+				writeSSEEvent("text", string(data))
+			}
+		}
+	}
+}
+
 // sessionResponse is a JSON-friendly representation of memory.SessionInfo.
 type sessionResponse struct {
 	ID         string `json:"id"`
@@ -270,16 +438,17 @@ func serializeDBMessages(rows []sqlc.CtxMessage) []map[string]any {
 }
 
 func serializeUserRow(row sqlc.CtxMessage) map[string]any {
-	m := map[string]any{
-		"role":      "user",
-		"timestamp": row.CreatedAt,
+	return map[string]any{
+		"role":        "user",
+		"timestamp":   row.CreatedAt,
+		"content":     row.Content,
+		"token_count": row.TokenCount,
 	}
-	m["content"] = row.Content
-	return m
 }
 
 func serializeAssistantRows(rows []sqlc.CtxMessage, start int) (map[string]any, int) {
 	var blocks []map[string]any
+	var totalTokens int64
 	consumed := 0
 
 	// Merge ALL consecutive assistant rows into one turn — text and tool_calls alike.
@@ -289,6 +458,7 @@ func serializeAssistantRows(rows []sqlc.CtxMessage, start int) (map[string]any, 
 		if row.Role != "assistant" {
 			break
 		}
+		totalTokens += row.TokenCount
 		switch row.EventType {
 		case "tool_call":
 			blocks = append(blocks, decodeToolCallBlock(row.Content))
@@ -299,9 +469,10 @@ func serializeAssistantRows(rows []sqlc.CtxMessage, start int) (map[string]any, 
 	}
 
 	return map[string]any{
-		"role":      "assistant",
-		"blocks":    blocks,
-		"timestamp": rows[start].CreatedAt,
+		"role":        "assistant",
+		"blocks":      blocks,
+		"timestamp":   rows[start].CreatedAt,
+		"token_count": totalTokens,
 	}, consumed
 }
 
@@ -321,8 +492,9 @@ func decodeToolCallBlock(content string) map[string]any {
 
 func serializeToolRow(row sqlc.CtxMessage) map[string]any {
 	m := map[string]any{
-		"role":      "tool",
-		"timestamp": row.CreatedAt,
+		"role":        "tool",
+		"timestamp":   row.CreatedAt,
+		"token_count": row.TokenCount,
 	}
 	var env struct {
 		ID     string          `json:"id"`
