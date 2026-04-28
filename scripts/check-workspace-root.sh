@@ -17,7 +17,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ALLOWLIST="$REPO_ROOT/scripts/workspace-root-allowlist.txt"
 
 DIRS=(
-  "internal/agent/runner"
+  "internal/agent"
   "internal/sandbox"
   "plugins/tools"
 )
