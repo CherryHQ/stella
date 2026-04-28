@@ -357,6 +357,31 @@ plugins:
     display_name: Lark CLI
     description: "Lark CLI integration with OAuth-backed auth, bundled skills, session env, and prompt guidance."
     enabled: true
+    config_defaults:
+      app_id: ""
+      app_secret: ""
+      brand: "feishu"
+      redirect_url: ""
+    config_schema:
+      type: object
+      properties:
+        app_id:
+          type: string
+          description: "Feishu/Lark OAuth app ID."
+        app_secret:
+          type: string
+          description: "Feishu/Lark OAuth app secret."
+        brand:
+          type: string
+          enum: [lark, feishu]
+          description: 'Platform brand: "feishu" (China, default) or "lark" (international).'
+          default: feishu
+        redirect_url:
+          type: string
+          description: "OAuth redirect URI registered in the Feishu/Lark app. Leave empty to derive from Admin UI origin."
+      required: [app_id, app_secret, brand]
+    config_secret_fields:
+      - app_secret
     binaries:
       - name: lark-cli
         tool: github:larksuite/cli
