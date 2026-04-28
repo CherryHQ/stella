@@ -9,8 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
-
 	"github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -24,11 +22,9 @@ const (
 	agentToolName = "agent"
 
 	// Defaults (overridable via AgentConfig).
-	defaultMaxTurns       = 10
-	defaultTimeoutSeconds = 120
-	defaultMaxTasks       = 5
-	defaultMaxConcurrency = 3
-	defaultMaxResultChars = 16000 // ~4096 tokens
+	defaultMaxTurns       = 50
+	defaultTimeoutSeconds = 600
+	defaultMaxConcurrency = 10
 )
 
 // AgentConfig holds the dependencies needed to spawn subagent loops.
@@ -46,16 +42,7 @@ type AgentConfig struct {
 	ToolLifecycle *agent.ToolLifecycle
 
 	// Configurable limits (zero = use defaults).
-	MaxTasks       int // max tasks per invocation
 	MaxConcurrency int // max parallel subagent goroutines
-	MaxResultChars int // max runes in result output
-}
-
-func (c AgentConfig) maxTasks() int {
-	if c.MaxTasks > 0 {
-		return c.MaxTasks
-	}
-	return defaultMaxTasks
 }
 
 func (c AgentConfig) maxConcurrency() int {
@@ -63,13 +50,6 @@ func (c AgentConfig) maxConcurrency() int {
 		return c.MaxConcurrency
 	}
 	return defaultMaxConcurrency
-}
-
-func (c AgentConfig) maxResultChars() int {
-	if c.MaxResultChars > 0 {
-		return c.MaxResultChars
-	}
-	return defaultMaxResultChars
 }
 
 // AgentTool spawns child agent loops for bounded subtasks.
@@ -162,9 +142,6 @@ func (t *AgentTool) Execute(ctx context.Context, args map[string]any) (string, e
 	}
 	if len(tasks) == 0 {
 		return "", fmt.Errorf("agent: at least one task is required")
-	}
-	if len(tasks) > t.cfg.maxTasks() {
-		return "", fmt.Errorf("agent: too many tasks (%d), maximum is %d", len(tasks), t.cfg.maxTasks())
 	}
 
 	results := make(map[string]taskResult, len(tasks))
@@ -363,8 +340,6 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 	log.Info("subagent finished", "duration", duration)
 
 	output, stopReason := extractLastAssistant(history)
-	output = truncateResult(output, t.cfg.maxResultChars())
-
 	complete := stopReason == ai.StopReasonStop || stopReason == ai.StopReasonLength
 
 	t.emit(SubAgentFinished{TaskID: tc.ID, Duration: duration})
@@ -416,14 +391,6 @@ func extractLastAssistant(history []ai.Message) (string, ai.StopReason) {
 	return "", ""
 }
 
-// truncateResult truncates a string to maxChars runes, appending a marker if truncated.
-func truncateResult(s string, maxChars int) string {
-	if utf8.RuneCountInString(s) <= maxChars {
-		return s
-	}
-	runes := []rune(s)
-	return string(runes[:maxChars]) + "\n[truncated]"
-}
 
 func parseAgentTasks(args map[string]any) ([]agentTaskConfig, error) {
 	tasksRaw, ok := args["tasks"]

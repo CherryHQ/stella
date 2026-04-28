@@ -10,27 +10,15 @@ import (
 
 func TestAgentConfig_Defaults(t *testing.T) {
 	cfg := AgentConfig{}
-	if cfg.maxTasks() != defaultMaxTasks {
-		t.Errorf("expected default maxTasks=%d, got %d", defaultMaxTasks, cfg.maxTasks())
-	}
 	if cfg.maxConcurrency() != defaultMaxConcurrency {
 		t.Errorf("expected default maxConcurrency=%d, got %d", defaultMaxConcurrency, cfg.maxConcurrency())
-	}
-	if cfg.maxResultChars() != defaultMaxResultChars {
-		t.Errorf("expected default maxResultChars=%d, got %d", defaultMaxResultChars, cfg.maxResultChars())
 	}
 }
 
 func TestAgentConfig_CustomValues(t *testing.T) {
-	cfg := AgentConfig{MaxTasks: 2, MaxConcurrency: 1, MaxResultChars: 500}
-	if cfg.maxTasks() != 2 {
-		t.Errorf("expected maxTasks=2, got %d", cfg.maxTasks())
-	}
+	cfg := AgentConfig{MaxConcurrency: 1}
 	if cfg.maxConcurrency() != 1 {
 		t.Errorf("expected maxConcurrency=1, got %d", cfg.maxConcurrency())
-	}
-	if cfg.maxResultChars() != 500 {
-		t.Errorf("expected maxResultChars=500, got %d", cfg.maxResultChars())
 	}
 }
 
@@ -189,22 +177,6 @@ func TestExtractLastAssistant_NoTextContent(t *testing.T) {
 	}
 	if reason != ai.StopReasonStop {
 		t.Errorf("expected stop reason, got %q", reason)
-	}
-}
-
-// --- truncateResult ---
-
-func TestTruncateResult_NoTruncation(t *testing.T) {
-	got := truncateResult("hello world", 100)
-	if got != "hello world" {
-		t.Errorf("expected unchanged, got %q", got)
-	}
-}
-
-func TestTruncateResult_Truncated(t *testing.T) {
-	got := truncateResult("hello world", 5)
-	if got != "hello\n[truncated]" {
-		t.Errorf("expected truncated result, got %q", got)
 	}
 }
 
