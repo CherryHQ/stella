@@ -40,7 +40,7 @@ func (b *Bot) sendFile(chatID, replyMsgID string, file channel.FileEvent) {
 		logger().Error("open file failed", "path", file.Path, "error", err)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	name := file.Name
 	if name == "" {

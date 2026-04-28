@@ -7,10 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	"github.com/vaayne/anna/internal/agent"
@@ -280,10 +277,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 			if err != nil {
 				logger().Error("download file failed", "file_key", fileKey, "error", err)
 			} else {
-				return channel.TextContent(fmt.Sprintf(
-					"[File: %s — saved to %s]\nUse `kreuzberg extract %q` to read its content.",
-					fileName, path, path,
-				))
+				return channel.FileReceivedContent(fileName, path)
 			}
 		}
 		return channel.TextContent(parseFileContent(rawContent))
@@ -483,13 +477,7 @@ func (b *Bot) downloadFile(messageID, fileKey, fileName, assetsDir string) (stri
 		return "", fmt.Errorf("read file: %w", err)
 	}
 
-	name := fmt.Sprintf("%d_%s", time.Now().Unix(), filepath.Base(fileName))
-	dst := filepath.Join(assetsDir, name)
-	if err := os.WriteFile(dst, data, 0o600); err != nil {
-		return "", fmt.Errorf("write file: %w", err)
-	}
-
-	return dst, nil
+	return agent.SaveAsset(assetsDir, fileName, data)
 }
 
 // parseTextContent extracts text from Feishu's JSON content format.

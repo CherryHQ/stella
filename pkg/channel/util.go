@@ -102,3 +102,12 @@ func ParseSlashCommand(text string) (string, string) {
 func TextContent(text string) []ai.ContentBlock {
 	return []ai.ContentBlock{ai.TextContent{Text: text}}
 }
+
+// FileReceivedContent returns the standard content block telling the agent
+// about a file that has been saved to disk, with a kreuzberg extraction hint.
+func FileReceivedContent(fileName, savedPath string) []ai.ContentBlock {
+	return TextContent(fmt.Sprintf(
+		"[File: %s — saved to %s]\n Read kreuzberg skill and use `kreuzberg extract %q` to read its content.",
+		fileName, savedPath, savedPath,
+	))
+}

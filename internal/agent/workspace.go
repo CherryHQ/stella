@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // SetupWorkspace ensures the per-agent workspace directory exists.
@@ -57,6 +58,17 @@ func UserAssetsDir(userRoot string) string {
 // UserSkillsDir returns the per-user skills directory path within a user workspace.
 func UserSkillsDir(userWorkspace string) string {
 	return filepath.Join(userWorkspace, ".agents", "skills")
+}
+
+// SaveAsset writes data to assetsDir with a timestamp-prefixed filename to avoid
+// collisions, returning the absolute path of the saved file.
+func SaveAsset(assetsDir, fileName string, data []byte) (string, error) {
+	name := fmt.Sprintf("%d_%s", time.Now().Unix(), filepath.Base(fileName))
+	dst := filepath.Join(assetsDir, name)
+	if err := os.WriteFile(dst, data, 0o600); err != nil {
+		return "", fmt.Errorf("write asset %s: %w", name, err)
+	}
+	return dst, nil
 }
 
 // UserRoot returns the per-user writable root path within a user workspace.
