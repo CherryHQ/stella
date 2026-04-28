@@ -11,6 +11,34 @@ icon: History
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-04-28
+
+### ✨ 功能
+
+- **管理后台**: 为会话页面添加聊天面板 ([#132](https://github.com/vaayne/anna/pull/132))
+- **管理后台**: 重新设计会话页面 UI
+- **飞书**: 支持在渠道消息中上传文件 ([#133](https://github.com/vaayne/anna/pull/133))
+- **插件**: ManifestBinary 支持高级 mise 后端选项 ([#130](https://github.com/vaayne/anna/pull/130))
+- **技能**: 新增 clawhub.ai 技能搜索与安装支持 ([#134](https://github.com/vaayne/anna/pull/134))
+
+### 🐛 Bug 修复
+
+- **Docker**: 将用户 CLI 工具安装在 Docker 缓存层 ([#126](https://github.com/vaayne/anna/pull/126))
+
+### ♻️ 重构
+
+- **Agent**: 将 `internal/agent/runner` 合并入 `internal/agent` ([#131](https://github.com/vaayne/anna/pull/131))
+
+**完整变更日志**：[v0.16.7...v0.17.0](https://github.com/vaayne/anna/compare/v0.16.7...v0.17.0)
+
+## [0.16.7] - 2026-04-27
+
+### 🐛 Bug 修复
+
+- **飞书**: 修复通知工具无法向通过自动注册关联的用户投递消息的问题（union_id 路由使用了错误的 `receive_id_type`）
+
+**完整变更日志**：[v0.16.6...v0.16.7](https://github.com/vaayne/anna/compare/v0.16.6...v0.16.7)
+
 ## [0.16.6] - 2026-04-26
 
 ### ✨ 功能
