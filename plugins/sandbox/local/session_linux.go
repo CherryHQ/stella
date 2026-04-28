@@ -133,6 +133,10 @@ func appendLinuxRuntimeMounts(args []string) []string {
 		args = appendRoBindIfExists(args, path, path)
 	}
 	args = appendResolvedFileMount(args, "/etc/resolv.conf")
+	// Expose system device topology (CPU, clocksource, etc.) so tools like
+	// onnxruntime/cpuinfo can detect hardware features. Only this subtree is
+	// mounted; the rest of /sys stays hidden.
+	args = appendRoBindIfExists(args, "/sys/devices/system", "/sys/devices/system")
 	return args
 }
 
