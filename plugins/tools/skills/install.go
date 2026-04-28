@@ -4,12 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/vaayne/anna/pkg/memory"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 )
+
+// skillSearchResult is a normalized result combining both search providers.
+type skillSearchResult struct {
+	Provider    string `json:"provider"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Source      string `json:"source"`
+}
 
 func (t *Tool) search(ctx context.Context, args map[string]any) (string, error) {
 	query, _ := args["query"].(string)
@@ -22,17 +31,71 @@ func (t *Tool) search(ctx context.Context, args map[string]any) (string, error) 
 		limit = int(v)
 	}
 
-	results, err := mcpskills.Search(ctx, query, limit)
-	if err != nil {
-		return "", err
-	}
+	var (
+		mu      sync.Mutex
+		results []skillSearchResult
+		errs    []string
+		wg      sync.WaitGroup
+	)
+
+	// Search clawhub.ai concurrently.
+	wg.Go(func() {
+		hits, err := clawhubSearch(ctx, query, limit)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("clawhub: %v", err))
+			return
+		}
+		for _, h := range hits {
+			r := skillSearchResult{
+				Provider: "clawhub",
+				Name:     h.Slug,
+				Source:   "clawhub:" + h.Slug,
+			}
+			if h.Summary != "" {
+				r.Description = h.Summary
+			} else if h.DisplayName != "" {
+				r.Description = h.DisplayName
+			}
+			results = append(results, r)
+		}
+	})
+
+	// Search skills.sh concurrently.
+	wg.Go(func() {
+		hits, err := mcpskills.Search(ctx, query, limit)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("skills.sh: %v", err))
+			return
+		}
+		for _, h := range hits {
+			results = append(results, skillSearchResult{
+				Provider:    "skills.sh",
+				Name:        h.Name,
+				Description: h.Source,
+				Source:      h.Source,
+			})
+		}
+	})
+
+	wg.Wait()
 
 	if len(results) == 0 {
+		if len(errs) > 0 {
+			return "", fmt.Errorf("search failed: %s", errs[0])
+		}
 		return "No skills found.", nil
 	}
 
 	out, _ := json.MarshalIndent(results, "", "  ")
-	return fmt.Sprintf("Found %d skills:\n%s\n\nInstall with: skills tool action=install source=\"owner/repo@skill-name\"\nOptional: add scope=\"agent\" to install into agent scope.", len(results), out), nil
+	msg := fmt.Sprintf("Found %d skills:\n%s\n\nInstall with: skills tool action=install source=<source from results above>\nOptional: add scope=\"agent\" to install into agent scope.", len(results), out)
+	if len(errs) > 0 {
+		msg += fmt.Sprintf("\n\nNote: some providers failed: %v", errs)
+	}
+	return msg, nil
 }
 
 func (t *Tool) install(ctx context.Context, args map[string]any) (string, error) {
