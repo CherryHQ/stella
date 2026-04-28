@@ -2,6 +2,7 @@ package channel
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -101,4 +102,22 @@ func ParseSlashCommand(text string) (string, string) {
 // TextContent wraps a plain string as a single-element []ai.ContentBlock.
 func TextContent(text string) []ai.ContentBlock {
 	return []ai.ContentBlock{ai.TextContent{Text: text}}
+}
+
+// FileReceivedContent returns the standard content block telling the agent
+// about a file that has been saved to disk, with a kreuzberg extraction hint.
+// assetsDir is the host-side assets directory; savedPath is the host-side absolute
+// path returned by SaveAsset. The hint uses a path relative to the user root
+// (parent of assetsDir) so it resolves correctly inside the bwrap sandbox at /workspace.
+func FileReceivedContent(fileName, assetsDir, savedPath string) []ai.ContentBlock {
+	displayPath := savedPath
+	if assetsDir != "" {
+		if rel, err := filepath.Rel(filepath.Dir(assetsDir), savedPath); err == nil {
+			displayPath = rel
+		}
+	}
+	return TextContent(fmt.Sprintf(
+		"[File: %s — saved to %s]\n Read kreuzberg skill and use `kreuzberg extract %q` to read its content.",
+		fileName, displayPath, displayPath,
+	))
 }

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/channel"
 )
@@ -144,7 +145,28 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		provCancel()
 	}
 
-	content := b.buildMessageContent(msg)
+	// For file messages: send an immediate ack and resolve the per-user assets
+	// directory before building content, so the downloaded file lands in the
+	// user's persistent workspace rather than a throwaway temp directory.
+	var assetsDir string
+	if derefStr(msg.MessageType) == "file" {
+		ackCtx, ackCancel := b.apiContext()
+		b.replyInThread(ackCtx, messageID, rootID, "📎 Received file, processing...")
+		ackCancel()
+
+		if resolver, ok := b.handler.(channel.UserRootResolver); ok {
+			probeMsg := b.incomingMsg(senderIDs, chatID, chatType, nil)
+			resolveCtx, resolveCancel := b.apiContext()
+			if userRoot, err := resolver.ResolveUserRoot(resolveCtx, probeMsg); err == nil {
+				assetsDir = agent.UserAssetsDir(userRoot)
+			} else {
+				logger().Warn("resolve user root failed, file will use placeholder", "error", err)
+			}
+			resolveCancel()
+		}
+	}
+
+	content := b.buildMessageContent(msg, assetsDir)
 	if content == nil {
 		return nil
 	}
@@ -199,7 +221,9 @@ func prependSystemPrompt(content []ai.ContentBlock, prompt string) []ai.ContentB
 }
 
 // buildMessageContent constructs the message content from a Feishu message.
-func (b *Bot) buildMessageContent(msg *larkim.EventMessage) []ai.ContentBlock {
+// assetsDir is the resolved per-user assets directory; pass "" to fall back to
+// the filename-only placeholder when the path is not yet known.
+func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []ai.ContentBlock {
 	msgType := derefStr(msg.MessageType)
 	rawContent := derefStr(msg.Content)
 	messageID := derefStr(msg.MessageId)
@@ -243,6 +267,19 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage) []ai.ContentBlock {
 		return channel.TextContent(parseVideoContent(rawContent))
 
 	case "file":
+		fileKey := extractJSONField(rawContent, "file_key")
+		fileName := extractJSONField(rawContent, "file_name")
+		if fileName == "" {
+			fileName = "file"
+		}
+		if fileKey != "" && assetsDir != "" {
+			path, err := b.downloadFile(messageID, fileKey, fileName, assetsDir)
+			if err != nil {
+				logger().Error("download file failed", "file_key", fileKey, "error", err)
+			} else {
+				return channel.FileReceivedContent(fileName, assetsDir, path)
+			}
+		}
 		return channel.TextContent(parseFileContent(rawContent))
 
 	case "sticker":
@@ -410,6 +447,39 @@ func (b *Bot) downloadImage(messageID, imageKey string) ([]byte, string, error) 
 	return data, mime, nil
 }
 
+// downloadFile downloads a file from Feishu and saves it to assetsDir.
+// The filename is prefixed with a Unix timestamp to avoid collisions.
+func (b *Bot) downloadFile(messageID, fileKey, fileName, assetsDir string) (string, error) {
+	apiCtx, cancel := b.apiContext()
+	defer cancel()
+
+	resp, err := b.client.Im.MessageResource.Get(apiCtx,
+		larkim.NewGetMessageResourceReqBuilder().
+			MessageId(messageID).
+			FileKey(fileKey).
+			Type("file").
+			Build())
+	if err != nil {
+		return "", fmt.Errorf("get resource: %w", err)
+	}
+	if !resp.Success() {
+		return "", fmt.Errorf("api error: code=%d msg=%s", resp.Code, resp.Msg)
+	}
+	if resp.File == nil {
+		return "", fmt.Errorf("empty file in response")
+	}
+	if closer, ok := resp.File.(io.Closer); ok {
+		defer func() { _ = closer.Close() }()
+	}
+
+	data, err := io.ReadAll(resp.File)
+	if err != nil {
+		return "", fmt.Errorf("read file: %w", err)
+	}
+
+	return agent.SaveAsset(assetsDir, fileName, data)
+}
+
 // parseTextContent extracts text from Feishu's JSON content format.
 func parseTextContent(raw string) string {
 	if raw == "" {
@@ -452,7 +522,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 
 	logger().Debug("message received", "sender_id", senderID, "session", stream.SessionID, "root_id", rootID)
 
-	sentMsgID, response, images, elapsed, streamErr := b.streamResponseInThread(stream.Events, chatID, messageID, rootID)
+	sentMsgID, response, images, files, elapsed, streamErr := b.streamResponseInThread(stream.Events, chatID, messageID, rootID)
 
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
@@ -474,6 +544,10 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 
 	for _, img := range images {
 		b.sendImageInThread(chatID, messageID, rootID, img)
+	}
+
+	for _, file := range files {
+		b.sendFileInThread(chatID, messageID, rootID, file)
 	}
 
 	logger().Debug("response sent", "sender_id", senderID, "response_len", len(response), "images", len(images))

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/channel"
 )
@@ -43,7 +44,7 @@ func (b *Bot) handleUpdates(msgs []WeixinMessage) {
 // A message may contain a mix of text, images, files, and videos.
 // Text-only messages are handled as commands or chat. Messages with
 // images (possibly with text captions) become multimodal content.
-// Files/videos are noted as placeholders.
+// File-only messages are downloaded and forwarded to the agent.
 func (b *Bot) dispatchMessage(msg WeixinMessage) {
 	texts, images := extractMessageContent(msg.ItemList)
 	combinedText := strings.Join(texts, "\n")
@@ -53,6 +54,16 @@ func (b *Bot) dispatchMessage(msg WeixinMessage) {
 			item.Type != ItemTypeVoice && item.Type != ItemTypeFile && item.Type != ItemTypeVideo {
 			hasUnsupported = true
 			break
+		}
+	}
+
+	// File-only message (no images, no text) — download and forward.
+	if len(images) == 0 && combinedText == "" {
+		for _, item := range msg.ItemList {
+			if item.Type == ItemTypeFile && item.FileItem != nil {
+				b.handleFile(msg, item.FileItem)
+				return
+			}
 		}
 	}
 
@@ -169,6 +180,69 @@ func (b *Bot) handleImages(msg WeixinMessage, images []*ImageItem, caption strin
 	}
 
 	incoming := b.incomingMsg(msg, content)
+	b.handleIncoming(msg, incoming, "", "")
+}
+
+// handleFile downloads a file from CDN, saves it to the user's assets directory,
+// and forwards a kreuzberg extraction hint to the agent.
+func (b *Bot) handleFile(msg WeixinMessage, fileItem *FileItem) {
+	fileName := fileItem.FileName
+	if fileName == "" {
+		fileName = "file"
+	}
+
+	// Resolve per-user assets directory.
+	var assetsDir string
+	if resolver, ok := b.handler.(channel.UserRootResolver); ok {
+		probeMsg := b.incomingMsg(msg, nil)
+		if userRoot, err := resolver.ResolveUserRoot(b.ctx, probeMsg); err == nil {
+			assetsDir = agent.UserAssetsDir(userRoot)
+		} else {
+			logger().Warn("resolve user root failed for file", "error", err)
+		}
+	}
+	if assetsDir == "" {
+		b.sendReply(msg, fmt.Sprintf("[File: %s] (storage unavailable)", fileName))
+		return
+	}
+
+	// Download from CDN.
+	if fileItem.Media == nil || fileItem.Media.EncryptQueryParam == "" {
+		b.sendReply(msg, fmt.Sprintf("[File: %s] (no CDN reference)", fileName))
+		return
+	}
+	encrypted, err := DownloadFromCDN("", fileItem.Media.EncryptQueryParam)
+	if err != nil {
+		logger().Error("cdn download failed for file", "user_id", msg.FromUserID, "error", err)
+		b.sendReply(msg, fmt.Sprintf("[File: %s] (download failed)", fileName))
+		return
+	}
+
+	// Decrypt if a key is present.
+	data := encrypted
+	if fileItem.Media.AESKey != "" {
+		key, err := DecodeAESKey(fileItem.Media.AESKey)
+		if err != nil {
+			logger().Warn("aes key decode failed for file, using plaintext", "error", err)
+		} else {
+			if decrypted, err := DecryptAESECB(encrypted, key); err != nil {
+				logger().Warn("aes decrypt failed for file, using raw bytes", "error", err)
+			} else {
+				data = decrypted
+			}
+		}
+	}
+
+	savedPath, err := agent.SaveAsset(assetsDir, fileName, data)
+	if err != nil {
+		logger().Error("save file asset failed", "user_id", msg.FromUserID, "error", err)
+		b.sendReply(msg, fmt.Sprintf("[File: %s] (save failed)", fileName))
+		return
+	}
+
+	logger().Debug("file received", "user_id", msg.FromUserID, "file_name", fileName, "size", len(data))
+
+	incoming := b.incomingMsg(msg, channel.FileReceivedContent(fileName, assetsDir, savedPath))
 	b.handleIncoming(msg, incoming, "", "")
 }
 

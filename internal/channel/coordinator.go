@@ -303,6 +303,12 @@ func convertEvent(evt agent.Event) pkgchannel.Event {
 			MimeType: evt.Image.MimeType,
 		}
 	}
+	if evt.File != nil {
+		out.File = &pkgchannel.FileEvent{
+			Path: evt.File.Path,
+			Name: evt.File.Name,
+		}
+	}
 	if evt.ToolUse != nil {
 		out.ToolUse = &pkgchannel.ToolUseEvent{
 			Tool:   evt.ToolUse.Tool,
@@ -355,8 +361,24 @@ func provisionUserVaultKeys(ctx context.Context, store auth.AuthStore, recipient
 	return nil
 }
 
+// ResolveUserRoot resolves the per-user writable root for the sender in msg.
+// It performs the same user+agent resolution as HandleIncoming but stops before
+// starting a session, so it is cheap and safe to call before file downloads.
+func (c *Coordinator) ResolveUserRoot(ctx context.Context, msg pkgchannel.IncomingMessage) (string, error) {
+	rc, err := c.resolve(ctx, msg)
+	if err != nil {
+		return "", fmt.Errorf("resolve user root: %w", err)
+	}
+	userDir, err := agent.SetupUserWorkspace(rc.AgentID, config.AnnaHome(), rc.User.ID)
+	if err != nil {
+		return "", fmt.Errorf("setup user workspace: %w", err)
+	}
+	return agent.UserRoot(userDir), nil
+}
+
 // compile-time checks.
 var (
-	_ pkgchannel.Handler     = (*Coordinator)(nil)
-	_ pkgchannel.Provisioner = (*Coordinator)(nil)
+	_ pkgchannel.Handler          = (*Coordinator)(nil)
+	_ pkgchannel.Provisioner      = (*Coordinator)(nil)
+	_ pkgchannel.UserRootResolver = (*Coordinator)(nil)
 )
