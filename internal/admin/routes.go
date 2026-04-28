@@ -160,9 +160,11 @@ func (s *Server) registerAuthUserRoutes() {
 
 func (s *Server) registerSessionRoutes() {
 	s.mux.HandleFunc("GET /api/sessions", s.listSessions)
+	s.mux.HandleFunc("POST /api/sessions", s.createSession)
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}", s.getSession)
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}/messages", s.getSessionMessages)
 	s.mux.HandleFunc("GET /api/sessions/{sessionID}/system-prompt", s.getSessionSystemPrompt)
+	s.mux.HandleFunc("POST /api/sessions/{sessionID}/messages", s.sendSessionMessage)
 }
 
 func (s *Server) registerPluginRoutes() {
