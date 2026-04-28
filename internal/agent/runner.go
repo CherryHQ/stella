@@ -23,11 +23,18 @@ type ImageEvent struct {
 	MimeType string // e.g. "image/jpeg"
 }
 
+// FileEvent carries a local file path to be sent to the channel.
+type FileEvent struct {
+	Path string // absolute path on disk
+	Name string // display filename (with extension)
+}
+
 // Event is the consumer-facing stream event. Channels read these from the
 // stream returned by Pool.Chat().
 type Event struct {
 	Text    string
 	Image   *ImageEvent
+	File    *FileEvent
 	ToolUse *ToolUseEvent
 	Store   ai.Message // if non-nil, Pool appends to session history
 	Err     error

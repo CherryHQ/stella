@@ -741,7 +741,7 @@ func TestStopWithoutCancel(t *testing.T) {
 func TestBuildMessageContentTextOnly(t *testing.T) {
 	bot := &Bot{}
 	msg := &dto.Message{Content: "hello world"}
-	content := bot.buildMessageContent(msg)
+	content := bot.buildMessageContent(msg, "")
 	if len(content) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(content))
 	}
@@ -757,7 +757,7 @@ func TestBuildMessageContentTextOnly(t *testing.T) {
 func TestBuildMessageContentEmpty(t *testing.T) {
 	bot := &Bot{}
 	msg := &dto.Message{Content: "  "}
-	content := bot.buildMessageContent(msg)
+	content := bot.buildMessageContent(msg, "")
 	if content != nil {
 		t.Errorf("expected nil for blank message, got %v", content)
 	}
@@ -766,7 +766,7 @@ func TestBuildMessageContentEmpty(t *testing.T) {
 func TestBuildMessageContentEmptyNoAttachments(t *testing.T) {
 	bot := &Bot{}
 	msg := &dto.Message{}
-	content := bot.buildMessageContent(msg)
+	content := bot.buildMessageContent(msg, "")
 	if content != nil {
 		t.Errorf("expected nil for empty message, got %v", content)
 	}

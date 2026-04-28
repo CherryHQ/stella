@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/channel"
 	tele "gopkg.in/telebot.v4"
@@ -136,6 +137,10 @@ func (b *Bot) registerHandlers() {
 
 	b.bot.Handle(tele.OnPhoto, b.guard(func(c tele.Context) error {
 		return b.handlePhoto(c)
+	}))
+
+	b.bot.Handle(tele.OnDocument, b.guard(func(c tele.Context) error {
+		return b.handleDocument(c)
 	}))
 
 	b.bot.Handle(tele.OnCallback, func(c tele.Context) error {
@@ -280,6 +285,80 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	msg := b.incomingMsg(c, content)
 
 	// Photos are never commands — pass empty command to HandleIncoming.
+	_, _, stream, err := b.handler.HandleIncoming(b.ctx, msg, "", "")
+	if err != nil {
+		logger().Error("chat failed", "chat_id", c.Chat().ID, "error", err)
+		return c.Send(fmt.Sprintf("Session error: %v", err))
+	}
+	return b.handleStream(c, stream)
+}
+
+// handleDocument processes incoming document (file) messages.
+// It resolves the per-user assets directory, downloads the file, saves it to
+// disk, and passes a kreuzberg extraction hint to the agent.
+func (b *Bot) handleDocument(c tele.Context) error {
+	doc := c.Message().Document
+	if doc == nil {
+		return c.Send("No document found in message.")
+	}
+
+	fileName := doc.FileName
+	if fileName == "" {
+		fileName = doc.FileID
+	}
+
+	// Resolve the per-user assets directory before downloading.
+	var assetsDir string
+	if resolver, ok := b.handler.(channel.UserRootResolver); ok {
+		probeMsg := b.incomingMsg(c, nil)
+		if userRoot, err := resolver.ResolveUserRoot(b.ctx, probeMsg); err == nil {
+			assetsDir = userRoot + "/assets"
+		} else {
+			logger().Warn("resolve user root failed for document", "error", err)
+		}
+	}
+
+	if assetsDir == "" {
+		return c.Send("Unable to resolve storage directory for this file.")
+	}
+
+	// Download the file from Telegram.
+	_ = c.Notify(tele.UploadingDocument)
+	file, err := b.bot.File(&doc.File)
+	if err != nil {
+		logger().Error("download document failed", "error", err)
+		return c.Send(fmt.Sprintf("Failed to download file: %v", err))
+	}
+	defer func() { _ = file.Close() }()
+
+	const maxFileSize = 50 << 20 // 50 MB
+	data, err := io.ReadAll(io.LimitReader(file, maxFileSize+1))
+	if err != nil {
+		logger().Error("read document failed", "error", err)
+		return c.Send(fmt.Sprintf("Failed to read file: %v", err))
+	}
+	if len(data) > maxFileSize {
+		return c.Send("File too large (max 50 MB).")
+	}
+
+	savedPath, err := agent.SaveAsset(assetsDir, fileName, data)
+	if err != nil {
+		logger().Error("save document failed", "error", err)
+		return c.Send(fmt.Sprintf("Failed to save file: %v", err))
+	}
+
+	logger().Debug("document received", "file_name", fileName, "size", len(data), "path", savedPath)
+
+	var content []ai.ContentBlock
+	if caption := c.Message().Caption; caption != "" {
+		if isGroup(c) {
+			caption = b.stripBotMention(caption)
+		}
+		content = append(content, ai.TextContent{Text: caption})
+	}
+	content = append(content, channel.FileReceivedContent(fileName, assetsDir, savedPath)...)
+
+	msg := b.incomingMsg(c, content)
 	_, _, stream, err := b.handler.HandleIncoming(b.ctx, msg, "", "")
 	if err != nil {
 		logger().Error("chat failed", "chat_id", c.Chat().ID, "error", err)

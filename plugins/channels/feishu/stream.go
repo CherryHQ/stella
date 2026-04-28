@@ -44,7 +44,7 @@ var nowFunc = time.Now
 //  1. Thinking: sends initial card with "Thinking..." immediately
 //  2. Generating: updates card with streaming content + cursor
 //  3. Complete: final content with elapsed time footer
-func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyMsgID, rootID string) (string, string, []channel.ImageEvent, time.Duration, error) {
+func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyMsgID, rootID string) (string, string, []channel.ImageEvent, []channel.FileEvent, time.Duration, error) {
 	startTime := nowFunc()
 
 	var sb strings.Builder
@@ -52,6 +52,7 @@ func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyM
 	var currentTool string
 	var sentMsgID string
 	var images []channel.ImageEvent
+	var files []channel.FileEvent
 	phase := phaseThinking
 	lastSend := time.Time{}
 
@@ -71,6 +72,11 @@ func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyM
 
 		if evt.Image != nil {
 			images = append(images, *evt.Image)
+			continue
+		}
+
+		if evt.File != nil {
+			files = append(files, *evt.File)
 			continue
 		}
 
@@ -124,7 +130,7 @@ func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyM
 	// via sendFinalResponseInThread with elapsed time appended).
 	elapsed := nowFunc().Sub(startTime)
 
-	return sentMsgID, sb.String(), images, elapsed, streamErr
+	return sentMsgID, sb.String(), images, files, elapsed, streamErr
 }
 
 // sendCardReply sends an interactive card reply and returns the new message ID.
