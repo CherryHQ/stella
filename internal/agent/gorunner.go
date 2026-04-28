@@ -146,16 +146,8 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 		APIKey:    cfg.APIKey,
 		BaseURL:   cfg.BaseURL,
 		System:    system,
-		Presets:   presets,
-		PresetLoader: func(projectRoot string) *agenttool.PresetRegistry {
-			return agenttool.NewPresetRegistry(agenttool.LoadAgentPresets(agenttool.LoadAgentPresetsConfig{
-				AnnaHome:    paths.AnnaHome,
-				AgentRoot:   paths.AgentRoot,
-				UserRoot:    paths.UserRoot,
-				ProjectRoot: projectRoot,
-			}))
-		},
-		Hooks:         hookSet,
+		Presets: presets,
+		Hooks:   hookSet,
 		ToolLifecycle: cfg.ToolLifecycle,
 	}))
 
