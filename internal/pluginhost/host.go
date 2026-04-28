@@ -46,6 +46,7 @@ type Host struct {
 	statusRegs         map[string]pkgplugins.AdminSpec
 	promptRegs         map[string]pkgplugins.PromptInventorySpec
 	systemPromptRegs   map[string]pkgplugins.SystemPromptSpec
+	manifestPrompts    map[string]pkgplugins.SystemPromptSection
 	sessionEnvRegs     map[string][]pkgplugins.SessionEnvSpec
 	bundledSkillRegs   map[string][]pkgplugins.BundledSkillSpec
 }
@@ -71,6 +72,7 @@ func New(store config.Store, opts ...Option) *Host {
 		statusRegs:         map[string]pkgplugins.AdminSpec{},
 		promptRegs:         map[string]pkgplugins.PromptInventorySpec{},
 		systemPromptRegs:   map[string]pkgplugins.SystemPromptSpec{},
+		manifestPrompts:    map[string]pkgplugins.SystemPromptSection{},
 		sessionEnvRegs:     map[string][]pkgplugins.SessionEnvSpec{},
 		bundledSkillRegs:   map[string][]pkgplugins.BundledSkillSpec{},
 	}
@@ -143,6 +145,7 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 	h.mu.Lock()
 	for id := range h.manifestEnabledIDs {
 		delete(h.sessionEnvRegs, id)
+		delete(h.manifestPrompts, id)
 	}
 	for id := range h.manifestOwnedIDs {
 		delete(h.pluginIDs, id)
@@ -176,6 +179,10 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 			if displayName == "" {
 				displayName = name
 			}
+			var caps []string
+			if p.Prompt != "" {
+				caps = append(caps, pkgplugins.CapabilityPrompt)
+			}
 			h.RegisterPluginID(p.ID)
 			h.SetInfo(pkgplugins.PluginInfo{
 				ID:           p.ID,
@@ -184,6 +191,7 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 				DisplayName:  displayName,
 				Description:  p.Description,
 				AdminVisible: true,
+				Capabilities: caps,
 			})
 		}
 
@@ -199,6 +207,16 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 				OAuthProviderID:          p.OAuthProvider,
 				OAuthProviderConfigField: p.OAuthProviderConfigField,
 			})
+		}
+
+		if p.Prompt != "" {
+			promptName := p.Name
+			if promptName == "" {
+				promptName = p.ID
+			}
+			h.mu.Lock()
+			h.manifestPrompts[p.ID] = pkgplugins.SystemPromptSection{Title: promptName, Content: p.Prompt}
+			h.mu.Unlock()
 		}
 	}
 }
@@ -441,6 +459,17 @@ func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.P
 		}
 	}
 	return out, nil
+}
+
+func (h *Host) ManifestPluginPrompts() []pkgplugins.SystemPromptSection {
+	h.mu.RLock()
+	out := make([]pkgplugins.SystemPromptSection, 0, len(h.manifestPrompts))
+	for _, s := range h.manifestPrompts {
+		out = append(out, s)
+	}
+	h.mu.RUnlock()
+	sort.Slice(out, func(i, j int) bool { return out[i].Title < out[j].Title })
+	return out
 }
 
 func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {

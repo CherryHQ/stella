@@ -8,8 +8,6 @@ import (
 	"github.com/vaayne/anna/internal/builddeps"
 
 	_ "github.com/vaayne/anna/plugins/tools/lark-cli"
-	_ "github.com/vaayne/anna/plugins/tools/mise"
-	_ "github.com/vaayne/anna/plugins/tools/tap-web"
 )
 
 func main() {

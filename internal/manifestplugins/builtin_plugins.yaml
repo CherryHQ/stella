@@ -315,12 +315,21 @@ oauth_providers:
         auth_style: in_params
 
 plugins:
+  - id: tool/mise
+    kind: tool
+    name: mise
+    display_name: mise
+    description: "Inject mise usage guidance into the system prompt and provide the mise binary."
+    enabled: true
+    prompt: "Use mise to install tools and manage environment variables."
+
   - id: tool/tap-web
     kind: tool
     name: tap-web
     display_name: Tap Web
     description: "Web browsing skill powered by the tap CLI — fetch pages, run browser automation, and capture network traffic."
     enabled: true
+    prompt: "Read `tap-web` skill and use tap to access the web. Try lightpanda as browser first. Prefer exa for web search."
     binaries:
       - name: tap
         tool: github:vaayne/tap
@@ -377,6 +386,7 @@ plugins:
     display_name: Kreuzberg
     description: "Extract text, metadata, images, and structured information from PDFs, Office documents, images, and 97+ formats."
     enabled: true
+    prompt: "Read `kreuzberg` skill and prefer kreuzberg to extract text from PDFs, images, and documents before processing."
     binaries:
       - name: kreuzberg
         tool: github:kreuzberg-dev/kreuzberg

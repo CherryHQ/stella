@@ -104,7 +104,7 @@ func (h *Host) ValidateRegistrations() error {
 					return fmt.Errorf("pluginhost: metadata for %q declares tool capability but no tool is registered", meta.ID)
 				}
 			case pkgplugins.CapabilityPrompt:
-				if !hasPromptLocked(h.promptRegs, h.systemPromptRegs, h.beforeRunRegs, meta.ID) {
+				if !hasPromptLocked(h.promptRegs, h.systemPromptRegs, h.beforeRunRegs, h.manifestPrompts, meta.ID) {
 					return fmt.Errorf("pluginhost: metadata for %q declares prompt capability but no prompt contribution is registered", meta.ID)
 				}
 			case pkgplugins.CapabilityProvider:
@@ -245,7 +245,7 @@ func hasMemoryLocked(regs map[string]pkgplugins.MemorySpec, pluginID string) boo
 	return false
 }
 
-func hasPromptLocked(promptRegs map[string]pkgplugins.PromptInventorySpec, systemRegs map[string]pkgplugins.SystemPromptSpec, beforeRunRegs map[string]pkgplugins.BeforeRunSpec, pluginID string) bool {
+func hasPromptLocked(promptRegs map[string]pkgplugins.PromptInventorySpec, systemRegs map[string]pkgplugins.SystemPromptSpec, beforeRunRegs map[string]pkgplugins.BeforeRunSpec, manifestPrompts map[string]pkgplugins.SystemPromptSection, pluginID string) bool {
 	for _, reg := range promptRegs {
 		if reg.PluginID == pluginID {
 			return true
@@ -260,6 +260,9 @@ func hasPromptLocked(promptRegs map[string]pkgplugins.PromptInventorySpec, syste
 		if reg.PluginID == pluginID {
 			return true
 		}
+	}
+	if _, ok := manifestPrompts[pluginID]; ok {
+		return true
 	}
 	return false
 }

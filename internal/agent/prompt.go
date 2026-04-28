@@ -55,6 +55,7 @@ type promptData struct {
 	AgentSoul      string            // per-user agent soul from ProfileStore
 	UserProfile    string            // per-user profile from ProfileStore
 	MCPTools       []promptToolEntry // prompt inventory for MCP-discovered tools
+	PluginPrompts  []pkgplugins.SystemPromptSection
 	PromptSections []pkgplugins.SystemPromptSection
 	ContextFiles   []contextFile // AGENTS.md files (root → leaf)
 }
@@ -77,6 +78,7 @@ type DBPromptParams struct {
 	ProjectRoot    string // optional project root for local/project-attached runs
 	UserRoot       string // per-user writable root
 	PromptTools    []pkgplugins.PromptToolInfo
+	PluginPrompts  []pkgplugins.SystemPromptSection
 	PromptSections []pkgplugins.SystemPromptSection
 	Host           sandbox.Host
 }
@@ -128,6 +130,7 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 		data.MCPTools = append(data.MCPTools, entry)
 	}
 
+	data.PluginPrompts = append(data.PluginPrompts, p.PluginPrompts...)
 	data.PromptSections = append(data.PromptSections, p.PromptSections...)
 
 	// Project context.

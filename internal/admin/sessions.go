@@ -406,6 +406,7 @@ func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) 
 		AgentRoot:      agentCfg.Workspace,
 		UserRoot:       userRoot,
 		PromptTools:    promptTools,
+		PluginPrompts:  s.pluginHost.ManifestPluginPrompts(),
 		PromptSections: promptSections,
 	})
 

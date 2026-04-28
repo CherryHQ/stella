@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/vaayne/anna/internal/config"
+	"github.com/vaayne/anna/internal/manifestplugins"
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
@@ -303,19 +304,18 @@ func TestValidateRegistrationsAcceptsToolLifecycleOnly(t *testing.T) {
 func TestValidateRegistrationsAcceptsCLIBackedPromptOnlyTool(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
-	host.RegisterPluginID("tool/mise")
-	host.SetInfo(pkgplugins.PluginInfo{
-		ID:           "tool/mise",
-		Kind:         "tool",
-		Name:         "mise",
-		DisplayName:  "mise",
-		Capabilities: []string{pkgplugins.CapabilityPrompt},
-	})
-	host.AddSystemPrompt(pkgplugins.SystemPromptSpec{
-		PluginID: "tool/mise",
-		Name:     "mise",
-		Build: func(context.Context, pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
-			return pkgplugins.SystemPromptSection{Title: "mise", Content: "content"}, nil
+
+	enabled := true
+	host.RegisterManifestPlugins(&manifestplugins.Manifest{
+		Plugins: []manifestplugins.ManifestPlugin{
+			{
+				ID:          "tool/mise",
+				Kind:        "tool",
+				Name:        "mise",
+				DisplayName: "mise",
+				Enabled:     enabled,
+				Prompt:      "Use mise to manage runtimes and tools.",
+			},
 		},
 	})
 
