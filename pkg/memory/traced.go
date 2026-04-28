@@ -483,6 +483,58 @@ func (t *tracedProvider) LoadHistory(ctx context.Context, sessionID string) ([]a
 }
 
 // ---------------------------------------------------------------------------
+// VersionedProfileStore
+// ---------------------------------------------------------------------------
+
+func (t *tracedProvider) GetProfileAt(ctx context.Context, userID int64, agentID string, version int64) (string, error) {
+	vp, ok := t.inner.(VersionedProfileStore)
+	if !ok {
+		return "", errCapabilityNotSupported("VersionedProfileStore")
+	}
+	return vp.GetProfileAt(ctx, userID, agentID, version)
+}
+
+func (t *tracedProvider) GetAgentSoulAt(ctx context.Context, userID int64, agentID string, version int64) (string, error) {
+	vp, ok := t.inner.(VersionedProfileStore)
+	if !ok {
+		return "", errCapabilityNotSupported("VersionedProfileStore")
+	}
+	return vp.GetAgentSoulAt(ctx, userID, agentID, version)
+}
+
+// ---------------------------------------------------------------------------
+// VersionedConstraintStore
+// ---------------------------------------------------------------------------
+
+func (t *tracedProvider) GetConstraintsAt(ctx context.Context, userID int64, agentID string, version int64) ([]ConstraintEntry, error) {
+	vc, ok := t.inner.(VersionedConstraintStore)
+	if !ok {
+		return nil, errCapabilityNotSupported("VersionedConstraintStore")
+	}
+	return vc.GetConstraintsAt(ctx, userID, agentID, version)
+}
+
+// ---------------------------------------------------------------------------
+// SessionSnapshotStore
+// ---------------------------------------------------------------------------
+
+func (t *tracedProvider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID string, userID int64, agentID string) (SessionSnapshot, error) {
+	sss, ok := t.inner.(SessionSnapshotStore)
+	if !ok {
+		return SessionSnapshot{}, errCapabilityNotSupported("SessionSnapshotStore")
+	}
+	return sss.GetOrCreateSessionSnapshot(ctx, sessionID, userID, agentID)
+}
+
+func (t *tracedProvider) AdvanceSessionSnapshot(ctx context.Context, sessionID string, userID int64, agentID string) error {
+	sss, ok := t.inner.(SessionSnapshotStore)
+	if !ok {
+		return errCapabilityNotSupported("SessionSnapshotStore")
+	}
+	return sss.AdvanceSessionSnapshot(ctx, sessionID, userID, agentID)
+}
+
+// ---------------------------------------------------------------------------
 // Reviewer
 // ---------------------------------------------------------------------------
 

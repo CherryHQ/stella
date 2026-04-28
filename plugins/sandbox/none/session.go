@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -267,12 +268,8 @@ func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 			merged[k] = v
 		}
 	}
-	for k, v := range policy.Env {
-		merged[k] = v
-	}
-	for k, v := range overrides {
-		merged[k] = v
-	}
+	maps.Copy(merged, policy.Env)
+	maps.Copy(merged, overrides)
 	env := make([]string, 0, len(merged))
 	for k, v := range merged {
 		env = append(env, k+"="+v)
@@ -364,4 +361,3 @@ func (p *noneProcess) Close() error {
 	}
 	return nil
 }
-

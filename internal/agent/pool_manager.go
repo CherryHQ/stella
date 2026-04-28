@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"os"
 	"sync"
 	"time"
 
@@ -302,6 +303,7 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 		WithDefaultModel(snap.ResolveModelID(config.ModelTierStrong)),
 		WithFastModel(snap.ResolveModelID(config.ModelTierFast)),
 		WithBeforeRunBuilder(pm.beforeRunBuilder),
+		pm.buildSnapshotPromptOption(snap),
 	}
 
 	pool := NewPool(factory, pm.mem, poolOpts...)
@@ -453,6 +455,52 @@ func (pm *PoolManager) removeAgentPool(agentID string) error {
 	}
 	pm.log.Info("removing agent pool", "agent_id", agentID)
 	return pool.closeSessions()
+}
+
+// buildSnapshotPromptOption returns a PoolOption that sets a snapshotPromptFn on the Pool.
+// The closure captures snap at startAgent time. On rebuildPoolFactory the option is not
+// updated (acceptable for Phase 3 — a future pass can extend rebuildPoolFactory).
+func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOption {
+	return WithSnapshotPromptBuilder(func(ctx context.Context, userID int64, agentID string, version int64) string {
+		var promptTools []pkgplugins.PromptToolInfo
+		if pm.promptToolsBuilder != nil {
+			promptTools, _ = pm.promptToolsBuilder(ctx)
+		}
+		homeDir, _ := os.UserHomeDir()
+		pluginView := pkgplugins.SessionPluginView{}
+		if pm.sessionPluginViewBuilder != nil {
+			pluginView, _ = pm.sessionPluginViewBuilder(ctx)
+		}
+		promptBuild := pkgplugins.SystemPromptContext{
+			AnnaHome:            config.AnnaHome(),
+			HomeDir:             homeDir,
+			AgentRoot:           snap.Workspace,
+			UserID:              userID,
+			AgentID:             agentID,
+			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
+		}
+		var promptSections []pkgplugins.SystemPromptSection
+		if pm.promptSectionsBuilder != nil {
+			promptSections, _ = pm.promptSectionsBuilder(ctx, promptBuild)
+		}
+		var pluginPrompts []pkgplugins.SystemPromptSection
+		if pm.pluginPromptsBuilder != nil {
+			pluginPrompts = pm.pluginPromptsBuilder()
+		}
+		return BuildSystemPromptFromDB(ctx, DBPromptParams{
+			SystemPrompt:    snap.SystemPrompt,
+			AgentSoul:       snap.Soul,
+			Memory:          pm.mem,
+			UserID:          userID,
+			AgentID:         agentID,
+			AnnaHome:        config.AnnaHome(),
+			AgentRoot:       snap.Workspace,
+			SnapshotVersion: version,
+			PromptTools:     promptTools,
+			PluginPrompts:   pluginPrompts,
+			PromptSections:  promptSections,
+		})
+	})
 }
 
 // loadAgentSnapshot loads the config snapshot for an agent and sets up its workspace.

@@ -321,6 +321,12 @@ func RemoveConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID i
 	return updated, nil
 }
 
+// ParseConstraintsJSON parses a constraints JSON string into a slice.
+// Returns empty slice for "", "[]", or null.
+func ParseConstraintsJSON(raw string) ([]memory.ConstraintEntry, error) {
+	return parseConstraints(raw)
+}
+
 // parseConstraints parses a constraints JSON string into a slice.
 // Returns empty slice for "", "[]", or null.
 func parseConstraints(raw string) ([]memory.ConstraintEntry, error) {

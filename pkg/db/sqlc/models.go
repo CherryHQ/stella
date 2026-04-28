@@ -158,6 +158,15 @@ type MemoryChangelog struct {
 	CreatedAt           string         `json:"created_at"`
 }
 
+type MemorySnapshot struct {
+	SessionID string `json:"session_id"`
+	UserID    int64  `json:"user_id"`
+	AgentID   string `json:"agent_id"`
+	Version   int64  `json:"version"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 type PluginStateEntry struct {
 	PluginID  string `json:"plugin_id"`
 	ScopeKind string `json:"scope_kind"`

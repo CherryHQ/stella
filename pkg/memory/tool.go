@@ -101,6 +101,9 @@ func BuildTool(provider Provider, opts ...ToolOption) tools.Tool {
 	if _, ok := inner.(ConstraintStore); ok {
 		t.constraintStore, _ = provider.(ConstraintStore)
 	}
+	if _, ok := inner.(SessionSnapshotStore); ok {
+		t.snapshotStore, _ = provider.(SessionSnapshotStore)
+	}
 
 	// Build the list of available actions.
 	t.actions = t.buildActions()
@@ -124,6 +127,7 @@ type memoryTool struct {
 	changelogReader ChangelogReader
 	changelogWriter ChangelogWriter
 	constraintStore ConstraintStore
+	snapshotStore   SessionSnapshotStore
 	actions         []actionMeta
 }
 
@@ -481,13 +485,21 @@ func (t *memoryTool) execSoulGet(ctx context.Context) (string, error) {
 }
 
 func (t *memoryTool) execProfileUpdate(ctx context.Context, args map[string]any) (string, error) {
-	return t.execStoreUpdate(ctx, args, actionProfileUpdate, t.profileStore.SetProfile,
+	result, err := t.execStoreUpdate(ctx, args, actionProfileUpdate, t.profileStore.SetProfile,
 		"Profile updated. Changes will appear in the system prompt at the next session start.")
+	if err == nil {
+		t.advanceSnapshot(ctx)
+	}
+	return result, err
 }
 
 func (t *memoryTool) execSoulUpdate(ctx context.Context, args map[string]any) (string, error) {
-	return t.execStoreUpdate(ctx, args, actionSoulUpdate, t.profileStore.SetAgentSoul,
+	result, err := t.execStoreUpdate(ctx, args, actionSoulUpdate, t.profileStore.SetAgentSoul,
 		"Agent soul updated. Changes will appear in the system prompt at the next session start.")
+	if err == nil {
+		t.advanceSnapshot(ctx)
+	}
+	return result, err
 }
 
 func (t *memoryTool) execProfileHistory(ctx context.Context, args map[string]any) (string, error) {
@@ -610,6 +622,7 @@ func (t *memoryTool) execConstraintAdd(ctx context.Context, args map[string]any)
 	if err != nil {
 		return "", fmt.Errorf("memory constraint_add: %w", err)
 	}
+	t.advanceSnapshot(ctx)
 	return marshalJSON(entries)
 }
 
@@ -626,7 +639,27 @@ func (t *memoryTool) execConstraintRemove(ctx context.Context, args map[string]a
 	if err != nil {
 		return "", fmt.Errorf("memory constraint_remove: %w", err)
 	}
+	t.advanceSnapshot(ctx)
 	return marshalJSON(entries)
+}
+
+// advanceSnapshot advances the session snapshot after a front-end write operation.
+// Reflect writes don't carry session_id so they naturally skip this.
+func (t *memoryTool) advanceSnapshot(ctx context.Context) {
+	if t.snapshotStore == nil {
+		return
+	}
+	sessionID := SessionIDFromContext(ctx)
+	if sessionID == "" {
+		return
+	}
+	userID := UserIDFromContext(ctx)
+	agentID := AgentIDFromContext(ctx)
+	if userID == 0 || agentID == "" {
+		return
+	}
+	// Log but don't fail — snapshot advance failure should not block the write.
+	_ = t.snapshotStore.AdvanceSessionSnapshot(ctx, sessionID, userID, agentID)
 }
 
 // ---------------------------------------------------------------------------

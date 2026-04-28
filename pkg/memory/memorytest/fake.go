@@ -5,6 +5,7 @@ package memorytest
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -55,6 +56,8 @@ type Fake struct {
 	bootstrapped map[string]bool
 	// changelog holds all recorded change entries in insertion order.
 	changelog []memory.ChangeEntry
+	// snapshots maps "sessionID:userID:agentID" -> SessionSnapshot.
+	snapshots map[string]memory.SessionSnapshot
 	// mu protects all maps.
 	mu sync.Mutex
 }
@@ -69,21 +72,25 @@ func New() *Fake {
 		summaries:    make(map[string]FakeSummary),
 		sessionInfos: make(map[string]fakeSessionInfo),
 		bootstrapped: make(map[string]bool),
+		snapshots:    make(map[string]memory.SessionSnapshot),
 	}
 }
 
 // Compile-time interface checks.
 var (
-	_ memory.Provider        = (*Fake)(nil)
-	_ memory.Compactor       = (*Fake)(nil)
-	_ memory.Searcher        = (*Fake)(nil)
-	_ memory.Explorer        = (*Fake)(nil)
-	_ memory.ProfileStore    = (*Fake)(nil)
-	_ memory.SessionManager  = (*Fake)(nil)
-	_ memory.Reviewer        = (*Fake)(nil)
-	_ memory.ChangelogWriter = (*Fake)(nil)
-	_ memory.ChangelogReader = (*Fake)(nil)
-	_ memory.ConstraintStore = (*Fake)(nil)
+	_ memory.Provider                 = (*Fake)(nil)
+	_ memory.Compactor                = (*Fake)(nil)
+	_ memory.Searcher                 = (*Fake)(nil)
+	_ memory.Explorer                 = (*Fake)(nil)
+	_ memory.ProfileStore             = (*Fake)(nil)
+	_ memory.SessionManager           = (*Fake)(nil)
+	_ memory.Reviewer                 = (*Fake)(nil)
+	_ memory.ChangelogWriter          = (*Fake)(nil)
+	_ memory.ChangelogReader          = (*Fake)(nil)
+	_ memory.ConstraintStore          = (*Fake)(nil)
+	_ memory.VersionedProfileStore    = (*Fake)(nil)
+	_ memory.VersionedConstraintStore = (*Fake)(nil)
+	_ memory.SessionSnapshotStore     = (*Fake)(nil)
 )
 
 // ---------------------------------------------------------------------------
@@ -497,6 +504,102 @@ func (f *Fake) Changelog() []memory.ChangeEntry {
 	defer f.mu.Unlock()
 	out := make([]memory.ChangeEntry, len(f.changelog))
 	copy(out, f.changelog)
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// VersionedProfileStore
+// ---------------------------------------------------------------------------
+
+// GetProfileAt implements memory.VersionedProfileStore.
+// The fake ignores version and returns the current profile (sufficient for tests).
+func (f *Fake) GetProfileAt(_ context.Context, userID int64, agentID string, _ int64) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.profiles[profileKey(userID, agentID)], nil
+}
+
+// GetAgentSoulAt implements memory.VersionedProfileStore.
+// The fake ignores version and returns the current soul (sufficient for tests).
+func (f *Fake) GetAgentSoulAt(_ context.Context, userID int64, agentID string, _ int64) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.souls[profileKey(userID, agentID)], nil
+}
+
+// ---------------------------------------------------------------------------
+// VersionedConstraintStore
+// ---------------------------------------------------------------------------
+
+// GetConstraintsAt implements memory.VersionedConstraintStore.
+// The fake ignores version and returns the current constraints (sufficient for tests).
+func (f *Fake) GetConstraintsAt(_ context.Context, userID int64, agentID string, _ int64) ([]memory.ConstraintEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := profileKey(userID, agentID)
+	if cs, ok := f.constraints[key]; ok {
+		out := make([]memory.ConstraintEntry, len(cs))
+		copy(out, cs)
+		return out, nil
+	}
+	return []memory.ConstraintEntry{}, nil
+}
+
+// ---------------------------------------------------------------------------
+// SessionSnapshotStore
+// ---------------------------------------------------------------------------
+
+func snapshotKey(sessionID string, userID int64, agentID string) string {
+	return fmt.Sprintf("%s:%d:%s", sessionID, userID, agentID)
+}
+
+// GetOrCreateSessionSnapshot implements memory.SessionSnapshotStore.
+// Creates with version 0 when not found (sufficient for tests).
+func (f *Fake) GetOrCreateSessionSnapshot(_ context.Context, sessionID string, userID int64, agentID string) (memory.SessionSnapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := snapshotKey(sessionID, userID, agentID)
+	if snap, ok := f.snapshots[key]; ok {
+		return snap, nil
+	}
+	snap := memory.SessionSnapshot{
+		SessionID: sessionID,
+		UserID:    userID,
+		AgentID:   agentID,
+		Version:   0,
+	}
+	f.snapshots[key] = snap
+	return snap, nil
+}
+
+// AdvanceSessionSnapshot implements memory.SessionSnapshotStore.
+// Updates the snapshot version to match the number of changelog entries.
+func (f *Fake) AdvanceSessionSnapshot(_ context.Context, sessionID string, userID int64, agentID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := snapshotKey(sessionID, userID, agentID)
+	snap, ok := f.snapshots[key]
+	if !ok {
+		return nil
+	}
+	// Advance version by counting changelog entries for this user/agent.
+	var count int64
+	for _, e := range f.changelog {
+		if e.UserID == userID && e.AgentID == agentID {
+			count++
+		}
+	}
+	snap.Version = count
+	f.snapshots[key] = snap
+	return nil
+}
+
+// Snapshots returns all stored snapshots for test assertions.
+func (f *Fake) Snapshots() map[string]memory.SessionSnapshot {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make(map[string]memory.SessionSnapshot, len(f.snapshots))
+	maps.Copy(out, f.snapshots)
 	return out
 }
 

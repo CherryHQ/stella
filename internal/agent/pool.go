@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"sync"
@@ -13,18 +14,19 @@ import (
 // Pool manages a set of sessions, each with its own history and
 // It is the only type channels interact with.
 type Pool struct {
-	agentID      string // agent this pool belongs to (empty for legacy single-agent)
-	factory      NewRunnerFunc
-	hooksFn      func() []hooks.HookPlugin // injected into RunnerParams; nil = no hooks
-	beforeRunFn  BeforeRunBuilder
-	sessions     map[string]*Session
-	mem          memory.Provider // memory provider — sole persistence layer
-	mu           sync.Mutex
-	idleTimeout  time.Duration
-	compaction   CompactionConfig
-	defaultModel string // default model ID for new runners
-	fastModel    string // model ID used for compaction / fast tasks
-	log          *slog.Logger
+	agentID          string // agent this pool belongs to (empty for legacy single-agent)
+	factory          NewRunnerFunc
+	hooksFn          func() []hooks.HookPlugin // injected into RunnerParams; nil = no hooks
+	beforeRunFn      BeforeRunBuilder
+	snapshotPromptFn func(ctx context.Context, userID int64, agentID string, version int64) string
+	sessions         map[string]*Session
+	mem              memory.Provider // memory provider — sole persistence layer
+	mu               sync.Mutex
+	idleTimeout      time.Duration
+	compaction       CompactionConfig
+	defaultModel     string // default model ID for new runners
+	fastModel        string // model ID used for compaction / fast tasks
+	log              *slog.Logger
 }
 
 // NewPool creates a new Pool with the given runner factory and memory provider.

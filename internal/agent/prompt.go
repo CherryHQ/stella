@@ -69,19 +69,20 @@ type promptToolEntry struct {
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
 type DBPromptParams struct {
-	SystemPrompt   string          // agent's base system prompt from DB
-	AgentSoul      string          // agent's default soul from DB (fallback for all users)
-	Memory         memory.Provider // active provider for profile loading (may be nil)
-	UserID         int64           // auth user ID for profile lookup
-	AgentID        string          // agent ID for profile lookup
-	AnnaHome       string
-	AgentRoot      string
-	ProjectRoot    string // optional project root for local/project-attached runs
-	UserRoot       string // per-user writable root
-	PromptTools    []pkgplugins.PromptToolInfo
-	PluginPrompts  []pkgplugins.SystemPromptSection
-	PromptSections []pkgplugins.SystemPromptSection
-	Host           sandbox.Host
+	SystemPrompt    string          // agent's base system prompt from DB
+	AgentSoul       string          // agent's default soul from DB (fallback for all users)
+	Memory          memory.Provider // active provider for profile loading (may be nil)
+	UserID          int64           // auth user ID for profile lookup
+	AgentID         string          // agent ID for profile lookup
+	AnnaHome        string
+	AgentRoot       string
+	ProjectRoot     string // optional project root for local/project-attached runs
+	UserRoot        string // per-user writable root
+	PromptTools     []pkgplugins.PromptToolInfo
+	PluginPrompts   []pkgplugins.SystemPromptSection
+	PromptSections  []pkgplugins.SystemPromptSection
+	Host            sandbox.Host
+	SnapshotVersion int64 // frozen memory version for this session; 0 means current
 }
 
 // BuildSystemPromptFromDB composes the full system prompt by populating a
@@ -111,21 +112,41 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	}
 
 	// Memory: per-user soul overrides the agent default when set.
-	if ps, ok := p.Memory.(memory.ProfileStore); ok && p.UserID > 0 && p.AgentID != "" {
-		if s, err := ps.GetAgentSoul(ctx, p.UserID, p.AgentID); err == nil {
-			if soul := strings.TrimRight(s, "\n"); soul != "" {
-				data.AgentSoul = soul
+	if p.UserID > 0 && p.AgentID != "" {
+		if p.SnapshotVersion > 0 {
+			// Versioned reads: use frozen version for stable session identity.
+			if vps, ok := p.Memory.(memory.VersionedProfileStore); ok {
+				if s, err := vps.GetAgentSoulAt(ctx, p.UserID, p.AgentID, p.SnapshotVersion); err == nil {
+					if soul := strings.TrimRight(s, "\n"); soul != "" {
+						data.AgentSoul = soul
+					}
+				}
+				if c, err := vps.GetProfileAt(ctx, p.UserID, p.AgentID, p.SnapshotVersion); err == nil {
+					data.UserProfile = strings.TrimRight(c, "\n")
+				}
 			}
-		}
-		if c, err := ps.GetProfile(ctx, p.UserID, p.AgentID); err == nil {
-			data.UserProfile = strings.TrimRight(c, "\n")
-		}
-	}
-
-	// Constraints: load user-defined hard rules.
-	if cs, ok := p.Memory.(memory.ConstraintStore); ok && p.UserID > 0 && p.AgentID != "" {
-		if constraints, err := cs.GetConstraints(ctx, p.UserID, p.AgentID); err == nil {
-			data.Constraints = constraints
+			if vcs, ok := p.Memory.(memory.VersionedConstraintStore); ok {
+				if constraints, err := vcs.GetConstraintsAt(ctx, p.UserID, p.AgentID, p.SnapshotVersion); err == nil {
+					data.Constraints = constraints
+				}
+			}
+		} else {
+			// Current reads: standard behavior (no snapshot, or version 0).
+			if ps, ok := p.Memory.(memory.ProfileStore); ok {
+				if s, err := ps.GetAgentSoul(ctx, p.UserID, p.AgentID); err == nil {
+					if soul := strings.TrimRight(s, "\n"); soul != "" {
+						data.AgentSoul = soul
+					}
+				}
+				if c, err := ps.GetProfile(ctx, p.UserID, p.AgentID); err == nil {
+					data.UserProfile = strings.TrimRight(c, "\n")
+				}
+			}
+			if cs, ok := p.Memory.(memory.ConstraintStore); ok {
+				if constraints, err := cs.GetConstraints(ctx, p.UserID, p.AgentID); err == nil {
+					data.Constraints = constraints
+				}
+			}
 		}
 	}
 

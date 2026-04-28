@@ -130,10 +130,26 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message MessageConten
 		history = assembled
 	}
 
+	// Session snapshot: build frozen system prompt using snapshot version.
+	// Front-end (tool) writes advance the snapshot; back-end (Reflect) writes don't.
+	var snapshotPrompt string
+	if p.snapshotPromptFn != nil {
+		if sss, ok := p.mem.(memory.SessionSnapshotStore); ok && sess.Info.UserID > 0 && agentID != "" {
+			snapshot, snapErr := sss.GetOrCreateSessionSnapshot(ctx, sessionID, sess.Info.UserID, agentID)
+			if snapErr != nil {
+				p.log.Warn("session snapshot failed", "session_id", sessionID, "error", snapErr)
+			} else {
+				snapshotPrompt = p.snapshotPromptFn(ctx, sess.Info.UserID, agentID, snapshot.Version)
+			}
+		}
+	}
+
 	if p.beforeRunFn != nil {
-		baseSystem := ""
-		if promter, ok := r.(SystemPrompter); ok {
-			baseSystem = promter.SystemPrompt()
+		baseSystem := snapshotPrompt
+		if baseSystem == "" {
+			if promter, ok := r.(SystemPrompter); ok {
+				baseSystem = promter.SystemPrompt()
+			}
 		}
 		if result, err := p.beforeRunFn(ctx, pkgplugins.BeforeRunContext{
 			SessionID:    sessionID,
@@ -152,7 +168,11 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message MessageConten
 			return out
 		} else if result.SystemPrompt != "" && result.SystemPrompt != baseSystem {
 			ctx = WithSystemOverride(ctx, result.SystemPrompt)
+		} else if baseSystem != "" {
+			ctx = WithSystemOverride(ctx, baseSystem)
 		}
+	} else if snapshotPrompt != "" {
+		ctx = WithSystemOverride(ctx, snapshotPrompt)
 	}
 
 	// Store user message via memory provider (after assembly to avoid duplication).
