@@ -4,21 +4,20 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"strings"
-	"time"
+
+	"github.com/go-resty/resty/v2"
+	"github.com/vaayne/anna/pkg/httpclient"
 )
 
 const (
 	clawhubDefaultBaseURL = "https://clawhub.ai"
 	clawhubCNMirrorURL    = "https://cn.clawhub-mirror.com"
-	clawhubTimeout        = 30 * time.Second
 )
 
 type clawhubSearchResult struct {
@@ -68,85 +67,87 @@ To fix this:
    /config CLAWHUB_TOKEN <your-token>
 4. Retry the install`
 
-// clawhubDo performs a GET request for the given path+query, trying each base URL in order.
-// On 429 from the primary site with no token, it automatically falls back to the CN mirror.
-// If all URLs are rate-limited, it returns the user-facing rate-limit guidance message.
-func clawhubDo(ctx context.Context, apiPath string, query url.Values) (*http.Response, error) {
-	token := clawhubToken()
-	client := &http.Client{Timeout: clawhubTimeout}
+func newClawhubClient() *resty.Client {
+	client := httpclient.New().SetHeader("User-Agent", "anna")
+	if token := clawhubToken(); token != "" {
+		client.SetAuthToken(token)
+	}
+	return client
+}
+
+// clawhubWithFallback calls fn(base) for each base URL in order, stopping on the first
+// success. fn returns (is429, err): is429=true signals a rate-limit so the next URL is
+// tried; any other error stops immediately. If all URLs return 429, the rate-limit
+// guidance message is returned.
+func clawhubWithFallback(fn func(base string) (is429 bool, err error)) error {
 	rateLimited := false
-
 	for _, base := range clawhubBaseURLs() {
-		u, err := url.Parse(base + apiPath)
-		if err != nil {
-			return nil, err
-		}
-		u.RawQuery = query.Encode()
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-		if err != nil {
-			return nil, err
-		}
-		if token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-		}
-		req.Header.Set("User-Agent", "anna")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		if resp.StatusCode == http.StatusTooManyRequests {
-			_ = resp.Body.Close()
+		is429, err := fn(base)
+		if is429 {
 			rateLimited = true
 			continue
 		}
-		return resp, nil
+		return err
 	}
-
 	if rateLimited {
-		return nil, fmt.Errorf("%s", clawhubRateLimitMsg)
+		return fmt.Errorf("%s", clawhubRateLimitMsg)
 	}
-	return nil, fmt.Errorf("clawhub: all endpoints unavailable")
+	return fmt.Errorf("clawhub: all endpoints unavailable")
 }
 
 func clawhubSearch(ctx context.Context, query string, limit int) ([]clawhubSearchResult, error) {
 	if limit <= 0 {
 		limit = 10
 	}
-	q := url.Values{}
-	q.Set("q", query)
-	q.Set("limit", fmt.Sprintf("%d", limit))
-
-	resp, err := clawhubDo(ctx, "/api/v1/search", q)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("clawhub search returned HTTP %d", resp.StatusCode)
-	}
+	client := newClawhubClient()
 	var result struct {
 		Results []clawhubSearchResult `json:"results"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("clawhub search decode: %w", err)
+	err := clawhubWithFallback(func(base string) (bool, error) {
+		resp, err := client.R().
+			SetContext(ctx).
+			SetQueryParam("q", query).
+			SetQueryParam("limit", fmt.Sprintf("%d", limit)).
+			SetResult(&result).
+			Get(base + "/api/v1/search")
+		if err != nil {
+			return false, err
+		}
+		if resp.StatusCode() == 429 {
+			return true, nil
+		}
+		if resp.IsError() {
+			return false, fmt.Errorf("clawhub search returned HTTP %d", resp.StatusCode())
+		}
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return result.Results, nil
 }
 
 func clawhubFetchDetail(ctx context.Context, slug string) (*clawhubSkillDetail, error) {
-	resp, err := clawhubDo(ctx, "/api/v1/skills/"+url.PathEscape(slug), nil)
+	client := newClawhubClient()
+	var detail clawhubSkillDetail
+	err := clawhubWithFallback(func(base string) (bool, error) {
+		resp, err := client.R().
+			SetContext(ctx).
+			SetResult(&detail).
+			Get(base + "/api/v1/skills/" + url.PathEscape(slug))
+		if err != nil {
+			return false, err
+		}
+		if resp.StatusCode() == 429 {
+			return true, nil
+		}
+		if resp.IsError() {
+			return false, fmt.Errorf("clawhub detail returned HTTP %d for %q", resp.StatusCode(), slug)
+		}
+		return false, nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("clawhub detail returned HTTP %d for %q", resp.StatusCode, slug)
-	}
-	var detail clawhubSkillDetail
-	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
-		return nil, fmt.Errorf("clawhub detail decode: %w", err)
 	}
 	return &detail, nil
 }
@@ -168,22 +169,28 @@ func clawhubFetchSkillFiles(ctx context.Context, slug, version string) (skillNam
 		version = detail.LatestVersion.Version
 	}
 
-	q := url.Values{}
-	q.Set("slug", slug)
-	q.Set("version", version)
-
-	resp, err := clawhubDo(ctx, "/api/v1/download", q)
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("clawhub download: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return "", nil, nil, fmt.Errorf("clawhub download returned HTTP %d for %q@%s", resp.StatusCode, slug, version)
-	}
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", nil, nil, fmt.Errorf("clawhub download read: %w", err)
+	client := newClawhubClient()
+	var data []byte
+	dlErr := clawhubWithFallback(func(base string) (bool, error) {
+		resp, err := client.R().
+			SetContext(ctx).
+			SetQueryParam("slug", slug).
+			SetQueryParam("version", version).
+			Get(base + "/api/v1/download")
+		if err != nil {
+			return false, err
+		}
+		if resp.StatusCode() == 429 {
+			return true, nil
+		}
+		if resp.IsError() {
+			return false, fmt.Errorf("clawhub download returned HTTP %d for %q@%s", resp.StatusCode(), slug, version)
+		}
+		data = resp.Body()
+		return false, nil
+	})
+	if dlErr != nil {
+		return "", nil, nil, fmt.Errorf("clawhub download: %w", dlErr)
 	}
 
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
