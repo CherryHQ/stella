@@ -55,7 +55,8 @@ type promptData struct {
 	AgentSoul      string // per-user agent soul from ProfileStore
 	UserProfile    string // per-user profile from ProfileStore
 	Constraints    []memory.ConstraintEntry
-	MCPTools       []promptToolEntry // prompt inventory for MCP-discovered tools
+	Knowledge      []pkgplugins.KnowledgeEntry // active fact/context knowledge entries
+	MCPTools       []promptToolEntry           // prompt inventory for MCP-discovered tools
 	PluginPrompts  []pkgplugins.SystemPromptSection
 	PromptSections []pkgplugins.SystemPromptSection
 	ContextFiles   []contextFile // AGENTS.md files (root → leaf)
@@ -69,11 +70,12 @@ type promptToolEntry struct {
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
 type DBPromptParams struct {
-	SystemPrompt    string          // agent's base system prompt from DB
-	AgentSoul       string          // agent's default soul from DB (fallback for all users)
-	Memory          memory.Provider // active provider for profile loading (may be nil)
-	UserID          int64           // auth user ID for profile lookup
-	AgentID         string          // agent ID for profile lookup
+	SystemPrompt    string                    // agent's base system prompt from DB
+	AgentSoul       string                    // agent's default soul from DB (fallback for all users)
+	Memory          memory.Provider           // active provider for profile loading (may be nil)
+	KnowledgeStore  pkgplugins.KnowledgeStore // optional; injects ## Knowledge section when set
+	UserID          int64                     // auth user ID for profile lookup
+	AgentID         string                    // agent ID for profile lookup
 	AnnaHome        string
 	AgentRoot       string
 	ProjectRoot     string // optional project root for local/project-attached runs
@@ -147,6 +149,14 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 					data.Constraints = constraints
 				}
 			}
+		}
+	}
+
+	// Knowledge: active fact/context entries injected as ## Knowledge section.
+	if p.KnowledgeStore != nil && p.UserID > 0 && p.AgentID != "" {
+		vc := pkgplugins.SkillViewContext{UserID: p.UserID, AgentID: p.AgentID}
+		if entries, err := p.KnowledgeStore.ListKnowledge(ctx, vc); err == nil {
+			data.Knowledge = entries
 		}
 	}
 

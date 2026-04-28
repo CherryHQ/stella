@@ -487,7 +487,7 @@ func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOpti
 		if pm.pluginPromptsBuilder != nil {
 			pluginPrompts = pm.pluginPromptsBuilder()
 		}
-		return BuildSystemPromptFromDB(ctx, DBPromptParams{
+		params := DBPromptParams{
 			SystemPrompt:    snap.SystemPrompt,
 			AgentSoul:       snap.Soul,
 			Memory:          pm.mem,
@@ -499,7 +499,11 @@ func (pm *PoolManager) buildSnapshotPromptOption(snap *config.Snapshot) PoolOpti
 			PromptTools:     promptTools,
 			PluginPrompts:   pluginPrompts,
 			PromptSections:  promptSections,
-		})
+		}
+		if ks, ok := pm.skillStore.(pkgplugins.KnowledgeStore); ok {
+			params.KnowledgeStore = ks
+		}
+		return BuildSystemPromptFromDB(ctx, params)
 	})
 }
 

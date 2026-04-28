@@ -14,6 +14,22 @@ If so, use the memory tool:
 
 Keep memory entries concise. Focus on durable facts and preferences, not ephemeral task details.
 
+## Knowledge
+
+Did the conversation reveal durable facts about the project, codebase, or domain (e.g. "this project uses Go + SQLite", "the API base URL is https://api.example.com", "tests must always be run with mise run test")?
+Did the conversation reveal time-bound context (e.g. "the team is doing a release freeze this week", "the current sprint focus is authentication")?
+
+If so, use the skills tool with action="create" and the appropriate knowledge_type:
+- knowledge_type="fact" for durable project/domain facts (e.g. architecture decisions, conventions, external endpoints)
+- knowledge_type="context" for time-bound background info (e.g. current sprint focus, temporary constraints)
+
+Knowledge entries are created as draft (status=draft). The user must activate them (action="patch", status="active") before they appear in sessions.
+
+Do NOT create knowledge entries for:
+- Things already captured in the user profile
+- Transient task details with no long-term value
+- Anything that should be a skill (reusable procedure)
+
 ## Skills
 
 Was a non-trivial approach used to complete a task that required trial and error, or changing course due to experiential findings along the way, or did the user expect or desire a different method or outcome?

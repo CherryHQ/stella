@@ -24,7 +24,14 @@ The following are hard rules set by the user that you must ALWAYS follow, regard
 
 {{ range .Constraints }}- {{ .Text }}
 {{ end }}
-{{ end }}## Agent Soul
+{{ end }}{{ if .Knowledge }}## Knowledge
+
+The following knowledge entries are relevant to this session:
+
+{{ range .Knowledge }}### {{ .Name }} ({{ .KnowledgeType }})
+
+{{ .Content }}
+{{ end }}{{ end }}## Agent Soul
 
 Your identity, personality, and behavior. Edit via the memory tool (soul_get / soul_update).
 
