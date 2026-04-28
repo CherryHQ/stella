@@ -329,6 +329,7 @@ plugins:
     display_name: Tap Web
     description: "Web browsing skill powered by the tap CLI — fetch pages, run browser automation, and capture network traffic."
     enabled: true
+    prompt: "Use tap to access the web."
     binaries:
       - name: tap
         tool: github:vaayne/tap
