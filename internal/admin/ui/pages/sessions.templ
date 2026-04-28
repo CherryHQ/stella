@@ -42,12 +42,32 @@ templ sessionSidebar() {
 		<div class="flex-shrink-0 px-3 py-3 space-y-2.5 border-b border-base-300 bg-base-100">
 			<div class="flex items-center justify-between">
 				<span class="text-xs font-mono text-secondary" x-text="filteredSessions.length + ' sessions'"></span>
-				<button
-					@click="showArchived = !showArchived"
-					class="text-[10px] font-mono cursor-pointer transition-colors"
-					:class="showArchived ? 'text-primary' : 'text-secondary hover:text-base-content'"
-					x-text="showArchived ? 'hide archived' : 'show archived'"
-				></button>
+				<div class="flex items-center gap-2">
+					<button
+						@click="showArchived = !showArchived"
+						class="text-[10px] font-mono cursor-pointer transition-colors"
+						:class="showArchived ? 'text-primary' : 'text-secondary hover:text-base-content'"
+						x-text="showArchived ? 'hide archived' : 'show archived'"
+					></button>
+					<div x-data="{ showNew: false }" class="relative">
+						<button @click="showNew = !showNew" class="btn btn-primary btn-xs">New Session</button>
+						<div x-show="showNew" x-cloak @click.outside="showNew = false" class="absolute right-0 top-full mt-1 z-10 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 w-56 space-y-2">
+							<div>
+								<div class="text-[9px] font-mono text-base-content/40 uppercase tracking-wider mb-1">Agent</div>
+								<select x-model="newSessionAgentID" class="select select-xs select-bordered w-full font-mono text-[10px]">
+									<option value="">— select agent —</option>
+									<template x-for="a in agents" :key="a.id">
+										<option :value="a.id" x-text="a.name || a.id"></option>
+									</template>
+								</select>
+							</div>
+							<div class="flex gap-1 justify-end">
+								<button @click="showNew = false" class="btn btn-ghost btn-xs">Cancel</button>
+								<button @click="createSession(); showNew = false" class="btn btn-primary btn-xs" :disabled="!newSessionAgentID">Create</button>
+							</div>
+						</div>
+					</div>
+				</div>
 			</div>
 			<div class="relative">
 				<input
@@ -179,14 +199,16 @@ templ sessionDetailPanel() {
 						<span class="text-base-content/20">&#183;</span>
 						<span x-text="formatTime(sessionDetail?.last_active)"></span>
 					</span>
+					<template x-if="sessionTotalTokens > 0">
+						<span class="flex items-center gap-1">
+							<span class="text-base-content/20">&#183;</span>
+							<span class="text-[10px] text-primary/60 font-mono" x-text="sessionTotalTokens.toLocaleString() + ' tok'"></span>
+						</span>
+					</template>
 					<span class="text-[10px] text-base-content/25 ml-1 truncate" x-text="sessionDetail?.id"></span>
 				</div>
 				<!-- Tools panel -->
 				<div x-show="activePanel === 'tools'" x-transition x-cloak class="mt-4 -mx-6 border-t border-base-300">
-					<div x-show="toolsLoading" class="flex items-center gap-2 px-6 py-3">
-						<span class="loading loading-spinner loading-xs"></span>
-						<span class="text-xs text-secondary font-mono">Loading tools…</span>
-					</div>
 					<div class="divide-y divide-base-300">
 						<template x-for="tool in tools" :key="tool.name">
 							<div x-data="{ expanded: false }">
@@ -220,11 +242,7 @@ templ sessionDetailPanel() {
 			</div>
 			<!-- Transcript -->
 			<div class="flex-1 overflow-y-auto px-6 py-6">
-				<div x-show="sessionMessagesLoading" class="flex items-center justify-center gap-2 py-16">
-					<span class="loading loading-spinner loading-sm"></span>
-					<span class="text-xs text-secondary font-mono">Loading transcript…</span>
-				</div>
-				<div x-show="!sessionMessagesLoading && sessionMessages.length === 0" x-cloak class="text-center py-16">
+				<div x-show="sessionMessages.length === 0" x-cloak class="text-center py-16">
 					<p class="text-xs text-secondary font-mono">Empty session.</p>
 				</div>
 				<div class="space-y-4">
@@ -240,7 +258,12 @@ templ sessionDetailPanel() {
 									</div>
 									<div class="flex-1 min-w-0">
 										<div class="md-prose" x-html="renderMd(userText(msg))"></div>
-										<div x-show="msg.showTimestamp" class="text-[10px] font-mono text-base-content/30 mt-1" x-text="formatTime(msg.timestamp)"></div>
+										<div x-show="msg.showTimestamp" class="flex items-center gap-2 text-[10px] font-mono text-base-content/30 mt-1">
+											<span x-text="formatTime(msg.timestamp)"></span>
+											<template x-if="msg.token_count > 0">
+												<span class="text-primary/40" x-text="msg.token_count.toLocaleString() + ' tok'"></span>
+											</template>
+										</div>
 									</div>
 								</div>
 							</template>
@@ -296,12 +319,57 @@ templ sessionDetailPanel() {
 										<div x-show="msg.showTimestamp" class="flex items-center gap-2 text-[10px] font-mono text-base-content/25">
 											<span x-show="msg.model" x-text="msg.model"></span>
 											<span x-text="formatTime(msg.timestamp)"></span>
+											<template x-if="msg.token_count > 0">
+												<span class="text-primary/40" x-text="msg.token_count.toLocaleString() + ' tok'"></span>
+											</template>
 										</div>
 									</div>
 								</div>
 							</template>
 							</div>
 					</template>
+				</div>
+			</div>
+			<!-- Message input -->
+			<div x-show="sessionDetail && sessionDetail.user_id === currentUserID" x-cloak class="flex-shrink-0 px-4 pb-4 pt-2 bg-base-100 border-t border-base-300">
+				<div
+					class="relative rounded-2xl border bg-base-100 transition-colors shadow-sm"
+					:class="isStreaming ? 'border-primary/40' : 'border-base-300 focus-within:border-primary/60'"
+				>
+					<textarea
+						x-model="userInput"
+						@keydown.meta.enter.prevent="sendMessage()"
+						@keydown.ctrl.enter.prevent="sendMessage()"
+						@input="$el.style.height = 'auto'; $el.style.height = Math.min($el.scrollHeight, 160) + 'px'"
+						placeholder="Message…"
+						class="w-full px-4 pt-3 pb-11 text-sm bg-transparent border-0 resize-none focus:outline-none leading-relaxed overflow-y-auto"
+						style="min-height: 52px; max-height: 160px;"
+						rows="1"
+						:disabled="isStreaming"
+					></textarea>
+					<div class="absolute bottom-2.5 left-4 right-3 flex items-center justify-between pointer-events-none">
+						<span class="text-[10px] font-mono text-base-content/20 select-none" x-show="!isStreaming">⌘↵ to send</span>
+						<span class="text-[10px] font-mono text-primary/50 select-none" x-show="isStreaming">generating…</span>
+						<div class="flex items-center gap-1 pointer-events-auto">
+							<button
+								x-show="isStreaming"
+								@click="abortMessage()"
+								class="btn btn-ghost btn-xs text-error gap-1 rounded-lg"
+							>
+								<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+								Stop
+							</button>
+							<button
+								x-show="!isStreaming"
+								@click="sendMessage()"
+								class="btn btn-primary btn-sm rounded-xl gap-1.5"
+								:disabled="!userInput.trim()"
+							>
+								<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405Z"/></svg>
+								Send
+							</button>
+						</div>
+					</div>
 				</div>
 			</div>
 		</div>
