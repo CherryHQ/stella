@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+
 	"github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
@@ -36,7 +37,7 @@ type AgentConfig struct {
 	System        string
 	Emit          func(agent.LoopEvent) // optional event emitter for observability
 	Presets       *PresetRegistry       // loaded agent presets (nil = no presets)
-	Hooks         *hooks.HookSet // inherited by subagents (nil = no hooks)
+	Hooks         *hooks.HookSet        // inherited by subagents (nil = no hooks)
 	ToolLifecycle *agent.ToolLifecycle
 
 	// Configurable limits (zero = use defaults).
@@ -352,7 +353,6 @@ func extractLastAssistant(history []ai.Message) (string, ai.StopReason) {
 	}
 	return "", ""
 }
-
 
 func parseAgentTasks(args map[string]any) ([]agentTaskConfig, error) {
 	tasksRaw, ok := args["tasks"]

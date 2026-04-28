@@ -281,39 +281,27 @@ func serializeUserRow(row sqlc.CtxMessage) map[string]any {
 func serializeAssistantRows(rows []sqlc.CtxMessage, start int) (map[string]any, int) {
 	var blocks []map[string]any
 	consumed := 0
-	row := rows[start]
 
-	switch row.EventType {
-	case "text":
-		blocks = append(blocks, map[string]any{"type": "text", "text": row.Content})
-		consumed++
-	case "tool_call":
-		blocks = append(blocks, decodeToolCallBlock(row.Content))
-		consumed++
-	default:
-		blocks = append(blocks, map[string]any{"type": "text", "text": row.Content})
-		consumed++
-		return map[string]any{
-			"role":      "assistant",
-			"blocks":    blocks,
-			"timestamp": row.CreatedAt,
-		}, consumed
-	}
-
-	// Merge following tool_call rows from the same assistant turn.
+	// Merge ALL consecutive assistant rows into one turn — text and tool_calls alike.
+	// A non-assistant row (user, tool) always breaks the run.
 	for start+consumed < len(rows) {
-		next := rows[start+consumed]
-		if next.Role != "assistant" || next.EventType != "tool_call" {
+		row := rows[start+consumed]
+		if row.Role != "assistant" {
 			break
 		}
-		blocks = append(blocks, decodeToolCallBlock(next.Content))
+		switch row.EventType {
+		case "tool_call":
+			blocks = append(blocks, decodeToolCallBlock(row.Content))
+		default:
+			blocks = append(blocks, map[string]any{"type": "text", "text": row.Content})
+		}
 		consumed++
 	}
 
 	return map[string]any{
 		"role":      "assistant",
 		"blocks":    blocks,
-		"timestamp": row.CreatedAt,
+		"timestamp": rows[start].CreatedAt,
 	}, consumed
 }
 
