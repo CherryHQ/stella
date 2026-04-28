@@ -60,7 +60,7 @@ export function register(Alpine) {
     },
 
     get sandboxPlugins() {
-      const validBackends = new Set(['sandbox/docker', 'sandbox/local'])
+      const validBackends = new Set(['sandbox/docker', 'sandbox/local', 'sandbox/none'])
       return this.plugins.filter(p => p.kind === 'sandbox' && validBackends.has(p.id))
     },
 
@@ -811,6 +811,20 @@ export function register(Alpine) {
             'macOS: no filesystem or network policy enforcement',
             'Windows: not supported',
             'Linux: bwrap is required; sessions fail closed if unavailable',
+          ],
+        },
+        'sandbox/none': {
+          recommended: false,
+          isDefault: false,
+          features: [
+            'No external dependencies — works everywhere',
+            'Agent inherits full host environment and permissions',
+            'Suitable for trusted workloads or single-user local deployments',
+          ],
+          limitations: [
+            'No isolation of any kind — agent runs as the current user',
+            'No filesystem, network, or process restrictions enforced',
+            'Not safe for untrusted agents or multi-user environments',
           ],
         },
       }

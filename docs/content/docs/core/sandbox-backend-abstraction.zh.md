@@ -4,11 +4,11 @@ title: 沙箱后端抽象
 
 ## 状态
 
-已实现。Docker 是推荐的沙箱后端。本地后端也可用于无 Docker 环境；Linux 保留操作系统级加固，而 macOS 当前会直接在宿主机上运行本地命令，不再附加额外沙箱。Anna 的执行边界由 `pkg/sandbox` 契约描述，runner 侧注册配置位于 `internal/sandbox`。
+已实现。Docker 是推荐的沙箱后端。本地后端也可用于无 Docker 环境；Linux 保留操作系统级加固，而 macOS 当前会直接在宿主机上运行本地命令，不再附加额外沙箱。`none` 后端也可用于完全受信任的工作负载——它以当前用户权限直接在宿主机上运行代理，不提供任何隔离。Anna 的执行边界由 `pkg/sandbox` 契约描述，runner 侧注册配置位于 `internal/sandbox`。
 
 ## 目的
 
-沙箱抽象的目的是使 runner 代码、插件配置和工具执行不依赖于具体的后端类型。执行总是通过 runner 选中的活动后端进行。Docker 提供最强隔离；本地后端则是在 Docker 不可用或不想使用时的宿主机执行回退方案。
+沙箱抽象的目的是使 runner 代码、插件配置和工具执行不依赖于具体的后端类型。执行总是通过 runner 选中的活动后端进行。Docker 提供最强隔离；本地后端是 Docker 不可用或不想使用时的回退方案；`none` 后端则为完全受信任的单用户本地部署跳过所有隔离。
 
 顶层模型：
 
@@ -45,7 +45,7 @@ Docker 提供完整的容器级进程、文件系统和网络隔离。Docker 守
 - 不支持的策略 → `PolicyCompatibilityError`，runner 不启动
 - 不存在静默降级路径
 
-所有平台（Linux、macOS、Windows）均支持 Docker 后端。不存在 `auto`、`boxsh` 或 `Relaxed` 模式。
+所有平台（Linux、macOS、Windows）均支持 Docker 后端。不存在 `auto` 或 `Relaxed` 模式。
 
 ### 本地后端（无 Docker）
 
@@ -86,6 +86,17 @@ bwrap 必须实际可用，仅安装不够。在未启用 `--privileged` 的 Doc
 
 在 Linux 上，无论真实宿主机路径如何，代理始终将工作区看作 `/workspace`（bwrap 负责绑定挂载），与 Docker 绑定挂载行为一致。在 macOS 上，代理看到的是真实宿主机路径。
 
+### None（宿主机直接执行）
+
+`none` 后端以当前用户权限直接在宿主机 OS 上运行代理，不提供任何隔离——无文件系统限制、无网络限制、无进程组终止，也无资源限制（rlimits）。代理继承完整宿主机环境，并与 runner 注入的会话变量合并。
+
+**仅在单用户本地部署中对完全受信任的代理使用。** 此后端不适用于不受信任的代理或多用户环境。
+
+- 无外部依赖——适用于所有平台
+- `ResolvePath` 将相对路径解析为工作目录下的绝对路径；绝对路径原样返回
+- 网络策略始终为 `allow_all`；每个代理配置的网络模式将被忽略
+- 不会因缺少工具而导致会话创建失败
+
 ## 配置
 
 每个代理的沙箱配置仅限于网络策略（模式和允许列表）。每个代理独立控制其沙箱是否允许出站网络访问以及哪些主机可达。
@@ -107,7 +118,7 @@ runner 为每次运行创建一个 `sandbox.Session` 并持有其生命周期所
 
 ### 后端解析
 
-runner 会根据插件状态解析当前活动后端，并分派到对应的后端工厂。内置工厂当前支持 `docker` 和 `local`。
+runner 会根据插件状态解析当前活动后端，并分派到对应的后端工厂。内置工厂当前支持 `docker`、`local` 和 `none`。
 
 ### 执行时中介
 
@@ -155,6 +166,21 @@ Anna 优先选择显式拒绝而非静默降级：
 - 核心工具一致性测试
 - Docker 后端集成测试
 - 已迁移运行时路径的静态绕过回归保护
+
+## 添加新后端
+
+每个新沙箱后端需要在以下所有位置进行修改——遗漏任何一处都会导致运行时错误：
+
+| 步骤 | 文件 | 操作 |
+|---|---|---|
+| 1 | `internal/config/sandbox.go` | 添加 `SandboxBackend<Name> = "<name>"` 常量 |
+| 2 | `internal/config/plugin.go` | 将名称追加到 `builtinSandboxNames`，确保 DB 行被初始化 |
+| 3 | `plugins/sandbox/<name>/session.go` | 实现 `sandbox.Factory` 和 `sandbox.Session` |
+| 4 | `plugins/sandbox/plugin.go` | 在 `init()` 的 `backends` 切片中添加条目，注册 `AdminVisible` 插件元数据 |
+| 5 | `internal/sandbox/factory.go` | 在 `DefaultRegistry()` 中调用 `mustRegisterFactory(r, <name>plugin.NewFactory(), true)` |
+| 6 | `internal/agent/sandbox_backend.go` | 在 `sessionRegistry` 中添加 `config.SandboxBackend<Name>: create<Name>Session`，并实现工厂函数 |
+| 7 | `internal/admin/ui/static/js/pages/plugins.js` | 将 `"sandbox/<name>"` 添加到 `validBackends`，并在 `sandboxMeta` 中添加包含特性/限制的条目 |
+| 8 | 文档 | 更新本文件及 `sandbox-backend-abstraction.zh.md` |
 
 ## 相关文档
 

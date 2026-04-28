@@ -220,14 +220,8 @@ func TestPolicyCompatibilityErrorMessage(t *testing.T) {
 func TestDefaultRegistry(t *testing.T) {
 	registry := DefaultRegistry()
 
-	// local and boxsh factories are no longer registered
-	local := registry.Get("local")
-	if local != nil {
+	if registry.Get("local") != nil {
 		t.Error("DefaultRegistry should not include local factory")
-	}
-	boxsh := registry.Get("boxsh")
-	if boxsh != nil {
-		t.Error("DefaultRegistry should not include boxsh factory")
 	}
 
 	// Docker is always registered (regardless of daemon availability)

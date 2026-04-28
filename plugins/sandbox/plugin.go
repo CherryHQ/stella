@@ -22,6 +22,11 @@ func init() {
 			displayName: "Local",
 			description: "Default Docker-free sandbox; uses bwrap for filesystem and network isolation on Linux.",
 		},
+		{
+			name:        config.SandboxBackendNone,
+			displayName: "None",
+			description: "No sandbox. Agent runs directly on the host with the current user's permissions. Use only for trusted workloads.",
+		},
 	}
 	for _, b := range backends {
 		id := config.PluginID(config.PluginKindSandbox, b.name)
