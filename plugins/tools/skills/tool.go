@@ -34,7 +34,7 @@ var skillsInputSchema = func() map[string]any {
     },
     "source": {
       "type": "string",
-      "description": "Skill source to install. Supports: 'owner/repo@skill-name' (GitHub shorthand), 'owner/repo@skill-name#ref' (with branch/tag), GitHub/GitLab URLs, or local paths (required for install)"
+      "description": "Skill source to install. Supports: 'clawhub:<slug>' or 'clawhub:<slug>@<version>' (from clawhub.ai), 'owner/repo@skill-name' (GitHub shorthand), 'owner/repo@skill-name#ref' (with branch/tag), GitHub/GitLab URLs, or local paths (required for install)"
     },
     "scope": {
       "type": "string",
