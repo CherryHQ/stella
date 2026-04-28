@@ -203,10 +203,6 @@ templ sessionDetailPanel() {
 				</div>
 				<!-- Tools panel -->
 				<div x-show="activePanel === 'tools'" x-transition x-cloak class="mt-4 -mx-6 border-t border-base-300">
-					<div x-show="toolsLoading" class="flex items-center gap-2 px-6 py-3">
-						<span class="loading loading-spinner loading-xs"></span>
-						<span class="text-xs text-secondary font-mono">Loading tools…</span>
-					</div>
 					<div class="divide-y divide-base-300">
 						<template x-for="tool in tools" :key="tool.name">
 							<div x-data="{ expanded: false }">
@@ -240,11 +236,7 @@ templ sessionDetailPanel() {
 			</div>
 			<!-- Transcript -->
 			<div class="flex-1 overflow-y-auto px-6 py-6">
-				<div x-show="sessionMessagesLoading" class="flex items-center justify-center gap-2 py-16">
-					<span class="loading loading-spinner loading-sm"></span>
-					<span class="text-xs text-secondary font-mono">Loading transcript…</span>
-				</div>
-				<div x-show="!sessionMessagesLoading && sessionMessages.length === 0" x-cloak class="text-center py-16">
+				<div x-show="sessionMessages.length === 0" x-cloak class="text-center py-16">
 					<p class="text-xs text-secondary font-mono">Empty session.</p>
 				</div>
 				<div class="space-y-4">
@@ -325,20 +317,44 @@ templ sessionDetailPanel() {
 				</div>
 			</div>
 			<!-- Message input -->
-			<div x-show="sessionDetail && sessionDetail.user_id === currentUserID" x-cloak class="flex-shrink-0 border-t border-base-300 px-6 py-4">
-				<div class="flex flex-col gap-2">
+			<div x-show="sessionDetail && sessionDetail.user_id === currentUserID" x-cloak class="flex-shrink-0 px-4 pb-4 pt-2 bg-base-100 border-t border-base-300">
+				<div
+					class="relative rounded-2xl border bg-base-100 transition-colors shadow-sm"
+					:class="isStreaming ? 'border-primary/40' : 'border-base-300 focus-within:border-primary/60'"
+				>
 					<textarea
 						x-model="userInput"
 						@keydown.meta.enter.prevent="sendMessage()"
 						@keydown.ctrl.enter.prevent="sendMessage()"
-						placeholder="Send a message… (Cmd+Enter to send)"
-						class="textarea textarea-bordered w-full text-sm resize-none"
-						rows="3"
+						@input="$el.style.height = 'auto'; $el.style.height = Math.min($el.scrollHeight, 160) + 'px'"
+						placeholder="Message…"
+						class="w-full px-4 pt-3 pb-11 text-sm bg-transparent border-0 resize-none focus:outline-none leading-relaxed overflow-y-auto"
+						style="min-height: 52px; max-height: 160px;"
+						rows="1"
 						:disabled="isStreaming"
 					></textarea>
-					<div class="flex justify-end gap-2">
-						<button x-show="isStreaming" @click="abortMessage()" class="btn btn-ghost btn-sm text-error">Abort</button>
-						<button x-show="!isStreaming" @click="sendMessage()" class="btn btn-primary btn-sm" :disabled="!userInput.trim()">Send</button>
+					<div class="absolute bottom-2.5 left-4 right-3 flex items-center justify-between pointer-events-none">
+						<span class="text-[10px] font-mono text-base-content/20 select-none" x-show="!isStreaming">⌘↵ to send</span>
+						<span class="text-[10px] font-mono text-primary/50 select-none" x-show="isStreaming">generating…</span>
+						<div class="flex items-center gap-1 pointer-events-auto">
+							<button
+								x-show="isStreaming"
+								@click="abortMessage()"
+								class="btn btn-ghost btn-xs text-error gap-1 rounded-lg"
+							>
+								<svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+								Stop
+							</button>
+							<button
+								x-show="!isStreaming"
+								@click="sendMessage()"
+								class="btn btn-primary btn-sm rounded-xl gap-1.5"
+								:disabled="!userInput.trim()"
+							>
+								<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M3.478 2.405a.75.75 0 0 0-.926.94l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.405Z"/></svg>
+								Send
+							</button>
+						</div>
 					</div>
 				</div>
 			</div>
