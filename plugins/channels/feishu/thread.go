@@ -55,3 +55,8 @@ func (b *Bot) sendFinalResponseInThread(chatID, replyMsgID, rootID, sentMsgID, r
 func (b *Bot) sendImageInThread(chatID, replyMsgID, rootID string, img channel.ImageEvent) {
 	b.sendImage(chatID, threadReplyTarget(replyMsgID, rootID), img)
 }
+
+// sendFileInThread sends a file in the correct thread context.
+func (b *Bot) sendFileInThread(chatID, replyMsgID, rootID string, file channel.FileEvent) {
+	b.sendFile(chatID, threadReplyTarget(replyMsgID, rootID), file)
+}

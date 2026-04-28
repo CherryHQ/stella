@@ -806,7 +806,7 @@ func TestBuildMessageContentUnsupportedType(t *testing.T) {
 		Content:     &content,
 		MessageId:   &msgID,
 	}
-	got := bot.buildMessageContent(msg)
+	got := bot.buildMessageContent(msg, "")
 	if len(got) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(got))
 	}

@@ -98,6 +98,7 @@ type ChatStream struct {
 type Event struct {
 	Text    string
 	Image   *ImageEvent
+	File    *FileEvent
 	ToolUse *ToolUseEvent
 	Err     error
 }
@@ -106,6 +107,12 @@ type Event struct {
 type ImageEvent struct {
 	Data     string // base64 encoded
 	MimeType string // e.g. "image/jpeg"
+}
+
+// FileEvent carries a local file path to send to the user.
+type FileEvent struct {
+	Path string // absolute path on disk
+	Name string // display filename (with extension)
 }
 
 // ToolUseEvent describes a tool invocation in progress or completed.
@@ -144,4 +151,11 @@ type ProvisionRequest struct {
 // users on first contact, without adding the method to every channel's Handler.
 type Provisioner interface {
 	ProvisionUser(ctx context.Context, req ProvisionRequest) error
+}
+
+// UserRootResolver is an optional capability that a Handler may implement.
+// Channel plugins assert for this interface when they need the per-user
+// writable root path (e.g. to store uploaded files) before calling HandleIncoming.
+type UserRootResolver interface {
+	ResolveUserRoot(ctx context.Context, msg IncomingMessage) (string, error)
 }

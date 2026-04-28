@@ -24,6 +24,7 @@ func SetupWorkspace(agentID, basePath string) (string, error) {
 // Creates:
 //   - basePath/workspaces/{agentID}/users/{userID}/.agents/skills/
 //   - basePath/workspaces/{agentID}/users/{userID}/data/
+//   - basePath/workspaces/{agentID}/users/{userID}/assets/
 //
 // Returns the absolute path to the user's workspace directory
 // (basePath/workspaces/{agentID}/users/{userID}/).
@@ -41,7 +42,16 @@ func SetupUserWorkspace(agentID, basePath string, userID int64) (string, error) 
 	if err := os.MkdirAll(filepath.Join(userDir, "data"), 0o755); err != nil {
 		return "", fmt.Errorf("create user data dir for agent %q user %d: %w", agentID, userID, err)
 	}
+	if err := os.MkdirAll(filepath.Join(userDir, "assets"), 0o755); err != nil {
+		return "", fmt.Errorf("create user assets dir for agent %q user %d: %w", agentID, userID, err)
+	}
 	return userDir, nil
+}
+
+// UserAssetsDir returns the per-user assets directory within a user root.
+// Uploaded files from all channels are stored here.
+func UserAssetsDir(userRoot string) string {
+	return filepath.Join(userRoot, "assets")
 }
 
 // UserSkillsDir returns the per-user skills directory path within a user workspace.
