@@ -5,6 +5,7 @@
 -- atlas:import tables/settings_providers.sql
 -- atlas:import tables/settings_channel_agents.sql
 -- atlas:import tables/ctx_agent_memory.sql
+-- atlas:import tables/memory_changelog.sql
 -- atlas:import tables/ctx_conversations.sql
 -- atlas:import tables/ctx_messages.sql
 -- atlas:import tables/ctx_message_parts.sql

@@ -360,6 +360,26 @@ func (t *tracedProvider) SetAgentSoul(ctx context.Context, userID int64, agentID
 }
 
 // ---------------------------------------------------------------------------
+// ChangelogWriter / ChangelogReader
+// ---------------------------------------------------------------------------
+
+func (t *tracedProvider) WriteChangelog(ctx context.Context, entry ChangeEntry) error {
+	cw, ok := t.inner.(ChangelogWriter)
+	if !ok {
+		return errCapabilityNotSupported("ChangelogWriter")
+	}
+	return cw.WriteChangelog(ctx, entry)
+}
+
+func (t *tracedProvider) ReadChangelog(ctx context.Context, userID int64, agentID string, scope string, limit int) ([]ChangeEntry, error) {
+	cr, ok := t.inner.(ChangelogReader)
+	if !ok {
+		return nil, errCapabilityNotSupported("ChangelogReader")
+	}
+	return cr.ReadChangelog(ctx, userID, agentID, scope, limit)
+}
+
+// ---------------------------------------------------------------------------
 // SessionManager
 // ---------------------------------------------------------------------------
 

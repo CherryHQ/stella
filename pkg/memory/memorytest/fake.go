@@ -51,6 +51,8 @@ type Fake struct {
 	sessionInfos map[string]fakeSessionInfo
 	// bootstrapped tracks which sessions have been bootstrapped.
 	bootstrapped map[string]bool
+	// changelog holds all recorded change entries in insertion order.
+	changelog []memory.ChangeEntry
 	// mu protects all maps.
 	mu sync.Mutex
 }
@@ -69,13 +71,15 @@ func New() *Fake {
 
 // Compile-time interface checks.
 var (
-	_ memory.Provider       = (*Fake)(nil)
-	_ memory.Compactor      = (*Fake)(nil)
-	_ memory.Searcher       = (*Fake)(nil)
-	_ memory.Explorer       = (*Fake)(nil)
-	_ memory.ProfileStore   = (*Fake)(nil)
-	_ memory.SessionManager = (*Fake)(nil)
-	_ memory.Reviewer       = (*Fake)(nil)
+	_ memory.Provider        = (*Fake)(nil)
+	_ memory.Compactor       = (*Fake)(nil)
+	_ memory.Searcher        = (*Fake)(nil)
+	_ memory.Explorer        = (*Fake)(nil)
+	_ memory.ProfileStore    = (*Fake)(nil)
+	_ memory.SessionManager  = (*Fake)(nil)
+	_ memory.Reviewer        = (*Fake)(nil)
+	_ memory.ChangelogWriter = (*Fake)(nil)
+	_ memory.ChangelogReader = (*Fake)(nil)
 )
 
 // ---------------------------------------------------------------------------
@@ -403,6 +407,42 @@ func (f *Fake) BuildReviewContext(_ context.Context, session memory.Session, sin
 	}
 
 	return b.String(), nil
+}
+
+// ---------------------------------------------------------------------------
+// ChangelogWriter / ChangelogReader
+// ---------------------------------------------------------------------------
+
+// WriteChangelog implements memory.ChangelogWriter.
+func (f *Fake) WriteChangelog(_ context.Context, entry memory.ChangeEntry) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.changelog = append(f.changelog, entry)
+	return nil
+}
+
+// ReadChangelog implements memory.ChangelogReader.
+// Returns up to limit entries for the given scope in reverse-insertion order.
+func (f *Fake) ReadChangelog(_ context.Context, userID int64, agentID string, scope string, limit int) ([]memory.ChangeEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var result []memory.ChangeEntry
+	for i := len(f.changelog) - 1; i >= 0 && len(result) < limit; i-- {
+		e := f.changelog[i]
+		if e.UserID == userID && e.AgentID == agentID && e.Scope == scope {
+			result = append(result, e)
+		}
+	}
+	return result, nil
+}
+
+// Changelog returns all recorded changelog entries (in insertion order) for test assertions.
+func (f *Fake) Changelog() []memory.ChangeEntry {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]memory.ChangeEntry, len(f.changelog))
+	copy(out, f.changelog)
+	return out
 }
 
 // ---------------------------------------------------------------------------

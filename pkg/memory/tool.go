@@ -11,14 +11,16 @@ import (
 
 // Action name constants for the memory tool.
 const (
-	actionStatus        = "status"
-	actionSearch        = "search"
-	actionDescribe      = "describe"
-	actionExpand        = "expand"
-	actionSoulGet       = "soul_get"
-	actionSoulUpdate    = "soul_update"
-	actionProfileGet    = "profile_get"
-	actionProfileUpdate = "profile_update"
+	actionStatus          = "status"
+	actionSearch          = "search"
+	actionDescribe        = "describe"
+	actionExpand          = "expand"
+	actionSoulGet         = "soul_get"
+	actionSoulUpdate      = "soul_update"
+	actionProfileGet      = "profile_get"
+	actionProfileUpdate   = "profile_update"
+	actionProfileHistory  = "profile_history"
+	actionProfileRollback = "profile_rollback"
 )
 
 // ToolOption configures the generated memory tool.
@@ -86,6 +88,12 @@ func BuildTool(provider Provider, opts ...ToolOption) tools.Tool {
 	if _, ok := inner.(ProfileStore); ok {
 		t.profileStore, _ = provider.(ProfileStore)
 	}
+	if _, ok := inner.(ChangelogReader); ok {
+		t.changelogReader, _ = provider.(ChangelogReader)
+	}
+	if _, ok := inner.(ChangelogWriter); ok {
+		t.changelogWriter, _ = provider.(ChangelogWriter)
+	}
 
 	// Build the list of available actions.
 	t.actions = t.buildActions()
@@ -101,12 +109,14 @@ type actionMeta struct {
 
 // memoryTool implements tools.Tool with dynamic actions based on provider capabilities.
 type memoryTool struct {
-	provider     Provider
-	cfg          *toolConfig
-	searcher     Searcher
-	explorer     Explorer
-	profileStore ProfileStore
-	actions      []actionMeta
+	provider        Provider
+	cfg             *toolConfig
+	searcher        Searcher
+	explorer        Explorer
+	profileStore    ProfileStore
+	changelogReader ChangelogReader
+	changelogWriter ChangelogWriter
+	actions         []actionMeta
 }
 
 func (t *memoryTool) buildActions() []actionMeta {
@@ -138,6 +148,12 @@ func (t *memoryTool) buildActions() []actionMeta {
 		add(actionProfileGet, "Read the current user profile (facts and context about this user).")
 		if !t.cfg.readOnlyProfile {
 			add(actionProfileUpdate, "Update the user profile. Replaces entire content — include the full updated text.")
+		}
+		if t.changelogReader != nil {
+			add(actionProfileHistory, "Show recent profile or soul change history. Use scope='profile' or scope='soul'.")
+		}
+		if t.changelogReader != nil && t.changelogWriter != nil && !t.cfg.readOnlyProfile {
+			add(actionProfileRollback, "Roll back profile or soul to a previous version. Requires scope and version from profile_history.")
 		}
 	}
 
@@ -215,6 +231,28 @@ func (t *memoryTool) buildInputSchema() map[string]any {
 		}
 	}
 
+	if t.hasAction(actionProfileHistory) || t.hasAction(actionProfileRollback) {
+		properties["history_scope"] = map[string]any{
+			"type":        "string",
+			"enum":        []any{"profile", "soul"},
+			"description": "Which memory type to inspect: 'profile' or 'soul' (required for profile_history and profile_rollback)",
+		}
+	}
+
+	if t.hasAction(actionProfileHistory) {
+		properties["history_limit"] = map[string]any{
+			"type":        "integer",
+			"description": "Maximum number of history entries to return (default 10). Only for profile_history",
+		}
+	}
+
+	if t.hasAction(actionProfileRollback) {
+		properties["rollback_version"] = map[string]any{
+			"type":        "integer",
+			"description": "Target version to roll back to (required for profile_rollback; get versions from profile_history)",
+		}
+	}
+
 	return map[string]any{
 		"type":       "object",
 		"properties": properties,
@@ -258,6 +296,10 @@ func (t *memoryTool) Execute(ctx context.Context, args map[string]any) (string, 
 		return t.execProfileGet(ctx)
 	case actionProfileUpdate:
 		return t.execProfileUpdate(ctx, args)
+	case actionProfileHistory:
+		return t.execProfileHistory(ctx, args)
+	case actionProfileRollback:
+		return t.execProfileRollback(ctx, args)
 	default:
 		return "", fmt.Errorf("unhandled action %q", action)
 	}
@@ -412,6 +454,83 @@ func (t *memoryTool) execProfileUpdate(ctx context.Context, args map[string]any)
 func (t *memoryTool) execSoulUpdate(ctx context.Context, args map[string]any) (string, error) {
 	return t.execStoreUpdate(ctx, args, actionSoulUpdate, t.profileStore.SetAgentSoul,
 		"Agent soul updated. Changes will appear in the system prompt at the next session start.")
+}
+
+func (t *memoryTool) execProfileHistory(ctx context.Context, args map[string]any) (string, error) {
+	if t.changelogReader == nil {
+		return "", fmt.Errorf("memory profile_history: not supported by provider")
+	}
+	userID, agentID, err := t.requireProfileCtx(ctx, actionProfileHistory)
+	if err != nil {
+		return "", err
+	}
+	scope, _ := args["history_scope"].(string)
+	if scope != "profile" && scope != "soul" {
+		scope = "profile"
+	}
+	limit := intArg(args, "history_limit", 10)
+	entries, err := t.changelogReader.ReadChangelog(ctx, userID, agentID, scope, limit)
+	if err != nil {
+		return "", fmt.Errorf("memory profile_history: %w", err)
+	}
+	if len(entries) == 0 {
+		return "No history found.", nil
+	}
+	return marshalJSON(entries)
+}
+
+func (t *memoryTool) execProfileRollback(ctx context.Context, args map[string]any) (string, error) {
+	if t.changelogReader == nil || t.changelogWriter == nil || t.profileStore == nil {
+		return "", fmt.Errorf("memory profile_rollback: not supported by provider")
+	}
+	userID, agentID, err := t.requireProfileCtx(ctx, actionProfileRollback)
+	if err != nil {
+		return "", err
+	}
+
+	scope, _ := args["history_scope"].(string)
+	if scope != "profile" && scope != "soul" {
+		return "", fmt.Errorf("memory profile_rollback: history_scope must be 'profile' or 'soul'")
+	}
+
+	version := intArg(args, "rollback_version", 0)
+	if version <= 0 {
+		return "", fmt.Errorf("memory profile_rollback: rollback_version must be a positive integer")
+	}
+
+	// Look up the text at that version.
+	entries, err := t.changelogReader.ReadChangelog(ctx, userID, agentID, scope, 100)
+	if err != nil {
+		return "", fmt.Errorf("memory profile_rollback: read history: %w", err)
+	}
+
+	var targetText string
+	found := false
+	for _, e := range entries {
+		if e.MemoryVersionAfter != nil && *e.MemoryVersionAfter == int64(version) {
+			targetText = e.AfterText
+			found = true
+			break
+		}
+	}
+	if !found {
+		return "", fmt.Errorf("memory profile_rollback: version %d not found in history", version)
+	}
+
+	// Write the rollback as a new update.
+	rollbackCtx := WithChangeSource(ctx, SourceUser)
+	switch scope {
+	case "profile":
+		if err := t.profileStore.SetProfile(rollbackCtx, userID, agentID, targetText); err != nil {
+			return "", fmt.Errorf("memory profile_rollback: %w", err)
+		}
+	case "soul":
+		if err := t.profileStore.SetAgentSoul(rollbackCtx, userID, agentID, targetText); err != nil {
+			return "", fmt.Errorf("memory profile_rollback: %w", err)
+		}
+	}
+
+	return fmt.Sprintf("Rolled back %s to version %d.", scope, version), nil
 }
 
 // ---------------------------------------------------------------------------

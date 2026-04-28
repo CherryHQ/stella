@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vaayne/anna/internal/memorywrite"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
@@ -17,9 +18,11 @@ import (
 
 // Compile-time interface checks.
 var (
-	_ memory.Provider       = (*Provider)(nil)
-	_ memory.ProfileStore   = (*Provider)(nil)
-	_ memory.SessionManager = (*Provider)(nil)
+	_ memory.Provider        = (*Provider)(nil)
+	_ memory.ProfileStore    = (*Provider)(nil)
+	_ memory.SessionManager  = (*Provider)(nil)
+	_ memory.ChangelogWriter = (*Provider)(nil)
+	_ memory.ChangelogReader = (*Provider)(nil)
 )
 
 // Provider implements a minimal sliding-window memory provider.
@@ -202,11 +205,7 @@ func (p *Provider) GetProfile(ctx context.Context, userID int64, agentID string)
 }
 
 func (p *Provider) SetProfile(ctx context.Context, userID int64, agentID string, content string) error {
-	if err := p.q.UpsertUserAgentMemory(ctx, sqlc.UpsertUserAgentMemoryParams{
-		UserID:  userID,
-		AgentID: agentID,
-		Content: content,
-	}); err != nil {
+	if err := memorywrite.SetProfile(ctx, p.db, p.q, userID, agentID, content); err != nil {
 		return fmt.Errorf("set profile: %w", err)
 	}
 	return nil
@@ -224,14 +223,89 @@ func (p *Provider) GetAgentSoul(ctx context.Context, userID int64, agentID strin
 }
 
 func (p *Provider) SetAgentSoul(ctx context.Context, userID int64, agentID string, content string) error {
-	if err := p.q.UpsertAgentSoul(ctx, sqlc.UpsertAgentSoulParams{
-		UserID:  userID,
-		AgentID: agentID,
-		Soul:    content,
-	}); err != nil {
+	if err := memorywrite.SetAgentSoul(ctx, p.db, p.q, userID, agentID, content); err != nil {
 		return fmt.Errorf("set agent soul: %w", err)
 	}
 	return nil
+}
+
+// WriteChangelog implements memory.ChangelogWriter.
+func (p *Provider) WriteChangelog(ctx context.Context, entry memory.ChangeEntry) error {
+	return p.q.InsertMemoryChangelog(ctx, changeEntryToParams(entry))
+}
+
+// ReadChangelog implements memory.ChangelogReader.
+func (p *Provider) ReadChangelog(ctx context.Context, userID int64, agentID string, scope string, limit int) ([]memory.ChangeEntry, error) {
+	rows, err := p.q.ListMemoryChangelog(ctx, sqlc.ListMemoryChangelogParams{
+		UserID:  userID,
+		AgentID: agentID,
+		Scope:   scope,
+		Limit:   int64(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list changelog: %w", err)
+	}
+	entries := make([]memory.ChangeEntry, len(rows))
+	for i, r := range rows {
+		entries[i] = changelogRowToEntry(r)
+	}
+	return entries, nil
+}
+
+func changeEntryToParams(e memory.ChangeEntry) sqlc.InsertMemoryChangelogParams {
+	params := sqlc.InsertMemoryChangelogParams{
+		UserID:  e.UserID,
+		AgentID: e.AgentID,
+		Scope:   e.Scope,
+		Action:  e.Action,
+		Source:  string(e.Source),
+	}
+	if e.SessionID != "" {
+		params.SessionID = sql.NullString{String: e.SessionID, Valid: true}
+	}
+	if e.MemoryVersionBefore != nil {
+		params.MemoryVersionBefore = sql.NullInt64{Int64: *e.MemoryVersionBefore, Valid: true}
+	}
+	if e.MemoryVersionAfter != nil {
+		params.MemoryVersionAfter = sql.NullInt64{Int64: *e.MemoryVersionAfter, Valid: true}
+	}
+	if e.BeforeText != "" {
+		params.BeforeText = sql.NullString{String: e.BeforeText, Valid: true}
+	}
+	if e.AfterText != "" {
+		params.AfterText = sql.NullString{String: e.AfterText, Valid: true}
+	}
+	return params
+}
+
+func changelogRowToEntry(r sqlc.MemoryChangelog) memory.ChangeEntry {
+	e := memory.ChangeEntry{
+		ID:        r.ID,
+		UserID:    r.UserID,
+		AgentID:   r.AgentID,
+		Scope:     r.Scope,
+		Action:    r.Action,
+		Source:    memory.ChangeSource(r.Source),
+		CreatedAt: r.CreatedAt,
+	}
+	if r.SessionID.Valid {
+		e.SessionID = r.SessionID.String
+	}
+	if r.MemoryVersionBefore.Valid {
+		v := r.MemoryVersionBefore.Int64
+		e.MemoryVersionBefore = &v
+	}
+	if r.MemoryVersionAfter.Valid {
+		v := r.MemoryVersionAfter.Int64
+		e.MemoryVersionAfter = &v
+	}
+	if r.BeforeText.Valid {
+		e.BeforeText = r.BeforeText.String
+	}
+	if r.AfterText.Valid {
+		e.AfterText = r.AfterText.String
+	}
+	return e
 }
 
 // --- SessionManager ---

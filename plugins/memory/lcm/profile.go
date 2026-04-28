@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/vaayne/anna/internal/memorywrite"
 	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 // getMemoryRow fetches the ctx_agent_memory row, returning nil for non-existent rows.
@@ -36,11 +38,7 @@ func (p *Provider) GetProfile(ctx context.Context, userID int64, agentID string)
 }
 
 func (p *Provider) SetProfile(ctx context.Context, userID int64, agentID string, content string) error {
-	if err := p.q.UpsertUserAgentMemory(ctx, sqlc.UpsertUserAgentMemoryParams{
-		UserID:  userID,
-		AgentID: agentID,
-		Content: content,
-	}); err != nil {
+	if err := memorywrite.SetProfile(ctx, p.db, p.q, userID, agentID, content); err != nil {
 		return fmt.Errorf("set profile: %w", err)
 	}
 	return nil
@@ -58,12 +56,87 @@ func (p *Provider) GetAgentSoul(ctx context.Context, userID int64, agentID strin
 }
 
 func (p *Provider) SetAgentSoul(ctx context.Context, userID int64, agentID string, content string) error {
-	if err := p.q.UpsertAgentSoul(ctx, sqlc.UpsertAgentSoulParams{
-		UserID:  userID,
-		AgentID: agentID,
-		Soul:    content,
-	}); err != nil {
+	if err := memorywrite.SetAgentSoul(ctx, p.db, p.q, userID, agentID, content); err != nil {
 		return fmt.Errorf("set agent soul: %w", err)
 	}
 	return nil
+}
+
+// WriteChangelog implements memory.ChangelogWriter.
+func (p *Provider) WriteChangelog(ctx context.Context, entry memory.ChangeEntry) error {
+	return p.q.InsertMemoryChangelog(ctx, changeEntryToParams(entry))
+}
+
+// ReadChangelog implements memory.ChangelogReader.
+func (p *Provider) ReadChangelog(ctx context.Context, userID int64, agentID string, scope string, limit int) ([]memory.ChangeEntry, error) {
+	rows, err := p.q.ListMemoryChangelog(ctx, sqlc.ListMemoryChangelogParams{
+		UserID:  userID,
+		AgentID: agentID,
+		Scope:   scope,
+		Limit:   int64(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list changelog: %w", err)
+	}
+	entries := make([]memory.ChangeEntry, len(rows))
+	for i, r := range rows {
+		entries[i] = changelogRowToEntry(r)
+	}
+	return entries, nil
+}
+
+func changeEntryToParams(e memory.ChangeEntry) sqlc.InsertMemoryChangelogParams {
+	p := sqlc.InsertMemoryChangelogParams{
+		UserID:  e.UserID,
+		AgentID: e.AgentID,
+		Scope:   e.Scope,
+		Action:  e.Action,
+		Source:  string(e.Source),
+	}
+	if e.SessionID != "" {
+		p.SessionID = sql.NullString{String: e.SessionID, Valid: true}
+	}
+	if e.MemoryVersionBefore != nil {
+		p.MemoryVersionBefore = sql.NullInt64{Int64: *e.MemoryVersionBefore, Valid: true}
+	}
+	if e.MemoryVersionAfter != nil {
+		p.MemoryVersionAfter = sql.NullInt64{Int64: *e.MemoryVersionAfter, Valid: true}
+	}
+	if e.BeforeText != "" {
+		p.BeforeText = sql.NullString{String: e.BeforeText, Valid: true}
+	}
+	if e.AfterText != "" {
+		p.AfterText = sql.NullString{String: e.AfterText, Valid: true}
+	}
+	return p
+}
+
+func changelogRowToEntry(r sqlc.MemoryChangelog) memory.ChangeEntry {
+	e := memory.ChangeEntry{
+		ID:        r.ID,
+		UserID:    r.UserID,
+		AgentID:   r.AgentID,
+		Scope:     r.Scope,
+		Action:    r.Action,
+		Source:    memory.ChangeSource(r.Source),
+		CreatedAt: r.CreatedAt,
+	}
+	if r.SessionID.Valid {
+		e.SessionID = r.SessionID.String
+	}
+	if r.MemoryVersionBefore.Valid {
+		v := r.MemoryVersionBefore.Int64
+		e.MemoryVersionBefore = &v
+	}
+	if r.MemoryVersionAfter.Valid {
+		v := r.MemoryVersionAfter.Int64
+		e.MemoryVersionAfter = &v
+	}
+	if r.BeforeText.Valid {
+		e.BeforeText = r.BeforeText.String
+	}
+	if r.AfterText.Valid {
+		e.AfterText = r.AfterText.String
+	}
+	return e
 }

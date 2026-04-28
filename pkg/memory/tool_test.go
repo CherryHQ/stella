@@ -47,12 +47,12 @@ func TestBuildTool_FullProvider(t *testing.T) {
 
 	// All actions should be present.
 	actions := extractActionEnum(t, def.InputSchema)
-	expected := []string{"status", "search", "describe", "expand", "soul_get", "soul_update", "profile_get", "profile_update"}
+	expected := []string{"status", "search", "describe", "expand", "soul_get", "soul_update", "profile_get", "profile_update", "profile_history", "profile_rollback"}
 	assertActions(t, actions, expected)
 
 	// Schema should include all action-specific parameters.
 	props := def.InputSchema["properties"].(map[string]any)
-	for _, key := range []string{"pattern", "scope", "limit", "summary_id", "token_cap", "content"} {
+	for _, key := range []string{"pattern", "scope", "limit", "summary_id", "token_cap", "content", "history_scope", "history_limit", "rollback_version"} {
 		if _, ok := props[key]; !ok {
 			t.Errorf("expected property %q in schema", key)
 		}
