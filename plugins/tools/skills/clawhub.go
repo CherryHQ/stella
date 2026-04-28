@@ -17,6 +17,7 @@ import (
 
 const (
 	clawhubDefaultBaseURL = "https://clawhub.ai"
+	clawhubCNMirrorURL    = "https://cn.clawhub-mirror.com"
 	clawhubTimeout        = 30 * time.Second
 )
 
@@ -40,15 +41,22 @@ type clawhubSkillDetail struct {
 	} `json:"latestVersion"`
 }
 
-func clawhubBaseURL() string {
-	if v := os.Getenv("CLAWHUB_URL"); v != "" {
-		return strings.TrimRight(v, "/")
-	}
-	return clawhubDefaultBaseURL
-}
-
 func clawhubToken() string {
 	return os.Getenv("CLAWHUB_TOKEN")
+}
+
+// clawhubBaseURLs returns the ordered list of base URLs to try.
+// If CLAWHUB_URL is set, only that URL is used.
+// If a token is configured, only the main site is used.
+// Otherwise the CN mirror is tried automatically as a fallback after 429.
+func clawhubBaseURLs() []string {
+	if v := os.Getenv("CLAWHUB_URL"); v != "" {
+		return []string{strings.TrimRight(v, "/")}
+	}
+	if clawhubToken() != "" {
+		return []string{clawhubDefaultBaseURL}
+	}
+	return []string{clawhubDefaultBaseURL, clawhubCNMirrorURL}
 }
 
 const clawhubRateLimitMsg = `ClawHub rate limit exceeded (HTTP 429). Anonymous access has a very low quota — a free API token is required.
@@ -60,43 +68,59 @@ To fix this:
    /config CLAWHUB_TOKEN <your-token>
 4. Retry the install`
 
-func clawhubRequest(ctx context.Context, rawURL string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	if token := clawhubToken(); token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	req.Header.Set("User-Agent", "anna")
+// clawhubDo performs a GET request for the given path+query, trying each base URL in order.
+// On 429 from the primary site with no token, it automatically falls back to the CN mirror.
+// If all URLs are rate-limited, it returns the user-facing rate-limit guidance message.
+func clawhubDo(ctx context.Context, apiPath string, query url.Values) (*http.Response, error) {
+	token := clawhubToken()
 	client := &http.Client{Timeout: clawhubTimeout}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
+	rateLimited := false
+
+	for _, base := range clawhubBaseURLs() {
+		u, err := url.Parse(base + apiPath)
+		if err != nil {
+			return nil, err
+		}
+		u.RawQuery = query.Encode()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		req.Header.Set("User-Agent", "anna")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			_ = resp.Body.Close()
+			rateLimited = true
+			continue
+		}
+		return resp, nil
 	}
-	if resp.StatusCode == http.StatusTooManyRequests {
-		_ = resp.Body.Close()
+
+	if rateLimited {
 		return nil, fmt.Errorf("%s", clawhubRateLimitMsg)
 	}
-	return resp, nil
+	return nil, fmt.Errorf("clawhub: all endpoints unavailable")
 }
 
 func clawhubSearch(ctx context.Context, query string, limit int) ([]clawhubSearchResult, error) {
 	if limit <= 0 {
 		limit = 10
 	}
-	u, err := url.Parse(clawhubBaseURL() + "/api/v1/search")
-	if err != nil {
-		return nil, err
-	}
-	q := u.Query()
+	q := url.Values{}
 	q.Set("q", query)
 	q.Set("limit", fmt.Sprintf("%d", limit))
-	u.RawQuery = q.Encode()
 
-	resp, err := clawhubRequest(ctx, u.String())
+	resp, err := clawhubDo(ctx, "/api/v1/search", q)
 	if err != nil {
-		return nil, fmt.Errorf("clawhub search: %w", err)
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
@@ -112,10 +136,9 @@ func clawhubSearch(ctx context.Context, query string, limit int) ([]clawhubSearc
 }
 
 func clawhubFetchDetail(ctx context.Context, slug string) (*clawhubSkillDetail, error) {
-	rawURL := clawhubBaseURL() + "/api/v1/skills/" + url.PathEscape(slug)
-	resp, err := clawhubRequest(ctx, rawURL)
+	resp, err := clawhubDo(ctx, "/api/v1/skills/"+url.PathEscape(slug), nil)
 	if err != nil {
-		return nil, fmt.Errorf("clawhub detail: %w", err)
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
@@ -145,16 +168,11 @@ func clawhubFetchSkillFiles(ctx context.Context, slug, version string) (skillNam
 		version = detail.LatestVersion.Version
 	}
 
-	u, err := url.Parse(clawhubBaseURL() + "/api/v1/download")
-	if err != nil {
-		return "", nil, nil, err
-	}
-	q := u.Query()
+	q := url.Values{}
 	q.Set("slug", slug)
 	q.Set("version", version)
-	u.RawQuery = q.Encode()
 
-	resp, err := clawhubRequest(ctx, u.String())
+	resp, err := clawhubDo(ctx, "/api/v1/download", q)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("clawhub download: %w", err)
 	}
