@@ -99,7 +99,6 @@ func TestParseAgentTasks_InvalidTasksType(t *testing.T) {
 	}
 }
 
-
 func TestParseAgentTasks_MissingTask(t *testing.T) {
 	args := map[string]any{
 		"tasks": []any{

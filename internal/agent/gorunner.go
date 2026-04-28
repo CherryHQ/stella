@@ -140,14 +140,14 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 	hookSet := buildHookSet(cfg)
 
 	toolReg.Register(agenttool.NewAgentTool(agenttool.AgentConfig{
-		Providers: reg,
-		Registry:  toolReg,
-		Model:     model,
-		APIKey:    cfg.APIKey,
-		BaseURL:   cfg.BaseURL,
-		System:    system,
-		Presets: presets,
-		Hooks:   hookSet,
+		Providers:     reg,
+		Registry:      toolReg,
+		Model:         model,
+		APIKey:        cfg.APIKey,
+		BaseURL:       cfg.BaseURL,
+		System:        system,
+		Presets:       presets,
+		Hooks:         hookSet,
 		ToolLifecycle: cfg.ToolLifecycle,
 	}))
 
