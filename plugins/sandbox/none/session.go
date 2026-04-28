@@ -25,8 +25,8 @@ func NewFactory() sandboxpkg.Factory { return &Factory{} }
 // Name returns the backend name.
 func (f *Factory) Name() string { return "none" }
 
-// Available always returns true — no external dependencies.
-func (f *Factory) Available() bool { return true }
+// Available returns true on all platforms except Windows.
+func (f *Factory) Available() bool { return platformAvailable() }
 
 // Supported accepts any policy; the none backend imposes no restrictions.
 func (f *Factory) Supported(_ sandboxpkg.Policy) error { return nil }
@@ -121,7 +121,8 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 		defer cancel()
 	}
 
-	cmd := exec.Command("sh", "-c", command)
+	sh, shFlag := shell()
+	cmd := exec.Command(sh, shFlag, command)
 	cmd.Dir = cwd
 	cmd.Env = buildEnv(s.policy, opts.Env)
 

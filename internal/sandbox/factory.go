@@ -3,7 +3,6 @@ package sandbox
 import (
 	sandboxpkg "github.com/vaayne/anna/pkg/sandbox"
 	dockerplugin "github.com/vaayne/anna/plugins/sandbox/docker"
-	noneplugin "github.com/vaayne/anna/plugins/sandbox/none"
 )
 
 type (
@@ -24,7 +23,6 @@ func NewRegistry() *Registry {
 func DefaultRegistry() *Registry {
 	r := NewRegistry()
 	mustRegisterFactory(r, dockerplugin.NewFactory(dockerplugin.Config{}), true)
-	mustRegisterFactory(r, noneplugin.NewFactory(), true)
 	return r
 }
 
