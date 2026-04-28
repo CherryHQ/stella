@@ -18,6 +18,7 @@ import (
 	// Plugin tools.
 	_ "github.com/vaayne/anna/plugins/tools/bash"
 	_ "github.com/vaayne/anna/plugins/tools/edit"
+	_ "github.com/vaayne/anna/plugins/tools/lark-cli"
 	_ "github.com/vaayne/anna/plugins/tools/mcp"
 	_ "github.com/vaayne/anna/plugins/tools/notify"
 	_ "github.com/vaayne/anna/plugins/tools/read"

@@ -146,7 +146,6 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 	for id := range h.manifestEnabledIDs {
 		delete(h.sessionEnvRegs, id)
 		delete(h.manifestPrompts, id)
-		delete(h.configRegs, id)
 	}
 	for id := range h.manifestOwnedIDs {
 		delete(h.pluginIDs, id)
@@ -180,13 +179,9 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 			if displayName == "" {
 				displayName = name
 			}
-			hasConfig := len(p.ConfigDefaults) > 0 || p.ConfigSchema != nil
 			var caps []string
 			if p.Prompt != "" {
 				caps = append(caps, pkgplugins.CapabilityPrompt)
-			}
-			if hasConfig {
-				caps = append(caps, pkgplugins.CapabilityConfig)
 			}
 			h.RegisterPluginID(p.ID)
 			h.SetInfo(pkgplugins.PluginInfo{
@@ -196,31 +191,7 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 				DisplayName:  displayName,
 				Description:  p.Description,
 				AdminVisible: true,
-				HasConfig:    hasConfig,
 				Capabilities: caps,
-			})
-		}
-
-		if len(p.ConfigDefaults) > 0 || p.ConfigSchema != nil {
-			defaults := p.ConfigDefaults
-			schema := p.ConfigSchema
-			secretFields := p.ConfigSecretFields
-			h.AddAdmin(pkgplugins.AdminSpec{
-				PluginID:      p.ID,
-				DefaultConfig: func() map[string]any { return defaults },
-				Schema:        schema,
-				Redact: func(raw map[string]any) map[string]any {
-					out := make(map[string]any, len(raw))
-					for k, v := range raw {
-						out[k] = v
-					}
-					for _, f := range secretFields {
-						if _, ok := out[f]; ok {
-							out[f] = "***"
-						}
-					}
-					return out
-				},
 			})
 		}
 

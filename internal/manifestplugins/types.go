@@ -8,9 +8,6 @@ type ManifestPlugin struct {
 	Description              string               `json:"description" yaml:"description"`
 	Enabled                  bool                 `json:"enabled" yaml:"enabled"`
 	Prompt                   string               `json:"prompt,omitempty" yaml:"prompt,omitempty"`
-	ConfigDefaults           map[string]any       `json:"config_defaults,omitempty" yaml:"config_defaults,omitempty"`
-	ConfigSchema             map[string]any       `json:"config_schema,omitempty" yaml:"config_schema,omitempty"`
-	ConfigSecretFields       []string             `json:"config_secret_fields,omitempty" yaml:"config_secret_fields,omitempty"`
 	Binaries                 []ManifestBinary     `json:"binaries,omitempty" yaml:"binaries,omitempty"`
 	Skills                   []ManifestSkill      `json:"skills,omitempty" yaml:"skills,omitempty"`
 	SessionEnvs              []ManifestSessionEnv `json:"session_env,omitempty" yaml:"session_env,omitempty"`
@@ -103,9 +100,6 @@ type rawManifestPlugin struct {
 	Description              string               `yaml:"description"`
 	Enabled                  *bool                `yaml:"enabled"`
 	Prompt                   string               `yaml:"prompt,omitempty"`
-	ConfigDefaults           map[string]any       `yaml:"config_defaults,omitempty"`
-	ConfigSchema             map[string]any       `yaml:"config_schema,omitempty"`
-	ConfigSecretFields       []string             `yaml:"config_secret_fields,omitempty"`
 	Binaries                 []ManifestBinary     `yaml:"binaries,omitempty"`
 	Skills                   []ManifestSkill      `yaml:"skills,omitempty"`
 	SessionEnvs              []ManifestSessionEnv `yaml:"session_env,omitempty"`
