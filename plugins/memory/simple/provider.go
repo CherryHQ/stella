@@ -23,6 +23,7 @@ var (
 	_ memory.SessionManager  = (*Provider)(nil)
 	_ memory.ChangelogWriter = (*Provider)(nil)
 	_ memory.ChangelogReader = (*Provider)(nil)
+	_ memory.ConstraintStore = (*Provider)(nil)
 )
 
 // Provider implements a minimal sliding-window memory provider.
@@ -227,6 +228,21 @@ func (p *Provider) SetAgentSoul(ctx context.Context, userID int64, agentID strin
 		return fmt.Errorf("set agent soul: %w", err)
 	}
 	return nil
+}
+
+// GetConstraints implements memory.ConstraintStore.
+func (p *Provider) GetConstraints(ctx context.Context, userID int64, agentID string) ([]memory.ConstraintEntry, error) {
+	return memorywrite.GetConstraints(ctx, p.q, userID, agentID)
+}
+
+// AddConstraint implements memory.ConstraintStore.
+func (p *Provider) AddConstraint(ctx context.Context, userID int64, agentID string, text string) ([]memory.ConstraintEntry, error) {
+	return memorywrite.AddConstraint(ctx, p.db, p.q, userID, agentID, text)
+}
+
+// RemoveConstraint implements memory.ConstraintStore.
+func (p *Provider) RemoveConstraint(ctx context.Context, userID int64, agentID string, id string) ([]memory.ConstraintEntry, error) {
+	return memorywrite.RemoveConstraint(ctx, p.db, p.q, userID, agentID, id)
 }
 
 // WriteChangelog implements memory.ChangelogWriter.

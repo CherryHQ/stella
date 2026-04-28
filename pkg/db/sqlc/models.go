@@ -58,12 +58,13 @@ type AuthUserAgent struct {
 }
 
 type CtxAgentMemory struct {
-	UserID    int64  `json:"user_id"`
-	AgentID   string `json:"agent_id"`
-	Content   string `json:"content"`
-	Soul      string `json:"soul"`
-	Version   int64  `json:"version"`
-	UpdatedAt string `json:"updated_at"`
+	UserID      int64  `json:"user_id"`
+	AgentID     string `json:"agent_id"`
+	Content     string `json:"content"`
+	Soul        string `json:"soul"`
+	Version     int64  `json:"version"`
+	Constraints string `json:"constraints"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 type CtxConversation struct {

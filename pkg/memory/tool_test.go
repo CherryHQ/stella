@@ -47,12 +47,12 @@ func TestBuildTool_FullProvider(t *testing.T) {
 
 	// All actions should be present.
 	actions := extractActionEnum(t, def.InputSchema)
-	expected := []string{"status", "search", "describe", "expand", "soul_get", "soul_update", "profile_get", "profile_update", "profile_history", "profile_rollback"}
+	expected := []string{"status", "search", "describe", "expand", "soul_get", "soul_update", "profile_get", "profile_update", "profile_history", "profile_rollback", "constraint_list", "constraint_add", "constraint_remove"}
 	assertActions(t, actions, expected)
 
 	// Schema should include all action-specific parameters.
 	props := def.InputSchema["properties"].(map[string]any)
-	for _, key := range []string{"pattern", "scope", "limit", "summary_id", "token_cap", "content", "history_scope", "history_limit", "rollback_version"} {
+	for _, key := range []string{"pattern", "scope", "limit", "summary_id", "token_cap", "content", "history_scope", "history_limit", "rollback_version", "constraint_text", "constraint_id"} {
 		if _, ok := props[key]; !ok {
 			t.Errorf("expected property %q in schema", key)
 		}
@@ -63,6 +63,97 @@ func TestBuildTool_FullProvider(t *testing.T) {
 		if !containsString(def.Description, a) {
 			t.Errorf("description should mention action %q", a)
 		}
+	}
+}
+
+func TestExecute_ConstraintListAddRemove(t *testing.T) {
+	fake := memorytest.New()
+	tool := memory.BuildTool(fake)
+
+	ctx := memory.WithUserID(context.Background(), 1)
+	ctx = memory.WithAgentID(ctx, "agent1")
+
+	// Initially empty.
+	result, err := tool.Execute(ctx, map[string]any{"action": "constraint_list"})
+	if err != nil {
+		t.Fatalf("constraint_list error: %v", err)
+	}
+	if result != "No constraints set." {
+		t.Errorf("expected empty message, got %q", result)
+	}
+
+	// Add a constraint.
+	result, err = tool.Execute(ctx, map[string]any{
+		"action":          "constraint_add",
+		"constraint_text": "Always respond in English",
+	})
+	if err != nil {
+		t.Fatalf("constraint_add error: %v", err)
+	}
+
+	var entries []memory.ConstraintEntry
+	if err := json.Unmarshal([]byte(result), &entries); err != nil {
+		t.Fatalf("unmarshal add result: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 constraint, got %d", len(entries))
+	}
+	if entries[0].Text != "Always respond in English" {
+		t.Errorf("expected text 'Always respond in English', got %q", entries[0].Text)
+	}
+	addedID := entries[0].ID
+
+	// List returns the constraint.
+	result, err = tool.Execute(ctx, map[string]any{"action": "constraint_list"})
+	if err != nil {
+		t.Fatalf("constraint_list error: %v", err)
+	}
+	var listed []memory.ConstraintEntry
+	if err := json.Unmarshal([]byte(result), &listed); err != nil {
+		t.Fatalf("unmarshal list result: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("expected 1 constraint in list, got %d", len(listed))
+	}
+
+	// Remove the constraint.
+	result, err = tool.Execute(ctx, map[string]any{
+		"action":        "constraint_remove",
+		"constraint_id": addedID,
+	})
+	if err != nil {
+		t.Fatalf("constraint_remove error: %v", err)
+	}
+	var afterRemove []memory.ConstraintEntry
+	if err := json.Unmarshal([]byte(result), &afterRemove); err != nil {
+		t.Fatalf("unmarshal remove result: %v", err)
+	}
+	if len(afterRemove) != 0 {
+		t.Errorf("expected 0 constraints after remove, got %d", len(afterRemove))
+	}
+}
+
+func TestExecute_ConstraintAdd_MissingText(t *testing.T) {
+	fake := memorytest.New()
+	tool := memory.BuildTool(fake)
+	ctx := memory.WithUserID(context.Background(), 1)
+	ctx = memory.WithAgentID(ctx, "agent1")
+
+	_, err := tool.Execute(ctx, map[string]any{"action": "constraint_add"})
+	if err == nil {
+		t.Fatal("expected error for missing constraint_text")
+	}
+}
+
+func TestExecute_ConstraintRemove_MissingID(t *testing.T) {
+	fake := memorytest.New()
+	tool := memory.BuildTool(fake)
+	ctx := memory.WithUserID(context.Background(), 1)
+	ctx = memory.WithAgentID(ctx, "agent1")
+
+	_, err := tool.Execute(ctx, map[string]any{"action": "constraint_remove"})
+	if err == nil {
+		t.Fatal("expected error for missing constraint_id")
 	}
 }
 

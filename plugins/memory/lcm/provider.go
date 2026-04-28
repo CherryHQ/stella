@@ -25,6 +25,7 @@ var (
 	_ memory.Reviewer        = (*Provider)(nil)
 	_ memory.ChangelogWriter = (*Provider)(nil)
 	_ memory.ChangelogReader = (*Provider)(nil)
+	_ memory.ConstraintStore = (*Provider)(nil)
 )
 
 // Provider implements memory.Provider and all six capability interfaces

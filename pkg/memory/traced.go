@@ -380,6 +380,34 @@ func (t *tracedProvider) ReadChangelog(ctx context.Context, userID int64, agentI
 }
 
 // ---------------------------------------------------------------------------
+// ConstraintStore
+// ---------------------------------------------------------------------------
+
+func (t *tracedProvider) GetConstraints(ctx context.Context, userID int64, agentID string) ([]ConstraintEntry, error) {
+	cs, ok := t.inner.(ConstraintStore)
+	if !ok {
+		return nil, errCapabilityNotSupported("ConstraintStore")
+	}
+	return cs.GetConstraints(ctx, userID, agentID)
+}
+
+func (t *tracedProvider) AddConstraint(ctx context.Context, userID int64, agentID string, text string) ([]ConstraintEntry, error) {
+	cs, ok := t.inner.(ConstraintStore)
+	if !ok {
+		return nil, errCapabilityNotSupported("ConstraintStore")
+	}
+	return cs.AddConstraint(ctx, userID, agentID, text)
+}
+
+func (t *tracedProvider) RemoveConstraint(ctx context.Context, userID int64, agentID string, id string) ([]ConstraintEntry, error) {
+	cs, ok := t.inner.(ConstraintStore)
+	if !ok {
+		return nil, errCapabilityNotSupported("ConstraintStore")
+	}
+	return cs.RemoveConstraint(ctx, userID, agentID, id)
+}
+
+// ---------------------------------------------------------------------------
 // SessionManager
 // ---------------------------------------------------------------------------
 

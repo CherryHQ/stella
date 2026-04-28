@@ -29,6 +29,10 @@ Use the skills tool with action="create", "patch", or "deprecate".
 - Prefer patching an existing skill over creating a new one when the topic overlaps.
 - Create at most 3 skills per review — quality over quantity.
 
+## Constraints
+
+You MUST NOT modify constraints. The 'constraint_add', 'constraint_remove', and 'constraint_list' actions are off-limits. Constraints are managed exclusively by the user.
+
 ## General
 
 Only act if there is something genuinely worth saving.

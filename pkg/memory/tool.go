@@ -21,6 +21,10 @@ const (
 	actionProfileUpdate   = "profile_update"
 	actionProfileHistory  = "profile_history"
 	actionProfileRollback = "profile_rollback"
+
+	actionConstraintList   = "constraint_list"
+	actionConstraintAdd    = "constraint_add"
+	actionConstraintRemove = "constraint_remove"
 )
 
 // ToolOption configures the generated memory tool.
@@ -94,6 +98,9 @@ func BuildTool(provider Provider, opts ...ToolOption) tools.Tool {
 	if _, ok := inner.(ChangelogWriter); ok {
 		t.changelogWriter, _ = provider.(ChangelogWriter)
 	}
+	if _, ok := inner.(ConstraintStore); ok {
+		t.constraintStore, _ = provider.(ConstraintStore)
+	}
 
 	// Build the list of available actions.
 	t.actions = t.buildActions()
@@ -116,6 +123,7 @@ type memoryTool struct {
 	profileStore    ProfileStore
 	changelogReader ChangelogReader
 	changelogWriter ChangelogWriter
+	constraintStore ConstraintStore
 	actions         []actionMeta
 }
 
@@ -155,6 +163,12 @@ func (t *memoryTool) buildActions() []actionMeta {
 		if t.changelogReader != nil && t.changelogWriter != nil && !t.cfg.readOnlyProfile {
 			add(actionProfileRollback, "Roll back profile or soul to a previous version. Requires scope and version from profile_history.")
 		}
+	}
+
+	if t.constraintStore != nil {
+		add(actionConstraintList, "List all active constraints (hard rules the agent must follow).")
+		add(actionConstraintAdd, "Add a new constraint. Only call after getting explicit user confirmation.")
+		add(actionConstraintRemove, "Remove a constraint by its ID.")
 	}
 
 	return actions
@@ -253,6 +267,20 @@ func (t *memoryTool) buildInputSchema() map[string]any {
 		}
 	}
 
+	if t.hasAction(actionConstraintAdd) {
+		properties["constraint_text"] = map[string]any{
+			"type":        "string",
+			"description": "The text of the constraint to add (required for constraint_add)",
+		}
+	}
+
+	if t.hasAction(actionConstraintRemove) {
+		properties["constraint_id"] = map[string]any{
+			"type":        "string",
+			"description": "The ID of the constraint to remove (required for constraint_remove; get IDs from constraint_list)",
+		}
+	}
+
 	return map[string]any{
 		"type":       "object",
 		"properties": properties,
@@ -300,6 +328,12 @@ func (t *memoryTool) Execute(ctx context.Context, args map[string]any) (string, 
 		return t.execProfileHistory(ctx, args)
 	case actionProfileRollback:
 		return t.execProfileRollback(ctx, args)
+	case actionConstraintList:
+		return t.execConstraintList(ctx)
+	case actionConstraintAdd:
+		return t.execConstraintAdd(ctx, args)
+	case actionConstraintRemove:
+		return t.execConstraintRemove(ctx, args)
 	default:
 		return "", fmt.Errorf("unhandled action %q", action)
 	}
@@ -531,6 +565,68 @@ func (t *memoryTool) execProfileRollback(ctx context.Context, args map[string]an
 	}
 
 	return fmt.Sprintf("Rolled back %s to version %d.", scope, version), nil
+}
+
+func (t *memoryTool) requireConstraintCtx(ctx context.Context, action string) (int64, string, error) {
+	if t.constraintStore == nil {
+		return 0, "", fmt.Errorf("memory %s: not supported by provider", action)
+	}
+	userID := UserIDFromContext(ctx)
+	if userID == 0 {
+		return 0, "", fmt.Errorf("memory %s: no user context", action)
+	}
+	agentID := AgentIDFromContext(ctx)
+	if agentID == "" {
+		return 0, "", fmt.Errorf("memory %s: no agent context", action)
+	}
+	return userID, agentID, nil
+}
+
+func (t *memoryTool) execConstraintList(ctx context.Context) (string, error) {
+	userID, agentID, err := t.requireConstraintCtx(ctx, actionConstraintList)
+	if err != nil {
+		return "", err
+	}
+	entries, err := t.constraintStore.GetConstraints(ctx, userID, agentID)
+	if err != nil {
+		return "", fmt.Errorf("memory constraint_list: %w", err)
+	}
+	if len(entries) == 0 {
+		return "No constraints set.", nil
+	}
+	return marshalJSON(entries)
+}
+
+func (t *memoryTool) execConstraintAdd(ctx context.Context, args map[string]any) (string, error) {
+	text, _ := args["constraint_text"].(string)
+	if text == "" {
+		return "", fmt.Errorf("memory constraint_add: constraint_text is required")
+	}
+	userID, agentID, err := t.requireConstraintCtx(ctx, actionConstraintAdd)
+	if err != nil {
+		return "", err
+	}
+	entries, err := t.constraintStore.AddConstraint(ctx, userID, agentID, text)
+	if err != nil {
+		return "", fmt.Errorf("memory constraint_add: %w", err)
+	}
+	return marshalJSON(entries)
+}
+
+func (t *memoryTool) execConstraintRemove(ctx context.Context, args map[string]any) (string, error) {
+	id, _ := args["constraint_id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("memory constraint_remove: constraint_id is required")
+	}
+	userID, agentID, err := t.requireConstraintCtx(ctx, actionConstraintRemove)
+	if err != nil {
+		return "", err
+	}
+	entries, err := t.constraintStore.RemoveConstraint(ctx, userID, agentID, id)
+	if err != nil {
+		return "", fmt.Errorf("memory constraint_remove: %w", err)
+	}
+	return marshalJSON(entries)
 }
 
 // ---------------------------------------------------------------------------

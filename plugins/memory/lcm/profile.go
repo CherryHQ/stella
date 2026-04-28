@@ -62,6 +62,21 @@ func (p *Provider) SetAgentSoul(ctx context.Context, userID int64, agentID strin
 	return nil
 }
 
+// GetConstraints implements memory.ConstraintStore.
+func (p *Provider) GetConstraints(ctx context.Context, userID int64, agentID string) ([]memory.ConstraintEntry, error) {
+	return memorywrite.GetConstraints(ctx, p.q, userID, agentID)
+}
+
+// AddConstraint implements memory.ConstraintStore.
+func (p *Provider) AddConstraint(ctx context.Context, userID int64, agentID string, text string) ([]memory.ConstraintEntry, error) {
+	return memorywrite.AddConstraint(ctx, p.db, p.q, userID, agentID, text)
+}
+
+// RemoveConstraint implements memory.ConstraintStore.
+func (p *Provider) RemoveConstraint(ctx context.Context, userID int64, agentID string, id string) ([]memory.ConstraintEntry, error) {
+	return memorywrite.RemoveConstraint(ctx, p.db, p.q, userID, agentID, id)
+}
+
 // WriteChangelog implements memory.ChangelogWriter.
 func (p *Provider) WriteChangelog(ctx context.Context, entry memory.ChangeEntry) error {
 	return p.q.InsertMemoryChangelog(ctx, changeEntryToParams(entry))

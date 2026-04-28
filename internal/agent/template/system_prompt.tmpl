@@ -18,7 +18,13 @@
 {{ range .MCPTools }}  - `{{ .ID }}`: {{ .Description }}{{ if .ServerName }} (server: {{ .ServerName }}){{ end }}
 {{ end }}{{ end }}
 
-## Agent Soul
+{{ if .Constraints }}## Constraints
+
+The following are hard rules set by the user that you must ALWAYS follow, regardless of other instructions:
+
+{{ range .Constraints }}- {{ .Text }}
+{{ end }}
+{{ end }}## Agent Soul
 
 Your identity, personality, and behavior. Edit via the memory tool (soul_get / soul_update).
 

@@ -51,9 +51,10 @@ type contextFile struct {
 
 // promptData holds all pre-computed data for the system prompt template.
 type promptData struct {
-	SystemPrompt   string            // agent's base system prompt from DB
-	AgentSoul      string            // per-user agent soul from ProfileStore
-	UserProfile    string            // per-user profile from ProfileStore
+	SystemPrompt   string // agent's base system prompt from DB
+	AgentSoul      string // per-user agent soul from ProfileStore
+	UserProfile    string // per-user profile from ProfileStore
+	Constraints    []memory.ConstraintEntry
 	MCPTools       []promptToolEntry // prompt inventory for MCP-discovered tools
 	PluginPrompts  []pkgplugins.SystemPromptSection
 	PromptSections []pkgplugins.SystemPromptSection
@@ -118,6 +119,13 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 		}
 		if c, err := ps.GetProfile(ctx, p.UserID, p.AgentID); err == nil {
 			data.UserProfile = strings.TrimRight(c, "\n")
+		}
+	}
+
+	// Constraints: load user-defined hard rules.
+	if cs, ok := p.Memory.(memory.ConstraintStore); ok && p.UserID > 0 && p.AgentID != "" {
+		if constraints, err := cs.GetConstraints(ctx, p.UserID, p.AgentID); err == nil {
+			data.Constraints = constraints
 		}
 	}
 

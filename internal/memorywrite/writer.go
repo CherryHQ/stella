@@ -6,8 +6,10 @@ package memorywrite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
@@ -163,4 +165,171 @@ func DeleteProfile(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int6
 	}
 
 	return tx.Commit()
+}
+
+// ---------------------------------------------------------------------------
+// Constraint helpers
+// ---------------------------------------------------------------------------
+
+// GetConstraints reads the constraints JSON array from the DB row.
+// Returns an empty slice (not an error) when no row exists or constraints is empty/default.
+func GetConstraints(ctx context.Context, q *sqlc.Queries, userID int64, agentID string) ([]memory.ConstraintEntry, error) {
+	row, err := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return []memory.ConstraintEntry{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get constraints: %w", err)
+	}
+	return parseConstraints(row.Constraints)
+}
+
+// AddConstraint appends a new constraint entry transactionally, bumps version,
+// and records a changelog entry with scope='constraint', action='create'.
+func AddConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int64, agentID string, text string) ([]memory.ConstraintEntry, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	qtx := q.WithTx(tx)
+
+	old, err := qtx.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
+	var beforeJSON string
+	var beforeVersion int64
+	if err == nil {
+		beforeJSON = old.Constraints
+		beforeVersion = old.Version
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("read constraints: %w", err)
+	}
+
+	existing, err := parseConstraints(beforeJSON)
+	if err != nil {
+		return nil, fmt.Errorf("parse constraints: %w", err)
+	}
+
+	entry := memory.ConstraintEntry{
+		ID:        fmt.Sprintf("c%d", time.Now().UnixNano()),
+		Text:      text,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	existing = append(existing, entry)
+	updated := existing
+
+	afterJSON, err := json.Marshal(updated)
+	if err != nil {
+		return nil, fmt.Errorf("marshal constraints: %w", err)
+	}
+
+	row, err := qtx.UpsertAgentConstraints(ctx, sqlc.UpsertAgentConstraintsParams{
+		UserID:      userID,
+		AgentID:     agentID,
+		Constraints: string(afterJSON),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("upsert constraints: %w", err)
+	}
+
+	source := string(memory.ChangeSourceFromContext(ctx))
+	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
+		UserID:              userID,
+		AgentID:             agentID,
+		Scope:               "constraint",
+		Action:              "create",
+		Source:              source,
+		MemoryVersionBefore: sql.NullInt64{Int64: beforeVersion, Valid: true},
+		MemoryVersionAfter:  sql.NullInt64{Int64: row.Version, Valid: true},
+		BeforeText:          sql.NullString{String: beforeJSON, Valid: beforeJSON != "" && beforeJSON != "[]"},
+		AfterText:           sql.NullString{String: string(afterJSON), Valid: true},
+	}); err != nil {
+		return nil, fmt.Errorf("write constraint changelog: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+	return updated, nil
+}
+
+// RemoveConstraint removes a constraint by ID transactionally, bumps version,
+// and records a changelog entry with scope='constraint', action='delete'.
+func RemoveConstraint(ctx context.Context, db *sql.DB, q *sqlc.Queries, userID int64, agentID string, id string) ([]memory.ConstraintEntry, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	qtx := q.WithTx(tx)
+
+	old, err := qtx.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
+	var beforeJSON string
+	var beforeVersion int64
+	if err == nil {
+		beforeJSON = old.Constraints
+		beforeVersion = old.Version
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("read constraints: %w", err)
+	}
+
+	existing, err := parseConstraints(beforeJSON)
+	if err != nil {
+		return nil, fmt.Errorf("parse constraints: %w", err)
+	}
+
+	updated := make([]memory.ConstraintEntry, 0, len(existing))
+	for _, c := range existing {
+		if c.ID != id {
+			updated = append(updated, c)
+		}
+	}
+
+	afterJSON, err := json.Marshal(updated)
+	if err != nil {
+		return nil, fmt.Errorf("marshal constraints: %w", err)
+	}
+
+	row, err := qtx.UpsertAgentConstraints(ctx, sqlc.UpsertAgentConstraintsParams{
+		UserID:      userID,
+		AgentID:     agentID,
+		Constraints: string(afterJSON),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("upsert constraints: %w", err)
+	}
+
+	source := string(memory.ChangeSourceFromContext(ctx))
+	if err := qtx.InsertMemoryChangelog(ctx, sqlc.InsertMemoryChangelogParams{
+		UserID:              userID,
+		AgentID:             agentID,
+		Scope:               "constraint",
+		Action:              "delete",
+		Source:              source,
+		MemoryVersionBefore: sql.NullInt64{Int64: beforeVersion, Valid: true},
+		MemoryVersionAfter:  sql.NullInt64{Int64: row.Version, Valid: true},
+		BeforeText:          sql.NullString{String: beforeJSON, Valid: beforeJSON != "" && beforeJSON != "[]"},
+		AfterText:           sql.NullString{String: string(afterJSON), Valid: true},
+	}); err != nil {
+		return nil, fmt.Errorf("write constraint changelog: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+	return updated, nil
+}
+
+// parseConstraints parses a constraints JSON string into a slice.
+// Returns empty slice for "", "[]", or null.
+func parseConstraints(raw string) ([]memory.ConstraintEntry, error) {
+	if raw == "" || raw == "[]" || raw == "null" {
+		return []memory.ConstraintEntry{}, nil
+	}
+	var entries []memory.ConstraintEntry
+	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+		return nil, fmt.Errorf("parse constraints JSON: %w", err)
+	}
+	return entries, nil
 }

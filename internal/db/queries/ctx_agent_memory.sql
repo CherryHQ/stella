@@ -33,6 +33,15 @@ ON CONFLICT(user_id, agent_id) DO UPDATE SET
     updated_at = datetime('now')
 RETURNING *;
 
+-- name: UpsertAgentConstraints :one
+INSERT INTO ctx_agent_memory (user_id, agent_id, constraints, version, updated_at)
+VALUES (?, ?, ?, 1, datetime('now'))
+ON CONFLICT(user_id, agent_id) DO UPDATE SET
+    constraints = excluded.constraints,
+    version = ctx_agent_memory.version + 1,
+    updated_at = datetime('now')
+RETURNING *;
+
 -- name: UpsertAgentSoulVersioned :one
 INSERT INTO ctx_agent_memory (user_id, agent_id, soul, version, updated_at)
 VALUES (?, ?, ?, 1, datetime('now'))
