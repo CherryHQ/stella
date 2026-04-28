@@ -277,7 +277,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 			if err != nil {
 				logger().Error("download file failed", "file_key", fileKey, "error", err)
 			} else {
-				return channel.FileReceivedContent(fileName, path)
+				return channel.FileReceivedContent(fileName, assetsDir, path)
 			}
 		}
 		return channel.TextContent(parseFileContent(rawContent))

@@ -63,7 +63,7 @@ func UserSkillsDir(userWorkspace string) string {
 // SaveAsset writes data to assetsDir with a timestamp-prefixed filename to avoid
 // collisions, returning the absolute path of the saved file.
 func SaveAsset(assetsDir, fileName string, data []byte) (string, error) {
-	name := fmt.Sprintf("%d_%s", time.Now().Unix(), filepath.Base(fileName))
+	name := fmt.Sprintf("%d_%s", time.Now().UnixNano(), filepath.Base(fileName))
 	dst := filepath.Join(assetsDir, name)
 	if err := os.WriteFile(dst, data, 0o600); err != nil {
 		return "", fmt.Errorf("write asset %s: %w", name, err)

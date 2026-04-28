@@ -126,7 +126,7 @@ func (b *Bot) buildMessageContent(msg *dto.Message, assetsDir string) []ai.Conte
 				continue
 			}
 			logger().Debug("file attachment received", "file_name", fileName, "size", len(data))
-			blocks = append(blocks, channel.FileReceivedContent(fileName, savedPath)...)
+			blocks = append(blocks, channel.FileReceivedContent(fileName, assetsDir, savedPath)...)
 		} else {
 			blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s]", fileName)})
 		}

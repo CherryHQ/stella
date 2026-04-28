@@ -242,7 +242,7 @@ func (b *Bot) handleFile(msg WeixinMessage, fileItem *FileItem) {
 
 	logger().Debug("file received", "user_id", msg.FromUserID, "file_name", fileName, "size", len(data))
 
-	incoming := b.incomingMsg(msg, channel.FileReceivedContent(fileName, savedPath))
+	incoming := b.incomingMsg(msg, channel.FileReceivedContent(fileName, assetsDir, savedPath))
 	b.handleIncoming(msg, incoming, "", "")
 }
 

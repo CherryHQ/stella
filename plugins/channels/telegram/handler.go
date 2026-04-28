@@ -356,7 +356,7 @@ func (b *Bot) handleDocument(c tele.Context) error {
 		}
 		content = append(content, ai.TextContent{Text: caption})
 	}
-	content = append(content, channel.FileReceivedContent(fileName, savedPath)...)
+	content = append(content, channel.FileReceivedContent(fileName, assetsDir, savedPath)...)
 
 	msg := b.incomingMsg(c, content)
 	_, _, stream, err := b.handler.HandleIncoming(b.ctx, msg, "", "")
