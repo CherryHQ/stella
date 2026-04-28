@@ -88,6 +88,10 @@ export function register(Alpine) {
       })
     },
 
+    get sessionTotalTokens() {
+      return this.sessionMessages.reduce((sum, m) => sum + (m.token_count || 0), 0)
+    },
+
     get uniqueChannels() {
       return [...new Set(this.sessions.map(s => s.channel).filter(Boolean))].sort()
     },

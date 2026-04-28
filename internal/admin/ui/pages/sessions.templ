@@ -199,6 +199,12 @@ templ sessionDetailPanel() {
 						<span class="text-base-content/20">&#183;</span>
 						<span x-text="formatTime(sessionDetail?.last_active)"></span>
 					</span>
+					<template x-if="sessionTotalTokens > 0">
+						<span class="flex items-center gap-1">
+							<span class="text-base-content/20">&#183;</span>
+							<span class="text-[10px] text-primary/60 font-mono" x-text="sessionTotalTokens.toLocaleString() + ' tok'"></span>
+						</span>
+					</template>
 					<span class="text-[10px] text-base-content/25 ml-1 truncate" x-text="sessionDetail?.id"></span>
 				</div>
 				<!-- Tools panel -->
@@ -252,7 +258,12 @@ templ sessionDetailPanel() {
 									</div>
 									<div class="flex-1 min-w-0">
 										<div class="md-prose" x-html="renderMd(userText(msg))"></div>
-										<div x-show="msg.showTimestamp" class="text-[10px] font-mono text-base-content/30 mt-1" x-text="formatTime(msg.timestamp)"></div>
+										<div x-show="msg.showTimestamp" class="flex items-center gap-2 text-[10px] font-mono text-base-content/30 mt-1">
+											<span x-text="formatTime(msg.timestamp)"></span>
+											<template x-if="msg.token_count > 0">
+												<span class="text-primary/40" x-text="msg.token_count.toLocaleString() + ' tok'"></span>
+											</template>
+										</div>
 									</div>
 								</div>
 							</template>
@@ -308,6 +319,9 @@ templ sessionDetailPanel() {
 										<div x-show="msg.showTimestamp" class="flex items-center gap-2 text-[10px] font-mono text-base-content/25">
 											<span x-show="msg.model" x-text="msg.model"></span>
 											<span x-text="formatTime(msg.timestamp)"></span>
+											<template x-if="msg.token_count > 0">
+												<span class="text-primary/40" x-text="msg.token_count.toLocaleString() + ' tok'"></span>
+											</template>
 										</div>
 									</div>
 								</div>

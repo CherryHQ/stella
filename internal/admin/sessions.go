@@ -438,16 +438,17 @@ func serializeDBMessages(rows []sqlc.CtxMessage) []map[string]any {
 }
 
 func serializeUserRow(row sqlc.CtxMessage) map[string]any {
-	m := map[string]any{
-		"role":      "user",
-		"timestamp": row.CreatedAt,
+	return map[string]any{
+		"role":        "user",
+		"timestamp":   row.CreatedAt,
+		"content":     row.Content,
+		"token_count": row.TokenCount,
 	}
-	m["content"] = row.Content
-	return m
 }
 
 func serializeAssistantRows(rows []sqlc.CtxMessage, start int) (map[string]any, int) {
 	var blocks []map[string]any
+	var totalTokens int64
 	consumed := 0
 
 	// Merge ALL consecutive assistant rows into one turn — text and tool_calls alike.
@@ -457,6 +458,7 @@ func serializeAssistantRows(rows []sqlc.CtxMessage, start int) (map[string]any, 
 		if row.Role != "assistant" {
 			break
 		}
+		totalTokens += row.TokenCount
 		switch row.EventType {
 		case "tool_call":
 			blocks = append(blocks, decodeToolCallBlock(row.Content))
@@ -467,9 +469,10 @@ func serializeAssistantRows(rows []sqlc.CtxMessage, start int) (map[string]any, 
 	}
 
 	return map[string]any{
-		"role":      "assistant",
-		"blocks":    blocks,
-		"timestamp": rows[start].CreatedAt,
+		"role":        "assistant",
+		"blocks":      blocks,
+		"timestamp":   rows[start].CreatedAt,
+		"token_count": totalTokens,
 	}, consumed
 }
 
