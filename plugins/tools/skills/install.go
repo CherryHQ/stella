@@ -72,11 +72,15 @@ func (t *Tool) search(ctx context.Context, args map[string]any) (string, error) 
 			return
 		}
 		for _, h := range hits {
+			source := h.Source
+			if h.SkillID != "" {
+				source = h.Source + "@" + h.SkillID
+			}
 			results = append(results, skillSearchResult{
 				Provider:    "skills.sh",
 				Name:        h.Name,
 				Description: h.Source,
-				Source:      h.Source,
+				Source:      source,
 			})
 		}
 	})
