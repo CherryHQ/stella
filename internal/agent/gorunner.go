@@ -46,6 +46,7 @@ type GoRunnerConfig struct {
 	AnnaHome         string // anna home directory (e.g. ~/.anna)
 	ProjectRoot      string // optional project root for project-aware tools and prompt/context loading
 	System           string // optional system prompt override (bypasses default prompt building)
+	PluginPrompts    []pkgplugins.SystemPromptSection
 	PromptSections   []pkgplugins.SystemPromptSection
 	ExtraTools       []tools.Tool // additional tools to register
 	PluginTools      func(context.Context, plugintools.BuildContext) []tools.Tool
@@ -124,6 +125,7 @@ func NewGoRunner(ctx context.Context, cfg GoRunnerConfig) (*GoRunner, error) {
 			AgentRoot:      paths.AgentRoot,
 			ProjectRoot:    paths.ProjectRoot,
 			UserRoot:       paths.UserRoot,
+			PluginPrompts:  cfg.PluginPrompts,
 			PromptSections: cfg.PromptSections,
 			Host:           session.Session(),
 		})
