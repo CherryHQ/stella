@@ -9,7 +9,6 @@ import (
 	"filippo.io/age"
 
 	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/vault"
@@ -293,7 +292,7 @@ func (c *Coordinator) SwitchModel(provider, model string) error {
 	return c.switchFn(provider, model)
 }
 
-func convertEvent(evt runner.Event) pkgchannel.Event {
+func convertEvent(evt agent.Event) pkgchannel.Event {
 	out := pkgchannel.Event{
 		Text: evt.Text,
 		Err:  evt.Err,

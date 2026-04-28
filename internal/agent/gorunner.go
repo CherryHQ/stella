@@ -1,4 +1,4 @@
-package runner
+package agent
 
 import (
 	"context"
@@ -28,8 +28,6 @@ import (
 // A single turn may include multiple tool calls; the limit is on loop rounds,
 // not individual tool executions.
 const maxAgentLoopTurns = 50
-
-type ProviderRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error)
 
 // VaultEnvLoader loads decrypted vault entries for a user as a name→value map.
 // It is a subset of vault.Service and is defined here to avoid a circular

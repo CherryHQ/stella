@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/config"
 )
 
@@ -25,6 +25,6 @@ func slugify(name string) string {
 // fillAgentDefaults populates empty system_prompt with the embedded default.
 func fillAgentDefaults(a *config.Agent) {
 	if a.SystemPrompt == "" {
-		a.SystemPrompt = runner.DefaultSystemPrompt()
+		a.SystemPrompt = agent.DefaultSystemPrompt()
 	}
 }

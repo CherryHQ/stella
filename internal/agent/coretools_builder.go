@@ -1,4 +1,4 @@
-package runner
+package agent
 
 import (
 	"github.com/vaayne/anna/internal/sandbox"

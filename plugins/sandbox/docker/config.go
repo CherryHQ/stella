@@ -6,7 +6,7 @@ import "strings"
 // the runner glue layer — there are no user-facing knobs. The image is
 // version-locked to the anna binary (via internal/config.SandboxDockerImage)
 // and the path-prefix fields are auto-derived from ANNA_HOME_HOST when anna
-// runs inside a container (see internal/agent/runner/sandbox_dood.go).
+// runs inside a container (see internal/agent/sandbox_dood.go).
 type Config struct {
 	// Image is the container image to use. Required.
 	Image string
