@@ -6,8 +6,8 @@ import (
 
 const (
 	SandboxBackendDocker = "docker"
-	SandboxBackendBoxsh  = "boxsh"
 	SandboxBackendLocal  = "local"
+	SandboxBackendNone   = "none"
 
 	SandboxNetworkDisabled = "disabled"
 	SandboxNetworkAllowAll = "allow_all"
