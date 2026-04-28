@@ -42,12 +42,32 @@ templ sessionSidebar() {
 		<div class="flex-shrink-0 px-3 py-3 space-y-2.5 border-b border-base-300 bg-base-100">
 			<div class="flex items-center justify-between">
 				<span class="text-xs font-mono text-secondary" x-text="filteredSessions.length + ' sessions'"></span>
-				<button
-					@click="showArchived = !showArchived"
-					class="text-[10px] font-mono cursor-pointer transition-colors"
-					:class="showArchived ? 'text-primary' : 'text-secondary hover:text-base-content'"
-					x-text="showArchived ? 'hide archived' : 'show archived'"
-				></button>
+				<div class="flex items-center gap-2">
+					<button
+						@click="showArchived = !showArchived"
+						class="text-[10px] font-mono cursor-pointer transition-colors"
+						:class="showArchived ? 'text-primary' : 'text-secondary hover:text-base-content'"
+						x-text="showArchived ? 'hide archived' : 'show archived'"
+					></button>
+					<div x-data="{ showNew: false }" class="relative">
+						<button @click="showNew = !showNew" class="btn btn-primary btn-xs">New Session</button>
+						<div x-show="showNew" x-cloak @click.outside="showNew = false" class="absolute right-0 top-full mt-1 z-10 bg-base-100 border border-base-300 rounded-lg shadow-lg p-3 w-56 space-y-2">
+							<div>
+								<div class="text-[9px] font-mono text-base-content/40 uppercase tracking-wider mb-1">Agent</div>
+								<select x-model="newSessionAgentID" class="select select-xs select-bordered w-full font-mono text-[10px]">
+									<option value="">— select agent —</option>
+									<template x-for="a in agents" :key="a.id">
+										<option :value="a.id" x-text="a.name || a.id"></option>
+									</template>
+								</select>
+							</div>
+							<div class="flex gap-1 justify-end">
+								<button @click="showNew = false" class="btn btn-ghost btn-xs">Cancel</button>
+								<button @click="createSession(); showNew = false" class="btn btn-primary btn-xs" :disabled="!newSessionAgentID">Create</button>
+							</div>
+						</div>
+					</div>
+				</div>
 			</div>
 			<div class="relative">
 				<input
@@ -302,6 +322,24 @@ templ sessionDetailPanel() {
 							</template>
 							</div>
 					</template>
+				</div>
+			</div>
+			<!-- Message input -->
+			<div x-show="sessionDetail && sessionDetail.user_id === currentUserID" x-cloak class="flex-shrink-0 border-t border-base-300 px-6 py-4">
+				<div class="flex flex-col gap-2">
+					<textarea
+						x-model="userInput"
+						@keydown.meta.enter.prevent="sendMessage()"
+						@keydown.ctrl.enter.prevent="sendMessage()"
+						placeholder="Send a message… (Cmd+Enter to send)"
+						class="textarea textarea-bordered w-full text-sm resize-none"
+						rows="3"
+						:disabled="isStreaming"
+					></textarea>
+					<div class="flex justify-end gap-2">
+						<button x-show="isStreaming" @click="abortMessage()" class="btn btn-ghost btn-sm text-error">Abort</button>
+						<button x-show="!isStreaming" @click="sendMessage()" class="btn btn-primary btn-sm" :disabled="!userInput.trim()">Send</button>
+					</div>
 				</div>
 			</div>
 		</div>

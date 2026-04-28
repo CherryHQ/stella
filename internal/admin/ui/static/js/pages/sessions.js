@@ -24,9 +24,17 @@ export function register(Alpine) {
     filterChannel: '',
     filterAgent: '',
     filterUser: '',
+    userInput: '',
+    isStreaming: false,
+    abortController: null,
+    newSessionAgentID: '',
+    currentUserID: 0,
+    agents: [],
 
     async init() {
-      await Promise.all([this.loadSessions(), this.loadTools()])
+      const agentsPromise = api('GET', '/api/agents').then(r => { this.agents = r || [] }).catch(() => {})
+      const mePromise = api('GET', '/api/auth/me').then(r => { if (r && r.id) this.currentUserID = r.id }).catch(() => {})
+      await Promise.all([this.loadSessions(), this.loadTools(), agentsPromise, mePromise])
       const sessionID = this._sessionIDFromURL()
       if (sessionID) {
         await this.openSession(sessionID, false)
@@ -200,6 +208,169 @@ export function register(Alpine) {
       } catch {
         this.$store.toast.show('Copy failed', 'error')
       }
+    },
+
+    async createSession() {
+      try {
+        const sess = await api('POST', '/api/sessions', { agent_id: this.newSessionAgentID })
+        this.sessions.unshift(sess)
+        await this.openSession(sess.id)
+      } catch (e) {
+        this.$store.toast.show(e.message, 'error')
+      }
+    },
+
+    async sendMessage() {
+      if (!this.userInput.trim() || this.isStreaming) return
+      const content = this.userInput.trim()
+      this.userInput = ''
+      this.sessionMessages.push({ role: 'user', content, timestamp: new Date().toISOString() })
+      this.isStreaming = true
+      this.abortController = new AbortController()
+      try {
+        const response = await fetch(
+          '/api/sessions/' + encodeURIComponent(this.sessionDetail.id) + '/messages',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content }),
+            signal: this.abortController.signal,
+          }
+        )
+        if (!response.ok) {
+          const text = await response.text()
+          throw new Error(text || response.statusText)
+        }
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let currentEvent = ''
+        let currentData = ''
+        // Reference to the current streaming assistant message's text block
+        let streamingBlock = null
+
+        const ensureStreamingMessage = () => {
+          const last = this.sessionMessages[this.sessionMessages.length - 1]
+          if (!last || last.role !== 'assistant' || !last._streaming) {
+            streamingBlock = { type: 'text', text: '' }
+            this.sessionMessages.push({
+              role: 'assistant',
+              blocks: [streamingBlock],
+              timestamp: new Date().toISOString(),
+              _streaming: true,
+            })
+          } else {
+            // Use existing streaming block if last block is text
+            const blocks = last.blocks
+            const lastBlock = blocks[blocks.length - 1]
+            if (lastBlock && lastBlock.type === 'text') {
+              streamingBlock = lastBlock
+            } else {
+              // Create new text block
+              streamingBlock = { type: 'text', text: '' }
+              blocks.push(streamingBlock)
+            }
+          }
+          return this.sessionMessages[this.sessionMessages.length - 1]
+        }
+
+        const dispatchEvent = (event, dataStr) => {
+          if (!dataStr) return
+          let data
+          try {
+            data = JSON.parse(dataStr)
+          } catch {
+            return
+          }
+          if (event === 'text') {
+            const msg = ensureStreamingMessage()
+            // Make sure streamingBlock points to a text block at end
+            const blocks = msg.blocks
+            const lastBlock = blocks[blocks.length - 1]
+            if (!lastBlock || lastBlock.type !== 'text' || lastBlock !== streamingBlock) {
+              streamingBlock = { type: 'text', text: '' }
+              blocks.push(streamingBlock)
+            }
+            streamingBlock.text += (data.text || '')
+            // Reassign to trigger Alpine reactivity on the array reference
+            msg.blocks = [...msg.blocks.slice(0, -1), streamingBlock]
+          } else if (event === 'tool_use') {
+            if (data.type === 'tool_call') {
+              const msg = ensureStreamingMessage()
+              streamingBlock = null
+              msg.blocks.push({
+                type: 'tool_call',
+                id: data.id,
+                name: data.name,
+                arguments: data.arguments,
+                status: 'running',
+              })
+            } else if (data.type === 'tool_result') {
+              // Find the assistant message with the matching tool_call block and set result
+              for (let i = this.sessionMessages.length - 1; i >= 0; i--) {
+                const msg = this.sessionMessages[i]
+                if (msg.role !== 'assistant') continue
+                for (const block of (msg.blocks || [])) {
+                  if (block.type === 'tool_call' && block.id === data.tool_call_id) {
+                    block.result = {
+                      tool_call_id: data.tool_call_id,
+                      content: data.content,
+                      is_error: data.is_error,
+                    }
+                    block.status = 'done'
+                    return
+                  }
+                }
+              }
+            }
+          } else if (event === 'error') {
+            this.$store.toast.show(data.error || 'Stream error', 'error')
+          }
+        }
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() // keep incomplete last line in buffer
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEvent = line.slice(7).trim()
+            } else if (line.startsWith('data: ')) {
+              currentData = line.slice(6).trim()
+            } else if (line === '') {
+              // blank line = dispatch
+              if (currentEvent) {
+                dispatchEvent(currentEvent, currentData)
+              }
+              currentEvent = ''
+              currentData = ''
+            }
+          }
+        }
+
+        // Clear streaming flag from last assistant message
+        const last = this.sessionMessages[this.sessionMessages.length - 1]
+        if (last && last._streaming) {
+          delete last._streaming
+        }
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          // User aborted — clean up streaming flag
+          const last = this.sessionMessages[this.sessionMessages.length - 1]
+          if (last && last._streaming) delete last._streaming
+        } else {
+          this.$store.toast.show(e.message || 'Send failed', 'error')
+        }
+      } finally {
+        this.isStreaming = false
+        this.abortController = null
+      }
+    },
+
+    abortMessage() {
+      this.abortController?.abort()
     },
   }))
 }
