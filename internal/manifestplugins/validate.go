@@ -62,8 +62,8 @@ func Validate(m *Manifest) error {
 		if p.ID == "" {
 			errs = append(errs, fmt.Errorf("plugin[%d]: id is required", i))
 		}
-		if len(p.Binaries) == 0 && len(p.Skills) == 0 && len(p.SessionEnvs) == 0 {
-			errs = append(errs, fmt.Errorf("plugin %q: must have at least one of binaries, skills, or session_env", p.ID))
+		if len(p.Binaries) == 0 && len(p.Skills) == 0 && len(p.SessionEnvs) == 0 && p.Prompt == "" {
+			errs = append(errs, fmt.Errorf("plugin %q: must have at least one of binaries, skills, session_env, or prompt", p.ID))
 		}
 		for j, b := range p.Binaries {
 			if b.Name == "" {

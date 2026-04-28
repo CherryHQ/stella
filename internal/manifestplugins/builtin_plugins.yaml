@@ -315,6 +315,25 @@ oauth_providers:
         auth_style: in_params
 
 plugins:
+  - id: tool/mise
+    kind: tool
+    name: mise
+    display_name: mise
+    description: "Inject mise usage guidance into the system prompt and provide the mise binary."
+    enabled: true
+    prompt: |
+      Use mise to manage runtimes, tools, and environment variables.
+
+      Install a tool:     mise use <tool>[@version]   (e.g. mise use node@22, mise use python@3.12)
+      Run with tool:      mise exec -- <cmd>
+      List installed:     mise list
+      Show env:           mise env
+      Run a task:         mise run <task>
+      List tasks:         mise tasks
+
+      mise.toml (project) or ~/.config/mise/config.toml (global) declares tools and env.
+      Prefer mise over nvm, pyenv, rbenv, or manual PATH manipulation.
+
   - id: tool/tap-web
     kind: tool
     name: tap-web

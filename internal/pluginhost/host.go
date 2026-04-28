@@ -143,6 +143,12 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 	h.mu.Lock()
 	for id := range h.manifestEnabledIDs {
 		delete(h.sessionEnvRegs, id)
+		// Remove stale prompt keys for this manifest-enabled plugin.
+		for k, reg := range h.systemPromptRegs {
+			if reg.PluginID == id {
+				delete(h.systemPromptRegs, k)
+			}
+		}
 	}
 	for id := range h.manifestOwnedIDs {
 		delete(h.pluginIDs, id)
@@ -198,6 +204,24 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 				Required:                 se.Required,
 				OAuthProviderID:          p.OAuthProvider,
 				OAuthProviderConfigField: p.OAuthProviderConfigField,
+			})
+		}
+
+		if p.Prompt != "" {
+			promptContent := p.Prompt
+			promptName := p.Name
+			if promptName == "" {
+				promptName = p.ID
+			}
+			h.AddSystemPrompt(pkgplugins.SystemPromptSpec{
+				PluginID: p.ID,
+				Name:     promptName,
+				Build: func(_ context.Context, _ pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
+					return pkgplugins.SystemPromptSection{
+						Title:   promptName,
+						Content: promptContent,
+					}, nil
+				},
 			})
 		}
 	}
