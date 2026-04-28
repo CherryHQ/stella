@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
@@ -230,7 +229,7 @@ func (s *Server) getSessionSystemPrompt(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	prompt := runner.BuildSystemPromptFromDB(r.Context(), runner.DBPromptParams{
+	prompt := agent.BuildSystemPromptFromDB(r.Context(), agent.DBPromptParams{
 		SystemPrompt:   agentCfg.SystemPrompt,
 		Memory:         s.mem,
 		UserID:         info.UserID,

@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
 	oauth "github.com/vaayne/anna/internal/credentials/oauth"
 	coreagent "github.com/vaayne/anna/pkg/agent"
@@ -133,7 +132,7 @@ func WithSkillStore(s pkgplugins.SkillStore) PoolManagerOption {
 }
 
 // WithVaultEnvLoader sets the vault env loader for sandbox secret injection.
-func WithVaultEnvLoader(v runner.VaultEnvLoader) PoolManagerOption {
+func WithVaultEnvLoader(v VaultEnvLoader) PoolManagerOption {
 	return func(pm *PoolManager) {
 		pm.vaultEnvLoader = v
 	}
@@ -167,7 +166,7 @@ type PoolManager struct {
 	providerRegistryBuilder  ProviderRegistryBuilder
 	builtinToolsFactory      BuiltinToolsFactory
 	skillStore               pkgplugins.SkillStore
-	vaultEnvLoader           runner.VaultEnvLoader
+	vaultEnvLoader           VaultEnvLoader
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
 	log                      *slog.Logger
@@ -204,7 +203,7 @@ func (pm *PoolManager) SetOAuthRegistry(r *oauth.ProviderRegistry) {
 // so existing pools pick up the loader. Must be called after StartAll.
 // If vs also satisfies oauth.VaultStore, a TokenManager is constructed and
 // wired into the pool manager so runners can inject runtime OAuth tokens.
-func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v runner.VaultEnvLoader) {
+func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v VaultEnvLoader) {
 	pm.mu.Lock()
 	pm.vaultEnvLoader = v
 	if vs, ok := v.(oauth.VaultStore); ok {
@@ -465,7 +464,7 @@ func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*
 // buildFactory creates a runner factory with builtin tools and external plugin
 // tools. Hooks are not part of the factory — they are stored on the Pool and
 // injected via RunnerParams.HooksFn at runner-creation time.
-func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (runner.NewRunnerFunc, error) {
+func (pm *PoolManager) buildFactory(_ context.Context, snap *config.Snapshot) (NewRunnerFunc, error) {
 	pm.mu.RLock()
 	builtinTools := append([]tools.Tool{}, pm.builtinTools...)
 	pm.mu.RUnlock()

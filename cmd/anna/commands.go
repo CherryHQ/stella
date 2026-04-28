@@ -12,7 +12,6 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 	oauth "github.com/vaayne/anna/internal/credentials/oauth"
@@ -382,7 +381,7 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 		schedulerSvc.SetHeartbeat(scheduler.HeartbeatConfig{
 			File:      snap.Heartbeat.FilePath(snap.Workspace),
 			FastModel: snap.ResolveModelID(config.ModelTierFast),
-		}, func(ctx context.Context, sessionID, message, model string) <-chan runner.Event {
+		}, func(ctx context.Context, sessionID, message, model string) <-chan agent.Event {
 			if model != "" {
 				return pool.Chat(ctx, sessionID, message, agent.WithModel(model))
 			}

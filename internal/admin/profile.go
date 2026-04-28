@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/db/sqlc"
@@ -174,7 +174,7 @@ func (s *Server) listProfileMemories(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defaultSoul := runner.DefaultAgentSoul()
+	defaultSoul := agent.DefaultAgentSoul()
 	for i := range memories {
 		if memories[i].Soul == "" {
 			memories[i].Soul = defaultSoul

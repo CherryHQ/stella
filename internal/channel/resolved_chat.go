@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/auth"
 	"github.com/vaayne/anna/internal/config"
 )
@@ -32,7 +31,7 @@ func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
 	return rc.Pool.CompactSession(ctx, rc.SessionKey)
 }
 
-func (rc *ResolvedChat) Chat(ctx context.Context, message runner.MessageContent, opts ...agent.ChatOption) (<-chan runner.Event, string, error) {
+func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent, opts ...agent.ChatOption) (<-chan agent.Event, string, error) {
 	info, err := rc.ResolveSession()
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve session: %w", err)

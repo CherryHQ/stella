@@ -3,7 +3,6 @@ package agent
 import (
 	"fmt"
 
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/pkg/memory"
 )
 
@@ -48,10 +47,10 @@ func BuildUserSessionKey(agentID string, authUserID int64, channelContext string
 type SessionInfo = memory.SessionInfo
 
 // Session holds the state of a single conversation: metadata and the
-// currently assigned runner. Message persistence is handled by the
+// currently assigned  Message persistence is handled by the
 // memory engine exclusively.
 type Session struct {
 	Info   SessionInfo
-	Runner runner.Runner
+	Runner Runner
 	Model  string // model ID the current runner was created with
 }

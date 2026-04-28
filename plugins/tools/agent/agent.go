@@ -9,26 +9,21 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
-
 	"github.com/vaayne/anna/pkg/agent"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
 	"github.com/vaayne/anna/pkg/providers"
 	"github.com/vaayne/anna/pkg/tools"
-	"github.com/vaayne/anna/plugins/tools/skills"
 )
 
 const (
 	agentToolName = "agent"
 
 	// Defaults (overridable via AgentConfig).
-	defaultMaxTurns       = 10
-	defaultTimeoutSeconds = 120
-	defaultMaxTasks       = 5
-	defaultMaxConcurrency = 3
-	defaultMaxResultChars = 16000 // ~4096 tokens
+	defaultMaxTurns       = 50
+	defaultTimeoutSeconds = 600
+	defaultMaxConcurrency = 10
 )
 
 // AgentConfig holds the dependencies needed to spawn subagent loops.
@@ -41,21 +36,11 @@ type AgentConfig struct {
 	System        string
 	Emit          func(agent.LoopEvent) // optional event emitter for observability
 	Presets       *PresetRegistry       // loaded agent presets (nil = no presets)
-	PresetLoader  func(string) *PresetRegistry
 	Hooks         *hooks.HookSet // inherited by subagents (nil = no hooks)
 	ToolLifecycle *agent.ToolLifecycle
 
 	// Configurable limits (zero = use defaults).
-	MaxTasks       int // max tasks per invocation
 	MaxConcurrency int // max parallel subagent goroutines
-	MaxResultChars int // max runes in result output
-}
-
-func (c AgentConfig) maxTasks() int {
-	if c.MaxTasks > 0 {
-		return c.MaxTasks
-	}
-	return defaultMaxTasks
 }
 
 func (c AgentConfig) maxConcurrency() int {
@@ -63,13 +48,6 @@ func (c AgentConfig) maxConcurrency() int {
 		return c.MaxConcurrency
 	}
 	return defaultMaxConcurrency
-}
-
-func (c AgentConfig) maxResultChars() int {
-	if c.MaxResultChars > 0 {
-		return c.MaxResultChars
-	}
-	return defaultMaxResultChars
 }
 
 // AgentTool spawns child agent loops for bounded subtasks.
@@ -109,40 +87,15 @@ func AgentDefinition(presets *PresetRegistry) tools.Definition {
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
-							"id":     map[string]any{"type": "string", "description": "Task identifier for result mapping."},
-							"task":   map[string]any{"type": "string", "description": "Task description for the subagent."},
+							"id":     map[string]any{"type": "string", "description": "Optional task identifier for result mapping. Auto-generated as task_0, task_1… if omitted."},
+							"task":   map[string]any{"type": "string", "description": "Task description for the subagent. Include any context the subagent needs inline."},
 							"preset": presetField(presetNames, presetDesc),
-							"context": map[string]any{
-								"type":        "string",
-								"description": "Optional context from parent (file contents, decisions, constraints) prepended to the task message.",
-							},
 							"model": map[string]any{
 								"type":        "string",
 								"description": "Optional model override (e.g. 'claude-haiku-4-5-20251001'). Defaults to parent model.",
 							},
-							"project_root": map[string]any{
-								"type":        "string",
-								"description": "Optional project root for project-local .agents discovery. Empty by default.",
-							},
-							"system": map[string]any{
-								"type":        "string",
-								"description": "Optional additional system instructions appended to the base prompt.",
-							},
-							"tools": map[string]any{
-								"type":        "array",
-								"items":       map[string]any{"type": "string"},
-								"description": "Optional tool whitelist. Only these tools will be available. Defaults to all parent tools minus agent.",
-							},
-							"max_turns": map[string]any{
-								"type":        "integer",
-								"description": "Max agent loop turns. Defaults to 10.",
-							},
-							"timeout_seconds": map[string]any{
-								"type":        "integer",
-								"description": "Per-task timeout in seconds. Defaults to 120.",
-							},
 						},
-						"required": []string{"id", "task"},
+						"required": []string{"task"},
 					},
 				},
 			},
@@ -162,9 +115,6 @@ func (t *AgentTool) Execute(ctx context.Context, args map[string]any) (string, e
 	}
 	if len(tasks) == 0 {
 		return "", fmt.Errorf("agent: at least one task is required")
-	}
-	if len(tasks) > t.cfg.maxTasks() {
-		return "", fmt.Errorf("agent: too many tasks (%d), maximum is %d", len(tasks), t.cfg.maxTasks())
 	}
 
 	results := make(map[string]taskResult, len(tasks))
@@ -204,17 +154,16 @@ func (t *AgentTool) Execute(ctx context.Context, args map[string]any) (string, e
 }
 
 type agentTaskConfig struct {
-	ID             string
-	Task           string
-	Preset         string
-	Context        string // parent-provided context prepended to task message
-	Model          string
+	ID     string
+	Task   string
+	Preset string
+	Model  string
+	// Fields below are populated by presets only.
 	System         string
-	Tools          []string // nil = all tools; empty = no tools
-	HasTools       bool     // true when "tools" key was present in args
+	Tools          []string
+	HasTools       bool
 	MaxTurns       int
 	TimeoutSeconds int
-	ProjectRoot    string
 }
 
 // applyPreset merges preset defaults into the task config.
@@ -267,9 +216,6 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 			return taskResult{Error: "no presets available"}
 		}
 		presets := t.cfg.Presets
-		if tc.ProjectRoot != "" && t.cfg.PresetLoader != nil {
-			presets = t.cfg.PresetLoader(tc.ProjectRoot)
-		}
 		if presets == nil {
 			return taskResult{Error: "no presets available"}
 		}
@@ -287,7 +233,6 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 	}
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
-	ctx = skills.WithProjectRoot(ctx, tc.ProjectRoot)
 
 	// Build scoped tool set.
 	toolSet, toolDefs, err := t.buildScopedTools(tc.Tools, tc.HasTools)
@@ -336,14 +281,8 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 		return taskResult{Error: fmt.Sprintf("create runner: %v", err)}
 	}
 
-	// Build user message: optional context + task.
-	userContent := tc.Task
-	if tc.Context != "" {
-		userContent = tc.Context + "\n\n---\n\n" + tc.Task
-	}
-
 	messages := []ai.Message{
-		ai.UserMessage{Content: userContent},
+		ai.UserMessage{Content: tc.Task},
 	}
 
 	log.Info("subagent started", "preset", tc.Preset, "model", model.Name, "max_turns", maxTurns)
@@ -363,8 +302,6 @@ func (t *AgentTool) runSubAgent(parentCtx context.Context, tc agentTaskConfig) (
 	log.Info("subagent finished", "duration", duration)
 
 	output, stopReason := extractLastAssistant(history)
-	output = truncateResult(output, t.cfg.maxResultChars())
-
 	complete := stopReason == ai.StopReasonStop || stopReason == ai.StopReasonLength
 
 	t.emit(SubAgentFinished{TaskID: tc.ID, Duration: duration})
@@ -416,14 +353,6 @@ func extractLastAssistant(history []ai.Message) (string, ai.StopReason) {
 	return "", ""
 }
 
-// truncateResult truncates a string to maxChars runes, appending a marker if truncated.
-func truncateResult(s string, maxChars int) string {
-	if utf8.RuneCountInString(s) <= maxChars {
-		return s
-	}
-	runes := []rune(s)
-	return string(runes[:maxChars]) + "\n[truncated]"
-}
 
 func parseAgentTasks(args map[string]any) ([]agentTaskConfig, error) {
 	tasksRaw, ok := args["tasks"]
@@ -446,9 +375,9 @@ func parseAgentTasks(args map[string]any) ([]agentTaskConfig, error) {
 
 		tc := agentTaskConfig{}
 
-		id, ok := obj["id"].(string)
-		if !ok || id == "" {
-			return nil, fmt.Errorf("tasks[%d]: id is required", i)
+		id, _ := obj["id"].(string)
+		if id == "" {
+			id = fmt.Sprintf("task_%d", i)
 		}
 		if seen[id] {
 			return nil, fmt.Errorf("tasks[%d]: duplicate id %q", i, id)
@@ -465,31 +394,8 @@ func parseAgentTasks(args map[string]any) ([]agentTaskConfig, error) {
 		if preset, ok := obj["preset"].(string); ok {
 			tc.Preset = preset
 		}
-		if ctx, ok := obj["context"].(string); ok {
-			tc.Context = ctx
-		}
 		if model, ok := obj["model"].(string); ok {
 			tc.Model = model
-		}
-		if projectRoot, ok := obj["project_root"].(string); ok {
-			tc.ProjectRoot = strings.TrimSpace(projectRoot)
-		}
-		if system, ok := obj["system"].(string); ok {
-			tc.System = system
-		}
-		if maxTurns, ok := obj["max_turns"].(float64); ok {
-			tc.MaxTurns = int(maxTurns)
-		}
-		if timeoutSeconds, ok := obj["timeout_seconds"].(float64); ok {
-			tc.TimeoutSeconds = int(timeoutSeconds)
-		}
-		if toolsRaw, ok := obj["tools"].([]any); ok {
-			tc.HasTools = true
-			for _, tr := range toolsRaw {
-				if s, ok := tr.(string); ok {
-					tc.Tools = append(tc.Tools, s)
-				}
-			}
 		}
 
 		tasks = append(tasks, tc)

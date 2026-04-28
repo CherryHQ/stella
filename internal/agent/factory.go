@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
 	oauth "github.com/vaayne/anna/internal/credentials/oauth"
 	coreagent "github.com/vaayne/anna/pkg/agent"
@@ -18,7 +17,7 @@ import (
 	skillstool "github.com/vaayne/anna/plugins/tools/skills"
 )
 
-// NewRunnerFactory creates a runner.NewRunnerFunc for a given config snapshot.
+// NewRunnerFactory creates a NewRunnerFunc for a given config snapshot.
 // The returned factory creates runners scoped to one agent's provider, model,
 // workspace, and system prompt. Memory provider, user ID, and agent ID are
 // injected per-session from RunnerParams. Runner execution is always user-scoped,
@@ -26,10 +25,10 @@ import (
 //
 // Hooks are not part of the factory — they are injected via RunnerParams.HooksFn
 // by the Pool, keeping hook lifecycle fully decoupled from model/provider config.
-func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginToolsBuilder PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), sessionPluginViewFn SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore, sandboxBackendFn func(ctx context.Context) string, vaultEnvLoader runner.VaultEnvLoader, tokenManager *oauth.TokenManager) (runner.NewRunnerFunc, error) {
+func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginToolsBuilder PluginToolsBuilder, providerRegistryBuilder func(api, apiKey, baseURL string) (*providers.Registry, error), promptToolsFn func(context.Context) ([]pkgplugins.PromptToolInfo, error), promptSectionsFn func(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error), sessionPluginViewFn SessionPluginViewBuilder, toolLifecycle *coreagent.ToolLifecycle, skillStore pkgplugins.SkillStore, sandboxBackendFn func(ctx context.Context) string, vaultEnvLoader VaultEnvLoader, tokenManager *oauth.TokenManager) (NewRunnerFunc, error) {
 	switch snap.Runner.Type {
 	case "go":
-		return func(ctx context.Context, params runner.RunnerParams) (runner.Runner, error) {
+		return func(ctx context.Context, params RunnerParams) (Runner, error) {
 			modelRef := params.Model
 			if modelRef == "" {
 				modelRef = snap.Model
@@ -91,7 +90,7 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 			}
 
 			// Build the full system prompt per-session with profile from memory provider.
-			system := runner.BuildSystemPromptFromDB(ctx, runner.DBPromptParams{
+			system := BuildSystemPromptFromDB(ctx, DBPromptParams{
 				SystemPrompt:   snap.SystemPrompt,
 				AgentSoul:      snap.Soul,
 				Memory:         memProvider,
@@ -119,7 +118,7 @@ func NewRunnerFactory(snap *config.Snapshot, builtinTools []tools.Tool, pluginTo
 				filepath.Join(userRoot, ".agents", "skills"),
 			))
 
-			return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
+			return NewGoRunner(ctx, GoRunnerConfig{
 				API:              apiName,
 				Model:            modelID,
 				APIKey:           creds.APIKey,

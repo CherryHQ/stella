@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/internal/agent"
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/internal/config"
 	"github.com/vaayne/anna/internal/pluginhost"
 	"github.com/vaayne/anna/internal/resources/binaries"
@@ -167,7 +166,7 @@ func TestNewRunnerFactoryGo(t *testing.T) {
 		t.Fatalf("NewRunnerFactory: %v", err)
 	}
 
-	r, err := factory(context.Background(), runner.RunnerParams{UserID: 1})
+	r, err := factory(context.Background(), agent.RunnerParams{UserID: 1})
 	if err != nil {
 		t.Skipf("factory: docker not available: %v", err)
 	}

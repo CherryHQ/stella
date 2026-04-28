@@ -10,27 +10,15 @@ import (
 
 func TestAgentConfig_Defaults(t *testing.T) {
 	cfg := AgentConfig{}
-	if cfg.maxTasks() != defaultMaxTasks {
-		t.Errorf("expected default maxTasks=%d, got %d", defaultMaxTasks, cfg.maxTasks())
-	}
 	if cfg.maxConcurrency() != defaultMaxConcurrency {
 		t.Errorf("expected default maxConcurrency=%d, got %d", defaultMaxConcurrency, cfg.maxConcurrency())
-	}
-	if cfg.maxResultChars() != defaultMaxResultChars {
-		t.Errorf("expected default maxResultChars=%d, got %d", defaultMaxResultChars, cfg.maxResultChars())
 	}
 }
 
 func TestAgentConfig_CustomValues(t *testing.T) {
-	cfg := AgentConfig{MaxTasks: 2, MaxConcurrency: 1, MaxResultChars: 500}
-	if cfg.maxTasks() != 2 {
-		t.Errorf("expected maxTasks=2, got %d", cfg.maxTasks())
-	}
+	cfg := AgentConfig{MaxConcurrency: 1}
 	if cfg.maxConcurrency() != 1 {
 		t.Errorf("expected maxConcurrency=1, got %d", cfg.maxConcurrency())
-	}
-	if cfg.maxResultChars() != 500 {
-		t.Errorf("expected maxResultChars=500, got %d", cfg.maxResultChars())
 	}
 }
 
@@ -58,15 +46,10 @@ func TestParseAgentTasks_AllFields(t *testing.T) {
 	args := map[string]any{
 		"tasks": []any{
 			map[string]any{
-				"id":              "t1",
-				"task":            "write code",
-				"preset":          "worker",
-				"context":         "some context",
-				"model":           "claude-haiku",
-				"system":          "be concise",
-				"max_turns":       float64(5),
-				"timeout_seconds": float64(60),
-				"tools":           []any{"bash", "read"},
+				"id":     "t1",
+				"task":   "write code",
+				"preset": "worker",
+				"model":  "claude-haiku",
 			},
 		},
 	}
@@ -78,23 +61,27 @@ func TestParseAgentTasks_AllFields(t *testing.T) {
 	if tc.Preset != "worker" {
 		t.Errorf("expected preset 'worker', got %q", tc.Preset)
 	}
-	if tc.Context != "some context" {
-		t.Errorf("expected context, got %q", tc.Context)
-	}
 	if tc.Model != "claude-haiku" {
 		t.Errorf("expected model 'claude-haiku', got %q", tc.Model)
 	}
-	if tc.System != "be concise" {
-		t.Errorf("expected system prompt, got %q", tc.System)
+}
+
+func TestParseAgentTasks_AutoID(t *testing.T) {
+	args := map[string]any{
+		"tasks": []any{
+			map[string]any{"task": "first"},
+			map[string]any{"task": "second"},
+		},
 	}
-	if tc.MaxTurns != 5 {
-		t.Errorf("expected max_turns=5, got %d", tc.MaxTurns)
+	tasks, err := parseAgentTasks(args)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if tc.TimeoutSeconds != 60 {
-		t.Errorf("expected timeout=60, got %d", tc.TimeoutSeconds)
+	if tasks[0].ID != "task_0" {
+		t.Errorf("expected auto id 'task_0', got %q", tasks[0].ID)
 	}
-	if !tc.HasTools || len(tc.Tools) != 2 {
-		t.Errorf("expected 2 tools, got %v", tc.Tools)
+	if tasks[1].ID != "task_1" {
+		t.Errorf("expected auto id 'task_1', got %q", tasks[1].ID)
 	}
 }
 
@@ -112,17 +99,6 @@ func TestParseAgentTasks_InvalidTasksType(t *testing.T) {
 	}
 }
 
-func TestParseAgentTasks_MissingID(t *testing.T) {
-	args := map[string]any{
-		"tasks": []any{
-			map[string]any{"task": "do something"},
-		},
-	}
-	_, err := parseAgentTasks(args)
-	if err == nil {
-		t.Error("expected error when id is missing")
-	}
-}
 
 func TestParseAgentTasks_MissingTask(t *testing.T) {
 	args := map[string]any{
@@ -189,22 +165,6 @@ func TestExtractLastAssistant_NoTextContent(t *testing.T) {
 	}
 	if reason != ai.StopReasonStop {
 		t.Errorf("expected stop reason, got %q", reason)
-	}
-}
-
-// --- truncateResult ---
-
-func TestTruncateResult_NoTruncation(t *testing.T) {
-	got := truncateResult("hello world", 100)
-	if got != "hello world" {
-		t.Errorf("expected unchanged, got %q", got)
-	}
-}
-
-func TestTruncateResult_Truncated(t *testing.T) {
-	got := truncateResult("hello world", 5)
-	if got != "hello\n[truncated]" {
-		t.Errorf("expected truncated result, got %q", got)
 	}
 }
 

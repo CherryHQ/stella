@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/pkg/providers"
 	anthropicprovider "github.com/vaayne/anna/plugins/providers/anthropic"
 )
@@ -36,8 +35,8 @@ func TestIntegrationPoolWithGoRunner(t *testing.T) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 
-	factory := func(ctx context.Context, _ runner.RunnerParams) (runner.Runner, error) {
-		return runner.NewGoRunner(ctx, runner.GoRunnerConfig{
+	factory := func(ctx context.Context, _ RunnerParams) (Runner, error) {
+		return NewGoRunner(ctx, GoRunnerConfig{
 			API:       "anthropic",
 			Model:     model,
 			APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
