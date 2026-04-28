@@ -41,7 +41,7 @@ Users can send images to the bot for analysis. Images are downloaded from CDN, d
 
 The bot can also send images back. Generated images are encrypted, uploaded to the WeChat CDN, and delivered as image messages.
 
-File and video messages are received but not processed by the agent (logged and skipped in v1).
+File messages are downloaded from CDN, decrypted using AES-128-ECB, saved to the user's private assets directory, and passed to the agent with a kreuzberg extraction hint. The agent can then use the `kreuzberg extract` command to parse the file content. Video messages are logged and skipped.
 
 ### Typing Indicators
 

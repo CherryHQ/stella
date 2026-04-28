@@ -71,6 +71,18 @@ If the model returns images (e.g. from tool results), they are sent back as Tele
 
 > **Note:** Image support requires a vision-capable model (e.g. Claude 3+, GPT-4o).
 
+## File/Document Support
+
+Users can send documents (PDF, DOCX, XLSX, and other file types) to the bot. When a document is received:
+
+1. The bot saves the file to the user's private assets directory on disk
+2. A kreuzberg extraction hint is passed to the agent so it can read the file content
+3. Any caption attached to the document is included as the user's text message
+
+The agent can then use the `kreuzberg extract` command to parse the file.
+
+> **Note:** File uploads require a vision/document-capable model and the kreuzberg skill to be enabled for the active agent.
+
 ## Group Support
 
 The bot supports group chats with configurable response behavior. Set the group mode in the admin panel:

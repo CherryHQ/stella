@@ -112,7 +112,7 @@ Tool activity from the runner is summarized inline during streaming.
 | Post               | Raw rich-text JSON is forwarded                        |
 | Audio              | Sent as descriptive text with duration                 |
 | Video              | Sent as descriptive text with duration                 |
-| File               | Sent as descriptive text with file metadata            |
+| File               | Downloaded, saved to disk, and passed to the agent with a kreuzberg extraction hint |
 | Sticker            | Sent as descriptive text                               |
 | Location           | Sent as descriptive text with coordinates when present |
 | Shared chat/user   | Sent as descriptive text                               |

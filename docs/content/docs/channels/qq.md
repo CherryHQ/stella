@@ -53,6 +53,18 @@ Restrict which QQ users can interact with the bot by adding allowed OpenIDs in t
 
 Users can send images to the bot for analysis. The bot downloads image attachments, encodes them, and passes them to the AI model as multimodal content alongside any caption text.
 
+## File Support
+
+Users can send file attachments (non-image, non-video) to the bot. When a file is received:
+
+1. The bot downloads the file from the QQ attachment URL
+2. Saves it to the user's private assets directory on disk
+3. A kreuzberg extraction hint is passed to the agent so it can read the file content
+
+The agent can then use the `kreuzberg extract` command to parse the file.
+
+> **Note:** File uploads require the kreuzberg skill to be enabled for the active agent.
+
 ## Commands
 
 Send these commands as text messages to the bot:
