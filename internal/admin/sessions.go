@@ -492,8 +492,9 @@ func decodeToolCallBlock(content string) map[string]any {
 
 func serializeToolRow(row sqlc.CtxMessage) map[string]any {
 	m := map[string]any{
-		"role":      "tool",
-		"timestamp": row.CreatedAt,
+		"role":        "tool",
+		"timestamp":   row.CreatedAt,
+		"token_count": row.TokenCount,
 	}
 	var env struct {
 		ID     string          `json:"id"`
