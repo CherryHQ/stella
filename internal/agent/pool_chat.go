@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
@@ -16,8 +15,8 @@ import (
 // Chat sends a message in a session and streams back events.
 // Internally: gets/creates runner, passes history, collects events,
 // appends to session log, streams to caller.
-func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.MessageContent, opts ...ChatOption) <-chan runner.Event {
-	out := make(chan runner.Event, 100)
+func (p *Pool) Chat(ctx context.Context, sessionID string, message MessageContent, opts ...ChatOption) <-chan Event {
+	out := make(chan Event, 100)
 
 	var co chatOptions
 	for _, o := range opts {
@@ -29,7 +28,7 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 	sess, r, err := p.getOrCreateRunner(ctx, sessionID, co.model)
 	if err != nil {
 		go func() {
-			out <- runner.Event{Err: fmt.Errorf("get runner: %w", err)}
+			out <- Event{Err: fmt.Errorf("get runner: %w", err)}
 			close(out)
 		}()
 		return out
@@ -47,7 +46,7 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 		ctx = memory.WithAgentID(ctx, agentID)
 	}
 	if sess.Info.Channel != "" {
-		ctx = runner.WithChannel(ctx, sess.Info.Channel)
+		ctx = WithChannel(ctx, sess.Info.Channel)
 	}
 
 	// Construct a Session value for all memory provider calls.
@@ -58,7 +57,7 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 		Channel: sess.Info.Channel,
 	}
 
-	msgText := runner.MessageText(message)
+	msgText := MessageText(message)
 	p.log.Debug("chat started", "session_id", sessionID, "message_len", len(msgText))
 
 	// Fire PreAgentCall hook — marks the start of a chat request.
@@ -84,7 +83,7 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 			sess, r, err = p.getOrCreateRunner(ctx, sessionID, co.model)
 			if err != nil {
 				go func() {
-					out <- runner.Event{Err: fmt.Errorf("get runner after compaction: %w", err)}
+					out <- Event{Err: fmt.Errorf("get runner after compaction: %w", err)}
 					close(out)
 				}()
 				return out
@@ -133,7 +132,7 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 
 	if p.beforeRunFn != nil {
 		baseSystem := ""
-		if promter, ok := r.(runner.SystemPrompter); ok {
+		if promter, ok := r.(SystemPrompter); ok {
 			baseSystem = promter.SystemPrompt()
 		}
 		if result, err := p.beforeRunFn(ctx, pkgplugins.BeforeRunContext{
@@ -147,12 +146,12 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 			History:      history,
 		}); err != nil {
 			go func() {
-				out <- runner.Event{Err: fmt.Errorf("before run: %w", err)}
+				out <- Event{Err: fmt.Errorf("before run: %w", err)}
 				close(out)
 			}()
 			return out
 		} else if result.SystemPrompt != "" && result.SystemPrompt != baseSystem {
-			ctx = runner.WithSystemOverride(ctx, result.SystemPrompt)
+			ctx = WithSystemOverride(ctx, result.SystemPrompt)
 		}
 	}
 
@@ -171,7 +170,7 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message runner.Messag
 
 // streamEvents reads runner events, persists messages to the memory provider,
 // and forwards events to the output channel.
-func (p *Pool) streamEvents(ctx context.Context, sessionID string, memSession memory.Session, stream <-chan runner.Event, out chan<- runner.Event, hs *hooks.HookSet, hookMeta hooks.HookMeta, chatStart time.Time) {
+func (p *Pool) streamEvents(ctx context.Context, sessionID string, memSession memory.Session, stream <-chan Event, out chan<- Event, hs *hooks.HookSet, hookMeta hooks.HookMeta, chatStart time.Time) {
 	var chatErr error
 	defer func() {
 		hs.RunPostAgentCall(ctx, &hooks.PostAgentCallContext{

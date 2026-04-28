@@ -6,16 +6,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
 )
 
-// Pool manages a set of sessions, each with its own history and runner.
+// Pool manages a set of sessions, each with its own history and
 // It is the only type channels interact with.
 type Pool struct {
 	agentID      string // agent this pool belongs to (empty for legacy single-agent)
-	factory      runner.NewRunnerFunc
+	factory      NewRunnerFunc
 	hooksFn      func() []hooks.HookPlugin // injected into RunnerParams; nil = no hooks
 	beforeRunFn  BeforeRunBuilder
 	sessions     map[string]*Session
@@ -30,7 +29,7 @@ type Pool struct {
 
 // NewPool creates a new Pool with the given runner factory and memory provider.
 // The memory provider is required — it is the sole persistence layer for sessions.
-func NewPool(factory runner.NewRunnerFunc, mem memory.Provider, opts ...PoolOption) *Pool {
+func NewPool(factory NewRunnerFunc, mem memory.Provider, opts ...PoolOption) *Pool {
 	p := &Pool{
 		factory:     factory,
 		mem:         mem,
@@ -55,7 +54,7 @@ func (p *Pool) AgentID() string {
 
 // SetFactory replaces the runner factory used for new runners.
 // Existing runners are not affected until their session is reset.
-func (p *Pool) SetFactory(factory runner.NewRunnerFunc) {
+func (p *Pool) SetFactory(factory NewRunnerFunc) {
 	p.mu.Lock()
 	p.factory = factory
 	p.mu.Unlock()
@@ -100,7 +99,7 @@ func (p *Pool) SetFastModel(model string) {
 // The next chat on each session will recreate a runner from the current factory.
 func (p *Pool) ResetRunners() error {
 	p.mu.Lock()
-	runners := make([]runner.Runner, 0, len(p.sessions))
+	runners := make([]Runner, 0, len(p.sessions))
 	for _, sess := range p.sessions {
 		if sess == nil {
 			continue
@@ -125,10 +124,10 @@ func (p *Pool) ResetRunners() error {
 }
 
 // ResetRunnersForUser closes live runners belonging to a specific user.
-// Other sessions are not affected. The next chat for that user recreates a runner.
+// Other sessions are not affected. The next chat for that user recreates a
 func (p *Pool) ResetRunnersForUser(userID int64) error {
 	p.mu.Lock()
-	var runners []runner.Runner
+	var runners []Runner
 	for _, sess := range p.sessions {
 		if sess == nil || sess.Info.UserID != userID {
 			continue

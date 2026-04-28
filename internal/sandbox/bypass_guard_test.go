@@ -27,7 +27,7 @@ func TestMigratedSandboxPathsAvoidDirectBypasses(t *testing.T) {
 		"plugins/tools/skills/catalog.go",
 		"plugins/tools/skills/manage.go",
 		"plugins/tools/agent/preset_loader.go",
-		"internal/agent/runner/prompt.go",
+		"internal/agent/prompt.go",
 		// prompt_host.go and hostfs.go intentionally use os.* for host-side
 		// operations (no sandbox session available during prompt rendering or
 		// agent preset discovery, which run in the anna process before a session

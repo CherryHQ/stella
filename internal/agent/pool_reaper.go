@@ -4,8 +4,6 @@ import (
 	"context"
 	"io"
 	"time"
-
-	"github.com/vaayne/anna/internal/agent/runner"
 )
 
 // StartReaper runs a background goroutine that periodically checks for
@@ -35,8 +33,8 @@ func (p *Pool) reap() {
 			continue
 		}
 
-		aliver, isAliver := sess.Runner.(runner.Aliver)
-		tracker, isTracker := sess.Runner.(runner.ActivityTracker)
+		aliver, isAliver := sess.Runner.(Aliver)
+		tracker, isTracker := sess.Runner.(ActivityTracker)
 
 		if !isAliver {
 			continue

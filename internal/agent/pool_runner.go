@@ -5,7 +5,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/pkg/memory"
 )
 
@@ -13,12 +12,12 @@ import (
 // If the session is not in memory but exists on disk, its history is restored.
 // If model is non-empty and differs from the session's current model, the
 // existing runner is replaced.
-func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model string) (*Session, runner.Runner, error) {
+func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model string) (*Session, Runner, error) {
 	p.mu.Lock()
 	sess, ok := p.sessions[sessionID]
 	if ok && sess.Runner != nil {
 		// Check if the runner is still alive (for runners that support liveness).
-		if aliver, isAliver := sess.Runner.(runner.Aliver); isAliver && !aliver.Alive() {
+		if aliver, isAliver := sess.Runner.(Aliver); isAliver && !aliver.Alive() {
 			p.log.Warn("replacing dead runner", "session_id", sessionID)
 			if closer, isCloser := sess.Runner.(io.Closer); isCloser {
 				_ = closer.Close()
@@ -28,7 +27,7 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 	}
 	if ok && sess.Runner != nil {
 		// If a specific model was requested and it differs from the session's
-		// current model, replace the runner.
+		// current model, replace the
 		if model != "" && sess.Model != model {
 			p.log.Info("switching model", "session_id", sessionID, "from", sess.Model, "to", model)
 			if closer, isCloser := sess.Runner.(io.Closer); isCloser {
@@ -83,7 +82,7 @@ func (p *Pool) getOrCreateRunner(ctx context.Context, sessionID string, model st
 		effectiveModel = defaultModel
 	}
 
-	r, err := factory(ctx, runner.RunnerParams{Model: effectiveModel, Memory: p.mem, UserID: sess.Info.UserID, AgentID: p.agentID, HooksFn: hooksFn})
+	r, err := factory(ctx, RunnerParams{Model: effectiveModel, Memory: p.mem, UserID: sess.Info.UserID, AgentID: p.agentID, HooksFn: hooksFn})
 	if err != nil {
 		return nil, nil, err
 	}

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/notify"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
@@ -28,15 +28,15 @@ func (f *fakeNotifier) Notify(_ context.Context, n pkgchannel.Notification) erro
 	return f.err
 }
 
-func makeChatFunc(calls *[]chatCall, responses map[string][]runner.Event) ChatFunc {
-	return func(_ context.Context, sessionID, message, model string) <-chan runner.Event {
+func makeChatFunc(calls *[]chatCall, responses map[string][]agent.Event) ChatFunc {
+	return func(_ context.Context, sessionID, message, model string) <-chan agent.Event {
 		*calls = append(*calls, chatCall{
 			sessionID: sessionID,
 			message:   message,
 			model:     model,
 		})
 
-		out := make(chan runner.Event, len(responses[sessionID]))
+		out := make(chan agent.Event, len(responses[sessionID]))
 		for _, evt := range responses[sessionID] {
 			out <- evt
 		}
@@ -45,7 +45,7 @@ func makeChatFunc(calls *[]chatCall, responses map[string][]runner.Event) ChatFu
 	}
 }
 
-func newHeartbeatTestService(t *testing.T, cfg HeartbeatConfig, calls *[]chatCall, responses map[string][]runner.Event, notifier notify.Notifier) *Service {
+func newHeartbeatTestService(t *testing.T, cfg HeartbeatConfig, calls *[]chatCall, responses map[string][]agent.Event, notifier notify.Notifier) *Service {
 	t.Helper()
 	db := testDB(t)
 	svc, err := New(db)
@@ -92,7 +92,7 @@ func TestHeartbeatPollSkipDecisionUsesFastModel(t *testing.T) {
 	svc := newHeartbeatTestService(t, HeartbeatConfig{
 		File:      path,
 		FastModel: "fast-model",
-	}, &calls, map[string][]runner.Event{
+	}, &calls, map[string][]agent.Event{
 		heartbeatDecisionSessionID: {{Text: `{"action":"skip","reason":"nothing pending"}`}},
 	}, notifier)
 
@@ -126,7 +126,7 @@ func TestHeartbeatPollRunDecisionExecutesAndNotifies(t *testing.T) {
 	svc := newHeartbeatTestService(t, HeartbeatConfig{
 		File:      path,
 		FastModel: "fast-model",
-	}, &calls, map[string][]runner.Event{
+	}, &calls, map[string][]agent.Event{
 		heartbeatDecisionSessionID: {{Text: `{"action":"run","reason":"new work detected"}`}},
 		heartbeatMainSessionID:     {{Text: "Action complete."}},
 	}, notifier)
@@ -163,9 +163,9 @@ func TestHeartbeatPollFailsWhenDecisionUsesTools(t *testing.T) {
 	svc := newHeartbeatTestService(t, HeartbeatConfig{
 		File:      path,
 		FastModel: "fast-model",
-	}, &calls, map[string][]runner.Event{
+	}, &calls, map[string][]agent.Event{
 		heartbeatDecisionSessionID: {{
-			ToolUse: &runner.ToolUseEvent{Tool: "bash", Status: "running"},
+			ToolUse: &agent.ToolUseEvent{Tool: "bash", Status: "running"},
 		}},
 	}, &fakeNotifier{})
 
@@ -190,7 +190,7 @@ func TestHeartbeatPollReturnsNotifierError(t *testing.T) {
 	svc := newHeartbeatTestService(t, HeartbeatConfig{
 		File:      path,
 		FastModel: "fast-model",
-	}, &calls, map[string][]runner.Event{
+	}, &calls, map[string][]agent.Event{
 		heartbeatDecisionSessionID: {{Text: `{"action":"run","reason":"do it"}`}},
 		heartbeatMainSessionID:     {{Text: "Done."}},
 	}, notifier)

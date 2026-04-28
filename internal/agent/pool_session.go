@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/vaayne/anna/internal/agent/runner"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/memory"
 )
@@ -161,7 +160,7 @@ func (p *Pool) ListSessions(includeArchived bool) ([]SessionInfo, error) {
 func (p *Pool) ArchiveSession(sessionID string) error {
 	p.mu.Lock()
 	sess, ok := p.sessions[sessionID]
-	var r runner.Runner
+	var r Runner
 	if ok {
 		r = sess.Runner
 		delete(p.sessions, sessionID)

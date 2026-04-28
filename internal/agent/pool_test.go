@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/runner"
 	appdb "github.com/vaayne/anna/internal/db"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/memory"
@@ -34,10 +33,10 @@ func testMemoryProvider(t *testing.T) memory.Provider {
 	return p
 }
 
-// mockRunner implements runner.Runner and io.Closer for pool tests.
+// mockRunner implements Runner and io.Closer for pool tests.
 type mockRunner struct {
 	mu           sync.Mutex
-	events       []runner.Event
+	events       []Event
 	system       string
 	seenOverride string
 	closed       bool
@@ -45,7 +44,7 @@ type mockRunner struct {
 	alive        bool
 }
 
-func newMockRunner(events []runner.Event) *mockRunner {
+func newMockRunner(events []Event) *mockRunner {
 	return &mockRunner{
 		events:       events,
 		system:       "base system prompt",
@@ -54,16 +53,16 @@ func newMockRunner(events []runner.Event) *mockRunner {
 	}
 }
 
-func (m *mockRunner) Chat(ctx context.Context, _ []ai.Message, _ runner.MessageContent) <-chan runner.Event {
+func (m *mockRunner) Chat(ctx context.Context, _ []ai.Message, _ MessageContent) <-chan Event {
 	m.mu.Lock()
 	m.lastActivity = time.Now()
-	if override, ok := runner.SystemOverrideFromContext(ctx); ok {
+	if override, ok := SystemOverrideFromContext(ctx); ok {
 		m.seenOverride = override
 	}
 	events := m.events
 	m.mu.Unlock()
 
-	out := make(chan runner.Event, len(events))
+	out := make(chan Event, len(events))
 	go func() {
 		defer close(out)
 		for _, evt := range events {
@@ -101,10 +100,10 @@ func (m *mockRunner) SystemPrompt() string {
 
 // mockRunnerFactory returns a NewRunnerFunc that creates mockRunners with the
 // given canned events. It also tracks all created runners.
-func mockRunnerFactory(events []runner.Event) (runner.NewRunnerFunc, *[]*mockRunner) {
+func mockRunnerFactory(events []Event) (NewRunnerFunc, *[]*mockRunner) {
 	var runners []*mockRunner
 	var mu sync.Mutex
-	factory := func(_ context.Context, _ runner.RunnerParams) (runner.Runner, error) {
+	factory := func(_ context.Context, _ RunnerParams) (Runner, error) {
 		r := newMockRunner(events)
 		mu.Lock()
 		runners = append(runners, r)
@@ -140,7 +139,7 @@ func TestSetFactory(t *testing.T) {
 	factory1, _ := mockRunnerFactory(nil)
 	pool := NewPool(factory1, testMemoryProvider(t))
 
-	factory2, _ := mockRunnerFactory([]runner.Event{{Text: "new"}})
+	factory2, _ := mockRunnerFactory([]Event{{Text: "new"}})
 	pool.SetFactory(factory2)
 
 	// Verify factory was replaced by creating a session
@@ -157,7 +156,7 @@ func TestSetFactory(t *testing.T) {
 }
 
 func TestPoolChat(t *testing.T) {
-	events := []runner.Event{
+	events := []Event{
 		{Text: "Hello "},
 		{Text: "world"},
 	}
@@ -182,7 +181,7 @@ func TestPoolChat(t *testing.T) {
 }
 
 func TestPoolChatAppliesBeforeRunSystemOverride(t *testing.T) {
-	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	factory, runners := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, testMemoryProvider(t), WithBeforeRunBuilder(func(context.Context, pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
 		return pkgplugins.BeforeRunResult{SystemPrompt: "override system prompt"}, nil
 	}))
@@ -207,18 +206,18 @@ func TestPoolChatAppliesBeforeRunSystemOverride(t *testing.T) {
 }
 
 func TestPoolChatReusesSession(t *testing.T) {
-	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	factory, runners := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, testMemoryProvider(t))
 	defer func() { _ = pool.Close() }()
 
 	ctx := context.Background()
 
-	// First chat creates a runner.
+	// First chat creates a
 	stream := pool.Chat(ctx, "sess-1", "first")
 	for range stream {
 	}
 
-	// Second chat should reuse the same runner.
+	// Second chat should reuse the same
 	stream = pool.Chat(ctx, "sess-1", "second")
 	for range stream {
 	}
@@ -229,7 +228,7 @@ func TestPoolChatReusesSession(t *testing.T) {
 }
 
 func TestPoolChatMultipleSessions(t *testing.T) {
-	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	factory, runners := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, testMemoryProvider(t))
 	defer func() { _ = pool.Close() }()
 
@@ -249,7 +248,7 @@ func TestPoolChatMultipleSessions(t *testing.T) {
 }
 
 func TestPoolChatAccumulatesHistory(t *testing.T) {
-	events := []runner.Event{
+	events := []Event{
 		{Text: "chunk1"},
 		{Text: "chunk2"},
 	}
@@ -273,7 +272,7 @@ func TestPoolChatAccumulatesHistory(t *testing.T) {
 }
 
 func TestPoolChatErrorFromFactory(t *testing.T) {
-	factory := func(_ context.Context, _ runner.RunnerParams) (runner.Runner, error) {
+	factory := func(_ context.Context, _ RunnerParams) (Runner, error) {
 		return nil, fmt.Errorf("factory error")
 	}
 	pool := NewPool(factory, testMemoryProvider(t))
@@ -295,7 +294,7 @@ func TestPoolChatErrorFromFactory(t *testing.T) {
 }
 
 func TestPoolArchiveAndRecreate(t *testing.T) {
-	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	factory, runners := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, testMemoryProvider(t))
 	defer func() { _ = pool.Close() }()
 
@@ -322,7 +321,7 @@ func TestPoolArchiveAndRecreate(t *testing.T) {
 		t.Error("session should be removed after ArchiveSession")
 	}
 
-	// Next chat should create a new runner.
+	// Next chat should create a new
 	stream = pool.Chat(ctx, "sess", "msg2")
 	for range stream {
 	}
@@ -343,7 +342,7 @@ func TestPoolArchiveNonexistent(t *testing.T) {
 }
 
 func TestPoolClose(t *testing.T) {
-	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	factory, runners := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, testMemoryProvider(t))
 
 	ctx := context.Background()
@@ -374,7 +373,7 @@ func TestPoolClose(t *testing.T) {
 }
 
 func TestPoolReapIdle(t *testing.T) {
-	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	factory, _ := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, testMemoryProvider(t), WithIdleTimeout(1*time.Millisecond))
 	defer func() { _ = pool.Close() }()
 
@@ -417,7 +416,7 @@ func TestPoolReapIdle(t *testing.T) {
 }
 
 func TestPoolReapDead(t *testing.T) {
-	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	factory, runners := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, testMemoryProvider(t), WithIdleTimeout(10*time.Minute))
 	defer func() { _ = pool.Close() }()
 
@@ -478,13 +477,13 @@ func TestPoolStartReaperCancels(t *testing.T) {
 
 func TestPoolReplacesDeadRunnerOnChat(t *testing.T) {
 	// Use mockRunner to test dead-runner replacement in getOrCreateRunner.
-	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	factory, runners := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, testMemoryProvider(t))
 	defer func() { _ = pool.Close() }()
 
 	ctx := context.Background()
 
-	// Create a session with a runner.
+	// Create a session with a
 	_, _, err := pool.getOrCreateRunner(ctx, "sess", "")
 	if err != nil {
 		t.Fatalf("getOrCreateRunner: %v", err)
@@ -495,7 +494,7 @@ func TestPoolReplacesDeadRunnerOnChat(t *testing.T) {
 	(*runners)[0].alive = false
 	(*runners)[0].mu.Unlock()
 
-	// Next call should create a new runner.
+	// Next call should create a new
 	_, runner2, err := pool.getOrCreateRunner(ctx, "sess", "")
 	if err != nil {
 		t.Fatalf("getOrCreateRunner after death: %v", err)
@@ -613,7 +612,7 @@ func TestPoolResolveSession(t *testing.T) {
 }
 
 func TestPoolRotateSession(t *testing.T) {
-	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	factory, _ := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, testMemoryProvider(t))
 	defer func() { _ = pool.Close() }()
 
@@ -739,7 +738,7 @@ func TestPoolActiveSessionIgnoresLegacySessions(t *testing.T) {
 }
 
 func TestPoolArchiveSession(t *testing.T) {
-	factory, runners := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	factory, runners := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, testMemoryProvider(t))
 	defer func() { _ = pool.Close() }()
 
@@ -795,7 +794,7 @@ func TestPoolGetSessionNotFound(t *testing.T) {
 }
 
 func TestPoolChatAutoTitles(t *testing.T) {
-	factory, _ := mockRunnerFactory([]runner.Event{{Text: "response"}})
+	factory, _ := mockRunnerFactory([]Event{{Text: "response"}})
 	pool := NewPool(factory, testMemoryProvider(t))
 	defer func() { _ = pool.Close() }()
 
@@ -819,7 +818,7 @@ func TestPoolChatAutoTitles(t *testing.T) {
 }
 
 func TestPoolChatAutoTitleTruncates(t *testing.T) {
-	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	factory, _ := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, testMemoryProvider(t))
 	defer func() { _ = pool.Close() }()
 
@@ -843,11 +842,11 @@ func TestPoolChatWithModel(t *testing.T) {
 	// Track which model was requested for each runner creation.
 	var models []string
 	var mu sync.Mutex
-	factory := func(_ context.Context, params runner.RunnerParams) (runner.Runner, error) {
+	factory := func(_ context.Context, params RunnerParams) (Runner, error) {
 		mu.Lock()
 		models = append(models, params.Model)
 		mu.Unlock()
-		return newMockRunner([]runner.Event{{Text: "ok"}}), nil
+		return newMockRunner([]Event{{Text: "ok"}}), nil
 	}
 
 	pool := NewPool(factory, testMemoryProvider(t), WithDefaultModel("default-model"))
@@ -893,7 +892,7 @@ func TestPoolChatWithModel(t *testing.T) {
 
 func TestPoolFastModelForCompaction(t *testing.T) {
 	mem := testMemoryProvider(t)
-	factory, _ := mockRunnerFactory([]runner.Event{{Text: "summary text"}})
+	factory, _ := mockRunnerFactory([]Event{{Text: "summary text"}})
 
 	pool := NewPool(factory, mem,
 		WithDefaultModel("strong-model"),
@@ -921,11 +920,11 @@ func TestPoolFastModelForCompaction(t *testing.T) {
 func TestSetDefaultModelAffectsNewSessions(t *testing.T) {
 	var models []string
 	var mu sync.Mutex
-	factory := func(_ context.Context, params runner.RunnerParams) (runner.Runner, error) {
+	factory := func(_ context.Context, params RunnerParams) (Runner, error) {
 		mu.Lock()
 		models = append(models, params.Model)
 		mu.Unlock()
-		return newMockRunner([]runner.Event{{Text: "ok"}}), nil
+		return newMockRunner([]Event{{Text: "ok"}}), nil
 	}
 
 	pool := NewPool(factory, testMemoryProvider(t), WithDefaultModel("initial-model"))
@@ -964,11 +963,11 @@ func TestSetDefaultModelAffectsNewSessions(t *testing.T) {
 func TestResetRunnersUsesUpdatedDefaultModelForExistingSession(t *testing.T) {
 	var models []string
 	var mu sync.Mutex
-	factory := func(_ context.Context, params runner.RunnerParams) (runner.Runner, error) {
+	factory := func(_ context.Context, params RunnerParams) (Runner, error) {
 		mu.Lock()
 		models = append(models, params.Model)
 		mu.Unlock()
-		return newMockRunner([]runner.Event{{Text: "ok"}}), nil
+		return newMockRunner([]Event{{Text: "ok"}}), nil
 	}
 
 	pool := NewPool(factory, testMemoryProvider(t), WithDefaultModel("initial-model"))
@@ -1014,7 +1013,7 @@ func TestNeedsCompactionDisabled(t *testing.T) {
 }
 
 func TestNeedsCompactionUnderThreshold(t *testing.T) {
-	factory, _ := mockRunnerFactory([]runner.Event{{Text: "short"}})
+	factory, _ := mockRunnerFactory([]Event{{Text: "short"}})
 	mem := testMemoryProvider(t)
 	pool := NewPool(factory, mem, WithCompaction(CompactionConfig{MaxTokens: 100_000}))
 	defer func() { _ = pool.Close() }()
@@ -1054,7 +1053,7 @@ func TestPoolHistoryEmpty(t *testing.T) {
 }
 
 func TestPoolConcurrentChat(t *testing.T) {
-	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	factory, _ := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, testMemoryProvider(t))
 	defer func() { _ = pool.Close() }()
 
@@ -1126,14 +1125,14 @@ func TestPoolActiveSessionFromMemEngine(t *testing.T) {
 }
 
 func TestPoolArchiveSessionWithMemEngine(t *testing.T) {
-	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	factory, _ := mockRunnerFactory([]Event{{Text: "ok"}})
 	mem := testMemoryProvider(t)
 	pool := NewPool(factory, mem)
 	defer func() { _ = pool.Close() }()
 
 	info, _ := pool.CreateSession("test")
 
-	// Chat to create a runner.
+	// Chat to create a
 	stream := pool.Chat(context.Background(), info.ID, "hello")
 	for range stream {
 	}
@@ -1154,7 +1153,7 @@ func TestPoolArchiveSessionWithMemEngine(t *testing.T) {
 }
 
 func TestPoolHistoryFromMemEngine(t *testing.T) {
-	factory, _ := mockRunnerFactory([]runner.Event{{Text: "response"}})
+	factory, _ := mockRunnerFactory([]Event{{Text: "response"}})
 	mem := testMemoryProvider(t)
 	pool := NewPool(factory, mem)
 	defer func() { _ = pool.Close() }()
@@ -1184,7 +1183,7 @@ func TestPoolChatStoreEvent(t *testing.T) {
 			ai.ToolCall{ID: "call_1", Name: "bash", Arguments: map[string]any{"cmd": "ls"}},
 		},
 	}
-	events := []runner.Event{
+	events := []Event{
 		{Text: "thinking... "},
 		{Store: toolCallMsg},
 		{Text: "done"},
@@ -1218,7 +1217,7 @@ func TestPoolChatStoreEvent(t *testing.T) {
 
 func TestPoolChatErrorWithBufferedText(t *testing.T) {
 	// Runner emits text, then an error.
-	events := []runner.Event{
+	events := []Event{
 		{Text: "partial "},
 		{Text: "response "},
 		{Err: fmt.Errorf("stream interrupted")},
@@ -1323,7 +1322,7 @@ func TestPoolListSessionsWithMemEngine(t *testing.T) {
 }
 
 func TestPoolGetOrCreateRunnerRestoresFromMemEngine(t *testing.T) {
-	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	factory, _ := mockRunnerFactory([]Event{{Text: "ok"}})
 	mem := testMemoryProvider(t)
 	pool := NewPool(factory, mem)
 	defer func() { _ = pool.Close() }()
@@ -1354,14 +1353,14 @@ func TestPoolGetOrCreateRunnerRestoresFromMemEngine(t *testing.T) {
 }
 
 func TestPoolGetOrCreateRunnerSeedsScopeFromContext(t *testing.T) {
-	factory := func(_ context.Context, params runner.RunnerParams) (runner.Runner, error) {
+	factory := func(_ context.Context, params RunnerParams) (Runner, error) {
 		if params.UserID != 42 {
 			return nil, fmt.Errorf("UserID = %d, want 42", params.UserID)
 		}
 		if params.AgentID != "agent-blue" {
 			return nil, fmt.Errorf("AgentID = %q, want %q", params.AgentID, "agent-blue")
 		}
-		return newMockRunner([]runner.Event{{Text: "ok"}}), nil
+		return newMockRunner([]Event{{Text: "ok"}}), nil
 	}
 	mem := testMemoryProvider(t)
 	pool := NewPool(factory, mem, WithAgentID("agent-blue"))
@@ -1382,12 +1381,12 @@ func TestPoolGetOrCreateRunnerSeedsScopeFromContext(t *testing.T) {
 
 func TestPoolChatToolUseEventPassthrough(t *testing.T) {
 	// ToolUse events should pass through without being stored.
-	toolUseEvt := &runner.ToolUseEvent{
+	toolUseEvt := &ToolUseEvent{
 		Tool:   "bash",
 		Status: "running",
 		Input:  "ls",
 	}
-	events := []runner.Event{
+	events := []Event{
 		{ToolUse: toolUseEvt},
 		{Text: "result"},
 	}
@@ -1418,7 +1417,7 @@ func TestPoolChatToolUseEventPassthrough(t *testing.T) {
 
 func TestPoolCompactSessionWithMemEngine(t *testing.T) {
 	mem := testMemoryProvider(t)
-	factory, _ := mockRunnerFactory([]runner.Event{{Text: "ok"}})
+	factory, _ := mockRunnerFactory([]Event{{Text: "ok"}})
 	pool := NewPool(factory, mem,
 		WithCompaction(CompactionConfig{MaxTokens: 100_000, KeepTail: 5}),
 	)

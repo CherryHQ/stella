@@ -1,4 +1,4 @@
-package runner
+package agent
 
 import (
 	"context"
@@ -8,17 +8,7 @@ import (
 	"time"
 
 	"github.com/vaayne/anna/pkg/ai"
-	"github.com/vaayne/anna/pkg/providers"
-	anthropicprovider "github.com/vaayne/anna/plugins/providers/anthropic"
 )
-
-// skipWithoutAnthropicKey skips the test when ANTHROPIC_API_KEY is not set.
-func skipWithoutAnthropicKey(t *testing.T) {
-	t.Helper()
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
-		t.Skip("ANTHROPIC_API_KEY not set, skipping integration test")
-	}
-}
 
 func integrationConfig(t *testing.T) GoRunnerConfig {
 	t.Helper()
@@ -43,18 +33,6 @@ func integrationConfig(t *testing.T) GoRunnerConfig {
 		UserRoot:  userRoot,
 		Providers: integrationProviderRegistryBuilder,
 	}
-}
-
-func integrationProviderRegistryBuilder(api, apiKey, baseURL string) (*providers.Registry, error) {
-	if api != "anthropic" {
-		return nil, providers.ErrProviderNotFound
-	}
-	reg := providers.NewRegistry()
-	reg.Register(anthropicprovider.New(anthropicprovider.Config{
-		APIKey:  apiKey,
-		BaseURL: baseURL,
-	}))
-	return reg, nil
 }
 
 func TestIntegrationSingleTurn(t *testing.T) {

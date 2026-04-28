@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vaayne/anna/internal/agent/runner"
+	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/notify"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 )
@@ -19,7 +19,7 @@ const (
 )
 
 // ChatFunc streams runner events for heartbeat decision/execution prompts.
-type ChatFunc func(ctx context.Context, sessionID, message, model string) <-chan runner.Event
+type ChatFunc func(ctx context.Context, sessionID, message, model string) <-chan agent.Event
 
 // HeartbeatConfig holds heartbeat-specific settings.
 type HeartbeatConfig struct {
