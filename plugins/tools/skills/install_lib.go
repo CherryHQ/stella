@@ -75,7 +75,18 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 // cleanup is a no-op for git sources (their path is a shared cache — do NOT
 // delete it). For local sources it is also a no-op because the path is the
 // user's local directory.
+//
+// Supported source formats:
+//   - clawhub:<slug>[@version]    — download from clawhub.ai
+//   - owner/repo@skill-name       — GitHub shorthand (via mcphub)
+//   - GitHub/GitLab URLs          — cloned via git
+//   - local paths                 — read from filesystem
 func FetchSkillFiles(ctx context.Context, source string) (skillName string, files map[string]string, cleanup func(), err error) {
+	// Handle clawhub: prefix before any other parsing.
+	if slug, version, ok := parseClawhubSource(source); ok {
+		return clawhubFetchSkillFiles(ctx, slug, version)
+	}
+
 	ref := ""
 	if !strings.HasPrefix(source, "http://") && !strings.HasPrefix(source, "https://") &&
 		!strings.HasPrefix(source, "/") && !strings.HasPrefix(source, ".") {
