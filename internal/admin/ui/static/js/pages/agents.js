@@ -33,7 +33,7 @@ export function register(Alpine) {
     form: {
       name: '', model: '', model_strong: '', model_fast: '',
       system_prompt: '', soul: '', scope: 'system', enabled: true,
-      enabled_builtin_skills: [], template_id: '',
+      template_id: '',
       sandbox: { network: { mode: 'disabled', allowlist: [] } },
     },
 
@@ -125,7 +125,6 @@ export function register(Alpine) {
           model: meta.model || this.form.model || '',
           system_prompt: full.content || '',
           soul: soulContent,
-          enabled_builtin_skills: Array.isArray(meta.skills) ? meta.skills : [],
           template_id: tmpl.id,
         }
         this.showTemplateModal = false
@@ -237,7 +236,7 @@ export function register(Alpine) {
       this.form = {
         name: '', model: '', model_strong: '', model_fast: '',
         system_prompt: '', soul: '', scope: 'system', enabled: true,
-        enabled_builtin_skills: [], template_id: '',
+        template_id: '',
         sandbox: { network: { mode: 'disabled', allowlist: [] } },
       }
       this.selectedSoulID = ''
@@ -262,7 +261,6 @@ export function register(Alpine) {
       this.form = {
         ...a,
         scope: a.scope || 'system',
-        enabled_builtin_skills: Array.isArray(a.enabled_builtin_skills) ? a.enabled_builtin_skills : [],
         template_id: '',
         sandbox: this.normalizeSandbox(a.sandbox),
       }
@@ -415,6 +413,15 @@ export function register(Alpine) {
         this.agentSkills = (await api('GET', '/api/agents/' + agentId + '/skills')) || []
       } catch { this.agentSkills = [] }
       finally { this.agentSkillsLoading = false }
+    },
+
+    async toggleAgentSkillStatus(sk) {
+      if (!this.editingId) return
+      const next = sk.status === 'active' ? 'draft' : 'active'
+      try {
+        await api('PUT', '/api/agents/' + this.editingId + '/skills/' + sk.id, { status: next })
+        sk.status = next
+      } catch (e) { this.$store.toast.show(e.message, 'error') }
     },
 
     async deleteAgentSkill(skillId) {

@@ -163,7 +163,10 @@ templ agentSkillsTab() {
 		</div>
 		<div>
 			<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2">Custom skills</p>
-			<div x-show="!editingId" class="text-xs text-base-content/50 italic py-1">Save the agent first to manage custom skills.</div>
+			<div x-show="!editingId" class="text-xs text-base-content/50 italic py-1 flex items-center gap-2">
+				<span>Save the agent first to manage custom skills.</span>
+				<button @click="saveAgent()" type="button" class="btn btn-primary btn-xs">Save now</button>
+			</div>
 			<div x-show="editingId">
 				<template x-if="agentSkillsLoading">
 					<div class="py-4 flex justify-center"><span class="loading loading-spinner loading-sm"></span></div>
@@ -172,20 +175,19 @@ templ agentSkillsTab() {
 					<div>
 						<div class="space-y-1 mb-3">
 							<template x-for="sk in agentSkills" :key="sk.id">
-								<div class="flex items-center justify-between rounded border border-base-300 px-3 py-2 hover:bg-base-200/50 transition-colors">
-									<button @click="openAgentSkill(sk)" type="button" class="flex items-center gap-2 min-w-0 flex-1 text-left">
-										<span class="text-sm font-mono truncate" x-text="sk.name"></span>
-										<span
-											class="badge badge-xs"
-											:class="{
-												'badge-success': sk.status === 'active',
-												'badge-warning': sk.status === 'draft',
-												'badge-error':   sk.status === 'deprecated',
-												'badge-ghost':   !['active','draft','deprecated'].includes(sk.status)
-											}"
-											x-text="sk.status"
-										></span>
-									</button>
+								<div class="flex items-center gap-2 rounded border border-base-300 px-3 py-2 hover:bg-base-200/50 transition-colors">
+									<input
+										type="checkbox"
+										class="toggle toggle-primary toggle-xs shrink-0"
+										:checked="sk.status === 'active'"
+										@change="toggleAgentSkillStatus(sk)"
+										:title="sk.status === 'active' ? 'Disable skill' : 'Enable skill'"
+									/>
+									<div class="min-w-0 flex-1">
+										<span class="text-sm font-mono" x-text="sk.name"></span>
+										<p x-show="sk.description" class="text-xs text-base-content/60 truncate mt-0.5" x-text="sk.description"></p>
+									</div>
+									<button @click="openAgentSkill(sk)" type="button" class="btn btn-ghost btn-xs shrink-0">edit</button>
 									<button @click="deleteAgentSkill(sk.id)" class="btn btn-ghost btn-xs text-error shrink-0">remove</button>
 								</div>
 							</template>

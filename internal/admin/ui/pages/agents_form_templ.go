@@ -274,7 +274,7 @@ func agentSkillsTab() templ.Component {
 			templ_7745c5c3_Var8 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<div class=\"space-y-6\"><div x-show=\"builtinSkills.length > 0\"><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2\">Builtin skills</p><p class=\"text-xs text-base-content/60 mb-2\">System-scope builtin skills are always available to every agent.</p><div class=\"flex flex-wrap gap-2\"><template x-for=\"sk in builtinSkills\" :key=\"sk.id\"><button @click=\"openSystemSkill(sk.name)\" type=\"button\" class=\"badge badge-sm badge-ghost cursor-pointer transition-colors hover:bg-base-200\" :title=\"sk.description\" x-text=\"sk.name\"></button></template></div></div><div><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2\">Custom skills</p><div x-show=\"!editingId\" class=\"text-xs text-base-content/50 italic py-1\">Save the agent first to manage custom skills.</div><div x-show=\"editingId\"><template x-if=\"agentSkillsLoading\"><div class=\"py-4 flex justify-center\"><span class=\"loading loading-spinner loading-sm\"></span></div></template><template x-if=\"!agentSkillsLoading\"><div><div class=\"space-y-1 mb-3\"><template x-for=\"sk in agentSkills\" :key=\"sk.id\"><div class=\"flex items-center justify-between rounded border border-base-300 px-3 py-2 hover:bg-base-200/50 transition-colors\"><button @click=\"openAgentSkill(sk)\" type=\"button\" class=\"flex items-center gap-2 min-w-0 flex-1 text-left\"><span class=\"text-sm font-mono truncate\" x-text=\"sk.name\"></span> <span class=\"badge badge-xs\" :class=\"{\n\t\t\t\t\t\t\t\t\t\t\t\t'badge-success': sk.status === 'active',\n\t\t\t\t\t\t\t\t\t\t\t\t'badge-warning': sk.status === 'draft',\n\t\t\t\t\t\t\t\t\t\t\t\t'badge-error':   sk.status === 'deprecated',\n\t\t\t\t\t\t\t\t\t\t\t\t'badge-ghost':   !['active','draft','deprecated'].includes(sk.status)\n\t\t\t\t\t\t\t\t\t\t\t}\" x-text=\"sk.status\"></span></button> <button @click=\"deleteAgentSkill(sk.id)\" class=\"btn btn-ghost btn-xs text-error shrink-0\">remove</button></div></template><div x-show=\"agentSkills.length === 0\" class=\"text-xs text-base-content/50 px-1\">No custom skills installed.</div></div><button @click=\"openSkillInstallModal()\" type=\"button\" class=\"btn btn-ghost btn-sm text-primary\">+ Install skill</button></div></template></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<div class=\"space-y-6\"><div x-show=\"builtinSkills.length > 0\"><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2\">Builtin skills</p><p class=\"text-xs text-base-content/60 mb-2\">System-scope builtin skills are always available to every agent.</p><div class=\"flex flex-wrap gap-2\"><template x-for=\"sk in builtinSkills\" :key=\"sk.id\"><button @click=\"openSystemSkill(sk.name)\" type=\"button\" class=\"badge badge-sm badge-ghost cursor-pointer transition-colors hover:bg-base-200\" :title=\"sk.description\" x-text=\"sk.name\"></button></template></div></div><div><p class=\"text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2\">Custom skills</p><div x-show=\"!editingId\" class=\"text-xs text-base-content/50 italic py-1 flex items-center gap-2\"><span>Save the agent first to manage custom skills.</span> <button @click=\"saveAgent()\" type=\"button\" class=\"btn btn-primary btn-xs\">Save now</button></div><div x-show=\"editingId\"><template x-if=\"agentSkillsLoading\"><div class=\"py-4 flex justify-center\"><span class=\"loading loading-spinner loading-sm\"></span></div></template><template x-if=\"!agentSkillsLoading\"><div><div class=\"space-y-1 mb-3\"><template x-for=\"sk in agentSkills\" :key=\"sk.id\"><div class=\"flex items-center gap-2 rounded border border-base-300 px-3 py-2 hover:bg-base-200/50 transition-colors\"><input type=\"checkbox\" class=\"toggle toggle-primary toggle-xs shrink-0\" :checked=\"sk.status === 'active'\" @change=\"toggleAgentSkillStatus(sk)\" :title=\"sk.status === 'active' ? 'Disable skill' : 'Enable skill'\"><div class=\"min-w-0 flex-1\"><span class=\"text-sm font-mono\" x-text=\"sk.name\"></span><p x-show=\"sk.description\" class=\"text-xs text-base-content/60 truncate mt-0.5\" x-text=\"sk.description\"></p></div><button @click=\"openAgentSkill(sk)\" type=\"button\" class=\"btn btn-ghost btn-xs shrink-0\">edit</button> <button @click=\"deleteAgentSkill(sk.id)\" class=\"btn btn-ghost btn-xs text-error shrink-0\">remove</button></div></template><div x-show=\"agentSkills.length === 0\" class=\"text-xs text-base-content/50 px-1\">No custom skills installed.</div></div><button @click=\"openSkillInstallModal()\" type=\"button\" class=\"btn btn-ghost btn-sm text-primary\">+ Install skill</button></div></template></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -397,7 +397,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var13 string
 		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 298, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 300, Col: 53}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
@@ -420,7 +420,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var14 string
 		templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 305, Col: 27}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 307, Col: 27}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 		if templ_7745c5c3_Err != nil {
@@ -433,7 +433,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var15 string
 		templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field + " = $event.target.value; search = $event.target.value; open = cachedModels.length > 0")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 306, Col: 116}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 308, Col: 116}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 		if templ_7745c5c3_Err != nil {
@@ -446,7 +446,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(placeholder)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 308, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 310, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {
@@ -459,7 +459,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field + " = m; open = false")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 320, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 322, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 		if templ_7745c5c3_Err != nil {
@@ -472,7 +472,7 @@ func modelComboField(label string, field string, placeholder string) templ.Compo
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs("form." + field + " === m ? 'text-primary' : 'text-base-content/70'")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 323, Col: 82}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/admin/ui/pages/agents_form.templ`, Line: 325, Col: 82}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 		if templ_7745c5c3_Err != nil {

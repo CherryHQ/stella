@@ -62,10 +62,11 @@ templ agentSkillInstallModal() {
 								<template x-for="s in skillSearchResults" :key="s.id">
 									<div class="px-4 py-3 cursor-pointer hover:bg-base-200/50 transition-colors" @click="pickSkillResult(s)">
 										<div class="flex items-center justify-between gap-2">
-											<span class="font-mono text-sm font-medium" x-text="s.source + '@' + s.skillId"></span>
-											<span class="text-xs text-secondary shrink-0" x-text="s.installs + ' installs'"></span>
+											<span class="font-mono text-sm font-medium" x-text="s.name || s.skillId"></span>
+											<span class="badge badge-ghost badge-xs shrink-0" x-text="s.installs + ' installs'"></span>
 										</div>
-										<p class="text-sm text-base-content/70 truncate mt-0.5" x-text="s.name"></p>
+										<p class="text-xs text-base-content/50 font-mono truncate mt-0.5" x-text="s.source + '@' + s.skillId"></p>
+										<p x-show="s.description" class="text-xs text-base-content/70 truncate mt-0.5" x-text="s.description"></p>
 									</div>
 								</template>
 							</div>

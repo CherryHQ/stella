@@ -155,10 +155,6 @@ func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
 	if err != nil {
 		return fmt.Errorf("create agent %q: %w", a.ID, err)
 	}
-	enabledSkillsJSON, err := marshalEnabledBuiltinSkills(a.EnabledBuiltinSkills)
-	if err != nil {
-		return fmt.Errorf("create agent %q: %w", a.ID, err)
-	}
 	_, err = s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
 		ID:                   a.ID,
 		Name:                 a.Name,
@@ -169,7 +165,7 @@ func (s *DBStore) CreateAgent(ctx context.Context, a Agent) error {
 		Soul:                 a.Soul,
 		Workspace:            a.Workspace,
 		Sandbox:              sandboxJSON,
-		EnabledBuiltinSkills: enabledSkillsJSON,
+		EnabledBuiltinSkills: "[]",
 		Scope:                scope,
 		CreatorID:            a.CreatorID,
 		Enabled:              enabled,
@@ -197,10 +193,6 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a Agent) error {
 	if err != nil {
 		return fmt.Errorf("update agent %q: %w", a.ID, err)
 	}
-	enabledSkillsJSON, err := marshalEnabledBuiltinSkills(a.EnabledBuiltinSkills)
-	if err != nil {
-		return fmt.Errorf("update agent %q: %w", a.ID, err)
-	}
 	err = s.q.UpdateAgent(ctx, sqlc.UpdateAgentParams{
 		ID:                   a.ID,
 		Name:                 a.Name,
@@ -211,7 +203,7 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a Agent) error {
 		Soul:                 a.Soul,
 		Workspace:            a.Workspace,
 		Sandbox:              sandboxJSON,
-		EnabledBuiltinSkills: enabledSkillsJSON,
+		EnabledBuiltinSkills: "[]",
 		Scope:                scope,
 		Enabled:              enabled,
 	})
@@ -490,26 +482,20 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*Snapshot, erro
 		return nil, fmt.Errorf("snapshot: parse agent sandbox config %q: %w", agentID, err)
 	}
 
-	enabledSkills, err := parseEnabledBuiltinSkills(ag.EnabledBuiltinSkills)
-	if err != nil {
-		return nil, fmt.Errorf("snapshot: parse agent %q enabled builtin skills: %w", agentID, err)
-	}
-
 	snap := &Snapshot{
-		AgentID:              agentID,
-		Provider:             defaultProvID,
-		Model:                ag.Model,
-		ModelStrong:          ag.ModelStrong,
-		ModelFast:            ag.ModelFast,
-		Workspace:            ag.Workspace,
-		Sandbox:              sandboxCfg,
-		APIKey:               defaultCreds.APIKey,
-		BaseURL:              defaultCreds.BaseURL,
-		SystemPrompt:         ag.SystemPrompt,
-		Soul:                 ag.Soul,
-		EnabledBuiltinSkills: enabledSkills,
-		Providers:            providers,
-		Plugins:              plugins,
+		AgentID:      agentID,
+		Provider:     defaultProvID,
+		Model:        ag.Model,
+		ModelStrong:  ag.ModelStrong,
+		ModelFast:    ag.ModelFast,
+		Workspace:    ag.Workspace,
+		Sandbox:      sandboxCfg,
+		APIKey:       defaultCreds.APIKey,
+		BaseURL:      defaultCreds.BaseURL,
+		SystemPrompt: ag.SystemPrompt,
+		Soul:         ag.Soul,
+		Providers:    providers,
+		Plugins:      plugins,
 	}
 
 	// Load settings.
@@ -878,28 +864,6 @@ func parseSandboxConfig(raw string) (SandboxConfig, error) {
 	return cfg, nil
 }
 
-func marshalEnabledBuiltinSkills(names []string) (string, error) {
-	if len(names) == 0 {
-		return "[]", nil
-	}
-	data, err := json.Marshal(names)
-	if err != nil {
-		return "", fmt.Errorf("marshal enabled_builtin_skills: %w", err)
-	}
-	return string(data), nil
-}
-
-func parseEnabledBuiltinSkills(raw string) ([]string, error) {
-	if raw == "" || raw == "[]" {
-		return nil, nil
-	}
-	var out []string
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		return nil, fmt.Errorf("parse enabled_builtin_skills: %w", err)
-	}
-	return out, nil
-}
-
 func (s *DBStore) seedProviders(ctx context.Context) error {
 	providers, err := s.q.ListProviders(ctx)
 	if err != nil {
@@ -1129,24 +1093,19 @@ func agentFromDB(r sqlc.SettingsAgent) (Agent, error) {
 	if err != nil {
 		return Agent{}, fmt.Errorf("parse agent %q sandbox config: %w", r.ID, err)
 	}
-	enabledSkills, err := parseEnabledBuiltinSkills(r.EnabledBuiltinSkills)
-	if err != nil {
-		return Agent{}, fmt.Errorf("parse agent %q enabled builtin skills: %w", r.ID, err)
-	}
 	return Agent{
-		ID:                   r.ID,
-		Name:                 r.Name,
-		Model:                r.Model,
-		ModelStrong:          r.ModelStrong,
-		ModelFast:            r.ModelFast,
-		SystemPrompt:         r.SystemPrompt,
-		Soul:                 r.Soul,
-		Workspace:            r.Workspace,
-		Sandbox:              sandboxCfg,
-		EnabledBuiltinSkills: enabledSkills,
-		Scope:                scope,
-		CreatorID:            r.CreatorID,
-		Enabled:              r.Enabled == 1,
+		ID:           r.ID,
+		Name:         r.Name,
+		Model:        r.Model,
+		ModelStrong:  r.ModelStrong,
+		ModelFast:    r.ModelFast,
+		SystemPrompt: r.SystemPrompt,
+		Soul:         r.Soul,
+		Workspace:    r.Workspace,
+		Sandbox:      sandboxCfg,
+		Scope:        scope,
+		CreatorID:    r.CreatorID,
+		Enabled:      r.Enabled == 1,
 	}, nil
 }
 

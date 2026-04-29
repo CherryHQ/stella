@@ -94,11 +94,6 @@ type SystemPromptContext struct {
 	// prompt builders that need plugin-state-aware output such as skill catalogs.
 	RegisteredPluginIDs []string
 	EnabledPluginIDs    []string
-
-	// EnabledBuiltinSkills is the per-agent allowlist of builtin (system-scope)
-	// skills that should appear in the prompt catalog. The always-on "anna"
-	// skill is visible to every agent regardless of this list.
-	EnabledBuiltinSkills []string
 }
 
 // SessionPluginView is the runner-facing view of enabled plugin-owned session
