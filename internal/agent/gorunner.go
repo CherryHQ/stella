@@ -10,6 +10,7 @@ import (
 
 	"github.com/vaayne/anna/internal/config"
 	oauth "github.com/vaayne/anna/internal/credentials/oauth"
+	"github.com/vaayne/anna/internal/manifestplugins"
 	builtinres "github.com/vaayne/anna/internal/resources"
 	"github.com/vaayne/anna/internal/resources/binaries"
 	coreagent "github.com/vaayne/anna/pkg/agent"
@@ -217,6 +218,9 @@ func buildToolRegistry(ctx context.Context, cfg GoRunnerConfig, session *runnerS
 	if err := binaries.EnsureTools(paths.AnnaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
 	}
+	if err := manifestplugins.EnsureCoreBinaries(ctx, paths.AnnaHome); err != nil {
+		slog.Warn("failed to ensure core binaries (fd/rg)", "error", err)
+	}
 
 	toolReg := tools.NewRegistry()
 
@@ -311,6 +315,9 @@ func prepareSandbox(ctx context.Context, cfg GoRunnerConfig) error {
 	paths := resolveRunnerPaths(cfg)
 	if err := binaries.EnsureTools(paths.AnnaHome); err != nil {
 		slog.Warn("failed to extract embedded tools", "error", err)
+	}
+	if err := manifestplugins.EnsureCoreBinaries(ctx, paths.AnnaHome); err != nil {
+		slog.Warn("failed to ensure core binaries (fd/rg)", "error", err)
 	}
 	if err := builtinres.EnsureBuiltinSkills(paths.annaSkillsDir()); err != nil {
 		slog.Warn("failed to extract builtin skills", "error", err)
