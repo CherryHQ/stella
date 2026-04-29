@@ -1,6 +1,10 @@
 package ai
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+	"time"
+)
 
 func TestContentBlockKinds(t *testing.T) {
 	tests := []struct {
@@ -94,4 +98,58 @@ func TestFlattenText(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTimestampedContent(t *testing.T) {
+	ts := time.Unix(1745920200, 0)
+	prefix := fmt.Sprintf("ts:%d\n", ts.Unix())
+
+	t.Run("zero timestamp returns original", func(t *testing.T) {
+		m := UserMessage{Content: "hello"}
+		got := m.TimestampedContent()
+		if got != "hello" {
+			t.Errorf("got %q, want %q", got, "hello")
+		}
+	})
+
+	t.Run("string content", func(t *testing.T) {
+		m := UserMessage{Content: "hello", Timestamp: ts}
+		got := m.TimestampedContent().(string)
+		want := prefix + "hello"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("content blocks with leading text", func(t *testing.T) {
+		m := UserMessage{
+			Content:   []ContentBlock{TextContent{Text: "hello"}},
+			Timestamp: ts,
+		}
+		blocks := m.TimestampedContent().([]ContentBlock)
+		if len(blocks) != 1 {
+			t.Fatalf("got %d blocks, want 1", len(blocks))
+		}
+		got := blocks[0].(TextContent).Text
+		want := prefix + "hello"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("content blocks with leading image", func(t *testing.T) {
+		m := UserMessage{
+			Content:   []ContentBlock{ImageContent{Data: "x", MimeType: "image/png"}},
+			Timestamp: ts,
+		}
+		blocks := m.TimestampedContent().([]ContentBlock)
+		if len(blocks) != 2 {
+			t.Fatalf("got %d blocks, want 2", len(blocks))
+		}
+		got := blocks[0].(TextContent).Text
+		want := fmt.Sprintf("ts:%d", ts.Unix())
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
 }

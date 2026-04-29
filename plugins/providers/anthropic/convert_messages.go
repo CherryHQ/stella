@@ -12,7 +12,7 @@ func convertMessages(ctx ai.Context) []sdk.MessageParam {
 	for _, msg := range ctx.Messages {
 		switch m := msg.(type) {
 		case ai.UserMessage:
-			blocks := userContentBlocks(m.Content)
+			blocks := userContentBlocks(m.TimestampedContent())
 			mergeOrAppendUser(&messages, blocks)
 		case ai.AssistantMessage:
 			blocks := assistantContentBlocks(m.Content)

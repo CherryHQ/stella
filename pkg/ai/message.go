@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -70,6 +71,33 @@ type UserMessage struct {
 }
 
 func (UserMessage) messageRole() string { return "user" }
+
+// TimestampedContent returns Content with a "ts:<unix>\n" prefix when Timestamp is set.
+func (m UserMessage) TimestampedContent() any {
+	if m.Timestamp.IsZero() {
+		return m.Content
+	}
+	prefix := fmt.Sprintf("ts:%d\n", m.Timestamp.Unix())
+	switch c := m.Content.(type) {
+	case string:
+		return prefix + c
+	case []ContentBlock:
+		if len(c) == 0 {
+			return []ContentBlock{TextContent{Text: strings.TrimSuffix(prefix, "\n")}}
+		}
+		out := make([]ContentBlock, len(c))
+		copy(out, c)
+		if t, ok := out[0].(TextContent); ok {
+			t.Text = prefix + t.Text
+			out[0] = t
+		} else {
+			out = append([]ContentBlock{TextContent{Text: strings.TrimSuffix(prefix, "\n")}}, out...)
+		}
+		return out
+	default:
+		return prefix + fmt.Sprintf("%v", m.Content)
+	}
+}
 
 // AssistantMessage contains assistant output and metadata.
 type AssistantMessage struct {
