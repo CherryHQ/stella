@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/db/sqlc"
@@ -234,6 +235,7 @@ func rowsToMessages(msgs []sqlc.CtxMessage) []ai.Message {
 }
 
 func rowToUserMessage(msg sqlc.CtxMessage) ai.UserMessage {
+	ts, _ := time.Parse("2006-01-02 15:04:05", msg.CreatedAt)
 	if msg.EventType == eventTypeMultimodal {
 		var blocks []contentBlockJSON
 		if json.Unmarshal([]byte(msg.Content), &blocks) == nil && len(blocks) > 0 {
@@ -246,10 +248,10 @@ func rowToUserMessage(msg sqlc.CtxMessage) ai.UserMessage {
 					content = append(content, ai.ImageContent{Data: b.Data, MimeType: b.MimeType})
 				}
 			}
-			return ai.UserMessage{Content: content}
+			return ai.UserMessage{Content: content, Timestamp: ts}
 		}
 	}
-	return ai.UserMessage{Content: msg.Content}
+	return ai.UserMessage{Content: msg.Content, Timestamp: ts}
 }
 
 // mergeAssistantRows merges an assistant text row and any following tool_call rows

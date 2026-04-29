@@ -400,7 +400,12 @@ func (r *GoRunner) Chat(ctx context.Context, history []ai.Message, message Messa
 
 		messages := make([]ai.Message, len(history))
 		copy(messages, history)
-		messages = append(messages, ai.UserMessage{Content: message})
+		switch m := message.(type) {
+		case ai.UserMessage:
+			messages = append(messages, m)
+		default:
+			messages = append(messages, ai.UserMessage{Content: message, Timestamp: time.Now()})
+		}
 
 		if _, err := loopRunner.Run(ctx, messages, func(e coreagent.LoopEvent) {
 			for _, evt := range convertLoopEvent(e) {

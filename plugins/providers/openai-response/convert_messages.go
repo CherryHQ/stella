@@ -16,7 +16,7 @@ func convertMessages(ctx ai.Context) responses.ResponseInputParam {
 	for _, msg := range ctx.Messages {
 		switch m := msg.(type) {
 		case ai.UserMessage:
-			items = append(items, userMessage(m.Content))
+			items = append(items, userMessage(m.TimestampedContent()))
 		case ai.AssistantMessage:
 			items = append(items, convertAssistantMessage(m)...)
 		case ai.ToolResultMessage:

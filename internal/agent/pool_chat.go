@@ -181,12 +181,12 @@ func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, mes
 	}
 
 	// Store user message via memory provider (after assembly to avoid duplication).
-	userMsg := ai.UserMessage{Content: message}
+	userMsg := ai.UserMessage{Content: message, Timestamp: time.Now()}
 	if err := p.mem.Append(ctx, memSession, userMsg); err != nil {
 		p.log.Warn("memory append user message failed", "session_id", sessionID, "error", err)
 	}
 
-	stream := r.Chat(ctx, history, message)
+	stream := r.Chat(ctx, history, userMsg)
 
 	go p.streamEvents(ctx, sessionID, memSession, stream, out, hs, hookMeta, chatStart)
 }

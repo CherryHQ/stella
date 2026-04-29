@@ -20,7 +20,7 @@ func convertMessages(ctx ai.Context) []sdk.ChatCompletionMessageParamUnion {
 	for _, msg := range ctx.Messages {
 		switch m := msg.(type) {
 		case ai.UserMessage:
-			messages = append(messages, userMessage(m.Content))
+			messages = append(messages, userMessage(m.TimestampedContent()))
 		case ai.AssistantMessage:
 			messages = append(messages, convertAssistantMessage(m))
 		case ai.ToolResultMessage:
