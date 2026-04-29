@@ -26,14 +26,16 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message MessageConten
 	}
 
 	ctx = memory.WithSessionID(ctx, sessionID)
+	go p.chat(ctx, out, sessionID, message, co)
+	return out
+}
 
+func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, message MessageContent, co chatOptions) {
 	sess, r, err := p.getOrCreateRunner(ctx, sessionID, co.model)
 	if err != nil {
-		go func() {
-			out <- Event{Err: fmt.Errorf("get runner: %w", err)}
-			close(out)
-		}()
-		return out
+		out <- Event{Err: fmt.Errorf("get runner: %w", err)}
+		close(out)
+		return
 	}
 
 	// Set user and agent context from session metadata (loaded from DB).
@@ -89,11 +91,9 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message MessageConten
 			// Re-acquire session and runner after compaction (runner was restarted).
 			sess, r, err = p.getOrCreateRunner(ctx, sessionID, co.model)
 			if err != nil {
-				go func() {
-					out <- Event{Err: fmt.Errorf("get runner after compaction: %w", err)}
-					close(out)
-				}()
-				return out
+				out <- Event{Err: fmt.Errorf("get runner after compaction: %w", err)}
+				close(out)
+				return
 			}
 		}
 	}
@@ -168,11 +168,9 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message MessageConten
 			SystemPrompt: baseSystem,
 			History:      history,
 		}); err != nil {
-			go func() {
-				out <- Event{Err: fmt.Errorf("before run: %w", err)}
-				close(out)
-			}()
-			return out
+			out <- Event{Err: fmt.Errorf("before run: %w", err)}
+			close(out)
+			return
 		} else if result.SystemPrompt != "" && result.SystemPrompt != baseSystem {
 			ctx = WithSystemOverride(ctx, result.SystemPrompt)
 		} else if baseSystem != "" {
@@ -191,8 +189,6 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message MessageConten
 	stream := r.Chat(ctx, history, message)
 
 	go p.streamEvents(ctx, sessionID, memSession, stream, out, hs, hookMeta, chatStart)
-
-	return out
 }
 
 // streamEvents reads runner events, persists messages to the memory provider,
