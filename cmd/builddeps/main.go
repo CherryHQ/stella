@@ -6,14 +6,11 @@ import (
 
 	ucli "github.com/urfave/cli/v2"
 	"github.com/vaayne/anna/internal/builddeps"
-
-	_ "github.com/vaayne/anna/plugins/tools/lark-cli"
 )
 
 func main() {
 	app := newApp(builddeps.Syncer{
-		SyncSkills: builddeps.SyncSystemSkills,
-		SyncTools:  builddeps.SyncEmbeddedTools,
+		SyncTools: builddeps.SyncEmbeddedTools,
 	})
 	if err := app.Run(os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -46,11 +43,9 @@ func syncCommand(syncer builddeps.Syncer) *ucli.Command {
 
 func syncFlags() []ucli.Flag {
 	return []ucli.Flag{
-		&ucli.BoolFlag{Name: "skills", Usage: "sync embedded system skills"},
 		&ucli.BoolFlag{Name: "tools", Usage: "sync embedded third-party binaries"},
 		&ucli.StringFlag{Name: "goos", Usage: "target GOOS for embedded binaries"},
 		&ucli.StringFlag{Name: "goarch", Usage: "target GOARCH for embedded binaries"},
-		&ucli.StringFlag{Name: "lark-ref", Usage: "git ref to check out from larksuite/cli"},
 		&ucli.StringFlag{Name: "workdir", Usage: "repo root containing internal/resources", Value: "."},
 		&ucli.BoolFlag{Name: "isolated", Usage: "ignored compatibility flag", Hidden: true},
 	}
@@ -58,12 +53,10 @@ func syncFlags() []ucli.Flag {
 
 func syncAction(c *ucli.Context, syncer builddeps.Syncer) error {
 	cfg := builddeps.Config{
-		WorkDir:    c.String("workdir"),
-		SyncSkills: c.Bool("skills"),
-		SyncTools:  c.Bool("tools"),
-		GOOS:       c.String("goos"),
-		GOARCH:     c.String("goarch"),
-		LarkRef:    c.String("lark-ref"),
+		WorkDir:   c.String("workdir"),
+		SyncTools: c.Bool("tools"),
+		GOOS:      c.String("goos"),
+		GOARCH:    c.String("goarch"),
 	}
 	return syncer.Run(c.Context, cfg)
 }

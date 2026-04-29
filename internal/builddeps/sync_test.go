@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+
 func TestConfigNormalizedDefaultsRuntimePlatform(t *testing.T) {
 	cfg := (Config{SyncTools: true}).Normalized()
 	if cfg.GOOS != runtime.GOOS {
@@ -25,31 +26,6 @@ func TestConfigValidateRequiresAtLeastOneMode(t *testing.T) {
 	}
 }
 
-func TestSyncerRunCallsOnlySelectedModes(t *testing.T) {
-	var skillsCalled, toolsCalled bool
-	s := Syncer{
-		SyncSkills: func(_ context.Context, cfg Config) error {
-			skillsCalled = true
-			if cfg.WorkDir == "" {
-				t.Fatal("expected normalized workdir")
-			}
-			return nil
-		},
-		SyncTools: func(_ context.Context, _ Config) error {
-			toolsCalled = true
-			return nil
-		},
-	}
-	if err := s.Run(context.Background(), Config{SyncSkills: true}); err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-	if !skillsCalled {
-		t.Fatal("expected skill sync to run")
-	}
-	if toolsCalled {
-		t.Fatal("did not expect tool sync to run")
-	}
-}
 
 func TestSyncerRunFailsClosedForMissingHandler(t *testing.T) {
 	err := (Syncer{}).Run(context.Background(), Config{SyncTools: true})
