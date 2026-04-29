@@ -260,12 +260,15 @@ func (s *noneSession) deregisterProcess(p *noneProcess) {
 }
 
 // buildEnv merges host env with policy env and per-call overrides.
+// If InheritEnv is false, host environment is not included.
 func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 	merged := make(map[string]string)
-	for _, kv := range os.Environ() {
-		k, v, ok := cutEnv(kv)
-		if ok {
-			merged[k] = v
+	if policy.InheritEnv {
+		for _, kv := range os.Environ() {
+			k, v, ok := cutEnv(kv)
+			if ok {
+				merged[k] = v
+			}
 		}
 	}
 	maps.Copy(merged, policy.Env)
