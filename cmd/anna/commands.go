@@ -98,9 +98,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	if err := binaries.VerifyTools(config.AnnaHome()); err != nil {
 		return nil, err
 	}
-	if err := manifestplugins.EnsureCoreBinaries(parent, config.AnnaHome()); err != nil {
-		slog.Warn("failed to ensure core binaries (fd/rg)", "error", err)
-	}
 
 	if err := builtinres.ExtractSkills(filepath.Join(config.AnnaHome(), "skills")); err != nil {
 		return nil, fmt.Errorf("extract builtin skills: %w", err)

@@ -371,6 +371,28 @@ plugins:
       - env_var: LARKSUITE_CLI_BRAND
         source: oauth.brand
 
+  - id: tool/fd
+    kind: tool
+    name: fd
+    display_name: fd
+    description: "Fast file finder used by the Glob tool."
+    enabled: true
+    binaries:
+      - name: fd
+        tool: github:sharkdp/fd
+        version: "10.3.0"
+
+  - id: tool/rg
+    kind: tool
+    name: rg
+    display_name: ripgrep
+    description: "Fast text search used by the Grep tool."
+    enabled: true
+    binaries:
+      - name: rg
+        tool: github:BurntSushi/ripgrep
+        version: "15.1.0"
+
   - id: hook/rtk
     kind: hook
     name: rtk
