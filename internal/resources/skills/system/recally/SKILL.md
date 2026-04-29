@@ -178,9 +178,50 @@ When processing multiple RSS entries, use the fast model for summaries to contro
 
 Process entries sequentially. If one fails, mark it as error and continue to the next. Do not stop the batch for a single failure.
 
-## Scheduler Integration (Future)
+## Scheduler Integration
 
-**Phase 5+ feature**: RSS polling and daily digests can be automated via the scheduler tool. The skill will include instructions for creating scheduler jobs that send prompts to check feeds and generate digests.
+Automate RSS polling and daily digests using the `scheduler` tool.
+
+### Automatic RSS Polling
+
+When a user subscribes to their first RSS feed, create a recurring job to check for new entries:
+
+1. **Check if job exists**: Use `scheduler` tool with `action: list` and look for a job named `recally-rss`
+2. **If not found, create it**: Use `scheduler` tool with:
+   - `action: add`
+   - `name: recally-rss`
+   - `every: 1h` (poll every hour)
+   - `session_mode: reuse` (keep conversation history)
+   - `message: "Load recally skill. Run anna recally feed poll to check for new RSS entries, then process each pending entry following the recally skill RSS workflow."`
+
+**Important**: Only create the scheduler job once - when the user first subscribes to a feed. Use `scheduler list` to check for existing `recally-rss` job before adding.
+
+### Automatic Daily Digest
+
+Offer users a daily digest of their reading activity. If they accept:
+
+1. **Check if job exists**: Look for job named `recally-digest` via `scheduler list`
+2. **Create if not found**: Use `scheduler` tool with:
+   - `action: add`
+   - `name: recally-digest`
+   - `cron: 0 8 * * *` (every day at 8am)
+   - `session_mode: reuse`
+   - `message: "Load recally skill. Run anna recally digest and compose a friendly daily reading summary for the user following the recally skill digest format."`
+
+### Managing Scheduled Jobs
+
+To view or remove scheduled recally jobs:
+
+```bash
+# List all jobs (via scheduler tool)
+scheduler action=list
+
+# Remove RSS polling job
+scheduler action=remove id=<recally-rss-job-id>
+
+# Remove digest job
+scheduler action=remove id=<recally-digest-job-id>
+```
 
 ## File Storage
 
