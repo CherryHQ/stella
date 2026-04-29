@@ -145,29 +145,56 @@ templ agentPromptTab() {
 }
 
 templ agentSkillsTab() {
-	<div class="space-y-6">
+	<div class="space-y-6 w-full min-w-0">
 		<div x-show="builtinSkills.length > 0">
 			<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2">Builtin skills</p>
-			<p class="text-xs text-base-content/60 mb-2">System-scope builtin skills are always available to every agent.</p>
-			<div class="flex flex-wrap gap-2">
+			<div class="space-y-1">
 				<template x-for="sk in builtinSkills" :key="sk.id">
-					<button
+					<div
 						@click="openSystemSkill(sk.name)"
-						type="button"
-						class="badge badge-sm badge-ghost cursor-pointer transition-colors hover:bg-base-200"
-						:title="sk.description"
-						x-text="sk.name"
-					></button>
+						class="flex items-center gap-2 rounded border border-base-300 px-3 py-2 hover:bg-base-200/50 transition-colors cursor-pointer overflow-hidden"
+					>
+						<div class="min-w-0 flex-1 overflow-hidden">
+							<p class="text-sm font-mono truncate" x-text="sk.name"></p>
+							<p x-show="sk.description" class="text-xs text-base-content/60 truncate mt-0.5" x-text="sk.description"></p>
+						</div>
+						<span class="badge badge-ghost badge-xs shrink-0">system</span>
+					</div>
 				</template>
 			</div>
 		</div>
 		<div>
-			<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2">Custom skills</p>
+			<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2">User skills</p>
+			<div class="space-y-1 mb-3">
+				<template x-for="sk in userSkills" :key="sk.id">
+					<div class="flex items-center gap-2 rounded border border-base-300 px-3 py-2 hover:bg-base-200/50 transition-colors overflow-hidden">
+						<input
+							type="checkbox"
+							class="toggle toggle-primary toggle-xs shrink-0"
+							:checked="sk.status === 'active'"
+							@change="toggleUserSkillStatus(sk)"
+							:title="sk.status === 'active' ? 'Disable skill' : 'Enable skill'"
+						/>
+						<div class="min-w-0 flex-1 overflow-hidden">
+							<p class="text-sm font-mono truncate" x-text="sk.name"></p>
+							<p x-show="sk.description" class="text-xs text-base-content/60 truncate mt-0.5" x-text="sk.description"></p>
+						</div>
+						<button @click="openUserSkill(sk)" type="button" class="btn btn-ghost btn-xs shrink-0">edit</button>
+						<button @click="deleteUserSkill(sk.id)" class="btn btn-ghost btn-xs text-error shrink-0">remove</button>
+					</div>
+				</template>
+				<div x-show="userSkills.length === 0" class="text-xs text-base-content/50 px-1">No user skills installed.</div>
+			</div>
+			<button @click="openSkillInstallModal('user')" type="button" class="btn btn-ghost btn-sm text-primary">+ Install skill</button>
+		</div>
+		<div>
+			<p class="text-xs font-mono font-medium text-secondary uppercase tracking-wider mb-2">Agent skills</p>
 			<div x-show="!editingId" class="text-xs text-base-content/50 italic py-1 flex items-center gap-2">
-				<span>Save the agent first to manage custom skills.</span>
+				<span>Save the agent first to manage agent skills.</span>
 				<button @click="saveAgent()" type="button" class="btn btn-primary btn-xs">Save now</button>
 			</div>
 			<div x-show="editingId">
+				<div x-show="!isAdmin" class="text-xs text-base-content/50 px-1 mb-3">Only admins can install agent-level skills.</div>
 				<template x-if="agentSkillsLoading">
 					<div class="py-4 flex justify-center"><span class="loading loading-spinner loading-sm"></span></div>
 				</template>
@@ -175,7 +202,7 @@ templ agentSkillsTab() {
 					<div>
 						<div class="space-y-1 mb-3">
 							<template x-for="sk in agentSkills" :key="sk.id">
-								<div class="flex items-center gap-2 rounded border border-base-300 px-3 py-2 hover:bg-base-200/50 transition-colors">
+								<div class="flex items-center gap-2 rounded border border-base-300 px-3 py-2 hover:bg-base-200/50 transition-colors overflow-hidden">
 									<input
 										type="checkbox"
 										class="toggle toggle-primary toggle-xs shrink-0"
@@ -183,17 +210,17 @@ templ agentSkillsTab() {
 										@change="toggleAgentSkillStatus(sk)"
 										:title="sk.status === 'active' ? 'Disable skill' : 'Enable skill'"
 									/>
-									<div class="min-w-0 flex-1">
-										<span class="text-sm font-mono" x-text="sk.name"></span>
+									<div class="min-w-0 flex-1 overflow-hidden">
+										<p class="text-sm font-mono truncate" x-text="sk.name"></p>
 										<p x-show="sk.description" class="text-xs text-base-content/60 truncate mt-0.5" x-text="sk.description"></p>
 									</div>
 									<button @click="openAgentSkill(sk)" type="button" class="btn btn-ghost btn-xs shrink-0">edit</button>
 									<button @click="deleteAgentSkill(sk.id)" class="btn btn-ghost btn-xs text-error shrink-0">remove</button>
 								</div>
 							</template>
-							<div x-show="agentSkills.length === 0" class="text-xs text-base-content/50 px-1">No custom skills installed.</div>
+							<div x-show="agentSkills.length === 0" class="text-xs text-base-content/50 px-1">No agent skills installed.</div>
 						</div>
-						<button @click="openSkillInstallModal()" type="button" class="btn btn-ghost btn-sm text-primary">+ Install skill</button>
+						<button x-show="isAdmin" @click="openSkillInstallModal('agent')" type="button" class="btn btn-ghost btn-sm text-primary">+ Install agent skill</button>
 					</div>
 				</template>
 			</div>

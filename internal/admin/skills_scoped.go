@@ -173,8 +173,21 @@ func (s *Server) deleteAgentSkillFile(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) installAgentSkill(w http.ResponseWriter, r *http.Request) {
 	agentID := r.PathValue("id")
-	if _, code, msg := s.requireAgentManage(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if !info.IsAdmin {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	if _, err := s.store.GetAgent(r.Context(), agentID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "agent not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	var req installSkillRequest

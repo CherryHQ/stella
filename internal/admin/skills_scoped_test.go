@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -161,6 +162,31 @@ func TestAgentSkills_UpdateDeleteFile(t *testing.T) {
 	}
 }
 
+func TestAgentSkills_InstallAdminOnly(t *testing.T) {
+	env := setupAdmin(t)
+
+	_, creatorSID := newNonAdmin(t, env, "creator-install")
+	agentID := createAgentAsUser(t, env, creatorSID, "install-agent")
+	source, err := filepath.Abs("../../internal/resources/skills/system/anna")
+	if err != nil {
+		t.Fatalf("abs path: %v", err)
+	}
+
+	rr := doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills/install", map[string]any{
+		"source": source,
+	})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("creator install status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "POST", "/api/agents/"+agentID+"/skills/install", map[string]any{
+		"source": source,
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("admin install status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
 // --- Profile (self-user) endpoints ---
 
 func TestProfileSkills_SelfOnly(t *testing.T) {
@@ -194,6 +220,42 @@ func TestProfileSkills_SelfOnly(t *testing.T) {
 	rr = doRequestWithSession(t, env.srv, sid2, "DELETE", "/api/auth/profile/skills/"+skID1, nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("u2 cross delete status = %d, want 404", rr.Code)
+	}
+}
+
+func TestProfileSkills_InstallSelf(t *testing.T) {
+	env := setupAdmin(t)
+
+	u, sid := newNonAdmin(t, env, "user-install")
+	source, err := filepath.Abs("../../internal/resources/skills/system/anna")
+	if err != nil {
+		t.Fatalf("abs path: %v", err)
+	}
+
+	rr := doRequestWithSession(t, env.srv, sid, "POST", "/api/auth/profile/skills/install", map[string]any{
+		"source": source,
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("install status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	rr = doRequestWithSession(t, env.srv, sid, "GET", "/api/auth/profile/skills", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var list []map[string]any
+	if err := json.Unmarshal(resp.Data, &list); err != nil {
+		t.Fatalf("unmarshal list: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("got %d skills, want 1", len(list))
+	}
+	if list[0]["scope"] != "user" {
+		t.Fatalf("installed skill scope = %v, want user", list[0]["scope"])
+	}
+	if got, ok := list[0]["user_id"].(float64); !ok || int64(got) != u.ID {
+		t.Fatalf("installed skill user_id = %v, want %d", list[0]["user_id"], u.ID)
 	}
 }
 

@@ -55,8 +55,10 @@ export function register(Alpine) {
     // Inline agent skills
     agentSkills: [],
     agentSkillsLoading: false,
+    userSkills: [],
     skillInstallModalOpen: false,
     skillInstallStage: 'search',
+    skillInstallScope: 'user',
     skillSearchQuery: '',
     skillSearchResults: [],
     skillSearching: false,
@@ -72,6 +74,7 @@ export function register(Alpine) {
         this.loadCachedModels(),
         this.loadCurrentUser(),
         this.loadBuiltinCatalog(),
+        this.loadUserSkills(),
       ])
       if (this.isAdmin) await this.loadChannels()
       this.focusAgentFromURL()
@@ -406,6 +409,39 @@ export function register(Alpine) {
       if (skill) await this.selectDrawerSkill(skill)
     },
 
+    async loadUserSkills() {
+      try {
+        this.userSkills = (await api('GET', '/api/auth/profile/skills')) || []
+      } catch { this.userSkills = [] }
+    },
+
+    async openUserSkill(sk) {
+      await this.openSkillsDrawer({
+        title: 'User skills',
+        subtitle: 'Skills installed for your profile',
+        scope: 'user',
+        canEdit: true,
+      })
+      const skill = this.skillsDrawer.skills.find(s => s.id === sk.id)
+      if (skill) await this.selectDrawerSkill(skill)
+    },
+
+    async toggleUserSkillStatus(sk) {
+      const next = sk.status === 'active' ? 'draft' : 'active'
+      try {
+        await api('PUT', '/api/auth/profile/skills/' + sk.id, { status: next })
+        sk.status = next
+      } catch (e) { this.$store.toast.show(e.message, 'error') }
+    },
+
+    async deleteUserSkill(skillId) {
+      try {
+        await api('DELETE', '/api/auth/profile/skills/' + skillId)
+        await this.loadUserSkills()
+        this.$store.toast.show('Skill removed')
+      } catch (e) { this.$store.toast.show(e.message, 'error') }
+    },
+
     async loadAgentSkills(agentId) {
       if (!agentId) return
       this.agentSkillsLoading = true
@@ -433,9 +469,10 @@ export function register(Alpine) {
       } catch (e) { this.$store.toast.show(e.message, 'error') }
     },
 
-    openSkillInstallModal() {
+    openSkillInstallModal(scope = 'user') {
       this.skillInstallModalOpen = true
       this.skillInstallStage = 'search'
+      this.skillInstallScope = scope
       this.skillSearchQuery = ''
       this.skillSearchResults = []
       this.skillSearching = false
@@ -461,13 +498,22 @@ export function register(Alpine) {
     },
 
     async doSkillInstall() {
-      if (this.skillInstalling || !this.editingId) return
+      if (this.skillInstalling) return
+      const scope = this.skillInstallScope || 'user'
+      if (scope === 'agent' && (!this.editingId || !this.isAdmin)) return
       this.skillInstalling = true
       try {
-        const res = await api('POST', '/api/agents/' + this.editingId + '/skills/install', { source: this.skillInstallSource })
+        const url = scope === 'agent'
+          ? '/api/agents/' + this.editingId + '/skills/install'
+          : '/api/auth/profile/skills/install'
+        const res = await api('POST', url, { source: this.skillInstallSource })
         this.$store.toast.show('Installed: ' + (res?.name || 'skill'))
         this.skillInstallModalOpen = false
-        await this.loadAgentSkills(this.editingId)
+        if (scope === 'agent') {
+          await this.loadAgentSkills(this.editingId)
+        } else {
+          await this.loadUserSkills()
+        }
       } catch (e) { this.$store.toast.show(e.message, 'error') }
       finally { this.skillInstalling = false }
     },

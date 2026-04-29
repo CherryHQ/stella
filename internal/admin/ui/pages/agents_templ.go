@@ -31,7 +31,7 @@ func AgentsPage() templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div x-data=\"agentsPage()\"><div class=\"grid grid-cols-1 lg:grid-cols-[280px_1fr] -mx-6 -mt-6 border-t border-base-300\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div x-data=\"agentsPage()\"><div class=\"grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] -mx-6 -mt-6 border-t border-base-300\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -129,7 +129,7 @@ func agentRightPanel() templ.Component {
 			templ_7745c5c3_Var3 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<main class=\"px-6 py-6\" :class=\"showForm ? 'block' : 'hidden lg:block'\"><div x-show=\"!showForm\" x-cloak class=\"flex flex-col items-center justify-center min-h-64 text-center gap-4\"><p class=\"text-secondary text-sm\">Select an agent to edit, or create a new one.</p><button @click=\"startCreate()\" class=\"btn btn-primary btn-sm\">+ New agent</button></div><div x-show=\"showForm\" x-cloak>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<main class=\"px-6 py-6 min-w-0\" :class=\"showForm ? 'block' : 'hidden lg:block'\"><div x-show=\"!showForm\" x-cloak class=\"flex flex-col items-center justify-center min-h-64 text-center gap-4 min-w-0\"><p class=\"text-secondary text-sm\">Select an agent to edit, or create a new one.</p><button @click=\"startCreate()\" class=\"btn btn-primary btn-sm\">+ New agent</button></div><div x-show=\"showForm\" x-cloak class=\"min-w-0\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
