@@ -1,4 +1,4 @@
-h1:WnZD8y9H543DCaqAr6U5eZv+hiUfkt+AA0630Faqrtw=
+h1:ifwrOPu2F9jqYt7ClwOMQfmju5fLYXdN5C78LB0YN5g=
 20260317041843_rename_tables_with_prefixes.sql h1:Nfk81sAWddxDQvpo8pBhXJ5Sec5JcCF6tchqgt+777M=
 20260317065837_drop_agent_provider_id.sql h1:gb4CoI8GlT4P3QbksGw07M8SruOcR9pQI0Sj7/Q2rao=
 20260320104110_add-auth-tables.sql h1:6TjzFFeMMTJzy3/mGN4nrm4+SoYGhanOQY24nUbL3H4=
@@ -24,3 +24,6 @@ h1:WnZD8y9H543DCaqAr6U5eZv+hiUfkt+AA0630Faqrtw=
 20260420101609_enabled-builtin-skills.sql h1:NucC9yw7OSaDn+x2+Q9gFeOpP+H45zT0IjfnFlS+C9o=
 20260420153840_add_agent_soul.sql h1:eCkP6fN4MWp7Z36IxVEhI0C/7Vta9dkjIouPvKqBMAg=
 20260421095132_add_vault_entries.sql h1:cO80RLqKuSOLytdMUB7f/TPeENycyP2gIc8g1S4Ue5w=
+20260428154047_add-memory-changelog.sql h1:Hr3zeotWOrxEdJZXAF54DQm/IHPw4sgEIVBMVIXzgcA=
+20260428155004_add-constraints-column.sql h1:ZpZDUARMxTRUbD1i0LQymkmbWvia2PQ3Jh5FhIolKDk=
+20260428160338_add-memory-snapshots.sql h1:Q/xsA44PnqPKWoqo1y/Er9wG9dwWrlfm7z2NJEK5eMg=

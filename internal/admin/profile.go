@@ -6,8 +6,9 @@ import (
 
 	"github.com/vaayne/anna/internal/agent"
 	"github.com/vaayne/anna/internal/auth"
+	"github.com/vaayne/anna/internal/memorywrite"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
-	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 // listProfileIdentities handles GET /api/auth/profile/identities.
@@ -199,11 +200,8 @@ func (s *Server) setProfileMemory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := s.q.UpsertUserAgentMemory(r.Context(), sqlc.UpsertUserAgentMemoryParams{
-		UserID:  info.UserID,
-		AgentID: agentID,
-		Content: body.Content,
-	}); err != nil {
+	ctx := memory.WithChangeSource(r.Context(), memory.SourceUser)
+	if err := memorywrite.SetProfile(ctx, s.db, s.q, info.UserID, agentID, body.Content); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -226,11 +224,8 @@ func (s *Server) setProfileSoul(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := s.q.UpsertAgentSoul(r.Context(), sqlc.UpsertAgentSoulParams{
-		UserID:  info.UserID,
-		AgentID: agentID,
-		Soul:    body.Soul,
-	}); err != nil {
+	ctx := memory.WithChangeSource(r.Context(), memory.SourceUser)
+	if err := memorywrite.SetAgentSoul(ctx, s.db, s.q, info.UserID, agentID, body.Soul); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -246,10 +241,8 @@ func (s *Server) deleteProfileMemory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agentID := r.PathValue("agentId")
-	if err := s.q.DeleteUserAgentMemory(r.Context(), sqlc.DeleteUserAgentMemoryParams{
-		UserID:  info.UserID,
-		AgentID: agentID,
-	}); err != nil {
+	ctx := memory.WithChangeSource(r.Context(), memory.SourceUser)
+	if err := memorywrite.DeleteProfile(ctx, s.db, s.q, info.UserID, agentID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

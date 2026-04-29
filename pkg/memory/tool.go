@@ -11,14 +11,20 @@ import (
 
 // Action name constants for the memory tool.
 const (
-	actionStatus        = "status"
-	actionSearch        = "search"
-	actionDescribe      = "describe"
-	actionExpand        = "expand"
-	actionSoulGet       = "soul_get"
-	actionSoulUpdate    = "soul_update"
-	actionProfileGet    = "profile_get"
-	actionProfileUpdate = "profile_update"
+	actionStatus          = "status"
+	actionSearch          = "search"
+	actionDescribe        = "describe"
+	actionExpand          = "expand"
+	actionSoulGet         = "soul_get"
+	actionSoulUpdate      = "soul_update"
+	actionProfileGet      = "profile_get"
+	actionProfileUpdate   = "profile_update"
+	actionProfileHistory  = "profile_history"
+	actionProfileRollback = "profile_rollback"
+
+	actionConstraintList   = "constraint_list"
+	actionConstraintAdd    = "constraint_add"
+	actionConstraintRemove = "constraint_remove"
 )
 
 // ToolOption configures the generated memory tool.
@@ -86,6 +92,18 @@ func BuildTool(provider Provider, opts ...ToolOption) tools.Tool {
 	if _, ok := inner.(ProfileStore); ok {
 		t.profileStore, _ = provider.(ProfileStore)
 	}
+	if _, ok := inner.(ChangelogReader); ok {
+		t.changelogReader, _ = provider.(ChangelogReader)
+	}
+	if _, ok := inner.(ChangelogWriter); ok {
+		t.changelogWriter, _ = provider.(ChangelogWriter)
+	}
+	if _, ok := inner.(ConstraintStore); ok {
+		t.constraintStore, _ = provider.(ConstraintStore)
+	}
+	if _, ok := inner.(SessionSnapshotStore); ok {
+		t.snapshotStore, _ = provider.(SessionSnapshotStore)
+	}
 
 	// Build the list of available actions.
 	t.actions = t.buildActions()
@@ -101,12 +119,16 @@ type actionMeta struct {
 
 // memoryTool implements tools.Tool with dynamic actions based on provider capabilities.
 type memoryTool struct {
-	provider     Provider
-	cfg          *toolConfig
-	searcher     Searcher
-	explorer     Explorer
-	profileStore ProfileStore
-	actions      []actionMeta
+	provider        Provider
+	cfg             *toolConfig
+	searcher        Searcher
+	explorer        Explorer
+	profileStore    ProfileStore
+	changelogReader ChangelogReader
+	changelogWriter ChangelogWriter
+	constraintStore ConstraintStore
+	snapshotStore   SessionSnapshotStore
+	actions         []actionMeta
 }
 
 func (t *memoryTool) buildActions() []actionMeta {
@@ -139,6 +161,18 @@ func (t *memoryTool) buildActions() []actionMeta {
 		if !t.cfg.readOnlyProfile {
 			add(actionProfileUpdate, "Update the user profile. Replaces entire content — include the full updated text.")
 		}
+		if t.changelogReader != nil {
+			add(actionProfileHistory, "Show recent profile or soul change history. Use scope='profile' or scope='soul'.")
+		}
+		if t.changelogReader != nil && t.changelogWriter != nil && !t.cfg.readOnlyProfile {
+			add(actionProfileRollback, "Roll back profile or soul to a previous version. Requires scope and version from profile_history.")
+		}
+	}
+
+	if t.constraintStore != nil {
+		add(actionConstraintList, "List all active constraints (hard rules the agent must follow).")
+		add(actionConstraintAdd, "Add a new constraint. Only call after getting explicit user confirmation.")
+		add(actionConstraintRemove, "Remove a constraint by its ID.")
 	}
 
 	return actions
@@ -215,6 +249,42 @@ func (t *memoryTool) buildInputSchema() map[string]any {
 		}
 	}
 
+	if t.hasAction(actionProfileHistory) || t.hasAction(actionProfileRollback) {
+		properties["history_scope"] = map[string]any{
+			"type":        "string",
+			"enum":        []any{"profile", "soul"},
+			"description": "Which memory type to inspect: 'profile' or 'soul' (required for profile_history and profile_rollback)",
+		}
+	}
+
+	if t.hasAction(actionProfileHistory) {
+		properties["history_limit"] = map[string]any{
+			"type":        "integer",
+			"description": "Maximum number of history entries to return (default 10). Only for profile_history",
+		}
+	}
+
+	if t.hasAction(actionProfileRollback) {
+		properties["rollback_version"] = map[string]any{
+			"type":        "integer",
+			"description": "Target version to roll back to (required for profile_rollback; get versions from profile_history)",
+		}
+	}
+
+	if t.hasAction(actionConstraintAdd) {
+		properties["constraint_text"] = map[string]any{
+			"type":        "string",
+			"description": "The text of the constraint to add (required for constraint_add)",
+		}
+	}
+
+	if t.hasAction(actionConstraintRemove) {
+		properties["constraint_id"] = map[string]any{
+			"type":        "string",
+			"description": "The ID of the constraint to remove (required for constraint_remove; get IDs from constraint_list)",
+		}
+	}
+
 	return map[string]any{
 		"type":       "object",
 		"properties": properties,
@@ -258,6 +328,16 @@ func (t *memoryTool) Execute(ctx context.Context, args map[string]any) (string, 
 		return t.execProfileGet(ctx)
 	case actionProfileUpdate:
 		return t.execProfileUpdate(ctx, args)
+	case actionProfileHistory:
+		return t.execProfileHistory(ctx, args)
+	case actionProfileRollback:
+		return t.execProfileRollback(ctx, args)
+	case actionConstraintList:
+		return t.execConstraintList(ctx)
+	case actionConstraintAdd:
+		return t.execConstraintAdd(ctx, args)
+	case actionConstraintRemove:
+		return t.execConstraintRemove(ctx, args)
 	default:
 		return "", fmt.Errorf("unhandled action %q", action)
 	}
@@ -405,13 +485,182 @@ func (t *memoryTool) execSoulGet(ctx context.Context) (string, error) {
 }
 
 func (t *memoryTool) execProfileUpdate(ctx context.Context, args map[string]any) (string, error) {
-	return t.execStoreUpdate(ctx, args, actionProfileUpdate, t.profileStore.SetProfile,
+	result, err := t.execStoreUpdate(ctx, args, actionProfileUpdate, t.profileStore.SetProfile,
 		"Profile updated. Changes will appear in the system prompt at the next session start.")
+	if err == nil {
+		t.advanceSnapshot(ctx)
+	}
+	return result, err
 }
 
 func (t *memoryTool) execSoulUpdate(ctx context.Context, args map[string]any) (string, error) {
-	return t.execStoreUpdate(ctx, args, actionSoulUpdate, t.profileStore.SetAgentSoul,
+	result, err := t.execStoreUpdate(ctx, args, actionSoulUpdate, t.profileStore.SetAgentSoul,
 		"Agent soul updated. Changes will appear in the system prompt at the next session start.")
+	if err == nil {
+		t.advanceSnapshot(ctx)
+	}
+	return result, err
+}
+
+func (t *memoryTool) execProfileHistory(ctx context.Context, args map[string]any) (string, error) {
+	if t.changelogReader == nil {
+		return "", fmt.Errorf("memory profile_history: not supported by provider")
+	}
+	userID, agentID, err := t.requireProfileCtx(ctx, actionProfileHistory)
+	if err != nil {
+		return "", err
+	}
+	scope, _ := args["history_scope"].(string)
+	if scope != "profile" && scope != "soul" {
+		scope = "profile"
+	}
+	limit := intArg(args, "history_limit", 10)
+	entries, err := t.changelogReader.ReadChangelog(ctx, userID, agentID, scope, limit)
+	if err != nil {
+		return "", fmt.Errorf("memory profile_history: %w", err)
+	}
+	if len(entries) == 0 {
+		return "No history found.", nil
+	}
+	return marshalJSON(entries)
+}
+
+func (t *memoryTool) execProfileRollback(ctx context.Context, args map[string]any) (string, error) {
+	if t.changelogReader == nil || t.changelogWriter == nil || t.profileStore == nil {
+		return "", fmt.Errorf("memory profile_rollback: not supported by provider")
+	}
+	userID, agentID, err := t.requireProfileCtx(ctx, actionProfileRollback)
+	if err != nil {
+		return "", err
+	}
+
+	scope, _ := args["history_scope"].(string)
+	if scope != "profile" && scope != "soul" {
+		return "", fmt.Errorf("memory profile_rollback: history_scope must be 'profile' or 'soul'")
+	}
+
+	version := intArg(args, "rollback_version", 0)
+	if version <= 0 {
+		return "", fmt.Errorf("memory profile_rollback: rollback_version must be a positive integer")
+	}
+
+	// Look up the text at that version.
+	entries, err := t.changelogReader.ReadChangelog(ctx, userID, agentID, scope, 100)
+	if err != nil {
+		return "", fmt.Errorf("memory profile_rollback: read history: %w", err)
+	}
+
+	var targetText string
+	found := false
+	for _, e := range entries {
+		if e.MemoryVersionAfter != nil && *e.MemoryVersionAfter == int64(version) {
+			targetText = e.AfterText
+			found = true
+			break
+		}
+	}
+	if !found {
+		return "", fmt.Errorf("memory profile_rollback: version %d not found in history", version)
+	}
+
+	// Write the rollback as a new update.
+	rollbackCtx := WithChangeSource(ctx, SourceUser)
+	switch scope {
+	case "profile":
+		if err := t.profileStore.SetProfile(rollbackCtx, userID, agentID, targetText); err != nil {
+			return "", fmt.Errorf("memory profile_rollback: %w", err)
+		}
+	case "soul":
+		if err := t.profileStore.SetAgentSoul(rollbackCtx, userID, agentID, targetText); err != nil {
+			return "", fmt.Errorf("memory profile_rollback: %w", err)
+		}
+	}
+	t.advanceSnapshot(ctx)
+
+	return fmt.Sprintf("Rolled back %s to version %d.", scope, version), nil
+}
+
+func (t *memoryTool) requireConstraintCtx(ctx context.Context, action string) (int64, string, error) {
+	if t.constraintStore == nil {
+		return 0, "", fmt.Errorf("memory %s: not supported by provider", action)
+	}
+	userID := UserIDFromContext(ctx)
+	if userID == 0 {
+		return 0, "", fmt.Errorf("memory %s: no user context", action)
+	}
+	agentID := AgentIDFromContext(ctx)
+	if agentID == "" {
+		return 0, "", fmt.Errorf("memory %s: no agent context", action)
+	}
+	return userID, agentID, nil
+}
+
+func (t *memoryTool) execConstraintList(ctx context.Context) (string, error) {
+	userID, agentID, err := t.requireConstraintCtx(ctx, actionConstraintList)
+	if err != nil {
+		return "", err
+	}
+	entries, err := t.constraintStore.GetConstraints(ctx, userID, agentID)
+	if err != nil {
+		return "", fmt.Errorf("memory constraint_list: %w", err)
+	}
+	if len(entries) == 0 {
+		return "No constraints set.", nil
+	}
+	return marshalJSON(entries)
+}
+
+func (t *memoryTool) execConstraintAdd(ctx context.Context, args map[string]any) (string, error) {
+	text, _ := args["constraint_text"].(string)
+	if text == "" {
+		return "", fmt.Errorf("memory constraint_add: constraint_text is required")
+	}
+	userID, agentID, err := t.requireConstraintCtx(ctx, actionConstraintAdd)
+	if err != nil {
+		return "", err
+	}
+	entries, err := t.constraintStore.AddConstraint(ctx, userID, agentID, text)
+	if err != nil {
+		return "", fmt.Errorf("memory constraint_add: %w", err)
+	}
+	t.advanceSnapshot(ctx)
+	return marshalJSON(entries)
+}
+
+func (t *memoryTool) execConstraintRemove(ctx context.Context, args map[string]any) (string, error) {
+	id, _ := args["constraint_id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("memory constraint_remove: constraint_id is required")
+	}
+	userID, agentID, err := t.requireConstraintCtx(ctx, actionConstraintRemove)
+	if err != nil {
+		return "", err
+	}
+	entries, err := t.constraintStore.RemoveConstraint(ctx, userID, agentID, id)
+	if err != nil {
+		return "", fmt.Errorf("memory constraint_remove: %w", err)
+	}
+	t.advanceSnapshot(ctx)
+	return marshalJSON(entries)
+}
+
+// advanceSnapshot advances the session snapshot after a front-end write operation.
+// Reflect writes don't carry session_id so they naturally skip this.
+func (t *memoryTool) advanceSnapshot(ctx context.Context) {
+	if t.snapshotStore == nil {
+		return
+	}
+	sessionID := SessionIDFromContext(ctx)
+	if sessionID == "" {
+		return
+	}
+	userID := UserIDFromContext(ctx)
+	agentID := AgentIDFromContext(ctx)
+	if userID == 0 || agentID == "" {
+		return
+	}
+	// Log but don't fail — snapshot advance failure should not block the write.
+	_ = t.snapshotStore.AdvanceSessionSnapshot(ctx, sessionID, userID, agentID)
 }
 
 // ---------------------------------------------------------------------------

@@ -28,7 +28,11 @@ func (rc *ResolvedChat) RotateSession() (agent.SessionInfo, error) {
 }
 
 func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
-	return rc.Pool.CompactSession(ctx, rc.SessionKey)
+	info, err := rc.ResolveSession()
+	if err != nil {
+		return "", fmt.Errorf("resolve session: %w", err)
+	}
+	return rc.Pool.CompactSession(ctx, info.ID)
 }
 
 func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent, opts ...agent.ChatOption) (<-chan agent.Event, string, error) {

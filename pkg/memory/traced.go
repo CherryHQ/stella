@@ -360,6 +360,54 @@ func (t *tracedProvider) SetAgentSoul(ctx context.Context, userID int64, agentID
 }
 
 // ---------------------------------------------------------------------------
+// ChangelogWriter / ChangelogReader
+// ---------------------------------------------------------------------------
+
+func (t *tracedProvider) WriteChangelog(ctx context.Context, entry ChangeEntry) error {
+	cw, ok := t.inner.(ChangelogWriter)
+	if !ok {
+		return errCapabilityNotSupported("ChangelogWriter")
+	}
+	return cw.WriteChangelog(ctx, entry)
+}
+
+func (t *tracedProvider) ReadChangelog(ctx context.Context, userID int64, agentID string, scope string, limit int) ([]ChangeEntry, error) {
+	cr, ok := t.inner.(ChangelogReader)
+	if !ok {
+		return nil, errCapabilityNotSupported("ChangelogReader")
+	}
+	return cr.ReadChangelog(ctx, userID, agentID, scope, limit)
+}
+
+// ---------------------------------------------------------------------------
+// ConstraintStore
+// ---------------------------------------------------------------------------
+
+func (t *tracedProvider) GetConstraints(ctx context.Context, userID int64, agentID string) ([]ConstraintEntry, error) {
+	cs, ok := t.inner.(ConstraintStore)
+	if !ok {
+		return nil, errCapabilityNotSupported("ConstraintStore")
+	}
+	return cs.GetConstraints(ctx, userID, agentID)
+}
+
+func (t *tracedProvider) AddConstraint(ctx context.Context, userID int64, agentID string, text string) ([]ConstraintEntry, error) {
+	cs, ok := t.inner.(ConstraintStore)
+	if !ok {
+		return nil, errCapabilityNotSupported("ConstraintStore")
+	}
+	return cs.AddConstraint(ctx, userID, agentID, text)
+}
+
+func (t *tracedProvider) RemoveConstraint(ctx context.Context, userID int64, agentID string, id string) ([]ConstraintEntry, error) {
+	cs, ok := t.inner.(ConstraintStore)
+	if !ok {
+		return nil, errCapabilityNotSupported("ConstraintStore")
+	}
+	return cs.RemoveConstraint(ctx, userID, agentID, id)
+}
+
+// ---------------------------------------------------------------------------
 // SessionManager
 // ---------------------------------------------------------------------------
 
@@ -432,6 +480,58 @@ func (t *tracedProvider) LoadHistory(ctx context.Context, sessionID string) ([]a
 		Detail:       formatMessages("loaded history", msgs),
 	})
 	return msgs, err
+}
+
+// ---------------------------------------------------------------------------
+// VersionedProfileStore
+// ---------------------------------------------------------------------------
+
+func (t *tracedProvider) GetProfileAt(ctx context.Context, userID int64, agentID string, version int64) (string, error) {
+	vp, ok := t.inner.(VersionedProfileStore)
+	if !ok {
+		return "", errCapabilityNotSupported("VersionedProfileStore")
+	}
+	return vp.GetProfileAt(ctx, userID, agentID, version)
+}
+
+func (t *tracedProvider) GetAgentSoulAt(ctx context.Context, userID int64, agentID string, version int64) (string, error) {
+	vp, ok := t.inner.(VersionedProfileStore)
+	if !ok {
+		return "", errCapabilityNotSupported("VersionedProfileStore")
+	}
+	return vp.GetAgentSoulAt(ctx, userID, agentID, version)
+}
+
+// ---------------------------------------------------------------------------
+// VersionedConstraintStore
+// ---------------------------------------------------------------------------
+
+func (t *tracedProvider) GetConstraintsAt(ctx context.Context, userID int64, agentID string, version int64) ([]ConstraintEntry, error) {
+	vc, ok := t.inner.(VersionedConstraintStore)
+	if !ok {
+		return nil, errCapabilityNotSupported("VersionedConstraintStore")
+	}
+	return vc.GetConstraintsAt(ctx, userID, agentID, version)
+}
+
+// ---------------------------------------------------------------------------
+// SessionSnapshotStore
+// ---------------------------------------------------------------------------
+
+func (t *tracedProvider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID string, userID int64, agentID string) (SessionSnapshot, error) {
+	sss, ok := t.inner.(SessionSnapshotStore)
+	if !ok {
+		return SessionSnapshot{}, errCapabilityNotSupported("SessionSnapshotStore")
+	}
+	return sss.GetOrCreateSessionSnapshot(ctx, sessionID, userID, agentID)
+}
+
+func (t *tracedProvider) AdvanceSessionSnapshot(ctx context.Context, sessionID string, userID int64, agentID string) error {
+	sss, ok := t.inner.(SessionSnapshotStore)
+	if !ok {
+		return errCapabilityNotSupported("SessionSnapshotStore")
+	}
+	return sss.AdvanceSessionSnapshot(ctx, sessionID, userID, agentID)
 }
 
 // ---------------------------------------------------------------------------

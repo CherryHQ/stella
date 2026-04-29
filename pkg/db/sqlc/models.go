@@ -58,11 +58,13 @@ type AuthUserAgent struct {
 }
 
 type CtxAgentMemory struct {
-	UserID    int64  `json:"user_id"`
-	AgentID   string `json:"agent_id"`
-	Content   string `json:"content"`
-	Soul      string `json:"soul"`
-	UpdatedAt string `json:"updated_at"`
+	UserID      int64  `json:"user_id"`
+	AgentID     string `json:"agent_id"`
+	Content     string `json:"content"`
+	Soul        string `json:"soul"`
+	Version     int64  `json:"version"`
+	Constraints string `json:"constraints"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 type CtxConversation struct {
@@ -137,6 +139,32 @@ type CtxSummaryParent struct {
 	SummaryID       string `json:"summary_id"`
 	ParentSummaryID string `json:"parent_summary_id"`
 	Ordinal         int64  `json:"ordinal"`
+}
+
+type MemoryChangelog struct {
+	ID                  int64          `json:"id"`
+	UserID              int64          `json:"user_id"`
+	AgentID             string         `json:"agent_id"`
+	SessionID           sql.NullString `json:"session_id"`
+	EntityID            sql.NullString `json:"entity_id"`
+	Scope               string         `json:"scope"`
+	Action              string         `json:"action"`
+	Source              string         `json:"source"`
+	MemoryVersionBefore sql.NullInt64  `json:"memory_version_before"`
+	MemoryVersionAfter  sql.NullInt64  `json:"memory_version_after"`
+	BeforeText          sql.NullString `json:"before_text"`
+	AfterText           sql.NullString `json:"after_text"`
+	Metadata            sql.NullString `json:"metadata"`
+	CreatedAt           string         `json:"created_at"`
+}
+
+type MemorySnapshot struct {
+	SessionID string `json:"session_id"`
+	UserID    int64  `json:"user_id"`
+	AgentID   string `json:"agent_id"`
+	Version   int64  `json:"version"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type PluginStateEntry struct {

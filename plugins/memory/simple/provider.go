@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vaayne/anna/internal/memorywrite"
 	"github.com/vaayne/anna/pkg/ai"
 	"github.com/vaayne/anna/pkg/db/sqlc"
 	"github.com/vaayne/anna/pkg/memory"
@@ -17,9 +18,15 @@ import (
 
 // Compile-time interface checks.
 var (
-	_ memory.Provider       = (*Provider)(nil)
-	_ memory.ProfileStore   = (*Provider)(nil)
-	_ memory.SessionManager = (*Provider)(nil)
+	_ memory.Provider                 = (*Provider)(nil)
+	_ memory.ProfileStore             = (*Provider)(nil)
+	_ memory.SessionManager           = (*Provider)(nil)
+	_ memory.ChangelogWriter          = (*Provider)(nil)
+	_ memory.ChangelogReader          = (*Provider)(nil)
+	_ memory.ConstraintStore          = (*Provider)(nil)
+	_ memory.VersionedProfileStore    = (*Provider)(nil)
+	_ memory.VersionedConstraintStore = (*Provider)(nil)
+	_ memory.SessionSnapshotStore     = (*Provider)(nil)
 )
 
 // Provider implements a minimal sliding-window memory provider.
@@ -202,11 +209,7 @@ func (p *Provider) GetProfile(ctx context.Context, userID int64, agentID string)
 }
 
 func (p *Provider) SetProfile(ctx context.Context, userID int64, agentID string, content string) error {
-	if err := p.q.UpsertUserAgentMemory(ctx, sqlc.UpsertUserAgentMemoryParams{
-		UserID:  userID,
-		AgentID: agentID,
-		Content: content,
-	}); err != nil {
+	if err := memorywrite.SetProfile(ctx, p.db, p.q, userID, agentID, content); err != nil {
 		return fmt.Errorf("set profile: %w", err)
 	}
 	return nil
@@ -224,14 +227,240 @@ func (p *Provider) GetAgentSoul(ctx context.Context, userID int64, agentID strin
 }
 
 func (p *Provider) SetAgentSoul(ctx context.Context, userID int64, agentID string, content string) error {
-	if err := p.q.UpsertAgentSoul(ctx, sqlc.UpsertAgentSoulParams{
-		UserID:  userID,
-		AgentID: agentID,
-		Soul:    content,
-	}); err != nil {
+	if err := memorywrite.SetAgentSoul(ctx, p.db, p.q, userID, agentID, content); err != nil {
 		return fmt.Errorf("set agent soul: %w", err)
 	}
 	return nil
+}
+
+// GetConstraints implements memory.ConstraintStore.
+func (p *Provider) GetConstraints(ctx context.Context, userID int64, agentID string) ([]memory.ConstraintEntry, error) {
+	return memorywrite.GetConstraints(ctx, p.q, userID, agentID)
+}
+
+// AddConstraint implements memory.ConstraintStore.
+func (p *Provider) AddConstraint(ctx context.Context, userID int64, agentID string, text string) ([]memory.ConstraintEntry, error) {
+	return memorywrite.AddConstraint(ctx, p.db, p.q, userID, agentID, text)
+}
+
+// RemoveConstraint implements memory.ConstraintStore.
+func (p *Provider) RemoveConstraint(ctx context.Context, userID int64, agentID string, id string) ([]memory.ConstraintEntry, error) {
+	return memorywrite.RemoveConstraint(ctx, p.db, p.q, userID, agentID, id)
+}
+
+// GetProfileAt implements memory.VersionedProfileStore.
+func (p *Provider) GetProfileAt(ctx context.Context, userID int64, agentID string, version int64) (string, error) {
+	if version <= 0 {
+		return p.GetProfile(ctx, userID, agentID)
+	}
+	entry, err := p.q.GetMemoryChangelogAtVersion(ctx, sqlc.GetMemoryChangelogAtVersionParams{
+		UserID:             userID,
+		AgentID:            agentID,
+		Scope:              "profile",
+		MemoryVersionAfter: sql.NullInt64{Int64: version, Valid: true},
+	})
+	if err == nil {
+		if entry.AfterText.Valid {
+			return entry.AfterText.String, nil
+		}
+		return "", nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return "", fmt.Errorf("get profile at version %d: %w", version, err)
+}
+
+// GetAgentSoulAt implements memory.VersionedProfileStore.
+func (p *Provider) GetAgentSoulAt(ctx context.Context, userID int64, agentID string, version int64) (string, error) {
+	if version <= 0 {
+		return p.GetAgentSoul(ctx, userID, agentID)
+	}
+	entry, err := p.q.GetMemoryChangelogAtVersion(ctx, sqlc.GetMemoryChangelogAtVersionParams{
+		UserID:             userID,
+		AgentID:            agentID,
+		Scope:              "soul",
+		MemoryVersionAfter: sql.NullInt64{Int64: version, Valid: true},
+	})
+	if err == nil {
+		if entry.AfterText.Valid {
+			return entry.AfterText.String, nil
+		}
+		return "", nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return "", fmt.Errorf("get agent soul at version %d: %w", version, err)
+}
+
+// GetConstraintsAt implements memory.VersionedConstraintStore.
+func (p *Provider) GetConstraintsAt(ctx context.Context, userID int64, agentID string, version int64) ([]memory.ConstraintEntry, error) {
+	if version <= 0 {
+		return p.GetConstraints(ctx, userID, agentID)
+	}
+	entry, err := p.q.GetMemoryChangelogAtVersion(ctx, sqlc.GetMemoryChangelogAtVersionParams{
+		UserID:             userID,
+		AgentID:            agentID,
+		Scope:              "constraint",
+		MemoryVersionAfter: sql.NullInt64{Int64: version, Valid: true},
+	})
+	if err == nil {
+		if entry.AfterText.Valid {
+			return memorywrite.ParseConstraintsJSON(entry.AfterText.String)
+		}
+		return []memory.ConstraintEntry{}, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return []memory.ConstraintEntry{}, nil
+	}
+	return nil, fmt.Errorf("get constraints at version %d: %w", version, err)
+}
+
+// GetOrCreateSessionSnapshot implements memory.SessionSnapshotStore.
+func (p *Provider) GetOrCreateSessionSnapshot(ctx context.Context, sessionID string, userID int64, agentID string) (memory.SessionSnapshot, error) {
+	snap, err := p.q.GetMemorySnapshot(ctx, sqlc.GetMemorySnapshotParams{
+		SessionID: sessionID,
+		UserID:    userID,
+		AgentID:   agentID,
+	})
+	if err == nil {
+		return memory.SessionSnapshot{
+			SessionID: snap.SessionID,
+			UserID:    snap.UserID,
+			AgentID:   snap.AgentID,
+			Version:   snap.Version,
+			UpdatedAt: parseSnapshotTime(snap.UpdatedAt),
+		}, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return memory.SessionSnapshot{}, fmt.Errorf("get snapshot: %w", err)
+	}
+
+	// Create: freeze current version.
+	row, err := p.getMemoryRow(ctx, userID, agentID)
+	var currentVersion int64
+	if err == nil && row != nil {
+		currentVersion = row.Version
+	}
+
+	created, err := p.q.CreateMemorySnapshot(ctx, sqlc.CreateMemorySnapshotParams{
+		SessionID: sessionID,
+		UserID:    userID,
+		AgentID:   agentID,
+		Version:   currentVersion,
+	})
+	if err != nil {
+		return memory.SessionSnapshot{}, fmt.Errorf("create snapshot: %w", err)
+	}
+	return memory.SessionSnapshot{
+		SessionID: created.SessionID,
+		UserID:    created.UserID,
+		AgentID:   created.AgentID,
+		Version:   created.Version,
+		UpdatedAt: parseSnapshotTime(created.UpdatedAt),
+	}, nil
+}
+
+func parseSnapshotTime(s string) time.Time {
+	t, _ := time.Parse("2006-01-02 15:04:05", s)
+	return t
+}
+
+// AdvanceSessionSnapshot implements memory.SessionSnapshotStore.
+func (p *Provider) AdvanceSessionSnapshot(ctx context.Context, sessionID string, userID int64, agentID string) error {
+	row, err := p.getMemoryRow(ctx, userID, agentID)
+	if err != nil {
+		return fmt.Errorf("advance snapshot: read memory row: %w", err)
+	}
+	if row == nil {
+		return nil
+	}
+	return p.q.AdvanceMemorySnapshot(ctx, sqlc.AdvanceMemorySnapshotParams{
+		Version:   row.Version,
+		SessionID: sessionID,
+		UserID:    userID,
+		AgentID:   agentID,
+	})
+}
+
+// WriteChangelog implements memory.ChangelogWriter.
+func (p *Provider) WriteChangelog(ctx context.Context, entry memory.ChangeEntry) error {
+	return p.q.InsertMemoryChangelog(ctx, changeEntryToParams(entry))
+}
+
+// ReadChangelog implements memory.ChangelogReader.
+func (p *Provider) ReadChangelog(ctx context.Context, userID int64, agentID string, scope string, limit int) ([]memory.ChangeEntry, error) {
+	rows, err := p.q.ListMemoryChangelog(ctx, sqlc.ListMemoryChangelogParams{
+		UserID:  userID,
+		AgentID: agentID,
+		Scope:   scope,
+		Limit:   int64(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list changelog: %w", err)
+	}
+	entries := make([]memory.ChangeEntry, len(rows))
+	for i, r := range rows {
+		entries[i] = changelogRowToEntry(r)
+	}
+	return entries, nil
+}
+
+func changeEntryToParams(e memory.ChangeEntry) sqlc.InsertMemoryChangelogParams {
+	params := sqlc.InsertMemoryChangelogParams{
+		UserID:  e.UserID,
+		AgentID: e.AgentID,
+		Scope:   e.Scope,
+		Action:  e.Action,
+		Source:  string(e.Source),
+	}
+	if e.SessionID != "" {
+		params.SessionID = sql.NullString{String: e.SessionID, Valid: true}
+	}
+	if e.MemoryVersionBefore != nil {
+		params.MemoryVersionBefore = sql.NullInt64{Int64: *e.MemoryVersionBefore, Valid: true}
+	}
+	if e.MemoryVersionAfter != nil {
+		params.MemoryVersionAfter = sql.NullInt64{Int64: *e.MemoryVersionAfter, Valid: true}
+	}
+	if e.BeforeText != "" {
+		params.BeforeText = sql.NullString{String: e.BeforeText, Valid: true}
+	}
+	if e.AfterText != "" {
+		params.AfterText = sql.NullString{String: e.AfterText, Valid: true}
+	}
+	return params
+}
+
+func changelogRowToEntry(r sqlc.MemoryChangelog) memory.ChangeEntry {
+	e := memory.ChangeEntry{
+		ID:        r.ID,
+		UserID:    r.UserID,
+		AgentID:   r.AgentID,
+		Scope:     r.Scope,
+		Action:    r.Action,
+		Source:    memory.ChangeSource(r.Source),
+		CreatedAt: r.CreatedAt,
+	}
+	if r.SessionID.Valid {
+		e.SessionID = r.SessionID.String
+	}
+	if r.MemoryVersionBefore.Valid {
+		v := r.MemoryVersionBefore.Int64
+		e.MemoryVersionBefore = &v
+	}
+	if r.MemoryVersionAfter.Valid {
+		v := r.MemoryVersionAfter.Int64
+		e.MemoryVersionAfter = &v
+	}
+	if r.BeforeText.Valid {
+		e.BeforeText = r.BeforeText.String
+	}
+	if r.AfterText.Valid {
+		e.AfterText = r.AfterText.String
+	}
+	return e
 }
 
 // --- SessionManager ---

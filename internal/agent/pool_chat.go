@@ -12,6 +12,8 @@ import (
 	pkgplugins "github.com/vaayne/anna/pkg/plugins"
 )
 
+const autoCompactionTimeout = 2 * time.Minute
+
 // Chat sends a message in a session and streams back events.
 // Internally: gets/creates runner, passes history, collects events,
 // appends to session log, streams to caller.
@@ -24,14 +26,16 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message MessageConten
 	}
 
 	ctx = memory.WithSessionID(ctx, sessionID)
+	go p.chat(ctx, out, sessionID, message, co)
+	return out
+}
 
+func (p *Pool) chat(ctx context.Context, out chan<- Event, sessionID string, message MessageContent, co chatOptions) {
 	sess, r, err := p.getOrCreateRunner(ctx, sessionID, co.model)
 	if err != nil {
-		go func() {
-			out <- Event{Err: fmt.Errorf("get runner: %w", err)}
-			close(out)
-		}()
-		return out
+		out <- Event{Err: fmt.Errorf("get runner: %w", err)}
+		close(out)
+		return
 	}
 
 	// Set user and agent context from session metadata (loaded from DB).
@@ -70,23 +74,26 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message MessageConten
 		Channel:    sess.Info.Channel,
 	})
 
-	// Auto-compact if the session has grown too large.
+	// Auto-compact if the session has grown too large. Use a short detached
+	// context so a slow summarizer cannot consume the channel request deadline
+	// and poison the rest of this chat turn with context.Canceled/DeadlineExceeded.
 	if p.NeedsCompaction(sessionID) {
 		p.log.Info("auto-compaction triggered", "session_id", sessionID)
-		if summary, err := p.CompactSession(ctx, sessionID); err != nil {
+		compactCtx, cancelCompact := context.WithTimeout(context.WithoutCancel(ctx), autoCompactionTimeout)
+		if summary, err := p.CompactSession(compactCtx, sessionID); err != nil {
+			cancelCompact()
 			p.log.Warn("auto-compaction failed, continuing with full history",
 				"session_id", sessionID, "error", err)
 		} else {
+			cancelCompact()
 			p.log.Info("auto-compaction succeeded", "session_id", sessionID,
 				"summary_len", len(summary))
 			// Re-acquire session and runner after compaction (runner was restarted).
 			sess, r, err = p.getOrCreateRunner(ctx, sessionID, co.model)
 			if err != nil {
-				go func() {
-					out <- Event{Err: fmt.Errorf("get runner after compaction: %w", err)}
-					close(out)
-				}()
-				return out
+				out <- Event{Err: fmt.Errorf("get runner after compaction: %w", err)}
+				close(out)
+				return
 			}
 		}
 	}
@@ -130,10 +137,26 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message MessageConten
 		history = assembled
 	}
 
+	// Session snapshot: build frozen system prompt using snapshot version.
+	// Front-end (tool) writes advance the snapshot; back-end (Reflect) writes don't.
+	var snapshotPrompt string
+	if p.snapshotPromptFn != nil {
+		if sss, ok := p.mem.(memory.SessionSnapshotStore); ok && sess.Info.UserID > 0 && agentID != "" {
+			snapshot, snapErr := sss.GetOrCreateSessionSnapshot(ctx, sessionID, sess.Info.UserID, agentID)
+			if snapErr != nil {
+				p.log.Warn("session snapshot failed", "session_id", sessionID, "error", snapErr)
+			} else {
+				snapshotPrompt = p.snapshotPromptFn(ctx, sess.Info.UserID, agentID, snapshot)
+			}
+		}
+	}
+
 	if p.beforeRunFn != nil {
-		baseSystem := ""
-		if promter, ok := r.(SystemPrompter); ok {
-			baseSystem = promter.SystemPrompt()
+		baseSystem := snapshotPrompt
+		if baseSystem == "" {
+			if promter, ok := r.(SystemPrompter); ok {
+				baseSystem = promter.SystemPrompt()
+			}
 		}
 		if result, err := p.beforeRunFn(ctx, pkgplugins.BeforeRunContext{
 			SessionID:    sessionID,
@@ -145,14 +168,16 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message MessageConten
 			SystemPrompt: baseSystem,
 			History:      history,
 		}); err != nil {
-			go func() {
-				out <- Event{Err: fmt.Errorf("before run: %w", err)}
-				close(out)
-			}()
-			return out
+			out <- Event{Err: fmt.Errorf("before run: %w", err)}
+			close(out)
+			return
 		} else if result.SystemPrompt != "" && result.SystemPrompt != baseSystem {
 			ctx = WithSystemOverride(ctx, result.SystemPrompt)
+		} else if baseSystem != "" {
+			ctx = WithSystemOverride(ctx, baseSystem)
 		}
+	} else if snapshotPrompt != "" {
+		ctx = WithSystemOverride(ctx, snapshotPrompt)
 	}
 
 	// Store user message via memory provider (after assembly to avoid duplication).
@@ -164,8 +189,6 @@ func (p *Pool) Chat(ctx context.Context, sessionID string, message MessageConten
 	stream := r.Chat(ctx, history, message)
 
 	go p.streamEvents(ctx, sessionID, memSession, stream, out, hs, hookMeta, chatStart)
-
-	return out
 }
 
 // streamEvents reads runner events, persists messages to the memory provider,

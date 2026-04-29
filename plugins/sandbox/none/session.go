@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -259,20 +260,19 @@ func (s *noneSession) deregisterProcess(p *noneProcess) {
 }
 
 // buildEnv merges host env with policy env and per-call overrides.
+// If InheritEnv is false, host environment is not included.
 func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 	merged := make(map[string]string)
-	for _, kv := range os.Environ() {
-		k, v, ok := cutEnv(kv)
-		if ok {
-			merged[k] = v
+	if policy.InheritEnv {
+		for _, kv := range os.Environ() {
+			k, v, ok := cutEnv(kv)
+			if ok {
+				merged[k] = v
+			}
 		}
 	}
-	for k, v := range policy.Env {
-		merged[k] = v
-	}
-	for k, v := range overrides {
-		merged[k] = v
-	}
+	maps.Copy(merged, policy.Env)
+	maps.Copy(merged, overrides)
 	env := make([]string, 0, len(merged))
 	for k, v := range merged {
 		env = append(env, k+"="+v)
@@ -364,4 +364,3 @@ func (p *noneProcess) Close() error {
 	}
 	return nil
 }
-

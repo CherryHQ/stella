@@ -4,7 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/vaayne/anna/pkg/db/sqlc"
+	"github.com/vaayne/anna/internal/memorywrite"
+	"github.com/vaayne/anna/pkg/memory"
 )
 
 func (s *Server) updateUserDefaultAgent(w http.ResponseWriter, r *http.Request) {
@@ -75,11 +76,8 @@ func (s *Server) setUserMemory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := s.q.UpsertUserAgentMemory(r.Context(), sqlc.UpsertUserAgentMemoryParams{
-		UserID:  id,
-		AgentID: agentID,
-		Content: body.Content,
-	}); err != nil {
+	ctx := memory.WithChangeSource(r.Context(), memory.SourceSystem)
+	if err := memorywrite.SetProfile(ctx, s.db, s.q, id, agentID, body.Content); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -93,10 +91,8 @@ func (s *Server) deleteUserMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	agentID := r.PathValue("agentId")
-	if err := s.q.DeleteUserAgentMemory(r.Context(), sqlc.DeleteUserAgentMemoryParams{
-		UserID:  id,
-		AgentID: agentID,
-	}); err != nil {
+	ctx := memory.WithChangeSource(r.Context(), memory.SourceSystem)
+	if err := memorywrite.DeleteProfile(ctx, s.db, s.q, id, agentID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
