@@ -22,17 +22,6 @@ func (h *Host) ChannelConfigured(ctx context.Context, name string) bool {
 	return reg.Configured(cloneMap(state.Config))
 }
 
-func (h *Host) ChannelNotificationsEnabled(ctx context.Context, name string) bool {
-	state, reg, ok := h.channelState(ctx, name)
-	if !ok || !state.Enabled {
-		return false
-	}
-	if reg.NotificationsEnabled == nil {
-		return false
-	}
-	return reg.NotificationsEnabled(cloneMap(state.Config))
-}
-
 func (h *Host) ChannelInstanceConfigured(channel config.Channel) bool {
 	if !channel.Enabled {
 		return false

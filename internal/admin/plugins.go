@@ -19,42 +19,40 @@ func (s *Server) listPlugins(w http.ResponseWriter, r *http.Request) {
 }
 
 type pluginView struct {
-	ID                    string         `json:"id"`
-	Kind                  string         `json:"kind"`
-	Name                  string         `json:"name"`
-	Enabled               bool           `json:"enabled"`
-	Config                map[string]any `json:"config"`
-	DisplayName           string         `json:"display_name"`
-	Description           string         `json:"description"`
-	Managed               bool           `json:"managed"`
-	AdminVisible          bool           `json:"admin_visible"`
-	HasConfig             bool           `json:"has_config"`
-	HasStatus             bool           `json:"has_status"`
-	Capabilities          []string       `json:"capabilities"`
-	SupportsNotifications bool           `json:"supports_notifications"`
-	Persisted             bool           `json:"persisted"`
-	PersistedID           string         `json:"persisted_id"`
+	ID           string         `json:"id"`
+	Kind         string         `json:"kind"`
+	Name         string         `json:"name"`
+	Enabled      bool           `json:"enabled"`
+	Config       map[string]any `json:"config"`
+	DisplayName  string         `json:"display_name"`
+	Description  string         `json:"description"`
+	Managed      bool           `json:"managed"`
+	AdminVisible bool           `json:"admin_visible"`
+	HasConfig    bool           `json:"has_config"`
+	HasStatus    bool           `json:"has_status"`
+	Capabilities []string       `json:"capabilities"`
+	Persisted    bool           `json:"persisted"`
+	PersistedID  string         `json:"persisted_id"`
 }
 
 func flattenRegisteredPlugins(s *Server, plugins []pkgplugins.RegisteredPlugin) []pluginView {
 	out := make([]pluginView, 0, len(plugins))
 	for _, plugin := range plugins {
 		out = append(out, pluginView{
-			ID:                    plugin.Info.ID,
-			Kind:                  plugin.Kind,
-			Name:                  plugin.Name,
-			Enabled:               plugin.State.Enabled,
-			Config:                s.pluginHost.RedactConfig(plugin.Info.ID, plugin.State.Config),
-			DisplayName:           plugin.Info.DisplayName,
-			Description:           plugin.Info.Description,
-			Managed:               plugin.Info.Managed,
-			AdminVisible:          plugin.Info.AdminVisible,
-			HasConfig:             plugin.HasConfig,
-			HasStatus:             plugin.HasStatus,
-			Capabilities:          plugin.SortedCapabilities(),
-			SupportsNotifications: plugin.SupportsNotifications,
-			Persisted:             plugin.Persisted,
-			PersistedID:           plugin.PersistedID,
+			ID:           plugin.Info.ID,
+			Kind:         plugin.Kind,
+			Name:         plugin.Name,
+			Enabled:      plugin.State.Enabled,
+			Config:       s.pluginHost.RedactConfig(plugin.Info.ID, plugin.State.Config),
+			DisplayName:  plugin.Info.DisplayName,
+			Description:  plugin.Info.Description,
+			Managed:      plugin.Info.Managed,
+			AdminVisible: plugin.Info.AdminVisible,
+			HasConfig:    plugin.HasConfig,
+			HasStatus:    plugin.HasStatus,
+			Capabilities: plugin.SortedCapabilities(),
+			Persisted:    plugin.Persisted,
+			PersistedID:  plugin.PersistedID,
 		})
 	}
 	return out

@@ -56,7 +56,6 @@ func TestFeishuManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		"app_secret":         "fs-secret",
 		"encrypt_key":        "enc",
 		"verification_token": "verify",
-		"enable_notify":      true,
 		"group_mode":         "mention",
 		"groups": map[string]any{
 			"chat-1": map[string]any{"group_mode": "always", "system_prompt": "be brief", "tool_allow": []any{"shell"}},
@@ -77,9 +76,6 @@ func TestFeishuManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 	if snap.State != pkgplugins.RuntimeStateRunning {
 		t.Fatalf("state = %q, want running", snap.State)
 	}
-	if snap.Metadata["notify_enabled"] != true {
-		t.Fatalf("notify_enabled = %#v, want true", snap.Metadata["notify_enabled"])
-	}
 	if snap.Metadata["group_count"] != 1 {
 		t.Fatalf("group_count = %#v, want 1", snap.Metadata["group_count"])
 	}
@@ -89,8 +85,8 @@ func TestFeishuManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 	}
 	waitClosed(t, first.stopped, "first feishu stop")
 	waitClosed(t, second.started, "second feishu start")
-	if got := notifier.Channels(); len(got) != 0 {
-		t.Fatalf("notifier channels after reconfigure = %v, want []", got)
+	if got := notifier.Channels(); len(got) != 1 || got[0] != pkgchannel.PlatformFeishu {
+		t.Fatalf("notifier channels after reconfigure = %v, want [feishu]", got)
 	}
 
 	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: PluginID, Enabled: false, Config: map[string]any{"app_id": "fs-app-2", "app_secret": "fs-secret-2"}}); err != nil {

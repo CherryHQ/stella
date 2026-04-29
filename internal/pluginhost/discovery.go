@@ -78,17 +78,16 @@ func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.Regist
 		if !meta.AdminVisible {
 			continue
 		}
-		hasConfig, hasStatus, supportsNotifications, capabilities := h.derivedTraits(meta.ID)
+		hasConfig, hasStatus, capabilities := h.derivedTraits(meta.ID)
 		hasConfig, stateConfig := adminVisiblePluginConfig(meta.Kind, hasConfig, h.defaultConfigFor(meta.ID))
 		registered[meta.ID] = pkgplugins.RegisteredPlugin{
-			Info:                  meta,
-			Kind:                  meta.Kind,
-			Name:                  meta.Name,
-			HasConfig:             hasConfig,
-			HasStatus:             hasStatus,
-			Capabilities:          capabilities,
-			SupportsNotifications: supportsNotifications,
-			State:                 pkgplugins.PluginState{ID: meta.ID, Enabled: false, Config: stateConfig},
+			Info:         meta,
+			Kind:         meta.Kind,
+			Name:         meta.Name,
+			HasConfig:    hasConfig,
+			HasStatus:    hasStatus,
+			Capabilities: capabilities,
+			State:        pkgplugins.PluginState{ID: meta.ID, Enabled: false, Config: stateConfig},
 		}
 	}
 
@@ -130,7 +129,7 @@ func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.Regist
 	return out, nil
 }
 
-func (h *Host) derivedTraits(pluginID string) (hasConfig bool, hasStatus bool, supportsNotifications bool, capabilities []string) {
+func (h *Host) derivedTraits(pluginID string) (hasConfig bool, hasStatus bool, capabilities []string) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -155,7 +154,6 @@ func (h *Host) derivedTraits(pluginID string) (hasConfig bool, hasStatus bool, s
 	for _, reg := range h.channelRegs {
 		if reg.PluginID == pluginID {
 			add(pkgplugins.CapabilityChannel)
-			supportsNotifications = supportsNotifications || reg.SupportsNotifications
 		}
 	}
 	for _, reg := range h.hookRegs {
@@ -212,7 +210,7 @@ func (h *Host) derivedTraits(pluginID string) (hasConfig bool, hasStatus bool, s
 		capabilities = append(capabilities, capability)
 	}
 	sort.Strings(capabilities)
-	return hasConfig, hasStatus, supportsNotifications, capabilities
+	return hasConfig, hasStatus, capabilities
 }
 
 func (h *Host) defaultConfigFor(pluginID string) map[string]any {

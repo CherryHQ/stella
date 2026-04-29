@@ -191,10 +191,6 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		}
 	}
 
-	if managedChannels.Started > 0 && len(s.notifier.Channels()) == 0 {
-		slog.Warn("no enabled channels have enable_notify set to true; scheduler results and heartbeat notifications will not be delivered")
-	}
-
 	// Start all channels.
 	for _, ch := range channels {
 		g.Go(func() error {

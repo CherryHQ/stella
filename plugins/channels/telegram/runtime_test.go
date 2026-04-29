@@ -50,7 +50,7 @@ func TestManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		},
 	})
 
-	state := pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"token": "tg-token", "enable_notify": true, "group_mode": "mention"}}
+	state := pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"token": "tg-token", "group_mode": "mention"}}
 	if err := runtime.Apply(context.Background(), state); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
@@ -66,17 +66,13 @@ func TestManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 	if snap.State != pkgplugins.RuntimeStateRunning {
 		t.Fatalf("state = %q, want running", snap.State)
 	}
-	if snap.Metadata["notify_enabled"] != true {
-		t.Fatalf("notify_enabled = %#v, want true", snap.Metadata["notify_enabled"])
-	}
-
 	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"token": "tg-token-2", "channel_id": "@anna"}}); err != nil {
 		t.Fatalf("reconfigure apply: %v", err)
 	}
 	waitClosed(t, first.stopped, "first stop")
 	waitClosed(t, second.started, "second start")
-	if got := notifier.Channels(); len(got) != 0 {
-		t.Fatalf("notifier channels after reconfigure = %v, want []", got)
+	if got := notifier.Channels(); len(got) != 1 || got[0] != pkgchannel.PlatformTelegram {
+		t.Fatalf("notifier channels after reconfigure = %v, want [telegram]", got)
 	}
 
 	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: PluginID, Enabled: false, Config: map[string]any{"token": "tg-token-2"}}); err != nil {

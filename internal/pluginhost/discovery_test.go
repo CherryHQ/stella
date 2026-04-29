@@ -84,15 +84,14 @@ func TestDiscoveryReportsRegistrationsAndMergedAdminView(t *testing.T) {
 	host := New(store)
 	host.RegisterPluginID("channel/telegram")
 	host.SetInfo(pkgplugins.PluginInfo{
-		ID:                    "channel/telegram",
-		Kind:                  config.PluginKindChannel,
-		Name:                  "telegram",
-		DisplayName:           "Telegram",
-		Managed:               true,
-		AdminVisible:          true,
-		HasConfig:             true,
-		HasStatus:             true,
-		SupportsNotifications: true,
+		ID:           "channel/telegram",
+		Kind:         config.PluginKindChannel,
+		Name:         "telegram",
+		DisplayName:  "Telegram",
+		Managed:      true,
+		AdminVisible: true,
+		HasConfig:    true,
+		HasStatus:    true,
 		Capabilities: []string{
 			pkgplugins.CapabilityChannel,
 			pkgplugins.CapabilityRuntime,
@@ -304,7 +303,7 @@ func TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema(t *testing.T)
 	}
 }
 
-func TestChannelConfiguredAndNotificationsEnabledComeFromPluginRegistrations(t *testing.T) {
+func TestChannelConfiguredComeFromPluginRegistrations(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{
 		qqplugin.PluginID: {
 			ID:      qqplugin.PluginID,
@@ -312,9 +311,8 @@ func TestChannelConfiguredAndNotificationsEnabledComeFromPluginRegistrations(t *
 			Name:    pkgchannel.PlatformQQ,
 			Enabled: true,
 			Config: map[string]any{
-				"app_id":        "qq-app",
-				"app_secret":    "qq-secret",
-				"enable_notify": true,
+				"app_id":     "qq-app",
+				"app_secret": "qq-secret",
 			},
 		},
 		weixinplugin.PluginID: {
@@ -333,14 +331,8 @@ func TestChannelConfiguredAndNotificationsEnabledComeFromPluginRegistrations(t *
 	if !host.ChannelConfigured(context.Background(), pkgchannel.PlatformQQ) {
 		t.Fatal("expected qq to be configured")
 	}
-	if !host.ChannelNotificationsEnabled(context.Background(), pkgchannel.PlatformQQ) {
-		t.Fatal("expected qq notifications enabled")
-	}
 	if host.ChannelConfigured(context.Background(), pkgchannel.PlatformWeixin) {
 		t.Fatal("expected weixin to be not configured")
-	}
-	if host.ChannelNotificationsEnabled(context.Background(), pkgchannel.PlatformWeixin) {
-		t.Fatal("expected weixin notifications disabled")
 	}
 	if host.ChannelConfigured(context.Background(), "missing") {
 		t.Fatal("expected missing channel to be not configured")
