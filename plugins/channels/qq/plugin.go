@@ -47,13 +47,12 @@ func init() {
 			PluginID:    PluginID,
 			RuntimeName: RuntimeName,
 			Meta: pkgplugins.PluginInfo{
-				ID:                    PluginID,
-				Kind:                  "channel",
-				Name:                  pkgchannel.PlatformQQ,
-				DisplayName:           "QQ",
-				Description:           "QQ bot integration.",
-				AdminVisible:          true,
-				SupportsNotifications: true,
+				ID:           PluginID,
+				Kind:         "channel",
+				Name:         pkgchannel.PlatformQQ,
+				DisplayName:  "QQ",
+				Description:  "QQ bot integration.",
+				AdminVisible: true,
 				Capabilities: []string{
 					pkgplugins.CapabilityRuntime,
 					pkgplugins.CapabilityConfig,
@@ -67,10 +66,6 @@ func init() {
 			Configured: func(raw map[string]any) bool {
 				cfg, err := DecodeConfig(raw)
 				return err == nil && validateConfig(cfg) == ""
-			},
-			NotificationsEnabled: func(raw map[string]any) bool {
-				cfg, err := DecodeConfig(raw)
-				return err == nil && cfg.EnableNotify
 			},
 			RuntimeFactory: newRuntime,
 		})

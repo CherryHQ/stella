@@ -30,18 +30,17 @@ func NewQQManagedRuntime(deps QQRuntimeDeps) pkgplugins.Runtime {
 		}
 	}
 	return pkgplugins.NewBotManagedRuntime(pkgplugins.BotRuntimeDeps[pkgchannel.QQConfig]{
-		Parent:               deps.Parent,
-		Handler:              deps.Handler,
-		Notifier:             deps.Notifications,
-		Log:                  deps.Log,
-		Now:                  deps.Now,
-		Platform:             pkgchannel.PlatformQQ,
-		DecodeConfig:         DecodeConfig,
-		ConfigureConfig:      configureConfig,
-		ValidateConfig:       validateConfig,
-		NotificationsEnabled: func(cfg pkgchannel.QQConfig) bool { return cfg.EnableNotify },
-		NewChannel:           deps.NewChannel,
-		Snapshot:             runtimeSnapshot,
+		Parent:          deps.Parent,
+		Handler:         deps.Handler,
+		Notifier:        deps.Notifications,
+		Log:             deps.Log,
+		Now:             deps.Now,
+		Platform:        pkgchannel.PlatformQQ,
+		DecodeConfig:    DecodeConfig,
+		ConfigureConfig: configureConfig,
+		ValidateConfig:  validateConfig,
+		NewChannel:      deps.NewChannel,
+		Snapshot:        runtimeSnapshot,
 	})
 }
 
@@ -85,11 +84,6 @@ func configSchema() map[string]any {
 				"enum":        []any{"", "mention", "always", "disabled"},
 				"description": "How group chats are handled.",
 			},
-			"enable_notify": map[string]any{
-				"type":        "boolean",
-				"description": "Whether scheduler and system notifications are delivered to QQ.",
-				"default":     false,
-			},
 		},
 		"required": []any{"app_id", "app_secret"},
 	}
@@ -108,9 +102,8 @@ func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message strin
 		Message:   message,
 		UpdatedAt: now,
 		Metadata: map[string]any{
-			"app_id":         cfg.AppID,
-			"group_mode":     cfg.GroupMode,
-			"notify_enabled": cfg.EnableNotify,
+			"app_id":     cfg.AppID,
+			"group_mode": cfg.GroupMode,
 		},
 	}
 }

@@ -36,12 +36,10 @@ type ProviderSpec struct {
 
 // ChannelSpec declares a channel capability owned by a plugin.
 type ChannelSpec struct {
-	PluginID              string
-	Name                  string
-	SupportsNotifications bool
-	Configured            func(raw map[string]any) bool
-	NotificationsEnabled  func(raw map[string]any) bool
-	Build                 func(ctx ChannelContext) (channel.Channel, error)
+	PluginID   string
+	Name       string
+	Configured func(raw map[string]any) bool
+	Build      func(ctx ChannelContext) (channel.Channel, error)
 }
 
 // HookSpec declares a hook capability owned by a plugin.

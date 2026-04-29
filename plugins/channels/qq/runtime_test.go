@@ -75,7 +75,7 @@ func TestQQManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 		},
 	})
 
-	state := pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"app_id": "qq-app", "app_secret": "qq-secret", "enable_notify": true, "group_mode": "mention"}}
+	state := pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"app_id": "qq-app", "app_secret": "qq-secret", "group_mode": "mention"}}
 	if err := runtime.Apply(context.Background(), state); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
@@ -91,17 +91,13 @@ func TestQQManagedRuntimeApplyDisableReconfigure(t *testing.T) {
 	if snap.State != pkgplugins.RuntimeStateRunning {
 		t.Fatalf("state = %q, want running", snap.State)
 	}
-	if snap.Metadata["notify_enabled"] != true {
-		t.Fatalf("notify_enabled = %#v, want true", snap.Metadata["notify_enabled"])
-	}
-
 	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: PluginID, Enabled: true, Config: map[string]any{"app_id": "qq-app-2", "app_secret": "qq-secret-2"}}); err != nil {
 		t.Fatalf("reconfigure apply: %v", err)
 	}
 	waitClosed(t, first.stopped, "first qq stop")
 	waitClosed(t, second.started, "second qq start")
-	if got := notifier.Channels(); len(got) != 0 {
-		t.Fatalf("notifier channels after reconfigure = %v, want []", got)
+	if got := notifier.Channels(); len(got) != 1 || got[0] != pkgchannel.PlatformQQ {
+		t.Fatalf("notifier channels after reconfigure = %v, want [qq]", got)
 	}
 
 	if err := runtime.Apply(context.Background(), pkgplugins.PluginState{ID: PluginID, Enabled: false, Config: map[string]any{"app_id": "qq-app-2", "app_secret": "qq-secret-2"}}); err != nil {

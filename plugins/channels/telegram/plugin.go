@@ -41,13 +41,12 @@ func init() {
 			PluginID:    PluginID,
 			RuntimeName: RuntimeName,
 			Meta: pkgplugins.PluginInfo{
-				ID:                    PluginID,
-				Kind:                  "channel",
-				Name:                  pkgchannel.PlatformTelegram,
-				DisplayName:           "Telegram",
-				Description:           "Telegram bot integration.",
-				AdminVisible:          true,
-				SupportsNotifications: true,
+				ID:           PluginID,
+				Kind:         "channel",
+				Name:         pkgchannel.PlatformTelegram,
+				DisplayName:  "Telegram",
+				Description:  "Telegram bot integration.",
+				AdminVisible: true,
 				Capabilities: []string{
 					pkgplugins.CapabilityRuntime,
 					pkgplugins.CapabilityConfig,
@@ -61,10 +60,6 @@ func init() {
 			Configured: func(raw map[string]any) bool {
 				cfg, err := DecodeConfig(raw)
 				return err == nil && validateConfig(cfg) == ""
-			},
-			NotificationsEnabled: func(raw map[string]any) bool {
-				cfg, err := DecodeConfig(raw)
-				return err == nil && cfg.EnableNotify
 			},
 			RuntimeFactory: func(platform pkgplugins.Platform) (pkgplugins.Runtime, error) {
 				return newRuntime(platform)
@@ -89,11 +84,6 @@ func configSchema() map[string]any {
 				"type":        "string",
 				"enum":        []any{"", "mention"},
 				"description": "How group chats are handled.",
-			},
-			"enable_notify": map[string]any{
-				"type":        "boolean",
-				"description": "Whether scheduler and system notifications are delivered to Telegram.",
-				"default":     false,
 			},
 		},
 		"required": []any{"token"},

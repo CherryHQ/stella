@@ -35,18 +35,17 @@ func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.Runtime {
 		}
 	}
 	return pkgplugins.NewBotManagedRuntime(pkgplugins.BotRuntimeDeps[pkgchannel.FeishuConfig]{
-		Parent:               deps.Parent,
-		Handler:              deps.Handler,
-		Notifier:             deps.Notifications,
-		Log:                  deps.Log,
-		Now:                  deps.Now,
-		Platform:             pkgchannel.PlatformFeishu,
-		DecodeConfig:         DecodeConfig,
-		ConfigureConfig:      configureConfig,
-		ValidateConfig:       validateConfig,
-		NotificationsEnabled: func(cfg pkgchannel.FeishuConfig) bool { return cfg.EnableNotify },
-		NewChannel:           deps.NewChannel,
-		Snapshot:             runtimeSnapshot,
+		Parent:          deps.Parent,
+		Handler:         deps.Handler,
+		Notifier:        deps.Notifications,
+		Log:             deps.Log,
+		Now:             deps.Now,
+		Platform:        pkgchannel.PlatformFeishu,
+		DecodeConfig:    DecodeConfig,
+		ConfigureConfig: configureConfig,
+		ValidateConfig:  validateConfig,
+		NewChannel:      deps.NewChannel,
+		Snapshot:        runtimeSnapshot,
 	})
 }
 
@@ -132,11 +131,6 @@ func configSchema() map[string]any {
 				},
 				"description": "Per-chat overrides keyed by Feishu chat ID.",
 			},
-			"enable_notify": map[string]any{
-				"type":        "boolean",
-				"description": "Whether scheduler and system notifications are delivered to Feishu.",
-				"default":     false,
-			},
 			"tenant_key": map[string]any{
 				"type":        "string",
 				"description": "Feishu tenant key (enterprise ID). Optional — auto-detected at startup via the Feishu tenant API. Set explicitly to override.",
@@ -166,7 +160,6 @@ func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message strin
 		Metadata: map[string]any{
 			"app_id":                 cfg.AppID,
 			"group_mode":             cfg.GroupMode,
-			"notify_enabled":         cfg.EnableNotify,
 			"group_count":            len(cfg.Groups),
 			"has_encrypt_key":        cfg.EncryptKey != "",
 			"has_verification_token": cfg.VerificationToken != "",

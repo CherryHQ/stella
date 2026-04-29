@@ -471,18 +471,17 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 
 	resp := parseResponse(t, rr)
 	type pluginListItem struct {
-		ID                    string         `json:"id"`
-		Kind                  string         `json:"kind"`
-		Enabled               bool           `json:"enabled"`
-		Config                map[string]any `json:"config"`
-		DisplayName           string         `json:"display_name"`
-		Description           string         `json:"description"`
-		Managed               bool           `json:"managed"`
-		AdminVisible          bool           `json:"admin_visible"`
-		HasConfig             bool           `json:"has_config"`
-		HasStatus             bool           `json:"has_status"`
-		Capabilities          []string       `json:"capabilities"`
-		SupportsNotifications bool           `json:"supports_notifications"`
+		ID           string         `json:"id"`
+		Kind         string         `json:"kind"`
+		Enabled      bool           `json:"enabled"`
+		Config       map[string]any `json:"config"`
+		DisplayName  string         `json:"display_name"`
+		Description  string         `json:"description"`
+		Managed      bool           `json:"managed"`
+		AdminVisible bool           `json:"admin_visible"`
+		HasConfig    bool           `json:"has_config"`
+		HasStatus    bool           `json:"has_status"`
+		Capabilities []string       `json:"capabilities"`
 	}
 	var plugins []pluginListItem
 	if err := json.Unmarshal(resp.Data, &plugins); err != nil {
@@ -495,7 +494,7 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	}
 
 	telegram := byID[config.PluginID(config.PluginKindChannel, pkgchannel.PlatformTelegram)]
-	if telegram.DisplayName != "Telegram" || !telegram.Managed || !telegram.AdminVisible || telegram.HasConfig || !telegram.HasStatus || !telegram.SupportsNotifications {
+	if telegram.DisplayName != "Telegram" || !telegram.Managed || !telegram.AdminVisible || telegram.HasConfig || !telegram.HasStatus {
 		t.Fatalf("unexpected telegram plugin payload: %#v", telegram)
 	}
 	if telegram.Description != "Telegram bot integration." {
@@ -506,7 +505,7 @@ func TestListPluginsUsesHostDiscoveryMetadataAndRedaction(t *testing.T) {
 	}
 
 	qq := byID[config.PluginID(config.PluginKindChannel, pkgchannel.PlatformQQ)]
-	if qq.DisplayName != "QQ" || !qq.SupportsNotifications {
+	if qq.DisplayName != "QQ" {
 		t.Fatalf("unexpected qq plugin payload: %#v", qq)
 	}
 
@@ -626,10 +625,6 @@ func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 	if payload.State != "running" {
 		t.Fatalf("telegram state = %q, want running", payload.State)
 	}
-	if payload.Metadata["notify_enabled"] != true {
-		t.Fatalf("notify_enabled = %#v, want true", payload.Metadata["notify_enabled"])
-	}
-
 	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/telegram", map[string]any{"enabled": false})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
@@ -675,10 +670,6 @@ func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
 	if payload.State != "running" {
 		t.Fatalf("qq state = %q, want running", payload.State)
 	}
-	if payload.Metadata["notify_enabled"] != true {
-		t.Fatalf("notify_enabled = %#v, want true", payload.Metadata["notify_enabled"])
-	}
-
 	rr = doRequest(t, env, "PATCH", "/api/plugins/channel/qq", map[string]any{"enabled": false})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("disable status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
@@ -723,9 +714,6 @@ func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 	}
 	if payload.State != "running" {
 		t.Fatalf("feishu state = %q, want running", payload.State)
-	}
-	if payload.Metadata["notify_enabled"] != true {
-		t.Fatalf("notify_enabled = %#v, want true", payload.Metadata["notify_enabled"])
 	}
 	if payload.Metadata["group_count"] != float64(1) {
 		t.Fatalf("group_count = %#v, want 1", payload.Metadata["group_count"])
@@ -775,9 +763,6 @@ func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 	}
 	if payload.State != "running" {
 		t.Fatalf("weixin state = %q, want running", payload.State)
-	}
-	if payload.Metadata["notify_enabled"] != true {
-		t.Fatalf("notify_enabled = %#v, want true", payload.Metadata["notify_enabled"])
 	}
 	if payload.Metadata["has_bot_identity"] != true {
 		t.Fatalf("has_bot_identity = %#v, want true", payload.Metadata["has_bot_identity"])
