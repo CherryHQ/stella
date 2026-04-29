@@ -35,11 +35,13 @@ Setup: `anna --open` opens a web admin panel to configure everything. All config
 The system prompt is composed in layers:
 
 1. **System prompt** — the agent's base system prompt from DB `agents.system_prompt`
-2. **Tools** — always-available tool descriptions (embedded `template/tools.md`)
-3. **Agent soul** — per-user identity/personality customisation from memory ProfileStore
-4. **User profile** — per-user facts/context from memory ProfileStore
+2. **Tools and plugin inventory** — always-available tools, plugin-provided tools, and callable skills
+3. **Constraints** — user-approved hard rules from memory `ConstraintStore`; Reflect must not modify them
+4. **Agent soul** — per-user identity/personality customisation from memory `ProfileStore`
+5. **User profile** — per-user facts/preferences from memory `ProfileStore`
+6. **Knowledge** — active fact/context entries from `KnowledgeStore`; these are not callable skills
 
-Skills (including draft skill guidance) and project context (AGENTS.md files) are appended after these layers.
+Project context (AGENTS.md files) is appended after these layers.
 
 ## Topics
 
@@ -113,10 +115,14 @@ Project-local presets override builtins with the same name. Use presets for comm
 
 These are tools you already have access to. Briefly:
 
-- **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in SQLite and organized into a DAG of summaries. Context never gets truncated, only compressed. You can drill back into any summary. Alternative: Simple plugin (sliding-window, no summaries).
-- **Per-user memory**: Each user has dedicated memory per agent stored in the database. User memory is always injected into your system prompt (in the "User Memory" section), so you already have the current content. Use the `memory` tool with `profile_update` action to update persistent notes about the user. Use `profile_get` to read. Recommended structure: `## User Preferences` (how the user wants you to behave), `## About the User` (high-level understanding), `## Notes` (recurring topics, quirks). Keep it high-level — like how a person remembers someone they know. User preferences can customize your behavior but never override your core identity or rules.
-- **Agent identity**: Each agent's personality (system prompt) is stored in the database and managed via the admin panel. Can be overridden by SOUL.md file in the agent's workspace.
-- **Memory retrieval**: The `memory` tool provides `search` (search by keyword), `describe` (inspect summary metadata and lineage), and `expand` (drill into compacted summaries to recover original detail) actions. Available actions depend on the memory plugin — LCM has all actions, Simple has only status and profile.
+- **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in SQLite and organized into a DAG of summaries. Conversation context never gets truncated, only compressed. You can drill back into any summary. Alternative: Simple plugin (sliding-window, no summaries).
+- **Four memory spaces**: Constraints (hard user-approved rules), Identity (agent soul + user profile), Conversation (messages/summaries), and Knowledge (active facts/time-bound context). They are logical layers over the existing memory, profile, and skills tables rather than four separate engines.
+- **Per-user memory**: Each user has dedicated memory per agent stored in the database. User profile, soul, constraints, and active knowledge are injected into your system prompt, so you already have the current content for the session snapshot. Use `profile_get` / `profile_update` for durable user notes. Use `profile_history` to inspect recent profile/soul changes and `profile_rollback` to restore a previous version. Recommended profile structure: `## User Preferences`, `## About the User`, `## Notes`. Keep it high-level — like how a person remembers someone they know. User preferences can customize your behavior but never override your core identity or rules.
+- **Constraints**: Use `constraint_list`, `constraint_add`, and `constraint_remove` for hard rules. Only add a constraint after the user agrees in natural language. Reflect must not modify constraints.
+- **Session snapshots**: Active sessions use a frozen memory version for identity/constraints. Foreground memory-tool writes advance the current session snapshot and become visible on the next turn. Background Reflect writes do not affect an ongoing session; they appear in new sessions.
+- **Knowledge**: The skills table can store `knowledge_type=skill|fact|context`. `fact` and `context` entries have `disable_model_invocation=true`, are not callable skills, and only active entries appear in the `## Knowledge` prompt section. Reflect may draft fact/context entries, but drafts do not affect sessions until activated.
+- **Agent identity**: Each agent's base personality/system prompt is stored in the database and managed via the admin panel. It can be overridden by `SOUL.md` in the agent's workspace.
+- **Memory retrieval**: The `memory` tool provides `search` (search by keyword), `describe` (inspect summary metadata and lineage), and `expand` (drill into compacted summaries to recover original detail) actions. Available actions depend on the memory plugin — LCM has retrieval actions; Simple only has core/session/identity actions.
 - **Scheduler**: `scheduler` tool -- add/list/remove scheduled or one-time jobs. Jobs route to the correct agent's pool.
 - **Heartbeat**: polls a markdown file on an interval, uses the fast model to decide skip/run, executes and notifies on run. Config under `heartbeat` in settings.
 - **Notifications**: `notify` tool (gateway mode only) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.

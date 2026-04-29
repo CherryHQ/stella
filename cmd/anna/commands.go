@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/vaayne/anna/internal/scheduler"
 	skills "github.com/vaayne/anna/internal/skills"
 	coreagent "github.com/vaayne/anna/pkg/agent"
+	"github.com/vaayne/anna/pkg/ai"
 	pkgchannel "github.com/vaayne/anna/pkg/channel"
 	"github.com/vaayne/anna/pkg/hooks"
 	"github.com/vaayne/anna/pkg/memory"
@@ -240,17 +242,71 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 
 	builtinTools := []tools.Tool{scheduler.NewTool(schedulerSvc)}
 
+	providerRegistryBuilder := func(api, apiKey, baseURL string) (*providers.Registry, error) {
+		return phost.BuildProviderRegistry(api, map[string]any{
+			"api_key":  apiKey,
+			"base_url": baseURL,
+		})
+	}
+
+	memorySummarizer := func(ctx context.Context, prompt string) (string, error) {
+		agentID := memory.AgentIDFromContext(ctx)
+		if agentID == "" {
+			agentID = defaultAgentID
+		}
+		currentSnap, err := store.Snapshot(ctx, agentID)
+		if err != nil {
+			return "", fmt.Errorf("load summarizer snapshot: %w", err)
+		}
+		model := currentSnap.ResolveModelTier(config.ModelTierFast)
+		creds := currentSnap.ResolveProviderCreds(model.Provider)
+		apiName := creds.Type
+		if apiName == "" {
+			apiName = model.API
+		}
+		if apiName == "" {
+			apiName = model.Provider
+		}
+		model.API = apiName
+		model.BaseURL = creds.BaseURL
+
+		reg, err := providerRegistryBuilder(apiName, creds.APIKey, creds.BaseURL)
+		if err != nil {
+			return "", fmt.Errorf("build summarizer provider: %w", err)
+		}
+		maxTokens := 4096
+		temperature := 0.0
+		msg, err := providers.Complete(ctx, model, ai.Context{
+			Messages: []ai.Message{ai.UserMessage{Content: prompt}},
+		}, ai.CompleteOptions{StreamOptions: ai.StreamOptions{
+			APIKey:      creds.APIKey,
+			BaseURL:     creds.BaseURL,
+			MaxTokens:   &maxTokens,
+			Temperature: &temperature,
+		}}, reg)
+		if err != nil {
+			return "", fmt.Errorf("summarize with model: %w", err)
+		}
+		text := strings.TrimSpace(ai.FlattenText(msg.Content))
+		if text == "" {
+			return "", fmt.Errorf("summarize with model: empty response")
+		}
+		return text, nil
+	}
+
 	// Build memory provider through the plugin host so memory plugins use the same registration path.
 	memoryName := "lcm"
+	memoryConfig := map[string]any{}
 	if plugins, err := store.ListPluginsByKind(parent, config.PluginKindMemory); err == nil {
 		for _, plugin := range plugins {
 			if plugin.Enabled {
 				memoryName = plugin.Name
+				memoryConfig = plugin.Config
 				break
 			}
 		}
 	}
-	memProvider, err := phost.BuildMemory(parent, memoryName, db, config.AnnaHome(), map[string]any{}, nil)
+	memProvider, err := phost.BuildMemory(parent, memoryName, db, config.AnnaHome(), memoryConfig, memorySummarizer)
 	if err != nil {
 		return nil, fmt.Errorf("memory plugin: %w", err)
 	}
@@ -274,12 +330,6 @@ func setup(parent context.Context, gateway bool) (*setupResult, error) {
 	// enabled ones. Called per runner so builders receive the active sandbox host.
 	pluginToolsBuilder := func(ctx context.Context, build plugintools.BuildContext) []tools.Tool {
 		return phost.BuildEnabledTools(ctx, build)
-	}
-	providerRegistryBuilder := func(api, apiKey, baseURL string) (*providers.Registry, error) {
-		return phost.BuildProviderRegistry(api, map[string]any{
-			"api_key":  apiKey,
-			"base_url": baseURL,
-		})
 	}
 	reflectRuntimeServices.Set(ctx, memProvider, store, snap.Workspace, providerRegistryBuilder)
 

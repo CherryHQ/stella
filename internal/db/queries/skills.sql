@@ -74,7 +74,28 @@ SELECT * FROM skills WHERE scope = 'user' AND user_id = ? AND name = ?;
 UPDATE skills
 SET status = 'deprecated', updated_at = datetime('now')
 WHERE status = 'draft'
+  AND disable_model_invocation = 0
   AND json_extract(metadata, '$."created-at"') < ?;
+
+-- name: ListActiveKnowledgeByType :many
+SELECT * FROM skills
+WHERE disable_model_invocation = 1
+  AND status = 'active'
+  AND (
+    scope = 'system'
+    OR (scope = 'agent' AND agent_id = sqlc.arg(agent_id))
+    OR (scope = 'user'  AND user_id  = sqlc.arg(user_id))
+  )
+  AND (sqlc.arg(knowledge_type) = '' OR metadata LIKE '%"knowledge_type":"' || sqlc.arg(knowledge_type) || '"%')
+ORDER BY created_at DESC;
+
+-- name: ExpireKnowledgeDraftsByType :exec
+UPDATE skills
+SET status = 'deprecated', updated_at = datetime('now')
+WHERE status = 'draft'
+  AND disable_model_invocation = 1
+  AND metadata LIKE '%"knowledge_type":"' || sqlc.arg(knowledge_type) || '"%'
+  AND json_extract(metadata, '$."created-at"') < sqlc.arg(cutoff);
 
 -- name: ListAllSkills :many
 SELECT * FROM skills ORDER BY scope, created_at;

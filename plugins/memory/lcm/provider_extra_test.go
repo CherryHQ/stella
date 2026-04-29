@@ -2,6 +2,8 @@ package lcm_test
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -12,7 +14,7 @@ import (
 	"github.com/vaayne/anna/plugins/memory/lcm"
 )
 
-func newLCMTestProvider(t *testing.T) (memory.Provider, func()) {
+func newLCMTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
@@ -25,11 +27,19 @@ func newLCMTestProvider(t *testing.T) (memory.Provider, func()) {
 	_, err = db.Exec(`INSERT INTO settings_agents (id, name, model, model_strong, model_fast, system_prompt, workspace, scope, creator_id, enabled)
 		VALUES ('test', 'Test Agent', '', '', '', '', '', 'system', 0, 1)`)
 	if err != nil {
+		_ = db.Close()
 		t.Fatalf("seed agent: %v", err)
 	}
+	return db
+}
+
+func newLCMTestProvider(t *testing.T) (memory.Provider, func()) {
+	t.Helper()
+	db := newLCMTestDB(t)
 
 	p, err := lcm.New(db, nil, nil)
 	if err != nil {
+		_ = db.Close()
 		t.Fatalf("new provider: %v", err)
 	}
 	return p, func() {
@@ -44,6 +54,52 @@ func newLCMTestSession(suffix string) memory.Session {
 		AgentID: "test",
 		UserID:  1,
 		Channel: "cli",
+	}
+}
+
+func TestLCMProvider_CompactSummarizerCanReadDB(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	p, err := lcm.New(db, func(ctx context.Context, _ string) (string, error) {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM settings_agents`).Scan(&count); err != nil {
+			return "", err
+		}
+		return "summary from db-backed summarizer", nil
+	}, map[string]any{"fresh_tail": 1})
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	sess := newLCMTestSession("compact-db-summarizer")
+	if err := p.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 12 {
+		if err := p.Append(ctx, sess, ai.UserMessage{Content: fmt.Sprintf("message %02d with enough content", i)}); err != nil {
+			t.Fatalf("append %d: %v", i, err)
+		}
+	}
+
+	result, err := p.Compact(ctx, sess, memory.CompactionFull)
+	if err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if result.LeafSummariesCreated == 0 {
+		t.Fatal("expected at least one leaf summary")
+	}
+
+	var content string
+	if err := db.QueryRowContext(ctx, `SELECT content FROM ctx_summaries ORDER BY created_at DESC LIMIT 1`).Scan(&content); err != nil {
+		t.Fatalf("read summary: %v", err)
+	}
+	if content != "summary from db-backed summarizer" {
+		t.Fatalf("summary content = %q", content)
 	}
 }
 

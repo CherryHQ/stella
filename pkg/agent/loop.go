@@ -187,6 +187,7 @@ type streamResult struct {
 
 func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig, pg providers.ProviderGetter, emit func(LoopEvent)) (streamResult, error) {
 	streamStart := time.Now()
+	dumpLLMContextIfEnabled(cfg, messages)
 	eventStream, err := providers.Stream(
 		ctx,
 		cfg.Model,

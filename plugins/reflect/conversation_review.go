@@ -55,6 +55,7 @@ func (s *Service) reviewConversation(ctx context.Context, snap *pkgplugins.Refle
 
 	reviewCtx := memory.WithUserID(ctx, userID)
 	reviewCtx = memory.WithAgentID(reviewCtx, snap.AgentID)
+	reviewCtx = memory.WithChangeSource(reviewCtx, memory.SourceReflect)
 	result, err := reviewer.review(reviewCtx, text)
 	if err != nil {
 		recordError(span, err)

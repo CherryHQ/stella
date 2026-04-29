@@ -24,7 +24,7 @@ func (q *Queries) DeleteUserAgentMemory(ctx context.Context, arg DeleteUserAgent
 }
 
 const getUserAgentMemory = `-- name: GetUserAgentMemory :one
-SELECT user_id, agent_id, content, soul, updated_at FROM ctx_agent_memory WHERE user_id = ? AND agent_id = ?
+SELECT user_id, agent_id, content, soul, version, constraints, updated_at FROM ctx_agent_memory WHERE user_id = ? AND agent_id = ?
 `
 
 type GetUserAgentMemoryParams struct {
@@ -40,13 +40,15 @@ func (q *Queries) GetUserAgentMemory(ctx context.Context, arg GetUserAgentMemory
 		&i.AgentID,
 		&i.Content,
 		&i.Soul,
+		&i.Version,
+		&i.Constraints,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const listUserAgentMemories = `-- name: ListUserAgentMemories :many
-SELECT user_id, agent_id, content, soul, updated_at FROM ctx_agent_memory ORDER BY user_id, agent_id
+SELECT user_id, agent_id, content, soul, version, constraints, updated_at FROM ctx_agent_memory ORDER BY user_id, agent_id
 `
 
 func (q *Queries) ListUserAgentMemories(ctx context.Context) ([]CtxAgentMemory, error) {
@@ -63,6 +65,8 @@ func (q *Queries) ListUserAgentMemories(ctx context.Context) ([]CtxAgentMemory, 
 			&i.AgentID,
 			&i.Content,
 			&i.Soul,
+			&i.Version,
+			&i.Constraints,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -79,7 +83,7 @@ func (q *Queries) ListUserAgentMemories(ctx context.Context) ([]CtxAgentMemory, 
 }
 
 const listUserAgentMemoriesByUser = `-- name: ListUserAgentMemoriesByUser :many
-SELECT user_id, agent_id, content, soul, updated_at FROM ctx_agent_memory WHERE user_id = ? ORDER BY agent_id
+SELECT user_id, agent_id, content, soul, version, constraints, updated_at FROM ctx_agent_memory WHERE user_id = ? ORDER BY agent_id
 `
 
 func (q *Queries) ListUserAgentMemoriesByUser(ctx context.Context, userID int64) ([]CtxAgentMemory, error) {
@@ -96,6 +100,8 @@ func (q *Queries) ListUserAgentMemoriesByUser(ctx context.Context, userID int64)
 			&i.AgentID,
 			&i.Content,
 			&i.Soul,
+			&i.Version,
+			&i.Constraints,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -109,6 +115,37 @@ func (q *Queries) ListUserAgentMemoriesByUser(ctx context.Context, userID int64)
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertAgentConstraints = `-- name: UpsertAgentConstraints :one
+INSERT INTO ctx_agent_memory (user_id, agent_id, constraints, version, updated_at)
+VALUES (?, ?, ?, 1, datetime('now'))
+ON CONFLICT(user_id, agent_id) DO UPDATE SET
+    constraints = excluded.constraints,
+    version = ctx_agent_memory.version + 1,
+    updated_at = datetime('now')
+RETURNING user_id, agent_id, content, soul, version, constraints, updated_at
+`
+
+type UpsertAgentConstraintsParams struct {
+	UserID      int64  `json:"user_id"`
+	AgentID     string `json:"agent_id"`
+	Constraints string `json:"constraints"`
+}
+
+func (q *Queries) UpsertAgentConstraints(ctx context.Context, arg UpsertAgentConstraintsParams) (CtxAgentMemory, error) {
+	row := q.db.QueryRowContext(ctx, upsertAgentConstraints, arg.UserID, arg.AgentID, arg.Constraints)
+	var i CtxAgentMemory
+	err := row.Scan(
+		&i.UserID,
+		&i.AgentID,
+		&i.Content,
+		&i.Soul,
+		&i.Version,
+		&i.Constraints,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const upsertAgentSoul = `-- name: UpsertAgentSoul :exec
@@ -130,6 +167,37 @@ func (q *Queries) UpsertAgentSoul(ctx context.Context, arg UpsertAgentSoulParams
 	return err
 }
 
+const upsertAgentSoulVersioned = `-- name: UpsertAgentSoulVersioned :one
+INSERT INTO ctx_agent_memory (user_id, agent_id, soul, version, updated_at)
+VALUES (?, ?, ?, 1, datetime('now'))
+ON CONFLICT(user_id, agent_id) DO UPDATE SET
+    soul = excluded.soul,
+    version = ctx_agent_memory.version + 1,
+    updated_at = datetime('now')
+RETURNING user_id, agent_id, content, soul, version, constraints, updated_at
+`
+
+type UpsertAgentSoulVersionedParams struct {
+	UserID  int64  `json:"user_id"`
+	AgentID string `json:"agent_id"`
+	Soul    string `json:"soul"`
+}
+
+func (q *Queries) UpsertAgentSoulVersioned(ctx context.Context, arg UpsertAgentSoulVersionedParams) (CtxAgentMemory, error) {
+	row := q.db.QueryRowContext(ctx, upsertAgentSoulVersioned, arg.UserID, arg.AgentID, arg.Soul)
+	var i CtxAgentMemory
+	err := row.Scan(
+		&i.UserID,
+		&i.AgentID,
+		&i.Content,
+		&i.Soul,
+		&i.Version,
+		&i.Constraints,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const upsertUserAgentMemory = `-- name: UpsertUserAgentMemory :exec
 INSERT INTO ctx_agent_memory (user_id, agent_id, content, updated_at)
 VALUES (?, ?, ?, datetime('now'))
@@ -147,4 +215,35 @@ type UpsertUserAgentMemoryParams struct {
 func (q *Queries) UpsertUserAgentMemory(ctx context.Context, arg UpsertUserAgentMemoryParams) error {
 	_, err := q.db.ExecContext(ctx, upsertUserAgentMemory, arg.UserID, arg.AgentID, arg.Content)
 	return err
+}
+
+const upsertUserAgentMemoryVersioned = `-- name: UpsertUserAgentMemoryVersioned :one
+INSERT INTO ctx_agent_memory (user_id, agent_id, content, version, updated_at)
+VALUES (?, ?, ?, 1, datetime('now'))
+ON CONFLICT(user_id, agent_id) DO UPDATE SET
+    content = excluded.content,
+    version = ctx_agent_memory.version + 1,
+    updated_at = datetime('now')
+RETURNING user_id, agent_id, content, soul, version, constraints, updated_at
+`
+
+type UpsertUserAgentMemoryVersionedParams struct {
+	UserID  int64  `json:"user_id"`
+	AgentID string `json:"agent_id"`
+	Content string `json:"content"`
+}
+
+func (q *Queries) UpsertUserAgentMemoryVersioned(ctx context.Context, arg UpsertUserAgentMemoryVersionedParams) (CtxAgentMemory, error) {
+	row := q.db.QueryRowContext(ctx, upsertUserAgentMemoryVersioned, arg.UserID, arg.AgentID, arg.Content)
+	var i CtxAgentMemory
+	err := row.Scan(
+		&i.UserID,
+		&i.AgentID,
+		&i.Content,
+		&i.Soul,
+		&i.Version,
+		&i.Constraints,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

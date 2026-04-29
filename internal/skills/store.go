@@ -68,7 +68,41 @@ type Store interface {
 	DeleteFile(ctx context.Context, skillID, path string) error
 	Delete(ctx context.Context, id string) error
 
-	// ExpireDrafts deprecates all draft skills whose created-at timestamp is
-	// before the given cutoff.
+	// ExpireDrafts deprecates all draft skills (disable_model_invocation=0) whose
+	// created-at timestamp is before the given cutoff. Knowledge entries are excluded.
 	ExpireDrafts(ctx context.Context, before time.Time) error
+}
+
+// KnowledgeStore queries and manages knowledge entries (fact/context) stored in the
+// skills table with disable_model_invocation=true. These entries never appear via the
+// skills tool; they are injected into the ## Knowledge system prompt section.
+type KnowledgeStore interface {
+	// ListKnowledge returns active knowledge entries for the given view context.
+	// Pass knowledge types to filter; no types means all knowledge types.
+	ListKnowledge(ctx context.Context, vc ViewContext, types ...KnowledgeType) ([]KnowledgeEntry, error)
+
+	// ExpireKnowledgeDraftsByType deprecates draft knowledge entries of the given type
+	// whose created-at timestamp is before the cutoff.
+	ExpireKnowledgeDraftsByType(ctx context.Context, knowledgeType KnowledgeType, before time.Time) error
+}
+
+// KnowledgeType classifies a knowledge entry.
+type KnowledgeType string
+
+const (
+	KnowledgeTypeSkill   KnowledgeType = "skill"
+	KnowledgeTypeFact    KnowledgeType = "fact"
+	KnowledgeTypeContext KnowledgeType = "context"
+)
+
+// KnowledgeEntry is a fact or context entry derived from the skills table.
+type KnowledgeEntry struct {
+	ID            string
+	Name          string
+	Description   string
+	Content       string // body text from SKILL.md
+	KnowledgeType KnowledgeType
+	Status        string // draft | active | deprecated
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }

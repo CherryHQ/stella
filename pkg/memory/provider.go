@@ -242,6 +242,34 @@ type ProfileStore interface {
 }
 
 // ---------------------------------------------------------------------------
+// Capability: ConstraintStore
+// ---------------------------------------------------------------------------
+
+// ConstraintEntry represents a single user constraint.
+type ConstraintEntry struct {
+	ID        string `json:"id"`
+	Text      string `json:"text"`
+	CreatedAt string `json:"created_at"`
+}
+
+// ConstraintStore is implemented by providers that support storing user-defined
+// hard constraints (rules the agent must always follow).
+// Constraints are separate from Profile to give them special protection:
+// Reflect cannot modify them; only user-initiated writes are allowed by convention.
+type ConstraintStore interface {
+	// GetConstraints returns all active constraints for the (userID, agentID) pair.
+	GetConstraints(ctx context.Context, userID int64, agentID string) ([]ConstraintEntry, error)
+
+	// AddConstraint adds a new constraint with a generated UUID-like ID.
+	// Returns the updated list of constraints.
+	AddConstraint(ctx context.Context, userID int64, agentID string, text string) ([]ConstraintEntry, error)
+
+	// RemoveConstraint removes the constraint with the given ID.
+	// Returns the updated list of constraints.
+	RemoveConstraint(ctx context.Context, userID int64, agentID string, id string) ([]ConstraintEntry, error)
+}
+
+// ---------------------------------------------------------------------------
 // Capability: SessionManager
 // ---------------------------------------------------------------------------
 
