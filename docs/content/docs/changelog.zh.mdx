@@ -11,6 +11,30 @@ icon: History
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-04-29
+
+### ✨ 功能
+
+- **管理后台**: 改进技能管理 UI ([#138](https://github.com/vaayne/anna/pull/138))
+- **Agent**: 为用户消息添加 Unix 时间戳前缀，增强 LLM 上下文感知
+
+### 🐛 修复
+
+- **Agent**: 修复 LLM dump 中 `ts:` 前缀不可见的问题
+
+### ♻️ 重构
+
+- **插件**: 将 `fd`/`rg` 迁移至 `builtin_plugins.yaml`，移除 `core_tools.go`
+- **插件**: 用 `go generate` 替换 `cmd/builddeps`，改为运行时安装 `fd`/`rg`
+- **插件**: 移除 lark/tap builddeps，`builtin_plugins.yaml` 成为唯一数据来源
+
+### 📝 文档
+
+- **Agent**: 在系统提示模板中新增内存使用指南
+- **Agent**: 将系统提示模板中的顶层章节升级为 h1
+
+**完整变更日志**：[v0.18.0...v0.19.0](https://github.com/vaayne/anna/compare/v0.18.0...v0.19.0)
+
 ## [0.18.0] - 2026-04-29
 
 ### ✨ 功能

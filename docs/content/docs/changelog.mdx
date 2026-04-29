@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-04-29
+
+### ✨ Features
+
+- **Admin**: Improve skill management UI ([#138](https://github.com/vaayne/anna/pull/138))
+- **Agent**: Add unix timestamp prefix to user messages for LLM context
+
+### 🐛 Bug Fixes
+
+- **Agent**: Use TimestampedContent in LLM dump so `ts:` prefix is visible
+
+### ♻️ Refactoring
+
+- **Plugins**: Move `fd`/`rg` to `builtin_plugins.yaml`; drop `core_tools.go`
+- **Plugins**: Replace `cmd/builddeps` with `go generate`; install `fd`/`rg` at runtime
+- **Plugins**: Remove lark/tap builddeps; source of truth moves to `builtin_plugins.yaml`
+
+### 📝 Documentation
+
+- **Agent**: Add memory usage guide to system prompt template
+- **Agent**: Promote top-level sections to h1 in system prompt template
+
+**Full Changelog**: [v0.18.0...v0.19.0](https://github.com/vaayne/anna/compare/v0.18.0...v0.19.0)
+
 ## [0.18.0] - 2026-04-29
 
 ### ✨ Features
